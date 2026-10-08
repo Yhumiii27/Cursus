@@ -1,0 +1,368 @@
+// Feuilles de temps : saisie hebdomadaire par projet, validation par le manager,
+// récapitulatif paie selon l'organisation du temps et transmission des variables à Sage Paie.
+// Une feuille soumise ou validée est décomptée avec le régime figé à la soumission (`FeuilleTemps.contrat`).
+import { useState, type KeyboardEvent } from 'react';
+import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
+import { ABS_LABEL, TEMPS_TRAVAIL, TS_CLS, TS_LABEL } from '../../../shared/constants.ts';
+import type { Domain } from '../../../shared/domain.ts';
+import { addD, isFerie, isoWeek, mondayOf, parse, wDays } from '../../../shared/dates.ts';
+import { cap, equipeLabel, fH, fJ, fmt, fmtShort, num, plural } from '../../../shared/format.ts';
+import { calcSheet, cumulAnnuel, employeDeLaFeuille, sagePending, type SheetCalc } from '../../../shared/rules/temps.ts';
+import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
+import { CloseButton, Fine, Page, Panel, Pre, Tag, Two, stop } from '../components/ui.tsx';
+import { useDomain, useRole } from '../state/derived.ts';
+import { useStore } from '../state/store.tsx';
+
+/** Valeur affichée dans une cellule : vide pour zéro, virgule décimale. */
+const cellText = (v: number) => v ? String(v).replace('.', ',') : '';
+/** Même normalisation que le serveur (0 à 24 h, au centième). */
+const cellValue = (raw: string) => Math.round(Math.max(0, Math.min(24, num(raw))) * 100) / 100;
+
+/** Cellule d'heures : valeur locale, envoyée au serveur à la sortie du champ ou sur Entrée. */
+function HourCell({ value, disabled, onCommit }: { value: number; disabled: boolean; onCommit: (raw: string) => Promise<boolean> }) {
+  const [text, setText] = useState(cellText(value));
+  const [prev, setPrev] = useState(value);
+  if (prev !== value) { setPrev(value); setText(cellText(value)); }
+
+  const commit = async () => {
+    const n = cellValue(text);
+    if (n === value) { setText(cellText(value)); return; }
+    setText(cellText(n));
+    if (!(await onCommit(text))) setText(cellText(value));
+  };
+  const onKey = (ev: KeyboardEvent<HTMLInputElement>) => { if (ev.key === 'Enter') ev.currentTarget.blur(); };
+
+  return (
+    <input
+      className="input tnum" type="text" inputMode="decimal" aria-label="Heures" value={text} disabled={disabled}
+      onChange={ev => setText(ev.target.value.replace(/[^\d.,]/g, '').slice(0, 5))} onBlur={commit} onKeyDown={onKey}
+      style={{ width: 56, textAlign: 'right', padding: '0 var(--space-3)' }}
+    />
+  );
+}
+
+/** Année civile d'une feuille (celle de son lundi, comme le cumul annuel). */
+const anneeDe = (week: ISODate) => Number(week.slice(0, 4));
+
+/** Colonne « Total » de la file de validation, selon l'organisation du temps de la feuille. */
+function queueTotal(d: Domain, e: Employe, sh: FeuilleTemps): { main: string; sub: string } {
+  const c = calcSheet(d, e, sh), k = c.c;
+  if (k.forfait) return { main: fJ(c.jours), sub: `forfait jours · ${fH(c.total)} déclarées` };
+  if (k.dirigeant) return { main: fJ(c.jours), sub: `cadre dirigeant · ${fH(c.total)} déclarées` };
+  if (k.annuel) {
+    const cum = cumulAnnuel(d, employeDeLaFeuille(e, sh), anneeDe(sh.week));
+    return { main: fH(c.total), sub: `forfait annuel · cumul validé ${cum.annee} ${fH(cum.done)} / ${fH(cum.cible)}` };
+  }
+  // Seules les heures majorées dépassent le contrat ; les heures incluses au forfait hebdomadaire n'en font pas partie.
+  const extra = c.sup25 + c.sup50 + c.hc10 + c.hc25;
+  return { main: fH(c.total), sub: extra > 0 ? `dont ${fH(extra)} au-delà du contrat` : 'aucune heure au-delà du contrat' };
+}
+
+interface Recap { rows: [string, string][]; mention?: string; alert?: string; aide: string }
+
+/**
+ * Récapitulatif paie de la semaine et texte explicatif, selon l'organisation du temps de la feuille.
+ * `emp` est le collaborateur tel qu'il était la semaine de la feuille (`employeDeLaFeuille`).
+ */
+function recapOf(d: Domain, emp: Employe, calc: SheetCalc, week: ISODate): Recap {
+  const c = calc.c, tt = TEMPS_TRAVAIL[c.temps];
+  const art = tt.article ? ` ${tt.article}.` : '';
+  const recupRow: [string, string] = [c.interim ? 'Récupération' : 'Repos compensateur acquis', c.interim ? 'géré par l’agence' : fH(calc.recup)];
+  const recupAide = c.interim
+    ? ' Intérim : heures supplémentaires relevées et réglées par l’agence.'
+    : ' Heures supplémentaires converties en repos compensateur de remplacement, majoration incluse.';
+
+  if (c.forfait) return {
+    rows: [['Jours travaillés', fJ(calc.jours)], ['Heures déclarées (répartition projets)', fH(calc.total)]],
+    aide: tt.aide + art,
+  };
+  if (c.dirigeant) return {
+    rows: [['Jours de présence', fJ(calc.jours)], ['Heures déclarées (répartition projets)', fH(calc.total)]],
+    mention: 'Non soumis à la durée du travail, art. L3111-2',
+    aide: tt.aide,
+  };
+  if (c.annuel) {
+    // Cumul de l'année de la feuille ; cible proratisée selon la présence (entrée, fin de contrat).
+    const cum = cumulAnnuel(d, emp, anneeDe(week));
+    const rows: [string, string][] = [
+      ['Heures de la semaine', fH(calc.total)],
+      [`Cumul annuel validé ${cum.annee}`, `${fH(cum.done)} / ${fH(cum.cible)}`],
+    ];
+    if (cum.cible !== c.heuresAnnuelles) rows.push([`Forfait ${cum.annee} au prorata de la présence`, `${fH(cum.cible)} sur ${fH(c.heuresAnnuelles)}`]);
+    if (cum.annee === d.year) rows.push(['Cible à date', fH(cum.prorata)]);
+    return {
+      rows,
+      alert: cum.depasse ? `Forfait annuel ${cum.annee} dépassé de ${fH(cum.done - cum.cible)} : heures à régulariser en fin d’année` : undefined,
+      aide: tt.aide + art,
+    };
+  }
+  if (c.partiel) return {
+    rows: [['Heures contractuelles', fH(Math.min(calc.total, c.base))], ['Complémentaires +10 %', fH(calc.hc10)], ['Complémentaires +25 %', fH(calc.hc25)]],
+    aide: tt.aide + art,
+  };
+  if (c.hebdo) {
+    // Heures incluses au forfait : +25 % jusqu'à la 43e heure, +50 % au-delà (forfait supérieur à 43 h).
+    const rows: [string, string][] = [['Heures normales (jusqu’à 35 h)', fH(calc.normal)], ['Incluses au forfait +25 %', fH(calc.incluses25)]];
+    if ((c.seuil ?? 0) > 43 || calc.incluses50 > 0) rows.push(['Incluses au forfait +50 %', fH(calc.incluses50)]);
+    rows.push(['Supplémentaires +25 %', fH(calc.sup25)], ['Supplémentaires +50 %', fH(calc.sup50)], recupRow);
+    return { rows, aide: tt.aide + recupAide + art };
+  }
+  return {
+    rows: [['Heures normales', fH(calc.normal)], ['Supplémentaires +25 %', fH(calc.sup25)], ['Supplémentaires +50 %', fH(calc.sup50)], recupRow],
+    aide: tt.aide + recupAide + art,
+  };
+}
+
+export function Temps() {
+  const d = useDomain();
+  const data = d.ds;
+  const { rh, manager, collab, me } = useRole();
+  const { ui, setUi, run } = useStore();
+  const wk = ui.weekStart ?? mondayOf(data.today);
+  const wdays = wDays(wk);
+
+  const inScope = (id: number | null): id is number => id != null && data.employes.some(e => e.id === id);
+  const tsId = collab ? me : manager ? (inScope(ui.tsEmp) ? ui.tsEmp : me) : (inScope(ui.tsEmp) ? ui.tsEmp : data.employes[0]?.id ?? null);
+  const tsEmp = tsId != null ? d.emp(tsId) : undefined;
+  const options = [...data.employes].sort((a, b) => a.nom.localeCompare(b.nom));
+
+  const queue = data.feuilles
+    .filter(sh => sh.statut === 'soumise')
+    .map(sh => ({ sh, e: d.emp(sh.empId) }))
+    .filter((q): q is { sh: FeuilleTemps; e: Employe } => !!q.e && (rh || (manager && d.mgrOf(q.e) === me)));
+  const pending = rh ? sagePending(d).length : 0;
+
+  return (
+    <Page
+      kicker={`Semaine ${isoWeek(wk)} · ${fmtShort(parse(wdays[0]))} → ${fmt(parse(wdays[4]))}`}
+      title="Temps de travail"
+      actions={<>
+        {!collab && (
+          <select className="input" aria-label="Collaborateur" value={String(tsId ?? '')} onChange={ev => setUi({ tsEmp: Number(ev.target.value) })} style={{ width: 'auto', minWidth: 200 }}>
+            {options.map(e => <option key={e.id} value={e.id}>{e.nom}</option>)}
+          </select>
+        )}
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
+          <button type="button" className="btn btn-ghost btn-icon plain" aria-label="Semaine précédente" title="Semaine précédente" onClick={() => setUi({ weekStart: addD(wk, -7) })}><CaretLeftIcon size={14} /></button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => setUi({ weekStart: mondayOf(data.today) })}>Cette semaine</button>
+          <button type="button" className="btn btn-ghost btn-icon plain" aria-label="Semaine suivante" title="Semaine suivante" onClick={() => setUi({ weekStart: addD(wk, 7) })}><CaretRightIcon size={14} /></button>
+        </div>
+      </>}
+    >
+      {!collab && queue.length > 0 && (
+        <Panel highlight title="Feuilles à valider" aside={plural(queue.length, 'feuille à valider', 'feuilles à valider')}>
+          <div className="scroll-x">
+            <table className="table">
+              <thead><tr><th>Collaborateur</th><th>Semaine</th><th>Total</th><th></th></tr></thead>
+              <tbody>
+                {queue.map(({ sh, e }) => {
+                  const tot = queueTotal(d, e, sh);
+                  const open = () => setUi({ tsEmp: e.id, weekStart: sh.week });
+                  return (
+                    <tr key={sh.id} className="clickable" onClick={open}>
+                      <td><Two main={e.nom} sub={equipeLabel(e)} nowrap /></td>
+                      <td className="nowrap">S{isoWeek(sh.week)} · {fmtShort(parse(sh.week))}</td>
+                      <td>
+                        <div className="tnum">{tot.main}</div>
+                        <div className="text-muted sub">{tot.sub}</div>
+                      </td>
+                      <td className="right">
+                        <div className="actions-end">
+                          <button type="button" className="btn btn-ghost btn-sm" onClick={stop(open)}>Ouvrir</button>
+                          <button type="button" className="btn btn-secondary btn-sm" onClick={stop(() => run('temps.validate', { empId: e.id, week: sh.week }))}>Valider</button>
+                        </div>
+                      </td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      )}
+
+      {tsEmp && <Sheet key={`${tsEmp.id}|${wk}`} emp={tsEmp} wk={wk} />}
+
+      {rh && (
+        <Panel head={
+          <div className="panel-head center">
+            <div>
+              <h2>Transmission à Sage Paie</h2>
+              <div className="text-muted sub">
+                {pending ? `${plural(pending, 'feuille validée', 'feuilles validées')} en attente de transmission` : 'Toutes les feuilles validées ont été transmises'} · intérimaires (relevé envoyé à l’agence) et cadres dirigeants exclus
+              </div>
+            </div>
+            <button type="button" className="btn btn-primary" disabled={pending === 0} onClick={() => run('temps.pushSage')}>Transmettre par API</button>
+          </div>
+        }>
+          {data.lastSagePush && <>
+            <Pre maxHeight={320}>{JSON.stringify(data.lastSagePush, null, 2)}</Pre>
+            <Fine>Rubriques indicatives (HN, HSF25 et HSF50 heures incluses au forfait à +25 % et +50 %, HS25, HS50, HC10, HC25, RCR_ACQUIS, JTRAV) — correspondance avec le plan de paie Sage à paramétrer.</Fine>
+          </>}
+        </Panel>
+      )}
+    </Page>
+  );
+}
+
+/** Feuille de la semaine d'un collaborateur : grille de saisie et récapitulatif paie. */
+function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
+  const d = useDomain();
+  const data = d.ds;
+  const { rh, manager, me } = useRole();
+  const { run } = useStore();
+  const [comment, setComment] = useState('');
+
+  const wdays = wDays(wk);
+  const sh = data.feuilles.find(f => f.empId === emp.id && f.week === wk) ?? null;
+  // Régime de la semaine : figé sur la feuille (soumission ou changement de contrat), sinon celui de la fiche.
+  const empF = employeDeLaFeuille(emp, sh);
+  const calc = calcSheet(d, emp, sh);
+  const c = calc.c;
+  const st = sh ? sh.statut : 'vide';
+  const actuel = d.contratOf(emp);
+  const autreRegime = !!sh?.contrat && (c.libelle !== actuel.libelle || c.jourOff.join() !== actuel.jourOff.join());
+  const regimeNote = !autreRegime ? '' : st === 'soumise' || st === 'validee' ? 'régime figé à la soumission' : 'régime en vigueur cette semaine';
+  const validator = d.mgrOf(emp);
+  const isValidator = rh || (manager && validator === me);
+  const directMgr = manager && emp.id !== me && validator === me;
+  // Le valideur peut corriger une feuille soumise avant de la valider : elle reste soumise.
+  const correction = st === 'soumise' && isValidator;
+  const editable = correction || ((st === 'vide' || st === 'brouillon' || st === 'rejetee') && (rh || emp.id === me || directMgr));
+  const canValidate = st === 'soumise' && isValidator;
+  const submitLabel = isValidator ? 'Soumettre pour validation' : validator ? 'Soumettre au manager' : 'Soumettre au service RH';
+  const base = { empId: emp.id, week: wk };
+
+  const days = wdays.map((day, i) => {
+    const a = d.absOn(emp.id, day), off = c.jourOff.includes(i), fer = isFerie(day);
+    const m = data.missions.find(x => x.empId === emp.id && x.du <= day && x.au >= day);
+    return {
+      day, locked: fer || !!a, hl: !!m && !fer && !a,
+      label: cap(parse(day).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })),
+      note: fer ? 'Férié' : a ? ABS_LABEL[a.type] : off ? 'Non travaillé' : m ? `Mission ${m.projet}` : '—',
+    };
+  });
+  const lignes = sh ? sh.lignes : [];
+  const used = new Set(lignes.map(l => l.projet));
+  const projOptions = data.referentiels.projets.filter(p => !used.has(p.code));
+  const canSuggest = editable && !correction && data.taches.some(t => t.empId === emp.id);
+  const missions = data.missions.filter(m => m.empId === emp.id && m.du <= wdays[4] && m.au >= wdays[0]);
+
+  const recap = recapOf(d, empF, calc, wk);
+  const rowStyle = { display: 'flex', justifyContent: 'space-between', gap: 'var(--space-3)', fontSize: 13, padding: 'var(--space-2) 0', background: 'var(--rule-soft) no-repeat bottom / 100% 1px' } as const;
+
+  const paie = sh?.sage ? ' · transmise à Sage Paie'
+    : c.interim ? ' · relevé envoyé à l’agence d’intérim'
+    : c.dirigeant ? ' · non transmise à la paie (cadre dirigeant, art. L3111-2)'
+    : ' · en attente de transmission à Sage Paie';
+  const flow = st === 'validee'
+    ? `Validée${sh!.keystone ? ' · heures par projet renvoyées à Keystone' : ''}${paie}`
+    : st === 'soumise' ? `En attente de validation par ${d.mgrName(validator)}` : 'Saisie par jour et par projet — proposée à partir des tâches Keystone';
+
+  const reject = async () => {
+    const r = await run('temps.reject', { ...base, comment });
+    if (r.ok) setComment('');
+  };
+
+  return (
+    <div className="row-wrap">
+      <Panel style={{ flex: '1 1 640px', gap: 'var(--space-4)' }} head={
+        <div className="panel-head top">
+          <div><h2>{emp.nom}</h2><div className="text-muted sub">{c.label}{regimeNote && ` · ${regimeNote}`} · validation : {d.mgrName(validator)}</div></div>
+          <Tag cls={TS_CLS[st]}>{TS_LABEL[st]}</Tag>
+        </div>
+      }>
+        {missions.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+            {missions.map(m => (
+              <div key={m.id} className="note-accent">Keystone · {m.type} · {m.projet} {d.projet(m.projet)} · {m.lieu} · {fmtShort(parse(m.du))} → {fmtShort(parse(m.au))}</div>
+            ))}
+          </div>
+        )}
+        {sh?.comment && st === 'rejetee' && <div style={{ fontSize: 13, color: 'var(--color-accent-300)' }}>Retour du manager : {sh.comment}</div>}
+
+        <div className="scroll-x">
+          <table className="table" style={{ fontSize: 13 }}>
+            <thead><tr>
+              <th>Projet · tâche</th>
+              {days.map(x => (
+                <th key={x.day} className="center nowrap">
+                  <div>{x.label}</div>
+                  <div style={{ fontSize: 11, fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: x.hl ? 'var(--color-accent-300)' : 'var(--color-neutral-500)' }}>{x.note}</div>
+                </th>
+              ))}
+              <th className="right">Total</th><th></th>
+            </tr></thead>
+            <tbody>
+              {lignes.map((l, li) => (
+                <tr key={li}>
+                  <td style={{ minWidth: 180 }}>
+                    <div><span style={{ color: 'var(--color-accent-300)' }}>{l.projet}</span> · {d.projet(l.projet)}</div>
+                    <div className="text-muted sub">{l.tache}</div>
+                  </td>
+                  {l.h.map((v, di) => (
+                    <td key={di} className="center">
+                      <HourCell value={num(v)} disabled={!editable || days[di].locked}
+                        onCommit={async raw => (await run('temps.setCell', { ...base, li, di, value: raw }, { silent: true })).ok} />
+                    </td>
+                  ))}
+                  <td className="right nowrap tnum">{fH(l.h.reduce((n, v) => n + num(v), 0))}</td>
+                  <td className="right">{editable && <CloseButton size={28} label="Supprimer la ligne" onClick={() => run('temps.removeLine', { ...base, li })} />}</td>
+                </tr>
+              ))}
+              <tr>
+                <td style={{ fontWeight: 500 }}>Total jour</td>
+                {calc.perDay.map((h, i) => (
+                  <td key={i} className="center"><span className="tnum nowrap" style={{ color: h > 10 ? 'var(--color-accent-300)' : 'inherit' }}>{h ? fH(h) : '—'}</span></td>
+                ))}
+                <td className="right nowrap tnum" style={{ fontWeight: 500 }}>{fH(calc.total)}</td><td></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+        {lignes.length === 0 && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>Aucune heure saisie pour cette semaine.</p>}
+
+        {editable && (
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+            <select className="input" aria-label="Ajouter un projet" value="" onChange={ev => ev.target.value && run('temps.addLine', { ...base, projet: ev.target.value })} style={{ width: 'auto', minWidth: 240 }}>
+              <option value="">+ Ajouter un projet…</option>
+              {projOptions.map(p => <option key={p.code} value={p.code}>{p.code} · {p.nom}</option>)}
+            </select>
+            {canSuggest && <button type="button" className="btn btn-secondary" onClick={() => run('temps.suggest', base)}>Proposer depuis Keystone</button>}
+            {correction
+              ? <span className="text-muted sub" style={{ marginLeft: 'auto' }}>Correction avant validation : la feuille reste soumise</span>
+              : <button type="button" className="btn btn-primary" style={{ marginLeft: 'auto' }} disabled={!(calc.total > 0)} onClick={() => run('temps.submit', base)}>{submitLabel}</button>}
+          </div>
+        )}
+        {calc.warn.length > 0 && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+            {calc.warn.map(w => <div key={w} className="note-accent">{w}</div>)}
+          </div>
+        )}
+        <Fine>{flow}</Fine>
+      </Panel>
+
+      <aside className="card elev-sm panel" style={{ flex: '0 1 320px', minWidth: 280 }}>
+        <h3>Récapitulatif paie</h3>
+        {autreRegime && <Fine>{cap(regimeNote)} : {c.libelle}. Contrat actuel : {actuel.libelle}.</Fine>}
+        {recap.rows.map(([label, val]) => (
+          <div key={label} style={rowStyle}>
+            <span className="text-muted">{label}</span><span className="tnum nowrap">{val}</span>
+          </div>
+        ))}
+        {recap.mention && <div style={rowStyle}><span className="text-muted">{recap.mention}</span></div>}
+        {recap.alert && <div className="note-accent">{recap.alert}</div>}
+        <Fine>{recap.aide}</Fine>
+        {canValidate && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', paddingTop: 'var(--space-2)' }}>
+            <textarea className="input short" rows={2} aria-label="Commentaire" placeholder="Commentaire en cas de renvoi (facultatif)" value={comment} onChange={ev => setComment(ev.target.value)} style={{ resize: 'vertical' }} />
+            <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end' }}>
+              <button type="button" className="btn btn-ghost" onClick={reject}>Renvoyer</button>
+              <button type="button" className="btn btn-primary" onClick={() => run('temps.validate', base)}>Valider la semaine</button>
+            </div>
+          </div>
+        )}
+      </aside>
+    </div>
+  );
+}

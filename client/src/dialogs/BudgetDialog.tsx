@@ -1,0 +1,53 @@
+// Enveloppes budgétaires de formation d'un exercice, par équipe.
+import { useState } from 'react';
+import { fmtEur, key } from '../../../shared/format.ts';
+import { CancelButton, Dialog } from '../components/Dialog.tsx';
+import { useDomain } from '../state/derived.ts';
+import { useStore } from '../state/store.tsx';
+
+export function BudgetDialog({ exercice }: { exercice: number }) {
+  const d = useDomain();
+  const { run, closeDialog } = useStore();
+  const equipes = d.equipes;
+  const [vals, setVals] = useState<Record<string, string>>(() => {
+    const env = d.ds.budgets[String(exercice)] || {};
+    return Object.fromEntries(equipes.map(e => [e, env[e] != null ? String(env[e]) : '']));
+  });
+  const [busy, setBusy] = useState(false);
+  const amount = (e: string) => Math.max(0, Number(vals[e]) || 0);
+  const total = equipes.reduce((n, e) => n + amount(e), 0);
+
+  const confirm = async () => {
+    setBusy(true);
+    const r = await run('budget.enveloppes', { exercice, enveloppes: Object.fromEntries(equipes.map(e => [e, amount(e)])) });
+    setBusy(false);
+    if (r.ok) closeDialog();
+  };
+
+  return (
+    <Dialog title={`Enveloppes budgétaires ${exercice}`} label="Enveloppes budgétaires" actions={<>
+      <CancelButton />
+      <button type="button" className="btn btn-primary" disabled={busy} onClick={confirm}>Enregistrer</button>
+    </>}>
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+        {equipes.map(e => {
+          const id = `bud-${key(e).replace(/ /g, '-')}`;
+          return (
+            <div key={e} style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1fr) 160px', alignItems: 'center', gap: 'var(--space-3)' }}>
+              <label htmlFor={id} style={{ fontSize: 14 }}>{e}</label>
+              <div style={{ position: 'relative' }}>
+                <input className="input tnum" id={id} type="number" min={0} step={100} value={vals[e] ?? ''}
+                  onChange={ev => setVals(s => ({ ...s, [e]: ev.target.value }))} style={{ paddingRight: 'var(--space-8)', textAlign: 'right' }} />
+                <span aria-hidden="true" style={{ position: 'absolute', right: 'var(--space-3)', top: '50%', transform: 'translateY(-50%)', fontSize: 13, opacity: 0.6, pointerEvents: 'none' }}>€</span>
+              </div>
+            </div>
+          );
+        })}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', fontSize: 14, paddingTop: 'var(--space-3)', background: 'var(--rule-soft) no-repeat top / 100% 1px' }}>
+          <span>Enveloppe totale</span>
+          <span className="tnum" style={{ fontFamily: 'var(--font-heading)', fontWeight: 'var(--font-heading-weight)', fontSize: 18 }}>{fmtEur(total)}</span>
+        </div>
+      </div>
+    </Dialog>
+  );
+}

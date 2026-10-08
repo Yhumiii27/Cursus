@@ -1,0 +1,91 @@
+// Habilitations : titres par type, prérequis, échéances et délivrance.
+import { useMemo } from 'react';
+import { PlusIcon } from '@phosphor-icons/react';
+import { HAB_CLS, HAB_LABEL, type HabKey } from '../../../shared/constants.ts';
+import type { PrereqCheck } from '../../../shared/domain.ts';
+import { parse } from '../../../shared/dates.ts';
+import { equipeLabel, fmt, plural, rel, validiteLabel } from '../../../shared/format.ts';
+import { Btn, Chips, Empty, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
+import { useEnriched, useRole } from '../state/derived.ts';
+import { useStore } from '../state/store.tsx';
+import { PickCard } from './Formations.tsx';
+
+const ORDER: Record<HabKey, number> = { exp: 0, susp: 0, due: 1, pending: 2, ok: 3 };
+const prereqCls = (c: PrereqCheck) => c.ok ? (c.due ? 'tag-outline' : 'tag-neutral') : 'tag-accent';
+const isKo = (k: HabKey) => k === 'exp' || k === 'susp';
+
+export function Habilitations() {
+  const { emps, d } = useEnriched();
+  const { rh } = useRole();
+  const { ui, setUi, go, openDialog, runIntent } = useStore();
+
+  const v = useMemo(() => {
+    const all = emps.flatMap(e => e.habs.map(h => ({ e, h })));
+    const titres = all.filter(x => x.h.key !== 'pending');
+    const types = d.ds.referentiels.habilitations.map(hm => {
+      const list = all.filter(x => x.h.hm.id === hm.id), t = list.filter(x => x.h.key !== 'pending');
+      return { hm, titulaires: t.length, due: t.filter(x => x.h.key === 'due').length, ko: t.filter(x => isKo(x.h.key)).length, pending: list.length - t.length };
+    });
+    const f = ui.habFilter;
+    const rows = all
+      .filter(({ h }) => (!ui.habType || h.hm.id === ui.habType) && (f === 'tous' || (f === 'due' ? h.key === 'due' : f === 'ko' ? isKo(h.key) : h.key === 'pending')))
+      .sort((a, b) => ORDER[a.h.key] - ORDER[b.h.key] || (a.h.d ?? 1e9) - (b.h.d ?? 1e9) || a.e.nom.localeCompare(b.e.nom));
+    return {
+      types, rows,
+      kicker: `${plural(titres.length, 'titre en cours', 'titres en cours')} · ${titres.filter(x => x.h.key === 'due').length} à renouveler · ${titres.filter(x => isKo(x.h.key)).length} suspendus ou expirés · ${all.length - titres.length} en attente`,
+    };
+  }, [emps, d, ui.habFilter, ui.habType]);
+
+  const habFm = ui.habType ? d.hm(ui.habType) ?? null : null;
+
+  return (
+    <Page kicker={v.kicker} title="Habilitations" actions={<>
+      <Seg name="habFilter" label="Statut des habilitations" value={ui.habFilter} onChange={x => setUi({ habFilter: x })}
+        options={[['tous', 'Toutes'], ['due', 'À renouveler'], ['ko', 'Suspendues · expirées'], ['pending', 'En attente']]} />
+      {rh && <Btn variant="primary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'hab', mode: 'new' })}>Délivrer une habilitation</Btn>}
+    </>}>
+      <div className="cards-grid">
+        {v.types.map(t => {
+          const selected = ui.habType === t.hm.id;
+          return (
+            <PickCard key={t.hm.id} kicker={t.hm.detail} title={t.hm.nom} selected={selected}
+              body={`Prérequis : ${[...t.hm.prereqs.map(f => d.fm(f).court), ...(t.hm.medical ? ['aptitude médicale'] : [])].join(' · ')} · validité ${validiteLabel(t.hm.validite)}`}
+              stats={[[t.titulaires, 'titulaires'], [t.due, 'à renouveler'], [t.ko, 'suspendues · expirées']]}
+              meta={<span>{t.pending ? plural(t.pending, 'demande en attente', 'demandes en attente') : `Signataire : ${t.hm.signataire}`}</span>}
+              onClick={() => setUi({ habType: selected ? null : t.hm.id })} />
+          );
+        })}
+      </div>
+
+      <Panel head={
+        <div className="panel-head center">
+          <h2>{habFm ? `Titres — ${habFm.nom}` : 'Tous les titres'}</h2>
+          {habFm && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setUi({ habType: null })}>Toutes les habilitations</button>}
+        </div>
+      }>
+        <div className="scroll-x">
+          <table className="table">
+            <thead><tr><th>Collaborateur</th><th>Habilitation</th><th>Délivrance</th><th>Échéance</th><th>Prérequis</th><th>Statut</th><th></th></tr></thead>
+            <tbody>
+              {v.rows.map(({ e, h }) => {
+                const a = rh ? d.habAction(e.id, h) : null;
+                return (
+                  <tr key={`${e.id}-${h.hm.id}`} className="clickable" onClick={() => go('collaborateurs', { selectedId: e.id })}>
+                    <td><Two main={e.nom} sub={equipeLabel(e)} nowrap /></td>
+                    <td><Two main={h.hm.nom} sub={h.hm.detail} /></td>
+                    <td><Two main={h.delivree ? fmt(parse(h.delivree)) : h.demande ? `Demandée le ${fmt(parse(h.demande))}` : '—'} sub={h.par ? `par ${h.par}` : 'titre à signer'} nowrap subNowrap /></td>
+                    <td><Two main={h.exp ? fmt(h.exp) : '—'} sub={h.exp ? rel(h.d!) : `validité ${validiteLabel(h.hm.validite)}`} nowrap subNowrap /></td>
+                    <td><Chips items={h.checks.map(c => ({ key: c.label, label: c.label, cls: prereqCls(c) }))} /></td>
+                    <td><Tag cls={HAB_CLS[h.key]}>{HAB_LABEL[h.key]}</Tag></td>
+                    <td className="right">{a && <button type="button" className="btn btn-ghost btn-sm" onClick={stop(() => runIntent(a.intent))}>{a.label}</button>}</td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+        {v.rows.length === 0 && <Empty pad="sm">Aucune habilitation ne correspond à ces filtres.</Empty>}
+      </Panel>
+    </Page>
+  );
+}

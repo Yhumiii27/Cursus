@@ -1,0 +1,344 @@
+// Jeu de données de démonstration (repris du prototype Claude Design) :
+// 24 collaborateurs d'un site industriel lyonnais, CCN Industries chimiques.
+import { Domain } from '../../shared/domain.ts';
+import { addM } from '../../shared/dates.ts';
+import { cpDroit, rttDroit } from '../../shared/rules/conges.ts';
+import type { Dataset, Employe, EntretienType, Statut, TempsTravail, TypeContrat, VaccinId } from '../../shared/types.ts';
+import type { Db } from './db.ts';
+import { DEFAULT_SETTINGS, loadFull } from './dataset.ts';
+import { figerFeuilles } from './migrate.ts';
+
+const FORMATIONS = [
+  { id: 'sst', nom: 'Sauveteur secouriste du travail (SST)', court: 'SST', type: 'Réglementaire', validite: 24, duree: '7 h (MAC)', organisme: 'Croix-Rouge française', cout: 180 },
+  { id: 'elec', nom: 'Préparation à l’habilitation électrique B1V · B2V · BR', court: 'Formation élec. B1V-BR', type: 'Réglementaire', validite: 36, duree: '21 h', organisme: 'Apave', cout: 480 },
+  { id: 'atex', nom: 'Intervention en zone ATEX (niveau 1)', court: 'ATEX', type: 'Réglementaire', validite: 36, duree: '7 h', organisme: 'Apave', cout: 350 },
+  { id: 'caces489', nom: 'CACES R489 — Chariots élévateurs (cat. 3)', court: 'CACES R489', type: 'Réglementaire', validite: 60, duree: '21 h', organisme: 'AFTRAL', cout: 650 },
+  { id: 'caces486', nom: 'CACES R486 — Nacelles PEMP (cat. B)', court: 'CACES R486', type: 'Réglementaire', validite: 60, duree: '21 h', organisme: 'AFTRAL', cout: 650 },
+  { id: 'epi', nom: 'Équipier de première intervention incendie', court: 'EPI incendie', type: 'Réglementaire', validite: 12, duree: '4 h', organisme: 'Interne · HSE', cout: 40 },
+  { id: 'fco', nom: 'FCO Marchandises', court: 'FCO', type: 'Réglementaire', validite: 60, duree: '35 h', organisme: 'AFTRAL', cout: 900 },
+  { id: 'aipr', nom: 'AIPR — Opérateur', court: 'AIPR', type: 'Réglementaire', validite: 60, duree: '7 h', organisme: 'Apave', cout: 190 },
+  { id: 'hauteur', nom: 'Travail en hauteur et port du harnais', court: 'Travail en hauteur', type: 'Recommandée', validite: 36, duree: '7 h', organisme: 'Socotec', cout: 320 },
+  { id: 'prap', nom: 'PRAP IBC — Prévention des risques liés à l’activité physique', court: 'PRAP', type: 'Recommandée', validite: 24, duree: '14 h', organisme: 'INRS', cout: 420 },
+  { id: 'rgpd', nom: 'Sensibilisation RGPD et sécurité de l’information', court: 'RGPD', type: 'Interne', validite: 24, duree: '2 h', organisme: 'Interne · DSI', cout: 0 },
+];
+
+const HABILITATIONS = [
+  { id: 'he', nom: 'Habilitation électrique', detail: 'B1V · B2V · BR — NF C18-510', prereqs: ['elec'], medical: true, validite: 36, signataire: 'Karim Haddad' },
+  { id: 'ac489', nom: 'Autorisation de conduite — chariots R489', detail: 'Chariots élévateurs cat. 3', prereqs: ['caces489'], medical: true, validite: 60, signataire: 'Olivier Marchal' },
+  { id: 'ac486', nom: 'Autorisation de conduite — nacelles R486', detail: 'PEMP cat. B', prereqs: ['caces486'], medical: true, validite: 60, signataire: 'Karim Haddad' },
+  { id: 'atex', nom: 'Habilitation ATEX', detail: 'Zones 1 et 2 — niveau 1', prereqs: ['atex'], medical: false, validite: 36, signataire: 'Sarah Cohen' },
+  { id: 'hauteur', nom: 'Autorisation travaux en hauteur', detail: 'Port du harnais · accès toitures', prereqs: ['hauteur'], medical: true, validite: 36, signataire: 'Sarah Cohen' },
+  { id: 'aipr', nom: 'Autorisation AIPR', detail: 'Intervention à proximité des réseaux', prereqs: ['aipr'], medical: false, validite: 60, signataire: 'Karim Haddad' },
+];
+
+const DESTS = [
+  { code: 'MA', pays: 'Maroc', visa: 'none', visaSub: 'séjour ≤ 90 jours', oblig: [], rec: ['hepA', 'typhoide'], passMois: 0 },
+  { code: 'IN', pays: 'Inde', visa: 'evisa', visaSub: '', oblig: [], rec: ['hepA', 'typhoide', 'hepB'], passMois: 6 },
+  { code: 'US', pays: 'États-Unis', visa: 'esta', visaSub: '', oblig: [], rec: [], passMois: 0 },
+  { code: 'CI', pays: 'Côte d’Ivoire', visa: 'evisa', visaSub: '', oblig: ['fj'], rec: ['hepA', 'typhoide'], passMois: 6 },
+  { code: 'GH', pays: 'Ghana', visa: 'embassy', visaSub: '', oblig: ['fj'], rec: ['hepA', 'typhoide'], passMois: 6 },
+  { code: 'BR', pays: 'Brésil', visa: 'none', visaSub: 'séjour ≤ 90 jours', oblig: [], rec: ['fj', 'hepA', 'typhoide'], passMois: 6 },
+  { code: 'SA', pays: 'Arabie saoudite', visa: 'evisa', visaSub: '', oblig: [], rec: ['hepA', 'typhoide'], passMois: 6 },
+  { code: 'VN', pays: 'Vietnam', visa: 'none', visaSub: 'séjour ≤ 45 jours', oblig: [], rec: ['hepA', 'typhoide'], passMois: 6 },
+];
+
+const EQUIPES: [string, number][] = [['Logistique', 16], ['Maintenance', 12], ['Production', 3], ['Qualité & HSE', 23], ['Administration', 14], ['Commercial', 9]];
+
+const PROJETS: Record<string, string> = {
+  'K-2614': 'Rétrofit presse hydraulique', 'K-2620': 'Maintenance zone ATEX', 'K-2611': 'Mise en service ligne d’embouteillage', 'K-2625': 'Audit HSE usine',
+  'K-2631': 'Transfert de ligne de conditionnement', 'K-2633': 'Dépannage four tunnel',
+  'INT-PROD': 'Production — lignes internes', 'INT-LOG': 'Logistique interne', 'INT-MAINT': 'Maintenance interne', 'INT-HSE': 'Qualité, hygiène, sécurité',
+  'INT-QUA': 'Contrôle qualité', 'INT-ADM': 'Fonctions support', 'INT-COM': 'Commercial & avant-vente', 'ECOLE': 'Cours en CFA (alternance)',
+};
+
+const CHANTIERS = [
+  { id: 'K-2614', nom: 'Rétrofit presse hydraulique', client: 'Atlas Emboutissage', lieu: 'Tanger', pays: 'MA', debut: '2026-10-27', fin: '2026-11-06', chef: 'Karim Haddad', habs: ['he', 'hauteur'], certs: ['sst'], ressources: [18, 6, 12] },
+  { id: 'K-2620', nom: 'Maintenance zone ATEX', client: 'Pétrochimie du Rhône', lieu: 'Feyzin', pays: 'FR', debut: '2026-10-19', fin: '2026-10-23', chef: 'Sarah Cohen', habs: ['atex'], certs: ['sst'], ressources: [3, 8, 22] },
+  { id: 'K-2611', nom: 'Mise en service ligne d’embouteillage', client: 'Sivop Boissons', lieu: 'Abidjan', pays: 'CI', debut: '2026-11-09', fin: '2026-11-27', chef: 'Karim Haddad', habs: ['he'], certs: ['sst'], ressources: [12, 18] },
+  { id: 'K-2625', nom: 'Audit HSE usine', client: 'Tema Packaging', lieu: 'Tema', pays: 'GH', debut: '2026-12-01', fin: '2026-12-05', chef: 'Sarah Cohen', habs: [], certs: ['sst'], ressources: [23, 5] },
+  { id: 'K-2631', nom: 'Transfert de ligne de conditionnement', client: 'Embalagens Paulista', lieu: 'São Paulo', pays: 'BR', debut: '2027-01-18', fin: '2027-01-29', chef: 'Olivier Marchal', habs: ['ac489'], certs: ['caces489'], ressources: [22, 16] },
+];
+
+interface Profil {
+  statut: Statut; typeContrat: TypeContrat; temps: TempsTravail; entree: string; naissance: number;
+  fin?: string; heures?: number; forfaitHeures?: number; forfaitJours?: number; jourOff?: number[]; agence?: string; reprise?: { motif: string; date: string };
+}
+const cdi = (statut: Statut, temps: TempsTravail, entree: string, naissance: number, extra: Partial<Profil> = {}): Profil => ({ statut, typeContrat: 'cdi', temps, entree, naissance, ...extra });
+const PROFILS: Record<number, Profil> = {
+  1: cdi('ouvrier', '35h', '2019-03-04', 1990),
+  2: cdi('technicien', '39h_rtt', '2016-09-01', 1985),
+  3: cdi('technicien', '39h_rtt', '2012-05-14', 1981),
+  4: { statut: 'ouvrier', typeContrat: 'cdd', temps: '35h', entree: '2026-02-02', fin: '2027-01-29', naissance: 1999 },
+  5: cdi('cadre', '35h', '2021-01-11', 1988),
+  6: cdi('technicien', '39h_rtt', '2009-04-06', 1976),
+  7: cdi('technicien', 'partiel', '2014-10-01', 1983, { heures: 28, jourOff: [2], reprise: { motif: 'congé parental d’éducation', date: '2026-09-01' } }),
+  8: cdi('ouvrier', '35h', '2018-06-04', 1994),
+  9: cdi('cadre', 'forfait_jours', '2011-02-01', 1979, { forfaitJours: 218 }),
+  10: cdi('ouvrier', '35h', '2017-11-06', 1987),
+  11: cdi('cadre', 'forfait_heures_annuel', '2022-09-05', 1992, { forfaitHeures: 1607 }),
+  12: cdi('cadre', 'forfait_jours', '2005-01-03', 1967, { forfaitJours: 218 }),
+  13: cdi('ouvrier', 'partiel', '2020-03-02', 1971, { heures: 21, jourOff: [3, 4] }),
+  14: cdi('technicien', 'forfait_heures_hebdo', '2023-04-03', 1995, { heures: 38.5 }),
+  15: { statut: 'ouvrier', typeContrat: 'interim', temps: '35h', entree: '2026-06-15', naissance: 2001, agence: 'Proman Lyon' },
+  16: cdi('ouvrier', '39h_rtt', '2015-08-24', 1986),
+  17: cdi('technicien', '35h', '2024-01-08', 1997),
+  18: cdi('technicien', '39h_rtt', '2013-03-18', 1984),
+  19: cdi('cadre', 'forfait_jours', '2025-11-03', 1996, { forfaitJours: 218 }),
+  20: cdi('ouvrier', '35h', '2021-06-01', 1993),
+  21: cdi('ouvrier', 'partiel', '2010-09-13', 1966, { heures: 28, jourOff: [4] }),
+  22: cdi('ouvrier', '39h_rtt', '2008-02-04', 1978),
+  23: cdi('cadre', 'forfait_jours', '2016-01-04', 1980, { forfaitJours: 218 }),
+  24: { statut: 'ouvrier', typeContrat: 'alternance', temps: '35h', entree: '2025-09-01', fin: '2027-08-31', naissance: 2006 },
+};
+
+type C = { f: string; obtenue: string; session?: number; convoc?: 'now' };
+const EMPLOYES: { id: number; nom: string; equipe: string; poste: string; certs: C[] }[] = [
+  { id: 1, nom: 'Camille Roux', equipe: 'Logistique', poste: 'Cariste', certs: [{ f: 'caces489', obtenue: '2022-03-12' }, { f: 'sst', obtenue: '2024-11-20', session: 1, convoc: 'now' }, { f: 'prap', obtenue: '2025-06-01' }] },
+  { id: 2, nom: 'Mehdi Benali', equipe: 'Maintenance', poste: 'Technicien de maintenance', certs: [{ f: 'elec', obtenue: '2023-09-14' }, { f: 'sst', obtenue: '2025-05-03' }, { f: 'hauteur', obtenue: '2025-01-10' }] },
+  { id: 3, nom: 'Sophie Lemaire', equipe: 'Production', poste: 'Cheffe d’équipe', certs: [{ f: 'sst', obtenue: '2024-12-02' }, { f: 'epi', obtenue: '2026-02-15' }, { f: 'prap', obtenue: '2025-09-30' }] },
+  { id: 4, nom: 'Lucas Martin', equipe: 'Logistique', poste: 'Préparateur de commandes', certs: [{ f: 'caces489', obtenue: '2021-10-28', session: 3, convoc: 'now' }, { f: 'prap', obtenue: '2025-04-11' }] },
+  { id: 5, nom: 'Inès Dupont', equipe: 'Qualité & HSE', poste: 'Animatrice HSE', certs: [{ f: 'sst', obtenue: '2025-08-22' }, { f: 'epi', obtenue: '2025-11-05', session: 6, convoc: 'now' }, { f: 'hauteur', obtenue: '2025-03-01' }] },
+  { id: 6, nom: 'Thomas Garnier', equipe: 'Maintenance', poste: 'Électromécanicien', certs: [{ f: 'elec', obtenue: '2024-01-20' }, { f: 'caces486', obtenue: '2021-08-30' }, { f: 'hauteur', obtenue: '2024-07-07' }] },
+  { id: 7, nom: 'Aïcha Diallo', equipe: 'Administration', poste: 'Gestionnaire paie', certs: [{ f: 'rgpd', obtenue: '2024-12-15' }, { f: 'epi', obtenue: '2026-03-03' }] },
+  { id: 8, nom: 'Julien Moreau', equipe: 'Production', poste: 'Opérateur de ligne', certs: [{ f: 'sst', obtenue: '2026-02-10' }, { f: 'prap', obtenue: '2024-10-12' }, { f: 'epi', obtenue: '2026-05-19' }] },
+  { id: 9, nom: 'Nadia Kaci', equipe: 'Commercial', poste: 'Responsable grands comptes', certs: [{ f: 'rgpd', obtenue: '2025-11-30' }, { f: 'epi', obtenue: '2026-06-18' }] },
+  { id: 10, nom: 'Pierre Fontaine', equipe: 'Logistique', poste: 'Chauffeur-livreur', certs: [{ f: 'fco', obtenue: '2022-02-01' }, { f: 'sst', obtenue: '2024-07-19' }, { f: 'caces489', obtenue: '2023-04-04' }] },
+  { id: 11, nom: 'Élodie Bernard', equipe: 'Qualité & HSE', poste: 'Auditrice interne', certs: [{ f: 'rgpd', obtenue: '2025-01-12' }, { f: 'epi', obtenue: '2025-12-10' }] },
+  { id: 12, nom: 'Karim Haddad', equipe: 'Maintenance', poste: 'Responsable maintenance', certs: [{ f: 'elec', obtenue: '2024-12-01' }, { f: 'hauteur', obtenue: '2023-11-28' }, { f: 'caces486', obtenue: '2024-01-15' }, { f: 'sst', obtenue: '2025-03-08' }] },
+  { id: 13, nom: 'Marion Petit', equipe: 'Production', poste: 'Opératrice', certs: [{ f: 'sst', obtenue: '2024-10-30' }, { f: 'prap', obtenue: '2025-08-08' }] },
+  { id: 14, nom: 'Antoine Leroy', equipe: 'Administration', poste: 'Chargé RH', certs: [{ f: 'rgpd', obtenue: '2025-05-05' }, { f: 'epi', obtenue: '2025-09-02' }] },
+  { id: 15, nom: 'Léa Girard', equipe: 'Production', poste: 'Opératrice', certs: [{ f: 'sst', obtenue: '2025-06-14' }, { f: 'epi', obtenue: '2026-01-22' }, { f: 'prap', obtenue: '2026-03-05' }] },
+  { id: 16, nom: 'Hugo Lambert', equipe: 'Logistique', poste: 'Cariste', certs: [{ f: 'caces489', obtenue: '2024-05-20' }, { f: 'sst', obtenue: '2025-09-09' }, { f: 'prap', obtenue: '2025-02-17' }] },
+  { id: 17, nom: 'Fatou Ndiaye', equipe: 'Qualité & HSE', poste: 'Technicienne qualité', certs: [{ f: 'sst', obtenue: '2026-04-01' }, { f: 'rgpd', obtenue: '2025-10-20' }] },
+  { id: 18, nom: 'Romain Chevalier', equipe: 'Maintenance', poste: 'Technicien de maintenance', certs: [{ f: 'elec', obtenue: '2025-02-11' }, { f: 'hauteur', obtenue: '2026-01-30' }, { f: 'aipr', obtenue: '2022-11-15' }, { f: 'sst', obtenue: '2025-12-01' }] },
+  { id: 19, nom: 'Clara Roussel', equipe: 'Commercial', poste: 'Chargée d’affaires', certs: [{ f: 'rgpd', obtenue: '2026-03-18' }] },
+  { id: 20, nom: 'Yanis Bouzid', equipe: 'Logistique', poste: 'Chauffeur-livreur', certs: [{ f: 'fco', obtenue: '2021-11-08' }, { f: 'sst', obtenue: '2025-10-15' }] },
+  { id: 21, nom: 'Manon Faure', equipe: 'Administration', poste: 'Assistante de direction', certs: [{ f: 'rgpd', obtenue: '2025-07-07' }, { f: 'epi', obtenue: '2026-04-14' }, { f: 'sst', obtenue: '2026-06-20' }] },
+  { id: 22, nom: 'Nicolas Perrin', equipe: 'Production', poste: 'Conducteur de ligne', certs: [{ f: 'sst', obtenue: '2025-01-25' }, { f: 'prap', obtenue: '2026-02-02' }, { f: 'caces489', obtenue: '2023-06-30' }] },
+  { id: 23, nom: 'Sarah Cohen', equipe: 'Qualité & HSE', poste: 'Responsable HSE', certs: [{ f: 'sst', obtenue: '2026-05-11' }, { f: 'epi', obtenue: '2026-09-01' }, { f: 'hauteur', obtenue: '2025-04-22' }] },
+  { id: 24, nom: 'Bastien Morel', equipe: 'Maintenance', poste: 'Apprenti électromécanicien', certs: [{ f: 'elec', obtenue: '2026-01-15' }, { f: 'sst', obtenue: '2026-03-12' }] },
+];
+
+interface Extra {
+  visite?: string; certsPlus?: C[]; habs?: { h: string; delivree?: string; par?: string; demande?: string }[];
+  passeport?: { numero: string; expire: string }; visas?: { dest: string; type: string; obtenu: string; expire: string }[]; vaccins?: { v: VaccinId; date: string }[];
+}
+const EXTRA: Record<number, Extra> = {
+  1: { visite: '2025-02-10', habs: [{ h: 'ac489', delivree: '2022-04-15', par: 'Olivier Marchal' }] },
+  2: { visite: '2025-06-15', habs: [{ h: 'he', delivree: '2023-10-01', par: 'Karim Haddad' }, { h: 'hauteur', delivree: '2025-02-01', par: 'Sarah Cohen' }], passeport: { numero: '20AB···91', expire: '2026-12-02' }, vaccins: [{ v: 'dtp', date: '2016-09-10' }, { v: 'hepA', date: '2022-03-11' }] },
+  3: { visite: '2025-09-12', certsPlus: [{ f: 'atex', obtenue: '2024-05-20' }], habs: [{ h: 'atex', delivree: '2024-06-01', par: 'Sarah Cohen' }] },
+  4: { visite: '2025-01-22', habs: [{ h: 'ac489', delivree: '2021-11-15', par: 'Olivier Marchal' }] },
+  5: { visite: '2026-01-20', habs: [{ h: 'hauteur', delivree: '2025-03-15', par: 'Sarah Cohen' }] },
+  6: { visite: '2024-08-20', habs: [{ h: 'he', delivree: '2024-02-05', par: 'Karim Haddad' }, { h: 'ac486', delivree: '2021-09-15', par: 'Karim Haddad' }] },
+  7: { visite: '2025-10-01' }, 11: { visite: '2025-04-08' }, 13: { visite: '2025-12-02' }, 14: { visite: '2025-02-27' }, 15: { visite: '2026-02-09' }, 17: { visite: '2025-08-18' }, 20: { visite: '2025-09-25' }, 21: { visite: '2025-01-16' },
+  8: { visite: '2025-07-03', certsPlus: [{ f: 'atex', obtenue: '2023-11-02' }], habs: [{ h: 'atex', delivree: '2023-11-20', par: 'Sarah Cohen' }] },
+  9: { visite: '2025-03-14', passeport: { numero: '18CF···27', expire: '2028-05-12' }, visas: [{ dest: 'US', type: 'ESTA', obtenu: '2024-11-03', expire: '2026-11-02' }], vaccins: [{ v: 'dtp', date: '2019-04-02' }, { v: 'hepA', date: '2018-06-01' }] },
+  10: { visite: '2025-11-03', habs: [{ h: 'ac489', delivree: '2023-04-20', par: 'Olivier Marchal' }] },
+  12: { visite: '2025-05-20', habs: [{ h: 'he', delivree: '2024-12-10', par: 'Philippe Aubert' }, { h: 'ac486', delivree: '2024-02-01', par: 'Philippe Aubert' }, { h: 'hauteur', delivree: '2023-12-10', par: 'Sarah Cohen' }], passeport: { numero: '16AE···58', expire: '2027-02-20' }, vaccins: [{ v: 'fj', date: '2015-07-10' }, { v: 'hepA', date: '2015-07-10' }, { v: 'typhoide', date: '2023-01-15' }, { v: 'dtp', date: '2015-07-10' }] },
+  16: { visite: '2026-02-11', habs: [{ h: 'ac489', delivree: '2024-06-03', par: 'Olivier Marchal' }] },
+  18: { visite: '2025-04-14', habs: [{ h: 'he', delivree: '2025-03-01', par: 'Karim Haddad' }, { h: 'aipr', delivree: '2022-12-01', par: 'Karim Haddad' }, { h: 'hauteur', delivree: '2026-02-10', par: 'Sarah Cohen' }], passeport: { numero: '21CD···44', expire: '2029-08-30' }, vaccins: [{ v: 'dtp', date: '2021-05-17' }, { v: 'hepA', date: '2022-04-05' }, { v: 'typhoide', date: '2024-09-01' }] },
+  19: { visite: '2025-06-30', passeport: { numero: '19BA···73', expire: '2031-01-15' }, visas: [{ dest: 'US', type: 'ESTA', obtenu: '2025-03-02', expire: '2027-03-01' }], vaccins: [{ v: 'dtp', date: '2020-10-12' }] },
+  22: { visite: '2026-03-02', certsPlus: [{ f: 'atex', obtenue: '2025-03-18' }], habs: [{ h: 'ac489', delivree: '2023-07-15', par: 'Jean-Marc Perret' }, { h: 'atex', delivree: '2025-04-01', par: 'Sarah Cohen' }], vaccins: [{ v: 'dtp', date: '2018-02-20' }] },
+  23: { visite: '2025-10-01', habs: [{ h: 'hauteur', delivree: '2025-05-05', par: 'Philippe Aubert' }], passeport: { numero: '17AC···09', expire: '2030-06-21' }, visas: [{ dest: 'CI', type: 'e-Visa d’affaires', obtenu: '2025-09-20', expire: '2026-09-19' }], vaccins: [{ v: 'dtp', date: '2017-03-03' }, { v: 'hepA', date: '2019-02-14' }, { v: 'typhoide', date: '2025-09-01' }] },
+  24: { habs: [{ h: 'he', demande: '2026-09-20' }] },
+};
+
+const SESSIONS = [
+  { id: 1, formation: 'sst', date: '2026-10-14', lieu: 'Site de Lyon — salle B', places: 12, inscrits: 9, statut: 'Confirmée' },
+  { id: 2, formation: 'sst', date: '2026-11-18', lieu: 'Site de Lyon — salle B', places: 12, inscrits: 4, statut: 'À confirmer' },
+  { id: 3, formation: 'caces489', date: '2026-10-21', lieu: 'AFTRAL Saint-Priest', places: 6, inscrits: 6, statut: 'Confirmée' },
+  { id: 4, formation: 'caces489', date: '2026-11-25', lieu: 'AFTRAL Saint-Priest', places: 6, inscrits: 2, statut: 'Confirmée' },
+  { id: 5, formation: 'elec', date: '2026-10-27', lieu: 'Apave Vénissieux', places: 8, inscrits: 5, statut: 'Confirmée' },
+  { id: 6, formation: 'epi', date: '2026-10-09', lieu: 'Site de Lyon — atelier', places: 15, inscrits: 11, statut: 'Confirmée' },
+  { id: 7, formation: 'hauteur', date: '2026-11-04', lieu: 'Socotec Lyon', places: 8, inscrits: 3, statut: 'À confirmer' },
+  { id: 8, formation: 'rgpd', date: '2026-11-12', lieu: 'Visioconférence', places: 30, inscrits: 17, statut: 'Confirmée' },
+  { id: 9, formation: 'caces486', date: '2026-12-02', lieu: 'AFTRAL Saint-Priest', places: 6, inscrits: 1, statut: 'À confirmer' },
+  { id: 10, formation: 'prap', date: '2026-11-20', lieu: 'Site de Lyon — salle B', places: 10, inscrits: 6, statut: 'Confirmée' },
+  { id: 11, formation: 'fco', date: '2027-01-11', lieu: 'AFTRAL Saint-Priest', places: 12, inscrits: 3, statut: 'À confirmer' },
+  { id: 12, formation: 'epi', date: '2026-12-10', lieu: 'Site de Lyon — atelier', places: 15, inscrits: 2, statut: 'À confirmer' },
+  { id: 13, formation: 'atex', date: '2026-11-16', lieu: 'Apave Vénissieux', places: 8, inscrits: 3, statut: 'Confirmée' },
+];
+
+const TACHES: Record<number, [string, string, number[]][]> = {
+  1: [['INT-LOG', 'Réception / expédition', [7, 7, 7, 7, 7]]], 2: [['INT-MAINT', 'Maintenance préventive', [8, 8, 8, 0, 0]], ['K-2620', 'Repérage site Feyzin', [0, 0, 0, 8, 7]]],
+  3: [['INT-PROD', 'Encadrement ligne 2', [8, 8, 8, 8, 7]]], 4: [['INT-LOG', 'Préparation de commandes', [7, 7, 7, 7, 7]]],
+  5: [['INT-HSE', 'Animation sécurité', [4, 4, 4, 4, 4]], ['K-2625', 'Préparation audit Tema', [3, 3, 3, 3, 3]]], 6: [['INT-MAINT', 'Maintenance préventive', [8, 0, 0, 0, 7]], ['K-2633', 'Dépannage four — sur site', [0, 8, 8, 8, 0]]],
+  7: [['INT-ADM', 'Paie & administration du personnel', [7, 7, 0, 7, 7]]], 8: [['INT-PROD', 'Conduite ligne 1', [7, 7, 7, 7, 7]]],
+  9: [['INT-COM', 'Avant-vente grands comptes', [4, 4, 4, 4, 4]], ['K-2631', 'Suivi client Embalagens', [3, 3, 3, 3, 3]]], 10: [['INT-LOG', 'Tournées de livraison', [7, 7, 7, 7, 7]]],
+  11: [['INT-QUA', 'Audits internes', [7, 7, 7, 7, 7]]], 12: [['K-2614', 'Pilotage chantier', [3, 3, 3, 3, 3]], ['K-2611', 'Préparation mise en service', [3, 3, 3, 3, 3]], ['INT-MAINT', 'Management d’équipe', [2, 2, 2, 2, 2]]],
+  13: [['INT-PROD', 'Conditionnement', [7, 7, 7, 0, 0]]], 14: [['INT-ADM', 'Recrutement & RH', [8, 8, 8, 8, 6.5]]], 15: [['INT-PROD', 'Opératrice ligne 1', [7, 7, 7, 7, 7]]],
+  16: [['INT-LOG', 'Coordination du quai', [8, 8, 8, 8, 7]]], 17: [['INT-QUA', 'Contrôle réception', [7, 7, 7, 7, 7]]], 18: [['K-2614', 'Rétrofit — circuit hydraulique', [8, 8, 8, 8, 7]]],
+  19: [['INT-COM', 'Affaires export États-Unis', [7, 7, 7, 7, 7]]], 20: [['INT-LOG', 'Tournées de livraison', [7, 7, 7, 7, 7]]], 21: [['INT-ADM', 'Assistance de direction', [7, 7, 7, 7, 0]]],
+  22: [['INT-PROD', 'Conduite ligne 2', [8, 8, 8, 8, 7]]], 23: [['INT-HSE', 'Pilotage HSE', [4, 4, 4, 4, 4]], ['K-2620', 'Plan de prévention ATEX', [3, 3, 3, 3, 3]]],
+  24: [['INT-MAINT', 'Apprentissage — maintenance', [7, 7, 7, 0, 0]], ['ECOLE', 'Cours au CFA', [0, 0, 0, 7, 7]]],
+};
+
+const MISSIONS = [
+  { empId: 6, projet: 'K-2633', lieu: 'Grenoble (38)', du: '2026-10-06', au: '2026-10-08', type: 'Déplacement' },
+  { empId: 2, projet: 'K-2620', lieu: 'Feyzin (69)', du: '2026-10-08', au: '2026-10-09', type: 'Mission' },
+  ...[3, 8, 22].map(empId => ({ empId, projet: 'K-2620', lieu: 'Feyzin (69)', du: '2026-10-19', au: '2026-10-23', type: 'Mission' })),
+  ...[18, 6, 12].map(empId => ({ empId, projet: 'K-2614', lieu: 'Tanger, Maroc', du: '2026-10-27', au: '2026-11-06', type: 'Déplacement international' })),
+  ...[12, 18].map(empId => ({ empId, projet: 'K-2611', lieu: 'Abidjan, Côte d’Ivoire', du: '2026-11-09', au: '2026-11-27', type: 'Déplacement international' })),
+  ...[23, 5].map(empId => ({ empId, projet: 'K-2625', lieu: 'Tema, Ghana', du: '2026-12-01', au: '2026-12-05', type: 'Déplacement international' })),
+  ...[22, 16].map(empId => ({ empId, projet: 'K-2631', lieu: 'São Paulo, Brésil', du: '2027-01-18', au: '2027-01-29', type: 'Déplacement international' })),
+];
+
+const VOYAGES = [
+  { empId: 19, dest: 'US', depart: '2026-10-12', retour: '2026-10-16', motif: 'Visite client — Houston', origine: 'formulaire', ref: 'DD-2026-0398' },
+  { empId: 9, dest: 'IN', depart: '2026-10-19', retour: '2026-10-24', motif: 'Salon Automation Expo — Mumbai', origine: 'formulaire', ref: 'DD-2026-0402' },
+  { empId: 18, dest: 'MA', depart: '2026-10-27', retour: '2026-11-06', motif: 'Rétrofit presse hydraulique — Tanger', origine: 'keystone', chantier: 'K-2614' },
+  { empId: 12, dest: 'CI', depart: '2026-11-09', retour: '2026-11-27', motif: 'Mise en service ligne — Abidjan', origine: 'keystone', chantier: 'K-2611' },
+  { empId: 9, dest: 'SA', depart: '2026-11-23', retour: '2026-11-26', motif: 'Négociation distributeur — Riyad', origine: 'cursus' },
+  { empId: 23, dest: 'GH', depart: '2026-12-01', retour: '2026-12-05', motif: 'Audit HSE usine — Tema', origine: 'keystone', chantier: 'K-2625' },
+  { empId: 22, dest: 'BR', depart: '2027-01-18', retour: '2027-01-29', motif: 'Transfert de ligne — São Paulo', origine: 'keystone', chantier: 'K-2631' },
+];
+
+const DEMANDES_KEYSTONE = [
+  { empId: 18, chantier: 'K-2611', dest: 'CI', depart: '2026-11-09', retour: '2026-11-27', recue: '2026-10-05' },
+  { empId: 6, chantier: 'K-2614', dest: 'MA', depart: '2026-10-27', retour: '2026-11-06', recue: '2026-10-02' },
+  { empId: 16, chantier: 'K-2631', dest: 'BR', depart: '2027-01-18', retour: '2027-01-29', recue: '2026-10-06' },
+  { empId: 5, chantier: 'K-2625', dest: 'GH', depart: '2026-12-01', retour: '2026-12-05', recue: '2026-10-06' },
+];
+
+const ABSENCES = [
+  { empId: 22, type: 'RTT', du: '2026-10-09', au: '2026-10-09', statut: 'validee', keystone: true },
+  { empId: 14, type: 'CP', du: '2026-10-19', au: '2026-10-23', statut: 'validee', keystone: true },
+  { empId: 1, type: 'CP', du: '2026-10-26', au: '2026-10-30', statut: 'demandee' },
+  { empId: 17, type: 'RECUP', du: '2026-10-16', au: '2026-10-16', statut: 'demandee' },
+  { empId: 2, type: 'RTT', du: '2026-11-02', au: '2026-11-02', statut: 'demandee' },
+  { empId: 10, type: 'CP', du: '2026-12-21', au: '2026-12-31', statut: 'demandee' },
+  { empId: 16, type: 'RTT', du: '2026-10-30', au: '2026-10-30', statut: 'validee', keystone: true },
+  { empId: 8, type: 'CP', du: '2026-10-12', au: '2026-10-16', statut: 'validee', keystone: true },
+  { empId: 18, type: 'CP', du: '2026-12-21', au: '2026-12-24', statut: 'demandee' },
+];
+
+const CET = [
+  { empId: 6, type: 'RTT', jours: 5, date: '2025-12-15', periode: '2025' }, { empId: 6, type: 'CP', jours: 3, date: '2025-05-20', periode: '2024-2025' },
+  { empId: 12, type: 'RTT', jours: 2, date: '2026-03-02', periode: '2026' }, { empId: 22, type: 'CP', jours: 2, date: '2026-09-01', periode: '2025-2026' },
+  { empId: 2, type: 'RTT', jours: 4, date: '2025-12-10', periode: '2025' },
+];
+
+const DEMANDES_COLLAB = [
+  { empId: 13, type: 'formation', f: 'caces489', sessionId: 4, motif: 'Polyvalence sur le quai de chargement', date: '2026-10-02', statut: 'attente', parId: 3 },
+  { empId: 3, type: 'habilitation', h: 'hauteur', motif: 'Interventions sur les passerelles de la ligne 2', date: '2026-10-05', statut: 'attente' },
+  { empId: 9, type: 'document', label: 'Passeport mis à jour', date: '2026-10-06', statut: 'attente' },
+  { empId: 19, type: 'formation', f: null, libelle: 'Anglais technique', motif: 'Échanges avec les clients américains', date: '2026-09-28', statut: 'refusee', reponse: 'Reportée au plan 2027 — enveloppe Commercial atteinte' },
+];
+
+const BUDGETS: Record<number, Record<string, number>> = {
+  2026: { Logistique: 11000, Maintenance: 10000, Production: 6500, 'Qualité & HSE': 4500, Administration: 2500, Commercial: 2000 },
+  2027: { Logistique: 11500, Maintenance: 10500, Production: 7000, 'Qualité & HSE': 4500, Administration: 2500, Commercial: 2000 },
+};
+
+const PLAN = [
+  { f: 'sst', equipe: 'Production', periode: 'T1', effectif: 8, cout: 1440, statut: 'realise' },
+  { f: 'elec', equipe: 'Maintenance', periode: 'T1', effectif: 4, cout: 1920, statut: 'realise' },
+  { f: 'caces489', equipe: 'Logistique', periode: 'T2', effectif: 5, cout: 3250, statut: 'realise' },
+  { f: 'prap', equipe: 'Production', periode: 'T2', effectif: 6, cout: 2520, statut: 'realise' },
+  { f: 'hauteur', equipe: 'Maintenance', periode: 'T2', effectif: 3, cout: 960, statut: 'realise' },
+  { f: 'epi', equipe: 'Administration', periode: 'T3', effectif: 6, cout: 240, statut: 'realise' },
+  { f: 'sst', equipe: 'Logistique', periode: 'T4', effectif: 6, cout: 1080, statut: 'engage' },
+  { f: 'caces489', equipe: 'Logistique', periode: 'T4', effectif: 4, cout: 2600, statut: 'engage' },
+  { f: 'elec', equipe: 'Maintenance', periode: 'T4', effectif: 5, cout: 2400, statut: 'engage' },
+  { f: 'rgpd', equipe: 'Commercial', periode: 'T4', effectif: 10, cout: 0, statut: 'engage' },
+  { f: 'fco', equipe: 'Logistique', periode: 'T4', effectif: 2, cout: 1800, statut: 'prevu' },
+  { f: 'caces486', equipe: 'Maintenance', periode: 'T4', effectif: 2, cout: 1300, statut: 'prevu' },
+  { f: 'aipr', equipe: 'Maintenance', periode: 'T4', effectif: 3, cout: 570, statut: 'prevu' },
+  { f: 'prap', equipe: 'Qualité & HSE', periode: 'T4', effectif: 4, cout: 1680, statut: 'prevu' },
+  { f: null, libelle: 'Management de proximité', equipe: 'Production', periode: 'T3', effectif: 3, cout: 2700, statut: 'realise' },
+  { f: null, libelle: 'Excel avancé', equipe: 'Administration', periode: 'T2', effectif: 4, cout: 1200, statut: 'realise' },
+];
+
+/** Feuilles de temps des deux semaines précédentes, plus un brouillon en cours. */
+function feuilles() {
+  const out: { empId: number; week: string; statut: string; sage: boolean; keystone: boolean; lignes: unknown[] }[] = [];
+  Object.keys(TACHES).map(Number).forEach(id => ['2026-09-21', '2026-09-28'].forEach((week, wi) => {
+    const lignes = TACHES[id].map(([projet, tache, h]) => ({ projet, tache, ks: true, h: h.map((v, i) => v + ((id === 22 || id === 18) && wi === 1 && i < 2 && v ? 2 : 0)) }));
+    out.push({ empId: id, week, lignes, statut: wi === 1 && id % 3 === 0 ? 'soumise' : 'validee', sage: wi === 0 && id !== 15, keystone: wi === 0 });
+  }));
+  out.push({ empId: 1, week: '2026-10-05', lignes: [{ projet: 'INT-LOG', tache: 'Réception / expédition', ks: true, h: [7, 7.5, 0, 0, 0] }], statut: 'brouillon', sage: false, keystone: false });
+  return out;
+}
+
+function entretiens() {
+  const H: Record<number, string> = { 1: '2023-03-13', 2: '2024-09-20', 3: '2022-05-02', 5: '2025-01-20', 6: '2023-04-03', 7: '2022-11-15', 8: '2024-06-10', 9: '2023-02-06', 10: '2022-10-03', 11: '2024-09-09', 12: '2025-03-17', 13: '2024-03-04', 14: '2024-04-08', 16: '2023-09-11', 17: '2025-01-13', 18: '2022-06-20', 20: '2023-06-05', 21: '2024-11-04', 22: '2021-09-27', 23: '2024-02-12' };
+  const out: { empId: number; type: EntretienType; date: string; statut: string; cr: Record<string, string>; info: boolean; signSal: string | null; signMgr: string | null }[] = [];
+  const add = (o: Partial<typeof out[number]> & { empId: number; type: EntretienType; date: string; statut: string }) => out.push({ cr: {}, info: true, signSal: null, signMgr: null, ...o });
+  const done = (empId: number, type: EntretienType, date: string, cr?: Record<string, string>) => add({ empId, type, date, statut: 'realise', signMgr: date, signSal: date, cr: cr || {} });
+  Object.entries(H).forEach(([k, d]) => {
+    const empId = Number(k);
+    done(empId, 'epp', d);
+    const prior = addM(d, -24);
+    if (![21, 22].includes(empId) && prior > PROFILS[empId].entree) done(empId, 'epp', prior);
+  });
+  ([[9, '2025-10-20'], [12, '2025-06-10'], [23, '2026-03-02']] as [number, string][]).forEach(([e, d]) => done(e, 'forfait', d));
+  done(5, 'annuel', '2026-09-24', { bilan: 'Objectifs sécurité atteints : zéro accident avec arrêt sur le site.', objectifs: 'Déployer les visites de sécurité croisées.', avis: 'Échange constructif.' });
+  add({ empId: 17, type: 'annuel', date: '2026-10-01', statut: 'realise', signMgr: '2026-10-01', info: false, cr: { bilan: 'Bonne prise en main du contrôle réception.', objectifs: 'Autonomie sur les audits fournisseurs.' } });
+  ([[1, '2026-10-14'], [2, '2026-10-20'], [8, '2026-10-21'], [11, '2026-10-22']] as [number, string][]).forEach(([e, d]) => add({ empId: e, type: 'annuel', date: d, statut: 'planifie', info: false }));
+  add({ empId: 22, type: 'epp', date: '2026-10-15', statut: 'planifie', info: false, cr: { parcours: 'Souhaite évoluer vers un poste de chef d’équipe.', formation: 'Management de proximité, financé via le CPF.' } });
+  return out;
+}
+
+/** Compteurs déjà consommés avant la mise en service (repris de l'ancien outil). */
+function histo(id: number, forfait: boolean) {
+  const k = id % 4;
+  return { cp: [12, 15, 18, 20][k], rtt: forfait ? [3, 5, 4, 6][k] : [10, 14, 16, 12][k], recA: [0, 7, 3.5, 10.5][k], recP: [0, 7, 0, 3.5][k] };
+}
+
+export function seedDemo(db: Db) {
+  db.tx(() => {
+    const secret = db.getSetting<string | null>('secret', null); // conserve les sessions ouvertes
+    db.clearAll();
+    if (secret) db.setSetting('secret', secret);
+    db.setSetting('app', DEFAULT_SETTINGS);
+    FORMATIONS.forEach(f => db.insert('formations', f));
+    HABILITATIONS.forEach(h => db.insert('habilitations', h));
+    DESTS.forEach(d => db.insert('destinations', d));
+    EQUIPES.forEach(([nom, managerId], ordre) => db.insert('equipes', { nom, managerId, ordre }));
+    Object.entries(PROJETS).forEach(([code, nom]) => db.insert('projets', { code, nom }));
+    CHANTIERS.forEach(c => db.insert('chantiers', c));
+    SESSIONS.forEach(s => db.insert('sessions', s));
+    EMPLOYES.forEach(e => {
+      const p = PROFILS[e.id], x = EXTRA[e.id] || {};
+      db.insert('employes', {
+        id: e.id, nom: e.nom, equipe: e.equipe, poste: e.poste, statut: p.statut, typeContrat: p.typeContrat, temps: p.temps,
+        heures: p.heures ?? null, forfaitHeures: p.forfaitHeures ?? null, forfaitJours: p.forfaitJours ?? null, jourOff: p.jourOff ?? [],
+        entree: p.entree, fin: p.fin ?? null, naissance: p.naissance, agence: p.agence ?? null,
+        repriseMotif: p.reprise?.motif ?? null, repriseDate: p.reprise?.date ?? null, visite: x.visite ?? null,
+        passeportNumero: x.passeport?.numero ?? null, passeportExpire: x.passeport?.expire ?? null,
+      });
+      [...e.certs, ...(x.certsPlus || [])].forEach(c => db.insert('certifications', { empId: e.id, f: c.f, obtenue: c.obtenue, sessionId: c.session ?? null, convoc: c.convoc ?? null }));
+      (x.habs || []).forEach(h => db.insert('habTitres', { empId: e.id, h: h.h, delivree: h.delivree ?? null, par: h.par ?? null, demande: h.demande ?? null }));
+      (x.visas || []).forEach(v => db.insert('visas', { empId: e.id, ...v }));
+      (x.vaccins || []).forEach(v => db.insert('vaccinations', { empId: e.id, ...v }));
+    });
+    Object.entries(TACHES).forEach(([id, list]) => list.forEach(([projet, tache, heures]) => db.insert('taches', { empId: Number(id), projet, tache, heures })));
+    MISSIONS.forEach(m => db.insert('missions', m));
+    VOYAGES.forEach(v => db.insert('voyages', v));
+    DEMANDES_KEYSTONE.forEach(d => db.insert('demandesKeystone', d));
+    ABSENCES.forEach(a => db.insert('absences', a));
+    CET.forEach(c => db.insert('cet', c));
+    db.insert('reports', { empId: 6, jours: 4, motif: 'CP 2024-2025 non pris — arrêt de travail', par: 'Sandrine Vidal', date: '2026-06-02', sens: 'recu' });
+    DEMANDES_COLLAB.forEach(d => db.insert('demandesCollab', d));
+    Object.entries(BUDGETS).forEach(([ex, list]) => Object.entries(list).forEach(([equipe, montant]) => db.insert('budgets', { exercice: Number(ex), equipe, montant })));
+    PLAN.forEach(l => db.insert('planActions', { exercice: 2026, ...l }));
+    feuilles().forEach(f => db.insert('feuilles', f));
+    figerFeuilles(db);
+    entretiens().forEach(e => db.insert('entretiens', e));
+
+    // Reprise des compteurs : jours déjà pris sur les périodes en cours,
+    // plafonnés pour laisser un solde réaliste.
+    const ds: Dataset = loadFull(db, { role: 'rh', empId: null, nom: '', intitule: '' });
+    const d = new Domain(ds);
+    ds.employes.forEach((e: Employe) => {
+      const c = d.contratOf(e), h = histo(e.id, !!c.forfait);
+      const cp = c.interim ? 0 : Math.min(h.cp, Math.max(0, cpDroit(d, e).droit - 4));
+      const rd = rttDroit(d, e);
+      const rtt = rd == null ? 0 : Math.min(h.rtt, Math.max(0, rd - 3));
+      // Les demandes de récupération en attente doivent rester couvertes par le compteur acquis.
+      const recupDemandee = ds.absences.filter(a => a.empId === e.id && a.type === 'RECUP' && a.statut === 'demandee')
+        .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'RECUP') * d.dayH(e), 0);
+      db.insert('soldesReprise', { empId: e.id, cpPris: cp, rttPris: rtt, recupAcquis: Math.max(h.recA, h.recP + recupDemandee), recupPris: h.recP });
+    });
+  });
+}

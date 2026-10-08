@@ -1,0 +1,41 @@
+// Aiguillage des écrans selon la vue courante et l'espace (RH, manager, collaborateur).
+import type { ReactElement } from 'react';
+import { DialogHost } from './dialogs/DialogHost.tsx';
+import { Shell } from './layout/Shell.tsx';
+import { Absences } from './pages/Absences.tsx';
+import { Budget } from './pages/Budget.tsx';
+import { Chantiers } from './pages/Chantiers.tsx';
+import { Collaborateurs } from './pages/Collaborateurs.tsx';
+import { Dashboard } from './pages/Dashboard.tsx';
+import { Echeances } from './pages/Echeances.tsx';
+import { Entretiens } from './pages/Entretiens.tsx';
+import { Equipes } from './pages/Equipes.tsx';
+import { Formations } from './pages/Formations.tsx';
+import { Habilitations } from './pages/Habilitations.tsx';
+import { Login } from './pages/Login.tsx';
+import { Missions } from './pages/Missions.tsx';
+import { Parametres } from './pages/Parametres.tsx';
+import { Portail } from './pages/Portail.tsx';
+import { Temps } from './pages/Temps.tsx';
+import { Voyages } from './pages/Voyages.tsx';
+import { useStore, type View } from './state/store.tsx';
+
+const PAGES: Record<View, () => ReactElement> = {
+  dashboard: Dashboard, collaborateurs: Collaborateurs, equipes: Equipes, formations: Formations, habilitations: Habilitations, voyages: Voyages,
+  chantiers: Chantiers, echeances: Echeances, budget: Budget, temps: Temps, absences: Absences, entretiens: Entretiens,
+  missions: Missions, parametres: Parametres, portail: Portail,
+};
+
+export function App() {
+  const { session, data, loading, view } = useStore();
+  if (loading) return <Shell><div className="loading">Chargement…</div></Shell>;
+  if (!session?.user) return <Shell><Login /></Shell>;
+  if (!data) return <Shell><div className="loading">Chargement des données…</div></Shell>;
+  const PageComponent = PAGES[view];
+  return (
+    <Shell>
+      <PageComponent key={view} />
+      <DialogHost />
+    </Shell>
+  );
+}

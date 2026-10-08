@@ -1,0 +1,158 @@
+// Modèle de données de Cursus, partagé entre le serveur (SQLite) et le client.
+// Les dates sont des chaînes ISO « AAAA-MM-JJ » (heure locale, sans fuseau).
+
+export type ISODate = string;
+export type Role = 'rh' | 'manager' | 'collaborateur';
+
+export type FormationType = 'Réglementaire' | 'Recommandée' | 'Interne';
+export type VaccinId = 'fj' | 'hepA' | 'hepB' | 'typhoide' | 'dtp';
+export type VisaKind = 'none' | 'evisa' | 'esta' | 'embassy';
+/** Catégories de la CCN Industries chimiques. */
+export type Statut = 'ouvrier' | 'technicien' | 'cadre';
+export type TypeContrat = 'cdi' | 'cdd' | 'interim' | 'alternance';
+/** Organisation du temps de travail (durée de référence ou convention de forfait). */
+export type TempsTravail = '35h' | '39h_rtt' | 'forfait_heures_hebdo' | 'forfait_heures_annuel' | 'forfait_jours' | 'partiel' | 'dirigeant';
+export type AbsenceType = 'CP' | 'RTT' | 'RECUP';
+export type AbsenceStatut = 'demandee' | 'validee' | 'refusee';
+export type FeuilleStatut = 'brouillon' | 'soumise' | 'validee' | 'rejetee';
+export type EntretienType = 'epp' | 'reprise' | 'bilan' | 'annuel' | 'forfait';
+export type PlanStatut = 'prevu' | 'engage' | 'realise';
+export type Trimestre = 'T1' | 'T2' | 'T3' | 'T4';
+export type VoyageOrigine = 'formulaire' | 'keystone' | 'cursus';
+export type TripStatus = 'pret' | 'todo' | 'bloc';
+export type DemandeType = 'formation' | 'habilitation' | 'document';
+export type DemandeStatut = 'attente' | 'acceptee' | 'refusee';
+
+// — Référentiels —
+export interface Formation { id: string; nom: string; court: string; type: FormationType; validite: number; duree: string; organisme: string; cout: number }
+export interface HabType { id: string; nom: string; detail: string; prereqs: string[]; medical: boolean; validite: number; signataire: string }
+export interface Destination { code: string; pays: string; visa: VisaKind; visaSub: string; oblig: VaccinId[]; rec: VaccinId[]; passMois: number }
+export interface Equipe { nom: string; managerId: number | null; ordre: number }
+export interface Projet { code: string; nom: string }
+export interface Chantier { id: string; nom: string; client: string; lieu: string; pays: string; debut: ISODate; fin: ISODate; chef: string; habs: string[]; certs: string[]; ressources: number[] }
+
+export interface Referentiels {
+  formations: Formation[];
+  habilitations: HabType[];
+  destinations: Destination[];
+  equipes: Equipe[];
+  projets: Projet[];
+  chantiers: Chantier[];
+}
+
+// — Collaborateurs —
+export interface Certification { id: number; empId: number; f: string; obtenue: ISODate; sessionId: number | null; convoc: 'now' | 'later' | null }
+export interface HabTitre { id: number; empId: number; h: string; delivree: ISODate | null; par: string | null; demande: ISODate | null }
+export interface Visa { id: number; empId: number; dest: string; type: string; obtenu: ISODate | null; expire: ISODate }
+export interface Vaccination { id: number; empId: number; v: VaccinId; date: ISODate }
+export interface Passeport { numero: string; expire: ISODate }
+
+export interface Employe {
+  id: number;
+  nom: string;
+  /** Équipe d'affectation ; null = à affecter par le service RH. */
+  equipe: string | null;
+  poste: string;
+  statut: Statut;
+  typeContrat: TypeContrat;
+  temps: TempsTravail;
+  /** Durée hebdomadaire : temps partiel ou forfait hebdomadaire en heures. */
+  heures: number | null;
+  /** Forfait annuel en heures (par exemple 1 607 h). */
+  forfaitHeures: number | null;
+  /** Forfait annuel en jours (218 au plus, art. L3121-64). */
+  forfaitJours: number | null;
+  /** Jours non travaillés du temps partiel (0 = lundi … 4 = vendredi). */
+  jourOff: number[];
+  /** Date d'effet de l'organisation du temps actuelle (null = depuis l'entrée). */
+  tempsDepuis: ISODate | null;
+  entree: ISODate;
+  fin: ISODate | null;
+  naissance: number;
+  agence: string | null;
+  repriseMotif: string | null;
+  repriseDate: ISODate | null;
+  /** Date de la dernière visite d'aptitude — réservée au service RH. */
+  visite: ISODate | null;
+  /** Remplace `visite` dans les vues manager : seul le verdict est transmis. */
+  aptitude?: { ok: boolean };
+  passeport: Passeport | null;
+  certs: Certification[];
+  habs: HabTitre[];
+  visas: Visa[];
+  vaccins: Vaccination[];
+}
+
+export interface Personne { id: number; nom: string; equipe: string | null; poste: string }
+
+// — Formations & plan —
+export interface Session { id: number; formation: string; date: ISODate; lieu: string; places: number; inscrits: number; statut: 'Confirmée' | 'À confirmer' }
+/** Inscription à une session d'une formation que le collaborateur n'a encore jamais suivie (formation initiale). */
+export interface Inscription { id: number; empId: number; sessionId: number; convoc: 'now' | 'later'; date: ISODate }
+export interface PlanAction { id: number; exercice: number; f: string | null; libelle: string | null; equipe: string; periode: Trimestre; effectif: number; cout: number; statut: PlanStatut; origine: string | null }
+
+// — Déplacements & projets —
+export interface Voyage { id: number; empId: number; dest: string; depart: ISODate; retour: ISODate; motif: string; origine: VoyageOrigine; ref: string | null; chantier: string | null; dossierStatut?: TripStatus }
+export interface DemandeKeystone { id: number; empId: number; chantier: string; dest: string; depart: ISODate; retour: ISODate; recue: ISODate }
+export interface Mission { id: number; empId: number; projet: string; lieu: string; du: ISODate; au: ISODate; type: string }
+export interface TacheKeystone { id: number; empId: number; projet: string; tache: string; heures: number[] }
+
+// — Temps & absences —
+export interface LigneTemps { projet: string; tache: string; ks: boolean; h: number[] }
+/** Régime de temps de travail figé sur une feuille soumise : un changement de contrat ultérieur ne la recalcule pas. */
+export type ContratFige = Pick<Employe, 'statut' | 'typeContrat' | 'temps' | 'heures' | 'forfaitHeures' | 'forfaitJours' | 'jourOff'>;
+export interface FeuilleTemps { id: number; empId: number; week: ISODate; statut: FeuilleStatut; comment: string | null; sage: boolean; keystone: boolean; lignes: LigneTemps[]; contrat: ContratFige | null }
+export interface Absence { id: number; empId: number; type: AbsenceType; du: ISODate; au: ISODate; statut: AbsenceStatut; keystone: boolean }
+export interface CetMouvement { id: number; empId: number; type: 'CP' | 'RTT'; jours: number; date: ISODate; periode: string }
+export interface ReportCp { id: number; empId: number; jours: number; motif: string; par: string; date: ISODate; sens: 'recu' | 'accorde' }
+/** Compteurs repris de l'ancien système pour les périodes en cours. */
+export interface SoldeReprise { empId: number; cpPris: number; rttPris: number; recupAcquis: number; recupPris: number }
+
+// — Entretiens & demandes —
+export interface Entretien { id: number; empId: number; type: EntretienType; date: ISODate; statut: 'planifie' | 'realise'; cr: Record<string, string>; info: boolean; signSal: ISODate | null; signMgr: ISODate | null }
+/** Demande au service RH, émise par le collaborateur ou par son manager (`parId`). */
+export interface DemandeCollab { id: number; empId: number; type: DemandeType; f: string | null; h: string | null; libelle: string | null; label: string | null; sessionId: number | null; motif: string | null; date: ISODate; statut: DemandeStatut; reponse: string | null; parId: number | null }
+
+// — Paramètres & session —
+export interface Settings {
+  horizonAlerte: number;
+  uniquementReglementaire: boolean;
+  seuilBudget: number;
+  partageKeystone: 'minimal' | 'detaille';
+  rtt39: number;
+  rhNom: string;
+  rhIntitule: string;
+  vueInitiale: string;
+}
+
+export interface CurrentUser { role: Role; empId: number | null; nom: string; intitule: string }
+
+export interface SagePush { endpoint: string; dossier: string; periode_paie: string; envoye_le: string; lignes: { matricule: string; semaine: string; rubriques: Record<string, number> }[] }
+
+/** Instantané des données visibles par l'utilisateur connecté. */
+export interface Dataset {
+  today: ISODate;
+  user: CurrentUser;
+  settings: Settings;
+  referentiels: Referentiels;
+  annuaire: Personne[];
+  employes: Employe[];
+  sessions: Session[];
+  inscriptions: Inscription[];
+  plan: PlanAction[];
+  budgets: Record<string, Record<string, number>>;
+  voyages: Voyage[];
+  demandesKeystone: DemandeKeystone[];
+  missions: Mission[];
+  taches: TacheKeystone[];
+  feuilles: FeuilleTemps[];
+  absences: Absence[];
+  cet: CetMouvement[];
+  reports: ReportCp[];
+  soldesReprise: SoldeReprise[];
+  entretiens: Entretien[];
+  demandesCollab: DemandeCollab[];
+  lastSagePush: SagePush | null;
+}
+
+export interface ActionResult { message: string | null; data: Dataset; result?: unknown }

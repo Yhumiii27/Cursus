@@ -1,6 +1,49 @@
+# Dépendances
 node_modules/
+
+# Builds et artefacts générés
 dist/
+build/
+out/
+coverage/
+.vite/
+*.tsbuildinfo
+*.app/
+*.iconset/
+*.icns
+
+# Base de données locale (contient aussi la clé de signature des sessions)
 data/*.db
 data/*.db-*
+*.sqlite
+*.sqlite3
+
+# Secrets : variables d'environnement, clés, certificats, mots de passe
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+*.p12
+*.pfx
+*.crt
+*.cer
+*.der
+*.jks
+*.keystore
+*.mobileprovision
+id_rsa*
+id_ed25519*
+secrets/
+secrets.*
+credentials.*
+*.secret
+*.password
+passwords.*
+.npmrc
+.netrc
+
+# Réglages locaux et fichiers système
+.claude/settings.local.json
 .DS_Store
 *.log

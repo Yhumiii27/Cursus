@@ -109,4 +109,4 @@ enveloppes par équipe, import CSV.
 
 Jours fériés et périodes de référence (CP, RTT, campagnes) calculés à partir de la date du jour.
 
-Architecture et conventions : `docs/ARCHITECTURE.md`.
+Architecture et conventions : `docs/ARCHITECTURE.md`. Travail restant, priorisé : `docs/RESTE_A_FAIRE.md`.

@@ -98,6 +98,12 @@ const docKey = (d: number, h: number): StatusKey => d < 0 ? 'exp' : d <= h ? 'du
 /** Statut de conformité d'un titre : suspendu ou retiré compte comme expiré ; une demande en attente ne pénalise pas. */
 const habStatus = (k: HabKey): StatusKey => k === 'susp' || k === 'retiree' ? 'exp' : k === 'pending' ? 'ok' : k;
 
+/**
+ * Titre détenu ou déjà demandé, qu'un collaborateur ne peut pas redemander. Un titre expiré peut l'être, un titre
+ * retiré aussi tant qu'aucune demande de nouvelle délivrance n'a été acceptée (`demande` renseignée).
+ */
+export const habEnCours = (h: Pick<HabInfo, 'key' | 'demande'>) => h.key === 'retiree' ? !!h.demande : h.key !== 'exp';
+
 /** Ordre chronologique inverse : date d'obtention, puis ordre d'enregistrement. */
 const plusRecente = (a: Pick<Certification, 'id' | 'obtenue'>, b: Pick<Certification, 'id' | 'obtenue'>) => b.obtenue.localeCompare(a.obtenue) || b.id - a.id;
 
@@ -270,7 +276,10 @@ export class Domain {
     const mesureNote = mesure
       ? `${mesure === 'retrait' ? 'Retirée' : 'Suspendue'}${mesureLe ? ' le ' + fmt(mesureLe) : ''}${h.mesurePar ? ' par ' + h.mesurePar : ''}${h.mesureMotif ? ' — ' + h.mesureMotif : ''}`
       : '';
-    const note = mesure === 'retrait' ? mesureNote : [mesureNote, prereqNote].filter(Boolean).join(' · ');
+    // Après un retrait, la demande acceptée attend la nouvelle délivrance du service RH.
+    const note = mesure === 'retrait'
+      ? [mesureNote, h.demande ? `Nouvelle délivrance demandée le ${fmt(parse(h.demande))}` : ''].filter(Boolean).join(' · ')
+      : [mesureNote, prereqNote].filter(Boolean).join(' · ');
     return {
       id: 0, empId: 0, delivree: null, par: null, demande: null, mesure: null, mesureDate: null, mesureMotif: null, mesurePar: null, ...h,
       hm, checks, failing, prereqOk, exp, d, key, note, mesureLe,

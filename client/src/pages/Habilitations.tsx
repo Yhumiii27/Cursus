@@ -81,6 +81,7 @@ export function Habilitations() {
                     <td>
                       <Tag cls={HAB_CLS[h.key]}>{HAB_LABEL[h.key]}</Tag>
                       {h.mesure && h.mesureLe && <div className="text-muted sub" style={{ marginTop: 'var(--space-1)' }}>le {fmt(h.mesureLe)} — {h.mesureMotif}</div>}
+                      {h.key === 'retiree' && h.demande && <div className="text-muted sub">Redemandée le {fmt(parse(h.demande))}</div>}
                     </td>
                     <td className="right">
                       <div className="actions-end">

@@ -72,7 +72,10 @@ export function Formations() {
   const filteredFm = ui.formationFilter ? d.fm(ui.formationFilter) ?? null : null;
   const shownRenewals = renewals.filter(r => !ui.formationFilter || r.c.f === ui.formationFilter);
   const openSession = (f: string) => upcoming.find(s => s.formation === f && s.inscrits < s.places) ?? null;
-  /** Membres de l'équipe inscrits à une session. */
+  /**
+   * Membres de l'équipe inscrits à une session. Une certification remplacée ne garde sa place que dans la session
+   * qui a produit le recyclage (les autres places sont libérées à l'enregistrement) : elle compte aussi.
+   */
   const enrolled = (sessionId: number) => scope.filter(e => [...e.rawCerts, ...e.anciennes].some(c => c.sessionId === sessionId)).map(e => e.nom);
 
   const kicker = manager

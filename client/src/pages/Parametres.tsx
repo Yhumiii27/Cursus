@@ -139,7 +139,7 @@ export function Parametres() {
                 options={[['minimal', 'Codes de motifs uniquement'], ['detaille', 'Codes et libellés des motifs']]}
                 onChange={v => save({ partageKeystone: v })} />
             </Field>
-            <Fine>Les verdicts Go / No Go transmis à Keystone ne contiennent que des matricules et des codes de motif (HABILITATION, CERTIFICATION, DEPLACEMENT, FORMALITES_VOYAGE). En mode détaillé, chaque code est accompagné d’un libellé explicatif ; aucune donnée de santé ne sort de Cursus.</Fine>
+            <Fine>Les verdicts Go / No Go transmis à Keystone ne contiennent que des matricules et des codes de motif (HABILITATION, HABILITATION_SUSPENDUE, HABILITATION_RETIREE, CERTIFICATION, DEPLACEMENT, FORMALITES_VOYAGE). En mode détaillé, chaque code est accompagné d’un libellé explicatif ; aucune donnée de santé ne sort de Cursus.</Fine>
 
             <SectionLabel>Appels entrants</SectionLabel>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', marginTop: 'calc(-1 * var(--space-2))' }}>
@@ -156,8 +156,8 @@ export function Parametres() {
             <Fine>Authentification par l’en-tête <span style={MONO}>X-Api-Key</span> (clé définie par la variable <span style={MONO}>KEYSTONE_API_KEY</span>).</Fine>
             <Fine>
               {keystoneMode === 'api'
-                ? 'Mode API : les décisions sur les demandes de déplacement, les heures validées et les absences validées sont envoyées à Keystone.'
-                : 'Mode simulation : les messages sortants (décisions sur les demandes, heures et absences validées) sont tracés dans le journal au lieu d’être envoyés.'}
+                ? 'Mode API : les décisions sur les demandes de déplacement, les heures validées, les absences validées et les verdicts modifiés par une suspension, une levée, un retrait ou une nouvelle délivrance d’habilitation sont envoyés à Keystone.'
+                : 'Mode simulation : les messages sortants (décisions sur les demandes, heures et absences validées, verdicts modifiés par une mesure sur une habilitation) sont tracés dans le journal au lieu d’être envoyés.'}
             </Fine>
           </Panel>
 

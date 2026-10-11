@@ -1,7 +1,7 @@
 // Formations, sessions, certifications, habilitations et demandes des collaborateurs.
 import { GNG_CODE } from '../../../shared/constants.ts';
 import { addMonths, isValidDate, parse } from '../../../shared/dates.ts';
-import { certEnVigueur, Domain, type ChantierEval } from '../../../shared/domain.ts';
+import { certEnVigueur, Domain, habEnCours, type ChantierEval } from '../../../shared/domain.ts';
 import { fmt, matricule, plural } from '../../../shared/format.ts';
 import type { Certification, DemandeCollab, Employe, HabTitre, HabType, Inscription, Session } from '../../../shared/types.ts';
 import { loadFull } from '../dataset.ts';
@@ -34,9 +34,18 @@ const ajouterCert: ActionHandler = (ctx, p) => {
   const fm = ctx.d.fm(str(p.f));
   if (!fm) throw new ActionError('Formation inconnue');
   if (!isValidDate(p.date)) throw new ActionError('Date d’obtention invalide');
-  ctx.db.insert<Certification>('certifications', { empId: emp.id, f: fm.id, obtenue: p.date, sessionId: null, convoc: null });
+  const avant = certEnVigueur(emp.certs, fm.id);
+  const cert = ctx.db.insert<Certification>('certifications', { empId: emp.id, f: fm.id, obtenue: p.date, sessionId: null, convoc: null });
   // La certification obtenue clôt l'inscription en formation initiale correspondante.
   ctx.ds.inscriptions.filter(i => i.empId === emp.id && ctx.d.session(i.sessionId)?.formation === fm.id).forEach(i => ctx.db.remove('inscriptions', i.id));
+  // Recyclage enregistré : une session à venir, postérieure à l'obtention, n'a plus d'objet pour la certification
+  // remplacée (qui ne se planifie plus) ; sa place est libérée.
+  const sess = avant && certEnVigueur([...emp.certs, cert], fm.id) === cert ? ctx.d.session(avant.sessionId) : null;
+  if (sess && sess.date >= ctx.d.ti && sess.date > p.date) {
+    ctx.db.update<Session>('sessions', sess.id, { inscrits: Math.max(0, sess.inscrits - 1) });
+    ctx.db.update<Certification>('certifications', avant!.id, { sessionId: null, convoc: null });
+    return `${fm.court} ajoutée au dossier de ${emp.nom} · inscription à la session du ${fmt(parse(sess.date))} annulée`;
+  }
   return `${fm.court} ajoutée au dossier de ${emp.nom}`;
 };
 
@@ -61,13 +70,19 @@ const delivrerHab: ActionHandler = (ctx, p) => {
   const existing = emp.habs.find(h => h.h === hm.id);
   // Une suspension se lève explicitement ; après un retrait, une nouvelle délivrance reste possible.
   if (existing?.delivree && existing.mesure === 'suspension') throw new ActionError(`${hm.nom} suspendue pour ${emp.nom} — levez d’abord la suspension`);
+  const retire = existing?.delivree && existing.mesure === 'retrait' ? existing : null;
+  // Le retrait est définitif : une délivrance antidatée rétablirait l'ancien titre.
+  if (retire?.mesureDate && p.date < retire.mesureDate) throw new ActionError(`Nouvelle délivrance antérieure au retrait du ${fmt(parse(retire.mesureDate))}`);
   const x = enriched(ctx).find(e => e.id === emp.id)!;
   const info = ctx.d.habInfo({ h: hm.id, delivree: p.date }, x.rawCerts, x.med, ctx.ds.settings.horizonAlerte);
   if (!info.prereqOk) throw new ActionError(`Délivrance impossible — ${info.failing.map(c => c.label).join(', ')}`);
+  // Après un retrait, Keystone a reçu le No Go : il reçoit aussi le verdict rétabli.
+  const avant = retire ? verdicts(ctx.d, emp.id) : null;
   const entry = { delivree: p.date, par, demande: null, mesure: null, mesureDate: null, mesureMotif: null, mesurePar: null };
   if (existing) ctx.db.update<HabTitre>('habTitres', existing.id, entry);
   else ctx.db.insert<HabTitre>('habTitres', { empId: emp.id, h: hm.id, ...entry });
-  return `${hm.nom} ${p.mode === 'renew' ? 'renouvelée' : 'délivrée'} — ${emp.nom} · valide jusqu’au ${fmt(addMonths(parse(p.date), hm.validite))}`;
+  const keystone = avant ? signaler(ctx, emp, avant).keystone : '';
+  return `${hm.nom} ${p.mode === 'renew' ? 'renouvelée' : 'délivrée'} — ${emp.nom} · valide jusqu’au ${fmt(addMonths(parse(p.date), hm.validite))}${keystone}`;
 };
 
 const demanderVisite: ActionHandler = (ctx, p) => {
@@ -110,9 +125,15 @@ const accepterDemande: ActionHandler = (ctx, p) => {
     return `${emp.nom} — demande ajoutée au plan de formation ${ex}`;
   }
   if (r.type === 'habilitation') {
-    if (r.h && !emp.habs.some(h => h.h === r.h)) ctx.db.insert<HabTitre>('habTitres', { empId: emp.id, h: r.h, delivree: null, par: null, demande: ctx.d.ti });
+    const t = emp.habs.find(h => h.h === r.h);
+    // Titre retiré : la demande acceptée reste attachée au titre jusqu'à la nouvelle délivrance.
+    const retire = t?.delivree && t.mesure === 'retrait' ? t : null;
+    if (retire) ctx.db.update<HabTitre>('habTitres', retire.id, { demande: ctx.d.ti });
+    else if (r.h && !t) ctx.db.insert<HabTitre>('habTitres', { empId: emp.id, h: r.h, delivree: null, par: null, demande: ctx.d.ti });
     done('Acceptée — délivrance après contrôle des prérequis');
-    return `${emp.nom} — ${ctx.d.hm(r.h!).nom} en attente de délivrance (onglet Habilitations)`;
+    return retire
+      ? `${emp.nom} — ${ctx.d.hm(r.h!).nom} retirée : nouvelle délivrance à effectuer après contrôle des prérequis (onglet Habilitations)`
+      : `${emp.nom} — ${ctx.d.hm(r.h!).nom} en attente de délivrance (onglet Habilitations)`;
   }
   done('Document contrôlé par le service RH');
   return `${r.label} — ${emp.nom} · contrôlé`;
@@ -161,7 +182,7 @@ const demandeHabilitation: ActionHandler = (ctx, p) => {
   const motif = str(p.motif), hm = ctx.d.hm(str(p.h));
   if (!hm || !motif) throw new ActionError('Habilitation et motif requis');
   const x = enriched(ctx).find(e => e.id === emp.id)!;
-  const already = x.habs.some(h => h.h === hm.id && h.key !== 'exp' && h.key !== 'retiree')
+  const already = x.habs.some(h => h.h === hm.id && habEnCours(h))
     || ctx.ds.demandesCollab.some(r => r.empId === emp.id && r.type === 'habilitation' && r.h === hm.id && r.statut === 'attente');
   if (already) throw new ActionError(parId ? `${emp.nom} détient déjà ce titre, ou une demande est déjà en cours.` : 'Vous détenez déjà ce titre, ou une demande est déjà en cours.');
   ctx.db.insert<DemandeCollab>('demandesCollab', {
@@ -202,12 +223,10 @@ function verdicts(d: Domain, empId: number): Map<string, ChantierEval> {
 }
 
 /**
- * Enregistre la mesure, puis signale à Keystone chaque chantier dont le verdict du collaborateur change
- * (matricule et codes de motif uniquement). Renvoie l'état après la mesure et le nombre de chantiers signalés.
+ * Signale à Keystone chaque chantier dont le verdict du collaborateur a changé depuis `avant`
+ * (matricule et codes de motif uniquement). Renvoie l'état après l'écriture et le nombre de chantiers signalés.
  */
-function mesurer(ctx: Ctx, emp: Employe, t: HabTitre, patch: Pick<HabTitre, 'mesure' | 'mesureDate' | 'mesureMotif' | 'mesurePar'>) {
-  const avant = verdicts(ctx.d, emp.id);
-  ctx.db.update<HabTitre>('habTitres', t.id, patch);
+function signaler(ctx: Ctx, emp: Employe, avant: Map<string, ChantierEval>) {
   const apres = new Domain(loadFull(ctx.db, ctx.user));
   let signales = 0;
   verdicts(apres, emp.id).forEach((x, id) => {
@@ -218,6 +237,13 @@ function mesurer(ctx: Ctx, emp: Employe, t: HabTitre, patch: Pick<HabTitre, 'mes
     signales++;
   });
   return { apres, keystone: signales ? ` · ${plural(signales, 'chantier signalé', 'chantiers signalés')} à Keystone` : '' };
+}
+
+/** Enregistre la mesure, puis signale à Keystone les verdicts qu'elle modifie. */
+function mesurer(ctx: Ctx, emp: Employe, t: HabTitre, patch: Pick<HabTitre, 'mesure' | 'mesureDate' | 'mesureMotif' | 'mesurePar'>) {
+  const avant = verdicts(ctx.d, emp.id);
+  ctx.db.update<HabTitre>('habTitres', t.id, patch);
+  return signaler(ctx, emp, avant);
 }
 
 /** Suspension après un incident ou une restriction : RH, ou manager pour un membre de son équipe (jamais lui-même). */

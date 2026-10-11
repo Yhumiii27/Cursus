@@ -130,10 +130,14 @@ est « à affecter » et relève du service RH.
   compte (`certEnVigueur` de `shared/domain.ts`) — statut, échéances, indicateurs, prérequis des
   habilitations, Go / No Go, fiche et passeport formation. Les certifications remplacées par un
   recyclage restent en base : `EmpX.anciennes` les expose comme historique (« remplacée le … »).
+  Leur place dans une session à venir, postérieure au recyclage, est libérée (`cert.ajouter`, et au
+  démarrage pour une base existante : `server/src/migrate.ts`).
 - **Suspension et retrait** : un titre délivré porte une éventuelle mesure (`mesure`, `mesureDate`,
   `mesureMotif`, `mesurePar`). Suspendu (`susp`) ou retiré (`retiree`), il n'est plus valide : fiche
   non conforme, échéance dépassée, No Go avec les codes `HABILITATION_SUSPENDUE` / `HABILITATION_RETIREE`.
-  La suspension se lève (RH) ; le retrait est définitif, seule une nouvelle délivrance rétablit le titre.
+  La suspension se lève (RH) ; le retrait est définitif, seule une nouvelle délivrance, datée au plus tôt
+  du jour du retrait, rétablit le titre. Une demande acceptée après un retrait reste notée sur le titre
+  (`demande`) jusqu'à cette nouvelle délivrance.
   Le motif est un texte libre visible du manager et du collaborateur, jamais transmis à Keystone.
   Une base existante reçoit les nouvelles colonnes au démarrage (schéma déclaratif de `server/src/db.ts`).
 
@@ -144,7 +148,7 @@ est « à affecter » et relève du service RH.
   `KEYSTONE_API_KEY`). Seuls des matricules et codes de motif sortent de Cursus.
 - **Cursus → Keystone** : `server/src/integrations/keystone.ts` (`sendToKeystone`) —
   décisions sur les demandes, heures validées, absences validées, verdicts modifiés par une
-  suspension, une levée ou un retrait d'habilitation (`verdict.modifie` : chantier, matricule, codes
-  de motif). En simulation, les messages sont écrits dans le journal.
+  suspension, une levée, un retrait ou la nouvelle délivrance qui suit un retrait (`verdict.modifie` :
+  chantier, matricule, codes de motif). En simulation, les messages sont écrits dans le journal.
 - **Sage Paie** : `server/src/integrations/sage.ts` (`pushToSage`).
 - **Authentification unique** : `server/src/auth.ts` et la route `/api/login`.

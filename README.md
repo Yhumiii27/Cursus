@@ -79,7 +79,8 @@ Relancez `npm run app` après une modification du code ou un déplacement du dos
   unique de l'entreprise (OIDC / SAML) dans `server/src/auth.ts` et la route `/api/login`.
 - **Keystone** : les appels entrants (`GET /api/integrations/keystone/chantiers/:id/go-no-go`,
   `POST /api/integrations/keystone/demandes`) sont réels ; les messages sortants (décisions,
-  heures et absences validées) sont tracés dans le journal (`server/src/integrations/keystone.ts`).
+  heures et absences validées, verdicts modifiés par une suspension, une levée, un retrait ou une
+  nouvelle délivrance d'habilitation) sont tracés dans le journal (`server/src/integrations/keystone.ts`).
 - **Sage Paie** : la transmission produit le JSON des variables et un accusé fictif
   (`server/src/integrations/sage.ts`) ; la correspondance des rubriques avec le plan de paie reste à paramétrer.
 - **Convocations, demandes de visite médicale** : notifiées dans l'interface et tracées, sans envoi d'e-mail.

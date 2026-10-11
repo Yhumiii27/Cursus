@@ -10,7 +10,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 const { Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, loadFull } = await import('../server/src/dataset.ts');
-const { migrate } = await import('../server/src/migrate.ts');
+const { libererPlacesRemplacees, migrate } = await import('../server/src/migrate.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
 const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
 const { Domain } = await import('../shared/domain.ts');
@@ -70,6 +70,34 @@ test('recyclage enregistré : seule la nouvelle certification compte, l’ancien
   assert.equal(emp(2).worst, 'ok', 'statut calculé sur la certification en vigueur');
   // L'ancienne certification ne se planifie plus.
   assert.throws(() => run(RH, 'plan.inscrire', { empId: 2, certId: ancienne, sessionId: 5 }), /remplacée/);
+});
+
+test('recyclage enregistré : la place de la certification remplacée dans une session à venir est libérée', () => {
+  const { run, domain, emp } = fresh();
+  const [ancienne] = domain().emp(2)!.certs.filter(c => c.f === 'elec').map(c => c.id);
+  const inscrits = () => domain().session(5)!.inscrits;
+  const avant = inscrits();
+  run(RH, 'plan.inscrire', { empId: 2, certId: ancienne, sessionId: 5 }); // session elec du 27 octobre
+  assert.equal(inscrits(), avant + 1);
+
+  const msg = run(RH, 'cert.ajouter', { empId: 2, f: 'elec', date: '2026-10-06' });
+  assert.match(String(msg), /inscription à la session du 27 oct.* annulée/);
+  assert.equal(inscrits(), avant, 'place libérée');
+  assert.deepEqual(emp(2).anciennes.map(c => [c.id, c.sessionId, c.convoc]), [[ancienne, null, null]]);
+});
+
+test('migration : place de session encore tenue par une certification remplacée', () => {
+  const { db, run, domain } = fresh();
+  const [ancienne] = domain().emp(2)!.certs.filter(c => c.f === 'elec').map(c => c.id);
+  run(RH, 'plan.inscrire', { empId: 2, certId: ancienne, sessionId: 5 });
+  const inscrits = domain().session(5)!.inscrits;
+  // État laissé par une version antérieure : recyclage enregistré sans libérer la place.
+  db.insert('certifications', { empId: 2, f: 'elec', obtenue: '2026-10-06', sessionId: null, convoc: null });
+  libererPlacesRemplacees(db, '2026-10-10');
+  assert.equal(domain().session(5)!.inscrits, inscrits - 1);
+  assert.equal(db.get<{ sessionId: number | null }>('certifications', ancienne)!.sessionId, null);
+  libererPlacesRemplacees(db, '2026-10-10');
+  assert.equal(domain().session(5)!.inscrits, inscrits - 1, 'migration rejouable sans effet');
 });
 
 // — t054 : suspension et retrait des habilitations —
@@ -144,7 +172,7 @@ test('suspension par le manager : membres de son équipe uniquement, levée rés
 });
 
 test('retrait par le RH : définitif, nouvelle délivrance possible', () => {
-  const { run, emp, verdict } = fresh();
+  const { db, run, emp, verdict, keystone } = fresh();
   assert.throws(() => run(RH, 'hab.retirer', { empId: 18, h: 'he', motif: '' }), /Motif obligatoire/);
   run(RH, 'hab.suspendre', { empId: 18, h: 'he', motif: 'Incident' });
   run(RH, 'hab.retirer', { empId: 18, h: 'he', motif: 'Faute grave de consignation', date: '2026-10-10' });
@@ -153,15 +181,34 @@ test('retrait par le RH : définitif, nouvelle délivrance possible', () => {
   assert.equal(he.mesureMotif, 'Faute grave de consignation');
   assert.equal(emp(18).worst, 'exp');
   assert.ok(verdict('K-2614', 18).reasons.some(r => r.code === 'HABILITATION_RETIREE'));
+  assert.equal(keystone().length, 4, 'suspension puis retrait : code de motif modifié sur les deux chantiers');
   assert.throws(() => run(RH, 'hab.suspendre', { empId: 18, h: 'he', motif: 'x' }), /déjà retirée/);
   assert.throws(() => run(RH, 'hab.lever', { empId: 18, h: 'he' }), /n’est pas suspendue/);
-  // Le collaborateur peut de nouveau demander le titre ; le RH le délivre après contrôle des prérequis.
+
+  // Le collaborateur peut de nouveau demander le titre ; la demande acceptée reste notée sur le titre retiré.
   run(ROMAIN, 'demande.habilitation', { h: 'he', motif: 'Reprise des interventions' });
-  run(RH, 'hab.delivrer', { empId: 18, h: 'he', date: '2026-10-10', par: 'Karim Haddad', mode: 'deliver' });
+  const demande = db.all<{ id: number; empId: number; statut: string }>('demandesCollab').find(r => r.empId === 18 && r.statut === 'attente')!;
+  assert.match(String(run(RH, 'demande.accepter', { id: demande.id })), /retirée : nouvelle délivrance à effectuer/);
+  const accepte = emp(18).habs.find(x => x.h === 'he')!;
+  assert.deepEqual([accepte.key, accepte.demande], ['retiree', '2026-10-10']);
+  assert.match(accepte.note, /Nouvelle délivrance demandée le/);
+  assert.throws(() => run(ROMAIN, 'demande.habilitation', { h: 'he', motif: 'Encore' }), /une demande est déjà en cours/);
+
+  // Une délivrance antidatée annulerait le retrait : la nouvelle délivrance lui est postérieure.
+  assert.throws(() => run(RH, 'hab.delivrer', { empId: 18, h: 'he', date: '2025-03-01', par: 'Karim Haddad', mode: 'deliver' }), /antérieure au retrait du 10 oct/);
+  assert.equal(emp(18).habs.find(x => x.h === 'he')!.key, 'retiree');
+  const msg = run(RH, 'hab.delivrer', { empId: 18, h: 'he', date: '2026-10-10', par: 'Karim Haddad', mode: 'deliver' });
+  assert.match(String(msg), /2 chantiers signalés à Keystone/);
   const neuve = emp(18).habs.find(x => x.h === 'he')!;
   assert.equal(neuve.key, 'ok');
   assert.equal(neuve.mesure, null);
+  assert.equal(neuve.demande, null);
   assert.equal(verdict('K-2614', 18).status, 'go');
+  // Keystone, qui avait reçu le No Go du retrait, reçoit le verdict rétabli.
+  const retour = keystone().slice(4);
+  assert.deepEqual(retour.map(e => e.payload.chantier).sort(), ['K-2611', 'K-2614']);
+  assert.ok(retour.every(e => !e.payload.ressource!.motifs.some(m => m.startsWith('HABILITATION'))));
+  assert.deepEqual(retour.find(e => e.payload.chantier === 'K-2614')!.payload.ressource, { matricule: 'EMP-0018', statut: 'GO', motifs: [] });
 });
 
 test('migration d’une base antérieure aux suspensions d’habilitation', () => {

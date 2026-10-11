@@ -1,4 +1,6 @@
 // Migrations de données des bases créées par une version antérieure de Cursus.
+import { plural } from '../../shared/format.ts';
+import { todayIso } from './dataset.ts';
 import type { Db } from './db.ts';
 
 /** Ancienne colonne `contrat` (qui mêlait nature du contrat et durée du travail) → statut, type de contrat, temps. */
@@ -24,6 +26,7 @@ function statutDuPoste(poste: string, contrat: string): string {
 export function migrate(db: Db) {
   convertirContrats(db);
   figerFeuilles(db);
+  libererPlacesRemplacees(db, todayIso());
 }
 
 /** Les feuilles soumises ou validées avant le gel du régime reçoivent le régime actuel de la fiche. */
@@ -51,4 +54,22 @@ function convertirContrats(db: Db) {
     }
   });
   console.log(`Migration : ${rows.length} fiches converties au nouveau modèle de contrat.`);
+}
+
+/**
+ * Avant la règle de la certification en vigueur, un recyclage enregistré laissait la certification remplacée
+ * inscrite à sa session à venir : cette place, devenue invisible, est libérée (même règle que `cert.ajouter`).
+ */
+export function libererPlacesRemplacees(db: Db, today: string) {
+  const rows = db.sql.prepare(`SELECT c.id, c.session_id FROM certifications c JOIN sessions s ON s.id = c.session_id
+    WHERE s.date >= ? AND EXISTS (SELECT 1 FROM certifications n WHERE n.emp_id = c.emp_id AND n.f = c.f
+      AND (n.obtenue > c.obtenue OR (n.obtenue = c.obtenue AND n.id > c.id)) AND n.obtenue < s.date)`).all(today) as { id: number; session_id: number }[];
+  if (!rows.length) return;
+  db.tx(() => {
+    for (const r of rows) {
+      db.sql.prepare('UPDATE sessions SET inscrits = MAX(0, inscrits - 1) WHERE id = ?').run(r.session_id);
+      db.sql.prepare('UPDATE certifications SET session_id = NULL, convoc = NULL WHERE id = ?').run(r.id);
+    }
+  });
+  console.log(`Migration : ${plural(rows.length, 'place de session libérée', 'places de session libérées')} (certifications remplacées par un recyclage).`);
 }

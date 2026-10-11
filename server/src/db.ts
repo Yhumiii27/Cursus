@@ -43,7 +43,7 @@ export const TABLES = {
   entretiens: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', type: 'text', date: 'text', statut: 'text', cr: 'json', info: 'bool', signSal: 'text', signMgr: 'text' } },
   demandesCollab: {
     pk: 'id', auto: true,
-    cols: { id: 'int', empId: 'int', type: 'text', f: 'text', h: 'text', libelle: 'text', label: 'text', sessionId: 'int', motif: 'text', date: 'text', statut: 'text', reponse: 'text', parId: 'int' },
+    cols: { id: 'int', empId: 'int', type: 'text', f: 'text', h: 'text', libelle: 'text', label: 'text', sessionId: 'int', motif: 'text', date: 'text', statut: 'text', reponse: 'text', parId: 'int', declaration: 'json' },
   },
   settings: { pk: 'key', cols: { key: 'text', value: 'json' } },
   journal: { pk: 'id', auto: true, cols: { id: 'int', at: 'text', actor: 'text', role: 'text', action: 'text', message: 'text', payload: 'json' } },

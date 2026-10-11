@@ -109,7 +109,7 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `demande.formation` | f (ou `autre`), libelle, sessionId, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `demande.habilitation` | h, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `voyage.creer` | empId, dest, depart, retour, motif | RH |
-| `formalite.enregistrer` | empId, kind (`passeport`/`visa`/`vaccin`), numero, expire, dest, visaType, obtenu, v, date | RH, ou le collaborateur pour lui-même |
+| `formalite.enregistrer` | empId, kind (`passeport`/`visa`/`vaccin`), numero, expire, dest, visaType, obtenu, v, date | RH (écrit dans le dossier), ou le collaborateur pour lui-même (déclaration en attente, voir ci-dessous) |
 | `voyages.importer` | texte (CSV) | RH |
 | `keystone.accepter` / `keystone.refuser` | id | RH |
 | `plan.importer` | texte, exercice, mode (`add`/`replace`) | RH |
@@ -165,6 +165,23 @@ est « à affecter » et relève du service RH.
   (`demande`) jusqu'à cette nouvelle délivrance.
   Le motif est un texte libre visible du manager et du collaborateur, jamais transmis à Keystone.
   Une base existante reçoit les nouvelles colonnes au démarrage (schéma déclaratif de `server/src/db.ts`).
+
+## Documents déclarés par le collaborateur
+
+Un passeport, un visa ou une vaccination saisi par le collaborateur dans son espace n'est pas écrit
+dans son dossier : `formalite.enregistrer` crée une demande « document » qui conserve la déclaration
+contrôlée (`DemandeCollab.declaration`, `shared/rules/formalites.ts`). Tant qu'elle attend, elle ne
+compte ni dans la préparation des voyages ni dans le Go / No Go. Le tableau de bord RH montre le
+contenu déclaré et la valeur actuelle du dossier : **Valider** (`demande.accepter`) revalide la
+déclaration et l'écrit dans le dossier, dans la même transaction ; **Refuser** ne change rien.
+Une nouvelle déclaration du même document (passeport, visa d'un pays, vaccin) remplace celle encore
+en attente. Le contenu d'une déclaration n'est transmis qu'au RH et à l'intéressé, jamais au manager.
+Une saisie du RH reste écrite tout de suite. Au démarrage, les demandes en attente d'une ancienne base
+(formalité déjà écrite) reprennent leur contenu du dossier (`dejaAuDossier`) : un refus l'en retire.
+Seule la plus récente demande de chaque document le reprend ; les plus anciennes restent à contrôler
+dans le dossier, et leur refus n'y touche pas. Le refus ne retire pas non plus une pièce qui a changé
+depuis ou que le RH a validée par une autre demande (`retireeAuRefus`) ; une pièce qui a changé se
+valide comme une déclaration ordinaire.
 
 ## Intégrations
 

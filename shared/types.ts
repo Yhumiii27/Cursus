@@ -117,7 +117,17 @@ export interface SoldeReprise { empId: number; cpPris: number; rttPris: number; 
 // — Entretiens & demandes —
 export interface Entretien { id: number; empId: number; type: EntretienType; date: ISODate; statut: 'planifie' | 'realise'; cr: Record<string, string>; info: boolean; signSal: ISODate | null; signMgr: ISODate | null }
 /** Demande au service RH, émise par le collaborateur ou par son manager (`parId`). */
-export interface DemandeCollab { id: number; empId: number; type: DemandeType; f: string | null; h: string | null; libelle: string | null; label: string | null; sessionId: number | null; motif: string | null; date: ISODate; statut: DemandeStatut; reponse: string | null; parId: number | null }
+export interface DemandeCollab { id: number; empId: number; type: DemandeType; f: string | null; h: string | null; libelle: string | null; label: string | null; sessionId: number | null; motif: string | null; date: ISODate; statut: DemandeStatut; reponse: string | null; parId: number | null; declaration: Declaration | null }
+/**
+ * Formalité déclarée par le collaborateur (demande « document ») : conservée dans la demande
+ * et écrite dans le dossier seulement quand le service RH la valide. Réservée au RH et à l'intéressé.
+ * `dejaAuDossier` : déclaration antérieure à la validation RH, déjà enregistrée (reprise d'une ancienne base).
+ */
+export type Declaration = (
+  | { kind: 'passeport'; numero: string; expire: ISODate }
+  | { kind: 'visa'; dest: string; type: string; obtenu: ISODate | null; expire: ISODate }
+  | { kind: 'vaccin'; v: VaccinId; date: ISODate }
+) & { dejaAuDossier?: boolean };
 
 // — Paramètres & session —
 export interface Settings {

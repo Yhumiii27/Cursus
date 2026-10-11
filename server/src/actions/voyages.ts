@@ -1,11 +1,12 @@
 // Déplacements, formalités (passeport, visas, vaccinations) et demandes Keystone.
-import { VACCINS, VISA_RULES } from '../../../shared/constants.ts';
+import { VACCINS } from '../../../shared/constants.ts';
 import { isValidDate, parse } from '../../../shared/dates.ts';
 import { fmt, matricule, plural } from '../../../shared/format.ts';
+import { declarationLabel, estAuDossier, formaliteCle, lignesAuDossier, lireFormalite } from '../../../shared/rules/formalites.ts';
 import { parseTrips } from '../../../shared/rules/imports.ts';
-import type { DemandeCollab, Vaccination, VaccinId, Visa, Voyage } from '../../../shared/types.ts';
+import type { Declaration, DemandeCollab, Employe, Vaccination, Visa, Voyage } from '../../../shared/types.ts';
 import { sendToKeystone } from '../integrations/keystone.ts';
-import { ActionError, getEmp, isRh, isSelf, requireRh, str, type ActionHandler } from './context.ts';
+import { ActionError, getEmp, isRh, isSelf, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
 
 const creer: ActionHandler = (ctx, p) => {
   requireRh(ctx);
@@ -19,38 +20,52 @@ const creer: ActionHandler = (ctx, p) => {
   return { message: `Déplacement créé — ${emp.nom}, ${dest.pays} · ${r.todo ? plural(r.todo, 'formalité à prévoir', 'formalités à prévoir') : 'dossier complet'}`, result: { id: t.id } };
 };
 
+/** Écrit une formalité dans le dossier : elle remplace celle du même document (passeport, visa du pays, vaccin). */
+export function appliquerFormalite(ctx: Ctx, emp: Employe, x: Declaration): string {
+  if (x.kind === 'passeport') {
+    ctx.db.update('employes', emp.id, { passeportNumero: x.numero, passeportExpire: x.expire });
+    return `Passeport de ${emp.nom} enregistré — valide jusqu’au ${fmt(parse(x.expire))}`;
+  }
+  if (x.kind === 'visa') {
+    const dest = ctx.d.destOf(x.dest)!;
+    emp.visas.filter(v => v.dest === dest.code).forEach(v => ctx.db.remove('visas', v.id));
+    ctx.db.insert<Visa>('visas', { empId: emp.id, dest: dest.code, type: x.type, obtenu: x.obtenu, expire: x.expire });
+    return `${x.type} ${dest.pays} enregistré — ${emp.nom}`;
+  }
+  emp.vaccins.filter(v => v.v === x.v).forEach(v => ctx.db.remove('vaccinations', v.id));
+  ctx.db.insert<Vaccination>('vaccinations', { empId: emp.id, v: x.v, date: x.date });
+  return `Vaccination ${VACCINS[x.v].nom} enregistrée — ${emp.nom}`;
+}
+
+/** Retire du dossier une formalité déclarée avant la validation RH, si elle n'a pas changé depuis. */
+export function retirerFormalite(ctx: Ctx, emp: Employe, x: Declaration): boolean {
+  if (!estAuDossier(emp, x)) return false;
+  if (x.kind === 'passeport') ctx.db.update('employes', emp.id, { passeportNumero: null, passeportExpire: null });
+  else lignesAuDossier(emp, x).forEach(r => ctx.db.remove(x.kind === 'visa' ? 'visas' : 'vaccinations', r.id));
+  return true;
+}
+
 const formalite: ActionHandler = (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
   const collab = ctx.user.role === 'collaborateur';
   if (!(isRh(ctx) || (collab && isSelf(ctx, emp.id)))) throw new ActionError('Formalités gérées par le service RH', 403);
-  let msg: string, label: string;
-  if (p.kind === 'passeport') {
-    const numero = str(p.numero);
-    if (!numero || !isValidDate(p.expire)) throw new ActionError('Numéro et date d’expiration requis');
-    ctx.db.update('employes', emp.id, { passeportNumero: numero, passeportExpire: p.expire });
-    msg = `Passeport de ${emp.nom} enregistré — valide jusqu’au ${fmt(parse(p.expire))}`;
-    label = 'Passeport mis à jour';
-  } else if (p.kind === 'visa') {
-    const dest = ctx.d.destOf(str(p.dest));
-    if (!dest || !isValidDate(p.expire)) throw new ActionError('Pays et date de validité requis');
-    const type = str(p.visaType) || VISA_RULES[dest.visa].label;
-    emp.visas.filter(v => v.dest === dest.code).forEach(v => ctx.db.remove('visas', v.id));
-    ctx.db.insert<Visa>('visas', { empId: emp.id, dest: dest.code, type, obtenu: isValidDate(p.obtenu) ? p.obtenu : null, expire: p.expire });
-    msg = `${type} ${dest.pays} enregistré — ${emp.nom}`;
-    label = `Visa ${dest.pays} déclaré`;
-  } else if (p.kind === 'vaccin') {
-    const v = str(p.v) as VaccinId;
-    if (!VACCINS[v] || !isValidDate(p.date)) throw new ActionError('Vaccin et date d’injection requis');
-    emp.vaccins.filter(x => x.v === v).forEach(x => ctx.db.remove('vaccinations', x.id));
-    ctx.db.insert<Vaccination>('vaccinations', { empId: emp.id, v, date: p.date });
-    msg = `Vaccination ${VACCINS[v].nom} enregistrée — ${emp.nom}`;
-    label = `Vaccination ${VACCINS[v].nom.replace(/ \(.*\)/, '')} déclarée`;
-  } else throw new ActionError('Type de formalité inconnu');
-  if (collab) {
-    ctx.db.insert<DemandeCollab>('demandesCollab', { empId: emp.id, type: 'document', f: null, h: null, libelle: null, label, sessionId: null, motif: null, date: ctx.d.ti, statut: 'attente', reponse: null, parId: null });
-    return 'Information enregistrée — transmise au service RH pour contrôle';
-  }
-  return msg;
+  const x = lireFormalite(ctx.d, p);
+  if (typeof x === 'string') throw new ActionError(x);
+  // Saisie du service RH : enregistrée tout de suite.
+  if (!collab) return appliquerFormalite(ctx, emp, x);
+  // Déclaration du collaborateur : gardée dans la demande, le dossier ne change qu'à la validation RH.
+  // Une nouvelle déclaration du même document remplace celle encore en attente.
+  const cle = formaliteCle(x);
+  const remplacees = ctx.ds.demandesCollab.filter(r => r.empId === emp.id && r.type === 'document' && r.statut === 'attente'
+    && r.declaration && !r.declaration.dejaAuDossier && formaliteCle(r.declaration) === cle);
+  remplacees.forEach(r => ctx.db.remove('demandesCollab', r.id));
+  ctx.db.insert<DemandeCollab>('demandesCollab', {
+    empId: emp.id, type: 'document', f: null, h: null, libelle: null, label: declarationLabel(ctx.d, x), sessionId: null, motif: null,
+    date: ctx.d.ti, statut: 'attente', reponse: null, parId: null, declaration: x,
+  });
+  return remplacees.length
+    ? 'Déclaration mise à jour — elle remplace la précédente, en attente de validation par le service RH'
+    : 'Déclaration transmise au service RH — votre dossier sera mis à jour après validation';
 };
 
 const importer: ActionHandler = (ctx, p) => {

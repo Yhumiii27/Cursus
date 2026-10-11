@@ -3,6 +3,7 @@ import { PlusIcon } from '@phosphor-icons/react';
 import { CERT_LABEL, CLS, EMP_LABEL, HAB_CLS, HAB_LABEL, REQ_CLS, REQ_LABEL, SESS_CLS, TRIP_CLS, TRIP_LABEL } from '../../../shared/constants.ts';
 import { parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, fmtShort, matricule, plural, rel } from '../../../shared/format.ts';
+import { declarationDetail, formaliteCle } from '../../../shared/rules/formalites.ts';
 import { Bar, Btn, Chips, Empty, Fine, Kpi, Kpis, NoteAccent, Page, Panel, Tag } from '../components/ui.tsx';
 import { useEnriched, useRole, useTrips } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -32,6 +33,9 @@ export function Portail() {
     ...tv.vaccins.map(x => ({ key: 'x' + x.v, label: `${x.vm.court}${x.exp ? ' · ' + (x.key === 'exp' ? 'rappel dépassé' : x.exp.getFullYear()) : ''}`, cls: docCls(x.key) })),
   ];
   const reqs = [...myReqs].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
+  // Formalités déclarées, pas encore validées par le service RH : le dossier ne les compte pas encore.
+  const declarees = reqs.filter(r => r.statut === 'attente' && r.declaration && !r.declaration.dejaAuDossier);
+  const enAttente = new Set(declarees.map(r => formaliteCle(r.declaration!)));
   const openMyDocs = () => openDialog({ type: 'fo', empId: me.id });
   const contrat = d.contratOf(me);
   // Formations initiales planifiées : inscriptions à une session d'une formation jamais suivie.
@@ -144,6 +148,9 @@ export function Portail() {
               {tv.pass ? `Passeport valide jusqu’au ${fmt(tv.pass.exp)}${tv.pass.key !== 'ok' ? ' · ' + (tv.pass.key === 'exp' ? 'expiré' : 'expire ' + rel(tv.pass.d)) : ''}` : 'Passeport non renseigné'}
             </div>
             {docChips.length > 0 && <Chips items={docChips} />}
+            {declarees.map(r => (
+              <NoteAccent key={r.id}>{r.label} · {declarationDetail(r.declaration!)} — en attente de validation RH</NoteAccent>
+            ))}
             {myTrips.map(t => {
               const items = t.r.items.filter(i => !i.ok);
               return (
@@ -155,8 +162,9 @@ export function Portail() {
                   {items.map(i => (
                     <div key={i.k + i.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--space-3)' }}>
                       <div style={{ minWidth: 0 }}><div style={{ fontSize: 13 }}>{i.label}</div><div className="text-muted sub">{i.text}</div></div>
-                      {i.fix && (
-                        <Btn small style={{ flex: 'none' }} onClick={() => openDialog({ type: 'fo', empId: me.id, kind: i.fix!.kind, dest: i.fix!.dest, v: i.fix!.v })}>Renseigner</Btn>
+                      {i.fix && (enAttente.has(formaliteCle(i.fix))
+                        ? <span className="sub text-n400" style={{ flex: 'none' }}>En attente de validation RH</span>
+                        : <Btn small style={{ flex: 'none' }} onClick={() => openDialog({ type: 'fo', empId: me.id, kind: i.fix!.kind, dest: i.fix!.dest, v: i.fix!.v })}>Renseigner</Btn>
                       )}
                     </div>
                   ))}
@@ -178,7 +186,8 @@ export function Portail() {
                   </div>
                   <Tag cls={REQ_CLS[r.statut]} style={{ flex: 'none' }}>{REQ_LABEL[r.statut]}</Tag>
                 </div>
-                <div className="sub text-n400">{r.reponse || 'En cours de traitement par le service RH'}</div>
+                {r.declaration && <div className="sub">Déclaré : {declarationDetail(r.declaration)}</div>}
+                <div className="sub text-n400">{r.reponse || (r.type === 'document' ? 'En attente de validation RH' : 'En cours de traitement par le service RH')}</div>
               </div>
             ))}
             {reqs.length === 0 && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>Aucune demande envoyée.</p>}

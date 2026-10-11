@@ -137,8 +137,10 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     reports: mine(full.reports),
     soldesReprise: mine(full.soldesReprise),
     entretiens: mine(full.entretiens),
-    // Les documents déclarés (passeport, visas, vaccinations) des membres ne sont pas montrés au manager.
-    demandesCollab: mine(full.demandesCollab).filter(r => !isMgr || r.empId === user.empId || r.type !== 'document'),
+    // Les documents déclarés (passeport, visas, vaccinations) des membres ne sont pas montrés au manager ;
+    // le contenu d'une déclaration n'est de toute façon transmis qu'à l'intéressé (et au RH).
+    demandesCollab: mine(full.demandesCollab).filter(r => !isMgr || r.empId === user.empId || r.type !== 'document')
+      .map(r => r.empId === user.empId ? r : { ...r, declaration: null }),
     inscriptions: mine(full.inscriptions),
     lastSagePush: null,
   };

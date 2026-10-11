@@ -38,6 +38,8 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
   Pas d'accès aux données de santé (seul le verdict d'aptitude est transmis).
 - **Utilisateur** (collaborateur) : ses formations, habilitations, voyages, heures,
   absences, entretiens et demandes au service RH.
+  Les documents de voyage qu'il déclare (passeport, visa, vaccination) n'entrent dans son
+  dossier qu'après validation par le service RH.
 
 En démonstration, n'importe quel mot de passe est accepté.
 

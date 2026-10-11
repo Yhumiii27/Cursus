@@ -3,10 +3,12 @@ import { GNG_CODE } from '../../../shared/constants.ts';
 import { addMonths, isValidDate, parse } from '../../../shared/dates.ts';
 import { certEnVigueur, Domain, habEnCours, type ChantierEval } from '../../../shared/domain.ts';
 import { fmt, matricule, plural } from '../../../shared/format.ts';
+import { estAuDossier, relireDeclaration, retireeAuRefus } from '../../../shared/rules/formalites.ts';
 import type { Certification, DemandeCollab, Employe, HabTitre, HabType, Inscription, Session } from '../../../shared/types.ts';
 import { loadFull } from '../dataset.ts';
 import { sendToKeystone } from '../integrations/keystone.ts';
 import { ActionError, enriched, getEmp, isManagerOf, isRh, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
+import { appliquerFormalite, retirerFormalite } from './voyages.ts';
 
 const inscrire: ActionHandler = (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
@@ -135,8 +137,17 @@ const accepterDemande: ActionHandler = (ctx, p) => {
       ? `${emp.nom} — ${ctx.d.hm(r.h!).nom} retirée : nouvelle délivrance à effectuer après contrôle des prérequis (onglet Habilitations)`
       : `${emp.nom} — ${ctx.d.hm(r.h!).nom} en attente de délivrance (onglet Habilitations)`;
   }
-  done('Document contrôlé par le service RH');
-  return `${r.label} — ${emp.nom} · contrôlé`;
+  // Document déclaré : revalidé puis écrit dans le dossier (même transaction que la décision).
+  // Une déclaration reprise d'une ancienne base, encore au dossier telle quelle, n'a rien à réécrire.
+  if (!r.declaration || (r.declaration.dejaAuDossier && estAuDossier(emp, r.declaration))) {
+    done('Document contrôlé par le service RH');
+    return `${r.label} — ${emp.nom} · contrôlé`;
+  }
+  const x = relireDeclaration(ctx.d, r.declaration);
+  if (typeof x === 'string') throw new ActionError(`Déclaration invalide — ${x}. Refusez-la et demandez une nouvelle saisie.`);
+  const msg = appliquerFormalite(ctx, emp, x);
+  done('Validée — enregistrée dans votre dossier');
+  return `${msg} · déclaration validée`;
 };
 
 const refuserDemande: ActionHandler = (ctx, p) => {
@@ -144,8 +155,13 @@ const refuserDemande: ActionHandler = (ctx, p) => {
   const r = ctx.ds.demandesCollab.find(x => x.id === Number(p.id));
   if (!r || r.statut !== 'attente') throw new ActionError('Demande introuvable ou déjà traitée');
   const emp = getEmp(ctx, r.empId);
-  ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'refusee', reponse: str(p.reponse) || 'Refusée par le service RH' });
-  return `Demande refusée — ${emp.nom} notifié`;
+  // Document déclaré : rien n'a été écrit dans le dossier, sauf pour une déclaration
+  // antérieure à la validation RH, qui en est retirée (voir retireeAuRefus).
+  const retire = retireeAuRefus(ctx.d, emp, r) && retirerFormalite(ctx, emp, r.declaration!);
+  const defaut = r.type !== 'document' ? 'Refusée par le service RH'
+    : retire ? 'Refusée par le service RH — document retiré de votre dossier' : 'Refusée par le service RH — votre dossier n’a pas été modifié';
+  ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'refusee', reponse: str(p.reponse) || defaut });
+  return `Demande refusée — ${emp.nom} notifié${retire ? ' · document retiré du dossier' : ''}`;
 };
 
 /** Demandeur d'une demande au RH : le collaborateur lui-même, ou son manager pour un membre de l'équipe. */

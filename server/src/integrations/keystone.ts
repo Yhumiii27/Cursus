@@ -2,6 +2,8 @@
 // Mode simulation : les messages sortants sont tracés dans le journal au lieu
 // d'être envoyés. Pour brancher la vraie API, implémenter `send` (URL et jeton
 // via KEYSTONE_URL / KEYSTONE_TOKEN) — les écrans et actions restent inchangés.
+import { createHash, timingSafeEqual } from 'node:crypto';
+import { demoActive, KEYSTONE_CLE_DEMO } from '../config.ts';
 import type { Db } from '../db.ts';
 
 export type KeystoneEvent =
@@ -20,5 +22,17 @@ export function sendToKeystone(db: Db, event: KeystoneEvent) {
   db.insert('journal', { at: new Date().toISOString(), actor: 'Cursus', role: 'integration', action: `keystone.${event.type}`, message: 'Message Keystone (simulation)', payload: event });
 }
 
-/** Clé attendue des appels entrants de Keystone (en-tête X-Api-Key). */
-export const KEYSTONE_API_KEY = process.env.KEYSTONE_API_KEY || 'demo-keystone';
+/**
+ * Clé attendue des appels entrants de Keystone (en-tête X-Api-Key). Sans KEYSTONE_API_KEY,
+ * la clé de démonstration n'est acceptée qu'en mode démonstration ; ailleurs, l'intégration
+ * n'est pas configurée (null : les routes répondent 503).
+ */
+export const KEYSTONE_API_KEY: string | null = process.env.KEYSTONE_API_KEY || (demoActive() ? KEYSTONE_CLE_DEMO : null);
+
+const empreinte = (s: string) => createHash('sha256').update(s, 'utf8').digest();
+
+/** Comparaison en temps constant (empreintes de même longueur, quelle que soit la clé reçue). */
+export function keystoneKeyOk(given: string | undefined): boolean {
+  if (!KEYSTONE_API_KEY || !given) return false;
+  return timingSafeEqual(empreinte(given), empreinte(KEYSTONE_API_KEY));
+}

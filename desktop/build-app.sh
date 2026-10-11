@@ -3,6 +3,8 @@
 #   npm run app                      → ~/Desktop/Cursus.app
 #   npm run app -- /chemin/dossier   → autre emplacement
 # L'application lance le serveur du projet (ce dossier) avec Node ; reconstruisez-la si le dossier est déplacé.
+# Le serveur tourne en mode démonstration (CURSUS_DEMO=1), sur 127.0.0.1 uniquement : seul ce Mac y accède.
+# Sa clé de session est créée au premier lancement dans ~/Library/Application Support/Cursus (CursusApp.swift).
 set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/.." && pwd)"
@@ -74,4 +76,4 @@ fi
 ditto "$BUILD/Cursus.app" "$APP"
 touch "$APP"
 echo "✓ $APP"
-echo "  Projet : $PROJECT_DIR · Node : $NODE_BIN · port local $PORT"
+echo "  Projet : $PROJECT_DIR · Node : $NODE_BIN · port local $PORT · mode démonstration"

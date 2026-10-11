@@ -46,6 +46,11 @@ export const TABLES = {
   },
   settings: { pk: 'key', cols: { key: 'text', value: 'json' } },
   journal: { pk: 'id', auto: true, cols: { id: 'int', at: 'text', actor: 'text', role: 'text', action: 'text', message: 'text', payload: 'json' } },
+  // Sessions de connexion (server/src/auth.ts) ; `sessions` désigne les sessions de formation.
+  connexions: {
+    pk: 'id',
+    cols: { id: 'text', role: 'text', rh: 'bool', managerId: 'int', collabId: 'int', creation: 'text', expiration: 'text', revocation: 'text', activite: 'text' },
+  },
 } satisfies Record<string, TableDef>;
 
 export type TableName = keyof typeof TABLES;
@@ -157,8 +162,9 @@ export class Db {
     return Number((this.sql.prepare(`SELECT COUNT(*) AS n FROM ${snake(table)}`).get() as Row).n);
   }
 
+  /** Vide les données (les sessions de connexion restent ouvertes). */
   clearAll() {
-    for (const name of Object.keys(TABLES)) this.sql.exec(`DELETE FROM ${snake(name)}`);
+    for (const name of Object.keys(TABLES)) if (name !== 'connexions') this.sql.exec(`DELETE FROM ${snake(name)}`);
     this.sql.exec(`DELETE FROM sqlite_sequence`);
   }
 

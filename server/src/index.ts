@@ -7,23 +7,38 @@ import { matricule } from '../../shared/format.ts';
 import type { CurrentUser, Role } from '../../shared/types.ts';
 import { ACTIONS, QUIET_ACTIONS } from './actions/index.ts';
 import { ActionError, makeCtx } from './actions/context.ts';
-import { DEMO, isAuthenticated, readSession, writeSession, type SessionInfo } from './auth.ts';
+import {
+  DEMO, clearSessionCookie, isAuthenticated, openSession, purgeSessions, readSession, revokeSession, salarieSorti, updateSession, type SessionInfo,
+} from './auth.ts';
+import { enProduction, hoteEcoute, portEcoute, trustProxy, verifierConfig } from './config.ts';
 import { buildSnapshot, currentUser, loadFull, loadSettings } from './dataset.ts';
 import { openDb } from './db.ts';
 import { migrate } from './migrate.ts';
-import { KEYSTONE_API_KEY, KEYSTONE_MODE } from './integrations/keystone.ts';
+import { KEYSTONE_API_KEY, KEYSTONE_MODE, keystoneKeyOk } from './integrations/keystone.ts';
 import { SAGE_MODE } from './integrations/sage.ts';
+import { demoPosteLocal, securityHeaders } from './securite.ts';
 import { seedDemo } from './seed.ts';
+
+// En production, une configuration dangereuse arrête le serveur avant toute ouverture de la base.
+verifierConfig();
 
 const db = openDb();
 migrate(db);
 if (db.count('employes') === 0) {
-  seedDemo(db);
-  console.log('Base vide : données de démonstration chargées.');
+  // Les salariés fictifs ne sont chargés qu'en démonstration, jamais dans une base de production.
+  if (DEMO) { seedDemo(db); console.log('Base vide : données de démonstration chargées.'); }
+  else console.log('Base vide : aucune donnée de démonstration chargée (mode démonstration inactif).');
 }
+// Sessions expirées : purgées au démarrage puis toutes les heures.
+purgeSessions(db);
+setInterval(() => purgeSessions(db), 3600_000).unref();
 
 const app = express();
 app.disable('x-powered-by');
+app.set('trust proxy', trustProxy());
+app.use(securityHeaders(enProduction()));
+// Démonstration en production (application de bureau) : requêtes de ce poste uniquement, jamais via le proxy.
+if (DEMO && enProduction()) app.use(demoPosteLocal());
 app.use(express.json({ limit: '2mb' }));
 
 function session(req: Request): SessionInfo | null { return readSession(db, req); }
@@ -53,16 +68,19 @@ function sessionPayload(req: Request, s: SessionInfo | null) {
 app.get('/api/session', (req, res) => {
   let s = session(req);
   // En démonstration, l'espace RH s'ouvre directement à la première visite.
-  if (!s && DEMO) { s = { role: 'rh', rh: true, managerId: null, collabId: null }; writeSession(db, res, s); }
+  if (!s && DEMO) s = openSession(db, res, { role: 'rh', rh: true, managerId: null, collabId: null });
   res.json(sessionPayload(req, s));
 });
 
 app.post('/api/mode', (req, res) => {
   const role = req.body?.role as Role;
   if (!['rh', 'manager', 'collaborateur'].includes(role)) return res.status(400).json({ error: 'Espace inconnu' });
-  const s: SessionInfo = { ...(session(req) ?? { rh: false, managerId: null, collabId: null }), role };
+  const cur = session(req);
+  let s: SessionInfo = { ...(cur ?? { rh: false, managerId: null, collabId: null }), role };
   if (role === 'rh' && DEMO) s.rh = true;
-  writeSession(db, res, s);
+  // Le changement d'espace met à jour la session ouverte ; hors démonstration, pas de session anonyme.
+  if (cur) updateSession(db, s);
+  else if (DEMO) s = openSession(db, res, s);
   res.json(sessionPayload(req, s));
 });
 
@@ -71,22 +89,29 @@ app.post('/api/login', (req, res) => {
   if (!['rh', 'manager', 'collaborateur'].includes(role)) return res.status(400).json({ error: 'Espace inconnu' });
   if (!DEMO) return res.status(501).json({ error: 'Authentification unique non configurée (voir server/src/auth.ts)' });
   if (role !== 'rh' && !String(password ?? '').trim()) return res.status(400).json({ error: 'Mot de passe requis' });
-  const s: SessionInfo = { ...(session(req) ?? { rh: false, managerId: null, collabId: null }), role };
+  const cur = session(req);
+  const s: SessionInfo = { ...(cur ?? { rh: false, managerId: null, collabId: null }), role };
   if (role === 'rh') s.rh = true;
   else {
     const opts = loginOptions()[role as 'manager' | 'collaborateur'];  // DEMO uniquement (vérifié plus haut)
     if (!opts.some(o => o.id === Number(empId))) return res.status(400).json({ error: 'Identifiant inconnu' });
+    if (salarieSorti(db, Number(empId))) return res.status(403).json({ error: 'Accès fermé : la date de sortie de ce salarié est passée' });
     if (role === 'manager') s.managerId = Number(empId); else s.collabId = Number(empId);
   }
-  writeSession(db, res, s);
-  res.json(sessionPayload(req, s));
+  // Chaque connexion ouvre une nouvelle session (nouvel identifiant, 12 h) et révoque la précédente.
+  if (cur?.id) revokeSession(db, cur.id);
+  res.json(sessionPayload(req, openSession(db, res, s)));
 });
 
 app.post('/api/logout', (req, res) => {
   const s = session(req);
-  if (!s) return res.json(sessionPayload(req, null));
+  if (!s) { clearSessionCookie(res); return res.json(sessionPayload(req, null)); }
+  revokeSession(db, s.id!);
   const next: SessionInfo = { ...s, ...(s.role === 'rh' ? { rh: false } : s.role === 'manager' ? { managerId: null } : { collabId: null }) };
-  writeSession(db, res, next);
+  // Le cookie présenté ne vaut plus rien ; les autres espaces ouverts (démonstration) passent
+  // dans une nouvelle session qui garde l'échéance de l'ancienne.
+  if (DEMO || next.rh || next.managerId || next.collabId) return res.json(sessionPayload(req, openSession(db, res, next, s.expiration)));
+  clearSessionCookie(res);
   res.json(sessionPayload(req, next));
 });
 
@@ -129,7 +154,8 @@ app.get('/api/journal', (req, res) => {
 
 // — Intégration Keystone : appels entrants —
 function keystoneAuth(req: Request, res: Response, next: NextFunction) {
-  if (req.get('x-api-key') !== KEYSTONE_API_KEY) return res.status(401).json({ error: 'Clé API invalide' });
+  if (!KEYSTONE_API_KEY) return res.status(503).json({ error: 'Intégration Keystone non configurée' });
+  if (!keystoneKeyOk(req.get('x-api-key'))) return res.status(401).json({ error: 'Clé API invalide' });
   next();
 }
 
@@ -160,12 +186,14 @@ app.post('/api/integrations/keystone/demandes', keystoneAuth, (req, res) => {
 const dist = resolve('dist');
 if (existsSync(dist)) {
   app.use(express.static(dist, { index: false }));
-  app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(resolve(dist, 'index.html')));
+  // `root` : seul le chemin relatif est contrôlé (un dossier parent caché comme .xxx/ ne bloque pas l'envoi).
+  app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile('index.html', { root: dist }));
 }
 
-const PORT = Number(process.env.CURSUS_API_PORT || process.env.PORT || 3210);
-// CURSUS_HOST=127.0.0.1 limite l'accès au poste local (application de bureau).
-const HOST = process.env.CURSUS_HOST || '0.0.0.0';
+const PORT = portEcoute();
+// Production : boucle locale par défaut, derrière le reverse proxy HTTPS (docs/DEPLOIEMENT.md).
+const HOST = hoteEcoute();
+const shownHost = HOST === '0.0.0.0' ? 'localhost' : HOST.includes(':') ? `[${HOST}]` : HOST;
 app.listen(PORT, HOST, () => {
-  console.log(`Cursus — API sur http://localhost:${PORT}${existsSync(dist) ? ' (application servie)' : ''}${DEMO ? ' · mode démonstration' : ''}`);
+  console.log(`Cursus — API sur http://${shownHost}:${PORT}${existsSync(dist) ? ' (application servie)' : ''}${DEMO ? ' · mode démonstration' : ''}`);
 });

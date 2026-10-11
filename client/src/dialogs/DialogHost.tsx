@@ -10,6 +10,7 @@ import { EntPlanDialog } from './EntPlanDialog.tsx';
 import { EquipeDialog } from './EquipeDialog.tsx';
 import { FormaliteDialog } from './FormaliteDialog.tsx';
 import { HabDialog } from './HabDialog.tsx';
+import { HabMesureDialog } from './HabMesureDialog.tsx';
 import { MembreDialog } from './MembreDialog.tsx';
 import { PlanDialog } from './PlanDialog.tsx';
 import { PlanImportDialog } from './PlanImportDialog.tsx';
@@ -28,6 +29,7 @@ export function DialogHost() {
     case 'cert': return <CertDialog {...d} />;
     case 'session': return <SessionDialog {...d} />;
     case 'hab': return <HabDialog {...d} />;
+    case 'habMesure': return <HabMesureDialog {...d} />;
     case 'trip': return <TripDialog />;
     case 'fo': return <FormaliteDialog {...d} />;
     case 'reqForm': return <ReqFormDialog {...d} />;

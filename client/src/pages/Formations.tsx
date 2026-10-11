@@ -56,11 +56,11 @@ export function Formations() {
     });
   }, [scope, forms, upcoming, ui.typeForm]);
 
-  // Renouvellements de l'équipe : dernière certification de chaque formation, à renouveler ou expirée, sans session.
+  // Renouvellements de l'équipe : certification en vigueur de chaque formation, à renouveler ou expirée, sans session.
   const renewals = useMemo<Renewal[]>(() => {
     if (!manager) return [];
     return scope.flatMap(e => e.certs
-      .filter(c => c.key !== 'ok' && !c.session && e.certs.every(x => x.f !== c.f || x.exp <= c.exp))
+      .filter(c => c.key !== 'ok' && !c.session)
       .map(c => {
         const r = d.ds.demandesCollab.find(x => x.empId === e.id && x.type === 'formation' && x.f === c.f && x.statut === 'attente');
         return { e, c, demande: r ? `Demande transmise au service RH le ${fmtShort(parse(r.date))}` : null };
@@ -72,8 +72,11 @@ export function Formations() {
   const filteredFm = ui.formationFilter ? d.fm(ui.formationFilter) ?? null : null;
   const shownRenewals = renewals.filter(r => !ui.formationFilter || r.c.f === ui.formationFilter);
   const openSession = (f: string) => upcoming.find(s => s.formation === f && s.inscrits < s.places) ?? null;
-  /** Membres de l'équipe inscrits à une session. */
-  const enrolled = (sessionId: number) => scope.filter(e => e.rawCerts.some(c => c.sessionId === sessionId)).map(e => e.nom);
+  /**
+   * Membres de l'équipe inscrits à une session. Une certification remplacée ne garde sa place que dans la session
+   * qui a produit le recyclage (les autres places sont libérées à l'enregistrement) : elle compte aussi.
+   */
+  const enrolled = (sessionId: number) => scope.filter(e => [...e.rawCerts, ...e.anciennes].some(c => c.sessionId === sessionId)).map(e => e.nom);
 
   const kicker = manager
     ? [

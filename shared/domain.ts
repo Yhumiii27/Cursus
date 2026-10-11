@@ -4,7 +4,7 @@
 // l'affichage et par le serveur pour valider les actions et les intégrations.
 import {
   CERT_LABEL, CLS, DOC_LABEL, GNG_CODE, HAB_CLS, HAB_LABEL, MED_VALIDITE, RANK, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT, VACCINS, VISA_RULES,
-  type HabKey, type StatusKey,
+  type HabKey, type HabMesureAction, type StatusKey,
 } from './constants.ts';
 import { addD, addMonths, days, isFerie, iso, parse, weekday } from './dates.ts';
 import { fmt, fmtShort, matricule } from './format.ts';
@@ -13,14 +13,25 @@ import type {
   Statut, TempsTravail, TripStatus, TypeContrat, VaccinId, Voyage,
 } from './types.ts';
 
-export interface CertInfo extends Certification { fm: Formation; obt: Date; exp: Date; d: number; key: StatusKey; pct: number; session: Session | null }
+export interface CertInfo extends Certification {
+  fm: Formation; obt: Date; exp: Date; d: number; key: StatusKey; pct: number; session: Session | null;
+  /** Certification remplacée par un recyclage : date d'obtention de la suivante (null = en vigueur). */
+  remplacee: Date | null;
+}
 export interface MedInfo { ok: boolean; exp: Date | null; d: number | null; text: string }
 export interface PrereqCheck { type: 'cert' | 'med'; f: string | null; certId: number | null; label: string; ok: boolean; due: boolean; exp: Date | null; text: string }
-export interface HabInfo extends HabTitre { hm: HabType; checks: PrereqCheck[]; failing: PrereqCheck[]; prereqOk: boolean; exp: Date | null; d: number | null; key: HabKey; note: string }
+export interface HabInfo extends HabTitre {
+  hm: HabType; checks: PrereqCheck[]; failing: PrereqCheck[]; prereqOk: boolean; exp: Date | null; d: number | null; key: HabKey; note: string;
+  /** Date de la suspension ou du retrait en cours. */
+  mesureLe: Date | null;
+}
 export interface EmpX extends Omit<Employe, 'certs' | 'habs'> {
+  /** Certifications en vigueur (une par formation), selon le filtre « réglementaires uniquement ». */
   certs: CertInfo[];
-  /** Toutes les certifications, y compris hors filtre « réglementaires uniquement ». */
+  /** Certifications en vigueur de toutes les formations, y compris hors filtre « réglementaires uniquement ». */
   rawCerts: CertInfo[];
+  /** Certifications remplacées par un recyclage, conservées comme historique (toutes formations, plus récentes d'abord). */
+  anciennes: CertInfo[];
   med: MedInfo;
   habs: HabInfo[];
   worst: StatusKey;
@@ -83,6 +94,27 @@ export interface ContratX {
 }
 
 const docKey = (d: number, h: number): StatusKey => d < 0 ? 'exp' : d <= h ? 'due' : 'ok';
+
+/** Statut de conformité d'un titre : suspendu ou retiré compte comme expiré ; une demande en attente ne pénalise pas. */
+const habStatus = (k: HabKey): StatusKey => k === 'susp' || k === 'retiree' ? 'exp' : k === 'pending' ? 'ok' : k;
+
+/**
+ * Titre détenu ou déjà demandé, qu'un collaborateur ne peut pas redemander. Un titre expiré peut l'être, un titre
+ * retiré aussi tant qu'aucune demande de nouvelle délivrance n'a été acceptée (`demande` renseignée).
+ */
+export const habEnCours = (h: Pick<HabInfo, 'key' | 'demande'>) => h.key === 'retiree' ? !!h.demande : h.key !== 'exp';
+
+/** Ordre chronologique inverse : date d'obtention, puis ordre d'enregistrement. */
+const plusRecente = (a: Pick<Certification, 'id' | 'obtenue'>, b: Pick<Certification, 'id' | 'obtenue'>) => b.obtenue.localeCompare(a.obtenue) || b.id - a.id;
+
+/**
+ * Certification en vigueur d'un collaborateur pour une formation : la plus récente. Un recyclage
+ * enregistré remplace donc la précédente, qui reste au dossier comme historique. Seule la certification
+ * en vigueur compte pour le statut, les échéances, les prérequis et le Go / No Go.
+ */
+export function certEnVigueur<T extends Pick<Certification, 'id' | 'f' | 'obtenue'>>(certs: readonly T[], f: string): T | null {
+  return certs.filter(c => c.f === f).sort(plusRecente)[0] ?? null;
+}
 
 export class Domain {
   ds: Dataset;
@@ -183,14 +215,28 @@ export class Domain {
     return onlyReg ? all.filter(f => f.type === 'Réglementaire') : all;
   }
 
-  certInfo(c: Certification, horizon: number): CertInfo {
+  certInfo(c: Certification, horizon: number, remplacee: Date | null = null): CertInfo {
     const fm = this.fm(c.f);
     const obt = parse(c.obtenue);
     const exp = addMonths(obt, fm.validite);
     const d = days(this.today, exp);
     const key: StatusKey = d < 0 ? 'exp' : d <= horizon ? 'due' : 'ok';
     const pct = Math.max(0, Math.min(100, Math.round(days(obt, this.today) / days(obt, exp) * 100)));
-    return { ...c, fm, obt, exp, d, key, pct, session: this.session(c.sessionId) };
+    return { ...c, fm, obt, exp, d, key, pct, session: this.session(c.sessionId), remplacee };
+  }
+
+  /** Certifications d'un collaborateur : en vigueur (une par formation, dans l'ordre du dossier) et remplacées. */
+  certsOf(e: Employe, horizon: number): { vigueur: CertInfo[]; anciennes: CertInfo[] } {
+    const vigueur = [...new Set(e.certs.map(c => c.f))].map(f => this.certInfo(certEnVigueur(e.certs, f)!, horizon));
+    const anciennes = e.certs
+      .filter(c => !vigueur.some(v => v.id === c.id))
+      .sort(plusRecente)
+      .map(c => {
+        // Remplacée par la certification suivante de la même formation.
+        const suivante = e.certs.filter(x => x.f === c.f && plusRecente(x, c) < 0).sort(plusRecente).pop()!;
+        return this.certInfo(c, horizon, parse(suivante.obtenue));
+      });
+    return { vigueur, anciennes };
   }
 
   medInfo(e: Employe): MedInfo {
@@ -206,7 +252,7 @@ export class Domain {
     const hm = this.hm(h.h);
     const checks: PrereqCheck[] = hm.prereqs.map(f => {
       const fm = this.fm(f);
-      const c = rawCerts.filter(x => x.f === f).sort((a, b) => b.exp.getTime() - a.exp.getTime())[0] || null;
+      const c = certEnVigueur(rawCerts, f);
       const ok = !!c && c.key !== 'exp';
       return {
         type: 'cert', f, certId: c ? c.id : null, label: fm.court, ok, due: ok && c.key === 'due', exp: c ? c.exp : null,
@@ -215,23 +261,47 @@ export class Domain {
     });
     if (hm.medical) checks.push({ type: 'med', f: null, certId: null, label: 'Aptitude médicale', ok: med.ok, due: false, exp: med.exp, text: med.text });
     const failing = checks.filter(c => !c.ok), dueChecks = checks.filter(c => c.due), prereqOk = failing.length === 0;
+    // Une suspension ou un retrait décidé par l'employeur prime sur l'échéance et les prérequis.
+    const mesure = h.delivree && h.mesure ? h.mesure : null;
+    const mesureLe = mesure && h.mesureDate ? parse(h.mesureDate) : null;
     let exp: Date | null = null, d: number | null = null, key: HabKey = 'pending';
     if (h.delivree) {
       exp = addMonths(parse(h.delivree), hm.validite);
       d = days(this.today, exp);
-      key = d < 0 ? 'exp' : !prereqOk ? 'susp' : d <= horizon ? 'due' : 'ok';
+      key = mesure === 'retrait' ? 'retiree' : mesure === 'suspension' ? 'susp' : d < 0 ? 'exp' : !prereqOk ? 'susp' : d <= horizon ? 'due' : 'ok';
     }
-    const note = failing.length
+    const prereqNote = failing.length
       ? `Prérequis non satisfait : ${failing.map(c => c.label).join(', ')}`
       : dueChecks.length ? `À renouveler d’abord : ${dueChecks.map(c => `${c.label} (expire le ${fmt(c.exp!)})`).join(', ')}` : '';
+    const mesureNote = mesure
+      ? `${mesure === 'retrait' ? 'Retirée' : 'Suspendue'}${mesureLe ? ' le ' + fmt(mesureLe) : ''}${h.mesurePar ? ' par ' + h.mesurePar : ''}${h.mesureMotif ? ' — ' + h.mesureMotif : ''}`
+      : '';
+    // Après un retrait, la demande acceptée attend la nouvelle délivrance du service RH.
+    const note = mesure === 'retrait'
+      ? [mesureNote, h.demande ? `Nouvelle délivrance demandée le ${fmt(parse(h.demande))}` : ''].filter(Boolean).join(' · ')
+      : [mesureNote, prereqNote].filter(Boolean).join(' · ');
     return {
-      id: 0, empId: 0, delivree: null, par: null, demande: null, ...h,
-      hm, checks, failing, prereqOk, exp, d, key, note,
+      id: 0, empId: 0, delivree: null, par: null, demande: null, mesure: null, mesureDate: null, mesureMotif: null, mesurePar: null, ...h,
+      hm, checks, failing, prereqOk, exp, d, key, note, mesureLe,
     };
   }
 
+  /** Mesures possibles sur un titre délivré : suspendre (RH ou manager direct), lever la suspension et retirer (RH). */
+  habMesures(hi: HabInfo, rh: boolean): HabMesureAction[] {
+    if (!hi.delivree || hi.mesure === 'retrait') return [];
+    if (hi.mesure === 'suspension') return rh ? ['lever', 'retirer'] : [];
+    return rh ? ['suspendre', 'retirer'] : ['suspendre'];
+  }
+
+  /** Échéance d'un titre délivré : sa date d'expiration, ou la date de la suspension / du retrait qui l'a invalidé. */
+  habEcheance(h: HabInfo): { exp: Date; d: number } | null {
+    if (h.mesureLe) return { exp: h.mesureLe, d: days(this.today, h.mesureLe) };
+    return h.exp ? { exp: h.exp, d: h.d! } : null;
+  }
+
   habAction(empId: number, hi: HabInfo): Proposal | null {
-    if (hi.key === 'ok') return null;
+    // Lever une suspension ou délivrer de nouveau après un retrait reste une décision explicite du RH.
+    if (hi.key === 'ok' || (hi.delivree && hi.mesure)) return null;
     if (!hi.failing.length) {
       const pending = hi.key === 'pending';
       return { label: pending ? 'Délivrer' : 'Renouveler', intent: { type: 'openHab', empId, h: hi.h, mode: pending ? 'deliver' : 'renew' } };
@@ -249,15 +319,16 @@ export class Domain {
   enrich(horizon: number, onlyReg: boolean): EmpX[] {
     const formIds = new Set(this.forms(onlyReg).map(f => f.id));
     return this.ds.employes.map(e => {
-      const rawCerts = e.certs.map(c => this.certInfo(c, horizon));
+      // Seule la certification en vigueur de chaque formation compte ; les remplacées restent en historique.
+      const { vigueur: rawCerts, anciennes } = this.certsOf(e, horizon);
       const certs = rawCerts.filter(c => formIds.has(c.f));
       const med = this.medInfo(e);
       const habs = e.habs.map(h => this.habInfo(h, rawCerts, med, horizon));
-      const keys: StatusKey[] = [...certs.map(c => c.key), ...habs.map(h => h.key === 'susp' ? 'exp' : h.key === 'pending' ? 'ok' : h.key)];
+      const keys: StatusKey[] = [...certs.map(c => c.key), ...habs.map(h => habStatus(h.key))];
       const worst = keys.reduce<StatusKey>((w, k) => RANK[k] > RANK[w] ? k : w, 'ok');
-      const dated = [...certs.map(c => ({ exp: c.exp, d: c.d })), ...habs.filter(h => h.exp).map(h => ({ exp: h.exp!, d: h.d! }))];
+      const dated = [...certs.map(c => ({ exp: c.exp, d: c.d })), ...habs.flatMap(h => this.habEcheance(h) ?? [])];
       const next = dated.sort((a, b) => a.d - b.d)[0] || null;
-      return { ...e, certs, rawCerts, med, habs, worst, next };
+      return { ...e, certs, rawCerts, anciennes, med, habs, worst, next };
     });
   }
 
@@ -367,10 +438,13 @@ export class Domain {
         plannedLabel: c.session ? `Session du ${fmtShort(parse(c.session.date))}` : '',
         action: c.session ? null : { label: 'Planifier', intent: { type: 'openPlan', empId: e.id, certId: c.id } },
       }));
-      e.habs.filter(h => h.exp).forEach(h => ech.push({
-        kind: 'hab', kindLabel: 'Habilitation', label: h.hm.nom, emp: e, exp: h.exp!, d: h.d!, key: h.key === 'susp' ? 'exp' : h.key as StatusKey,
-        statut: HAB_LABEL[h.key], cls: HAB_CLS[h.key], planned: false, plannedLabel: '', action: this.habAction(e.id, h),
-      }));
+      e.habs.forEach(h => {
+        const t = this.habEcheance(h);
+        if (t) ech.push({
+          kind: 'hab', kindLabel: 'Habilitation', label: h.hm.nom, emp: e, exp: t.exp, d: t.d, key: habStatus(h.key),
+          statut: HAB_LABEL[h.key], cls: HAB_CLS[h.key], planned: false, plannedLabel: '', action: this.habAction(e.id, h),
+        });
+      });
       const t = this.travelOf(e, horizon);
       if (t.pass) ech.push({ kind: 'trip', kindLabel: 'Passeport', label: 'Passeport', emp: e, exp: t.pass.exp, d: t.pass.d, key: t.pass.key, statut: DOC_LABEL[t.pass.key], cls: CLS[t.pass.key], planned: false, plannedLabel: '', action: { label: 'Mettre à jour', intent: { type: 'openFormalite', empId: e.id, kind: 'passeport' } } });
       t.visas.forEach(v => ech.push({ kind: 'trip', kindLabel: 'Visa · autorisation', label: `${v.type} — ${this.destOf(v.dest)?.pays ?? v.dest}`, emp: e, exp: v.exp, d: v.d, key: v.key, statut: DOC_LABEL[v.key], cls: CLS[v.key], planned: false, plannedLabel: '', action: { label: 'Mettre à jour', intent: { type: 'openFormalite', empId: e.id, kind: 'visa', dest: v.dest } } }));
@@ -387,11 +461,14 @@ export class Domain {
       const hm = this.hm(h), hi = e.habs.find(x => x.h === h);
       if (!hi) return push('nogo', 'HABILITATION', 'Habilitation requise absente', `${hm.nom} — non détenue`);
       if (hi.key === 'pending') return push('nogo', 'HABILITATION', 'Habilitation requise en attente', `${hm.nom} — en attente de délivrance`);
+      // Suspension ou retrait par l'employeur : code dédié, jamais le motif (texte libre réservé à Cursus).
+      if (hi.mesure === 'retrait') return push('nogo', 'HABILITATION_RETIREE', 'Habilitation requise retirée', `${hm.nom} — retirée${hi.mesureLe ? ' le ' + fmt(hi.mesureLe) : ''}`);
+      if (hi.mesure === 'suspension') return push('nogo', 'HABILITATION_SUSPENDUE', 'Habilitation requise suspendue', `${hm.nom} — suspendue${hi.mesureLe ? ' depuis le ' + fmt(hi.mesureLe) : ''}`);
       if (hi.key === 'exp' || hi.key === 'susp' || hi.exp! < start) return push('nogo', 'HABILITATION', 'Habilitation requise non valide', `${hm.nom} — ${hi.key === 'susp' ? 'suspendue (prérequis non satisfait)' : 'expirée au démarrage'}`);
       if (hi.exp! < end) push('reserve', 'HABILITATION', 'Habilitation expirant pendant le chantier', `${hm.nom} — expire le ${fmt(hi.exp!)}, en cours de chantier`);
     });
     c.certs.forEach(f => {
-      const fm = this.fm(f), ci = e.rawCerts.filter(x => x.f === f).sort((a, b) => b.exp.getTime() - a.exp.getTime())[0];
+      const fm = this.fm(f), ci = certEnVigueur(e.rawCerts, f);
       if (!ci) return push('nogo', 'CERTIFICATION', 'Certification requise absente', `${fm.court} — non détenue`);
       const recycl = !!ci.session && parse(ci.session.date) < start;
       if (ci.exp < start) return push(recycl ? 'reserve' : 'nogo', 'CERTIFICATION', recycl ? 'Recyclage planifié avant le démarrage' : 'Certification requise non valide', `${fm.court} — expire le ${fmt(ci.exp)}${recycl ? ', recyclage le ' + fmt(parse(ci.session!.date)) : ''}`);

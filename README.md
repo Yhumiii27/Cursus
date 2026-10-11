@@ -113,7 +113,8 @@ périodique : `docs/SAUVEGARDE.md`.
   unique de l'entreprise (OIDC / SAML) dans `server/src/auth.ts` et la route `/api/login`.
 - **Keystone** : les appels entrants (`GET /api/integrations/keystone/chantiers/:id/go-no-go`,
   `POST /api/integrations/keystone/demandes`) sont réels ; les messages sortants (décisions,
-  heures et absences validées) sont tracés dans le journal (`server/src/integrations/keystone.ts`).
+  heures et absences validées, verdicts modifiés par une suspension, une levée, un retrait ou une
+  nouvelle délivrance d'habilitation) sont tracés dans le journal (`server/src/integrations/keystone.ts`).
 - **Sage Paie** : la transmission produit le JSON des variables et un accusé fictif
   (`server/src/integrations/sage.ts`) ; la correspondance des rubriques avec le plan de paie reste à paramétrer.
 - **Convocations, demandes de visite médicale** : notifiées dans l'interface et tracées, sans envoi d'e-mail.
@@ -131,7 +132,9 @@ sont proratisés.
 ## Règles métier implémentées
 
 Validité des certifications et seuil d'alerte (30–180 j) · prérequis des habilitations
-(formation + aptitude médicale de 24 mois) avec suspension automatique · formalités de
+(formation + aptitude médicale de 24 mois) avec suspension automatique, suspension et
+retrait manuels (motif, date, auteur) · seule la dernière certification compte après un
+recyclage, les précédentes restent en historique · formalités de
 voyage par destination (passeport, visas, vaccins, délais) · Go / No Go par chantier
 (matricules et codes de motif uniquement) · heures supplémentaires +25 % / +50 %,
 heures complémentaires +10 % / +25 %, forfait jours, alertes 10 h / 48 h · repos

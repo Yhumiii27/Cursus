@@ -2,7 +2,8 @@
 import type { EntretienType, Statut, TempsTravail, TypeContrat, VaccinId, VisaKind } from './types.ts';
 
 export type StatusKey = 'ok' | 'due' | 'exp';
-export type HabKey = StatusKey | 'susp' | 'pending';
+/** `susp` : suspendue (prérequis non satisfait ou suspension manuelle) ; `retiree` : retirée, définitivement. */
+export type HabKey = StatusKey | 'susp' | 'pending' | 'retiree';
 
 export const CLS: Record<StatusKey, string> = { ok: 'tag-neutral', due: 'tag-outline', exp: 'tag-accent' };
 export const CERT_LABEL: Record<StatusKey, string> = { ok: 'Valide', due: 'À renouveler', exp: 'Expirée' };
@@ -10,8 +11,11 @@ export const EMP_LABEL: Record<StatusKey, string> = { ok: 'À jour', due: 'À re
 export const DOC_LABEL: Record<StatusKey, string> = { ok: 'Valide', due: 'À renouveler', exp: 'Expiré' };
 export const RANK: Record<StatusKey, number> = { ok: 0, due: 1, exp: 2 };
 export const SESS_CLS: Record<string, string> = { 'Confirmée': 'tag-neutral', 'À confirmer': 'tag-outline', 'Complète': 'tag-accent' };
-export const HAB_CLS: Record<HabKey, string> = { ok: 'tag-neutral', due: 'tag-outline', exp: 'tag-accent', susp: 'tag-accent', pending: 'tag-outline' };
-export const HAB_LABEL: Record<HabKey, string> = { ok: 'Valide', due: 'À renouveler', exp: 'Expirée', susp: 'Suspendue', pending: 'En attente' };
+export const HAB_CLS: Record<HabKey, string> = { ok: 'tag-neutral', due: 'tag-outline', exp: 'tag-accent', susp: 'tag-accent', pending: 'tag-outline', retiree: 'tag-accent' };
+export const HAB_LABEL: Record<HabKey, string> = { ok: 'Valide', due: 'À renouveler', exp: 'Expirée', susp: 'Suspendue', pending: 'En attente', retiree: 'Retirée' };
+/** Mesures manuelles sur un titre délivré : suspendre (RH, manager direct), lever la suspension et retirer (RH). */
+export type HabMesureAction = 'suspendre' | 'lever' | 'retirer';
+export const HAB_MESURE_LABEL: Record<HabMesureAction, string> = { suspendre: 'Suspendre', lever: 'Lever la suspension', retirer: 'Retirer' };
 export const TRIP_CLS = { pret: 'tag-neutral', todo: 'tag-outline', bloc: 'tag-accent' } as const;
 export const TRIP_LABEL = { pret: 'Prêt', todo: 'À compléter', bloc: 'Bloquant' } as const;
 export const ABS_LABEL = { CP: 'Congés payés', RTT: 'RTT / repos', RECUP: 'Récupération' } as const;

@@ -25,7 +25,8 @@ export function Echeances() {
       const m = new Date(t.getFullYear(), t.getMonth() + i, 1);
       const end = new Date(m.getFullYear(), m.getMonth() + 1, 1);
       const from = i === 0 ? t : m;
-      return { m, items: list.filter(x => x.exp >= from && x.exp < end).sort((a, b) => a.d - b.d) };
+      // Un titre suspendu ou retiré aujourd'hui (non valide, échéance du jour) reste parmi les dépassées.
+      return { m, items: list.filter(x => x.exp >= from && x.exp < end && !(x.key === 'exp' && x.d <= 0)).sort((a, b) => a.d - b.d) };
     });
     const max = Math.max(1, ...months.map(m => m.items.length));
     const year = months.reduce((n, m) => n + m.items.length, 0);

@@ -1,7 +1,11 @@
 // Formations, sessions, certifications, habilitations et demandes des collaborateurs.
+import { GNG_CODE } from '../../../shared/constants.ts';
 import { addMonths, isValidDate, parse } from '../../../shared/dates.ts';
-import { fmt } from '../../../shared/format.ts';
-import type { Certification, DemandeCollab, HabTitre, Inscription, Session } from '../../../shared/types.ts';
+import { certEnVigueur, Domain, habEnCours, type ChantierEval } from '../../../shared/domain.ts';
+import { fmt, matricule, plural } from '../../../shared/format.ts';
+import type { Certification, DemandeCollab, Employe, HabTitre, HabType, Inscription, Session } from '../../../shared/types.ts';
+import { loadFull } from '../dataset.ts';
+import { sendToKeystone } from '../integrations/keystone.ts';
 import { ActionError, enriched, getEmp, isManagerOf, isRh, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
 
 const inscrire: ActionHandler = (ctx, p) => {
@@ -11,6 +15,7 @@ const inscrire: ActionHandler = (ctx, p) => {
   const sess = ctx.d.session(Number(p.sessionId));
   if (!cert || !sess) throw new ActionError('Certification ou session introuvable');
   if (sess.formation !== cert.f) throw new ActionError('Session d’une autre formation');
+  if (certEnVigueur(emp.certs, cert.f) !== cert) throw new ActionError('Certification remplacée par un recyclage : planifiez la certification en vigueur');
   if (sess.date < ctx.d.ti) throw new ActionError('Session déjà passée');
   if (cert.sessionId === sess.id) return `${emp.nom} est déjà inscrit à cette session`;
   if (sess.inscrits >= sess.places) throw new ActionError('Cette session est complète');
@@ -29,9 +34,18 @@ const ajouterCert: ActionHandler = (ctx, p) => {
   const fm = ctx.d.fm(str(p.f));
   if (!fm) throw new ActionError('Formation inconnue');
   if (!isValidDate(p.date)) throw new ActionError('Date d’obtention invalide');
-  ctx.db.insert<Certification>('certifications', { empId: emp.id, f: fm.id, obtenue: p.date, sessionId: null, convoc: null });
+  const avant = certEnVigueur(emp.certs, fm.id);
+  const cert = ctx.db.insert<Certification>('certifications', { empId: emp.id, f: fm.id, obtenue: p.date, sessionId: null, convoc: null });
   // La certification obtenue clôt l'inscription en formation initiale correspondante.
   ctx.ds.inscriptions.filter(i => i.empId === emp.id && ctx.d.session(i.sessionId)?.formation === fm.id).forEach(i => ctx.db.remove('inscriptions', i.id));
+  // Recyclage enregistré : une session à venir, postérieure à l'obtention, n'a plus d'objet pour la certification
+  // remplacée (qui ne se planifie plus) ; sa place est libérée.
+  const sess = avant && certEnVigueur([...emp.certs, cert], fm.id) === cert ? ctx.d.session(avant.sessionId) : null;
+  if (sess && sess.date >= ctx.d.ti && sess.date > p.date) {
+    ctx.db.update<Session>('sessions', sess.id, { inscrits: Math.max(0, sess.inscrits - 1) });
+    ctx.db.update<Certification>('certifications', avant!.id, { sessionId: null, convoc: null });
+    return `${fm.court} ajoutée au dossier de ${emp.nom} · inscription à la session du ${fmt(parse(sess.date))} annulée`;
+  }
   return `${fm.court} ajoutée au dossier de ${emp.nom}`;
 };
 
@@ -53,14 +67,22 @@ const delivrerHab: ActionHandler = (ctx, p) => {
   const par = str(p.par);
   if (!hm) throw new ActionError('Habilitation inconnue');
   if (!isValidDate(p.date) || !par) throw new ActionError('Date de délivrance et signataire requis');
+  const existing = emp.habs.find(h => h.h === hm.id);
+  // Une suspension se lève explicitement ; après un retrait, une nouvelle délivrance reste possible.
+  if (existing?.delivree && existing.mesure === 'suspension') throw new ActionError(`${hm.nom} suspendue pour ${emp.nom} — levez d’abord la suspension`);
+  const retire = existing?.delivree && existing.mesure === 'retrait' ? existing : null;
+  // Le retrait est définitif : une délivrance antidatée rétablirait l'ancien titre.
+  if (retire?.mesureDate && p.date < retire.mesureDate) throw new ActionError(`Nouvelle délivrance antérieure au retrait du ${fmt(parse(retire.mesureDate))}`);
   const x = enriched(ctx).find(e => e.id === emp.id)!;
   const info = ctx.d.habInfo({ h: hm.id, delivree: p.date }, x.rawCerts, x.med, ctx.ds.settings.horizonAlerte);
   if (!info.prereqOk) throw new ActionError(`Délivrance impossible — ${info.failing.map(c => c.label).join(', ')}`);
-  const existing = emp.habs.find(h => h.h === hm.id);
-  const entry = { delivree: p.date, par, demande: null };
+  // Après un retrait, Keystone a reçu le No Go : il reçoit aussi le verdict rétabli.
+  const avant = retire ? verdicts(ctx.d, emp.id) : null;
+  const entry = { delivree: p.date, par, demande: null, mesure: null, mesureDate: null, mesureMotif: null, mesurePar: null };
   if (existing) ctx.db.update<HabTitre>('habTitres', existing.id, entry);
   else ctx.db.insert<HabTitre>('habTitres', { empId: emp.id, h: hm.id, ...entry });
-  return `${hm.nom} ${p.mode === 'renew' ? 'renouvelée' : 'délivrée'} — ${emp.nom} · valide jusqu’au ${fmt(addMonths(parse(p.date), hm.validite))}`;
+  const keystone = avant ? signaler(ctx, emp, avant).keystone : '';
+  return `${hm.nom} ${p.mode === 'renew' ? 'renouvelée' : 'délivrée'} — ${emp.nom} · valide jusqu’au ${fmt(addMonths(parse(p.date), hm.validite))}${keystone}`;
 };
 
 const demanderVisite: ActionHandler = (ctx, p) => {
@@ -80,10 +102,9 @@ const accepterDemande: ActionHandler = (ctx, p) => {
       ? ctx.ds.sessions.find(s => s.id === r.sessionId && s.formation === r.f && s.date >= ctx.d.ti && s.inscrits < s.places)
       : undefined;
     if (sess) {
-      const certs = emp.certs.filter(c => c.f === r.f);
-      if (certs.length) {
-        // Recyclage : la certification la plus récente est rattachée à la session (l'ancienne place est libérée).
-        const cert = [...certs].sort((a, b) => b.obtenue.localeCompare(a.obtenue))[0];
+      const cert = certEnVigueur(emp.certs, r.f!);
+      if (cert) {
+        // Recyclage : la certification en vigueur est rattachée à la session (l'ancienne place est libérée).
         const ancienne = ctx.d.session(cert.sessionId);
         if (ancienne && ancienne.id !== sess.id && ancienne.date >= ctx.d.ti) ctx.db.update<Session>('sessions', ancienne.id, { inscrits: Math.max(0, ancienne.inscrits - 1) });
         if (cert.sessionId !== sess.id) ctx.db.update<Session>('sessions', sess.id, { inscrits: sess.inscrits + 1 });
@@ -104,9 +125,15 @@ const accepterDemande: ActionHandler = (ctx, p) => {
     return `${emp.nom} — demande ajoutée au plan de formation ${ex}`;
   }
   if (r.type === 'habilitation') {
-    if (r.h && !emp.habs.some(h => h.h === r.h)) ctx.db.insert<HabTitre>('habTitres', { empId: emp.id, h: r.h, delivree: null, par: null, demande: ctx.d.ti });
+    const t = emp.habs.find(h => h.h === r.h);
+    // Titre retiré : la demande acceptée reste attachée au titre jusqu'à la nouvelle délivrance.
+    const retire = t?.delivree && t.mesure === 'retrait' ? t : null;
+    if (retire) ctx.db.update<HabTitre>('habTitres', retire.id, { demande: ctx.d.ti });
+    else if (r.h && !t) ctx.db.insert<HabTitre>('habTitres', { empId: emp.id, h: r.h, delivree: null, par: null, demande: ctx.d.ti });
     done('Acceptée — délivrance après contrôle des prérequis');
-    return `${emp.nom} — ${ctx.d.hm(r.h!).nom} en attente de délivrance (onglet Habilitations)`;
+    return retire
+      ? `${emp.nom} — ${ctx.d.hm(r.h!).nom} retirée : nouvelle délivrance à effectuer après contrôle des prérequis (onglet Habilitations)`
+      : `${emp.nom} — ${ctx.d.hm(r.h!).nom} en attente de délivrance (onglet Habilitations)`;
   }
   done('Document contrôlé par le service RH');
   return `${r.label} — ${emp.nom} · contrôlé`;
@@ -155,7 +182,7 @@ const demandeHabilitation: ActionHandler = (ctx, p) => {
   const motif = str(p.motif), hm = ctx.d.hm(str(p.h));
   if (!hm || !motif) throw new ActionError('Habilitation et motif requis');
   const x = enriched(ctx).find(e => e.id === emp.id)!;
-  const already = x.habs.some(h => h.h === hm.id && h.key !== 'exp')
+  const already = x.habs.some(h => h.h === hm.id && habEnCours(h))
     || ctx.ds.demandesCollab.some(r => r.empId === emp.id && r.type === 'habilitation' && r.h === hm.id && r.statut === 'attente');
   if (already) throw new ActionError(parId ? `${emp.nom} détient déjà ce titre, ou une demande est déjà en cours.` : 'Vous détenez déjà ce titre, ou une demande est déjà en cours.');
   ctx.db.insert<DemandeCollab>('demandesCollab', {
@@ -164,11 +191,104 @@ const demandeHabilitation: ActionHandler = (ctx, p) => {
   return parId ? `Demande d’habilitation pour ${emp.nom} envoyée au service RH` : 'Demande d’habilitation envoyée au service RH';
 };
 
+// — Suspension et retrait des habilitations —
+
+/** Titre délivré d'un collaborateur, désigné par son type (un titre par type et par collaborateur). */
+function titreDelivre(ctx: Ctx, emp: Employe, h: unknown): { hm: HabType; t: HabTitre } {
+  const hm = ctx.d.hm(str(h));
+  if (!hm) throw new ActionError('Habilitation inconnue');
+  const t = emp.habs.find(x => x.h === hm.id);
+  if (!t?.delivree) throw new ActionError(`${emp.nom} ne détient pas ce titre`);
+  return { hm, t };
+}
+
+/** Motif (obligatoire) et date (aujourd'hui par défaut, ni future ni antérieure à la délivrance) d'une mesure. */
+function decision(ctx: Ctx, p: Record<string, any>, t: HabTitre) {
+  const motif = str(p.motif);
+  if (!motif) throw new ActionError('Motif obligatoire');
+  if (motif.length > 500) throw new ActionError('Motif trop long (500 caractères au plus)');
+  const date = p.date ? p.date : ctx.d.ti;
+  if (!isValidDate(date)) throw new ActionError('Date invalide');
+  if (date > ctx.d.ti) throw new ActionError('La date ne peut pas être postérieure à aujourd’hui');
+  if (date < t.delivree!) throw new ActionError(`Date antérieure à la délivrance du titre (${fmt(parse(t.delivree!))})`);
+  return { motif, date };
+}
+
+/** Verdicts des chantiers en cours ou à venir où le collaborateur est affecté (même évaluation que l'API Keystone). */
+function verdicts(d: Domain, empId: number): Map<string, ChantierEval> {
+  const emps = d.enrich(d.ds.settings.horizonAlerte, false);
+  return new Map(d.evaluateChantiers(emps, d.tripsAll())
+    .filter(x => x.c.fin >= d.ti && x.res.some(r => r.e.id === empId))
+    .map(x => [x.c.id, x]));
+}
+
+/**
+ * Signale à Keystone chaque chantier dont le verdict du collaborateur a changé depuis `avant`
+ * (matricule et codes de motif uniquement). Renvoie l'état après l'écriture et le nombre de chantiers signalés.
+ */
+function signaler(ctx: Ctx, emp: Employe, avant: Map<string, ChantierEval>) {
+  const apres = new Domain(loadFull(ctx.db, ctx.user));
+  let signales = 0;
+  verdicts(apres, emp.id).forEach((x, id) => {
+    const r = x.res.find(y => y.e.id === emp.id)!, prev = avant.get(id)?.res.find(y => y.e.id === emp.id);
+    const motifs = r.reasons.map(m => m.code);
+    if (prev && prev.status === r.status && prev.reasons.map(m => m.code).join() === motifs.join()) return;
+    sendToKeystone(ctx.db, { type: 'verdict.modifie', chantier: id, statut: GNG_CODE[x.status], ressource: { matricule: matricule(emp.id), statut: GNG_CODE[r.status], motifs } });
+    signales++;
+  });
+  return { apres, keystone: signales ? ` · ${plural(signales, 'chantier signalé', 'chantiers signalés')} à Keystone` : '' };
+}
+
+/** Enregistre la mesure, puis signale à Keystone les verdicts qu'elle modifie. */
+function mesurer(ctx: Ctx, emp: Employe, t: HabTitre, patch: Pick<HabTitre, 'mesure' | 'mesureDate' | 'mesureMotif' | 'mesurePar'>) {
+  const avant = verdicts(ctx.d, emp.id);
+  ctx.db.update<HabTitre>('habTitres', t.id, patch);
+  return signaler(ctx, emp, avant);
+}
+
+/** Suspension après un incident ou une restriction : RH, ou manager pour un membre de son équipe (jamais lui-même). */
+const suspendreHab: ActionHandler = (ctx, p) => {
+  const emp = getEmp(ctx, p.empId);
+  if (!isRh(ctx) && !isManagerOf(ctx, emp)) throw new ActionError('Suspension réservée au service RH ou au manager du collaborateur', 403);
+  const { hm, t } = titreDelivre(ctx, emp, p.h);
+  if (t.mesure === 'retrait') throw new ActionError(`${hm.nom} déjà retirée à ${emp.nom}`);
+  if (t.mesure === 'suspension') throw new ActionError(`${hm.nom} déjà suspendue pour ${emp.nom}`);
+  const { motif, date } = decision(ctx, p, t);
+  const { keystone } = mesurer(ctx, emp, t, { mesure: 'suspension', mesureDate: date, mesureMotif: motif, mesurePar: ctx.user.nom });
+  return `${hm.nom} suspendue — ${emp.nom}${keystone}${isRh(ctx) ? '' : ' · levée réservée au service RH'}`;
+};
+
+/** Levée de la suspension : service RH uniquement. Le titre redevient valide si ses prérequis et son échéance le permettent. */
+const leverHab: ActionHandler = (ctx, p) => {
+  requireRh(ctx);
+  const emp = getEmp(ctx, p.empId);
+  const { hm, t } = titreDelivre(ctx, emp, p.h);
+  if (t.mesure !== 'suspension') throw new ActionError(`${hm.nom} n’est pas suspendue pour ${emp.nom}`);
+  const { apres, keystone } = mesurer(ctx, emp, t, { mesure: null, mesureDate: null, mesureMotif: null, mesurePar: null });
+  const hi = apres.enrich(ctx.ds.settings.horizonAlerte, false).find(e => e.id === emp.id)?.habs.find(x => x.h === hm.id);
+  const reste = hi && (hi.key === 'exp' || hi.key === 'susp') ? ` · titre toujours non valide (${hi.key === 'exp' ? 'expiré' : 'prérequis non satisfait'})` : '';
+  return `Suspension levée — ${hm.nom} · ${emp.nom}${reste}${keystone}`;
+};
+
+/** Retrait définitif : service RH uniquement. Une nouvelle délivrance reste possible ensuite. */
+const retirerHab: ActionHandler = (ctx, p) => {
+  requireRh(ctx);
+  const emp = getEmp(ctx, p.empId);
+  const { hm, t } = titreDelivre(ctx, emp, p.h);
+  if (t.mesure === 'retrait') throw new ActionError(`${hm.nom} déjà retirée à ${emp.nom}`);
+  const { motif, date } = decision(ctx, p, t);
+  const { keystone } = mesurer(ctx, emp, t, { mesure: 'retrait', mesureDate: date, mesureMotif: motif, mesurePar: ctx.user.nom });
+  return `${hm.nom} retirée — ${emp.nom}${keystone}`;
+};
+
 export const conformiteActions: Record<string, ActionHandler> = {
   'plan.inscrire': inscrire,
   'cert.ajouter': ajouterCert,
   'session.creer': creerSession,
   'hab.delivrer': delivrerHab,
+  'hab.suspendre': suspendreHab,
+  'hab.lever': leverHab,
+  'hab.retirer': retirerHab,
   'medical.demander': demanderVisite,
   'demande.accepter': accepterDemande,
   'demande.refuser': refuserDemande,

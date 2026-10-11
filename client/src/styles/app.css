@@ -115,6 +115,7 @@ tr.selected { background: color-mix(in srgb, var(--color-accent) 10%, transparen
 .list-row.top { align-items: flex-start; }
 .list-row.stack { flex-direction: column; align-items: stretch; gap: 8px; padding: var(--space-4) 0; }
 .list-row .grow { min-width: 0; flex: 1; }
+.list-row.past { color: var(--color-neutral-500); }
 .item-head { display: flex; justify-content: space-between; gap: var(--space-3); align-items: flex-start; }
 .item-head > div { min-width: 0; }
 

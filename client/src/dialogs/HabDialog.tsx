@@ -26,10 +26,19 @@ export function HabDialog({ empId: empId0, h: h0, mode }: { empId?: number | nul
     key: c.label, label: c.label, text: c.text,
     cls: c.ok ? (c.due ? 'tag-outline' : 'tag-neutral') : 'tag-accent', statut: c.ok ? (c.due ? 'À renouveler' : 'OK') : 'Manquant',
   }));
-  const hint = info.prereqOk
-    ? `Validité ${validiteLabel(hm.validite)}${valid ? ' — le titre expirera le ' + fmt(addMonths(parse(date), hm.validite)) : ''}.`
-    : `Délivrance impossible — ${info.failing.map(c => c.label).join(', ')}.`;
-  const cant = !info.prereqOk || !valid || !par.trim();
+  // Une suspension se lève d'abord ; après un retrait, la nouvelle délivrance est possible, à partir de la date du retrait.
+  const titre = emp.habs.find(x => x.h === h && x.delivree);
+  const suspendu = titre?.mesure === 'suspension';
+  const retraitLe = titre?.mesure === 'retrait' ? titre.mesureDate : null;
+  const avantRetrait = valid && !!retraitLe && date < retraitLe;
+  const hint = suspendu
+    ? `Titre suspendu le ${fmt(titre.mesureLe!)} — levez d’abord la suspension.`
+    : avantRetrait
+      ? `Nouvelle délivrance antérieure au retrait du ${fmt(parse(retraitLe!))} : choisissez une date postérieure.`
+      : info.prereqOk
+        ? `Validité ${validiteLabel(hm.validite)}${valid ? ' — le titre expirera le ' + fmt(addMonths(parse(date), hm.validite)) : ''}.${retraitLe ? ` Nouvelle délivrance après le retrait du ${fmt(parse(retraitLe))}.` : ''}`
+        : `Délivrance impossible — ${info.failing.map(c => c.label).join(', ')}.`;
+  const cant = suspendu || avantRetrait || !info.prereqOk || !valid || !par.trim();
   const empOptions = [...d.ds.employes].sort((a, b) => a.nom.localeCompare(b.nom));
 
   const changeH = (id: string) => {
@@ -63,7 +72,7 @@ export function HabDialog({ empId: empId0, h: h0, mode }: { empId?: number | nul
       </div>
       <Field label="Contrôle des prérequis"><CheckList checks={checks} /></Field>
       <div className="grid-2">
-        <Field label="Date de délivrance" htmlFor="hab-date"><input className="input" id="hab-date" type="date" value={date} onChange={e => setDate(e.target.value)} /></Field>
+        <Field label="Date de délivrance" htmlFor="hab-date"><input className="input" id="hab-date" type="date" min={retraitLe ?? undefined} value={date} onChange={e => setDate(e.target.value)} /></Field>
         <Field label="Signataire (employeur)" htmlFor="hab-par"><input className="input" id="hab-par" type="text" value={par} onChange={e => setPar(e.target.value)} /></Field>
       </div>
       <p className="text-muted fine">{hint}</p>

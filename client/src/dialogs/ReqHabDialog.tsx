@@ -1,6 +1,7 @@
 // Demander une habilitation au service RH, avec le contrôle des prérequis :
 // le collaborateur pour lui-même, ou le manager pour un membre de son équipe.
 import { useState } from 'react';
+import { habEnCours } from '../../../shared/domain.ts';
 import { CancelButton, CheckList, Dialog, Field } from '../components/Dialog.tsx';
 import { Fine } from '../components/ui.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
@@ -21,7 +22,7 @@ export function ReqHabDialog({ empId }: { empId?: number | null }) {
   if (!h || (!c.pourMembre && !who)) return null;
 
   const info = who ? d.habInfo({ h }, who.rawCerts, who.med, horizon) : null;
-  const already = !!who && (who.habs.some(x => x.h === h && x.key !== 'exp')
+  const already = !!who && (who.habs.some(x => x.h === h && habEnCours(x))
     || d.ds.demandesCollab.some(r => r.empId === who.id && r.type === 'habilitation' && r.h === h && r.statut === 'attente'));
   const checks = (info?.checks ?? []).map(x => ({
     key: x.label, label: x.label, text: x.text,

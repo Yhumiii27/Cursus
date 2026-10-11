@@ -1,7 +1,7 @@
 // Annuaire (RH) ou équipe (manager) : statut de conformité, contrat et fiche détaillée.
 import { useMemo, type ReactNode } from 'react';
 import { PencilSimpleIcon, PlusIcon, UserMinusIcon, UserPlusIcon } from '@phosphor-icons/react';
-import { CERT_LABEL, CLS, EMP_LABEL, HAB_CLS, HAB_LABEL, RANK, STATUTS, TEMPS_TRAVAIL, TRIP_LABEL, TYPES_CONTRAT } from '../../../shared/constants.ts';
+import { CERT_LABEL, CLS, EMP_LABEL, HAB_CLS, HAB_LABEL, HAB_MESURE_LABEL, RANK, STATUTS, TEMPS_TRAVAIL, TRIP_LABEL, TYPES_CONTRAT } from '../../../shared/constants.ts';
 import type { ContratX, EmpX, HabInfo, Proposal } from '../../../shared/domain.ts';
 import type { Formation } from '../../../shared/types.ts';
 import { days, parse } from '../../../shared/dates.ts';
@@ -20,7 +20,7 @@ const docCls = (k: string) => k === 'exp' ? 'tag-accent' : k === 'due' ? 'tag-ou
 
 function habSummary(e: EmpX) {
   const hs = e.habs.filter(h => h.key !== 'pending');
-  const ko = hs.filter(h => h.key === 'exp' || h.key === 'susp').length, due = hs.filter(h => h.key === 'due').length, pend = e.habs.length - hs.length;
+  const ko = hs.filter(h => h.key === 'exp' || h.key === 'susp' || h.key === 'retiree').length, due = hs.filter(h => h.key === 'due').length, pend = e.habs.length - hs.length;
   return {
     label: ko ? plural(ko, 'non conforme', 'non conformes') : due ? `${due} à renouveler` : !hs.length ? `${pend} en attente` : plural(hs.length, 'valide', 'valides'),
     cls: ko ? 'tag-accent' : due || !hs.length ? 'tag-outline' : 'tag-neutral',
@@ -144,12 +144,14 @@ function Info({ label, sub, children }: { label: ReactNode; sub?: ReactNode; chi
 }
 
 function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcomingCount: (f: string) => number; trips: ReturnType<typeof useTrips>; horizon: number }) {
-  const { d } = useEnriched();
+  const { d, formIds } = useEnriched();
   const { rh, manager, me } = useRole();
   const { setUi, openDialog, go, run, runIntent, notify } = useStore();
   /** Manager direct consultant un membre de son équipe (jamais sa propre fiche). */
   const membre = manager && e.id !== me && d.mgrOf(e) === me;
   const canPlan = rh || membre;
+  /** Certifications remplacées par un recyclage (historique), selon le filtre « réglementaires uniquement ». */
+  const anciennes = e.anciennes.filter(c => formIds.has(c.f));
   const tv = d.travelOf(e, horizon);
   const nt = trips.find(t => t.empId === e.id);
   const ntStatus = nt ? TRIP_LABEL[nt.r.status] : null;
@@ -207,7 +209,9 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
   const passeportFormation = () => {
     const ok = printDocument(`Passeport formation — ${e.nom}`, `${e.poste} · ${equipeLabel(e)}`, [
       { title: 'Certifications', table: { head: ['Formation', 'Obtenue le', 'Expire le', 'Statut'], rows: e.rawCerts.map(c => [c.fm.nom, fmt(c.obt), fmt(c.exp), CERT_LABEL[c.key]]) } },
-      ...(e.habs.length ? [{ title: 'Habilitations', table: { head: ['Habilitation', 'Délivrée le', 'Par', 'Expire le', 'Statut'], rows: e.habs.map(h => [h.hm.nom, h.delivree ? fmt(parse(h.delivree)) : '—', h.par ?? '—', h.exp ? fmt(h.exp) : '—', HAB_LABEL[h.key]]) } }] : []),
+      ...(e.anciennes.length ? [{ title: 'Certifications remplacées', table: { head: ['Formation', 'Obtenue le', 'Expirait le', 'Remplacée le'], rows: e.anciennes.map(c => [c.fm.nom, fmt(c.obt), fmt(c.exp), fmt(c.remplacee!)]) } }] : []),
+      // Le motif d'une suspension ou d'un retrait n'est pas imprimé : seuls l'état et sa date figurent au passeport.
+      ...(e.habs.length ? [{ title: 'Habilitations', table: { head: ['Habilitation', 'Délivrée le', 'Par', 'Expire le', 'Statut'], rows: e.habs.map(h => [h.hm.nom, h.delivree ? fmt(parse(h.delivree)) : '—', h.par ?? '—', h.exp ? fmt(h.exp) : '—', HAB_LABEL[h.key] + (h.mesureLe ? ` le ${fmt(h.mesureLe)}` : '')]) } }] : []),
     ]);
     if (!ok) notify('Autorisez les fenêtres surgissantes pour imprimer le passeport formation', true);
   };
@@ -256,6 +260,21 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
         {e.certs.length === 0 && <Empty pad="sm">Aucune certification suivie.</Empty>}
       </div>
 
+      {anciennes.length > 0 && <>
+        <SectionLabel>Historique des certifications</SectionLabel>
+        <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
+          {anciennes.map(c => (
+            <div key={c.id} className="list-row past">
+              <div className="grow">
+                <div style={{ fontSize: 13 }}>{c.fm.nom}</div>
+                <div className="sub">Obtenue le {fmt(c.obt)} · remplacée le {fmt(c.remplacee!)}</div>
+              </div>
+              <Tag cls="tag-outline" style={{ flex: 'none' }}>Remplacée</Tag>
+            </div>
+          ))}
+        </div>
+      </>}
+
       {inscriptions.length > 0 && <>
         <SectionLabel>Formations planifiées</SectionLabel>
         <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
@@ -290,6 +309,9 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
         <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
           {e.habs.map(h => {
             const a = habProposal(h);
+            // Suspendre : RH ou manager direct ; lever la suspension, retirer, délivrer de nouveau : RH.
+            const mesures = rh || membre ? d.habMesures(h, rh) : [];
+            const redelivrer = rh && h.key === 'retiree';
             return (
               <div key={h.hm.id} className="list-row stack">
                 <div className="item-head">
@@ -300,7 +322,15 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
                   <Tag cls={HAB_CLS[h.key]} style={{ flex: 'none' }}>{HAB_LABEL[h.key]}</Tag>
                 </div>
                 {h.note && <NoteAccent>{h.note}</NoteAccent>}
-                {a && <div style={{ display: 'flex', justifyContent: 'flex-end' }}><button type="button" className="btn btn-ghost btn-sm" onClick={() => runProposal(a)}>{a.label}</button></div>}
+                {(a || redelivrer || mesures.length > 0) && (
+                  <div className="actions-end">
+                    {a && <button type="button" className="btn btn-ghost btn-sm" onClick={() => runProposal(a)}>{a.label}</button>}
+                    {redelivrer && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'hab', empId: e.id, h: h.h, mode: 'deliver' })}>Nouvelle délivrance</button>}
+                    {mesures.map(m => (
+                      <button key={m} type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'habMesure', empId: e.id, h: h.h, action: m })}>{HAB_MESURE_LABEL[m]}</button>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}

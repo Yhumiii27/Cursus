@@ -1,7 +1,7 @@
 // Demander une formation (catalogue ou hors catalogue) au service RH :
 // le collaborateur pour lui-même, ou le manager pour un membre de son équipe.
 import { useMemo, useState } from 'react';
-import type { EmpX } from '../../../shared/domain.ts';
+import { certEnVigueur, type EmpX } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
 import { CancelButton, Dialog, Field, Static } from '../components/Dialog.tsx';
@@ -39,8 +39,8 @@ export function CibleField({ c, id }: { c: ReturnType<typeof useCible>; id: stri
   );
 }
 
-/** Dernière certification détenue pour une formation (toutes formations, filtre réglementaire ignoré). */
-const derniere = (e: EmpX, f: string) => e.rawCerts.filter(x => x.f === f).sort((a, b) => b.exp.getTime() - a.exp.getTime())[0];
+/** Certification en vigueur pour une formation (toutes formations, filtre réglementaire ignoré). */
+const derniere = (e: EmpX, f: string) => certEnVigueur(e.rawCerts, f);
 
 /**
  * Motif proposé : recyclage seulement si la formation a déjà été suivie ; sinon prérequis

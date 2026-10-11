@@ -4,6 +4,7 @@ import { VACCINS, VISA_RULES } from '../../../shared/constants.ts';
 import type { FormaliteKind } from '../../../shared/domain.ts';
 import { addMonths, isValidDate, parse } from '../../../shared/dates.ts';
 import { fmt, validiteLabel } from '../../../shared/format.ts';
+import { formaliteCle } from '../../../shared/rules/formalites.ts';
 import type { VaccinId } from '../../../shared/types.ts';
 import { CancelButton, Dialog, Field } from '../components/Dialog.tsx';
 import { Seg } from '../components/ui.tsx';
@@ -35,6 +36,10 @@ export function FormaliteDialog({ empId: empId0, kind: kind0, dest: dest0, v: v0
   const vm = VACCINS[v];
   const vacHint = `${vm.validite == null ? 'Certificat valable à vie' : 'Validité ' + validiteLabel(vm.validite)}${isValidDate(date) && vm.validite ? ' · rappel le ' + fmt(addMonths(parse(date), vm.validite)) : ''}`;
   const cant = kind === 'passeport' ? !(numero.trim() && isValidDate(expire)) : kind === 'visa' ? !isValidDate(expire) : !isValidDate(date);
+  // Le collaborateur déclare : son dossier n'est mis à jour qu'après validation par le service RH.
+  const cle = formaliteCle({ kind, dest, v });
+  const dejaDeclare = collab && d.ds.demandesCollab.some(r => r.empId === empId && r.statut === 'attente'
+    && r.declaration && !r.declaration.dejaAuDossier && formaliteCle(r.declaration) === cle);
 
   const confirm = async () => {
     setBusy(true);
@@ -44,9 +49,9 @@ export function FormaliteDialog({ empId: empId0, kind: kind0, dest: dest0, v: v0
   };
 
   return (
-    <Dialog title="Enregistrer une formalité" width={520} actions={<>
+    <Dialog title={collab ? 'Déclarer une formalité' : 'Enregistrer une formalité'} width={520} actions={<>
       <CancelButton />
-      <button type="button" className="btn btn-primary" disabled={cant || busy} onClick={confirm}>Enregistrer</button>
+      <button type="button" className="btn btn-primary" disabled={cant || busy} onClick={confirm}>{collab ? 'Envoyer au service RH' : 'Enregistrer'}</button>
     </>}>
       <Field label="Collaborateur" htmlFor="fo-emp">
         <select className="input" id="fo-emp" value={empId} disabled={lockEmp} onChange={e => setEmpId(Number(e.target.value))}>
@@ -84,6 +89,13 @@ export function FormaliteDialog({ empId: empId0, kind: kind0, dest: dest0, v: v0
         </div>
         <p className="text-muted fine">{vacHint} · seule la date est conservée, aucune donnée médicale détaillée.</p>
       </>}
+      {collab && (
+        <p className="text-muted fine">
+          {dejaDeclare
+            ? 'Une déclaration de ce document attend déjà la validation du service RH : celle-ci la remplacera.'
+            : 'Votre déclaration est transmise au service RH : votre dossier est mis à jour après sa validation.'}
+        </p>
+      )}
     </Dialog>
   );
 }

@@ -1,4 +1,7 @@
 // Migrations de données des bases créées par une version antérieure de Cursus.
+import { VACCINS } from '../../shared/constants.ts';
+import { plural } from '../../shared/format.ts';
+import type { Declaration, DemandeCollab, Destination, Vaccination, VaccinId, Visa } from '../../shared/types.ts';
 import type { Db } from './db.ts';
 
 /** Ancienne colonne `contrat` (qui mêlait nature du contrat et durée du travail) → statut, type de contrat, temps. */
@@ -24,6 +27,45 @@ function statutDuPoste(poste: string, contrat: string): string {
 export function migrate(db: Db) {
   convertirContrats(db);
   figerFeuilles(db);
+  reprendreDeclarations(db);
+}
+
+/**
+ * Demandes « document » restées en attente d'une version qui écrivait la formalité tout de suite :
+ * le contenu déclaré est repris du dossier (`dejaAuDossier`) pour que le RH voie ce qu'il valide,
+ * et un refus le retire du dossier. Les demandes acceptées ou refusées restent telles quelles.
+ */
+export function reprendreDeclarations(db: Db) {
+  const rows = db.all<DemandeCollab>('demandesCollab').filter(r => r.type === 'document' && r.statut === 'attente' && !r.declaration);
+  if (!rows.length) return;
+  let n = 0;
+  db.tx(() => {
+    for (const r of rows) {
+      const x = declarationDuDossier(db, r.empId, r.label ?? '');
+      if (!x) continue; // libellé inconnu ou document absent : le RH contrôle dans le dossier, comme avant
+      db.update<DemandeCollab>('demandesCollab', r.id, { declaration: { ...x, dejaAuDossier: true } });
+      n++;
+    }
+  });
+  if (n) console.log(`Migration : ${plural(n, 'déclaration en attente reprise', 'déclarations en attente reprises')} du dossier.`);
+}
+
+/** Formalité du dossier correspondant au libellé d'une ancienne demande (« Passeport mis à jour », « Visa Inde déclaré »…). */
+function declarationDuDossier(db: Db, empId: number, label: string): Declaration | null {
+  if (label === 'Passeport mis à jour') {
+    const e = db.get<{ passeportNumero: string | null; passeportExpire: string | null }>('employes', empId);
+    return e?.passeportNumero && e.passeportExpire ? { kind: 'passeport', numero: e.passeportNumero, expire: e.passeportExpire } : null;
+  }
+  const visa = /^Visa (.+) déclaré$/.exec(label);
+  if (visa) {
+    const dest = db.all<Destination>('destinations').find(x => x.pays === visa[1]);
+    const v = dest && db.where<Visa>('visas', 'empId', empId).filter(x => x.dest === dest.code).at(-1);
+    return v ? { kind: 'visa', dest: v.dest, type: v.type, obtenu: v.obtenu, expire: v.expire } : null;
+  }
+  const vac = /^Vaccination (.+) déclarée$/.exec(label);
+  const id = vac && (Object.keys(VACCINS) as VaccinId[]).find(k => VACCINS[k].nom.replace(/ \(.*\)/, '') === vac[1]);
+  const r = id && db.where<Vaccination>('vaccinations', 'empId', empId).filter(x => x.v === id).at(-1);
+  return id && r ? { kind: 'vaccin', v: id, date: r.date } : null;
 }
 
 /** Les feuilles soumises ou validées avant le gel du régime reçoivent le régime actuel de la fiche. */

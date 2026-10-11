@@ -221,7 +221,7 @@ const CET = [
 const DEMANDES_COLLAB = [
   { empId: 13, type: 'formation', f: 'caces489', sessionId: 4, motif: 'Polyvalence sur le quai de chargement', date: '2026-10-02', statut: 'attente', parId: 3 },
   { empId: 3, type: 'habilitation', h: 'hauteur', motif: 'Interventions sur les passerelles de la ligne 2', date: '2026-10-05', statut: 'attente' },
-  { empId: 9, type: 'document', label: 'Passeport mis à jour', date: '2026-10-06', statut: 'attente' },
+  { empId: 9, type: 'document', label: 'Passeport mis à jour', date: '2026-10-06', statut: 'attente', declaration: { kind: 'passeport', numero: '26FD···63', expire: '2036-09-29' } },
   { empId: 19, type: 'formation', f: null, libelle: 'Anglais technique', motif: 'Échanges avec les clients américains', date: '2026-09-28', statut: 'refusee', reponse: 'Reportée au plan 2027 — enveloppe Commercial atteinte' },
 ];
 

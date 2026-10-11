@@ -1,8 +1,10 @@
 // Formations, sessions, certifications, habilitations et demandes des collaborateurs.
 import { addMonths, isValidDate, parse } from '../../../shared/dates.ts';
 import { fmt } from '../../../shared/format.ts';
+import { relireDeclaration } from '../../../shared/rules/formalites.ts';
 import type { Certification, DemandeCollab, HabTitre, Inscription, Session } from '../../../shared/types.ts';
 import { ActionError, enriched, getEmp, isManagerOf, isRh, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
+import { appliquerFormalite, retirerFormalite } from './voyages.ts';
 
 const inscrire: ActionHandler = (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
@@ -108,8 +110,16 @@ const accepterDemande: ActionHandler = (ctx, p) => {
     done('Acceptée — délivrance après contrôle des prérequis');
     return `${emp.nom} — ${ctx.d.hm(r.h!).nom} en attente de délivrance (onglet Habilitations)`;
   }
-  done('Document contrôlé par le service RH');
-  return `${r.label} — ${emp.nom} · contrôlé`;
+  // Document déclaré : revalidé puis écrit dans le dossier (même transaction que la décision).
+  if (!r.declaration || r.declaration.dejaAuDossier) {
+    done('Document contrôlé par le service RH');
+    return `${r.label} — ${emp.nom} · contrôlé`;
+  }
+  const x = relireDeclaration(ctx.d, r.declaration);
+  if (typeof x === 'string') throw new ActionError(`Déclaration invalide — ${x}. Refusez-la et demandez une nouvelle saisie.`);
+  const msg = appliquerFormalite(ctx, emp, x);
+  done('Validée — enregistrée dans votre dossier');
+  return `${msg} · déclaration validée`;
 };
 
 const refuserDemande: ActionHandler = (ctx, p) => {
@@ -117,8 +127,13 @@ const refuserDemande: ActionHandler = (ctx, p) => {
   const r = ctx.ds.demandesCollab.find(x => x.id === Number(p.id));
   if (!r || r.statut !== 'attente') throw new ActionError('Demande introuvable ou déjà traitée');
   const emp = getEmp(ctx, r.empId);
-  ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'refusee', reponse: str(p.reponse) || 'Refusée par le service RH' });
-  return `Demande refusée — ${emp.nom} notifié`;
+  // Document déclaré : rien n'a été écrit dans le dossier, sauf pour une déclaration
+  // antérieure à la validation RH, qui en est retirée.
+  const retire = r.type === 'document' && !!r.declaration?.dejaAuDossier && retirerFormalite(ctx, emp, r.declaration);
+  const defaut = r.type !== 'document' ? 'Refusée par le service RH'
+    : retire ? 'Refusée par le service RH — document retiré de votre dossier' : 'Refusée par le service RH — votre dossier n’a pas été modifié';
+  ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'refusee', reponse: str(p.reponse) || defaut });
+  return `Demande refusée — ${emp.nom} notifié${retire ? ' · document retiré du dossier' : ''}`;
 };
 
 /** Demandeur d'une demande au RH : le collaborateur lui-même, ou son manager pour un membre de l'équipe. */

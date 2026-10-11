@@ -4,6 +4,7 @@ import { SESS_CLS, TRIP_CLS, TRIP_LABEL } from '../../../shared/constants.ts';
 import type { EchItem } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { cap, equipeLabel, fmt, fmtShort, plural, rel } from '../../../shared/format.ts';
+import { declarationDetail, valeurActuelle } from '../../../shared/rules/formalites.ts';
 import type { DemandeCollab, Session } from '../../../shared/types.ts';
 import { Bar, DateBlock, Kpi, Kpis, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
 import { useEnriched, useTrips } from '../state/derived.ts';
@@ -100,11 +101,16 @@ export function Dashboard() {
                     const e = d.emp(r.empId);
                     const s = d.session(r.sessionId);
                     const detail = [r.motif, s ? `session souhaitée le ${fmt(parse(s.date))}` : ''].filter(Boolean).join(' · ');
+                    const x = r.declaration;
                     return (
                       <tr key={r.id} className="clickable" onClick={() => openEmp(r.empId)}>
                         <td><Two main={e?.nom} sub={`${equipeLabel(e)} · Reçue le ${fmtShort(parse(r.date))}`} nowrap /></td>
                         <td><Two main={reqLabel(r, id => d.fm(id).nom, id => d.hm(id).nom)} sub={r.parId ? `${reqKind(r)} · par ${d.personName(r.parId)} (manager)` : reqKind(r)} /></td>
-                        <td className="text-muted" style={{ fontSize: 13 }}>{detail || 'À contrôler dans le dossier voyageur'}</td>
+                        {x && e
+                          // Document déclaré : contenu saisi et valeur du dossier qu'il remplacera à la validation.
+                          ? <td style={{ fontSize: 13 }}><Two main={`Déclaré : ${declarationDetail(x)}`}
+                              sub={x.dejaAuDossier ? 'Déjà enregistré dans le dossier (avant validation RH) — un refus l’en retire' : `Actuellement : ${valeurActuelle(d, e, x)}`} /></td>
+                          : <td className="text-muted" style={{ fontSize: 13 }}>{detail || 'À contrôler dans le dossier voyageur'}</td>}
                         <td className="right">
                           <div className="actions-end">
                             <button type="button" className="btn btn-ghost btn-sm" onClick={stop(() => run('demande.refuser', { id: r.id }))}>Refuser</button>

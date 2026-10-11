@@ -20,9 +20,10 @@ npm install
 npm run dev
 ```
 
-Ouvrir http://localhost:5173. Au premier lancement, la base `data/cursus.db` est créée
-avec les données de démonstration (24 collaborateurs d'un site industriel, CCN
-Industries chimiques).
+Ouvrir http://localhost:5173. `npm run dev` active le mode démonstration (`CURSUS_DEMO=1`) :
+au premier lancement, la base `data/cursus.db` est créée avec les données de démonstration
+(24 collaborateurs d'un site industriel, CCN Industries chimiques). Hors démonstration, une base
+vide le reste.
 
 ### Trois espaces
 
@@ -47,7 +48,7 @@ npm run app
 ```
 
 Crée `Cursus.app` sur le Bureau : double-cliquez pour ouvrir Cursus dans sa propre fenêtre. L'application
-démarre le serveur local (port 3217, accessible uniquement depuis ce Mac) et l'arrête à la fermeture.
+démarre le serveur local en mode démonstration (port 3217, accessible uniquement depuis ce Mac) et l'arrête à la fermeture.
 Relancez `npm run app` après une modification du code ou un déplacement du dossier. Journal du serveur :
 `~/Library/Logs/Cursus/serveur.log`.
 
@@ -55,23 +56,35 @@ Relancez `npm run app` après une modification du code ou un déplacement du dos
 
 | Commande | Rôle |
 | --- | --- |
-| `npm run dev` | API (port 3210) + interface Vite (port 5173) avec rechargement à chaud |
-| `npm run build` puis `npm start` | Production : l'API sert l'interface compilée sur le port `PORT` (3210 par défaut) |
-| `npm test` | Tests des règles métier et des droits d'accès |
+| `npm run dev` | API (port 3210) + interface Vite (port 5173) avec rechargement à chaud, en mode démonstration (`CURSUS_DEMO=0 npm run dev` pour le couper) |
+| `npm run build` puis `npm start` | Production : l'API sert l'interface compilée sur le port `PORT` (3210 par défaut), derrière un reverse proxy HTTPS — voir `docs/DEPLOIEMENT.md` |
+| `npm test` | Tests des règles métier, des droits d'accès et de la sécurité |
 | `npm run typecheck` | Vérification TypeScript |
-| `npm run reset-demo` | Recharge les données de démonstration |
+| `CURSUS_DEMO=1 npm run reset-demo` | Recharge les données de démonstration (efface la base ; refusé hors démonstration) |
 
 ## Configuration (variables d'environnement)
 
+Modèle commenté : `.env.example`. En production (`NODE_ENV=production`), le serveur refuse de démarrer
+et liste les problèmes si `CURSUS_SECRET` manque ou fait moins de 32 caractères, si `KEYSTONE_API_KEY`
+manque, si `CURSUS_TODAY` est définie ou si la démonstration écoute ailleurs que sur la boucle locale ;
+hors production, il les signale seulement.
+
 | Variable | Effet |
 | --- | --- |
+| `NODE_ENV` | `production` : contrôle strict de la configuration, cookie de session `Secure`, écoute sur 127.0.0.1 par défaut |
 | `PORT` / `CURSUS_API_PORT` | Port du serveur (3210 par défaut) |
+| `CURSUS_HOST` / `HOST` | Adresse d'écoute : 127.0.0.1 en production (derrière le reverse proxy), 0.0.0.0 sinon |
+| `CURSUS_TRUST_PROXY` | Proxys dont les en-têtes `X-Forwarded-*` sont crus (`loopback` par défaut : proxy sur la même machine) |
 | `CURSUS_DB` | Fichier SQLite (`data/cursus.db` par défaut) |
-| `CURSUS_TODAY` | Fige la date du jour (AAAA-MM-JJ), utile pour la démonstration — les données de démo sont datées d'octobre 2026 |
-| `CURSUS_DEMO` | `0` pour désactiver le mode démonstration (connexion libre, sélecteur de vue, réinitialisation) |
-| `CURSUS_SECRET` | Clé de signature des sessions (générée et stockée en base sinon) |
-| `KEYSTONE_API_KEY` | Clé attendue des appels entrants de Keystone (`demo-keystone` par défaut) |
+| `CURSUS_TODAY` | Fige la date du jour (AAAA-MM-JJ), utile pour la démonstration — les données de démo sont datées d'octobre 2026. Refusée en production |
+| `CURSUS_DEMO` | `1` pour activer le mode démonstration (connexion libre, sélecteur de vue, réinitialisation, données fictives dans une base vide). Inactif par défaut ; en production, admis seulement sur la boucle locale (application de bureau) |
+| `CURSUS_SECRET` | Clé de signature des sessions, 32 caractères au moins (`openssl rand -hex 32`). Obligatoire en production ; ailleurs, générée et stockée en base |
+| `CURSUS_INSECURE_COOKIE` | `1` : cookie sans l'attribut `Secure`, pour l'application de bureau en http://127.0.0.1 uniquement |
+| `KEYSTONE_API_KEY` | Clé attendue des appels entrants de Keystone (en-tête `X-Api-Key`). Obligatoire en production ; sans elle, les routes Keystone répondent 503. La clé `demo-keystone` n'est acceptée qu'en mode démonstration, quand la variable est vide |
 | `KEYSTONE_URL`, `SAGE_URL`, `SAGE_DOSSIER` | Bascule des adaptateurs en mode API (à compléter, voir ci-dessous) |
+
+Les sessions durent 12 heures au plus depuis la connexion ; la déconnexion les révoque, et une
+session est refusée dès que la date de sortie du salarié rattaché est passée.
 
 ## Ce qui reste simulé
 

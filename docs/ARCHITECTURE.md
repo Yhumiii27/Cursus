@@ -17,7 +17,9 @@ server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   seed.ts          Données de démonstration
   dataset.ts       Assemblage de l'instantané + restriction par rôle (RH / manager / collaborateur)
-  auth.ts          Sessions signées ; point d'entrée pour l'authentification unique
+  auth.ts          Sessions en base (cookie signé, 12 h, révocation) ; point d'entrée pour l'authentification unique
+  config.ts        Variables d'environnement, contrôlées au démarrage (refus en production si dangereuses)
+  securite.ts      En-têtes de sécurité HTTP (CSP, HSTS, anti-iframe…)
   actions/         Actions métier (POST /api/actions/:nom), contrôles d'accès et validations
   integrations/    Adaptateurs Keystone et Sage Paie (simulation par défaut)
   index.ts         Routes HTTP
@@ -44,6 +46,23 @@ design/            Prototype Claude Design de référence et guide du design sys
    Le serveur vérifie les droits, valide, écrit dans une transaction, trace l'action
    dans le journal et renvoie `{ message, data }` : le client remplace son instantané
    et affiche le message.
+
+## Sécurité
+
+- **Configuration** (`server/src/config.ts`) : lue au démarrage. En production, le serveur s'arrête
+  (code 1) en listant les problèmes : `CURSUS_SECRET` absente ou courte, `KEYSTONE_API_KEY` absente,
+  `CURSUS_TODAY` définie, démonstration exposée hors de la boucle locale. Le mode démonstration ne
+  s'active qu'avec `CURSUS_DEMO=1`.
+- **Sessions** (`server/src/auth.ts`, table `connexions`) : le cookie `cursus_session` ne porte que
+  l'identifiant de session signé. Durée absolue de 12 h ; `/api/logout` révoque, `/api/mode` met à
+  jour la session ouverte, une connexion en ouvre une nouvelle. Une session dont le salarié rattaché
+  a une date de sortie passée est révoquée ; `revokeSessionsOf(db, empId)` révoque toutes celles d'un
+  salarié. Les sessions expirées sont purgées au démarrage puis toutes les heures.
+- **En-têtes** (`server/src/securite.ts`) : CSP stricte (`script-src 'self'`, `style-src 'self'`).
+  Ne jamais produire de `<script>`, de `<style>` ni d'attribut `style="…"` en HTML brut : la prop
+  `style` de React reste permise. Les documents imprimables utilisent `client/src/styles/print.css`.
+- **Keystone** : clé comparée en temps constant ; sans `KEYSTONE_API_KEY` (hors démonstration), 503.
+- Mise en production : `docs/DEPLOIEMENT.md`.
 
 ## Conventions d'écran
 

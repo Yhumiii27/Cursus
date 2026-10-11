@@ -79,6 +79,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     env["CURSUS_API_PORT"] = String(port)
     env["CURSUS_HOST"] = "127.0.0.1"
     env["CURSUS_INSECURE_COOKIE"] = "1"  // http://127.0.0.1 : cookie de session sans l'attribut Secure
+    // Démonstration sur la boucle locale : seule configuration de démonstration admise en production.
+    env["CURSUS_DEMO"] = "1"
+    env["CURSUS_SECRET"] = sessionSecret()
+    env["KEYSTONE_API_KEY"] = "demo-keystone"  // clé de démonstration, joignable depuis ce Mac uniquement
+    env.removeValue(forKey: "CURSUS_TODAY")    // refusée en production : date réelle
     env["PATH"] = (nodePath as NSString).deletingLastPathComponent + ":/usr/bin:/bin:/usr/sbin:/sbin"
     p.environment = env
     if let h = logHandle { p.standardOutput = h; p.standardError = h }
@@ -97,6 +102,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     }
     startedAt = Date()
     readyTimer = Timer.scheduledTimer(withTimeInterval: 0.25, repeats: true) { [weak self] _ in self?.waitUntilReady() }
+  }
+
+  /// Clé de signature des sessions, propre à ce Mac : créée au premier lancement, lisible par l'utilisateur seul.
+  private func sessionSecret() -> String {
+    let fm = FileManager.default
+    let dir = fm.homeDirectoryForCurrentUser.appendingPathComponent("Library/Application Support/Cursus")
+    let file = dir.appendingPathComponent("cle-sessions")
+    if let s = try? String(contentsOf: file, encoding: .utf8).trimmingCharacters(in: .whitespacesAndNewlines), s.count >= 32 { return s }
+    let s = (0..<32).map { _ in String(format: "%02x", UInt8.random(in: 0...255)) }.joined()
+    try? fm.createDirectory(at: dir, withIntermediateDirectories: true)
+    fm.createFile(atPath: file.path, contents: Data(s.utf8), attributes: [.posixPermissions: 0o600])
+    return s
   }
 
   private func waitUntilReady() {

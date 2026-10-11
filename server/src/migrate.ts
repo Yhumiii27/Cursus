@@ -1,6 +1,7 @@
 // Migrations de données des bases créées par une version antérieure de Cursus.
 import { VACCINS } from '../../shared/constants.ts';
 import { plural } from '../../shared/format.ts';
+import { formaliteCle } from '../../shared/rules/formalites.ts';
 import type { Declaration, DemandeCollab, Destination, Vaccination, VaccinId, Visa } from '../../shared/types.ts';
 import type { Db } from './db.ts';
 
@@ -34,15 +35,28 @@ export function migrate(db: Db) {
  * Demandes « document » restées en attente d'une version qui écrivait la formalité tout de suite :
  * le contenu déclaré est repris du dossier (`dejaAuDossier`) pour que le RH voie ce qu'il valide,
  * et un refus le retire du dossier. Les demandes acceptées ou refusées restent telles quelles.
+ *
+ * Seule la demande la plus récente de chaque document le reprend : le dossier ne garde que la dernière
+ * saisie, et deux demandes portant la même pièce se contrediraient (l'une la retire, l'autre la confirme).
+ * Les plus anciennes restent sans contenu, à contrôler dans le dossier comme avant.
  */
 export function reprendreDeclarations(db: Db) {
-  const rows = db.all<DemandeCollab>('demandesCollab').filter(r => r.type === 'document' && r.statut === 'attente' && !r.declaration);
+  // Demande la plus récente de chaque document, tous statuts confondus : une fois celle-ci traitée,
+  // les plus anciennes ne reprennent rien aux démarrages suivants.
+  const derniere = new Map<string, { r: DemandeCollab; doc: DocVise }>();
+  const docs = db.all<DemandeCollab>('demandesCollab').filter(r => r.type === 'document')
+    .sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
+  for (const r of docs) {
+    const doc = r.declaration ?? documentDuLibelle(db, r.label ?? '');
+    if (doc) derniere.set(`${r.empId}:${formaliteCle(doc)}`, { r, doc });
+  }
+  const rows = [...derniere.values()].filter(({ r }) => r.statut === 'attente' && !r.declaration);
   if (!rows.length) return;
   let n = 0;
   db.tx(() => {
-    for (const r of rows) {
-      const x = declarationDuDossier(db, r.empId, r.label ?? '');
-      if (!x) continue; // libellé inconnu ou document absent : le RH contrôle dans le dossier, comme avant
+    for (const { r, doc } of rows) {
+      const x = declarationDuDossier(db, r.empId, doc);
+      if (!x) continue; // document absent : le RH contrôle dans le dossier, comme avant
       db.update<DemandeCollab>('demandesCollab', r.id, { declaration: { ...x, dejaAuDossier: true } });
       n++;
     }
@@ -50,22 +64,34 @@ export function reprendreDeclarations(db: Db) {
   if (n) console.log(`Migration : ${plural(n, 'déclaration en attente reprise', 'déclarations en attente reprises')} du dossier.`);
 }
 
-/** Formalité du dossier correspondant au libellé d'une ancienne demande (« Passeport mis à jour », « Visa Inde déclaré »…). */
-function declarationDuDossier(db: Db, empId: number, label: string): Declaration | null {
-  if (label === 'Passeport mis à jour') {
-    const e = db.get<{ passeportNumero: string | null; passeportExpire: string | null }>('employes', empId);
-    return e?.passeportNumero && e.passeportExpire ? { kind: 'passeport', numero: e.passeportNumero, expire: e.passeportExpire } : null;
-  }
+/** Document visé par une demande : le passeport, le visa d'un pays ou la vaccination d'un vaccin. */
+type DocVise = { kind: 'passeport' } | { kind: 'visa'; dest: string } | { kind: 'vaccin'; v: VaccinId };
+
+/** Document visé par le libellé d'une ancienne demande (« Passeport mis à jour », « Visa Inde déclaré »…). */
+function documentDuLibelle(db: Db, label: string): DocVise | null {
+  if (label === 'Passeport mis à jour') return { kind: 'passeport' };
   const visa = /^Visa (.+) déclaré$/.exec(label);
   if (visa) {
     const dest = db.all<Destination>('destinations').find(x => x.pays === visa[1]);
-    const v = dest && db.where<Visa>('visas', 'empId', empId).filter(x => x.dest === dest.code).at(-1);
-    return v ? { kind: 'visa', dest: v.dest, type: v.type, obtenu: v.obtenu, expire: v.expire } : null;
+    return dest ? { kind: 'visa', dest: dest.code } : null;
   }
   const vac = /^Vaccination (.+) déclarée$/.exec(label);
-  const id = vac && (Object.keys(VACCINS) as VaccinId[]).find(k => VACCINS[k].nom.replace(/ \(.*\)/, '') === vac[1]);
-  const r = id && db.where<Vaccination>('vaccinations', 'empId', empId).filter(x => x.v === id).at(-1);
-  return id && r ? { kind: 'vaccin', v: id, date: r.date } : null;
+  const v = vac && (Object.keys(VACCINS) as VaccinId[]).find(k => VACCINS[k].nom.replace(/ \(.*\)/, '') === vac[1]);
+  return v ? { kind: 'vaccin', v } : null;
+}
+
+/** Formalité enregistrée dans le dossier pour ce document. */
+function declarationDuDossier(db: Db, empId: number, doc: DocVise): Declaration | null {
+  if (doc.kind === 'passeport') {
+    const e = db.get<{ passeportNumero: string | null; passeportExpire: string | null }>('employes', empId);
+    return e?.passeportNumero && e.passeportExpire ? { kind: 'passeport', numero: e.passeportNumero, expire: e.passeportExpire } : null;
+  }
+  if (doc.kind === 'visa') {
+    const v = db.where<Visa>('visas', 'empId', empId).filter(x => x.dest === doc.dest).at(-1);
+    return v ? { kind: 'visa', dest: v.dest, type: v.type, obtenu: v.obtenu, expire: v.expire } : null;
+  }
+  const r = db.where<Vaccination>('vaccinations', 'empId', empId).filter(x => x.v === doc.v).at(-1);
+  return r ? { kind: 'vaccin', v: doc.v, date: r.date } : null;
 }
 
 /** Les feuilles soumises ou validées avant le gel du régime reçoivent le régime actuel de la fiche. */

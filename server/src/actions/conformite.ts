@@ -1,7 +1,7 @@
 // Formations, sessions, certifications, habilitations et demandes des collaborateurs.
 import { addMonths, isValidDate, parse } from '../../../shared/dates.ts';
 import { fmt } from '../../../shared/format.ts';
-import { relireDeclaration } from '../../../shared/rules/formalites.ts';
+import { estAuDossier, relireDeclaration, retireeAuRefus } from '../../../shared/rules/formalites.ts';
 import type { Certification, DemandeCollab, HabTitre, Inscription, Session } from '../../../shared/types.ts';
 import { ActionError, enriched, getEmp, isManagerOf, isRh, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
 import { appliquerFormalite, retirerFormalite } from './voyages.ts';
@@ -111,7 +111,8 @@ const accepterDemande: ActionHandler = (ctx, p) => {
     return `${emp.nom} — ${ctx.d.hm(r.h!).nom} en attente de délivrance (onglet Habilitations)`;
   }
   // Document déclaré : revalidé puis écrit dans le dossier (même transaction que la décision).
-  if (!r.declaration || r.declaration.dejaAuDossier) {
+  // Une déclaration reprise d'une ancienne base, encore au dossier telle quelle, n'a rien à réécrire.
+  if (!r.declaration || (r.declaration.dejaAuDossier && estAuDossier(emp, r.declaration))) {
     done('Document contrôlé par le service RH');
     return `${r.label} — ${emp.nom} · contrôlé`;
   }
@@ -128,8 +129,8 @@ const refuserDemande: ActionHandler = (ctx, p) => {
   if (!r || r.statut !== 'attente') throw new ActionError('Demande introuvable ou déjà traitée');
   const emp = getEmp(ctx, r.empId);
   // Document déclaré : rien n'a été écrit dans le dossier, sauf pour une déclaration
-  // antérieure à la validation RH, qui en est retirée.
-  const retire = r.type === 'document' && !!r.declaration?.dejaAuDossier && retirerFormalite(ctx, emp, r.declaration);
+  // antérieure à la validation RH, qui en est retirée (voir retireeAuRefus).
+  const retire = retireeAuRefus(ctx.d, emp, r) && retirerFormalite(ctx, emp, r.declaration!);
   const defaut = r.type !== 'document' ? 'Refusée par le service RH'
     : retire ? 'Refusée par le service RH — document retiré de votre dossier' : 'Refusée par le service RH — votre dossier n’a pas été modifié';
   ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'refusee', reponse: str(p.reponse) || defaut });

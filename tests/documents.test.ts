@@ -14,6 +14,7 @@ const { buildSnapshot, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
 const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
 const { Domain } = await import('../shared/domain.ts');
+const { estAuDossier, retireeAuRefus, valeurActuelle } = await import('../shared/rules/formalites.ts');
 type User = Parameters<typeof buildSnapshot>[1];
 type Db = InstanceType<typeof Db>;
 
@@ -162,52 +163,125 @@ test('saisies incomplètes et droits inchangés', () => {
   assert.throws(() => run(collab(MEHDI), 'demande.accepter', { id: 1 }), (e: unknown) => e instanceof ActionError && e.status === 403);
 });
 
-test('migration : demandes en attente d’une ancienne base reprises du dossier', () => {
+// Ancienne base : pas de colonne `declaration`, formalités déjà écrites dans le dossier.
+type Ancienne = [empId: number, label: string, statut?: string, date?: string, reponse?: string];
+function ancienneBase(dir: string, nom: string, demandes: Ancienne[]) {
+  const file = join(dir, `${nom}.db`);
+  const old = new Db(file);
+  seedDemo(old);
+  old.sql.exec('DELETE FROM demandes_collab WHERE type = \'document\'');
+  old.sql.exec('ALTER TABLE demandes_collab DROP COLUMN declaration');
+  const ins = old.sql.prepare('INSERT INTO demandes_collab (emp_id, type, label, date, statut, reponse) VALUES (?, \'document\', ?, ?, ?, ?)');
+  for (const [empId, label, statut = 'attente', date = '2026-10-01', reponse = null] of demandes) ins.run(empId, label, date, statut, reponse);
+  old.sql.close();
+  const db = new Db(file); // démarrage : la colonne est ajoutée
+  migrate(db);
+  const o = outils(db);
+  // Demandes « document » portant ce libellé, de la plus ancienne à la plus récente.
+  const par = (label: string, id = MEHDI) => o.docs(id).filter(r => r.label === label);
+  return { ...o, par };
+}
+function dansDossierTemporaire(fn: (dir: string) => void) {
   const dir = mkdtempSync(join(tmpdir(), 'cursus-documents-'));
-  try {
-    const file = join(dir, 'ancienne.db');
-    // Ancienne base : pas de colonne `declaration`, formalités déjà écrites dans le dossier.
-    const old = new Db(file);
-    seedDemo(old);
-    old.sql.exec('DELETE FROM demandes_collab WHERE type = \'document\'');
-    old.sql.exec('ALTER TABLE demandes_collab DROP COLUMN declaration');
-    const ins = old.sql.prepare('INSERT INTO demandes_collab (emp_id, type, label, date, statut, reponse) VALUES (?, \'document\', ?, \'2026-10-01\', ?, ?)');
-    ins.run(MEHDI, 'Passeport mis à jour', 'attente', null);
-    ins.run(MEHDI, 'Vaccination Hépatite A déclarée', 'attente', null);
-    ins.run(9, 'Visa États-Unis déclaré', 'attente', null);
-    ins.run(MEHDI, 'Vaccination DTP déclarée', 'acceptee', 'Document contrôlé par le service RH');
-    ins.run(MEHDI, 'Visa Inde déclaré', 'refusee', 'Refusée par le service RH');
-    ins.run(MEHDI, 'Document inconnu', 'attente', null);
-    old.sql.close();
+  try { fn(dir); } finally { rmSync(dir, { recursive: true, force: true }); }
+}
 
-    const db = new Db(file); // démarrage : la colonne est ajoutée
-    migrate(db);
-    migrate(db); // sans effet la seconde fois
-    const { run, docs, emp } = outils(db);
-    const par = (label: string, id = MEHDI) => docs(id).find(r => r.label === label)!;
-    assert.deepEqual(par('Passeport mis à jour').declaration, { kind: 'passeport', numero: '20AB···91', expire: '2026-12-02', dejaAuDossier: true });
-    assert.deepEqual(par('Vaccination Hépatite A déclarée').declaration, { kind: 'vaccin', v: 'hepA', date: '2022-03-11', dejaAuDossier: true });
-    assert.deepEqual(par('Visa États-Unis déclaré', 9).declaration, { kind: 'visa', dest: 'US', type: 'ESTA', obtenu: '2024-11-03', expire: '2026-11-02', dejaAuDossier: true });
-    // Les demandes déjà traitées et les libellés inconnus restent tels quels.
-    assert.equal(par('Vaccination DTP déclarée').declaration, null);
-    assert.equal(par('Visa Inde déclaré').statut, 'refusee');
-    assert.equal(par('Visa Inde déclaré').declaration, null);
-    assert.equal(par('Document inconnu').declaration, null);
+test('migration : demandes en attente d’une ancienne base reprises du dossier', () => dansDossierTemporaire(dir => {
+  const { db, run, emp, par } = ancienneBase(dir, 'ancienne', [
+    [MEHDI, 'Passeport mis à jour'],
+    [MEHDI, 'Vaccination Hépatite A déclarée'],
+    [9, 'Visa États-Unis déclaré'],
+    [MEHDI, 'Vaccination DTP déclarée', 'acceptee', '2026-10-01', 'Document contrôlé par le service RH'],
+    [MEHDI, 'Visa Inde déclaré', 'refusee', '2026-10-01', 'Refusée par le service RH'],
+    [MEHDI, 'Document inconnu'],
+  ]);
+  migrate(db); // sans effet la seconde fois
+  const un = (label: string, id = MEHDI) => par(label, id)[0];
+  assert.deepEqual(un('Passeport mis à jour').declaration, { kind: 'passeport', numero: '20AB···91', expire: '2026-12-02', dejaAuDossier: true });
+  assert.deepEqual(un('Vaccination Hépatite A déclarée').declaration, { kind: 'vaccin', v: 'hepA', date: '2022-03-11', dejaAuDossier: true });
+  assert.deepEqual(un('Visa États-Unis déclaré', 9).declaration, { kind: 'visa', dest: 'US', type: 'ESTA', obtenu: '2024-11-03', expire: '2026-11-02', dejaAuDossier: true });
+  // Les demandes déjà traitées et les libellés inconnus restent tels quels.
+  assert.equal(un('Vaccination DTP déclarée').declaration, null);
+  assert.equal(un('Visa Inde déclaré').statut, 'refusee');
+  assert.equal(un('Visa Inde déclaré').declaration, null);
+  assert.equal(un('Document inconnu').declaration, null);
 
-    // Une nouvelle déclaration ne remplace pas une ancienne demande déjà au dossier.
-    run(collab(MEHDI), 'formalite.enregistrer', FAUX);
-    assert.ok(par('Passeport mis à jour').declaration?.dejaAuDossier);
-    // Refus d'une ancienne déclaration : elle est retirée du dossier.
-    run(RH, 'demande.refuser', { id: par('Passeport mis à jour').id });
-    assert.equal(emp(MEHDI).passeport, null);
-    // Validation d'une ancienne déclaration : le dossier n'est pas réécrit.
-    run(RH, 'demande.accepter', { id: par('Vaccination Hépatite A déclarée').id });
-    assert.ok(emp(MEHDI).vaccins.some(v => v.v === 'hepA' && v.date === '2022-03-11'));
-    // Libellé inconnu : contrôle dans le dossier, comme avant.
-    run(RH, 'demande.accepter', { id: par('Document inconnu').id });
-    assert.equal(par('Document inconnu').statut, 'acceptee');
-    db.sql.close();
-  } finally {
-    rmSync(dir, { recursive: true, force: true });
-  }
-});
+  // Une nouvelle déclaration ne remplace pas une ancienne demande déjà au dossier.
+  run(collab(MEHDI), 'formalite.enregistrer', FAUX);
+  assert.ok(un('Passeport mis à jour').declaration?.dejaAuDossier);
+  // Refus d'une ancienne déclaration : elle est retirée du dossier.
+  run(RH, 'demande.refuser', { id: un('Passeport mis à jour').id });
+  assert.equal(emp(MEHDI).passeport, null);
+  // Validation d'une ancienne déclaration : le dossier n'est pas réécrit.
+  run(RH, 'demande.accepter', { id: un('Vaccination Hépatite A déclarée').id });
+  assert.ok(emp(MEHDI).vaccins.some(v => v.v === 'hepA' && v.date === '2022-03-11'));
+  // Libellé inconnu : contrôle dans le dossier, comme avant.
+  run(RH, 'demande.accepter', { id: un('Document inconnu').id });
+  assert.equal(un('Document inconnu').statut, 'acceptee');
+  db.sql.close();
+}));
+
+test('migration : deux demandes pour le même document, seule la plus récente reprend le contenu', () => dansDossierTemporaire(dir => {
+  // Faute de frappe corrigée : deux « Passeport mis à jour » en attente, le dossier ne garde que la dernière saisie.
+  const doublon: Ancienne[] = [[MEHDI, 'Passeport mis à jour', 'attente', '2026-10-01'], [MEHDI, 'Passeport mis à jour', 'attente', '2026-10-02']];
+  const a = ancienneBase(dir, 'doublon-a', doublon);
+  const [ancienne, recente] = a.par('Passeport mis à jour');
+  assert.equal(ancienne.declaration, null, 'la plus ancienne reste à contrôler dans le dossier');
+  assert.deepEqual(recente.declaration, { kind: 'passeport', numero: '20AB···91', expire: '2026-12-02', dejaAuDossier: true });
+  // Refuser la plus ancienne ne retire rien ; valider la plus récente confirme le passeport.
+  assert.doesNotMatch(String(a.run(RH, 'demande.refuser', { id: ancienne.id })), /retiré/);
+  assert.deepEqual(a.emp(MEHDI).passeport, { numero: '20AB···91', expire: '2026-12-02' });
+  assert.match(a.par('Passeport mis à jour')[0].reponse!, /dossier n’a pas été modifié/);
+  a.run(RH, 'demande.accepter', { id: recente.id });
+  assert.deepEqual(a.emp(MEHDI).passeport, { numero: '20AB···91', expire: '2026-12-02' });
+  assert.deepEqual(a.par('Passeport mis à jour').map(r => r.statut), ['refusee', 'acceptee']);
+  a.db.sql.close();
+
+  // Démarrage suivant : une fois la plus récente traitée, la plus ancienne ne reprend rien.
+  const b = ancienneBase(dir, 'doublon-b', doublon);
+  b.run(RH, 'demande.accepter', { id: b.par('Passeport mis à jour')[1].id });
+  migrate(b.db);
+  assert.equal(b.par('Passeport mis à jour')[0].declaration, null);
+  b.run(RH, 'demande.refuser', { id: b.par('Passeport mis à jour')[0].id });
+  assert.deepEqual(b.emp(MEHDI).passeport, { numero: '20AB···91', expire: '2026-12-02' });
+  b.db.sql.close();
+}));
+
+test('migration : pièce validée par une autre demande, le refus de l’ancienne ne la retire pas', () => dansDossierTemporaire(dir => {
+  const { db, run, emp, par, domain } = ancienneBase(dir, 'validee', [[MEHDI, 'Vaccination Hépatite A déclarée']]);
+  const [ancienne] = par('Vaccination Hépatite A déclarée');
+  assert.ok(retireeAuRefus(domain(), emp(MEHDI), ancienne));
+  // Le collaborateur redéclare la même injection : nouvelle demande, que le RH valide.
+  run(collab(MEHDI), 'formalite.enregistrer', { empId: MEHDI, kind: 'vaccin', v: 'hepA', date: '2022-03-11' });
+  const nouvelle = par('Vaccination Hépatite A déclarée')[1];
+  assert.ok(nouvelle && !nouvelle.declaration?.dejaAuDossier);
+  assert.match(String(run(RH, 'demande.accepter', { id: nouvelle.id })), /déclaration validée/);
+  // Le tableau de bord n'annonce plus de retrait, et le refus de l'ancienne laisse la pièce validée.
+  assert.ok(!retireeAuRefus(domain(), emp(MEHDI), ancienne));
+  assert.doesNotMatch(String(run(RH, 'demande.refuser', { id: ancienne.id })), /retiré/);
+  assert.ok(emp(MEHDI).vaccins.some(v => v.v === 'hepA' && v.date === '2022-03-11'));
+  assert.match(par('Vaccination Hépatite A déclarée')[0].reponse!, /dossier n’a pas été modifié/);
+  db.sql.close();
+}));
+
+test('migration : pièce reprise qui a changé depuis, traitée comme une déclaration ordinaire', () => dansDossierTemporaire(dir => {
+  const { db, run, emp, par, domain } = ancienneBase(dir, 'changee', [[MEHDI, 'Passeport mis à jour'], [MEHDI, 'Vaccination Hépatite A déclarée']]);
+  const [pass] = par('Passeport mis à jour'), [hepA] = par('Vaccination Hépatite A déclarée');
+  // Nouveau passeport déclaré puis validé ; vaccination ressaisie par le RH.
+  run(collab(MEHDI), 'formalite.enregistrer', { ...FAUX, numero: '26XY45678' });
+  run(RH, 'demande.accepter', { id: par('Passeport mis à jour')[1].id });
+  run(RH, 'formalite.enregistrer', { empId: MEHDI, kind: 'vaccin', v: 'hepA', date: '2026-09-01' });
+  const e = emp(MEHDI);
+  assert.ok(!estAuDossier(e, pass.declaration!) && !estAuDossier(e, hepA.declaration!));
+  // Le tableau de bord montre la valeur actuelle au lieu d'annoncer un retrait.
+  assert.ok(!retireeAuRefus(domain(), e, pass) && !retireeAuRefus(domain(), e, hepA));
+  assert.match(valeurActuelle(domain(), e, pass.declaration!), /^n° 26XY45678 · expire le /);
+  // Refus : le passeport validé depuis reste en place.
+  assert.doesNotMatch(String(run(RH, 'demande.refuser', { id: pass.id })), /retiré/);
+  assert.equal(emp(MEHDI).passeport?.numero, '26XY45678');
+  // Validation : la pièce déclarée est réécrite, comme pour une déclaration ordinaire.
+  run(RH, 'demande.accepter', { id: hepA.id });
+  assert.deepEqual(emp(MEHDI).vaccins.filter(v => v.v === 'hepA').map(v => v.date), ['2022-03-11']);
+  assert.match(par('Vaccination Hépatite A déclarée')[0].reponse!, /enregistrée dans votre dossier/);
+  db.sql.close();
+}));

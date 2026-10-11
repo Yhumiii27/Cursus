@@ -2,7 +2,7 @@
 import { VACCINS } from '../../../shared/constants.ts';
 import { isValidDate, parse } from '../../../shared/dates.ts';
 import { fmt, matricule, plural } from '../../../shared/format.ts';
-import { declarationLabel, formaliteCle, lireFormalite } from '../../../shared/rules/formalites.ts';
+import { declarationLabel, estAuDossier, formaliteCle, lignesAuDossier, lireFormalite } from '../../../shared/rules/formalites.ts';
 import { parseTrips } from '../../../shared/rules/imports.ts';
 import type { Declaration, DemandeCollab, Employe, Vaccination, Visa, Voyage } from '../../../shared/types.ts';
 import { sendToKeystone } from '../integrations/keystone.ts';
@@ -39,16 +39,10 @@ export function appliquerFormalite(ctx: Ctx, emp: Employe, x: Declaration): stri
 
 /** Retire du dossier une formalité déclarée avant la validation RH, si elle n'a pas changé depuis. */
 export function retirerFormalite(ctx: Ctx, emp: Employe, x: Declaration): boolean {
-  if (x.kind === 'passeport') {
-    if (emp.passeport?.numero !== x.numero || emp.passeport.expire !== x.expire) return false;
-    ctx.db.update('employes', emp.id, { passeportNumero: null, passeportExpire: null });
-    return true;
-  }
-  const rows = x.kind === 'visa'
-    ? emp.visas.filter(v => v.dest === x.dest && v.type === x.type && v.expire === x.expire).map(v => ['visas', v.id] as const)
-    : emp.vaccins.filter(v => v.v === x.v && v.date === x.date).map(v => ['vaccinations', v.id] as const);
-  rows.forEach(([table, id]) => ctx.db.remove(table, id));
-  return rows.length > 0;
+  if (!estAuDossier(emp, x)) return false;
+  if (x.kind === 'passeport') ctx.db.update('employes', emp.id, { passeportNumero: null, passeportExpire: null });
+  else lignesAuDossier(emp, x).forEach(r => ctx.db.remove(x.kind === 'visa' ? 'visas' : 'vaccinations', r.id));
+  return true;
 }
 
 const formalite: ActionHandler = (ctx, p) => {

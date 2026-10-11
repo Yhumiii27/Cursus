@@ -133,6 +133,10 @@ Une nouvelle déclaration du même document (passeport, visa d'un pays, vaccin) 
 en attente. Le contenu d'une déclaration n'est transmis qu'au RH et à l'intéressé, jamais au manager.
 Une saisie du RH reste écrite tout de suite. Au démarrage, les demandes en attente d'une ancienne base
 (formalité déjà écrite) reprennent leur contenu du dossier (`dejaAuDossier`) : un refus l'en retire.
+Seule la plus récente demande de chaque document le reprend ; les plus anciennes restent à contrôler
+dans le dossier, et leur refus n'y touche pas. Le refus ne retire pas non plus une pièce qui a changé
+depuis ou que le RH a validée par une autre demande (`retireeAuRefus`) ; une pièce qui a changé se
+valide comme une déclaration ordinaire.
 
 ## Intégrations
 

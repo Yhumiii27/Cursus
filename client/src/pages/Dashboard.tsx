@@ -4,7 +4,7 @@ import { SESS_CLS, TRIP_CLS, TRIP_LABEL } from '../../../shared/constants.ts';
 import type { EchItem } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { cap, equipeLabel, fmt, fmtShort, plural, rel } from '../../../shared/format.ts';
-import { declarationDetail, valeurActuelle } from '../../../shared/rules/formalites.ts';
+import { declarationDetail, retireeAuRefus, valeurActuelle } from '../../../shared/rules/formalites.ts';
 import type { DemandeCollab, Session } from '../../../shared/types.ts';
 import { Bar, DateBlock, Kpi, Kpis, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
 import { useEnriched, useTrips } from '../state/derived.ts';
@@ -107,9 +107,10 @@ export function Dashboard() {
                         <td><Two main={e?.nom} sub={`${equipeLabel(e)} · Reçue le ${fmtShort(parse(r.date))}`} nowrap /></td>
                         <td><Two main={reqLabel(r, id => d.fm(id).nom, id => d.hm(id).nom)} sub={r.parId ? `${reqKind(r)} · par ${d.personName(r.parId)} (manager)` : reqKind(r)} /></td>
                         {x && e
-                          // Document déclaré : contenu saisi et valeur du dossier qu'il remplacera à la validation.
+                          // Document déclaré : contenu saisi et valeur du dossier qu'il remplacera à la validation
+                          // (sauf déclaration reprise d'une ancienne base, encore au dossier : un refus l'en retire).
                           ? <td style={{ fontSize: 13 }}><Two main={`Déclaré : ${declarationDetail(x)}`}
-                              sub={x.dejaAuDossier ? 'Déjà enregistré dans le dossier (avant validation RH) — un refus l’en retire' : `Actuellement : ${valeurActuelle(d, e, x)}`} /></td>
+                              sub={retireeAuRefus(d, e, r) ? 'Déjà enregistré dans le dossier (avant validation RH) — un refus l’en retire' : `Actuellement : ${valeurActuelle(d, e, x)}`} /></td>
                           : <td className="text-muted" style={{ fontSize: 13 }}>{detail || 'À contrôler dans le dossier voyageur'}</td>}
                         <td className="right">
                           <div className="actions-end">

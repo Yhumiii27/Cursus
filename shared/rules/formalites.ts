@@ -4,7 +4,7 @@ import { VACCINS, VISA_RULES } from '../constants.ts';
 import { isValidDate } from '../dates.ts';
 import { fmtIso } from '../format.ts';
 import type { Domain } from '../domain.ts';
-import type { Declaration, Employe, VaccinId } from '../types.ts';
+import type { Declaration, DemandeCollab, Employe, VaccinId } from '../types.ts';
 
 const txt = (v: unknown) => typeof v === 'string' ? v.trim() : '';
 
@@ -64,4 +64,36 @@ export function valeurActuelle(d: Domain, emp: Employe, x: Declaration): string 
   }
   const r = d.vacRec(emp, x.v);
   return r ? `injection le ${fmtIso(r.date)}` : 'aucune injection enregistrée';
+}
+
+/** Même pièce : même passeport (numéro, expiration), même visa (pays, type, validité) ou même injection. */
+export function memePiece(a: Declaration, b: Declaration): boolean {
+  if (a.kind === 'passeport') return b.kind === 'passeport' && a.numero === b.numero && a.expire === b.expire;
+  if (a.kind === 'visa') return b.kind === 'visa' && a.dest === b.dest && a.type === b.type && a.expire === b.expire;
+  return b.kind === 'vaccin' && a.v === b.v && a.date === b.date;
+}
+
+/** Visas ou vaccinations du dossier identiques à la déclaration (aucune ligne pour un passeport). */
+export function lignesAuDossier(emp: Employe, x: Declaration): { id: number }[] {
+  if (x.kind === 'visa') return emp.visas.filter(v => memePiece(x, { kind: 'visa', ...v }));
+  if (x.kind === 'vaccin') return emp.vaccins.filter(v => memePiece(x, { kind: 'vaccin', ...v }));
+  return [];
+}
+
+/** La pièce déclarée figure-t-elle telle quelle dans le dossier ? */
+export function estAuDossier(emp: Employe, x: Declaration): boolean {
+  if (x.kind === 'passeport') return !!emp.passeport && memePiece(x, { kind: 'passeport', ...emp.passeport });
+  return lignesAuDossier(emp, x).length > 0;
+}
+
+/**
+ * Refuser la demande retire-t-il la pièce du dossier ? Seulement pour une déclaration reprise d'une
+ * ancienne base (`dejaAuDossier`) qui y figure encore telle quelle et que le RH n'a pas validée par une
+ * autre demande. Une pièce qui a changé depuis se traite comme une déclaration ordinaire.
+ */
+export function retireeAuRefus(d: Domain, emp: Employe, r: DemandeCollab): boolean {
+  const x = r.declaration;
+  if (r.type !== 'document' || !x?.dejaAuDossier || !estAuDossier(emp, x)) return false;
+  return !d.ds.demandesCollab.some(o => o.id !== r.id && o.empId === r.empId && o.type === 'document' && o.statut === 'acceptee'
+    && !!o.declaration && memePiece(o.declaration, x));
 }

@@ -21,6 +21,15 @@ export function hoteEcoute(env: Env = process.env): string {
   return env.CURSUS_HOST || env.HOST || (enProduction(env) ? '127.0.0.1' : '0.0.0.0');
 }
 
+/**
+ * Démonstration réservée au poste lui-même : adresse d'écoute de la boucle locale posée
+ * explicitement (CURSUS_HOST ou HOST, comme le fait l'application de bureau). La valeur par
+ * défaut de production ne suffit pas : c'est aussi celle de Cursus derrière le reverse proxy.
+ */
+export function demoSurBoucleLocale(env: Env = process.env): boolean {
+  return demoActive(env) && BOUCLE_LOCALE.includes(env.CURSUS_HOST || env.HOST || '');
+}
+
 export function portEcoute(env: Env = process.env): number {
   return Number(env.CURSUS_API_PORT || env.PORT || 3210);
 }
@@ -42,15 +51,16 @@ export const KEYSTONE_CLE_DEMO = 'demo-keystone';
 /** Problèmes de configuration : bloquants en production, simples avertissements ailleurs. */
 export function problemesConfig(env: Env = process.env): string[] {
   const out: string[] = [];
-  const demo = demoActive(env), hote = hoteEcoute(env), local = BOUCLE_LOCALE.includes(hote);
+  const demo = demoActive(env), local = demoSurBoucleLocale(env);
+  const hote = hoteEcoute(env) + (env.CURSUS_HOST || env.HOST ? '' : ' par défaut');
   const secret = env.CURSUS_SECRET ?? '';
   if (!secret) out.push('CURSUS_SECRET est absente : définissez une clé aléatoire d’au moins 32 caractères (openssl rand -hex 32).');
   else if (secret.length < 32) out.push(`CURSUS_SECRET est trop courte (${secret.length} caractères) : 32 au minimum.`);
   if (!env.KEYSTONE_API_KEY) out.push('KEYSTONE_API_KEY est absente : définissez la clé convenue avec Keystone (sans elle, hors démonstration, ses appels reçoivent une erreur 503).');
   else if (env.KEYSTONE_API_KEY === KEYSTONE_CLE_DEMO && !demo) out.push(`KEYSTONE_API_KEY reprend la clé de démonstration « ${KEYSTONE_CLE_DEMO} », publiée dans la documentation : choisissez une autre clé.`);
   if (env.CURSUS_TODAY) out.push(`CURSUS_TODAY est définie (${env.CURSUS_TODAY}) : elle fige la date du jour et reste réservée à la démonstration et aux tests.`);
-  if (demo && !local) out.push(`Le mode démonstration (CURSUS_DEMO=1) ouvre l’espace RH sans mot de passe : il n’est admis que sur la boucle locale (CURSUS_HOST=127.0.0.1), pas en écoute sur ${hote}.`);
-  if (env.CURSUS_INSECURE_COOKIE === '1' && !(demo && local)) out.push('CURSUS_INSECURE_COOKIE=1 retire l’attribut Secure du cookie de session : réservé à l’application de bureau (démonstration sur la boucle locale).');
+  if (demo && !local) out.push(`Le mode démonstration (CURSUS_DEMO=1) ouvre l’espace RH sans mot de passe : il n’est admis que sur la boucle locale posée explicitement (CURSUS_HOST=127.0.0.1, application de bureau), jamais derrière le reverse proxy ; écoute actuelle : ${hote}.`);
+  if (env.CURSUS_INSECURE_COOKIE === '1' && !local) out.push('CURSUS_INSECURE_COOKIE=1 retire l’attribut Secure du cookie de session : réservé à l’application de bureau (démonstration sur la boucle locale).');
   return out;
 }
 

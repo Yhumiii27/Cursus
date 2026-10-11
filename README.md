@@ -66,8 +66,11 @@ Relancez `npm run app` après une modification du code ou un déplacement du dos
 
 Modèle commenté : `.env.example`. En production (`NODE_ENV=production`), le serveur refuse de démarrer
 et liste les problèmes si `CURSUS_SECRET` manque ou fait moins de 32 caractères, si `KEYSTONE_API_KEY`
-manque, si `CURSUS_TODAY` est définie ou si la démonstration écoute ailleurs que sur la boucle locale ;
-hors production, il les signale seulement.
+manque ou reprend la clé de démonstration `demo-keystone` (hors démonstration), si `CURSUS_TODAY` est
+définie, si la démonstration est active sans `CURSUS_HOST` (ou `HOST`) posée explicitement sur la boucle
+locale, ou si `CURSUS_INSECURE_COOKIE=1` hors de ce cas ; hors production, il les signale seulement.
+En production, la démonstration refuse aussi (403) toute requête relayée par un proxy (`Forwarded`,
+`X-Forwarded-*`) ou adressée à un autre nom que 127.0.0.1 / localhost / [::1].
 
 | Variable | Effet |
 | --- | --- |
@@ -77,9 +80,9 @@ hors production, il les signale seulement.
 | `CURSUS_TRUST_PROXY` | Proxys dont les en-têtes `X-Forwarded-*` sont crus (`loopback` par défaut : proxy sur la même machine) |
 | `CURSUS_DB` | Fichier SQLite (`data/cursus.db` par défaut) |
 | `CURSUS_TODAY` | Fige la date du jour (AAAA-MM-JJ), utile pour la démonstration — les données de démo sont datées d'octobre 2026. Refusée en production |
-| `CURSUS_DEMO` | `1` pour activer le mode démonstration (connexion libre, sélecteur de vue, réinitialisation, données fictives dans une base vide). Inactif par défaut ; en production, admis seulement sur la boucle locale (application de bureau) |
+| `CURSUS_DEMO` | `1` pour activer le mode démonstration (connexion libre, sélecteur de vue, réinitialisation, données fictives dans une base vide). Inactif par défaut ; en production, admis seulement pour l'application de bureau (`CURSUS_HOST=127.0.0.1` explicite), jamais derrière le reverse proxy |
 | `CURSUS_SECRET` | Clé de signature des sessions, 32 caractères au moins (`openssl rand -hex 32`). Obligatoire en production ; ailleurs, générée et stockée en base |
-| `CURSUS_INSECURE_COOKIE` | `1` : cookie sans l'attribut `Secure`, pour l'application de bureau en http://127.0.0.1 uniquement |
+| `CURSUS_INSECURE_COOKIE` | `1` : cookie sans l'attribut `Secure`, pour l'application de bureau en http://127.0.0.1 uniquement. Refusée en production hors application de bureau |
 | `KEYSTONE_API_KEY` | Clé attendue des appels entrants de Keystone (en-tête `X-Api-Key`). Obligatoire en production ; sans elle, les routes Keystone répondent 503. La clé `demo-keystone` n'est acceptée qu'en mode démonstration, quand la variable est vide |
 | `KEYSTONE_URL`, `SAGE_URL`, `SAGE_DOSSIER` | Bascule des adaptateurs en mode API (à compléter, voir ci-dessous) |
 

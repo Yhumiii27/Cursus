@@ -1,10 +1,12 @@
 // Tests de sécurité : configuration de production, démonstration opt-in, clé Keystone,
 // sessions (déconnexion, expiration, falsification, départ du salarié) et en-têtes HTTP.
-// Les scénarios HTTP lancent de vrais serveurs (node server/src/index.ts) sur une base temporaire.
+// Les scénarios HTTP lancent de vrais serveurs (node server/src/index.ts) sur une base temporaire,
+// depuis un dossier temporaire muni d'une interface minimale (dist/index.html) : aucun build requis.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
-import { existsSync, mkdtempSync, rmSync } from 'node:fs';
+import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { request } from 'node:http';
 import { createServer } from 'node:net';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -17,6 +19,9 @@ const { openSession, purgeSessions, readSession, revokeSessionsOf } = await impo
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), 'cursus-securite-'));
+// Le serveur sert resolve('dist') : interface factice dans son dossier de lancement.
+mkdirSync(join(dir, 'dist'));
+writeFileSync(join(dir, 'dist', 'index.html'), '<!doctype html><html lang="fr"><title>Cursus</title><div id="root"></div></html>');
 const procs: ChildProcess[] = [];
 after(() => {
   procs.forEach(p => p.kill());
@@ -35,8 +40,8 @@ function freePort(): Promise<number> {
 /** Lance le serveur avec un environnement minimal (rien n'est hérité : NODE_ENV, CURSUS_*…). */
 function launch(name: string, env: Record<string, string>, port = 0) {
   const db = join(dir, `${name}.db`);
-  const p = spawn(process.execPath, ['server/src/index.ts'], {
-    cwd: ROOT, stdio: ['ignore', 'pipe', 'pipe'],
+  const p = spawn(process.execPath, [join(ROOT, 'server/src/index.ts')], {
+    cwd: dir, stdio: ['ignore', 'pipe', 'pipe'],
     env: { PATH: process.env.PATH ?? '', CURSUS_API_PORT: String(port), CURSUS_DB: db, ...env },
   });
   procs.push(p);
@@ -59,7 +64,14 @@ async function startServer(name: string, env: Record<string, string>) {
     headers: { ...(init.cookie ? { cookie: init.cookie } : {}), ...(init.body !== undefined ? { 'content-type': 'application/json' } : {}), ...init.headers },
     body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
   });
-  return { ...s, base, call };
+  // fetch impose l'en-tête Host : `raw` l'envoie tel quel (requête adressée à un autre nom).
+  const raw = (path: string, headers: Record<string, string>) => new Promise<{ status: number; cookie: string | null }>((res, rej) => {
+    request({ host: '127.0.0.1', port, path, headers }, r => {
+      r.resume();
+      r.on('end', () => res({ status: r.statusCode!, cookie: String(r.headers['set-cookie'] ?? '').match(/cursus_session=[^;]*/)?.[0] ?? null }));
+    }).on('error', rej).end();
+  });
+  return { ...s, base, call, raw };
 }
 
 /** Valeur du cookie de session posé par la réponse (`cursus_session=…`), sinon null. */
@@ -78,6 +90,8 @@ test('configuration de production : chaque cas dangereux est refusé', () => {
     ['date du jour figée', { ...PROD_OK, CURSUS_TODAY: '2026-10-10' }, /CURSUS_TODAY est définie/],
     ['démonstration exposée au réseau', { ...PROD_OK, CURSUS_DEMO: '1', CURSUS_HOST: '0.0.0.0' }, /boucle locale.*0\.0\.0\.0/],
     ['démonstration exposée (HOST)', { ...PROD_OK, CURSUS_DEMO: '1', HOST: '192.168.1.20' }, /boucle locale.*192\.168\.1\.20/],
+    // Écoute par défaut sur 127.0.0.1 : c'est aussi Cursus derrière le reverse proxy, donc publié.
+    ['démonstration derrière le reverse proxy', { ...PROD_OK, CURSUS_DEMO: '1' }, /jamais derrière le reverse proxy.*127\.0\.0\.1 par défaut/],
     ['cookie sans Secure', { ...PROD_OK, CURSUS_INSECURE_COOKIE: '1' }, /CURSUS_INSECURE_COOKIE/],
   ];
   for (const [label, env, re] of cas) {
@@ -89,7 +103,8 @@ test('configuration de production : chaque cas dangereux est refusé', () => {
   for (const host of ['127.0.0.1', 'localhost', '::1']) {
     assert.deepEqual(problemesConfig({ ...PROD_OK, CURSUS_DEMO: '1', CURSUS_HOST: host, CURSUS_INSECURE_COOKIE: '1', KEYSTONE_API_KEY: 'demo-keystone' }), [], host);
   }
-  assert.deepEqual(problemesConfig({ ...PROD_OK, CURSUS_DEMO: '1' }), [], 'en production, écoute par défaut sur 127.0.0.1');
+  assert.deepEqual(problemesConfig({ ...PROD_OK, CURSUS_DEMO: '1', HOST: '127.0.0.1' }), [], 'boucle locale posée par HOST');
+  assert.equal(problemesConfig({ ...PROD_OK, CURSUS_DEMO: '1', CURSUS_INSECURE_COOKIE: '1' }).length, 2, 'démonstration et cookie sans Secure, faute d’adresse explicite');
   assert.equal(problemesConfig({ CURSUS_DEMO: '0' }).length, 2, 'secret et clé Keystone signalés hors production');
 });
 
@@ -202,7 +217,9 @@ test('démonstration (CURSUS_DEMO=1) : clé Keystone, sessions et en-têtes', as
 
   await t.test('en-têtes de sécurité présents', async () => {
     for (const path of ['/api/session', '/collaborateurs']) {
-      const h = (await srv.call(path)).headers;
+      const r = await srv.call(path);
+      assert.equal(r.status, 200, path);
+      const h = r.headers;
       const csp = h.get('content-security-policy') ?? '';
       for (const d of ["default-src 'self'", "script-src 'self'", "style-src 'self'", "object-src 'none'", "base-uri 'self'", "frame-ancestors 'none'", "form-action 'self'", "img-src 'self' data: blob:", "font-src 'self' data:", "connect-src 'self'"]) {
         assert.ok(csp.includes(d), `${path} : ${d}`);
@@ -217,7 +234,64 @@ test('démonstration (CURSUS_DEMO=1) : clé Keystone, sessions et en-têtes', as
       assert.equal(h.get('strict-transport-security'), null, 'pas de HSTS hors production');
     }
     assert.equal((await srv.call('/api/session')).headers.get('cache-control'), 'no-store');
+    assert.match((await srv.call('/collaborateurs')).headers.get('content-type') ?? '', /text\/html/, 'interface servie');
   });
+});
+
+test('démonstration sans KEYSTONE_API_KEY : seule la clé de démonstration est acceptée', async () => {
+  const srv = await startServer('demo-sans-cle', { CURSUS_DEMO: '1', CURSUS_HOST: '127.0.0.1', CURSUS_TODAY: '2026-10-10' });
+  const go = '/api/integrations/keystone/chantiers/K-2614/go-no-go';
+  assert.equal((await srv.call(go)).status, 401);
+  assert.equal((await srv.call(go, { headers: { 'x-api-key': 'autre-cle' } })).status, 401);
+  assert.equal((await srv.call(go, { headers: { 'x-api-key': 'demo-keystone-' } })).status, 401);
+  const ok = await srv.call(go, { headers: { 'x-api-key': 'demo-keystone' } });
+  assert.equal(ok.status, 200);
+  assert.equal((await ok.json()).chantier, 'K-2614');
+});
+
+test('démonstration en production (application de bureau) : requêtes de ce poste seulement, jamais via le proxy', async () => {
+  const srv = await startServer('demo-production', { ...PROD_OK, CURSUS_DEMO: '1', CURSUS_HOST: '127.0.0.1', CURSUS_INSECURE_COOKIE: '1' });
+  assert.match(srv.out(), /mode démonstration/);
+  const db = new Db(srv.db);
+  const salaries = db.count('employes');
+  assert.ok(salaries > 0, 'données de démonstration chargées');
+
+  // L'application de bureau s'adresse directement à 127.0.0.1 : servie normalement.
+  const r = await srv.call('/api/session');
+  assert.equal(r.status, 200);
+  assert.equal((await r.json()).demo, true);
+  const c = cookieOf(r)!;
+  assert.ok(c, 'session RH ouverte');
+  assert.doesNotMatch(r.headers.get('set-cookie')!, /Secure/, 'http://127.0.0.1 : cookie sans Secure');
+  for (const host of ['localhost', '[::1]']) assert.equal((await srv.raw('/api/session', { host: `${host}:3217` })).status, 200, host);
+
+  // Requête relayée par Caddy ou nginx, ou adressée à un autre nom (DNS rebinding) : 403, aucune session.
+  const relayees: Record<string, string>[] = [
+    { 'x-forwarded-for': '203.0.113.9' },
+    { 'x-forwarded-proto': 'https' },
+    { forwarded: 'for=203.0.113.9;proto=https' },
+    { 'x-forwarded-host': 'cursus.example.fr' },
+    { 'x-real-ip': '203.0.113.9' },
+  ];
+  for (const headers of relayees) {
+    const k = await srv.call('/api/session', { headers });
+    assert.equal(k.status, 403, JSON.stringify(headers));
+    assert.equal(cookieOf(k), null);
+    assert.equal(k.headers.get('content-security-policy')?.startsWith("default-src 'self'"), true, 'en-têtes de sécurité conservés');
+  }
+  for (const host of ['cursus.example.fr', 'cursus.example.fr:443', '127.0.0.1.nip.io', 'evil.example:3217']) {
+    const k = await srv.raw('/api/session', { host });
+    assert.equal(k.status, 403, host);
+    assert.equal(k.cookie, null);
+  }
+  assert.equal((await srv.call('/collaborateurs', { headers: { 'x-forwarded-for': '203.0.113.9' } })).status, 403, 'interface refusée aussi');
+  // Même muni d'un cookie valide, un visiteur relayé ne lit ni n'efface rien.
+  const fwd = { 'x-forwarded-for': '203.0.113.9', 'x-forwarded-proto': 'https' };
+  assert.equal((await srv.call('/api/data', { cookie: c, headers: fwd })).status, 403);
+  assert.equal((await srv.call('/api/actions/demo.reinitialiser', { method: 'POST', cookie: c, body: {}, headers: fwd })).status, 403);
+  assert.equal(db.count('employes'), salaries);
+  assert.equal((await srv.call('/api/data', { cookie: c })).status, 200, 'le poste lui-même reste servi');
+  assert.match(srv.out(), /n’est pas admise derrière un reverse proxy/);
 });
 
 test('production : écoute sur la boucle locale, HSTS derrière le proxy HTTPS', async () => {

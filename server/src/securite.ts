@@ -1,7 +1,9 @@
-// En-têtes de sécurité HTTP, posés sur toutes les réponses (sans dépendance externe).
+// En-têtes de sécurité HTTP, posés sur toutes les réponses (sans dépendance externe), et
+// garde de la démonstration en production (requêtes de ce poste uniquement).
 // L'interface compilée ne charge que ses propres fichiers : aucun script ni style en
-// ligne (l'impression utilise une feuille de style servie, voir client/src/print.ts).
+// ligne (l'impression utilise une feuille de style et un script servis, voir client/src/print.ts).
 import type { NextFunction, Request, Response } from 'express';
+import { BOUCLE_LOCALE } from './config.ts';
 
 export const CSP = [
   "default-src 'self'",
@@ -36,5 +38,33 @@ export function securityHeaders(production: boolean) {
     // Données personnelles : jamais conservées dans le cache du navigateur ou d'un proxy.
     if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
     next();
+  };
+}
+
+/** En-têtes posés par un reverse proxy (Caddy, nginx…) : leur présence trahit une requête relayée. */
+const EN_TETES_PROXY = ['forwarded', 'x-forwarded-for', 'x-forwarded-proto', 'x-forwarded-host', 'x-real-ip'];
+
+/** Nom d'hôte de l'en-tête Host, sans le port (« [::1]:3217 » → « ::1 »). */
+function nomHote(host: string | undefined): string {
+  const h = (host ?? '').trim().toLowerCase();
+  return h.startsWith('[') ? h.slice(1, h.indexOf(']')) : h.replace(/:\d*$/, '');
+}
+
+/**
+ * Démonstration en production (application de bureau) : seules les requêtes émises sur ce
+ * poste sont servies. Une requête relayée par un reverse proxy (Forwarded, X-Forwarded-*) ou
+ * adressée à un autre nom que la boucle locale (proxy, DNS rebinding) reçoit 403 : la
+ * démonstration ouvre l'espace RH sans mot de passe et ne doit jamais être publiée.
+ */
+export function demoPosteLocal() {
+  let signale = false;
+  return (req: Request, res: Response, next: NextFunction) => {
+    const relayee = EN_TETES_PROXY.some(h => req.headers[h] !== undefined);
+    if (!relayee && BOUCLE_LOCALE.includes(nomHote(req.headers.host))) return next();
+    if (!signale) {
+      signale = true;
+      console.warn('Mode démonstration : requête relayée ou adressée à un autre hôte que la boucle locale, refusée (403). La démonstration n’est pas admise derrière un reverse proxy.');
+    }
+    res.status(403).json({ error: 'Mode démonstration : accès réservé à ce poste' });
   };
 }

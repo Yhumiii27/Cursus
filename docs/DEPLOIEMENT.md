@@ -38,6 +38,14 @@ Sauvegardes et restauration : voir `docs/SAUVEGARDE.md`.
   sudo apt install unattended-upgrades && sudo dpkg-reconfigure -plow unattended-upgrades
   ```
 
+- Fuseau horaire de Paris : la date du jour de Cursus (échéances, semaines, date de sortie des
+  salariés) suit l'heure locale de la machine, souvent laissée en UTC chez l'hébergeur. Le service
+  systemd pose aussi `TZ=Europe/Paris`.
+
+  ```bash
+  sudo timedatectl set-timezone Europe/Paris
+  ```
+
 - Accès SSH par clé uniquement (`PasswordAuthentication no` dans `/etc/ssh/sshd_config`).
 - Pare-feu : seuls SSH, HTTP (redirection et certificat) et HTTPS sont ouverts.
 
@@ -102,7 +110,7 @@ sudo nano /etc/cursus/cursus.env
 | `CURSUS_SECRET` | 64 caractères aléatoires, propres à cette installation. La changer déconnecte tout le monde |
 | `KEYSTONE_API_KEY` | clé aléatoire transmise à Keystone par un canal sûr. Sans elle, les routes Keystone répondent 503 |
 | `KEYSTONE_URL`, `KEYSTONE_TOKEN`, `SAGE_URL`, `SAGE_TOKEN`, `SAGE_DOSSIER` | intégrations sortantes, quand elles seront livrées |
-| `CURSUS_DEMO`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE` | **jamais** sur ce serveur |
+| `CURSUS_DEMO`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE` | **jamais** sur ce serveur. La démonstration ouvre l'espace RH sans mot de passe : Cursus refuse de démarrer avec elle, et refuserait de toute façon (403) chaque requête relayée par le proxy |
 
 Au démarrage, Cursus contrôle cette configuration. S'il manque une valeur obligatoire ou si un
 réglage est dangereux, il refuse de démarrer, liste chaque problème dans le journal
@@ -123,6 +131,8 @@ User=cursus
 Group=cursus
 WorkingDirectory=/opt/cursus
 EnvironmentFile=/etc/cursus/cursus.env
+# Date du jour à l'heure de Paris, quel que soit le fuseau de la machine.
+Environment=TZ=Europe/Paris
 ExecStart=/usr/bin/node server/src/index.ts
 Restart=on-failure
 RestartSec=5
@@ -185,23 +195,38 @@ local (`CURSUS_TRUST_PROXY=loopback`), sait que la requête est en HTTPS et ajou
 ## Variante : nginx et certbot
 
 ```bash
-sudo apt install nginx certbot python3-certbot-nginx
+sudo apt install nginx certbot
+sudo install -d /var/www/letsencrypt
 ```
 
-`/etc/nginx/sites-available/cursus` (lien dans `sites-enabled`) :
+Le certificat s'obtient d'abord, avec le seul bloc du port 80 : nginx refuse une configuration qui
+cite un certificat encore absent. `/etc/nginx/sites-available/cursus` :
 
 ```nginx
 server {
     listen 80;
     listen [::]:80;
     server_name cursus.example.fr;
-    return 301 https://$host$request_uri;
-}
 
+    location /.well-known/acme-challenge/ { root /var/www/letsencrypt; }   # validation Let's Encrypt
+    location / { return 301 https://$host$request_uri; }
+}
+```
+
+```bash
+sudo ln -s /etc/nginx/sites-available/cursus /etc/nginx/sites-enabled/cursus
+sudo nginx -t && sudo systemctl reload nginx
+# Renouvellement automatique (minuteur certbot), suivi d'un rechargement de nginx.
+sudo certbot certonly --webroot -w /var/www/letsencrypt -d cursus.example.fr --deploy-hook 'systemctl reload nginx'
+```
+
+Une fois le certificat présent dans `/etc/letsencrypt/live/cursus.example.fr/`, ajouter le bloc
+HTTPS au même fichier :
+
+```nginx
 server {
-    listen 443 ssl;
-    listen [::]:443 ssl;
-    http2 on;                      # nginx < 1.25 : « listen 443 ssl http2; » à la place
+    listen 443 ssl http2;          # Debian 12 (nginx 1.22), Ubuntu 24.04 (nginx 1.24)
+    listen [::]:443 ssl http2;     # nginx 1.25.1 et plus : « listen 443 ssl; » puis « http2 on; »
     server_name cursus.example.fr;
 
     ssl_certificate     /etc/letsencrypt/live/cursus.example.fr/fullchain.pem;
@@ -220,7 +245,6 @@ server {
 ```
 
 ```bash
-sudo certbot certonly --nginx -d cursus.example.fr   # renouvellement automatique (minuteur certbot)
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
@@ -242,7 +266,8 @@ HTTPS, sans alerte de certificat.
   jour, verrouillage de l'écran imposé par la gestion de flotte.
 - Une session dure 12 heures au plus depuis la connexion, sans prolongation : chacun se reconnecte
   au moins une fois par journée de travail. « Se déconnecter » invalide la session aussitôt.
-- Départ d'un salarié : ses sessions sont refusées dès le lendemain de sa date de sortie.
+- Départ d'un salarié : ses sessions sont refusées dès le lendemain de sa date de sortie, à minuit
+  heure de Paris (fuseau réglé, voir « Machine »).
 
 ## Recette
 
@@ -252,8 +277,21 @@ précède chaque mise en production.
 - Instance de recette distincte, installée selon ce guide : autre sous-domaine (par exemple
   `cursus-recette.example.fr`), autre utilisateur ou dossier, autre port local (3211), autre base,
   ses propres `CURSUS_SECRET` et `KEYSTONE_API_KEY`.
+- Jamais de mode démonstration sur l'instance de recette : il ouvrirait l'espace RH sans mot de
+  passe à tout visiteur d'Internet. Derrière le proxy, Cursus refuse de démarrer avec
+  `CURSUS_DEMO=1` et refuserait (403) toute requête relayée. La recette se fait comme en
+  production, avec l'authentification unique.
 - Données de recette fictives ou anonymisées : jamais de copie de la base de production (données
-  de santé).
+  de santé). Les données de démonstration peuvent être chargées dans la base de recette, service
+  arrêté ; `CURSUS_DEMO=1` ne vaut alors que pour cette commande, jamais pour le service :
+
+  ```bash
+  sudo systemctl stop cursus-recette
+  cd /opt/cursus-recette
+  sudo -u cursus-recette env CURSUS_DEMO=1 CURSUS_DB=/var/lib/cursus-recette/cursus.db node server/src/reset.ts
+  sudo systemctl start cursus-recette
+  ```
+
 - La nouvelle version y est installée d'abord. Le groupe pilote vérifie, chacun dans son espace :
   connexion et déconnexion, tableau de bord, fiches collaborateurs, temps, absences, formations,
   impression du passeport formation, consultation sur téléphone.

@@ -16,7 +16,7 @@ import { openDb } from './db.ts';
 import { migrate } from './migrate.ts';
 import { KEYSTONE_API_KEY, KEYSTONE_MODE, keystoneKeyOk } from './integrations/keystone.ts';
 import { SAGE_MODE } from './integrations/sage.ts';
-import { securityHeaders } from './securite.ts';
+import { demoPosteLocal, securityHeaders } from './securite.ts';
 import { seedDemo } from './seed.ts';
 
 // En production, une configuration dangereuse arrête le serveur avant toute ouverture de la base.
@@ -37,6 +37,8 @@ const app = express();
 app.disable('x-powered-by');
 app.set('trust proxy', trustProxy());
 app.use(securityHeaders(enProduction()));
+// Démonstration en production (application de bureau) : requêtes de ce poste uniquement, jamais via le proxy.
+if (DEMO && enProduction()) app.use(demoPosteLocal());
 app.use(express.json({ limit: '2mb' }));
 
 function session(req: Request): SessionInfo | null { return readSession(db, req); }

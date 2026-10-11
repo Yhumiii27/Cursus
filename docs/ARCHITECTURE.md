@@ -50,9 +50,12 @@ design/            Prototype Claude Design de référence et guide du design sys
 ## Sécurité
 
 - **Configuration** (`server/src/config.ts`) : lue au démarrage. En production, le serveur s'arrête
-  (code 1) en listant les problèmes : `CURSUS_SECRET` absente ou courte, `KEYSTONE_API_KEY` absente,
-  `CURSUS_TODAY` définie, démonstration exposée hors de la boucle locale. Le mode démonstration ne
-  s'active qu'avec `CURSUS_DEMO=1`.
+  (code 1) en listant les problèmes : `CURSUS_SECRET` absente ou courte, `KEYSTONE_API_KEY` absente
+  ou égale à la clé de démonstration (hors démonstration), `CURSUS_TODAY` définie, démonstration sans
+  `CURSUS_HOST` (ou `HOST`) explicite sur la boucle locale, `CURSUS_INSECURE_COOKIE=1` hors de ce cas.
+  Le mode démonstration ne s'active qu'avec `CURSUS_DEMO=1` ; en production (application de bureau),
+  `demoPosteLocal` (`server/src/securite.ts`) refuse en plus (403) toute requête relayée par un proxy
+  ou adressée à un autre nom que la boucle locale.
 - **Sessions** (`server/src/auth.ts`, table `connexions`) : le cookie `cursus_session` ne porte que
   l'identifiant de session signé. Durée absolue de 12 h ; `/api/logout` révoque, `/api/mode` met à
   jour la session ouverte, une connexion en ouvre une nouvelle. Une session dont le salarié rattaché
@@ -60,7 +63,8 @@ design/            Prototype Claude Design de référence et guide du design sys
   salarié. Les sessions expirées sont purgées au démarrage puis toutes les heures.
 - **En-têtes** (`server/src/securite.ts`) : CSP stricte (`script-src 'self'`, `style-src 'self'`).
   Ne jamais produire de `<script>`, de `<style>` ni d'attribut `style="…"` en HTML brut : la prop
-  `style` de React reste permise. Les documents imprimables utilisent `client/src/styles/print.css`.
+  `style` de React reste permise. Les documents imprimables utilisent `client/src/styles/print.css`
+  et lancent l'impression avec le script servi `client/public/imprimer.js`.
 - **Keystone** : clé comparée en temps constant ; sans `KEYSTONE_API_KEY` (hors démonstration), 503.
 - Mise en production : `docs/DEPLOIEMENT.md`.
 

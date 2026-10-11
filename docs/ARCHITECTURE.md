@@ -16,6 +16,8 @@ shared/            Domaine partagé (aucune dépendance)
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   seed.ts          Données de démonstration
+  sauvegarde.ts    Copie à chaud (VACUUM INTO), rotation, restauration, verrou du serveur ;
+                   scripts backup.ts et restore.ts (npm run backup / restore, voir docs/SAUVEGARDE.md)
   dataset.ts       Assemblage de l'instantané + restriction par rôle (RH / manager / collaborateur)
   auth.ts          Sessions signées ; point d'entrée pour l'authentification unique
   actions/         Actions métier (POST /api/actions/:nom), contrôles d'accès et validations

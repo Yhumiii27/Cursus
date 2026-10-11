@@ -9,13 +9,15 @@ import { ACTIONS, QUIET_ACTIONS } from './actions/index.ts';
 import { ActionError, makeCtx } from './actions/context.ts';
 import { DEMO, isAuthenticated, readSession, writeSession, type SessionInfo } from './auth.ts';
 import { buildSnapshot, currentUser, loadFull, loadSettings } from './dataset.ts';
-import { openDb } from './db.ts';
+import { dbFile, openDb } from './db.ts';
 import { migrate } from './migrate.ts';
 import { KEYSTONE_API_KEY, KEYSTONE_MODE } from './integrations/keystone.ts';
 import { SAGE_MODE } from './integrations/sage.ts';
+import { poserVerrou } from './sauvegarde.ts';
 import { seedDemo } from './seed.ts';
 
 const db = openDb();
+poserVerrou(dbFile()); // signale à npm run restore que la base est en service
 migrate(db);
 if (db.count('employes') === 0) {
   seedDemo(db);

@@ -80,7 +80,7 @@ export function Parametres() {
     }
   };
   const reset = () => {
-    if (window.confirm('Réinitialiser toutes les données de démonstration ? Les modifications effectuées depuis le dernier chargement seront perdues.')) {
+    if (window.confirm('Réinitialiser toutes les données de démonstration ? Les modifications effectuées depuis le dernier chargement seront effacées (une sauvegarde de la base est conservée sur le serveur).')) {
       run('demo.reinitialiser');
     }
   };
@@ -123,7 +123,7 @@ export function Parametres() {
           {session?.demo && (
             <Panel title="Données de démonstration">
               <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>
-                Remet les collaborateurs, formations, feuilles de temps, absences, entretiens, paramètres et le journal dans leur état initial de démonstration.
+                Remet les collaborateurs, formations, feuilles de temps, absences, entretiens, paramètres et le journal dans leur état initial de démonstration. Une sauvegarde de la base actuelle est faite au préalable sur le serveur.
               </p>
               <div>
                 <Btn variant="secondary" icon={<ArrowCounterClockwiseIcon size={14} />} onClick={reset}>Réinitialiser les données</Btn>

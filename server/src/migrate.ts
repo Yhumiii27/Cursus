@@ -1,5 +1,6 @@
 // Migrations de données des bases créées par une version antérieure de Cursus.
 import type { Db } from './db.ts';
+import { sauvegarderAvantMigration } from './sauvegarde.ts';
 
 /** Ancienne colonne `contrat` (qui mêlait nature du contrat et durée du travail) → statut, type de contrat, temps. */
 const ANCIEN_CONTRAT: Record<string, { typeContrat: string; temps: string; cadre?: boolean }> = {
@@ -22,15 +23,21 @@ function statutDuPoste(poste: string, contrat: string): string {
 }
 
 export function migrate(db: Db) {
-  convertirContrats(db);
-  figerFeuilles(db);
+  // Une base réellement modifiée est d'abord copiée (une seule copie pour toutes les étapes).
+  const avant = () => { sauvegarderAvantMigration(db); };
+  convertirContrats(db, avant);
+  figerFeuilles(db, avant);
 }
 
-/** Les feuilles soumises ou validées avant le gel du régime reçoivent le régime actuel de la fiche. */
-export function figerFeuilles(db: Db) {
+/**
+ * Les feuilles soumises ou validées avant le gel du régime reçoivent le régime actuel de la fiche.
+ * `avant` est appelé juste avant d'écrire (sauvegarde au démarrage ; rien au chargement de la démo).
+ */
+export function figerFeuilles(db: Db, avant = () => {}) {
   const rows = db.sql.prepare(`SELECT f.id, e.statut, e.type_contrat, e.temps, e.heures, e.forfait_heures, e.forfait_jours, e.jour_off
     FROM feuilles f JOIN employes e ON e.id = f.emp_id WHERE f.contrat IS NULL AND f.statut IN ('soumise', 'validee') AND e.temps IS NOT NULL`).all() as Record<string, unknown>[];
   if (!rows.length) return;
+  avant();
   db.tx(() => {
     for (const r of rows) {
       const contrat = { statut: r.statut, typeContrat: r.type_contrat, temps: r.temps, heures: r.heures, forfaitHeures: r.forfait_heures, forfaitJours: r.forfait_jours, jourOff: JSON.parse(String(r.jour_off ?? '[]')) };
@@ -39,10 +46,11 @@ export function figerFeuilles(db: Db) {
   });
 }
 
-function convertirContrats(db: Db) {
+function convertirContrats(db: Db, avant: () => void) {
   if (!db.columns('employes').includes('contrat')) return;
   const rows = db.sql.prepare('SELECT id, contrat, poste FROM employes WHERE temps IS NULL AND contrat IS NOT NULL').all() as { id: number; contrat: string; poste: string }[];
   if (!rows.length) return;
+  avant();
   db.tx(() => {
     for (const r of rows) {
       const m = ANCIEN_CONTRAT[r.contrat] ?? ANCIEN_CONTRAT['35h'];

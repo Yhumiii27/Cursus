@@ -59,6 +59,8 @@ Relancez `npm run app` après une modification du code ou un déplacement du dos
 | `npm run build` puis `npm start` | Production : l'API sert l'interface compilée sur le port `PORT` (3210 par défaut) |
 | `npm test` | Tests des règles métier et des droits d'accès |
 | `npm run typecheck` | Vérification TypeScript |
+| `npm run backup` | Copie à chaud vérifiée de la base dans `data/backups`, avec rotation |
+| `npm run restore -- <fichier>` | Remplace la base par une sauvegarde (serveur arrêté) |
 | `npm run reset-demo` | Recharge les données de démonstration |
 
 ## Configuration (variables d'environnement)
@@ -67,11 +69,25 @@ Relancez `npm run app` après une modification du code ou un déplacement du dos
 | --- | --- |
 | `PORT` / `CURSUS_API_PORT` | Port du serveur (3210 par défaut) |
 | `CURSUS_DB` | Fichier SQLite (`data/cursus.db` par défaut) |
+| `CURSUS_BACKUP_DIR` | Dossier des sauvegardes (`backups/` à côté de la base par défaut) |
+| `CURSUS_BACKUP_KEEP` | Sauvegardes conservées par type (14 par défaut, `0` pour tout garder) |
 | `CURSUS_TODAY` | Fige la date du jour (AAAA-MM-JJ), utile pour la démonstration — les données de démo sont datées d'octobre 2026 |
 | `CURSUS_DEMO` | `0` pour désactiver le mode démonstration (connexion libre, sélecteur de vue, réinitialisation) |
 | `CURSUS_SECRET` | Clé de signature des sessions (générée et stockée en base sinon) |
 | `KEYSTONE_API_KEY` | Clé attendue des appels entrants de Keystone (`demo-keystone` par défaut) |
 | `KEYSTONE_URL`, `SAGE_URL`, `SAGE_DOSSIER` | Bascule des adaptateurs en mode API (à compléter, voir ci-dessous) |
+
+## Sauvegarde
+
+Toutes les données tiennent dans le fichier SQLite `CURSUS_DB`. `npm run backup` en fait une copie
+cohérente sans arrêter le serveur (`VACUUM INTO`), la vérifie et ne garde que les 14 plus récentes ;
+le code de sortie signale un échec à la supervision. Une copie est aussi faite automatiquement avant
+une migration de la base et avant la réinitialisation de la démonstration. `npm run restore -- <fichier>`
+vérifie la sauvegarde, refuse de s'exécuter si le serveur tourne (sauf `--force`), copie la base
+actuelle puis la remplace.
+
+Planification (timer systemd), copie chiffrée hors de la machine, restauration pas à pas et test
+périodique : `docs/SAUVEGARDE.md`.
 
 ## Ce qui reste simulé
 

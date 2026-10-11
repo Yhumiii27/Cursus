@@ -3,6 +3,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { sauvegarderAvantMigration } from './sauvegarde.ts';
 
 type ColType = 'text' | 'int' | 'real' | 'bool' | 'json';
 interface TableDef { pk: string; auto?: boolean; cols: Record<string, ColType>; unique?: string[][] }
@@ -81,6 +82,8 @@ export class Db {
   }
 
   private createSchema() {
+    // Base existante à laquelle il manque des tables ou des colonnes : copie de sécurité d'abord.
+    if (this.schemaAMigrer()) sauvegarderAvantMigration(this);
     for (const [name, def] of Object.entries(TABLES) as [TableName, TableDef][]) {
       const cols = Object.entries(def.cols).map(([c, t]) => {
         const pk = c === def.pk ? (def.auto ? ' PRIMARY KEY AUTOINCREMENT' : ' PRIMARY KEY') : '';
@@ -94,6 +97,17 @@ export class Db {
         if (!existing.has(snake(c))) this.sql.exec(`ALTER TABLE ${snake(name)} ADD COLUMN ${snake(c)} ${SQL_TYPE[t]}`);
       }
     }
+  }
+
+  /** Vrai si la base contient déjà des tables de Cursus mais pas toutes les tables ou colonnes du schéma. */
+  private schemaAMigrer(): boolean {
+    const tables = new Set((this.sql.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as { name: string }[]).map(t => t.name));
+    if (!Object.keys(TABLES).some(n => tables.has(snake(n)))) return false; // base neuve
+    return (Object.entries(TABLES) as [TableName, TableDef][]).some(([name, def]) => {
+      if (!tables.has(snake(name))) return true;
+      const cols = new Set(this.columns(name));
+      return Object.keys(def.cols).some(c => !cols.has(snake(c)));
+    });
   }
 
   /** Noms des colonnes physiques d'une table (y compris celles qui ne sont plus utilisées). */
@@ -190,6 +204,9 @@ export class Db {
   }
 }
 
-export function openDb(file = process.env.CURSUS_DB || 'data/cursus.db') {
+/** Fichier de la base : CURSUS_DB, sinon data/cursus.db. */
+export const dbFile = () => process.env.CURSUS_DB || 'data/cursus.db';
+
+export function openDb(file = dbFile()) {
   return new Db(file);
 }

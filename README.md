@@ -49,7 +49,8 @@ npm run app
 Crée `Cursus.app` sur le Bureau : double-cliquez pour ouvrir Cursus dans sa propre fenêtre. L'application
 démarre le serveur local (port 3217, accessible uniquement depuis ce Mac) et l'arrête à la fermeture.
 Relancez `npm run app` après une modification du code ou un déplacement du dossier. Journal du serveur :
-`~/Library/Logs/Cursus/serveur.log`.
+`~/Library/Logs/Cursus/serveur.log`. L'application utilise la même base que `npm run dev`
+(`data/cursus.db`) : les deux ne peuvent pas tourner en même temps.
 
 ## Commandes
 
@@ -84,7 +85,8 @@ cohérente sans arrêter le serveur (`VACUUM INTO`), la vérifie et ne garde que
 le code de sortie signale un échec à la supervision. Une copie est aussi faite automatiquement avant
 une migration de la base et avant la réinitialisation de la démonstration. `npm run restore -- <fichier>`
 vérifie la sauvegarde, refuse de s'exécuter si le serveur tourne (sauf `--force`), copie la base
-actuelle puis la remplace.
+actuelle puis la remplace. Le serveur signale qu'il utilise la base par un verrou (`<base>.pid`) et
+refuse de démarrer si un autre serveur l'utilise déjà.
 
 Planification (timer systemd), copie chiffrée hors de la machine, restauration pas à pas et test
 périodique : `docs/SAUVEGARDE.md`.

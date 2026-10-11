@@ -4,9 +4,9 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
-import { existsSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from 'node:fs';
+import { copyFileSync, existsSync, lstatSync, mkdirSync, mkdtempSync, readFileSync, realpathSync, rmSync, statSync, symlinkSync, utimesSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 process.env.CURSUS_TODAY = '2026-10-07';
 process.env.CURSUS_DEMO = '1';
@@ -18,8 +18,8 @@ const { seedDemo } = await import('../server/src/seed.ts');
 const { migrate } = await import('../server/src/migrate.ts');
 const { loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
-const { makeCtx } = await import('../server/src/actions/context.ts');
-const { fichierVerrou, listerSauvegardes, restaurer, sauvegarder, serveurActif } = await import('../server/src/sauvegarde.ts');
+const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
+const { dossierSauvegardes, fichierVerrou, listerSauvegardes, restaurer, sauvegarder, sauvegarderBase, serveurActif } = await import('../server/src/sauvegarde.ts');
 type Db = InstanceType<typeof Db>;
 type User = Parameters<typeof loadFull>[1];
 const RH: User = { role: 'rh', empId: null, nom: 'Sandrine Vidal', intitule: 'Responsable RH' };
@@ -123,18 +123,32 @@ test('restauration refusée si le fichier n’est pas une base Cursus valide', (
   assert.equal(listerSauvegardes(backups).length, 0, 'aucune copie « avant-restauration » inutile');
 }));
 
-test('restauration sur une base actuelle illisible : refusée, puis avec --force après copie brute de ses fichiers', () => avecBase(({ file, backups, db }) => {
+test('restauration sur une base actuelle illisible : refusée, puis avec --force après copie brute de ses fichiers', () => avecBase(({ dir, file, backups, db }) => {
   const copie = sauvegarder(file);
   db.sql.close();
+  // Vrai journal -wal, pris sur une autre base ouverte : rejoué, il écraserait des pages de la base restaurée.
+  const autre = new DatabaseSync(join(dir, 'autre.db'));
+  autre.exec(`PRAGMA journal_mode = WAL; CREATE TABLE t (x TEXT); INSERT INTO t VALUES ('a'), ('b');
+    PRAGMA wal_checkpoint(TRUNCATE); UPDATE t SET x = 'journal à ne pas rejouer'`);
+  const wal = join(dir, 'ancien-wal'), shm = join(dir, 'ancien-shm');
+  copyFileSync(join(dir, 'autre.db-wal'), wal);
+  copyFileSync(join(dir, 'autre.db-shm'), shm);
+  autre.close();
   writeFileSync(file, 'base endommagée');
+  copyFileSync(wal, file + '-wal');
+  copyFileSync(shm, file + '-shm');
   assert.throws(() => restaurer(copie.fichier, file), /n’a pas pu être sauvegardée/);
   assert.equal(readFileSync(file, 'utf8'), 'base endommagée', 'rien n’est remplacé sans --force');
+  assert.deepEqual(readFileSync(file + '-wal'), readFileSync(wal), 'journal non reporté dans la base endommagée');
   assert.ok(!existsSync(file + '.restauration'), 'fichier provisoire retiré');
   const r = restaurer(copie.fichier, file, { force: true });
   assert.equal(r.avant, null);
   assert.ok(r.brut && r.brut.startsWith(backups));
   assert.equal(readFileSync(join(r.brut, 'cursus.db'), 'utf8'), 'base endommagée', 'fichiers d’origine conservés tels quels');
-  assert.equal(nomEmp1(file), nomEmp1(copie.fichier));
+  assert.deepEqual(readFileSync(join(r.brut, 'cursus.db-wal')), readFileSync(wal));
+  assert.ok(!existsSync(file + '-wal') && !existsSync(file + '-shm'), 'journaux de l’ancienne base supprimés');
+  assert.equal(nomEmp1(file), nomEmp1(copie.fichier), 'ancien journal non rejoué');
+  assert.equal(lire<{ integrity_check: string }>(file, 'PRAGMA integrity_check').integrity_check, 'ok');
 }));
 
 test('restauration refusée tant que le serveur utilise la base, sauf --force ; verrou périmé ignoré', () => avecBase(({ file, db }) => {
@@ -154,6 +168,19 @@ test('restauration refusée tant que le serveur utilise la base, sauf --force ; 
   assert.ok(restaurer(copie.fichier, file).avant);
 }));
 
+test('verrou sous Linux : identifiant de démarrage et instant de lancement, indépendants de l’horloge', { skip: !existsSync('/proc/sys/kernel/random/boot_id') }, () => avecBase(({ file }) => {
+  const verrou = fichierVerrou(file);
+  const boot = readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
+  const poser = (v: object) => writeFileSync(verrou, JSON.stringify({ pid: process.pid, ...v }));
+  // Horloge corrigée après le démarrage du serveur (NTP) : le verrou reste valable.
+  poser({ depuis: '2000-01-01T00:00:00.000Z', boot });
+  assert.equal(serveurActif(file)?.pid, process.pid);
+  poser({ depuis: new Date().toISOString(), boot: '00000000-0000-0000-0000-000000000000' });
+  assert.equal(serveurActif(file), null, 'machine redémarrée depuis');
+  poser({ depuis: new Date().toISOString(), boot, lancement: '1' });
+  assert.equal(serveurActif(file), null, 'numéro de processus réattribué');
+}));
+
 test('sauvegarde automatique avant la réinitialisation de la démo', () => avecBase(({ file, backups, db }) => {
   db.update('employes', 1, { nom: 'Saisie avant réinitialisation' });
   const msg = db.tx(() => ACTIONS['demo.reinitialiser'](makeCtx(db, RH, loadFull(db, RH)), {}));
@@ -163,6 +190,90 @@ test('sauvegarde automatique avant la réinitialisation de la démo', () => avec
   assert.equal(nomEmp1(copies[0].fichier), 'Saisie avant réinitialisation', 'état d’avant la réinitialisation');
   assert.notEqual(db.get<{ nom: string }>('employes', 1)!.nom, 'Saisie avant réinitialisation', 'données de démo rechargées');
   assert.equal(nomEmp1(file), db.get<{ nom: string }>('employes', 1)!.nom);
+}));
+
+test('réinitialisation de la démo annulée si la sauvegarde préalable échoue', t => avecBase(({ dir, file, backups, db }) => {
+  t.mock.method(console, 'error', () => {}); // l'action journalise l'erreur d'origine
+  db.update('employes', 1, { nom: 'Saisie à conserver' });
+  writeFileSync(join(dir, 'fichier'), '');
+  process.env.CURSUS_BACKUP_DIR = join(dir, 'fichier', 'backups'); // sous un fichier : dossier impossible à créer
+  try {
+    assert.throws(() => db.tx(() => ACTIONS['demo.reinitialiser'](makeCtx(db, RH, loadFull(db, RH)), {})),
+      (e: unknown) => e instanceof ActionError && e.status === 500 && /réinitialisation annulée/.test(e.message));
+  } finally {
+    delete process.env.CURSUS_BACKUP_DIR;
+  }
+  assert.equal(nomEmp1(file), 'Saisie à conserver', 'rien n’est effacé sans copie');
+  assert.equal(db.count('employes'), 24);
+  assert.ok(!existsSync(backups));
+}));
+
+test('npm run reset-demo : copie d’une base existante, aucune pour une base neuve, rien d’effacé si la copie échoue', () => avecBase(({ dir, file, backups, db }) => {
+  db.update('employes', 1, { nom: 'Saisie avant reset' });
+  db.sql.close();
+  const reset = (env: Record<string, string>) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/reset.ts'],
+    { cwd: RACINE, encoding: 'utf8', env: { ...process.env, ...env } });
+  writeFileSync(join(dir, 'fichier'), '');
+  const echec = reset({ CURSUS_DB: file, CURSUS_BACKUP_DIR: join(dir, 'fichier', 'backups') });
+  assert.equal(echec.status, 1);
+  assert.match(echec.stderr, /Sauvegarde préalable impossible : réinitialisation annulée/);
+  assert.equal(nomEmp1(file), 'Saisie avant reset', 'base intacte');
+
+  const ok = reset({ CURSUS_DB: file });
+  assert.equal(ok.status, 0, ok.stderr);
+  assert.match(ok.stdout, /Base actuelle sauvegardée : .*-avant-reinitialisation\.db/);
+  const copies = listerSauvegardes(backups).filter(c => c.motif === 'avant-reinitialisation');
+  assert.equal(copies.length, 1);
+  assert.equal(nomEmp1(copies[0].fichier), 'Saisie avant reset');
+  assert.notEqual(nomEmp1(file), 'Saisie avant reset', 'données de démo rechargées');
+
+  const neuve = join(dir, 'neuve', 'cursus.db');
+  const n = reset({ CURSUS_DB: neuve });
+  assert.equal(n.status, 0, n.stderr);
+  assert.doesNotMatch(n.stdout, /sauvegardée/);
+  assert.equal(listerSauvegardes(join(dir, 'neuve', 'backups')).length, 0, 'base neuve : rien à sauvegarder');
+  assert.equal(lire<{ n: number }>(neuve, 'SELECT COUNT(*) AS n FROM employes').n, 24);
+}));
+
+test('base derrière un lien symbolique : la cible est restaurée, le lien conservé, toutes les copies au même endroit', { skip: process.platform === 'win32' }, () => {
+  const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cursus-lien-')));
+  const reelle = join(dir, 'vol', 'cursus.db'), lien = join(dir, 'lib', 'cursus.db');
+  mkdirSync(join(dir, 'lib'));
+  const db = new Db(reelle);
+  try {
+    seedDemo(db);
+    symlinkSync(reelle, lien);
+    const manuelle = sauvegarder(lien); // npm run backup avec CURSUS_DB=lib/cursus.db
+    const auto = sauvegarderBase(db, 'avant-reinitialisation')!; // copie automatique : chemin résolu par SQLite
+    assert.equal(dirname(manuelle.fichier), join(dir, 'vol', 'backups'));
+    assert.equal(dirname(auto.fichier), dirname(manuelle.fichier));
+    assert.equal(dossierSauvegardes(lien), dirname(manuelle.fichier), 'copies listées par npm run restore');
+    assert.equal(listerSauvegardes(dirname(manuelle.fichier)).filter(c => c.base === 'cursus').length, 2);
+    db.update('employes', 1, { nom: 'Après la copie' });
+    db.sql.close();
+    const r = restaurer(manuelle.fichier, lien);
+    assert.ok(lstatSync(lien).isSymbolicLink(), 'lien conservé');
+    assert.equal(nomEmp1(reelle), nomEmp1(manuelle.fichier), 'cible du lien restaurée');
+    assert.equal(nomEmp1(r.avant!), 'Après la copie');
+    assert.equal(dirname(r.avant!), dirname(manuelle.fichier));
+  } finally {
+    try { db.sql.close(); } catch { /* déjà fermée */ }
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('copie provisoire d’une sauvegarde interrompue : supprimée après une heure', () => avecBase(({ file, backups }) => {
+  const premiere = sauvegarder(file);
+  const nom = (n: string) => join(backups, n);
+  for (const n of ['cursus-2026-10-01T021500Z.db.partiel', 'cursus-2026-10-02T021500Z.db.partiel', 'autre-2026-10-01T021500Z.db.partiel']) writeFileSync(nom(n), 'copie interrompue');
+  const vieux = new Date(Date.now() - 2 * 3600 * 1000);
+  utimesSync(nom('cursus-2026-10-01T021500Z.db.partiel'), vieux, vieux);
+  utimesSync(nom('autre-2026-10-01T021500Z.db.partiel'), vieux, vieux);
+  const s = sauvegarder(file);
+  assert.deepEqual(s.supprimees, [nom('cursus-2026-10-01T021500Z.db.partiel')]);
+  assert.ok(existsSync(nom('cursus-2026-10-02T021500Z.db.partiel')), 'copie peut-être en cours : conservée');
+  assert.ok(existsSync(nom('autre-2026-10-01T021500Z.db.partiel')), 'autre base : non touchée');
+  assert.ok(existsSync(premiere.fichier));
 }));
 
 test('sauvegarde automatique avant une migration qui modifie la base, et seulement dans ce cas', () => {
@@ -242,12 +353,14 @@ test('npm run backup / restore : compte rendu et code de sortie pour la supervis
   assert.match(restau.stdout, /Base actuelle sauvegardée : .*avant-restauration\.db/);
 }));
 
-test('serveur : verrou posé au démarrage et retiré à l’arrêt (SIGTERM)', { skip: process.platform === 'win32' }, async () => {
+test('serveur : verrou posé au démarrage, seconde instance refusée, verrou retiré à l’arrêt (SIGTERM)', { skip: process.platform === 'win32' }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'cursus-verrou-'));
   const file = join(dir, 'cursus.db');
-  const srv = spawn(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], {
-    cwd: RACINE, env: { ...process.env, CURSUS_DB: file, CURSUS_API_PORT: '0', CURSUS_HOST: '127.0.0.1' }, stdio: ['ignore', 'pipe', 'pipe'],
-  });
+  const env = { ...process.env, CURSUS_DB: file, CURSUS_API_PORT: '0', CURSUS_HOST: '127.0.0.1' };
+  const args = ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'];
+  // Verrou laissé par un arrêt brutal : remplacé au démarrage.
+  writeFileSync(fichierVerrou(file), JSON.stringify({ pid: spawnSync(process.execPath, ['-e', '']).pid, depuis: new Date().toISOString() }));
+  const srv = spawn(process.execPath, args, { cwd: RACINE, env, stdio: ['ignore', 'pipe', 'pipe'] });
   try {
     await new Promise<void>((ok, ko) => {
       let out = '';
@@ -258,6 +371,15 @@ test('serveur : verrou posé au démarrage et retiré à l’arrêt (SIGTERM)', 
     const verrou = fichierVerrou(file);
     assert.equal(JSON.parse(readFileSync(verrou, 'utf8')).pid, srv.pid);
     assert.equal(serveurActif(file)?.pid, srv.pid);
+
+    // Seconde instance sur la même base (autre port) : refusée avant d'ouvrir la base, verrou du premier intact.
+    const second = spawnSync(process.execPath, args, { cwd: RACINE, env, encoding: 'utf8', timeout: 20000 });
+    assert.equal(second.status, 1, second.stdout + second.stderr);
+    assert.match(second.stderr, new RegExp(`Démarrage impossible : Un autre serveur Cursus utilise déjà cette base \\(processus ${srv.pid},`));
+    assert.equal(serveurActif(file)?.pid, srv.pid, 'le verrou désigne toujours le premier serveur');
+    const copie = sauvegarder(file); // copie à chaud, serveur démarré
+    assert.throws(() => restaurer(copie.fichier, file), /serveur Cursus semble démarré/);
+
     const fin = new Promise<NodeJS.Signals | null>(ok => srv.on('exit', (_code, signal) => ok(signal)));
     srv.kill('SIGTERM');
     assert.equal(await fin, 'SIGTERM', 'le signal garde son effet par défaut');

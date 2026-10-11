@@ -21,9 +21,18 @@ export function fmtTaille(o: number) {
 export const fmtDuree = (ms: number) => ms < 1000 ? `${ms} ms` : `${(ms / 1000).toLocaleString('fr-FR', { maximumFractionDigits: 1 })} s`;
 export const fmtDateHeure = (d: string | Date) => new Date(d).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' });
 
-/** Dossier des copies : CURSUS_BACKUP_DIR, sinon `backups/` à côté de la base (data/backups par défaut). */
+/** Chemin réel d'une base : un lien symbolique est suivi, une base pas encore créée est acceptée. */
+function cheminReel(f: string): string {
+  try { return realpathSync(f); } catch { /* base pas encore créée */ }
+  try { return join(realpathSync(dirname(f)), basename(f)); } catch { return resolve(f); }
+}
+
+/**
+ * Dossier des copies : CURSUS_BACKUP_DIR, sinon `backups/` à côté de la base (data/backups par défaut).
+ * Derrière un lien symbolique, à côté de sa cible : copies manuelles et automatiques au même endroit.
+ */
 export function dossierSauvegardes(base: string): string {
-  return resolve(process.env.CURSUS_BACKUP_DIR || join(dirname(resolve(base)), 'backups'));
+  return resolve(process.env.CURSUS_BACKUP_DIR || join(dirname(cheminReel(base)), 'backups'));
 }
 
 /** Copies conservées par type de sauvegarde : CURSUS_BACKUP_KEEP (14 par défaut, 0 = toutes). */
@@ -145,6 +154,28 @@ export interface OptionsSauvegarde {
   /** Copies conservées (copiesConservees() par défaut). */
   keep?: number;
   date?: Date;
+  /**
+   * Lecture seule : la base n'est jamais modifiée, même si la copie échoue. Une connexion en écriture
+   * qui se ferme la dernière reporte le journal -wal dans la base, puis le supprime.
+   */
+  lectureSeule?: boolean;
+}
+
+/** Délai au-delà duquel une copie provisoire (.partiel) est celle d'une sauvegarde interrompue. */
+const PARTIEL_ABANDONNE = 60 * 60 * 1000;
+
+/** Supprime les copies provisoires de cette base laissées par une sauvegarde interrompue (arrêt brutal, coupure). */
+function purgerPartiels(dir: string, source: string): string[] {
+  const out: string[] = [];
+  for (const nom of readdirSync(dir)) {
+    if (!nom.endsWith('.db.partiel') || NOM.exec(nom.slice(0, -'.partiel'.length))?.[1] !== prefixe(source)) continue;
+    const f = join(dir, nom);
+    try {
+      // Une copie en cours d'écriture a une date de modification récente.
+      if (Date.now() - statSync(f).mtimeMs > PARTIEL_ABANDONNE) { rmSync(f, { force: true }); out.push(f); }
+    } catch { /* déjà supprimée */ }
+  }
+  return out;
 }
 
 /**
@@ -154,7 +185,8 @@ export interface OptionsSauvegarde {
  */
 export function sauvegarder(base: string, opts: OptionsSauvegarde = {}): Sauvegarde {
   const t0 = Date.now();
-  const source = resolve(base);
+  // Chemin réel : derrière un lien symbolique, mêmes noms de copies que db.sql.location() (copies automatiques).
+  const source = cheminReel(base);
   // Sans ce contrôle, SQLite créerait une base vide à la place de celle attendue.
   if (!existsSync(source)) throw new SauvegardeError(`Base introuvable : ${source}`);
   const keep = opts.keep ?? copiesConservees();
@@ -164,22 +196,24 @@ export function sauvegarder(base: string, opts: OptionsSauvegarde = {}): Sauvega
   const partiel = fichier + '.partiel';
   let verification: Verification;
   try {
+    // Fichier vide créé d'abord en 600 (VACUUM INTO l'accepte) : données de santé et de paie, jamais
+    // lisibles par un autre compte, même pendant la copie ou si elle est interrompue.
+    writeFileSync(partiel, '', { mode: 0o600, flag: 'wx' });
     // Connexion distincte : VACUUM INTO est impossible dans une transaction ouverte (action en cours).
-    const sql = new DatabaseSync(source);
+    const sql = new DatabaseSync(source, { readOnly: opts.lectureSeule ?? false });
     try {
       sql.exec('PRAGMA busy_timeout = 10000');
       sql.prepare('VACUUM INTO ?').run(partiel);
     } finally {
       sql.close();
     }
-    chmodSync(partiel, 0o600); // données de santé et de paie : lecture réservée au compte du service
     verification = verifier(partiel, { cursus: false }); // copie fidèle, même d'une base très ancienne
     renameSync(partiel, fichier);
   } catch (e) {
     rmSync(partiel, { force: true });
     throw e instanceof SauvegardeError ? e : new SauvegardeError(`Copie impossible vers ${dir} (${message(e)})`);
   }
-  const supprimees = rotation(dir, source, opts.motif ?? null, keep, fichier);
+  const supprimees = [...rotation(dir, source, opts.motif ?? null, keep, fichier), ...purgerPartiels(dir, source)];
   const conservees = listerSauvegardes(dir).filter(c => c.base === prefixe(source) && c.motif === (opts.motif ?? null)).length;
   return { ...verification, fichier, conservees, supprimees, duree: Date.now() - t0 };
 }
@@ -203,15 +237,30 @@ export function sauvegarderAvantMigration(db: Db): string | null {
 }
 
 // — Verrou du serveur —
-// Le serveur écrit <base>.pid au démarrage et le retire à l'arrêt. Un verrou laissé par un arrêt
-// brutal est reconnu comme périmé : processus disparu, ou machine redémarrée depuis sa pose.
+// Le serveur écrit <base>.pid au démarrage et le retire à l'arrêt ; il refuse de démarrer si un autre
+// serveur en service a déjà posé le sien. Un verrou laissé par un arrêt brutal est reconnu comme
+// périmé : processus disparu, numéro de processus réattribué, ou machine redémarrée depuis sa pose.
 
-export interface Verrou { pid: number; depuis: string }
-
-function cheminReel(f: string): string {
-  try { return realpathSync(f); } catch { /* base pas encore créée */ }
-  try { return join(realpathSync(dirname(f)), basename(f)); } catch { return resolve(f); }
+export interface Verrou {
+  pid: number;
+  depuis: string;
+  /** Linux : identifiant du démarrage de la machine (/proc/sys/kernel/random/boot_id). */
+  boot?: string | null;
+  /** Linux : instant de lancement du processus, en tops d'horloge depuis le démarrage (/proc/<pid>/stat). */
+  lancement?: string | null;
 }
+
+// Ces deux repères ne dépendent pas de l'horloge murale, qui peut être corrigée après le démarrage (NTP).
+function lireProc(f: string): string | null {
+  try { return readFileSync(f, 'utf8').trim(); } catch { return null; }
+}
+const bootId = () => lireProc('/proc/sys/kernel/random/boot_id');
+function lancement(pid: number): string | null {
+  const stat = lireProc(`/proc/${pid}/stat`); // « pid (nom) état … » : le nom peut contenir espaces et parenthèses
+  return stat ? stat.slice(stat.lastIndexOf(')') + 2).split(' ')[19] ?? null : null; // 22e champ
+}
+/** Sans identifiant de démarrage (hors Linux), marge sur la date de démarrage déduite de l'horloge murale. */
+const MARGE_HORLOGE = 10 * 60 * 1000;
 
 export const fichierVerrou = (base: string) => cheminReel(base) + '.pid';
 
@@ -228,7 +277,12 @@ function lireVerrou(f: string): Verrou | null {
 export function serveurActif(base: string): Verrou | null {
   const v = lireVerrou(fichierVerrou(base));
   if (!v) return null;
-  if (Date.parse(v.depuis) < Date.now() - uptime() * 1000) return null; // posé avant le dernier démarrage de la machine
+  const boot = bootId();
+  if (v.boot && boot) {
+    if (v.boot !== boot) return null; // posé avant le dernier démarrage de la machine
+  } else if (Date.parse(v.depuis) < Date.now() - uptime() * 1000 - MARGE_HORLOGE) return null;
+  const l = v.lancement ? lancement(v.pid) : null;
+  if (l && l !== v.lancement) return null; // numéro réattribué à un autre processus
   try {
     process.kill(v.pid, 0); // signal 0 : teste l'existence du processus sans le toucher
     return v;
@@ -237,12 +291,31 @@ export function serveurActif(base: string): Verrou | null {
   }
 }
 
-/** Pose le verrou du serveur ; il est retiré à la sortie du processus et sur SIGINT / SIGTERM. */
+/**
+ * Pose le verrou du serveur ; il est retiré à la sortie du processus et sur SIGINT / SIGTERM.
+ * Lève une SauvegardeError si un autre serveur en service utilise déjà la base : son verrou reste
+ * en place, sinon l'arrêt de la seconde instance le retirerait et npm run restore ne serait plus bloqué.
+ */
 export function poserVerrou(base: string) {
+  mkdirSync(dirname(resolve(base)), { recursive: true }); // premier démarrage : dossier pas encore créé
   const f = fichierVerrou(base);
-  const autre = serveurActif(base);
-  if (autre && autre.pid !== process.pid) console.warn(`Attention : un autre serveur Cursus semble utiliser cette base (processus ${autre.pid}).`);
-  writeFileSync(f, JSON.stringify({ pid: process.pid, depuis: new Date().toISOString() }) + '\n');
+  const contenu = JSON.stringify({ pid: process.pid, depuis: new Date().toISOString(), boot: bootId(), lancement: lancement(process.pid) }) + '\n';
+  for (let essai = 1; ; essai++) {
+    try {
+      writeFileSync(f, contenu, { flag: 'wx' }); // création exclusive : de deux serveurs lancés ensemble, un seul l'obtient
+      break;
+    } catch (e) {
+      if ((e as NodeJS.ErrnoException).code !== 'EEXIST') throw e;
+      const autre = serveurActif(base);
+      if (autre && autre.pid !== process.pid) {
+        throw new SauvegardeError(`Un autre serveur Cursus utilise déjà cette base (processus ${autre.pid}, verrou ${f}). `
+          + 'Arrêtez-le avant d’en démarrer un autre, ou donnez à celui-ci sa propre base (CURSUS_DB) ; '
+          + 'si ce processus n’est pas un serveur Cursus, supprimez le verrou.');
+      }
+      if (essai === 3) throw new SauvegardeError(`Verrou ${f} impossible à poser`);
+      rmSync(f, { force: true }); // verrou périmé : arrêt brutal d'un serveur précédent
+    }
+  }
   const retirer = () => {
     try { if (lireVerrou(f)?.pid === process.pid) unlinkSync(f); } catch { /* déjà retiré */ }
   };
@@ -277,7 +350,8 @@ export interface Restauration {
  * et supprime les journaux -wal / -shm de l'ancienne base, qui ne doivent pas être rejoués sur la nouvelle.
  */
 export function restaurer(fichier: string, base: string, opts: { force?: boolean; dir?: string; keep?: number } = {}): Restauration {
-  const source = resolve(fichier), cible = resolve(base);
+  // Derrière un lien symbolique, c'est sa cible qui est remplacée : le lien reste en place.
+  const source = resolve(fichier), cible = cheminReel(base);
   const verification = verifier(source);
   if (cheminReel(source) === cheminReel(cible)) throw new SauvegardeError('Le fichier à restaurer est la base elle-même');
   const serveur = serveurActif(cible);
@@ -298,7 +372,8 @@ export function restaurer(fichier: string, base: string, opts: { force?: boolean
     verifier(provisoire);
     if (existsSync(cible)) {
       try {
-        avant = sauvegarder(cible, { motif: 'avant-restauration', dir, keep }).fichier;
+        // Lecture seule : une base illisible et ses journaux restent tels quels, pour le refus comme pour la copie brute.
+        avant = sauvegarder(cible, { motif: 'avant-restauration', dir, keep, lectureSeule: true }).fichier;
       } catch (e) {
         if (!opts.force) {
           throw new SauvegardeError(`La base actuelle n’a pas pu être sauvegardée (${message(e)}) : restauration annulée. `

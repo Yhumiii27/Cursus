@@ -14,7 +14,8 @@ compte système `cursus`, service `cursus.service`, variables dans `/etc/cursus/
   les 14 copies les plus récentes. Elle est lancée **chaque nuit par un timer systemd**.
 - Une copie est aussi faite **automatiquement** avant une migration de la base (nouvelle version) et
   avant la réinitialisation de la démonstration.
-- Les copies partent **chiffrées hors de la machine** (restic), chez un hébergeur en France ou dans l'UE.
+- Les copies partent **chiffrées hors de la machine** (restic), chez un hébergeur en France ou dans l'UE,
+  sur un stockage où la machine peut ajouter des copies mais pas les effacer.
 - Restaurer : arrêter le service, `npm run restore -- <fichier>`, redémarrer.
 - **Tester une restauration chaque trimestre**, et après toute modification de cette procédure.
 
@@ -31,7 +32,8 @@ compte système `cursus`, service `cursus.service`, variables dans `/etc/cursus/
 **Les copies sont aussi sensibles que la base** : elles contiennent des données de santé et de paie
 (catégories particulières au sens de l'article 9 du RGPD). En conséquence :
 
-- le dossier des copies est créé en `700` et chaque copie en `600` (lecture par le seul compte `cursus`) ;
+- le dossier des copies est créé en `700` et chaque copie en `600` dès sa création, pendant l'écriture
+  comprise (lecture par le seul compte `cursus`) ;
 - toute copie qui quitte la machine est chiffrée **avant** l'envoi ;
 - l'accès aux copies et à la clé de chiffrement est limité aux administrateurs nommés ;
 - une donnée effacée dans Cursus subsiste dans les copies jusqu'à leur expiration : la durée de
@@ -43,7 +45,9 @@ compte système `cursus`, service `cursus.service`, variables dans `/etc/cursus/
    écritures encore dans le journal WAL, et écrit un fichier autonome et compacté. Les utilisateurs ne
    sont pas bloqués ; inutile d'arrêter le serveur.
 2. La copie est écrite sous un nom provisoire (`….db.partiel`), **vérifiée** (`PRAGMA integrity_check`),
-   puis renommée : une sauvegarde interrompue ne laisse jamais de fichier d'apparence valide.
+   puis renommée : une sauvegarde interrompue ne laisse jamais de fichier d'apparence valide. Un
+   `.partiel` abandonné (arrêt brutal ou coupure pendant la copie) est supprimé par la sauvegarde
+   suivante, une heure au moins après sa dernière écriture.
 3. **Rotation** : seules les `CURSUS_BACKUP_KEEP` copies les plus récentes de chaque type sont gardées
    (voir le tableau ci-dessous). La copie qui vient d'être faite n'est jamais supprimée, même si
    l'horloge a reculé. Les autres fichiers du dossier ne sont jamais touchés.
@@ -70,16 +74,24 @@ Sauvegarde de /var/lib/cursus/cursus.db
 | `cursus-…Z-avant-restauration-brut/` | `npm run restore -- … --force` sur une base illisible : fichiers copiés tels quels, hors rotation |
 
 L'horodatage est en **UTC** (suffixe `Z`) pour rester dans l'ordre aux changements d'heure. Le préfixe
-est le nom du fichier de base (`cursus` pour `cursus.db`) : plusieurs bases peuvent partager un dossier.
+est le nom du fichier de base (`cursus` pour `cursus.db`) : plusieurs bases peuvent partager un dossier
+**à condition que leurs fichiers portent des noms différents**. Deux bases `cursus.db` (production et
+recette, par exemple) doivent avoir chacune leur `CURSUS_BACKUP_DIR` : sinon la rotation et la liste
+des copies les confondent.
 
 | Variable | Effet | Défaut |
 | --- | --- | --- |
 | `CURSUS_DB` | Base à sauvegarder | `data/cursus.db` |
-| `CURSUS_BACKUP_DIR` | Dossier des copies | `backups/` à côté de la base (`data/backups`) |
+| `CURSUS_BACKUP_DIR` | Dossier des copies | `backups/` à côté de la base (`data/backups`) ; à côté de sa cible si `CURSUS_DB` est un lien symbolique |
 | `CURSUS_BACKUP_KEEP` | Copies gardées **par type** (la rotation compte des copies, pas des jours) | `14` ; `0` = aucune suppression |
 
 Espace disque : une copie pèse à peu près la taille de la base ; prévoir au moins
 `4 × CURSUS_BACKUP_KEEP` copies. Si la machine a un second disque, y placer `CURSUS_BACKUP_DIR`.
+
+Base placée sur un volume de données par un lien symbolique (`CURSUS_DB` est un lien) : les commandes
+suivent le lien. Les copies vont par défaut à côté du fichier réel, et la restauration remplace ce
+fichier en laissant le lien en place. Définir alors `CURSUS_BACKUP_DIR` pour garder les copies à
+l'emplacement attendu par la copie externe.
 
 ## 3. Copies automatiques
 
@@ -117,7 +129,8 @@ Nice=10
 IOSchedulingClass=idle
 ExecStart=/usr/bin/node --disable-warning=ExperimentalWarning server/src/backup.ts
 # Copie chiffrée hors de la machine (section 5), lancée seulement si la sauvegarde a réussi.
-ExecStartPost=/usr/local/sbin/cursus-copie-externe
+# Préfixe + : sous root, car ses secrets ne doivent pas être lisibles par le compte du serveur web.
+ExecStartPost=+/usr/local/sbin/cursus-copie-externe
 ```
 
 `/etc/systemd/system/cursus-sauvegarde.timer` :
@@ -170,9 +183,10 @@ ajouter des passages (par exemple une seconde ligne `OnCalendar=Mon..Fri 12:30`)
 n'envoie un e-mail qu'en cas d'erreur.
 
 ```cron
-# /etc/cron.d/cursus-sauvegarde : tous les jours à 2 h 15, sous le compte du service
+# /etc/cron.d/cursus-sauvegarde : tous les jours à 2 h 15 ; la sauvegarde sous le compte du service,
+# puis la copie externe sous root (section 5)
 MAILTO=informatique@exemple.fr
-15 2 * * * cursus cd /opt/cursus && set -a && . /etc/cursus/cursus.env && set +a && /usr/bin/node --disable-warning=ExperimentalWarning server/src/backup.ts >/dev/null && /usr/local/sbin/cursus-copie-externe
+15 2 * * * root runuser -u cursus -- sh -c 'cd /opt/cursus && set -a && . /etc/cursus/cursus.env && set +a && exec /usr/bin/node --disable-warning=ExperimentalWarning server/src/backup.ts' >/dev/null && /usr/local/sbin/cursus-copie-externe
 ```
 
 ## 5. Copie hors de la machine, chiffrée
@@ -183,63 +197,101 @@ l'hébergeur, ni contre un rançongiciel. Exigences :
 - **chiffrement sur la machine, avant l'envoi** : le stockage distant ne voit jamais les données en clair ;
 - stockage **en France ou dans l'UE**, dans un autre centre de données que la machine, de préférence
   chez un autre prestataire ;
-- si le stockage le permet, **versionnage ou verrouillage d'objets** : une machine compromise ne doit pas
-  pouvoir effacer les copies distantes ;
+- **la machine ne peut qu'ajouter des copies** : ses identifiants n'ont pas le droit de supprimer
+  définitivement. La purge des copies expirées se fait depuis un poste d'administration, avec d'autres
+  identifiants jamais stockés sur la machine. Une machine compromise ne peut ainsi pas effacer les copies
+  distantes ;
+- la copie externe tourne **sous root, pas sous le compte `cursus`** du serveur web : une faille de
+  l'application ne donne accès ni au mot de passe de chiffrement, ni aux identifiants du stockage ;
 - le **mot de passe de chiffrement** est conservé hors de la machine (coffre-fort de mots de passe du
   service informatique, et une copie sous scellé) : sans lui, les copies sont irrécupérables.
 
 Outil recommandé : **restic** (paquet `restic` de Debian / Ubuntu) : chiffrement authentifié AES-256,
-déduplication (une copie quotidienne ne coûte que les pages modifiées), stockage S3 ou SFTP.
+déduplication (une copie quotidienne ne coûte que les pages modifiées), stockage S3 ou serveur REST.
+
+Stockage en ajout seul, au choix :
+
+- **serveur REST de restic** (`rest-server --append-only`) sur une machine d'un autre prestataire :
+  la machine Cursus peut ajouter des copies, pas en supprimer ;
+- **stockage objet S3** avec **versionnage** activé (et, si l'hébergeur le propose, verrouillage d'objets) :
+  la clé de la machine peut lire, écrire et supprimer des objets (restic retire ses fichiers de verrou ;
+  avec le versionnage, une suppression ne fait que masquer l'objet), mais **pas** supprimer de versions
+  ni modifier la configuration du compartiment (versionnage, cycle de vie, règles d'accès). Une règle
+  de cycle de vie efface les versions masquées au bout de 30 jours : à ajouter à la durée de
+  conservation déclarée au registre des traitements.
 
 Mise en place, une fois :
 
 ```bash
 sudo sh -c 'umask 077; openssl rand -base64 32 > /etc/cursus/restic.pass'
 sudoedit /etc/cursus/restic.env          # contenu ci-dessous
-sudo chown cursus:cursus /etc/cursus/restic.pass /etc/cursus/restic.env
+sudo chown root:root /etc/cursus/restic.pass /etc/cursus/restic.env
 sudo chmod 600 /etc/cursus/restic.pass /etc/cursus/restic.env
-sudo -u cursus sh -c 'set -a; . /etc/cursus/restic.env; set +a; restic init'
+sudo sh -c 'set -a; . /etc/cursus/restic.env; set +a; restic init'
 ```
 
 ```sh
-# /etc/cursus/restic.env
+# /etc/cursus/restic.env (root:root, 600) : identifiants en ajout seul
 RESTIC_REPOSITORY=s3:https://<point d'accès S3 de l'hébergeur>/cursus-sauvegardes
 RESTIC_PASSWORD_FILE=/etc/cursus/restic.pass
-AWS_ACCESS_KEY_ID=<identifiant>
+# Cache de restic hors du dossier personnel du compte cursus : sous systemd, HOME reste le sien.
+RESTIC_CACHE_DIR=/var/cache/cursus-restic
+AWS_ACCESS_KEY_ID=<identifiant sans droit de suppression des versions>
 AWS_SECRET_ACCESS_KEY=<secret>
 ```
 
+Avec un serveur REST : `RESTIC_REPOSITORY=rest:https://<compte>:<mot de passe>@<serveur>/cursus`, sans
+les lignes `AWS_…`.
+
 Reporter aussitôt le contenu de `/etc/cursus/restic.pass` dans le coffre-fort de mots de passe.
 
-`/usr/local/sbin/cursus-copie-externe` (`chmod 755`) :
+`/usr/local/sbin/cursus-copie-externe` (`root:root`, `chmod 755`) :
 
 ```sh
 #!/bin/sh
-# Copie chiffrée des sauvegardes de Cursus hors de la machine (restic).
+# Copie chiffrée des sauvegardes de Cursus hors de la machine (restic), lancée sous root.
+# Ajout seul : la purge des copies expirées se fait depuis un poste d'administration.
 set -eu
 set -a; . /etc/cursus/restic.env; set +a
 restic backup --quiet --tag cursus /var/lib/cursus/backups
-# Conservation distante : 14 quotidiennes, 8 hebdomadaires, 12 mensuelles (à valider avec le DPO).
-restic forget --quiet --tag cursus --keep-daily 14 --keep-weekly 8 --keep-monthly 12 --prune
 ```
 
-Alternative sans restic : chiffrer chaque copie avec `age` vers une clé publique (la clé privée reste
-hors de la machine), puis l'envoyer avec `rclone` ou `rsync`.
+Purge des copies expirées, chaque mois, **depuis un poste d'administration** et avec des identifiants
+autorisés à supprimer (pour un serveur REST : sur le serveur de stockage lui-même, hors mode ajout seul) :
+
+```bash
+# Conservation distante : 14 quotidiennes, 8 hebdomadaires, 12 mensuelles (à valider avec le DPO).
+restic forget --tag cursus --keep-daily 14 --keep-weekly 8 --keep-monthly 12 --prune
+```
+
+Limite : root sur la machine peut lire le mot de passe de chiffrement, donc relire l'historique distant
+(sans pouvoir l'effacer). Pour s'en protéger aussi, alternative sans restic : chiffrer chaque copie avec
+`age` vers une clé publique (la clé privée reste hors de la machine), puis l'envoyer avec `rclone` ou
+`rsync` vers un stockage en ajout seul.
 
 ## 6. Surveillance
 
 - **Échec** : l'unité `cursus-sauvegarde.service` passe en échec et déclenche `cursus-alerte@` ;
   `systemctl --failed` la liste.
 - **Fraîcheur** (détecte aussi un timer désactivé) : la dernière copie planifiée doit avoir moins de 26 h.
-  Sonde pour l'outil de supervision :
+  Sonde pour l'outil de supervision ; code de sortie 2 (critique) attendu par Nagios, Icinga, Centreon… :
 
-  ```bash
-  find /var/lib/cursus/backups -name 'cursus-*Z.db' -mmin -1560 | grep -q . || echo "CRITIQUE : aucune sauvegarde de Cursus depuis 26 h"
+  ```sh
+  #!/bin/sh
+  # Fraîcheur des sauvegardes de Cursus : 0 = OK, 2 = CRITIQUE.
+  if sudo -n -u cursus find /var/lib/cursus/backups -name 'cursus-*Z.db' -mmin -1560 | grep -q .; then
+    echo "OK : sauvegarde de Cursus de moins de 26 h"
+  else
+    echo "CRITIQUE : aucune sauvegarde de Cursus depuis 26 h"; exit 2
+  fi
   ```
 
+  Le dossier des copies est en `700` : la recherche doit tourner sous le compte `cursus` (ou root).
+  Accorder au compte de l'agent de supervision une règle sudo limitée à cette seule commande `find`.
+
 - **Espace disque** : la dernière ligne du compte rendu donne l'espace libre du dossier des copies.
-- **Copie externe** : `restic snapshots --tag cursus --latest 1` (date de la dernière copie distante) et,
-  chaque mois, `restic check --read-data-subset=10%`.
+- **Copie externe**, sous root avec `/etc/cursus/restic.env` : `restic snapshots --tag cursus --latest 1`
+  (date de la dernière copie distante) et, chaque mois, `restic check --read-data-subset=10%`.
 
 ## 7. Restaurer, pas à pas
 
@@ -254,9 +306,11 @@ du service et avec ses variables d'environnement. Les commandes ci-dessous appel
    sudo -u cursus sh -c 'set -a; . /etc/cursus/cursus.env; set +a; node server/src/restore.ts'
    ```
 
-   Copie absente de la machine : la récupérer depuis la copie externe, par exemple
-   `restic restore latest --tag cursus --target /var/tmp/restauration` (le fichier est alors sous
-   `/var/tmp/restauration/var/lib/cursus/backups/`), puis `chown cursus` sur ce fichier.
+   Copie absente de la machine : la récupérer depuis la copie externe, sous root et dans un dossier
+   fermé aux autres comptes (`sudo install -d -m 700 /var/tmp/restauration`), par exemple
+   `sudo sh -c 'set -a; . /etc/cursus/restic.env; set +a; restic restore latest --tag cursus --target /var/tmp/restauration'`
+   (le fichier est alors sous `/var/tmp/restauration/var/lib/cursus/backups/`), puis
+   `sudo chown -R cursus:cursus /var/tmp/restauration`.
 2. **Arrêter le service** et suspendre les sauvegardes planifiées pendant l'opération :
    `sudo systemctl stop cursus cursus-sauvegarde.timer`.
 3. **Restaurer** :
@@ -281,12 +335,17 @@ Refus possibles (la base n'est alors pas modifiée, code de sortie 1) :
 
 | Message | Que faire |
 | --- | --- |
-| « Le serveur Cursus semble démarré » | Arrêter le service. Le serveur écrit `cursus.db.pid` au démarrage et le retire à l'arrêt ; un verrou laissé par un arrêt brutal est ignoré si le processus n'existe plus ou si la machine a redémarré. En cas de doute sur un verrou périmé : vérifier avec `systemctl status cursus`, puis ajouter `--force`. |
+| « Le serveur Cursus semble démarré » | Arrêter le service. Le serveur écrit `cursus.db.pid` au démarrage et le retire à l'arrêt ; un verrou laissé par un arrêt brutal est ignoré si le processus n'existe plus, si son numéro a été réattribué à un autre processus ou si la machine a redémarré. En cas de doute sur un verrou périmé : vérifier avec `systemctl status cursus`, puis ajouter `--force`. |
 | « n'est pas une base SQLite valide » / « n'est pas une base Cursus » / « Base endommagée » | Choisir une autre copie : celle-ci est inutilisable. |
 | « La base actuelle n'a pas pu être sauvegardée » | La base en place est illisible (souvent la raison de la restauration) : relancer avec `--force`, ses fichiers sont alors copiés tels quels dans `…-avant-restauration-brut/`. |
 
 Ne restaurer que des fichiers produits par `npm run backup` (ou par les copies automatiques) : une simple
 copie du fichier de base faite serveur démarré peut être incomplète sans son fichier `-wal`.
+
+Le même verrou empêche deux serveurs d'utiliser la même base : un second serveur lancé avec le
+`CURSUS_DB` d'un serveur en service (essai manuel, ancienne version encore active) s'arrête aussitôt,
+avec le code 1 et le message « Démarrage impossible : Un autre serveur Cursus utilise déjà cette base »,
+sans ouvrir la base. Une instance d'essai utilise sa propre base (section 8).
 
 ## 8. Test de restauration périodique
 
@@ -294,9 +353,13 @@ Chaque trimestre, et après toute modification de cette procédure, sur une autr
 temporaire, **jamais sur la base en service** :
 
 ```bash
-# 1. Récupérer la dernière copie externe (vérifie aussi le chiffrement et le mot de passe).
-sudo -u cursus sh -c 'set -a; . /etc/cursus/restic.env; set +a; restic restore latest --tag cursus --target /var/tmp/essai-restauration'
-# 2. La restaurer vers une base d'essai (le fichier d'environnement de production n'est pas chargé).
+# 1. Récupérer la dernière copie externe, sous root (vérifie aussi le chiffrement et le mot de passe),
+#    dans un dossier fermé aux autres comptes.
+sudo install -d -m 700 -o cursus -g cursus /var/tmp/essai-restauration
+sudo sh -c 'set -a; . /etc/cursus/restic.env; set +a; restic restore latest --tag cursus --target /var/tmp/essai-restauration'
+sudo chown -R cursus:cursus /var/tmp/essai-restauration
+# 2. La restaurer vers une base d'essai, sous le compte du service (le fichier d'environnement de
+#    production n'est pas chargé).
 cd /opt/cursus
 sudo -u cursus env CURSUS_DB=/var/tmp/essai-restauration/cursus.db \
   node server/src/restore.ts /var/tmp/essai-restauration/var/lib/cursus/backups/cursus-<date>Z.db
@@ -304,10 +367,18 @@ sudo -u cursus env CURSUS_DB=/var/tmp/essai-restauration/cursus.db \
 
 Le test est réussi si la commande se termine sans erreur et que le compte rendu donne le nombre de
 collaborateurs attendu et une dernière action du journal datée de la veille. Pour un contrôle complet,
-démarrer une instance d'essai sur cette base (`CURSUS_DB=/var/tmp/essai-restauration/cursus.db
-CURSUS_API_PORT=3299 CURSUS_HOST=127.0.0.1 npm start`, consultée par un tunnel SSH), puis l'arrêter.
+démarrer une instance d'essai sur cette base, toujours sous le compte du service :
 
-Supprimer ensuite le dossier d'essai (`rm -rf /var/tmp/essai-restauration` : il contient des données
+```bash
+sudo -u cursus env CURSUS_DB=/var/tmp/essai-restauration/cursus.db CURSUS_API_PORT=3299 \
+  CURSUS_HOST=127.0.0.1 NODE_ENV=production node server/src/index.ts
+```
+
+**Attention** : sans `CURSUS_DEMO=0`, cette instance est en mode démonstration, donc l'espace RH s'ouvre
+sans mot de passe, sur les données réelles. Elle n'écoute que sur la machine : la consulter par un tunnel
+SSH (`ssh -L 3299:127.0.0.1:3299 <machine>`), puis l'arrêter (Ctrl+C) dès le contrôle fait.
+
+Supprimer ensuite le dossier d'essai (`sudo rm -rf /var/tmp/essai-restauration` : il contient des données
 personnelles) et consigner le test dans le registre d'exploitation : date, copie testée, durée de la
 restauration, résultat, nom de l'opérateur.
 

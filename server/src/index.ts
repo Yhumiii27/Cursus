@@ -16,8 +16,15 @@ import { SAGE_MODE } from './integrations/sage.ts';
 import { poserVerrou } from './sauvegarde.ts';
 import { seedDemo } from './seed.ts';
 
+// Verrou posé avant d'ouvrir la base : il signale à npm run restore qu'elle est en service,
+// et un second serveur sur la même base s'arrête ici, avant toute migration.
+try {
+  poserVerrou(dbFile());
+} catch (err) {
+  console.error(`Démarrage impossible : ${err instanceof Error ? err.message : err}`);
+  process.exit(1);
+}
 const db = openDb();
-poserVerrou(dbFile()); // signale à npm run restore que la base est en service
 migrate(db);
 if (db.count('employes') === 0) {
   seedDemo(db);

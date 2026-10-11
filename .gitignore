@@ -15,6 +15,10 @@ coverage/
 # Base de données locale (contient aussi la clé de signature des sessions)
 data/*.db
 data/*.db-*
+# Sauvegardes, verrou du serveur et fichier provisoire de restauration (docs/SAUVEGARDE.md)
+data/backups/
+data/*.db.pid
+data/*.db.restauration
 *.sqlite
 *.sqlite3
 

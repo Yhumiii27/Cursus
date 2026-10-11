@@ -12,16 +12,25 @@ import {
 } from './auth.ts';
 import { enProduction, hoteEcoute, portEcoute, trustProxy, verifierConfig } from './config.ts';
 import { buildSnapshot, currentUser, loadFull, loadSettings } from './dataset.ts';
-import { openDb } from './db.ts';
+import { dbFile, openDb } from './db.ts';
 import { migrate } from './migrate.ts';
 import { KEYSTONE_API_KEY, KEYSTONE_MODE, keystoneKeyOk } from './integrations/keystone.ts';
 import { SAGE_MODE } from './integrations/sage.ts';
 import { demoPosteLocal, securityHeaders } from './securite.ts';
+import { poserVerrou } from './sauvegarde.ts';
 import { seedDemo } from './seed.ts';
 
 // En production, une configuration dangereuse arrête le serveur avant toute ouverture de la base.
 verifierConfig();
 
+// Verrou posé avant d'ouvrir la base : il signale à npm run restore qu'elle est en service,
+// et un second serveur sur la même base s'arrête ici, avant toute migration.
+try {
+  poserVerrou(dbFile());
+} catch (err) {
+  console.error(`Démarrage impossible : ${err instanceof Error ? err.message : err}`);
+  process.exit(1);
+}
 const db = openDb();
 migrate(db);
 if (db.count('employes') === 0) {

@@ -1,7 +1,9 @@
 // Paramètres de suivi et réinitialisation de la démonstration.
+import { basename } from 'node:path';
 import type { Settings } from '../../../shared/types.ts';
 import { DEMO } from '../auth.ts';
 import { loadSettings } from '../dataset.ts';
+import { sauvegarderBase, type Sauvegarde } from '../sauvegarde.ts';
 import { seedDemo } from '../seed.ts';
 import { ActionError, requireRh, type ActionHandler } from './context.ts';
 
@@ -28,8 +30,16 @@ const maj: ActionHandler = (ctx, p) => {
 const reinitialiser: ActionHandler = (ctx) => {
   requireRh(ctx);
   if (!DEMO) throw new ActionError('Réinitialisation disponible uniquement en mode démonstration', 403);
+  // Copie de la base telle qu'avant la réinitialisation (dernier état validé, hors de la transaction en cours).
+  let copie: Sauvegarde | null;
+  try {
+    copie = sauvegarderBase(ctx.db, 'avant-reinitialisation');
+  } catch (err) {
+    console.error(err);
+    throw new ActionError('Sauvegarde préalable impossible : réinitialisation annulée', 500);
+  }
   seedDemo(ctx.db);
-  return 'Données de démonstration réinitialisées';
+  return copie ? `Données de démonstration réinitialisées (sauvegarde ${basename(copie.fichier)})` : 'Données de démonstration réinitialisées';
 };
 
 export const parametresActions: Record<string, ActionHandler> = {

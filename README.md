@@ -50,7 +50,8 @@ npm run app
 Crée `Cursus.app` sur le Bureau : double-cliquez pour ouvrir Cursus dans sa propre fenêtre. L'application
 démarre le serveur local en mode démonstration (port 3217, accessible uniquement depuis ce Mac) et l'arrête à la fermeture.
 Relancez `npm run app` après une modification du code ou un déplacement du dossier. Journal du serveur :
-`~/Library/Logs/Cursus/serveur.log`.
+`~/Library/Logs/Cursus/serveur.log`. L'application utilise la même base que `npm run dev`
+(`data/cursus.db`) : les deux ne peuvent pas tourner en même temps.
 
 ## Commandes
 
@@ -61,6 +62,8 @@ Relancez `npm run app` après une modification du code ou un déplacement du dos
 | `npm test` | Tests des règles métier, des droits d'accès et de la sécurité |
 | `npm run typecheck` | Vérification TypeScript |
 | `CURSUS_DEMO=1 npm run reset-demo` | Recharge les données de démonstration (efface la base ; refusé hors démonstration) |
+| `npm run backup` | Copie à chaud vérifiée de la base dans `data/backups`, avec rotation |
+| `npm run restore -- <fichier>` | Remplace la base par une sauvegarde (serveur arrêté) |
 
 ## Configuration (variables d'environnement)
 
@@ -79,6 +82,8 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `CURSUS_HOST` / `HOST` | Adresse d'écoute : 127.0.0.1 en production (derrière le reverse proxy), 0.0.0.0 sinon |
 | `CURSUS_TRUST_PROXY` | Proxys dont les en-têtes `X-Forwarded-*` sont crus (`loopback` par défaut : proxy sur la même machine) |
 | `CURSUS_DB` | Fichier SQLite (`data/cursus.db` par défaut) |
+| `CURSUS_BACKUP_DIR` | Dossier des sauvegardes (`backups/` à côté de la base par défaut) |
+| `CURSUS_BACKUP_KEEP` | Sauvegardes conservées par type (14 par défaut, `0` pour tout garder) |
 | `CURSUS_TODAY` | Fige la date du jour (AAAA-MM-JJ), utile pour la démonstration — les données de démo sont datées d'octobre 2026. Refusée en production |
 | `CURSUS_DEMO` | `1` pour activer le mode démonstration (connexion libre, sélecteur de vue, réinitialisation, données fictives dans une base vide). Inactif par défaut ; en production, admis seulement pour l'application de bureau (`CURSUS_HOST=127.0.0.1` explicite), jamais derrière le reverse proxy |
 | `CURSUS_SECRET` | Clé de signature des sessions, 32 caractères au moins (`openssl rand -hex 32`). Obligatoire en production ; ailleurs, générée et stockée en base |
@@ -88,6 +93,19 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 
 Les sessions durent 12 heures au plus depuis la connexion ; la déconnexion les révoque, et une
 session est refusée dès que la date de sortie du salarié rattaché est passée.
+
+## Sauvegarde
+
+Toutes les données tiennent dans le fichier SQLite `CURSUS_DB`. `npm run backup` en fait une copie
+cohérente sans arrêter le serveur (`VACUUM INTO`), la vérifie et ne garde que les 14 plus récentes ;
+le code de sortie signale un échec à la supervision. Une copie est aussi faite automatiquement avant
+une migration de la base et avant la réinitialisation de la démonstration. `npm run restore -- <fichier>`
+vérifie la sauvegarde, refuse de s'exécuter si le serveur tourne (sauf `--force`), copie la base
+actuelle puis la remplace. Le serveur signale qu'il utilise la base par un verrou (`<base>.pid`) et
+refuse de démarrer si un autre serveur l'utilise déjà.
+
+Planification (timer systemd), copie chiffrée hors de la machine, restauration pas à pas et test
+périodique : `docs/SAUVEGARDE.md`.
 
 ## Ce qui reste simulé
 

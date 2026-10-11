@@ -97,7 +97,9 @@ sont proratisés.
 ## Règles métier implémentées
 
 Validité des certifications et seuil d'alerte (30–180 j) · prérequis des habilitations
-(formation + aptitude médicale de 24 mois) avec suspension automatique · formalités de
+(formation + aptitude médicale de 24 mois) avec suspension automatique, suspension et
+retrait manuels (motif, date, auteur) · seule la dernière certification compte après un
+recyclage, les précédentes restent en historique · formalités de
 voyage par destination (passeport, visas, vaccins, délais) · Go / No Go par chantier
 (matricules et codes de motif uniquement) · heures supplémentaires +25 % / +50 %,
 heures complémentaires +10 % / +25 %, forfait jours, alertes 10 h / 48 h · repos

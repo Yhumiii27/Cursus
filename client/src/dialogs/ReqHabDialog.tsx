@@ -21,7 +21,7 @@ export function ReqHabDialog({ empId }: { empId?: number | null }) {
   if (!h || (!c.pourMembre && !who)) return null;
 
   const info = who ? d.habInfo({ h }, who.rawCerts, who.med, horizon) : null;
-  const already = !!who && (who.habs.some(x => x.h === h && x.key !== 'exp')
+  const already = !!who && (who.habs.some(x => x.h === h && x.key !== 'exp' && x.key !== 'retiree')
     || d.ds.demandesCollab.some(r => r.empId === who.id && r.type === 'habilitation' && r.h === h && r.statut === 'attente'));
   const checks = (info?.checks ?? []).map(x => ({
     key: x.label, label: x.label, text: x.text,

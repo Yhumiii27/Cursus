@@ -76,6 +76,9 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `cert.ajouter` | empId, f, date | RH |
 | `session.creer` | f, date, lieu, places, planId? | RH |
 | `hab.delivrer` | empId, h, date, par, mode | RH |
+| `hab.suspendre` | empId, h, motif, date? (aujourd’hui par défaut) | RH ; manager pour un membre de son équipe (jamais lui-même) |
+| `hab.lever` | empId, h | RH |
+| `hab.retirer` | empId, h, motif, date? | RH |
 | `medical.demander` | empId | RH |
 | `demande.accepter` / `demande.refuser` | id | RH |
 | `demande.formation` | f (ou `autre`), libelle, sessionId, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
@@ -121,13 +124,27 @@ le formulaire et le serveur. Une base créée avant ce modèle est convertie au 
 Les équipes (`referentiels.equipes`) portent leur manager ; un collaborateur sans équipe (`equipe = null`)
 est « à affecter » et relève du service RH.
 
+## Certifications et habilitations
+
+- **Certification en vigueur** : pour chaque collaborateur et chaque formation, seule la plus récente
+  compte (`certEnVigueur` de `shared/domain.ts`) — statut, échéances, indicateurs, prérequis des
+  habilitations, Go / No Go, fiche et passeport formation. Les certifications remplacées par un
+  recyclage restent en base : `EmpX.anciennes` les expose comme historique (« remplacée le … »).
+- **Suspension et retrait** : un titre délivré porte une éventuelle mesure (`mesure`, `mesureDate`,
+  `mesureMotif`, `mesurePar`). Suspendu (`susp`) ou retiré (`retiree`), il n'est plus valide : fiche
+  non conforme, échéance dépassée, No Go avec les codes `HABILITATION_SUSPENDUE` / `HABILITATION_RETIREE`.
+  La suspension se lève (RH) ; le retrait est définitif, seule une nouvelle délivrance rétablit le titre.
+  Le motif est un texte libre visible du manager et du collaborateur, jamais transmis à Keystone.
+  Une base existante reçoit les nouvelles colonnes au démarrage (schéma déclaratif de `server/src/db.ts`).
+
 ## Intégrations
 
 - **Keystone → Cursus** : `GET /api/integrations/keystone/chantiers/:id/go-no-go` et
   `POST /api/integrations/keystone/demandes` (en-tête `X-Api-Key`, variable
   `KEYSTONE_API_KEY`). Seuls des matricules et codes de motif sortent de Cursus.
 - **Cursus → Keystone** : `server/src/integrations/keystone.ts` (`sendToKeystone`) —
-  décisions sur les demandes, heures validées, absences validées. En simulation, les
-  messages sont écrits dans le journal.
+  décisions sur les demandes, heures validées, absences validées, verdicts modifiés par une
+  suspension, une levée ou un retrait d'habilitation (`verdict.modifie` : chantier, matricule, codes
+  de motif). En simulation, les messages sont écrits dans le journal.
 - **Sage Paie** : `server/src/integrations/sage.ts` (`pushToSage`).
 - **Authentification unique** : `server/src/auth.ts` et la route `/api/login`.

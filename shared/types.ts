@@ -42,7 +42,13 @@ export interface Referentiels {
 
 // — Collaborateurs —
 export interface Certification { id: number; empId: number; f: string; obtenue: ISODate; sessionId: number | null; convoc: 'now' | 'later' | null }
-export interface HabTitre { id: number; empId: number; h: string; delivree: ISODate | null; par: string | null; demande: ISODate | null }
+/** Mesure prise sur un titre après un incident ou une restriction : suspension (réversible) ou retrait (définitif). */
+export type HabMesure = 'suspension' | 'retrait';
+export interface HabTitre {
+  id: number; empId: number; h: string; delivree: ISODate | null; par: string | null; demande: ISODate | null;
+  /** Suspension ou retrait en cours (null = aucun), avec sa date, son motif (texte libre) et son auteur. */
+  mesure: HabMesure | null; mesureDate: ISODate | null; mesureMotif: string | null; mesurePar: string | null;
+}
 export interface Visa { id: number; empId: number; dest: string; type: string; obtenu: ISODate | null; expire: ISODate }
 export interface Vaccination { id: number; empId: number; v: VaccinId; date: ISODate }
 export interface Passeport { numero: string; expire: ISODate }

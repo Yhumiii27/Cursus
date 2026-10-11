@@ -1,7 +1,7 @@
-// Habilitations : titres par type, prérequis, échéances et délivrance.
+// Habilitations : titres par type, prérequis, échéances, délivrance, suspension et retrait.
 import { useMemo } from 'react';
 import { PlusIcon } from '@phosphor-icons/react';
-import { HAB_CLS, HAB_LABEL, type HabKey } from '../../../shared/constants.ts';
+import { HAB_CLS, HAB_LABEL, HAB_MESURE_LABEL, type HabKey } from '../../../shared/constants.ts';
 import type { PrereqCheck } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, plural, rel, validiteLabel } from '../../../shared/format.ts';
@@ -10,9 +10,10 @@ import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { PickCard } from './Formations.tsx';
 
-const ORDER: Record<HabKey, number> = { exp: 0, susp: 0, due: 1, pending: 2, ok: 3 };
+const ORDER: Record<HabKey, number> = { exp: 0, susp: 0, retiree: 0, due: 1, pending: 2, ok: 3 };
 const prereqCls = (c: PrereqCheck) => c.ok ? (c.due ? 'tag-outline' : 'tag-neutral') : 'tag-accent';
-const isKo = (k: HabKey) => k === 'exp' || k === 'susp';
+/** Titre non valide : expiré, suspendu (prérequis ou décision de l'employeur) ou retiré. */
+const isKo = (k: HabKey) => k === 'exp' || k === 'susp' || k === 'retiree';
 
 export function Habilitations() {
   const { emps, d } = useEnriched();
@@ -32,7 +33,7 @@ export function Habilitations() {
       .sort((a, b) => ORDER[a.h.key] - ORDER[b.h.key] || (a.h.d ?? 1e9) - (b.h.d ?? 1e9) || a.e.nom.localeCompare(b.e.nom));
     return {
       types, rows,
-      kicker: `${plural(titres.length, 'titre en cours', 'titres en cours')} · ${titres.filter(x => x.h.key === 'due').length} à renouveler · ${titres.filter(x => isKo(x.h.key)).length} suspendus ou expirés · ${all.length - titres.length} en attente`,
+      kicker: `${plural(titres.length, 'titre en cours', 'titres en cours')} · ${titres.filter(x => x.h.key === 'due').length} à renouveler · ${titres.filter(x => isKo(x.h.key)).length} non valides · ${all.length - titres.length} en attente`,
     };
   }, [emps, d, ui.habFilter, ui.habType]);
 
@@ -41,7 +42,7 @@ export function Habilitations() {
   return (
     <Page kicker={v.kicker} title="Habilitations" actions={<>
       <Seg name="habFilter" label="Statut des habilitations" value={ui.habFilter} onChange={x => setUi({ habFilter: x })}
-        options={[['tous', 'Toutes'], ['due', 'À renouveler'], ['ko', 'Suspendues · expirées'], ['pending', 'En attente']]} />
+        options={[['tous', 'Toutes'], ['due', 'À renouveler'], ['ko', 'Non valides'], ['pending', 'En attente']]} />
       {rh && <Btn variant="primary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'hab', mode: 'new' })}>Délivrer une habilitation</Btn>}
     </>}>
       <div className="cards-grid">
@@ -50,7 +51,7 @@ export function Habilitations() {
           return (
             <PickCard key={t.hm.id} kicker={t.hm.detail} title={t.hm.nom} selected={selected}
               body={`Prérequis : ${[...t.hm.prereqs.map(f => d.fm(f).court), ...(t.hm.medical ? ['aptitude médicale'] : [])].join(' · ')} · validité ${validiteLabel(t.hm.validite)}`}
-              stats={[[t.titulaires, 'titulaires'], [t.due, 'à renouveler'], [t.ko, 'suspendues · expirées']]}
+              stats={[[t.titulaires, 'titulaires'], [t.due, 'à renouveler'], [t.ko, 'non valides']]}
               meta={<span>{t.pending ? plural(t.pending, 'demande en attente', 'demandes en attente') : `Signataire : ${t.hm.signataire}`}</span>}
               onClick={() => setUi({ habType: selected ? null : t.hm.id })} />
           );
@@ -69,6 +70,7 @@ export function Habilitations() {
             <tbody>
               {v.rows.map(({ e, h }) => {
                 const a = rh ? d.habAction(e.id, h) : null;
+                const mesures = rh ? d.habMesures(h, true) : [];
                 return (
                   <tr key={`${e.id}-${h.hm.id}`} className="clickable" onClick={() => go('collaborateurs', { selectedId: e.id })}>
                     <td><Two main={e.nom} sub={equipeLabel(e)} nowrap /></td>
@@ -76,8 +78,21 @@ export function Habilitations() {
                     <td><Two main={h.delivree ? fmt(parse(h.delivree)) : h.demande ? `Demandée le ${fmt(parse(h.demande))}` : '—'} sub={h.par ? `par ${h.par}` : 'titre à signer'} nowrap subNowrap /></td>
                     <td><Two main={h.exp ? fmt(h.exp) : '—'} sub={h.exp ? rel(h.d!) : `validité ${validiteLabel(h.hm.validite)}`} nowrap subNowrap /></td>
                     <td><Chips items={h.checks.map(c => ({ key: c.label, label: c.label, cls: prereqCls(c) }))} /></td>
-                    <td><Tag cls={HAB_CLS[h.key]}>{HAB_LABEL[h.key]}</Tag></td>
-                    <td className="right">{a && <button type="button" className="btn btn-ghost btn-sm" onClick={stop(() => runIntent(a.intent))}>{a.label}</button>}</td>
+                    <td>
+                      <Tag cls={HAB_CLS[h.key]}>{HAB_LABEL[h.key]}</Tag>
+                      {h.mesure && h.mesureLe && <div className="text-muted sub" style={{ marginTop: 'var(--space-1)' }}>le {fmt(h.mesureLe)} — {h.mesureMotif}</div>}
+                    </td>
+                    <td className="right">
+                      <div className="actions-end">
+                        {a && <button type="button" className="btn btn-ghost btn-sm" onClick={stop(() => runIntent(a.intent))}>{a.label}</button>}
+                        {rh && h.key === 'retiree' && (
+                          <button type="button" className="btn btn-ghost btn-sm" onClick={stop(() => openDialog({ type: 'hab', empId: e.id, h: h.h, mode: 'deliver' }))}>Nouvelle délivrance</button>
+                        )}
+                        {mesures.map(m => (
+                          <button key={m} type="button" className="btn btn-ghost btn-sm" onClick={stop(() => openDialog({ type: 'habMesure', empId: e.id, h: h.h, action: m }))}>{HAB_MESURE_LABEL[m]}</button>
+                        ))}
+                      </div>
+                    </td>
                   </tr>
                 );
               })}

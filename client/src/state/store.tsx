@@ -1,7 +1,7 @@
 // État global du client : session, instantané de données, navigation,
 // filtres d'écran, dialogue ouvert et notifications.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ALLOWED_VIEWS } from '../../../shared/constants.ts';
+import { ALLOWED_VIEWS, type HabMesureAction } from '../../../shared/constants.ts';
 import { mondayOf } from '../../../shared/dates.ts';
 import type { FormaliteKind, UiIntent } from '../../../shared/domain.ts';
 import type { Dataset, EntretienType, ISODate, PlanStatut, Role, VaccinId } from '../../../shared/types.ts';
@@ -39,6 +39,7 @@ export type DialogState =
   | { type: 'cert'; empId: number }
   | { type: 'session'; f?: string; planId?: number; places?: number }
   | { type: 'hab'; empId?: number | null; h?: string | null; mode: 'new' | 'deliver' | 'renew' }
+  | { type: 'habMesure'; empId: number; h: string; action: HabMesureAction }
   | { type: 'trip' }
   | { type: 'fo'; empId?: number | null; kind?: FormaliteKind; dest?: string; v?: VaccinId }
   | { type: 'reqForm'; f?: string; sessionId?: number | null; empId?: number | null }

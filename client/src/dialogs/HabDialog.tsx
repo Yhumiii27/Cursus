@@ -26,10 +26,15 @@ export function HabDialog({ empId: empId0, h: h0, mode }: { empId?: number | nul
     key: c.label, label: c.label, text: c.text,
     cls: c.ok ? (c.due ? 'tag-outline' : 'tag-neutral') : 'tag-accent', statut: c.ok ? (c.due ? 'À renouveler' : 'OK') : 'Manquant',
   }));
-  const hint = info.prereqOk
-    ? `Validité ${validiteLabel(hm.validite)}${valid ? ' — le titre expirera le ' + fmt(addMonths(parse(date), hm.validite)) : ''}.`
-    : `Délivrance impossible — ${info.failing.map(c => c.label).join(', ')}.`;
-  const cant = !info.prereqOk || !valid || !par.trim();
+  // Une suspension se lève d'abord ; après un retrait, la nouvelle délivrance est possible.
+  const titre = emp.habs.find(x => x.h === h && x.delivree);
+  const suspendu = titre?.mesure === 'suspension';
+  const hint = suspendu
+    ? `Titre suspendu le ${fmt(titre.mesureLe!)} — levez d’abord la suspension.`
+    : info.prereqOk
+      ? `Validité ${validiteLabel(hm.validite)}${valid ? ' — le titre expirera le ' + fmt(addMonths(parse(date), hm.validite)) : ''}.${titre?.mesure === 'retrait' ? ` Nouvelle délivrance après le retrait du ${fmt(titre.mesureLe!)}.` : ''}`
+      : `Délivrance impossible — ${info.failing.map(c => c.label).join(', ')}.`;
+  const cant = suspendu || !info.prereqOk || !valid || !par.trim();
   const empOptions = [...d.ds.employes].sort((a, b) => a.nom.localeCompare(b.nom));
 
   const changeH = (id: string) => {

@@ -97,6 +97,8 @@ input[type='date'].input { color-scheme: dark; }
 .center { text-align: center; }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .note-accent { font-size: 12px; color: var(--color-accent-300); }
+/* Cellule d'heures saisie un jour d'absence validée (feuilles de temps) : à vider avant soumission. */
+.input.alerte, .input.alerte:hover { border-color: var(--color-accent-400); color: var(--color-accent-300); background: color-mix(in srgb, var(--color-accent) 14%, var(--color-surface)); }
 .muted-70 { color: var(--text-70); }
 .text-n400 { color: var(--color-neutral-400); }
 .text-n300 { color: var(--color-neutral-300); }

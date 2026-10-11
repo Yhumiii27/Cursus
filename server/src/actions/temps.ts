@@ -1,7 +1,9 @@
 // Feuilles de temps : saisie, soumission, validation, transmission à Sage Paie.
 import { isValidDate, isoWeek, mondayOf } from '../../../shared/dates.ts';
 import { matricule, num, plural } from '../../../shared/format.ts';
-import { buildSagePayload, contratFige, sagePending, suggestLines } from '../../../shared/rules/temps.ts';
+import {
+  buildSagePayload, contratFige, demandesAbsence, demandesEnAttenteMessage, heuresSurAbsence, heuresSurAbsenceMessage, joursAbsence, natureAbsence, sagePending, suggestLines,
+} from '../../../shared/rules/temps.ts';
 import type { Employe, FeuilleTemps, LigneTemps } from '../../../shared/types.ts';
 import { pushToSage, SAGE_DOSSIER } from '../integrations/sage.ts';
 import { sendToKeystone } from '../integrations/keystone.ts';
@@ -36,8 +38,11 @@ const setCell: ActionHandler = (ctx, p) => {
   const { sh } = editable(ctx, p);
   const li = Number(p.li), di = Number(p.di);
   if (!sh.lignes[li] || !(di >= 0 && di < 5)) throw new ActionError('Cellule invalide');
-  const v = Math.max(0, Math.min(24, num(String(p.value ?? '').replace(/[^\d.,]/g, ''))));
-  const lignes = sh.lignes.map((l, i) => i === li ? { ...l, h: l.h.map((x, j) => j === di ? Math.round(v * 100) / 100 : x) } : l);
+  const v = Math.round(Math.max(0, Math.min(24, num(String(p.value ?? '').replace(/[^\d.,]/g, '')))) * 100) / 100;
+  // Aucune heure un jour d'absence validée ; vider la cellule reste toujours possible, pour corriger.
+  const abs = joursAbsence(ctx.d, sh.empId, sh.week)[di];
+  if (v > 0 && abs) throw new ActionError(`Absence validée ce jour-là (${natureAbsence(abs.type)}) : aucune heure ne peut être saisie`);
+  const lignes = sh.lignes.map((l, i) => i === li ? { ...l, h: l.h.map((x, j) => j === di ? v : x) } : l);
   saveLines(ctx, sh, lignes);
   return null;
 };
@@ -69,6 +74,8 @@ const submit: ActionHandler = (ctx, p) => {
   if (sh.statut === 'soumise') throw new ActionError('Feuille déjà soumise');
   const total = sh.lignes.reduce((n, l) => n + l.h.reduce((a, b) => a + num(b), 0), 0);
   if (!(total > 0)) throw new ActionError('Aucune heure saisie');
+  const surAbsence = heuresSurAbsence(ctx.d, sh);
+  if (surAbsence.length) throw new ActionError(heuresSurAbsenceMessage(surAbsence, 'avant de soumettre la feuille'));
   // Le régime de temps de travail de la semaine est figé à la soumission.
   ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'soumise', comment: null, contrat: sh.contrat ?? contratFige(emp) });
   return `Feuille de temps soumise à ${ctx.d.mgrName(ctx.d.mgrOf(emp))}`;
@@ -84,6 +91,11 @@ function submitted(ctx: Ctx, p: Record<string, any>) {
 
 const validate: ActionHandler = (ctx, p) => {
   const { emp, sh } = submitted(ctx, p);
+  const surAbsence = heuresSurAbsence(ctx.d, sh);
+  if (surAbsence.length) throw new ActionError(heuresSurAbsenceMessage(surAbsence, 'ou renvoyez la feuille avant de la valider'));
+  // Demande d'absence en attente sur ces heures : à décider d'abord (même valideur), sinon elle ne pourrait plus être validée.
+  const enAttente = heuresSurAbsence(ctx.d, sh, demandesAbsence(ctx.d));
+  if (enAttente.length) throw new ActionError(demandesEnAttenteMessage(enAttente));
   ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone: true, contrat: sh.contrat ?? contratFige(emp) });
   const projets: Record<string, number> = {};
   sh.lignes.forEach(l => { projets[l.projet] = (projets[l.projet] || 0) + l.h.reduce((a, b) => a + num(b), 0); });

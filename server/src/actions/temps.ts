@@ -1,7 +1,9 @@
 // Feuilles de temps : saisie, soumission, validation, transmission à Sage Paie.
 import { isValidDate, isoWeek, mondayOf } from '../../../shared/dates.ts';
 import { matricule, num, plural } from '../../../shared/format.ts';
-import { buildSagePayload, contratFige, heuresSurAbsence, heuresSurAbsenceMessage, joursAbsence, natureAbsence, sagePending, suggestLines } from '../../../shared/rules/temps.ts';
+import {
+  buildSagePayload, contratFige, demandesAbsence, demandesEnAttenteMessage, heuresSurAbsence, heuresSurAbsenceMessage, joursAbsence, natureAbsence, sagePending, suggestLines,
+} from '../../../shared/rules/temps.ts';
 import type { Employe, FeuilleTemps, LigneTemps } from '../../../shared/types.ts';
 import { pushToSage, SAGE_DOSSIER } from '../integrations/sage.ts';
 import { sendToKeystone } from '../integrations/keystone.ts';
@@ -91,6 +93,9 @@ const validate: ActionHandler = (ctx, p) => {
   const { emp, sh } = submitted(ctx, p);
   const surAbsence = heuresSurAbsence(ctx.d, sh);
   if (surAbsence.length) throw new ActionError(heuresSurAbsenceMessage(surAbsence, 'ou renvoyez la feuille avant de la valider'));
+  // Demande d'absence en attente sur ces heures : à décider d'abord (même valideur), sinon elle ne pourrait plus être validée.
+  const enAttente = heuresSurAbsence(ctx.d, sh, demandesAbsence(ctx.d));
+  if (enAttente.length) throw new ActionError(demandesEnAttenteMessage(enAttente));
   ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone: true, contrat: sh.contrat ?? contratFige(emp) });
   const projets: Record<string, number> = {};
   sh.lignes.forEach(l => { projets[l.projet] = (projets[l.projet] || 0) + l.h.reduce((a, b) => a + num(b), 0); });

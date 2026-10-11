@@ -98,11 +98,15 @@ export type AbsenceJour = Pick<Absence, 'empId' | 'type' | 'du' | 'au'>;
  * Absence validée (CP, RTT / repos, récupération) couvrant chaque jour de la semaine `w`, du lundi au
  * vendredi ; null les autres jours. Aucune heure ne peut être saisie ces jours-là (double paiement sinon).
  * Source unique pour la saisie, la proposition Keystone, la soumission, la validation et la grille.
- * `absences` remplace les absences validées pour contrôler une absence avant de la poser ou de la valider.
+ * `absences` remplace les absences validées pour contrôler une absence avant de la poser ou de la valider,
+ * ou pour repérer les demandes en attente (`demandesAbsence`).
  */
 export function joursAbsence(d: Domain, empId: number, w: ISODate, absences: AbsenceJour[] = d.ds.absences.filter(a => a.statut === 'validee')): (AbsenceJour | null)[] {
   return wDays(w).map(day => absences.find(a => a.empId === empId && a.du <= day && a.au >= day) ?? null);
 }
+
+/** Demandes d'absence en attente de décision : elles ne bloquent pas la saisie, mais la validation de la feuille. */
+export const demandesAbsence = (d: Domain): AbsenceJour[] => d.ds.absences.filter(a => a.statut === 'demandee');
 
 export interface HeuresSurAbsence { di: number; day: ISODate; absence: AbsenceJour }
 
@@ -132,6 +136,19 @@ export function joursAbsenceTexte(list: { day: ISODate; absence: AbsenceJour }[]
 /** Refus de soumission ou de validation : jours concernés et marche à suivre (`suite` : « avant de soumettre la feuille »…). */
 export function heuresSurAbsenceMessage(list: HeuresSurAbsence[], suite: string): string {
   return `Absence validée ${joursAbsenceTexte(list)} : retirez les heures saisies ${list.length > 1 ? 'ces jours-là' : 'ce jour-là'} ${suite}`;
+}
+
+/**
+ * Demande d'absence en attente sur des jours qui portent des heures : à décider avant de valider la feuille,
+ * car une feuille validée n'est plus modifiable et l'absence ne pourrait alors plus être validée.
+ * `valideur` : refus de validation et marche à suivre ; sinon, simple signalement dans la grille.
+ */
+export function demandesEnAttenteMessage(list: HeuresSurAbsence[], valideur = true): string {
+  const plus = new Set(list.map(x => x.absence)).size > 1, jours = list.length > 1 ? 'ces jours-là' : 'ce jour-là';
+  const debut = `${plus ? 'Demandes' : 'Demande'} d’absence en attente ${joursAbsenceTexte(list)}`;
+  return valideur
+    ? `${debut} : ${plus ? 'décidez-les' : 'décidez-la'} avant de valider la feuille — pour ${plus ? 'les ' : 'l’'}accepter, retirez d’abord les heures saisies ${jours}`
+    : `${debut} : des heures sont saisies ${jours}, à retirer si ${plus ? 'elles sont acceptées' : 'elle est acceptée'}`;
 }
 
 /** Lignes proposées à partir des tâches Keystone (fériés, absences validées et jours non travaillés à zéro). */

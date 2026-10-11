@@ -132,3 +132,48 @@ test('absence sur une feuille soumise ou validée : marche à suivre, feuille va
   assert.throws(() => run(MEHDI, 'absence.demander', { empId: 2, kind: 'CP', du: '2026-09-21', au: '2026-09-22' }), refus);
   assert.deepEqual(sheet('2026-09-21'), avant);
 });
+
+test('demande d’absence en attente sur des heures : décidée avant la validation de la feuille', () => {
+  const { run, domain, sheet } = fresh();
+  // Mehdi demande un CP le vendredi, reprend la proposition Keystone (7 h ce jour-là) et soumet : rien ne l'en empêche.
+  run(MEHDI, 'absence.demander', { empId: 2, kind: 'CP', du: '2026-10-16', au: '2026-10-16' });
+  run(MEHDI, 'temps.suggest', { empId: 2, week });
+  run(MEHDI, 'temps.submit', { empId: 2, week });
+  const a = domain().ds.absences.find(x => x.empId === 2 && x.du === '2026-10-16')!;
+  // Validée, la feuille ne serait plus modifiable et l'absence ne pourrait plus être validée.
+  assert.throws(() => run(KARIM, 'temps.validate', { empId: 2, week }),
+    /Demande d’absence en attente le ven\. 16 oct\. \(CP\) : décidez-la avant de valider la feuille — pour l’accepter, retirez d’abord les heures saisies ce jour-là/);
+  assert.equal(sheet().statut, 'soumise');
+  // Le valideur retire les heures, accepte l'absence, puis valide la feuille.
+  run(KARIM, 'temps.setCell', cell(1, 4, ''));
+  run(KARIM, 'absence.decider', { id: a.id, ok: true });
+  run(KARIM, 'temps.validate', { empId: 2, week });
+  assert.equal(domain().ds.absences.find(x => x.id === a.id)!.statut, 'validee');
+  assert.equal(sheet().statut, 'validee');
+  assert.deepEqual(sheet().lignes[1].h, [0, 0, 0, 8, 0]);
+});
+
+test('demande d’absence en attente : refusée, ou sans heure ces jours-là, la feuille se valide', () => {
+  const refusee = fresh();
+  refusee.run(MEHDI, 'absence.demander', { empId: 2, kind: 'RTT', du: '2026-10-15', au: '2026-10-16' });
+  refusee.run(MEHDI, 'temps.suggest', { empId: 2, week });
+  refusee.run(MEHDI, 'temps.submit', { empId: 2, week });
+  assert.throws(() => refusee.run(RH, 'temps.validate', { empId: 2, week }),
+    /Demande d’absence en attente les jeu\. 15 oct\. et ven\. 16 oct\. \(RTT\) : décidez-la avant de valider la feuille — pour l’accepter, retirez d’abord les heures saisies ces jours-là/);
+  const a = refusee.domain().ds.absences.find(x => x.empId === 2 && x.du === '2026-10-15')!;
+  refusee.run(KARIM, 'absence.decider', { id: a.id, ok: false });
+  refusee.run(KARIM, 'temps.validate', { empId: 2, week });
+  assert.equal(refusee.sheet().statut, 'validee');
+
+  // Heures déjà retirées du jour demandé : la feuille se valide, l'absence reste validable ensuite.
+  const { run, domain, sheet } = fresh();
+  run(MEHDI, 'absence.demander', { empId: 2, kind: 'CP', du: '2026-10-16', au: '2026-10-16' });
+  run(MEHDI, 'temps.suggest', { empId: 2, week });
+  run(MEHDI, 'temps.setCell', cell(1, 4, ''));
+  run(MEHDI, 'temps.submit', { empId: 2, week });
+  run(KARIM, 'temps.validate', { empId: 2, week });
+  assert.equal(sheet().statut, 'validee');
+  const b = domain().ds.absences.find(x => x.empId === 2 && x.du === '2026-10-16')!;
+  run(KARIM, 'absence.decider', { id: b.id, ok: true });
+  assert.equal(domain().ds.absences.find(x => x.id === b.id)!.statut, 'validee');
+});

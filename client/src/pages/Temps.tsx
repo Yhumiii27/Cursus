@@ -2,6 +2,7 @@
 // récapitulatif paie selon l'organisation du temps et transmission des variables à Sage Paie.
 // Une feuille soumise ou validée est décomptée avec le régime figé à la soumission (`FeuilleTemps.contrat`).
 // Aucune heure un jour d'absence validée : une cellule déjà remplie ce jour-là reste modifiable pour être vidée.
+// Une demande d'absence en attente sur des jours qui portent des heures est décidée avant la validation de la feuille.
 import { useState, type KeyboardEvent } from 'react';
 import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
 import { ABS_LABEL, TEMPS_TRAVAIL, TS_CLS, TS_LABEL } from '../../../shared/constants.ts';
@@ -9,8 +10,8 @@ import type { Domain } from '../../../shared/domain.ts';
 import { addD, isFerie, isoWeek, mondayOf, parse, wDays } from '../../../shared/dates.ts';
 import { cap, equipeLabel, fH, fJ, fmt, fmtShort, num, plural } from '../../../shared/format.ts';
 import {
-  calcSheet, cumulAnnuel, employeDeLaFeuille, heuresSurAbsence, heuresSurAbsenceMessage, joursAbsence, joursAbsenceTexte, natureAbsence, sagePending,
-  type SheetCalc,
+  calcSheet, cumulAnnuel, demandesAbsence, demandesEnAttenteMessage, employeDeLaFeuille, heuresSurAbsence, heuresSurAbsenceMessage, joursAbsence,
+  joursAbsenceTexte, natureAbsence, sagePending, type SheetCalc,
 } from '../../../shared/rules/temps.ts';
 import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
 import { CloseButton, Fine, Page, Panel, Pre, Tag, Two, stop } from '../components/ui.tsx';
@@ -244,13 +245,16 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const absences = joursAbsence(d, emp.id, wk);
   // Heures restées sur un jour d'absence validée : à retirer avant soumission et validation.
   const surAbsence = sh ? heuresSurAbsence(d, sh) : [];
+  // Demande d'absence en attente : saisie libre, mais à décider avant de valider une feuille qui porte des heures ces jours-là.
+  const demandes = demandesAbsence(d), demandeJours = joursAbsence(d, emp.id, wk, demandes);
+  const enAttente = sh ? heuresSurAbsence(d, sh, demandes) : [];
   const days = wdays.map((day, i) => {
-    const a = absences[i], off = c.jourOff.includes(i), fer = isFerie(day);
+    const a = absences[i], dem = demandeJours[i], off = c.jourOff.includes(i), fer = isFerie(day);
     const m = data.missions.find(x => x.empId === emp.id && x.du <= day && x.au >= day);
     return {
-      day, a, locked: fer || !!a, hl: (!!m && !fer && !a) || surAbsence.some(x => x.di === i),
+      day, a, locked: fer || !!a, hl: (!!m && !fer && !a) || [...surAbsence, ...enAttente].some(x => x.di === i),
       label: cap(parse(day).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })),
-      note: fer ? 'Férié' : a ? ABS_LABEL[a.type] : off ? 'Non travaillé' : m ? `Mission ${m.projet}` : '—',
+      note: fer ? 'Férié' : a ? ABS_LABEL[a.type] : dem ? `${cap(natureAbsence(dem.type))} demandé${dem.type === 'RECUP' ? 'e' : ''}` : off ? 'Non travaillé' : m ? `Mission ${m.projet}` : '—',
     };
   });
   const lignes = sh ? sh.lignes : [];
@@ -357,6 +361,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
               : `Absence validée ${joursAbsenceTexte(surAbsence)} : des heures y sont saisies${st === 'validee' ? ' — feuille validée, non modifiée rétroactivement' : ''}`}
           </div>
         )}
+        {enAttente.length > 0 && st !== 'validee' && <div className="note-accent">{demandesEnAttenteMessage(enAttente, canValidate)}</div>}
         {calc.warn.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
             {calc.warn.map(w => <div key={w} className="note-accent">{w}</div>)}
@@ -381,7 +386,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
             <textarea className="input short" rows={2} aria-label="Commentaire" placeholder="Commentaire en cas de renvoi (facultatif)" value={comment} onChange={ev => setComment(ev.target.value)} style={{ resize: 'vertical' }} />
             <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end' }}>
               <button type="button" className="btn btn-ghost" onClick={reject}>Renvoyer</button>
-              <button type="button" className="btn btn-primary" disabled={surAbsence.length > 0} onClick={() => run('temps.validate', base)}>Valider la semaine</button>
+              <button type="button" className="btn btn-primary" disabled={surAbsence.length + enAttente.length > 0} onClick={() => run('temps.validate', base)}>Valider la semaine</button>
             </div>
           </div>
         )}

@@ -87,13 +87,13 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `plan.importer` | texte, exercice, mode (`add`/`replace`) | RH |
 | `budget.enveloppes` | exercice, enveloppes {équipe: montant} | RH |
 | `plan.avancer` | id | RH |
-| `temps.setCell` | empId, week, li, di, value | salarié, manager direct ou RH (feuille soumise : valideur uniquement) |
+| `temps.setCell` | empId, week, li, di, value | salarié, manager direct ou RH (feuille soumise : valideur uniquement) ; aucune heure un jour d’absence validée, vider la cellule reste possible |
 | `temps.addLine` / `temps.removeLine` | empId, week, projet / li | idem |
-| `temps.suggest` / `temps.submit` | empId, week | idem (soumission : brouillon ou à corriger) |
-| `temps.validate` / `temps.reject` | empId, week, comment? | manager direct ou RH |
+| `temps.suggest` / `temps.submit` | empId, week | idem (soumission : brouillon ou à corriger, sans heures un jour d’absence validée) |
+| `temps.validate` / `temps.reject` | empId, week, comment? | manager direct ou RH (validation : sans heures un jour d’absence validée) |
 | `temps.pushSage` | — | RH |
-| `absence.demander` | empId, kind (`CP`/`RTT`/`RECUP`), du, au | intéressé ou RH (demande) ; manager direct (posée et validée) |
-| `absence.decider` | id, ok | manager direct ou RH |
+| `absence.demander` | empId, kind (`CP`/`RTT`/`RECUP`), du, au | intéressé ou RH (demande) ; manager direct (posée et validée, refusée si des heures sont saisies ces jours-là) |
+| `absence.decider` | id, ok | manager direct ou RH (validation refusée si des heures sont saisies ces jours-là) |
 | `cet.placer` | empId, kind, jours | intéressé ou RH |
 | `report.accorder` | empId, jours, motif | RH |
 | `entretien.planifier` | empId, kind, date | manager direct ou RH |

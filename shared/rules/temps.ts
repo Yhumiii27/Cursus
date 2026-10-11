@@ -1,8 +1,9 @@
 // Feuilles de temps : décompte des heures, majorations, variables de paie.
+import { ABS_LABEL } from '../constants.ts';
 import { isFerie, isoWeek, parse, wDays } from '../dates.ts';
 import { matricule, num, r1 } from '../format.ts';
 import type { Domain } from '../domain.ts';
-import type { ContratFige, Employe, FeuilleTemps, ISODate, LigneTemps, SagePush } from '../types.ts';
+import type { Absence, AbsenceType, ContratFige, Employe, FeuilleTemps, ISODate, LigneTemps, SagePush } from '../types.ts';
 
 /** Régime de temps de travail en vigueur d'une fiche, à figer sur une feuille soumise. */
 export function contratFige(e: Employe): ContratFige {
@@ -90,12 +91,55 @@ export function cumulAnnuel(d: Domain, e: Employe, year = d.year) {
   return { done, cible, prorata: cible * ecoule, depasse: done > cible, annee: year };
 }
 
-/** Lignes proposées à partir des tâches Keystone (fériés, absences et jours non travaillés à zéro). */
+/** Absence vue par la feuille de temps : une absence validée, ou sur le point de l'être. */
+export type AbsenceJour = Pick<Absence, 'empId' | 'type' | 'du' | 'au'>;
+
+/**
+ * Absence validée (CP, RTT / repos, récupération) couvrant chaque jour de la semaine `w`, du lundi au
+ * vendredi ; null les autres jours. Aucune heure ne peut être saisie ces jours-là (double paiement sinon).
+ * Source unique pour la saisie, la proposition Keystone, la soumission, la validation et la grille.
+ * `absences` remplace les absences validées pour contrôler une absence avant de la poser ou de la valider.
+ */
+export function joursAbsence(d: Domain, empId: number, w: ISODate, absences: AbsenceJour[] = d.ds.absences.filter(a => a.statut === 'validee')): (AbsenceJour | null)[] {
+  return wDays(w).map(day => absences.find(a => a.empId === empId && a.du <= day && a.au >= day) ?? null);
+}
+
+export interface HeuresSurAbsence { di: number; day: ISODate; absence: AbsenceJour }
+
+/** Jours d'absence de la feuille qui portent encore des heures, à retirer avant soumission et validation. */
+export function heuresSurAbsence(d: Domain, sh: Pick<FeuilleTemps, 'empId' | 'week' | 'lignes'>, absences?: AbsenceJour[]): HeuresSurAbsence[] {
+  const wd = wDays(sh.week);
+  return joursAbsence(d, sh.empId, sh.week, absences).flatMap((absence, di) =>
+    absence && sh.lignes.some(l => num(l.h[di]) > 0) ? [{ di, day: wd[di], absence }] : []);
+}
+
+/** Nature d'une absence dans un message : « CP », « RTT », « récupération ». */
+export const natureAbsence = (t: AbsenceType) => t === 'CP' || t === 'RTT' ? t : ABS_LABEL[t].toLowerCase();
+const jourCourt = (s: ISODate) => parse(s).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+const liste = (items: string[]) => items.length > 1 ? `les ${items.slice(0, -1).join(', ')} et ${items.at(-1)}` : `le ${items[0]}`;
+
+/** « le lun. 12 oct. », « les lun. 12 oct. et mar. 13 oct. ». */
+export const joursTexte = (days: ISODate[]) => liste(days.map(jourCourt));
+
+/** « le lun. 12 oct. (CP) », « les lun. 12 oct. et mar. 13 oct. (CP) », « les lun. 12 oct. (CP) et ven. 16 oct. (RTT) ». */
+export function joursAbsenceTexte(list: { day: ISODate; absence: AbsenceJour }[]): string {
+  const natures = [...new Set(list.map(x => natureAbsence(x.absence.type)))];
+  return natures.length === 1
+    ? `${joursTexte(list.map(x => x.day))} (${natures[0]})`
+    : liste(list.map(x => `${jourCourt(x.day)} (${natureAbsence(x.absence.type)})`));
+}
+
+/** Refus de soumission ou de validation : jours concernés et marche à suivre (`suite` : « avant de soumettre la feuille »…). */
+export function heuresSurAbsenceMessage(list: HeuresSurAbsence[], suite: string): string {
+  return `Absence validée ${joursAbsenceTexte(list)} : retirez les heures saisies ${list.length > 1 ? 'ces jours-là' : 'ce jour-là'} ${suite}`;
+}
+
+/** Lignes proposées à partir des tâches Keystone (fériés, absences validées et jours non travaillés à zéro). */
 export function suggestLines(d: Domain, e: Employe, w: ISODate): LigneTemps[] {
-  const wd = wDays(w), off = d.contratOf(e).jourOff;
+  const wd = wDays(w), off = d.contratOf(e).jourOff, abs = joursAbsence(d, e.id, w);
   return d.ds.taches.filter(t => t.empId === e.id).map(t => ({
     projet: t.projet, tache: t.tache, ks: true,
-    h: t.heures.map((v, i) => isFerie(wd[i]) || d.absOn(e.id, wd[i]) || off.includes(i) ? 0 : v),
+    h: t.heures.map((v, i) => isFerie(wd[i]) || abs[i] || off.includes(i) ? 0 : v),
   }));
 }
 

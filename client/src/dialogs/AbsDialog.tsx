@@ -29,8 +29,9 @@ export function AbsDialog({ empId }: { empId: number }) {
     );
   }
 
-  const chk = checkAbsence(d, emp, kind, du, au);
   const parManager = manager && emp.id !== me && d.mgrOf(emp) === me;
+  // Posée par le manager, l'absence est validée d'emblée : des heures saisies ces jours-là la bloquent.
+  const chk = checkAbsence(d, emp, kind, du, au, parManager);
 
   const pickDu = (v: string) => { setDu(v); if (!au || au < v) setAu(v); };
   const confirm = async () => {

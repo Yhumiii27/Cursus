@@ -2,7 +2,7 @@
 import { ABS_LABEL } from '../../../shared/constants.ts';
 import { cpPeriods } from '../../../shared/dates.ts';
 import { fJ, fmt, matricule } from '../../../shared/format.ts';
-import { cetInfo, checkAbsence, cpInfo } from '../../../shared/rules/conges.ts';
+import { cetInfo, checkAbsence, cpInfo, heuresAvantAbsence } from '../../../shared/rules/conges.ts';
 import { parse } from '../../../shared/dates.ts';
 import type { Absence, AbsenceType, CetMouvement, ReportCp } from '../../../shared/types.ts';
 import { sendToKeystone } from '../integrations/keystone.ts';
@@ -14,7 +14,7 @@ const demander: ActionHandler = (ctx, p) => {
   const parManager = isManagerOf(ctx, emp);
   if (!(isRh(ctx) || isSelf(ctx, emp.id) || parManager)) throw new ActionError('Vous ne pouvez poser une absence que pour vous-même ou votre équipe', 403);
   const kind = str(p.kind) as AbsenceType;
-  const chk = checkAbsence(ctx.d, emp, kind, p.du, p.au);
+  const chk = checkAbsence(ctx.d, emp, kind, p.du, p.au, parManager);
   if (chk.cant) throw new ActionError(chk.msgs.find(m => m.bad)?.text || 'Demande invalide');
   ctx.db.insert<Absence>('absences', { empId: emp.id, type: kind, du: p.du, au: p.au, statut: parManager ? 'validee' : 'demandee', keystone: parManager });
   if (parManager) {
@@ -30,6 +30,9 @@ const decider: ActionHandler = (ctx, p) => {
   const emp = getEmp(ctx, a.empId);
   if (!isValidatorOf(ctx, emp)) throw new ActionError('Décision réservée au manager du salarié ou au service RH', 403);
   const ok = !!p.ok;
+  // Pas de double paiement : les heures saisies ces jours-là doivent d'abord être retirées de la feuille de temps.
+  const heures = ok ? heuresAvantAbsence(ctx.d, a, 'avant de valider l’absence') : null;
+  if (heures) throw new ActionError(heures.text);
   ctx.db.update<Absence>('absences', a.id, { statut: ok ? 'validee' : 'refusee', keystone: ok });
   if (ok) sendToKeystone(ctx.db, { type: 'absence.validee', matricule: matricule(emp.id), du: a.du, au: a.au, nature: a.type });
   return ok ? `Absence de ${emp.nom} validée — transmise à Keystone pour la planification` : `Absence de ${emp.nom} refusée`;

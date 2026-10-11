@@ -1,13 +1,17 @@
 // Feuilles de temps : saisie hebdomadaire par projet, validation par le manager,
 // récapitulatif paie selon l'organisation du temps et transmission des variables à Sage Paie.
 // Une feuille soumise ou validée est décomptée avec le régime figé à la soumission (`FeuilleTemps.contrat`).
+// Aucune heure un jour d'absence validée : une cellule déjà remplie ce jour-là reste modifiable pour être vidée.
 import { useState, type KeyboardEvent } from 'react';
 import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
 import { ABS_LABEL, TEMPS_TRAVAIL, TS_CLS, TS_LABEL } from '../../../shared/constants.ts';
 import type { Domain } from '../../../shared/domain.ts';
 import { addD, isFerie, isoWeek, mondayOf, parse, wDays } from '../../../shared/dates.ts';
 import { cap, equipeLabel, fH, fJ, fmt, fmtShort, num, plural } from '../../../shared/format.ts';
-import { calcSheet, cumulAnnuel, employeDeLaFeuille, sagePending, type SheetCalc } from '../../../shared/rules/temps.ts';
+import {
+  calcSheet, cumulAnnuel, employeDeLaFeuille, heuresSurAbsence, heuresSurAbsenceMessage, joursAbsence, joursAbsenceTexte, natureAbsence, sagePending,
+  type SheetCalc,
+} from '../../../shared/rules/temps.ts';
 import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
 import { CloseButton, Fine, Page, Panel, Pre, Tag, Two, stop } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
@@ -18,8 +22,11 @@ const cellText = (v: number) => v ? String(v).replace('.', ',') : '';
 /** Même normalisation que le serveur (0 à 24 h, au centième). */
 const cellValue = (raw: string) => Math.round(Math.max(0, Math.min(24, num(raw))) * 100) / 100;
 
-/** Cellule d'heures : valeur locale, envoyée au serveur à la sortie du champ ou sur Entrée. */
-function HourCell({ value, disabled, onCommit }: { value: number; disabled: boolean; onCommit: (raw: string) => Promise<boolean> }) {
+/**
+ * Cellule d'heures : valeur locale, envoyée au serveur à la sortie du champ ou sur Entrée.
+ * `alert` : heures saisies un jour d'absence validée — cellule signalée, son texte en infobulle.
+ */
+function HourCell({ value, disabled, alert, onCommit }: { value: number; disabled: boolean; alert?: string; onCommit: (raw: string) => Promise<boolean> }) {
   const [text, setText] = useState(cellText(value));
   const [prev, setPrev] = useState(value);
   if (prev !== value) { setPrev(value); setText(cellText(value)); }
@@ -34,7 +41,8 @@ function HourCell({ value, disabled, onCommit }: { value: number; disabled: bool
 
   return (
     <input
-      className="input tnum" type="text" inputMode="decimal" aria-label="Heures" value={text} disabled={disabled}
+      className={alert ? 'input tnum alerte' : 'input tnum'} type="text" inputMode="decimal" aria-label="Heures" value={text} disabled={disabled}
+      title={alert} aria-invalid={alert ? true : undefined}
       onChange={ev => setText(ev.target.value.replace(/[^\d.,]/g, '').slice(0, 5))} onBlur={commit} onKeyDown={onKey}
       style={{ width: 56, textAlign: 'right', padding: '0 var(--space-3)' }}
     />
@@ -233,11 +241,14 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const submitLabel = isValidator ? 'Soumettre pour validation' : validator ? 'Soumettre au manager' : 'Soumettre au service RH';
   const base = { empId: emp.id, week: wk };
 
+  const absences = joursAbsence(d, emp.id, wk);
+  // Heures restées sur un jour d'absence validée : à retirer avant soumission et validation.
+  const surAbsence = sh ? heuresSurAbsence(d, sh) : [];
   const days = wdays.map((day, i) => {
-    const a = d.absOn(emp.id, day), off = c.jourOff.includes(i), fer = isFerie(day);
+    const a = absences[i], off = c.jourOff.includes(i), fer = isFerie(day);
     const m = data.missions.find(x => x.empId === emp.id && x.du <= day && x.au >= day);
     return {
-      day, locked: fer || !!a, hl: !!m && !fer && !a,
+      day, a, locked: fer || !!a, hl: (!!m && !fer && !a) || surAbsence.some(x => x.di === i),
       label: cap(parse(day).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })),
       note: fer ? 'Férié' : a ? ABS_LABEL[a.type] : off ? 'Non travaillé' : m ? `Mission ${m.projet}` : '—',
     };
@@ -300,12 +311,17 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
                     <div><span style={{ color: 'var(--color-accent-300)' }}>{l.projet}</span> · {d.projet(l.projet)}</div>
                     <div className="text-muted sub">{l.tache}</div>
                   </td>
-                  {l.h.map((v, di) => (
-                    <td key={di} className="center">
-                      <HourCell value={num(v)} disabled={!editable || days[di].locked}
-                        onCommit={async raw => (await run('temps.setCell', { ...base, li, di, value: raw }, { silent: true })).ok} />
-                    </td>
-                  ))}
+                  {l.h.map((v, di) => {
+                    // Une cellule remplie un jour d'absence reste modifiable, pour la vider ; vide, elle reste verrouillée.
+                    const a = days[di].a, alerte = !!a && num(v) > 0;
+                    return (
+                      <td key={di} className="center">
+                        <HourCell value={num(v)} disabled={!editable || (days[di].locked && !alerte)}
+                          alert={alerte ? `Absence validée ce jour-là (${natureAbsence(a.type)}) : ${editable ? 'videz la cellule' : 'aucune heure ne devrait être saisie'}` : undefined}
+                          onCommit={async raw => (await run('temps.setCell', { ...base, li, di, value: raw }, { silent: true })).ok} />
+                      </td>
+                    );
+                  })}
                   <td className="right nowrap tnum">{fH(l.h.reduce((n, v) => n + num(v), 0))}</td>
                   <td className="right">{editable && <CloseButton size={28} label="Supprimer la ligne" onClick={() => run('temps.removeLine', { ...base, li })} />}</td>
                 </tr>
@@ -331,7 +347,14 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
             {canSuggest && <button type="button" className="btn btn-secondary" onClick={() => run('temps.suggest', base)}>Proposer depuis Keystone</button>}
             {correction
               ? <span className="text-muted sub" style={{ marginLeft: 'auto' }}>Correction avant validation : la feuille reste soumise</span>
-              : <button type="button" className="btn btn-primary" style={{ marginLeft: 'auto' }} disabled={!(calc.total > 0)} onClick={() => run('temps.submit', base)}>{submitLabel}</button>}
+              : <button type="button" className="btn btn-primary" style={{ marginLeft: 'auto' }} disabled={!(calc.total > 0) || surAbsence.length > 0} onClick={() => run('temps.submit', base)}>{submitLabel}</button>}
+          </div>
+        )}
+        {surAbsence.length > 0 && (
+          <div className="note-accent">
+            {editable
+              ? heuresSurAbsenceMessage(surAbsence, correction ? 'ou renvoyez la feuille avant de la valider' : 'avant de soumettre la feuille')
+              : `Absence validée ${joursAbsenceTexte(surAbsence)} : des heures y sont saisies${st === 'validee' ? ' — feuille validée, non modifiée rétroactivement' : ''}`}
           </div>
         )}
         {calc.warn.length > 0 && (
@@ -358,7 +381,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
             <textarea className="input short" rows={2} aria-label="Commentaire" placeholder="Commentaire en cas de renvoi (facultatif)" value={comment} onChange={ev => setComment(ev.target.value)} style={{ resize: 'vertical' }} />
             <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end' }}>
               <button type="button" className="btn btn-ghost" onClick={reject}>Renvoyer</button>
-              <button type="button" className="btn btn-primary" onClick={() => run('temps.validate', base)}>Valider la semaine</button>
+              <button type="button" className="btn btn-primary" disabled={surAbsence.length > 0} onClick={() => run('temps.validate', base)}>Valider la semaine</button>
             </div>
           </div>
         )}

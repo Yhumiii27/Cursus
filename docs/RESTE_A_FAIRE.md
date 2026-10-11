@@ -2,7 +2,7 @@
 
 Audit du 10 octobre 2026 (branche `main-n9x7ps`). Chaque point a été relevé dans le code puis contre-vérifié par une seconde lecture qui a écarté ce qui était déjà fait ou inexact. Les preuves renvoient aux fichiers et lignes à cette date.
 
-**179 tâches** : 26 bloquantes pour une mise en production, 98 importantes, 55 souhaitables.
+**179 tâches** (9 faites au 11 octobre 2026 ; suivi à jour : https://claude.ai/artifact/8Dn4CRz3fcHgew8RzbNGEc) : 26 bloquantes pour une mise en production, 98 importantes, 55 souhaitables.
 
 Légende — priorité : 🔴 **Bloquant** (empêche un usage réel : sécurité, données faussées, obligation légale) · 🟠 **Important** (attendu par les utilisateurs) · 🟢 **Souhaitable** (confort). Effort : **S** moins d’une journée · **M** 1 à 3 jours · **L** plus de 3 jours.
 
@@ -26,10 +26,10 @@ Légende — priorité : 🔴 **Bloquant** (empêche un usage réel : sécurité
 
 Les tâches 🔴, toutes thématiques confondues :
 
-- [ ] Rendre la démo opt-in et contrôler la configuration au démarrage — *Mise en production & sécurité, effort S*
-- [ ] Supprimer la clé Keystone par défaut « demo-keystone » — *Mise en production & sécurité, effort S*
-- [ ] Placer Cursus derrière HTTPS et ajouter les en-têtes de sécurité — *Mise en production & sécurité, effort S*
-- [ ] Faire expirer et révoquer les sessions — *Mise en production & sécurité, effort M*
+- [x] Rendre la démo opt-in et contrôler la configuration au démarrage — *Mise en production & sécurité, effort S*
+- [x] Supprimer la clé Keystone par défaut « demo-keystone » — *Mise en production & sécurité, effort S*
+- [x] Placer Cursus derrière HTTPS et ajouter les en-têtes de sécurité — *Mise en production & sécurité, effort S*
+- [x] Faire expirer et révoquer les sessions — *Mise en production & sécurité, effort M*
 - [ ] Brancher l'authentification unique de l'entreprise (OIDC/SAML) — *Mise en production & sécurité, effort L*
 - [ ] Créer des comptes nominatifs reliés aux salariés — *Mise en production & sécurité, effort L*
 - [ ] Coder l'envoi réel à Sage Paie et ne marquer « transmis » qu'après accusé — *Intégrations (Keystone, Sage, e-mails), effort M*
@@ -40,31 +40,31 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] Créer une file d'envoi persistante avec reprise sur échec et écran de suivi — *Intégrations (Keystone, Sage, e-mails), effort L*
 - [ ] Choisir entre paiement et repos des heures supplémentaires — *Conformité droit du travail : temps et congés, effort M*
 - [ ] Ajouter les absences hors congés (maladie, AT/MP, maternité, événements familiaux…) — *Conformité droit du travail : temps et congés, effort L*
-- [ ] Permettre de retirer ou suspendre manuellement une habilitation — *Conformité : santé, sécurité et obligations employeur, effort S*
+- [x] Permettre de retirer ou suspendre manuellement une habilitation — *Conformité : santé, sécurité et obligations employeur, effort S*
 - [ ] Définir les formations et habilitations exigées par poste — *Conformité : santé, sécurité et obligations employeur, effort L*
-- [ ] Ne retenir que la dernière certification après un renouvellement — *Bugs à corriger (calculs et données), effort M*
-- [ ] N'appliquer un document déclaré par le salarié qu'après validation RH — *Bugs à corriger (calculs et données), effort M*
+- [x] Ne retenir que la dernière certification après un renouvellement — *Bugs à corriger (calculs et données), effort M*
+- [x] N'appliquer un document déclaré par le salarié qu'après validation RH — *Bugs à corriger (calculs et données), effort M*
 - [ ] Rattacher soldes repris et reports de CP à une période — *Bugs à corriger (calculs et données), effort M*
-- [ ] Refuser les heures saisies sur un jour d'absence validée — *Bugs à corriger (calculs et données), effort M*
+- [x] Refuser les heures saisies sur un jour d'absence validée — *Bugs à corriger (calculs et données), effort M*
 - [ ] Historiser les régimes de temps et contrats avec leur date d'effet — *Bugs à corriger (calculs et données), effort L*
 - [ ] Clôturer les sessions passées : présence, résultats et recyclages — *Fonctions métier : formations, habilitations, sessions, effort L*
 - [ ] Permettre au RH d'administrer formations, habilitations et destinations — *Fonctions métier : formations, habilitations, sessions, effort L*
 - [ ] Outiller la mise en service : import des salariés, soldes d'ouverture et titres — *Fonctions métier : collaborateurs, temps, absences, déplacements, effort L*
 - [ ] Gérer la sortie d'un collaborateur — *Fonctions métier : collaborateurs, temps, absences, déplacements, effort L*
-- [ ] Mettre en place sauvegarde, rotation et restauration testée — *Exploitation, effort M*
+- [x] Mettre en place sauvegarde, rotation et restauration testée — *Exploitation, effort M*
 
 ## Mise en production & sécurité
 
-- [ ] **Rendre la démo opt-in et contrôler la configuration au démarrage** — 🔴 Bloquant · S
+- [x] **Rendre la démo opt-in et contrôler la configuration au démarrage** — 🔴 Bloquant · S
   La démo est active par défaut : tout poste du réseau obtient l'espace RH sans mot de passe et peut tout effacer. Activer la démo seulement avec CURSUS_DEMO=1 et refuser de démarrer en production si la démo est active, si CURSUS_SECRET ou KEYSTONE_API_KEY manquent ou si CURSUS_TODAY est défini. Ajouter le fichier .env.example.
   <br><sub>Preuves : server/src/auth.ts:18 (DEMO actif sauf CURSUS_DEMO=0) · server/src/index.ts:56 (session RH d'office) et :168 (écoute 0.0.0.0) · curl /api/session en NODE_ENV=production → cookie RH, /api/data → 200 · ls .env.example → absent</sub>
-- [ ] **Supprimer la clé Keystone par défaut « demo-keystone »** — 🔴 Bloquant · S
+- [x] **Supprimer la clé Keystone par défaut « demo-keystone »** — 🔴 Bloquant · S
   Sans configuration, les routes Keystone acceptent une clé publiée dans le README : n'importe qui peut lire les Go / No Go et injecter des demandes. Désactiver ces routes si la clé n'est pas définie et comparer la clé en temps constant (timingSafeEqual).
   <br><sub>Preuves : server/src/integrations/keystone.ts:24 · README.md:73 · server/src/index.ts:131-133 (comparaison !==) · curl -H 'x-api-key: demo-keystone' → authentification acceptée</sub>
-- [ ] **Placer Cursus derrière HTTPS et ajouter les en-têtes de sécurité** — 🔴 Bloquant · S
+- [x] **Placer Cursus derrière HTTPS et ajouter les en-têtes de sécurité** — 🔴 Bloquant · S
   En production le cookie est marqué Secure, donc refusé en HTTP sur le réseau local, et aucune protection (CSP, HSTS, anti-iframe) n'est envoyée. Fournir et documenter un reverse proxy TLS avec Cursus sur 127.0.0.1, puis ajouter les en-têtes de sécurité (adapter le script inline de l'impression).
   <br><sub>Preuves : server/src/index.ts:169 (HTTP seul) et :26 (seul x-powered-by désactivé) · server/src/auth.ts:60 (Secure en production) · client/src/print.ts:33 (script inline) · grep helmet\|Strict-Transport → aucun résultat</sub>
-- [ ] **Faire expirer et révoquer les sessions** — 🔴 Bloquant · M
+- [x] **Faire expirer et révoquer les sessions** — 🔴 Bloquant · M
   Le cookie signé n'a pas de date d'expiration : copié, il reste valable indéfiniment, même après déconnexion ou départ du salarié. Ajouter date d'émission et d'expiration signées, une table de sessions révocables, un refus si la date de sortie est passée et un CURSUS_SECRET obligatoire en production.
   <br><sub>Preuves : server/src/auth.ts:39-52 et :59-61 (aucune expiration) · server/src/dataset.ts:86-89 (e.fin non vérifié) · cookie RH rejoué après POST /api/logout → 200</sub>
 - [ ] **Brancher l'authentification unique de l'entreprise (OIDC/SAML)** — 🔴 Bloquant · L
@@ -226,7 +226,7 @@ Les tâches 🔴, toutes thématiques confondues :
 
 ## Conformité : santé, sécurité et obligations employeur
 
-- [ ] **Permettre de retirer ou suspendre manuellement une habilitation** — 🔴 Bloquant · S
+- [x] **Permettre de retirer ou suspendre manuellement une habilitation** — 🔴 Bloquant · S
   On peut délivrer ou renouveler une habilitation, jamais la retirer après un incident ou une restriction médicale ; Keystone reçoit alors toujours « Go ». Ajouter retrait et suspension (motif, date, auteur, journal) pris en compte par le statut et le Go / No Go.
   <br><sub>Preuves : server/src/actions/conformite.ts:49-64, :171 (seul hab.delivrer) · shared/constants.ts:14 · shared/domain.ts:222</sub>
 - [ ] **Définir les formations et habilitations exigées par poste** — 🔴 Bloquant · L
@@ -277,16 +277,16 @@ Les tâches 🔴, toutes thématiques confondues :
 
 ## Bugs à corriger (calculs et données)
 
-- [ ] **Ne retenir que la dernière certification après un renouvellement** — 🔴 Bloquant · M
+- [x] **Ne retenir que la dernière certification après un renouvellement** — 🔴 Bloquant · M
   Après un recyclage enregistré, l'ancienne certification expirée continue de compter : le salarié reste « Non conforme », l'échéance expirée reste affichée et les compteurs doublent. Ne retenir que la plus récente par formation dans le statut, les échéances, les KPI et la fiche, en gardant les anciennes comme historique.
   <br><sub>Preuves : server/src/actions/conformite.ts:32 (insert sans clôture) · shared/domain.ts:252-257 et :364 · client/src/pages/Formations.tsx:49 vs :63 · script : cert.ajouter {empId:2, f:'elec', date:'2026-10-06'} → worst='exp'</sub>
-- [ ] **N'appliquer un document déclaré par le salarié qu'après validation RH** — 🔴 Bloquant · M
+- [x] **N'appliquer un document déclaré par le salarié qu'après validation RH** — 🔴 Bloquant · M
   Passeport, visa ou vaccin déclaré par le salarié est écrit tout de suite ; si le RH refuse, la donnée reste et compte dans le Go / No Go, et l'ancienne valeur est perdue. Garder la déclaration dans la demande, l'afficher au RH et ne l'appliquer qu'à la validation.
   <br><sub>Preuves : server/src/actions/voyages.ts:30, :37-38, :44-45, :49-51 · server/src/actions/conformite.ts:115-121 (refus = statut seul) · client/src/pages/Dashboard.tsx:107 · reproduit : passeport FAUX123 refusé reste en base</sub>
 - [ ] **Rattacher soldes repris et reports de CP à une période** — 🔴 Bloquant · M
   Les compteurs repris sont déduits à vie (RTT faux dès le 1er janvier 2027, CP dès le 1er juin 2027), les reports reçus ne s'éteignent jamais et les reports accordés disparaissent à la bascule. Ajouter une période, plafonner les reports et créer une clôture tracée qui convertit et fait expirer les reports.
   <br><sub>Preuves : shared/types.ts:107-109 · shared/rules/conges.ts:30-32, :44, :81 · server/src/actions/absences.ts:55-56 · script au 2027-02-01 : Mehdi rtt pris=16 sans RTT posé</sub>
-- [ ] **Refuser les heures saisies sur un jour d'absence validée** — 🔴 Bloquant · M
+- [x] **Refuser les heures saisies sur un jour d'absence validée** — 🔴 Bloquant · M
   Une feuille peut contenir des heures un jour de CP validé, d'où un double paiement ; et la cellule déjà remplie devient verrouillée sans correction possible. Contrôler à la soumission, à la validation et à la pose d'absence, et laisser corriger une cellule remplie.
   <br><sub>Preuves : server/src/actions/temps.ts:67-75, :85-92 · shared/rules/conges.ts:128 · client/src/pages/Temps.tsx:240, :305</sub>
 - [ ] **Historiser les régimes de temps et contrats avec leur date d'effet** — 🔴 Bloquant · L
@@ -583,7 +583,7 @@ Les tâches 🔴, toutes thématiques confondues :
 
 ## Exploitation
 
-- [ ] **Mettre en place sauvegarde, rotation et restauration testée** — 🔴 Bloquant · M
+- [x] **Mettre en place sauvegarde, rotation et restauration testée** — 🔴 Bloquant · M
   Toutes les données RH tiennent dans un fichier SQLite sans aucune sauvegarde. Ajouter npm run backup (VACUUM INTO) planifié avec rotation, une sauvegarde avant migration et réinitialisation, et un script de restauration testé.
   <br><sub>Preuves : grep backup\|VACUUM → aucun résultat · server/src/db.ts:79 (WAL) · server/src/seed.ts:291 (clearAll)</sub>
 - [ ] **Protéger npm run reset-demo contre l'effacement d'une base réelle** — 🟠 Important · S

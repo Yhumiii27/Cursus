@@ -130,6 +130,9 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     ...full,
     referentiels: { ...full.referentiels, chantiers: [] },
     employes,
+    // Le bilan d'une session (évaluation à chaud, motif d'annulation : textes libres, parfois nominatifs)
+    // est réservé au service RH.
+    sessions: full.sessions.map(s => s.bilan ? { ...s, bilan: null } : s),
     plan: [],
     budgets: {},
     voyages,

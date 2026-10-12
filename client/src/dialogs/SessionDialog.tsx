@@ -1,10 +1,11 @@
 // Nouvelle session de formation (éventuellement depuis une action du plan), ou modification d'une session ouverte.
-// Date postérieure à aujourd'hui, nombre entier de places (au moins le nombre d'inscrits) : contrôlés aussi par le serveur.
+// Date postérieure à aujourd'hui (une session passée, à clôturer, se redate au jour où elle a eu lieu), nombre
+// entier de places (au moins le nombre d'inscrits) : contrôlés aussi par le serveur.
 import { useState } from 'react';
 import { PLAN_LABEL } from '../../../shared/constants.ts';
 import { addD, parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
-import { controleSession, inscritsDe } from '../../../shared/rules/sessions.ts';
+import { controleSession, inscritsDe, sessionPassee } from '../../../shared/rules/sessions.ts';
 import { CancelButton, Dialog, Field, Static } from '../components/Dialog.tsx';
 import { Fine } from '../components/ui.tsx';
 import { useEnriched } from '../state/derived.ts';
@@ -28,7 +29,11 @@ export function SessionDialog({ f: f0, planId, places: places0, sessionId }: { f
   const err = controleSession(d.ti, { date, lieu, places }, s ? { dateActuelle: s.date, inscrits: s.inscrits } : {});
   // Les manques (date, lieu) se voient au bouton désactivé ; l'erreur s'affiche une fois les trois champs remplis.
   const shownErr = date && lieu.trim() && places.trim() ? err : null;
-  const moved = !!s && (date !== s.date || lieu.trim() !== s.lieu);
+  const passee = !!s && sessionPassee(d.ti, s.date);
+  // Session à venir : convocations à renvoyer, nouvelle date à faire confirmer (comme le serveur).
+  const aVenir = !!date && date >= d.ti;
+  const moved = !!s && aVenir && (date !== s.date || lieu.trim() !== s.lieu);
+  const reconfirmer = !!s && aVenir && date !== s.date && s.statut === 'Confirmée';
   const convoquees = s ? inscritsDe(d, s).filter(i => i.convoc === 'now').length : 0;
 
   const confirm = async () => {
@@ -62,7 +67,7 @@ export function SessionDialog({ f: f0, planId, places: places0, sessionId }: { f
         )}
       {plan && <Fine>Action du plan {plan.exercice} · {plan.equipe} · {plan.periode} · {PLAN_LABEL[plan.statut].toLowerCase()} : elle passera « engagée ».</Fine>}
       <div className="grid-2">
-        <Field label="Date" htmlFor="sess-date"><input className="input" id="sess-date" type="date" min={addD(d.ti, 1)} value={date} onChange={e => setDate(e.target.value)} /></Field>
+        <Field label="Date" htmlFor="sess-date"><input className="input" id="sess-date" type="date" min={passee ? undefined : addD(d.ti, 1)} value={date} onChange={e => setDate(e.target.value)} /></Field>
         <Field label="Places" htmlFor="sess-places">
           <input className="input" id="sess-places" type="number" min={Math.max(1, s?.inscrits ?? 1)} max={60} step={1} value={places} onChange={e => setPlaces(e.target.value)} />
         </Field>
@@ -72,7 +77,9 @@ export function SessionDialog({ f: f0, planId, places: places0, sessionId }: { f
       {s ? (
         <Fine>
           {plural(s.inscrits, 'inscrit', 'inscrits')} · session du {fmt(parse(s.date))}.
+          {passee ? ' Session passée : corrigez sa date si elle a eu lieu un autre jour, la clôture date les certifications du jour de la session.' : ''}
           {moved && convoquees > 0 ? ` La nouvelle date ou le nouveau lieu rend caduques ${plural(convoquees, 'convocation envoyée', 'convocations envoyées')} : elles repasseront « à envoyer ».` : ''}
+          {reconfirmer ? ` La session repassera « à confirmer » : faites confirmer la nouvelle date par ${fm?.organisme ?? 'l’organisme'}.` : ''}
         </Fine>
       ) : (
         <p className="text-muted fine">

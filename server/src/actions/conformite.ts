@@ -11,9 +11,20 @@ import { ActionError, enriched, getEmp, isManagerOf, isRh, requireRh, str, type 
 import { appliquerFormalite, retirerFormalite } from './voyages.ts';
 
 /**
+ * Inscrit d'une session passée, pas encore clôturée : seule la clôture (service RH) l'en sort, avec sa présence
+ * et son résultat. Le déplacer avant la clôture effacerait sa participation.
+ */
+function attendCloture(ctx: Ctx, sessionId: number | null) {
+  const s = ctx.d.session(sessionId);
+  if (s && sessionActive(s) && s.date < ctx.d.ti) {
+    throw new ActionError(`Session du ${fmt(parse(s.date))} passée : ${isRh(ctx) ? 'clôturez-la d’abord' : 'le service RH la clôture d’abord'} (présence, résultat)`);
+  }
+}
+
+/**
  * Inscription à une session : recyclage d'une certification détenue (`certId`), ou formation initiale
  * à replanifier (`inscriptionId` : session annulée, absent, évaluation échouée). Le nombre d'inscrits est
- * calculé : changer de session libère la place de l'ancienne.
+ * calculé : changer de session libère la place de l'ancienne, sauf d'une session passée à clôturer.
  */
 const inscrire: ActionHandler = (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
@@ -28,6 +39,7 @@ const inscrire: ActionHandler = (ctx, p) => {
   if (cert && certEnVigueur(emp.certs, cert.f) !== cert) throw new ActionError('Certification remplacée par un recyclage : planifiez la certification en vigueur');
   if (!sessionActive(sess)) throw new ActionError(`Session ${sess.statut === 'Annulée' ? 'annulée' : 'clôturée'}`);
   if (sess.date < ctx.d.ti) throw new ActionError('Session déjà passée');
+  attendCloture(ctx, (cert ?? insc)!.sessionId);
   if ((cert ?? insc)!.sessionId === sess.id || (insc && ctx.ds.inscriptions.some(i => i.empId === emp.id && i.sessionId === sess.id))) {
     return `${emp.nom} est déjà inscrit à cette session`;
   }
@@ -102,16 +114,20 @@ const accepterDemande: ActionHandler = (ctx, p) => {
       : undefined;
     if (sess) {
       const cert = certEnVigueur(emp.certs, r.f!);
-      // Le nombre d'inscrits est calculé : rattacher à la session libère l'éventuelle place d'une autre.
+      // Le nombre d'inscrits est calculé : rattacher à la session libère l'éventuelle place d'une autre
+      // (une session passée, à clôturer, garde ses inscrits jusqu'à la clôture).
       if (cert) {
         // Recyclage : la certification en vigueur est rattachée à la session.
+        if (cert.sessionId !== sess.id) attendCloture(ctx, cert.sessionId);
         ctx.db.update<Certification>('certifications', cert.id, { sessionId: sess.id, convoc: 'now' });
       } else if (!ctx.ds.inscriptions.some(i => i.empId === emp.id && i.sessionId === sess.id)) {
         // Formation initiale : inscription suivie jusqu'à l'obtention de la certification. Une inscription de la
         // même formation (autre session, ou à replanifier) est déplacée plutôt que doublée.
         const existante = ctx.ds.inscriptions.find(i => i.empId === emp.id && ctx.d.session(i.sessionId)?.formation === r.f);
-        if (existante) ctx.db.update<Inscription>('inscriptions', existante.id, { sessionId: sess.id, convoc: 'now', date: ctx.d.ti });
-        else ctx.db.insert<Inscription>('inscriptions', { empId: emp.id, sessionId: sess.id, convoc: 'now', date: ctx.d.ti });
+        if (existante) {
+          attendCloture(ctx, existante.sessionId);
+          ctx.db.update<Inscription>('inscriptions', existante.id, { sessionId: sess.id, convoc: 'now', date: ctx.d.ti });
+        } else ctx.db.insert<Inscription>('inscriptions', { empId: emp.id, sessionId: sess.id, convoc: 'now', date: ctx.d.ti });
       }
       done(`Inscrit à la session du ${fmt(parse(sess.date))} — convocation envoyée`);
       return `${emp.nom} inscrit à la session du ${fmt(parse(sess.date))}`;

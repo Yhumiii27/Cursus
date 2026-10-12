@@ -17,7 +17,7 @@ export function ClotureDialog({ sessionId }: { sessionId: number }) {
   const { run, closeDialog } = useStore();
   const s = d.session(sessionId);
   const inscrits = useMemo(() => s ? inscritsDe(d, s) : [], [d, s]);
-  // Présent par défaut ; le résultat de l'évaluation se choisit toujours explicitement.
+  // La clôture est définitive : présence et résultat de l'évaluation se choisissent toujours explicitement.
   const [presence, setPresence] = useState<Record<number, 'p' | 'a'>>({});
   const [resultat, setResultat] = useState<Record<number, 'ok' | 'ko'>>({});
   const [note, setNote] = useState('');
@@ -33,11 +33,12 @@ export function ClotureDialog({ sessionId }: { sessionId: number }) {
     );
   }
   const evaluation = exigeEvaluation(fm);
-  const present = (id: number) => (presence[id] ?? 'p') === 'p';
+  const present = (id: number) => presence[id] === 'p';
   const decider = inscrits.filter(i => !i.dejaObtenue);
+  const sansPresence = decider.filter(i => !presence[i.empId]);
   const manquants = evaluation ? decider.filter(i => present(i.empId) && !resultat[i.empId]) : [];
   const obtenues = decider.filter(i => present(i.empId) && (!evaluation || resultat[i.empId] === 'ok')).length;
-  const aReplanifier = decider.filter(i => !present(i.empId) || (evaluation && resultat[i.empId] === 'ko')).length;
+  const aReplanifier = decider.filter(i => presence[i.empId] === 'a' || (evaluation && present(i.empId) && resultat[i.empId] === 'ko')).length;
   // L'action du plan passe « réalisée » si aucune autre session ouverte ne la porte.
   const plan = s.planId ? d.ds.plan.find(l => l.id === s.planId && l.statut !== 'realise') : undefined;
   const realise = !!plan && !d.ds.sessions.some(x => x.id !== s.id && x.planId === s.planId && sessionActive(x));
@@ -58,7 +59,7 @@ export function ClotureDialog({ sessionId }: { sessionId: number }) {
   return (
     <Dialog title="Clôturer la session" width={640} tall actions={<>
       <CancelButton />
-      <button type="button" className="btn btn-primary" disabled={manquants.length > 0 || busy} onClick={confirm}>Clôturer la session</button>
+      <button type="button" className="btn btn-primary" disabled={sansPresence.length > 0 || manquants.length > 0 || busy} onClick={confirm}>Clôturer la session</button>
     </>}>
       <div className="grid-2">
         <Field label="Session"><Static>{fm?.nom ?? s.formation}<div className="text-muted sub">{quand} · {s.lieu}</div></Static></Field>
@@ -77,7 +78,7 @@ export function ClotureDialog({ sessionId }: { sessionId: number }) {
                 ? <Tag cls="tag-neutral">Déjà renouvelée le {fmt(parse(i.dejaObtenue.obtenue))}</Tag>
                 : (
                   <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-                    <Seg name={`pres-${i.empId}`} label={`Présence de ${i.nom}`} value={presence[i.empId] ?? 'p'}
+                    <Seg name={`pres-${i.empId}`} label={`Présence de ${i.nom}`} value={presence[i.empId] ?? ('' as 'p')}
                       onChange={v => setPresence(x => ({ ...x, [i.empId]: v }))} options={[['p', 'Présent'], ['a', 'Absent']]} />
                     {evaluation && present(i.empId) && (
                       <Seg name={`res-${i.empId}`} label={`Évaluation de ${i.nom}`} value={resultat[i.empId] ?? ('' as 'ok')}
@@ -90,6 +91,7 @@ export function ClotureDialog({ sessionId }: { sessionId: number }) {
           {inscrits.length === 0 && <Empty pad="sm">Aucun inscrit : la session sera clôturée sans certification.</Empty>}
         </div>
       </Field>
+      {sansPresence.length > 0 && <p className="form-error">Présence à renseigner : {sansPresence.map(i => i.nom).join(', ')}.</p>}
       {manquants.length > 0 && <p className="form-error">Résultat de l’évaluation à renseigner : {manquants.map(i => i.nom).join(', ')}.</p>}
 
       <div className="grid-2">

@@ -1,7 +1,7 @@
 // Sessions de formation : inscrits nominatifs et nombre d'inscrits (calculé, jamais stocké),
 // contrôles de création et de modification, liste à transmettre à l'organisme, résultats de clôture.
 import { iso, isValidDate, parse } from '../dates.ts';
-import { certEnVigueur, sessionActive, type Domain } from '../domain.ts';
+import { sessionActive, type Domain } from '../domain.ts';
 import { fmt, key } from '../format.ts';
 import type { Certification, Formation, Inscription, ISODate, Participation, Session } from '../types.ts';
 
@@ -35,12 +35,29 @@ export interface Inscrit {
   /** Recyclage : date d'obtention de la certification à renouveler. */
   obtenue: ISODate | null;
   convoc: 'now' | 'later' | null;
-  /** Recyclage déjà enregistré depuis l'inscription (certification plus récente) : rien à décider à la clôture. */
+  /**
+   * Recyclage déjà enregistré, daté du jour de la session ou après : rien à décider à la clôture. Un recyclage
+   * antérieur à la session ne compte pas : la personne ne l'a pas suivie pour autant (la clôture le dira).
+   */
   dejaObtenue: Certification | null;
 }
 
+/** `n` remplace `c` : même formation, enregistrée après (recyclage). */
+const remplace = (n: Certification, c: Certification) => n.f === c.f && (n.obtenue > c.obtenue || (n.obtenue === c.obtenue && n.id > c.id));
+
+/**
+ * Certifications rattachées à une session dont la place n'a plus d'objet à cette date : un recyclage a été
+ * enregistré avant (même règle que `cert.ajouter` et la migration). Un recyclage du jour même ou postérieur
+ * garde l'inscrit : c'est la session qui l'a produit, sa clôture le constatera.
+ */
+export function placesRemplacees(d: Domain, sessionId: number, date: ISODate): { empId: number; c: Certification }[] {
+  return d.ds.employes.flatMap(e => e.certs
+    .filter(c => c.sessionId === sessionId && e.certs.some(n => remplace(n, c) && n.obtenue < date))
+    .map(c => ({ empId: e.id, c })));
+}
+
 /** Inscrits nominatifs d'une session ouverte, par ordre alphabétique. */
-export function inscritsDe(d: Domain, s: Pick<Session, 'id'>): Inscrit[] {
+export function inscritsDe(d: Domain, s: Pick<Session, 'id' | 'date'>): Inscrit[] {
   const out = new Map<number, Inscrit>();
   const personne = (empId: number) => {
     const e = d.emp(empId) ?? d.ds.annuaire.find(p => p.id === empId);
@@ -48,10 +65,12 @@ export function inscritsDe(d: Domain, s: Pick<Session, 'id'>): Inscrit[] {
   };
   for (const e of d.ds.employes) {
     for (const c of e.certs.filter(x => x.sessionId === s.id)) {
-      const vigueur = certEnVigueur(e.certs, c.f);
+      // Recyclage enregistré depuis : le plus ancien de ceux datés du jour de la session ou après.
+      const deja = e.certs.filter(n => remplace(n, c) && n.obtenue >= s.date)
+        .sort((a, b) => a.obtenue.localeCompare(b.obtenue) || a.id - b.id)[0] ?? null;
       const x: Inscrit = {
         empId: e.id, ...personne(e.id), parcours: 'recyclage', certId: c.id, inscriptionId: null, obtenue: c.obtenue, convoc: c.convoc,
-        dejaObtenue: vigueur && vigueur.id !== c.id ? vigueur : null,
+        dejaObtenue: deja,
       };
       // Deux certifications rattachées (ancienne et en vigueur) : celle qui reste à décider prime.
       const prev = out.get(e.id);
@@ -97,17 +116,21 @@ export function etatInscription(d: Domain, i: Inscription): EtatInscription | nu
 /** Champs d'une session saisis à la création ou à la modification. */
 export interface SessionSaisie { date: unknown; lieu: unknown; places: unknown }
 
+/** Session passée, pas encore clôturée : sa date peut encore être corrigée vers une autre date passée. */
+export const sessionPassee = (today: ISODate, dateActuelle: ISODate | undefined) => !!dateActuelle && dateActuelle < today;
+
 /**
  * Contrôle date, lieu et places ; renvoie le message d'erreur, sinon null. Une nouvelle date est
- * postérieure à aujourd'hui (une date inchangée reste admise) ; les places, un entier au moins égal
- * à 1 et au nombre d'inscrits.
+ * postérieure à aujourd'hui (une date inchangée reste admise) ; une session passée, à clôturer, se
+ * redate au jour où elle a eu lieu (la clôture date les certifications de ce jour). Les places : un
+ * entier au moins égal à 1 et au nombre d'inscrits.
  */
 export function controleSession(today: ISODate, v: SessionSaisie, opts: { dateActuelle?: ISODate; inscrits?: number } = {}): string | null {
   const date = typeof v.date === 'string' ? v.date : '';
   const lieu = typeof v.lieu === 'string' ? v.lieu.trim() : '';
   const places = typeof v.places === 'number' ? v.places : typeof v.places === 'string' && v.places.trim() ? Number(v.places) : NaN;
   if (!isValidDate(date) || iso(parse(date)) !== date) return 'Date de la session requise';
-  if (date !== opts.dateActuelle && date <= today) return 'La date de la session doit être postérieure à aujourd’hui';
+  if (date !== opts.dateActuelle && date <= today && !sessionPassee(today, opts.dateActuelle)) return 'La date de la session doit être postérieure à aujourd’hui';
   if (!lieu) return 'Lieu requis';
   if (lieu.length > 200) return 'Lieu trop long (200 caractères au plus)';
   if (!Number.isInteger(places) || places < 1) return 'Nombre de places : un nombre entier, au moins 1';

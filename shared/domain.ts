@@ -331,6 +331,9 @@ export class Domain {
     }
     const fc = hi.failing.find(c => c.type === 'cert');
     if (fc) {
+      // Recyclage rattaché à une session passée : la clôture (présence, résultat) précède toute nouvelle inscription.
+      const s = this.session(this.emp(empId)?.certs.find(c => c.id === fc.certId)?.sessionId ?? null);
+      if (s && sessionActive(s) && s.date < this.ti) return { label: 'Clôturer la session', intent: { type: 'openCloture', sessionId: s.id } };
       return fc.certId != null
         ? { label: 'Planifier le recyclage', intent: { type: 'openPlan', empId, certId: fc.certId } }
         : { label: 'Inscrire à la formation', intent: { type: 'goFormation', f: fc.f! } };

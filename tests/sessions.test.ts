@@ -192,6 +192,40 @@ test('Go / No Go après la session : réussite → Go ; recyclage manqué (absen
   });
 });
 
+test('un inscrit d’une session passée y reste jusqu’à la clôture : ni réinscription, ni demande acceptée', () => {
+  const { run, cert, session, domain, emp } = fresh();
+  // Formation initiale : Yanis Bouzid, inscrit à la session EPI du 9 octobre, passée et non clôturée.
+  const insc = domain().ds.inscriptions.find(i => i.empId === 20 && i.sessionId === 6)!;
+  assert.throws(() => run(HUGO, 'plan.inscrire', { empId: 20, inscriptionId: insc.id, sessionId: 12 }),
+    /Session du 9 oct\. 2026 passée : le service RH la clôture d’abord \(présence, résultat\)/);
+  run(HUGO, 'demande.formation', { empId: 20, f: 'epi', sessionId: 12, motif: 'Formation initiale à replanifier' });
+  const demEpi = domain().ds.demandesCollab.filter(r => r.empId === 20 && r.f === 'epi' && r.statut === 'attente').at(-1)!;
+  assert.throws(() => run(RH, 'demande.accepter', { id: demEpi.id }), /Session du 9 oct\. 2026 passée : clôturez-la d’abord/);
+  assert.equal(domain().ds.inscriptions.find(i => i.id === insc.id)!.sessionId, 6);
+  assert.equal(session(6).inscrits, 5);
+
+  le('2026-10-20', () => {
+    // Recyclage : Camille Roux, inscrite à la session SST du 14 octobre.
+    assert.throws(() => run(HUGO, 'plan.inscrire', { empId: 1, certId: cert(1, 'sst').id, sessionId: 2 }), /Session du 14 oct\. 2026 passée : le service RH la clôture d’abord/);
+    assert.throws(() => run(RH, 'plan.inscrire', { empId: 1, certId: cert(1, 'sst').id, sessionId: 2 }), /Session du 14 oct\. 2026 passée : clôturez-la d’abord/);
+    run(CAMILLE, 'demande.formation', { f: 'sst', sessionId: 2, motif: 'Recyclage manqué' });
+    const dem = domain().ds.demandesCollab.filter(r => r.empId === 1 && r.f === 'sst' && r.statut === 'attente').at(-1)!;
+    assert.throws(() => run(RH, 'demande.accepter', { id: dem.id }), /clôturez-la d’abord/);
+    assert.deepEqual([cert(1, 'sst').sessionId, session(1).inscrits], [1, 6]);
+    // Après la clôture (absente), la demande s'accepte.
+    run(RH, 'session.cloturer', { id: 1, participants: inscritsDe(domain(), session(1)).map(i => ({ empId: i.empId, present: i.empId !== 1, reussi: true })) });
+    run(RH, 'demande.accepter', { id: dem.id });
+    assert.equal(cert(1, 'sst').session?.id, 2);
+  });
+
+  // Habilitation dont le prérequis attend la clôture : la fiche propose de clôturer, plus de replanifier.
+  le('2026-11-20', () => {
+    const lucas = emp(4), hab = lucas.habs.find(h => h.h === 'ac489')!;
+    assert.equal(lucas.rawCerts.find(c => c.f === 'caces489')!.sessionPassee?.id, 3);
+    assert.deepEqual(domain().habAction(4, hab), { label: 'Clôturer la session', intent: { type: 'openCloture', sessionId: 3 } });
+  });
+});
+
 test('une session clôturée ne déclenche la réalisation du plan que sans autre session ouverte', () => {
   const { db, run, plan } = fresh();
   // Session 2 rattachée à la même action (SST Logistique) : la clôture de la session 1 la laisse engagée.
@@ -243,8 +277,46 @@ test('t112 : modifier date, lieu et places (places ≥ inscrits, convocations à
   run(RH, 'plan.inscrire', { empId: 10, certId: cert(10, 'sst').id, sessionId: 2, conv: 'now' });
   assert.doesNotMatch(String(run(RH, 'session.modifier', { id: 2, places: 4 })), /convocation/);
   assert.equal(cert(10, 'sst').convoc, 'now');
-  // Une date passée reste admise si elle ne change pas (lieu corrigé après coup).
-  le('2026-11-25', () => assert.match(String(run(RH, 'session.modifier', { id: 2, lieu: 'Salle B' })), /lieu : Salle B/));
+  // Une date passée reste admise si elle ne change pas (lieu corrigé après coup, sans convocation à renvoyer).
+  le('2026-11-25', () => assert.match(String(run(RH, 'session.modifier', { id: 2, lieu: 'Salle B' })), /lieu : Salle B$/));
+  assert.equal(cert(10, 'sst').convoc, 'now');
+  // Session confirmée : une nouvelle date est à faire confirmer par l'organisme ; un autre lieu, non.
+  assert.equal(session(4).statut, 'Confirmée');
+  assert.match(String(run(RH, 'session.modifier', { id: 4, lieu: 'AFTRAL Corbas' })), /lieu : AFTRAL Corbas$/);
+  assert.equal(session(4).statut, 'Confirmée');
+  assert.match(String(run(RH, 'session.modifier', { id: 4, date: '2026-11-26' })), /date : 26 nov\. 2026 · nouvelle date à faire confirmer par AFTRAL$/);
+  assert.equal(session(4).statut, 'À confirmer');
+  run(RH, 'session.confirmer', { id: 4 });
+  assert.equal(session(4).statut, 'Confirmée');
+});
+
+test('t112 : une session passée, à clôturer, se redate au jour où elle a eu lieu', () => {
+  const { run, cert, session, domain } = fresh();
+  // Session à venir : une date passée reste refusée.
+  assert.throws(() => run(RH, 'session.modifier', { id: 1, date: '2026-10-08' }), /postérieure à aujourd’hui/);
+  // La session EPI prévue le 9 octobre a eu lieu le 8 : la clôture datera les certifications de ce jour.
+  assert.throws(() => run(RH, 'session.modifier', { id: 6, date: '2026-02-30' }), /Date de la session requise/);
+  assert.equal(run(RH, 'session.modifier', { id: 6, date: '2026-10-08' }), 'Session EPI incendie du 9 oct. 2026 modifiée — date : 8 oct. 2026',
+    'session passée : ni convocation à renvoyer, ni confirmation à demander');
+  assert.deepEqual([session(6).date, session(6).statut, cert(14, 'epi').convoc], ['2026-10-08', 'Confirmée', 'now']);
+  run(RH, 'session.cloturer', { id: 6, participants: [5, 11, 14, 17, 20].map(empId => ({ empId, present: true })) });
+  assert.deepEqual([cert(5, 'epi').obtenue, cert(17, 'epi').obtenue], ['2026-10-08', '2026-10-08']);
+
+  le('2026-10-20', () => {
+    // Recyclage saisi au 14 octobre, jour prévu de la session SST : Camille Roux y reste, sans décision à prendre.
+    run(RH, 'cert.ajouter', { empId: 1, f: 'sst', date: '2026-10-14' });
+    assert.equal(inscritsDe(domain(), session(1)).find(i => i.empId === 1)!.dejaObtenue?.obtenue, '2026-10-14');
+    // La session a eu lieu le 15 : ce recyclage ne vient pas d'elle, la place est libérée (même règle que cert.ajouter).
+    assert.match(String(run(RH, 'session.modifier', { id: 1, date: '2026-10-15' })),
+      /date : 15 oct\. 2026 · recyclage déjà enregistré avant cette date, place libérée : Camille Roux$/);
+    assert.ok(!inscritsDe(domain(), session(1)).some(i => i.empId === 1));
+    assert.equal(session(1).inscrits, 5);
+    // Reportée en réalité : une date à venir reste possible, avec convocations à renvoyer et confirmation à obtenir.
+    const msg = run(RH, 'session.modifier', { id: 1, date: '2026-10-28' });
+    assert.match(String(msg), /date : 28 oct\. 2026 · 5 convocations à renvoyer · nouvelle date à faire confirmer par Croix-Rouge française$/);
+    assert.equal(session(1).statut, 'À confirmer');
+    assert.equal(cert(10, 'sst').session?.id, 1, 'de nouveau planifiée');
+  });
 });
 
 test('t112 : annuler libère inscriptions et certifications, qui redeviennent à planifier', () => {
@@ -354,11 +426,22 @@ test('droits : le manager inscrit son équipe, sans clôture ni annulation ; ré
     forbidden(u, 'session.creer', { f: 'fco', date: '2026-12-15', lieu: 'AFTRAL', places: 8 });
   }
   run(HUGO, 'plan.inscrire', { empId: 1, certId: cert(1, 'sst').id, sessionId: 2 });
-  run(RH, 'session.cloturer', { id: 6, participants: [5, 11, 14, 17, 20].map(empId => ({ empId, present: empId !== 20 })) });
+  const commentaire = 'Antoine Leroy absent : arrêt maladie';
+  run(RH, 'session.cloturer', { id: 6, commentaire, note: 3, participants: [5, 11, 14, 17, 20].map(empId => ({ empId, present: empId !== 20 })) });
+  run(RH, 'session.annuler', { id: 7, motif: 'Formateur malade' });
   const h = buildSnapshot(db, HUGO);
   assert.deepEqual(h.participations.map(p => p.empId), [20], 'Logistique : Yanis Bouzid seulement');
   assert.equal(h.sessions.find(s => s.id === 6)!.inscrits, 5, 'nombre calculé sur toutes les données');
   assert.deepEqual(buildSnapshot(db, CAMILLE).participations, []);
+  // Bilan (évaluation à chaud, motif d'annulation : textes libres) réservé au service RH.
+  for (const u of [HUGO, CAMILLE]) {
+    const ds = buildSnapshot(db, u);
+    assert.deepEqual(ds.sessions.filter(s => s.bilan), [], `bilan transmis à ${u.nom}`);
+    assert.deepEqual(ds.sessions.filter(s => s.id === 6 || s.id === 7).map(s => s.statut), ['Clôturée', 'Annulée']);
+    assert.doesNotMatch(JSON.stringify(ds), /arrêt maladie|Formateur malade/);
+  }
+  const rh = buildSnapshot(db, RH).sessions;
+  assert.deepEqual([rh.find(s => s.id === 6)!.bilan?.commentaire, rh.find(s => s.id === 7)!.bilan?.motif], [commentaire, 'Formateur malade']);
   // Toutes ces actions sont tracées dans le journal (route POST /api/actions/:nom).
   for (const a of ['session.creer', 'session.confirmer', 'session.modifier', 'session.annuler', 'session.cloturer']) {
     assert.ok(ACTIONS[a] && !QUIET_ACTIONS.has(a), a);
@@ -387,6 +470,56 @@ test('migration : formations validées sur la présence, ancien compteur d’ins
     assert.deepEqual(ds.participations, []);
     migrate(db);
     assert.equal(loadFull(db, RH).referentiels.formations[0].validation, 'presence', 'migration rejouable');
+    db.sql.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('migration : sessions passées d’une ancienne base — places des certifications remplacées, historique sans décision clôturé', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cursus-'));
+  const file = join(dir, 'ancienne.db');
+  try {
+    const old = new DatabaseSync(file);
+    old.exec(`CREATE TABLE formations (id TEXT PRIMARY KEY, nom TEXT, court TEXT, type TEXT, validite INTEGER, duree TEXT, organisme TEXT, cout REAL)`);
+    old.exec(`INSERT INTO formations VALUES ('epi', 'Équipier de première intervention incendie', 'EPI incendie', 'Réglementaire', 12, '4 h', 'Interne · HSE', 40)`);
+    old.exec(`CREATE TABLE employes (id INTEGER PRIMARY KEY, nom TEXT, equipe TEXT, poste TEXT)`);
+    old.exec(`INSERT INTO employes VALUES (5, 'Inès Dupont', 'Production', 'Animatrice HSE'), (11, 'Thomas Girard', 'Qualité', 'Auditeur'), (14, 'Antoine Leroy', 'Administration', 'Chargé RH')`);
+    old.exec(`CREATE TABLE sessions (id INTEGER PRIMARY KEY AUTOINCREMENT, formation TEXT, date TEXT, lieu TEXT, places INTEGER, inscrits INTEGER, statut TEXT)`);
+    old.exec(`INSERT INTO sessions (id, formation, date, lieu, places, inscrits, statut) VALUES
+      (1, 'epi', '2026-10-09', 'Atelier', 15, 2, 'Confirmée'), (2, 'epi', '2026-09-15', 'Atelier', 15, 0, 'Confirmée'),
+      (3, 'epi', '2026-06-10', 'Atelier', 15, 1, 'Confirmée'), (4, 'epi', '2026-12-10', 'Atelier', 15, 0, 'À confirmer')`);
+    old.exec(`CREATE TABLE certifications (id INTEGER PRIMARY KEY AUTOINCREMENT, emp_id INTEGER, f TEXT, obtenue TEXT, session_id INTEGER, convoc TEXT)`);
+    // Inès Dupont, inscrite à la session du 9 octobre, a renouvelé ailleurs le 1er octobre (saisi par l'ancienne
+    // version, qui ne libérait pas la place d'une session passée). Thomas Girard n'a aucun résultat.
+    // Antoine Leroy, inscrit à la session du 10 juin, a son recyclage saisi à cette date.
+    old.exec(`INSERT INTO certifications (id, emp_id, f, obtenue, session_id, convoc) VALUES
+      (1, 5, 'epi', '2025-10-01', 1, 'now'), (2, 5, 'epi', '2026-10-01', NULL, NULL), (3, 11, 'epi', '2025-09-01', 1, 'now'),
+      (4, 14, 'epi', '2025-06-01', 3, 'now'), (5, 14, 'epi', '2026-06-10', NULL, NULL)`);
+    old.close();
+    const db = new Db(file);
+    migrate(db);
+    const d = new Domain(loadFull(db, RH));
+    // Place d'Inès libérée : pas de « déjà renouvelée » ni de présence supposée à la clôture.
+    assert.equal(db.get<{ sessionId: number | null }>('certifications', 1)!.sessionId, null);
+    assert.deepEqual(inscritsDe(d, d.session(1)!).map(i => [i.nom, !!i.dejaObtenue]), [['Thomas Girard', false]]);
+    // Historique sans décision à prendre : session vide, et session dont l'inscrit a déjà son recyclage.
+    assert.deepEqual(d.aCloturer().map(s => s.id), [1], 'reste à clôturer : la session dont un inscrit n’a pas de résultat');
+    for (const id of [2, 3]) {
+      const s = d.session(id)!;
+      assert.equal(s.statut, 'Clôturée');
+      assert.deepEqual([s.bilan?.par, s.bilan?.le], ['Cursus', '2026-10-10']);
+    }
+    assert.deepEqual(d.ds.participations.map(p => [p.sessionId, p.empId, p.present, p.certId]), [[3, 14, true, 5]]);
+    assert.deepEqual([d.session(2)!.inscrits, d.session(3)!.inscrits, d.session(4)!.statut], [0, 1, 'À confirmer']);
+    // Une seule fois : une session passée plus tard sans inscrit attend la clôture du service RH.
+    db.insert('sessions', { formation: 'epi', date: '2026-10-01', lieu: 'Atelier', places: 10, statut: 'Confirmée', planId: null, bilan: null });
+    migrate(db);
+    assert.deepEqual(new Domain(loadFull(db, RH)).aCloturer().map(s => s.id), [5, 1]);
+    assert.equal(db.count('participations'), 1);
+    // La clôture de la session du 9 octobre n'enregistre que Thomas Girard.
+    db.tx(() => ACTIONS['session.cloturer'](makeCtx(db, RH, loadFull(db, RH)), { id: 1, participants: [{ empId: 11, present: true }] }));
+    assert.deepEqual(db.all<{ sessionId: number; empId: number }>('participations').filter(p => p.sessionId === 1).map(p => p.empId), [11]);
     db.sql.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });

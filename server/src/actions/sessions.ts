@@ -3,7 +3,7 @@
 import { sessionActive } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
-import { controleSession, exigeEvaluation, inscritsDe } from '../../../shared/rules/sessions.ts';
+import { controleSession, exigeEvaluation, inscritsDe, placesRemplacees } from '../../../shared/rules/sessions.ts';
 import type { Certification, Inscription, Participation, PlanAction, Session, SessionBilan } from '../../../shared/types.ts';
 import { ActionError, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
 
@@ -56,8 +56,11 @@ const confirmer: ActionHandler = (ctx, p) => {
 };
 
 /**
- * Date, lieu, places. Une nouvelle date est postérieure à aujourd'hui ; les places couvrent les inscrits.
- * Un changement de date ou de lieu rend caduques les convocations envoyées : elles repassent « à envoyer ».
+ * Date, lieu, places. Une nouvelle date est postérieure à aujourd'hui, sauf pour une session passée, à clôturer,
+ * qui se redate au jour où elle a eu lieu ; les places couvrent les inscrits. Une nouvelle date postérieure à
+ * un recyclage déjà enregistré libère la place de la certification remplacée (même règle que `cert.ajouter`).
+ * Pour une session à venir, un changement de date ou de lieu rend caduques les convocations envoyées (elles
+ * repassent « à envoyer »), et une nouvelle date est à faire confirmer par l'organisme (« à confirmer »).
  */
 const modifier: ActionHandler = (ctx, p) => {
   requireRh(ctx);
@@ -72,16 +75,27 @@ const modifier: ActionHandler = (ctx, p) => {
     places !== s.places ? plural(places, 'place', 'places') : '',
   ].filter(Boolean);
   if (!changes.length) return 'Aucune modification';
+  // Nouvelle date postérieure à un recyclage déjà enregistré : la certification remplacée libère sa place.
+  const liberees = date !== s.date ? placesRemplacees(ctx.d, s.id, date) : [];
+  liberees.forEach(x => ctx.db.update<Certification>('certifications', x.c.id, { sessionId: null, convoc: null }));
+  // Session passée corrigée après coup : plus de convocation ni de confirmation à demander.
+  const aVenir = date >= ctx.d.ti;
   let aRenvoyer = 0;
-  if (date !== s.date || lieu !== s.lieu) {
-    for (const x of inscritsDe(ctx.d, s).filter(i => i.convoc === 'now')) {
+  if (aVenir && (date !== s.date || lieu !== s.lieu)) {
+    for (const x of inscritsDe(ctx.d, s).filter(i => i.convoc === 'now' && !liberees.some(l => l.c.id === i.certId))) {
       if (x.certId) ctx.db.update<Certification>('certifications', x.certId, { convoc: 'later' });
       else ctx.db.update<Inscription>('inscriptions', x.inscriptionId!, { convoc: 'later' });
       aRenvoyer++;
     }
   }
-  ctx.db.update<Session>('sessions', s.id, { date, lieu, places });
-  return `${nomSession(ctx, s)} modifiée — ${changes.join(' · ')}${aRenvoyer ? ` · ${plural(aRenvoyer, 'convocation à renvoyer', 'convocations à renvoyer')}` : ''}`;
+  const reconfirmer = aVenir && date !== s.date && s.statut === 'Confirmée';
+  ctx.db.update<Session>('sessions', s.id, { date, lieu, places, ...(reconfirmer ? { statut: 'À confirmer' as const } : {}) });
+  return [
+    `${nomSession(ctx, s)} modifiée — ${changes.join(' · ')}`,
+    liberees.length ? `recyclage déjà enregistré avant cette date, ${liberees.length > 1 ? 'places libérées' : 'place libérée'} : ${liberees.map(x => ctx.d.personName(x.empId)).join(', ')}` : '',
+    aRenvoyer ? plural(aRenvoyer, 'convocation à renvoyer', 'convocations à renvoyer') : '',
+    reconfirmer ? `nouvelle date à faire confirmer par ${ctx.d.fm(s.formation)?.organisme ?? 'l’organisme'}` : '',
+  ].filter(Boolean).join(' · ');
 };
 
 /**

@@ -1,7 +1,9 @@
 // Planifier un renouvellement (certification détenue) ou replanifier une formation initiale
 // (session annulée, absent, évaluation échouée) : inscription à une session et convocation.
 // Sans session ouverte, le RH crée une session ; un manager transmet une demande au service RH.
+// Un inscrit d'une session passée, pas encore clôturée, attend d'abord la clôture.
 import { useState } from 'react';
+import { sessionActive } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
 import { CancelButton, Dialog, Field, Static } from '../components/Dialog.tsx';
@@ -23,6 +25,20 @@ export function PlanDialog({ empId, certId, inscriptionId }: { empId: number; ce
   const [busy, setBusy] = useState(false);
   if (!emp || !f) return null;
   const fm = d.fm(f);
+  // Inscrit d'une session passée, pas encore clôturée : la clôture (présence, résultat) précède toute nouvelle inscription.
+  const actuelle = d.session((cert ?? insc)?.sessionId ?? null);
+  if (actuelle && sessionActive(actuelle) && actuelle.date < d.ti) {
+    return (
+      <Dialog title={insc ? 'Planifier la formation' : 'Planifier un renouvellement'} width={540} actions={<>
+        <CancelButton label="Fermer" />
+        {rh && <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'cloture', sessionId: actuelle.id })}>Clôturer la session</button>}
+      </>}>
+        <p className="text-muted" style={{ margin: 0 }}>
+          {emp.nom} est inscrit à la session {fm.court} du {fmt(parse(actuelle.date))}, passée : {rh ? 'clôturez-la d’abord' : 'le service RH la clôture d’abord'} (présence, résultat).
+        </p>
+      </Dialog>
+    );
+  }
   const ouvertes = sessions.some(s => s.inscrits < s.places);
   // Seul le service RH crée des sessions : les autres transmettent une demande de formation.
   const demander = !rh && !ouvertes;

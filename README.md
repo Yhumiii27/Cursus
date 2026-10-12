@@ -110,3 +110,16 @@ enveloppes par équipe, import CSV.
 Jours fériés et périodes de référence (CP, RTT, campagnes) calculés à partir de la date du jour.
 
 Architecture et conventions : `docs/ARCHITECTURE.md`.
+
+## Mise en ligne (Docker, Coolify)
+
+Le `Dockerfile` à la racine construit l'interface et lance le serveur. Réglages à donner à l'hébergeur :
+
+| Réglage | Valeur |
+| --- | --- |
+| Port interne | `3000` |
+| Volume persistant | `/data` (base SQLite `cursus.db`) |
+| Adresse | en `https://` : le cookie de session est marqué `Secure` en production |
+
+Tant que l'authentification unique n'est pas branchée, le mode démonstration ouvre l'espace RH sans mot de passe :
+protéger l'accès au niveau de l'hébergeur (authentification HTTP de Coolify, par exemple).

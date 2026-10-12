@@ -1,0 +1,10 @@
+# Exclus de l'image : dépendances et builds locaux, données locales, secrets, application macOS.
+.git
+node_modules
+dist
+data
+.env
+.env.*
+!.env.example
+*.zip
+desktop

@@ -1,9 +1,9 @@
 // Feuilles de temps : décompte des heures, majorations, variables de paie.
-import { ABS_LABEL } from '../constants.ts';
 import { isFerie, isoWeek, parse, wDays } from '../dates.ts';
 import { matricule, num, r1 } from '../format.ts';
 import type { Domain } from '../domain.ts';
 import type { Absence, AbsenceType, ContratFige, Employe, FeuilleTemps, ISODate, LigneTemps, SagePush, TacheKeystone } from '../types.ts';
+import { absenceBloque, jourHorsContrat, natureDef, natureMedicale } from './absences.ts';
 
 /** Régime de temps de travail en vigueur d'une fiche, à figer sur une feuille soumise. */
 export function contratFige(e: Employe): ContratFige {
@@ -91,17 +91,18 @@ export function cumulAnnuel(d: Domain, e: Employe, year = d.year) {
   return { done, cible, prorata: cible * ecoule, depasse: done > cible, annee: year };
 }
 
-/** Absence vue par la feuille de temps : une absence validée, ou sur le point de l'être. */
-export type AbsenceJour = Pick<Absence, 'empId' | 'type' | 'du' | 'au'>;
+/** Absence vue par la feuille de temps : une absence validée ou signalée, ou sur le point de l'être. */
+export type AbsenceJour = Pick<Absence, 'empId' | 'type' | 'du' | 'au'> & Partial<Pick<Absence, 'statut'>>;
 
 /**
- * Absence validée (CP, RTT / repos, récupération) couvrant chaque jour de la semaine `w`, du lundi au
- * vendredi ; null les autres jours. Aucune heure ne peut être saisie ces jours-là (double paiement sinon).
+ * Absence en vigueur couvrant chaque jour de la semaine `w`, du lundi au vendredi ; null les autres jours :
+ * congé validé (CP, RTT / repos, récupération), absence hors congés qualifiée (arrêt, maternité, événement familial…)
+ * ou signalée en attendant sa qualification. Aucune heure ne peut être saisie ces jours-là (double paiement sinon).
  * Source unique pour la saisie, la proposition Keystone, la soumission, la validation et la grille.
- * `absences` remplace les absences validées pour contrôler une absence avant de la poser ou de la valider,
+ * `absences` remplace les absences en vigueur pour contrôler une absence avant de la poser ou de la valider,
  * ou pour repérer les demandes en attente (`demandesAbsence`).
  */
-export function joursAbsence(d: Domain, empId: number, w: ISODate, absences: AbsenceJour[] = d.ds.absences.filter(a => a.statut === 'validee')): (AbsenceJour | null)[] {
+export function joursAbsence(d: Domain, empId: number, w: ISODate, absences: AbsenceJour[] = d.ds.absences.filter(absenceBloque)): (AbsenceJour | null)[] {
   return wDays(w).map(day => absences.find(a => a.empId === empId && a.du <= day && a.au >= day) ?? null);
 }
 
@@ -117,25 +118,43 @@ export function heuresSurAbsence(d: Domain, sh: Pick<FeuilleTemps, 'empId' | 'we
     absence && sh.lignes.some(l => num(l.h[di]) > 0) ? [{ di, day: wd[di], absence }] : []);
 }
 
-/** Nature d'une absence dans un message : « CP », « RTT », « récupération ». */
-export const natureAbsence = (t: AbsenceType) => t === 'CP' || t === 'RTT' ? t : ABS_LABEL[t].toLowerCase();
+/**
+ * Nature d'une absence dans un message : « CP », « RTT », « récupération », « congé de maternité »…
+ * Vide pour une absence à qualifier ou une nature médicale : un message ne la révèle jamais, quel que soit son lecteur.
+ */
+export const natureAbsence = (t: AbsenceType): string =>
+  t === 'CP' || t === 'RTT' ? t : t === 'RECUP' ? 'récupération' : natureMedicale(t) ? '' : natureDef(t)?.court ?? '';
+const entreParentheses = (a: AbsenceJour) => { const n = natureAbsence(a.type); return n ? ` (${n})` : ''; };
 const jourCourt = (s: ISODate) => parse(s).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
 const liste = (items: string[]) => items.length > 1 ? `les ${items.slice(0, -1).join(', ')} et ${items.at(-1)}` : `le ${items[0]}`;
+
+/** « Absence validée ce jour-là (CP) », « Absence signalée ce jour-là ». */
+export const absenceCeJour = (a: AbsenceJour) => `Absence ${a.statut === 'signalee' ? 'signalée' : 'validée'} ce jour-là${entreParentheses(a)}`;
 
 /** « le lun. 12 oct. », « les lun. 12 oct. et mar. 13 oct. ». */
 export const joursTexte = (days: ISODate[]) => liste(days.map(jourCourt));
 
 /** « le lun. 12 oct. (CP) », « les lun. 12 oct. et mar. 13 oct. (CP) », « les lun. 12 oct. (CP) et ven. 16 oct. (RTT) ». */
 export function joursAbsenceTexte(list: { day: ISODate; absence: AbsenceJour }[]): string {
-  const natures = [...new Set(list.map(x => natureAbsence(x.absence.type)))];
+  const natures = [...new Set(list.map(x => entreParentheses(x.absence)))];
   return natures.length === 1
-    ? `${joursTexte(list.map(x => x.day))} (${natures[0]})`
-    : liste(list.map(x => `${jourCourt(x.day)} (${natureAbsence(x.absence.type)})`));
+    ? `${joursTexte(list.map(x => x.day))}${natures[0]}`
+    : liste(list.map(x => `${jourCourt(x.day)}${entreParentheses(x.absence)}`));
 }
 
 /** Refus de soumission ou de validation : jours concernés et marche à suivre (`suite` : « avant de soumettre la feuille »…). */
 export function heuresSurAbsenceMessage(list: HeuresSurAbsence[], suite: string): string {
-  return `Absence validée ${joursAbsenceTexte(list)} : retirez les heures saisies ${list.length > 1 ? 'ces jours-là' : 'ce jour-là'} ${suite}`;
+  const etats = new Set(list.map(x => x.absence.statut === 'signalee' ? 'signalée' : 'validée'));
+  return `Absence ${etats.size > 1 ? 'validée ou signalée' : [...etats][0]} ${joursAbsenceTexte(list)} : retirez les heures saisies ${list.length > 1 ? 'ces jours-là' : 'ce jour-là'} ${suite}`;
+}
+
+/**
+ * Semaine sans heure attendue : chaque jour est férié, non travaillé (temps partiel), hors contrat ou couvert par une
+ * absence en vigueur, et au moins un par une absence (semaine d'arrêt, de congés…). La feuille se soumet alors sans heure.
+ */
+export function semaineCouverte(d: Domain, e: Employe, w: ISODate, sh: { contrat?: ContratFige | null } | null = null): boolean {
+  const off = d.contratOf(employeDeLaFeuille(e, sh)).jourOff, abs = joursAbsence(d, e.id, w);
+  return abs.some(Boolean) && wDays(w).every((day, i) => !!abs[i] || isFerie(day) || off.includes(i) || !!jourHorsContrat(e, day));
 }
 
 /**
@@ -164,13 +183,13 @@ export function tachesDeLaSemaine(d: Domain, empId: number, w: ISODate): TacheKe
 
 /**
  * Lignes proposées à partir des tâches Keystone de la semaine : heures planifiées jour par jour
- * (fériés, absences validées et jours non travaillés à zéro).
+ * (fériés, absences, jours non travaillés et hors contrat à zéro).
  */
 export function suggestLines(d: Domain, e: Employe, w: ISODate): LigneTemps[] {
   const wd = wDays(w), off = d.contratOf(e).jourOff, abs = joursAbsence(d, e.id, w);
   return tachesDeLaSemaine(d, e.id, w).map(t => ({
     projet: t.projet, tache: t.tache, ks: true,
-    h: wd.map((day, i) => isFerie(day) || abs[i] || off.includes(i) ? 0 : num(t.heures[day])),
+    h: wd.map((day, i) => isFerie(day) || abs[i] || off.includes(i) || jourHorsContrat(e, day) ? 0 : num(t.heures[day])),
   }));
 }
 

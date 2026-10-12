@@ -36,7 +36,8 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
   paramètres, transmettre la paie, supprimer et gérer les comptes (Paramètres → Comptes et accès).
   En démonstration : Sandrine Vidal, administratrice RH, et Antoine Leroy, gestionnaire RH.
 - **Manager** : son équipe — inscriptions aux sessions et demandes de formation / habilitation,
-  absences posées et validées, saisie et correction des feuilles de temps, poste et jours non
+  absences posées et validées, absences imprévues signalées (le service RH en précise la nature, jamais
+  communiquée au manager pour un arrêt de travail ou la santé d'un enfant), saisie et correction des feuilles de temps, poste et jours non
   travaillés des fiches, ajout et retrait de membres, entretiens, missions.
   Pas d'accès aux données de santé (seul le verdict d'aptitude est transmis).
 - **Utilisateur** (collaborateur) : ses formations, habilitations, voyages, heures,
@@ -137,7 +138,7 @@ périodique : `docs/SAUVEGARDE.md`.
   demandes de déplacement), contrat OpenAPI `docs/keystone-openapi.json` et guide du développeur de
   Keystone `docs/API-KEYSTONE.md` ; hors démonstration, chantiers, projets, missions et tâches ne
   viennent que de cette API. Les messages sortants (décisions sur les demandes,
-  heures validées sur les projets Keystone, absences validées, changements de verdict Go / No Go) passent
+  heures validées sur les projets Keystone, absences validées et annulées (période seulement, jamais la nature), changements de verdict Go / No Go) passent
   par une file d'envoi persistante : envoyés à Keystone avec `KEYSTONE_URL` (nouvelles tentatives, suivi
   et relance dans Paramètres → Envois), seulement tracés dans le journal sans elle (`server/src/envois.ts`).
 - **Sage Paie** : la transmission produit le JSON des variables et un accusé fictif
@@ -164,7 +165,12 @@ voyage par destination (passeport, visas, vaccins, délais) · Go / No Go par ch
 (matricules et codes de motif uniquement) · heures supplémentaires +25 % / +50 %,
 heures complémentaires +10 % / +25 %, forfait jours, alertes 10 h / 48 h · repos
 compensateur · CP 25 jours ouvrés (+5 j à 59 ans, CCN Chimie), RTT, jours de repos
-forfait calculés, CET (5 RTT/an, 5e semaine de CP), reports tracés · entretiens de
+forfait calculés, CET (5 RTT/an, 5e semaine de CP), reports tracés · absences hors congés
+(maladie, accident du travail ou de trajet, maladie professionnelle, maternité, paternité, adoption,
+congé parental, événements familiaux, enfant malade, absences non payées) signalées par le manager et
+qualifiées par le service RH, prolongation, reprise inscrite automatiquement, nature médicale réservée au RH
+et à l'intéressé · annulation des absences selon le rôle, solde recrédité · absences et feuilles de temps
+bornées par le contrat · entretiens de
 parcours (L6315-1 : 1re année puis tous les 4 ans, reprise, état des lieux 8 ans avec
 risque d'abondement CPF), entretien annuel forfait jours (L3121-64) · plan de formation,
 enveloppes par équipe, import CSV.

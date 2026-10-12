@@ -50,6 +50,16 @@ export function CancelButton({ label = 'Annuler' }: { label?: string }) {
   return <button type="button" className="btn btn-secondary" onClick={closeDialog}>{label}</button>;
 }
 
+/** Contrôles en direct d'un formulaire : informations atténuées, blocages en accent. */
+export function Controles({ msgs }: { msgs: { text: string; bad: boolean }[] }) {
+  if (!msgs.length) return null;
+  return (
+    <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+      {msgs.map(m => <p key={m.text} style={{ fontSize: 12, margin: 0, color: m.bad ? 'var(--color-accent-300)' : 'var(--color-neutral-400)' }}>{m.text}</p>)}
+    </div>
+  );
+}
+
 /** Liste de contrôles de prérequis (habilitations). */
 export function CheckList({ checks }: { checks: { key: string; label: string; text: string; cls: string; statut: string }[] }) {
   return (

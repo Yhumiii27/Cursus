@@ -303,6 +303,8 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
       </div>
       <Fine>
         La date de reprise déclenche la proposition d’un entretien de parcours professionnel (art. L6315-1).
+        Elle est renseignée automatiquement à la fin d’une maternité, d’une adoption, d’un congé parental ou d’un arrêt longue maladie
+        saisi dans Congés &amp; absences ; à saisir ici pour une absence antérieure à Cursus.
         Le motif reste réservé au service RH : le manager ne voit que la mention « absence longue ».
       </Fine>
 

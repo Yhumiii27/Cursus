@@ -374,6 +374,7 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'reqForm', empId: e.id })}>Demander une formation</button>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'reqHab', empId: e.id })}>Demander une habilitation</button>
           {poseAbsence && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'abs', empId: e.id })}>Poser une absence</button>}
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'absSignal', empId: e.id })}>Signaler une absence</button>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => go('temps', { tsEmp: e.id })}>Feuille de temps →</button>
         </div>
         {!poseAbsence && (

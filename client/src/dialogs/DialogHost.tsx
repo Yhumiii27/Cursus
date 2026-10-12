@@ -1,6 +1,10 @@
 // Affiche le dialogue ouvert (un seul à la fois), quel que soit l'écran d'origine.
 import { useStore } from '../state/store.tsx';
 import { AbsDialog } from './AbsDialog.tsx';
+import { AbsAnnulerDialog } from './AbsAnnulerDialog.tsx';
+import { AbsNatureDialog } from './AbsNatureDialog.tsx';
+import { AbsProlongerDialog } from './AbsProlongerDialog.tsx';
+import { AbsSignalDialog } from './AbsSignalDialog.tsx';
 import { BudgetDialog } from './BudgetDialog.tsx';
 import { CertDialog } from './CertDialog.tsx';
 import { CetDialog } from './CetDialog.tsx';
@@ -41,6 +45,10 @@ export function DialogHost() {
     case 'membre': return <MembreDialog {...d} />;
     case 'equipe': return <EquipeDialog {...d} />;
     case 'abs': return <AbsDialog {...d} />;
+    case 'absSignal': return <AbsSignalDialog {...d} />;
+    case 'absNature': return <AbsNatureDialog {...d} />;
+    case 'absProlonger': return <AbsProlongerDialog {...d} />;
+    case 'absAnnuler': return <AbsAnnulerDialog {...d} />;
     case 'cet': return <CetDialog {...d} />;
     case 'report': return <ReportDialog {...d} />;
     case 'entPlan': return <EntPlanDialog {...d} />;

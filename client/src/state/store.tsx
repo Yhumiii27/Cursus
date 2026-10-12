@@ -55,6 +55,10 @@ export type DialogState =
   | { type: 'membre'; equipe?: string | null }
   | { type: 'equipe'; nom?: string | null }
   | { type: 'abs'; empId: number }
+  | { type: 'absSignal'; empId?: number | null }
+  | { type: 'absNature'; empId?: number | null; id?: number }
+  | { type: 'absProlonger'; id: number }
+  | { type: 'absAnnuler'; id: number }
   | { type: 'cet'; empId: number }
   | { type: 'report'; empId: number }
   | { type: 'entPlan'; empId: number; kind: EntretienType }

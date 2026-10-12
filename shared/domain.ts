@@ -8,6 +8,7 @@ import {
 } from './constants.ts';
 import { addD, addMonths, days, isFerie, iso, parse, weekday } from './dates.ts';
 import { fmt, fmtShort, matricule } from './format.ts';
+import { absenceActive, absenceBloque } from './rules/absences.ts';
 import type {
   Certification, Chantier, Dataset, Destination, Employe, Formation, HabTitre, HabType, ISODate, Session,
   Statut, TempsTravail, TripStatus, TypeContrat, VaccinId, Voyage,
@@ -186,8 +187,9 @@ export class Domain {
     return c.partiel ? c.base / Math.max(1, 5 - c.jourOff.length) : c.base / 5;
   }
 
+  /** Absence en vigueur (validée ou signalée) un jour donné ; `inclPending` : demandes en attente comprises. */
   absOn(empId: number, s: ISODate, inclPending = false) {
-    return this.ds.absences.find(a => a.empId === empId && a.du <= s && a.au >= s && (inclPending ? a.statut !== 'refusee' : a.statut === 'validee'));
+    return this.ds.absences.find(a => a.empId === empId && a.du <= s && a.au >= s && (inclPending ? absenceActive(a) : absenceBloque(a)));
   }
   /**
    * Jours décomptés : week-ends et fériés exclus. Hors CP, les jours non travaillés du temps partiel

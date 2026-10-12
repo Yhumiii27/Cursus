@@ -40,7 +40,15 @@ export const TABLES = {
   missions: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', projet: 'text', lieu: 'text', du: 'text', au: 'text', type: 'text', ref: 'text' } },
   taches: { pk: 'id', auto: true, cols: { id: 'int', ref: 'text', empId: 'int', projet: 'text', tache: 'text', debut: 'text', fin: 'text', heures: 'json' } },
   feuilles: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', week: 'text', statut: 'text', comment: 'text', sage: 'bool', keystone: 'bool', lignes: 'json', contrat: 'json' }, unique: [['empId', 'week']] },
-  absences: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', type: 'text', du: 'text', au: 'text', statut: 'text', keystone: 'bool' } },
+  absences: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', type: 'text', du: 'text', au: 'text', statut: 'text', keystone: 'bool',
+      // Absences hors congés : signalement, justificatif, prolongation ; annulation (toutes absences).
+      signaleLe: 'text', signalePar: 'text', justificatif: 'bool', justificatifLe: 'text', finInitiale: 'text', annuleeLe: 'text', annuleePar: 'text',
+      signaleParInteresse: 'bool',
+    },
+  },
   cet: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', type: 'text', jours: 'real', date: 'text', periode: 'text' } },
   reports: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', jours: 'real', motif: 'text', par: 'text', date: 'text', sens: 'text' } },
   soldesReprise: { pk: 'empId', cols: { empId: 'int', cpPris: 'real', rttPris: 'real', recupAcquis: 'real', recupPris: 'real' } },

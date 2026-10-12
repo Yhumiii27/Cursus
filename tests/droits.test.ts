@@ -54,6 +54,11 @@ const titre = (h: string) => db.sql.prepare('SELECT id FROM hab_titres WHERE emp
 const cert = (f: string) => (db.sql.prepare('SELECT id FROM certifications WHERE emp_id = 2 AND f = ?').get(f) as { id: number }).id;
 const ENTRETIEN = () => (db.sql.prepare(`SELECT id FROM entretiens WHERE emp_id = 2 AND statut = 'planifie'`).get() as { id: number }).id;
 
+/** Absence de Mehdi le 15 décembre, dans l'état voulu (signalée par son manager, ou validée). */
+const absence = (statut: string, type: string) => db.insert<{ id: number }>('absences', {
+  empId: 2, type, du: '2026-12-15', au: '2026-12-15', statut, keystone: true, justificatif: false,
+  ...(statut === 'signalee' ? { signaleLe: '2026-10-07', signalePar: 'Karim Haddad', signaleParInteresse: false } : {}),
+}).id;
 /** Envoi vers Keystone en échec définitif, à relancer ou classer. */
 const envoiEnEchec = () => db.insert<{ id: number }>('envois', {
   cible: 'keystone', type: 'heures.validees', cle: 'essai-droits', contenu: {}, statut: 'echec', tentatives: 1, prochaine: null,
@@ -113,6 +118,12 @@ const MATRICE: Ligne[] = [
   { action: 'absence.decider', droits: '                     O    O    O    -    -    -', p: () => ({ id: (db.sql.prepare(`SELECT id FROM absences WHERE emp_id = 2 AND statut = 'demandee'`).get() as { id: number }).id, ok: true }) },
   { action: 'cet.placer', droits: '                          O    O    -    -    O    -', p: () => ({ empId: 2, kind: 'RTT', jours: 1 }) },
   { action: 'report.accorder', droits: '                     O    O    -    -    -    -', p: () => ({ empId: 2, jours: 1, motif: 'Arrêt maladie' }) },
+  // Absences hors congés : le salarié ou son manager signale, le RH qualifie ou saisit ; annulation selon le statut.
+  { action: 'absence.signaler', droits: '                    O    O    O    -    O    -', p: () => ({ empId: 2, du: '2026-12-15', au: '2026-12-15' }) },
+  { action: 'absence.saisir', droits: '                      O    O    -    -    -    -', p: () => ({ empId: 2, nature: 'MARIAGE', du: '2026-12-15', au: '2026-12-16' }) },
+  { action: 'absence.qualifier', droits: '                   O    O    -    -    -    -', p: () => ({ id: absence('signalee', 'ABSENCE'), nature: 'MALADIE' }) },
+  { action: 'absence.prolonger', droits: '                   O    O    O    -    O    -', p: () => ({ id: absence('validee', 'MALADIE'), au: '2026-12-16' }) },
+  { action: 'absence.annuler', droits: '                     O    O    O    -    -    -', p: () => ({ id: absence('validee', 'CP') }) },
   // Entretiens : l'évaluateur (manager direct ou RH) et le salarié pour ses sections et sa signature.
   { action: 'entretien.planifier', droits: '                 O    O    O    -    -    -', p: () => ({ empId: 2, kind: 'annuel', date: '2026-11-15' }) },
   { action: 'entretien.modifier', droits: '                  O    O    O    -    O    -', p: () => ({ id: ENTRETIEN(), section: 'avis', value: 'Année riche en chantiers' }) },

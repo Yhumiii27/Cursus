@@ -1,8 +1,10 @@
 // Feuilles de temps : saisie, soumission, validation, transmission à Sage Paie.
-import { isValidDate, isoWeek, mondayOf } from '../../../shared/dates.ts';
+import { addD, isValidDate, isoWeek, mondayOf } from '../../../shared/dates.ts';
 import { matricule, num, plural } from '../../../shared/format.ts';
+import { jourHorsContrat, semaineHorsContrat } from '../../../shared/rules/absences.ts';
 import {
-  buildSagePayload, contratFige, demandesAbsence, demandesEnAttenteMessage, heuresSurAbsence, heuresSurAbsenceMessage, joursAbsence, natureAbsence, sagePending, suggestLines,
+  absenceCeJour, buildSagePayload, contratFige, demandesAbsence, demandesEnAttenteMessage, heuresSurAbsence, heuresSurAbsenceMessage, joursAbsence, sagePending,
+  semaineCouverte, suggestLines,
 } from '../../../shared/rules/temps.ts';
 import type { Employe, FeuilleTemps, LigneTemps } from '../../../shared/types.ts';
 import { pushToSage, SAGE_DOSSIER } from '../integrations/sage.ts';
@@ -22,6 +24,9 @@ function editable(ctx: Ctx, p: Record<string, any>): { emp: Employe; week: strin
   const week = String(p.week);
   if (!isValidDate(week) || mondayOf(week) !== week) throw new ActionError('Semaine invalide');
   if (!(isRh(ctx) || isSelf(ctx, emp.id) || isManagerOf(ctx, emp))) throw new ActionError('Seuls le salarié, son manager ou le service RH peuvent saisir cette feuille', 403);
+  // Pas de feuille avant l'entrée ni après la fin du contrat (une semaine à cheval reste saisissable).
+  const hors = semaineHorsContrat(emp, week);
+  if (hors) throw new ActionError(`Semaine hors contrat : ${hors}`);
   let sh = sheetOf(ctx, emp.id, week);
   const correction = !!sh && sh.statut === 'soumise' && isValidatorOf(ctx, emp);
   if (sh && !['brouillon', 'rejetee'].includes(sh.statut) && !correction) throw new ActionError('Feuille déjà soumise ou validée');
@@ -35,13 +40,15 @@ function saveLines(ctx: Ctx, sh: FeuilleTemps, lignes: LigneTemps[]) {
 }
 
 const setCell: ActionHandler = (ctx, p) => {
-  const { sh } = editable(ctx, p);
+  const { emp, sh } = editable(ctx, p);
   const li = Number(p.li), di = Number(p.di);
   if (!sh.lignes[li] || !(di >= 0 && di < 5)) throw new ActionError('Cellule invalide');
   const v = Math.round(Math.max(0, Math.min(24, num(String(p.value ?? '').replace(/[^\d.,]/g, '')))) * 100) / 100;
-  // Aucune heure un jour d'absence validée ; vider la cellule reste toujours possible, pour corriger.
+  // Aucune heure un jour d'absence (validée ou signalée) ni hors contrat ; vider la cellule reste toujours possible, pour corriger.
   const abs = joursAbsence(ctx.d, sh.empId, sh.week)[di];
-  if (v > 0 && abs) throw new ActionError(`Absence validée ce jour-là (${natureAbsence(abs.type)}) : aucune heure ne peut être saisie`);
+  if (v > 0 && abs) throw new ActionError(`${absenceCeJour(abs)} : aucune heure ne peut être saisie`);
+  const hors = v > 0 ? jourHorsContrat(emp, addD(sh.week, di)) : null;
+  if (hors) throw new ActionError(`Hors contrat ce jour-là (${hors}) : aucune heure ne peut être saisie`);
   const lignes = sh.lignes.map((l, i) => i === li ? { ...l, h: l.h.map((x, j) => j === di ? v : x) } : l);
   saveLines(ctx, sh, lignes);
   return null;
@@ -77,12 +84,14 @@ const submit: ActionHandler = (ctx, p) => {
   const { emp, sh } = editable(ctx, p);
   if (sh.statut === 'soumise') throw new ActionError('Feuille déjà soumise');
   const total = sh.lignes.reduce((n, l) => n + l.h.reduce((a, b) => a + num(b), 0), 0);
-  if (!(total > 0)) throw new ActionError('Aucune heure saisie');
+  // Semaine d'arrêt, de congés… : aucun jour travaillé attendu, la feuille se soumet sans heure.
+  const couverte = !(total > 0) && semaineCouverte(ctx.d, emp, sh.week, sh);
+  if (!(total > 0) && !couverte) throw new ActionError('Aucune heure saisie');
   const surAbsence = heuresSurAbsence(ctx.d, sh);
   if (surAbsence.length) throw new ActionError(heuresSurAbsenceMessage(surAbsence, 'avant de soumettre la feuille'));
   // Le régime de temps de travail de la semaine est figé à la soumission.
   ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'soumise', comment: null, contrat: sh.contrat ?? contratFige(emp) });
-  return `Feuille de temps soumise ${ctx.d.mgrDest(ctx.d.mgrOf(emp))}`;
+  return `Feuille de temps soumise ${ctx.d.mgrDest(ctx.d.mgrOf(emp))}${couverte ? ' — semaine d’absence, sans heure' : ''}`;
 };
 
 function submitted(ctx: Ctx, p: Record<string, any>) {
@@ -95,6 +104,9 @@ function submitted(ctx: Ctx, p: Record<string, any>) {
 
 const validate: ActionHandler = (ctx, p) => {
   const { emp, sh } = submitted(ctx, p);
+  // Soumise sans heure parce que la semaine était couverte : l'absence a pu être annulée ou raccourcie depuis.
+  const total = sh.lignes.reduce((n, l) => n + l.h.reduce((a, b) => a + num(b), 0), 0);
+  if (!(total > 0) && !semaineCouverte(ctx.d, emp, sh.week, sh)) throw new ActionError('La semaine n’est plus couverte par une absence : renvoyez la feuille pour saisie des heures');
   const surAbsence = heuresSurAbsence(ctx.d, sh);
   if (surAbsence.length) throw new ActionError(heuresSurAbsenceMessage(surAbsence, 'ou renvoyez la feuille avant de la valider'));
   // Demande d'absence en attente sur ces heures : à décider d'abord (même valideur), sinon elle ne pourrait plus être validée.

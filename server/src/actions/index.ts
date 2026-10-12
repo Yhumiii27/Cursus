@@ -1,6 +1,7 @@
 // Registre des actions métier exposées par POST /api/actions/:nom.
 import { absencesActions } from './absences.ts';
 import { budgetActions } from './budget.ts';
+import { comptesActions } from './comptes.ts';
 import { conformiteActions } from './conformite.ts';
 import type { ActionHandler } from './context.ts';
 import { entretiensActions } from './entretiens.ts';
@@ -18,6 +19,7 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...entretiensActions,
   ...equipesActions,
   ...parametresActions,
+  ...comptesActions,
 };
 
 /** Actions de saisie fréquentes, non tracées dans le journal. */

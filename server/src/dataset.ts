@@ -8,12 +8,13 @@ import type {
   Equipe, FeuilleTemps, Formation, HabTitre, HabType, Mission, PlanAction, Projet, ReportCp, SagePush, Session, Settings, SoldeReprise,
   TacheKeystone, Vaccination, Visa, Voyage,
 } from '../../shared/types.ts';
+import { PROFILS_RH } from '../../shared/constants.ts';
 import type { Db } from './db.ts';
 import type { SessionInfo } from './auth.ts';
+import { compteValide, espacesDuCompte, nomDuCompte } from './comptes.ts';
 
 export const DEFAULT_SETTINGS: Settings = {
-  horizonAlerte: 90, uniquementReglementaire: false, seuilBudget: 85, partageKeystone: 'minimal', rtt39: 23,
-  rhNom: 'Sandrine Vidal', rhIntitule: 'Responsable RH', vueInitiale: 'dashboard',
+  horizonAlerte: 90, uniquementReglementaire: false, seuilBudget: 85, partageKeystone: 'minimal', rtt39: 23, vueInitiale: 'dashboard',
 };
 
 /** Date du jour : `CURSUS_TODAY` (AAAA-MM-JJ) permet de figer la démonstration. */
@@ -23,7 +24,9 @@ export function todayIso(): string {
 }
 
 export function loadSettings(db: Db): Settings {
-  return { ...DEFAULT_SETTINGS, ...db.getSetting<Partial<Settings>>('app', {}) };
+  // `rhNom` et `rhIntitule` (anciennes bases) désignaient le RH unique : l'identité vient désormais du compte connecté.
+  const { rhNom: _n, rhIntitule: _i, ...app } = db.getSetting<Partial<Settings> & { rhNom?: string; rhIntitule?: string }>('app', {});
+  return { ...DEFAULT_SETTINGS, ...app };
 }
 
 type EmpRow = Omit<Employe, 'passeport' | 'certs' | 'habs' | 'visas' | 'vaccins'> & { passeportNumero: string | null; passeportExpire: string | null };
@@ -79,19 +82,22 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
   };
 }
 
+/**
+ * Personne connectée dans l'espace actif de la session : le compte doit pouvoir se connecter et ouvrir
+ * cet espace. Dans l'espace RH, la personne agit pour le service (`empId` null) mais signe de son nom.
+ */
 export function currentUser(db: Db, s: SessionInfo | null): CurrentUser | null {
-  if (!s) return null;
-  const settings = loadSettings(db);
-  if (s.role === 'rh') return { role: 'rh', empId: null, nom: settings.rhNom, intitule: settings.rhIntitule };
-  const empId = s.role === 'manager' ? s.managerId : s.collabId;
-  if (!empId) return null;
-  const e = db.get<EmpRow>('employes', empId);
-  if (!e) return null;
+  const c = compteValide(db, s?.compteId);
+  if (!s || !c || !espacesDuCompte(db, c).includes(s.role)) return null;
+  const compte = { compteId: c.id, profilRh: c.profilRh };
+  if (s.role === 'rh') return { role: 'rh', empId: null, nom: nomDuCompte(db, c), intitule: PROFILS_RH[c.profilRh].label, ...compte };
+  const empId = c.empId!;
+  const e = db.get<EmpRow>('employes', empId)!;
   if (s.role === 'manager') {
     const teams = db.where<Equipe>('equipes', 'managerId', empId).map(q => q.nom);
-    return { role: s.role, empId, nom: e.nom, intitule: teams.length ? `Manager · ${teams.join(', ')}` : 'Manager · aucune équipe' };
+    return { role: s.role, empId, nom: e.nom, intitule: `Manager · ${teams.join(', ')}`, ...compte };
   }
-  return { role: s.role, empId, nom: e.nom, intitule: e.poste };
+  return { role: s.role, empId, nom: e.nom, intitule: e.poste, ...compte };
 }
 
 /** Identifiants des collaborateurs visibles par l'utilisateur. */

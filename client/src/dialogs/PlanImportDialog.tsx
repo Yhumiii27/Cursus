@@ -2,9 +2,9 @@
 import { useMemo, useState, type ChangeEvent } from 'react';
 import { fmtEur, plural } from '../../../shared/format.ts';
 import { parsePlan, SAMPLE_PLAN_CSV } from '../../../shared/rules/imports.ts';
-import { CancelButton, Dialog, Field } from '../components/Dialog.tsx';
+import { CancelButton, Dialog, Field, Static } from '../components/Dialog.tsx';
 import { Seg, Tag } from '../components/ui.tsx';
-import { useDomain } from '../state/derived.ts';
+import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
 /** Lit un fichier texte en UTF-8, puis en Windows-1252 si des caractères ne sont pas décodables (export Excel). */
@@ -24,6 +24,7 @@ function readText(file: File, onText: (text: string) => void) {
 export function PlanImportDialog({ exercice }: { exercice: number }) {
   const d = useDomain();
   const { run, closeDialog, go } = useStore();
+  const { admin } = useRole();
   const [ex, setEx] = useState(exercice);
   const [texte, setTexte] = useState('');
   const [fichier, setFichier] = useState('');
@@ -63,7 +64,10 @@ export function PlanImportDialog({ exercice }: { exercice: number }) {
           </select>
         </Field>
         <Field label="Lignes « Prévues » existantes">
-          <Seg name="impmode" label="Mode d’import" value={mode} onChange={setMode} options={[['add', 'Compléter'], ['replace', 'Remplacer']]} />
+          {/* Remplacer supprime les lignes prévues de l'exercice : réservé à l'administrateur RH. */}
+          {admin
+            ? <Seg name="impmode" label="Mode d’import" value={mode} onChange={setMode} options={[['add', 'Compléter'], ['replace', 'Remplacer']]} />
+            : <Static pad>Compléter (remplacer : administrateur RH)</Static>}
         </Field>
       </div>
       <Field label="Fichier CSV" htmlFor="imp-file">

@@ -29,9 +29,12 @@ vide le reste.
 
 Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode démonstration) :
 
-- **RH** (Sandrine Vidal) : tout l'outil, dont la création et la modification des fiches
+- **RH** : tout l'outil, dont la création et la modification des fiches
   (statut, contrat, organisation du temps) et l'écran « Équipes & managers » (créer, renommer,
-  supprimer une équipe, désigner son manager, affecter les collaborateurs).
+  supprimer une équipe, désigner son manager, affecter les collaborateurs). Deux profils : les
+  **gestionnaires RH** (fiches, formations, absences…) et l'**administrateur RH**, seul à régler les
+  paramètres, transmettre la paie, supprimer et gérer les comptes (Paramètres → Comptes et accès).
+  En démonstration : Sandrine Vidal, administratrice RH, et Antoine Leroy, gestionnaire RH.
 - **Manager** : son équipe — inscriptions aux sessions et demandes de formation / habilitation,
   absences posées et validées, saisie et correction des feuilles de temps, poste et jours non
   travaillés des fiches, ajout et retrait de membres, entretiens, missions.
@@ -41,7 +44,11 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
   Les documents de voyage qu'il déclare (passeport, visa, vaccination) n'entrent dans son
   dossier qu'après validation par le service RH.
 
-En démonstration, n'importe quel mot de passe est accepté.
+Chaque personne se connecte avec son compte nominatif : compte Microsoft 365 de l'entreprise pour
+les salariés qui en ont un, compte Cursus (identifiant et mot de passe) pour les autres (ouvriers,
+intérimaires, alternants). Le compte ouvre ses espaces : RH selon son profil RH, manager s'il encadre
+une équipe, collaborateur s'il est salarié. Le journal porte le nom de la personne connectée.
+En démonstration, chaque salarié a un compte et n'importe quel mot de passe est accepté.
 
 ## Application de bureau (macOS)
 
@@ -66,6 +73,7 @@ Relancez `npm run app` après une modification du code ou un déplacement du dos
 | `CURSUS_DEMO=1 npm run reset-demo` | Recharge les données de démonstration (efface la base ; refusé hors démonstration) |
 | `npm run backup` | Copie à chaud vérifiée de la base dans `data/backups`, avec rotation |
 | `npm run restore -- <fichier>` | Remplace la base par une sauvegarde (serveur arrêté) |
+| `npm run comptes -- admin <identifiant> [--local]` | Crée le premier administrateur RH, ou rétablit son accès (voir `docs/DEPLOIEMENT.md`) |
 
 ## Configuration (variables d'environnement)
 
@@ -94,7 +102,8 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `KEYSTONE_URL`, `SAGE_URL`, `SAGE_DOSSIER` | Bascule des adaptateurs en mode API (à compléter, voir ci-dessous) |
 
 Les sessions durent 12 heures au plus depuis la connexion ; la déconnexion les révoque, et une
-session est refusée dès que la date de sortie du salarié rattaché est passée.
+session est refusée dès que la date de sortie du salarié rattaché est passée ou que son compte est
+désactivé.
 
 ## Sauvegarde
 
@@ -111,8 +120,8 @@ périodique : `docs/SAUVEGARDE.md`.
 
 ## Ce qui reste simulé
 
-- **Authentification** : sélection d'un profil + mot de passe libre. Brancher l'authentification
-  unique de l'entreprise (OIDC / SAML) dans `server/src/auth.ts` et la route `/api/login`.
+- **Authentification Microsoft 365** : les comptes Microsoft existent, leur connexion reste à brancher
+  (`server/src/connexion.ts`) ; les comptes Cursus (identifiant et mot de passe) fonctionnent.
 - **Keystone** : les appels entrants (`GET /api/integrations/keystone/chantiers/:id/go-no-go`,
   `POST /api/integrations/keystone/demandes`) sont réels ; les messages sortants (décisions,
   heures et absences validées, verdicts modifiés par une suspension, une levée, un retrait ou une

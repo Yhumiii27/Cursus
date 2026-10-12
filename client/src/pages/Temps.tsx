@@ -125,7 +125,7 @@ function recapOf(d: Domain, emp: Employe, calc: SheetCalc, week: ISODate): Recap
 export function Temps() {
   const d = useDomain();
   const data = d.ds;
-  const { rh, manager, collab, me } = useRole();
+  const { rh, admin, manager, collab, me } = useRole();
   const { ui, setUi, run } = useStore();
   const wk = ui.weekStart ?? mondayOf(data.today);
   const wdays = wDays(wk);
@@ -201,7 +201,9 @@ export function Temps() {
                 {pending ? `${plural(pending, 'feuille validée', 'feuilles validées')} en attente de transmission` : 'Toutes les feuilles validées ont été transmises'} · intérimaires (relevé envoyé à l’agence) et cadres dirigeants exclus
               </div>
             </div>
-            <button type="button" className="btn btn-primary" disabled={pending === 0} onClick={() => run('temps.pushSage')}>Transmettre par API</button>
+            {admin
+              ? <button type="button" className="btn btn-primary" disabled={pending === 0} onClick={() => run('temps.pushSage')}>Transmettre par API</button>
+              : <span className="text-muted sub">Transmission réservée à l’administrateur RH</span>}
           </div>
         }>
           {data.lastSagePush && <>

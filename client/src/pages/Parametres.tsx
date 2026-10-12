@@ -1,4 +1,5 @@
-// Paramètres (service RH) : règles de suivi, intégrations Keystone et Sage Paie, journal des actions, démonstration.
+// Paramètres (service RH) : règles de suivi, intégrations Keystone et Sage Paie, comptes et accès, journal des actions,
+// démonstration. Les réglages, les comptes et la réinitialisation sont réservés à l'administrateur RH ; le gestionnaire RH consulte.
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { ArrowCounterClockwiseIcon } from '@phosphor-icons/react';
 import { parse } from '../../../shared/dates.ts';
@@ -9,6 +10,7 @@ import { Field } from '../components/Dialog.tsx';
 import { Btn, Empty, Fine, Page, Panel, SectionLabel, Seg, Tag, Two } from '../components/ui.tsx';
 import { useRole } from '../state/derived.ts';
 import { useData, useStore } from '../state/store.tsx';
+import { ComptesPanel } from './Comptes.tsx';
 
 type JournalRow = Awaited<ReturnType<typeof api.journal>>[number];
 
@@ -41,7 +43,7 @@ function ModeTag({ mode }: { mode: string }) {
 export function Parametres() {
   const data = useData();
   const { session, run, setUi } = useStore();
-  const { rh } = useRole();
+  const { rh, admin, user } = useRole();
   const s = data.settings;
   const keystoneMode = session?.integrations.keystone ?? 'simulation';
   const sageMode = session?.integrations.sage ?? 'simulation';
@@ -90,18 +92,20 @@ export function Parametres() {
   const push = data.lastSagePush;
 
   return (
-    <Page kicker={`Administration · ${s.rhNom}`} title="Paramètres" note="Ces réglages s’appliquent à tous les utilisateurs de Cursus. Chaque modification est enregistrée immédiatement et tracée dans le journal.">
+    <Page kicker={`Administration · ${user.nom}`} title="Paramètres" note={admin
+      ? 'Ces réglages s’appliquent à tous les utilisateurs de Cursus. Chaque modification est enregistrée immédiatement et tracée dans le journal.'
+      : 'Consultation : les réglages, les comptes et la transmission à la paie sont réservés à l’administrateur RH.'}>
       <div className="row-wrap">
         <div className="col-stack" style={{ flex: '1 1 480px' }}>
           <Panel title="Règles de suivi" style={{ gap: 'var(--space-4)' }}>
             <Field label="Seuil d’alerte par défaut">
-              <Seg name="param-horizon" label="Seuil d’alerte par défaut" value={s.horizonAlerte} options={HORIZONS}
+              <Seg name="param-horizon" label="Seuil d’alerte par défaut" value={s.horizonAlerte} options={HORIZONS} disabled={!admin}
                 onChange={v => save({ horizonAlerte: v })} style={{ flexWrap: 'wrap' }} />
             </Field>
             <Fine>Une certification, une habilitation ou un document de voyage passe « À renouveler » lorsqu’il expire dans ce délai. Le tableau de bord permet de l’ajuster ponctuellement.</Fine>
 
             <label style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', fontSize: 14, cursor: 'pointer' }}>
-              <input type="checkbox" checked={s.uniquementReglementaire} onChange={e => save({ uniquementReglementaire: e.target.checked })}
+              <input type="checkbox" checked={s.uniquementReglementaire} disabled={!admin} onChange={e => save({ uniquementReglementaire: e.target.checked })}
                 style={{ accentColor: 'var(--color-accent)', marginTop: 'var(--space-1)', flex: 'none' }} />
               <span>
                 Suivre uniquement les formations réglementaires
@@ -111,7 +115,7 @@ export function Parametres() {
 
             <Field label="Seuil de tension budgétaire" htmlFor="param-seuil">
               <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-4)' }}>
-                <input id="param-seuil" type="range" min={60} max={100} step={5} value={seuil}
+                <input id="param-seuil" type="range" min={60} max={100} step={5} value={seuil} disabled={!admin}
                   onChange={e => setSeuilDraft(Number(e.target.value))} onPointerUp={commitSeuil} onKeyUp={commitSeuil} onBlur={commitSeuil}
                   style={{ flex: 1, maxWidth: 320, accentColor: 'var(--color-accent)' }} />
                 <span className="tnum" style={{ fontSize: 14, minWidth: '4ch' }}>{seuil} %</span>
@@ -120,7 +124,7 @@ export function Parametres() {
             <Fine>Une enveloppe d’équipe est signalée « Tension » lorsque le réalisé et l’engagé atteignent ce pourcentage du budget alloué.</Fine>
           </Panel>
 
-          {session?.demo && (
+          {session?.demo && admin && (
             <Panel title="Données de démonstration">
               <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>
                 Remet les collaborateurs, formations, feuilles de temps, absences, entretiens, paramètres et le journal dans leur état initial de démonstration. Une sauvegarde de la base actuelle est faite au préalable sur le serveur.
@@ -135,7 +139,7 @@ export function Parametres() {
         <div className="col-stack" style={{ flex: '1 1 380px' }}>
           <Panel title="Intégration Keystone" aside={<ModeTag mode={keystoneMode} />} style={{ gap: 'var(--space-4)' }}>
             <Field label="Niveau de partage des motifs">
-              <Seg name="param-partage" label="Niveau de partage des motifs" value={s.partageKeystone}
+              <Seg name="param-partage" label="Niveau de partage des motifs" value={s.partageKeystone} disabled={!admin}
                 options={[['minimal', 'Codes de motifs uniquement'], ['detaille', 'Codes et libellés des motifs']]}
                 onChange={v => save({ partageKeystone: v })} />
             </Field>
@@ -187,6 +191,8 @@ export function Parametres() {
         </div>
       </div>
 
+      {admin && <ComptesPanel />}
+
       <Panel title="Journal des actions" aside={
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
           <span className="text-muted sub">100 dernières actions</span>
@@ -206,7 +212,7 @@ export function Parametres() {
                   return (
                     <tr key={`${j.at}-${i}`}>
                       <td><Two main={fmt(at)} sub={at.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} nowrap /></td>
-                      <td><Two main={j.actor} sub={ROLE_LABEL[j.role] ?? j.role} nowrap /></td>
+                      <td><Two main={j.actor} sub={[j.role && (ROLE_LABEL[j.role] ?? j.role), j.identifiant].filter(Boolean).join(' · ')} nowrap /></td>
                       <td className="nowrap text-n300" style={MONO}>{j.action}</td>
                       <td className="text-muted" style={{ fontSize: 13 }}>{j.message ?? '—'}</td>
                     </tr>

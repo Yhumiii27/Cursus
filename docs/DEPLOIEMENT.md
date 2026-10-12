@@ -16,9 +16,11 @@ Sauvegardes et restauration : voir `docs/SAUVEGARDE.md`.
 
 ## Avant de commencer
 
-- **Authentification** : hors démonstration, Cursus n'ouvre aucun espace tant que l'authentification
-  unique de l'entreprise (OIDC / SAML) n'est pas branchée (chantier distinct, voir
-  `docs/RESTE_A_FAIRE.md`). Ce guide prépare l'hébergement ; l'ouverture aux utilisateurs en dépend.
+- **Comptes** : chaque personne a un compte nominatif. Les salariés dotés d'un compte Microsoft 365
+  s'y connecteront par Microsoft (branchement en cours, voir `docs/RESTE_A_FAIRE.md`) ; le personnel
+  sans compte d'entreprise (ouvriers, intérimaires, alternants) a un compte Cursus, identifiant et mot
+  de passe. Le premier administrateur RH se crée en ligne de commande (« Premier administrateur RH ») ;
+  il crée ensuite les autres comptes dans Paramètres → Comptes et accès.
 - **Recette** : chaque mise en production, première installation comme mise à jour, est précédée
   d'une recette par le groupe pilote (un RH, un manager, un collaborateur). Voir « Recette ».
 - **Données personnelles** : Cursus conserve des données relatives à la santé (visites médicales,
@@ -162,7 +164,39 @@ journalctl -u cursus -n 50
 ```
 
 Le journal doit afficher `Cursus — API sur http://127.0.0.1:3210 (application servie)`, sans
-« mode démonstration ». Une base vide reste vide : aucune donnée fictive n'est chargée.
+« mode démonstration ». Une base vide reste vide : aucune donnée fictive n'est chargée. Tant
+qu'aucun administrateur RH n'existe, il le rappelle : `Aucun administrateur RH : créez-le avec…`.
+
+## Premier administrateur RH
+
+Une installation vide n'a aucun compte. Le service informatique crée le premier administrateur RH
+sur le serveur, en tant qu'utilisateur `cursus` ; la commande fonctionne service démarré ou arrêté.
+Tant que la connexion Microsoft 365 n'est pas branchée, créer un compte Cursus (`--local`) :
+
+```bash
+cd /opt/cursus
+sudo -u cursus env CURSUS_DB=/var/lib/cursus/cursus.db \
+  npm run comptes -- admin rh.admin --local --nom "Prénom Nom" --adresse prenom.nom@entreprise.fr
+```
+
+La commande affiche un mot de passe provisoire, une seule fois : le remettre à la personne en main
+propre ; elle le remplace à sa première connexion (12 caractères au moins). Sans `--local`,
+l'identifiant est l'adresse Microsoft 365 de la personne (`npm run comptes -- admin
+prenom.nom@entreprise.fr`). `--salarie <n°>` rattache le compte à la fiche d'un salarié déjà
+saisie ; sans lui, le compte est externe (nom et adresse propres, espace RH seulement).
+
+L'administrateur RH crée ensuite les comptes des salariés et des autres membres du service RH
+(gestionnaires RH) dans Paramètres → Comptes et accès. Chaque création est tracée dans le journal.
+
+Recours : si plus aucun administrateur ne peut se connecter (mot de passe oublié, compte bloqué ou
+désactivé), relancer la même commande avec l'identifiant existant. Elle rétablit le profil
+administrateur RH, réactive et débloque le compte et, pour un compte Cursus, affiche un nouveau mot
+de passe provisoire (les sessions ouvertes de ce compte sont fermées).
+
+Protection des comptes Cursus : mot de passe haché (scrypt), message d'échec identique quel que
+soit l'identifiant, blocage du compte 15 minutes après 5 échecs, et refus (429) des tentatives d'une
+adresse IP au-delà de 30 échecs en 15 minutes — un atelier entier peut sortir par une même adresse.
+Connexions réussies et refusées sont tracées dans le journal, jamais les mots de passe.
 
 ## Reverse proxy HTTPS : Caddy (recommandé)
 
@@ -267,7 +301,10 @@ HTTPS, sans alerte de certificat.
 - Une session dure 12 heures au plus depuis la connexion, sans prolongation : chacun se reconnecte
   au moins une fois par journée de travail. « Se déconnecter » invalide la session aussitôt.
 - Départ d'un salarié : ses sessions sont refusées dès le lendemain de sa date de sortie, à minuit
-  heure de Paris (fuseau réglé, voir « Machine »).
+  heure de Paris (fuseau réglé, voir « Machine »). Désactiver son compte (Paramètres → Comptes et
+  accès) ferme ses sessions aussitôt.
+- Mot de passe Cursus oublié ou compte bloqué : l'administrateur RH attribue un nouveau mot de passe
+  provisoire (« Mot de passe » dans Comptes et accès).
 
 ## Recette
 
@@ -280,7 +317,7 @@ précède chaque mise en production.
 - Jamais de mode démonstration sur l'instance de recette : il ouvrirait l'espace RH sans mot de
   passe à tout visiteur d'Internet. Derrière le proxy, Cursus refuse de démarrer avec
   `CURSUS_DEMO=1` et refuserait (403) toute requête relayée. La recette se fait comme en
-  production, avec l'authentification unique.
+  production, avec des comptes nominatifs (premier administrateur : `npm run comptes`).
 - Données de recette fictives ou anonymisées : jamais de copie de la base de production (données
   de santé). Les données de démonstration peuvent être chargées dans la base de recette, service
   arrêté ; `CURSUS_DEMO=1` ne vaut alors que pour cette commande, jamais pour le service :

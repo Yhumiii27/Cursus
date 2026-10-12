@@ -1,11 +1,18 @@
 // Appels à l'API Cursus.
-import type { CurrentUser, Dataset, Role } from '../../shared/types.ts';
+import type { CompteSession, CompteVue, CurrentUser, Dataset, Role } from '../../shared/types.ts';
 
+/** Compte proposé à la connexion de démonstration (`id` : identifiant du compte). */
 export interface LoginOption { id: number; nom: string }
 export interface SessionState {
   demo: boolean;
+  /** Espace actif (ou demandé, tant qu'aucun compte n'y est connecté). */
   role: Role;
+  /** Personne connectée dans l'espace actif ; null tant qu'un mot de passe provisoire n'est pas remplacé. */
   user: CurrentUser | null;
+  /** Compte de la session : espaces ouverts, profil RH, mot de passe à changer. */
+  compte: CompteSession | null;
+  /** Mode de connexion de la session : compte local (mot de passe), démonstration. */
+  methode: 'local' | 'demo' | 'microsoft' | null;
   /** Comptes proposés à la connexion — uniquement en démonstration (null sinon). */
   loginOptions: Record<Role, LoginOption[]> | null;
   integrations: { keystone: string; sage: string };
@@ -27,10 +34,15 @@ async function request<T>(method: string, url: string, body?: unknown): Promise<
 export const api = {
   session: () => request<SessionState>('GET', '/api/session'),
   mode: (role: Role) => request<SessionState>('POST', '/api/mode', { role }),
-  login: (role: Role, empId: number | null, password: string) => request<SessionState>('POST', '/api/login', { role, empId, password }),
+  /** Démonstration : connexion libre au compte choisi pour l'espace. */
+  loginDemo: (role: Role, compteId: number, password: string) => request<SessionState>('POST', '/api/login', { role, compteId, password }),
+  /** Compte Cursus : identifiant et mot de passe. */
+  login: (identifiant: string, motDePasse: string) => request<SessionState>('POST', '/api/login', { identifiant, motDePasse }),
+  motDePasse: (actuel: string, nouveau: string) => request<SessionState>('POST', '/api/motdepasse', { actuel, nouveau }),
   logout: () => request<SessionState>('POST', '/api/logout'),
   data: () => request<Dataset>('GET', '/api/data'),
-  journal: () => request<{ at: string; actor: string; role: string; action: string; message: string | null }[]>('GET', '/api/journal'),
+  journal: () => request<{ at: string; actor: string; role: string | null; action: string; message: string | null; identifiant: string | null }[]>('GET', '/api/journal'),
+  comptes: () => request<CompteVue[]>('GET', '/api/comptes'),
   async action(name: string, payload: Record<string, unknown>): Promise<ActionResponse> {
     try {
       const r = await request<{ message: string | null; result?: unknown; data: Dataset }>('POST', `/api/actions/${name}`, payload);

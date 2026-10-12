@@ -15,6 +15,7 @@ import type { Request, Response } from 'express';
 
 const { problemesConfig } = await import('../server/src/config.ts');
 const { Db } = await import('../server/src/db.ts');
+const { seedDemo } = await import('../server/src/seed.ts');
 const { openSession, purgeSessions, readSession, revokeSessionsOf } = await import('../server/src/auth.ts');
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
@@ -125,9 +126,11 @@ test('démonstration désactivée par défaut : pas de session RH d’office, ba
   assert.equal(s.loginOptions, null);
   assert.equal(cookieOf(r), null, 'aucune session ouverte');
   assert.equal((await srv.call('/api/data')).status, 401);
-  assert.equal((await srv.call('/api/login', { method: 'POST', body: { role: 'rh' } })).status, 501);
+  // Hors démonstration, pas de connexion libre : identifiant et mot de passe d'un compte (tests/comptes.test.ts).
+  assert.equal((await srv.call('/api/login', { method: 'POST', body: { role: 'rh' } })).status, 400);
+  assert.equal((await srv.call('/api/login', { method: 'POST', body: { role: 'rh', compteId: 1 } })).status, 400);
   const m = await srv.call('/api/mode', { method: 'POST', body: { role: 'rh' } });
-  assert.equal((await m.json()).user, null);
+  assert.equal(m.status, 401);
   assert.equal(cookieOf(m), null, 'pas de session anonyme hors démonstration');
   assert.equal((await srv.call('/api/actions/demo.reinitialiser', { method: 'POST', body: {} })).status, 401);
   assert.match(srv.out(), /Base vide : aucune donnée de démonstration chargée/);
@@ -203,14 +206,15 @@ test('démonstration (CURSUS_DEMO=1) : clé Keystone, sessions et en-têtes', as
   });
 
   await t.test('salarié sorti (date de fin passée) → 401 et session révoquée', async () => {
-    const r = await srv.call('/api/login', { method: 'POST', body: { role: 'collaborateur', empId: 2, password: 'x' } });
+    const compteId = db.where<{ id: number }>('comptes', 'empId', 2)[0].id;
+    const r = await srv.call('/api/login', { method: 'POST', body: { role: 'collaborateur', compteId, password: 'x' } });
     const c = cookieOf(r)!;
     assert.equal((await r.json()).user.empId, 2);
     assert.equal((await srv.call('/api/data', { cookie: c })).status, 200);
     db.sql.prepare('UPDATE employes SET fin = ? WHERE id = ?').run('2026-10-09', 2);
     assert.equal((await srv.call('/api/data', { cookie: c })).status, 401);
     assert.ok(db.get<{ revocation: string | null }>('connexions', idOf(c))!.revocation);
-    assert.equal((await srv.call('/api/login', { method: 'POST', body: { role: 'collaborateur', empId: 2, password: 'x' } })).status, 403, 'nouvelle connexion refusée');
+    assert.equal((await srv.call('/api/login', { method: 'POST', body: { role: 'collaborateur', compteId, password: 'x' } })).status, 403, 'nouvelle connexion refusée');
     db.sql.prepare('UPDATE employes SET fin = NULL WHERE id = ?').run(2);
     assert.equal((await srv.call('/api/data', { cookie: c })).status, 401, 'la révocation est définitive');
   });
@@ -305,19 +309,22 @@ test('production : écoute sur la boucle locale, HSTS derrière le proxy HTTPS',
 
 test('sessions : révocation de toutes les sessions d’un salarié et purge des sessions expirées', () => {
   const db = new Db(':memory:');
+  seedDemo(db);
   const res = { setHeader() {} } as unknown as Response;
   const req = (id: string) => ({ headers: { cookie: `cursus_session=${id}` } }) as unknown as Request;
   const cookies: string[] = [];
   const capture = { setHeader: (_: string, v: string) => cookies.push(v.match(/cursus_session=([^;]*)/)![1]) } as unknown as Response;
-  openSession(db, capture, { role: 'collaborateur', rh: false, managerId: null, collabId: 7 });
-  openSession(db, capture, { role: 'manager', rh: false, managerId: 7, collabId: null });
-  openSession(db, capture, { role: 'collaborateur', rh: false, managerId: null, collabId: 8 });
+  const compte = (empId: number) => db.where<{ id: number }>('comptes', 'empId', empId)[0].id;
+  // Karim Haddad (12) encadre la Maintenance : espaces manager et collaborateur.
+  openSession(db, capture, { compteId: compte(12), role: 'collaborateur', methode: 'local' });
+  openSession(db, capture, { compteId: compte(12), role: 'manager', methode: 'local' });
+  openSession(db, capture, { compteId: compte(2), role: 'collaborateur', methode: 'local' });
   assert.ok(readSession(db, req(cookies[0])));
-  assert.equal(revokeSessionsOf(db, 7), 2);
+  assert.equal(revokeSessionsOf(db, 12), 2);
   assert.equal(readSession(db, req(cookies[0])), null);
   assert.equal(readSession(db, req(cookies[1])), null);
   assert.ok(readSession(db, req(cookies[2])), 'les autres salariés restent connectés');
-  openSession(db, res, { role: 'rh', rh: true, managerId: null, collabId: null }, new Date(Date.now() - 1000).toISOString());
+  openSession(db, res, { compteId: compte(2), role: 'collaborateur', methode: 'local' }, new Date(Date.now() - 1000).toISOString());
   assert.equal(purgeSessions(db), 1);
   assert.equal(db.count('connexions'), 3);
 });

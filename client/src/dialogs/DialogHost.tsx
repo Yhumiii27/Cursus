@@ -4,6 +4,7 @@ import { AbsDialog } from './AbsDialog.tsx';
 import { BudgetDialog } from './BudgetDialog.tsx';
 import { CertDialog } from './CertDialog.tsx';
 import { CetDialog } from './CetDialog.tsx';
+import { CompteDialog } from './CompteDialog.tsx';
 import { EntDialog } from './EntDialog.tsx';
 import { EmployeDialog } from './EmployeDialog.tsx';
 import { EntPlanDialog } from './EntPlanDialog.tsx';
@@ -12,6 +13,8 @@ import { FormaliteDialog } from './FormaliteDialog.tsx';
 import { HabDialog } from './HabDialog.tsx';
 import { HabMesureDialog } from './HabMesureDialog.tsx';
 import { MembreDialog } from './MembreDialog.tsx';
+import { MotDePasseDialog } from './MotDePasseDialog.tsx';
+import { MotDePasseProvisoireDialog } from './MotDePasseProvisoireDialog.tsx';
 import { PlanDialog } from './PlanDialog.tsx';
 import { PlanImportDialog } from './PlanImportDialog.tsx';
 import { ReportDialog } from './ReportDialog.tsx';
@@ -45,5 +48,8 @@ export function DialogHost() {
     case 'tripImport': return <TripImportDialog />;
     case 'planImport': return <PlanImportDialog {...d} />;
     case 'budget': return <BudgetDialog {...d} />;
+    case 'compte': return <CompteDialog />;
+    case 'motDePasseProvisoire': return <MotDePasseProvisoireDialog {...d} />;
+    case 'motDePasse': return <MotDePasseDialog />;
   }
 }

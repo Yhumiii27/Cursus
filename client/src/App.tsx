@@ -14,6 +14,7 @@ import { Formations } from './pages/Formations.tsx';
 import { Habilitations } from './pages/Habilitations.tsx';
 import { Login } from './pages/Login.tsx';
 import { Missions } from './pages/Missions.tsx';
+import { MotDePasse } from './pages/MotDePasse.tsx';
 import { Parametres } from './pages/Parametres.tsx';
 import { Portail } from './pages/Portail.tsx';
 import { Temps } from './pages/Temps.tsx';
@@ -29,6 +30,8 @@ const PAGES: Record<View, () => ReactElement> = {
 export function App() {
   const { session, data, loading, view } = useStore();
   if (loading) return <Shell><div className="loading">Chargement…</div></Shell>;
+  // Mot de passe provisoire : à remplacer avant tout accès aux données.
+  if (session?.compte?.changerMotDePasse && !session.user) return <Shell><MotDePasse /></Shell>;
   if (!session?.user) return <Shell><Login /></Shell>;
   if (!data) return <Shell><div className="loading">Chargement des données…</div></Shell>;
   const PageComponent = PAGES[view];

@@ -4,7 +4,7 @@ import { key } from '../../../shared/format.ts';
 import { contratFige } from '../../../shared/rules/temps.ts';
 import { MANAGER_FIELDS, PROFIL_FIELDS, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
 import type { Employe, Equipe, FeuilleTemps } from '../../../shared/types.ts';
-import { ActionError, getEmp, isManagerOf, isRh, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
+import { ActionError, getEmp, isManagerOf, isRh, requireRh, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
 function equipesNoms(ctx: Ctx) { return ctx.ds.referentiels.equipes.map(q => q.nom); }
 
@@ -113,8 +113,9 @@ const designer: ActionHandler = (ctx, p) => {
   return `${m.nom} devient manager de l’équipe ${q.nom}`;
 };
 
+/** Suppression d'une équipe vide : administrateur RH. */
 const supprimer: ActionHandler = (ctx, p) => {
-  requireRh(ctx);
+  requireRhAdmin(ctx);
   const q = getEquipe(ctx, p.nom);
   const n = ctx.ds.employes.filter(e => e.equipe === q.nom).length;
   if (n) throw new ActionError(`L’équipe compte encore ${n} collaborateur${n > 1 ? 's' : ''} : affectez-les d’abord à une autre équipe`);

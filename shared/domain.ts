@@ -146,7 +146,10 @@ export class Domain {
     const m = this.ds.referentiels.equipes.find(q => q.nom === e.equipe)?.managerId;
     return m && m !== e.id ? m : 0;
   }
-  mgrName(id: number): string { return id ? this.personName(id) : `${this.ds.settings.rhNom} (RH)`; }
+  /** Valideur désigné par `mgrOf` : le manager, ou le service RH (plusieurs personnes, aucune n'est nommée). */
+  mgrName(id: number): string { return id ? this.personName(id) : 'le service RH'; }
+  /** Destinataire d'un envoi au valideur : « à Karim Haddad », « au service RH ». */
+  mgrDest(id: number): string { return id ? `à ${this.personName(id)}` : 'au service RH'; }
   managers(): { id: number; equipe: string }[] {
     return this.ds.referentiels.equipes.filter(q => q.managerId).map(q => ({ id: q.managerId!, equipe: q.nom }));
   }

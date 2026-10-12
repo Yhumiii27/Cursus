@@ -54,7 +54,10 @@ export type DialogState =
   | { type: 'ent'; entId: number }
   | { type: 'tripImport' }
   | { type: 'planImport'; exercice: number }
-  | { type: 'budget'; exercice: number };
+  | { type: 'budget'; exercice: number }
+  | { type: 'compte' }
+  | { type: 'motDePasseProvisoire'; nom: string; identifiant: string; motDePasse: string }
+  | { type: 'motDePasse' };
 
 interface Toast { text: string; error?: boolean }
 
@@ -75,7 +78,11 @@ export interface Store {
   run: (name: string, payload?: Record<string, unknown>, opts?: { silent?: boolean }) => Promise<ActionResponse>;
   runIntent: (intent: UiIntent) => void;
   switchMode: (role: Role) => Promise<void>;
-  login: (role: Role, empId: number | null, password: string) => Promise<string | null>;
+  /** Démonstration : connexion libre au compte choisi. Renvoie le message d'erreur, ou null. */
+  loginDemo: (role: Role, compteId: number, password: string) => Promise<string | null>;
+  /** Compte Cursus (identifiant et mot de passe). Renvoie le message d'erreur, ou null. */
+  login: (identifiant: string, motDePasse: string) => Promise<string | null>;
+  changerMotDePasse: (actuel: string, nouveau: string) => Promise<string | null>;
   logout: () => Promise<void>;
   refresh: () => Promise<void>;
 }
@@ -189,11 +196,23 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     await applySession(s);
   }, [applySession]);
 
-  const login = useCallback(async (r: Role, empId: number | null, password: string) => {
+  /** Ouvre la session renvoyée par `call` ; renvoie le message d'erreur, ou null. */
+  const connect = useCallback(async (call: () => Promise<SessionState>) => {
     try {
-      const s = await api.login(r, empId, password);
+      const s = await call();
       setRawView('');
+      setUiState(u => ({ ...INITIAL_UI, horizon: u.horizon }));
       await applySession(s);
+      return null;
+    } catch (err) {
+      return (err as Error).message;
+    }
+  }, [applySession]);
+  const loginDemo = useCallback((r: Role, compteId: number, password: string) => connect(() => api.loginDemo(r, compteId, password)), [connect]);
+  const login = useCallback((identifiant: string, motDePasse: string) => connect(() => api.login(identifiant, motDePasse)), [connect]);
+  const changerMotDePasse = useCallback(async (actuel: string, nouveau: string) => {
+    try {
+      await applySession(await api.motDePasse(actuel, nouveau));
       return null;
     } catch (err) {
       return (err as Error).message;
@@ -222,7 +241,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   const value: Store = {
     session, data, loading, view, go, ui: effectiveUi, setUi, dialog, openDialog: setDialog, closeDialog: () => setDialog(null),
-    toast, notify, run, runIntent, switchMode, login, logout, refresh,
+    toast, notify, run, runIntent, switchMode, loginDemo, login, changerMotDePasse, logout, refresh,
   };
   return <Ctx.Provider value={value}>{children}</Ctx.Provider>;
 }

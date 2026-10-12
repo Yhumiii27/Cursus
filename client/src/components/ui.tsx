@@ -54,14 +54,14 @@ export function Chips({ items }: { items: { key?: string | number; label: ReactN
 }
 
 /** Contrôle segmenté (boutons radio stylés). */
-export function Seg<T extends string | number>({ name, value, options, onChange, label, style }: {
-  name: string; value: T; options: [T, ReactNode][]; onChange: (v: T) => void; label: string; style?: CSSProperties;
+export function Seg<T extends string | number>({ name, value, options, onChange, label, style, disabled }: {
+  name: string; value: T; options: [T, ReactNode][]; onChange: (v: T) => void; label: string; style?: CSSProperties; disabled?: boolean;
 }) {
   return (
-    <div className="seg" role="radiogroup" aria-label={label} style={style}>
+    <div className="seg" role="radiogroup" aria-label={label} aria-disabled={disabled || undefined} style={style}>
       {options.map(([v, l]) => (
         <label key={String(v)} className="seg-opt">
-          <input type="radio" name={name} checked={value === v} onChange={() => onChange(v)} />{l}
+          <input type="radio" name={name} checked={value === v} disabled={disabled} onChange={() => onChange(v)} />{l}
         </label>
       ))}
     </div>

@@ -19,7 +19,10 @@ server/src/
   sauvegarde.ts    Copie à chaud (VACUUM INTO), rotation, restauration, verrou du serveur ;
                    scripts backup.ts et restore.ts (npm run backup / restore, voir docs/SAUVEGARDE.md)
   dataset.ts       Assemblage de l'instantané + restriction par rôle (RH / manager / collaborateur)
-  auth.ts          Sessions en base (cookie signé, 12 h, révocation) ; point d'entrée pour l'authentification unique
+  auth.ts          Sessions en base (cookie signé, 12 h, révocation) : un compte et l'espace actif
+  comptes.ts       Comptes nominatifs (Microsoft 365 ou compte local), espaces, mots de passe (scrypt), journal
+  connexion.ts     Routes de session : /api/session, /api/mode, /api/login, /api/motdepasse, /api/logout, /api/comptes
+  comptes-cli.ts   npm run comptes -- admin <identifiant> : premier administrateur RH (docs/DEPLOIEMENT.md)
   config.ts        Variables d'environnement, contrôlées au démarrage (refus en production si dangereuses)
   securite.ts      En-têtes de sécurité HTTP (CSP, HSTS, anti-iframe…)
   actions/         Actions métier (POST /api/actions/:nom), contrôles d'accès et validations
@@ -58,11 +61,32 @@ design/            Prototype Claude Design de référence et guide du design sys
   Le mode démonstration ne s'active qu'avec `CURSUS_DEMO=1` ; en production (application de bureau),
   `demoPosteLocal` (`server/src/securite.ts`) refuse en plus (403) toute requête relayée par un proxy
   ou adressée à un autre nom que la boucle locale.
+- **Comptes** (`server/src/comptes.ts`, table `comptes`) : un compte par personne — un salarié (`empId`)
+  ou une personne externe (nom et adresse, espace RH seulement). Identifiant unique en minuscules
+  (l'adresse Microsoft 365 pour un compte Microsoft ; `oid` renseigné à la première connexion Microsoft,
+  étape suivante). Compte local à Cursus pour le personnel sans compte d'entreprise : empreinte scrypt
+  salée (`scrypt$N$r$p$sel$empreinte`), comparaison en temps constant, mot de passe provisoire à changer
+  à la première connexion (12 caractères au moins), blocage 15 min après 5 échecs, limite d'échecs par
+  adresse IP. Espaces du compte : RH selon le profil RH, manager si le salarié encadre une équipe,
+  collaborateur s'il est salarié. Un compte désactivé, ou dont le salarié est sorti, ne se connecte plus
+  et ses sessions sont révoquées. Premier administrateur : `npm run comptes -- admin <identifiant>`.
+- **Profils RH** (`PROFILS_RH` de `shared/constants.ts`) : `rh_gestionnaire` (droit `rh` : espace RH et
+  actions courantes) et `rh_admin` (droits `rh` et `admin` : paramètres, transmission à la paie,
+  suppressions, comptes et accès, réinitialisation de la démonstration). Contrôles serveur `requireRh` et
+  `requireRhAdmin` (`server/src/actions/context.ts`). Les profils à venir (référent HSE, paie, lecture
+  seule) s'ajoutent à `PROFILS_RH` avec leurs droits. Cursus garde toujours un administrateur RH actif.
+- **Identité** : dans l'espace RH, `user.empId` reste null (la personne agit pour le service RH), mais
+  `user.nom` est celui de la personne connectée : il signe le journal (avec `compteId` et `identifiant`)
+  et les mesures (`mesurePar`, reports de CP). `rhNom` et `rhIntitule` ne sont plus des paramètres : le
+  valideur d'un salarié sans manager est « le service RH ».
 - **Sessions** (`server/src/auth.ts`, table `connexions`) : le cookie `cursus_session` ne porte que
-  l'identifiant de session signé. Durée absolue de 12 h ; `/api/logout` révoque, `/api/mode` met à
-  jour la session ouverte, une connexion en ouvre une nouvelle. Une session dont le salarié rattaché
-  a une date de sortie passée est révoquée ; `revokeSessionsOf(db, empId)` révoque toutes celles d'un
-  salarié. Les sessions expirées sont purgées au démarrage puis toutes les heures.
+  l'identifiant de session signé ; la session porte le compte et l'espace actif. Durée absolue de 12 h ;
+  `/api/logout` révoque, `/api/mode` ne bascule que vers un espace du compte (403 sinon), une connexion
+  en ouvre une nouvelle. `revokeSessionsOf(db, empId)` révoque toutes les sessions d'un salarié,
+  `revokeSessionsDuCompte(db, compteId)` celles d'un compte. Les sessions expirées sont purgées au
+  démarrage puis toutes les heures. En démonstration, la connexion reste libre (sélecteur de vue, choix
+  d'un compte, mot de passe quelconque) mais passe par les mêmes comptes : le jeu de démonstration crée
+  un compte par salarié et celui de la RH de démonstration, administratrice RH.
 - **En-têtes** (`server/src/securite.ts`) : CSP stricte (`script-src 'self'`, `style-src 'self'`).
   Ne jamais produire de `<script>`, de `<style>` ni d'attribut `style="…"` en HTML brut : la prop
   `style` de React reste permise. Les documents imprimables utilisent `client/src/styles/print.css`
@@ -85,16 +109,20 @@ design/            Prototype Claude Design de référence et guide du design sys
 - Les propositions d'action calculées par le domaine (`Proposal.intent`) s'exécutent
   avec `runIntent(intent)`.
 - Masquer les actions que le rôle n'a pas le droit d'effectuer (le serveur refuse de
-  toute façon) : `useRole()` donne `rh`, `manager`, `collab`, `me`.
+  toute façon) : `useRole()` donne `rh`, `admin` (administrateur RH), `manager`, `collab`, `me`.
 - Icônes : Phosphor (`@phosphor-icons/react`, noms suffixés `Icon`).
 
 ## Actions disponibles
+
+« RH » : administrateur et gestionnaires RH ; « administrateur RH » : profil `rh_admin` seulement.
+`tests/droits.test.ts` vérifie chaque action pour six profils et échoue si une action n'y a pas sa ligne.
 
 | Action | Paramètres | Droits |
 | --- | --- | --- |
 | `employe.creer` | fiche complète (`ProfilInput` de `shared/rules/profil.ts`) | RH |
 | `employe.modifier` | id + champs de la fiche | RH : tous ; manager : `poste`, `jourOff` (temps partiel) des membres de son équipe |
-| `equipe.creer` / `equipe.renommer` / `equipe.supprimer` | nom, managerId? / nom, nouveau / nom | RH |
+| `equipe.creer` / `equipe.renommer` | nom, managerId? / nom, nouveau | RH |
+| `equipe.supprimer` | nom | administrateur RH |
 | `equipe.manager` | nom, managerId (null = aucun) | RH |
 | `equipe.affecter` | empId, equipe (null = à affecter) | RH ; manager : ajout à une équipe qu'il encadre, retrait d'un membre |
 | `plan.inscrire` | empId, certId, sessionId, conv (`now`/`later`) | RH, manager direct |
@@ -112,14 +140,14 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `formalite.enregistrer` | empId, kind (`passeport`/`visa`/`vaccin`), numero, expire, dest, visaType, obtenu, v, date | RH (écrit dans le dossier), ou le collaborateur pour lui-même (déclaration en attente, voir ci-dessous) |
 | `voyages.importer` | texte (CSV) | RH |
 | `keystone.accepter` / `keystone.refuser` | id | RH |
-| `plan.importer` | texte, exercice, mode (`add`/`replace`) | RH |
+| `plan.importer` | texte, exercice, mode (`add`/`replace`) | RH ; `replace` (supprime les lignes prévues) : administrateur RH |
 | `budget.enveloppes` | exercice, enveloppes {équipe: montant} | RH |
 | `plan.avancer` | id | RH |
 | `temps.setCell` | empId, week, li, di, value | salarié, manager direct ou RH (feuille soumise : valideur uniquement) ; aucune heure un jour d’absence validée, vider la cellule reste possible |
 | `temps.addLine` / `temps.removeLine` | empId, week, projet / li | idem |
 | `temps.suggest` / `temps.submit` | empId, week | idem (soumission : brouillon ou à corriger, sans heures un jour d’absence validée) |
 | `temps.validate` / `temps.reject` | empId, week, comment? | manager direct ou RH (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord) |
-| `temps.pushSage` | — | RH |
+| `temps.pushSage` | — | administrateur RH |
 | `absence.demander` | empId, kind (`CP`/`RTT`/`RECUP`), du, au | intéressé ou RH (demande, refusée si ces jours portent des heures sur une feuille validée) ; manager direct (posée et validée, refusée si des heures sont saisies ces jours-là) |
 | `absence.decider` | id, ok | manager direct ou RH (validation refusée si des heures sont saisies ces jours-là) |
 | `cet.placer` | empId, kind, jours | intéressé ou RH |
@@ -128,8 +156,12 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `entretien.modifier` | id, section?, value?, info? | évaluateur / salarié selon la section |
 | `entretien.clore` | id | évaluateur |
 | `entretien.signer` | id | salarié |
-| `parametres.maj` | horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, silent? | RH |
-| `demo.reinitialiser` | — | RH, mode démonstration |
+| `parametres.maj` | horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, silent? | administrateur RH |
+| `demo.reinitialiser` | — | administrateur RH, mode démonstration |
+| `compte.creer` | empId (ou nom, adresse : compte externe), type (`microsoft`/`local`), identifiant, profilRh | administrateur RH (mot de passe provisoire dans `result`, affiché une fois) |
+| `compte.profil` | id, profilRh (`aucun`/`rh_gestionnaire`/`rh_admin`) | administrateur RH (jamais le dernier administrateur actif) |
+| `compte.activer` | id, actif | administrateur RH (désactiver ferme les sessions ; pas son propre compte) |
+| `compte.reinitialiser` | id | administrateur RH (compte local : nouveau mot de passe provisoire, sessions fermées) |
 
 ## Contrat et temps de travail
 
@@ -193,4 +225,5 @@ valide comme une déclaration ordinaire.
   suspension, une levée, un retrait ou la nouvelle délivrance qui suit un retrait (`verdict.modifie` :
   chantier, matricule, codes de motif). En simulation, les messages sont écrits dans le journal.
 - **Sage Paie** : `server/src/integrations/sage.ts` (`pushToSage`).
-- **Authentification unique** : `server/src/auth.ts` et la route `/api/login`.
+- **Microsoft 365** (étape suivante) : `server/src/connexion.ts` ; un compte Microsoft se retrouve par
+  son `oid`, ou par son identifiant (adresse) à la première connexion.

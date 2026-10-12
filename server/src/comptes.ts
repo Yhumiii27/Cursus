@@ -6,6 +6,7 @@
 // au moins une équipe, collaborateur s'il est salarié.
 import { randomBytes, randomInt, scrypt, scryptSync, timingSafeEqual, type ScryptOptions } from 'node:crypto';
 import { aDroitRh, BLOCAGE_MINUTES, COMPTE_TYPE_LABEL, ECHECS_MAX, PROFILS_RH } from '../../shared/constants.ts';
+import { estActionPaie } from '../../shared/journal.ts';
 import { adresseValide, controleIdentifiant, normaliserIdentifiant } from '../../shared/rules/comptes.ts';
 import type { CompteSession, CompteType, CompteVue, Employe, ProfilRh, Role } from '../../shared/types.ts';
 import { ActionError } from './actions/context.ts';
@@ -235,12 +236,18 @@ export function libelleCompte(db: Db, c: Compte): string {
 export interface EntreeJournal {
   actor: string; role: string | null; action: string; message: string | null; payload?: unknown;
   compte?: Pick<Compte, 'id' | 'identifiant'> | null;
+  /** Salariés concernés (historique de la fiche, filtre « salarié », export de ses données). */
+  salaries?: number[];
 }
 
-/** Trace une opération dans le journal, signée du nom de la personne et de son compte. */
+/**
+ * Trace une opération dans le journal, signée du nom de la personne et de son compte. Le contenu est
+ * déjà expurgé (liste blanche de server/src/journal.ts) ; une action liée à la paie est marquée pour
+ * l'archive (conservée 3 ans au lieu d'1 an).
+ */
 export function journaliser(db: Db, e: EntreeJournal) {
   db.insert('journal', {
     at: new Date().toISOString(), actor: e.actor, role: e.role, action: e.action, message: e.message, payload: e.payload ?? {},
-    compteId: e.compte?.id ?? null, identifiant: e.compte?.identifiant ?? null,
+    compteId: e.compte?.id ?? null, identifiant: e.compte?.identifiant ?? null, salaries: [...new Set(e.salaries ?? [])], paie: estActionPaie(e.action),
   });
 }

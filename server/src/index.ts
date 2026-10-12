@@ -2,15 +2,18 @@
 import express from 'express';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { ACTIONS, QUIET_ACTIONS, changeVerdicts } from './actions/index.ts';
+import { libelleAction } from '../../shared/journal.ts';
+import { ACTIONS, changeVerdicts } from './actions/index.ts';
 import { ActionError, makeCtx } from './actions/context.ts';
 import { DEMO, purgeSessions } from './auth.ts';
-import { adminsActifs, journaliser } from './comptes.ts';
+import { adminsActifs } from './comptes.ts';
 import { enProduction, hoteEcoute, portEcoute, trustProxy, verifierConfig } from './config.ts';
 import { espaceChange, identite, routesConnexion } from './connexion.ts';
 import { buildSnapshot, loadFull } from './dataset.ts';
 import { dbFile, openDb } from './db.ts';
+import { routesDonnees } from './donnees.ts';
 import { demarrerEnvois, etatEnvois, listerEnvois } from './envois.ts';
+import { demarrerJournal, journaliserAction, preparerTrace, routesJournal, tracerRefus } from './journal.ts';
 import { migrate } from './migrate.ts';
 import { KEYSTONE_MODE, transportKeystone } from './integrations/keystone.ts';
 import { suivreVerdicts, suivreVerdictsChaqueJour } from './integrations/keystone-verdicts.ts';
@@ -43,6 +46,8 @@ if (!DEMO && !adminsActifs(db)) console.log('Aucun administrateur RH : créez-le
 // Sessions expirées : purgées au démarrage puis toutes les heures.
 purgeSessions(db);
 setInterval(() => purgeSessions(db), 3600_000).unref();
+// Journal : anciennes lignes expurgées une fois, durées de conservation appliquées au démarrage puis toutes les heures.
+demarrerJournal(db);
 // Messages sortants : file d'envoi traitée en tâche de fond, verdicts Go / No Go recalculés chaque jour.
 suivreVerdictsChaqueJour(db);
 demarrerEnvois(db, { keystone: transportKeystone() });
@@ -79,10 +84,12 @@ app.post('/api/actions/:name', (req, res) => {
   try {
     const out = db.tx(() => {
       const ctx = makeCtx(db, user, loadFull(db, user));
+      const trace = preparerTrace(db, name, req.body ?? {});
       const r = handler(ctx, req.body ?? {});
       const o = typeof r === 'object' && r !== null ? r : { message: r };
-      // Journal signé du nom de la personne connectée et de son compte.
-      if (!QUIET_ACTIONS.has(name)) journaliser(db, { actor: user.nom, role: user.role, action: name, message: o.message ?? null, payload: req.body ?? {}, compte });
+      // Journal signé du nom de la personne connectée et de son compte : champs de la liste blanche de l'action,
+      // anciennes et nouvelles valeurs, salariés concernés (server/src/journal.ts).
+      journaliserAction(db, trace, { user, compte, message: o.message ?? null, result: o.result });
       // Verdicts transmis à Keystone : un changement est mis en file avec l'action, dans la même transaction.
       if (changeVerdicts(name)) suivreVerdicts(db);
       return o;
@@ -92,31 +99,26 @@ app.post('/api/actions/:name', (req, res) => {
     const apres = identite(db, req)?.user;
     res.json({ message: out.message ?? null, result: out.result, data: apres ? buildSnapshot(db, apres) : undefined });
   } catch (err) {
+    // Refus d'accès : tracé hors de la transaction annulée (rien n'a été modifié).
+    if (err instanceof ActionError && err.status === 403) tracerRefus(db, id, libelleAction(name), err.message, { action: name, p: req.body });
     if (err instanceof ActionError) return res.status(err.status).json({ error: err.message });
     console.error(err);
     res.status(500).json({ error: 'Erreur interne' });
   }
 });
 
-app.get('/api/journal', (req, res) => {
-  const user = identite(db, req)?.user;
-  if (!user || user.role !== 'rh') return res.status(403).json({ error: 'Réservé au service RH' });
-  // Appels entrants de Keystone (keystone.appel) : vue distincte (?vue=keystone), pour que leur volume
-  // ne masque pas les actions des utilisateurs ; toutes les lignes restent en base.
-  // Hors de cette vue, filtre : connexions (et mots de passe) ou opérations (tout le reste), pour que des
-  // refus de connexion en nombre ne chassent pas les opérations RH des 100 lignes affichées.
-  const appels = `action = 'keystone.appel'`;
-  const connexions = `(action LIKE 'connexion%' OR action LIKE 'motdepasse.%')`;
-  const filtre = req.query.vue === 'keystone' ? `WHERE ${appels}`
-    : `WHERE NOT ${appels}` + (req.query.filtre === 'connexions' ? ` AND ${connexions}` : req.query.filtre === 'operations' ? ` AND NOT ${connexions}` : '');
-  const rows = db.sql.prepare(`SELECT at, actor, role, action, message, identifiant FROM journal ${filtre} ORDER BY id DESC LIMIT 100`).all();
-  res.json(rows);
-});
+// Journal des actions (consultation filtrée et paginée, export CSV, archive paie, exports de l'interface) et
+// données personnelles d'un salarié (export RH, téléchargement par l'intéressé) : server/src/journal.ts, donnees.ts.
+app.use(routesJournal(db));
+app.use(routesDonnees(db));
 
 // File d'envoi des messages sortants (Paramètres → Envois) : état de l'intégration et derniers messages.
 app.get('/api/envois', (req, res) => {
-  const user = identite(db, req)?.user;
-  if (!user || user.role !== 'rh') return res.status(403).json({ error: 'Réservé au service RH' });
+  const id = identite(db, req), user = id?.user;
+  if (!user || user.role !== 'rh') {
+    if (id) tracerRefus(db, id, 'Envois sortants', 'réservé au service RH');
+    return res.status(403).json({ error: 'Réservé au service RH' });
+  }
   res.json({ keystone: { mode: KEYSTONE_MODE, ...etatEnvois(db, 'keystone') }, envois: listerEnvois(db, { statut: req.query.statut }) });
 });
 

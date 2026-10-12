@@ -154,6 +154,11 @@ tr.selected { background: color-mix(in srgb, var(--color-accent) 10%, transparen
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .rules { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--color-neutral-300); }
 
+/* Journal des actions (Paramètres) : filtres sur une ligne qui se replie, pied avec pagination. */
+.journal-filtres { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: var(--space-3); align-items: start; }
+.journal-filtres > .fin { align-self: end; }
+.journal-pied { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+
 /* — Dialogues — */
 .dialog-backdrop { z-index: 20; }
 .dialog .dialog-body { display: flex; flex-direction: column; gap: var(--space-4); opacity: 1; }

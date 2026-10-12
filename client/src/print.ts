@@ -1,4 +1,6 @@
 // Documents imprimables (passeport formation, compte rendu d'entretien) et exports CSV.
+// Chaque export ou impression est signalé au serveur pour le journal des actions (`empId` : salarié concerné).
+import { api } from './api.ts';
 import printCss from './styles/print.css?url';
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -14,9 +16,10 @@ const PRINT_JS = '/imprimer.js';
  * en page vient d'une feuille servie, l'impression d'un script servi qui s'exécute dans l'onglet
  * ouvert, au premier plan (téléphones compris). Le doctype garde le document en mode standard.
  */
-export function printDocument(title: string, subtitle: string, sections: PrintSection[]) {
+export function printDocument(title: string, subtitle: string, sections: PrintSection[], empId?: number) {
   const w = window.open('', '_blank');
   if (!w) return false;
+  api.signalerExport({ nature: 'impression', titre: title, empId });
   const url = (path: string) => esc(new URL(path, location.href).href);
   const body = sections.map(s => `
     <section>
@@ -38,7 +41,8 @@ export function printDocument(title: string, subtitle: string, sections: PrintSe
 }
 
 /** Télécharge un fichier CSV (séparateur « ; », encodage UTF-8 avec BOM pour Excel). */
-export function downloadCsv(filename: string, head: string[], rows: (string | number)[][]) {
+export function downloadCsv(filename: string, head: string[], rows: (string | number)[][], empId?: number) {
+  api.signalerExport({ nature: 'csv', titre: filename, lignes: rows.length, empId });
   const cell = (v: string | number) => { const s = String(v ?? ''); return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
   const csv = '﻿' + [head, ...rows].map(r => r.map(cell).join(';')).join('\r\n');
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));

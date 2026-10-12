@@ -62,7 +62,15 @@ export const TABLES = {
   },
   settings: { pk: 'key', cols: { key: 'text', value: 'json' } },
   // `actor` : nom de la personne connectée ; `compteId` et `identifiant` : son compte (server/src/comptes.ts).
-  journal: { pk: 'id', auto: true, cols: { id: 'int', at: 'text', actor: 'text', role: 'text', action: 'text', message: 'text', payload: 'json', compteId: 'int', identifiant: 'text' } },
+  // `payload` : champs retenus par la liste blanche de l'action ; `salaries` : salariés concernés ; `paie` : action
+  // liée à la paie, archivée (`archivee`) au bout d'un an au lieu d'être supprimée (server/src/journal.ts).
+  journal: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', at: 'text', actor: 'text', role: 'text', action: 'text', message: 'text', payload: 'json', compteId: 'int', identifiant: 'text',
+      salaries: 'json', paie: 'bool', archivee: 'text',
+    },
+  },
   // Comptes de connexion (server/src/comptes.ts) : un par personne, salarié (`empId`) ou externe (`nom`, `adresse`).
   // `identifiant` en minuscules (adresse Microsoft 365 pour un compte Microsoft) ; `oid` : identifiant Microsoft,
   // renseigné à la première connexion ; `motDePasse` : empreinte scrypt d'un compte local.
@@ -218,10 +226,10 @@ export class Db {
     return Number((this.sql.prepare(`SELECT COUNT(*) AS n FROM ${snake(table)}`).get() as Row).n);
   }
 
-  /** Vide les données (les sessions de connexion restent ouvertes). */
+  /** Vide les données (les sessions de connexion restent ouvertes, le journal des actions est conservé). */
   clearAll() {
-    for (const name of Object.keys(TABLES)) if (name !== 'connexions') this.sql.exec(`DELETE FROM ${snake(name)}`);
-    this.sql.exec(`DELETE FROM sqlite_sequence`);
+    for (const name of Object.keys(TABLES)) if (name !== 'connexions' && name !== 'journal') this.sql.exec(`DELETE FROM ${snake(name)}`);
+    this.sql.exec(`DELETE FROM sqlite_sequence WHERE name <> 'journal'`);
   }
 
   /** Exécute `fn` dans une transaction (annulée en cas d'erreur). */

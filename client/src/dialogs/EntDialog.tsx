@@ -97,7 +97,7 @@ export function EntDialog({ entId }: { entId: number }) {
         ['Salarié', x.signSal ? `${e.nom} — signé le ${fmt(parse(x.signSal))}` : 'Non signé'],
       ] },
     ];
-    const ok = printDocument(`${T0.nom} — compte rendu`, `${e.nom} · ${e.poste} · ${fmt(parse(x.date))}`, doc);
+    const ok = printDocument(`${T0.nom} — compte rendu`, `${e.nom} · ${e.poste} · ${fmt(parse(x.date))}`, doc, e.id);
     if (!ok) notify('Autorisez les fenêtres surgissantes pour télécharger le compte rendu', true);
   };
 

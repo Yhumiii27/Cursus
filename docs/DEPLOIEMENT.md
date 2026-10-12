@@ -207,8 +207,8 @@ soit l'identifiant, blocage du compte 15 minutes après 5 échecs, et refus (429
 adresse IP au-delà de 30 échecs en 15 minutes — un atelier entier peut sortir par une même adresse.
 Chaque tentative est comptée dès son arrivée, avant la vérification du mot de passe : des requêtes
 envoyées en même temps ne passent pas ces limites (une connexion réussie est rendue à l'adresse).
-Connexions réussies et refusées sont tracées dans le journal, jamais les mots de passe ; le filtre
-« Connexions » / « Opérations » de Paramètres → Journal les sépare des opérations RH.
+Connexions réussies et refusées sont tracées dans le journal, jamais les mots de passe ; la vue
+« Connexions et accès » / « Opérations » de Paramètres → Journal les sépare des opérations RH.
 
 ## Reverse proxy HTTPS : Caddy (recommandé)
 
@@ -419,6 +419,18 @@ précède chaque mise en production.
   et le service RH les relance une fois Keystone rétabli, ou les classe s'ils ne passeront jamais (refus
   définitif examiné) : classés, ils ne comptent plus dans l'état de l'intégration. Aucun message n'est
   perdu à un redémarrage : la file est dans la base.
+- Journal des actions : conservé 1 an, puis supprimé, sauf les actions liées à la paie (validations,
+  corrections d'heures, transmissions), qui passent dans une archive gardée 3 ans (Paramètres → Journal
+  des actions → « Consulter l'archive paie », consultation tracée). Le serveur applique ces durées au
+  démarrage puis toutes les heures, et retire en même temps de la file d'envoi les envois réussis ou simulés
+  de plus d'un an (un échec non classé reste jusqu'à son traitement) ; la ligne `journal.conservation` en
+  fait le bilan. Au premier démarrage de cette version, les anciennes lignes sont expurgées (numéros de
+  passeport, CSV importés, natures d'absence médicales…). Les sauvegardes gardent l'état de la base au
+  moment de la copie : leur rotation (`docs/SAUVEGARDE.md`) borne la durée de vie de ces anciennes lignes.
+- Demande d'accès d'un salarié à ses données (RGPD, article 15) : fiche du collaborateur → « Exporter ses
+  données » (fichier JSON : toutes les tables qui le concernent et le journal des actions le concernant) ;
+  l'export est tracé. Le salarié peut aussi télécharger lui-même ses données depuis son espace (sans le
+  journal, qui cite d'autres personnes : à relire avant de le lui remettre).
 - Mise en service des envois (premier démarrage avec `KEYSTONE_URL`) : les verdicts Go / No Go calculés
   en simulation n'ont jamais été reçus ; Cursus envoie alors le verdict actuel de chaque ressource des
   chantiers en cours ou à venir, un message chacune. `KEYSTONE_URL` ne porte jamais d'identifiants

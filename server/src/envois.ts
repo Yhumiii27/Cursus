@@ -124,7 +124,7 @@ export async function envoyer(db: Db, e: Envoi, t: Transport, horloge = () => ne
     db.insert('journal', {
       at, actor: 'Cursus', role: 'integration', action: `${e.cible}.echec`,
       message: `Envoi ${e.type} en échec après ${tentatives} tentative${tentatives > 1 ? 's' : ''} — ${issue.erreur}`,
-      payload: { envoi: e.id, type: e.type, cle: e.cle },
+      payload: { envoi: e.id, type: e.type, cle: e.cle }, paie: e.cible === 'sage',
     });
     return x;
   }
@@ -196,6 +196,16 @@ export function etatEnvois(db: Db, cible: Cible): EtatEnvois {
     cible, nombres: n, echecsEnCours: Number(ouverts.n), dernierSucces: dernier.envoi ?? null,
     enReprise: t && t.tentatives > 0 ? { id: t.id, type: t.type, tentatives: t.tentatives, prochaine: t.prochaine, erreur: t.erreur } : null,
   };
+}
+
+/**
+ * Conservation (appelée avec celle du journal, server/src/journal.ts) : les envois réussis ou simulés émis avant
+ * `avant` (ISO) sont supprimés, comme les échecs classés par le RH avant cette date. Un échec non classé (pas encore
+ * traité) et un message à envoyer restent en file. Renvoie le nombre d'envois supprimés.
+ */
+export function purgerEnvois(db: Db, avant: string): number {
+  return Number(db.sql.prepare(`DELETE FROM envois WHERE (statut IN ('envoye', 'simule') AND COALESCE(envoi, creation) < ?) OR (statut = 'echec' AND classe IS NOT NULL AND classe < ?)`)
+    .run(avant, avant).changes);
 }
 
 /** Derniers messages (les plus récents d'abord), filtrés par statut et par cible. */

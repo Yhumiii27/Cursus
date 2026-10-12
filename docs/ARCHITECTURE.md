@@ -12,6 +12,7 @@ shared/            Domaine partagé (aucune dépendance)
   dates.ts         Dates ISO, jours fériés calculés, périodes de référence CP
   format.ts        Mise en forme française (dates, heures, jours, euros, pluriels)
   domain.ts        Classe Domain : conformité, habilitations, voyages, échéances, Go / No Go
+  journal.ts       Journal des actions : libellés, familles, actions liées à la paie, durées de conservation
   rules/           temps.ts, conges.ts, entretiens.ts, budget.ts, imports.ts
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
@@ -28,6 +29,8 @@ server/src/
   securite.ts      En-têtes de sécurité HTTP (CSP, HSTS, anti-iframe…)
   actions/         Actions métier (POST /api/actions/:nom), contrôles d'accès et validations
   envois.ts        File d'envoi persistante des messages sortants (table envois), traitée en tâche de fond
+  journal.ts       Journal des actions : liste blanche par action, conservation et archive paie, consultation, export CSV
+  donnees.ts       Données personnelles d'un salarié (droit d'accès) : export RH et téléchargement par l'intéressé
   integrations/    Adaptateurs Keystone et Sage Paie (simulation par défaut) ; API Keystone entrante :
                    keystone-entrant.ts (contrôles, écritures, instantané) et keystone-routes.ts (routes /v1) ;
                    keystone-verdicts.ts (verdicts Go / No Go transmis, changements signalés)
@@ -123,7 +126,8 @@ design/            Prototype Claude Design de référence et guide du design sys
   l'identifiant de session signé ; la session porte le compte, l'espace actif et le mode de connexion
   (`local`, `demo`, `microsoft`). Durée absolue de 12 h ;
   `/api/logout` révoque, `/api/mode` ne bascule que vers un espace du compte (403 sinon), une connexion
-  en ouvre une nouvelle. `revokeSessionsOf(db, empId)` révoque toutes les sessions d'un salarié,
+  en ouvre une nouvelle. Connexions (démonstration comprise), déconnexions, changements d'espace et refus
+  d'accès sont tracés dans le journal (voir « Journal des actions »). `revokeSessionsOf(db, empId)` révoque toutes les sessions d'un salarié,
   `revokeSessionsDuCompte(db, compteId)` celles d'un compte. Les sessions expirées sont purgées au
   démarrage puis toutes les heures. En démonstration, la connexion reste libre (sélecteur de vue, choix
   d'un compte, mot de passe quelconque) mais passe par les mêmes comptes : le jeu de démonstration crée
@@ -139,6 +143,7 @@ design/            Prototype Claude Design de référence et guide du design sys
   sans clé valide, que n'importe qui peut émettre, sont comptés et résumés en une ligne par minute au
   plus. `GET /api/journal` les sépare des actions (`?vue=keystone`) ; le proxy restreint l'adresse
   appelante (`docs/DEPLOIEMENT.md`).
+- **Journal des actions** et **données personnelles** : voir la section « Journal des actions ».
 - Mise en production : `docs/DEPLOIEMENT.md`.
 
 ## Conventions d'écran
@@ -163,6 +168,8 @@ design/            Prototype Claude Design de référence et guide du design sys
 
 « RH » : administrateur et gestionnaires RH ; « administrateur RH » : profil `rh_admin` seulement.
 `tests/droits.test.ts` vérifie chaque action pour six profils et échoue si une action n'y a pas sa ligne.
+Une nouvelle action déclare aussi ce que le journal en retient (`REGLES` de `server/src/journal.ts`) : sans règle,
+aucun champ du paramètre n'est recopié.
 
 | Action | Paramètres | Droits |
 | --- | --- | --- |
@@ -220,6 +227,52 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `compte.reinitialiser` | id | administrateur RH (compte local : nouveau mot de passe provisoire ; compte Microsoft rattaché : « Délier », `oid` retiré pour une identité recréée ; sessions fermées) |
 | `envoi.relancer` | id | RH (envoi en échec, intégration configurée : nouvelle série de tentatives, même clé d'idempotence) |
 | `envoi.classer` | id | RH (envoi en échec examiné : reste listé, ne compte plus parmi les échecs en cours ; une relance le remet en cours) |
+
+## Journal des actions
+
+Table `journal`, écrite par `server/src/journal.ts` (actions) et `journaliser` de `server/src/comptes.ts`
+(connexions et autres événements) ; libellés, familles et durées dans `shared/journal.ts`.
+
+- **Contenu** : chaque action réussie (`POST /api/actions/:nom`) est tracée dans sa transaction, signée du nom
+  de la personne, de son compte et de l'espace. Du paramètre reçu, seuls les champs de la liste blanche de
+  l'action (`REGLES`) sont recopiés : identifiants, codes, dates, statuts — jamais un numéro de passeport, un
+  mot de passe, un CSV importé, un texte libre (motifs, réponses, comptes rendus, évaluation à chaud) ni une
+  donnée de santé (vaccin, nature d'absence, visite médicale). Une action sans règle ne recopie aucun champ.
+  La règle désigne aussi la ligne modifiée : ses colonnes utiles sont lues avant et après l'action, d'où les
+  anciennes et nouvelles valeurs (`avant`, `apres` : poste, équipe, statut d'une feuille ou d'une absence,
+  profil RH, paramètres…). Les messages sont expurgés des natures d'absence médicales et des vaccins
+  (« [donnée de santé] »). `salaries` : salariés concernés (paramètre `empId`, ligne modifiée, participants
+  d'une session clôturée…), pour le filtre et l'historique de la fiche.
+- **Événements tracés** : actions ; saisie d'heures du valideur sur une feuille soumise (`temps.correction`,
+  ancienne et nouvelle valeur ; la saisie du salarié sur sa feuille en brouillon ne l'est pas) ; rédaction
+  d'un compte rendu d'entretien (section nommée, jamais son contenu, une ligne par compte et par demi-heure) ;
+  connexions, refus, déconnexions, changements d'espace ; refus d'accès (403) d'une personne connectée
+  (`acces.refuse`, rien n'est modifié) ; appels et messages de Keystone ; exports (journal, données d'un
+  salarié, CSV et impressions de l'interface signalés par `POST /api/exports`, `client/src/print.ts`) ;
+  consultation de l'archive ; application des durées de conservation.
+- **Conservation** (décision de l'entreprise) : 1 an pour tout ; au-delà, les actions liées à la paie
+  (`ACTIONS_PAIE` : validations des feuilles et des absences, corrections d'heures, transmissions à la
+  paie) passent dans l'archive (`archivee`), absente de l'écran et consultée sur demande par le service RH,
+  et toute ligne est supprimée au bout de 3 ans. Appliquée au démarrage puis toutes les heures
+  (`demarrerJournal`), avec la purge de la file d'envoi (envois réussis ou simulés de plus d'un an, échecs
+  classés depuis plus d'un an ; un échec non traité reste). Une ligne `journal.conservation` résume chaque
+  passage. Les lignes écrites avant la liste blanche sont expurgées une fois (`reprendreJournal`). La
+  réinitialisation de la démonstration conserve le journal (`clearAll` de `db.ts`).
+- **Consultation** (`routesJournal`) : `GET /api/journal` (tout profil de l'espace RH, y compris un profil en
+  lecture seule ; 403 tracé sinon) avec `vue` (`tout` sans les appels de Keystone, `operations`,
+  `connexions`, `keystone`, `archive`), `du`, `au` (dates locales incluses), `auteur` (nom ou identifiant),
+  `action` (code ou `famille:<id>`), `salarie`, `page`, `taille` (50 par défaut, 200 au plus) → `{ lignes,
+  total, page, taille }`. `GET /api/journal/csv` : mêmes filtres, toutes les pages (100 000 lignes au plus),
+  UTF-8 avec BOM, cellules commençant par `=`, `+`, `-`, `@` précédées d'une apostrophe ; export tracé.
+  Écran : Paramètres → Journal des actions (`client/src/pages/Journal.tsx`) ; historique dans la fiche du
+  collaborateur (service RH).
+- **Données personnelles** (`server/src/donnees.ts`, droit d'accès et portabilité) : `GET
+  /api/salaries/:id/donnees` (service RH) renvoie un fichier JSON lisible : fiche, chaque table du schéma qui
+  porte `empId` (une table ajoutée plus tard l'est aussi), compte (sans empreinte du mot de passe), sessions
+  de connexion (sans leur identifiant), équipes encadrées, messages envoyés à Keystone à son matricule, et
+  le journal des actions le concernant (archive comprise). `GET /api/mes-donnees` : le salarié connecté
+  (espace collaborateur ou manager) télécharge les siennes depuis le portail, sans le journal, que le RH
+  remet sur demande. Chaque export est tracé (`salarie.export`, `donnees.export`).
 
 ## Contrat et temps de travail
 

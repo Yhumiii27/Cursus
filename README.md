@@ -52,6 +52,15 @@ compte ouvre ses espaces : RH selon son profil RH, manager s'il encadre une équ
 est salarié. Le journal porte le nom de la personne connectée.
 En démonstration, chaque salarié a un compte et n'importe quel mot de passe est accepté.
 
+Le **journal des actions** (Paramètres → Journal des actions) trace qui a fait quoi et quand : actions,
+corrections d'heures, connexions, changements d'espace, refus d'accès, exports. Il ne retient que l'utile
+(liste blanche par action, anciennes et nouvelles valeurs), jamais un numéro de passeport, un mot de passe,
+un texte libre ni une donnée de santé ; il se filtre (période, personne, action, salarié), se pagine et
+s'exporte en CSV. Conservation : 1 an ; les actions liées à la paie passent ensuite dans une archive
+consultable sur demande, gardée 3 ans. La fiche d'un collaborateur montre son historique et permet au
+service RH d'exporter toutes ses données (droit d'accès) ; chaque salarié télécharge les siennes depuis
+son espace (« Télécharger mes données »).
+
 ## Application de bureau (macOS)
 
 ```bash

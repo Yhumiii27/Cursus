@@ -26,9 +26,6 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...envoisActions,
 };
 
-/** Actions de saisie fréquentes, non tracées dans le journal. */
-export const QUIET_ACTIONS = new Set(['temps.setCell', 'entretien.modifier']);
-
 /**
  * Familles d'actions sans effet sur un verdict Go / No Go (temps, absences, entretiens, budget, équipes) :
  * après toute autre action, les verdicts transmis à Keystone sont recalculés (integrations/keystone-verdicts.ts).

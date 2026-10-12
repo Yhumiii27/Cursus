@@ -433,10 +433,10 @@ test('connexion par compte local (hors démonstration)', async t => {
     const tout = JSON.stringify(rows);
     for (const mdp of [...motsDePasse, NOUVEAU, 'mauvais mot de passe']) assert.ok(!tout.includes(mdp), `mot de passe absent du journal : ${mdp}`);
     // Filtre de Paramètres → Journal : les refus de connexion ne chassent pas les opérations RH de l'écran.
-    const connexion = (j: { action: string }) => /^(connexion|motdepasse\.)/.test(j.action);
-    const ops = (await srv.call('/api/journal?filtre=operations', { cookie: adminCookie })).json as { action: string }[];
+    const connexion = (j: { action: string }) => /^(connexion|deconnexion|motdepasse\.|espace\.|acces\.)/.test(j.action);
+    const ops = (await srv.call('/api/journal?vue=operations&taille=200', { cookie: adminCookie })).json.lignes as { action: string }[];
     assert.ok(ops.length && !ops.some(connexion) && ops.some(j => j.action === 'compte.creer'));
-    const cx = (await srv.call('/api/journal?filtre=connexions', { cookie: adminCookie })).json as { action: string }[];
+    const cx = (await srv.call('/api/journal?vue=connexions', { cookie: adminCookie })).json.lignes as { action: string }[];
     assert.ok(cx.length && cx.every(connexion));
     const logout = await srv.call('/api/logout', { cookie: adminCookie, body: {} });
     assert.equal(logout.json.user, null);

@@ -3,16 +3,17 @@
 // le gestionnaire RH consulte.
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { ArchiveIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon } from '@phosphor-icons/react';
-import { ENVOI_CLS, ENVOI_LABEL, EVENEMENT_LABEL, GNG_LABEL } from '../../../shared/constants.ts';
+import { CIBLE_LABEL, EMAIL_LABEL, ENVOI_CLS, ENVOI_LABEL, EVENEMENT_LABEL, GNG_LABEL } from '../../../shared/constants.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, fmtShort, matricule, num, plural } from '../../../shared/format.ts';
-import type { Envoi, Settings, StatutEnvoi } from '../../../shared/types.ts';
+import type { CibleEnvoi, Courriel, Envoi, Settings, StatutEnvoi } from '../../../shared/types.ts';
 import { api, type EnvoisState, type FiltreJournal } from '../api.ts';
 import { Field } from '../components/Dialog.tsx';
 import { Btn, Empty, Fine, Page, Panel, Pre, SectionLabel, Seg, Tag, Two, stop } from '../components/ui.tsx';
 import { useRole } from '../state/derived.ts';
 import { useData, useStore } from '../state/store.tsx';
 import { ComptesPanel } from './Comptes.tsx';
+import { MessageriePanel } from './Messagerie.tsx';
 
 type JournalRow = Awaited<ReturnType<typeof api.journal>>[number];
 
@@ -67,6 +68,8 @@ function KeystoneTag({ mode, etat }: { mode: string; etat: EnvoisState['keystone
 
 type FiltreEnvoi = StatutEnvoi | 'tous';
 const FILTRES_ENVOI: [FiltreEnvoi, string][] = [['tous', 'Tous'], ['a_envoyer', 'À envoyer'], ['echec', 'En échec'], ['envoye', 'Envoyés'], ['simule', 'Simulés']];
+type FiltreCible = CibleEnvoi | 'toutes';
+const FILTRES_CIBLE: [FiltreCible, string][] = [['toutes', 'Toutes cibles'], ['keystone', 'Keystone'], ['email', 'E-mails']];
 
 export function Parametres() {
   const data = useData();
@@ -78,18 +81,19 @@ export function Parametres() {
 
   // Envois sortants : état de l'intégration et derniers messages, rechargés comme le journal.
   const [filtre, setFiltre] = useState<FiltreEnvoi>('tous');
+  const [cible, setCible] = useState<FiltreCible>('toutes');
   const [envois, setEnvois] = useState<EnvoisState | null>(null);
   const [envoisError, setEnvoisError] = useState<string | null>(null);
   const loadEnvois = useCallback(() => {
     let cancelled = false;
-    api.envois(filtre === 'tous' ? null : filtre)
+    api.envois(filtre === 'tous' ? null : filtre, cible === 'toutes' ? null : cible)
       .then(r => { if (!cancelled) { setEnvois(r); setEnvoisError(null); } })
       .catch(err => { if (!cancelled) setEnvoisError((err as Error).message); });
     return () => { cancelled = true; };
-  }, [filtre]);
+  }, [filtre, cible]);
   useEffect(() => (rh ? loadEnvois() : undefined), [data, rh, loadEnvois]);
   // Messages en attente : l'état est relu toutes les 10 s, le temps que le processus de fond les transmette.
-  const enAttente = !!envois?.keystone.nombres.a_envoyer;
+  const enAttente = !!envois?.keystone.nombres.a_envoyer || !!envois?.email?.nombres.a_envoyer;
   useEffect(() => {
     if (!rh || !enAttente) return;
     const t = setInterval(loadEnvois, 10_000);
@@ -250,7 +254,10 @@ export function Parametres() {
         </div>
       </div>
 
-      <EnvoisPanel etat={envois} error={envoisError} filtre={filtre} setFiltre={setFiltre} reload={loadEnvois} mode={keystoneMode} />
+      <MessageriePanel etat={envois?.email ?? null} reload={loadEnvois} />
+
+      <EnvoisPanel etat={envois} error={envoisError} filtre={filtre} setFiltre={setFiltre} cible={cible} setCible={setCible} reload={loadEnvois}
+        modes={{ keystone: keystoneMode, email: envois?.email.mode ?? session?.integrations.email ?? 'simulation', sage: sageMode }} />
 
       {admin && <ComptesPanel />}
 
@@ -301,8 +308,12 @@ function useNomMatricule() {
 
 const GNG_TEXTE: Record<string, string> = { GO: GNG_LABEL.go, GO_RESERVE: GNG_LABEL.reserve, NO_GO: GNG_LABEL.nogo };
 
-/** Résumé d'un message, lisible par le RH : noms à la place des matricules, codes de motif conservés. */
+/** Résumé d'un message, lisible par le RH : noms à la place des matricules, codes de motif conservés ; e-mail : destinataires et objet. */
 function resumeEnvoi(e: Envoi, nom: (m: unknown) => string): string {
+  if (e.cible === 'email') {
+    const m = e.contenu as unknown as Courriel;
+    return `À ${(m.a ?? []).join(', ')} · ${m.objet}${m.pj?.length ? ` · ${plural(m.pj.length, 'pièce jointe', 'pièces jointes')}` : ''}`;
+  }
   const c = e.contenu as Record<string, any>;
   const jour = (v: unknown) => (typeof v === 'string' ? fmtShort(parse(v)) : '—');
   const gng = (v: unknown) => GNG_TEXTE[String(v)] ?? String(v);
@@ -333,9 +344,19 @@ function suiviEnvoi(e: Envoi): string {
   return `Tentative ${e.tentatives + 1} le ${quand(e.prochaine!)} — ${e.erreur ?? 'erreur inconnue'}`;
 }
 
-/** Vue « Envois » : messages sortants filtrés par statut, détail de chacun, relance ou classement d'un envoi en échec. */
-function EnvoisPanel({ etat, error, filtre, setFiltre, reload, mode }: {
-  etat: EnvoisState | null; error: string | null; filtre: FiltreEnvoi; setFiltre: (f: FiltreEnvoi) => void; reload: () => void; mode: string;
+/** Contenu d'un e-mail tel qu'il part : en-têtes, texte, pièces jointes (nom et type). */
+function DetailEmail({ e }: { e: Envoi }) {
+  const m = e.contenu as unknown as Courriel;
+  const entetes = [`À : ${(m.a ?? []).join(', ')}`, ...(m.repondreA ? [`Réponse à : ${m.repondreA}`] : []), `Objet : ${m.objet}`];
+  const pj = (m.pj ?? []).map(p => `${p.nom} (${p.type.split(';')[0]})`).join(', ');
+  // Texte replié à la largeur du panneau, comme dans une messagerie.
+  return <pre className="pre" style={{ maxHeight: 320, whiteSpace: 'pre-wrap', overflowWrap: 'anywhere' }}>{`${entetes.join('\n')}${pj ? `\nPièces jointes : ${pj}` : ''}\n\n${m.texte}`}</pre>;
+}
+
+/** Vue « Envois » : messages sortants filtrés par statut et par cible, détail de chacun, relance ou classement d'un envoi en échec. */
+function EnvoisPanel({ etat, error, filtre, setFiltre, cible, setCible, reload, modes }: {
+  etat: EnvoisState | null; error: string | null; filtre: FiltreEnvoi; setFiltre: (f: FiltreEnvoi) => void;
+  cible: FiltreCible; setCible: (c: FiltreCible) => void; reload: () => void; modes: Record<CibleEnvoi, string>;
 }) {
   const { run } = useStore();
   const nom = useNomMatricule();
@@ -353,11 +374,12 @@ function EnvoisPanel({ etat, error, filtre, setFiltre, reload, mode }: {
   return (
     <Panel title="Envois" aside={
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        <Seg name="envois-cible" label="Destinataire des envois" value={cible} options={FILTRES_CIBLE} onChange={setCible} style={{ flexWrap: 'wrap' }} />
         <Seg name="envois-filtre" label="Statut des envois" value={filtre} options={FILTRES_ENVOI} onChange={setFiltre} style={{ flexWrap: 'wrap' }} />
         <Btn small icon={<ArrowClockwiseIcon size={14} />} onClick={() => reload()}>Actualiser</Btn>
       </div>
     }>
-      <Fine>Messages envoyés à Keystone, 100 plus récents. Chacun garde sa clé d’idempotence d’une tentative à l’autre : Keystone écarte un message déjà reçu. Après une erreur réseau, un délai dépassé (10 s) ou une erreur 5xx, 408 ou 429, l’envoi est retenté de 1 min à 1 h plus tard, 10 fois au plus, et les messages suivants attendent leur tour ; une autre erreur (4xx) le met aussitôt en échec.</Fine>
+      <Fine>Messages envoyés à Keystone et e-mails envoyés par Microsoft 365, 100 plus récents. Un message Keystone garde sa clé d’idempotence d’une tentative à l’autre : Keystone écarte un message déjà reçu. Après une erreur réseau, un délai dépassé (10 s) ou une erreur 5xx, 408 ou 429, l’envoi est retenté de 1 min à 1 h plus tard, 10 fois au plus, et les messages suivants de la même cible attendent leur tour ; une autre erreur (4xx) le met aussitôt en échec.</Fine>
       {error && <p className="form-error">{error}</p>}
       {liste == null && !error && <Empty pad="sm">Chargement des envois…</Empty>}
       {liste != null && liste.length === 0 && <Empty pad="sm">{filtre === 'tous' ? 'Aucun message sortant pour le moment.' : 'Aucun envoi avec ce statut.'}</Empty>}
@@ -370,7 +392,7 @@ function EnvoisPanel({ etat, error, filtre, setFiltre, reload, mode }: {
                 <Fragment key={e.id}>
                   <tr className={`clickable${ouvert === e.id ? ' selected' : ''}`} onClick={() => setOuvert(ouvert === e.id ? null : e.id)} aria-expanded={ouvert === e.id}>
                     <td><Two nowrap main={fmt(new Date(e.creation))} sub={new Date(e.creation).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} /></td>
-                    <td><Two main={EVENEMENT_LABEL[e.type] ?? e.type} sub={resumeEnvoi(e, nom)} /></td>
+                    <td><Two main={`${CIBLE_LABEL[e.cible] ?? e.cible} · ${(e.cible === 'email' ? EMAIL_LABEL[e.type] : EVENEMENT_LABEL[e.type]) ?? e.type}`} sub={resumeEnvoi(e, nom)} /></td>
                     <td><Tag cls={ENVOI_CLS[e.statut]}>{ENVOI_LABEL[e.statut]}</Tag></td>
                     <td className="text-muted" style={{ fontSize: 13 }}>{suiviEnvoi(e)}</td>
                   </tr>
@@ -379,20 +401,22 @@ function EnvoisPanel({ etat, error, filtre, setFiltre, reload, mode }: {
                       <td colSpan={4}>
                         <div className="col-stack" style={{ gap: 'var(--space-3)' }}>
                           <div className="text-muted sub">
-                            {`Type ${e.type} · clé d’idempotence `}<span style={{ ...MONO, overflowWrap: 'anywhere' }}>{e.cle}</span>
+                            {`Type ${e.type}`}
+                            {/* La clé d'idempotence ne sert qu'aux destinataires qui la contrôlent (Keystone). */}
+                            {e.cible !== 'email' && <>{' · clé d’idempotence '}<span style={{ ...MONO, overflowWrap: 'anywhere' }}>{e.cle}</span></>}
                             {` · ${plural(e.tentatives, 'tentative', 'tentatives')}`}
                             {e.tentative && ` · dernière le ${quand(e.tentative)}`}
                             {e.envoi && ` · reçu le ${quand(e.envoi)}`}
                           </div>
                           {e.erreur && <div className={e.statut === 'envoye' ? 'sub text-n400' : 'note-accent'}>{e.statut === 'envoye' ? 'Erreur avant réussite : ' : 'Dernière erreur : '}{e.erreur}</div>}
                           {e.accuse && <div className="sub">Accusé de réception : <span style={MONO}>{e.accuse}</span></div>}
-                          <Pre maxHeight={240}>{JSON.stringify(e.contenu, null, 2)}</Pre>
+                          {e.cible === 'email' ? <DetailEmail e={e} /> : <Pre maxHeight={240}>{JSON.stringify(e.contenu, null, 2)}</Pre>}
                           {e.statut === 'echec' && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-                              <Btn variant="secondary" small icon={<ArrowCounterClockwiseIcon size={14} />} disabled={mode !== 'api'} onClick={stop(() => relancer(e.id))}>Relancer</Btn>
+                              <Btn variant="secondary" small icon={<ArrowCounterClockwiseIcon size={14} />} disabled={modes[e.cible] !== 'api'} onClick={stop(() => relancer(e.id))}>Relancer</Btn>
                               {!e.classe && <Btn small icon={<ArchiveIcon size={14} />} onClick={stop(() => classer(e.id))}>Classer</Btn>}
                               <span className="text-muted sub">
-                                {mode === 'api' ? 'Relancer : nouvelle série de 10 tentatives, même contenu et même clé.' : 'Relance impossible en simulation (KEYSTONE_URL non définie).'}
+                                {modes[e.cible] === 'api' ? 'Relancer : nouvelle série de 10 tentatives, même contenu et même clé.' : `Relance impossible en simulation (${e.cible === 'email' ? 'CURSUS_MAIL_FROM' : 'KEYSTONE_URL'} non définie).`}
                                 {!e.classe && ' Classer : échec examiné (refus que la relance ne corrigera pas), retiré des échecs en cours, gardé dans la liste.'}
                               </span>
                             </div>

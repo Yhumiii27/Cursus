@@ -13,7 +13,8 @@ Cursus n'écoute que sur la boucle locale : seul le reverse proxy l'atteint. Le 
 certificat TLS ; Cursus envoie lui-même les en-têtes de sécurité (CSP, HSTS, anti-iframe…).
 
 Sauvegardes et restauration : voir `docs/SAUVEGARDE.md`. Connexion Microsoft 365 (inscription de
-l'application dans Entra) : voir `docs/CONNEXION-MICROSOFT.md`.
+l'application dans Entra) : voir `docs/CONNEXION-MICROSOFT.md`. Envoi des e-mails (autorisation Mail.Send,
+boîte d'envoi, stratégie d'accès d'Exchange Online) : voir `docs/EMAILS.md`.
 
 ## Avant de commencer
 
@@ -115,6 +116,8 @@ sudo nano /etc/cursus/cursus.env
 | `CURSUS_OIDC_TENANT`, `CURSUS_OIDC_CLIENT_ID`, `CURSUS_OIDC_CLIENT_SECRET` | connexion Microsoft 365 : ID de l'annuaire (GUID), ID d'application et secret client relevés dans Entra (`docs/CONNEXION-MICROSOFT.md`). Noter la date d'expiration du secret |
 | `CURSUS_PUBLIC_URL` | `https://cursus.example.fr` : adresse publique, sans chemin. URI de redirection à inscrire dans Entra : `https://cursus.example.fr/api/auth/microsoft/retour` |
 | `CURSUS_OIDC_AUTORITE` | **jamais** : réservée aux tests automatiques, Cursus refuse de démarrer avec elle |
+| `CURSUS_MAIL_FROM` | boîte d'envoi des e-mails (`cursus@entreprise.fr`) ; sans elle, les e-mails sont simulés (`docs/EMAILS.md`) |
+| `CURSUS_MAIL_TENANT`, `CURSUS_MAIL_CLIENT_ID`, `CURSUS_MAIL_CLIENT_SECRET` | application Entra autorisée à envoyer (`Mail.Send`, restreinte à la boîte d'envoi) ; par défaut celle de la connexion Microsoft. Noter la date d'expiration du secret |
 | `KEYSTONE_URL`, `KEYSTONE_TOKEN` | envois à Keystone : adresse de base de Keystone sur le réseau interne (`http://keystone.interne:8080`) et jeton convenu avec lui. Cursus refuse de démarrer avec l'adresse sans le jeton, ou avec des identifiants dans l'adresse. Sans adresse, les messages ne sont que tracés dans le journal |
 | `SAGE_URL`, `SAGE_TOKEN`, `SAGE_DOSSIER` | envoi à Sage Paie, quand il sera livré |
 | `CURSUS_DEMO`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE` | **jamais** sur ce serveur. La démonstration ouvre l'espace RH sans mot de passe : Cursus refuse de démarrer avec elle, et refuserait de toute façon (403) chaque requête relayée par le proxy |
@@ -423,6 +426,11 @@ précède chaque mise en production.
   en simulation n'ont jamais été reçus ; Cursus envoie alors le verdict actuel de chaque ressource des
   chantiers en cours ou à venir, un message chacune. `KEYSTONE_URL` ne porte jamais d'identifiants
   (`utilisateur:motdepasse@`) : le jeton passe par `KEYSTONE_TOKEN`.
+- E-mails (`CURSUS_MAIL_FROM`) : Paramètres → Envois, filtre « E-mails », montre chaque e-mail (envoyé avec
+  l'accusé de Microsoft 365, en échec avec l'erreur) ; mêmes nouvelles tentatives, relance et classement que
+  pour Keystone (journal : `email.echec`). Causes et remèdes : `docs/EMAILS.md`, « Suivi et incidents ».
+  Le récapitulatif quotidien part à partir de 7 h (heure de la machine, d'où le fuseau de Paris) ; les relevés
+  d'heures des intérimaires dès que les feuilles de la semaine sont validées.
 - Changer `CURSUS_SECRET` (fuite supposée) : même procédure ; toutes les sessions sont fermées.
 - Secret client Microsoft : le renouveler avant sa date d'expiration (`docs/CONNEXION-MICROSOFT.md`,
-  section 3) ; expiré, il bloque toutes les connexions Microsoft.
+  section 3) ; expiré, il bloque toutes les connexions Microsoft, et les e-mails s'il sert aussi à leur envoi.

@@ -1,12 +1,12 @@
 // Détail d'une session (service RH) : inscrits nominatifs, ou résultats après la clôture ; confirmation
 // avec la liste à transmettre à l'organisme (affichage et export CSV), modification, annulation, clôture.
 import { useState } from 'react';
-import { DownloadSimpleIcon, PencilSimpleIcon, XCircleIcon } from '@phosphor-icons/react';
+import { DownloadSimpleIcon, PaperPlaneTiltIcon, PencilSimpleIcon, XCircleIcon } from '@phosphor-icons/react';
 import { PLAN_LABEL, SESS_CLS, VALIDATION_LABEL } from '../../../shared/constants.ts';
 import { sessionActive } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
-import { equipeLabel, fmt, plural } from '../../../shared/format.ts';
-import { exigeEvaluation, inscritsDe, listeOrganisme, resultatsDe } from '../../../shared/rules/sessions.ts';
+import { equipeLabel, fmt, fmtShort, plural } from '../../../shared/format.ts';
+import { exigeEvaluation, inscritsDe, listeOrganisme, resultatsDe, type Inscrit } from '../../../shared/rules/sessions.ts';
 import { CancelButton, Dialog, Field, Static } from '../components/Dialog.tsx';
 import { Btn, Empty, Fine, NoteAccent, Tag, Two } from '../components/ui.tsx';
 import { downloadCsv } from '../print.ts';
@@ -42,6 +42,21 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
     const r = await run(name, payload);
     setBusy(false);
     if (r.ok) closeDialog();
+  };
+  // Convocations : session à venir seulement (une session passée attend sa clôture). Le dialogue reste ouvert.
+  const aVenir = ouverte && s.date >= d.ti;
+  const aEnvoyer = inscrits.filter(i => i.convoc !== 'now' && !i.dejaObtenue);
+  const agir = async (name: string, payload: Record<string, unknown>) => {
+    setBusy(true);
+    await run(name, payload);
+    setBusy(false);
+  };
+  const convoquer = (i?: Inscrit) => agir('convocation.envoyer', { sessionId: s.id, ...(i ? { empIds: [i.empId] } : {}) });
+  const desinscrire = (i: Inscrit) => {
+    const annule = i.convoc === 'now' ? ' La convocation envoyée est annulée par e-mail.' : '';
+    if (window.confirm(`Désinscrire ${i.nom} de cette session ?\n\nLa place est libérée${i.parcours === 'recyclage' ? ' et le recyclage redevient à planifier' : ' et l’inscription en formation initiale est retirée'}.${annule}`)) {
+      agir('plan.desinscrire', { empId: i.empId, sessionId: s.id });
+    }
   };
 
   if (annulation) {
@@ -85,6 +100,9 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
           <h3 className="section-label">Inscrits</h3>
           {rh && (
             <div className="actions-end">
+              {aVenir && aEnvoyer.length > 0 && (
+                <Btn small variant="secondary" icon={<PaperPlaneTiltIcon size={14} />} disabled={busy} onClick={() => convoquer()}>Envoyer les convocations ({aEnvoyer.length})</Btn>
+              )}
               <Btn small icon={<DownloadSimpleIcon size={14} />} onClick={exporter} disabled={!inscrits.length}>Exporter la liste (CSV)</Btn>
               <Btn small icon={<PencilSimpleIcon size={14} />} onClick={() => openDialog({ type: 'session', sessionId: s.id })}>Modifier</Btn>
               <Btn small icon={<XCircleIcon size={14} />} onClick={() => setAnnulation(true)}>Annuler la session</Btn>
@@ -94,7 +112,7 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
         {inscrits.length > 0 ? (
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Collaborateur</th><th>Équipe</th><th>Parcours</th><th>Convocation</th></tr></thead>
+              <thead><tr><th>Collaborateur</th><th>Équipe</th><th>Parcours</th><th>Convocation</th>{rh && aVenir && <th></th>}</tr></thead>
               <tbody>
                 {inscrits.map(i => (
                   <tr key={i.empId}>
@@ -104,7 +122,18 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
                       <Two main={i.parcours === 'recyclage' ? 'Recyclage' : 'Formation initiale'}
                         sub={i.dejaObtenue ? `Déjà renouvelée le ${fmt(parse(i.dejaObtenue.obtenue))}` : i.obtenue ? `Obtenue le ${fmt(parse(i.obtenue))}` : ''} />
                     </td>
-                    <td><Tag cls={i.convoc === 'now' ? 'tag-neutral' : 'tag-outline'}>{i.convoc === 'now' ? 'Envoyée' : 'À envoyer'}</Tag></td>
+                    <td>
+                      <Tag cls={i.convoc === 'now' ? 'tag-neutral' : 'tag-outline'}>{i.convoc === 'now' ? 'Envoyée' : 'À envoyer'}</Tag>
+                      {i.convoc === 'now' && i.convocLe && <div className="text-muted sub nowrap">le {fmtShort(parse(i.convocLe))}</div>}
+                    </td>
+                    {rh && aVenir && (
+                      <td className="right">
+                        <div className="actions-end">
+                          {!i.dejaObtenue && <Btn small disabled={busy} onClick={() => convoquer(i)}>{i.convoc === 'now' ? 'Renvoyer' : 'Envoyer'}</Btn>}
+                          <Btn small disabled={busy} onClick={() => desinscrire(i)}>Désinscrire</Btn>
+                        </div>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -112,7 +141,7 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
           </div>
         ) : <Empty pad="sm">Aucun inscrit pour l’instant.</Empty>}
         {rh && s.statut === 'À confirmer' && !cloturable && (
-          <Fine>Confirmez la session une fois la date validée par {fm?.organisme ?? 'l’organisme'}, et transmettez-lui cette liste (export CSV) : l’envoi par e-mail viendra avec le module d’e-mails.</Fine>
+          <Fine>Confirmez la session une fois la date validée par {fm?.organisme ?? 'l’organisme'}, et transmettez-lui cette liste (export CSV). Les convocations partent par e-mail aux inscrits, avec le fichier qui ajoute la session à leur agenda.</Fine>
         )}
         {cloturable && <NoteAccent>{s.date < d.ti ? 'Session passée — à clôturer : présence, résultats et certifications.' : 'Session du jour : clôturez-la une fois terminée.'}</NoteAccent>}
       </>}

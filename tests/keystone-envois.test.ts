@@ -87,7 +87,8 @@ function fresh() {
     if (changeVerdicts(name)) suivreVerdicts(db);
     return r;
   });
-  const envois = (type?: string) => db.all<Envoi>('envois').filter(e => !type || e.type === type);
+  // Messages Keystone seulement : les e-mails (notifications, convocations) ont leur propre cible.
+  const envois = (type?: string) => db.all<Envoi>('envois').filter(e => e.cible === 'keystone' && (!type || e.type === type));
   const demande = (ref: string) => loadFull(db, RH).demandesKeystone.find(x => x.ref === ref)!;
   return { db, run, envois, demande };
 }

@@ -4,6 +4,7 @@ import { isValidDate, parse } from '../../../shared/dates.ts';
 import { fmt } from '../../../shared/format.ts';
 import { needsFinCarriere } from '../../../shared/rules/entretiens.ts';
 import type { Entretien, EntretienType } from '../../../shared/types.ts';
+import { convoquerEntretien, notifierEntretienClos } from '../notifications.ts';
 import { ActionError, getEmp, isValidatorOf, str, type ActionHandler, type Ctx } from './context.ts';
 
 function entretien(ctx: Ctx, id: unknown) {
@@ -18,8 +19,10 @@ const planifier: ActionHandler = (ctx, p) => {
   const kind = str(p.kind) as EntretienType;
   if (!ENT_TYPES[kind]) throw new ActionError('Type d’entretien inconnu');
   if (!isValidDate(p.date) || p.date < ctx.d.ti) throw new ActionError('Date à venir requise');
-  ctx.db.insert<Entretien>('entretiens', { empId: emp.id, type: kind, date: p.date, statut: 'planifie', cr: {}, info: false, signSal: null, signMgr: null });
-  return `${ENT_TYPES[kind].nom} planifié le ${fmt(parse(p.date))} — convocation envoyée à ${emp.nom}`;
+  const x = ctx.db.insert<Entretien>('entretiens', { empId: emp.id, type: kind, date: p.date, statut: 'planifie', cr: {}, info: false, signSal: null, signMgr: null });
+  // Convocation par e-mail, avec le fichier .ics ; sans adresse, elle est à remettre au salarié.
+  const envoyee = convoquerEntretien(ctx, emp, x);
+  return `${ENT_TYPES[kind].nom} planifié le ${fmt(parse(p.date))} — ${envoyee ? `convocation envoyée à ${emp.nom}` : `convocation à remettre à ${emp.nom} (aucune adresse e-mail)`}`;
 };
 
 /** Modification d'une section du compte rendu ou de la case « information remise ». */
@@ -47,6 +50,7 @@ const clore: ActionHandler = (ctx, p) => {
   const { x, e } = entretien(ctx, p.id);
   if (x.statut !== 'planifie' || !isValidatorOf(ctx, e)) throw new ActionError('Clôture réservée à l’évaluateur', 403);
   ctx.db.update<Entretien>('entretiens', x.id, { statut: 'realise', signMgr: ctx.d.ti });
+  notifierEntretienClos(ctx, e, x);
   return 'Compte rendu clos et signé — transmis au salarié pour signature';
 };
 

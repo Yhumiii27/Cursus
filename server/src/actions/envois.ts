@@ -1,12 +1,13 @@
 // File d'envoi des messages sortants : relance ou classement d'un envoi en échec (vue « Envois » des paramètres).
 import { classerEnvoi, relancerEnvoi, type Cible, type Envoi } from '../envois.ts';
+import { configMail } from '../config.ts';
 import { keystoneSortant } from '../integrations/keystone.ts';
 import { ActionError, requireRh, type ActionHandler } from './context.ts';
 
-const NOM_CIBLE: Record<Cible, string> = { keystone: 'Keystone', sage: 'Sage Paie' };
+const NOM_CIBLE: Record<Cible, string> = { keystone: 'Keystone', sage: 'Sage Paie', email: 'la messagerie Microsoft 365' };
 
 /** Cible dont l'adresse est configurée : Sage Paie n'est pas encore branché sur la file. */
-const configuree = (c: Cible) => c === 'keystone' && !!keystoneSortant();
+const configuree = (c: Cible) => (c === 'keystone' && !!keystoneSortant()) || (c === 'email' && !!configMail());
 
 /** Nouvelle série de tentatives pour un envoi en échec, avec la même clé d'idempotence (RH). */
 const relancer: ActionHandler = (ctx, p) => {

@@ -61,7 +61,8 @@ export interface Referentiels {
 }
 
 // — Collaborateurs —
-export interface Certification { id: number; empId: number; f: string; obtenue: ISODate; sessionId: number | null; convoc: 'now' | 'later' | null }
+/** `convocLe` : date d'envoi de la dernière convocation à la session (e-mail avec fichier .ics). */
+export interface Certification { id: number; empId: number; f: string; obtenue: ISODate; sessionId: number | null; convoc: 'now' | 'later' | null; convocLe: ISODate | null }
 /** Mesure prise sur un titre après un incident ou une restriction : suspension (réversible) ou retrait (définitif). */
 export type HabMesure = 'suspension' | 'retrait';
 export interface HabTitre {
@@ -96,6 +97,10 @@ export interface Employe {
   fin: ISODate | null;
   naissance: number;
   agence: string | null;
+  /** Adresse e-mail professionnelle (notifications, convocations), saisie par le service RH ; unique, en minuscules. */
+  email: string | null;
+  /** Notifications d'étapes par e-mail : aussitôt, ou regroupées dans un récapitulatif quotidien (réglage de la personne). */
+  notifications: ModeNotification;
   repriseMotif: string | null;
   repriseDate: ISODate | null;
   /** Date de la dernière visite d'aptitude — réservée au service RH. */
@@ -126,7 +131,7 @@ export interface SessionBilan { le: ISODate; par: string; note: number | null; c
  * Inscription à une session d'une formation que le collaborateur n'a encore jamais suivie (formation initiale).
  * Rattachée à une session annulée, ou clôturée sans certification (absent, évaluation échouée) : à replanifier.
  */
-export interface Inscription { id: number; empId: number; sessionId: number; convoc: 'now' | 'later'; date: ISODate }
+export interface Inscription { id: number; empId: number; sessionId: number; convoc: 'now' | 'later'; date: ISODate; convocLe: ISODate | null }
 /** Résultat d'un inscrit, enregistré à la clôture de la session. */
 export interface Participation {
   id: number; sessionId: number; empId: number; parcours: 'recyclage' | 'initiale'; present: boolean;
@@ -251,8 +256,8 @@ export interface CompteSession {
 }
 
 // — Messages sortants (file d'envoi : server/src/envois.ts) —
-/** Destinataires des messages sortants : Sage Paie n'est pas encore branché sur la file. */
-export type CibleEnvoi = 'keystone' | 'sage';
+/** Destinataires des messages sortants : Keystone, la messagerie (e-mails) ; Sage Paie n'est pas encore branché sur la file. */
+export type CibleEnvoi = 'keystone' | 'sage' | 'email';
 /** `simule` : aucune adresse configurée, le message n'est que tracé dans le journal. */
 export type StatutEnvoi = 'a_envoyer' | 'envoye' | 'echec' | 'simule';
 export interface Envoi {
@@ -261,7 +266,10 @@ export interface Envoi {
   type: string;
   /** Clé d'idempotence, unique, transmise à chaque tentative. */
   cle: string;
-  /** Données de l'événement (matricules et codes, jamais de nom ni de donnée de santé). */
+  /**
+   * Keystone : données de l'événement (matricules et codes, jamais de nom ni de donnée de santé).
+   * E-mail : le message (`Courriel` : destinataires, objet, texte, pièces jointes), jamais de donnée de santé.
+   */
   contenu: Record<string, unknown>;
   statut: StatutEnvoi;
   /** Tentatives faites ; `prochaine` : date de la prochaine (message à envoyer). */
@@ -285,6 +293,31 @@ export interface EtatEnvois {
   echecsEnCours: number;
   dernierSucces: string | null;
   enReprise: { id: number; type: string; tentatives: number; prochaine: string | null; erreur: string | null } | null;
+}
+
+// — E-mails (server/src/integrations/email.ts, server/src/notifications.ts) —
+/** Notifications d'étapes : envoyées aussitôt, ou regroupées dans un récapitulatif quotidien. */
+export type ModeNotification = 'immediat' | 'quotidien';
+export interface PieceJointe { nom: string; type: string; /** Contenu encodé en base64. */ base64: string }
+/** E-mail mis en file (contenu d'un envoi de la cible `email`) : texte brut, sans donnée de santé. */
+export interface Courriel { a: string[]; objet: string; texte: string; repondreA?: string | null; pj?: PieceJointe[] }
+/** Adresses de la messagerie, réglées par l'administrateur RH (Paramètres → Messagerie). */
+export interface Messagerie {
+  /** Boîte du service RH : valideur des salariés sans manager, adresse de réponse des convocations. */
+  rh: string | null;
+  /** Réglage des notifications adressées au service RH. */
+  rhMode: ModeNotification;
+  /** Service de prévention et de santé au travail. */
+  santeTravail: string | null;
+  /** Adresse des relevés d'heures de chaque agence d'intérim (nom tel que saisi sur la fiche). */
+  agences: { nom: string; adresse: string }[];
+}
+/** Relevé hebdomadaire des heures des intérimaires transmis à une agence (un par envoi, renvois compris). */
+export interface ReleveInterim {
+  id: number; agence: string; semaine: ISODate; adresse: string;
+  /** Mise en file (ISO), auteur (« Cursus » pour l'envoi automatique), e-mail correspondant et son statut. */
+  creation: string; par: string; envoiId: number | null; envoi: StatutEnvoi | null;
+  interimaires: number; heures: number;
 }
 
 export interface SagePush { endpoint: string; dossier: string; periode_paie: string; envoye_le: string; lignes: { matricule: string; semaine: string; rubriques: Record<string, number> }[] }
@@ -314,6 +347,9 @@ export interface Dataset {
   entretiens: Entretien[];
   demandesCollab: DemandeCollab[];
   lastSagePush: SagePush | null;
+  /** Adresses de la messagerie et relevés transmis aux agences d'intérim : service RH seulement (null et vide ailleurs). */
+  messagerie: Messagerie | null;
+  releves: ReleveInterim[];
 }
 
 export interface ActionResult { message: string | null; data: Dataset; result?: unknown }

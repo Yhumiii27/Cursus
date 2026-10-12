@@ -10,6 +10,7 @@ import type {
 import { loadFull } from './dataset.ts';
 import type { Db } from './db.ts';
 import { migrerKeystone } from './integrations/keystone-entrant.ts';
+import { reprendreAdressesDesComptes } from './messagerie.ts';
 import { sauvegarderAvantMigration } from './sauvegarde.ts';
 
 /** Ancienne colonne `contrat` (qui mêlait nature du contrat et durée du travail) → statut, type de contrat, temps. */
@@ -42,6 +43,7 @@ export function migrate(db: Db) {
   migrerKeystone(db, avant);
   validationParDefaut(db, avant);
   reprendreSessions(db, avant);
+  reprendreAdressesDesComptes(db, avant);
 }
 
 /** Auteur de la clôture des sessions reprises d'une base antérieure au cycle de vie des sessions. */

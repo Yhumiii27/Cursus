@@ -88,6 +88,8 @@ locale, si `CURSUS_INSECURE_COOKIE=1` hors de ce cas, si la connexion Microsoft 
 qu'en partie (les quatre variables `CURSUS_OIDC_*` et `CURSUS_PUBLIC_URL`, ou aucune), avec un locataire
 qui n'est pas un GUID ou une adresse publique qui n'est pas en https, ou si `CURSUS_OIDC_AUTORITE` est
 définie ; hors production, il les signale seulement.
+De même pour l'envoi des e-mails (`docs/EMAILS.md`) : `CURSUS_MAIL_FROM` qui n'est pas une adresse, application
+d'envoi non entièrement désignée (`CURSUS_MAIL_*` ou `CURSUS_OIDC_*`), variables `CURSUS_MAIL_*` sans `CURSUS_MAIL_FROM`.
 En production, la démonstration refuse aussi (403) toute requête relayée par un proxy (`Forwarded`,
 `X-Forwarded-*`) ou adressée à un autre nom que 127.0.0.1 / localhost / [::1].
 
@@ -110,6 +112,8 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `CURSUS_OIDC_TENANT`, `CURSUS_OIDC_CLIENT_ID`, `CURSUS_OIDC_CLIENT_SECRET` | Connexion Microsoft 365 : ID de l'annuaire (GUID), ID d'application et secret client de l'inscription dans Entra (`docs/CONNEXION-MICROSOFT.md`). Les quatre variables avec `CURSUS_PUBLIC_URL`, ou aucune |
 | `CURSUS_PUBLIC_URL` | Adresse publique de Cursus, en https (`https://cursus.example.fr`) : Microsoft renvoie à `${CURSUS_PUBLIC_URL}/api/auth/microsoft/retour` |
 | `CURSUS_OIDC_AUTORITE` | Remplace `https://login.microsoftonline.com` : réservée aux tests automatiques (faux fournisseur local). Refusée en production |
+| `CURSUS_MAIL_FROM` | Boîte d'envoi dédiée des e-mails (`cursus@entreprise.fr`), envoyés par Microsoft Graph. Sans elle : simulation (e-mails tracés dans le journal et visibles dans Paramètres → Envois, rien ne part). Mise en service : `docs/EMAILS.md` |
+| `CURSUS_MAIL_TENANT`, `CURSUS_MAIL_CLIENT_ID`, `CURSUS_MAIL_CLIENT_SECRET` | Application Entra autorisée à envoyer (`Mail.Send`, restreinte à la boîte d'envoi) ; par défaut celle de la connexion Microsoft (`CURSUS_OIDC_*`) |
 
 Les sessions durent 12 heures au plus depuis la connexion ; la déconnexion les révoque (pour un compte
 Microsoft, elle passe aussi par la déconnexion Microsoft), et une session est refusée dès que la date de
@@ -143,7 +147,15 @@ périodique : `docs/SAUVEGARDE.md`.
   et relance dans Paramètres → Envois), seulement tracés dans le journal sans elle (`server/src/envois.ts`).
 - **Sage Paie** : la transmission produit le JSON des variables et un accusé fictif
   (`server/src/integrations/sage.ts`) ; la correspondance des rubriques avec le plan de paie reste à paramétrer.
-- **Convocations, demandes de visite médicale** : notifiées dans l'interface et tracées, sans envoi d'e-mail.
+- **E-mails** (`docs/EMAILS.md`) : notifications des étapes de validation (demande de congés et décision,
+  feuille soumise ou renvoyée, compte rendu d'entretien à signer, réponse à une demande au service RH),
+  aussitôt ou en récapitulatif quotidien selon le réglage de chacun ; convocations aux formations (envoi
+  unitaire ou groupé, daté, désinscription) et aux entretiens, avec fichier `.ics` ; relevé hebdomadaire des
+  heures des intérimaires envoyé à leur agence (CSV). Envoyés par Microsoft Graph depuis la boîte
+  `CURSUS_MAIL_FROM`, par la file d'envoi (suivi et relance dans Paramètres → Envois) ; sans elle, simulés
+  et tracés dans le journal. Adresse professionnelle sur la fiche (reprise du compte Microsoft 365), adresses
+  du service RH, du service de santé au travail et des agences dans Paramètres → Messagerie.
+- **Demandes de visite médicale** : notifiées dans l'interface et tracées, sans envoi d'e-mail.
 - **Liste des inscrits d'une session pour l'organisme** : affichée et exportée en CSV à la confirmation, sans envoi d'e-mail.
 
 ## Contrat et temps de travail

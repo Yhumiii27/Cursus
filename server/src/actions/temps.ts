@@ -9,6 +9,8 @@ import {
 import type { Employe, FeuilleTemps, LigneTemps } from '../../../shared/types.ts';
 import { pushToSage, SAGE_DOSSIER } from '../integrations/sage.ts';
 import { heuresKeystone, sendToKeystone } from '../integrations/keystone.ts';
+import { notifierFeuilleRenvoyee, notifierFeuilleSoumise } from '../notifications.ts';
+import { relevesAutomatiques } from '../releves.ts';
 import { ActionError, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
 function sheetOf(ctx: Ctx, empId: number, week: string): FeuilleTemps | undefined {
@@ -91,6 +93,7 @@ const submit: ActionHandler = (ctx, p) => {
   if (surAbsence.length) throw new ActionError(heuresSurAbsenceMessage(surAbsence, 'avant de soumettre la feuille'));
   // Le régime de temps de travail de la semaine est figé à la soumission.
   ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'soumise', comment: null, contrat: sh.contrat ?? contratFige(emp) });
+  notifierFeuilleSoumise(ctx, emp, sh.week, ctx.d.mgrOf(emp));
   return `Feuille de temps soumise ${ctx.d.mgrDest(ctx.d.mgrOf(emp))}${couverte ? ' — semaine d’absence, sans heure' : ''}`;
 };
 
@@ -116,12 +119,15 @@ const validate: ActionHandler = (ctx, p) => {
   const projets = heuresKeystone(sh.lignes), keystone = Object.keys(projets).length > 0;
   ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat: sh.contrat ?? contratFige(emp) });
   if (keystone) sendToKeystone(ctx.db, { type: 'heures.validees', matricule: matricule(emp.id), semaine: sh.week, projets });
-  return `Semaine ${isoWeek(sh.week)} validée${keystone ? ' — heures des projets Keystone renvoyées à Keystone' : ''}`;
+  // Intérimaire : la dernière feuille validée d'une semaine révolue fait partir le relevé de son agence.
+  const releve = emp.typeContrat === 'interim' && emp.agence ? relevesAutomatiques(ctx.db, { agence: emp.agence, semaine: sh.week }).length > 0 : false;
+  return `Semaine ${isoWeek(sh.week)} validée${keystone ? ' — heures des projets Keystone renvoyées à Keystone' : ''}${releve ? ` · relevé d’heures envoyé à l’agence ${emp.agence}` : ''}`;
 };
 
 const reject: ActionHandler = (ctx, p) => {
-  const { sh } = submitted(ctx, p);
+  const { emp, sh } = submitted(ctx, p);
   ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'rejetee', comment: str(p.comment) || 'Merci de vérifier la répartition par projet' });
+  notifierFeuilleRenvoyee(ctx, emp, sh.week);
   return 'Feuille renvoyée pour correction';
 };
 

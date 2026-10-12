@@ -5,6 +5,7 @@ import { parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
 import { controleSession, exigeEvaluation, inscritsDe, placesRemplacees } from '../../../shared/rules/sessions.ts';
 import type { Certification, Inscription, Participation, PlanAction, Session, SessionBilan } from '../../../shared/types.ts';
+import { annulerConvocationFormation } from '../notifications.ts';
 import { ActionError, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
 
 /** Session désignée par `id` ; refusée si elle est clôturée ou annulée (sauf `toutes`). */
@@ -116,7 +117,10 @@ const annuler: ActionHandler = (ctx, p) => {
   if (replan) ctx.db.update<PlanAction>('planActions', plan!.id, { statut: 'prevu' });
   const bilan: SessionBilan = { le: ctx.d.ti, par: ctx.user.nom, note: null, commentaire: null, motif };
   ctx.db.update<Session>('sessions', s.id, { statut: 'Annulée', bilan });
-  return `${nomSession(ctx, s)} annulée${inscrits.length ? ` — ${plural(inscrits.length, 'inscrit à replanifier', 'inscrits à replanifier')}` : ''}${replan ? ' · action du plan de nouveau prévue' : ''}`;
+  // Convocations déjà envoyées : annulées par e-mail (l'événement est retiré de l'agenda), sans le motif.
+  const prevenus = s.date >= ctx.d.ti ? inscrits.filter(i => i.convoc === 'now' && annulerConvocationFormation(ctx, s, { id: i.empId, nom: i.nom }, 'annulation')).length : 0;
+  return `${nomSession(ctx, s)} annulée${inscrits.length ? ` — ${plural(inscrits.length, 'inscrit à replanifier', 'inscrits à replanifier')}` : ''}${replan ? ' · action du plan de nouveau prévue' : ''}`
+    + (prevenus ? ` · ${plural(prevenus, 'annulation envoyée', 'annulations envoyées')} par e-mail` : '');
 };
 
 /** Décision saisie pour un inscrit : présence et, si la formation l'exige, résultat de l'évaluation. */

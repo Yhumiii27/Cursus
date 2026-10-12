@@ -2,9 +2,10 @@
 // travaillés du temps partiel pour le manager d'un membre de son équipe.
 import { useState } from 'react';
 import { isValidDate } from '../../../shared/dates.ts';
-import { STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../../../shared/constants.ts';
+import { MODE_NOTIFICATION_LABEL, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../../../shared/constants.ts';
 import { equipeLabel, fmtIso, plural } from '../../../shared/format.ts';
 import { reposForfait } from '../../../shared/rules/conges.ts';
+import { adressesPrises } from '../../../shared/rules/messagerie.ts';
 import { JOURS_SEMAINE, PROFIL_FIELDS, PROFIL_VIDE, normaliserProfil, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
 import type { Statut, TempsTravail, TypeContrat } from '../../../shared/types.ts';
 import { CancelButton, Dialog, Field, Static } from '../components/Dialog.tsx';
@@ -15,7 +16,7 @@ import { useStore } from '../state/store.tsx';
 /** État du formulaire : les nombres et dates restent des chaînes pendant la saisie. */
 interface Form {
   nom: string; poste: string; equipe: string; naissance: string;
-  statut: Statut; typeContrat: TypeContrat; entree: string; fin: string; agence: string;
+  statut: Statut; typeContrat: TypeContrat; entree: string; fin: string; agence: string; email: string;
   temps: TempsTravail; heures: string; forfaitHeures: string; forfaitJours: string; jourOff: number[];
   visite: string; repriseMotif: string; repriseDate: string;
   /** Date d'effet d'un changement d'organisation du temps (défaut : aujourd'hui). */
@@ -34,7 +35,7 @@ const toNum = (s: string) => {
 function toForm(p: ProfilInput, today: string): Form {
   return {
     nom: p.nom, poste: p.poste, equipe: p.equipe ?? '', naissance: numStr(p.naissance),
-    statut: p.statut, typeContrat: p.typeContrat, entree: p.entree, fin: p.fin ?? '', agence: p.agence ?? '',
+    statut: p.statut, typeContrat: p.typeContrat, entree: p.entree, fin: p.fin ?? '', agence: p.agence ?? '', email: p.email ?? '',
     temps: p.temps, heures: numStr(p.heures),
     forfaitHeures: numStr(p.forfaitHeures ?? (p.temps === 'forfait_heures_annuel' ? 1607 : null)),
     forfaitJours: numStr(p.forfaitJours ?? (p.temps === 'forfait_jours' ? 218 : null)),
@@ -49,7 +50,7 @@ function toInput(f: Form, tempsDepuis: string | null): ProfilInput {
   return {
     nom: f.nom, poste: f.poste, equipe: f.equipe || null, statut: f.statut, typeContrat: f.typeContrat, temps: f.temps,
     heures: toNum(f.heures), forfaitHeures: toNum(f.forfaitHeures), forfaitJours: toNum(f.forfaitJours), jourOff: f.jourOff, tempsDepuis,
-    entree: f.entree, fin: f.fin || null, naissance: toNum(f.naissance) ?? Number.NaN, agence: f.agence || null,
+    entree: f.entree, fin: f.fin || null, naissance: toNum(f.naissance) ?? Number.NaN, agence: f.agence || null, email: f.email || null,
     visite: f.visite || null, repriseMotif: f.repriseMotif || null, repriseDate: f.repriseDate || null,
   };
 }
@@ -109,7 +110,7 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   const input: ProfilInput = limited ? { ...initial, poste: f.poste, jourOff: f.jourOff }
     : nouveauRegime ? { ...saisie, tempsDepuis: f.effet || null } : saisie;
   // Un manager d'équipe ne peut pas passer en intérim (équipes encadrées).
-  const v = validerProfil(input, { equipes: d.equipes, year: d.year, encadre: emp ? d.teamsOf(emp.id) : [] });
+  const v = validerProfil(input, { equipes: d.equipes, year: d.year, encadre: emp ? d.teamsOf(emp.id) : [], adressesPrises: adressesPrises(d.ds.employes, emp?.id) });
   const errEffet = !nouveauRegime ? null
     : !f.effet ? 'Date d’effet du nouveau régime de temps requise.'
     : !isValidDate(f.effet) ? null
@@ -215,6 +216,13 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
         </Field>
         <Field label="Année de naissance" htmlFor="emp-naiss">
           <input className="input" id="emp-naiss" type="text" inputMode="numeric" placeholder="1990" value={f.naissance} onChange={ev => set('naissance', ev.target.value)} />
+        </Field>
+        <Field label="Adresse e-mail professionnelle" htmlFor="emp-email">
+          <input className="input" id="emp-email" type="email" autoComplete="off" placeholder="prenom.nom@entreprise.fr" value={f.email} onChange={ev => set('email', ev.target.value)} />
+          <span className="text-muted sub">Notifications et convocations ; à défaut, celle du compte Microsoft 365 est reprise à sa création</span>
+        </Field>
+        <Field label="Notifications par e-mail">
+          <Static pad>{emp ? MODE_NOTIFICATION_LABEL[emp.notifications] : MODE_NOTIFICATION_LABEL.immediat}<div className="text-muted sub">Réglées par le salarié dans son espace</div></Static>
         </Field>
       </div>
 

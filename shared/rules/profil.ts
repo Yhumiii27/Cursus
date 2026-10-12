@@ -4,6 +4,7 @@ import { STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../constants.ts';
 import { isValidDate } from '../dates.ts';
 import { r1 } from '../format.ts';
 import type { Employe, Statut, TempsTravail, TypeContrat } from '../types.ts';
+import { controleAdresse, normaliserAdresse } from './messagerie.ts';
 
 /** Champs d'une fiche saisis par le service RH. */
 export interface ProfilInput {
@@ -23,6 +24,8 @@ export interface ProfilInput {
   fin: string | null;
   naissance: number;
   agence: string | null;
+  /** Adresse e-mail professionnelle (notifications, convocations). */
+  email: string | null;
   visite: string | null;
   repriseMotif: string | null;
   repriseDate: string | null;
@@ -30,7 +33,7 @@ export interface ProfilInput {
 
 export const PROFIL_FIELDS: (keyof ProfilInput)[] = [
   'nom', 'poste', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis',
-  'entree', 'fin', 'naissance', 'agence', 'visite', 'repriseMotif', 'repriseDate',
+  'entree', 'fin', 'naissance', 'agence', 'email', 'visite', 'repriseMotif', 'repriseDate',
 ];
 
 /** Champs qu'un manager peut modifier pour un membre de son équipe ; le contrat et le statut restent au RH. */
@@ -46,7 +49,7 @@ export function profilOf(e: Employe): ProfilInput {
 
 export const PROFIL_VIDE = (equipe: string | null, today: string): ProfilInput => ({
   nom: '', poste: '', equipe, statut: 'ouvrier', typeContrat: 'cdi', temps: '35h', heures: null, forfaitHeures: null, forfaitJours: null,
-  jourOff: [], tempsDepuis: null, entree: today, fin: null, naissance: Number(today.slice(0, 4)) - 30, agence: null, visite: null, repriseMotif: null, repriseDate: null,
+  jourOff: [], tempsDepuis: null, entree: today, fin: null, naissance: Number(today.slice(0, 4)) - 30, agence: null, email: null, visite: null, repriseMotif: null, repriseDate: null,
 });
 
 /**
@@ -74,6 +77,7 @@ export function normaliserProfil(p: ProfilInput): ProfilInput {
     fin: finPossible ? s(p.fin) : null,
     naissance: Number(p.naissance),
     agence: p.typeContrat === 'interim' ? s(p.agence) : null,
+    email: normaliserAdresse(p.email),
     visite: s(p.visite),
     repriseMotif: s(p.repriseMotif),
     repriseDate: s(p.repriseDate),
@@ -83,8 +87,9 @@ export function normaliserProfil(p: ProfilInput): ProfilInput {
 /**
  * Contrôles bloquants (`errors`) et points d'attention (`warnings`).
  * `encadre` : équipes dont le collaborateur est manager (un intérimaire ne peut pas l'être).
+ * `adressesPrises` : adresses e-mail des autres salariés, avec leur nom (`adressesPrises` de rules/messagerie.ts).
  */
-export function validerProfil(raw: ProfilInput, opts: { equipes: string[]; year: number; encadre?: string[] }) {
+export function validerProfil(raw: ProfilInput, opts: { equipes: string[]; year: number; encadre?: string[]; adressesPrises?: Record<string, string> }) {
   const p = normaliserProfil(raw);
   const errors: string[] = [], warnings: string[] = [];
   if (!p.nom) errors.push('Nom requis.');
@@ -107,6 +112,10 @@ export function validerProfil(raw: ProfilInput, opts: { equipes: string[]; year:
   if (p.typeContrat === 'alternance' && !p.fin) warnings.push('Alternance sans date de fin : contrat d’apprentissage ou de professionnalisation conclu en CDI.');
   if (p.tempsDepuis && !isValidDate(p.tempsDepuis)) errors.push('Date d’effet du régime de temps invalide.');
   if (!(p.naissance >= 1940 && p.naissance <= opts.year - 14)) errors.push('Année de naissance invalide.');
+  const errEmail = controleAdresse(p.email, 'Adresse e-mail professionnelle');
+  if (errEmail) errors.push(`${errEmail}.`);
+  else if (p.email && opts.adressesPrises?.[p.email]) errors.push(`Adresse e-mail déjà attribuée à ${opts.adressesPrises[p.email]}.`);
+  if (!p.email) warnings.push('Adresse e-mail professionnelle manquante : ni les notifications ni les convocations ne lui parviendront.');
   if (p.visite && !isValidDate(p.visite)) errors.push('Date de visite médicale invalide.');
   if (p.repriseDate && !isValidDate(p.repriseDate)) errors.push('Date de reprise invalide.');
   if (p.repriseDate && !p.repriseMotif) errors.push('Motif de l’absence longue requis avec la date de reprise.');

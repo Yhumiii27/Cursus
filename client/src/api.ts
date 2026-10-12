@@ -1,5 +1,5 @@
 // Appels à l'API Cursus.
-import type { CompteSession, CompteVue, CurrentUser, Dataset, Envoi, EtatEnvois, Role, StatutEnvoi } from '../../shared/types.ts';
+import type { CibleEnvoi, CompteSession, CompteVue, CurrentUser, Dataset, Envoi, EtatEnvois, Role, StatutEnvoi } from '../../shared/types.ts';
 
 /** Compte proposé à la connexion de démonstration (`id` : identifiant du compte). */
 export interface LoginOption { id: number; nom: string }
@@ -19,10 +19,17 @@ export interface SessionState {
   microsoft: boolean;
   /** Déconnexion d'une session Microsoft : adresse de la déconnexion Microsoft, qui revient sur Cursus. */
   deconnexion?: string;
-  integrations: { keystone: string; sage: string };
+  integrations: { keystone: string; sage: string; email?: string };
 }
-/** File d'envoi (Paramètres → Envois) : état de l'intégration Keystone et derniers messages. */
-export interface EnvoisState { keystone: EtatEnvois & { mode: string }; envois: Envoi[] }
+/**
+ * File d'envoi (Paramètres → Envois) : état de l'intégration Keystone, de la messagerie (boîte d'envoi,
+ * notifications en attente du récapitulatif quotidien) et derniers messages.
+ */
+export interface EnvoisState {
+  keystone: EtatEnvois & { mode: string };
+  email: EtatEnvois & { mode: string; expediteur: string | null; recapitulatif: number };
+  envois: Envoi[];
+}
 export interface ActionResponse { ok: boolean; message: string | null; result?: unknown; error?: string; data?: Dataset; status?: number }
 
 /** Erreur d'appel : `status` 0 quand le serveur n'a pas pu être joint. */
@@ -94,7 +101,12 @@ export const api = {
   journal: (filtre: FiltreJournal = 'tout') => request<{ at: string; actor: string; role: string | null; action: string; message: string | null; identifiant: string | null }[]>(
     'GET', filtre === 'tout' ? '/api/journal' : filtre === 'keystone' ? '/api/journal?vue=keystone' : `/api/journal?filtre=${filtre}`),
   comptes: () => request<CompteVue[]>('GET', '/api/comptes'),
-  envois: (statut: StatutEnvoi | null) => request<EnvoisState>('GET', `/api/envois${statut ? `?statut=${statut}` : ''}`),
+  envois: (statut: StatutEnvoi | null, cible: CibleEnvoi | null = null) => {
+    const q = new URLSearchParams();
+    if (statut) q.set('statut', statut);
+    if (cible) q.set('cible', cible);
+    return request<EnvoisState>('GET', `/api/envois${q.size ? `?${q}` : ''}`);
+  },
   async action(name: string, payload: Record<string, unknown>, espace?: Role): Promise<ActionResponse> {
     try {
       const r = await request<{ message: string | null; result?: unknown; data?: Dataset }>('POST', `/api/actions/${name}`, payload, espace);

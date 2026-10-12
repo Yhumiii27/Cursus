@@ -104,6 +104,58 @@ function problemesOidc(env: Env): string[] {
   return out;
 }
 
+// — Envoi des e-mails par Microsoft Graph (server/src/integrations/email.ts, docs/EMAILS.md) —
+
+/** API Microsoft Graph ; les tests la remplacent par un faux service local (option de `transportEmail`). */
+export const GRAPH_MICROSOFT = 'https://graph.microsoft.com';
+
+export interface ConfigMail {
+  /** Locataire Entra (GUID), application et secret : CURSUS_MAIL_*, sinon ceux de la connexion Microsoft (CURSUS_OIDC_*). */
+  tenant: string;
+  clientId: string;
+  clientSecret: string;
+  /** Boîte d'envoi dédiée (cursus@entreprise.fr), seule boîte que l'application peut utiliser. */
+  from: string;
+  /** Service de jetons (login.microsoftonline.com, remplacé dans les tests par CURSUS_OIDC_AUTORITE) et API Graph. */
+  autorite: string;
+  graph: string;
+}
+
+const ADRESSE_MAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+/** Variable d'envoi, sinon celle de la connexion Microsoft. */
+const mailOuOidc = (env: Env, k: 'TENANT' | 'CLIENT_ID' | 'CLIENT_SECRET') => (env[`CURSUS_MAIL_${k}`] || env[`CURSUS_OIDC_${k}`] || '').trim();
+
+/**
+ * Envoi des e-mails : null (simulation : rien ne part, tout est tracé) sans CURSUS_MAIL_FROM, ou si l'application
+ * Entra n'est pas entièrement désignée (locataire GUID, ID d'application, secret).
+ */
+export function configMail(env: Env = process.env): ConfigMail | null {
+  const from = (env.CURSUS_MAIL_FROM ?? '').trim().toLowerCase();
+  const [tenant, clientId, clientSecret] = (['TENANT', 'CLIENT_ID', 'CLIENT_SECRET'] as const).map(k => mailOuOidc(env, k));
+  if (!ADRESSE_MAIL.test(from) || !GUID.test(tenant.toLowerCase()) || !clientId || !clientSecret) return null;
+  return {
+    tenant: tenant.toLowerCase(), clientId, clientSecret, from,
+    autorite: (env.CURSUS_OIDC_AUTORITE || AUTORITE_MICROSOFT).replace(/\/+$/, ''), graph: GRAPH_MICROSOFT,
+  };
+}
+
+/** Problèmes de la configuration des e-mails : boîte d'envoi valide, application Entra complète (sinon les e-mails resteraient simulés). */
+function problemesMail(env: Env): string[] {
+  const out: string[] = [];
+  const from = (env.CURSUS_MAIL_FROM ?? '').trim();
+  const propres = (['CURSUS_MAIL_TENANT', 'CURSUS_MAIL_CLIENT_ID', 'CURSUS_MAIL_CLIENT_SECRET'] as const).filter(k => (env[k] ?? '').trim());
+  if (!from) {
+    if (propres.length) out.push(`${propres.join(', ')} ${propres.length > 1 ? 'sont définies' : 'est définie'} sans CURSUS_MAIL_FROM : les e-mails restent simulés. Indiquez la boîte d’envoi dédiée (cursus@entreprise.fr).`);
+    return out;
+  }
+  if (!ADRESSE_MAIL.test(from)) out.push(`CURSUS_MAIL_FROM doit être l’adresse de la boîte d’envoi dédiée (cursus@entreprise.fr) : « ${from} » reçu.`);
+  const manquantes = (['TENANT', 'CLIENT_ID', 'CLIENT_SECRET'] as const).filter(k => !mailOuOidc(env, k)).map(k => `CURSUS_MAIL_${k}`);
+  if (manquantes.length) out.push(`CURSUS_MAIL_FROM est définie, mais l’application Entra qui envoie les e-mails ne l’est pas entièrement : définissez ${manquantes.join(', ')} (ou les variables CURSUS_OIDC_* correspondantes).`);
+  const tenant = mailOuOidc(env, 'TENANT');
+  if (tenant && !GUID.test(tenant.toLowerCase())) out.push(`CURSUS_MAIL_TENANT doit être l’ID de l’annuaire (locataire) Entra, au format GUID (« ${tenant} » reçu).`);
+  return out;
+}
+
 /** Problèmes de configuration : bloquants en production, simples avertissements ailleurs. */
 export function problemesConfig(env: Env = process.env): string[] {
   const out: string[] = [];
@@ -126,6 +178,7 @@ export function problemesConfig(env: Env = process.env): string[] {
   if (demo && !local) out.push(`Le mode démonstration (CURSUS_DEMO=1) ouvre l’espace RH sans mot de passe : il n’est admis que sur la boucle locale posée explicitement (CURSUS_HOST=127.0.0.1, application de bureau), jamais derrière le reverse proxy ; écoute actuelle : ${hote}.`);
   if (env.CURSUS_INSECURE_COOKIE === '1' && !local) out.push('CURSUS_INSECURE_COOKIE=1 retire l’attribut Secure du cookie de session : réservé à l’application de bureau (démonstration sur la boucle locale).');
   out.push(...problemesOidc(env));
+  out.push(...problemesMail(env));
   if (env.CURSUS_OIDC_AUTORITE) out.push(`CURSUS_OIDC_AUTORITE est définie (${env.CURSUS_OIDC_AUTORITE}) : elle remplace le service de connexion de Microsoft et reste réservée aux tests.`);
   return out;
 }

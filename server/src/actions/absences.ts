@@ -11,6 +11,7 @@ import { cetInfo, checkAbsence, checkNature, cpInfo, heuresAvantAbsence } from '
 import { semaineCouverte } from '../../../shared/rules/temps.ts';
 import type { Absence, AbsenceType, CetMouvement, CongeType, Employe, FeuilleTemps, NatureAbsence, ReportCp } from '../../../shared/types.ts';
 import { absenceKeystone, sendToKeystone } from '../integrations/keystone.ts';
+import { notifierDecisionConge, notifierDemandeConge, notifierFeuilleRenvoyee } from '../notifications.ts';
 import { ActionError, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
 
 /** Le salarié ou le RH demandent ; le manager qui pose pour un membre de son équipe valide du même coup. */
@@ -24,8 +25,10 @@ const demander: ActionHandler = (ctx, p) => {
   const a = ctx.db.insert<Absence>('absences', { empId: emp.id, type: kind, du: p.du, au: p.au, statut: parManager ? 'validee' : 'demandee', keystone: parManager });
   if (parManager) {
     keystone(ctx, 'absence.validee', a);
+    notifierDecisionConge(ctx, emp, a, true, true); // e-mail : le salarié est informé
     return `Absence de ${emp.nom} (${ABS_LABEL[kind].toLowerCase()}) posée et validée — transmise à Keystone pour la planification`;
   }
+  notifierDemandeConge(ctx, emp, a, ctx.d.mgrOf(emp)); // e-mail : la demande part au valideur
   return `Demande de ${ABS_LABEL[kind].toLowerCase()} envoyée ${ctx.d.mgrDest(ctx.d.mgrOf(emp))}`;
 };
 
@@ -43,6 +46,7 @@ const decider: ActionHandler = (ctx, p) => {
   if (heures) throw new ActionError(heures.text);
   ctx.db.update<Absence>('absences', a.id, { statut: ok ? 'validee' : 'refusee', keystone: ok });
   if (ok) keystone(ctx, 'absence.validee', a);
+  notifierDecisionConge(ctx, emp, a, ok);
   return ok ? `Absence de ${emp.nom} validée — transmise à Keystone pour la planification` : `Absence de ${emp.nom} refusée`;
 };
 
@@ -99,7 +103,10 @@ function renvoyerFeuilles(ctx: Ctx, emp: Employe, a: Pick<Absence, 'du' | 'au'>)
   const apres = new Domain({ ...ctx.ds, absences: ctx.db.all<Absence>('absences') });
   const sh = ctx.ds.feuilles.filter(f => f.empId === emp.id && f.statut === 'soumise' && f.week <= a.au && addD(f.week, 4) >= a.du
     && !f.lignes.some(l => l.h.some(h => num(h) > 0)) && !semaineCouverte(apres, emp, f.week, f));
-  sh.forEach(f => ctx.db.update<FeuilleTemps>('feuilles', f.id, { statut: 'rejetee', comment: 'Absence annulée ou raccourcie : la semaine n’est plus couverte, saisissez les heures travaillées' }));
+  sh.forEach(f => {
+    ctx.db.update<FeuilleTemps>('feuilles', f.id, { statut: 'rejetee', comment: 'Absence annulée ou raccourcie : la semaine n’est plus couverte, saisissez les heures travaillées' });
+    notifierFeuilleRenvoyee(ctx, emp, f.week, true);
+  });
   const semaines = sh.map(f => isoWeek(f.week));
   if (!semaines.length) return '';
   return semaines.length > 1

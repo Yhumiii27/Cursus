@@ -18,7 +18,7 @@ export type CongeType = 'CP' | 'RTT' | 'RECUP';
 export type NatureAbsence =
   | 'MALADIE' | 'ALD' | 'AT' | 'TRAJET' | 'MP'
   | 'MATERNITE' | 'PATERNITE' | 'ADOPTION' | 'PARENTAL'
-  | 'MARIAGE' | 'MARIAGE_ENFANT' | 'NAISSANCE' | 'DECES_ENFANT' | 'DECES_ENFANT_JEUNE' | 'DECES_PROCHE' | 'HANDICAP_ENFANT' | 'ENFANT_MALADE'
+  | 'MARIAGE' | 'MARIAGE_ENFANT' | 'NAISSANCE' | 'DECES_ENFANT' | 'DECES_ENFANT_JEUNE' | 'DEUIL_ENFANT' | 'DECES_PROCHE' | 'HANDICAP_ENFANT' | 'ENFANT_MALADE'
   | 'SANS_SOLDE' | 'INJUSTIFIEE';
 /** `ABSENCE` : absence signalée dont le service RH n'a pas encore précisé la nature (et nature médicale vue par le manager). */
 export type AbsenceType = CongeType | NatureAbsence | 'ABSENCE';

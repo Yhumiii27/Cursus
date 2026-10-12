@@ -121,12 +121,17 @@ export const NATURES_ABSENCE: Record<NatureAbsence, NatureDef> = {
     label: 'Décès d’un enfant', abrege: 'Décès', court: 'congé pour décès d’un enfant', categorie: 'famille', paie: 'maintenue', decompte: 'ouvres',
     duree: 5, justificatif: 'Acte de décès', article: 'Art. L3142-4', cp: CP_EVENEMENT,
   },
-  // Durée retenue par l'entreprise. Le Code prévoit 7 jours ouvrés (art. L3142-4), plus un congé de deuil
-  // de 8 jours (art. L3142-1-1) : à confirmer par le service RH.
+  // 7 jours ouvrés (art. L3142-4), auxquels s'ajoute le congé de deuil (DEUIL_ENFANT, art. L3142-1-1).
   DECES_ENFANT_JEUNE: {
     label: 'Décès d’un enfant de moins de 25 ans, ou lui-même parent', abrege: 'Décès', court: 'congé pour décès d’un enfant', categorie: 'famille', paie: 'maintenue', decompte: 'ouvres',
-    duree: 12, dureeNote: 'aussi pour une personne de moins de 25 ans à charge effective et permanente',
-    justificatif: 'Acte de décès', article: 'Art. L3142-4 et L3142-1-1', cp: CP_EVENEMENT,
+    duree: 7, dureeNote: 'aussi pour une personne de moins de 25 ans à charge effective et permanente ; s’y ajoute le congé de deuil',
+    justificatif: 'Acte de décès', article: 'Art. L3142-4', cp: CP_EVENEMENT,
+  },
+  // Congé de deuil, en plus du congé pour décès : à prendre dans l'année qui suit le décès, en une ou deux fois.
+  DEUIL_ENFANT: {
+    label: 'Congé de deuil (enfant de moins de 25 ans)', abrege: 'Deuil', court: 'congé de deuil', categorie: 'famille', paie: 'indemnisee', decompte: 'ouvres',
+    duree: 8, dureeNote: 'dans l’année qui suit le décès, fractionnable en deux périodes ; indemnisé par la Sécurité sociale, complément employeur — modalités à vérifier par le service RH',
+    justificatif: 'Acte de décès', article: 'Art. L3142-1-1', cp: 'Assimilé à du travail effectif (art. L3142-1-1)',
   },
   DECES_PROCHE: {
     label: 'Décès du conjoint, d’un parent, beau-parent, frère ou sœur', abrege: 'Décès', court: 'congé pour décès d’un proche', categorie: 'famille', paie: 'maintenue', decompte: 'ouvres',

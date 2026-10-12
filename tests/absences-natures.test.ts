@@ -62,7 +62,7 @@ test('référentiel : chaque nature décrite, durées légales des événements 
   }
   assert.deepEqual(Object.keys(NATURES_ABSENCE).filter(k => NATURES_ABSENCE[k as NatureAbsence].medicale), MEDICALES);
   const duree = (k: NatureAbsence) => NATURES_ABSENCE[k].duree;
-  assert.deepEqual(['MARIAGE', 'MARIAGE_ENFANT', 'NAISSANCE', 'DECES_ENFANT', 'DECES_ENFANT_JEUNE', 'DECES_PROCHE', 'HANDICAP_ENFANT'].map(k => duree(k as NatureAbsence)), [4, 1, 3, 5, 12, 3, 5]);
+  assert.deepEqual(['MARIAGE', 'MARIAGE_ENFANT', 'NAISSANCE', 'DECES_ENFANT', 'DECES_ENFANT_JEUNE', 'DEUIL_ENFANT', 'DECES_PROCHE', 'HANDICAP_ENFANT'].map(k => duree(k as NatureAbsence)), [4, 1, 3, 5, 7, 8, 3, 5]);
   assert.ok(NATURES_ABSENCE.ENFANT_MALADE.parAn && duree('ENFANT_MALADE') === 3);
   assert.deepEqual(Object.keys(NATURES_ABSENCE).filter(k => NATURES_ABSENCE[k as NatureAbsence].reprise).sort(), ['ADOPTION', 'ALD', 'MATERNITE', 'PARENTAL']);
   assert.equal(NATURES_ABSENCE.MARIAGE.paie, 'maintenue');

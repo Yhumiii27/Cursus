@@ -346,13 +346,13 @@ paie sera stocké. Contrat : `docs/API-KEYSTONE.md` et `docs/keystone-openapi.js
 
 Référentiel `NATURES_ABSENCE` (`shared/constants.ts`) : santé (arrêt maladie, arrêt longue maladie, accident du travail
 ou de trajet, maladie professionnelle), parentalité (maternité, paternité, adoption, congé parental), événements
-familiaux (art. L3142-4) et enfant malade (L1225-61), absences non payées (congé sans solde, absence injustifiée).
+familiaux (art. L3142-4), congé de deuil (L3142-1-1) et enfant malade (L1225-61), absences non payées (congé sans solde, absence injustifiée).
 Chaque nature porte sa catégorie, sa rémunération (payée, indemnisée, non payée), son décompte (jours ouvrés ou
 calendaires), le justificatif attendu, sa durée légale le cas échéant et l’effet attendu sur l’acquisition des CP.
 Les durées sont les minimums du Code du travail : la CCN Industries chimiques peut être plus favorable, elles se
 modifient dans ce référentiel ; un dépassement n’est qu’un avertissement. Le décès d’un enfant de moins de 25 ans
-porte la durée retenue par l’entreprise (12 jours), à confirmer : le Code prévoit 7 jours ouvrés plus le congé de
-deuil de 8 jours. L’effet sur les CP est indiqué pour mémoire : `cpDroit` ne l’applique pas (décision attendue).
+ouvre 7 jours ouvrés (art. L3142-4), auxquels s’ajoute le congé de deuil de 8 jours (`DEUIL_ENFANT`, art. L3142-1-1),
+saisi à part dans l’année qui suit le décès. L’effet sur les CP est indiqué pour mémoire : `cpDroit` ne l’applique pas (décision attendue).
 Règles : `shared/rules/absences.ts` (confidentialité, décompte, reprise, annulation, bornes du contrat) et
 `checkNature` (`shared/rules/conges.ts`).
 

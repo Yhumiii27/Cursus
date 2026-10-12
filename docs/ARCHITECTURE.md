@@ -97,9 +97,13 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `equipe.creer` / `equipe.renommer` / `equipe.supprimer` | nom, managerId? / nom, nouveau / nom | RH |
 | `equipe.manager` | nom, managerId (null = aucun) | RH |
 | `equipe.affecter` | empId, equipe (null = à affecter) | RH ; manager : ajout à une équipe qu'il encadre, retrait d'un membre |
-| `plan.inscrire` | empId, certId, sessionId, conv (`now`/`later`) | RH, manager direct |
+| `plan.inscrire` | empId, certId (recyclage) ou inscriptionId (formation initiale à replanifier), sessionId, conv (`now`/`later`) | RH, manager direct |
 | `cert.ajouter` | empId, f, date | RH |
-| `session.creer` | f, date, lieu, places, planId? | RH |
+| `session.creer` | f, date (postérieure à aujourd’hui), lieu, places (entier ≥ 1), planId? (action « prévue » de la même formation) | RH |
+| `session.confirmer` | id | RH |
+| `session.modifier` | id, date?, lieu?, places? (≥ inscrits) | RH |
+| `session.annuler` | id, motif? | RH |
+| `session.cloturer` | id, participants [{empId, present, reussi?}], note? (1 à 5), commentaire? | RH |
 | `hab.delivrer` | empId, h, date, par, mode | RH |
 | `hab.suspendre` | empId, h, motif, date? (aujourd’hui par défaut) | RH ; manager pour un membre de son équipe (jamais lui-même) |
 | `hab.lever` | empId, h | RH |
@@ -155,7 +159,7 @@ est « à affecter » et relève du service RH.
   compte (`certEnVigueur` de `shared/domain.ts`) — statut, échéances, indicateurs, prérequis des
   habilitations, Go / No Go, fiche et passeport formation. Les certifications remplacées par un
   recyclage restent en base : `EmpX.anciennes` les expose comme historique (« remplacée le … »).
-  Leur place dans une session à venir, postérieure au recyclage, est libérée (`cert.ajouter`, et au
+  Leur place dans une session ouverte postérieure au recyclage est libérée (`cert.ajouter`, et au
   démarrage pour une base existante : `server/src/migrate.ts`).
 - **Suspension et retrait** : un titre délivré porte une éventuelle mesure (`mesure`, `mesureDate`,
   `mesureMotif`, `mesurePar`). Suspendu (`susp`) ou retiré (`retiree`), il n'est plus valide : fiche
@@ -165,6 +169,40 @@ est « à affecter » et relève du service RH.
   (`demande`) jusqu'à cette nouvelle délivrance.
   Le motif est un texte libre visible du manager et du collaborateur, jamais transmis à Keystone.
   Une base existante reçoit les nouvelles colonnes au démarrage (schéma déclaratif de `server/src/db.ts`).
+
+## Sessions de formation
+
+Règles dans `shared/rules/sessions.ts` (inscrits nominatifs, contrôles, liste pour l'organisme), actions dans
+`server/src/actions/sessions.ts`.
+
+- **Cycle de vie** : « À confirmer » → « Confirmée » → « Clôturée », ou « Annulée ». Une session ouverte (ni
+  clôturée ni annulée, `sessionActive`) dont la date est passée s'affiche « Session passée — à clôturer »
+  (`Domain.sessionStatut`, `Domain.aCloturer`) : tableau de bord, Formations, échéances, fiche collaborateur.
+  Ses inscrits ne comptent plus comme planifiés (`CertInfo.session` ne désigne qu'une session à venir,
+  `CertInfo.sessionPassee` la session passée) et le Go / No Go ne donne plus « Go sous réserve » sur sa foi.
+- **Inscrits** : certifications rattachées (`sessionId`, recyclage) et inscriptions en formation initiale.
+  Leur nombre (`Session.inscrits`) n'est jamais stocké : il est calculé au chargement (`avecInscrits`, sur
+  toutes les données avant la restriction au périmètre) ; l'ancienne colonne `inscrits` d'une base
+  existante n'est plus lue. Après la clôture, il compte les résultats enregistrés ; une session annulée n'en a aucun.
+- **Création** : date postérieure à aujourd'hui, places entières ; l'action du plan indiquée existe, porte la
+  même formation et est « prévue » : elle passe « engagée » et reste rattachée (`planId`).
+- **Confirmer** : le RH transmet la liste nominative à l'organisme (affichage, export CSV : nom, poste,
+  parcours, date de la certification à renouveler) ; l'envoi par e-mail viendra avec le module d'e-mails.
+  **Modifier** : date, lieu, places (au moins les inscrits) ; un changement de date ou de lieu repasse les
+  convocations envoyées « à envoyer ». **Annuler** : les certifications rattachées redeviennent à planifier,
+  les inscriptions en formation initiale restent attachées à la session annulée, à replanifier
+  (`plan.inscrire` avec `inscriptionId`) ; l'action du plan engagée (sans autre session ouverte) redevient « prévue ».
+- **Clôture** (RH, à partir du jour de la session) : chaque formation du catalogue porte son mode de
+  validation (`Formation.validation` : `presence` ou `evaluation`). Pour chaque inscrit, présent / absent
+  et, si l'évaluation est exigée, réussie / échouée. Présent (et reçu) : certification datée du jour de la
+  session, la certification renouvelée passe en historique ; absent ou échec : recyclage de nouveau à
+  planifier, formation initiale à replanifier. Un recyclage déjà saisi depuis (`cert.ajouter` daté du jour de la
+  session ou après) n'appelle aucune décision. Les résultats sont conservés (table `participations`, restreinte
+  au périmètre comme les inscriptions), l'action du plan rattachée passe « réalisée » si aucune autre session
+  ouverte ne la porte, l'évaluation à chaud (note sur 5, commentaire) est facultative. Une seule transaction,
+  tracée au journal.
+- **Base existante** : colonnes et table ajoutées au démarrage (schéma déclaratif) ; `server/src/migrate.ts`
+  valide sur la présence les formations sans mode de validation.
 
 ## Documents déclarés par le collaborateur
 

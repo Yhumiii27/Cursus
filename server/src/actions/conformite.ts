@@ -1,32 +1,40 @@
 // Formations, sessions, certifications, habilitations et demandes des collaborateurs.
 import { GNG_CODE } from '../../../shared/constants.ts';
 import { addMonths, isValidDate, parse } from '../../../shared/dates.ts';
-import { certEnVigueur, Domain, habEnCours, type ChantierEval } from '../../../shared/domain.ts';
+import { certEnVigueur, Domain, habEnCours, sessionActive, type ChantierEval } from '../../../shared/domain.ts';
 import { fmt, matricule, plural } from '../../../shared/format.ts';
 import { estAuDossier, relireDeclaration, retireeAuRefus } from '../../../shared/rules/formalites.ts';
-import type { Certification, DemandeCollab, Employe, HabTitre, HabType, Inscription, Session } from '../../../shared/types.ts';
+import type { Certification, DemandeCollab, Employe, HabTitre, HabType, Inscription } from '../../../shared/types.ts';
 import { loadFull } from '../dataset.ts';
 import { sendToKeystone } from '../integrations/keystone.ts';
 import { ActionError, enriched, getEmp, isManagerOf, isRh, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
 import { appliquerFormalite, retirerFormalite } from './voyages.ts';
 
+/**
+ * Inscription à une session : recyclage d'une certification détenue (`certId`), ou formation initiale
+ * à replanifier (`inscriptionId` : session annulée, absent, évaluation échouée). Le nombre d'inscrits est
+ * calculé : changer de session libère la place de l'ancienne.
+ */
 const inscrire: ActionHandler = (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
   if (!isRh(ctx) && !isManagerOf(ctx, emp)) throw new ActionError('Inscription réservée au service RH ou au manager du collaborateur', 403);
-  const cert = emp.certs.find(c => c.id === Number(p.certId));
+  const initiale = p.inscriptionId != null;
+  const cert = initiale ? undefined : emp.certs.find(c => c.id === Number(p.certId));
+  const insc = initiale ? ctx.ds.inscriptions.find(i => i.id === Number(p.inscriptionId) && i.empId === emp.id) : undefined;
+  const f = cert?.f ?? (insc && ctx.d.session(insc.sessionId)?.formation);
   const sess = ctx.d.session(Number(p.sessionId));
-  if (!cert || !sess) throw new ActionError('Certification ou session introuvable');
-  if (sess.formation !== cert.f) throw new ActionError('Session d’une autre formation');
-  if (certEnVigueur(emp.certs, cert.f) !== cert) throw new ActionError('Certification remplacée par un recyclage : planifiez la certification en vigueur');
+  if (!f || !sess) throw new ActionError(initiale ? 'Inscription ou session introuvable' : 'Certification ou session introuvable');
+  if (sess.formation !== f) throw new ActionError('Session d’une autre formation');
+  if (cert && certEnVigueur(emp.certs, cert.f) !== cert) throw new ActionError('Certification remplacée par un recyclage : planifiez la certification en vigueur');
+  if (!sessionActive(sess)) throw new ActionError(`Session ${sess.statut === 'Annulée' ? 'annulée' : 'clôturée'}`);
   if (sess.date < ctx.d.ti) throw new ActionError('Session déjà passée');
-  if (cert.sessionId === sess.id) return `${emp.nom} est déjà inscrit à cette session`;
+  if ((cert ?? insc)!.sessionId === sess.id || (insc && ctx.ds.inscriptions.some(i => i.empId === emp.id && i.sessionId === sess.id))) {
+    return `${emp.nom} est déjà inscrit à cette session`;
+  }
   if (sess.inscrits >= sess.places) throw new ActionError('Cette session est complète');
   const conv = p.conv === 'later' ? 'later' : 'now';
-  // Changement de session : la place de l'ancienne session est libérée.
-  const ancienne = ctx.d.session(cert.sessionId);
-  if (ancienne && ancienne.date >= ctx.d.ti) ctx.db.update<Session>('sessions', ancienne.id, { inscrits: Math.max(0, ancienne.inscrits - 1) });
-  ctx.db.update<Certification>('certifications', cert.id, { sessionId: sess.id, convoc: conv });
-  ctx.db.update<Session>('sessions', sess.id, { inscrits: sess.inscrits + 1 });
+  if (cert) ctx.db.update<Certification>('certifications', cert.id, { sessionId: sess.id, convoc: conv });
+  else ctx.db.update<Inscription>('inscriptions', insc!.id, { sessionId: sess.id, convoc: conv, date: ctx.d.ti });
   return `${emp.nom} — inscription à la session du ${fmt(parse(sess.date))}${conv === 'now' ? ' · convocation envoyée' : ' · convocation à envoyer'}`;
 };
 
@@ -40,26 +48,15 @@ const ajouterCert: ActionHandler = (ctx, p) => {
   const cert = ctx.db.insert<Certification>('certifications', { empId: emp.id, f: fm.id, obtenue: p.date, sessionId: null, convoc: null });
   // La certification obtenue clôt l'inscription en formation initiale correspondante.
   ctx.ds.inscriptions.filter(i => i.empId === emp.id && ctx.d.session(i.sessionId)?.formation === fm.id).forEach(i => ctx.db.remove('inscriptions', i.id));
-  // Recyclage enregistré : une session à venir, postérieure à l'obtention, n'a plus d'objet pour la certification
-  // remplacée (qui ne se planifie plus) ; sa place est libérée.
+  // Recyclage enregistré : une session ouverte, postérieure à l'obtention, n'a plus d'objet pour la certification
+  // remplacée (qui ne se planifie plus) ; sa place est libérée. Une session antérieure ou du jour même garde
+  // l'inscrit : c'est elle qui a produit le recyclage, sa clôture le constatera.
   const sess = avant && certEnVigueur([...emp.certs, cert], fm.id) === cert ? ctx.d.session(avant.sessionId) : null;
-  if (sess && sess.date >= ctx.d.ti && sess.date > p.date) {
-    ctx.db.update<Session>('sessions', sess.id, { inscrits: Math.max(0, sess.inscrits - 1) });
+  if (sess && sessionActive(sess) && sess.date > p.date) {
     ctx.db.update<Certification>('certifications', avant!.id, { sessionId: null, convoc: null });
     return `${fm.court} ajoutée au dossier de ${emp.nom} · inscription à la session du ${fmt(parse(sess.date))} annulée`;
   }
   return `${fm.court} ajoutée au dossier de ${emp.nom}`;
-};
-
-const creerSession: ActionHandler = (ctx, p) => {
-  requireRh(ctx);
-  const fm = ctx.d.fm(str(p.f));
-  const places = Number(p.places), lieu = str(p.lieu);
-  if (!fm) throw new ActionError('Formation inconnue');
-  if (!isValidDate(p.date) || !lieu || !(places > 0)) throw new ActionError('Date, lieu et nombre de places requis');
-  const s = ctx.db.insert<Session>('sessions', { formation: fm.id, date: p.date, lieu, places, inscrits: 0, statut: 'À confirmer' });
-  if (p.planId) ctx.db.update('planActions', Number(p.planId), { statut: 'engage' });
-  return { message: `Session ${fm.court} créée pour le ${fmt(parse(p.date))} — ${places} places`, result: { id: s.id } };
 };
 
 const delivrerHab: ActionHandler = (ctx, p) => {
@@ -101,20 +98,20 @@ const accepterDemande: ActionHandler = (ctx, p) => {
   const done = (reponse: string) => ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'acceptee', reponse });
   if (r.type === 'formation') {
     const sess = r.sessionId && r.f
-      ? ctx.ds.sessions.find(s => s.id === r.sessionId && s.formation === r.f && s.date >= ctx.d.ti && s.inscrits < s.places)
+      ? ctx.ds.sessions.find(s => s.id === r.sessionId && s.formation === r.f && sessionActive(s) && s.date >= ctx.d.ti && s.inscrits < s.places)
       : undefined;
     if (sess) {
       const cert = certEnVigueur(emp.certs, r.f!);
+      // Le nombre d'inscrits est calculé : rattacher à la session libère l'éventuelle place d'une autre.
       if (cert) {
-        // Recyclage : la certification en vigueur est rattachée à la session (l'ancienne place est libérée).
-        const ancienne = ctx.d.session(cert.sessionId);
-        if (ancienne && ancienne.id !== sess.id && ancienne.date >= ctx.d.ti) ctx.db.update<Session>('sessions', ancienne.id, { inscrits: Math.max(0, ancienne.inscrits - 1) });
-        if (cert.sessionId !== sess.id) ctx.db.update<Session>('sessions', sess.id, { inscrits: sess.inscrits + 1 });
+        // Recyclage : la certification en vigueur est rattachée à la session.
         ctx.db.update<Certification>('certifications', cert.id, { sessionId: sess.id, convoc: 'now' });
       } else if (!ctx.ds.inscriptions.some(i => i.empId === emp.id && i.sessionId === sess.id)) {
-        // Formation initiale : inscription suivie jusqu'à l'obtention de la certification.
-        ctx.db.insert<Inscription>('inscriptions', { empId: emp.id, sessionId: sess.id, convoc: 'now', date: ctx.d.ti });
-        ctx.db.update<Session>('sessions', sess.id, { inscrits: sess.inscrits + 1 });
+        // Formation initiale : inscription suivie jusqu'à l'obtention de la certification. Une inscription de la
+        // même formation (autre session, ou à replanifier) est déplacée plutôt que doublée.
+        const existante = ctx.ds.inscriptions.find(i => i.empId === emp.id && ctx.d.session(i.sessionId)?.formation === r.f);
+        if (existante) ctx.db.update<Inscription>('inscriptions', existante.id, { sessionId: sess.id, convoc: 'now', date: ctx.d.ti });
+        else ctx.db.insert<Inscription>('inscriptions', { empId: emp.id, sessionId: sess.id, convoc: 'now', date: ctx.d.ti });
       }
       done(`Inscrit à la session du ${fmt(parse(sess.date))} — convocation envoyée`);
       return `${emp.nom} inscrit à la session du ${fmt(parse(sess.date))}`;
@@ -184,7 +181,7 @@ const demandeFormation: ActionHandler = (ctx, p) => {
   if (!autre && !ctx.d.fm(p.f)) throw new ActionError('Formation inconnue');
   if (p.sessionId) {
     const s = ctx.d.session(Number(p.sessionId));
-    if (autre || !s || s.formation !== p.f || s.date < ctx.d.ti) throw new ActionError('Session invalide pour cette formation');
+    if (autre || !s || s.formation !== p.f || s.date < ctx.d.ti || !sessionActive(s)) throw new ActionError('Session invalide pour cette formation');
   }
   ctx.db.insert<DemandeCollab>('demandesCollab', {
     empId: emp.id, type: 'formation', f: autre ? null : p.f, h: null, libelle: autre ? libelle : null, label: null,
@@ -300,7 +297,6 @@ const retirerHab: ActionHandler = (ctx, p) => {
 export const conformiteActions: Record<string, ActionHandler> = {
   'plan.inscrire': inscrire,
   'cert.ajouter': ajouterCert,
-  'session.creer': creerSession,
   'hab.delivrer': delivrerHab,
   'hab.suspendre': suspendreHab,
   'hab.lever': leverHab,

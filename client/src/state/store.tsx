@@ -35,9 +35,11 @@ const INITIAL_UI: UiState = {
 
 /** Dialogues ouverts depuis plusieurs écrans — rendus par <DialogHost />. */
 export type DialogState =
-  | { type: 'plan'; empId: number; certId: number }
+  | { type: 'plan'; empId: number; certId?: number; inscriptionId?: number }
   | { type: 'cert'; empId: number }
-  | { type: 'session'; f?: string; planId?: number; places?: number }
+  | { type: 'session'; f?: string; planId?: number; places?: number; sessionId?: number }
+  | { type: 'sessionDetail'; sessionId: number }
+  | { type: 'cloture'; sessionId: number }
   | { type: 'hab'; empId?: number | null; h?: string | null; mode: 'new' | 'deliver' | 'renew' }
   | { type: 'habMesure'; empId: number; h: string; action: HabMesureAction }
   | { type: 'trip' }
@@ -178,6 +180,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       case 'goFormation': go('formations', { formationFilter: intent.f }); break;
       case 'medical': run('medical.demander', { empId: intent.empId }); break;
       case 'openFormalite': setDialog({ type: 'fo', empId: intent.empId, kind: intent.kind, dest: intent.dest, v: intent.v }); break;
+      case 'openCloture': setDialog({ type: 'cloture', sessionId: intent.sessionId }); break;
     }
   }, [go, run]);
 

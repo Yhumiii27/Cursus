@@ -120,6 +120,7 @@ périodique : `docs/SAUVEGARDE.md`.
 - **Sage Paie** : la transmission produit le JSON des variables et un accusé fictif
   (`server/src/integrations/sage.ts`) ; la correspondance des rubriques avec le plan de paie reste à paramétrer.
 - **Convocations, demandes de visite médicale** : notifiées dans l'interface et tracées, sans envoi d'e-mail.
+- **Liste des inscrits d'une session pour l'organisme** : affichée et exportée en CSV à la confirmation, sans envoi d'e-mail.
 
 ## Contrat et temps de travail
 
@@ -144,7 +145,9 @@ compensateur · CP 25 jours ouvrés (+5 j à 59 ans, CCN Chimie), RTT, jours de 
 forfait calculés, CET (5 RTT/an, 5e semaine de CP), reports tracés · entretiens de
 parcours (L6315-1 : 1re année puis tous les 4 ans, reprise, état des lieux 8 ans avec
 risque d'abondement CPF), entretien annuel forfait jours (L3121-64) · plan de formation,
-enveloppes par équipe, import CSV.
+enveloppes par équipe, import CSV · sessions de formation : confirmation, modification, annulation,
+clôture (présence, évaluation selon la formation, certification datée du jour de la session, absents et
+échecs à replanifier, évaluation à chaud), nombre d'inscrits calculé.
 
 Jours fériés et périodes de référence (CP, RTT, campagnes) calculés à partir de la date du jour.
 

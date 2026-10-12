@@ -34,6 +34,19 @@ export function migrate(db: Db) {
   figerFeuilles(db, avant);
   libererPlacesRemplacees(db, todayIso(), avant);
   reprendreDeclarations(db, avant);
+  validationParDefaut(db, avant);
+}
+
+/**
+ * Formations d'une base antérieure au mode de validation : la présence suffit, jusqu'à ce que le
+ * service RH exige une évaluation réussie dans le catalogue.
+ */
+export function validationParDefaut(db: Db, avant = () => {}) {
+  const n = Number((db.sql.prepare('SELECT COUNT(*) AS n FROM formations WHERE validation IS NULL').get() as { n: number }).n);
+  if (!n) return;
+  avant();
+  db.sql.prepare(`UPDATE formations SET validation = 'presence' WHERE validation IS NULL`).run();
+  console.log(`Migration : mode de validation « présence » appliqué à ${plural(n, 'formation', 'formations')} du catalogue.`);
 }
 
 /**
@@ -135,18 +148,16 @@ function convertirContrats(db: Db, avant: () => void) {
 /**
  * Avant la règle de la certification en vigueur, un recyclage enregistré laissait la certification remplacée
  * inscrite à sa session à venir : cette place, devenue invisible, est libérée (même règle que `cert.ajouter`).
+ * Le nombre d'inscrits, calculé au chargement, suit (l'ancienne colonne `inscrits` n'est plus lue).
  */
 export function libererPlacesRemplacees(db: Db, today: string, avant = () => {}) {
-  const rows = db.sql.prepare(`SELECT c.id, c.session_id FROM certifications c JOIN sessions s ON s.id = c.session_id
+  const rows = db.sql.prepare(`SELECT c.id FROM certifications c JOIN sessions s ON s.id = c.session_id
     WHERE s.date >= ? AND EXISTS (SELECT 1 FROM certifications n WHERE n.emp_id = c.emp_id AND n.f = c.f
-      AND (n.obtenue > c.obtenue OR (n.obtenue = c.obtenue AND n.id > c.id)) AND n.obtenue < s.date)`).all(today) as { id: number; session_id: number }[];
+      AND (n.obtenue > c.obtenue OR (n.obtenue = c.obtenue AND n.id > c.id)) AND n.obtenue < s.date)`).all(today) as { id: number }[];
   if (!rows.length) return;
   avant();
   db.tx(() => {
-    for (const r of rows) {
-      db.sql.prepare('UPDATE sessions SET inscrits = MAX(0, inscrits - 1) WHERE id = ?').run(r.session_id);
-      db.sql.prepare('UPDATE certifications SET session_id = NULL, convoc = NULL WHERE id = ?').run(r.id);
-    }
+    for (const r of rows) db.sql.prepare('UPDATE certifications SET session_id = NULL, convoc = NULL WHERE id = ?').run(r.id);
   });
   console.log(`Migration : ${plural(rows.length, 'place de session libérée', 'places de session libérées')} (certifications remplacées par un recyclage).`);
 }

@@ -8,18 +8,20 @@ import type { Db } from './db.ts';
 import { DEFAULT_SETTINGS, loadFull } from './dataset.ts';
 import { figerFeuilles } from './migrate.ts';
 
+// Mode de validation : évaluation réussie pour les habilitations électriques, CACES, SST, ATEX, AIPR et PRAP ;
+// la présence suffit pour les sensibilisations et formations d'information.
 const FORMATIONS = [
-  { id: 'sst', nom: 'Sauveteur secouriste du travail (SST)', court: 'SST', type: 'Réglementaire', validite: 24, duree: '7 h (MAC)', organisme: 'Croix-Rouge française', cout: 180 },
-  { id: 'elec', nom: 'Préparation à l’habilitation électrique B1V · B2V · BR', court: 'Formation élec. B1V-BR', type: 'Réglementaire', validite: 36, duree: '21 h', organisme: 'Apave', cout: 480 },
-  { id: 'atex', nom: 'Intervention en zone ATEX (niveau 1)', court: 'ATEX', type: 'Réglementaire', validite: 36, duree: '7 h', organisme: 'Apave', cout: 350 },
-  { id: 'caces489', nom: 'CACES R489 — Chariots élévateurs (cat. 3)', court: 'CACES R489', type: 'Réglementaire', validite: 60, duree: '21 h', organisme: 'AFTRAL', cout: 650 },
-  { id: 'caces486', nom: 'CACES R486 — Nacelles PEMP (cat. B)', court: 'CACES R486', type: 'Réglementaire', validite: 60, duree: '21 h', organisme: 'AFTRAL', cout: 650 },
-  { id: 'epi', nom: 'Équipier de première intervention incendie', court: 'EPI incendie', type: 'Réglementaire', validite: 12, duree: '4 h', organisme: 'Interne · HSE', cout: 40 },
-  { id: 'fco', nom: 'FCO Marchandises', court: 'FCO', type: 'Réglementaire', validite: 60, duree: '35 h', organisme: 'AFTRAL', cout: 900 },
-  { id: 'aipr', nom: 'AIPR — Opérateur', court: 'AIPR', type: 'Réglementaire', validite: 60, duree: '7 h', organisme: 'Apave', cout: 190 },
-  { id: 'hauteur', nom: 'Travail en hauteur et port du harnais', court: 'Travail en hauteur', type: 'Recommandée', validite: 36, duree: '7 h', organisme: 'Socotec', cout: 320 },
-  { id: 'prap', nom: 'PRAP IBC — Prévention des risques liés à l’activité physique', court: 'PRAP', type: 'Recommandée', validite: 24, duree: '14 h', organisme: 'INRS', cout: 420 },
-  { id: 'rgpd', nom: 'Sensibilisation RGPD et sécurité de l’information', court: 'RGPD', type: 'Interne', validite: 24, duree: '2 h', organisme: 'Interne · DSI', cout: 0 },
+  { id: 'sst', nom: 'Sauveteur secouriste du travail (SST)', court: 'SST', type: 'Réglementaire', validite: 24, duree: '7 h (MAC)', organisme: 'Croix-Rouge française', cout: 180, validation: 'evaluation' },
+  { id: 'elec', nom: 'Préparation à l’habilitation électrique B1V · B2V · BR', court: 'Formation élec. B1V-BR', type: 'Réglementaire', validite: 36, duree: '21 h', organisme: 'Apave', cout: 480, validation: 'evaluation' },
+  { id: 'atex', nom: 'Intervention en zone ATEX (niveau 1)', court: 'ATEX', type: 'Réglementaire', validite: 36, duree: '7 h', organisme: 'Apave', cout: 350, validation: 'evaluation' },
+  { id: 'caces489', nom: 'CACES R489 — Chariots élévateurs (cat. 3)', court: 'CACES R489', type: 'Réglementaire', validite: 60, duree: '21 h', organisme: 'AFTRAL', cout: 650, validation: 'evaluation' },
+  { id: 'caces486', nom: 'CACES R486 — Nacelles PEMP (cat. B)', court: 'CACES R486', type: 'Réglementaire', validite: 60, duree: '21 h', organisme: 'AFTRAL', cout: 650, validation: 'evaluation' },
+  { id: 'epi', nom: 'Équipier de première intervention incendie', court: 'EPI incendie', type: 'Réglementaire', validite: 12, duree: '4 h', organisme: 'Interne · HSE', cout: 40, validation: 'presence' },
+  { id: 'fco', nom: 'FCO Marchandises', court: 'FCO', type: 'Réglementaire', validite: 60, duree: '35 h', organisme: 'AFTRAL', cout: 900, validation: 'presence' },
+  { id: 'aipr', nom: 'AIPR — Opérateur', court: 'AIPR', type: 'Réglementaire', validite: 60, duree: '7 h', organisme: 'Apave', cout: 190, validation: 'evaluation' },
+  { id: 'hauteur', nom: 'Travail en hauteur et port du harnais', court: 'Travail en hauteur', type: 'Recommandée', validite: 36, duree: '7 h', organisme: 'Socotec', cout: 320, validation: 'presence' },
+  { id: 'prap', nom: 'PRAP IBC — Prévention des risques liés à l’activité physique', court: 'PRAP', type: 'Recommandée', validite: 24, duree: '14 h', organisme: 'INRS', cout: 420, validation: 'evaluation' },
+  { id: 'rgpd', nom: 'Sensibilisation RGPD et sécurité de l’information', court: 'RGPD', type: 'Interne', validite: 24, duree: '2 h', organisme: 'Interne · DSI', cout: 0, validation: 'presence' },
 ];
 
 const HABILITATIONS = [
@@ -143,21 +145,30 @@ const EXTRA: Record<number, Extra> = {
   24: { habs: [{ h: 'he', demande: '2026-09-20' }] },
 };
 
+// Le nombre d'inscrits découle des certifications et inscriptions rattachées (RECYCLAGES, INSCRIPTIONS).
+// `planId` : action du plan engagée pour la session (identifiants des lignes de PLAN, insérées dans l'ordre).
 const SESSIONS = [
-  { id: 1, formation: 'sst', date: '2026-10-14', lieu: 'Site de Lyon — salle B', places: 12, inscrits: 9, statut: 'Confirmée' },
-  { id: 2, formation: 'sst', date: '2026-11-18', lieu: 'Site de Lyon — salle B', places: 12, inscrits: 4, statut: 'À confirmer' },
-  { id: 3, formation: 'caces489', date: '2026-10-21', lieu: 'AFTRAL Saint-Priest', places: 6, inscrits: 6, statut: 'Confirmée' },
-  { id: 4, formation: 'caces489', date: '2026-11-25', lieu: 'AFTRAL Saint-Priest', places: 6, inscrits: 2, statut: 'Confirmée' },
-  { id: 5, formation: 'elec', date: '2026-10-27', lieu: 'Apave Vénissieux', places: 8, inscrits: 5, statut: 'Confirmée' },
-  { id: 6, formation: 'epi', date: '2026-10-09', lieu: 'Site de Lyon — atelier', places: 15, inscrits: 11, statut: 'Confirmée' },
-  { id: 7, formation: 'hauteur', date: '2026-11-04', lieu: 'Socotec Lyon', places: 8, inscrits: 3, statut: 'À confirmer' },
-  { id: 8, formation: 'rgpd', date: '2026-11-12', lieu: 'Visioconférence', places: 30, inscrits: 17, statut: 'Confirmée' },
-  { id: 9, formation: 'caces486', date: '2026-12-02', lieu: 'AFTRAL Saint-Priest', places: 6, inscrits: 1, statut: 'À confirmer' },
-  { id: 10, formation: 'prap', date: '2026-11-20', lieu: 'Site de Lyon — salle B', places: 10, inscrits: 6, statut: 'Confirmée' },
-  { id: 11, formation: 'fco', date: '2027-01-11', lieu: 'AFTRAL Saint-Priest', places: 12, inscrits: 3, statut: 'À confirmer' },
-  { id: 12, formation: 'epi', date: '2026-12-10', lieu: 'Site de Lyon — atelier', places: 15, inscrits: 2, statut: 'À confirmer' },
-  { id: 13, formation: 'atex', date: '2026-11-16', lieu: 'Apave Vénissieux', places: 8, inscrits: 3, statut: 'Confirmée' },
+  { id: 1, formation: 'sst', date: '2026-10-14', lieu: 'Site de Lyon — salle B', places: 12, statut: 'Confirmée', planId: 7 },
+  { id: 2, formation: 'sst', date: '2026-11-18', lieu: 'Site de Lyon — salle B', places: 12, statut: 'À confirmer' },
+  { id: 3, formation: 'caces489', date: '2026-10-21', lieu: 'AFTRAL Saint-Priest', places: 6, statut: 'Confirmée', planId: 8 },
+  { id: 4, formation: 'caces489', date: '2026-11-25', lieu: 'AFTRAL Saint-Priest', places: 6, statut: 'Confirmée' },
+  { id: 5, formation: 'elec', date: '2026-10-27', lieu: 'Apave Vénissieux', places: 8, statut: 'Confirmée', planId: 9 },
+  { id: 6, formation: 'epi', date: '2026-10-09', lieu: 'Site de Lyon — atelier', places: 15, statut: 'Confirmée' },
+  { id: 7, formation: 'hauteur', date: '2026-11-04', lieu: 'Socotec Lyon', places: 8, statut: 'À confirmer' },
+  { id: 8, formation: 'rgpd', date: '2026-11-12', lieu: 'Visioconférence', places: 30, statut: 'Confirmée', planId: 10 },
+  { id: 9, formation: 'caces486', date: '2026-12-02', lieu: 'AFTRAL Saint-Priest', places: 6, statut: 'À confirmer' },
+  { id: 10, formation: 'prap', date: '2026-11-20', lieu: 'Site de Lyon — salle B', places: 10, statut: 'Confirmée' },
+  { id: 11, formation: 'fco', date: '2027-01-11', lieu: 'AFTRAL Saint-Priest', places: 12, statut: 'À confirmer' },
+  { id: 12, formation: 'epi', date: '2026-12-10', lieu: 'Site de Lyon — atelier', places: 15, statut: 'À confirmer' },
+  { id: 13, formation: 'atex', date: '2026-11-16', lieu: 'Apave Vénissieux', places: 8, statut: 'Confirmée' },
 ];
+
+/** Recyclages planifiés en plus de ceux des fiches : [collaborateur, formation, session]. */
+const RECYCLAGES: [number, string, number][] = [
+  [10, 'sst', 1], [13, 'sst', 1], [14, 'epi', 6], [11, 'epi', 6], [6, 'elec', 5], [8, 'prap', 10], [7, 'rgpd', 8], [11, 'rgpd', 8],
+];
+/** Inscriptions en formation initiale (formation jamais suivie) : [collaborateur, session]. */
+const INSCRIPTIONS: [number, number][] = [[7, 1], [19, 1], [14, 1], [9, 2], [20, 3], [17, 6], [20, 6], [5, 8], [23, 8]];
 
 const TACHES: Record<number, [string, string, number[]][]> = {
   1: [['INT-LOG', 'Réception / expédition', [7, 7, 7, 7, 7]]], 2: [['INT-MAINT', 'Maintenance préventive', [8, 8, 8, 0, 0]], ['K-2620', 'Repérage site Feyzin', [0, 0, 0, 8, 7]]],
@@ -312,6 +323,11 @@ export function seedDemo(db: Db) {
       (x.visas || []).forEach(v => db.insert('visas', { empId: e.id, ...v }));
       (x.vaccins || []).forEach(v => db.insert('vaccinations', { empId: e.id, ...v }));
     });
+    RECYCLAGES.forEach(([empId, f, sessionId]) => {
+      const c = db.where<{ id: number; f: string }>('certifications', 'empId', empId).find(x => x.f === f)!;
+      db.update('certifications', c.id, { sessionId, convoc: 'now' });
+    });
+    INSCRIPTIONS.forEach(([empId, sessionId]) => db.insert('inscriptions', { empId, sessionId, convoc: 'now', date: '2026-09-28' }));
     Object.entries(TACHES).forEach(([id, list]) => list.forEach(([projet, tache, heures]) => db.insert('taches', { empId: Number(id), projet, tache, heures })));
     MISSIONS.forEach(m => db.insert('missions', m));
     VOYAGES.forEach(v => db.insert('voyages', v));

@@ -1,12 +1,13 @@
 // Annuaire (RH) ou équipe (manager) : statut de conformité, contrat et fiche détaillée.
 import { useMemo, type ReactNode } from 'react';
 import { PencilSimpleIcon, PlusIcon, UserMinusIcon, UserPlusIcon } from '@phosphor-icons/react';
-import { CERT_LABEL, CLS, EMP_LABEL, HAB_CLS, HAB_LABEL, HAB_MESURE_LABEL, RANK, STATUTS, TEMPS_TRAVAIL, TRIP_LABEL, TYPES_CONTRAT } from '../../../shared/constants.ts';
+import { CERT_LABEL, CLS, EMP_LABEL, HAB_CLS, HAB_LABEL, HAB_MESURE_LABEL, RANK, SESSION_PASSEE, STATUTS, TEMPS_TRAVAIL, TRIP_LABEL, TYPES_CONTRAT } from '../../../shared/constants.ts';
 import type { ContratX, EmpX, HabInfo, Proposal } from '../../../shared/domain.ts';
 import type { Formation } from '../../../shared/types.ts';
 import { days, parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, fmtIso, fmtShort, norm, plural, rel } from '../../../shared/format.ts';
 import { absenceKinds } from '../../../shared/rules/conges.ts';
+import { etatInscription } from '../../../shared/rules/sessions.ts';
 import { JOURS_SEMAINE } from '../../../shared/rules/profil.ts';
 import { Avatar, Bar, Btn, Chips, CloseButton, Empty, Fine, NoteAccent, Page, SectionLabel, Seg, Tag, Two } from '../components/ui.tsx';
 import { printDocument } from '../print.ts';
@@ -176,12 +177,13 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
   /** Un membre qui encadre lui-même une équipe ne change d'équipe que par le service RH. */
   const retirable = membre && d.teamsOf(e.id).length === 0;
 
-  // Inscriptions en formation initiale (formation jamais suivie), jusqu'à l'enregistrement de la certification.
+  // Inscriptions en formation initiale (formation jamais suivie), jusqu'à l'obtention de la certification :
+  // planifiées, session passée à clôturer, ou à replanifier (session annulée, absent, évaluation échouée).
   const inscriptions = d.ds.inscriptions
     .filter(i => i.empId === e.id)
     .flatMap(i => {
-      const s = d.session(i.sessionId);
-      return s ? [{ i, s, fm: d.fm(s.formation) as Formation | undefined }] : [];
+      const x = etatInscription(d, i);
+      return x ? [{ i, x, s: x.s, fm: d.fm(x.s.formation) as Formation | undefined }] : [];
     })
     .sort((a, b) => a.s.date.localeCompare(b.s.date));
 
@@ -245,7 +247,13 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
               </div>
               <Bar variant="thin" pct={c.pct} color={c.key === 'ok' ? 'var(--color-accent-600)' : 'var(--color-accent-300)'} />
               {c.session && <NoteAccent icon>Session du {fmt(parse(c.session.date))}{c.convoc === 'now' ? ' · convocation envoyée' : ' · convocation à envoyer'}</NoteAccent>}
-              {c.key !== 'ok' && !c.session && canPlan && (
+              {c.sessionPassee && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
+                  <NoteAccent>{SESSION_PASSEE} · session du {fmt(parse(c.sessionPassee.date))}</NoteAccent>
+                  {rh && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cloture', sessionId: c.sessionPassee!.id })}>Clôturer la session</button>}
+                </div>
+              )}
+              {c.key !== 'ok' && !c.session && !c.sessionPassee && canPlan && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
                   <span className="text-muted sub">{avail ? plural(avail, 'session disponible', 'sessions disponibles') : 'Aucune session disponible'}</span>
                   {/* Sans session ouverte, le manager ne peut pas en créer : il adresse la demande au service RH. */}
@@ -278,29 +286,34 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
       {inscriptions.length > 0 && <>
         <SectionLabel>Formations planifiées</SectionLabel>
         <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
-          {inscriptions.map(({ i, s, fm }) => {
-            const passee = s.date < d.ti;
-            return (
-              <div key={i.id} className="list-row stack">
-                <div className="item-head">
-                  <div>
-                    <div style={{ fontSize: 14 }}>{fm?.nom ?? s.formation}</div>
-                    <div className="text-muted sub">
-                      Session du {fmt(parse(s.date))} · {s.lieu}{fm?.organisme ? ` · ${fm.organisme}` : ''}{s.statut === 'À confirmer' ? ' · à confirmer' : ''}
-                    </div>
-                  </div>
-                  {passee
-                    ? <Tag cls="tag-outline" style={{ flex: 'none' }}>Session passée</Tag>
-                    : <Tag cls={i.convoc === 'now' ? 'tag-neutral' : 'tag-outline'} style={{ flex: 'none' }}>{i.convoc === 'now' ? 'Convocation envoyée' : 'Convocation à envoyer'}</Tag>}
-                </div>
-                {passee && (
+          {inscriptions.map(({ i, x, s, fm }) => (
+            <div key={i.id} className="list-row stack">
+              <div className="item-head">
+                <div>
+                  <div style={{ fontSize: 14 }}>{fm?.nom ?? s.formation}</div>
                   <div className="text-muted sub">
-                    {rh ? 'Ajoutez la certification obtenue pour clore l’inscription.' : 'Certification en attente d’enregistrement par le service RH.'}
+                    {x.etat === 'a_planifier'
+                      ? `${x.motif} · formation initiale à replanifier`
+                      : `Session du ${fmt(parse(s.date))} · ${s.lieu}${fm?.organisme ? ` · ${fm.organisme}` : ''}${s.statut === 'À confirmer' ? ' · à confirmer' : ''}`}
                   </div>
-                )}
+                </div>
+                {x.etat === 'passee' ? <Tag cls="tag-outline" style={{ flex: 'none' }}>Session passée</Tag>
+                  : x.etat === 'a_planifier' ? <Tag cls="tag-accent" style={{ flex: 'none' }}>À planifier</Tag>
+                  : <Tag cls={i.convoc === 'now' ? 'tag-neutral' : 'tag-outline'} style={{ flex: 'none' }}>{i.convoc === 'now' ? 'Convocation envoyée' : 'Convocation à envoyer'}</Tag>}
               </div>
-            );
-          })}
+              {x.etat === 'passee' && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
+                  <NoteAccent>{rh ? SESSION_PASSEE : `${SESSION_PASSEE} par le service RH`}</NoteAccent>
+                  {rh && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cloture', sessionId: s.id })}>Clôturer la session</button>}
+                </div>
+              )}
+              {x.etat === 'a_planifier' && canPlan && (
+                <div className="actions-end">
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'plan', empId: e.id, inscriptionId: i.id })}>Planifier</button>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       </>}
 

@@ -25,7 +25,8 @@ export function Voyages() {
     .sort((a, b) => (a.nt ? a.nt.depart : '9').localeCompare(b.nt ? b.nt.depart : '9') || a.e.nom.localeCompare(b.e.nom)),
   [d, emps, trips, horizon]);
 
-  const demandes = data.demandesKeystone.map(dm => {
+  // Les demandes décidées restent en base (statut, date, décideur) ; seules celles en attente s'affichent ici.
+  const demandes = data.demandesKeystone.filter(dm => dm.statut === 'attente').map(dm => {
     const emp = d.emp(dm.empId), c = d.chantier(dm.chantier), dest = d.destOf(dm.dest);
     const r = emp && dest ? d.readiness(emp, dm) : null;
     const chefCourt = c ? c.chef.split(' ').map((w, i) => i === 0 ? w[0] + '.' : w).join(' ') : '';
@@ -60,7 +61,7 @@ export function Voyages() {
                 {demandes.map(({ dm, emp, c, dest, r, chefCourt }) => (
                   <tr key={dm.id}>
                     <td><Two nowrap main={emp?.nom ?? d.personName(dm.empId)} sub={`${dest?.pays ?? dm.dest} · ${fmtShort(parse(dm.depart))} → ${fmtShort(parse(dm.retour))}`} /></td>
-                    <td><Two main={c ? `${c.id} · ${c.nom}` : dm.chantier} sub={`Reçue le ${fmtShort(parse(dm.recue))}${chefCourt ? ' · ' + chefCourt : ''}`} /></td>
+                    <td><Two main={c ? `${c.id} · ${c.nom}` : dm.chantier} sub={`Reçue le ${fmtShort(parse(dm.recue))}${dm.ref ? ` · réf. ${dm.ref}` : ''}${chefCourt ? ' · ' + chefCourt : ''}`} /></td>
                     <td>{r && <Tag cls={TRIP_CLS[r.status]}>{r.todo ? plural(r.todo, 'formalité à prévoir', 'formalités à prévoir') : 'Dossier complet'}</Tag>}</td>
                     <td className="right">
                       <div className="actions-end">

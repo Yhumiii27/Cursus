@@ -28,8 +28,14 @@ export interface Formation { id: string; nom: string; court: string; type: Forma
 export interface HabType { id: string; nom: string; detail: string; prereqs: string[]; medical: boolean; validite: number; signataire: string }
 export interface Destination { code: string; pays: string; visa: VisaKind; visaSub: string; oblig: VaccinId[]; rec: VaccinId[]; passMois: number }
 export interface Equipe { nom: string; managerId: number | null; ordre: number }
-export interface Projet { code: string; nom: string }
-export interface Chantier { id: string; nom: string; client: string; lieu: string; pays: string; debut: ISODate; fin: ISODate; chef: string; habs: string[]; certs: string[]; ressources: number[] }
+/** Projet ou chantier tenu dans Keystone : archivé, il reste en base (historique) sans plus être proposé ni évalué. */
+export type StatutKeystone = 'actif' | 'archive';
+export interface Projet { code: string; nom: string; statut: StatutKeystone }
+/**
+ * Chantier transmis par Keystone (identifiant Keystone). `ressources` : salariés dont une affectation
+ * chevauche les dates du chantier, recalculés par le serveur (server/src/integrations/keystone-entrant.ts).
+ */
+export interface Chantier { id: string; nom: string; client: string; lieu: string; pays: string; debut: ISODate; fin: ISODate; chef: string; habs: string[]; certs: string[]; ressources: number[]; statut: StatutKeystone }
 
 export interface Referentiels {
   formations: Formation[];
@@ -99,9 +105,15 @@ export interface PlanAction { id: number; exercice: number; f: string | null; li
 
 // — Déplacements & projets —
 export interface Voyage { id: number; empId: number; dest: string; depart: ISODate; retour: ISODate; motif: string; origine: VoyageOrigine; ref: string | null; chantier: string | null; dossierStatut?: TripStatus }
-export interface DemandeKeystone { id: number; empId: number; chantier: string; dest: string; depart: ISODate; retour: ISODate; recue: ISODate }
-export interface Mission { id: number; empId: number; projet: string; lieu: string; du: ISODate; au: ISODate; type: string }
-export interface TacheKeystone { id: number; empId: number; projet: string; tache: string; heures: number[] }
+/** Demande de déplacement reçue de Keystone (`ref` : référence externe unique), conservée après décision du RH. */
+export interface DemandeKeystone {
+  id: number; empId: number; chantier: string; dest: string; depart: ISODate; retour: ISODate; recue: ISODate;
+  ref: string | null; statut: DemandeStatut; decidee: ISODate | null; decideur: string | null; voyageId: number | null;
+}
+/** Présence d'un salarié sur un projet ou un chantier ; `ref` : identifiant Keystone de l'affectation. */
+export interface Mission { id: number; empId: number; projet: string; lieu: string; du: ISODate; au: ISODate; type: string; ref: string | null }
+/** Tâche planifiée par Keystone pour un salarié : heures prévues par date, entre `debut` et `fin`. */
+export interface TacheKeystone { id: number; ref: string | null; empId: number; projet: string; tache: string; debut: ISODate; fin: ISODate; heures: Record<ISODate, number> }
 
 // — Temps & absences —
 export interface LigneTemps { projet: string; tache: string; ks: boolean; h: number[] }

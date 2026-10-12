@@ -1,9 +1,8 @@
 // Serveur HTTP de Cursus : API JSON + application web compilée.
-import express, { type NextFunction, type Request, type Response } from 'express';
+import express, { type Request } from 'express';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Domain } from '../../shared/domain.ts';
-import { matricule } from '../../shared/format.ts';
 import type { CurrentUser, Role } from '../../shared/types.ts';
 import { ACTIONS, QUIET_ACTIONS } from './actions/index.ts';
 import { ActionError, makeCtx } from './actions/context.ts';
@@ -14,7 +13,8 @@ import { enProduction, hoteEcoute, portEcoute, trustProxy, verifierConfig } from
 import { buildSnapshot, currentUser, loadFull, loadSettings } from './dataset.ts';
 import { dbFile, openDb } from './db.ts';
 import { migrate } from './migrate.ts';
-import { KEYSTONE_API_KEY, KEYSTONE_MODE, keystoneKeyOk } from './integrations/keystone.ts';
+import { KEYSTONE_MODE } from './integrations/keystone.ts';
+import { keystoneRoutes } from './integrations/keystone-routes.ts';
 import { SAGE_MODE } from './integrations/sage.ts';
 import { demoPosteLocal, securityHeaders } from './securite.ts';
 import { poserVerrou } from './sauvegarde.ts';
@@ -48,6 +48,8 @@ app.set('trust proxy', trustProxy());
 app.use(securityHeaders(enProduction()));
 // Démonstration en production (application de bureau) : requêtes de ce poste uniquement, jamais via le proxy.
 if (DEMO && enProduction()) app.use(demoPosteLocal());
+// API Keystone (clé X-Api-Key, journal de chaque appel) : avant l'analyse JSON, faite après la vérification de la clé.
+app.use('/api/integrations/keystone', keystoneRoutes(db));
 app.use(express.json({ limit: '2mb' }));
 
 function session(req: Request): SessionInfo | null { return readSession(db, req); }
@@ -159,36 +161,6 @@ app.get('/api/journal', (req, res) => {
   if (!user || user.role !== 'rh') return res.status(403).json({ error: 'Réservé au service RH' });
   const rows = db.sql.prepare('SELECT at, actor, role, action, message FROM journal ORDER BY id DESC LIMIT 100').all();
   res.json(rows);
-});
-
-// — Intégration Keystone : appels entrants —
-function keystoneAuth(req: Request, res: Response, next: NextFunction) {
-  if (!KEYSTONE_API_KEY) return res.status(503).json({ error: 'Intégration Keystone non configurée' });
-  if (!keystoneKeyOk(req.get('x-api-key'))) return res.status(401).json({ error: 'Clé API invalide' });
-  next();
-}
-
-/** Keystone interroge Cursus : verdict Go / No Go d'un chantier (matricules et codes de motif uniquement). */
-app.get('/api/integrations/keystone/chantiers/:id/go-no-go', keystoneAuth, (req, res) => {
-  const full = loadFull(db, { role: 'rh', empId: null, nom: 'Keystone', intitule: '' });
-  const d = new Domain(full);
-  const emps = d.enrich(full.settings.horizonAlerte, false);
-  const ch = d.evaluateChantiers(emps, d.tripsAll()).find(x => x.c.id === req.params.id);
-  if (!ch) return res.status(404).json({ error: 'Chantier inconnu' });
-  res.json(d.keystonePayload(ch, full.settings.partageKeystone === 'detaille', new Date().toISOString()));
-});
-
-/** Keystone transmet une demande de déplacement pour une ressource affectée à un chantier. */
-app.post('/api/integrations/keystone/demandes', keystoneAuth, (req, res) => {
-  const { matricule: mat, chantier, destination, depart, retour } = req.body ?? {};
-  const full = loadFull(db, { role: 'rh', empId: null, nom: 'Keystone', intitule: '' });
-  const emp = full.employes.find(e => matricule(e.id) === mat);
-  const d = new Domain(full);
-  if (!emp || !d.chantier(chantier) || !d.destOf(destination) || !/^\d{4}-\d{2}-\d{2}$/.test(depart) || !/^\d{4}-\d{2}-\d{2}$/.test(retour)) {
-    return res.status(400).json({ error: 'Demande invalide : matricule, chantier, destination, depart, retour' });
-  }
-  const row = db.insert<{ id: number }>('demandesKeystone', { empId: emp.id, chantier, dest: destination, depart, retour, recue: full.today });
-  res.status(201).json({ id: row.id, statut: 'en_attente_rh' });
 });
 
 // — Application web —

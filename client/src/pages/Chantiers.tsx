@@ -16,7 +16,8 @@ export function Chantiers() {
 
   const chant = useMemo(() => d.evaluateChantiers(emps, trips), [d, emps, trips]);
   const sel = chant.find(x => x.c.id === ui.goSel) || chant[0] || null;
-  const payload = useMemo(() => sel ? JSON.stringify(d.keystonePayload(sel, detail), null, 2) : '', [d, sel, detail]);
+  // Réponse de l'API v1 (GET /api/integrations/keystone/v1/chantiers/:id/go-no-go).
+  const payload = useMemo(() => sel ? JSON.stringify(d.verdictKeystone(sel, detail), null, 2) : '', [d, sel, detail]);
   const gngCount = (st: GngStatus) => chant.filter(x => x.status === st).length;
 
   return (

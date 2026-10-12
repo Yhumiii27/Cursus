@@ -4,8 +4,9 @@ import { isValidDate, parse } from '../../../shared/dates.ts';
 import { fmt, matricule, plural } from '../../../shared/format.ts';
 import { declarationLabel, estAuDossier, formaliteCle, lignesAuDossier, lireFormalite } from '../../../shared/rules/formalites.ts';
 import { parseTrips } from '../../../shared/rules/imports.ts';
-import type { Declaration, DemandeCollab, Employe, Vaccination, Visa, Voyage } from '../../../shared/types.ts';
+import type { Declaration, DemandeCollab, DemandeKeystone, Employe, Vaccination, Visa, Voyage } from '../../../shared/types.ts';
 import { sendToKeystone } from '../integrations/keystone.ts';
+import { motifsRefusAcceptation } from '../integrations/keystone-entrant.ts';
 import { ActionError, getEmp, isRh, isSelf, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
 
 const creer: ActionHandler = (ctx, p) => {
@@ -78,28 +79,38 @@ const importer: ActionHandler = (ctx, p) => {
   return `${plural(rows.length, 'demande importée', 'demandes importées')} depuis le formulaire de déplacement`;
 };
 
+/** Demande Keystone encore en attente de décision (une demande décidée est conservée, avec sa décision). */
+function demandeEnAttente(ctx: Ctx, id: unknown): DemandeKeystone {
+  const dm = ctx.ds.demandesKeystone.find(x => x.id === Number(id));
+  if (!dm) throw new ActionError('Demande Keystone introuvable', 404);
+  if (dm.statut !== 'attente') throw new ActionError(`Demande déjà ${dm.statut === 'acceptee' ? 'acceptée' : 'refusée'}${dm.decideur ? ` par ${dm.decideur}` : ''}`, 409);
+  return dm;
+}
+
 const accepterKeystone: ActionHandler = (ctx, p) => {
   requireRh(ctx);
-  const dm = ctx.ds.demandesKeystone.find(x => x.id === Number(p.id));
-  if (!dm) throw new ActionError('Demande Keystone introuvable');
-  const emp = getEmp(ctx, dm.empId), c = ctx.d.chantier(dm.chantier);
+  const dm = demandeEnAttente(ctx, p.id);
+  // Revalidation : affectation, chantier, destination ou effectifs ont pu changer depuis la réception.
+  const motifs = motifsRefusAcceptation(ctx.db, dm, ctx.d.ti);
+  if (motifs.length) throw new ActionError(`Acceptation impossible — ${motifs.join(' · ')}. Refusez la demande.`, 409);
+  const emp = getEmp(ctx, dm.empId), c = ctx.d.chantier(dm.chantier)!;
+  // Le déplacement porte le chantier et la référence Keystone ; le salarié y est rattaché par son affectation.
   const t = ctx.db.insert<Voyage>('voyages', {
-    empId: dm.empId, dest: dm.dest, depart: dm.depart, retour: dm.retour, motif: c ? `${c.nom} — ${c.lieu}` : `Chantier ${dm.chantier}`,
-    origine: 'keystone', ref: null, chantier: dm.chantier,
+    empId: dm.empId, dest: dm.dest, depart: dm.depart, retour: dm.retour, motif: `${c.nom} — ${c.lieu}`,
+    origine: 'keystone', ref: dm.ref, chantier: dm.chantier,
   });
-  ctx.db.remove('demandesKeystone', dm.id);
-  sendToKeystone(ctx.db, { type: 'demande.decision', demandeId: dm.id, matricule: matricule(emp.id), chantier: dm.chantier, decision: 'acceptee' });
+  ctx.db.update<DemandeKeystone>('demandesKeystone', dm.id, { statut: 'acceptee', decidee: ctx.d.ti, decideur: ctx.user.nom, voyageId: t.id });
+  sendToKeystone(ctx.db, { type: 'demande.decision', demandeId: dm.id, reference: dm.ref, matricule: matricule(emp.id), chantier: dm.chantier, decision: 'acceptee' });
   return { message: `Déplacement créé pour ${emp.nom} — chantier ${dm.chantier} · statut renvoyé à Keystone`, result: { id: t.id } };
 };
 
 const refuserKeystone: ActionHandler = (ctx, p) => {
   requireRh(ctx);
-  const dm = ctx.ds.demandesKeystone.find(x => x.id === Number(p.id));
-  if (!dm) throw new ActionError('Demande Keystone introuvable');
-  const emp = getEmp(ctx, dm.empId), c = ctx.d.chantier(dm.chantier);
-  ctx.db.remove('demandesKeystone', dm.id);
-  sendToKeystone(ctx.db, { type: 'demande.decision', demandeId: dm.id, matricule: matricule(emp.id), chantier: dm.chantier, decision: 'refusee' });
-  return `Demande refusée — ${emp.nom} · ${c ? c.chef : 'le chef de projet'} notifié dans Keystone`;
+  const dm = demandeEnAttente(ctx, p.id);
+  const c = ctx.d.chantier(dm.chantier);
+  ctx.db.update<DemandeKeystone>('demandesKeystone', dm.id, { statut: 'refusee', decidee: ctx.d.ti, decideur: ctx.user.nom });
+  sendToKeystone(ctx.db, { type: 'demande.decision', demandeId: dm.id, reference: dm.ref, matricule: matricule(dm.empId), chantier: dm.chantier, decision: 'refusee' });
+  return `Demande refusée — ${ctx.d.personName(dm.empId)} · ${c ? c.chef || 'le chef de projet' : 'le chef de projet'} notifié dans Keystone`;
 };
 
 export const voyagesActions: Record<string, ActionHandler> = {

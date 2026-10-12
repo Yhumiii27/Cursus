@@ -3,7 +3,7 @@ import { ABS_LABEL } from '../constants.ts';
 import { isFerie, isoWeek, parse, wDays } from '../dates.ts';
 import { matricule, num, r1 } from '../format.ts';
 import type { Domain } from '../domain.ts';
-import type { Absence, AbsenceType, ContratFige, Employe, FeuilleTemps, ISODate, LigneTemps, SagePush } from '../types.ts';
+import type { Absence, AbsenceType, ContratFige, Employe, FeuilleTemps, ISODate, LigneTemps, SagePush, TacheKeystone } from '../types.ts';
 
 /** Régime de temps de travail en vigueur d'une fiche, à figer sur une feuille soumise. */
 export function contratFige(e: Employe): ContratFige {
@@ -151,12 +151,24 @@ export function demandesEnAttenteMessage(list: HeuresSurAbsence[], valideur = tr
     : `${debut} : des heures sont saisies ${jours}, à retirer si ${plus ? 'elles sont acceptées' : 'elle est acceptée'}`;
 }
 
-/** Lignes proposées à partir des tâches Keystone (fériés, absences validées et jours non travaillés à zéro). */
+/**
+ * Tâches Keystone du salarié planifiées la semaine `w` : dates de la tâche et heures prévues
+ * du lundi au vendredi (le samedi et le dimanche ne figurent pas sur la feuille).
+ */
+export function tachesDeLaSemaine(d: Domain, empId: number, w: ISODate): TacheKeystone[] {
+  const wd = wDays(w);
+  return d.ds.taches.filter(t => t.empId === empId && t.debut <= wd[4] && t.fin >= w && wd.some(day => num(t.heures?.[day]) > 0));
+}
+
+/**
+ * Lignes proposées à partir des tâches Keystone de la semaine : heures planifiées jour par jour
+ * (fériés, absences validées et jours non travaillés à zéro).
+ */
 export function suggestLines(d: Domain, e: Employe, w: ISODate): LigneTemps[] {
   const wd = wDays(w), off = d.contratOf(e).jourOff, abs = joursAbsence(d, e.id, w);
-  return d.ds.taches.filter(t => t.empId === e.id).map(t => ({
+  return tachesDeLaSemaine(d, e.id, w).map(t => ({
     projet: t.projet, tache: t.tache, ks: true,
-    h: t.heures.map((v, i) => isFerie(wd[i]) || abs[i] || off.includes(i) ? 0 : v),
+    h: wd.map((day, i) => isFerie(day) || abs[i] || off.includes(i) ? 0 : num(t.heures[day])),
   }));
 }
 

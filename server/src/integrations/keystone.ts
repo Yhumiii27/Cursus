@@ -7,7 +7,7 @@ import { demoActive, KEYSTONE_CLE_DEMO } from '../config.ts';
 import type { Db } from '../db.ts';
 
 export type KeystoneEvent =
-  | { type: 'demande.decision'; demandeId: number; matricule: string; chantier: string; decision: 'acceptee' | 'refusee' }
+  | { type: 'demande.decision'; demandeId: number; reference: string | null; matricule: string; chantier: string; decision: 'acceptee' | 'refusee' }
   | { type: 'heures.validees'; matricule: string; semaine: string; projets: Record<string, number> }
   | { type: 'absence.validee'; matricule: string; du: string; au: string; nature: string }
   | { type: 'verdict.modifie'; chantier: string; statut: string; ressource?: { matricule: string; statut: string; motifs: string[] } };

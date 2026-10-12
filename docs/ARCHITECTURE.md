@@ -23,7 +23,8 @@ server/src/
   config.ts        Variables d'environnement, contrôlées au démarrage (refus en production si dangereuses)
   securite.ts      En-têtes de sécurité HTTP (CSP, HSTS, anti-iframe…)
   actions/         Actions métier (POST /api/actions/:nom), contrôles d'accès et validations
-  integrations/    Adaptateurs Keystone et Sage Paie (simulation par défaut)
+  integrations/    Adaptateurs Keystone et Sage Paie (simulation par défaut) ; API Keystone entrante :
+                   keystone-entrant.ts (contrôles, écritures, instantané) et keystone-routes.ts (routes /v1)
   index.ts         Routes HTTP
 client/src/
   state/store.tsx  Session, données, navigation, filtres d'écran (ui), dialogue ouvert, notifications
@@ -68,6 +69,8 @@ design/            Prototype Claude Design de référence et guide du design sys
   `style` de React reste permise. Les documents imprimables utilisent `client/src/styles/print.css`
   et lancent l'impression avec le script servi `client/public/imprimer.js`.
 - **Keystone** : clé comparée en temps constant ; sans `KEYSTONE_API_KEY` (hors démonstration), 503.
+  Le corps n'est lu qu'après la clé ; chaque appel entrant, refusé compris, est tracé dans le journal
+  (`keystone.appel` : méthode, chemin, statut, référence), jamais le contenu reçu.
 - Mise en production : `docs/DEPLOIEMENT.md`.
 
 ## Conventions d'écran
@@ -111,7 +114,7 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `voyage.creer` | empId, dest, depart, retour, motif | RH |
 | `formalite.enregistrer` | empId, kind (`passeport`/`visa`/`vaccin`), numero, expire, dest, visaType, obtenu, v, date | RH (écrit dans le dossier), ou le collaborateur pour lui-même (déclaration en attente, voir ci-dessous) |
 | `voyages.importer` | texte (CSV) | RH |
-| `keystone.accepter` / `keystone.refuser` | id | RH |
+| `keystone.accepter` / `keystone.refuser` | id | RH (demande en attente ; l'acceptation revalide affectation, chantier actif, destination, effectifs et l'absence de déplacement déjà créé ; la demande reste en base avec statut, date et décideur) |
 | `plan.importer` | texte, exercice, mode (`add`/`replace`) | RH |
 | `budget.enveloppes` | exercice, enveloppes {équipe: montant} | RH |
 | `plan.avancer` | id | RH |
@@ -183,11 +186,33 @@ dans le dossier, et leur refus n'y touche pas. Le refus ne retire pas non plus u
 depuis ou que le RH a validée par une autre demande (`retireeAuRefus`) ; une pièce qui a changé se
 valide comme une déclaration ordinaire.
 
+## Données Keystone
+
+Chantiers, projets, missions et tâches viennent de Keystone par l'API entrante
+(`server/src/integrations/keystone-entrant.ts`), y compris en démonstration : `seed.ts` passe par
+les mêmes fonctions et les mêmes tables. Chaque objet porte son identifiant Keystone (`ref` pour les
+affectations, tâches et demandes, index uniques créés au démarrage) : un nouvel envoi le met à jour.
+
+- **Projet** (`projets`) : imputable dans les feuilles de temps ; archivé, il n'est plus proposé.
+- **Chantier** (`chantiers`) : exigences du Go / No Go. `ressources` est recalculé : salariés dont
+  une affectation chevauche les dates du chantier. Archivé, il n'est plus évalué (`evaluateChantiers`).
+- **Affectation** = mission (`missions`, `projet` = chantier) : lieu et nature déduits du chantier.
+- **Tâche planifiée** (`taches`) : heures prévues par date (`heures`), entre `debut` et `fin` ;
+  `tachesDeLaSemaine` / `suggestLines` (`shared/rules/temps.ts`) ne proposent que la semaine affichée.
+- **Demande de déplacement** (`demandesKeystone`) : contrôlée à la réception (affectation exigée),
+  revalidée à l'acceptation, conservée après décision.
+
+Les salariés sont désignés par `matricule()` (`shared/format.ts`) ; la correspondance inverse est
+faite à un seul endroit (`contexte()` de keystone-entrant.ts), à reprendre quand le matricule de
+paie sera stocké. Contrat : `docs/API-KEYSTONE.md` et `docs/keystone-openapi.json` (codes de motif :
+`CODES_MOTIF` de `shared/constants.ts`).
+
 ## Intégrations
 
-- **Keystone → Cursus** : `GET /api/integrations/keystone/chantiers/:id/go-no-go` et
-  `POST /api/integrations/keystone/demandes` (en-tête `X-Api-Key`, variable
-  `KEYSTONE_API_KEY`). Seuls des matricules et codes de motif sortent de Cursus.
+- **Keystone → Cursus** : API `/api/integrations/keystone/v1` (en-tête `X-Api-Key`, variable
+  `KEYSTONE_API_KEY`) — projets, chantiers, affectations, tâches, instantané, verdict Go / No Go,
+  demandes ; les routes sans `/v1` restent servies comme alias obsolètes. Seuls des matricules et
+  codes de motif sortent de Cursus.
 - **Cursus → Keystone** : `server/src/integrations/keystone.ts` (`sendToKeystone`) —
   décisions sur les demandes, heures validées, absences validées, verdicts modifiés par une
   suspension, une levée, un retrait ou la nouvelle délivrance qui suit un retrait (`verdict.modifie` :

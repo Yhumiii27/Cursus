@@ -50,9 +50,11 @@ const setCell: ActionHandler = (ctx, p) => {
 const addLine: ActionHandler = (ctx, p) => {
   const { sh } = editable(ctx, p);
   const projet = str(p.projet);
-  const nom = ctx.ds.referentiels.projets.find(x => x.code === projet)?.nom;
-  if (!nom) throw new ActionError('Projet inconnu');
-  saveLines(ctx, sh, [...sh.lignes, { projet, tache: nom, ks: false, h: [0, 0, 0, 0, 0] }]);
+  // Projets transmis par Keystone (server/src/integrations/keystone-entrant.ts) ; un projet archivé n'est plus proposé.
+  const pr = ctx.ds.referentiels.projets.find(x => x.code === projet);
+  if (!pr) throw new ActionError('Projet inconnu');
+  if (pr.statut === 'archive') throw new ActionError('Projet clos dans Keystone : aucune heure ne peut plus y être imputée');
+  saveLines(ctx, sh, [...sh.lignes, { projet, tache: pr.nom, ks: false, h: [0, 0, 0, 0, 0] }]);
   return null;
 };
 
@@ -65,6 +67,8 @@ const removeLine: ActionHandler = (ctx, p) => {
 const suggest: ActionHandler = (ctx, p) => {
   const { emp, week, sh } = editable(ctx, p);
   const l = suggestLines(ctx.d, emp, week);
+  // Rien de planifié cette semaine : la feuille n'est pas vidée.
+  if (!l.length) throw new ActionError('Aucune tâche Keystone planifiée pour ce salarié cette semaine');
   saveLines(ctx, sh, l);
   return `Heures proposées depuis les tâches Keystone — ${plural(l.length, 'ligne', 'lignes')}, à ajuster si besoin`;
 };

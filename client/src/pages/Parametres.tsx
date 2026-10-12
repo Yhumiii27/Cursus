@@ -27,9 +27,15 @@ const SAGE_RUBRIQUES: [string, string][] = [
   ['JTRAV', 'Jours travaillés (cadres au forfait jours)'],
 ];
 
+/** Routes de l'API v1 (préfixe /api/integrations/keystone/v1) ; contrat complet : docs/API-KEYSTONE.md. */
 const KEYSTONE_ENDPOINTS: [string, string, string][] = [
-  ['GET', '/api/integrations/keystone/chantiers/:id/go-no-go', 'Verdict Go / No Go d’un chantier et de ses ressources'],
-  ['POST', '/api/integrations/keystone/demandes', 'Demande de déplacement d’une ressource, à valider dans Voyages'],
+  ['PUT', '/projets/:code', 'Projet imputable dans les feuilles de temps'],
+  ['PUT', '/chantiers/:id', 'Chantier : dates, exigences du Go / No Go, statut actif ou archivé'],
+  ['PUT', '/affectations/:id', 'Présence d’un salarié sur un chantier (mission et ressource du Go / No Go)'],
+  ['PUT', '/taches/:id', 'Tâche planifiée : heures prévues par jour, proposées dans la feuille de temps'],
+  ['PUT', '/instantane', 'Synchronisation complète : état de référence des projets, chantiers, affectations et tâches'],
+  ['GET', '/chantiers/:id/go-no-go', 'Verdict Go / No Go d’un chantier et de ses ressources'],
+  ['POST', '/demandes', 'Demande de déplacement d’une ressource, à valider dans Voyages'],
 ];
 
 const ROLE_LABEL: Record<string, string> = { rh: 'Service RH', manager: 'Manager', collaborateur: 'Collaborateur', integration: 'Intégration' };
@@ -153,7 +159,7 @@ export function Parametres() {
                 </div>
               ))}
             </div>
-            <Fine>Authentification par l’en-tête <span style={MONO}>X-Api-Key</span> (clé définie par la variable <span style={MONO}>KEYSTONE_API_KEY</span>).</Fine>
+            <Fine>Préfixe <span style={MONO}>/api/integrations/keystone/v1</span> · authentification par l’en-tête <span style={MONO}>X-Api-Key</span> (clé définie par la variable <span style={MONO}>KEYSTONE_API_KEY</span>) · spécification OpenAPI : <span style={MONO}>/v1/openapi.json</span>. Chaque appel est tracé dans le journal ; les routes sans <span style={MONO}>/v1</span> restent servies, obsolètes.</Fine>
             <Fine>
               {keystoneMode === 'api'
                 ? 'Mode API : les décisions sur les demandes de déplacement, les heures validées, les absences validées et les verdicts modifiés par une suspension, une levée, un retrait ou une nouvelle délivrance d’habilitation sont envoyés à Keystone.'

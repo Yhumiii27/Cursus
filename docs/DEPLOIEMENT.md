@@ -254,7 +254,7 @@ sudo nginx -t && sudo systemctl reload nginx
 curl -sI https://cursus.example.fr/ | grep -iE 'strict-transport|content-security|x-frame|x-content-type'
 curl -s https://cursus.example.fr/api/session                   # "demo":false et "user":null
 curl -s -o /dev/null -w '%{http_code}\n' http://cursus.example.fr/                       # 301 ou 308 vers HTTPS
-curl -s -o /dev/null -w '%{http_code}\n' https://cursus.example.fr/api/integrations/keystone/chantiers/X/go-no-go   # 401 sans clé
+curl -s -o /dev/null -w '%{http_code}\n' https://cursus.example.fr/api/integrations/keystone/v1/chantiers/X/go-no-go   # 401 sans clé
 ```
 
 Depuis un téléphone de l'entreprise, hors du réseau interne : la page de connexion s'affiche en
@@ -325,4 +325,7 @@ précède chaque mise en production.
   par trimestre.
 - Changer la clé Keystone : nouvelle valeur dans `/etc/cursus/cursus.env`, `systemctl restart
   cursus`, puis transmission à Keystone.
+- Keystone alimente les chantiers, projets, affectations et tâches par son API (`docs/API-KEYSTONE.md`) :
+  sans elle, une base de production n'a ni chantier ni projet. Ses appels sont tracés dans le journal
+  (Paramètres, action `keystone.appel`).
 - Changer `CURSUS_SECRET` (fuite supposée) : même procédure ; toutes les sessions sont fermées.

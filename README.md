@@ -113,8 +113,11 @@ périodique : `docs/SAUVEGARDE.md`.
 
 - **Authentification** : sélection d'un profil + mot de passe libre. Brancher l'authentification
   unique de l'entreprise (OIDC / SAML) dans `server/src/auth.ts` et la route `/api/login`.
-- **Keystone** : les appels entrants (`GET /api/integrations/keystone/chantiers/:id/go-no-go`,
-  `POST /api/integrations/keystone/demandes`) sont réels ; les messages sortants (décisions,
+- **Keystone** : les appels entrants sont réels — API versionnée `/api/integrations/keystone/v1`
+  (projets, chantiers, affectations, tâches planifiées, synchronisation complète, verdict Go / No Go,
+  demandes de déplacement), contrat OpenAPI `docs/keystone-openapi.json` et guide du développeur de
+  Keystone `docs/API-KEYSTONE.md` ; hors démonstration, chantiers, projets, missions et tâches ne
+  viennent que de cette API. Les messages sortants (décisions,
   heures et absences validées, verdicts modifiés par une suspension, une levée, un retrait ou une
   nouvelle délivrance d'habilitation) sont tracés dans le journal (`server/src/integrations/keystone.ts`).
 - **Sage Paie** : la transmission produit le JSON des variables et un accusé fictif

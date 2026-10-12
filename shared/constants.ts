@@ -26,6 +26,12 @@ export const TS_LABEL = { vide: 'Non saisie', brouillon: 'Brouillon', soumise: '
 export const GNG_CLS = { go: 'tag-neutral', reserve: 'tag-outline', nogo: 'tag-accent' } as const;
 export const GNG_LABEL = { go: 'Go', reserve: 'Go sous réserve', nogo: 'No Go' } as const;
 export const GNG_CODE = { go: 'GO', reserve: 'GO_RESERVE', nogo: 'NO_GO' } as const;
+/**
+ * Codes de motif Go / No Go transmis à Keystone, contrat de l'API v1 (docs/keystone-openapi.json) :
+ * un nouveau code s'ajoute ici, dans la spécification et dans docs/API-KEYSTONE.md.
+ */
+export const CODES_MOTIF = ['HABILITATION', 'HABILITATION_SUSPENDUE', 'HABILITATION_RETIREE', 'CERTIFICATION', 'DEPLACEMENT', 'FORMALITES_VOYAGE'] as const;
+export type CodeMotif = typeof CODES_MOTIF[number];
 export const PLAN_CLS = { prevu: 'tag-outline', engage: 'tag-accent', realise: 'tag-neutral' } as const;
 export const PLAN_LABEL = { prevu: 'Prévu', engage: 'Engagé', realise: 'Réalisé' } as const;
 export const REQ_CLS = { attente: 'tag-outline', acceptee: 'tag-neutral', refusee: 'tag-accent' } as const;

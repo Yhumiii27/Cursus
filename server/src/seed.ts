@@ -1,11 +1,13 @@
 // Jeu de données de démonstration (repris du prototype Claude Design) :
 // 24 collaborateurs d'un site industriel lyonnais, CCN Industries chimiques.
 import { Domain } from '../../shared/domain.ts';
-import { addM } from '../../shared/dates.ts';
+import { addD, addM, isFerie, wDays, weekday } from '../../shared/dates.ts';
+import { matricule } from '../../shared/format.ts';
 import { cpDroit, rttDroit } from '../../shared/rules/conges.ts';
 import type { Dataset, Employe, EntretienType, Statut, TempsTravail, TypeContrat, VaccinId } from '../../shared/types.ts';
 import type { Db } from './db.ts';
 import { DEFAULT_SETTINGS, loadFull } from './dataset.ts';
+import { contexte, enregistrerAffectation, enregistrerChantier, enregistrerProjet, enregistrerTache } from './integrations/keystone-entrant.ts';
 import { figerFeuilles } from './migrate.ts';
 
 const FORMATIONS = [
@@ -44,6 +46,8 @@ const DESTS = [
 
 const EQUIPES: [string, number][] = [['Logistique', 16], ['Maintenance', 12], ['Production', 3], ['Qualité & HSE', 23], ['Administration', 14], ['Commercial', 9]];
 
+// — Keystone : projets, chantiers, affectations et planning, chargés par les fonctions de l'API entrante —
+
 const PROJETS: Record<string, string> = {
   'K-2614': 'Rétrofit presse hydraulique', 'K-2620': 'Maintenance zone ATEX', 'K-2611': 'Mise en service ligne d’embouteillage', 'K-2625': 'Audit HSE usine',
   'K-2631': 'Transfert de ligne de conditionnement', 'K-2633': 'Dépannage four tunnel',
@@ -51,13 +55,29 @@ const PROJETS: Record<string, string> = {
   'INT-QUA': 'Contrôle qualité', 'INT-ADM': 'Fonctions support', 'INT-COM': 'Commercial & avant-vente', 'ECOLE': 'Cours en CFA (alternance)',
 };
 
+/** Chantiers et exigences du Go / No Go ; le dépannage de Grenoble, terminé, est archivé. Les ressources viennent des affectations. */
 const CHANTIERS = [
-  { id: 'K-2614', nom: 'Rétrofit presse hydraulique', client: 'Atlas Emboutissage', lieu: 'Tanger', pays: 'MA', debut: '2026-10-27', fin: '2026-11-06', chef: 'Karim Haddad', habs: ['he', 'hauteur'], certs: ['sst'], ressources: [18, 6, 12] },
-  { id: 'K-2620', nom: 'Maintenance zone ATEX', client: 'Pétrochimie du Rhône', lieu: 'Feyzin', pays: 'FR', debut: '2026-10-19', fin: '2026-10-23', chef: 'Sarah Cohen', habs: ['atex'], certs: ['sst'], ressources: [3, 8, 22] },
-  { id: 'K-2611', nom: 'Mise en service ligne d’embouteillage', client: 'Sivop Boissons', lieu: 'Abidjan', pays: 'CI', debut: '2026-11-09', fin: '2026-11-27', chef: 'Karim Haddad', habs: ['he'], certs: ['sst'], ressources: [12, 18] },
-  { id: 'K-2625', nom: 'Audit HSE usine', client: 'Tema Packaging', lieu: 'Tema', pays: 'GH', debut: '2026-12-01', fin: '2026-12-05', chef: 'Sarah Cohen', habs: [], certs: ['sst'], ressources: [23, 5] },
-  { id: 'K-2631', nom: 'Transfert de ligne de conditionnement', client: 'Embalagens Paulista', lieu: 'São Paulo', pays: 'BR', debut: '2027-01-18', fin: '2027-01-29', chef: 'Olivier Marchal', habs: ['ac489'], certs: ['caces489'], ressources: [22, 16] },
+  { id: 'K-2614', nom: 'Rétrofit presse hydraulique', client: 'Atlas Emboutissage', lieu: 'Tanger', pays: 'MA', debut: '2026-10-27', fin: '2026-11-06', chef: 'Karim Haddad', habilitations: ['he', 'hauteur'], certifications: ['sst'] },
+  { id: 'K-2620', nom: 'Maintenance zone ATEX', client: 'Pétrochimie du Rhône', lieu: 'Feyzin', pays: 'FR', debut: '2026-10-19', fin: '2026-10-23', chef: 'Sarah Cohen', habilitations: ['atex'], certifications: ['sst'] },
+  { id: 'K-2611', nom: 'Mise en service ligne d’embouteillage', client: 'Sivop Boissons', lieu: 'Abidjan', pays: 'CI', debut: '2026-11-09', fin: '2026-11-27', chef: 'Karim Haddad', habilitations: ['he'], certifications: ['sst'] },
+  { id: 'K-2625', nom: 'Audit HSE usine', client: 'Tema Packaging', lieu: 'Tema', pays: 'GH', debut: '2026-12-01', fin: '2026-12-05', chef: 'Sarah Cohen', habilitations: [], certifications: ['sst'] },
+  { id: 'K-2631', nom: 'Transfert de ligne de conditionnement', client: 'Embalagens Paulista', lieu: 'São Paulo', pays: 'BR', debut: '2027-01-18', fin: '2027-01-29', chef: 'Olivier Marchal', habilitations: ['ac489'], certifications: ['caces489'] },
+  { id: 'K-2633', nom: 'Dépannage four tunnel', client: 'Céramiques du Dauphiné', lieu: 'Grenoble', pays: 'FR', debut: '2026-10-06', fin: '2026-10-08', chef: 'Karim Haddad', habilitations: [], certifications: [], statut: 'archive' },
 ];
+
+/**
+ * Affectations (présence sur un chantier) : missions des salariés et ressources des chantiers. Le repérage
+ * de Mehdi Benali à Feyzin précède le chantier : mission sans entrer dans le Go / No Go.
+ */
+const AFFECTATIONS = [
+  { empId: 6, chantier: 'K-2633', du: '2026-10-06', au: '2026-10-08' },
+  { empId: 2, chantier: 'K-2620', du: '2026-10-08', au: '2026-10-09' },
+  ...[3, 8, 22].map(empId => ({ empId, chantier: 'K-2620', du: '2026-10-19', au: '2026-10-23' })),
+  ...[18, 6, 12].map(empId => ({ empId, chantier: 'K-2614', du: '2026-10-27', au: '2026-11-06' })),
+  ...[12, 18].map(empId => ({ empId, chantier: 'K-2611', du: '2026-11-09', au: '2026-11-27' })),
+  ...[23, 5].map(empId => ({ empId, chantier: 'K-2625', du: '2026-12-01', au: '2026-12-05' })),
+  ...[22, 16].map(empId => ({ empId, chantier: 'K-2631', du: '2027-01-18', au: '2027-01-29' })),
+].map(a => ({ id: `AF-${a.chantier}-${a.empId}`, ...a }));
 
 interface Profil {
   statut: Statut; typeContrat: TypeContrat; temps: TempsTravail; entree: string; naissance: number;
@@ -159,29 +179,51 @@ const SESSIONS = [
   { id: 13, formation: 'atex', date: '2026-11-16', lieu: 'Apave Vénissieux', places: 8, inscrits: 3, statut: 'Confirmée' },
 ];
 
-const TACHES: Record<number, [string, string, number[]][]> = {
-  1: [['INT-LOG', 'Réception / expédition', [7, 7, 7, 7, 7]]], 2: [['INT-MAINT', 'Maintenance préventive', [8, 8, 8, 0, 0]], ['K-2620', 'Repérage site Feyzin', [0, 0, 0, 8, 7]]],
+const PLAN_DEBUT = '2026-09-14', PLAN_FIN = '2026-12-31';
+
+/**
+ * Planning Keystone : tâches de chaque salarié, gabarit du lundi au vendredi appliqué du 14 septembre
+ * au 31 décembre, ou entre les dates indiquées. Les feuilles de temps passées en sont tirées.
+ */
+const TACHES: Record<number, [projet: string, tache: string, h: number[], du?: string, au?: string][]> = {
+  1: [['INT-LOG', 'Réception / expédition', [7, 7, 7, 7, 7]]],
+  2: [['INT-MAINT', 'Maintenance préventive', [8, 8, 8, 0, 0], PLAN_DEBUT, '2026-10-16'], ['K-2620', 'Repérage site Feyzin', [0, 0, 0, 8, 7], '2026-09-21', '2026-10-16'], ['INT-MAINT', 'Maintenance préventive', [8, 8, 8, 8, 7], '2026-10-19']],
   3: [['INT-PROD', 'Encadrement ligne 2', [8, 8, 8, 8, 7]]], 4: [['INT-LOG', 'Préparation de commandes', [7, 7, 7, 7, 7]]],
-  5: [['INT-HSE', 'Animation sécurité', [4, 4, 4, 4, 4]], ['K-2625', 'Préparation audit Tema', [3, 3, 3, 3, 3]]], 6: [['INT-MAINT', 'Maintenance préventive', [8, 0, 0, 0, 7]], ['K-2633', 'Dépannage four — sur site', [0, 8, 8, 8, 0]]],
+  5: [['INT-HSE', 'Animation sécurité', [4, 4, 4, 4, 4]], ['K-2625', 'Préparation audit Tema', [3, 3, 3, 3, 3], PLAN_DEBUT, '2026-11-27']],
+  6: [['INT-MAINT', 'Maintenance préventive', [8, 0, 0, 0, 7], PLAN_DEBUT, '2026-10-09'], ['K-2633', 'Dépannage four — sur site', [0, 8, 8, 8, 0], '2026-09-21', '2026-10-08'], ['INT-MAINT', 'Maintenance préventive', [8, 8, 8, 8, 7], '2026-10-12']],
   7: [['INT-ADM', 'Paie & administration du personnel', [7, 7, 0, 7, 7]]], 8: [['INT-PROD', 'Conduite ligne 1', [7, 7, 7, 7, 7]]],
   9: [['INT-COM', 'Avant-vente grands comptes', [4, 4, 4, 4, 4]], ['K-2631', 'Suivi client Embalagens', [3, 3, 3, 3, 3]]], 10: [['INT-LOG', 'Tournées de livraison', [7, 7, 7, 7, 7]]],
-  11: [['INT-QUA', 'Audits internes', [7, 7, 7, 7, 7]]], 12: [['K-2614', 'Pilotage chantier', [3, 3, 3, 3, 3]], ['K-2611', 'Préparation mise en service', [3, 3, 3, 3, 3]], ['INT-MAINT', 'Management d’équipe', [2, 2, 2, 2, 2]]],
+  11: [['INT-QUA', 'Audits internes', [7, 7, 7, 7, 7]]],
+  12: [['K-2614', 'Pilotage chantier', [3, 3, 3, 3, 3], PLAN_DEBUT, '2026-11-06'], ['K-2611', 'Préparation mise en service', [3, 3, 3, 3, 3], PLAN_DEBUT, '2026-11-27'], ['INT-MAINT', 'Management d’équipe', [2, 2, 2, 2, 2]]],
   13: [['INT-PROD', 'Conditionnement', [7, 7, 7, 0, 0]]], 14: [['INT-ADM', 'Recrutement & RH', [8, 8, 8, 8, 6.5]]], 15: [['INT-PROD', 'Opératrice ligne 1', [7, 7, 7, 7, 7]]],
-  16: [['INT-LOG', 'Coordination du quai', [8, 8, 8, 8, 7]]], 17: [['INT-QUA', 'Contrôle réception', [7, 7, 7, 7, 7]]], 18: [['K-2614', 'Rétrofit — circuit hydraulique', [8, 8, 8, 8, 7]]],
+  16: [['INT-LOG', 'Coordination du quai', [8, 8, 8, 8, 7]]], 17: [['INT-QUA', 'Contrôle réception', [7, 7, 7, 7, 7]]],
+  18: [['K-2614', 'Rétrofit — circuit hydraulique', [8, 8, 8, 8, 7], PLAN_DEBUT, '2026-11-06'], ['INT-MAINT', 'Maintenance curative', [8, 8, 8, 8, 7], '2026-11-09']],
   19: [['INT-COM', 'Affaires export États-Unis', [7, 7, 7, 7, 7]]], 20: [['INT-LOG', 'Tournées de livraison', [7, 7, 7, 7, 7]]], 21: [['INT-ADM', 'Assistance de direction', [7, 7, 7, 7, 0]]],
-  22: [['INT-PROD', 'Conduite ligne 2', [8, 8, 8, 8, 7]]], 23: [['INT-HSE', 'Pilotage HSE', [4, 4, 4, 4, 4]], ['K-2620', 'Plan de prévention ATEX', [3, 3, 3, 3, 3]]],
+  22: [['INT-PROD', 'Conduite ligne 2', [8, 8, 8, 8, 7]]], 23: [['INT-HSE', 'Pilotage HSE', [4, 4, 4, 4, 4]], ['K-2620', 'Plan de prévention ATEX', [3, 3, 3, 3, 3], PLAN_DEBUT, '2026-10-23']],
   24: [['INT-MAINT', 'Apprentissage — maintenance', [7, 7, 7, 0, 0]], ['ECOLE', 'Cours au CFA', [0, 0, 0, 7, 7]]],
 };
 
-const MISSIONS = [
-  { empId: 6, projet: 'K-2633', lieu: 'Grenoble (38)', du: '2026-10-06', au: '2026-10-08', type: 'Déplacement' },
-  { empId: 2, projet: 'K-2620', lieu: 'Feyzin (69)', du: '2026-10-08', au: '2026-10-09', type: 'Mission' },
-  ...[3, 8, 22].map(empId => ({ empId, projet: 'K-2620', lieu: 'Feyzin (69)', du: '2026-10-19', au: '2026-10-23', type: 'Mission' })),
-  ...[18, 6, 12].map(empId => ({ empId, projet: 'K-2614', lieu: 'Tanger, Maroc', du: '2026-10-27', au: '2026-11-06', type: 'Déplacement international' })),
-  ...[12, 18].map(empId => ({ empId, projet: 'K-2611', lieu: 'Abidjan, Côte d’Ivoire', du: '2026-11-09', au: '2026-11-27', type: 'Déplacement international' })),
-  ...[23, 5].map(empId => ({ empId, projet: 'K-2625', lieu: 'Tema, Ghana', du: '2026-12-01', au: '2026-12-05', type: 'Déplacement international' })),
-  ...[22, 16].map(empId => ({ empId, projet: 'K-2631', lieu: 'São Paulo, Brésil', du: '2027-01-18', au: '2027-01-29', type: 'Déplacement international' })),
-];
+/**
+ * Tâches planifiées, heures par date (jours ouvrés hors fériés). Pendant une affectation, les heures
+ * prévues sur d'autres projets passent au chantier (« Intervention sur site »).
+ */
+function planning() {
+  const taches = Object.entries(TACHES).flatMap(([id, list]) => list.map(([projet, tache, h, du = PLAN_DEBUT, au = PLAN_FIN], i) => {
+    const heures: Record<string, number> = {};
+    for (let s = du; s <= au; s = addD(s, 1)) if (weekday(s) < 5 && !isFerie(s) && h[weekday(s)]) heures[s] = h[weekday(s)];
+    return { id: `KT-${id}-${i + 1}`, empId: Number(id), projet, tache, debut: du, fin: au, heures };
+  }));
+  AFFECTATIONS.forEach(a => {
+    const site = { id: `KT-${a.id}`, empId: a.empId, projet: a.chantier, tache: 'Intervention sur site', debut: a.du, fin: a.au, heures: {} as Record<string, number> };
+    taches.filter(t => t.empId === a.empId && t.projet !== a.chantier).forEach(t => Object.entries(t.heures).forEach(([s, h]) => {
+      if (s < a.du || s > a.au) return;
+      site.heures[s] = (site.heures[s] ?? 0) + h;
+      delete t.heures[s];
+    }));
+    if (Object.keys(site.heures).length) taches.push(site);
+  });
+  return taches;
+}
 
 const VOYAGES = [
   { empId: 19, dest: 'US', depart: '2026-10-12', retour: '2026-10-16', motif: 'Visite client — Houston', origine: 'formulaire', ref: 'DD-2026-0398' },
@@ -193,12 +235,13 @@ const VOYAGES = [
   { empId: 22, dest: 'BR', depart: '2027-01-18', retour: '2027-01-29', motif: 'Transfert de ligne — São Paulo', origine: 'keystone', chantier: 'K-2631' },
 ];
 
+/** Demandes en attente, enregistrées telles quelles : leur contrôle à la réception dépend de la date du jour. */
 const DEMANDES_KEYSTONE = [
-  { empId: 18, chantier: 'K-2611', dest: 'CI', depart: '2026-11-09', retour: '2026-11-27', recue: '2026-10-05' },
-  { empId: 6, chantier: 'K-2614', dest: 'MA', depart: '2026-10-27', retour: '2026-11-06', recue: '2026-10-02' },
-  { empId: 16, chantier: 'K-2631', dest: 'BR', depart: '2027-01-18', retour: '2027-01-29', recue: '2026-10-06' },
-  { empId: 5, chantier: 'K-2625', dest: 'GH', depart: '2026-12-01', retour: '2026-12-05', recue: '2026-10-06' },
-];
+  { ref: 'DK-2026-0412', empId: 18, chantier: 'K-2611', dest: 'CI', depart: '2026-11-09', retour: '2026-11-27', recue: '2026-10-05' },
+  { ref: 'DK-2026-0398', empId: 6, chantier: 'K-2614', dest: 'MA', depart: '2026-10-27', retour: '2026-11-06', recue: '2026-10-02' },
+  { ref: 'DK-2026-0417', empId: 16, chantier: 'K-2631', dest: 'BR', depart: '2027-01-18', retour: '2027-01-29', recue: '2026-10-06' },
+  { ref: 'DK-2026-0418', empId: 5, chantier: 'K-2625', dest: 'GH', depart: '2026-12-01', retour: '2026-12-05', recue: '2026-10-06' },
+].map(d => ({ ...d, statut: 'attente' }));
 
 const ABSENCES = [
   { empId: 22, type: 'RTT', du: '2026-10-09', au: '2026-10-09', statut: 'validee', keystone: true },
@@ -249,11 +292,13 @@ const PLAN = [
   { f: null, libelle: 'Excel avancé', equipe: 'Administration', periode: 'T2', effectif: 4, cout: 1200, statut: 'realise' },
 ];
 
-/** Feuilles de temps des deux semaines précédentes, plus un brouillon en cours. */
-function feuilles() {
+/** Feuilles de temps des deux semaines précédentes (tâches planifiées ces semaines-là), plus un brouillon en cours. */
+function feuilles(taches: ReturnType<typeof planning>) {
   const out: { empId: number; week: string; statut: string; sage: boolean; keystone: boolean; lignes: unknown[] }[] = [];
   Object.keys(TACHES).map(Number).forEach(id => ['2026-09-21', '2026-09-28'].forEach((week, wi) => {
-    const lignes = TACHES[id].map(([projet, tache, h]) => ({ projet, tache, ks: true, h: h.map((v, i) => v + ((id === 22 || id === 18) && wi === 1 && i < 2 && v ? 2 : 0)) }));
+    const lignes = taches.filter(t => t.empId === id).map(t => ({ projet: t.projet, tache: t.tache, ks: true, h: wDays(week).map(s => t.heures[s] ?? 0) }))
+      .filter(l => l.h.some(v => v > 0))
+      .map(l => ({ ...l, h: l.h.map((v, i) => v + ((id === 22 || id === 18) && wi === 1 && i < 2 && v ? 2 : 0)) }));
     out.push({ empId: id, week, lignes, statut: wi === 1 && id % 3 === 0 ? 'soumise' : 'validee', sage: wi === 0 && id !== 15, keystone: wi === 0 });
   }));
   out.push({ empId: 1, week: '2026-10-05', lignes: [{ projet: 'INT-LOG', tache: 'Réception / expédition', ks: true, h: [7, 7.5, 0, 0, 0] }], statut: 'brouillon', sage: false, keystone: false });
@@ -295,8 +340,6 @@ export function seedDemo(db: Db) {
     HABILITATIONS.forEach(h => db.insert('habilitations', h));
     DESTS.forEach(d => db.insert('destinations', d));
     EQUIPES.forEach(([nom, managerId], ordre) => db.insert('equipes', { nom, managerId, ordre }));
-    Object.entries(PROJETS).forEach(([code, nom]) => db.insert('projets', { code, nom }));
-    CHANTIERS.forEach(c => db.insert('chantiers', c));
     SESSIONS.forEach(s => db.insert('sessions', s));
     EMPLOYES.forEach(e => {
       const p = PROFILS[e.id], x = EXTRA[e.id] || {};
@@ -312,8 +355,12 @@ export function seedDemo(db: Db) {
       (x.visas || []).forEach(v => db.insert('visas', { empId: e.id, ...v }));
       (x.vaccins || []).forEach(v => db.insert('vaccinations', { empId: e.id, ...v }));
     });
-    Object.entries(TACHES).forEach(([id, list]) => list.forEach(([projet, tache, heures]) => db.insert('taches', { empId: Number(id), projet, tache, heures })));
-    MISSIONS.forEach(m => db.insert('missions', m));
+    // Keystone : mêmes contrôles et mêmes tables que l'API entrante (server/src/integrations/keystone-entrant.ts).
+    const cx = contexte(db), taches = planning();
+    Object.entries(PROJETS).forEach(([code, nom]) => enregistrerProjet(cx, code, { nom }));
+    CHANTIERS.forEach(({ id, ...c }) => enregistrerChantier(cx, id, c));
+    AFFECTATIONS.forEach(({ id, empId, ...a }) => enregistrerAffectation(cx, id, { matricule: matricule(empId), ...a }));
+    taches.forEach(({ id, empId, ...t }) => enregistrerTache(cx, id, { matricule: matricule(empId), ...t }));
     VOYAGES.forEach(v => db.insert('voyages', v));
     DEMANDES_KEYSTONE.forEach(d => db.insert('demandesKeystone', d));
     ABSENCES.forEach(a => db.insert('absences', a));
@@ -322,7 +369,7 @@ export function seedDemo(db: Db) {
     DEMANDES_COLLAB.forEach(d => db.insert('demandesCollab', d));
     Object.entries(BUDGETS).forEach(([ex, list]) => Object.entries(list).forEach(([equipe, montant]) => db.insert('budgets', { exercice: Number(ex), equipe, montant })));
     PLAN.forEach(l => db.insert('planActions', { exercice: 2026, ...l }));
-    feuilles().forEach(f => db.insert('feuilles', f));
+    feuilles(taches).forEach(f => db.insert('feuilles', f));
     figerFeuilles(db);
     entretiens().forEach(e => db.insert('entretiens', e));
 

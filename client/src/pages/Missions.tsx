@@ -1,9 +1,10 @@
 // Missions & déplacements (source Keystone) : présents en mission, planning sur
 // 4 semaines (missions, absences, fériés) et missions en cours ou à venir.
 import { useMemo, type CSSProperties } from 'react';
-import { ABS_LABEL, ABS_ST, TRIP_LABEL } from '../../../shared/constants.ts';
+import { ABS_LABEL, TRIP_LABEL } from '../../../shared/constants.ts';
 import { addD, isFerie, mondayOf, parse, weekday } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, fmtShort, plural } from '../../../shared/format.ts';
+import { absenceActive, absenceBloque, statutAbsence } from '../../../shared/rules/absences.ts';
 import type { ISODate } from '../../../shared/types.ts';
 import { Empty, Page, Panel, Tag, Two } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
@@ -35,16 +36,16 @@ export function Missions() {
     const first = days[0], last = days[days.length - 1];
     const ids = data.employes.map(e => e.id).filter(id => manager
       || data.missions.some(m => m.empId === id && m.du <= last && m.au >= first)
-      || data.absences.some(a => a.empId === id && a.statut !== 'refusee' && a.du <= last && a.au >= first));
+      || data.absences.some(a => a.empId === id && absenceActive(a) && a.du <= last && a.au >= first));
     const grid = ids.map(id => ({
       id, nom: d.personName(id),
       cells: days.map(s => {
         const m = data.missions.find(x => x.empId === id && x.du <= s && x.au >= s), a = d.absOn(id, s, true), fer = isFerie(s);
         const style: CSSProperties = fer ? { background: ferieBg('--color-neutral-800') }
           : m ? { background: 'var(--color-accent-600)' }
-          : a ? (a.statut === 'validee' ? { background: 'var(--color-neutral-500)' } : { boxShadow: 'inset 0 0 0 1px var(--color-neutral-500)' })
+          : a ? (absenceBloque(a) ? { background: 'var(--color-neutral-500)' } : { boxShadow: 'inset 0 0 0 1px var(--color-neutral-500)' })
           : { background: 'color-mix(in srgb, var(--color-text) 6%, transparent)' };
-        const title = `${fmt(parse(s))} — ${fer ? 'Férié' : m ? `${m.projet} · ${m.lieu}` : a ? `${ABS_LABEL[a.type]} (${ABS_ST[a.statut].toLowerCase()})` : 'Présent'}`;
+        const title = `${fmt(parse(s))} — ${fer ? 'Férié' : m ? `${m.projet} · ${m.lieu}` : a ? `${ABS_LABEL[a.type]} (${statutAbsence(a).toLowerCase()})` : 'Présent'}`;
         return { s, style, title };
       }),
     }));
@@ -74,7 +75,7 @@ export function Missions() {
       <Panel title="Planning des 4 prochaines semaines" aside={
         <div className="legend" style={{ color: 'var(--color-neutral-400)' }}>
           <span><span style={{ ...swatch, background: 'var(--color-accent-600)' }} />Mission Keystone</span>
-          <span><span style={{ ...swatch, background: 'var(--color-neutral-500)' }} />Absence validée</span>
+          <span><span style={{ ...swatch, background: 'var(--color-neutral-500)' }} />Absence validée ou signalée</span>
           <span><span style={{ ...swatch, boxShadow: 'inset 0 0 0 1px var(--color-neutral-500)' }} />Absence demandée</span>
           <span><span style={{ ...swatch, background: ferieBg('--color-neutral-700') }} />Férié</span>
         </div>

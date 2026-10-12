@@ -2,6 +2,7 @@
 // 24 collaborateurs d'un site industriel lyonnais, CCN Industries chimiques.
 import { Domain } from '../../shared/domain.ts';
 import { addM } from '../../shared/dates.ts';
+import { repriseAInscrire } from '../../shared/rules/absences.ts';
 import { cpDroit, rttDroit } from '../../shared/rules/conges.ts';
 import type { Dataset, Employe, EntretienType, Statut, TempsTravail, TypeContrat, VaccinId } from '../../shared/types.ts';
 import type { Db } from './db.ts';
@@ -210,6 +211,11 @@ const ABSENCES = [
   { empId: 16, type: 'RTT', du: '2026-10-30', au: '2026-10-30', statut: 'validee', keystone: true },
   { empId: 8, type: 'CP', du: '2026-10-12', au: '2026-10-16', statut: 'validee', keystone: true },
   { empId: 18, type: 'CP', du: '2026-12-21', au: '2026-12-24', statut: 'demandee' },
+  // Absences hors congés : un signalement à qualifier, un arrêt qualifié (semaine sans heure), une maternité, un mariage.
+  { empId: 20, type: 'ABSENCE', du: '2026-10-07', au: '2026-10-16', statut: 'signalee', keystone: true, signaleLe: '2026-10-07', signalePar: 'Hugo Lambert' },
+  { empId: 13, type: 'MALADIE', du: '2026-10-05', au: '2026-10-07', statut: 'validee', keystone: true, signaleLe: '2026-10-05', signalePar: 'Sophie Lemaire', justificatif: true, justificatifLe: '2026-10-06' },
+  { empId: 19, type: 'MATERNITE', du: '2026-11-16', au: '2027-03-07', statut: 'validee', keystone: true, justificatif: true, justificatifLe: '2026-09-15' },
+  { empId: 10, type: 'MARIAGE', du: '2026-11-03', au: '2026-11-06', statut: 'validee', keystone: true },
 ];
 
 const CET = [
@@ -339,6 +345,9 @@ export function seedDemo(db: Db) {
       const recupDemandee = ds.absences.filter(a => a.empId === e.id && a.type === 'RECUP' && a.statut === 'demandee')
         .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'RECUP') * d.dayH(e), 0);
       db.insert('soldesReprise', { empId: e.id, cpPris: cp, rttPris: rtt, recupAcquis: Math.max(h.recA, h.recP + recupDemandee), recupPris: h.recP });
+      // Reprise après une absence longue (maternité…), inscrite comme à la saisie par le RH.
+      const r = repriseAInscrire(e, ds.absences, null);
+      if (r) db.update('employes', e.id, { repriseMotif: r.motif, repriseDate: r.date });
     });
   });
 }

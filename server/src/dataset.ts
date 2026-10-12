@@ -3,6 +3,7 @@
 // collaborateur : ses propres données).
 import { Domain } from '../../shared/domain.ts';
 import { iso } from '../../shared/dates.ts';
+import { absenceVueManager } from '../../shared/rules/absences.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Chantier, CurrentUser, Dataset, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
   Equipe, FeuilleTemps, Formation, HabTitre, HabType, Mission, PlanAction, Projet, ReportCp, SagePush, Session, Settings, SoldeReprise,
@@ -132,7 +133,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     missions: mine(full.missions),
     taches: mine(full.taches),
     feuilles: mine(full.feuilles),
-    absences: mine(full.absences),
+    // Arrêt maladie, accident, maladie professionnelle : le manager ne voit qu'une « Absence » (dates, état).
+    absences: mine(full.absences).map(a => isMgr && a.empId !== user.empId ? absenceVueManager(a) : a),
     cet: mine(full.cet),
     reports: mine(full.reports),
     soldesReprise: mine(full.soldesReprise),

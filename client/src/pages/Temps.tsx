@@ -1,17 +1,19 @@
 // Feuilles de temps : saisie hebdomadaire par projet, validation par le manager,
 // récapitulatif paie selon l'organisation du temps et transmission des variables à Sage Paie.
 // Une feuille soumise ou validée est décomptée avec le régime figé à la soumission (`FeuilleTemps.contrat`).
-// Aucune heure un jour d'absence validée : une cellule déjà remplie ce jour-là reste modifiable pour être vidée.
+// Aucune heure un jour d'absence (validée, ou signalée en attendant sa qualification) ni hors contrat : une cellule
+// déjà remplie ce jour-là reste modifiable pour être vidée. Une semaine entièrement couverte par une absence se soumet sans heure.
 // Une demande d'absence en attente sur des jours qui portent des heures est décidée avant la validation de la feuille.
 import { useState, type KeyboardEvent } from 'react';
 import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
-import { ABS_LABEL, TEMPS_TRAVAIL, TS_CLS, TS_LABEL } from '../../../shared/constants.ts';
+import { ABS_ABREGE, TEMPS_TRAVAIL, TS_CLS, TS_LABEL } from '../../../shared/constants.ts';
 import type { Domain } from '../../../shared/domain.ts';
 import { addD, isFerie, isoWeek, mondayOf, parse, wDays } from '../../../shared/dates.ts';
 import { cap, equipeLabel, fH, fJ, fmt, fmtShort, num, plural } from '../../../shared/format.ts';
+import { jourHorsContrat, semaineHorsContrat } from '../../../shared/rules/absences.ts';
 import {
-  calcSheet, cumulAnnuel, demandesAbsence, demandesEnAttenteMessage, employeDeLaFeuille, heuresSurAbsence, heuresSurAbsenceMessage, joursAbsence,
-  joursAbsenceTexte, natureAbsence, sagePending, type SheetCalc,
+  absenceCeJour, calcSheet, cumulAnnuel, demandesAbsence, demandesEnAttenteMessage, employeDeLaFeuille, heuresSurAbsence, heuresSurAbsenceMessage, joursAbsence,
+  joursAbsenceTexte, natureAbsence, sagePending, semaineCouverte, type SheetCalc,
 } from '../../../shared/rules/temps.ts';
 import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
 import { CloseButton, Fine, Page, Panel, Pre, Tag, Two, stop } from '../components/ui.tsx';
@@ -64,6 +66,7 @@ function queueTotal(d: Domain, e: Employe, sh: FeuilleTemps): { main: string; su
   }
   // Seules les heures majorées dépassent le contrat ; les heures incluses au forfait hebdomadaire n'en font pas partie.
   const extra = c.sup25 + c.sup50 + c.hc10 + c.hc25;
+  if (!c.total) return { main: fH(0), sub: 'semaine d’absence, sans heure' };
   return { main: fH(c.total), sub: extra > 0 ? `dont ${fH(extra)} au-delà du contrat` : 'aucune heure au-delà du contrat' };
 }
 
@@ -237,24 +240,30 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const directMgr = manager && emp.id !== me && validator === me;
   // Le valideur peut corriger une feuille soumise avant de la valider : elle reste soumise.
   const correction = st === 'soumise' && isValidator;
-  const editable = correction || ((st === 'vide' || st === 'brouillon' || st === 'rejetee') && (rh || emp.id === me || directMgr));
+  // Semaine avant l'entrée ou après la fin du contrat : aucune feuille.
+  const horsSemaine = semaineHorsContrat(emp, wk);
+  const editable = !horsSemaine && (correction || ((st === 'vide' || st === 'brouillon' || st === 'rejetee') && (rh || emp.id === me || directMgr)));
   const canValidate = st === 'soumise' && isValidator;
   const submitLabel = isValidator ? 'Soumettre pour validation' : validator ? 'Soumettre au manager' : 'Soumettre au service RH';
   const base = { empId: emp.id, week: wk };
 
   const absences = joursAbsence(d, emp.id, wk);
-  // Heures restées sur un jour d'absence validée : à retirer avant soumission et validation.
+  // Heures restées sur un jour d'absence : à retirer avant soumission et validation.
   const surAbsence = sh ? heuresSurAbsence(d, sh) : [];
   // Demande d'absence en attente : saisie libre, mais à décider avant de valider une feuille qui porte des heures ces jours-là.
   const demandes = demandesAbsence(d), demandeJours = joursAbsence(d, emp.id, wk, demandes);
   const enAttente = sh ? heuresSurAbsence(d, sh, demandes) : [];
+  // Semaine d'arrêt, de congés… : aucune heure attendue, la feuille se soumet sans heure.
+  const couverte = semaineCouverte(d, emp, wk, sh);
   const days = wdays.map((day, i) => {
-    const a = absences[i], dem = demandeJours[i], off = c.jourOff.includes(i), fer = isFerie(day);
+    const a = absences[i], dem = demandeJours[i], off = c.jourOff.includes(i), fer = isFerie(day), hors = !!jourHorsContrat(emp, day);
     const m = data.missions.find(x => x.empId === emp.id && x.du <= day && x.au >= day);
     return {
-      day, a, locked: fer || !!a, hl: (!!m && !fer && !a) || [...surAbsence, ...enAttente].some(x => x.di === i),
+      day, a, locked: fer || !!a || hors, hl: (!!m && !fer && !a) || [...surAbsence, ...enAttente].some(x => x.di === i),
       label: cap(parse(day).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })),
-      note: fer ? 'Férié' : a ? ABS_LABEL[a.type] : dem ? `${cap(natureAbsence(dem.type))} demandé${dem.type === 'RECUP' ? 'e' : ''}` : off ? 'Non travaillé' : m ? `Mission ${m.projet}` : '—',
+      note: fer ? 'Férié' : hors ? 'Hors contrat'
+        : a ? `${ABS_ABREGE[a.type]}${a.statut === 'signalee' ? ' (signalée)' : ''}`
+        : dem ? `${cap(natureAbsence(dem.type))} demandé${dem.type === 'RECUP' ? 'e' : ''}` : off ? 'Non travaillé' : m ? `Mission ${m.projet}` : '—',
     };
   });
   const lignes = sh ? sh.lignes : [];
@@ -321,7 +330,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
                     return (
                       <td key={di} className="center">
                         <HourCell value={num(v)} disabled={!editable || (days[di].locked && !alerte)}
-                          alert={alerte ? `Absence validée ce jour-là (${natureAbsence(a.type)}) : ${editable ? 'videz la cellule' : 'aucune heure ne devrait être saisie'}` : undefined}
+                          alert={alerte ? `${absenceCeJour(a)} : ${editable ? 'videz la cellule' : 'aucune heure ne devrait être saisie'}` : undefined}
                           onCommit={async raw => (await run('temps.setCell', { ...base, li, di, value: raw }, { silent: true })).ok} />
                       </td>
                     );
@@ -340,7 +349,9 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
             </tbody>
           </table>
         </div>
-        {lignes.length === 0 && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>Aucune heure saisie pour cette semaine.</p>}
+        {horsSemaine && <div className="note-accent">Semaine hors contrat : {horsSemaine}. Aucune feuille de temps.</div>}
+        {!horsSemaine && lignes.length === 0 && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>Aucune heure saisie pour cette semaine.</p>}
+        {couverte && !(calc.total > 0) && editable && !correction && <Fine>Semaine couverte par une absence : la feuille se soumet sans heure.</Fine>}
 
         {editable && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
@@ -351,14 +362,14 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
             {canSuggest && <button type="button" className="btn btn-secondary" onClick={() => run('temps.suggest', base)}>Proposer depuis Keystone</button>}
             {correction
               ? <span className="text-muted sub" style={{ marginLeft: 'auto' }}>Correction avant validation : la feuille reste soumise</span>
-              : <button type="button" className="btn btn-primary" style={{ marginLeft: 'auto' }} disabled={!(calc.total > 0) || surAbsence.length > 0} onClick={() => run('temps.submit', base)}>{submitLabel}</button>}
+              : <button type="button" className="btn btn-primary" style={{ marginLeft: 'auto' }} disabled={!(calc.total > 0 || couverte) || surAbsence.length > 0} onClick={() => run('temps.submit', base)}>{submitLabel}</button>}
           </div>
         )}
         {surAbsence.length > 0 && (
           <div className="note-accent">
             {editable
               ? heuresSurAbsenceMessage(surAbsence, correction ? 'ou renvoyez la feuille avant de la valider' : 'avant de soumettre la feuille')
-              : `Absence validée ${joursAbsenceTexte(surAbsence)} : des heures y sont saisies${st === 'validee' ? ' — feuille validée, non modifiée rétroactivement' : ''}`}
+              : `Absence ${joursAbsenceTexte(surAbsence)} : des heures y sont saisies${st === 'validee' ? ' — feuille validée, non modifiée rétroactivement' : ''}`}
           </div>
         )}
         {enAttente.length > 0 && st !== 'validee' && <div className="note-accent">{demandesEnAttenteMessage(enAttente, canValidate)}</div>}

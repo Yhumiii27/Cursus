@@ -3,7 +3,7 @@
 // Intérim : aucun type ouvert (congés gérés par l'agence), le dialogue l'indique sans proposer d'envoi.
 import { useState } from 'react';
 import { absenceKinds, checkAbsence } from '../../../shared/rules/conges.ts';
-import type { AbsenceType } from '../../../shared/types.ts';
+import type { CongeType } from '../../../shared/types.ts';
 import { CancelButton, Dialog, Field, Static } from '../components/Dialog.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -14,7 +14,7 @@ export function AbsDialog({ empId }: { empId: number }) {
   const { manager, me } = useRole();
   const emp = d.emp(empId);
   const kinds = emp ? absenceKinds(d, emp) : [];
-  const [kind, setKind] = useState<AbsenceType>(() => kinds[0]?.[0] || 'CP');
+  const [kind, setKind] = useState<CongeType>(() => kinds[0]?.[0] || 'CP');
   const [du, setDu] = useState('');
   const [au, setAu] = useState('');
   const [busy, setBusy] = useState(false);
@@ -49,7 +49,7 @@ export function AbsDialog({ empId }: { empId: number }) {
       <div className="grid-2">
         <Field label="Collaborateur"><Static>{emp.nom}</Static></Field>
         <Field label="Type" htmlFor="ab-k">
-          <select className="input" id="ab-k" value={kind} onChange={ev => setKind(ev.target.value as AbsenceType)}>
+          <select className="input" id="ab-k" value={kind} onChange={ev => setKind(ev.target.value as CongeType)}>
             {chk.kinds.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
           </select>
         </Field>

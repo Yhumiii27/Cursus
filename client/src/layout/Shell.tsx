@@ -24,7 +24,8 @@ function navGroups(data: Dataset | null, role: Role): NavGroup[] {
     return !!e && (role === 'rh' || (role === 'manager' && d.mgrOf(e) === me));
   };
   const nQ = data.feuilles.filter(f => f.statut === 'soumise' && canValidate(f.empId)).length;
-  const nAbs = data.absences.filter(a => a.statut === 'demandee' && canValidate(a.empId)).length;
+  // Demandes à valider ; pour le RH, aussi les absences signalées à qualifier.
+  const nAbs = data.absences.filter(a => (a.statut === 'demandee' && canValidate(a.empId)) || (role === 'rh' && a.statut === 'signalee')).length;
   if (role === 'rh') {
     const nReq = data.demandesCollab.filter(r => r.statut === 'attente').length;
     return [

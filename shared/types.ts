@@ -12,8 +12,18 @@ export type Statut = 'ouvrier' | 'technicien' | 'cadre';
 export type TypeContrat = 'cdi' | 'cdd' | 'interim' | 'alternance';
 /** Organisation du temps de travail (durée de référence ou convention de forfait). */
 export type TempsTravail = '35h' | '39h_rtt' | 'forfait_heures_hebdo' | 'forfait_heures_annuel' | 'forfait_jours' | 'partiel' | 'dirigeant';
-export type AbsenceType = 'CP' | 'RTT' | 'RECUP';
-export type AbsenceStatut = 'demandee' | 'validee' | 'refusee';
+/** Congés décomptés sur un solde : congés payés, RTT / jours de repos, récupération. */
+export type CongeType = 'CP' | 'RTT' | 'RECUP';
+/** Absences hors congés : natures du référentiel `NATURES_ABSENCE` (shared/constants.ts). */
+export type NatureAbsence =
+  | 'MALADIE' | 'ALD' | 'AT' | 'TRAJET' | 'MP'
+  | 'MATERNITE' | 'PATERNITE' | 'ADOPTION' | 'PARENTAL'
+  | 'MARIAGE' | 'MARIAGE_ENFANT' | 'NAISSANCE' | 'DECES_ENFANT' | 'DECES_ENFANT_JEUNE' | 'DECES_PROCHE' | 'HANDICAP_ENFANT' | 'ENFANT_MALADE'
+  | 'SANS_SOLDE' | 'INJUSTIFIEE';
+/** `ABSENCE` : absence signalée dont le service RH n'a pas encore précisé la nature (et nature médicale vue par le manager). */
+export type AbsenceType = CongeType | NatureAbsence | 'ABSENCE';
+/** `signalee` : absence imprévue signalée, à qualifier par le service RH ; `annulee` : demande retirée ou absence annulée. */
+export type AbsenceStatut = 'demandee' | 'validee' | 'refusee' | 'signalee' | 'annulee';
 export type FeuilleStatut = 'brouillon' | 'soumise' | 'validee' | 'rejetee';
 export type EntretienType = 'epp' | 'reprise' | 'bilan' | 'annuel' | 'forfait';
 export type PlanStatut = 'prevu' | 'engage' | 'realise';
@@ -108,7 +118,19 @@ export interface LigneTemps { projet: string; tache: string; ks: boolean; h: num
 /** Régime de temps de travail figé sur une feuille soumise : un changement de contrat ultérieur ne la recalcule pas. */
 export type ContratFige = Pick<Employe, 'statut' | 'typeContrat' | 'temps' | 'heures' | 'forfaitHeures' | 'forfaitJours' | 'jourOff'>;
 export interface FeuilleTemps { id: number; empId: number; week: ISODate; statut: FeuilleStatut; comment: string | null; sage: boolean; keystone: boolean; lignes: LigneTemps[]; contrat: ContratFige | null }
-export interface Absence { id: number; empId: number; type: AbsenceType; du: ISODate; au: ISODate; statut: AbsenceStatut; keystone: boolean }
+export interface Absence {
+  id: number; empId: number; type: AbsenceType; du: ISODate; au: ISODate; statut: AbsenceStatut;
+  /** Indisponibilité transmise à Keystone (une annulation l'en retire). */
+  keystone: boolean;
+  /** Absence signalée : date et auteur du signalement. */
+  signaleLe: ISODate | null; signalePar: string | null;
+  /** Justificatif reçu par le service RH (avis d'arrêt, acte…) et date de réception. */
+  justificatif: boolean; justificatifLe: ISODate | null;
+  /** Fin prévue avant la première prolongation (null = jamais prolongée). */
+  finInitiale: ISODate | null;
+  /** Demande retirée ou absence annulée : date et auteur. */
+  annuleeLe: ISODate | null; annuleePar: string | null;
+}
 export interface CetMouvement { id: number; empId: number; type: 'CP' | 'RTT'; jours: number; date: ISODate; periode: string }
 export interface ReportCp { id: number; empId: number; jours: number; motif: string; par: string; date: ISODate; sens: 'recu' | 'accorde' }
 /** Compteurs repris de l'ancien système pour les périodes en cours. */

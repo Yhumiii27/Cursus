@@ -4,7 +4,7 @@
 // l'affichage et par le serveur pour valider les actions et les intégrations.
 import {
   CERT_LABEL, CLS, DOC_LABEL, GNG_CODE, HAB_CLS, HAB_LABEL, MED_VALIDITE, RANK, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT, VACCINS, VISA_RULES,
-  type HabKey, type HabMesureAction, type StatusKey,
+  type CodeMotif, type HabKey, type HabMesureAction, type StatusKey,
 } from './constants.ts';
 import { addD, addMonths, days, isFerie, iso, parse, weekday } from './dates.ts';
 import { fmt, fmtShort, matricule } from './format.ts';
@@ -61,7 +61,7 @@ export interface EchItem {
 }
 
 export type GngStatus = 'go' | 'reserve' | 'nogo';
-export interface GngReason { level: 'reserve' | 'nogo'; code: string; minimal: string; detailed: string }
+export interface GngReason { level: 'reserve' | 'nogo'; code: CodeMotif; minimal: string; detailed: string }
 export interface ChantierEval { c: Chantier; res: { e: EmpX; status: GngStatus; reasons: GngReason[] }[]; status: GngStatus }
 
 /** Lecture du contrat d'un collaborateur : statut, nature du contrat, organisation du temps. */
@@ -459,7 +459,7 @@ export class Domain {
   // — Chantiers Keystone : Go / No Go —
   resourceStatus(e: EmpX, c: Chantier, trips: TripX[]): { status: GngStatus; reasons: GngReason[] } {
     const start = parse(c.debut), end = parse(c.fin), reasons: GngReason[] = [];
-    const push = (level: GngReason['level'], code: string, minimal: string, detailed: string) => { reasons.push({ level, code, minimal, detailed }); };
+    const push = (level: GngReason['level'], code: CodeMotif, minimal: string, detailed: string) => { reasons.push({ level, code, minimal, detailed }); };
     c.habs.forEach(h => {
       const hm = this.hm(h), hi = e.habs.find(x => x.h === h);
       if (!hi) return push('nogo', 'HABILITATION', 'Habilitation requise absente', `${hm.nom} — non détenue`);
@@ -479,7 +479,7 @@ export class Domain {
     });
     if (c.pays !== 'FR') {
       const t = trips.find(x => x.empId === e.id && x.chantier === c.id) || trips.find(x => x.empId === e.id && x.dest === c.pays);
-      const dem = this.ds.demandesKeystone.some(d => d.empId === e.id && d.chantier === c.id);
+      const dem = this.ds.demandesKeystone.some(d => d.empId === e.id && d.chantier === c.id && d.statut === 'attente');
       if (!t) push('reserve', 'DEPLACEMENT', dem ? 'Déplacement en attente de validation RH' : 'Déplacement à créer', dem ? 'Demande Keystone en attente de validation RH' : 'Aucun déplacement créé pour ce chantier');
       else if (t.r.status !== 'pret') {
         const list = [...new Set(t.r.items.filter(i => !i.ok && i.mandatory).map(i => i.k === 'vaccin' ? 'formalité sanitaire' : i.label))].join(', ');
@@ -490,8 +490,9 @@ export class Domain {
     return { status: reasons.some(r => r.level === 'nogo') ? 'nogo' : reasons.length ? 'reserve' : 'go', reasons };
   }
 
+  /** Verdict des chantiers actifs ; un chantier archivé dans Keystone n'est plus évalué. */
   evaluateChantiers(emps: EmpX[], trips: TripX[]): ChantierEval[] {
-    return this.ds.referentiels.chantiers.map(c => {
+    return this.ds.referentiels.chantiers.filter(c => c.statut !== 'archive').map(c => {
       const res = c.ressources
         .map(id => emps.find(x => x.id === id))
         .filter((e): e is EmpX => !!e)
@@ -501,13 +502,30 @@ export class Domain {
     });
   }
 
-  /** Réponse transmise à Keystone : matricules et codes de motif uniquement (libellés en mode détaillé). */
+  /**
+   * Ancienne réponse (route obsolète, sans /v1) : motifs en codes simples, ou en objets en mode détaillé.
+   * La réponse de l'API v1 est `verdictKeystone`.
+   */
   keystonePayload(ch: ChantierEval, detail: boolean, evalueLe = `${this.ti}T07:00:00+02:00`) {
     return {
       chantier: ch.c.id, evalue_le: evalueLe, statut: GNG_CODE[ch.status],
       ressources: ch.res.map(r => ({
         matricule: matricule(r.e.id), statut: GNG_CODE[r.status],
         motifs: r.reasons.map(x => detail ? { code: x.code, libelle: x.detailed } : x.code),
+      })),
+    };
+  }
+
+  /**
+   * Verdict de l'API Keystone v1 : matricules et codes de motif normalisés. Chaque motif est un objet
+   * (`code`, `niveau`) ; le libellé n'est ajouté qu'en mode détaillé, jamais une donnée de santé.
+   */
+  verdictKeystone(ch: ChantierEval, detail: boolean, evalueLe = `${this.ti}T07:00:00+02:00`) {
+    return {
+      chantier: ch.c.id, evalue_le: evalueLe, statut: GNG_CODE[ch.status],
+      ressources: ch.res.map(r => ({
+        matricule: matricule(r.e.id), statut: GNG_CODE[r.status],
+        motifs: r.reasons.map(x => ({ code: x.code, niveau: GNG_CODE[x.level], ...(detail ? { libelle: x.detailed } : {}) })),
       })),
     };
   }

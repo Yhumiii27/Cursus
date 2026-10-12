@@ -13,8 +13,8 @@ export const TABLES = {
   habilitations: { pk: 'id', cols: { id: 'text', nom: 'text', detail: 'text', prereqs: 'json', medical: 'bool', validite: 'int', signataire: 'text' } },
   destinations: { pk: 'code', cols: { code: 'text', pays: 'text', visa: 'text', visaSub: 'text', oblig: 'json', rec: 'json', passMois: 'int' } },
   equipes: { pk: 'nom', cols: { nom: 'text', managerId: 'int', ordre: 'int' } },
-  projets: { pk: 'code', cols: { code: 'text', nom: 'text' } },
-  chantiers: { pk: 'id', cols: { id: 'text', nom: 'text', client: 'text', lieu: 'text', pays: 'text', debut: 'text', fin: 'text', chef: 'text', habs: 'json', certs: 'json', ressources: 'json' } },
+  projets: { pk: 'code', cols: { code: 'text', nom: 'text', statut: 'text' } },
+  chantiers: { pk: 'id', cols: { id: 'text', nom: 'text', client: 'text', lieu: 'text', pays: 'text', debut: 'text', fin: 'text', chef: 'text', habs: 'json', certs: 'json', ressources: 'json', statut: 'text' } },
   employes: {
     pk: 'id', auto: true,
     cols: {
@@ -32,9 +32,13 @@ export const TABLES = {
   planActions: { pk: 'id', auto: true, cols: { id: 'int', exercice: 'int', f: 'text', libelle: 'text', equipe: 'text', periode: 'text', effectif: 'int', cout: 'real', statut: 'text', origine: 'text' } },
   budgets: { pk: 'id', auto: true, cols: { id: 'int', exercice: 'int', equipe: 'text', montant: 'real' }, unique: [['exercice', 'equipe']] },
   voyages: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', dest: 'text', depart: 'text', retour: 'text', motif: 'text', origine: 'text', ref: 'text', chantier: 'text' } },
-  demandesKeystone: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', chantier: 'text', dest: 'text', depart: 'text', retour: 'text', recue: 'text' } },
-  missions: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', projet: 'text', lieu: 'text', du: 'text', au: 'text', type: 'text' } },
-  taches: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', projet: 'text', tache: 'text', heures: 'json' } },
+  // Références Keystone (`ref`) uniques : index créés au démarrage (server/src/integrations/keystone-entrant.ts).
+  demandesKeystone: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', empId: 'int', chantier: 'text', dest: 'text', depart: 'text', retour: 'text', recue: 'text', ref: 'text', statut: 'text', decidee: 'text', decideur: 'text', voyageId: 'int' },
+  },
+  missions: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', projet: 'text', lieu: 'text', du: 'text', au: 'text', type: 'text', ref: 'text' } },
+  taches: { pk: 'id', auto: true, cols: { id: 'int', ref: 'text', empId: 'int', projet: 'text', tache: 'text', debut: 'text', fin: 'text', heures: 'json' } },
   feuilles: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', week: 'text', statut: 'text', comment: 'text', sage: 'bool', keystone: 'bool', lignes: 'json', contrat: 'json' }, unique: [['empId', 'week']] },
   absences: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', type: 'text', du: 'text', au: 'text', statut: 'text', keystone: 'bool' } },
   cet: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', type: 'text', jours: 'real', date: 'text', periode: 'text' } },
@@ -67,6 +71,18 @@ export const TABLES = {
       id: 'text', compteId: 'int', role: 'text', methode: 'text', demoComptes: 'json', creation: 'text', expiration: 'text', revocation: 'text', activite: 'text',
     },
   },
+  // File d'envoi des messages sortants (server/src/envois.ts) : une clé d'idempotence par message.
+  envois: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', cible: 'text', type: 'text', cle: 'text', contenu: 'json', statut: 'text', tentatives: 'int', prochaine: 'text',
+      erreur: 'text', accuse: 'text', creation: 'text', tentative: 'text', envoi: 'text',
+      classe: 'text', // échec examiné et classé par le RH : ne compte plus dans l'état de l'intégration
+    },
+    unique: [['cle']],
+  },
+  // Dernier verdict Go / No Go transmis à Keystone, par chantier et ressource (server/src/integrations/keystone-verdicts.ts).
+  verdictsKeystone: { pk: 'id', auto: true, cols: { id: 'int', chantier: 'text', empId: 'int', statut: 'text', motifs: 'json', date: 'text' }, unique: [['chantier', 'empId']] },
 } satisfies Record<string, TableDef>;
 
 export type TableName = keyof typeof TABLES;

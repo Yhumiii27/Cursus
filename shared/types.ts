@@ -28,8 +28,14 @@ export interface Formation { id: string; nom: string; court: string; type: Forma
 export interface HabType { id: string; nom: string; detail: string; prereqs: string[]; medical: boolean; validite: number; signataire: string }
 export interface Destination { code: string; pays: string; visa: VisaKind; visaSub: string; oblig: VaccinId[]; rec: VaccinId[]; passMois: number }
 export interface Equipe { nom: string; managerId: number | null; ordre: number }
-export interface Projet { code: string; nom: string }
-export interface Chantier { id: string; nom: string; client: string; lieu: string; pays: string; debut: ISODate; fin: ISODate; chef: string; habs: string[]; certs: string[]; ressources: number[] }
+/** Projet ou chantier tenu dans Keystone : archivé, il reste en base (historique) sans plus être proposé ni évalué. */
+export type StatutKeystone = 'actif' | 'archive';
+export interface Projet { code: string; nom: string; statut: StatutKeystone }
+/**
+ * Chantier transmis par Keystone (identifiant Keystone). `ressources` : salariés dont une affectation
+ * chevauche les dates du chantier, recalculés par le serveur (server/src/integrations/keystone-entrant.ts).
+ */
+export interface Chantier { id: string; nom: string; client: string; lieu: string; pays: string; debut: ISODate; fin: ISODate; chef: string; habs: string[]; certs: string[]; ressources: number[]; statut: StatutKeystone }
 
 export interface Referentiels {
   formations: Formation[];
@@ -99,9 +105,15 @@ export interface PlanAction { id: number; exercice: number; f: string | null; li
 
 // — Déplacements & projets —
 export interface Voyage { id: number; empId: number; dest: string; depart: ISODate; retour: ISODate; motif: string; origine: VoyageOrigine; ref: string | null; chantier: string | null; dossierStatut?: TripStatus }
-export interface DemandeKeystone { id: number; empId: number; chantier: string; dest: string; depart: ISODate; retour: ISODate; recue: ISODate }
-export interface Mission { id: number; empId: number; projet: string; lieu: string; du: ISODate; au: ISODate; type: string }
-export interface TacheKeystone { id: number; empId: number; projet: string; tache: string; heures: number[] }
+/** Demande de déplacement reçue de Keystone (`ref` : référence externe unique), conservée après décision du RH. */
+export interface DemandeKeystone {
+  id: number; empId: number; chantier: string; dest: string; depart: ISODate; retour: ISODate; recue: ISODate;
+  ref: string | null; statut: DemandeStatut; decidee: ISODate | null; decideur: string | null; voyageId: number | null;
+}
+/** Présence d'un salarié sur un projet ou un chantier ; `ref` : identifiant Keystone de l'affectation. */
+export interface Mission { id: number; empId: number; projet: string; lieu: string; du: ISODate; au: ISODate; type: string; ref: string | null }
+/** Tâche planifiée par Keystone pour un salarié : heures prévues par date, entre `debut` et `fin`. */
+export interface TacheKeystone { id: number; ref: string | null; empId: number; projet: string; tache: string; debut: ISODate; fin: ISODate; heures: Record<ISODate, number> }
 
 // — Temps & absences —
 export interface LigneTemps { projet: string; tache: string; ks: boolean; h: number[] }
@@ -188,6 +200,43 @@ export interface CompteSession {
   id: number; identifiant: string; nom: string; type: CompteType; profilRh: ProfilRh; espaces: Role[];
   /** Mot de passe provisoire à remplacer avant tout accès aux données. */
   changerMotDePasse: boolean;
+}
+
+// — Messages sortants (file d'envoi : server/src/envois.ts) —
+/** Destinataires des messages sortants : Sage Paie n'est pas encore branché sur la file. */
+export type CibleEnvoi = 'keystone' | 'sage';
+/** `simule` : aucune adresse configurée, le message n'est que tracé dans le journal. */
+export type StatutEnvoi = 'a_envoyer' | 'envoye' | 'echec' | 'simule';
+export interface Envoi {
+  id: number;
+  cible: CibleEnvoi;
+  type: string;
+  /** Clé d'idempotence, unique, transmise à chaque tentative. */
+  cle: string;
+  /** Données de l'événement (matricules et codes, jamais de nom ni de donnée de santé). */
+  contenu: Record<string, unknown>;
+  statut: StatutEnvoi;
+  /** Tentatives faites ; `prochaine` : date de la prochaine (message à envoyer). */
+  tentatives: number;
+  prochaine: string | null;
+  /** Dernière erreur, conservée après une réussite ; `accuse` : accusé de réception du destinataire. */
+  erreur: string | null;
+  accuse: string | null;
+  /** Dates ISO (UTC) : mise en file, dernière tentative, réception confirmée. */
+  creation: string;
+  tentative: string | null;
+  envoi: string | null;
+  /** Échec classé par le RH (date ISO) : reste visible, mais ne compte plus parmi les échecs en cours. */
+  classe: string | null;
+}
+/** État d'une cible : messages par statut, dernière réception confirmée, message en tête qui attend une nouvelle tentative. */
+export interface EtatEnvois {
+  cible: CibleEnvoi;
+  nombres: Record<StatutEnvoi, number>;
+  /** Envois en échec que le RH n'a pas classés. */
+  echecsEnCours: number;
+  dernierSucces: string | null;
+  enReprise: { id: number; type: string; tentatives: number; prochaine: string | null; erreur: string | null } | null;
 }
 
 export interface SagePush { endpoint: string; dossier: string; periode_paie: string; envoye_le: string; lignes: { matricule: string; semaine: string; rubriques: Record<string, number> }[] }

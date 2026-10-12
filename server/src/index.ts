@@ -1,10 +1,8 @@
 // Serveur HTTP de Cursus : API JSON + application web compilée.
-import express, { type NextFunction, type Request, type Response } from 'express';
+import express from 'express';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { Domain } from '../../shared/domain.ts';
-import { matricule } from '../../shared/format.ts';
-import { ACTIONS, QUIET_ACTIONS } from './actions/index.ts';
+import { ACTIONS, QUIET_ACTIONS, changeVerdicts } from './actions/index.ts';
 import { ActionError, makeCtx } from './actions/context.ts';
 import { DEMO, purgeSessions } from './auth.ts';
 import { adminsActifs, journaliser } from './comptes.ts';
@@ -12,8 +10,11 @@ import { enProduction, hoteEcoute, portEcoute, trustProxy, verifierConfig } from
 import { espaceChange, identite, routesConnexion } from './connexion.ts';
 import { buildSnapshot, loadFull } from './dataset.ts';
 import { dbFile, openDb } from './db.ts';
+import { demarrerEnvois, etatEnvois, listerEnvois } from './envois.ts';
 import { migrate } from './migrate.ts';
-import { KEYSTONE_API_KEY, keystoneKeyOk } from './integrations/keystone.ts';
+import { KEYSTONE_MODE, transportKeystone } from './integrations/keystone.ts';
+import { suivreVerdicts, suivreVerdictsChaqueJour } from './integrations/keystone-verdicts.ts';
+import { keystoneRoutes } from './integrations/keystone-routes.ts';
 import { demoPosteLocal, securityHeaders } from './securite.ts';
 import { poserVerrou } from './sauvegarde.ts';
 import { comptesDemo, seedDemo } from './seed.ts';
@@ -42,6 +43,9 @@ if (!DEMO && !adminsActifs(db)) console.log('Aucun administrateur RH : créez-le
 // Sessions expirées : purgées au démarrage puis toutes les heures.
 purgeSessions(db);
 setInterval(() => purgeSessions(db), 3600_000).unref();
+// Messages sortants : file d'envoi traitée en tâche de fond, verdicts Go / No Go recalculés chaque jour.
+suivreVerdictsChaqueJour(db);
+demarrerEnvois(db, { keystone: transportKeystone() });
 
 const app = express();
 app.disable('x-powered-by');
@@ -49,6 +53,8 @@ app.set('trust proxy', trustProxy());
 app.use(securityHeaders(enProduction()));
 // Démonstration en production (application de bureau) : requêtes de ce poste uniquement, jamais via le proxy.
 if (DEMO && enProduction()) app.use(demoPosteLocal());
+// API Keystone (clé X-Api-Key, journal de chaque appel) : avant l'analyse JSON, faite après la vérification de la clé.
+app.use('/api/integrations/keystone', keystoneRoutes(db));
 app.use(express.json({ limit: '2mb' }));
 
 // Session, connexion, changement d'espace, mot de passe et liste des comptes : server/src/connexion.ts.
@@ -77,6 +83,8 @@ app.post('/api/actions/:name', (req, res) => {
       const o = typeof r === 'object' && r !== null ? r : { message: r };
       // Journal signé du nom de la personne connectée et de son compte.
       if (!QUIET_ACTIONS.has(name)) journaliser(db, { actor: user.nom, role: user.role, action: name, message: o.message ?? null, payload: req.body ?? {}, compte });
+      // Verdicts transmis à Keystone : un changement est mis en file avec l'action, dans la même transaction.
+      if (changeVerdicts(name)) suivreVerdicts(db);
       return o;
     });
     // L'action a pu changer le compte (profil RH retiré, équipe confiée à un autre) : la session est relue,
@@ -93,42 +101,23 @@ app.post('/api/actions/:name', (req, res) => {
 app.get('/api/journal', (req, res) => {
   const user = identite(db, req)?.user;
   if (!user || user.role !== 'rh') return res.status(403).json({ error: 'Réservé au service RH' });
-  // Filtre : connexions (et mots de passe) ou opérations (tout le reste), pour que des refus de connexion
-  // en nombre ne chassent pas les opérations RH des 100 lignes affichées.
+  // Appels entrants de Keystone (keystone.appel) : vue distincte (?vue=keystone), pour que leur volume
+  // ne masque pas les actions des utilisateurs ; toutes les lignes restent en base.
+  // Hors de cette vue, filtre : connexions (et mots de passe) ou opérations (tout le reste), pour que des
+  // refus de connexion en nombre ne chassent pas les opérations RH des 100 lignes affichées.
+  const appels = `action = 'keystone.appel'`;
   const connexions = `(action LIKE 'connexion%' OR action LIKE 'motdepasse.%')`;
-  const filtre = req.query.filtre === 'connexions' ? `WHERE ${connexions}` : req.query.filtre === 'operations' ? `WHERE NOT ${connexions}` : '';
+  const filtre = req.query.vue === 'keystone' ? `WHERE ${appels}`
+    : `WHERE NOT ${appels}` + (req.query.filtre === 'connexions' ? ` AND ${connexions}` : req.query.filtre === 'operations' ? ` AND NOT ${connexions}` : '');
   const rows = db.sql.prepare(`SELECT at, actor, role, action, message, identifiant FROM journal ${filtre} ORDER BY id DESC LIMIT 100`).all();
   res.json(rows);
 });
 
-// — Intégration Keystone : appels entrants —
-function keystoneAuth(req: Request, res: Response, next: NextFunction) {
-  if (!KEYSTONE_API_KEY) return res.status(503).json({ error: 'Intégration Keystone non configurée' });
-  if (!keystoneKeyOk(req.get('x-api-key'))) return res.status(401).json({ error: 'Clé API invalide' });
-  next();
-}
-
-/** Keystone interroge Cursus : verdict Go / No Go d'un chantier (matricules et codes de motif uniquement). */
-app.get('/api/integrations/keystone/chantiers/:id/go-no-go', keystoneAuth, (req, res) => {
-  const full = loadFull(db, { role: 'rh', empId: null, nom: 'Keystone', intitule: '' });
-  const d = new Domain(full);
-  const emps = d.enrich(full.settings.horizonAlerte, false);
-  const ch = d.evaluateChantiers(emps, d.tripsAll()).find(x => x.c.id === req.params.id);
-  if (!ch) return res.status(404).json({ error: 'Chantier inconnu' });
-  res.json(d.keystonePayload(ch, full.settings.partageKeystone === 'detaille', new Date().toISOString()));
-});
-
-/** Keystone transmet une demande de déplacement pour une ressource affectée à un chantier. */
-app.post('/api/integrations/keystone/demandes', keystoneAuth, (req, res) => {
-  const { matricule: mat, chantier, destination, depart, retour } = req.body ?? {};
-  const full = loadFull(db, { role: 'rh', empId: null, nom: 'Keystone', intitule: '' });
-  const emp = full.employes.find(e => matricule(e.id) === mat);
-  const d = new Domain(full);
-  if (!emp || !d.chantier(chantier) || !d.destOf(destination) || !/^\d{4}-\d{2}-\d{2}$/.test(depart) || !/^\d{4}-\d{2}-\d{2}$/.test(retour)) {
-    return res.status(400).json({ error: 'Demande invalide : matricule, chantier, destination, depart, retour' });
-  }
-  const row = db.insert<{ id: number }>('demandesKeystone', { empId: emp.id, chantier, dest: destination, depart, retour, recue: full.today });
-  res.status(201).json({ id: row.id, statut: 'en_attente_rh' });
+// File d'envoi des messages sortants (Paramètres → Envois) : état de l'intégration et derniers messages.
+app.get('/api/envois', (req, res) => {
+  const user = identite(db, req)?.user;
+  if (!user || user.role !== 'rh') return res.status(403).json({ error: 'Réservé au service RH' });
+  res.json({ keystone: { mode: KEYSTONE_MODE, ...etatEnvois(db, 'keystone') }, envois: listerEnvois(db, { statut: req.query.statut }) });
 });
 
 // — Application web —

@@ -5,6 +5,7 @@ import { formaliteCle } from '../../shared/rules/formalites.ts';
 import type { Declaration, DemandeCollab, Destination, Vaccination, VaccinId, Visa } from '../../shared/types.ts';
 import { todayIso } from './dataset.ts';
 import type { Db } from './db.ts';
+import { migrerKeystone } from './integrations/keystone-entrant.ts';
 import { sauvegarderAvantMigration } from './sauvegarde.ts';
 
 /** Ancienne colonne `contrat` (qui mêlait nature du contrat et durée du travail) → statut, type de contrat, temps. */
@@ -34,6 +35,7 @@ export function migrate(db: Db) {
   figerFeuilles(db, avant);
   libererPlacesRemplacees(db, todayIso(), avant);
   reprendreDeclarations(db, avant);
+  migrerKeystone(db, avant);
 }
 
 /**

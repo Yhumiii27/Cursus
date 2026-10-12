@@ -26,10 +26,29 @@ export const TS_LABEL = { vide: 'Non saisie', brouillon: 'Brouillon', soumise: '
 export const GNG_CLS = { go: 'tag-neutral', reserve: 'tag-outline', nogo: 'tag-accent' } as const;
 export const GNG_LABEL = { go: 'Go', reserve: 'Go sous réserve', nogo: 'No Go' } as const;
 export const GNG_CODE = { go: 'GO', reserve: 'GO_RESERVE', nogo: 'NO_GO' } as const;
+/**
+ * Codes de motif Go / No Go transmis à Keystone, contrat de l'API v1 (docs/keystone-openapi.json) :
+ * un nouveau code s'ajoute ici, dans la spécification et dans docs/API-KEYSTONE.md.
+ */
+export const CODES_MOTIF = ['HABILITATION', 'HABILITATION_SUSPENDUE', 'HABILITATION_RETIREE', 'CERTIFICATION', 'DEPLACEMENT', 'FORMALITES_VOYAGE'] as const;
+export type CodeMotif = typeof CODES_MOTIF[number];
+/**
+ * Activités internes (codes INT-*) et cours en CFA (ECOLE) : imputables dans les feuilles de temps,
+ * jamais renvoyées à Keystone, qui ne reçoit que les heures passées sur ses projets.
+ */
+export const ACTIVITES_INTERNES = /^(?:INT-|ECOLE$)/;
 export const PLAN_CLS = { prevu: 'tag-outline', engage: 'tag-accent', realise: 'tag-neutral' } as const;
 export const PLAN_LABEL = { prevu: 'Prévu', engage: 'Engagé', realise: 'Réalisé' } as const;
 export const REQ_CLS = { attente: 'tag-outline', acceptee: 'tag-neutral', refusee: 'tag-accent' } as const;
 export const REQ_LABEL = { attente: 'En attente', acceptee: 'Acceptée', refusee: 'Refusée' } as const;
+/** File d'envoi des messages sortants (Paramètres → Envois). */
+export const ENVOI_CLS = { a_envoyer: 'tag-outline', envoye: 'tag-neutral', echec: 'tag-accent', simule: 'tag-outline' } as const;
+export const ENVOI_LABEL = { a_envoyer: 'À envoyer', envoye: 'Envoyé', echec: 'En échec', simule: 'Simulé' } as const;
+/** Événements envoyés à Keystone (docs/API-KEYSTONE.md, « Événements envoyés par Cursus »). */
+export const EVENEMENT_LABEL: Record<string, string> = {
+  'demande.decision': 'Décision sur une demande de déplacement', 'heures.validees': 'Heures validées', 'absence.validee': 'Absence validée',
+  'absence.annulee': 'Absence annulée', 'verdict.modifie': 'Verdict Go / No Go modifié',
+};
 
 /** Validité de l'aptitude médicale, en mois. */
 export const MED_VALIDITE = 24;

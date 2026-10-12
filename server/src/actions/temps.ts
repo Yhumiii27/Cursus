@@ -6,7 +6,7 @@ import {
 } from '../../../shared/rules/temps.ts';
 import type { Employe, FeuilleTemps, LigneTemps } from '../../../shared/types.ts';
 import { pushToSage, SAGE_DOSSIER } from '../integrations/sage.ts';
-import { sendToKeystone } from '../integrations/keystone.ts';
+import { heuresKeystone, sendToKeystone } from '../integrations/keystone.ts';
 import { ActionError, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
 function sheetOf(ctx: Ctx, empId: number, week: string): FeuilleTemps | undefined {
@@ -50,9 +50,11 @@ const setCell: ActionHandler = (ctx, p) => {
 const addLine: ActionHandler = (ctx, p) => {
   const { sh } = editable(ctx, p);
   const projet = str(p.projet);
-  const nom = ctx.ds.referentiels.projets.find(x => x.code === projet)?.nom;
-  if (!nom) throw new ActionError('Projet inconnu');
-  saveLines(ctx, sh, [...sh.lignes, { projet, tache: nom, ks: false, h: [0, 0, 0, 0, 0] }]);
+  // Projets transmis par Keystone (server/src/integrations/keystone-entrant.ts) ; un projet archivé n'est plus proposé.
+  const pr = ctx.ds.referentiels.projets.find(x => x.code === projet);
+  if (!pr) throw new ActionError('Projet inconnu');
+  if (pr.statut === 'archive') throw new ActionError('Projet clos dans Keystone : aucune heure ne peut plus y être imputée');
+  saveLines(ctx, sh, [...sh.lignes, { projet, tache: pr.nom, ks: false, h: [0, 0, 0, 0, 0] }]);
   return null;
 };
 
@@ -65,6 +67,8 @@ const removeLine: ActionHandler = (ctx, p) => {
 const suggest: ActionHandler = (ctx, p) => {
   const { emp, week, sh } = editable(ctx, p);
   const l = suggestLines(ctx.d, emp, week);
+  // Rien de planifié cette semaine : la feuille n'est pas vidée.
+  if (!l.length) throw new ActionError('Aucune tâche Keystone planifiée pour ce salarié cette semaine');
   saveLines(ctx, sh, l);
   return `Heures proposées depuis les tâches Keystone — ${plural(l.length, 'ligne', 'lignes')}, à ajuster si besoin`;
 };
@@ -96,11 +100,11 @@ const validate: ActionHandler = (ctx, p) => {
   // Demande d'absence en attente sur ces heures : à décider d'abord (même valideur), sinon elle ne pourrait plus être validée.
   const enAttente = heuresSurAbsence(ctx.d, sh, demandesAbsence(ctx.d));
   if (enAttente.length) throw new ActionError(demandesEnAttenteMessage(enAttente));
-  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone: true, contrat: sh.contrat ?? contratFige(emp) });
-  const projets: Record<string, number> = {};
-  sh.lignes.forEach(l => { projets[l.projet] = (projets[l.projet] || 0) + l.h.reduce((a, b) => a + num(b), 0); });
-  sendToKeystone(ctx.db, { type: 'heures.validees', matricule: matricule(emp.id), semaine: sh.week, projets });
-  return `Semaine ${isoWeek(sh.week)} validée — heures par projet renvoyées à Keystone`;
+  // Seules les heures des projets Keystone lui sont renvoyées : ni activités internes (INT-*), ni cours en CFA (ECOLE).
+  const projets = heuresKeystone(sh.lignes), keystone = Object.keys(projets).length > 0;
+  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat: sh.contrat ?? contratFige(emp) });
+  if (keystone) sendToKeystone(ctx.db, { type: 'heures.validees', matricule: matricule(emp.id), semaine: sh.week, projets });
+  return `Semaine ${isoWeek(sh.week)} validée${keystone ? ' — heures des projets Keystone renvoyées à Keystone' : ''}`;
 };
 
 const reject: ActionHandler = (ctx, p) => {

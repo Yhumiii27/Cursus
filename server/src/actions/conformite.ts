@@ -1,12 +1,11 @@
 // Formations, sessions, certifications, habilitations et demandes des collaborateurs.
-import { GNG_CODE } from '../../../shared/constants.ts';
 import { addMonths, isValidDate, parse } from '../../../shared/dates.ts';
-import { certEnVigueur, Domain, habEnCours, type ChantierEval } from '../../../shared/domain.ts';
-import { fmt, matricule, plural } from '../../../shared/format.ts';
+import { certEnVigueur, Domain, habEnCours } from '../../../shared/domain.ts';
+import { fmt, plural } from '../../../shared/format.ts';
 import { estAuDossier, relireDeclaration, retireeAuRefus } from '../../../shared/rules/formalites.ts';
 import type { Certification, DemandeCollab, Employe, HabTitre, HabType, Inscription, Session } from '../../../shared/types.ts';
 import { loadFull } from '../dataset.ts';
-import { sendToKeystone } from '../integrations/keystone.ts';
+import { suivreVerdicts } from '../integrations/keystone-verdicts.ts';
 import { ActionError, enriched, getEmp, isManagerOf, isRh, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
 import { appliquerFormalite, retirerFormalite } from './voyages.ts';
 
@@ -78,12 +77,11 @@ const delivrerHab: ActionHandler = (ctx, p) => {
   const x = enriched(ctx).find(e => e.id === emp.id)!;
   const info = ctx.d.habInfo({ h: hm.id, delivree: p.date }, x.rawCerts, x.med, ctx.ds.settings.horizonAlerte);
   if (!info.prereqOk) throw new ActionError(`Délivrance impossible — ${info.failing.map(c => c.label).join(', ')}`);
-  // Après un retrait, Keystone a reçu le No Go : il reçoit aussi le verdict rétabli.
-  const avant = retire ? verdicts(ctx.d, emp.id) : null;
   const entry = { delivree: p.date, par, demande: null, mesure: null, mesureDate: null, mesureMotif: null, mesurePar: null };
   if (existing) ctx.db.update<HabTitre>('habTitres', existing.id, entry);
   else ctx.db.insert<HabTitre>('habTitres', { empId: emp.id, h: hm.id, ...entry });
-  const keystone = avant ? signaler(ctx, emp, avant).keystone : '';
+  // Après un retrait ou une expiration, Keystone a reçu le No Go : il reçoit aussi le verdict rétabli.
+  const { keystone } = signaler(ctx, emp);
   return `${hm.nom} ${p.mode === 'renew' ? 'renouvelée' : 'délivrée'} — ${emp.nom} · valide jusqu’au ${fmt(addMonths(parse(p.date), hm.validite))}${keystone}`;
 };
 
@@ -230,36 +228,20 @@ function decision(ctx: Ctx, p: Record<string, any>, t: HabTitre) {
   return { motif, date };
 }
 
-/** Verdicts des chantiers en cours ou à venir où le collaborateur est affecté (même évaluation que l'API Keystone). */
-function verdicts(d: Domain, empId: number): Map<string, ChantierEval> {
-  const emps = d.enrich(d.ds.settings.horizonAlerte, false);
-  return new Map(d.evaluateChantiers(emps, d.tripsAll())
-    .filter(x => x.c.fin >= d.ti && x.res.some(r => r.e.id === empId))
-    .map(x => [x.c.id, x]));
-}
-
 /**
- * Signale à Keystone chaque chantier dont le verdict du collaborateur a changé depuis `avant`
- * (matricule et codes de motif uniquement). Renvoie l'état après l'écriture et le nombre de chantiers signalés.
+ * Signale à Keystone les verdicts Go / No Go modifiés par l'écriture (suivi des verdicts transmis :
+ * matricule et codes de motif uniquement). Renvoie l'état après l'écriture et le nombre de chantiers
+ * signalés pour le collaborateur.
  */
-function signaler(ctx: Ctx, emp: Employe, avant: Map<string, ChantierEval>) {
-  const apres = new Domain(loadFull(ctx.db, ctx.user));
-  let signales = 0;
-  verdicts(apres, emp.id).forEach((x, id) => {
-    const r = x.res.find(y => y.e.id === emp.id)!, prev = avant.get(id)?.res.find(y => y.e.id === emp.id);
-    const motifs = r.reasons.map(m => m.code);
-    if (prev && prev.status === r.status && prev.reasons.map(m => m.code).join() === motifs.join()) return;
-    sendToKeystone(ctx.db, { type: 'verdict.modifie', chantier: id, statut: GNG_CODE[x.status], ressource: { matricule: matricule(emp.id), statut: GNG_CODE[r.status], motifs } });
-    signales++;
-  });
-  return { apres, keystone: signales ? ` · ${plural(signales, 'chantier signalé', 'chantiers signalés')} à Keystone` : '' };
+function signaler(ctx: Ctx, emp: Employe) {
+  const signales = suivreVerdicts(ctx.db).filter(v => v.empId === emp.id).length;
+  return { apres: new Domain(loadFull(ctx.db, ctx.user)), keystone: signales ? ` · ${plural(signales, 'chantier signalé', 'chantiers signalés')} à Keystone` : '' };
 }
 
 /** Enregistre la mesure, puis signale à Keystone les verdicts qu'elle modifie. */
 function mesurer(ctx: Ctx, emp: Employe, t: HabTitre, patch: Pick<HabTitre, 'mesure' | 'mesureDate' | 'mesureMotif' | 'mesurePar'>) {
-  const avant = verdicts(ctx.d, emp.id);
   ctx.db.update<HabTitre>('habTitres', t.id, patch);
-  return signaler(ctx, emp, avant);
+  return signaler(ctx, emp);
 }
 
 /** Suspension après un incident ou une restriction : RH, ou manager pour un membre de son équipe (jamais lui-même). */

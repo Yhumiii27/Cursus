@@ -11,7 +11,7 @@ import { addD, isFerie, isoWeek, mondayOf, parse, wDays } from '../../../shared/
 import { cap, equipeLabel, fH, fJ, fmt, fmtShort, num, plural } from '../../../shared/format.ts';
 import {
   calcSheet, cumulAnnuel, demandesAbsence, demandesEnAttenteMessage, employeDeLaFeuille, heuresSurAbsence, heuresSurAbsenceMessage, joursAbsence,
-  joursAbsenceTexte, natureAbsence, sagePending, type SheetCalc,
+  joursAbsenceTexte, natureAbsence, sagePending, tachesDeLaSemaine, type SheetCalc,
 } from '../../../shared/rules/temps.ts';
 import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
 import { CloseButton, Fine, Page, Panel, Pre, Tag, Two, stop } from '../components/ui.tsx';
@@ -261,8 +261,9 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   });
   const lignes = sh ? sh.lignes : [];
   const used = new Set(lignes.map(l => l.projet));
-  const projOptions = data.referentiels.projets.filter(p => !used.has(p.code));
-  const canSuggest = editable && !correction && data.taches.some(t => t.empId === emp.id);
+  const projOptions = data.referentiels.projets.filter(p => !used.has(p.code) && p.statut !== 'archive');
+  // Proposition Keystone : seulement si des heures sont planifiées cette semaine-là.
+  const canSuggest = editable && !correction && tachesDeLaSemaine(d, emp.id, wk).length > 0;
   const missions = data.missions.filter(m => m.empId === emp.id && m.du <= wdays[4] && m.au >= wdays[0]);
 
   const recap = recapOf(d, empF, calc, wk);

@@ -54,7 +54,12 @@ const titre = (h: string) => db.sql.prepare('SELECT id FROM hab_titres WHERE emp
 const cert = (f: string) => (db.sql.prepare('SELECT id FROM certifications WHERE emp_id = 2 AND f = ?').get(f) as { id: number }).id;
 const ENTRETIEN = () => (db.sql.prepare(`SELECT id FROM entretiens WHERE emp_id = 2 AND statut = 'planifie'`).get() as { id: number }).id;
 
-interface Ligne { action: string; variante?: string; droits: string; p: () => Record<string, unknown> }
+/** Envoi vers Keystone en échec définitif, à relancer ou classer. */
+const envoiEnEchec = () => db.insert<{ id: number }>('envois', {
+  cible: 'keystone', type: 'heures.validees', cle: 'essai-droits', contenu: {}, statut: 'echec', tentatives: 1, prochaine: null,
+  erreur: 'HTTP 400', accuse: null, creation: '2026-10-07T08:00:00.000Z', tentative: '2026-10-07T08:00:00.000Z', envoi: null, classe: null,
+}).id;
+interface Ligne { action: string; variante?: string; droits: string; p: () => Record<string, unknown>; env?: Record<string, string> }
 
 //                                                        admin gest mgr autM coll autC
 const MATRICE: Ligne[] = [
@@ -124,12 +129,17 @@ const MATRICE: Ligne[] = [
   { action: 'compte.profil', droits: '                       O    -    -    -    -    -', p: () => ({ id: compteDe(2).id, profilRh: 'rh_gestionnaire' }) },
   { action: 'compte.activer', droits: '                      O    -    -    -    -    -', p: () => ({ id: compteDe(1).id, actif: false }) },
   { action: 'compte.reinitialiser', droits: '                O    -    -    -    -    -', p: () => ({ id: compteDe(1).id }) },
+  // Envois sortants (Paramètres → Envois) : le service RH suit, relance (intégration configurée) ou classe un échec.
+  { action: 'envoi.relancer', droits: '                      O    O    -    -    -    -', p: () => ({ id: envoiEnEchec() }), env: { KEYSTONE_URL: 'http://keystone.essai', KEYSTONE_TOKEN: 'jeton' } },
+  { action: 'envoi.classer', droits: '                       O    O    -    -    -    -', p: () => ({ id: envoiEnEchec() }) },
 ];
 
 const ANNULER = Symbol('annuler');
 /** Exécute l'action dans une transaction toujours annulée : « O », « - » (refus 403), ou l'erreur inattendue. */
 function essai(user: User, l: Ligne): string {
   let issue = '';
+  const avant = Object.fromEntries(Object.keys(l.env ?? {}).map(k => [k, process.env[k]]));
+  Object.assign(process.env, l.env ?? {});
   try {
     db.tx(() => {
       const payload = l.p();
@@ -143,6 +153,9 @@ function essai(user: User, l: Ligne): string {
     });
   } catch (e) {
     if (e !== ANNULER) throw e;
+  } finally {
+    // Variables d'environnement propres à la ligne : remises dans leur état d'origine.
+    for (const [k, v] of Object.entries(avant)) { if (v === undefined) delete process.env[k]; else process.env[k] = v; }
   }
   return issue;
 }

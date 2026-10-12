@@ -1,6 +1,7 @@
 // Robustesse de la session côté client : erreurs réseau en français, réponse 401 signalée (session
-// expirée) sauf pour un échec de connexion, brouillon de la reconnexion Microsoft (sessionStorage) :
-// relu pour 30 minutes, jamais pour un dialogue de mot de passe.
+// expirée) sauf pour un échec de connexion, espace affiché envoyé avec les lectures et les actions (409
+// si un autre onglet a changé d'espace), brouillon de la reconnexion Microsoft (sessionStorage) : relu
+// pour 30 minutes, jamais pour un dialogue de mot de passe.
 import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
 
@@ -40,6 +41,23 @@ test('réponse 401 : session expirée signalée, sauf un échec de connexion', a
   simuler(() => json(401, { error: 'Identifiant ou mot de passe incorrect.' }));
   await assert.rejects(api.login('karim.haddad', 'faux'), /incorrect/);
   assert.equal(n, 3, 'mauvais mot de passe : pas une session expirée');
+});
+
+test('espace affiché envoyé avec les lectures et les actions ; un 409 (espace changé ailleurs) n’est pas une session expirée', async () => {
+  let n = 0;
+  surSessionExpiree(() => { n++; });
+  const vus: (string | null)[] = [];
+  globalThis.fetch = (async (_url: string, init?: RequestInit) => {
+    vus.push(new Headers(init?.headers).get('x-cursus-espace'));
+    return json(409, { error: 'Espace changé dans un autre onglet : rien n’a été enregistré.' });
+  }) as typeof fetch;
+  const r = await api.action('absence.demander', {}, 'rh');
+  assert.deepEqual([r.ok, r.status], [false, 409]);
+  assert.match(r.error!, /autre onglet/);
+  await assert.rejects(api.data('manager'), (e: Error & { status: number }) => e.status === 409);
+  await assert.rejects(api.session());
+  assert.deepEqual(vus, ['rh', 'manager', null], 'la session elle-même se lit sans espace');
+  assert.equal(n, 0);
 });
 
 test('lien de connexion Microsoft : page de retour, identifiant proposé, choix d’un autre compte', () => {

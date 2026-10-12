@@ -2,7 +2,8 @@
 // la découverte, les clés (JWKS) et le point de jeton, avec une clé RSA générée ici. Parcours complet,
 // premier rattachement de l'oid, espace initial, refus de chaque jeton ou retour invalide (signature,
 // audience, émetteur, dates, nonce, locataire, state, cookie d'état rejoué), comptes refusés, rotation
-// des clés, déconnexion Microsoft. Le serveur Cursus est lancé pour de vrai, hors démonstration.
+// des clés, déconnexion Microsoft, refus anonymes en nombre (journal protégé). Le serveur Cursus est lancé
+// pour de vrai, hors démonstration.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
@@ -335,7 +336,7 @@ test('connexion Microsoft 365 (OpenID Connect, faux fournisseur local)', async t
     const p = new URL(aller.location!).searchParams;
     const r = await srv.call(`/api/auth/microsoft/retour?error=access_denied&error_description=AADSTS50105&state=${p.get('state')}`, { cookie: valeur(cookieDe(aller.r, 'cursus_oidc')) });
     refuse(r, 'refus', 'access_denied');
-    assert.match(derniere('connexion.refusee').message, /refusée par Microsoft \(access_denied\)/);
+    assert.match(derniere('connexion.refusee').message, /refusée par Microsoft \(access_denied, AADSTS50105\)/);
   });
 
   await t.test('compte inconnu, désactivé, salarié sorti : accès non autorisé, journalisé', async () => {
@@ -455,4 +456,34 @@ test('sans configuration Microsoft 365 : pas de bouton, routes renvoyées à l�
   assert.equal((await s.call('/api/session')).json.microsoft, false);
   const r = await s.call('/api/auth/microsoft');
   assert.deepEqual([r.status, r.location, cookieDe(r.r, 'cursus_oidc')], [302, '/?connexion=indisponible', null]);
+});
+
+test('retour avec une erreur, par un visiteur anonyme : motif reconnu seulement, refus journalisés dans une limite par adresse', async () => {
+  const f = await fauxFournisseur();
+  const file = join(dir, 'refus.db');
+  const db = new Db(file);
+  seedDemo(db);
+  const port = await freePort();
+  const publicUrl = `http://127.0.0.1:${port}`;
+  f.redirection = `${publicUrl}/api/auth/microsoft/retour`;
+  const srv = await cursus(file, { CURSUS_OIDC_TENANT: TENANT, CURSUS_OIDC_CLIENT_ID: CLIENT, CURSUS_OIDC_CLIENT_SECRET: SECRET, CURSUS_PUBLIC_URL: publicUrl, CURSUS_OIDC_AUTORITE: f.base }, port);
+  const refus = () => (db.sql.prepare(`SELECT message FROM journal WHERE action = 'connexion.refusee' ORDER BY id`).all() as { message: string }[]).map(j => j.message);
+  /** N'importe qui obtient un état valable, puis revient avec l'erreur de son choix. */
+  async function retour(error: string, description?: string) {
+    const aller = await srv.call('/api/auth/microsoft');
+    const state = new URL(aller.location!).searchParams.get('state')!;
+    const q = new URLSearchParams({ state, error, ...(description ? { error_description: description } : {}) });
+    return srv.call(`/api/auth/microsoft/retour?${q}`, { cookie: valeur(cookieDe(aller.r, 'cursus_oidc')) });
+  }
+  const r = await retour('Faux motif : appelez le 06 00 00 00 00', 'AADSTS50105: texte libre');
+  assert.equal(r.location, '/?connexion=refus');
+  assert.equal(refus().at(-1), 'Microsoft 365 : connexion refusée par Microsoft (motif inconnu, AADSTS50105)', 'texte reçu jamais recopié');
+  await retour('consent_required');
+  assert.equal(refus().at(-1), 'Microsoft 365 : connexion refusée par Microsoft (consent_required)');
+  for (let i = 0; i < 40; i++) assert.equal((await retour(`Faux motif ${i}`)).location, '/?connexion=refus');
+  const lignes = refus();
+  assert.equal(lignes.length, 31, '30 refus journalisés, puis une ligne qui signale la suite');
+  assert.match(lignes.at(-1)!, /30 refus en moins de 15 minutes depuis cette adresse — les suivants ne sont plus journalisés/);
+  assert.ok(!lignes.some(m => m.includes('Faux motif') || m.includes('06 00')));
+  db.sql.close();
 });

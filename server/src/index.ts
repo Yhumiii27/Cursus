@@ -9,8 +9,8 @@ import { ActionError, makeCtx } from './actions/context.ts';
 import { DEMO, purgeSessions } from './auth.ts';
 import { adminsActifs, journaliser } from './comptes.ts';
 import { enProduction, hoteEcoute, portEcoute, trustProxy, verifierConfig } from './config.ts';
-import { identite, routesConnexion } from './connexion.ts';
-import { buildSnapshot, currentUser, loadFull } from './dataset.ts';
+import { espaceChange, identite, routesConnexion } from './connexion.ts';
+import { buildSnapshot, loadFull } from './dataset.ts';
 import { dbFile, openDb } from './db.ts';
 import { migrate } from './migrate.ts';
 import { KEYSTONE_API_KEY, keystoneKeyOk } from './integrations/keystone.ts';
@@ -55,14 +55,17 @@ app.use(express.json({ limit: '2mb' }));
 app.use(routesConnexion(db));
 
 app.get('/api/data', (req, res) => {
-  const user = identite(db, req)?.user;
-  if (!user) return res.status(401).json({ error: 'Connexion requise' });
-  res.json(buildSnapshot(db, user));
+  const id = identite(db, req);
+  if (!id) return res.status(401).json({ error: 'Connexion requise' });
+  if (espaceChange(req, res, id)) return;
+  res.json(buildSnapshot(db, id.user));
 });
 
 app.post('/api/actions/:name', (req, res) => {
   const id = identite(db, req);
   if (!id) return res.status(401).json({ error: 'Connexion requise' });
+  // Espace changé dans un autre onglet : l'action n'est pas faite avec les droits d'un autre espace.
+  if (espaceChange(req, res, id)) return;
   const { user, compte } = id;
   const name = String(req.params.name);
   const handler = ACTIONS[name];
@@ -76,8 +79,10 @@ app.post('/api/actions/:name', (req, res) => {
       if (!QUIET_ACTIONS.has(name)) journaliser(db, { actor: user.nom, role: user.role, action: name, message: o.message ?? null, payload: req.body ?? {}, compte });
       return o;
     });
-    // Profil RH du compte éventuellement modifié par l'action : la personne est relue.
-    res.json({ message: out.message ?? null, result: out.result, data: buildSnapshot(db, currentUser(db, id.session) ?? user) });
+    // L'action a pu changer le compte (profil RH retiré, équipe confiée à un autre) : la session est relue,
+    // et l'instantané est celui de l'espace où elle se trouve désormais ; aucun si elle ne vaut plus.
+    const apres = identite(db, req)?.user;
+    res.json({ message: out.message ?? null, result: out.result, data: apres ? buildSnapshot(db, apres) : undefined });
   } catch (err) {
     if (err instanceof ActionError) return res.status(err.status).json({ error: err.message });
     console.error(err);
@@ -88,7 +93,11 @@ app.post('/api/actions/:name', (req, res) => {
 app.get('/api/journal', (req, res) => {
   const user = identite(db, req)?.user;
   if (!user || user.role !== 'rh') return res.status(403).json({ error: 'Réservé au service RH' });
-  const rows = db.sql.prepare('SELECT at, actor, role, action, message, identifiant FROM journal ORDER BY id DESC LIMIT 100').all();
+  // Filtre : connexions (et mots de passe) ou opérations (tout le reste), pour que des refus de connexion
+  // en nombre ne chassent pas les opérations RH des 100 lignes affichées.
+  const connexions = `(action LIKE 'connexion%' OR action LIKE 'motdepasse.%')`;
+  const filtre = req.query.filtre === 'connexions' ? `WHERE ${connexions}` : req.query.filtre === 'operations' ? `WHERE NOT ${connexions}` : '';
+  const rows = db.sql.prepare(`SELECT at, actor, role, action, message, identifiant FROM journal ${filtre} ORDER BY id DESC LIMIT 100`).all();
   res.json(rows);
 });
 

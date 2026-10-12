@@ -5,7 +5,7 @@ import { ArrowCounterClockwiseIcon } from '@phosphor-icons/react';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
 import type { Settings } from '../../../shared/types.ts';
-import { api } from '../api.ts';
+import { api, type FiltreJournal } from '../api.ts';
 import { Field } from '../components/Dialog.tsx';
 import { Btn, Empty, Fine, Page, Panel, SectionLabel, Seg, Tag, Two } from '../components/ui.tsx';
 import { useRole } from '../state/derived.ts';
@@ -48,16 +48,17 @@ export function Parametres() {
   const keystoneMode = session?.integrations.keystone ?? 'simulation';
   const sageMode = session?.integrations.sage ?? 'simulation';
 
-  // Journal : rechargé au montage et à chaque nouvel instantané (donc après chaque action).
+  // Journal : rechargé au montage, à chaque nouvel instantané (donc après chaque action) et au changement de filtre.
   const [journal, setJournal] = useState<JournalRow[] | null>(null);
   const [journalError, setJournalError] = useState<string | null>(null);
+  const [journalFiltre, setJournalFiltre] = useState<FiltreJournal>('tout');
   const loadJournal = useCallback(() => {
     let cancelled = false;
-    api.journal()
+    api.journal(journalFiltre)
       .then(rows => { if (!cancelled) { setJournal(rows); setJournalError(null); } })
       .catch(err => { if (!cancelled) setJournalError((err as Error).message); });
     return () => { cancelled = true; };
-  }, []);
+  }, [journalFiltre]);
   useEffect(() => (rh ? loadJournal() : undefined), [data, rh, loadJournal]);
 
   // Seuil budgétaire : valeur en cours de glissement, enregistrée au relâchement.
@@ -194,14 +195,16 @@ export function Parametres() {
       {admin && <ComptesPanel />}
 
       <Panel title="Journal des actions" aside={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-          <span className="text-muted sub">100 dernières actions</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+          <Seg name="journal-filtre" label="Lignes du journal" value={journalFiltre} onChange={setJournalFiltre}
+            options={[['tout', 'Tout'], ['operations', 'Opérations'], ['connexions', 'Connexions']]} />
+          <span className="text-muted sub">100 dernières lignes</span>
           <Btn small onClick={() => loadJournal()}>Actualiser</Btn>
         </div>
       }>
         {journalError && <p className="form-error">{journalError}</p>}
         {journal == null && !journalError && <Empty pad="sm">Chargement du journal…</Empty>}
-        {journal != null && journal.length === 0 && <Empty pad="sm">Aucune action enregistrée.</Empty>}
+        {journal != null && journal.length === 0 && <Empty pad="sm">{journalFiltre === 'connexions' ? 'Aucune connexion enregistrée.' : 'Aucune action enregistrée.'}</Empty>}
         {journal != null && journal.length > 0 && (
           <div className="scroll-x" style={{ maxHeight: 520, overflowY: 'auto' }}>
             <table className="table">

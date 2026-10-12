@@ -12,8 +12,8 @@ import {
   clearSessionCookie, DEMO, LimiteParIp, openSession, readSession, revokeSession, revokeSessionsDuCompte, ROLES, updateSession, type SessionInfo,
 } from './auth.ts';
 import {
-  compteBloque, compteParIdentifiant, compteSession, comptesVue, compteValide, enregistrerConnexion, enregistrerEchec, espacesDuCompte,
-  hacherMotDePasse, journaliser, nomDuCompte, refusDuCompte, verifierMotDePasse, type Compte,
+  compteBloque, compteParIdentifiant, compterTentative, compteSession, comptesVue, compteValide, enregistrerConnexion, espacesDuCompte,
+  hacherMotDePasse, journaliser, nomDuCompte, refusDuCompte, tentativeAdmise, verifierMotDePasse, type Compte,
 } from './comptes.ts';
 import { currentUser } from './dataset.ts';
 import type { Db } from './db.ts';
@@ -33,6 +33,22 @@ export function identite(db: Db, req: Request): Identite | null {
   if (!session || !compte || (session.methode === 'local' && compte.changerMotDePasse)) return null;
   const user = currentUser(db, session);
   return user ? { session, compte, user } : null;
+}
+
+/** En-tête par lequel l'onglet indique l'espace qu'il affiche (client/src/api.ts). */
+export const EN_TETE_ESPACE = 'x-cursus-espace';
+export const ESPACE_CHANGE = 'Espace changé dans un autre onglet : rien n’a été enregistré. L’écran passe à l’espace actif ; recommencez si besoin.';
+
+/**
+ * Tous les onglets partagent la session, donc l'espace actif : il a pu changer dans un autre onglet.
+ * Une action ou une lecture faite pour un autre espace que celui de la session est refusée (409) ; le
+ * client relit alors la session, sans rejouer l'action. Sans en-tête (autre client), pas de contrôle.
+ */
+export function espaceChange(req: Request, res: Response, id: Identite): boolean {
+  const espace = req.get(EN_TETE_ESPACE);
+  if (!espace || espace === id.session.role) return false;
+  res.status(409).json({ error: ESPACE_CHANGE });
+  return true;
 }
 
 /** Réponse générique d'un échec de connexion : ne dit pas si l'identifiant existe. */
@@ -132,32 +148,36 @@ export function routesConnexion(db: Db): Router {
       return res.json(payload(s));
     }
 
-    // Compte local : identifiant et mot de passe.
+    // Compte local : identifiant et mot de passe. La tentative est comptée dès son arrivée, pour l'adresse
+    // comme pour le compte, avant le calcul du mot de passe qui rend la main : une rafale de requêtes
+    // simultanées ne passe ni la limite de l'adresse ni le blocage du compte (comptes.ts).
     const adresse = ip(req);
     if (limite.depasse(adresse)) return res.status(429).json({ error: TROP_DE_TENTATIVES });
     const identifiant = normaliserIdentifiant(typeof b.identifiant === 'string' ? b.identifiant : '');
     const mdp = typeof b.motDePasse === 'string' ? b.motDePasse : '';
     if (!identifiant || !mdp) return res.status(400).json({ error: 'Identifiant et mot de passe requis' });
+    limite.echec(adresse);
     const trouve = compteParIdentifiant(db, identifiant);
     const local = trouve?.type === 'local' ? trouve : null;
-    const bloque = !!local && compteBloque(local);
+    const tentative = local && !compteBloque(local) ? compterTentative(db, local) : null;
     // Le calcul a lieu même sans compte ou compte bloqué : même temps de réponse dans tous les cas.
-    const ok = await verifierMotDePasse(mdp, local && !bloque ? local.motDePasse : null);
-    const c = local ? db.get<Compte>('comptes', local.id)! : null; // relu après l'attente
+    const ok = await verifierMotDePasse(mdp, tentative ? local!.motDePasse : null);
+    const c = local ? db.get<Compte>('comptes', local.id) ?? null : null; // relu après l'attente
     const trace = (action: string, message: string, role: Role | null = null) => journaliser(db, {
       // Identifiant inconnu : il n'est pas recopié (ce peut être un mot de passe saisi dans le mauvais champ).
       actor: c ? nomDuCompte(db, c) : trouve ? nomDuCompte(db, trouve) : 'Identifiant inconnu', role, action, message,
       payload: { ip: adresse }, compte: c ?? trouve ?? null,
     });
-    if (!ok || !c) {
-      limite.echec(adresse);
+    if (!ok || !c || !tentative) {
       if (!trouve) trace('connexion.refusee', 'Identifiant inconnu');
-      else if (!c) trace('connexion.refusee', 'Compte Microsoft 365 : pas de connexion par mot de passe');
-      else if (bloque) trace('connexion.refusee', `Compte bloqué jusqu’à ${heure(c.blocageFin!)}`);
-      else {
-        const e = enregistrerEchec(db, c);
-        trace('connexion.refusee', e.bloque ? `Mot de passe incorrect — compte bloqué ${BLOCAGE_MINUTES} minutes après ${ECHECS_MAX} échecs` : `Mot de passe incorrect (échec ${e.echecs} sur ${ECHECS_MAX})`);
-      }
+      else if (!local) trace('connexion.refusee', 'Compte Microsoft 365 : pas de connexion par mot de passe');
+      else if (!tentative) trace('connexion.refusee', `Compte bloqué jusqu’à ${heure(local.blocageFin!)}`);
+      else trace('connexion.refusee', tentative.bloque ? `Mot de passe incorrect — compte bloqué ${BLOCAGE_MINUTES} minutes après ${ECHECS_MAX} échecs` : `Mot de passe incorrect (échec ${tentative.echecs} sur ${ECHECS_MAX})`);
+      return res.status(401).json({ error: ECHEC_CONNEXION });
+    }
+    // Mot de passe exact, mais compte bloqué pendant le calcul par une tentative simultanée : même refus.
+    if (!tentativeAdmise(c, tentative)) {
+      trace('connexion.refusee', `Compte bloqué jusqu’à ${heure(c.blocageFin!)}`);
       return res.status(401).json({ error: ECHEC_CONNEXION });
     }
     // Mot de passe exact : le compte doit encore pouvoir se connecter (actif, salarié présent).
@@ -167,6 +187,7 @@ export function routesConnexion(db: Db): Router {
       trace('connexion.refusee', refus);
       return res.status(403).json({ error: refus });
     }
+    limite.rendre(adresse);
     if (cur?.id) revokeSession(db, cur.id);
     enregistrerConnexion(db, c);
     const role = espacesDuCompte(db, c)[0];
@@ -186,17 +207,21 @@ export function routesConnexion(db: Db): Router {
     const nouveau = typeof req.body?.nouveau === 'string' ? req.body.nouveau : '';
     const err = controleMotDePasse(nouveau, c.identifiant);
     if (err) return res.status(400).json({ error: err });
-    if (compteBloque(c)) return res.status(403).json({ error: `Compte bloqué jusqu’à ${heure(c.blocageFin!)} après des échecs répétés` });
+    if (actuel === nouveau) return res.status(400).json({ error: 'Choisissez un mot de passe différent de l’actuel' });
+    const bloque = (x: Compte) => res.status(403).json({ error: `Compte bloqué jusqu’à ${heure(x.blocageFin!)} après des échecs répétés` });
+    if (compteBloque(c)) return bloque(c);
+    // Tentative comptée avant le calcul, comme à la connexion.
+    limite.echec(adresse);
+    const tentative = compterTentative(db, c);
     const ok = await verifierMotDePasse(actuel, c.motDePasse);
-    const apres = db.get<Compte>('comptes', c.id)!;
+    const apres = db.get<Compte>('comptes', c.id) ?? c;
     const trace = (action: string, message: string) => journaliser(db, { actor: nomDuCompte(db, apres), role: s.role, action, message, payload: { ip: adresse }, compte: apres });
     if (!ok) {
-      limite.echec(adresse);
-      const e = enregistrerEchec(db, apres);
-      trace('motdepasse.refuse', e.bloque ? `Mot de passe actuel incorrect — compte bloqué ${BLOCAGE_MINUTES} minutes` : 'Mot de passe actuel incorrect');
-      return res.status(400).json({ error: e.bloque ? `Mot de passe actuel incorrect : compte bloqué ${BLOCAGE_MINUTES} minutes` : 'Mot de passe actuel incorrect' });
+      trace('motdepasse.refuse', tentative.bloque ? `Mot de passe actuel incorrect — compte bloqué ${BLOCAGE_MINUTES} minutes` : 'Mot de passe actuel incorrect');
+      return res.status(400).json({ error: tentative.bloque ? `Mot de passe actuel incorrect : compte bloqué ${BLOCAGE_MINUTES} minutes` : 'Mot de passe actuel incorrect' });
     }
-    if (actuel === nouveau) return res.status(400).json({ error: 'Choisissez un mot de passe différent de l’actuel' });
+    if (!tentativeAdmise(apres, tentative)) return bloque(apres);
+    limite.rendre(adresse);
     db.update<Compte>('comptes', c.id, { motDePasse: hacherMotDePasse(nouveau), changerMotDePasse: false, echecs: 0, blocageFin: null });
     // Les autres sessions du compte sont fermées : seule celle qui a changé le mot de passe reste ouverte.
     const n = revokeSessionsDuCompte(db, c.id, s.id);

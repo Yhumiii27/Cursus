@@ -4,6 +4,8 @@
 // espace avec les données d'un autre. Une session expirée (réponse 401) n'efface rien : la reconnexion
 // s'affiche par-dessus l'écran (layout/Reconnexion.tsx) et les actions interrompues attendent d'être
 // rejouées (compte Cursus, démonstration) ; pour un compte Microsoft, le brouillon est conservé (brouillon.ts).
+// Lectures et actions portent l'espace affiché : changé dans un autre onglet, le serveur refuse (409) et
+// l'onglet suit la session (`suivre`), sans rejouer l'action.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { ALLOWED_VIEWS, type HabMesureAction } from '../../../shared/constants.ts';
 import { mondayOf } from '../../../shared/dates.ts';
@@ -139,6 +141,20 @@ export function useData(): Dataset {
 
 function pathView(): string { return location.pathname.replace(/^\/+|\/+$/g, '').split('/')[0] || ''; }
 
+/**
+ * Données de l'espace de la session `s`. Si la session est passée à un autre espace entre-temps (autre
+ * onglet, réponse 409), elle est relue une fois : la session et les données renvoyées vont ensemble.
+ */
+async function avecDonnees(s: SessionState): Promise<[SessionState, Dataset | null]> {
+  try {
+    return [s, s.user ? await api.data(s.role) : null];
+  } catch (err) {
+    if ((err as ApiError).status !== 409) throw err;
+    const s2 = await api.session();
+    return [s2, s2.user ? await api.data(s2.role) : null];
+  }
+}
+
 export function allowedView(role: Role, v: string, fallback?: string): View {
   const list = ALLOWED_VIEWS[role] as readonly string[];
   if (list.includes(v)) return v as View;
@@ -175,8 +191,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   /** Session et données de son espace, appliquées ensemble (l'erreur est levée si les données ne viennent pas). */
-  const applySession = useCallback(async (s: SessionState) => {
-    const d = s.user ? await api.data() : null;
+  const applySession = useCallback(async (s0: SessionState) => {
+    const [s, d] = await avecDonnees(s0);
     setSession(s);
     setData(d);
   }, [setSession]);
@@ -189,12 +205,27 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     setRawView('');
   }, []);
 
-  /** Instantané renvoyé par le serveur ; s'il est d'un autre espace (changé dans un autre onglet), la session est relue avec lui. */
+  /**
+   * La session a changé d'espace hors de cet onglet (autre onglet, espace retiré au compte) : l'onglet
+   * passe à l'espace actif avec ses données ; page, filtres et dialogue de l'ancien espace sont abandonnés.
+   */
+  const suivre = useCallback(async () => {
+    try {
+      const [s, d] = await avecDonnees(await api.session());
+      if (s.role !== sessionRef.current?.role) reinitialiser();
+      setSession(s);
+      setData(d);
+    } catch (err) {
+      if ((err as ApiError).status !== 401) notify((err as Error).message, true);
+    }
+  }, [reinitialiser, setSession, notify]);
+
+  /** Instantané renvoyé par le serveur ; s'il est d'un autre espace, l'onglet suit la session. */
   const recevoir = useCallback((d: Dataset) => {
     const s = sessionRef.current;
     if (!s || d.user.role === s.role) { setData(d); return; }
-    api.session().then(applySession).catch(err => notify((err as Error).message, true));
-  }, [applySession, notify]);
+    suivre();
+  }, [suivre]);
 
   /** Réponse 401 : session expirée ou révoquée. Une personne connectée garde son écran et se reconnecte par-dessus. */
   const expirer = useCallback(() => {
@@ -281,7 +312,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const run = useCallback<Store['run']>(async (name, payload = {}, opts) => {
-    const r = await api.action(name, payload);
+    const r = await api.action(name, payload, sessionRef.current?.role);
     if (r.ok) {
       if (r.data) recevoir(r.data);
       if (r.message && !opts?.silent) notify(r.message);
@@ -295,8 +326,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       }));
     }
     notify(r.error || 'Action impossible', true);
+    // Espace changé dans un autre onglet : rien n'a été fait ; l'onglet suit la session, l'action n'est pas rejouée.
+    if (r.status === 409) suivre();
     return r;
-  }, [notify, recevoir, attendre]);
+  }, [notify, recevoir, attendre, suivre]);
 
   const runIntent = useCallback((intent: UiIntent) => {
     switch (intent.type) {
@@ -317,8 +350,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     enBascule.current = true;
     setBascule(true);
     try {
-      const s = await api.mode(r);
-      const d = s.user ? await api.data() : null;
+      const [s, d] = await avecDonnees(await api.mode(r));
       reinitialiser();
       setSession(s);
       setData(d);
@@ -335,8 +367,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   /** Ouvre la session renvoyée par `call` ; renvoie le message d'erreur, ou null. */
   const connect = useCallback(async (call: () => Promise<SessionState>) => {
     try {
-      const s = await call();
-      const d = s.user ? await api.data() : null;
+      const [s, d] = await avecDonnees(await call());
       reinitialiser();
       setSession(s);
       setData(d);
@@ -370,12 +401,15 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [reinitialiser, applySession, notify]);
 
   const refresh = useCallback(async () => {
+    const s = sessionRef.current;
     try {
-      if (sessionRef.current?.user) recevoir(await api.data());
+      if (s?.user) recevoir(await api.data(s.role));
     } catch (err) {
-      if ((err as ApiError).status !== 401) notify((err as Error).message, true);
+      const status = (err as ApiError).status;
+      if (status === 409) suivre();
+      else if (status !== 401) notify((err as Error).message, true);
     }
-  }, [recevoir, notify]);
+  }, [recevoir, suivre, notify]);
 
   // — Reconnexion après l'expiration de la session —
 

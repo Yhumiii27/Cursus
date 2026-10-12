@@ -151,7 +151,11 @@ son identité Microsoft ».
 ## 8. Dépannage
 
 Chaque refus est écrit dans le journal de Cursus (action `connexion.refusee`, avec l'adresse et
-l'identité reçues de Microsoft) et les incidents techniques dans `journalctl -u cursus`.
+l'identité reçues de Microsoft) et les incidents techniques dans `journalctl -u cursus`. Paramètres →
+Journal → **Connexions** n'affiche que les connexions. Au-delà de 30 refus en 15 minutes depuis une
+même adresse, les suivants ne sont plus journalisés jusqu'à la fin de cette période (une ligne le
+signale) : le journal ne peut pas être noyé par des retours forgés. Un refus de Microsoft est noté
+avec son code (`access_denied`, `consent_required`…) et son numéro `AADSTS` quand il y en a un.
 
 | Symptôme | Cause probable | Remède |
 | --- | --- | --- |

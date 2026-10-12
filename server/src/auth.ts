@@ -168,6 +168,8 @@ export function purgeSessions(db: Db): number {
  * fenêtre, les tentatives venant de cette adresse sont refusées jusqu'à la fin de la fenêtre. Le
  * blocage du compte (5 échecs) protège chaque compte ; cette limite freine l'essai de nombreux comptes.
  * Seuil volontairement large : un atelier entier peut sortir par une seule adresse.
+ * Une tentative de mot de passe est comptée dès son arrivée (`echec`), avant le calcul, puis rendue
+ * si la connexion réussit (`rendre`) : des requêtes simultanées ne dépassent pas le seuil.
  */
 export class LimiteParIp {
   private echecs = new Map<string, { n: number; debut: number }>();
@@ -190,5 +192,10 @@ export class LimiteParIp {
     else this.echecs.set(ip, { n: 1, debut: this.maintenant() });
     // Les adresses dont la fenêtre est close sont oubliées de temps en temps.
     if (this.echecs.size > 10_000) for (const k of [...this.echecs.keys()]) this.courant(k);
+  }
+  /** Tentative comptée d'avance qui a abouti : elle ne compte plus parmi les échecs. */
+  rendre(ip: string) {
+    const e = this.courant(ip);
+    if (e && e.n > 0) e.n--;
   }
 }

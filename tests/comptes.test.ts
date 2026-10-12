@@ -1,7 +1,8 @@
 // Comptes nominatifs : création, espaces, profils RH, connexion par compte local (hors démonstration),
-// échecs et blocage, changement obligatoire du mot de passe, compte désactivé, salarié sorti, bascule
-// d'espace, journal signé du nom de la personne connectée, actions réservées à l'administrateur RH,
-// premier administrateur créé par npm run comptes. Les scénarios HTTP lancent un vrai serveur.
+// échecs et blocage (y compris en rafale de requêtes simultanées), changement obligatoire du mot de passe,
+// compte désactivé, salarié sorti, bascule d'espace (et espace changé dans un autre onglet), journal signé
+// du nom de la personne connectée, actions réservées à l'administrateur RH, premier administrateur créé
+// par npm run comptes. Les scénarios HTTP lancent un vrai serveur.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
@@ -19,7 +20,7 @@ const { currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
 const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
 const { LimiteParIp, openSession, readSession } = await import('../server/src/auth.ts');
-const { espacesDuCompte, hacherMotDePasse, verifierMotDePasse } = await import('../server/src/comptes.ts');
+const { compteBloque, compterTentative, espacesDuCompte, hacherMotDePasse, tentativeAdmise, verifierMotDePasse } = await import('../server/src/comptes.ts');
 const { ECHEC_CONNEXION } = await import('../server/src/connexion.ts');
 type Db = InstanceType<typeof Db>;
 type User = NonNullable<ReturnType<typeof currentUser>>;
@@ -168,6 +169,22 @@ test('limite des échecs de connexion par adresse IP', () => {
   assert.equal(l.depasse('b'), false, 'chaque adresse a son compteur');
   t = 1000;
   assert.equal(l.depasse('a'), false, 'fenêtre close : compteur remis à zéro');
+  // Tentative comptée d'avance puis aboutie : rendue.
+  l.echec('a'); l.echec('a'); l.echec('a');
+  l.rendre('a');
+  assert.equal(l.depasse('a'), false);
+});
+
+test('tentatives simultanées : comptées avant le calcul ; le blocage posé entre-temps l’emporte sur un mot de passe exact', () => {
+  const { db, compte, get } = fresh();
+  const id = compte(1).id;
+  // Cinq tentatives parties en même temps : chacune est comptée avant que la première n'ait son résultat.
+  const t = [1, 2, 3, 4, 5].map(() => compterTentative(db, get(id)));
+  assert.deepEqual(t.map(x => [x.echecs, x.bloque]), [[1, false], [2, false], [3, false], [4, false], [5, true]]);
+  const c = get(id);
+  assert.ok(compteBloque(c), 'bloqué dès la cinquième tentative, avant tout résultat');
+  assert.equal(tentativeAdmise(c, t[2]), false, 'la troisième, exacte mais terminée après le blocage : refusée');
+  assert.equal(tentativeAdmise(c, t[4]), true, 'la cinquième, qui a posé le blocage, reste admise');
 });
 
 // — Scénarios HTTP (hors démonstration) —
@@ -200,10 +217,14 @@ async function serveur(db: string, env: Record<string, string> = {}) {
     const timer = setInterval(() => { if (out.includes('Cursus — API sur')) { clearInterval(timer); res(); } }, 20);
     p.on('exit', code => { clearInterval(timer); rej(new Error(`Serveur arrêté (code ${code}) :\n${out}`)); });
   });
-  const call = async (path: string, init: { method?: string; cookie?: string; body?: unknown } = {}) => {
+  /** `ip` : adresse du client relayée par le proxy local (X-Forwarded-For) ; `espace` : espace affiché par l'onglet. */
+  const call = async (path: string, init: { method?: string; cookie?: string; body?: unknown; ip?: string; espace?: string } = {}) => {
     const r = await fetch(`http://127.0.0.1:${port}${path}`, {
       method: init.method ?? (init.body !== undefined ? 'POST' : 'GET'),
-      headers: { ...(init.cookie ? { cookie: init.cookie } : {}), ...(init.body !== undefined ? { 'content-type': 'application/json' } : {}) },
+      headers: {
+        ...(init.cookie ? { cookie: init.cookie } : {}), ...(init.body !== undefined ? { 'content-type': 'application/json' } : {}),
+        ...(init.ip ? { 'x-forwarded-for': init.ip } : {}), ...(init.espace ? { 'x-cursus-espace': init.espace } : {}),
+      },
       body: init.body !== undefined ? JSON.stringify(init.body) : undefined,
     });
     const cookie = r.headers.get('set-cookie')?.match(/cursus_session=[^;]*/)?.[0] ?? null;
@@ -348,6 +369,14 @@ test('connexion par compte local (hors démonstration)', async t => {
     assert.deepEqual([m.status, m.json.user.role, m.json.user.empId], [200, 'collaborateur', 12]);
     assert.equal(m.cookie, null, 'même session');
     assert.equal((await srv.call('/api/mode', { cookie: karim, body: { role: 'rh' } })).status, 403);
+    // Autre onglet resté sur l'espace manager : ni lecture ni action avec les droits de l'espace collaborateur.
+    const n = journal().length;
+    const autre = await srv.call('/api/actions/absence.demander', { cookie: karim, espace: 'manager', body: { empId: 12, kind: 'CP', du: '2026-12-08', au: '2026-12-08' } });
+    assert.equal(autre.status, 409);
+    assert.match(autre.json.error, /Espace changé dans un autre onglet/);
+    assert.equal((await srv.call('/api/data', { cookie: karim, espace: 'manager' })).status, 409);
+    assert.equal(journal().length, n, 'rien d’enregistré');
+    assert.equal((await srv.call('/api/data', { cookie: karim, espace: 'collaborateur' })).status, 200);
     // Action signée du salarié dans son espace.
     assert.equal((await srv.call('/api/actions/absence.demander', { cookie: camille, body: { empId: 1, kind: 'CP', du: '2026-12-07', au: '2026-12-07' } })).status, 200);
     const j = journal().findLast(x => x.action === 'absence.demander')!;
@@ -403,10 +432,63 @@ test('connexion par compte local (hors démonstration)', async t => {
     assert.ok(rows.some(j => j.action === 'motdepasse.change' && j.identifiant === 'lina.morel'));
     const tout = JSON.stringify(rows);
     for (const mdp of [...motsDePasse, NOUVEAU, 'mauvais mot de passe']) assert.ok(!tout.includes(mdp), `mot de passe absent du journal : ${mdp}`);
+    // Filtre de Paramètres → Journal : les refus de connexion ne chassent pas les opérations RH de l'écran.
+    const connexion = (j: { action: string }) => /^(connexion|motdepasse\.)/.test(j.action);
+    const ops = (await srv.call('/api/journal?filtre=operations', { cookie: adminCookie })).json as { action: string }[];
+    assert.ok(ops.length && !ops.some(connexion) && ops.some(j => j.action === 'compte.creer'));
+    const cx = (await srv.call('/api/journal?filtre=connexions', { cookie: adminCookie })).json as { action: string }[];
+    assert.ok(cx.length && cx.every(connexion));
     const logout = await srv.call('/api/logout', { cookie: adminCookie, body: {} });
     assert.equal(logout.json.user, null);
     assert.equal((await srv.call('/api/data', { cookie: adminCookie })).status, 401);
   });
+  db.sql.close();
+});
+
+test('rafale de tentatives simultanées : au plus 5 vérifications par compte, 30 échecs par adresse', async () => {
+  const file = join(dir, 'rafale.db');
+  const db = new Db(file);
+  seedDemo(db);
+  const BON = 'le bon mot de passe';
+  /** Compte Cursus d'un salarié, avec un mot de passe connu, déjà changé. */
+  const preparer = (empId: number, identifiant: string) => {
+    const c = db.where<Compte>('comptes', 'empId', empId)[0];
+    db.update<Compte>('comptes', c.id, { type: 'local', identifiant, motDePasse: hacherMotDePasse(BON), changerMotDePasse: false });
+  };
+  preparer(1, 'compte.a');
+  preparer(2, 'compte.b');
+  const srv = await serveur(file);
+  const journal = (identifiant: string, action: string) =>
+    (db.sql.prepare('SELECT message FROM journal WHERE identifiant = ? AND action = ? ORDER BY id').all(identifiant, action) as { message: string }[]).map(j => j.message);
+  const login = (identifiant: string, motDePasse: string, ip: string) => srv.call('/api/login', { body: { identifiant, motDePasse }, ip });
+  const statuts = (l: { status: number }[]) => l.reduce<Record<number, number>>((m, r) => ({ ...m, [r.status]: (m[r.status] ?? 0) + 1 }), {});
+  const plusieurs = <T>(n: number, f: (i: number) => Promise<T>) => Promise.all(Array.from({ length: n }, (_, i) => f(i)));
+
+  // Vingt mauvais mots de passe envoyés en même temps : cinq seulement sont vérifiés, le compte est bloqué.
+  assert.deepEqual(statuts(await plusieurs(20, i => login('compte.a', `mauvais essai ${i}`, '198.51.100.1'))), { 401: 20 });
+  const refus = journal('compte.a', 'connexion.refusee');
+  assert.equal(refus.filter(m => m.startsWith('Mot de passe incorrect')).length, 5, 'au plus 5 mots de passe vérifiés');
+  assert.equal(refus.filter(m => m.startsWith('Compte bloqué jusqu’à')).length, 15);
+  // Le bon mot de passe pendant le blocage, d'une autre adresse : même refus générique.
+  const bon = await login('compte.a', BON, '198.51.100.2');
+  assert.deepEqual([bon.status, bon.json.error, bon.cookie], [401, ECHEC_CONNEXION, null]);
+
+  // Adresse : 30 tentatives sans succès par fenêtre, comptées dès leur arrivée.
+  assert.deepEqual(statuts(await plusieurs(40, i => login(`inconnu.${i}`, 'x'.repeat(12), '198.51.100.3'))), { 401: 30, 429: 10 });
+  // Une connexion réussie est rendue à l'adresse : elle ne compte pas parmi les échecs.
+  await plusieurs(29, i => login(`inconnu.${i}`, 'x'.repeat(12), '198.51.100.4'));
+  const ok = await login('compte.b', BON, '198.51.100.4');
+  assert.equal(ok.status, 200);
+  assert.equal((await login('inconnu', 'x'.repeat(12), '198.51.100.4')).status, 401, 'trentième échec');
+  assert.equal((await login('compte.b', BON, '198.51.100.4')).status, 429, 'au-delà : refus, même avec le bon mot de passe');
+
+  // Changement du mot de passe : même règle (cinq vérifications, puis compte bloqué).
+  const changer = (actuel: string) => srv.call('/api/motdepasse', { cookie: ok.cookie!, body: { actuel, nouveau: 'un tout nouveau mot de passe' }, ip: '198.51.100.5' });
+  assert.deepEqual(statuts(await plusieurs(12, i => changer(`mauvais actuel ${i}`))), { 400: 5, 403: 7 });
+  assert.equal(journal('compte.b', 'motdepasse.refuse').length, 5);
+  const juste = await changer(BON);
+  assert.equal(juste.status, 403);
+  assert.match(juste.json.error, /Compte bloqué/);
   db.sql.close();
 });
 
@@ -444,5 +526,16 @@ test('démonstration : connexion libre, mais par les comptes (RH de démonstrati
   const a = await srv.call('/api/login', { cookie: out.cookie!, body: { role: 'rh', compteId: opts.rh[0].id } });
   assert.equal(a.json.user.profilRh, 'rh_gestionnaire');
   assert.equal((await srv.call('/api/actions/parametres.maj', { cookie: a.cookie!, body: { horizonAlerte: 60 } })).status, 403);
+  // Antoine, nommé administrateur, se retire son profil RH : l'instantané renvoyé est celui de l'espace
+  // où passe sa session (manager), jamais l'ancien espace RH avec le profil d'administrateur.
+  const antoine = opts.rh[0].id;
+  const sv = await srv.call('/api/login', { cookie: a.cookie!, body: { role: 'rh', compteId: opts.rh[1].id } });
+  assert.equal((await srv.call('/api/actions/compte.profil', { cookie: sv.cookie!, body: { id: antoine, profilRh: 'rh_admin' } })).status, 200);
+  const al = await srv.call('/api/login', { cookie: sv.cookie!, body: { role: 'rh', compteId: antoine } });
+  const retrait = await srv.call('/api/actions/compte.profil', { cookie: al.cookie!, espace: 'rh', body: { id: antoine, profilRh: 'aucun' } });
+  assert.equal(retrait.status, 200, JSON.stringify(retrait.json));
+  assert.deepEqual([retrait.json.data.user.role, retrait.json.data.user.profilRh], ['manager', 'aucun']);
+  const apres = await srv.call('/api/session', { cookie: al.cookie! });
+  assert.deepEqual([apres.json.role, apres.json.compte.profilRh], ['manager', 'aucun']);
   db.sql.close();
 });

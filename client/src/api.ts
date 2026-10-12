@@ -26,19 +26,30 @@ export interface ActionResponse { ok: boolean; message: string | null; result?: 
 /** Erreur d'appel : `status` 0 quand le serveur n'a pas pu être joint. */
 export type ApiError = Error & { status: number };
 
+/** Filtre du journal (Paramètres) : opérations, connexions (et mots de passe), ou tout. */
+export type FiltreJournal = 'tout' | 'operations' | 'connexions';
+
 export const MSG_RESEAU = 'Connexion au serveur impossible : vérifiez le réseau, puis réessayez.';
 
 /** Prévenu de chaque réponse 401 (session expirée ou révoquée), hors échec de connexion. */
 let auRefus: (() => void) | null = null;
 export function surSessionExpiree(f: (() => void) | null) { auRefus = f; }
 
-async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
+/**
+ * `espace` : espace affiché par l'onglet, envoyé avec les lectures et les actions. Tous les onglets
+ * partagent la session ; si l'espace a changé dans un autre, le serveur refuse (409) au lieu d'agir
+ * avec les droits de l'autre espace.
+ */
+async function request<T>(method: string, url: string, body?: unknown, espace?: Role): Promise<T> {
   let res: Response;
+  const headers: Record<string, string> = {};
+  if (body !== undefined) headers['content-type'] = 'application/json';
+  if (espace) headers['x-cursus-espace'] = espace;
   try {
     res = await fetch(url, {
       method,
       credentials: 'same-origin',
-      headers: body !== undefined ? { 'content-type': 'application/json' } : undefined,
+      headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
     });
   } catch {
@@ -75,12 +86,15 @@ export const api = {
   login: (identifiant: string, motDePasse: string) => request<SessionState>('POST', '/api/login', { identifiant, motDePasse }),
   motDePasse: (actuel: string, nouveau: string) => request<SessionState>('POST', '/api/motdepasse', { actuel, nouveau }),
   logout: () => request<SessionState>('POST', '/api/logout'),
-  data: () => request<Dataset>('GET', '/api/data'),
-  journal: () => request<{ at: string; actor: string; role: string | null; action: string; message: string | null; identifiant: string | null }[]>('GET', '/api/journal'),
+  /** Instantané de l'espace `espace` (409 si la session est passée à un autre espace entre-temps). */
+  data: (espace?: Role) => request<Dataset>('GET', '/api/data', undefined, espace),
+  /** 100 dernières lignes du journal : toutes, opérations seules ou connexions seules. */
+  journal: (filtre: FiltreJournal = 'tout') => request<{ at: string; actor: string; role: string | null; action: string; message: string | null; identifiant: string | null }[]>(
+    'GET', filtre === 'tout' ? '/api/journal' : `/api/journal?filtre=${filtre}`),
   comptes: () => request<CompteVue[]>('GET', '/api/comptes'),
-  async action(name: string, payload: Record<string, unknown>): Promise<ActionResponse> {
+  async action(name: string, payload: Record<string, unknown>, espace?: Role): Promise<ActionResponse> {
     try {
-      const r = await request<{ message: string | null; result?: unknown; data: Dataset }>('POST', `/api/actions/${name}`, payload);
+      const r = await request<{ message: string | null; result?: unknown; data?: Dataset }>('POST', `/api/actions/${name}`, payload, espace);
       return { ok: true, ...r };
     } catch (err) {
       return { ok: false, message: null, error: (err as Error).message, status: (err as ApiError).status };

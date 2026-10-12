@@ -204,7 +204,10 @@ Microsoft, rétabli à la connexion suivante (les sessions ouvertes de ce compte
 Protection des comptes Cursus : mot de passe haché (scrypt), message d'échec identique quel que
 soit l'identifiant, blocage du compte 15 minutes après 5 échecs, et refus (429) des tentatives d'une
 adresse IP au-delà de 30 échecs en 15 minutes — un atelier entier peut sortir par une même adresse.
-Connexions réussies et refusées sont tracées dans le journal, jamais les mots de passe.
+Chaque tentative est comptée dès son arrivée, avant la vérification du mot de passe : des requêtes
+envoyées en même temps ne passent pas ces limites (une connexion réussie est rendue à l'adresse).
+Connexions réussies et refusées sont tracées dans le journal, jamais les mots de passe ; le filtre
+« Connexions » / « Opérations » de Paramètres → Journal les sépare des opérations RH.
 
 ## Reverse proxy HTTPS : Caddy (recommandé)
 

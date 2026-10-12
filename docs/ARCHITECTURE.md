@@ -52,11 +52,15 @@ design/            Prototype Claude Design de référence et guide du design sys
 3. Toute modification passe par `run('nom.action', payload)` → `POST /api/actions/:nom`.
    Le serveur vérifie les droits, valide, écrit dans une transaction, trace l'action
    dans le journal et renvoie `{ message, data }` : le client remplace son instantané
-   et affiche le message.
+   et affiche le message. L'instantané renvoyé est celui de la session relue après l'action (un compte
+   qui perd l'espace actif reçoit celui de son nouvel espace).
 4. La session et l'instantané de son espace changent ensemble (`store.tsx`) : un changement d'espace
    n'affiche le nouvel espace qu'avec ses données ; en cas d'échec (réseau), l'espace, la page, les
    filtres et le dialogue restent tels quels, avec un message. Une erreur réseau donne un message en
-   français (`MSG_RESEAU` de `client/src/api.ts`).
+   français (`MSG_RESEAU` de `client/src/api.ts`). Les onglets partagent la session : chaque lecture
+   (`/api/data`) et chaque action porte l'espace affiché (en-tête `X-Cursus-Espace`) ; si un autre
+   onglet a changé d'espace, le serveur répond 409 sans rien faire et l'onglet suit la session, sans
+   rejouer l'action.
 5. Une réponse 401 (session expirée ou révoquée) ne démonte rien : `layout/Reconnexion.tsx` s'affiche
    par-dessus la page et le dialogue (le reste devient inerte). Compte Cursus ou démonstration : mot de
    passe, retour dans l'espace où la personne travaillait, puis les actions interrompues sont rejouées
@@ -82,7 +86,8 @@ design/            Prototype Claude Design de référence et guide du design sys
   Microsoft). Compte local à Cursus pour le personnel sans compte d'entreprise : empreinte scrypt
   salée (`scrypt$N$r$p$sel$empreinte`), comparaison en temps constant, mot de passe provisoire à changer
   à la première connexion (12 caractères au moins), blocage 15 min après 5 échecs, limite d'échecs par
-  adresse IP. Espaces du compte : RH selon le profil RH, manager si le salarié encadre une équipe,
+  adresse IP ; chaque tentative est comptée avant le calcul scrypt (`compterTentative`, `LimiteParIp`),
+  de sorte qu'une rafale de requêtes simultanées ne dépasse pas ces seuils. Espaces du compte : RH selon le profil RH, manager si le salarié encadre une équipe,
   collaborateur s'il est salarié. Un compte désactivé, ou dont le salarié est sorti, ne se connecte plus
   et ses sessions sont révoquées. Premier administrateur : `npm run comptes -- admin <identifiant>`.
 - **Microsoft 365** (`server/src/microsoft.ts`, guide `docs/CONNEXION-MICROSOFT.md`) : flux OpenID Connect
@@ -95,7 +100,9 @@ design/            Prototype Claude Design de référence et guide du design sys
   correspond ; sinon, à la première connexion, celui dont l'identifiant est `preferred_username` et qui n'a
   pas encore d'`oid` (enregistré alors). Compte inconnu, désactivé ou salarié sorti : retour à l'écran de
   connexion avec `?connexion=<code>` (messages `ERREURS_MICROSOFT` de `shared/constants.ts`), refus
-  journalisé. Espace initial : RH, sinon manager, sinon collaborateur. Déconnexion : session révoquée,
+  journalisé — 30 par adresse IP et par quart d'heure au plus, car n'importe qui peut obtenir un état
+  et revenir avec une erreur ; le motif renvoyé par Microsoft n'est recopié que s'il est un code OAuth
+  connu (`motifRefus`). Espace initial : RH, sinon manager, sinon collaborateur. Déconnexion : session révoquée,
   puis déconnexion Microsoft avec retour sur l'URI de redirection (qui renvoie à l'écran de connexion).
   Configuration : `configOidc` de `server/src/config.ts` ; tests : `tests/microsoft.test.ts` (faux
   fournisseur OpenID local).

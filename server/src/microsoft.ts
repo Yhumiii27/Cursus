@@ -9,7 +9,7 @@ import { createHash, createPublicKey, randomBytes, timingSafeEqual, verify, type
 import express, { type Request, type Response, type Router } from 'express';
 import { type ErreurMicrosoft } from '../../shared/constants.ts';
 import { normaliserIdentifiant } from '../../shared/rules/comptes.ts';
-import { cookieSecure, openSession, parseCookies, readSession, revokeSession, revokeSessionsDuCompte, sign } from './auth.ts';
+import { cookieSecure, LimiteParIp, openSession, parseCookies, readSession, revokeSession, revokeSessionsDuCompte, sign } from './auth.ts';
 import { compteParIdentifiant, enregistrerConnexion, espacesDuCompte, journaliser, nomDuCompte, refusDuCompte, type Compte } from './comptes.ts';
 import { configOidc, type ConfigOidc } from './config.ts';
 import type { Db } from './db.ts';
@@ -219,10 +219,31 @@ function lireEtat(db: Db, req: Request): EtatAllerRetour | null {
 }
 
 /**
+ * Codes d'erreur qu'une réponse d'autorisation OAuth 2.0 / OpenID Connect peut porter : seuls ceux-là
+ * sont recopiés au journal (le paramètre `error` vient de l'adresse, donc de n'importe qui).
+ */
+const ERREURS_OAUTH = new Set([
+  'access_denied', 'consent_required', 'interaction_required', 'login_required', 'account_selection_required', 'invalid_request',
+  'unauthorized_client', 'unsupported_response_type', 'invalid_scope', 'server_error', 'temporarily_unavailable', 'invalid_resource',
+  'invalid_request_uri', 'invalid_request_object', 'request_not_supported', 'request_uri_not_supported', 'registration_not_supported',
+]);
+
+/** Motif d'un refus de Microsoft pour le journal : code connu et, s'il y en a un, numéro AADSTS ; jamais le texte reçu. */
+export function motifRefus(error: unknown, description: unknown): string {
+  if (error === undefined) return 'code absent';
+  const code = typeof error === 'string' && ERREURS_OAUTH.has(error) ? error : 'motif inconnu';
+  const aadsts = typeof description === 'string' ? description.match(/\bAADSTS\d{4,7}\b/)?.[0] : undefined;
+  return aadsts ? `${code}, ${aadsts}` : code;
+}
+
+/**
  * Routes de la connexion Microsoft 365. Sans configuration, elles renvoient à l'écran de connexion
  * (« connexion indisponible ») : l'écran ne propose de toute façon pas le bouton.
+ * `refus` : refus journalisés par adresse IP. N'importe qui obtient un état valable (GET /api/auth/microsoft)
+ * et peut revenir avec une erreur : au-delà du seuil, les refus de cette adresse ne sont plus écrits au
+ * journal jusqu'à la fin de la fenêtre (une ligne le signale), pour que le journal RH ne soit pas noyé.
  */
-export function routesMicrosoft(db: Db, oidc: FournisseurOidc | null = OIDC): Router {
+export function routesMicrosoft(db: Db, oidc: FournisseurOidc | null = OIDC, refus = new LimiteParIp()): Router {
   const r = express.Router();
   /** États déjà présentés au retour, jusqu'à leur échéance : un cookie d'état ne sert qu'une fois. */
   const consommes = new Map<string, number>();
@@ -263,11 +284,20 @@ export function routesMicrosoft(db: Db, oidc: FournisseurOidc | null = OIDC): Ro
     }
     consommes.set(e.state, e.fin);
 
+    const adresse = ip(req);
     const trace = (action: string, message: string, actor: string, compte: Compte | null, extra: Record<string, unknown> = {}, role: string | null = null) =>
-      journaliser(db, { actor, role, action, message, payload: { ip: ip(req), methode: 'microsoft', ...extra }, compte });
+      journaliser(db, { actor, role, action, message, payload: { ip: adresse, methode: 'microsoft', ...extra }, compte });
+    /** Refus journalisé, dans la limite de `refus` pour cette adresse. */
+    const refuser = (message: string, actor: string, compte: Compte | null, extra: Record<string, unknown> = {}) => {
+      if (refus.depasse(adresse)) return;
+      refus.echec(adresse);
+      trace('connexion.refusee', message, actor, compte, extra);
+      if (refus.depasse(adresse)) {
+        trace('connexion.refusee', `Microsoft 365 : ${refus.max} refus en moins de ${refus.fenetreMs / 60_000} minutes depuis cette adresse — les suivants ne sont plus journalisés jusqu’à la fin de cette période`, 'Microsoft 365', null);
+      }
+    };
     if (q.error !== undefined || typeof q.code !== 'string') {
-      const motif = typeof q.error === 'string' ? q.error.slice(0, 80) : 'code absent';
-      trace('connexion.refusee', `Microsoft 365 : connexion refusée par Microsoft (${motif})`, 'Microsoft 365', null);
+      refuser(`Microsoft 365 : connexion refusée par Microsoft (${motifRefus(q.error, q.error_description)})`, 'Microsoft 365', null);
       return versConnexion(res, 'refus');
     }
 
@@ -278,7 +308,7 @@ export function routesMicrosoft(db: Db, oidc: FournisseurOidc | null = OIDC): Ro
       const code = err instanceof ErreurOidc ? err.code : 'jeton';
       const detail = err instanceof Error ? err.message : String(err);
       console.warn(`Connexion Microsoft 365 refusée : ${detail}`);
-      trace('connexion.refusee', `Microsoft 365 : ${detail}`, 'Microsoft 365', null);
+      refuser(`Microsoft 365 : ${detail}`, 'Microsoft 365', null);
       return versConnexion(res, code);
     }
 
@@ -293,18 +323,18 @@ export function routesMicrosoft(db: Db, oidc: FournisseurOidc | null = OIDC): Ro
       const x = compteParIdentifiant(db, upn);
       if (x?.type === 'microsoft' && !x.oid) { compte = x; rattacher = true; }
       else if (x?.type === 'microsoft') {
-        trace('connexion.refusee', `Microsoft 365 : le compte ${upn} est déjà rattaché à une autre identité Microsoft (le délier dans Comptes et accès si elle a été recréée)`, qui, x, extra);
+        refuser(`Microsoft 365 : le compte ${upn} est déjà rattaché à une autre identité Microsoft (le délier dans Comptes et accès si elle a été recréée)`, qui, x, extra);
         return versConnexion(res, 'acces');
       }
     }
     if (!compte) {
-      trace('connexion.refusee', `Microsoft 365 : aucun compte Cursus pour ${upn || `l’identité ${c.oid}`}`, qui, null, extra);
+      refuser(`Microsoft 365 : aucun compte Cursus pour ${upn || `l’identité ${c.oid}`}`, qui, null, extra);
       return versConnexion(res, 'acces');
     }
-    const refus = refusDuCompte(db, compte);
-    if (refus) {
+    const refusCompte = refusDuCompte(db, compte);
+    if (refusCompte) {
       revokeSessionsDuCompte(db, compte.id);
-      trace('connexion.refusee', `Microsoft 365 : ${refus}`, nomDuCompte(db, compte), compte, extra);
+      refuser(`Microsoft 365 : ${refusCompte}`, nomDuCompte(db, compte), compte, extra);
       return versConnexion(res, 'ferme');
     }
     if (rattacher) db.update<Compte>('comptes', compte.id, { oid: c.oid });

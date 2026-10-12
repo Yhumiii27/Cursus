@@ -145,15 +145,33 @@ export function attribuerProvisoire(db: Db, c: Compte): string {
 }
 
 // — Échecs de connexion —
+// Une tentative de mot de passe est comptée AVANT le calcul scrypt, qui rend la main : des tentatives
+// envoyées en même temps ne passent pas toutes le contrôle du blocage avant que la première ne soit
+// comptée. Une connexion réussie remet le compteur à zéro.
 
-/** Échec de mot de passe : au cinquième échec successif, le compte est bloqué quinze minutes. */
-export function enregistrerEchec(db: Db, c: Compte): { echecs: number; bloque: boolean } {
+/** Tentative comptée : son rang parmi les tentatives successives sans succès, et le blocage qu'elle a posé. */
+export interface Tentative { echecs: number; bloque: boolean; blocage: string | null }
+
+/**
+ * Compte une tentative avant la vérification du mot de passe : la cinquième tentative successive sans
+ * succès bloque le compte quinze minutes (elle-même est encore vérifiée). `c` doit avoir été lu sans
+ * attente depuis le contrôle de `compteBloque`.
+ */
+export function compterTentative(db: Db, c: Compte): Tentative {
   const n = (c.echecs ?? 0) + 1;
-  if (n < ECHECS_MAX) { db.update<Compte>('comptes', c.id, { echecs: n }); return { echecs: n, bloque: false }; }
-  db.update<Compte>('comptes', c.id, { echecs: 0, blocageFin: new Date(Date.now() + BLOCAGE_MINUTES * 60_000).toISOString() });
-  return { echecs: n, bloque: true };
+  if (n < ECHECS_MAX) { db.update<Compte>('comptes', c.id, { echecs: n }); return { echecs: n, bloque: false, blocage: null }; }
+  const blocage = new Date(Date.now() + BLOCAGE_MINUTES * 60_000).toISOString();
+  db.update<Compte>('comptes', c.id, { echecs: 0, blocageFin: blocage });
+  return { echecs: n, bloque: true, blocage };
 }
 
+/**
+ * Mot de passe exact : la tentative n'aboutit que si le compte, relu après le calcul, n'a pas été bloqué
+ * entre-temps par une tentative simultanée. Celle qui a posé le blocage reste admise (cinquième essai).
+ */
+export const tentativeAdmise = (c: Compte, t: Tentative) => !compteBloque(c) || c.blocageFin === t.blocage;
+
+/** Connexion réussie : compteur d'échecs remis à zéro. Pour un compte local, après `tentativeAdmise` seulement. */
 export function enregistrerConnexion(db: Db, c: Compte) {
   db.update<Compte>('comptes', c.id, { echecs: 0, blocageFin: null, derniereConnexion: new Date().toISOString() });
 }

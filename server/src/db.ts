@@ -56,7 +56,8 @@ export const TABLES = {
   cet: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', type: 'text', jours: 'real', date: 'text', periode: 'text' } },
   reports: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', jours: 'real', motif: 'text', par: 'text', date: 'text', sens: 'text' } },
   soldesReprise: { pk: 'empId', cols: { empId: 'int', cpPris: 'real', rttPris: 'real', recupAcquis: 'real', recupPris: 'real' } },
-  entretiens: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', type: 'text', date: 'text', statut: 'text', cr: 'json', info: 'bool', signSal: 'text', signMgr: 'text' } },
+  // `planifieLe` : jour de la planification (ou de la reprogrammation), borne de la date réelle saisie à la clôture.
+  entretiens: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', type: 'text', date: 'text', statut: 'text', cr: 'json', info: 'bool', signSal: 'text', signMgr: 'text', planifieLe: 'text' } },
   demandesCollab: {
     pk: 'id', auto: true,
     cols: { id: 'int', empId: 'int', type: 'text', f: 'text', h: 'text', libelle: 'text', label: 'text', sessionId: 'int', motif: 'text', date: 'text', statut: 'text', reponse: 'text', parId: 'int', declaration: 'json' },

@@ -191,14 +191,14 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `voyage.creer` | empId, dest, depart, retour, motif ; refusé s'il chevauche un autre déplacement ou une absence en vigueur | RH |
 | `formalite.enregistrer` | empId, kind (`passeport`/`visa`/`vaccin`), numero, expire, dest, visaType, obtenu, v, date | RH (écrit dans le dossier), ou le collaborateur pour lui-même (déclaration en attente, voir ci-dessous) |
 | `voyages.importer` | texte (CSV) | RH |
-| `keystone.accepter` / `keystone.refuser` | id | RH (demande en attente ; l'acceptation revalide affectation, chantier actif, destination, effectifs et l'absence de déplacement déjà créé ; la demande reste en base avec statut, date et décideur) |
+| `keystone.accepter` / `keystone.refuser` | id | RH (demande en attente ; l'acceptation revalide affectation, chantier actif, destination, effectifs et l'absence de déplacement déjà créé, et est refusée si le salarié est déjà en déplacement ou absent ces jours-là ; la demande reste en base avec statut, date et décideur) |
 | `plan.importer` | texte, exercice, mode (`add`/`replace`) | RH ; `replace` (supprime les lignes prévues) : administrateur RH |
 | `budget.enveloppes` | exercice, enveloppes {équipe: montant} | RH |
 | `plan.avancer` | id | RH |
 | `temps.setCell` | empId, week, li, di, value | salarié, manager direct ou RH (feuille soumise : valideur uniquement) ; aucune heure un jour d’absence validée ou signalée, ni hors contrat, vider la cellule reste possible ; pas de feuille pour une semaine hors contrat |
 | `temps.addLine` / `temps.removeLine` | empId, week, projet / li | idem |
 | `temps.suggest` / `temps.submit` | empId, week, motif? | idem (soumission : brouillon ou à corriger, sans heures un jour d’absence validée ; semaine entièrement couverte par une absence : sans heure ; 24 h par jour au plus, toutes lignes cumulées ; motif exigé au-delà de 10 h par jour ou 48 h par semaine, 13 h pour un forfait jours) |
-| `temps.validate` / `temps.reject` | empId, week, comment?, motif? | manager direct ou RH (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence ; 24 h par jour au plus ; motif du dépassement exigé s'il manque, après une correction du valideur) |
+| `temps.validate` / `temps.reject` | empId, week, comment?, motif? | manager direct ou RH (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence ; 24 h par jour au plus ; motif du dépassement exigé s'il manque, après une correction du valideur : celui du salarié n'est jamais remplacé) |
 | `temps.pushSage` | — | administrateur RH |
 | `absence.demander` | empId, kind (`CP`/`RTT`/`RECUP`), du, au | intéressé ou RH (demande, refusée si ces jours portent des heures sur une feuille validée) ; manager direct (posée et validée, refusée si des heures sont saisies ces jours-là) |
 | `absence.decider` | id, ok | manager direct ou RH (validation refusée si des heures sont saisies ces jours-là) |
@@ -209,9 +209,9 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `absence.annuler` | id | demande : intéressé ou RH ; absence à venir : manager direct ou RH (et l’intéressé pour son propre signalement, ni qualifié ni prolongé) ; commencée ou passée : RH ; hors périmètre : refus unique (403) |
 | `cet.placer` | empId, kind, jours | intéressé ou RH |
 | `report.accorder` | empId, jours, motif | RH |
-| `entretien.planifier` | empId, kind, date ; un seul entretien planifié par type (un entretien passé, non tenu, est reprogrammé) ; refusé un jour d'absence du salarié | manager direct ou RH |
+| `entretien.planifier` | empId, kind, date, nonTenu? ; un seul entretien planifié par type : une nouvelle date le reprogramme (passé avec un compte rendu commencé, seulement avec `nonTenu`, l'évaluateur confirmant qu'il n'a pas eu lieu) ; refusé un jour d'absence du salarié | manager direct ou RH |
 | `entretien.modifier` | id, section?, value?, info? | évaluateur / salarié selon la section |
-| `entretien.clore` | id, date? (jour où l'entretien a eu lieu, aujourd'hui au plus tard ; exigée pour un entretien prévu à une date à venir) | évaluateur |
+| `entretien.clore` | id, date? (jour où l'entretien a eu lieu, aujourd'hui au plus tard et pas avant sa planification ; exigée pour un entretien prévu à une date à venir) | évaluateur |
 | `entretien.signer` | id | salarié |
 | `parametres.maj` | horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, silent? | administrateur RH |
 | `demo.reinitialiser` | — | administrateur RH, mode démonstration |
@@ -354,8 +354,10 @@ paie sera stocké. Contrat : `docs/API-KEYSTONE.md` et `docs/keystone-openapi.js
 - **Durées** : une journée compte 24 h au plus, toutes lignes de la feuille cumulées (saisie, proposition Keystone,
   soumission, validation). Au-delà des durées maximales (`SheetCalc.depassements`), la soumission exige un motif
   (`FeuilleTemps.motifDepassement`), affiché au valideur ; s'il a lui-même porté la feuille au-delà, il le donne en validant.
+  Le motif du salarié est conservé : celui du valideur ne sert que s'il manque.
 - **RTT et jours de repos** (`rttDroit`) : au prorata des mois passés dans l'année sous le régime actuel, de l'entrée (ou
-  du changement de régime) à la fin du contrat, mois commencés inclus.
+  du changement de régime) à la fin du contrat ; un mois compte si le salarié y est présent à la mi-mois (`monthsPresent`,
+  comme l'acquisition des CP) : un contrat d'une semaine ne donne aucun jour.
 - **Congés payés** (`imputationCp` de `shared/rules/conges.ts`) : chaque jour de CP, validé ou demandé, est imputé dans
   l'ordre chronologique sur la période dont les droits se prennent à sa date (`anneeCp` : du 1er juin A au 31 mai A+1, les
   CP acquis du 1er juin A-1 au 31 mai A). Un congé de mai à juin est réparti sur deux périodes ; un congé de l'été prochain
@@ -364,8 +366,14 @@ paie sera stocké. Contrat : `docs/API-KEYSTONE.md` et `docs/keystone-openapi.js
   1er juin ; au-delà, solde insuffisant (`checkAbsence`, qui refuse aussi une demande qui repousserait un congé déjà posé
   au-delà des jours acquis). `cpInfo` donne le solde de la période en cours et `suivante` / `anticipes`, les jours déjà
   imputés sur la suivante. Les compteurs repris de l'ancien système (`soldesReprise`) restent imputés sur la période en cours.
+  Les 5 jours de la CCN à partir de 59 ans (`supplementAge`) suivent une seule règle pour la période en cours et les autres :
+  accordés dès l'année civile des 59 ans, ils restent acquis à la période une fois passée (sans quoi les jours pris dessus
+  seraient repris par anticipation sur la suivante au 1er juin).
 - **Entretiens** : `entretien.clore` refuse un entretien prévu à une date à venir, sauf à indiquer le jour où il a eu
-  lieu, qui devient sa date (échéance suivante, état des lieux à 8 ans).
+  lieu, qui devient sa date (échéance suivante, état des lieux à 8 ans). Cette date n'est pas antérieure au jour de la
+  planification ou de la reprogrammation (`Entretien.planifieLe`, `debutCloture`), ni au dernier entretien du même type
+  réalisé ; un entretien planifié avant que Cursus conserve ce jour se date au plus tôt de sa date prévue si elle est
+  passée, sinon 30 jours avant la clôture.
 
 ## Doublons et conflits de dates
 
@@ -374,10 +382,12 @@ paie sera stocké. Contrat : `docs/API-KEYSTONE.md` et `docs/keystone-openapi.js
 Il bloque quand le salarié est absent (absence validée ou signalée) ou qu'un engagement du même genre existe déjà
 (deux déplacements, deux sessions le même jour), et avertit sinon. Les dialogues l'affichent en direct (`Controles`) ;
 le serveur refuse les blocages (`blocage`) : `plan.inscrire`, `demande.formation`, `demande.accepter`, `voyage.creer`,
-`voyages.importer` (lignes en conflit, ou qui se chevauchent dans le fichier), `entretien.planifier`. Une absence posée
-sur une session, un déplacement ou un entretien n'est qu'avertie (`checkAbsence`, `checkNature`) : à reprogrammer. La
-nature d'une absence médicale n'est jamais citée. S'y ajoutent les doublons : demande de formation identique en attente,
-entretien du même type déjà planifié.
+`voyages.importer` (lignes en conflit, ou qui se chevauchent dans le fichier), `keystone.accepter` (affiché sur la demande,
+dans Voyages), `entretien.planifier`. Une absence posée sur une session, un déplacement ou un entretien n'est qu'avertie
+(`checkAbsence`, `checkNature`) : à reprogrammer. La nature d'une absence médicale n'est jamais citée. S'y ajoutent les
+doublons : demande de formation identique en attente ; entretien du même type déjà planifié, que la nouvelle date
+reprogramme (`reprogrammation` de `shared/rules/entretiens.ts`) — passé avec un compte rendu commencé, il a pu avoir lieu :
+il se clôt à sa date réelle, ou n'est reprogrammé que sur confirmation qu'il n'a pas été tenu.
 
 ## Absences hors congés
 

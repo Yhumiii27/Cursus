@@ -97,6 +97,9 @@ const accepterKeystone: ActionHandler = (ctx, p) => {
   // Revalidation : affectation, chantier, destination ou effectifs ont pu changer depuis la réception.
   const motifs = motifsRefusAcceptation(ctx.db, dm, ctx.d.ti);
   if (motifs.length) throw new ActionError(`Acceptation impossible — ${motifs.join(' · ')}. Refusez la demande.`, 409);
+  // Comme `voyage.creer` : déjà en déplacement ces jours-là (autre chantier), ou absent (congé validé, arrêt…).
+  const conflit = blocage(conflitsDates(ctx.d, dm.empId, dm.depart, dm.retour, 'voyage'));
+  if (conflit) throw new ActionError(`Acceptation impossible — ${conflit}. Refusez la demande.`, 409);
   const emp = getEmp(ctx, dm.empId), c = ctx.d.chantier(dm.chantier)!;
   // Le déplacement porte le chantier et la référence Keystone ; le salarié y est rattaché par son affectation.
   const t = ctx.db.insert<Voyage>('voyages', {

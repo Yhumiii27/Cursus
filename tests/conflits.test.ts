@@ -45,15 +45,50 @@ test('t088 deux demandes de formation identiques en attente : la seconde est ref
   refused(collab(1), 'demande.formation', { f: 'sst', motif: 'Recyclage' }, /déjà inscrit/);
 });
 
-test('t088 un seul entretien planifié par type ; pas d’entretien un jour d’absence', () => {
-  const { run, refused } = fresh();
-  // Camille (1) a déjà un entretien annuel planifié le 14 octobre.
-  refused(RH, 'entretien.planifier', { empId: 1, kind: 'annuel', date: '2026-11-05' }, /déjà planifié le 14 oct/);
+test('t088 un seul entretien planifié par type : une nouvelle date le reprogramme ; pas d’entretien un jour d’absence', () => {
+  const { run, refused, domain } = fresh();
+  const planifies = (empId: number, type: string) => domain().ds.entretiens.filter(x => x.empId === empId && x.type === type && x.statut === 'planifie');
+  // Camille (1) a déjà un entretien annuel planifié le 14 octobre : il est déplacé, pas doublé.
+  const id = planifies(1, 'annuel')[0].id;
+  assert.match(String(run(RH, 'entretien.planifier', { empId: 1, kind: 'annuel', date: '2026-11-05' })), /reprogrammé le 5 nov\. 2026 \(prévu le 14 oct\. 2026\)/);
+  assert.deepEqual(planifies(1, 'annuel').map(x => [x.id, x.date, x.planifieLe]), [[id, '2026-11-05', '2026-10-10']]);
+  refused(RH, 'entretien.planifier', { empId: 1, kind: 'annuel', date: '2026-11-05' }, /déjà planifié à cette date/);
   run(RH, 'entretien.planifier', { empId: 1, kind: 'epp', date: '2026-11-05' });
-  refused(RH, 'entretien.planifier', { empId: 1, kind: 'epp', date: '2026-11-12' }, /déjà planifié/);
+  run(RH, 'entretien.planifier', { empId: 1, kind: 'epp', date: '2026-11-12' });
+  assert.deepEqual(planifies(1, 'epp').map(x => x.date), ['2026-11-12']);
   // Antoine (14) est en congé validé du 19 au 23 octobre.
   refused(RH, 'entretien.planifier', { empId: 14, kind: 'epp', date: '2026-10-21' }, /Absence validée/);
   run(RH, 'entretien.planifier', { empId: 14, kind: 'epp', date: '2026-10-26' });
+});
+
+test('t088 congé accordé le jour d’un entretien : l’entretien se reprogramme', () => {
+  const { run, refused, domain } = fresh();
+  // Mehdi (2) a son entretien annuel le 20 octobre ; Karim (12) lui pose et valide un congé du 19 au 23.
+  const chk = checkAbsence(domain(), domain().emp(2)!, 'CP', '2026-10-19', '2026-10-23', true);
+  assert.ok(chk.msgs.some(m => !m.bad && /Entretien annuel d’évaluation planifié le 20 oct\. 2026/.test(m.text)), chk.msgs.map(m => m.text).join(' | '));
+  run(mgr(12), 'absence.demander', { empId: 2, kind: 'CP', du: '2026-10-19', au: '2026-10-23' });
+  // Pas sur un jour du congé ; à une autre date, par le manager comme par le RH.
+  refused(mgr(12), 'entretien.planifier', { empId: 2, kind: 'annuel', date: '2026-10-22' }, /Absence validée/);
+  assert.match(String(run(mgr(12), 'entretien.planifier', { empId: 2, kind: 'annuel', date: '2026-11-05' })), /reprogrammé le 5 nov\. 2026 \(prévu le 20 oct\. 2026\)/);
+  run(RH, 'entretien.planifier', { empId: 2, kind: 'annuel', date: '2026-11-09' });
+  assert.deepEqual(domain().ds.entretiens.filter(x => x.empId === 2 && x.type === 'annuel' && x.statut === 'planifie').map(x => x.date), ['2026-11-09']);
+});
+
+test('t088 entretien passé au compte rendu commencé : reprogrammé seulement s’il n’a pas été tenu', () => {
+  const { run, refused, domain } = fresh();
+  const entretien = (empId: number) => domain().ds.entretiens.find(x => x.empId === empId && x.type === 'annuel' && x.statut === 'planifie')!;
+  // Compte rendu de l'entretien annuel de Camille (14 octobre) rédigé le 10 ; Julien (8, 21 octobre) sans compte rendu.
+  const cam = entretien(1).id;
+  run(RH, 'entretien.modifier', { id: cam, section: 'bilan', value: 'Objectifs atteints.' });
+  const avant = process.env.CURSUS_TODAY;
+  process.env.CURSUS_TODAY = '2026-11-20';
+  try {
+    refused(RH, 'entretien.planifier', { empId: 1, kind: 'annuel', date: '2027-10-12' }, /au compte rendu commencé : s’il a eu lieu, clôturez-le/);
+    assert.equal(entretien(1).date, '2026-10-14');
+    assert.match(String(run(RH, 'entretien.planifier', { empId: 1, kind: 'annuel', date: '2026-11-30', nonTenu: true })), /prévu le 14 oct\. 2026, non tenu/);
+    assert.deepEqual([entretien(1).id, entretien(1).date, entretien(1).cr.bilan], [cam, '2026-11-30', 'Objectifs atteints.']);
+    assert.match(String(run(RH, 'entretien.planifier', { empId: 8, kind: 'annuel', date: '2026-12-01' })), /prévu le 21 oct\. 2026, non tenu/);
+  } finally { process.env.CURSUS_TODAY = avant; }
 });
 
 test('t088 déplacements qui se chevauchent ou pendant une absence : refusés', () => {
@@ -73,6 +108,23 @@ test('t088 déplacements qui se chevauchent ou pendant une absence : refusés', 
   assert.equal(rows[1].ok, true, rows[1].errs.join(' | '));
   assert.equal(rows[2].ok, false);
   assert.ok(rows[2].errs.some(x => /ligne 2/.test(x)), rows[2].errs.join(' | '));
+});
+
+test('t088 demande Keystone acceptée : refusée si le salarié est déjà en déplacement ou absent', () => {
+  const { db, run, refused, domain } = fresh();
+  const dem = (ref: string) => domain().ds.demandesKeystone.find(x => x.ref === ref)!;
+  const voyages = () => db.all<{ empId: number }>('voyages').filter(v => v.empId === 18).length;
+  // Romain (18) part au Maroc sur les dates de sa demande pour Abidjan (chantier K-2611).
+  run(RH, 'voyage.creer', { empId: 18, dest: 'MA', depart: '2026-11-09', retour: '2026-11-27', motif: 'Audit fournisseur' });
+  const n = voyages();
+  refused(RH, 'keystone.accepter', { id: dem('DK-2026-0412').id }, /Acceptation impossible — Déplacement déjà prévu — Maroc .* Refusez la demande/);
+  assert.equal(dem('DK-2026-0412').statut, 'attente');
+  assert.equal(voyages(), n);
+  // Arrêt de travail de Thomas (6) pendant sa demande pour le Maroc : refusée, sans citer la nature.
+  run(RH, 'absence.saisir', { empId: 6, nature: 'MALADIE', du: '2026-10-26', au: '2026-10-30', justificatif: true, justificatifLe: '2026-10-10' });
+  assert.throws(() => run(RH, 'keystone.accepter', { id: dem('DK-2026-0398').id }),
+    (e: unknown) => e instanceof ActionError && e.status === 409 && /Absence validée .*: le salarié est absent/.test(e.message) && !/maladie/i.test(e.message));
+  assert.equal(dem('DK-2026-0398').statut, 'attente');
 });
 
 test('t088 inscription en formation pendant des congés : refusée ; demande en attente : avertissement', () => {

@@ -14,6 +14,7 @@ const { Domain } = await import('../shared/domain.ts');
 const { horodatageParis, isoParis, isValidDate, toIso } = await import('../shared/dates.ts');
 const { buildSagePayload, calcSheet, cumulAnnuel } = await import('../shared/rules/temps.ts');
 const { checkAbsence, cpInfo, rttDroit, reposForfait } = await import('../shared/rules/conges.ts');
+const { obligations } = await import('../shared/rules/entretiens.ts');
 const { parseTrips } = await import('../shared/rules/imports.ts');
 type User = Parameters<typeof buildSnapshot>[1];
 type Dataset = ReturnType<typeof loadFull>;
@@ -108,6 +109,20 @@ test('t077 dépassement introduit par le valideur : motif exigé à la validatio
   assert.equal(sh.motifDepassement, 'Inventaire annuel');
 });
 
+test('t077 le motif du salarié n’est pas remplacé par celui du valideur', () => {
+  const { run, domain } = fresh();
+  const w = '2026-10-19', base = { empId: 1, week: w };
+  run(collab(1), 'temps.addLine', { ...base, projet: 'INT-LOG' });
+  [0, 1, 2, 3, 4].forEach(di => run(collab(1), 'temps.setCell', { ...base, li: 0, di, value: di === 0 ? '12' : '7' }));
+  run(collab(1), 'temps.submit', { ...base, motif: 'Inventaire annuel demandé par le chef d’atelier' });
+  // Le valideur corrige la feuille, toujours au-delà de 10 h, et envoie son propre motif : celui du salarié reste.
+  run(mgr(16), 'temps.setCell', { ...base, li: 0, di: 1, value: '11' });
+  run(mgr(16), 'temps.validate', { ...base, motif: 'Choix personnel du salarié' });
+  const sh = domain().ds.feuilles.find(f => f.empId === 1 && f.week === w)!;
+  assert.equal(sh.statut, 'validee');
+  assert.equal(sh.motifDepassement, 'Inventaire annuel demandé par le chef d’atelier');
+});
+
 test('t078 RTT et jours de repos proratisés de l’entrée à la fin du contrat', () => {
   const { domain } = fresh();
   const d0 = domain();
@@ -124,6 +139,18 @@ test('t078 RTT et jours de repos proratisés de l’entrée à la fin du contrat
   assert.equal(rttDroit(long, long.emp(2)!), 23);
   const fini = avec(2, { typeContrat: 'cdd', entree: '2025-01-06', fin: '2025-12-19', tempsDepuis: null });
   assert.equal(rttDroit(fini, fini.emp(2)!), 0);
+  // Un mois compte si le salarié est présent à la mi-mois : une semaine à cheval sur deux mois ne donne aucun jour.
+  for (const [entree, fin] of [['2026-03-30', '2026-04-03'], ['2026-06-29', '2026-07-03']]) {
+    const semaine = avec(2, { typeContrat: 'cdd', entree, fin, tempsDepuis: null });
+    assert.equal(rttDroit(semaine, semaine.emp(2)!), 0, `${entree} → ${fin}`);
+  }
+  const quinzaine = avec(2, { typeContrat: 'cdd', entree: '2026-03-09', fin: '2026-03-20', tempsDepuis: null });
+  assert.equal(rttDroit(quinzaine, quinzaine.emp(2)!), Math.round(23 / 12));
+  // Entrée après la mi-mars, passage au régime après la mi-septembre : le mois commencé ne compte pas.
+  const mars = avec(2, { entree: '2026-03-20', tempsDepuis: null });
+  assert.equal(rttDroit(mars, mars.emp(2)!), Math.round(23 * 9 / 12));
+  const regime = avec(2, { tempsDepuis: '2026-09-21' });
+  assert.equal(rttDroit(regime, regime.emp(2)!), Math.round(23 * 3 / 12));
 });
 
 test('t079 dates impossibles refusées (saisie, import CSV, actions)', () => {
@@ -163,6 +190,36 @@ test('t080 un entretien ne se clôt pas avant sa date ; la clôture enregistre l
   assert.equal(y.signMgr, '2026-10-10');
 });
 
+test('t080 la date réelle saisie à la clôture n’est pas antérieure à la planification', () => {
+  const { run, refused, domain } = fresh();
+  // Manon (21, équipe d'Antoine) : un seul entretien de parcours sur 8 ans, risque d'abondement correctif du CPF.
+  const bilan = () => obligations(domain(), [21]).find(o => o.kind === 'bilan')!;
+  const avant = bilan();
+  assert.equal(avant.risk, true);
+  assert.match(avant.detail, /^1 entretien de parcours sur 8 ans/);
+  run(mgr(14), 'entretien.planifier', { empId: 21, kind: 'epp', date: '2026-11-16' });
+  const x = domain().ds.entretiens.find(e => e.empId === 21 && e.type === 'epp' && e.statut === 'planifie')!;
+  assert.equal(x.planifieLe, '2026-10-10');
+  refused(mgr(14), 'entretien.clore', { id: x.id, date: '2021-03-15' }, /le 10 oct\. 2026 au plus tôt \(entretien planifié le 10 oct\. 2026\)/);
+  refused(mgr(14), 'entretien.clore', { id: x.id, date: '2026-10-09' }, /au plus tôt/);
+  assert.equal(domain().ds.entretiens.find(e => e.id === x.id)!.statut, 'planifie');
+  assert.deepEqual([bilan().detail, bilan().risk], [avant.detail, avant.risk]);
+  // Tenu le jour même de sa planification : accepté.
+  run(mgr(14), 'entretien.clore', { id: x.id, date: '2026-10-10' });
+  // Planifié avant que Cursus conserve ce jour (base existante) : 30 jours au plus avant aujourd'hui pour un entretien
+  // à venir ; passé, pas avant sa date prévue.
+  const prevu = (empId: number) => domain().ds.entretiens.find(e => e.empId === empId && e.type === 'annuel' && e.statut === 'planifie')!;
+  assert.equal(prevu(1).planifieLe, null);
+  refused(RH, 'entretien.clore', { id: prevu(1).id, date: '2026-09-09' }, /le 10 sept\. 2026 au plus tôt/);
+  const avantJour = process.env.CURSUS_TODAY;
+  process.env.CURSUS_TODAY = '2026-10-25';
+  try {
+    refused(RH, 'entretien.clore', { id: prevu(2).id, date: '2026-10-19' }, /le 20 oct\. 2026 au plus tôt \(entretien prévu le 20 oct\. 2026\)/);
+    run(RH, 'entretien.clore', { id: prevu(2).id, date: '2026-10-22' });
+  } finally { process.env.CURSUS_TODAY = avantJour; }
+  run(RH, 'entretien.clore', { id: prevu(1).id, date: '2026-09-10' });
+});
+
 test('t083 date du jour et horodatage dans le fuseau Europe/Paris, quel que soit celui du serveur', () => {
   const tz = process.env.TZ;
   process.env.TZ = 'UTC';
@@ -188,12 +245,13 @@ test('t083 date du jour et horodatage dans le fuseau Europe/Paris, quel que soit
 });
 
 /** Camille (1, 35 h, 25 j acquis par an) sans compteur repris ni absence : seules les absences données comptent. */
-function camille(today: string, absences: Partial<Absence>[]) {
+function camille(today: string, absences: Partial<Absence>[], fiche: Partial<Dataset['employes'][number]> = {}) {
   const { domain } = fresh();
   const d0 = domain();
   const abs = absences.map((a, i) => ({ id: 9000 + i, empId: 1, type: 'CP', statut: 'validee', keystone: false, ...a }) as Absence);
   const d = new Domain({
     ...d0.ds, today,
+    employes: d0.ds.employes.map(e => e.id === 1 ? { ...e, ...fiche } : e),
     absences: [...d0.ds.absences.filter(a => a.empId !== 1), ...abs],
     soldesReprise: d0.ds.soldesReprise.filter(s => s.empId !== 1),
   });
@@ -235,6 +293,22 @@ test('t086 les CP pris par anticipation sont déduits de la période suivante au
   const apres = cpInfo(juin.d, juin.e)!;
   assert.equal(apres.pris, 4, 'jours anticipés imputés sur la période 2026-2027');
   assert.equal(apres.solde, 21);
+});
+
+test('t086 59 ans dans l’année : les 5 jours de la CCN restent acquis à la période après le 1er juin', () => {
+  // Camille née en 1968 : 59 ans en 2027. 24 jours en juillet-août 2026 (14 juillet férié), 5 en avril 2027.
+  const conges = [{ du: '2026-07-06', au: '2026-08-07' }, { du: '2027-04-12', au: '2027-04-16' }];
+  const au = (today: string) => { const { d, e } = camille(today, conges, { naissance: 1968 }); return cpInfo(d, e)!; };
+  // Jusqu'en décembre 2026, période 2025-2026 sans supplément : un jour d'avril sur ses 25 jours, 4 anticipés.
+  const oct = au('2026-10-10');
+  assert.deepEqual([oct.droit, oct.ageSupp, oct.pris, oct.solde, oct.anticipes], [25, 0, 25, 0, 4]);
+  // Dès janvier 2027, l'année des 59 ans : 30 jours, les jours d'avril tiennent dans la période.
+  const mai = au('2027-05-20');
+  assert.deepEqual([mai.droit, mai.ageSupp, mai.pris, mai.solde, mai.anticipes], [30, 5, 29, 1, 0]);
+  // Au 1er juin, la période passée garde ses 30 jours : rien n'est repris sur la nouvelle.
+  const juin = au('2027-06-15');
+  assert.equal(juin.periodes.label, '2026-2027');
+  assert.deepEqual([juin.droit, juin.pris, juin.solde], [30, 0, 30]);
 });
 
 test('t086 anticipation dans la limite des jours acquis à la date du congé', () => {

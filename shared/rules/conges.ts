@@ -28,7 +28,7 @@ function reprise(d: Domain, id: number) {
 export function cpDroit(d: Domain, e: Employe) {
   const P = cpPeriods(d.ti);
   const acq = Math.ceil(25 / 12 * monthsPresent(e, P.acqStart, 12));
-  const ageSupp = d.year - e.naissance >= 59 ? 5 : 0;
+  const ageSupp = supplementAge(d, e, anneeCp(d.ti));
   const recu = d.ds.reports.filter(r => r.empId === e.id && r.sens === 'recu').reduce((n, r) => n + r.jours, 0);
   const accorde = d.ds.reports.filter(r => r.empId === e.id && r.sens !== 'recu').reduce((n, r) => n + r.jours, 0);
   return { acq, ageSupp, recu, accorde, droit: acq + ageSupp + recu };
@@ -43,13 +43,25 @@ export const anneeCp = (s: ISODate) => Number(s.slice(0, 4)) - (s.slice(5) < '06
 export const periodeCp = (A: number) => `${A - 1}-${A}`;
 
 /**
+ * Supplément de la CCN (5 jours à partir de 59 ans, l'âge étant connu par l'année de naissance) sur les CP de la période
+ * `A`, pris du 1er juin A au 31 mai A+1 : accordé dès l'année civile des 59 ans, celle de A de juin à décembre, celle de
+ * A+1 de janvier à mai. Une période passée garde la valeur de sa fin, une période à venir celle de son début : les droits
+ * d'une période ne baissent ni au 1er janvier ni au 1er juin, et un congé déjà décompté sur ces 5 jours n'est pas repris
+ * par anticipation sur la période suivante. Règle unique de `cpDroit` (période en cours) et `droitPeriode`.
+ */
+export function supplementAge(d: Domain, e: Employe, A: number): number {
+  const annee = Math.min(A + 1, Math.max(A, d.year));
+  return annee - e.naissance >= 59 ? 5 : 0;
+}
+
+/**
  * Droits d'une période (`A` : année de prise) : ceux de la période en cours (`cpDroit`, reports compris) ; sinon les jours
  * acquis du 1er juin A-1 au 31 mai A — pour une période à venir, ceux qui le seront d'ici là, dates du contrat comprises —
- * et les 5 jours de la CCN à partir de 59 ans.
+ * et les 5 jours de la CCN à partir de 59 ans (`supplementAge`).
  */
 function droitPeriode(d: Domain, e: Employe, A: number): number {
   if (A === anneeCp(d.ti)) return cpDroit(d, e).droit;
-  return Math.ceil(25 / 12 * monthsPresent(e, `${A - 1}-06-01`, 12)) + (A - e.naissance >= 59 ? 5 : 0);
+  return Math.ceil(25 / 12 * monthsPresent(e, `${A - 1}-06-01`, 12)) + supplementAge(d, e, A);
 }
 
 /** Jours acquis à la date `jour` sur la période `A`, en cours d'acquisition : 2,08 j par mois écoulé depuis le 1er juin A-1. */
@@ -138,16 +150,17 @@ export function reposForfait(year: number, joursForfait = 218): number {
 
 /**
  * RTT (39 h) ou jours de repos (forfait jours) : droit annuel, au prorata des mois de l'année passés sous le régime
- * actuel — de l'entrée ou du passage au régime (`tempsDepuis`) jusqu'à la fin du contrat (CDD, alternance), mois
- * commencés inclus. Un CDD de janvier à mars reçoit 3/12 du droit annuel. Intérim : aucun droit dans Cursus.
+ * actuel — de l'entrée ou du passage au régime (`tempsDepuis`) jusqu'à la fin du contrat (CDD, alternance). Un mois
+ * compte si le salarié y est présent, sous ce régime, à la mi-mois (`monthsPresent`, comme l'acquisition des CP) : un
+ * CDD de janvier à mars reçoit 3/12 du droit annuel, un contrat d'une semaine à cheval sur deux mois aucun jour.
+ * Intérim : aucun droit dans Cursus.
  */
 export function rttDroit(d: Domain, e: Employe): number | null {
   const c = d.contratOf(e);
   if (c.interim || (!c.rtt && !c.forfait)) return null;
   const Y = d.year;
-  const depuis = [e.entree, e.tempsDepuis ?? '', `${Y}-01-01`].sort().at(-1)!;
-  const jusqua = e.fin && e.fin < `${Y}-12-31` ? e.fin : `${Y}-12-31`;
-  const mois = jusqua < depuis ? 0 : parse(jusqua).getMonth() - parse(depuis).getMonth() + 1;
+  const depuis = [e.entree, e.tempsDepuis ?? ''].sort().at(-1)!;
+  const mois = monthsPresent({ ...e, entree: depuis }, `${Y}-01-01`, 12);
   return Math.round((c.forfait ? reposForfait(Y, c.joursForfait) : Number(d.ds.settings.rtt39) || 0) * mois / 12);
 }
 

@@ -43,11 +43,13 @@ function controleJournees(sh: Pick<FeuilleTemps, 'week'>, lignes: LigneTemps[], 
 /**
  * Durées maximales dépassées (10 h par jour, 48 h par semaine ; 13 h pour un forfait jours) : un motif est exigé,
  * donné à la soumission (ou à la validation, quand le valideur a corrigé la feuille). Renvoie le motif à enregistrer.
+ * À la validation (`valideur`), le motif du salarié est conservé : celui du valideur ne sert que s'il manque, sans quoi
+ * la hiérarchie réécrirait la déclaration du salarié (justification d'un dépassement, art. L3121-18 et L3121-20).
  */
-function motifDepassement(ctx: Ctx, emp: Employe, sh: FeuilleTemps, p: Record<string, any>, quand: string): string | null {
+function motifDepassement(ctx: Ctx, emp: Employe, sh: FeuilleTemps, p: Record<string, any>, quand: string, valideur = false): string | null {
   const { depassements } = calcSheet(ctx.d, emp, sh);
   if (!depassements.length) return null;
-  const motif = str(p.motif) || sh.motifDepassement || '';
+  const motif = (valideur ? sh.motifDepassement || str(p.motif) : str(p.motif) || sh.motifDepassement) || '';
   if (!motif) throw new ActionError(`${depassements.join(' ; ')} : indiquez le motif du dépassement ${quand}`);
   if (motif.length > 500) throw new ActionError('Motif trop long (500 caractères au plus)');
   return motif;
@@ -141,7 +143,7 @@ const validate: ActionHandler = (ctx, p) => {
   if (enAttente.length) throw new ActionError(demandesEnAttenteMessage(enAttente));
   controleJournees(sh, sh.lignes);
   const contrat = sh.contrat ?? contratFige(emp);
-  const motif = motifDepassement(ctx, emp, { ...sh, contrat }, p, 'avant de valider la feuille');
+  const motif = motifDepassement(ctx, emp, { ...sh, contrat }, p, 'avant de valider la feuille', true);
   // Seules les heures des projets Keystone lui sont renvoyées : ni activités internes (INT-*), ni cours en CFA (ECOLE).
   const projets = heuresKeystone(sh.lignes), keystone = Object.keys(projets).length > 0;
   ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif });

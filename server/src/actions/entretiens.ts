@@ -3,7 +3,7 @@ import { ENT_TYPES } from '../../../shared/constants.ts';
 import { isValidDate, parse } from '../../../shared/dates.ts';
 import { fmt } from '../../../shared/format.ts';
 import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
-import { needsFinCarriere } from '../../../shared/rules/entretiens.ts';
+import { debutCloture, needsFinCarriere, reprogrammation } from '../../../shared/rules/entretiens.ts';
 import type { Entretien, EntretienType } from '../../../shared/types.ts';
 import { ActionError, getEmp, isValidatorOf, str, type ActionHandler, type Ctx } from './context.ts';
 
@@ -19,17 +19,19 @@ const planifier: ActionHandler = (ctx, p) => {
   const kind = str(p.kind) as EntretienType;
   if (!ENT_TYPES[kind]) throw new ActionError('Type d’entretien inconnu');
   if (!isValidDate(p.date) || p.date < ctx.d.ti) throw new ActionError('Date à venir requise');
-  // Un seul entretien planifié par type : à venir, il est déjà prévu ; passé sans avoir été tenu, il est reprogrammé.
-  const prevu = ctx.ds.entretiens.find(x => x.empId === emp.id && x.type === kind && x.statut === 'planifie');
-  if (prevu && prevu.date >= ctx.d.ti) throw new ActionError(`${ENT_TYPES[kind].nom} déjà planifié le ${fmt(parse(prevu.date))} pour ${emp.nom} : clôturez-le une fois tenu`);
+  // Un seul entretien planifié par type : déjà prévu (à venir, ou passé sans avoir été clos), il est reprogrammé. Passé avec un
+  // compte rendu commencé, il a pu avoir lieu : reprogrammé seulement sur confirmation qu'il n'a pas été tenu (`nonTenu`).
+  const { prevu, msg } = reprogrammation(ctx.d, emp.id, kind, p.date, p.nonTenu === true);
+  if (msg?.bad) throw new ActionError(msg.text);
   // Salarié absent ce jour-là (congé validé, arrêt…) : refusé.
   const conflit = blocage(conflitsDates(ctx.d, emp.id, p.date, p.date, 'entretien', { entretienId: prevu?.id }));
   if (conflit) throw new ActionError(conflit);
+  // `planifieLe` : la date réelle saisie à la clôture n'est pas antérieure à la planification (`debutCloture`).
   if (prevu) {
-    ctx.db.update<Entretien>('entretiens', prevu.id, { date: p.date });
-    return `${ENT_TYPES[kind].nom} reprogrammé le ${fmt(parse(p.date))} (prévu le ${fmt(parse(prevu.date))}, non tenu) — convocation envoyée à ${emp.nom}`;
+    ctx.db.update<Entretien>('entretiens', prevu.id, { date: p.date, planifieLe: ctx.d.ti });
+    return `${ENT_TYPES[kind].nom} reprogrammé le ${fmt(parse(p.date))} (prévu le ${fmt(parse(prevu.date))}${prevu.date < ctx.d.ti ? ', non tenu' : ''}) — convocation envoyée à ${emp.nom}`;
   }
-  ctx.db.insert<Entretien>('entretiens', { empId: emp.id, type: kind, date: p.date, statut: 'planifie', cr: {}, info: false, signSal: null, signMgr: null });
+  ctx.db.insert<Entretien>('entretiens', { empId: emp.id, type: kind, date: p.date, statut: 'planifie', cr: {}, info: false, signSal: null, signMgr: null, planifieLe: ctx.d.ti });
   return `${ENT_TYPES[kind].nom} planifié le ${fmt(parse(p.date))} — convocation envoyée à ${emp.nom}`;
 };
 
@@ -56,8 +58,9 @@ const modifier: ActionHandler = (ctx, p) => {
 
 /**
  * Clôture par l'évaluateur, une fois l'entretien tenu : `date` (facultative) est la date à laquelle il a eu lieu, aujourd'hui
- * au plus tard ; elle remplace la date prévue. Un entretien à venir ne se clôt pas sur sa date prévue : il fausserait
- * l'échéance suivante (tous les 4 ans) et l'état des lieux à 8 ans.
+ * au plus tard et pas avant sa planification (`debutCloture`) ; elle remplace la date prévue. Un entretien à venir ne se
+ * clôt pas sur sa date prévue, ni un entretien sur une date ancienne : l'un et l'autre fausseraient l'échéance suivante
+ * (tous les 4 ans) et l'état des lieux à 8 ans.
  */
 const clore: ActionHandler = (ctx, p) => {
   const { x, e } = entretien(ctx, p.id);
@@ -69,7 +72,8 @@ const clore: ActionHandler = (ctx, p) => {
       ? 'Date de l’entretien : aujourd’hui au plus tard'
       : `Entretien prévu le ${fmt(parse(x.date))} : il se clôt une fois tenu — indiquez la date à laquelle il a eu lieu (aujourd’hui au plus tard)`);
   }
-  if (date < e.entree) throw new ActionError(`Date antérieure à l’entrée de ${e.nom} (${fmt(parse(e.entree))})`);
+  const debut = debutCloture(ctx.d, x);
+  if (date < debut.min) throw new ActionError(`Date de l’entretien : le ${fmt(parse(debut.min))} au plus tôt (${debut.raison})`);
   ctx.db.update<Entretien>('entretiens', x.id, { statut: 'realise', date, signMgr: ctx.d.ti });
   return `Compte rendu clos et signé${date !== x.date ? ` — entretien daté du ${fmt(parse(date))}` : ''} — transmis au salarié pour signature`;
 };

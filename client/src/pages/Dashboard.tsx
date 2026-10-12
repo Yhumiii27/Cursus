@@ -8,6 +8,7 @@ import { declarationDetail, retireeAuRefus, valeurActuelle } from '../../../shar
 import type { DemandeCollab, Session } from '../../../shared/types.ts';
 import { Bar, DateBlock, Kpi, Kpis, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
 import { useAgir } from '../state/actions.ts';
+import { refusDemande } from '../state/confirmations.ts';
 import { useEnriched, useTrips } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -122,7 +123,9 @@ export function Dashboard() {
                           : <td className="text-muted" style={{ fontSize: 13 }}>{detail || 'À contrôler dans le dossier voyageur'}</td>}
                         <td className="right">
                           <div className="actions-end">
-                            <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={agir(() => run('demande.refuser', { id: r.id }))}>Refuser</button>
+                            {/* Refus : confirmation et motif, communiqué au collaborateur (et au manager qui a fait la demande). */}
+                            <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={stop(() => openDialog({ type: 'confirmer', c: refusDemande(r, e?.nom ?? d.personName(r.empId),
+                              reqLabel(r, id => d.fm(id).nom, id => d.hm(id).nom), { manager: r.parId ? d.personName(r.parId) : null, retire: !!e && retireeAuRefus(d, e, r) }) }))}>Refuser</button>
                             <button type="button" className="btn btn-secondary btn-sm" disabled={occupe} onClick={agir(() => run('demande.accepter', { id: r.id }))}>{r.type === 'document' ? 'Valider' : 'Accepter'}</button>
                           </div>
                         </td>

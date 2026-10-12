@@ -6,7 +6,7 @@ import { equipeLabel } from '../../../shared/format.ts';
 import { adresseValide, controleIdentifiant, identifiantSuggere, normaliserIdentifiant, typeSuggere } from '../../../shared/rules/comptes.ts';
 import type { CompteType, CompteVue, ProfilRh } from '../../../shared/types.ts';
 import { api } from '../api.ts';
-import { CancelButton, Dialog, Field } from '../components/Dialog.tsx';
+import { Bloquant, CancelButton, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Seg } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -35,6 +35,7 @@ export function CompteDialog() {
   const [saisi, setSaisi] = useState(false);
   const [profil, setProfil] = useState<ProfilRh>('aucun');
   const [busy, setBusy] = useState(false);
+  const v = useVerification();
 
   const domaine = useMemo(() => domaineHabituel(comptes ?? []), [comptes]);
   // Salariés présents sans compte (un compte par personne).
@@ -63,11 +64,19 @@ export function CompteDialog() {
   const ident = normaliserIdentifiant(identifiant);
   const identErr = ident ? controleIdentifiant(type, ident) : null;
   const doublon = !!ident && (comptes ?? []).some(c => c.identifiant === ident);
-  const adresseErr = externe && adresse.trim() && !adresseValide(adresse.trim()) ? 'Adresse e-mail invalide' : null;
-  const sansEspace = externe && profil === 'aucun';
-  const cant = !comptes || !ident || !!identErr || doublon || (externe ? !nom.trim() || !adresse.trim() || !!adresseErr || sansEspace : !emp);
+  // Erreurs de format (adresse, identifiant) affichées dès la saisie ; champs manquants, à l'envoi.
+  const adresseErr = externe && adresse.trim() && !adresseValide(adresse.trim()) ? 'Adresse e-mail invalide.' : null;
+  const identFormat = doublon ? 'Identifiant déjà utilisé.' : identErr;
+  const erreurs = {
+    emp: !externe && !emp ? 'Choisissez le salarié.' : null,
+    nom: externe && !nom.trim() ? 'Indiquez le nom de la personne.' : null,
+    adresse: externe ? (!adresse.trim() ? 'Indiquez son adresse e-mail.' : adresseErr) : null,
+    ident: !ident ? (type === 'microsoft' ? 'Indiquez l’adresse Microsoft 365.' : 'Indiquez l’identifiant.') : identFormat,
+    profil: externe && profil === 'aucun' ? 'Une personne externe n’ouvre que l’espace RH : choisissez un profil RH.' : null,
+  };
 
   const confirm = async () => {
+    if (busy || !v.verifier(!comptes, ...Object.values(erreurs))) return;
     setBusy(true);
     const r = await run('compte.creer', {
       ...(externe ? { nom: nom.trim(), adresse: adresse.trim() } : { empId: emp!.id }), type, identifiant: ident, profilRh: profil,
@@ -80,27 +89,26 @@ export function CompteDialog() {
   };
 
   return (
-    <Dialog title="Nouveau compte" width={560} actions={<>
+    <Dialog title="Nouveau compte" width={560} onSubmit={confirm} actions={<>
       <CancelButton />
-      <button type="button" className="btn btn-primary" disabled={cant || busy} onClick={confirm}>Créer le compte</button>
+      <SubmitButton busy={busy}>Créer le compte</SubmitButton>
     </>}>
-      {erreur && <p className="form-error">{erreur}</p>}
+      {erreur && <Bloquant>Comptes existants illisibles : {erreur}</Bloquant>}
       <Field label="Personne">
         <Seg name="cpt-externe" label="Personne" value={externe ? 'ext' : 'sal'} onChange={v => choisirExterne(v === 'ext')}
           options={[['sal', 'Salarié'], ['ext', 'Personne externe']]} />
       </Field>
       {externe ? (
         <div className="grid-2">
-          <Field label="Nom" htmlFor="cpt-nom">
+          <Field label="Nom" htmlFor="cpt-nom" requis erreur={v.erreur(erreurs.nom)}>
             <input className="input" id="cpt-nom" type="text" value={nom} placeholder="Prénom Nom" onChange={e => { setNom(e.target.value); proposer(e.target.value, type); }} />
           </Field>
-          <Field label="Adresse e-mail" htmlFor="cpt-adresse">
+          <Field label="Adresse e-mail" htmlFor="cpt-adresse" requis erreur={adresseErr ?? v.erreur(erreurs.adresse)}>
             <input className="input" id="cpt-adresse" type="email" value={adresse} placeholder="prenom.nom@cabinet.fr" onChange={e => setAdresse(e.target.value)} />
-            {adresseErr && <span className="form-error">{adresseErr}</span>}
           </Field>
         </div>
       ) : (
-        <Field label="Salarié" htmlFor="cpt-emp">
+        <Field label="Salarié" htmlFor="cpt-emp" requis erreur={v.erreur(erreurs.emp)}>
           <select className="input" id="cpt-emp" value={empId} onChange={e => choisirSalarie(e.target.value)} disabled={!comptes}>
             <option value="">{comptes ? (candidats.length ? 'Choisir un salarié sans compte…' : 'Tous les salariés ont un compte') : 'Chargement…'}</option>
             {candidats.map(e => <option key={e.id} value={e.id}>{e.nom} — {e.poste} · {equipeLabel(e)}</option>)}
@@ -116,13 +124,12 @@ export function CompteDialog() {
           ? 'Connexion avec le compte Microsoft 365 de l’entreprise (identifiant : son adresse). Aucun mot de passe n’est géré par Cursus.'
           : 'Pour le personnel sans compte d’entreprise (ouvriers, intérimaires, alternants) : un mot de passe provisoire sera affiché une seule fois, à remplacer à la première connexion.'}
       </p>
-      <Field label={type === 'microsoft' ? 'Adresse Microsoft 365' : 'Identifiant'} htmlFor="cpt-ident">
+      <Field label={type === 'microsoft' ? 'Adresse Microsoft 365' : 'Identifiant'} htmlFor="cpt-ident" requis erreur={identFormat ?? v.erreur(erreurs.ident)}>
         <input className="input" id="cpt-ident" type="text" value={identifiant} autoCapitalize="none" spellCheck={false}
           placeholder={type === 'microsoft' ? `prenom.nom@${domaine || 'entreprise.fr'}` : 'prenom.nom'}
           onChange={e => { setIdentifiant(e.target.value); setSaisi(!!e.target.value); }} />
-        {(identErr || doublon) && <span className="form-error">{doublon ? 'Identifiant déjà utilisé' : identErr}</span>}
       </Field>
-      <Field label="Profil RH" htmlFor="cpt-profil">
+      <Field label="Profil RH" htmlFor="cpt-profil" erreur={v.erreur(erreurs.profil)}>
         <select className="input" id="cpt-profil" value={profil} onChange={e => setProfil(e.target.value as ProfilRh)}>
           {(Object.keys(PROFILS_RH) as ProfilRh[]).map(p => <option key={p} value={p} disabled={externe && p === 'aucun'}>{PROFILS_RH[p].label}</option>)}
         </select>

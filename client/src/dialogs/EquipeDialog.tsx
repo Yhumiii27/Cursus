@@ -1,7 +1,7 @@
 // Création d'une équipe (nom, manager facultatif) ou modification (renommage, changement de manager).
 import { useState } from 'react';
 import { equipeLabel, key } from '../../../shared/format.ts';
-import { CancelButton, Dialog, Field } from '../components/Dialog.tsx';
+import { Bloquant, CancelButton, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { managerCandidates } from '../pages/Equipes.tsx';
@@ -16,6 +16,7 @@ export function EquipeDialog({ nom: nom0 }: { nom?: string | null }) {
   const [nom, setNom] = useState(equipe?.nom ?? '');
   const [managerId, setManagerId] = useState(equipe?.managerId != null ? String(equipe.managerId) : '');
   const [busy, setBusy] = useState(false);
+  const v = useVerification();
 
   const nouveau = nom.trim();
   const renamed = edit && nouveau !== equipe?.nom;
@@ -32,7 +33,8 @@ export function EquipeDialog({ nom: nom0 }: { nom?: string | null }) {
   const doublon = !busy && !!nouveau && d.ds.referentiels.equipes.some(q => !noms.has(q.nom) && key(q.nom) === key(nouveau));
   const mgr = managerId ? Number(managerId) : null;
   const mgrChanged = edit && mgr !== (equipe?.managerId ?? null);
-  const cant = !nouveau || doublon || disparue || (edit && !renamed && !mgrChanged);
+  // Doublon signalé dès la saisie ; nom manquant, à l'envoi.
+  const nomErr = !nouveau ? 'Indiquez le nom de l’équipe.' : doublon ? 'Une équipe porte déjà ce nom.' : null;
 
   const chosen = mgr ? d.emp(mgr) : undefined;
   const autres = mgr ? d.teamsOf(mgr).filter(n => !noms.has(n)) : [];
@@ -44,6 +46,9 @@ export function EquipeDialog({ nom: nom0 }: { nom?: string | null }) {
     ].filter(Boolean).join(' ');
 
   const confirm = async () => {
+    if (busy || !v.verifier(nomErr, disparue)) return;
+    // Rien de changé : rien à envoyer.
+    if (edit && !renamed && !mgrChanged) { closeDialog(); return; }
     setBusy(true);
     try {
       if (!edit) {
@@ -71,16 +76,14 @@ export function EquipeDialog({ nom: nom0 }: { nom?: string | null }) {
   };
 
   return (
-    <Dialog title={edit ? `Équipe ${nom0}` : 'Nouvelle équipe'} label={edit ? 'Modifier l’équipe' : 'Nouvelle équipe'} actions={<>
+    <Dialog title={edit ? `Équipe ${nom0}` : 'Nouvelle équipe'} onSubmit={confirm} actions={disparue ? <CancelButton label="Fermer" /> : <>
       <CancelButton />
-      <button type="button" className="btn btn-primary" disabled={cant || busy} onClick={confirm}>{edit ? 'Enregistrer' : 'Créer l’équipe'}</button>
+      <SubmitButton busy={busy}>{edit ? 'Enregistrer' : 'Créer l’équipe'}</SubmitButton>
     </>}>
-      {disparue ? <p className="form-error">Cette équipe n’existe plus.</p> : <>
-        <Field label="Nom de l’équipe" htmlFor="equipe-nom">
-          <input className="input" id="equipe-nom" type="text" autoFocus value={nom} placeholder="Maintenance — site de Lyon"
-            onChange={e => setNom(e.target.value)} onKeyDown={e => { if (e.key === 'Enter' && !cant && !busy) confirm(); }} />
+      {disparue ? <Bloquant>Cette équipe n’existe plus.</Bloquant> : <>
+        <Field label="Nom de l’équipe" htmlFor="equipe-nom" requis erreur={doublon ? nomErr : v.erreur(nomErr)}>
+          <input className="input" id="equipe-nom" type="text" autoFocus value={nom} placeholder="Maintenance — site de Lyon" onChange={e => setNom(e.target.value)} />
         </Field>
-        {doublon && <p className="form-error">Une équipe porte déjà ce nom.</p>}
         <Field label={<>Manager <span className="who">· facultatif</span></>} htmlFor="equipe-mgr">
           <select className="input" id="equipe-mgr" value={managerId} onChange={e => setManagerId(e.target.value)}>
             <option value="">Aucun manager — validations par le RH</option>

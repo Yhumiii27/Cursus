@@ -36,9 +36,12 @@ client/src/
   state/store.tsx  Session, données, navigation, filtres d'écran (ui), dialogue ouvert, notifications, reconnexion
   state/brouillon.ts Brouillon gardé dans l'onglet pendant une reconnexion Microsoft (page, filtres, dialogue, champs)
   state/actions.ts Actions identiques jamais envoyées deux fois à la fois, garde des boutons (useAgir : double clic)
+  state/confirmations.ts Confirmations des refus (motif) et des actions irréversibles, affichées par dialogs/ConfirmerDialog.tsx
   state/derived.ts Hooks mémorisés : useDomain, useEnriched, useTrips, useRole
   components/      ui.tsx (Page, Kpi, Panel, Tag, Seg, Two, Bar…), Dialog.tsx (Dialog, Field…) et
                    ErreurRendu.tsx (erreur de rendu d'une page, d'un dialogue ou de l'application)
+                   focus.ts (focus des fenêtres modales), controles.ts (messages d'erreur des champs),
+                   panneau.ts (panneau de détail amené dans le champ de vision sur écran étroit)
   layout/Shell.tsx Barre latérale, en-tête, notification ; layout/Reconnexion.tsx : session expirée, par-dessus l'écran
   pages/           Un fichier par écran
   dialogs/         Un fichier par dialogue, rendus par DialogHost
@@ -98,6 +101,31 @@ design/            Prototype Claude Design de référence et guide du design sys
      par son bouton.
    - *Erreurs de rendu* (`components/ErreurRendu.tsx`) : limites autour de la page (remise à zéro au
      changement de page), du dialogue ouvert et de l'application ; message, détail technique replié, « Réessayer ».
+   - *Focus des dialogues* (`components/focus.ts`, `useModale`) : à l'ouverture, le focus va au champ marqué
+     `autoFocus`, sinon au premier champ, sinon (confirmation, information) à la fenêtre elle-même ; sur écran tactile,
+     à la fenêtre (pas de clavier virtuel par-dessus le formulaire). Tab et Maj+Tab bouclent sur les éléments du
+     dialogue, un focus qui s'en échappe y est ramené (sauf vers les notifications) ; à la fermeture, il revient à
+     l'élément qui a ouvert le dialogue, ou au titre de la page s'il a disparu. Le titre nomme le
+     dialogue (`aria-labelledby`) ; même traitement pour l'erreur d'un dialogue et la reconnexion.
+   - *Formulaires* (`components/Dialog.tsx`) : le dialogue est un `<form>` (`onSubmit`) ; Entrée dans un champ
+     active le bouton principal (`SubmitButton`), qui n'est désactivé que pendant l'envoi. Champs obligatoires
+     marqués d'un astérisque (`Field requis`, `aria-required`, légende en bas du dialogue). Un envoi bloqué
+     (`useVerification().verifier`) affiche l'erreur sous chaque champ (`Field erreur` : `aria-invalid`,
+     `aria-describedby`) et place le focus sur le premier champ en erreur, ou sur le premier message bloquant sans
+     champ (`Bloquant`, contrôles en accent de `Controles`). Les champs vides ne sont signalés qu'après une première
+     tentative ; une saisie incorrecte (date passée, doublon, adresse invalide) l'est dès la saisie.
+   - *Confirmations* (`state/confirmations.ts`, `dialogs/ConfirmerDialog.tsx`, dialogue `confirmer`) : refus d'une
+     demande au service RH, d'une demande d'absence ou d'une demande Keystone (motif obligatoire), suppression d'une
+     ligne de feuille de temps qui porte des heures, transmission à Sage Paie, changement de manager, retrait d'un
+     membre, suppression d'une équipe, comptes (désactiver, délier, nouveau mot de passe), réinitialisation de la
+     démonstration ; plus aucun `window.confirm`. Une confirmation n'est faite que de données (brouillon d'une
+     reconnexion Microsoft) ; le dialogue reste ouvert si le serveur refuse. Depuis un dialogue, la confirmation
+     remplace ses boutons (`Dialog confirmation`) : clôture et signature d'un entretien, import qui remplace les
+     lignes prévues du plan. Le second clic d'un double clic n'active ni le bouton de confirmation ni le fond.
+   - *Petits écrans* (`styles/app.css`) : le fond d'un dialogue défile (un dialogue plus haut que l'écran se lit
+     jusqu'à ses boutons) ; sous 600 px, formulaires en une colonne et boutons pleine largeur. Sous 900 px, choisir
+     une ligne amène son panneau de détail (fiche, dossier voyage, équipe, chantier), affiché sous la liste, dans le
+     champ de vision et lui donne le focus ; le fermer ramène à la position de la liste (`components/panneau.ts`).
 
 ## Sécurité
 
@@ -180,6 +208,11 @@ design/            Prototype Claude Design de référence et guide du design sys
   `setUi`) ; l'état local d'un formulaire vit dans le composant.
 - Ouvrir un dialogue : `openDialog({ type: 'plan', … })` (types dans `state/store.tsx`).
   Un dialogue garde ses champs en `useState`, appelle `run(...)` et se ferme si `r.ok`.
+  Dialogue de saisie : `onSubmit` sur `<Dialog>`, `<SubmitButton busy={busy}>`, `Field` avec `requis` et
+  `erreur={v.erreur(…)}`, et `if (!v.verifier(…erreurs)) return;` en tête de l'envoi (`useVerification`) ; jamais de
+  bouton principal grisé pour une saisie incomplète (`tests/dialogues.test.ts`).
+- Refus ou action irréversible : `openDialog({ type: 'confirmer', c: refusAbsence(…) })` (`state/confirmations.ts`),
+  jamais `window.confirm` ; un refus porte un motif obligatoire, montré à l'intéressé.
 - Un bouton d'action hors dialogue (valider, refuser, engager, supprimer une ligne) passe par `useAgir()` de
   `state/actions.ts` : `disabled={occupe}` et `onClick={agir(() => run(...))}` ; une transition envoie l'état
   affiché quand le serveur l'accepte (statut attendu, ligne visée).
@@ -214,13 +247,13 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `hab.lever` | empId, h | RH |
 | `hab.retirer` | empId, h, motif, date? | RH |
 | `medical.demander` | empId | RH |
-| `demande.accepter` / `demande.refuser` | id | RH |
+| `demande.accepter` / `demande.refuser` | id ; refus : motif? (500 caractères, montré au collaborateur et au manager demandeur, `motifRefus`) | RH |
 | `demande.formation` | f (ou `autre`), libelle, sessionId, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `demande.habilitation` | h, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `voyage.creer` | empId, dest, depart, retour, motif | RH |
 | `formalite.enregistrer` | empId, kind (`passeport`/`visa`/`vaccin`), numero, expire, dest, visaType, obtenu, v, date | RH (écrit dans le dossier), ou le collaborateur pour lui-même (déclaration en attente, voir ci-dessous) |
 | `voyages.importer` | texte (CSV) | RH |
-| `keystone.accepter` / `keystone.refuser` | id | RH (demande en attente ; l'acceptation revalide affectation, chantier actif, destination, effectifs et l'absence de déplacement déjà créé ; la demande reste en base avec statut, date et décideur) |
+| `keystone.accepter` / `keystone.refuser` | id ; refus : motif? (conservé dans Cursus, jamais transmis à Keystone) | RH (demande en attente ; l'acceptation revalide affectation, chantier actif, destination, effectifs et l'absence de déplacement déjà créé ; la demande reste en base avec statut, date et décideur) |
 | `plan.importer` | texte, exercice, mode (`add`/`replace`) | RH ; `replace` (supprime les lignes prévues) : administrateur RH |
 | `budget.enveloppes` | exercice, enveloppes {équipe: montant} | RH |
 | `plan.avancer` | id, de? (statut affiché : déjà dépassé, rien n'est refait ; revenu à « prévue », refus) | RH |
@@ -230,7 +263,7 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `temps.validate` / `temps.reject` | empId, week, comment? | manager direct ou RH (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence) |
 | `temps.pushSage` | — | administrateur RH |
 | `absence.demander` | empId, kind (`CP`/`RTT`/`RECUP`), du, au | intéressé ou RH (demande, refusée si ces jours portent des heures sur une feuille validée) ; manager direct (posée et validée, refusée si des heures sont saisies ces jours-là) |
-| `absence.decider` | id, ok | manager direct ou RH (validation refusée si des heures sont saisies ces jours-là ; même décision déjà prise : rien n'est refait) |
+| `absence.decider` | id, ok, motif? (refus : montré au salarié, `motifRefus`) | manager direct ou RH (validation refusée si des heures sont saisies ces jours-là ; même décision déjà prise : rien n'est refait) |
 | `absence.signaler` | empId, du, au | intéressé, manager direct ou RH : absence imprévue « à qualifier », en vigueur aussitôt |
 | `absence.saisir` | empId, nature, du, au, justificatif, justificatifLe | RH (absence hors congés validée d’emblée) |
 | `absence.qualifier` | id, nature, du?, au?, justificatif, justificatifLe | RH (absence signalée ou qualifiée, hors congés) |

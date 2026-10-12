@@ -2,9 +2,10 @@
 // restent montés, avec leur saisie, et le reste de l'écran est inerte. Compte Cursus ou démonstration :
 // mot de passe, puis les actions interrompues sont rejouées. Compte Microsoft : la connexion passe par
 // Microsoft (redirection) ; le brouillon du dialogue ouvert est gardé dans l'onglet et restauré au retour.
-import { useState, type FormEvent } from 'react';
+import { useRef, useState, type FormEvent } from 'react';
 import { plural } from '../../../shared/format.ts';
 import { Field, Static } from '../components/Dialog.tsx';
+import { useModale } from '../components/focus.ts';
 import { useStore } from '../state/store.tsx';
 
 export function Reconnexion() {
@@ -12,6 +13,8 @@ export function Reconnexion() {
   const [pwd, setPwd] = useState('');
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
+  const ref = useRef<HTMLFormElement>(null);
+  useModale(ref, true);
   if (!rc) return null;
   const microsoft = rc.methode === 'microsoft';
   // Démonstration : mot de passe quelconque, aucun pour l'espace RH (comme à la connexion).
@@ -30,7 +33,7 @@ export function Reconnexion() {
 
   return (
     <div className="dialog-backdrop reconnexion">
-      <form className="dialog" role="alertdialog" aria-modal="true" aria-labelledby="rc-titre" aria-describedby="rc-texte" onSubmit={submit}>
+      <form ref={ref} tabIndex={-1} className="dialog" role="alertdialog" aria-modal="true" aria-labelledby="rc-titre" aria-describedby="rc-texte" onSubmit={submit}>
         <div className="dialog-title" id="rc-titre">Session expirée</div>
         <div className="dialog-body">
           <p id="rc-texte" style={{ margin: 0 }}>

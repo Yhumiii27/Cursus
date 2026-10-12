@@ -143,6 +143,8 @@ export interface Voyage { id: number; empId: number; dest: string; depart: ISODa
 export interface DemandeKeystone {
   id: number; empId: number; chantier: string; dest: string; depart: ISODate; retour: ISODate; recue: ISODate;
   ref: string | null; statut: DemandeStatut; decidee: ISODate | null; decideur: string | null; voyageId: number | null;
+  /** Motif d'un refus par le service RH : conservé dans Cursus, jamais transmis à Keystone. */
+  motifRefus?: string | null;
 }
 /** Présence d'un salarié sur un projet ou un chantier ; `ref` : identifiant Keystone de l'affectation. */
 export interface Mission { id: number; empId: number; projet: string; lieu: string; du: ISODate; au: ISODate; type: string; ref: string | null }
@@ -168,6 +170,8 @@ export interface Absence {
   finInitiale: ISODate | null;
   /** Demande retirée ou absence annulée : date et auteur. */
   annuleeLe: ISODate | null; annuleePar: string | null;
+  /** Demande refusée : motif donné par le valideur, montré au salarié. */
+  motifRefus?: string | null;
 }
 export interface CetMouvement { id: number; empId: number; type: 'CP' | 'RTT'; jours: number; date: ISODate; periode: string }
 export interface ReportCp { id: number; empId: number; jours: number; motif: string; par: string; date: ISODate; sens: 'recu' | 'accorde' }
@@ -177,7 +181,10 @@ export interface SoldeReprise { empId: number; cpPris: number; rttPris: number; 
 // — Entretiens & demandes —
 export interface Entretien { id: number; empId: number; type: EntretienType; date: ISODate; statut: 'planifie' | 'realise'; cr: Record<string, string>; info: boolean; signSal: ISODate | null; signMgr: ISODate | null }
 /** Demande au service RH, émise par le collaborateur ou par son manager (`parId`). */
-export interface DemandeCollab { id: number; empId: number; type: DemandeType; f: string | null; h: string | null; libelle: string | null; label: string | null; sessionId: number | null; motif: string | null; date: ISODate; statut: DemandeStatut; reponse: string | null; parId: number | null; declaration: Declaration | null }
+export interface DemandeCollab { id: number; empId: number; type: DemandeType; f: string | null; h: string | null; libelle: string | null; label: string | null; sessionId: number | null; motif: string | null; date: ISODate; statut: DemandeStatut; reponse: string | null; parId: number | null; declaration: Declaration | null;
+  /** Demande refusée : motif donné par le service RH, montré au collaborateur. */
+  motifRefus?: string | null;
+}
 /**
  * Formalité déclarée par le collaborateur (demande « document ») : conservée dans la demande
  * et écrite dans le dossier seulement quand le service RH la valide. Réservée au RH et à l'intéressé.

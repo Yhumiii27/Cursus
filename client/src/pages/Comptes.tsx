@@ -8,6 +8,7 @@ import { equipeLabel, fmt, norm, plural } from '../../../shared/format.ts';
 import type { CompteVue, ProfilRh } from '../../../shared/types.ts';
 import { api } from '../api.ts';
 import { Btn, Chips, Empty, Fine, Panel, Tag, Two } from '../components/ui.tsx';
+import { delierCompte, desactivationCompte, nouveauMotDePasse } from '../state/confirmations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useData, useStore } from '../state/store.tsx';
 
@@ -58,20 +59,13 @@ export function ComptesPanel() {
     setBusy(null);
     return r;
   };
+  // Désactiver, délier, attribuer un mot de passe : confirmation (state/confirmations.ts) ; réactiver : aussitôt.
   const basculer = (c: CompteVue) => {
-    if (c.actif && !window.confirm(`Désactiver le compte de ${c.nom} ? Ses sessions ouvertes seront fermées aussitôt.`)) return;
-    agir(c, 'compte.activer', { actif: !c.actif });
+    if (c.actif) openDialog({ type: 'confirmer', c: desactivationCompte(c) });
+    else agir(c, 'compte.activer', { actif: true });
   };
-  const delier = (c: CompteVue) => {
-    if (!window.confirm(`Retirer le rattachement Microsoft de ${c.nom} ? Ses sessions seront fermées ; sa prochaine connexion Microsoft avec ${c.identifiant} rattachera le compte à son identité Microsoft actuelle.`)) return;
-    agir(c, 'compte.reinitialiser', {});
-  };
-  const reinitialiser = async (c: CompteVue) => {
-    if (!window.confirm(`Attribuer un nouveau mot de passe provisoire à ${c.nom} ? L’ancien ne fonctionnera plus et ses sessions seront fermées.`)) return;
-    const r = await agir(c, 'compte.reinitialiser', {});
-    const mdp = (r.result as { motDePasse?: string } | undefined)?.motDePasse;
-    if (r.ok && mdp) openDialog({ type: 'motDePasseProvisoire', nom: c.nom, identifiant: c.identifiant, motDePasse: mdp });
-  };
+  const delier = (c: CompteVue) => openDialog({ type: 'confirmer', c: delierCompte(c) });
+  const reinitialiser = (c: CompteVue) => openDialog({ type: 'confirmer', c: nouveauMotDePasse(c) });
 
   const actifs = (comptes ?? []).filter(c => c.actif).length;
 

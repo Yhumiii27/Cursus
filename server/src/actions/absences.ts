@@ -44,9 +44,12 @@ const decider: ActionHandler = (ctx, p) => {
   // Pas de double paiement : les heures saisies ces jours-là doivent d'abord être retirées de la feuille de temps.
   const heures = ok ? heuresAvantAbsence(ctx.d, a, 'avant de valider l’absence') : null;
   if (heures) throw new ActionError(heures.text);
-  ctx.db.update<Absence>('absences', a.id, { statut: ok ? 'validee' : 'refusee', keystone: ok });
+  // Motif du refus, montré au salarié dans ses absences (l'écran l'exige ; un appel sans motif reste accepté).
+  const motif = ok ? '' : str(p.motif);
+  if (motif.length > 500) throw new ActionError('Motif trop long (500 caractères au plus)');
+  ctx.db.update<Absence>('absences', a.id, { statut: ok ? 'validee' : 'refusee', keystone: ok, motifRefus: motif || null });
   if (ok) keystone(ctx, 'absence.validee', a);
-  return ok ? `Absence de ${emp.nom} validée — transmise à Keystone pour la planification` : `Absence de ${emp.nom} refusée`;
+  return ok ? `Absence de ${emp.nom} validée — transmise à Keystone pour la planification` : `Absence de ${emp.nom} refusée${motif ? ' · motif communiqué au salarié' : ''}`;
 };
 
 // — Absences hors congés : le manager (ou le salarié) signale, le service RH précise la nature —

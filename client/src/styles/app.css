@@ -141,6 +141,9 @@ tr.selected { background: color-mix(in srgb, var(--color-accent) 10%, transparen
 .stat-trio .v { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 20px; line-height: 1.1; font-feature-settings: 'tnum' 1; }
 
 .side-panel { flex: 0 1 360px; min-width: 300px; padding: var(--space-6); gap: var(--space-4); position: sticky; top: 76px; max-height: calc(100vh - 92px); overflow: auto; }
+/* Panneau de détail amené dans le champ de vision sur écran étroit (components/panneau.ts) : sous la barre du haut. */
+.side-panel, .panneau-detail { scroll-margin-top: 72px; }
+.side-panel:focus, .panneau-detail:focus { outline: none; }
 .side-panel h3 { font-size: 20px; margin: 0; }
 .section-label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-accent); margin: 0; }
 
@@ -155,9 +158,16 @@ tr.selected { background: color-mix(in srgb, var(--color-accent) 10%, transparen
 .rules { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--color-neutral-300); }
 
 /* — Dialogues — */
-.dialog-backdrop { z-index: 20; }
+/* Fond défilable : un dialogue plus haut que l'écran se lit jusqu'à ses boutons. Les marges automatiques le
+   centrent quand il tient dans l'écran et l'alignent en haut sinon (un centrage simple couperait son haut). */
+.dialog-backdrop { z-index: 20; overflow-y: auto; overscroll-behavior: contain; place-items: start center; }
+.dialog-backdrop > .dialog { margin-block: auto; }
+/* La carte reçoit le focus à l'ouverture d'une confirmation, le titre de la page à la fermeture d'un dialogue dont
+   le bouton d'origine a disparu (components/focus.ts) : pas de contour autour d'eux. */
+.dialog:focus, main h1[tabindex='-1']:focus { outline: none; }
+.dialog-actions { flex-wrap: wrap; }
 .dialog .dialog-body { display: flex; flex-direction: column; gap: var(--space-4); opacity: 1; }
-.dialog.tall { max-height: 90vh; display: flex; flex-direction: column; }
+.dialog.tall { max-height: 90vh; max-height: 90dvh; display: flex; flex-direction: column; }
 .dialog.tall .dialog-body { overflow: auto; min-height: 0; }
 /* Dans un dialogue défilant, les blocs gardent leur hauteur (un .seg en overflow: hidden serait sinon écrasé). */
 .dialog-body > * { flex-shrink: 0; }
@@ -172,6 +182,13 @@ textarea.input.mid { height: auto; min-height: 72px; }
 .radio-opt.checked { border-color: var(--color-accent); }
 .radio-opt.full { opacity: 0.45; cursor: not-allowed; }
 .form-error { font-size: 12px; margin: 0; color: var(--color-accent-300); }
+/* Validation des formulaires (components/Dialog.tsx) : champ obligatoire marqué d'un astérisque, erreur sous le champ. */
+.field .requis { color: var(--color-accent-300); }
+.legende-requis { font-size: 12px; margin: 0; color: var(--color-neutral-400); }
+.field-erreur { font-size: 12px; margin: 4px 0 0; color: var(--color-accent-300); }
+.input[aria-invalid='true'], .input[aria-invalid='true']:hover { border-color: var(--color-accent-300); }
+.bloquant:focus { outline: none; }
+.bloquant:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 /* Fermeture d'un dialogue dont la saisie serait perdue : confirmation à la place des actions. */
 .dialog-actions.confirmer-fermeture { flex-wrap: wrap; align-items: center; }
 .confirmer-fermeture p { flex: 1 1 100%; margin: 0; font-size: 13px; color: var(--color-accent-300); }
@@ -211,6 +228,13 @@ textarea.input.mid { height: auto; min-height: 72px; }
 .btn-microsoft { gap: var(--space-2); }
 .connexion-erreur { margin: 0; font-size: 13px; border-color: var(--color-accent-300); }
 .connexion-erreur strong { color: var(--color-accent-300); font-weight: 600; }
+
+/* — Petits écrans (téléphone) : formulaires des dialogues en une colonne, boutons étirés sur la largeur — */
+@media (max-width: 600px) {
+  .dialog-backdrop { padding: var(--space-4) var(--space-3); }
+  .grid-2 { grid-template-columns: minmax(0, 1fr); }
+  .dialog-actions > .btn { flex: 1 1 auto; }
+}
 
 /* — Écrans étroits — */
 @media (max-width: 900px) {

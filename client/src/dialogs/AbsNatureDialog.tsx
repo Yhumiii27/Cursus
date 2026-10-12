@@ -9,7 +9,8 @@ import { fJ, fmtIso } from '../../../shared/format.ts';
 import { estNature, periodeTexte, repriseAInscrire, uniteDecompte } from '../../../shared/rules/absences.ts';
 import { checkNature } from '../../../shared/rules/conges.ts';
 import type { NatureAbsence } from '../../../shared/types.ts';
-import { CancelButton, Controles, Dialog, Field, Static } from '../components/Dialog.tsx';
+import { erreursPeriode } from '../components/controles.ts';
+import { CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -28,20 +29,26 @@ export function AbsNatureDialog({ empId, id }: { empId?: number | null; id?: num
   const [just, setJust] = useState(a?.justificatif ?? false);
   const [justLe, setJustLe] = useState(a?.justificatifLe ?? d.ti);
   const [busy, setBusy] = useState(false);
+  const v = useVerification();
   if (id != null && !a) return null;
 
   const emp = sel != null ? d.emp(sel) : undefined;
   const def = nature ? NATURES_ABSENCE[nature] : null;
   const chk = emp && nature ? checkNature(d, emp, nature, du, au, { exclure: a?.id, quand: a ? 'avant de qualifier l’absence' : 'avant d’enregistrer l’absence' }) : null;
-  const justErr = just && (!isValidDate(justLe) || justLe > d.ti) ? 'Date de réception invalide : aujourd’hui au plus tard.' : '';
+  const justErr = !just ? null : !justLe ? 'Indiquez la date de réception du justificatif.'
+    : !isValidDate(justLe) || justLe > d.ti ? 'Date de réception invalide : aujourd’hui au plus tard.' : null;
+  const periode = erreursPeriode(du, au, { du: 'Indiquez le premier jour d’absence.', au: 'Indiquez le dernier jour d’absence.' });
+  const empErr = !emp ? 'Choisissez le collaborateur.' : null;
+  const natureErr = !nature ? 'Choisissez la nature de l’absence.' : null;
   // Reprise inscrite sur la fiche, ou conservée si une reprise antérieure attend encore son entretien.
   const maj = emp && nature && chk?.valid
     ? repriseAInscrire(emp, [...d.ds.absences.filter(x => x.id !== a?.id), { empId: emp.id, type: nature, du, au, statut: 'validee' }], d.ds.entretiens, a ?? null, nature)
     : {};
   const title = !a ? 'Saisir une absence' : a.statut === 'signalee' ? 'Qualifier une absence' : 'Modifier une absence';
 
-  const pickDu = (v: string) => { setDu(v); if (!au || au < v) setAu(v); };
+  const pickDu = (x: string) => { setDu(x); if (!au || au < x) setAu(x); };
   const confirm = async () => {
+    if (busy || !v.verifier(empErr, natureErr, periode.du, periode.au, justErr, chk?.cant)) return;
     setBusy(true);
     const payload = { nature, du, au, justificatif: just, justificatifLe: just ? justLe : null };
     const r = await run(a ? 'absence.qualifier' : 'absence.saisir', a ? { id: a.id, ...payload } : { empId: sel, ...payload });
@@ -50,13 +57,11 @@ export function AbsNatureDialog({ empId, id }: { empId?: number | null; id?: num
   };
 
   return (
-    <Dialog title={title} width={600} tall actions={<>
+    <Dialog title={title} width={600} tall onSubmit={confirm} actions={<>
       <CancelButton />
-      <button type="button" className="btn btn-primary" disabled={!chk || chk.cant || !!justErr || busy} onClick={confirm}>
-        {a ? 'Qualifier l’absence' : 'Enregistrer l’absence'}
-      </button>
+      <SubmitButton busy={busy}>{a ? 'Qualifier l’absence' : 'Enregistrer l’absence'}</SubmitButton>
     </>}>
-      <Field label="Collaborateur" htmlFor="an-emp">
+      <Field label="Collaborateur" htmlFor={a || empId != null ? undefined : 'an-emp'} requis={!a && empId == null} erreur={v.erreur(empErr)}>
         {a || empId != null
           ? <Static>{emp?.nom ?? '—'}</Static>
           : (
@@ -73,7 +78,7 @@ export function AbsNatureDialog({ empId, id }: { empId?: number | null; id?: num
           {a.finInitiale ? ` · prolongée, fin initiale le ${fmtIso(a.finInitiale)}` : ''}
         </div>
       )}
-      <Field label="Nature" htmlFor="an-nat">
+      <Field label="Nature" htmlFor="an-nat" requis erreur={v.erreur(natureErr)}>
         <select className="input" id="an-nat" value={nature} onChange={ev => setNature(ev.target.value as NatureAbsence)}>
           <option value="" disabled>Choisir la nature…</option>
           {(Object.keys(CATEGORIES_ABSENCE) as CategorieAbsence[]).map(c => (
@@ -98,19 +103,18 @@ export function AbsNatureDialog({ empId, id }: { empId?: number | null; id?: num
         </div>
       )}
       <div className="grid-2">
-        <Field label="Du" htmlFor="an-du"><input className="input" id="an-du" type="date" value={du} onChange={ev => pickDu(ev.target.value)} /></Field>
-        <Field label="Au (inclus)" htmlFor="an-au"><input className="input" id="an-au" type="date" value={au} min={du || undefined} onChange={ev => setAu(ev.target.value)} /></Field>
+        <Field label="Du" htmlFor="an-du" requis erreur={v.erreur(periode.du)}><input className="input" id="an-du" type="date" value={du} onChange={ev => pickDu(ev.target.value)} /></Field>
+        <Field label="Au (inclus)" htmlFor="an-au" requis erreur={v.erreur(periode.au)}><input className="input" id="an-au" type="date" value={au} min={du || undefined} onChange={ev => setAu(ev.target.value)} /></Field>
       </div>
       <div className="grid-2">
         <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14, alignSelf: 'end', paddingBottom: 'var(--space-2)' }}>
           <input type="checkbox" checked={just} onChange={ev => setJust(ev.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
           Justificatif reçu
         </label>
-        <Field label="Reçu le" htmlFor="an-jle">
+        <Field label="Reçu le" htmlFor="an-jle" requis={just} erreur={just && justLe && justErr ? justErr : v.erreur(justErr)}>
           <input className="input" id="an-jle" type="date" max={d.ti} value={justLe} disabled={!just} onChange={ev => setJustLe(ev.target.value)} />
         </Field>
       </div>
-      {justErr && <p className="form-error">{justErr}</p>}
       {chk && <Controles msgs={chk.msgs} />}
       {maj.reprise && <Fine muted={false}>Reprise le {fmtIso(maj.reprise.date)} inscrite sur la fiche : entretien de parcours professionnel de reprise à proposer (art. L6315-1).</Fine>}
       {maj.differee && emp?.repriseDate && (

@@ -2,7 +2,7 @@
 import { useState } from 'react';
 import { equipeLabel, norm, plural } from '../../../shared/format.ts';
 import type { Personne } from '../../../shared/types.ts';
-import { CancelButton, Dialog, Field, Static } from '../components/Dialog.tsx';
+import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Empty, Fine, NoteAccent } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -16,6 +16,7 @@ export function MembreDialog({ equipe: equipe0 }: { equipe?: string | null }) {
   const [search, setSearch] = useState('');
   const [empId, setEmpId] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
+  const v = useVerification();
   if (!rh && !manager) return null;
 
   if (!equipes.length) {
@@ -45,8 +46,9 @@ export function MembreDialog({ equipe: equipe0 }: { equipe?: string | null }) {
   const ancienMgr = sel?.equipe ? d.mgrOf(sel) : 0;
   const encadre = sel ? d.teamsOf(sel.id).filter(t => t !== equipe) : [];
 
+  const selErr = !sel ? 'Choisissez le collaborateur à ajouter dans la liste.' : null;
   const confirm = async () => {
-    if (!sel) return;
+    if (busy || !v.verifier(selErr) || !sel) return;
     setBusy(true);
     const r = await run('equipe.affecter', { empId: sel.id, equipe });
     setBusy(false);
@@ -54,9 +56,9 @@ export function MembreDialog({ equipe: equipe0 }: { equipe?: string | null }) {
   };
 
   return (
-    <Dialog title="Ajouter un membre" width={560} tall actions={<>
+    <Dialog title="Ajouter un membre" width={560} tall onSubmit={confirm} actions={<>
       <CancelButton />
-      <button type="button" className="btn btn-primary" disabled={!sel || !equipe || busy} onClick={confirm}>Ajouter à l’équipe</button>
+      <SubmitButton busy={busy}>Ajouter à l’équipe</SubmitButton>
     </>}>
       {equipes.length > 1
         ? (
@@ -69,7 +71,9 @@ export function MembreDialog({ equipe: equipe0 }: { equipe?: string | null }) {
         : <Field label="Équipe"><Static>{equipe}</Static></Field>}
 
       <Field label="Collaborateur" htmlFor="mb-q">
-        <input className="input" id="mb-q" type="search" placeholder="Rechercher un nom, un poste, une équipe…" value={search} onChange={ev => setSearch(ev.target.value)} />
+        {/* Entrée dans la recherche n'envoie pas le formulaire : elle choisit le seul collaborateur trouvé. */}
+        <input className="input" id="mb-q" type="search" placeholder="Rechercher un nom, un poste, une équipe…" value={search} onChange={ev => setSearch(ev.target.value)}
+          onKeyDown={ev => { if (ev.key === 'Enter') { ev.preventDefault(); if (shown.length === 1) setEmpId(shown[0].id); } }} />
       </Field>
       <div role="radiogroup" aria-label="Collaborateur" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', maxHeight: 'min(320px, 40vh)', overflow: 'auto' }}>
         {shown.map(p => {
@@ -93,6 +97,7 @@ export function MembreDialog({ equipe: equipe0 }: { equipe?: string | null }) {
           </Empty>
         )}
       </div>
+      {v.erreur(selErr) && <Bloquant>{selErr}</Bloquant>}
       {!q && candidats.length > 0 && <Fine>{plural(candidats.length, 'collaborateur disponible', 'collaborateurs disponibles')}</Fine>}
       {exclus > 0 && <Fine>{`Les managers d’équipe${monManager ? ', dont votre propre manager,' : ''} ne sont pas proposés : leur affectation relève du service RH.`}</Fine>}
 

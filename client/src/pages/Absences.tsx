@@ -7,11 +7,12 @@ import { ABS_CLS, ABS_LABEL, CATEGORIES_ABSENCE, NATURES_ABSENCE, STATUTS, type 
 import type { Domain } from '../../../shared/domain.ts';
 import { cpPeriods, parse } from '../../../shared/dates.ts';
 import { cap, equipeLabel, fH, fJ, fmt, fmtIso, fmtShort, plural } from '../../../shared/format.ts';
-import { absenceActive, droitAnnulation, estConge, joursDecomptes, natureDef, prolongeable, statutAbsence, uniteDecompte } from '../../../shared/rules/absences.ts';
+import { absenceActive, droitAnnulation, estConge, joursDecomptes, natureDef, periodeTexte, prolongeable, statutAbsence, uniteDecompte } from '../../../shared/rules/absences.ts';
 import { absenceKinds, cetInfo, cpInfo, recupInfo, reposForfait, rttInfo } from '../../../shared/rules/conges.ts';
 import type { Absence, Employe, NatureAbsence } from '../../../shared/types.ts';
 import { Empty, Fine, Kpi, Kpis, Page, Panel, Tag, Two } from '../components/ui.tsx';
 import { useAgir } from '../state/actions.ts';
+import { refusAbsence } from '../state/confirmations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -64,6 +65,7 @@ function details(a: Absence): string[] {
     a.type === 'ABSENCE' && a.statut === 'validee' ? 'Nature précisée par le service RH, confidentielle' : '',
     a.finInitiale && a.statut !== 'annulee' ? `Prolongée · fin initiale le ${fmtIso(a.finInitiale)}` : '',
     a.statut === 'annulee' && a.annuleeLe ? `Annulée le ${fmtIso(a.annuleeLe)}${a.annuleePar ? ` par ${a.annuleePar}` : ''}` : '',
+    a.statut === 'refusee' && a.motifRefus ? `Motif du refus : ${a.motifRefus}` : '',
   ].filter(Boolean);
 }
 
@@ -210,7 +212,9 @@ export function Absences() {
                       <td className="right">
                         <div className="actions-end">
                           {canDecide && <>
-                            <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={agir(() => run('absence.decider', { id: a.id, ok: false }))}>Refuser</button>
+                            {/* Refus : confirmation et motif, montré au salarié dans ses absences. */}
+                            <button type="button" className="btn btn-ghost btn-sm" disabled={occupe}
+                              onClick={() => openDialog({ type: 'confirmer', c: refusAbsence(a, e.nom, `${ABS_LABEL[a.type]}, ${periodeTexte(a.du, a.au)}`) })}>Refuser</button>
                             <button type="button" className="btn btn-secondary btn-sm" disabled={occupe} onClick={agir(() => run('absence.decider', { id: a.id, ok: true }))}>Valider</button>
                           </>}
                           {rh && prolongeable(a) && (

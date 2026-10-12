@@ -16,6 +16,7 @@ import type { FormaliteKind, UiIntent } from '../../../shared/domain.ts';
 import type { CompteSession, Dataset, EntretienType, ISODate, PlanStatut, Role, VaccinId } from '../../../shared/types.ts';
 import { api, lienMicrosoft, surSessionExpiree, type ActionResponse, type ApiError, type SessionState } from '../api.ts';
 import { AppelsEnCours, cleAction } from './actions.ts';
+import type { Confirmation } from './confirmations.ts';
 import { effacerBrouillon, lireBrouillon, sauverBrouillon, type Champs } from './brouillon.ts';
 
 export type View = (typeof ALLOWED_VIEWS)[Role][number];
@@ -74,7 +75,9 @@ export type DialogState =
   | { type: 'budget'; exercice: number }
   | { type: 'compte' }
   | { type: 'motDePasseProvisoire'; nom: string; identifiant: string; motDePasse: string }
-  | { type: 'motDePasse' };
+  | { type: 'motDePasse' }
+  /** Refus ou action irréversible à confirmer (state/confirmations.ts). */
+  | { type: 'confirmer'; c: Confirmation };
 
 /** Notification : un succès s'efface seul, une erreur reste jusqu'à sa fermeture ou au message suivant. */
 export interface Toast { id: number; text: string; error?: boolean }

@@ -2,6 +2,7 @@
 // Chaque section s'enregistre en quittant le champ ; elle n'est réputée enregistrée qu'après la réponse du
 // serveur. Une section refusée (ou un réseau coupé) interrompt la clôture et la signature : le compte rendu ne
 // serait plus modifiable ensuite. La fermeture enregistre d'abord, et demande confirmation en cas d'échec.
+// Clore et signer sont définitifs : une confirmation remplace les boutons avant l'envoi.
 import { useEffect, useRef, useState } from 'react';
 import { ENT_TYPES, type EntSection } from '../../../shared/constants.ts';
 import { parse } from '../../../shared/dates.ts';
@@ -28,6 +29,8 @@ export function EntDialog({ entId }: { entId: number }) {
   const [vals, setVals] = useState<Record<string, string>>(() => ({ ...(x?.cr ?? {}) }));
   const [info, setInfo] = useState(!!x?.info);
   const [busy, setBusy] = useState(false);
+  // Clôture ou signature demandée, en attente de confirmation.
+  const [aConfirmer, setAConfirmer] = useState<'entretien.clore' | 'entretien.signer' | null>(null);
   const [echecs, setEchecs] = useState<Record<string, string>>({});
   const saved = useRef<Record<string, string>>({ ...(x?.cr ?? {}) });
   const envoye = useRef<Record<string, string>>({ ...(x?.cr ?? {}) });
@@ -96,6 +99,7 @@ export function EntDialog({ entId }: { entId: number }) {
     const restantes = await flush();
     if (restantes.length) {
       setBusy(false);
+      setAConfirmer(null);
       const noms = sections.filter(([k]) => restantes.includes(k)).map(([, label]) => `« ${label} »`);
       notify(`${action === 'entretien.clore' ? 'Clôture' : 'Signature'} interrompue : ${noms.length > 1 ? `${noms.join(', ')} ne sont pas enregistrées` : `${noms[0] ?? 'une section'} n’est pas enregistrée`}. Réessayez une fois le problème réglé.`, true);
       return;
@@ -103,6 +107,16 @@ export function EntDialog({ entId }: { entId: number }) {
     const r = await run(action, { id: x.id });
     setBusy(false);
     if (r.ok) closeDialog();
+    else setAConfirmer(null);
+  };
+  const confirmation = aConfirmer && {
+    texte: aConfirmer === 'entretien.clore'
+      ? `Clore l’entretien et le signer ? Vos sections ne seront plus modifiables ; ${e.nom} pourra encore compléter les siennes, puis signer.`
+      : 'Signer le compte rendu ? La signature est définitive : vos sections ne seront plus modifiables.',
+    bouton: aConfirmer === 'entretien.clore' ? 'Clore et signer' : 'Signer',
+    occupe: busy,
+    confirmer: () => finish(aConfirmer),
+    annuler: () => setAConfirmer(null),
   };
 
   const download = () => {
@@ -126,11 +140,11 @@ export function EntDialog({ entId }: { entId: number }) {
   };
 
   return (
-    <Dialog title={T0.nom} label="Entretien" width={720} tall enregistrer={async () => (await flush()).length === 0} actions={<>
+    <Dialog title={T0.nom} width={720} tall enregistrer={async () => (await flush()).length === 0} confirmation={confirmation} actions={<>
       <CancelButton label="Fermer" />
       {!!x.signSal && <button type="button" className="btn btn-ghost" onClick={download}>Télécharger le compte rendu</button>}
-      {canSign && <button type="button" className="btn btn-primary" disabled={busy} onClick={() => finish('entretien.signer')}>Signer le compte rendu</button>}
-      {canMgr && <button type="button" className="btn btn-primary" disabled={busy} onClick={() => finish('entretien.clore')}>Clore et signer</button>}
+      {canSign && <button type="button" className="btn btn-primary" disabled={busy} onClick={() => setAConfirmer('entretien.signer')}>Signer le compte rendu</button>}
+      {canMgr && <button type="button" className="btn btn-primary" disabled={busy} onClick={() => setAConfirmer('entretien.clore')}>Clore et signer</button>}
     </>}>
       <div>
         <div style={{ fontSize: 14 }}>{e.nom} · {e.poste} · {fmt(parse(x.date))}</div>

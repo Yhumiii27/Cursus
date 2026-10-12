@@ -192,6 +192,7 @@ export function Portail() {
                 </div>
                 {r.declaration && <div className="sub">Déclaré : {declarationDetail(r.declaration)}</div>}
                 <div className="sub text-n400">{r.reponse || (r.type === 'document' ? 'En attente de validation RH' : 'En cours de traitement par le service RH')}</div>
+                {r.statut === 'refusee' && r.motifRefus && <div className="sub">Motif du refus : {r.motifRefus}</div>}
               </div>
             ))}
             {reqs.length === 0 && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>Aucune demande envoyée.</p>}

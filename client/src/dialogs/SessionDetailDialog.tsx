@@ -7,7 +7,7 @@ import { sessionActive } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, plural } from '../../../shared/format.ts';
 import { exigeEvaluation, inscritsDe, listeOrganisme, resultatsDe } from '../../../shared/rules/sessions.ts';
-import { CancelButton, Dialog, Field, Static } from '../components/Dialog.tsx';
+import { CancelButton, Dialog, Field, Static, SubmitButton } from '../components/Dialog.tsx';
 import { Btn, Empty, Fine, NoteAccent, Tag, Two } from '../components/ui.tsx';
 import { downloadCsv } from '../print.ts';
 import { useEnriched, useRole } from '../state/derived.ts';
@@ -46,9 +46,9 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
 
   if (annulation) {
     return (
-      <Dialog title="Annuler la session" width={540} actions={<>
+      <Dialog title="Annuler la session" width={540} onSubmit={() => { if (!busy) act('session.annuler', { id: s.id, motif: motif.trim() }); }} actions={<>
         <button type="button" className="btn btn-secondary" onClick={() => setAnnulation(false)}>Retour</button>
-        <button type="button" className="btn btn-primary" disabled={busy} onClick={() => act('session.annuler', { id: s.id, motif: motif.trim() })}>Annuler la session</button>
+        <SubmitButton busy={busy}>Annuler la session</SubmitButton>
       </>}>
         <Field label="Session"><Static>{fm?.nom ?? s.formation} · {fmt(parse(s.date))} · {s.lieu}</Static></Field>
         <Field label="Motif (facultatif)" htmlFor="sd-motif">

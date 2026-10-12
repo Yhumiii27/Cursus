@@ -8,7 +8,7 @@ import { Domain } from '../../../shared/domain.ts';
 import { fH, fJ, fmtIso, num } from '../../../shared/format.ts';
 import { droitAnnulation, estConge, natureDef, periodeTexte, statutAbsence } from '../../../shared/rules/absences.ts';
 import { semaineCouverte } from '../../../shared/rules/temps.ts';
-import { CancelButton, Dialog, Field, Static } from '../components/Dialog.tsx';
+import { CancelButton, Dialog, Field, Static, SubmitButton } from '../components/Dialog.tsx';
 import { Fine, NoteAccent } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -38,6 +38,7 @@ export function AbsAnnulerDialog({ id }: { id: number }) {
   ].filter(Boolean);
 
   const confirm = async () => {
+    if (busy || !droit.ok) return;
     setBusy(true);
     const r = await run('absence.annuler', { id });
     setBusy(false);
@@ -45,9 +46,10 @@ export function AbsAnnulerDialog({ id }: { id: number }) {
   };
 
   return (
-    <Dialog title={a.statut === 'demandee' ? 'Retirer une demande' : 'Annuler une absence'} width={520} actions={<>
+    <Dialog title={a.statut === 'demandee' ? 'Retirer une demande' : 'Annuler une absence'} width={520} onSubmit={confirm} actions={<>
       <CancelButton label="Fermer" />
-      <button type="button" className="btn btn-primary" disabled={!droit.ok || busy} onClick={confirm}>{droit.ok ? droit.libelle : 'Annuler'}</button>
+      {/* Annulation hors droits : la raison s'affiche, sans bouton qui ne mènerait à rien. */}
+      {droit.ok && <SubmitButton busy={busy}>{droit.libelle}</SubmitButton>}
     </>}>
       <div className="grid-2">
         <Field label="Collaborateur"><Static>{emp.nom}</Static></Field>

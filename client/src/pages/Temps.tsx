@@ -19,6 +19,7 @@ import {
 import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
 import { CloseButton, Fine, Page, Panel, Pre, Tag, Two, stop } from '../components/ui.tsx';
 import { useAgir } from '../state/actions.ts';
+import { suppressionLigne, transmissionSage } from '../state/confirmations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -137,7 +138,7 @@ export function Temps() {
   const d = useDomain();
   const data = d.ds;
   const { rh, admin, manager, collab, me } = useRole();
-  const { ui, setUi, run } = useStore();
+  const { ui, setUi, run, openDialog } = useStore();
   const { occupe, agir } = useAgir();
   const wk = ui.weekStart ?? mondayOf(data.today);
   const wdays = wDays(wk);
@@ -151,7 +152,8 @@ export function Temps() {
     .filter(sh => sh.statut === 'soumise')
     .map(sh => ({ sh, e: d.emp(sh.empId) }))
     .filter((q): q is { sh: FeuilleTemps; e: Employe } => !!q.e && (rh || (manager && d.mgrOf(q.e) === me)));
-  const pending = rh ? sagePending(d).length : 0;
+  const aTransmettre = rh ? sagePending(d) : [];
+  const pending = aTransmettre.length;
 
   return (
     <Page
@@ -214,7 +216,8 @@ export function Temps() {
               </div>
             </div>
             {admin
-              ? <button type="button" className="btn btn-primary" disabled={pending === 0 || occupe} onClick={agir(() => run('temps.pushSage'))}>Transmettre par API</button>
+              ? <button type="button" className="btn btn-primary" disabled={pending === 0 || occupe}
+                  onClick={() => openDialog({ type: 'confirmer', c: transmissionSage(pending, new Set(aTransmettre.map(sh => sh.empId)).size) })}>Transmettre par API</button>
               : <span className="text-muted sub">Transmission réservée à l’administrateur RH</span>}
           </div>
         }>
@@ -233,7 +236,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const d = useDomain();
   const data = d.ds;
   const { rh, manager, me } = useRole();
-  const { run } = useStore();
+  const { run, openDialog } = useStore();
   const { occupe, agir } = useAgir();
   const [comment, setComment] = useState('');
 
@@ -351,9 +354,15 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
                     );
                   })}
                   <td className="right nowrap tnum">{fH(l.h.reduce((n, v) => n + num(v), 0))}</td>
-                  {/* La ligne visée accompagne l'indice : un second clic ne supprime pas la ligne venue à sa place. */}
-                  <td className="right">{editable && <CloseButton size={28} label="Supprimer la ligne" disabled={occupe}
-                    onClick={agir(() => run('temps.removeLine', { ...base, li, projet: l.projet, tache: l.tache, lignes: lignes.length }))} />}</td>
+                  {/* La ligne visée accompagne l'indice : un second clic ne supprime pas la ligne venue à sa place.
+                      Une ligne qui porte des heures n'est supprimée qu'après confirmation. */}
+                  <td className="right">{editable && <CloseButton size={28} label={`Supprimer la ligne ${l.projet}`} disabled={occupe}
+                    onClick={ev => {
+                      const ligne = { ...base, li, projet: l.projet, tache: l.tache, lignes: lignes.length };
+                      const heures = l.h.reduce((n, v) => n + num(v), 0);
+                      if (heures > 0) openDialog({ type: 'confirmer', c: suppressionLigne(ligne, `${l.projet} · ${l.tache}`, heures) });
+                      else agir(() => run('temps.removeLine', ligne))(ev);
+                    }} />}</td>
                 </tr>
               ))}
               <tr>

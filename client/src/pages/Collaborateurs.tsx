@@ -1,5 +1,5 @@
 // Annuaire (RH) ou équipe (manager) : statut de conformité, contrat et fiche détaillée.
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, type ReactNode, type RefObject } from 'react';
 import { PencilSimpleIcon, PlusIcon, UserMinusIcon, UserPlusIcon } from '@phosphor-icons/react';
 import { CERT_LABEL, CLS, EMP_LABEL, HAB_CLS, HAB_LABEL, HAB_MESURE_LABEL, RANK, SESSION_PASSEE, STATUTS, TEMPS_TRAVAIL, TRIP_LABEL, TYPES_CONTRAT } from '../../../shared/constants.ts';
 import type { ContratX, EmpX, HabInfo, Proposal } from '../../../shared/domain.ts';
@@ -9,8 +9,10 @@ import { equipeLabel, fmt, fmtIso, fmtShort, norm, plural, rel } from '../../../
 import { absenceKinds } from '../../../shared/rules/conges.ts';
 import { etatInscription } from '../../../shared/rules/sessions.ts';
 import { JOURS_SEMAINE } from '../../../shared/rules/profil.ts';
+import { usePanneauVisible } from '../components/panneau.ts';
 import { Avatar, Bar, Btn, Chips, CloseButton, Empty, Fine, NoteAccent, Page, SectionLabel, Seg, Tag, Two } from '../components/ui.tsx';
 import { printDocument } from '../print.ts';
+import { retraitEquipe } from '../state/confirmations.ts';
 import { useEnriched, useRole, useTrips } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -62,6 +64,8 @@ export function Collaborateurs() {
   [team, filtre, ui.statut, q]);
 
   const sel = team.find(e => e.id === ui.selectedId) || null;
+  // Écran étroit : la fiche s'affiche sous la liste ; la sélection l'amène dans le champ de vision.
+  const panneau = usePanneauVisible<HTMLElement>(sel?.id);
   const certCount = team.reduce((n, e) => n + e.certs.length, 0);
   const certs = plural(certCount, 'certification suivie', 'certifications suivies');
   const kicker = manager
@@ -127,7 +131,7 @@ export function Collaborateurs() {
           <p className="text-muted fine">{rows.length} {rows.length > 1 ? 'collaborateurs affichés' : 'collaborateur affiché'} sur {team.length}</p>
         </section>
 
-        {sel && <EmployeePanel e={sel} upcomingCount={(f: string) => upcoming.filter(s => s.formation === f && s.inscrits < s.places).length} trips={trips} horizon={horizon} />}
+        {sel && <EmployeePanel panneau={panneau} e={sel} upcomingCount={(f: string) => upcoming.filter(s => s.formation === f && s.inscrits < s.places).length} trips={trips} horizon={horizon} />}
       </div>
     </Page>
   );
@@ -144,10 +148,12 @@ function Info({ label, sub, children }: { label: ReactNode; sub?: ReactNode; chi
   );
 }
 
-function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcomingCount: (f: string) => number; trips: ReturnType<typeof useTrips>; horizon: number }) {
+function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
+  panneau: RefObject<HTMLElement | null>; e: EmpX; upcomingCount: (f: string) => number; trips: ReturnType<typeof useTrips>; horizon: number;
+}) {
   const { d, formIds } = useEnriched();
   const { rh, manager, me } = useRole();
-  const { setUi, openDialog, go, run, runIntent, notify } = useStore();
+  const { setUi, openDialog, go, runIntent, notify } = useStore();
   /** Manager direct consultant un membre de son équipe (jamais sa propre fiche). */
   const membre = manager && e.id !== me && d.mgrOf(e) === me;
   const canPlan = rh || membre;
@@ -202,11 +208,8 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
     else runIntent(it);
   };
 
-  const retirer = async () => {
-    if (!window.confirm(`Retirer ${e.nom} de l’équipe ${equipeLabel(e)} ?\n\n${e.nom} passera « à affecter » : le service RH lui attribuera une nouvelle équipe.`)) return;
-    const r = await run('equipe.affecter', { empId: e.id, equipe: null });
-    if (r.ok) setUi({ selectedId: null });
-  };
+  // Confirmation, puis la fiche se ferme : un manager ne voit plus le collaborateur retiré de son équipe.
+  const retirer = () => openDialog({ type: 'confirmer', c: retraitEquipe(e.id, e.nom, equipeLabel(e), { selectedId: null }) });
 
   const passeportFormation = () => {
     const ok = printDocument(`Passeport formation — ${e.nom}`, `${e.poste} · ${equipeLabel(e)}`, [
@@ -219,11 +222,11 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
   };
 
   return (
-    <aside className="card elev-md side-panel">
+    <aside ref={panneau} tabIndex={-1} aria-labelledby="fiche-nom" className="card elev-md side-panel">
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)' }}>
         <Avatar nom={e.nom} size={40} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <h3>{e.nom}</h3>
+          <h3 id="fiche-nom">{e.nom}</h3>
           <div className="text-muted" style={{ fontSize: 13 }}>{e.poste} · {equipeLabel(e)}</div>
         </div>
         <CloseButton onClick={() => setUi({ selectedId: null })} />

@@ -12,6 +12,7 @@ import { CertDialog } from './CertDialog.tsx';
 import { CetDialog } from './CetDialog.tsx';
 import { ClotureDialog } from './ClotureDialog.tsx';
 import { CompteDialog } from './CompteDialog.tsx';
+import { ConfirmerDialog } from './ConfirmerDialog.tsx';
 import { EntDialog } from './EntDialog.tsx';
 import { EmployeDialog } from './EmployeDialog.tsx';
 import { EntPlanDialog } from './EntPlanDialog.tsx';
@@ -73,5 +74,6 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'compte': return <CompteDialog />;
     case 'motDePasseProvisoire': return <MotDePasseProvisoireDialog {...d} />;
     case 'motDePasse': return <MotDePasseDialog />;
+    case 'confirmer': return <ConfirmerDialog c={d.c} />;
   }
 }

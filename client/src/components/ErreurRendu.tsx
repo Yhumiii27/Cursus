@@ -1,9 +1,10 @@
 // Erreurs de rendu : une page, un dialogue ou l'application qui plante affiche un message avec « Réessayer »
 // au lieu d'un écran blanc. Une limite par page (remise à zéro au changement de page), une autour du dialogue
 // ouvert (le reste de l'écran reste utilisable), une autour de l'application (barre latérale comprise).
-import { Component, useEffect, type ReactNode } from 'react';
+import { Component, useEffect, useRef, type ReactNode } from 'react';
 import { WarningIcon } from '@phosphor-icons/react';
 import { useStore } from '../state/store.tsx';
+import { useModale } from './focus.ts';
 
 interface Props {
   children: ReactNode;
@@ -65,6 +66,8 @@ export function ErreurPage({ erreur, reessayer }: { erreur: Error; reessayer: ()
 /** Dialogue en erreur : message à la place du formulaire ; la page derrière reste utilisable une fois fermé. */
 export function ErreurDialogue({ erreur, reessayer }: { erreur: Error; reessayer: () => void }) {
   const { closeDialog, reconnexion } = useStore();
+  const ref = useRef<HTMLDivElement>(null);
+  useModale(ref, !reconnexion);
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !reconnexion) closeDialog(); };
     addEventListener('keydown', onKey);
@@ -72,7 +75,7 @@ export function ErreurDialogue({ erreur, reessayer }: { erreur: Error; reessayer
   }, [closeDialog, reconnexion]);
   return (
     <div className="dialog-backdrop">
-      <div className="dialog erreur-rendu" role="alertdialog" aria-modal="true" aria-labelledby="erreur-dialogue-titre" aria-describedby="erreur-dialogue-texte">
+      <div ref={ref} tabIndex={-1} className="dialog erreur-rendu" role="alertdialog" aria-modal="true" aria-labelledby="erreur-dialogue-titre" aria-describedby="erreur-dialogue-texte">
         <div className="dialog-title" id="erreur-dialogue-titre">Ce formulaire n’a pas pu s’afficher</div>
         <div className="dialog-body">
           <p id="erreur-dialogue-texte" style={{ margin: 0 }}>{TEXTE} Réessayez, ou fermez puis rouvrez le formulaire.</p>

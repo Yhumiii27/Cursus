@@ -2,7 +2,7 @@
 // 24 collaborateurs d'un site industriel lyonnais, CCN Industries chimiques.
 import { Domain } from '../../shared/domain.ts';
 import { addM } from '../../shared/dates.ts';
-import { repriseAInscrire } from '../../shared/rules/absences.ts';
+import { repriseDesAbsences } from '../../shared/rules/absences.ts';
 import { cpDroit, rttDroit } from '../../shared/rules/conges.ts';
 import type { Dataset, Employe, EntretienType, Statut, TempsTravail, TypeContrat, VaccinId } from '../../shared/types.ts';
 import type { Db } from './db.ts';
@@ -346,8 +346,8 @@ export function seedDemo(db: Db) {
         .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'RECUP') * d.dayH(e), 0);
       db.insert('soldesReprise', { empId: e.id, cpPris: cp, rttPris: rtt, recupAcquis: Math.max(h.recA, h.recP + recupDemandee), recupPris: h.recP });
       // Reprise après une absence longue (maternité…), inscrite comme à la saisie par le RH.
-      const r = repriseAInscrire(e, ds.absences, null);
-      if (r) db.update('employes', e.id, { repriseMotif: r.motif, repriseDate: r.date });
+      const r = repriseDesAbsences(ds.absences, e.id);
+      if (r && !e.repriseDate) db.update('employes', e.id, { repriseMotif: r.motif, repriseDate: r.date });
     });
   });
 }

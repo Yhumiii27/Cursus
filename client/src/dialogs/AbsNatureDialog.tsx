@@ -1,12 +1,12 @@
 // Service RH : saisir une absence hors congés (prévisible ou non), qualifier une absence signalée ou corriger
 // une absence qualifiée — nature, dates, justificatif. Repères de la nature choisie : rémunération, décompte,
 // durée légale (Code du travail ; la CCN peut être plus favorable), justificatif attendu, effet sur les CP
-// (pour mémoire) et date de reprise inscrite sur la fiche après une absence longue.
+// (pour mémoire) et date de reprise inscrite sur la fiche après une absence longue (`repriseAInscrire`, comme le serveur).
 import { useState } from 'react';
 import { CATEGORIES_ABSENCE, NATURES_ABSENCE, PAIE_ABSENCE, type CategorieAbsence } from '../../../shared/constants.ts';
 import { isValidDate } from '../../../shared/dates.ts';
 import { fJ, fmtIso } from '../../../shared/format.ts';
-import { estNature, lendemainOuvre, periodeTexte, uniteDecompte } from '../../../shared/rules/absences.ts';
+import { estNature, periodeTexte, repriseAInscrire, uniteDecompte } from '../../../shared/rules/absences.ts';
 import { checkNature } from '../../../shared/rules/conges.ts';
 import type { NatureAbsence } from '../../../shared/types.ts';
 import { CancelButton, Controles, Dialog, Field, Static } from '../components/Dialog.tsx';
@@ -34,7 +34,10 @@ export function AbsNatureDialog({ empId, id }: { empId?: number | null; id?: num
   const def = nature ? NATURES_ABSENCE[nature] : null;
   const chk = emp && nature ? checkNature(d, emp, nature, du, au, { exclure: a?.id, quand: a ? 'avant de qualifier l’absence' : 'avant d’enregistrer l’absence' }) : null;
   const justErr = just && (!isValidDate(justLe) || justLe > d.ti) ? 'Date de réception invalide : aujourd’hui au plus tard.' : '';
-  const reprise = def?.reprise && isValidDate(au) ? lendemainOuvre(au) : null;
+  // Reprise inscrite sur la fiche, ou conservée si une reprise antérieure attend encore son entretien.
+  const maj = emp && nature && chk?.valid
+    ? repriseAInscrire(emp, [...d.ds.absences.filter(x => x.id !== a?.id), { empId: emp.id, type: nature, du, au, statut: 'validee' }], d.ds.entretiens, a ?? null, nature)
+    : {};
   const title = !a ? 'Saisir une absence' : a.statut === 'signalee' ? 'Qualifier une absence' : 'Modifier une absence';
 
   const pickDu = (v: string) => { setDu(v); if (!au || au < v) setAu(v); };
@@ -109,7 +112,12 @@ export function AbsNatureDialog({ empId, id }: { empId?: number | null; id?: num
       </div>
       {justErr && <p className="form-error">{justErr}</p>}
       {chk && <Controles msgs={chk.msgs} />}
-      {reprise && <Fine muted={false}>Reprise le {fmtIso(reprise)} inscrite sur la fiche : entretien de parcours professionnel de reprise à proposer (art. L6315-1).</Fine>}
+      {maj.reprise && <Fine muted={false}>Reprise le {fmtIso(maj.reprise.date)} inscrite sur la fiche : entretien de parcours professionnel de reprise à proposer (art. L6315-1).</Fine>}
+      {maj.differee && emp?.repriseDate && (
+        <Fine muted={false}>
+          Reprise du {fmtIso(emp.repriseDate)} conservée sur la fiche : son entretien n’est pas réalisé. Celle du {fmtIso(maj.differee.date)} sera à inscrire ensuite (art. L6315-1).
+        </Fine>
+      )}
       <Fine>
         {a ? 'La qualification valide l’absence. ' : 'L’absence est enregistrée validée. '}
         Aucun solde de congés n’est débité ; Keystone ne reçoit qu’une indisponibilité (dates et code générique).

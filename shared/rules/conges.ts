@@ -181,30 +181,33 @@ export function checkAbsence(d: Domain, e: Employe, kind: CongeType, du: string,
  * Contrôle d'une absence hors congés — signalement, saisie ou qualification par le RH, prolongation (`du`…`au` : la
  * seule prolongation) : décompte, bornes du contrat, chevauchements, heures déjà saisies (elles bloquent : l'absence
  * est en vigueur dès son enregistrement), durée légale (simple avertissement : la CCN peut être plus favorable).
- * Aucun solde n'est débité. `exclure` : l'absence elle-même ; `quand` : « avant de signaler l’absence »…
+ * Aucun solde n'est débité. `exclure` : l'absence elle-même ; `quand` : « avant de signaler l’absence »… ;
+ * `depuis` : début de l'absence prolongée — la durée légale porte sur toute l'absence, prolongation comprise.
  */
-export function checkNature(d: Domain, e: Employe, type: NatureAbsence | 'ABSENCE', du: string, au: string, opts: { exclure?: number; quand: string }) {
+export function checkNature(d: Domain, e: Employe, type: NatureAbsence | 'ABSENCE', du: string, au: string, opts: { exclure?: number; quand: string; depuis?: ISODate }) {
   const def = natureDef(type), unite = uniteDecompte(type);
   const valid = isValidDate(du) && isValidDate(au) && au >= du;
   const n = valid ? joursDecomptes(d, e, { type, du, au }) : 0;
+  const debut = opts.depuis && opts.depuis < du ? opts.depuis : du;
+  const total = valid && debut !== du ? joursDecomptes(d, e, { type, du: debut, au }) : n;
   const hors = valid ? borneContrat(e, du, au) : null;
   const autre = valid ? d.ds.absences.find(a => a.id !== opts.exclure && a.empId === e.id && absenceActive(a) && a.du <= au && a.au >= du) : undefined;
   const heures = valid ? heuresAvantAbsence(d, { empId: e.id, type, du, au }, opts.quand) : null;
   const m = valid ? d.ds.missions.find(x => x.empId === e.id && x.du <= au && x.au >= du) : undefined;
   const msgs: { text: string; bad: boolean }[] = [];
   const add = (text: string, bad = false) => msgs.push({ text, bad });
-  if (valid) add(`Décompte : ${fJ(n)} ${unite}${unite === 'ouvrés' ? ' — week-ends et jours fériés exclus' : ''}.`);
+  if (valid) add(`Décompte : ${fJ(n)} ${unite}${total !== n ? ` (${fJ(total)} au total)` : ''}${unite === 'ouvrés' ? ' — week-ends et jours fériés exclus' : ''}.`);
   if (hors) add(`Absence hors contrat : ${hors}.`, true);
   if (autre) add(`Une absence existe déjà sur ces dates (${periodeTexte(autre.du, autre.au)}).`, true);
   if (heures) add(heures.text, true);
   if (valid && def?.duree) {
-    // Enfant malade : durée annuelle, cumul de l'année civile.
+    // Enfant malade : durée annuelle, cumul de l'année civile (l'absence prolongée compte dans `total`).
     const deja = def.parAn
-      ? d.ds.absences.filter(a => a.id !== opts.exclure && a.empId === e.id && a.type === type && absenceBloque(a) && a.du.slice(0, 4) === du.slice(0, 4))
+      ? d.ds.absences.filter(a => a.id !== opts.exclure && a.empId === e.id && a.type === type && absenceBloque(a) && a.du.slice(0, 4) === debut.slice(0, 4))
         .reduce((s, a) => s + joursDecomptes(d, e, a), 0)
       : 0;
     const duree = `${fJ(def.duree)} ${unite}${def.parAn ? ' par an' : ''}${def.dureeNote ? ` ; ${def.dureeNote}` : ''}`;
-    add(n + deja > def.duree
+    add(total + deja > def.duree
       ? `Au-delà de la durée légale (${duree} — ${def.article}) : vérifiez le cas ou la convention collective.`
       : `Durée légale : ${duree} (${def.article}).`);
   }

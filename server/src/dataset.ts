@@ -3,7 +3,7 @@
 // collaborateur : ses propres données).
 import { Domain } from '../../shared/domain.ts';
 import { iso } from '../../shared/dates.ts';
-import { absenceVueManager } from '../../shared/rules/absences.ts';
+import { absenceVueManager, repriseMedicale } from '../../shared/rules/absences.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Chantier, CurrentUser, Dataset, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
   Equipe, FeuilleTemps, Formation, HabTitre, HabType, Mission, PlanAction, Projet, ReportCp, SagePush, Session, Settings, SoldeReprise,
@@ -113,9 +113,13 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
   const mine = <T extends { empId: number }>(list: T[]) => list.filter(x => ids.has(x.empId));
   const isMgr = user.role === 'manager';
   // Les managers voient le verdict d'aptitude et l'état des dossiers voyage,
-  // jamais les données de santé (visite, vaccinations).
+  // jamais les données de santé (visite, vaccinations). Une reprise ouverte par un arrêt longue maladie
+  // leur est masquée : elle trahirait la nature de l'arrêt (l'entretien de reprise est suivi par le RH).
   const employes = full.employes.filter(e => ids.has(e.id)).map(e => isMgr && e.id !== user.empId
-    ? { ...e, visite: null, aptitude: { ok: d.medInfo(e).ok }, vaccins: [], repriseMotif: e.repriseDate ? 'absence longue' : null }
+    ? {
+      ...e, visite: null, aptitude: { ok: d.medInfo(e).ok }, vaccins: [],
+      ...(repriseMedicale(e, full.absences) ? { repriseMotif: null, repriseDate: null } : { repriseMotif: e.repriseDate ? 'absence longue' : null }),
+    }
     : e);
   const voyages = mine(full.voyages).map(v => {
     if (!isMgr || v.empId === user.empId) return v;

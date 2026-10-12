@@ -1,10 +1,13 @@
 // Retirer une demande ou annuler une absence, selon le statut et le rôle (`droitAnnulation`) :
-// conséquences annoncées avant confirmation — solde recrédité, Keystone prévenu, feuilles validées inchangées.
+// conséquences annoncées avant confirmation — solde recrédité, Keystone prévenu, feuilles validées inchangées,
+// feuille soumise sans heure renvoyée si la semaine n'est plus couverte.
 import { useState } from 'react';
 import { ABS_LABEL } from '../../../shared/constants.ts';
 import { addD } from '../../../shared/dates.ts';
-import { fH, fJ, fmtIso } from '../../../shared/format.ts';
+import { Domain } from '../../../shared/domain.ts';
+import { fH, fJ, fmtIso, num } from '../../../shared/format.ts';
 import { droitAnnulation, estConge, natureDef, periodeTexte, statutAbsence } from '../../../shared/rules/absences.ts';
+import { semaineCouverte } from '../../../shared/rules/temps.ts';
 import { CancelButton, Dialog, Field, Static } from '../components/Dialog.tsx';
 import { Fine, NoteAccent } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
@@ -21,11 +24,16 @@ export function AbsAnnulerDialog({ id }: { id: number }) {
 
   const droit = droitAnnulation(a, d.ti, { rh, self: !rh && emp.id === me, manager: manager && emp.id !== me && d.mgrOf(emp) === me });
   const n = estConge(a.type) ? d.countDays(emp, a.du, a.au, a.type) : 0;
+  // Feuille soumise sans heure que l'absence couvrait seule : le serveur la renvoie au salarié.
+  const sans = a.statut === 'demandee' ? null : new Domain({ ...d.ds, absences: d.ds.absences.filter(x => x.id !== a.id) });
+  const renvoi = !!sans && d.ds.feuilles.some(sh => sh.empId === emp.id && sh.statut === 'soumise' && sh.week <= a.au && addD(sh.week, 4) >= a.du
+    && !sh.lignes.some(l => l.h.some(h => num(h) > 0)) && !semaineCouverte(sans, emp, sh.week, sh));
   const suites = [
     n ? `${a.type === 'RECUP' ? fH(n * d.dayH(emp)) + ' de récupération' : `${fJ(n)} de ${a.type}`} de nouveau disponible${n > 1 ? 's' : ''} sur le solde.` : '',
     a.keystone ? 'Keystone est prévenu : la période redevient disponible pour la planification.' : '',
     d.ds.feuilles.some(sh => sh.empId === emp.id && sh.statut === 'validee' && sh.week <= a.au && addD(sh.week, 4) >= a.du)
       ? 'Les feuilles de temps déjà validées ne sont pas modifiées : des heures travaillées ces jours-là restent à régulariser.' : '',
+    renvoi ? 'La feuille de temps soumise sans heure pour ces jours est renvoyée au salarié pour saisie des heures.' : '',
     rh && natureDef(a.type)?.reprise && emp.repriseDate ? 'La date de reprise inscrite sur la fiche est recalculée.' : '',
   ].filter(Boolean);
 

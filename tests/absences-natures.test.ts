@@ -31,7 +31,9 @@ const HUGO: User = { role: 'manager', empId: 16, nom: 'Hugo Lambert', intitule: 
 const SOPHIE: User = { role: 'manager', empId: 3, nom: 'Sophie Lemaire', intitule: '' };
 const MEHDI: User = { role: 'collaborateur', empId: 2, nom: 'Mehdi Benali', intitule: '' };
 const LEA: User = { role: 'collaborateur', empId: 15, nom: 'Léa Girard', intitule: '' };
-const MEDICALES = ['MALADIE', 'ALD', 'AT', 'TRAJET', 'MP'];
+const CLARA: User = { role: 'collaborateur', empId: 19, nom: 'Clara Roussel', intitule: '' };
+// Données de santé, y compris celle d'un enfant : nature jamais transmise au manager ni à Keystone.
+const MEDICALES = ['MALADIE', 'ALD', 'AT', 'TRAJET', 'MP', 'HANDICAP_ENFANT', 'ENFANT_MALADE'];
 // Semaine 42 de Mehdi Benali (2), équipe Maintenance de Karim Haddad (12) : rien de saisi.
 const week = '2026-10-12';
 
@@ -320,15 +322,156 @@ test('migration : une base existante reçoit les colonnes des absences, sans per
     old.close();
     const db = new Db(file);
     migrate(db);
-    assert.ok(['signale_le', 'signale_par', 'justificatif', 'justificatif_le', 'fin_initiale', 'annulee_le', 'annulee_par'].every(c => db.columns('absences').includes(c)));
+    assert.ok(['signale_le', 'signale_par', 'signale_par_interesse', 'justificatif', 'justificatif_le', 'fin_initiale', 'annulee_le', 'annulee_par'].every(c => db.columns('absences').includes(c)));
     const rows = db.all<Absence>('absences');
-    assert.deepEqual(rows.map(a => [a.empId, a.type, a.statut, a.keystone, a.justificatif, a.signaleLe, a.finInitiale, a.annuleeLe]), [
-      [2, 'CP', 'validee', true, false, null, null, null],
-      [3, 'RTT', 'demandee', false, false, null, null, null],
+    assert.deepEqual(rows.map(a => [a.empId, a.type, a.statut, a.keystone, a.justificatif, a.signaleLe, a.signaleParInteresse, a.finInitiale, a.annuleeLe]), [
+      [2, 'CP', 'validee', true, false, null, false, null, null],
+      [3, 'RTT', 'demandee', false, false, null, false, null, null],
     ]);
     assert.ok(readdirSync(join(dir, 'backups')).some(f => f.includes('avant-migration')), 'copie de sécurité avant migration');
     db.sql.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('annulation par l’intéressé : son propre signalement seulement, ni qualifié ni prolongé', () => {
+  const { run, abs, absId } = fresh();
+  const proprePas = refus(403, /^Seul votre propre signalement, ni qualifié ni prolongé, se retire/);
+  // Maternité de Clara Roussel (19), validée par le RH : la prolonger ne permet pas ensuite de l'annuler.
+  const mat = abs(19, '2026-11-16');
+  assert.throws(() => run(CLARA, 'absence.annuler', { id: mat.id }), refus(403, /^Absence validée : demandez son annulation/));
+  run(CLARA, 'absence.prolonger', { id: mat.id, au: '2027-03-08' });
+  assert.equal(absId(mat.id).statut, 'signalee');
+  assert.throws(() => run(CLARA, 'absence.annuler', { id: mat.id }), proprePas);
+  assert.equal(absId(mat.id).statut, 'signalee', 'toujours en vigueur');
+
+  // Signalement du manager ou du RH : l'intéressé ne l'annule pas, son manager si.
+  run(KARIM, 'absence.signaler', { empId: 2, du: '2026-10-19', au: '2026-10-20' });
+  const parKarim = abs(2, '2026-10-19');
+  assert.equal(parKarim.signaleParInteresse, false);
+  assert.throws(() => run(MEHDI, 'absence.annuler', { id: parKarim.id }), proprePas);
+  assert.match(msg(run(KARIM, 'absence.annuler', { id: parKarim.id })), /^Absence de Mehdi Benali annulée — Keystone prévenu/);
+  run(RH, 'absence.signaler', { empId: 2, du: '2026-10-21', au: '2026-10-21' });
+  assert.throws(() => run(MEHDI, 'absence.annuler', { id: abs(2, '2026-10-21').id }), proprePas);
+
+  // Son propre signalement : retiré tant qu'il n'est ni prolongé ni qualifié.
+  run(MEHDI, 'absence.signaler', { empId: 2, du: '2026-10-26', au: '2026-10-26' });
+  const sien = abs(2, '2026-10-26');
+  assert.equal(sien.signaleParInteresse, true);
+  run(MEHDI, 'absence.prolonger', { id: sien.id, au: '2026-10-27' });
+  assert.throws(() => run(MEHDI, 'absence.annuler', { id: sien.id }), proprePas);
+  run(MEHDI, 'absence.signaler', { empId: 2, du: '2026-10-29', au: '2026-10-29' });
+  const qualifie = abs(2, '2026-10-29');
+  run(RH, 'absence.qualifier', { id: qualifie.id, nature: 'ENFANT_MALADE' });
+  assert.throws(() => run(MEHDI, 'absence.annuler', { id: qualifie.id }), refus(403, /^Absence validée/));
+});
+
+test('annulation hors périmètre : refus identique, sans rien révéler de l’absence', () => {
+  const { run, abs } = fresh();
+  // Léa Girard (15), collaboratrice : maternité à venir de Clara, arrêt passé de Marion, demande de CP en attente.
+  const ids = [abs(19, '2026-11-16').id, abs(13, '2026-10-05').id, abs(18, '2026-12-21').id];
+  for (const id of ids) {
+    assert.throws(() => run(LEA, 'absence.annuler', { id }), (e: unknown) =>
+      e instanceof ActionError && e.status === 403 && e.message === 'Vous ne pouvez annuler qu’une absence de vous-même ou de votre équipe');
+  }
+  // Un manager hors de l'équipe non plus.
+  assert.throws(() => run(HUGO, 'absence.annuler', { id: abs(2, '2026-11-02').id }), refus(403, /de vous-même ou de votre équipe/));
+});
+
+test('feuille soumise sans heure : renvoyée quand l’absence est raccourcie ou annulée, jamais validée à 0 h', () => {
+  const { db, run, abs, sheet } = fresh();
+  // Karim signale Mehdi toute la semaine 42 ; Mehdi soumet sa feuille sans heure.
+  run(KARIM, 'absence.signaler', { empId: 2, du: '2026-10-12', au: '2026-10-16' });
+  assert.match(msg(run(MEHDI, 'temps.submit', { empId: 2, week })), /semaine d’absence, sans heure/);
+  // Retour anticipé : le RH qualifie un arrêt du lundi au mercredi seulement. La feuille repart au salarié.
+  const q = msg(run(RH, 'absence.qualifier', { id: abs(2, '2026-10-12').id, nature: 'MALADIE', du: '2026-10-12', au: '2026-10-14' }));
+  assert.match(q, / · feuille de temps soumise sans heure \(semaine 42\) renvoyée pour saisie$/);
+  assert.deepEqual([sheet()!.statut, sheet()!.comment], ['rejetee', 'Absence annulée ou raccourcie : la semaine n’est plus couverte, saisissez les heures travaillées']);
+  assert.throws(() => run(KARIM, 'temps.validate', { empId: 2, week }), /Aucune feuille en attente de validation/);
+
+  // Mehdi signale la semaine 43, soumet sans heure puis retire son signalement : même renvoi.
+  run(MEHDI, 'absence.signaler', { empId: 2, du: '2026-10-19', au: '2026-10-23' });
+  run(MEHDI, 'temps.submit', { empId: 2, week: '2026-10-19' });
+  assert.match(msg(run(MEHDI, 'absence.annuler', { id: abs(2, '2026-10-19').id })), /feuille de temps soumise sans heure \(semaine 43\) renvoyée pour saisie$/);
+  assert.equal(sheet(2, '2026-10-19')!.statut, 'rejetee');
+
+  // Base antérieure à ce contrôle (absence annulée sans renvoi) : la validation refuse la feuille à 0 h.
+  run(RH, 'absence.saisir', { empId: 2, nature: 'SANS_SOLDE', du: '2026-10-26', au: '2026-10-30' });
+  run(MEHDI, 'temps.submit', { empId: 2, week: '2026-10-26' });
+  db.update('absences', abs(2, '2026-10-26').id, { statut: 'annulee' });
+  assert.throws(() => run(KARIM, 'temps.validate', { empId: 2, week: '2026-10-26' }),
+    refus(400, /^La semaine n’est plus couverte par une absence : renvoyez la feuille pour saisie des heures$/));
+});
+
+test('reprise : une obligation en retard n’est pas remplacée, une reprise effacée n’est pas réinscrite', () => {
+  const { db, run, domain, abs } = fresh();
+  const fiche = (id: number) => { const e = domain().emp(id)!; return [e.repriseMotif, e.repriseDate]; };
+  const reprise = (id: number) => obligations(domain(), [id]).find(o => o.kind === 'reprise');
+  // Aïcha Diallo (7) : retour de congé parental le 1er septembre 2026, entretien de reprise pas encore réalisé.
+  assert.deepEqual([reprise(7)?.due, reprise(7)?.st], ['2026-09-01', 'late']);
+  const m = msg(run(RH, 'absence.saisir', { empId: 7, nature: 'MATERNITE', du: '2026-12-01', au: '2027-03-22' }));
+  assert.match(m, / · reprise du 1 sept\. 2026 conservée sur la fiche, entretien de reprise à réaliser : celle du 23 mars 2027 sera à inscrire ensuite$/);
+  assert.deepEqual(fiche(7), ['congé parental d’éducation', '2026-09-01']);
+  assert.deepEqual([reprise(7)?.due, reprise(7)?.st], ['2026-09-01', 'late'], 'obligation en retard conservée');
+  // Entretien réalisé : la prolongation de la maternité inscrit sa reprise.
+  db.insert('entretiens', { empId: 7, type: 'reprise', date: '2026-10-08', statut: 'realise', cr: {}, info: false });
+  run(RH, 'absence.prolonger', { id: abs(7, '2026-12-01').id, au: '2027-03-23' });
+  assert.deepEqual(fiche(7), ['congé de maternité', '2027-03-24']);
+
+  // Mehdi : arrêt longue maladie passé, reprise inscrite puis effacée à la main par le RH.
+  run(RH, 'absence.saisir', { empId: 2, nature: 'ALD', du: '2026-03-02', au: '2026-06-30' });
+  assert.deepEqual(fiche(2), ['arrêt longue maladie', '2026-07-01']);
+  run(RH, 'employe.modifier', { id: 2, repriseMotif: null, repriseDate: null });
+  // Ni le retrait d'une demande de CP ni un événement familial ne la réinscrivent.
+  run(MEHDI, 'absence.demander', { empId: 2, kind: 'CP', du: '2026-12-07', au: '2026-12-08' });
+  run(MEHDI, 'absence.annuler', { id: abs(2, '2026-12-07').id });
+  run(RH, 'absence.saisir', { empId: 2, nature: 'NAISSANCE', du: '2026-11-23', au: '2026-11-25' });
+  assert.deepEqual(fiche(2), [null, null]);
+});
+
+test('confidentialité : reprise d’un arrêt longue maladie et santé d’un enfant masquées au manager', () => {
+  const { db, run, domain } = fresh();
+  // Arrêt longue maladie de Mehdi : le RH voit la reprise, le manager ni la reprise ni l'obligation d'entretien.
+  run(RH, 'absence.saisir', { empId: 2, nature: 'ALD', du: '2026-11-09', au: '2026-12-18' });
+  assert.equal(obligations(domain(), [2]).find(o => o.kind === 'reprise')?.detail, 'Retour d’arrêt longue maladie le 21 déc. 2026 — à proposer systématiquement');
+  const vue = buildSnapshot(db, KARIM);
+  const mehdi = vue.employes.find(e => e.id === 2)!;
+  assert.deepEqual([mehdi.repriseMotif, mehdi.repriseDate], [null, null]);
+  assert.ok(!obligations(new Domain(vue), [2]).some(o => o.kind === 'reprise'));
+  assert.equal(vue.absences.find(a => a.empId === 2 && a.du === '2026-11-09')!.type, 'ABSENCE');
+  // Une maternité reste visible du manager comme « absence longue », avec l'élision.
+  run(RH, 'absence.saisir', { empId: 17, nature: 'MATERNITE', du: '2026-11-02', au: '2027-02-21' });
+  const sarah = buildSnapshot(db, { role: 'manager', empId: 23, nom: 'Sarah Cohen', intitule: '' });
+  const fatou = sarah.employes.find(e => e.id === 17)!;
+  assert.deepEqual([fatou.repriseMotif, fatou.repriseDate], ['absence longue', '2027-02-22']);
+  assert.equal(obligations(new Domain(sarah), [17]).find(o => o.kind === 'reprise')?.detail, 'Retour d’absence longue le 22 févr. 2027 — à proposer systématiquement');
+
+  // Annonce du handicap d'un enfant, enfant malade : « Absence » pour le manager, aucun message ne les nomme.
+  run(RH, 'absence.saisir', { empId: 2, nature: 'HANDICAP_ENFANT', du: '2026-10-12', au: '2026-10-13' });
+  run(RH, 'absence.saisir', { empId: 2, nature: 'ENFANT_MALADE', du: '2026-10-15', au: '2026-10-15' });
+  const types = buildSnapshot(db, KARIM).absences.filter(a => a.empId === 2 && a.du >= '2026-10-12' && a.du <= '2026-10-15').map(a => a.type);
+  assert.deepEqual(types, ['ABSENCE', 'ABSENCE']);
+  assert.equal(buildSnapshot(db, MEHDI).absences.find(a => a.du === '2026-10-12')!.type, 'HANDICAP_ENFANT', 'l’intéressé voit le détail');
+  run(KARIM, 'temps.addLine', { empId: 2, week, projet: 'INT-MAINT' });
+  for (const di of [0, 3]) {
+    assert.throws(() => run(KARIM, 'temps.setCell', { empId: 2, week, li: 0, di, value: '7' }), (e: unknown) =>
+      e instanceof ActionError && e.message === 'Absence validée ce jour-là : aucune heure ne peut être saisie');
+  }
+});
+
+test('prolongation : la durée légale porte sur toute l’absence', () => {
+  const { run, domain, abs } = fresh();
+  // Julien Moreau (8) : mariage du lundi 16 au jeudi 19 novembre (4 j ouvrés), prolongé jusqu'au mardi 24.
+  run(RH, 'absence.saisir', { empId: 8, nature: 'MARIAGE', du: '2026-11-16', au: '2026-11-19' });
+  const mariage = abs(8, '2026-11-16'), d = domain();
+  const chk = checkNature(d, d.emp(8)!, 'MARIAGE', '2026-11-20', '2026-11-24', { exclure: mariage.id, quand: '', depuis: mariage.du });
+  assert.ok(!chk.cant, 'simple avertissement');
+  assert.equal(chk.msgs[0].text, 'Décompte : 3 j ouvrés (7 j au total) — week-ends et jours fériés exclus.');
+  assert.ok(chk.msgs.some(m => !m.bad && /^Au-delà de la durée légale \(4 j ouvrés — Art\. L3142-4\)/.test(m.text)), JSON.stringify(chk.msgs));
+  // Enfant malade : 3 jours puis 2 jours de prolongation, au-delà des 3 jours par an.
+  run(RH, 'absence.saisir', { empId: 8, nature: 'ENFANT_MALADE', du: '2026-11-30', au: '2026-12-02' });
+  const em = abs(8, '2026-11-30'), d2 = domain();
+  const chk2 = checkNature(d2, d2.emp(8)!, 'ENFANT_MALADE', '2026-12-03', '2026-12-04', { exclure: em.id, quand: '', depuis: em.du });
+  assert.ok(chk2.msgs.some(m => !m.bad && /^Au-delà de la durée légale \(3 j ouvrés par an/.test(m.text)), JSON.stringify(chk2.msgs));
 });

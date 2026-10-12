@@ -2,7 +2,8 @@
 // récapitulatif paie selon l'organisation du temps et transmission des variables à Sage Paie.
 // Une feuille soumise ou validée est décomptée avec le régime figé à la soumission (`FeuilleTemps.contrat`).
 // Aucune heure un jour d'absence (validée, ou signalée en attendant sa qualification) ni hors contrat : une cellule
-// déjà remplie ce jour-là reste modifiable pour être vidée. Une semaine entièrement couverte par une absence se soumet sans heure.
+// déjà remplie ce jour-là reste modifiable pour être vidée. Une semaine entièrement couverte par une absence se soumet sans heure
+// et ne se valide que si elle l'est encore (une absence annulée ou raccourcie renvoie la feuille).
 // Une demande d'absence en attente sur des jours qui portent des heures est décidée avant la validation de la feuille.
 import { useState, type KeyboardEvent } from 'react';
 import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
@@ -55,8 +56,11 @@ function HourCell({ value, disabled, alert, onCommit }: { value: number; disable
 /** Année civile d'une feuille (celle de son lundi, comme le cumul annuel). */
 const anneeDe = (week: ISODate) => Number(week.slice(0, 4));
 
-/** Colonne « Total » de la file de validation, selon l'organisation du temps de la feuille. */
-function queueTotal(d: Domain, e: Employe, sh: FeuilleTemps): { main: string; sub: string } {
+/**
+ * Colonne « Total » de la file de validation, selon l'organisation du temps de la feuille.
+ * `aRenvoyer` : feuille sans heure dont la semaine n'est plus couverte par une absence, que le serveur ne valide pas.
+ */
+function queueTotal(d: Domain, e: Employe, sh: FeuilleTemps): { main: string; sub: string; aRenvoyer?: boolean } {
   const c = calcSheet(d, e, sh), k = c.c;
   if (k.forfait) return { main: fJ(c.jours), sub: `forfait jours · ${fH(c.total)} déclarées` };
   if (k.dirigeant) return { main: fJ(c.jours), sub: `cadre dirigeant · ${fH(c.total)} déclarées` };
@@ -66,7 +70,10 @@ function queueTotal(d: Domain, e: Employe, sh: FeuilleTemps): { main: string; su
   }
   // Seules les heures majorées dépassent le contrat ; les heures incluses au forfait hebdomadaire n'en font pas partie.
   const extra = c.sup25 + c.sup50 + c.hc10 + c.hc25;
-  if (!c.total) return { main: fH(0), sub: 'semaine d’absence, sans heure' };
+  // Sans heure : la semaine doit encore être couverte par une absence (elle a pu être annulée ou raccourcie depuis).
+  if (!c.total) return semaineCouverte(d, e, sh.week, sh)
+    ? { main: fH(0), sub: 'semaine d’absence, sans heure' }
+    : { main: fH(0), sub: 'aucune heure : semaine plus couverte par une absence, à renvoyer', aRenvoyer: true };
   return { main: fH(c.total), sub: extra > 0 ? `dont ${fH(extra)} au-delà du contrat` : 'aucune heure au-delà du contrat' };
 }
 
@@ -181,7 +188,7 @@ export function Temps() {
                       <td className="right">
                         <div className="actions-end">
                           <button type="button" className="btn btn-ghost btn-sm" onClick={stop(open)}>Ouvrir</button>
-                          <button type="button" className="btn btn-secondary btn-sm" onClick={stop(() => run('temps.validate', { empId: e.id, week: sh.week }))}>Valider</button>
+                          {!tot.aRenvoyer && <button type="button" className="btn btn-secondary btn-sm" onClick={stop(() => run('temps.validate', { empId: e.id, week: sh.week }))}>Valider</button>}
                         </div>
                       </td>
                     </tr>
@@ -255,6 +262,8 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const enAttente = sh ? heuresSurAbsence(d, sh, demandes) : [];
   // Semaine d'arrêt, de congés… : aucune heure attendue, la feuille se soumet sans heure.
   const couverte = semaineCouverte(d, emp, wk, sh);
+  // Soumise sans heure, la semaine n'est plus couverte (absence annulée ou raccourcie) : à renvoyer, pas à valider.
+  const plusCouverte = st === 'soumise' && !(calc.total > 0) && !couverte;
   const days = wdays.map((day, i) => {
     const a = absences[i], dem = demandeJours[i], off = c.jourOff.includes(i), fer = isFerie(day), hors = !!jourHorsContrat(emp, day);
     const m = data.missions.find(x => x.empId === emp.id && x.du <= day && x.au >= day);
@@ -373,6 +382,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
           </div>
         )}
         {enAttente.length > 0 && st !== 'validee' && <div className="note-accent">{demandesEnAttenteMessage(enAttente, canValidate)}</div>}
+        {plusCouverte && <div className="note-accent">Aucune heure et la semaine n’est plus couverte par une absence : renvoyez la feuille pour saisie des heures.</div>}
         {calc.warn.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
             {calc.warn.map(w => <div key={w} className="note-accent">{w}</div>)}
@@ -397,7 +407,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
             <textarea className="input short" rows={2} aria-label="Commentaire" placeholder="Commentaire en cas de renvoi (facultatif)" value={comment} onChange={ev => setComment(ev.target.value)} style={{ resize: 'vertical' }} />
             <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end' }}>
               <button type="button" className="btn btn-ghost" onClick={reject}>Renvoyer</button>
-              <button type="button" className="btn btn-primary" disabled={surAbsence.length + enAttente.length > 0} onClick={() => run('temps.validate', base)}>Valider la semaine</button>
+              <button type="button" className="btn btn-primary" disabled={surAbsence.length + enAttente.length > 0 || plusCouverte} onClick={() => run('temps.validate', base)}>Valider la semaine</button>
             </div>
           </div>
         )}

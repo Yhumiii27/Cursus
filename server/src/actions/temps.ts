@@ -100,6 +100,9 @@ function submitted(ctx: Ctx, p: Record<string, any>) {
 
 const validate: ActionHandler = (ctx, p) => {
   const { emp, sh } = submitted(ctx, p);
+  // Soumise sans heure parce que la semaine était couverte : l'absence a pu être annulée ou raccourcie depuis.
+  const total = sh.lignes.reduce((n, l) => n + l.h.reduce((a, b) => a + num(b), 0), 0);
+  if (!(total > 0) && !semaineCouverte(ctx.d, emp, sh.week, sh)) throw new ActionError('La semaine n’est plus couverte par une absence : renvoyez la feuille pour saisie des heures');
   const surAbsence = heuresSurAbsence(ctx.d, sh);
   if (surAbsence.length) throw new ActionError(heuresSurAbsenceMessage(surAbsence, 'ou renvoyez la feuille avant de la valider'));
   // Demande d'absence en attente sur ces heures : à décider d'abord (même valideur), sinon elle ne pourrait plus être validée.

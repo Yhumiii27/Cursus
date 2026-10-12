@@ -124,6 +124,8 @@ export interface Absence {
   keystone: boolean;
   /** Absence signalée : date et auteur du signalement. */
   signaleLe: ISODate | null; signalePar: string | null;
+  /** Signalée par l'intéressé lui-même (et non par son manager ou le RH) : lui seul peut alors la retirer. */
+  signaleParInteresse: boolean;
   /** Justificatif reçu par le service RH (avis d'arrêt, acte…) et date de réception. */
   justificatif: boolean; justificatifLe: ISODate | null;
   /** Fin prévue avant la première prolongation (null = jamais prolongée). */

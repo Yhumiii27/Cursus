@@ -2,12 +2,14 @@
 // compte épargne-temps et reports de CP.
 import { ABS_LABEL, NATURES_ABSENCE } from '../../../shared/constants.ts';
 import { addD, cpPeriods, isValidDate, isoWeek, parse } from '../../../shared/dates.ts';
-import { fH, fJ, fmt, matricule } from '../../../shared/format.ts';
+import { Domain } from '../../../shared/domain.ts';
+import { fH, fJ, fmt, matricule, num } from '../../../shared/format.ts';
 import {
   absenceVueManager, borneContrat, codeKeystone, droitAnnulation, estConge, estNature, natureDef, periodeTexte, prolongeable, repriseAInscrire,
 } from '../../../shared/rules/absences.ts';
 import { cetInfo, checkAbsence, checkNature, cpInfo, heuresAvantAbsence } from '../../../shared/rules/conges.ts';
-import type { Absence, AbsenceType, CetMouvement, CongeType, Employe, NatureAbsence, ReportCp } from '../../../shared/types.ts';
+import { semaineCouverte } from '../../../shared/rules/temps.ts';
+import type { Absence, AbsenceType, CetMouvement, CongeType, Employe, FeuilleTemps, NatureAbsence, ReportCp } from '../../../shared/types.ts';
 import { sendToKeystone } from '../integrations/keystone.ts';
 import { ActionError, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
 
@@ -72,14 +74,34 @@ function justificatifDe(ctx: Ctx, p: Record<string, any>): Pick<Absence, 'justif
 
 /**
  * Reprise après une absence longue (maternité, adoption, congé parental, arrêt longue maladie) inscrite sur la fiche :
- * l'entretien de parcours professionnel de reprise est proposé à cette date (art. L6315-1). Texte pour le message du RH.
+ * l'entretien de parcours professionnel de reprise est proposé à cette date (art. L6315-1). Seule l'écriture d'une absence
+ * de ces natures (`avant` : son état précédent ; `type` : sa nature après l'écriture) la recalcule (`repriseAInscrire`).
+ * Texte pour le message du RH.
  */
-function majReprise(ctx: Ctx, emp: Employe, avant: Absence | null): string {
-  const r = repriseAInscrire(emp, ctx.db.where<Absence>('absences', 'empId', emp.id), avant);
-  if (r === undefined) return '';
-  ctx.db.update('employes', emp.id, { repriseMotif: r?.motif ?? null, repriseDate: r?.date ?? null });
+function majReprise(ctx: Ctx, emp: Employe, avant: Absence | null, type: AbsenceType): string {
+  const { reprise: r, differee } = repriseAInscrire(emp, ctx.db.where<Absence>('absences', 'empId', emp.id), ctx.ds.entretiens, avant, type);
+  if (r !== undefined) ctx.db.update('employes', emp.id, { repriseMotif: r?.motif ?? null, repriseDate: r?.date ?? null });
   if (!isRh(ctx)) return '';
+  // Reprise antérieure dont l'entretien n'est pas réalisé : l'obligation reste sur la fiche.
+  if (differee) return ` · reprise du ${fmt(parse(emp.repriseDate!))} conservée sur la fiche, entretien de reprise à réaliser : celle du ${fmt(parse(differee.date))} sera à inscrire ensuite`;
+  if (r === undefined) return '';
   return r ? ` · reprise le ${fmt(parse(r.date))} : entretien de parcours professionnel à proposer` : ' · date de reprise effacée de la fiche';
+}
+
+/**
+ * Absence annulée ou raccourcie (`a` : sa période avant l'écriture) : une feuille soumise sans heure parce que la semaine
+ * était couverte serait validée à 0 h. Elle est renvoyée au salarié pour saisie des heures. Texte pour le message.
+ */
+function renvoyerFeuilles(ctx: Ctx, emp: Employe, a: Pick<Absence, 'du' | 'au'>): string {
+  const apres = new Domain({ ...ctx.ds, absences: ctx.db.all<Absence>('absences') });
+  const sh = ctx.ds.feuilles.filter(f => f.empId === emp.id && f.statut === 'soumise' && f.week <= a.au && addD(f.week, 4) >= a.du
+    && !f.lignes.some(l => l.h.some(h => num(h) > 0)) && !semaineCouverte(apres, emp, f.week, f));
+  sh.forEach(f => ctx.db.update<FeuilleTemps>('feuilles', f.id, { statut: 'rejetee', comment: 'Absence annulée ou raccourcie : la semaine n’est plus couverte, saisissez les heures travaillées' }));
+  const semaines = sh.map(f => isoWeek(f.week));
+  if (!semaines.length) return '';
+  return semaines.length > 1
+    ? ` · feuilles de temps soumises sans heure (semaines ${semaines.join(', ')}) renvoyées pour saisie`
+    : ` · feuille de temps soumise sans heure (semaine ${semaines[0]}) renvoyée pour saisie`;
 }
 
 const sansNature = (chk: { msgs: { text: string; bad: boolean }[] }) => new ActionError(chk.msgs.find(m => m.bad)?.text || 'Dates invalides');
@@ -94,7 +116,9 @@ const signaler: ActionHandler = (ctx, p) => {
   const du = str(p.du), au = str(p.au) || du;
   const chk = checkNature(ctx.d, emp, 'ABSENCE', du, au, { quand: 'avant de signaler l’absence' });
   if (chk.cant) throw sansNature(chk);
-  ctx.db.insert<Absence>('absences', { empId: emp.id, type: 'ABSENCE', du, au, statut: 'signalee', keystone: true, signaleLe: ctx.d.ti, signalePar: ctx.user.nom, justificatif: false });
+  ctx.db.insert<Absence>('absences', {
+    empId: emp.id, type: 'ABSENCE', du, au, statut: 'signalee', keystone: true, signaleLe: ctx.d.ti, signalePar: ctx.user.nom, signaleParInteresse: isSelf(ctx, emp.id), justificatif: false,
+  });
   keystone(ctx, 'absence.validee', emp, { type: 'ABSENCE', du, au });
   return `Absence de ${emp.nom} signalée ${periodeTexte(du, au)} — nature à préciser par le service RH${isSelf(ctx, emp.id) ? ', à qui transmettre le justificatif' : ''} · indisponibilité transmise à Keystone`;
 };
@@ -108,7 +132,7 @@ const saisir: ActionHandler = (ctx, p) => {
   const just = justificatifDe(ctx, p);
   ctx.db.insert<Absence>('absences', { empId: emp.id, type: nature, du, au, statut: 'validee', keystone: true, ...just });
   keystone(ctx, 'absence.validee', emp, { type: nature, du, au });
-  return `Absence de ${emp.nom} enregistrée ${periodeTexte(du, au)} : ${NATURES_ABSENCE[nature].court} — indisponibilité transmise à Keystone${majReprise(ctx, emp, null)}`;
+  return `Absence de ${emp.nom} enregistrée ${periodeTexte(du, au)} : ${NATURES_ABSENCE[nature].court} — indisponibilité transmise à Keystone${majReprise(ctx, emp, null, nature)}`;
 };
 
 /** Qualification par le RH d'une absence signalée, ou correction d'une absence qualifiée : nature, justificatif, dates. */
@@ -127,7 +151,8 @@ const qualifier: ActionHandler = (ctx, p) => {
   if (a.keystone && corrigee) keystone(ctx, 'absence.annulee', emp, a);
   if (!a.keystone || corrigee) keystone(ctx, 'absence.validee', emp, { type: nature, du, au });
   const justTexte = just.justificatif ? `justificatif reçu le ${fmt(parse(just.justificatifLe!))}` : 'justificatif attendu';
-  return `Absence de ${emp.nom} qualifiée : ${NATURES_ABSENCE[nature].court} ${periodeTexte(du, au)}, ${justTexte}${majReprise(ctx, emp, a)}`;
+  const renvoi = corrigee ? renvoyerFeuilles(ctx, emp, a) : '';
+  return `Absence de ${emp.nom} qualifiée : ${NATURES_ABSENCE[nature].court} ${periodeTexte(du, au)}, ${justTexte}${renvoi}${majReprise(ctx, emp, a, nature)}`;
 };
 
 /**
@@ -142,23 +167,26 @@ const prolonger: ActionHandler = (ctx, p) => {
   const au = str(p.au);
   if (!isValidDate(au) || au <= a.au) throw new ActionError(`Nouvelle fin requise, après le ${fmt(parse(a.au))}`);
   const debut = addD(a.au, 1);
-  const chk = checkNature(ctx.d, emp, a.type as NatureAbsence | 'ABSENCE', debut, au, { exclure: a.id, quand: 'avant de prolonger l’absence' });
+  const chk = checkNature(ctx.d, emp, a.type as NatureAbsence | 'ABSENCE', debut, au, { exclure: a.id, quand: 'avant de prolonger l’absence', depuis: a.du });
   if (chk.cant) throw sansNature(chk);
   const statut = isRh(ctx) ? a.statut : 'signalee';
   ctx.db.update<Absence>('absences', a.id, { au, statut, finInitiale: a.finInitiale ?? a.au, keystone: true });
   keystone(ctx, 'absence.validee', emp, { type: a.type, du: debut, au });
   const suite = statut === 'signalee' && a.statut === 'validee' ? ' — prolongation à qualifier par le service RH' : '';
-  return `Absence de ${emp.nom} prolongée jusqu’au ${fmt(parse(au))}${suite} · indisponibilité transmise à Keystone${majReprise(ctx, emp, a)}`;
+  return `Absence de ${emp.nom} prolongée jusqu’au ${fmt(parse(au))}${suite} · indisponibilité transmise à Keystone${majReprise(ctx, emp, a, a.type)}`;
 };
 
 /**
- * Annulation : l'intéressé retire sa demande en attente ; le manager direct ou le RH annulent une absence qui n'a pas
- * commencé, le RH seul une absence commencée ou passée (`droitAnnulation`). Le solde est recrédité (seuls les congés
- * demandés ou validés le débitent), Keystone libère la période et la reprise inscrite par l'absence est recalculée.
+ * Annulation : l'intéressé retire sa demande en attente (ou son propre signalement) ; le manager direct ou le RH annulent
+ * une absence qui n'a pas commencé, le RH seul une absence commencée ou passée (`droitAnnulation`). Le solde est recrédité
+ * (seuls les congés demandés ou validés le débitent), Keystone libère la période, une feuille soumise sans heure qui n'est
+ * plus couverte est renvoyée et la reprise inscrite par l'absence est recalculée.
  */
 const annuler: ActionHandler = (ctx, p) => {
   const a = absenceOf(ctx, p.id);
   const emp = getEmp(ctx, a.empId);
+  // Périmètre d'abord : hors de celui-ci, aucun refus ne doit révéler l'état ou les dates de l'absence.
+  if (!(isRh(ctx) || isSelf(ctx, emp.id) || isManagerOf(ctx, emp))) throw new ActionError('Vous ne pouvez annuler qu’une absence de vous-même ou de votre équipe', 403);
   const droit = droitAnnulation(a, ctx.d.ti, { rh: isRh(ctx), self: isSelf(ctx, emp.id), manager: isManagerOf(ctx, emp) });
   if (!droit.ok) throw new ActionError(droit.raison, a.statut === 'refusee' || a.statut === 'annulee' ? 400 : 403);
   ctx.db.update<Absence>('absences', a.id, { statut: 'annulee', annuleeLe: ctx.d.ti, annuleePar: ctx.user.nom, keystone: false });
@@ -169,9 +197,10 @@ const annuler: ActionHandler = (ctx, p) => {
   const semaines = ctx.ds.feuilles.filter(sh => sh.empId === emp.id && sh.statut === 'validee' && sh.week <= a.au && addD(sh.week, 4) >= a.du).map(sh => isoWeek(sh.week));
   const feuilles = semaines.length ? ` · ${semaines.length > 1 ? `feuilles de temps validées (semaines ${semaines.join(', ')}) non modifiées` : `feuille de temps validée (semaine ${semaines[0]}) non modifiée`}` : '';
   const nature = libelle((isRh(ctx) || isSelf(ctx, emp.id) ? a : absenceVueManager(a)).type);
-  const reprise = majReprise(ctx, emp, a);
+  const renvoi = a.statut === 'demandee' ? '' : renvoyerFeuilles(ctx, emp, a);
+  const reprise = majReprise(ctx, emp, a, a.type);
   if (a.statut === 'demandee') return `Demande de ${nature} ${periodeTexte(a.du, a.au)} ${isSelf(ctx, emp.id) ? 'retirée' : 'annulée'}${recredit}`;
-  return `Absence de ${emp.nom}${nature ? ` (${nature})` : ''} annulée${recredit}${a.keystone ? ' — Keystone prévenu' : ''}${feuilles}${reprise}`;
+  return `Absence de ${emp.nom}${nature ? ` (${nature})` : ''} annulée${recredit}${a.keystone ? ' — Keystone prévenu' : ''}${feuilles}${renvoi}${reprise}`;
 };
 
 /** Nature dans un message : « congés payés », « RTT / repos », « arrêt maladie » ; rien pour une absence à qualifier. */

@@ -34,7 +34,7 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
   supprimer une équipe, désigner son manager, affecter les collaborateurs).
 - **Manager** : son équipe — inscriptions aux sessions et demandes de formation / habilitation,
   absences posées et validées, absences imprévues signalées (le service RH en précise la nature, jamais
-  communiquée au manager pour un arrêt de travail), saisie et correction des feuilles de temps, poste et jours non
+  communiquée au manager pour un arrêt de travail ou la santé d'un enfant), saisie et correction des feuilles de temps, poste et jours non
   travaillés des fiches, ajout et retrait de membres, entretiens, missions.
   Pas d'accès aux données de santé (seul le verdict d'aptitude est transmis).
 - **Utilisateur** (collaborateur) : ses formations, habilitations, voyages, heures,

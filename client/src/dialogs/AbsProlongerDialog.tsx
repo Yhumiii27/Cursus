@@ -23,7 +23,8 @@ export function AbsProlongerDialog({ id }: { id: number }) {
   if (!a || !emp) return null;
 
   const debut = addD(a.au, 1);
-  const chk = au ? checkNature(d, emp, a.type as NatureAbsence | 'ABSENCE', debut, au, { exclure: a.id, quand: 'avant de prolonger l’absence' }) : null;
+  // Durée légale contrôlée sur toute l'absence, prolongation comprise (`depuis`).
+  const chk = au ? checkNature(d, emp, a.type as NatureAbsence | 'ABSENCE', debut, au, { exclure: a.id, quand: 'avant de prolonger l’absence', depuis: a.du }) : null;
   const confirm = async () => {
     setBusy(true);
     const r = await run('absence.prolonger', { id, au });

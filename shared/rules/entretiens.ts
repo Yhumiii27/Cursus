@@ -1,6 +1,6 @@
 // Entretiens obligatoires (art. L6315-1, L3121-64) et campagne annuelle.
 import { addD, addM, parse } from '../dates.ts';
-import { fmt } from '../format.ts';
+import { fmt, norm } from '../format.ts';
 import type { Domain } from '../domain.ts';
 import type { Employe, Entretien, EntretienType, ISODate } from '../types.ts';
 
@@ -10,6 +10,9 @@ export interface Obligation { id: number; e: Employe; kind: EntretienType; due: 
 export const ENT_ST: Record<ObligStatus, [string, string]> = {
   late: ['En retard', 'tag-accent'], soon: ['À échéance', 'tag-outline'], planifie: ['Planifié', 'tag-neutral'], todo: ['À planifier', 'tag-outline'], ok: ['À jour', 'tag-neutral'],
 };
+
+/** « de congé parental », « d’arrêt longue maladie » : élision devant une voyelle. */
+const de = (s: string) => /^[aeiouy]/.test(norm(s)) ? `d’${s}` : `de ${s}`;
 
 export function obligations(d: Domain, scopeIds: number[]): Obligation[] {
   const Ti = d.ti, in90 = addD(Ti, 90), Y = d.year;
@@ -29,7 +32,7 @@ export function obligations(d: Domain, scopeIds: number[]): Obligation[] {
     push('epp', lastE ? addM(lastE.date, 48) : addM(e.entree, 12),
       lastE ? `Dernier le ${fmt(parse(lastE.date))} · périodicité 4 ans` : `Embauche le ${fmt(parse(e.entree))} — premier entretien dans l’année`);
     if (e.repriseDate && !(lastE && lastE.date >= e.repriseDate)) {
-      push('reprise', e.repriseDate, `Retour de ${e.repriseMotif ?? 'congé'} le ${fmt(parse(e.repriseDate))} — à proposer systématiquement`);
+      push('reprise', e.repriseDate, `Retour ${de(e.repriseMotif ?? 'congé')} le ${fmt(parse(e.repriseDate))} — à proposer systématiquement`);
     }
     let anniv = addM(e.entree, 96);
     while (anniv < addM(Ti, -12)) anniv = addM(anniv, 96);

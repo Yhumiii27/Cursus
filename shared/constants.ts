@@ -35,7 +35,8 @@ export const PAIE_ABSENCE: Record<PaieAbsence, string> = {
 
 /**
  * Nature d'une absence hors congés.
- * - `medicale` : donnée de santé, jamais transmise au manager ni à Keystone (« Absence », dates et état seulement).
+ * - `medicale` : donnée de santé, y compris celle d'un enfant (annonce d'un handicap, enfant malade) : jamais transmise
+ *   au manager ni à Keystone (« Absence », dates et état seulement).
  * - `decompte` : jours ouvrés (week-ends, fériés et jours non travaillés exclus) ou calendaires.
  * - `duree` : durée légale en jours selon `decompte` (par an si `parAn`), contrôlée par un simple avertissement.
  *   Minimum du Code du travail : la CCN Industries chimiques peut être plus favorable, à reporter ici.
@@ -127,12 +128,13 @@ export const NATURES_ABSENCE: Record<NatureAbsence, NatureDef> = {
     duree: 3, dureeNote: 'conjoint, partenaire de Pacs ou concubin, père, mère, beau-père, belle-mère, frère, sœur',
     justificatif: 'Acte de décès', article: 'Art. L3142-4', cp: CP_EVENEMENT,
   },
+  // Santé d'un enfant : donnée de santé, nature confidentielle comme un arrêt (`medicale`).
   HANDICAP_ENFANT: {
     label: 'Annonce du handicap, d’une pathologie chronique ou d’un cancer d’un enfant', abrege: 'Annonce handicap', court: 'congé pour l’annonce du handicap d’un enfant',
-    categorie: 'famille', paie: 'maintenue', decompte: 'ouvres', duree: 5, justificatif: 'Justificatif médical de l’annonce', article: 'Art. L3142-4', cp: CP_EVENEMENT,
+    categorie: 'famille', medicale: true, paie: 'maintenue', decompte: 'ouvres', duree: 5, justificatif: 'Justificatif médical de l’annonce', article: 'Art. L3142-4', cp: CP_EVENEMENT,
   },
   ENFANT_MALADE: {
-    label: 'Enfant malade', abrege: 'Enfant malade', court: 'congé pour enfant malade', categorie: 'famille', paie: 'non_payee', decompte: 'ouvres',
+    label: 'Enfant malade', abrege: 'Enfant malade', court: 'congé pour enfant malade', categorie: 'famille', medicale: true, paie: 'non_payee', decompte: 'ouvres',
     duree: 3, parAn: true, dureeNote: '5 jours si l’enfant a moins d’un an ou si le salarié assume la charge d’au moins trois enfants de moins de 16 ans',
     justificatif: 'Certificat médical concernant l’enfant', article: 'Art. L1225-61', cp: 'Non assimilé à du travail effectif, sauf disposition de la CCN',
   },

@@ -248,7 +248,7 @@ export function Absences() {
             <li>Compte épargne-temps : jusqu’à 5 RTT par an (avant le 31 décembre) et 5 CP par période, uniquement ceux de la 5e semaine (au-delà de 20 jours ouvrés).</li>
             <li>Intérim : congés gérés par l’agence ; CDD : indemnité compensatrice des CP non pris à l’échéance.</li>
             <li>Absences et feuilles de temps restent dans les bornes du contrat : entrée, fin du CDD, de la mission ou de l’alternance.</li>
-            <li>Annulation : le salarié retire sa demande en attente ; le manager ou le service RH annulent une absence qui n’a pas commencé, le service RH seul une absence commencée ou passée. Le solde est recrédité et Keystone prévenu.</li>
+            <li>Annulation : le salarié retire sa demande en attente, ou son propre signalement tant qu’il n’est ni qualifié ni prolongé ; le manager ou le service RH annulent une absence qui n’a pas commencé, le service RH seul une absence commencée ou passée. Le solde est recrédité et Keystone prévenu ; une feuille soumise sans heure que l’absence couvrait est renvoyée pour saisie.</li>
           </ul>
         </Panel>
       )}
@@ -278,7 +278,8 @@ export function Absences() {
             Le manager ou le salarié signale une absence imprévue ; elle compte aussitôt (aucune heure ces jours-là, indisponibilité transmise à Keystone).
             Le service RH la qualifie à réception du justificatif, ou saisit directement une absence prévisible. Aucun solde de congés n’est débité ;
             une semaine entièrement couverte se soumet sans heure. À la fin d’une maternité, d’une adoption, d’un congé parental ou d’un arrêt longue maladie,
-            la date de reprise est inscrite sur la fiche (entretien de parcours professionnel, art. L6315-1). L’effet sur l’acquisition des CP est indiqué pour mémoire : il n’est pas encore appliqué au calcul des droits.
+            la date de reprise est inscrite sur la fiche (entretien de parcours professionnel, art. L6315-1), sauf si une reprise antérieure attend encore son entretien ;
+            celle d’un arrêt longue maladie n’est pas montrée au manager. L’effet sur l’acquisition des CP est indiqué pour mémoire : il n’est pas encore appliqué au calcul des droits.
           </Fine>
         </Panel>
       )}

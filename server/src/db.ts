@@ -42,6 +42,7 @@ export const TABLES = {
       id: 'int', empId: 'int', type: 'text', du: 'text', au: 'text', statut: 'text', keystone: 'bool',
       // Absences hors congés : signalement, justificatif, prolongation ; annulation (toutes absences).
       signaleLe: 'text', signalePar: 'text', justificatif: 'bool', justificatifLe: 'text', finInitiale: 'text', annuleeLe: 'text', annuleePar: 'text',
+      signaleParInteresse: 'bool',
     },
   },
   cet: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', type: 'text', jours: 'real', date: 'text', periode: 'text' } },

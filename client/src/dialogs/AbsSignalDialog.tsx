@@ -50,7 +50,7 @@ export function AbsSignalDialog({ empId }: { empId?: number | null }) {
       {chk && <Controles msgs={chk.msgs} />}
       <Fine>
         L’absence compte dès son signalement : aucune heure ne peut être saisie ces jours-là et Keystone reçoit l’indisponibilité.
-        Le service RH précise ensuite sa nature (arrêt de travail, accident, événement familial…) ; un arrêt de travail n’est communiqué ni au manager ni à Keystone.
+        Le service RH précise ensuite sa nature (arrêt de travail, accident, événement familial…) ; un arrêt de travail ou la santé d’un enfant n’est communiqué ni au manager ni à Keystone.
         Si l’absence dure plus longtemps, prolongez-la depuis la liste.
       </Fine>
       {sel === me && !rh && <Fine muted={false}>Transmettez votre justificatif (avis d’arrêt de travail…) au service RH sous 48 heures.</Fine>}

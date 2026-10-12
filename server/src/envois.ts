@@ -36,7 +36,7 @@ export function mettreEnFile(db: Db, cible: Cible, type: string, contenu: Record
   const maintenant = new Date().toISOString();
   return db.insert<Envoi>('envois', {
     cible, type, cle: randomUUID(), contenu, statut: simule ? 'simule' : 'a_envoyer', tentatives: 0,
-    prochaine: simule ? null : maintenant, erreur: null, accuse: null, creation: maintenant, tentative: null, envoi: null,
+    prochaine: simule ? null : maintenant, erreur: null, accuse: null, creation: maintenant, tentative: null, envoi: null, classe: null,
   });
 }
 
@@ -50,10 +50,14 @@ type Issue = { ok: true; accuse: string } | { ok: false; definitif: boolean; err
 
 const court = (s: string, n = 300) => (s.length > n ? `${s.slice(0, n)}…` : s);
 
-/** Cause lisible d'une erreur réseau de fetch (connexion refusée, nom inconnu…). */
+/**
+ * Cause lisible d'une erreur réseau de fetch (connexion refusée, nom inconnu…). Une adresse citée par le
+ * message est retirée : elle pourrait porter des identifiants (montrés au RH et écrits dans le journal).
+ */
 function causeReseau(err: unknown): string {
   const c = (err as { cause?: { code?: string; message?: string } })?.cause;
-  return court(c?.code || c?.message || (err as Error)?.message || String(err), 120);
+  const texte = c?.code || c?.message || (err as Error)?.message || String(err);
+  return court(texte.replace(/\b[a-z][a-z0-9+.-]*:\/\/\S*/gi, '<adresse>'), 120);
 }
 
 /** Attente demandée par le destinataire (en-tête Retry-After, en secondes ou en date), en millisecondes. */
@@ -170,17 +174,26 @@ export function demarrerEnvois(db: Db, transports: Partial<Record<Cible, Transpo
 
 /** Relance un envoi en échec : nouvelle série de tentatives, avec la même clé d'idempotence. */
 export function relancerEnvoi(db: Db, e: Envoi): Envoi {
-  return db.update<Envoi>('envois', e.id, { statut: 'a_envoyer', tentatives: 0, prochaine: new Date().toISOString() });
+  return db.update<Envoi>('envois', e.id, { statut: 'a_envoyer', tentatives: 0, prochaine: new Date().toISOString(), classe: null });
 }
 
-/** État d'une cible : messages par statut, dernière réception confirmée, message en tête qui attend une nouvelle tentative. */
+/** Classe un envoi en échec, examiné par le RH (refus définitif du destinataire…) : il ne compte plus parmi les échecs en cours. */
+export function classerEnvoi(db: Db, e: Envoi): Envoi {
+  return db.update<Envoi>('envois', e.id, { classe: new Date().toISOString() });
+}
+
+/**
+ * État d'une cible : messages par statut, échecs en cours (non classés), dernière réception confirmée,
+ * message en tête qui attend une nouvelle tentative.
+ */
 export function etatEnvois(db: Db, cible: Cible): EtatEnvois {
   const n = Object.fromEntries(STATUTS_ENVOI.map(s => [s, 0])) as Record<StatutEnvoi, number>;
   for (const r of db.sql.prepare('SELECT statut, COUNT(*) AS n FROM envois WHERE cible = ? GROUP BY statut').all(cible) as { statut: StatutEnvoi; n: number }[]) n[r.statut] = Number(r.n);
+  const ouverts = db.sql.prepare(`SELECT COUNT(*) AS n FROM envois WHERE cible = ? AND statut = 'echec' AND classe IS NULL`).get(cible) as { n: number };
   const dernier = db.sql.prepare(`SELECT MAX(envoi) AS envoi FROM envois WHERE cible = ? AND statut = 'envoye'`).get(cible) as { envoi: string | null };
   const t = tete(db, cible);
   return {
-    cible, nombres: n, dernierSucces: dernier.envoi ?? null,
+    cible, nombres: n, echecsEnCours: Number(ouverts.n), dernierSucces: dernier.envoi ?? null,
     enReprise: t && t.tentatives > 0 ? { id: t.id, type: t.type, tentatives: t.tentatives, prochaine: t.prochaine, erreur: t.erreur } : null,
   };
 }

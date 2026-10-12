@@ -72,7 +72,7 @@ Relancez `npm run app` après une modification du code ou un déplacement du dos
 Modèle commenté : `.env.example`. En production (`NODE_ENV=production`), le serveur refuse de démarrer
 et liste les problèmes si `CURSUS_SECRET` manque ou fait moins de 32 caractères, si `KEYSTONE_API_KEY`
 manque ou reprend la clé de démonstration `demo-keystone` (hors démonstration), si `KEYSTONE_URL` est définie
-sans `KEYSTONE_TOKEN` ou n'est pas une adresse http(s), si `CURSUS_TODAY` est
+sans `KEYSTONE_TOKEN`, n'est pas une adresse http(s) ou porte des identifiants, si `CURSUS_TODAY` est
 définie, si la démonstration est active sans `CURSUS_HOST` (ou `HOST`) posée explicitement sur la boucle
 locale, ou si `CURSUS_INSECURE_COOKIE=1` hors de ce cas ; hors production, il les signale seulement.
 En production, la démonstration refuse aussi (403) toute requête relayée par un proxy (`Forwarded`,

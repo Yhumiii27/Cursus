@@ -3,7 +3,7 @@ import { useMemo } from 'react';
 import { GNG_CLS, GNG_LABEL } from '../../../shared/constants.ts';
 import type { GngStatus } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
-import { fmt, fmtShort, matricule, plural } from '../../../shared/format.ts';
+import { cap, fmt, fmtShort, matricule, plural } from '../../../shared/format.ts';
 import { Empty, Fine, Page, Panel, Pre, Tag, Two } from '../components/ui.tsx';
 import { useEnriched, useTrips } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -19,6 +19,8 @@ export function Chantiers() {
   // Réponse de l'API v1 (GET /api/integrations/keystone/v1/chantiers/:id/go-no-go).
   const payload = useMemo(() => sel ? JSON.stringify(d.verdictKeystone(sel, detail), null, 2) : '', [d, sel, detail]);
   const gngCount = (st: GngStatus) => chant.filter(x => x.status === st).length;
+  // Client et chef de projet sont facultatifs dans l'API Keystone : seuls ceux renseignés s'affichent.
+  const entete = sel ? cap([sel.c.client && `client ${sel.c.client}`, sel.c.chef && `chef de projet ${sel.c.chef}`].filter(Boolean).join(' · ')) : '';
 
   return (
     <Page
@@ -51,7 +53,7 @@ export function Chantiers() {
         <div className="row-wrap">
           <Panel style={{ flex: '1 1 520px' }} head={
             <div className="panel-head top">
-              <div><h2>{sel.c.id} — {sel.c.nom}</h2><div className="text-muted sub">Client {sel.c.client} · chef de projet {sel.c.chef}</div></div>
+              <div><h2>{sel.c.id} — {sel.c.nom}</h2>{entete && <div className="text-muted sub">{entete}</div>}</div>
               <Tag cls={GNG_CLS[sel.status]}>{GNG_LABEL[sel.status]}</Tag>
             </div>
           }>

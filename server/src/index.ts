@@ -166,7 +166,10 @@ app.post('/api/actions/:name', (req, res) => {
 app.get('/api/journal', (req, res) => {
   const user = authedUser(req);
   if (!user || user.role !== 'rh') return res.status(403).json({ error: 'Réservé au service RH' });
-  const rows = db.sql.prepare('SELECT at, actor, role, action, message FROM journal ORDER BY id DESC LIMIT 100').all();
+  // Appels entrants de Keystone (keystone.appel) : vue distincte (?vue=keystone), pour que leur volume
+  // ne masque pas les actions des utilisateurs ; toutes les lignes restent en base.
+  const appels = req.query.vue === 'keystone' ? 1 : 0;
+  const rows = db.sql.prepare(`SELECT at, actor, role, action, message FROM journal WHERE (action = 'keystone.appel') = ? ORDER BY id DESC LIMIT 100`).all(appels);
   res.json(rows);
 });
 

@@ -32,6 +32,9 @@ transmise par un canal sûr. Elle est comparée en temps constant.
 
 - En-tête absent ou clé fausse : `401` (`CLE_INVALIDE`).
 - Aucune clé configurée sur le serveur Cursus : `503` (`NON_CONFIGUREE`).
+- Le reverse proxy de Cursus peut n'admettre ces routes que depuis l'adresse de Keystone, avec un débit
+  limité (voir `docs/DEPLOIEMENT.md`) : une autre adresse reçoit `403` du proxy, un débit excessif
+  `429` (à rejouer plus tard).
 - Changement de clé : Cursus redémarre avec la nouvelle valeur ; Keystone la reçoit ensuite. Les
   appels faits entre-temps reçoivent `401` et sont à rejouer.
 
@@ -111,6 +114,11 @@ curl -s -X PUT -H "X-Api-Key: $CLE" -H 'Content-Type: application/json' \
 
 Un chantier n'est pas un projet : pour que les heures passées sur un chantier soient saisissables,
 transmettez aussi son projet (souvent de même code).
+
+Les activités internes (codes `INT-…`, par exemple `INT-PROD`) et les cours en CFA (`ECOLE`) sont
+aussi imputables : elles se créent et se modifient par cette même route, mais ne sont pas des projets
+Keystone. Leurs heures ne sont jamais renvoyées à Keystone (`heures.validees`), et un instantané qui
+les omet ne les archive pas : pour en clore une, `PUT` avec `"statut": "archive"`.
 
 ## Chantiers
 
@@ -226,7 +234,8 @@ saisies ne changent pas.
 - Chaque section transmise (`projets`, `chantiers`, `affectations`, `taches`) est l'état complet :
   chaque objet porte son identifiant (`code` pour un projet, `id` sinon) et est créé ou mis à jour.
 - Un projet ou un chantier **absent** de sa section est archivé, jamais supprimé (feuilles de temps
-  et historique s'y réfèrent).
+  et historique s'y réfèrent). Exception : les activités internes (`INT-…`, `ECOLE`), que l'instantané
+  peut omettre sans les archiver (voir « Projets »).
 - Une affectation ou une tâche **absente** est supprimée. Avec `depuis`, seules celles qui se
   terminent ce jour-là ou après sont concernées : l'historique antérieur est gardé sans avoir à le
   renvoyer.
@@ -357,16 +366,23 @@ Toute erreur est en JSON : `error` (message en français), `code` (stable, à te
 
 ## Journal des appels
 
-Chaque appel, accepté ou refusé (clé fausse comprise), est tracé dans le journal de Cursus
-(Paramètres → Journal des actions, action `keystone.appel`) : date, méthode, chemin, statut, code
-d'erreur et noms des champs refusés, référence (identifiant Keystone). Le contenu reçu n'y est jamais
-recopié : ni matricule, ni dates, ni destination.
+Chaque appel authentifié, accepté ou refusé, est tracé dans le journal de Cursus (Paramètres →
+Journal des actions, vue « Appels de Keystone », action `keystone.appel`) : date, méthode, chemin,
+statut, code d'erreur et noms des champs refusés, référence (identifiant Keystone). Le contenu reçu
+n'y est jamais recopié : ni matricule, ni dates, ni destination. Les clés de l'objet `heures` sont
+remplacées par `heures.<date>` ou `heures.<clé invalide>` ; un identifiant ou un segment de chemin
+mal formé, par `…` (la réponse à Keystone garde, elle, le détail complet).
+
+Les appels sans clé valide (`401`, `503`), que n'importe qui peut émettre, ne sont pas tracés un par
+un : ils sont comptés et résumés en une ligne par minute au plus (« 12 appels refusés sans clé
+valide (401 × 12) depuis 10:02:13 »), sans chemin ni contenu.
 
 ## Limites actuelles
 
-- Pas de limitation de débit : éviter d'interroger le Go / No Go en boucle (chaque appel est tracé).
-  Les changements de verdict sont poussés par Cursus (`verdict.modifie`) : une interrogation par
-  chantier et par jour suffit pour se recaler.
+- Pas de limitation de débit dans Cursus même (le reverse proxy peut en poser une, voir
+  « Authentification ») : éviter d'interroger le Go / No Go en boucle (chaque appel est tracé). Les
+  changements de verdict sont poussés par Cursus (`verdict.modifie`) : une interrogation par chantier
+  et par jour suffit pour se recaler.
 - Les référentiels (habilitations, certifications, destinations) sont tenus dans Cursus : un code
   manquant se demande au service RH.
 - Pas de lecture d'un objet par `GET` (hors verdict et demandes) : l'état enregistré est renvoyé par
@@ -502,8 +518,10 @@ verdict transmis par chantier et par ressource et le recalcule après chaque act
 déplacement créé, formalités mises à jour…), après chaque écriture de Keystone (affectation,
 exigences ou dates d'un chantier, instantané) et chaque jour (expirations, délais des formalités). Une
 nouvelle ressource reçoit aussi son premier verdict (`precedent: null`), comme chaque ressource des
-chantiers en cours ou à venir à la mise en service des envois. Une ressource retirée, un chantier
-archivé ou terminé ne produisent pas d'événement.
+chantiers en cours ou à venir à la mise en service des envois : les verdicts calculés tant que Cursus
+fonctionnait sans `KEYSTONE_URL` (simulation) ne comptent pas comme transmis, et repartent tous au
+premier démarrage en mode API. Une ressource retirée, un chantier archivé ou terminé ne produisent pas
+d'événement.
 
 | Champ | Type | Contenu |
 | --- | --- | --- |
@@ -527,13 +545,15 @@ verdict complet du chantier reste lisible par `GET /chantiers/{id}/go-no-go`.
 ### Côté Cursus
 
 - Configuration : `KEYSTONE_URL` et `KEYSTONE_TOKEN` (voir `docs/DEPLOIEMENT.md`). En production,
-  Cursus refuse de démarrer avec `KEYSTONE_URL` sans `KEYSTONE_TOKEN`, ou avec une adresse qui n'est
-  pas en `http(s)`.
+  Cursus refuse de démarrer avec `KEYSTONE_URL` sans `KEYSTONE_TOKEN`, avec une adresse qui n'est
+  pas en `http(s)` ou qui porte des identifiants (`utilisateur:motdepasse@`).
 - Sans `KEYSTONE_URL` (simulation, démonstration) : les événements sont tracés dans le journal et
-  marqués « simulés » ; rien n'est envoyé, ni rattrapé plus tard.
-- Suivi : Paramètres → Envois (statut, tentatives, dernière erreur, accusé, contenu, bouton Relancer
-  pour un envoi en échec) ; l'état affiché de l'intégration reprend le dernier envoi reçu et les échecs
-  en cours.
+  marqués « simulés » ; rien n'est envoyé, ni rattrapé plus tard, sauf les verdicts : à la mise en
+  service, chaque ressource suivie reçoit son verdict actuel (`verdict.modifie`, `precedent: null`).
+- Suivi : Paramètres → Envois (statut, tentatives, dernière erreur, accusé, contenu, boutons Relancer
+  et Classer pour un envoi en échec) ; l'état affiché de l'intégration reprend le dernier envoi reçu et
+  les échecs en cours. Un échec que la relance ne corrigera pas (refus définitif examiné par le service
+  RH) se classe : il reste dans la liste, sans plus compter parmi les échecs en cours.
 
 ### Tester la réception
 

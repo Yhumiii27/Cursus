@@ -56,8 +56,8 @@ design/            Prototype Claude Design de référence et guide du design sys
 
 - **Configuration** (`server/src/config.ts`) : lue au démarrage. En production, le serveur s'arrête
   (code 1) en listant les problèmes : `CURSUS_SECRET` absente ou courte, `KEYSTONE_API_KEY` absente
-  ou égale à la clé de démonstration (hors démonstration), `KEYSTONE_URL` sans `KEYSTONE_TOKEN` ou qui
-  n'est pas une adresse http(s), `CURSUS_TODAY` définie, démonstration sans
+  ou égale à la clé de démonstration (hors démonstration), `KEYSTONE_URL` sans `KEYSTONE_TOKEN`, qui
+  n'est pas une adresse http(s) ou qui porte des identifiants, `CURSUS_TODAY` définie, démonstration sans
   `CURSUS_HOST` (ou `HOST`) explicite sur la boucle locale, `CURSUS_INSECURE_COOKIE=1` hors de ce cas.
   Le mode démonstration ne s'active qu'avec `CURSUS_DEMO=1` ; en production (application de bureau),
   `demoPosteLocal` (`server/src/securite.ts`) refuse en plus (403) toute requête relayée par un proxy
@@ -72,8 +72,12 @@ design/            Prototype Claude Design de référence et guide du design sys
   `style` de React reste permise. Les documents imprimables utilisent `client/src/styles/print.css`
   et lancent l'impression avec le script servi `client/public/imprimer.js`.
 - **Keystone** : clé comparée en temps constant ; sans `KEYSTONE_API_KEY` (hors démonstration), 503.
-  Le corps n'est lu qu'après la clé ; chaque appel entrant, refusé compris, est tracé dans le journal
-  (`keystone.appel` : méthode, chemin, statut, référence), jamais le contenu reçu.
+  Le corps n'est lu qu'après la clé ; chaque appel authentifié est tracé dans le journal
+  (`keystone.appel` : méthode, chemin, statut, référence, champs refusés), jamais le contenu reçu (clés
+  de `heures`, identifiants et segments de chemin mal formés remplacés par un générique). Les appels
+  sans clé valide, que n'importe qui peut émettre, sont comptés et résumés en une ligne par minute au
+  plus. `GET /api/journal` les sépare des actions (`?vue=keystone`) ; le proxy restreint l'adresse
+  appelante (`docs/DEPLOIEMENT.md`).
 - Mise en production : `docs/DEPLOIEMENT.md`.
 
 ## Conventions d'écran
@@ -135,6 +139,7 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `entretien.clore` | id | évaluateur |
 | `entretien.signer` | id | salarié |
 | `envoi.relancer` | id | RH (envoi en échec, intégration configurée : nouvelle série de tentatives, même clé d'idempotence) |
+| `envoi.classer` | id | RH (envoi en échec examiné : reste listé, ne compte plus parmi les échecs en cours ; une relance le remet en cours) |
 | `parametres.maj` | horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, silent? | RH |
 | `demo.reinitialiser` | — | RH, mode démonstration |
 
@@ -197,12 +202,16 @@ Chantiers, projets, missions et tâches viennent de Keystone par l'API entrante
 les mêmes fonctions et les mêmes tables. Chaque objet porte son identifiant Keystone (`ref` pour les
 affectations, tâches et demandes, index uniques créés au démarrage) : un nouvel envoi le met à jour.
 
-- **Projet** (`projets`) : imputable dans les feuilles de temps ; archivé, il n'est plus proposé.
+- **Projet** (`projets`) : imputable dans les feuilles de temps ; archivé, il n'est plus proposé (saisie,
+  « Proposer depuis Keystone »). Les activités internes (`INT-*`, `ECOLE`) passent par la même route,
+  mais un instantané qui les omet ne les archive pas.
 - **Chantier** (`chantiers`) : exigences du Go / No Go. `ressources` est recalculé : salariés dont
   une affectation chevauche les dates du chantier. Archivé, il n'est plus évalué (`evaluateChantiers`).
 - **Affectation** = mission (`missions`, `projet` = chantier) : lieu et nature déduits du chantier.
 - **Tâche planifiée** (`taches`) : heures prévues par date (`heures`), entre `debut` et `fin` ;
   `tachesDeLaSemaine` / `suggestLines` (`shared/rules/temps.ts`) ne proposent que la semaine affichée.
+  L'instantané envoyé au navigateur n'en garde que 8 semaines avant et après la semaine en cours
+  (`tachesProches` de `dataset.ts`) ; `temps.suggest`, côté serveur, lit tout le planning.
 - **Demande de déplacement** (`demandesKeystone`) : contrôlée à la réception (affectation exigée),
   revalidée à l'acceptation, conservée après décision.
 
@@ -226,13 +235,16 @@ paie sera stocké. Contrat : `docs/API-KEYSTONE.md` et `docs/keystone-openapi.js
   `POST ${KEYSTONE_URL}/api/cursus/v1/evenements`, jeton `KEYSTONE_TOKEN`, en-tête `Idempotency-Key`
   (clé stable entre tentatives), 10 s au plus ; 2xx → envoyé avec l'accusé, 4xx (hors 408 et 429) →
   échec, sinon nouvelle tentative de 1 min à 1 h, 10 au plus. Sans `KEYSTONE_URL`, statut « simulé » et
-  message écrit dans le journal. Suivi et relance : Paramètres → Envois (`GET /api/envois`, RH).
+  message écrit dans le journal. Suivi, relance et classement des échecs : Paramètres → Envois
+  (`GET /api/envois`, RH) ; l'état de l'intégration ne compte que les échecs non classés.
 - **Verdicts Go / No Go** : `server/src/integrations/keystone-verdicts.ts` (`suivreVerdicts`) mémorise le
   dernier verdict transmis par chantier et ressource (table `verdictsKeystone`) et met en file
   `verdict.modifie` (codes de motif seulement) quand il change. Recalcul après chaque action, sauf les
   familles sans effet (`changeVerdicts` de `actions/index.ts` : temps, absences, entretiens…), après
   chaque écriture de Keystone et une fois par jour. Les verdicts du jeu de démonstration sont mémorisés
-  sans envoi.
+  sans envoi. Ceux mémorisés en simulation ne sont pas réputés transmis : le réglage `verdictsKeystoneMode`
+  retient le mode du suivi, et le premier calcul en mode API vide la table, d'où un premier verdict
+  (`precedent: null`) pour chaque ressource suivie.
 - **Sage Paie** : `server/src/integrations/sage.ts` (`pushToSage`). La file d'envoi prévoit la cible
   `sage` (colonne `cible`, transports par cible), sans la brancher tant que l'envoi n'est pas décidé.
 - **Authentification unique** : `server/src/auth.ts` et la route `/api/login`.

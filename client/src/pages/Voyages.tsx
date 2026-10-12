@@ -29,7 +29,9 @@ export function Voyages() {
   const demandes = data.demandesKeystone.filter(dm => dm.statut === 'attente').map(dm => {
     const emp = d.emp(dm.empId), c = d.chantier(dm.chantier), dest = d.destOf(dm.dest);
     const r = emp && dest ? d.readiness(emp, dm) : null;
-    const chefCourt = c ? c.chef.split(' ').map((w, i) => i === 0 ? w[0] + '.' : w).join(' ') : '';
+    // Chef de projet facultatif dans l'API Keystone : « K. Haddad », rien s'il n'est pas renseigné.
+    const mots = c?.chef ? c.chef.trim().split(/\s+/) : [];
+    const chefCourt = mots.map((w, i) => i === 0 && mots.length > 1 ? w[0] + '.' : w).join(' ');
     return { dm, emp, c, dest, r, chefCourt };
   });
 

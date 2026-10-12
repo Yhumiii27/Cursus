@@ -4,6 +4,7 @@
 // Les salariés sont désignés par leur matricule, `matricule()` de shared/format.ts : aujourd'hui dérivé
 // de l'identifiant interne (EMP-0001), il deviendra le matricule de paie (tâche distincte), sans autre
 // changement ici que la correspondance de `contexte()`. Le jeu de démonstration passe par ces mêmes fonctions (seed.ts).
+import { ACTIVITES_INTERNES } from '../../../shared/constants.ts';
 import { isValidDate, iso, parse } from '../../../shared/dates.ts';
 import { matricule, plural } from '../../../shared/format.ts';
 import type { Chantier, DemandeKeystone, DemandeStatut, Destination, ISODate, Mission, Projet, StatutKeystone, TacheKeystone, Voyage } from '../../../shared/types.ts';
@@ -44,7 +45,7 @@ export interface Ecriture<T> { resultat: Resultat; objet: T }
 export const dateReelle = (s: unknown): s is ISODate => typeof s === 'string' && isValidDate(s) && iso(parse(s)) === s;
 
 /** Identifiant Keystone : 1 à 64 caractères sûrs dans une URL. */
-const IDENTIFIANT = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
+export const IDENTIFIANT = /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/;
 const IDENTIFIANT_AIDE = 'Identifiant invalide : 1 à 64 caractères, lettres, chiffres, « . », « _ », « : » ou « - »';
 
 type Entree = Record<string, unknown>;
@@ -375,9 +376,9 @@ export type Bilan = Partial<Record<'projets' | 'chantiers' | 'affectations' | 't
 
 /**
  * Instantané : état complet des sections transmises (projets, chantiers, affectations, tâches), appliqué
- * en une transaction, tout ou rien. Chaque objet est créé ou mis à jour ; un projet ou un chantier absent
- * est archivé (jamais supprimé : feuilles et historique s'y réfèrent), une affectation ou une tâche absente
- * est supprimée — seulement si elle se termine à partir de `depuis`, quand cette date est fournie.
+ * en une transaction, tout ou rien. Chaque objet est créé ou mis à jour ; un projet (hors activités internes)
+ * ou un chantier absent est archivé (jamais supprimé : feuilles et historique s'y réfèrent), une affectation
+ * ou une tâche absente est supprimée — seulement si elle se termine à partir de `depuis`, quand cette date est fournie.
  * Une section omise n'est pas touchée. Les missions sans identifiant Keystone (bases antérieures) restent.
  */
 export function synchroniser(cx: Contexte, body: unknown): Bilan {
@@ -421,8 +422,12 @@ export function synchroniser(cx: Contexte, body: unknown): Bilan {
   const projets = section('projets', 'code', ecrireProjet);
   if (projets) {
     projets.b.archives = 0;
+    // Activités internes (INT-*) et cours en CFA (ECOLE) : imputables, mais pas des projets Keystone ;
+    // un instantané qui les omet ne les archive pas (PUT /projets/{code} avec « archive » pour en clore une).
     for (const p of db.all<Projet>('projets')) {
-      if (p.statut !== 'archive' && !projets.vus.has(p.code)) { db.update<Projet>('projets', p.code, { statut: 'archive' }); projets.b.archives++; }
+      if (p.statut === 'archive' || projets.vus.has(p.code) || ACTIVITES_INTERNES.test(p.code)) continue;
+      db.update<Projet>('projets', p.code, { statut: 'archive' });
+      projets.b.archives++;
     }
   }
   const chantiers = section('chantiers', 'id', ecrireChantier);

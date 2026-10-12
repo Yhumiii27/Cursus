@@ -22,8 +22,8 @@ const { ACTIONS } = await import('../server/src/actions/index.ts');
 const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
 const { keystoneRoutes, ROUTES_V1 } = await import('../server/src/integrations/keystone-routes.ts');
 const { Domain } = await import('../shared/domain.ts');
-const { CODES_MOTIF } = await import('../shared/constants.ts');
-const { suggestLines } = await import('../shared/rules/temps.ts');
+const { ACTIVITES_INTERNES, CODES_MOTIF } = await import('../shared/constants.ts');
+const { suggestLines, tachesDeLaSemaine } = await import('../shared/rules/temps.ts');
 type User = Parameters<typeof buildSnapshot>[1];
 type Corps = Record<string, any>;
 
@@ -35,11 +35,11 @@ const fermer: (() => void)[] = [];
 after(() => fermer.forEach(f => f()));
 
 /** Base de démonstration et routes Keystone servies par un Express de test. */
-async function fresh(demo = true) {
+async function fresh(demo = true, options: Parameters<typeof keystoneRoutes>[1] = {}) {
   const db = new Db(':memory:');
   if (demo) seedDemo(db);
   const app = express();
-  app.use('/api/integrations/keystone', keystoneRoutes(db));
+  app.use('/api/integrations/keystone', keystoneRoutes(db, options));
   const srv = app.listen(0, '127.0.0.1');
   await new Promise(res => srv.once('listening', res));
   fermer.push(() => srv.close());
@@ -59,8 +59,8 @@ async function fresh(demo = true) {
 
 const CHANTIER = { nom: 'Arrêt technique ATEX', client: 'Pétrochimie du Rhône', lieu: 'Feyzin', pays: 'FR', debut: '2026-11-16', fin: '2026-11-20', chef: 'Sarah Cohen', habilitations: ['atex'], certifications: ['sst'] };
 
-test('clé absente ou fausse : 401 sur chaque route, appel tracé sans contenu', async () => {
-  const { call, appels } = await fresh();
+test('clé absente ou fausse : 401 sur chaque route, appels refusés résumés sans contenu', async () => {
+  const { call, appels } = await fresh(true, { resumeRefus: 300 });
   const routes = [...ROUTES_V1.map(([m, p]) => [m, `/v1${p.replace(/\{\w+\}/g, 'K-2614')}`]), ['get', '/chantiers/K-2614/go-no-go'], ['post', '/demandes']];
   for (const [method, path] of routes) {
     for (const headers of [{}, { 'x-api-key': 'mauvaise-cle' }, { 'x-api-key': `${CLE}-plus-longue` }] as Record<string, string>[]) {
@@ -69,11 +69,16 @@ test('clé absente ou fausse : 401 sur chaque route, appel tracé sans contenu',
       assert.equal(r.body.code, 'CLE_INVALIDE');
     }
   }
+  // N'importe qui peut appeler sans clé : pas une ligne par appel, mais un résumé par période (une minute en service).
+  assert.equal(appels().length, 0, 'aucune ligne par appel refusé');
+  const total = () => appels().reduce((n, x) => n + x.payload.refuses, 0);
+  for (let i = 0; i < 40 && total() < routes.length * 3; i++) await new Promise(res => setTimeout(res, 50));
   const j = appels();
-  assert.equal(j.length, routes.length * 3, 'chaque appel refusé est tracé');
-  assert.ok(j.every(x => x.payload.statut === 401 && x.payload.reference === null));
+  assert.equal(total(), routes.length * 3, 'chaque appel refusé est compté');
+  assert.ok(j.length < 10, `${j.length} lignes de résumé`);
+  assert.match(j[0].message, /^\d+ appels? refusés? sans clé valide \(401 × \d+\) depuis \d{2}:\d{2}:\d{2}$/);
   assert.ok(!JSON.stringify(j).includes('EMP-0018'), 'jamais le contenu reçu');
-  assert.match(j[0].message, /^GET \/v1\/openapi\.json → 401 · CLE_INVALIDE$/);
+  assert.ok(!JSON.stringify(j).includes('/v1/'), 'ni le chemin appelé');
   // Corps illisible ou sans Content-Type JSON, route inconnue : réponses JSON.
   assert.equal((await call('PUT', '/v1/projets/X', '{"nom":')).body.code, 'JSON_INVALIDE');
   assert.equal((await call('PUT', '/v1/projets/X', undefined)).status, 415);
@@ -224,11 +229,27 @@ test('tâches planifiées : heures par jour, contrôles, proposition limitée à
   run(RH, 'temps.suggest', { empId: 2, week: '2026-10-12' });
   assert.equal(loadFull(db, RH).feuilles.find(f => f.empId === 2 && f.week === '2026-10-12')!.lignes.length, 3);
 
-  assert.equal((await call('DELETE', '/v1/taches/T-1')).body.resultat, 'supprime');
-  assert.equal((await call('DELETE', '/v1/taches/T-1')).body.code, 'TACHE_INCONNUE');
-  // Projet archivé : plus d'imputation manuelle.
+  // Navigateur : seules les semaines proches d'aujourd'hui (8 avant, 8 après) ; le serveur garde tout le planning.
+  await call('PUT', '/v1/taches/T-LOIN', { ...tache, debut: '2027-02-01', fin: '2027-02-05', heures: { '2027-02-01': 8, '2027-02-02': 8 } });
+  await call('PUT', '/v1/taches/T-BORD', { ...tache, debut: '2026-11-30', fin: '2026-12-11', heures: { '2026-12-04': 4, '2026-12-07': 6 } });
+  const envoyees = buildSnapshot(db, RH).taches;
+  assert.ok(!envoyees.some(t => t.ref === 'T-LOIN'), 'tâche lointaine non envoyée');
+  assert.deepEqual(envoyees.find(t => t.ref === 'T-BORD')!.heures, { '2026-12-04': 4 }, 'heures au-delà du 6 décembre retirées');
+  assert.deepEqual(envoyees.find(t => t.ref === 'T-1')!.heures, tache.heures);
+  assert.ok(loadFull(db, RH).taches.some(t => t.ref === 'T-LOIN'));
+  assert.deepEqual(lignes(2, '2027-02-01').at(-1), ['K-9001', 'Préparation arrêt', [8, 8, 0, 0, 0]], 'temps.suggest lit tout le planning');
+  await call('DELETE', '/v1/taches/T-LOIN');
+  await call('DELETE', '/v1/taches/T-BORD');
+
+  // Projet archivé : plus d'imputation manuelle, ni de proposition depuis ses tâches.
   await call('PUT', '/v1/projets/K-9001', { nom: 'Arrêt technique', statut: 'archive' });
   assert.throws(() => run(RH, 'temps.addLine', { empId: 2, week: '2026-10-19', projet: 'K-9001' }), /Projet clos dans Keystone/);
+  assert.ok(!tachesDeLaSemaine(domain(), 2, '2026-10-19').some(t => t.projet === 'K-9001'));
+  run(RH, 'temps.suggest', { empId: 2, week: '2026-10-19' });
+  assert.ok(!loadFull(db, RH).feuilles.find(f => f.empId === 2 && f.week === '2026-10-19')!.lignes.some(l => l.projet === 'K-9001'));
+
+  assert.equal((await call('DELETE', '/v1/taches/T-1')).body.resultat, 'supprime');
+  assert.equal((await call('DELETE', '/v1/taches/T-1')).body.code, 'TACHE_INCONNUE');
 });
 
 test('instantané : création, archivage, suppression bornée par « depuis », tout ou rien', async () => {
@@ -266,12 +287,15 @@ test('instantané : création, archivage, suppression bornée par « depuis », 
   // Même instantané renvoyé : rien ne change.
   r = await call('PUT', '/v1/instantane', { depuis: '2026-10-10', chantiers: [chantier, { ...chantier, id: 'K-4000', nom: 'Nouveau chantier' }], affectations });
   assert.deepEqual(r.body.bilan.affectations, { crees: 0, modifies: 0, inchanges: 3, supprimes: 0 });
-  // Sections projets et tâches : projets absents archivés (jamais supprimés), tâches absentes supprimées.
+  // Sections projets et tâches : projets absents archivés (jamais supprimés), sauf les activités internes
+  // (INT-*, ECOLE) ; tâches absentes supprimées.
   r = await call('PUT', '/v1/instantane', {
     projets: [{ code: 'K-2614', nom: 'Rétrofit presse hydraulique' }],
     taches: [{ id: 'KT-18-1', projet: 'K-2614', tache: 'Rétrofit — circuit hydraulique', matricule: 'EMP-0018', debut: '2026-10-26', fin: '2026-10-27', heures: { '2026-10-26': 8, '2026-10-27': 8 } }],
   });
-  assert.equal(r.body.bilan.projets.archives, 13);
+  assert.equal(r.body.bilan.projets.archives, 5);
+  const internes = db.all<Corps>('projets').filter(p => ACTIVITES_INTERNES.test(p.code));
+  assert.deepEqual([internes.length, internes.every(p => p.statut === 'actif')], [8, true], 'activités internes toujours imputables');
   assert.equal(r.body.bilan.taches.modifies, 1);
   assert.equal(db.count('taches'), 1);
   assert.equal(db.count('projets'), 14);
@@ -328,6 +352,28 @@ test('demandes : contrôles 400, doublons 409, hors affectation, ancienne route,
   assert.equal(j.at(-2)!.payload.version, 'obsolete');
   const texte = JSON.stringify(j);
   for (const perso of ['EMP-0018', 'EMP-0012', '2026-10-26', 'CI']) assert.ok(!texte.includes(perso), perso);
+});
+
+test('journal des appels : ni clé de l’objet heures, ni identifiant mal formé, longueur bornée', async () => {
+  const { call, appels } = await fresh();
+  await call('PUT', '/v1/projets/K-9001', { nom: 'Arrêt technique' });
+  const heures = { [`EMP-0018 arrêt maladie ${'x'.repeat(5000)}`]: 8, '2026-10-20': 8, 'a.b.maladie': 1 };
+  let r = await call('PUT', '/v1/taches/T-1', { projet: 'K-9001', tache: 'Préparation', matricule: 'EMP-0002', debut: '2026-10-14', fin: '2026-10-16', heures });
+  assert.equal(r.status, 400);
+  assert.equal(r.body.details.length, 3, 'le détail complet reste dans la réponse à Keystone');
+  r = await call('GET', `/v1/chantiers/${'Z'.repeat(3000)}/go-no-go`);
+  assert.equal(r.status, 404);
+  r = await call('GET', `/v1/chantiers/${encodeURIComponent('EMP-0018 maladie')}/go-no-go`);
+  assert.equal(r.status, 404);
+  const j = appels().slice(-3);
+  assert.deepEqual(j.map(x => x.message), [
+    'PUT /v1/taches/T-1 → 400 · VALIDATION (heures.<date>, heures.<clé invalide>) · réf. T-1',
+    'GET /v1/chantiers/…/go-no-go → 404 · CHANTIER_INCONNU',
+    'GET /v1/chantiers/…/go-no-go → 404 · CHANTIER_INCONNU',
+  ]);
+  assert.deepEqual(j.map(x => x.payload.reference), ['T-1', null, null]);
+  const texte = JSON.stringify(j);
+  for (const perso of ['maladie', 'EMP-0018', 'ZZZZ', '2026-10-20']) assert.ok(!texte.includes(perso), perso);
 });
 
 test('décision du RH : demande conservée (statut, date, décideur), revalidée à l’acceptation', async () => {

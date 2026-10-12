@@ -179,11 +179,15 @@ export interface Envoi {
   creation: string;
   tentative: string | null;
   envoi: string | null;
+  /** Échec classé par le RH (date ISO) : reste visible, mais ne compte plus parmi les échecs en cours. */
+  classe: string | null;
 }
 /** État d'une cible : messages par statut, dernière réception confirmée, message en tête qui attend une nouvelle tentative. */
 export interface EtatEnvois {
   cible: CibleEnvoi;
   nombres: Record<StatutEnvoi, number>;
+  /** Envois en échec que le RH n'a pas classés. */
+  echecsEnCours: number;
   dernierSucces: string | null;
   enReprise: { id: number; type: string; tentatives: number; prochaine: string | null; erreur: string | null } | null;
 }

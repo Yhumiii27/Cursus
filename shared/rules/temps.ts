@@ -153,11 +153,13 @@ export function demandesEnAttenteMessage(list: HeuresSurAbsence[], valideur = tr
 
 /**
  * Tâches Keystone du salarié planifiées la semaine `w` : dates de la tâche et heures prévues
- * du lundi au vendredi (le samedi et le dimanche ne figurent pas sur la feuille).
+ * du lundi au vendredi (le samedi et le dimanche ne figurent pas sur la feuille). Un projet archivé
+ * dans Keystone ne reçoit plus d'heures (temps.addLine) : ses tâches ne sont plus proposées.
  */
 export function tachesDeLaSemaine(d: Domain, empId: number, w: ISODate): TacheKeystone[] {
   const wd = wDays(w);
-  return d.ds.taches.filter(t => t.empId === empId && t.debut <= wd[4] && t.fin >= w && wd.some(day => num(t.heures?.[day]) > 0));
+  const clos = new Set(d.ds.referentiels.projets.filter(p => p.statut === 'archive').map(p => p.code));
+  return d.ds.taches.filter(t => t.empId === empId && !clos.has(t.projet) && t.debut <= wd[4] && t.fin >= w && wd.some(day => num(t.heures?.[day]) > 0));
 }
 
 /**

@@ -62,6 +62,7 @@ export const TABLES = {
     cols: {
       id: 'int', cible: 'text', type: 'text', cle: 'text', contenu: 'json', statut: 'text', tentatives: 'int', prochaine: 'text',
       erreur: 'text', accuse: 'text', creation: 'text', tentative: 'text', envoi: 'text',
+      classe: 'text', // échec examiné et classé par le RH : ne compte plus dans l'état de l'intégration
     },
     unique: [['cle']],
   },

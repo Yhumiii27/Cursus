@@ -32,7 +32,8 @@ export const api = {
   login: (role: Role, empId: number | null, password: string) => request<SessionState>('POST', '/api/login', { role, empId, password }),
   logout: () => request<SessionState>('POST', '/api/logout'),
   data: () => request<Dataset>('GET', '/api/data'),
-  journal: () => request<{ at: string; actor: string; role: string; action: string; message: string | null }[]>('GET', '/api/journal'),
+  /** `keystone` : appels entrants de Keystone seulement ; sinon, toutes les autres lignes. */
+  journal: (vue: 'actions' | 'keystone' = 'actions') => request<{ at: string; actor: string; role: string; action: string; message: string | null }[]>('GET', `/api/journal${vue === 'keystone' ? '?vue=keystone' : ''}`),
   envois: (statut: StatutEnvoi | null) => request<EnvoisState>('GET', `/api/envois${statut ? `?statut=${statut}` : ''}`),
   async action(name: string, payload: Record<string, unknown>): Promise<ActionResponse> {
     try {

@@ -211,7 +211,7 @@
         "tags": ["Référentiel"],
         "operationId": "synchroniser",
         "summary": "Synchronisation complète (instantané)",
-        "description": "État de référence des sections transmises, appliqué en une transaction (tout ou rien) : chaque objet est créé ou mis à jour ; un projet ou un chantier absent est archivé ; une affectation ou une tâche absente est supprimée, seulement si elle se termine à partir de `depuis` quand cette date est fournie. Une section omise n'est pas touchée. Corps limité à 2 Mo : au-delà, une section par appel.",
+        "description": "État de référence des sections transmises, appliqué en une transaction (tout ou rien) : chaque objet est créé ou mis à jour ; un projet ou un chantier absent est archivé (sauf les activités internes INT-* et ECOLE, jamais archivées par un instantané) ; une affectation ou une tâche absente est supprimée, seulement si elle se termine à partir de `depuis` quand cette date est fournie. Une section omise n'est pas touchée. Corps limité à 2 Mo : au-delà, une section par appel.",
         "requestBody": {
           "required": true,
           "content": {
@@ -480,7 +480,7 @@
         "required": ["crees", "modifies", "inchanges"],
         "properties": {
           "crees": { "type": "integer" }, "modifies": { "type": "integer" }, "inchanges": { "type": "integer" },
-          "archives": { "type": "integer", "description": "Projets et chantiers absents de l'instantané" },
+          "archives": { "type": "integer", "description": "Projets (hors activités internes INT-* et ECOLE) et chantiers absents de l'instantané" },
           "supprimes": { "type": "integer", "description": "Affectations et tâches absentes de l'instantané" }
         }
       },
@@ -742,7 +742,7 @@
         "allOf": [
           { "$ref": "#/components/schemas/EnveloppeEvenement" },
           {
-            "description": "Le verdict Go / No Go d'une ressource a changé (statut ou codes de motif), ou une nouvelle ressource a reçu son premier verdict (`precedent` null). Recalculé après chaque action de Cursus qui peut le changer, après chaque écriture de Keystone et chaque jour.",
+            "description": "Le verdict Go / No Go d'une ressource a changé (statut ou codes de motif), ou une nouvelle ressource a reçu son premier verdict (`precedent` null). Recalculé après chaque action de Cursus qui peut le changer, après chaque écriture de Keystone et chaque jour. Les verdicts calculés en simulation (sans KEYSTONE_URL) ne comptent pas comme transmis : à la mise en service des envois, chaque ressource suivie reçoit son verdict actuel comme premier verdict.",
             "properties": {
               "type": { "const": "verdict.modifie" },
               "donnees": {

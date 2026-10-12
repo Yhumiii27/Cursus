@@ -1,18 +1,20 @@
 // Routes des appels entrants de Keystone, montées sur /api/integrations/keystone : version 1 sous /v1
 // (contrat : docs/keystone-openapi.json, guide : docs/API-KEYSTONE.md) et anciennes routes gardées comme
-// alias obsolètes. Toutes exigent l'en-tête X-Api-Key. Chaque appel est tracé dans le journal (méthode,
-// chemin, statut, référence), jamais le contenu reçu : seuls des identifiants Keystone y figurent.
+// alias obsolètes. Toutes exigent l'en-tête X-Api-Key. Chaque appel authentifié est tracé dans le journal
+// (méthode, chemin, statut, référence), jamais le contenu reçu : seuls des identifiants Keystone y figurent.
+// Les appels sans clé valide, que n'importe qui peut émettre, sont seulement comptés et résumés.
 import express, { type NextFunction, type Request, type Response } from 'express';
 import { readFileSync } from 'node:fs';
 import { Domain } from '../../../shared/domain.ts';
+import { plural } from '../../../shared/format.ts';
 import type { Chantier, CurrentUser, DemandeKeystone, Destination, Formation, HabType } from '../../../shared/types.ts';
 import { loadFull, todayIso } from '../dataset.ts';
 import type { Db } from '../db.ts';
 import { KEYSTONE_API_KEY, keystoneKeyOk } from './keystone.ts';
 import { suivreVerdicts } from './keystone-verdicts.ts';
 import {
-  ErreurKeystone, bilanTexte, contexte, demandeApi, enregistrerAffectation, enregistrerChantier, enregistrerProjet, enregistrerTache,
-  recevoirDemande, supprimerAffectation, supprimerTache, synchroniser, type Ecriture,
+  ErreurKeystone, IDENTIFIANT, bilanTexte, contexte, dateReelle, demandeApi, enregistrerAffectation, enregistrerChantier, enregistrerProjet,
+  enregistrerTache, recevoirDemande, supprimerAffectation, supprimerTache, synchroniser, type Ecriture,
 } from './keystone-entrant.ts';
 
 /** Utilisateur technique des lectures (périmètre complet, comme le service RH). */
@@ -31,9 +33,10 @@ function ecriture<T>(res: Response, nom: string, r: Ecriture<T>): Reponse {
   return { status: r.resultat === 'cree' ? 201 : 200, body: { resultat: r.resultat, [nom]: r.objet } };
 }
 
+/** Identifiant de l'URL ; noté au journal seulement s'il a la forme d'un identifiant (le contrôle suit). */
 const param = (req: Request, res: Response, nom: string) => {
   const v = String(req.params[nom]);
-  res.locals.reference = v;
+  if (IDENTIFIANT.test(v)) res.locals.reference = v;
   return v;
 };
 
@@ -102,7 +105,21 @@ export const ROUTES_V1: RouteV1[] = [
 /** Référence d'une demande reçue, notée au journal seulement si elle a la forme d'un identifiant. */
 function referenceTracee(body: unknown): string | null {
   const r = (body as { reference?: unknown } | null)?.reference;
-  return typeof r === 'string' && /^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$/.test(r) ? r : null;
+  return typeof r === 'string' && IDENTIFIANT.test(r) ? r : null;
+}
+
+/** Chemin tracé : un segment qui n'a pas la forme d'un identifiant (texte libre, encodé…) est remplacé par « … ». */
+const cheminTrace = (chemin: string) => chemin.split('/').map(x => (!x || IDENTIFIANT.test(x) ? x : '…')).join('/').slice(0, 200);
+
+/**
+ * Nom d'un champ refusé, tracé : le chemin est fixé par Cursus (`chantiers[2].fin`), sauf les clés de l'objet
+ * `heures`, choisies par l'appelant : remplacées par « <date> » ou « <clé invalide> », jamais recopiées.
+ */
+function champTrace(champ: string): string {
+  const m = /^(.*?\bheures)\.(.+)$/.exec(champ);
+  const fixe = m ? m[1] : champ;
+  if (!/^[A-Za-z]+(\[\d{1,6}\])?(\.[A-Za-z]+(\[\d{1,6}\])?)*$/.test(fixe)) return '<champ>';
+  return (m ? `${fixe}.${dateReelle(m[2]) ? '<date>' : '<clé invalide>'}` : fixe).slice(0, 64);
 }
 
 function erreur(res: Response, e: ErreurKeystone) {
@@ -111,10 +128,10 @@ function erreur(res: Response, e: ErreurKeystone) {
 
 /** Trace l'appel juste avant la réponse (le journal est écrit même si l'écriture a été annulée). */
 function tracer(db: Db, req: Request, res: Response, body: unknown) {
-  const chemin = (req.originalUrl.split('?')[0].slice(BASE.length) || '/').slice(0, 200);
+  const chemin = cheminTrace(req.originalUrl.split('?')[0].slice(BASE.length) || '/');
   const statut = res.statusCode, reference: string | null = res.locals.reference ?? null;
   const b = body as { code?: string; details?: { champ: string }[] } | null;
-  const champs = statut >= 400 && b?.details ? [...new Set(b.details.map(x => x.champ))].slice(0, 20) : [];
+  const champs = statut >= 400 && b?.details ? [...new Set(b.details.map(x => champTrace(x.champ)))].slice(0, 20) : [];
   const detail = statut >= 400 ? `${b?.code ?? 'ERREUR'}${champs.length ? ` (${champs.join(', ')})` : ''}` : res.locals.resultat ?? '';
   db.insert('journal', {
     at: new Date().toISOString(), actor: 'Keystone', role: 'integration', action: 'keystone.appel',
@@ -141,14 +158,55 @@ const executer = (db: Db, fn: Traitement) => (req: Request, res: Response, next:
   }
 };
 
-/** Routes Keystone, à monter avant l'analyse JSON globale : elles lisent elles-mêmes le corps, une fois la clé vérifiée. */
-export function keystoneRoutes(db: Db) {
+/**
+ * Appels refusés sans clé valide (401, 503) : n'importe qui peut en émettre. Une ligne chacun laisserait un
+ * inconnu remplir le journal ; ils sont comptés, puis résumés en une seule ligne `intervalle` ms après le
+ * premier (une minute par défaut), sans chemin ni contenu reçus.
+ */
+function refusResumes(db: Db, intervalle: number) {
+  let refus: { n: number; statuts: Record<number, number>; du: Date } | null = null;
+  const resumer = () => {
+    const r = refus;
+    refus = null;
+    if (!r) return;
+    const statuts = Object.entries(r.statuts).map(([s, n]) => `${s} × ${n}`).join(', ');
+    try {
+      db.insert('journal', {
+        at: new Date().toISOString(), actor: 'Keystone', role: 'integration', action: 'keystone.appel',
+        message: `${plural(r.n, 'appel refusé', 'appels refusés')} sans clé valide (${statuts}) depuis ${r.du.toLocaleTimeString('fr-FR')}`,
+        payload: { refuses: r.n, statuts: r.statuts, du: r.du.toISOString() },
+      });
+    } catch (err) {
+      console.error(err);
+    }
+  };
+  return (statut: number) => {
+    if (!refus) {
+      refus = { n: 0, statuts: {}, du: new Date() };
+      setTimeout(resumer, intervalle).unref();
+    }
+    refus.n++;
+    refus.statuts[statut] = (refus.statuts[statut] ?? 0) + 1;
+  };
+}
+
+/**
+ * Routes Keystone, à monter avant l'analyse JSON globale : elles lisent elles-mêmes le corps, une fois la clé vérifiée.
+ * `resumeRefus` : délai du résumé des appels refusés sans clé valide, en millisecondes.
+ */
+export function keystoneRoutes(db: Db, { resumeRefus = 60_000 } = {}) {
   const router = express.Router();
-  // Journal : chaque réponse, y compris les refus de clé.
+  const compterRefus = refusResumes(db, resumeRefus);
+  // Journal : chaque réponse à un appel authentifié ; les refus de clé sont comptés à part.
   router.use((req, res, next) => {
     const json = res.json.bind(res);
     res.json = ((body: unknown) => {
-      try { tracer(db, req, res, body); } catch (err) { console.error(err); }
+      try {
+        if (res.locals.cleValide) tracer(db, req, res, body);
+        else compterRefus(res.statusCode);
+      } catch (err) {
+        console.error(err);
+      }
       return json(body);
     }) as Response['json'];
     next();
@@ -156,6 +214,7 @@ export function keystoneRoutes(db: Db) {
   router.use((req, res, next) => {
     if (!KEYSTONE_API_KEY) return erreur(res, new ErreurKeystone(503, 'NON_CONFIGUREE', 'Intégration Keystone non configurée'));
     if (!keystoneKeyOk(req.get('x-api-key'))) return erreur(res, new ErreurKeystone(401, 'CLE_INVALIDE', 'Clé API invalide'));
+    res.locals.cleValide = true;
     if ((req.method === 'PUT' || req.method === 'POST') && !req.is('application/json')) {
       return erreur(res, new ErreurKeystone(415, 'TYPE_NON_PRIS_EN_CHARGE', 'Corps JSON attendu (en-tête Content-Type: application/json)'));
     }

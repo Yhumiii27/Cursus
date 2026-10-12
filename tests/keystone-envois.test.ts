@@ -25,7 +25,8 @@ const { ACTIONS, changeVerdicts } = await import('../server/src/actions/index.ts
 const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
 const { attente, demarrerEnvois, etatEnvois, listerEnvois, traiterFile, TENTATIVES_MAX } = await import('../server/src/envois.ts');
 const { heuresKeystone, sendToKeystone, transportKeystone } = await import('../server/src/integrations/keystone.ts');
-const { suivreVerdicts } = await import('../server/src/integrations/keystone-verdicts.ts');
+const { MODE_VERDICTS, suivreVerdicts } = await import('../server/src/integrations/keystone-verdicts.ts');
+const { contexte, enregistrerAffectation, enregistrerChantier } = await import('../server/src/integrations/keystone-entrant.ts');
 const { keystoneRoutes } = await import('../server/src/integrations/keystone-routes.ts');
 const { problemesConfig } = await import('../server/src/config.ts');
 const { EVENEMENT_LABEL } = await import('../shared/constants.ts');
@@ -189,12 +190,22 @@ test('erreur 400 : échec définitif, les messages suivants partent, relance par
   assert.deepEqual(listerEnvois(db, { statut: 'echec' }).map(x => x.id), [a.id]);
   assert.deepEqual(listerEnvois(db).map(x => x.id), [b.id, a.id], 'les plus récents d’abord');
 
+  // Classement : l'échec examiné par le RH reste dans la liste mais ne compte plus dans l'état de l'intégration.
+  assert.deepEqual([etatEnvois(db, 'keystone').nombres.echec, etatEnvois(db, 'keystone').echecsEnCours], [1, 1]);
+  assert.throws(() => run(KARIM, 'envoi.classer', { id: a.id }), (e: unknown) => e instanceof ActionError && e.status === 403);
+  assert.throws(() => run(RH, 'envoi.classer', { id: b.id }), /Seul un envoi en échec peut être classé/);
+  assert.match(String(run(RH, 'envoi.classer', { id: a.id })), /classé — il ne compte plus parmi les échecs en cours/);
+  assert.throws(() => run(RH, 'envoi.classer', { id: a.id }), /Envoi déjà classé/);
+  assert.ok(db.get<Envoi>('envois', a.id)!.classe);
+  assert.deepEqual([etatEnvois(db, 'keystone').nombres.echec, etatEnvois(db, 'keystone').echecsEnCours], [1, 0]);
+  assert.deepEqual(listerEnvois(db, { statut: 'echec' }).map(x => x.id), [a.id], 'toujours listé');
+
   // Relance : réservée au RH, pour un envoi en échec ; même clé, nouvelle série de tentatives.
   assert.throws(() => run(KARIM, 'envoi.relancer', { id: a.id }), (e: unknown) => e instanceof ActionError && e.status === 403);
   assert.throws(() => run(RH, 'envoi.relancer', { id: b.id }), /Seul un envoi en échec peut être relancé/);
   assert.throws(() => run(RH, 'envoi.relancer', { id: 999 }), /Envoi introuvable/);
   assert.match(String(run(RH, 'envoi.relancer', { id: a.id })), /Envoi absence\.validee relancé vers Keystone/);
-  assert.deepEqual([db.get<Envoi>('envois', a.id)!.statut, db.get<Envoi>('envois', a.id)!.tentatives], ['a_envoyer', 0]);
+  assert.deepEqual([db.get<Envoi>('envois', a.id)!.statut, db.get<Envoi>('envois', a.id)!.tentatives, db.get<Envoi>('envois', a.id)!.classe], ['a_envoyer', 0, null], 'relancé : plus classé');
   await traiterFile(db, 'keystone', t);
   assert.equal(db.get<Envoi>('envois', a.id)!.statut, 'envoye');
   assert.deepEqual(ks.recus.filter(r => r.body.donnees.absence === 7 && r.body.type === 'absence.validee').map(r => r.headers['idempotency-key']), [a.cle, a.cle]);
@@ -243,6 +254,13 @@ test('délai dépassé ou Keystone injoignable : nouvelle tentative, puis échec
   }
   assert.equal(x.prochaine, null);
   assert.match(db.all<Corps>('journal').find(j => j.action === 'keystone.echec')!.message, /après 10 tentatives — Erreur réseau/);
+
+  // Adresse avec identifiants (refusée en production) : fetch la recopie dans son erreur, Cursus jamais.
+  const e2 = sendToKeystone(db, { type: 'absence.validee', absence: 2, matricule: 'EMP-0002', du: '2026-12-07', au: '2026-12-08' });
+  await traiterFile(db, 'keystone', { ...t, url: `http://svc:S3cret@127.0.0.1:${libre}/api/cursus/v1/evenements` });
+  const x2 = db.get<Envoi>('envois', e2.id)!;
+  assert.match(x2.erreur!, /^Erreur réseau : .*<adresse>/);
+  assert.ok(!x2.erreur!.includes('S3cret'));
 });
 
 test('un seul envoi à la fois par cible, dans l’ordre d’émission ; un message en attente retient les suivants', async () => {
@@ -351,6 +369,46 @@ test('verdict Go / No Go : recalcul quotidien, une expiration signalée une fois
   }
 });
 
+test('verdicts : mémorisés en simulation, tous renvoyés comme premiers verdicts au passage en mode API', async () => {
+  const ks = await fauxKeystone();
+  modeSimulation();
+  const { db, envois } = fresh();
+  const verdicts = () => envois('verdict.modifie');
+  assert.equal(db.getSetting(MODE_VERDICTS, null), 'simulation');
+  // En production sans KEYSTONE_URL : Keystone crée un chantier qui exige l'ATEX et y affecte Romain Chevalier (No Go).
+  db.tx(() => {
+    enregistrerChantier(contexte(db), 'K-NEW', { nom: 'Arrêt ATEX', lieu: 'Feyzin', pays: 'FR', debut: '2026-11-16', fin: '2026-11-20', habilitations: ['atex'] });
+    enregistrerAffectation(contexte(db), 'AF-NEW', { matricule: 'EMP-0018', chantier: 'K-NEW', du: '2026-11-16', au: '2026-11-20' });
+    suivreVerdicts(db);
+  });
+  assert.deepEqual(verdicts().map(e => [e.statut, (e.contenu as Corps).chantier]), [['simule', 'K-NEW']]);
+  const suivis = db.count('verdictsKeystone');
+  assert.equal(suivis, 13);
+
+  // KEYSTONE_URL définie (redémarrage) : rien n'a été transmis, chaque ressource suivie part avec un premier verdict.
+  const t = modeApi(ks.url);
+  try {
+    const signales = db.tx(() => suivreVerdicts(db));
+    assert.equal(signales.length, suivis);
+    const partis = verdicts().filter(e => e.statut === 'a_envoyer').map(e => e.contenu as Corps);
+    assert.equal(partis.length, suivis);
+    assert.ok(partis.every(v => v.ressource.precedent === null), 'premiers verdicts');
+    const neuf = partis.find(v => v.chantier === 'K-NEW')!;
+    assert.deepEqual([neuf.ressource.matricule, neuf.ressource.statut, neuf.ressource.motifs], ['EMP-0018', 'NO_GO', [{ code: 'HABILITATION', niveau: 'NO_GO' }]]);
+    assert.equal(db.getSetting(MODE_VERDICTS, null), 'api');
+    assert.deepEqual(suivreVerdicts(db), [], 'une seule fois');
+    assert.equal(await traiterFile(db, 'keystone', t), suivis);
+    assert.equal(ks.recus.length, suivis);
+    // Retour en simulation puis en mode API : les changements simulés entre-temps n'ont pas été reçus, tout repart.
+    modeSimulation();
+    assert.deepEqual(suivreVerdicts(db), []);
+    modeApi(ks.url);
+    assert.equal(suivreVerdicts(db).length, suivis);
+  } finally {
+    modeSimulation();
+  }
+});
+
 test('écriture de Keystone : nouvelle ressource signalée (premier verdict), retirée sans message', async () => {
   modeSimulation();
   const { db, envois } = fresh();
@@ -418,6 +476,12 @@ test('configuration : en production, KEYSTONE_URL exige KEYSTONE_TOKEN et une ad
   const invalide = problemesConfig({ ...PROD, KEYSTONE_URL: 'keystone.interne', KEYSTONE_TOKEN: JETON });
   assert.equal(invalide.length, 1);
   assert.match(invalide[0], /KEYSTONE_URL n’est pas une adresse http\(s\) valide/);
+  // Identifiants dans l'adresse : refusés, sans être recopiés dans le message.
+  const identifiants = problemesConfig({ ...PROD, KEYSTONE_URL: 'http://svc:S3cret@keystone.interne:8080', KEYSTONE_TOKEN: JETON });
+  assert.equal(identifiants.length, 1);
+  assert.match(identifiants[0], /KEYSTONE_URL contient un identifiant ou un mot de passe/);
+  assert.ok(!identifiants.join().includes('S3cret'));
+  assert.ok(!problemesConfig({ ...PROD, KEYSTONE_URL: 'http//svc:S3cret@keystone', KEYSTONE_TOKEN: JETON }).join().includes('S3cret'), 'adresse invalide masquée');
   assert.equal(transportKeystone({ KEYSTONE_URL: 'http://ks:8080///' })!.url, 'http://ks:8080/api/cursus/v1/evenements');
   assert.deepEqual(transportKeystone({ KEYSTONE_URL: 'http://ks:8080' })!.entetes({} as Envoi), {}, 'sans jeton (hors production) : pas d’en-tête Authorization');
 });
@@ -496,6 +560,13 @@ test('serveur : l’action met en file, le processus de fond envoie, la vue Envo
   assert.equal(v.keystone.mode, 'api');
   assert.equal(v.keystone.dernierSucces, v.envois[0].envoi);
   assert.deepEqual((await lire().then(() => fetch(`${base}/api/envois?statut=echec`, { headers: { cookie } })).then(assert200)).envois, []);
+  // Journal : les appels entrants de Keystone ont leur vue, sans masquer les actions.
+  assert.equal((await fetch(`${base}/api/integrations/keystone/v1/chantiers/K-2614/go-no-go`, { headers: { 'x-api-key': 'demo-keystone' } })).status, 200);
+  const actions = await fetch(`${base}/api/journal`, { headers: { cookie } }).then(assert200) as unknown as Corps[];
+  assert.ok(actions.some(x => x.action === 'keystone.refuser'));
+  assert.ok(!actions.some(x => x.action === 'keystone.appel'));
+  const appels = await fetch(`${base}/api/journal?vue=keystone`, { headers: { cookie } }).then(assert200) as unknown as Corps[];
+  assert.deepEqual(appels.map(x => [x.action, x.message]), [['keystone.appel', 'GET /v1/chantiers/K-2614/go-no-go → 200 · réf. K-2614']]);
   // Réservée au service RH.
   await fetch(`${base}/api/mode`, { method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ role: 'manager' }) });
   assert.equal((await fetch(`${base}/api/envois`, { headers: { cookie } })).status, 403);

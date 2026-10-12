@@ -388,7 +388,8 @@ export function seedDemo(db: Db) {
         .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'RECUP') * d.dayH(e), 0);
       db.insert('soldesReprise', { empId: e.id, cpPris: cp, rttPris: rtt, recupAcquis: Math.max(h.recA, h.recP + recupDemandee), recupPris: h.recP });
     });
-    // Verdicts Go / No Go de départ : réputés connus de Keystone, seuls leurs changements lui seront envoyés.
+    // Verdicts Go / No Go de départ, mémorisés sans envoi : en mode API, réputés connus de Keystone, seuls leurs
+    // changements lui seront envoyés ; en simulation, ils repartiront tous au passage en mode API.
     suivreVerdicts(db, { initial: true });
   });
 }

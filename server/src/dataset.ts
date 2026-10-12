@@ -2,10 +2,10 @@
 // périmètre de l'utilisateur connecté (RH : tout ; manager : son équipe ;
 // collaborateur : ses propres données).
 import { Domain } from '../../shared/domain.ts';
-import { iso } from '../../shared/dates.ts';
+import { addD, iso, mondayOf } from '../../shared/dates.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Chantier, CurrentUser, Dataset, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
-  Equipe, FeuilleTemps, Formation, HabTitre, HabType, Mission, PlanAction, Projet, ReportCp, SagePush, Session, Settings, SoldeReprise,
+  Equipe, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mission, PlanAction, Projet, ReportCp, SagePush, Session, Settings, SoldeReprise,
   TacheKeystone, Vaccination, Visa, Voyage,
 } from '../../shared/types.ts';
 import type { Db } from './db.ts';
@@ -104,9 +104,23 @@ export function scopeIds(d: Domain, user: CurrentUser): number[] {
   return [user.empId!];
 }
 
+/** Semaines de planning Keystone envoyées au navigateur, avant et après la semaine en cours. */
+export const SEMAINES_TACHES = 8;
+
+/**
+ * Tâches Keystone de l'instantané envoyé au navigateur : celles des semaines proches d'aujourd'hui, avec
+ * leurs heures de ces semaines seulement. Le planning complet grossirait chaque réponse ; il ne sert qu'à
+ * proposer « Proposer depuis Keystone » sur la semaine affichée. Côté serveur, `temps.suggest` lit tout.
+ */
+export function tachesProches(taches: TacheKeystone[], today: ISODate): TacheKeystone[] {
+  const lundi = mondayOf(today), du = addD(lundi, -7 * SEMAINES_TACHES), au = addD(lundi, 7 * (SEMAINES_TACHES + 1) - 1);
+  return taches.filter(t => t.debut <= au && t.fin >= du)
+    .map(t => ({ ...t, heures: Object.fromEntries(Object.entries(t.heures ?? {}).filter(([jour]) => jour >= du && jour <= au)) }));
+}
+
 export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
   const full = loadFull(db, user);
-  if (user.role === 'rh') return full;
+  if (user.role === 'rh') return { ...full, taches: tachesProches(full.taches, full.today) };
   const d = new Domain(full);
   const ids = new Set(scopeIds(d, user));
   const mine = <T extends { empId: number }>(list: T[]) => list.filter(x => ids.has(x.empId));
@@ -130,7 +144,7 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     voyages,
     demandesKeystone: [],
     missions: mine(full.missions),
-    taches: mine(full.taches),
+    taches: tachesProches(mine(full.taches), full.today),
     feuilles: mine(full.feuilles),
     absences: mine(full.absences),
     cet: mine(full.cet),

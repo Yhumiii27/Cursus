@@ -58,10 +58,12 @@ export function problemesConfig(env: Env = process.env): string[] {
   else if (secret.length < 32) out.push(`CURSUS_SECRET est trop courte (${secret.length} caractères) : 32 au minimum.`);
   if (!env.KEYSTONE_API_KEY) out.push('KEYSTONE_API_KEY est absente : définissez la clé convenue avec Keystone (sans elle, hors démonstration, ses appels reçoivent une erreur 503).');
   else if (env.KEYSTONE_API_KEY === KEYSTONE_CLE_DEMO && !demo) out.push(`KEYSTONE_API_KEY reprend la clé de démonstration « ${KEYSTONE_CLE_DEMO} », publiée dans la documentation : choisissez une autre clé.`);
-  // Envois à Keystone (server/src/envois.ts) : adresse lisible et jeton d'appel.
+  // Envois à Keystone (server/src/envois.ts) : adresse lisible, sans identifiants (refusés par fetch, qui
+  // les recopierait dans ses messages d'erreur ; jamais affichés ici), et jeton d'appel.
   const keystoneUrl = env.KEYSTONE_URL?.trim();
   if (keystoneUrl) {
-    if (!/^https?:\/\/[^\s/]+/i.test(keystoneUrl) || !URL.canParse(keystoneUrl)) out.push(`KEYSTONE_URL n’est pas une adresse http(s) valide (${keystoneUrl}) : indiquez l’adresse de base de Keystone, par exemple http://keystone.interne:8080.`);
+    if (!/^https?:\/\/[^\s/]+/i.test(keystoneUrl) || !URL.canParse(keystoneUrl)) out.push(`KEYSTONE_URL n’est pas une adresse http(s) valide (${keystoneUrl.replace(/[^/@\s]*@/, '…@')}) : indiquez l’adresse de base de Keystone, par exemple http://keystone.interne:8080.`);
+    else if (new URL(keystoneUrl).username || new URL(keystoneUrl).password) out.push('KEYSTONE_URL contient un identifiant ou un mot de passe (utilisateur:motdepasse@) : indiquez l’adresse seule, le jeton passe par KEYSTONE_TOKEN.');
     if (!env.KEYSTONE_TOKEN) out.push('KEYSTONE_URL est définie sans KEYSTONE_TOKEN : les envois à Keystone partiraient sans authentification. Définissez le jeton convenu avec Keystone.');
   }
   if (env.CURSUS_TODAY) out.push(`CURSUS_TODAY est définie (${env.CURSUS_TODAY}) : elle fige la date du jour et reste réservée à la démonstration et aux tests.`);

@@ -1,6 +1,6 @@
 // Paramètres (service RH) : règles de suivi, intégrations Keystone et Sage Paie, envois sortants, journal des actions, démonstration.
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowClockwiseIcon, ArrowCounterClockwiseIcon } from '@phosphor-icons/react';
+import { ArchiveIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon } from '@phosphor-icons/react';
 import { ENVOI_CLS, ENVOI_LABEL, EVENEMENT_LABEL, GNG_LABEL } from '../../../shared/constants.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, fmtShort, matricule, num, plural } from '../../../shared/format.ts';
@@ -51,15 +51,18 @@ const quand = (at: string) => {
   return `${fmt(d)} à ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
 };
 
-/** État réel des envois à Keystone : simulation, échecs en cours, reprise après erreur, ou à jour. */
+/** État réel des envois à Keystone : simulation, échecs en cours (non classés), reprise après erreur, ou à jour. */
 function KeystoneTag({ mode, etat }: { mode: string; etat: EnvoisState['keystone'] | null }) {
   if (mode !== 'api') return <Tag cls="tag-outline">Simulation</Tag>;
   if (!etat) return <Tag cls="tag-outline">Mode API</Tag>;
-  if (etat.nombres.echec) return <Tag cls="tag-accent">{plural(etat.nombres.echec, 'envoi en échec', 'envois en échec')}</Tag>;
+  if (etat.echecsEnCours) return <Tag cls="tag-accent">{plural(etat.echecsEnCours, 'envoi en échec', 'envois en échec')}</Tag>;
   if (etat.enReprise) return <Tag cls="tag-accent">Keystone ne répond pas</Tag>;
   if (etat.nombres.a_envoyer) return <Tag cls="tag-outline">Envoi en cours</Tag>;
   return <Tag cls="tag-neutral">{etat.dernierSucces ? 'API · à jour' : 'API · aucun envoi'}</Tag>;
 }
+
+type VueJournal = 'actions' | 'keystone';
+const VUES_JOURNAL: [VueJournal, string][] = [['actions', 'Actions'], ['keystone', 'Appels de Keystone']];
 
 type FiltreEnvoi = StatutEnvoi | 'tous';
 const FILTRES_ENVOI: [FiltreEnvoi, string][] = [['tous', 'Tous'], ['a_envoyer', 'À envoyer'], ['echec', 'En échec'], ['envoye', 'Envoyés'], ['simule', 'Simulés']];
@@ -93,15 +96,17 @@ export function Parametres() {
   }, [rh, enAttente, loadEnvois]);
 
   // Journal : rechargé au montage et à chaque nouvel instantané (donc après chaque action).
+  // Les appels entrants de Keystone, nombreux, ont leur propre vue pour ne pas masquer les actions.
+  const [vueJournal, setVueJournal] = useState<VueJournal>('actions');
   const [journal, setJournal] = useState<JournalRow[] | null>(null);
   const [journalError, setJournalError] = useState<string | null>(null);
   const loadJournal = useCallback(() => {
     let cancelled = false;
-    api.journal()
+    api.journal(vueJournal)
       .then(rows => { if (!cancelled) { setJournal(rows); setJournalError(null); } })
       .catch(err => { if (!cancelled) setJournalError((err as Error).message); });
     return () => { cancelled = true; };
-  }, []);
+  }, [vueJournal]);
   useEffect(() => (rh ? loadJournal() : undefined), [data, rh, loadJournal]);
 
   // Seuil budgétaire : valeur en cours de glissement, enregistrée au relâchement.
@@ -199,17 +204,18 @@ export function Parametres() {
                 </div>
               ))}
             </div>
-            <Fine>Préfixe <span style={MONO}>/api/integrations/keystone/v1</span> · authentification par l’en-tête <span style={MONO}>X-Api-Key</span> (clé définie par la variable <span style={MONO}>KEYSTONE_API_KEY</span>) · spécification OpenAPI : <span style={MONO}>/v1/openapi.json</span>. Chaque appel est tracé dans le journal ; les routes sans <span style={MONO}>/v1</span> restent servies, obsolètes.</Fine>
+            <Fine>Préfixe <span style={MONO}>/api/integrations/keystone/v1</span> · authentification par l’en-tête <span style={MONO}>X-Api-Key</span> (clé définie par la variable <span style={MONO}>KEYSTONE_API_KEY</span>) · spécification OpenAPI : <span style={MONO}>/v1/openapi.json</span>. Chaque appel est tracé dans le journal (vue « Appels de Keystone » ; les appels sans clé valide y sont résumés, une ligne par minute au plus) ; les routes sans <span style={MONO}>/v1</span> restent servies, obsolètes.</Fine>
             <SectionLabel>Envois sortants</SectionLabel>
             <Fine>
               {keystoneMode === 'api'
                 ? 'Mode API : les décisions sur les demandes de déplacement, les heures validées sur les projets Keystone (ni activités internes, ni cours en CFA), les absences validées et les changements de verdict Go / No Go sont mis en file puis envoyés à Keystone un par un, avec de nouvelles tentatives en cas d’erreur (voir « Envois » ci-dessous).'
-                : 'Mode simulation (KEYSTONE_URL non définie) : les messages sortants — décisions sur les demandes, heures validées sur les projets Keystone, absences validées, changements de verdict Go / No Go — sont tracés dans le journal et marqués « simulés », sans être envoyés.'}
+                : 'Mode simulation (KEYSTONE_URL non définie) : les messages sortants — décisions sur les demandes, heures validées sur les projets Keystone, absences validées, changements de verdict Go / No Go — sont tracés dans le journal et marqués « simulés », sans être envoyés. À la mise en service des envois, Keystone recevra le verdict actuel de chaque ressource suivie.'}
             </Fine>
             {keystoneMode === 'api' && envois && (
               <Fine muted={!envois.keystone.enReprise}>
                 {envois.keystone.dernierSucces ? `Dernier envoi reçu par Keystone le ${quand(envois.keystone.dernierSucces)}` : 'Aucun envoi reçu par Keystone pour le moment'}
-                {` · ${plural(envois.keystone.nombres.a_envoyer, 'message à envoyer', 'messages à envoyer')} · ${plural(envois.keystone.nombres.echec, 'envoi en échec', 'envois en échec')}`}
+                {` · ${plural(envois.keystone.nombres.a_envoyer, 'message à envoyer', 'messages à envoyer')} · ${plural(envois.keystone.echecsEnCours, 'envoi en échec', 'envois en échec')}`}
+                {envois.keystone.nombres.echec > envois.keystone.echecsEnCours && ` · ${plural(envois.keystone.nombres.echec - envois.keystone.echecsEnCours, 'échec classé', 'échecs classés')}`}
                 {envois.keystone.enReprise && ` · nouvelle tentative ${envois.keystone.enReprise.prochaine ? `le ${quand(envois.keystone.enReprise.prochaine)}` : 'bientôt'} (${envois.keystone.enReprise.tentatives} sur 10 déjà faites) — ${envois.keystone.enReprise.erreur ?? 'erreur inconnue'}`}
               </Fine>
             )}
@@ -244,14 +250,15 @@ export function Parametres() {
       <EnvoisPanel etat={envois} error={envoisError} filtre={filtre} setFiltre={setFiltre} reload={loadEnvois} mode={keystoneMode} />
 
       <Panel title="Journal des actions" aside={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
-          <span className="text-muted sub">100 dernières actions</span>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+          <Seg name="journal-vue" label="Lignes du journal" value={vueJournal} options={VUES_JOURNAL} onChange={setVueJournal} />
+          <span className="text-muted sub">100 dernières lignes</span>
           <Btn small onClick={() => loadJournal()}>Actualiser</Btn>
         </div>
       }>
         {journalError && <p className="form-error">{journalError}</p>}
         {journal == null && !journalError && <Empty pad="sm">Chargement du journal…</Empty>}
-        {journal != null && journal.length === 0 && <Empty pad="sm">Aucune action enregistrée.</Empty>}
+        {journal != null && journal.length === 0 && <Empty pad="sm">{vueJournal === 'keystone' ? 'Aucun appel de Keystone enregistré.' : 'Aucune action enregistrée.'}</Empty>}
         {journal != null && journal.length > 0 && (
           <div className="scroll-x" style={{ maxHeight: 520, overflowY: 'auto' }}>
             <table className="table">
@@ -315,12 +322,12 @@ function resumeEnvoi(e: Envoi, nom: (m: unknown) => string): string {
 function suiviEnvoi(e: Envoi): string {
   if (e.statut === 'envoye') return `Reçu le ${quand(e.envoi!)} · accusé ${e.accuse ?? '—'}`;
   if (e.statut === 'simule') return 'Tracé dans le journal (simulation)';
-  if (e.statut === 'echec') return `Échec après ${plural(e.tentatives, 'tentative', 'tentatives')} — ${e.erreur ?? 'erreur inconnue'}`;
+  if (e.statut === 'echec') return `Échec après ${plural(e.tentatives, 'tentative', 'tentatives')}${e.classe ? ` · classé le ${quand(e.classe)}` : ''} — ${e.erreur ?? 'erreur inconnue'}`;
   if (!e.tentatives) return 'En file, envoi dans quelques secondes';
   return `Tentative ${e.tentatives + 1} le ${quand(e.prochaine!)} — ${e.erreur ?? 'erreur inconnue'}`;
 }
 
-/** Vue « Envois » : messages sortants filtrés par statut, détail de chacun, relance d'un envoi en échec. */
+/** Vue « Envois » : messages sortants filtrés par statut, détail de chacun, relance ou classement d'un envoi en échec. */
 function EnvoisPanel({ etat, error, filtre, setFiltre, reload, mode }: {
   etat: EnvoisState | null; error: string | null; filtre: FiltreEnvoi; setFiltre: (f: FiltreEnvoi) => void; reload: () => void; mode: string;
 }) {
@@ -330,6 +337,10 @@ function EnvoisPanel({ etat, error, filtre, setFiltre, reload, mode }: {
   const liste = etat?.envois ?? null;
   const relancer = async (id: number) => {
     const r = await run('envoi.relancer', { id });
+    if (r.ok) reload();
+  };
+  const classer = async (id: number) => {
+    const r = await run('envoi.classer', { id });
     if (r.ok) reload();
   };
 
@@ -373,7 +384,11 @@ function EnvoisPanel({ etat, error, filtre, setFiltre, reload, mode }: {
                           {e.statut === 'echec' && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
                               <Btn variant="secondary" small icon={<ArrowCounterClockwiseIcon size={14} />} disabled={mode !== 'api'} onClick={stop(() => relancer(e.id))}>Relancer</Btn>
-                              <span className="text-muted sub">{mode === 'api' ? 'Nouvelle série de 10 tentatives, même contenu et même clé.' : 'Relance impossible en simulation (KEYSTONE_URL non définie).'}</span>
+                              {!e.classe && <Btn small icon={<ArchiveIcon size={14} />} onClick={stop(() => classer(e.id))}>Classer</Btn>}
+                              <span className="text-muted sub">
+                                {mode === 'api' ? 'Relancer : nouvelle série de 10 tentatives, même contenu et même clé.' : 'Relance impossible en simulation (KEYSTONE_URL non définie).'}
+                                {!e.classe && ' Classer : échec examiné (refus que la relance ne corrigera pas), retiré des échecs en cours, gardé dans la liste.'}
+                              </span>
                             </div>
                           )}
                         </div>

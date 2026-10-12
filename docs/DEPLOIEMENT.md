@@ -109,7 +109,7 @@ sudo nano /etc/cursus/cursus.env
 | `CURSUS_DB` | `/var/lib/cursus/cursus.db` |
 | `CURSUS_SECRET` | 64 caractères aléatoires, propres à cette installation. La changer déconnecte tout le monde |
 | `KEYSTONE_API_KEY` | clé aléatoire transmise à Keystone par un canal sûr. Sans elle, les routes Keystone répondent 503 |
-| `KEYSTONE_URL`, `KEYSTONE_TOKEN` | envois à Keystone : adresse de base de Keystone sur le réseau interne (`http://keystone.interne:8080`) et jeton convenu avec lui. Cursus refuse de démarrer avec l'adresse sans le jeton. Sans adresse, les messages ne sont que tracés dans le journal |
+| `KEYSTONE_URL`, `KEYSTONE_TOKEN` | envois à Keystone : adresse de base de Keystone sur le réseau interne (`http://keystone.interne:8080`) et jeton convenu avec lui. Cursus refuse de démarrer avec l'adresse sans le jeton, ou avec des identifiants dans l'adresse. Sans adresse, les messages ne sont que tracés dans le journal |
 | `SAGE_URL`, `SAGE_TOKEN`, `SAGE_DOSSIER` | envoi à Sage Paie, quand il sera livré |
 | `CURSUS_DEMO`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE` | **jamais** sur ce serveur. La démonstration ouvre l'espace RH sans mot de passe : Cursus refuse de démarrer avec elle, et refuserait de toute façon (403) chaque requête relayée par le proxy |
 
@@ -173,7 +173,7 @@ Caddy obtient et renouvelle seul le certificat (Let's Encrypt) et redirige HTTP 
 sudo apt install caddy
 ```
 
-`/etc/caddy/Caddyfile` :
+`/etc/caddy/Caddyfile` (`203.0.113.10` : adresse d'où Keystone appelle Cursus, à remplacer) :
 
 ```
 cursus.example.fr {
@@ -181,9 +181,19 @@ cursus.example.fr {
 	request_body {
 		max_size 3MB
 	}
+	# API Keystone : réservée à l'adresse de Keystone (403 ailleurs).
+	@keystone_ailleurs {
+		path /api/integrations/keystone/*
+		not remote_ip 203.0.113.10
+	}
+	respond @keystone_ailleurs 403
 	reverse_proxy 127.0.0.1:3210
 }
 ```
+
+Caddy n'a pas de limitation de débit sans module complémentaire : Cursus résume lui-même les appels
+refusés faute de clé (une ligne de journal par minute), et la restriction d'adresse suffit à écarter
+Internet.
 
 ```bash
 sudo systemctl reload caddy
@@ -242,7 +252,26 @@ server {
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
     }
+
+    # API Keystone : réservée à l'adresse de Keystone (203.0.113.10, à remplacer), débit limité.
+    location /api/integrations/keystone/ {
+        allow 203.0.113.10;
+        deny all;
+        limit_req zone=keystone burst=50 nodelay;
+        limit_req_status 429;
+        proxy_pass http://127.0.0.1:3210;
+        proxy_set_header Host $host;
+        proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+        proxy_set_header X-Forwarded-Proto $scheme;
+    }
 }
+```
+
+La zone de limitation se déclare en tête du même fichier, hors des blocs `server` (10 appels par
+seconde en régime établi, 50 d'avance pour un instantané découpé) :
+
+```nginx
+limit_req_zone $binary_remote_addr zone=keystone:1m rate=10r/s;
 ```
 
 ```bash
@@ -255,8 +284,10 @@ sudo nginx -t && sudo systemctl reload nginx
 curl -sI https://cursus.example.fr/ | grep -iE 'strict-transport|content-security|x-frame|x-content-type'
 curl -s https://cursus.example.fr/api/session                   # "demo":false et "user":null
 curl -s -o /dev/null -w '%{http_code}\n' http://cursus.example.fr/                       # 301 ou 308 vers HTTPS
-curl -s -o /dev/null -w '%{http_code}\n' https://cursus.example.fr/api/integrations/keystone/v1/chantiers/X/go-no-go   # 401 sans clé
+curl -s -o /dev/null -w '%{http_code}\n' https://cursus.example.fr/api/integrations/keystone/v1/chantiers/X/go-no-go   # 403 hors de l'adresse de Keystone
 ```
+
+Depuis la machine de Keystone, la même commande répond `401` (clé absente).
 
 Depuis un téléphone de l'entreprise, hors du réseau interne : la page de connexion s'affiche en
 HTTPS, sans alerte de certificat.
@@ -328,10 +359,17 @@ précède chaque mise en production.
   cursus`, puis transmission à Keystone.
 - Keystone alimente les chantiers, projets, affectations et tâches par son API (`docs/API-KEYSTONE.md`) :
   sans elle, une base de production n'a ni chantier ni projet. Ses appels sont tracés dans le journal
-  (Paramètres, action `keystone.appel`).
+  (Paramètres → Journal des actions, vue « Appels de Keystone », action `keystone.appel`) ; les appels
+  sans clé valide y sont résumés, une ligne par minute au plus. Des résumés répétés signalent une clé
+  mal recopiée côté Keystone, ou des appels venus d'ailleurs (restriction d'adresse du proxy à vérifier).
 - Envois à Keystone (`KEYSTONE_URL`) : Paramètres → Envois montre chaque message (à envoyer, envoyé avec
   l'accusé de Keystone, en échec avec l'erreur). Keystone injoignable : les messages attendent et sont
   retentés jusqu'à 10 fois sur environ 4 h ; au-delà, ils passent en échec (journal : `keystone.echec`)
-  et le service RH les relance une fois Keystone rétabli. Aucun message n'est perdu à un redémarrage :
-  la file est dans la base.
+  et le service RH les relance une fois Keystone rétabli, ou les classe s'ils ne passeront jamais (refus
+  définitif examiné) : classés, ils ne comptent plus dans l'état de l'intégration. Aucun message n'est
+  perdu à un redémarrage : la file est dans la base.
+- Mise en service des envois (premier démarrage avec `KEYSTONE_URL`) : les verdicts Go / No Go calculés
+  en simulation n'ont jamais été reçus ; Cursus envoie alors le verdict actuel de chaque ressource des
+  chantiers en cours ou à venir, un message chacune. `KEYSTONE_URL` ne porte jamais d'identifiants
+  (`utilisateur:motdepasse@`) : le jeton passe par `KEYSTONE_TOKEN`.
 - Changer `CURSUS_SECRET` (fuite supposée) : même procédure ; toutes les sessions sont fermées.

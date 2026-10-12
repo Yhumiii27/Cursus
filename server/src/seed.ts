@@ -6,7 +6,7 @@ import { matricule } from '../../shared/format.ts';
 import { identifiantSuggere, typeSuggere } from '../../shared/rules/comptes.ts';
 import { repriseDesAbsences } from '../../shared/rules/absences.ts';
 import { cpDroit, rttDroit } from '../../shared/rules/conges.ts';
-import type { Dataset, Employe, EntretienType, Statut, TempsTravail, TypeContrat, VaccinId } from '../../shared/types.ts';
+import type { Dataset, Employe, EntretienType, ProfilRh, Statut, TempsTravail, TypeContrat, VaccinId } from '../../shared/types.ts';
 import type { Db } from './db.ts';
 import { DEFAULT_SETTINGS, loadFull } from './dataset.ts';
 import { contexte, enregistrerAffectation, enregistrerChantier, enregistrerProjet, enregistrerTache } from './integrations/keystone-entrant.ts';
@@ -426,11 +426,18 @@ export const DOMAINE_DEMO = 'entreprise.example';
 /** Compte RH de démonstration : la responsable RH du jeu de données, administratrice RH, sans fiche salarié. */
 export const RH_DEMO = 'Sandrine Vidal';
 
+/** Profils des comptes de démonstration, selon le poste du salarié. */
+const PROFILS_DEMO: Record<string, ProfilRh> = {
+  'Chargé RH': 'rh_gestionnaire', 'Responsable HSE': 'referent_hse', 'Gestionnaire paie': 'paie', 'Auditrice interne': 'lecture_seule',
+};
+
 /**
  * Comptes de démonstration, créés une seule fois : la RH de démonstration (administratrice RH, compte
  * externe) et un compte par salarié — Microsoft 365, ou compte Cursus pour les ouvriers, intérimaires et
- * alternants. Antoine Leroy, chargé RH, est gestionnaire RH. Les comptes Cursus n'ont pas de mot de passe :
- * en démonstration, la connexion est libre ; l'administrateur peut en attribuer un (Comptes et accès).
+ * alternants. Antoine Leroy, chargé RH, est gestionnaire RH ; Sarah Cohen, responsable HSE, référente HSE / formation ;
+ * Aïcha Diallo, gestionnaire de paie ; Élodie Bernard, auditrice interne, en lecture seule (PROFILS_DEMO). Les comptes
+ * Cursus n'ont pas de mot de passe : en démonstration, la connexion est libre ; l'administrateur peut en attribuer un
+ * (Comptes et accès).
  * Appelé aussi au démarrage pour une base de démonstration antérieure aux comptes.
  */
 export function comptesDemo(db: Db) {
@@ -454,7 +461,7 @@ export function comptesDemo(db: Db) {
     const type = typeSuggere(e);
     db.insert('comptes', {
       ...base, empId: e.id, nom: null, adresse: null, identifiant: unique(identifiantSuggere(e.nom, type, DOMAINE_DEMO)), type,
-      profilRh: e.poste === 'Chargé RH' ? 'rh_gestionnaire' : 'aucun',
+      profilRh: PROFILS_DEMO[e.poste] ?? 'aucun',
     });
   });
 }

@@ -15,7 +15,8 @@ import { useStore } from '../state/store.tsx';
 
 export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
   const { d } = useEnriched();
-  const { rh } = useRole();
+  // Gestion des sessions : service RH et référent HSE ; la lecture seule consulte et exporte la liste.
+  const { formations } = useRole();
   const { run, closeDialog, openDialog, notify } = useStore();
   const [annulation, setAnnulation] = useState(false);
   const [motif, setMotif] = useState('');
@@ -67,8 +68,8 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
   return (
     <Dialog title={titre} width={680} tall actions={<>
       <CancelButton label="Fermer" />
-      {rh && cloturable && <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'cloture', sessionId: s.id })}>Clôturer la session</button>}
-      {rh && ouverte && !cloturable && s.statut === 'À confirmer' && (
+      {formations && cloturable && <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'cloture', sessionId: s.id })}>Clôturer la session</button>}
+      {formations && ouverte && !cloturable && s.statut === 'À confirmer' && (
         <button type="button" className="btn btn-primary" disabled={busy} onClick={() => act('session.confirmer', { id: s.id })}>Confirmer la session</button>
       )}
     </>}>
@@ -83,13 +84,13 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
       {ouverte && <>
         <div className="panel-head center">
           <h3 className="section-label">Inscrits</h3>
-          {rh && (
-            <div className="actions-end">
-              <Btn small icon={<DownloadSimpleIcon size={14} />} onClick={exporter} disabled={!inscrits.length}>Exporter la liste (CSV)</Btn>
+          <div className="actions-end">
+            <Btn small icon={<DownloadSimpleIcon size={14} />} onClick={exporter} disabled={!inscrits.length}>Exporter la liste (CSV)</Btn>
+            {formations && <>
               <Btn small icon={<PencilSimpleIcon size={14} />} onClick={() => openDialog({ type: 'session', sessionId: s.id })}>Modifier</Btn>
               <Btn small icon={<XCircleIcon size={14} />} onClick={() => setAnnulation(true)}>Annuler la session</Btn>
-            </div>
-          )}
+            </>}
+          </div>
         </div>
         {inscrits.length > 0 ? (
           <div className="scroll-x">
@@ -111,7 +112,7 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
             </table>
           </div>
         ) : <Empty pad="sm">Aucun inscrit pour l’instant.</Empty>}
-        {rh && s.statut === 'À confirmer' && !cloturable && (
+        {formations && s.statut === 'À confirmer' && !cloturable && (
           <Fine>Confirmez la session une fois la date validée par {fm?.organisme ?? 'l’organisme'}, et transmettez-lui cette liste (export CSV) : l’envoi par e-mail viendra avec le module d’e-mails.</Fine>
         )}
         {cloturable && <NoteAccent>{s.date < d.ti ? 'Session passée — à clôturer : présence, résultats et certifications.' : 'Session du jour : clôturez-la une fois terminée.'}</NoteAccent>}

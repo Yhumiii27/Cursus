@@ -38,6 +38,8 @@ interface TeamView {
 export function Equipes() {
   const { emps, d } = useEnriched();
   const { run, openDialog, go } = useStore();
+  // Lecture seule : équipes, managers et membres consultés, sans modification.
+  const { rh } = useRole();
   const [selOrdre, setSelOrdre] = useState<number | null>(null);
   const [busy, setBusy] = useState(false);
 
@@ -78,7 +80,7 @@ export function Equipes() {
     <Page
       kicker={`${plural(v.teams.length, 'équipe', 'équipes')} · ${plural(v.managers, 'manager', 'managers')} · ${plural(v.aAffecter.length, 'collaborateur à affecter', 'collaborateurs à affecter')}`}
       title="Équipes & managers"
-      actions={<Btn variant="primary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'equipe' })}>Nouvelle équipe</Btn>}
+      actions={rh ? <Btn variant="primary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'equipe' })}>Nouvelle équipe</Btn> : undefined}
     >
       {v.teams.length > 0 ? (
         <div className="cards-grid">
@@ -137,12 +139,14 @@ export function Equipes() {
                       <div className="text-muted sub ellipsis">{[e.poste, c.main].filter(Boolean).join(' · ')}</div>
                     </div>
                     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flex: 'none' }}>
-                      <select className="input" aria-label={`Affecter ${e.nom} à une équipe`} value="" disabled={busy || !v.teams.length}
-                        onChange={ev => { if (ev.target.value) act('equipe.affecter', { empId: e.id, equipe: ev.target.value }); }}
-                        style={{ width: 'auto', minWidth: 160 }}>
-                        <option value="" disabled>Affecter à…</option>
-                        {v.teams.map(t => <option key={t.q.ordre} value={t.q.nom}>{t.q.nom}</option>)}
-                      </select>
+                      {rh && (
+                        <select className="input" aria-label={`Affecter ${e.nom} à une équipe`} value="" disabled={busy || !v.teams.length}
+                          onChange={ev => { if (ev.target.value) act('equipe.affecter', { empId: e.id, equipe: ev.target.value }); }}
+                          style={{ width: 'auto', minWidth: 160 }}>
+                          <option value="" disabled>Affecter à…</option>
+                          {v.teams.map(t => <option key={t.q.ordre} value={t.q.nom}>{t.q.nom}</option>)}
+                        </select>
+                      )}
                       <Btn small onClick={() => go('collaborateurs', { selectedId: e.id })}>Fiche →</Btn>
                     </div>
                   </div>
@@ -163,7 +167,7 @@ function TeamPanel({ t, candidates, busy, act, onDeleted }: {
 }) {
   const { d } = useEnriched();
   const { openDialog, go } = useStore();
-  const { admin } = useRole();
+  const { rh, admin } = useRole();
   const nom = t.q.nom;
   const mgrId = t.q.managerId;
   const n = t.members.length;
@@ -197,17 +201,19 @@ function TeamPanel({ t, candidates, busy, act, onDeleted }: {
             {plural(n, 'membre', 'membres')}{t.pct != null ? ` · ${t.pct} % conformes` : ''} · validations : {t.mgrNom ?? 'service RH'}
           </div>
         </div>
-        <div className="actions-end">
-          <Btn small onClick={() => openDialog({ type: 'equipe', nom })}>Renommer</Btn>
-          {admin && <Btn small disabled={busy || !!deleteBlock} title={deleteBlock || undefined} onClick={supprimer}>Supprimer</Btn>}
-          <Btn variant="secondary" small icon={<UserPlusIcon size={14} />} onClick={() => openDialog({ type: 'membre', equipe: nom })}>Ajouter un membre</Btn>
-        </div>
+        {rh && (
+          <div className="actions-end">
+            <Btn small onClick={() => openDialog({ type: 'equipe', nom })}>Renommer</Btn>
+            {admin && <Btn small disabled={busy || !!deleteBlock} title={deleteBlock || undefined} onClick={supprimer}>Supprimer</Btn>}
+            <Btn variant="secondary" small icon={<UserPlusIcon size={14} />} onClick={() => openDialog({ type: 'membre', equipe: nom })}>Ajouter un membre</Btn>
+          </div>
+        )}
       </div>
     }>
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-4)', alignItems: 'flex-end' }}>
         <div className="field" style={{ flex: '1 1 260px', maxWidth: 380 }}>
           <label htmlFor="equipe-manager">Désigner le manager</label>
-          <select className="input" id="equipe-manager" value={mgrId ?? ''} disabled={busy}
+          <select className="input" id="equipe-manager" value={mgrId ?? ''} disabled={busy || !rh}
             onChange={ev => act('equipe.manager', { nom, managerId: ev.target.value ? Number(ev.target.value) : null })}>
             <option value="">Aucun manager — validations par le RH</option>
             {mgrMissing && <option value={mgrId!}>{t.mgrNom}</option>}
@@ -250,7 +256,7 @@ function TeamPanel({ t, candidates, busy, act, onDeleted }: {
                   <td><Tag cls={CLS[e.worst]}>{EMP_LABEL[e.worst]}</Tag></td>
                   <td className="right">
                     <div className="actions-end" style={{ flexWrap: 'nowrap' }}>
-                      <Btn small disabled={busy} title="Le collaborateur devient « à affecter »" onClick={() => act('equipe.affecter', { empId: e.id, equipe: null })}>Retirer</Btn>
+                      {rh && <Btn small disabled={busy} title="Le collaborateur devient « à affecter »" onClick={() => act('equipe.affecter', { empId: e.id, equipe: null })}>Retirer</Btn>}
                       <Btn small onClick={() => go('collaborateurs', { selectedId: e.id })}>Fiche →</Btn>
                     </div>
                   </td>

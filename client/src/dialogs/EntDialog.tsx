@@ -16,7 +16,7 @@ const whoLabel = (who: EntSection[2]) => who === 'mgr' ? 'Évaluateur' : 'Salari
 
 export function EntDialog({ entId }: { entId: number }) {
   const d = useDomain();
-  const { rh, manager, collab, me } = useRole();
+  const { rh, manager, collab, me, soi } = useRole();
   const { run, closeDialog, notify } = useStore();
   const x = d.ds.entretiens.find(y => y.id === entId);
   const e = x ? d.emp(x.empId) : undefined;
@@ -32,7 +32,8 @@ export function EntDialog({ entId }: { entId: number }) {
 
   const T0 = x ? ENT_TYPES[x.type] : null;
   const mgr = e ? d.mgrOf(e) : 0;
-  const canMgr = !!x && x.statut === 'planifie' && (rh || (manager && mgr === me));
+  // Évaluateur : manager direct ou service RH, jamais un membre du RH pour son propre entretien.
+  const canMgr = !!x && x.statut === 'planifie' && ((rh && x.empId !== soi) || (manager && mgr === me));
   const canSal = !!x && !x.signSal && collab && x.empId === me;
   const sections: EntSection[] = x && e && T0 ? [...T0.sections, ...(needsFinCarriere(d, e, x.type) ? [FIN_CARRIERE] : [])] : [];
   const editable = sections.filter(([, , who]) => who === 'mgr' ? canMgr : canSal || canMgr).map(([k]) => k);

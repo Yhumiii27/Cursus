@@ -501,7 +501,11 @@ test('démonstration : connexion libre, mais par les comptes (RH de démonstrati
   assert.deepEqual([s.json.user.nom, s.json.user.profilRh, s.json.compte.identifiant], ['Sandrine Vidal', 'rh_admin', 'sandrine.vidal@entreprise.example']);
   const opts = s.json.loginOptions;
   assert.equal(opts.collaborateur.length, 24, 'un compte par salarié');
-  assert.deepEqual(opts.rh.map((o: { nom: string }) => o.nom), ['Antoine Leroy — Gestionnaire RH', 'Sandrine Vidal — Administrateur RH']);
+  assert.deepEqual(opts.rh.map((o: { nom: string }) => o.nom), [
+    'Aïcha Diallo — Gestionnaire de paie', 'Antoine Leroy — Gestionnaire RH', 'Élodie Bernard — Lecture seule', 'Sandrine Vidal — Administrateur RH',
+    'Sarah Cohen — Référent HSE / formation',
+  ]);
+  const compteRh = (nom: string) => opts.rh.find((o: { nom: string }) => o.nom.startsWith(nom)).id as number;
   const karim = opts.manager.find((o: { nom: string }) => o.nom.startsWith('Karim Haddad')).id;
   // Espace sans compte choisi : écran de connexion ; choix libre d'un compte de l'espace.
   const m = await srv.call('/api/mode', { cookie: c, body: { role: 'manager' } });
@@ -523,13 +527,13 @@ test('démonstration : connexion libre, mais par les comptes (RH de démonstrati
   const out = await srv.call('/api/logout', { cookie: ck, body: {} });
   assert.deepEqual([out.json.user, out.json.role], [null, 'collaborateur']);
   // Gestionnaire RH de démonstration : paramètres refusés.
-  const a = await srv.call('/api/login', { cookie: out.cookie!, body: { role: 'rh', compteId: opts.rh[0].id } });
+  const a = await srv.call('/api/login', { cookie: out.cookie!, body: { role: 'rh', compteId: compteRh('Antoine Leroy') } });
   assert.equal(a.json.user.profilRh, 'rh_gestionnaire');
   assert.equal((await srv.call('/api/actions/parametres.maj', { cookie: a.cookie!, body: { horizonAlerte: 60 } })).status, 403);
   // Antoine, nommé administrateur, se retire son profil RH : l'instantané renvoyé est celui de l'espace
   // où passe sa session (manager), jamais l'ancien espace RH avec le profil d'administrateur.
-  const antoine = opts.rh[0].id;
-  const sv = await srv.call('/api/login', { cookie: a.cookie!, body: { role: 'rh', compteId: opts.rh[1].id } });
+  const antoine = compteRh('Antoine Leroy');
+  const sv = await srv.call('/api/login', { cookie: a.cookie!, body: { role: 'rh', compteId: compteRh('Sandrine Vidal') } });
   assert.equal((await srv.call('/api/actions/compte.profil', { cookie: sv.cookie!, body: { id: antoine, profilRh: 'rh_admin' } })).status, 200);
   const al = await srv.call('/api/login', { cookie: sv.cookie!, body: { role: 'rh', compteId: antoine } });
   const retrait = await srv.call('/api/actions/compte.profil', { cookie: al.cookie!, espace: 'rh', body: { id: antoine, profilRh: 'aucun' } });

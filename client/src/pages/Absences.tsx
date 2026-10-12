@@ -69,7 +69,9 @@ function details(a: Absence): string[] {
 export function Absences() {
   const d = useDomain();
   const data = d.ds;
-  const { rh, manager, collab, me } = useRole();
+  // Espace RH : toutes les absences ; décisions par le service RH, jamais sur ses propres absences (`soi`) ; la paie et
+  // la lecture seule consultent.
+  const { espaceRh, rh, manager, collab, me, soi } = useRole();
   const { openDialog, run } = useStore();
   const P = cpPeriods(data.today);
   const Y = d.year;
@@ -77,11 +79,12 @@ export function Absences() {
   const rows = data.employes.map(e => soldeRow(d, e)).sort((a, b) => a.e.nom.localeCompare(b.e.nom));
   const mine = collab ? rows.find(r => r.e.id === me) : undefined;
   // « Poser une absence » pour soi-même : masqué quand aucun type n'est ouvert (intérim).
-  const canPoseMe = !rh && !!rows.find(r => r.e.id === me)?.poser;
+  const canPoseMe = !espaceRh && !!rows.find(r => r.e.id === me)?.poser;
   const canCet = (r: ReturnType<typeof soldeRow>) => (rh || r.e.id === me) && r.cetPlaceable;
 
-  // Droits de l'utilisateur sur les absences d'un collaborateur : RH, intéressé, manager direct.
-  const qui = (e: Employe) => ({ rh, self: !rh && e.id === me, manager: manager && e.id !== me && d.mgrOf(e) === me });
+  // Droits de l'utilisateur sur les absences d'un collaborateur : RH, intéressé, manager direct. Un membre du RH agit
+  // sur ses propres absences comme intéressé.
+  const qui = (e: Employe) => ({ rh: rh && e.id !== soi, self: (!espaceRh && e.id === me) || (rh && e.id === soi), manager: manager && e.id !== me && d.mgrOf(e) === me });
   // À traiter d'abord (demandes, signalements), les absences annulées en dernier.
   const rang = (a: Absence) => a.statut === 'demandee' ? 0 : a.statut === 'signalee' ? 1 : a.statut === 'annulee' ? 3 : 2;
   const absList = data.absences
@@ -93,21 +96,21 @@ export function Absences() {
       const q = qui(e);
       return {
         a, e,
-        canDecide: a.statut === 'demandee' && (rh || (manager && d.mgrOf(e) === me)),
+        canDecide: a.statut === 'demandee' && (q.rh || (manager && d.mgrOf(e) === me)),
         canProlong: prolongeable(a) && (q.rh || q.self || q.manager),
         annulation: droitAnnulation(a, data.today, q),
       };
     });
   const nDecide = absList.filter(x => x.canDecide).length;
-  const aQualifier = rh ? absList.filter(x => x.a.statut === 'signalee') : [];
+  const aQualifier = rh ? absList.filter(x => x.a.statut === 'signalee' && x.e.id !== soi) : [];
 
   return (
     <Page
-      kicker={rh ? 'Période de référence CP : 1er juin – 31 mai · décompte en jours ouvrés · CCN Industries chimiques' : 'Congés payés en jours ouvrés · RTT perdus au 31 décembre'}
+      kicker={espaceRh ? 'Période de référence CP : 1er juin – 31 mai · décompte en jours ouvrés · CCN Industries chimiques' : 'Congés payés en jours ouvrés · RTT perdus au 31 décembre'}
       title="Congés & absences"
       actions={<>
         {rh && <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'absNature' })}>Saisir une absence</button>}
-        {!rh && <button type="button" className={canPoseMe ? 'btn btn-secondary' : 'btn btn-primary'} onClick={() => openDialog({ type: 'absSignal' })}>Signaler une absence</button>}
+        {!espaceRh && <button type="button" className={canPoseMe ? 'btn btn-secondary' : 'btn btn-primary'} onClick={() => openDialog({ type: 'absSignal' })}>Signaler une absence</button>}
         {canPoseMe && me != null && <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'abs', empId: me })}>Poser une absence</button>}
       </>}
     >
@@ -167,7 +170,7 @@ export function Absences() {
                       <td className="right">
                         <div style={{ display: 'flex', gap: 'var(--space-1)', justifyContent: 'flex-end', flexWrap: 'nowrap' }}>
                           {canCet(r) && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cet', empId: r.e.id })}>Épargner</button>}
-                          {rh && r.cpSolde > 0 && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'report', empId: r.e.id })}>Reporter</button>}
+                          {rh && r.e.id !== soi && r.cpSolde > 0 && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'report', empId: r.e.id })}>Reporter</button>}
                           {canPose && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'abs', empId: r.e.id })}>Poser</button>}
                           {manager && r.e.id !== me && d.mgrOf(r.e) === me && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'absSignal', empId: r.e.id })}>Signaler</button>}
                         </div>
@@ -189,7 +192,10 @@ export function Absences() {
               <tbody>
                 {absList.map(({ a, e, canDecide, canProlong, annulation }) => {
                   const m = data.missions.find(x => x.empId === a.empId && x.du <= a.au && x.au >= a.du);
-                  const ks = a.statut === 'demandee' ? `Validation : ${d.mgrName(d.mgrOf(e))}`
+                  // Sa propre demande : un membre du RH ne la décide pas, son manager ou un autre membre du service RH le fait.
+                  const ks = a.statut === 'demandee' ? (rh && e.id === soi
+                    ? `Votre demande : décision par ${d.mgrOf(e) ? `${d.personName(d.mgrOf(e))} ou ` : ''}un autre membre du service RH`
+                    : `Validation : ${d.mgrName(d.mgrOf(e))}`)
                     : a.statut === 'signalee' ? 'À qualifier par le service RH'
                     : a.statut === 'validee' ? (estConge(a.type) ? 'Transmise à Keystone' : 'Indisponibilité transmise à Keystone') : '';
                   return (
@@ -211,7 +217,7 @@ export function Absences() {
                             <button type="button" className="btn btn-ghost btn-sm" onClick={stop(() => run('absence.decider', { id: a.id, ok: false }))}>Refuser</button>
                             <button type="button" className="btn btn-secondary btn-sm" onClick={stop(() => run('absence.decider', { id: a.id, ok: true }))}>Valider</button>
                           </>}
-                          {rh && prolongeable(a) && (
+                          {rh && e.id !== soi && prolongeable(a) && (
                             <button type="button" className={`btn btn-sm ${a.statut === 'signalee' ? 'btn-secondary' : 'btn-ghost'}`} onClick={() => openDialog({ type: 'absNature', id: a.id })}>
                               {a.statut === 'signalee' ? 'Qualifier' : 'Modifier'}
                             </button>
@@ -219,7 +225,7 @@ export function Absences() {
                           {canProlong && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'absProlonger', id: a.id })}>Prolonger</button>}
                           {annulation.ok && (
                             <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'absAnnuler', id: a.id })}>
-                              {a.statut === 'demandee' && !rh ? 'Retirer' : 'Annuler'}
+                              {a.statut === 'demandee' && annulation.libelle.startsWith('Retirer') ? 'Retirer' : 'Annuler'}
                             </button>
                           )}
                         </div>
@@ -233,7 +239,7 @@ export function Absences() {
         ) : <Empty>Aucune absence prévue.</Empty>}
       </Panel>
 
-      {rh && (
+      {espaceRh && (
         <Panel title="Règles appliquées">
           <Rtt39Field />
           <ul className="rules">
@@ -253,7 +259,7 @@ export function Absences() {
         </Panel>
       )}
 
-      {rh && (
+      {espaceRh && (
         <Panel title="Absences hors congés" aside="Durées minimales du Code du travail · la CCN peut être plus favorable">
           <div className="scroll-x">
             <table className="table">

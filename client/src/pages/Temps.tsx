@@ -135,7 +135,9 @@ function recapOf(d: Domain, emp: Employe, calc: SheetCalc, week: ISODate): Recap
 export function Temps() {
   const d = useDomain();
   const data = d.ds;
-  const { rh, admin, manager, collab, me } = useRole();
+  // Espace RH : toutes les feuilles ; validation par le service RH (jamais sa propre feuille), transmission à Sage par
+  // l'administrateur RH et le gestionnaire de paie ; la paie et la lecture seule consultent.
+  const { espaceRh, rh, paie, manager, collab, me, soi } = useRole();
   const { ui, setUi, run } = useStore();
   const wk = ui.weekStart ?? mondayOf(data.today);
   const wdays = wDays(wk);
@@ -148,8 +150,9 @@ export function Temps() {
   const queue = data.feuilles
     .filter(sh => sh.statut === 'soumise')
     .map(sh => ({ sh, e: d.emp(sh.empId) }))
-    .filter((q): q is { sh: FeuilleTemps; e: Employe } => !!q.e && (rh || (manager && d.mgrOf(q.e) === me)));
-  const pending = rh ? sagePending(d).length : 0;
+    .filter((q): q is { sh: FeuilleTemps; e: Employe } => !!q.e && (espaceRh || (manager && d.mgrOf(q.e) === me)));
+  const valide = (e: Employe) => (rh && e.id !== soi) || (manager && d.mgrOf(e) === me);
+  const pending = espaceRh ? sagePending(d).length : 0;
 
   return (
     <Page
@@ -188,7 +191,7 @@ export function Temps() {
                       <td className="right">
                         <div className="actions-end">
                           <button type="button" className="btn btn-ghost btn-sm" onClick={stop(open)}>Ouvrir</button>
-                          {!tot.aRenvoyer && <button type="button" className="btn btn-secondary btn-sm" onClick={stop(() => run('temps.validate', { empId: e.id, week: sh.week }))}>Valider</button>}
+                          {!tot.aRenvoyer && valide(e) && <button type="button" className="btn btn-secondary btn-sm" onClick={stop(() => run('temps.validate', { empId: e.id, week: sh.week }))}>Valider</button>}
                         </div>
                       </td>
                     </tr>
@@ -202,7 +205,7 @@ export function Temps() {
 
       {tsEmp && <Sheet key={`${tsEmp.id}|${wk}`} emp={tsEmp} wk={wk} />}
 
-      {rh && (
+      {espaceRh && (
         <Panel head={
           <div className="panel-head center">
             <div>
@@ -211,9 +214,9 @@ export function Temps() {
                 {pending ? `${plural(pending, 'feuille validée', 'feuilles validées')} en attente de transmission` : 'Toutes les feuilles validées ont été transmises'} · intérimaires (relevé envoyé à l’agence) et cadres dirigeants exclus
               </div>
             </div>
-            {admin
+            {paie
               ? <button type="button" className="btn btn-primary" disabled={pending === 0} onClick={() => run('temps.pushSage')}>Transmettre par API</button>
-              : <span className="text-muted sub">Transmission réservée à l’administrateur RH</span>}
+              : <span className="text-muted sub">Transmission réservée à l’administrateur RH et au gestionnaire de paie</span>}
           </div>
         }>
           {data.lastSagePush && <>
@@ -230,7 +233,7 @@ export function Temps() {
 function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const d = useDomain();
   const data = d.ds;
-  const { rh, manager, me } = useRole();
+  const { rh, manager, me, soi } = useRole();
   const { run } = useStore();
   const [comment, setComment] = useState('');
 
@@ -245,7 +248,8 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const autreRegime = !!sh?.contrat && (c.libelle !== actuel.libelle || c.jourOff.join() !== actuel.jourOff.join());
   const regimeNote = !autreRegime ? '' : st === 'soumise' || st === 'validee' ? 'régime figé à la soumission' : 'régime en vigueur cette semaine';
   const validator = d.mgrOf(emp);
-  const isValidator = rh || (manager && validator === me);
+  // Un membre du RH ne valide pas sa propre feuille : son manager ou un autre membre du RH le fait.
+  const isValidator = (rh && emp.id !== soi) || (manager && validator === me);
   const directMgr = manager && emp.id !== me && validator === me;
   // Le valideur peut corriger une feuille soumise avant de la valider : elle reste soumise.
   const correction = st === 'soumise' && isValidator;

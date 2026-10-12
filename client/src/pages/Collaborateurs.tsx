@@ -11,7 +11,7 @@ import { etatInscription } from '../../../shared/rules/sessions.ts';
 import { JOURS_SEMAINE } from '../../../shared/rules/profil.ts';
 import { Avatar, Bar, Btn, Chips, CloseButton, Empty, Fine, NoteAccent, Page, SectionLabel, Seg, Tag, Two } from '../components/ui.tsx';
 import { printDocument } from '../print.ts';
-import { useEnriched, useRole, useTrips } from '../state/derived.ts';
+import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
 /** Valeur du filtre d'équipe pour les collaborateurs sans équipe (« À affecter »). */
@@ -43,16 +43,17 @@ const joursListe = (js: number[]) => {
 export function Collaborateurs() {
   const { emps, upcoming, horizon, d } = useEnriched();
   const trips = useTrips();
-  const { rh, manager, me } = useRole();
+  // `espaceRh` : tout le site (service RH, référent HSE, lecture seule) ; `rh` : fiches et équipes.
+  const { espaceRh, rh, manager, me } = useRole();
   const { ui, setUi, openDialog } = useStore();
 
   const myTeams = useMemo(() => manager ? d.teamsOf(me) : [], [d, manager, me]);
   const team = useMemo(() => manager ? emps.filter(e => e.id !== me && d.mgrOf(e) === me) : emps, [emps, manager, me, d]);
-  const teamOptions = rh ? d.equipes : myTeams;
-  const multi = rh || myTeams.length > 1;
+  const teamOptions = espaceRh ? d.equipes : myTeams;
+  const multi = espaceRh || myTeams.length > 1;
   // Un filtre devenu sans objet (équipe renommée, hors périmètre) revient à « Toutes ».
-  const filtre = multi && (ui.equipe === SANS_EQUIPE ? rh : teamOptions.includes(ui.equipe)) ? ui.equipe : 'Toutes';
-  const aAffecter = rh ? emps.filter(e => !e.equipe).length : 0;
+  const filtre = multi && (ui.equipe === SANS_EQUIPE ? espaceRh : teamOptions.includes(ui.equipe)) ? ui.equipe : 'Toutes';
+  const aAffecter = espaceRh ? emps.filter(e => !e.equipe).length : 0;
 
   const q = norm(ui.search.trim());
   const rows = useMemo(() => team
@@ -74,9 +75,9 @@ export function Collaborateurs() {
     <Page tight kicker={kicker} title="Collaborateurs" actions={<>
       {multi && (
         <select className="input" aria-label="Équipe" value={filtre} onChange={e => setUi({ equipe: e.target.value })} style={{ width: 'auto', minWidth: 190 }}>
-          <option value="Toutes">{rh ? 'Toutes les équipes' : 'Toutes mes équipes'}</option>
+          <option value="Toutes">{espaceRh ? 'Toutes les équipes' : 'Toutes mes équipes'}</option>
           {teamOptions.map(nom => <option key={nom} value={nom}>{nom}</option>)}
-          {rh && <option value={SANS_EQUIPE}>{aAffecter ? `À affecter (${aAffecter})` : 'À affecter'}</option>}
+          {espaceRh && <option value={SANS_EQUIPE}>{aAffecter ? `À affecter (${aAffecter})` : 'À affecter'}</option>}
         </select>
       )}
       <Seg name="statut" label="Statut" value={ui.statut} onChange={v => setUi({ statut: v })}
@@ -146,11 +147,13 @@ function Info({ label, sub, children }: { label: ReactNode; sub?: ReactNode; chi
 
 function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcomingCount: (f: string) => number; trips: ReturnType<typeof useTrips>; horizon: number }) {
   const { d, formIds } = useEnriched();
-  const { rh, manager, me } = useRole();
+  // `formations` : service RH et référent HSE (sessions, certifications, habilitations) ; `rh` : le reste de la fiche.
+  const { rh, formations, manager, me } = useRole();
+  const permis = useIntentPermis();
   const { setUi, openDialog, go, run, runIntent, notify } = useStore();
   /** Manager direct consultant un membre de son équipe (jamais sa propre fiche). */
   const membre = manager && e.id !== me && d.mgrOf(e) === me;
-  const canPlan = rh || membre;
+  const canPlan = formations || membre;
   /** Certifications remplacées par un recyclage (historique), selon le filtre « réglementaires uniquement ». */
   const anciennes = e.anciennes.filter(c => formIds.has(c.f));
   const tv = d.travelOf(e, horizon);
@@ -187,10 +190,13 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
     })
     .sort((a, b) => a.s.date.localeCompare(b.s.date));
 
-  /** Propositions d'action sur une habilitation : toutes pour le RH ; recyclage ou demande de formation pour le manager. */
+  /**
+   * Propositions d'action sur une habilitation : toutes pour le RH, celles de formation pour le référent HSE ;
+   * recyclage ou demande de formation pour le manager.
+   */
   const habProposal = (h: HabInfo): Proposal | null => {
     const a = d.habAction(e.id, h);
-    if (!a || rh) return a;
+    if (!a || formations) return a && permis(a.intent) ? a : null;
     if (!membre) return null;
     if (a.intent.type === 'openPlan') return a;
     if (a.intent.type === 'goFormation') return { label: 'Demander la formation', intent: a.intent };
@@ -198,7 +204,7 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
   };
   const runProposal = (a: Proposal) => {
     const it = a.intent;
-    if (!rh && it.type === 'goFormation') openDialog({ type: 'reqForm', empId: e.id, f: it.f });
+    if (!formations && it.type === 'goFormation') openDialog({ type: 'reqForm', empId: e.id, f: it.f });
     else runIntent(it);
   };
 
@@ -250,14 +256,14 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
               {c.sessionPassee && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
                   <NoteAccent>{SESSION_PASSEE} · session du {fmt(parse(c.sessionPassee.date))}</NoteAccent>
-                  {rh && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cloture', sessionId: c.sessionPassee!.id })}>Clôturer la session</button>}
+                  {formations && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cloture', sessionId: c.sessionPassee!.id })}>Clôturer la session</button>}
                 </div>
               )}
               {c.key !== 'ok' && !c.session && !c.sessionPassee && canPlan && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
                   <span className="text-muted sub">{avail ? plural(avail, 'session disponible', 'sessions disponibles') : 'Aucune session disponible'}</span>
                   {/* Sans session ouverte, le manager ne peut pas en créer : il adresse la demande au service RH. */}
-                  {!rh && !avail
+                  {!formations && !avail
                     ? <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'reqForm', empId: e.id, f: c.f })}>Demander la formation</button>
                     : <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'plan', empId: e.id, certId: c.id })}>Planifier un renouvellement</button>}
                 </div>
@@ -303,8 +309,8 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
               </div>
               {x.etat === 'passee' && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
-                  <NoteAccent>{rh ? SESSION_PASSEE : `${SESSION_PASSEE} par le service RH`}</NoteAccent>
-                  {rh && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cloture', sessionId: s.id })}>Clôturer la session</button>}
+                  <NoteAccent>{formations ? SESSION_PASSEE : `${SESSION_PASSEE} par le service RH`}</NoteAccent>
+                  {formations && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cloture', sessionId: s.id })}>Clôturer la session</button>}
                 </div>
               )}
               {x.etat === 'a_planifier' && canPlan && (
@@ -322,9 +328,9 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
         <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
           {e.habs.map(h => {
             const a = habProposal(h);
-            // Suspendre : RH ou manager direct ; lever la suspension, retirer, délivrer de nouveau : RH.
-            const mesures = rh || membre ? d.habMesures(h, rh) : [];
-            const redelivrer = rh && h.key === 'retiree';
+            // Suspendre : RH, référent HSE ou manager direct ; lever la suspension, retirer, délivrer de nouveau : RH et référent HSE.
+            const mesures = formations || membre ? d.habMesures(h, formations) : [];
+            const redelivrer = formations && h.key === 'retiree';
             return (
               <div key={h.hm.id} className="list-row stack">
                 <div className="item-head">
@@ -350,7 +356,8 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
         </div>
       </>}
 
-      {hasTravel && <>
+      {/* Dossier voyage (passeport, visas, vaccinations) : service RH ; pour le manager, sans les vaccinations. */}
+      {hasTravel && (rh || manager) && <>
         <SectionLabel>Voyages</SectionLabel>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', marginTop: 'calc(-1 * var(--space-2))' }}>
           <div style={{ fontSize: 14 }}>
@@ -397,7 +404,7 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
 
       <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
         {(rh || membre) && <Btn variant="secondary" icon={<PencilSimpleIcon size={14} />} onClick={() => openDialog({ type: 'employe', empId: e.id })}>Modifier la fiche</Btn>}
-        {rh && <Btn variant="secondary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'cert', empId: e.id })}>Ajouter une certification</Btn>}
+        {formations && <Btn variant="secondary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'cert', empId: e.id })}>Ajouter une certification</Btn>}
         <Btn onClick={passeportFormation}>Passeport formation</Btn>
         {retirable && <Btn icon={<UserMinusIcon size={14} />} onClick={retirer}>Retirer de l’équipe</Btn>}
       </div>

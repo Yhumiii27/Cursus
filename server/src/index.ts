@@ -2,13 +2,14 @@
 import express from 'express';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
+import { droitsRh } from '../../shared/constants.ts';
 import { ACTIONS, QUIET_ACTIONS, changeVerdicts } from './actions/index.ts';
 import { ActionError, makeCtx } from './actions/context.ts';
 import { DEMO, purgeSessions } from './auth.ts';
 import { adminsActifs, journaliser } from './comptes.ts';
 import { enProduction, hoteEcoute, portEcoute, trustProxy, verifierConfig } from './config.ts';
 import { espaceChange, identite, routesConnexion } from './connexion.ts';
-import { buildSnapshot, loadFull } from './dataset.ts';
+import { buildSnapshot, journalPourProfil, loadFull } from './dataset.ts';
 import { dbFile, openDb } from './db.ts';
 import { demarrerEnvois, etatEnvois, listerEnvois } from './envois.ts';
 import { migrate } from './migrate.ts';
@@ -100,7 +101,8 @@ app.post('/api/actions/:name', (req, res) => {
 
 app.get('/api/journal', (req, res) => {
   const user = identite(db, req)?.user;
-  if (!user || user.role !== 'rh') return res.status(403).json({ error: 'Réservé au service RH' });
+  // Service RH et lecture seule (droit `consultation`) ; ni le référent HSE, ni la paie.
+  if (!user || !droitsRh(user).includes('consultation')) return res.status(403).json({ error: 'Réservé au service RH' });
   // Appels entrants de Keystone (keystone.appel) : vue distincte (?vue=keystone), pour que leur volume
   // ne masque pas les actions des utilisateurs ; toutes les lignes restent en base.
   // Hors de cette vue, filtre : connexions (et mots de passe) ou opérations (tout le reste), pour que des
@@ -109,14 +111,14 @@ app.get('/api/journal', (req, res) => {
   const connexions = `(action LIKE 'connexion%' OR action LIKE 'motdepasse.%')`;
   const filtre = req.query.vue === 'keystone' ? `WHERE ${appels}`
     : `WHERE NOT ${appels}` + (req.query.filtre === 'connexions' ? ` AND ${connexions}` : req.query.filtre === 'operations' ? ` AND NOT ${connexions}` : '');
-  const rows = db.sql.prepare(`SELECT at, actor, role, action, message, identifiant FROM journal ${filtre} ORDER BY id DESC LIMIT 100`).all();
-  res.json(rows);
+  const rows = db.sql.prepare(`SELECT at, actor, role, action, message, identifiant FROM journal ${filtre} ORDER BY id DESC LIMIT 100`).all() as { action: string; message: string | null }[];
+  res.json(journalPourProfil(user, rows));
 });
 
 // File d'envoi des messages sortants (Paramètres → Envois) : état de l'intégration et derniers messages.
 app.get('/api/envois', (req, res) => {
   const user = identite(db, req)?.user;
-  if (!user || user.role !== 'rh') return res.status(403).json({ error: 'Réservé au service RH' });
+  if (!user || !droitsRh(user).includes('consultation')) return res.status(403).json({ error: 'Réservé au service RH' });
   res.json({ keystone: { mode: KEYSTONE_MODE, ...etatEnvois(db, 'keystone') }, envois: listerEnvois(db, { statut: req.query.statut }) });
 });
 

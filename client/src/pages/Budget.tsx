@@ -6,7 +6,7 @@ import { fmtEur, plural } from '../../../shared/format.ts';
 import { budgetSummary } from '../../../shared/rules/budget.ts';
 import type { PlanAction, PlanStatut } from '../../../shared/types.ts';
 import { Bar, Btn, Empty, Kpi, Kpis, Page, Panel, Seg, StackBar, Tag, Two } from '../components/ui.tsx';
-import { useDomain } from '../state/derived.ts';
+import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
 const C_REAL = 'var(--color-accent-300)', C_ENG = 'var(--color-accent-600)', C_PREVU = 'var(--color-neutral-700)';
@@ -18,6 +18,8 @@ const parts = (r: number, g: number, p: number, base: number) => [
 export function Budget() {
   const d = useDomain();
   const { ui, setUi, openDialog, run } = useStore();
+  // Lecture seule : plan et enveloppes consultés, sans import ni avancement.
+  const { rh } = useRole();
   const year = d.year;
   const ex = ui.exercice ?? year;
   const seuil = d.ds.settings.seuilBudget;
@@ -42,8 +44,10 @@ export function Budget() {
       title="Plan & budget"
       actions={<>
         <Seg name="exercice" label="Exercice" value={ex} onChange={v => setUi({ exercice: v, planFilter: 'tous' })} options={exOptions} />
-        <Btn onClick={() => openDialog({ type: 'budget', exercice: ex })}>Enveloppes</Btn>
-        <Btn variant="secondary" icon={<UploadSimpleIcon size={14} />} onClick={openImport}>Importer un plan</Btn>
+        {rh && <>
+          <Btn onClick={() => openDialog({ type: 'budget', exercice: ex })}>Enveloppes</Btn>
+          <Btn variant="secondary" icon={<UploadSimpleIcon size={14} />} onClick={openImport}>Importer un plan</Btn>
+        </>}
       </>}
     >
       <Kpis>
@@ -135,7 +139,7 @@ export function Budget() {
                       </td>
                       <td><Tag cls={PLAN_CLS[l.statut]}>{PLAN_LABEL[l.statut]}</Tag></td>
                       <td className="right">
-                        {l.statut !== 'realise' && (
+                        {rh && l.statut !== 'realise' && (
                           <button type="button" className="btn btn-ghost btn-sm" onClick={() => act(l)}>
                             {l.statut === 'prevu' ? (fm ? 'Planifier la session' : 'Engager') : 'Clôturer'}
                           </button>
@@ -155,7 +159,7 @@ export function Budget() {
             <p className="text-muted" style={{ fontSize: 13, margin: 0, maxWidth: '56ch' }}>
               Importez le plan prévisionnel (CSV exporté de votre tableur) : chaque ligne devient une action « Prévue », rattachée à une équipe et à un trimestre, et vient alimenter les enveloppes ci-dessus.
             </p>
-            <Btn variant="primary" onClick={openImport}>Importer un plan</Btn>
+            {rh && <Btn variant="primary" onClick={openImport}>Importer un plan</Btn>}
           </div>
         )}
       </Panel>

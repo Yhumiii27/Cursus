@@ -2,10 +2,10 @@
 // Un compte Microsoft 365 s'authentifie chez Microsoft (server/src/microsoft.ts : `oid` renseigné à la
 // première connexion) ; un compte local à Cursus, pour le personnel sans compte d'entreprise
 // (ouvriers, intérimaires, alternants), par un mot de passe haché avec scrypt.
-// Les espaces ouverts découlent du compte : RH selon le profil RH, manager si le salarié encadre
-// au moins une équipe, collaborateur s'il est salarié.
+// Les espaces ouverts découlent du compte : RH selon le profil (service RH, référent HSE, paie, lecture seule),
+// manager si le salarié encadre au moins une équipe, collaborateur s'il est salarié.
 import { randomBytes, randomInt, scrypt, scryptSync, timingSafeEqual, type ScryptOptions } from 'node:crypto';
-import { aDroitRh, BLOCAGE_MINUTES, COMPTE_TYPE_LABEL, ECHECS_MAX, PROFILS_RH } from '../../shared/constants.ts';
+import { BLOCAGE_MINUTES, COMPTE_TYPE_LABEL, ECHECS_MAX, ouvreEspaceRh, PROFILS_RH } from '../../shared/constants.ts';
 import { adresseValide, controleIdentifiant, normaliserIdentifiant } from '../../shared/rules/comptes.ts';
 import type { CompteSession, CompteType, CompteVue, Employe, ProfilRh, Role } from '../../shared/types.ts';
 import { ActionError } from './actions/context.ts';
@@ -50,7 +50,7 @@ export function nomDuCompte(db: Db, c: Compte): string {
 /** Espaces ouverts par le compte, dans l'ordre d'arrivée après connexion. */
 export function espacesDuCompte(db: Db, c: Compte): Role[] {
   const out: Role[] = [];
-  if (aDroitRh(c.profilRh, 'rh')) out.push('rh');
+  if (ouvreEspaceRh(c.profilRh)) out.push('rh');
   if (c.empId && salarie(db, c)) {
     if (db.sql.prepare('SELECT 1 FROM equipes WHERE manager_id = ? LIMIT 1').get(c.empId)) out.push('manager');
     out.push('collaborateur');
@@ -214,7 +214,7 @@ export function creerCompte(db: Db, x: NouveauCompte, auteur: string | null): { 
     adresse = normaliserIdentifiant(String(x.adresse ?? '')) || (type === 'microsoft' ? identifiant : '');
     if (!nom || nom.length > 120) throw new ActionError('Nom de la personne requis (120 caractères au plus)');
     if (!adresseValide(adresse)) throw new ActionError('Adresse e-mail de la personne requise');
-    if (!aDroitRh(profilRh, 'rh')) throw new ActionError('Un compte externe n’ouvre que l’espace RH : choisissez un profil RH');
+    if (!ouvreEspaceRh(profilRh)) throw new ActionError('Un compte externe n’ouvre que l’espace RH : choisissez un profil RH (service RH, référent HSE, paie ou lecture seule)');
   }
   const mdp = type === 'local' ? motDePasseProvisoire() : null;
   const compte = db.insert<Compte>('comptes', {

@@ -142,9 +142,18 @@ test('manager : composition de son équipe', () => {
   forbidden(KARIM, 'equipe.affecter', { empId: 1, equipe: null }); // membre de Logistique
   forbidden(KARIM, 'equipe.affecter', { empId: 12, equipe: null }); // lui-même
   forbidden(MEHDI, 'equipe.affecter', { empId: 2, equipe: null });
+  // Décision de l'entreprise : un membre d'une autre équipe ne rejoint l'équipe qu'une fois libéré par son
+  // manager d'origine (« à affecter ») ; sinon, sa mutation passe par le service RH.
+  assert.throws(() => run(KARIM, 'equipe.affecter', { empId: 20, equipe: 'Maintenance' }),
+    (e: unknown) => e instanceof ActionError && e.status === 403 && /fait partie de l’équipe Logistique.*« à affecter ».*mutation au service RH/.test(e.message));
+  assert.equal(domain().emp(20)!.equipe, 'Logistique', 'refus : affectation inchangée');
+  run(HUGO, 'equipe.affecter', { empId: 20, equipe: null });
   run(KARIM, 'equipe.affecter', { empId: 20, equipe: 'Maintenance' });
   d = domain();
   assert.equal(d.emp(20)!.equipe, 'Maintenance');
+  // Le service RH mute directement d'une équipe à l'autre.
+  run(RH, 'equipe.affecter', { empId: 20, equipe: 'Logistique' });
+  assert.equal(domain().emp(20)!.equipe, 'Logistique');
 });
 
 test('manager : formations, absences et feuilles de temps de son équipe', () => {

@@ -11,7 +11,9 @@ import { cetInfo, checkAbsence, checkNature, cpInfo, heuresAvantAbsence } from '
 import { semaineCouverte } from '../../../shared/rules/temps.ts';
 import type { Absence, AbsenceType, CetMouvement, CongeType, Employe, FeuilleTemps, NatureAbsence, ReportCp } from '../../../shared/types.ts';
 import { absenceKeystone, sendToKeystone } from '../integrations/keystone.ts';
-import { ActionError, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
+import {
+  ActionError, estSoiMeme, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, refuserSoiMeme, requireRh, str, type ActionHandler, type Ctx,
+} from './context.ts';
 
 /** Le salarié ou le RH demandent ; le manager qui pose pour un membre de son équipe valide du même coup. */
 const demander: ActionHandler = (ctx, p) => {
@@ -33,6 +35,7 @@ const decider: ActionHandler = (ctx, p) => {
   const a = ctx.ds.absences.find(x => x.id === Number(p.id));
   if (!a || a.statut !== 'demandee') throw new ActionError('Demande introuvable ou déjà traitée');
   const emp = getEmp(ctx, a.empId);
+  refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas décider de votre propre demande d’absence');
   if (!isValidatorOf(ctx, emp)) throw new ActionError('Décision réservée au manager du salarié ou au service RH', 403);
   const ok = !!p.ok;
   // Demande antérieure au contrôle des bornes du contrat : jamais validée hors contrat.
@@ -119,17 +122,20 @@ const signaler: ActionHandler = (ctx, p) => {
   const du = str(p.du), au = str(p.au) || du;
   const chk = checkNature(ctx.d, emp, 'ABSENCE', du, au, { quand: 'avant de signaler l’absence' });
   if (chk.cant) throw sansNature(chk);
+  // Un membre du RH qui signale sa propre absence depuis l'espace RH la signale comme intéressé.
+  const interesse = isSelf(ctx, emp.id) || estSoiMeme(ctx, emp.id);
   const a = ctx.db.insert<Absence>('absences', {
-    empId: emp.id, type: 'ABSENCE', du, au, statut: 'signalee', keystone: true, signaleLe: ctx.d.ti, signalePar: ctx.user.nom, signaleParInteresse: isSelf(ctx, emp.id), justificatif: false,
+    empId: emp.id, type: 'ABSENCE', du, au, statut: 'signalee', keystone: true, signaleLe: ctx.d.ti, signalePar: ctx.user.nom, signaleParInteresse: interesse, justificatif: false,
   });
   keystone(ctx, 'absence.validee', a);
-  return `Absence de ${emp.nom} signalée ${periodeTexte(du, au)} — nature à préciser par le service RH${isSelf(ctx, emp.id) ? ', à qui transmettre le justificatif' : ''} · indisponibilité transmise à Keystone`;
+  return `Absence de ${emp.nom} signalée ${periodeTexte(du, au)} — nature à préciser par le service RH${interesse ? ', à qui transmettre le justificatif' : ''} · indisponibilité transmise à Keystone`;
 };
 
 /** Saisie directe par le RH d'une absence hors congés, prévisible (maternité, congé parental, événement familial…) ou non. */
 const saisir: ActionHandler = (ctx, p) => {
   requireRh(ctx);
   const emp = getEmp(ctx, p.empId), nature = natureDe(p), du = str(p.du), au = str(p.au);
+  refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas enregistrer une absence validée d’emblée pour vous-même');
   const chk = checkNature(ctx.d, emp, nature, du, au, { quand: 'avant d’enregistrer l’absence' });
   if (chk.cant) throw sansNature(chk);
   const just = justificatifDe(ctx, p);
@@ -144,6 +150,7 @@ const qualifier: ActionHandler = (ctx, p) => {
   const a = absenceOf(ctx, p.id);
   if (!prolongeable(a)) throw new ActionError('Seule une absence signalée ou qualifiée, hors congés, se qualifie');
   const emp = getEmp(ctx, a.empId), nature = natureDe(p);
+  refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas qualifier votre propre absence');
   const du = str(p.du) || a.du, au = str(p.au) || a.au;
   const chk = checkNature(ctx.d, emp, nature, du, au, { exclure: a.id, quand: 'avant de qualifier l’absence' });
   if (chk.cant) throw sansNature(chk);
@@ -159,7 +166,8 @@ const qualifier: ActionHandler = (ctx, p) => {
 
 /**
  * Prolongation d'un arrêt ou d'une absence hors congés (nouvelle fin, sans chevauchement) par l'intéressé, son manager
- * direct ou le RH. Hors RH, l'absence repasse « à qualifier » : le service RH enregistre l'avis de prolongation.
+ * direct ou le RH. Hors RH, l'absence repasse « à qualifier » : le service RH enregistre l'avis de prolongation (un
+ * membre du RH qui prolonge sa propre absence le fait comme intéressé).
  */
 const prolonger: ActionHandler = (ctx, p) => {
   const a = absenceOf(ctx, p.id);
@@ -171,7 +179,7 @@ const prolonger: ActionHandler = (ctx, p) => {
   const debut = addD(a.au, 1);
   const chk = checkNature(ctx.d, emp, a.type as NatureAbsence | 'ABSENCE', debut, au, { exclure: a.id, quand: 'avant de prolonger l’absence', depuis: a.du });
   if (chk.cant) throw sansNature(chk);
-  const statut = isRh(ctx) ? a.statut : 'signalee';
+  const statut = isRh(ctx) && !estSoiMeme(ctx, emp.id) ? a.statut : 'signalee';
   ctx.db.update<Absence>('absences', a.id, { au, statut, finInitiale: a.finInitiale ?? a.au, keystone: true });
   keystone(ctx, 'absence.validee', { ...a, au });
   const suite = statut === 'signalee' && a.statut === 'validee' ? ' — prolongation à qualifier par le service RH' : '';
@@ -189,7 +197,9 @@ const annuler: ActionHandler = (ctx, p) => {
   const emp = getEmp(ctx, a.empId);
   // Périmètre d'abord : hors de celui-ci, aucun refus ne doit révéler l'état ou les dates de l'absence.
   if (!(isRh(ctx) || isSelf(ctx, emp.id) || isManagerOf(ctx, emp))) throw new ActionError('Vous ne pouvez annuler qu’une absence de vous-même ou de votre équipe', 403);
-  const droit = droitAnnulation(a, ctx.d.ti, { rh: isRh(ctx), self: isSelf(ctx, emp.id), manager: isManagerOf(ctx, emp) });
+  // Un membre du RH annule ses propres absences avec les droits de l'intéressé, jamais ceux du service RH.
+  const soi = estSoiMeme(ctx, emp.id), self = isSelf(ctx, emp.id) || soi;
+  const droit = droitAnnulation(a, ctx.d.ti, { rh: isRh(ctx) && !soi, self, manager: isManagerOf(ctx, emp) });
   if (!droit.ok) throw new ActionError(droit.raison, a.statut === 'refusee' || a.statut === 'annulee' ? 400 : 403);
   ctx.db.update<Absence>('absences', a.id, { statut: 'annulee', annuleeLe: ctx.d.ti, annuleePar: ctx.user.nom, keystone: false });
   if (a.keystone) keystone(ctx, 'absence.annulee', a);
@@ -201,7 +211,7 @@ const annuler: ActionHandler = (ctx, p) => {
   const nature = libelle((isRh(ctx) || isSelf(ctx, emp.id) ? a : absenceVueManager(a)).type);
   const renvoi = a.statut === 'demandee' ? '' : renvoyerFeuilles(ctx, emp, a);
   const reprise = majReprise(ctx, emp, a, a.type);
-  if (a.statut === 'demandee') return `Demande de ${nature} ${periodeTexte(a.du, a.au)} ${isSelf(ctx, emp.id) ? 'retirée' : 'annulée'}${recredit}`;
+  if (a.statut === 'demandee') return `Demande de ${nature} ${periodeTexte(a.du, a.au)} ${self ? 'retirée' : 'annulée'}${recredit}`;
   return `Absence de ${emp.nom}${nature ? ` (${nature})` : ''} annulée${recredit}${a.keystone ? ' — Keystone prévenu' : ''}${feuilles}${renvoi}${reprise}`;
 };
 
@@ -223,6 +233,7 @@ const placerCet: ActionHandler = (ctx, p) => {
 const accorderReport: ActionHandler = (ctx, p) => {
   requireRh(ctx);
   const emp = getEmp(ctx, p.empId);
+  refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas vous accorder un report de congés');
   const cp = cpInfo(ctx.d, emp);
   const j = Number(p.jours), motif = str(p.motif);
   if (!cp || !(j > 0) || j > cp.solde || !motif) throw new ActionError('Nombre de jours (dans la limite du solde) et motif requis');

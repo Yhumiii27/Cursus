@@ -18,7 +18,7 @@ server/src/
   seed.ts          Données de démonstration
   sauvegarde.ts    Copie à chaud (VACUUM INTO), rotation, restauration, verrou du serveur ;
                    scripts backup.ts et restore.ts (npm run backup / restore, voir docs/SAUVEGARDE.md)
-  dataset.ts       Assemblage de l'instantané + restriction par rôle (RH / manager / collaborateur)
+  dataset.ts       Assemblage de l'instantané + restriction par rôle (RH / profil restreint / manager / collaborateur)
   auth.ts          Sessions en base (cookie signé, 12 h, révocation) : un compte et l'espace actif
   comptes.ts       Comptes nominatifs (Microsoft 365 ou compte local), espaces, mots de passe (scrypt), journal
   connexion.ts     Routes de session : /api/session, /api/mode, /api/login, /api/motdepasse, /api/logout, /api/comptes
@@ -50,7 +50,8 @@ design/            Prototype Claude Design de référence et guide du design sys
    de l'utilisateur : un manager ne reçoit que son équipe, sans données de santé
    (`visite` remplacée par `aptitude.ok`, vaccinations retirées, état des dossiers
    voyage précalculé dans `voyage.dossierStatut`) ; un collaborateur ne reçoit que
-   ses propres données.
+   ses propres données ; un profil restreint de l'espace RH (référent HSE, paie, lecture
+   seule) ne reçoit que ce que ses droits ouvrent (« Profils », section Sécurité).
 2. Le client calcule l'affichage avec `shared/` (statuts, soldes, échéances…).
 3. Toute modification passe par `run('nom.action', payload)` → `POST /api/actions/:nom`.
    Le serveur vérifie les droits, valide, écrit dans une transaction, trace l'action
@@ -110,11 +111,35 @@ design/            Prototype Claude Design de référence et guide du design sys
   puis déconnexion Microsoft avec retour sur l'URI de redirection (qui renvoie à l'écran de connexion).
   Configuration : `configOidc` de `server/src/config.ts` ; tests : `tests/microsoft.test.ts` (faux
   fournisseur OpenID local).
-- **Profils RH** (`PROFILS_RH` de `shared/constants.ts`) : `rh_gestionnaire` (droit `rh` : espace RH et
-  actions courantes) et `rh_admin` (droits `rh` et `admin` : paramètres, transmission à la paie,
-  suppressions, comptes et accès, réinitialisation de la démonstration). Contrôles serveur `requireRh` et
-  `requireRhAdmin` (`server/src/actions/context.ts`). Les profils à venir (référent HSE, paie, lecture
-  seule) s'ajoutent à `PROFILS_RH` avec leurs droits. Cursus garde toujours un administrateur RH actif.
+- **Profils** (`PROFILS_RH` de `shared/constants.ts`, droits `DroitRh`) : deux niveaux au sein du service RH —
+  `rh_gestionnaire` (droits `rh`, `formations`, `consultation` : espace RH et actions courantes) et `rh_admin`
+  (en plus `paie` et `admin` : paramètres, transmission à la paie, suppressions, comptes et accès,
+  réinitialisation de la démonstration) — et trois profils restreints décidés par l'entreprise, qui ouvrent
+  l'espace RH sans le droit `rh` :
+  - `referent_hse` (droit `formations`) : catalogue, sessions et présences, certifications et habilitations,
+    demandes de formation et d'habilitation, verdicts Go / No Go ; aptitude médicale réduite à apte / non apte ;
+  - `paie` (droit `paie`) : temps, absences et soldes en lecture, transmission des variables de paie à Sage ;
+  - `lecture_seule` (droit `consultation`) : direction, DPO, auditeur — tout l'espace en lecture (tableaux de
+    bord, alertes, journal des actions et envois), sans modification.
+
+  Contrôles serveur (`server/src/actions/context.ts`) : `requireRh`, `requireRhAdmin`, `requireFormations`,
+  `requirePaie` ; `droitsRh(user)` (`shared/constants.ts`) donne les droits de la personne connectée (aucun hors
+  de l'espace RH ; une lecture interne sans compte a ceux du gestionnaire RH). Données (`vueProfil` de
+  `server/src/dataset.ts`) : jamais de visite, de vaccination, de passeport ni de visa, nature médicale des
+  absences masquée et reprise d'un arrêt longue maladie retirée (comme pour le manager), motif des reports de CP
+  retiré ; le référent HSE ne reçoit ni temps, ni absences, ni entretiens, ni plan ; la paie ni formations, ni
+  entretiens, ni déplacements ; la lecture seule tout le reste, sans le contenu des comptes rendus d'entretien ni
+  les documents déclarés. L'état des déplacements (`dossierStatut`, `dossierManque`) est calculé par le serveur
+  pour que le verdict Go / No Go reste exact sans les pièces. `GET /api/journal` et `GET /api/envois` : droit
+  `consultation` ; pour la lecture seule, les messages des actions qui peuvent nommer une donnée de santé sont
+  masqués (`journalPourProfil`). Écrans : `vues` du profil (`vuesDe`), navigation et boutons masqués selon
+  `useRole()`. En démonstration : Sarah Cohen (référente HSE), Aïcha Diallo (paie), Élodie Bernard (lecture seule).
+  Cursus garde toujours un administrateur RH actif.
+- **Décision sur soi-même** : un membre du RH qui est aussi salarié (`user.salarieId`, rattaché au compte) ne
+  décide pas de ses propres absences (`absence.decider`, `absence.saisir`, `absence.qualifier`, `report.accorder` ;
+  il prolonge et annule comme intéressé), feuilles de temps (`temps.validate`, `temps.reject`, correction après
+  soumission) ou entretiens (`entretien.planifier`, `entretien.modifier`, `entretien.clore`) : refus 403 qui
+  renvoie à son manager ou à un autre membre du service RH (`refuserSoiMeme`).
 - **Identité** : dans l'espace RH, `user.empId` reste null (la personne agit pour le service RH), mais
   `user.nom` est celui de la personne connectée : il signe le journal (avec `compteId` et `identifiant`)
   et les mesures (`mesurePar`, reports de CP). `rhNom` et `rhIntitule` ne sont plus des paramètres : le
@@ -156,13 +181,17 @@ design/            Prototype Claude Design de référence et guide du design sys
 - Les propositions d'action calculées par le domaine (`Proposal.intent`) s'exécutent
   avec `runIntent(intent)`.
 - Masquer les actions que le rôle n'a pas le droit d'effectuer (le serveur refuse de
-  toute façon) : `useRole()` donne `rh`, `admin` (administrateur RH), `manager`, `collab`, `me`.
+  toute façon) : `useRole()` donne `espaceRh` (vues d'ensemble), `rh`, `admin` (administrateur RH), `formations`,
+  `paie`, `consultation`, `manager`, `collab`, `me` et `soi` (salarié du compte, y compris dans l'espace RH) ;
+  `useIntentPermis()` filtre les propositions d'action du domaine.
 - Icônes : Phosphor (`@phosphor-icons/react`, noms suffixés `Icon`).
 
 ## Actions disponibles
 
-« RH » : administrateur et gestionnaires RH ; « administrateur RH » : profil `rh_admin` seulement.
-`tests/droits.test.ts` vérifie chaque action pour six profils et échoue si une action n'y a pas sa ligne.
+« RH » : administrateur et gestionnaires RH ; « administrateur RH » : profil `rh_admin` seulement ; « référent HSE »,
+« paie » : profils restreints `referent_hse` et `paie` (la lecture seule n'exécute aucune action). Un membre du RH ne
+décide jamais pour lui-même (« Décision sur soi-même »). `tests/droits.test.ts` vérifie chaque action pour neuf
+profils et échoue si une action n'y a pas sa ligne.
 
 | Action | Paramètres | Droits |
 | --- | --- | --- |
@@ -171,20 +200,20 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `equipe.creer` / `equipe.renommer` | nom, managerId? / nom, nouveau | RH |
 | `equipe.supprimer` | nom | administrateur RH |
 | `equipe.manager` | nom, managerId (null = aucun) | RH |
-| `equipe.affecter` | empId, equipe (null = à affecter) | RH ; manager : ajout à une équipe qu'il encadre, retrait d'un membre |
-| `plan.inscrire` | empId, certId (recyclage) ou inscriptionId (formation initiale à replanifier), sessionId, conv (`now`/`later`) ; refusé depuis une session passée non clôturée | RH, manager direct |
-| `cert.ajouter` | empId, f, date | RH |
-| `session.creer` | f, date (postérieure à aujourd’hui), lieu, places (entier ≥ 1), planId? (action « prévue » de la même formation) | RH |
-| `session.confirmer` | id | RH |
-| `session.modifier` | id, date? (postérieure à aujourd’hui ; session passée, à clôturer : aussi une date passée), lieu?, places? (≥ inscrits) | RH |
-| `session.annuler` | id, motif? | RH |
-| `session.cloturer` | id, participants [{empId, present, reussi?}], note? (1 à 5), commentaire? | RH |
-| `hab.delivrer` | empId, h, date, par, mode | RH |
-| `hab.suspendre` | empId, h, motif, date? (aujourd’hui par défaut) | RH ; manager pour un membre de son équipe (jamais lui-même) |
-| `hab.lever` | empId, h | RH |
-| `hab.retirer` | empId, h, motif, date? | RH |
+| `equipe.affecter` | empId, equipe (null = à affecter) | RH ; manager : ajout à une équipe qu'il encadre d'un salarié « à affecter » (libéré par son manager) ou d'un membre d'une autre de ses équipes, retrait d'un membre — jamais le membre d'une autre équipe : sa mutation relève du RH |
+| `plan.inscrire` | empId, certId (recyclage) ou inscriptionId (formation initiale à replanifier), sessionId, conv (`now`/`later`) ; refusé depuis une session passée non clôturée | RH, référent HSE, manager direct |
+| `cert.ajouter` | empId, f, date | RH, référent HSE |
+| `session.creer` | f, date (postérieure à aujourd’hui), lieu, places (entier ≥ 1), planId? (action « prévue » de la même formation) | RH, référent HSE |
+| `session.confirmer` | id | RH, référent HSE |
+| `session.modifier` | id, date? (postérieure à aujourd’hui ; session passée, à clôturer : aussi une date passée), lieu?, places? (≥ inscrits) | RH, référent HSE |
+| `session.annuler` | id, motif? | RH, référent HSE |
+| `session.cloturer` | id, participants [{empId, present, reussi?}], note? (1 à 5), commentaire? | RH, référent HSE |
+| `hab.delivrer` | empId, h, date, par, mode | RH, référent HSE |
+| `hab.suspendre` | empId, h, motif, date? (aujourd’hui par défaut) | RH, référent HSE ; manager pour un membre de son équipe (jamais lui-même) |
+| `hab.lever` | empId, h | RH, référent HSE |
+| `hab.retirer` | empId, h, motif, date? | RH, référent HSE |
 | `medical.demander` | empId | RH |
-| `demande.accepter` / `demande.refuser` | id | RH |
+| `demande.accepter` / `demande.refuser` | id | RH ; référent HSE pour une demande de formation ou d'habilitation (document déclaré : RH) |
 | `demande.formation` | f (ou `autre`), libelle, sessionId, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `demande.habilitation` | h, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `voyage.creer` | empId, dest, depart, retour, motif | RH |
@@ -197,25 +226,25 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `temps.setCell` | empId, week, li, di, value | salarié, manager direct ou RH (feuille soumise : valideur uniquement) ; aucune heure un jour d’absence validée ou signalée, ni hors contrat, vider la cellule reste possible ; pas de feuille pour une semaine hors contrat |
 | `temps.addLine` / `temps.removeLine` | empId, week, projet / li | idem |
 | `temps.suggest` / `temps.submit` | empId, week | idem (soumission : brouillon ou à corriger, sans heures un jour d’absence validée ; semaine entièrement couverte par une absence : sans heure) |
-| `temps.validate` / `temps.reject` | empId, week, comment? | manager direct ou RH (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence) |
-| `temps.pushSage` | — | administrateur RH |
+| `temps.validate` / `temps.reject` | empId, week, comment? | manager direct ou RH, jamais pour sa propre feuille (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence) |
+| `temps.pushSage` | — | administrateur RH, paie |
 | `absence.demander` | empId, kind (`CP`/`RTT`/`RECUP`), du, au | intéressé ou RH (demande, refusée si ces jours portent des heures sur une feuille validée) ; manager direct (posée et validée, refusée si des heures sont saisies ces jours-là) |
-| `absence.decider` | id, ok | manager direct ou RH (validation refusée si des heures sont saisies ces jours-là) |
+| `absence.decider` | id, ok | manager direct ou RH, jamais pour sa propre demande (validation refusée si des heures sont saisies ces jours-là) |
 | `absence.signaler` | empId, du, au | intéressé, manager direct ou RH : absence imprévue « à qualifier », en vigueur aussitôt |
-| `absence.saisir` | empId, nature, du, au, justificatif, justificatifLe | RH (absence hors congés validée d’emblée) |
-| `absence.qualifier` | id, nature, du?, au?, justificatif, justificatifLe | RH (absence signalée ou qualifiée, hors congés) |
+| `absence.saisir` | empId, nature, du, au, justificatif, justificatifLe | RH (absence hors congés validée d’emblée), jamais pour lui-même |
+| `absence.qualifier` | id, nature, du?, au?, justificatif, justificatifLe | RH (absence signalée ou qualifiée, hors congés), jamais la sienne |
 | `absence.prolonger` | id, au | intéressé, manager direct ou RH (hors congés ; hors RH, l’absence repasse « à qualifier ») |
 | `absence.annuler` | id | demande : intéressé ou RH ; absence à venir : manager direct ou RH (et l’intéressé pour son propre signalement, ni qualifié ni prolongé) ; commencée ou passée : RH ; hors périmètre : refus unique (403) |
 | `cet.placer` | empId, kind, jours | intéressé ou RH |
-| `report.accorder` | empId, jours, motif | RH |
-| `entretien.planifier` | empId, kind, date | manager direct ou RH |
-| `entretien.modifier` | id, section?, value?, info? | évaluateur / salarié selon la section |
+| `report.accorder` | empId, jours, motif | RH, jamais pour lui-même |
+| `entretien.planifier` | empId, kind, date | manager direct ou RH (jamais son propre entretien) |
+| `entretien.modifier` | id, section?, value?, info? | évaluateur / salarié selon la section (un membre du RH n'évalue pas son propre entretien) |
 | `entretien.clore` | id | évaluateur |
 | `entretien.signer` | id | salarié |
 | `parametres.maj` | horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, silent? | administrateur RH |
 | `demo.reinitialiser` | — | administrateur RH, mode démonstration |
 | `compte.creer` | empId (ou nom, adresse : compte externe), type (`microsoft`/`local`), identifiant, profilRh | administrateur RH (mot de passe provisoire dans `result`, affiché une fois) |
-| `compte.profil` | id, profilRh (`aucun`/`rh_gestionnaire`/`rh_admin`) | administrateur RH (jamais le dernier administrateur actif) |
+| `compte.profil` | id, profilRh (`aucun`/`rh_gestionnaire`/`rh_admin`/`referent_hse`/`paie`/`lecture_seule`) | administrateur RH (jamais le dernier administrateur actif ; un compte externe garde un profil) |
 | `compte.activer` | id, actif | administrateur RH (désactiver ferme les sessions ; pas son propre compte) |
 | `compte.reinitialiser` | id | administrateur RH (compte local : nouveau mot de passe provisoire ; compte Microsoft rattaché : « Délier », `oid` retiré pour une identité recréée ; sessions fermées) |
 | `envoi.relancer` | id | RH (envoi en échec, intégration configurée : nouvelle série de tentatives, même clé d'idempotence) |

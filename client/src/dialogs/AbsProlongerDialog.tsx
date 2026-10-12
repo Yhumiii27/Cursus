@@ -14,7 +14,7 @@ import { useStore } from '../state/store.tsx';
 
 export function AbsProlongerDialog({ id }: { id: number }) {
   const d = useDomain();
-  const { rh } = useRole();
+  const { rh, soi } = useRole();
   const { run, closeDialog } = useStore();
   const a = d.ds.absences.find(x => x.id === id);
   const [au, setAu] = useState('');
@@ -49,7 +49,8 @@ export function AbsProlongerDialog({ id }: { id: number }) {
       </Field>
       {chk && <Controles msgs={chk.msgs} />}
       <Fine>
-        {rh || a.statut === 'signalee'
+        {/* Un membre du RH prolonge sa propre absence comme intéressé : elle repasse aussi « à qualifier ». */}
+        {(rh && emp.id !== soi) || a.statut === 'signalee'
           ? 'Keystone reçoit la prolongation de l’indisponibilité.'
           : 'L’absence repasse « à qualifier » : le service RH enregistre l’avis de prolongation. Keystone reçoit la prolongation de l’indisponibilité.'}
       </Fine>

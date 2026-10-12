@@ -1,4 +1,4 @@
-// Paramètres → Comptes et accès (administrateur RH) : comptes de connexion, profil RH, espaces,
+// Paramètres → Comptes et accès (administrateur RH) : comptes de connexion, profil (service RH ou profil restreint), espaces,
 // désactivation, mot de passe provisoire (compte Cursus) ou rattachement Microsoft retiré (identité
 // Microsoft recréée). La liste est rechargée après chaque action.
 import { useCallback, useEffect, useMemo, useState } from 'react';
@@ -14,6 +14,8 @@ import { useData, useStore } from '../state/store.tsx';
 const MONO = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12 };
 const heure = (iso: string) => new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
 const minuscule = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+/** Profils restreints de l'espace RH (décidés par l'entreprise), expliqués sous la liste. */
+const RESTREINTS: ProfilRh[] = ['referent_hse', 'paie', 'lecture_seule'];
 /** Adresse coupée de préférence avant « @ » quand la colonne est étroite. */
 const coupure = (id: string) => { const i = id.indexOf('@'); return i > 0 ? <>{id.slice(0, i)}<wbr />{id.slice(i)}</> : id; };
 
@@ -95,6 +97,9 @@ export function ComptesPanel() {
         {PROFILS_RH.rh_gestionnaire.label} : {minuscule(PROFILS_RH.rh_gestionnaire.aide)}. {PROFILS_RH.rh_admin.label} : {minuscule(PROFILS_RH.rh_admin.aide)}.
         {' '}Un salarié ouvre aussi son espace collaborateur, et l’espace manager s’il encadre une équipe. Désactiver un compte ferme aussitôt ses sessions.
       </Fine>
+      <Fine>
+        Profils restreints, dans l’espace RH : {RESTREINTS.map(p => `${PROFILS_RH[p].label} (${minuscule(PROFILS_RH[p].aide)})`).join(' ; ')}.
+      </Fine>
       {erreur && <p className="form-error">{erreur}</p>}
       {comptes != null && liste.length === 0 && <Empty pad="sm">{recherche ? 'Aucun compte ne correspond à la recherche.' : 'Aucun compte.'}</Empty>}
       {liste.length > 0 && (
@@ -120,7 +125,7 @@ export function ComptesPanel() {
                         {(Object.keys(PROFILS_RH) as ProfilRh[]).map(p => <option key={p} value={p} disabled={!c.empId && p === 'aucun'}>{PROFILS_RH[p].label}</option>)}
                       </select>
                     </td>
-                    <td>{c.espaces.length ? <Chips items={c.espaces.map(r => ({ key: r, label: ESPACE_LABEL[r], cls: 'tag-outline' }))} /> : <span className="text-muted">—</span>}</td>
+                    <td>{c.espaces.length ? <Chips items={c.espaces.map(r => ({ key: r, label: r === 'rh' ? PROFILS_RH[c.profilRh]?.espace ?? ESPACE_LABEL.rh : ESPACE_LABEL[r], cls: 'tag-outline' }))} /> : <span className="text-muted">—</span>}</td>
                     <td><Tag cls={st.cls}>{st.label}</Tag></td>
                     <td>{last ? <Two main={fmt(last)} sub={heure(c.derniereConnexion!)} nowrap /> : <span className="text-muted">Jamais</span>}</td>
                     <td>

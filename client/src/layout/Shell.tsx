@@ -5,6 +5,7 @@ import {
   AirplaneIcon, BellIcon, BookOpenIcon, BriefcaseIcon, CalendarBlankIcon, ChartBarIcon, ChatIcon, CheckIcon, ClockIcon, GearSixIcon,
   HouseIcon, KeyIcon, MagnifyingGlassIcon, MapPinIcon, PlusIcon, ShieldCheckIcon, SignOutIcon, UserIcon, UsersThreeIcon, type Icon,
 } from '@phosphor-icons/react';
+import { droitsRh, PROFILS_RH, vuesDe } from '../../../shared/constants.ts';
 import { Domain } from '../../../shared/domain.ts';
 import { obligations } from '../../../shared/rules/entretiens.ts';
 import type { Dataset, Role } from '../../../shared/types.ts';
@@ -21,16 +22,20 @@ function navGroups(data: Dataset | null, role: Role): NavGroup[] {
   const me = data.user.empId;
   const scope = data.employes.map(e => e.id);
   const late = obligations(d, scope).filter(o => o.kind === 'epp' && o.st === 'late').length;
+  // Service RH (jamais pour ses propres demandes) ou manager direct ; les profils restreints ne valident rien.
+  const rh = droitsRh(data.user).includes('rh'), soi = data.user.salarieId ?? null;
   const canValidate = (empId: number) => {
     const e = d.emp(empId);
-    return !!e && (role === 'rh' || (role === 'manager' && d.mgrOf(e) === me));
+    return !!e && ((rh && empId !== soi) || (role === 'manager' && d.mgrOf(e) === me));
   };
   const nQ = data.feuilles.filter(f => f.statut === 'soumise' && canValidate(f.empId)).length;
   // Demandes à valider ; pour le RH, aussi les absences signalées à qualifier.
-  const nAbs = data.absences.filter(a => (a.statut === 'demandee' && canValidate(a.empId)) || (role === 'rh' && a.statut === 'signalee')).length;
+  const nAbs = data.absences.filter(a => (a.statut === 'demandee' && canValidate(a.empId)) || (rh && a.statut === 'signalee' && a.empId !== soi)).length;
   if (role === 'rh') {
-    const nReq = data.demandesCollab.filter(r => r.statut === 'attente').length;
-    return [
+    const nReq = droitsRh(data.user).includes('formations') ? data.demandesCollab.filter(r => r.statut === 'attente').length : 0;
+    // Écrans du profil (référent HSE, paie, lecture seule : une partie de l'espace RH).
+    const vues = vuesDe('rh', data.user.profilRh);
+    const groupes: NavGroup[] = [
       ['Pilotage', [{ view: 'dashboard', label: 'Tableau de bord', icon: HouseIcon, badge: nReq }, { view: 'echeances', label: 'Échéances', icon: BellIcon }, { view: 'budget', label: 'Plan & budget', icon: ChartBarIcon }]],
       ['Collaborateurs', [{ view: 'collaborateurs', label: 'Annuaire', icon: UserIcon, badge: data.employes.filter(e => !e.equipe).length }, { view: 'equipes', label: 'Équipes & managers', icon: UsersThreeIcon }, { view: 'entretiens', label: 'Entretiens', icon: ChatIcon, badge: late }]],
       ['Compétences', [{ view: 'formations', label: 'Formations', icon: BookOpenIcon }, { view: 'habilitations', label: 'Habilitations', icon: ShieldCheckIcon }]],
@@ -38,6 +43,7 @@ function navGroups(data: Dataset | null, role: Role): NavGroup[] {
       ['Projets & déplacements', [{ view: 'missions', label: 'Missions', icon: MapPinIcon }, { view: 'voyages', label: 'Voyages', icon: AirplaneIcon, badge: data.demandesKeystone.filter(x => x.statut === 'attente').length }, { view: 'chantiers', label: 'Chantiers · Go / No Go', icon: BriefcaseIcon }]],
       ['Administration', [{ view: 'parametres', label: 'Paramètres', icon: GearSixIcon }]],
     ];
+    return groupes.map(([g, items]): NavGroup => [g, items.filter(i => vues.includes(i.view))]).filter(([, items]) => items.length > 0);
   }
   if (role === 'manager') {
     return [
@@ -60,8 +66,11 @@ function Sidebar({ groups }: { groups: NavGroup[] }) {
   const user = session?.user ?? null;
   const compte = session?.compte ?? null;
   const roleLabel = user ? user.intitule : role === 'manager' ? 'Espace manager' : role === 'collaborateur' ? 'Espace collaborateur' : 'Espace RH';
-  // Démonstration : les trois vues, connexion libre. Sinon : les espaces du compte, s'il en a plusieurs.
-  const vues = session?.demo ? VUES : user && compte && compte.espaces.length > 1 ? VUES.filter(([r]) => compte.espaces.includes(r)) : [];
+  // Démonstration : les trois vues, connexion libre. Sinon : les espaces du compte, s'il en a plusieurs ; l'espace RH d'un
+  // profil restreint porte le nom court du profil (HSE, Paie, Lecture).
+  const vues = session?.demo ? VUES : user && compte && compte.espaces.length > 1
+    ? VUES.filter(([r]) => compte.espaces.includes(r)).map(([r, l]): [Role, string] => [r, r === 'rh' ? PROFILS_RH[compte.profilRh]?.espace ?? l : l])
+    : [];
   return (
     <aside className="sidebar">
       <span className="brand">
@@ -121,20 +130,27 @@ function Topbar({ groups }: { groups: NavGroup[] }) {
   const { session, view, ui, setUi, go, openDialog, data } = useStore();
   const g = groups.find(([, items]) => items.some(i => i.view === view));
   const page = g?.[1].find(i => i.view === view);
-  const rh = session?.user?.role === 'rh';
+  // Espace RH : recherche si le profil ouvre l'annuaire, nouvelle session pour le service RH et le référent HSE.
+  const user = data?.user;
+  const recherche = user?.role === 'rh' && vuesDe('rh', user.profilRh).includes('collaborateurs');
+  const sessions = !!user && droitsRh(user).includes('formations');
   return (
     <header className="topbar">
       <div className="crumb"><span>{g ? g[0] : 'Cursus'}</span><span className="sep">/</span><span className="here">{page ? page.label : 'Connexion'}</span></div>
-      {rh && data && (
+      {session?.user && data && (recherche || sessions) && (
         <div className="topbar-actions">
-          <label className="search">
-            <MagnifyingGlassIcon size={14} />
-            <input className="input" type="text" placeholder="Rechercher un collaborateur…" aria-label="Rechercher un collaborateur"
-              value={ui.search} onChange={e => { setUi({ search: e.target.value }); if (view !== 'collaborateurs') go('collaborateurs'); }} />
-          </label>
-          <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'session', f: ui.formationFilter ?? undefined })}>
-            <PlusIcon size={14} /><span>Nouvelle session</span>
-          </button>
+          {recherche && (
+            <label className="search">
+              <MagnifyingGlassIcon size={14} />
+              <input className="input" type="text" placeholder="Rechercher un collaborateur…" aria-label="Rechercher un collaborateur"
+                value={ui.search} onChange={e => { setUi({ search: e.target.value }); if (view !== 'collaborateurs') go('collaborateurs'); }} />
+            </label>
+          )}
+          {sessions && (
+            <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'session', f: ui.formationFilter ?? undefined })}>
+              <PlusIcon size={14} /><span>Nouvelle session</span>
+            </button>
+          )}
         </div>
       )}
     </header>

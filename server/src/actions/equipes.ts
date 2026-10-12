@@ -127,8 +127,9 @@ const supprimer: ActionHandler = (ctx, p) => {
 
 /**
  * Affectation d'un collaborateur à une équipe (`equipe` = null : à affecter).
- * RH : toute affectation. Manager : ajouter un collaborateur à une équipe qu'il encadre,
- * ou retirer un membre de son équipe (il revient alors au service RH).
+ * RH : toute affectation. Manager : ajouter à une équipe qu'il encadre un salarié « à affecter », c'est-à-dire déjà
+ * libéré par son manager d'origine (jamais prendre directement le membre d'une autre équipe : sa mutation passe
+ * par le service RH), ou retirer un membre de son équipe (il revient alors au service RH).
  */
 const affecter: ActionHandler = (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
@@ -141,6 +142,11 @@ const affecter: ActionHandler = (ctx, p) => {
     if (emp.id === ctx.user.empId) throw new ActionError('Votre propre affectation relève du service RH', 403);
     if (cible && !mine.includes(cible)) throw new ActionError('Vous ne pouvez affecter qu’à une équipe que vous encadrez', 403);
     if (!cible && !(avant && mine.includes(avant))) throw new ActionError('Ce collaborateur ne fait pas partie de votre équipe', 403);
+    // Décision de l'entreprise : le manager n'accueille qu'un salarié « à affecter », libéré par son manager d'origine
+    // (ou un membre d'une autre équipe qu'il encadre lui-même).
+    if (cible && avant && !mine.includes(avant)) {
+      throw new ActionError(`${emp.nom} fait partie de l’équipe ${avant} : seul un salarié « à affecter », libéré par son manager, peut rejoindre votre équipe — sinon, demandez sa mutation au service RH`, 403);
+    }
     // Les managers et le valideur du manager ne changent d'équipe que par le service RH (pas de validation croisée).
     if (ctx.d.teamsOf(emp.id).length) throw new ActionError(`${emp.nom} encadre une équipe : son affectation relève du service RH`, 403);
     const moi = ctx.d.emp(ctx.user.empId!);

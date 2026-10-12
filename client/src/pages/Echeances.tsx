@@ -4,7 +4,7 @@ import { DownloadSimpleIcon } from '@phosphor-icons/react';
 import { cap, equipeLabel, monthShort, plural } from '../../../shared/format.ts';
 import { Btn, Empty, Page, Panel, Seg } from '../components/ui.tsx';
 import { downloadCsv } from '../print.ts';
-import { useEnriched, useRole } from '../state/derived.ts';
+import { useEnriched, useIntentPermis } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { EchRow } from './Dashboard.tsx';
 
@@ -12,13 +12,14 @@ const dmy = (d: Date) => d.toLocaleDateString('fr-FR', { day: '2-digit', month: 
 
 export function Echeances() {
   const { emps, horizon, d } = useEnriched();
-  const { rh } = useRole();
+  const permis = useIntentPermis();
   const { ui, setUi, go, runIntent, notify } = useStore();
 
   const v = useMemo(() => {
     const list = d.echeances(emps, horizon)
       .filter(x => ui.echType === 'tous' || x.kind === ui.echType)
-      .map(x => rh ? x : { ...x, action: null });
+      // Propositions d'action réservées aux profils qui peuvent les lancer (aucune en lecture seule).
+      .map(x => !x.action || permis(x.action.intent) ? x : { ...x, action: null });
     const exp = list.filter(x => x.key === 'exp').sort((a, b) => a.d - b.d);
     const t = d.today;
     const months = Array.from({ length: 12 }, (_, i) => {
@@ -38,7 +39,7 @@ export function Echeances() {
       })),
     ];
     return { months, max, year, exp: exp.length, groups };
-  }, [d, emps, horizon, ui.echType, rh]);
+  }, [d, emps, horizon, ui.echType, permis]);
 
   const exportCsv = () => {
     const items = v.groups.flatMap(g => g.items);

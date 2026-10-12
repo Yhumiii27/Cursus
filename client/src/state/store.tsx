@@ -7,10 +7,10 @@
 // Lectures et actions portent l'espace affiché : changé dans un autre onglet, le serveur refuse (409) et
 // l'onglet suit la session (`suivre`), sans rejouer l'action.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { ALLOWED_VIEWS, type HabMesureAction } from '../../../shared/constants.ts';
+import { vuesDe, type ALLOWED_VIEWS, type HabMesureAction } from '../../../shared/constants.ts';
 import { mondayOf } from '../../../shared/dates.ts';
 import type { FormaliteKind, UiIntent } from '../../../shared/domain.ts';
-import type { CompteSession, Dataset, EntretienType, ISODate, PlanStatut, Role, VaccinId } from '../../../shared/types.ts';
+import type { CompteSession, Dataset, EntretienType, ISODate, PlanStatut, ProfilRh, Role, VaccinId } from '../../../shared/types.ts';
 import { api, lienMicrosoft, surSessionExpiree, type ActionResponse, type ApiError, type SessionState } from '../api.ts';
 import { effacerBrouillon, lireBrouillon, sauverBrouillon, type Champs } from './brouillon.ts';
 
@@ -161,8 +161,9 @@ async function avecDonnees(s: SessionState): Promise<[SessionState, Dataset | nu
   }
 }
 
-export function allowedView(role: Role, v: string, fallback?: string): View {
-  const list = ALLOWED_VIEWS[role] as readonly string[];
+/** Vue affichable dans l'espace (selon le profil pour l'espace RH), sinon la vue de repli, sinon la page d'accueil. */
+export function allowedView(role: Role, v: string, fallback?: string, profilRh?: ProfilRh): View {
+  const list = vuesDe(role, profilRh);
   if (list.includes(v)) return v as View;
   if (fallback && list.includes(fallback)) return fallback as View;
   return list[0] as View;
@@ -301,7 +302,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const role: Role = session?.role ?? 'rh';
-  const view = allowedView(role, rawView, role === 'rh' ? data?.settings.vueInitiale : undefined);
+  const view = allowedView(role, rawView, role === 'rh' ? data?.settings.vueInitiale : undefined, (data ?? session)?.user?.profilRh);
 
   // Synchronise l'URL avec la vue effectivement affichée.
   useEffect(() => {

@@ -1,5 +1,7 @@
 // Libellés, classes de statut et règles fixes (droit du travail, formalités).
-import type { AbsenceStatut, AbsenceType, CompteType, EntretienType, NatureAbsence, ProfilRh, Role, Statut, TempsTravail, TypeContrat, VaccinId, ValidationMode, VisaKind } from './types.ts';
+import type {
+  AbsenceStatut, AbsenceType, CompteType, CurrentUser, EntretienType, NatureAbsence, ProfilRh, Role, Statut, TempsTravail, TypeContrat, VaccinId, ValidationMode, VisaKind,
+} from './types.ts';
 
 export type StatusKey = 'ok' | 'due' | 'exp';
 /** `susp` : suspendue (prérequis non satisfait ou suspension manuelle) ; `retiree` : retirée, définitivement. */
@@ -290,21 +292,59 @@ export const ALLOWED_VIEWS = {
 
 // — Comptes et droits —
 /**
- * Droits accordés par un profil RH : `rh` ouvre l'espace RH et ses actions courantes (fiches, formations,
- * habilitations, absences, temps…) ; `admin` les actions réservées à l'administrateur RH (paramètres,
- * transmission à la paie, suppressions, comptes et accès).
+ * Droits accordés par un profil, dans l'espace RH :
+ * - `rh` : gestion courante du service RH (fiches, équipes, formations, absences, temps, entretiens, déplacements…),
+ *   toutes les données, santé comprise ;
+ * - `formations` : catalogue, sessions et présences, certifications et habilitations, suivi des verdicts Go / No Go ;
+ * - `paie` : contrôle des temps, absences et soldes, transmission des variables de paie à Sage ;
+ * - `consultation` : lecture de tout l'espace (tableaux de bord, alertes, journal des actions), sans modification ;
+ * - `admin` : paramètres, suppressions, comptes et accès.
+ * Sans le droit `rh`, l'instantané envoyé au navigateur ne porte que ce que les autres droits ouvrent, jamais de
+ * donnée de santé détaillée (server/src/dataset.ts), et chaque action contrôle son droit (server/src/actions/context.ts).
  */
-export type DroitRh = 'rh' | 'admin';
+export type DroitRh = 'rh' | 'formations' | 'paie' | 'consultation' | 'admin';
 /**
- * Profils RH d'un compte. Les profils à venir (référent HSE, paie, lecture seule) s'ajoutent ici avec
- * leurs droits — au besoin de nouveaux droits contrôlés côté serveur — sans changer la table des comptes.
+ * Profils d'un compte : deux niveaux au sein du service RH, puis trois profils restreints, décidés par l'entreprise.
+ * `vues` : écrans ouverts par un profil restreint (sinon ceux de l'espace RH) ; `espace` : nom court de son espace.
  */
-export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits: readonly DroitRh[] }> = {
+export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits: readonly DroitRh[]; espace?: string; vues?: readonly string[] }> = {
   aucun: { label: 'Aucun', aide: 'Pas d’accès à l’espace RH', droits: [] },
-  rh_gestionnaire: { label: 'Gestionnaire RH', aide: 'Fiches, équipes, formations, habilitations, absences, temps, déplacements', droits: ['rh'] },
-  rh_admin: { label: 'Administrateur RH', aide: 'Tout l’espace RH, plus les paramètres, la transmission à la paie, les suppressions et les comptes', droits: ['rh', 'admin'] },
+  rh_gestionnaire: { label: 'Gestionnaire RH', aide: 'Fiches, équipes, formations, habilitations, absences, temps, déplacements', droits: ['rh', 'formations', 'consultation'] },
+  rh_admin: {
+    label: 'Administrateur RH', aide: 'Tout l’espace RH, plus les paramètres, la transmission à la paie, les suppressions et les comptes',
+    droits: ['rh', 'formations', 'paie', 'consultation', 'admin'],
+  },
+  referent_hse: {
+    label: 'Référent HSE / formation', espace: 'HSE', droits: ['formations'],
+    aide: 'Catalogue, sessions et présences, certifications et habilitations, verdicts Go / No Go ; aptitude médicale réduite à apte / non apte ; ni temps, ni absences, ni paie, ni entretiens',
+    vues: ['dashboard', 'collaborateurs', 'formations', 'habilitations', 'echeances', 'chantiers'],
+  },
+  paie: {
+    label: 'Gestionnaire de paie', espace: 'Paie', droits: ['paie'],
+    aide: 'Temps, absences et soldes en lecture, transmission des variables de paie à Sage ; ni entretiens, ni formations, ni données de santé',
+    vues: ['temps', 'absences'],
+  },
+  lecture_seule: {
+    label: 'Lecture seule', espace: 'Lecture', droits: ['consultation'],
+    aide: 'Direction, DPO, auditeur : tableaux de bord, alertes et journal des actions, sans rien modifier ; ni données de santé détaillées, ni dossiers de voyage',
+    vues: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'echeances', 'budget', 'chantiers', 'temps', 'absences', 'entretiens', 'missions', 'parametres'],
+  },
 };
 export const aDroitRh = (p: ProfilRh | undefined, droit: DroitRh) => !!p && !!PROFILS_RH[p]?.droits.includes(droit);
+/** Le profil ouvre-t-il l'espace RH (au moins un droit) ? */
+export const ouvreEspaceRh = (p: ProfilRh | undefined) => !!p && (PROFILS_RH[p]?.droits.length ?? 0) > 0;
+/**
+ * Droits de la personne connectée : ceux de son profil dans l'espace RH, aucun ailleurs. Une lecture interne sans
+ * compte (jeu de démonstration, appels Keystone, tests) a ceux du gestionnaire RH.
+ */
+export function droitsRh(u: Pick<CurrentUser, 'role' | 'profilRh'>): readonly DroitRh[] {
+  if (u.role !== 'rh') return [];
+  return PROFILS_RH[u.profilRh ?? 'rh_gestionnaire']?.droits ?? [];
+}
+/** Écrans ouverts dans un espace, selon le profil pour l'espace RH (le premier est la page d'accueil). */
+export function vuesDe(role: Role, profilRh?: ProfilRh): readonly string[] {
+  return (role === 'rh' && profilRh && PROFILS_RH[profilRh]?.vues) || ALLOWED_VIEWS[role];
+}
 
 export const COMPTE_TYPE_LABEL: Record<CompteType, string> = { microsoft: 'Microsoft 365', local: 'Compte Cursus' };
 export const ESPACE_LABEL: Record<Role, string> = { rh: 'RH', manager: 'Manager', collaborateur: 'Collaborateur' };

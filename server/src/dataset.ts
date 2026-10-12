@@ -1,6 +1,6 @@
 // Assemblage de l'instantané complet depuis la base, puis restriction au
-// périmètre de l'utilisateur connecté (RH : tout ; manager : son équipe ;
-// collaborateur : ses propres données).
+// périmètre de l'utilisateur connecté (RH : tout ; profils restreints de l'espace RH :
+// ce que leurs droits ouvrent ; manager : son équipe ; collaborateur : ses propres données).
 import { Domain } from '../../shared/domain.ts';
 import { addD, iso, mondayOf } from '../../shared/dates.ts';
 import { absenceVueManager, repriseMedicale } from '../../shared/rules/absences.ts';
@@ -10,7 +10,7 @@ import type {
   Equipe, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mission, Participation, PlanAction, Projet, ReportCp, SagePush, Session, Settings, SoldeReprise,
   TacheKeystone, Vaccination, Visa, Voyage,
 } from '../../shared/types.ts';
-import { PROFILS_RH } from '../../shared/constants.ts';
+import { droitsRh, PROFILS_RH, type DroitRh } from '../../shared/constants.ts';
 import type { Db } from './db.ts';
 import type { SessionInfo } from './auth.ts';
 import { compteValide, espacesDuCompte, nomDuCompte } from './comptes.ts';
@@ -95,7 +95,7 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
 export function currentUser(db: Db, s: SessionInfo | null): CurrentUser | null {
   const c = compteValide(db, s?.compteId);
   if (!s || !c || !espacesDuCompte(db, c).includes(s.role)) return null;
-  const compte = { compteId: c.id, profilRh: c.profilRh };
+  const compte = { compteId: c.id, profilRh: c.profilRh, salarieId: c.empId };
   if (s.role === 'rh') return { role: 'rh', empId: null, nom: nomDuCompte(db, c), intitule: PROFILS_RH[c.profilRh].label, ...compte };
   const empId = c.empId!;
   const e = db.get<EmpRow>('employes', empId)!;
@@ -132,7 +132,10 @@ export function tachesProches(taches: TacheKeystone[], today: ISODate): TacheKey
 
 export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
   const full = loadFull(db, user);
-  if (user.role === 'rh') return { ...full, taches: tachesProches(full.taches, full.today) };
+  if (user.role === 'rh') {
+    const droits = droitsRh(user);
+    return droits.includes('rh') ? { ...full, taches: tachesProches(full.taches, full.today) } : vueProfil(full, droits);
+  }
   const d = new Domain(full);
   const ids = new Set(scopeIds(d, user));
   const mine = <T extends { empId: number }>(list: T[]) => list.filter(x => ids.has(x.empId));
@@ -179,4 +182,68 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     participations: mine(full.participations),
     lastSagePush: null,
   };
+}
+
+/**
+ * Instantané d'un profil restreint de l'espace RH (sans le droit `rh`) : seulement ce que ses droits ouvrent,
+ * jamais de donnée de santé détaillée. Pour tous : aptitude réduite à apte / non apte, ni visite, ni vaccinations ;
+ * ni passeport, ni visas (dossiers de voyage réservés au service RH) ; nature médicale des absences masquée et reprise
+ * d'un arrêt longue maladie retirée, comme pour le manager ; motif des reports de CP retiré (texte libre).
+ * - `formations` (référent HSE) : sessions et résultats, certifications et habilitations, demandes de formation et
+ *   d'habilitation, chantiers avec l'état précalculé des déplacements pour les verdicts Go / No Go ;
+ * - `paie` : feuilles de temps, absences, soldes, CET, reports, dernière transmission à Sage — aucune formation ;
+ * - `consultation` (lecture seule) : tout ce qui précède, plus plan et budget, missions, entretiens sans le contenu
+ *   des comptes rendus.
+ */
+function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
+  const lecture = droits.includes('consultation');
+  const formations = lecture || droits.includes('formations');
+  const paie = lecture || droits.includes('paie');
+  const d = new Domain(full);
+  const employes = full.employes.map(e => ({
+    ...e,
+    visite: null, aptitude: formations ? { ok: d.medInfo(e).ok } : undefined, vaccins: [], passeport: null, visas: [],
+    certs: formations ? e.certs : [], habs: formations ? e.habs : [],
+    ...(lecture && !repriseMedicale(e, full.absences) ? { repriseMotif: e.repriseDate ? 'absence longue' : null } : { repriseMotif: null, repriseDate: null }),
+  }));
+  // Déplacements : l'état du dossier et les formalités manquantes sont calculés ici, avec les pièces du dossier,
+  // pour que le verdict Go / No Go soit exact sans les transmettre.
+  const voyages = !formations ? [] : full.voyages.map(v => {
+    const emp = d.emp(v.empId);
+    if (!emp || !d.destOf(v.dest)) return v;
+    const r = d.readiness(emp, v);
+    return { ...v, dossierStatut: r.status, dossierManque: d.formalitesManquantes({ ...v, emp, r }) };
+  });
+  return {
+    ...full,
+    referentiels: { ...full.referentiels, chantiers: formations ? full.referentiels.chantiers : [] },
+    employes,
+    sessions: formations ? full.sessions : [],
+    inscriptions: formations ? full.inscriptions : [],
+    participations: formations ? full.participations : [],
+    plan: lecture ? full.plan : [],
+    budgets: lecture ? full.budgets : {},
+    voyages,
+    demandesKeystone: formations ? full.demandesKeystone : [],
+    missions: lecture ? full.missions : [],
+    taches: lecture ? tachesProches(full.taches, full.today) : [],
+    feuilles: paie ? full.feuilles : [],
+    absences: paie ? full.absences.map(absenceVueManager) : [],
+    cet: paie ? full.cet : [],
+    reports: paie ? full.reports.map(r => ({ ...r, motif: '' })) : [],
+    soldesReprise: paie ? full.soldesReprise : [],
+    entretiens: lecture ? full.entretiens.map(x => ({ ...x, cr: {} })) : [],
+    // Demandes de formation et d'habilitation ; les documents déclarés (passeport, visa, vaccination) restent au RH.
+    demandesCollab: formations ? full.demandesCollab.filter(r => r.type !== 'document').map(r => ({ ...r, declaration: null })) : [],
+    lastSagePush: paie ? full.lastSagePush : null,
+  };
+}
+
+/** Actions dont le message du journal peut nommer une donnée de santé (nature d'un arrêt, visite, vaccination). */
+const JOURNAL_SANTE = new Set(['absence.saisir', 'absence.qualifier', 'absence.prolonger', 'absence.annuler', 'medical.demander', 'formalite.enregistrer', 'demande.accepter']);
+
+/** Journal lu par un profil sans le droit `rh` (lecture seule) : messages des actions touchant à la santé masqués. */
+export function journalPourProfil<T extends { action: string; message: string | null }>(user: CurrentUser, rows: T[]): T[] {
+  if (droitsRh(user).includes('rh')) return rows;
+  return rows.map(r => JOURNAL_SANTE.has(r.action) && r.message ? { ...r, message: 'Détail réservé au service RH' } : r);
 }

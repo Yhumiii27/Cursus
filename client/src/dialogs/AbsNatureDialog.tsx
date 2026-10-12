@@ -11,7 +11,7 @@ import { checkNature } from '../../../shared/rules/conges.ts';
 import type { NatureAbsence } from '../../../shared/types.ts';
 import { CancelButton, Controles, Dialog, Field, Static } from '../components/Dialog.tsx';
 import { Fine } from '../components/ui.tsx';
-import { useDomain } from '../state/derived.ts';
+import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
 const NATURES = Object.entries(NATURES_ABSENCE) as [NatureAbsence, (typeof NATURES_ABSENCE)[NatureAbsence]][];
@@ -20,7 +20,9 @@ export function AbsNatureDialog({ empId, id }: { empId?: number | null; id?: num
   const d = useDomain();
   const { run, closeDialog } = useStore();
   const a = id != null ? d.ds.absences.find(x => x.id === id) : undefined;
-  const choix = [...d.ds.employes].sort((x, y) => x.nom.localeCompare(y.nom));
+  const { soi } = useRole();
+  // Ses propres absences, un membre du RH les signale : un autre membre du service RH les qualifie.
+  const choix = d.ds.employes.filter(e => e.id !== soi).sort((x, y) => x.nom.localeCompare(y.nom));
   const [sel, setSel] = useState<number | null>(a?.empId ?? empId ?? null);
   const [nature, setNature] = useState<NatureAbsence | ''>(a && estNature(a.type) ? a.type : '');
   const [du, setDu] = useState(a?.du ?? '');

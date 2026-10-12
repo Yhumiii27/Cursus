@@ -9,7 +9,7 @@ import {
 import type { Employe, FeuilleTemps, LigneTemps } from '../../../shared/types.ts';
 import { pushToSage, SAGE_DOSSIER } from '../integrations/sage.ts';
 import { heuresKeystone, sendToKeystone } from '../integrations/keystone.ts';
-import { ActionError, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
+import { ActionError, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, refuserSoiMeme, requirePaie, str, type ActionHandler, type Ctx } from './context.ts';
 
 function sheetOf(ctx: Ctx, empId: number, week: string): FeuilleTemps | undefined {
   return ctx.ds.feuilles.find(f => f.empId === empId && f.week === week);
@@ -17,7 +17,7 @@ function sheetOf(ctx: Ctx, empId: number, week: string): FeuilleTemps | undefine
 
 /**
  * Saisie autorisée : le salarié, son manager ou le service RH, tant que la feuille n'est pas validée.
- * Une feuille soumise ne peut être corrigée que par son valideur (manager direct ou RH), avant validation.
+ * Une feuille soumise ne peut être corrigée que par son valideur (manager direct ou RH, jamais pour lui-même), avant validation.
  */
 function editable(ctx: Ctx, p: Record<string, any>): { emp: Employe; week: string; sh: FeuilleTemps } {
   const emp = getEmp(ctx, p.empId);
@@ -98,6 +98,7 @@ function submitted(ctx: Ctx, p: Record<string, any>) {
   const emp = getEmp(ctx, p.empId);
   const sh = sheetOf(ctx, emp.id, String(p.week));
   if (!sh || sh.statut !== 'soumise') throw new ActionError('Aucune feuille en attente de validation');
+  refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas valider ni renvoyer votre propre feuille de temps');
   if (!isValidatorOf(ctx, emp)) throw new ActionError('Validation réservée au manager du salarié ou au service RH', 403);
   return { emp, sh };
 }
@@ -125,9 +126,9 @@ const reject: ActionHandler = (ctx, p) => {
   return 'Feuille renvoyée pour correction';
 };
 
-/** Transmission à la paie : administrateur RH. */
+/** Transmission à la paie : administrateur RH et gestionnaire de paie. */
 const pushSage: ActionHandler = (ctx) => {
-  requireRhAdmin(ctx);
+  requirePaie(ctx);
   const sheets = sagePending(ctx.d);
   if (!sheets.length) throw new ActionError('Aucune feuille validée en attente de transmission');
   const payload = buildSagePayload(ctx.d, sheets, SAGE_DOSSIER);

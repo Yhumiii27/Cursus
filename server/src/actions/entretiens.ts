@@ -1,10 +1,11 @@
-// Entretiens : planification, comptes rendus, signatures.
+// Entretiens : planification, comptes rendus, signatures. Un membre du service RH n'est jamais l'évaluateur
+// de son propre entretien : son manager ou un autre membre du RH le conduit.
 import { ENT_TYPES } from '../../../shared/constants.ts';
 import { isValidDate, parse } from '../../../shared/dates.ts';
 import { fmt } from '../../../shared/format.ts';
 import { needsFinCarriere } from '../../../shared/rules/entretiens.ts';
 import type { Entretien, EntretienType } from '../../../shared/types.ts';
-import { ActionError, getEmp, isValidatorOf, str, type ActionHandler, type Ctx } from './context.ts';
+import { ActionError, getEmp, isValidatorOf, refuserSoiMeme, str, type ActionHandler, type Ctx } from './context.ts';
 
 function entretien(ctx: Ctx, id: unknown) {
   const x = ctx.ds.entretiens.find(y => y.id === Number(id));
@@ -14,6 +15,7 @@ function entretien(ctx: Ctx, id: unknown) {
 
 const planifier: ActionHandler = (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
+  refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas planifier votre propre entretien');
   if (!isValidatorOf(ctx, emp)) throw new ActionError('Planification réservée au manager ou au service RH', 403);
   const kind = str(p.kind) as EntretienType;
   if (!ENT_TYPES[kind]) throw new ActionError('Type d’entretien inconnu');
@@ -25,6 +27,7 @@ const planifier: ActionHandler = (ctx, p) => {
 /** Modification d'une section du compte rendu ou de la case « information remise ». */
 const modifier: ActionHandler = (ctx, p) => {
   const { x, e } = entretien(ctx, p.id);
+  refuserSoiMeme(ctx, e, 'Vous ne pouvez pas rédiger, comme évaluateur, votre propre entretien');
   const canMgr = x.statut === 'planifie' && isValidatorOf(ctx, e);
   // Le salarié rédige ses sections jusqu'à sa signature (y compris après clôture par l'évaluateur).
   const canSal = !x.signSal && ctx.user.role === 'collaborateur' && ctx.user.empId === e.id;
@@ -45,6 +48,7 @@ const modifier: ActionHandler = (ctx, p) => {
 
 const clore: ActionHandler = (ctx, p) => {
   const { x, e } = entretien(ctx, p.id);
+  refuserSoiMeme(ctx, e, 'Vous ne pouvez pas clore votre propre entretien');
   if (x.statut !== 'planifie' || !isValidatorOf(ctx, e)) throw new ActionError('Clôture réservée à l’évaluateur', 403);
   ctx.db.update<Entretien>('entretiens', x.id, { statut: 'realise', signMgr: ctx.d.ti });
   return 'Compte rendu clos et signé — transmis au salarié pour signature';

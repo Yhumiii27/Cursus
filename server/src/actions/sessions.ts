@@ -1,11 +1,12 @@
-// Cycle de vie des sessions de formation : création, confirmation, modification, annulation, clôture.
+// Cycle de vie des sessions de formation : création, confirmation, modification, annulation, clôture
+// (service RH et référent HSE / formation).
 // Le nombre d'inscrits n'est jamais stocké : il suit les certifications et inscriptions rattachées.
 import { sessionActive } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
 import { controleSession, exigeEvaluation, inscritsDe, placesRemplacees } from '../../../shared/rules/sessions.ts';
 import type { Certification, Inscription, Participation, PlanAction, Session, SessionBilan } from '../../../shared/types.ts';
-import { ActionError, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
+import { ActionError, requireFormations, str, type ActionHandler, type Ctx } from './context.ts';
 
 /** Session désignée par `id` ; refusée si elle est clôturée ou annulée (sauf `toutes`). */
 function sessionOf(ctx: Ctx, id: unknown, toutes = false): Session {
@@ -26,7 +27,7 @@ const autreSessionDuPlan = (ctx: Ctx, s: Session) => ctx.ds.sessions.some(x => x
  * et être encore « prévue » : elle passe « engagée ». Date postérieure à aujourd'hui, places entières.
  */
 const creer: ActionHandler = (ctx, p) => {
-  requireRh(ctx);
+  requireFormations(ctx);
   const fm = ctx.d.fm(str(p.f));
   if (!fm) throw new ActionError('Formation inconnue');
   const err = controleSession(ctx.d.ti, { date: p.date, lieu: p.lieu, places: p.places });
@@ -46,7 +47,7 @@ const creer: ActionHandler = (ctx, p) => {
 
 /** Confirmation par l'organisme : la liste nominative lui est transmise (affichée et exportée par l'interface). */
 const confirmer: ActionHandler = (ctx, p) => {
-  requireRh(ctx);
+  requireFormations(ctx);
   const s = sessionOf(ctx, p.id);
   if (s.statut === 'Confirmée') throw new ActionError('Session déjà confirmée');
   if (s.date < ctx.d.ti) throw new ActionError('Session passée : clôturez-la, ou annulez-la si elle n’a pas eu lieu');
@@ -63,7 +64,7 @@ const confirmer: ActionHandler = (ctx, p) => {
  * repassent « à envoyer »), et une nouvelle date est à faire confirmer par l'organisme (« à confirmer »).
  */
 const modifier: ActionHandler = (ctx, p) => {
-  requireRh(ctx);
+  requireFormations(ctx);
   const s = sessionOf(ctx, p.id);
   const v = { date: p.date ?? s.date, lieu: p.lieu ?? s.lieu, places: p.places ?? s.places };
   const err = controleSession(ctx.d.ti, v, { dateActuelle: s.date, inscrits: s.inscrits });
@@ -104,7 +105,7 @@ const modifier: ActionHandler = (ctx, p) => {
  * (sans autre session ouverte) redevient « prévue ».
  */
 const annuler: ActionHandler = (ctx, p) => {
-  requireRh(ctx);
+  requireFormations(ctx);
   const s = sessionOf(ctx, p.id);
   const motif = str(p.motif) || null;
   if (motif && motif.length > 500) throw new ActionError('Motif trop long (500 caractères au plus)');
@@ -129,7 +130,7 @@ interface Decision { empId: number; present: unknown; reussi?: unknown }
  * conservés (participations), action du plan réalisée, évaluation à chaud facultative.
  */
 const cloturer: ActionHandler = (ctx, p) => {
-  requireRh(ctx);
+  requireFormations(ctx);
   const s = sessionOf(ctx, p.id, true);
   if (s.statut === 'Clôturée') throw new ActionError('Session déjà clôturée');
   if (s.statut === 'Annulée') throw new ActionError('Session annulée : rien à clôturer');

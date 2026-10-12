@@ -194,7 +194,11 @@ prenom.nom@entreprise.fr`). `--salarie <n°>` rattache le compte à la fiche d'u
 saisie ; sans lui, le compte est externe (nom et adresse propres, espace RH seulement).
 
 L'administrateur RH crée ensuite les comptes des salariés et des autres membres du service RH
-(gestionnaires RH) dans Paramètres → Comptes et accès. Chaque création est tracée dans le journal.
+(gestionnaires RH) dans Paramètres → Comptes et accès. Chaque création est tracée dans le journal. Le profil se
+choisit à la création et se modifie ensuite : gestionnaire ou administrateur RH, ou l'un des trois profils
+restreints — référent HSE / formation, gestionnaire de paie (un cabinet extérieur reçoit un compte externe, nom et
+adresse, sans fiche salarié), lecture seule pour la direction, le DPO ou un auditeur (`docs/ARCHITECTURE.md`,
+« Profils »).
 
 Recours : si plus aucun administrateur ne peut se connecter (mot de passe oublié, compte bloqué ou
 désactivé, identité Microsoft recréée), relancer la même commande avec l'identifiant existant. Elle

@@ -2,7 +2,7 @@
 
 Audit du 10 octobre 2026 (branche `main-n9x7ps`). Chaque point a été relevé dans le code puis contre-vérifié par une seconde lecture qui a écarté ce qui était déjà fait ou inexact. Les preuves renvoient aux fichiers et lignes à cette date.
 
-**179 tâches** (9 faites au 11 octobre 2026 ; suivi à jour : https://claude.ai/artifact/8Dn4CRz3fcHgew8RzbNGEc) : 26 bloquantes pour une mise en production, 98 importantes, 55 souhaitables.
+**179 tâches** (27 faites au 12 octobre 2026 ; suivi à jour : https://claude.ai/artifact/8Dn4CRz3fcHgew8RzbNGEc) : 26 bloquantes pour une mise en production, 98 importantes, 55 souhaitables.
 
 Légende — priorité : 🔴 **Bloquant** (empêche un usage réel : sécurité, données faussées, obligation légale) · 🟠 **Important** (attendu par les utilisateurs) · 🟢 **Souhaitable** (confort). Effort : **S** moins d’une journée · **M** 1 à 3 jours · **L** plus de 3 jours.
 
@@ -30,16 +30,16 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] Supprimer la clé Keystone par défaut « demo-keystone » — *Mise en production & sécurité, effort S*
 - [x] Placer Cursus derrière HTTPS et ajouter les en-têtes de sécurité — *Mise en production & sécurité, effort S*
 - [x] Faire expirer et révoquer les sessions — *Mise en production & sécurité, effort M*
-- [ ] Brancher l'authentification unique de l'entreprise (OIDC/SAML) — *Mise en production & sécurité, effort L*
-- [ ] Créer des comptes nominatifs reliés aux salariés — *Mise en production & sécurité, effort L*
+- [x] Brancher l'authentification unique de l'entreprise (OIDC/SAML) — *Mise en production & sécurité, effort L*
+- [x] Créer des comptes nominatifs reliés aux salariés — *Mise en production & sécurité, effort L*
 - [ ] Coder l'envoi réel à Sage Paie et ne marquer « transmis » qu'après accusé — *Intégrations (Keystone, Sage, e-mails), effort M*
-- [ ] Coder l'envoi HTTP sortant vers Keystone — *Intégrations (Keystone, Sage, e-mails), effort M*
+- [x] Coder l'envoi HTTP sortant vers Keystone — *Intégrations (Keystone, Sage, e-mails), effort M*
 - [ ] Stocker le vrai matricule de paie — *Intégrations (Keystone, Sage, e-mails), effort M*
 - [ ] Rendre paramétrable la correspondance des rubriques de paie Sage — *Intégrations (Keystone, Sage, e-mails), effort M*
-- [ ] Alimenter depuis Keystone les chantiers, projets, missions et tâches — *Intégrations (Keystone, Sage, e-mails), effort L*
+- [x] Alimenter depuis Keystone les chantiers, projets, missions et tâches — *Intégrations (Keystone, Sage, e-mails), effort L*
 - [ ] Créer une file d'envoi persistante avec reprise sur échec et écran de suivi — *Intégrations (Keystone, Sage, e-mails), effort L*
 - [ ] Choisir entre paiement et repos des heures supplémentaires — *Conformité droit du travail : temps et congés, effort M*
-- [ ] Ajouter les absences hors congés (maladie, AT/MP, maternité, événements familiaux…) — *Conformité droit du travail : temps et congés, effort L*
+- [x] Ajouter les absences hors congés (maladie, AT/MP, maternité, événements familiaux…) — *Conformité droit du travail : temps et congés, effort L*
 - [x] Permettre de retirer ou suspendre manuellement une habilitation — *Conformité : santé, sécurité et obligations employeur, effort S*
 - [ ] Définir les formations et habilitations exigées par poste — *Conformité : santé, sécurité et obligations employeur, effort L*
 - [x] Ne retenir que la dernière certification après un renouvellement — *Bugs à corriger (calculs et données), effort M*
@@ -47,7 +47,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] Rattacher soldes repris et reports de CP à une période — *Bugs à corriger (calculs et données), effort M*
 - [x] Refuser les heures saisies sur un jour d'absence validée — *Bugs à corriger (calculs et données), effort M*
 - [ ] Historiser les régimes de temps et contrats avec leur date d'effet — *Bugs à corriger (calculs et données), effort L*
-- [ ] Clôturer les sessions passées : présence, résultats et recyclages — *Fonctions métier : formations, habilitations, sessions, effort L*
+- [x] Clôturer les sessions passées : présence, résultats et recyclages — *Fonctions métier : formations, habilitations, sessions, effort L*
 - [ ] Permettre au RH d'administrer formations, habilitations et destinations — *Fonctions métier : formations, habilitations, sessions, effort L*
 - [ ] Outiller la mise en service : import des salariés, soldes d'ouverture et titres — *Fonctions métier : collaborateurs, temps, absences, déplacements, effort L*
 - [ ] Gérer la sortie d'un collaborateur — *Fonctions métier : collaborateurs, temps, absences, déplacements, effort L*
@@ -67,10 +67,10 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Faire expirer et révoquer les sessions** — 🔴 Bloquant · M
   Le cookie signé n'a pas de date d'expiration : copié, il reste valable indéfiniment, même après déconnexion ou départ du salarié. Ajouter date d'émission et d'expiration signées, une table de sessions révocables, un refus si la date de sortie est passée et un CURSUS_SECRET obligatoire en production.
   <br><sub>Preuves : server/src/auth.ts:39-52 et :59-61 (aucune expiration) · server/src/dataset.ts:86-89 (e.fin non vérifié) · cookie RH rejoué après POST /api/logout → 200</sub>
-- [ ] **Brancher l'authentification unique de l'entreprise (OIDC/SAML)** — 🔴 Bloquant · L
+- [x] **Brancher l'authentification unique de l'entreprise (OIDC/SAML)** — 🔴 Bloquant · L
   Hors démo, la connexion renvoie 501 : l'outil est inutilisable en production. Implémenter le flux OIDC ou SAML (redirection, vérification du jeton, création de session), avec en secours des comptes locaux à mot de passe haché.
   <br><sub>Preuves : server/src/index.ts:72 (501 hors démo) · server/src/auth.ts:1-4 (OIDC/SAML à brancher) · README.md:78-79</sub>
-- [ ] **Créer des comptes nominatifs reliés aux salariés** — 🔴 Bloquant · L
+- [x] **Créer des comptes nominatifs reliés aux salariés** — 🔴 Bloquant · L
   Le RH est une identité unique dont le nom est modifiable dans les paramètres : toutes les actions RH sont signées du même nom et l'auteur du journal est falsifiable. Créer une table de comptes (identifiant SSO → salarié, rôle, actif), permettre plusieurs RH, et une session portant une seule personne sans changement d'espace non authentifié.
   <br><sub>Preuves : server/src/dataset.ts:85 (RH = settings.rhNom) · server/src/actions/parametres.ts:23 (rhNom modifiable) · server/src/index.ts:111 (actor: user.nom) et :60-67 (/api/mode) · server/src/db.ts:17-24 (aucun identifiant de connexion)</sub>
 - [ ] **Ne plus envoyer au manager le numéro de passeport de son équipe** — 🟠 Important · S
@@ -118,7 +118,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Coder l'envoi réel à Sage Paie et ne marquer « transmis » qu'après accusé** — 🔴 Bloquant · M
   Dès que SAGE_URL est défini, l'écran annonce l'envoi, mais rien ne part et les feuilles sont marquées transmises à la paie. En attendant, lever une erreur en mode API ; ensuite faire l'appel HTTP hors transaction, contrôler et conserver l'accusé.
   <br><sub>Preuves : server/src/integrations/sage.ts:7 et :10-15 (branche api vide) · server/src/actions/temps.ts:105-108 (sage: true) · client/src/pages/Parametres.tsx:167 · server/src/actions/context.ts:23 (handler synchrone)</sub>
-- [ ] **Coder l'envoi HTTP sortant vers Keystone** — 🔴 Bloquant · M
+- [x] **Coder l'envoi HTTP sortant vers Keystone** — 🔴 Bloquant · M
   En mode API, sendToKeystone n'envoie rien et journalise « (simulation) » alors que Paramètres affiche « API connectée ». Faire le POST avec gestion des erreurs et trancher le contrat (heures sur projets internes INT-* et ECOLE).
   <br><sub>Preuves : server/src/integrations/keystone.ts:15-21 · client/src/pages/Parametres.tsx:159 · server/src/actions/temps.ts:88-90</sub>
 - [ ] **Stocker le vrai matricule de paie** — 🔴 Bloquant · M
@@ -127,7 +127,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Rendre paramétrable la correspondance des rubriques de paie Sage** — 🔴 Bloquant · M
   Les codes HN, HS25, RCR_ACQUIS… sont écrits en dur ; l'interface indique elle-même « à paramétrer ». Créer une table de correspondance modifiable par le RH et bloquer la transmission d'une rubrique sans correspondance.
   <br><sub>Preuves : shared/rules/temps.ts:102-117 · client/src/pages/Parametres.tsx:180 et :20-28 (HSF25/HSF50 absentes de la liste) · client/src/pages/Temps.tsx:200</sub>
-- [ ] **Alimenter depuis Keystone les chantiers, projets, missions et tâches** — 🔴 Bloquant · L
+- [x] **Alimenter depuis Keystone les chantiers, projets, missions et tâches** — 🔴 Bloquant · L
   Ces données ne viennent que du jeu de démo : en production, le Go / No Go répond 404, les demandes Keystone sont rejetées et aucune ligne de temps ne peut être saisie (projet inconnu). Ajouter des routes entrantes protégées (ou une synchronisation) et rattacher la ressource au chantier quand une demande est acceptée.
   <br><sub>Preuves : server/src/seed.ts:298-299, :315-316 (seuls écrivains) · server/src/index.ts:137, :147, :152 (seules routes, chantier inconnu → 400) · server/src/actions/temps.ts:48-49 (projet inconnu refusé) · server/src/actions/voyages.ts:65-77 (ressource non rattachée)</sub>
 - [ ] **Créer une file d'envoi persistante avec reprise sur échec et écran de suivi** — 🔴 Bloquant · L
@@ -136,10 +136,10 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Calculer la période de paie Sage à partir de la semaine** — 🟠 Important · S
   La période de paie est le mois d'envoi : une semaine de septembre transmise en octobre part sur octobre, et l'heure d'envoi est figée à 09:00+02:00. Déduire la période de la semaine (ou d'une date de clôture), regrouper par période et horodater réellement.
   <br><sub>Preuves : shared/rules/temps.ts:128-135 · shared/rules/temps.ts:119-126 (sagePending sans période)</sub>
-- [ ] **Pousser à Keystone les changements de verdict Go / No Go** — 🟠 Important · M
+- [x] **Pousser à Keystone les changements de verdict Go / No Go** — 🟠 Important · M
   L'écran Chantiers promet qu'un changement de verdict est poussé à Keystone, mais l'événement n'est jamais émis. Mémoriser le dernier verdict par chantier et ressource, le recalculer après les actions concernées et chaque jour (expirations), et l'envoyer quand il change.
   <br><sub>Preuves : client/src/pages/Chantiers.tsx:79 · server/src/integrations/keystone.ts:11 (type déclaré seulement) · grep verdict.modifie → aucune émission · design/prototype-suivi-formations.dc.html:699</sub>
-- [ ] **Contrôler et tracer les demandes Keystone entrantes** — 🟠 Important · M
+- [x] **Contrôler et tracer les demandes Keystone entrantes** — 🟠 Important · M
   La route accepte des dates impossibles, un retour avant le départ, des doublons et un salarié non affecté au chantier, sans rien journaliser ; les demandes traitées sont supprimées. Ajouter ces contrôles (400/409), une référence externe unique, le journal des appels et la conservation des décisions.
   <br><sub>Preuves : server/src/index.ts:147-157 · server/src/db.ts:34 (pas de référence externe) · server/src/actions/voyages.ts:66-78 (acceptation sans revalidation), :75 et :85 (suppression)</sub>
 - [ ] **Transmettre à la paie les absences validées et proposer un export CSV** — 🟠 Important · M
@@ -163,7 +163,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Planifier des relances automatiques des échéances** — 🟠 Important · L
   Les échéances ne sont calculées qu'à l'affichage : personne n'est averti sans ouvrir l'écran. Ajouter une tâche quotidienne qui envoie au RH et aux managers un récapitulatif (titres, visites, passeports, entretiens, fins de contrat, feuilles non soumises) en mémorisant les relances.
   <br><sub>Preuves : shared/domain.ts:361 · shared/rules/entretiens.ts:14 · grep setInterval\|cron server → aucun résultat</sub>
-- [ ] **Publier un contrat OpenAPI versionné des routes Keystone** — 🟢 Souhaitable · S
+- [x] **Publier un contrat OpenAPI versionné des routes Keystone** — 🟢 Souhaitable · S
   Les routes appelées par Keystone ne sont décrites que par une liste de chemins, sans schéma ni version. Publier une spécification OpenAPI (demande, verdict, erreurs) et préfixer les routes par /v1.
   <br><sub>Preuves : client/src/pages/Parametres.tsx:30-33 · server/src/index.ts:137, :147 · shared/domain.ts:430 (forme des motifs variable)</sub>
 - [ ] **Proposer un export calendrier (.ics)** — 🟢 Souhaitable · M
@@ -175,7 +175,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Choisir entre paiement et repos des heures supplémentaires** — 🔴 Bloquant · M
   Une semaine de 40 h envoie à la fois HS25=5 (payées) et RCR_ACQUIS=6,3 (mêmes heures en repos) : les heures risquent d'être payées et récupérées. Ajouter un paramètre de mode (paiement, repos ou mixte) qui alimente l'une ou l'autre rubrique.
   <br><sub>Preuves : shared/rules/temps.ts:70 et :110-114 · client/src/pages/Temps.tsx:73 · sageRubriques(35 h, 8h×5) = {HN:35, HS25:5, RCR_ACQUIS:6.3}</sub>
-- [ ] **Ajouter les absences hors congés (maladie, AT/MP, maternité, événements familiaux…)** — 🔴 Bloquant · L
+- [x] **Ajouter les absences hors congés (maladie, AT/MP, maternité, événements familiaux…)** — 🔴 Bloquant · L
   Seuls CP, RTT et récupération existent : un arrêt maladie ne peut pas être saisi, la feuille reste vide, Keystone planifie la personne et la reprise se saisit à la main. Créer ces types (effet sur les soldes, les CP, la paie, Keystone, justificatif) et en déduire la date de reprise.
   <br><sub>Preuves : shared/types.ts:15 (CP \| RTT \| RECUP) · shared/constants.ts:17 · server/src/actions/temps.ts:71 (feuille sans heure refusée) · shared/rules/entretiens.ts:31-33</sub>
 - [ ] **Repérer et majorer les heures travaillées un jour férié** — 🟠 Important · S
@@ -310,10 +310,10 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Interdire la clôture d'un entretien avant sa date** — 🟠 Important · S
   Un entretien futur peut être clos et signé, ce qui fausse l'échéance suivante et l'état des lieux à 8 ans. Exiger une date passée ou mettre la date à jour à la clôture.
   <br><sub>Preuves : server/src/actions/entretiens.ts:46-50 · shared/rules/entretiens.ts:23, :29, :38</sub>
-- [ ] **Contrôler action du plan, date et places à la création de session** — 🟠 Important · S
+- [x] **Contrôler action du plan, date et places à la création de session** — 🟠 Important · S
   Une action déjà réalisée repasse « engagée », une action inexistante passe sans erreur, et une session peut être créée dans le passé avec 2,5 places. Exiger une action existante « prévue » de la même formation, une date future et un nombre entier de places.
   <br><sub>Preuves : server/src/actions/conformite.ts:41-45 · client/src/dialogs/SessionDialog.tsx:37</sub>
-- [ ] **Refuser absences et feuilles hors de la période de contrat** — 🟠 Important · S
+- [x] **Refuser absences et feuilles hors de la période de contrat** — 🟠 Important · S
   Un CP après la fin d'un CDD ou une feuille de 2020 pour un intérimaire entré en 2026 sont acceptés. Borner sur entrée et fin de contrat.
   <br><sub>Preuves : shared/rules/conges.ts:122-144 · server/src/actions/temps.ts:18-27</sub>
 - [ ] **Calculer « aujourd'hui » dans le fuseau Europe/Paris** — 🟠 Important · S
@@ -322,7 +322,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Go / No Go : n'accepter qu'un déplacement couvrant les dates du chantier** — 🟠 Important · S
   N'importe quel voyage vers le même pays, même des mois plus tard, valide le chantier. Exiger départ avant le début et retour après la fin, sinon motif « couverture partielle ».
   <br><sub>Preuves : shared/domain.ts:401 · shared/domain.ts:330-336 · script : voyage Maroc en mars → Go pour Tanger en novembre</sub>
-- [ ] **Dater les tâches Keystone pour ne proposer que les heures de la semaine** — 🟠 Important · S
+- [x] **Dater les tâches Keystone pour ne proposer que les heures de la semaine** — 🟠 Important · S
   « Proposer depuis Keystone » recopie les mêmes heures chaque semaine, même avant le début du chantier. Ajouter des dates aux tâches et filtrer sur la semaine affichée.
   <br><sub>Preuves : shared/types.ts:98 · shared/rules/temps.ts:94-100 · server/src/seed.ts:54, :166</sub>
 - [ ] **Imputer chaque jour de CP sur sa période de référence** — 🟠 Important · M
@@ -346,7 +346,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Limiter l'import « Remplacer » du plan aux lignes importées** — 🟢 Souhaitable · S
   Le mode Remplacer efface aussi les lignes issues de demandes acceptées, qui restent affichées « Ajoutée au plan ». Ne supprimer que les lignes d'origine import.
   <br><sub>Preuves : server/src/actions/budget.ts:13 · server/src/actions/conformite.ts:102-103</sub>
-- [ ] **Libérer la place de session quand une certification clôt une inscription** — 🟢 Souhaitable · S
+- [x] **Libérer la place de session quand une certification clôt une inscription** — 🟢 Souhaitable · S
   Saisir la certification supprime l'inscription sans décrémenter le compteur : la session peut paraître complète à tort. Décrémenter ou recalculer les inscrits.
   <br><sub>Preuves : server/src/actions/conformite.ts:34 · server/src/actions/conformite.ts:91-95</sub>
 - [ ] **Borner le calcul des échéances au dernier jour du mois** — 🟢 Souhaitable · S
@@ -373,13 +373,13 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Rafraîchir les données au retour sur l'onglet et périodiquement** — 🟠 Important · S
   Un manager qui garde l'écran ouvert ne voit pas les nouvelles demandes de son équipe. Recharger au retour sur l'onglet, toutes les quelques minutes et après une action refusée.
   <br><sub>Preuves : client/src/state/store.tsx:163-168, :209 · grep visibilitychange\|setInterval client/src → aucun résultat</sub>
-- [ ] **Gérer l'expiration de session sans perdre la saisie** — 🟠 Important · M
+- [x] **Gérer l'expiration de session sans perdre la saisie** — 🟠 Important · M
   À l'expiration (12 h), l'écran bascule sur la connexion, démonte le dialogue ouvert et le rouvre vide après reconnexion. Afficher une reconnexion par-dessus l'écran qui rejoue l'action, ou au minimum conserver le brouillon.
   <br><sub>Preuves : client/src/state/store.tsx:168, :191-200 · client/src/api.ts:23, :38-39 · client/src/App.tsx:32</sub>
 - [ ] **Ignorer les réponses obsolètes dans run()** — 🟢 Souhaitable · S
   Une réponse ancienne arrivée après une plus récente peut vider une cellule d'heures enregistrée. N'appliquer que la réponse de la dernière requête ou sérialiser les actions.
   <br><sub>Preuves : client/src/state/store.tsx:161-164 · client/src/dialogs/EntDialog.tsx:29, :46</sub>
-- [ ] **Fiabiliser le changement d'espace et la déconnexion** — 🟢 Souhaitable · S
+- [x] **Fiabiliser le changement d'espace et la déconnexion** — 🟢 Souhaitable · S
   Sans réseau, aucun message n'apparaît et les filtres sont perdus ; pendant le changement d'espace, la page du nouveau rôle s'affiche brièvement avec les données de l'ancien. Gérer l'erreur et attendre les nouvelles données avant d'afficher.
   <br><sub>Preuves : client/src/state/store.tsx:132-135, :183-189, :202-207 · client/src/state/derived.ts:47-50</sub>
 - [ ] **Traiter les propres entretiens du manager dans l'espace manager** — 🟢 Souhaitable · S
@@ -400,7 +400,7 @@ Les tâches 🔴, toutes thématiques confondues :
 
 ## Fonctions métier : formations, habilitations, sessions
 
-- [ ] **Clôturer les sessions passées : présence, résultats et recyclages** — 🔴 Bloquant · L
+- [x] **Clôturer les sessions passées : présence, résultats et recyclages** — 🔴 Bloquant · L
   Une certification rattachée à une session passée reste « planifiée » sans action, et le Go / No Go donne « Go sous réserve » à quelqu'un qui a manqué son recyclage. Afficher « Session passée », et créer une clôture de session (présents → certification, absents → replanification, plan réalisé, évaluation à chaud).
   <br><sub>Preuves : shared/domain.ts:193, :366-368, :396-397 · client/src/pages/Collaborateurs.tsx:243-244 vs :263-281 · client/src/pages/Dashboard.tsx:55 · CURSUS_TODAY=2026-10-20 : Inès Dupont EPI et Camille Roux SST restent planifiées</sub>
 - [ ] **Permettre au RH d'administrer formations, habilitations et destinations** — 🔴 Bloquant · L
@@ -409,7 +409,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Saisir le coût réel à la clôture d'une action du plan** — 🟠 Important · S
   « Clôturer » garde le coût estimé : le réalisé et la consommation des enveloppes sont faux. Demander le coût (et l'effectif) réels.
   <br><sub>Preuves : server/src/actions/budget.ts:37-45 · client/src/pages/Budget.tsx:140</sub>
-- [ ] **Gérer le cycle de vie des sessions : confirmer, modifier, annuler, voir les inscrits** — 🟠 Important · M
+- [x] **Gérer le cycle de vie des sessions : confirmer, modifier, annuler, voir les inscrits** — 🟠 Important · M
   Une session reste « À confirmer » pour toujours, ne peut être ni modifiée ni annulée, et le RH ne voit qu'un compteur d'inscrits. Ajouter confirmer (avec envoi de la liste à l'organisme), modifier, annuler (libère inscriptions et certifications) et le détail nominatif des inscrits.
   <br><sub>Preuves : server/src/actions/conformite.ts:44, :170 (seul session.creer) · shared/types.ts:89 · client/src/pages/Formations.tsx:172-184 · shared/types.ts:27 (organisme sans contact)</sub>
 - [ ] **Ajouter « Envoyer la convocation » et « Désinscrire »** — 🟠 Important · M
@@ -451,7 +451,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Gérer la sortie d'un collaborateur** — 🔴 Bloquant · L
   Un CDI ne peut pas avoir de date de fin, et un salarié parti reste dans la conformité, les échéances, le Go / No Go et peut encore saisir. Ajouter date et motif de sortie, une action RH et l'exclusion des sortis des calculs et des saisies.
   <br><sub>Preuves : shared/rules/profil.ts:62, :74 · client/src/dialogs/EmployeDialog.tsx:231 · shared/domain.ts:251 · server/src/actions/temps.ts:18-29</sub>
-- [ ] **Permettre d'annuler une absence demandée ou validée** — 🟠 Important · M
+- [x] **Permettre d'annuler une absence demandée ou validée** — 🟠 Important · M
   Le salarié ne peut pas retirer sa demande et une absence validée ne peut pas être annulée, alors qu'elle bloque les dates et débite le solde. Ajouter l'annulation selon statut et rôle, avec message d'annulation à Keystone.
   <br><sub>Preuves : server/src/actions/absences.ts:60-65 · server/src/integrations/keystone.ts:7-11 · shared/rules/conges.ts:128</sub>
 - [ ] **Modifier ou annuler un déplacement et reprogrammer un entretien** — 🟠 Important · M
@@ -556,7 +556,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Extraire createApp et tester la couche HTTP** — 🟠 Important · M
   index.ts démarre le serveur dès l'import : aucune route, ni l'authentification, ni l'API Keystone n'est testée. Extraire l'application puis tester 401/403/404/501, cookies altérés, clé Keystone et données manager.
   <br><sub>Preuves : server/src/index.ts:18, :169 · couverture auth.ts 44 %, index.ts absent · grep /api/\|fetch( tests → aucun résultat</sub>
-- [ ] **Ajouter un test « matrice des droits » par action et rôle** — 🟠 Important · M
+- [x] **Ajouter un test « matrice des droits » par action et rôle** — 🟠 Important · M
   Les refus 403 ne sont testés que ponctuellement, et 21 des 42 actions ne sont jamais appelées. Écrire une table action × rôle qui échoue si une action n'a pas de règle testée.
   <br><sub>Preuves : server/src/actions/index.ts:12-21 · tests/server.test.ts:46-51</sub>
 - [ ] **Tester le code client** — 🟠 Important · M

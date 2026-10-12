@@ -6,7 +6,7 @@ import {
 } from '../../../shared/rules/temps.ts';
 import type { Employe, FeuilleTemps, LigneTemps } from '../../../shared/types.ts';
 import { pushToSage, SAGE_DOSSIER } from '../integrations/sage.ts';
-import { sendToKeystone } from '../integrations/keystone.ts';
+import { heuresKeystone, sendToKeystone } from '../integrations/keystone.ts';
 import { ActionError, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
 
 function sheetOf(ctx: Ctx, empId: number, week: string): FeuilleTemps | undefined {
@@ -100,11 +100,11 @@ const validate: ActionHandler = (ctx, p) => {
   // Demande d'absence en attente sur ces heures : à décider d'abord (même valideur), sinon elle ne pourrait plus être validée.
   const enAttente = heuresSurAbsence(ctx.d, sh, demandesAbsence(ctx.d));
   if (enAttente.length) throw new ActionError(demandesEnAttenteMessage(enAttente));
-  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone: true, contrat: sh.contrat ?? contratFige(emp) });
-  const projets: Record<string, number> = {};
-  sh.lignes.forEach(l => { projets[l.projet] = (projets[l.projet] || 0) + l.h.reduce((a, b) => a + num(b), 0); });
-  sendToKeystone(ctx.db, { type: 'heures.validees', matricule: matricule(emp.id), semaine: sh.week, projets });
-  return `Semaine ${isoWeek(sh.week)} validée — heures par projet renvoyées à Keystone`;
+  // Seules les heures des projets Keystone lui sont renvoyées : ni activités internes (INT-*), ni cours en CFA (ECOLE).
+  const projets = heuresKeystone(sh.lignes), keystone = Object.keys(projets).length > 0;
+  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat: sh.contrat ?? contratFige(emp) });
+  if (keystone) sendToKeystone(ctx.db, { type: 'heures.validees', matricule: matricule(emp.id), semaine: sh.week, projets });
+  return `Semaine ${isoWeek(sh.week)} validée${keystone ? ' — heures des projets Keystone renvoyées à Keystone' : ''}`;
 };
 
 const reject: ActionHandler = (ctx, p) => {

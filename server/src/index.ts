@@ -4,7 +4,7 @@ import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
 import { Domain } from '../../shared/domain.ts';
 import type { CurrentUser, Role } from '../../shared/types.ts';
-import { ACTIONS, QUIET_ACTIONS } from './actions/index.ts';
+import { ACTIONS, QUIET_ACTIONS, changeVerdicts } from './actions/index.ts';
 import { ActionError, makeCtx } from './actions/context.ts';
 import {
   DEMO, clearSessionCookie, isAuthenticated, openSession, purgeSessions, readSession, revokeSession, salarieSorti, updateSession, type SessionInfo,
@@ -12,8 +12,10 @@ import {
 import { enProduction, hoteEcoute, portEcoute, trustProxy, verifierConfig } from './config.ts';
 import { buildSnapshot, currentUser, loadFull, loadSettings } from './dataset.ts';
 import { dbFile, openDb } from './db.ts';
+import { demarrerEnvois, etatEnvois, listerEnvois } from './envois.ts';
 import { migrate } from './migrate.ts';
-import { KEYSTONE_MODE } from './integrations/keystone.ts';
+import { KEYSTONE_MODE, transportKeystone } from './integrations/keystone.ts';
+import { suivreVerdicts, suivreVerdictsChaqueJour } from './integrations/keystone-verdicts.ts';
 import { keystoneRoutes } from './integrations/keystone-routes.ts';
 import { SAGE_MODE } from './integrations/sage.ts';
 import { demoPosteLocal, securityHeaders } from './securite.ts';
@@ -41,6 +43,9 @@ if (db.count('employes') === 0) {
 // Sessions expirées : purgées au démarrage puis toutes les heures.
 purgeSessions(db);
 setInterval(() => purgeSessions(db), 3600_000).unref();
+// Messages sortants : file d'envoi traitée en tâche de fond, verdicts Go / No Go recalculés chaque jour.
+suivreVerdictsChaqueJour(db);
+demarrerEnvois(db, { keystone: transportKeystone() });
 
 const app = express();
 app.disable('x-powered-by');
@@ -146,6 +151,8 @@ app.post('/api/actions/:name', (req, res) => {
       if (!QUIET_ACTIONS.has(name)) {
         db.insert('journal', { at: new Date().toISOString(), actor: user.nom, role: user.role, action: name, message: o.message ?? null, payload: req.body ?? {} });
       }
+      // Verdicts transmis à Keystone : un changement est mis en file avec l'action, dans la même transaction.
+      if (changeVerdicts(name)) suivreVerdicts(db);
       return o;
     });
     res.json({ message: out.message ?? null, result: out.result, data: buildSnapshot(db, user) });
@@ -161,6 +168,13 @@ app.get('/api/journal', (req, res) => {
   if (!user || user.role !== 'rh') return res.status(403).json({ error: 'Réservé au service RH' });
   const rows = db.sql.prepare('SELECT at, actor, role, action, message FROM journal ORDER BY id DESC LIMIT 100').all();
   res.json(rows);
+});
+
+// File d'envoi des messages sortants (Paramètres → Envois) : état de l'intégration et derniers messages.
+app.get('/api/envois', (req, res) => {
+  const user = authedUser(req);
+  if (!user || user.role !== 'rh') return res.status(403).json({ error: 'Réservé au service RH' });
+  res.json({ keystone: { mode: KEYSTONE_MODE, ...etatEnvois(db, 'keystone') }, envois: listerEnvois(db, { statut: req.query.statut }) });
 });
 
 // — Application web —

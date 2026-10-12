@@ -1,11 +1,11 @@
 // Congés, RTT, récupération, compte épargne-temps et reports de CP.
 import { ABS_LABEL } from '../../../shared/constants.ts';
 import { cpPeriods } from '../../../shared/dates.ts';
-import { fJ, fmt, matricule } from '../../../shared/format.ts';
+import { fJ, fmt } from '../../../shared/format.ts';
 import { cetInfo, checkAbsence, cpInfo, heuresAvantAbsence } from '../../../shared/rules/conges.ts';
 import { parse } from '../../../shared/dates.ts';
 import type { Absence, AbsenceType, CetMouvement, ReportCp } from '../../../shared/types.ts';
-import { sendToKeystone } from '../integrations/keystone.ts';
+import { absenceKeystone, sendToKeystone } from '../integrations/keystone.ts';
 import { ActionError, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, requireRh, str, type ActionHandler } from './context.ts';
 
 /** Le salarié ou le RH demandent ; le manager qui pose pour un membre de son équipe valide du même coup. */
@@ -16,9 +16,9 @@ const demander: ActionHandler = (ctx, p) => {
   const kind = str(p.kind) as AbsenceType;
   const chk = checkAbsence(ctx.d, emp, kind, p.du, p.au, parManager);
   if (chk.cant) throw new ActionError(chk.msgs.find(m => m.bad)?.text || 'Demande invalide');
-  ctx.db.insert<Absence>('absences', { empId: emp.id, type: kind, du: p.du, au: p.au, statut: parManager ? 'validee' : 'demandee', keystone: parManager });
+  const a = ctx.db.insert<Absence>('absences', { empId: emp.id, type: kind, du: p.du, au: p.au, statut: parManager ? 'validee' : 'demandee', keystone: parManager });
   if (parManager) {
-    sendToKeystone(ctx.db, { type: 'absence.validee', matricule: matricule(emp.id), du: p.du, au: p.au, nature: kind });
+    sendToKeystone(ctx.db, absenceKeystone('absence.validee', a));
     return `Absence de ${emp.nom} (${ABS_LABEL[kind].toLowerCase()}) posée et validée — transmise à Keystone pour la planification`;
   }
   return `Demande de ${ABS_LABEL[kind].toLowerCase()} envoyée à ${ctx.d.mgrName(ctx.d.mgrOf(emp))}`;
@@ -34,7 +34,7 @@ const decider: ActionHandler = (ctx, p) => {
   const heures = ok ? heuresAvantAbsence(ctx.d, a, 'avant de valider l’absence') : null;
   if (heures) throw new ActionError(heures.text);
   ctx.db.update<Absence>('absences', a.id, { statut: ok ? 'validee' : 'refusee', keystone: ok });
-  if (ok) sendToKeystone(ctx.db, { type: 'absence.validee', matricule: matricule(emp.id), du: a.du, au: a.au, nature: a.type });
+  if (ok) sendToKeystone(ctx.db, absenceKeystone('absence.validee', a));
   return ok ? `Absence de ${emp.nom} validée — transmise à Keystone pour la planification` : `Absence de ${emp.nom} refusée`;
 };
 

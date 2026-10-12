@@ -23,8 +23,10 @@ server/src/
   config.ts        Variables d'environnement, contrôlées au démarrage (refus en production si dangereuses)
   securite.ts      En-têtes de sécurité HTTP (CSP, HSTS, anti-iframe…)
   actions/         Actions métier (POST /api/actions/:nom), contrôles d'accès et validations
+  envois.ts        File d'envoi persistante des messages sortants (table envois), traitée en tâche de fond
   integrations/    Adaptateurs Keystone et Sage Paie (simulation par défaut) ; API Keystone entrante :
-                   keystone-entrant.ts (contrôles, écritures, instantané) et keystone-routes.ts (routes /v1)
+                   keystone-entrant.ts (contrôles, écritures, instantané) et keystone-routes.ts (routes /v1) ;
+                   keystone-verdicts.ts (verdicts Go / No Go transmis, changements signalés)
   index.ts         Routes HTTP
 client/src/
   state/store.tsx  Session, données, navigation, filtres d'écran (ui), dialogue ouvert, notifications
@@ -54,7 +56,8 @@ design/            Prototype Claude Design de référence et guide du design sys
 
 - **Configuration** (`server/src/config.ts`) : lue au démarrage. En production, le serveur s'arrête
   (code 1) en listant les problèmes : `CURSUS_SECRET` absente ou courte, `KEYSTONE_API_KEY` absente
-  ou égale à la clé de démonstration (hors démonstration), `CURSUS_TODAY` définie, démonstration sans
+  ou égale à la clé de démonstration (hors démonstration), `KEYSTONE_URL` sans `KEYSTONE_TOKEN` ou qui
+  n'est pas une adresse http(s), `CURSUS_TODAY` définie, démonstration sans
   `CURSUS_HOST` (ou `HOST`) explicite sur la boucle locale, `CURSUS_INSECURE_COOKIE=1` hors de ce cas.
   Le mode démonstration ne s'active qu'avec `CURSUS_DEMO=1` ; en production (application de bureau),
   `demoPosteLocal` (`server/src/securite.ts`) refuse en plus (403) toute requête relayée par un proxy
@@ -131,6 +134,7 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `entretien.modifier` | id, section?, value?, info? | évaluateur / salarié selon la section |
 | `entretien.clore` | id | évaluateur |
 | `entretien.signer` | id | salarié |
+| `envoi.relancer` | id | RH (envoi en échec, intégration configurée : nouvelle série de tentatives, même clé d'idempotence) |
 | `parametres.maj` | horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, silent? | RH |
 | `demo.reinitialiser` | — | RH, mode démonstration |
 
@@ -213,9 +217,22 @@ paie sera stocké. Contrat : `docs/API-KEYSTONE.md` et `docs/keystone-openapi.js
   `KEYSTONE_API_KEY`) — projets, chantiers, affectations, tâches, instantané, verdict Go / No Go,
   demandes ; les routes sans `/v1` restent servies comme alias obsolètes. Seuls des matricules et
   codes de motif sortent de Cursus.
-- **Cursus → Keystone** : `server/src/integrations/keystone.ts` (`sendToKeystone`) —
-  décisions sur les demandes, heures validées, absences validées, verdicts modifiés par une
-  suspension, une levée, un retrait ou la nouvelle délivrance qui suit un retrait (`verdict.modifie` :
-  chantier, matricule, codes de motif). En simulation, les messages sont écrits dans le journal.
-- **Sage Paie** : `server/src/integrations/sage.ts` (`pushToSage`).
+- **Cursus → Keystone** : `server/src/integrations/keystone.ts` (`sendToKeystone`) met en file
+  (`server/src/envois.ts`, table `envois`) les décisions sur les demandes de déplacement, les heures
+  validées sur les projets Keystone (`heuresKeystone` : ni `INT-*`, ni `ECOLE`), les absences validées
+  ou annulées (`absenceKeystone` : période, jamais la nature) et les verdicts modifiés. La mise en file
+  se fait dans la transaction de l'action : une action refusée n'envoie rien. Le processus de fond
+  (`demarrerEnvois`, toutes les 2 s) envoie un message à la fois par cible, dans l'ordre :
+  `POST ${KEYSTONE_URL}/api/cursus/v1/evenements`, jeton `KEYSTONE_TOKEN`, en-tête `Idempotency-Key`
+  (clé stable entre tentatives), 10 s au plus ; 2xx → envoyé avec l'accusé, 4xx (hors 408 et 429) →
+  échec, sinon nouvelle tentative de 1 min à 1 h, 10 au plus. Sans `KEYSTONE_URL`, statut « simulé » et
+  message écrit dans le journal. Suivi et relance : Paramètres → Envois (`GET /api/envois`, RH).
+- **Verdicts Go / No Go** : `server/src/integrations/keystone-verdicts.ts` (`suivreVerdicts`) mémorise le
+  dernier verdict transmis par chantier et ressource (table `verdictsKeystone`) et met en file
+  `verdict.modifie` (codes de motif seulement) quand il change. Recalcul après chaque action, sauf les
+  familles sans effet (`changeVerdicts` de `actions/index.ts` : temps, absences, entretiens…), après
+  chaque écriture de Keystone et une fois par jour. Les verdicts du jeu de démonstration sont mémorisés
+  sans envoi.
+- **Sage Paie** : `server/src/integrations/sage.ts` (`pushToSage`). La file d'envoi prévoit la cible
+  `sage` (colonne `cible`, transports par cible), sans la brancher tant que l'envoi n'est pas décidé.
 - **Authentification unique** : `server/src/auth.ts` et la route `/api/login`.

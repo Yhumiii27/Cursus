@@ -1,0 +1,24 @@
+// File d'envoi des messages sortants : relance d'un envoi en échec (vue « Envois » des paramètres).
+import { relancerEnvoi, type Cible, type Envoi } from '../envois.ts';
+import { keystoneSortant } from '../integrations/keystone.ts';
+import { ActionError, requireRh, type ActionHandler } from './context.ts';
+
+const NOM_CIBLE: Record<Cible, string> = { keystone: 'Keystone', sage: 'Sage Paie' };
+
+/** Cible dont l'adresse est configurée : Sage Paie n'est pas encore branché sur la file. */
+const configuree = (c: Cible) => c === 'keystone' && !!keystoneSortant();
+
+/** Nouvelle série de tentatives pour un envoi en échec, avec la même clé d'idempotence (RH). */
+const relancer: ActionHandler = (ctx, p) => {
+  requireRh(ctx);
+  const e = ctx.db.get<Envoi>('envois', Number(p.id));
+  if (!e) throw new ActionError('Envoi introuvable', 404);
+  if (e.statut !== 'echec') throw new ActionError('Seul un envoi en échec peut être relancé');
+  if (!configuree(e.cible)) throw new ActionError(`Envoi vers ${NOM_CIBLE[e.cible]} non configuré : relance impossible`);
+  relancerEnvoi(ctx.db, e);
+  return `Envoi ${e.type} relancé vers ${NOM_CIBLE[e.cible]} — nouvelle tentative dans quelques secondes`;
+};
+
+export const envoisActions: Record<string, ActionHandler> = {
+  'envoi.relancer': relancer,
+};

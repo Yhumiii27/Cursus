@@ -4,6 +4,8 @@ Guide destiné au développeur de Keystone. Keystone et Cursus échangent par HT
 Cursus conserve des données de santé et de paie que Keystone n'a pas à lire. Dans ce sens
 (Keystone → Cursus), Keystone transmet son référentiel (projets, chantiers, affectations, tâches
 planifiées), interroge le verdict Go / No Go d'un chantier et dépose des demandes de déplacement.
+Dans l'autre sens (Cursus → Keystone), Cursus envoie ses décisions, les heures et absences validées
+et les changements de verdict à une route de Keystone (« Événements envoyés par Cursus »).
 Seuls des matricules et des codes de motif sortent de Cursus.
 
 Contrat formel : spécification OpenAPI 3.1 `docs/keystone-openapi.json`, servie aussi par
@@ -326,8 +328,9 @@ ou chantier archivé depuis, déplacement déjà créé…) : une demande devenu
 refusée.
 
 `GET /demandes/{reference}` donne le statut : `en_attente_rh`, `acceptee` ou `refusee`, avec la date
-de décision (`decidee`). Les demandes décidées sont conservées. En attendant les envois de Cursus
-(section suivante), Keystone peut lire ici la décision.
+de décision (`decidee`). Les demandes décidées sont conservées. La décision est aussi envoyée à
+Keystone (`demande.decision`, voir « Événements envoyés par Cursus ») : cette lecture permet de se
+recaler après un envoi en échec.
 
 ## Erreurs
 
@@ -362,8 +365,8 @@ recopié : ni matricule, ni dates, ni destination.
 ## Limites actuelles
 
 - Pas de limitation de débit : éviter d'interroger le Go / No Go en boucle (chaque appel est tracé).
-  Une interrogation par chantier et par heure suffit ; les changements de verdict seront poussés par
-  Cursus (section suivante).
+  Les changements de verdict sont poussés par Cursus (`verdict.modifie`) : une interrogation par
+  chantier et par jour suffit pour se recaler.
 - Les référentiels (habilitations, certifications, destinations) sont tenus dans Cursus : un code
   manquant se demande au service RH.
 - Pas de lecture d'un objet par `GET` (hors verdict et demandes) : l'état enregistré est renvoyé par
@@ -382,15 +385,171 @@ annoncée à l'avance.
 
 ## Événements envoyés par Cursus
 
-*Section à compléter avec les envois sortants (Cursus → Keystone).*
+Dans ce sens (Cursus → Keystone), Cursus pousse ses décisions et ses changements de verdict à une route
+que **Keystone implémente**. Contrat formel : webhook `evenement` de la spécification OpenAPI
+(`webhooks` et schémas `Evenement…` de `docs/keystone-openapi.json`).
 
-Aujourd'hui, ces messages sont seulement tracés dans le journal de Cursus (mode simulation,
-`server/src/integrations/keystone.ts`) ; leur adresse, leur authentification, leur format définitif
-et la reprise sur échec restent à fixer :
+| | |
+| --- | --- |
+| Adresse | `POST {KEYSTONE_URL}/api/cursus/v1/evenements` — `KEYSTONE_URL` est l'adresse de base de Keystone sur le réseau interne, configurée dans Cursus (`http://keystone.interne:8080`) |
+| Authentification | `Authorization: Bearer <jeton>` : jeton `KEYSTONE_TOKEN` convenu avec Keystone, distinct de la clé `X-Api-Key` des appels entrants |
+| Idempotence | en-tête `Idempotency-Key`, égal au champ `id` du corps, le même à chaque tentative |
+| Format | JSON en UTF-8, un événement par appel |
+| Délai | réponse attendue en 10 s au plus |
+| Réponse | `2xx`, avec de préférence `{ "accuse": "<identifiant de réception>" }` |
 
-| Type | Déclencheur | Contenu prévu |
+### Enveloppe
+
+```json
+{
+  "id": "0b9d7c1e-2f4a-4d3b-9a61-3c5e8f7a1b20",
+  "type": "demande.decision",
+  "emis_le": "2026-10-10T08:41:07.512Z",
+  "donnees": { "demande": 7, "reference": "DK-2026-0412", "matricule": "EMP-0018", "chantier": "K-2611", "decision": "acceptee", "date": "2026-10-10" }
+}
+```
+
+- `id` : identifiant unique de l'événement (UUID), égal à l'en-tête `Idempotency-Key`.
+- `type` : un des types ci-dessous. Un type inconnu est à accepter (`2xx`) et ignorer : Cursus pourra en
+  ajouter, annoncés à l'avance et ajoutés à la spécification.
+- `emis_le` : date de mise en file (ISO 8601, UTC), inchangée d'une tentative à l'autre. Elle ordonne
+  les événements.
+- `donnees` : contenu propre au type. Seuls des matricules, des identifiants, des dates, des heures et
+  des codes sortent de Cursus : jamais de nom, de motif saisi ni de donnée de santé.
+
+### Réponse attendue et reprise sur échec
+
+Cursus met chaque événement en file dans la transaction de l'action qui le produit (une action
+refusée n'envoie rien), puis un processus de fond l'envoie : un envoi à la fois, dans l'ordre
+d'émission.
+
+| Réponse de Keystone | Effet dans Cursus |
+| --- | --- |
+| `2xx` | reçu ; l'accusé (`accuse` du corps JSON, sinon le statut HTTP) est conservé et montré au service RH |
+| `408`, `429`, `5xx`, pas de réponse en 10 s, erreur réseau | nouvelle tentative après 1, 2, 4, 8, 16, 32 min puis toutes les heures (`Retry-After` respecté jusqu'à 1 h) ; après 10 tentatives (environ 4 h), échec |
+| autre `4xx` | échec définitif, sans nouvelle tentative ; le corps `{ "error", "code" }` est repris dans le détail de l'erreur |
+| redirection `3xx` | non suivie : échec définitif (adresse à corriger) |
+
+- **Doublons** : un événement peut arriver deux fois (coupure après réception, avant la réponse).
+  Keystone conserve les clés reçues (90 jours au moins) et répond `2xx` à une clé déjà vue, avec le
+  même accusé, sans retraiter.
+- **Ordre** : tant que l'événement en tête attend une nouvelle tentative, les suivants attendent aussi ;
+  un échec définitif ne retient pas la file. Le service RH peut relancer un envoi en échec
+  (Paramètres → Envois) : il repart avec son contenu, son `emis_le` et sa clé d'origine, et peut donc
+  arriver après des événements plus récents. Pour un même objet (demande, absence, ressource d'un
+  chantier, salarié et semaine), Keystone n'applique un événement que s'il est plus récent (`emis_le`)
+  que le dernier appliqué.
+- **Échec** : visible dans Cursus (Paramètres → Envois, et journal : `keystone.echec`). Keystone peut
+  se recaler par les lectures de l'API (`GET /chantiers/{id}/go-no-go`, `GET /demandes/{reference}`).
+
+### `demande.decision`
+
+Le service RH accepte ou refuse une demande de déplacement (écran Voyages).
+
+| Champ | Type | Contenu |
 | --- | --- | --- |
-| `demande.decision` | le service RH accepte ou refuse une demande de déplacement | `reference`, `demandeId`, `matricule`, `chantier`, `decision` (`acceptee` / `refusee`) |
-| `heures.validees` | une feuille de temps est validée | `matricule`, `semaine`, heures par projet |
-| `absence.validee` | une absence est validée | `matricule`, `du`, `au`, `nature` |
-| `verdict.modifie` | une suspension, une levée, un retrait ou une nouvelle délivrance d'habilitation change un verdict | `chantier`, `statut`, ressource (`matricule`, `statut`, codes de motif) |
+| `demande` | entier | identifiant Cursus de la demande (`demande.id` renvoyé par `POST /demandes`) |
+| `reference` | identifiant ou `null` | référence Keystone ; `null` pour une demande déposée sans référence par l'ancienne route |
+| `matricule` | matricule | |
+| `chantier` | identifiant | |
+| `decision` | `acceptee` / `refusee` | acceptée : le déplacement est créé dans Cursus, rattaché au chantier |
+| `date` | date | jour de la décision |
+
+Une acceptation lève en général la réserve `DEPLACEMENT` : le nouveau verdict suit dans un événement
+`verdict.modifie` distinct.
+
+### `heures.validees`
+
+Le manager ou le service RH valide une feuille de temps. Seules partent les heures passées sur les
+projets Keystone : les activités internes (codes `INT-…`) et les cours en CFA (`ECOLE`) ne sont jamais
+transmis, pas plus que les projets sans heure. Une semaine sans heure sur un projet Keystone n'envoie
+rien.
+
+| Champ | Type | Contenu |
+| --- | --- | --- |
+| `matricule` | matricule | |
+| `semaine` | date | lundi de la semaine |
+| `projets` | objet `{ "code projet": heures }` | total de la semaine par projet, en heures décimales (deux décimales au plus) |
+
+```json
+{ "matricule": "EMP-0012", "semaine": "2026-10-05", "projets": { "K-2614": 15, "K-2611": 15 } }
+```
+
+Une feuille validée n'est plus modifiable : un événement par salarié et par semaine. Si un nouvel
+événement arrivait pour le même salarié et la même semaine, il remplacerait le précédent.
+
+### `absence.validee` et `absence.annulee`
+
+Une absence est validée par le manager ou le service RH (ou posée et validée d'emblée par le manager) ;
+`absence.annulee` signale l'annulation d'une absence déjà validée. La nature de l'absence (congé payé,
+RTT, maladie…) n'est jamais transmise : seule l'indisponibilité compte pour la planification.
+
+| Champ | Type | Contenu |
+| --- | --- | --- |
+| `absence` | entier | identifiant Cursus de l'absence, repris par l'annulation |
+| `matricule` | matricule | |
+| `du`, `au` | dates | premier et dernier jour d'absence, inclus |
+
+```json
+{ "absence": 31, "matricule": "EMP-0018", "du": "2026-12-14", "au": "2026-12-18" }
+```
+
+### `verdict.modifie`
+
+Le verdict Go / No Go d'une ressource change : statut ou codes de motif. Cursus mémorise le dernier
+verdict transmis par chantier et par ressource et le recalcule après chaque action qui peut le changer
+(habilitation suspendue, levée, retirée ou délivrée, certification enregistrée, recyclage planifié,
+déplacement créé, formalités mises à jour…), après chaque écriture de Keystone (affectation,
+exigences ou dates d'un chantier, instantané) et chaque jour (expirations, délais des formalités). Une
+nouvelle ressource reçoit aussi son premier verdict (`precedent: null`), comme chaque ressource des
+chantiers en cours ou à venir à la mise en service des envois. Une ressource retirée, un chantier
+archivé ou terminé ne produisent pas d'événement.
+
+| Champ | Type | Contenu |
+| --- | --- | --- |
+| `chantier` | identifiant | |
+| `statut` | `GO` / `GO_RESERVE` / `NO_GO` | verdict du chantier après le changement |
+| `ressource.matricule` | matricule | |
+| `ressource.statut` | `GO` / `GO_RESERVE` / `NO_GO` | nouveau verdict de la ressource |
+| `ressource.motifs` | liste de `{ code, niveau }` | codes de motif seulement (voir « Verdict Go / No Go »), jamais de libellé, même en partage détaillé |
+| `ressource.precedent` | statut ou `null` | dernier verdict transmis pour cette ressource ; `null` : premier verdict |
+
+```json
+{
+  "chantier": "K-2614", "statut": "NO_GO",
+  "ressource": { "matricule": "EMP-0018", "statut": "NO_GO", "motifs": [{ "code": "HABILITATION_SUSPENDUE", "niveau": "NO_GO" }], "precedent": "GO" }
+}
+```
+
+Un événement par ressource dont le verdict change ; l'ordre des motifs n'est pas significatif. Le
+verdict complet du chantier reste lisible par `GET /chantiers/{id}/go-no-go`.
+
+### Côté Cursus
+
+- Configuration : `KEYSTONE_URL` et `KEYSTONE_TOKEN` (voir `docs/DEPLOIEMENT.md`). En production,
+  Cursus refuse de démarrer avec `KEYSTONE_URL` sans `KEYSTONE_TOKEN`, ou avec une adresse qui n'est
+  pas en `http(s)`.
+- Sans `KEYSTONE_URL` (simulation, démonstration) : les événements sont tracés dans le journal et
+  marqués « simulés » ; rien n'est envoyé, ni rattrapé plus tard.
+- Suivi : Paramètres → Envois (statut, tentatives, dernière erreur, accusé, contenu, bouton Relancer
+  pour un envoi en échec) ; l'état affiché de l'intégration reprend le dernier envoi reçu et les échecs
+  en cours.
+
+### Tester la réception
+
+Un appel identique à ceux de Cursus, à rejouer tel quel pour vérifier l'idempotence (`$KEYSTONE` :
+adresse de base de Keystone, `$JETON` : jeton convenu) :
+
+```bash
+curl -s -X POST "$KEYSTONE/api/cursus/v1/evenements" \
+  -H "Authorization: Bearer $JETON" -H 'Content-Type: application/json' \
+  -H 'Idempotency-Key: 9e7f3b21-48ac-4d0e-b5f6-12c8a7d3e940' -d '{
+  "id": "9e7f3b21-48ac-4d0e-b5f6-12c8a7d3e940", "type": "verdict.modifie", "emis_le": "2026-10-10T10:02:18.377Z",
+  "donnees": { "chantier": "K-2614", "statut": "NO_GO",
+    "ressource": { "matricule": "EMP-0018", "statut": "NO_GO", "motifs": [{ "code": "HABILITATION_SUSPENDUE", "niveau": "NO_GO" }], "precedent": "GO" } }
+}'
+```
+
+```json
+{ "accuse": "KS-EVT-48213" }
+```

@@ -71,7 +71,8 @@ Relancez `npm run app` après une modification du code ou un déplacement du dos
 
 Modèle commenté : `.env.example`. En production (`NODE_ENV=production`), le serveur refuse de démarrer
 et liste les problèmes si `CURSUS_SECRET` manque ou fait moins de 32 caractères, si `KEYSTONE_API_KEY`
-manque ou reprend la clé de démonstration `demo-keystone` (hors démonstration), si `CURSUS_TODAY` est
+manque ou reprend la clé de démonstration `demo-keystone` (hors démonstration), si `KEYSTONE_URL` est définie
+sans `KEYSTONE_TOKEN` ou n'est pas une adresse http(s), si `CURSUS_TODAY` est
 définie, si la démonstration est active sans `CURSUS_HOST` (ou `HOST`) posée explicitement sur la boucle
 locale, ou si `CURSUS_INSECURE_COOKIE=1` hors de ce cas ; hors production, il les signale seulement.
 En production, la démonstration refuse aussi (403) toute requête relayée par un proxy (`Forwarded`,
@@ -91,7 +92,8 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `CURSUS_SECRET` | Clé de signature des sessions, 32 caractères au moins (`openssl rand -hex 32`). Obligatoire en production ; ailleurs, générée et stockée en base |
 | `CURSUS_INSECURE_COOKIE` | `1` : cookie sans l'attribut `Secure`, pour l'application de bureau en http://127.0.0.1 uniquement. Refusée en production hors application de bureau |
 | `KEYSTONE_API_KEY` | Clé attendue des appels entrants de Keystone (en-tête `X-Api-Key`). Obligatoire en production ; sans elle, les routes Keystone répondent 503. La clé `demo-keystone` n'est acceptée qu'en mode démonstration, quand la variable est vide |
-| `KEYSTONE_URL`, `SAGE_URL`, `SAGE_DOSSIER` | Bascule des adaptateurs en mode API (à compléter, voir ci-dessous) |
+| `KEYSTONE_URL`, `KEYSTONE_TOKEN` | Envois à Keystone : adresse de base (`POST {KEYSTONE_URL}/api/cursus/v1/evenements`) et jeton (`Authorization: Bearer`), obligatoire en production avec l'adresse. Sans `KEYSTONE_URL`, les messages sont seulement tracés dans le journal (simulation) |
+| `SAGE_URL`, `SAGE_DOSSIER` | Bascule de l'adaptateur Sage Paie en mode API (à compléter, voir ci-dessous) |
 
 Les sessions durent 12 heures au plus depuis la connexion ; la déconnexion les révoque, et une
 session est refusée dès que la date de sortie du salarié rattaché est passée.
@@ -117,9 +119,10 @@ périodique : `docs/SAUVEGARDE.md`.
   (projets, chantiers, affectations, tâches planifiées, synchronisation complète, verdict Go / No Go,
   demandes de déplacement), contrat OpenAPI `docs/keystone-openapi.json` et guide du développeur de
   Keystone `docs/API-KEYSTONE.md` ; hors démonstration, chantiers, projets, missions et tâches ne
-  viennent que de cette API. Les messages sortants (décisions,
-  heures et absences validées, verdicts modifiés par une suspension, une levée, un retrait ou une
-  nouvelle délivrance d'habilitation) sont tracés dans le journal (`server/src/integrations/keystone.ts`).
+  viennent que de cette API. Les messages sortants (décisions sur les demandes,
+  heures validées sur les projets Keystone, absences validées, changements de verdict Go / No Go) passent
+  par une file d'envoi persistante : envoyés à Keystone avec `KEYSTONE_URL` (nouvelles tentatives, suivi
+  et relance dans Paramètres → Envois), seulement tracés dans le journal sans elle (`server/src/envois.ts`).
 - **Sage Paie** : la transmission produit le JSON des variables et un accusé fictif
   (`server/src/integrations/sage.ts`) ; la correspondance des rubriques avec le plan de paie reste à paramétrer.
 - **Convocations, demandes de visite médicale** : notifiées dans l'interface et tracées, sans envoi d'e-mail.

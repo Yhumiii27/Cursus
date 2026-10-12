@@ -56,6 +56,17 @@ export const TABLES = {
     pk: 'id',
     cols: { id: 'text', role: 'text', rh: 'bool', managerId: 'int', collabId: 'int', creation: 'text', expiration: 'text', revocation: 'text', activite: 'text' },
   },
+  // File d'envoi des messages sortants (server/src/envois.ts) : une clé d'idempotence par message.
+  envois: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', cible: 'text', type: 'text', cle: 'text', contenu: 'json', statut: 'text', tentatives: 'int', prochaine: 'text',
+      erreur: 'text', accuse: 'text', creation: 'text', tentative: 'text', envoi: 'text',
+    },
+    unique: [['cle']],
+  },
+  // Dernier verdict Go / No Go transmis à Keystone, par chantier et ressource (server/src/integrations/keystone-verdicts.ts).
+  verdictsKeystone: { pk: 'id', auto: true, cols: { id: 'int', chantier: 'text', empId: 'int', statut: 'text', motifs: 'json', date: 'text' }, unique: [['chantier', 'empId']] },
 } satisfies Record<string, TableDef>;
 
 export type TableName = keyof typeof TABLES;

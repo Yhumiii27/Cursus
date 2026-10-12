@@ -100,7 +100,7 @@ const accepterKeystone: ActionHandler = (ctx, p) => {
     origine: 'keystone', ref: dm.ref, chantier: dm.chantier,
   });
   ctx.db.update<DemandeKeystone>('demandesKeystone', dm.id, { statut: 'acceptee', decidee: ctx.d.ti, decideur: ctx.user.nom, voyageId: t.id });
-  sendToKeystone(ctx.db, { type: 'demande.decision', demandeId: dm.id, reference: dm.ref, matricule: matricule(emp.id), chantier: dm.chantier, decision: 'acceptee' });
+  sendToKeystone(ctx.db, { type: 'demande.decision', demande: dm.id, reference: dm.ref, matricule: matricule(emp.id), chantier: dm.chantier, decision: 'acceptee', date: ctx.d.ti });
   return { message: `Déplacement créé pour ${emp.nom} — chantier ${dm.chantier} · statut renvoyé à Keystone`, result: { id: t.id } };
 };
 
@@ -109,7 +109,7 @@ const refuserKeystone: ActionHandler = (ctx, p) => {
   const dm = demandeEnAttente(ctx, p.id);
   const c = ctx.d.chantier(dm.chantier);
   ctx.db.update<DemandeKeystone>('demandesKeystone', dm.id, { statut: 'refusee', decidee: ctx.d.ti, decideur: ctx.user.nom });
-  sendToKeystone(ctx.db, { type: 'demande.decision', demandeId: dm.id, reference: dm.ref, matricule: matricule(dm.empId), chantier: dm.chantier, decision: 'refusee' });
+  sendToKeystone(ctx.db, { type: 'demande.decision', demande: dm.id, reference: dm.ref, matricule: matricule(dm.empId), chantier: dm.chantier, decision: 'refusee', date: ctx.d.ti });
   return `Demande refusée — ${ctx.d.personName(dm.empId)} · ${c ? c.chef || 'le chef de projet' : 'le chef de projet'} notifié dans Keystone`;
 };
 

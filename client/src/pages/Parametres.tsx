@@ -1,12 +1,13 @@
-// Paramètres (service RH) : règles de suivi, intégrations Keystone et Sage Paie, journal des actions, démonstration.
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { ArrowCounterClockwiseIcon } from '@phosphor-icons/react';
+// Paramètres (service RH) : règles de suivi, intégrations Keystone et Sage Paie, envois sortants, journal des actions, démonstration.
+import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
+import { ArrowClockwiseIcon, ArrowCounterClockwiseIcon } from '@phosphor-icons/react';
+import { ENVOI_CLS, ENVOI_LABEL, EVENEMENT_LABEL, GNG_LABEL } from '../../../shared/constants.ts';
 import { parse } from '../../../shared/dates.ts';
-import { fmt, plural } from '../../../shared/format.ts';
-import type { Settings } from '../../../shared/types.ts';
-import { api } from '../api.ts';
+import { fmt, fmtShort, matricule, num, plural } from '../../../shared/format.ts';
+import type { Envoi, Settings, StatutEnvoi } from '../../../shared/types.ts';
+import { api, type EnvoisState } from '../api.ts';
 import { Field } from '../components/Dialog.tsx';
-import { Btn, Empty, Fine, Page, Panel, SectionLabel, Seg, Tag, Two } from '../components/ui.tsx';
+import { Btn, Empty, Fine, Page, Panel, Pre, SectionLabel, Seg, Tag, Two, stop } from '../components/ui.tsx';
 import { useRole } from '../state/derived.ts';
 import { useData, useStore } from '../state/store.tsx';
 
@@ -44,6 +45,25 @@ function ModeTag({ mode }: { mode: string }) {
   return mode === 'api' ? <Tag cls="tag-neutral">API connectée</Tag> : <Tag cls="tag-outline">Simulation</Tag>;
 }
 
+/** Date et heure locales d'un horodatage ISO : « 10 oct. 2026 à 09:12 ». */
+const quand = (at: string) => {
+  const d = new Date(at);
+  return `${fmt(d)} à ${d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' })}`;
+};
+
+/** État réel des envois à Keystone : simulation, échecs en cours, reprise après erreur, ou à jour. */
+function KeystoneTag({ mode, etat }: { mode: string; etat: EnvoisState['keystone'] | null }) {
+  if (mode !== 'api') return <Tag cls="tag-outline">Simulation</Tag>;
+  if (!etat) return <Tag cls="tag-outline">Mode API</Tag>;
+  if (etat.nombres.echec) return <Tag cls="tag-accent">{plural(etat.nombres.echec, 'envoi en échec', 'envois en échec')}</Tag>;
+  if (etat.enReprise) return <Tag cls="tag-accent">Keystone ne répond pas</Tag>;
+  if (etat.nombres.a_envoyer) return <Tag cls="tag-outline">Envoi en cours</Tag>;
+  return <Tag cls="tag-neutral">{etat.dernierSucces ? 'API · à jour' : 'API · aucun envoi'}</Tag>;
+}
+
+type FiltreEnvoi = StatutEnvoi | 'tous';
+const FILTRES_ENVOI: [FiltreEnvoi, string][] = [['tous', 'Tous'], ['a_envoyer', 'À envoyer'], ['echec', 'En échec'], ['envoye', 'Envoyés'], ['simule', 'Simulés']];
+
 export function Parametres() {
   const data = useData();
   const { session, run, setUi } = useStore();
@@ -51,6 +71,26 @@ export function Parametres() {
   const s = data.settings;
   const keystoneMode = session?.integrations.keystone ?? 'simulation';
   const sageMode = session?.integrations.sage ?? 'simulation';
+
+  // Envois sortants : état de l'intégration et derniers messages, rechargés comme le journal.
+  const [filtre, setFiltre] = useState<FiltreEnvoi>('tous');
+  const [envois, setEnvois] = useState<EnvoisState | null>(null);
+  const [envoisError, setEnvoisError] = useState<string | null>(null);
+  const loadEnvois = useCallback(() => {
+    let cancelled = false;
+    api.envois(filtre === 'tous' ? null : filtre)
+      .then(r => { if (!cancelled) { setEnvois(r); setEnvoisError(null); } })
+      .catch(err => { if (!cancelled) setEnvoisError((err as Error).message); });
+    return () => { cancelled = true; };
+  }, [filtre]);
+  useEffect(() => (rh ? loadEnvois() : undefined), [data, rh, loadEnvois]);
+  // Messages en attente : l'état est relu toutes les 10 s, le temps que le processus de fond les transmette.
+  const enAttente = !!envois?.keystone.nombres.a_envoyer;
+  useEffect(() => {
+    if (!rh || !enAttente) return;
+    const t = setInterval(loadEnvois, 10_000);
+    return () => clearInterval(t);
+  }, [rh, enAttente, loadEnvois]);
 
   // Journal : rechargé au montage et à chaque nouvel instantané (donc après chaque action).
   const [journal, setJournal] = useState<JournalRow[] | null>(null);
@@ -139,7 +179,7 @@ export function Parametres() {
         </div>
 
         <div className="col-stack" style={{ flex: '1 1 380px' }}>
-          <Panel title="Intégration Keystone" aside={<ModeTag mode={keystoneMode} />} style={{ gap: 'var(--space-4)' }}>
+          <Panel title="Intégration Keystone" aside={<KeystoneTag mode={keystoneMode} etat={envois?.keystone ?? null} />} style={{ gap: 'var(--space-4)' }}>
             <Field label="Niveau de partage des motifs">
               <Seg name="param-partage" label="Niveau de partage des motifs" value={s.partageKeystone}
                 options={[['minimal', 'Codes de motifs uniquement'], ['detaille', 'Codes et libellés des motifs']]}
@@ -160,11 +200,19 @@ export function Parametres() {
               ))}
             </div>
             <Fine>Préfixe <span style={MONO}>/api/integrations/keystone/v1</span> · authentification par l’en-tête <span style={MONO}>X-Api-Key</span> (clé définie par la variable <span style={MONO}>KEYSTONE_API_KEY</span>) · spécification OpenAPI : <span style={MONO}>/v1/openapi.json</span>. Chaque appel est tracé dans le journal ; les routes sans <span style={MONO}>/v1</span> restent servies, obsolètes.</Fine>
+            <SectionLabel>Envois sortants</SectionLabel>
             <Fine>
               {keystoneMode === 'api'
-                ? 'Mode API : les décisions sur les demandes de déplacement, les heures validées, les absences validées et les verdicts modifiés par une suspension, une levée, un retrait ou une nouvelle délivrance d’habilitation sont envoyés à Keystone.'
-                : 'Mode simulation : les messages sortants (décisions sur les demandes, heures et absences validées, verdicts modifiés par une mesure sur une habilitation) sont tracés dans le journal au lieu d’être envoyés.'}
+                ? 'Mode API : les décisions sur les demandes de déplacement, les heures validées sur les projets Keystone (ni activités internes, ni cours en CFA), les absences validées et les changements de verdict Go / No Go sont mis en file puis envoyés à Keystone un par un, avec de nouvelles tentatives en cas d’erreur (voir « Envois » ci-dessous).'
+                : 'Mode simulation (KEYSTONE_URL non définie) : les messages sortants — décisions sur les demandes, heures validées sur les projets Keystone, absences validées, changements de verdict Go / No Go — sont tracés dans le journal et marqués « simulés », sans être envoyés.'}
             </Fine>
+            {keystoneMode === 'api' && envois && (
+              <Fine muted={!envois.keystone.enReprise}>
+                {envois.keystone.dernierSucces ? `Dernier envoi reçu par Keystone le ${quand(envois.keystone.dernierSucces)}` : 'Aucun envoi reçu par Keystone pour le moment'}
+                {` · ${plural(envois.keystone.nombres.a_envoyer, 'message à envoyer', 'messages à envoyer')} · ${plural(envois.keystone.nombres.echec, 'envoi en échec', 'envois en échec')}`}
+                {envois.keystone.enReprise && ` · nouvelle tentative ${envois.keystone.enReprise.prochaine ? `le ${quand(envois.keystone.enReprise.prochaine)}` : 'bientôt'} (${envois.keystone.enReprise.tentatives} sur 10 déjà faites) — ${envois.keystone.enReprise.erreur ?? 'erreur inconnue'}`}
+              </Fine>
+            )}
           </Panel>
 
           <Panel title="Sage Paie" aside={<ModeTag mode={sageMode} />}>
@@ -192,6 +240,8 @@ export function Parametres() {
           </Panel>
         </div>
       </div>
+
+      <EnvoisPanel etat={envois} error={envoisError} filtre={filtre} setFiltre={setFiltre} reload={loadEnvois} mode={keystoneMode} />
 
       <Panel title="Journal des actions" aside={
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)' }}>
@@ -224,5 +274,118 @@ export function Parametres() {
         )}
       </Panel>
     </Page>
+  );
+}
+
+/** Personne désignée par un matricule (le RH voit tous les collaborateurs), sinon le matricule seul. */
+function useNomMatricule() {
+  const data = useData();
+  return (m: unknown) => {
+    const e = data.employes.find(x => matricule(x.id) === m);
+    return e ? `${e.nom} (${String(m)})` : String(m ?? '—');
+  };
+}
+
+const GNG_TEXTE: Record<string, string> = { GO: GNG_LABEL.go, GO_RESERVE: GNG_LABEL.reserve, NO_GO: GNG_LABEL.nogo };
+
+/** Résumé d'un message, lisible par le RH : noms à la place des matricules, codes de motif conservés. */
+function resumeEnvoi(e: Envoi, nom: (m: unknown) => string): string {
+  const c = e.contenu as Record<string, any>;
+  const jour = (v: unknown) => (typeof v === 'string' ? fmtShort(parse(v)) : '—');
+  const gng = (v: unknown) => GNG_TEXTE[String(v)] ?? String(v);
+  switch (e.type) {
+    case 'demande.decision':
+      return `${c.decision === 'acceptee' ? 'Acceptée' : 'Refusée'} · ${c.reference ?? `demande n° ${c.demande}`} · ${nom(c.matricule)} · chantier ${c.chantier}`;
+    case 'heures.validees':
+      return `${nom(c.matricule)} · semaine du ${jour(c.semaine)} · ${Object.entries(c.projets ?? {}).map(([p, h]) => `${p} : ${String(num(h)).replace('.', ',')} h`).join(', ')}`;
+    case 'absence.validee':
+    case 'absence.annulee':
+      return `${nom(c.matricule)} · du ${jour(c.du)} au ${jour(c.au)}`;
+    case 'verdict.modifie': {
+      const r = c.ressource ?? {};
+      const motifs = (r.motifs ?? []).map((m: { code: string }) => m.code).join(', ');
+      return `Chantier ${c.chantier} · ${nom(r.matricule)} : ${r.precedent ? `${gng(r.precedent)} → ` : ''}${gng(r.statut)}${motifs ? ` (${motifs})` : ''}`;
+    }
+    default:
+      return '';
+  }
+}
+
+/** Suivi d'un message dans la liste : accusé, erreur ou prochaine tentative. */
+function suiviEnvoi(e: Envoi): string {
+  if (e.statut === 'envoye') return `Reçu le ${quand(e.envoi!)} · accusé ${e.accuse ?? '—'}`;
+  if (e.statut === 'simule') return 'Tracé dans le journal (simulation)';
+  if (e.statut === 'echec') return `Échec après ${plural(e.tentatives, 'tentative', 'tentatives')} — ${e.erreur ?? 'erreur inconnue'}`;
+  if (!e.tentatives) return 'En file, envoi dans quelques secondes';
+  return `Tentative ${e.tentatives + 1} le ${quand(e.prochaine!)} — ${e.erreur ?? 'erreur inconnue'}`;
+}
+
+/** Vue « Envois » : messages sortants filtrés par statut, détail de chacun, relance d'un envoi en échec. */
+function EnvoisPanel({ etat, error, filtre, setFiltre, reload, mode }: {
+  etat: EnvoisState | null; error: string | null; filtre: FiltreEnvoi; setFiltre: (f: FiltreEnvoi) => void; reload: () => void; mode: string;
+}) {
+  const { run } = useStore();
+  const nom = useNomMatricule();
+  const [ouvert, setOuvert] = useState<number | null>(null);
+  const liste = etat?.envois ?? null;
+  const relancer = async (id: number) => {
+    const r = await run('envoi.relancer', { id });
+    if (r.ok) reload();
+  };
+
+  return (
+    <Panel title="Envois" aside={
+      <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
+        <Seg name="envois-filtre" label="Statut des envois" value={filtre} options={FILTRES_ENVOI} onChange={setFiltre} style={{ flexWrap: 'wrap' }} />
+        <Btn small icon={<ArrowClockwiseIcon size={14} />} onClick={() => reload()}>Actualiser</Btn>
+      </div>
+    }>
+      <Fine>Messages envoyés à Keystone, 100 plus récents. Chacun garde sa clé d’idempotence d’une tentative à l’autre : Keystone écarte un message déjà reçu. Après une erreur réseau, un délai dépassé (10 s) ou une erreur 5xx, 408 ou 429, l’envoi est retenté de 1 min à 1 h plus tard, 10 fois au plus, et les messages suivants attendent leur tour ; une autre erreur (4xx) le met aussitôt en échec.</Fine>
+      {error && <p className="form-error">{error}</p>}
+      {liste == null && !error && <Empty pad="sm">Chargement des envois…</Empty>}
+      {liste != null && liste.length === 0 && <Empty pad="sm">{filtre === 'tous' ? 'Aucun message sortant pour le moment.' : 'Aucun envoi avec ce statut.'}</Empty>}
+      {liste != null && liste.length > 0 && (
+        <div className="scroll-x" style={{ maxHeight: 560, overflowY: 'auto' }}>
+          <table className="table">
+            <thead><tr><th>Mis en file</th><th>Message</th><th>Statut</th><th>Suivi</th></tr></thead>
+            <tbody>
+              {liste.map(e => (
+                <Fragment key={e.id}>
+                  <tr className={`clickable${ouvert === e.id ? ' selected' : ''}`} onClick={() => setOuvert(ouvert === e.id ? null : e.id)} aria-expanded={ouvert === e.id}>
+                    <td><Two nowrap main={fmt(new Date(e.creation))} sub={new Date(e.creation).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} /></td>
+                    <td><Two main={EVENEMENT_LABEL[e.type] ?? e.type} sub={resumeEnvoi(e, nom)} /></td>
+                    <td><Tag cls={ENVOI_CLS[e.statut]}>{ENVOI_LABEL[e.statut]}</Tag></td>
+                    <td className="text-muted" style={{ fontSize: 13 }}>{suiviEnvoi(e)}</td>
+                  </tr>
+                  {ouvert === e.id && (
+                    <tr>
+                      <td colSpan={4}>
+                        <div className="col-stack" style={{ gap: 'var(--space-3)' }}>
+                          <div className="text-muted sub">
+                            {`Type ${e.type} · clé d’idempotence `}<span style={{ ...MONO, overflowWrap: 'anywhere' }}>{e.cle}</span>
+                            {` · ${plural(e.tentatives, 'tentative', 'tentatives')}`}
+                            {e.tentative && ` · dernière le ${quand(e.tentative)}`}
+                            {e.envoi && ` · reçu le ${quand(e.envoi)}`}
+                          </div>
+                          {e.erreur && <div className={e.statut === 'envoye' ? 'sub text-n400' : 'note-accent'}>{e.statut === 'envoye' ? 'Erreur avant réussite : ' : 'Dernière erreur : '}{e.erreur}</div>}
+                          {e.accuse && <div className="sub">Accusé de réception : <span style={MONO}>{e.accuse}</span></div>}
+                          <Pre maxHeight={240}>{JSON.stringify(e.contenu, null, 2)}</Pre>
+                          {e.statut === 'echec' && (
+                            <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+                              <Btn variant="secondary" small icon={<ArrowCounterClockwiseIcon size={14} />} disabled={mode !== 'api'} onClick={stop(() => relancer(e.id))}>Relancer</Btn>
+                              <span className="text-muted sub">{mode === 'api' ? 'Nouvelle série de 10 tentatives, même contenu et même clé.' : 'Relance impossible en simulation (KEYSTONE_URL non définie).'}</span>
+                            </div>
+                          )}
+                        </div>
+                      </td>
+                    </tr>
+                  )}
+                </Fragment>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Panel>
   );
 }

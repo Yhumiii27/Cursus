@@ -77,7 +77,7 @@ export function Chantiers() {
 
           <Panel style={{ flex: '1 1 360px' }} title="Réponse transmise à Keystone" aside={detail ? 'Codes et libellés des motifs' : 'Codes de motifs uniquement'}>
             <Pre>{payload}</Pre>
-            <Fine>Identifiant : matricule uniquement. Réévalué à chaque consultation ; un changement de verdict est poussé à Keystone. Niveau de détail réglable dans les paramètres.</Fine>
+            <Fine>Identifiant : matricule uniquement. Réévalué à chaque consultation. Un changement de verdict d’une ressource (statut ou codes de motif, jamais de libellé) est poussé à Keystone après l’action qui le provoque, après une mise à jour reçue de Keystone et chaque jour (expirations) — suivi dans Paramètres → Envois. Niveau de détail réglable dans les paramètres.</Fine>
           </Panel>
         </div>
       )}

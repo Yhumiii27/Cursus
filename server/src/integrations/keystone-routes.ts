@@ -9,6 +9,7 @@ import type { Chantier, CurrentUser, DemandeKeystone, Destination, Formation, Ha
 import { loadFull, todayIso } from '../dataset.ts';
 import type { Db } from '../db.ts';
 import { KEYSTONE_API_KEY, keystoneKeyOk } from './keystone.ts';
+import { suivreVerdicts } from './keystone-verdicts.ts';
 import {
   ErreurKeystone, bilanTexte, contexte, demandeApi, enregistrerAffectation, enregistrerChantier, enregistrerProjet, enregistrerTache,
   recevoirDemande, supprimerAffectation, supprimerTache, synchroniser, type Ecriture,
@@ -122,10 +123,17 @@ function tracer(db: Db, req: Request, res: Response, body: unknown) {
   });
 }
 
-/** Exécute un traitement : réponse JSON, ou refus documenté (ErreurKeystone) ; le reste va au gestionnaire d'erreurs. */
+/**
+ * Exécute un traitement : réponse JSON, ou refus documenté (ErreurKeystone) ; le reste va au gestionnaire d'erreurs.
+ * Après une écriture, les verdicts Go / No Go changés sont signalés à Keystone, dans la même transaction.
+ */
 const executer = (db: Db, fn: Traitement) => (req: Request, res: Response, next: NextFunction) => {
   try {
-    const r = fn(db, req, res);
+    const r = req.method === 'GET' ? fn(db, req, res) : db.tx(() => {
+      const r = fn(db, req, res);
+      suivreVerdicts(db);
+      return r;
+    });
     res.status(r.status ?? 200).json(r.body);
   } catch (e) {
     if (e instanceof ErreurKeystone) erreur(res, e);

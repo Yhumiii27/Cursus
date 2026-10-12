@@ -35,7 +35,7 @@ function fresh() {
     const ch = d.evaluateChantiers(d.enrich(d.ds.settings.horizonAlerte, false), d.tripsAll()).find(x => x.c.id === chantier)!;
     return ch.res.find(r => r.e.id === empId)!;
   };
-  const keystone = () => db.all<{ action: string; payload: { chantier: string; ressource?: { matricule: string; statut: string; motifs: string[] } } }>('journal')
+  const keystone = () => db.all<{ action: string; payload: { chantier: string; ressource?: { matricule: string; statut: string; motifs: { code: string; niveau: string }[] } } }>('journal')
     .filter(j => j.action === 'keystone.verdict.modifie');
   return { db, run, forbidden, domain, emp, verdict, keystone };
 }
@@ -129,7 +129,7 @@ test('suspension par le RH : titre non valide et No Go, puis levée', () => {
   assert.doesNotMatch(JSON.stringify(d2.keystonePayload(ch, true)), /armoire/);
   const ev = keystone();
   assert.deepEqual(ev.map(e => e.payload.chantier).sort(), ['K-2611', 'K-2614'], 'un événement par chantier concerné');
-  assert.ok(ev.every(e => e.payload.ressource?.matricule === 'EMP-0018' && e.payload.ressource.statut === 'NO_GO' && e.payload.ressource.motifs.includes('HABILITATION_SUSPENDUE')));
+  assert.ok(ev.every(e => e.payload.ressource?.matricule === 'EMP-0018' && e.payload.ressource.statut === 'NO_GO' && e.payload.ressource.motifs.some(m => m.code === 'HABILITATION_SUSPENDUE' && m.niveau === 'NO_GO')));
   assert.doesNotMatch(JSON.stringify(ev), /armoire/);
 
   // Une suspension en cours bloque le renouvellement : elle se lève explicitement.
@@ -207,8 +207,8 @@ test('retrait par le RH : définitif, nouvelle délivrance possible', () => {
   // Keystone, qui avait reçu le No Go du retrait, reçoit le verdict rétabli.
   const retour = keystone().slice(4);
   assert.deepEqual(retour.map(e => e.payload.chantier).sort(), ['K-2611', 'K-2614']);
-  assert.ok(retour.every(e => !e.payload.ressource!.motifs.some(m => m.startsWith('HABILITATION'))));
-  assert.deepEqual(retour.find(e => e.payload.chantier === 'K-2614')!.payload.ressource, { matricule: 'EMP-0018', statut: 'GO', motifs: [] });
+  assert.ok(retour.every(e => !e.payload.ressource!.motifs.some(m => m.code.startsWith('HABILITATION'))));
+  assert.deepEqual(retour.find(e => e.payload.chantier === 'K-2614')!.payload.ressource, { matricule: 'EMP-0018', statut: 'GO', motifs: [], precedent: 'NO_GO' });
 });
 
 test('migration d’une base antérieure aux suspensions d’habilitation', () => {

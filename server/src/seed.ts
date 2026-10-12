@@ -8,6 +8,7 @@ import type { Dataset, Employe, EntretienType, Statut, TempsTravail, TypeContrat
 import type { Db } from './db.ts';
 import { DEFAULT_SETTINGS, loadFull } from './dataset.ts';
 import { contexte, enregistrerAffectation, enregistrerChantier, enregistrerProjet, enregistrerTache } from './integrations/keystone-entrant.ts';
+import { suivreVerdicts } from './integrations/keystone-verdicts.ts';
 import { figerFeuilles } from './migrate.ts';
 
 const FORMATIONS = [
@@ -387,5 +388,7 @@ export function seedDemo(db: Db) {
         .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'RECUP') * d.dayH(e), 0);
       db.insert('soldesReprise', { empId: e.id, cpPris: cp, rttPris: rtt, recupAcquis: Math.max(h.recA, h.recP + recupDemandee), recupPris: h.recP });
     });
+    // Verdicts Go / No Go de départ : réputés connus de Keystone, seuls leurs changements lui seront envoyés.
+    suivreVerdicts(db, { initial: true });
   });
 }

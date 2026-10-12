@@ -1,5 +1,5 @@
 // Appels à l'API Cursus.
-import type { CurrentUser, Dataset, Role } from '../../shared/types.ts';
+import type { CurrentUser, Dataset, Envoi, EtatEnvois, Role, StatutEnvoi } from '../../shared/types.ts';
 
 export interface LoginOption { id: number; nom: string }
 export interface SessionState {
@@ -10,6 +10,8 @@ export interface SessionState {
   loginOptions: Record<Role, LoginOption[]> | null;
   integrations: { keystone: string; sage: string };
 }
+/** File d'envoi (Paramètres → Envois) : état de l'intégration Keystone et derniers messages. */
+export interface EnvoisState { keystone: EtatEnvois & { mode: string }; envois: Envoi[] }
 export interface ActionResponse { ok: boolean; message: string | null; result?: unknown; error?: string; data?: Dataset }
 
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
@@ -31,6 +33,7 @@ export const api = {
   logout: () => request<SessionState>('POST', '/api/logout'),
   data: () => request<Dataset>('GET', '/api/data'),
   journal: () => request<{ at: string; actor: string; role: string; action: string; message: string | null }[]>('GET', '/api/journal'),
+  envois: (statut: StatutEnvoi | null) => request<EnvoisState>('GET', `/api/envois${statut ? `?statut=${statut}` : ''}`),
   async action(name: string, payload: Record<string, unknown>): Promise<ActionResponse> {
     try {
       const r = await request<{ message: string | null; result?: unknown; data: Dataset }>('POST', `/api/actions/${name}`, payload);

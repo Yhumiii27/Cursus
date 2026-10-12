@@ -109,7 +109,8 @@ sudo nano /etc/cursus/cursus.env
 | `CURSUS_DB` | `/var/lib/cursus/cursus.db` |
 | `CURSUS_SECRET` | 64 caractères aléatoires, propres à cette installation. La changer déconnecte tout le monde |
 | `KEYSTONE_API_KEY` | clé aléatoire transmise à Keystone par un canal sûr. Sans elle, les routes Keystone répondent 503 |
-| `KEYSTONE_URL`, `KEYSTONE_TOKEN`, `SAGE_URL`, `SAGE_TOKEN`, `SAGE_DOSSIER` | intégrations sortantes, quand elles seront livrées |
+| `KEYSTONE_URL`, `KEYSTONE_TOKEN` | envois à Keystone : adresse de base de Keystone sur le réseau interne (`http://keystone.interne:8080`) et jeton convenu avec lui. Cursus refuse de démarrer avec l'adresse sans le jeton. Sans adresse, les messages ne sont que tracés dans le journal |
+| `SAGE_URL`, `SAGE_TOKEN`, `SAGE_DOSSIER` | envoi à Sage Paie, quand il sera livré |
 | `CURSUS_DEMO`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE` | **jamais** sur ce serveur. La démonstration ouvre l'espace RH sans mot de passe : Cursus refuse de démarrer avec elle, et refuserait de toute façon (403) chaque requête relayée par le proxy |
 
 Au démarrage, Cursus contrôle cette configuration. S'il manque une valeur obligatoire ou si un
@@ -328,4 +329,9 @@ précède chaque mise en production.
 - Keystone alimente les chantiers, projets, affectations et tâches par son API (`docs/API-KEYSTONE.md`) :
   sans elle, une base de production n'a ni chantier ni projet. Ses appels sont tracés dans le journal
   (Paramètres, action `keystone.appel`).
+- Envois à Keystone (`KEYSTONE_URL`) : Paramètres → Envois montre chaque message (à envoyer, envoyé avec
+  l'accusé de Keystone, en échec avec l'erreur). Keystone injoignable : les messages attendent et sont
+  retentés jusqu'à 10 fois sur environ 4 h ; au-delà, ils passent en échec (journal : `keystone.echec`)
+  et le service RH les relance une fois Keystone rétabli. Aucun message n'est perdu à un redémarrage :
+  la file est dans la base.
 - Changer `CURSUS_SECRET` (fuite supposée) : même procédure ; toutes les sessions sont fermées.

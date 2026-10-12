@@ -155,6 +155,39 @@ export interface Settings {
 
 export interface CurrentUser { role: Role; empId: number | null; nom: string; intitule: string }
 
+// — Messages sortants (file d'envoi : server/src/envois.ts) —
+/** Destinataires des messages sortants : Sage Paie n'est pas encore branché sur la file. */
+export type CibleEnvoi = 'keystone' | 'sage';
+/** `simule` : aucune adresse configurée, le message n'est que tracé dans le journal. */
+export type StatutEnvoi = 'a_envoyer' | 'envoye' | 'echec' | 'simule';
+export interface Envoi {
+  id: number;
+  cible: CibleEnvoi;
+  type: string;
+  /** Clé d'idempotence, unique, transmise à chaque tentative. */
+  cle: string;
+  /** Données de l'événement (matricules et codes, jamais de nom ni de donnée de santé). */
+  contenu: Record<string, unknown>;
+  statut: StatutEnvoi;
+  /** Tentatives faites ; `prochaine` : date de la prochaine (message à envoyer). */
+  tentatives: number;
+  prochaine: string | null;
+  /** Dernière erreur, conservée après une réussite ; `accuse` : accusé de réception du destinataire. */
+  erreur: string | null;
+  accuse: string | null;
+  /** Dates ISO (UTC) : mise en file, dernière tentative, réception confirmée. */
+  creation: string;
+  tentative: string | null;
+  envoi: string | null;
+}
+/** État d'une cible : messages par statut, dernière réception confirmée, message en tête qui attend une nouvelle tentative. */
+export interface EtatEnvois {
+  cible: CibleEnvoi;
+  nombres: Record<StatutEnvoi, number>;
+  dernierSucces: string | null;
+  enReprise: { id: number; type: string; tentatives: number; prochaine: string | null; erreur: string | null } | null;
+}
+
 export interface SagePush { endpoint: string; dossier: string; periode_paie: string; envoye_le: string; lignes: { matricule: string; semaine: string; rubriques: Record<string, number> }[] }
 
 /** Instantané des données visibles par l'utilisateur connecté. */

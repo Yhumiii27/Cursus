@@ -18,6 +18,7 @@ import {
 } from '../../../shared/rules/temps.ts';
 import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
 import { CloseButton, Fine, Page, Panel, Pre, Tag, Two, stop } from '../components/ui.tsx';
+import { useAgir } from '../state/actions.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -137,6 +138,7 @@ export function Temps() {
   const data = d.ds;
   const { rh, admin, manager, collab, me } = useRole();
   const { ui, setUi, run } = useStore();
+  const { occupe, agir } = useAgir();
   const wk = ui.weekStart ?? mondayOf(data.today);
   const wdays = wDays(wk);
 
@@ -188,7 +190,7 @@ export function Temps() {
                       <td className="right">
                         <div className="actions-end">
                           <button type="button" className="btn btn-ghost btn-sm" onClick={stop(open)}>Ouvrir</button>
-                          {!tot.aRenvoyer && <button type="button" className="btn btn-secondary btn-sm" onClick={stop(() => run('temps.validate', { empId: e.id, week: sh.week }))}>Valider</button>}
+                          {!tot.aRenvoyer && <button type="button" className="btn btn-secondary btn-sm" disabled={occupe} onClick={agir(() => run('temps.validate', { empId: e.id, week: sh.week }))}>Valider</button>}
                         </div>
                       </td>
                     </tr>
@@ -212,7 +214,7 @@ export function Temps() {
               </div>
             </div>
             {admin
-              ? <button type="button" className="btn btn-primary" disabled={pending === 0} onClick={() => run('temps.pushSage')}>Transmettre par API</button>
+              ? <button type="button" className="btn btn-primary" disabled={pending === 0 || occupe} onClick={agir(() => run('temps.pushSage'))}>Transmettre par API</button>
               : <span className="text-muted sub">Transmission réservée à l’administrateur RH</span>}
           </div>
         }>
@@ -232,6 +234,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const data = d.ds;
   const { rh, manager, me } = useRole();
   const { run } = useStore();
+  const { occupe, agir } = useAgir();
   const [comment, setComment] = useState('');
 
   const wdays = wDays(wk);
@@ -295,10 +298,10 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
     ? `Validée${sh!.keystone ? ' · heures par projet renvoyées à Keystone' : ''}${paie}`
     : st === 'soumise' ? `En attente de validation par ${d.mgrName(validator)}` : 'Saisie par jour et par projet — proposée à partir des tâches Keystone';
 
-  const reject = async () => {
+  const reject = agir(async () => {
     const r = await run('temps.reject', { ...base, comment });
     if (r.ok) setComment('');
-  };
+  });
 
   return (
     <div className="row-wrap">
@@ -348,7 +351,9 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
                     );
                   })}
                   <td className="right nowrap tnum">{fH(l.h.reduce((n, v) => n + num(v), 0))}</td>
-                  <td className="right">{editable && <CloseButton size={28} label="Supprimer la ligne" onClick={() => run('temps.removeLine', { ...base, li })} />}</td>
+                  {/* La ligne visée accompagne l'indice : un second clic ne supprime pas la ligne venue à sa place. */}
+                  <td className="right">{editable && <CloseButton size={28} label="Supprimer la ligne" disabled={occupe}
+                    onClick={agir(() => run('temps.removeLine', { ...base, li, projet: l.projet, tache: l.tache, lignes: lignes.length }))} />}</td>
                 </tr>
               ))}
               <tr>
@@ -367,14 +372,15 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
 
         {editable && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-            <select className="input" aria-label="Ajouter un projet" value="" onChange={ev => ev.target.value && run('temps.addLine', { ...base, projet: ev.target.value })} style={{ width: 'auto', minWidth: 240 }}>
+            <select className="input" aria-label="Ajouter un projet" value="" disabled={occupe} style={{ width: 'auto', minWidth: 240 }}
+              onChange={ev => { const projet = ev.target.value; if (projet) agir(() => run('temps.addLine', { ...base, projet }))(); }}>
               <option value="">+ Ajouter un projet…</option>
               {projOptions.map(p => <option key={p.code} value={p.code}>{p.code} · {p.nom}</option>)}
             </select>
-            {canSuggest && <button type="button" className="btn btn-secondary" onClick={() => run('temps.suggest', base)}>Proposer depuis Keystone</button>}
+            {canSuggest && <button type="button" className="btn btn-secondary" disabled={occupe} onClick={agir(() => run('temps.suggest', base))}>Proposer depuis Keystone</button>}
             {correction
               ? <span className="text-muted sub" style={{ marginLeft: 'auto' }}>Correction avant validation : la feuille reste soumise</span>
-              : <button type="button" className="btn btn-primary" style={{ marginLeft: 'auto' }} disabled={!(calc.total > 0 || couverte) || surAbsence.length > 0} onClick={() => run('temps.submit', base)}>{submitLabel}</button>}
+              : <button type="button" className="btn btn-primary" style={{ marginLeft: 'auto' }} disabled={!(calc.total > 0 || couverte) || surAbsence.length > 0 || occupe} onClick={agir(() => run('temps.submit', base))}>{submitLabel}</button>}
           </div>
         )}
         {surAbsence.length > 0 && (
@@ -409,8 +415,8 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', paddingTop: 'var(--space-2)' }}>
             <textarea className="input short" rows={2} aria-label="Commentaire" placeholder="Commentaire en cas de renvoi (facultatif)" value={comment} onChange={ev => setComment(ev.target.value)} style={{ resize: 'vertical' }} />
             <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end' }}>
-              <button type="button" className="btn btn-ghost" onClick={reject}>Renvoyer</button>
-              <button type="button" className="btn btn-primary" disabled={surAbsence.length + enAttente.length > 0 || plusCouverte} onClick={() => run('temps.validate', base)}>Valider la semaine</button>
+              <button type="button" className="btn btn-ghost" disabled={occupe} onClick={reject}>Renvoyer</button>
+              <button type="button" className="btn btn-primary" disabled={surAbsence.length + enAttente.length > 0 || plusCouverte || occupe} onClick={agir(() => run('temps.validate', base))}>Valider la semaine</button>
             </div>
           </div>
         )}

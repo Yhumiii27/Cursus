@@ -10,7 +10,8 @@ import { cap, equipeLabel, fH, fJ, fmt, fmtIso, fmtShort, plural } from '../../.
 import { absenceActive, droitAnnulation, estConge, joursDecomptes, natureDef, prolongeable, statutAbsence, uniteDecompte } from '../../../shared/rules/absences.ts';
 import { absenceKinds, cetInfo, cpInfo, recupInfo, reposForfait, rttInfo } from '../../../shared/rules/conges.ts';
 import type { Absence, Employe, NatureAbsence } from '../../../shared/types.ts';
-import { Empty, Fine, Kpi, Kpis, Page, Panel, Tag, Two, stop } from '../components/ui.tsx';
+import { Empty, Fine, Kpi, Kpis, Page, Panel, Tag, Two } from '../components/ui.tsx';
+import { useAgir } from '../state/actions.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -71,6 +72,7 @@ export function Absences() {
   const data = d.ds;
   const { rh, manager, collab, me } = useRole();
   const { openDialog, run } = useStore();
+  const { occupe, agir } = useAgir();
   const P = cpPeriods(data.today);
   const Y = d.year;
 
@@ -208,8 +210,8 @@ export function Absences() {
                       <td className="right">
                         <div className="actions-end">
                           {canDecide && <>
-                            <button type="button" className="btn btn-ghost btn-sm" onClick={stop(() => run('absence.decider', { id: a.id, ok: false }))}>Refuser</button>
-                            <button type="button" className="btn btn-secondary btn-sm" onClick={stop(() => run('absence.decider', { id: a.id, ok: true }))}>Valider</button>
+                            <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={agir(() => run('absence.decider', { id: a.id, ok: false }))}>Refuser</button>
+                            <button type="button" className="btn btn-secondary btn-sm" disabled={occupe} onClick={agir(() => run('absence.decider', { id: a.id, ok: true }))}>Valider</button>
                           </>}
                           {rh && prolongeable(a) && (
                             <button type="button" className={`btn btn-sm ${a.statut === 'signalee' ? 'btn-secondary' : 'btn-ghost'}`} onClick={() => openDialog({ type: 'absNature', id: a.id })}>

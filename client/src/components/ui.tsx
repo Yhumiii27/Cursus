@@ -120,9 +120,9 @@ export function NoteAccent({ children, icon }: { children: ReactNode; icon?: boo
 
 export function SectionLabel({ children }: { children: ReactNode }) { return <h4 className="section-label">{children}</h4>; }
 
-export function CloseButton({ onClick, size = 32, label = 'Fermer' }: { onClick: () => void; size?: number; label?: string }) {
+export function CloseButton({ onClick, size = 32, label = 'Fermer', disabled }: { onClick: (ev: React.MouseEvent) => void; size?: number; label?: string; disabled?: boolean }) {
   return (
-    <button type="button" className="btn btn-ghost btn-icon" aria-label={label} title={label} onClick={onClick} style={{ color: 'inherit', width: size, height: size }}>
+    <button type="button" className="btn btn-ghost btn-icon" aria-label={label} title={label} onClick={onClick} disabled={disabled} style={{ color: 'inherit', width: size, height: size }}>
       <XIcon size={size <= 28 ? 12 : 14} />
     </button>
   );

@@ -6,6 +6,7 @@ import { fmtEur, plural } from '../../../shared/format.ts';
 import { budgetSummary } from '../../../shared/rules/budget.ts';
 import type { PlanAction, PlanStatut } from '../../../shared/types.ts';
 import { Bar, Btn, Empty, Kpi, Kpis, Page, Panel, Seg, StackBar, Tag, Two } from '../components/ui.tsx';
+import { useAgir } from '../state/actions.ts';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -18,6 +19,7 @@ const parts = (r: number, g: number, p: number, base: number) => [
 export function Budget() {
   const d = useDomain();
   const { ui, setUi, openDialog, run } = useStore();
+  const { occupe, agir } = useAgir();
   const year = d.year;
   const ex = ui.exercice ?? year;
   const seuil = d.ds.settings.seuilBudget;
@@ -31,9 +33,10 @@ export function Budget() {
     .sort((a, z) => a.periode.localeCompare(z.periode) || a.equipe.localeCompare(z.equipe));
 
   const openImport = () => openDialog({ type: 'planImport', exercice: ex });
+  // Le statut affiché accompagne la demande : un second clic n'avance pas l'action d'un cran de plus.
   const act = (l: PlanAction) => {
     if (l.statut === 'prevu' && l.f) openDialog({ type: 'session', f: l.f, planId: l.id, places: l.effectif });
-    else run('plan.avancer', { id: l.id });
+    else return run('plan.avancer', { id: l.id, de: l.statut });
   };
 
   return (
@@ -136,7 +139,7 @@ export function Budget() {
                       <td><Tag cls={PLAN_CLS[l.statut]}>{PLAN_LABEL[l.statut]}</Tag></td>
                       <td className="right">
                         {l.statut !== 'realise' && (
-                          <button type="button" className="btn btn-ghost btn-sm" onClick={() => act(l)}>
+                          <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={agir(() => act(l))}>
                             {l.statut === 'prevu' ? (fm ? 'Planifier la session' : 'Engager') : 'Clôturer'}
                           </button>
                         )}

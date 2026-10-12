@@ -1,15 +1,17 @@
 // Coque de l'application : barre latérale (rôle, navigation, utilisateur), en-tête, notification, et
 // reconnexion par-dessus l'écran quand la session expire (le reste devient inerte).
+// Les notifications passent par deux régions live toujours présentes (un lecteur d'écran n'annonce pas une
+// région insérée avec son texte) : les succès en « status », les erreurs en « alert ».
 import { useMemo, type ReactNode } from 'react';
 import {
   AirplaneIcon, BellIcon, BookOpenIcon, BriefcaseIcon, CalendarBlankIcon, ChartBarIcon, ChatIcon, CheckIcon, ClockIcon, GearSixIcon,
-  HouseIcon, KeyIcon, MagnifyingGlassIcon, MapPinIcon, PlusIcon, ShieldCheckIcon, SignOutIcon, UserIcon, UsersThreeIcon, type Icon,
+  HouseIcon, KeyIcon, MagnifyingGlassIcon, MapPinIcon, PlusIcon, ShieldCheckIcon, SignOutIcon, UserIcon, UsersThreeIcon, WarningIcon, XIcon, type Icon,
 } from '@phosphor-icons/react';
 import { Domain } from '../../../shared/domain.ts';
 import { obligations } from '../../../shared/rules/entretiens.ts';
 import type { Dataset, Role } from '../../../shared/types.ts';
 import { Avatar } from '../components/ui.tsx';
-import { useStore, type View } from '../state/store.tsx';
+import { useStore, type Toast as StoreToast, type View } from '../state/store.tsx';
 import { Reconnexion } from './Reconnexion.tsx';
 
 interface NavItem { view: View; label: string; icon: Icon; badge?: number }
@@ -141,13 +143,29 @@ function Topbar({ groups }: { groups: NavGroup[] }) {
   );
 }
 
-export function Toast() {
-  const { toast } = useStore();
-  if (!toast) return null;
+/** Notification : coche pour un succès (effacé seul), avertissement pour une erreur (reste affichée). */
+function Carte({ toast, fermer }: { toast: StoreToast; fermer: () => void }) {
   return (
-    <div role="status" className={`toast${toast.error ? ' error' : ''}`}>
-      <CheckIcon size={14} weight="bold" />
-      <span>{toast.text}</span>
+    <div className={`toast${toast.error ? ' error' : ''}`}>
+      {toast.error ? <WarningIcon size={16} weight="bold" aria-hidden="true" /> : <CheckIcon size={14} weight="bold" aria-hidden="true" />}
+      <span>{toast.error && <span className="sr-only">Erreur : </span>}{toast.text}</span>
+      <button type="button" className="btn btn-ghost btn-icon toast-fermer" aria-label="Fermer la notification" title="Fermer" onClick={fermer}>
+        <XIcon size={12} />
+      </button>
+    </div>
+  );
+}
+
+export function Toast() {
+  const { toast, fermerNotification } = useStore();
+  return (
+    <div className="toasts">
+      <div role="status" aria-live="polite" aria-atomic="true">
+        {toast && !toast.error && <Carte key={toast.id} toast={toast} fermer={fermerNotification} />}
+      </div>
+      <div role="alert" aria-live="assertive" aria-atomic="true">
+        {toast?.error && <Carte key={toast.id} toast={toast} fermer={fermerNotification} />}
+      </div>
     </div>
   );
 }

@@ -1,4 +1,7 @@
 // Compte rendu d'entretien : sections rédigées par l'évaluateur et le salarié, clôture, signatures, impression.
+// Chaque section s'enregistre en quittant le champ ; elle n'est réputée enregistrée qu'après la réponse du
+// serveur. Une section refusée (ou un réseau coupé) interrompt la clôture et la signature : le compte rendu ne
+// serait plus modifiable ensuite. La fermeture enregistre d'abord, et demande confirmation en cas d'échec.
 import { useEffect, useRef, useState } from 'react';
 import { ENT_TYPES, type EntSection } from '../../../shared/constants.ts';
 import { parse } from '../../../shared/dates.ts';
@@ -21,11 +24,13 @@ export function EntDialog({ entId }: { entId: number }) {
   const x = d.ds.entretiens.find(y => y.id === entId);
   const e = x ? d.emp(x.empId) : undefined;
 
-  // Texte saisi (local) et dernière valeur envoyée au serveur, par section.
+  // Par section : texte saisi (local), valeur enregistrée par le serveur, dernière valeur envoyée, motif d'un refus.
   const [vals, setVals] = useState<Record<string, string>>(() => ({ ...(x?.cr ?? {}) }));
   const [info, setInfo] = useState(!!x?.info);
   const [busy, setBusy] = useState(false);
+  const [echecs, setEchecs] = useState<Record<string, string>>({});
   const saved = useRef<Record<string, string>>({ ...(x?.cr ?? {}) });
+  const envoye = useRef<Record<string, string>>({ ...(x?.cr ?? {}) });
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const valsRef = useRef(vals);
   valsRef.current = vals;
@@ -41,16 +46,29 @@ export function EntDialog({ entId }: { entId: number }) {
 
   /** Enregistre une section si elle a changé ; les envois sont sérialisés. */
   const save = (k: string, value: string) => {
-    if (!x || (saved.current[k] ?? '') === value) return queue.current;
-    saved.current[k] = value;
-    queue.current = queue.current.then(() => run('entretien.modifier', { id: x.id, section: k, value }, { silent: true }));
+    if (!x || (envoye.current[k] ?? '') === value) return queue.current;
+    envoye.current[k] = value;
+    queue.current = queue.current.then(async () => {
+      const r = await run('entretien.modifier', { id: x.id, section: k, value }, { silent: true });
+      if (r.ok) {
+        saved.current[k] = value;
+        setEchecs(e => { const n = { ...e }; delete n[k]; return n; });
+      } else {
+        // Refusée : la section reste à enregistrer, un nouvel envoi de la même valeur la renverra.
+        if (envoye.current[k] === value) envoye.current[k] = saved.current[k] ?? '';
+        setEchecs(e => ({ ...e, [k]: r.error || 'non enregistrée' }));
+      }
+    });
     return queue.current;
   };
-  const flush = async () => {
+  /** Enregistre les sections modifiables ; renvoie celles qui ne le sont pas telles qu'affichées. */
+  const flush = async (): Promise<string[]> => {
     editableRef.current.forEach(k => save(k, valsRef.current[k] ?? ''));
     await queue.current;
+    return editableRef.current.filter(k => (saved.current[k] ?? '') !== (valsRef.current[k] ?? ''));
   };
-  // Fermeture du dialogue (Échap, fond, « Fermer ») : rien de ce qui a été saisi n'est perdu.
+  // Fermeture (Échap, fond, « Fermer ») : enregistrement d'abord (`enregistrer` de <Dialog>). Dialogue démonté
+  // autrement (changement d'espace) : dernier envoi de ce qui reste.
   const flushRef = useRef(flush);
   flushRef.current = flush;
   useEffect(() => () => { flushRef.current(); }, []);
@@ -75,7 +93,13 @@ export function EntDialog({ entId }: { entId: number }) {
 
   const finish = async (action: 'entretien.clore' | 'entretien.signer') => {
     setBusy(true);
-    await flush();
+    const restantes = await flush();
+    if (restantes.length) {
+      setBusy(false);
+      const noms = sections.filter(([k]) => restantes.includes(k)).map(([, label]) => `« ${label} »`);
+      notify(`${action === 'entretien.clore' ? 'Clôture' : 'Signature'} interrompue : ${noms.length > 1 ? `${noms.join(', ')} ne sont pas enregistrées` : `${noms[0] ?? 'une section'} n’est pas enregistrée`}. Réessayez une fois le problème réglé.`, true);
+      return;
+    }
     const r = await run(action, { id: x.id });
     setBusy(false);
     if (r.ok) closeDialog();
@@ -102,7 +126,7 @@ export function EntDialog({ entId }: { entId: number }) {
   };
 
   return (
-    <Dialog title={T0.nom} label="Entretien" width={720} tall actions={<>
+    <Dialog title={T0.nom} label="Entretien" width={720} tall enregistrer={async () => (await flush()).length === 0} actions={<>
       <CancelButton label="Fermer" />
       {!!x.signSal && <button type="button" className="btn btn-ghost" onClick={download}>Télécharger le compte rendu</button>}
       {canSign && <button type="button" className="btn btn-primary" disabled={busy} onClick={() => finish('entretien.signer')}>Signer le compte rendu</button>}
@@ -119,9 +143,11 @@ export function EntDialog({ entId }: { entId: number }) {
         return (
           <Field key={k} htmlFor={ed ? `ent-${k}` : undefined} label={<>{label} <span className="text-muted who">· {whoLabel(who)}</span></>}>
             {ed
-              ? <textarea className="input mid" id={`ent-${k}`} rows={3} value={vals[k] ?? ''}
+              ? <textarea className="input mid" id={`ent-${k}`} rows={3} value={vals[k] ?? ''} aria-invalid={echecs[k] ? true : undefined}
+                  aria-describedby={echecs[k] ? `ent-${k}-echec` : undefined}
                   onChange={ev => setVals(s => ({ ...s, [k]: ev.target.value }))} onBlur={ev => { save(k, ev.target.value); }} />
               : <div className="text-n300" style={{ fontSize: 14, whiteSpace: 'pre-wrap' }}>{x.cr[k] || 'Non renseigné'}</div>}
+            {ed && echecs[k] && <p className="form-error" id={`ent-${k}-echec`}>Non enregistrée : {echecs[k]}</p>}
           </Field>
         );
       })}

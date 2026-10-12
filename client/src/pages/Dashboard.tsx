@@ -7,11 +7,13 @@ import { cap, equipeLabel, fmt, fmtShort, plural, rel } from '../../../shared/fo
 import { declarationDetail, retireeAuRefus, valeurActuelle } from '../../../shared/rules/formalites.ts';
 import type { DemandeCollab, Session } from '../../../shared/types.ts';
 import { Bar, DateBlock, Kpi, Kpis, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
+import { useAgir } from '../state/actions.ts';
 import { useEnriched, useTrips } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
 /** Ligne d'échéance (tableau de bord, page Échéances). */
-export function EchRow({ x, onOpen, onAct }: { x: EchItem; onOpen: () => void; onAct: () => void }) {
+export function EchRow({ x, onOpen, onAct }: { x: EchItem; onOpen: () => void; onAct: () => unknown }) {
+  const { occupe, agir } = useAgir();
   return (
     <tr className="clickable" onClick={onOpen}>
       <td><Two main={x.emp.nom} sub={equipeLabel(x.emp)} /></td>
@@ -22,7 +24,7 @@ export function EchRow({ x, onOpen, onAct }: { x: EchItem; onOpen: () => void; o
         {/* Session à venir (planifié), ou passée en attente de clôture (note et bouton « Clôturer »). */}
         <div className="actions-end" style={{ alignItems: 'center' }}>
           {x.plannedLabel && <span className="note-accent nowrap">{x.plannedLabel}</span>}
-          {!!x.action && !x.planned && <button type="button" className="btn btn-ghost btn-sm" onClick={stop(onAct)}>{x.action.label}</button>}
+          {!!x.action && !x.planned && <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={agir(onAct)}>{x.action.label}</button>}
         </div>
       </td>
     </tr>
@@ -48,6 +50,7 @@ export function Dashboard() {
   const { emps, upcoming, horizon, d } = useEnriched();
   const trips = useTrips();
   const { setUi, go, run, runIntent, openDialog } = useStore();
+  const { occupe, agir } = useAgir();
   const data = d.ds;
   const aCloturer = d.aCloturer();
 
@@ -119,8 +122,8 @@ export function Dashboard() {
                           : <td className="text-muted" style={{ fontSize: 13 }}>{detail || 'À contrôler dans le dossier voyageur'}</td>}
                         <td className="right">
                           <div className="actions-end">
-                            <button type="button" className="btn btn-ghost btn-sm" onClick={stop(() => run('demande.refuser', { id: r.id }))}>Refuser</button>
-                            <button type="button" className="btn btn-secondary btn-sm" onClick={stop(() => run('demande.accepter', { id: r.id }))}>{r.type === 'document' ? 'Valider' : 'Accepter'}</button>
+                            <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={agir(() => run('demande.refuser', { id: r.id }))}>Refuser</button>
+                            <button type="button" className="btn btn-secondary btn-sm" disabled={occupe} onClick={agir(() => run('demande.accepter', { id: r.id }))}>{r.type === 'document' ? 'Valider' : 'Accepter'}</button>
                           </div>
                         </td>
                       </tr>

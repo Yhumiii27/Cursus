@@ -7,6 +7,7 @@ import type { TripItem, TripX } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, fmtShort, monthShort, plural, rel } from '../../../shared/format.ts';
 import { Btn, Chips, CloseButton, Empty, Fine, Page, Panel, Tag, Two, stop } from '../components/ui.tsx';
+import { useAgir } from '../state/actions.ts';
 import { useEnriched, useTrips } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -17,6 +18,7 @@ export function Voyages() {
   const { d, emps, horizon } = useEnriched();
   const trips = useTrips();
   const { ui, setUi, go, run, openDialog } = useStore();
+  const { occupe, agir } = useAgir();
   const data = d.ds;
 
   const travelers = useMemo(() => emps
@@ -67,8 +69,8 @@ export function Voyages() {
                     <td>{r && <Tag cls={TRIP_CLS[r.status]}>{r.todo ? plural(r.todo, 'formalité à prévoir', 'formalités à prévoir') : 'Dossier complet'}</Tag>}</td>
                     <td className="right">
                       <div className="actions-end">
-                        <Btn small onClick={() => run('keystone.refuser', { id: dm.id })}>Refuser</Btn>
-                        <Btn small variant="secondary" onClick={() => accept(dm.id)}>Accepter</Btn>
+                        <Btn small disabled={occupe} onClick={agir(() => run('keystone.refuser', { id: dm.id }))}>Refuser</Btn>
+                        <Btn small variant="secondary" disabled={occupe} onClick={agir(() => accept(dm.id))}>Accepter</Btn>
                       </div>
                     </td>
                   </tr>

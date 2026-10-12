@@ -1,7 +1,7 @@
 // Plan prévisionnel de formation et enveloppes budgétaires.
 import { fmtEur, plural } from '../../../shared/format.ts';
 import { parsePlan } from '../../../shared/rules/imports.ts';
-import type { PlanAction } from '../../../shared/types.ts';
+import type { PlanAction, PlanStatut } from '../../../shared/types.ts';
 import { ActionError, requireRh, requireRhAdmin, str, type ActionHandler } from './context.ts';
 
 /** Import du plan : en mode « remplacer », les lignes prévues de l'exercice sont supprimées (administrateur RH). */
@@ -35,14 +35,28 @@ const enveloppes: ActionHandler = (ctx, p) => {
   return `Enveloppes ${ex} enregistrées — ${fmtEur(total)}`;
 };
 
-/** Prévu → engagé → réalisé. Une action prévue rattachée au catalogue passe par la création de session. */
+const ORDRE_PLAN: PlanStatut[] = ['prevu', 'engage', 'realise'];
+
+/**
+ * Prévu → engagé → réalisé. Une action prévue rattachée au catalogue passe par la création de session.
+ * `de` : statut affiché quand la personne a cliqué. Déjà dépassé (double clic, autre onglet) : rien n'est
+ * refait, l'action n'avance jamais de deux crans ; revenu en arrière (session annulée) : refus.
+ */
 const avancer: ActionHandler = (ctx, p) => {
   requireRh(ctx);
   const l = ctx.ds.plan.find(x => x.id === Number(p.id));
-  if (!l || l.statut === 'realise') throw new ActionError('Action introuvable ou déjà réalisée');
+  if (!l) throw new ActionError('Action introuvable ou déjà réalisée');
+  const nom = `${l.f ? ctx.d.fm(l.f).court : l.libelle} — ${l.equipe}`;
+  if (p.de !== undefined) {
+    const de = ORDRE_PLAN.indexOf(p.de), st = ORDRE_PLAN.indexOf(l.statut);
+    if (de < 0 || de > 1) throw new ActionError('Statut attendu invalide');
+    if (st > de) return `${nom} · déjà ${l.statut === 'engage' ? 'engagé' : 'réalisé'}`;
+    if (st < de) throw new ActionError(`${nom} : l’action est de nouveau prévue (session annulée) — vérifiez-la, puis réessayez`);
+  }
+  if (l.statut === 'realise') throw new ActionError('Action introuvable ou déjà réalisée');
   const next = l.statut === 'prevu' ? 'engage' : 'realise';
   ctx.db.update<PlanAction>('planActions', l.id, { statut: next });
-  return `${l.f ? ctx.d.fm(l.f).court : l.libelle} — ${l.equipe} · ${next === 'engage' ? 'engagé' : 'réalisé'} (${fmtEur(l.cout)})`;
+  return `${nom} · ${next === 'engage' ? 'engagé' : 'réalisé'} (${fmtEur(l.cout)})`;
 };
 
 export const budgetActions: Record<string, ActionHandler> = {

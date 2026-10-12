@@ -1,5 +1,7 @@
 // Aiguillage des écrans selon la vue courante et l'espace (RH, manager, collaborateur).
+// Une erreur de rendu de la page n'emporte ni la barre latérale ni le dialogue ouvert (ErreurRendu).
 import type { ReactElement } from 'react';
+import { ErreurPage, ErreurRendu } from './components/ErreurRendu.tsx';
 import { DialogHost } from './dialogs/DialogHost.tsx';
 import { Shell } from './layout/Shell.tsx';
 import { Absences } from './pages/Absences.tsx';
@@ -29,6 +31,7 @@ const PAGES: Record<View, () => ReactElement> = {
 
 export function App() {
   const { session, data, loading, view, erreurChargement, recharger } = useStore();
+  const role = session?.role;
   if (loading) return <Shell><div className="loading">Chargement…</div></Shell>;
   if (erreurChargement) {
     return (
@@ -50,7 +53,9 @@ export function App() {
   // Session expirée : la reconnexion se pose par-dessus (Shell), la page et le dialogue restent montés.
   return (
     <Shell>
-      <PageComponent key={view} />
+      <ErreurRendu cle={`${role}/${view}`} repli={(erreur, reessayer) => <ErreurPage erreur={erreur} reessayer={reessayer} />}>
+        <PageComponent key={view} />
+      </ErreurRendu>
       <DialogHost />
     </Shell>
   );

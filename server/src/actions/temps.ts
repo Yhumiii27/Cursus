@@ -65,9 +65,22 @@ const addLine: ActionHandler = (ctx, p) => {
   return null;
 };
 
+/**
+ * `projet`, `tache` et `lignes` (nombre de lignes affichées) désignent la ligne vue par la personne. Déjà
+ * supprimée (double clic, autre onglet) : rien n'est refait ; feuille changée entre-temps : refus, plutôt que
+ * de supprimer la ligne voisine venue prendre sa place.
+ */
 const removeLine: ActionHandler = (ctx, p) => {
   const { sh } = editable(ctx, p);
-  saveLines(ctx, sh, sh.lignes.filter((_, i) => i !== Number(p.li)));
+  const li = Number(p.li);
+  if (p.projet !== undefined) {
+    const visee = (l: LigneTemps) => l.projet === p.projet && (p.tache === undefined || l.tache === p.tache);
+    if (!sh.lignes.some(visee)) return null;
+    if (!sh.lignes[li] || !visee(sh.lignes[li]) || (p.lignes !== undefined && sh.lignes.length !== Number(p.lignes))) {
+      throw new ActionError('La feuille a changé entre-temps : vérifiez la ligne à supprimer, puis réessayez');
+    }
+  }
+  saveLines(ctx, sh, sh.lignes.filter((_, i) => i !== li));
   return null;
 };
 

@@ -32,6 +32,25 @@ export type ApiError = Error & { status: number };
 export type FiltreJournal = 'tout' | 'operations' | 'connexions' | 'keystone';
 
 export const MSG_RESEAU = 'Connexion au serveur impossible : vérifiez le réseau, puis réessayez.';
+/** Lecture sans réponse dans le délai (serveur bloqué, proxy qui retient la connexion). */
+export const MSG_DELAI = 'Le serveur ne répond pas : réessayez dans quelques instants.';
+/** Action sans réponse dans le délai : elle a pu être enregistrée, les données sont relues avant de la refaire. */
+export const MSG_DELAI_ACTION = 'Le serveur n’a pas répondu à temps : l’opération a pu être enregistrée, vérifiez-la avant de la refaire.';
+/** Délais de réponse : 20 s pour une lecture, 60 s pour une action (un import volumineux reste possible). */
+export const DELAI_LECTURE_MS = 20_000;
+export const DELAI_ACTION_MS = 60_000;
+
+/** Message d'une réponse en erreur sans message de Cursus (reverse proxy, analyse du corps par Express). */
+export function messageHttp(status: number): string {
+  // Le reverse proxy signale le serveur arrêté ou en redémarrage.
+  if ([502, 503, 504].includes(status)) return `Serveur indisponible (erreur ${status}) : réessayez dans quelques instants.`;
+  if (status === 413) return 'Envoi trop volumineux (erreur 413) : réduisez le texte collé, puis réessayez.';
+  if (status >= 500) return `Erreur du serveur (erreur ${status}) : réessayez ; si elle persiste, prévenez l’administrateur.`;
+  return `Requête refusée par le serveur (erreur ${status}).`;
+}
+
+/** Délai dépassé : `AbortSignal.timeout` interrompt l'appel avec une DOMException « TimeoutError ». */
+const delaiDepasse = (err: unknown) => (err as { name?: string } | null)?.name === 'TimeoutError';
 
 /** Prévenu de chaque réponse 401 (session expirée ou révoquée), hors échec de connexion. */
 let auRefus: (() => void) | null = null;
@@ -47,24 +66,26 @@ async function request<T>(method: string, url: string, body?: unknown, espace?: 
   const headers: Record<string, string> = {};
   if (body !== undefined) headers['content-type'] = 'application/json';
   if (espace) headers['x-cursus-espace'] = espace;
+  // Sans réponse dans le délai, l'appel est abandonné : l'écran ne reste pas sur « Chargement… ».
+  const lecture = method === 'GET';
+  let json: unknown;
   try {
     res = await fetch(url, {
       method,
       credentials: 'same-origin',
       headers,
       body: body !== undefined ? JSON.stringify(body) : undefined,
+      signal: AbortSignal.timeout(lecture ? DELAI_LECTURE_MS : DELAI_ACTION_MS),
     });
-  } catch {
+    json = await res.json().catch((err: unknown) => { if (delaiDepasse(err)) throw err; return {}; });
+  } catch (err) {
     // Hors ligne, serveur arrêté, réseau coupé : fetch échoue sans réponse (« Failed to fetch »).
-    throw Object.assign(new Error(MSG_RESEAU), { status: 0 });
+    throw Object.assign(new Error(delaiDepasse(err) ? (lecture ? MSG_DELAI : MSG_DELAI_ACTION) : MSG_RESEAU), { status: 0 });
   }
-  const json = await res.json().catch(() => ({}));
   if (!res.ok) {
     // /api/login répond 401 à un mauvais mot de passe : ce n'est pas une session expirée.
     if (res.status === 401 && url !== '/api/login') auRefus?.();
-    // Réponse sans message de Cursus : le reverse proxy signale le serveur arrêté ou en redémarrage.
-    const msg = json.error || ([502, 503, 504].includes(res.status) ? `Serveur indisponible (erreur ${res.status}) : réessayez dans quelques instants.` : `Erreur ${res.status}`);
-    throw Object.assign(new Error(msg), { status: res.status });
+    throw Object.assign(new Error((json as { error?: string } | null)?.error || messageHttp(res.status)), { status: res.status });
   }
   return json as T;
 }

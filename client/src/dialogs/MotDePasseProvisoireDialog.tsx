@@ -1,5 +1,5 @@
 // Mot de passe provisoire d'un compte Cursus, affiché une seule fois après la création du compte
-// ou sa réinitialisation : Cursus n'en garde que l'empreinte.
+// ou sa réinitialisation : Cursus n'en garde que l'empreinte. Ni le fond ni Échap ne ferment le dialogue.
 import { useState } from 'react';
 import { Dialog } from '../components/Dialog.tsx';
 import { useStore } from '../state/store.tsx';
@@ -16,7 +16,7 @@ export function MotDePasseProvisoireDialog({ nom, identifiant, motDePasse }: { n
     }
   };
   return (
-    <Dialog title="Mot de passe provisoire" width={480} actions={
+    <Dialog title="Mot de passe provisoire" width={480} fermerParBouton actions={
       <button type="button" className="btn btn-primary" onClick={closeDialog}>J’ai transmis le mot de passe</button>
     }>
       <p style={{ fontSize: 14, margin: 0 }}>{nom} · identifiant <span className="mono-input">{identifiant}</span></p>

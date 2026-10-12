@@ -1,5 +1,7 @@
-// Affiche le dialogue ouvert (un seul à la fois), quel que soit l'écran d'origine.
-import { useStore } from '../state/store.tsx';
+// Affiche le dialogue ouvert (un seul à la fois), quel que soit l'écran d'origine. Une erreur de rendu du
+// dialogue affiche un message à sa place ; la page derrière reste intacte.
+import { ErreurDialogue, ErreurRendu } from '../components/ErreurRendu.tsx';
+import { useStore, type DialogState } from '../state/store.tsx';
 import { AbsDialog } from './AbsDialog.tsx';
 import { AbsAnnulerDialog } from './AbsAnnulerDialog.tsx';
 import { AbsNatureDialog } from './AbsNatureDialog.tsx';
@@ -33,6 +35,14 @@ import { TripImportDialog } from './TripImportDialog.tsx';
 export function DialogHost() {
   const { dialog: d } = useStore();
   if (!d) return null;
+  return (
+    <ErreurRendu cle={d} repli={(erreur, reessayer) => <ErreurDialogue erreur={erreur} reessayer={reessayer} />}>
+      <Dialogue d={d} />
+    </ErreurRendu>
+  );
+}
+
+function Dialogue({ d }: { d: DialogState }) {
   switch (d.type) {
     case 'plan': return <PlanDialog {...d} />;
     case 'cert': return <CertDialog {...d} />;

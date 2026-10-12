@@ -1,6 +1,6 @@
 // Fiche collaborateur : champs modifiables selon le rôle et contrôles de cohérence
 // (statut, nature du contrat, organisation du temps de travail).
-import { STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../constants.ts';
+import { estMotifReprise, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../constants.ts';
 import { isValidDate } from '../dates.ts';
 import { r1 } from '../format.ts';
 import type { Employe, Statut, TempsTravail, TypeContrat } from '../types.ts';
@@ -110,6 +110,8 @@ export function validerProfil(raw: ProfilInput, opts: { equipes: string[]; year:
   if (p.visite && !isValidDate(p.visite)) errors.push('Date de visite médicale invalide.');
   if (p.repriseDate && !isValidDate(p.repriseDate)) errors.push('Date de reprise invalide.');
   if (p.repriseDate && !p.repriseMotif) errors.push('Motif de l’absence longue requis avec la date de reprise.');
+  // Liste fermée (MOTIFS_REPRISE) : aucun texte libre, donc aucune information médicale, sur la fiche.
+  if (p.repriseMotif && !estMotifReprise(p.repriseMotif)) errors.push('Motif de reprise à choisir dans la liste (aucune information médicale).');
 
   const cadre = STATUTS[p.statut]?.cadre;
   switch (p.temps) {

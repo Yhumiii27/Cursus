@@ -11,12 +11,13 @@ import { enProduction, hoteEcoute, portEcoute, trustProxy, verifierConfig } from
 import { espaceChange, identite, routesConnexion } from './connexion.ts';
 import { buildSnapshot, journalPourProfil, loadFull } from './dataset.ts';
 import { dbFile, openDb } from './db.ts';
+import { limiterDebit } from './debit.ts';
 import { demarrerEnvois, etatEnvois, listerEnvois } from './envois.ts';
 import { migrate } from './migrate.ts';
 import { KEYSTONE_MODE, transportKeystone } from './integrations/keystone.ts';
 import { suivreVerdicts, suivreVerdictsChaqueJour } from './integrations/keystone-verdicts.ts';
 import { keystoneRoutes } from './integrations/keystone-routes.ts';
-import { demoPosteLocal, securityHeaders } from './securite.ts';
+import { demoPosteLocal, protectionCsrf, securityHeaders } from './securite.ts';
 import { poserVerrou } from './sauvegarde.ts';
 import { comptesDemo, seedDemo } from './seed.ts';
 
@@ -56,6 +57,9 @@ app.use(securityHeaders(enProduction()));
 if (DEMO && enProduction()) app.use(demoPosteLocal());
 // API Keystone (clé X-Api-Key, journal de chaque appel) : avant l'analyse JSON, faite après la vérification de la clé.
 app.use('/api/integrations/keystone', keystoneRoutes(db));
+// Débit limité par adresse IP et par compte (429, Retry-After), puis refus des requêtes qui modifient sans venir de Cursus (CSRF).
+app.use('/api', limiterDebit(db));
+app.use(protectionCsrf());
 app.use(express.json({ limit: '2mb' }));
 
 // Session, connexion, changement d'espace, mot de passe et liste des comptes : server/src/connexion.ts.

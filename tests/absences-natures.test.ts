@@ -422,7 +422,7 @@ test('reprise : une obligation en retard n’est pas remplacée, une reprise eff
 
   // Mehdi : arrêt longue maladie passé, reprise inscrite puis effacée à la main par le RH.
   run(RH, 'absence.saisir', { empId: 2, nature: 'ALD', du: '2026-03-02', au: '2026-06-30' });
-  assert.deepEqual(fiche(2), ['arrêt longue maladie', '2026-07-01']);
+  assert.deepEqual(fiche(2), ['absence longue', '2026-07-01'], 'motif de la liste fermée, sans mention médicale');
   run(RH, 'employe.modifier', { id: 2, repriseMotif: null, repriseDate: null });
   // Ni le retrait d'une demande de CP ni un événement familial ne la réinscrivent.
   run(MEHDI, 'absence.demander', { empId: 2, kind: 'CP', du: '2026-12-07', au: '2026-12-08' });
@@ -435,7 +435,7 @@ test('confidentialité : reprise d’un arrêt longue maladie et santé d’un e
   const { db, run, domain } = fresh();
   // Arrêt longue maladie de Mehdi : le RH voit la reprise, le manager ni la reprise ni l'obligation d'entretien.
   run(RH, 'absence.saisir', { empId: 2, nature: 'ALD', du: '2026-11-09', au: '2026-12-18' });
-  assert.equal(obligations(domain(), [2]).find(o => o.kind === 'reprise')?.detail, 'Retour d’arrêt longue maladie le 21 déc. 2026 — à proposer systématiquement');
+  assert.equal(obligations(domain(), [2]).find(o => o.kind === 'reprise')?.detail, 'Retour d’absence longue le 21 déc. 2026 — à proposer systématiquement');
   const vue = buildSnapshot(db, KARIM);
   const mehdi = vue.employes.find(e => e.id === 2)!;
   assert.deepEqual([mehdi.repriseMotif, mehdi.repriseDate], [null, null]);

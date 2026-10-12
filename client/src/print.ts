@@ -1,4 +1,5 @@
 // Documents imprimables (passeport formation, compte rendu d'entretien) et exports CSV.
+import { texteCsv } from '../../shared/csv.ts';
 import printCss from './styles/print.css?url';
 
 const esc = (s: unknown) => String(s ?? '').replace(/[&<>"]/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;' }[c]!));
@@ -37,10 +38,12 @@ export function printDocument(title: string, subtitle: string, sections: PrintSe
   return true;
 }
 
-/** Télécharge un fichier CSV (séparateur « ; », encodage UTF-8 avec BOM pour Excel). */
+/**
+ * Télécharge un fichier CSV (séparateur « ; », encodage UTF-8 avec BOM pour Excel). Les cellules qui commencent
+ * comme une formule sont neutralisées (shared/csv.ts) : tout export passe par ici.
+ */
 export function downloadCsv(filename: string, head: string[], rows: (string | number)[][]) {
-  const cell = (v: string | number) => { const s = String(v ?? ''); return /[;"\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s; };
-  const csv = '﻿' + [head, ...rows].map(r => r.map(cell).join(';')).join('\r\n');
+  const csv = texteCsv(head, rows);
   const url = URL.createObjectURL(new Blob([csv], { type: 'text/csv;charset=utf-8' }));
   const a = Object.assign(document.createElement('a'), { href: url, download: filename });
   document.body.appendChild(a);

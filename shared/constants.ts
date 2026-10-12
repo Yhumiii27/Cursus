@@ -41,6 +41,19 @@ export const PAIE_ABSENCE: Record<PaieAbsence, string> = {
 };
 
 /**
+ * Motifs de la reprise inscrite sur la fiche (`repriseMotif`), qui appelle l'entretien de parcours professionnel de
+ * reprise (art. L6315-1) : liste fermée, enregistrée telle quelle, sans aucune information médicale. « absence longue »
+ * couvre l'arrêt longue maladie (art. L324-1 du Code de la sécurité sociale) : sa reprise est masquée au manager
+ * (`repriseMedicale`), qui ne reçoit d'ailleurs que cette mention pour toute autre reprise (server/src/dataset.ts).
+ */
+export const MOTIFS_REPRISE = [
+  'congé de maternité', 'congé d’adoption', 'congé parental d’éducation', 'temps partiel parental', 'congé de proche aidant',
+  'congé sabbatique', 'mobilité volontaire sécurisée', 'mandat syndical', 'absence longue',
+] as const;
+export type MotifReprise = typeof MOTIFS_REPRISE[number];
+export const estMotifReprise = (v: unknown): v is MotifReprise => MOTIFS_REPRISE.includes(v as MotifReprise);
+
+/**
  * Nature d'une absence hors congés.
  * - `medicale` : donnée de santé, y compris celle d'un enfant (annonce d'un handicap, enfant malade) : jamais transmise
  *   au manager ni à Keystone (« Absence », dates et état seulement).
@@ -53,7 +66,7 @@ export const PAIE_ABSENCE: Record<PaieAbsence, string> = {
 export interface NatureDef {
   label: string; abrege: string; court: string; categorie: CategorieAbsence; medicale?: boolean;
   paie: PaieAbsence; decompte: 'ouvres' | 'calendaires'; justificatif: string | null;
-  duree?: number; parAn?: boolean; dureeNote?: string; article?: string; reprise?: string; cp: string;
+  duree?: number; parAn?: boolean; dureeNote?: string; article?: string; reprise?: MotifReprise; cp: string;
 }
 const CP_ASSIMILE = 'Assimilé à du travail effectif (art. L3141-5)';
 const CP_EVENEMENT = 'Assimilé à du travail effectif (art. L3142-2)';
@@ -69,7 +82,7 @@ export const NATURES_ABSENCE: Record<NatureAbsence, NatureDef> = {
   ALD: {
     label: 'Arrêt longue maladie (ALD)', abrege: 'Longue maladie', court: 'arrêt longue maladie', categorie: 'sante', medicale: true, paie: 'indemnisee', decompte: 'calendaires',
     justificatif: 'Avis d’arrêt de travail au titre d’une affection de longue durée', article: 'Art. L324-1 du Code de la sécurité sociale',
-    reprise: 'arrêt longue maladie', cp: CP_MALADIE,
+    reprise: 'absence longue', cp: CP_MALADIE,
   },
   AT: {
     label: 'Accident du travail', abrege: 'Accident', court: 'accident du travail', categorie: 'sante', medicale: true, paie: 'indemnisee', decompte: 'calendaires',
@@ -209,6 +222,26 @@ export const VACCINS: Record<VaccinId, { nom: string; court: string; validite: n
   hepB: { nom: 'Hépatite B', court: 'Hép. B', validite: null, delai: 21 },
   typhoide: { nom: 'Typhoïde', court: 'Typhoïde', validite: 36, delai: 14 },
   dtp: { nom: 'DTP (diphtérie-tétanos-polio)', court: 'DTP', validite: 240, delai: 14 },
+};
+
+/**
+ * Information de la personne (art. 13 du RGPD), affichée avant toute saisie d'une vaccination, par le salarié
+ * (déclaration) comme par le service RH (à porter à la connaissance du salarié). Décision de l'entreprise : tous les
+ * vaccins sont enregistrés avec leur date d'injection, et seul le service RH y a accès. Données de santé (art. 9) :
+ * texte à faire valider par le DPO de l'entreprise.
+ */
+export const INFO_VACCINATIONS = {
+  titre: 'Vaccinations : des données de santé',
+  points: [
+    ['Responsable', 'votre employeur, pour l’organisation des déplacements professionnels.'],
+    ['Finalité', 'vérifier avant un départ les vaccinations exigées ou recommandées par le pays de destination (préparation du voyage, verdict Go / No Go du chantier).'],
+    ['Base légale', 'obligation de sécurité de l’employeur envers le salarié en déplacement (art. L4121-1 du Code du travail ; art. 6.1.c et 9.2.b du RGPD).'],
+    ['Données', 'le vaccin et la date d’injection, rien d’autre : ni certificat, ni contre-indication, ni autre information médicale.'],
+    ['Destinataires', 'le service RH seulement. Votre manager, les autres profils et Keystone ne voient que l’état du dossier de voyage, jamais le vaccin.'],
+    ['Conservation', 'pendant votre contrat ; une nouvelle injection remplace la précédente du même vaccin.'],
+    ['Vos droits', 'accès, rectification, effacement, limitation et opposition auprès du service RH ou du délégué à la protection des données ; réclamation auprès de la CNIL (cnil.fr).'],
+    ['Si vous ne la déclarez pas', 'un déplacement vers un pays qui exige ce vaccin reste « à compléter ».'],
+  ] as [string, string][],
 };
 
 export const VISA_RULES: Record<VisaKind, { label: string; sub: string; delai: number }> = {

@@ -12,6 +12,7 @@ shared/            Domaine partagé (aucune dépendance)
   dates.ts         Dates ISO, jours fériés calculés, périodes de référence CP
   format.ts        Mise en forme française (dates, heures, jours, euros, pluriels)
   domain.ts        Classe Domain : conformité, habilitations, voyages, échéances, Go / No Go
+  csv.ts           Exports CSV : cellules échappées, formules neutralisées (apostrophe devant = + - @)
   rules/           temps.ts, conges.ts, entretiens.ts, budget.ts, imports.ts
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
@@ -25,7 +26,8 @@ server/src/
   microsoft.ts     Connexion Microsoft 365 (OpenID Connect, PKCE) : /api/auth/microsoft et /api/auth/microsoft/retour
   comptes-cli.ts   npm run comptes -- admin <identifiant> : premier administrateur RH (docs/DEPLOIEMENT.md)
   config.ts        Variables d'environnement, contrôlées au démarrage (refus en production si dangereuses)
-  securite.ts      En-têtes de sécurité HTTP (CSP, HSTS, anti-iframe…)
+  securite.ts      En-têtes de sécurité HTTP (CSP, HSTS, anti-iframe…), protection CSRF des requêtes qui modifient
+  debit.ts         Limitation du débit de l'API par adresse IP et par compte (429, Retry-After)
   actions/         Actions métier (POST /api/actions/:nom), contrôles d'accès et validations
   envois.ts        File d'envoi persistante des messages sortants (table envois), traitée en tâche de fond
   integrations/    Adaptateurs Keystone et Sage Paie (simulation par défaut) ; API Keystone entrante :
@@ -49,7 +51,8 @@ design/            Prototype Claude Design de référence et guide du design sys
 1. `GET /api/data` renvoie l'instantané `Dataset` **déjà restreint au périmètre**
    de l'utilisateur : un manager ne reçoit que son équipe, sans données de santé
    (`visite` remplacée par `aptitude.ok`, vaccinations retirées, état des dossiers
-   voyage précalculé dans `voyage.dossierStatut`) ; un collaborateur ne reçoit que
+   voyage précalculé dans `voyage.dossierStatut`), et du passeport de ses membres la seule date
+   d'expiration (les visas restent transmis) ; un collaborateur ne reçoit que
    ses propres données ; un profil restreint de l'espace RH (référent HSE, paie, lecture
    seule) ne reçoit que ce que ses droits ouvrent (« Profils », section Sécurité).
 2. Le client calcule l'affichage avec `shared/` (statuts, soldes, échéances…).
@@ -157,6 +160,23 @@ design/            Prototype Claude Design de référence et guide du design sys
   Ne jamais produire de `<script>`, de `<style>` ni d'attribut `style="…"` en HTML brut : la prop
   `style` de React reste permise. Les documents imprimables utilisent `client/src/styles/print.css`
   et lancent l'impression avec le script servi `client/public/imprimer.js`.
+- **CSRF** (`protectionCsrf` de `server/src/securite.ts`) : une requête qui modifie (POST…) est refusée (403, rien
+  n'est exécuté) si `Sec-Fetch-Site` désigne un autre site (sous-domaine voisin compris), si `Origin` n'est pas Cursus
+  (nom et port de la requête, `req.host`, qui suit `X-Forwarded-Host` du reverse proxy de confiance, ou
+  `CURSUS_PUBLIC_URL` ; « null » refusé) ou si son corps n'est pas du JSON (un formulaire ou un `fetch` d'une autre
+  origine ne peut envoyer que du texte sans autorisation CORS, que Cursus n'accorde jamais). Une requête sans corps
+  (déconnexion) passe ; un client sans navigateur n'envoie ni `Origin` ni `Sec-Fetch-Site`. L'API Keystone (clé, sans
+  cookie) est montée avant ; la connexion Microsoft ne fait que des GET. En développement, le proxy de Vite garde le nom
+  d'hôte de la page (`changeOrigin: false`), comme le reverse proxy de production.
+- **Débit** (`server/src/debit.ts`, seau de jetons en mémoire, au plus 10 000 clés suivies par limiteur) : toute requête
+  `/api` (hors Keystone) compte pour son adresse IP (1 200 d'avance, puis 20 par seconde : un atelier entier peut sortir
+  par une adresse) et, si elle porte une session ouverte, pour son compte (240 d'avance, puis 2 par seconde), quelle que
+  soit l'adresse ; l'aller et le retour de la connexion Microsoft (échange du code chez Microsoft) ont leur propre limite
+  par adresse (300 d'avance, puis 2 par seconde). Au-delà : 429, en-tête `Retry-After` (secondes) et message en français
+  (texte pour une page ouverte par le navigateur). S'y ajoutent les échecs de mot de passe (`LimiteParIp`, Retry-After
+  jusqu'à la fin de la fenêtre) et les clés Keystone invalides (60 en 5 minutes par adresse, puis 429
+  `TROP_DE_CLES_INVALIDES` sans lire la clé). `req.ip` est l'adresse du client derrière le reverse proxy de confiance
+  (`CURSUS_TRUST_PROXY`, boucle locale par défaut).
 - **Keystone** : clé comparée en temps constant ; sans `KEYSTONE_API_KEY` (hors démonstration), 503.
   Le corps n'est lu qu'après la clé ; chaque appel authentifié est tracé dans le journal
   (`keystone.appel` : méthode, chemin, statut, référence, champs refusés), jamais le contenu reçu (clés
@@ -346,6 +366,11 @@ dans le dossier, et leur refus n'y touche pas. Le refus ne retire pas non plus u
 depuis ou que le RH a validée par une autre demande (`retireeAuRefus`) ; une pièce qui a changé se
 valide comme une déclaration ordinaire.
 
+Vaccinations (décision de l'entreprise : tous les vaccins avec leur date d'injection) : données de santé transmises au
+seul service RH (droit `rh`) et à l'intéressé ; ni le manager, ni les profils restreints, ni Keystone (« formalité
+sanitaire ») ne voient le vaccin. Avant toute saisie, le dialogue affiche l'information de la personne (art. 13 du
+RGPD, `INFO_VACCINATIONS` de `shared/constants.ts`, texte à faire valider par le DPO).
+
 ## Données Keystone
 
 Chantiers, projets, missions et tâches viennent de Keystone par l'API entrante
@@ -391,6 +416,11 @@ Règles : `shared/rules/absences.ts` (confidentialité, décompte, reprise, annu
   signalée compte aussitôt, comme une absence validée.
 - **Prolongation** (`absence.prolonger`) : nouvelle fin, sans chevauchement ; la fin initiale est conservée
   (`finInitiale`). Prolongée par le salarié ou le manager, une absence qualifiée repasse « à qualifier ».
+- **Motif de reprise** (`MOTIFS_REPRISE` de `shared/constants.ts`) : liste fermée des cas de l’art. L6315-1 (congés de
+  maternité, d’adoption, parental, de proche aidant, sabbatique, temps partiel parental, mobilité volontaire sécurisée,
+  mandat syndical, « absence longue »), sans texte libre ni information médicale : l’arrêt longue maladie s’inscrit
+  « absence longue ». Contrôlé par `validerProfil` (formulaire et serveur) ; au démarrage, un ancien texte libre est
+  ramené à la liste (`motifsDeReprise` de `server/src/migrate.ts`), un texte non reconnu devenant « absence longue ».
 - **Confidentialité** : `dataset.ts` remplace pour le manager la nature médicale d’un membre de son équipe par
   `ABSENCE`, sans justificatif (`absenceVueManager`) ; le salarié voit ses absences en détail. Sont médicales (`medicale`)
   les arrêts (maladie, longue maladie, accident du travail ou de trajet, maladie professionnelle) et la santé d’un enfant

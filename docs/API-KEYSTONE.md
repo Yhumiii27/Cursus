@@ -31,6 +31,9 @@ La clé est définie côté Cursus par la variable `KEYSTONE_API_KEY` (voir `doc
 transmise par un canal sûr. Elle est comparée en temps constant.
 
 - En-tête absent ou clé fausse : `401` (`CLE_INVALIDE`).
+- Plus de 60 appels sans clé valide en 5 minutes depuis une même adresse : `429` (`TROP_DE_CLES_INVALIDES`) pour
+  tout appel de cette adresse, sans que la clé soit lue, jusqu'à la fin de la période (en-tête `Retry-After`, en
+  secondes). Un appel avec la bonne clé n'y compte jamais.
 - Aucune clé configurée sur le serveur Cursus : `503` (`NON_CONFIGUREE`).
 - Le reverse proxy de Cursus peut n'admettre ces routes que depuis l'adresse de Keystone, avec un débit
   limité (voir `docs/DEPLOIEMENT.md`) : une autre adresse reçoit `403` du proxy, un débit excessif
@@ -355,6 +358,7 @@ Toute erreur est en JSON : `error` (message en français), `code` (stable, à te
 | 400 | `VALIDATION` | champs refusés, détaillés dans `details` | corriger l'envoi ; ne pas rejouer tel quel |
 | 400 | `JSON_INVALIDE`, `CORPS_INVALIDE` | corps illisible | corriger l'envoi |
 | 401 | `CLE_INVALIDE` | clé absente ou fausse | vérifier la clé |
+| 429 | `TROP_DE_CLES_INVALIDES` | plus de 60 appels sans clé valide en 5 minutes depuis cette adresse | corriger la clé, puis rejouer après `Retry-After` |
 | 404 | `CHANTIER_INCONNU`, `AFFECTATION_INCONNUE`, `TACHE_INCONNUE`, `DEMANDE_INCONNUE` | objet jamais reçu (ou déjà supprimé) | sur un `DELETE` : rien à faire |
 | 404 | `ROUTE_INCONNUE` | adresse inconnue | vérifier la route |
 | 409 | `DEMANDE_EN_DOUBLE` | demande déjà reçue | lire `demande` : c'est la demande enregistrée |
@@ -373,7 +377,7 @@ n'y est jamais recopié : ni matricule, ni dates, ni destination. Les clés de l
 remplacées par `heures.<date>` ou `heures.<clé invalide>` ; un identifiant ou un segment de chemin
 mal formé, par `…` (la réponse à Keystone garde, elle, le détail complet).
 
-Les appels sans clé valide (`401`, `503`), que n'importe qui peut émettre, ne sont pas tracés un par
+Les appels sans clé valide (`401`, `429`, `503`), que n'importe qui peut émettre, ne sont pas tracés un par
 un : ils sont comptés et résumés en une ligne par minute au plus (« 12 appels refusés sans clé
 valide (401 × 12) depuis 10:02:13 »), sans chemin ni contenu.
 

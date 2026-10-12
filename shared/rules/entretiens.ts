@@ -11,7 +11,7 @@ export const ENT_ST: Record<ObligStatus, [string, string]> = {
   late: ['En retard', 'tag-accent'], soon: ['À échéance', 'tag-outline'], planifie: ['Planifié', 'tag-neutral'], todo: ['À planifier', 'tag-outline'], ok: ['À jour', 'tag-neutral'],
 };
 
-/** « de congé parental », « d’arrêt longue maladie » : élision devant une voyelle. */
+/** « de congé parental », « d’absence longue » : élision devant une voyelle. */
 const de = (s: string) => /^[aeiouy]/.test(norm(s)) ? `d’${s}` : `de ${s}`;
 
 export function obligations(d: Domain, scopeIds: number[]): Obligation[] {

@@ -41,6 +41,52 @@ export function securityHeaders(production: boolean) {
   };
 }
 
+/** Méthodes sans effet : seules les autres (POST…) sont contrôlées contre la falsification de requête (CSRF). */
+const METHODES_SURES = new Set(['GET', 'HEAD', 'OPTIONS']);
+
+/** Origine publique de Cursus (CURSUS_PUBLIC_URL), admise en plus de l'hôte de la requête. */
+function originePublique(): string | null {
+  try { return process.env.CURSUS_PUBLIC_URL ? new URL(process.env.CURSUS_PUBLIC_URL).origin : null; } catch { return null; }
+}
+
+/**
+ * Motif de refus d'une requête qui modifie (POST…) mais ne vient pas de l'interface de Cursus, sinon null :
+ * - `Sec-Fetch-Site` (navigateurs récents) : émise par une page d'un autre site, ou d'un sous-domaine voisin ;
+ * - `Origin` : celle d'une autre adresse que Cursus (nom et port de la requête, `req.host`, qui suit le reverse proxy
+ *   de confiance, ou CURSUS_PUBLIC_URL), ou « null » (page locale, cadre isolé) ;
+ * - corps autre que JSON : un formulaire ou un `fetch` d'une autre origine ne peut envoyer sans autorisation préalable
+ *   (CORS, que Cursus n'accorde jamais) que du texte ou un formulaire. Une requête sans corps (déconnexion) passe.
+ * Un client sans navigateur (script, test) n'envoie ni Origin ni Sec-Fetch-Site : il n'a pas de cookie d'un autre site.
+ */
+export function refusCsrf(req: Request): string | null {
+  if (METHODES_SURES.has(req.method)) return null;
+  const site = req.get('sec-fetch-site');
+  if (site && site !== 'same-origin' && site !== 'none') return 'requête émise depuis un autre site';
+  const origine = req.get('origin');
+  if (origine !== undefined) {
+    let hote: string | null = null;
+    try { hote = new URL(origine).host; } catch { /* « null » ou valeur illisible */ }
+    if (!hote || (hote !== (req.host ?? '').toLowerCase() && origine !== originePublique())) return 'origine étrangère à Cursus';
+  }
+  const type = (req.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
+  const corps = Number(req.get('content-length') ?? 0) > 0 || req.get('transfer-encoding') !== undefined;
+  if ((corps || type) && type !== 'application/json') return 'corps JSON attendu';
+  return null;
+}
+
+/**
+ * Protection contre la falsification de requête (CSRF) : le cookie de session (SameSite=Lax) ne suffit pas, une
+ * page d'un sous-domaine voisin ou un formulaire en texte brut le transmettraient. Refus 403 sans rien exécuter.
+ * L'API Keystone (clé X-Api-Key, sans cookie) est montée avant ; la connexion Microsoft ne fait que des GET.
+ */
+export function protectionCsrf() {
+  return (req: Request, res: Response, next: NextFunction) => {
+    const motif = refusCsrf(req);
+    if (!motif) return next();
+    res.status(403).json({ error: `Requête refusée : ${motif}. Ouvrez Cursus à son adresse habituelle et recommencez.` });
+  };
+}
+
 /** En-têtes posés par un reverse proxy (Caddy, nginx…) : leur présence trahit une requête relayée. */
 const EN_TETES_PROXY = ['forwarded', 'x-forwarded-for', 'x-forwarded-proto', 'x-forwarded-host', 'x-real-ip'];
 

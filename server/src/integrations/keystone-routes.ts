@@ -8,6 +8,7 @@ import { readFileSync } from 'node:fs';
 import { Domain } from '../../../shared/domain.ts';
 import { plural } from '../../../shared/format.ts';
 import type { Chantier, CurrentUser, DemandeKeystone, Destination, Formation, HabType } from '../../../shared/types.ts';
+import { LimiteParIp } from '../auth.ts';
 import { loadFull, todayIso } from '../dataset.ts';
 import type { Db } from '../db.ts';
 import { KEYSTONE_API_KEY, keystoneKeyOk } from './keystone.ts';
@@ -193,8 +194,10 @@ function refusResumes(db: Db, intervalle: number) {
 /**
  * Routes Keystone, à monter avant l'analyse JSON globale : elles lisent elles-mêmes le corps, une fois la clé vérifiée.
  * `resumeRefus` : délai du résumé des appels refusés sans clé valide, en millisecondes.
+ * `clesInvalides` : appels sans clé valide par adresse IP ; au-delà du seuil (60 en 5 minutes), cette adresse reçoit
+ * 429 (Retry-After) sans que la clé soit lue, jusqu'à la fin de la fenêtre. Keystone, qui a la bonne clé, n'y compte pas.
  */
-export function keystoneRoutes(db: Db, { resumeRefus = 60_000 } = {}) {
+export function keystoneRoutes(db: Db, { resumeRefus = 60_000, clesInvalides = new LimiteParIp(60, 5 * 60_000) } = {}) {
   const router = express.Router();
   const compterRefus = refusResumes(db, resumeRefus);
   // Journal : chaque réponse à un appel authentifié ; les refus de clé sont comptés à part.
@@ -213,7 +216,15 @@ export function keystoneRoutes(db: Db, { resumeRefus = 60_000 } = {}) {
   });
   router.use((req, res, next) => {
     if (!KEYSTONE_API_KEY) return erreur(res, new ErreurKeystone(503, 'NON_CONFIGUREE', 'Intégration Keystone non configurée'));
-    if (!keystoneKeyOk(req.get('x-api-key'))) return erreur(res, new ErreurKeystone(401, 'CLE_INVALIDE', 'Clé API invalide'));
+    const ip = req.ip ?? req.socket.remoteAddress ?? '';
+    if (clesInvalides.depasse(ip)) {
+      res.set('Retry-After', String(clesInvalides.attente(ip)));
+      return erreur(res, new ErreurKeystone(429, 'TROP_DE_CLES_INVALIDES', 'Trop d’appels sans clé valide depuis cette adresse : réessayez après le délai indiqué (Retry-After)'));
+    }
+    if (!keystoneKeyOk(req.get('x-api-key'))) {
+      clesInvalides.echec(ip);
+      return erreur(res, new ErreurKeystone(401, 'CLE_INVALIDE', 'Clé API invalide'));
+    }
     res.locals.cleValide = true;
     if ((req.method === 'PUT' || req.method === 'POST') && !req.is('application/json')) {
       return erreur(res, new ErreurKeystone(415, 'TYPE_NON_PRIS_EN_CHARGE', 'Corps JSON attendu (en-tête Content-Type: application/json)'));

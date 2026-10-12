@@ -143,9 +143,11 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
   // Les managers voient le verdict d'aptitude et l'état des dossiers voyage,
   // jamais les données de santé (visite, vaccinations). Une reprise ouverte par un arrêt longue maladie
   // leur est masquée : elle trahirait la nature de l'arrêt (l'entretien de reprise est suivi par le RH).
+  // Du passeport d'un membre, seule la date d'expiration est transmise (l'écran n'affiche qu'elle) ; les visas restent montrés.
   const employes = full.employes.filter(e => ids.has(e.id)).map(e => isMgr && e.id !== user.empId
     ? {
       ...e, visite: null, aptitude: { ok: d.medInfo(e).ok }, vaccins: [],
+      passeport: e.passeport && { expire: e.passeport.expire },
       ...(repriseMedicale(e, full.absences) ? { repriseMotif: null, repriseDate: null } : { repriseMotif: e.repriseDate ? 'absence longue' : null }),
     }
     : e);

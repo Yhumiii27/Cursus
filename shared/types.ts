@@ -71,7 +71,8 @@ export interface HabTitre {
 }
 export interface Visa { id: number; empId: number; dest: string; type: string; obtenu: ISODate | null; expire: ISODate }
 export interface Vaccination { id: number; empId: number; v: VaccinId; date: ISODate }
-export interface Passeport { numero: string; expire: ISODate }
+/** `numero` : absent des données envoyées au manager, qui ne reçoit que la date d'expiration (server/src/dataset.ts). */
+export interface Passeport { numero?: string; expire: ISODate }
 
 export interface Employe {
   id: number;

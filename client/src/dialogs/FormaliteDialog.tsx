@@ -1,15 +1,31 @@
 // Enregistrer une formalité de voyage : passeport, visa ou vaccination.
 import { useState } from 'react';
-import { VACCINS, VISA_RULES } from '../../../shared/constants.ts';
+import { INFO_VACCINATIONS, VACCINS, VISA_RULES } from '../../../shared/constants.ts';
 import type { FormaliteKind } from '../../../shared/domain.ts';
 import { addMonths, isValidDate, parse } from '../../../shared/dates.ts';
 import { fmt, validiteLabel } from '../../../shared/format.ts';
 import { formaliteCle } from '../../../shared/rules/formalites.ts';
 import type { VaccinId } from '../../../shared/types.ts';
 import { CancelButton, Dialog, Field } from '../components/Dialog.tsx';
-import { Seg } from '../components/ui.tsx';
+import { SectionLabel, Seg } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+
+/**
+ * Information de la personne (art. 13 du RGPD) avant la saisie d'une vaccination, donnée de santé réservée au service RH :
+ * le salarié la lit avant de déclarer ; le service RH la porte à sa connaissance avant d'enregistrer.
+ */
+function InfoVaccinations({ rh }: { rh: boolean }) {
+  return (
+    <div className="boxed-lg" role="note" aria-label={INFO_VACCINATIONS.titre} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+      <SectionLabel>{INFO_VACCINATIONS.titre}</SectionLabel>
+      {rh && <p className="text-muted fine">À porter à la connaissance du salarié avant d’enregistrer sa vaccination (art. 13 du RGPD).</p>}
+      <ul className="rules">
+        {INFO_VACCINATIONS.points.map(([k, v]) => <li key={k}><span style={{ color: 'var(--color-text)' }}>{k}</span> : {v}</li>)}
+      </ul>
+    </div>
+  );
+}
 
 export function FormaliteDialog({ empId: empId0, kind: kind0, dest: dest0, v: v0 }: { empId?: number | null; kind?: FormaliteKind; dest?: string; v?: VaccinId }) {
   const d = useDomain();
@@ -49,7 +65,7 @@ export function FormaliteDialog({ empId: empId0, kind: kind0, dest: dest0, v: v0
   };
 
   return (
-    <Dialog title={collab ? 'Déclarer une formalité' : 'Enregistrer une formalité'} width={520} actions={<>
+    <Dialog title={collab ? 'Déclarer une formalité' : 'Enregistrer une formalité'} width={520} tall={kind === 'vaccin'} actions={<>
       <CancelButton />
       <button type="button" className="btn btn-primary" disabled={cant || busy} onClick={confirm}>{collab ? 'Envoyer au service RH' : 'Enregistrer'}</button>
     </>}>
@@ -79,6 +95,7 @@ export function FormaliteDialog({ empId: empId0, kind: kind0, dest: dest0, v: v0
         </div>
       )}
       {kind === 'vaccin' && <>
+        <InfoVaccinations rh={!collab} />
         <div className="grid-2">
           <Field label="Vaccin" htmlFor="fo-v">
             <select className="input" id="fo-v" value={v} onChange={e => setV(e.target.value as VaccinId)}>
@@ -87,7 +104,7 @@ export function FormaliteDialog({ empId: empId0, kind: kind0, dest: dest0, v: v0
           </Field>
           <Field label="Date d’injection" htmlFor="fo-vd"><input className="input" id="fo-vd" type="date" value={date} onChange={e => setDate(e.target.value)} /></Field>
         </div>
-        <p className="text-muted fine">{vacHint} · seule la date est conservée, aucune donnée médicale détaillée.</p>
+        <p className="text-muted fine">{vacHint}</p>
       </>}
       {collab && (
         <p className="text-muted fine">

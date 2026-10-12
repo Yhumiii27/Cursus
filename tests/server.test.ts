@@ -31,6 +31,16 @@ test('manager : son équipe uniquement, sans données de santé', () => {
   assert.equal(typeof mehdi.aptitude?.ok, 'boolean');
   assert.deepEqual(mehdi.vaccins, []);
   assert.ok(s.employes.find(e => e.id === 12)!.visite, 'ses propres données restent complètes');
+  // Passeport d'un membre : la date d'expiration seule (l'écran n'affiche qu'elle) ; les visas restent transmis.
+  const complet = loadFull(db, RH).employes.find(e => e.id === 2)!;
+  assert.ok(complet.passeport?.numero, 'le service RH a le numéro');
+  assert.deepEqual(mehdi.passeport, { expire: complet.passeport!.expire });
+  assert.ok(!JSON.stringify(s).includes(complet.passeport!.numero!), 'le numéro ne figure nulle part dans les données du manager');
+  for (const e of s.employes.filter(x => x.id !== 12)) {
+    assert.equal(e.passeport?.numero, undefined, `numéro de passeport de ${e.nom} non transmis`);
+    assert.deepEqual(e.visas, loadFull(db, RH).employes.find(x => x.id === e.id)!.visas, 'visas affichés volontairement');
+  }
+  assert.equal(s.employes.find(e => e.id === 12)!.passeport?.numero, '16AE···58', 'son propre passeport reste complet');
   assert.equal(s.plan.length, 0);
   assert.equal(s.demandesKeystone.length, 0);
   assert.ok(s.voyages.filter(v => v.empId !== 12).every(v => v.dossierStatut));

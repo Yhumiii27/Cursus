@@ -177,7 +177,7 @@ export function Portail() {
               );
             })}
             {myTrips.length === 0 && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>Aucun déplacement prévu.</p>}
-            <Fine>Seules les dates de vaccination sont enregistrées, sans aucune information médicale.</Fine>
+            <Fine>Vos vaccinations (vaccin et date d’injection) sont des données de santé : seul le service RH y a accès, jamais votre manager. L’information sur leur traitement s’affiche avant chaque déclaration.</Fine>
           </Panel>
 
           <Panel title="Mes demandes" style={{ gap: 'var(--space-2)' }}>

@@ -27,6 +27,7 @@
         "responses": {
           "200": { "description": "Spécification OpenAPI 3.1", "content": { "application/json": { "schema": { "type": "object" } } } },
           "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
           "503": { "$ref": "#/components/responses/NonConfiguree" }
         }
       }
@@ -40,6 +41,7 @@
         "responses": {
           "200": { "description": "Référentiels", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Referentiels" } } } },
           "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
           "503": { "$ref": "#/components/responses/NonConfiguree" }
         }
       }
@@ -60,6 +62,7 @@
           "201": { "description": "Créé", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EcritureProjet" } } } },
           "400": { "$ref": "#/components/responses/Invalide" },
           "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
           "413": { "$ref": "#/components/responses/TropVolumineux" },
           "415": { "$ref": "#/components/responses/PasJson" },
           "503": { "$ref": "#/components/responses/NonConfiguree" }
@@ -91,6 +94,7 @@
           "201": { "description": "Créé", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EcritureChantier" } } } },
           "400": { "$ref": "#/components/responses/Invalide" },
           "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
           "413": { "$ref": "#/components/responses/TropVolumineux" },
           "415": { "$ref": "#/components/responses/PasJson" },
           "503": { "$ref": "#/components/responses/NonConfiguree" }
@@ -122,6 +126,7 @@
             }
           },
           "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
           "404": { "$ref": "#/components/responses/Inconnu" },
           "410": { "$ref": "#/components/responses/Archive" },
           "503": { "$ref": "#/components/responses/NonConfiguree" }
@@ -144,6 +149,7 @@
           "201": { "description": "Créée", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EcritureAffectation" } } } },
           "400": { "$ref": "#/components/responses/Invalide" },
           "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
           "413": { "$ref": "#/components/responses/TropVolumineux" },
           "415": { "$ref": "#/components/responses/PasJson" },
           "503": { "$ref": "#/components/responses/NonConfiguree" }
@@ -158,6 +164,7 @@
         "responses": {
           "200": { "description": "Supprimée", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Suppression" } } } },
           "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
           "404": { "$ref": "#/components/responses/Inconnu" },
           "503": { "$ref": "#/components/responses/NonConfiguree" }
         }
@@ -187,6 +194,7 @@
           "201": { "description": "Créée", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EcritureTache" } } } },
           "400": { "$ref": "#/components/responses/Invalide" },
           "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
           "413": { "$ref": "#/components/responses/TropVolumineux" },
           "415": { "$ref": "#/components/responses/PasJson" },
           "503": { "$ref": "#/components/responses/NonConfiguree" }
@@ -201,6 +209,7 @@
         "responses": {
           "200": { "description": "Supprimée", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Suppression" } } } },
           "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
           "404": { "$ref": "#/components/responses/Inconnu" },
           "503": { "$ref": "#/components/responses/NonConfiguree" }
         }
@@ -231,6 +240,7 @@
           "200": { "description": "Synchronisé", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Synchronisation" } } } },
           "400": { "$ref": "#/components/responses/Invalide" },
           "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
           "413": { "$ref": "#/components/responses/TropVolumineux" },
           "415": { "$ref": "#/components/responses/PasJson" },
           "503": { "$ref": "#/components/responses/NonConfiguree" }
@@ -251,6 +261,7 @@
           "201": { "description": "Reçue, en attente de validation RH", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EcritureDemande" } } } },
           "400": { "$ref": "#/components/responses/Invalide" },
           "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
           "409": { "$ref": "#/components/responses/Doublon" },
           "413": { "$ref": "#/components/responses/TropVolumineux" },
           "415": { "$ref": "#/components/responses/PasJson" },
@@ -268,6 +279,7 @@
         "responses": {
           "200": { "description": "Demande", "content": { "application/json": { "schema": { "type": "object", "required": ["demande"], "properties": { "demande": { "$ref": "#/components/schemas/Demande" } } } } } },
           "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
           "404": { "$ref": "#/components/responses/Inconnu" },
           "503": { "$ref": "#/components/responses/NonConfiguree" }
         }
@@ -284,6 +296,7 @@
         "responses": {
           "200": { "description": "Verdict (ancienne forme)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VerdictObsolete" } } } },
           "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
           "404": { "$ref": "#/components/responses/Inconnu" },
           "410": { "$ref": "#/components/responses/Archive" },
           "503": { "$ref": "#/components/responses/NonConfiguree" }
@@ -305,6 +318,7 @@
           },
           "400": { "$ref": "#/components/responses/Invalide" },
           "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
           "409": { "$ref": "#/components/responses/Doublon" },
           "415": { "$ref": "#/components/responses/PasJson" },
           "503": { "$ref": "#/components/responses/NonConfiguree" }
@@ -626,7 +640,7 @@
       "CodeErreur": {
         "type": "string",
         "enum": [
-          "VALIDATION", "JSON_INVALIDE", "CORPS_INVALIDE", "CORPS_TROP_VOLUMINEUX", "TYPE_NON_PRIS_EN_CHARGE", "CLE_INVALIDE", "NON_CONFIGUREE",
+          "VALIDATION", "JSON_INVALIDE", "CORPS_INVALIDE", "CORPS_TROP_VOLUMINEUX", "TYPE_NON_PRIS_EN_CHARGE", "CLE_INVALIDE", "TROP_DE_CLES_INVALIDES", "NON_CONFIGUREE",
           "CHANTIER_INCONNU", "CHANTIER_ARCHIVE", "AFFECTATION_INCONNUE", "TACHE_INCONNUE", "DEMANDE_INCONNUE", "DEMANDE_EN_DOUBLE", "ROUTE_INCONNUE", "ERREUR_INTERNE"
         ]
       },
@@ -799,6 +813,7 @@
       },
       "CleInvalide": { "description": "En-tête X-Api-Key absent ou faux (CLE_INVALIDE)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Erreur" } } } },
       "NonConfiguree": { "description": "Aucune clé configurée sur le serveur Cursus (NON_CONFIGUREE)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Erreur" } } } },
+      "TropDeClesInvalides": { "description": "Trop d'appels sans clé valide depuis cette adresse (60 en 5 minutes) : aucun appel n'est lu jusqu'à la fin de la période, indiquée en secondes par l'en-tête Retry-After (TROP_DE_CLES_INVALIDES)", "headers": { "Retry-After": { "description": "Secondes à attendre avant de rappeler", "schema": { "type": "integer" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Erreur" } } } },
       "Inconnu": { "description": "Objet inconnu (CHANTIER_INCONNU, AFFECTATION_INCONNUE, TACHE_INCONNUE, DEMANDE_INCONNUE)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Erreur" } } } },
       "Archive": { "description": "Chantier archivé : plus de verdict (CHANTIER_ARCHIVE)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Erreur" } } } },
       "Doublon": { "description": "Même référence, ou demande identique encore en attente (DEMANDE_EN_DOUBLE) : `demande` est la demande déjà enregistrée", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Erreur" } } } },

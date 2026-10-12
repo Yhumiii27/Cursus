@@ -50,11 +50,13 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
   communiquée au manager pour un arrêt de travail ou la santé d'un enfant), saisie et correction des feuilles de temps, poste et jours non
   travaillés des fiches, ajout de salariés « à affecter » (libérés par leur manager d'origine ; une mutation
   directe passe par le service RH) et retrait de membres, entretiens, missions.
-  Pas d'accès aux données de santé (seul le verdict d'aptitude est transmis).
+  Pas d'accès aux données de santé (seul le verdict d'aptitude est transmis) ; du passeport de ses membres, la seule
+  date d'expiration.
 - **Utilisateur** (collaborateur) : ses formations, habilitations, voyages, heures,
   absences, entretiens et demandes au service RH.
   Les documents de voyage qu'il déclare (passeport, visa, vaccination) n'entrent dans son
-  dossier qu'après validation par le service RH.
+  dossier qu'après validation par le service RH. Ses vaccinations (vaccin et date d'injection) sont des données de
+  santé réservées au service RH : l'information sur leur traitement (art. 13 du RGPD) s'affiche avant la saisie.
 
 Chaque personne se connecte avec son compte nominatif : compte Microsoft 365 de l'entreprise pour
 les salariés qui en ont un (« Se connecter avec Microsoft », voir `docs/CONNEXION-MICROSOFT.md`),

@@ -1,7 +1,7 @@
 // Migrations de données des bases créées par une version antérieure de Cursus.
-import { VACCINS } from '../../shared/constants.ts';
+import { estMotifReprise, VACCINS, type MotifReprise } from '../../shared/constants.ts';
 import { Domain } from '../../shared/domain.ts';
-import { plural } from '../../shared/format.ts';
+import { norm, plural } from '../../shared/format.ts';
 import { formaliteCle } from '../../shared/rules/formalites.ts';
 import { inscritsDe } from '../../shared/rules/sessions.ts';
 import type {
@@ -42,6 +42,38 @@ export function migrate(db: Db) {
   migrerKeystone(db, avant);
   validationParDefaut(db, avant);
   reprendreSessions(db, avant);
+  motifsDeReprise(db, avant);
+}
+
+/**
+ * Motif de reprise d'une ancienne fiche (texte libre) ramené à la liste fermée `MOTIFS_REPRISE` ; un texte qui n'y
+ * correspond pas (« longue maladie », une pathologie…) devient « absence longue », masqué au manager comme un arrêt
+ * longue maladie. Le texte d'origine n'est pas conservé : il pouvait porter une information médicale.
+ */
+export function motifRepriseDuTexte(texte: string): MotifReprise {
+  if (estMotifReprise(texte)) return texte;
+  const t = norm(texte);
+  if (/matern/.test(t)) return 'congé de maternité';
+  if (/adopt/.test(t)) return 'congé d’adoption';
+  if (/temps partiel/.test(t)) return 'temps partiel parental';
+  if (/parental/.test(t)) return 'congé parental d’éducation';
+  if (/aidant/.test(t)) return 'congé de proche aidant';
+  if (/sabbat/.test(t)) return 'congé sabbatique';
+  if (/mobilite/.test(t)) return 'mobilité volontaire sécurisée';
+  if (/mandat|syndic/.test(t)) return 'mandat syndical';
+  return 'absence longue';
+}
+
+/** Fiches dont le motif de reprise n'est pas dans la liste fermée (bases antérieures) : motif converti. */
+export function motifsDeReprise(db: Db, avant = () => {}) {
+  const rows = (db.sql.prepare('SELECT id, reprise_motif AS motif FROM employes WHERE reprise_motif IS NOT NULL').all() as { id: number; motif: string }[])
+    .filter(r => !estMotifReprise(r.motif));
+  if (!rows.length) return;
+  avant();
+  db.tx(() => {
+    for (const r of rows) db.sql.prepare('UPDATE employes SET reprise_motif = ? WHERE id = ?').run(motifRepriseDuTexte(r.motif), r.id);
+  });
+  console.log(`Migration : ${plural(rows.length, 'motif de reprise ramené', 'motifs de reprise ramenés')} à la liste fermée (aucun texte libre conservé).`);
 }
 
 /** Auteur de la clôture des sessions reprises d'une base antérieure au cycle de vie des sessions. */

@@ -238,7 +238,12 @@ export interface EntreeJournal {
   compte?: Pick<Compte, 'id' | 'identifiant'> | null;
   /** Salariés concernés (historique de la fiche, filtre « salarié », export de ses données). */
   salaries?: number[];
+  /** Horodatage, maintenant par défaut (bilan de la durée de conservation : date du passage). */
+  at?: string;
 }
+
+/** Longueur au plus d'un message du journal, par sécurité (un message peut reprendre une donnée reçue). */
+const MESSAGE_MAX = 2000;
 
 /**
  * Trace une opération dans le journal, signée du nom de la personne et de son compte. Le contenu est
@@ -246,8 +251,9 @@ export interface EntreeJournal {
  * l'archive (conservée 3 ans au lieu d'1 an).
  */
 export function journaliser(db: Db, e: EntreeJournal) {
+  const message = e.message != null && e.message.length > MESSAGE_MAX ? `${e.message.slice(0, MESSAGE_MAX)}…` : e.message;
   db.insert('journal', {
-    at: new Date().toISOString(), actor: e.actor, role: e.role, action: e.action, message: e.message, payload: e.payload ?? {},
+    at: e.at ?? new Date().toISOString(), actor: e.actor, role: e.role, action: e.action, message, payload: e.payload ?? {},
     compteId: e.compte?.id ?? null, identifiant: e.compte?.identifiant ?? null, salaries: [...new Set(e.salaries ?? [])], paie: estActionPaie(e.action),
   });
 }

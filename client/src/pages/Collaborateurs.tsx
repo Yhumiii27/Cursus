@@ -396,8 +396,8 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
         )}
       </>}
 
-      {/* Service RH : actions qui concernent ce salarié (journal) et export de toutes ses données (droit d'accès). */}
-      {rh && <HistoriqueFiche empId={e.id} />}
+      {/* Lecteurs du journal : actions qui concernent ce salarié ; droit « rh » : export de toutes ses données (droit d'accès). */}
+      <HistoriqueFiche empId={e.id} />
 
       <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
         {(rh || membre) && <Btn variant="secondary" icon={<PencilSimpleIcon size={14} />} onClick={() => openDialog({ type: 'employe', empId: e.id })}>Modifier la fiche</Btn>}

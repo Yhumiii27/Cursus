@@ -3,12 +3,14 @@
 // compte et ses sessions de connexion, les messages envoyés à Keystone à son matricule, les équipes qu'il
 // encadre — et, pour l'export fait par le service RH, le journal des actions le concernant.
 // Jamais d'empreinte de mot de passe ni d'identifiant de session (secret du cookie). Chaque export est tracé.
-//   GET /api/salaries/:id/donnees  service RH (remise au salarié qui exerce son droit d'accès)
+//   GET /api/salaries/:id/donnees  service RH, droit « rh » (remise au salarié qui exerce son droit d'accès) :
+//                                  le dossier complet porte des données de santé, qu'un profil restreint de
+//                                  l'espace RH (référent HSE, paie, lecture seule) ne voit pas
 //   GET /api/mes-donnees           le salarié connecté, pour lui-même (portail) : sans le journal, que le RH
 //                                  remet sur demande (il cite d'autres personnes : auteurs, autres salariés)
 import express, { type Router } from 'express';
 import { matricule, plural } from '../../shared/format.ts';
-import { libelleAction } from '../../shared/journal.ts';
+import { dossierComplet, libelleAction } from '../../shared/journal.ts';
 import { journaliser, type Compte } from './comptes.ts';
 import { identite } from './connexion.ts';
 import { TABLES, type Db, type TableName } from './db.ts';
@@ -78,7 +80,7 @@ export function routesDonnees(db: Db): Router {
   const r = express.Router();
 
   r.get('/api/salaries/:id/donnees', (req, res) => {
-    const id = exigerRh(db, req, res, 'Export des données d’un salarié');
+    const id = exigerRh(db, req, res, 'Export des données d’un salarié', dossierComplet);
     if (!id) return;
     const empId = Number(req.params.id);
     const x = Number.isInteger(empId) ? donneesSalarie(db, empId, { journal: true, par: id.user.nom }) : null;

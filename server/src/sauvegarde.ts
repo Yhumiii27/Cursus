@@ -236,6 +236,9 @@ export function sauvegarderAvantMigration(db: Db): string | null {
   return s.fichier;
 }
 
+/** Copie « avant-migration » faite à cette ouverture de la base, ou null (signalée par le journal, server/src/journal.ts). */
+export const copieAvantMigration = (db: Db): string | null => avantMigration.get(db) ?? null;
+
 // — Verrou du serveur —
 // Le serveur écrit <base>.pid au démarrage et le retire à l'arrêt ; il refuse de démarrer si un autre
 // serveur en service a déjà posé le sien. Un verrou laissé par un arrêt brutal est reconnu comme

@@ -12,7 +12,7 @@ shared/            Domaine partagé (aucune dépendance)
   dates.ts         Dates ISO, jours fériés calculés, périodes de référence CP
   format.ts        Mise en forme française (dates, heures, jours, euros, pluriels)
   domain.ts        Classe Domain : conformité, habilitations, voyages, échéances, Go / No Go
-  journal.ts       Journal des actions : libellés, familles, actions liées à la paie, durées de conservation
+  journal.ts       Journal des actions : libellés, familles, actions liées à la paie, durées de conservation, droits de lecture
   rules/           temps.ts, conges.ts, entretiens.ts, budget.ts, imports.ts
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
@@ -240,34 +240,46 @@ Table `journal`, écrite par `server/src/journal.ts` (actions) et `journaliser` 
   donnée de santé (vaccin, nature d'absence, visite médicale). Une action sans règle ne recopie aucun champ.
   La règle désigne aussi la ligne modifiée : ses colonnes utiles sont lues avant et après l'action, d'où les
   anciennes et nouvelles valeurs (`avant`, `apres` : poste, équipe, statut d'une feuille ou d'une absence,
-  profil RH, paramètres…). Les messages sont expurgés des natures d'absence médicales et des vaccins
-  (« [donnée de santé] »). `salaries` : salariés concernés (paramètre `empId`, ligne modifiée, participants
-  d'une session clôturée…), pour le filtre et l'historique de la fiche.
-- **Événements tracés** : actions ; saisie d'heures du valideur sur une feuille soumise (`temps.correction`,
-  ancienne et nouvelle valeur ; la saisie du salarié sur sa feuille en brouillon ne l'est pas) ; rédaction
+  profil RH, paramètres…). Les messages sont expurgés de toute nature d'absence, médicale ou non
+  (« [nature d’absence] » : un marqueur réservé aux natures médicales les désignerait), et des vaccins
+  (« [donnée de santé] ») ; congés payés, RTT et récupération restent lisibles. `salaries` : salariés concernés
+  (paramètre `empId`, ligne modifiée, participants d'une session clôturée, inscrits d'une session confirmée,
+  modifiée ou annulée lus avant et après l'action, salariés des feuilles transmises à la paie ou des
+  déplacements importés…), pour le filtre, l'historique de la fiche et l'export de ses données. La règle
+  peut lire un état avant l'action (`etat`) et des valeurs après (`bilan` : feuilles transmises `{ empId,
+  week }`, nombre de déplacements importés, total d'heures d'une feuille soumise ou validée).
+- **Événements tracés** : actions ; saisie d'heures par le manager ou le service RH sur la feuille d'un autre,
+  quel que soit son statut (soumise, renvoyée, brouillon : `temps.correction`, ancienne et nouvelle valeur,
+  statut de la feuille ; la saisie du salarié sur sa propre feuille ne l'est pas) ; rédaction
   d'un compte rendu d'entretien (section nommée, jamais son contenu, une ligne par compte et par demi-heure) ;
   connexions, refus, déconnexions, changements d'espace ; refus d'accès (403) d'une personne connectée
-  (`acces.refuse`, rien n'est modifié) ; appels et messages de Keystone ; exports (journal, données d'un
-  salarié, CSV et impressions de l'interface signalés par `POST /api/exports`, `client/src/print.ts`) ;
-  consultation de l'archive ; application des durées de conservation.
+  (`acces.refuse`, motif borné à 200 caractères, rien n'est modifié ; tout message est borné à 2 000) ;
+  appels et messages de Keystone ; exports (journal, données d'un salarié, CSV et impressions de l'interface
+  signalés par `POST /api/exports`, `client/src/print.ts`) ; consultation de l'archive (chaque page lue, une
+  ligne par compte et par filtre pendant 15 minutes) ; application des durées de conservation.
 - **Conservation** (décision de l'entreprise) : 1 an pour tout ; au-delà, les actions liées à la paie
-  (`ACTIONS_PAIE` : validations des feuilles et des absences, corrections d'heures, transmissions à la
-  paie) passent dans l'archive (`archivee`), absente de l'écran et consultée sur demande par le service RH,
-  et toute ligne est supprimée au bout de 3 ans. Appliquée au démarrage puis toutes les heures
-  (`demarrerJournal`), avec la purge de la file d'envoi (envois réussis ou simulés de plus d'un an, échecs
-  classés depuis plus d'un an ; un échec non traité reste). Une ligne `journal.conservation` résume chaque
-  passage. Les lignes écrites avant la liste blanche sont expurgées une fois (`reprendreJournal`). La
-  réinitialisation de la démonstration conserve le journal (`clearAll` de `db.ts`).
-- **Consultation** (`routesJournal`) : `GET /api/journal` (tout profil de l'espace RH, y compris un profil en
-  lecture seule ; 403 tracé sinon) avec `vue` (`tout` sans les appels de Keystone, `operations`,
-  `connexions`, `keystone`, `archive`), `du`, `au` (dates locales incluses), `auteur` (nom ou identifiant),
-  `action` (code ou `famille:<id>`), `salarie`, `page`, `taille` (50 par défaut, 200 au plus) → `{ lignes,
-  total, page, taille }`. `GET /api/journal/csv` : mêmes filtres, toutes les pages (100 000 lignes au plus),
-  UTF-8 avec BOM, cellules commençant par `=`, `+`, `-`, `@` précédées d'une apostrophe ; export tracé.
-  Écran : Paramètres → Journal des actions (`client/src/pages/Journal.tsx`) ; historique dans la fiche du
-  collaborateur (service RH).
+  (`ACTIONS_PAIE` : validations des feuilles et des absences, prolongations et annulations d'absences,
+  corrections d'heures, transmissions à la paie) passent dans l'archive (`archivee`), absente de l'écran et
+  consultée sur demande par le service RH, et toute ligne est supprimée au bout de 3 ans. Une action ajoutée
+  à `ACTIONS_PAIE` vaut aussi pour les lignes déjà écrites (`marquerPaie`, au démarrage). Appliquée au
+  démarrage puis toutes les heures (`demarrerJournal`), avec la purge de la file d'envoi (envois réussis ou
+  simulés de plus d'un an, échecs classés depuis plus d'un an ; un échec non traité reste). Une ligne
+  `journal.conservation` par jour fait le bilan, complétée à chaque passage. Les lignes écrites avant la
+  liste blanche sont expurgées une fois (`reprendreJournal`). La réinitialisation de la démonstration
+  conserve le journal (`clearAll` de `db.ts`).
+- **Consultation** (`routesJournal`) : `GET /api/journal` (droit « rh », ou « consultation » d'un profil en
+  lecture seule, `lecteurJournal` de `shared/journal.ts` : le profil compte, pas l'espace, ni le référent HSE ni
+  la paie n'y ont accès ; 403 tracé sinon ; sans le droit « rh », message et détail des actions touchant à la
+  santé sont masqués, `pourLecteur`) avec `vue` (`tout` sans les appels de Keystone, sauf si le filtre
+  « Action » les désigne, `operations`, `connexions`, `keystone`, `archive`), `du`, `au` (dates locales
+  incluses), `auteur` (nom ou identifiant), `action` (code ou `famille:<id>`), `salarie`, `page`, `taille` (50
+  par défaut, 200 au plus) → `{ lignes, total, page, taille }`. `GET /api/journal/csv` : mêmes filtres et
+  mêmes droits, toutes les pages (100 000 lignes au plus), UTF-8 avec BOM, cellules commençant par `=`, `+`,
+  `-`, `@` précédées d'une apostrophe ; export tracé. Écran : Paramètres → Journal des actions
+  (`client/src/pages/Journal.tsx`) ; historique dans la fiche du collaborateur (mêmes droits).
 - **Données personnelles** (`server/src/donnees.ts`, droit d'accès et portabilité) : `GET
-  /api/salaries/:id/donnees` (service RH) renvoie un fichier JSON lisible : fiche, chaque table du schéma qui
+  /api/salaries/:id/donnees` (droit « rh » seul, `dossierComplet` : le dossier porte des données de santé ;
+  bouton « Exporter ses données » de la fiche) renvoie un fichier JSON lisible : fiche, chaque table du schéma qui
   porte `empId` (une table ajoutée plus tard l'est aussi), compte (sans empreinte du mot de passe), sessions
   de connexion (sans leur identifiant), équipes encadrées, messages envoyés à Keystone à son matricule, et
   le journal des actions le concernant (archive comprise). `GET /api/mes-donnees` : le salarié connecté

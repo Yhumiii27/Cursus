@@ -1,12 +1,13 @@
-// Journal des actions (Paramètres, service RH) : vue, période, personne, action et salarié concerné ; pagination,
-// export CSV des lignes filtrées ; archive des actions liées à la paie, consultée sur demande. Historique d'une
-// fiche (Collaborateurs) : les dernières actions qui concernent le salarié.
+// Journal des actions (Paramètres ; droit « rh » ou « consultation », shared/journal.ts) : vue, période, personne,
+// action et salarié concerné ; pagination, export CSV des lignes filtrées ; archive des actions liées à la paie,
+// consultée sur demande. Historique d'une fiche (Collaborateurs) : les dernières actions qui concernent le salarié.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { ArchiveIcon, ArrowClockwiseIcon, DownloadSimpleIcon } from '@phosphor-icons/react';
 import { ESPACE_LABEL } from '../../../shared/constants.ts';
 import { fmt, matricule, plural } from '../../../shared/format.ts';
 import {
-  CONSERVATION_ARCHIVE_PAIE_MOIS, CONSERVATION_JOURNAL_MOIS, changementsTexte, FAMILLES_JOURNAL, familleAction, JOURNAL_LABEL, libelleAction,
+  CONSERVATION_ARCHIVE_PAIE_MOIS, CONSERVATION_JOURNAL_MOIS, changementsTexte, dossierComplet, FAMILLES_JOURNAL, familleAction, JOURNAL_LABEL,
+  lecteurJournal, libelleAction,
 } from '../../../shared/journal.ts';
 import { api, type FiltreJournal, type LigneJournal, type PageJournal, type VueJournal } from '../api.ts';
 import { Field } from '../components/Dialog.tsx';
@@ -34,7 +35,13 @@ function useNoms() {
 
 const heure = (d: Date) => d.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
+/** Journal des actions : droit « rh » ou « consultation » (lecture seule) ; rien pour un autre profil de l'espace RH. */
 export function JournalPanel() {
+  const { user } = useData();
+  return lecteurJournal(user) ? <PanneauJournal /> : null;
+}
+
+function PanneauJournal() {
   const data = useData();
   const { notify } = useStore();
   const noms = useNoms();
@@ -129,7 +136,7 @@ export function JournalPanel() {
       </div>
 
       {archive
-        ? <NoteAccent>{`Actions liées à la paie (validations, corrections d’heures, transmissions) de plus d’un an : conservées ${ans(CONSERVATION_ARCHIVE_PAIE_MOIS)}, consultées sur demande. Chaque consultation est tracée.`}</NoteAccent>
+        ? <NoteAccent>{`Actions liées à la paie (validations, prolongations et annulations d’absences, corrections d’heures, transmissions) de plus d’un an : conservées ${ans(CONSERVATION_ARCHIVE_PAIE_MOIS)}, consultées sur demande. Chaque consultation est tracée.`}</NoteAccent>
         : <Fine>{`Lignes conservées ${ans(CONSERVATION_JOURNAL_MOIS)}. Au-delà, les actions liées à la paie passent dans une archive conservée ${ans(CONSERVATION_ARCHIVE_PAIE_MOIS)}, les autres sont supprimées. Aucun numéro de passeport, mot de passe, texte libre ni donnée de santé n’y figure.`}</Fine>}
 
       {erreur && <p className="form-error">{erreur}</p>}
@@ -180,8 +187,17 @@ function LigneTable({ j, noms }: { j: LigneJournal; noms: (ids: number[]) => str
   );
 }
 
-/** Fiche d'un salarié (service RH) : dernières actions qui le concernent, et export de toutes ses données. */
+/**
+ * Fiche d'un salarié : dernières actions qui le concernent (lecteurs du journal : droit « rh » ou « consultation »),
+ * et export de toutes ses données (droit « rh » seul : le dossier complet porte des données de santé). Rien pour
+ * les autres profils, sans appel au serveur (qui tracerait un refus).
+ */
 export function HistoriqueFiche({ empId }: { empId: number }) {
+  const { user } = useData();
+  return lecteurJournal(user) ? <Historique empId={empId} exportable={dossierComplet(user)} /> : null;
+}
+
+function Historique({ empId, exportable }: { empId: number; exportable: boolean }) {
   const data = useData();
   const { notify } = useStore();
   const [lignes, setLignes] = useState<LigneJournal[] | null>(null);
@@ -210,7 +226,7 @@ export function HistoriqueFiche({ empId }: { empId: number }) {
     <>
       <div className="item-head" style={{ alignItems: 'center' }}>
         <h4 className="section-label">Historique</h4>
-        <Btn small icon={<DownloadSimpleIcon size={14} />} onClick={exporter} title="Droit d’accès (RGPD, art. 15) : toutes ses données et le journal des actions le concernant">Exporter ses données</Btn>
+        {exportable && <Btn small icon={<DownloadSimpleIcon size={14} />} onClick={exporter} title="Droit d’accès (RGPD, art. 15) : toutes ses données et le journal des actions le concernant">Exporter ses données</Btn>}
       </div>
       {erreur && <p className="form-error">{erreur}</p>}
       {lignes != null && lignes.length === 0 && <Empty pad="sm">Aucune action enregistrée sur ce salarié.</Empty>}

@@ -2,30 +2,31 @@
 // - Liste blanche par action (REGLES) : du paramètre reçu, seuls des identifiants, codes, dates et statuts
 //   sont recopiés, avec les anciennes et nouvelles valeurs utiles de la ligne modifiée. Jamais de numéro de
 //   passeport, de mot de passe, de CSV importé, de texte libre (motifs, comptes rendus) ni de donnée de santé :
-//   les messages sont expurgés des natures médicales d'absence et des vaccins. Une action sans règle ne
-//   recopie aucun champ.
+//   les messages sont expurgés des natures d'absence, médicales ou non (un même terme neutre, pour qu'aucune
+//   ne se déduise du marqueur), et des vaccins. Une action sans règle ne recopie aucun champ.
 // - Salariés concernés (`salaries`) : historique de la fiche, filtre « salarié », export de ses données.
 // - Conservation (décision de l'entreprise, shared/journal.ts) : 1 an pour tout ; les actions liées à la
 //   paie passent alors dans une archive, hors de l'écran, que le service RH consulte sur demande, et sont
 //   supprimées au bout de 3 ans. Les envois anciens de la file d'envoi sont purgés en même temps.
-// - Consultation (service RH, y compris un profil en lecture seule de l'espace RH) : filtres, pagination,
-//   export CSV (formules neutralisées), archive ; l'export et la consultation de l'archive sont tracés.
+// - Consultation (droit « rh », ou « consultation » d'un profil en lecture seule, qui ne voit pas le détail des
+//   actions touchant à la santé) : filtres, pagination, export CSV (formules neutralisées), archive ; l'export
+//   et chaque consultation de l'archive sont tracés.
 import express, { type Request, type Response, type Router } from 'express';
-import { ESPACE_LABEL, NATURES_ABSENCE, VACCINS } from '../../shared/constants.ts';
+import { ESPACE_LABEL, NATURES_ABSENCE, TS_LABEL, VACCINS } from '../../shared/constants.ts';
 import { addD, isValidDate } from '../../shared/dates.ts';
 import { Domain } from '../../shared/domain.ts';
 import { fmtIso, matricule, num, plural } from '../../shared/format.ts';
 import {
-  ACTION_APPEL_KEYSTONE, ACTIONS_CONNEXION, changementsTexte, CONSERVATION_ARCHIVE_PAIE_MOIS, CONSERVATION_ENVOIS_MOIS, CONSERVATION_JOURNAL_MOIS,
-  estActionPaie, FAMILLES_JOURNAL, JOURNAL_LABEL, libelleAction,
+  ACTION_APPEL_KEYSTONE, ACTIONS_CONNEXION, ACTIONS_PAIE, changementsTexte, CONSERVATION_ARCHIVE_PAIE_MOIS, CONSERVATION_ENVOIS_MOIS,
+  CONSERVATION_JOURNAL_MOIS, dossierComplet, estActionPaie, familleAction, FAMILLES_JOURNAL, JOURNAL_LABEL, lecteurJournal, libelleAction,
 } from '../../shared/journal.ts';
-import { natureMedicale } from '../../shared/rules/absences.ts';
-import type { CurrentUser, LigneTemps } from '../../shared/types.ts';
+import type { CurrentUser, FeuilleTemps, LigneTemps } from '../../shared/types.ts';
 import { journaliser, type Compte } from './comptes.ts';
 import { identite, type Identite } from './connexion.ts';
 import { loadFull, scopeIds } from './dataset.ts';
 import type { Db, TableName } from './db.ts';
 import { purgerEnvois } from './envois.ts';
+import { copieAvantMigration } from './sauvegarde.ts';
 
 type P = Record<string, any>;
 type Ligne = Record<string, any>;
@@ -41,7 +42,8 @@ interface Cible {
   aplatir?: boolean;
 }
 
-interface Contexte { db: Db; user: CurrentUser; avant: Ligne | null; apres: Ligne | null; result: unknown }
+/** Ce que la règle sait de l'action : ligne visée avant et après, état lu avant l'action (`etat`), résultat. */
+interface Contexte { db: Db; user: CurrentUser; avant: Ligne | null; apres: Ligne | null; etat: unknown; result: unknown }
 
 interface Regle {
   /** Champs du paramètre recopiés tels quels ; fonction quand ils dépendent du contenu (formalités). */
@@ -50,14 +52,21 @@ interface Regle {
   extra?: (p: P, avant: Ligne | null) => Ligne;
   /** Ligne modifiée : ses colonnes sont lues avant et après l'action. */
   cible?: Cible;
+  /**
+   * État lu avant l'action, en plus de la ligne visée, quand l'action le modifie : inscrits d'une session (une
+   * annulation détache les recyclages rattachés), feuilles à transmettre à la paie, dernier déplacement avant un import.
+   */
+  etat?: (db: Db, p: P) => unknown;
+  /** Valeurs lues après l'action (feuilles transmises, total d'heures), ajoutées au contenu tracé. */
+  bilan?: (p: P, x: Contexte) => Ligne;
   /** Salariés concernés, en plus de `empId` (paramètre, ou ligne modifiée). */
   salaries?: (p: P, x: Contexte) => unknown[];
-  /** Tracée seulement si… (saisie d'heures : correction d'une feuille soumise). */
-  tracer?: (avant: Ligne | null, apres: Ligne | null, p: P) => boolean;
-  /** Code inscrit au journal à la place du nom de l'action (correction d'heures). */
-  code?: (avant: Ligne | null) => string;
+  /** Tracée seulement si… (saisie d'heures : modification par le manager ou le service RH). */
+  tracer?: (p: P, x: Contexte) => boolean;
+  /** Code inscrit au journal à la place du nom de l'action (correction d'heures) ; vide : le nom de l'action. */
+  code?: (p: P, x: Contexte) => string;
   /** Anciennes et nouvelles valeurs propres à l'action, à la place de la comparaison des colonnes ; message éventuel. */
-  changements?: (avant: Ligne | null, apres: Ligne | null, p: P, db: Db) => { avant: Ligne; apres: Ligne; extra?: Ligne; message?: string } | null;
+  changements?: (p: P, x: Contexte) => { avant: Ligne; apres: Ligne; extra?: Ligne; message?: string } | null;
   /** Modifications successives du même objet par le même compte regroupées sur une ligne pendant N minutes. */
   regrouper?: number;
 }
@@ -68,15 +77,35 @@ const FEUILLE: Cible = {
   table: 'feuilles', colonnes: ['statut'],
   cle: (p, db) => (db.sql.prepare('SELECT id FROM feuilles WHERE emp_id = ? AND week = ?').get(Number(p.empId) || 0, String(p.week ?? '')) as { id: number } | undefined)?.id ?? null,
 };
-const soumise = (f: Ligne | null) => f?.statut === 'soumise';
 const totalHeures = (f: Ligne | null) => ((f?.lignes ?? []) as LigneTemps[]).reduce((n, l) => n + l.h.reduce((a, b) => a + num(b), 0), 0);
 const heuresTexte = (h: number) => `${String(Math.round(h * 100) / 100).replace('.', ',')} h`;
 const nomSalarie = (db: Db, id: unknown) => db.get<{ nom: string }>('employes', Number(id))?.nom ?? `salarié n° ${id}`;
+/** Statut de la feuille avant la saisie (une feuille créée par la saisie est un brouillon). */
+const statutFeuille = (f: Ligne | null) => String(f?.statut ?? 'brouillon');
 
-/** Correction d'une feuille soumise par son valideur : total d'heures avant et après (lignes ajoutées, retirées, proposées). */
-const correctionTotal: Regle['changements'] = (av, ap) => soumise(av) && totalHeures(av) !== totalHeures(ap)
-  ? { avant: { heures: totalHeures(av) }, apres: { heures: totalHeures(ap) } } : null;
-const ligneTemps: Partial<Regle> = { cible: FEUILLE, code: av => (soumise(av) ? 'temps.correction' : ''), changements: correctionTotal };
+/**
+ * Heures saisies par quelqu'un d'autre que le salarié (son manager, le service RH), quel que soit le statut de la
+ * feuille : soumise, mais aussi renvoyée ou en brouillon, qu'un valideur peut modifier puis soumettre lui-même.
+ */
+const parAutrui = (p: P, u: CurrentUser) => u.empId !== (Number(p.empId) || null);
+/** Ligne ajoutée, retirée ou proposée par autrui qui change le total d'heures : correction (total avant et après). */
+const corrigeTotal = (p: P, x: Contexte) => parAutrui(p, x.user) && totalHeures(x.avant) !== totalHeures(x.apres);
+const ligneTemps: Partial<Regle> = {
+  cible: FEUILLE,
+  code: (p, x) => (corrigeTotal(p, x) ? 'temps.correction' : ''),
+  changements: (p, x) => (corrigeTotal(p, x)
+    ? { avant: { heures: totalHeures(x.avant) }, apres: { heures: totalHeures(x.apres) }, extra: { feuille: statutFeuille(x.avant) } } : null),
+};
+/** Soumission, validation : statut avant et après, et total d'heures de la feuille (ce qui part en paie). */
+const statutEtTotal: Partial<Regle> = { cible: FEUILLE, bilan: (_p, x) => ({ heures: totalHeures(x.apres) }) };
+
+/** Inscrits avant et après l'action : une annulation ou des places retirées détachent des recyclages rattachés. */
+const inscritsAvantApres: Partial<Regle> = { etat: (db, p) => inscrits(db, p.id), salaries: (p, x) => [...(x.etat as number[]), ...inscrits(x.db, p.id)] };
+
+/** Feuilles transmises à la paie : validées et non transmises avant l'action, marquées transmises après. */
+const transmises = (x: Contexte) => (x.etat as number[]).map(id => x.db.get<FeuilleTemps>('feuilles', id)).filter((f): f is FeuilleTemps => !!f?.sage);
+/** Salariés des déplacements créés par un import (identifiants au-delà du dernier d'avant l'action). */
+const importes = (x: Contexte) => (x.db.sql.prepare('SELECT emp_id AS e FROM voyages WHERE id > ? ORDER BY id').all(Number(x.etat) || 0) as { e: number }[]).map(r => r.e);
 
 export const REGLES: Record<string, Regle> = {
   // Fiches et équipes
@@ -92,9 +121,9 @@ export const REGLES: Record<string, Regle> = {
   'plan.inscrire': { champs: ['empId', 'certId', 'inscriptionId', 'sessionId', 'conv'] },
   'cert.ajouter': { champs: ['empId', 'f', 'date'] },
   'session.creer': { champs: ['f', 'date', 'lieu', 'places', 'planId'] },
-  'session.confirmer': { champs: ['id'], cible: parId('sessions', ['statut']), salaries: (p, x) => inscrits(x.db, p.id) },
-  'session.modifier': { champs: ['id'], cible: parId('sessions', ['date', 'lieu', 'places', 'statut']), salaries: (p, x) => inscrits(x.db, p.id) },
-  'session.annuler': { champs: ['id'], cible: parId('sessions', ['statut']), salaries: (p, x) => inscrits(x.db, p.id) },
+  'session.confirmer': { champs: ['id'], cible: parId('sessions', ['statut']), ...inscritsAvantApres },
+  'session.modifier': { champs: ['id'], cible: parId('sessions', ['date', 'lieu', 'places', 'statut']), ...inscritsAvantApres },
+  'session.annuler': { champs: ['id'], cible: parId('sessions', ['statut']), ...inscritsAvantApres },
   // Résultats de chaque inscrit (présent, reçu) ; ni la note ni le commentaire de l'évaluation à chaud.
   'session.cloturer': {
     champs: ['id'], cible: parId('sessions', ['statut']),
@@ -120,31 +149,41 @@ export const REGLES: Record<string, Regle> = {
   'formalite.enregistrer': {
     champs: p => p.kind === 'passeport' ? ['empId', 'kind', 'expire'] : p.kind === 'visa' ? ['empId', 'kind', 'dest', 'visaType', 'obtenu', 'expire'] : ['empId', 'kind'],
   },
-  'voyages.importer': {},
+  // Import : nombre de déplacements créés et leurs salariés, jamais le CSV.
+  'voyages.importer': {
+    etat: db => Number((db.sql.prepare('SELECT MAX(id) AS n FROM voyages').get() as { n: number | null }).n ?? 0),
+    bilan: (_p, x) => ({ deplacements: importes(x).length }), salaries: (_p, x) => importes(x),
+  },
   'keystone.accepter': { champs: ['id'], cible: parId('demandesKeystone', ['statut']) },
   'keystone.refuser': { champs: ['id'], cible: parId('demandesKeystone', ['statut']) },
-  // Feuilles de temps : la saisie du salarié n'est pas tracée cellule par cellule ; la correction d'une feuille
-  // soumise par son valideur l'est (temps.correction, action liée à la paie), avec l'ancienne et la nouvelle valeur.
+  // Feuilles de temps : la saisie du salarié n'est pas tracée cellule par cellule ; celle de son manager ou du
+  // service RH l'est, quel que soit le statut de la feuille (temps.correction, action liée à la paie), avec
+  // l'ancienne et la nouvelle valeur ; soumission et validation portent le total d'heures de la feuille.
   'temps.setCell': {
     champs: ['empId', 'week'], cible: FEUILLE, code: () => 'temps.correction',
-    tracer: (av, ap, p) => soumise(av) && cellule(av, p) !== cellule(ap, p),
-    changements: (av, ap, p, db) => {
-      const l = (ap?.lignes as LigneTemps[] | undefined)?.[Number(p.li)];
+    tracer: (p, x) => parAutrui(p, x.user) && cellule(x.avant, p) !== cellule(x.apres, p),
+    changements: (p, x) => {
+      const l = (x.apres?.lignes as LigneTemps[] | undefined)?.[Number(p.li)];
       if (!l) return null;
-      const jour = addD(String(p.week), Number(p.di)), a = cellule(av, p), b = cellule(ap, p);
+      const jour = addD(String(p.week), Number(p.di)), a = cellule(x.avant, p), b = cellule(x.apres, p), feuille = statutFeuille(x.avant);
+      const etat = feuille === 'brouillon' ? 'en brouillon' : (TS_LABEL as Record<string, string>)[feuille]?.toLowerCase() ?? feuille;
       return {
-        avant: { heures: a }, apres: { heures: b }, extra: { projet: l.projet, jour },
-        message: `Correction d’heures — ${nomSalarie(db, p.empId)}, ${l.projet} le ${fmtIso(jour)} : ${heuresTexte(a)} → ${heuresTexte(b)}`,
+        avant: { heures: a }, apres: { heures: b }, extra: { projet: l.projet, jour, feuille },
+        message: `Correction d’heures — ${nomSalarie(x.db, p.empId)}, ${l.projet} le ${fmtIso(jour)} : ${heuresTexte(a)} → ${heuresTexte(b)} (feuille ${etat})`,
       };
     },
   },
   'temps.addLine': { champs: ['empId', 'week', 'projet'], ...ligneTemps },
   'temps.removeLine': { champs: ['empId', 'week'], extra: (p, av) => ({ projet: (av?.lignes as LigneTemps[] | undefined)?.[Number(p.li)]?.projet ?? null }), ...ligneTemps },
   'temps.suggest': { champs: ['empId', 'week'], ...ligneTemps },
-  'temps.submit': { champs: ['empId', 'week'], cible: FEUILLE },
-  'temps.validate': { champs: ['empId', 'week'], cible: FEUILLE },
+  'temps.submit': { champs: ['empId', 'week'], ...statutEtTotal },
+  'temps.validate': { champs: ['empId', 'week'], ...statutEtTotal },
   'temps.reject': { champs: ['empId', 'week'], cible: FEUILLE },
-  'temps.pushSage': {},
+  // Transmission à la paie : semaines transmises, salarié par salarié (archive paie, historique, export de ses données).
+  'temps.pushSage': {
+    etat: db => db.where<FeuilleTemps>('feuilles', 'statut', 'validee').filter(f => !f.sage).map(f => f.id),
+    bilan: (_p, x) => ({ feuilles: transmises(x).map(f => ({ empId: f.empId, week: f.week })) }), salaries: (_p, x) => transmises(x).map(f => f.empId),
+  },
   // Absences : la nature n'est jamais recopiée (son absence trahirait une nature médicale) ; dates et statut seulement.
   'absence.demander': { champs: ['empId', 'kind', 'du', 'au'] },
   'absence.decider': { champs: ['id', 'ok'], cible: parId('absences', ['statut']) },
@@ -187,9 +226,9 @@ function inscrits(db: Db, sessionId: unknown): number[] {
   return (db.sql.prepare('SELECT emp_id AS e FROM certifications WHERE session_id = ? UNION SELECT emp_id FROM inscriptions WHERE session_id = ?').all(id, id) as { e: number }[]).map(r => r.e);
 }
 
-/** Retire une nature d'absence médicale (code) d'un objet tracé, par sécurité (aucune règle n'en recopie). */
-function sansSante(o: Ligne): Ligne {
-  for (const k of ['type', 'nature', 'kind']) if (typeof o[k] === 'string' && natureMedicale(o[k])) delete o[k];
+/** Retire une nature d'absence (code, médicale ou non) d'un objet tracé, par sécurité (aucune règle n'en recopie). */
+function sansNature(o: Ligne): Ligne {
+  for (const k of ['type', 'nature', 'kind']) if (typeof o[k] === 'string' && Object.hasOwn(NATURES_ABSENCE, o[k])) delete o[k];
   return o;
 }
 
@@ -211,7 +250,7 @@ export function champsRetenus(action: string, p: P, avant: Ligne | null = null):
   const noms = typeof r.champs === 'function' ? r.champs(p) : r.champs ?? [];
   const out: Ligne = {};
   for (const k of noms) if (p[k] !== undefined && p[k] !== '') out[k] = propre(p[k]);
-  return sansSante({ ...out, ...(r.extra?.(p, avant) ?? {}) });
+  return sansNature({ ...out, ...(r.extra?.(p, avant) ?? {}) });
 }
 
 /** Ligne de la cible, lue telle quelle (colonnes de la table). */
@@ -243,71 +282,85 @@ const entiers = (ids: unknown[]) => [...new Set(ids.map(Number).filter(n => Numb
 // — Messages expurgés —
 
 const echapper = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
-/** Termes de santé : natures d'absence médicales (libellés, abrégés, motifs de reprise) et vaccins. */
-const TERMES_SANTE = [...new Set([
-  ...Object.values(NATURES_ABSENCE).filter(n => n.medicale).flatMap(n => [n.label, n.abrege, n.court, n.reprise ?? '']),
-  ...Object.values(VACCINS).flatMap(v => [v.nom, v.nom.replace(/ \(.*\)/, ''), v.court]),
-].filter(t => t.length > 2))].sort((a, b) => b.length - a.length);
-const SANTE = new RegExp(`(?<![\\p{L}])(?:${TERMES_SANTE.map(echapper).join('|')})(?![\\p{L}])`, 'giu');
+/** Expression qui reconnaît des termes entiers, sans tenir compte de la casse (le plus long d'abord). */
+function termes(liste: string[]): RegExp {
+  const t = [...new Set(liste.filter(x => x.length > 2))].sort((a, b) => b.length - a.length);
+  return new RegExp(`(?<![\\p{L}])(?:${t.map(echapper).join('|')})(?![\\p{L}])`, 'giu');
+}
+/**
+ * Natures d'absence, médicales ou non (libellés, abrégés, motifs de reprise) : un même terme neutre pour toutes. Ne
+ * masquer que les natures médicales désignerait justement celles-là (arrêt maladie, enfant malade…). Congés payés,
+ * RTT et récupération ne sont pas des natures : ils restent lisibles.
+ */
+const NATURES = termes(Object.values(NATURES_ABSENCE).flatMap(n => [n.label, n.abrege, n.court, n.reprise ?? '']));
+/** Vaccins : donnée de santé. */
+const VACCINS_NOMMES = termes(Object.values(VACCINS).flatMap(v => [v.nom, v.nom.replace(/ \(.*\)/, ''), v.court]));
+export const MENTION_NATURE = '[nature d’absence]';
 export const MENTION_SANTE = '[donnée de santé]';
 
-/** Message tracé sans donnée de santé (nature médicale d'une absence, vaccin) : le RH la retrouve dans le dossier. */
+/** Message tracé sans nature d'absence ni vaccin : le RH les retrouve dans le dossier. */
 export function expurgerMessage(m: string | null): string | null {
-  return m == null ? null : m.replace(SANTE, MENTION_SANTE);
+  return m == null ? null : m.replace(NATURES, MENTION_NATURE).replace(VACCINS_NOMMES, MENTION_SANTE);
 }
 
 // — Écriture —
 
-/** État lu avant une action : la ligne visée par la règle. */
-export interface Trace { action: string; p: P; regle: Regle | undefined; avant: Ligne | null }
+/** État lu avant une action : la ligne visée par la règle, et ce que l'action modifie au-delà (`etat`). */
+export interface Trace { action: string; p: P; regle: Regle | undefined; avant: Ligne | null; etat: unknown }
 
 export function preparerTrace(db: Db, action: string, p: unknown): Trace {
   const regle = REGLES[action];
   const params = p && typeof p === 'object' ? (p as P) : {};
-  return { action, p: params, regle, avant: lireCible(db, regle?.cible, params) };
+  return { action, p: params, regle, avant: lireCible(db, regle?.cible, params), etat: regle?.etat?.(db, params) };
 }
 
 /**
  * Trace une action réussie (dans sa transaction) : code, champs retenus, anciennes et nouvelles valeurs,
- * salariés concernés, message expurgé. Rien pour une saisie d'heures sur une feuille en brouillon.
+ * salariés concernés, message expurgé. Rien pour la saisie d'heures du salarié sur sa propre feuille.
  */
 export function journaliserAction(db: Db, t: Trace, x: { user: CurrentUser; compte: Compte; message: string | null; result?: unknown }) {
   const { regle, p, avant } = t;
-  const apres = lireCible(db, regle?.cible, p);
-  if (regle?.tracer && !regle.tracer(avant, apres, p)) return;
-  const code = regle?.code?.(avant) || t.action;
-  const payload = champsRetenus(t.action, p, avant);
-  const propres = regle?.changements?.(avant, apres, p, db) ?? null;
-  const diff = propres ?? (regle?.cible ? comparer(regle.cible, avant, apres) : null);
+  const ctx: Contexte = { db, user: x.user, avant, apres: lireCible(db, regle?.cible, p), etat: t.etat, result: x.result };
+  if (regle?.tracer && !regle.tracer(p, ctx)) return;
+  const code = regle?.code?.(p, ctx) || t.action;
+  const payload = { ...champsRetenus(t.action, p, avant), ...(regle?.bilan?.(p, ctx) ?? {}) };
+  const propres = regle?.changements?.(p, ctx) ?? null;
+  const diff = propres ?? (regle?.cible ? comparer(regle.cible, avant, ctx.apres) : null);
   if (propres?.extra) Object.assign(payload, propres.extra);
   if (diff) Object.assign(payload, { avant: diff.avant, apres: diff.apres });
-  const salaries = entiers([
-    p.empId, avant?.empId, apres?.empId, ...(regle?.salaries?.(p, { db, user: x.user, avant, apres, result: x.result }) ?? []),
-  ]);
+  const salaries = entiers([p.empId, avant?.empId, ctx.apres?.empId, ...(regle?.salaries?.(p, ctx) ?? [])]);
   const message = expurgerMessage(propres?.message ?? x.message);
-  if (regle?.regrouper && regrouper(db, regle.regrouper, code, x.compte.id, payload)) return;
+  if (regle?.regrouper && regrouper(db, { minutes: regle.regrouper, action: code, compteId: x.compte.id, payload })) return;
   journaliser(db, { actor: x.user.nom, role: x.user.role, action: code, message, payload, compte: x.compte, salaries });
 }
 
-/** Ajoute la modification à la dernière ligne du même compte sur le même objet, si elle date de moins de `minutes`. */
-function regrouper(db: Db, minutes: number, action: string, compteId: number, payload: Ligne): boolean {
-  const depuis = new Date(Date.now() - minutes * 60_000).toISOString();
+/**
+ * Ajoute la modification à la dernière ligne du même compte sur le même objet (même valeur de `cle`), si elle date
+ * de moins de `minutes` : listes réunies, autres valeurs remplacées, message recalculé au besoin.
+ */
+function regrouper(db: Db, o: { minutes: number; action: string; compteId: number; payload: Ligne; cle?: string; message?: (fusion: Ligne) => string }): boolean {
+  const cle = o.cle ?? 'id';
+  const depuis = new Date(Date.now() - o.minutes * 60_000).toISOString();
   const der = db.sql.prepare('SELECT id, payload FROM journal WHERE compte_id = ? AND action = ? AND at >= ? ORDER BY id DESC LIMIT 1')
-    .get(compteId, action, depuis) as { id: number; payload: string } | undefined;
+    .get(o.compteId, o.action, depuis) as { id: number; payload: string } | undefined;
   const prec = der ? lireJson(der.payload) as Ligne : null;
-  if (!der || !prec || prec.id !== payload.id) return false;
+  if (!der || !prec || prec[cle] !== o.payload[cle]) return false;
   const fusion: Ligne = { ...prec };
-  for (const [k, v] of Object.entries(payload)) fusion[k] = Array.isArray(v) && Array.isArray(prec[k]) ? [...new Set([...prec[k], ...v])] : v;
-  db.update('journal', der.id, { at: new Date().toISOString(), payload: fusion });
+  for (const [k, v] of Object.entries(o.payload)) fusion[k] = Array.isArray(v) && Array.isArray(prec[k]) ? [...new Set([...prec[k], ...v])] : v;
+  db.update('journal', der.id, { at: new Date().toISOString(), payload: fusion, ...(o.message ? { message: o.message(fusion) } : {}) });
   return true;
 }
 
-/** Refus d'accès (403) d'une personne connectée : action ou écran réservé, motif ; rien n'a été modifié. */
+/** Longueur au plus d'un motif de refus recopié (il peut reprendre des clés envoyées par le client). */
+const MOTIF_MAX = 200;
+
+/** Refus d'accès (403) d'une personne connectée : action ou écran réservé, motif borné ; rien n'a été modifié. */
 export function tracerRefus(db: Db, id: Pick<Identite, 'user' | 'compte'>, quoi: string, motif: string, extra: { action?: string; p?: unknown } = {}) {
   const payload = { ...(extra.action ? { action: extra.action, ...champsRetenus(extra.action, extra.p as P) } : {}) };
   const p = (extra.p ?? {}) as P;
+  const court = motif.length > MOTIF_MAX ? `${motif.slice(0, MOTIF_MAX)}…` : motif;
   journaliser(db, {
-    actor: id.user.nom, role: id.user.role, action: 'acces.refuse', message: `${quoi} — ${expurgerMessage(motif)}`, payload, compte: id.compte,
+    actor: id.user.nom, role: id.user.role, action: 'acces.refuse', message: `${quoi} — ${expurgerMessage(court)}`, payload, compte: id.compte,
     salaries: entiers([p.empId]),
   });
 }
@@ -318,10 +371,21 @@ const ilYa = (maintenant: Date, mois: number) => { const d = new Date(maintenant
 
 export interface BilanConservation { supprimees: number; archivees: number; supprimeesArchive: number; envois: number }
 
+/** Bilan d'un ou plusieurs passages, en clair. */
+function bilanTexte(b: BilanConservation): string {
+  return [
+    b.supprimees && `${plural(b.supprimees, 'ligne supprimée', 'lignes supprimées')} (plus d’un an)`,
+    b.archivees && `${plural(b.archivees, 'action liée à la paie archivée', 'actions liées à la paie archivées')}`,
+    b.supprimeesArchive && `${plural(b.supprimeesArchive, 'ligne supprimée', 'lignes supprimées')} de l’archive (plus de 3 ans)`,
+    b.envois && `${plural(b.envois, 'envoi ancien retiré', 'envois anciens retirés')} de la file d’envoi`,
+  ].filter(Boolean).join(' · ');
+}
+
 /**
  * Applique les durées de conservation : au-delà de 3 ans, toute ligne est supprimée (archive comprise) ; au-delà
  * d'1 an, une action liée à la paie passe dans l'archive, les autres lignes (connexions comprises) sont supprimées.
- * Les envois réussis ou simulés de plus d'1 an quittent la file d'envoi. Une ligne résume ce qui a été fait.
+ * Les envois réussis ou simulés de plus d'1 an quittent la file d'envoi. Une ligne par jour résume ce qui a été
+ * fait : la tâche tourne toutes les heures, chaque passage s'ajoute au bilan du jour au lieu d'écrire une ligne.
  */
 export function appliquerConservation(db: Db, maintenant = new Date()): BilanConservation {
   const un = ilYa(maintenant, CONSERVATION_JOURNAL_MOIS), trois = ilYa(maintenant, CONSERVATION_ARCHIVE_PAIE_MOIS);
@@ -333,16 +397,31 @@ export function appliquerConservation(db: Db, maintenant = new Date()): BilanCon
     const envois = purgerEnvois(db, ilYa(maintenant, CONSERVATION_ENVOIS_MOIS));
     const b = { supprimees, archivees, supprimeesArchive, envois };
     if (supprimees || archivees || supprimeesArchive || envois) {
-      const parts = [
-        supprimees && `${plural(supprimees, 'ligne supprimée', 'lignes supprimées')} (plus d’un an)`,
-        archivees && `${plural(archivees, 'action liée à la paie archivée', 'actions liées à la paie archivées')}`,
-        supprimeesArchive && `${plural(supprimeesArchive, 'ligne supprimée', 'lignes supprimées')} de l’archive (plus de 3 ans)`,
-        envois && `${plural(envois, 'envoi ancien retiré', 'envois anciens retirés')} de la file d’envoi`,
-      ].filter(Boolean);
-      journaliser(db, { actor: 'Cursus', role: null, action: 'journal.conservation', message: `Durée de conservation : ${parts.join(' · ')}`, payload: b });
+      // Bilan du jour (heure locale du serveur) : la ligne déjà écrite aujourd'hui est complétée.
+      const minuit = new Date(maintenant);
+      minuit.setHours(0, 0, 0, 0);
+      const du = db.sql.prepare('SELECT id, payload FROM journal WHERE action = ? AND at >= ? AND at <= ? ORDER BY id DESC LIMIT 1')
+        .get('journal.conservation', minuit.toISOString(), maintenant.toISOString()) as { id: number; payload: string } | undefined;
+      const prec = (du ? lireJson(du.payload) : null) as (BilanConservation & { passages?: number }) | null;
+      const total = prec
+        ? { supprimees: num(prec.supprimees) + supprimees, archivees: num(prec.archivees) + archivees, supprimeesArchive: num(prec.supprimeesArchive) + supprimeesArchive, envois: num(prec.envois) + envois }
+        : b;
+      const payload = { ...total, passages: prec ? (prec.passages ?? 1) + 1 : 1 };
+      const message = `Durée de conservation : ${bilanTexte(total)}`;
+      if (du && prec) db.update('journal', du.id, { at: maintenant.toISOString(), message, payload });
+      else journaliser(db, { at: maintenant.toISOString(), actor: 'Cursus', role: null, action: 'journal.conservation', message, payload });
     }
     return b;
   });
+}
+
+/**
+ * Lignes déjà écrites d'une action devenue « liée à la paie » (ACTIONS_PAIE élargie depuis) : marquées comme telles,
+ * pour qu'elles passent dans l'archive au lieu d'être supprimées.
+ */
+export function marquerPaie(db: Db): number {
+  const dans = ACTIONS_PAIE.map(() => '?').join(', ');
+  return Number(db.sql.prepare(`UPDATE journal SET paie = 1 WHERE (paie IS NULL OR paie = 0) AND (action IN (${dans}) OR action LIKE 'sage.%')`).run(...ACTIONS_PAIE).changes);
 }
 
 /**
@@ -351,13 +430,15 @@ export function appliquerConservation(db: Db, maintenant = new Date()): BilanCon
  * Une seule fois par base (réglage `journalExpurge`), et seulement les lignes sans `salaries` : une ligne écrite
  * depuis (anciennes et nouvelles valeurs comprises) n'est jamais reprise, même après une réinitialisation de la
  * démonstration qui efface le réglage. Les lignes du système (connexions, appels et messages de Keystone)
- * n'ont jamais contenu de requête : leur contenu est gardé.
+ * n'ont jamais contenu de requête : leur contenu est gardé. Renvoie le nombre de lignes dont le contenu ou le
+ * message a été réduit.
  */
-export function reprendreJournal(db: Db) {
-  if (db.getSetting<boolean>('journalExpurge', false)) return;
-  db.tx(() => {
+export function reprendreJournal(db: Db): number {
+  if (db.getSetting<boolean>('journalExpurge', false)) return 0;
+  return db.tx(() => {
     const lignes = db.sql.prepare('SELECT id, action, message, payload FROM journal WHERE salaries IS NULL').all() as { id: number; action: string; message: string | null; payload: string | null }[];
     const maj = db.sql.prepare('UPDATE journal SET payload = ?, message = ?, salaries = ?, paie = ? WHERE id = ?');
+    let reduites = 0;
     for (const l of lignes) {
       const p = (lireJson(l.payload) ?? {}) as P;
       const regle = REGLES[l.action];
@@ -368,9 +449,12 @@ export function reprendreJournal(db: Db) {
         salaries = entiers([p.empId, ligne?.empId, ...participants(p).map(x => x?.empId),
           ...(l.action === 'employe.modifier' ? [p.id] : [])]);
       } else if (!JOURNAL_LABEL[l.action] && !l.action.startsWith('keystone.')) payload = {};
-      maj.run(JSON.stringify(payload), expurgerMessage(l.message), JSON.stringify(salaries), estActionPaie(l.action) ? 1 : 0, l.id);
+      const message = expurgerMessage(l.message);
+      if (JSON.stringify(payload) !== JSON.stringify(p) || message !== l.message) reduites++;
+      maj.run(JSON.stringify(payload), message, JSON.stringify(salaries), estActionPaie(l.action) ? 1 : 0, l.id);
     }
     db.setSetting('journalExpurge', true);
+    return reduites;
   });
 }
 
@@ -378,7 +462,16 @@ export function reprendreJournal(db: Db) {
 export function demarrerJournal(db: Db) {
   db.sql.exec('CREATE INDEX IF NOT EXISTS journal_at ON journal (at)');
   db.sql.exec('CREATE INDEX IF NOT EXISTS journal_action ON journal (action)');
-  reprendreJournal(db);
+  const reduites = reprendreJournal(db);
+  if (reduites) {
+    // La copie faite avant la migration (et toute sauvegarde antérieure) garde l'ancien journal, non expurgé.
+    const copie = copieAvantMigration(db);
+    console.log(`Journal : ${plural(reduites, 'ligne antérieure expurgée', 'lignes antérieures expurgées')} (numéros de passeport, CSV, natures d’absence…). `
+      + (copie
+        ? `La copie ${copie} contient encore l’ancien journal : supprimez-la une fois la mise à jour vérifiée (docs/DEPLOIEMENT.md).`
+        : 'Les sauvegardes antérieures contiennent encore l’ancien journal (docs/DEPLOIEMENT.md).'));
+  }
+  marquerPaie(db);
   const appliquer = () => { try { appliquerConservation(db); } catch (err) { console.error('Conservation du journal :', err); } };
   appliquer();
   setInterval(appliquer, 3600_000).unref();
@@ -415,6 +508,9 @@ export function lireFiltre(q: Record<string, unknown>): FiltreJournal {
 const debutJour = (d: string) => new Date(`${d}T00:00:00`).toISOString();
 const like = (s: string) => `%${s.replace(/[\\%_]/g, '\\$&')}%`;
 
+/** Le filtre « Action » désigne-t-il les appels de Keystone (code exact, ou leur famille) ? */
+const appelsDemandes = (action: string | null) => action === ACTION_APPEL_KEYSTONE || (!!action?.startsWith('famille:') && familleAction(ACTION_APPEL_KEYSTONE)?.id === action.slice(8));
+
 function clauses(f: FiltreJournal): { where: string; params: (string | number)[] } {
   const w: string[] = [], params: (string | number)[] = [];
   const liste = (xs: readonly string[]) => { params.push(...xs); return xs.map(() => '?').join(', '); };
@@ -423,8 +519,11 @@ function clauses(f: FiltreJournal): { where: string; params: (string | number)[]
     w.push('archivee IS NULL');
     if (f.vue === 'keystone') { w.push('action = ?'); params.push(ACTION_APPEL_KEYSTONE); }
     else {
-      w.push('action <> ?');
-      params.push(ACTION_APPEL_KEYSTONE);
+      // Les appels de Keystone, nombreux, sont tenus à l'écart des autres vues, sauf si le filtre « Action » les désigne.
+      if (!appelsDemandes(f.action)) {
+        w.push('action <> ?');
+        params.push(ACTION_APPEL_KEYSTONE);
+      }
       if (f.vue === 'connexions') w.push(`action IN (${liste(ACTIONS_CONNEXION)})`);
       if (f.vue === 'operations') w.push(`action NOT IN (${liste(ACTIONS_CONNEXION)})`);
     }
@@ -505,19 +604,47 @@ function filtresTexte(db: Db, f: FiltreJournal): string {
   return parts.length ? parts.join(', ') : 'aucun filtre';
 }
 
-/** Journal consultable : tout profil de l'espace RH (gestionnaire, administrateur, et profils en lecture seule). */
-export const lecteurJournal = (u: CurrentUser) => u.role === 'rh';
-
-/** Personne connectée autorisée, ou réponse 401 / 403 (le refus d'une personne connectée est tracé). */
-export function exigerRh(db: Db, req: Request, res: Response, quoi: string): Identite | null {
+/**
+ * Personne connectée qui a le droit demandé (par défaut : lire le journal, droit « rh » ou « consultation »,
+ * shared/journal.ts), ou réponse 401 / 403 (le refus d'une personne connectée est tracé). Le profil compte, pas
+ * l'espace : un profil restreint de l'espace RH (référent HSE, paie) n'a ni le journal ni l'export des données.
+ */
+export function exigerRh(db: Db, req: Request, res: Response, quoi: string, autorise: (u: CurrentUser) => boolean = lecteurJournal): Identite | null {
   const id = identite(db, req);
   if (!id) { res.status(401).json({ error: 'Connexion requise' }); return null; }
-  if (!lecteurJournal(id.user)) {
+  if (!autorise(id.user)) {
     tracerRefus(db, id, quoi, 'réservé au service RH');
     res.status(403).json({ error: 'Réservé au service RH' });
     return null;
   }
   return id;
+}
+
+/** Actions dont le message ou le détail touche à la santé : absence (dates d'un arrêt), visite médicale, vaccination, document déclaré. */
+const ACTIONS_SANTE = new Set(['absence.saisir', 'absence.qualifier', 'absence.prolonger', 'absence.annuler', 'medical.demander', 'formalite.enregistrer', 'demande.accepter']);
+export const DETAIL_RESERVE = 'Détail réservé au service RH';
+
+/**
+ * Lignes lues par une personne sans le droit « rh » (profil en lecture seule : direction, DPO, auditeur) :
+ * message et détail des actions touchant à la santé masqués ; l'action, sa date, son auteur et le salarié restent.
+ */
+export function pourLecteur(u: CurrentUser, lignes: LigneJournal[]): LigneJournal[] {
+  if (dossierComplet(u)) return lignes;
+  return lignes.map(l => (ACTIONS_SANTE.has(l.action) || ACTIONS_SANTE.has(String(l.details.action ?? ''))
+    ? { ...l, message: l.message == null ? null : DETAIL_RESERVE, details: {} } : l));
+}
+
+/** Consultation de l'archive : une ligne par compte et par filtre pendant 15 minutes, avec les pages vues. */
+function tracerArchive(db: Db, id: Identite, f: FiltreJournal, page: number, total: number) {
+  const filtres = filtresTexte(db, f);
+  const message = (x: Ligne) => {
+    const pages = (x.pages as number[]).slice().sort((a, b) => a - b);
+    const vues = pages.length === 1 && pages[0] === 1 ? '' : ` · ${pages.length > 1 ? 'pages' : 'page'} ${pages.slice(0, 20).join(', ')}${pages.length > 20 ? '…' : ''}`;
+    return `Consultation de l’archive paie — ${plural(total, 'ligne', 'lignes')} (${filtres})${vues}`;
+  };
+  const payload = { filtres, pages: [page] };
+  if (regrouper(db, { minutes: 15, action: 'journal.archive', compteId: id.compte.id, payload, cle: 'filtres', message })) return;
+  journaliser(db, { actor: id.user.nom, role: id.user.role, action: 'journal.archive', message: message(payload), payload, compte: id.compte, salaries: f.salarie ? [f.salarie] : [] });
 }
 
 /** Fichier joint à télécharger (jamais mis en cache : données personnelles). */
@@ -539,11 +666,9 @@ export function routesJournal(db: Db): Router {
     const page = Math.max(1, Math.floor(Number(req.query.page)) || 1);
     const taille = Math.min(TAILLE_MAX, Math.max(1, Math.floor(Number(req.query.taille)) || TAILLE_PAGE));
     const out = lireJournal(db, f, page, taille);
-    // L'archive n'apparaît qu'à la demande : chaque consultation (première page) est tracée.
-    if (f.vue === 'archive' && page === 1) {
-      journaliser(db, { actor: id.user.nom, role: id.user.role, action: 'journal.archive', message: `Consultation de l’archive paie — ${plural(out.total, 'ligne', 'lignes')} (${filtresTexte(db, f)})`, compte: id.compte, salaries: f.salarie ? [f.salarie] : [] });
-    }
-    res.json(out);
+    // L'archive n'apparaît qu'à la demande : chaque consultation est tracée, quelle que soit la page lue.
+    if (f.vue === 'archive') tracerArchive(db, id, f, page, out.total);
+    res.json({ ...out, lignes: pourLecteur(id.user, out.lignes) });
   });
 
   r.get('/api/journal/csv', (req, res) => {
@@ -555,7 +680,7 @@ export function routesJournal(db: Db): Router {
       actor: id.user.nom, role: id.user.role, action: 'journal.export', compte: id.compte, salaries: f.salarie ? [f.salarie] : [],
       message: `Export CSV du journal — ${plural(lignes.length, 'ligne', 'lignes')}${total > lignes.length ? ` sur ${total}` : ''} (${filtresTexte(db, f)})`,
     });
-    fichierJoint(res, 'text/csv; charset=utf-8', `journal${f.vue === 'archive' ? '-archive-paie' : ''}-${jourLocal()}.csv`, csvJournal(db, lignes));
+    fichierJoint(res, 'text/csv; charset=utf-8', `journal${f.vue === 'archive' ? '-archive-paie' : ''}-${jourLocal()}.csv`, csvJournal(db, pourLecteur(id.user, lignes)));
   });
 
   // Exports et impressions produits par le navigateur (CSV des échéances, liste d'une session, passeport formation,

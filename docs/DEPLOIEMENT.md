@@ -399,6 +399,14 @@ précède chaque mise en production.
 4. Vérifications après installation (ci-dessus).
 5. En cas de problème : revenir à la version précédente (`git checkout <version>`, `npm ci`,
    `npm run build`), restaurer la sauvegarde et redémarrer.
+6. Mise à jour qui expurge le journal des actions (première version à liste blanche) : au démarrage, le
+   serveur signale « Journal : … lignes antérieures expurgées » et nomme la copie `…-avant-migration.db`
+   faite juste avant. Cette copie contient l'ancien journal non expurgé (numéros de passeport, CSV
+   importés, natures d'absence, vaccins) ; la rotation compte les copies par type, pas les jours, et ne la
+   supprimerait qu'après 14 migrations ultérieures, bien au-delà de la durée d'un an décidée par
+   l'entreprise. Une fois la mise à jour vérifiée (étape 4), la supprimer :
+   `sudo -u cursus rm /var/lib/cursus/backups/cursus-…Z-avant-migration.db`. La sauvegarde de l'étape 2,
+   comme les copies quotidiennes, disparaît d'elle-même avec la rotation (deux semaines environ).
 
 ## Exploitation courante
 
@@ -423,10 +431,13 @@ précède chaque mise en production.
   corrections d'heures, transmissions), qui passent dans une archive gardée 3 ans (Paramètres → Journal
   des actions → « Consulter l'archive paie », consultation tracée). Le serveur applique ces durées au
   démarrage puis toutes les heures, et retire en même temps de la file d'envoi les envois réussis ou simulés
-  de plus d'un an (un échec non classé reste jusqu'à son traitement) ; la ligne `journal.conservation` en
-  fait le bilan. Au premier démarrage de cette version, les anciennes lignes sont expurgées (numéros de
-  passeport, CSV importés, natures d'absence médicales…). Les sauvegardes gardent l'état de la base au
-  moment de la copie : leur rotation (`docs/SAUVEGARDE.md`) borne la durée de vie de ces anciennes lignes.
+  de plus d'un an (un échec non classé reste jusqu'à son traitement) ; une ligne `journal.conservation` par
+  jour en fait le bilan. Au premier démarrage de cette version, les anciennes lignes sont expurgées (numéros
+  de passeport, CSV importés, natures d'absence, vaccins…). Les sauvegardes gardent l'état de la base au
+  moment de la copie : les copies quotidiennes et « avant-réinitialisation » disparaissent avec leur
+  rotation (14 copies par type, soit deux semaines pour les copies quotidiennes), mais la copie
+  « avant-migration » faite à ce démarrage, qui contient l'ancien journal non expurgé, resterait jusqu'à
+  14 migrations ultérieures : la supprimer une fois la mise à jour vérifiée (« Mise à jour », étape 6).
 - Demande d'accès d'un salarié à ses données (RGPD, article 15) : fiche du collaborateur → « Exporter ses
   données » (fichier JSON : toutes les tables qui le concernent et le journal des actions le concernant) ;
   l'export est tracé. Le salarié peut aussi télécharger lui-même ses données depuis son espace (sans le

@@ -1,6 +1,8 @@
 // Journal des actions : libellés français, familles (filtre « Action »), actions liées à la paie et durées
-// de conservation, mise en forme des anciennes et nouvelles valeurs. Partagé par le serveur (consultation,
-// export CSV, conservation : server/src/journal.ts) et l'écran Paramètres → Journal des actions.
+// de conservation, mise en forme des anciennes et nouvelles valeurs, droits de lecture. Partagé par le serveur
+// (consultation, export CSV, conservation : server/src/journal.ts) et l'écran Paramètres → Journal des actions.
+import { PROFILS_RH } from './constants.ts';
+import type { CurrentUser } from './types.ts';
 
 /**
  * Durées de conservation (décision de l'entreprise) : 1 an pour tout ; les actions liées à la paie passent
@@ -14,10 +16,13 @@ export const CONSERVATION_ENVOIS_MOIS = 12;
 
 /**
  * Actions liées à la paie, archivées 3 ans : validations (feuilles de temps, absences validées par le
- * manager ou le RH, qualifiées ou saisies d'emblée), corrections d'heures sur une feuille soumise et
- * transmissions à la paie (Sage).
+ * manager ou le RH, qualifiées ou saisies d'emblée), prolongations et annulations d'absences (sans elles,
+ * l'archive présenterait comme en vigueur une absence annulée ou raccourcie), corrections d'heures par le
+ * manager ou le RH et transmissions à la paie (Sage).
  */
-export const ACTIONS_PAIE: readonly string[] = ['temps.validate', 'temps.correction', 'temps.pushSage', 'absence.decider', 'absence.qualifier', 'absence.saisir'];
+export const ACTIONS_PAIE: readonly string[] = [
+  'temps.validate', 'temps.correction', 'temps.pushSage', 'absence.decider', 'absence.qualifier', 'absence.saisir', 'absence.prolonger', 'absence.annuler',
+];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
 /** Connexions et accès : vue « Connexions » du journal (les refus d'accès en font partie). */
@@ -71,7 +76,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'temps.submit': 'Feuille de temps soumise',
   'temps.validate': 'Feuille de temps validée',
   'temps.reject': 'Feuille de temps renvoyée',
-  'temps.correction': 'Correction d’heures d’une feuille soumise',
+  'temps.correction': 'Correction d’heures par le manager ou le RH',
   'temps.pushSage': 'Transmission à la paie',
   // Absences et congés
   'absence.demander': 'Demande d’absence',
@@ -124,6 +129,23 @@ export const JOURNAL_LABEL: Record<string, string> = {
 };
 
 export const libelleAction = (code: string) => JOURNAL_LABEL[code] ?? code;
+
+/**
+ * Droits de la personne connectée : ceux de son profil RH (PROFILS_RH), dans l'espace RH seulement. Lus comme
+ * des chaînes : le droit « consultation » (profil en lecture seule : direction, DPO, auditeur) vient d'un autre
+ * chantier ; un profil inconnu n'en a aucun.
+ */
+const droitsDe = (u: Pick<CurrentUser, 'role' | 'profilRh'>): readonly string[] => (u.role === 'rh' && u.profilRh ? PROFILS_RH[u.profilRh]?.droits ?? [] : []);
+/**
+ * Journal des actions (consultation, export CSV, archive paie, historique d'une fiche) : droit « rh »
+ * (gestionnaire, administrateur) ou « consultation » (lecture seule) ; ni le référent HSE, ni la paie.
+ */
+export const lecteurJournal = (u: Pick<CurrentUser, 'role' | 'profilRh'>) => droitsDe(u).some(d => d === 'rh' || d === 'consultation');
+/**
+ * Dossier complet d'un salarié, données de santé comprises : export de toutes ses données (droit d'accès) et
+ * journal sans masque ; droit « rh » seul.
+ */
+export const dossierComplet = (u: Pick<CurrentUser, 'role' | 'profilRh'>) => droitsDe(u).includes('rh');
 
 /** Familles du filtre « Action » : codes commençant par l'un des préfixes (ou égaux à l'un d'eux). */
 export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly string[] }[] = [

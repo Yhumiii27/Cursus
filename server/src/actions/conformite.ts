@@ -6,7 +6,7 @@ import { estAuDossier, relireDeclaration, retireeAuRefus } from '../../../shared
 import type { Certification, DemandeCollab, Employe, HabTitre, HabType, Inscription } from '../../../shared/types.ts';
 import { loadFull } from '../dataset.ts';
 import { suivreVerdicts } from '../integrations/keystone-verdicts.ts';
-import { convoquerFormation, notifierDecisionDemande } from '../notifications.ts';
+import { annulerSiConvoque, convoquerFormation, notifierDecisionDemande } from '../notifications.ts';
 import { ActionError, enriched, getEmp, isManagerOf, isRh, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
 import { appliquerFormalite, retirerFormalite } from './voyages.ts';
 
@@ -24,7 +24,8 @@ function attendCloture(ctx: Ctx, sessionId: number | null) {
 /**
  * Inscription à une session : recyclage d'une certification détenue (`certId`), ou formation initiale
  * à replanifier (`inscriptionId` : session annulée, absent, évaluation échouée). Le nombre d'inscrits est
- * calculé : changer de session libère la place de l'ancienne, sauf d'une session passée à clôturer.
+ * calculé : changer de session libère la place de l'ancienne, sauf d'une session passée à clôturer ; la
+ * convocation reçue pour l'ancienne session, si elle est à venir, est annulée par e-mail.
  */
 const inscrire: ActionHandler = (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
@@ -46,11 +47,15 @@ const inscrire: ActionHandler = (ctx, p) => {
   if (sess.inscrits >= sess.places) throw new ActionError('Cette session est complète');
   const conv = p.conv === 'later' ? 'later' : 'now';
   const convocLe = conv === 'now' ? ctx.d.ti : null;
+  // Changement de session : la convocation de l'ancienne (à venir) est annulée avant l'envoi de la nouvelle.
+  const ancienne = ctx.d.session((cert ?? insc)!.sessionId);
+  const annulee = annulerSiConvoque(ctx, ancienne, emp, cert ?? insc!);
   if (cert) ctx.db.update<Certification>('certifications', cert.id, { sessionId: sess.id, convoc: conv, convocLe });
   else ctx.db.update<Inscription>('inscriptions', insc!.id, { sessionId: sess.id, convoc: conv, date: ctx.d.ti, convocLe });
   // « Envoyer maintenant » : convocation par e-mail avec le fichier .ics (sans adresse : à remettre en main propre).
   const envoi = conv === 'now' && !convoquerFormation(ctx, sess, emp, cert ? 'recyclage' : 'initiale') ? ' · convocation à remettre en main propre (aucune adresse e-mail)' : '';
-  return `${emp.nom} — inscription à la session du ${fmt(parse(sess.date))}${conv === 'now' ? envoi || ' · convocation envoyée' : ' · convocation à envoyer'}`;
+  return `${emp.nom} — inscription à la session du ${fmt(parse(sess.date))}${conv === 'now' ? envoi || ' · convocation envoyée' : ' · convocation à envoyer'}`
+    + (annulee ? ` · convocation à la session du ${fmt(parse(ancienne!.date))} annulée par e-mail` : '');
 };
 
 const ajouterCert: ActionHandler = (ctx, p) => {
@@ -68,8 +73,10 @@ const ajouterCert: ActionHandler = (ctx, p) => {
   // l'inscrit : c'est elle qui a produit le recyclage, sa clôture le constatera.
   const sess = avant && certEnVigueur([...emp.certs, cert], fm.id) === cert ? ctx.d.session(avant.sessionId) : null;
   if (sess && sessionActive(sess) && sess.date > p.date) {
-    ctx.db.update<Certification>('certifications', avant!.id, { sessionId: null, convoc: null });
-    return `${fm.court} ajoutée au dossier de ${emp.nom} · inscription à la session du ${fmt(parse(sess.date))} annulée`;
+    // La convocation reçue pour cette session, si elle est à venir, est annulée par e-mail.
+    const annulee = annulerSiConvoque(ctx, sess, emp, avant!);
+    ctx.db.update<Certification>('certifications', avant!.id, { sessionId: null, convoc: null, convocLe: null });
+    return `${fm.court} ajoutée au dossier de ${emp.nom} · inscription à la session du ${fmt(parse(sess.date))} annulée${annulee ? ' · annulation envoyée par e-mail' : ''}`;
   }
   return `${fm.court} ajoutée au dossier de ${emp.nom}`;
 };
@@ -118,9 +125,13 @@ const accepterDemande: ActionHandler = (ctx, p) => {
       const cert = certEnVigueur(emp.certs, r.f!);
       // Le nombre d'inscrits est calculé : rattacher à la session libère l'éventuelle place d'une autre
       // (une session passée, à clôturer, garde ses inscrits jusqu'à la clôture).
+      // Inscription déplacée d'une autre session à venir : la convocation reçue pour celle-ci est annulée par e-mail.
       if (cert) {
         // Recyclage : la certification en vigueur est rattachée à la session.
-        if (cert.sessionId !== sess.id) attendCloture(ctx, cert.sessionId);
+        if (cert.sessionId !== sess.id) {
+          attendCloture(ctx, cert.sessionId);
+          annulerSiConvoque(ctx, ctx.d.session(cert.sessionId), emp, cert);
+        }
         ctx.db.update<Certification>('certifications', cert.id, { sessionId: sess.id, convoc: 'now', convocLe: ctx.d.ti });
       } else if (!ctx.ds.inscriptions.some(i => i.empId === emp.id && i.sessionId === sess.id)) {
         // Formation initiale : inscription suivie jusqu'à l'obtention de la certification. Une inscription de la
@@ -128,6 +139,7 @@ const accepterDemande: ActionHandler = (ctx, p) => {
         const existante = ctx.ds.inscriptions.find(i => i.empId === emp.id && ctx.d.session(i.sessionId)?.formation === r.f);
         if (existante) {
           attendCloture(ctx, existante.sessionId);
+          annulerSiConvoque(ctx, ctx.d.session(existante.sessionId), emp, existante);
           ctx.db.update<Inscription>('inscriptions', existante.id, { sessionId: sess.id, convoc: 'now', date: ctx.d.ti, convocLe: ctx.d.ti });
         } else ctx.db.insert<Inscription>('inscriptions', { empId: emp.id, sessionId: sess.id, convoc: 'now', date: ctx.d.ti, convocLe: ctx.d.ti });
       }

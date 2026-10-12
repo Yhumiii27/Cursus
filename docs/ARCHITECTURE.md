@@ -177,9 +177,9 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `equipe.supprimer` | nom | administrateur RH |
 | `equipe.manager` | nom, managerId (null = aucun) | RH |
 | `equipe.affecter` | empId, equipe (null = à affecter) | RH ; manager : ajout à une équipe qu'il encadre, retrait d'un membre |
-| `plan.inscrire` | empId, certId (recyclage) ou inscriptionId (formation initiale à replanifier), sessionId, conv (`now`/`later`) ; refusé depuis une session passée non clôturée | RH, manager direct |
+| `plan.inscrire` | empId, certId (recyclage) ou inscriptionId (formation initiale à replanifier), sessionId, conv (`now`/`later`) ; refusé depuis une session passée non clôturée ; convocation reçue pour l'ancienne session à venir annulée par e-mail | RH, manager direct |
 | `convocation.envoyer` | sessionId, empIds? (sans liste : toutes les convocations « à envoyer » ; avec : envoi ou renvoi) ; session à venir ; e-mail avec `.ics`, date d'envoi `convocLe` | RH ; manager direct pour les membres de son équipe |
-| `plan.desinscrire` | empId, sessionId (session à venir) : place libérée, recyclage de nouveau à planifier ou inscription initiale retirée, convocation envoyée annulée par e-mail | RH, manager direct |
+| `plan.desinscrire` | empId, sessionId (session à venir) : place libérée, recyclage de nouveau à planifier ou inscription initiale retirée, convocation reçue (même remise « à renvoyer ») annulée par e-mail | RH, manager direct |
 | `cert.ajouter` | empId, f, date | RH |
 | `session.creer` | f, date (postérieure à aujourd’hui), lieu, places (entier ≥ 1), planId? (action « prévue » de la même formation) | RH |
 | `session.confirmer` | id | RH |
@@ -228,7 +228,7 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `compte.reinitialiser` | id | administrateur RH (compte local : nouveau mot de passe provisoire ; compte Microsoft rattaché : « Délier », `oid` retiré pour une identité recréée ; sessions fermées) |
 | `envoi.relancer` | id | RH (envoi en échec, intégration configurée : nouvelle série de tentatives, même clé d'idempotence) |
 | `envoi.classer` | id | RH (envoi en échec examiné : reste listé, ne compte plus parmi les échecs en cours ; une relance le remet en cours) |
-| `messagerie.regler` | rh?, rhMode? (`immediat`/`quotidien`), santeTravail?, agences? [{nom, adresse}] (adresse vide : agence retirée) | administrateur RH |
+| `messagerie.regler` | rh?, rhMode? (`immediat`/`quotidien`), santeTravail?, agences? [{nom, adresse}] (adresse vide : agence retirée ; date `depuis` gardée, celle du jour pour une agence ajoutée) | administrateur RH |
 | `messagerie.essai` | adresse : e-mail d'essai (mise en service, `docs/EMAILS.md`) | administrateur RH |
 | `messagerie.recapituler` | — : récapitulatifs des notifications en attente envoyés sans attendre 7 h | RH |
 | `notification.regler` | empId? (soi par défaut), mode (`immediat`/`quotidien`) | la personne elle-même, ou RH |
@@ -292,8 +292,12 @@ Règles dans `shared/rules/sessions.ts` (inscrits nominatifs, contrôles, liste 
   unitaire ou groupé, pour les convocations « à envoyer ») : e-mail avec un fichier `.ics` (journée entière,
   `UID` stable par session et salarié : un renvoi met à jour l'événement), date d'envoi `convocLe` sur la
   certification ou l'inscription. Sans adresse e-mail, la convocation est notée envoyée, à remettre en main propre.
-  « Désinscrire » (`plan.desinscrire`) libère la place ; une convocation déjà envoyée est annulée par e-mail
-  (`.ics` d'annulation), comme à l'annulation de la session.
+  Le `.ics` porte l'organisateur (boîte d'envoi, sinon celle du service RH) et, pour une session « à confirmer »,
+  le statut provisoire (`TENTATIVE`). « Désinscrire » (`plan.desinscrire`) libère la place. Une convocation reçue
+  (`convocationEnvoyee` : « envoyée », ou remise « à renvoyer » avec sa date `convocLe`) est annulée par e-mail
+  (`.ics` d'annulation, même `UID`) dès que la personne quitte une session à venir : désinscription, changement
+  de session (`plan.inscrire`, `demande.accepter`), recyclage enregistré avant la session (`cert.ajouter`), place
+  libérée par une nouvelle date (`session.modifier`), annulation de la session.
   **Modifier** : date, lieu, places (au moins les inscrits). Une session à venir garde une date future ; un
   changement de date ou de lieu repasse les convocations envoyées « à envoyer », et une nouvelle date repasse
   une session confirmée « à confirmer ». Une session passée, à clôturer, se redate au jour où elle a eu lieu
@@ -447,18 +451,22 @@ Règles : `shared/rules/absences.ts` (confidentialité, décompte, reprise, annu
   RH, pièces jointes `.ics` ou CSV) mis en file dans la transaction de l'action. Jamais de donnée de santé, de
   nature d'absence médicale, de numéro de passeport ni de texte libre saisi (commentaire, motif).
   - Adresses (`server/src/messagerie.ts`) : `employes.email` (fiche, saisie par le RH, unique, en minuscules ;
-    reprise de l'identifiant du compte Microsoft 365 à sa création, et une fois pour une base existante),
-    réglage `messagerie` (boîte du service RH et son mode, service de santé au travail, agences d'intérim).
+    reprise de l'identifiant du compte Microsoft 365 à sa création, par `compte.creer` ou `npm run comptes`, et
+    une fois pour une base existante), réglage `messagerie` (boîte du service RH et son mode, service de santé au
+    travail, agences d'intérim avec la date `depuis` où leur adresse a été renseignée).
   - Notifications (`server/src/notifications.ts`) : demande de congés → valideur ; décision ou congés posés →
     salarié ; feuille soumise → valideur ; feuille renvoyée → salarié ; compte rendu d'entretien clos →
     salarié ; réponse à une demande au service RH → salarié et manager demandeur. Valideur sans manager : la
     boîte du service RH. Ni à l'auteur de l'action, ni à un salarié sans adresse ou sorti. Réglage
     `employes.notifications` : aussitôt, ou table `notifications` regroupée chaque jour à partir de 7 h
-    (`planifierEmails`, réglage `recapitulatifLe`) ou sur demande (`messagerie.recapituler`). Convocations
-    (formation, entretien) : toujours aussitôt.
+    (`tachesEmails`, relevé tous les quarts d'heure par `planifierEmails` ; réglage `recapitulatifLe`) ou sur
+    demande (`messagerie.recapituler`), à l'adresse en vigueur à l'envoi (destinataire sorti ou sans adresse :
+    notifications closes sans envoi). Convocations (formation, entretien) : toujours aussitôt.
   - Relevés des intérimaires (`server/src/releves.ts`, règles `shared/rules/releves.ts`) : par agence et par
     semaine, heures des feuilles validées (par jour, normales, majorées), jours d'absence sans leur nature,
-    CSV joint. Envoi automatique de la semaine précédente (et de la semaine en cours après son vendredi) quand
+    CSV joint, heures au centième. Envoi automatique (`semainesAutomatiques` : les cinq semaines précédentes, et la
+    semaine en cours après son vendredi, sans remonter avant la semaine qui précède l'adresse de l'agence) quand
     toutes les feuilles de l'agence sont validées, à la validation de la dernière (`temps.validate`) et par les
-    tâches de fond ; envoi ou renvoi par le RH (`releve.envoyer`). Chaque envoi est conservé (table `releves`,
-    instantané RH `releves` avec le statut de l'e-mail).
+    tâches de fond, si la semaine n'a pas été transmise ou si le dernier envoi était incomplet ; envoi (feuilles
+    en attente comprises) ou renvoi par le RH (`releve.envoyer`). Chaque envoi est conservé (table `releves`, avec
+    le nombre de feuilles alors en attente `enAttente` ; instantané RH `releves` avec le statut de l'e-mail).

@@ -154,6 +154,10 @@ export interface EvenementAgenda {
   description?: string;
   /** Annulation : retire l'événement de l'agenda qui l'avait reçu. */
   annule?: boolean;
+  /** Date encore à confirmer (session « à confirmer » par l'organisme) : événement provisoire. */
+  provisoire?: boolean;
+  /** Organisateur (RFC 5546 : exigé pour une publication ou une annulation) ; nom sans « ; », « : » ni « , ». */
+  organisateur?: { nom: string; adresse: string } | null;
 }
 
 /** Fichier .ics d'un événement d'une journée, ou de son annulation. */
@@ -165,10 +169,11 @@ export function calendrier(ev: EvenementAgenda, maintenant = new Date()): string
     'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Cursus//Convocations//FR', 'CALSCALE:GREGORIAN', `METHOD:${ev.annule ? 'CANCEL' : 'PUBLISH'}`,
     'BEGIN:VEVENT', `UID:${ev.uid}`, `DTSTAMP:${horodatage}`, `SEQUENCE:${Math.max(0, sequence)}`,
     `DTSTART;VALUE=DATE:${icsDate(ev.date)}`, `DTEND;VALUE=DATE:${icsDate(lendemain(ev.date))}`,
+    ...(ev.organisateur ? [`ORGANIZER;CN=${ev.organisateur.nom}:mailto:${ev.organisateur.adresse}`] : []),
     `SUMMARY:${ICS_TEXTE(ev.titre)}`,
     ...(ev.lieu ? [`LOCATION:${ICS_TEXTE(ev.lieu)}`] : []),
     ...(ev.description ? [`DESCRIPTION:${ICS_TEXTE(ev.description)}`] : []),
-    `STATUS:${ev.annule ? 'CANCELLED' : 'CONFIRMED'}`, 'TRANSP:OPAQUE',
+    `STATUS:${ev.annule ? 'CANCELLED' : ev.provisoire ? 'TENTATIVE' : 'CONFIRMED'}`, 'TRANSP:OPAQUE',
     'END:VEVENT', 'END:VCALENDAR',
   ];
   return lignes.map(plier).join('\r\n') + '\r\n';

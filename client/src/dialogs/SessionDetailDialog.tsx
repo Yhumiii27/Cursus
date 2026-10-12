@@ -6,7 +6,7 @@ import { PLAN_LABEL, SESS_CLS, VALIDATION_LABEL } from '../../../shared/constant
 import { sessionActive } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, fmtShort, plural } from '../../../shared/format.ts';
-import { exigeEvaluation, inscritsDe, listeOrganisme, resultatsDe, type Inscrit } from '../../../shared/rules/sessions.ts';
+import { convocationEnvoyee, exigeEvaluation, inscritsDe, listeOrganisme, resultatsDe, type Inscrit } from '../../../shared/rules/sessions.ts';
 import { CancelButton, Dialog, Field, Static } from '../components/Dialog.tsx';
 import { Btn, Empty, Fine, NoteAccent, Tag, Two } from '../components/ui.tsx';
 import { downloadCsv } from '../print.ts';
@@ -46,6 +46,8 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
   // Convocations : session à venir seulement (une session passée attend sa clôture). Le dialogue reste ouvert.
   const aVenir = ouverte && s.date >= d.ti;
   const aEnvoyer = inscrits.filter(i => i.convoc !== 'now' && !i.dejaObtenue);
+  // Annulation d'une session à venir : les convocations déjà envoyées (même « à renvoyer ») sont annulées par e-mail.
+  const convoques = aVenir ? inscrits.filter(convocationEnvoyee).length : 0;
   const agir = async (name: string, payload: Record<string, unknown>) => {
     setBusy(true);
     await run(name, payload);
@@ -53,7 +55,7 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
   };
   const convoquer = (i?: Inscrit) => agir('convocation.envoyer', { sessionId: s.id, ...(i ? { empIds: [i.empId] } : {}) });
   const desinscrire = (i: Inscrit) => {
-    const annule = i.convoc === 'now' ? ' La convocation envoyée est annulée par e-mail.' : '';
+    const annule = convocationEnvoyee(i) ? ' La convocation envoyée est annulée par e-mail.' : '';
     if (window.confirm(`Désinscrire ${i.nom} de cette session ?\n\nLa place est libérée${i.parcours === 'recyclage' ? ' et le recyclage redevient à planifier' : ' et l’inscription en formation initiale est retirée'}.${annule}`)) {
       agir('plan.desinscrire', { empId: i.empId, sessionId: s.id });
     }
@@ -74,6 +76,7 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
             ? `${plural(inscrits.length, 'inscrit redevient', 'inscrits redeviennent')} à planifier : les recyclages reviennent dans les échéances, les formations initiales sont à replanifier depuis la fiche du collaborateur.`
             : 'Aucun inscrit.'}
           {plan?.statut === 'engage' ? ' L’action du plan engagée pour cette session redevient « prévue » si aucune autre session ne la porte.' : ''}
+          {convoques ? ` ${convoques > 1 ? `Les ${convoques} convocations déjà envoyées sont annulées` : 'La convocation déjà envoyée est annulée'} par e-mail, sans le motif.` : ''}
         </Fine>
       </Dialog>
     );
@@ -123,13 +126,13 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
                         sub={i.dejaObtenue ? `Déjà renouvelée le ${fmt(parse(i.dejaObtenue.obtenue))}` : i.obtenue ? `Obtenue le ${fmt(parse(i.obtenue))}` : ''} />
                     </td>
                     <td>
-                      <Tag cls={i.convoc === 'now' ? 'tag-neutral' : 'tag-outline'}>{i.convoc === 'now' ? 'Envoyée' : 'À envoyer'}</Tag>
-                      {i.convoc === 'now' && i.convocLe && <div className="text-muted sub nowrap">le {fmtShort(parse(i.convocLe))}</div>}
+                      <Tag cls={i.convoc === 'now' ? 'tag-neutral' : 'tag-outline'}>{i.convoc === 'now' ? 'Envoyée' : i.convocLe ? 'À renvoyer' : 'À envoyer'}</Tag>
+                      {i.convocLe && <div className="text-muted sub nowrap">{i.convoc === 'now' ? 'le' : 'envoyée le'} {fmtShort(parse(i.convocLe))}</div>}
                     </td>
                     {rh && aVenir && (
                       <td className="right">
                         <div className="actions-end">
-                          {!i.dejaObtenue && <Btn small disabled={busy} onClick={() => convoquer(i)}>{i.convoc === 'now' ? 'Renvoyer' : 'Envoyer'}</Btn>}
+                          {!i.dejaObtenue && <Btn small disabled={busy} onClick={() => convoquer(i)}>{convocationEnvoyee(i) ? 'Renvoyer' : 'Envoyer'}</Btn>}
                           <Btn small disabled={busy} onClick={() => desinscrire(i)}>Désinscrire</Btn>
                         </div>
                       </td>

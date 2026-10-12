@@ -7,11 +7,14 @@
 // Tout passe par la file d'envoi, dans la transaction de l'action (server/src/integrations/email.ts).
 import { ENT_TYPES, HEURE_RECAPITULATIF } from '../../shared/constants.ts';
 import { addD, isoWeek, parse } from '../../shared/dates.ts';
+import { sessionActive } from '../../shared/domain.ts';
 import { fmt, plural } from '../../shared/format.ts';
-import type { Absence, CurrentUser, Dataset, DemandeCollab, Employe, Entretien, Messagerie, Session } from '../../shared/types.ts';
+import { convocationEnvoyee } from '../../shared/rules/sessions.ts';
+import type { Absence, Certification, CurrentUser, Dataset, DemandeCollab, Employe, Entretien, Messagerie, Session } from '../../shared/types.ts';
+import { configMail } from './config.ts';
 import { todayIso } from './dataset.ts';
 import type { Db } from './db.ts';
-import { calendrier, domaineAgenda, envoyerEmail, pieceJointe } from './integrations/email.ts';
+import { calendrier, domaineAgenda, envoyerEmail, pieceJointe, type EvenementAgenda } from './integrations/email.ts';
 import { adresseSalarie, courriel, jourLong, lireMessagerie, periodeLongue } from './messagerie.ts';
 import { relevesAutomatiques } from './releves.ts';
 
@@ -127,15 +130,28 @@ export function notifierDecisionDemande(cx: Contexte, emp: Employe, r: DemandeCo
 
 // — Convocations (aussitôt, avec le fichier .ics) —
 
+/**
+ * Organisateur des événements .ics (exigé par les agendas pour une publication ou une annulation) : la boîte
+ * d'envoi de Cursus, à défaut (simulation) la boîte du service RH.
+ */
+function organisateur(cx: Contexte): EvenementAgenda['organisateur'] {
+  const from = configMail()?.from;
+  if (from) return { nom: 'Cursus', adresse: from };
+  const rh = messagerie(cx).rh;
+  return rh ? { nom: 'Service RH', adresse: rh } : null;
+}
+
 /** Convocation à une session de formation. Renvoie faux si le salarié n'a pas d'adresse (convocation à remettre). */
 export function convoquerFormation(cx: Contexte, s: Session, emp: Pick<Employe, 'id' | 'nom'>, parcours: 'recyclage' | 'initiale'): boolean {
   const d = adresseSalarie(cx.db, emp.id, cx.ds.today);
   if (!d) return false;
   const fm = cx.ds.referentiels.formations.find(f => f.id === s.formation);
   const nom = fm?.nom ?? s.formation;
+  // Session « à confirmer » par l'organisme : événement provisoire dans l'agenda.
   const ics = calendrier({
     uid: `formation-${s.id}-${emp.id}@${domaineAgenda()}`, date: s.date, titre: `Formation : ${nom}`, lieu: s.lieu,
     description: [fm?.organisme && `Organisme : ${fm.organisme}`, fm?.duree && `Durée : ${fm.duree}`].filter(Boolean).join(' · '),
+    provisoire: s.statut === 'À confirmer', organisateur: organisateur(cx),
   });
   envoyerEmail(cx.db, 'convocation', courriel(messagerie(cx), d.adresse, `Convocation : ${nom} — ${fmt(parse(s.date))}`, [
     `Votre inscription à la formation « ${nom} »${parcours === 'recyclage' ? ' (recyclage)' : ''} est confirmée :`,
@@ -145,7 +161,7 @@ export function convoquerFormation(cx: Contexte, s: Session, emp: Pick<Employe, 
     ...(fm?.organisme ? [`Organisme : ${fm.organisme}`] : []),
     ...(fm?.duree ? [`Durée : ${fm.duree}`] : []),
     '',
-    'Le fichier joint ajoute la session à votre agenda. Cette convocation remplace toute convocation précédente pour cette session.',
+    'Ouvrez le fichier joint pour ajouter la session à votre agenda. Cette convocation remplace toute convocation précédente pour cette session.',
     'En cas d’empêchement, prévenez au plus tôt votre manager et le service RH.',
   ].join('\n'), { nom: emp.nom, pj: [pieceJointe(`convocation-${s.date}.ics`, 'text/calendar; charset=utf-8; method=PUBLISH', ics)] }));
   return true;
@@ -156,13 +172,26 @@ export function annulerConvocationFormation(cx: Contexte, s: Session, emp: Pick<
   const d = adresseSalarie(cx.db, emp.id, cx.ds.today);
   if (!d) return false;
   const nom = cx.ds.referentiels.formations.find(f => f.id === s.formation)?.nom ?? s.formation;
-  const ics = calendrier({ uid: `formation-${s.id}-${emp.id}@${domaineAgenda()}`, date: s.date, titre: `Formation : ${nom}`, lieu: s.lieu, annule: true });
+  const ics = calendrier({ uid: `formation-${s.id}-${emp.id}@${domaineAgenda()}`, date: s.date, titre: `Formation : ${nom}`, lieu: s.lieu, annule: true, organisateur: organisateur(cx) });
   const texte = raison === 'annulation'
     ? `La session de la formation « ${nom} » ${periodeLongue(s.date, s.date)} est annulée : votre convocation ne vaut plus. Le service RH vous inscrira à une prochaine session.`
     : `Votre inscription à la session de la formation « ${nom} » ${periodeLongue(s.date, s.date)} est annulée : votre convocation ne vaut plus.`;
   envoyerEmail(cx.db, 'convocation.annulee', courriel(messagerie(cx), d.adresse, `Annulation : ${nom} — ${fmt(parse(s.date))}`,
-    `${texte}\n\nLe fichier joint retire l’événement de votre agenda.`, { nom: emp.nom, pj: [pieceJointe(`annulation-${s.date}.ics`, 'text/calendar; charset=utf-8; method=CANCEL', ics)] }));
+    `${texte}\n\nOuvrez le fichier joint pour retirer l’événement de votre agenda, ou supprimez-le vous-même.`,
+    { nom: emp.nom, pj: [pieceJointe(`annulation-${s.date}.ics`, 'text/calendar; charset=utf-8; method=CANCEL', ics)] }));
   return true;
+}
+
+/**
+ * Inscrit qui quitte une session ouverte et à venir (désinscription, changement de session, recyclage enregistré
+ * entre-temps, session annulée) : la convocation qu'il a reçue, même remise « à renvoyer » par un changement de
+ * date ou de lieu, est annulée par e-mail. Renvoie vrai si l'annulation part.
+ */
+export function annulerSiConvoque(
+  cx: Contexte, s: Session | null | undefined, emp: Pick<Employe, 'id' | 'nom'>, x: Pick<Certification, 'convoc' | 'convocLe'>, raison: 'desinscription' | 'annulation' = 'desinscription',
+): boolean {
+  if (!s || !sessionActive(s) || s.date < cx.ds.today || !convocationEnvoyee(x)) return false;
+  return annulerConvocationFormation(cx, s, emp, raison);
 }
 
 /** Convocation à un entretien planifié : au salarié, avec le fichier .ics. Faux s'il n'a pas d'adresse. */
@@ -170,11 +199,14 @@ export function convoquerEntretien(cx: Contexte, emp: Pick<Employe, 'id' | 'nom'
   const d = adresseSalarie(cx.db, emp.id, cx.ds.today);
   if (!d) return false;
   const nom = nomEntretien(x);
-  const ics = calendrier({ uid: `entretien-${x.id}@${domaineAgenda()}`, date: x.date, titre: ENT_TYPES[x.type]?.nom ?? 'Entretien', description: 'Préparation et compte rendu dans Cursus (Entretiens).' });
+  const ics = calendrier({
+    uid: `entretien-${x.id}@${domaineAgenda()}`, date: x.date, titre: ENT_TYPES[x.type]?.nom ?? 'Entretien', description: 'Préparation et compte rendu dans Cursus (Entretiens).',
+    organisateur: organisateur(cx),
+  });
   envoyerEmail(cx.db, 'entretien.convocation', courriel(messagerie(cx), d.adresse, `Convocation : ${nom} — ${fmt(parse(x.date))}`, [
     `${auteur(cx.user) === 'le service RH' ? 'Le service RH' : auteur(cx.user)} vous convoque à un ${nom} ${periodeLongue(x.date, x.date)}.`,
     '',
-    'Vous pouvez préparer vos sections du compte rendu dans Cursus (Entretiens). Le fichier joint ajoute l’entretien à votre agenda.',
+    'Vous pouvez préparer vos sections du compte rendu dans Cursus (Entretiens). Ouvrez le fichier joint pour ajouter l’entretien à votre agenda.',
   ].join('\n'), { nom: emp.nom, pj: [pieceJointe(`entretien-${x.date}.ics`, 'text/calendar; charset=utf-8; method=PUBLISH', ics)] }));
   return true;
 }
@@ -187,46 +219,59 @@ interface EnAttente { id: number; empId: number | null; adresse: string; type: s
 export const recapitulatifEnAttente = (db: Db): number =>
   Number((db.sql.prepare('SELECT COUNT(*) AS n FROM notifications WHERE envoi_id IS NULL').get() as { n: number }).n);
 
-/** Un e-mail par destinataire avec ses notifications en attente, dans l'ordre d'arrivée. Renvoie le nombre d'e-mails. */
+/**
+ * Un e-mail par destinataire avec ses notifications en attente, dans l'ordre d'arrivée, à son adresse du moment
+ * (fiche, ou boîte du service RH) : une adresse corrigée depuis la notification est suivie. Destinataire sans
+ * adresse ou sorti de l'entreprise : ses notifications sont closes sans envoi. Renvoie le nombre d'e-mails.
+ */
 export function envoyerRecapitulatifs(db: Db): number {
   const items = (db.sql.prepare('SELECT id FROM notifications WHERE envoi_id IS NULL ORDER BY id').all() as { id: number }[])
     .map(r => db.get<EnAttente>('notifications', r.id)!);
   if (!items.length) return 0;
   const m = lireMessagerie(db), today = todayIso();
-  const parAdresse = new Map<string, EnAttente[]>();
-  items.forEach(n => parAdresse.set(n.adresse, [...(parAdresse.get(n.adresse) ?? []), n]));
-  for (const [adresse, liste] of parAdresse) {
-    const empId = liste[0].empId;
-    const nom = empId ? db.get<{ nom: string }>('employes', empId)?.nom ?? null : null;
+  // Par destinataire : le salarié, ou le service RH (0).
+  const parDestinataire = new Map<number, EnAttente[]>();
+  items.forEach(n => parDestinataire.set(n.empId ?? 0, [...(parDestinataire.get(n.empId ?? 0) ?? []), n]));
+  let emails = 0;
+  for (const [dest, liste] of parDestinataire) {
+    const d = dest ? adresseSalarie(db, dest, today) : m.rh ? { nom: null, adresse: m.rh } : null;
     const texte = [
       'Voici les notifications de Cursus depuis votre dernier récapitulatif :',
       ...liste.map(n => `\n• ${n.objet}\n  ${n.texte.replace(/\n/g, '\n  ')}`),
       '\nDétail et suite à donner dans Cursus.',
     ].join('\n');
-    const e = envoyerEmail(db, 'recapitulatif', courriel(m, adresse, `Cursus — récapitulatif du ${fmt(parse(today))} : ${plural(liste.length, 'notification', 'notifications')}`, texte, { nom }));
-    liste.forEach(n => db.update('notifications', n.id, { envoiId: e?.id ?? 0 }));
+    const e = d && envoyerEmail(db, 'recapitulatif', courriel(m, d.adresse, `Cursus — récapitulatif du ${fmt(parse(today))} : ${plural(liste.length, 'notification', 'notifications')}`, texte, { nom: d.nom }));
+    if (e) emails++;
+    liste.forEach(n => db.update('notifications', n.id, { envoiId: e ? e.id : 0 }));
   }
-  return parAdresse.size;
+  return emails;
 }
 
 /** Réglage : date du dernier récapitulatif quotidien envoyé. */
 const DERNIER_RECAPITULATIF = 'recapitulatifLe';
 
 /**
- * Tâches de fond des e-mails, relevées au démarrage puis tous les quarts d'heure : récapitulatif quotidien à partir
- * de 7 h (une fois par jour, même après un redémarrage) et relevés d'heures des intérimaires de la semaine écoulée.
+ * Un passage des tâches de fond des e-mails, dans une transaction : relevés d'heures des intérimaires dont toutes
+ * les feuilles sont validées, puis, à partir de 7 h (`heure` : heure locale), le récapitulatif quotidien, une fois
+ * par jour (réglage `recapitulatifLe`, gardé en base : un redémarrage ne le renvoie pas). Renvoie le nombre de
+ * relevés et de récapitulatifs mis en file (null : pas l'heure, ou déjà fait aujourd'hui).
  */
+export function tachesEmails(db: Db, heure = new Date().getHours()): { releves: number; recapitulatifs: number | null } {
+  return db.tx(() => {
+    const releves = relevesAutomatiques(db).length;
+    const jour = todayIso();
+    if (heure < HEURE_RECAPITULATIF || db.getSetting<string | null>(DERNIER_RECAPITULATIF, null) === jour) return { releves, recapitulatifs: null };
+    const recapitulatifs = envoyerRecapitulatifs(db);
+    db.setSetting(DERNIER_RECAPITULATIF, jour);
+    return { releves, recapitulatifs };
+  });
+}
+
+/** Tâches de fond des e-mails (`tachesEmails`), au démarrage puis tous les quarts d'heure. */
 export function planifierEmails(db: Db, intervalle = 15 * 60_000): () => void {
   const relever = () => {
     try {
-      db.tx(() => {
-        relevesAutomatiques(db);
-        const jour = todayIso();
-        if (new Date().getHours() >= HEURE_RECAPITULATIF && db.getSetting<string | null>(DERNIER_RECAPITULATIF, null) !== jour) {
-          envoyerRecapitulatifs(db);
-          db.setSetting(DERNIER_RECAPITULATIF, jour);
-        }
-      });
+      tachesEmails(db);
     } catch (err) {
       console.error('E-mails planifiés :', err);
     }

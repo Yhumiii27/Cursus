@@ -5,7 +5,7 @@ import { parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
 import { controleSession, exigeEvaluation, inscritsDe, placesRemplacees } from '../../../shared/rules/sessions.ts';
 import type { Certification, Inscription, Participation, PlanAction, Session, SessionBilan } from '../../../shared/types.ts';
-import { annulerConvocationFormation } from '../notifications.ts';
+import { annulerSiConvoque } from '../notifications.ts';
 import { ActionError, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
 
 /** Session désignée par `id` ; refusée si elle est clôturée ou annulée (sauf `toutes`). */
@@ -76,9 +76,11 @@ const modifier: ActionHandler = (ctx, p) => {
     places !== s.places ? plural(places, 'place', 'places') : '',
   ].filter(Boolean);
   if (!changes.length) return 'Aucune modification';
-  // Nouvelle date postérieure à un recyclage déjà enregistré : la certification remplacée libère sa place.
+  // Nouvelle date postérieure à un recyclage déjà enregistré : la certification remplacée libère sa place, et la
+  // convocation reçue pour la session (telle qu'elle était) est annulée par e-mail.
   const liberees = date !== s.date ? placesRemplacees(ctx.d, s.id, date) : [];
-  liberees.forEach(x => ctx.db.update<Certification>('certifications', x.c.id, { sessionId: null, convoc: null }));
+  const prevenus = liberees.filter(x => annulerSiConvoque(ctx, s, { id: x.empId, nom: ctx.d.personName(x.empId) }, x.c)).length;
+  liberees.forEach(x => ctx.db.update<Certification>('certifications', x.c.id, { sessionId: null, convoc: null, convocLe: null }));
   // Session passée corrigée après coup : plus de convocation ni de confirmation à demander.
   const aVenir = date >= ctx.d.ti;
   let aRenvoyer = 0;
@@ -94,6 +96,7 @@ const modifier: ActionHandler = (ctx, p) => {
   return [
     `${nomSession(ctx, s)} modifiée — ${changes.join(' · ')}`,
     liberees.length ? `recyclage déjà enregistré avant cette date, ${liberees.length > 1 ? 'places libérées' : 'place libérée'} : ${liberees.map(x => ctx.d.personName(x.empId)).join(', ')}` : '',
+    prevenus ? `${plural(prevenus, 'annulation envoyée', 'annulations envoyées')} par e-mail` : '',
     aRenvoyer ? plural(aRenvoyer, 'convocation à renvoyer', 'convocations à renvoyer') : '',
     reconfirmer ? `nouvelle date à faire confirmer par ${ctx.d.fm(s.formation)?.organisme ?? 'l’organisme'}` : '',
   ].filter(Boolean).join(' · ');
@@ -111,14 +114,15 @@ const annuler: ActionHandler = (ctx, p) => {
   if (motif && motif.length > 500) throw new ActionError('Motif trop long (500 caractères au plus)');
   const inscrits = inscritsDe(ctx.d, s);
   ctx.ds.employes.flatMap(e => e.certs).filter(c => c.sessionId === s.id)
-    .forEach(c => ctx.db.update<Certification>('certifications', c.id, { sessionId: null, convoc: null }));
+    .forEach(c => ctx.db.update<Certification>('certifications', c.id, { sessionId: null, convoc: null, convocLe: null }));
   const plan = s.planId ? ctx.ds.plan.find(l => l.id === s.planId) : undefined;
   const replan = plan?.statut === 'engage' && !autreSessionDuPlan(ctx, s);
   if (replan) ctx.db.update<PlanAction>('planActions', plan!.id, { statut: 'prevu' });
   const bilan: SessionBilan = { le: ctx.d.ti, par: ctx.user.nom, note: null, commentaire: null, motif };
   ctx.db.update<Session>('sessions', s.id, { statut: 'Annulée', bilan });
-  // Convocations déjà envoyées : annulées par e-mail (l'événement est retiré de l'agenda), sans le motif.
-  const prevenus = s.date >= ctx.d.ti ? inscrits.filter(i => i.convoc === 'now' && annulerConvocationFormation(ctx, s, { id: i.empId, nom: i.nom }, 'annulation')).length : 0;
+  // Convocations déjà envoyées (même remises « à renvoyer » par un changement de date ou de lieu) : annulées par
+  // e-mail avec le .ics d'annulation, sans le motif. Session passée : plus rien à annuler.
+  const prevenus = inscrits.filter(i => annulerSiConvoque(ctx, s, { id: i.empId, nom: i.nom }, i, 'annulation')).length;
   return `${nomSession(ctx, s)} annulée${inscrits.length ? ` — ${plural(inscrits.length, 'inscrit à replanifier', 'inscrits à replanifier')}` : ''}${replan ? ' · action du plan de nouveau prévue' : ''}`
     + (prevenus ? ` · ${plural(prevenus, 'annulation envoyée', 'annulations envoyées')} par e-mail` : '');
 };

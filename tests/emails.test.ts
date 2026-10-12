@@ -5,7 +5,7 @@
 // est simulé par un serveur node:http local ; un dernier scénario lance le vrai serveur.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawn, type ChildProcess } from 'node:child_process';
+import { spawn, spawnSync, type ChildProcess } from 'node:child_process';
 import { mkdtempSync, rmSync } from 'node:fs';
 import { createServer, type IncomingHttpHeaders, type ServerResponse } from 'node:http';
 import type { AddressInfo } from 'node:net';
@@ -24,13 +24,13 @@ const { ActionError, makeCtx } = await import('../server/src/actions/context.ts'
 const { traiterFile, demarrerEnvois } = await import('../server/src/envois.ts');
 const { calendrier, envoyerEmail, transportEmail } = await import('../server/src/integrations/email.ts');
 const { configMail, problemesConfig } = await import('../server/src/config.ts');
-const { envoyerRecapitulatifs, recapitulatifEnAttente } = await import('../server/src/notifications.ts');
+const { envoyerRecapitulatifs, recapitulatifEnAttente, tachesEmails } = await import('../server/src/notifications.ts');
 const { reprendreAdressesDesComptes } = await import('../server/src/messagerie.ts');
 const { relevesAutomatiques } = await import('../server/src/releves.ts');
 const { suivreVerdicts } = await import('../server/src/integrations/keystone-verdicts.ts');
 const { Domain } = await import('../shared/domain.ts');
 const { inscritsDe } = await import('../shared/rules/sessions.ts');
-const { csvTexte, releveAgence, releveCsv } = await import('../shared/rules/releves.ts');
+const { csvTexte, releveAgence, releveCsv, semainesAutomatiques } = await import('../shared/rules/releves.ts');
 const { validerProfil, profilOf } = await import('../shared/rules/profil.ts');
 const { EMAIL_LABEL } = await import('../shared/constants.ts');
 type User = Parameters<typeof buildSnapshot>[1];
@@ -241,8 +241,12 @@ test('ICS : événement d’une journée, texte échappé, lignes repliées, ann
   assert.ok(lignes.includes('DTSTAMP:20261010T080000Z'));
   assert.ok(lignes.every(l => Buffer.byteLength(l) <= 75), 'lignes de 75 octets au plus');
   assert.ok(lignes.some(l => l.startsWith(' é')), 'description repliée');
-  const annule = calendrier({ uid: 'formation-2-2@cursus.example.fr', date: '2026-11-18', titre: 'Formation', annule: true }, new Date('2026-10-11T08:00:00Z'));
+  assert.ok(lignes.includes('STATUS:CONFIRMED') && !lignes.some(l => l.startsWith('ORGANIZER')));
+  const organisateur = { nom: 'Cursus', adresse: 'cursus@entreprise.fr' };
+  assert.match(calendrier({ uid: 'u@x', date: '2026-11-18', titre: 'Formation', provisoire: true, organisateur }), /ORGANIZER;CN=Cursus:mailto:cursus@entreprise\.fr\r\n[\s\S]*STATUS:TENTATIVE\r\n/);
+  const annule = calendrier({ uid: 'formation-2-2@cursus.example.fr', date: '2026-11-18', titre: 'Formation', annule: true, organisateur }, new Date('2026-10-11T08:00:00Z'));
   assert.match(annule, /METHOD:CANCEL\r\n/);
+  assert.match(annule, /ORGANIZER;CN=Cursus:mailto:cursus@entreprise\.fr\r\n/, 'RFC 5546 : organisateur exigé pour une annulation');
   assert.match(annule, /STATUS:CANCELLED\r\n/);
   const seq = (s: string) => Number(/SEQUENCE:(\d+)/.exec(s)![1]);
   assert.ok(seq(annule) > seq(ics), 'version postérieure : l’agenda retient l’annulation');
@@ -280,6 +284,26 @@ test('t032 : adresse professionnelle sur la fiche — saisie par le RH, unique, 
   db.sql.exec(`UPDATE employes SET email = NULL WHERE id = 2`);
   reprendreAdressesDesComptes(db, () => { copies++; });
   assert.equal(domain().emp(2)!.email, null, 'une seule fois : une adresse effacée depuis n’est pas remise');
+});
+
+test('t032 : npm run comptes rattaché à une fiche (--salarie) reprend l’adresse du compte Microsoft 365', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cursus-cli-'));
+  const fichier = join(dir, 'cursus.db');
+  try {
+    const db = new Db(fichier);
+    seedDemo(db);
+    db.sql.exec(`DELETE FROM comptes WHERE emp_id = 2; UPDATE employes SET email = NULL WHERE id = 2`);
+    db.sql.close();
+    const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/comptes-cli.ts', 'admin', 'Mehdi.Benali@entreprise.example', '--salarie', '2'],
+      { cwd: ROOT, encoding: 'utf8', env: { PATH: process.env.PATH ?? '', CURSUS_DB: fichier, CURSUS_TODAY: '2026-10-10' } });
+    assert.equal(r.status, 0, r.stderr);
+    assert.match(r.stdout, /Administrateur RH créé : Mehdi Benali \(mehdi\.benali@entreprise\.example, Microsoft 365\) · adresse e-mail mehdi\.benali@entreprise\.example reprise sur la fiche/);
+    const apres = new Db(fichier);
+    assert.equal(apres.get<{ email: string | null }>('employes', 2)!.email, MEHDI_MAIL);
+    apres.sql.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 // — t033 : notifications des étapes —
@@ -373,6 +397,54 @@ test('t033 : chaque étape notifie son destinataire, aussitôt ou dans le récap
     ['convocation', 'convocation.annulee', 'essai', 'releve.interim'], 'les autres types sont couverts par les tests suivants');
 });
 
+test('t033 : récapitulatif quotidien à partir de 7 h, une fois par jour même après un redémarrage, à l’adresse en vigueur', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cursus-recap-'));
+  const fichier = join(dir, 'cursus.db');
+  let db = new Db(fichier);
+  try {
+    seedDemo(db);
+    const run = (user: User, name: string, payload: Record<string, unknown> = {}) => db.tx(() => ACTIONS[name](makeCtx(db, user, loadFull(db, user)), payload));
+    const recaps = () => db.all<Envoi>('envois').filter(e => e.type === 'recapitulatif').map(e => (e.contenu as unknown as Courriel).a[0]);
+    // Demande de Mehdi : Karim (récapitulatif quotidien) l'a pour karim.haddad@… ; le RH corrige son adresse avant 7 h.
+    run(MEHDI, 'absence.demander', { empId: 2, kind: 'CP', du: '2026-12-07', au: '2026-12-08' });
+    run(RH, 'employe.modifier', { id: 12, email: 'k.haddad@entreprise.example' });
+    // La semaine 40 de Léa Girard est validée : son relevé part avec le premier passage des tâches de fond.
+    db.sql.exec(`UPDATE feuilles SET statut = 'validee' WHERE emp_id = 15 AND week = '2026-09-28'`);
+    assert.deepEqual(tachesEmails(db, 6), { releves: 1, recapitulatifs: null }, 'avant 7 h : pas de récapitulatif');
+    assert.equal(recapitulatifEnAttente(db), 1);
+    assert.deepEqual(tachesEmails(db, 7), { releves: 0, recapitulatifs: 1 });
+    assert.deepEqual(recaps(), ['k.haddad@entreprise.example'], 'adresse en vigueur, pas celle notée à la notification');
+    // Une nouvelle notification dans la journée attend le lendemain, même après un redémarrage.
+    run(MEHDI, 'absence.demander', { empId: 2, kind: 'RTT', du: '2026-12-10', au: '2026-12-10' });
+    assert.deepEqual(tachesEmails(db, 18), { releves: 0, recapitulatifs: null });
+    db.sql.close();
+    db = new Db(fichier);
+    assert.deepEqual(tachesEmails(db, 9), { releves: 0, recapitulatifs: null }, 'redémarrage : déjà envoyé aujourd’hui');
+    process.env.CURSUS_TODAY = '2026-10-11';
+    try {
+      assert.deepEqual(tachesEmails(db, 7), { releves: 0, recapitulatifs: 1 }, 'le lendemain à 7 h');
+      // Karim sorti de l'entreprise : sa notification en attente est close sans envoi.
+      run(MEHDI, 'absence.demander', { empId: 2, kind: 'RTT', du: '2026-12-11', au: '2026-12-11' });
+      db.update('employes', 12, { fin: '2026-10-10' });
+      assert.equal(db.tx(() => envoyerRecapitulatifs(db)), 0);
+      assert.equal(recapitulatifEnAttente(db), 0);
+      assert.deepEqual(recaps(), ['k.haddad@entreprise.example', 'k.haddad@entreprise.example']);
+      // Boîte du service RH changée entre la notification et le récapitulatif : la nouvelle la reçoit.
+      run(RH, 'messagerie.regler', { rhMode: 'quotidien' });
+      run(RH, 'equipe.affecter', { empId: 6, equipe: null });
+      run({ role: 'collaborateur', empId: 6, nom: 'Thomas Garnier', intitule: '' }, 'absence.demander', { empId: 6, kind: 'CP', du: '2026-12-14', au: '2026-12-14' });
+      run(RH, 'messagerie.regler', { rh: 'drh@entreprise.example' });
+      assert.equal(run(GEST, 'messagerie.recapituler'), '1 récapitulatif envoyé — notifications en attente transmises');
+      assert.equal(recaps().at(-1), 'drh@entreprise.example');
+    } finally {
+      process.env.CURSUS_TODAY = '2026-10-10';
+    }
+  } finally {
+    db.sql.close();
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
 test('t033 : ni donnée de santé, ni motif d’absence, ni numéro de passeport, ni texte libre dans les e-mails', () => {
   const { db, run, mails, enAttente } = fresh();
   // Absence signalée puis qualifiée en arrêt maladie : aucune notification.
@@ -401,10 +473,12 @@ test('t033 : ni donnée de santé, ni motif d’absence, ni numéro de passeport
 test('t113 : envoyer la convocation (unitaire, groupée, datée, avec .ics) et désinscrire (place libérée, annulation)', () => {
   const { db, run, forbidden, mails, domain } = fresh();
   const cert = (empId: number, f: string) => domain().emp(empId)!.certs.filter(c => c.f === f).sort((x, y) => y.obtenue.localeCompare(x.obtenue))[0];
-  // « Envoyer plus tard » : rien ne part, la convocation reste à envoyer.
-  assert.match(String(run(RH, 'plan.inscrire', { empId: 1, certId: cert(1, 'sst').id, sessionId: 2, conv: 'later' })), /convocation à envoyer$/);
+  // « Envoyer plus tard » : rien ne part, la convocation reste à envoyer. Camille Roux quitte la session du 14 octobre,
+  // où elle était convoquée : cette convocation-là est annulée.
+  assert.match(String(run(RH, 'plan.inscrire', { empId: 1, certId: cert(1, 'sst').id, sessionId: 2, conv: 'later' })),
+    /convocation à envoyer · convocation à la session du 14 oct\. 2026 annulée par e-mail$/);
   run(KARIM, 'plan.inscrire', { empId: 2, certId: cert(2, 'sst').id, sessionId: 2, conv: 'later' });
-  assert.equal(mails().length, 0);
+  assert.deepEqual(mails().map(x => x.type), ['convocation.annulee'], 'aucune convocation ne part');
   assert.deepEqual([cert(1, 'sst').convoc, cert(1, 'sst').convocLe], ['later', null]);
   // Envoi unitaire par le manager pour un membre de son équipe ; jamais pour un autre.
   forbidden(KARIM, 'convocation.envoyer', { sessionId: 2, empIds: [1] });
@@ -421,6 +495,8 @@ test('t113 : envoyer la convocation (unitaire, groupée, datée, avec .ics) et d
   assert.match(ics, /UID:formation-2-2@cursus\.example\.fr\r\n/);
   assert.match(ics, /DTSTART;VALUE=DATE:20261118\r\n/);
   assert.match(ics, /LOCATION:Site de Lyon — salle B\r\n/);
+  assert.match(ics, /STATUS:TENTATIVE\r\n/, 'session « à confirmer » : événement provisoire');
+  assert.match(ics, /ORGANIZER;CN=Service RH:mailto:rh@entreprise\.example\r\n/, 'simulation : la boîte du service RH organise');
   // Envoi groupé (RH) : les convocations encore à envoyer de la session.
   const s2 = () => domain().session(2)!;
   const aEnvoyer = () => inscritsDe(domain(), s2()).filter(i => i.convoc !== 'now').map(i => i.nom);
@@ -445,7 +521,7 @@ test('t113 : envoyer la convocation (unitaire, groupée, datée, avec .ics) et d
   assert.equal(run(KARIM, 'plan.desinscrire', { empId: 2, sessionId: 2 }), 'Mehdi Benali désinscrit de la session SST du 19 nov. 2026 — place libérée · recyclage de nouveau à planifier · annulation envoyée par e-mail');
   assert.equal(s2().inscrits, avant - 1);
   assert.deepEqual([cert(2, 'sst').sessionId, cert(2, 'sst').convoc, cert(2, 'sst').convocLe], [null, null, null]);
-  const [annul] = mails('convocation.annulee');
+  const annul = mails('convocation.annulee').at(-1)!;
   assert.equal(annul.m.objet, 'Annulation : Sauveteur secouriste du travail (SST) — 19 nov. 2026');
   assert.match(texteDe(annul.m.pj![0].base64), /METHOD:CANCEL\r\n[\s\S]*UID:formation-2-2@cursus\.example\.fr\r\n/);
   assert.throws(() => run(RH, 'plan.desinscrire', { empId: 2, sessionId: 2 }), /n’est pas inscrit à cette session/);
@@ -471,6 +547,66 @@ test('t113 : envoyer la convocation (unitaire, groupée, datée, avec .ics) et d
   assert.deepEqual(mails().slice(m).map(x => [x.type, x.m.a[0]]), [['convocation', 'marion.petit@entreprise.example'], ['demande.reponse', 'sophie.lemaire@entreprise.example']]);
 });
 
+test('t113 : une convocation reçue est annulée dès que la personne quitte la session, même redatée entre-temps', () => {
+  const cert = (d: InstanceType<typeof Domain>, empId: number, f: string) => d.emp(empId)!.certs.filter(c => c.f === f).sort((x, y) => y.obtenue.localeCompare(x.obtenue))[0];
+  /** UID des événements annulés, dans l'ordre. */
+  const annulations = (mails: ReturnType<typeof fresh>['mails']) => mails('convocation.annulee').map(x => /UID:(\S+)\r\n/.exec(texteDe(x.m.pj![0].base64))![1]);
+
+  // Session redatée (convocations « à renvoyer »), puis désinscription et annulation : les convoqués sont prévenus.
+  {
+    const { run, mails, domain } = fresh();
+    run(RH, 'plan.inscrire', { empId: 2, certId: cert(domain(), 2, 'sst').id, sessionId: 2, conv: 'now' });
+    assert.match(String(run(RH, 'session.modifier', { id: 2, date: '2026-11-25' })), /· 2 convocations à renvoyer/);
+    const nadia = inscritsDe(domain(), domain().session(2)!).find(i => i.empId === 9)!;
+    assert.deepEqual([nadia.convoc, nadia.convocLe], ['later', '2026-09-28']);
+    assert.match(String(run(RH, 'plan.desinscrire', { empId: 9, sessionId: 2 })), /· annulation envoyée par e-mail$/);
+    assert.match(String(run(RH, 'session.annuler', { id: 2 })), /· 1 annulation envoyée par e-mail$/);
+    assert.deepEqual(annulations(mails), ['formation-2-9@cursus.example.fr', 'formation-2-2@cursus.example.fr']);
+    const ics = texteDe(mails('convocation.annulee')[1].m.pj![0].base64);
+    assert.match(ics, /METHOD:CANCEL\r\n[\s\S]*ORGANIZER;CN=Service RH:mailto:rh@entreprise\.example\r\n[\s\S]*STATUS:CANCELLED\r\n/);
+    assert.equal(cert(domain(), 2, 'sst').convocLe, null, 'session annulée : plus de date de convocation');
+  }
+  // Changement de session (plan.inscrire) : l'ancienne convocation est annulée, puis la nouvelle part.
+  {
+    const { run, mails, domain } = fresh();
+    const insc = domain().ds.inscriptions.find(i => i.empId === 9 && i.sessionId === 2)!;
+    assert.match(String(run(RH, 'plan.inscrire', { empId: 9, inscriptionId: insc.id, sessionId: 1, conv: 'now' })),
+      /convocation envoyée · convocation à la session du 18 nov\. 2026 annulée par e-mail$/);
+    assert.deepEqual(mails().map(x => x.type), ['convocation.annulee', 'convocation']);
+    assert.deepEqual(annulations(mails), ['formation-2-9@cursus.example.fr']);
+    // Inscription remise à replanifier par une session annulée : rien à annuler une seconde fois.
+    run(RH, 'session.annuler', { id: 1 });
+    const n = mails('convocation.annulee').length;
+    run(RH, 'plan.inscrire', { empId: 9, inscriptionId: insc.id, sessionId: 2, conv: 'later' });
+    assert.equal(mails('convocation.annulee').length, n);
+  }
+  // Demande acceptée qui déplace une certification ou une inscription : l'ancienne convocation est annulée.
+  {
+    const { db, run, mails, domain } = fresh();
+    run(RH, 'plan.inscrire', { empId: 2, certId: cert(domain(), 2, 'sst').id, sessionId: 2, conv: 'now' });
+    for (const empId of [2, 9]) db.insert('demandesCollab', { empId, type: 'formation', f: 'sst', sessionId: 1, motif: 'Session plus proche', date: '2026-10-08', statut: 'attente', parId: null });
+    const ids = domain().ds.demandesCollab.filter(r => r.statut === 'attente' && r.f === 'sst').map(r => r.id);
+    const m = mails().length;
+    ids.forEach(id => run(RH, 'demande.accepter', { id }));
+    assert.deepEqual(mails().slice(m).map(x => [x.type, x.m.a[0]]), [
+      ['convocation.annulee', MEHDI_MAIL], ['convocation', MEHDI_MAIL], ['convocation.annulee', 'nadia.kaci@entreprise.example'], ['convocation', 'nadia.kaci@entreprise.example'],
+    ]);
+    assert.deepEqual(annulations(mails), ['formation-2-2@cursus.example.fr', 'formation-2-9@cursus.example.fr']);
+  }
+  // Recyclage enregistré avant la session (cert.ajouter), ou session redatée après un recyclage (place libérée).
+  {
+    const { run, mails, domain } = fresh();
+    run(RH, 'plan.inscrire', { empId: 2, certId: cert(domain(), 2, 'sst').id, sessionId: 2, conv: 'now' });
+    assert.match(String(run(RH, 'cert.ajouter', { empId: 2, f: 'sst', date: '2026-10-05' })), /inscription à la session du 18 nov\. 2026 annulée · annulation envoyée par e-mail$/);
+    run(RH, 'plan.inscrire', { empId: 1, certId: cert(domain(), 1, 'sst').id, sessionId: 2, conv: 'now' }); // quitte la session du 14 octobre
+    run(RH, 'cert.ajouter', { empId: 1, f: 'sst', date: '2026-11-20' }); // postérieur à la session : l'inscrite reste
+    assert.deepEqual(annulations(mails), ['formation-2-2@cursus.example.fr', 'formation-1-1@cursus.example.fr']);
+    assert.match(String(run(RH, 'session.modifier', { id: 2, date: '2026-11-25' })), /place libérée : Camille Roux · 1 annulation envoyée par e-mail/);
+    assert.deepEqual(annulations(mails).slice(2), ['formation-2-1@cursus.example.fr']);
+    assert.equal(mails('convocation.annulee')[2].m.objet, 'Annulation : Sauveteur secouriste du travail (SST) — 18 nov. 2026', 'la date que la personne a dans son agenda');
+  }
+});
+
 // — t030 : relevé des intérimaires —
 
 test('t030 : relevé hebdomadaire des heures des intérimaires, par agence, automatique, consultable et renvoyable', () => {
@@ -485,7 +621,8 @@ test('t030 : relevé hebdomadaire des heures des intérimaires, par agence, auto
   assert.deepEqual(csv.rows[0].slice(0, 6), ['proman LYON', '2026-S39', '2026-09-21', '2026-09-25', 'Léa Girard', 'Opératrice']);
   assert.ok(csvTexte(csv.head, csv.rows).startsWith('﻿Agence;Semaine;Du;Au;Intérimaire;Poste;Lundi'));
 
-  // Aucun envoi automatique tant qu'une feuille de la semaine attend sa validation ; la semaine 39 est trop ancienne.
+  // Aucun envoi automatique tant qu'une feuille de la semaine attend sa validation ; la semaine 39 précède
+  // l'enregistrement de l'adresse de l'agence (5 octobre) : ses relevés lui parvenaient autrement.
   assert.deepEqual(db.tx(() => relevesAutomatiques(db)), []);
   // La validation de la dernière feuille fait partir le relevé de l'agence, dans la même transaction.
   const msg = run(SOPHIE, 'temps.validate', { empId: 15, week: '2026-09-28' });
@@ -515,6 +652,64 @@ test('t030 : relevé hebdomadaire des heures des intérimaires, par agence, auto
   assert.ok(mails('releve.interim').every(x => !x.m.texte.includes('Mehdi')));
 });
 
+test('t030 : heures au quart d’heure, validation tardive, relevé incomplet complété automatiquement', () => {
+  // Fenêtre de l'envoi automatique : cinq semaines révolues (et la semaine en cours après son vendredi), pas avant
+  // la semaine qui précède l'enregistrement de l'adresse de l'agence.
+  assert.deepEqual(semainesAutomatiques('2026-10-08'), ['2026-08-31', '2026-09-07', '2026-09-14', '2026-09-21', '2026-09-28']);
+  assert.deepEqual(semainesAutomatiques('2026-10-10', '2026-10-05'), ['2026-09-28', '2026-10-05']);
+  const aujourdhui = process.env.CURSUS_TODAY;
+  const le = (jour: string, f: () => void) => { process.env.CURSUS_TODAY = jour; try { f(); } finally { process.env.CURSUS_TODAY = aujourdhui; } };
+  /** Feuille de la semaine 40 de Léa Girard (soumise) : `h` heures chaque jour. */
+  const quarts = (db: ReturnType<typeof fresh>['db'], h: number) => {
+    const f = db.all<Corps>('feuilles').find(x => x.empId === 15 && x.week === '2026-09-28')!;
+    db.update('feuilles', f.id, { lignes: [{ ...f.lignes[0], h: [h, h, h, h, h] }] });
+  };
+
+  // Heures saisies au quart d'heure : relevé au centième, total égal à la somme des jours. Validée le 20 octobre,
+  // deux semaines après : le relevé part quand même.
+  {
+    const { db, run, mails } = fresh();
+    quarts(db, 7.75);
+    le('2026-10-20', () => assert.match(String(run(SOPHIE, 'temps.validate', { empId: 15, week: '2026-09-28' })), /· relevé d’heures envoyé à l’agence Proman Lyon$/));
+    const [e] = mails('releve.interim');
+    assert.match(e.m.texte, /• Léa Girard \(Opératrice\) : 38,75 h, dont 35 h normales, 3,75 h majorées\n\nTotal : 38,75 h · 1 intérimaire\./);
+    const ligne = texteDe(e.m.pj![0].base64).split('\r\n')[1].split(';');
+    assert.deepEqual(ligne.slice(6, 12), ['7,75', '7,75', '7,75', '7,75', '7,75', '38,75']);
+    assert.equal(ligne[13], '0', 'pas de majoration à 10 % (temps plein)');
+    assert.equal(ligne[14], '3,75');
+  }
+  // Au-delà de cinq semaines, le service RH envoie le relevé lui-même.
+  {
+    const { run, mails } = fresh();
+    le('2026-11-09', () => assert.match(String(run(SOPHIE, 'temps.validate', { empId: 15, week: '2026-09-28' })), /^Semaine 40 validée$/));
+    assert.equal(mails('releve.interim').length, 0);
+  }
+  // Relevé envoyé par le RH avec une feuille en attente : le relevé complet part seul à sa validation, puis plus rien.
+  {
+    const { db, run, mails, domain } = fresh();
+    const lea = db.get<Corps>('employes', 15)!;
+    const id = db.insert<Corps>('employes', { ...lea, id: undefined, nom: 'Paul Martel', email: 'paul.martel@entreprise.example' }).id;
+    const f39 = db.all<Corps>('feuilles').find(x => x.empId === 15 && x.week === '2026-09-21')!;
+    db.insert('feuilles', { ...f39, id: undefined, empId: id, week: '2026-09-28' });
+    assert.match(String(run(RH, 'releve.envoyer', { agence: 'Proman Lyon', semaine: '2026-09-28' })), /· feuille non validée : Léa Girard$/);
+    assert.match(mails('releve.interim')[0].m.texte, /Feuille pas encore validée : Léa Girard — le relevé complet vous sera envoyé dès sa validation\./);
+    assert.deepEqual(loadFull(db, RH).releves.map(x => [x.interimaires, x.enAttente]), [[1, 1]]);
+    assert.deepEqual(db.tx(() => relevesAutomatiques(db)), [], 'feuille toujours en attente');
+    assert.match(String(run(SOPHIE, 'temps.validate', { empId: 15, week: '2026-09-28' })), /· relevé d’heures envoyé à l’agence Proman Lyon$/);
+    const complet = mails('releve.interim')[1];
+    assert.match(complet.m.texte, /• Léa Girard[\s\S]*• Paul Martel[\s\S]*Ce relevé complet remplace celui du \d+ \S+ 2026, envoyé avant la validation de toutes les feuilles\./);
+    assert.deepEqual(loadFull(db, RH).releves.map(x => [x.par, x.interimaires, x.enAttente]), [['Sandrine Vidal', 1, 1], ['Cursus', 2, 0]]);
+    assert.deepEqual(db.tx(() => relevesAutomatiques(db)), [], 'relevé complet transmis : plus d’envoi automatique');
+    assert.equal(domain().ds.releves.length, 2);
+  }
+  // L'adresse d'une agence garde sa date d'enregistrement quand elle change ; une agence ajoutée prend celle du jour.
+  {
+    const { db, run } = fresh();
+    run(RH, 'messagerie.regler', { agences: [{ nom: 'Proman Lyon', adresse: 'paie@proman.example' }, { nom: 'Adecco Vienne', adresse: 'releves@adecco.example' }] });
+    assert.deepEqual(loadFull(db, RH).messagerie!.agences.map(a => [a.nom, a.depuis]), [['Proman Lyon', '2026-10-05'], ['Adecco Vienne', '2026-10-10']]);
+  }
+});
+
 // — Messagerie : réglages, essai, récapitulatif —
 
 test('messagerie : adresses réglées par l’administrateur RH, e-mail d’essai, récapitulatif sans attendre, réglage des notifications', () => {
@@ -525,7 +720,9 @@ test('messagerie : adresses réglées par l’administrateur RH, e-mail d’essa
   assert.throws(() => run(RH, 'messagerie.regler', { agences: [{ nom: 'A', adresse: 'a@x.example' }, { nom: 'a', adresse: 'b@x.example' }] }), /Agence en double : a/);
   assert.throws(() => run(RH, 'messagerie.regler', { rhMode: 'hebdo' }), /Réglage inconnu/);
   run(RH, 'messagerie.regler', { rh: ' DRH@Entreprise.example ', rhMode: 'quotidien', santeTravail: '', agences: [{ nom: 'Proman Lyon', adresse: 'releves@proman.example' }, { nom: 'Vide', adresse: '' }] });
-  assert.deepEqual(loadFull(db, RH).messagerie, { rh: 'drh@entreprise.example', rhMode: 'quotidien', santeTravail: null, agences: [{ nom: 'Proman Lyon', adresse: 'releves@proman.example' }] });
+  assert.deepEqual(loadFull(db, RH).messagerie, {
+    rh: 'drh@entreprise.example', rhMode: 'quotidien', santeTravail: null, agences: [{ nom: 'Proman Lyon', adresse: 'releves@proman.example', depuis: '2026-10-05' }],
+  });
 
   // E-mail d'essai (administrateur RH) : simulé faute de configuration.
   forbidden(GEST, 'messagerie.essai', { adresse: 'it@entreprise.example' });

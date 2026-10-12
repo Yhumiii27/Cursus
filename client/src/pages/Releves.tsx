@@ -1,6 +1,7 @@
 // Temps de travail → relevés d'heures des intérimaires (service RH) : pour la semaine affichée, le relevé de chaque
 // agence d'intérim (heures des feuilles validées, feuilles en attente), son envoi automatique ou manuel, ses renvois.
-// Le relevé part tout seul quand toutes les feuilles de la semaine sont validées (server/src/releves.ts).
+// Le relevé part tout seul quand toutes les feuilles de la semaine sont validées, jusqu'à cinq semaines après ; un
+// relevé envoyé incomplet est complété de même (server/src/releves.ts).
 import { useState } from 'react';
 import { DownloadSimpleIcon, PaperPlaneTiltIcon } from '@phosphor-icons/react';
 import { ENVOI_CLS, ENVOI_LABEL } from '../../../shared/constants.ts';
@@ -25,11 +26,11 @@ export function RelevesPanel({ wk }: { wk: ISODate }) {
   const { run, notify } = useStore();
   const [busy, setBusy] = useState<string | null>(null);
   const future = wk > mondayOf(data.today);
-  // Semaines dont le relevé part tout seul (la précédente, et l'actuelle une fois son vendredi passé).
-  const automatique = semainesAutomatiques(mondayOf(data.today), data.today).includes(wk);
   const agences = agencesInterim(data.employes).map(agence => ({
     agence, r: releveAgence(d, agence, wk), adresse: adresseAgence(data.messagerie, agence),
     envois: data.releves.filter(x => key(x.agence) === key(agence) && x.semaine === wk).sort((a, b) => b.id - a.id),
+    // Semaine couverte par l'envoi automatique (cinq semaines révolues, pas avant l'adresse de l'agence).
+    automatique: semainesAutomatiques(data.today, data.messagerie?.agences.find(a => key(a.nom) === key(agence))?.depuis).includes(wk),
   })).filter(x => x.r.lignes.length || x.r.enAttente.length || x.envois.length);
   if (!agencesInterim(data.employes).length) return null;
 
@@ -50,7 +51,8 @@ export function RelevesPanel({ wk }: { wk: ISODate }) {
     <Panel title="Relevés d’heures des intérimaires" aside={`Semaine ${isoWeek(wk)}`}>
       <Fine>
         Chaque semaine, le relevé des heures validées des intérimaires part par e-mail à leur agence (fichier CSV joint), dès que toutes leurs feuilles
-        de la semaine sont validées. S’il manque une feuille, le relevé peut être envoyé sans elle ; un relevé se renvoie à tout moment.
+        de la semaine sont validées, même avec retard (jusqu’à cinq semaines). S’il manque une feuille, le relevé peut être envoyé sans elle : le relevé
+        complet suit à sa validation. Un relevé se renvoie à tout moment.
       </Fine>
       {agences.length === 0 ? <Fine>Aucun intérimaire en mission cette semaine.</Fine> : (
         <div className="scroll-x">
@@ -63,22 +65,23 @@ export function RelevesPanel({ wk }: { wk: ISODate }) {
                 return (
                   <tr key={x.agence}>
                     <td><Two main={x.agence} sub={x.adresse ?? 'Adresse à renseigner (Paramètres → Messagerie)'} /></td>
-                    <td><Two main={`${x.r.lignes.length} / ${total} feuille${total > 1 ? 's' : ''} validée${x.r.lignes.length > 1 ? 's' : ''}`}
+                    <td><Two main={`${x.r.lignes.length} / ${total} feuille${total > 1 ? 's' : ''} validée${total > 1 ? 's' : ''}`}
                       sub={x.r.enAttente.length ? `en attente : ${x.r.enAttente.map(e => e.nom).join(', ')}` : x.r.lignes.map(l => l.nom).join(', ')} /></td>
                     <td className="tnum">{heuresTexte(x.r.heures)} h</td>
                     <td>
                       {dernier ? <>
                         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
-                          <span>Transmis</span>
+                          <span>{dernier.enAttente ? 'Transmis (incomplet)' : 'Transmis'}</span>
                           {dernier.envoi && <Tag cls={ENVOI_CLS[dernier.envoi]}>{ENVOI_LABEL[dernier.envoi]}</Tag>}
                         </div>
                         <div className="text-muted sub">
                           le {quand(dernier.creation)} · {dernier.par === 'Cursus' ? 'envoi automatique' : `par ${dernier.par}`}
                           {x.envois.length > 1 ? ` · ${plural(x.envois.length, 'envoi', 'envois')}` : ''}
+                          {dernier.enAttente ? ` · ${plural(dernier.enAttente, 'feuille manquait', 'feuilles manquaient')} : relevé complet ${x.automatique ? 'envoyé automatiquement après la validation' : 'à renvoyer après la validation'}` : ''}
                         </div>
                       </> : <span className="text-muted sub">
                         {!x.adresse ? 'Non transmis : adresse de l’agence manquante' : x.r.enAttente.length ? 'Non transmis : feuilles à valider'
-                          : future ? 'Semaine à venir' : automatique ? 'Envoi automatique imminent' : wk === mondayOf(data.today) ? 'Envoi automatique après le vendredi' : 'Non transmis'}
+                          : future ? 'Semaine à venir' : x.automatique ? 'Envoi automatique imminent' : wk === mondayOf(data.today) ? 'Envoi automatique après le vendredi' : 'Non transmis'}
                       </span>}
                     </td>
                     <td className="right">

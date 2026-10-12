@@ -44,6 +44,13 @@ export interface Inscrit {
   dejaObtenue: Certification | null;
 }
 
+/**
+ * Une convocation a déjà été envoyée pour la session : « envoyée », ou remise « à renvoyer » par un changement
+ * de date ou de lieu (la date d'envoi `convocLe` reste). La personne a l'événement dans son agenda : si elle
+ * quitte la session, ou si la session est annulée, la convocation est annulée par e-mail.
+ */
+export const convocationEnvoyee = (x: { convoc: 'now' | 'later' | null; convocLe?: ISODate | null }) => x.convoc === 'now' || !!x.convocLe;
+
 /** `n` remplace `c` : même formation, enregistrée après (recyclage). */
 const remplace = (n: Certification, c: Certification) => n.f === c.f && (n.obtenue > c.obtenue || (n.obtenue === c.obtenue && n.id > c.id));
 

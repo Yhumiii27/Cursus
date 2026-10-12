@@ -6,7 +6,7 @@ import { parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
 import { inscritsDe } from '../../../shared/rules/sessions.ts';
 import type { Certification, Inscription, Session } from '../../../shared/types.ts';
-import { annulerConvocationFormation, convoquerFormation } from '../notifications.ts';
+import { annulerSiConvoque, convoquerFormation } from '../notifications.ts';
 import { ActionError, getEmp, isManagerOf, isRh, type ActionHandler, type Ctx } from './context.ts';
 
 /** Session ouverte et à venir : seule une telle session reçoit des convocations ou perd des inscrits. */
@@ -53,7 +53,7 @@ const envoyer: ActionHandler = (ctx, p) => {
 /**
  * Désinscription d'une session à venir : la place est libérée (le nombre d'inscrits est calculé). Recyclage :
  * la certification redevient à planifier ; formation initiale : l'inscription est retirée. Une convocation
- * déjà envoyée est annulée par e-mail (l'événement est retiré de l'agenda). Service RH ou manager direct.
+ * déjà envoyée (même « à renvoyer » depuis) est annulée par e-mail (.ics d'annulation). Service RH ou manager direct.
  */
 const desinscrire: ActionHandler = (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
@@ -63,7 +63,8 @@ const desinscrire: ActionHandler = (ctx, p) => {
   if (!i) throw new ActionError(`${emp.nom} n’est pas inscrit à cette session`);
   emp.certs.filter(c => c.sessionId === s.id).forEach(c => ctx.db.update<Certification>('certifications', c.id, { sessionId: null, convoc: null, convocLe: null }));
   ctx.ds.inscriptions.filter(x => x.empId === emp.id && x.sessionId === s.id).forEach(x => ctx.db.remove('inscriptions', x.id));
-  const annulee = i.convoc === 'now' && annulerConvocationFormation(ctx, s, emp, 'desinscription');
+  // Convocation reçue, même remise « à renvoyer » par un changement de date ou de lieu : annulée par e-mail.
+  const annulee = annulerSiConvoque(ctx, s, emp, i);
   return `${emp.nom} désinscrit de la ${nomSession(ctx, s)} — place libérée`
     + (i.parcours === 'recyclage' ? ' · recyclage de nouveau à planifier' : ' · inscription en formation initiale retirée')
     + (annulee ? ' · annulation envoyée par e-mail' : '');

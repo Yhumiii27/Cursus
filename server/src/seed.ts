@@ -428,9 +428,13 @@ export function seedDemo(db: Db) {
 export const DOMAINE_DEMO = 'entreprise.example';
 /** Date des convocations déjà envoyées du jeu de démonstration. */
 const CONVOQUES_LE = '2026-09-28';
-/** Messagerie de démonstration : boîte du service RH, service de santé au travail, agence de l'intérimaire (domaines fictifs). */
+/**
+ * Messagerie de démonstration : boîte du service RH, service de santé au travail, agence de l'intérimaire (domaines
+ * fictifs), dont l'adresse a été renseignée le 5 octobre : le premier relevé automatique est celui de la semaine 40.
+ */
 const MESSAGERIE_DEMO: Messagerie = {
-  rh: `rh@${DOMAINE_DEMO}`, rhMode: 'immediat', santeTravail: 'contact@sante-travail.example', agences: [{ nom: 'Proman Lyon', adresse: 'releves.lyon@agence-interim.example' }],
+  rh: `rh@${DOMAINE_DEMO}`, rhMode: 'immediat', santeTravail: 'contact@sante-travail.example',
+  agences: [{ nom: 'Proman Lyon', adresse: 'releves.lyon@agence-interim.example', depuis: '2026-10-05' }],
 };
 /** Compte RH de démonstration : la responsable RH du jeu de données, administratrice RH, sans fiche salarié. */
 export const RH_DEMO = 'Sandrine Vidal';

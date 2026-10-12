@@ -26,15 +26,22 @@ part, chaque e-mail est tracé dans le journal et visible dans Paramètres → E
 | Compte rendu d'entretien à signer | Salarié | Clôture par l'évaluateur |
 | Réponse à une demande au service RH | Salarié, et le manager qui l'a faite pour lui | Acceptation ou refus |
 | Convocation à une formation, à un entretien (fichier `.ics` joint) | Salarié | Inscription avec « Envoyer maintenant », « Envoyer la convocation », planification d'un entretien |
-| Annulation d'une convocation (`.ics` d'annulation) | Salarié convoqué | Désinscription, session annulée |
-| Relevé d'heures des intérimaires (CSV joint) | Agence d'intérim | Chaque semaine, dès que toutes les feuilles de ses intérimaires sont validées ; renvoi par le service RH |
+| Annulation d'une convocation (`.ics` d'annulation) | Salarié qui a reçu la convocation, même remise « à renvoyer » par un changement de date ou de lieu | Désinscription, changement de session, recyclage enregistré avant la session, session annulée |
+| Relevé d'heures des intérimaires (CSV joint) | Agence d'intérim | Chaque semaine, dès que toutes les feuilles de ses intérimaires sont validées, même avec retard (jusqu'à cinq semaines) ; relevé complet après un relevé envoyé incomplet par le service RH ; renvoi par le service RH |
 | Récapitulatif quotidien | Personne qui l'a choisi | Chaque jour à partir de 7 h |
 | E-mail d'essai | Adresse saisie | Paramètres → Messagerie |
 
 Les notifications d'étapes partent aussitôt, ou sont regroupées dans un récapitulatif quotidien : chacun le
 règle dans son espace (Accueil → « Mes notifications par e-mail ») ; le service RH règle celui de sa boîte
 (Paramètres → Messagerie). Les convocations partent toujours aussitôt. Rien n'est envoyé à la personne qui
-fait l'action, ni à un salarié sans adresse ou dont la date de sortie est passée.
+fait l'action, ni à un salarié sans adresse ou dont la date de sortie est passée. Le récapitulatif part à
+l'adresse en vigueur le jour de son envoi (fiche, ou boîte du service RH) ; les notifications d'une personne
+sortie ou sans adresse entre-temps sont closes sans envoi.
+
+**Agenda** : convocations et annulations portent un fichier `.ics` (journée entière, organisateur : la boîte
+d'envoi, identifiant stable par session et salarié). Le salarié ouvre celui de la convocation pour ajouter
+l'événement à son agenda, celui de l'annulation pour l'en retirer ; une convocation renvoyée le met à jour. Une session « à confirmer » par l'organisme y figure comme
+provisoire. Le comportement d'Outlook (ajout, mise à jour, retrait) est à vérifier à la mise en service (section 5).
 
 **Contenu** : texte brut, objet clair, nom, dates, lien vers Cursus (`CURSUS_PUBLIC_URL`). Jamais de donnée de
 santé, de motif d'absence médical, de numéro de passeport, ni les textes libres saisis dans Cursus
@@ -122,8 +129,12 @@ variables `CURSUS_MAIL_*` ou `CURSUS_OIDC_*`), si le locataire n'est pas un GUID
 4. `Test-ApplicationAccessPolicy` (étape 3) répond `Denied` pour une autre boîte que la boîte d'envoi.
 5. Le service RH renseigne ensuite Paramètres → Messagerie (boîte du service RH, service de santé au travail,
    adresse de chaque agence d'intérim) et complète les fiches sans adresse (liste dans le même panneau).
-   L'adresse d'un salarié est reprise de son compte Microsoft 365 à la création du compte, et une fois pour
-   toutes les fiches d'une base existante à la mise à jour.
+   L'adresse d'un salarié est reprise de son compte Microsoft 365 à la création du compte (Paramètres →
+   Comptes et accès, ou `npm run comptes -- admin … --salarie`), et une fois pour toutes les fiches d'une base
+   existante à la mise à jour.
+6. Convocation d'essai : inscrire un volontaire à une session avec « Envoyer maintenant », ouvrir le fichier `.ics`
+   reçu dans Outlook (l'événement s'ajoute à l'agenda), puis le désinscrire et ouvrir le fichier d'annulation
+   (l'événement disparaît).
 
 ## Suivi et incidents
 
@@ -132,7 +143,9 @@ perdu à un redémarrage, aucun appel réseau n'a lieu pendant une action. Un e-
 après une erreur réseau, un délai dépassé (10 s), une erreur 5xx, 408 ou 429, nouvelle tentative de 1 min à
 1 h plus tard, 10 fois au plus. Un jeton expiré (401) est renouvelé et l'envoi retenté. Toute autre erreur
 met l'e-mail en échec (journal : `email.echec`) ; une fois la cause corrigée (et Cursus redémarré si la
-configuration a changé), le service RH le **relance** depuis Paramètres → Envois, ou le **classe**.
+configuration a changé), le service RH le **relance** depuis Paramètres → Envois, ou le **classe**. La relance
+renvoie le même message aux mêmes destinataires : elle convient quand la cause est la configuration ou le
+réseau, pas une adresse de destinataire erronée (voir ci-dessous).
 
 | Erreur affichée dans Envois | Cause | Remède |
 | --- | --- | --- |
@@ -141,7 +154,7 @@ configuration a changé), le service RH le **relance** depuis Paramètres → En
 | `… AADSTS700016` | Application inconnue dans ce locataire | Vérifier `CURSUS_MAIL_CLIENT_ID` et `CURSUS_MAIL_TENANT` |
 | `HTTP 403 · ErrorAccessDenied` | `Mail.Send` non accordée (consentement), ou boîte hors de la stratégie d'accès | Étapes 2 et 3 ; attendre la propagation de la stratégie |
 | `HTTP 404 · ErrorInvalidUser`, `MailboxNotEnabledForRESTAPI` | `CURSUS_MAIL_FROM` n'est pas une boîte Exchange Online | Corriger l'adresse ou créer la boîte |
-| `HTTP 400 · ErrorInvalidRecipients` | Adresse du destinataire refusée | Corriger l'adresse (fiche, Paramètres → Messagerie), puis relancer |
+| `HTTP 400 · ErrorInvalidRecipients` | Adresse du destinataire refusée | Corriger l'adresse (fiche du salarié, Paramètres → Messagerie), **classer** l'e-mail en échec (une relance reprendrait l'ancienne adresse), puis le renvoyer depuis Cursus : « Renvoyer la convocation » (fiche du salarié ou détail de la session), « Renvoyer » le relevé (Temps de travail, relevés d'heures des intérimaires). Une notification d'étape ne se renvoie pas : son destinataire la retrouve dans Cursus |
 | `Erreur réseau`, `Délai dépassé`, `Jeton Microsoft : service de connexion injoignable` | Sortie HTTPS bloquée (pare-feu, proxy) | Ouvrir l'accès sortant (section 4) ; les envois reprennent seuls |
 
 Renouveler le secret client avant sa date d'expiration : expiré, il bloque tous les e-mails (et, s'il est

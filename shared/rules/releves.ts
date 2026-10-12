@@ -3,9 +3,9 @@
 // Envoyé chaque semaine à l'agence (CSV joint, server/src/releves.ts), consultable et renvoyable par le RH.
 // Aucune nature d'absence : seul le nombre de jours d'absence de la semaine figure au relevé.
 import { TYPES_CONTRAT } from '../constants.ts';
-import { addD, isoWeek } from '../dates.ts';
+import { addD, isoWeek, mondayOf } from '../dates.ts';
 import type { Domain } from '../domain.ts';
-import { key, r1 } from '../format.ts';
+import { key } from '../format.ts';
 import type { Employe, ISODate } from '../types.ts';
 import { semaineHorsContrat } from './absences.ts';
 import { calcSheet, joursAbsence } from './temps.ts';
@@ -53,13 +53,27 @@ export function releveAgence(d: Domain, agence: string, semaine: ISODate): Relev
   return { agence, semaine, lignes, enAttente, heures: h2(lignes.reduce((n, l) => n + l.total, 0)) };
 }
 
-/** Semaines dont le relevé part automatiquement : la précédente, et la semaine en cours une fois son vendredi passé. */
-export function semainesAutomatiques(lundi: ISODate, today: ISODate): ISODate[] {
-  return [addD(lundi, -7), ...(addD(lundi, 4) < today ? [lundi] : [])];
+/**
+ * Semaines révolues que l'envoi automatique rattrape : une feuille validée en retard (manager absent…) fait
+ * encore partir le relevé de sa semaine, jusqu'à cinq semaines après.
+ */
+export const RATTRAPAGE_RELEVES = 5;
+
+/**
+ * Semaines dont le relevé part automatiquement (dès que toutes les feuilles sont validées) : les cinq semaines
+ * précédentes, et la semaine en cours une fois son vendredi passé. Sans remonter avant la semaine qui précède
+ * l'enregistrement de l'adresse de l'agence (`depuis`) : les relevés antérieurs lui sont parvenus autrement.
+ */
+export function semainesAutomatiques(today: ISODate, depuis?: ISODate | null): ISODate[] {
+  const lundi = mondayOf(today);
+  const debut = depuis ? addD(mondayOf(depuis), -7) : '';
+  const out = Array.from({ length: RATTRAPAGE_RELEVES }, (_, i) => addD(lundi, -7 * (RATTRAPAGE_RELEVES - i)));
+  if (addD(lundi, 4) < today) out.push(lundi);
+  return out.filter(w => w >= debut);
 }
 
-/** Nombre d'heures pour le CSV et les textes : virgule décimale. */
-export const heuresTexte = (n: number) => String(r1(n)).replace('.', ',');
+/** Nombre d'heures pour le CSV et les textes : au centième (heures saisies au quart d'heure), virgule décimale. */
+export const heuresTexte = (n: number) => String(h2(n)).replace('.', ',');
 
 /** Relevé au format CSV (une ligne par intérimaire dont la feuille est validée) : nom du fichier, en-tête, lignes. */
 export function releveCsv(r: Releve) {

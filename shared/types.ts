@@ -309,8 +309,11 @@ export interface Messagerie {
   rhMode: ModeNotification;
   /** Service de prévention et de santé au travail. */
   santeTravail: string | null;
-  /** Adresse des relevés d'heures de chaque agence d'intérim (nom tel que saisi sur la fiche). */
-  agences: { nom: string; adresse: string }[];
+  /**
+   * Adresse des relevés d'heures de chaque agence d'intérim (nom tel que saisi sur la fiche) ; `depuis` : date où
+   * elle a été renseignée (l'envoi automatique ne rattrape pas les semaines antérieures).
+   */
+  agences: { nom: string; adresse: string; depuis?: ISODate | null }[];
 }
 /** Relevé hebdomadaire des heures des intérimaires transmis à une agence (un par envoi, renvois compris). */
 export interface ReleveInterim {
@@ -318,6 +321,8 @@ export interface ReleveInterim {
   /** Mise en file (ISO), auteur (« Cursus » pour l'envoi automatique), e-mail correspondant et son statut. */
   creation: string; par: string; envoiId: number | null; envoi: StatutEnvoi | null;
   interimaires: number; heures: number;
+  /** Feuilles encore en attente de validation à l'envoi (relevé incomplet : complété automatiquement ensuite). */
+  enAttente: number;
 }
 
 export interface SagePush { endpoint: string; dossier: string; periode_paie: string; envoye_le: string; lignes: { matricule: string; semaine: string; rubriques: Record<string, number> }[] }

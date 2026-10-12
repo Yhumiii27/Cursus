@@ -94,12 +94,17 @@ export const TABLES = {
     unique: [['cle']],
   },
   // Notifications d'étapes en attente du récapitulatif quotidien (server/src/notifications.ts) : `empId` null pour
-  // le service RH ; `envoiId` : e-mail du récapitulatif qui les a portées.
+  // le service RH ; `adresse` : trace (le récapitulatif part à l'adresse en vigueur) ; `envoiId` : e-mail du
+  // récapitulatif qui les a portées (0 : close sans envoi, destinataire sans adresse ou sorti).
   notifications: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', adresse: 'text', type: 'text', objet: 'text', texte: 'text', creation: 'text', envoiId: 'int' } },
-  // Relevés d'heures des intérimaires transmis aux agences, un par envoi (server/src/releves.ts).
+  // Relevés d'heures des intérimaires transmis aux agences, un par envoi (server/src/releves.ts) ; `enAttente` :
+  // feuilles non validées au moment de l'envoi (relevé incomplet, complété automatiquement ensuite).
   releves: {
     pk: 'id', auto: true,
-    cols: { id: 'int', agence: 'text', semaine: 'text', adresse: 'text', creation: 'text', par: 'text', envoiId: 'int', interimaires: 'int', heures: 'real' },
+    cols: {
+      id: 'int', agence: 'text', semaine: 'text', adresse: 'text', creation: 'text', par: 'text', envoiId: 'int', interimaires: 'int', heures: 'real',
+      enAttente: 'int',
+    },
   },
   // Dernier verdict Go / No Go transmis à Keystone, par chantier et ressource (server/src/integrations/keystone-verdicts.ts).
   verdictsKeystone: { pk: 'id', auto: true, cols: { id: 'int', chantier: 'text', empId: 'int', statut: 'text', motifs: 'json', date: 'text' }, unique: [['chantier', 'empId']] },

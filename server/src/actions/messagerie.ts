@@ -5,11 +5,12 @@ import { MODE_NOTIFICATION_LABEL } from '../../../shared/constants.ts';
 import { isValidDate, isoWeek, mondayOf, parse } from '../../../shared/dates.ts';
 import { fmt, key, plural } from '../../../shared/format.ts';
 import { controleAdresse, normaliserAdresse } from '../../../shared/rules/messagerie.ts';
+import { heuresTexte } from '../../../shared/rules/releves.ts';
 import type { Messagerie, ModeNotification } from '../../../shared/types.ts';
 import { configMail } from '../config.ts';
 import { envoyerEmail } from '../integrations/email.ts';
 import { courriel, lireMessagerie } from '../messagerie.ts';
-import { envoyerRecapitulatifs } from '../notifications.ts';
+import { envoyerRecapitulatifs, recapitulatifEnAttente } from '../notifications.ts';
 import { envoyerReleve } from '../releves.ts';
 import { ActionError, getEmp, isRh, isSelf, requireRh, requireRhAdmin, str, type ActionHandler } from './context.ts';
 
@@ -40,7 +41,9 @@ const regler: ActionHandler = (ctx, p) => {
       const nom = str(x?.nom), a = adresse(x?.adresse, `Adresse de l’agence ${nom}`);
       if (!nom || !a) continue; // agence sans adresse : retirée
       if (agences.some(y => key(y.nom) === key(nom))) throw new ActionError(`Agence en double : ${nom}`);
-      agences.push({ nom, adresse: a });
+      // Date où l'adresse a été renseignée, gardée quand elle change : l'envoi automatique des relevés ne remonte pas avant.
+      const avant = next.agences.find(y => key(y.nom) === key(nom));
+      agences.push({ nom, adresse: a, depuis: avant ? avant.depuis ?? null : ctx.d.ti });
     }
     next.agences = agences;
   }
@@ -65,8 +68,9 @@ const essai: ActionHandler = (ctx, p) => {
 /** Récapitulatifs des notifications en attente, envoyés sans attendre l'heure du récapitulatif quotidien. */
 const recapituler: ActionHandler = (ctx) => {
   requireRh(ctx);
+  if (!recapitulatifEnAttente(ctx.db)) throw new ActionError('Aucune notification en attente du récapitulatif');
   const n = envoyerRecapitulatifs(ctx.db);
-  if (!n) throw new ActionError('Aucune notification en attente du récapitulatif');
+  if (!n) return 'Aucun récapitulatif envoyé — destinataires sans adresse e-mail ou sortis de l’entreprise : notifications closes';
   return `${plural(n, 'récapitulatif envoyé', 'récapitulatifs envoyés')} — notifications en attente transmises`;
 };
 
@@ -92,7 +96,7 @@ const envoyerReleveAction: ActionHandler = (ctx, p) => {
   if (typeof x === 'string') throw new ActionError(x);
   const attente = x.r.enAttente.length ? ` · feuille non validée : ${x.r.enAttente.map(e => e.nom).join(', ')}` : '';
   return `Relevé de la semaine ${isoWeek(semaine)} ${deja ? 'renvoyé' : 'envoyé'} à ${agence} (${x.releve.adresse}) — `
-    + `${plural(x.r.lignes.length, 'intérimaire', 'intérimaires')}, ${String(x.r.heures).replace('.', ',')} h${attente}`;
+    + `${plural(x.r.lignes.length, 'intérimaire', 'intérimaires')}, ${heuresTexte(x.r.heures)} h${attente}`;
 };
 
 export const messagerieActions: Record<string, ActionHandler> = {

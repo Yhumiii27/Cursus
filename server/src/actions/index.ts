@@ -30,8 +30,9 @@ export const ACTIONS: Record<string, ActionHandler> = {
 export const QUIET_ACTIONS = new Set(['temps.setCell', 'entretien.modifier']);
 
 /**
- * Familles d'actions sans effet sur un verdict Go / No Go (temps, absences, entretiens, budget, équipes) :
+ * Familles d'actions sans effet sur un verdict Go / No Go (temps, compteurs de congés, entretiens, budget, équipes) :
  * après toute autre action, les verdicts transmis à Keystone sont recalculés (integrations/keystone-verdicts.ts).
+ * Les actions d'absence en font partie : une absence pendant la présence sur un chantier bloque la ressource.
  */
-const SANS_EFFET_VERDICT = ['temps.', 'absence.', 'cet.', 'report.', 'entretien.', 'budget.', 'equipe.', 'envoi.'];
+const SANS_EFFET_VERDICT = ['temps.', 'cet.', 'report.', 'entretien.', 'budget.', 'equipe.', 'envoi.'];
 export const changeVerdicts = (nom: string) => !SANS_EFFET_VERDICT.some(p => nom.startsWith(p));

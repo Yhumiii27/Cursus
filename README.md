@@ -162,8 +162,10 @@ Validité des certifications et seuil d'alerte (30–180 j) · prérequis des ha
 (formation + aptitude médicale de 24 mois) avec suspension automatique, suspension et
 retrait manuels (motif, date, auteur) · seule la dernière certification compte après un
 recyclage, les précédentes restent en historique · formalités de
-voyage par destination (passeport, visas, vaccins, délais) · Go / No Go par chantier
-(matricules et codes de motif uniquement) · heures supplémentaires +25 % / +50 %,
+voyage par destination (passeport, visas, vaccins, délais) et de détachement (certificat A1 ou de la
+convention bilatérale de sécurité sociale, information écrite au-delà de 4 semaines) · Go / No Go par
+chantier (matricules et codes de motif uniquement) : contrat et absences sur la présence, habilitations,
+certifications, déplacement couvrant la présence, formalités de voyage et de détachement · heures supplémentaires +25 % / +50 %,
 heures complémentaires +10 % / +25 %, forfait jours, alertes 10 h / 48 h · repos
 compensateur · CP 25 jours ouvrés (+5 j à 59 ans, CCN Chimie), RTT, jours de repos
 forfait calculés, CET (5 RTT/an, 5e semaine de CP), reports tracés · absences hors congés

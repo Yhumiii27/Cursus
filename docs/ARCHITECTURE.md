@@ -188,6 +188,7 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `demande.formation` | f (ou `autre`), libelle, sessionId, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `demande.habilitation` | h, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `voyage.creer` | empId, dest, depart, retour, motif | RH |
+| `voyage.detachement` | id, detachementLe?, informationLe? (date passée ; vide : saisie effacée) | RH (certificat de sécurité sociale du détachement, information écrite d’une mission de plus de 4 semaines) |
 | `formalite.enregistrer` | empId, kind (`passeport`/`visa`/`vaccin`), numero, expire, dest, visaType, obtenu, v, date | RH (écrit dans le dossier), ou le collaborateur pour lui-même (déclaration en attente, voir ci-dessous) |
 | `voyages.importer` | texte (CSV) | RH |
 | `keystone.accepter` / `keystone.refuser` | id | RH (demande en attente ; l'acceptation revalide affectation, chantier actif, destination, effectifs et l'absence de déplacement déjà créé ; la demande reste en base avec statut, date et décideur) |
@@ -342,6 +343,29 @@ faite à un seul endroit (`contexte()` de keystone-entrant.ts), à reprendre qua
 paie sera stocké. Contrat : `docs/API-KEYSTONE.md` et `docs/keystone-openapi.json` (codes de motif :
 `CODES_MOTIF` de `shared/constants.ts`).
 
+## Go / No Go
+
+`Domain.resourceStatus` (`shared/domain.ts`) évalue chaque ressource d'un chantier actif ; codes de motif
+`CODES_MOTIF` (`shared/constants.ts`), contrat `docs/API-KEYSTONE.md`.
+
+- **Présence** (`Domain.presence`) : affectations du salarié sur le chantier, ramenées aux dates du chantier et
+  fusionnées si elles se touchent ; sans affectation connue, les dates du chantier.
+- **Disponibilité** (No Go) : contrat (CDD, intérim, alternance) qui finit avant la fin de la présence ou commence
+  après son début (`CONTRAT`, `borneContrat`) ; absence validée ou signalée pendant la présence (`ABSENCE`), une
+  demande en attente ne donnant qu'une réserve. Le libellé, même en partage détaillé, ne nomme jamais la nature.
+- **Titres** : habilitations et certifications exigées, valides sur les dates du chantier.
+- **Hors de France** : un déplacement rattaché au chantier, ou vers son pays pendant la présence (un voyage des mois
+  plus tôt ne compte pas : `DEPLACEMENT`, à créer ou demande en attente). Chaque période de présence doit tenir dans
+  un déplacement (départ au plus tard le premier jour, retour au plus tôt le dernier), sinon réserve
+  `DEPLACEMENT_PARTIEL`. Formalités du salarié (`FORMALITES_VOYAGE`) et de détachement (`DETACHEMENT`) : réserve
+  tant que leur délai d'obtention le permet, No Go au-delà (elles ne seront pas faites au départ).
+- **Détachement** : la destination porte sa formalité de sécurité sociale (`Destination.secu` ; sinon `secuDe` la
+  déduit du code pays : certificat A1 dans l'Union européenne, l'EEE, en Suisse et au Royaume-Uni, certificat de la
+  convention bilatérale, ou maintien au régime français sans convention). Une mission de plus de 4 semaines
+  (`MISSION_LONGUE_JOURS`) exige en plus l'information écrite du salarié avant son départ. Le service RH en
+  enregistre les dates sur le déplacement (`voyage.detachement` : `detachementLe`, `informationLe`), écran Voyages ;
+  elles entrent dans le dossier voyage (`Domain.readiness`) et ne sont pas des données de santé.
+
 ## Absences hors congés
 
 Référentiel `NATURES_ABSENCE` (`shared/constants.ts`) : santé (arrêt maladie, arrêt longue maladie, accident du travail
@@ -411,7 +435,8 @@ Règles : `shared/rules/absences.ts` (confidentialité, décompte, reprise, annu
 - **Verdicts Go / No Go** : `server/src/integrations/keystone-verdicts.ts` (`suivreVerdicts`) mémorise le
   dernier verdict transmis par chantier et ressource (table `verdictsKeystone`) et met en file
   `verdict.modifie` (codes de motif seulement) quand il change. Recalcul après chaque action, sauf les
-  familles sans effet (`changeVerdicts` de `actions/index.ts` : temps, absences, entretiens…), après
+  familles sans effet (`changeVerdicts` de `actions/index.ts` : temps, compteurs de congés, entretiens… ;
+  les actions d'absence, qui peuvent bloquer une ressource, y donnent lieu), après
   chaque écriture de Keystone et une fois par jour. Les verdicts du jeu de démonstration sont mémorisés
   sans envoi. Ceux mémorisés en simulation ne sont pas réputés transmis : le réglage `verdictsKeystoneMode`
   retient le mode du suivi, et le premier calcul en mode API vide la table, d'où un premier verdict

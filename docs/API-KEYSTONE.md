@@ -258,9 +258,12 @@ saisies ne changent pas.
 
 ## Verdict Go / No Go
 
-`GET /chantiers/{id}/go-no-go` — réévalué à chaque appel, pour chaque ressource : habilitations et
-certifications exigées, valides sur les dates du chantier, et, hors de France, déplacement validé
-et formalités de voyage (passeport, visa, vaccinations).
+`GET /chantiers/{id}/go-no-go` — réévalué à chaque appel, pour chaque ressource : contrat en cours et
+aucune absence sur sa présence, habilitations et certifications exigées, valides sur les dates du
+chantier, et, hors de France, déplacement validé couvrant sa présence, formalités de voyage (passeport,
+visa, vaccinations) et de détachement (certificat de sécurité sociale, information écrite au-delà de
+4 semaines). La présence d'une ressource est celle de ses affectations, ramenée aux dates du chantier
+(sans affectation connue, les dates du chantier).
 
 ```bash
 curl -s -H "X-Api-Key: $CLE" "$CURSUS/chantiers/K-2614/go-no-go"
@@ -300,6 +303,10 @@ curl -s -H "X-Api-Key: $CLE" "$CURSUS/chantiers/K-2614/go-no-go"
 | `CERTIFICATION` | certification exigée absente ou expirée (réserve si un recyclage est planifié avant le démarrage, ou si elle expire pendant le chantier) |
 | `DEPLACEMENT` | chantier hors de France sans déplacement validé (demande en attente ou déplacement à créer) |
 | `FORMALITES_VOYAGE` | passeport, visa ou vaccination à régulariser (réserve), ou hors délai (No Go) |
+| `CONTRAT` | contrat (CDD, mission d'intérim, alternance) qui se termine avant la fin de la présence, ou qui commence après son début (No Go) |
+| `ABSENCE` | absence validée ou signalée pendant la présence (No Go), demande d'absence en attente (réserve) ; jamais la nature de l'absence, même dans le libellé |
+| `DEPLACEMENT_PARTIEL` | déplacement qui ne couvre pas toute la présence : départ après le premier jour ou retour avant le dernier (réserve) |
+| `DETACHEMENT` | formalités de détachement à faire avant le départ (réserve) — certificat de sécurité sociale (A1 en Europe, formulaire de la convention bilatérale ailleurs, maintien au régime français sans convention) et, pour une mission de plus de 4 semaines, information écrite du salarié —, ou qui ne seront pas faites au départ (No Go) |
 
 Un nouveau code de motif sera annoncé et ajouté à la spécification : Keystone doit traiter un code
 inconnu selon son `niveau`.
@@ -515,7 +522,8 @@ RTT, maladie…) n'est jamais transmise : seule l'indisponibilité compte pour l
 Le verdict Go / No Go d'une ressource change : statut ou codes de motif. Cursus mémorise le dernier
 verdict transmis par chantier et par ressource et le recalcule après chaque action qui peut le changer
 (habilitation suspendue, levée, retirée ou délivrée, certification enregistrée, recyclage planifié,
-déplacement créé, formalités mises à jour…), après chaque écriture de Keystone (affectation,
+déplacement créé, formalités de voyage ou de détachement mises à jour, absence posée, validée, prolongée
+ou annulée, fin de contrat modifiée…), après chaque écriture de Keystone (affectation,
 exigences ou dates d'un chantier, instantané) et chaque jour (expirations, délais des formalités). Une
 nouvelle ressource reçoit aussi son premier verdict (`precedent: null`), comme chaque ressource des
 chantiers en cours ou à venir à la mise en service des envois : les verdicts calculés tant que Cursus

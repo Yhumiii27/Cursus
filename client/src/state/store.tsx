@@ -51,6 +51,7 @@ export type DialogState =
   | { type: 'habMesure'; empId: number; h: string; action: HabMesureAction }
   | { type: 'trip' }
   | { type: 'fo'; empId?: number | null; kind?: FormaliteKind; dest?: string; v?: VaccinId }
+  | { type: 'detachement'; id: number }
   | { type: 'reqForm'; f?: string; sessionId?: number | null; empId?: number | null }
   | { type: 'reqHab'; empId?: number | null }
   | { type: 'employe'; empId?: number | null; equipe?: string | null }

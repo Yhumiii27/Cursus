@@ -7,6 +7,11 @@ export type Role = 'rh' | 'manager' | 'collaborateur';
 export type FormationType = 'Réglementaire' | 'Recommandée' | 'Interne';
 export type VaccinId = 'fj' | 'hepA' | 'hepB' | 'typhoide' | 'dtp';
 export type VisaKind = 'none' | 'evisa' | 'esta' | 'embassy';
+/**
+ * Sécurité sociale du salarié envoyé dans le pays : certificat A1 (Union européenne, EEE, Suisse, Royaume-Uni),
+ * certificat de détachement d'une convention bilatérale, ou maintien au régime français (pays sans convention).
+ */
+export type SecuDetachement = 'a1' | 'convention' | 'hors_convention';
 /** Catégories de la CCN Industries chimiques. */
 export type Statut = 'ouvrier' | 'technicien' | 'cadre';
 export type TypeContrat = 'cdi' | 'cdd' | 'interim' | 'alternance';
@@ -40,7 +45,11 @@ export type SessionStatut = 'À confirmer' | 'Confirmée' | 'Clôturée' | 'Annu
 // — Référentiels —
 export interface Formation { id: string; nom: string; court: string; type: FormationType; validite: number; duree: string; organisme: string; cout: number; validation: ValidationMode }
 export interface HabType { id: string; nom: string; detail: string; prereqs: string[]; medical: boolean; validite: number; signataire: string }
-export interface Destination { code: string; pays: string; visa: VisaKind; visaSub: string; oblig: VaccinId[]; rec: VaccinId[]; passMois: number }
+export interface Destination {
+  code: string; pays: string; visa: VisaKind; visaSub: string; oblig: VaccinId[]; rec: VaccinId[]; passMois: number;
+  /** Formalité de sécurité sociale du détachement ; null : déduite du code pays (`secuDe` de shared/constants.ts). */
+  secu: SecuDetachement | null;
+}
 export interface Equipe { nom: string; managerId: number | null; ordre: number }
 /** Projet ou chantier tenu dans Keystone : archivé, il reste en base (historique) sans plus être proposé ni évalué. */
 export type StatutKeystone = 'actif' | 'archive';
@@ -138,7 +147,14 @@ export interface Participation {
 export interface PlanAction { id: number; exercice: number; f: string | null; libelle: string | null; equipe: string; periode: Trimestre; effectif: number; cout: number; statut: PlanStatut; origine: string | null }
 
 // — Déplacements & projets —
-export interface Voyage { id: number; empId: number; dest: string; depart: ISODate; retour: ISODate; motif: string; origine: VoyageOrigine; ref: string | null; chantier: string | null; dossierStatut?: TripStatus }
+export interface Voyage {
+  id: number; empId: number; dest: string; depart: ISODate; retour: ISODate; motif: string; origine: VoyageOrigine; ref: string | null; chantier: string | null; dossierStatut?: TripStatus;
+  /**
+   * Formalités de détachement tenues par le service RH : obtention du certificat de sécurité sociale (A1, convention
+   * bilatérale ou maintien au régime français) et remise de l'information écrite d'une mission de plus de 4 semaines.
+   */
+  detachementLe: ISODate | null; informationLe: ISODate | null;
+}
 /** Demande de déplacement reçue de Keystone (`ref` : référence externe unique), conservée après décision du RH. */
 export interface DemandeKeystone {
   id: number; empId: number; chantier: string; dest: string; depart: ISODate; retour: ISODate; recue: ISODate;

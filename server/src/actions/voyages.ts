@@ -1,5 +1,5 @@
 // Déplacements, formalités (passeport, visas, vaccinations) et demandes Keystone.
-import { VACCINS } from '../../../shared/constants.ts';
+import { SECU_RULES, VACCINS, secuDe } from '../../../shared/constants.ts';
 import { isValidDate, parse } from '../../../shared/dates.ts';
 import { fmt, matricule, plural } from '../../../shared/format.ts';
 import { declarationLabel, estAuDossier, formaliteCle, lignesAuDossier, lireFormalite } from '../../../shared/rules/formalites.ts';
@@ -19,6 +19,32 @@ const creer: ActionHandler = (ctx, p) => {
   const t = ctx.db.insert<Voyage>('voyages', { empId: emp.id, dest: dest.code, depart: p.depart, retour: p.retour, motif, origine: 'cursus', ref: null, chantier: null });
   const r = ctx.d.readiness(emp, t);
   return { message: `Déplacement créé — ${emp.nom}, ${dest.pays} · ${r.todo ? plural(r.todo, 'formalité à prévoir', 'formalités à prévoir') : 'dossier complet'}`, result: { id: t.id } };
+};
+
+/**
+ * Formalités de détachement d'un déplacement, accomplies par le service RH : obtention du certificat de sécurité
+ * sociale (A1, convention bilatérale ou maintien au régime français) et remise de l'information écrite d'une mission
+ * de plus de 4 semaines. Seules les dates fournies changent ; une date vide efface une saisie erronée.
+ */
+const detachement: ActionHandler = (ctx, p) => {
+  requireRh(ctx);
+  const t = ctx.ds.voyages.find(v => v.id === Number(p.id));
+  if (!t) throw new ActionError('Déplacement introuvable', 404);
+  const emp = getEmp(ctx, t.empId), dest = ctx.d.destOf(t.dest);
+  if (!dest) throw new ActionError('Destination hors référentiel');
+  const champs = { detachementLe: SECU_RULES[secuDe(dest)].label, informationLe: 'Information écrite' };
+  const patch: Partial<Pick<Voyage, 'detachementLe' | 'informationLe'>> = {};
+  for (const [k, label] of Object.entries(champs) as [keyof typeof champs, string][]) {
+    if (!(k in p)) continue;
+    const v = str(p[k]);
+    if (v && !isValidDate(v)) throw new ActionError(`${label} : date invalide`);
+    if (v > ctx.d.ti) throw new ActionError(`${label} : la date ne peut pas être à venir`);
+    patch[k] = v || null;
+  }
+  if (!Object.keys(patch).length) throw new ActionError('Aucune formalité à enregistrer');
+  ctx.db.update<Voyage>('voyages', t.id, patch);
+  const r = ctx.d.readiness(emp, { ...t, ...patch });
+  return `Formalités de détachement enregistrées — ${emp.nom}, ${dest.pays} · ${r.todo ? plural(r.todo, 'formalité à prévoir', 'formalités à prévoir') : 'dossier complet'}`;
 };
 
 /** Écrit une formalité dans le dossier : elle remplace celle du même document (passeport, visa du pays, vaccin). */
@@ -115,6 +141,7 @@ const refuserKeystone: ActionHandler = (ctx, p) => {
 
 export const voyagesActions: Record<string, ActionHandler> = {
   'voyage.creer': creer,
+  'voyage.detachement': detachement,
   'formalite.enregistrer': formalite,
   'voyages.importer': importer,
   'keystone.accepter': accepterKeystone,

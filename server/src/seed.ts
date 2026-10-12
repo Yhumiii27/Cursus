@@ -38,15 +38,16 @@ const HABILITATIONS = [
   { id: 'aipr', nom: 'Autorisation AIPR', detail: 'Intervention à proximité des réseaux', prereqs: ['aipr'], medical: false, validite: 60, signataire: 'Karim Haddad' },
 ];
 
+// `secu` : convention bilatérale de sécurité sociale (Maroc, Inde, États-Unis, Côte d'Ivoire, Brésil), sinon maintien au régime français.
 const DESTS = [
-  { code: 'MA', pays: 'Maroc', visa: 'none', visaSub: 'séjour ≤ 90 jours', oblig: [], rec: ['hepA', 'typhoide'], passMois: 0 },
-  { code: 'IN', pays: 'Inde', visa: 'evisa', visaSub: '', oblig: [], rec: ['hepA', 'typhoide', 'hepB'], passMois: 6 },
-  { code: 'US', pays: 'États-Unis', visa: 'esta', visaSub: '', oblig: [], rec: [], passMois: 0 },
-  { code: 'CI', pays: 'Côte d’Ivoire', visa: 'evisa', visaSub: '', oblig: ['fj'], rec: ['hepA', 'typhoide'], passMois: 6 },
-  { code: 'GH', pays: 'Ghana', visa: 'embassy', visaSub: '', oblig: ['fj'], rec: ['hepA', 'typhoide'], passMois: 6 },
-  { code: 'BR', pays: 'Brésil', visa: 'none', visaSub: 'séjour ≤ 90 jours', oblig: [], rec: ['fj', 'hepA', 'typhoide'], passMois: 6 },
-  { code: 'SA', pays: 'Arabie saoudite', visa: 'evisa', visaSub: '', oblig: [], rec: ['hepA', 'typhoide'], passMois: 6 },
-  { code: 'VN', pays: 'Vietnam', visa: 'none', visaSub: 'séjour ≤ 45 jours', oblig: [], rec: ['hepA', 'typhoide'], passMois: 6 },
+  { code: 'MA', pays: 'Maroc', visa: 'none', visaSub: 'séjour ≤ 90 jours', oblig: [], rec: ['hepA', 'typhoide'], passMois: 0, secu: 'convention' },
+  { code: 'IN', pays: 'Inde', visa: 'evisa', visaSub: '', oblig: [], rec: ['hepA', 'typhoide', 'hepB'], passMois: 6, secu: 'convention' },
+  { code: 'US', pays: 'États-Unis', visa: 'esta', visaSub: '', oblig: [], rec: [], passMois: 0, secu: 'convention' },
+  { code: 'CI', pays: 'Côte d’Ivoire', visa: 'evisa', visaSub: '', oblig: ['fj'], rec: ['hepA', 'typhoide'], passMois: 6, secu: 'convention' },
+  { code: 'GH', pays: 'Ghana', visa: 'embassy', visaSub: '', oblig: ['fj'], rec: ['hepA', 'typhoide'], passMois: 6, secu: 'hors_convention' },
+  { code: 'BR', pays: 'Brésil', visa: 'none', visaSub: 'séjour ≤ 90 jours', oblig: [], rec: ['fj', 'hepA', 'typhoide'], passMois: 6, secu: 'convention' },
+  { code: 'SA', pays: 'Arabie saoudite', visa: 'evisa', visaSub: '', oblig: [], rec: ['hepA', 'typhoide'], passMois: 6, secu: 'hors_convention' },
+  { code: 'VN', pays: 'Vietnam', visa: 'none', visaSub: 'séjour ≤ 45 jours', oblig: [], rec: ['hepA', 'typhoide'], passMois: 6, secu: 'hors_convention' },
 ];
 
 const EQUIPES: [string, number][] = [['Logistique', 16], ['Maintenance', 12], ['Production', 3], ['Qualité & HSE', 23], ['Administration', 14], ['Commercial', 9]];
@@ -239,13 +240,14 @@ function planning() {
   return taches;
 }
 
+/** `detachementLe` : certificat de sécurité sociale obtenu ; ceux de Riyad, Mumbai et São Paulo restent à demander. */
 const VOYAGES = [
-  { empId: 19, dest: 'US', depart: '2026-10-12', retour: '2026-10-16', motif: 'Visite client — Houston', origine: 'formulaire', ref: 'DD-2026-0398' },
+  { empId: 19, dest: 'US', depart: '2026-10-12', retour: '2026-10-16', motif: 'Visite client — Houston', origine: 'formulaire', ref: 'DD-2026-0398', detachementLe: '2026-09-30' },
   { empId: 9, dest: 'IN', depart: '2026-10-19', retour: '2026-10-24', motif: 'Salon Automation Expo — Mumbai', origine: 'formulaire', ref: 'DD-2026-0402' },
-  { empId: 18, dest: 'MA', depart: '2026-10-27', retour: '2026-11-06', motif: 'Rétrofit presse hydraulique — Tanger', origine: 'keystone', chantier: 'K-2614' },
-  { empId: 12, dest: 'CI', depart: '2026-11-09', retour: '2026-11-27', motif: 'Mise en service ligne — Abidjan', origine: 'keystone', chantier: 'K-2611' },
+  { empId: 18, dest: 'MA', depart: '2026-10-27', retour: '2026-11-06', motif: 'Rétrofit presse hydraulique — Tanger', origine: 'keystone', chantier: 'K-2614', detachementLe: '2026-10-05' },
+  { empId: 12, dest: 'CI', depart: '2026-11-09', retour: '2026-11-27', motif: 'Mise en service ligne — Abidjan', origine: 'keystone', chantier: 'K-2611', detachementLe: '2026-10-08' },
   { empId: 9, dest: 'SA', depart: '2026-11-23', retour: '2026-11-26', motif: 'Négociation distributeur — Riyad', origine: 'cursus' },
-  { empId: 23, dest: 'GH', depart: '2026-12-01', retour: '2026-12-05', motif: 'Audit HSE usine — Tema', origine: 'keystone', chantier: 'K-2625' },
+  { empId: 23, dest: 'GH', depart: '2026-12-01', retour: '2026-12-05', motif: 'Audit HSE usine — Tema', origine: 'keystone', chantier: 'K-2625', detachementLe: '2026-10-02' },
   { empId: 22, dest: 'BR', depart: '2027-01-18', retour: '2027-01-29', motif: 'Transfert de ligne — São Paulo', origine: 'keystone', chantier: 'K-2631' },
 ];
 
@@ -267,6 +269,8 @@ const ABSENCES = [
   { empId: 16, type: 'RTT', du: '2026-10-30', au: '2026-10-30', statut: 'validee', keystone: true },
   { empId: 8, type: 'CP', du: '2026-10-12', au: '2026-10-16', statut: 'validee', keystone: true },
   { empId: 18, type: 'CP', du: '2026-12-21', au: '2026-12-24', statut: 'demandee' },
+  // Congé validé pendant l'audit de Tema, où Inès Dupont est affectée : No Go (motif ABSENCE, sans sa nature).
+  { empId: 5, type: 'CP', du: '2026-12-04', au: '2026-12-04', statut: 'validee', keystone: true },
   // Absences hors congés : un signalement à qualifier, un arrêt qualifié (semaine sans heure), une maternité, un mariage.
   { empId: 20, type: 'ABSENCE', du: '2026-10-07', au: '2026-10-16', statut: 'signalee', keystone: true, signaleLe: '2026-10-07', signalePar: 'Hugo Lambert' },
   { empId: 13, type: 'MALADIE', du: '2026-10-05', au: '2026-10-07', statut: 'validee', keystone: true, signaleLe: '2026-10-05', signalePar: 'Sophie Lemaire', justificatif: true, justificatifLe: '2026-10-06' },

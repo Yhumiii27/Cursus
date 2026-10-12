@@ -102,7 +102,7 @@
         "tags": ["Go / No Go"],
         "operationId": "verdict",
         "summary": "Verdict Go / No Go d'un chantier",
-        "description": "Réévalué à chaque appel : habilitations et certifications exigées, valides sur les dates du chantier, et, hors de France, déplacement et formalités de voyage. Matricules et codes de motif uniquement ; libellés ajoutés si le service RH a choisi le partage détaillé.",
+        "description": "Réévalué à chaque appel : contrat en cours et aucune absence sur la présence de la ressource (ses affectations, dans les dates du chantier), habilitations et certifications exigées, valides sur les dates du chantier, et, hors de France, déplacement couvrant la présence, formalités de voyage et de détachement. Matricules et codes de motif uniquement ; libellés ajoutés si le service RH a choisi le partage détaillé, jamais la nature d'une absence ni une donnée de santé.",
         "parameters": [{ "$ref": "#/components/parameters/Id" }],
         "responses": {
           "200": {
@@ -510,8 +510,8 @@
       "StatutVerdict": { "type": "string", "enum": ["GO", "GO_RESERVE", "NO_GO"] },
       "CodeMotif": {
         "type": "string",
-        "enum": ["HABILITATION", "HABILITATION_SUSPENDUE", "HABILITATION_RETIREE", "CERTIFICATION", "DEPLACEMENT", "FORMALITES_VOYAGE"],
-        "description": "HABILITATION : habilitation exigée absente, en attente, expirée ou expirant pendant le chantier ; HABILITATION_SUSPENDUE / HABILITATION_RETIREE : mesure prise par l'employeur ; CERTIFICATION : certification exigée absente, expirée ou expirant pendant le chantier ; DEPLACEMENT : aucun déplacement validé pour ce chantier ; FORMALITES_VOYAGE : passeport, visa ou vaccination à régulariser."
+        "enum": ["HABILITATION", "HABILITATION_SUSPENDUE", "HABILITATION_RETIREE", "CERTIFICATION", "DEPLACEMENT", "FORMALITES_VOYAGE", "CONTRAT", "ABSENCE", "DEPLACEMENT_PARTIEL", "DETACHEMENT"],
+        "description": "HABILITATION : habilitation exigée absente, en attente, expirée ou expirant pendant le chantier ; HABILITATION_SUSPENDUE / HABILITATION_RETIREE : mesure prise par l'employeur ; CERTIFICATION : certification exigée absente, expirée ou expirant pendant le chantier ; DEPLACEMENT : aucun déplacement validé pour ce chantier ; FORMALITES_VOYAGE : passeport, visa ou vaccination à régulariser ; CONTRAT : contrat (CDD, intérim, alternance) terminé avant la fin de la présence, ou commencé après son début (NO_GO) ; ABSENCE : absence en vigueur pendant la présence (NO_GO) ou demande d'absence en attente (GO_RESERVE), jamais sa nature ; DEPLACEMENT_PARTIEL : déplacement qui ne couvre pas toute la présence (GO_RESERVE) ; DETACHEMENT : certificat de sécurité sociale (A1, convention bilatérale ou maintien au régime français) ou information écrite d'une mission de plus de 4 semaines à faire (GO_RESERVE), ou qui ne sera pas fait au départ (NO_GO)."
       },
       "Motif": {
         "type": "object",

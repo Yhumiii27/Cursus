@@ -1,5 +1,8 @@
 // Libellés, classes de statut et règles fixes (droit du travail, formalités).
-import type { AbsenceStatut, AbsenceType, CompteType, EntretienType, NatureAbsence, ProfilRh, Role, Statut, TempsTravail, TypeContrat, VaccinId, ValidationMode, VisaKind } from './types.ts';
+import type {
+  AbsenceStatut, AbsenceType, CompteType, Destination, EntretienType, NatureAbsence, ProfilRh, Role, SecuDetachement, Statut, TempsTravail, TypeContrat, VaccinId,
+  ValidationMode, VisaKind,
+} from './types.ts';
 
 export type StatusKey = 'ok' | 'due' | 'exp';
 /** `susp` : suspendue (prérequis non satisfait ou suspension manuelle) ; `retiree` : retirée, définitivement. */
@@ -178,7 +181,12 @@ export const GNG_CODE = { go: 'GO', reserve: 'GO_RESERVE', nogo: 'NO_GO' } as co
  * Codes de motif Go / No Go transmis à Keystone, contrat de l'API v1 (docs/keystone-openapi.json) :
  * un nouveau code s'ajoute ici, dans la spécification et dans docs/API-KEYSTONE.md.
  */
-export const CODES_MOTIF = ['HABILITATION', 'HABILITATION_SUSPENDUE', 'HABILITATION_RETIREE', 'CERTIFICATION', 'DEPLACEMENT', 'FORMALITES_VOYAGE'] as const;
+export const CODES_MOTIF = [
+  'HABILITATION', 'HABILITATION_SUSPENDUE', 'HABILITATION_RETIREE', 'CERTIFICATION', 'DEPLACEMENT', 'FORMALITES_VOYAGE',
+  // Disponibilité sur la présence prévue (fin du contrat, absence, jamais sa nature), déplacement qui ne la couvre
+  // pas en entier, formalités de détachement (sécurité sociale, information écrite d'une mission longue).
+  'CONTRAT', 'ABSENCE', 'DEPLACEMENT_PARTIEL', 'DETACHEMENT',
+] as const;
 export type CodeMotif = typeof CODES_MOTIF[number];
 /**
  * Activités internes (codes INT-*) et cours en CFA (ECOLE) : imputables dans les feuilles de temps,
@@ -215,6 +223,40 @@ export const VISA_RULES: Record<VisaKind, { label: string; sub: string; delai: n
   esta: { label: 'ESTA', sub: 'autorisation électronique · 72 h · valable 2 ans', delai: 3 },
   embassy: { label: 'Visa d’affaires', sub: 'ambassade · 3 à 4 semaines', delai: 28 },
 };
+
+/**
+ * Sécurité sociale du salarié envoyé à l'étranger, formalité du service RH avant le départ : certificat A1
+ * (règlement (CE) n° 883/2004 ; Royaume-Uni : accord de commerce et de coopération), certificat de détachement
+ * de la convention bilatérale, ou, sans convention, maintien au régime français. `delai` : jours à prévoir
+ * avant le départ. Données indicatives, à vérifier sur cleiss.fr.
+ */
+export const SECU_RULES: Record<SecuDetachement, { label: string; court: string; portee: string; demarche: string; delai: number }> = {
+  a1: { label: 'Certificat A1', court: 'Certificat A1', portee: 'Union européenne, EEE, Suisse, Royaume-Uni', demarche: 'demande en ligne sur net-entreprises.fr', delai: 7 },
+  convention: {
+    label: 'Certificat de détachement', court: 'Détachement', portee: 'Convention bilatérale de sécurité sociale',
+    demarche: 'formulaire de la convention, visé par la caisse d’assurance maladie', delai: 21,
+  },
+  hors_convention: {
+    label: 'Maintien au régime français', court: 'Sécurité sociale', portee: 'Pays sans convention de sécurité sociale',
+    demarche: 'demande à la caisse d’assurance maladie (art. L761-2 du Code de la sécurité sociale)', delai: 21,
+  },
+};
+/** Union européenne, EEE, Suisse et Royaume-Uni : certificat A1. */
+const PAYS_A1 = new Set([
+  'AT', 'BE', 'BG', 'CY', 'CZ', 'DE', 'DK', 'EE', 'ES', 'FI', 'FR', 'GR', 'HR', 'HU', 'IE', 'IT', 'LT', 'LU', 'LV', 'MT', 'NL', 'PL', 'PT', 'RO', 'SE', 'SI', 'SK',
+  'IS', 'LI', 'NO', 'CH', 'GB',
+]);
+/** Pays liés à la France par une convention bilatérale de sécurité sociale (liste indicative du Cleiss). */
+const PAYS_CONVENTION = new Set([
+  'AD', 'AR', 'AU', 'BA', 'BJ', 'BR', 'CA', 'CG', 'CI', 'CL', 'CM', 'CN', 'CV', 'DZ', 'GA', 'IL', 'IN', 'JP', 'KR', 'MA', 'MC', 'ME', 'MG', 'MK', 'ML',
+  'MR', 'NE', 'PH', 'RS', 'SM', 'SN', 'TG', 'TN', 'TR', 'US', 'UY', 'XK',
+]);
+/** Formalité de sécurité sociale d'une destination : celle du référentiel, sinon celle que donne son code pays. */
+export const secuDe = (dest: Pick<Destination, 'code' | 'secu'>): SecuDetachement =>
+  dest.secu && Object.hasOwn(SECU_RULES, dest.secu) ? dest.secu
+    : PAYS_A1.has(dest.code) ? 'a1' : PAYS_CONVENTION.has(dest.code) ? 'convention' : 'hors_convention';
+/** Mission à l'étranger au-delà de laquelle (4 semaines consécutives) le salarié reçoit une information écrite avant le départ. */
+export const MISSION_LONGUE_JOURS = 28;
 
 /** Catégories de la CCN Industries chimiques ; « non-cadre » regroupe les deux premières. */
 export const STATUTS: Record<Statut, { label: string; court: string; cadre: boolean }> = {

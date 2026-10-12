@@ -93,10 +93,10 @@ test('migration : place de session encore tenue par une certification remplacée
   const inscrits = domain().session(5)!.inscrits;
   // État laissé par une version antérieure : recyclage enregistré sans libérer la place.
   db.insert('certifications', { empId: 2, f: 'elec', obtenue: '2026-10-06', sessionId: null, convoc: null });
-  libererPlacesRemplacees(db, '2026-10-10');
+  libererPlacesRemplacees(db);
   assert.equal(domain().session(5)!.inscrits, inscrits - 1);
   assert.equal(db.get<{ sessionId: number | null }>('certifications', ancienne)!.sessionId, null);
-  libererPlacesRemplacees(db, '2026-10-10');
+  libererPlacesRemplacees(db);
   assert.equal(domain().session(5)!.inscrits, inscrits - 1, 'migration rejouable sans effet');
 });
 

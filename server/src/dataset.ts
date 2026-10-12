@@ -4,9 +4,10 @@
 import { Domain } from '../../shared/domain.ts';
 import { addD, iso, mondayOf } from '../../shared/dates.ts';
 import { absenceVueManager, repriseMedicale } from '../../shared/rules/absences.ts';
+import { avecInscrits } from '../../shared/rules/sessions.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Chantier, CurrentUser, Dataset, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
-  Equipe, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mission, PlanAction, Projet, ReportCp, SagePush, Session, Settings, SoldeReprise,
+  Equipe, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mission, Participation, PlanAction, Projet, ReportCp, SagePush, Session, Settings, SoldeReprise,
   TacheKeystone, Vaccination, Visa, Voyage,
 } from '../../shared/types.ts';
 import { PROFILS_RH } from '../../shared/constants.ts';
@@ -37,6 +38,8 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
   const habs = db.all<HabTitre>('habTitres');
   const visas = db.all<Visa>('visas');
   const vaccins = db.all<Vaccination>('vaccinations');
+  const inscriptions = db.all<Inscription>('inscriptions');
+  const participations = db.all<Participation>('participations');
   const employes: Employe[] = db.all<EmpRow>('employes').map(({ passeportNumero, passeportExpire, ...e }) => ({
     ...e,
     jourOff: e.jourOff ?? [],
@@ -64,8 +67,10 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     },
     annuaire: employes.map(e => ({ id: e.id, nom: e.nom, equipe: e.equipe, poste: e.poste })),
     employes,
-    sessions: db.all<Session>('sessions'),
-    inscriptions: db.all<Inscription>('inscriptions'),
+    // Nombre d'inscrits calculé sur toutes les données, avant la restriction au périmètre.
+    sessions: avecInscrits(db.all<Omit<Session, 'inscrits'>>('sessions'), certs, inscriptions, participations),
+    inscriptions,
+    participations,
     plan: db.all<PlanAction>('planActions'),
     budgets,
     voyages: db.all<Voyage>('voyages'),
@@ -150,6 +155,9 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     ...full,
     referentiels: { ...full.referentiels, chantiers: [] },
     employes,
+    // Le bilan d'une session (évaluation à chaud, motif d'annulation : textes libres, parfois nominatifs)
+    // est réservé au service RH.
+    sessions: full.sessions.map(s => s.bilan ? { ...s, bilan: null } : s),
     plan: [],
     budgets: {},
     voyages,
@@ -168,6 +176,7 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     demandesCollab: mine(full.demandesCollab).filter(r => !isMgr || r.empId === user.empId || r.type !== 'document')
       .map(r => r.empId === user.empId ? r : { ...r, declaration: null }),
     inscriptions: mine(full.inscriptions),
+    participations: mine(full.participations),
     lastSagePush: null,
   };
 }

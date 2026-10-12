@@ -1,5 +1,5 @@
 // Libellés, classes de statut et règles fixes (droit du travail, formalités).
-import type { AbsenceStatut, AbsenceType, CompteType, EntretienType, NatureAbsence, ProfilRh, Role, Statut, TempsTravail, TypeContrat, VaccinId, VisaKind } from './types.ts';
+import type { AbsenceStatut, AbsenceType, CompteType, EntretienType, NatureAbsence, ProfilRh, Role, Statut, TempsTravail, TypeContrat, VaccinId, ValidationMode, VisaKind } from './types.ts';
 
 export type StatusKey = 'ok' | 'due' | 'exp';
 /** `susp` : suspendue (prérequis non satisfait ou suspension manuelle) ; `retiree` : retirée, définitivement. */
@@ -10,7 +10,12 @@ export const CERT_LABEL: Record<StatusKey, string> = { ok: 'Valide', due: 'À re
 export const EMP_LABEL: Record<StatusKey, string> = { ok: 'À jour', due: 'À renouveler', exp: 'Non conforme' };
 export const DOC_LABEL: Record<StatusKey, string> = { ok: 'Valide', due: 'À renouveler', exp: 'Expiré' };
 export const RANK: Record<StatusKey, number> = { ok: 0, due: 1, exp: 2 };
-export const SESS_CLS: Record<string, string> = { 'Confirmée': 'tag-neutral', 'À confirmer': 'tag-outline', 'Complète': 'tag-accent' };
+/** Session dont la date est passée et qui attend sa clôture (présence, résultats) : plus rien n'y est « planifié ». */
+export const SESSION_PASSEE = 'Session passée — à clôturer';
+export const SESS_CLS: Record<string, string> = {
+  'Confirmée': 'tag-neutral', 'À confirmer': 'tag-outline', 'Complète': 'tag-accent', [SESSION_PASSEE]: 'tag-accent', 'Clôturée': 'tag-neutral', 'Annulée': 'tag-outline',
+};
+export const VALIDATION_LABEL: Record<ValidationMode, string> = { presence: 'Présence suffit', evaluation: 'Évaluation réussie requise' };
 export const HAB_CLS: Record<HabKey, string> = { ok: 'tag-neutral', due: 'tag-outline', exp: 'tag-accent', susp: 'tag-accent', pending: 'tag-outline', retiree: 'tag-accent' };
 export const HAB_LABEL: Record<HabKey, string> = { ok: 'Valide', due: 'À renouveler', exp: 'Expirée', susp: 'Suspendue', pending: 'En attente', retiree: 'Retirée' };
 /** Mesures manuelles sur un titre délivré : suspendre (RH, manager direct), lever la suspension et retirer (RH). */

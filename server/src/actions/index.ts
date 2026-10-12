@@ -8,11 +8,13 @@ import { entretiensActions } from './entretiens.ts';
 import { envoisActions } from './envois.ts';
 import { equipesActions } from './equipes.ts';
 import { parametresActions } from './parametres.ts';
+import { sessionsActions } from './sessions.ts';
 import { tempsActions } from './temps.ts';
 import { voyagesActions } from './voyages.ts';
 
 export const ACTIONS: Record<string, ActionHandler> = {
   ...conformiteActions,
+  ...sessionsActions,
   ...voyagesActions,
   ...budgetActions,
   ...tempsActions,

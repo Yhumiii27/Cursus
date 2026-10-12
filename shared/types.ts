@@ -32,9 +32,13 @@ export type VoyageOrigine = 'formulaire' | 'keystone' | 'cursus';
 export type TripStatus = 'pret' | 'todo' | 'bloc';
 export type DemandeType = 'formation' | 'habilitation' | 'document';
 export type DemandeStatut = 'attente' | 'acceptee' | 'refusee';
+/** Mode de validation d'une formation (catalogue) : la présence suffit, ou une évaluation réussie est requise. */
+export type ValidationMode = 'presence' | 'evaluation';
+/** Cycle de vie d'une session : à confirmer → confirmée → clôturée (présence, résultats) ; ou annulée. */
+export type SessionStatut = 'À confirmer' | 'Confirmée' | 'Clôturée' | 'Annulée';
 
 // — Référentiels —
-export interface Formation { id: string; nom: string; court: string; type: FormationType; validite: number; duree: string; organisme: string; cout: number }
+export interface Formation { id: string; nom: string; court: string; type: FormationType; validite: number; duree: string; organisme: string; cout: number; validation: ValidationMode }
 export interface HabType { id: string; nom: string; detail: string; prereqs: string[]; medical: boolean; validite: number; signataire: string }
 export interface Destination { code: string; pays: string; visa: VisaKind; visaSub: string; oblig: VaccinId[]; rec: VaccinId[]; passMois: number }
 export interface Equipe { nom: string; managerId: number | null; ordre: number }
@@ -108,9 +112,29 @@ export interface Employe {
 export interface Personne { id: number; nom: string; equipe: string | null; poste: string }
 
 // — Formations & plan —
-export interface Session { id: number; formation: string; date: ISODate; lieu: string; places: number; inscrits: number; statut: 'Confirmée' | 'À confirmer' }
-/** Inscription à une session d'une formation que le collaborateur n'a encore jamais suivie (formation initiale). */
+export interface Session {
+  id: number; formation: string; date: ISODate; lieu: string; places: number; statut: SessionStatut;
+  /** Calculé au chargement (certifications rattachées, inscriptions, résultats de clôture), jamais stocké. */
+  inscrits: number;
+  /** Action du plan de formation à l'origine de la session. */
+  planId: number | null;
+  /** Clôture (évaluation à chaud) ou annulation (motif) : date et auteur. */
+  bilan: SessionBilan | null;
+}
+export interface SessionBilan { le: ISODate; par: string; note: number | null; commentaire: string | null; motif: string | null }
+/**
+ * Inscription à une session d'une formation que le collaborateur n'a encore jamais suivie (formation initiale).
+ * Rattachée à une session annulée, ou clôturée sans certification (absent, évaluation échouée) : à replanifier.
+ */
 export interface Inscription { id: number; empId: number; sessionId: number; convoc: 'now' | 'later'; date: ISODate }
+/** Résultat d'un inscrit, enregistré à la clôture de la session. */
+export interface Participation {
+  id: number; sessionId: number; empId: number; parcours: 'recyclage' | 'initiale'; present: boolean;
+  /** Évaluation : null si la formation ne l'exige pas, ou pour un absent. */
+  reussi: boolean | null;
+  /** Certification enregistrée (présent, et reçu si l'évaluation est exigée). */
+  certId: number | null;
+}
 export interface PlanAction { id: number; exercice: number; f: string | null; libelle: string | null; equipe: string; periode: Trimestre; effectif: number; cout: number; statut: PlanStatut; origine: string | null }
 
 // — Déplacements & projets —
@@ -275,6 +299,7 @@ export interface Dataset {
   employes: Employe[];
   sessions: Session[];
   inscriptions: Inscription[];
+  participations: Participation[];
   plan: PlanAction[];
   budgets: Record<string, Record<string, number>>;
   voyages: Voyage[];

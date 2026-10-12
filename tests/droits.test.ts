@@ -80,6 +80,14 @@ const MATRICE: Ligne[] = [
   { action: 'plan.inscrire', droits: '                       O    O    O    -    -    -', p: () => ({ empId: 2, certId: cert('sst'), sessionId: 2, conv: 'now' }) },
   { action: 'cert.ajouter', droits: '                        O    O    -    -    -    -', p: () => ({ empId: 2, f: 'sst', date: '2026-10-01' }) },
   { action: 'session.creer', droits: '                       O    O    -    -    -    -', p: () => ({ f: 'sst', date: '2026-12-01', lieu: 'Site de Lyon', places: 8 }) },
+  // Sessions : cycle de vie et clôture par le service RH (session 2 : SST du 18 novembre, à confirmer).
+  { action: 'session.confirmer', droits: '                   O    O    -    -    -    -', p: () => ({ id: 2 }) },
+  { action: 'session.modifier', droits: '                    O    O    -    -    -    -', p: () => ({ id: 2, lieu: 'Site de Lyon — salle C' }) },
+  { action: 'session.annuler', droits: '                     O    O    -    -    -    -', p: () => ({ id: 2, motif: 'Organisme indisponible' }) },
+  { action: 'session.cloturer', droits: '                    O    O    -    -    -    -', p: () => ({
+    id: db.insert<{ id: number }>('sessions', { formation: 'sst', date: '2026-10-01', lieu: 'Site de Lyon', places: 8, statut: 'Confirmée', planId: null, bilan: null }).id,
+    participants: [],
+  }) },
   { action: 'hab.delivrer', droits: '                        O    O    -    -    -    -', p: () => ({ empId: 2, h: 'hauteur', date: '2026-10-07', par: 'Sarah Cohen', mode: 'renew' }) },
   { action: 'hab.suspendre', droits: '                       O    O    O    -    -    -', p: () => ({ empId: 2, h: 'hauteur', motif: 'Incident sur passerelle' }) },
   { action: 'hab.lever', droits: '                           O    O    -    -    -    -', p: () => {

@@ -4,6 +4,7 @@ import { CERT_LABEL, CLS, EMP_LABEL, HAB_CLS, HAB_LABEL, REQ_CLS, REQ_LABEL, SES
 import { parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, fmtShort, matricule, plural, rel } from '../../../shared/format.ts';
 import { declarationDetail, formaliteCle } from '../../../shared/rules/formalites.ts';
+import { etatInscription } from '../../../shared/rules/sessions.ts';
 import { Bar, Btn, Chips, Empty, Fine, Kpi, Kpis, NoteAccent, Page, Panel, Tag } from '../components/ui.tsx';
 import { useEnriched, useRole, useTrips } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -38,10 +39,11 @@ export function Portail() {
   const enAttente = new Set(declarees.map(r => formaliteCle(r.declaration!)));
   const openMyDocs = () => openDialog({ type: 'fo', empId: me.id });
   const contrat = d.contratOf(me);
-  // Formations initiales planifiées : inscriptions à une session d'une formation jamais suivie.
+  // Formations initiales : inscriptions à une session d'une formation jamais suivie (planifiées, session
+  // passée en attente de clôture, ou à replanifier par le service RH).
   const planifiees = d.ds.inscriptions.flatMap(i => {
-    const s = i.empId === me.id ? d.session(i.sessionId) : null;
-    return s ? [{ i, s, fm: d.fm(s.formation) }] : [];
+    const x = i.empId === me.id ? etatInscription(d, i) : null;
+    return x ? [{ i, x, s: x.s, fm: d.fm(x.s.formation) }] : [];
   }).sort((a, b) => a.s.date.localeCompare(b.s.date));
   const mgrId = d.mgrOf(me);
 
@@ -76,24 +78,24 @@ export function Portail() {
         <div className="col-stack" style={{ flex: '1 1 480px' }}>
           {planifiees.length > 0 && (
             <Panel title="Formations planifiées" aside="formation initiale" style={{ gap: 'var(--space-2)' }}>
-              {planifiees.map(({ i, s, fm }) => {
-                const passee = s.date < d.ti;
-                return (
-                  <div key={i.id} className="list-row stack" style={{ ...rowStyle, gap: 'var(--space-1)' }}>
-                    <div className="item-head">
-                      <div>
-                        <div style={{ fontSize: 14 }}>{fm.nom}</div>
-                        <div className="text-muted sub">Session du {fmt(parse(s.date))} · {s.lieu} · {fm.organisme}</div>
-                      </div>
-                      <Tag cls={passee ? 'tag-outline' : SESS_CLS[s.statut]} style={{ flex: 'none' }}>{passee ? 'Session passée' : s.statut}</Tag>
+              {planifiees.map(({ i, x, s, fm }) => (
+                <div key={i.id} className="list-row stack" style={{ ...rowStyle, gap: 'var(--space-1)' }}>
+                  <div className="item-head">
+                    <div>
+                      <div style={{ fontSize: 14 }}>{fm.nom}</div>
+                      <div className="text-muted sub">{x.etat === 'a_planifier' ? x.motif : `Session du ${fmt(parse(s.date))} · ${s.lieu} · ${fm.organisme}`}</div>
                     </div>
-                    <div className="sub text-n400">
-                      {passee ? 'Certification en cours d’enregistrement par le service RH'
-                        : i.convoc === 'now' ? `Convocation envoyée le ${fmtShort(parse(i.date))}` : 'Convocation à venir'}
-                    </div>
+                    {x.etat === 'planifiee'
+                      ? <Tag cls={SESS_CLS[s.statut]} style={{ flex: 'none' }}>{s.statut}</Tag>
+                      : <Tag cls="tag-outline" style={{ flex: 'none' }}>{x.etat === 'passee' ? 'Session passée' : 'À replanifier'}</Tag>}
                   </div>
-                );
-              })}
+                  <div className="sub text-n400">
+                    {x.etat === 'passee' ? 'Présence et résultat en cours d’enregistrement par le service RH'
+                      : x.etat === 'a_planifier' ? 'Le service RH vous inscrira à une prochaine session'
+                      : i.convoc === 'now' ? `Convocation envoyée le ${fmtShort(parse(i.date))}` : 'Convocation à venir'}
+                  </div>
+                </div>
+              ))}
             </Panel>
           )}
 
@@ -101,7 +103,9 @@ export function Portail() {
             {me.certs.map(c => {
               const avail = upcoming.find(s => s.formation === c.f && s.inscrits < s.places);
               const pend = myReqs.some(r => r.type === 'formation' && r.f === c.f && r.statut === 'attente');
-              const info = c.session ? `Inscrit à la session du ${fmt(parse(c.session.date))}` : pend ? 'Demande de recyclage envoyée au service RH' : '';
+              const info = c.session ? `Inscrit à la session du ${fmt(parse(c.session.date))}`
+                : c.sessionPassee ? `Session du ${fmt(parse(c.sessionPassee.date))} passée — présence et résultat en cours d’enregistrement par le service RH`
+                : pend ? 'Demande de recyclage envoyée au service RH' : '';
               return (
                 <div key={c.id} className="list-row stack" style={rowStyle}>
                   <div className="item-head">
@@ -110,7 +114,7 @@ export function Portail() {
                   </div>
                   <Bar variant="thin" pct={c.pct} color={c.key === 'ok' ? 'var(--color-accent-600)' : 'var(--color-accent-300)'} />
                   {info && <NoteAccent>{info}</NoteAccent>}
-                  {c.key !== 'ok' && !c.session && !pend && (
+                  {c.key !== 'ok' && !c.session && !c.sessionPassee && !pend && (
                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                       <Btn small onClick={() => openDialog({ type: 'reqForm', f: c.f, sessionId: avail?.id ?? null })}>Demander le recyclage</Btn>
                     </div>

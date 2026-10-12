@@ -3,7 +3,7 @@
 // Fonctions pures d'un instantané de données — utilisées par le client pour
 // l'affichage et par le serveur pour valider les actions et les intégrations.
 import {
-  CERT_LABEL, CLS, DOC_LABEL, GNG_CODE, HAB_CLS, HAB_LABEL, MED_VALIDITE, RANK, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT, VACCINS, VISA_RULES,
+  CERT_LABEL, CLS, DOC_LABEL, GNG_CODE, HAB_CLS, HAB_LABEL, MED_VALIDITE, RANK, SESSION_PASSEE, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT, VACCINS, VISA_RULES,
   type CodeMotif, type HabKey, type HabMesureAction, type StatusKey,
 } from './constants.ts';
 import { addD, addMonths, days, isFerie, iso, parse, weekday } from './dates.ts';
@@ -15,7 +15,11 @@ import type {
 } from './types.ts';
 
 export interface CertInfo extends Certification {
-  fm: Formation; obt: Date; exp: Date; d: number; key: StatusKey; pct: number; session: Session | null;
+  fm: Formation; obt: Date; exp: Date; d: number; key: StatusKey; pct: number;
+  /** Session à venir où le recyclage est planifié. */
+  session: Session | null;
+  /** Session passée, pas encore clôturée : le recyclage n'est plus planifié, il attend la clôture (présence, résultat). */
+  sessionPassee: Session | null;
   /** Certification remplacée par un recyclage : date d'obtention de la suivante (null = en vigueur). */
   remplacee: Date | null;
 }
@@ -45,7 +49,8 @@ export type UiIntent =
   | { type: 'openPlan'; empId: number; certId: number }
   | { type: 'goFormation'; f: string }
   | { type: 'medical'; empId: number }
-  | { type: 'openFormalite'; empId: number; kind: FormaliteKind; dest?: string; v?: VaccinId };
+  | { type: 'openFormalite'; empId: number; kind: FormaliteKind; dest?: string; v?: VaccinId }
+  | { type: 'openCloture'; sessionId: number };
 export type FormaliteKind = 'passeport' | 'visa' | 'vaccin';
 export interface Proposal { label: string; intent: UiIntent }
 
@@ -104,6 +109,9 @@ const habStatus = (k: HabKey): StatusKey => k === 'susp' || k === 'retiree' ? 'e
  * retiré aussi tant qu'aucune demande de nouvelle délivrance n'a été acceptée (`demande` renseignée).
  */
 export const habEnCours = (h: Pick<HabInfo, 'key' | 'demande'>) => h.key === 'retiree' ? !!h.demande : h.key !== 'exp';
+
+/** Session ouverte : ni clôturée, ni annulée (inscriptions, planification, clôture). */
+export const sessionActive = (s: Pick<Session, 'statut'>) => s.statut !== 'Clôturée' && s.statut !== 'Annulée';
 
 /** Ordre chronologique inverse : date d'obtention, puis ordre d'enregistrement. */
 const plusRecente = (a: Pick<Certification, 'id' | 'obtenue'>, b: Pick<Certification, 'id' | 'obtenue'>) => b.obtenue.localeCompare(a.obtenue) || b.id - a.id;
@@ -210,10 +218,22 @@ export class Domain {
   }
 
   // — Formations —
+  /** Sessions ouvertes à venir (aujourd'hui compris). */
   upcoming(formIds?: Set<string>): Session[] {
     return this.ds.sessions
-      .filter(s => s.date >= this.ti && (!formIds || formIds.has(s.formation)))
+      .filter(s => sessionActive(s) && s.date >= this.ti && (!formIds || formIds.has(s.formation)))
       .sort((a, b) => a.date.localeCompare(b.date));
+  }
+  /** Sessions passées qui attendent leur clôture, plus anciennes d'abord. */
+  aCloturer(formIds?: Set<string>): Session[] {
+    return this.ds.sessions
+      .filter(s => sessionActive(s) && s.date < this.ti && (!formIds || formIds.has(s.formation)))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+  /** Statut affiché : passée à clôturer, complète, ou statut enregistré (à confirmer, confirmée, clôturée, annulée). */
+  sessionStatut(s: Session): string {
+    if (!sessionActive(s)) return s.statut;
+    return s.date < this.ti ? SESSION_PASSEE : s.inscrits >= s.places ? 'Complète' : s.statut;
   }
   forms(onlyReg: boolean): Formation[] {
     const all = this.ds.referentiels.formations;
@@ -227,7 +247,10 @@ export class Domain {
     const d = days(this.today, exp);
     const key: StatusKey = d < 0 ? 'exp' : d <= horizon ? 'due' : 'ok';
     const pct = Math.max(0, Math.min(100, Math.round(days(obt, this.today) / days(obt, exp) * 100)));
-    return { ...c, fm, obt, exp, d, key, pct, session: this.session(c.sessionId), remplacee };
+    // Une session clôturée ou annulée ne planifie plus rien ; une session passée attend sa clôture.
+    const s = this.session(c.sessionId), active = s && sessionActive(s) ? s : null;
+    const session = active && active.date >= this.ti ? active : null, sessionPassee = active && active.date < this.ti ? active : null;
+    return { ...c, fm, obt, exp, d, key, pct, session, sessionPassee, remplacee };
   }
 
   /** Certifications d'un collaborateur : en vigueur (une par formation, dans l'ordre du dossier) et remplacées. */
@@ -313,6 +336,9 @@ export class Domain {
     }
     const fc = hi.failing.find(c => c.type === 'cert');
     if (fc) {
+      // Recyclage rattaché à une session passée : la clôture (présence, résultat) précède toute nouvelle inscription.
+      const s = this.session(this.emp(empId)?.certs.find(c => c.id === fc.certId)?.sessionId ?? null);
+      if (s && sessionActive(s) && s.date < this.ti) return { label: 'Clôturer la session', intent: { type: 'openCloture', sessionId: s.id } };
       return fc.certId != null
         ? { label: 'Planifier le recyclage', intent: { type: 'openPlan', empId, certId: fc.certId } }
         : { label: 'Inscrire à la formation', intent: { type: 'goFormation', f: fc.f! } };
@@ -440,8 +466,10 @@ export class Domain {
       e.certs.forEach(c => ech.push({
         kind: 'cert', kindLabel: c.fm.type === 'Réglementaire' ? 'Certification réglementaire' : 'Certification', label: c.fm.court, emp: e,
         exp: c.exp, d: c.d, key: c.key, statut: CERT_LABEL[c.key], cls: CLS[c.key], planned: !!c.session,
-        plannedLabel: c.session ? `Session du ${fmtShort(parse(c.session.date))}` : '',
-        action: c.session ? null : { label: 'Planifier', intent: { type: 'openPlan', empId: e.id, certId: c.id } },
+        plannedLabel: c.session ? `Session du ${fmtShort(parse(c.session.date))}` : c.sessionPassee ? SESSION_PASSEE : '',
+        action: c.session ? null
+          : c.sessionPassee ? { label: 'Clôturer', intent: { type: 'openCloture', sessionId: c.sessionPassee.id } }
+          : { label: 'Planifier', intent: { type: 'openPlan', empId: e.id, certId: c.id } },
       }));
       e.habs.forEach(h => {
         const t = this.habEcheance(h);
@@ -475,6 +503,7 @@ export class Domain {
     c.certs.forEach(f => {
       const fm = this.fm(f), ci = certEnVigueur(e.rawCerts, f);
       if (!ci) return push('nogo', 'CERTIFICATION', 'Certification requise absente', `${fm.court} — non détenue`);
+      // Seule une session à venir vaut recyclage planifié : une session passée non clôturée, non.
       const recycl = !!ci.session && parse(ci.session.date) < start;
       if (ci.exp < start) return push(recycl ? 'reserve' : 'nogo', 'CERTIFICATION', recycl ? 'Recyclage planifié avant le démarrage' : 'Certification requise non valide', `${fm.court} — expire le ${fmt(ci.exp)}${recycl ? ', recyclage le ' + fmt(parse(ci.session!.date)) : ''}`);
       if (ci.exp < end) push('reserve', 'CERTIFICATION', 'Certification expirant pendant le chantier', `${fm.court} — expire le ${fmt(ci.exp)}, en cours de chantier`);

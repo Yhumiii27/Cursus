@@ -1,7 +1,7 @@
 // Tableau de bord RH : conformité, échéances prioritaires, sessions et déplacements.
 import { useMemo } from 'react';
-import { SESS_CLS, TRIP_CLS, TRIP_LABEL } from '../../../shared/constants.ts';
-import type { EchItem } from '../../../shared/domain.ts';
+import { SESS_CLS, SESSION_PASSEE, TRIP_CLS, TRIP_LABEL } from '../../../shared/constants.ts';
+import { sessionActive, type Domain, type EchItem } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { cap, equipeLabel, fmt, fmtShort, plural, rel } from '../../../shared/format.ts';
 import { declarationDetail, retireeAuRefus, valeurActuelle } from '../../../shared/rules/formalites.ts';
@@ -19,17 +19,20 @@ export function EchRow({ x, onOpen, onAct }: { x: EchItem; onOpen: () => void; o
       <td><Two main={fmt(x.exp)} sub={rel(x.d)} nowrap /></td>
       <td><Tag cls={x.cls}>{x.statut}</Tag></td>
       <td className="right">
-        {x.planned && <span className="note-accent nowrap">{x.plannedLabel}</span>}
-        {!!x.action && !x.planned && <button type="button" className="btn btn-ghost btn-sm" onClick={stop(onAct)}>{x.action.label}</button>}
+        {/* Session à venir (planifié), ou passée en attente de clôture (note et bouton « Clôturer »). */}
+        <div className="actions-end" style={{ alignItems: 'center' }}>
+          {x.plannedLabel && <span className="note-accent nowrap">{x.plannedLabel}</span>}
+          {!!x.action && !x.planned && <button type="button" className="btn btn-ghost btn-sm" onClick={stop(onAct)}>{x.action.label}</button>}
+        </div>
       </td>
     </tr>
   );
 }
 
-/** Ligne de session : date, formation, lieu, remplissage, statut. */
-export function sessionView(s: Session, nom: string) {
+/** Ligne de session : date, formation, lieu, remplissage, statut (passée à clôturer, complète…). */
+export function sessionView(d: Domain, s: Session, nom: string) {
   const full = s.inscrits >= s.places;
-  const statut = full ? 'Complète' : s.statut;
+  const statut = d.sessionStatut(s);
   return { full, statut, cls: SESS_CLS[statut], pct: Math.round(s.inscrits / s.places * 100), nom, date: parse(s.date) };
 }
 
@@ -44,8 +47,9 @@ export { reqLabel };
 export function Dashboard() {
   const { emps, upcoming, horizon, d } = useEnriched();
   const trips = useTrips();
-  const { setUi, go, run, runIntent } = useStore();
+  const { setUi, go, run, runIntent, openDialog } = useStore();
   const data = d.ds;
+  const aCloturer = d.aCloturer();
 
   const v = useMemo(() => {
     const ech = d.echeances(emps, horizon);
@@ -87,7 +91,8 @@ export function Dashboard() {
         <Kpi kicker="Conformité" value={v.total ? `${Math.round(v.nonExp / v.total * 100)} %` : '—'} sub={`${v.nonExp} collaborateurs sur ${v.total} sans certification expirée`} />
         <Kpi kicker="À renouveler" value={v.due} sub={`sous ${horizon} jours · ${plural(v.plannedCount, 'inscription planifiée', 'inscriptions planifiées')}`} />
         <Kpi kicker="Expirées" value={v.exp} sub={v.exp ? `${plural(v.total - v.nonExp, 'collaborateur non conforme', 'collaborateurs non conformes')} · certifications et habilitations` : 'aucune certification ni habilitation expirée'} />
-        <Kpi kicker="Sessions à venir" value={upcoming.length} sub={nextUp ? `prochaine le ${fmtShort(parse(nextUp.date))} · ${plural(v.placesLeft, 'place restante', 'places restantes')}` : 'aucune session planifiée'} />
+        <Kpi kicker="Sessions à venir" value={upcoming.length}
+          sub={`${nextUp ? `prochaine le ${fmtShort(parse(nextUp.date))} · ${plural(v.placesLeft, 'place restante', 'places restantes')}` : 'aucune session planifiée'}${aCloturer.length ? ` · ${plural(aCloturer.length, 'session à clôturer', 'sessions à clôturer')}` : ''}`} />
       </Kpis>
 
       <div className="row-wrap">
@@ -100,7 +105,7 @@ export function Dashboard() {
                   {reqs.map(r => {
                     const e = d.emp(r.empId);
                     const s = d.session(r.sessionId);
-                    const detail = [r.motif, s ? `session souhaitée le ${fmt(parse(s.date))}` : ''].filter(Boolean).join(' · ');
+                    const detail = [r.motif, s ? `session souhaitée le ${fmt(parse(s.date))}${sessionActive(s) ? '' : ` (${s.statut.toLowerCase()})`}` : ''].filter(Boolean).join(' · ');
                     const x = r.declaration;
                     return (
                       <tr key={r.id} className="clickable" onClick={() => openEmp(r.empId)}>
@@ -140,6 +145,23 @@ export function Dashboard() {
         </Panel>
 
         <div className="col-stack" style={{ flex: '1 1 320px' }}>
+          {aCloturer.length > 0 && (
+            <Panel highlight title="Sessions à clôturer" aside={<a href="/formations" className="link-more" onClick={e => { e.preventDefault(); go('formations'); }}>Formations →</a>}>
+              <div className="list">
+                {aCloturer.map(s => (
+                  <div key={s.id} className="list-row clickable" onClick={() => openDialog({ type: 'sessionDetail', sessionId: s.id })}>
+                    <DateBlock date={parse(s.date)} />
+                    <div className="grow">
+                      <div className="ellipsis" style={{ fontSize: 14 }}>{d.fm(s.formation).court}</div>
+                      <div className="note-accent ellipsis">{SESSION_PASSEE} · {plural(s.inscrits, 'inscrit', 'inscrits')}</div>
+                    </div>
+                    <button type="button" className="btn btn-ghost btn-sm" style={{ flex: 'none' }} onClick={stop(() => openDialog({ type: 'cloture', sessionId: s.id }))}>Clôturer</button>
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          )}
+
           <Panel title="Conformité par équipe" style={{ gap: 'var(--space-4)' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
               {v.teams.map(t => (
@@ -155,9 +177,9 @@ export function Dashboard() {
           <Panel title="Prochaines sessions" aside={<a href="/formations" className="link-more" onClick={e => { e.preventDefault(); go('formations'); }}>Toutes →</a>}>
             <div className="list">
               {upcoming.slice(0, 3).map(s => {
-                const sv = sessionView(s, d.fm(s.formation).court);
+                const sv = sessionView(d, s, d.fm(s.formation).court);
                 return (
-                  <div key={s.id} className="list-row">
+                  <div key={s.id} className="list-row clickable" onClick={() => openDialog({ type: 'sessionDetail', sessionId: s.id })}>
                     <DateBlock date={sv.date} />
                     <div className="grow">
                       <div className="ellipsis" style={{ fontSize: 14 }}>{sv.nom}</div>

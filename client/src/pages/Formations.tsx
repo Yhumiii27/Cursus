@@ -1,11 +1,14 @@
-// Catalogue des formations : titulaires, renouvellements et sessions à venir.
-// Le RH gère les sessions ; le manager suit son équipe et planifie ses recyclages.
+// Catalogue des formations : titulaires, renouvellements et sessions (à venir, à clôturer, passées).
+// Le RH gère les sessions (détail nominatif, confirmation, modification, annulation, clôture) ;
+// le manager suit son équipe et planifie ses recyclages.
 import { useMemo, type ReactNode } from 'react';
 import { CalendarBlankIcon, PlusIcon } from '@phosphor-icons/react';
-import { CERT_LABEL, CLS } from '../../../shared/constants.ts';
+import { CERT_LABEL, CLS, SESS_CLS, SESSION_PASSEE } from '../../../shared/constants.ts';
 import type { CertInfo, EmpX } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, fmtShort, plural, rel, validiteLabel } from '../../../shared/format.ts';
+import { inscritsDe } from '../../../shared/rules/sessions.ts';
+import type { Session } from '../../../shared/types.ts';
 import { Bar, Btn, Empty, Fine, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore, type UiState } from '../state/store.tsx';
@@ -56,7 +59,8 @@ export function Formations() {
     });
   }, [scope, forms, upcoming, ui.typeForm]);
 
-  // Renouvellements de l'équipe : certification en vigueur de chaque formation, à renouveler ou expirée, sans session.
+  // Renouvellements de l'équipe : certification en vigueur de chaque formation, à renouveler ou expirée, sans session
+  // à venir (une session passée non clôturée ne compte plus comme planifiée).
   const renewals = useMemo<Renewal[]>(() => {
     if (!manager) return [];
     return scope.flatMap(e => e.certs
@@ -68,15 +72,19 @@ export function Formations() {
       .sort((a, b) => a.c.d - b.c.d || a.e.nom.localeCompare(b.e.nom));
   }, [d, scope, manager]);
 
-  const sessions = upcoming.filter(s => !ui.formationFilter || s.formation === ui.formationFilter);
+  const byFm = (s: Session) => !ui.formationFilter || s.formation === ui.formationFilter;
+  const sessions = upcoming.filter(byFm);
+  // Service RH : sessions passées à clôturer, puis les dernières clôturées ou annulées (historique).
+  const aCloturer = rh ? d.aCloturer().filter(byFm) : [];
+  const terminees = rh
+    ? d.ds.sessions.filter(s => (s.statut === 'Clôturée' || s.statut === 'Annulée') && byFm(s)).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8)
+    : [];
   const filteredFm = ui.formationFilter ? d.fm(ui.formationFilter) ?? null : null;
   const shownRenewals = renewals.filter(r => !ui.formationFilter || r.c.f === ui.formationFilter);
   const openSession = (f: string) => upcoming.find(s => s.formation === f && s.inscrits < s.places) ?? null;
-  /**
-   * Membres de l'équipe inscrits à une session. Une certification remplacée ne garde sa place que dans la session
-   * qui a produit le recyclage (les autres places sont libérées à l'enregistrement) : elle compte aussi.
-   */
-  const enrolled = (sessionId: number) => scope.filter(e => [...e.rawCerts, ...e.anciennes].some(c => c.sessionId === sessionId)).map(e => e.nom);
+  /** Membres de l'équipe inscrits à une session (recyclages et formations initiales visibles du manager). */
+  const enrolled = (s: Session) => inscritsDe(d, s).filter(i => scope.some(e => e.id === i.empId)).map(i => i.nom);
+  const openDetail = (s: Session) => openDialog({ type: 'sessionDetail', sessionId: s.id });
 
   const kicker = manager
     ? [
@@ -85,7 +93,7 @@ export function Formations() {
         plural(renewals.length, 'renouvellement à prévoir', 'renouvellements à prévoir'),
         plural(upcoming.length, 'session à venir', 'sessions à venir'),
       ].join(' · ')
-    : `${plural(forms.length, 'formation suivie', 'formations suivies')} · ${plural(upcoming.length, 'session à venir', 'sessions à venir')}`;
+    : `${plural(forms.length, 'formation suivie', 'formations suivies')} · ${plural(upcoming.length, 'session à venir', 'sessions à venir')}${aCloturer.length ? ` · ${aCloturer.length} à clôturer` : ''}`;
 
   return (
     <Page
@@ -116,7 +124,9 @@ export function Formations() {
                             sub={s ? `${s.lieu} · ${plural(s.places - s.inscrits, 'place restante', 'places restantes')}` : 'à demander au service RH'} />
                         </td>
                         <td className="right">
-                          {demande
+                          {c.sessionPassee
+                            ? <span className="note-accent nowrap">{SESSION_PASSEE} par le service RH</span>
+                            : demande
                             ? <span className="note-accent nowrap">{demande}</span>
                             : (
                               <div className="actions-end">
@@ -154,6 +164,32 @@ export function Formations() {
         })}
       </div>
 
+      {aCloturer.length > 0 && (
+        <Panel highlight title={filteredFm ? `Sessions à clôturer — ${filteredFm.court}` : 'Sessions à clôturer'}
+          aside="présence, résultats et certifications des inscrits">
+          <div className="scroll-x">
+            <table className="table">
+              <thead><tr><th>Date</th><th>Formation</th><th>Lieu</th><th>Inscrits</th><th>Statut</th><th></th></tr></thead>
+              <tbody>
+                {aCloturer.map(s => {
+                  const fm = d.fm(s.formation);
+                  return (
+                    <tr key={s.id} className="clickable" onClick={() => openDetail(s)}>
+                      <td className="nowrap">{fmt(parse(s.date))}</td>
+                      <td><Two main={fm.nom} sub={fm.organisme} /></td>
+                      <td className="text-muted">{s.lieu}</td>
+                      <td className="tnum nowrap">{plural(s.inscrits, 'inscrit', 'inscrits')}</td>
+                      <td><Tag cls={SESS_CLS[SESSION_PASSEE]}>{SESSION_PASSEE}</Tag></td>
+                      <td className="right"><Btn small variant="secondary" onClick={stop(() => openDialog({ type: 'cloture', sessionId: s.id }))}>Clôturer</Btn></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      )}
+
       <Panel head={
         <div className="panel-head center">
           <h2>{filteredFm ? `Sessions à venir — ${filteredFm.court}` : 'Sessions à venir'}</h2>
@@ -169,10 +205,10 @@ export function Formations() {
             <tbody>
               {sessions.map(s => {
                 const fm = d.fm(s.formation);
-                const sv = sessionView(s, fm.nom);
-                const team = manager ? enrolled(s.id) : [];
+                const sv = sessionView(d, s, fm.nom);
+                const team = manager ? enrolled(s) : [];
                 return (
-                  <tr key={s.id}>
+                  <tr key={s.id} className={rh ? 'clickable' : undefined} onClick={rh ? () => openDetail(s) : undefined}>
                     <td className="nowrap">{fmt(sv.date)}</td>
                     <td><Two main={sv.nom} sub={fm.organisme} /></td>
                     <td className="text-muted">{s.lieu}</td>
@@ -191,7 +227,32 @@ export function Formations() {
           </table>
         </div>
         {sessions.length === 0 && <Empty pad="sm">Aucune session à venir pour cette formation.</Empty>}
+        {rh && sessions.length > 0 && <Fine>Cliquez sur une session pour voir ses inscrits, la confirmer (liste à transmettre à l’organisme), la modifier ou l’annuler.</Fine>}
       </Panel>
+
+      {terminees.length > 0 && (
+        <Panel title="Sessions clôturées ou annulées" aside="les plus récentes">
+          <div className="scroll-x">
+            <table className="table">
+              <thead><tr><th>Date</th><th>Formation</th><th>Lieu</th><th>Inscrits</th><th>Statut</th></tr></thead>
+              <tbody>
+                {terminees.map(s => {
+                  const fm = d.fm(s.formation);
+                  return (
+                    <tr key={s.id} className="clickable" onClick={() => openDetail(s)}>
+                      <td className="nowrap">{fmt(parse(s.date))}</td>
+                      <td><Two main={fm.nom} sub={fm.organisme} /></td>
+                      <td className="text-muted">{s.lieu}</td>
+                      <td className="tnum nowrap">{s.statut === 'Annulée' ? '—' : plural(s.inscrits, 'inscrit', 'inscrits')}</td>
+                      <td><Tag cls={SESS_CLS[s.statut]}>{s.statut}</Tag></td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      )}
     </Page>
   );
 }

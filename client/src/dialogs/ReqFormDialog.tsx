@@ -1,7 +1,7 @@
 // Demander une formation (catalogue ou hors catalogue) au service RH :
 // le collaborateur pour lui-même, ou le manager pour un membre de son équipe.
 import { useMemo, useState } from 'react';
-import { certEnVigueur, type EmpX } from '../../../shared/domain.ts';
+import { certEnVigueur, sessionActive, type EmpX } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
 import { CancelButton, Dialog, Field, Static } from '../components/Dialog.tsx';
@@ -75,7 +75,7 @@ export function ReqFormDialog({ f: f0, sessionId: s0, empId }: { f?: string; ses
   const last = e && !isAutre ? derniere(e, f) : undefined;
   // Session à venir : recyclage rattaché à la certification, ou inscription en formation initiale.
   const initiale = e && !isAutre
-    ? d.ds.inscriptions.map(i => i.empId === e.id ? d.session(i.sessionId) : null).find(s => !!s && s.formation === f && s.date >= d.ti) ?? null
+    ? d.ds.inscriptions.map(i => i.empId === e.id ? d.session(i.sessionId) : null).find(s => !!s && s.formation === f && sessionActive(s) && s.date >= d.ti) ?? null
     : null;
   const inscrit = (last?.session && last.session.date >= d.ti ? last.session : null) ?? initiale;
   const enCours = !!e && !isAutre && d.ds.demandesCollab.some(r => r.empId === e.id && r.type === 'formation' && r.f === f && r.statut === 'attente');

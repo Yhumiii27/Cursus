@@ -1,9 +1,13 @@
 // Migrations de données des bases créées par une version antérieure de Cursus.
 import { VACCINS } from '../../shared/constants.ts';
+import { Domain } from '../../shared/domain.ts';
 import { plural } from '../../shared/format.ts';
 import { formaliteCle } from '../../shared/rules/formalites.ts';
-import type { Declaration, DemandeCollab, Destination, Vaccination, VaccinId, Visa } from '../../shared/types.ts';
-import { todayIso } from './dataset.ts';
+import { inscritsDe } from '../../shared/rules/sessions.ts';
+import type {
+  CurrentUser, Declaration, DemandeCollab, Destination, Participation, Session, SessionBilan, Vaccination, VaccinId, Visa,
+} from '../../shared/types.ts';
+import { loadFull } from './dataset.ts';
 import type { Db } from './db.ts';
 import { migrerKeystone } from './integrations/keystone-entrant.ts';
 import { sauvegarderAvantMigration } from './sauvegarde.ts';
@@ -33,9 +37,59 @@ export function migrate(db: Db) {
   const avant = () => { sauvegarderAvantMigration(db); };
   convertirContrats(db, avant);
   figerFeuilles(db, avant);
-  libererPlacesRemplacees(db, todayIso(), avant);
+  libererPlacesRemplacees(db, avant);
   reprendreDeclarations(db, avant);
   migrerKeystone(db, avant);
+  validationParDefaut(db, avant);
+  reprendreSessions(db, avant);
+}
+
+/** Auteur de la clôture des sessions reprises d'une base antérieure au cycle de vie des sessions. */
+const REPRISE: CurrentUser = { role: 'rh', empId: null, nom: 'Cursus', intitule: 'Reprise de l’historique' };
+
+/**
+ * Sessions d'une base antérieure au cycle de vie (ancienne colonne `inscrits` renseignée) : une session passée
+ * où il n'y a rien à décider (aucun inscrit, ou recyclages déjà enregistrés depuis) est clôturée, avec un résultat
+ * pour chaque recyclage déjà enregistré, comme le ferait le service RH. Une session qui a encore un inscrit sans
+ * résultat reste à clôturer. Une seule fois par session : l'ancienne colonne est ensuite vidée. Après
+ * `libererPlacesRemplacees` : une place tenue par une certification remplacée avant la session n'est pas un inscrit.
+ */
+export function reprendreSessions(db: Db, avant = () => {}) {
+  if (!db.columns('sessions').includes('inscrits')) return;
+  const anciennes = new Set((db.sql.prepare('SELECT id FROM sessions WHERE inscrits IS NOT NULL').all() as { id: number }[]).map(r => r.id));
+  if (!anciennes.size) return;
+  avant();
+  const d = new Domain(loadFull(db, REPRISE));
+  let n = 0;
+  db.tx(() => {
+    for (const s of d.aCloturer().filter(x => anciennes.has(x.id))) {
+      const inscrits = inscritsDe(d, s);
+      if (inscrits.some(i => !i.dejaObtenue)) continue;
+      for (const i of inscrits) {
+        db.insert<Participation>('participations', { sessionId: s.id, empId: i.empId, parcours: i.parcours, present: true, reussi: null, certId: i.dejaObtenue!.id });
+      }
+      const bilan: SessionBilan = {
+        le: d.ti, par: REPRISE.nom, note: null, motif: null,
+        commentaire: 'Session antérieure au suivi des clôtures, sans inscrit à décider : clôturée à la mise à jour de Cursus.',
+      };
+      db.update<Session>('sessions', s.id, { statut: 'Clôturée', bilan });
+      n++;
+    }
+    db.sql.prepare('UPDATE sessions SET inscrits = NULL').run();
+  });
+  if (n) console.log(`Migration : ${plural(n, 'session passée clôturée', 'sessions passées clôturées')} (aucun inscrit à décider).`);
+}
+
+/**
+ * Formations d'une base antérieure au mode de validation : la présence suffit, jusqu'à ce que le
+ * service RH exige une évaluation réussie dans le catalogue.
+ */
+export function validationParDefaut(db: Db, avant = () => {}) {
+  const n = Number((db.sql.prepare('SELECT COUNT(*) AS n FROM formations WHERE validation IS NULL').get() as { n: number }).n);
+  if (!n) return;
+  avant();
+  db.sql.prepare(`UPDATE formations SET validation = 'presence' WHERE validation IS NULL`).run();
+  console.log(`Migration : mode de validation « présence » appliqué à ${plural(n, 'formation', 'formations')} du catalogue.`);
 }
 
 /**
@@ -136,19 +190,19 @@ function convertirContrats(db: Db, avant: () => void) {
 
 /**
  * Avant la règle de la certification en vigueur, un recyclage enregistré laissait la certification remplacée
- * inscrite à sa session à venir : cette place, devenue invisible, est libérée (même règle que `cert.ajouter`).
+ * inscrite à sa session : dans une session ouverte (à venir, ou passée et pas encore clôturée) postérieure
+ * au recyclage, cette place est libérée (même règle que `cert.ajouter`) ; la clôture n'y verra donc pas une
+ * présence que rien n'atteste. Le nombre d'inscrits, calculé au chargement, suit (l'ancienne colonne
+ * `inscrits` n'est plus lue).
  */
-export function libererPlacesRemplacees(db: Db, today: string, avant = () => {}) {
-  const rows = db.sql.prepare(`SELECT c.id, c.session_id FROM certifications c JOIN sessions s ON s.id = c.session_id
-    WHERE s.date >= ? AND EXISTS (SELECT 1 FROM certifications n WHERE n.emp_id = c.emp_id AND n.f = c.f
-      AND (n.obtenue > c.obtenue OR (n.obtenue = c.obtenue AND n.id > c.id)) AND n.obtenue < s.date)`).all(today) as { id: number; session_id: number }[];
+export function libererPlacesRemplacees(db: Db, avant = () => {}) {
+  const rows = db.sql.prepare(`SELECT c.id FROM certifications c JOIN sessions s ON s.id = c.session_id
+    WHERE (s.statut IS NULL OR s.statut NOT IN ('Clôturée', 'Annulée')) AND EXISTS (SELECT 1 FROM certifications n WHERE n.emp_id = c.emp_id AND n.f = c.f
+      AND (n.obtenue > c.obtenue OR (n.obtenue = c.obtenue AND n.id > c.id)) AND n.obtenue < s.date)`).all() as { id: number }[];
   if (!rows.length) return;
   avant();
   db.tx(() => {
-    for (const r of rows) {
-      db.sql.prepare('UPDATE sessions SET inscrits = MAX(0, inscrits - 1) WHERE id = ?').run(r.session_id);
-      db.sql.prepare('UPDATE certifications SET session_id = NULL, convoc = NULL WHERE id = ?').run(r.id);
-    }
+    for (const r of rows) db.sql.prepare('UPDATE certifications SET session_id = NULL, convoc = NULL WHERE id = ?').run(r.id);
   });
   console.log(`Migration : ${plural(rows.length, 'place de session libérée', 'places de session libérées')} (certifications remplacées par un recyclage).`);
 }

@@ -11,24 +11,59 @@ export interface SessionState {
   user: CurrentUser | null;
   /** Compte de la session : espaces ouverts, profil RH, mot de passe à changer. */
   compte: CompteSession | null;
-  /** Mode de connexion de la session : compte local (mot de passe), démonstration. */
+  /** Mode de connexion de la session : compte local (mot de passe), démonstration, Microsoft 365. */
   methode: 'local' | 'demo' | 'microsoft' | null;
   /** Comptes proposés à la connexion — uniquement en démonstration (null sinon). */
   loginOptions: Record<Role, LoginOption[]> | null;
+  /** Connexion Microsoft 365 configurée : l'écran de connexion propose « Se connecter avec Microsoft ». */
+  microsoft: boolean;
+  /** Déconnexion d'une session Microsoft : adresse de la déconnexion Microsoft, qui revient sur Cursus. */
+  deconnexion?: string;
   integrations: { keystone: string; sage: string };
 }
-export interface ActionResponse { ok: boolean; message: string | null; result?: unknown; error?: string; data?: Dataset }
+export interface ActionResponse { ok: boolean; message: string | null; result?: unknown; error?: string; data?: Dataset; status?: number }
+
+/** Erreur d'appel : `status` 0 quand le serveur n'a pas pu être joint. */
+export type ApiError = Error & { status: number };
+
+export const MSG_RESEAU = 'Connexion au serveur impossible : vérifiez le réseau, puis réessayez.';
+
+/** Prévenu de chaque réponse 401 (session expirée ou révoquée), hors échec de connexion. */
+let auRefus: (() => void) | null = null;
+export function surSessionExpiree(f: (() => void) | null) { auRefus = f; }
 
 async function request<T>(method: string, url: string, body?: unknown): Promise<T> {
-  const res = await fetch(url, {
-    method,
-    credentials: 'same-origin',
-    headers: body !== undefined ? { 'content-type': 'application/json' } : undefined,
-    body: body !== undefined ? JSON.stringify(body) : undefined,
-  });
+  let res: Response;
+  try {
+    res = await fetch(url, {
+      method,
+      credentials: 'same-origin',
+      headers: body !== undefined ? { 'content-type': 'application/json' } : undefined,
+      body: body !== undefined ? JSON.stringify(body) : undefined,
+    });
+  } catch {
+    // Hors ligne, serveur arrêté, réseau coupé : fetch échoue sans réponse (« Failed to fetch »).
+    throw Object.assign(new Error(MSG_RESEAU), { status: 0 });
+  }
   const json = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(json.error || `Erreur ${res.status}`), { status: res.status });
+  if (!res.ok) {
+    // /api/login répond 401 à un mauvais mot de passe : ce n'est pas une session expirée.
+    if (res.status === 401 && url !== '/api/login') auRefus?.();
+    // Réponse sans message de Cursus : le reverse proxy signale le serveur arrêté ou en redémarrage.
+    const msg = json.error || ([502, 503, 504].includes(res.status) ? `Serveur indisponible (erreur ${res.status}) : réessayez dans quelques instants.` : `Erreur ${res.status}`);
+    throw Object.assign(new Error(msg), { status: res.status });
+  }
   return json as T;
+}
+
+/** Adresse de la connexion Microsoft 365 : page de retour, identifiant proposé, choix d'un autre compte. */
+export function lienMicrosoft(o: { retour?: string; identifiant?: string; choix?: boolean } = {}): string {
+  const p = new URLSearchParams();
+  if (o.retour && o.retour !== '/') p.set('retour', o.retour);
+  if (o.identifiant) p.set('identifiant', o.identifiant);
+  if (o.choix) p.set('choix', '1');
+  const q = p.toString();
+  return `/api/auth/microsoft${q ? `?${q}` : ''}`;
 }
 
 export const api = {
@@ -48,7 +83,7 @@ export const api = {
       const r = await request<{ message: string | null; result?: unknown; data: Dataset }>('POST', `/api/actions/${name}`, payload);
       return { ok: true, ...r };
     } catch (err) {
-      return { ok: false, message: null, error: (err as Error).message };
+      return { ok: false, message: null, error: (err as Error).message, status: (err as ApiError).status };
     }
   },
 };

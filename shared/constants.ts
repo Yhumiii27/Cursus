@@ -146,3 +146,16 @@ export const MOT_DE_PASSE_MIN = 12;
 /** Échecs de connexion successifs avant le blocage temporaire d'un compte local, et durée du blocage. */
 export const ECHECS_MAX = 5;
 export const BLOCAGE_MINUTES = 15;
+/**
+ * Échecs de la connexion Microsoft 365 : le serveur renvoie vers l'écran de connexion avec `?connexion=<code>`
+ * (jamais de texte libre dans l'adresse), l'écran affiche « titre : texte ». Le détail est écrit dans le journal.
+ */
+export const ERREURS_MICROSOFT = {
+  acces: { titre: 'Accès non autorisé', texte: 'demandez l’ouverture d’un compte au service RH.' },
+  ferme: { titre: 'Accès non autorisé', texte: 'votre compte Cursus est désactivé ou votre date de sortie est passée. Adressez-vous au service RH.' },
+  etat: { titre: 'Connexion interrompue', texte: 'la connexion Microsoft a expiré ou a déjà servi. Recommencez.' },
+  refus: { titre: 'Connexion refusée par Microsoft', texte: 'Cursus n’est pas autorisé pour ce compte. Si le problème persiste, prévenez le service informatique.' },
+  jeton: { titre: 'Connexion impossible', texte: 'la réponse de Microsoft n’a pas pu être vérifiée. Recommencez ; si le problème persiste, prévenez le service informatique.' },
+  indisponible: { titre: 'Connexion Microsoft indisponible', texte: 'réessayez dans quelques minutes, ou utilisez un compte Cursus.' },
+} as const;
+export type ErreurMicrosoft = keyof typeof ERREURS_MICROSOFT;

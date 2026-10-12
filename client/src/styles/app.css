@@ -182,6 +182,13 @@ textarea.input.mid { height: auto; min-height: 72px; }
 
 .loading { display: grid; place-items: center; min-height: 60vh; color: var(--color-neutral-400); font-size: 14px; }
 
+/* — Connexion et reconnexion — */
+/* Reconnexion après une session expirée : au-dessus du dialogue ouvert, sous les notifications. */
+.dialog-backdrop.reconnexion { z-index: 25; }
+.btn-microsoft { gap: var(--space-2); }
+.connexion-erreur { margin: 0; font-size: 13px; border-color: var(--color-accent-300); }
+.connexion-erreur strong { color: var(--color-accent-300); font-weight: 600; }
+
 /* — Écrans étroits — */
 @media (max-width: 900px) {
   .app { flex-direction: column; }

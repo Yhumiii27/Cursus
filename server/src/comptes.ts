@@ -1,7 +1,7 @@
 // Comptes de connexion : un par personne — un salarié, ou une personne externe (nom et adresse).
-// Un compte Microsoft 365 s'authentifie chez Microsoft (branchement à l'étape suivante : `oid`
-// renseigné à la première connexion) ; un compte local à Cursus, pour le personnel sans compte
-// d'entreprise (ouvriers, intérimaires, alternants), par un mot de passe haché avec scrypt.
+// Un compte Microsoft 365 s'authentifie chez Microsoft (server/src/microsoft.ts : `oid` renseigné à la
+// première connexion) ; un compte local à Cursus, pour le personnel sans compte d'entreprise
+// (ouvriers, intérimaires, alternants), par un mot de passe haché avec scrypt.
 // Les espaces ouverts découlent du compte : RH selon le profil RH, manager si le salarié encadre
 // au moins une équipe, collaborateur s'il est salarié.
 import { randomBytes, randomInt, scrypt, scryptSync, timingSafeEqual, type ScryptOptions } from 'node:crypto';
@@ -90,7 +90,7 @@ export const compteBloque = (c: Compte, maintenant = new Date().toISOString()) =
 export function comptesVue(db: Db): CompteVue[] {
   return db.all<Compte>('comptes').map(c => ({
     id: c.id, empId: c.empId, nom: nomDuCompte(db, c), adresse: c.adresse, identifiant: c.identifiant, type: c.type, profilRh: c.profilRh,
-    espaces: espacesDuCompte(db, c), actif: c.actif, sorti: sorti(db, c), changerMotDePasse: c.type === 'local' && c.changerMotDePasse,
+    espaces: espacesDuCompte(db, c), actif: c.actif, sorti: sorti(db, c), changerMotDePasse: c.type === 'local' && c.changerMotDePasse, rattache: !!c.oid,
     bloqueJusqua: compteBloque(c) ? c.blocageFin : null, creation: c.creation, creePar: c.creePar, derniereConnexion: c.derniereConnexion,
   })).sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
 }

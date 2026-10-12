@@ -174,6 +174,8 @@ export interface CompteVue {
   sorti: boolean;
   /** Compte local : mot de passe provisoire à remplacer à la prochaine connexion. */
   changerMotDePasse: boolean;
+  /** Compte Microsoft 365 : rattaché à son identité Microsoft (oid), c'est-à-dire déjà connecté une fois. */
+  rattache: boolean;
   /** Fin du blocage temporaire après des échecs de connexion (ISO), si elle n'est pas passée. */
   bloqueJusqua: string | null;
   creation: string;

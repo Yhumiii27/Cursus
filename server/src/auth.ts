@@ -5,7 +5,7 @@
 // le compte : actif, salarié rattaché toujours présent. En mode démonstration (CURSUS_DEMO=1),
 // la connexion est libre (choix d'un compte, mot de passe quelconque) et une session peut
 // attendre, sans compte, le choix d'un compte pour l'espace demandé.
-// Connexion : routes de server/src/connexion.ts (compte local ; Microsoft 365 à l'étape suivante).
+// Connexion : routes de server/src/connexion.ts (compte local) et server/src/microsoft.ts (Microsoft 365).
 import { createHmac, randomBytes, timingSafeEqual } from 'node:crypto';
 import type { Request, Response } from 'express';
 import type { Role } from '../../shared/types.ts';
@@ -13,7 +13,7 @@ import { compteValide, espacesDuCompte } from './comptes.ts';
 import { demoActive } from './config.ts';
 import type { Db } from './db.ts';
 
-/** Mode d'ouverture : mot de passe d'un compte local, connexion libre de démonstration (Microsoft 365 : étape suivante). */
+/** Mode d'ouverture : mot de passe d'un compte local, connexion libre de démonstration, Microsoft 365 (OpenID Connect). */
 export type Methode = 'local' | 'demo' | 'microsoft';
 
 export interface SessionInfo {
@@ -50,9 +50,10 @@ function secret(db: Db): string {
   return s;
 }
 
-const sign = (db: Db, payload: string) => createHmac('sha256', secret(db)).update(payload).digest('base64url');
+/** Signature HMAC d'une valeur de cookie (session, et état de l'aller-retour Microsoft dans microsoft.ts). */
+export const sign = (db: Db, payload: string) => createHmac('sha256', secret(db)).update(payload).digest('base64url');
 
-function parseCookies(req: Request): Record<string, string> {
+export function parseCookies(req: Request): Record<string, string> {
   const out: Record<string, string> = {};
   (req.headers.cookie || '').split(';').forEach(p => {
     const i = p.indexOf('=');
@@ -106,9 +107,11 @@ export function readSession(db: Db, req: Request): SessionInfo | null {
   return { id, compteId: row.compteId, role, methode: row.methode ?? 'local', demoComptes: row.demoComptes ?? {}, expiration: row.expiration };
 }
 
+/** Attribut Secure des cookies : en production, sauf application de bureau en http://127.0.0.1 (CURSUS_INSECURE_COOKIE=1). */
+export const cookieSecure = () => process.env.NODE_ENV === 'production' && process.env.CURSUS_INSECURE_COOKIE !== '1' ? '; Secure' : '';
+
 function setCookie(res: Response, value: string, maxAge: number) {
-  const secure = process.env.NODE_ENV === 'production' && process.env.CURSUS_INSECURE_COOKIE !== '1' ? '; Secure' : '';
-  res.setHeader('Set-Cookie', `${COOKIE}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${secure}`);
+  res.setHeader('Set-Cookie', `${COOKIE}=${value}; Path=/; HttpOnly; SameSite=Lax; Max-Age=${maxAge}${cookieSecure()}`);
 }
 
 export function clearSessionCookie(res: Response) {

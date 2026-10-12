@@ -1,7 +1,8 @@
 // npm run comptes -- admin <identifiant> [--local] [--nom "Prénom Nom"] [--adresse <e-mail>] [--salarie <n°>]
 // Crée le premier administrateur RH d'une installation vide. Sur un compte existant, rétablit l'accès
 // (profil administrateur RH, compte réactivé et débloqué, nouveau mot de passe provisoire pour un compte
-// local) : recours du service informatique quand plus aucun administrateur ne peut se connecter.
+// local, rattachement Microsoft retiré pour un compte Microsoft dont l'identité a été recréée) : recours
+// du service informatique quand plus aucun administrateur ne peut se connecter.
 // Sans --salarie, le compte est externe (aucune fiche salarié) : nom et adresse lui sont propres.
 import { normaliserIdentifiant } from '../../shared/rules/comptes.ts';
 import { ActionError } from './actions/context.ts';
@@ -46,6 +47,10 @@ try {
     if (compte.type === 'local') {
       motDePasse = attribuerProvisoire(db, compte);
       revokeSessionsDuCompte(db, compte.id);
+    } else if (compte.oid) {
+      // La prochaine connexion Microsoft avec cette adresse rattache de nouveau le compte (identité recréée).
+      db.update<Compte>('comptes', compte.id, { oid: null });
+      revokeSessionsDuCompte(db, compte.id);
     }
     message = `Accès administrateur RH rétabli : ${nomDuCompte(db, compte)} (${compte.identifiant})`;
   } else {
@@ -67,7 +72,7 @@ try {
   if (motDePasse) {
     console.log(`Mot de passe provisoire (affiché une seule fois, à changer à la première connexion) : ${motDePasse}`);
   } else if (compte.type === 'microsoft') {
-    console.log('Compte Microsoft 365 : la connexion passe par Microsoft (à brancher, voir docs/DEPLOIEMENT.md).');
+    console.log('Compte Microsoft 365 : connexion par « Se connecter avec Microsoft », rattachée à la première connexion (docs/CONNEXION-MICROSOFT.md).');
   }
   console.log(`Base : ${dbFile()}`);
 } catch (err) {

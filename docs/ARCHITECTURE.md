@@ -22,6 +22,7 @@ server/src/
   auth.ts          Sessions en base (cookie signé, 12 h, révocation) : un compte et l'espace actif
   comptes.ts       Comptes nominatifs (Microsoft 365 ou compte local), espaces, mots de passe (scrypt), journal
   connexion.ts     Routes de session : /api/session, /api/mode, /api/login, /api/motdepasse, /api/logout, /api/comptes
+  microsoft.ts     Connexion Microsoft 365 (OpenID Connect, PKCE) : /api/auth/microsoft et /api/auth/microsoft/retour
   comptes-cli.ts   npm run comptes -- admin <identifiant> : premier administrateur RH (docs/DEPLOIEMENT.md)
   config.ts        Variables d'environnement, contrôlées au démarrage (refus en production si dangereuses)
   securite.ts      En-têtes de sécurité HTTP (CSP, HSTS, anti-iframe…)
@@ -29,10 +30,11 @@ server/src/
   integrations/    Adaptateurs Keystone et Sage Paie (simulation par défaut)
   index.ts         Routes HTTP
 client/src/
-  state/store.tsx  Session, données, navigation, filtres d'écran (ui), dialogue ouvert, notifications
+  state/store.tsx  Session, données, navigation, filtres d'écran (ui), dialogue ouvert, notifications, reconnexion
+  state/brouillon.ts Brouillon gardé dans l'onglet pendant une reconnexion Microsoft (page, filtres, dialogue, champs)
   state/derived.ts Hooks mémorisés : useDomain, useEnriched, useTrips, useRole
   components/      ui.tsx (Page, Kpi, Panel, Tag, Seg, Two, Bar…) et Dialog.tsx (Dialog, Field…)
-  layout/Shell.tsx Barre latérale, en-tête, notification
+  layout/Shell.tsx Barre latérale, en-tête, notification ; layout/Reconnexion.tsx : session expirée, par-dessus l'écran
   pages/           Un fichier par écran
   dialogs/         Un fichier par dialogue, rendus par DialogHost
   styles/          nocturne.css (design system, ne pas modifier) et app.css (mise en page)
@@ -51,25 +53,52 @@ design/            Prototype Claude Design de référence et guide du design sys
    Le serveur vérifie les droits, valide, écrit dans une transaction, trace l'action
    dans le journal et renvoie `{ message, data }` : le client remplace son instantané
    et affiche le message.
+4. La session et l'instantané de son espace changent ensemble (`store.tsx`) : un changement d'espace
+   n'affiche le nouvel espace qu'avec ses données ; en cas d'échec (réseau), l'espace, la page, les
+   filtres et le dialogue restent tels quels, avec un message. Une erreur réseau donne un message en
+   français (`MSG_RESEAU` de `client/src/api.ts`).
+5. Une réponse 401 (session expirée ou révoquée) ne démonte rien : `layout/Reconnexion.tsx` s'affiche
+   par-dessus la page et le dialogue (le reste devient inerte). Compte Cursus ou démonstration : mot de
+   passe, retour dans l'espace où la personne travaillait, puis les actions interrompues sont rejouées
+   dans l'ordre et rendent leur réponse au dialogue qui les attend. Compte Microsoft : la reconnexion
+   passe par Microsoft (redirection) ; `state/brouillon.ts` garde dans `sessionStorage` l'espace, la page,
+   les filtres, le dialogue ouvert et la valeur de ses champs (lus dans le DOM du dialogue, jamais les
+   mots de passe) et les restaure au retour, pour le même compte et dans les 30 minutes.
 
 ## Sécurité
 
 - **Configuration** (`server/src/config.ts`) : lue au démarrage. En production, le serveur s'arrête
   (code 1) en listant les problèmes : `CURSUS_SECRET` absente ou courte, `KEYSTONE_API_KEY` absente
   ou égale à la clé de démonstration (hors démonstration), `CURSUS_TODAY` définie, démonstration sans
-  `CURSUS_HOST` (ou `HOST`) explicite sur la boucle locale, `CURSUS_INSECURE_COOKIE=1` hors de ce cas.
+  `CURSUS_HOST` (ou `HOST`) explicite sur la boucle locale, `CURSUS_INSECURE_COOKIE=1` hors de ce cas,
+  connexion Microsoft 365 configurée en partie, locataire autre qu'un GUID, `CURSUS_PUBLIC_URL` hors
+  https, `CURSUS_OIDC_AUTORITE` définie (réservée aux tests).
   Le mode démonstration ne s'active qu'avec `CURSUS_DEMO=1` ; en production (application de bureau),
   `demoPosteLocal` (`server/src/securite.ts`) refuse en plus (403) toute requête relayée par un proxy
   ou adressée à un autre nom que la boucle locale.
 - **Comptes** (`server/src/comptes.ts`, table `comptes`) : un compte par personne — un salarié (`empId`)
   ou une personne externe (nom et adresse, espace RH seulement). Identifiant unique en minuscules
-  (l'adresse Microsoft 365 pour un compte Microsoft ; `oid` renseigné à la première connexion Microsoft,
-  étape suivante). Compte local à Cursus pour le personnel sans compte d'entreprise : empreinte scrypt
+  (l'adresse de connexion Microsoft 365 pour un compte Microsoft ; `oid` renseigné à la première connexion
+  Microsoft). Compte local à Cursus pour le personnel sans compte d'entreprise : empreinte scrypt
   salée (`scrypt$N$r$p$sel$empreinte`), comparaison en temps constant, mot de passe provisoire à changer
   à la première connexion (12 caractères au moins), blocage 15 min après 5 échecs, limite d'échecs par
   adresse IP. Espaces du compte : RH selon le profil RH, manager si le salarié encadre une équipe,
   collaborateur s'il est salarié. Un compte désactivé, ou dont le salarié est sorti, ne se connecte plus
   et ses sessions sont révoquées. Premier administrateur : `npm run comptes -- admin <identifiant>`.
+- **Microsoft 365** (`server/src/microsoft.ts`, guide `docs/CONNEXION-MICROSOFT.md`) : flux OpenID Connect
+  « code d'autorisation » avec PKCE (S256), state et nonce, sans dépendance. Découverte du locataire et clés
+  JWKS en cache (relues si un jeton cite une clé inconnue), échange du code par `fetch` avec le secret
+  client, vérification complète du jeton d'identité (RS256 par `crypto.verify`, `iss`, `aud`, `exp` / `nbf`
+  à 5 min près, `nonce`, `tid` = locataire configuré). L'état de l'aller-retour (state, nonce,
+  code_verifier, page de retour) voyage dans le cookie signé `cursus_oidc` (10 min, HttpOnly,
+  SameSite=Lax, Path=/api/auth/microsoft), à usage unique. Rattachement : le compte Microsoft dont l'`oid`
+  correspond ; sinon, à la première connexion, celui dont l'identifiant est `preferred_username` et qui n'a
+  pas encore d'`oid` (enregistré alors). Compte inconnu, désactivé ou salarié sorti : retour à l'écran de
+  connexion avec `?connexion=<code>` (messages `ERREURS_MICROSOFT` de `shared/constants.ts`), refus
+  journalisé. Espace initial : RH, sinon manager, sinon collaborateur. Déconnexion : session révoquée,
+  puis déconnexion Microsoft avec retour sur l'URI de redirection (qui renvoie à l'écran de connexion).
+  Configuration : `configOidc` de `server/src/config.ts` ; tests : `tests/microsoft.test.ts` (faux
+  fournisseur OpenID local).
 - **Profils RH** (`PROFILS_RH` de `shared/constants.ts`) : `rh_gestionnaire` (droit `rh` : espace RH et
   actions courantes) et `rh_admin` (droits `rh` et `admin` : paramètres, transmission à la paie,
   suppressions, comptes et accès, réinitialisation de la démonstration). Contrôles serveur `requireRh` et
@@ -80,7 +109,8 @@ design/            Prototype Claude Design de référence et guide du design sys
   et les mesures (`mesurePar`, reports de CP). `rhNom` et `rhIntitule` ne sont plus des paramètres : le
   valideur d'un salarié sans manager est « le service RH ».
 - **Sessions** (`server/src/auth.ts`, table `connexions`) : le cookie `cursus_session` ne porte que
-  l'identifiant de session signé ; la session porte le compte et l'espace actif. Durée absolue de 12 h ;
+  l'identifiant de session signé ; la session porte le compte, l'espace actif et le mode de connexion
+  (`local`, `demo`, `microsoft`). Durée absolue de 12 h ;
   `/api/logout` révoque, `/api/mode` ne bascule que vers un espace du compte (403 sinon), une connexion
   en ouvre une nouvelle. `revokeSessionsOf(db, empId)` révoque toutes les sessions d'un salarié,
   `revokeSessionsDuCompte(db, compteId)` celles d'un compte. Les sessions expirées sont purgées au
@@ -161,7 +191,7 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `compte.creer` | empId (ou nom, adresse : compte externe), type (`microsoft`/`local`), identifiant, profilRh | administrateur RH (mot de passe provisoire dans `result`, affiché une fois) |
 | `compte.profil` | id, profilRh (`aucun`/`rh_gestionnaire`/`rh_admin`) | administrateur RH (jamais le dernier administrateur actif) |
 | `compte.activer` | id, actif | administrateur RH (désactiver ferme les sessions ; pas son propre compte) |
-| `compte.reinitialiser` | id | administrateur RH (compte local : nouveau mot de passe provisoire, sessions fermées) |
+| `compte.reinitialiser` | id | administrateur RH (compte local : nouveau mot de passe provisoire ; compte Microsoft rattaché : « Délier », `oid` retiré pour une identité recréée ; sessions fermées) |
 
 ## Contrat et temps de travail
 
@@ -225,5 +255,5 @@ valide comme une déclaration ordinaire.
   suspension, une levée, un retrait ou la nouvelle délivrance qui suit un retrait (`verdict.modifie` :
   chantier, matricule, codes de motif). En simulation, les messages sont écrits dans le journal.
 - **Sage Paie** : `server/src/integrations/sage.ts` (`pushToSage`).
-- **Microsoft 365** (étape suivante) : `server/src/connexion.ts` ; un compte Microsoft se retrouve par
-  son `oid`, ou par son identifiant (adresse) à la première connexion.
+- **Microsoft 365** : `server/src/microsoft.ts` (voir Sécurité) ; un compte Microsoft se retrouve par
+  son `oid`, ou par son identifiant (adresse de connexion) à la première connexion.

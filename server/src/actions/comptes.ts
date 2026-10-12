@@ -1,4 +1,5 @@
-// Comptes et accès (administrateur RH) : création, profil RH, désactivation, mot de passe provisoire.
+// Comptes et accès (administrateur RH) : création, profil RH, désactivation, mot de passe provisoire
+// (compte Cursus) ou retrait du rattachement à l'identité Microsoft (compte Microsoft 365).
 // Cursus garde toujours au moins un administrateur RH en mesure de se connecter.
 import { COMPTE_TYPE_LABEL, PROFILS_RH } from '../../../shared/constants.ts';
 import { plural } from '../../../shared/format.ts';
@@ -62,11 +63,21 @@ const activer: ActionHandler = (ctx, p) => {
   return `Compte de ${nom} désactivé${fermees(revokeSessionsDuCompte(ctx.db, c.id))}`;
 };
 
-/** Nouveau mot de passe provisoire d'un compte Cursus (oubli, blocage) : ses sessions sont fermées. */
+/**
+ * Nouveau mot de passe provisoire d'un compte Cursus (oubli, blocage) ; pour un compte Microsoft 365, retrait
+ * du rattachement à l'identité Microsoft (identité recréée) : la prochaine connexion avec l'adresse du compte
+ * le rattache de nouveau. Dans les deux cas, ses sessions sont fermées.
+ */
 const reinitialiser: ActionHandler = (ctx, p) => {
   requireRhAdmin(ctx);
   const c = getCompte(ctx, p.id);
-  if (c.type !== 'local') throw new ActionError('Compte Microsoft 365 : le mot de passe se gère chez Microsoft');
+  if (c.type !== 'local') {
+    if (c.id === ctx.user.compteId) throw new ActionError('Compte Microsoft 365 : votre propre rattachement ne peut pas être retiré', 403);
+    if (!c.oid) throw new ActionError('Compte Microsoft 365 pas encore rattaché : le mot de passe se gère chez Microsoft');
+    ctx.db.update<Compte>('comptes', c.id, { oid: null });
+    const n = revokeSessionsDuCompte(ctx.db, c.id);
+    return `Rattachement Microsoft retiré pour ${nomDuCompte(ctx.db, c)} — la prochaine connexion Microsoft avec ${c.identifiant} le rétablit${fermees(n)}`;
+  }
   if (c.id === ctx.user.compteId) throw new ActionError('Pour votre propre compte, utilisez « Changer mon mot de passe »', 403);
   const motDePasse = attribuerProvisoire(ctx.db, c);
   const n = revokeSessionsDuCompte(ctx.db, c.id);

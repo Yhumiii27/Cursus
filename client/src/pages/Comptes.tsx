@@ -1,5 +1,6 @@
 // Paramètres → Comptes et accès (administrateur RH) : comptes de connexion, profil RH, espaces,
-// désactivation et mot de passe provisoire. La liste est rechargée après chaque action.
+// désactivation, mot de passe provisoire (compte Cursus) ou rattachement Microsoft retiré (identité
+// Microsoft recréée). La liste est rechargée après chaque action.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PlusIcon } from '@phosphor-icons/react';
 import { COMPTE_TYPE_LABEL, ESPACE_LABEL, PROFILS_RH } from '../../../shared/constants.ts';
@@ -61,6 +62,10 @@ export function ComptesPanel() {
     if (c.actif && !window.confirm(`Désactiver le compte de ${c.nom} ? Ses sessions ouvertes seront fermées aussitôt.`)) return;
     agir(c, 'compte.activer', { actif: !c.actif });
   };
+  const delier = (c: CompteVue) => {
+    if (!window.confirm(`Retirer le rattachement Microsoft de ${c.nom} ? Ses sessions seront fermées ; sa prochaine connexion Microsoft avec ${c.identifiant} rattachera le compte à son identité Microsoft actuelle.`)) return;
+    agir(c, 'compte.reinitialiser', {});
+  };
   const reinitialiser = async (c: CompteVue) => {
     if (!window.confirm(`Attribuer un nouveau mot de passe provisoire à ${c.nom} ? L’ancien ne fonctionnera plus et ses sessions seront fermées.`)) return;
     const r = await agir(c, 'compte.reinitialiser', {});
@@ -106,7 +111,8 @@ export function ComptesPanel() {
                   <tr key={c.id}>
                     <td><Two main={<>{c.nom}{moi && <span className="text-muted"> · vous</span>}</>} sub={e ? `${e.poste} · ${equipeLabel(e)}` : `Externe · ${c.adresse ?? ''}`} /></td>
                     <td title={`Créé le ${fmt(new Date(c.creation))}${c.creePar ? ` par ${c.creePar}` : ''}`}>
-                      <Two main={<span style={MONO}>{coupure(c.identifiant)}</span>} sub={COMPTE_TYPE_LABEL[c.type]} />
+                      <Two main={<span style={MONO}>{coupure(c.identifiant)}</span>}
+                        sub={c.type === 'microsoft' && !c.rattache ? `${COMPTE_TYPE_LABEL.microsoft} · rattaché à la première connexion` : COMPTE_TYPE_LABEL[c.type]} />
                     </td>
                     <td>
                       <select className="input" aria-label={`Profil RH de ${c.nom}`} value={c.profilRh} disabled={busy === c.id}
@@ -121,6 +127,7 @@ export function ComptesPanel() {
                       {!moi && (
                         <div className="actions-end">
                           {c.type === 'local' && c.actif && <Btn small disabled={busy === c.id} onClick={() => reinitialiser(c)} title="Attribuer un nouveau mot de passe provisoire">Mot de passe</Btn>}
+                          {c.type === 'microsoft' && c.rattache && <Btn small disabled={busy === c.id} onClick={() => delier(c)} title="Identité Microsoft recréée : rattacher le compte à la prochaine connexion">Délier</Btn>}
                           <Btn small disabled={busy === c.id} onClick={() => basculer(c)}>{c.actif ? 'Désactiver' : 'Réactiver'}</Btn>
                         </div>
                       )}

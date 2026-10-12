@@ -1,6 +1,7 @@
 // Routes de la session : état (/api/session), changement d'espace (/api/mode), connexion par compte
 // local (/api/login), mot de passe (/api/motdepasse), déconnexion (/api/logout) et liste des comptes
-// pour l'administrateur RH (/api/comptes). L'étape suivante ajoute ici la connexion Microsoft 365.
+// pour l'administrateur RH (/api/comptes). Connexion Microsoft 365 : routes de server/src/microsoft.ts,
+// montées ici ; la déconnexion d'une session Microsoft renvoie aussi l'adresse de déconnexion Microsoft.
 // En démonstration, la connexion reste libre (choix d'un compte, mot de passe quelconque) mais passe
 // par les mêmes comptes que la production.
 import express, { type Request, type Response, type Router } from 'express';
@@ -18,6 +19,7 @@ import { currentUser } from './dataset.ts';
 import type { Db } from './db.ts';
 import { KEYSTONE_MODE } from './integrations/keystone.ts';
 import { SAGE_MODE } from './integrations/sage.ts';
+import { OIDC, routesMicrosoft } from './microsoft.ts';
 
 export interface Identite { session: SessionInfo; compte: Compte; user: CurrentUser }
 
@@ -39,6 +41,7 @@ const TROP_DE_TENTATIVES = 'Trop de tentatives de connexion depuis ce poste : r�
 
 export function routesConnexion(db: Db): Router {
   const r = express.Router();
+  r.use(routesMicrosoft(db));
   const limite = new LimiteParIp();
   const ip = (req: Request) => req.ip ?? req.socket.remoteAddress ?? '';
 
@@ -64,6 +67,8 @@ export function routesConnexion(db: Db): Router {
     const enAttente = !!c && s?.methode === 'local' && c.changerMotDePasse;
     return {
       demo: DEMO, role: s?.role ?? 'rh', user: s && c && !enAttente ? currentUser(db, s) : null, compte: c ? compteSession(db, c) : null, methode: s?.methode ?? null,
+      // Bouton « Se connecter avec Microsoft » : seulement si la connexion Microsoft 365 est configurée.
+      microsoft: !!OIDC,
       // La liste des comptes (annuaire, organigramme) n'est exposée qu'en démonstration.
       loginOptions: DEMO ? loginOptions() : null, integrations: { keystone: KEYSTONE_MODE, sage: SAGE_MODE },
     };
@@ -199,10 +204,15 @@ export function routesConnexion(db: Db): Router {
     res.json(payload(readSession(db, req)));
   });
 
-  r.post('/api/logout', (req, res) => {
+  r.post('/api/logout', async (req, res) => {
     const s = readSession(db, req);
     if (!s) { clearSessionCookie(res); return res.json(payload(null)); }
     revokeSession(db, s.id!);
+    // Session Microsoft : le navigateur passe ensuite par la déconnexion Microsoft, qui revient sur Cursus.
+    if (s.methode === 'microsoft' && OIDC) {
+      clearSessionCookie(res);
+      return res.json({ ...payload(null), deconnexion: await OIDC.urlDeconnexion() });
+    }
     if (DEMO) {
       // Le cookie présenté ne vaut plus rien ; la démonstration garde l'espace, sans compte, jusqu'au choix
       // d'un autre compte. Le compte quitté n'est plus proposé d'office dans les autres espaces.

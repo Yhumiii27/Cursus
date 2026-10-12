@@ -46,11 +46,26 @@ export const TABLES = {
     cols: { id: 'int', empId: 'int', type: 'text', f: 'text', h: 'text', libelle: 'text', label: 'text', sessionId: 'int', motif: 'text', date: 'text', statut: 'text', reponse: 'text', parId: 'int', declaration: 'json' },
   },
   settings: { pk: 'key', cols: { key: 'text', value: 'json' } },
-  journal: { pk: 'id', auto: true, cols: { id: 'int', at: 'text', actor: 'text', role: 'text', action: 'text', message: 'text', payload: 'json' } },
+  // `actor` : nom de la personne connectée ; `compteId` et `identifiant` : son compte (server/src/comptes.ts).
+  journal: { pk: 'id', auto: true, cols: { id: 'int', at: 'text', actor: 'text', role: 'text', action: 'text', message: 'text', payload: 'json', compteId: 'int', identifiant: 'text' } },
+  // Comptes de connexion (server/src/comptes.ts) : un par personne, salarié (`empId`) ou externe (`nom`, `adresse`).
+  // `identifiant` en minuscules (adresse Microsoft 365 pour un compte Microsoft) ; `oid` : identifiant Microsoft,
+  // renseigné à la première connexion ; `motDePasse` : empreinte scrypt d'un compte local.
+  comptes: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', nom: 'text', adresse: 'text', identifiant: 'text', type: 'text', oid: 'text', profilRh: 'text', actif: 'bool',
+      motDePasse: 'text', changerMotDePasse: 'bool', echecs: 'int', blocageFin: 'text', creation: 'text', creePar: 'text', derniereConnexion: 'text',
+    },
+    unique: [['identifiant'], ['oid']],
+  },
   // Sessions de connexion (server/src/auth.ts) ; `sessions` désigne les sessions de formation.
+  // Une session porte un compte et l'espace actif ; `demoComptes` : comptes choisis par espace (démonstration).
   connexions: {
     pk: 'id',
-    cols: { id: 'text', role: 'text', rh: 'bool', managerId: 'int', collabId: 'int', creation: 'text', expiration: 'text', revocation: 'text', activite: 'text' },
+    cols: {
+      id: 'text', compteId: 'int', role: 'text', methode: 'text', demoComptes: 'json', creation: 'text', expiration: 'text', revocation: 'text', activite: 'text',
+    },
   },
 } satisfies Record<string, TableDef>;
 

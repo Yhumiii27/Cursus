@@ -1,4 +1,5 @@
 // Contexte d'exécution des actions : données complètes, utilisateur, contrôles d'accès.
+import { aDroitRh } from '../../../shared/constants.ts';
 import { Domain, type EmpX } from '../../../shared/domain.ts';
 import type { CurrentUser, Dataset, Employe } from '../../../shared/types.ts';
 import type { Db } from '../db.ts';
@@ -30,6 +31,14 @@ export const isRh = (ctx: Ctx) => ctx.user.role === 'rh';
 
 export function requireRh(ctx: Ctx) {
   if (!isRh(ctx)) throw new ActionError('Action réservée au service RH', 403);
+}
+
+/** Administrateur RH : paramètres, transmission à la paie, suppressions, comptes et accès (PROFILS_RH). */
+export const isRhAdmin = (ctx: Ctx) => isRh(ctx) && aDroitRh(ctx.user.profilRh, 'admin');
+
+export function requireRhAdmin(ctx: Ctx) {
+  requireRh(ctx);
+  if (!isRhAdmin(ctx)) throw new ActionError('Action réservée à l’administrateur RH', 403);
 }
 
 export function getEmp(ctx: Ctx, id: unknown): Employe {

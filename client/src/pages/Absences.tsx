@@ -175,10 +175,11 @@ export function Absences() {
   );
 }
 
-/** Nombre de RTT des contrats 39 h : enregistré à la sortie du champ ou sur Entrée. */
+/** Nombre de RTT des contrats 39 h : enregistré à la sortie du champ ou sur Entrée (paramètre : administrateur RH). */
 function Rtt39Field() {
   const d = useDomain();
   const { run } = useStore();
+  const { admin } = useRole();
   const value = Number(d.ds.settings.rtt39) || 0;
   const [text, setText] = useState(String(value));
   const [prev, setPrev] = useState(value);
@@ -196,7 +197,8 @@ function Rtt39Field() {
   return (
     <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap', fontSize: 14 }}>
       <label htmlFor="rtt39">Contrats 39 h : nombre de RTT par an</label>
-      <input className="input" id="rtt39" type="number" min={0} max={40} value={text} onChange={ev => setText(ev.target.value)} onBlur={commit} onKeyDown={onKey} style={{ width: 80, textAlign: 'right' }} />
+      <input className="input" id="rtt39" type="number" min={0} max={40} value={text} disabled={!admin} title={admin ? undefined : 'Paramètre réservé à l’administrateur RH'}
+        onChange={ev => setText(ev.target.value)} onBlur={commit} onKeyDown={onKey} style={{ width: 80, textAlign: 'right' }} />
     </div>
   );
 }

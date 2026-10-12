@@ -1,0 +1,144 @@
+// Paramètres → Comptes et accès (administrateur RH) : comptes de connexion, profil RH, espaces,
+// désactivation, mot de passe provisoire (compte Cursus) ou rattachement Microsoft retiré (identité
+// Microsoft recréée). La liste est rechargée après chaque action.
+import { useCallback, useEffect, useMemo, useState } from 'react';
+import { PlusIcon } from '@phosphor-icons/react';
+import { COMPTE_TYPE_LABEL, ESPACE_LABEL, PROFILS_RH } from '../../../shared/constants.ts';
+import { equipeLabel, fmt, norm, plural } from '../../../shared/format.ts';
+import type { CompteVue, ProfilRh } from '../../../shared/types.ts';
+import { api } from '../api.ts';
+import { Btn, Chips, Empty, Fine, Panel, Tag, Two } from '../components/ui.tsx';
+import { useDomain, useRole } from '../state/derived.ts';
+import { useData, useStore } from '../state/store.tsx';
+
+const MONO = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12 };
+const heure = (iso: string) => new Date(iso).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit' });
+const minuscule = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
+/** Adresse coupée de préférence avant « @ » quand la colonne est étroite. */
+const coupure = (id: string) => { const i = id.indexOf('@'); return i > 0 ? <>{id.slice(0, i)}<wbr />{id.slice(i)}</> : id; };
+
+/** État de connexion d'un compte : le premier motif qui empêche ou conditionne la connexion. */
+function etat(c: CompteVue): { label: string; cls: string } {
+  if (!c.actif) return { label: 'Désactivé', cls: 'tag-accent' };
+  if (c.sorti) return { label: 'Salarié sorti', cls: 'tag-accent' };
+  if (!c.espaces.length) return { label: 'Aucun espace', cls: 'tag-accent' };
+  if (c.bloqueJusqua) return { label: `Bloqué jusqu’à ${heure(c.bloqueJusqua)}`, cls: 'tag-accent' };
+  if (c.changerMotDePasse) return { label: 'Mot de passe provisoire', cls: 'tag-outline' };
+  return { label: 'Actif', cls: 'tag-neutral' };
+}
+
+export function ComptesPanel() {
+  const data = useData();
+  const d = useDomain();
+  const { user } = useRole();
+  const { run, openDialog } = useStore();
+  const [comptes, setComptes] = useState<CompteVue[] | null>(null);
+  const [erreur, setErreur] = useState<string | null>(null);
+  const [recherche, setRecherche] = useState('');
+  const [busy, setBusy] = useState<number | null>(null);
+
+  const charger = useCallback(() => {
+    let annule = false;
+    api.comptes()
+      .then(rows => { if (!annule) { setComptes(rows); setErreur(null); } })
+      .catch(err => { if (!annule) setErreur((err as Error).message); });
+    return () => { annule = true; };
+  }, []);
+  // Rechargée au montage et à chaque nouvel instantané (donc après chaque action).
+  useEffect(() => charger(), [data, charger]);
+
+  const liste = useMemo(() => {
+    const q = norm(recherche.trim());
+    return (comptes ?? []).filter(c => !q || norm(`${c.nom} ${c.identifiant}`).includes(q));
+  }, [comptes, recherche]);
+
+  const agir = async (c: CompteVue, name: string, payload: Record<string, unknown>) => {
+    setBusy(c.id);
+    const r = await run(name, { id: c.id, ...payload });
+    setBusy(null);
+    return r;
+  };
+  const basculer = (c: CompteVue) => {
+    if (c.actif && !window.confirm(`Désactiver le compte de ${c.nom} ? Ses sessions ouvertes seront fermées aussitôt.`)) return;
+    agir(c, 'compte.activer', { actif: !c.actif });
+  };
+  const delier = (c: CompteVue) => {
+    if (!window.confirm(`Retirer le rattachement Microsoft de ${c.nom} ? Ses sessions seront fermées ; sa prochaine connexion Microsoft avec ${c.identifiant} rattachera le compte à son identité Microsoft actuelle.`)) return;
+    agir(c, 'compte.reinitialiser', {});
+  };
+  const reinitialiser = async (c: CompteVue) => {
+    if (!window.confirm(`Attribuer un nouveau mot de passe provisoire à ${c.nom} ? L’ancien ne fonctionnera plus et ses sessions seront fermées.`)) return;
+    const r = await agir(c, 'compte.reinitialiser', {});
+    const mdp = (r.result as { motDePasse?: string } | undefined)?.motDePasse;
+    if (r.ok && mdp) openDialog({ type: 'motDePasseProvisoire', nom: c.nom, identifiant: c.identifiant, motDePasse: mdp });
+  };
+
+  const actifs = (comptes ?? []).filter(c => c.actif).length;
+
+  return (
+    <Panel head={
+      <div className="panel-head center">
+        <div>
+          <h2>Comptes et accès</h2>
+          <div className="text-muted sub">
+            {comptes ? `${plural(comptes.length, 'compte', 'comptes')} · ${plural(actifs, 'actif', 'actifs')}` : 'Chargement…'}
+          </div>
+        </div>
+        <div className="actions-end" style={{ alignItems: 'center' }}>
+          <input className="input" type="search" placeholder="Rechercher un compte…" aria-label="Rechercher un compte" value={recherche}
+            onChange={e => setRecherche(e.target.value)} style={{ width: 220 }} />
+          <Btn variant="primary" small icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'compte' })}>Créer un compte</Btn>
+        </div>
+      </div>
+    }>
+      <Fine>
+        {PROFILS_RH.rh_gestionnaire.label} : {minuscule(PROFILS_RH.rh_gestionnaire.aide)}. {PROFILS_RH.rh_admin.label} : {minuscule(PROFILS_RH.rh_admin.aide)}.
+        {' '}Un salarié ouvre aussi son espace collaborateur, et l’espace manager s’il encadre une équipe. Désactiver un compte ferme aussitôt ses sessions.
+      </Fine>
+      {erreur && <p className="form-error">{erreur}</p>}
+      {comptes != null && liste.length === 0 && <Empty pad="sm">{recherche ? 'Aucun compte ne correspond à la recherche.' : 'Aucun compte.'}</Empty>}
+      {liste.length > 0 && (
+        <div className="scroll-x" style={{ maxHeight: 560, overflowY: 'auto' }}>
+          <table className="table">
+            <thead><tr><th>Personne</th><th>Identifiant</th><th>Profil RH</th><th>Espaces</th><th>État</th><th>Dernière connexion</th><th></th></tr></thead>
+            <tbody>
+              {liste.map(c => {
+                const e = c.empId ? d.emp(c.empId) : undefined;
+                const st = etat(c);
+                const moi = c.id === user.compteId;
+                const last = c.derniereConnexion ? new Date(c.derniereConnexion) : null;
+                return (
+                  <tr key={c.id}>
+                    <td><Two main={<>{c.nom}{moi && <span className="text-muted"> · vous</span>}</>} sub={e ? `${e.poste} · ${equipeLabel(e)}` : `Externe · ${c.adresse ?? ''}`} /></td>
+                    <td title={`Créé le ${fmt(new Date(c.creation))}${c.creePar ? ` par ${c.creePar}` : ''}`}>
+                      <Two main={<span style={MONO}>{coupure(c.identifiant)}</span>}
+                        sub={c.type === 'microsoft' && !c.rattache ? `${COMPTE_TYPE_LABEL.microsoft} · rattaché à la première connexion` : COMPTE_TYPE_LABEL[c.type]} />
+                    </td>
+                    <td>
+                      <select className="input" aria-label={`Profil RH de ${c.nom}`} value={c.profilRh} disabled={busy === c.id}
+                        onChange={ev => agir(c, 'compte.profil', { profilRh: ev.target.value })} style={{ minWidth: 160 }}>
+                        {(Object.keys(PROFILS_RH) as ProfilRh[]).map(p => <option key={p} value={p} disabled={!c.empId && p === 'aucun'}>{PROFILS_RH[p].label}</option>)}
+                      </select>
+                    </td>
+                    <td>{c.espaces.length ? <Chips items={c.espaces.map(r => ({ key: r, label: ESPACE_LABEL[r], cls: 'tag-outline' }))} /> : <span className="text-muted">—</span>}</td>
+                    <td><Tag cls={st.cls}>{st.label}</Tag></td>
+                    <td>{last ? <Two main={fmt(last)} sub={heure(c.derniereConnexion!)} nowrap /> : <span className="text-muted">Jamais</span>}</td>
+                    <td>
+                      {!moi && (
+                        <div className="actions-end">
+                          {c.type === 'local' && c.actif && <Btn small disabled={busy === c.id} onClick={() => reinitialiser(c)} title="Attribuer un nouveau mot de passe provisoire">Mot de passe</Btn>}
+                          {c.type === 'microsoft' && c.rattache && <Btn small disabled={busy === c.id} onClick={() => delier(c)} title="Identité Microsoft recréée : rattacher le compte à la prochaine connexion">Délier</Btn>}
+                          <Btn small disabled={busy === c.id} onClick={() => basculer(c)}>{c.actif ? 'Désactiver' : 'Réactiver'}</Btn>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </Panel>
+  );
+}

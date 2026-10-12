@@ -2,10 +2,12 @@
 import { fmtEur, plural } from '../../../shared/format.ts';
 import { parsePlan } from '../../../shared/rules/imports.ts';
 import type { PlanAction } from '../../../shared/types.ts';
-import { ActionError, requireRh, str, type ActionHandler } from './context.ts';
+import { ActionError, requireRh, requireRhAdmin, str, type ActionHandler } from './context.ts';
 
+/** Import du plan : en mode « remplacer », les lignes prévues de l'exercice sont supprimées (administrateur RH). */
 const importer: ActionHandler = (ctx, p) => {
-  requireRh(ctx);
+  if (p.mode === 'replace') requireRhAdmin(ctx);
+  else requireRh(ctx);
   const ex = Number(p.exercice);
   if (!(ex > 2000)) throw new ActionError('Exercice invalide');
   const rows = parsePlan(ctx.d, str(p.texte)).filter(r => r.ok);

@@ -1,5 +1,6 @@
 // Données dérivées mémorisées, partagées par les écrans.
 import { useMemo } from 'react';
+import { aDroitRh } from '../../../shared/constants.ts';
 import { Domain, type EmpX, type TripX } from '../../../shared/domain.ts';
 import type { Formation, Session } from '../../../shared/types.ts';
 import { useData, useStore } from './store.tsx';
@@ -47,5 +48,7 @@ export function useScopeIds(): number[] {
 export function useRole() {
   const data = useData();
   const u = data.user;
-  return { role: u.role, rh: u.role === 'rh', manager: u.role === 'manager', collab: u.role === 'collaborateur', me: u.empId, user: u };
+  // `admin` : administrateur RH (paramètres, transmission à la paie, suppressions, comptes) — le serveur le vérifie aussi.
+  const rh = u.role === 'rh';
+  return { role: u.role, rh, admin: rh && aDroitRh(u.profilRh, 'admin'), manager: u.role === 'manager', collab: u.role === 'collaborateur', me: u.empId, user: u };
 }

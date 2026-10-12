@@ -2,6 +2,7 @@
 // 24 collaborateurs d'un site industriel lyonnais, CCN Industries chimiques.
 import { Domain } from '../../shared/domain.ts';
 import { addM } from '../../shared/dates.ts';
+import { identifiantSuggere, typeSuggere } from '../../shared/rules/comptes.ts';
 import { cpDroit, rttDroit } from '../../shared/rules/conges.ts';
 import type { Dataset, Employe, EntretienType, Statut, TempsTravail, TypeContrat, VaccinId } from '../../shared/types.ts';
 import type { Db } from './db.ts';
@@ -325,6 +326,7 @@ export function seedDemo(db: Db) {
     feuilles().forEach(f => db.insert('feuilles', f));
     figerFeuilles(db);
     entretiens().forEach(e => db.insert('entretiens', e));
+    comptesDemo(db);
 
     // Reprise des compteurs : jours déjà pris sur les périodes en cours,
     // plafonnés pour laisser un solde réaliste.
@@ -339,6 +341,44 @@ export function seedDemo(db: Db) {
       const recupDemandee = ds.absences.filter(a => a.empId === e.id && a.type === 'RECUP' && a.statut === 'demandee')
         .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'RECUP') * d.dayH(e), 0);
       db.insert('soldesReprise', { empId: e.id, cpPris: cp, rttPris: rtt, recupAcquis: Math.max(h.recA, h.recP + recupDemandee), recupPris: h.recP });
+    });
+  });
+}
+
+/** Domaine des adresses Microsoft 365 de démonstration (réservé à la documentation, jamais routé). */
+export const DOMAINE_DEMO = 'entreprise.example';
+/** Compte RH de démonstration : la responsable RH du jeu de données, administratrice RH, sans fiche salarié. */
+export const RH_DEMO = 'Sandrine Vidal';
+
+/**
+ * Comptes de démonstration, créés une seule fois : la RH de démonstration (administratrice RH, compte
+ * externe) et un compte par salarié — Microsoft 365, ou compte Cursus pour les ouvriers, intérimaires et
+ * alternants. Antoine Leroy, chargé RH, est gestionnaire RH. Les comptes Cursus n'ont pas de mot de passe :
+ * en démonstration, la connexion est libre ; l'administrateur peut en attribuer un (Comptes et accès).
+ * Appelé aussi au démarrage pour une base de démonstration antérieure aux comptes.
+ */
+export function comptesDemo(db: Db) {
+  if (db.count('comptes')) return;
+  // Une ancienne base de démonstration a pu renommer la RH unique (paramètre rhNom) : même personne.
+  const rhNom = db.getSetting<{ rhNom?: string }>('app', {}).rhNom || RH_DEMO;
+  const base = {
+    oid: null, actif: true, motDePasse: null, changerMotDePasse: false, echecs: 0, blocageFin: null,
+    creation: new Date().toISOString(), creePar: 'Jeu de démonstration', derniereConnexion: null,
+  };
+  const pris = new Set<string>();
+  const unique = (id: string) => {
+    let x = id, n = 1;
+    while (pris.has(x)) x = id.replace(/^([^@]+)/, `$1${++n}`);
+    pris.add(x);
+    return x;
+  };
+  const adresse = unique(identifiantSuggere(rhNom, 'microsoft', DOMAINE_DEMO));
+  db.insert('comptes', { ...base, empId: null, nom: rhNom, adresse, identifiant: adresse, type: 'microsoft', profilRh: 'rh_admin' });
+  db.all<Employe>('employes').forEach(e => {
+    const type = typeSuggere(e);
+    db.insert('comptes', {
+      ...base, empId: e.id, nom: null, adresse: null, identifiant: unique(identifiantSuggere(e.nom, type, DOMAINE_DEMO)), type,
+      profilRh: e.poste === 'Chargé RH' ? 'rh_gestionnaire' : 'aucun',
     });
   });
 }

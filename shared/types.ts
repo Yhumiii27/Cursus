@@ -136,12 +136,59 @@ export interface Settings {
   seuilBudget: number;
   partageKeystone: 'minimal' | 'detaille';
   rtt39: number;
-  rhNom: string;
-  rhIntitule: string;
   vueInitiale: string;
 }
 
-export interface CurrentUser { role: Role; empId: number | null; nom: string; intitule: string }
+/**
+ * Personne connectée, dans l'espace actif. Dans l'espace RH, `empId` reste null : la personne agit
+ * au nom du service RH, mais son nom signe le journal et les mesures.
+ */
+export interface CurrentUser {
+  role: Role; empId: number | null; nom: string; intitule: string;
+  /** Compte connecté (absent des lectures internes : appels Keystone, jeu de démonstration). */
+  compteId?: number;
+  /** Profil RH du compte : les actions réservées à l'administrateur RH exigent `rh_admin`. */
+  profilRh?: ProfilRh;
+}
+
+// — Comptes de connexion —
+/** Profil d'un compte au sein du service RH (droits : PROFILS_RH dans shared/constants.ts). */
+export type ProfilRh = 'aucun' | 'rh_admin' | 'rh_gestionnaire';
+/** Compte Microsoft 365 de l'entreprise, ou compte propre à Cursus (mot de passe) pour le personnel sans compte d'entreprise. */
+export type CompteType = 'microsoft' | 'local';
+
+/** Compte tel que le voit l'administrateur RH (Paramètres → Comptes et accès). */
+export interface CompteVue {
+  id: number;
+  /** Salarié rattaché ; null pour un compte externe (nom et adresse propres). */
+  empId: number | null;
+  nom: string;
+  adresse: string | null;
+  identifiant: string;
+  type: CompteType;
+  profilRh: ProfilRh;
+  /** Espaces ouverts par le compte (aucun : connexion impossible). */
+  espaces: Role[];
+  actif: boolean;
+  /** Date de sortie du salarié passée : connexion refusée. */
+  sorti: boolean;
+  /** Compte local : mot de passe provisoire à remplacer à la prochaine connexion. */
+  changerMotDePasse: boolean;
+  /** Compte Microsoft 365 : rattaché à son identité Microsoft (oid), c'est-à-dire déjà connecté une fois. */
+  rattache: boolean;
+  /** Fin du blocage temporaire après des échecs de connexion (ISO), si elle n'est pas passée. */
+  bloqueJusqua: string | null;
+  creation: string;
+  creePar: string | null;
+  derniereConnexion: string | null;
+}
+
+/** Compte de la session, transmis au client (`/api/session`). */
+export interface CompteSession {
+  id: number; identifiant: string; nom: string; type: CompteType; profilRh: ProfilRh; espaces: Role[];
+  /** Mot de passe provisoire à remplacer avant tout accès aux données. */
+  changerMotDePasse: boolean;
+}
 
 export interface SagePush { endpoint: string; dossier: string; periode_paie: string; envoye_le: string; lignes: { matricule: string; semaine: string; rubriques: Record<string, number> }[] }
 

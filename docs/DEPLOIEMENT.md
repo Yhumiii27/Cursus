@@ -12,13 +12,16 @@ Navigateur ──HTTPS 443──▶ Caddy (ou nginx) ──HTTP──▶ Cursus 
 Cursus n'écoute que sur la boucle locale : seul le reverse proxy l'atteint. Le proxy porte le
 certificat TLS ; Cursus envoie lui-même les en-têtes de sécurité (CSP, HSTS, anti-iframe…).
 
-Sauvegardes et restauration : voir `docs/SAUVEGARDE.md`.
+Sauvegardes et restauration : voir `docs/SAUVEGARDE.md`. Connexion Microsoft 365 (inscription de
+l'application dans Entra) : voir `docs/CONNEXION-MICROSOFT.md`.
 
 ## Avant de commencer
 
-- **Authentification** : hors démonstration, Cursus n'ouvre aucun espace tant que l'authentification
-  unique de l'entreprise (OIDC / SAML) n'est pas branchée (chantier distinct, voir
-  `docs/RESTE_A_FAIRE.md`). Ce guide prépare l'hébergement ; l'ouverture aux utilisateurs en dépend.
+- **Comptes** : chaque personne a un compte nominatif. Les salariés dotés d'un compte Microsoft 365
+  s'y connectent par Microsoft (application inscrite dans Entra, `docs/CONNEXION-MICROSOFT.md`) ; le
+  personnel sans compte d'entreprise (ouvriers, intérimaires, alternants) a un compte Cursus,
+  identifiant et mot de passe. Le premier administrateur RH se crée en ligne de commande (« Premier administrateur RH ») ;
+  il crée ensuite les autres comptes dans Paramètres → Comptes et accès.
 - **Recette** : chaque mise en production, première installation comme mise à jour, est précédée
   d'une recette par le groupe pilote (un RH, un manager, un collaborateur). Voir « Recette ».
 - **Données personnelles** : Cursus conserve des données relatives à la santé (visites médicales,
@@ -109,12 +112,16 @@ sudo nano /etc/cursus/cursus.env
 | `CURSUS_DB` | `/var/lib/cursus/cursus.db` |
 | `CURSUS_SECRET` | 64 caractères aléatoires, propres à cette installation. La changer déconnecte tout le monde |
 | `KEYSTONE_API_KEY` | clé aléatoire transmise à Keystone par un canal sûr. Sans elle, les routes Keystone répondent 503 |
+| `CURSUS_OIDC_TENANT`, `CURSUS_OIDC_CLIENT_ID`, `CURSUS_OIDC_CLIENT_SECRET` | connexion Microsoft 365 : ID de l'annuaire (GUID), ID d'application et secret client relevés dans Entra (`docs/CONNEXION-MICROSOFT.md`). Noter la date d'expiration du secret |
+| `CURSUS_PUBLIC_URL` | `https://cursus.example.fr` : adresse publique, sans chemin. URI de redirection à inscrire dans Entra : `https://cursus.example.fr/api/auth/microsoft/retour` |
 | `KEYSTONE_URL`, `KEYSTONE_TOKEN`, `SAGE_URL`, `SAGE_TOKEN`, `SAGE_DOSSIER` | intégrations sortantes, quand elles seront livrées |
+| `CURSUS_OIDC_AUTORITE` | **jamais** : réservée aux tests automatiques, Cursus refuse de démarrer avec elle |
 | `CURSUS_DEMO`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE` | **jamais** sur ce serveur. La démonstration ouvre l'espace RH sans mot de passe : Cursus refuse de démarrer avec elle, et refuserait de toute façon (403) chaque requête relayée par le proxy |
 
 Au démarrage, Cursus contrôle cette configuration. S'il manque une valeur obligatoire ou si un
 réglage est dangereux, il refuse de démarrer, liste chaque problème dans le journal
-(`journalctl -u cursus`) et sort avec le code 1.
+(`journalctl -u cursus`) et sort avec le code 1. La connexion Microsoft 365 est facultative mais
+entière : les quatre variables `CURSUS_OIDC_*` et `CURSUS_PUBLIC_URL` (en https), ou aucune.
 
 ## Service systemd
 
@@ -162,7 +169,45 @@ journalctl -u cursus -n 50
 ```
 
 Le journal doit afficher `Cursus — API sur http://127.0.0.1:3210 (application servie)`, sans
-« mode démonstration ». Une base vide reste vide : aucune donnée fictive n'est chargée.
+« mode démonstration ». Une base vide reste vide : aucune donnée fictive n'est chargée. Tant
+qu'aucun administrateur RH n'existe, il le rappelle : `Aucun administrateur RH : créez-le avec…`.
+
+## Premier administrateur RH
+
+Une installation vide n'a aucun compte. Le service informatique crée le premier administrateur RH
+sur le serveur, en tant qu'utilisateur `cursus` ; la commande fonctionne service démarré ou arrêté.
+Avec la connexion Microsoft 365 configurée, l'identifiant est l'adresse de connexion Microsoft de la
+personne : `npm run comptes -- admin prenom.nom@entreprise.fr` (aucun mot de passe : elle se connecte
+par « Se connecter avec Microsoft »). Sinon, ou en secours, créer un compte Cursus (`--local`) :
+
+```bash
+cd /opt/cursus
+sudo -u cursus env CURSUS_DB=/var/lib/cursus/cursus.db \
+  npm run comptes -- admin rh.admin --local --nom "Prénom Nom" --adresse prenom.nom@entreprise.fr
+```
+
+La commande affiche un mot de passe provisoire, une seule fois : le remettre à la personne en main
+propre ; elle le remplace à sa première connexion (12 caractères au moins). Sans `--local`,
+l'identifiant est l'adresse Microsoft 365 de la personne (`npm run comptes -- admin
+prenom.nom@entreprise.fr`). `--salarie <n°>` rattache le compte à la fiche d'un salarié déjà
+saisie ; sans lui, le compte est externe (nom et adresse propres, espace RH seulement).
+
+L'administrateur RH crée ensuite les comptes des salariés et des autres membres du service RH
+(gestionnaires RH) dans Paramètres → Comptes et accès. Chaque création est tracée dans le journal.
+
+Recours : si plus aucun administrateur ne peut se connecter (mot de passe oublié, compte bloqué ou
+désactivé, identité Microsoft recréée), relancer la même commande avec l'identifiant existant. Elle
+rétablit le profil administrateur RH, réactive et débloque le compte et, pour un compte Cursus, affiche
+un nouveau mot de passe provisoire ; pour un compte Microsoft, elle retire le rattachement à l'identité
+Microsoft, rétabli à la connexion suivante (les sessions ouvertes de ce compte sont fermées).
+
+Protection des comptes Cursus : mot de passe haché (scrypt), message d'échec identique quel que
+soit l'identifiant, blocage du compte 15 minutes après 5 échecs, et refus (429) des tentatives d'une
+adresse IP au-delà de 30 échecs en 15 minutes — un atelier entier peut sortir par une même adresse.
+Chaque tentative est comptée dès son arrivée, avant la vérification du mot de passe : des requêtes
+envoyées en même temps ne passent pas ces limites (une connexion réussie est rendue à l'adresse).
+Connexions réussies et refusées sont tracées dans le journal, jamais les mots de passe ; le filtre
+« Connexions » / « Opérations » de Paramètres → Journal les sépare des opérations RH.
 
 ## Reverse proxy HTTPS : Caddy (recommandé)
 
@@ -252,7 +297,7 @@ sudo nginx -t && sudo systemctl reload nginx
 
 ```bash
 curl -sI https://cursus.example.fr/ | grep -iE 'strict-transport|content-security|x-frame|x-content-type'
-curl -s https://cursus.example.fr/api/session                   # "demo":false et "user":null
+curl -s https://cursus.example.fr/api/session                   # "demo":false, "user":null et, avec Microsoft 365, "microsoft":true
 curl -s -o /dev/null -w '%{http_code}\n' http://cursus.example.fr/                       # 301 ou 308 vers HTTPS
 curl -s -o /dev/null -w '%{http_code}\n' https://cursus.example.fr/api/integrations/keystone/chantiers/X/go-no-go   # 401 sans clé
 ```
@@ -265,9 +310,14 @@ HTTPS, sans alerte de certificat.
 - Ordinateurs Windows attribués : Edge ou Chrome à jour. Téléphones fournis : Safari ou Chrome à
   jour, verrouillage de l'écran imposé par la gestion de flotte.
 - Une session dure 12 heures au plus depuis la connexion, sans prolongation : chacun se reconnecte
-  au moins une fois par journée de travail. « Se déconnecter » invalide la session aussitôt.
+  au moins une fois par journée de travail. À l'expiration, la reconnexion s'affiche par-dessus l'écran
+  sans perdre la saisie en cours. « Se déconnecter » invalide la session aussitôt ; pour un compte
+  Microsoft, elle ferme aussi la session Microsoft du navigateur.
 - Départ d'un salarié : ses sessions sont refusées dès le lendemain de sa date de sortie, à minuit
-  heure de Paris (fuseau réglé, voir « Machine »).
+  heure de Paris (fuseau réglé, voir « Machine »). Désactiver son compte (Paramètres → Comptes et
+  accès) ferme ses sessions aussitôt.
+- Mot de passe Cursus oublié ou compte bloqué : l'administrateur RH attribue un nouveau mot de passe
+  provisoire (« Mot de passe » dans Comptes et accès).
 
 ## Recette
 
@@ -276,11 +326,12 @@ précède chaque mise en production.
 
 - Instance de recette distincte, installée selon ce guide : autre sous-domaine (par exemple
   `cursus-recette.example.fr`), autre utilisateur ou dossier, autre port local (3211), autre base,
-  ses propres `CURSUS_SECRET` et `KEYSTONE_API_KEY`.
+  ses propres `CURSUS_SECRET` et `KEYSTONE_API_KEY`, et sa propre inscription d'application dans Entra
+  (« Cursus recette », `docs/CONNEXION-MICROSOFT.md`).
 - Jamais de mode démonstration sur l'instance de recette : il ouvrirait l'espace RH sans mot de
   passe à tout visiteur d'Internet. Derrière le proxy, Cursus refuse de démarrer avec
   `CURSUS_DEMO=1` et refuserait (403) toute requête relayée. La recette se fait comme en
-  production, avec l'authentification unique.
+  production, avec des comptes nominatifs (premier administrateur : `npm run comptes`).
 - Données de recette fictives ou anonymisées : jamais de copie de la base de production (données
   de santé). Les données de démonstration peuvent être chargées dans la base de recette, service
   arrêté ; `CURSUS_DEMO=1` ne vaut alors que pour cette commande, jamais pour le service :
@@ -326,3 +377,5 @@ précède chaque mise en production.
 - Changer la clé Keystone : nouvelle valeur dans `/etc/cursus/cursus.env`, `systemctl restart
   cursus`, puis transmission à Keystone.
 - Changer `CURSUS_SECRET` (fuite supposée) : même procédure ; toutes les sessions sont fermées.
+- Secret client Microsoft : le renouveler avant sa date d'expiration (`docs/CONNEXION-MICROSOFT.md`,
+  section 3) ; expiré, il bloque toutes les connexions Microsoft.

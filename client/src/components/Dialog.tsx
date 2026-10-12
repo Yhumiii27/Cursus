@@ -1,19 +1,29 @@
 // Dialogue modal Nocturne (fond, carte, actions) et champs de formulaire.
-import { useEffect, type ReactNode } from 'react';
+// Ses champs se conservent pendant une reconnexion Microsoft (attribut data-brouillon, state/brouillon.ts).
+import { useEffect, useRef, type ReactNode } from 'react';
+import { restaurerChamps } from '../state/brouillon.ts';
 import { useStore } from '../state/store.tsx';
 
 export function Dialog({ title, width, tall, children, actions, label }: {
   title: ReactNode; width?: number; tall?: boolean; children: ReactNode; actions: ReactNode; label?: string;
 }) {
-  const { closeDialog } = useStore();
+  const { closeDialog, reconnexion, dialog, prendreChamps } = useStore();
+  const ref = useRef<HTMLDivElement>(null);
   useEffect(() => {
-    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape') closeDialog(); };
+    // Pendant une reconnexion (session expirée), Échap ne ferme pas le dialogue resté derrière.
+    const onKey = (e: KeyboardEvent) => { if (e.key === 'Escape' && !reconnexion) closeDialog(); };
     addEventListener('keydown', onKey);
     return () => removeEventListener('keydown', onKey);
-  }, [closeDialog]);
+  }, [closeDialog, reconnexion]);
+  // Retour de Microsoft après une session expirée : la saisie conservée est remise dans les champs.
+  useEffect(() => {
+    const champs = prendreChamps(dialog);
+    if (champs && ref.current) restaurerChamps(ref.current, champs);
+  }, [prendreChamps, dialog]);
   return (
     <div className="dialog-backdrop" onClick={closeDialog}>
       <div
+        ref={ref} data-brouillon=""
         className={`dialog${tall ? ' tall' : ''}`} role="dialog" aria-modal="true" aria-label={label ?? (typeof title === 'string' ? title : undefined)}
         onClick={e => e.stopPropagation()}
         style={width ? { width: `min(${width}px, 100%)`, maxWidth: tall ? width : undefined } : undefined}

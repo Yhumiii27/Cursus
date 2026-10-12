@@ -6,7 +6,7 @@ import type { Domain, EmpX } from '../../../shared/domain.ts';
 import { equipeLabel, fH, fJ, plural } from '../../../shared/format.ts';
 import type { Employe, Equipe } from '../../../shared/types.ts';
 import { Avatar, Btn, Empty, Fine, Page, Panel, Tag, Two } from '../components/ui.tsx';
-import { useEnriched } from '../state/derived.ts';
+import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
 /** Contrat en deux lignes : « CDI · Cadre » et « Forfait jours · 218 j ». */
@@ -163,6 +163,7 @@ function TeamPanel({ t, candidates, busy, act, onDeleted }: {
 }) {
   const { d } = useEnriched();
   const { openDialog, go } = useStore();
+  const { admin } = useRole();
   const nom = t.q.nom;
   const mgrId = t.q.managerId;
   const n = t.members.length;
@@ -198,7 +199,7 @@ function TeamPanel({ t, candidates, busy, act, onDeleted }: {
         </div>
         <div className="actions-end">
           <Btn small onClick={() => openDialog({ type: 'equipe', nom })}>Renommer</Btn>
-          <Btn small disabled={busy || !!deleteBlock} title={deleteBlock || undefined} onClick={supprimer}>Supprimer</Btn>
+          {admin && <Btn small disabled={busy || !!deleteBlock} title={deleteBlock || undefined} onClick={supprimer}>Supprimer</Btn>}
           <Btn variant="secondary" small icon={<UserPlusIcon size={14} />} onClick={() => openDialog({ type: 'membre', equipe: nom })}>Ajouter un membre</Btn>
         </div>
       </div>

@@ -22,7 +22,7 @@ const { ActionError, makeCtx } = await import('../server/src/actions/context.ts'
 const { dossierSauvegardes, fichierVerrou, listerSauvegardes, restaurer, sauvegarder, sauvegarderBase, serveurActif } = await import('../server/src/sauvegarde.ts');
 type Db = InstanceType<typeof Db>;
 type User = Parameters<typeof loadFull>[1];
-const RH: User = { role: 'rh', empId: null, nom: 'Sandrine Vidal', intitule: 'Responsable RH' };
+const RH: User = { role: 'rh', empId: null, nom: 'Sandrine Vidal', intitule: 'Administrateur RH', profilRh: 'rh_admin' };
 const RACINE = fileURLToPath(new URL('..', import.meta.url));
 
 /** Dossier temporaire avec une base de démonstration ; supprimé après `fn`. */

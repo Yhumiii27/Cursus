@@ -1,5 +1,5 @@
 // Libellés, classes de statut et règles fixes (droit du travail, formalités).
-import type { EntretienType, Statut, TempsTravail, TypeContrat, VaccinId, VisaKind } from './types.ts';
+import type { CompteType, EntretienType, ProfilRh, Role, Statut, TempsTravail, TypeContrat, VaccinId, VisaKind } from './types.ts';
 
 export type StatusKey = 'ok' | 'due' | 'exp';
 /** `susp` : suspendue (prérequis non satisfait ou suspension manuelle) ; `retiree` : retirée, définitivement. */
@@ -120,3 +120,42 @@ export const ALLOWED_VIEWS = {
   manager: ['collaborateurs', 'formations', 'temps', 'absences', 'entretiens', 'missions'],
   collaborateur: ['portail', 'temps', 'absences', 'entretiens'],
 } as const;
+
+// — Comptes et droits —
+/**
+ * Droits accordés par un profil RH : `rh` ouvre l'espace RH et ses actions courantes (fiches, formations,
+ * habilitations, absences, temps…) ; `admin` les actions réservées à l'administrateur RH (paramètres,
+ * transmission à la paie, suppressions, comptes et accès).
+ */
+export type DroitRh = 'rh' | 'admin';
+/**
+ * Profils RH d'un compte. Les profils à venir (référent HSE, paie, lecture seule) s'ajoutent ici avec
+ * leurs droits — au besoin de nouveaux droits contrôlés côté serveur — sans changer la table des comptes.
+ */
+export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits: readonly DroitRh[] }> = {
+  aucun: { label: 'Aucun', aide: 'Pas d’accès à l’espace RH', droits: [] },
+  rh_gestionnaire: { label: 'Gestionnaire RH', aide: 'Fiches, équipes, formations, habilitations, absences, temps, déplacements', droits: ['rh'] },
+  rh_admin: { label: 'Administrateur RH', aide: 'Tout l’espace RH, plus les paramètres, la transmission à la paie, les suppressions et les comptes', droits: ['rh', 'admin'] },
+};
+export const aDroitRh = (p: ProfilRh | undefined, droit: DroitRh) => !!p && !!PROFILS_RH[p]?.droits.includes(droit);
+
+export const COMPTE_TYPE_LABEL: Record<CompteType, string> = { microsoft: 'Microsoft 365', local: 'Compte Cursus' };
+export const ESPACE_LABEL: Record<Role, string> = { rh: 'RH', manager: 'Manager', collaborateur: 'Collaborateur' };
+/** Longueur minimale du mot de passe d'un compte local. */
+export const MOT_DE_PASSE_MIN = 12;
+/** Échecs de connexion successifs avant le blocage temporaire d'un compte local, et durée du blocage. */
+export const ECHECS_MAX = 5;
+export const BLOCAGE_MINUTES = 15;
+/**
+ * Échecs de la connexion Microsoft 365 : le serveur renvoie vers l'écran de connexion avec `?connexion=<code>`
+ * (jamais de texte libre dans l'adresse), l'écran affiche « titre : texte ». Le détail est écrit dans le journal.
+ */
+export const ERREURS_MICROSOFT = {
+  acces: { titre: 'Accès non autorisé', texte: 'demandez l’ouverture d’un compte au service RH.' },
+  ferme: { titre: 'Accès non autorisé', texte: 'votre compte Cursus est désactivé ou votre date de sortie est passée. Adressez-vous au service RH.' },
+  etat: { titre: 'Connexion interrompue', texte: 'la connexion Microsoft a expiré ou a déjà servi. Recommencez.' },
+  refus: { titre: 'Connexion refusée par Microsoft', texte: 'Cursus n’est pas autorisé pour ce compte. Si le problème persiste, prévenez le service informatique.' },
+  jeton: { titre: 'Connexion impossible', texte: 'la réponse de Microsoft n’a pas pu être vérifiée. Recommencez ; si le problème persiste, prévenez le service informatique.' },
+  indisponible: { titre: 'Connexion Microsoft indisponible', texte: 'réessayez dans quelques minutes, ou utilisez un compte Cursus.' },
+} as const;
+export type ErreurMicrosoft = keyof typeof ERREURS_MICROSOFT;

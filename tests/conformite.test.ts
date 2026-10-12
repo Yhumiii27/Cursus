@@ -16,7 +16,7 @@ const { ActionError, makeCtx } = await import('../server/src/actions/context.ts'
 const { Domain } = await import('../shared/domain.ts');
 type User = Parameters<typeof buildSnapshot>[1];
 
-const RH: User = { role: 'rh', empId: null, nom: 'Sandrine Vidal', intitule: 'Responsable RH' };
+const RH: User = { role: 'rh', empId: null, nom: 'Sandrine Vidal', intitule: 'Administrateur RH', profilRh: 'rh_admin' };
 const KARIM: User = { role: 'manager', empId: 12, nom: 'Karim Haddad', intitule: 'Manager · Maintenance' };
 const HUGO: User = { role: 'manager', empId: 16, nom: 'Hugo Lambert', intitule: 'Manager · Logistique' };
 const ROMAIN: User = { role: 'collaborateur', empId: 18, nom: 'Romain Chevalier', intitule: '' };

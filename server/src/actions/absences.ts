@@ -21,7 +21,7 @@ const demander: ActionHandler = (ctx, p) => {
     sendToKeystone(ctx.db, { type: 'absence.validee', matricule: matricule(emp.id), du: p.du, au: p.au, nature: kind });
     return `Absence de ${emp.nom} (${ABS_LABEL[kind].toLowerCase()}) posée et validée — transmise à Keystone pour la planification`;
   }
-  return `Demande de ${ABS_LABEL[kind].toLowerCase()} envoyée à ${ctx.d.mgrName(ctx.d.mgrOf(emp))}`;
+  return `Demande de ${ABS_LABEL[kind].toLowerCase()} envoyée ${ctx.d.mgrDest(ctx.d.mgrOf(emp))}`;
 };
 
 const decider: ActionHandler = (ctx, p) => {
@@ -56,7 +56,7 @@ const accorderReport: ActionHandler = (ctx, p) => {
   const cp = cpInfo(ctx.d, emp);
   const j = Number(p.jours), motif = str(p.motif);
   if (!cp || !(j > 0) || j > cp.solde || !motif) throw new ActionError('Nombre de jours (dans la limite du solde) et motif requis');
-  ctx.db.insert<ReportCp>('reports', { empId: emp.id, jours: j, motif, par: ctx.ds.settings.rhNom, date: ctx.d.ti, sens: 'accorde' });
+  ctx.db.insert<ReportCp>('reports', { empId: emp.id, jours: j, motif, par: ctx.user.nom, date: ctx.d.ti, sens: 'accorde' });
   return `${fJ(j)} de CP reportés pour ${emp.nom} — utilisables jusqu’au ${fmt(parse(cp.periodes.reportDeadline))}`;
 };
 

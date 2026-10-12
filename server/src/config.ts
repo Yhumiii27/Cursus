@@ -48,6 +48,62 @@ export function trustProxy(env: Env = process.env): boolean | number | string {
 /** Clé Keystone publiée dans la documentation : acceptée uniquement en mode démonstration. */
 export const KEYSTONE_CLE_DEMO = 'demo-keystone';
 
+// — Connexion Microsoft 365 (Entra ID, server/src/microsoft.ts, docs/CONNEXION-MICROSOFT.md) —
+
+/** Service de connexion de Microsoft ; CURSUS_OIDC_AUTORITE le remplace dans les tests (faux fournisseur local). */
+export const AUTORITE_MICROSOFT = 'https://login.microsoftonline.com';
+const VARIABLES_OIDC = ['CURSUS_OIDC_TENANT', 'CURSUS_OIDC_CLIENT_ID', 'CURSUS_OIDC_CLIENT_SECRET', 'CURSUS_PUBLIC_URL'] as const;
+const GUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
+
+export interface ConfigOidc {
+  /** ID de l'annuaire (locataire) Entra, au format GUID, en minuscules. */
+  tenant: string;
+  clientId: string;
+  clientSecret: string;
+  /** Adresse publique de Cursus, sans « / » final (https://cursus.example.fr). */
+  publicUrl: string;
+  /** URI de redirection inscrite dans Entra : ${publicUrl}/api/auth/microsoft/retour. */
+  redirection: string;
+  autorite: string;
+}
+
+/** Adresse publique réduite à son origine (schéma, nom, port), ou null si elle n'en est pas une. */
+function originePublique(v: string): string | null {
+  try {
+    const u = new URL(v);
+    if ((u.protocol !== 'https:' && u.protocol !== 'http:') || u.pathname !== '/' || u.search || u.hash || u.username) return null;
+    return u.origin;
+  } catch {
+    return null;
+  }
+}
+
+/** Configuration de la connexion Microsoft 365 : null si l'une des quatre variables manque ou n'est pas valable. */
+export function configOidc(env: Env = process.env): ConfigOidc | null {
+  const [tenant, clientId, clientSecret, url] = VARIABLES_OIDC.map(k => (env[k] ?? '').trim());
+  const publicUrl = originePublique(url);
+  if (!GUID.test(tenant.toLowerCase()) || !clientId || !clientSecret || !publicUrl) return null;
+  return {
+    tenant: tenant.toLowerCase(), clientId, clientSecret, publicUrl, redirection: `${publicUrl}/api/auth/microsoft/retour`,
+    autorite: (env.CURSUS_OIDC_AUTORITE || AUTORITE_MICROSOFT).replace(/\/+$/, ''),
+  };
+}
+
+/** Problèmes de la configuration Microsoft 365 : tout ou rien, locataire désigné par son GUID, adresse publique en https. */
+function problemesOidc(env: Env): string[] {
+  const out: string[] = [];
+  const definies = VARIABLES_OIDC.filter(k => (env[k] ?? '').trim());
+  if (!definies.length) return out;
+  const manquantes = VARIABLES_OIDC.filter(k => !definies.includes(k));
+  if (manquantes.length) out.push(`Connexion Microsoft 365 incomplète : définissez aussi ${manquantes.join(', ')} (les quatre variables, ou aucune).`);
+  const tenant = (env.CURSUS_OIDC_TENANT ?? '').trim();
+  if (tenant && !GUID.test(tenant.toLowerCase())) out.push(`CURSUS_OIDC_TENANT doit être l’ID de l’annuaire (locataire) Entra, au format GUID (« ${tenant} » reçu ; common, organizations et un nom de domaine ne conviennent pas).`);
+  const url = (env.CURSUS_PUBLIC_URL ?? '').trim();
+  if (url && !originePublique(url)) out.push(`CURSUS_PUBLIC_URL doit être l’adresse publique de Cursus, sans chemin (https://cursus.example.fr) : « ${url} » reçu.`);
+  else if (url && !url.startsWith('https://')) out.push(`CURSUS_PUBLIC_URL doit être en https (« ${url} » reçu) : Microsoft ne renvoie le code de connexion qu’à une adresse sûre.`);
+  return out;
+}
+
 /** Problèmes de configuration : bloquants en production, simples avertissements ailleurs. */
 export function problemesConfig(env: Env = process.env): string[] {
   const out: string[] = [];
@@ -61,6 +117,8 @@ export function problemesConfig(env: Env = process.env): string[] {
   if (env.CURSUS_TODAY) out.push(`CURSUS_TODAY est définie (${env.CURSUS_TODAY}) : elle fige la date du jour et reste réservée à la démonstration et aux tests.`);
   if (demo && !local) out.push(`Le mode démonstration (CURSUS_DEMO=1) ouvre l’espace RH sans mot de passe : il n’est admis que sur la boucle locale posée explicitement (CURSUS_HOST=127.0.0.1, application de bureau), jamais derrière le reverse proxy ; écoute actuelle : ${hote}.`);
   if (env.CURSUS_INSECURE_COOKIE === '1' && !local) out.push('CURSUS_INSECURE_COOKIE=1 retire l’attribut Secure du cookie de session : réservé à l’application de bureau (démonstration sur la boucle locale).');
+  out.push(...problemesOidc(env));
+  if (env.CURSUS_OIDC_AUTORITE) out.push(`CURSUS_OIDC_AUTORITE est définie (${env.CURSUS_OIDC_AUTORITE}) : elle remplace le service de connexion de Microsoft et reste réservée aux tests.`);
   return out;
 }
 

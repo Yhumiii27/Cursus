@@ -7,7 +7,7 @@ import {
 import type { Employe, FeuilleTemps, LigneTemps } from '../../../shared/types.ts';
 import { pushToSage, SAGE_DOSSIER } from '../integrations/sage.ts';
 import { sendToKeystone } from '../integrations/keystone.ts';
-import { ActionError, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
+import { ActionError, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
 function sheetOf(ctx: Ctx, empId: number, week: string): FeuilleTemps | undefined {
   return ctx.ds.feuilles.find(f => f.empId === empId && f.week === week);
@@ -78,7 +78,7 @@ const submit: ActionHandler = (ctx, p) => {
   if (surAbsence.length) throw new ActionError(heuresSurAbsenceMessage(surAbsence, 'avant de soumettre la feuille'));
   // Le régime de temps de travail de la semaine est figé à la soumission.
   ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'soumise', comment: null, contrat: sh.contrat ?? contratFige(emp) });
-  return `Feuille de temps soumise à ${ctx.d.mgrName(ctx.d.mgrOf(emp))}`;
+  return `Feuille de temps soumise ${ctx.d.mgrDest(ctx.d.mgrOf(emp))}`;
 };
 
 function submitted(ctx: Ctx, p: Record<string, any>) {
@@ -109,8 +109,9 @@ const reject: ActionHandler = (ctx, p) => {
   return 'Feuille renvoyée pour correction';
 };
 
+/** Transmission à la paie : administrateur RH. */
 const pushSage: ActionHandler = (ctx) => {
-  requireRh(ctx);
+  requireRhAdmin(ctx);
   const sheets = sagePending(ctx.d);
   if (!sheets.length) throw new ActionError('Aucune feuille validée en attente de transmission');
   const payload = buildSagePayload(ctx.d, sheets, SAGE_DOSSIER);

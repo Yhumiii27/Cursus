@@ -29,9 +29,12 @@ vide le reste.
 
 Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode démonstration) :
 
-- **RH** (Sandrine Vidal) : tout l'outil, dont la création et la modification des fiches
+- **RH** : tout l'outil, dont la création et la modification des fiches
   (statut, contrat, organisation du temps) et l'écran « Équipes & managers » (créer, renommer,
-  supprimer une équipe, désigner son manager, affecter les collaborateurs).
+  supprimer une équipe, désigner son manager, affecter les collaborateurs). Deux profils : les
+  **gestionnaires RH** (fiches, formations, absences…) et l'**administrateur RH**, seul à régler les
+  paramètres, transmettre la paie, supprimer et gérer les comptes (Paramètres → Comptes et accès).
+  En démonstration : Sandrine Vidal, administratrice RH, et Antoine Leroy, gestionnaire RH.
 - **Manager** : son équipe — inscriptions aux sessions et demandes de formation / habilitation,
   absences posées et validées, saisie et correction des feuilles de temps, poste et jours non
   travaillés des fiches, ajout et retrait de membres, entretiens, missions.
@@ -41,7 +44,12 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
   Les documents de voyage qu'il déclare (passeport, visa, vaccination) n'entrent dans son
   dossier qu'après validation par le service RH.
 
-En démonstration, n'importe quel mot de passe est accepté.
+Chaque personne se connecte avec son compte nominatif : compte Microsoft 365 de l'entreprise pour
+les salariés qui en ont un (« Se connecter avec Microsoft », voir `docs/CONNEXION-MICROSOFT.md`),
+compte Cursus (identifiant et mot de passe) pour les autres (ouvriers, intérimaires, alternants). Le
+compte ouvre ses espaces : RH selon son profil RH, manager s'il encadre une équipe, collaborateur s'il
+est salarié. Le journal porte le nom de la personne connectée.
+En démonstration, chaque salarié a un compte et n'importe quel mot de passe est accepté.
 
 ## Application de bureau (macOS)
 
@@ -66,6 +74,7 @@ Relancez `npm run app` après une modification du code ou un déplacement du dos
 | `CURSUS_DEMO=1 npm run reset-demo` | Recharge les données de démonstration (efface la base ; refusé hors démonstration) |
 | `npm run backup` | Copie à chaud vérifiée de la base dans `data/backups`, avec rotation |
 | `npm run restore -- <fichier>` | Remplace la base par une sauvegarde (serveur arrêté) |
+| `npm run comptes -- admin <identifiant> [--local]` | Crée le premier administrateur RH, ou rétablit son accès (voir `docs/DEPLOIEMENT.md`) |
 
 ## Configuration (variables d'environnement)
 
@@ -73,7 +82,10 @@ Modèle commenté : `.env.example`. En production (`NODE_ENV=production`), le se
 et liste les problèmes si `CURSUS_SECRET` manque ou fait moins de 32 caractères, si `KEYSTONE_API_KEY`
 manque ou reprend la clé de démonstration `demo-keystone` (hors démonstration), si `CURSUS_TODAY` est
 définie, si la démonstration est active sans `CURSUS_HOST` (ou `HOST`) posée explicitement sur la boucle
-locale, ou si `CURSUS_INSECURE_COOKIE=1` hors de ce cas ; hors production, il les signale seulement.
+locale, si `CURSUS_INSECURE_COOKIE=1` hors de ce cas, si la connexion Microsoft 365 n'est configurée
+qu'en partie (les quatre variables `CURSUS_OIDC_*` et `CURSUS_PUBLIC_URL`, ou aucune), avec un locataire
+qui n'est pas un GUID ou une adresse publique qui n'est pas en https, ou si `CURSUS_OIDC_AUTORITE` est
+définie ; hors production, il les signale seulement.
 En production, la démonstration refuse aussi (403) toute requête relayée par un proxy (`Forwarded`,
 `X-Forwarded-*`) ou adressée à un autre nom que 127.0.0.1 / localhost / [::1].
 
@@ -92,9 +104,16 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `CURSUS_INSECURE_COOKIE` | `1` : cookie sans l'attribut `Secure`, pour l'application de bureau en http://127.0.0.1 uniquement. Refusée en production hors application de bureau |
 | `KEYSTONE_API_KEY` | Clé attendue des appels entrants de Keystone (en-tête `X-Api-Key`). Obligatoire en production ; sans elle, les routes Keystone répondent 503. La clé `demo-keystone` n'est acceptée qu'en mode démonstration, quand la variable est vide |
 | `KEYSTONE_URL`, `SAGE_URL`, `SAGE_DOSSIER` | Bascule des adaptateurs en mode API (à compléter, voir ci-dessous) |
+| `CURSUS_OIDC_TENANT`, `CURSUS_OIDC_CLIENT_ID`, `CURSUS_OIDC_CLIENT_SECRET` | Connexion Microsoft 365 : ID de l'annuaire (GUID), ID d'application et secret client de l'inscription dans Entra (`docs/CONNEXION-MICROSOFT.md`). Les quatre variables avec `CURSUS_PUBLIC_URL`, ou aucune |
+| `CURSUS_PUBLIC_URL` | Adresse publique de Cursus, en https (`https://cursus.example.fr`) : Microsoft renvoie à `${CURSUS_PUBLIC_URL}/api/auth/microsoft/retour` |
+| `CURSUS_OIDC_AUTORITE` | Remplace `https://login.microsoftonline.com` : réservée aux tests automatiques (faux fournisseur local). Refusée en production |
 
-Les sessions durent 12 heures au plus depuis la connexion ; la déconnexion les révoque, et une
-session est refusée dès que la date de sortie du salarié rattaché est passée.
+Les sessions durent 12 heures au plus depuis la connexion ; la déconnexion les révoque (pour un compte
+Microsoft, elle passe aussi par la déconnexion Microsoft), et une session est refusée dès que la date de
+sortie du salarié rattaché est passée ou que son compte est désactivé. À l'expiration, la reconnexion
+s'affiche par-dessus l'écran, sans perdre la page ni le formulaire ouverts : avec un compte Cursus,
+l'action interrompue est enregistrée dès la reconnexion ; avec un compte Microsoft, la saisie du
+formulaire est gardée dans l'onglet et remise en place au retour de Microsoft.
 
 ## Sauvegarde
 
@@ -111,8 +130,6 @@ périodique : `docs/SAUVEGARDE.md`.
 
 ## Ce qui reste simulé
 
-- **Authentification** : sélection d'un profil + mot de passe libre. Brancher l'authentification
-  unique de l'entreprise (OIDC / SAML) dans `server/src/auth.ts` et la route `/api/login`.
 - **Keystone** : les appels entrants (`GET /api/integrations/keystone/chantiers/:id/go-no-go`,
   `POST /api/integrations/keystone/demandes`) sont réels ; les messages sortants (décisions,
   heures et absences validées, verdicts modifiés par une suspension, une levée, un retrait ou une

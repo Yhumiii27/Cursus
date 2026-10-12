@@ -1,14 +1,16 @@
-// Coque de l'application : barre latérale (rôle, navigation, utilisateur), en-tête, notification.
+// Coque de l'application : barre latérale (rôle, navigation, utilisateur), en-tête, notification, et
+// reconnexion par-dessus l'écran quand la session expire (le reste devient inerte).
 import { useMemo, type ReactNode } from 'react';
 import {
   AirplaneIcon, BellIcon, BookOpenIcon, BriefcaseIcon, CalendarBlankIcon, ChartBarIcon, ChatIcon, CheckIcon, ClockIcon, GearSixIcon,
-  HouseIcon, MagnifyingGlassIcon, MapPinIcon, PlusIcon, ShieldCheckIcon, SignOutIcon, UserIcon, UsersThreeIcon, type Icon,
+  HouseIcon, KeyIcon, MagnifyingGlassIcon, MapPinIcon, PlusIcon, ShieldCheckIcon, SignOutIcon, UserIcon, UsersThreeIcon, type Icon,
 } from '@phosphor-icons/react';
 import { Domain } from '../../../shared/domain.ts';
 import { obligations } from '../../../shared/rules/entretiens.ts';
 import type { Dataset, Role } from '../../../shared/types.ts';
 import { Avatar } from '../components/ui.tsx';
 import { useStore, type View } from '../state/store.tsx';
+import { Reconnexion } from './Reconnexion.tsx';
 
 interface NavItem { view: View; label: string; icon: Icon; badge?: number }
 type NavGroup = [string, NavItem[]];
@@ -49,24 +51,30 @@ function navGroups(data: Dataset | null, role: Role): NavGroup[] {
   ];
 }
 
+const VUES: [Role, string][] = [['rh', 'RH'], ['manager', 'Manager'], ['collaborateur', 'Utilisateur']];
+
 function Sidebar({ groups }: { groups: NavGroup[] }) {
-  const { session, data, view, go, switchMode, logout } = useStore();
+  const { session, data, view, go, switchMode, bascule, logout, openDialog } = useStore();
   const role = session?.role ?? 'rh';
   const user = session?.user ?? null;
+  const compte = session?.compte ?? null;
   const roleLabel = user ? user.intitule : role === 'manager' ? 'Espace manager' : role === 'collaborateur' ? 'Espace collaborateur' : 'Espace RH';
+  // Démonstration : les trois vues, connexion libre. Sinon : les espaces du compte, s'il en a plusieurs.
+  const vues = session?.demo ? VUES : user && compte && compte.espaces.length > 1 ? VUES.filter(([r]) => compte.espaces.includes(r)) : [];
   return (
     <aside className="sidebar">
       <span className="brand">
         <span className="brand-mark"><CheckIcon size={13} weight="bold" /></span>
         <span>Cursus</span>
       </span>
-      {session?.demo && (
+      {vues.length > 0 && (
         <div className="side-block">
-          <span className="side-label">Vue</span>
-          <div className="seg" role="radiogroup" aria-label="Rôle" style={{ fontSize: 12, alignSelf: 'stretch', display: 'flex' }}>
-            {([['rh', 'RH'], ['manager', 'Manager'], ['collaborateur', 'Utilisateur']] as [Role, string][]).map(([r, l]) => (
+          <span className="side-label">{session?.demo ? 'Vue' : 'Espace'}</span>
+          {/* Pendant le changement, l'espace actuel reste affiché jusqu'à l'arrivée des données du nouveau. */}
+          <div className="seg" role="radiogroup" aria-label="Espace" aria-busy={bascule} style={{ fontSize: 12, alignSelf: 'stretch', display: 'flex' }}>
+            {vues.map(([r, l]) => (
               <label key={r} className="seg-opt" style={{ flex: 1, justifyContent: 'center' }}>
-                <input type="radio" name="mode" checked={role === r} onChange={() => switchMode(r)} />{l}
+                <input type="radio" name="mode" checked={role === r} disabled={bascule} onChange={() => switchMode(r)} />{l}
               </label>
             ))}
           </div>
@@ -93,7 +101,12 @@ function Sidebar({ groups }: { groups: NavGroup[] }) {
           <div style={{ fontSize: 13 }}>{user ? user.nom : 'Non connecté'}</div>
           <div className="text-muted" style={{ fontSize: 11 }}>{roleLabel}</div>
         </div>
-        {user && (role !== 'rh' || !session?.demo) && (
+        {user && session?.methode === 'local' && (
+          <button type="button" className="btn btn-ghost btn-icon" aria-label="Changer mon mot de passe" title="Changer mon mot de passe" onClick={() => openDialog({ type: 'motDePasse' })} style={{ color: 'inherit', width: 30, height: 30, flex: 'none' }}>
+            <KeyIcon size={14} />
+          </button>
+        )}
+        {user && (
           <button type="button" className="btn btn-ghost btn-icon" aria-label="Se déconnecter" title="Se déconnecter" onClick={logout} style={{ color: 'inherit', width: 30, height: 30, flex: 'none' }}>
             <SignOutIcon size={14} />
           </button>
@@ -139,17 +152,20 @@ export function Toast() {
 }
 
 export function Shell({ children }: { children: ReactNode }) {
-  const { session, data } = useStore();
+  const { session, data, reconnexion } = useStore();
   const role = session?.role ?? 'rh';
   const groups = useMemo(() => navGroups(data, role), [data, role]);
   return (
-    <div className="app">
-      <Sidebar groups={groups} />
-      <div className="main-col">
-        <Topbar groups={groups} />
-        <main className="content">{children}</main>
+    <>
+      <div className="app" inert={!!reconnexion}>
+        <Sidebar groups={groups} />
+        <div className="main-col">
+          <Topbar groups={groups} />
+          <main className="content">{children}</main>
+        </div>
       </div>
+      {reconnexion && <Reconnexion />}
       <Toast />
-    </div>
+    </>
   );
 }

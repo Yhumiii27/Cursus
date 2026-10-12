@@ -78,6 +78,24 @@ export interface HabTitre {
   /** Suspension ou retrait en cours (null = aucun), avec sa date, son motif (texte libre) et son auteur. */
   mesure: HabMesure | null; mesureDate: ISODate | null; mesureMotif: string | null; mesurePar: string | null;
 }
+/** Avis du médecin du travail à l'issue d'une visite : apte, apte avec restrictions ou aménagements de poste, inapte. */
+export type AvisMedical = 'apte' | 'restrictions' | 'inapte';
+/**
+ * Restriction ou aménagement de poste, recopié tel qu'écrit sur l'avis (« pas de port de charges de plus de 15 kg »),
+ * jusqu'à une date (incluse) ou sans terme.
+ */
+export interface Restriction { texte: string; jusquau: ISODate | null }
+/** Motif d'une demande de visite au service de prévention et de santé au travail. */
+export type MotifVisite = 'periodique' | 'embauche' | 'reprise' | 'employeur';
+/**
+ * Demande de visite médicale du service RH : en cours (`demandee`) jusqu'à la saisie de la visite (`realisee`,
+ * datée du jour de la visite) ou son annulation. Réservée au service RH et à l'intéressé.
+ */
+export interface DemandeVisite {
+  id: number; empId: number; motif: MotifVisite; le: ISODate; par: string;
+  statut: 'demandee' | 'realisee' | 'annulee';
+  closeLe: ISODate | null; closePar: string | null;
+}
 export interface Visa { id: number; empId: number; dest: string; type: string; obtenu: ISODate | null; expire: ISODate }
 export interface Vaccination { id: number; empId: number; v: VaccinId; date: ISODate }
 export interface Passeport { numero: string; expire: ISODate }
@@ -109,8 +127,17 @@ export interface Employe {
   repriseDate: ISODate | null;
   /** Date de la dernière visite d'aptitude — réservée au service RH. */
   visite: ISODate | null;
-  /** Remplace `visite` dans les vues manager : seul le verdict est transmis. */
-  aptitude?: { ok: boolean };
+  /**
+   * Avis rendu à cette visite (null : apte, visite saisie avant l'enregistrement des avis) et ses restrictions,
+   * enregistrés par `medical.avis` — réservés au service RH et à l'intéressé.
+   */
+  avis: AvisMedical | null;
+  restrictions: Restriction[];
+  /**
+   * Remplace `visite` et `avis` dans les vues manager : seul le verdict est transmis (aptitude valide ou non,
+   * avis), avec les restrictions en vigueur recopiées telles qu'écrites, sans date de visite.
+   */
+  aptitude?: { ok: boolean; avis?: AvisMedical | null; restrictions?: Restriction[] };
   passeport: Passeport | null;
   certs: Certification[];
   habs: HabTitre[];
@@ -329,6 +356,7 @@ export interface Dataset {
   soldesReprise: SoldeReprise[];
   entretiens: Entretien[];
   demandesCollab: DemandeCollab[];
+  demandesVisite: DemandeVisite[];
   lastSagePush: SagePush | null;
 }
 

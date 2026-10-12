@@ -57,6 +57,10 @@ const modifier: ActionHandler = (ctx, p) => {
   const next = { ...cur } as Record<string, unknown>;
   patch.forEach(k => { next[k] = p[k]; });
   const v = check(ctx, next as unknown as ProfilInput, emp.id);
+  // Une nouvelle visite s'enregistre avec l'avis du médecin du travail (`medical.avis`), qui clôt la demande en cours.
+  if (patch.includes('visite') && v.profil.visite !== (emp.visite ?? null)) {
+    throw new ActionError('La visite médicale s’enregistre avec l’avis du médecin du travail : bouton « Avis du médecin du travail » de la fiche');
+  }
   // Changement d'organisation du temps : date d'effet, et gel de l'ancien régime sur les semaines antérieures
   // pas encore figées, pour que l'historique ne soit pas recalculé avec le nouveau contrat.
   const avant = JSON.stringify(contratFige(emp)), apres = JSON.stringify(contratFige({ ...emp, ...v.profil }));

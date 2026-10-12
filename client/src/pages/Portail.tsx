@@ -6,6 +6,7 @@ import { equipeLabel, fmt, fmtShort, matricule, plural, rel } from '../../../sha
 import { declarationDetail, formaliteCle } from '../../../shared/rules/formalites.ts';
 import { etatInscription } from '../../../shared/rules/sessions.ts';
 import { Bar, Btn, Chips, Empty, Fine, Kpi, Kpis, NoteAccent, Page, Panel, Tag } from '../components/ui.tsx';
+import { Aptitude } from '../components/Aptitude.tsx';
 import { useEnriched, useRole, useTrips } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { reqKind, reqLabel } from './Dashboard.tsx';
@@ -143,6 +144,12 @@ export function Portail() {
               </div>
             ))}
             {me.habs.length === 0 && <Empty>Aucune habilitation. Votre poste en nécessite une ? Faites une demande.</Empty>}
+          </Panel>
+
+          {/* Avis du médecin du travail, restrictions de poste et visite demandée par le service RH. */}
+          <Panel title="Mon aptitude médicale" style={{ gap: 'var(--space-2)' }}>
+            <Aptitude e={me} d={d} horizon={horizon} />
+            <Fine>{me.med.demande ? 'Le service de santé au travail vous convoquera. ' : ''}Seuls la date de la visite, l’avis et les restrictions de poste sont enregistrés ; votre manager ne voit que l’avis et les restrictions en vigueur, jamais la date de la visite.</Fine>
           </Panel>
         </div>
 

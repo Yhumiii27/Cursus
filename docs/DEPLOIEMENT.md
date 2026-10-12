@@ -25,7 +25,7 @@ l'application dans Entra) : voir `docs/CONNEXION-MICROSOFT.md`.
 - **Recette** : chaque mise en production, première installation comme mise à jour, est précédée
   d'une recette par le groupe pilote (un RH, un manager, un collaborateur). Voir « Recette ».
 - **Données personnelles** : Cursus conserve des données relatives à la santé (visites médicales,
-  aptitude, vaccinations) et des documents de voyage. Faire valider le choix de l'hébergeur par le
+  avis d'aptitude et restrictions de poste, vaccinations) et des documents de voyage. Faire valider le choix de l'hébergeur par le
   DPO : localisation dans l'UE, contrat de sous-traitance (RGPD, article 28) et question d'un
   hébergement certifié HDS.
 - **Nom de domaine** : un sous-domaine dédié (dans ce guide `cursus.example.fr`) dont les

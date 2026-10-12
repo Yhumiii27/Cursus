@@ -7,6 +7,8 @@ import { identifiantSuggere, typeSuggere } from '../../shared/rules/comptes.ts';
 import { repriseDesAbsences } from '../../shared/rules/absences.ts';
 import { cpDroit, rttDroit } from '../../shared/rules/conges.ts';
 import type { Dataset, Employe, EntretienType, Statut, TempsTravail, TypeContrat, VaccinId } from '../../shared/types.ts';
+import { MOTIF_RESTRICTION } from '../../shared/constants.ts';
+import type { AvisMedical, Restriction } from '../../shared/types.ts';
 import type { Db } from './db.ts';
 import { DEFAULT_SETTINGS, loadFull } from './dataset.ts';
 import { contexte, enregistrerAffectation, enregistrerChantier, enregistrerProjet, enregistrerTache } from './integrations/keystone-entrant.ts';
@@ -146,15 +148,21 @@ const EMPLOYES: { id: number; nom: string; equipe: string; poste: string; certs:
 ];
 
 interface Extra {
-  visite?: string; certsPlus?: C[]; habs?: { h: string; delivree?: string; par?: string; demande?: string }[];
+  visite?: string; certsPlus?: C[]; habs?: { h: string; delivree?: string; par?: string; demande?: string; restriction?: boolean }[];
   passeport?: { numero: string; expire: string }; visas?: { dest: string; type: string; obtenu: string; expire: string }[]; vaccins?: { v: VaccinId; date: string }[];
+  /** Avis du médecin du travail à la visite et restrictions ; `restriction` : titre suspendu à la suite de cet avis. */
+  avis?: AvisMedical; restrictions?: Restriction[];
 }
 const EXTRA: Record<number, Extra> = {
   1: { visite: '2025-02-10', habs: [{ h: 'ac489', delivree: '2022-04-15', par: 'Olivier Marchal' }] },
   2: { visite: '2025-06-15', habs: [{ h: 'he', delivree: '2023-10-01', par: 'Karim Haddad' }, { h: 'hauteur', delivree: '2025-02-01', par: 'Sarah Cohen' }], passeport: { numero: '20AB···91', expire: '2026-12-02' }, vaccins: [{ v: 'dtp', date: '2016-09-10' }, { v: 'hepA', date: '2022-03-11' }] },
   3: { visite: '2025-09-12', certsPlus: [{ f: 'atex', obtenue: '2024-05-20' }], habs: [{ h: 'atex', delivree: '2024-06-01', par: 'Sarah Cohen' }] },
   4: { visite: '2025-01-22', habs: [{ h: 'ac489', delivree: '2021-11-15', par: 'Olivier Marchal' }] },
-  5: { visite: '2026-01-20', habs: [{ h: 'hauteur', delivree: '2025-03-15', par: 'Sarah Cohen' }] },
+  // Avis avec restrictions jusqu'à la fin de l'année : autorisation de travail en hauteur suspendue, réserve sur l'audit de Tema.
+  5: {
+    visite: '2026-09-28', avis: 'restrictions', habs: [{ h: 'hauteur', delivree: '2025-03-15', par: 'Sarah Cohen', restriction: true }],
+    restrictions: [{ texte: 'Pas de port de charges de plus de 15 kg', jusquau: '2026-12-31' }, { texte: 'Pas de travail en hauteur', jusquau: '2026-12-31' }],
+  },
   6: { visite: '2024-08-20', habs: [{ h: 'he', delivree: '2024-02-05', par: 'Karim Haddad' }, { h: 'ac486', delivree: '2021-09-15', par: 'Karim Haddad' }] },
   7: { visite: '2025-10-01' }, 11: { visite: '2025-04-08' }, 13: { visite: '2025-12-02' }, 14: { visite: '2025-02-27' }, 15: { visite: '2026-02-09' }, 17: { visite: '2025-08-18' }, 20: { visite: '2025-09-25' }, 21: { visite: '2025-01-16' },
   8: { visite: '2025-07-03', certsPlus: [{ f: 'atex', obtenue: '2023-11-02' }], habs: [{ h: 'atex', delivree: '2023-11-20', par: 'Sarah Cohen' }] },
@@ -371,10 +379,14 @@ export function seedDemo(db: Db) {
         heures: p.heures ?? null, forfaitHeures: p.forfaitHeures ?? null, forfaitJours: p.forfaitJours ?? null, jourOff: p.jourOff ?? [],
         entree: p.entree, fin: p.fin ?? null, naissance: p.naissance, agence: p.agence ?? null,
         repriseMotif: p.reprise?.motif ?? null, repriseDate: p.reprise?.date ?? null, visite: x.visite ?? null,
+        avis: x.avis ?? null, restrictions: x.restrictions ?? [],
         passeportNumero: x.passeport?.numero ?? null, passeportExpire: x.passeport?.expire ?? null,
       });
       [...e.certs, ...(x.certsPlus || [])].forEach(c => db.insert('certifications', { empId: e.id, f: c.f, obtenue: c.obtenue, sessionId: c.session ?? null, convoc: c.convoc ?? null }));
-      (x.habs || []).forEach(h => db.insert('habTitres', { empId: e.id, h: h.h, delivree: h.delivree ?? null, par: h.par ?? null, demande: h.demande ?? null }));
+      (x.habs || []).forEach(h => db.insert('habTitres', {
+        empId: e.id, h: h.h, delivree: h.delivree ?? null, par: h.par ?? null, demande: h.demande ?? null,
+        ...(h.restriction ? { mesure: 'suspension', mesureDate: '2026-09-30', mesureMotif: MOTIF_RESTRICTION, mesurePar: RH_DEMO } : {}),
+      }));
       (x.visas || []).forEach(v => db.insert('visas', { empId: e.id, ...v }));
       (x.vaccins || []).forEach(v => db.insert('vaccinations', { empId: e.id, ...v }));
     });
@@ -395,6 +407,8 @@ export function seedDemo(db: Db) {
     CET.forEach(c => db.insert('cet', c));
     db.insert('reports', { empId: 6, jours: 4, motif: 'CP 2024-2025 non pris — arrêt de travail', par: 'Sandrine Vidal', date: '2026-06-02', sens: 'recu' });
     DEMANDES_COLLAB.forEach(d => db.insert('demandesCollab', d));
+    // Visite d'embauche demandée pour l'apprenti, jamais vu par le médecin du travail.
+    db.insert('demandesVisite', { empId: 24, motif: 'embauche', le: '2026-10-05', par: RH_DEMO, statut: 'demandee', closeLe: null, closePar: null });
     Object.entries(BUDGETS).forEach(([ex, list]) => Object.entries(list).forEach(([equipe, montant]) => db.insert('budgets', { exercice: Number(ex), equipe, montant })));
     PLAN.forEach(l => db.insert('planActions', { exercice: 2026, ...l }));
     feuilles(taches).forEach(f => db.insert('feuilles', f));

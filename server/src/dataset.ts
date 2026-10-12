@@ -4,7 +4,9 @@
 import { Domain } from '../../shared/domain.ts';
 import { addD, iso, mondayOf } from '../../shared/dates.ts';
 import { absenceVueManager, repriseMedicale } from '../../shared/rules/absences.ts';
+import { aptitudeVueManager } from '../../shared/rules/sante.ts';
 import { avecInscrits } from '../../shared/rules/sessions.ts';
+import type { DemandeVisite } from '../../shared/types.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Chantier, CurrentUser, Dataset, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
   Equipe, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mission, Participation, PlanAction, Projet, ReportCp, SagePush, Session, Settings, SoldeReprise,
@@ -43,6 +45,7 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
   const employes: Employe[] = db.all<EmpRow>('employes').map(({ passeportNumero, passeportExpire, ...e }) => ({
     ...e,
     jourOff: e.jourOff ?? [],
+    restrictions: e.restrictions ?? [],
     passeport: passeportNumero && passeportExpire ? { numero: passeportNumero, expire: passeportExpire } : null,
     certs: certs.filter(c => c.empId === e.id),
     habs: habs.filter(h => h.empId === e.id),
@@ -84,6 +87,7 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     soldesReprise: db.all<SoldeReprise>('soldesReprise'),
     entretiens: db.all<Entretien>('entretiens'),
     demandesCollab: db.all<DemandeCollab>('demandesCollab'),
+    demandesVisite: db.all<DemandeVisite>('demandesVisite'),
     lastSagePush: db.getSetting<SagePush | null>('lastSagePush', null),
   };
 }
@@ -137,12 +141,12 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
   const ids = new Set(scopeIds(d, user));
   const mine = <T extends { empId: number }>(list: T[]) => list.filter(x => ids.has(x.empId));
   const isMgr = user.role === 'manager';
-  // Les managers voient le verdict d'aptitude et l'état des dossiers voyage,
-  // jamais les données de santé (visite, vaccinations). Une reprise ouverte par un arrêt longue maladie
-  // leur est masquée : elle trahirait la nature de l'arrêt (l'entretien de reprise est suivi par le RH).
+  // Les managers voient le verdict d'aptitude, les restrictions de poste en vigueur et l'état des dossiers voyage,
+  // jamais les données de santé (date de visite, avis daté, demande de visite, vaccinations). Une reprise ouverte par
+  // un arrêt longue maladie leur est masquée : elle trahirait la nature de l'arrêt (l'entretien de reprise est suivi par le RH).
   const employes = full.employes.filter(e => ids.has(e.id)).map(e => isMgr && e.id !== user.empId
     ? {
-      ...e, visite: null, aptitude: { ok: d.medInfo(e).ok }, vaccins: [],
+      ...e, visite: null, avis: null, restrictions: [], aptitude: aptitudeVueManager(e, d.medInfo(e).ok, full.today), vaccins: [],
       ...(repriseMedicale(e, full.absences) ? { repriseMotif: null, repriseDate: null } : { repriseMotif: e.repriseDate ? 'absence longue' : null }),
     }
     : e);
@@ -175,6 +179,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     // le contenu d'une déclaration n'est de toute façon transmis qu'à l'intéressé (et au RH).
     demandesCollab: mine(full.demandesCollab).filter(r => !isMgr || r.empId === user.empId || r.type !== 'document')
       .map(r => r.empId === user.empId ? r : { ...r, declaration: null }),
+    // Demandes de visite médicale : l'intéressé seulement (jamais le manager).
+    demandesVisite: full.demandesVisite.filter(x => x.empId === user.empId),
     inscriptions: mine(full.inscriptions),
     participations: mine(full.participations),
     lastSagePush: null,

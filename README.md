@@ -39,7 +39,8 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
   absences posées et validées, absences imprévues signalées (le service RH en précise la nature, jamais
   communiquée au manager pour un arrêt de travail ou la santé d'un enfant), saisie et correction des feuilles de temps, poste et jours non
   travaillés des fiches, ajout et retrait de membres, entretiens, missions.
-  Pas d'accès aux données de santé (seul le verdict d'aptitude est transmis).
+  Pas d'accès aux données de santé : seuls le verdict d'aptitude et les restrictions de poste en vigueur sont transmis,
+  sans date de visite.
 - **Utilisateur** (collaborateur) : ses formations, habilitations, voyages, heures,
   absences, entretiens et demandes au service RH.
   Les documents de voyage qu'il déclare (passeport, visa, vaccination) n'entrent dans son
@@ -143,7 +144,9 @@ périodique : `docs/SAUVEGARDE.md`.
   et relance dans Paramètres → Envois), seulement tracés dans le journal sans elle (`server/src/envois.ts`).
 - **Sage Paie** : la transmission produit le JSON des variables et un accusé fictif
   (`server/src/integrations/sage.ts`) ; la correspondance des rubriques avec le plan de paie reste à paramétrer.
-- **Convocations, demandes de visite médicale** : notifiées dans l'interface et tracées, sans envoi d'e-mail.
+- **Convocations** : notifiées dans l'interface et tracées, sans envoi d'e-mail.
+- **Demandes de visite médicale** : enregistrées et suivies jusqu'à la saisie de la visite, imprimables pour le service de
+  prévention et de santé au travail ; sans envoi d'e-mail.
 - **Liste des inscrits d'une session pour l'organisme** : affichée et exportée en CSV à la confirmation, sans envoi d'e-mail.
 
 ## Contrat et temps de travail
@@ -160,11 +163,13 @@ sont proratisés.
 
 Validité des certifications et seuil d'alerte (30–180 j) · prérequis des habilitations
 (formation + aptitude médicale de 24 mois) avec suspension automatique, suspension et
-retrait manuels (motif, date, auteur) · seule la dernière certification compte après un
+retrait manuels (motif, date, auteur) · aptitude médicale dans le statut et les échéances, avis du médecin
+du travail (apte, restrictions datées, inapte) avec suspension des habilitations incompatibles, demandes de
+visite suivies jusqu'à la visite · seule la dernière certification compte après un
 recyclage, les précédentes restent en historique · formalités de
 voyage par destination (passeport, visas, vaccins, délais) et de détachement (certificat A1 ou de la
 convention bilatérale de sécurité sociale, information écrite au-delà de 4 semaines) · Go / No Go par
-chantier (matricules et codes de motif uniquement) : contrat et absences sur la présence, habilitations,
+chantier (matricules et codes de motif uniquement) : contrat et absences sur la présence, aptitude médicale, habilitations,
 certifications, déplacement couvrant la présence, formalités de voyage et de détachement · heures supplémentaires +25 % / +50 %,
 heures complémentaires +10 % / +25 %, forfait jours, alertes 10 h / 48 h · repos
 compensateur · CP 25 jours ouvrés (+5 j à 59 ans, CCN Chimie), RTT, jours de repos

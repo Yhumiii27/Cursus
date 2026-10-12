@@ -16,7 +16,7 @@ export function EchRow({ x, onOpen, onAct }: { x: EchItem; onOpen: () => void; o
     <tr className="clickable" onClick={onOpen}>
       <td><Two main={x.emp.nom} sub={equipeLabel(x.emp)} /></td>
       <td><Two main={x.label} sub={x.kindLabel} /></td>
-      <td><Two main={fmt(x.exp)} sub={rel(x.d)} nowrap /></td>
+      <td>{x.sansDate ? <Two main="Non renseignée" sub="aucune visite enregistrée" nowrap /> : <Two main={fmt(x.exp)} sub={rel(x.d)} nowrap />}</td>
       <td><Tag cls={x.cls}>{x.statut}</Tag></td>
       <td className="right">
         {/* Session à venir (planifié), ou passée en attente de clôture (note et bouton « Clôturer »). */}
@@ -88,9 +88,9 @@ export function Dashboard() {
       </>}
     >
       <Kpis>
-        <Kpi kicker="Conformité" value={v.total ? `${Math.round(v.nonExp / v.total * 100)} %` : '—'} sub={`${v.nonExp} collaborateurs sur ${v.total} sans certification expirée`} />
+        <Kpi kicker="Conformité" value={v.total ? `${Math.round(v.nonExp / v.total * 100)} %` : '—'} sub={`${v.nonExp} collaborateurs sur ${v.total} sans échéance dépassée`} />
         <Kpi kicker="À renouveler" value={v.due} sub={`sous ${horizon} jours · ${plural(v.plannedCount, 'inscription planifiée', 'inscriptions planifiées')}`} />
-        <Kpi kicker="Expirées" value={v.exp} sub={v.exp ? `${plural(v.total - v.nonExp, 'collaborateur non conforme', 'collaborateurs non conformes')} · certifications et habilitations` : 'aucune certification ni habilitation expirée'} />
+        <Kpi kicker="Expirées" value={v.exp} sub={v.exp ? `${plural(v.total - v.nonExp, 'collaborateur non conforme', 'collaborateurs non conformes')} · certifications, habilitations et aptitudes médicales` : 'aucune certification, habilitation ni aptitude médicale expirée'} />
         <Kpi kicker="Sessions à venir" value={upcoming.length}
           sub={`${nextUp ? `prochaine le ${fmtShort(parse(nextUp.date))} · ${plural(v.placesLeft, 'place restante', 'places restantes')}` : 'aucune session planifiée'}${aCloturer.length ? ` · ${plural(aCloturer.length, 'session à clôturer', 'sessions à clôturer')}` : ''}`} />
       </Kpis>

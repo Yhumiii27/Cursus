@@ -3,6 +3,7 @@ import type {
   AbsenceStatut, AbsenceType, CompteType, Destination, EntretienType, NatureAbsence, ProfilRh, Role, SecuDetachement, Statut, TempsTravail, TypeContrat, VaccinId,
   ValidationMode, VisaKind,
 } from './types.ts';
+import type { AvisMedical, MotifVisite } from './types.ts';
 
 export type StatusKey = 'ok' | 'due' | 'exp';
 /** `susp` : suspendue (prérequis non satisfait ou suspension manuelle) ; `retiree` : retirée, définitivement. */
@@ -186,6 +187,8 @@ export const CODES_MOTIF = [
   // Disponibilité sur la présence prévue (fin du contrat, absence, jamais sa nature), déplacement qui ne la couvre
   // pas en entier, formalités de détachement (sécurité sociale, information écrite d'une mission longue).
   'CONTRAT', 'ABSENCE', 'DEPLACEMENT_PARTIEL', 'DETACHEMENT',
+  // Aptitude médicale : verdict seulement (inapte, visite en retard, restrictions en vigueur), jamais l'avis ni une date.
+  'APTITUDE',
 ] as const;
 export type CodeMotif = typeof CODES_MOTIF[number];
 /**
@@ -208,6 +211,26 @@ export const EVENEMENT_LABEL: Record<string, string> = {
 
 /** Validité de l'aptitude médicale, en mois. */
 export const MED_VALIDITE = 24;
+
+// — Santé au travail : avis du médecin du travail et demandes de visite (shared/rules/sante.ts) —
+export const AVIS_MEDICAL: Record<AvisMedical, { label: string; court: string }> = {
+  apte: { label: 'Apte', court: 'Apte' },
+  restrictions: { label: 'Apte avec restrictions ou aménagements de poste', court: 'Apte avec restrictions' },
+  inapte: { label: 'Inapte', court: 'Inapte' },
+};
+/** Statut de l'échéance d'aptitude (Échéances, tableau de bord). */
+export const MED_LABEL: Record<StatusKey, string> = { ok: 'Valide', due: 'À renouveler', exp: 'Échue' };
+export const MOTIFS_VISITE: Record<MotifVisite, { label: string; court: string; article: string }> = {
+  periodique: { label: 'Visite périodique — renouvellement de l’aptitude', court: 'renouvellement', article: 'Art. R4624-16 et R4624-28' },
+  embauche: { label: 'Visite d’embauche — information et prévention, ou examen d’aptitude', court: 'embauche', article: 'Art. R4624-10 et R4624-24' },
+  reprise: { label: 'Visite de reprise — après un arrêt de travail ou un congé de maternité', court: 'reprise', article: 'Art. R4624-31' },
+  employeur: { label: 'À la demande de l’employeur', court: 'à la demande de l’employeur', article: 'Art. R4624-34' },
+};
+/**
+ * Motif inscrit sur une habilitation suspendue à la suite d'un avis du médecin du travail : visible du manager
+ * et du collaborateur, il ne dit rien de la restriction (`medical.avis` lève ces suspensions à l'avis suivant).
+ */
+export const MOTIF_RESTRICTION = 'Restriction d’aptitude';
 
 export const VACCINS: Record<VaccinId, { nom: string; court: string; validite: number | null; delai: number }> = {
   fj: { nom: 'Fièvre jaune', court: 'Fièvre jaune', validite: null, delai: 10 },

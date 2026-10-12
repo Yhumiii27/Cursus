@@ -100,6 +100,13 @@ const MATRICE: Ligne[] = [
   } },
   { action: 'hab.retirer', droits: '                         O    O    -    -    -    -', p: () => ({ empId: 2, h: 'hauteur', motif: 'Restriction médicale' }) },
   { action: 'medical.demander', droits: '                    O    O    -    -    -    -', p: () => ({ empId: 2 }) },
+  // Santé au travail : demandes de visite et avis du médecin du travail, données de santé réservées au service RH.
+  { action: 'medical.annuler', droits: '                     O    O    -    -    -    -', p: () => ({
+    id: db.insert<{ id: number }>('demandesVisite', { empId: 2, motif: 'periodique', le: '2026-10-05', par: 'Sandrine Vidal', statut: 'demandee', closeLe: null, closePar: null }).id,
+  }) },
+  { action: 'medical.avis', droits: '                        O    O    -    -    -    -', p: () => ({
+    empId: 2, date: '2026-10-06', avis: 'restrictions', restrictions: [{ texte: 'Pas de travail en hauteur', jusquau: '2026-12-31' }], suspendre: ['hauteur'],
+  }) },
   { action: 'demande.accepter', droits: '                    O    O    -    -    -    -', p: () => ({ id: demande('aipr') }) },
   { action: 'demande.refuser', droits: '                     O    O    -    -    -    -', p: () => ({ id: demande('aipr') }) },
   // Le collaborateur demande pour lui-même (l'autre collaborateur aussi, pour lui) ; le manager pour un membre de son équipe.

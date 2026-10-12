@@ -307,6 +307,7 @@ curl -s -H "X-Api-Key: $CLE" "$CURSUS/chantiers/K-2614/go-no-go"
 | `ABSENCE` | absence validée ou signalée pendant la présence (No Go), demande d'absence en attente (réserve) ; jamais la nature de l'absence, même dans le libellé |
 | `DEPLACEMENT_PARTIEL` | déplacement qui ne couvre pas toute la présence : départ après le premier jour ou retour avant le dernier (réserve) |
 | `DETACHEMENT` | formalités de détachement à faire avant le départ (réserve) — certificat de sécurité sociale (A1 en Europe, formulaire de la convention bilatérale ailleurs, maintien au régime français sans convention) et, pour une mission de plus de 4 semaines, information écrite du salarié —, ou qui ne seront pas faites au départ (No Go) |
+| `APTITUDE` | avis d'inaptitude du médecin du travail (No Go) ; visite médicale périodique en retard ou à renouveler avant la fin de la présence, ou restrictions d'aptitude en vigueur pendant la présence : affectation à vérifier avec le service RH (réserve). Le verdict seulement : jamais la date d'une visite, l'avis détaillé ni le texte d'une restriction, même dans le libellé |
 
 Un nouveau code de motif sera annoncé et ajouté à la spécification : Keystone doit traiter un code
 inconnu selon son `niveau`.

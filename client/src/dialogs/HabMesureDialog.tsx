@@ -66,7 +66,7 @@ export function HabMesureDialog({ empId, h, action }: { empId: number; h: string
           <textarea className="input mid" id="hm-motif" rows={3} maxLength={500} placeholder="Incident, non-respect d’une consigne, restriction d’aptitude…"
             value={motif} onChange={e => setMotif(e.target.value)} />
         </Field>
-        <Fine>Texte libre, visible du collaborateur et de son manager : n’y indiquez aucune information médicale (pathologie, traitement, détail d’une restriction). Pour une inaptitude, écrivez seulement « restriction d’aptitude ».</Fine>
+        <Fine>Texte libre, visible du collaborateur et de son manager : n’y indiquez aucune information médicale (pathologie, traitement, détail d’une restriction). Une restriction ou une inaptitude s’enregistre avec l’avis du médecin du travail (service RH), qui suspend les titres incompatibles.</Fine>
         <Fine>
           {action === 'retirer'
             ? 'Le retrait est définitif : le titre ne pourra être rétabli que par une nouvelle délivrance, après contrôle des prérequis.'

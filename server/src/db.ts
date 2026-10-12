@@ -22,8 +22,12 @@ export const TABLES = {
       id: 'int', nom: 'text', equipe: 'text', poste: 'text', statut: 'text', typeContrat: 'text', temps: 'text', heures: 'real',
       forfaitHeures: 'real', forfaitJours: 'real', jourOff: 'json', tempsDepuis: 'text', entree: 'text', fin: 'text',
       naissance: 'int', agence: 'text', repriseMotif: 'text', repriseDate: 'text', visite: 'text', passeportNumero: 'text', passeportExpire: 'text',
+      // Avis du médecin du travail à la dernière visite et restrictions datées (`medical.avis`) : données de santé.
+      avis: 'text', restrictions: 'json',
     },
   },
+  // Demandes de visite médicale du service RH, closes par la saisie de la visite (server/src/actions/sante.ts).
+  demandesVisite: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', motif: 'text', le: 'text', par: 'text', statut: 'text', closeLe: 'text', closePar: 'text' } },
   certifications: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', f: 'text', obtenue: 'text', sessionId: 'int', convoc: 'text' } },
   habTitres: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', h: 'text', delivree: 'text', par: 'text', demande: 'text', mesure: 'text', mesureDate: 'text', mesureMotif: 'text', mesurePar: 'text' } },
   visas: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', dest: 'text', type: 'text', obtenu: 'text', expire: 'text' } },

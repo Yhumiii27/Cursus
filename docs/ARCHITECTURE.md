@@ -12,7 +12,7 @@ shared/            Domaine partagé (aucune dépendance)
   dates.ts         Dates ISO, jours fériés calculés, périodes de référence CP
   format.ts        Mise en forme française (dates, heures, jours, euros, pluriels)
   domain.ts        Classe Domain : conformité, habilitations, voyages, échéances, Go / No Go
-  rules/           temps.ts, conges.ts, entretiens.ts, budget.ts, imports.ts
+  rules/           temps.ts, conges.ts, entretiens.ts, budget.ts, imports.ts, sante.ts (avis et visites médicales)
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   seed.ts          Données de démonstration
@@ -48,7 +48,8 @@ design/            Prototype Claude Design de référence et guide du design sys
 
 1. `GET /api/data` renvoie l'instantané `Dataset` **déjà restreint au périmètre**
    de l'utilisateur : un manager ne reçoit que son équipe, sans données de santé
-   (`visite` remplacée par `aptitude.ok`, vaccinations retirées, état des dossiers
+   (`visite`, `avis` et `restrictions` remplacés par `aptitude` : verdict et restrictions en
+   vigueur, sans date ; ni demandes de visite ni vaccinations ; état des dossiers
    voyage précalculé dans `voyage.dossierStatut`) ; un collaborateur ne reçoit que
    ses propres données.
 2. Le client calcule l'affichage avec `shared/` (statuts, soldes, échéances…).
@@ -183,7 +184,9 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `hab.suspendre` | empId, h, motif, date? (aujourd’hui par défaut) | RH ; manager pour un membre de son équipe (jamais lui-même) |
 | `hab.lever` | empId, h | RH |
 | `hab.retirer` | empId, h, motif, date? | RH |
-| `medical.demander` | empId | RH |
+| `medical.demander` | empId, motif? (`periodique`/`embauche`/`reprise`/`employeur` ; par défaut embauche sans visite enregistrée, sinon périodique) | RH (une demande en cours par collaborateur) |
+| `medical.annuler` | id | RH (demande de visite en cours) |
+| `medical.avis` | empId, date (passée), avis (`apte`/`restrictions`/`inapte`), restrictions [{texte, jusquau?}] (avis avec restrictions), suspendre [h]?, lever [h]? | RH (suspensions « Restriction d’aptitude » ; levée des seules suspensions d’un avis précédent, jamais pour un avis d’inaptitude) |
 | `demande.accepter` / `demande.refuser` | id | RH |
 | `demande.formation` | f (ou `autre`), libelle, sessionId, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `demande.habilitation` | h, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
@@ -256,6 +259,30 @@ est « à affecter » et relève du service RH.
   (`demande`) jusqu'à cette nouvelle délivrance.
   Le motif est un texte libre visible du manager et du collaborateur, jamais transmis à Keystone.
   Une base existante reçoit les nouvelles colonnes au démarrage (schéma déclaratif de `server/src/db.ts`).
+
+## Santé au travail
+
+Règles dans `shared/rules/sante.ts` et `Domain.medInfo` (`shared/domain.ts`), actions dans `server/src/actions/sante.ts`.
+
+- **Aptitude** : valide 24 mois après la dernière visite (`MED_VALIDITE`), sauf avis d'inaptitude. Elle compte dans le statut
+  du collaborateur (`EmpX.worst`, même sans habilitation qui l'exige) et dans les échéances (type « Visite médicale » : échue,
+  à renouveler sous l'horizon d'alerte, jamais enregistrée — sans date, parmi les dépassées —, avis d'inaptitude ; action
+  « Demander la visite »). Une visite saisie avant l'enregistrement des avis (colonne `avis` vide) vaut avis apte.
+- **Avis du médecin du travail** (`medical.avis`) : date de la visite, avis (apte, apte avec restrictions ou aménagements de
+  poste, inapte) et restrictions recopiées telles qu'écrites, chacune jusqu'à une date ou sans terme (`Employe.avis`,
+  `Employe.restrictions`, contrôlés par `controlerAvis`, partagé avec le dialogue). Dans la même écriture, le service RH
+  suspend les habilitations incompatibles — motif `MOTIF_RESTRICTION` (« Restriction d’aptitude »), sans détail, daté du
+  jour de la décision — et lève celles d'un avis précédent. Inapte : les habilitations qui exigent l'aptitude sont non valides
+  d'office (prérequis). Une visite ne se saisit plus dans la fiche (`employe.modifier` refuse de changer `visite`) ; la
+  création d'une fiche peut porter la dernière visite (avis apte).
+- **Demandes de visite** (table `demandesVisite`, `medical.demander`) : motif, date, auteur ; une seule en cours par
+  collaborateur. Le service RH l'imprime pour le service de prévention et de santé au travail (identité, poste, motif,
+  habilitations qui exigent l'aptitude, aucune donnée médicale) ; l'envoi par e-mail viendra avec le module d'e-mails. Tant
+  qu'elle est en cours, « Visite demandée le … » remplace l'action dans les échéances et les habilitations. La saisie d'une
+  visite datée du jour de la demande ou après la clôt (`realisee`) ; le service RH peut l'annuler (`medical.annuler`).
+- **Confidentialité** : dates de visite, avis daté et demandes sont réservés au service RH et à l'intéressé. Le manager reçoit
+  `aptitude` (`aptitudeVueManager` : aptitude valide ou non, avis, restrictions en vigueur), aucune échéance datée ; Keystone,
+  le seul code `APTITUDE` (voir Go / No Go).
 
 ## Sessions de formation
 
@@ -353,6 +380,9 @@ paie sera stocké. Contrat : `docs/API-KEYSTONE.md` et `docs/keystone-openapi.js
 - **Disponibilité** (No Go) : contrat (CDD, intérim, alternance) qui finit avant la fin de la présence ou commence
   après son début (`CONTRAT`, `borneContrat`) ; absence validée ou signalée pendant la présence (`ABSENCE`), une
   demande en attente ne donnant qu'une réserve. Le libellé, même en partage détaillé, ne nomme jamais la nature.
+- **Aptitude médicale** (`APTITUDE`) : avis d'inaptitude (No Go) ; visite périodique en retard, ou aptitude à renouveler
+  avant la fin de la présence, et restrictions en vigueur pendant la présence (réserve : affectation à vérifier avec le
+  service RH), qu'une habilitation exigée dépende de l'aptitude ou non. Le verdict seulement, jamais une date ni une restriction.
 - **Titres** : habilitations et certifications exigées, valides sur les dates du chantier.
 - **Hors de France** : un déplacement rattaché au chantier, ou vers son pays pendant la présence (un voyage des mois
   plus tôt ne compte pas : `DEPLACEMENT`, à créer ou demande en attente). Chaque période de présence doit tenir dans

@@ -62,8 +62,10 @@ const refus = (re: RegExp, status = 400) => (e: unknown) => e instanceof ActionE
 // — t058 : fin de contrat —
 
 test('t058 : un contrat qui finit pendant la présence bloque la ressource ; présence écourtée ou contrat prolongé, plus rien', () => {
-  const { run, motifs, motif, envoyes, chantier, domain } = fresh();
+  const { db, run, motifs, motif, envoyes, chantier, domain } = fresh();
   // Lucas Martin : CDD jusqu'au 29 janvier 2027. Léa Girard : intérimaire sans fin de mission connue.
+  // Visite récente pour Lucas Martin (son aptitude échoit le 22 janvier 2027, avant le chantier : motif APTITUDE).
+  db.update('employes', 4, { visite: '2026-06-01' });
   chantier('K-T1', { nom: 'Arrêt technique', lieu: 'Feyzin', pays: 'FR', debut: '2027-01-25', fin: '2027-02-05' }, [[4, '2027-01-25', '2027-02-05'], [15, '2027-01-25', '2027-02-05']]);
   assert.deepEqual(motifs('K-T1', 4), ['CONTRAT:nogo']);
   assert.deepEqual(motif('K-T1', 4, 'CONTRAT')!.minimal, 'Contrat terminé avant la fin du chantier');

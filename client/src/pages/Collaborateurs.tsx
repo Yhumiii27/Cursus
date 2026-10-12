@@ -10,6 +10,7 @@ import { absenceKinds } from '../../../shared/rules/conges.ts';
 import { etatInscription } from '../../../shared/rules/sessions.ts';
 import { JOURS_SEMAINE } from '../../../shared/rules/profil.ts';
 import { Avatar, Bar, Btn, Chips, CloseButton, Empty, Fine, NoteAccent, Page, SectionLabel, Seg, Tag, Two } from '../components/ui.tsx';
+import { Aptitude } from '../components/Aptitude.tsx';
 import { printDocument } from '../print.ts';
 import { useEnriched, useRole, useTrips } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -233,7 +234,14 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
         {!e.equipe && <Tag cls="tag-outline">À affecter</Tag>}
         <span className="text-muted sub">{plural(e.certs.length, 'certification', 'certifications')} · {e.next ? 'prochaine échéance le ' + fmt(e.next.exp) : 'aucune échéance'}</span>
       </div>
-      <div className="text-muted sub">{e.med.text}</div>
+      {/* Manager : verdict et restrictions en vigueur seulement ; demandes de visite et avis : service RH. */}
+      <SectionLabel>Aptitude médicale</SectionLabel>
+      <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
+        <Aptitude e={e} d={d} horizon={horizon} actions={rh ? <>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'visite', empId: e.id })}>{e.med.demande ? 'Demande de visite' : 'Demander une visite'}</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'avis', empId: e.id })}>Avis du médecin du travail</button>
+        </> : undefined} />
+      </div>
 
       <SectionLabel>Certifications</SectionLabel>
       <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>

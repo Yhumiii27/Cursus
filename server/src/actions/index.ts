@@ -8,6 +8,7 @@ import { entretiensActions } from './entretiens.ts';
 import { envoisActions } from './envois.ts';
 import { equipesActions } from './equipes.ts';
 import { parametresActions } from './parametres.ts';
+import { santeActions } from './sante.ts';
 import { sessionsActions } from './sessions.ts';
 import { tempsActions } from './temps.ts';
 import { voyagesActions } from './voyages.ts';
@@ -24,6 +25,7 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...parametresActions,
   ...comptesActions,
   ...envoisActions,
+  ...santeActions,
 };
 
 /** Actions de saisie fréquentes, non tracées dans le journal. */

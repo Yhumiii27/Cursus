@@ -41,6 +41,12 @@ test('manager : son équipe uniquement, sans données de santé', () => {
     assert.deepEqual(e.visas, loadFull(db, RH).employes.find(x => x.id === e.id)!.visas, 'visas affichés volontairement');
   }
   assert.equal(s.employes.find(e => e.id === 12)!.passeport?.numero, '16AE···58', 'son propre passeport reste complet');
+  // Motif d'un report de CP (texte libre, « arrêt de travail »…) : au service RH et à l'intéressé seulement.
+  const motifs = (u: User) => buildSnapshot(db, u).reports.filter(r => r.empId === 6).map(r => r.motif);
+  assert.ok(motifs(RH).some(m => /arrêt de travail/.test(m)), 'jeu de démonstration : report de CP motivé par un arrêt');
+  const membres = s.reports.filter(r => r.empId !== 12);
+  assert.ok(membres.some(r => r.empId === 6) && membres.every(r => r.motif === ''), 'motif du report d’un membre non transmis');
+  assert.deepEqual(motifs({ role: 'collaborateur', empId: 6, nom: 'Thomas Garnier', intitule: '' }), motifs(RH), 'l’intéressé garde le motif');
   assert.equal(s.plan.length, 0);
   assert.equal(s.demandesKeystone.length, 0);
   assert.ok(s.voyages.filter(v => v.empId !== 12).every(v => v.dossierStatut));

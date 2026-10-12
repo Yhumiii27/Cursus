@@ -22,6 +22,7 @@ const { ActionError, makeCtx } = await import('../server/src/actions/context.ts'
 const { LimiteParIp, openSession, readSession } = await import('../server/src/auth.ts');
 const { compteBloque, compterTentative, espacesDuCompte, hacherMotDePasse, tentativeAdmise, verifierMotDePasse } = await import('../server/src/comptes.ts');
 const { ECHEC_CONNEXION } = await import('../server/src/connexion.ts');
+const { PROFIL_VIDE } = await import('../shared/rules/profil.ts');
 type Db = InstanceType<typeof Db>;
 type User = NonNullable<ReturnType<typeof currentUser>>;
 type Compte = Parameters<typeof espacesDuCompte>[1];
@@ -255,6 +256,17 @@ test('npm run comptes : premier administrateur d’une installation vide, accès
   assert.notEqual(provisoire(r2.stdout), mdp);
   const c2 = d.get<Compte>('comptes', c.id)!;
   assert.deepEqual([c2.actif, c2.profilRh, c2.echecs], [true, 'rh_admin', 0]);
+  // Sa fiche, saisie ensuite : --salarie rattache le compte externe existant (un membre du RH salarié ne décide pas
+  // de ses propres absences, ce que Cursus ne vérifie que sur le compte rattaché à sa fiche).
+  const rachel = currentUser(d, { compteId: c.id, role: 'rh', methode: 'local' })!;
+  const fiche = (d.tx(() => ACTIONS['employe.creer'](makeCtx(d, rachel, loadFull(d, rachel)), { ...PROFIL_VIDE(null, '2026-10-10'), nom: 'Rachel Martin', poste: 'Responsable RH' })) as
+    { result: { id: number } }).result.id;
+  const r3 = cli(db, 'admin', 'rh.admin', '--local', '--salarie', `EMP-${String(fiche).padStart(4, '0')}`);
+  assert.equal(r3.status, 0, r3.stderr);
+  assert.match(r3.stdout, /Accès administrateur RH rétabli : Rachel Martin \(rh\.admin, rattaché à sa fiche salarié\)/);
+  assert.equal(d.get<Compte>('comptes', c.id)!.empId, fiche);
+  assert.equal(currentUser(d, { compteId: c.id, role: 'rh', methode: 'local' })!.salarieId, fiche);
+  assert.match(cli(db, 'admin', 'rh.admin', '--local', '--salarie', '2').stderr, /Accès non rétabli : Compte déjà rattaché à la fiche de Rachel Martin/);
   const ms = cli(db, 'admin', 'sandrine.vidal@entreprise.example', '--nom', 'Sandrine Vidal');
   assert.equal(ms.status, 0, ms.stderr);
   assert.match(ms.stdout, /Microsoft 365/);

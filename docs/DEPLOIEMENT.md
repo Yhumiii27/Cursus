@@ -28,7 +28,9 @@ l'application dans Entra) : voir `docs/CONNEXION-MICROSOFT.md`.
   aptitude, vaccinations) et des documents de voyage. Faire valider le choix de l'hébergeur par le
   DPO : localisation dans l'UE, contrat de sous-traitance (RGPD, article 28) et question d'un
   hébergement certifié HDS. Le DPO valide aussi l'information affichée avant la saisie d'une vaccination
-  (art. 13 du RGPD : `INFO_VACCINATIONS` de `shared/constants.ts`), qu'il complète au besoin de ses coordonnées.
+  (art. 13 du RGPD : `INFO_VACCINATIONS` de `shared/constants.ts`), qu'il complète au besoin de ses coordonnées,
+  et y fixe la durée de conservation (rubrique « Conservation », « à préciser avant la mise en service ») : Cursus
+  n'efface encore rien, même au départ du salarié, et garde les déclarations antérieures et le journal des actions.
 - **Nom de domaine** : un sous-domaine dédié (dans ce guide `cursus.example.fr`) dont les
   enregistrements DNS A / AAAA pointent vers la machine.
 
@@ -193,6 +195,13 @@ propre ; elle le remplace à sa première connexion (12 caractères au moins). S
 l'identifiant est l'adresse Microsoft 365 de la personne (`npm run comptes -- admin
 prenom.nom@entreprise.fr`). `--salarie <n°>` rattache le compte à la fiche d'un salarié déjà
 saisie ; sans lui, le compte est externe (nom et adresse propres, espace RH seulement).
+
+Un membre du service RH qui est aussi salarié doit porter son profil RH sur le compte rattaché à sa fiche :
+c'est ce rattachement qui empêche Cursus de le laisser décider de ses propres absences, feuilles de temps ou
+entretiens. Le premier administrateur, créé avant toute fiche, est un compte externe : une fois sa fiche saisie,
+l'administrateur RH rattache son compte dans Paramètres → Comptes et accès (« Rattacher à une fiche »), ou le
+service informatique relance la commande avec `--salarie <n°>`. Si la fiche a déjà son propre compte, porter le
+profil RH sur ce compte-là, puis désactiver le compte externe.
 
 L'administrateur RH crée ensuite les comptes des salariés et des autres membres du service RH
 (gestionnaires RH) dans Paramètres → Comptes et accès. Chaque création est tracée dans le journal. Le profil se

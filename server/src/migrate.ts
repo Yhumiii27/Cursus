@@ -46,20 +46,29 @@ export function migrate(db: Db) {
 }
 
 /**
- * Motif de reprise d'une ancienne fiche (texte libre) ramené à la liste fermée `MOTIFS_REPRISE` ; un texte qui n'y
- * correspond pas (« longue maladie », une pathologie…) devient « absence longue », masqué au manager comme un arrêt
- * longue maladie. Le texte d'origine n'est pas conservé : il pouvait porter une information médicale.
+ * Termes médicaux d'un ancien motif de reprise : le texte devient « absence longue » même s'il nomme aussi un cas de
+ * la liste (« temps partiel thérapeutique », « congé de présence parentale », « maternité pathologique »).
+ */
+const MOTIF_MEDICAL = /therapeut|maladi|malade|medic|\bsante\b|accident|invalid|handicap|presence parentale|patholog|cancer|chimio|depress|psych|burn.?out|hospital|hopital|chirurg|convalesc|inapt|\bald\b/;
+
+/**
+ * Motif de reprise d'une ancienne fiche (texte libre) ramené à la liste fermée `MOTIFS_REPRISE` ; un texte médical, ou
+ * qui ne correspond à aucun cas de la liste (« longue maladie », une pathologie…), devient « absence longue », masqué au
+ * manager comme un arrêt longue maladie. Le texte d'origine n'est pas conservé : il pouvait porter une information
+ * médicale. Les termes médicaux sont cherchés d'abord, et chaque cas de la liste exige ses propres mots : un motif
+ * médical ne devient jamais un motif non médical faux, que le manager recevrait.
  */
 export function motifRepriseDuTexte(texte: string): MotifReprise {
   if (estMotifReprise(texte)) return texte;
   const t = norm(texte);
+  if (MOTIF_MEDICAL.test(t)) return 'absence longue';
   if (/matern/.test(t)) return 'congé de maternité';
   if (/adopt/.test(t)) return 'congé d’adoption';
-  if (/temps partiel/.test(t)) return 'temps partiel parental';
-  if (/parental/.test(t)) return 'congé parental d’éducation';
-  if (/aidant/.test(t)) return 'congé de proche aidant';
+  if (/parental/.test(t) && /temps partiel|mi.temps/.test(t)) return 'temps partiel parental';
+  if (/conge parental|parental d.education/.test(t)) return 'congé parental d’éducation';
+  if (/proche aidant|conge (d.)?aidant/.test(t)) return 'congé de proche aidant';
   if (/sabbat/.test(t)) return 'congé sabbatique';
-  if (/mobilite/.test(t)) return 'mobilité volontaire sécurisée';
+  if (/mobilite volontaire/.test(t)) return 'mobilité volontaire sécurisée';
   if (/mandat|syndic/.test(t)) return 'mandat syndical';
   return 'absence longue';
 }

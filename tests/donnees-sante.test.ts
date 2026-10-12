@@ -52,9 +52,19 @@ test('migration : un motif de reprise en texte libre est ramené à la liste, le
   assert.equal(motifRepriseDuTexte('Fin de mandat syndical'), 'mandat syndical');
   assert.equal(motifRepriseDuTexte('Mobilité volontaire sécurisée'), 'mobilité volontaire sécurisée');
   assert.equal(motifRepriseDuTexte('Burn-out'), 'absence longue', 'texte inconnu : mention générique, masquée au manager');
+  // Un terme médical l'emporte sur un cas de la liste : jamais de motif non médical faux, que le manager recevrait.
+  for (const t of ['Temps partiel thérapeutique', 'reprise à temps partiel thérapeutique', 'Mi-temps thérapeutique', 'Congé de présence parentale',
+    'Congé maternité pathologique', 'Proche aidant puis arrêt maladie', 'Accident de trajet', 'Congé parental, puis ALD']) {
+    assert.equal(motifRepriseDuTexte(t), 'absence longue', t);
+  }
+  assert.equal(motifRepriseDuTexte('Congé parental à temps partiel'), 'temps partiel parental');
+  assert.equal(motifRepriseDuTexte('Congé parental d’éducation'), 'congé parental d’éducation');
+  assert.equal(motifRepriseDuTexte('Congé de proche aidant'), 'congé de proche aidant');
+  assert.equal(motifRepriseDuTexte('Temps partiel choisi'), 'absence longue', 'temps partiel sans congé parental : hors liste');
   const { db, RH } = fresh();
   db.sql.prepare('UPDATE employes SET reprise_motif = ?, reprise_date = ? WHERE id = ?').run('Chimiothérapie', '2026-09-01', 2);
   db.sql.prepare('UPDATE employes SET reprise_motif = ?, reprise_date = ? WHERE id = ?').run('congé parental', '2026-09-01', 6);
+  db.sql.prepare('UPDATE employes SET reprise_motif = ?, reprise_date = ? WHERE id = ?').run('Temps partiel thérapeutique', '2026-09-14', 18);
   let sauvegarde = 0;
   motifsDeReprise(db, () => { sauvegarde++; });
   const fiches = loadFull(db, RH).employes;
@@ -63,9 +73,13 @@ test('migration : un motif de reprise en texte libre est ramené à la liste, le
   assert.equal(fiches.find(e => e.id === 6)!.repriseMotif, 'congé parental d’éducation');
   assert.ok(fiches.every(e => !e.repriseMotif || estMotifReprise(e.repriseMotif)));
   assert.equal((db.sql.prepare(`SELECT COUNT(*) AS n FROM employes WHERE reprise_motif LIKE '%Chimio%'`).get() as { n: number }).n, 0);
+  assert.equal(fiches.find(e => e.id === 18)!.repriseMotif, 'absence longue');
   // Reprise d'un arrêt devenu « absence longue » : masquée au manager, comme un arrêt longue maladie.
-  const mehdi = buildSnapshot(db, { role: 'manager', empId: 12, nom: 'Karim Haddad', intitule: '' }).employes.find(e => e.id === 2)!;
-  assert.deepEqual([mehdi.repriseMotif, mehdi.repriseDate], [null, null]);
+  const equipe = buildSnapshot(db, { role: 'manager', empId: 12, nom: 'Karim Haddad', intitule: '' }).employes;
+  for (const id of [2, 18]) {
+    const e = equipe.find(x => x.id === id)!;
+    assert.deepEqual([e.repriseMotif, e.repriseDate], [null, null], e.nom);
+  }
   // Rien à faire au démarrage suivant.
   motifsDeReprise(db, () => { sauvegarde++; });
   assert.equal(sauvegarde, 1);
@@ -94,4 +108,11 @@ test('information art. 13 du RGPD avant la saisie d’une vaccination : élémen
   assert.match(texte, /service RH seulement/);
   assert.match(texte, /CNIL/);
   assert.match(texte, /9\.2\.b du RGPD/);
+  // Conservation : la règle réellement appliquée (aucune purge ; déclarations et journal gardent les injections
+  // antérieures), la durée restant à fixer par le DPO — rien de ce que l'outil ne fait pas.
+  const conservation = INFO_VACCINATIONS.points.find(([k]) => k === 'Conservation')![1];
+  assert.doesNotMatch(conservation, /pendant votre contrat|remplace la précédente/);
+  assert.match(conservation, /délégué à la protection des données/);
+  assert.match(conservation, /rien n’est encore effacé automatiquement/);
+  assert.match(conservation, /déclarations successives et le journal des actions gardent les précédentes/);
 });

@@ -21,6 +21,7 @@ const { espacesDuCompte } = await import('../server/src/comptes.ts');
 const { Domain } = await import('../shared/domain.ts');
 const { droitsRh, PROFILS_RH, vuesDe } = await import('../shared/constants.ts');
 const { natureMedicale } = await import('../shared/rules/absences.ts');
+const { PROFIL_VIDE } = await import('../shared/rules/profil.ts');
 type Db = InstanceType<typeof Db>;
 type User = NonNullable<ReturnType<typeof currentUser>>;
 type Dataset = ReturnType<typeof buildSnapshot>;
@@ -55,13 +56,19 @@ function fresh() {
 }
 const refus = (re: RegExp) => (e: unknown) => e instanceof ActionError && e.status === 403 && re.test(e.message);
 
-/** Aucune donnée de santé détaillée : ni visite, ni vaccination, ni pièce de voyage, ni nature médicale d'absence. */
-function sansSante(ds: Dataset) {
+/**
+ * Aucune donnée de santé détaillée : ni visite, ni vaccination, ni nature médicale d'absence ; ni pièce de voyage, sauf
+ * pour la lecture seule (`echeances`) : date d'expiration du passeport sans son numéro, et visas, comme le manager.
+ */
+function sansSante(ds: Dataset, echeances = false) {
   for (const e of ds.employes) {
     assert.equal(e.visite, null, `${e.nom} : date de visite transmise`);
     assert.deepEqual(e.vaccins, [], `${e.nom} : vaccinations transmises`);
-    assert.equal(e.passeport, null);
-    assert.deepEqual(e.visas, []);
+    if (echeances) assert.equal(e.passeport?.numero, undefined, `${e.nom} : numéro de passeport transmis`);
+    else {
+      assert.equal(e.passeport, null);
+      assert.deepEqual(e.visas, []);
+    }
   }
   assert.ok(!ds.absences.some(a => natureMedicale(a.type)), 'nature médicale transmise');
   assert.ok(!ds.demandesCollab.some(r => r.type === 'document' || r.declaration), 'document déclaré transmis');
@@ -89,12 +96,12 @@ test('profils : droits, écrans et espaces ouverts par chaque profil', () => {
   assert.equal(HSE.salarieId, 23);
 });
 
-test('référent HSE : formations et habilitations, aptitude apte / non apte, verdicts Go / No Go exacts, rien d’autre', () => {
+test('référent HSE : formations et habilitations, aptitude à jour ou à renouveler, verdicts Go / No Go exacts, rien d’autre', () => {
   const { db, HSE, ADMIN, run } = fresh();
   const full = buildSnapshot(db, ADMIN), ds = buildSnapshot(db, HSE);
   sansSante(ds);
   assert.equal(ds.employes.length, full.employes.length, 'tout le site');
-  assert.ok(ds.employes.every(e => typeof e.aptitude?.ok === 'boolean'), 'aptitude : apte / non apte');
+  assert.ok(ds.employes.every(e => typeof e.aptitude?.ok === 'boolean'), 'aptitude : verdict seul');
   assert.ok(ds.employes.every(e => e.repriseDate === null), 'reprise après absence longue : non transmise');
   assert.deepEqual(ds.employes.map(e => e.certs.length), full.employes.map(e => e.certs.length));
   assert.deepEqual(ds.employes.map(e => e.habs.length), full.employes.map(e => e.habs.length));
@@ -104,8 +111,15 @@ test('référent HSE : formations et habilitations, aptitude apte / non apte, ve
   // Ni temps, ni absences, ni paie, ni entretiens, ni plan et budget, ni missions.
   for (const k of ['feuilles', 'absences', 'cet', 'reports', 'soldesReprise', 'entretiens', 'plan', 'missions', 'taches'] as const) assert.deepEqual(ds[k], [], k);
   assert.deepEqual([ds.budgets, ds.lastSagePush], [{}, null]);
-  const d = new Domain(ds);
-  assert.match(d.medInfo(d.emp(2)!).text, /^Aptitude médicale : (apte|non apte) · détail réservé au service RH$/);
+  // Verdict exact : « à renouveler » pour une visite échue ou jamais saisie, jamais « non apte » (avis d'inaptitude,
+  // art. L4624-4, que Cursus n'enregistre pas).
+  const d = new Domain(ds), dRh = new Domain(full);
+  assert.match(dRh.medInfo(dRh.emp(24)!).text, /non renseignée/, 'Bastien Morel : aucune visite enregistrée');
+  assert.match(dRh.medInfo(dRh.emp(6)!).text, /^Aptitude échue/, 'Thomas Garnier : visite échue');
+  for (const id of [24, 6]) assert.equal(d.medInfo(d.emp(id)!).text, 'Aptitude médicale : à renouveler (visite échue ou non renseignée) · détail réservé au service RH');
+  assert.ok(dRh.medInfo(dRh.emp(2)!).ok);
+  assert.equal(d.medInfo(d.emp(2)!).text, 'Aptitude médicale : à jour · détail réservé au service RH');
+  assert.ok(ds.employes.every(e => !/apte/.test(d.medInfo(e).text)), 'ni « apte » ni « non apte »');
   // Verdicts Go / No Go identiques à ceux du service RH : l'état des déplacements est calculé par le serveur.
   const verdicts = (x: Dataset) => {
     const dx = new Domain(x);
@@ -147,8 +161,18 @@ test('lecture seule : tout en lecture, sans donnée de santé détaillée ni con
   const { db, LECTURE, ADMIN, run } = fresh();
   run(ADMIN, 'absence.saisir', { empId: 2, nature: 'MALADIE', du: '2026-12-14', au: '2026-12-16' });
   const full = buildSnapshot(db, ADMIN), ds = buildSnapshot(db, LECTURE);
-  sansSante(ds);
+  sansSante(ds, true);
   for (const k of ['sessions', 'inscriptions', 'feuilles', 'absences', 'cet', 'plan', 'missions', 'entretiens'] as const) assert.equal(ds[k].length, full[k].length, k);
+  // Échéances et alertes : celles du service RH, passeports (date d'expiration seule) et visas compris ; seuls les
+  // rappels de vaccination (données de santé) n'y figurent pas.
+  ds.employes.forEach((e, i) => {
+    const f = full.employes[i];
+    assert.deepEqual([e.passeport, e.visas], [f.passeport && { expire: f.passeport.expire }, f.visas], e.nom);
+  });
+  const echeances = (x: Dataset) => { const dx = new Domain(x); return dx.echeances(dx.enrich(90, false), 90).map(c => `${c.emp.id} ${c.kindLabel} ${c.label} ${c.d}`); };
+  const attendues = echeances(full).filter(c => !/Vaccination/.test(c));
+  assert.ok(attendues.some(c => / Passeport /.test(c)) && attendues.some(c => /Visa/.test(c)), 'jeu de démonstration : échéances de passeport et de visa');
+  assert.deepEqual(echeances(ds), attendues);
   assert.deepEqual(ds.budgets, full.budgets);
   assert.ok(ds.entretiens.every(x => !Object.keys(x.cr).length), 'comptes rendus non transmis');
   assert.ok(full.entretiens.some(x => Object.keys(x.cr).length), 'jeu de démonstration : des comptes rendus existent');
@@ -209,6 +233,29 @@ test('membre du RH salarié : il ne décide pas de ses propres absences, feuille
   const propre = (db.sql.prepare(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2026-12-22'`).get() as { id: number }).id;
   assert.throws(() => run(user(2, 'rh'), 'absence.decider', { id: propre, ok: true }), refus(/revient à votre manager \(Karim Haddad\) ou à un autre membre du service RH/));
   assert.match(msg(run(user(12, 'manager'), 'absence.decider', { id: propre, ok: true })), /validée/);
+});
+
+test('administrateur RH externe rattaché ensuite à sa fiche : il ne décide plus de ses propres absences', () => {
+  const { db, compte, user, run, msg, ADMIN, ANTOINE } = fresh();
+  // Installation neuve : le premier administrateur est un compte externe, créé avant toute fiche ; la sienne vient ensuite.
+  const externe = compte(null).id;
+  const fiche = (run(ADMIN, 'employe.creer', { ...PROFIL_VIDE('Administration', '2024-01-08'), nom: 'Sandrine Vidal', poste: 'Responsable RH' }) as { result: { id: number } }).result.id;
+  assert.match(msg(run(ADMIN, 'compte.rattacher', { id: externe, empId: fiche })), /^Compte de Sandrine Vidal \(sandrine\.vidal@.*\) rattaché à la fiche de Sandrine Vidal$/);
+  const c = db.get<Compte>('comptes', externe)!;
+  assert.deepEqual([c.empId, c.nom, c.profilRh], [fiche, null, 'rh_admin']);
+  assert.deepEqual(espacesDuCompte(db, c), ['rh', 'collaborateur']);
+  const admin = user(fiche, 'rh');
+  assert.equal(admin.salarieId, fiche);
+  // Sa demande de congés : la décision revient à son manager ou à un autre membre du service RH.
+  run(user(fiche, 'collaborateur'), 'absence.demander', { empId: fiche, kind: 'CP', du: '2026-12-07', au: '2026-12-11' });
+  const id = (db.sql.prepare(`SELECT id FROM absences WHERE emp_id = ? AND du = '2026-12-07'`).get(fiche) as { id: number }).id;
+  assert.throws(() => run(admin, 'absence.decider', { id, ok: true }), refus(/propre demande d’absence : la décision revient à votre manager \(Antoine Leroy\)/));
+  assert.match(msg(run(ANTOINE, 'absence.decider', { id, ok: true })), /validée/);
+  // Un compte déjà rattaché ne change pas de fiche ; une fiche qui a déjà son compte n'en reçoit pas un second.
+  assert.throws(() => run(admin, 'compte.rattacher', { id: externe, empId: 2 }), /déjà rattaché à la fiche de Sandrine Vidal/);
+  const cabinet = (run(admin, 'compte.creer', { type: 'local', identifiant: 'cabinet.paie', nom: 'Cabinet Compta Plus', adresse: 'paie@cabinet.example', profilRh: 'paie' }) as { result: { id: number } }).result.id;
+  assert.throws(() => run(admin, 'compte.rattacher', { id: cabinet, empId: 2 }), /Mehdi Benali a déjà un compte .* portez le profil RH sur ce compte-là/);
+  assert.throws(() => run(ANTOINE, 'compte.rattacher', { id: cabinet, empId: fiche }), refus(/administrateur RH/));
 });
 
 test('comptes et accès : le profil se choisit à la création et se modifie', () => {

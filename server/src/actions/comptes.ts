@@ -1,11 +1,12 @@
-// Comptes et accès (administrateur RH) : création, profil RH, désactivation, mot de passe provisoire
-// (compte Cursus) ou retrait du rattachement à l'identité Microsoft (compte Microsoft 365).
+// Comptes et accès (administrateur RH) : création, profil RH, rattachement d'un compte externe à une fiche,
+// désactivation, mot de passe provisoire (compte Cursus) ou retrait du rattachement à l'identité Microsoft
+// (compte Microsoft 365).
 // Cursus garde toujours au moins un administrateur RH en mesure de se connecter.
 import { COMPTE_TYPE_LABEL, PROFILS_RH } from '../../../shared/constants.ts';
 import { plural } from '../../../shared/format.ts';
 import type { ProfilRh } from '../../../shared/types.ts';
 import { revokeSessionsDuCompte } from '../auth.ts';
-import { adminsActifs, attribuerProvisoire, creerCompte, nomDuCompte, PROFILS, refusDuCompte, type Compte } from '../comptes.ts';
+import { adminsActifs, attribuerProvisoire, creerCompte, nomDuCompte, PROFILS, rattacherCompte, refusDuCompte, type Compte } from '../comptes.ts';
 import { ActionError, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
 function getCompte(ctx: Ctx, id: unknown): Compte {
@@ -43,6 +44,19 @@ const profil: ActionHandler = (ctx, p) => {
   ctx.db.update<Compte>('comptes', c.id, { profilRh: next });
   // Les sessions ouvertes dans l'espace RH passent à un autre espace du compte, ou sont fermées (auth.ts).
   return `${nomDuCompte(ctx.db, c)} — profil RH : ${PROFILS_RH[next].label}`;
+};
+
+/**
+ * Compte externe rattaché à la fiche d'un salarié saisie après lui (le premier administrateur RH, créé avant toute
+ * fiche) : un membre du service RH qui est aussi salarié ne décide pas de ses propres absences, feuilles de temps
+ * ou entretiens, ce que Cursus ne vérifie que sur un compte rattaché à sa fiche.
+ */
+const rattacher: ActionHandler = (ctx, p) => {
+  requireRhAdmin(ctx);
+  const c = getCompte(ctx, p.id);
+  const avant = nomDuCompte(ctx.db, c);
+  const r = rattacherCompte(ctx.db, c, Number(p.empId));
+  return `Compte de ${avant} (${c.identifiant}) rattaché à la fiche de ${nomDuCompte(ctx.db, r)}`;
 };
 
 /** Désactiver ferme aussitôt toutes les sessions du compte ; réactiver lève aussi un blocage temporaire. */
@@ -90,6 +104,7 @@ const reinitialiser: ActionHandler = (ctx, p) => {
 export const comptesActions: Record<string, ActionHandler> = {
   'compte.creer': creer,
   'compte.profil': profil,
+  'compte.rattacher': rattacher,
   'compte.activer': activer,
   'compte.reinitialiser': reinitialiser,
 };

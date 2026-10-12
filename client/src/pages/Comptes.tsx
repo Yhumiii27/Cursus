@@ -1,6 +1,6 @@
 // Paramètres → Comptes et accès (administrateur RH) : comptes de connexion, profil (service RH ou profil restreint), espaces,
-// désactivation, mot de passe provisoire (compte Cursus) ou rattachement Microsoft retiré (identité
-// Microsoft recréée). La liste est rechargée après chaque action.
+// rattachement d'un compte externe à une fiche salarié, désactivation, mot de passe provisoire (compte Cursus) ou
+// rattachement Microsoft retiré (identité Microsoft recréée). La liste est rechargée après chaque action.
 import { useCallback, useEffect, useMemo, useState } from 'react';
 import { PlusIcon } from '@phosphor-icons/react';
 import { COMPTE_TYPE_LABEL, ESPACE_LABEL, PROFILS_RH } from '../../../shared/constants.ts';
@@ -54,6 +54,12 @@ export function ComptesPanel() {
     return (comptes ?? []).filter(c => !q || norm(`${c.nom} ${c.identifiant}`).includes(q));
   }, [comptes, recherche]);
 
+  // Salariés présents sans compte : un compte externe peut être rattaché à l'une de ces fiches.
+  const libres = useMemo(() => {
+    const pris = new Set((comptes ?? []).map(c => c.empId));
+    return d.ds.employes.filter(e => !pris.has(e.id) && !(e.fin && e.fin < d.ti)).sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+  }, [d, comptes]);
+
   const agir = async (c: CompteVue, name: string, payload: Record<string, unknown>) => {
     setBusy(c.id);
     const r = await run(name, { id: c.id, ...payload });
@@ -73,6 +79,12 @@ export function ComptesPanel() {
     const r = await agir(c, 'compte.reinitialiser', {});
     const mdp = (r.result as { motDePasse?: string } | undefined)?.motDePasse;
     if (r.ok && mdp) openDialog({ type: 'motDePasseProvisoire', nom: c.nom, identifiant: c.identifiant, motDePasse: mdp });
+  };
+
+  const rattacher = (c: CompteVue, empId: string) => {
+    const e = empId ? d.emp(Number(empId)) : undefined;
+    if (!e || !window.confirm(`Rattacher le compte de ${c.nom} (${c.identifiant}) à la fiche de ${e.nom} ? Le compte ouvrira aussi ses espaces de salarié, et ne pourra plus décider de ses propres absences, feuilles de temps ou entretiens.`)) return;
+    agir(c, 'compte.rattacher', { empId: e.id });
   };
 
   const actifs = (comptes ?? []).filter(c => c.actif).length;
@@ -96,6 +108,7 @@ export function ComptesPanel() {
       <Fine>
         {PROFILS_RH.rh_gestionnaire.label} : {minuscule(PROFILS_RH.rh_gestionnaire.aide)}. {PROFILS_RH.rh_admin.label} : {minuscule(PROFILS_RH.rh_admin.aide)}.
         {' '}Un salarié ouvre aussi son espace collaborateur, et l’espace manager s’il encadre une équipe. Désactiver un compte ferme aussitôt ses sessions.
+        {' '}Un membre du service RH qui est aussi salarié porte son profil sur le compte rattaché à sa fiche : Cursus l’empêche alors de décider de ses propres absences, feuilles de temps ou entretiens. Un compte externe créé avant la fiche s’y rattache (« Rattacher à une fiche »).
       </Fine>
       <Fine>
         Profils restreints, dans l’espace RH : {RESTREINTS.map(p => `${PROFILS_RH[p].label} (${minuscule(PROFILS_RH[p].aide)})`).join(' ; ')}.
@@ -129,13 +142,22 @@ export function ComptesPanel() {
                     <td><Tag cls={st.cls}>{st.label}</Tag></td>
                     <td>{last ? <Two main={fmt(last)} sub={heure(c.derniereConnexion!)} nowrap /> : <span className="text-muted">Jamais</span>}</td>
                     <td>
-                      {!moi && (
-                        <div className="actions-end">
+                      <div className="actions-end">
+                        {/* Compte externe, le sien compris : la fiche du même nom est proposée en premier. */}
+                        {!c.empId && libres.length > 0 && (
+                          <select className="input" aria-label={`Rattacher le compte de ${c.nom} à une fiche salarié`} value="" disabled={busy === c.id}
+                            onChange={ev => rattacher(c, ev.target.value)} style={{ width: 180 }}>
+                            <option value="">Rattacher à une fiche…</option>
+                            {[...libres.filter(e => norm(e.nom) === norm(c.nom)), ...libres.filter(e => norm(e.nom) !== norm(c.nom))]
+                              .map(e => <option key={e.id} value={e.id}>{e.nom} — {e.poste}</option>)}
+                          </select>
+                        )}
+                        {!moi && <>
                           {c.type === 'local' && c.actif && <Btn small disabled={busy === c.id} onClick={() => reinitialiser(c)} title="Attribuer un nouveau mot de passe provisoire">Mot de passe</Btn>}
                           {c.type === 'microsoft' && c.rattache && <Btn small disabled={busy === c.id} onClick={() => delier(c)} title="Identité Microsoft recréée : rattacher le compte à la prochaine connexion">Délier</Btn>}
                           <Btn small disabled={busy === c.id} onClick={() => basculer(c)}>{c.actif ? 'Désactiver' : 'Réactiver'}</Btn>
-                        </div>
-                      )}
+                        </>}
+                      </div>
                     </td>
                   </tr>
                 );

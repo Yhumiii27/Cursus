@@ -228,7 +228,9 @@ export const VACCINS: Record<VaccinId, { nom: string; court: string; validite: n
  * Information de la personne (art. 13 du RGPD), affichée avant toute saisie d'une vaccination, par le salarié
  * (déclaration) comme par le service RH (à porter à la connaissance du salarié). Décision de l'entreprise : tous les
  * vaccins sont enregistrés avec leur date d'injection, et seul le service RH y a accès. Données de santé (art. 9) :
- * texte à faire valider par le DPO de l'entreprise.
+ * texte à faire valider par le DPO de l'entreprise. La conservation énonce ce que Cursus fait réellement : aucune
+ * purge, même au départ du salarié ; les déclarations et le journal gardent les injections antérieures. La durée est
+ * à fixer par le DPO avant la mise en service (docs/DEPLOIEMENT.md).
  */
 export const INFO_VACCINATIONS = {
   titre: 'Vaccinations : des données de santé',
@@ -238,7 +240,7 @@ export const INFO_VACCINATIONS = {
     ['Base légale', 'obligation de sécurité de l’employeur envers le salarié en déplacement (art. L4121-1 du Code du travail ; art. 6.1.c et 9.2.b du RGPD).'],
     ['Données', 'le vaccin et la date d’injection, rien d’autre : ni certificat, ni contre-indication, ni autre information médicale.'],
     ['Destinataires', 'le service RH seulement. Votre manager, les autres profils et Keystone ne voient que l’état du dossier de voyage, jamais le vaccin.'],
-    ['Conservation', 'pendant votre contrat ; une nouvelle injection remplace la précédente du même vaccin.'],
+    ['Conservation', 'durée fixée par l’entreprise avec son délégué à la protection des données (à préciser avant la mise en service) ; rien n’est encore effacé automatiquement, même après votre départ. Votre dossier ne garde que la dernière injection de chaque vaccin, mais vos déclarations successives et le journal des actions gardent les précédentes.'],
     ['Vos droits', 'accès, rectification, effacement, limitation et opposition auprès du service RH ou du délégué à la protection des données ; réclamation auprès de la CNIL (cnil.fr).'],
     ['Si vous ne la déclarez pas', 'un déplacement vers un pays qui exige ce vaccin reste « à compléter ».'],
   ] as [string, string][],
@@ -349,7 +351,7 @@ export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits:
   },
   referent_hse: {
     label: 'Référent HSE / formation', espace: 'HSE', droits: ['formations'],
-    aide: 'Catalogue, sessions et présences, certifications et habilitations, verdicts Go / No Go ; aptitude médicale réduite à apte / non apte ; ni temps, ni absences, ni paie, ni entretiens',
+    aide: 'Catalogue, sessions et présences, certifications et habilitations, verdicts Go / No Go ; aptitude médicale réduite à « à jour » ou « à renouveler » ; ni temps, ni absences, ni paie, ni entretiens',
     vues: ['dashboard', 'collaborateurs', 'formations', 'habilitations', 'echeances', 'chantiers'],
   },
   paie: {

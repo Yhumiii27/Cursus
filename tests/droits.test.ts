@@ -176,6 +176,11 @@ const MATRICE: Ligne[] = [
   { action: 'demo.reinitialiser', droits: '                  O    -    -    -    -    -    -    -    -', p: () => ({}) },
   { action: 'compte.creer', droits: '                        O    -    -    -    -    -    -    -    -', p: () => ({ type: 'microsoft', identifiant: 'paie@cabinet.example', nom: 'Cabinet Paie', profilRh: 'rh_gestionnaire' }) },
   { action: 'compte.profil', droits: '                       O    -    -    -    -    -    -    -    -', p: () => ({ id: compteDe(2).id, profilRh: 'rh_gestionnaire' }) },
+  // Compte externe de Sandrine Vidal rattaché à une fiche sans compte (celui d'Inès Dupont, retiré pour l'essai).
+  { action: 'compte.rattacher', droits: '                    O    -    -    -    -    -    -    -    -', p: () => {
+    db.sql.prepare('DELETE FROM comptes WHERE emp_id = 5').run();
+    return { id: compteDe(null).id, empId: 5 };
+  } },
   { action: 'compte.activer', droits: '                      O    -    -    -    -    -    -    -    -', p: () => ({ id: compteDe(1).id, actif: false }) },
   { action: 'compte.reinitialiser', droits: '                O    -    -    -    -    -    -    -    -', p: () => ({ id: compteDe(1).id }) },
   // Envois sortants (Paramètres → Envois) : le service RH suit, relance (intégration configurée) ou classe un échec.

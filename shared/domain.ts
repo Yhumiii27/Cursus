@@ -269,7 +269,9 @@ export class Domain {
 
   medInfo(e: Employe): MedInfo {
     if (!e.visite) {
-      if (e.aptitude) return { ok: e.aptitude.ok, exp: null, d: null, text: `Aptitude médicale : ${e.aptitude.ok ? 'apte' : 'non apte'} · détail réservé au service RH` };
+      // Verdict seul (manager, profils restreints) : `ok` dit que la visite périodique est à jour, pas un avis
+      // d'inaptitude (art. L4624-4), que Cursus n'enregistre pas.
+      if (e.aptitude) return { ok: e.aptitude.ok, exp: null, d: null, text: `Aptitude médicale : ${e.aptitude.ok ? 'à jour' : 'à renouveler (visite échue ou non renseignée)'} · détail réservé au service RH` };
       return { ok: false, exp: null, d: null, text: 'Visite médicale non renseignée' };
     }
     const date = parse(e.visite), exp = addMonths(date, MED_VALIDITE), d = days(this.today, exp);

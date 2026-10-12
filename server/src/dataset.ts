@@ -173,7 +173,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     // Arrêt maladie, accident, maladie professionnelle : le manager ne voit qu'une « Absence » (dates, état).
     absences: mine(full.absences).map(a => isMgr && a.empId !== user.empId ? absenceVueManager(a) : a),
     cet: mine(full.cet),
-    reports: mine(full.reports),
+    // Motif d'un report de CP (texte libre, « arrêt de travail »…) : celui d'un membre n'est pas transmis au manager.
+    reports: mine(full.reports).map(r => isMgr && r.empId !== user.empId ? { ...r, motif: '' } : r),
     soldesReprise: mine(full.soldesReprise),
     entretiens: mine(full.entretiens),
     // Les documents déclarés (passeport, visas, vaccinations) des membres ne sont pas montrés au manager ;
@@ -188,14 +189,16 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
 
 /**
  * Instantané d'un profil restreint de l'espace RH (sans le droit `rh`) : seulement ce que ses droits ouvrent,
- * jamais de donnée de santé détaillée. Pour tous : aptitude réduite à apte / non apte, ni visite, ni vaccinations ;
- * ni passeport, ni visas (dossiers de voyage réservés au service RH) ; nature médicale des absences masquée et reprise
- * d'un arrêt longue maladie retirée, comme pour le manager ; motif des reports de CP retiré (texte libre).
+ * jamais de donnée de santé détaillée. Pour tous : aptitude réduite au verdict (visite à jour ou à renouveler), ni
+ * visite, ni vaccinations ; nature médicale des absences masquée et reprise d'un arrêt longue maladie retirée, comme
+ * pour le manager ; motif des reports de CP retiré (texte libre).
  * - `formations` (référent HSE) : sessions et résultats, certifications et habilitations, demandes de formation et
- *   d'habilitation, chantiers avec l'état précalculé des déplacements pour les verdicts Go / No Go ;
+ *   d'habilitation, chantiers avec l'état précalculé des déplacements pour les verdicts Go / No Go ; ni passeport, ni
+ *   visas (dossiers de voyage réservés au service RH) ;
  * - `paie` : feuilles de temps, absences, soldes, CET, reports, dernière transmission à Sage — aucune formation ;
  * - `consultation` (lecture seule) : tout ce qui précède, plus plan et budget, missions, entretiens sans le contenu
- *   des comptes rendus.
+ *   des comptes rendus ; échéances des passeports (date d'expiration seule) et des visas, comme pour le manager, pour
+ *   que les alertes et les échéances soient celles du service RH.
  */
 function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
   const lecture = droits.includes('consultation');
@@ -204,7 +207,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
   const d = new Domain(full);
   const employes = full.employes.map(e => ({
     ...e,
-    visite: null, aptitude: formations ? { ok: d.medInfo(e).ok } : undefined, vaccins: [], passeport: null, visas: [],
+    visite: null, aptitude: formations ? { ok: d.medInfo(e).ok } : undefined, vaccins: [],
+    passeport: lecture ? e.passeport && { expire: e.passeport.expire } : null, visas: lecture ? e.visas : [],
     certs: formations ? e.certs : [], habs: formations ? e.habs : [],
     ...(lecture && !repriseMedicale(e, full.absences) ? { repriseMotif: e.repriseDate ? 'absence longue' : null } : { repriseMotif: null, repriseDate: null }),
   }));

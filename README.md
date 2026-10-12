@@ -37,11 +37,12 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
   transmettre la paie.
   En démonstration : Sandrine Vidal, administratrice RH, et Antoine Leroy, gestionnaire RH. Un membre du RH qui
   est aussi salarié ne décide jamais de ses propres absences, feuilles de temps ou entretiens : son manager ou
-  un autre membre du RH le fait.
+  un autre membre du RH le fait. Son profil RH est porté par le compte rattaché à sa fiche (un compte externe créé
+  avant la fiche s'y rattache dans Comptes et accès).
   Trois profils restreints ouvrent aussi l'espace RH, sans rien voir ni faire d'autre que leur mission :
   **référent HSE / formation** (catalogue, sessions et présences, certifications et habilitations, verdicts
-  Go / No Go ; aptitude médicale réduite à apte / non apte), **gestionnaire de paie**, interne ou cabinet
-  extérieur (temps, absences et soldes en lecture, transmission à Sage Paie ; ni formations, ni entretiens, ni
+  Go / No Go ; aptitude médicale réduite à « à jour » ou « à renouveler »), **gestionnaire de paie**, interne ou
+  cabinet extérieur (temps, absences et soldes en lecture, transmission à Sage Paie ; ni formations, ni entretiens, ni
   données de santé) et **lecture seule** pour la direction, le DPO ou un auditeur (tableaux de bord, alertes et
   journal des actions, sans modification ni donnée de santé détaillée). En démonstration : Sarah Cohen,
   Aïcha Diallo et Élodie Bernard.

@@ -120,7 +120,8 @@ design/            Prototype Claude Design de référence et guide du design sys
   réinitialisation de la démonstration) — et trois profils restreints décidés par l'entreprise, qui ouvrent
   l'espace RH sans le droit `rh` :
   - `referent_hse` (droit `formations`) : catalogue, sessions et présences, certifications et habilitations,
-    demandes de formation et d'habilitation, verdicts Go / No Go ; aptitude médicale réduite à apte / non apte ;
+    demandes de formation et d'habilitation, verdicts Go / No Go ; aptitude médicale réduite à « à jour » ou
+    « à renouveler » ;
   - `paie` (droit `paie`) : temps, absences et soldes en lecture, transmission des variables de paie à Sage ;
   - `lecture_seule` (droit `consultation`) : direction, DPO, auditeur — tout l'espace en lecture (tableaux de
     bord, alertes, journal des actions et envois), sans modification.
@@ -128,9 +129,10 @@ design/            Prototype Claude Design de référence et guide du design sys
   Contrôles serveur (`server/src/actions/context.ts`) : `requireRh`, `requireRhAdmin`, `requireFormations`,
   `requirePaie` ; `droitsRh(user)` (`shared/constants.ts`) donne les droits de la personne connectée (aucun hors
   de l'espace RH ; une lecture interne sans compte a ceux du gestionnaire RH). Données (`vueProfil` de
-  `server/src/dataset.ts`) : jamais de visite, de vaccination, de passeport ni de visa, nature médicale des
-  absences masquée et reprise d'un arrêt longue maladie retirée (comme pour le manager), motif des reports de CP
-  retiré ; le référent HSE ne reçoit ni temps, ni absences, ni entretiens, ni plan ; la paie ni formations, ni
+  `server/src/dataset.ts`) : jamais de visite ni de vaccination ; ni passeport ni visa pour le référent HSE et la
+  paie (la lecture seule reçoit, comme le manager, la date d'expiration du passeport et les visas : ses échéances et
+  alertes sont celles du service RH, vaccinations exceptées) ; nature médicale des absences masquée et reprise
+  d'un arrêt longue maladie retirée (comme pour le manager), motif des reports de CP retiré ; le référent HSE ne reçoit ni temps, ni absences, ni entretiens, ni plan ; la paie ni formations, ni
   entretiens, ni déplacements ; la lecture seule tout le reste, sans le contenu des comptes rendus d'entretien ni
   les documents déclarés. L'état des déplacements (`dossierStatut`, `dossierManque`) est calculé par le serveur
   pour que le verdict Go / No Go reste exact sans les pièces. `GET /api/journal` et `GET /api/envois` : droit
@@ -142,7 +144,9 @@ design/            Prototype Claude Design de référence et guide du design sys
   décide pas de ses propres absences (`absence.decider`, `absence.saisir`, `absence.qualifier`, `report.accorder` ;
   il prolonge et annule comme intéressé), feuilles de temps (`temps.validate`, `temps.reject`, correction après
   soumission) ou entretiens (`entretien.planifier`, `entretien.modifier`, `entretien.clore`) : refus 403 qui
-  renvoie à son manager ou à un autre membre du service RH (`refuserSoiMeme`).
+  renvoie à son manager ou à un autre membre du service RH (`refuserSoiMeme`). Le contrôle porte sur la fiche
+  rattachée au compte : un compte externe (le premier administrateur, créé avant les fiches) se rattache à la fiche
+  de la personne par `compte.rattacher` ou `npm run comptes -- admin <identifiant> --salarie <n°>`.
 - **Identité** : dans l'espace RH, `user.empId` reste null (la personne agit pour le service RH), mais
   `user.nom` est celui de la personne connectée : il signe le journal (avec `compteId` et `identifiant`)
   et les mesures (`mesurePar`, reports de CP). `rhNom` et `rhIntitule` ne sont plus des paramètres : le
@@ -265,6 +269,7 @@ profils et échoue si une action n'y a pas sa ligne.
 | `demo.reinitialiser` | — | administrateur RH, mode démonstration |
 | `compte.creer` | empId (ou nom, adresse : compte externe), type (`microsoft`/`local`), identifiant, profilRh | administrateur RH (mot de passe provisoire dans `result`, affiché une fois) |
 | `compte.profil` | id, profilRh (`aucun`/`rh_gestionnaire`/`rh_admin`/`referent_hse`/`paie`/`lecture_seule`) | administrateur RH (jamais le dernier administrateur actif ; un compte externe garde un profil) |
+| `compte.rattacher` | id, empId | administrateur RH (compte externe seulement, vers la fiche d'un salarié présent qui n'a pas de compte ; le compte prend le nom de la fiche et ouvre ses espaces) |
 | `compte.activer` | id, actif | administrateur RH (désactiver ferme les sessions ; pas son propre compte) |
 | `compte.reinitialiser` | id | administrateur RH (compte local : nouveau mot de passe provisoire ; compte Microsoft rattaché : « Délier », `oid` retiré pour une identité recréée ; sessions fermées) |
 | `envoi.relancer` | id | RH (envoi en échec, intégration configurée : nouvelle série de tentatives, même clé d'idempotence) |
@@ -369,7 +374,8 @@ valide comme une déclaration ordinaire.
 Vaccinations (décision de l'entreprise : tous les vaccins avec leur date d'injection) : données de santé transmises au
 seul service RH (droit `rh`) et à l'intéressé ; ni le manager, ni les profils restreints, ni Keystone (« formalité
 sanitaire ») ne voient le vaccin. Avant toute saisie, le dialogue affiche l'information de la personne (art. 13 du
-RGPD, `INFO_VACCINATIONS` de `shared/constants.ts`, texte à faire valider par le DPO).
+RGPD, `INFO_VACCINATIONS` de `shared/constants.ts`, texte à faire valider par le DPO, qui fixe la durée de
+conservation : aucune purge n'est encore appliquée, et les déclarations acceptées gardent les injections antérieures).
 
 ## Données Keystone
 

@@ -3,11 +3,12 @@
 // (profil administrateur RH, compte réactivé et débloqué, nouveau mot de passe provisoire pour un compte
 // local, rattachement Microsoft retiré pour un compte Microsoft dont l'identité a été recréée) : recours
 // du service informatique quand plus aucun administrateur ne peut se connecter.
-// Sans --salarie, le compte est externe (aucune fiche salarié) : nom et adresse lui sont propres.
+// Sans --salarie, le compte est externe (aucune fiche salarié) : nom et adresse lui sont propres. Avec --salarie, un
+// compte externe existant est rattaché à la fiche saisie depuis (le premier administrateur, créé avant les fiches).
 import { normaliserIdentifiant } from '../../shared/rules/comptes.ts';
 import { ActionError } from './actions/context.ts';
 import { revokeSessionsDuCompte } from './auth.ts';
-import { attribuerProvisoire, compteParIdentifiant, creerCompte, journaliser, nomDuCompte, refusDuCompte, type Compte } from './comptes.ts';
+import { attribuerProvisoire, compteParIdentifiant, creerCompte, journaliser, nomDuCompte, rattacherCompte, refusDuCompte, type Compte } from './comptes.ts';
 import { dbFile, openDb } from './db.ts';
 
 const USAGE = `Usage : npm run comptes -- admin <identifiant> [--local] [--nom "Prénom Nom"] [--adresse <e-mail>] [--salarie <n°>]
@@ -15,7 +16,7 @@ const USAGE = `Usage : npm run comptes -- admin <identifiant> [--local] [--nom "
   --local        compte propre à Cursus : un mot de passe provisoire est affiché, à changer à la première connexion
   --nom          nom affiché (compte externe ; déduit de l'identifiant par défaut)
   --adresse      adresse e-mail (compte externe ; l'identifiant s'il en est une)
-  --salarie      numéro de la fiche du salarié (12 ou EMP-0012) : le compte lui est rattaché`;
+  --salarie      numéro de la fiche du salarié (12 ou EMP-0012) : le compte lui est rattaché (compte externe existant compris)`;
 
 function arreter(message: string): never {
   console.error(message);
@@ -37,11 +38,18 @@ const identifiant = normaliserIdentifiant(identifiantBrut);
 const nomDeduit = identifiant.split('@')[0].split(/[._-]+/).filter(Boolean).map(m => m[0].toUpperCase() + m.slice(1)).join(' ');
 const AUTEUR = 'Ligne de commande (npm run comptes)';
 
+const empId = typeof options.salarie === 'string' ? Number(options.salarie.replace(/\D/g, '')) : null;
+if (options.salarie !== undefined && !empId) arreter('Numéro de salarié invalide (--salarie 12 ou --salarie EMP-0012).');
+
 const db = openDb();
+let existant: Compte | undefined;
 try {
-  const existant = compteParIdentifiant(db, identifiant);
+  existant = compteParIdentifiant(db, identifiant);
   let compte: Compte, motDePasse: string | null = null, message: string;
   if (existant) {
+    // Un membre du service RH salarié porte son profil sur le compte rattaché à sa fiche (décisions sur soi-même).
+    const rattache = !!empId && existant.empId !== empId;
+    if (rattache) rattacherCompte(db, existant, empId);
     db.update<Compte>('comptes', existant.id, { profilRh: 'rh_admin', actif: true, echecs: 0, blocageFin: null });
     compte = db.get<Compte>('comptes', existant.id)!;
     if (compte.type === 'local') {
@@ -52,10 +60,8 @@ try {
       db.update<Compte>('comptes', compte.id, { oid: null });
       revokeSessionsDuCompte(db, compte.id);
     }
-    message = `Accès administrateur RH rétabli : ${nomDuCompte(db, compte)} (${compte.identifiant})`;
+    message = `Accès administrateur RH rétabli : ${nomDuCompte(db, compte)} (${compte.identifiant}${rattache ? ', rattaché à sa fiche salarié' : ''})`;
   } else {
-    const empId = typeof options.salarie === 'string' ? Number(options.salarie.replace(/\D/g, '')) : null;
-    if (options.salarie !== undefined && !empId) arreter('Numéro de salarié invalide (--salarie 12 ou --salarie EMP-0012).');
     const adresse = typeof options.adresse === 'string' ? options.adresse : identifiant.includes('@') ? identifiant : '';
     if (!empId && !adresse) arreter('Compte externe : précisez son adresse e-mail (--adresse prenom.nom@entreprise.fr).');
     const r = creerCompte(db, {
@@ -76,7 +82,7 @@ try {
   }
   console.log(`Base : ${dbFile()}`);
 } catch (err) {
-  arreter(err instanceof ActionError ? `Compte non créé : ${err.message}.` : `Erreur : ${err instanceof Error ? err.message : err}`);
+  arreter(err instanceof ActionError ? `${existant ? 'Accès non rétabli' : 'Compte non créé'} : ${err.message}.` : `Erreur : ${err instanceof Error ? err.message : err}`);
 } finally {
   db.sql.close();
 }

@@ -203,11 +203,7 @@ export function creerCompte(db: Db, x: NouveauCompte, auteur: string | null): { 
   if (compteParIdentifiant(db, identifiant)) throw new ActionError(`Identifiant déjà utilisé : ${identifiant}`);
   let nom: string | null = null, adresse: string | null = null;
   if (x.empId) {
-    const e = db.get<EmpCompte>('employes', Number(x.empId));
-    if (!e) throw new ActionError('Collaborateur introuvable', 404);
-    if (e.fin && e.fin < todayIso()) throw new ActionError(`${e.nom} a quitté l’entreprise : aucun compte à créer`);
-    const deja = db.where<Compte>('comptes', 'empId', e.id)[0];
-    if (deja) throw new ActionError(`${e.nom} a déjà un compte (${deja.identifiant}${deja.actif ? '' : ', désactivé'})`);
+    ficheSansCompte(db, Number(x.empId), 'aucun compte à créer');
   } else {
     // Compte externe (pas de fiche salarié) : il n'ouvre que l'espace RH.
     nom = String(x.nom ?? '').trim();
@@ -223,6 +219,32 @@ export function creerCompte(db: Db, x: NouveauCompte, auteur: string | null): { 
     creation: new Date().toISOString(), creePar: auteur, derniereConnexion: null,
   });
   return { compte, motDePasse: mdp };
+}
+
+/**
+ * Fiche d'un salarié présent qui n'a pas encore de compte (un compte par personne). `sorti` complète le refus d'un
+ * salarié sorti, `conseil` celui d'une fiche qui a déjà son compte.
+ */
+function ficheSansCompte(db: Db, empId: number, sorti: string, conseil = ''): EmpCompte {
+  const e = db.get<EmpCompte>('employes', empId);
+  if (!e) throw new ActionError('Collaborateur introuvable', 404);
+  if (e.fin && e.fin < todayIso()) throw new ActionError(`${e.nom} a quitté l’entreprise : ${sorti}`);
+  const deja = db.where<Compte>('comptes', 'empId', e.id)[0];
+  if (deja) throw new ActionError(`${e.nom} a déjà un compte (${deja.identifiant}${deja.actif ? '' : ', désactivé'})${conseil}`);
+  return e;
+}
+
+/**
+ * Rattache un compte externe à la fiche d'un salarié saisie après lui (le premier administrateur RH est créé avant
+ * toute fiche) : le compte ouvre aussi les espaces du salarié, prend le nom de la fiche, et son titulaire ne décide
+ * plus de ses propres absences, feuilles de temps ou entretiens (`estSoiMeme` de server/src/actions/context.ts).
+ * L'adresse du compte est conservée.
+ */
+export function rattacherCompte(db: Db, c: Compte, empId: number): Compte {
+  if (c.empId) throw new ActionError(`Compte déjà rattaché à la fiche de ${nomDuCompte(db, c)}`);
+  ficheSansCompte(db, empId, 'aucun compte à rattacher', ' : portez le profil RH sur ce compte-là, puis désactivez celui-ci');
+  db.update<Compte>('comptes', c.id, { empId, nom: null });
+  return db.get<Compte>('comptes', c.id)!;
 }
 
 /** Désignation courte d'un compte dans les messages : « Karim Haddad (karim.haddad@…, Microsoft 365) ». */

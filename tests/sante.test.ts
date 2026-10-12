@@ -89,25 +89,54 @@ test('t056 : l’aptitude médicale a son échéance (type Visite médicale), av
   assert.equal(emp(6, vue).med.text, 'Aptitude médicale non valide — visite à programmer par le service RH');
 });
 
-test('Go / No Go : visite périodique en retard ou à renouveler pendant la présence → réserve APTITUDE, jamais de date', () => {
-  const { db, motifs, verdict, domain, chantier } = fresh();
+test('Go / No Go : aptitude non valide aujourd’hui → réserve APTITUDE ; Keystone ne reçoit qu’un libellé neutre', () => {
+  const { db, run, motifs, verdict, domain, chantier } = fresh();
   // Aïcha Diallo, aucune habilitation qui exige l'aptitude ; chantier en France sans exigence.
   db.update('employes', 7, { visite: '2024-09-01' });
-  chantier('K-M1', { nom: 'Inventaire', lieu: 'Lyon', pays: 'FR', debut: '2026-11-02', fin: '2026-11-06' }, [[7, '2026-11-02', '2026-11-06']]);
+  chantier('K-M1', { nom: 'Inventaire', lieu: 'Lyon', pays: 'FR', debut: '2026-11-03', fin: '2026-11-05' }, [[7, '2026-11-03', '2026-11-05']]);
   assert.deepEqual(motifs('K-M1', 7), ['APTITUDE:reserve']);
   assert.equal(verdict('K-M1', 7).status, 'reserve', 'alerte, pas de blocage');
-  assert.equal(verdict('K-M1', 7).reasons[0].minimal, 'Visite médicale périodique en retard');
-  // Aptitude qui échoit pendant la présence, puis avant son début.
+  assert.equal(verdict('K-M1', 7).reasons[0].detailed, 'Visite médicale périodique en retard : affectation à vérifier avec le service RH');
+  // Aptitude valide aujourd'hui, même si elle échoit pendant (ou avant) le chantier : rien, la date ne sort pas.
   db.update('employes', 7, { visite: '2024-11-04' });
-  assert.equal(verdict('K-M1', 7).reasons[0].minimal, 'Visite médicale à renouveler pendant le chantier');
-  db.update('employes', 7, { visite: '2024-10-20' });
-  assert.equal(verdict('K-M1', 7).reasons[0].minimal, 'Visite médicale à renouveler avant le chantier');
-  db.update('employes', 7, { visite: '2025-10-01' });
   assert.deepEqual(motifs('K-M1', 7), []);
-  // Partage détaillé : aucun libellé ne porte de date.
-  db.update('employes', 7, { visite: '2024-09-01' });
+  db.update('employes', 7, { visite: '2024-10-20' });
+  assert.deepEqual(motifs('K-M1', 7), []);
+  // Aucune visite enregistrée : réserve.
+  db.sql.prepare('UPDATE employes SET visite = NULL WHERE id = 7').run();
+  assert.equal(verdict('K-M1', 7).reasons[0].detailed, 'Aucune visite médicale enregistrée : affectation à vérifier avec le service RH');
+
+  // Partage détaillé : un seul libellé neutre, quelle que soit la cause (retard, restrictions ou les deux), sans date.
+  run(RH, 'medical.avis', { empId: 7, date: '2024-09-01', avis: 'restrictions', restrictions: [{ texte: 'Pas de conduite d’engins', jusquau: '' }] });
+  assert.deepEqual(motifs('K-M1', 7), ['APTITUDE:reserve'], 'une seule réserve pour le retard et les restrictions');
+  assert.equal(verdict('K-M1', 7).reasons[0].detailed, 'Visite médicale périodique en retard · Restrictions d’aptitude en vigueur : affectation à vérifier avec le service RH');
   const d = domain(), ch = d.evaluateChantiers(d.enrich(90, false), d.tripsAll()).find(x => x.c.id === 'K-M1')!;
-  assert.deepEqual(d.verdictKeystone(ch, true).ressources[0].motifs, [{ code: 'APTITUDE', niveau: 'GO_RESERVE', libelle: 'Visite médicale périodique en retard' }]);
+  assert.deepEqual(d.verdictKeystone(ch, true).ressources[0].motifs, [{ code: 'APTITUDE', niveau: 'GO_RESERVE', libelle: 'Aptitude médicale à vérifier avec le service RH' }]);
+  assert.deepEqual(d.keystonePayload(ch, true).ressources[0].motifs, [{ code: 'APTITUDE', libelle: 'Aptitude médicale à vérifier avec le service RH' }]);
+});
+
+test('Go / No Go : le motif APTITUDE ne dépend pas des dates de présence — une sonde de Keystone n’apprend ni visite ni fin de restriction', () => {
+  const { db, domain, chantier } = fresh();
+  let n = 0;
+  /** Chantier sonde d'un jour, posé comme le ferait Keystone, et motifs transmis en partage détaillé pour la ressource. */
+  const sonde = (empId: number, jour: string) => {
+    const id = `K-SONDE-${++n}`;
+    chantier(id, { nom: 'Sonde', lieu: 'Lyon', pays: 'FR', debut: jour, fin: jour }, [[empId, jour, jour]]);
+    const d = domain(), ch = d.evaluateChantiers(d.enrich(90, false), d.tripsAll()).find(x => x.c.id === id)!;
+    return JSON.stringify(d.verdictKeystone(ch, true).ressources[0].motifs);
+  };
+  // Mehdi Benali : visite du 15 juin 2025, aptitude jusqu'au 15 juin 2027. Avant et après l'échéance : mêmes motifs.
+  assert.equal(sonde(2, '2027-06-14'), sonde(2, '2027-06-16'));
+  assert.equal(sonde(2, '2026-10-15'), sonde(2, '2028-01-10'));
+  // Inès Dupont : restrictions jusqu'au 31 décembre 2026. Avant et après leur terme : même réserve, au libellé neutre.
+  const ines = sonde(5, '2026-12-30');
+  assert.equal(ines, JSON.stringify([{ code: 'APTITUDE', niveau: 'GO_RESERVE', libelle: 'Aptitude médicale à vérifier avec le service RH' }]));
+  assert.equal(sonde(5, '2027-01-04'), ines);
+  // Ni la date de la visite, ni l'avis, ni l'existence de restrictions dans ce qui part.
+  for (const x of ['2026-09-28', '28 sept.', 'estriction', '31 déc.', 'charges', 'hauteur']) assert.ok(!ines.includes(x), x);
+  // Le lendemain du terme, la réserve tombe pour tous les chantiers à la fois (état du jour).
+  db.update('employes', 5, { restrictions: [{ texte: 'Pas de travail en hauteur', jusquau: '2026-10-09' }] });
+  assert.equal(sonde(5, '2026-10-14'), '[]');
 });
 
 // — t062 : avis du médecin du travail —
@@ -147,10 +176,12 @@ test('t062 : avis avec restrictions — restrictions datées, habilitation incom
   chantier('K-R2', { nom: 'Arrêt annuel', lieu: 'Feyzin', pays: 'FR', debut: '2027-01-11', fin: '2027-01-15', habilitations: ['hauteur'] }, [[2, '2027-01-11', '2027-01-15']]);
   assert.deepEqual(motifs('K-R1', 2), ['APTITUDE:reserve']);
   assert.equal(verdict('K-R1', 2).reasons[0].detailed, 'Restrictions d’aptitude en vigueur : affectation à vérifier avec le service RH');
-  assert.deepEqual(motifs('K-R2', 2), ['HABILITATION_SUSPENDUE:nogo'], 'restrictions terminées ; titre toujours suspendu');
+  // Restrictions en vigueur aujourd'hui : même réserve pour un chantier qui commence après leur terme (état du jour, jamais
+  // rapporté aux dates de présence) ; le titre reste suspendu.
+  assert.deepEqual(motifs('K-R2', 2), ['APTITUDE:reserve', 'HABILITATION_SUSPENDUE:nogo']);
   const d = domain(), ch = d.evaluateChantiers(d.enrich(90, false), d.tripsAll()).find(x => x.c.id === 'K-R1')!;
   const detaille = JSON.stringify(d.verdictKeystone(ch, true));
-  for (const x of ['charges', '15 kg', 'hauteur', '2026-10-08', '8 oct.', '31 déc.']) assert.ok(!detaille.includes(x), `rien de l’avis dans le verdict : ${x}`);
+  for (const x of ['charges', '15 kg', 'hauteur', 'estriction', '2026-10-08', '8 oct.', '31 déc.']) assert.ok(!detaille.includes(x), `rien de l’avis dans le verdict : ${x}`);
   assert.deepEqual(envoyes().filter(v => v.chantier === 'K-R1').at(-1)!.ressource.motifs, [{ code: 'APTITUDE', niveau: 'GO_RESERVE' }]);
 
   // Nouvel avis apte : la suspension décidée à l'avis précédent est levée, les restrictions s'effacent.
@@ -222,9 +253,12 @@ test('t114 : la demande de visite est enregistrée, affichée « Visite demandé
   assert.equal(domain().habAction(6, he())!.intent.type, 'medical');
   assert.equal(run(RH, 'medical.demander', { empId: 6 }), 'Visite médicale demandée — Thomas Garnier (renouvellement) · demande à transmettre au service de santé au travail');
   assert.deepEqual(demandes(6).map(x => [x.motif, x.le, x.par, x.statut, x.closeLe]), [['periodique', '2026-10-10', 'Sandrine Vidal', 'demandee', null]]);
-  // Le bouton n'est plus proposé : la demande en cours s'affiche à sa place.
-  assert.equal(domain().habAction(6, he()), null);
+  // Le bouton n'est plus proposé : « Visite demandée le … » à sa place, dans les habilitations (ouvre la demande en cours)
+  // comme dans les échéances (visite et habilitation, affichées comme planifiées).
+  assert.deepEqual(domain().habAction(6, he()), { label: 'Visite demandée le 10 oct.', intent: { type: 'medical', empId: 6 } });
   assert.deepEqual([echeance(6)!.planned, echeance(6)!.plannedLabel, echeance(6)!.action], [true, 'Visite demandée le 10 oct.', null]);
+  const d = domain(), echHe = d.echeances(d.enrich(90, false), 90).find(x => x.kind === 'hab' && x.emp.id === 6 && x.label === he().hm.nom)!;
+  assert.deepEqual([echHe.planned, echHe.plannedLabel], [true, 'Visite demandée le 10 oct.']);
   assert.equal(emp(6).med.text, 'Aptitude échue le 20 août 2026 — visite demandée le 10 oct. 2026');
   assert.throws(() => run(RH, 'medical.demander', { empId: 6 }), refus(/Visite déjà demandée le 10 oct\. 2026 pour Thomas Garnier/));
   assert.throws(() => run(RH, 'medical.demander', { empId: 3, motif: 'confort' }), refus(/Motif de visite inconnu/));

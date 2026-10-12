@@ -32,8 +32,9 @@ export function Chantiers() {
         {chant.map(x => {
           const dest = d.destOf(x.c.pays);
           const n = (st: GngStatus) => x.res.filter(r => r.status === st).length;
-          // Toujours : contrat en cours et aucune absence sur la présence ; hors de France, déplacement couvrant la présence et formalités.
-          const req = ['disponibilité (contrat, absences)', ...x.c.habs.map(h => d.hm(h).nom), ...x.c.certs.map(f => d.fm(f).court),
+          // Toujours : contrat en cours et aucune absence sur la présence, aptitude médicale du jour ; hors de France, déplacement
+          // couvrant la présence et formalités.
+          const req = ['disponibilité (contrat, absences)', 'aptitude médicale', ...x.c.habs.map(h => d.hm(h).nom), ...x.c.certs.map(f => d.fm(f).court),
             ...(x.c.pays !== 'FR' ? ['déplacement couvrant la présence', 'formalités de voyage et de détachement'] : [])];
           return (
             <article key={x.c.id} className={`card elev-sm pick${x === sel ? ' selected' : ''}`} onClick={() => setUi({ goSel: x.c.id })}>

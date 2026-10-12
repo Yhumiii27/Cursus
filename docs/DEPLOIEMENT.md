@@ -397,6 +397,11 @@ précède chaque mise en production.
    ```
 
 4. Vérifications après installation (ci-dessus).
+   Mise à jour vers la version qui suit les formalités de détachement (certificat A1 ou de la convention bilatérale,
+   information écrite au-delà de 4 semaines) : les déplacements déjà partis sont réputés en règle au premier démarrage
+   (journal : `migration.detachement`). Ceux à venir apparaissent « à faire » : le service RH saisit dès la mise à
+   jour les formalités déjà obtenues (écran Voyages, dossier du déplacement : « Enregistrer l’obtention »), faute de
+   quoi le Go / No Go transmis à Keystone reste en réserve jusqu'au départ, puis passe en No Go le jour du départ.
 5. En cas de problème : revenir à la version précédente (`git checkout <version>`, `npm ci`,
    `npm run build`), restaurer la sauvegarde et redémarrer.
 

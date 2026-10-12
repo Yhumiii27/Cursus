@@ -259,11 +259,13 @@ saisies ne changent pas.
 ## Verdict Go / No Go
 
 `GET /chantiers/{id}/go-no-go` — réévalué à chaque appel, pour chaque ressource : contrat en cours et
-aucune absence sur sa présence, habilitations et certifications exigées, valides sur les dates du
-chantier, et, hors de France, déplacement validé couvrant sa présence, formalités de voyage (passeport,
-visa, vaccinations) et de détachement (certificat de sécurité sociale, information écrite au-delà de
-4 semaines). La présence d'une ressource est celle de ses affectations, ramenée aux dates du chantier
-(sans affectation connue, les dates du chantier).
+aucune absence sur sa présence, aptitude médicale (le verdict seulement, selon l'état du jour),
+habilitations et certifications exigées, valides sur les dates du chantier, et, hors de France,
+déplacement validé couvrant sa présence, formalités de voyage (passeport, visa, vaccinations) et de
+détachement (certificat de sécurité sociale, information écrite au-delà de 4 semaines). La présence
+d'une ressource est celle de ses affectations, ramenée aux dates du chantier (sans affectation connue,
+les dates du chantier) ; sur un chantier en cours, seule compte la présence restante, à partir du jour
+même : une absence terminée ne bloque plus une ressource qui a repris.
 
 ```bash
 curl -s -H "X-Api-Key: $CLE" "$CURSUS/chantiers/K-2614/go-no-go"
@@ -306,8 +308,8 @@ curl -s -H "X-Api-Key: $CLE" "$CURSUS/chantiers/K-2614/go-no-go"
 | `CONTRAT` | contrat (CDD, mission d'intérim, alternance) qui se termine avant la fin de la présence, ou qui commence après son début (No Go) |
 | `ABSENCE` | absence validée ou signalée pendant la présence (No Go), demande d'absence en attente (réserve) ; jamais la nature de l'absence, même dans le libellé |
 | `DEPLACEMENT_PARTIEL` | déplacement qui ne couvre pas toute la présence : départ après le premier jour ou retour avant le dernier (réserve) |
-| `DETACHEMENT` | formalités de détachement à faire avant le départ (réserve) — certificat de sécurité sociale (A1 en Europe, formulaire de la convention bilatérale ailleurs, maintien au régime français sans convention) et, pour une mission de plus de 4 semaines, information écrite du salarié —, ou qui ne seront pas faites au départ (No Go) |
-| `APTITUDE` | avis d'inaptitude du médecin du travail (No Go) ; visite médicale périodique en retard ou à renouveler avant la fin de la présence, ou restrictions d'aptitude en vigueur pendant la présence : affectation à vérifier avec le service RH (réserve). Le verdict seulement : jamais la date d'une visite, l'avis détaillé ni le texte d'une restriction, même dans le libellé |
+| `DETACHEMENT` | formalités de détachement à faire avant le départ (réserve, même dans les derniers jours) — certificat de sécurité sociale (A1 en Europe, formulaire de la convention bilatérale ailleurs, maintien au régime français sans convention) et, pour une mission de plus de 4 semaines, information écrite du salarié —, ou non faites au départ (No Go, à partir du jour du départ) |
+| `APTITUDE` | aptitude médicale du jour : avis d'inaptitude du médecin du travail (No Go) ; aptitude non valide (visite médicale périodique en retard, aucune visite) ou restrictions d'aptitude en vigueur : affectation à vérifier avec le service RH (réserve, une seule). Le verdict seulement, jamais rapporté aux dates de présence : ni la date d'une visite, ni l'avis détaillé, ni l'existence ou le texte d'une restriction. Libellé du partage détaillé : « Inapte au poste » ou « Aptitude médicale à vérifier avec le service RH », quelle qu'en soit la cause |
 
 Un nouveau code de motif sera annoncé et ajouté à la spécification : Keystone doit traiter un code
 inconnu selon son `niveau`.

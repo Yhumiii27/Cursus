@@ -278,11 +278,13 @@ Règles dans `shared/rules/sante.ts` et `Domain.medInfo` (`shared/domain.ts`), a
 - **Demandes de visite** (table `demandesVisite`, `medical.demander`) : motif, date, auteur ; une seule en cours par
   collaborateur. Le service RH l'imprime pour le service de prévention et de santé au travail (identité, poste, motif,
   habilitations qui exigent l'aptitude, aucune donnée médicale) ; l'envoi par e-mail viendra avec le module d'e-mails. Tant
-  qu'elle est en cours, « Visite demandée le … » remplace l'action dans les échéances et les habilitations. La saisie d'une
-  visite datée du jour de la demande ou après la clôt (`realisee`) ; le service RH peut l'annuler (`medical.annuler`).
+  qu'elle est en cours, « Visite demandée le … » remplace l'action « Demander une visite médicale » : dans les échéances
+  (visite et habilitations qui en dépendent, affichées comme planifiées) et sur les habilitations (`Domain.habAction`, qui
+  ouvre la demande en cours : impression, annulation). La saisie d'une visite datée du jour de la demande ou après la
+  clôt (`realisee`) ; le service RH peut l'annuler (`medical.annuler`).
 - **Confidentialité** : dates de visite, avis daté et demandes sont réservés au service RH et à l'intéressé. Le manager reçoit
   `aptitude` (`aptitudeVueManager` : aptitude valide ou non, avis, restrictions en vigueur), aucune échéance datée ; Keystone,
-  le seul code `APTITUDE` (voir Go / No Go).
+  le seul code `APTITUDE`, selon l'état du jour, avec un libellé neutre en partage détaillé (voir Go / No Go).
 
 ## Sessions de formation
 
@@ -376,25 +378,32 @@ paie sera stocké. Contrat : `docs/API-KEYSTONE.md` et `docs/keystone-openapi.js
 `CODES_MOTIF` (`shared/constants.ts`), contrat `docs/API-KEYSTONE.md`.
 
 - **Présence** (`Domain.presence`) : affectations du salarié sur le chantier, ramenées aux dates du chantier et
-  fusionnées si elles se touchent ; sans affectation connue, les dates du chantier.
+  fusionnées si elles se touchent ; sans affectation connue, les dates du chantier. Disponibilité, déplacement et
+  formalités portent sur la présence restante (`Domain.presenceRestante`, à partir du jour même) : sur un chantier en
+  cours, une absence terminée ou une entrée déjà faite ne bloque plus ; une présence finie n'exige plus de déplacement.
 - **Disponibilité** (No Go) : contrat (CDD, intérim, alternance) qui finit avant la fin de la présence ou commence
   après son début (`CONTRAT`, `borneContrat`) ; absence validée ou signalée pendant la présence (`ABSENCE`), une
   demande en attente ne donnant qu'une réserve. Le libellé, même en partage détaillé, ne nomme jamais la nature.
-- **Aptitude médicale** (`APTITUDE`) : avis d'inaptitude (No Go) ; visite périodique en retard, ou aptitude à renouveler
-  avant la fin de la présence, et restrictions en vigueur pendant la présence (réserve : affectation à vérifier avec le
-  service RH), qu'une habilitation exigée dépende de l'aptitude ou non. Le verdict seulement, jamais une date ni une restriction.
+- **Aptitude médicale** (`APTITUDE`) : état du jour, jamais rapporté aux dates de présence que Keystone fixe lui-même
+  (des affectations sondes en déduiraient la date d'une visite ou la fin d'une restriction). Avis d'inaptitude : No Go ;
+  aptitude non valide (visite périodique en retard, aucune visite) ou restrictions en vigueur aujourd'hui : une seule
+  réserve (affectation à vérifier avec le service RH), qu'une habilitation exigée dépende de l'aptitude ou non. L'écran
+  Chantiers en donne la cause au service RH ; Keystone, en partage détaillé, un libellé neutre (`GngReason.transmis`).
 - **Titres** : habilitations et certifications exigées, valides sur les dates du chantier.
 - **Hors de France** : un déplacement rattaché au chantier, ou vers son pays pendant la présence (un voyage des mois
   plus tôt ne compte pas : `DEPLACEMENT`, à créer ou demande en attente). Chaque période de présence doit tenir dans
   un déplacement (départ au plus tard le premier jour, retour au plus tôt le dernier), sinon réserve
-  `DEPLACEMENT_PARTIEL`. Formalités du salarié (`FORMALITES_VOYAGE`) et de détachement (`DETACHEMENT`) : réserve
-  tant que leur délai d'obtention le permet, No Go au-delà (elles ne seront pas faites au départ).
+  `DEPLACEMENT_PARTIEL`. Formalités du salarié (`FORMALITES_VOYAGE`) : réserve tant que leur délai d'obtention le
+  permet, No Go au-delà. Formalités de détachement (`DETACHEMENT`) : réserve jusqu'au départ, même une fois le délai
+  indicatif entamé (« Urgent » au dossier voyage) ; No Go à partir du jour du départ si elles ne sont pas faites.
 - **Détachement** : la destination porte sa formalité de sécurité sociale (`Destination.secu` ; sinon `secuDe` la
   déduit du code pays : certificat A1 dans l'Union européenne, l'EEE, en Suisse et au Royaume-Uni, certificat de la
   convention bilatérale, ou maintien au régime français sans convention). Une mission de plus de 4 semaines
   (`MISSION_LONGUE_JOURS`) exige en plus l'information écrite du salarié avant son départ. Le service RH en
   enregistre les dates sur le déplacement (`voyage.detachement` : `detachementLe`, `informationLe`), écran Voyages ;
-  elles entrent dans le dossier voyage (`Domain.readiness`) et ne sont pas des données de santé.
+  elles entrent dans le dossier voyage (`Domain.readiness`) et ne sont pas des données de santé. À la mise à jour d'une
+  base antérieure, les déplacements déjà partis sont réputés en règle, une seule fois (`reprendreDetachements` de
+  `server/src/migrate.ts`, tracé dans le journal : `migration.detachement`).
 
 ## Absences hors congés
 

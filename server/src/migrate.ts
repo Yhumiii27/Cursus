@@ -1,13 +1,15 @@
 // Migrations de données des bases créées par une version antérieure de Cursus.
-import { VACCINS } from '../../shared/constants.ts';
+import { MISSION_LONGUE_JOURS, VACCINS } from '../../shared/constants.ts';
+import { days, parse } from '../../shared/dates.ts';
 import { Domain } from '../../shared/domain.ts';
-import { plural } from '../../shared/format.ts';
+import { matricule, plural } from '../../shared/format.ts';
 import { formaliteCle } from '../../shared/rules/formalites.ts';
 import { inscritsDe } from '../../shared/rules/sessions.ts';
 import type {
-  CurrentUser, Declaration, DemandeCollab, Destination, Participation, Session, SessionBilan, Vaccination, VaccinId, Visa,
+  CurrentUser, Declaration, DemandeCollab, Destination, Participation, Session, SessionBilan, Vaccination, VaccinId, Visa, Voyage,
 } from '../../shared/types.ts';
-import { loadFull } from './dataset.ts';
+import { journaliser } from './comptes.ts';
+import { loadFull, todayIso } from './dataset.ts';
 import type { Db } from './db.ts';
 import { migrerKeystone } from './integrations/keystone-entrant.ts';
 import { sauvegarderAvantMigration } from './sauvegarde.ts';
@@ -42,6 +44,46 @@ export function migrate(db: Db) {
   migrerKeystone(db, avant);
   validationParDefaut(db, avant);
   reprendreSessions(db, avant);
+  reprendreDetachements(db, avant);
+}
+
+/** Réglage : date de la reprise des formalités de détachement, faite une seule fois par base. */
+export const REPRISE_DETACHEMENT = 'repriseDetachement';
+
+/**
+ * Formalités de détachement (certificat de sécurité sociale, information écrite d'une mission de plus de 4 semaines) :
+ * une base antérieure à leur suivi n'en a aucune. Les déplacements déjà partis et pas encore rentrés à la mise à jour
+ * sont réputés en règle (formalités faites hors de Cursus, datées du départ) : sans cela, le premier recalcul enverrait
+ * à Keystone un No Go DETACHEMENT pour des salariés déjà sur place. Tracé dans le journal. Une seule fois par base : un
+ * déplacement parti ensuite sans formalité reste bloquant. Ceux à venir sont à compléter par le service RH (réserve
+ * jusqu'au départ ; docs/DEPLOIEMENT.md, « Mise à jour »).
+ */
+export function reprendreDetachements(db: Db, avant = () => {}) {
+  if (db.getSetting<string | null>(REPRISE_DETACHEMENT, null)) return;
+  const ti = todayIso();
+  const repris = db.all<Voyage>('voyages')
+    .filter(v => v.depart <= ti && v.retour >= ti)
+    .map(v => {
+      const longue = days(parse(v.depart), parse(v.retour)) + 1 > MISSION_LONGUE_JOURS;
+      const maj: Partial<Voyage> = {
+        ...(v.detachementLe ? {} : { detachementLe: v.depart }), ...(longue && !v.informationLe ? { informationLe: v.depart } : {}),
+      };
+      return { v, maj };
+    })
+    .filter(x => Object.keys(x.maj).length);
+  if (repris.length) {
+    avant();
+    db.tx(() => {
+      repris.forEach(({ v, maj }) => db.update<Voyage>('voyages', v.id, maj));
+      const message = `Reprise : formalités de détachement réputées faites au départ pour ${plural(repris.length, 'déplacement en cours', 'déplacements en cours')} à la mise à jour`;
+      journaliser(db, {
+        actor: 'Cursus', role: null, action: 'migration.detachement', message,
+        payload: { voyages: repris.map(({ v }) => ({ id: v.id, matricule: matricule(v.empId), dest: v.dest, depart: v.depart, retour: v.retour })) },
+      });
+    });
+    console.log(`Migration : formalités de détachement reprises pour ${plural(repris.length, 'déplacement en cours', 'déplacements en cours')}.`);
+  }
+  db.setSetting(REPRISE_DETACHEMENT, ti);
 }
 
 /** Auteur de la clôture des sessions reprises d'une base antérieure au cycle de vie des sessions. */

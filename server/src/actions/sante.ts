@@ -12,7 +12,8 @@ import { ActionError, getEmp, requireRh, type ActionHandler, type Ctx } from './
 /**
  * Demande de visite au service de prévention et de santé au travail : enregistrée (date, motif, auteur) et suivie
  * jusqu'à la saisie de la visite (`medical.avis`) ; une seule en cours par collaborateur. Le service RH la transmet
- * avec la demande imprimable de la fiche du collaborateur.
+ * avec la demande imprimable de la fiche du collaborateur. L'envoi par e-mail viendra avec le module d'e-mails : mis
+ * en file ici, dans la même transaction, sans aucune donnée médicale (comme la demande imprimable).
  */
 const demanderVisite: ActionHandler = (ctx, p) => {
   requireRh(ctx);

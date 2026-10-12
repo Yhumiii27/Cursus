@@ -17,6 +17,7 @@ const { ACTIONS, changeVerdicts } = await import('../server/src/actions/index.ts
 const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
 const { suivreVerdicts } = await import('../server/src/integrations/keystone-verdicts.ts');
 const { contexte, enregistrerAffectation, enregistrerChantier } = await import('../server/src/integrations/keystone-entrant.ts');
+const { migrate, REPRISE_DETACHEMENT } = await import('../server/src/migrate.ts');
 const { Domain } = await import('../shared/domain.ts');
 const { CODES_MOTIF, secuDe } = await import('../shared/constants.ts');
 const { matricule } = await import('../shared/format.ts');
@@ -85,10 +86,14 @@ test('t058 : un contrat qui finit pendant la présence bloque la ressource ; pr�
   run(RH, 'employe.modifier', { id: 15, fin: '2027-02-28' });
   assert.deepEqual(motifs('K-T1', 15), []);
 
-  // Entrée après le début de la présence : même motif.
-  const d = domain(), lucas = d.enrich(90, false).find(e => e.id === 4)!;
-  const r = d.resourceStatus(lucas, { ...d.chantier('K-T1')!, id: 'K-T0', debut: '2026-01-26', fin: '2026-02-06' }, []);
+  // Entrée après le début de la présence (vu le 20 janvier 2026, avant son arrivée) : même motif.
+  const d = domain('2026-01-20'), lucas = d.enrich(90, false).find(e => e.id === 4)!;
+  const t0 = { ...d.chantier('K-T1')!, id: 'K-T0', debut: '2026-01-26', fin: '2026-02-06' };
+  const r = d.resourceStatus(lucas, t0, []);
   assert.deepEqual(r.reasons.map(x => [x.code, x.level, x.minimal, x.detailed]), [['CONTRAT', 'nogo', 'Contrat non commencé au début du chantier', 'Entrée le 2 févr. 2026 — présence prévue du 26 janv. au 6 févr. 2026']]);
+  // Chantier en cours le 4 février : il est arrivé, la borne d'entrée ne compte plus.
+  const d4 = domain('2026-02-04');
+  assert.deepEqual(d4.resourceStatus(d4.enrich(90, false).find(e => e.id === 4)!, t0, []).reasons, []);
 });
 
 // — t185 : absences pendant le chantier —
@@ -128,6 +133,29 @@ test('t185 : une absence pendant la présence bloque la ressource, sans jamais s
   run(KARIM, 'absence.demander', { empId: 18, kind: 'RTT', du: '2026-11-09', au: '2026-11-09' });
   assert.deepEqual(motifs('K-2611', 18).filter(m => m.startsWith('ABSENCE')), ['ABSENCE:nogo']);
   assert.ok(!verdict('K-2614', 18).reasons.some(r => r.code === 'ABSENCE' && r.detailed.includes('9 nov.')));
+});
+
+test('t185 : chantier en cours — seule compte la présence restante : une absence terminée ne bloque plus', () => {
+  const { run, motifs, motif, chantier, domain, envoyes } = fresh();
+  // Sophie Lemaire, affectée du 1er au 30 octobre à un chantier en cours (aujourd'hui : 10 octobre).
+  chantier('K-EC', { nom: 'Maintenance en cours', lieu: 'Lyon', pays: 'FR', debut: '2026-10-01', fin: '2026-10-30' }, [[3, '2026-10-01', '2026-10-30']]);
+  const d = domain();
+  assert.deepEqual(d.presenceRestante(3, d.chantier('K-EC')!), [{ du: '2026-10-10', au: '2026-10-30' }]);
+  assert.deepEqual(motifs('K-EC', 3), []);
+  // Arrêt du 5 au 6 octobre, saisi après sa reprise : Go, rien n'est signalé à Keystone.
+  const avant = envoyes().length;
+  run(RH, 'absence.saisir', { empId: 3, nature: 'MALADIE', du: '2026-10-05', au: '2026-10-06', justificatif: true, justificatifLe: '2026-10-07' });
+  assert.deepEqual(motifs('K-EC', 3), []);
+  assert.equal(envoyes().length, avant);
+  // Vu le 4 octobre, avant l'arrêt : il tombait dans la présence, No Go.
+  assert.deepEqual(motifs('K-EC', 3, '2026-10-04'), ['ABSENCE:nogo']);
+  // Absence en cours (commencée hier) ou à venir : No Go.
+  run(RH, 'absence.saisir', { empId: 3, nature: 'MALADIE', du: '2026-10-09', au: '2026-10-12', justificatif: true, justificatifLe: '2026-10-10' });
+  assert.equal(motif('K-EC', 3, 'ABSENCE')!.detailed, 'Absent du 9 oct. au 12 oct. 2026');
+  // Présence finie (affectation jusqu'au 8 octobre) : plus rien à évaluer sur la disponibilité ni, à l'étranger, le déplacement.
+  chantier('K-EC2', { nom: 'Expertise', lieu: 'Tanger', pays: 'MA', debut: '2026-10-01', fin: '2026-10-30' }, [[3, '2026-10-01', '2026-10-08']]);
+  assert.deepEqual(domain().presenceRestante(3, domain().chantier('K-EC2')!), []);
+  assert.deepEqual(motifs('K-EC2', 3), []);
 });
 
 test('t185 : présence d’une ressource = ses affectations dans les dates du chantier', () => {
@@ -177,8 +205,10 @@ test('t084 : seul un déplacement couvrant toute la présence vaut ; un voyage d
   assert.ok(!motifs('K-2614', 6).some(m => m.startsWith('DEPLACEMENT')));
   assert.equal(voyages(6).length, 3);
   // Couverte : seules comptent les formalités du déplacement qui la couvre (celui du 28, sans certificat, est ignoré).
-  // Départ dans 16 jours, certificat de la convention (21 jours) pas demandé : il ne sera pas fait au départ.
-  assert.deepEqual(motifs('K-2614', 6).filter(m => m.startsWith('DETACHEMENT')), ['DETACHEMENT:nogo']);
+  // Départ dans 16 jours, certificat de la convention (21 jours indicatifs) pas demandé : réserve d'urgence ; No Go le jour du départ.
+  assert.deepEqual(motifs('K-2614', 6).filter(m => m.startsWith('DETACHEMENT')), ['DETACHEMENT:reserve']);
+  assert.equal(motif('K-2614', 6, 'DETACHEMENT')!.detailed, 'Détachement à préparer d’urgence : Certificat de détachement');
+  assert.equal(motif('K-2614', 6, 'DETACHEMENT', '2026-10-26')!.level, 'nogo');
   run(RH, 'voyage.detachement', { id: voyages(6).find(v => v.depart === '2026-10-26')!.id, detachementLe: '2026-10-09' });
   assert.ok(!motifs('K-2614', 6).some(m => m.startsWith('DETACHEMENT')));
   // Romain Chevalier : déplacement aux dates exactes du chantier, dossier complet (certificat de détachement obtenu).
@@ -201,15 +231,22 @@ test('t065 : régime de sécurité sociale par destination, A1 par défaut en Eu
   assert.match(d.destSummary(d.destOf('GH')!), /sécurité sociale : Maintien au régime français\.$/);
 });
 
-test('t065 : certificat de détachement à obtenir avant le départ — réserve, puis No Go s’il ne sera pas fait au départ', () => {
-  const { db, run, motifs, motif, envoyes, voyages } = fresh();
+test('t065 : certificat de détachement à obtenir avant le départ — réserve, puis No Go s’il n’est pas fait au départ', () => {
+  const { db, run, motifs, motif, envoyes, voyages, domain } = fresh();
   // Nicolas Perrin, São Paulo du 18 au 29 janvier : convention bilatérale, certificat pas encore demandé.
   const bresil = voyages(22).find(v => v.dest === 'BR')!;
   assert.deepEqual(motifs('K-2631', 22).filter(m => m.startsWith('DETACHEMENT')), ['DETACHEMENT:reserve']);
   assert.equal(motif('K-2631', 22, 'DETACHEMENT')!.detailed, 'Détachement à préparer : Certificat de détachement');
-  // Moins de 21 jours avant le départ, toujours rien : il ne sera pas fait au départ.
-  assert.equal(motif('K-2631', 22, 'DETACHEMENT', '2027-01-05')!.level, 'nogo');
-  assert.equal(motif('K-2631', 22, 'DETACHEMENT', '2027-01-05')!.minimal, 'Formalités de détachement non faites au départ');
+  // Moins de 21 jours avant le départ, toujours rien : délai indicatif entamé, « Urgent » au dossier voyage, mais réserve.
+  const d = domain('2027-01-05');
+  assert.equal(d.tripsAll().find(t => t.id === bresil.id)!.r.items.find(i => i.k === 'detachement')!.statut, 'Urgent');
+  assert.equal(motif('K-2631', 22, 'DETACHEMENT', '2027-01-05')!.level, 'reserve');
+  assert.equal(motif('K-2631', 22, 'DETACHEMENT', '2027-01-05')!.detailed, 'Détachement à préparer d’urgence : Certificat de détachement');
+  // Jour du départ sans certificat : il n'est pas fait au départ, No Go.
+  assert.equal(motif('K-2631', 22, 'DETACHEMENT', '2027-01-17')!.level, 'reserve');
+  assert.equal(motif('K-2631', 22, 'DETACHEMENT', '2027-01-18')!.level, 'nogo');
+  assert.equal(motif('K-2631', 22, 'DETACHEMENT', '2027-01-18')!.minimal, 'Formalités de détachement non faites au départ');
+  assert.equal(motif('K-2631', 22, 'DETACHEMENT', '2027-01-18')!.detailed, 'Détachement non fait au départ : Certificat de détachement');
 
   // Contrôles de la saisie.
   assert.throws(() => run(RH, 'voyage.detachement', { id: bresil.id, detachementLe: '2026-10-11' }), refus(/Certificat de détachement : la date ne peut pas être à venir/));
@@ -229,6 +266,22 @@ test('t065 : certificat de détachement à obtenir avant le départ — réserve
   run(RH, 'voyage.detachement', { id: bresil.id, detachementLe: '' });
   assert.equal(db.get<Voyage>('voyages', bresil.id)!.detachementLe, null);
   assert.deepEqual(motifs('K-2631', 22).filter(m => m.startsWith('DETACHEMENT')), ['DETACHEMENT:reserve']);
+});
+
+test('t065 : déplacement créé dans le délai indicatif de l’A1 — réserve (dossier « Urgent »), pas de No Go avant le départ', () => {
+  const { db, run, motifs, motif, chantier, voyages } = fresh();
+  db.insert('destinations', { code: 'DE', pays: 'Allemagne', visa: 'none', visaSub: 'espace Schengen', oblig: [], rec: [], passMois: 0 });
+  // Romain Chevalier en Allemagne les 15 et 16 octobre (A1 : 7 jours indicatifs) ; aujourd'hui, 10 octobre.
+  chantier('K-DE', { nom: 'Dépannage', lieu: 'Ludwigshafen', pays: 'DE', debut: '2026-10-15', fin: '2026-10-16' }, [[18, '2026-10-15', '2026-10-16']]);
+  assert.deepEqual(motifs('K-DE', 18), ['DEPLACEMENT:reserve']);
+  // Créer le déplacement n'aggrave pas le verdict : réserve, le temps de demander l'A1 en ligne.
+  run(RH, 'voyage.creer', { empId: 18, dest: 'DE', depart: '2026-10-15', retour: '2026-10-16', motif: 'Dépannage — Ludwigshafen' });
+  assert.deepEqual(motifs('K-DE', 18), ['DETACHEMENT:reserve']);
+  assert.equal(motif('K-DE', 18, 'DETACHEMENT')!.detailed, 'Détachement à préparer d’urgence : Certificat A1');
+  assert.equal(motif('K-DE', 18, 'DETACHEMENT', '2026-10-15')!.level, 'nogo');
+  // A1 obtenu le jour même : Go.
+  run(RH, 'voyage.detachement', { id: voyages(18).find(v => v.dest === 'DE')!.id, detachementLe: '2026-10-10' });
+  assert.deepEqual(motifs('K-DE', 18), []);
 });
 
 test('t065 : mission de plus de 4 semaines en Europe — certificat A1 et information écrite avant le départ', () => {
@@ -272,6 +325,34 @@ test('t065 : formalités de détachement de la démonstration et dossier vu par 
   const ch = d.evaluateChantiers(d.enrich(90, false), d.tripsAll()).find(x => x.c.id === 'K-2625')!;
   assert.equal(ch.res.find(r => r.e.id === 5)!.status, 'nogo');
   assert.ok(ch.res.find(r => r.e.id === 5)!.reasons.some(r => r.code === 'ABSENCE' && r.detailed === 'Absent le 4 déc. 2026'));
+});
+
+test('t065 : mise à jour d’une base antérieure — déplacements déjà partis réputés en règle (une fois, tracé), à venir en réserve', () => {
+  const { db, motifs, voyages } = fresh();
+  // Base antérieure au suivi du détachement (aucune formalité saisie), mise à jour le 1er novembre : Romain Chevalier est
+  // à Tanger depuis le 27 octobre, Karim Haddad part pour Abidjan le 9 novembre.
+  db.sql.exec('UPDATE voyages SET detachement_le = NULL, information_le = NULL');
+  const jour = process.env.CURSUS_TODAY;
+  process.env.CURSUS_TODAY = '2026-11-01';
+  try {
+    assert.ok(motifs('K-2614', 18).includes('DETACHEMENT:nogo'), 'sans reprise : No Go pour un salarié déjà sur place');
+    migrate(db);
+    assert.equal(voyages(18).find(v => v.dest === 'MA')!.detachementLe, '2026-10-27', 'réputé fait au départ');
+    assert.ok(!motifs('K-2614', 18).some(m => m.startsWith('DETACHEMENT')));
+    // Déplacement à venir : à compléter par le service RH, réserve jusqu'au départ.
+    assert.equal(voyages(12).find(v => v.dest === 'CI')!.detachementLe, null);
+    assert.ok(motifs('K-2611', 12).includes('DETACHEMENT:reserve'));
+    const j = db.all<{ action: string; actor: string; message: string; payload: Corps }>('journal').filter(x => x.action === 'migration.detachement');
+    assert.deepEqual(j.map(x => [x.actor, x.message]), [['Cursus', 'Reprise : formalités de détachement réputées faites au départ pour 1 déplacement en cours à la mise à jour']]);
+    assert.deepEqual(j[0].payload.voyages.map((v: Corps) => [v.matricule, v.dest, v.depart]), [['EMP-0018', 'MA', '2026-10-27']]);
+    assert.equal(db.getSetting(REPRISE_DETACHEMENT, null), '2026-11-01');
+    // Une seule fois : un déplacement parti ensuite sans formalité reste bloquant.
+    db.sql.exec(`UPDATE voyages SET detachement_le = NULL WHERE dest = 'MA'`);
+    migrate(db);
+    assert.ok(motifs('K-2614', 18).includes('DETACHEMENT:nogo'));
+  } finally {
+    process.env.CURSUS_TODAY = jour;
+  }
 });
 
 // — Contrat de l'API : chaque code documenté —

@@ -8,8 +8,9 @@ export function parse(s: ISODate): Date {
 export function iso(d: Date): ISODate {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 }
+/** Date « AAAA-MM-JJ » qui existe au calendrier : « 2026-02-31 » ou « 2026-13-45 » sont refusées, jamais décalées au mois suivant. */
 export function isValidDate(s: string | null | undefined): s is ISODate {
-  return /^\d{4}-\d{2}-\d{2}$/.test(s || '');
+  return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && iso(parse(s)) === s;
 }
 export function addMonths(d: Date, n: number): Date {
   const r = new Date(d.getTime());
@@ -36,18 +37,46 @@ export function mondayOf(s: ISODate): ISODate {
 export function wDays(w: ISODate): ISODate[] {
   return [0, 1, 2, 3, 4].map(i => addD(w, i));
 }
+/** Année de la semaine ISO de `s` : celle de son jeudi (la semaine du lundi 29 décembre 2025 est la semaine 1 de 2026). */
+export function isoWeekYear(s: ISODate): number {
+  return Number(addD(mondayOf(s), 3).slice(0, 4));
+}
 export function isoWeek(s: ISODate): number {
   const d = parse(s);
   const t = new Date(d.getFullYear(), d.getMonth(), d.getDate() + 3 - ((d.getDay() + 6) % 7));
   const w1 = new Date(t.getFullYear(), 0, 4);
   return 1 + Math.round(((t.getTime() - w1.getTime()) / 864e5 - 3 + ((w1.getDay() + 6) % 7)) / 7);
 }
-/** « 12/10/2026 », « 12.10.2026 » ou « 2026-10-12 » → ISO, sinon null. */
+/** « 12/10/2026 », « 12.10.2026 » ou « 2026-10-12 » → ISO ; null si la date n'existe pas (« 31/02/2026 »). */
 export function toIso(s: string | null | undefined): ISODate | null {
   const v = (s || '').trim();
   const m = /^(\d{1,2})[/.](\d{1,2})[/.](\d{4})$/.exec(v);
-  if (m) return `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}`;
-  return isValidDate(v) ? v : null;
+  const date = m ? `${m[3]}-${m[2].padStart(2, '0')}-${m[1].padStart(2, '0')}` : v;
+  return isValidDate(date) ? date : null;
+}
+
+// — Heure de Paris —
+// Le serveur peut tourner en UTC (hébergeur) : la date du jour et les horodatages sont calculés dans le fuseau
+// de l'entreprise, Europe/Paris, quel que soit celui de la machine.
+let paris: Intl.DateTimeFormat | null = null;
+function partiesParis(d: Date): Record<string, string> {
+  paris ??= new Intl.DateTimeFormat('fr-FR', {
+    timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit', hour: '2-digit', minute: '2-digit', second: '2-digit', hourCycle: 'h23',
+  });
+  return Object.fromEntries(paris.formatToParts(d).map(x => [x.type, x.value]));
+}
+/** Date du jour à Paris : entre minuit et 2 h, un serveur en UTC est encore la veille. */
+export function isoParis(d: Date = new Date()): ISODate {
+  const p = partiesParis(d);
+  return `${p.year}-${p.month}-${p.day}`;
+}
+/** Horodatage ISO 8601 à l'heure de Paris, avec son décalage réel : « 2026-01-15T09:05:09+01:00 » l'hiver, « +02:00 » l'été. */
+export function horodatageParis(d: Date = new Date()): string {
+  const p = partiesParis(d);
+  const local = Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second);
+  const ecart = Math.round((local - Math.floor(d.getTime() / 1000) * 1000) / 60000);
+  const h = String(Math.floor(Math.abs(ecart) / 60)).padStart(2, '0'), mn = String(Math.abs(ecart) % 60).padStart(2, '0');
+  return `${p.year}-${p.month}-${p.day}T${p.hour}:${p.minute}:${p.second}${ecart < 0 ? '-' : '+'}${h}:${mn}`;
 }
 
 // — Jours fériés français (métropole) —

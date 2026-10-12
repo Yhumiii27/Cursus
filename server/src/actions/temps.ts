@@ -1,10 +1,10 @@
 // Feuilles de temps : saisie, soumission, validation, transmission à Sage Paie.
-import { addD, isValidDate, isoWeek, mondayOf } from '../../../shared/dates.ts';
-import { matricule, num, plural } from '../../../shared/format.ts';
+import { addD, isValidDate, isoWeek, mondayOf, wDays } from '../../../shared/dates.ts';
+import { fH, matricule, num, plural } from '../../../shared/format.ts';
 import { jourHorsContrat, semaineHorsContrat } from '../../../shared/rules/absences.ts';
 import {
-  absenceCeJour, buildSagePayload, contratFige, demandesAbsence, demandesEnAttenteMessage, heuresSurAbsence, heuresSurAbsenceMessage, joursAbsence, sagePending,
-  semaineCouverte, suggestLines,
+  absenceCeJour, buildSagePayload, calcSheet, contratFige, demandesAbsence, demandesEnAttenteMessage, HEURES_JOUR_MAX, heuresSurAbsence, heuresSurAbsenceMessage,
+  joursAbsence, joursAuDela24, joursTexte, sagePending, semaineCouverte, suggestLines,
 } from '../../../shared/rules/temps.ts';
 import type { Employe, FeuilleTemps, LigneTemps } from '../../../shared/types.ts';
 import { pushToSage, SAGE_DOSSIER } from '../integrations/sage.ts';
@@ -34,6 +34,25 @@ function editable(ctx: Ctx, p: Record<string, any>): { emp: Employe; week: strin
   return { emp, week, sh };
 }
 
+/** Plus de 24 h sur une journée, toutes lignes cumulées : refusé (saisie, proposition Keystone, soumission, validation). */
+function controleJournees(sh: Pick<FeuilleTemps, 'week'>, lignes: LigneTemps[], quoi = 'Plus de 24 h') {
+  const jours = joursAuDela24(lignes);
+  if (jours.length) throw new ActionError(`${quoi} ${joursTexte(jours.map(i => wDays(sh.week)[i]))}, toutes lignes cumulées : une journée compte 24 h au plus`);
+}
+
+/**
+ * Durées maximales dépassées (10 h par jour, 48 h par semaine ; 13 h pour un forfait jours) : un motif est exigé,
+ * donné à la soumission (ou à la validation, quand le valideur a corrigé la feuille). Renvoie le motif à enregistrer.
+ */
+function motifDepassement(ctx: Ctx, emp: Employe, sh: FeuilleTemps, p: Record<string, any>, quand: string): string | null {
+  const { depassements } = calcSheet(ctx.d, emp, sh);
+  if (!depassements.length) return null;
+  const motif = str(p.motif) || sh.motifDepassement || '';
+  if (!motif) throw new ActionError(`${depassements.join(' ; ')} : indiquez le motif du dépassement ${quand}`);
+  if (motif.length > 500) throw new ActionError('Motif trop long (500 caractères au plus)');
+  return motif;
+}
+
 function saveLines(ctx: Ctx, sh: FeuilleTemps, lignes: LigneTemps[]) {
   // Une feuille corrigée par son valideur reste « soumise » ; une feuille renvoyée reste « à corriger ».
   ctx.db.update<FeuilleTemps>('feuilles', sh.id, { lignes, statut: sh.statut === 'rejetee' || sh.statut === 'soumise' ? sh.statut : 'brouillon' });
@@ -50,6 +69,10 @@ const setCell: ActionHandler = (ctx, p) => {
   const hors = v > 0 ? jourHorsContrat(emp, addD(sh.week, di)) : null;
   if (hors) throw new ActionError(`Hors contrat ce jour-là (${hors}) : aucune heure ne peut être saisie`);
   const lignes = sh.lignes.map((l, i) => i === li ? { ...l, h: l.h.map((x, j) => j === di ? v : x) } : l);
+  // Deux lignes de 20 h le même jour ne font pas une journée : 24 h au plus, toutes lignes cumulées (baisser une cellule
+  // d'une journée déjà au-delà, saisie avant ce contrôle, reste possible).
+  const jour = lignes.reduce((n, l) => n + num(l.h[di]), 0);
+  if (jour > HEURES_JOUR_MAX && v > num(sh.lignes[li].h[di])) throw new ActionError(`Plus de 24 h ce jour-là (${fH(jour)} toutes lignes cumulées) : une journée compte 24 h au plus`);
   saveLines(ctx, sh, lignes);
   return null;
 };
@@ -76,6 +99,7 @@ const suggest: ActionHandler = (ctx, p) => {
   const l = suggestLines(ctx.d, emp, week);
   // Rien de planifié cette semaine : la feuille n'est pas vidée.
   if (!l.length) throw new ActionError('Aucune tâche Keystone planifiée pour ce salarié cette semaine');
+  controleJournees(sh, l, 'Tâches Keystone de plus de 24 h');
   saveLines(ctx, sh, l);
   return `Heures proposées depuis les tâches Keystone — ${plural(l.length, 'ligne', 'lignes')}, à ajuster si besoin`;
 };
@@ -89,8 +113,11 @@ const submit: ActionHandler = (ctx, p) => {
   if (!(total > 0) && !couverte) throw new ActionError('Aucune heure saisie');
   const surAbsence = heuresSurAbsence(ctx.d, sh);
   if (surAbsence.length) throw new ActionError(heuresSurAbsenceMessage(surAbsence, 'avant de soumettre la feuille'));
+  controleJournees(sh, sh.lignes);
   // Le régime de temps de travail de la semaine est figé à la soumission.
-  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'soumise', comment: null, contrat: sh.contrat ?? contratFige(emp) });
+  const contrat = sh.contrat ?? contratFige(emp);
+  const motif = motifDepassement(ctx, emp, { ...sh, contrat }, p, 'avant de soumettre la feuille');
+  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'soumise', comment: null, contrat, motifDepassement: motif });
   return `Feuille de temps soumise ${ctx.d.mgrDest(ctx.d.mgrOf(emp))}${couverte ? ' — semaine d’absence, sans heure' : ''}`;
 };
 
@@ -112,9 +139,12 @@ const validate: ActionHandler = (ctx, p) => {
   // Demande d'absence en attente sur ces heures : à décider d'abord (même valideur), sinon elle ne pourrait plus être validée.
   const enAttente = heuresSurAbsence(ctx.d, sh, demandesAbsence(ctx.d));
   if (enAttente.length) throw new ActionError(demandesEnAttenteMessage(enAttente));
+  controleJournees(sh, sh.lignes);
+  const contrat = sh.contrat ?? contratFige(emp);
+  const motif = motifDepassement(ctx, emp, { ...sh, contrat }, p, 'avant de valider la feuille');
   // Seules les heures des projets Keystone lui sont renvoyées : ni activités internes (INT-*), ni cours en CFA (ECOLE).
   const projets = heuresKeystone(sh.lignes), keystone = Object.keys(projets).length > 0;
-  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat: sh.contrat ?? contratFige(emp) });
+  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif });
   if (keystone) sendToKeystone(ctx.db, { type: 'heures.validees', matricule: matricule(emp.id), semaine: sh.week, projets });
   return `Semaine ${isoWeek(sh.week)} validée${keystone ? ' — heures des projets Keystone renvoyées à Keystone' : ''}`;
 };

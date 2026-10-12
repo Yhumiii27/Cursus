@@ -7,6 +7,7 @@ import { fH, fJ, fmt, fmtShort, r1 } from '../format.ts';
 import type { Domain } from '../domain.ts';
 import type { AbsenceType, CongeType, Employe, ISODate, NatureAbsence } from '../types.ts';
 import { absenceActive, absenceBloque, borneContrat, joursDecomptes, natureDef, periodeTexte, uniteDecompte } from './absences.ts';
+import { conflitsDates } from './conflits.ts';
 import { calcSheet, heuresSurAbsence, joursTexte, type AbsenceJour } from './temps.ts';
 
 /** Nombre de mois (sur `n` à partir de `start`) où le salarié était présent à mi-mois. */
@@ -33,17 +34,94 @@ export function cpDroit(d: Domain, e: Employe) {
   return { acq, ageSupp, recu, accorde, droit: acq + ageSupp + recu };
 }
 
+/**
+ * Année de prise d'un jour de congé : les CP pris du 1er juin A au 31 mai A+1 sont ceux acquis du 1er juin A-1
+ * au 31 mai A, période de référence « A-1-A » (`periodeCp`). La période en cours est `anneeCp(d.ti)`.
+ */
+export const anneeCp = (s: ISODate) => Number(s.slice(0, 4)) - (s.slice(5) < '06-01' ? 1 : 0);
+/** Période de référence des CP à prendre à partir du 1er juin `A` : « 2025-2026 » pour 2026 (`cpPeriods(…).label`). */
+export const periodeCp = (A: number) => `${A - 1}-${A}`;
+
+/**
+ * Droits d'une période (`A` : année de prise) : ceux de la période en cours (`cpDroit`, reports compris) ; sinon les jours
+ * acquis du 1er juin A-1 au 31 mai A — pour une période à venir, ceux qui le seront d'ici là, dates du contrat comprises —
+ * et les 5 jours de la CCN à partir de 59 ans.
+ */
+function droitPeriode(d: Domain, e: Employe, A: number): number {
+  if (A === anneeCp(d.ti)) return cpDroit(d, e).droit;
+  return Math.ceil(25 / 12 * monthsPresent(e, `${A - 1}-06-01`, 12)) + (A - e.naissance >= 59 ? 5 : 0);
+}
+
+/** Jours acquis à la date `jour` sur la période `A`, en cours d'acquisition : 2,08 j par mois écoulé depuis le 1er juin A-1. */
+function acquisAu(e: Employe, A: number, jour: ISODate): number {
+  const mois = (Number(jour.slice(0, 4)) - (A - 1)) * 12 + Number(jour.slice(5, 7)) - 6;
+  return 25 / 12 * monthsPresent(e, `${A - 1}-06-01`, Math.max(0, Math.min(12, mois)));
+}
+
+/** Jour de CP imputé : `periode` est l'année de prise de la période qui le décompte (voir `anneeCp`). */
+export interface JourCp { jour: ISODate; statut: 'validee' | 'demandee' | 'nouveau'; periode: number; anticipe: boolean; horsDroit: boolean }
+
+/**
+ * Imputation des congés payés jour par jour, dans l'ordre chronologique (congés validés et demandés ; `nouveau` : la
+ * demande à contrôler). Chaque jour est décompté sur la période dont les congés se prennent à sa date : un congé de mai
+ * à juin est ventilé sur deux périodes, un congé de l'été prochain est décompté sur la période en cours d'acquisition.
+ * Période épuisée : le jour est pris par anticipation sur la période suivante, en cours d'acquisition, dans la limite
+ * des jours qui seront acquis à la date du congé (décision de l'entreprise) ; il en est déduit quand ses congés se
+ * prennent, au 1er juin. Au-delà, le jour est hors droit (solde insuffisant).
+ * Déjà consommés : les compteurs repris de l'ancien système (période en cours) et les jours placés sur le CET (par période).
+ */
+export function imputationCp(d: Domain, e: Employe, nouveau?: { du: ISODate; au: ISODate }): JourCp[] {
+  const droits = new Map<number, number>(), imputes = new Map<number, number>();
+  const droit = (A: number) => droits.get(A) ?? droits.set(A, droitPeriode(d, e, A)).get(A)!;
+  const impute = (A: number) => imputes.get(A) ?? 0;
+  const ajoute = (A: number, n: number) => imputes.set(A, impute(A) + n);
+  /** Encore un jour de place sur la période `A` dans la limite donnée (droits, ou jours acquis à la date). */
+  const place = (A: number, limite: number) => impute(A) + 1 <= limite + 1e-9;
+  ajoute(anneeCp(d.ti), reprise(d, e.id).cpPris);
+  d.ds.cet.filter(x => x.empId === e.id && x.type === 'CP').forEach(x => ajoute(Number(x.periode.slice(-4)), x.jours));
+  const conges: { du: ISODate; au: ISODate; statut: JourCp['statut'] }[] = [
+    ...d.ds.absences.filter(a => a.empId === e.id && a.type === 'CP' && (a.statut === 'validee' || a.statut === 'demandee'))
+      .map(a => ({ du: a.du, au: a.au, statut: a.statut as 'validee' | 'demandee' })),
+    ...(nouveau ? [{ ...nouveau, statut: 'nouveau' as const }] : []),
+  ];
+  return conges
+    .flatMap(a => d.countedDays(e, a.du, a.au, 'CP').map(jour => ({ jour, statut: a.statut })))
+    .sort((x, y) => x.jour.localeCompare(y.jour))
+    .map(({ jour, statut }) => {
+      const A = anneeCp(jour);
+      if (place(A, droit(A))) { ajoute(A, 1); return { jour, statut, periode: A, anticipe: false, horsDroit: false }; }
+      if (place(A + 1, acquisAu(e, A + 1, jour))) { ajoute(A + 1, 1); return { jour, statut, periode: A + 1, anticipe: true, horsDroit: false }; }
+      ajoute(A, 1);
+      return { jour, statut, periode: A, anticipe: false, horsDroit: true };
+    });
+}
+
+/** Solde d'une période (`A` : année de prise) : droits moins jours imputés (validés, demandés, CET, compteurs repris). */
+function soldePeriode(d: Domain, e: Employe, A: number): number {
+  const cet = d.ds.cet.filter(x => x.empId === e.id && x.type === 'CP' && Number(x.periode.slice(-4)) === A).reduce((n, x) => n + x.jours, 0);
+  const repris = A === anneeCp(d.ti) ? reprise(d, e.id).cpPris : 0;
+  return droitPeriode(d, e, A) - imputationCp(d, e).filter(j => j.periode === A).length - cet - repris;
+}
+
+/**
+ * Solde CP de la période en cours : droits moins jours pris (compteurs repris, congés validés, CET) et posés (demandes),
+ * chaque jour imputé sur sa période (`imputationCp`). `suivante` : jours déjà imputés sur la période en cours
+ * d'acquisition (pris par anticipation — `anticipes` — ou posés à partir du 1er juin prochain).
+ */
 export function cpInfo(d: Domain, e: Employe) {
   const c = d.contratOf(e);
   if (c.interim) return null;
-  const P = cpPeriods(d.ti);
+  const P = cpPeriods(d.ti), A = anneeCp(d.ti);
   const base = cpDroit(d, e);
-  const absD = (st: string) => d.ds.absences
-    .filter(a => a.empId === e.id && a.type === 'CP' && a.statut === st && a.du >= P.prisStart)
-    .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'CP'), 0);
+  const jours = imputationCp(d, e);
+  const sur = (periode: number, statut: JourCp['statut']) => jours.filter(j => j.periode === periode && j.statut === statut).length;
   const cetCp = d.ds.cet.filter(x => x.empId === e.id && x.type === 'CP' && x.periode === P.label).reduce((n, x) => n + x.jours, 0);
-  const pris = reprise(d, e.id).cpPris + absD('validee') + cetCp, poses = absD('demandee');
-  return { ...base, cetCp, pris, poses, solde: base.droit - pris - poses, enCours: r1(25 / 12 * monthsPresent(e, P.prisStart, P.monthsElapsed)), periodes: P };
+  const pris = reprise(d, e.id).cpPris + sur(A, 'validee') + cetCp, poses = sur(A, 'demandee');
+  const suivante = jours.filter(j => j.periode === A + 1).length, anticipes = jours.filter(j => j.periode === A + 1 && j.anticipe).length;
+  return {
+    ...base, cetCp, pris, poses, solde: base.droit - pris - poses, suivante, anticipes,
+    enCours: r1(25 / 12 * monthsPresent(e, P.prisStart, P.monthsElapsed)), periodes: P,
+  };
 }
 
 /** Jours de repos d'un forfait annuel en jours (218 par défaut) pour l'année civile. */
@@ -59,16 +137,18 @@ export function reposForfait(year: number, joursForfait = 218): number {
 }
 
 /**
- * RTT (39 h) ou jours de repos (forfait jours) : droit annuel, au prorata quand l'entrée ou le passage
- * au régime actuel (`tempsDepuis`) intervient en cours d'année. Intérim : aucun droit dans Cursus.
+ * RTT (39 h) ou jours de repos (forfait jours) : droit annuel, au prorata des mois de l'année passés sous le régime
+ * actuel — de l'entrée ou du passage au régime (`tempsDepuis`) jusqu'à la fin du contrat (CDD, alternance), mois
+ * commencés inclus. Un CDD de janvier à mars reçoit 3/12 du droit annuel. Intérim : aucun droit dans Cursus.
  */
 export function rttDroit(d: Domain, e: Employe): number | null {
   const c = d.contratOf(e);
   if (c.interim || (!c.rtt && !c.forfait)) return null;
   const Y = d.year;
-  const depuis = [e.entree, e.tempsDepuis ?? ''].sort().at(-1)!;
-  const prorata = depuis > `${Y}-12-31` ? 0 : depuis > `${Y}-01-01` ? (12 - parse(depuis).getMonth()) / 12 : 1;
-  return Math.round((c.forfait ? reposForfait(Y, c.joursForfait) : Number(d.ds.settings.rtt39) || 0) * prorata);
+  const depuis = [e.entree, e.tempsDepuis ?? '', `${Y}-01-01`].sort().at(-1)!;
+  const jusqua = e.fin && e.fin < `${Y}-12-31` ? e.fin : `${Y}-12-31`;
+  const mois = jusqua < depuis ? 0 : parse(jusqua).getMonth() - parse(depuis).getMonth() + 1;
+  return Math.round((c.forfait ? reposForfait(Y, c.joursForfait) : Number(d.ds.settings.rtt39) || 0) * mois / 12);
 }
 
 export function rttInfo(d: Domain, e: Employe) {
@@ -156,8 +236,14 @@ export function checkAbsence(d: Domain, e: Employe, kind: CongeType, du: string,
   const hors = valid ? borneContrat(e, du, au) : null;
   const overlap = valid && d.ds.absences.some(a => a.empId === e.id && absenceActive(a) && a.du <= au && a.au >= du);
   const m = valid ? d.ds.missions.find(x => x.empId === e.id && x.du <= au && x.au >= du) : undefined;
-  const anticip = kind === 'CP' && !!cp && n > cp.solde && n <= cp.solde + cp.enCours;
-  const insuff = n > dispo && !anticip;
+  // Congés payés : chaque jour est imputé sur sa période (`imputationCp`). Insuffisant si la demande laisse des jours hors
+  // droit — les siens, ou ceux d'un congé déjà posé plus tard, qu'elle repousserait au-delà des jours acquis.
+  const cpJours = kind === 'CP' && cp && valid ? imputationCp(d, e, { du, au }) : null;
+  const nouveaux = cpJours ? cpJours.filter(j => j.statut === 'nouveau') : [];
+  const horsDroit = !!cpJours && cpJours.filter(j => j.horsDroit).length > imputationCp(d, e).filter(j => j.horsDroit).length;
+  const anticip = !horsDroit && nouveaux.some(j => j.anticipe);
+  const autres = [...new Set(nouveaux.filter(j => !j.anticipe && j.periode !== anneeCp(d.ti)).map(j => j.periode))];
+  const insuff = cpJours ? horsDroit : n > dispo;
   const rttLate = kind === 'RTT' && valid && au > `${d.year}-12-31`;
   const heures = valid ? heuresAvantAbsence(d, { empId: e.id, type: kind, du, au }, valider ? 'avant de poser l’absence' : 'avant la validation de l’absence') : null;
   const heuresBloquent = !!heures && (valider || heures.validee);
@@ -166,13 +252,23 @@ export function checkAbsence(d: Domain, e: Employe, kind: CongeType, du: string,
   if (valid) add(`Décompte : ${fJ(n)} ${kind === 'CP' ? 'ouvrés' : 'travaillés'} — week-ends et jours fériés exclus${kind !== 'CP' && c.jourOff.length ? ', jour non travaillé exclu' : ''}.`);
   if (hors) add(`Absence hors contrat : ${hors}.`, true);
   if (overlap) add('Une absence existe déjà sur ces dates.', true);
-  if (insuff) add('Solde insuffisant pour cette demande.', true);
-  if (anticip) add('Prise par anticipation sur les congés en cours d’acquisition — soumise à l’accord du manager.');
+  if (insuff) add(cpJours ? 'Solde insuffisant pour cette demande, même par anticipation sur les jours acquis à la date du congé.' : 'Solde insuffisant pour cette demande.', true);
+  autres.forEach(A => add(`Congés imputés sur la période ${periodeCp(A)}, dont les droits se prennent à partir du 1er juin ${A}.`));
+  if (anticip) {
+    const A = Math.max(...nouveaux.filter(j => j.anticipe).map(j => j.periode));
+    add(`Prise par anticipation sur les congés en cours d’acquisition (période ${periodeCp(A)}), dans la limite des jours acquis à la date du congé — soumise à l’accord du manager.`);
+  }
   if (rttLate) add(`Les RTT ${d.year} doivent être pris avant le 31 décembre : ils ne sont pas reportables.`, true);
   if (heures) add(heures.text, heuresBloquent);
   if (m) add(`Affecté au chantier ${m.projet} (${m.lieu}, ${fmtShort(parse(m.du))} → ${fmtShort(parse(m.au))}) — le chef de projet sera notifié dans Keystone.`, true);
+  // Session de formation, déplacement ou entretien prévus ces jours-là : à reprogrammer si l'absence est accordée.
+  if (valid) conflitsDates(d, e.id, du, au, 'absence').forEach(x => add(`${x.text} : à reprogrammer si l’absence est accordée.`));
   if (e.fin && kind === 'CP') add(`Fin de contrat le ${fmt(parse(e.fin))} : les CP non pris donneront lieu à une indemnité compensatrice.`);
-  const soldeLabel = kind === 'RECUP' && rc ? `Disponible : ${fH(rc.solde)} (≈ ${fJ(rc.solde / rc.dh)})` : `Disponible : ${fJ(dispo)}`;
+  // Congé de l'été prochain : solde de la période sur laquelle il est imputé.
+  const Ademande = cpJours ? anneeCp(du) : null;
+  const soldeLabel = kind === 'RECUP' && rc ? `Disponible : ${fH(rc.solde)} (≈ ${fJ(rc.solde / rc.dh)})`
+    : Ademande != null && Ademande !== anneeCp(d.ti) ? `Disponible sur la période ${periodeCp(Ademande)} : ${fJ(soldePeriode(d, e, Ademande))}`
+    : `Disponible : ${fJ(dispo)}`;
   const cant = !valid || n === 0 || !!hors || overlap || insuff || rttLate || heuresBloquent || !kinds.some(k => k[0] === kind);
   return { valid, n, dispo, msgs, soldeLabel, cant, kinds };
 }
@@ -212,6 +308,8 @@ export function checkNature(d: Domain, e: Employe, type: NatureAbsence | 'ABSENC
       : `Durée légale : ${duree} (${def.article}).`);
   }
   if (m) add(`Affecté au chantier ${m.projet} (${m.lieu}, ${fmtShort(parse(m.du))} → ${fmtShort(parse(m.au))}) — Keystone reçoit l’indisponibilité.`);
+  // Session de formation, déplacement ou entretien prévus pendant l'absence : à reprogrammer.
+  if (valid) conflitsDates(d, e.id, du, au, 'absence').forEach(x => add(`${x.text} : à reprogrammer.`));
   const cant = !valid || !!hors || !!autre || !!heures || (type !== 'ABSENCE' && !def);
   return { valid, n, unite, msgs, cant, def };
 }

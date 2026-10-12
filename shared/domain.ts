@@ -205,16 +205,21 @@ export class Domain {
    * où le salarié aurait dû travailler), puis comptent comme jours ouvrés.
    */
   countDays(e: Employe, du: ISODate, au: ISODate, kind: string): number {
-    let n = 0, started = false;
+    return this.countedDays(e, du, au, kind).length;
+  }
+  /** Les jours décomptés eux-mêmes (même règle que `countDays`), pour imputer chacun sur sa période (CP). */
+  countedDays(e: Employe, du: ISODate, au: ISODate, kind: string): ISODate[] {
+    const out: ISODate[] = [];
+    let started = false;
     const off = this.contratOf(e).jourOff;
     for (let s = du; s <= au; s = addD(s, 1)) {
       const wd = weekday(s);
       if (wd > 4 || isFerie(s)) continue;
       if (off.includes(wd) && (kind !== 'CP' || !started)) continue;
       started = true;
-      n++;
+      out.push(s);
     }
-    return n;
+    return out;
   }
 
   // — Formations —
@@ -428,13 +433,19 @@ export class Domain {
     return { dest, dep, ret, toGo, items, todo, status: late ? 'bloc' : todo ? 'todo' : 'pret' };
   }
 
-  /** Déplacements non terminés, avec l'état de préparation du dossier. */
+  /**
+   * Déplacements non terminés, avec l'état de préparation du dossier. Pour le manager, les vaccinations ne sont pas
+   * transmises : l'état est celui calculé par le serveur (`tripStatus`), pas celui des pièces reçues.
+   */
   tripsAll(): TripX[] {
     return this.ds.voyages
       .map(t => ({ t, emp: this.emp(t.empId) }))
       .filter((x): x is { t: Voyage; emp: Employe } => !!x.emp && x.t.retour >= this.ti)
       .sort((a, b) => a.t.depart.localeCompare(b.t.depart))
-      .map(({ t, emp }) => ({ ...t, emp, r: this.readiness(emp, t) }));
+      .map(({ t, emp }) => {
+        const r = this.readiness(emp, t);
+        return { ...t, emp, r: t.dossierStatut ? { ...r, status: t.dossierStatut } : r };
+      });
   }
   /** État du dossier voyage — précalculé par le serveur quand les pièces ne sont pas transmises. */
   tripStatus(t: Voyage): TripStatus {

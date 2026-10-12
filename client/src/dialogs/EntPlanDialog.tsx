@@ -1,9 +1,13 @@
 // Planifier un entretien (parcours professionnel, état des lieux, annuel, forfait jours) et convoquer le salarié.
+// Un seul entretien planifié par type : déjà prévu, il bloque ; passé sans avoir été tenu, il est reprogrammé.
+// Conflits de dates contrôlés en direct : salarié absent (bloquant), déplacement, session ou autre entretien (avertissement).
 import { useState } from 'react';
 import { ENT_TYPES } from '../../../shared/constants.ts';
 import { isValidDate } from '../../../shared/dates.ts';
+import { fmtIso } from '../../../shared/format.ts';
+import { blocage, conflitsDates, type Conflit } from '../../../shared/rules/conflits.ts';
 import type { EntretienType } from '../../../shared/types.ts';
-import { CancelButton, Dialog, Field } from '../components/Dialog.tsx';
+import { CancelButton, Controles, Dialog, Field } from '../components/Dialog.tsx';
 import { Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -16,7 +20,14 @@ export function EntPlanDialog({ empId, kind: kind0 }: { empId: number; kind: Ent
   const [busy, setBusy] = useState(false);
   const emp = d.emp(empId);
   if (!emp) return null;
-  const cant = !isValidDate(date) || date < d.ti;
+  const prevu = d.ds.entretiens.find(x => x.empId === empId && x.type === kind && x.statut === 'planifie');
+  const msgs: Conflit[] = [
+    ...(!prevu ? [] : prevu.date >= d.ti
+      ? [{ text: `${ENT_TYPES[kind].nom} déjà planifié le ${fmtIso(prevu.date)} : clôturez-le une fois tenu.`, bad: true }]
+      : [{ text: `${ENT_TYPES[kind].nom} prévu le ${fmtIso(prevu.date)}, non tenu : il sera reprogrammé à cette date.`, bad: false }]),
+    ...(isValidDate(date) ? conflitsDates(d, empId, date, date, 'entretien', { entretienId: prevu?.id }) : []),
+  ];
+  const cant = !isValidDate(date) || date < d.ti || !!blocage(msgs);
 
   const confirm = async () => {
     setBusy(true);
@@ -38,6 +49,7 @@ export function EntPlanDialog({ empId, kind: kind0 }: { empId: number; kind: Ent
       <Field label="Date" htmlFor="ep-d">
         <input className="input" id="ep-d" type="date" min={d.ti} value={date} onChange={e => setDate(e.target.value)} />
       </Field>
+      <Controles msgs={msgs} />
       <div style={{ fontSize: 13 }}>Évaluateur : {d.mgrName(d.mgrOf(emp))}</div>
       <Fine>{ENT_TYPES[kind].base}</Fine>
     </Dialog>

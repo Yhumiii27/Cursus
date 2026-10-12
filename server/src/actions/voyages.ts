@@ -2,6 +2,7 @@
 import { VACCINS } from '../../../shared/constants.ts';
 import { isValidDate, parse } from '../../../shared/dates.ts';
 import { fmt, matricule, plural } from '../../../shared/format.ts';
+import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
 import { declarationLabel, estAuDossier, formaliteCle, lignesAuDossier, lireFormalite } from '../../../shared/rules/formalites.ts';
 import { parseTrips } from '../../../shared/rules/imports.ts';
 import type { Declaration, DemandeCollab, DemandeKeystone, Employe, Vaccination, Visa, Voyage } from '../../../shared/types.ts';
@@ -16,6 +17,9 @@ const creer: ActionHandler = (ctx, p) => {
   const motif = str(p.motif);
   if (!dest) throw new ActionError('Destination hors référentiel');
   if (!isValidDate(p.depart) || !isValidDate(p.retour) || p.retour < p.depart || !motif) throw new ActionError('Dates et motif requis');
+  // Déjà en déplacement ces jours-là, ou absent (congé validé, arrêt…) : refusé.
+  const conflit = blocage(conflitsDates(ctx.d, emp.id, p.depart, p.retour, 'voyage'));
+  if (conflit) throw new ActionError(conflit);
   const t = ctx.db.insert<Voyage>('voyages', { empId: emp.id, dest: dest.code, depart: p.depart, retour: p.retour, motif, origine: 'cursus', ref: null, chantier: null });
   const r = ctx.d.readiness(emp, t);
   return { message: `Déplacement créé — ${emp.nom}, ${dest.pays} · ${r.todo ? plural(r.todo, 'formalité à prévoir', 'formalités à prévoir') : 'dossier complet'}`, result: { id: t.id } };

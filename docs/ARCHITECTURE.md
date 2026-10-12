@@ -9,10 +9,11 @@ fois dans `shared/` et utilisées des deux côtés.
 shared/            Domaine partagé (aucune dépendance)
   types.ts         Modèle de données (Dataset = instantané visible par l'utilisateur)
   constants.ts     Libellés, classes de statut, règles fixes (contrats, visas, vaccins, entretiens)
-  dates.ts         Dates ISO, jours fériés calculés, périodes de référence CP
+  dates.ts         Dates ISO (dates impossibles refusées), semaines ISO, jours fériés calculés, périodes de référence CP,
+                   date du jour et horodatage à l'heure de Paris
   format.ts        Mise en forme française (dates, heures, jours, euros, pluriels)
   domain.ts        Classe Domain : conformité, habilitations, voyages, échéances, Go / No Go
-  rules/           temps.ts, conges.ts, entretiens.ts, budget.ts, imports.ts
+  rules/           temps.ts, conges.ts, entretiens.ts, budget.ts, imports.ts ; conflits.ts : doublons et conflits de dates
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   seed.ts          Données de démonstration
@@ -172,7 +173,7 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `equipe.supprimer` | nom | administrateur RH |
 | `equipe.manager` | nom, managerId (null = aucun) | RH |
 | `equipe.affecter` | empId, equipe (null = à affecter) | RH ; manager : ajout à une équipe qu'il encadre, retrait d'un membre |
-| `plan.inscrire` | empId, certId (recyclage) ou inscriptionId (formation initiale à replanifier), sessionId, conv (`now`/`later`) ; refusé depuis une session passée non clôturée | RH, manager direct |
+| `plan.inscrire` | empId, certId (recyclage) ou inscriptionId (formation initiale à replanifier), sessionId, conv (`now`/`later`) ; refusé depuis une session passée non clôturée, et si le salarié est absent ou inscrit à une autre session ce jour-là | RH, manager direct |
 | `cert.ajouter` | empId, f, date | RH |
 | `session.creer` | f, date (postérieure à aujourd’hui), lieu, places (entier ≥ 1), planId? (action « prévue » de la même formation) | RH |
 | `session.confirmer` | id | RH |
@@ -185,9 +186,9 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `hab.retirer` | empId, h, motif, date? | RH |
 | `medical.demander` | empId | RH |
 | `demande.accepter` / `demande.refuser` | id | RH |
-| `demande.formation` | f (ou `autre`), libelle, sessionId, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
+| `demande.formation` | f (ou `autre`), libelle, sessionId, motif, empId (manager) ; refusée si une demande identique attend (même formation, ou même intitulé hors catalogue), si le salarié est déjà inscrit à une session à venir, ou absent le jour de la session souhaitée | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `demande.habilitation` | h, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
-| `voyage.creer` | empId, dest, depart, retour, motif | RH |
+| `voyage.creer` | empId, dest, depart, retour, motif ; refusé s'il chevauche un autre déplacement ou une absence en vigueur | RH |
 | `formalite.enregistrer` | empId, kind (`passeport`/`visa`/`vaccin`), numero, expire, dest, visaType, obtenu, v, date | RH (écrit dans le dossier), ou le collaborateur pour lui-même (déclaration en attente, voir ci-dessous) |
 | `voyages.importer` | texte (CSV) | RH |
 | `keystone.accepter` / `keystone.refuser` | id | RH (demande en attente ; l'acceptation revalide affectation, chantier actif, destination, effectifs et l'absence de déplacement déjà créé ; la demande reste en base avec statut, date et décideur) |
@@ -196,8 +197,8 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `plan.avancer` | id | RH |
 | `temps.setCell` | empId, week, li, di, value | salarié, manager direct ou RH (feuille soumise : valideur uniquement) ; aucune heure un jour d’absence validée ou signalée, ni hors contrat, vider la cellule reste possible ; pas de feuille pour une semaine hors contrat |
 | `temps.addLine` / `temps.removeLine` | empId, week, projet / li | idem |
-| `temps.suggest` / `temps.submit` | empId, week | idem (soumission : brouillon ou à corriger, sans heures un jour d’absence validée ; semaine entièrement couverte par une absence : sans heure) |
-| `temps.validate` / `temps.reject` | empId, week, comment? | manager direct ou RH (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence) |
+| `temps.suggest` / `temps.submit` | empId, week, motif? | idem (soumission : brouillon ou à corriger, sans heures un jour d’absence validée ; semaine entièrement couverte par une absence : sans heure ; 24 h par jour au plus, toutes lignes cumulées ; motif exigé au-delà de 10 h par jour ou 48 h par semaine, 13 h pour un forfait jours) |
+| `temps.validate` / `temps.reject` | empId, week, comment?, motif? | manager direct ou RH (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence ; 24 h par jour au plus ; motif du dépassement exigé s'il manque, après une correction du valideur) |
 | `temps.pushSage` | — | administrateur RH |
 | `absence.demander` | empId, kind (`CP`/`RTT`/`RECUP`), du, au | intéressé ou RH (demande, refusée si ces jours portent des heures sur une feuille validée) ; manager direct (posée et validée, refusée si des heures sont saisies ces jours-là) |
 | `absence.decider` | id, ok | manager direct ou RH (validation refusée si des heures sont saisies ces jours-là) |
@@ -208,9 +209,9 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `absence.annuler` | id | demande : intéressé ou RH ; absence à venir : manager direct ou RH (et l’intéressé pour son propre signalement, ni qualifié ni prolongé) ; commencée ou passée : RH ; hors périmètre : refus unique (403) |
 | `cet.placer` | empId, kind, jours | intéressé ou RH |
 | `report.accorder` | empId, jours, motif | RH |
-| `entretien.planifier` | empId, kind, date | manager direct ou RH |
+| `entretien.planifier` | empId, kind, date ; un seul entretien planifié par type (un entretien passé, non tenu, est reprogrammé) ; refusé un jour d'absence du salarié | manager direct ou RH |
 | `entretien.modifier` | id, section?, value?, info? | évaluateur / salarié selon la section |
-| `entretien.clore` | id | évaluateur |
+| `entretien.clore` | id, date? (jour où l'entretien a eu lieu, aujourd'hui au plus tard ; exigée pour un entretien prévu à une date à venir) | évaluateur |
 | `entretien.signer` | id | salarié |
 | `parametres.maj` | horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, silent? | administrateur RH |
 | `demo.reinitialiser` | — | administrateur RH, mode démonstration |
@@ -341,6 +342,42 @@ Les salariés sont désignés par `matricule()` (`shared/format.ts`) ; la corres
 faite à un seul endroit (`contexte()` de keystone-entrant.ts), à reprendre quand le matricule de
 paie sera stocké. Contrat : `docs/API-KEYSTONE.md` et `docs/keystone-openapi.json` (codes de motif :
 `CODES_MOTIF` de `shared/constants.ts`).
+
+## Dates, temps de travail et congés payés
+
+- **Dates** : `isValidDate` (`shared/dates.ts`) n'accepte qu'une date qui existe au calendrier (« 2026-02-31 » est refusée,
+  jamais décalée au mois suivant) ; `toIso` (import CSV) aussi. La date du jour (`todayIso` de `server/src/dataset.ts`) est
+  celle de Paris (`isoParis`), quel que soit le fuseau du serveur ; la transmission à Sage est horodatée à l'heure réelle,
+  décalage d'hiver ou d'été compris (`horodatageParis`).
+- **Semaines** : l'année d'une semaine ISO est celle de son jeudi (`isoWeekYear`) : la semaine du lundi 29 décembre 2025
+  part à Sage en « 2026-S01 ». Le cumul du forfait annuel en heures (`cumulAnnuel`) ventile une semaine à cheval jour par jour.
+- **Durées** : une journée compte 24 h au plus, toutes lignes de la feuille cumulées (saisie, proposition Keystone,
+  soumission, validation). Au-delà des durées maximales (`SheetCalc.depassements`), la soumission exige un motif
+  (`FeuilleTemps.motifDepassement`), affiché au valideur ; s'il a lui-même porté la feuille au-delà, il le donne en validant.
+- **RTT et jours de repos** (`rttDroit`) : au prorata des mois passés dans l'année sous le régime actuel, de l'entrée (ou
+  du changement de régime) à la fin du contrat, mois commencés inclus.
+- **Congés payés** (`imputationCp` de `shared/rules/conges.ts`) : chaque jour de CP, validé ou demandé, est imputé dans
+  l'ordre chronologique sur la période dont les droits se prennent à sa date (`anneeCp` : du 1er juin A au 31 mai A+1, les
+  CP acquis du 1er juin A-1 au 31 mai A). Un congé de mai à juin est réparti sur deux périodes ; un congé de l'été prochain
+  est décompté sur la période en cours d'acquisition. Période épuisée : prise par anticipation sur la période suivante,
+  dans la limite des jours qui seront acquis à la date du congé (décision de l'entreprise), puis déduite de celle-ci au
+  1er juin ; au-delà, solde insuffisant (`checkAbsence`, qui refuse aussi une demande qui repousserait un congé déjà posé
+  au-delà des jours acquis). `cpInfo` donne le solde de la période en cours et `suivante` / `anticipes`, les jours déjà
+  imputés sur la suivante. Les compteurs repris de l'ancien système (`soldesReprise`) restent imputés sur la période en cours.
+- **Entretiens** : `entretien.clore` refuse un entretien prévu à une date à venir, sauf à indiquer le jour où il a eu
+  lieu, qui devient sa date (échéance suivante, état des lieux à 8 ans).
+
+## Doublons et conflits de dates
+
+`conflitsDates` (`shared/rules/conflits.ts`) liste les engagements d'un salarié qui chevauchent une période : absences
+(en vigueur ou demandées), déplacements, sessions de formation où il est inscrit (`sessionsInscrit`), entretiens planifiés.
+Il bloque quand le salarié est absent (absence validée ou signalée) ou qu'un engagement du même genre existe déjà
+(deux déplacements, deux sessions le même jour), et avertit sinon. Les dialogues l'affichent en direct (`Controles`) ;
+le serveur refuse les blocages (`blocage`) : `plan.inscrire`, `demande.formation`, `demande.accepter`, `voyage.creer`,
+`voyages.importer` (lignes en conflit, ou qui se chevauchent dans le fichier), `entretien.planifier`. Une absence posée
+sur une session, un déplacement ou un entretien n'est qu'avertie (`checkAbsence`, `checkNature`) : à reprogrammer. La
+nature d'une absence médicale n'est jamais citée. S'y ajoutent les doublons : demande de formation identique en attente,
+entretien du même type déjà planifié.
 
 ## Absences hors congés
 

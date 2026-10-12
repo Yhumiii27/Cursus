@@ -165,8 +165,12 @@ recyclage, les précédentes restent en historique · formalités de
 voyage par destination (passeport, visas, vaccins, délais) · Go / No Go par chantier
 (matricules et codes de motif uniquement) · heures supplémentaires +25 % / +50 %,
 heures complémentaires +10 % / +25 %, forfait jours, alertes 10 h / 48 h · repos
-compensateur · CP 25 jours ouvrés (+5 j à 59 ans, CCN Chimie), RTT, jours de repos
-forfait calculés, CET (5 RTT/an, 5e semaine de CP), reports tracés · absences hors congés
+compensateur · journée de 24 h au plus, motif exigé au-delà des durées maximales · CP 25 jours
+ouvrés (+5 j à 59 ans, CCN Chimie), chaque jour imputé sur sa période de référence, prise par
+anticipation dans la limite des jours acquis à la date du congé · RTT et jours de repos forfait
+calculés au prorata de l'entrée et de la fin du contrat, CET (5 RTT/an, 5e semaine de CP), reports
+tracés · doublons et conflits de dates (formation, absence, déplacement, entretien) signalés ou
+bloqués · absences hors congés
 (maladie, accident du travail ou de trajet, maladie professionnelle, maternité, paternité, adoption,
 congé parental, événements familiaux, enfant malade, absences non payées) signalées par le manager et
 qualifiées par le service RH, prolongation, reprise inscrite automatiquement, nature médicale réservée au RH
@@ -178,6 +182,7 @@ enveloppes par équipe, import CSV · sessions de formation : confirmation, modi
 clôture (présence, évaluation selon la formation, certification datée du jour de la session, absents et
 échecs à replanifier, évaluation à chaud), nombre d'inscrits calculé.
 
-Jours fériés et périodes de référence (CP, RTT, campagnes) calculés à partir de la date du jour.
+Jours fériés et périodes de référence (CP, RTT, campagnes) calculés à partir de la date du jour, celle de Paris
+quel que soit le fuseau du serveur ; dates impossibles (« 31/02 ») refusées à la saisie et à l'import.
 
 Architecture et conventions : `docs/ARCHITECTURE.md`. Travail restant, priorisé : `docs/RESTE_A_FAIRE.md`.

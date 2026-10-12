@@ -42,7 +42,8 @@ export const TABLES = {
   },
   missions: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', projet: 'text', lieu: 'text', du: 'text', au: 'text', type: 'text', ref: 'text' } },
   taches: { pk: 'id', auto: true, cols: { id: 'int', ref: 'text', empId: 'int', projet: 'text', tache: 'text', debut: 'text', fin: 'text', heures: 'json' } },
-  feuilles: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', week: 'text', statut: 'text', comment: 'text', sage: 'bool', keystone: 'bool', lignes: 'json', contrat: 'json' }, unique: [['empId', 'week']] },
+  // `motifDepassement` : motif d'un dépassement des durées maximales de travail (server/src/actions/temps.ts).
+  feuilles: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', week: 'text', statut: 'text', comment: 'text', sage: 'bool', keystone: 'bool', lignes: 'json', contrat: 'json', motifDepassement: 'text' }, unique: [['empId', 'week']] },
   absences: {
     pk: 'id', auto: true,
     cols: {

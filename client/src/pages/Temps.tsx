@@ -5,11 +5,13 @@
 // déjà remplie ce jour-là reste modifiable pour être vidée. Une semaine entièrement couverte par une absence se soumet sans heure
 // et ne se valide que si elle l'est encore (une absence annulée ou raccourcie renvoie la feuille).
 // Une demande d'absence en attente sur des jours qui portent des heures est décidée avant la validation de la feuille.
+// Une journée compte 24 h au plus (toutes lignes cumulées) ; au-delà des durées maximales (10 h par jour, 48 h par
+// semaine), la soumission exige un motif, que le valideur lit (ou donne, s'il a lui-même corrigé la feuille).
 import { useState, type KeyboardEvent } from 'react';
 import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
 import { ABS_ABREGE, TEMPS_TRAVAIL, TS_CLS, TS_LABEL } from '../../../shared/constants.ts';
 import type { Domain } from '../../../shared/domain.ts';
-import { addD, isFerie, isoWeek, mondayOf, parse, wDays } from '../../../shared/dates.ts';
+import { addD, isFerie, isoWeek, isoWeekYear, mondayOf, parse, wDays } from '../../../shared/dates.ts';
 import { cap, equipeLabel, fH, fJ, fmt, fmtShort, num, plural } from '../../../shared/format.ts';
 import { jourHorsContrat, semaineHorsContrat } from '../../../shared/rules/absences.ts';
 import {
@@ -53,14 +55,19 @@ function HourCell({ value, disabled, alert, onCommit }: { value: number; disable
   );
 }
 
-/** Année civile d'une feuille (celle de son lundi, comme le cumul annuel). */
-const anneeDe = (week: ISODate) => Number(week.slice(0, 4));
+/** Année d'une feuille : celle de sa semaine ISO (son jeudi) ; le cumul annuel ventile une semaine à cheval jour par jour. */
+const anneeDe = (week: ISODate) => isoWeekYear(week);
 
 /**
  * Colonne « Total » de la file de validation, selon l'organisation du temps de la feuille.
  * `aRenvoyer` : feuille sans heure dont la semaine n'est plus couverte par une absence, que le serveur ne valide pas.
+ * `motifManquant` : durées maximales dépassées sans motif (feuille corrigée par le valideur) ; il se donne en ouvrant la feuille.
  */
-function queueTotal(d: Domain, e: Employe, sh: FeuilleTemps): { main: string; sub: string; aRenvoyer?: boolean } {
+function queueTotal(d: Domain, e: Employe, sh: FeuilleTemps): { main: string; sub: string; aRenvoyer?: boolean; motifManquant?: boolean } {
+  const t = totalFile(d, e, sh);
+  return calcSheet(d, e, sh).depassements.length && !sh.motifDepassement ? { ...t, sub: `${t.sub} · motif du dépassement à indiquer`, motifManquant: true } : t;
+}
+function totalFile(d: Domain, e: Employe, sh: FeuilleTemps): { main: string; sub: string; aRenvoyer?: boolean } {
   const c = calcSheet(d, e, sh), k = c.c;
   if (k.forfait) return { main: fJ(c.jours), sub: `forfait jours · ${fH(c.total)} déclarées` };
   if (k.dirigeant) return { main: fJ(c.jours), sub: `cadre dirigeant · ${fH(c.total)} déclarées` };
@@ -188,7 +195,7 @@ export function Temps() {
                       <td className="right">
                         <div className="actions-end">
                           <button type="button" className="btn btn-ghost btn-sm" onClick={stop(open)}>Ouvrir</button>
-                          {!tot.aRenvoyer && <button type="button" className="btn btn-secondary btn-sm" onClick={stop(() => run('temps.validate', { empId: e.id, week: sh.week }))}>Valider</button>}
+                          {!tot.aRenvoyer && !tot.motifManquant && <button type="button" className="btn btn-secondary btn-sm" onClick={stop(() => run('temps.validate', { empId: e.id, week: sh.week }))}>Valider</button>}
                         </div>
                       </td>
                     </tr>
@@ -236,6 +243,8 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
 
   const wdays = wDays(wk);
   const sh = data.feuilles.find(f => f.empId === emp.id && f.week === wk) ?? null;
+  // Motif d'un dépassement des durées maximales : repris de la feuille (renvoyée pour correction, ou soumise).
+  const [motif, setMotif] = useState(sh?.motifDepassement ?? '');
   // Régime de la semaine : figé sur la feuille (soumission ou changement de contrat), sinon celui de la fiche.
   const empF = employeDeLaFeuille(emp, sh);
   const calc = calcSheet(d, emp, sh);
@@ -299,6 +308,11 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
     const r = await run('temps.reject', { ...base, comment });
     if (r.ok) setComment('');
   };
+  // Durées maximales dépassées : motif exigé à la soumission ; à la validation, s'il manque encore (correction du valideur).
+  const depasse = calc.depassements.length > 0;
+  const motifSoumis = sh?.motifDepassement ?? '';
+  const motifManquant = depasse && !motif.trim();
+  const motifValideur = canValidate && depasse && !motifSoumis;
 
   return (
     <div className="row-wrap">
@@ -374,7 +388,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
             {canSuggest && <button type="button" className="btn btn-secondary" onClick={() => run('temps.suggest', base)}>Proposer depuis Keystone</button>}
             {correction
               ? <span className="text-muted sub" style={{ marginLeft: 'auto' }}>Correction avant validation : la feuille reste soumise</span>
-              : <button type="button" className="btn btn-primary" style={{ marginLeft: 'auto' }} disabled={!(calc.total > 0 || couverte) || surAbsence.length > 0} onClick={() => run('temps.submit', base)}>{submitLabel}</button>}
+              : <button type="button" className="btn btn-primary" style={{ marginLeft: 'auto' }} disabled={!(calc.total > 0 || couverte) || surAbsence.length > 0 || motifManquant} onClick={() => run('temps.submit', { ...base, ...(depasse ? { motif: motif.trim() } : {}) })}>{submitLabel}</button>}
           </div>
         )}
         {surAbsence.length > 0 && (
@@ -391,6 +405,13 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
             {calc.warn.map(w => <div key={w} className="note-accent">{w}</div>)}
           </div>
         )}
+        {depasse && editable && !correction && (
+          <div className="field">
+            <label htmlFor="ts-motif">Motif du dépassement (obligatoire pour soumettre)</label>
+            <textarea className="input short" id="ts-motif" rows={2} placeholder="Panne, intervention urgente, inventaire…" value={motif} onChange={ev => setMotif(ev.target.value)} style={{ resize: 'vertical' }} />
+          </div>
+        )}
+        {motifSoumis && (st === 'soumise' || st === 'validee') && <Fine>Motif du dépassement : {motifSoumis}</Fine>}
         <Fine>{flow}</Fine>
       </Panel>
 
@@ -407,10 +428,14 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
         <Fine>{recap.aide}</Fine>
         {canValidate && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', paddingTop: 'var(--space-2)' }}>
+            {motifValideur && (
+              <textarea className="input short" rows={2} aria-label="Motif du dépassement" placeholder="Motif du dépassement (obligatoire pour valider)" value={motif} onChange={ev => setMotif(ev.target.value)} style={{ resize: 'vertical' }} />
+            )}
             <textarea className="input short" rows={2} aria-label="Commentaire" placeholder="Commentaire en cas de renvoi (facultatif)" value={comment} onChange={ev => setComment(ev.target.value)} style={{ resize: 'vertical' }} />
             <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end' }}>
               <button type="button" className="btn btn-ghost" onClick={reject}>Renvoyer</button>
-              <button type="button" className="btn btn-primary" disabled={surAbsence.length + enAttente.length > 0 || plusCouverte} onClick={() => run('temps.validate', base)}>Valider la semaine</button>
+              <button type="button" className="btn btn-primary" disabled={surAbsence.length + enAttente.length > 0 || plusCouverte || (motifValideur && motifManquant)}
+                onClick={() => run('temps.validate', { ...base, ...(motifValideur ? { motif: motif.trim() } : {}) })}>Valider la semaine</button>
             </div>
           </div>
         )}

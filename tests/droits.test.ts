@@ -133,9 +133,11 @@ const MATRICE: Ligne[] = [
   { action: 'absence.prolonger', droits: '                   O    O    O    -    O    -', p: () => ({ id: absence('validee', 'MALADIE'), au: '2026-12-16' }) },
   { action: 'absence.annuler', droits: '                     O    O    O    -    -    -', p: () => ({ id: absence('validee', 'CP') }) },
   // Entretiens : l'évaluateur (manager direct ou RH) et le salarié pour ses sections et sa signature.
-  { action: 'entretien.planifier', droits: '                 O    O    O    -    -    -', p: () => ({ empId: 2, kind: 'annuel', date: '2026-11-15' }) },
+  // Mehdi a déjà un entretien annuel planifié (le 20 octobre) : un entretien de parcours professionnel.
+  { action: 'entretien.planifier', droits: '                 O    O    O    -    -    -', p: () => ({ empId: 2, kind: 'epp', date: '2026-11-16' }) },
   { action: 'entretien.modifier', droits: '                  O    O    O    -    O    -', p: () => ({ id: ENTRETIEN(), section: 'avis', value: 'Année riche en chantiers' }) },
-  { action: 'entretien.clore', droits: '                     O    O    O    -    -    -', p: () => ({ id: ENTRETIEN() }) },
+  // Entretien prévu le 20 octobre, tenu plus tôt : la clôture porte la date à laquelle il a eu lieu.
+  { action: 'entretien.clore', droits: '                     O    O    O    -    -    -', p: () => ({ id: ENTRETIEN(), date: '2026-10-06' }) },
   { action: 'entretien.signer', droits: '                    -    -    -    -    O    -', p: () => {
     const id = ENTRETIEN();
     db.update('entretiens', id, { statut: 'realise', signMgr: '2026-10-07' });

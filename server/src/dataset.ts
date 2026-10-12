@@ -2,7 +2,7 @@
 // périmètre de l'utilisateur connecté (RH : tout ; manager : son équipe ;
 // collaborateur : ses propres données).
 import { Domain } from '../../shared/domain.ts';
-import { addD, iso, mondayOf } from '../../shared/dates.ts';
+import { addD, isoParis, isValidDate, mondayOf } from '../../shared/dates.ts';
 import { absenceVueManager, repriseMedicale } from '../../shared/rules/absences.ts';
 import { avecInscrits } from '../../shared/rules/sessions.ts';
 import type {
@@ -19,10 +19,13 @@ export const DEFAULT_SETTINGS: Settings = {
   horizonAlerte: 90, uniquementReglementaire: false, seuilBudget: 85, partageKeystone: 'minimal', rtt39: 23, vueInitiale: 'dashboard',
 };
 
-/** Date du jour : `CURSUS_TODAY` (AAAA-MM-JJ) permet de figer la démonstration. */
-export function todayIso(): string {
+/**
+ * Date du jour à Paris, quel que soit le fuseau du serveur (souvent UTC chez l'hébergeur : entre minuit et 2 h,
+ * ce serait encore la veille). `CURSUS_TODAY` (AAAA-MM-JJ, date existante) permet de figer la démonstration.
+ */
+export function todayIso(maintenant = new Date()): string {
   const env = process.env.CURSUS_TODAY;
-  return env && /^\d{4}-\d{2}-\d{2}$/.test(env) ? env : iso(new Date());
+  return isValidDate(env) ? env : isoParis(maintenant);
 }
 
 export function loadSettings(db: Db): Settings {

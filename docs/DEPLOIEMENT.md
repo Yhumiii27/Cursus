@@ -41,9 +41,10 @@ l'application dans Entra) : voir `docs/CONNEXION-MICROSOFT.md`.
   sudo apt install unattended-upgrades && sudo dpkg-reconfigure -plow unattended-upgrades
   ```
 
-- Fuseau horaire de Paris : la date du jour de Cursus (échéances, semaines, date de sortie des
-  salariés) suit l'heure locale de la machine, souvent laissée en UTC chez l'hébergeur. Le service
-  systemd pose aussi `TZ=Europe/Paris`.
+- Fuseau horaire de Paris : Cursus calcule lui-même la date du jour (échéances, semaines, date de
+  sortie des salariés) et l'horodatage des envois à la paie à l'heure de Paris, même sur une machine
+  laissée en UTC chez l'hébergeur. Régler la machine sur Paris garde des journaux système lisibles ;
+  le service systemd pose aussi `TZ=Europe/Paris`.
 
   ```bash
   sudo timedatectl set-timezone Europe/Paris
@@ -139,7 +140,7 @@ User=cursus
 Group=cursus
 WorkingDirectory=/opt/cursus
 EnvironmentFile=/etc/cursus/cursus.env
-# Date du jour à l'heure de Paris, quel que soit le fuseau de la machine.
+# Heure locale de Paris pour le processus (Cursus calcule de toute façon la date du jour à l'heure de Paris).
 Environment=TZ=Europe/Paris
 ExecStart=/usr/bin/node server/src/index.ts
 Restart=on-failure

@@ -30,6 +30,8 @@ function soldeRow(d: Domain, e: Employe) {
       ? `sur ${cp.droit} j${cp.ageSupp ? ' · dont 5 j CCN (59 ans et +)' : ''}${cp.recu ? ` · report +${cp.recu} j` : ''}${cp.accorde ? ` · ${cp.accorde} j protégés au-delà du 31 mai` : ''}`
       : 'géré par l’agence d’intérim',
     cpN: cp ? fJ(cp.enCours) : '—',
+    // Jours déjà imputés sur la période en cours d'acquisition : pris par anticipation, ou posés à partir du 1er juin.
+    cpNSub: cp && cp.suivante ? `dont ${fJ(cp.suivante)} déjà posé${cp.suivante > 1 ? 's' : ''}${cp.anticipes ? ` (${fJ(cp.anticipes)} par anticipation)` : ''}` : undefined,
     rtt: rt ? fJ(rt.solde) : '—',
     rttSub: rt ? `${rt.label} · sur ${rt.droit} j · perdus au 31 déc.` : 'non concerné',
     rttLabel: rt ? rt.label : 'RTT',
@@ -114,7 +116,7 @@ export function Absences() {
       {mine && (
         <Kpis>
           <Kpi kicker={`Congés payés ${P.label}`} value={mine.cp} sub={mine.cpGere ? `${mine.cpSub} · avant le ${fmt(parse(P.deadline))}` : mine.cpSub} />
-          <Kpi kicker="En cours d’acquisition" value={mine.cpN} sub={mine.cpGere ? `période ${P.labelN} · 2,08 j par mois` : 'géré par l’agence d’intérim'} />
+          <Kpi kicker="En cours d’acquisition" value={mine.cpN} sub={mine.cpGere ? `période ${P.labelN} · 2,08 j par mois${mine.cpNSub ? ` · ${mine.cpNSub}` : ''}` : 'géré par l’agence d’intérim'} />
           <Kpi kicker={`${mine.rttLabel} ${Y}`} value={mine.rtt} sub={mine.rttCard} />
           <Kpi kicker="Récupération" value={mine.rec} sub={mine.recSub} />
           <Kpi kicker="Compte épargne-temps" value={mine.cet} sub={mine.cetSub}
@@ -160,7 +162,7 @@ export function Absences() {
                     <tr key={r.e.id}>
                       <td><Two main={r.e.nom} sub={r.contrat} nowrap /></td>
                       <td><Num main={r.cp} sub={r.cpSub} /></td>
-                      <td className="tnum">{r.cpN}</td>
+                      <td><Num main={r.cpN} sub={r.cpNSub} /></td>
                       <td><Num main={r.rtt} sub={r.rttSub} /></td>
                       <td><Num main={r.rec} sub={r.recSub} /></td>
                       <td><Num main={r.cet} sub={r.cetSub} /></td>
@@ -238,6 +240,7 @@ export function Absences() {
           <Rtt39Field />
           <ul className="rules">
             <li>Congés payés : 25 jours ouvrés par an, acquis à raison de 2,08 j par mois du 1er juin au 31 mai, arrondis à l’entier supérieur.</li>
+            <li>Chaque jour de congé est décompté sur la période dont les droits se prennent à sa date (un congé de mai à juin est réparti sur deux périodes). Période épuisée : prise par anticipation sur les jours en cours d’acquisition, dans la limite de ceux acquis à la date du congé, déduits de la période suivante au 1er juin.</li>
             <li>CCN Industries chimiques : pas de congés d’ancienneté ; +5 jours ouvrés à partir de 59 ans.</li>
             <li>Forfait annuel en jours : jours de repos calculés individuellement selon le nombre de jours du forfait (jours calendaires − week-ends − 25 CP − fériés ouvrés − jours du forfait) ; {reposForfait(Y, 218)} jours en {Y} pour un forfait de 218 jours.</li>
             <li>Forfait annuel en heures : pas de RTT ni de repos compensateur hebdomadaire ; les heures au-delà du forfait sont régularisées en fin d’année.</li>

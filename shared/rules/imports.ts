@@ -1,6 +1,7 @@
 // Imports CSV : plan prévisionnel de formation et demandes de déplacement.
 import { parse, toIso } from '../dates.ts';
 import { fmt, fmtShort, key, norm } from '../format.ts';
+import { blocage, conflitsDates } from './conflits.ts';
 import type { Destination, Employe, Formation, ISODate, Trimestre } from '../types.ts';
 import type { Domain } from '../domain.ts';
 
@@ -69,6 +70,8 @@ export function parseTrips(d: Domain, text: string): TripRow[] {
   const hasHead = head.includes('collaborateur') || head.includes('destination');
   const cols = hasHead ? head : ['ref', 'collaborateur', 'destination', 'depart', 'retour', 'motif', 'demandeur'];
   const seen = new Set(d.ds.voyages.map(v => v.ref).filter(Boolean));
+  /** Lignes valides déjà lues : deux déplacements du fichier ne se chevauchent pas non plus. */
+  const retenues: { n: number; empId: number; depart: ISODate; retour: ISODate }[] = [];
   return lines.slice(hasHead ? 1 : 0).map((l, i) => {
     const v: Record<string, string> = {};
     cells(l).forEach((c, j) => { v[cols[j]] = c; });
@@ -79,9 +82,17 @@ export function parseTrips(d: Domain, text: string): TripRow[] {
     if (!dest) errs.push(v.destination ? `Destination hors référentiel : ${v.destination}` : 'Destination manquante');
     const depart = toIso(v.depart), retour = toIso(v.retour);
     if (!depart || !retour || retour < depart) errs.push('Dates invalides');
+    else if (emp) {
+      // Déjà en déplacement ou absent ces jours-là (contrôle commun, `conflits.ts`), ou chevauchement dans le fichier.
+      const conflit = blocage(conflitsDates(d, emp.id, depart, retour, 'voyage'));
+      if (conflit) errs.push(conflit);
+      const autre = retenues.find(x => x.empId === emp.id && x.depart <= retour && x.retour >= depart);
+      if (autre) errs.push(`Chevauche le déplacement de la ligne ${autre.n}`);
+    }
     const ref = (v.ref || '').trim();
     if (ref && seen.has(ref)) errs.push(`Déjà importée : ${ref}`);
     if (ref) seen.add(ref);
+    if (!errs.length) retenues.push({ n: i + 1, empId: emp!.id, depart: depart!, retour: retour! });
     return {
       n: i + 1, ref, emp, dest, depart, retour, motif: (v.motif || '').trim() || 'Déplacement professionnel', errs, ok: errs.length === 0,
       nomLabel: emp ? emp.nom : (v.collaborateur || '—'), destLabel: dest ? dest.pays : (v.destination || '—'),

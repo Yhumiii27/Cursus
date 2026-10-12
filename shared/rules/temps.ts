@@ -1,5 +1,5 @@
 // Feuilles de temps : décompte des heures, majorations, variables de paie.
-import { isFerie, isoWeek, parse, wDays } from '../dates.ts';
+import { horodatageParis, isFerie, isoWeek, isoWeekYear, parse, wDays } from '../dates.ts';
 import { matricule, num, r1 } from '../format.ts';
 import type { Domain } from '../domain.ts';
 import type { Absence, AbsenceType, ContratFige, Employe, FeuilleTemps, ISODate, LigneTemps, SagePush, TacheKeystone } from '../types.ts';
@@ -16,6 +16,11 @@ export function employeDeLaFeuille(e: Employe, sh: { contrat?: ContratFige | nul
 
 export interface SheetCalc {
   perDay: number[]; total: number; warn: string[];
+  /**
+   * Durées maximales dépassées (plus de 10 h sur une journée ou de 48 h dans la semaine ; plus de 13 h pour un forfait
+   * jours) : sous-ensemble de `warn`. La soumission, et la validation, exigent alors un motif (`motifDepassement`).
+   */
+  depassements: string[];
   /** Heures payées au taux normal (dans la limite de 35 h). */
   normal: number;
   /** Heures supplémentaires structurelles incluses dans un forfait hebdomadaire (total, dont +25 % et +50 %). */
@@ -37,15 +42,16 @@ export function calcSheet(d: Domain, e: Employe, sh: (Pick<FeuilleTemps, 'lignes
   const c = d.contratOf(employeDeLaFeuille(e, sh));
   const perDay = [0, 1, 2, 3, 4].map(i => (sh ? sh.lignes : []).reduce((n, l) => n + num(l.h[i]), 0));
   const total = perDay.reduce((a, b) => a + b, 0);
-  const warn: string[] = [];
+  const depassements: string[] = [];
   if (c.forfait) {
     // Forfait jours : durées maximales exclues (art. L3121-62) ; seuls les repos quotidien et hebdomadaire s'appliquent.
-    if (perDay.some(h => h > 13)) warn.push('Plus de 13 h sur une journée : repos quotidien de 11 h non respecté (art. L3131-1)');
+    if (perDay.some(h => h > 13)) depassements.push('Plus de 13 h sur une journée : repos quotidien de 11 h non respecté (art. L3131-1)');
   } else if (!c.dirigeant) {
-    if (perDay.some(h => h > 10)) warn.push('Plus de 10 h sur une journée (art. L3121-18)');
-    if (total > 48) warn.push('Plus de 48 h dans la semaine (art. L3121-20)');
+    if (perDay.some(h => h > 10)) depassements.push('Plus de 10 h sur une journée (art. L3121-18)');
+    if (total > 48) depassements.push('Plus de 48 h dans la semaine (art. L3121-20)');
   }
-  const r: SheetCalc = { perDay, total, c, warn, normal: total, incluses: 0, incluses25: 0, incluses50: 0, sup25: 0, sup50: 0, hc10: 0, hc25: 0, recup: 0, jours: 0 };
+  const warn = [...depassements];
+  const r: SheetCalc = { perDay, total, c, warn, depassements, normal: total, incluses: 0, incluses25: 0, incluses50: 0, sup25: 0, sup50: 0, hc10: 0, hc25: 0, recup: 0, jours: 0 };
   const jours = perDay.reduce((n, h) => n + (h === 0 ? 0 : h <= 4 ? 0.5 : 1), 0);
   if (c.forfait || c.dirigeant || c.annuel) r.jours = jours;
   else if (c.partiel) {
@@ -73,15 +79,27 @@ export function calcSheet(d: Domain, e: Employe, sh: (Pick<FeuilleTemps, 'lignes
   return r;
 }
 
+/** Durée maximale d'une journée, toutes lignes de la feuille cumulées : au-delà, la saisie est refusée. */
+export const HEURES_JOUR_MAX = 24;
+
+/** Jours (0 = lundi … 4 = vendredi) dont le total, toutes lignes cumulées, dépasse 24 h. */
+export const joursAuDela24 = (lignes: Pick<LigneTemps, 'h'>[]): number[] =>
+  [0, 1, 2, 3, 4].filter(i => lignes.reduce((n, l) => n + num(l.h[i]), 0) > HEURES_JOUR_MAX);
+
 /**
  * Forfait annuel en heures : cumul des feuilles validées de l'année, cible proratisée selon la présence
- * (entrée, fin de contrat) et part de la cible correspondant à la période déjà écoulée.
+ * (entrée, fin de contrat) et part de la cible correspondant à la période déjà écoulée. Une semaine à cheval
+ * sur deux années est ventilée jour par jour : le lundi 29 décembre compte pour l'année qui s'achève.
  */
 export function cumulAnnuel(d: Domain, e: Employe, year = d.year) {
   const c = d.contratOf(e);
+  const annee = String(year);
   const done = d.ds.feuilles
-    .filter(sh => sh.empId === e.id && sh.statut === 'validee' && sh.week.startsWith(String(year)))
-    .reduce((n, sh) => n + calcSheet(d, e, sh).total, 0);
+    .filter(sh => sh.empId === e.id && sh.statut === 'validee' && wDays(sh.week).some(day => day.startsWith(annee)))
+    .reduce((n, sh) => {
+      const perDay = calcSheet(d, e, sh).perDay;
+      return n + wDays(sh.week).reduce((m, day, i) => m + (day.startsWith(annee) ? perDay[i] : 0), 0);
+    }, 0);
   const start = new Date(year, 0, 1).getTime(), end = new Date(year + 1, 0, 1).getTime();
   const debut = Math.max(start, parse(e.entree).getTime());
   const fin = e.fin ? Math.min(end, parse(e.fin).getTime() + 864e5) : end;
@@ -219,16 +237,19 @@ export function sagePending(d: Domain): FeuilleTemps[] {
   });
 }
 
-export function buildSagePayload(d: Domain, sheets: FeuilleTemps[], dossier: string): SagePush {
-  const today = d.ti;
+/**
+ * Variables de paie transmises à Sage. Semaine ISO : son année est celle du jeudi (la semaine du 29 décembre 2025
+ * est « 2026-S01 ») ; `envoye_le` : heure réelle de l'envoi, à l'heure de Paris (décalage d'hiver ou d'été).
+ */
+export function buildSagePayload(d: Domain, sheets: FeuilleTemps[], dossier: string, maintenant = new Date()): SagePush {
   return {
     endpoint: 'POST /sage-paie/v1/variables',
     dossier,
-    periode_paie: today.slice(0, 7),
-    envoye_le: `${today}T09:00:00+02:00`,
+    periode_paie: d.ti.slice(0, 7),
+    envoye_le: horodatageParis(maintenant),
     lignes: sheets.map(sh => ({
       matricule: matricule(sh.empId),
-      semaine: `${parse(sh.week).getFullYear()}-S${String(isoWeek(sh.week)).padStart(2, '0')}`,
+      semaine: `${isoWeekYear(sh.week)}-S${String(isoWeek(sh.week)).padStart(2, '0')}`,
       rubriques: sageRubriques(d, d.emp(sh.empId)!, sh),
     })),
   };

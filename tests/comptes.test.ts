@@ -22,6 +22,7 @@ const { ActionError, makeCtx } = await import('../server/src/actions/context.ts'
 const { LimiteParIp, openSession, readSession } = await import('../server/src/auth.ts');
 const { compteBloque, compterTentative, espacesDuCompte, hacherMotDePasse, tentativeAdmise, verifierMotDePasse } = await import('../server/src/comptes.ts');
 const { ECHEC_CONNEXION } = await import('../server/src/connexion.ts');
+const { PROFIL_VIDE } = await import('../shared/rules/profil.ts');
 type Db = InstanceType<typeof Db>;
 type User = NonNullable<ReturnType<typeof currentUser>>;
 type Compte = Parameters<typeof espacesDuCompte>[1];
@@ -255,6 +256,17 @@ test('npm run comptes : premier administrateur d’une installation vide, accès
   assert.notEqual(provisoire(r2.stdout), mdp);
   const c2 = d.get<Compte>('comptes', c.id)!;
   assert.deepEqual([c2.actif, c2.profilRh, c2.echecs], [true, 'rh_admin', 0]);
+  // Sa fiche, saisie ensuite : --salarie rattache le compte externe existant (un membre du RH salarié ne décide pas
+  // de ses propres absences, ce que Cursus ne vérifie que sur le compte rattaché à sa fiche).
+  const rachel = currentUser(d, { compteId: c.id, role: 'rh', methode: 'local' })!;
+  const fiche = (d.tx(() => ACTIONS['employe.creer'](makeCtx(d, rachel, loadFull(d, rachel)), { ...PROFIL_VIDE(null, '2026-10-10'), nom: 'Rachel Martin', poste: 'Responsable RH' })) as
+    { result: { id: number } }).result.id;
+  const r3 = cli(db, 'admin', 'rh.admin', '--local', '--salarie', `EMP-${String(fiche).padStart(4, '0')}`);
+  assert.equal(r3.status, 0, r3.stderr);
+  assert.match(r3.stdout, /Accès administrateur RH rétabli : Rachel Martin \(rh\.admin, rattaché à sa fiche salarié\)/);
+  assert.equal(d.get<Compte>('comptes', c.id)!.empId, fiche);
+  assert.equal(currentUser(d, { compteId: c.id, role: 'rh', methode: 'local' })!.salarieId, fiche);
+  assert.match(cli(db, 'admin', 'rh.admin', '--local', '--salarie', '2').stderr, /Accès non rétabli : Compte déjà rattaché à la fiche de Rachel Martin/);
   const ms = cli(db, 'admin', 'sandrine.vidal@entreprise.example', '--nom', 'Sandrine Vidal');
   assert.equal(ms.status, 0, ms.stderr);
   assert.match(ms.stdout, /Microsoft 365/);
@@ -501,7 +513,11 @@ test('démonstration : connexion libre, mais par les comptes (RH de démonstrati
   assert.deepEqual([s.json.user.nom, s.json.user.profilRh, s.json.compte.identifiant], ['Sandrine Vidal', 'rh_admin', 'sandrine.vidal@entreprise.example']);
   const opts = s.json.loginOptions;
   assert.equal(opts.collaborateur.length, 24, 'un compte par salarié');
-  assert.deepEqual(opts.rh.map((o: { nom: string }) => o.nom), ['Antoine Leroy — Gestionnaire RH', 'Sandrine Vidal — Administrateur RH']);
+  assert.deepEqual(opts.rh.map((o: { nom: string }) => o.nom), [
+    'Aïcha Diallo — Gestionnaire de paie', 'Antoine Leroy — Gestionnaire RH', 'Élodie Bernard — Lecture seule', 'Sandrine Vidal — Administrateur RH',
+    'Sarah Cohen — Référent HSE / formation',
+  ]);
+  const compteRh = (nom: string) => opts.rh.find((o: { nom: string }) => o.nom.startsWith(nom)).id as number;
   const karim = opts.manager.find((o: { nom: string }) => o.nom.startsWith('Karim Haddad')).id;
   // Espace sans compte choisi : écran de connexion ; choix libre d'un compte de l'espace.
   const m = await srv.call('/api/mode', { cookie: c, body: { role: 'manager' } });
@@ -523,13 +539,13 @@ test('démonstration : connexion libre, mais par les comptes (RH de démonstrati
   const out = await srv.call('/api/logout', { cookie: ck, body: {} });
   assert.deepEqual([out.json.user, out.json.role], [null, 'collaborateur']);
   // Gestionnaire RH de démonstration : paramètres refusés.
-  const a = await srv.call('/api/login', { cookie: out.cookie!, body: { role: 'rh', compteId: opts.rh[0].id } });
+  const a = await srv.call('/api/login', { cookie: out.cookie!, body: { role: 'rh', compteId: compteRh('Antoine Leroy') } });
   assert.equal(a.json.user.profilRh, 'rh_gestionnaire');
   assert.equal((await srv.call('/api/actions/parametres.maj', { cookie: a.cookie!, body: { horizonAlerte: 60 } })).status, 403);
   // Antoine, nommé administrateur, se retire son profil RH : l'instantané renvoyé est celui de l'espace
   // où passe sa session (manager), jamais l'ancien espace RH avec le profil d'administrateur.
-  const antoine = opts.rh[0].id;
-  const sv = await srv.call('/api/login', { cookie: a.cookie!, body: { role: 'rh', compteId: opts.rh[1].id } });
+  const antoine = compteRh('Antoine Leroy');
+  const sv = await srv.call('/api/login', { cookie: a.cookie!, body: { role: 'rh', compteId: compteRh('Sandrine Vidal') } });
   assert.equal((await srv.call('/api/actions/compte.profil', { cookie: sv.cookie!, body: { id: antoine, profilRh: 'rh_admin' } })).status, 200);
   const al = await srv.call('/api/login', { cookie: sv.cookie!, body: { role: 'rh', compteId: antoine } });
   const retrait = await srv.call('/api/actions/compte.profil', { cookie: al.cookie!, espace: 'rh', body: { id: antoine, profilRh: 'aucun' } });

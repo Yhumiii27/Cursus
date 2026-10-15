@@ -1,4 +1,5 @@
-// Ajouter un collaborateur à une équipe : manager pour une équipe qu'il encadre, RH pour toute équipe.
+// Ajouter un collaborateur à une équipe : RH pour toute équipe ; manager pour une équipe qu'il encadre, et seulement
+// un salarié « à affecter » (libéré par son manager d'origine) ou membre d'une autre de ses équipes.
 import { useState } from 'react';
 import { equipeLabel, norm, plural } from '../../../shared/format.ts';
 import type { Personne } from '../../../shared/types.ts';
@@ -29,10 +30,12 @@ export function MembreDialog({ equipe: equipe0 }: { equipe?: string | null }) {
   }
 
   // Manager : les managers d'équipe et son propre manager changent d'équipe par le service RH
-  // (pas de validation croisée entre managers).
+  // (pas de validation croisée entre managers) ; le membre d'une autre équipe passe par une mutation décidée par le RH.
   const moi = d.ds.annuaire.find(p => p.id === me) ?? (me != null ? d.emp(me) : undefined);
   const monManager = !rh && moi ? d.mgrOf(moi) : 0;
-  const reserveRh = (p: Personne) => !rh && (d.teamsOf(p.id).length > 0 || (!!monManager && p.id === monManager));
+  const mesEquipes = rh ? [] : d.teamsOf(me);
+  const autreEquipe = (p: Personne) => !rh && !!p.equipe && !mesEquipes.includes(p.equipe);
+  const reserveRh = (p: Personne) => !rh && (d.teamsOf(p.id).length > 0 || (!!monManager && p.id === monManager) || autreEquipe(p));
   // Hors membres actuels de l'équipe et hors l'utilisateur lui-même ; les personnes à affecter d'abord.
   const autres = d.ds.annuaire.filter(p => p.equipe !== equipe && p.id !== me);
   const candidats: Personne[] = autres
@@ -41,6 +44,8 @@ export function MembreDialog({ equipe: equipe0 }: { equipe?: string | null }) {
   const q = norm(search.trim());
   const shown = q ? candidats.filter(p => norm(`${p.nom} ${p.poste} ${equipeLabel(p)}`).includes(q)) : candidats;
   const exclus = autres.length - candidats.length;
+  /** Personnes qui pourraient rejoindre l'équipe sans leur rôle de manager (ou de propre manager). */
+  const managersExclus = autres.some(p => !autreEquipe(p) && reserveRh(p));
   const sel = candidats.find(p => p.id === empId) ?? null;
   const ancienMgr = sel?.equipe ? d.mgrOf(sel) : 0;
   const encadre = sel ? d.teamsOf(sel.id).filter(t => t !== equipe) : [];
@@ -94,7 +99,8 @@ export function MembreDialog({ equipe: equipe0 }: { equipe?: string | null }) {
         )}
       </div>
       {!q && candidats.length > 0 && <Fine>{plural(candidats.length, 'collaborateur disponible', 'collaborateurs disponibles')}</Fine>}
-      {exclus > 0 && <Fine>{`Les managers d’équipe${monManager ? ', dont votre propre manager,' : ''} ne sont pas proposés : leur affectation relève du service RH.`}</Fine>}
+      {!rh && <Fine>Seuls les salariés « à affecter », déjà libérés par leur manager d’origine, peuvent rejoindre votre équipe : pour un membre d’une autre équipe, demandez sa mutation au service RH.</Fine>}
+      {managersExclus && <Fine>{`Les managers d’équipe${monManager ? ', dont votre propre manager,' : ''} ne sont pas proposés : leur affectation relève du service RH.`}</Fine>}
 
       {sel?.equipe && (
         <NoteAccent>

@@ -6,7 +6,7 @@ import { estAuDossier, relireDeclaration, retireeAuRefus } from '../../../shared
 import type { Certification, DemandeCollab, Employe, HabTitre, HabType, Inscription } from '../../../shared/types.ts';
 import { loadFull } from '../dataset.ts';
 import { suivreVerdicts } from '../integrations/keystone-verdicts.ts';
-import { ActionError, enriched, getEmp, isManagerOf, isRh, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
+import { ActionError, aDroit, enriched, getEmp, isManagerOf, requireFormations, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
 import { appliquerFormalite, retirerFormalite } from './voyages.ts';
 
 /**
@@ -16,7 +16,7 @@ import { appliquerFormalite, retirerFormalite } from './voyages.ts';
 function attendCloture(ctx: Ctx, sessionId: number | null) {
   const s = ctx.d.session(sessionId);
   if (s && sessionActive(s) && s.date < ctx.d.ti) {
-    throw new ActionError(`Session du ${fmt(parse(s.date))} passée : ${isRh(ctx) ? 'clôturez-la d’abord' : 'le service RH la clôture d’abord'} (présence, résultat)`);
+    throw new ActionError(`Session du ${fmt(parse(s.date))} passée : ${aDroit(ctx, 'formations') ? 'clôturez-la d’abord' : 'le service RH la clôture d’abord'} (présence, résultat)`);
   }
 }
 
@@ -27,7 +27,7 @@ function attendCloture(ctx: Ctx, sessionId: number | null) {
  */
 const inscrire: ActionHandler = (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
-  if (!isRh(ctx) && !isManagerOf(ctx, emp)) throw new ActionError('Inscription réservée au service RH ou au manager du collaborateur', 403);
+  if (!aDroit(ctx, 'formations') && !isManagerOf(ctx, emp)) throw new ActionError('Inscription réservée au service RH, au référent HSE / formation ou au manager du collaborateur', 403);
   const initiale = p.inscriptionId != null;
   const cert = initiale ? undefined : emp.certs.find(c => c.id === Number(p.certId));
   const insc = initiale ? ctx.ds.inscriptions.find(i => i.id === Number(p.inscriptionId) && i.empId === emp.id) : undefined;
@@ -50,7 +50,7 @@ const inscrire: ActionHandler = (ctx, p) => {
 };
 
 const ajouterCert: ActionHandler = (ctx, p) => {
-  requireRh(ctx);
+  requireFormations(ctx);
   const emp = getEmp(ctx, p.empId);
   const fm = ctx.d.fm(str(p.f));
   if (!fm) throw new ActionError('Formation inconnue');
@@ -71,7 +71,7 @@ const ajouterCert: ActionHandler = (ctx, p) => {
 };
 
 const delivrerHab: ActionHandler = (ctx, p) => {
-  requireRh(ctx);
+  requireFormations(ctx);
   const emp = getEmp(ctx, p.empId);
   const hm = ctx.d.hm(str(p.h));
   const par = str(p.par);
@@ -100,10 +100,20 @@ const demanderVisite: ActionHandler = (ctx, p) => {
   return `Demande de visite médicale transmise au service de santé au travail — ${emp.nom}`;
 };
 
-const accepterDemande: ActionHandler = (ctx, p) => {
-  requireRh(ctx);
-  const r = ctx.ds.demandesCollab.find(x => x.id === Number(p.id));
+/**
+ * Décision sur une demande : formation et habilitation, service RH et référent HSE / formation ; document déclaré
+ * (passeport, visa, vaccination), service RH seulement.
+ */
+function demandeADecider(ctx: Ctx, id: unknown): DemandeCollab {
+  requireFormations(ctx);
+  const r = ctx.ds.demandesCollab.find(x => x.id === Number(id));
+  if (r?.type === 'document') requireRh(ctx);
   if (!r || r.statut !== 'attente') throw new ActionError('Demande introuvable ou déjà traitée');
+  return r;
+}
+
+const accepterDemande: ActionHandler = (ctx, p) => {
+  const r = demandeADecider(ctx, p.id);
   const emp = getEmp(ctx, r.empId);
   const done = (reponse: string) => ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'acceptee', reponse });
   if (r.type === 'formation') {
@@ -162,9 +172,7 @@ const accepterDemande: ActionHandler = (ctx, p) => {
 };
 
 const refuserDemande: ActionHandler = (ctx, p) => {
-  requireRh(ctx);
-  const r = ctx.ds.demandesCollab.find(x => x.id === Number(p.id));
-  if (!r || r.statut !== 'attente') throw new ActionError('Demande introuvable ou déjà traitée');
+  const r = demandeADecider(ctx, p.id);
   const emp = getEmp(ctx, r.empId);
   // Document déclaré : rien n'a été écrit dans le dossier, sauf pour une déclaration
   // antérieure à la validation RH, qui en est retirée (voir retireeAuRefus).
@@ -257,21 +265,22 @@ function mesurer(ctx: Ctx, emp: Employe, t: HabTitre, patch: Pick<HabTitre, 'mes
   return signaler(ctx, emp);
 }
 
-/** Suspension après un incident ou une restriction : RH, ou manager pour un membre de son équipe (jamais lui-même). */
+/** Suspension après un incident ou une restriction : RH, référent HSE, ou manager pour un membre de son équipe (jamais lui-même). */
 const suspendreHab: ActionHandler = (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
-  if (!isRh(ctx) && !isManagerOf(ctx, emp)) throw new ActionError('Suspension réservée au service RH ou au manager du collaborateur', 403);
+  const gere = aDroit(ctx, 'formations');
+  if (!gere && !isManagerOf(ctx, emp)) throw new ActionError('Suspension réservée au service RH, au référent HSE / formation ou au manager du collaborateur', 403);
   const { hm, t } = titreDelivre(ctx, emp, p.h);
   if (t.mesure === 'retrait') throw new ActionError(`${hm.nom} déjà retirée à ${emp.nom}`);
   if (t.mesure === 'suspension') throw new ActionError(`${hm.nom} déjà suspendue pour ${emp.nom}`);
   const { motif, date } = decision(ctx, p, t);
   const { keystone } = mesurer(ctx, emp, t, { mesure: 'suspension', mesureDate: date, mesureMotif: motif, mesurePar: ctx.user.nom });
-  return `${hm.nom} suspendue — ${emp.nom}${keystone}${isRh(ctx) ? '' : ' · levée réservée au service RH'}`;
+  return `${hm.nom} suspendue — ${emp.nom}${keystone}${gere ? '' : ' · levée réservée au service RH et au référent HSE'}`;
 };
 
-/** Levée de la suspension : service RH uniquement. Le titre redevient valide si ses prérequis et son échéance le permettent. */
+/** Levée de la suspension : service RH et référent HSE. Le titre redevient valide si ses prérequis et son échéance le permettent. */
 const leverHab: ActionHandler = (ctx, p) => {
-  requireRh(ctx);
+  requireFormations(ctx);
   const emp = getEmp(ctx, p.empId);
   const { hm, t } = titreDelivre(ctx, emp, p.h);
   if (t.mesure !== 'suspension') throw new ActionError(`${hm.nom} n’est pas suspendue pour ${emp.nom}`);
@@ -281,9 +290,9 @@ const leverHab: ActionHandler = (ctx, p) => {
   return `Suspension levée — ${hm.nom} · ${emp.nom}${reste}${keystone}`;
 };
 
-/** Retrait définitif : service RH uniquement. Une nouvelle délivrance reste possible ensuite. */
+/** Retrait définitif : service RH et référent HSE. Une nouvelle délivrance reste possible ensuite. */
 const retirerHab: ActionHandler = (ctx, p) => {
-  requireRh(ctx);
+  requireFormations(ctx);
   const emp = getEmp(ctx, p.empId);
   const { hm, t } = titreDelivre(ctx, emp, p.h);
   if (t.mesure === 'retrait') throw new ActionError(`${hm.nom} déjà retirée à ${emp.nom}`);

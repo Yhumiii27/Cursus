@@ -41,7 +41,7 @@ test('#1 pas de validation croisée entre managers', () => {
 test('#2 #4 aucune donnée de santé dans le périmètre du manager', () => {
   const { db, run } = fresh();
   run(collab(2), 'formalite.enregistrer', { empId: 2, kind: 'vaccin', v: 'fj', date: '2026-09-01' });
-  run(RH, 'employe.modifier', { id: 6, repriseMotif: 'longue maladie', repriseDate: '2026-09-15' });
+  run(RH, 'employe.modifier', { id: 6, repriseMotif: 'congé sabbatique', repriseDate: '2026-09-15' });
   const s = buildSnapshot(db, mgr(12));
   assert.ok(!s.demandesCollab.some(r => r.type === 'document' && r.empId !== 12));
   assert.equal(s.employes.find(e => e.id === 6)!.repriseMotif, 'absence longue');

@@ -113,8 +113,8 @@ export function repriseAInscrire(
   return { reprise: r };
 }
 
-/** Motifs de reprise des natures médicales (arrêt longue maladie). */
-const MOTIFS_MEDICAUX = new Set(Object.values(NATURES_ABSENCE).filter(n => n.medicale && n.reprise).map(n => n.reprise));
+/** Motifs de reprise des natures médicales : « absence longue » (arrêt longue maladie, sous un libellé non médical). */
+const MOTIFS_MEDICAUX: ReadonlySet<string | undefined> = new Set(Object.values(NATURES_ABSENCE).filter(n => n.medicale && n.reprise).map(n => n.reprise));
 
 /**
  * Reprise ouverte par un arrêt médical (arrêt longue maladie) : masquée au manager. Maternité, adoption et congé parental

@@ -1,4 +1,5 @@
-// Tableau de bord RH : conformité, échéances prioritaires, sessions et déplacements.
+// Tableau de bord RH : conformité, échéances prioritaires, sessions et déplacements. Le référent HSE y traite les
+// formations et habilitations ; la lecture seule le consulte sans bouton d'action.
 import { useMemo } from 'react';
 import { SESS_CLS, SESSION_PASSEE, TRIP_CLS, TRIP_LABEL } from '../../../shared/constants.ts';
 import { sessionActive, type Domain, type EchItem } from '../../../shared/domain.ts';
@@ -7,7 +8,7 @@ import { cap, equipeLabel, fmt, fmtShort, plural, rel } from '../../../shared/fo
 import { declarationDetail, retireeAuRefus, valeurActuelle } from '../../../shared/rules/formalites.ts';
 import type { DemandeCollab, Session } from '../../../shared/types.ts';
 import { Bar, DateBlock, Kpi, Kpis, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
-import { useEnriched, useTrips } from '../state/derived.ts';
+import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
 /** Ligne d'échéance (tableau de bord, page Échéances). */
@@ -48,6 +49,8 @@ export function Dashboard() {
   const { emps, upcoming, horizon, d } = useEnriched();
   const trips = useTrips();
   const { setUi, go, run, runIntent, openDialog } = useStore();
+  const { rh, formations } = useRole();
+  const permis = useIntentPermis();
   const data = d.ds;
   const aCloturer = d.aCloturer();
 
@@ -69,9 +72,10 @@ export function Dashboard() {
       total, nonExp, plannedCount, placesLeft, teams,
       due: compl.filter(c => c.key === 'due').length,
       exp: compl.filter(c => c.key === 'exp').length,
-      priority: compl.filter(c => c.key !== 'ok').sort((a, b) => a.d - b.d).slice(0, 8),
+      // Propositions d'action réservées aux profils qui peuvent les lancer (aucune en lecture seule).
+      priority: compl.filter(c => c.key !== 'ok').sort((a, b) => a.d - b.d).slice(0, 8).map(x => x.action && !permis(x.action.intent) ? { ...x, action: null } : x),
     };
-  }, [d, emps, horizon, upcoming]);
+  }, [d, emps, horizon, upcoming, permis]);
 
   const reqs = data.demandesCollab.filter(r => r.statut === 'attente').sort((a, b) => a.date.localeCompare(b.date));
   const openEmp = (id: number) => go('collaborateurs', { selectedId: id });
@@ -118,10 +122,13 @@ export function Dashboard() {
                               sub={retireeAuRefus(d, e, r) ? 'Déjà enregistré dans le dossier (avant validation RH) — un refus l’en retire' : `Actuellement : ${valeurActuelle(d, e, x)}`} /></td>
                           : <td className="text-muted" style={{ fontSize: 13 }}>{detail || 'À contrôler dans le dossier voyageur'}</td>}
                         <td className="right">
-                          <div className="actions-end">
-                            <button type="button" className="btn btn-ghost btn-sm" onClick={stop(() => run('demande.refuser', { id: r.id }))}>Refuser</button>
-                            <button type="button" className="btn btn-secondary btn-sm" onClick={stop(() => run('demande.accepter', { id: r.id }))}>{r.type === 'document' ? 'Valider' : 'Accepter'}</button>
-                          </div>
+                          {/* Documents déclarés : service RH ; formations et habilitations : aussi le référent HSE. */}
+                          {(r.type === 'document' ? rh : formations) && (
+                            <div className="actions-end">
+                              <button type="button" className="btn btn-ghost btn-sm" onClick={stop(() => run('demande.refuser', { id: r.id }))}>Refuser</button>
+                              <button type="button" className="btn btn-secondary btn-sm" onClick={stop(() => run('demande.accepter', { id: r.id }))}>{r.type === 'document' ? 'Valider' : 'Accepter'}</button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     );
@@ -155,7 +162,7 @@ export function Dashboard() {
                       <div className="ellipsis" style={{ fontSize: 14 }}>{d.fm(s.formation).court}</div>
                       <div className="note-accent ellipsis">{SESSION_PASSEE} · {plural(s.inscrits, 'inscrit', 'inscrits')}</div>
                     </div>
-                    <button type="button" className="btn btn-ghost btn-sm" style={{ flex: 'none' }} onClick={stop(() => openDialog({ type: 'cloture', sessionId: s.id }))}>Clôturer</button>
+                    {formations && <button type="button" className="btn btn-ghost btn-sm" style={{ flex: 'none' }} onClick={stop(() => openDialog({ type: 'cloture', sessionId: s.id }))}>Clôturer</button>}
                   </div>
                 ))}
               </div>
@@ -192,7 +199,8 @@ export function Dashboard() {
             </div>
           </Panel>
 
-          <Panel title="Déplacements à préparer" aside={<a href="/voyages" className="link-more" onClick={e => { e.preventDefault(); go('voyages'); }}>Tous →</a>}>
+          {/* Dossiers de voyage (passeport, visas, vaccinations) : service RH seulement. */}
+          {rh && <Panel title="Déplacements à préparer" aside={<a href="/voyages" className="link-more" onClick={e => { e.preventDefault(); go('voyages'); }}>Tous →</a>}>
             <div className="list">
               {trips.slice(0, 3).map(t => (
                 <div key={t.id} className="list-row clickable" onClick={() => go('voyages', { tripSel: t.id })}>
@@ -205,7 +213,7 @@ export function Dashboard() {
                 </div>
               ))}
             </div>
-          </Panel>
+          </Panel>}
         </div>
       </div>
     </Page>

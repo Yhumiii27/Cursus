@@ -60,6 +60,9 @@ export function routesConnexion(db: Db): Router {
   r.use(routesMicrosoft(db));
   const limite = new LimiteParIp();
   const ip = (req: Request) => req.ip ?? req.socket.remoteAddress ?? '';
+  /** Refus 429 d'une adresse qui a dépassé ses échecs : Retry-After jusqu'à la fin de sa fenêtre. */
+  const tropDeTentatives = (res: Response, adresse: string) =>
+    res.status(429).set('Retry-After', String(limite.attente(adresse))).json({ error: TROP_DE_TENTATIVES });
 
   /** Comptes proposés sur l'écran de connexion de démonstration, par espace. */
   function loginOptions() {
@@ -152,7 +155,7 @@ export function routesConnexion(db: Db): Router {
     // comme pour le compte, avant le calcul du mot de passe qui rend la main : une rafale de requêtes
     // simultanées ne passe ni la limite de l'adresse ni le blocage du compte (comptes.ts).
     const adresse = ip(req);
-    if (limite.depasse(adresse)) return res.status(429).json({ error: TROP_DE_TENTATIVES });
+    if (limite.depasse(adresse)) return tropDeTentatives(res, adresse);
     const identifiant = normaliserIdentifiant(typeof b.identifiant === 'string' ? b.identifiant : '');
     const mdp = typeof b.motDePasse === 'string' ? b.motDePasse : '';
     if (!identifiant || !mdp) return res.status(400).json({ error: 'Identifiant et mot de passe requis' });
@@ -202,7 +205,7 @@ export function routesConnexion(db: Db): Router {
     if (!s || !c) return res.status(401).json({ error: 'Connexion requise' });
     if (c.type !== 'local') return res.status(400).json({ error: 'Compte Microsoft 365 : le mot de passe se gère chez Microsoft' });
     const adresse = ip(req);
-    if (limite.depasse(adresse)) return res.status(429).json({ error: TROP_DE_TENTATIVES });
+    if (limite.depasse(adresse)) return tropDeTentatives(res, adresse);
     const actuel = typeof req.body?.actuel === 'string' ? req.body.actuel : '';
     const nouveau = typeof req.body?.nouveau === 'string' ? req.body.nouveau : '';
     const err = controleMotDePasse(nouveau, c.identifiant);

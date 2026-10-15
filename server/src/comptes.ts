@@ -2,10 +2,10 @@
 // Un compte Microsoft 365 s'authentifie chez Microsoft (server/src/microsoft.ts : `oid` renseigné à la
 // première connexion) ; un compte local à Cursus, pour le personnel sans compte d'entreprise
 // (ouvriers, intérimaires, alternants), par un mot de passe haché avec scrypt.
-// Les espaces ouverts découlent du compte : RH selon le profil RH, manager si le salarié encadre
-// au moins une équipe, collaborateur s'il est salarié.
+// Les espaces ouverts découlent du compte : RH selon le profil (service RH, référent HSE, paie, lecture seule),
+// manager si le salarié encadre au moins une équipe, collaborateur s'il est salarié.
 import { randomBytes, randomInt, scrypt, scryptSync, timingSafeEqual, type ScryptOptions } from 'node:crypto';
-import { aDroitRh, BLOCAGE_MINUTES, COMPTE_TYPE_LABEL, ECHECS_MAX, PROFILS_RH } from '../../shared/constants.ts';
+import { BLOCAGE_MINUTES, COMPTE_TYPE_LABEL, ECHECS_MAX, ouvreEspaceRh, PROFILS_RH } from '../../shared/constants.ts';
 import { adresseValide, controleIdentifiant, normaliserIdentifiant } from '../../shared/rules/comptes.ts';
 import type { CompteSession, CompteType, CompteVue, Employe, ProfilRh, Role } from '../../shared/types.ts';
 import { ActionError } from './actions/context.ts';
@@ -50,7 +50,7 @@ export function nomDuCompte(db: Db, c: Compte): string {
 /** Espaces ouverts par le compte, dans l'ordre d'arrivée après connexion. */
 export function espacesDuCompte(db: Db, c: Compte): Role[] {
   const out: Role[] = [];
-  if (aDroitRh(c.profilRh, 'rh')) out.push('rh');
+  if (ouvreEspaceRh(c.profilRh)) out.push('rh');
   if (c.empId && salarie(db, c)) {
     if (db.sql.prepare('SELECT 1 FROM equipes WHERE manager_id = ? LIMIT 1').get(c.empId)) out.push('manager');
     out.push('collaborateur');
@@ -203,18 +203,14 @@ export function creerCompte(db: Db, x: NouveauCompte, auteur: string | null): { 
   if (compteParIdentifiant(db, identifiant)) throw new ActionError(`Identifiant déjà utilisé : ${identifiant}`);
   let nom: string | null = null, adresse: string | null = null;
   if (x.empId) {
-    const e = db.get<EmpCompte>('employes', Number(x.empId));
-    if (!e) throw new ActionError('Collaborateur introuvable', 404);
-    if (e.fin && e.fin < todayIso()) throw new ActionError(`${e.nom} a quitté l’entreprise : aucun compte à créer`);
-    const deja = db.where<Compte>('comptes', 'empId', e.id)[0];
-    if (deja) throw new ActionError(`${e.nom} a déjà un compte (${deja.identifiant}${deja.actif ? '' : ', désactivé'})`);
+    ficheSansCompte(db, Number(x.empId), 'aucun compte à créer');
   } else {
     // Compte externe (pas de fiche salarié) : il n'ouvre que l'espace RH.
     nom = String(x.nom ?? '').trim();
     adresse = normaliserIdentifiant(String(x.adresse ?? '')) || (type === 'microsoft' ? identifiant : '');
     if (!nom || nom.length > 120) throw new ActionError('Nom de la personne requis (120 caractères au plus)');
     if (!adresseValide(adresse)) throw new ActionError('Adresse e-mail de la personne requise');
-    if (!aDroitRh(profilRh, 'rh')) throw new ActionError('Un compte externe n’ouvre que l’espace RH : choisissez un profil RH');
+    if (!ouvreEspaceRh(profilRh)) throw new ActionError('Un compte externe n’ouvre que l’espace RH : choisissez un profil RH (service RH, référent HSE, paie ou lecture seule)');
   }
   const mdp = type === 'local' ? motDePasseProvisoire() : null;
   const compte = db.insert<Compte>('comptes', {
@@ -223,6 +219,32 @@ export function creerCompte(db: Db, x: NouveauCompte, auteur: string | null): { 
     creation: new Date().toISOString(), creePar: auteur, derniereConnexion: null,
   });
   return { compte, motDePasse: mdp };
+}
+
+/**
+ * Fiche d'un salarié présent qui n'a pas encore de compte (un compte par personne). `sorti` complète le refus d'un
+ * salarié sorti, `conseil` celui d'une fiche qui a déjà son compte.
+ */
+function ficheSansCompte(db: Db, empId: number, sorti: string, conseil = ''): EmpCompte {
+  const e = db.get<EmpCompte>('employes', empId);
+  if (!e) throw new ActionError('Collaborateur introuvable', 404);
+  if (e.fin && e.fin < todayIso()) throw new ActionError(`${e.nom} a quitté l’entreprise : ${sorti}`);
+  const deja = db.where<Compte>('comptes', 'empId', e.id)[0];
+  if (deja) throw new ActionError(`${e.nom} a déjà un compte (${deja.identifiant}${deja.actif ? '' : ', désactivé'})${conseil}`);
+  return e;
+}
+
+/**
+ * Rattache un compte externe à la fiche d'un salarié saisie après lui (le premier administrateur RH est créé avant
+ * toute fiche) : le compte ouvre aussi les espaces du salarié, prend le nom de la fiche, et son titulaire ne décide
+ * plus de ses propres absences, feuilles de temps ou entretiens (`estSoiMeme` de server/src/actions/context.ts).
+ * L'adresse du compte est conservée.
+ */
+export function rattacherCompte(db: Db, c: Compte, empId: number): Compte {
+  if (c.empId) throw new ActionError(`Compte déjà rattaché à la fiche de ${nomDuCompte(db, c)}`);
+  ficheSansCompte(db, empId, 'aucun compte à rattacher', ' : portez le profil RH sur ce compte-là, puis désactivez celui-ci');
+  db.update<Compte>('comptes', c.id, { empId, nom: null });
+  return db.get<Compte>('comptes', c.id)!;
 }
 
 /** Désignation courte d'un compte dans les messages : « Karim Haddad (karim.haddad@…, Microsoft 365) ». */

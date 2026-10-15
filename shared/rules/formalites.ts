@@ -82,7 +82,7 @@ export function lignesAuDossier(emp: Employe, x: Declaration): { id: number }[] 
 
 /** La pièce déclarée figure-t-elle telle quelle dans le dossier ? */
 export function estAuDossier(emp: Employe, x: Declaration): boolean {
-  if (x.kind === 'passeport') return !!emp.passeport && memePiece(x, { kind: 'passeport', ...emp.passeport });
+  if (x.kind === 'passeport') return !!emp.passeport && memePiece(x, { kind: 'passeport', numero: emp.passeport.numero ?? '', expire: emp.passeport.expire });
   return lignesAuDossier(emp, x).length > 0;
 }
 

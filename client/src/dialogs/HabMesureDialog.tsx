@@ -14,7 +14,8 @@ const BOUTON: Record<HabMesureAction, string> = { suspendre: 'Suspendre le titre
 
 export function HabMesureDialog({ empId, h, action }: { empId: number; h: string; action: HabMesureAction }) {
   const { d, emps } = useEnriched();
-  const { rh } = useRole();
+  // Levée de la suspension : service RH et référent HSE.
+  const { formations } = useRole();
   const { run, closeDialog } = useStore();
   const [motif, setMotif] = useState('');
   const [date, setDate] = useState(d.ti);
@@ -70,7 +71,7 @@ export function HabMesureDialog({ empId, h, action }: { empId: number; h: string
         <Fine>
           {action === 'retirer'
             ? 'Le retrait est définitif : le titre ne pourra être rétabli que par une nouvelle délivrance, après contrôle des prérequis.'
-            : `Le titre n’est plus valide dès cette date. ${rh ? 'Vous pourrez lever la suspension.' : 'Seul le service RH pourra lever la suspension.'}`}
+            : `Le titre n’est plus valide dès cette date. ${formations ? 'Vous pourrez lever la suspension.' : 'Seuls le service RH et le référent HSE pourront lever la suspension.'}`}
           {' '}Les chantiers qui l’exigent passent en No Go : Keystone ne reçoit que le matricule et un code de motif.
         </Fine>
       </>}

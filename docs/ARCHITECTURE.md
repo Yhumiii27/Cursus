@@ -12,20 +12,22 @@ shared/            Domaine partagé (aucune dépendance)
   dates.ts         Dates ISO, jours fériés calculés, périodes de référence CP
   format.ts        Mise en forme française (dates, heures, jours, euros, pluriels)
   domain.ts        Classe Domain : conformité, habilitations, voyages, échéances, Go / No Go
+  csv.ts           Exports CSV : cellules échappées, formules neutralisées (apostrophe devant = + - @)
   rules/           temps.ts, conges.ts, entretiens.ts, budget.ts, imports.ts
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   seed.ts          Données de démonstration
   sauvegarde.ts    Copie à chaud (VACUUM INTO), rotation, restauration, verrou du serveur ;
                    scripts backup.ts et restore.ts (npm run backup / restore, voir docs/SAUVEGARDE.md)
-  dataset.ts       Assemblage de l'instantané + restriction par rôle (RH / manager / collaborateur)
+  dataset.ts       Assemblage de l'instantané + restriction par rôle (RH / profil restreint / manager / collaborateur)
   auth.ts          Sessions en base (cookie signé, 12 h, révocation) : un compte et l'espace actif
   comptes.ts       Comptes nominatifs (Microsoft 365 ou compte local), espaces, mots de passe (scrypt), journal
   connexion.ts     Routes de session : /api/session, /api/mode, /api/login, /api/motdepasse, /api/logout, /api/comptes
   microsoft.ts     Connexion Microsoft 365 (OpenID Connect, PKCE) : /api/auth/microsoft et /api/auth/microsoft/retour
   comptes-cli.ts   npm run comptes -- admin <identifiant> : premier administrateur RH (docs/DEPLOIEMENT.md)
   config.ts        Variables d'environnement, contrôlées au démarrage (refus en production si dangereuses)
-  securite.ts      En-têtes de sécurité HTTP (CSP, HSTS, anti-iframe…)
+  securite.ts      En-têtes de sécurité HTTP (CSP, HSTS, anti-iframe…), protection CSRF des requêtes qui modifient
+  debit.ts         Limitation du débit de l'API par adresse IP et par compte (429, Retry-After)
   actions/         Actions métier (POST /api/actions/:nom), contrôles d'accès et validations
   envois.ts        File d'envoi persistante des messages sortants (table envois), traitée en tâche de fond
   integrations/    Adaptateurs Keystone et Sage Paie (simulation par défaut) ; API Keystone entrante :
@@ -49,8 +51,10 @@ design/            Prototype Claude Design de référence et guide du design sys
 1. `GET /api/data` renvoie l'instantané `Dataset` **déjà restreint au périmètre**
    de l'utilisateur : un manager ne reçoit que son équipe, sans données de santé
    (`visite` remplacée par `aptitude.ok`, vaccinations retirées, état des dossiers
-   voyage précalculé dans `voyage.dossierStatut`) ; un collaborateur ne reçoit que
-   ses propres données.
+   voyage précalculé dans `voyage.dossierStatut`), et du passeport de ses membres la seule date
+   d'expiration (les visas restent transmis) ; un collaborateur ne reçoit que
+   ses propres données ; un profil restreint de l'espace RH (référent HSE, paie, lecture
+   seule) ne reçoit que ce que ses droits ouvrent (« Profils », section Sécurité).
 2. Le client calcule l'affichage avec `shared/` (statuts, soldes, échéances…).
 3. Toute modification passe par `run('nom.action', payload)` → `POST /api/actions/:nom`.
    Le serveur vérifie les droits, valide, écrit dans une transaction, trace l'action
@@ -110,11 +114,39 @@ design/            Prototype Claude Design de référence et guide du design sys
   puis déconnexion Microsoft avec retour sur l'URI de redirection (qui renvoie à l'écran de connexion).
   Configuration : `configOidc` de `server/src/config.ts` ; tests : `tests/microsoft.test.ts` (faux
   fournisseur OpenID local).
-- **Profils RH** (`PROFILS_RH` de `shared/constants.ts`) : `rh_gestionnaire` (droit `rh` : espace RH et
-  actions courantes) et `rh_admin` (droits `rh` et `admin` : paramètres, transmission à la paie,
-  suppressions, comptes et accès, réinitialisation de la démonstration). Contrôles serveur `requireRh` et
-  `requireRhAdmin` (`server/src/actions/context.ts`). Les profils à venir (référent HSE, paie, lecture
-  seule) s'ajoutent à `PROFILS_RH` avec leurs droits. Cursus garde toujours un administrateur RH actif.
+- **Profils** (`PROFILS_RH` de `shared/constants.ts`, droits `DroitRh`) : deux niveaux au sein du service RH —
+  `rh_gestionnaire` (droits `rh`, `formations`, `consultation` : espace RH et actions courantes) et `rh_admin`
+  (en plus `paie` et `admin` : paramètres, transmission à la paie, suppressions, comptes et accès,
+  réinitialisation de la démonstration) — et trois profils restreints décidés par l'entreprise, qui ouvrent
+  l'espace RH sans le droit `rh` :
+  - `referent_hse` (droit `formations`) : catalogue, sessions et présences, certifications et habilitations,
+    demandes de formation et d'habilitation, verdicts Go / No Go ; aptitude médicale réduite à « à jour » ou
+    « à renouveler » ;
+  - `paie` (droit `paie`) : temps, absences et soldes en lecture, transmission des variables de paie à Sage ;
+  - `lecture_seule` (droit `consultation`) : direction, DPO, auditeur — tout l'espace en lecture (tableaux de
+    bord, alertes, journal des actions et envois), sans modification.
+
+  Contrôles serveur (`server/src/actions/context.ts`) : `requireRh`, `requireRhAdmin`, `requireFormations`,
+  `requirePaie` ; `droitsRh(user)` (`shared/constants.ts`) donne les droits de la personne connectée (aucun hors
+  de l'espace RH ; une lecture interne sans compte a ceux du gestionnaire RH). Données (`vueProfil` de
+  `server/src/dataset.ts`) : jamais de visite ni de vaccination ; ni passeport ni visa pour le référent HSE et la
+  paie (la lecture seule reçoit, comme le manager, la date d'expiration du passeport et les visas : ses échéances et
+  alertes sont celles du service RH, vaccinations exceptées) ; nature médicale des absences masquée et reprise
+  d'un arrêt longue maladie retirée (comme pour le manager), motif des reports de CP retiré ; le référent HSE ne reçoit ni temps, ni absences, ni entretiens, ni plan ; la paie ni formations, ni
+  entretiens, ni déplacements ; la lecture seule tout le reste, sans le contenu des comptes rendus d'entretien ni
+  les documents déclarés. L'état des déplacements (`dossierStatut`, `dossierManque`) est calculé par le serveur
+  pour que le verdict Go / No Go reste exact sans les pièces. `GET /api/journal` et `GET /api/envois` : droit
+  `consultation` ; pour la lecture seule, les messages des actions qui peuvent nommer une donnée de santé sont
+  masqués (`journalPourProfil`). Écrans : `vues` du profil (`vuesDe`), navigation et boutons masqués selon
+  `useRole()`. En démonstration : Sarah Cohen (référente HSE), Aïcha Diallo (paie), Élodie Bernard (lecture seule).
+  Cursus garde toujours un administrateur RH actif.
+- **Décision sur soi-même** : un membre du RH qui est aussi salarié (`user.salarieId`, rattaché au compte) ne
+  décide pas de ses propres absences (`absence.decider`, `absence.saisir`, `absence.qualifier`, `report.accorder` ;
+  il prolonge et annule comme intéressé), feuilles de temps (`temps.validate`, `temps.reject`, correction après
+  soumission) ou entretiens (`entretien.planifier`, `entretien.modifier`, `entretien.clore`) : refus 403 qui
+  renvoie à son manager ou à un autre membre du service RH (`refuserSoiMeme`). Le contrôle porte sur la fiche
+  rattachée au compte : un compte externe (le premier administrateur, créé avant les fiches) se rattache à la fiche
+  de la personne par `compte.rattacher` ou `npm run comptes -- admin <identifiant> --salarie <n°>`.
 - **Identité** : dans l'espace RH, `user.empId` reste null (la personne agit pour le service RH), mais
   `user.nom` est celui de la personne connectée : il signe le journal (avec `compteId` et `identifiant`)
   et les mesures (`mesurePar`, reports de CP). `rhNom` et `rhIntitule` ne sont plus des paramètres : le
@@ -132,6 +164,23 @@ design/            Prototype Claude Design de référence et guide du design sys
   Ne jamais produire de `<script>`, de `<style>` ni d'attribut `style="…"` en HTML brut : la prop
   `style` de React reste permise. Les documents imprimables utilisent `client/src/styles/print.css`
   et lancent l'impression avec le script servi `client/public/imprimer.js`.
+- **CSRF** (`protectionCsrf` de `server/src/securite.ts`) : une requête qui modifie (POST…) est refusée (403, rien
+  n'est exécuté) si `Sec-Fetch-Site` désigne un autre site (sous-domaine voisin compris), si `Origin` n'est pas Cursus
+  (nom et port de la requête, `req.host`, qui suit `X-Forwarded-Host` du reverse proxy de confiance, ou
+  `CURSUS_PUBLIC_URL` ; « null » refusé) ou si son corps n'est pas du JSON (un formulaire ou un `fetch` d'une autre
+  origine ne peut envoyer que du texte sans autorisation CORS, que Cursus n'accorde jamais). Une requête sans corps
+  (déconnexion) passe ; un client sans navigateur n'envoie ni `Origin` ni `Sec-Fetch-Site`. L'API Keystone (clé, sans
+  cookie) est montée avant ; la connexion Microsoft ne fait que des GET. En développement, le proxy de Vite garde le nom
+  d'hôte de la page (`changeOrigin: false`), comme le reverse proxy de production.
+- **Débit** (`server/src/debit.ts`, seau de jetons en mémoire, au plus 10 000 clés suivies par limiteur) : toute requête
+  `/api` (hors Keystone) compte pour son adresse IP (1 200 d'avance, puis 20 par seconde : un atelier entier peut sortir
+  par une adresse) et, si elle porte une session ouverte, pour son compte (240 d'avance, puis 2 par seconde), quelle que
+  soit l'adresse ; l'aller et le retour de la connexion Microsoft (échange du code chez Microsoft) ont leur propre limite
+  par adresse (300 d'avance, puis 2 par seconde). Au-delà : 429, en-tête `Retry-After` (secondes) et message en français
+  (texte pour une page ouverte par le navigateur). S'y ajoutent les échecs de mot de passe (`LimiteParIp`, Retry-After
+  jusqu'à la fin de la fenêtre) et les clés Keystone invalides (60 en 5 minutes par adresse, puis 429
+  `TROP_DE_CLES_INVALIDES` sans lire la clé). `req.ip` est l'adresse du client derrière le reverse proxy de confiance
+  (`CURSUS_TRUST_PROXY`, boucle locale par défaut).
 - **Keystone** : clé comparée en temps constant ; sans `KEYSTONE_API_KEY` (hors démonstration), 503.
   Le corps n'est lu qu'après la clé ; chaque appel authentifié est tracé dans le journal
   (`keystone.appel` : méthode, chemin, statut, référence, champs refusés), jamais le contenu reçu (clés
@@ -156,13 +205,17 @@ design/            Prototype Claude Design de référence et guide du design sys
 - Les propositions d'action calculées par le domaine (`Proposal.intent`) s'exécutent
   avec `runIntent(intent)`.
 - Masquer les actions que le rôle n'a pas le droit d'effectuer (le serveur refuse de
-  toute façon) : `useRole()` donne `rh`, `admin` (administrateur RH), `manager`, `collab`, `me`.
+  toute façon) : `useRole()` donne `espaceRh` (vues d'ensemble), `rh`, `admin` (administrateur RH), `formations`,
+  `paie`, `consultation`, `manager`, `collab`, `me` et `soi` (salarié du compte, y compris dans l'espace RH) ;
+  `useIntentPermis()` filtre les propositions d'action du domaine.
 - Icônes : Phosphor (`@phosphor-icons/react`, noms suffixés `Icon`).
 
 ## Actions disponibles
 
-« RH » : administrateur et gestionnaires RH ; « administrateur RH » : profil `rh_admin` seulement.
-`tests/droits.test.ts` vérifie chaque action pour six profils et échoue si une action n'y a pas sa ligne.
+« RH » : administrateur et gestionnaires RH ; « administrateur RH » : profil `rh_admin` seulement ; « référent HSE »,
+« paie » : profils restreints `referent_hse` et `paie` (la lecture seule n'exécute aucune action). Un membre du RH ne
+décide jamais pour lui-même (« Décision sur soi-même »). `tests/droits.test.ts` vérifie chaque action pour neuf
+profils et échoue si une action n'y a pas sa ligne.
 
 | Action | Paramètres | Droits |
 | --- | --- | --- |
@@ -171,20 +224,20 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `equipe.creer` / `equipe.renommer` | nom, managerId? / nom, nouveau | RH |
 | `equipe.supprimer` | nom | administrateur RH |
 | `equipe.manager` | nom, managerId (null = aucun) | RH |
-| `equipe.affecter` | empId, equipe (null = à affecter) | RH ; manager : ajout à une équipe qu'il encadre, retrait d'un membre |
-| `plan.inscrire` | empId, certId (recyclage) ou inscriptionId (formation initiale à replanifier), sessionId, conv (`now`/`later`) ; refusé depuis une session passée non clôturée | RH, manager direct |
-| `cert.ajouter` | empId, f, date | RH |
-| `session.creer` | f, date (postérieure à aujourd’hui), lieu, places (entier ≥ 1), planId? (action « prévue » de la même formation) | RH |
-| `session.confirmer` | id | RH |
-| `session.modifier` | id, date? (postérieure à aujourd’hui ; session passée, à clôturer : aussi une date passée), lieu?, places? (≥ inscrits) | RH |
-| `session.annuler` | id, motif? | RH |
-| `session.cloturer` | id, participants [{empId, present, reussi?}], note? (1 à 5), commentaire? | RH |
-| `hab.delivrer` | empId, h, date, par, mode | RH |
-| `hab.suspendre` | empId, h, motif, date? (aujourd’hui par défaut) | RH ; manager pour un membre de son équipe (jamais lui-même) |
-| `hab.lever` | empId, h | RH |
-| `hab.retirer` | empId, h, motif, date? | RH |
+| `equipe.affecter` | empId, equipe (null = à affecter) | RH ; manager : ajout à une équipe qu'il encadre d'un salarié « à affecter » (libéré par son manager) ou d'un membre d'une autre de ses équipes, retrait d'un membre — jamais le membre d'une autre équipe : sa mutation relève du RH |
+| `plan.inscrire` | empId, certId (recyclage) ou inscriptionId (formation initiale à replanifier), sessionId, conv (`now`/`later`) ; refusé depuis une session passée non clôturée | RH, référent HSE, manager direct |
+| `cert.ajouter` | empId, f, date | RH, référent HSE |
+| `session.creer` | f, date (postérieure à aujourd’hui), lieu, places (entier ≥ 1), planId? (action « prévue » de la même formation) | RH, référent HSE |
+| `session.confirmer` | id | RH, référent HSE |
+| `session.modifier` | id, date? (postérieure à aujourd’hui ; session passée, à clôturer : aussi une date passée), lieu?, places? (≥ inscrits) | RH, référent HSE |
+| `session.annuler` | id, motif? | RH, référent HSE |
+| `session.cloturer` | id, participants [{empId, present, reussi?}], note? (1 à 5), commentaire? | RH, référent HSE |
+| `hab.delivrer` | empId, h, date, par, mode | RH, référent HSE |
+| `hab.suspendre` | empId, h, motif, date? (aujourd’hui par défaut) | RH, référent HSE ; manager pour un membre de son équipe (jamais lui-même) |
+| `hab.lever` | empId, h | RH, référent HSE |
+| `hab.retirer` | empId, h, motif, date? | RH, référent HSE |
 | `medical.demander` | empId | RH |
-| `demande.accepter` / `demande.refuser` | id | RH |
+| `demande.accepter` / `demande.refuser` | id | RH ; référent HSE pour une demande de formation ou d'habilitation (document déclaré : RH) |
 | `demande.formation` | f (ou `autre`), libelle, sessionId, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `demande.habilitation` | h, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `voyage.creer` | empId, dest, depart, retour, motif | RH |
@@ -197,25 +250,26 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `temps.setCell` | empId, week, li, di, value | salarié, manager direct ou RH (feuille soumise : valideur uniquement) ; aucune heure un jour d’absence validée ou signalée, ni hors contrat, vider la cellule reste possible ; pas de feuille pour une semaine hors contrat |
 | `temps.addLine` / `temps.removeLine` | empId, week, projet / li | idem |
 | `temps.suggest` / `temps.submit` | empId, week | idem (soumission : brouillon ou à corriger, sans heures un jour d’absence validée ; semaine entièrement couverte par une absence : sans heure) |
-| `temps.validate` / `temps.reject` | empId, week, comment? | manager direct ou RH (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence) |
-| `temps.pushSage` | — | administrateur RH |
+| `temps.validate` / `temps.reject` | empId, week, comment? | manager direct ou RH, jamais pour sa propre feuille (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence) |
+| `temps.pushSage` | — | administrateur RH, paie |
 | `absence.demander` | empId, kind (`CP`/`RTT`/`RECUP`), du, au | intéressé ou RH (demande, refusée si ces jours portent des heures sur une feuille validée) ; manager direct (posée et validée, refusée si des heures sont saisies ces jours-là) |
-| `absence.decider` | id, ok | manager direct ou RH (validation refusée si des heures sont saisies ces jours-là) |
+| `absence.decider` | id, ok | manager direct ou RH, jamais pour sa propre demande (validation refusée si des heures sont saisies ces jours-là) |
 | `absence.signaler` | empId, du, au | intéressé, manager direct ou RH : absence imprévue « à qualifier », en vigueur aussitôt |
-| `absence.saisir` | empId, nature, du, au, justificatif, justificatifLe | RH (absence hors congés validée d’emblée) |
-| `absence.qualifier` | id, nature, du?, au?, justificatif, justificatifLe | RH (absence signalée ou qualifiée, hors congés) |
+| `absence.saisir` | empId, nature, du, au, justificatif, justificatifLe | RH (absence hors congés validée d’emblée), jamais pour lui-même |
+| `absence.qualifier` | id, nature, du?, au?, justificatif, justificatifLe | RH (absence signalée ou qualifiée, hors congés), jamais la sienne |
 | `absence.prolonger` | id, au | intéressé, manager direct ou RH (hors congés ; hors RH, l’absence repasse « à qualifier ») |
 | `absence.annuler` | id | demande : intéressé ou RH ; absence à venir : manager direct ou RH (et l’intéressé pour son propre signalement, ni qualifié ni prolongé) ; commencée ou passée : RH ; hors périmètre : refus unique (403) |
 | `cet.placer` | empId, kind, jours | intéressé ou RH |
-| `report.accorder` | empId, jours, motif | RH |
-| `entretien.planifier` | empId, kind, date | manager direct ou RH |
-| `entretien.modifier` | id, section?, value?, info? | évaluateur / salarié selon la section |
+| `report.accorder` | empId, jours, motif | RH, jamais pour lui-même |
+| `entretien.planifier` | empId, kind, date | manager direct ou RH (jamais son propre entretien) |
+| `entretien.modifier` | id, section?, value?, info? | évaluateur / salarié selon la section (un membre du RH n'évalue pas son propre entretien) |
 | `entretien.clore` | id | évaluateur |
 | `entretien.signer` | id | salarié |
 | `parametres.maj` | horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, silent? | administrateur RH |
 | `demo.reinitialiser` | — | administrateur RH, mode démonstration |
 | `compte.creer` | empId (ou nom, adresse : compte externe), type (`microsoft`/`local`), identifiant, profilRh | administrateur RH (mot de passe provisoire dans `result`, affiché une fois) |
-| `compte.profil` | id, profilRh (`aucun`/`rh_gestionnaire`/`rh_admin`) | administrateur RH (jamais le dernier administrateur actif) |
+| `compte.profil` | id, profilRh (`aucun`/`rh_gestionnaire`/`rh_admin`/`referent_hse`/`paie`/`lecture_seule`) | administrateur RH (jamais le dernier administrateur actif ; un compte externe garde un profil) |
+| `compte.rattacher` | id, empId | administrateur RH (compte externe seulement, vers la fiche d'un salarié présent qui n'a pas de compte ; le compte prend le nom de la fiche et ouvre ses espaces) |
 | `compte.activer` | id, actif | administrateur RH (désactiver ferme les sessions ; pas son propre compte) |
 | `compte.reinitialiser` | id | administrateur RH (compte local : nouveau mot de passe provisoire ; compte Microsoft rattaché : « Délier », `oid` retiré pour une identité recréée ; sessions fermées) |
 | `envoi.relancer` | id | RH (envoi en échec, intégration configurée : nouvelle série de tentatives, même clé d'idempotence) |
@@ -317,6 +371,12 @@ dans le dossier, et leur refus n'y touche pas. Le refus ne retire pas non plus u
 depuis ou que le RH a validée par une autre demande (`retireeAuRefus`) ; une pièce qui a changé se
 valide comme une déclaration ordinaire.
 
+Vaccinations (décision de l'entreprise : tous les vaccins avec leur date d'injection) : données de santé transmises au
+seul service RH (droit `rh`) et à l'intéressé ; ni le manager, ni les profils restreints, ni Keystone (« formalité
+sanitaire ») ne voient le vaccin. Avant toute saisie, le dialogue affiche l'information de la personne (art. 13 du
+RGPD, `INFO_VACCINATIONS` de `shared/constants.ts`, texte à faire valider par le DPO, qui fixe la durée de
+conservation : aucune purge n'est encore appliquée, et les déclarations acceptées gardent les injections antérieures).
+
 ## Données Keystone
 
 Chantiers, projets, missions et tâches viennent de Keystone par l'API entrante
@@ -362,6 +422,11 @@ Règles : `shared/rules/absences.ts` (confidentialité, décompte, reprise, annu
   signalée compte aussitôt, comme une absence validée.
 - **Prolongation** (`absence.prolonger`) : nouvelle fin, sans chevauchement ; la fin initiale est conservée
   (`finInitiale`). Prolongée par le salarié ou le manager, une absence qualifiée repasse « à qualifier ».
+- **Motif de reprise** (`MOTIFS_REPRISE` de `shared/constants.ts`) : liste fermée des cas de l’art. L6315-1 (congés de
+  maternité, d’adoption, parental, de proche aidant, sabbatique, temps partiel parental, mobilité volontaire sécurisée,
+  mandat syndical, « absence longue »), sans texte libre ni information médicale : l’arrêt longue maladie s’inscrit
+  « absence longue ». Contrôlé par `validerProfil` (formulaire et serveur) ; au démarrage, un ancien texte libre est
+  ramené à la liste (`motifsDeReprise` de `server/src/migrate.ts`), un texte non reconnu devenant « absence longue ».
 - **Confidentialité** : `dataset.ts` remplace pour le manager la nature médicale d’un membre de son équipe par
   `ABSENCE`, sans justificatif (`absenceVueManager`) ; le salarié voit ses absences en détail. Sont médicales (`medicale`)
   les arrêts (maladie, longue maladie, accident du travail ou de trajet, maladie professionnelle) et la santé d’un enfant

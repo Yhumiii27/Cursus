@@ -33,17 +33,31 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
   (statut, contrat, organisation du temps) et l'écran « Équipes & managers » (créer, renommer,
   supprimer une équipe, désigner son manager, affecter les collaborateurs). Deux profils : les
   **gestionnaires RH** (fiches, formations, absences…) et l'**administrateur RH**, seul à régler les
-  paramètres, transmettre la paie, supprimer et gérer les comptes (Paramètres → Comptes et accès).
-  En démonstration : Sandrine Vidal, administratrice RH, et Antoine Leroy, gestionnaire RH.
+  paramètres, supprimer et gérer les comptes (Paramètres → Comptes et accès) et, avec le gestionnaire de paie, à
+  transmettre la paie.
+  En démonstration : Sandrine Vidal, administratrice RH, et Antoine Leroy, gestionnaire RH. Un membre du RH qui
+  est aussi salarié ne décide jamais de ses propres absences, feuilles de temps ou entretiens : son manager ou
+  un autre membre du RH le fait. Son profil RH est porté par le compte rattaché à sa fiche (un compte externe créé
+  avant la fiche s'y rattache dans Comptes et accès).
+  Trois profils restreints ouvrent aussi l'espace RH, sans rien voir ni faire d'autre que leur mission :
+  **référent HSE / formation** (catalogue, sessions et présences, certifications et habilitations, verdicts
+  Go / No Go ; aptitude médicale réduite à « à jour » ou « à renouveler »), **gestionnaire de paie**, interne ou
+  cabinet extérieur (temps, absences et soldes en lecture, transmission à Sage Paie ; ni formations, ni entretiens, ni
+  données de santé) et **lecture seule** pour la direction, le DPO ou un auditeur (tableaux de bord, alertes et
+  journal des actions, sans modification ni donnée de santé détaillée). En démonstration : Sarah Cohen,
+  Aïcha Diallo et Élodie Bernard.
 - **Manager** : son équipe — inscriptions aux sessions et demandes de formation / habilitation,
   absences posées et validées, absences imprévues signalées (le service RH en précise la nature, jamais
   communiquée au manager pour un arrêt de travail ou la santé d'un enfant), saisie et correction des feuilles de temps, poste et jours non
-  travaillés des fiches, ajout et retrait de membres, entretiens, missions.
-  Pas d'accès aux données de santé (seul le verdict d'aptitude est transmis).
+  travaillés des fiches, ajout de salariés « à affecter » (libérés par leur manager d'origine ; une mutation
+  directe passe par le service RH) et retrait de membres, entretiens, missions.
+  Pas d'accès aux données de santé (seul le verdict d'aptitude est transmis) ; du passeport de ses membres, la seule
+  date d'expiration.
 - **Utilisateur** (collaborateur) : ses formations, habilitations, voyages, heures,
   absences, entretiens et demandes au service RH.
   Les documents de voyage qu'il déclare (passeport, visa, vaccination) n'entrent dans son
-  dossier qu'après validation par le service RH.
+  dossier qu'après validation par le service RH. Ses vaccinations (vaccin et date d'injection) sont des données de
+  santé réservées au service RH : l'information sur leur traitement (art. 13 du RGPD) s'affiche avant la saisie.
 
 Chaque personne se connecte avec son compte nominatif : compte Microsoft 365 de l'entreprise pour
 les salariés qui en ont un (« Se connecter avec Microsoft », voir `docs/CONNEXION-MICROSOFT.md`),

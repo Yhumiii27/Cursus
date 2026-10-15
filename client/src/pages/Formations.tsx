@@ -38,7 +38,8 @@ interface Renewal { e: EmpX; c: CertInfo; demande: string | null }
 
 export function Formations() {
   const { emps, forms, upcoming, d } = useEnriched();
-  const { rh, manager, me } = useRole();
+  // `espaceRh` : vue de tout le site (service RH, référent HSE, lecture seule) ; `formations` : gestion des sessions.
+  const { espaceRh, formations, manager, me } = useRole();
   const { ui, setUi, go, openDialog } = useStore();
 
   // Manager : les membres des équipes qu'il encadre (hors lui-même). RH : tout le monde.
@@ -74,9 +75,9 @@ export function Formations() {
 
   const byFm = (s: Session) => !ui.formationFilter || s.formation === ui.formationFilter;
   const sessions = upcoming.filter(byFm);
-  // Service RH : sessions passées à clôturer, puis les dernières clôturées ou annulées (historique).
-  const aCloturer = rh ? d.aCloturer().filter(byFm) : [];
-  const terminees = rh
+  // Espace RH : sessions passées à clôturer, puis les dernières clôturées ou annulées (historique).
+  const aCloturer = espaceRh ? d.aCloturer().filter(byFm) : [];
+  const terminees = espaceRh
     ? d.ds.sessions.filter(s => (s.statut === 'Clôturée' || s.statut === 'Annulée') && byFm(s)).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8)
     : [];
   const filteredFm = ui.formationFilter ? d.fm(ui.formationFilter) ?? null : null;
@@ -180,7 +181,7 @@ export function Formations() {
                       <td className="text-muted">{s.lieu}</td>
                       <td className="tnum nowrap">{plural(s.inscrits, 'inscrit', 'inscrits')}</td>
                       <td><Tag cls={SESS_CLS[SESSION_PASSEE]}>{SESSION_PASSEE}</Tag></td>
-                      <td className="right"><Btn small variant="secondary" onClick={stop(() => openDialog({ type: 'cloture', sessionId: s.id }))}>Clôturer</Btn></td>
+                      <td className="right">{formations && <Btn small variant="secondary" onClick={stop(() => openDialog({ type: 'cloture', sessionId: s.id }))}>Clôturer</Btn>}</td>
                     </tr>
                   );
                 })}
@@ -195,7 +196,7 @@ export function Formations() {
           <h2>{filteredFm ? `Sessions à venir — ${filteredFm.court}` : 'Sessions à venir'}</h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)' }}>
             {filteredFm && <button type="button" className="btn btn-ghost btn-sm" onClick={() => setUi({ formationFilter: null })}>Toutes les sessions</button>}
-            {rh && <Btn variant="secondary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'session', f: ui.formationFilter ?? undefined })}>Nouvelle session</Btn>}
+            {formations && <Btn variant="secondary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'session', f: ui.formationFilter ?? undefined })}>Nouvelle session</Btn>}
           </div>
         </div>
       }>
@@ -208,7 +209,7 @@ export function Formations() {
                 const sv = sessionView(d, s, fm.nom);
                 const team = manager ? enrolled(s) : [];
                 return (
-                  <tr key={s.id} className={rh ? 'clickable' : undefined} onClick={rh ? () => openDetail(s) : undefined}>
+                  <tr key={s.id} className={espaceRh ? 'clickable' : undefined} onClick={espaceRh ? () => openDetail(s) : undefined}>
                     <td className="nowrap">{fmt(sv.date)}</td>
                     <td><Two main={sv.nom} sub={fm.organisme} /></td>
                     <td className="text-muted">{s.lieu}</td>
@@ -227,7 +228,9 @@ export function Formations() {
           </table>
         </div>
         {sessions.length === 0 && <Empty pad="sm">Aucune session à venir pour cette formation.</Empty>}
-        {rh && sessions.length > 0 && <Fine>Cliquez sur une session pour voir ses inscrits, la confirmer (liste à transmettre à l’organisme), la modifier ou l’annuler.</Fine>}
+        {espaceRh && sessions.length > 0 && <Fine>{formations
+          ? 'Cliquez sur une session pour voir ses inscrits, la confirmer (liste à transmettre à l’organisme), la modifier ou l’annuler.'
+          : 'Cliquez sur une session pour voir ses inscrits.'}</Fine>}
       </Panel>
 
       {terminees.length > 0 && (

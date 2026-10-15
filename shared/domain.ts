@@ -269,7 +269,9 @@ export class Domain {
 
   medInfo(e: Employe): MedInfo {
     if (!e.visite) {
-      if (e.aptitude) return { ok: e.aptitude.ok, exp: null, d: null, text: 'Aptitude médicale : information réservée au service RH' };
+      // Verdict seul (manager, profils restreints) : `ok` dit que la visite périodique est à jour, pas un avis
+      // d'inaptitude (art. L4624-4), que Cursus n'enregistre pas.
+      if (e.aptitude) return { ok: e.aptitude.ok, exp: null, d: null, text: `Aptitude médicale : ${e.aptitude.ok ? 'à jour' : 'à renouveler (visite échue ou non renseignée)'} · détail réservé au service RH` };
       return { ok: false, exp: null, d: null, text: 'Visite médicale non renseignée' };
     }
     const date = parse(e.visite), exp = addMonths(date, MED_VALIDITE), d = days(this.today, exp);
@@ -443,6 +445,14 @@ export class Domain {
     return emp ? this.readiness(emp, t).status : 'todo';
   }
 
+  /**
+   * Formalités obligatoires manquantes d'un déplacement, sans nommer un vaccin (« formalité sanitaire ») — précalculées
+   * par le serveur (`dossierManque`) quand les pièces du dossier ne sont pas transmises.
+   */
+  formalitesManquantes(t: TripX): string[] {
+    return t.dossierManque ?? [...new Set(t.r.items.filter(i => !i.ok && i.mandatory).map(i => i.k === 'vaccin' ? 'formalité sanitaire' : i.label))];
+  }
+
   travelOf(e: Employe, horizon: number) {
     return {
       pass: e.passeport ? (() => { const exp = parse(e.passeport!.expire), d = days(this.today, exp); return { exp, d, key: docKey(d, Math.max(horizon, 180)) }; })() : null,
@@ -512,9 +522,9 @@ export class Domain {
       const t = trips.find(x => x.empId === e.id && x.chantier === c.id) || trips.find(x => x.empId === e.id && x.dest === c.pays);
       const dem = this.ds.demandesKeystone.some(d => d.empId === e.id && d.chantier === c.id && d.statut === 'attente');
       if (!t) push('reserve', 'DEPLACEMENT', dem ? 'Déplacement en attente de validation RH' : 'Déplacement à créer', dem ? 'Demande Keystone en attente de validation RH' : 'Aucun déplacement créé pour ce chantier');
-      else if (t.r.status !== 'pret') {
-        const list = [...new Set(t.r.items.filter(i => !i.ok && i.mandatory).map(i => i.k === 'vaccin' ? 'formalité sanitaire' : i.label))].join(', ');
-        if (t.r.status === 'bloc') push('nogo', 'FORMALITES_VOYAGE', 'Formalités de voyage hors délai', `Formalités hors délai : ${list}`);
+      else if ((t.dossierStatut ?? t.r.status) !== 'pret') {
+        const list = this.formalitesManquantes(t).join(', ');
+        if ((t.dossierStatut ?? t.r.status) === 'bloc') push('nogo', 'FORMALITES_VOYAGE', 'Formalités de voyage hors délai', `Formalités hors délai : ${list}`);
         else push('reserve', 'FORMALITES_VOYAGE', 'Formalités de voyage en cours', `Formalités en cours : ${list}`);
       }
     }

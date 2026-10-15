@@ -6,7 +6,7 @@ import type { PrereqCheck } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, plural, rel, validiteLabel } from '../../../shared/format.ts';
 import { Btn, Chips, Empty, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
-import { useEnriched, useRole } from '../state/derived.ts';
+import { useEnriched, useIntentPermis, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { PickCard } from './Formations.tsx';
 
@@ -17,7 +17,9 @@ const isKo = (k: HabKey) => k === 'exp' || k === 'susp' || k === 'retiree';
 
 export function Habilitations() {
   const { emps, d } = useEnriched();
-  const { rh } = useRole();
+  // Délivrance, mesures et propositions : service RH et référent HSE ; la visite médicale reste au service RH.
+  const { formations } = useRole();
+  const permis = useIntentPermis();
   const { ui, setUi, go, openDialog, runIntent } = useStore();
 
   const v = useMemo(() => {
@@ -43,7 +45,7 @@ export function Habilitations() {
     <Page kicker={v.kicker} title="Habilitations" actions={<>
       <Seg name="habFilter" label="Statut des habilitations" value={ui.habFilter} onChange={x => setUi({ habFilter: x })}
         options={[['tous', 'Toutes'], ['due', 'À renouveler'], ['ko', 'Non valides'], ['pending', 'En attente']]} />
-      {rh && <Btn variant="primary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'hab', mode: 'new' })}>Délivrer une habilitation</Btn>}
+      {formations && <Btn variant="primary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'hab', mode: 'new' })}>Délivrer une habilitation</Btn>}
     </>}>
       <div className="cards-grid">
         {v.types.map(t => {
@@ -69,8 +71,8 @@ export function Habilitations() {
             <thead><tr><th>Collaborateur</th><th>Habilitation</th><th>Délivrance</th><th>Échéance</th><th>Prérequis</th><th>Statut</th><th></th></tr></thead>
             <tbody>
               {v.rows.map(({ e, h }) => {
-                const a = rh ? d.habAction(e.id, h) : null;
-                const mesures = rh ? d.habMesures(h, true) : [];
+                const proposee = d.habAction(e.id, h), a = proposee && permis(proposee.intent) ? proposee : null;
+                const mesures = formations ? d.habMesures(h, true) : [];
                 return (
                   <tr key={`${e.id}-${h.hm.id}`} className="clickable" onClick={() => go('collaborateurs', { selectedId: e.id })}>
                     <td><Two main={e.nom} sub={equipeLabel(e)} nowrap /></td>
@@ -86,7 +88,7 @@ export function Habilitations() {
                     <td className="right">
                       <div className="actions-end">
                         {a && <button type="button" className="btn btn-ghost btn-sm" onClick={stop(() => runIntent(a.intent))}>{a.label}</button>}
-                        {rh && h.key === 'retiree' && (
+                        {formations && h.key === 'retiree' && (
                           <button type="button" className="btn btn-ghost btn-sm" onClick={stop(() => openDialog({ type: 'hab', empId: e.id, h: h.h, mode: 'deliver' }))}>Nouvelle délivrance</button>
                         )}
                         {mesures.map(m => (

@@ -14,7 +14,8 @@ import { useStore } from '../state/store.tsx';
 export function PlanDialog({ empId, certId, inscriptionId }: { empId: number; certId?: number; inscriptionId?: number }) {
   const { d, upcoming } = useEnriched();
   const { run, closeDialog, openDialog } = useStore();
-  const { rh } = useRole();
+  // Sessions et clôtures : service RH et référent HSE ; le manager transmet une demande.
+  const { formations } = useRole();
   const emp = d.emp(empId);
   const cert = certId != null ? emp?.certs.find(c => c.id === certId) : undefined;
   const insc = inscriptionId != null ? d.ds.inscriptions.find(i => i.id === inscriptionId && i.empId === empId) : undefined;
@@ -31,17 +32,17 @@ export function PlanDialog({ empId, certId, inscriptionId }: { empId: number; ce
     return (
       <Dialog title={insc ? 'Planifier la formation' : 'Planifier un renouvellement'} width={540} actions={<>
         <CancelButton label="Fermer" />
-        {rh && <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'cloture', sessionId: actuelle.id })}>Clôturer la session</button>}
+        {formations && <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'cloture', sessionId: actuelle.id })}>Clôturer la session</button>}
       </>}>
         <p className="text-muted" style={{ margin: 0 }}>
-          {emp.nom} est inscrit à la session {fm.court} du {fmt(parse(actuelle.date))}, passée : {rh ? 'clôturez-la d’abord' : 'le service RH la clôture d’abord'} (présence, résultat).
+          {emp.nom} est inscrit à la session {fm.court} du {fmt(parse(actuelle.date))}, passée : {formations ? 'clôturez-la d’abord' : 'le service RH la clôture d’abord'} (présence, résultat).
         </p>
       </Dialog>
     );
   }
   const ouvertes = sessions.some(s => s.inscrits < s.places);
   // Seul le service RH crée des sessions : les autres transmettent une demande de formation.
-  const demander = !rh && !ouvertes;
+  const demander = !formations && !ouvertes;
 
   const confirm = async () => {
     setBusy(true);
@@ -78,7 +79,7 @@ export function PlanDialog({ empId, certId, inscriptionId }: { empId: number; ce
               </label>
             );
           })}
-          {sessions.length === 0 && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>{rh
+          {sessions.length === 0 && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>{formations
             ? 'Aucune session à venir pour cette formation — créez-en une pour inscrire ce collaborateur.'
             : 'Aucune session à venir — la demande sera transmise au service RH.'}</p>}
           {sessions.length > 0 && demander && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>Toutes les sessions sont complètes — la demande sera transmise au service RH.</p>}

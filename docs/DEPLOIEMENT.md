@@ -27,7 +27,10 @@ l'application dans Entra) : voir `docs/CONNEXION-MICROSOFT.md`.
 - **Données personnelles** : Cursus conserve des données relatives à la santé (visites médicales,
   aptitude, vaccinations) et des documents de voyage. Faire valider le choix de l'hébergeur par le
   DPO : localisation dans l'UE, contrat de sous-traitance (RGPD, article 28) et question d'un
-  hébergement certifié HDS.
+  hébergement certifié HDS. Le DPO valide aussi l'information affichée avant la saisie d'une vaccination
+  (art. 13 du RGPD : `INFO_VACCINATIONS` de `shared/constants.ts`), qu'il complète au besoin de ses coordonnées,
+  et y fixe la durée de conservation (rubrique « Conservation », « à préciser avant la mise en service ») : Cursus
+  n'efface encore rien, même au départ du salarié, et garde les déclarations antérieures et le journal des actions.
 - **Nom de domaine** : un sous-domaine dédié (dans ce guide `cursus.example.fr`) dont les
   enregistrements DNS A / AAAA pointent vers la machine.
 
@@ -193,8 +196,19 @@ l'identifiant est l'adresse Microsoft 365 de la personne (`npm run comptes -- ad
 prenom.nom@entreprise.fr`). `--salarie <n°>` rattache le compte à la fiche d'un salarié déjà
 saisie ; sans lui, le compte est externe (nom et adresse propres, espace RH seulement).
 
+Un membre du service RH qui est aussi salarié doit porter son profil RH sur le compte rattaché à sa fiche :
+c'est ce rattachement qui empêche Cursus de le laisser décider de ses propres absences, feuilles de temps ou
+entretiens. Le premier administrateur, créé avant toute fiche, est un compte externe : une fois sa fiche saisie,
+l'administrateur RH rattache son compte dans Paramètres → Comptes et accès (« Rattacher à une fiche »), ou le
+service informatique relance la commande avec `--salarie <n°>`. Si la fiche a déjà son propre compte, porter le
+profil RH sur ce compte-là, puis désactiver le compte externe.
+
 L'administrateur RH crée ensuite les comptes des salariés et des autres membres du service RH
-(gestionnaires RH) dans Paramètres → Comptes et accès. Chaque création est tracée dans le journal.
+(gestionnaires RH) dans Paramètres → Comptes et accès. Chaque création est tracée dans le journal. Le profil se
+choisit à la création et se modifie ensuite : gestionnaire ou administrateur RH, ou l'un des trois profils
+restreints — référent HSE / formation, gestionnaire de paie (un cabinet extérieur reçoit un compte externe, nom et
+adresse, sans fiche salarié), lecture seule pour la direction, le DPO ou un auditeur (`docs/ARCHITECTURE.md`,
+« Profils »).
 
 Recours : si plus aucun administrateur ne peut se connecter (mot de passe oublié, compte bloqué ou
 désactivé, identité Microsoft recréée), relancer la même commande avec l'identifiant existant. Elle
@@ -203,8 +217,8 @@ un nouveau mot de passe provisoire ; pour un compte Microsoft, elle retire le ra
 Microsoft, rétabli à la connexion suivante (les sessions ouvertes de ce compte sont fermées).
 
 Protection des comptes Cursus : mot de passe haché (scrypt), message d'échec identique quel que
-soit l'identifiant, blocage du compte 15 minutes après 5 échecs, et refus (429) des tentatives d'une
-adresse IP au-delà de 30 échecs en 15 minutes — un atelier entier peut sortir par une même adresse.
+soit l'identifiant, blocage du compte 15 minutes après 5 échecs, et refus (429, avec `Retry-After`) des
+tentatives d'une adresse IP au-delà de 30 échecs en 15 minutes — un atelier entier peut sortir par une même adresse.
 Chaque tentative est comptée dès son arrivée, avant la vérification du mot de passe : des requêtes
 envoyées en même temps ne passent pas ces limites (une connexion réussie est rendue à l'adresse).
 Connexions réussies et refusées sont tracées dans le journal, jamais les mots de passe ; le filtre
@@ -236,9 +250,9 @@ cursus.example.fr {
 }
 ```
 
-Caddy n'a pas de limitation de débit sans module complémentaire : Cursus résume lui-même les appels
-refusés faute de clé (une ligne de journal par minute), et la restriction d'adresse suffit à écarter
-Internet.
+Caddy n'a pas de limitation de débit sans module complémentaire : Cursus limite lui-même le débit
+(« Protections de l'API » ci-dessous), résume les appels refusés faute de clé (une ligne de journal par
+minute), et la restriction d'adresse suffit à écarter Internet de l'API Keystone.
 
 ```bash
 sudo systemctl reload caddy
@@ -247,6 +261,18 @@ sudo systemctl reload caddy
 Caddy transmet `X-Forwarded-Proto` et `X-Forwarded-For` : Cursus, qui fait confiance au proxy
 local (`CURSUS_TRUST_PROXY=loopback`), sait que la requête est en HTTPS et ajoute l'en-tête
 `Strict-Transport-Security` (HSTS, un an).
+
+### Protections de l'API
+
+- **Origine des requêtes** (CSRF) : Cursus refuse (403) une requête qui modifie et ne vient pas de sa propre page
+  (en-têtes `Origin` et `Sec-Fetch-Site` du navigateur, corps JSON exigé). Il compare l'origine au nom demandé :
+  le proxy doit donc transmettre le nom d'origine (`Host`, ce que font Caddy par défaut et la configuration nginx
+  ci-dessous, ou `X-Forwarded-Host`) ; `CURSUS_PUBLIC_URL`, si elle est définie, est admise en plus.
+- **Débit** : par adresse IP du client (`X-Forwarded-For` du proxy de confiance), 1 200 requêtes d'avance puis 20 par
+  seconde — tout un site peut sortir par une même adresse ; par compte connecté, 240 puis 2 par seconde, du poste, du
+  téléphone ou du domicile ; aller et retour de la connexion Microsoft, 300 puis 2 par seconde par adresse ; clés
+  Keystone invalides, 60 en 5 minutes par adresse. Au-delà : `429 Too Many Requests` avec `Retry-After` (secondes) et
+  un message en français. Compteurs en mémoire, remis à zéro au redémarrage, bornés à 10 000 adresses ou comptes.
 
 ## Variante : nginx et certbot
 

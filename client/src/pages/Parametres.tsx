@@ -1,6 +1,6 @@
 // Paramètres (service RH) : règles de suivi, intégrations Keystone et Sage Paie, envois sortants, comptes et accès,
 // journal des actions, démonstration. Les réglages, les comptes et la réinitialisation sont réservés à l'administrateur RH ;
-// le gestionnaire RH consulte.
+// le gestionnaire RH et la lecture seule consultent (la lecture seule ne relance ni ne classe les envois).
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { ArchiveIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon } from '@phosphor-icons/react';
 import { ENVOI_CLS, ENVOI_LABEL, EVENEMENT_LABEL, GNG_LABEL } from '../../../shared/constants.ts';
@@ -71,7 +71,8 @@ const FILTRES_ENVOI: [FiltreEnvoi, string][] = [['tous', 'Tous'], ['a_envoyer', 
 export function Parametres() {
   const data = useData();
   const { session, run, setUi } = useStore();
-  const { rh, admin, user } = useRole();
+  // `consultation` : service RH et lecture seule (journal, envois, réglages en lecture) ; `rh` : relance des envois.
+  const { rh, admin, consultation, user } = useRole();
   const s = data.settings;
   const keystoneMode = session?.integrations.keystone ?? 'simulation';
   const sageMode = session?.integrations.sage ?? 'simulation';
@@ -87,14 +88,14 @@ export function Parametres() {
       .catch(err => { if (!cancelled) setEnvoisError((err as Error).message); });
     return () => { cancelled = true; };
   }, [filtre]);
-  useEffect(() => (rh ? loadEnvois() : undefined), [data, rh, loadEnvois]);
+  useEffect(() => (consultation ? loadEnvois() : undefined), [data, consultation, loadEnvois]);
   // Messages en attente : l'état est relu toutes les 10 s, le temps que le processus de fond les transmette.
   const enAttente = !!envois?.keystone.nombres.a_envoyer;
   useEffect(() => {
-    if (!rh || !enAttente) return;
+    if (!consultation || !enAttente) return;
     const t = setInterval(loadEnvois, 10_000);
     return () => clearInterval(t);
-  }, [rh, enAttente, loadEnvois]);
+  }, [consultation, enAttente, loadEnvois]);
 
   // Journal : rechargé au montage, à chaque nouvel instantané (donc après chaque action) et au changement de filtre.
   // Les appels entrants de Keystone, nombreux, ont leur propre filtre pour ne pas masquer les actions.
@@ -108,7 +109,7 @@ export function Parametres() {
       .catch(err => { if (!cancelled) setJournalError((err as Error).message); });
     return () => { cancelled = true; };
   }, [journalFiltre]);
-  useEffect(() => (rh ? loadJournal() : undefined), [data, rh, loadJournal]);
+  useEffect(() => (consultation ? loadJournal() : undefined), [data, consultation, loadJournal]);
 
   // Seuil budgétaire : valeur en cours de glissement, enregistrée au relâchement.
   const [seuilDraft, setSeuilDraft] = useState<number | null>(null);
@@ -137,14 +138,15 @@ export function Parametres() {
     }
   };
 
-  if (!rh) return <Page title="Paramètres"><Empty>Paramètres réservés au service RH.</Empty></Page>;
+  if (!consultation) return <Page title="Paramètres"><Empty>Paramètres réservés au service RH.</Empty></Page>;
 
   const push = data.lastSagePush;
 
   return (
     <Page kicker={`Administration · ${user.nom}`} title="Paramètres" note={admin
       ? 'Ces réglages s’appliquent à tous les utilisateurs de Cursus. Chaque modification est enregistrée immédiatement et tracée dans le journal.'
-      : 'Consultation : les réglages, les comptes et la transmission à la paie sont réservés à l’administrateur RH.'}>
+      : rh ? 'Consultation : les réglages et les comptes sont réservés à l’administrateur RH ; la transmission à la paie, à l’administrateur RH et au gestionnaire de paie.'
+      : 'Lecture seule : réglages, intégrations, envois et journal des actions, sans modification. Les messages qui peuvent toucher à la santé sont masqués dans le journal.'}>
       <div className="row-wrap">
         <div className="col-stack" style={{ flex: '1 1 480px' }}>
           <Panel title="Règles de suivi" style={{ gap: 'var(--space-4)' }}>
@@ -250,7 +252,7 @@ export function Parametres() {
         </div>
       </div>
 
-      <EnvoisPanel etat={envois} error={envoisError} filtre={filtre} setFiltre={setFiltre} reload={loadEnvois} mode={keystoneMode} />
+      <EnvoisPanel etat={envois} error={envoisError} filtre={filtre} setFiltre={setFiltre} reload={loadEnvois} mode={keystoneMode} gerer={rh} />
 
       {admin && <ComptesPanel />}
 
@@ -334,8 +336,10 @@ function suiviEnvoi(e: Envoi): string {
 }
 
 /** Vue « Envois » : messages sortants filtrés par statut, détail de chacun, relance ou classement d'un envoi en échec. */
-function EnvoisPanel({ etat, error, filtre, setFiltre, reload, mode }: {
+function EnvoisPanel({ etat, error, filtre, setFiltre, reload, mode, gerer }: {
   etat: EnvoisState | null; error: string | null; filtre: FiltreEnvoi; setFiltre: (f: FiltreEnvoi) => void; reload: () => void; mode: string;
+  /** Relance et classement des échecs : service RH (la lecture seule consulte). */
+  gerer: boolean;
 }) {
   const { run } = useStore();
   const nom = useNomMatricule();
@@ -387,7 +391,7 @@ function EnvoisPanel({ etat, error, filtre, setFiltre, reload, mode }: {
                           {e.erreur && <div className={e.statut === 'envoye' ? 'sub text-n400' : 'note-accent'}>{e.statut === 'envoye' ? 'Erreur avant réussite : ' : 'Dernière erreur : '}{e.erreur}</div>}
                           {e.accuse && <div className="sub">Accusé de réception : <span style={MONO}>{e.accuse}</span></div>}
                           <Pre maxHeight={240}>{JSON.stringify(e.contenu, null, 2)}</Pre>
-                          {e.statut === 'echec' && (
+                          {e.statut === 'echec' && gerer && (
                             <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
                               <Btn variant="secondary" small icon={<ArrowCounterClockwiseIcon size={14} />} disabled={mode !== 'api'} onClick={stop(() => relancer(e.id))}>Relancer</Btn>
                               {!e.classe && <Btn small icon={<ArchiveIcon size={14} />} onClick={stop(() => classer(e.id))}>Classer</Btn>}

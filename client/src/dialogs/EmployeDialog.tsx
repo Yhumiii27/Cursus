@@ -2,8 +2,8 @@
 // travaillés du temps partiel pour le manager d'un membre de son équipe.
 import { useState } from 'react';
 import { isValidDate } from '../../../shared/dates.ts';
-import { STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../../../shared/constants.ts';
-import { equipeLabel, fmtIso, plural } from '../../../shared/format.ts';
+import { MOTIFS_REPRISE, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../../../shared/constants.ts';
+import { cap, equipeLabel, fmtIso, plural } from '../../../shared/format.ts';
 import { reposForfait } from '../../../shared/rules/conges.ts';
 import { JOURS_SEMAINE, PROFIL_FIELDS, PROFIL_VIDE, normaliserProfil, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
 import type { Statut, TempsTravail, TypeContrat } from '../../../shared/types.ts';
@@ -295,7 +295,11 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
         </Field>
         <div />
         <Field label="Reprise après absence longue — motif" htmlFor="emp-rmotif">
-          <input className="input" id="emp-rmotif" type="text" placeholder="Congé parental, congé sabbatique, congé de proche aidant…" value={f.repriseMotif} onChange={ev => set('repriseMotif', ev.target.value)} />
+          {/* Liste fermée (art. L6315-1), sans texte libre : aucune information médicale sur la fiche. */}
+          <select className="input" id="emp-rmotif" value={f.repriseMotif} onChange={ev => set('repriseMotif', ev.target.value)}>
+            <option value="">Aucune reprise</option>
+            {MOTIFS_REPRISE.map(m => <option key={m} value={m}>{cap(m)}</option>)}
+          </select>
         </Field>
         <Field label="Date de reprise" htmlFor="emp-rdate">
           <input className="input" id="emp-rdate" type="date" value={f.repriseDate} onChange={ev => set('repriseDate', ev.target.value)} />
@@ -305,7 +309,8 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
         La date de reprise déclenche la proposition d’un entretien de parcours professionnel (art. L6315-1).
         Elle est renseignée automatiquement à la fin d’une maternité, d’une adoption, d’un congé parental ou d’un arrêt longue maladie
         saisi dans Congés &amp; absences ; à saisir ici pour une absence antérieure à Cursus.
-        Le motif reste réservé au service RH : le manager ne voit que la mention « absence longue ».
+        Le motif se choisit dans la liste, sans information médicale : un arrêt longue maladie s’inscrit « absence longue ».
+        Il reste réservé au service RH : le manager ne voit que la mention « absence longue ».
       </Fine>
 
       {messages}

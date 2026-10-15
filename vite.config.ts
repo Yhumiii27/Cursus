@@ -8,7 +8,9 @@ export default defineConfig({
   plugins: [react()],
   server: {
     port: 5173,
-    proxy: { '/api': `http://localhost:${API_PORT}` },
+    // Nom d'hôte de la page transmis tel quel (comme le reverse proxy de production) : l'API refuse une requête qui
+    // modifie si son origine n'est pas celle de Cursus (protection CSRF, server/src/securite.ts).
+    proxy: { '/api': { target: `http://localhost:${API_PORT}`, changeOrigin: false } },
   },
   build: {
     outDir: '../dist',

@@ -1,5 +1,7 @@
 // Libellés, classes de statut et règles fixes (droit du travail, formalités).
-import type { AbsenceStatut, AbsenceType, CompteType, EntretienType, NatureAbsence, ProfilRh, Role, Statut, TempsTravail, TypeContrat, VaccinId, ValidationMode, VisaKind } from './types.ts';
+import type {
+  AbsenceStatut, AbsenceType, CompteType, CurrentUser, EntretienType, NatureAbsence, ProfilRh, Role, Statut, TempsTravail, TypeContrat, VaccinId, ValidationMode, VisaKind,
+} from './types.ts';
 
 export type StatusKey = 'ok' | 'due' | 'exp';
 /** `susp` : suspendue (prérequis non satisfait ou suspension manuelle) ; `retiree` : retirée, définitivement. */
@@ -39,6 +41,19 @@ export const PAIE_ABSENCE: Record<PaieAbsence, string> = {
 };
 
 /**
+ * Motifs de la reprise inscrite sur la fiche (`repriseMotif`), qui appelle l'entretien de parcours professionnel de
+ * reprise (art. L6315-1) : liste fermée, enregistrée telle quelle, sans aucune information médicale. « absence longue »
+ * couvre l'arrêt longue maladie (art. L324-1 du Code de la sécurité sociale) : sa reprise est masquée au manager
+ * (`repriseMedicale`), qui ne reçoit d'ailleurs que cette mention pour toute autre reprise (server/src/dataset.ts).
+ */
+export const MOTIFS_REPRISE = [
+  'congé de maternité', 'congé d’adoption', 'congé parental d’éducation', 'temps partiel parental', 'congé de proche aidant',
+  'congé sabbatique', 'mobilité volontaire sécurisée', 'mandat syndical', 'absence longue',
+] as const;
+export type MotifReprise = typeof MOTIFS_REPRISE[number];
+export const estMotifReprise = (v: unknown): v is MotifReprise => MOTIFS_REPRISE.includes(v as MotifReprise);
+
+/**
  * Nature d'une absence hors congés.
  * - `medicale` : donnée de santé, y compris celle d'un enfant (annonce d'un handicap, enfant malade) : jamais transmise
  *   au manager ni à Keystone (« Absence », dates et état seulement).
@@ -51,7 +66,7 @@ export const PAIE_ABSENCE: Record<PaieAbsence, string> = {
 export interface NatureDef {
   label: string; abrege: string; court: string; categorie: CategorieAbsence; medicale?: boolean;
   paie: PaieAbsence; decompte: 'ouvres' | 'calendaires'; justificatif: string | null;
-  duree?: number; parAn?: boolean; dureeNote?: string; article?: string; reprise?: string; cp: string;
+  duree?: number; parAn?: boolean; dureeNote?: string; article?: string; reprise?: MotifReprise; cp: string;
 }
 const CP_ASSIMILE = 'Assimilé à du travail effectif (art. L3141-5)';
 const CP_EVENEMENT = 'Assimilé à du travail effectif (art. L3142-2)';
@@ -67,7 +82,7 @@ export const NATURES_ABSENCE: Record<NatureAbsence, NatureDef> = {
   ALD: {
     label: 'Arrêt longue maladie (ALD)', abrege: 'Longue maladie', court: 'arrêt longue maladie', categorie: 'sante', medicale: true, paie: 'indemnisee', decompte: 'calendaires',
     justificatif: 'Avis d’arrêt de travail au titre d’une affection de longue durée', article: 'Art. L324-1 du Code de la sécurité sociale',
-    reprise: 'arrêt longue maladie', cp: CP_MALADIE,
+    reprise: 'absence longue', cp: CP_MALADIE,
   },
   AT: {
     label: 'Accident du travail', abrege: 'Accident', court: 'accident du travail', categorie: 'sante', medicale: true, paie: 'indemnisee', decompte: 'calendaires',
@@ -209,6 +224,28 @@ export const VACCINS: Record<VaccinId, { nom: string; court: string; validite: n
   dtp: { nom: 'DTP (diphtérie-tétanos-polio)', court: 'DTP', validite: 240, delai: 14 },
 };
 
+/**
+ * Information de la personne (art. 13 du RGPD), affichée avant toute saisie d'une vaccination, par le salarié
+ * (déclaration) comme par le service RH (à porter à la connaissance du salarié). Décision de l'entreprise : tous les
+ * vaccins sont enregistrés avec leur date d'injection, et seul le service RH y a accès. Données de santé (art. 9) :
+ * texte à faire valider par le DPO de l'entreprise. La conservation énonce ce que Cursus fait réellement : aucune
+ * purge, même au départ du salarié ; les déclarations et le journal gardent les injections antérieures. La durée est
+ * à fixer par le DPO avant la mise en service (docs/DEPLOIEMENT.md).
+ */
+export const INFO_VACCINATIONS = {
+  titre: 'Vaccinations : des données de santé',
+  points: [
+    ['Responsable', 'votre employeur, pour l’organisation des déplacements professionnels.'],
+    ['Finalité', 'vérifier avant un départ les vaccinations exigées ou recommandées par le pays de destination (préparation du voyage, verdict Go / No Go du chantier).'],
+    ['Base légale', 'obligation de sécurité de l’employeur envers le salarié en déplacement (art. L4121-1 du Code du travail ; art. 6.1.c et 9.2.b du RGPD).'],
+    ['Données', 'le vaccin et la date d’injection, rien d’autre : ni certificat, ni contre-indication, ni autre information médicale.'],
+    ['Destinataires', 'le service RH seulement. Votre manager, les autres profils et Keystone ne voient que l’état du dossier de voyage, jamais le vaccin.'],
+    ['Conservation', 'durée fixée par l’entreprise avec son délégué à la protection des données (à préciser avant la mise en service) ; rien n’est encore effacé automatiquement, même après votre départ. Votre dossier ne garde que la dernière injection de chaque vaccin, mais vos déclarations successives et le journal des actions gardent les précédentes.'],
+    ['Vos droits', 'accès, rectification, effacement, limitation et opposition auprès du service RH ou du délégué à la protection des données ; réclamation auprès de la CNIL (cnil.fr).'],
+    ['Si vous ne la déclarez pas', 'un déplacement vers un pays qui exige ce vaccin reste « à compléter ».'],
+  ] as [string, string][],
+};
+
 export const VISA_RULES: Record<VisaKind, { label: string; sub: string; delai: number }> = {
   none: { label: 'Sans visa', sub: '', delai: 0 },
   evisa: { label: 'e-Visa d’affaires', sub: 'en ligne · 7 à 10 jours', delai: 10 },
@@ -290,21 +327,59 @@ export const ALLOWED_VIEWS = {
 
 // — Comptes et droits —
 /**
- * Droits accordés par un profil RH : `rh` ouvre l'espace RH et ses actions courantes (fiches, formations,
- * habilitations, absences, temps…) ; `admin` les actions réservées à l'administrateur RH (paramètres,
- * transmission à la paie, suppressions, comptes et accès).
+ * Droits accordés par un profil, dans l'espace RH :
+ * - `rh` : gestion courante du service RH (fiches, équipes, formations, absences, temps, entretiens, déplacements…),
+ *   toutes les données, santé comprise ;
+ * - `formations` : catalogue, sessions et présences, certifications et habilitations, suivi des verdicts Go / No Go ;
+ * - `paie` : contrôle des temps, absences et soldes, transmission des variables de paie à Sage ;
+ * - `consultation` : lecture de tout l'espace (tableaux de bord, alertes, journal des actions), sans modification ;
+ * - `admin` : paramètres, suppressions, comptes et accès.
+ * Sans le droit `rh`, l'instantané envoyé au navigateur ne porte que ce que les autres droits ouvrent, jamais de
+ * donnée de santé détaillée (server/src/dataset.ts), et chaque action contrôle son droit (server/src/actions/context.ts).
  */
-export type DroitRh = 'rh' | 'admin';
+export type DroitRh = 'rh' | 'formations' | 'paie' | 'consultation' | 'admin';
 /**
- * Profils RH d'un compte. Les profils à venir (référent HSE, paie, lecture seule) s'ajoutent ici avec
- * leurs droits — au besoin de nouveaux droits contrôlés côté serveur — sans changer la table des comptes.
+ * Profils d'un compte : deux niveaux au sein du service RH, puis trois profils restreints, décidés par l'entreprise.
+ * `vues` : écrans ouverts par un profil restreint (sinon ceux de l'espace RH) ; `espace` : nom court de son espace.
  */
-export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits: readonly DroitRh[] }> = {
+export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits: readonly DroitRh[]; espace?: string; vues?: readonly string[] }> = {
   aucun: { label: 'Aucun', aide: 'Pas d’accès à l’espace RH', droits: [] },
-  rh_gestionnaire: { label: 'Gestionnaire RH', aide: 'Fiches, équipes, formations, habilitations, absences, temps, déplacements', droits: ['rh'] },
-  rh_admin: { label: 'Administrateur RH', aide: 'Tout l’espace RH, plus les paramètres, la transmission à la paie, les suppressions et les comptes', droits: ['rh', 'admin'] },
+  rh_gestionnaire: { label: 'Gestionnaire RH', aide: 'Fiches, équipes, formations, habilitations, absences, temps, déplacements', droits: ['rh', 'formations', 'consultation'] },
+  rh_admin: {
+    label: 'Administrateur RH', aide: 'Tout l’espace RH, plus les paramètres, la transmission à la paie, les suppressions et les comptes',
+    droits: ['rh', 'formations', 'paie', 'consultation', 'admin'],
+  },
+  referent_hse: {
+    label: 'Référent HSE / formation', espace: 'HSE', droits: ['formations'],
+    aide: 'Catalogue, sessions et présences, certifications et habilitations, verdicts Go / No Go ; aptitude médicale réduite à « à jour » ou « à renouveler » ; ni temps, ni absences, ni paie, ni entretiens',
+    vues: ['dashboard', 'collaborateurs', 'formations', 'habilitations', 'echeances', 'chantiers'],
+  },
+  paie: {
+    label: 'Gestionnaire de paie', espace: 'Paie', droits: ['paie'],
+    aide: 'Temps, absences et soldes en lecture, transmission des variables de paie à Sage ; ni entretiens, ni formations, ni données de santé',
+    vues: ['temps', 'absences'],
+  },
+  lecture_seule: {
+    label: 'Lecture seule', espace: 'Lecture', droits: ['consultation'],
+    aide: 'Direction, DPO, auditeur : tableaux de bord, alertes et journal des actions, sans rien modifier ; ni données de santé détaillées, ni dossiers de voyage',
+    vues: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'echeances', 'budget', 'chantiers', 'temps', 'absences', 'entretiens', 'missions', 'parametres'],
+  },
 };
 export const aDroitRh = (p: ProfilRh | undefined, droit: DroitRh) => !!p && !!PROFILS_RH[p]?.droits.includes(droit);
+/** Le profil ouvre-t-il l'espace RH (au moins un droit) ? */
+export const ouvreEspaceRh = (p: ProfilRh | undefined) => !!p && (PROFILS_RH[p]?.droits.length ?? 0) > 0;
+/**
+ * Droits de la personne connectée : ceux de son profil dans l'espace RH, aucun ailleurs. Une lecture interne sans
+ * compte (jeu de démonstration, appels Keystone, tests) a ceux du gestionnaire RH.
+ */
+export function droitsRh(u: Pick<CurrentUser, 'role' | 'profilRh'>): readonly DroitRh[] {
+  if (u.role !== 'rh') return [];
+  return PROFILS_RH[u.profilRh ?? 'rh_gestionnaire']?.droits ?? [];
+}
+/** Écrans ouverts dans un espace, selon le profil pour l'espace RH (le premier est la page d'accueil). */
+export function vuesDe(role: Role, profilRh?: ProfilRh): readonly string[] {
+  return (role === 'rh' && profilRh && PROFILS_RH[profilRh]?.vues) || ALLOWED_VIEWS[role];
+}
 
 export const COMPTE_TYPE_LABEL: Record<CompteType, string> = { microsoft: 'Microsoft 365', local: 'Compte Cursus' };
 export const ESPACE_LABEL: Record<Role, string> = { rh: 'RH', manager: 'Manager', collaborateur: 'Collaborateur' };

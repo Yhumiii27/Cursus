@@ -107,6 +107,16 @@ export function readSession(db: Db, req: Request): SessionInfo | null {
   return { id, compteId: row.compteId, role, methode: row.methode ?? 'local', demoComptes: row.demoComptes ?? {}, expiration: row.expiration };
 }
 
+/**
+ * Compte de la session portée par la requête (cookie signé, session ni révoquée ni expirée), sans autre contrôle ni
+ * écriture : sert à limiter le débit par compte (server/src/debit.ts) avant que la route ne lise la session.
+ */
+export function compteDeLaRequete(db: Db, req: Request): number | null {
+  const id = cookieId(db, req);
+  const row = id ? db.get<ConnexionRow>('connexions', id) : null;
+  return row && !row.revocation && row.expiration > new Date().toISOString() ? row.compteId : null;
+}
+
 /** Attribut Secure des cookies : en production, sauf application de bureau en http://127.0.0.1 (CURSUS_INSECURE_COOKIE=1). */
 export const cookieSecure = () => process.env.NODE_ENV === 'production' && process.env.CURSUS_INSECURE_COOKIE !== '1' ? '; Secure' : '';
 
@@ -170,14 +180,16 @@ export function purgeSessions(db: Db): number {
  * Seuil volontairement large : un atelier entier peut sortir par une seule adresse.
  * Une tentative de mot de passe est comptée dès son arrivée (`echec`), avant le calcul, puis rendue
  * si la connexion réussit (`rendre`) : des requêtes simultanées ne dépassent pas le seuil.
+ * Mémoire bornée : au-delà de `maxIp` adresses suivies, les fenêtres closes puis les plus anciennes sont oubliées.
  */
 export class LimiteParIp {
   private echecs = new Map<string, { n: number; debut: number }>();
   readonly max: number;
   readonly fenetreMs: number;
+  readonly maxIp: number;
   private maintenant: () => number;
-  constructor(max = 30, fenetreMs = 15 * 60_000, maintenant = () => Date.now()) {
-    this.max = max; this.fenetreMs = fenetreMs; this.maintenant = maintenant;
+  constructor(max = 30, fenetreMs = 15 * 60_000, maintenant = () => Date.now(), maxIp = 10_000) {
+    this.max = max; this.fenetreMs = fenetreMs; this.maintenant = maintenant; this.maxIp = maxIp;
   }
 
   private courant(ip: string) {
@@ -186,12 +198,24 @@ export class LimiteParIp {
     return e;
   }
   depasse(ip: string): boolean { return (this.courant(ip)?.n ?? 0) >= this.max; }
+  /** Secondes avant la fin de la fenêtre de cette adresse (en-tête Retry-After d'un refus 429). */
+  attente(ip: string): number {
+    const e = this.courant(ip);
+    return e ? Math.max(1, Math.ceil((e.debut + this.fenetreMs - this.maintenant()) / 1000)) : 0;
+  }
+  /** Adresses suivies (contrôle de la mémoire). */
+  get taille() { return this.echecs.size; }
   echec(ip: string) {
     const e = this.courant(ip);
     if (e) e.n++;
-    else this.echecs.set(ip, { n: 1, debut: this.maintenant() });
-    // Les adresses dont la fenêtre est close sont oubliées de temps en temps.
-    if (this.echecs.size > 10_000) for (const k of [...this.echecs.keys()]) this.courant(k);
+    else {
+      // Les adresses dont la fenêtre est close sont oubliées, puis les plus anciennes si la limite est atteinte.
+      if (this.echecs.size >= this.maxIp) {
+        for (const k of [...this.echecs.keys()]) this.courant(k);
+        for (const k of this.echecs.keys()) { if (this.echecs.size < this.maxIp * 0.9) break; this.echecs.delete(k); }
+      }
+      this.echecs.set(ip, { n: 1, debut: this.maintenant() });
+    }
   }
   /** Tentative comptée d'avance qui a abouti : elle ne compte plus parmi les échecs. */
   rendre(ip: string) {

@@ -71,7 +71,8 @@ export interface HabTitre {
 }
 export interface Visa { id: number; empId: number; dest: string; type: string; obtenu: ISODate | null; expire: ISODate }
 export interface Vaccination { id: number; empId: number; v: VaccinId; date: ISODate }
-export interface Passeport { numero: string; expire: ISODate }
+/** `numero` : absent des données envoyées au manager, qui ne reçoit que la date d'expiration (server/src/dataset.ts). */
+export interface Passeport { numero?: string; expire: ISODate }
 
 export interface Employe {
   id: number;
@@ -100,7 +101,7 @@ export interface Employe {
   repriseDate: ISODate | null;
   /** Date de la dernière visite d'aptitude — réservée au service RH. */
   visite: ISODate | null;
-  /** Remplace `visite` dans les vues manager : seul le verdict est transmis. */
+  /** Remplace `visite` dans les vues manager et des profils sans données de santé : seul le verdict est transmis. */
   aptitude?: { ok: boolean };
   passeport: Passeport | null;
   certs: Certification[];
@@ -138,7 +139,11 @@ export interface Participation {
 export interface PlanAction { id: number; exercice: number; f: string | null; libelle: string | null; equipe: string; periode: Trimestre; effectif: number; cout: number; statut: PlanStatut; origine: string | null }
 
 // — Déplacements & projets —
-export interface Voyage { id: number; empId: number; dest: string; depart: ISODate; retour: ISODate; motif: string; origine: VoyageOrigine; ref: string | null; chantier: string | null; dossierStatut?: TripStatus }
+export interface Voyage {
+  id: number; empId: number; dest: string; depart: ISODate; retour: ISODate; motif: string; origine: VoyageOrigine; ref: string | null; chantier: string | null; dossierStatut?: TripStatus;
+  /** Formalités obligatoires manquantes, précalculées avec `dossierStatut` quand les pièces ne sont pas transmises (« formalité sanitaire » pour un vaccin). */
+  dossierManque?: string[];
+}
 /** Demande de déplacement reçue de Keystone (`ref` : référence externe unique), conservée après décision du RH. */
 export interface DemandeKeystone {
   id: number; empId: number; chantier: string; dest: string; depart: ISODate; retour: ISODate; recue: ISODate;
@@ -209,11 +214,19 @@ export interface CurrentUser {
   compteId?: number;
   /** Profil RH du compte : les actions réservées à l'administrateur RH exigent `rh_admin`. */
   profilRh?: ProfilRh;
+  /**
+   * Salarié rattaché au compte, dans tous les espaces (dans l'espace RH, `empId` reste null) : un membre du
+   * service RH ne décide pas de ses propres absences, feuilles de temps ou entretiens.
+   */
+  salarieId?: number | null;
 }
 
 // — Comptes de connexion —
-/** Profil d'un compte au sein du service RH (droits : PROFILS_RH dans shared/constants.ts). */
-export type ProfilRh = 'aucun' | 'rh_admin' | 'rh_gestionnaire';
+/**
+ * Profil d'un compte dans l'espace RH (droits : PROFILS_RH dans shared/constants.ts) : deux niveaux au sein du
+ * service RH, et trois profils restreints — référent HSE / formation, gestionnaire de paie, lecture seule.
+ */
+export type ProfilRh = 'aucun' | 'rh_admin' | 'rh_gestionnaire' | 'referent_hse' | 'paie' | 'lecture_seule';
 /** Compte Microsoft 365 de l'entreprise, ou compte propre à Cursus (mot de passe) pour le personnel sans compte d'entreprise. */
 export type CompteType = 'microsoft' | 'local';
 

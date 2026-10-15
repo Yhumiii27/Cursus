@@ -8,8 +8,10 @@ import { convocationsActions } from './convocations.ts';
 import { entretiensActions } from './entretiens.ts';
 import { envoisActions } from './envois.ts';
 import { equipesActions } from './equipes.ts';
+import { exercicesActions } from './exercices.ts';
 import { messagerieActions } from './messagerie.ts';
 import { parametresActions } from './parametres.ts';
+import { remiseActions } from './remise.ts';
 import { santeActions } from './sante.ts';
 import { sessionsActions } from './sessions.ts';
 import { tempsActions } from './temps.ts';
@@ -30,6 +32,8 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...convocationsActions,
   ...messagerieActions,
   ...santeActions,
+  ...remiseActions,
+  ...exercicesActions,
 };
 
 /**

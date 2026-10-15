@@ -4,6 +4,7 @@
 import { sessionActive } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
+import { clotureDe, montantReel } from '../../../shared/rules/exercices.ts';
 import { controleSession, exigeEvaluation, inscritsDe, placesRemplacees } from '../../../shared/rules/sessions.ts';
 import type { Certification, Inscription, Participation, PlanAction, Session, SessionBilan } from '../../../shared/types.ts';
 import { annulerSiConvoque } from '../notifications.ts';
@@ -38,7 +39,8 @@ const creer: ActionHandler = (ctx, p) => {
     plan = ctx.ds.plan.find(l => l.id === Number(p.planId));
     if (!plan) throw new ActionError('Action du plan introuvable');
     if (plan.f !== fm.id) throw new ActionError('L’action du plan porte sur une autre formation');
-    if (plan.statut !== 'prevu') throw new ActionError(`Action du plan déjà ${plan.statut === 'engage' ? 'engagée' : 'réalisée'}`);
+    if (plan.statut !== 'prevu') throw new ActionError(`Action du plan déjà ${plan.statut === 'engage' ? 'engagée' : plan.statut === 'reporte' ? 'reportée' : 'réalisée'}`);
+    if (clotureDe(ctx.ds, plan.exercice)) throw new ActionError(`Action du plan ${plan.exercice} : exercice clos, il ne se modifie plus`);
   }
   const places = Number(p.places), lieu = str(p.lieu);
   const s = ctx.db.insert<Session>('sessions', { formation: fm.id, date: p.date, lieu, places, statut: 'À confirmer', planId: plan?.id ?? null, bilan: null });
@@ -182,9 +184,17 @@ const cloturer: ActionHandler = (ctx, p) => {
     }
     ctx.db.insert<Participation>('participations', { sessionId: s.id, empId: l.i.empId, parcours: l.i.parcours, present: l.present, reussi: l.reussi, certId });
   }
+  // L'action du plan réalisée prend le coût réel saisi à la clôture (`coutReel`, prérempli du coût prévu ; le coût prévu
+  // s'il n'est pas transmis) et, pour effectif réel, les présents de ses sessions clôturées.
   const plan = s.planId ? ctx.ds.plan.find(x => x.id === s.planId) : undefined;
-  const realise = !!plan && plan.statut !== 'realise' && !autreSessionDuPlan(ctx, s);
-  if (realise) ctx.db.update<PlanAction>('planActions', plan!.id, { statut: 'realise' });
+  const realise = !!plan && plan.statut !== 'realise' && plan.statut !== 'reporte' && !autreSessionDuPlan(ctx, s);
+  if (realise) {
+    const coutReel = p.coutReel === undefined || p.coutReel === null || p.coutReel === '' ? plan!.cout : montantReel(p.coutReel);
+    if (coutReel === null) throw new ActionError('Coût réel de l’action du plan : montant en euros, 0 ou plus');
+    const presents = Number((ctx.db.sql.prepare('SELECT COUNT(*) AS n FROM participations p JOIN sessions s ON s.id = p.session_id WHERE s.plan_id = ? AND p.present = 1')
+      .get(plan!.id) as { n: number }).n);
+    ctx.db.update<PlanAction>('planActions', plan!.id, { statut: 'realise', coutReel, effectifReel: presents });
+  }
   const bilan: SessionBilan = { le: ctx.d.ti, par: ctx.user.nom, note, commentaire, motif: null };
   ctx.db.update<Session>('sessions', s.id, { statut: 'Clôturée', bilan });
   return [

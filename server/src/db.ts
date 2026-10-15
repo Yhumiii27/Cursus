@@ -38,8 +38,17 @@ export const TABLES = {
   inscriptions: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', sessionId: 'int', convoc: 'text', date: 'text', convocLe: 'text' }, unique: [['empId', 'sessionId']] },
   // `reussi` peut rester indéterminé (null) : stocké en JSON pour garder true / false / null.
   participations: { pk: 'id', auto: true, cols: { id: 'int', sessionId: 'int', empId: 'int', parcours: 'text', present: 'bool', reussi: 'json', certId: 'int' }, unique: [['sessionId', 'empId']] },
-  planActions: { pk: 'id', auto: true, cols: { id: 'int', exercice: 'int', f: 'text', libelle: 'text', equipe: 'text', periode: 'text', effectif: 'int', cout: 'real', statut: 'text', origine: 'text' } },
+  // `coutReel`, `effectifReel` : saisis à la clôture de l'action ; `reportDe` : action d'un exercice clos qu'elle reporte.
+  planActions: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', exercice: 'int', f: 'text', libelle: 'text', equipe: 'text', periode: 'text', effectif: 'int', cout: 'real', statut: 'text', origine: 'text',
+      coutReel: 'real', effectifReel: 'int', reportDe: 'int',
+    },
+  },
   budgets: { pk: 'id', auto: true, cols: { id: 'int', exercice: 'int', equipe: 'text', montant: 'real' }, unique: [['exercice', 'equipe']] },
+  // Exercices du plan de formation clos (`plan.cloturerExercice`) : plan et enveloppes en lecture seule.
+  exercicesClos: { pk: 'exercice', cols: { exercice: 'int', le: 'text', par: 'text' } },
   // Formalités de détachement tenues par le RH (`voyage.detachement`) : certificat de sécurité sociale, information écrite.
   voyages: {
     pk: 'id', auto: true,
@@ -71,7 +80,14 @@ export const TABLES = {
   reports: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', jours: 'real', motif: 'text', par: 'text', date: 'text', sens: 'text' } },
   soldesReprise: { pk: 'empId', cols: { empId: 'int', cpPris: 'real', rttPris: 'real', recupAcquis: 'real', recupPris: 'real' } },
   // `planifieLe` : jour de la planification (ou de la reprogrammation), borne de la date réelle saisie à la clôture.
-  entretiens: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', type: 'text', date: 'text', statut: 'text', cr: 'json', info: 'bool', signSal: 'text', signMgr: 'text', planifieLe: 'text' } },
+  // `remise*` : remise du compte rendu au salarié (jour, mode, auteur) ; `telechargeLe` : son premier téléchargement.
+  entretiens: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', type: 'text', date: 'text', statut: 'text', cr: 'json', info: 'bool', signSal: 'text', signMgr: 'text', planifieLe: 'text',
+      remiseLe: 'text', remiseMode: 'text', remisePar: 'text', telechargeLe: 'text',
+    },
+  },
   demandesCollab: {
     pk: 'id', auto: true,
     // `motifRefus` : motif d'un refus par le service RH, montré au collaborateur seul (server/src/dataset.ts).

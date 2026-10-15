@@ -126,13 +126,15 @@ export const REGLES: Record<string, Regle> = {
   'session.annuler': { champs: ['id'], cible: parId('sessions', ['statut']), ...inscritsAvantApres },
   // Résultats de chaque inscrit (présent, reçu) ; ni la note ni le commentaire de l'évaluation à chaud.
   'session.cloturer': {
-    champs: ['id'], cible: parId('sessions', ['statut']),
+    champs: ['id', 'coutReel'], cible: parId('sessions', ['statut']),
     extra: p => ({ participants: participants(p).map((x: P) => ({ empId: Number(x?.empId) || null, present: !!x?.present, reussi: typeof x?.reussi === 'boolean' ? x.reussi : null })) }),
     salaries: p => participants(p).map((x: P) => x?.empId),
   },
   'plan.importer': { champs: ['exercice', 'mode'] },
-  'plan.avancer': { champs: ['id'], cible: parId('planActions', ['statut']) },
+  'plan.avancer': { champs: ['id'], cible: parId('planActions', ['statut', 'coutReel', 'effectifReel']) },
   'budget.enveloppes': { champs: ['exercice', 'enveloppes'] },
+  // Clôture d'un exercice : actions reportées (identifiants) sur l'exercice suivant.
+  'plan.cloturerExercice': { champs: ['exercice', 'reporter'] },
   // Habilitations : le motif d'une suspension ou d'un retrait (texte libre, parfois médical) n'est pas recopié.
   'hab.delivrer': { champs: ['empId', 'h', 'date', 'par', 'mode'] },
   'hab.suspendre': { champs: ['empId', 'h', 'date'] },
@@ -206,6 +208,9 @@ export const REGLES: Record<string, Regle> = {
   },
   'entretien.clore': { champs: ['id'], cible: parId('entretiens', ['statut', 'signMgr']) },
   'entretien.signer': { champs: ['id'], cible: parId('entretiens', ['signSal']) },
+  // Remise du compte rendu (mode, jour) ; premier téléchargement par le salarié, tracé une fois.
+  'entretien.remettre': { champs: ['id', 'mode', 'date'], cible: parId('entretiens', ['remiseLe', 'remiseMode']) },
+  'entretien.telecharger': { champs: ['id'], cible: parId('entretiens', ['telechargeLe']), tracer: (_p, x) => !x.avant?.telechargeLe && !!x.apres?.telechargeLe },
   // Administration
   'parametres.maj': { cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true } },
   'demo.reinitialiser': {},

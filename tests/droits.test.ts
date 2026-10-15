@@ -160,7 +160,9 @@ const MATRICE: Ligne[] = [
   { action: 'plan.importer', variante: 'compléter', droits: 'O    O    -    -    -    -    -    -    -', p: () => ({ texte: SAMPLE_PLAN_CSV, exercice: 2027, mode: 'add' }) },
   { action: 'plan.importer', variante: 'remplacer', droits: 'O    -    -    -    -    -    -    -    -', p: () => ({ texte: SAMPLE_PLAN_CSV, exercice: 2026, mode: 'replace' }) },
   { action: 'budget.enveloppes', droits: '                   O    O    -    -    -    -    -    -    -', p: () => ({ exercice: 2027, enveloppes: { Maintenance: 5000 } }) },
-  { action: 'plan.avancer', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ id: (db.sql.prepare(`SELECT id FROM plan_actions WHERE statut <> 'realise' LIMIT 1`).get() as { id: number }).id }) },
+  { action: 'plan.avancer', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ id: (db.sql.prepare(`SELECT id FROM plan_actions WHERE statut <> 'realise' LIMIT 1`).get() as { id: number }).id, coutReel: 1000 }) },
+  // Clôture de l'exercice 2026 (administrateur RH), avec le report d'une action engagée sur 2027.
+  { action: 'plan.cloturerExercice', droits: '               O    -    -    -    -    -    -    -    -', p: () => ({ exercice: 2026, reporter: [(db.sql.prepare(`SELECT id FROM plan_actions WHERE statut = 'engage' LIMIT 1`).get() as { id: number }).id] }) },
   // Feuilles de temps : saisie par le salarié, son manager ou le RH ; validation par le manager ou le RH ; paie : administrateur RH.
   { action: 'temps.setCell', droits: '                       O    O    O    -    O    -    -    -    -', p: () => { feuille('brouillon'); return { empId: 2, week: WEEK, li: 0, di: 0, value: '7' }; } },
   { action: 'temps.addLine', droits: '                       O    O    O    -    O    -    -    -    -', p: () => ({ empId: 2, week: WEEK, projet: 'INT-MAINT' }) },
@@ -193,6 +195,17 @@ const MATRICE: Ligne[] = [
   // Entretien prévu le 20 octobre, tenu plus tôt : la clôture porte la date à laquelle il a eu lieu.
   { action: 'entretien.clore', droits: '                     O    O    O    -    -    -    -    -    -', p: () => ({ id: ENTRETIEN(), date: '2026-10-06' }) },
   { action: 'entretien.signer', droits: '                    -    -    -    -    O    -    -    -    -', p: () => {
+    const id = ENTRETIEN();
+    db.update('entretiens', id, { statut: 'realise', signMgr: '2026-10-07' });
+    return { id };
+  } },
+  // Remise de la copie du compte rendu clos (évaluateur ou RH) ; téléchargement enregistré pour le salarié seul.
+  { action: 'entretien.remettre', droits: '                  O    O    O    -    -    -    -    -    -', p: () => {
+    const id = ENTRETIEN();
+    db.update('entretiens', id, { statut: 'realise', signMgr: '2026-10-07' });
+    return { id, mode: 'main_propre', date: '2026-10-07' };
+  } },
+  { action: 'entretien.telecharger', droits: '               -    -    -    -    O    -    -    -    -', p: () => {
     const id = ENTRETIEN();
     db.update('entretiens', id, { statut: 'realise', signMgr: '2026-10-07' });
     return { id };

@@ -306,9 +306,10 @@ const BUDGETS: Record<number, Record<string, number>> = {
 };
 
 const PLAN = [
-  { f: 'sst', equipe: 'Production', periode: 'T1', effectif: 8, cout: 1440, statut: 'realise' },
+  // Actions réalisées : coût et effectif réels saisis à la clôture (par défaut, ceux du plan).
+  { f: 'sst', equipe: 'Production', periode: 'T1', effectif: 8, cout: 1440, statut: 'realise', coutReel: 1260, effectifReel: 7 },
   { f: 'elec', equipe: 'Maintenance', periode: 'T1', effectif: 4, cout: 1920, statut: 'realise' },
-  { f: 'caces489', equipe: 'Logistique', periode: 'T2', effectif: 5, cout: 3250, statut: 'realise' },
+  { f: 'caces489', equipe: 'Logistique', periode: 'T2', effectif: 5, cout: 3250, statut: 'realise', coutReel: 3480 },
   { f: 'prap', equipe: 'Production', periode: 'T2', effectif: 6, cout: 2520, statut: 'realise' },
   { f: 'hauteur', equipe: 'Maintenance', periode: 'T2', effectif: 3, cout: 960, statut: 'realise' },
   { f: 'epi', equipe: 'Administration', periode: 'T3', effectif: 6, cout: 240, statut: 'realise' },
@@ -414,7 +415,7 @@ export function seedDemo(db: Db) {
     // Visite d'embauche demandée pour l'apprenti, jamais vu par le médecin du travail.
     db.insert('demandesVisite', { empId: 24, motif: 'embauche', le: '2026-10-05', par: RH_DEMO, statut: 'demandee', closeLe: null, closePar: null });
     Object.entries(BUDGETS).forEach(([ex, list]) => Object.entries(list).forEach(([equipe, montant]) => db.insert('budgets', { exercice: Number(ex), equipe, montant })));
-    PLAN.forEach(l => db.insert('planActions', { exercice: 2026, ...l }));
+    PLAN.forEach(l => db.insert('planActions', { exercice: 2026, ...(l.statut === 'realise' ? { coutReel: l.cout, effectifReel: l.effectif } : {}), ...l }));
     feuilles(taches).forEach(f => db.insert('feuilles', f));
     figerFeuilles(db);
     entretiens().forEach(e => db.insert('entretiens', e));

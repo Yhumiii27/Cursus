@@ -1,9 +1,15 @@
-// Enveloppes budgétaires de formation d'un exercice, par équipe.
+// Enveloppes budgétaires de formation d'un exercice, par équipe. « Reprendre les enveloppes de N » recopie dans les
+// champs celles du dernier exercice antérieur qui en a (à ajuster, puis enregistrer) : elles ne se ressaisissent plus
+// équipe par équipe chaque année.
 import { useState } from 'react';
 import { fmtEur, key } from '../../../shared/format.ts';
 import { CancelButton, Dialog, SubmitButton } from '../components/Dialog.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+
+/** Dernier exercice antérieur à `exercice` qui a des enveloppes, ou null. */
+const exercicePrecedent = (budgets: Record<string, Record<string, number>>, exercice: number) =>
+  Object.keys(budgets).map(Number).filter(y => y < exercice && Object.values(budgets[String(y)] ?? {}).some(m => m > 0)).sort((a, z) => z - a)[0] ?? null;
 
 export function BudgetDialog({ exercice }: { exercice: number }) {
   const d = useDomain();
@@ -14,6 +20,11 @@ export function BudgetDialog({ exercice }: { exercice: number }) {
     return Object.fromEntries(equipes.map(e => [e, env[e] != null ? String(env[e]) : '']));
   });
   const [busy, setBusy] = useState(false);
+  const precedent = exercicePrecedent(d.ds.budgets, exercice);
+  const reprendre = () => {
+    const env = d.ds.budgets[String(precedent)] || {};
+    setVals(Object.fromEntries(equipes.map(e => [e, env[e] != null ? String(env[e]) : ''])));
+  };
   const amount = (e: string) => Math.max(0, Number(vals[e]) || 0);
   const total = equipes.reduce((n, e) => n + amount(e), 0);
 
@@ -31,6 +42,11 @@ export function BudgetDialog({ exercice }: { exercice: number }) {
       <SubmitButton busy={busy}>Enregistrer</SubmitButton>
     </>}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+        {precedent != null && (
+          <div>
+            <button type="button" className="btn btn-ghost btn-sm" onClick={reprendre}>Reprendre les enveloppes de {precedent}</button>
+          </div>
+        )}
         {equipes.map(e => {
           const id = `bud-${key(e).replace(/ /g, '-')}`;
           return (

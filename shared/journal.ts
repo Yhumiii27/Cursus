@@ -50,6 +50,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'session.cloturer': 'Session clôturée',
   'plan.importer': 'Import du plan de formation',
   'plan.avancer': 'Avancement du plan de formation',
+  'plan.cloturerExercice': 'Clôture d’un exercice du plan de formation',
   'budget.enveloppes': 'Enveloppes budgétaires',
   // Habilitations
   'hab.delivrer': 'Habilitation délivrée',
@@ -96,6 +97,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'entretien.modifier': 'Compte rendu d’entretien rédigé',
   'entretien.clore': 'Entretien clos',
   'entretien.signer': 'Entretien signé par le salarié',
+  'entretien.remettre': 'Compte rendu d’entretien remis au salarié',
+  'entretien.telecharger': 'Compte rendu d’entretien téléchargé par le salarié',
   // Administration
   'parametres.maj': 'Paramètres modifiés',
   'demo.reinitialiser': 'Démonstration réinitialisée',
@@ -131,6 +134,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'sage.echec': 'Envoi à Sage Paie en échec',
   // Mise à jour de la base
   'migration.detachement': 'Reprise des formalités de détachement',
+  'migration.coutReel': 'Reprise du coût réel des actions réalisées du plan',
 };
 
 /** Libellé d'un code ; un e-mail simulé (`email.<nature>`, sans boîte d'envoi) est nommé par sa nature. */
@@ -157,7 +161,7 @@ export const dossierComplet = (u: Pick<CurrentUser, 'role' | 'profilRh'>) => dro
 /** Familles du filtre « Action » : codes commençant par l'un des préfixes (ou égaux à l'un d'eux). */
 export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly string[] }[] = [
   { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.'] },
-  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.'] },
+  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'migration.coutReel'] },
   { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
   { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement'] },
@@ -186,6 +190,12 @@ export const CHAMP_LABEL: Record<string, string> = {
   signMgr: 'Signature de l’évaluateur', signSal: 'Signature du salarié', horizonAlerte: 'Seuil d’alerte', seuilBudget: 'Seuil budgétaire',
   rtt39: 'Jours de RTT (39 h)', uniquementReglementaire: 'Formations réglementaires seules', partageKeystone: 'Partage des motifs avec Keystone',
   projet: 'Projet', jour: 'Jour',
+  // Campagne d'entretiens annuels (Paramètres) ; remise du compte rendu d'entretien ; coût réel d'une action du plan.
+  campagneDebut: 'Ouverture de la campagne d’entretiens', campagneFin: 'Clôture de la campagne d’entretiens',
+  campagneAncienneteMois: 'Ancienneté minimale pour la campagne (mois)', campagneExclus: 'Contrats exclus de la campagne',
+  campagnePreavisJours: 'Affichage de la campagne avant l’ouverture (jours)',
+  remiseLe: 'Remise du compte rendu', remiseMode: 'Mode de remise', telechargeLe: 'Premier téléchargement par le salarié',
+  coutReel: 'Coût réel', effectifReel: 'Effectif réel',
 };
 
 const valeur = (v: unknown): string => {

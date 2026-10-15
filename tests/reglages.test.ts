@@ -23,6 +23,8 @@ const run = (name: string, p: Record<string, unknown>) => db.tx(() => ACTIONS[na
 test('réglages par défaut : une ligne par champ, valeurs d’avant le découpage', () => {
   assert.deepEqual(DEFAULT_SETTINGS, {
     horizonAlerte: 90, uniquementReglementaire: false, seuilBudget: 85, partageKeystone: 'minimal', rtt39: 23, vueInitiale: 'dashboard',
+    // Campagne d'entretiens : le fonctionnement d'avant le réglage (shared/rules/campagne.ts).
+    campagneDebut: '10-01', campagneFin: '12-15', campagneAncienneteMois: 0, campagneExclus: [], campagnePreavisJours: 365,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

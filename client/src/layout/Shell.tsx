@@ -9,7 +9,7 @@ import {
 } from '@phosphor-icons/react';
 import { droitsRh, PROFILS_RH, vuesDe } from '../../../shared/constants.ts';
 import { Domain } from '../../../shared/domain.ts';
-import { obligations } from '../../../shared/rules/entretiens.ts';
+import { obligations, perimetreEntretiens } from '../../../shared/rules/entretiens.ts';
 import type { Dataset, Role } from '../../../shared/types.ts';
 import { Avatar } from '../components/ui.tsx';
 import { useStore, type Toast as StoreToast, type View } from '../state/store.tsx';
@@ -22,8 +22,8 @@ function navGroups(data: Dataset | null, role: Role): NavGroup[] {
   if (!data) return [];
   const d = new Domain(data);
   const me = data.user.empId;
-  const scope = data.employes.map(e => e.id);
-  const late = obligations(d, scope).filter(o => o.kind === 'epp' && o.st === 'late').length;
+  // Entretiens en retard de l'équipe : ceux du manager lui-même relèvent de son responsable (espace collaborateur).
+  const late = obligations(d, perimetreEntretiens(data)).filter(o => o.kind === 'epp' && o.st === 'late').length;
   // Service RH (jamais pour ses propres demandes) ou manager direct ; les profils restreints ne valident rien.
   const rh = droitsRh(data.user).includes('rh'), soi = data.user.salarieId ?? null;
   const canValidate = (empId: number) => {

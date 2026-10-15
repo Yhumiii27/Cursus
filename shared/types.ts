@@ -31,7 +31,7 @@ export type AbsenceType = CongeType | NatureAbsence | 'ABSENCE';
 export type AbsenceStatut = 'demandee' | 'validee' | 'refusee' | 'signalee' | 'annulee';
 export type FeuilleStatut = 'brouillon' | 'soumise' | 'validee' | 'rejetee';
 export type EntretienType = 'epp' | 'reprise' | 'bilan' | 'annuel' | 'forfait';
-export type PlanStatut = 'prevu' | 'engage' | 'realise';
+export type PlanStatut = 'prevu' | 'engage' | 'realise' | 'reporte';
 export type Trimestre = 'T1' | 'T2' | 'T3' | 'T4';
 export type VoyageOrigine = 'formulaire' | 'keystone' | 'cursus';
 export type TripStatus = 'pret' | 'todo' | 'bloc';
@@ -177,7 +177,18 @@ export interface Participation {
   /** Certification enregistrée (présent, et reçu si l'évaluation est exigée). */
   certId: number | null;
 }
-export interface PlanAction { id: number; exercice: number; f: string | null; libelle: string | null; equipe: string; periode: Trimestre; effectif: number; cout: number; statut: PlanStatut; origine: string | null }
+export interface PlanAction {
+  id: number; exercice: number; f: string | null; libelle: string | null; equipe: string; periode: Trimestre; effectif: number; cout: number; statut: PlanStatut;
+  /** `import` (plan importé), `demande` (demande acceptée), `report` (action reportée d'un exercice clos) ; null : ancienne base, démonstration. */
+  origine: string | null;
+  /** Coût et effectif réels, saisis à la clôture de l'action (« réalisé ») : le réalisé des enveloppes (shared/rules/budget.ts). */
+  coutReel?: number | null;
+  effectifReel?: number | null;
+  /** Action reportée : action de l'exercice clos dont elle reprend la ligne (`plan.cloturerExercice`). */
+  reportDe?: number | null;
+}
+/** Exercice du plan de formation clos (`plan.cloturerExercice`) : plan et enveloppes en lecture seule. */
+export interface ExerciceClos { exercice: number; le: ISODate; par: string }
 
 // — Déplacements & projets —
 /** Formalité obligatoire manquante d'un déplacement (« formalité sanitaire » pour un vaccin), hors délai ou non. */
@@ -241,7 +252,16 @@ export interface SoldeReprise { empId: number; cpPris: number; rttPris: number; 
  * `planifieLe` : jour où l'entretien a été planifié ou reprogrammé (`entretien.planifier`), borne de la date réelle
  * enregistrée à la clôture (`debutCloture`) ; null pour un entretien planifié avant que Cursus la conserve.
  */
-export interface Entretien { id: number; empId: number; type: EntretienType; date: ISODate; statut: 'planifie' | 'realise'; cr: Record<string, string>; info: boolean; signSal: ISODate | null; signMgr: ISODate | null; planifieLe?: ISODate | null }
+export interface Entretien {
+  id: number; empId: number; type: EntretienType; date: ISODate; statut: 'planifie' | 'realise'; cr: Record<string, string>; info: boolean; signSal: ISODate | null; signMgr: ISODate | null; planifieLe?: ISODate | null;
+  /**
+   * Remise de la copie du compte rendu au salarié (`entretien.remettre`, shared/rules/remise.ts) : jour, mode et auteur ;
+   * `telechargeLe` : premier téléchargement par le salarié lui-même, depuis son espace.
+   */
+  remiseLe?: ISODate | null; remiseMode?: ModeRemise | null; remisePar?: string | null; telechargeLe?: ISODate | null;
+}
+/** Remise du compte rendu : en main propre, après un refus de signer, ou mis à disposition dans le portail (lien par e-mail). */
+export type ModeRemise = 'main_propre' | 'refus' | 'portail';
 /** Demande au service RH, émise par le collaborateur ou par son manager (`parId`). */
 export interface DemandeCollab { id: number; empId: number; type: DemandeType; f: string | null; h: string | null; libelle: string | null; label: string | null; sessionId: number | null; motif: string | null; date: ISODate; statut: DemandeStatut; reponse: string | null; parId: number | null; declaration: Declaration | null;
   /** Demande refusée : motif donné par le service RH, montré au collaborateur. */
@@ -267,6 +287,13 @@ export interface Settings {
   partageKeystone: 'minimal' | 'detaille';
   rtt39: number;
   vueInitiale: string;
+  /** Campagne d'entretiens annuels (shared/rules/campagne.ts) : ouverture et clôture (« MM-JJ »), ancienneté minimale en mois,
+   * contrats exclus (l'intérim l'est toujours), jours d'affichage de l'échéance avant l'ouverture (365 : toute l'année). */
+  campagneDebut: string;
+  campagneFin: string;
+  campagneAncienneteMois: number;
+  campagneExclus: TypeContrat[];
+  campagnePreavisJours: number;
 }
 
 /**
@@ -413,6 +440,8 @@ export interface Dataset {
   participations: Participation[];
   plan: PlanAction[];
   budgets: Record<string, Record<string, number>>;
+  /** Exercices du plan de formation clos : service RH et lecture seule (vide ailleurs). */
+  exercicesClos: ExerciceClos[];
   voyages: Voyage[];
   demandesKeystone: DemandeKeystone[];
   missions: Mission[];

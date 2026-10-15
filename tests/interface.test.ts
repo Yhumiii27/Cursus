@@ -223,7 +223,7 @@ test('plan : un second « Engager » n’avance pas l’action jusqu’à « Ré
   assert.match(String(run(RH, 'plan.avancer', { id, de: 'prevu' })), /Lean management — Production · engagé/);
   assert.match(String(run(RH, 'plan.avancer', { id, de: 'prevu' })), /déjà engagé/);
   assert.equal(statut(), 'engage');
-  run(RH, 'plan.avancer', { id, de: 'engage' });
+  run(RH, 'plan.avancer', { id, de: 'engage', coutReel: 2400 });
   assert.match(String(run(RH, 'plan.avancer', { id, de: 'engage' })), /déjà réalisé/);
   assert.match(String(run(RH, 'plan.avancer', { id, de: 'prevu' })), /déjà réalisé/);
   assert.equal(statut(), 'realise');
@@ -234,7 +234,7 @@ test('plan : un second « Engager » n’avance pas l’action jusqu’à « Ré
   assert.equal(statut(), 'prevu');
   // Sans statut attendu (ancien client) : avance d'un cran, refus une fois réalisée.
   run(RH, 'plan.avancer', { id });
-  run(RH, 'plan.avancer', { id });
+  run(RH, 'plan.avancer', { id, coutReel: 2400 });
   assert.throws(() => run(RH, 'plan.avancer', { id }), /déjà réalisée/);
   assert.throws(() => run(KARIM, 'plan.avancer', { id, de: 'prevu' }), /réservée au service RH/);
 });

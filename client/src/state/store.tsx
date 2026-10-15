@@ -73,6 +73,9 @@ export type DialogState =
   | { type: 'report'; empId: number }
   | { type: 'entPlan'; empId: number; kind: EntretienType }
   | { type: 'ent'; entId: number }
+  | { type: 'entRemise'; entId: number }
+  | { type: 'planRealiser'; id: number }
+  | { type: 'exerciceCloture'; exercice: number }
   | { type: 'tripImport' }
   | { type: 'planImport'; exercice: number }
   | { type: 'budget'; exercice: number }

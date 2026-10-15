@@ -17,12 +17,14 @@ shared/            Domaine partagé (aucune dépendance)
   journal.ts       Journal des actions : libellés, familles, actions liées à la paie, durées de conservation, droits de lecture
   reglages.ts      Réglages de Paramètres : table « champ → contrôle » (valeur par défaut, contrôle de chaque champ de Settings)
   rules/           temps.ts, conges.ts, entretiens.ts, budget.ts, imports.ts, sante.ts (avis et visites médicales) ;
-                   conflits.ts : doublons et conflits de dates
+                   conflits.ts : doublons et conflits de dates ; campagne.ts (campagne d'entretiens annuels réglable),
+                   remise.ts (remise du compte rendu d'entretien), exercices.ts (exercices du plan, clôture, coût réel)
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   migrate.ts       Reprises des bases antérieures, rejouées à chaque démarrage (idempotentes)
   migrations/      Migrations nommées, exécutées une seule fois par base : cadre.ts (contrôle et exécution), liste.ts (ordre),
-                   outils.ts (reconstruction d'une table, index), un fichier par chantier (voir « Cadre commun du lot 4 »)
+                   outils.ts (reconstruction d'une table, index), un fichier par chantier (voir « Cadre commun du lot 4 ») :
+                   exploitation.ts (index), entretiens.ts (coût réel des actions déjà réalisées)
   seed.ts          Données de démonstration
   sauvegarde.ts    Copie à chaud (VACUUM INTO), rotation, restauration, verrou du serveur ;
                    scripts backup.ts et restore.ts (npm run backup / restore, voir docs/SAUVEGARDE.md)
@@ -210,7 +212,7 @@ design/            Prototype Claude Design de référence et guide du design sys
   alertes sont celles du service RH, vaccinations exceptées) ; nature médicale des absences masquée et reprise
   d'un arrêt longue maladie retirée (comme pour le manager), motif des reports de CP retiré ; le référent HSE ne reçoit ni temps, ni absences, ni entretiens, ni plan ; la paie ni formations, ni
   entretiens, ni déplacements ; la lecture seule tout le reste, sans le contenu des comptes rendus d'entretien ni
-  les documents déclarés. L'état des déplacements (`dossierStatut`, `dossierManque`) est calculé par le serveur
+  les documents déclarés (plan, enveloppes et exercices clos : service RH et lecture seule seulement). L'état des déplacements (`dossierStatut`, `dossierManque`) est calculé par le serveur
   pour que le verdict Go / No Go reste exact sans les pièces. `GET /api/journal` et `GET /api/envois` : droit
   `consultation` ; pour la lecture seule, les messages des actions qui peuvent nommer une donnée de santé sont
   masqués (`journalPourProfil`). Écrans : `vues` du profil (`vuesDe`), navigation et boutons masqués selon
@@ -219,7 +221,7 @@ design/            Prototype Claude Design de référence et guide du design sys
 - **Décision sur soi-même** : un membre du RH qui est aussi salarié (`user.salarieId`, rattaché au compte) ne
   décide pas de ses propres absences (`absence.decider`, `absence.saisir`, `absence.qualifier`, `report.accorder` ;
   il prolonge et annule comme intéressé), feuilles de temps (`temps.validate`, `temps.reject`, correction après
-  soumission) ou entretiens (`entretien.planifier`, `entretien.modifier`, `entretien.clore`) : refus 403 qui
+  soumission) ou entretiens (`entretien.planifier`, `entretien.modifier`, `entretien.clore`, `entretien.remettre`) : refus 403 qui
   renvoie à son manager ou à un autre membre du service RH (`refuserSoiMeme`). Le contrôle porte sur la fiche
   rattachée au compte : un compte externe (le premier administrateur, créé avant les fiches) se rattache à la fiche
   de la personne par `compte.rattacher` ou `npm run comptes -- admin <identifiant> --salarie <n°>`.
@@ -390,9 +392,12 @@ Réglages de l'écran Paramètres, modifiés par l'administrateur RH (`parametre
 
 1. `shared/types.ts`, interface `Settings` : le champ.
 2. `shared/reglages.ts`, table `REGLAGES` : sa ligne, dans le groupe de sa section, `champ: { defaut, controle }`.
-   Contrôles prêts : `entier(min, max, pas)` (borné, arrondi au pas), `booleen`, `choix(valeurs, sinon?)` ; sinon une
+   Contrôles prêts : `entier(min, max, pas)` (borné, arrondi au pas), `booleen`, `choix(valeurs, sinon?)`,
+   `parmi(valeurs)` (cases à cocher d'une liste fermée), `jourDeLAnnee` (« MM-JJ ») ; sinon une
    fonction `(v, actuelle) => valeur` qui borne ou ramène la saisie, ou lève `ReglageInvalide('message')` : refus 400,
    rien n'est enregistré. Un champ de `Settings` sans ligne ne compile pas ; sans `controle`, l'écran ne le modifie pas.
+   Un contrôle qui porte sur plusieurs champs (ouverture avant la clôture d'une campagne) s'ajoute à `COHERENCES`, après
+   ceux de chaque champ.
 3. `shared/journal.ts`, `CHAMP_LABEL` : son libellé, sous lequel le journal affiche l'ancienne et la nouvelle valeur
    (« Seuil d’alerte : 60 → 90 ») ; sans lui, le nom brut du champ.
 
@@ -443,7 +448,7 @@ aucun champ du paramètre n'est recopié.
 | `session.confirmer` | id | RH, référent HSE |
 | `session.modifier` | id, date? (postérieure à aujourd’hui ; session passée, à clôturer : aussi une date passée), lieu?, places? (≥ inscrits) | RH, référent HSE |
 | `session.annuler` | id, motif? | RH, référent HSE |
-| `session.cloturer` | id, participants [{empId, present, reussi?}], note? (1 à 5), commentaire? | RH, référent HSE |
+| `session.cloturer` | id, participants [{empId, present, reussi?}], note? (1 à 5), commentaire?, coutReel? (de l'action du plan qu'elle réalise ; coût prévu par défaut) | RH, référent HSE |
 | `hab.delivrer` | empId, h, date, par, mode | RH, référent HSE |
 | `hab.suspendre` | empId, h, motif, date? (aujourd’hui par défaut) | RH, référent HSE ; manager pour un membre de son équipe (jamais lui-même) |
 | `hab.lever` | empId, h | RH, référent HSE |
@@ -459,9 +464,10 @@ aucun champ du paramètre n'est recopié.
 | `formalite.enregistrer` | empId, kind (`passeport`/`visa`/`vaccin`), numero, expire, dest, visaType, obtenu, v, date | RH (écrit dans le dossier), ou le collaborateur pour lui-même (déclaration en attente, voir ci-dessous) |
 | `voyages.importer` | texte (CSV) | RH |
 | `keystone.accepter` / `keystone.refuser` | id ; refus : motif? (conservé dans Cursus, demande et message du journal, jamais transmis à Keystone) | RH (demande en attente ; l'acceptation revalide affectation, chantier actif, destination, effectifs et l'absence de déplacement déjà créé, et est refusée si le salarié est déjà en déplacement ou absent ces jours-là ; la demande reste en base avec statut, date et décideur) |
-| `plan.importer` | texte, exercice, mode (`add`/`replace`) | RH ; `replace` (supprime les lignes prévues) : administrateur RH |
-| `budget.enveloppes` | exercice, enveloppes {équipe: montant} | RH |
-| `plan.avancer` | id, de? (statut affiché : déjà dépassé, rien n'est refait ; revenu à « prévue », refus) | RH |
+| `plan.importer` | texte, exercice, mode (`add`/`replace`) ; exercice clos refusé | RH ; `replace` (supprime les lignes prévues d'origine `import` ; celles issues d'une demande, d'un report ou sans origine sont conservées) : administrateur RH |
+| `budget.enveloppes` | exercice, enveloppes {équipe: montant} ; exercice clos refusé | RH |
+| `plan.avancer` | id, de? (statut affiché : déjà dépassé, rien n'est refait ; revenu à « prévue », refus), coutReel (vers « réalisé », exigé : euros, 0 accepté), effectifReel? ; exercice clos ou action reportée refusés | RH |
+| `plan.cloturerExercice` | exercice (en cours ou passé, ouvert), reporter [id] (actions prévues ou engagées à reporter sur l'exercice suivant) | administrateur RH |
 | `temps.setCell` | empId, week, li, di, value | salarié, manager direct ou RH (feuille soumise : valideur uniquement) ; aucune heure un jour d’absence validée ou signalée, ni hors contrat, vider la cellule reste possible ; pas de feuille pour une semaine hors contrat |
 | `temps.addLine` / `temps.removeLine` | empId, week, projet / li, projet?, tache?, lignes? (ligne visée : déjà supprimée, rien n'est refait ; feuille changée, refus) | idem |
 | `temps.suggest` / `temps.submit` | empId, week, motif? | idem (soumission : brouillon ou à corriger, sans heures un jour d’absence validée ; semaine entièrement couverte par une absence : sans heure ; 24 h par jour au plus, toutes lignes cumulées ; motif exigé au-delà de 10 h par jour ou 48 h par semaine, 13 h pour un forfait jours) |
@@ -481,7 +487,9 @@ aucun champ du paramètre n'est recopié.
 | `entretien.modifier` | id, section?, value?, info? | évaluateur / salarié selon la section (un membre du RH n'évalue pas son propre entretien) |
 | `entretien.clore` | id, date? (jour où l'entretien a eu lieu, aujourd'hui au plus tard et pas avant sa planification ; exigée pour un entretien prévu à une date à venir) | évaluateur (l'écran enregistre d'abord chaque section ; un échec interrompt la clôture) |
 | `entretien.signer` | id | salarié |
-| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone), silent? ; saisie refusée par un contrôle : 400, rien n'est enregistré | administrateur RH |
+| `entretien.remettre` | id, mode (`main_propre`/`refus`/`portail`), date? (main propre, refus : de la clôture à aujourd'hui ; portail : le jour même, compte actif exigé, e-mail avec le seul lien vers Cursus) ; une remise sur papier est définitive, une mise à disposition se complète par une remise sur papier | évaluateur (manager direct) ou RH, jamais pour son propre entretien |
+| `entretien.telecharger` | id : premier téléchargement du compte rendu clos, daté (`telechargeLe`) | salarié, depuis son espace |
+| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours), silent? ; saisie refusée par un contrôle ou par `COHERENCES` : 400, rien n'est enregistré | administrateur RH |
 | `demo.reinitialiser` | — | administrateur RH, mode démonstration |
 | `compte.creer` | empId (ou nom, adresse : compte externe), type (`microsoft`/`local`), identifiant, profilRh | administrateur RH (mot de passe provisoire dans `result`, affiché une fois) |
 | `compte.profil` | id, profilRh (`aucun`/`rh_gestionnaire`/`rh_admin`/`referent_hse`/`paie`/`lecture_seule`) | administrateur RH (jamais le dernier administrateur actif ; un compte externe garde un profil) |
@@ -781,6 +789,50 @@ paie sera stocké. Contrat : `docs/API-KEYSTONE.md` et `docs/keystone-openapi.js
   réalisé ; un entretien planifié avant que Cursus conserve ce jour se date au plus tôt de sa date prévue si elle est
   passée, sinon 30 jours avant la clôture.
 
+## Entretiens : campagne, comptes rendus et remise
+
+- **Campagne d'entretiens annuels** (`shared/rules/campagne.ts`, Paramètres → Campagne d'entretiens annuels,
+  `pages/parametres/Entretiens.tsx`) : ouverture et clôture (« MM-JJ », l'échéance est la clôture), ancienneté minimale à
+  l'ouverture, contrats exclus (CDD, alternance ; l'intérim l'est toujours), affichage de l'échéance avant l'ouverture
+  (toute l'année, ou 90 à 0 jours avant). Par défaut, le fonctionnement d'origine : du 1er octobre au 15 décembre, sans
+  ancienneté, seul l'intérim exclu, échéance affichée toute l'année. `obligations()` et l'indicateur « Campagne annuelle »
+  lisent ces réglages.
+- **Remise du compte rendu** (`shared/rules/remise.ts`, `server/src/actions/remise.ts`) : le compte rendu s'imprime dès la
+  clôture par l'évaluateur (`dialogs/compteRendu.ts`, mention « non signé par le salarié ») ; l'évaluateur ou le service RH
+  enregistre la remise de la copie (`entretien.remettre`, colonnes `remiseLe`, `remiseMode`, `remisePar`) : en main propre,
+  après un refus de signer, ou par mise à disposition dans le portail (salarié qui a un compte actif ; e-mail
+  `entretien.remise` avec le seul lien vers Cursus, jamais le texte, que la file d'envoi conserverait). Après une remise sur
+  papier, la copie fait foi : les sections du salarié ne se modifient plus (`entretien.modifier`), la signature reste
+  possible. Le premier téléchargement par le salarié, depuis son espace, est daté (`entretien.telecharger`, `telechargeLe`,
+  tracé une fois). L'état de la remise s'affiche dans le compte rendu et dans la liste (« Remis », « Refus de signer »,
+  « Mis à disposition », « Téléchargé »).
+- **Espace manager** : ses propres entretiens (échéances, liste, indicateurs, pastille du menu) n'y figurent pas
+  (`perimetreEntretiens`) ; son responsable les mène, il les prépare et les signe dans son espace collaborateur, vers
+  lequel l'écran le renvoie (« Mes entretiens »). Les données restent transmises : rien ne change côté serveur.
+
+## Plan de formation : coût réel et exercices
+
+Règles dans `shared/rules/exercices.ts` et `shared/rules/budget.ts`, actions dans `server/src/actions/budget.ts` et
+`server/src/actions/exercices.ts`.
+
+- **Coût réel** : une action engagée passe « réalisée » avec son coût réel (`coutReel`, 0 accepté, 1 000 000 € au plus) et
+  son effectif réel (`effectifReel`, facultatif), saisis dans `dialogs/PlanRealiserDialog.tsx`, préremplis du prévu. La
+  clôture d'une session qui réalise l'action rattachée propose ce coût (`ClotureDialog`) ; sans coût transmis (référent HSE,
+  qui ne voit pas le plan), le coût prévu ; effectif réel : les présents de ses sessions clôturées. Le réalisé des enveloppes
+  compte le coût réel, avec l'écart au prévu (`budgetSummary`). Les actions déjà réalisées d'une base existante reçoivent
+  leur coût prévu comme coût réel (migration `lot4-entretiens-cout-reel`, tracée `migration.coutReel`).
+- **Import « Remplacer »** : seules les lignes prévues d'origine `import` sont supprimées ; celles issues d'une demande
+  acceptée (`demande`), d'un report (`report`) ou sans origine (anciennes bases, démonstration) sont conservées.
+- **Exercices** : le sélecteur propose tous les exercices qui ont un plan ou des enveloppes, l'année en cours et la
+  suivante ; « Reprendre les enveloppes de N » préremplit celles d'un exercice. `plan.cloturerExercice` (administrateur RH,
+  exercice en cours ou passé) fige le plan et les enveloppes (table `exercicesClos` : `plan.avancer`, `plan.importer`,
+  `budget.enveloppes` et la création d'une session sur une de ses actions prévues sont refusés) ; les actions prévues ou
+  engagées cochées sont recréées sur l'exercice suivant (premier trimestre, même coût prévu, même statut, origine `report`,
+  `reportDe`), l'action d'origine passe « reportée » (hors des sommes) et ses sessions ouvertes suivent la nouvelle ligne.
+  Le report est proposé, jamais imposé (les engagées sont cochées d'office). Une demande de formation acceptée s'ajoute au
+  premier exercice ouvert (`exerciceOuvert`). La clôture d'une session réalise encore une action non reportée d'un
+  exercice clos (le fait a eu lieu).
+
 ## Doublons et conflits de dates
 
 `conflitsDates` (`shared/rules/conflits.ts`) liste les engagements d'un salarié qui chevauchent une période : absences
@@ -898,7 +950,8 @@ Règles : `shared/rules/absences.ts` (confidentialité, décompte, reprise, annu
     `employes.notifications` : aussitôt, ou table `notifications` regroupée chaque jour à partir de 7 h
     (`tachesEmails`, relevé tous les quarts d'heure par `planifierEmails` ; réglage `recapitulatifLe`) ou sur
     demande (`messagerie.recapituler`), à l'adresse en vigueur à l'envoi (destinataire sorti ou sans adresse :
-    notifications closes sans envoi). Convocations (formation, entretien) : toujours aussitôt.
+    notifications closes sans envoi). Convocations (formation, entretien) et mise à disposition d'un compte rendu d'entretien
+    (lien vers Cursus seulement, `server/src/actions/remise.ts`) : toujours aussitôt.
   - Relevés des intérimaires (`server/src/releves.ts`, règles `shared/rules/releves.ts`) : par agence et par
     semaine, heures des feuilles validées (par jour, normales, majorées), jours d'absence sans leur nature,
     CSV joint, heures au centième. Envoi automatique (`semainesAutomatiques` : les cinq semaines précédentes, et la

@@ -6,6 +6,7 @@
 // Les actions confirmées gardent leurs contrôles serveur : un écran en retard (demande déjà traitée, feuille
 // modifiée ailleurs) est refusé par le serveur et le dialogue reste ouvert avec le message.
 import { fH, plural } from '../../../shared/format.ts';
+import { feuillesDeLaPeriode, type GroupePaie, periodeLabel } from '../../../shared/rules/paie.ts';
 import type { DialogState, UiState } from './store.tsx';
 
 /** Longueur maximale d'un motif (contrôlée aussi par le serveur). */
@@ -100,15 +101,25 @@ export function suppressionLigne(payload: Record<string, unknown>, ligne: string
 }
 
 /** Transmission à Sage Paie des feuilles validées en attente. */
-export function transmissionSage(feuilles: number, salaries: number): Confirmation {
+/**
+ * Transmission à Sage Paie, possible seulement en simulation (server/src/integrations/sage.ts) : rien n'est envoyé, les
+ * feuilles sont marquées transmises. `periodes` : feuilles par période de paie, dont les rappels d'une période close
+ * (`feuillesParPeriode` de shared/rules/paie.ts), annoncés avant de confirmer.
+ */
+export function transmissionSage(feuilles: number, salaries: number, periodes: GroupePaie[] = []): Confirmation {
+  const rappels = periodes.filter(p => p.origine);
+  // Feuilles distinctes : une semaine ventilée jour par jour entre un rappel et la période ouverte n'y compte qu'une fois.
+  const parPeriode = feuillesDeLaPeriode(periodes).map(p => `${periodeLabel(p.periode)} (${plural(p.feuilles, 'feuille', 'feuilles')})`);
   return {
-    titre: 'Transmettre à Sage Paie',
-    question: `Transmettre à Sage Paie ${plural(feuilles, 'feuille validée', 'feuilles validées')} (${plural(salaries, 'salarié', 'salariés')}) ?`,
+    titre: 'Transmettre à Sage Paie (simulation)',
+    question: `Marquer transmises à Sage Paie ${plural(feuilles, 'feuille validée', 'feuilles validées')} (${plural(salaries, 'salarié', 'salariés')}) ?`,
     suites: [
-      'Les variables de paie sont envoyées en une fois ; une feuille transmise ne l’est plus une seconde fois.',
-      'Une correction après la transmission se fait dans Sage Paie.',
-    ],
-    bouton: 'Transmettre',
+      'Simulation : rien n’est envoyé à Sage Paie. Les feuilles sont seulement marquées transmises et ne seront plus proposées.',
+      parPeriode.length ? `${parPeriode.length > 1 ? 'Périodes de paie' : 'Période de paie'} : ${parPeriode.join(', ')}.` : '',
+      ...rappels.map(r => `Rappel : ${plural(r.feuilles, 'feuille', 'feuilles')} de ${periodeLabel(r.origine!)}, période close, ${r.feuilles > 1 ? 'partent' : 'part'} sur ${periodeLabel(r.periode)}.`),
+      'Heures validées du lundi au vendredi seulement : absences, déplacements et heures du samedi, du dimanche ou de nuit restent saisis dans Sage.',
+    ].filter(Boolean),
+    bouton: 'Marquer transmises',
     action: 'temps.pushSage',
     payload: {},
   };

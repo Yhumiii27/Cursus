@@ -328,12 +328,14 @@ const PLAN = [
 
 /** Feuilles de temps des deux semaines précédentes (tâches planifiées ces semaines-là), plus un brouillon en cours. */
 function feuilles(taches: ReturnType<typeof planning>) {
-  const out: { empId: number; week: string; statut: string; sage: boolean; keystone: boolean; lignes: unknown[] }[] = [];
+  const out: { empId: number; week: string; statut: string; sage: boolean; keystone: boolean; lignes: unknown[]; heuresSup?: string | null }[] = [];
   Object.keys(TACHES).map(Number).forEach(id => ['2026-09-21', '2026-09-28'].forEach((week, wi) => {
     const lignes = taches.filter(t => t.empId === id).map(t => ({ projet: t.projet, tache: t.tache, ks: true, h: wDays(week).map(s => t.heures[s] ?? 0) }))
       .filter(l => l.h.some(v => v > 0))
       .map(l => ({ ...l, h: l.h.map((v, i) => v + ((id === 22 || id === 18) && wi === 1 && i < 2 && v ? 2 : 0)) }));
-    out.push({ empId: id, week, lignes, statut: wi === 1 && id % 3 === 0 ? 'soumise' : 'validee', sage: wi === 0 && id !== 15, keystone: wi === 0 });
+    const statut = wi === 1 && id % 3 === 0 ? 'soumise' : 'validee';
+    // Heures supplémentaires payées, mode figé à la validation (comme temps.validate).
+    out.push({ empId: id, week, lignes, statut, sage: wi === 0 && id !== 15, keystone: wi === 0, heuresSup: statut === 'validee' ? 'paiement' : null });
   }));
   out.push({ empId: 1, week: '2026-10-05', lignes: [{ projet: 'INT-LOG', tache: 'Réception / expédition', ks: true, h: [7, 7.5, 0, 0, 0] }], statut: 'brouillon', sage: false, keystone: false });
   return out;

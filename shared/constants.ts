@@ -362,6 +362,26 @@ export const TEMPS_TRAVAIL: Record<TempsTravail, TempsDef> = {
   dirigeant: { label: 'Cadre dirigeant', court: 'Cadre dirigeant', aide: 'Non soumis à la réglementation de la durée du travail : ni heures supplémentaires, ni RTT, ni décompte en jours.', article: 'Art. L3111-2' },
 };
 
+// — Rubriques de paie (shared/rules/paie.ts) —
+/** Unité d'une rubrique de paie : heures, jours ou nombre. */
+export type UniteRubrique = 'h' | 'j' | 'nombre';
+/**
+ * Rubriques de paie émises par Cursus, liste unique (code interne → libellé, unité), dans l'ordre d'affichage : chaque
+ * code se fait correspondre un code du plan de paie Sage, confirmé par l'administrateur RH ou la paie (table
+ * `rubriquesPaie`). Y ajouter les futurs codes : absences, déplacements, contrepartie en repos, régularisations.
+ */
+export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubrique }> = {
+  HN: { label: 'Heures normales', unite: 'h' },
+  HSF25: { label: 'Heures supplémentaires incluses au forfait hebdomadaire, majorées à 25 %', unite: 'h' },
+  HSF50: { label: 'Heures supplémentaires incluses au forfait hebdomadaire, majorées à 50 %', unite: 'h' },
+  HS25: { label: 'Heures supplémentaires payées, majorées à 25 %', unite: 'h' },
+  HS50: { label: 'Heures supplémentaires payées, majorées à 50 %', unite: 'h' },
+  HC10: { label: 'Heures complémentaires de temps partiel, majorées à 10 %', unite: 'h' },
+  HC25: { label: 'Heures complémentaires de temps partiel, majorées à 25 %', unite: 'h' },
+  RCR_ACQUIS: { label: 'Repos compensateur de remplacement acquis, majoration incluse', unite: 'h' },
+  JTRAV: { label: 'Jours travaillés, forfait jours', unite: 'j' },
+};
+
 /** Sections d'un compte rendu : [clé, libellé, rédacteur] — 'mgr' évaluateur, 'sal' salarié. */
 export type EntSection = [string, string, 'mgr' | 'sal'];
 export const ENT_TYPES: Record<EntretienType, { nom: string; court: string; base: string; sections: EntSection[] }> = {

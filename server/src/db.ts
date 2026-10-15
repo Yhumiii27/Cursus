@@ -62,7 +62,15 @@ export const TABLES = {
   missions: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', projet: 'text', lieu: 'text', du: 'text', au: 'text', type: 'text', ref: 'text' } },
   taches: { pk: 'id', auto: true, cols: { id: 'int', ref: 'text', empId: 'int', projet: 'text', tache: 'text', debut: 'text', fin: 'text', heures: 'json' } },
   // `motifDepassement` : motif d'un dépassement des durées maximales de travail (server/src/actions/temps.ts).
-  feuilles: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', week: 'text', statut: 'text', comment: 'text', sage: 'bool', keystone: 'bool', lignes: 'json', contrat: 'json', motifDepassement: 'text' }, unique: [['empId', 'week']] },
+  // `heuresSup` : mode des heures supplémentaires figé à la validation (payées, en repos ; historique : migrations/paie.ts).
+  feuilles: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', empId: 'int', week: 'text', statut: 'text', comment: 'text', sage: 'bool', keystone: 'bool', lignes: 'json', contrat: 'json', motifDepassement: 'text', heuresSup: 'text' },
+    unique: [['empId', 'week']],
+  },
+  // Correspondance des rubriques de paie avec le plan de paie Sage (server/src/actions/paie.ts) : une ligne par rubrique
+  // modifiée ; sans ligne, code Sage égal au code interne, à confirmer (shared/rules/paie.ts).
+  rubriquesPaie: { pk: 'code', cols: { code: 'text', codeSage: 'text', active: 'bool', confirmeLe: 'text', confirmePar: 'text', modifieLe: 'text', modifiePar: 'text' } },
   absences: {
     pk: 'id', auto: true,
     cols: {

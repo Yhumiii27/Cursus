@@ -27,6 +27,8 @@ export const ACTIONS_PAIE: readonly string[] = [
   'conges.cloturer', 'migration.soldes',
   // Sortie (solde de tout compte, absences qu'elle annule) et solde de RTT gardé avant un changement de régime.
   'employe.sortie', 'employe.annulerSortie', 'employe.rtt',
+  // Paie : correspondance des rubriques avec le plan de paie Sage, mode des heures supplémentaires figé sur les feuilles.
+  'paie.rubrique', 'migration.heuresSup',
 ];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
@@ -97,6 +99,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'temps.reject': 'Feuille de temps renvoyée',
   'temps.correction': 'Correction d’heures par le manager ou le RH',
   'temps.pushSage': 'Transmission à la paie',
+  'paie.rubrique': 'Rubrique de paie Sage',
   // Absences et congés
   'absence.demander': 'Demande d’absence',
   'absence.decider': 'Décision sur une absence',
@@ -149,6 +152,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   // Mise à jour de la base
   'migration.detachement': 'Reprise des formalités de détachement',
   'migration.soldes': 'Datation des compteurs repris et des reports de CP',
+  'migration.heuresSup': 'Reprise : mode des heures supplémentaires figé sur les feuilles validées',
 };
 
 /** Libellé d'un code ; un e-mail simulé (`email.<nature>`, sans boîte d'envoi) est nommé par sa nature. */
@@ -180,7 +184,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations)', prefixes: ['referentiel.'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
   { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement'] },
-  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.'] },
+  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'migration.heuresSup'] },
   { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.', 'conges.', 'migration.soldes'] },
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
   { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.'] },
@@ -212,6 +216,8 @@ export const CHAMP_LABEL: Record<string, string> = {
   archive: 'Archivée le',
   matriculePaie: 'Matricule de paie', identifiantKeystone: 'Identifiant envoyé à Keystone', politiqueReportCp: 'Politique de report des CP',
   rttAnneeSuivanteDes: 'RTT de l’année suivante posables à partir du',
+  heuresSupMode: 'Heures supplémentaires', heuresSupAccord: 'Accord sur le repos de remplacement', periodeRattachement: 'Semaine à cheval sur deux mois',
+  clotureJour: 'Jour de clôture des variables de paie', codeSage: 'Code Sage', confirmeLe: 'Code Sage confirmé le',
 };
 
 const valeur = (v: unknown): string => {

@@ -90,7 +90,7 @@ test('CSRF : une requête qui modifie doit venir de l’interface de Cursus, en 
   // L'interface de Cursus : même origine, JSON.
   const ok = await action('temps.pushSage', { 'content-type': 'application/json', origin: srv.base, 'sec-fetch-site': 'same-origin' });
   assert.equal(ok.status, 200);
-  assert.match((await ok.json()).message, /transmises à Sage Paie/);
+  assert.match((await ok.json()).message, /feuilles marquées transmises — simulation/);
   // Adresse publique (CURSUS_PUBLIC_URL) et nom transmis par le reverse proxy de confiance (X-Forwarded-Host).
   const silencieux = (headers: Record<string, string>) => action('parametres.maj', { 'content-type': 'application/json', ...headers }, JSON.stringify({ silent: true }));
   assert.equal((await silencieux({ origin: 'https://cursus.example.fr' })).status, 200, 'adresse publique');

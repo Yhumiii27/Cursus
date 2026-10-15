@@ -91,6 +91,8 @@ export type DialogState =
   | { type: 'refFormation'; id?: string | null }
   | { type: 'refHabilitation'; id?: string | null }
   | { type: 'refDestination'; code?: string | null }
+  /** Correspondance d'une rubrique de paie avec le plan de paie Sage (écran Temps, components/RubriquesPaie.tsx). */
+  | { type: 'rubrique'; code: string }
   /** Refus ou action irréversible à confirmer (state/confirmations.ts). */
   | { type: 'confirmer'; c: Confirmation };
 

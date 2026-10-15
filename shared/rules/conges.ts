@@ -8,6 +8,7 @@ import type { Domain } from '../domain.ts';
 import type { AbsenceType, CongeType, Employe, ISODate, NatureAbsence, ReportCp } from '../types.ts';
 import { absenceActive, absenceBloque, borneContrat, joursDecomptes, natureDef, periodeTexte, uniteDecompte } from './absences.ts';
 import { conflitsDates } from './conflits.ts';
+import { modeHeuresSup } from './paie.ts';
 import { calcSheet, heuresSurAbsence, joursTexte, type AbsenceJour } from './temps.ts';
 
 /** Nombre de mois (sur `n` à partir de `start`) où le salarié était présent à mi-mois. */
@@ -272,7 +273,11 @@ export function rttAnneeClose(d: Domain, e: Employe, Y: number): boolean {
   return Y < d.year - 1 || Y < reprise(d, e.id).anneeRtt || d.ds.clotures.some(c => c.empId === e.id && c.type === 'RTT' && c.periode === Y);
 }
 
-/** Repos compensateur de remplacement, en heures (horaires hebdomadaires avec heures supplémentaires). */
+/**
+ * Repos compensateur de remplacement, en heures (horaires hebdomadaires avec heures supplémentaires) : seul le repos
+ * réellement acquis est crédité, celui des feuilles validées en mode « repos » (ou d'avant le choix du mode,
+ * `calcSheet`). Heures supplémentaires payées, sans aucun repos repris, acquis ni posé : pas de compteur (null).
+ */
 export function recupInfo(d: Domain, e: Employe) {
   const c = d.contratOf(e);
   if (c.forfait || c.partiel || c.interim || c.dirigeant || c.annuel) return null;
@@ -282,6 +287,7 @@ export function recupInfo(d: Domain, e: Employe) {
     .filter(a => a.empId === e.id && a.type === 'RECUP' && a.statut === st)
     .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'RECUP') * dh, 0);
   const pris = R.recupPris + absH('validee'), poses = absH('demandee');
+  if (modeHeuresSup(null, d.ds.settings) === 'paiement' && !acq && !pris && !poses) return null;
   return { acq, pris, poses, solde: acq - pris - poses, dh };
 }
 

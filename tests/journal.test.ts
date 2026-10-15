@@ -225,7 +225,7 @@ test('transmission à la paie : feuilles transmises et salariés concernés (arc
   // Celles qui viennent d'être transmises (les feuilles transmises auparavant n'y figurent pas ; intérim et dirigeants non plus).
   const transmises = (db.sql.prepare(`SELECT emp_id AS empId, week FROM feuilles WHERE sage = 1 AND id IN (${avant.join(', ')}) ORDER BY id`).all() as { empId: number; week: string }[]);
   assert.ok(transmises.length > 0 && transmises.length <= avant.length);
-  assert.match(String(r.message), new RegExp(`^${transmises.length} feuilles transmises`));
+  assert.match(String(r.message), new RegExp(`^${transmises.length} feuilles marquées transmises — simulation, rien n’est envoyé à Sage Paie`));
   const l = derniere('temps.pushSage')!;
   assert.ok(l.paie);
   assert.deepEqual(l.payload.feuilles, transmises.map(f => ({ ...f })));

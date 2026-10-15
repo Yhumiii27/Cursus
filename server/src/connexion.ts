@@ -19,7 +19,7 @@ import { currentUser } from './dataset.ts';
 import type { Db } from './db.ts';
 import { emailMode } from './integrations/email.ts';
 import { KEYSTONE_MODE } from './integrations/keystone.ts';
-import { SAGE_MODE } from './integrations/sage.ts';
+import { sageMode } from './integrations/sage.ts';
 import { OIDC, routesMicrosoft } from './microsoft.ts';
 
 export interface Identite { session: SessionInfo; compte: Compte; user: CurrentUser }
@@ -95,7 +95,7 @@ export function routesConnexion(db: Db): Router {
       // Bouton « Se connecter avec Microsoft » : seulement si la connexion Microsoft 365 est configurée.
       microsoft: !!OIDC,
       // La liste des comptes (annuaire, organigramme) n'est exposée qu'en démonstration.
-      loginOptions: DEMO ? loginOptions() : null, integrations: { keystone: KEYSTONE_MODE, sage: SAGE_MODE, email: emailMode() },
+      loginOptions: DEMO ? loginOptions() : null, integrations: { keystone: KEYSTONE_MODE, sage: sageMode(), email: emailMode() },
     };
   }
 

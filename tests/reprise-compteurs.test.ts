@@ -175,7 +175,7 @@ test('t021 transmission à Sage (simulation) : matricule de paie, salarié sans 
     db.insert('feuilles', { empId, week: semaine, statut: 'validee', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-MAINT', tache: '', ks: false, h: [7, 7, 7, 7, 7] }], contrat: null });
   }
   const msg = message(run(ADMIN, 'temps.pushSage', {}));
-  assert.match(msg, /simulation : 1 salarié sans matricule de paie \(Bastien Morel\), transmis sous le matricule Cursus et refusés d’une transmission réelle/);
+  assert.match(msg, /simulation, rien n’est envoyé à Sage Paie.* · 1 salarié sans matricule de paie \(Bastien Morel\), sous le matricule Cursus et refusés d’une transmission réelle$/);
   const lignes = loadFull(db, ADMIN).lastSagePush!.lignes.filter(l => l.semaine === '2026-S41');
   assert.deepEqual(lignes.map(l => l.matricule).sort(), ['004102', 'EMP-0024']);
 });
@@ -268,7 +268,7 @@ test('t072 migration nommée : compteurs et reports d’une base existante daté
   const aDater = () => (db.sql.prepare('SELECT (SELECT COUNT(*) FROM soldes_reprise WHERE arrete_le IS NULL) + (SELECT COUNT(*) FROM reports WHERE periode IS NULL) AS n').get() as { n: number }).n;
   assert.equal(aDater(), 26);
   assert.equal(SOLDES_DATES.necessaire!(db), true);
-  assert.deepEqual(appliquerMigrations(db), ['lot4-exploitation-index-journal', 'lot4-exploitation-index-envois', 'lot4-exploitation-index-keystone', 'lot4-reprise-soldes-dates']);
+  assert.deepEqual(appliquerMigrations(db), ['lot4-exploitation-index-journal', 'lot4-exploitation-index-envois', 'lot4-exploitation-index-keystone', 'lot4-reprise-soldes-dates', 'lot4-paie-heures-sup']);
   const ds = loadFull(db, ADMIN);
   assert.ok(ds.soldesReprise.every(s => s.arreteLe === '2026-10-10'), 'date de mise en service de cette version');
   const recu = ds.reports.find(r => r.empId === 6)!, accorde = ds.reports.find(r => r.empId === 2)!;

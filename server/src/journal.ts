@@ -42,6 +42,11 @@ interface Cible {
   /** Colonnes dont les anciennes et nouvelles valeurs sont tracées. `aplatir` : objet JSON comparé clé par clé. */
   colonnes: readonly string[];
   aplatir?: boolean;
+  /**
+   * Champs de texte libre, comparés mais jamais recopiés : seul le fait qu'ils soient renseignés est tracé
+   * (MENTION_TEXTE), par exemple la référence de l'accord des heures supplémentaires dans les réglages.
+   */
+  masques?: readonly string[];
 }
 
 /** Ce que la règle sait de l'action : ligne visée avant et après, état lu avant l'action (`etat`), résultat. */
@@ -257,6 +262,11 @@ export const REGLES: Record<string, Regle> = {
     etat: db => db.where<FeuilleTemps>('feuilles', 'statut', 'validee').filter(f => !f.sage).map(f => f.id),
     bilan: (_p, x) => ({ feuilles: transmises(x).map(f => ({ empId: f.empId, week: f.week })) }), salaries: (_p, x) => transmises(x).map(f => f.empId),
   },
+  // Correspondance d'une rubrique avec le plan de paie Sage : codes, case « exportée », date de confirmation.
+  'paie.rubrique': {
+    champs: ['code', 'codeSage', 'active', 'confirmer'],
+    cible: { table: 'rubriquesPaie', cle: p => (typeof p.code === 'string' && p.code ? p.code : null), colonnes: ['codeSage', 'active', 'confirmeLe'] },
+  },
   // Absences : la nature n'est jamais recopiée (son absence trahirait une nature médicale) ; dates et statut seulement.
   'absence.demander': { champs: ['empId', 'kind', 'du', 'au'] },
   'absence.decider': { champs: ['id', 'ok'], cible: parId('absences', ['statut']), ...reportsRendus },
@@ -284,7 +294,8 @@ export const REGLES: Record<string, Regle> = {
   'entretien.clore': { champs: ['id'], cible: parId('entretiens', ['statut', 'signMgr']) },
   'entretien.signer': { champs: ['id'], cible: parId('entretiens', ['signSal']) },
   // Administration
-  'parametres.maj': { cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true } },
+  // Réglages : anciennes et nouvelles valeurs, sauf la référence de l'accord des heures supplémentaires (texte libre).
+  'parametres.maj': { cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord'] } },
   'demo.reinitialiser': {},
   'compte.creer': { champs: ['empId', 'type', 'identifiant', 'profilRh'] },
   'compte.profil': { champs: ['id', 'profilRh'], cible: parId('comptes', ['profilRh']) },
@@ -350,10 +361,12 @@ function comparer(c: Cible, avant: Ligne | null, apres: Ligne | null): { avant: 
       return [...new Set([...Object.keys(x), ...Object.keys(y)])].map(k => [k, x[k], y[k]] as [string, unknown, unknown]);
     })
     : c.colonnes.map(col => [col, avant?.[col], apres?.[col]]);
+  // Texte libre masqué : « renseigné » ou vide, la modification restant visible par la présence du champ.
+  const masque = (k: string, v: unknown) => (c.masques?.includes(k) ? (v ? MENTION_TEXTE : null) : v ?? null);
   for (const [k, x, y] of paires) {
     if (JSON.stringify(x ?? null) === JSON.stringify(y ?? null)) continue;
-    a[k] = x ?? null;
-    b[k] = y ?? null;
+    a[k] = masque(k, x);
+    b[k] = masque(k, y);
   }
   return Object.keys(a).length || Object.keys(b).length ? { avant: a, apres: b } : null;
 }
@@ -378,6 +391,8 @@ const NATURES = termes(Object.values(NATURES_ABSENCE).flatMap(n => [n.label, n.a
 const VACCINS_NOMMES = termes(Object.values(VACCINS).flatMap(v => [v.nom, v.nom.replace(/ \(.*\)/, ''), v.court]));
 export const MENTION_NATURE = '[nature d’absence]';
 export const MENTION_SANTE = '[donnée de santé]';
+/** Texte libre renseigné, jamais recopié au journal (Cible.masques). */
+export const MENTION_TEXTE = '[texte renseigné]';
 
 /** Message tracé sans nature d'absence ni vaccin : le RH les retrouve dans le dossier. */
 export function expurgerMessage(m: string | null): string | null {

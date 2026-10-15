@@ -162,7 +162,7 @@ sudo nano /etc/cursus/cursus.env
 | `CURSUS_MAIL_FROM` | boîte d'envoi des e-mails (`cursus@entreprise.fr`) ; sans elle, les e-mails sont simulés (`docs/EMAILS.md`) |
 | `CURSUS_MAIL_TENANT`, `CURSUS_MAIL_CLIENT_ID`, `CURSUS_MAIL_CLIENT_SECRET` | application Entra autorisée à envoyer (`Mail.Send`, restreinte à la boîte d'envoi) ; par défaut celle de la connexion Microsoft. Noter la date d'expiration du secret |
 | `KEYSTONE_URL`, `KEYSTONE_TOKEN` | envois à Keystone : adresse de base de Keystone sur le réseau interne (`http://keystone.interne:8080`) et jeton convenu avec lui. Cursus refuse de démarrer avec l'adresse sans le jeton, ou avec des identifiants dans l'adresse. Sans adresse, les messages ne sont que tracés dans le journal |
-| `SAGE_URL`, `SAGE_TOKEN`, `SAGE_DOSSIER` | envoi à Sage Paie, quand il sera livré |
+| `SAGE_MODE`, `SAGE_DOSSIER` | transmission à Sage Paie : à laisser vide (fichier d'import, mode de production) ; dossier de paie (`CURSUS-CHIMIE` par défaut). **Jamais** `SAGE_MODE=api` ni `SAGE_MODE=simulation`, **jamais** `SAGE_URL` : Cursus refuse de démarrer avec eux (voir « Sage Paie ») |
 | `CURSUS_DEMO`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE` | **jamais** sur ce serveur. La démonstration ouvre l'espace RH sans mot de passe : Cursus refuse de démarrer avec elle, et refuserait de toute façon (403) chaque requête relayée par le proxy |
 
 Au démarrage, Cursus contrôle cette configuration. S'il manque une valeur obligatoire ou si un
@@ -499,6 +499,34 @@ HTTPS, sans alerte de certificat.
   accès) ferme ses sessions aussitôt.
 - Mot de passe Cursus oublié ou compte bloqué : l'administrateur RH attribue un nouveau mot de passe
   provisoire (« Mot de passe » dans Comptes et accès).
+
+## Sage Paie
+
+Les variables de paie (heures des feuilles validées) passent par Sage Paie selon `SAGE_MODE` :
+
+| Mode | Usage | Effet de « Transmettre » (écran Temps de travail) |
+| --- | --- | --- |
+| `fichier` | production (valeur par défaut avec `NODE_ENV=production`) | fichier d'import téléchargé par la paie, puis import confirmé dans Sage, qui seul marque les feuilles transmises — **livré à l'étape suivante** : d'ici là, la transmission est refusée et aucune feuille n'est marquée transmise ; les variables restent saisies dans Sage |
+| `simulation` | démonstration, développement, application de bureau | rien n'est envoyé ; les feuilles sont marquées transmises et l'écran, la confirmation et le message le disent. Refusé en production hors application de bureau |
+| `api` | aucun | refusé : Sage n'a fourni aucun contrat d'API. Cursus refuse de démarrer en production ; ailleurs, la transmission répond 503 sans rien marquer |
+
+`SAGE_URL` (ancienne bascule vers un envoi qui n'existait pas) est refusée en production. Avant toute transmission
+réelle, le gestionnaire de paie ou l'administrateur RH saisit et confirme le code de chaque rubrique dans le plan de
+paie Sage (écran Temps de travail, « Rubriques de paie ») : tant qu'une rubrique utilisée n'est pas confirmée, seule la
+simulation transmet, et le refus liste les rubriques manquantes. Une rubrique dont la paie ne se sert pas (heures
+normales des salariés mensualisés) peut être désactivée.
+
+Périmètre : heures validées du lundi au vendredi seulement ; ni absences, ni déplacements, ni heures du samedi, du
+dimanche ou de nuit, qui restent saisis dans Sage. Intérimaires (relevé envoyé à l'agence) et cadres dirigeants exclus.
+Période de paie déduite de la semaine : une semaine à cheval sur deux mois va sur le mois de son dimanche, la clôture
+des variables tombe le dernier jour du mois et une semaine d'une période close part en rappel sur la période ouverte
+(Paramètres → Paie : mois du vendredi ou ventilation jour par jour, autre jour de clôture). Heures supplémentaires payées
+avec majoration ; le repos de remplacement ne s'active qu'avec la référence de l'accord collectif qui le prévoit.
+
+À la mise à jour vers cette version, les feuilles validées reçoivent le mode des heures supplémentaires (migration
+`lot4-paie-heures-sup`) : celles déjà transmises gardent le calcul d'origine (payées et repos crédité), les autres
+sont payées sans repos. Le journal des actions (« Reprise : mode des heures supplémentaires figé… ») liste les salariés
+dont le solde de récupération devient négatif : à examiner avec la paie.
 
 ## Recette
 

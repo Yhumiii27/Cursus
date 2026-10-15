@@ -1,5 +1,6 @@
 // Feuilles de temps : saisie hebdomadaire par projet, validation par le manager,
-// récapitulatif paie selon l'organisation du temps et transmission des variables à Sage Paie.
+// récapitulatif paie selon l'organisation du temps et le mode des heures supplémentaires (payées ou en repos), transmission
+// des variables à Sage Paie (components/LotsPaie.tsx).
 // Une feuille soumise ou validée est décomptée avec le régime figé à la soumission (`FeuilleTemps.contrat`).
 // Aucune heure un jour d'absence (validée, ou signalée en attendant sa qualification) ni hors contrat : une cellule
 // déjà remplie ce jour-là reste modifiable pour être vidée. Une semaine entièrement couverte par une absence se soumet sans heure
@@ -16,13 +17,14 @@ import { cap, equipeLabel, fH, fJ, fmt, fmtShort, key, num, plural } from '../..
 import { jourHorsContrat, semaineHorsContrat } from '../../../shared/rules/absences.ts';
 import {
   absenceCeJour, calcSheet, cumulAnnuel, demandesAbsence, demandesEnAttenteMessage, employeDeLaFeuille, heuresSurAbsence, heuresSurAbsenceMessage, joursAbsence,
-  joursAbsenceTexte, natureAbsence, sagePending, semaineCouverte, tachesDeLaSemaine, type SheetCalc,
+  joursAbsenceTexte, natureAbsence, semaineCouverte, tachesDeLaSemaine, type SheetCalc,
 } from '../../../shared/rules/temps.ts';
+import { MODES_HEURES_SUP } from '../../../shared/rules/paie.ts';
 import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
-import { SansMatriculePaie } from '../components/MatriculesPaie.tsx';
-import { CloseButton, Fine, Page, Panel, Pre, Tag, Two, stop } from '../components/ui.tsx';
+import { CloseButton, Fine, Page, Panel, stop, Tag, Two } from '../components/ui.tsx';
+import { LotsPaie } from '../components/LotsPaie.tsx';
 import { useAgir } from '../state/actions.ts';
-import { suppressionLigne, transmissionSage } from '../state/confirmations.ts';
+import { suppressionLigne } from '../state/confirmations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { RelevesPanel } from './Releves.tsx';
@@ -97,10 +99,13 @@ interface Recap { rows: [string, string][]; mention?: string; alert?: string; ai
 function recapOf(d: Domain, emp: Employe, calc: SheetCalc, week: ISODate): Recap {
   const c = calc.c, tt = TEMPS_TRAVAIL[c.temps];
   const art = tt.article ? ` ${tt.article}.` : '';
-  const recupRow: [string, string] = [c.interim ? 'Récupération' : 'Repos compensateur acquis', c.interim ? 'géré par l’agence' : fH(calc.recup)];
+  // Heures supplémentaires payées, ou remplacées par un repos (mode figé sur la feuille à sa validation) : la ligne du
+  // repos acquis n'apparaît que s'il y en a un ; l'intérimaire est réglé par son agence.
+  const recupRows: [string, string][] = c.interim ? [['Récupération', 'géré par l’agence']]
+    : calc.modeHS === 'paiement' ? [] : [['Repos compensateur acquis', fH(calc.recup)]];
   const recupAide = c.interim
     ? ' Intérim : heures supplémentaires relevées et réglées par l’agence.'
-    : ' Heures supplémentaires converties en repos compensateur de remplacement, majoration incluse.';
+    : ` ${MODES_HEURES_SUP[calc.modeHS].aide}`;
 
   if (c.forfait) return {
     rows: [['Jours travaillés', fJ(calc.jours)], ['Heures déclarées (répartition projets)', fH(calc.total)]],
@@ -134,11 +139,11 @@ function recapOf(d: Domain, emp: Employe, calc: SheetCalc, week: ISODate): Recap
     // Heures incluses au forfait : +25 % jusqu'à la 43e heure, +50 % au-delà (forfait supérieur à 43 h).
     const rows: [string, string][] = [['Heures normales (jusqu’à 35 h)', fH(calc.normal)], ['Incluses au forfait +25 %', fH(calc.incluses25)]];
     if ((c.seuil ?? 0) > 43 || calc.incluses50 > 0) rows.push(['Incluses au forfait +50 %', fH(calc.incluses50)]);
-    rows.push(['Supplémentaires +25 %', fH(calc.sup25)], ['Supplémentaires +50 %', fH(calc.sup50)], recupRow);
+    rows.push(['Supplémentaires +25 %', fH(calc.sup25)], ['Supplémentaires +50 %', fH(calc.sup50)], ...recupRows);
     return { rows, aide: tt.aide + recupAide + art };
   }
   return {
-    rows: [['Heures normales', fH(calc.normal)], ['Supplémentaires +25 %', fH(calc.sup25)], ['Supplémentaires +50 %', fH(calc.sup50)], recupRow],
+    rows: [['Heures normales', fH(calc.normal)], ['Supplémentaires +25 %', fH(calc.sup25)], ['Supplémentaires +50 %', fH(calc.sup50)], ...recupRows],
     aide: tt.aide + recupAide + art,
   };
 }
@@ -147,9 +152,9 @@ export function Temps() {
   const d = useDomain();
   const data = d.ds;
   // Espace RH : toutes les feuilles ; validation par le service RH (jamais sa propre feuille), transmission à Sage par
-  // l'administrateur RH et le gestionnaire de paie ; la paie et la lecture seule consultent.
-  const { espaceRh, rh, paie, manager, collab, me, soi } = useRole();
-  const { ui, setUi, run, openDialog } = useStore();
+  // l'administrateur RH et le gestionnaire de paie (components/LotsPaie.tsx) ; la paie et la lecture seule consultent.
+  const { espaceRh, rh, manager, collab, me, soi } = useRole();
+  const { ui, setUi, run } = useStore();
   const { occupe, agir } = useAgir();
   const wk = ui.weekStart ?? mondayOf(data.today);
   const wdays = wDays(wk);
@@ -164,8 +169,6 @@ export function Temps() {
     .map(sh => ({ sh, e: d.emp(sh.empId) }))
     .filter((q): q is { sh: FeuilleTemps; e: Employe } => !!q.e && (espaceRh || (manager && d.mgrOf(q.e) === me)));
   const valide = (e: Employe) => (rh && e.id !== soi) || (manager && d.mgrOf(e) === me);
-  const aTransmettre = espaceRh ? sagePending(d) : [];
-  const pending = aTransmettre.length;
 
   return (
     <Page
@@ -218,28 +221,7 @@ export function Temps() {
 
       {tsEmp && <Sheet key={`${tsEmp.id}|${wk}`} emp={tsEmp} wk={wk} />}
 
-      {espaceRh && (
-        <Panel head={
-          <div className="panel-head center">
-            <div>
-              <h2>Transmission à Sage Paie</h2>
-              <div className="text-muted sub">
-                {pending ? `${plural(pending, 'feuille validée', 'feuilles validées')} en attente de transmission` : 'Toutes les feuilles validées ont été transmises'} · intérimaires (relevé envoyé à l’agence) et cadres dirigeants exclus
-              </div>
-            </div>
-            {paie
-              ? <button type="button" className="btn btn-primary" disabled={pending === 0 || occupe}
-                  onClick={() => openDialog({ type: 'confirmer', c: transmissionSage(pending, new Set(aTransmettre.map(sh => sh.empId)).size) })}>Transmettre par API</button>
-              : <span className="text-muted sub">Transmission réservée à l’administrateur RH et au gestionnaire de paie</span>}
-          </div>
-        }>
-          <SansMatriculePaie empIds={aTransmettre.map(sh => sh.empId)} />
-          {data.lastSagePush && <>
-            <Pre maxHeight={320}>{JSON.stringify(data.lastSagePush, null, 2)}</Pre>
-            <Fine>Rubriques indicatives (HN, HSF25 et HSF50 heures incluses au forfait à +25 % et +50 %, HS25, HS50, HC10, HC25, RCR_ACQUIS, JTRAV) — correspondance avec le plan de paie Sage à paramétrer.</Fine>
-          </>}
-        </Panel>
-      )}
+      {espaceRh && <LotsPaie />}
 
       {rh && <RelevesPanel wk={wk} />}
     </Page>

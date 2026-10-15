@@ -265,7 +265,7 @@ export function Absences() {
             <li>CCN Industries chimiques : pas de congés d’ancienneté ; +5 jours ouvrés à partir de 59 ans.</li>
             <li>Forfait annuel en jours : jours de repos calculés individuellement selon le nombre de jours du forfait (jours calendaires − week-ends − 25 CP − fériés ouvrés − jours du forfait) ; {reposForfait(Y, 218)} jours en {Y} pour un forfait de 218 jours.</li>
             <li>Forfait annuel en heures : pas de RTT ni de repos compensateur hebdomadaire ; les heures au-delà du forfait sont régularisées en fin d’année.</li>
-            <li>Forfait hebdomadaire en heures : heures supplémentaires incluses au forfait (au-delà de 35 h) majorées dans la rémunération ; repos compensateur pour les heures effectuées au-delà du forfait.</li>
+            <li>Forfait hebdomadaire en heures : heures supplémentaires incluses au forfait (au-delà de 35 h) majorées dans la rémunération ; heures effectuées au-delà du forfait payées avec majoration, ou remplacées par un repos compensateur quand un accord collectif le prévoit (Paramètres → Paie).</li>
             <li>Cadre dirigeant (art. L3111-2) : congés payés uniquement — ni RTT, ni repos compensateur.</li>
             <li>Temps partiel : même droit à congés ; le décompte des CP inclut les jours non travaillés de la période.</li>
             <li>Clôture des congés payés, proposée à partir du 1er juin : aucun jour n’est perdu d’office, le service RH décide pour chaque salarié du report du solde (plafonné au solde, jusqu’au 31 mai suivant) ou de sa perte. Après une absence de santé, une maternité, une paternité ou une adoption dans la période, le solde est reporté de 15 mois. Un report accordé en cours de période est appliqué à la clôture.</li>

@@ -33,6 +33,7 @@ import { RefHabilitationDialog } from './RefHabilitationDialog.tsx';
 import { ReportDialog } from './ReportDialog.tsx';
 import { ReqFormDialog } from './ReqFormDialog.tsx';
 import { ReqHabDialog } from './ReqHabDialog.tsx';
+import { RubriqueDialog } from './RubriqueDialog.tsx';
 import { SessionDetailDialog } from './SessionDetailDialog.tsx';
 import { SessionDialog } from './SessionDialog.tsx';
 import { SortieDialog } from './SortieDialog.tsx';
@@ -90,6 +91,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'refFormation': return <RefFormationDialog {...d} />;
     case 'refHabilitation': return <RefHabilitationDialog {...d} />;
     case 'refDestination': return <RefDestinationDialog {...d} />;
+    case 'rubrique': return <RubriqueDialog {...d} />;
     case 'confirmer': return <ConfirmerDialog c={d.c} />;
   }
 }

@@ -4,6 +4,7 @@ import { certEnVigueur, Domain, habEnCours, sessionActive } from '../../../share
 import { fmt, key, plural } from '../../../shared/format.ts';
 import { blocage, conflitsDates, sessionsInscrit } from '../../../shared/rules/conflits.ts';
 import { horsContratLe } from '../../../shared/rules/contrats.ts';
+import { exerciceOuvert } from '../../../shared/rules/exercices.ts';
 import { estAuDossier, relireDeclaration, retireeAuRefus } from '../../../shared/rules/formalites.ts';
 import { refusArchive } from '../../../shared/rules/referentiels.ts';
 import type { Certification, DemandeCollab, Employe, HabTitre, HabType, Inscription } from '../../../shared/types.ts';
@@ -171,8 +172,9 @@ const accepterDemande: ActionHandler = (ctx, p) => {
       return `${emp.nom} inscrit à la session du ${fmt(parse(sess.date))}`;
     }
     if (!emp.equipe) throw new ActionError(`Affectez d’abord ${emp.nom} à une équipe pour l’inscrire au plan de formation`);
-    const ex = ctx.d.year;
-    const tri = `T${Math.floor(ctx.d.today.getMonth() / 3) + 1}`;
+    // Exercice en cours, ou le suivant s'il est déjà clos (plan.cloturerExercice) : alors au premier trimestre.
+    const ex = exerciceOuvert(ctx.ds, ctx.d.year);
+    const tri = ex > ctx.d.year ? 'T1' : `T${Math.floor(ctx.d.today.getMonth() / 3) + 1}`;
     ctx.db.insert('planActions', { exercice: ex, f: r.f, libelle: r.libelle, equipe: emp.equipe, periode: tri, effectif: 1, cout: r.f ? ctx.d.fm(r.f).cout : 0, statut: 'prevu', origine: 'demande' });
     done(`Ajoutée au plan de formation ${ex} (${tri})`);
     notifierDecisionDemande(ctx, emp, r, true);

@@ -209,8 +209,9 @@ export type CodeMotif = typeof CODES_MOTIF[number];
  * jamais renvoyées à Keystone, qui ne reçoit que les heures passées sur ses projets.
  */
 export const ACTIVITES_INTERNES = /^(?:INT-|ECOLE$)/;
-export const PLAN_CLS = { prevu: 'tag-outline', engage: 'tag-accent', realise: 'tag-neutral' } as const;
-export const PLAN_LABEL = { prevu: 'Prévu', engage: 'Engagé', realise: 'Réalisé' } as const;
+// « Reporté » : action d'un exercice clos reprise sur l'exercice suivant (`plan.cloturerExercice`), hors des sommes.
+export const PLAN_CLS = { prevu: 'tag-outline', engage: 'tag-accent', realise: 'tag-neutral', reporte: 'tag-outline' } as const;
+export const PLAN_LABEL = { prevu: 'Prévu', engage: 'Engagé', realise: 'Réalisé', reporte: 'Reporté' } as const;
 export const REQ_CLS = { attente: 'tag-outline', acceptee: 'tag-neutral', refusee: 'tag-accent' } as const;
 export const REQ_LABEL = { attente: 'En attente', acceptee: 'Acceptée', refusee: 'Refusée' } as const;
 /** File d'envoi des messages sortants (Paramètres → Envois). */
@@ -228,7 +229,7 @@ export const EMAIL_LABEL: Record<string, string> = {
   'temps.renvoyee': 'Feuille de temps renvoyée', 'entretien.convocation': 'Convocation à un entretien', 'entretien.clos': 'Compte rendu d’entretien à signer',
   'demande.reponse': 'Réponse à une demande au service RH', 'convocation': 'Convocation à une formation', 'convocation.annulee': 'Convocation annulée',
   'releve.interim': 'Relevé d’heures des intérimaires', 'visite.demande': 'Demande de visite médicale', 'recapitulatif': 'Récapitulatif quotidien',
-  'essai': 'E-mail d’essai',
+  'essai': 'E-mail d’essai', 'entretien.remise': 'Compte rendu d’entretien mis à disposition',
 };
 export const CIBLE_LABEL = { keystone: 'Keystone', sage: 'Sage Paie', email: 'E-mail' } as const;
 export const MODE_NOTIFICATION_LABEL = { immediat: 'Aussitôt', quotidien: 'Récapitulatif quotidien' } as const;

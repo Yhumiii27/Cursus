@@ -81,6 +81,9 @@ export type DialogState =
   | { type: 'clotureConges'; conges: 'CP' | 'RTT'; periode: number }
   | { type: 'entPlan'; empId: number; kind: EntretienType }
   | { type: 'ent'; entId: number }
+  | { type: 'entRemise'; entId: number }
+  | { type: 'planRealiser'; id: number }
+  | { type: 'exerciceCloture'; exercice: number }
   | { type: 'tripImport' }
   | { type: 'planImport'; exercice: number }
   | { type: 'budget'; exercice: number }

@@ -10,6 +10,7 @@ import { MessageriePanel } from '../Messagerie.tsx';
 import type { SectionProps } from './commun.ts';
 import { Conges } from './Conges.tsx';
 import { Demonstration } from './Demonstration.tsx';
+import { Entretiens } from './Entretiens.tsx';
 import { Envois } from './Envois.tsx';
 import { Keystone } from './Keystone.tsx';
 import { MatriculesPaie } from './MatriculesPaie.tsx';
@@ -34,6 +35,7 @@ const Journal = () => <JournalPanel />;
 
 export const SECTIONS: readonly SectionParametres[] = [
   { id: 'suivi', place: 'gauche', Section: Suivi },
+  { id: 'entretiens', place: 'gauche', Section: Entretiens },
   { id: 'demonstration', place: 'gauche', Section: Demonstration },
   { id: 'keystone', place: 'droite', Section: Keystone },
   { id: 'sage', place: 'droite', Section: SagePaie },

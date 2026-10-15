@@ -2,6 +2,8 @@
 // (shared/types.ts) avec sa valeur par défaut et son contrôle. `parametres.maj` (server/src/actions/parametres.ts)
 // n'enregistre que les champs de cette table, chacun passé par son contrôle ; DEFAULT_SETTINGS (server/src/dataset.ts)
 // en est tiré. Ajouter un réglage : docs/ARCHITECTURE.md, « Cadre commun du lot 4 ».
+import { isValidDate } from './dates.ts';
+import { CONTRATS_EXCLUABLES, PREAVIS_TOUTE_ANNEE } from './rules/campagne.ts';
 import type { Settings } from './types.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
@@ -35,6 +37,18 @@ export const booleen = (v: unknown): boolean => !!v;
 /** Valeur d'une liste fermée ; hors de la liste, `sinon`, à défaut la valeur en vigueur. */
 export const choix = <T extends string>(valeurs: readonly T[], sinon?: T) => (v: unknown, actuelle: T): T =>
   (valeurs as readonly unknown[]).includes(v) ? v as T : sinon ?? actuelle;
+
+/** Valeurs cochées d'une liste fermée : inconnues écartées, sans doublon, dans l'ordre de la liste ; autre chose qu'une liste : refus. */
+export const parmi = <T extends string>(valeurs: readonly T[]) => (v: unknown): T[] => {
+  if (!Array.isArray(v)) throw new ReglageInvalide('Liste de valeurs attendue');
+  return valeurs.filter(x => v.includes(x));
+};
+
+/** Jour de l'année « MM-JJ » qui existe chaque année (le 29 février est refusé). */
+export const jourDeLAnnee = (v: unknown): string => {
+  if (typeof v === 'string' && /^\d{2}-\d{2}$/.test(v) && isValidDate(`2027-${v}`)) return v;
+  throw new ReglageInvalide('Date invalide : un jour et un mois qui existent chaque année');
+};
 
 /**
  * Texte court sur une ligne (référence d'un accord…), espaces réduits ; au-delà de `max` caractères, refus. Transmis à
@@ -74,6 +88,13 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   heuresSupAccord: { defaut: '', controle: texte(120, 'Référence de l’accord') },
   periodeRattachement: { defaut: 'dimanche', controle: choix(['dimanche', 'vendredi', 'jour']) },
   clotureJour: { defaut: 0, controle: entier(0, 28) },
+  // — Campagne d'entretiens annuels (parametres/Entretiens.tsx, shared/rules/campagne.ts) : par défaut du 1er octobre au
+  //   15 décembre, sans ancienneté minimale, seul l'intérim exclu, échéance affichée toute l'année —
+  campagneDebut: { defaut: '10-01', controle: jourDeLAnnee },
+  campagneFin: { defaut: '12-15', controle: jourDeLAnnee },
+  campagneAncienneteMois: { defaut: 0, controle: entier(0, 24) },
+  campagneExclus: { defaut: [], controle: parmi(CONTRATS_EXCLUABLES) },
+  campagnePreavisJours: { defaut: PREAVIS_TOUTE_ANNEE, controle: entier(0, PREAVIS_TOUTE_ANNEE) },
 };
 
 /**
@@ -85,6 +106,8 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
   // délégué syndical, l'absence d'opposition du CSE (art. L3121-37) —
   s => (s.heuresSupMode === 'repos' && !s.heuresSupAccord
     ? 'Heures supplémentaires remplacées par un repos : indiquez la référence de l’accord collectif qui le prévoit (art. L3121-33) ou, sans délégué syndical, de la décision non contestée par le CSE (art. L3121-37)' : null),
+  // — Campagne d'entretiens : dans l'année civile, l'ouverture au plus tard le jour de la clôture —
+  s => (s.campagneDebut > s.campagneFin ? 'Campagne d’entretiens : l’ouverture doit précéder la clôture, dans la même année' : null),
 ];
 
 /** Vue non typée de la table, pour la parcourir (les contrôles reçoivent la valeur en vigueur du même champ). */

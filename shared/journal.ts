@@ -60,6 +60,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'session.cloturer': 'Session clôturée',
   'plan.importer': 'Import du plan de formation',
   'plan.avancer': 'Avancement du plan de formation',
+  'plan.cloturerExercice': 'Clôture d’un exercice du plan de formation',
   'budget.enveloppes': 'Enveloppes budgétaires',
   // Habilitations
   'hab.delivrer': 'Habilitation délivrée',
@@ -116,6 +117,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'entretien.modifier': 'Compte rendu d’entretien rédigé',
   'entretien.clore': 'Entretien clos',
   'entretien.signer': 'Entretien signé par le salarié',
+  'entretien.remettre': 'Compte rendu d’entretien remis au salarié',
+  'entretien.telecharger': 'Compte rendu d’entretien téléchargé par le salarié',
   // Administration
   'parametres.maj': 'Paramètres modifiés',
   'demo.reinitialiser': 'Démonstration réinitialisée',
@@ -153,6 +156,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'migration.detachement': 'Reprise des formalités de détachement',
   'migration.soldes': 'Datation des compteurs repris et des reports de CP',
   'migration.heuresSup': 'Reprise : mode des heures supplémentaires figé sur les feuilles validées',
+  'migration.coutReel': 'Reprise du coût réel des actions réalisées du plan',
 };
 
 /** Libellé d'un code ; un e-mail simulé (`email.<nature>`, sans boîte d'envoi) est nommé par sa nature. */
@@ -179,7 +183,7 @@ export const dossierComplet = (u: Pick<CurrentUser, 'role' | 'profilRh'>) => dro
 /** Familles du filtre « Action » : codes commençant par l'un des préfixes (ou égaux à l'un d'eux). */
 export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly string[] }[] = [
   { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.'] },
-  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.'] },
+  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'migration.coutReel'] },
   { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.'] },
   { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations)', prefixes: ['referentiel.'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
@@ -218,6 +222,12 @@ export const CHAMP_LABEL: Record<string, string> = {
   rttAnneeSuivanteDes: 'RTT de l’année suivante posables à partir du',
   heuresSupMode: 'Heures supplémentaires', heuresSupAccord: 'Accord sur le repos de remplacement', periodeRattachement: 'Semaine à cheval sur deux mois',
   clotureJour: 'Jour de clôture des variables de paie', codeSage: 'Code Sage', confirmeLe: 'Code Sage confirmé le',
+  // Campagne d'entretiens annuels (Paramètres) ; remise du compte rendu d'entretien ; coût réel d'une action du plan.
+  campagneDebut: 'Ouverture de la campagne d’entretiens', campagneFin: 'Clôture de la campagne d’entretiens',
+  campagneAncienneteMois: 'Ancienneté minimale pour la campagne (mois)', campagneExclus: 'Contrats exclus de la campagne',
+  campagnePreavisJours: 'Affichage de la campagne avant l’ouverture (jours)',
+  remiseLe: 'Remise du compte rendu', remiseMode: 'Mode de remise', telechargeLe: 'Premier téléchargement par le salarié',
+  coutReel: 'Coût réel', effectifReel: 'Effectif réel',
 };
 
 const valeur = (v: unknown): string => {

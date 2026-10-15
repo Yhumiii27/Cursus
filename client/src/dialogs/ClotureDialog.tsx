@@ -1,16 +1,18 @@
 // Clôture d'une session passée (service RH) : présence de chaque inscrit et, si la formation l'exige,
 // résultat de l'évaluation ; évaluation à chaud facultative. Présents (et reçus) : certification datée
 // du jour de la session ; absents ou échecs : à replanifier. Tout est enregistré en une fois.
+// L'action du plan rattachée, réalisée par cette clôture, reçoit son coût réel (prérempli du coût prévu).
 import { useMemo, useState } from 'react';
 import { VALIDATION_LABEL } from '../../../shared/constants.ts';
 import { sessionActive } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
-import { equipeLabel, fmt, plural } from '../../../shared/format.ts';
+import { equipeLabel, fmt, fmtEur, plural } from '../../../shared/format.ts';
 import { exigeEvaluation, inscritsDe } from '../../../shared/rules/sessions.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Empty, Fine, Seg, Tag } from '../components/ui.tsx';
 import { useEnriched } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { erreurCoutReel } from './PlanRealiserDialog.tsx';
 
 export function ClotureDialog({ sessionId }: { sessionId: number }) {
   const { d } = useEnriched();
@@ -22,6 +24,11 @@ export function ClotureDialog({ sessionId }: { sessionId: number }) {
   const [resultat, setResultat] = useState<Record<number, 'ok' | 'ko'>>({});
   const [note, setNote] = useState('');
   const [commentaire, setCommentaire] = useState('');
+  // Coût réel de l'action du plan rattachée : prérempli de son coût prévu.
+  const [coutReel, setCoutReel] = useState(() => {
+    const l = s?.planId ? d.ds.plan.find(x => x.id === s.planId) : undefined;
+    return l ? String(l.cout) : '';
+  });
   const [busy, setBusy] = useState(false);
   const v = useVerification();
   if (!s) return null;
@@ -42,17 +49,19 @@ export function ClotureDialog({ sessionId }: { sessionId: number }) {
   const aReplanifier = decider.filter(i => presence[i.empId] === 'a' || (evaluation && present(i.empId) && resultat[i.empId] === 'ko')).length;
   // L'action du plan passe « réalisée » si aucune autre session ouverte ne la porte.
   const plan = s.planId ? d.ds.plan.find(l => l.id === s.planId && l.statut !== 'realise') : undefined;
-  const realise = !!plan && !d.ds.sessions.some(x => x.id !== s.id && x.planId === s.planId && sessionActive(x));
+  const realise = !!plan && plan.statut !== 'reporte' && !d.ds.sessions.some(x => x.id !== s.id && x.planId === s.planId && sessionActive(x));
+  const coutErr = realise ? erreurCoutReel(coutReel) : null;
   const quand = fmt(parse(s.date));
 
   const confirm = async () => {
-    if (busy || !v.verifier(sansPresence.length, manquants.length)) return;
+    if (busy || !v.verifier(sansPresence.length, manquants.length, coutErr)) return;
     setBusy(true);
     const r = await run('session.cloturer', {
       id: s.id,
       participants: decider.map(i => ({ empId: i.empId, present: present(i.empId), reussi: evaluation && present(i.empId) ? resultat[i.empId] === 'ok' : null })),
       note: note ? Number(note) : null,
       commentaire: commentaire.trim(),
+      ...(realise ? { coutReel: coutReel.trim().replace(',', '.') } : {}),
     });
     setBusy(false);
     if (r.ok) closeDialog();
@@ -105,6 +114,12 @@ export function ClotureDialog({ sessionId }: { sessionId: number }) {
           </select>
         </Field>
       </div>
+      {realise && plan && (
+        <Field label={`Coût réel de l’action du plan ${plan.exercice} (€)`} htmlFor="cl-cout" requis erreur={v.erreur(coutErr) || (coutReel.trim() ? coutErr : null)}>
+          <input className="input tnum" id="cl-cout" inputMode="decimal" value={coutReel} onChange={e => setCoutReel(e.target.value)} style={{ maxWidth: 200 }} />
+          <span className="text-muted sub">{plan.equipe} · prévu {fmtEur(plan.cout)} : indiquez le montant facturé, il compte dans le réalisé de l’enveloppe.</span>
+        </Field>
+      )}
       <Field label="Commentaire (facultatif)" htmlFor="cl-comm">
         <textarea className="input short" id="cl-comm" rows={2} maxLength={1000} placeholder="Retours des participants, qualité de l’animation, organisation…"
           value={commentaire} onChange={e => setCommentaire(e.target.value)} />

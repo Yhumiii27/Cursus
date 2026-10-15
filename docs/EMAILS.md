@@ -24,6 +24,7 @@ part, chaque e-mail est tracé dans le journal et visible dans Paramètres → E
 | Feuille de temps à valider | Valideur | Soumission |
 | Feuille de temps à corriger | Salarié | Renvoi par le valideur, ou absence annulée qui couvrait la semaine |
 | Compte rendu d'entretien à signer | Salarié | Clôture par l'évaluateur |
+| Compte rendu d'entretien mis à disposition (lien vers Cursus seulement, jamais le texte du compte rendu) | Salarié | Remise « mis à disposition dans le portail » par l'évaluateur ou le service RH ; toujours aussitôt |
 | Réponse à une demande au service RH | Salarié, et le manager qui l'a faite pour lui | Acceptation ou refus |
 | Convocation à une formation, à un entretien (fichier `.ics` joint) | Salarié | Inscription avec « Envoyer maintenant », « Envoyer la convocation », planification d'un entretien |
 | Annulation d'une convocation (`.ics` d'annulation) | Salarié qui a reçu la convocation, même remise « à renvoyer » par un changement de date ou de lieu | Désinscription, changement de session, recyclage enregistré avant la session, session annulée |
@@ -34,7 +35,7 @@ part, chaque e-mail est tracé dans le journal et visible dans Paramètres → E
 
 Les notifications d'étapes partent aussitôt, ou sont regroupées dans un récapitulatif quotidien : chacun le
 règle dans son espace (Accueil → « Mes notifications par e-mail ») ; le service RH règle celui de sa boîte
-(Paramètres → Messagerie). Les convocations partent toujours aussitôt. Rien n'est envoyé à la personne qui
+(Paramètres → Messagerie). Les convocations et les mises à disposition d'un compte rendu partent toujours aussitôt. Rien n'est envoyé à la personne qui
 fait l'action, ni à un salarié sans adresse ou dont la date de sortie est passée. Le récapitulatif part à
 l'adresse en vigueur le jour de son envoi (fiche, ou boîte du service RH) ; les notifications d'une personne
 sortie ou sans adresse entre-temps sont closes sans envoi.

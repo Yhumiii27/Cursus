@@ -11,7 +11,7 @@ import { reglagesParDefaut } from '../../shared/reglages.ts';
 import type { DemandeVisite } from '../../shared/types.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Chantier, ClotureConges, CurrentUser, Dataset, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
-  Envoi, Equipe, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mission, Participation, PlanAction, Projet, ReleveInterim, ReportCp, RubriquePaie, SagePush, Session,
+  Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mission, Participation, PlanAction, Projet, ReleveInterim, ReportCp, RubriquePaie, SagePush, Session,
   Settings, SoldeReprise, TacheKeystone, Vaccination, Visa, Voyage,
 } from '../../shared/types.ts';
 import { type DroitRh, droitsRh, PROFILS_RH } from '../../shared/constants.ts';
@@ -84,6 +84,7 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     participations,
     plan: db.all<PlanAction>('planActions'),
     budgets,
+    exercicesClos: db.all<ExerciceClos>('exercicesClos'),
     voyages: db.all<Voyage>('voyages'),
     demandesKeystone: db.all<DemandeKeystone>('demandesKeystone'),
     missions: db.all<Mission>('missions'),
@@ -195,6 +196,7 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     sessions: full.sessions.map(s => s.bilan ? { ...s, bilan: null } : s),
     plan: [],
     budgets: {},
+    exercicesClos: [],
     voyages,
     demandesKeystone: [],
     missions: mine(full.missions),
@@ -275,6 +277,7 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     participations: formations ? full.participations : [],
     plan: lecture ? full.plan : [],
     budgets: lecture ? full.budgets : {},
+    exercicesClos: lecture ? full.exercicesClos : [],
     voyages,
     demandesKeystone: formations ? full.demandesKeystone : [],
     missions: lecture ? full.missions : [],

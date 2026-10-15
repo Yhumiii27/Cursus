@@ -57,7 +57,8 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
   absences posées et validées, absences imprévues signalées (le service RH en précise la nature, jamais
   communiquée au manager pour un arrêt de travail ou la santé d'un enfant), saisie et correction des feuilles de temps, poste et jours non
   travaillés des fiches, ajout de salariés « à affecter » (libérés par leur manager d'origine ; une mutation
-  directe passe par le service RH) et retrait de membres, entretiens, missions.
+  directe passe par le service RH) et retrait de membres, entretiens (ses propres entretiens, que mène son responsable,
+  se préparent et se signent dans son espace collaborateur), missions.
   Pas d'accès aux données de santé : seuls le verdict d'aptitude et les restrictions de poste en vigueur sont transmis,
   sans date de visite ; du passeport de ses membres, la seule date d'expiration.
 - **Utilisateur** (collaborateur) : ses formations, habilitations, voyages, heures,
@@ -216,7 +217,7 @@ relèvent au fil des tests ajoutés.
   Chaque salarié y est désigné par son matricule de paie, saisi sur sa fiche (Paramètres → Matricules de paie liste
   ceux qui manquent) : sans lui, il part sous son matricule Cursus en simulation, et une transmission réelle est refusée.
 - **E-mails** (`docs/EMAILS.md`) : notifications des étapes de validation (demande de congés et décision,
-  feuille soumise ou renvoyée, compte rendu d'entretien à signer, réponse à une demande au service RH),
+  feuille soumise ou renvoyée, compte rendu d'entretien à signer ou mis à disposition, réponse à une demande au service RH),
   aussitôt ou en récapitulatif quotidien selon le réglage de chacun ; convocations aux formations (envoi
   unitaire ou groupé, daté, désinscription) et aux entretiens, avec fichier `.ics` ; relevé hebdomadaire des
   heures des intérimaires envoyé à leur agence (CSV). Envoyés par Microsoft Graph depuis la boîte
@@ -267,8 +268,10 @@ qualifiées par le service RH, prolongation, reprise inscrite automatiquement, n
 et à l'intéressé · annulation des absences selon le rôle, solde recrédité · absences et feuilles de temps
 bornées par le contrat · entretiens de
 parcours (L6315-1 : 1re année puis tous les 4 ans, reprise, état des lieux 8 ans avec
-risque d'abondement CPF), entretien annuel forfait jours (L3121-64) · plan de formation,
-enveloppes par équipe, import CSV · sessions de formation : confirmation, modification, annulation,
+risque d'abondement CPF), entretien annuel forfait jours (L3121-64), campagne d'entretiens annuels réglable (dates,
+ancienneté, contrats exclus), compte rendu imprimable dès la clôture et remise de la copie tracée (main propre, refus de
+signer, mise à disposition dans le portail) · plan de formation, enveloppes par équipe, import CSV, coût réel saisi à la
+clôture d'une action, exercices passés consultables, clôture d'exercice avec report des actions engagées · sessions de formation : confirmation, modification, annulation,
 clôture (présence, évaluation selon la formation, certification datée du jour de la session, absents et
 échecs à replanifier, évaluation à chaud), nombre d'inscrits calculé · référentiels administrés (formations,
 habilitations, destinations), archivés plutôt que supprimés, validité modifiée appliquée aux titres détenus ·

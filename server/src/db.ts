@@ -30,6 +30,8 @@ export const TABLES = {
       avis: 'text', restrictions: 'json',
       // Matricule du dossier de paie (Sage) : unique, contrôlé par le serveur (une réembauche confirmée le réutilise).
       matriculePaie: 'text',
+      // Sortie enregistrée par le service RH (`employe.sortie`) : motif, et fin prévue au contrat rétablie si elle est annulée.
+      motifSortie: 'text', finPrevue: 'text',
     },
   },
   // Demandes de visite médicale du service RH, closes par la saisie de la visite (server/src/actions/sante.ts).

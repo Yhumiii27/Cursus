@@ -92,7 +92,7 @@ test('t021 fiche : saisie, unicité côté serveur, réembauche confirmée par l
   refused(ADMIN, 'employe.creer', nouveau('004102'), /déjà attribué à Mehdi Benali/);
   refused(ADMIN, 'employe.creer', nouveau('AB-1'), /Matricule de paie invalide/);
   // Thomas Garnier (6) sorti : son matricule 004106 ne se reprend qu'avec la confirmation de l'administrateur RH.
-  db.update('employes', 6, { fin: '2026-09-30' });
+  db.update('employes', 6, { fin: '2026-09-30', motifSortie: 'demission' }); // sortie enregistrée (un CDI ne finit que par elle)
   refused(ADMIN, 'employe.creer', nouveau('004106'), /à confirmer par l’administrateur RH/);
   refused(GEST, 'employe.creer', nouveau('004106', { reutiliserMatricule: true }), /administrateur RH/, 403);
   const id = (run(ADMIN, 'employe.creer', nouveau('004106', { reutiliserMatricule: true })) as { result: { id: number } }).result.id;
@@ -113,7 +113,7 @@ test('t021 fiche : saisie, unicité côté serveur, réembauche confirmée par l
 test('t021 réembauche : le gestionnaire RH ne vide ni ne change un matricule enregistré (confirmation non contournable)', () => {
   const { db, run, refused, domain } = fresh();
   // Mehdi (2, 004102) sorti : le gestionnaire RH ne reprend pas son matricule sans l'administrateur RH…
-  db.update('employes', 2, { fin: '2026-06-30' });
+  db.update('employes', 2, { fin: '2026-06-30', motifSortie: 'demission' }); // sortie enregistrée (un CDI ne finit que par elle)
   const paul = { ...PROFIL_VIDE('Maintenance', '2026-10-10'), nom: 'Paul Neuf', poste: 'Technicien', naissance: 1990, matriculePaie: '004102' };
   refused(GEST, 'employe.creer', paul, /à confirmer par l’administrateur RH/);
   // … ni en vidant d'abord la fiche du salarié sorti, ni en la changeant.
@@ -137,7 +137,7 @@ test('t021 export des données après une réembauche : messages Keystone de la 
     db.sql.prepare('UPDATE envois SET creation = ? WHERE id = ?').run(creation, e.id);
   };
   envoi({ type: 'absence.validee', absence: 999, matricule: '004102', du: '2026-03-02', au: '2026-03-06' }, '2026-03-01T09:00:00.000Z');
-  db.update('employes', 2, { fin: '2026-06-30' });
+  db.update('employes', 2, { fin: '2026-06-30', motifSortie: 'demission' }); // sortie enregistrée (un CDI ne finit que par elle)
   const id = (run(ADMIN, 'employe.creer', {
     ...PROFIL_VIDE('Maintenance', '2026-10-10'), nom: 'Paul Neuf', poste: 'Technicien', naissance: 1990, matriculePaie: '004102', reutiliserMatricule: true,
   }) as { result: { id: number } }).result.id;
@@ -213,7 +213,7 @@ test('t021 Keystone : matricule Cursus par défaut ; réglage « matricule de pa
 test('t021 réembauche : deux fiches au même matricule de paie, Keystone désigne la fiche présente', () => {
   const { db, run } = fresh();
   run(ADMIN, 'parametres.maj', { identifiantKeystone: 'paie' });
-  db.update('employes', 6, { fin: '2026-09-30' });
+  db.update('employes', 6, { fin: '2026-09-30', motifSortie: 'demission' }); // sortie enregistrée (un CDI ne finit que par elle)
   const id = (run(ADMIN, 'employe.creer', {
     ...PROFIL_VIDE('Maintenance', '2026-10-10'), nom: 'Thomas Garnier', poste: 'Électromécanicien', naissance: 1976, matriculePaie: '004106', reutiliserMatricule: true,
   }) as { result: { id: number } }).result.id;

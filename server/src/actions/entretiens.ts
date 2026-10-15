@@ -4,6 +4,7 @@ import { ENT_TYPES } from '../../../shared/constants.ts';
 import { isValidDate, parse } from '../../../shared/dates.ts';
 import { fmt } from '../../../shared/format.ts';
 import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
+import { horsContratLe } from '../../../shared/rules/contrats.ts';
 import { debutCloture, needsFinCarriere, reprogrammation } from '../../../shared/rules/entretiens.ts';
 import type { Entretien, EntretienType } from '../../../shared/types.ts';
 import { convoquerEntretien, notifierEntretienClos } from '../notifications.ts';
@@ -22,6 +23,8 @@ const planifier: ActionHandler = (ctx, p) => {
   const kind = str(p.kind) as EntretienType;
   if (!ENT_TYPES[kind]) throw new ActionError('Type d’entretien inconnu');
   if (!isValidDate(p.date) || p.date < ctx.d.ti) throw new ActionError('Date à venir requise');
+  const hors = horsContratLe(emp, p.date);
+  if (hors) throw new ActionError(hors);
   // Un seul entretien planifié par type : déjà prévu (à venir, ou passé sans avoir été clos), il est reprogrammé. Passé avec un
   // compte rendu commencé, il a pu avoir lieu : reprogrammé seulement sur confirmation qu'il n'a pas été tenu (`nonTenu`).
   const { prevu, msg } = reprogrammation(ctx.d, emp.id, kind, p.date, p.nonTenu === true);

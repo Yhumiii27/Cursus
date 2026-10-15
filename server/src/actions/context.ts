@@ -103,9 +103,9 @@ export function isSelf(ctx: Ctx, empId: number) {
   return ctx.user.role !== 'rh' && ctx.user.empId === empId;
 }
 
-/** Collaborateurs enrichis selon les paramètres de suivi en vigueur. */
+/** Collaborateurs enrichis selon les paramètres de suivi en vigueur, salariés sortis compris (recherche par identifiant). */
 export function enriched(ctx: Ctx): EmpX[] {
-  return ctx.d.enrich(ctx.ds.settings.horizonAlerte, ctx.ds.settings.uniquementReglementaire);
+  return ctx.d.enrich(ctx.ds.settings.horizonAlerte, ctx.ds.settings.uniquementReglementaire, { sortis: true });
 }
 
 export function str(v: unknown): string { return typeof v === 'string' ? v.trim() : ''; }

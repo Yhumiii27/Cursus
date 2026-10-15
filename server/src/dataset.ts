@@ -170,11 +170,12 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
   // jamais les données de santé (date de visite, avis daté, demande de visite, vaccinations). Une reprise ouverte par
   // un arrêt longue maladie leur est masquée : elle trahirait la nature de l'arrêt (l'entretien de reprise est suivi par le RH).
   // Du passeport d'un membre, seule la date d'expiration est transmise (l'écran n'affiche qu'elle) ; les visas restent montrés.
-  // Le matricule de paie d'un membre ne lui sert à rien : il n'est pas transmis.
+  // Le matricule de paie d'un membre ne lui sert à rien : il n'est pas transmis. De la sortie d'un membre, seule la date
+  // (fin du contrat) : ni le motif (démission, licenciement…), ni la fin prévue.
   const employes = full.employes.filter(e => ids.has(e.id)).map(e => isMgr && e.id !== user.empId
     ? {
       ...e, visite: null, avis: null, restrictions: [], aptitude: aptitudeVueManager(e, d.medInfo(e).ok, full.today), vaccins: [], matriculePaie: null,
-      passeport: e.passeport && { expire: e.passeport.expire },
+      passeport: e.passeport && { expire: e.passeport.expire }, motifSortie: null, finPrevue: null,
       ...(repriseMedicale(e, full.absences) ? { repriseMotif: null, repriseDate: null } : { repriseMotif: e.repriseDate ? 'absence longue' : null }),
     }
     : e);
@@ -233,8 +234,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
  * - `formations` (référent HSE) : sessions et résultats, certifications et habilitations, demandes de formation et
  *   d'habilitation, chantiers avec l'état précalculé des déplacements et les absences de leurs ressources (sans nature)
  *   pour les verdicts Go / No Go ; ni passeport, ni visas (dossiers de voyage réservés au service RH) ;
- * - `paie` : feuilles de temps, absences, soldes, CET, reports, clôtures des congés, dernière transmission à Sage — aucune
- *   formation ;
+ * - `paie` : feuilles de temps, absences, soldes, CET, reports, clôtures des congés, dernière transmission à Sage, motif des
+ *   sorties — aucune formation ;
  * - `consultation` (lecture seule) : tout ce qui précède, plus plan et budget, missions, entretiens sans le contenu
  *   des comptes rendus ; échéances des passeports (date d'expiration seule) et des visas, comme pour le manager, pour
  *   que les alertes et les échéances soient celles du service RH.
@@ -249,6 +250,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     visite: null, avis: null, restrictions: [], aptitude: formations ? aptitudeVueManager(e, d.medInfo(e).ok, full.today) : undefined, vaccins: [],
     passeport: lecture ? e.passeport && { expire: e.passeport.expire } : null, visas: lecture ? e.visas : [],
     certs: formations ? e.certs : [], habs: formations ? e.habs : [],
+    // Motif de sortie : paie (solde de tout compte) et lecture seule ; le référent HSE ne voit que la date.
+    motifSortie: paie ? e.motifSortie : null, finPrevue: paie ? e.finPrevue : null,
     ...(lecture && !repriseMedicale(e, full.absences) ? { repriseMotif: e.repriseDate ? 'absence longue' : null } : { repriseMotif: null, repriseDate: null }),
   }));
   const ressources = new Set(full.referentiels.chantiers.filter(c => c.statut !== 'archive').flatMap(c => c.ressources));

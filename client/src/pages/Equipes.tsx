@@ -4,6 +4,7 @@ import { PlusIcon, UserPlusIcon } from '@phosphor-icons/react';
 import { CLS, EMP_LABEL, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../../../shared/constants.ts';
 import type { Domain, EmpX } from '../../../shared/domain.ts';
 import { equipeLabel, fH, fJ, plural } from '../../../shared/format.ts';
+import { present } from '../../../shared/rules/contrats.ts';
 import type { Employe, Equipe } from '../../../shared/types.ts';
 import { usePanneauVisible } from '../components/panneau.ts';
 import { Avatar, Btn, Empty, Fine, Page, Panel, Tag, Two } from '../components/ui.tsx';
@@ -19,9 +20,9 @@ export function contratResume(d: Domain, e: Employe) {
   return { main: `${TYPES_CONTRAT[c.typeContrat].label} · ${STATUTS[c.statut].court}`, sub: duree ? `${temps} · ${duree}` : temps };
 }
 
-/** Collaborateurs pouvant être désignés manager (les intérimaires sont exclus). */
+/** Collaborateurs pouvant être désignés manager (les intérimaires et les salariés sortis sont exclus). */
 export function managerCandidates(d: Domain): Employe[] {
-  return d.ds.employes.filter(e => !d.contratOf(e).interim).sort((a, b) => a.nom.localeCompare(b.nom));
+  return d.ds.employes.filter(e => !d.contratOf(e).interim && present(e, d.ti)).sort((a, b) => a.nom.localeCompare(b.nom));
 }
 
 interface TeamView {

@@ -33,7 +33,9 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
 
 - **RH** : tout l'outil, dont la création et la modification des fiches
   (statut, contrat, organisation du temps), l'écran « Équipes & managers » (créer, renommer,
-  supprimer une équipe, désigner son manager, affecter les collaborateurs) et l'écran « Référentiels »
+  supprimer une équipe, désigner son manager, affecter les collaborateurs), la **sortie** d'un salarié, CDI compris
+  (dernier jour et motif en liste fermée : ce qui était prévu après son départ est annulé, il quitte la conformité et les
+  échéances et reste consultable avec le filtre « Sortis » de Collaborateurs) et l'écran « Référentiels »
   (catalogue des formations, habilitations et destinations : création, modification, archivage, référentiel
   type à charger dans une base vide ; formations et habilitations aussi pour le référent HSE). Deux profils : les
   **gestionnaires RH** (fiches, formations, absences…) et l'**administrateur RH**, seul à régler les

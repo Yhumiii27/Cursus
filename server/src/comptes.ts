@@ -101,6 +101,20 @@ export function adminsActifs(db: Db, sauf?: number): number {
   return db.where<Compte>('comptes', 'profilRh', 'rh_admin').filter(c => c.id !== sauf && !refusDuCompte(db, c)).length;
 }
 
+/**
+ * Administrateurs RH en mesure de se connecter, hors le compte `sauf`, qui le resteront après le `apres` : compte externe,
+ * ou salarié dont le contrat (sortie enregistrée, fin de CDD…) court au-delà de cette date ; sans date, salarié sans
+ * aucune date de fin. Garde-fou du dernier administrateur (désactivation, changement de profil, sortie) : une sortie à
+ * venir ne compte pas pour un administrateur durable, sans quoi deux sorties successives fermeraient tous les comptes.
+ */
+export function adminsDurables(db: Db, sauf: number | undefined, apres: string | null): number {
+  return db.where<Compte>('comptes', 'profilRh', 'rh_admin').filter(c => {
+    if (c.id === sauf || refusDuCompte(db, c)) return false;
+    const fin = salarie(db, c)?.fin;
+    return !fin || (apres != null && fin > apres);
+  }).length;
+}
+
 // — Mots de passe —
 // Empreinte « scrypt$<log2 N>$<r>$<p>$<sel>$<empreinte> » : les paramètres voyagent avec l'empreinte
 // et peuvent être relevés plus tard sans invalider les mots de passe existants.

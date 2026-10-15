@@ -8,8 +8,10 @@ import { AVIS_MEDICAL, MODE_NOTIFICATION_LABEL, MOTIFS_REPRISE, STATUTS, TEMPS_T
 import { cap, equipeLabel, fmtIso, plural } from '../../../shared/format.ts';
 import { reposForfait } from '../../../shared/rules/conges.ts';
 import { matriculesPris, normaliserMatricule } from '../../../shared/rules/matricules.ts';
+import { rttPerdus, SEMAINES_FIGEES, soldeRttTexte, sortieTexte } from '../../../shared/rules/contrats.ts';
 import { adressesPrises } from '../../../shared/rules/messagerie.ts';
 import { JOURS_SEMAINE, PROFIL_FIELDS, PROFIL_VIDE, normaliserProfil, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
+import { contratFige } from '../../../shared/rules/temps.ts';
 import type { Statut, TempsTravail, TypeContrat } from '../../../shared/types.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine, NoteAccent, SectionLabel, Seg } from '../components/ui.tsx';
@@ -118,6 +120,8 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   // Réembauche : réutilisation du matricule de paie d'un salarié sorti, confirmée par l'administrateur RH (matricule confirmé).
   const [reutiliser, setReutiliser] = useState<string | null>(null);
   const [confirmer, setConfirmer] = useState(false);
+  /** Confirmation demandée : le nouveau régime ferme le compteur de RTT de l'année (garde-fou du changement de régime). */
+  const [confRtt, setConfRtt] = useState(false);
   const verif = useVerification();
 
   if ((creation && !rh) || (!creation && (!emp || !(rh || limited)))) return null;
@@ -136,8 +140,13 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
     setTouched(true);
   };
 
+  // Sortie enregistrée : sa date et son motif ne changent que par le dialogue de sortie. Sans elle, un CDI n'a pas de date
+  // de fin (passage d'un CDD en CDI : la fin du CDD est effacée).
+  const sortieEnregistree = !creation && !!initial.motifSortie;
+  const tcSaisi = TYPES_CONTRAT[f.typeContrat];
+  const finSaisie = sortieEnregistree || !!(tcSaisi?.fin || tcSaisi?.finFacultative || tcSaisi?.interim);
   // Changement d'organisation du temps d'une fiche existante : date d'effet saisie ; sinon la date en vigueur est conservée.
-  const saisie = toInput(f, initial.tempsDepuis);
+  const saisie = { ...toInput(f, initial.tempsDepuis), motifSortie: initial.motifSortie ?? null, ...(finSaisie ? {} : { fin: null }) };
   const ref0 = normaliserProfil(initial), nv = normaliserProfil(saisie);
   const nouveauRegime = !creation && !limited && REGIME_TEMPS.some(k => nv[k] !== ref0[k]);
   const confirme = !!reutiliser && reutiliser === normaliserMatricule(f.matriculePaie);
@@ -162,6 +171,10 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
     ? `Matricule de paie déjà enregistré (${initial.matriculePaie}) : seul l’administrateur RH le change ou le retire.` : null;
   const errors = [...v.errors.filter(m => !(aConfirmer && admin && /^Matricule de paie de /.test(m))), ...(errEffet ? [errEffet] : []), ...(errMatricule ? [errMatricule] : [])];
   const ok = errors.length === 0;
+  // Garde-fou (en attendant l'historique des contrats) : RTT ou jours de repos de l'année pris ou posés que le nouveau régime
+  // n'ouvre plus. Le serveur exige la confirmation ; le solde affiché est gardé au journal pour la paie.
+  const changeRegime = !creation && !limited && !!emp && JSON.stringify(contratFige(emp)) !== JSON.stringify(contratFige({ ...emp, ...v.profil }));
+  const perte = changeRegime && ok ? rttPerdus(d, emp!, { ...emp!, ...v.profil, tempsDepuis: nouveauRegime ? f.effet : emp!.tempsDepuis }) : null;
   const dirty = creation || !same(v.profil, ref0);
   // Erreurs affichées en direct en modification, dès la première saisie en création, et après un envoi bloqué.
   const showErrors = !creation || touched || verif.tente;
@@ -169,15 +182,17 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   const err = (k: keyof Form) => showErrors ? errChamp[k] ?? null : null;
   const partielEmp = !!emp && d.contratOf(emp).partiel;
 
-  const save = async () => {
+  const save = async (confirmeRtt = false) => {
     if (busy || !verif.verifier(!ok)) return;
     // Rien de changé : rien à envoyer, le dialogue se ferme.
     if (!dirty) { closeDialog(); notify('Aucune modification à enregistrer'); return; }
     // Matricule de paie d'un salarié sorti : l'administrateur RH confirme la réembauche avant l'envoi.
     if (aConfirmer) { setConfirmer(true); return; }
-    await envoyer(confirme);
+    await envoyer(confirme, confirmeRtt);
   };
-  const envoyer = async (reutiliserMatricule: boolean) => {
+  const envoyer = async (reutiliserMatricule: boolean, confirmeRtt: boolean) => {
+    // Changement de régime qui ferme le compteur de RTT de l'année : confirmation d'abord.
+    if (perte && !confirmeRtt) { setConfirmer(false); setConfRtt(true); return; }
     setBusy(true);
     let payload: Record<string, unknown>;
     if (limited) payload = { id: emp!.id, poste: v.profil.poste, ...(partielEmp ? { jourOff: v.profil.jourOff } : {}) };
@@ -187,10 +202,12 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
       // La date d'effet ne concerne qu'un changement d'organisation du temps : sinon le serveur garde la date en vigueur.
       if (!creation && !nouveauRegime) delete payload.tempsDepuis;
       if (reutiliserMatricule) payload.reutiliserMatricule = true;
+      if (perte) payload.confirmerRtt = true;
     }
     const r = await run(creation ? 'employe.creer' : 'employe.modifier', payload);
     setBusy(false);
     setConfirmer(false);
+    setConfRtt(false);
     if (!r.ok) return;
     closeDialog();
     const id = (r.result as { id?: number } | undefined)?.id;
@@ -250,10 +267,14 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   const regimeActuel = emp ? d.contratOf(emp).label : '';
 
   return (
-    <Dialog title={creation ? 'Nouveau collaborateur' : `Modifier la fiche — ${emp!.nom}`} width={640} tall onSubmit={save} actions={actions} confirmation={confirmer && aConfirmer ? {
-      texte: `Réembauche : reprendre le matricule de paie ${v.profil.matriculePaie} de ${aConfirmer.nom}, sorti le ${fmtIso(aConfirmer.sortiLe!)} ? Les deux fiches porteront ce matricule ; Sage et Keystone ne reçoivent que la fiche présente.`,
-      bouton: 'Réutiliser le matricule', occupe: busy, confirmer: () => { setReutiliser(v.profil.matriculePaie); void envoyer(true); }, annuler: () => setConfirmer(false),
-    } : null}>
+    <Dialog title={creation ? 'Nouveau collaborateur' : `Modifier la fiche — ${emp!.nom}`} width={640} tall onSubmit={() => save()} actions={actions}
+      confirmation={confirmer && aConfirmer ? {
+        texte: `Réembauche : reprendre le matricule de paie ${v.profil.matriculePaie} de ${aConfirmer.nom}, sorti le ${fmtIso(aConfirmer.sortiLe!)} ? Les deux fiches porteront ce matricule ; Sage et Keystone ne reçoivent que la fiche présente.`,
+        bouton: 'Réutiliser le matricule', occupe: busy, confirmer: () => { setReutiliser(v.profil.matriculePaie); void envoyer(true, false); }, annuler: () => setConfirmer(false),
+      } : confRtt && perte ? {
+        texte: `Le nouveau régime n’ouvre ni RTT ni jours de repos : le compteur de ${emp!.nom} (${soldeRttTexte(perte)}) ne sera plus suivi dans Cursus. Ce solde est gardé au journal pour la paie.`,
+        bouton: 'Confirmer le changement', occupe: busy, confirmer: () => save(true), annuler: () => setConfRtt(false),
+      } : null}>
       <SectionLabel>Identité</SectionLabel>
       <div className="grid-2">
         <Field label="Nom" htmlFor="emp-nom" requis erreur={err('nom')}>
@@ -299,7 +320,11 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
         <Field label="Date d’entrée" htmlFor="emp-entree" requis erreur={err('entree')}>
           <input className="input" id="emp-entree" type="date" value={f.entree} onChange={ev => set('entree', ev.target.value)} />
         </Field>
-        {(tc.fin || tc.interim || tc.finFacultative) && (
+        {sortieEnregistree ? (
+          <Field label="Sortie">
+            <Static pad>{sortieTexte(emp!)}<div className="text-muted sub">Se modifie ou s’annule depuis la fiche (section Contrat)</div></Static>
+          </Field>
+        ) : (tc.fin || tc.interim || tc.finFacultative) && (
           <Field label={tc.interim ? 'Fin de mission prévue (facultatif)' : tc.finFacultative ? 'Date de fin (facultatif)' : 'Date de fin'} htmlFor="emp-fin" requis={!!tc.fin} erreur={err('fin')}>
             <input className="input" id="emp-fin" type="date" min={f.entree || undefined} value={f.fin} onChange={ev => set('fin', ev.target.value)} />
           </Field>
@@ -348,8 +373,9 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
       </div>
       {nouveauRegime && (
         <Fine>
-          Les semaines antérieures {isValidDate(f.effet) ? `au ${fmtIso(f.effet)}` : 'à la date d’effet'} restent calculées avec l’ancien régime ({regimeActuel}) ;
-          les RTT et jours de repos sont proratisés à partir de cette date.
+          Les semaines antérieures {isValidDate(f.effet) ? `au ${fmtIso(f.effet)}` : 'à la date d’effet'} restent calculées avec l’ancien régime ({regimeActuel}) :
+          celles des {SEMAINES_FIGEES} dernières qui n’ont pas encore de feuille de temps en reçoivent une, vide, figée sur ce régime.
+          Les RTT et jours de repos sont proratisés à partir de cette date.
         </Fine>
       )}
       {f.temps === 'partiel' && (

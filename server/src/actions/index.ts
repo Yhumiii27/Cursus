@@ -14,6 +14,7 @@ import { parametresActions } from './parametres.ts';
 import { referentielsActions } from './referentiels.ts';
 import { santeActions } from './sante.ts';
 import { sessionsActions } from './sessions.ts';
+import { sortiesActions } from './sorties.ts';
 import { tempsActions } from './temps.ts';
 import { voyagesActions } from './voyages.ts';
 
@@ -34,6 +35,7 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...santeActions,
   ...referentielsActions,
   ...cloturesActions,
+  ...sortiesActions,
 };
 
 /**

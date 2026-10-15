@@ -88,7 +88,7 @@ export function protectionCsrf() {
 }
 
 /** En-têtes posés par un reverse proxy (Caddy, nginx…) : leur présence trahit une requête relayée. */
-const EN_TETES_PROXY = ['forwarded', 'x-forwarded-for', 'x-forwarded-proto', 'x-forwarded-host', 'x-real-ip'];
+export const EN_TETES_PROXY = ['forwarded', 'x-forwarded-for', 'x-forwarded-proto', 'x-forwarded-host', 'x-real-ip'];
 
 /** Nom d'hôte de l'en-tête Host, sans le port (« [::1]:3217 » → « ::1 »). */
 function nomHote(host: string | undefined): string {

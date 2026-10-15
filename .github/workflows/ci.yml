@@ -1,0 +1,55 @@
+# Vérification automatique de chaque modification : typage, tests avec seuil de couverture, compilation de l'interface.
+# Toute la logique est dans `npm run check` (package.json) : une autre forge (GitLab, Azure DevOps) l'appelle en une ligne
+# après `npm ci`. Version de Node : .nvmrc (22), celle qui fait foi ; Node 24 est essayé en plus, sans bloquer.
+name: Vérification
+
+on:
+  push:
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: verification-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  check:
+    name: npm run check (Node ${{ matrix.nom }})
+    runs-on: ubuntu-24.04
+    # Les tests lancent de vrais serveurs (une dizaine de fichiers) : quelques minutes suffisent d'ordinaire.
+    timeout-minutes: 20
+    # Node 24 : essai pour anticiper la prochaine version, sans bloquer une modification.
+    continue-on-error: ${{ !matrix.reference }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - nom: 22 (.nvmrc)
+            fichier: .nvmrc
+            reference: true
+          - nom: '24'
+            version: '24'
+    env:
+      # Fuseau du serveur de production (docs/DEPLOIEMENT.md).
+      TZ: Europe/Paris
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version-file: ${{ matrix.fichier }}
+          node-version: ${{ matrix.version }}
+          cache: npm
+      - run: node --version
+      - run: npm ci
+      - run: npm run check
+      # Interface compilée par la version de référence : téléchargeable pour l'instance de recette du groupe pilote.
+      - name: Publier dist/
+        if: matrix.reference
+        uses: actions/upload-artifact@v4
+        with:
+          name: cursus-dist-${{ github.sha }}
+          path: dist/
+          retention-days: 30

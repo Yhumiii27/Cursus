@@ -1,0 +1,13 @@
+cursus.example.fr {
+	encode zstd gzip
+	request_body {
+		max_size 3MB
+	}
+	# API Keystone : réservée à l'adresse de Keystone (403 ailleurs).
+	@keystone_ailleurs {
+		path /api/integrations/keystone/*
+		not remote_ip 203.0.113.10
+	}
+	respond @keystone_ailleurs 403
+	reverse_proxy 127.0.0.1:3210
+}

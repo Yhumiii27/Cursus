@@ -33,6 +33,10 @@ server/src/
   microsoft.ts     Connexion Microsoft 365 (OpenID Connect, PKCE) : /api/auth/microsoft et /api/auth/microsoft/retour
   comptes-cli.ts   npm run comptes -- admin <identifiant> : premier administrateur RH (docs/DEPLOIEMENT.md)
   config.ts        Variables d'environnement, contrôlées au démarrage (refus en production si dangereuses)
+  chemins.ts       Racine du projet, interface (dist/) et base par défaut calculées depuis le code, version
+  service.ts       Écoute du port (refus clair si pris, code 1) et arrêt ordonné sur SIGTERM / SIGINT
+  protection.ts    Droits de la base sur le disque (600, dossier en 700, refus en production), clé de session retirée
+  supervision.ts   Point de santé GET /api/health (état public ; détail en local ou avec le jeton de supervision)
   securite.ts      En-têtes de sécurité HTTP (CSP, HSTS, anti-iframe…), protection CSRF des requêtes qui modifient
   debit.ts         Limitation du débit de l'API par adresse IP et par compte (429, Retry-After)
   actions/         Actions métier (POST /api/actions/:nom), contrôles d'accès et validations
@@ -45,7 +49,7 @@ server/src/
   integrations/    Adaptateurs Keystone, Sage Paie et e-mails (email.ts : Microsoft Graph, .ics ; simulation par défaut) ; API Keystone entrante :
                    keystone-entrant.ts (contrôles, écritures, instantané) et keystone-routes.ts (routes /v1) ;
                    keystone-verdicts.ts (verdicts Go / No Go transmis, changements signalés)
-  index.ts         Routes HTTP
+  index.ts         Démarrage (dans l'ordre : configuration, droits, verrou, migrations, tâches) et routes HTTP
 client/src/
   state/store.tsx  Session, données, navigation, filtres d'écran (ui), dialogue ouvert, notifications, reconnexion
   state/brouillon.ts Brouillon gardé dans l'onglet pendant une reconnexion Microsoft (page, filtres, dialogue, champs)
@@ -62,6 +66,10 @@ client/src/
   dialogs/         Un fichier par dialogue, rendus par DialogHost
   styles/          nocturne.css (design system, ne pas modifier) et app.css (mise en page)
 design/            Prototype Claude Design de référence et guide du design system Nocturne
+deploy/            Fichiers d'installation prêts à copier (unités systemd, Caddyfile, copie externe), identiques à la doc
+Dockerfile         Image facultative (hébergeur à conteneurs) ; .dockerignore
+scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Windows compris)
+.github/workflows/ ci.yml : npm ci puis npm run check, Node de .nvmrc
 ```
 
 ## Flux de données
@@ -160,7 +168,8 @@ design/            Prototype Claude Design de référence et guide du design sys
   connexion Microsoft 365 configurée en partie, locataire autre qu'un GUID, `CURSUS_PUBLIC_URL` hors
   https, `CURSUS_OIDC_AUTORITE` définie (réservée aux tests), envoi des e-mails mal configuré (`CURSUS_MAIL_FROM`
   qui n'est pas une adresse, application Entra incomplète ou locataire autre qu'un GUID, variables `CURSUS_MAIL_*`
-  sans `CURSUS_MAIL_FROM`).
+  sans `CURSUS_MAIL_FROM`), `CURSUS_SUPERVISION_TOKEN` de moins de 32 caractères ; puis, base accessible à d'autres
+  comptes (« Exploitation »).
   Le mode démonstration ne s'active qu'avec `CURSUS_DEMO=1` ; en production (application de bureau),
   `demoPosteLocal` (`server/src/securite.ts`) refuse en plus (403) toute requête relayée par un proxy
   ou adressée à un autre nom que la boucle locale.
@@ -268,6 +277,50 @@ design/            Prototype Claude Design de référence et guide du design sys
 - **Journal des actions** et **données personnelles** : voir la section « Journal des actions ».
 - Mise en production : `docs/DEPLOIEMENT.md`.
 
+## Exploitation : démarrage, arrêt, santé
+
+- **Chemins** (`server/src/chemins.ts`) : racine du projet tirée de `import.meta.dirname` ; interface `dist/` et base
+  `data/cursus.db` par défaut en dépendent, quel que soit le dossier de lancement (`CURSUS_DIST` remplace l'interface,
+  pour les tests ; un `CURSUS_DB` relatif reste compté depuis le dossier de lancement). `dbFile()` renvoie un chemin
+  absolu, affiché au démarrage avec le dossier des sauvegardes ; `dist/` absent : avertissement, API seule.
+- **Écoute** (`Arret.ecouter`, `server/src/service.ts`) : Express 5 passe l'erreur d'écoute au rappel de `listen` ; port
+  pris, réservé ou adresse inconnue : message en français (`messageEcoute`), base fermée, verrou retiré, code 1, et
+  aucune annonce « API sur ». Les tâches de fond qui envoient (file d'envoi, verdicts Go / No Go, e-mails planifiés)
+  ne démarrent qu'une fois le port obtenu.
+- **Arrêt** (`Arret`) : installé juste après le verrou, il remplace le retrait du verrou sur signal que faisait
+  `poserVerrou` (qui ne garde que celui de la sortie du processus). SIGTERM ou SIGINT : plus de nouvelle connexion,
+  requêtes en cours terminées (10 s au plus, puis connexions coupées ; un second signal les coupe aussitôt), minuteurs
+  arrêtés, envoi en cours attendu (`envoiEnCours` de `envois.ts`) dans le même délai, base fermée (journal WAL reporté),
+  verrou retiré, code 0. Une étape qui a besoin d'être arrêtée s'inscrit : `arret.tache(fonctionDArret)`,
+  `arret.attendre(() => enCours)`.
+- **Base occupée** : `PRAGMA busy_timeout = 5000` sur la connexion du serveur et des outils ; `db.tx` ouvre ses
+  transactions en `BEGIN IMMEDIATE` (verrou d'écriture pris d'emblée, en attendant au besoin), sans quoi une
+  transaction qui lit puis écrit échouerait aussitôt si `npm run comptes` a écrit entre-temps.
+- **Santé** (`server/src/supervision.ts`) : `GET /api/health`, monté avant le limiteur de débit et les autres routes
+  `/api`, sans connexion. `SELECT 1` et `PRAGMA user_version` ; 200 `{statut: 'ok', base: 'ok'}`, 503
+  `{statut: 'indisponible', base: 'erreur'}`. Appel local non relayé (boucle locale, aucun en-tête `X-Forwarded-*`) ou
+  `Authorization: Bearer` égal à `CURSUS_SUPERVISION_TOKEN` : en plus `version`, `mode` (`production`, `demo`,
+  `developpement`), `envoisEnEchec` (non classés, toutes cibles) et `depuis`. Jamais de donnée personnelle.
+- **Base sur le disque** (`server/src/protection.ts`) : `protegerBase` ramène la base et ses fichiers `-wal`, `-shm`
+  en `600` et son dossier en `700` (créé ainsi ; un dossier partagé — bit sticky, racine du projet, dossier de
+  lancement ou personnel, autre propriétaire — n'est jamais modifié, avertissement) ; en production, `ProtectionError`
+  (démarrage refusé, code 1) si un fichier reste accessible à d'autres comptes. Une base neuve est créée vide en `600`
+  par le constructeur `Db`, avant que SQLite ne l'ouvre. `retirerSecretStocke` supprime le réglage `secret` (clé de
+  session générée sans `CURSUS_SECRET`) dès que la variable est définie. Pas de chiffrement applicatif des colonnes :
+  disque chiffré chez l'hébergeur (prérequis de `docs/DEPLOIEMENT.md`), avis du DPO attendu.
+- **Installation** : `deploy/` reprend à l'identique les blocs de `docs/DEPLOIEMENT.md` et `docs/SAUVEGARDE.md`
+  (`tests/exploitation.test.ts` les compare : modifier les deux ensemble) ; `Dockerfile` facultatif.
+
+## Vérification du code
+
+`npm run check` = `typecheck`, `test:coverage`, `build` : ce que la CI exécute (`.github/workflows/ci.yml`, après
+`npm ci`, Node de `.nvmrc`, essai non bloquant sur Node 24, `dist/` publié en artefact). `test:coverage` mesure la
+couverture des lignes, branches et fonctions du serveur et de `shared/` (`client/`, `tests/` et `scripts/` exclus tant
+que le client n'a pas de tests de rendu) et échoue sous les seuils écrits dans le script (`--test-coverage-lines`…),
+fixés juste sous la mesure du jour : les relever quand des tests s'ajoutent, jamais les baisser pour faire passer un
+ajout non testé. Les serveurs lancés par les tests avec l'environnement du test sont mesurés aussi. Un contrôle de
+style (lint) s'ajoutera à `check` quand il existera. `@types/node` suit Node 22.
+
 ## Conventions d'écran
 
 - Reprendre fidèlement le prototype `design/prototype-suivi-formations.dc.html`
@@ -304,7 +357,8 @@ propres fichiers ; les fichiers communs ne reçoivent qu'une ligne par ajout (`l
 
 ### Démarrage de la base
 
-`server/src/index.ts`, dans l'ordre : verrou (`<base>.pid`) ; `controlerMigrations` : une base qui porte une migration
+`server/src/index.ts`, dans l'ordre : contrôle de la configuration ; droits du fichier (`protegerBase`, voir
+« Exploitation ») ; verrou (`<base>.pid`) ; `controlerMigrations` : une base qui porte une migration
 inconnue de ce code (mise à jour par une version plus récente) est refusée avant toute écriture, code 1, message
 « restaurer la copie avant-migration » ; ouverture (`openDb` : tables et colonnes de `TABLES` ajoutées) ; reprises
 historiques de `server/src/migrate.ts`, rejouées à chaque démarrage et laissées telles quelles ; migrations nommées

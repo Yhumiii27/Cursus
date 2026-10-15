@@ -1,8 +1,9 @@
 // Accès SQLite (module node:sqlite) : schéma déclaratif et requêtes génériques.
 // Les champs sont en camelCase côté code et en snake_case dans la base.
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { fichierBase } from './chemins.ts';
 import { sauvegarderAvantMigration } from './sauvegarde.ts';
 
 type ColType = 'text' | 'int' | 'real' | 'bool' | 'json';
@@ -173,9 +174,15 @@ export class Db {
   private depth = 0;
 
   constructor(file: string) {
-    if (file !== ':memory:') mkdirSync(dirname(resolve(file)), { recursive: true });
+    if (file !== ':memory:') {
+      mkdirSync(dirname(resolve(file)), { recursive: true, mode: 0o700 });
+      // Base neuve créée vide en 600 avant que SQLite ne l'ouvre (données de santé et de paie) : ses fichiers -wal et
+      // -shm prennent les mêmes droits. Base existante : droits contrôlés au démarrage (server/src/protection.ts).
+      try { writeFileSync(file, '', { flag: 'wx', mode: 0o600 }); } catch { /* déjà présente */ }
+    }
     this.sql = new DatabaseSync(file);
-    this.sql.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+    // Base occupée par une autre connexion (npm run comptes, sauvegarde) : attente jusqu'à 5 s plutôt qu'un échec immédiat.
+    this.sql.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
     const tables = this.tablesSql();
     this.neuve = !Object.keys(TABLES).some(n => tables.has(snake(n)));
     this.createSchema();
@@ -279,7 +286,9 @@ export class Db {
   /** Exécute `fn` dans une transaction (annulée en cas d'erreur). */
   tx<T>(fn: () => T): T {
     if (this.depth > 0) return fn(); // transaction englobante déjà ouverte
-    this.sql.exec('BEGIN');
+    // IMMEDIATE : verrou d'écriture pris d'emblée, en attendant au besoin (busy_timeout) qu'une autre connexion libère la
+    // base ; une transaction différée qui lit puis écrit échouerait sans attendre si une autre connexion a écrit entre-temps.
+    this.sql.exec('BEGIN IMMEDIATE');
     this.depth++;
     try {
       const r = fn();
@@ -304,8 +313,8 @@ export class Db {
   }
 }
 
-/** Fichier de la base : CURSUS_DB, sinon data/cursus.db. */
-export const dbFile = () => process.env.CURSUS_DB || 'data/cursus.db';
+/** Fichier de la base, en chemin absolu : CURSUS_DB, sinon data/cursus.db du projet (server/src/chemins.ts). */
+export const dbFile = () => fichierBase();
 
 export function openDb(file = dbFile()) {
   return new Db(file);

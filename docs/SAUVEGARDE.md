@@ -24,7 +24,7 @@ compte système `cursus`, service `cursus.service`, variables dans `/etc/cursus/
 | Élément | Emplacement | Sauvegarde |
 | --- | --- | --- |
 | Base Cursus : fiches, contrats, formations, habilitations, visites médicales, vaccinations, passeports et visas, feuilles de temps, absences, compteurs, entretiens, plan de formation, journal des actions, paramètres | `CURSUS_DB` (et ses fichiers `-wal` / `-shm`) | `npm run backup` |
-| Clé de signature des sessions | dans la base si `CURSUS_SECRET` n'est pas défini | avec la base |
+| Clé de signature des sessions | dans la base si `CURSUS_SECRET` n'est pas défini (retirée de la base au démarrage dès qu'elle l'est ; les copies antérieures la gardent) | avec la base |
 | Configuration : `CURSUS_SECRET`, `KEYSTONE_API_KEY`, adresses Keystone et Sage | fichier d'environnement du service | **non** : à conserver dans le coffre-fort de mots de passe du service informatique |
 | Code de l'application | dépôt Git, version déployée | **non** : redéployable ; noter la version (commit) en service |
 | Journaux du serveur | journald | **non** |
@@ -33,7 +33,9 @@ compte système `cursus`, service `cursus.service`, variables dans `/etc/cursus/
 (catégories particulières au sens de l'article 9 du RGPD). En conséquence :
 
 - le dossier des copies est créé en `700` et chaque copie en `600` dès sa création, pendant l'écriture
-  comprise (lecture par le seul compte `cursus`) ;
+  comprise (lecture par le seul compte `cursus`) ; la base elle-même est ramenée en `600`, dans un dossier en `700`, à
+  chaque démarrage du serveur (`docs/DEPLOIEMENT.md`, « Protection des données sur le disque ») ;
+- le disque qui porte la base et les copies locales est chiffré (même section) ;
 - toute copie qui quitte la machine est chiffrée **avant** l'envoi ;
 - l'accès aux copies et à la clé de chiffrement est limité aux administrateurs nommés ;
 - une donnée effacée dans Cursus subsiste dans les copies jusqu'à leur expiration : la durée de
@@ -81,7 +83,7 @@ des copies les confondent.
 
 | Variable | Effet | Défaut |
 | --- | --- | --- |
-| `CURSUS_DB` | Base à sauvegarder | `data/cursus.db` |
+| `CURSUS_DB` | Base à sauvegarder | `data/cursus.db` du dossier du code (un chemin relatif part du dossier de lancement) |
 | `CURSUS_BACKUP_DIR` | Dossier des copies | `backups/` à côté de la base (`data/backups`) ; à côté de sa cible si `CURSUS_DB` est un lien symbolique |
 | `CURSUS_BACKUP_KEEP` | Copies gardées **par type** (la rotation compte des copies, pas des jours) | `14` ; `0` = aucune suppression |
 
@@ -116,6 +118,14 @@ serveur. Il est indépendant du processus serveur (un serveur arrêté ou bloqu�
 sauvegarde), un échec est visible comme une unité en échec (`systemctl --failed`, alerte `OnFailure`),
 `Persistent=true` rattrape une sauvegarde manquée si la machine était éteinte, et la copie hors de la
 machine s'enchaîne dans la même unité. C'est l'outil que la supervision du service informatique sait déjà suivre.
+
+Les trois unités ci-dessous sont livrées, identiques, dans le dossier `deploy/` du code : `deploy/cursus-sauvegarde.service`,
+`deploy/cursus-sauvegarde.timer` et `deploy/cursus-alerte@.service` (adresse d'alerte à remplacer) :
+
+```bash
+sudo install -m 644 /opt/cursus/deploy/cursus-sauvegarde.service /opt/cursus/deploy/cursus-sauvegarde.timer \
+  /opt/cursus/deploy/cursus-alerte@.service /etc/systemd/system/
+```
 
 `/etc/systemd/system/cursus-sauvegarde.service` :
 
@@ -251,7 +261,8 @@ les lignes `AWS_…`.
 
 Reporter aussitôt le contenu de `/etc/cursus/restic.pass` dans le coffre-fort de mots de passe.
 
-`/usr/local/sbin/cursus-copie-externe` (`root:root`, `chmod 755`) :
+`/usr/local/sbin/cursus-copie-externe` (`root:root`, `chmod 755` ; livré dans `deploy/cursus-copie-externe` :
+`sudo install -o root -g root -m 755 /opt/cursus/deploy/cursus-copie-externe /usr/local/sbin/`) :
 
 ```sh
 #!/bin/sh

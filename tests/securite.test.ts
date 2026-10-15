@@ -1,7 +1,7 @@
 // Tests de sécurité : configuration de production, démonstration opt-in, clé Keystone,
 // sessions (déconnexion, expiration, falsification, départ du salarié) et en-têtes HTTP.
 // Les scénarios HTTP lancent de vrais serveurs (node server/src/index.ts) sur une base temporaire,
-// depuis un dossier temporaire muni d'une interface minimale (dist/index.html) : aucun build requis.
+// depuis un dossier temporaire muni d'une interface minimale (dist/index.html, CURSUS_DIST) : aucun build requis.
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -20,7 +20,7 @@ const { openSession, purgeSessions, readSession, revokeSessionsOf } = await impo
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const dir = mkdtempSync(join(tmpdir(), 'cursus-securite-'));
-// Le serveur sert resolve('dist') : interface factice dans son dossier de lancement.
+// Le serveur sert l'interface de CURSUS_DIST (dist/ du projet par défaut) : interface factice dans le dossier temporaire.
 mkdirSync(join(dir, 'dist'));
 writeFileSync(join(dir, 'dist', 'index.html'), '<!doctype html><html lang="fr"><title>Cursus</title><div id="root"></div></html>');
 const procs: ChildProcess[] = [];
@@ -43,7 +43,7 @@ function launch(name: string, env: Record<string, string>, port = 0) {
   const db = join(dir, `${name}.db`);
   const p = spawn(process.execPath, [join(ROOT, 'server/src/index.ts')], {
     cwd: dir, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { PATH: process.env.PATH ?? '', CURSUS_API_PORT: String(port), CURSUS_DB: db, ...env },
+    env: { PATH: process.env.PATH ?? '', CURSUS_API_PORT: String(port), CURSUS_DB: db, CURSUS_DIST: join(dir, 'dist'), ...env },
   });
   procs.push(p);
   let out = '';

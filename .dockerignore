@@ -1,0 +1,20 @@
+# Contexte de construction de l'image (Dockerfile) : ni dépendances installées, ni base, ni secret, ni artefact local.
+node_modules
+dist
+coverage
+data
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+.git
+.github
+.claude
+*.zip
+*.app
+*.log

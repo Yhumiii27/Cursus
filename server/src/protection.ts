@@ -4,7 +4,6 @@
 // comptes. Le chiffrement du disque chez l'hébergeur est un prérequis de l'installation (docs/DEPLOIEMENT.md, « Disque
 // chiffré ») ; un chiffrement des colonnes par Cursus attend l'avis du DPO.
 import { chmodSync, existsSync, mkdirSync, realpathSync, statSync, type Stats } from 'node:fs';
-import { homedir } from 'node:os';
 import { dirname, resolve } from 'node:path';
 import { RACINE } from './chemins.ts';
 import type { Env } from './config.ts';
@@ -29,12 +28,13 @@ export interface Protection {
 
 /**
  * Dossier propre à la base, que Cursus peut fermer aux autres comptes : à ce compte, sans bit sticky (/tmp et autres
- * dossiers partagés), et ni la racine du système ou du projet, ni le dossier de lancement, ni le dossier personnel.
+ * dossiers partagés), et ni la racine du système ou du projet, ni le dossier de lancement. Le dossier personnel n'est
+ * pas exclu : celui du compte de service est justement le dossier de la base (--home-dir /var/lib/cursus).
  */
 function dossierPropre(dir: string, st: Stats): boolean {
   if (st.mode & 0o1000) return false;
   if (typeof process.getuid === 'function' && st.uid !== process.getuid()) return false;
-  return !['/', RACINE, process.cwd(), homedir()].map(d => resolve(d)).includes(dir);
+  return !['/', RACINE, process.cwd()].map(d => resolve(d)).includes(dir);
 }
 
 /**
@@ -86,11 +86,20 @@ export function protegerBase(fichier: string, { production = false, chmod = chmo
 
 /**
  * Clé de signature des sessions écrite en base par une installation sans CURSUS_SECRET (développement, démonstration,
- * premiers essais) : retirée dès que CURSUS_SECRET est définie, qui la remplace ; une copie de la base ne donne plus
- * de quoi signer une session. Renvoie vrai si elle était présente. Les sauvegardes antérieures la gardent.
+ * premiers essais) : retirée dès que CURSUS_SECRET est définie, qui la remplace. SQLite laisse d'ordinaire une ligne
+ * supprimée dans la page libérée : la suppression est donc faite avec secure_delete (contenu effacé par des zéros),
+ * puis le journal -wal est reporté dans la base et vidé, pour qu'une copie du fichier ne donne plus de quoi signer une
+ * session. Renvoie vrai si elle était présente. Les sauvegardes antérieures la gardent.
  */
 export function retirerSecretStocke(db: Db, env: Env = process.env): boolean {
   if (!env.CURSUS_SECRET || !db.get('settings', 'secret')) return false;
-  db.remove('settings', 'secret');
+  const avant = (db.sql.prepare('PRAGMA secure_delete').get() as { secure_delete: number }).secure_delete;
+  db.sql.exec('PRAGMA secure_delete = ON');
+  try {
+    db.remove('settings', 'secret');
+  } finally {
+    db.sql.exec(`PRAGMA secure_delete = ${avant ? 'ON' : 'OFF'}`);
+  }
+  db.sql.exec('PRAGMA wal_checkpoint(TRUNCATE)');
   return true;
 }

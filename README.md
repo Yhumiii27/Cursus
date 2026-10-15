@@ -133,7 +133,7 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `CURSUS_TRUST_PROXY` | Proxys dont les en-têtes `X-Forwarded-*` sont crus (`loopback` par défaut : proxy sur la même machine) |
 | `CURSUS_DB` | Fichier SQLite (`data/cursus.db` du dossier du code par défaut ; un chemin relatif part du dossier de lancement). Son chemin complet s'affiche au démarrage ; le fichier est réservé au compte du serveur (`600`, dossier en `700`) |
 | `CURSUS_DIST` | Interface compilée servie (`dist/` du dossier du code par défaut) : pour les tests automatiques et une installation qui la place ailleurs |
-| `CURSUS_SUPERVISION_TOKEN` | Jeton (32 caractères au moins) de l'outil de supervision : avec `Authorization: Bearer <jeton>`, `/api/health` donne aussi la version, le mode et les envois en échec. Facultatif ; ce détail est toujours donné à un appel local fait sur la machine |
+| `CURSUS_SUPERVISION_TOKEN` | Jeton (32 caractères au moins) de l'outil de supervision : avec `Authorization: Bearer <jeton>`, `/api/health` donne aussi la version, le mode et les envois en échec. Facultatif ; ce détail est toujours donné à un appel local fait sur la machine (dans le conteneur avec Docker : `docker exec`) |
 | `CURSUS_BACKUP_DIR` | Dossier des sauvegardes (`backups/` à côté de la base par défaut) |
 | `CURSUS_BACKUP_KEEP` | Sauvegardes conservées par type (14 par défaut, `0` pour tout garder) |
 | `CURSUS_TODAY` | Fige la date du jour (AAAA-MM-JJ), utile pour la démonstration — les données de démo sont datées d'octobre 2026. Refusée en production |

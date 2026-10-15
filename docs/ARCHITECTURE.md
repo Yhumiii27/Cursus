@@ -302,11 +302,13 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
   `Authorization: Bearer` égal à `CURSUS_SUPERVISION_TOKEN` : en plus `version`, `mode` (`production`, `demo`,
   `developpement`), `envoisEnEchec` (non classés, toutes cibles) et `depuis`. Jamais de donnée personnelle.
 - **Base sur le disque** (`server/src/protection.ts`) : `protegerBase` ramène la base et ses fichiers `-wal`, `-shm`
-  en `600` et son dossier en `700` (créé ainsi ; un dossier partagé — bit sticky, racine du projet, dossier de
-  lancement ou personnel, autre propriétaire — n'est jamais modifié, avertissement) ; en production, `ProtectionError`
+  en `600` et son dossier en `700` (créé ainsi ; un dossier partagé — bit sticky, racine du système ou du projet,
+  dossier de lancement, autre propriétaire — n'est jamais modifié, avertissement ; le dossier personnel du compte de
+  service, `/var/lib/cursus`, est bien restreint) ; en production, `ProtectionError`
   (démarrage refusé, code 1) si un fichier reste accessible à d'autres comptes. Une base neuve est créée vide en `600`
   par le constructeur `Db`, avant que SQLite ne l'ouvre. `retirerSecretStocke` supprime le réglage `secret` (clé de
-  session générée sans `CURSUS_SECRET`) dès que la variable est définie. Pas de chiffrement applicatif des colonnes :
+  session générée sans `CURSUS_SECRET`) dès que la variable est définie, avec `secure_delete` puis
+  `wal_checkpoint(TRUNCATE)` : la clé ne reste ni dans une page libérée ni dans le `-wal`. Pas de chiffrement applicatif des colonnes :
   disque chiffré chez l'hébergeur (prérequis de `docs/DEPLOIEMENT.md`), avis du DPO attendu.
 - **Installation** : `deploy/` reprend à l'identique les blocs de `docs/DEPLOIEMENT.md` et `docs/SAUVEGARDE.md`
   (`tests/exploitation.test.ts` les compare : modifier les deux ensemble) ; `Dockerfile` facultatif.

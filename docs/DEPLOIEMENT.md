@@ -92,7 +92,8 @@ vaccinations), des numéros de passeport et les variables de paie. Elle est prot
   son propre dossier. Les copies de sauvegarde sont déjà en `600` dans un dossier en `700` (`docs/SAUVEGARDE.md`).
 - **Clé de session** : en production, `CURSUS_SECRET` est obligatoire. Une clé écrite dans la base par un essai sans
   elle (développement, démonstration) en est retirée au démarrage suivant (« Ancienne clé de session retirée de la
-  base ») ; les sauvegardes antérieures la contiennent encore jusqu'à leur rotation.
+  base ») et effacée du fichier lui-même (suppression avec `secure_delete`, journal `-wal` vidé) ; les sauvegardes
+  antérieures la contiennent encore jusqu'à leur rotation.
 - **Chiffrement des colonnes par Cursus** : pas dans cette version. Le DPO dit si le disque chiffré suffit ou s'il
   exige en plus un chiffrement applicatif d'une courte liste de colonnes (passeport, avis et restrictions,
   vaccinations, comptes rendus d'entretien), voire un hébergement certifié HDS.
@@ -442,6 +443,11 @@ sudo docker inspect --format '{{.State.Health.Status}}' cursus  # healthy
 - `--stop-timeout 20` : `docker stop` envoie SIGTERM ; Cursus finit les requêtes en cours (10 s au plus) et ferme la
   base avant que Docker ne coupe le conteneur.
 - Le volume reçoit le chiffrement du disque de la machine (« Protection des données sur le disque »).
+- Point de santé : un `curl` lancé sur la machine vers `127.0.0.1:3210` entre dans le conteneur par le pont Docker,
+  pas par sa boucle locale ; il n'obtient que la réponse publique `{"statut":"ok","base":"ok"}`. Le détail (version,
+  mode, envois en échec) s'obtient dans le conteneur, comme la sonde `HEALTHCHECK` :
+  `sudo docker exec cursus node -e "fetch('http://127.0.0.1:3210/api/health').then(r => r.text()).then(console.log)"`,
+  ou avec le jeton de supervision (`CURSUS_SUPERVISION_TOKEN`, « Exploitation courante »).
 - Commandes d'exploitation dans le conteneur : `sudo docker exec -it cursus node server/src/comptes-cli.ts admin …`,
   `sudo docker exec cursus node --disable-warning=ExperimentalWarning server/src/backup.ts` ; la copie hors de la
   machine sauvegarde le dossier du volume (`docker volume inspect cursus-donnees`).
@@ -454,11 +460,14 @@ sudo docker inspect --format '{{.State.Health.Status}}' cursus  # healthy
 ```bash
 curl -sI https://cursus.example.fr/ | grep -iE 'strict-transport|content-security|x-frame|x-content-type'
 curl -s https://cursus.example.fr/api/health                    # {"statut":"ok","base":"ok"}
-curl -s http://127.0.0.1:3210/api/health                        # sur la machine : version, "mode":"production", envois en échec
+curl -s http://127.0.0.1:3210/api/health                        # sur la machine (service systemd) : version, "mode":"production", envois en échec
 curl -s https://cursus.example.fr/api/session                   # "demo":false, "user":null et, avec Microsoft 365, "microsoft":true
 curl -s -o /dev/null -w '%{http_code}\n' http://cursus.example.fr/                       # 301 ou 308 vers HTTPS
 curl -s -o /dev/null -w '%{http_code}\n' https://cursus.example.fr/api/integrations/keystone/v1/chantiers/X/go-no-go   # 403 hors de l'adresse de Keystone
 ```
+
+Avec le conteneur Docker, le `curl` sur `127.0.0.1:3210` ne donne que `{"statut":"ok","base":"ok"}` : le détail
+s'obtient par `docker exec` ou avec le jeton de supervision (« Variante : conteneur Docker »).
 
 Depuis la machine de Keystone, la même commande répond `401` (clé absente).
 
@@ -560,7 +569,8 @@ précède chaque mise en production.
 - Surveillance : le point de santé `https://cursus.example.fr/api/health` répond 200 `{"statut":"ok","base":"ok"}`
   tant que Cursus et sa base répondent, et 503 `{"statut":"indisponible","base":"erreur"}` si la base ne répond plus
   (service arrêté : pas de réponse, ou 502 du proxy). Sans connexion, il ne donne rien d'autre. Appelé sur la machine
-  (`curl -s http://127.0.0.1:3210/api/health`, sans passer par le proxy) ou avec le jeton de supervision
+  (`curl -s http://127.0.0.1:3210/api/health` pour le service systemd, sans passer par le proxy ; `docker exec` pour
+  le conteneur, voir « Variante : conteneur Docker ») ou avec le jeton de supervision
   (`curl -s -H "Authorization: Bearer $JETON" https://cursus.example.fr/api/health`, `CURSUS_SUPERVISION_TOKEN`), il
   ajoute la version, le mode (`production` attendu ; `demo` serait une erreur de configuration), le nombre d'envois en
   échec non classés (à faire traiter par le service RH dans Paramètres → Envois) et l'heure du démarrage. Il ne compte

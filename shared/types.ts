@@ -55,7 +55,15 @@ export interface Destination {
   secu: SecuDetachement | null;
   archive?: ISODate | null;
 }
-export interface Equipe { nom: string; managerId: number | null; ordre: number }
+/**
+ * Formations et habilitations exigées (codes du catalogue) : d'un poste, ou communes à toute une équipe quel que soit le
+ * poste (shared/rules/exigences.ts). Une exigence manquante rend le salarié « Non conforme ».
+ */
+export interface Exigences { formations: string[]; habilitations: string[] }
+/** Poste du référentiel (écran Référentiels) : intitulé et exigences ; archivé, il n'est plus proposé sur les fiches. */
+export interface Poste extends Exigences { id: number; nom: string; archive?: ISODate | null }
+/** `exigences` : formations et habilitations exigées de tous ses membres (null : aucune). */
+export interface Equipe { nom: string; managerId: number | null; ordre: number; exigences?: Exigences | null }
 /** Projet ou chantier tenu dans Keystone : archivé, il reste en base (historique) sans plus être proposé ni évalué. */
 export type StatutKeystone = 'actif' | 'archive';
 export interface Projet { code: string; nom: string; statut: StatutKeystone }
@@ -69,6 +77,8 @@ export interface Referentiels {
   formations: Formation[];
   habilitations: HabType[];
   destinations: Destination[];
+  /** Postes et leurs exigences (shared/rules/exigences.ts), archivés compris. */
+  postes: Poste[];
   equipes: Equipe[];
   projets: Projet[];
   chantiers: Chantier[];
@@ -112,7 +122,10 @@ export interface Employe {
   nom: string;
   /** Équipe d'affectation ; null = à affecter par le service RH. */
   equipe: string | null;
+  /** Intitulé du poste, conservé tel quel (exports, imports, historique) : celui du poste choisi dans le référentiel. */
   poste: string;
+  /** Poste du référentiel (`postes`), dont les exigences s'appliquent ; null : intitulé hors référentiel. */
+  posteId?: number | null;
   statut: Statut;
   typeContrat: TypeContrat;
   temps: TempsTravail;

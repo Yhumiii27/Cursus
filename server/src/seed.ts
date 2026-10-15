@@ -15,6 +15,7 @@ import { DEFAULT_SETTINGS, loadFull } from './dataset.ts';
 import { contexte, enregistrerAffectation, enregistrerChantier, enregistrerProjet, enregistrerTache } from './integrations/keystone-entrant.ts';
 import { suivreVerdicts } from './integrations/keystone-verdicts.ts';
 import { figerFeuilles } from './migrate.ts';
+import { postesDepuisFiches } from './migrations/referentiels.ts';
 
 // Mode de validation : évaluation réussie pour les habilitations électriques, CACES, SST, ATEX, AIPR et PRAP ;
 // la présence suffit pour les sensibilisations et formations d'information.
@@ -367,6 +368,21 @@ function histo(id: number, forfait: boolean) {
   return { cp: [12, 15, 18, 20][k], rtt: forfait ? [3, 5, 4, 6][k] : [10, 14, 16, 12][k], recA: [0, 7, 3.5, 10.5][k], recP: [0, 7, 0, 3.5][k] };
 }
 
+/**
+ * Exigences de démonstration (t055) : en production, aucune n'est créée d'office (référentiel des postes à compléter par
+ * le service RH). Caristes et techniciens de maintenance détiennent déjà les leurs ; l'apprenti électromécanicien attend
+ * la délivrance de son habilitation électrique, et la Logistique exige le SST de tous ses membres (Lucas Martin ne l'a pas).
+ */
+const EXIGENCES_DEMO: Record<string, { formations: string[]; habilitations: string[] }> = {
+  'Cariste': { formations: ['caces489'], habilitations: ['ac489'] },
+  'Technicien de maintenance': { formations: ['elec'], habilitations: ['he'] },
+  'Apprenti électromécanicien': { formations: ['elec'], habilitations: ['he'] },
+};
+function exigencesDemo(db: Db) {
+  for (const [nom, x] of Object.entries(EXIGENCES_DEMO)) db.sql.prepare('UPDATE postes SET formations = ?, habilitations = ? WHERE nom = ?').run(JSON.stringify(x.formations), JSON.stringify(x.habilitations), nom);
+  db.update('equipes', 'Logistique', { exigences: { formations: ['sst'], habilitations: [] } });
+}
+
 export function seedDemo(db: Db) {
   db.tx(() => {
     const secret = db.getSetting<string | null>('secret', null); // conserve les sessions ouvertes
@@ -399,6 +415,9 @@ export function seedDemo(db: Db) {
       (x.visas || []).forEach(v => db.insert('visas', { empId: e.id, ...v }));
       (x.vaccins || []).forEach(v => db.insert('vaccinations', { empId: e.id, ...v }));
     });
+    // Postes du référentiel d'après les intitulés des fiches (comme la reprise d'une base existante), puis exigences.
+    postesDepuisFiches(db);
+    exigencesDemo(db);
     RECYCLAGES.forEach(([empId, f, sessionId]) => {
       const c = db.where<{ id: number; f: string }>('certifications', 'empId', empId).find(x => x.f === f)!;
       db.update('certifications', c.id, { sessionId, convoc: 'now', convocLe: CONVOQUES_LE });

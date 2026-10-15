@@ -34,14 +34,14 @@ export interface UiState {
   habFilter: 'tous' | 'due' | 'ko' | 'pending';
   habType: string | null;
   tripSel: number | null;
-  echType: 'tous' | 'cert' | 'hab' | 'trip' | 'med';
+  echType: 'tous' | 'cert' | 'hab' | 'trip' | 'med' | 'exigence';
   goSel: string | null;
   exercice: number | null;
   planFilter: 'tous' | PlanStatut;
   weekStart: ISODate | null;
   tsEmp: number | null;
   /** Onglet de l'écran Référentiels. */
-  refOnglet: ReferentielId;
+  refOnglet: ReferentielId | 'postes';
   /** Saisie des heures jour par jour (téléphone, tablette) : jour affiché, du lundi (0) au vendredi (4) ; null : le jour courant. */
   tsJour: number | null;
 }
@@ -97,6 +97,9 @@ export type DialogState =
   | { type: 'refFormation'; id?: string | null }
   | { type: 'refHabilitation'; id?: string | null }
   | { type: 'refDestination'; code?: string | null }
+  /** Onglet Postes : poste (création sans identifiant) et exigences communes d'une équipe (shared/rules/exigences.ts). */
+  | { type: 'refPoste'; id?: number | null }
+  | { type: 'refEquipe'; nom: string }
   /** Correspondance d'une rubrique de paie avec le plan de paie Sage (écran Temps, components/RubriquesPaie.tsx). */
   | { type: 'rubrique'; code: string }
   /** Refus ou action irréversible à confirmer (state/confirmations.ts). */
@@ -444,8 +447,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       case 'medical': setDialog({ type: 'visite', empId: intent.empId }); break;
       case 'openFormalite': setDialog({ type: 'fo', empId: intent.empId, kind: intent.kind, dest: intent.dest, v: intent.v }); break;
       case 'openCloture': setDialog({ type: 'cloture', sessionId: intent.sessionId }); break;
+      // Habilitation exigée jamais délivrée : titre demandé, « en attente » de délivrance.
+      case 'demanderHab': void run('hab.demander', { empId: intent.empId, h: intent.h }); break;
     }
-  }, [go]);
+  }, [go, run]);
 
   /**
    * Changement d'espace : le nouvel espace ne s'affiche qu'avec ses données, d'un seul coup. En cas

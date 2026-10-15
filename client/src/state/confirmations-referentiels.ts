@@ -4,7 +4,7 @@
 // collaborateurs encore en attente : sur un élément archivé, elles ne s'acceptent plus (à refuser, ou à rétablir d'abord).
 import { plural } from '../../../shared/format.ts';
 import type { ReferentielId } from '../../../shared/rules/referentiels.ts';
-import type { Destination, Formation, HabType } from '../../../shared/types.ts';
+import type { Destination, Formation, HabType, Poste } from '../../../shared/types.ts';
 import type { Confirmation } from './confirmations.ts';
 
 /** Demandes des collaborateurs en attente sur l'élément (`quoi` : « la formation »…) : elles ne s'acceptent plus une fois archivé. */
@@ -95,5 +95,20 @@ export function chargementType(ref: ReferentielId): Confirmation {
     bouton: 'Charger',
     action: 'referentiel.charger',
     payload: { referentiel: ref },
+  };
+}
+
+/** Archivage d'un poste inoccupé (le serveur refuse tant qu'un salarié présent l'occupe). */
+export function archivagePoste(p: Pick<Poste, 'id' | 'nom'>): Confirmation {
+  return {
+    titre: 'Archiver le poste',
+    question: `Archiver le poste « ${p.nom} » ?`,
+    suites: [
+      'Il n’est plus proposé sur les fiches ; celles des salariés sortis le gardent, avec son intitulé.',
+      'Il se rétablit à tout moment, avec ses exigences.',
+    ],
+    bouton: 'Archiver',
+    action: 'referentiel.poste.archiver',
+    payload: { id: p.id },
   };
 }

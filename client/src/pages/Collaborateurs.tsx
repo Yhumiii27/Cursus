@@ -14,6 +14,7 @@ import { JOURS_SEMAINE } from '../../../shared/rules/profil.ts';
 import { usePanneauVisible } from '../components/panneau.ts';
 import { Avatar, Bar, Btn, Chips, CloseButton, Empty, Fine, NoteAccent, Page, SectionLabel, Seg, Tag, Two } from '../components/ui.tsx';
 import { Aptitude } from '../components/Aptitude.tsx';
+import { ExigencesCellule, ExigencesFiche, ExigencesMotif } from '../components/Exigences.tsx';
 import { SortieFiche } from '../components/Sortie.tsx';
 import { printDocument } from '../print.ts';
 import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derived.ts';
@@ -108,7 +109,7 @@ export function Collaborateurs() {
         <section style={{ flex: '1 1 420px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Collaborateur</th>{showEquipe && <th>Équipe</th>}<th>Certifications</th><th>Habilitations</th><th>{sortis ? 'Sortie' : 'Prochaine échéance'}</th><th>Statut</th></tr></thead>
+              <thead><tr><th>Collaborateur</th>{showEquipe && <th>Équipe</th>}<th>Certifications</th><th>Habilitations</th><th>Exigences</th><th>{sortis ? 'Sortie' : 'Prochaine échéance'}</th><th>Statut</th></tr></thead>
               <tbody>
                 {rows.map(e => {
                   const hs = habSummary(e);
@@ -127,6 +128,8 @@ export function Collaborateurs() {
                       {showEquipe && <td className={e.equipe ? 'text-muted' : undefined}>{e.equipe ?? <Tag cls="tag-outline">À affecter</Tag>}</td>}
                       <td><Chips items={e.certs.map(c => ({ key: c.id, label: c.fm.court, cls: CLS[c.key] }))} /></td>
                       <td>{e.habs.some(habSuivie) ? <Tag cls={hs.cls}>{hs.label}</Tag> : <span className="text-muted">—</span>}</td>
+                      {/* Exigences du poste et de l'équipe (t055) : manquantes, remplies, ou aucune déclarée. */}
+                      <td>{sortis ? <span className="text-muted">—</span> : <ExigencesCellule e={e} />}</td>
                       {sortis
                         ? <td><Two main={e.fin ? fmtIso(e.fin) : '—'} sub={e.motifSortie ? MOTIFS_SORTIE[e.motifSortie] : 'fin de contrat'} nowrap /></td>
                         : <td><Two main={e.next ? fmt(e.next.exp) : '—'} sub={e.next ? rel(e.next.d) : 'aucune certification suivie'} nowrap /></td>}
@@ -277,6 +280,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
           {plural(e.certs.length, 'certification', 'certifications')} · {parti ? `sorti le ${fmtIso(e.fin!)} : plus d’échéance suivie` : e.next ? 'prochaine échéance le ' + fmt(e.next.exp) : 'aucune échéance'}
         </span>
       </div>
+      {!parti && <ExigencesMotif e={e} />}
       {/* Manager : verdict et restrictions en vigueur seulement ; demandes de visite et avis : service RH. */}
       <SectionLabel>Aptitude médicale</SectionLabel>
       <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
@@ -328,6 +332,9 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
         })}
         {e.certs.length === 0 && <Empty pad="sm">Aucune certification suivie.</Empty>}
       </div>
+
+      {/* Formations et habilitations exigées par le poste et l'équipe, obtenues ou manquantes. */}
+      <ExigencesFiche e={e} membre={membre} parti={parti} />
 
       {(anciennes.length > 0 || archivees.length > 0) && <>
         <SectionLabel>Historique des certifications</SectionLabel>

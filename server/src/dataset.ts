@@ -11,7 +11,7 @@ import { reglagesParDefaut } from '../../shared/reglages.ts';
 import type { DemandeVisite } from '../../shared/types.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Chantier, ClotureConges, CurrentUser, Dataset, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
-  Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mission, Participation, PlanAction, Projet, ReleveInterim, ReportCp, RubriquePaie, SagePush, Session,
+  Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mission, Participation, PlanAction, Poste, Projet, ReleveInterim, ReportCp, RubriquePaie, SagePush, Session,
   Settings, SoldeReprise, TacheKeystone, Vaccination, Visa, Voyage,
 } from '../../shared/types.ts';
 import { type DroitRh, droitsRh, PROFILS_RH } from '../../shared/constants.ts';
@@ -72,6 +72,8 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
       formations: db.all<Formation>('formations', 'rowid'),
       habilitations: db.all<HabType>('habilitations', 'rowid'),
       destinations: db.all<Destination>('destinations', 'rowid'),
+      // Postes et exigences (shared/rules/exigences.ts) : aucune donnée personnelle, comme les équipes.
+      postes: db.all<Poste>('postes', 'nom'),
       equipes: db.all<Equipe>('equipes', 'ordre'),
       projets: db.all<Projet>('projets', 'rowid'),
       chantiers: db.all<Chantier>('chantiers', 'debut'),
@@ -229,6 +231,12 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
   };
 }
 
+/** Référentiels des postes et des équipes vidés de leurs exigences (profil qui ne reçoit pas les titres). */
+const sansExigences = (r: Dataset['referentiels']): Pick<Dataset['referentiels'], 'postes' | 'equipes'> => ({
+  postes: r.postes.map(p => ({ ...p, formations: [], habilitations: [] })),
+  equipes: r.equipes.map(q => ({ ...q, exigences: null })),
+});
+
 /**
  * Instantané d'un profil restreint de l'espace RH (sans le droit `rh`) : seulement ce que ses droits ouvrent,
  * jamais de donnée de santé détaillée. Pour tous, comme pour le manager : aptitude réduite au verdict (aptitude valide
@@ -270,7 +278,12 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
   });
   return {
     ...full,
-    referentiels: { ...full.referentiels, chantiers: formations ? full.referentiels.chantiers : [] },
+    // Sans certifications ni habilitations (paie), les exigences des postes et des équipes compteraient tout le monde
+    // « Non conforme » : elles ne sont pas transmises.
+    referentiels: {
+      ...full.referentiels, chantiers: formations ? full.referentiels.chantiers : [],
+      ...(formations ? {} : sansExigences(full.referentiels)),
+    },
     employes,
     sessions: formations ? full.sessions : [],
     inscriptions: formations ? full.inscriptions : [],

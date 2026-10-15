@@ -99,7 +99,7 @@ const salariesTouches = (x: Contexte) => (x.result as { salaries?: unknown[] } |
 /** Référentiel désigné (`referentiel.charger`), seulement s'il en est un : jamais la valeur reçue telle quelle. */
 const referentielRecu = (p: P): ReferentielId | null => (['formations', 'habilitations', 'destinations'].includes(p.referentiel) ? p.referentiel : null);
 const nombreReferentiel = (db: Db, p: P) => { const r = referentielRecu(p); return r ? db.count(r) : 0; };
-const FICHE = ['nom', 'poste', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis', 'entree', 'fin', 'motifSortie', 'agence', 'matriculePaie'];
+const FICHE = ['nom', 'poste', 'posteId', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis', 'entree', 'fin', 'motifSortie', 'agence', 'matriculePaie'];
 /**
  * Solde de RTT de l'année affiché avant un changement de régime qui n'en ouvre plus (garde-fou de `employe.modifier`) :
  * gardé au journal pour la paie, sous un code de l'archive paie (`employe.rtt`).
@@ -158,6 +158,8 @@ export const REGLES: Record<string, Regle> = {
   // Réembauche : réutilisation d'un matricule de paie confirmée par l'administrateur RH (`reutiliserMatricule`).
   'employe.creer': {
     champs: ['equipe', 'poste', 'statut', 'typeContrat', 'temps', 'entree', 'fin', 'motifSortie', 'matriculePaie', 'reutiliserMatricule'], salaries: (_p, x) => [(x.result as { id?: number } | null)?.id],
+    // Poste du référentiel retenu (choisi, rattaché d'après l'intitulé ou créé) : lu sur la fiche créée.
+    bilan: (_p, x) => ({ posteId: x.db.get<{ posteId: number | null }>('employes', Number((x.result as { id?: number } | null)?.id))?.posteId ?? null }),
   },
   // Les champs modifiés sont nommés ; seules les colonnes de FICHE ont leurs valeurs (ni visite médicale, ni reprise, ni naissance).
   'employe.modifier': {
@@ -202,6 +204,8 @@ export const REGLES: Record<string, Regle> = {
   'hab.suspendre': { champs: ['empId', 'h', 'date'] },
   'hab.lever': { champs: ['empId', 'h'] },
   'hab.retirer': { champs: ['empId', 'h', 'date'] },
+  // Habilitation exigée demandée (titre en attente de délivrance).
+  'hab.demander': { champs: ['empId', 'h'] },
   // Santé au travail : ni le motif de la visite, ni l'avis, ni les restrictions (le message, masqué au lecteur, dit l'avis).
   'medical.demander': { champs: ['empId'] },
   'medical.annuler': { champs: ['id'] },
@@ -218,6 +222,21 @@ export const REGLES: Record<string, Regle> = {
   'referentiel.habilitation.archiver': referentiel('habilitations', ['archive'], true),
   'referentiel.destination.enregistrer': referentiel('destinations', ['pays', 'visa', 'visaSub', 'oblig', 'rec', 'passMois', 'secu']),
   'referentiel.destination.archiver': referentiel('destinations', ['archive'], true),
+  // Postes et exigences (aucune donnée personnelle) : identifiant du poste, intitulé et codes exigés avant et après ; la
+  // ligne est rattachée aux salariés qui deviennent non conformes (le message en nomme).
+  'referentiel.poste.enregistrer': {
+    extra: p => ({ id: Number(p.id) || null }), cible: parId('postes', ['nom', 'formations', 'habilitations']), salaries: (_p, x) => salariesTouches(x),
+    // Création : le poste créé, lu après l'action.
+    bilan: (p, x) => {
+      if (Number(p.id)) return {};
+      const cree = x.db.get<Ligne>('postes', Number((x.result as { id?: number } | null)?.id));
+      return cree ? { id: cree.id, apres: { nom: cree.nom, formations: cree.formations, habilitations: cree.habilitations } } : {};
+    },
+  },
+  'referentiel.poste.archiver': { extra: p => ({ id: Number(p.id) || null, retablir: p.archive === false }), cible: parId('postes', ['archive']) },
+  'referentiel.equipe.exigences': {
+    champs: ['nom'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['exigences'], aplatir: true }, salaries: (_p, x) => salariesTouches(x),
+  },
   // Référentiel type : nombre d'éléments ajoutés.
   'referentiel.charger': {
     extra: p => ({ referentiel: referentielRecu(p) }), etat: (db, p) => nombreReferentiel(db, p), bilan: (p, x) => ({ ajoutes: nombreReferentiel(x.db, p) - Number(x.etat) }),

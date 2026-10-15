@@ -7,6 +7,7 @@ import { matriculesPris } from '../../../shared/rules/matricules.ts';
 import { adressesPrises } from '../../../shared/rules/messagerie.ts';
 import { MANAGER_FIELDS, PROFIL_FIELDS, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
 import type { Employe, Equipe, FeuilleTemps } from '../../../shared/types.ts';
+import { rattacherPoste } from './referentiels.ts';
 import { ActionError, getEmp, isManagerOf, isRh, isRhAdmin, requireRh, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
 function equipesNoms(ctx: Ctx) { return ctx.ds.referentiels.equipes.map(q => q.nom); }
@@ -55,6 +56,7 @@ const creer: ActionHandler = (ctx, p) => {
   requireRh(ctx);
   const input = {} as Record<string, unknown>;
   PROFIL_FIELDS.forEach(k => { input[k] = p[k] ?? null; });
+  rattacherPoste(ctx, input);
   const v = check(ctx, input as unknown as ProfilInput, undefined, !!p.reutiliserMatricule);
   const row = ctx.db.insert<Employe>('employes', toRow(v.profil));
   // Compteurs repris à zéro, datés de la création : la fiche commence dans Cursus.
@@ -77,6 +79,11 @@ const modifier: ActionHandler = (ctx, p) => {
   if (!isRh(ctx) && patch.includes('jourOff') && cur.temps !== 'partiel') throw new ActionError('Les jours non travaillés ne concernent que le temps partiel');
   const next = { ...cur } as Record<string, unknown>;
   patch.forEach(k => { next[k] = p[k]; });
+  // Poste choisi dans la liste, ou intitulé seul (rattaché au poste du même nom, ou libellé précisé du poste actuel).
+  if (patch.includes('posteId') || patch.includes('poste')) {
+    if (!patch.includes('posteId')) next.posteId = null;
+    rattacherPoste(ctx, next, emp.posteId ?? null, !patch.includes('posteId'));
+  }
   const v = check(ctx, next as unknown as ProfilInput, emp.id, !!p.reutiliserMatricule);
   // Une nouvelle visite s'enregistre avec l'avis du médecin du travail (`medical.avis`), qui clôt la demande en cours.
   if (patch.includes('visite') && v.profil.visite !== (emp.visite ?? null)) {

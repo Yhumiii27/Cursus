@@ -4,15 +4,21 @@
 // archivé n'est plus proposé dans les listes mais reste reconnu (dossiers, historique, journal, Keystone) et se rétablit.
 // Chaque modification est tracée au journal, valeurs avant et après (REGLES de server/src/journal.ts) ; les verdicts
 // Go / No Go qu'elle change sont signalés à Keystone après l'action (changeVerdicts de ./index.ts).
+// Postes et exigences (t055, shared/rules/exigences.ts) : formations et habilitations exigées par poste ou communes à une
+// équipe, tenues par le service RH ; une habilitation exigée jamais délivrée se demande (`hab.demander`).
 import { sessionActive } from '../../../shared/domain.ts';
 import { plural } from '../../../shared/format.ts';
 import {
   actif, codeDestination, codeTitre, controlerDestination, controlerFormation, controlerHabilitation, demandesEnAttente, effetModification,
-  premiereErreur, prerequisArchives, titresADelivrer, titresTexte, type EffetModification, type ReferentielId,
+  premiereErreur, prerequisArchives, refusArchive, titresADelivrer, titresTexte, type EffetModification, type ReferentielId,
 } from '../../../shared/rules/referentiels.ts';
-import type { Destination, Formation, HabType } from '../../../shared/types.ts';
+import {
+  controlerExigences, controlerPoste, effetExigences, effetTexte as effetExigencesTexte, exigencesEquipe, posteParLibelle, titulaires, type NouveauManquant,
+} from '../../../shared/rules/exigences.ts';
+import { key } from '../../../shared/format.ts';
+import type { Destination, Equipe, Formation, HabTitre, HabType, Poste } from '../../../shared/types.ts';
 import { DESTS, FORMATIONS, HABILITATIONS } from '../seed.ts';
-import { ActionError, type ActionHandler, type ActionOutput, type Ctx, requireFormations, requireRh } from './context.ts';
+import { ActionError, getEmp, isRh, type ActionHandler, type ActionOutput, type Ctx, requireFormations, requireRh, str } from './context.ts';
 
 /** Élément visé par une modification ou un archivage (`id` : son code), introuvable : 404. */
 function trouver<T>(liste: readonly T[], cle: (x: T) => string, id: string, nature: string): T {
@@ -204,7 +210,124 @@ const charger: ActionHandler = (ctx, p) => {
   return `${plural(t.lignes.length, t.nature[0], t.nature[1])} du référentiel type ${t.lignes.length > 1 ? 'ajoutées' : 'ajoutée'} : à vérifier et compléter (validités, coûts, organismes, signataires)`;
 };
 
+// — Postes et exigences —
+
+/** Message des salariés qui deviennent non conformes ; la ligne du journal leur est rattachée (`result.salaries`). */
+function exigencesModifiees(message: string, effet: { nouveaux: NouveauManquant[]; resolus: number }): ActionOutput {
+  const suite = [effetExigencesTexte(effet), effet.resolus ? plural(effet.resolus, 'salarié n’a plus d’exigence manquante', 'salariés n’ont plus d’exigence manquante') : '']
+    .filter(Boolean).map(t => ` · ${t}`).join('');
+  return { message: `${message}${suite}`, result: { salaries: effet.nouveaux.map(n => n.empId) } };
+}
+
+/**
+ * Création (sans `id`) ou modification d'un poste : intitulé et exigences. Un intitulé modifié est recopié sur les fiches
+ * de ses titulaires (le libellé conservé suit le poste choisi).
+ */
+const enregistrerPoste: ActionHandler = (ctx, p) => {
+  requireRh(ctx);
+  const postes = ctx.ds.referentiels.postes;
+  const avant = p.id != null && p.id !== '' ? trouver(postes, x => String(x.id), String(Number(p.id)), 'Poste') : null;
+  const { erreurs, poste } = controlerPoste(p, ctx.ds.referentiels, avant?.id ?? null);
+  if (!poste) refuser(erreurs);
+  if (!avant) {
+    const cree = ctx.db.insert<Poste>('postes', poste);
+    return { message: `Poste « ${poste.nom} » ajouté au référentiel`, result: { id: cree.id, salaries: [] } };
+  }
+  const effet = effetExigences(ctx.ds, { postes: postes.map(x => (x.id === avant.id ? { ...x, ...poste } : x)) });
+  ctx.db.update<Poste>('postes', avant.id, poste);
+  let renommes = 0;
+  if (poste.nom !== avant.nom) {
+    for (const e of ctx.ds.employes.filter(x => x.posteId === avant.id)) { ctx.db.update('employes', e.id, { poste: poste.nom }); renommes++; }
+  }
+  const nom = poste.nom !== avant.nom ? `Poste « ${avant.nom} » renommé « ${poste.nom} »${renommes ? ` sur ${plural(renommes, 'fiche', 'fiches')}` : ''}` : `Poste « ${poste.nom} » modifié`;
+  return exigencesModifiees(nom, effet);
+};
+
+/** Archivage ou rétablissement d'un poste : refusé tant qu'un salarié présent l'occupe (changer d'abord son poste). */
+const archiverPoste: ActionHandler = (ctx, p) => {
+  requireRh(ctx);
+  const x = trouver(ctx.ds.referentiels.postes, y => String(y.id), String(Number(p.id)), 'Poste');
+  if (p.archive === false) {
+    if (actif(x)) return `Poste « ${x.nom} » déjà au référentiel`;
+    if (posteParLibelle(ctx.ds.referentiels.postes, x.nom)) throw new ActionError(`Un poste en vigueur porte déjà l’intitulé « ${x.nom} »`);
+    ctx.db.update<Poste>('postes', x.id, { archive: null });
+    return `Poste « ${x.nom} » rétabli au référentiel`;
+  }
+  if (!actif(x)) return `Poste « ${x.nom} » déjà archivé`;
+  const occupe = titulaires(ctx.ds, x.id);
+  if (occupe.length) {
+    throw new ActionError(`${plural(occupe.length, 'salarié occupe', 'salariés occupent')} ce poste : choisissez d’abord un autre poste sur ${occupe.length > 1 ? 'leurs fiches' : 'sa fiche'}`);
+  }
+  ctx.db.update<Poste>('postes', x.id, { archive: ctx.d.ti });
+  return `Poste « ${x.nom} » archivé — plus proposé sur les fiches`;
+};
+
+/** Exigences communes à tous les membres d'une équipe, quel que soit leur poste. */
+const exigencesEquipeAction: ActionHandler = (ctx, p) => {
+  requireRh(ctx);
+  const q = ctx.ds.referentiels.equipes.find(x => x.nom === p.nom);
+  if (!q) throw new ActionError('Équipe introuvable', 404);
+  const { erreurs, exigences } = controlerExigences(p, ctx.ds.referentiels, exigencesEquipe(q));
+  if (premiereErreur(erreurs)) refuser(erreurs);
+  const valeur = exigences.formations.length || exigences.habilitations.length ? exigences : null;
+  const effet = effetExigences(ctx.ds, { equipes: ctx.ds.referentiels.equipes.map(x => (x.nom === q.nom ? { ...x, exigences: valeur } : x)) });
+  ctx.db.update<Equipe>('equipes', q.nom, { exigences: valeur });
+  return exigencesModifiees(`Exigences communes de l’équipe ${q.nom} enregistrées`, effet);
+};
+
+/**
+ * Habilitation exigée jamais délivrée : titre demandé, « en attente » de délivrance (écran Habilitations), comme après
+ * l'acceptation d'une demande du collaborateur. La délivrance suit, après contrôle des prérequis.
+ */
+const demanderHab: ActionHandler = (ctx, p) => {
+  requireFormations(ctx);
+  const emp = getEmp(ctx, p.empId);
+  const hm = ctx.d.hm(codeTitre(p.h));
+  if (!hm) throw new ActionError('Habilitation inconnue');
+  const refus = refusArchive(hm, 'Habilitation');
+  if (refus) throw new ActionError(refus);
+  const t = emp.habs.find(x => x.h === hm.id);
+  if (t?.delivree) throw new ActionError(`${hm.nom} déjà délivrée à ${emp.nom} : renouvelez-la depuis sa fiche`);
+  if (t) return `${hm.nom} déjà demandée pour ${emp.nom} — en attente de délivrance (écran Habilitations)`;
+  ctx.db.insert<HabTitre>('habTitres', { empId: emp.id, h: hm.id, delivree: null, par: null, demande: ctx.d.ti });
+  return `${hm.nom} demandée pour ${emp.nom} — à délivrer après contrôle des prérequis (écran Habilitations, « En attente »)`;
+};
+
+/**
+ * Poste d'une fiche saisie (`employe.creer`, `employe.modifier`) : le poste choisi dans la liste (`posteId`) donne son
+ * intitulé à la fiche. Un intitulé saisi seul est rattaché au poste en vigueur du même nom ; sinon, quand la saisie ne
+ * touche pas au poste (`garder` : intitulé modifié par l'API, sans `posteId`), il n'est qu'un libellé précisé du poste
+ * actuel, dont les exigences continuent de s'appliquer ; sinon encore, le service RH crée ce poste, sans exigence (fiche
+ * créée ou importée, « Nouveau poste » de la fiche). Le poste actuel d'une fiche reste admis même archivé depuis.
+ */
+export function rattacherPoste(ctx: Ctx, fiche: Record<string, unknown>, actuel: number | null = null, garder = false): void {
+  const postes = ctx.ds.referentiels.postes;
+  const id = fiche.posteId == null || fiche.posteId === '' ? null : Number(fiche.posteId);
+  if (id != null) {
+    const x = postes.find(y => y.id === id);
+    if (!x) throw new ActionError('Poste inconnu : choisissez-le dans la liste');
+    if (!actif(x) && x.id !== actuel) throw new ActionError(`Poste « ${x.nom} » archivé : rétablissez-le d’abord (écran Référentiels)`);
+    fiche.posteId = x.id;
+    fiche.poste = x.nom;
+    return;
+  }
+  const libelle = str(fiche.poste).replace(/\s+/g, ' ');
+  fiche.posteId = garder ? actuel : null;
+  if (!key(libelle)) return;
+  const x = posteParLibelle(postes, libelle);
+  if (x) { fiche.posteId = x.id; fiche.poste = x.nom; return; }
+  if (garder && actuel != null) return;
+  if (!isRh(ctx)) throw new ActionError('Poste inconnu : choisissez-le dans la liste');
+  if (libelle.length > 80) throw new ActionError('Intitulé du poste : 80 caractères au plus');
+  fiche.posteId = ctx.db.insert<Poste>('postes', { nom: libelle, formations: [], habilitations: [], archive: null }).id;
+  fiche.poste = libelle;
+}
+
 export const referentielsActions: Record<string, ActionHandler> = {
+  'referentiel.poste.enregistrer': enregistrerPoste,
+  'referentiel.poste.archiver': archiverPoste,
+  'referentiel.equipe.exigences': exigencesEquipeAction,
+  'hab.demander': demanderHab,
   'referentiel.formation.enregistrer': enregistrerFormation,
   'referentiel.formation.archiver': archiverFormation,
   'referentiel.habilitation.enregistrer': enregistrerHabilitation,

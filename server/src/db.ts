@@ -52,7 +52,7 @@ export const TABLES = {
       // Absences hors congés : signalement, justificatif, prolongation ; annulation (toutes absences).
       signaleLe: 'text', signalePar: 'text', justificatif: 'bool', justificatifLe: 'text', finInitiale: 'text', annuleeLe: 'text', annuleePar: 'text',
       signaleParInteresse: 'bool',
-      // Motif d'une demande refusée, montré au salarié.
+      // Motif d'une demande refusée, montré au salarié et à son manager.
       motifRefus: 'text',
     },
   },
@@ -62,7 +62,7 @@ export const TABLES = {
   entretiens: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', type: 'text', date: 'text', statut: 'text', cr: 'json', info: 'bool', signSal: 'text', signMgr: 'text' } },
   demandesCollab: {
     pk: 'id', auto: true,
-    // `motifRefus` : motif d'un refus par le service RH, montré au collaborateur (et au manager qui a fait la demande).
+    // `motifRefus` : motif d'un refus par le service RH, montré au collaborateur seul (server/src/dataset.ts).
     cols: { id: 'int', empId: 'int', type: 'text', f: 'text', h: 'text', libelle: 'text', label: 'text', sessionId: 'int', motif: 'text', date: 'text', statut: 'text', reponse: 'text', parId: 'int', declaration: 'json', motifRefus: 'text' },
   },
   settings: { pk: 'key', cols: { key: 'text', value: 'json' } },

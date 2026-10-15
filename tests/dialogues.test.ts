@@ -1,14 +1,14 @@
 // Dialogues : focus (cycle de Tab), contrôles des champs affichés sous chaque champ, confirmations des refus et des
-// actions irréversibles (motif obligatoire, paramètres envoyés) ; côté serveur, motif d'un refus conservé et montré
-// à l'intéressé, jamais transmis à Keystone. Garde-fous sur le code des dialogues : plus de window.confirm, chaque
-// dialogue de saisie est un formulaire envoyé par Entrée.
+// actions irréversibles (motif obligatoire, paramètres envoyés, lecteurs annoncés) ; côté serveur, motif d'un refus
+// conservé, montré à ceux qu'annonce la confirmation et à eux seuls, jamais transmis à Keystone. Garde-fous sur le
+// code des dialogues : plus de window.confirm, chaque dialogue de saisie est un formulaire envoyé par Entrée.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 process.env.CURSUS_TODAY = '2026-10-10';
 
 const { rangTabulation } = await import('../client/src/components/focus.ts');
-const { erreurDate, erreurJours, erreursPeriode, erreurTexte } = await import('../client/src/components/controles.ts');
+const { erreurDate, erreurEntier, erreurJours, erreursPeriode, erreursSession, erreurTexte } = await import('../client/src/components/controles.ts');
 const C = await import('../client/src/state/confirmations.ts');
 const { Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
@@ -47,6 +47,33 @@ test('champs : message sous le champ pour ce qui manque ou est mal saisi', () =>
   assert.equal(erreurJours('6', 5), '5 j au plus.');
   assert.equal(erreurJours('2.5', 2.5), null);
   assert.equal(erreurJours('1', 0), 'Aucun jour disponible.');
+  assert.equal(erreurEntier('', 1, 'Indiquez le nombre de places.'), 'Indiquez le nombre de places.');
+  assert.equal(erreurEntier('2.5', 1, 'Indiquez le nombre de places.'), 'Nombre entier, au moins 1.');
+  assert.equal(erreurEntier('0', 1, 'Indiquez le nombre de places.'), 'Nombre entier, au moins 1.');
+  assert.equal(erreurEntier('12', 1, 'Indiquez le nombre de places.'), null);
+});
+
+test('session de formation : une erreur sous chaque champ à la fois, vide à l’envoi, saisie incorrecte dès la saisie', () => {
+  // Date et lieu vides : les deux champs sont signalés au même envoi (le contrôle partagé s'arrête au premier).
+  const vide = erreursSession('2026-10-10', { date: '', lieu: '  ', places: '8' });
+  assert.deepEqual(vide.champs, { date: 'Indiquez la date de la session.', lieu: 'Indiquez le lieu.', places: null });
+  assert.deepEqual(vide.vides, { date: true, lieu: true, places: false }, 'champs vides : signalés à l’envoi seulement');
+  assert.equal(vide.bloque, true);
+  const tout = erreursSession('2026-10-10', { date: '', lieu: '', places: '' });
+  assert.deepEqual(Object.keys(tout.champs).filter(k => tout.champs[k as 'date']), ['date', 'lieu', 'places']);
+  // Date passée (règle du serveur) et lieu vide : la règle sous la date, dès la saisie ; le manque sous le lieu.
+  const passee = erreursSession('2026-10-10', { date: '2026-10-01', lieu: '', places: '8' });
+  assert.equal(passee.champs.date, 'La date de la session doit être postérieure à aujourd’hui.');
+  assert.equal(passee.vides.date, false);
+  assert.equal(passee.champs.lieu, 'Indiquez le lieu.');
+  // Nombre de places mal saisi : signalé dès la saisie, comme avant la séparation des erreurs par champ.
+  const zero = erreursSession('2026-10-10', { date: '2026-11-05', lieu: 'Lyon', places: '0' });
+  assert.deepEqual([zero.champs.places, zero.vides.places, zero.bloque], ['Nombre entier, au moins 1.', false, true]);
+  // Places inférieures au nombre d'inscrits d'une session existante.
+  const places = erreursSession('2026-10-10', { date: '2026-11-05', lieu: 'Lyon', places: '3' }, { dateActuelle: '2026-11-05', inscrits: 5 });
+  assert.equal(places.champs.places, 'Nombre de places inférieur au nombre d’inscrits (5).');
+  const ok = erreursSession('2026-10-10', { date: '2026-11-05', lieu: 'Lyon', places: '8' });
+  assert.deepEqual([ok.champs, ok.bloque], [{ date: null, lieu: null, places: null }, false]);
 });
 
 // — Confirmations —
@@ -55,8 +82,9 @@ test('refus : motif obligatoire, envoyé avec les paramètres de l’action, lec
   const c = C.refusDemande({ id: 7, type: 'formation' }, 'Mehdi Benali', 'CACES R489', { manager: 'Karim Haddad' });
   assert.equal(c.action, 'demande.refuser');
   assert.equal(c.motif?.requis, true);
-  assert.match(c.motif!.aide, /Mehdi Benali et de son manager/);
-  assert.ok(c.suites!.some(s => /Karim Haddad, qui a fait la demande/.test(s)));
+  // Demande au service RH : le motif n'est montré qu'au collaborateur, même quand son manager a fait la demande.
+  assert.match(c.motif!.aide, /^Le motif est visible de Mehdi Benali : /);
+  assert.ok(c.suites!.some(s => /Le refus n’apparaît pas dans l’espace de Karim Haddad, qui a fait la demande/.test(s)));
   assert.equal(C.erreurMotif(c, '   '), 'Indiquez le motif du refus.');
   assert.match(C.erreurMotif(c, 'x'.repeat(C.MOTIF_MAX + 1))!, /trop long/);
   assert.equal(C.erreurMotif(c, 'Budget engagé'), null);
@@ -65,6 +93,11 @@ test('refus : motif obligatoire, envoyé avec les paramètres de l’action, lec
   assert.equal(doc.bouton, 'Refuser la déclaration');
   assert.ok(doc.suites!.some(s => /en est retiré/.test(s)));
   assert.deepEqual(C.parametres(C.refusAbsence({ id: 3 }, 'Mehdi Benali', 'CP, le 12 oct.'), 'Pic d’activité'), { id: 3, ok: false, motif: 'Pic d’activité' });
+  // Absence refusée par le service RH : le manager du salarié voit aussi le motif dans ses absences.
+  const abs = C.refusAbsence({ id: 3 }, 'Mehdi Benali', 'CP, le 12 oct.', 'Karim Haddad');
+  assert.match(abs.motif!.aide, /^Le motif est visible de Mehdi Benali et de son manager, Karim Haddad : /);
+  assert.ok(abs.suites!.some(s => /comme son manager, Karim Haddad/.test(s)));
+  assert.match(C.refusAbsence({ id: 3 }, 'Mehdi Benali', 'CP, le 12 oct.', null).motif!.aide, /^Le motif est visible de Mehdi Benali : /, 'refus par le manager lui-même');
   const ks = C.refusKeystone({ id: 4 }, 'Inès Dupont', 'K-2614 · Kenitra');
   assert.match(ks.motif!.aide, /jamais transmis à Keystone/);
 });
@@ -114,7 +147,7 @@ test('refus d’une absence : motif conservé et montré au salarié comme à so
   }
 });
 
-test('refus d’une demande au service RH : motif à côté de la réponse, dans l’espace du collaborateur', () => {
+test('refus d’une demande au service RH : motif à côté de la réponse, dans l’espace du collaborateur seul', () => {
   const { db, run } = fresh();
   const id = db.insert<{ id: number }>('demandesCollab', {
     empId: 2, type: 'habilitation', f: null, h: 'aipr', libelle: null, label: null, sessionId: null, motif: 'Chantier', date: '2026-10-06', statut: 'attente', reponse: null, parId: null,
@@ -130,12 +163,24 @@ test('refus d’une demande au service RH : motif à côté de la réponse, dans
   }).id;
   run(RH, 'demande.refuser', { id: id2 });
   assert.equal(loadFull(db, RH).demandesCollab.find(x => x.id === id2)?.motifRefus ?? null, null);
+  // Le manager ne reçoit pas le motif, que la demande vienne du collaborateur ou de lui (la confirmation l'annonce).
+  const id3 = db.insert<{ id: number }>('demandesCollab', {
+    empId: 2, type: 'formation', f: 'sst', h: null, libelle: null, label: null, sessionId: null, motif: 'Équipe', date: '2026-10-06', statut: 'attente', reponse: null, parId: 12,
+  }).id;
+  run(RH, 'demande.refuser', { id: id3, motif: 'Budget engagé' });
+  const vueKarim = buildSnapshot(db, KARIM).demandesCollab;
+  for (const x of [id, id3]) {
+    assert.equal(vueKarim.find(y => y.id === x)?.statut, 'refusee');
+    assert.equal(vueKarim.find(y => y.id === x)?.motifRefus, null, `demande ${x} : motif réservé au collaborateur`);
+  }
+  assert.equal(buildSnapshot(db, MEHDI).demandesCollab.find(x => x.id === id3)?.motifRefus, 'Budget engagé', 'demande faite par le manager');
 });
 
 test('refus d’une demande Keystone : motif conservé dans Cursus, absent du message envoyé à Keystone', () => {
   const { db, run } = fresh();
   const dm = loadFull(db, RH).demandesKeystone.find(x => x.statut === 'attente')!;
-  run(RH, 'keystone.refuser', { id: dm.id, motif: 'Visa impossible à obtenir à temps' });
+  // Le message de l'action, inscrit au journal (lu par le service RH), porte le motif.
+  assert.match(String(run(RH, 'keystone.refuser', { id: dm.id, motif: 'Visa impossible à obtenir à temps' })), / · motif : Visa impossible à obtenir à temps$/);
   assert.equal(loadFull(db, RH).demandesKeystone.find(x => x.id === dm.id)?.motifRefus, 'Visa impossible à obtenir à temps');
   const envois = db.sql.prepare(`SELECT contenu FROM envois WHERE type = 'demande.decision'`).all() as { contenu: string }[];
   assert.ok(envois.length > 0);

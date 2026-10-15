@@ -1,6 +1,7 @@
 // Confirmation d'un refus ou d'une action irréversible (state/confirmations.ts) : la question, ses conséquences,
-// le motif d'un refus (obligatoire, montré à l'intéressé) et le bouton qui exécute l'action. Le dialogue reste
-// ouvert si le serveur refuse (écran en retard, droits) : le message s'affiche et le motif saisi est gardé.
+// le motif d'un refus (obligatoire ; son aide nomme ceux qui le liront) et le bouton qui exécute l'action. Le
+// dialogue reste ouvert si le serveur refuse (écran en retard, droits) : le message s'affiche et le motif saisi
+// est gardé.
 import { useId, useState } from 'react';
 import { CancelButton, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine } from '../components/ui.tsx';

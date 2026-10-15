@@ -1,6 +1,7 @@
 // Robustesse de l'interface : appels sans réponse abandonnés avec un message en français, messages des
 // erreurs HTTP, actions identiques jamais envoyées deux fois en même temps, second clic d'un double clic
-// ignoré, saisie modifiée d'un dialogue détectée ; côté serveur, transitions qui ne se refont pas
+// ignoré, saisie modifiée d'un dialogue détectée, sections d'un compte rendu enregistrées au fil de la saisie
+// (refus signalé, abandon respecté) ; côté serveur, transitions qui ne se refont pas
 // (action du plan, décision d'absence, ligne de feuille de temps) quand l'écran envoie l'état attendu.
 import { afterEach, test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -9,6 +10,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 const { api, DELAI_ACTION_MS, DELAI_LECTURE_MS, messageHttp, MSG_DELAI, MSG_DELAI_ACTION, MSG_RESEAU } = await import('../client/src/api.ts');
 const { AppelsEnCours, cleAction, garde } = await import('../client/src/state/actions.ts');
 const { saisieModifiee } = await import('../client/src/state/brouillon.ts');
+const { EnregistrementAuFil } = await import('../client/src/state/enregistrement.ts');
 const { Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, loadFull } = await import('../server/src/dataset.ts');
@@ -90,6 +92,32 @@ test('même action déjà en cours : une seule requête, la même réponse pour 
   assert.equal(appels.taille, 0);
 });
 
+test('même action déjà en cours, mais un autre appel de cette action parti depuis : la dernière intention est envoyée', async () => {
+  const appels = new AppelsEnCours<string>();
+  const envoyes: boolean[] = [];
+  const d = differee<string>();
+  const info = (v: boolean) => appels.lancer(cleAction('entretien.modifier', { id: 42, info: v }), () => { envoyes.push(v); return d.p; }, 'entretien.modifier');
+  // Case cochée, décochée puis recochée avant les réponses : le serveur doit finir sur « cochée ».
+  const a = info(true), b = info(false), c = info(true);
+  assert.deepEqual(envoyes, [true, false, true]);
+  assert.equal(appels.taille, 3, 'la relecture périodique attend les trois réponses');
+  // Double clic sur la dernière : toujours dédoublonné.
+  const c2 = info(true);
+  assert.equal(envoyes.length, 3);
+  d.resoudre('ok');
+  await Promise.all([a, b, c, c2]);
+  assert.equal(appels.taille, 0);
+  // Une autre action entre-temps ne compte pas : le groupe est le nom de l'action.
+  const e = differee<string>();
+  const avancer = () => appels.lancer(cleAction('plan.avancer', { id: 4, de: 'prevu' }), () => { envoyes.push(true); return e.p; }, 'plan.avancer');
+  const p1 = avancer();
+  void appels.lancer(cleAction('absence.decider', { id: 3, ok: true }), async () => 'ok', 'absence.decider');
+  const p2 = avancer();
+  assert.equal(envoyes.length, 4, 'double clic sur « Engager » : un seul envoi');
+  e.resoudre('engagé');
+  assert.deepEqual(await Promise.all([p1, p2]), ['engagé', 'engagé']);
+});
+
 test('boutons d’action : second clic d’un double clic ignoré, aucun autre clic pendant l’appel', async () => {
   const etats: boolean[] = [];
   const agir = garde(o => etats.push(o));
@@ -126,6 +154,50 @@ test('dialogue : saisie modifiée détectée par rapport aux valeurs de départ'
   assert.equal(saisieModifiee(null, { '#csv': '' }), false);
   assert.equal(saisieModifiee(null, { '#csv': 'nom;equipe' }), true, 'sans relevé de départ, une valeur compte');
   assert.equal(saisieModifiee(depart, null), false);
+});
+
+// — Compte rendu d'entretien : enregistrement au fil de la saisie —
+
+/** Enregistrement d'essai : le serveur accepte ou refuse selon `refus`, les envois et l'état des sections sont relevés. */
+function compteRendu(initial: Record<string, string> = {}) {
+  const envois: [string, string][] = [];
+  const etat: Record<string, string | null> = {};
+  const serveur = { refus: null as string | null };
+  const e = new EnregistrementAuFil(
+    initial,
+    async (k, v) => { envois.push([k, v]); return serveur.refus ? { ok: false, error: serveur.refus } : { ok: true }; },
+    (k, refus) => { etat[k] = refus; },
+  );
+  return { e, envois, etat, serveur };
+}
+
+test('compte rendu : une section refusée n’est pas réputée enregistrée, la clôture la signale', async () => {
+  const { e, envois, etat, serveur } = compteRendu({ bilan: 'Ancien bilan' });
+  serveur.refus = 'Section non modifiable';
+  await e.enregistrer('bilan', 'Nouveau bilan');
+  assert.equal(etat.bilan, 'Section non modifiable');
+  // Avant la clôture : la section refusée est renvoyée, toujours refusée, donc signalée.
+  assert.deepEqual(await e.toutEnregistrer(['bilan', 'objectifs'], { bilan: 'Nouveau bilan', objectifs: '' }), ['bilan']);
+  assert.equal(envois.length, 2, 'la même valeur, refusée, repart');
+  serveur.refus = null;
+  assert.deepEqual(await e.toutEnregistrer(['bilan', 'objectifs'], { bilan: 'Nouveau bilan', objectifs: '' }), []);
+  assert.equal(etat.bilan, null);
+  await e.enregistrer('bilan', 'Nouveau bilan');
+  assert.equal(envois.length, 3, 'enregistrée : pas de nouvel envoi de la même valeur');
+});
+
+test('compte rendu : « Fermer sans enregistrer » n’envoie plus rien, ni au démontage du dialogue', async () => {
+  const { e, envois, serveur } = compteRendu();
+  serveur.refus = 'Section non modifiable';
+  // Fermeture : l'enregistrement échoue, la confirmation propose de fermer sans enregistrer.
+  assert.deepEqual(await e.toutEnregistrer(['bilan'], { bilan: 'Texte abandonné' }), ['bilan']);
+  assert.equal(envois.length, 1);
+  e.abandonner();
+  serveur.refus = null; // le réseau ou les droits reviennent : rien ne doit partir pour autant
+  // Démontage du dialogue (dernier envoi de ce qui reste) et champ quitté : aucun envoi.
+  assert.deepEqual(await e.toutEnregistrer(['bilan'], { bilan: 'Texte abandonné' }), ['bilan']);
+  await e.enregistrer('bilan', 'Texte abandonné, complété');
+  assert.equal(envois.length, 1, 'le texte abandonné n’arrive jamais dans le compte rendu');
 });
 
 // — Transitions côté serveur —

@@ -108,12 +108,13 @@ const refuserKeystone: ActionHandler = (ctx, p) => {
   requireRh(ctx);
   const dm = demandeEnAttente(ctx, p.id);
   const c = ctx.d.chantier(dm.chantier);
-  // Motif du refus : conservé dans Cursus (demande et journal), jamais envoyé à Keystone (texte libre).
+  // Motif du refus : conservé dans Cursus (demande, et message de l'action, lu dans le journal par le service RH),
+  // jamais envoyé à Keystone (texte libre).
   const motif = str(p.motif);
   if (motif.length > 500) throw new ActionError('Motif trop long (500 caractères au plus)');
   ctx.db.update<DemandeKeystone>('demandesKeystone', dm.id, { statut: 'refusee', decidee: ctx.d.ti, decideur: ctx.user.nom, motifRefus: motif || null });
   sendToKeystone(ctx.db, { type: 'demande.decision', demande: dm.id, reference: dm.ref, matricule: matricule(dm.empId), chantier: dm.chantier, decision: 'refusee', date: ctx.d.ti });
-  return `Demande refusée — ${ctx.d.personName(dm.empId)} · ${c ? c.chef || 'le chef de projet' : 'le chef de projet'} notifié dans Keystone`;
+  return `Demande refusée — ${ctx.d.personName(dm.empId)} · ${c ? c.chef || 'le chef de projet' : 'le chef de projet'} notifié dans Keystone${motif ? ` · motif : ${motif}` : ''}`;
 };
 
 export const voyagesActions: Record<string, ActionHandler> = {

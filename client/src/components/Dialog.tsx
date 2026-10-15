@@ -2,8 +2,9 @@
 // Ses champs se conservent pendant une reconnexion Microsoft (attribut data-brouillon, state/brouillon.ts).
 // Fermeture sans enregistrer (fond, Échap, « Annuler ») : seulement sur un clic commencé et terminé sur le
 // fond (une sélection de texte relâchée hors de la carte ne ferme rien), et après confirmation si la saisie
-// a changé. Un dialogue qui enregistre au fil de la saisie (`enregistrer`) le fait avant de se fermer ; un
-// dialogue qui montre une information une seule fois (`fermerParBouton`) ne se ferme que par son bouton.
+// a changé. Un dialogue qui enregistre au fil de la saisie (`enregistrer`) le fait avant de se fermer, et
+// « Fermer sans enregistrer » après un échec l'arrête (`abandonner`) ; un dialogue qui montre une information une
+// seule fois (`fermerParBouton`) ne se ferme que par son bouton.
 // Focus (components/focus.ts) : focus initial dans le dialogue, Tab bouclé sur ses éléments, focus rendu au
 // bouton d'origine à la fermeture ; le titre nomme le dialogue (aria-labelledby).
 // Formulaire : le dialogue est un <form> ; Entrée dans un champ active le bouton `type="submit"` (SubmitButton).
@@ -31,10 +32,12 @@ export interface ConfirmationEnLigne {
   annuler: () => void;
 }
 
-export function Dialog({ title, width, tall, children, actions, enregistrer, fermerParBouton, onSubmit, confirmation, decrit }: {
+export function Dialog({ title, width, tall, children, actions, enregistrer, abandonner, fermerParBouton, onSubmit, confirmation, decrit }: {
   title: ReactNode; width?: number; tall?: boolean; children: ReactNode; actions: ReactNode;
   /** Enregistrement au fil de la saisie : appelé avant la fermeture ; faux (échec) : confirmation demandée. */
   enregistrer?: () => Promise<boolean>;
+  /** « Fermer sans enregistrer » choisi : appelé avant la fermeture (le dialogue n'enregistre plus rien en se démontant). */
+  abandonner?: () => void;
   /** Fond et Échap sans effet : le dialogue ne se ferme que par son bouton (mot de passe affiché une seule fois). */
   fermerParBouton?: boolean;
   /** Envoi du formulaire : bouton `type="submit"` ou Entrée dans un champ. */
@@ -132,7 +135,7 @@ export function Dialog({ title, width, tall, children, actions, enregistrer, fer
               {confirmer === 'echec' ? 'Des modifications n’ont pas pu être enregistrées.' : 'La saisie n’est pas enregistrée.'} Fermer quand même ?
             </p>
             <button type="button" className="btn btn-secondary" autoFocus onClick={() => setConfirmer(null)}>Reprendre la saisie</button>
-            <button type="button" className="btn btn-primary" onClick={closeDialog}>Fermer sans enregistrer</button>
+            <button type="button" className="btn btn-primary" onClick={() => { abandonner?.(); closeDialog(); }}>Fermer sans enregistrer</button>
           </div>
         ) : confirmation ? (
           <div className="dialog-actions confirmer-fermeture">

@@ -5,7 +5,8 @@ import { useState } from 'react';
 import { PLAN_LABEL } from '../../../shared/constants.ts';
 import { addD, parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
-import { controleSession, inscritsDe, sessionPassee } from '../../../shared/rules/sessions.ts';
+import { inscritsDe, sessionPassee } from '../../../shared/rules/sessions.ts';
+import { erreursSession, type ChampSession } from '../components/controles.ts';
 import { CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine } from '../components/ui.tsx';
 import { useEnriched } from '../state/derived.ts';
@@ -27,12 +28,10 @@ export function SessionDialog({ f: f0, planId, places: places0, sessionId }: { f
   if (sessionId != null && !s) return null;
   const fm = d.fm(f);
   const waiting = emps.flatMap(e => e.certs).filter(c => c.f === f && c.key !== 'ok' && !c.session && !c.sessionPassee).length;
-  const err = controleSession(d.ti, { date, lieu, places }, s ? { dateActuelle: s.date, inscrits: s.inscrits } : {});
-  // Première erreur du contrôle (partagé avec le serveur), sous le champ concerné : dès la saisie si le champ est
-  // rempli (date passée, places en nombre insuffisant), à l'envoi s'il est vide.
-  const champ = !err ? null : /date/i.test(err) ? 'date' : /^Lieu/.test(err) ? 'lieu' : 'places';
-  const saisi = { date: !!date, lieu: !!lieu.trim(), places: !!places.trim() };
-  const erreur = (k: 'date' | 'lieu' | 'places') => champ === k ? (saisi[k] ? `${err}.` : v.erreur(`${err}.`)) : null;
+  // Sous chaque champ, tous à la fois : un champ vide à l'envoi ; une saisie incorrecte ou contraire au contrôle
+  // partagé avec le serveur (date passée, places en nombre insuffisant) dès la saisie.
+  const err = erreursSession(d.ti, { date, lieu, places }, s ? { dateActuelle: s.date, inscrits: s.inscrits } : {});
+  const erreur = (k: ChampSession) => err.vides[k] ? v.erreur(err.champs[k]) : err.champs[k];
   const passee = !!s && sessionPassee(d.ti, s.date);
   // Session à venir : convocations à renvoyer, nouvelle date à faire confirmer (comme le serveur).
   const aVenir = !!date && date >= d.ti;
@@ -41,7 +40,7 @@ export function SessionDialog({ f: f0, planId, places: places0, sessionId }: { f
   const convoquees = s ? inscritsDe(d, s).filter(i => i.convoc === 'now').length : 0;
 
   const confirm = async () => {
-    if (busy || !v.verifier(err)) return;
+    if (busy || !v.verifier(err.bloque)) return;
     setBusy(true);
     const r = s
       ? await run('session.modifier', { id: s.id, date, lieu: lieu.trim(), places: Number(places) })

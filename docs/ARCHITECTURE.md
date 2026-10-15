@@ -36,6 +36,7 @@ client/src/
   state/store.tsx  Session, données, navigation, filtres d'écran (ui), dialogue ouvert, notifications, reconnexion
   state/brouillon.ts Brouillon gardé dans l'onglet pendant une reconnexion Microsoft (page, filtres, dialogue, champs)
   state/actions.ts Actions identiques jamais envoyées deux fois à la fois, garde des boutons (useAgir : double clic)
+  state/enregistrement.ts Enregistrement au fil de la saisie (sections du compte rendu d'entretien), arrêté par l'abandon
   state/confirmations.ts Confirmations des refus (motif) et des actions irréversibles, affichées par dialogs/ConfirmerDialog.tsx
   state/derived.ts Hooks mémorisés : useDomain, useEnriched, useTrips, useRole
   components/      ui.tsx (Page, Kpi, Panel, Tag, Seg, Two, Bar…), Dialog.tsx (Dialog, Field…) et
@@ -82,11 +83,13 @@ design/            Prototype Claude Design de référence et guide du design sys
    action est écartée ; un instantané identique ne redessine rien. Échecs silencieux : la lecture suivante
    réessaie, une session expirée affiche la reconnexion.
 7. **Robustesse de l'interface** :
-   - *Actions* : une action identique (nom et paramètres) à une action en cours n'est pas renvoyée, elle reçoit
-     la même réponse (`AppelsEnCours` de `state/actions.ts`). Les boutons d'action d'un écran passent par
-     `useAgir()` : désactivés pendant l'appel, second clic d'un double clic ignoré (`detail` > 1), car l'écran a
-     pu changer sous le pointeur entre les deux clics. Les transitions reçoivent l'état affiché et ne se refont
-     pas : `plan.avancer` (`de`), `absence.decider` (même décision), `temps.removeLine` (ligne visée).
+   - *Actions* : une action identique (nom et paramètres) à la dernière action de même nom, encore en cours, n'est
+     pas renvoyée, elle reçoit la même réponse (`AppelsEnCours` de `state/actions.ts`) ; après un appel différent
+     de la même action (case cochée, décochée puis recochée), elle part, pour que la dernière intention arrive.
+     Les boutons d'action d'un écran passent par `useAgir()` : désactivés pendant l'appel, second clic d'un double
+     clic ignoré (`detail` > 1), car l'écran a pu changer sous le pointeur entre les deux clics. Les transitions
+     reçoivent l'état affiché et ne se refont pas : `plan.avancer` (`de`), `absence.decider` (même décision),
+     `temps.removeLine` (ligne visée).
    - *Appels sans réponse* : abandonnés après 20 s (lecture) ou 60 s (action), avec un message en français
      (`MSG_DELAI`, `MSG_DELAI_ACTION`) ; une erreur HTTP sans message de Cursus aussi (`messageHttp`).
      Premier chargement impossible : écran d'erreur avec « Réessayer », jamais l'écran de connexion.
@@ -96,7 +99,9 @@ design/            Prototype Claude Design de référence et guide du design sys
    - *Dialogues* (`components/Dialog.tsx`) : le fond ne ferme que sur un clic commencé et terminé sur lui (une
      sélection de texte relâchée hors de la carte ne ferme rien) ; fond, Échap ou « Annuler » demandent
      confirmation si la personne a modifié un champ depuis l'ouverture. Un dialogue qui enregistre au fil de la
-     saisie (`enregistrer`, compte rendu d'entretien) enregistre avant de se fermer, confirmation en cas d'échec ;
+     saisie (`enregistrer`, compte rendu d'entretien : `state/enregistrement.ts`) enregistre avant de se fermer,
+     confirmation en cas d'échec (« Fermer sans enregistrer » n'envoie plus rien, ni en quittant le champ pour la
+     confirmation, ni au démontage : `abandonner`) ;
      celui qui montre une information une seule fois (`fermerParBouton`, mot de passe provisoire) ne se ferme que
      par son bouton.
    - *Erreurs de rendu* (`components/ErreurRendu.tsx`) : limites autour de la page (remise à zéro au
@@ -212,7 +217,7 @@ design/            Prototype Claude Design de référence et guide du design sys
   `erreur={v.erreur(…)}`, et `if (!v.verifier(…erreurs)) return;` en tête de l'envoi (`useVerification`) ; jamais de
   bouton principal grisé pour une saisie incomplète (`tests/dialogues.test.ts`).
 - Refus ou action irréversible : `openDialog({ type: 'confirmer', c: refusAbsence(…) })` (`state/confirmations.ts`),
-  jamais `window.confirm` ; un refus porte un motif obligatoire, montré à l'intéressé.
+  jamais `window.confirm` ; un refus porte un motif obligatoire, et l'aide du motif nomme ceux qui le liront.
 - Un bouton d'action hors dialogue (valider, refuser, engager, supprimer une ligne) passe par `useAgir()` de
   `state/actions.ts` : `disabled={occupe}` et `onClick={agir(() => run(...))}` ; une transition envoie l'état
   affiché quand le serveur l'accepte (statut attendu, ligne visée).
@@ -247,13 +252,13 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `hab.lever` | empId, h | RH |
 | `hab.retirer` | empId, h, motif, date? | RH |
 | `medical.demander` | empId | RH |
-| `demande.accepter` / `demande.refuser` | id ; refus : motif? (500 caractères, montré au collaborateur et au manager demandeur, `motifRefus`) | RH |
+| `demande.accepter` / `demande.refuser` | id ; refus : motif? (500 caractères, `motifRefus`, montré au collaborateur seul, même quand son manager a fait la demande) | RH |
 | `demande.formation` | f (ou `autre`), libelle, sessionId, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `demande.habilitation` | h, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `voyage.creer` | empId, dest, depart, retour, motif | RH |
 | `formalite.enregistrer` | empId, kind (`passeport`/`visa`/`vaccin`), numero, expire, dest, visaType, obtenu, v, date | RH (écrit dans le dossier), ou le collaborateur pour lui-même (déclaration en attente, voir ci-dessous) |
 | `voyages.importer` | texte (CSV) | RH |
-| `keystone.accepter` / `keystone.refuser` | id ; refus : motif? (conservé dans Cursus, jamais transmis à Keystone) | RH (demande en attente ; l'acceptation revalide affectation, chantier actif, destination, effectifs et l'absence de déplacement déjà créé ; la demande reste en base avec statut, date et décideur) |
+| `keystone.accepter` / `keystone.refuser` | id ; refus : motif? (conservé dans Cursus, demande et message du journal, jamais transmis à Keystone) | RH (demande en attente ; l'acceptation revalide affectation, chantier actif, destination, effectifs et l'absence de déplacement déjà créé ; la demande reste en base avec statut, date et décideur) |
 | `plan.importer` | texte, exercice, mode (`add`/`replace`) | RH ; `replace` (supprime les lignes prévues) : administrateur RH |
 | `budget.enveloppes` | exercice, enveloppes {équipe: montant} | RH |
 | `plan.avancer` | id, de? (statut affiché : déjà dépassé, rien n'est refait ; revenu à « prévue », refus) | RH |
@@ -263,7 +268,7 @@ design/            Prototype Claude Design de référence et guide du design sys
 | `temps.validate` / `temps.reject` | empId, week, comment? | manager direct ou RH (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence) |
 | `temps.pushSage` | — | administrateur RH |
 | `absence.demander` | empId, kind (`CP`/`RTT`/`RECUP`), du, au | intéressé ou RH (demande, refusée si ces jours portent des heures sur une feuille validée) ; manager direct (posée et validée, refusée si des heures sont saisies ces jours-là) |
-| `absence.decider` | id, ok, motif? (refus : montré au salarié, `motifRefus`) | manager direct ou RH (validation refusée si des heures sont saisies ces jours-là ; même décision déjà prise : rien n'est refait) |
+| `absence.decider` | id, ok, motif? (refus : `motifRefus`, montré au salarié et à son manager) | manager direct ou RH (validation refusée si des heures sont saisies ces jours-là ; même décision déjà prise : rien n'est refait) |
 | `absence.signaler` | empId, du, au | intéressé, manager direct ou RH : absence imprévue « à qualifier », en vigueur aussitôt |
 | `absence.saisir` | empId, nature, du, au, justificatif, justificatifLe | RH (absence hors congés validée d’emblée) |
 | `absence.qualifier` | id, nature, du?, au?, justificatif, justificatifLe | RH (absence signalée ou qualifiée, hors congés) |

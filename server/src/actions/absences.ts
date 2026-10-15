@@ -44,7 +44,7 @@ const decider: ActionHandler = (ctx, p) => {
   // Pas de double paiement : les heures saisies ces jours-là doivent d'abord être retirées de la feuille de temps.
   const heures = ok ? heuresAvantAbsence(ctx.d, a, 'avant de valider l’absence') : null;
   if (heures) throw new ActionError(heures.text);
-  // Motif du refus, montré au salarié dans ses absences (l'écran l'exige ; un appel sans motif reste accepté).
+  // Motif du refus, montré au salarié et à son manager dans leurs absences (l'écran l'exige ; un appel sans motif reste accepté).
   const motif = ok ? '' : str(p.motif);
   if (motif.length > 500) throw new ActionError('Motif trop long (500 caractères au plus)');
   ctx.db.update<Absence>('absences', a.id, { statut: ok ? 'validee' : 'refusee', keystone: ok, motifRefus: motif || null });

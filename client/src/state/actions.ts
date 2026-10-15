@@ -11,17 +11,30 @@ export const cleAction = (nom: string, payload: Record<string, unknown>) => `${n
 
 /**
  * Appels en cours, par clé : un appel identique à un appel en cours (double clic, double envoi) reçoit la
- * même réponse, sans nouvelle requête ni second message.
+ * même réponse, sans nouvelle requête ni second message, s'il est aussi le dernier lancé de son `groupe`
+ * (le nom de l'action). Case cochée, décochée puis recochée avant les réponses : le troisième appel a la clé
+ * du premier, encore en cours, mais le deuxième est parti entre-temps ; il est envoyé, sinon le serveur
+ * garderait la case décochée.
  */
 export class AppelsEnCours<T> {
   private enCours = new Map<string, Promise<T>>();
+  /** Dernière clé lancée de chaque groupe, tant qu'elle est en cours. */
+  private derniere = new Map<string, string>();
+  private n = 0;
   /** Nombre d'appels en cours (la relecture périodique des données attend qu'il n'y en ait plus). */
-  get taille(): number { return this.enCours.size; }
-  lancer(cle: string, appel: () => Promise<T>): Promise<T> {
+  get taille(): number { return this.n; }
+  lancer(cle: string, appel: () => Promise<T>, groupe = cle): Promise<T> {
     const deja = this.enCours.get(cle);
-    if (deja) return deja;
-    const p: Promise<T> = appel().finally(() => { if (this.enCours.get(cle) === p) this.enCours.delete(cle); });
+    if (deja && this.derniere.get(groupe) === cle) return deja;
+    this.n++;
+    const p: Promise<T> = appel().finally(() => {
+      this.n--;
+      if (this.enCours.get(cle) !== p) return;
+      this.enCours.delete(cle);
+      if (this.derniere.get(groupe) === cle) this.derniere.delete(groupe);
+    });
     this.enCours.set(cle, p);
+    this.derniere.set(groupe, cle);
     return p;
   }
 }

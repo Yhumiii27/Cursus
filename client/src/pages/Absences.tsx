@@ -193,7 +193,8 @@ export function Absences() {
               <tbody>
                 {absList.map(({ a, e, canDecide, canProlong, annulation }) => {
                   const m = data.missions.find(x => x.empId === a.empId && x.du <= a.au && x.au >= a.du);
-                  const ks = a.statut === 'demandee' ? `Validation : ${d.mgrName(d.mgrOf(e))}`
+                  const mgr = d.mgrOf(e);
+                  const ks = a.statut === 'demandee' ? `Validation : ${d.mgrName(mgr)}`
                     : a.statut === 'signalee' ? 'À qualifier par le service RH'
                     : a.statut === 'validee' ? (estConge(a.type) ? 'Transmise à Keystone' : 'Indisponibilité transmise à Keystone') : '';
                   return (
@@ -212,9 +213,10 @@ export function Absences() {
                       <td className="right">
                         <div className="actions-end">
                           {canDecide && <>
-                            {/* Refus : confirmation et motif, montré au salarié dans ses absences. */}
+                            {/* Refus : confirmation et motif, montré au salarié et à son manager dans leurs absences. */}
                             <button type="button" className="btn btn-ghost btn-sm" disabled={occupe}
-                              onClick={() => openDialog({ type: 'confirmer', c: refusAbsence(a, e.nom, `${ABS_LABEL[a.type]}, ${periodeTexte(a.du, a.au)}`) })}>Refuser</button>
+                              onClick={() => openDialog({ type: 'confirmer', c: refusAbsence(a, e.nom, `${ABS_LABEL[a.type]}, ${periodeTexte(a.du, a.au)}`,
+                                mgr && mgr !== me ? d.personName(mgr) : null) })}>Refuser</button>
                             <button type="button" className="btn btn-secondary btn-sm" disabled={occupe} onClick={agir(() => run('absence.decider', { id: a.id, ok: true }))}>Valider</button>
                           </>}
                           {rh && prolongeable(a) && (

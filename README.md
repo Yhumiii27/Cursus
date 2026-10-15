@@ -42,7 +42,8 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
   Pas d'accès aux données de santé (seul le verdict d'aptitude est transmis).
 - **Utilisateur** (collaborateur) : ses formations, habilitations, voyages, heures,
   absences, entretiens et demandes au service RH. Un refus (demande d'absence, demande au service RH)
-  lui parvient avec son motif, obligatoire à l'écran de celui qui refuse.
+  lui parvient avec son motif, obligatoire à l'écran de celui qui refuse ; le motif d'un refus d'absence
+  est aussi lu par son manager, celui d'une demande au service RH par lui seul.
   Les documents de voyage qu'il déclare (passeport, visa, vaccination) n'entrent dans son
   dossier qu'après validation par le service RH.
 

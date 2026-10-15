@@ -1,7 +1,8 @@
 // Confirmations des refus et des actions irréversibles, affichées par dialogs/ConfirmerDialog.tsx à la place des
 // window.confirm et des boutons qui agissaient en un clic : ce qui va se passer, le bouton qui l'exécute et, pour
-// un refus, le motif montré à l'intéressé (obligatoire). Une confirmation n'est faite que de données : comme tout
-// dialogue, elle se garde dans le brouillon d'une reconnexion Microsoft (state/brouillon.ts).
+// un refus, le motif (obligatoire), dont l'aide nomme ceux qui le liront (instantanés de server/src/dataset.ts).
+// Une confirmation n'est faite que de données : comme tout dialogue, elle se garde dans le brouillon d'une
+// reconnexion Microsoft (state/brouillon.ts).
 // Les actions confirmées gardent leurs contrôles serveur : un écran en retard (demande déjà traitée, feuille
 // modifiée ailleurs) est refusé par le serveur et le dialogue reste ouvert avec le message.
 import { fH, plural } from '../../../shared/format.ts';
@@ -34,7 +35,8 @@ const motifRefus = (lecteurs: string, placeholder: string) => ({
 /**
  * Refus d'une demande adressée au service RH (formation, habilitation, document déclaré). `objet` : intitulé
  * de la demande ; `manager` : nom du manager qui l'a faite pour son équipe ; `retire` : déclaration déjà au
- * dossier, que le refus en retire.
+ * dossier, que le refus en retire. Le refus et son motif ne sont montrés qu'au collaborateur (server/src/dataset.ts) :
+ * le manager qui a fait la demande n'en voit rien dans son espace.
  */
 export function refusDemande(r: { id: number; type: string }, nom: string, objet: string, opts: { manager?: string | null; retire?: boolean } = {}): Confirmation {
   const document = r.type === 'document';
@@ -43,25 +45,29 @@ export function refusDemande(r: { id: number; type: string }, nom: string, objet
     question: `Refuser ${document ? 'la déclaration' : 'la demande'} de ${nom} : ${objet} ?`,
     suites: [
       document ? (opts.retire ? 'Le document, déjà enregistré dans le dossier avant la validation RH, en est retiré.' : 'Le dossier n’est pas modifié.') : '',
-      `${nom} voit le refus et son motif dans son espace${opts.manager ? `, comme ${opts.manager}, qui a fait la demande` : ''}.`,
+      `${nom} voit le refus et son motif dans son espace.`,
+      opts.manager ? `Le refus n’apparaît pas dans l’espace de ${opts.manager}, qui a fait la demande : à prévenir si besoin.` : '',
     ].filter(Boolean),
     bouton: document ? 'Refuser la déclaration' : 'Refuser la demande',
     action: 'demande.refuser',
     payload: { id: r.id },
-    motif: motifRefus(opts.manager ? `${nom} et de son manager` : nom, document ? 'Document illisible, date d’expiration erronée…' : 'Budget de l’exercice engagé, formation interne prévue…'),
+    motif: motifRefus(nom, document ? 'Document illisible, date d’expiration erronée…' : 'Budget de l’exercice engagé, formation interne prévue…'),
   };
 }
 
-/** Refus d'une demande de congé (CP, RTT, récupération) par le manager ou le service RH. `quoi` : « CP du … au … ». */
-export function refusAbsence(a: { id: number }, nom: string, quoi: string): Confirmation {
+/**
+ * Refus d'une demande de congé (CP, RTT, récupération) par le manager ou le service RH. `quoi` : « CP du … au … » ;
+ * `manager` : nom du manager du salarié quand ce n'est pas lui qui refuse (il voit le motif dans ses absences).
+ */
+export function refusAbsence(a: { id: number }, nom: string, quoi: string, manager?: string | null): Confirmation {
   return {
     titre: 'Refuser la demande d’absence',
     question: `Refuser la demande de ${nom} : ${quoi} ?`,
-    suites: ['Le solde n’est pas débité et Keystone n’est pas prévenu.', `${nom} voit le refus et son motif dans ses absences.`],
+    suites: ['Le solde n’est pas débité et Keystone n’est pas prévenu.', `${nom} voit le refus et son motif dans ses absences${manager ? `, comme son manager, ${manager}` : ''}.`],
     bouton: 'Refuser la demande',
     action: 'absence.decider',
     payload: { id: a.id, ok: false },
-    motif: motifRefus(nom, 'Période de forte activité, effectif minimum non atteint…'),
+    motif: motifRefus(manager ? `${nom} et de son manager, ${manager}` : nom, 'Période de forte activité, effectif minimum non atteint…'),
   };
 }
 
@@ -70,11 +76,11 @@ export function refusKeystone(dm: { id: number }, nom: string, chantier: string)
   return {
     titre: 'Refuser la demande Keystone',
     question: `Refuser le déplacement de ${nom} pour le chantier ${chantier} ?`,
-    suites: ['Keystone reçoit la décision et le chef de projet en est notifié, sans le motif.', 'La demande reste dans Cursus, refusée, avec son motif, sa date et votre nom.'],
+    suites: ['Keystone reçoit la décision et le chef de projet en est notifié, sans le motif.', 'Le refus est inscrit au journal de Cursus (Paramètres) avec son motif, sa date et votre nom.'],
     bouton: 'Refuser la demande',
     action: 'keystone.refuser',
     payload: { id: dm.id },
-    motif: { label: 'Motif du refus', requis: true, aide: 'Le motif reste dans Cursus (service RH, journal) : il n’est jamais transmis à Keystone.', placeholder: 'Visa impossible à obtenir à temps, habilitation manquante…' },
+    motif: { label: 'Motif du refus', requis: true, aide: 'Le motif reste dans Cursus, lisible du service RH dans le journal : il n’est jamais transmis à Keystone.', placeholder: 'Visa impossible à obtenir à temps, habilitation manquante…' },
   };
 }
 

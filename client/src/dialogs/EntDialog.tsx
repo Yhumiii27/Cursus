@@ -1,7 +1,9 @@
 // Compte rendu d'entretien : sections rédigées par l'évaluateur et le salarié, clôture, signatures, impression.
 // Chaque section s'enregistre en quittant le champ ; elle n'est réputée enregistrée qu'après la réponse du
 // serveur. Une section refusée (ou un réseau coupé) interrompt la clôture et la signature : le compte rendu ne
-// serait plus modifiable ensuite. La fermeture enregistre d'abord, et demande confirmation en cas d'échec.
+// serait plus modifiable ensuite. La fermeture enregistre d'abord, et demande confirmation en cas d'échec ;
+// « Fermer sans enregistrer » abandonne la saisie restante : ni le champ quitté pour cette confirmation, ni le
+// démontage du dialogue ne l'envoient.
 // Clore et signer sont définitifs : une confirmation remplace les boutons avant l'envoi.
 import { useEffect, useRef, useState } from 'react';
 import { ENT_TYPES, type EntSection } from '../../../shared/constants.ts';
@@ -12,11 +14,18 @@ import { CancelButton, Dialog, Field } from '../components/Dialog.tsx';
 import { Fine } from '../components/ui.tsx';
 import { printDocument, type PrintSection } from '../print.ts';
 import { useDomain, useRole } from '../state/derived.ts';
+import { EnregistrementAuFil } from '../state/enregistrement.ts';
 import { useStore } from '../state/store.tsx';
 
 const FIN_CARRIERE: EntSection = ['fincarriere', 'Fin de carrière : maintien dans l’emploi, aménagements souhaités', 'sal'];
 const INFO_LABEL = 'Information remise : CPF, VAE, conseil en évolution professionnelle (CEP), abondement employeur';
 const whoLabel = (who: EntSection[2]) => who === 'mgr' ? 'Évaluateur' : 'Salarié';
+/**
+ * Focus pris par la confirmation de fermeture affichée après un échec (« Reprendre la saisie » ciblé à son
+ * apparition, ou bouton choisi) : la section n'est pas renvoyée en quittant le champ, sans quoi un envoi parti
+ * avant « Fermer sans enregistrer » écrirait après coup le texte abandonné.
+ */
+const versConfirmation = (cible: EventTarget | null) => cible instanceof Element && !!cible.closest('.confirmer-fermeture');
 
 export function EntDialog({ entId }: { entId: number }) {
   const d = useDomain();
@@ -25,16 +34,24 @@ export function EntDialog({ entId }: { entId: number }) {
   const x = d.ds.entretiens.find(y => y.id === entId);
   const e = x ? d.emp(x.empId) : undefined;
 
-  // Par section : texte saisi (local), valeur enregistrée par le serveur, dernière valeur envoyée, motif d'un refus.
+  // Par section : texte saisi (local) et motif d'un refus ; l'enregistrement suit ce que le serveur a accepté.
   const [vals, setVals] = useState<Record<string, string>>(() => ({ ...(x?.cr ?? {}) }));
   const [info, setInfo] = useState(!!x?.info);
   const [busy, setBusy] = useState(false);
   // Clôture ou signature demandée, en attente de confirmation.
   const [aConfirmer, setAConfirmer] = useState<'entretien.clore' | 'entretien.signer' | null>(null);
   const [echecs, setEchecs] = useState<Record<string, string>>({});
-  const saved = useRef<Record<string, string>>({ ...(x?.cr ?? {}) });
-  const envoye = useRef<Record<string, string>>({ ...(x?.cr ?? {}) });
-  const queue = useRef<Promise<unknown>>(Promise.resolve());
+  const runRef = useRef(run);
+  runRef.current = run;
+  const [enregistrement] = useState(() => new EnregistrementAuFil(
+    x?.cr ?? {},
+    (section, value) => runRef.current('entretien.modifier', { id: entId, section, value }, { silent: true }),
+    (k, refus) => setEchecs(s => {
+      const n = { ...s };
+      if (refus) n[k] = refus; else delete n[k];
+      return n;
+    }),
+  ));
   const valsRef = useRef(vals);
   valsRef.current = vals;
 
@@ -47,34 +64,13 @@ export function EntDialog({ entId }: { entId: number }) {
   const editableRef = useRef(editable);
   editableRef.current = editable;
 
-  /** Enregistre une section si elle a changé ; les envois sont sérialisés. */
-  const save = (k: string, value: string) => {
-    if (!x || (envoye.current[k] ?? '') === value) return queue.current;
-    envoye.current[k] = value;
-    queue.current = queue.current.then(async () => {
-      const r = await run('entretien.modifier', { id: x.id, section: k, value }, { silent: true });
-      if (r.ok) {
-        saved.current[k] = value;
-        setEchecs(e => { const n = { ...e }; delete n[k]; return n; });
-      } else {
-        // Refusée : la section reste à enregistrer, un nouvel envoi de la même valeur la renverra.
-        if (envoye.current[k] === value) envoye.current[k] = saved.current[k] ?? '';
-        setEchecs(e => ({ ...e, [k]: r.error || 'non enregistrée' }));
-      }
-    });
-    return queue.current;
-  };
   /** Enregistre les sections modifiables ; renvoie celles qui ne le sont pas telles qu'affichées. */
-  const flush = async (): Promise<string[]> => {
-    editableRef.current.forEach(k => save(k, valsRef.current[k] ?? ''));
-    await queue.current;
-    return editableRef.current.filter(k => (saved.current[k] ?? '') !== (valsRef.current[k] ?? ''));
-  };
+  const flush = () => enregistrement.toutEnregistrer(editableRef.current, valsRef.current);
   // Fermeture (Échap, fond, « Fermer ») : enregistrement d'abord (`enregistrer` de <Dialog>). Dialogue démonté
-  // autrement (changement d'espace) : dernier envoi de ce qui reste.
-  const flushRef = useRef(flush);
-  flushRef.current = flush;
-  useEffect(() => () => { flushRef.current(); }, []);
+  // autrement (changement d'espace) : dernier envoi de ce qui reste, sauf si la personne a choisi « Fermer sans
+  // enregistrer » (`abandonner` de <Dialog>, qui arrête l'enregistrement) : le texte abandonné n'arrive jamais
+  // dans le compte rendu.
+  useEffect(() => () => { enregistrement.toutEnregistrer(editableRef.current, valsRef.current); }, [enregistrement]);
 
   if (!x || !e || !T0) return null;
 
@@ -140,7 +136,8 @@ export function EntDialog({ entId }: { entId: number }) {
   };
 
   return (
-    <Dialog title={T0.nom} width={720} tall enregistrer={async () => (await flush()).length === 0} confirmation={confirmation} actions={<>
+    <Dialog title={T0.nom} width={720} tall enregistrer={async () => (await flush()).length === 0} abandonner={() => enregistrement.abandonner()}
+      confirmation={confirmation} actions={<>
       <CancelButton label="Fermer" />
       {!!x.signSal && <button type="button" className="btn btn-ghost" onClick={download}>Télécharger le compte rendu</button>}
       {canSign && <button type="button" className="btn btn-primary" disabled={busy} onClick={() => setAConfirmer('entretien.signer')}>Signer le compte rendu</button>}
@@ -159,7 +156,7 @@ export function EntDialog({ entId }: { entId: number }) {
             {ed
               ? <textarea className="input mid" id={`ent-${k}`} rows={3} value={vals[k] ?? ''} aria-invalid={echecs[k] ? true : undefined}
                   aria-describedby={echecs[k] ? `ent-${k}-echec` : undefined}
-                  onChange={ev => setVals(s => ({ ...s, [k]: ev.target.value }))} onBlur={ev => { save(k, ev.target.value); }} />
+                  onChange={ev => setVals(s => ({ ...s, [k]: ev.target.value }))} onBlur={ev => { if (!versConfirmation(ev.relatedTarget)) enregistrement.enregistrer(k, ev.target.value); }} />
               : <div className="text-n300" style={{ fontSize: 14, whiteSpace: 'pre-wrap' }}>{x.cr[k] || 'Non renseigné'}</div>}
             {ed && echecs[k] && <p className="form-error" id={`ent-${k}-echec`}>Non enregistrée : {echecs[k]}</p>}
           </Field>

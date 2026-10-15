@@ -402,9 +402,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     return r;
   }, [notify, recevoir, attendre, suivre, rafraichir]);
 
-  // La même action déjà en cours (double clic, double envoi) n'est pas renvoyée : la même réponse est rendue.
+  // La même action déjà en cours (double clic, double envoi) n'est pas renvoyée : la même réponse est rendue,
+  // sauf si un appel différent de cette action est parti depuis (la dernière intention doit arriver).
   const run = useCallback<Store['run']>((name, payload = {}, opts) =>
-    appels.current.lancer(cleAction(name, payload), () => executer(name, payload, opts)), [executer]);
+    appels.current.lancer(cleAction(name, payload), () => executer(name, payload, opts), name), [executer]);
 
   const runIntent = useCallback((intent: UiIntent) => {
     switch (intent.type) {

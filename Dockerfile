@@ -1,26 +1,43 @@
-# Image de mise en ligne de Cursus (Coolify ou tout hébergeur Docker).
+# Image de mise en ligne de Cursus (Coolify ou tout hébergeur Docker ; README.md, « Mise en ligne »).
 # - Port interne : 3000.
-# - Données : /data (base SQLite et sauvegardes) — y monter un volume persistant, sinon elles sont perdues à chaque déploiement.
-# - Variables obligatoires : CURSUS_SECRET et KEYSTONE_API_KEY (README.md, « Configuration »).
-# Node 22.18 ou plus récent est requis : le serveur exécute directement ses fichiers TypeScript.
-FROM node:22-bookworm-slim
+# - Données : /data (base SQLite et sauvegardes) — y monter un volume persistant, sinon elles sont perdues à chaque
+#   déploiement. Le volume doit être accessible en écriture au compte `cursus` de l'image (volume nommé : automatique).
+# - Variables obligatoires : CURSUS_SECRET et KEYSTONE_API_KEY.
+# - Écoute sur toutes les interfaces du conteneur (le proxy de l'hébergeur est dans un autre conteneur) ; en-têtes
+#   X-Forwarded-* crus des seules adresses privées du réseau Docker.
+# Hors conteneur, l'installation se fait par le service systemd (deploy/cursus.service, docs/DEPLOIEMENT.md).
 
+# — Construction de l'interface (dépendances de développement : Vite, TypeScript) —
+FROM node:22-slim AS construction
 WORKDIR /app
-
 COPY package.json package-lock.json ./
-RUN npm ci
-
+RUN npm ci --no-audit --no-fund
 COPY . .
 RUN npm run build
 
-# Écoute sur toutes les interfaces du conteneur (le proxy de l'hébergeur est dans un autre conteneur) ;
-# en-têtes X-Forwarded-* crus des seules adresses privées du réseau Docker.
+# — Exécution : dépendances de production seulement, compte sans droits —
+FROM node:22-slim
 ENV NODE_ENV=production \
-    PORT=3000 \
+    TZ=Europe/Paris \
     CURSUS_HOST=0.0.0.0 \
     CURSUS_TRUST_PROXY=loopback,uniquelocal \
-    CURSUS_DB=/data/cursus.db \
-    TZ=Europe/Paris
-
+    CURSUS_API_PORT=3000 \
+    CURSUS_DB=/data/cursus.db
+WORKDIR /opt/cursus
+COPY package.json package-lock.json ./
+RUN npm ci --omit=dev --no-audit --no-fund && npm cache clean --force
+COPY server ./server
+COPY shared ./shared
+COPY docs/keystone-openapi.json ./docs/keystone-openapi.json
+COPY --from=construction /app/dist ./dist
+# Compte système dédié, sans shell ; la base et ses sauvegardes dans le volume, fermé aux autres comptes (700).
+RUN useradd --system --home-dir /data --shell /usr/sbin/nologin cursus \
+ && install -d -o cursus -g cursus -m 700 /data
+USER cursus
+VOLUME /data
 EXPOSE 3000
-CMD ["node", "server/src/index.ts"]
+# Point de santé : appel local, d'où l'état de la base, la version et les envois en échec (server/src/supervision.ts).
+HEALTHCHECK --interval=30s --timeout=5s --start-period=60s --retries=3 \
+  CMD ["node", "-e", "fetch('http://127.0.0.1:' + (process.env.CURSUS_API_PORT || 3000) + '/api/health').then(r => process.exit(r.ok ? 0 : 1), () => process.exit(1))"]
+# SIGTERM (docker stop) : Cursus finit les requêtes en cours (10 s au plus), ferme la base et retire son verrou.
+CMD ["node", "--disable-warning=ExperimentalWarning", "server/src/index.ts"]

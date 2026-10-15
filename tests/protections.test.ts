@@ -1,7 +1,7 @@
 // Protections de l'API : falsification de requête (CSRF), limitation du débit (par adresse IP, par compte, connexion
 // Microsoft, clés Keystone invalides ; 429 avec Retry-After, mémoire bornée) et neutralisation des formules dans les
 // exports CSV. Les scénarios HTTP lancent un vrai serveur de démonstration (node server/src/index.ts) sur une base
-// temporaire, depuis un dossier temporaire muni d'une interface minimale.
+// temporaire, depuis un dossier temporaire muni d'une interface minimale (CURSUS_DIST).
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -45,7 +45,7 @@ async function serveur(name: string, env: Record<string, string> = {}) {
   const port = await freePort();
   const p = spawn(process.execPath, [join(ROOT, 'server/src/index.ts')], {
     cwd: dir, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { PATH: process.env.PATH ?? '', CURSUS_API_PORT: String(port), CURSUS_DB: join(dir, `${name}.db`), CURSUS_DEMO: '1', CURSUS_TODAY: '2026-10-10', ...env },
+    env: { PATH: process.env.PATH ?? '', CURSUS_API_PORT: String(port), CURSUS_DB: join(dir, `${name}.db`), CURSUS_DIST: join(dir, 'dist'), CURSUS_DEMO: '1', CURSUS_TODAY: '2026-10-10', ...env },
   });
   procs.push(p);
   let out = '';

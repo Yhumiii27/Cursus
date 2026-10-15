@@ -10,7 +10,8 @@ Construit à partir de la maquette Claude Design « Outil RH gestion formations 
 
 ## Démarrer
 
-Prérequis : Node.js 22.18 ou plus récent (aucune base de données à installer : SQLite est intégré à Node).
+Prérequis : Node.js 22.18 ou plus récent, version 22 de référence (`.nvmrc` : `nvm use`) ; aucune base de données à
+installer : SQLite est intégré à Node.
 
 ```bash
 npm install
@@ -21,7 +22,8 @@ npm run dev
 ```
 
 Ouvrir http://localhost:5173. `npm run dev` active le mode démonstration (`CURSUS_DEMO=1`) :
-au premier lancement, la base `data/cursus.db` est créée avec les données de démonstration
+au premier lancement, la base `data/cursus.db` (dossier du code, quel que soit le dossier de lancement) est créée
+avec les données de démonstration
 (24 collaborateurs d'un site industriel, CCN Industries chimiques). Hors démonstration, une base
 vide le reste.
 
@@ -97,9 +99,11 @@ Relancez `npm run app` après une modification du code ou un déplacement du dos
 | Commande | Rôle |
 | --- | --- |
 | `npm run dev` | API (port 3210) + interface Vite (port 5173) avec rechargement à chaud, en mode démonstration (`CURSUS_DEMO=0 npm run dev` pour le couper) |
-| `npm run build` puis `npm start` | Production : l'API sert l'interface compilée sur le port `PORT` (3210 par défaut), derrière un reverse proxy HTTPS — voir `docs/DEPLOIEMENT.md` |
+| `npm run build` puis `npm start` | Production (`NODE_ENV=production`, Windows compris) : l'API sert l'interface compilée sur le port `PORT` (3210 par défaut), derrière un reverse proxy HTTPS — voir `docs/DEPLOIEMENT.md` (service systemd et fichiers prêts à copier de `deploy/`, ou `Dockerfile` facultatif) |
 | `npm test` | Tests des règles métier, des droits d'accès et de la sécurité |
 | `npm run typecheck` | Vérification TypeScript |
+| `npm run test:coverage` | Tests avec mesure de la couverture du serveur et de `shared/` (client et tests exclus) ; échoue sous les seuils fixés dans `package.json` |
+| `npm run check` | Tout ce que vérifie la CI avant d'accepter une modification : typage, tests avec seuils de couverture, compilation de l'interface |
 | `CURSUS_DEMO=1 npm run reset-demo` | Recharge les données de démonstration (efface la base ; refusé hors démonstration) |
 | `npm run backup` | Copie à chaud vérifiée de la base dans `data/backups`, avec rotation |
 | `npm run restore -- <fichier>` | Remplace la base par une sauvegarde (serveur arrêté) |
@@ -117,7 +121,9 @@ qu'en partie (les quatre variables `CURSUS_OIDC_*` et `CURSUS_PUBLIC_URL`, ou au
 qui n'est pas un GUID ou une adresse publique qui n'est pas en https, ou si `CURSUS_OIDC_AUTORITE` est
 définie ; hors production, il les signale seulement.
 De même pour l'envoi des e-mails (`docs/EMAILS.md`) : `CURSUS_MAIL_FROM` qui n'est pas une adresse, application
-d'envoi non entièrement désignée (`CURSUS_MAIL_*` ou `CURSUS_OIDC_*`), variables `CURSUS_MAIL_*` sans `CURSUS_MAIL_FROM`.
+d'envoi non entièrement désignée (`CURSUS_MAIL_*` ou `CURSUS_OIDC_*`), variables `CURSUS_MAIL_*` sans `CURSUS_MAIL_FROM` ;
+et pour un `CURSUS_SUPERVISION_TOKEN` de moins de 32 caractères. En production toujours, il refuse une base restée
+accessible à d'autres comptes que le sien (droits impossibles à ramener à `600`).
 En production, la démonstration refuse aussi (403) toute requête relayée par un proxy (`Forwarded`,
 `X-Forwarded-*`) ou adressée à un autre nom que 127.0.0.1 / localhost / [::1].
 
@@ -127,12 +133,14 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `PORT` / `CURSUS_API_PORT` | Port du serveur (3210 par défaut) |
 | `CURSUS_HOST` / `HOST` | Adresse d'écoute : 127.0.0.1 en production (derrière le reverse proxy), 0.0.0.0 sinon |
 | `CURSUS_TRUST_PROXY` | Proxys dont les en-têtes `X-Forwarded-*` sont crus (`loopback` par défaut : proxy sur la même machine) |
-| `CURSUS_DB` | Fichier SQLite (`data/cursus.db` par défaut) |
+| `CURSUS_DB` | Fichier SQLite (`data/cursus.db` du dossier du code par défaut ; un chemin relatif part du dossier de lancement). Son chemin complet s'affiche au démarrage ; le fichier est réservé au compte du serveur (`600`, dossier en `700`) |
+| `CURSUS_DIST` | Interface compilée servie (`dist/` du dossier du code par défaut) : pour les tests automatiques et une installation qui la place ailleurs |
+| `CURSUS_SUPERVISION_TOKEN` | Jeton (32 caractères au moins) de l'outil de supervision : avec `Authorization: Bearer <jeton>`, `/api/health` donne aussi la version, le mode et les envois en échec. Facultatif ; ce détail est toujours donné à un appel local fait sur la machine (dans le conteneur avec Docker : `docker exec`) |
 | `CURSUS_BACKUP_DIR` | Dossier des sauvegardes (`backups/` à côté de la base par défaut) |
 | `CURSUS_BACKUP_KEEP` | Sauvegardes conservées par type (14 par défaut, `0` pour tout garder) |
 | `CURSUS_TODAY` | Fige la date du jour (AAAA-MM-JJ), utile pour la démonstration — les données de démo sont datées d'octobre 2026. Refusée en production |
 | `CURSUS_DEMO` | `1` pour activer le mode démonstration (connexion libre, sélecteur de vue, réinitialisation, données fictives dans une base vide). Inactif par défaut ; en production, admis seulement pour l'application de bureau (`CURSUS_HOST=127.0.0.1` explicite), jamais derrière le reverse proxy |
-| `CURSUS_SECRET` | Clé de signature des sessions, 32 caractères au moins (`openssl rand -hex 32`). Obligatoire en production ; ailleurs, générée et stockée en base |
+| `CURSUS_SECRET` | Clé de signature des sessions, 32 caractères au moins (`openssl rand -hex 32`). Obligatoire en production ; ailleurs, générée et stockée en base, puis retirée de la base au premier démarrage avec la variable |
 | `CURSUS_INSECURE_COOKIE` | `1` : cookie sans l'attribut `Secure`, pour l'application de bureau en http://127.0.0.1 uniquement. Refusée en production hors application de bureau |
 | `KEYSTONE_API_KEY` | Clé attendue des appels entrants de Keystone (en-tête `X-Api-Key`). Obligatoire en production ; sans elle, les routes Keystone répondent 503. La clé `demo-keystone` n'est acceptée qu'en mode démonstration, quand la variable est vide |
 | `KEYSTONE_URL`, `KEYSTONE_TOKEN` | Envois à Keystone : adresse de base (`POST {KEYSTONE_URL}/api/cursus/v1/evenements`) et jeton (`Authorization: Bearer`), obligatoire en production avec l'adresse. Sans `KEYSTONE_URL`, les messages sont seulement tracés dans le journal (simulation) |
@@ -163,6 +171,26 @@ refuse de démarrer si un autre serveur l'utilise déjà, ou si une version plus
 
 Planification (timer systemd), copie chiffrée hors de la machine, restauration pas à pas et test
 périodique : `docs/SAUVEGARDE.md`.
+
+## Exploitation
+
+- **Installation** : `docs/DEPLOIEMENT.md` (machine Linux louée dans l'UE, service systemd, Caddy). Les unités systemd,
+  la configuration Caddy et le script de copie externe sont livrés prêts à copier dans `deploy/` ; un `Dockerfile`
+  facultatif sert si l'hébergeur impose des conteneurs.
+- **Démarrage** : chemins complets de la base et des sauvegardes affichés ; port déjà pris, interface non compilée ou
+  base accessible à d'autres comptes signalés en clair (code de sortie 1 quand le démarrage est impossible).
+- **Arrêt** (SIGTERM, Ctrl+C) : requêtes en cours terminées (10 s au plus), base fermée, verrou retiré.
+- **Santé** : `GET /api/health`, sans connexion : `{"statut":"ok","base":"ok"}` (503 si la base ne répond pas).
+- **Disque** : la base et ses sauvegardes sont sur un volume chiffré, prérequis de l'installation.
+
+## Vérification automatique
+
+Chaque modification poussée sur GitHub passe `npm run check` (`.github/workflows/ci.yml`) : `npm ci`, typage, tests
+avec seuils de couverture, compilation de l'interface, sur Node 22 (`.nvmrc`), avec un essai non bloquant sur Node 24.
+L'interface compilée est publiée comme artefact pour l'instance de recette. Toute la logique est dans `npm run check` :
+une autre forge (GitLab, Azure DevOps) l'appelle en une ligne après `npm ci`. Les seuils de couverture (lignes,
+branches, fonctions) sont fixés juste sous la mesure du jour, dans le script `test:coverage` de `package.json`, et se
+relèvent au fil des tests ajoutés.
 
 ## Ce qui reste simulé
 

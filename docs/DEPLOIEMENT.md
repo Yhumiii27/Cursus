@@ -16,6 +16,13 @@ Sauvegardes et restauration : voir `docs/SAUVEGARDE.md`. Connexion Microsoft 365
 l'application dans Entra) : voir `docs/CONNEXION-MICROSOFT.md`. Envoi des e-mails (autorisation Mail.Send,
 boîte d'envoi, stratégie d'accès d'Exchange Online) : voir `docs/EMAILS.md`.
 
+**Fichiers prêts à copier** : le dossier `deploy/` du code contient les unités systemd et la configuration Caddy
+reproduites dans ce guide et dans `docs/SAUVEGARDE.md`, à l'identique (un test le vérifie à chaque version) :
+`deploy/cursus.service`, `deploy/Caddyfile`, `deploy/cursus-sauvegarde.service`, `deploy/cursus-sauvegarde.timer`,
+`deploy/cursus-alerte@.service`, `deploy/cursus-copie-externe`. Les copier évite les erreurs de recopie ; les
+mêmes fichiers servent à l'instance de recette (« Recette », en adaptant noms, port et chemins). Un `Dockerfile`
+facultatif est fourni pour un hébergeur qui imposerait des conteneurs (« Variante : conteneur Docker »).
+
 ## Avant de commencer
 
 - **Comptes** : chaque personne a un compte nominatif. Les salariés dotés d'un compte Microsoft 365
@@ -32,6 +39,8 @@ boîte d'envoi, stratégie d'accès d'Exchange Online) : voir `docs/EMAILS.md`.
   (art. 13 du RGPD : `INFO_VACCINATIONS` de `shared/constants.ts`), qu'il complète au besoin de ses coordonnées,
   et y fixe la durée de conservation (rubrique « Conservation », « à préciser avant la mise en service ») : Cursus
   n'efface encore rien, même au départ du salarié, et garde les déclarations antérieures et le journal des actions.
+- **Disque chiffré** (prérequis) : la base et ses sauvegardes sont sur un volume chiffré au repos (voir « Protection
+  des données sur le disque »).
 - **Nom de domaine** : un sous-domaine dédié (dans ce guide `cursus.example.fr`) dont les
   enregistrements DNS A / AAAA pointent vers la machine.
 
@@ -54,6 +63,7 @@ boîte d'envoi, stratégie d'accès d'Exchange Online) : voir `docs/EMAILS.md`.
   sudo timedatectl set-timezone Europe/Paris
   ```
 
+- Disque chiffré : voir « Protection des données sur le disque » ci-dessous.
 - Accès SSH par clé uniquement (`PasswordAuthentication no` dans `/etc/ssh/sshd_config`).
 - Pare-feu : seuls SSH, HTTP (redirection et certificat) et HTTPS sont ouverts.
 
@@ -63,6 +73,30 @@ boîte d'envoi, stratégie d'accès d'Exchange Online) : voir `docs/EMAILS.md`.
   sudo ufw allow 80,443/tcp
   sudo ufw enable
   ```
+
+## Protection des données sur le disque
+
+La base est un fichier SQLite qui contient des données de santé (visites médicales, avis d'aptitude et restrictions,
+vaccinations), des numéros de passeport et les variables de paie. Elle est protégée ainsi :
+
+- **Disque chiffré, prérequis de l'installation** : `/var/lib/cursus` (base et copies locales) est sur un volume
+  chiffré au repos. Soit le chiffrement du disque proposé par l'hébergeur (volume ou disque système chiffré, à cocher
+  à la commande ou à vérifier dans le contrat), soit un volume LUKS créé par le service informatique (`cryptsetup
+  luksFormat`, clé hors de la machine ou saisie au démarrage). Le choix est consigné avec le DPO : il couvre le vol
+  d'un disque ou sa réaffectation par l'hébergeur, pas un accès à la machine en marche.
+- **Droits du fichier** : au démarrage, Cursus réserve la base et ses fichiers `-wal` et `-shm` au compte du service
+  (`600`) et lui ferme son dossier (`700`) ; une base neuve est créée ainsi. En production, il refuse de démarrer si
+  la base reste accessible à d'autres comptes, par exemple un fichier créé par `root` (« Démarrage impossible : la base
+  reste accessible à d'autres comptes… » : `sudo chown cursus:cursus /var/lib/cursus/cursus.db*` puis `sudo chmod 600
+  /var/lib/cursus/cursus.db*`). Un dossier partagé (`/tmp`, dossier du code) n'est jamais modifié : la base doit avoir
+  son propre dossier. Les copies de sauvegarde sont déjà en `600` dans un dossier en `700` (`docs/SAUVEGARDE.md`).
+- **Clé de session** : en production, `CURSUS_SECRET` est obligatoire. Une clé écrite dans la base par un essai sans
+  elle (développement, démonstration) en est retirée au démarrage suivant (« Ancienne clé de session retirée de la
+  base ») et effacée du fichier lui-même (suppression avec `secure_delete`, journal `-wal` vidé) ; les sauvegardes
+  antérieures la contiennent encore jusqu'à leur rotation.
+- **Chiffrement des colonnes par Cursus** : pas dans cette version. Le DPO dit si le disque chiffré suffit ou s'il
+  exige en plus un chiffrement applicatif d'une courte liste de colonnes (passeport, avis et restrictions,
+  vaccinations, comptes rendus d'entretien), voire un hébergement certifié HDS.
 
 ## Node.js
 
@@ -96,6 +130,10 @@ sudo -u cursus npm ci
 sudo -u cursus npm run build
 ```
 
+Cursus trouve son interface (`dist/`) et, sans `CURSUS_DB`, sa base (`data/cursus.db`) à partir de l'emplacement de
+son code, quel que soit le dossier de lancement. Sans `dist/`, il le signale au démarrage (« Interface non compilée :
+… Lancez npm run build ») et ne sert que l'API.
+
 ## Variables d'environnement
 
 Partir du modèle commenté `.env.example` :
@@ -114,9 +152,10 @@ sudo nano /etc/cursus/cursus.env
 | `CURSUS_API_PORT` | `3210` (port local, jamais ouvert au pare-feu) |
 | `CURSUS_HOST` | à laisser vide : 127.0.0.1 par défaut en production |
 | `CURSUS_TRUST_PROXY` | à laisser vide (`loopback`) quand le proxy est sur la même machine ; sinon, son adresse |
-| `CURSUS_DB` | `/var/lib/cursus/cursus.db` |
+| `CURSUS_DB` | `/var/lib/cursus/cursus.db` (chemin absolu ; un chemin relatif partirait du dossier de lancement) |
 | `CURSUS_SECRET` | 64 caractères aléatoires, propres à cette installation. La changer déconnecte tout le monde |
 | `KEYSTONE_API_KEY` | clé aléatoire transmise à Keystone par un canal sûr. Sans elle, les routes Keystone répondent 503 |
+| `CURSUS_SUPERVISION_TOKEN` | facultative : jeton aléatoire (32 caractères au moins, `openssl rand -hex 32`) de l'outil de supervision, qui obtient alors le détail du point de santé à travers le proxy (« Exploitation courante ») |
 | `CURSUS_OIDC_TENANT`, `CURSUS_OIDC_CLIENT_ID`, `CURSUS_OIDC_CLIENT_SECRET` | connexion Microsoft 365 : ID de l'annuaire (GUID), ID d'application et secret client relevés dans Entra (`docs/CONNEXION-MICROSOFT.md`). Noter la date d'expiration du secret |
 | `CURSUS_PUBLIC_URL` | `https://cursus.example.fr` : adresse publique, sans chemin. URI de redirection à inscrire dans Entra : `https://cursus.example.fr/api/auth/microsoft/retour` |
 | `CURSUS_OIDC_AUTORITE` | **jamais** : réservée aux tests automatiques, Cursus refuse de démarrer avec elle |
@@ -133,7 +172,8 @@ entière : les quatre variables `CURSUS_OIDC_*` et `CURSUS_PUBLIC_URL` (en https
 
 ## Service systemd
 
-`/etc/systemd/system/cursus.service` :
+`/etc/systemd/system/cursus.service` (fichier prêt à copier : `deploy/cursus.service`,
+`sudo install -m 644 /opt/cursus/deploy/cursus.service /etc/systemd/system/`) :
 
 ```ini
 [Unit]
@@ -149,6 +189,8 @@ EnvironmentFile=/etc/cursus/cursus.env
 # Heure locale de Paris pour le processus (Cursus calcule de toute façon la date du jour à l'heure de Paris).
 Environment=TZ=Europe/Paris
 ExecStart=/usr/bin/node server/src/index.ts
+# Démarrage impossible (port pris, configuration refusée) : code 1, relancé 5 s plus tard.
+# Arrêt (stop, restart) : SIGTERM, requêtes en cours terminées (10 s au plus), base fermée, verrou retiré.
 Restart=on-failure
 RestartSec=5
 UMask=0077
@@ -176,9 +218,26 @@ sudo systemctl status cursus
 journalctl -u cursus -n 50
 ```
 
-Le journal doit afficher `Cursus — API sur http://127.0.0.1:3210 (application servie)`, sans
-« mode démonstration ». Une base vide reste vide : aucune donnée fictive n'est chargée. Tant
-qu'aucun administrateur RH n'existe, il le rappelle : `Aucun administrateur RH : créez-le avec…`.
+Le journal doit afficher le chemin complet de la base et des sauvegardes
+(`Cursus 0.1.0 — base /var/lib/cursus/cursus.db · sauvegardes /var/lib/cursus/backups`), puis
+`Cursus — API sur http://127.0.0.1:3210 (application servie)`, sans « mode démonstration ». Une base vide reste
+vide : aucune donnée fictive n'est chargée. Tant qu'aucun administrateur RH n'existe, il le rappelle :
+`Aucun administrateur RH : créez-le avec…`.
+
+Messages de démarrage à connaître (`journalctl -u cursus`) :
+
+| Message | Que faire |
+| --- | --- |
+| `Démarrage impossible : Le port 3210 est déjà utilisé sur 127.0.0.1 : arrêtez l’autre service ou changez CURSUS_API_PORT.` | Un autre programme (ou une autre instance de Cursus, la recette par exemple) écoute ce port : `sudo ss -ltnp 'sport = :3210'`. Code de sortie 1 : systemd relance le service toutes les 5 s jusqu'à ce que le port se libère. |
+| `Interface non compilée (/opt/cursus/dist introuvable)` | `sudo -u cursus npm run build`, puis redémarrer. |
+| `Droits restreints au seul compte du service : …` | Information : la base ou son dossier étaient ouverts à d'autres comptes, c'est corrigé. |
+| `Démarrage impossible : la base reste accessible à d’autres comptes…` | Voir « Protection des données sur le disque ». |
+| `Démarrage impossible : Un autre serveur Cursus utilise déjà cette base` | Voir `docs/SAUVEGARDE.md`, section 7. |
+
+À l'arrêt (`systemctl stop` ou `restart`), le journal affiche `Arrêt demandé (SIGTERM) : fin des requêtes en cours,
+10 s au plus.` puis `Cursus arrêté.` : aucune requête n'est coupée net, la base est fermée proprement et son verrou
+retiré. Si la base est momentanément occupée (`npm run comptes` lancé service démarré, sauvegarde), Cursus attend
+jusqu'à 5 s avant de répondre par une erreur.
 
 ## Premier administrateur RH
 
@@ -248,7 +307,8 @@ Caddy obtient et renouvelle seul le certificat (Let's Encrypt) et redirige HTTP 
 sudo apt install caddy
 ```
 
-`/etc/caddy/Caddyfile` (`203.0.113.10` : adresse d'où Keystone appelle Cursus, à remplacer) :
+`/etc/caddy/Caddyfile` (`203.0.113.10` : adresse d'où Keystone appelle Cursus, à remplacer ; fichier prêt à
+copier : `deploy/Caddyfile`) :
 
 ```
 cursus.example.fr {
@@ -365,14 +425,61 @@ limit_req_zone $binary_remote_addr zone=keystone:1m rate=10r/s;
 sudo nginx -t && sudo systemctl reload nginx
 ```
 
+## Variante : conteneur Docker
+
+Pour un hébergeur à conteneurs, Coolify en tête (réglages : README.md, « Mise en ligne »), ou une machine où l'on préfère Docker au service systemd. Le
+`Dockerfile` du code construit l'interface dans une première étape, puis une image d'exécution sur `node:22-slim`
+sans les dépendances de développement, sous un compte `cursus` sans droits, avec un volume `/data` pour la
+base et ses sauvegardes, et une sonde `HEALTHCHECK` sur `/api/health`. L'image fixe le port 3000, la base `/data/cursus.db`, l'écoute sur toutes les
+interfaces du conteneur (`CURSUS_HOST=0.0.0.0`) et la confiance dans les proxys de la boucle locale et des réseaux
+privés (`CURSUS_TRUST_PROXY=loopback,uniquelocal`). Avec Coolify, il suffit de déclarer le port, le volume et les
+variables ; sur une machine à soi, seul le port local est publié, derrière le même reverse proxy.
+
+```bash
+cd /opt/cursus
+sudo docker build -t cursus:0.1.0 .
+sudo docker volume create cursus-donnees
+sudo docker run -d --name cursus --restart on-failure --stop-timeout 20 \
+  --env-file /etc/cursus/cursus.env -e CURSUS_DB=/data/cursus.db -e CURSUS_HOST=0.0.0.0 \
+  -e CURSUS_API_PORT=3000 -e CURSUS_TRUST_PROXY=loopback,uniquelocal \
+  -v cursus-donnees:/data -p 127.0.0.1:3210:3000 cursus:0.1.0
+sudo docker logs cursus                                          # mêmes messages que journalctl
+sudo docker inspect --format '{{.State.Health.Status}}' cursus  # healthy
+```
+
+- `CURSUS_TRUST_PROXY` : le proxy atteint le conteneur par le réseau Docker, pas par la boucle locale ;
+  sans ce réglage (adresses privées, ou l'adresse exacte du proxy), Cursus ne croirait pas `X-Forwarded-*` :
+  ni HSTS, ni adresse du client pour la limite de débit.
+- `-e CURSUS_HOST=0.0.0.0`, `-e CURSUS_API_PORT=3000` et `-e CURSUS_DB` après `--env-file` : le fichier de la machine laisse l'écoute sur la boucle locale, qui
+  dans un conteneur ne recevrait rien de l'extérieur.
+- `--stop-timeout 20` : `docker stop` envoie SIGTERM ; Cursus finit les requêtes en cours (10 s au plus) et ferme la
+  base avant que Docker ne coupe le conteneur.
+- Le volume reçoit le chiffrement du disque de la machine (« Protection des données sur le disque »).
+- Point de santé : un `curl` lancé sur la machine vers `127.0.0.1:3210` entre dans le conteneur par le pont Docker,
+  pas par sa boucle locale ; il n'obtient que la réponse publique `{"statut":"ok","base":"ok"}`. Le détail (version,
+  mode, envois en échec) s'obtient dans le conteneur, comme la sonde `HEALTHCHECK` :
+  `sudo docker exec cursus node -e "fetch('http://127.0.0.1:3000/api/health').then(r => r.text()).then(console.log)"`,
+  ou avec le jeton de supervision (`CURSUS_SUPERVISION_TOKEN`, « Exploitation courante »).
+- Commandes d'exploitation dans le conteneur : `sudo docker exec -it cursus node server/src/comptes-cli.ts admin …`,
+  `sudo docker exec cursus node --disable-warning=ExperimentalWarning server/src/backup.ts` ; la copie hors de la
+  machine sauvegarde le dossier du volume (`docker volume inspect cursus-donnees`).
+- Mise à jour : construire la nouvelle image, `docker stop cursus && docker rm cursus`, puis `docker run` avec la
+  nouvelle version ; retour arrière : relancer l'ancienne image, après restauration de la base si elle a été migrée
+  (« Mise à jour », étape 5).
+
 ## Vérifications après installation
 
 ```bash
 curl -sI https://cursus.example.fr/ | grep -iE 'strict-transport|content-security|x-frame|x-content-type'
+curl -s https://cursus.example.fr/api/health                    # {"statut":"ok","base":"ok"}
+curl -s http://127.0.0.1:3210/api/health                        # sur la machine (service systemd) : version, "mode":"production", envois en échec
 curl -s https://cursus.example.fr/api/session                   # "demo":false, "user":null et, avec Microsoft 365, "microsoft":true
 curl -s -o /dev/null -w '%{http_code}\n' http://cursus.example.fr/                       # 301 ou 308 vers HTTPS
 curl -s -o /dev/null -w '%{http_code}\n' https://cursus.example.fr/api/integrations/keystone/v1/chantiers/X/go-no-go   # 403 hors de l'adresse de Keystone
 ```
+
+Avec le conteneur Docker, le `curl` sur `127.0.0.1:3210` ne donne que `{"statut":"ok","base":"ok"}` : le détail
+s'obtient par `docker exec` ou avec le jeton de supervision (« Variante : conteneur Docker »).
 
 Depuis la machine de Keystone, la même commande répond `401` (clé absente).
 
@@ -505,8 +612,17 @@ les compteurs sont arrêtés dans Lucca au 1er janvier 2027.
 
 ## Exploitation courante
 
-- Surveillance : `https://cursus.example.fr/api/session` doit répondre 200 ; journal du service
-  (`journalctl -u cursus`) et du proxy ; espace disque de `/var/lib/cursus`.
+- Surveillance : le point de santé `https://cursus.example.fr/api/health` répond 200 `{"statut":"ok","base":"ok"}`
+  tant que Cursus et sa base répondent, et 503 `{"statut":"indisponible","base":"erreur"}` si la base ne répond plus
+  (service arrêté : pas de réponse, ou 502 du proxy). Sans connexion, il ne donne rien d'autre. Appelé sur la machine
+  (`curl -s http://127.0.0.1:3210/api/health` pour le service systemd, sans passer par le proxy ; `docker exec` pour
+  le conteneur, voir « Variante : conteneur Docker ») ou avec le jeton de supervision
+  (`curl -s -H "Authorization: Bearer $JETON" https://cursus.example.fr/api/health`, `CURSUS_SUPERVISION_TOKEN`), il
+  ajoute la version, le mode (`production` attendu ; `demo` serait une erreur de configuration), le nombre d'envois en
+  échec non classés (à faire traiter par le service RH dans Paramètres → Envois) et l'heure du démarrage. Il ne compte
+  pas dans la limite de débit. Compléter par le journal du service (`journalctl -u cursus`) et du proxy, l'espace
+  disque de `/var/lib/cursus` et la fraîcheur des sauvegardes (`docs/SAUVEGARDE.md`, section 6). L'application de
+  bureau (macOS) garde sa propre sonde, `/api/session`.
 - Certificat : renouvelé automatiquement (Caddy ou minuteur certbot) ; vérifier l'échéance une fois
   par trimestre.
 - Changer la clé Keystone : nouvelle valeur dans `/etc/cursus/cursus.env`, `systemctl restart

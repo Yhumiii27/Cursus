@@ -153,6 +153,8 @@ export async function envoyer(db: Db, e: Envoi, t: Transport, horloge = () => ne
 }
 
 const enCours = new Set<Cible>();
+/** Vrai pendant qu'un message est en cours d'envoi : l'arrêt du serveur attend son issue (server/src/service.ts). */
+export const envoiEnCours = () => enCours.size > 0;
 
 /**
  * Transmet les messages dus d'une cible, un à la fois et dans l'ordre d'émission ; s'arrête au premier

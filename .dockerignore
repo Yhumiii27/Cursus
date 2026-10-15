@@ -1,13 +1,22 @@
-# Exclus de l'image : dépendances et builds locaux, données locales, secrets, application macOS.
-.git
+# Contexte de construction de l'image (Dockerfile) : ni dépendances installées, ni base, ni secret, ni artefact local.
 node_modules
 dist
+coverage
 data
+*.db
+*.db-*
+*.sqlite
+*.sqlite3
 .env
 .env.*
 !.env.example
-*.zip
-desktop
+*.pem
+*.key
+.git
+.github
 .claude
+*.zip
+*.app
+*.log
+desktop
 backups
-coverage

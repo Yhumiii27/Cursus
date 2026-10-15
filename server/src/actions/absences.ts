@@ -36,21 +36,27 @@ const demander: ActionHandler = (ctx, p) => {
 
 const decider: ActionHandler = (ctx, p) => {
   const a = ctx.ds.absences.find(x => x.id === Number(p.id));
+  const ok = !!p.ok;
+  // Même décision déjà prise (double clic, autre onglet, autre valideur) : rien n'est refait ni renvoyé à Keystone.
+  const deja = a && a.statut === (ok ? 'validee' : 'refusee') ? ctx.d.emp(a.empId) : undefined;
+  if (deja && isValidatorOf(ctx, deja)) return `Absence de ${deja.nom} déjà ${ok ? 'validée' : 'refusée'}`;
   if (!a || a.statut !== 'demandee') throw new ActionError('Demande introuvable ou déjà traitée');
   const emp = getEmp(ctx, a.empId);
   refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas décider de votre propre demande d’absence');
   if (!isValidatorOf(ctx, emp)) throw new ActionError('Décision réservée au manager du salarié ou au service RH', 403);
-  const ok = !!p.ok;
   // Demande antérieure au contrôle des bornes du contrat : jamais validée hors contrat.
   const hors = ok ? borneContrat(emp, a.du, a.au) : null;
   if (hors) throw new ActionError(`Absence hors contrat : ${hors}`);
   // Pas de double paiement : les heures saisies ces jours-là doivent d'abord être retirées de la feuille de temps.
   const heures = ok ? heuresAvantAbsence(ctx.d, a, 'avant de valider l’absence') : null;
   if (heures) throw new ActionError(heures.text);
-  ctx.db.update<Absence>('absences', a.id, { statut: ok ? 'validee' : 'refusee', keystone: ok });
+  // Motif du refus, montré au salarié et à son manager dans leurs absences (l'écran l'exige ; un appel sans motif reste accepté).
+  const motif = ok ? '' : str(p.motif);
+  if (motif.length > 500) throw new ActionError('Motif trop long (500 caractères au plus)');
+  ctx.db.update<Absence>('absences', a.id, { statut: ok ? 'validee' : 'refusee', keystone: ok, motifRefus: motif || null });
   if (ok) keystone(ctx, 'absence.validee', a);
   notifierDecisionConge(ctx, emp, a, ok);
-  return ok ? `Absence de ${emp.nom} validée — transmise à Keystone pour la planification` : `Absence de ${emp.nom} refusée`;
+  return ok ? `Absence de ${emp.nom} validée — transmise à Keystone pour la planification` : `Absence de ${emp.nom} refusée${motif ? ' · motif communiqué au salarié' : ''}`;
 };
 
 // — Absences hors congés : le manager (ou le salarié) signale, le service RH précise la nature —

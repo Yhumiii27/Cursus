@@ -198,12 +198,15 @@ const accepterDemande: ActionHandler = (ctx, p) => {
 const refuserDemande: ActionHandler = (ctx, p) => {
   const r = demandeADecider(ctx, p.id);
   const emp = getEmp(ctx, r.empId);
+  // Motif du refus, montré au collaborateur avec la réponse (l'écran l'exige ; un appel sans motif reste accepté).
+  const motif = str(p.motif);
+  if (motif.length > 500) throw new ActionError('Motif trop long (500 caractères au plus)');
   // Document déclaré : rien n'a été écrit dans le dossier, sauf pour une déclaration
   // antérieure à la validation RH, qui en est retirée (voir retireeAuRefus).
   const retire = retireeAuRefus(ctx.d, emp, r) && retirerFormalite(ctx, emp, r.declaration!);
   const defaut = r.type !== 'document' ? 'Refusée par le service RH'
     : retire ? 'Refusée par le service RH — document retiré de votre dossier' : 'Refusée par le service RH — votre dossier n’a pas été modifié';
-  ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'refusee', reponse: str(p.reponse) || defaut });
+  ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'refusee', reponse: str(p.reponse) || defaut, motifRefus: motif || null });
   notifierDecisionDemande(ctx, emp, r, false);
   return `Demande refusée — ${emp.nom} notifié${retire ? ' · document retiré du dossier' : ''}`;
 };

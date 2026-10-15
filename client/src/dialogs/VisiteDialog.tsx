@@ -7,15 +7,16 @@ import { fmtIso } from '../../../shared/format.ts';
 import { motifParDefaut } from '../../../shared/rules/sante.ts';
 import type { MotifVisite } from '../../../shared/types.ts';
 import { imprimerDemandeVisite } from '../components/Aptitude.tsx';
-import { CancelButton, Dialog, Field, Static } from '../components/Dialog.tsx';
+import { CancelButton, Dialog, Field, Static, SubmitButton } from '../components/Dialog.tsx';
 import { Fine } from '../components/ui.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
+import { annulationVisite } from '../state/confirmations.ts';
 import { useStore } from '../state/store.tsx';
 
 export function VisiteDialog({ empId }: { empId: number }) {
   const { d, emps } = useEnriched();
   const { rh } = useRole();
-  const { run, closeDialog, notify } = useStore();
+  const { run, openDialog, notify } = useStore();
   const emp = emps.find(e => e.id === empId);
   const [motif, setMotif] = useState<MotifVisite>(() => emp ? motifParDefaut(emp) : 'periodique');
   const [busy, setBusy] = useState(false);
@@ -28,18 +29,13 @@ export function VisiteDialog({ empId }: { empId: number }) {
     if (demande && !imprimerDemandeVisite(d, emp, demande)) notify('Autorisez les fenêtres surgissantes pour imprimer la demande', true);
   };
   const enregistrer = async () => {
+    if (busy) return;
     setBusy(true);
     await run('medical.demander', { empId, motif });
     setBusy(false);
     // Une fois enregistrée, la demande s'affiche ici même, prête à imprimer.
   };
-  const annuler = async () => {
-    if (!demande || !window.confirm(`Annuler la demande de visite du ${fmtIso(demande.le)} pour ${emp.nom} ?`)) return;
-    setBusy(true);
-    const r = await run('medical.annuler', { id: demande.id });
-    setBusy(false);
-    if (r.ok) closeDialog();
-  };
+  const annuler = () => { if (demande) openDialog({ type: 'confirmer', c: annulationVisite(demande, emp.nom, fmtIso(demande.le)) }); };
 
   // Demande en cours (ou tout juste enregistrée) : impression, annulation.
   if (demande) {
@@ -66,9 +62,9 @@ export function VisiteDialog({ empId }: { empId: number }) {
   }
 
   return (
-    <Dialog title="Demander une visite médicale" width={560} actions={<>
+    <Dialog title="Demander une visite médicale" width={560} onSubmit={enregistrer} actions={<>
       <CancelButton />
-      <button type="button" className="btn btn-primary" disabled={busy} onClick={enregistrer}>Enregistrer la demande</button>
+      <SubmitButton busy={busy}>Enregistrer la demande</SubmitButton>
     </>}>
       <div className="grid-2">
         <Field label="Collaborateur"><Static>{emp.nom} · {emp.poste}</Static></Field>

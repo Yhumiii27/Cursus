@@ -9,10 +9,13 @@ import { declarationDetail, retireeAuRefus, valeurActuelle } from '../../../shar
 import type { DemandeCollab, Session } from '../../../shared/types.ts';
 import { Bar, DateBlock, Kpi, Kpis, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
 import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derived.ts';
+import { useAgir } from '../state/actions.ts';
+import { refusDemande } from '../state/confirmations.ts';
 import { useStore } from '../state/store.tsx';
 
 /** Ligne d'échéance (tableau de bord, page Échéances). */
-export function EchRow({ x, onOpen, onAct }: { x: EchItem; onOpen: () => void; onAct: () => void }) {
+export function EchRow({ x, onOpen, onAct }: { x: EchItem; onOpen: () => void; onAct: () => unknown }) {
+  const { occupe, agir } = useAgir();
   return (
     <tr className="clickable" onClick={onOpen}>
       <td><Two main={x.emp.nom} sub={equipeLabel(x.emp)} /></td>
@@ -23,7 +26,7 @@ export function EchRow({ x, onOpen, onAct }: { x: EchItem; onOpen: () => void; o
         {/* Session à venir (planifié), ou passée en attente de clôture (note et bouton « Clôturer »). */}
         <div className="actions-end" style={{ alignItems: 'center' }}>
           {x.plannedLabel && <span className="note-accent nowrap">{x.plannedLabel}</span>}
-          {!!x.action && !x.planned && <button type="button" className="btn btn-ghost btn-sm" onClick={stop(onAct)}>{x.action.label}</button>}
+          {!!x.action && !x.planned && <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={agir(onAct)}>{x.action.label}</button>}
         </div>
       </td>
     </tr>
@@ -51,6 +54,7 @@ export function Dashboard() {
   const { setUi, go, run, runIntent, openDialog } = useStore();
   const { rh, formations } = useRole();
   const permis = useIntentPermis();
+  const { occupe, agir } = useAgir();
   const data = d.ds;
   const aCloturer = d.aCloturer();
 
@@ -125,8 +129,10 @@ export function Dashboard() {
                           {/* Documents déclarés : service RH ; formations et habilitations : aussi le référent HSE. */}
                           {(r.type === 'document' ? rh : formations) && (
                             <div className="actions-end">
-                              <button type="button" className="btn btn-ghost btn-sm" onClick={stop(() => run('demande.refuser', { id: r.id }))}>Refuser</button>
-                              <button type="button" className="btn btn-secondary btn-sm" onClick={stop(() => run('demande.accepter', { id: r.id }))}>{r.type === 'document' ? 'Valider' : 'Accepter'}</button>
+                              {/* Refus : confirmation et motif, communiqué au collaborateur seul (le manager qui a fait la demande n'en voit rien). */}
+                              <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={stop(() => openDialog({ type: 'confirmer', c: refusDemande(r, e?.nom ?? d.personName(r.empId),
+                                reqLabel(r, id => d.fm(id).nom, id => d.hm(id).nom), { manager: r.parId ? d.personName(r.parId) : null, retire: !!e && retireeAuRefus(d, e, r) }) }))}>Refuser</button>
+                              <button type="button" className="btn btn-secondary btn-sm" disabled={occupe} onClick={agir(() => run('demande.accepter', { id: r.id }))}>{r.type === 'document' ? 'Valider' : 'Accepter'}</button>
                             </div>
                           )}
                         </td>

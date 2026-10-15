@@ -8,7 +8,7 @@ import { sessionActive } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
 import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
-import { CancelButton, Controles, Dialog, Field, Static } from '../components/Dialog.tsx';
+import { Bloquant, CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Seg } from '../components/ui.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -26,6 +26,7 @@ export function PlanDialog({ empId, certId, inscriptionId }: { empId: number; ce
   const [sessionId, setSessionId] = useState<number | null>(sessions.find(s => s.inscrits < s.places)?.id ?? null);
   const [conv, setConv] = useState<'now' | 'later'>('now');
   const [busy, setBusy] = useState(false);
+  const v = useVerification();
   if (!emp || !f) return null;
   const fm = d.fm(f);
   // Inscrit d'une session passée, pas encore clôturée : la clôture (présence, résultat) précède toute nouvelle inscription.
@@ -48,7 +49,9 @@ export function PlanDialog({ empId, certId, inscriptionId }: { empId: number; ce
   const choisie = sessions.find(s => s.id === sessionId);
   const conflits = choisie ? conflitsDates(d, empId, choisie.date, choisie.date, 'formation', { sessionId: actuelle?.id }) : [];
 
+  const sessionErr = !sessionId ? 'Choisissez une session.' : null;
   const confirm = async () => {
+    if (busy || !v.verifier(sessionErr, blocage(conflits))) return;
     setBusy(true);
     const r = await run('plan.inscrire', insc ? { empId, inscriptionId: insc.id, sessionId, conv } : { empId, certId, sessionId, conv });
     setBusy(false);
@@ -56,13 +59,13 @@ export function PlanDialog({ empId, certId, inscriptionId }: { empId: number; ce
   };
 
   return (
-    <Dialog title={insc ? 'Planifier la formation' : 'Planifier un renouvellement'} width={540} actions={<>
+    <Dialog title={insc ? 'Planifier la formation' : 'Planifier un renouvellement'} width={540} onSubmit={demander || sessions.length === 0 ? undefined : confirm} actions={<>
       <CancelButton />
       {demander
         ? <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'reqForm', empId, f })}>Demander au RH</button>
         : sessions.length === 0
           ? <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'session', f })}>Créer une session</button>
-          : <button type="button" className="btn btn-primary" disabled={!sessionId || busy || !!blocage(conflits)} onClick={confirm}>Confirmer l’inscription</button>}
+          : <SubmitButton busy={busy}>Confirmer l’inscription</SubmitButton>}
     </>}>
       <div className="grid-2">
         <Field label="Collaborateur"><Static>{emp.nom}</Static></Field>
@@ -87,6 +90,7 @@ export function PlanDialog({ empId, certId, inscriptionId }: { empId: number; ce
             ? 'Aucune session à venir pour cette formation — créez-en une pour inscrire ce collaborateur.'
             : 'Aucune session à venir — la demande sera transmise au service RH.'}</p>}
           {sessions.length > 0 && demander && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>Toutes les sessions sont complètes — la demande sera transmise au service RH.</p>}
+          {v.erreur(sessionErr) && <Bloquant>{sessionErr}</Bloquant>}
         </div>
       </Field>
       <Controles msgs={conflits} />

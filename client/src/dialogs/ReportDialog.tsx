@@ -3,7 +3,8 @@ import { useState } from 'react';
 import { parse } from '../../../shared/dates.ts';
 import { fJ, fmt } from '../../../shared/format.ts';
 import { cpInfo } from '../../../shared/rules/conges.ts';
-import { CancelButton, Dialog, Field } from '../components/Dialog.tsx';
+import { erreurJours, erreurTexte } from '../components/controles.ts';
+import { CancelButton, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -13,6 +14,7 @@ export function ReportDialog({ empId }: { empId: number }) {
   const [jours, setJours] = useState('');
   const [motif, setMotif] = useState('');
   const [busy, setBusy] = useState(false);
+  const v = useVerification();
   const emp = d.emp(empId);
   const cp = emp ? cpInfo(d, emp) : null;
   if (!emp || !cp) return null;
@@ -20,10 +22,12 @@ export function ReportDialog({ empId }: { empId: number }) {
   const P = cp.periodes;
   const max = cp.solde;
   const j = Number(jours);
-  const cant = !(j > 0) || j > max || !motif.trim();
+  const joursErr = erreurJours(jours, max);
+  const motifErr = erreurTexte(motif, 'Indiquez le motif du report.');
   const hist = d.ds.reports.filter(r => r.empId === empId);
 
   const confirm = async () => {
+    if (busy || !v.verifier(joursErr, motifErr)) return;
     setBusy(true);
     const r = await run('report.accorder', { empId, jours: j, motif: motif.trim() });
     setBusy(false);
@@ -31,18 +35,18 @@ export function ReportDialog({ empId }: { empId: number }) {
   };
 
   return (
-    <Dialog title={`Reporter des congés payés — ${emp.nom}`} label="Reporter des congés" width={520} actions={<>
+    <Dialog title={`Reporter des congés payés — ${emp.nom}`} width={520} onSubmit={confirm} actions={<>
       <CancelButton />
-      <button type="button" className="btn btn-primary" disabled={cant || busy} onClick={confirm}>Accorder le report</button>
+      <SubmitButton busy={busy}>Accorder le report</SubmitButton>
     </>}>
       <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>
         Solde CP {P.label} : {fJ(cp.solde)} — à prendre normalement avant le {fmt(parse(P.deadline))}. Les RTT ne sont pas reportables (perdus au 31 décembre).
       </p>
-      <div style={{ display: 'grid', gridTemplateColumns: '120px 1fr', gap: 'var(--space-3)' }}>
-        <Field label="Jours" htmlFor="rp-j">
+      <div style={{ display: 'grid', gridTemplateColumns: '120px minmax(0, 1fr)', gap: 'var(--space-3)', alignItems: 'start' }}>
+        <Field label="Jours" htmlFor="rp-j" requis erreur={v.erreur(joursErr)}>
           <input className="input" id="rp-j" type="number" min={0.5} step={0.5} max={max} value={jours} onChange={ev => setJours(ev.target.value)} style={{ textAlign: 'right' }} />
         </Field>
-        <Field label="Motif (obligatoire)" htmlFor="rp-m">
+        <Field label="Motif" htmlFor="rp-m" requis erreur={v.erreur(motifErr)}>
           <input className="input" id="rp-m" type="text" placeholder="Arrêt de travail, charge de projet…" value={motif} onChange={ev => setMotif(ev.target.value)} />
         </Field>
       </div>

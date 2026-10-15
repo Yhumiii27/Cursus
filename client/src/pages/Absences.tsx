@@ -7,10 +7,12 @@ import { ABS_CLS, ABS_LABEL, CATEGORIES_ABSENCE, NATURES_ABSENCE, STATUTS, type 
 import type { Domain } from '../../../shared/domain.ts';
 import { cpPeriods, parse } from '../../../shared/dates.ts';
 import { cap, equipeLabel, fH, fJ, fmt, fmtIso, fmtShort, plural } from '../../../shared/format.ts';
-import { absenceActive, droitAnnulation, estConge, joursDecomptes, natureDef, prolongeable, statutAbsence, uniteDecompte } from '../../../shared/rules/absences.ts';
+import { absenceActive, droitAnnulation, estConge, joursDecomptes, natureDef, periodeTexte, prolongeable, statutAbsence, uniteDecompte } from '../../../shared/rules/absences.ts';
 import { absenceKinds, cetInfo, cpInfo, recupInfo, reposForfait, rttInfo } from '../../../shared/rules/conges.ts';
 import type { Absence, Employe, NatureAbsence } from '../../../shared/types.ts';
-import { Empty, Fine, Kpi, Kpis, Page, Panel, Tag, Two, stop } from '../components/ui.tsx';
+import { Empty, Fine, Kpi, Kpis, Page, Panel, Tag, Two } from '../components/ui.tsx';
+import { useAgir } from '../state/actions.ts';
+import { refusAbsence } from '../state/confirmations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -65,6 +67,7 @@ function details(a: Absence): string[] {
     a.type === 'ABSENCE' && a.statut === 'validee' ? 'Nature précisée par le service RH, confidentielle' : '',
     a.finInitiale && a.statut !== 'annulee' ? `Prolongée · fin initiale le ${fmtIso(a.finInitiale)}` : '',
     a.statut === 'annulee' && a.annuleeLe ? `Annulée le ${fmtIso(a.annuleeLe)}${a.annuleePar ? ` par ${a.annuleePar}` : ''}` : '',
+    a.statut === 'refusee' && a.motifRefus ? `Motif du refus : ${a.motifRefus}` : '',
   ].filter(Boolean);
 }
 
@@ -75,6 +78,7 @@ export function Absences() {
   // la lecture seule consultent.
   const { espaceRh, rh, manager, collab, me, soi } = useRole();
   const { openDialog, run } = useStore();
+  const { occupe, agir } = useAgir();
   const P = cpPeriods(data.today);
   const Y = d.year;
 
@@ -194,10 +198,11 @@ export function Absences() {
               <tbody>
                 {absList.map(({ a, e, canDecide, canProlong, annulation }) => {
                   const m = data.missions.find(x => x.empId === a.empId && x.du <= a.au && x.au >= a.du);
+                  const mgr = d.mgrOf(e);
                   // Sa propre demande : un membre du RH ne la décide pas, son manager ou un autre membre du service RH le fait.
                   const ks = a.statut === 'demandee' ? (rh && e.id === soi
-                    ? `Votre demande : décision par ${d.mgrOf(e) ? `${d.personName(d.mgrOf(e))} ou ` : ''}un autre membre du service RH`
-                    : `Validation : ${d.mgrName(d.mgrOf(e))}`)
+                    ? `Votre demande : décision par ${mgr ? `${d.personName(mgr)} ou ` : ''}un autre membre du service RH`
+                    : `Validation : ${d.mgrName(mgr)}`)
                     : a.statut === 'signalee' ? 'À qualifier par le service RH'
                     : a.statut === 'validee' ? (estConge(a.type) ? 'Transmise à Keystone' : 'Indisponibilité transmise à Keystone') : '';
                   return (
@@ -216,8 +221,11 @@ export function Absences() {
                       <td className="right">
                         <div className="actions-end">
                           {canDecide && <>
-                            <button type="button" className="btn btn-ghost btn-sm" onClick={stop(() => run('absence.decider', { id: a.id, ok: false }))}>Refuser</button>
-                            <button type="button" className="btn btn-secondary btn-sm" onClick={stop(() => run('absence.decider', { id: a.id, ok: true }))}>Valider</button>
+                            {/* Refus : confirmation et motif, montré au salarié et à son manager dans leurs absences. */}
+                            <button type="button" className="btn btn-ghost btn-sm" disabled={occupe}
+                              onClick={() => openDialog({ type: 'confirmer', c: refusAbsence(a, e.nom, `${ABS_LABEL[a.type]}, ${periodeTexte(a.du, a.au)}`,
+                                mgr && mgr !== me ? d.personName(mgr) : null) })}>Refuser</button>
+                            <button type="button" className="btn btn-secondary btn-sm" disabled={occupe} onClick={agir(() => run('absence.decider', { id: a.id, ok: true }))}>Valider</button>
                           </>}
                           {rh && e.id !== soi && prolongeable(a) && (
                             <button type="button" className={`btn btn-sm ${a.statut === 'signalee' ? 'btn-secondary' : 'btn-ghost'}`} onClick={() => openDialog({ type: 'absNature', id: a.id })}>

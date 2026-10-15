@@ -20,6 +20,8 @@ import {
 } from '../../../shared/rules/temps.ts';
 import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
 import { CloseButton, Fine, Page, Panel, Pre, Tag, Two, stop } from '../components/ui.tsx';
+import { useAgir } from '../state/actions.ts';
+import { suppressionLigne, transmissionSage } from '../state/confirmations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { RelevesPanel } from './Releves.tsx';
@@ -146,7 +148,8 @@ export function Temps() {
   // Espace RH : toutes les feuilles ; validation par le service RH (jamais sa propre feuille), transmission à Sage par
   // l'administrateur RH et le gestionnaire de paie ; la paie et la lecture seule consultent.
   const { espaceRh, rh, paie, manager, collab, me, soi } = useRole();
-  const { ui, setUi, run } = useStore();
+  const { ui, setUi, run, openDialog } = useStore();
+  const { occupe, agir } = useAgir();
   const wk = ui.weekStart ?? mondayOf(data.today);
   const wdays = wDays(wk);
 
@@ -160,7 +163,8 @@ export function Temps() {
     .map(sh => ({ sh, e: d.emp(sh.empId) }))
     .filter((q): q is { sh: FeuilleTemps; e: Employe } => !!q.e && (espaceRh || (manager && d.mgrOf(q.e) === me)));
   const valide = (e: Employe) => (rh && e.id !== soi) || (manager && d.mgrOf(e) === me);
-  const pending = espaceRh ? sagePending(d).length : 0;
+  const aTransmettre = espaceRh ? sagePending(d) : [];
+  const pending = aTransmettre.length;
 
   return (
     <Page
@@ -199,7 +203,7 @@ export function Temps() {
                       <td className="right">
                         <div className="actions-end">
                           <button type="button" className="btn btn-ghost btn-sm" onClick={stop(open)}>Ouvrir</button>
-                          {!tot.aRenvoyer && !tot.motifManquant && valide(e) && <button type="button" className="btn btn-secondary btn-sm" onClick={stop(() => run('temps.validate', { empId: e.id, week: sh.week }))}>Valider</button>}
+                          {!tot.aRenvoyer && !tot.motifManquant && valide(e) && <button type="button" className="btn btn-secondary btn-sm" disabled={occupe} onClick={agir(() => run('temps.validate', { empId: e.id, week: sh.week }))}>Valider</button>}
                         </div>
                       </td>
                     </tr>
@@ -223,7 +227,8 @@ export function Temps() {
               </div>
             </div>
             {paie
-              ? <button type="button" className="btn btn-primary" disabled={pending === 0} onClick={() => run('temps.pushSage')}>Transmettre par API</button>
+              ? <button type="button" className="btn btn-primary" disabled={pending === 0 || occupe}
+                  onClick={() => openDialog({ type: 'confirmer', c: transmissionSage(pending, new Set(aTransmettre.map(sh => sh.empId)).size) })}>Transmettre par API</button>
               : <span className="text-muted sub">Transmission réservée à l’administrateur RH et au gestionnaire de paie</span>}
           </div>
         }>
@@ -244,7 +249,8 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const d = useDomain();
   const data = d.ds;
   const { rh, manager, me, soi } = useRole();
-  const { run } = useStore();
+  const { run, openDialog } = useStore();
+  const { occupe, agir } = useAgir();
   const [comment, setComment] = useState('');
 
   const wdays = wDays(wk);
@@ -313,10 +319,10 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
     ? `Validée${sh!.keystone ? ' · heures par projet renvoyées à Keystone' : ''}${paie}`
     : st === 'soumise' ? `En attente de validation par ${d.mgrName(validator)}` : 'Saisie par jour et par projet — proposée à partir des tâches Keystone';
 
-  const reject = async () => {
+  const reject = agir(async () => {
     const r = await run('temps.reject', { ...base, comment });
     if (r.ok) setComment('');
-  };
+  });
   // Durées maximales dépassées : motif exigé à la soumission ; à la validation, s'il manque encore (correction du valideur).
   const depasse = calc.depassements.length > 0;
   const motifSoumis = sh?.motifDepassement ?? '';
@@ -371,7 +377,15 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
                     );
                   })}
                   <td className="right nowrap tnum">{fH(l.h.reduce((n, v) => n + num(v), 0))}</td>
-                  <td className="right">{editable && <CloseButton size={28} label="Supprimer la ligne" onClick={() => run('temps.removeLine', { ...base, li })} />}</td>
+                  {/* La ligne visée accompagne l'indice : un second clic ne supprime pas la ligne venue à sa place.
+                      Une ligne qui porte des heures n'est supprimée qu'après confirmation. */}
+                  <td className="right">{editable && <CloseButton size={28} label={`Supprimer la ligne ${l.projet}`} disabled={occupe}
+                    onClick={ev => {
+                      const ligne = { ...base, li, projet: l.projet, tache: l.tache, lignes: lignes.length };
+                      const heures = l.h.reduce((n, v) => n + num(v), 0);
+                      if (heures > 0) openDialog({ type: 'confirmer', c: suppressionLigne(ligne, `${l.projet} · ${l.tache}`, heures) });
+                      else agir(() => run('temps.removeLine', ligne))(ev);
+                    }} />}</td>
                 </tr>
               ))}
               <tr>
@@ -390,14 +404,16 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
 
         {editable && (
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-            <select className="input" aria-label="Ajouter un projet" value="" onChange={ev => ev.target.value && run('temps.addLine', { ...base, projet: ev.target.value })} style={{ width: 'auto', minWidth: 240 }}>
+            <select className="input" aria-label="Ajouter un projet" value="" disabled={occupe} style={{ width: 'auto', minWidth: 240 }}
+              onChange={ev => { const projet = ev.target.value; if (projet) agir(() => run('temps.addLine', { ...base, projet }))(); }}>
               <option value="">+ Ajouter un projet…</option>
               {projOptions.map(p => <option key={p.code} value={p.code}>{p.code} · {p.nom}</option>)}
             </select>
-            {canSuggest && <button type="button" className="btn btn-secondary" onClick={() => run('temps.suggest', base)}>Proposer depuis Keystone</button>}
+            {canSuggest && <button type="button" className="btn btn-secondary" disabled={occupe} onClick={agir(() => run('temps.suggest', base))}>Proposer depuis Keystone</button>}
             {correction
               ? <span className="text-muted sub" style={{ marginLeft: 'auto' }}>Correction avant validation : la feuille reste soumise</span>
-              : <button type="button" className="btn btn-primary" style={{ marginLeft: 'auto' }} disabled={!(calc.total > 0 || couverte) || surAbsence.length > 0 || motifManquant} onClick={() => run('temps.submit', { ...base, ...(depasse ? { motif: motif.trim() } : {}) })}>{submitLabel}</button>}
+              : <button type="button" className="btn btn-primary" style={{ marginLeft: 'auto' }} disabled={!(calc.total > 0 || couverte) || surAbsence.length > 0 || motifManquant || occupe}
+                  onClick={agir(() => run('temps.submit', { ...base, ...(depasse ? { motif: motif.trim() } : {}) }))}>{submitLabel}</button>}
           </div>
         )}
         {surAbsence.length > 0 && (
@@ -442,9 +458,9 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
             )}
             <textarea className="input short" rows={2} aria-label="Commentaire" placeholder="Commentaire en cas de renvoi (facultatif)" value={comment} onChange={ev => setComment(ev.target.value)} style={{ resize: 'vertical' }} />
             <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end' }}>
-              <button type="button" className="btn btn-ghost" onClick={reject}>Renvoyer</button>
-              <button type="button" className="btn btn-primary" disabled={surAbsence.length + enAttente.length > 0 || plusCouverte || (motifValideur && motifManquant)}
-                onClick={() => run('temps.validate', { ...base, ...(motifValideur ? { motif: motif.trim() } : {}) })}>Valider la semaine</button>
+              <button type="button" className="btn btn-ghost" disabled={occupe} onClick={reject}>Renvoyer</button>
+              <button type="button" className="btn btn-primary" disabled={surAbsence.length + enAttente.length > 0 || plusCouverte || (motifValideur && motifManquant) || occupe}
+                onClick={agir(() => run('temps.validate', { ...base, ...(motifValideur ? { motif: motif.trim() } : {}) }))}>Valider la semaine</button>
             </div>
           </div>
         )}

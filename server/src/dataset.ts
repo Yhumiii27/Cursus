@@ -190,9 +190,10 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     soldesReprise: mine(full.soldesReprise),
     entretiens: mine(full.entretiens),
     // Les documents déclarés (passeport, visas, vaccinations) des membres ne sont pas montrés au manager ;
-    // le contenu d'une déclaration n'est de toute façon transmis qu'à l'intéressé (et au RH).
+    // le contenu d'une déclaration et le motif d'un refus ne sont transmis qu'à l'intéressé (et au RH), même
+    // quand le manager a fait la demande : la confirmation du refus l'annonce ainsi (client/src/state/confirmations.ts).
     demandesCollab: mine(full.demandesCollab).filter(r => !isMgr || r.empId === user.empId || r.type !== 'document')
-      .map(r => r.empId === user.empId ? r : { ...r, declaration: null }),
+      .map(r => r.empId === user.empId ? r : { ...r, declaration: null, motifRefus: null }),
     // Demandes de visite médicale : l'intéressé seulement (jamais le manager).
     demandesVisite: full.demandesVisite.filter(x => x.empId === user.empId),
     inscriptions: mine(full.inscriptions),

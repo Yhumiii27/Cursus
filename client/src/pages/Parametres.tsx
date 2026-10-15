@@ -10,6 +10,7 @@ import type { CibleEnvoi, Courriel, Envoi, Settings, StatutEnvoi } from '../../.
 import { api, type EnvoisState } from '../api.ts';
 import { Field } from '../components/Dialog.tsx';
 import { Btn, Empty, Fine, Page, Panel, Pre, SectionLabel, Seg, Tag, Two, stop } from '../components/ui.tsx';
+import { reinitialisationDemo } from '../state/confirmations.ts';
 import { useRole } from '../state/derived.ts';
 import { useData, useStore } from '../state/store.tsx';
 import { ComptesPanel } from './Comptes.tsx';
@@ -70,7 +71,7 @@ const FILTRES_CIBLE: [FiltreCible, string][] = [['toutes', 'Toutes cibles'], ['k
 
 export function Parametres() {
   const data = useData();
-  const { session, run, setUi } = useStore();
+  const { session, run, setUi, openDialog } = useStore();
   // `consultation` : service RH et lecture seule (journal, envois, réglages en lecture) ; `rh` : relance des envois.
   const { rh, admin, consultation, user } = useRole();
   const s = data.settings;
@@ -119,11 +120,7 @@ export function Parametres() {
       setSeuilDraft(cur => (cur === value ? null : cur));
     }
   };
-  const reset = () => {
-    if (window.confirm('Réinitialiser toutes les données de démonstration ? Les modifications effectuées depuis le dernier chargement seront effacées (une sauvegarde de la base est conservée sur le serveur).')) {
-      run('demo.reinitialiser');
-    }
-  };
+  const reset = () => openDialog({ type: 'confirmer', c: reinitialisationDemo() });
 
   if (!consultation) return <Page title="Paramètres"><Empty>Paramètres réservés au service RH.</Empty></Page>;
 

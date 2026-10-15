@@ -4,6 +4,7 @@ import { GNG_CLS, GNG_LABEL } from '../../../shared/constants.ts';
 import type { GngStatus } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { cap, fmt, fmtShort, matricule, plural } from '../../../shared/format.ts';
+import { usePanneauVisible } from '../components/panneau.ts';
 import { Empty, Fine, Page, Panel, Pre, Tag, Two } from '../components/ui.tsx';
 import { useEnriched, useTrips } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -16,6 +17,8 @@ export function Chantiers() {
 
   const chant = useMemo(() => d.evaluateChantiers(emps, trips), [d, emps, trips]);
   const sel = chant.find(x => x.c.id === ui.goSel) || chant[0] || null;
+  // Écran étroit : le détail s'affiche sous les cartes ; choisir un chantier l'amène dans le champ de vision.
+  const panneau = usePanneauVisible<HTMLElement>(ui.goSel && sel?.c.id === ui.goSel ? ui.goSel : null);
   // Réponse de l'API v1 (GET /api/integrations/keystone/v1/chantiers/:id/go-no-go).
   const payload = useMemo(() => sel ? JSON.stringify(d.verdictKeystone(sel, detail), null, 2) : '', [d, sel, detail]);
   const gngCount = (st: GngStatus) => chant.filter(x => x.status === st).length;
@@ -54,9 +57,9 @@ export function Chantiers() {
 
       {sel && (
         <div className="row-wrap">
-          <Panel style={{ flex: '1 1 520px' }} head={
+          <Panel panneau={panneau} nommePar="chantier-detail" style={{ flex: '1 1 520px' }} head={
             <div className="panel-head top">
-              <div><h2>{sel.c.id} — {sel.c.nom}</h2>{entete && <div className="text-muted sub">{entete}</div>}</div>
+              <div><h2 id="chantier-detail">{sel.c.id} — {sel.c.nom}</h2>{entete && <div className="text-muted sub">{entete}</div>}</div>
               <Tag cls={GNG_CLS[sel.status]}>{GNG_LABEL[sel.status]}</Tag>
             </div>
           }>

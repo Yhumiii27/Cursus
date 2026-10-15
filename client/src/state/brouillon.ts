@@ -78,10 +78,24 @@ function champs(racine: HTMLElement): [string, Champ][] {
 
 function capturerChamps(): Champs | null {
   const racine = document.querySelector<HTMLElement>('[data-brouillon]');
-  if (!racine) return null;
+  return racine ? lireChamps(racine) : null;
+}
+
+/** Valeur de chaque champ saisissable d'un dialogue (mots de passe exclus). */
+export function lireChamps(racine: HTMLElement): Champs {
   const out: Champs = {};
   for (const [k, el] of champs(racine)) out[k] = coche(el) ? el.checked : el.value;
   return out;
+}
+
+/**
+ * Saisie modifiée depuis l'ouverture du dialogue (components/Dialog.tsx : confirmation avant de la perdre).
+ * Un champ apparu depuis compte s'il n'est pas vide ; sans relevé de départ, toute valeur compte.
+ */
+export function saisieModifiee(initial: Champs | null, actuel: Champs | null): boolean {
+  if (!actuel) return false;
+  const vide = (v: string | boolean | undefined) => v === undefined || v === '' || v === false;
+  return Object.entries(actuel).some(([k, v]) => initial && k in initial ? initial[k] !== v : !vide(v));
 }
 
 /**

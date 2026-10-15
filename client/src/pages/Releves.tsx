@@ -13,6 +13,7 @@ import type { ISODate } from '../../../shared/types.ts';
 import { Btn, Fine, Panel, Tag, Two } from '../components/ui.tsx';
 import { downloadCsv } from '../print.ts';
 import { useDomain } from '../state/derived.ts';
+import { envoiReleve } from '../state/confirmations.ts';
 import { useStore } from '../state/store.tsx';
 
 const quand = (at: string) => {
@@ -23,7 +24,7 @@ const quand = (at: string) => {
 export function RelevesPanel({ wk }: { wk: ISODate }) {
   const d = useDomain();
   const data = d.ds;
-  const { run, notify } = useStore();
+  const { run, notify, openDialog } = useStore();
   const [busy, setBusy] = useState<string | null>(null);
   const future = wk > mondayOf(data.today);
   const agences = agencesInterim(data.employes).map(agence => ({
@@ -39,9 +40,12 @@ export function RelevesPanel({ wk }: { wk: ISODate }) {
     downloadCsv(csv.fichier, csv.head, csv.rows);
     notify(`Relevé exporté — ${plural(x.r.lignes.length, 'intérimaire', 'intérimaires')}`);
   };
+  // Renvoi, ou relevé sans les feuilles pas encore validées : confirmation (state/confirmations.ts) ; sinon, aussitôt.
   const envoyer = async (x: (typeof agences)[number]) => {
-    const attente = x.r.enAttente.length ? `\n\nFeuille non validée, absente du relevé : ${x.r.enAttente.map(e => e.nom).join(', ')}.` : '';
-    if ((x.envois.length || attente) && !window.confirm(`${x.envois.length ? 'Renvoyer' : 'Envoyer'} le relevé de la semaine ${isoWeek(wk)} à ${x.agence} (${x.adresse}) ?${attente}`)) return;
+    if (x.envois.length || x.r.enAttente.length) {
+      openDialog({ type: 'confirmer', c: envoiReleve(x.agence, x.adresse ?? '', wk, isoWeek(wk), { renvoi: x.envois.length > 0, enAttente: x.r.enAttente.map(e => e.nom) }) });
+      return;
+    }
     setBusy(x.agence);
     await run('releve.envoyer', { agence: x.agence, semaine: wk });
     setBusy(null);

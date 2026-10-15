@@ -6,7 +6,7 @@ import { HAB_CLS, HAB_LABEL } from '../../../shared/constants.ts';
 import { fmtIso } from '../../../shared/format.ts';
 import { controlerAvis, RESTRICTION_MAX, RESTRICTIONS_MAX, suspendueParAvis } from '../../../shared/rules/sante.ts';
 import type { AvisMedical } from '../../../shared/types.ts';
-import { CancelButton, Controles, Dialog, Field, Static } from '../components/Dialog.tsx';
+import { CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine, SectionLabel, Seg, Tag } from '../components/ui.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -27,6 +27,7 @@ export function AvisDialog({ empId }: { empId: number }) {
   // Avis apte : les suspensions décidées à un avis précédent sont levées par défaut.
   const [lever, setLever] = useState<string[]>(() => titres.filter(suspendueParAvis).map(h => h.h));
   const [busy, setBusy] = useState(false);
+  const v = useVerification();
   if (!emp || !rh) return null;
 
   const setAvis = (a: AvisMedical) => {
@@ -43,9 +44,11 @@ export function AvisDialog({ empId }: { empId: number }) {
     ...(emp.visite && date && date < emp.visite ? [`Visite antérieure à la dernière enregistrée (${fmtIso(emp.visite)}) : cet avis la remplace.`] : []),
     ...(demande ? [date >= demande.le ? `La demande de visite du ${fmtIso(demande.le)} sera close.` : `La demande de visite du ${fmtIso(demande.le)} reste en cours (visite antérieure).`] : []),
   ];
-  const msgs = [...errors.map(text => ({ text, bad: true })), ...infos.map(text => ({ text, bad: false }))];
+  // Erreurs affichées après la première tentative d'envoi ; les informations, en direct.
+  const msgs = [...(v.tente ? errors : []).map(text => ({ text, bad: true })), ...infos.map(text => ({ text, bad: false }))];
 
   const confirm = async () => {
+    if (busy || !v.verifier(...errors)) return;
     setBusy(true);
     const r = await run('medical.avis', {
       empId, date, avis, restrictions: avis === 'restrictions' ? lignes : [],
@@ -56,9 +59,9 @@ export function AvisDialog({ empId }: { empId: number }) {
   };
 
   return (
-    <Dialog title="Avis du médecin du travail" width={640} tall actions={<>
+    <Dialog title="Avis du médecin du travail" width={640} tall onSubmit={confirm} actions={<>
       <CancelButton />
-      <button type="button" className="btn btn-primary" disabled={errors.length > 0 || busy} onClick={confirm}>Enregistrer l’avis</button>
+      <SubmitButton busy={busy}>Enregistrer l’avis</SubmitButton>
     </>}>
       <div className="grid-2">
         <Field label="Collaborateur"><Static>{emp.nom} · {emp.poste}</Static></Field>

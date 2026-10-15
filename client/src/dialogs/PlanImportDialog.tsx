@@ -2,7 +2,7 @@
 import { useMemo, useState, type ChangeEvent } from 'react';
 import { fmtEur, plural } from '../../../shared/format.ts';
 import { parsePlan, SAMPLE_PLAN_CSV } from '../../../shared/rules/imports.ts';
-import { CancelButton, Dialog, Field, Static } from '../components/Dialog.tsx';
+import { CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Seg, Tag } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -30,6 +30,9 @@ export function PlanImportDialog({ exercice }: { exercice: number }) {
   const [fichier, setFichier] = useState('');
   const [mode, setMode] = useState<'add' | 'replace'>('add');
   const [busy, setBusy] = useState(false);
+  const v = useVerification();
+  // Remplacement des lignes prévues : confirmé avant l'envoi (suppression définitive).
+  const [confirmer, setConfirmer] = useState(false);
   const parsed = useMemo(() => parsePlan(d, texte), [d, texte]);
   const okRows = parsed.filter(r => r.ok);
   const total = okRows.reduce((n, r) => n + r.cout, 0);
@@ -41,21 +44,31 @@ export function PlanImportDialog({ exercice }: { exercice: number }) {
     readText(file, t => { setTexte(t); setFichier(file.name); });
   };
 
+  const prevues = d.ds.plan.filter(l => l.exercice === ex && l.statut === 'prevu').length;
+  const texteErr = !texte.trim() ? 'Chargez un fichier ou collez le contenu du plan.'
+    : !okRows.length ? 'Aucune ligne valide à importer : corrigez le fichier (voir l’aperçu).' : null;
+  const envoyer = () => {
+    if (busy || !v.verifier(texteErr)) return;
+    if (mode === 'replace' && prevues > 0) setConfirmer(true);
+    else confirm();
+  };
   const confirm = async () => {
     setBusy(true);
     const r = await run('plan.importer', { texte, exercice: ex, mode });
     setBusy(false);
+    setConfirmer(false);
     if (!r.ok) return;
     closeDialog();
     go('budget', { exercice: ex, planFilter: 'tous' });
   };
 
   return (
-    <Dialog title="Importer un plan prévisionnel" width={780} tall actions={<>
+    <Dialog title="Importer un plan prévisionnel" width={780} tall onSubmit={envoyer} confirmation={confirmer ? {
+      texte: `Remplacer : ${plural(prevues, 'ligne « Prévue »', 'lignes « Prévues »')} de l’exercice ${ex} ${prevues > 1 ? 'seront supprimées' : 'sera supprimée'} avant l’import de ${plural(okRows.length, 'ligne', 'lignes')}. Continuer ?`,
+      bouton: 'Remplacer et importer', occupe: busy, confirmer: confirm, annuler: () => setConfirmer(false),
+    } : null} actions={<>
       <CancelButton />
-      <button type="button" className="btn btn-primary" disabled={!okRows.length || busy} onClick={confirm}>
-        {okRows.length ? `Importer ${plural(okRows.length, 'ligne', 'lignes')}` : 'Importer'}
-      </button>
+      <SubmitButton busy={busy}>{okRows.length ? `Importer ${plural(okRows.length, 'ligne', 'lignes')}` : 'Importer'}</SubmitButton>
     </>}>
       <div className="grid-2">
         <Field label="Exercice" htmlFor="imp-ex">
@@ -78,7 +91,7 @@ export function PlanImportDialog({ exercice }: { exercice: number }) {
         </div>
         <span className="text-muted sub">Colonnes : formation ; équipe ; période (T1–T4) ; effectif ; coût total — le coût est estimé depuis le catalogue s’il manque. Séparateur « ; », « , » ou tabulation ; la ligne d’en-tête est détectée automatiquement.</span>
       </Field>
-      <Field label="Ou coller le contenu" htmlFor="imp-text">
+      <Field label="Ou coller le contenu" htmlFor="imp-text" erreur={v.erreur(texteErr)}>
         <textarea className="input mono-input" id="imp-text" rows={4} value={texte} placeholder="formation;equipe;periode;effectif;cout"
           onChange={e => { setTexte(e.target.value); setFichier(''); }} />
       </Field>

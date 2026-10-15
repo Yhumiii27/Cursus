@@ -6,11 +6,12 @@ import { PLAN_LABEL, SESS_CLS, VALIDATION_LABEL } from '../../../shared/constant
 import { sessionActive } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, fmtShort, plural } from '../../../shared/format.ts';
-import { convocationEnvoyee, exigeEvaluation, inscritsDe, listeOrganisme, resultatsDe, type Inscrit } from '../../../shared/rules/sessions.ts';
-import { CancelButton, Dialog, Field, Static } from '../components/Dialog.tsx';
+import { convocationEnvoyee, exigeEvaluation, type Inscrit, inscritsDe, listeOrganisme, resultatsDe } from '../../../shared/rules/sessions.ts';
+import { CancelButton, Dialog, Field, Static, SubmitButton } from '../components/Dialog.tsx';
 import { Btn, Empty, Fine, NoteAccent, Tag, Two } from '../components/ui.tsx';
 import { downloadCsv } from '../print.ts';
 import { useEnriched, useRole } from '../state/derived.ts';
+import { desinscription } from '../state/confirmations.ts';
 import { useStore } from '../state/store.tsx';
 
 export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
@@ -55,18 +56,15 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
     setBusy(false);
   };
   const convoquer = (i?: Inscrit) => agir('convocation.envoyer', { sessionId: s.id, ...(i ? { empIds: [i.empId] } : {}) });
-  const desinscrire = (i: Inscrit) => {
-    const annule = convocationEnvoyee(i) ? ' La convocation envoyée est annulée par e-mail.' : '';
-    if (window.confirm(`Désinscrire ${i.nom} de cette session ?\n\nLa place est libérée${i.parcours === 'recyclage' ? ' et le recyclage redevient à planifier' : ' et l’inscription en formation initiale est retirée'}.${annule}`)) {
-      agir('plan.desinscrire', { empId: i.empId, sessionId: s.id });
-    }
-  };
+  // Confirmation (state/confirmations.ts), puis retour au détail de la session.
+  const desinscrire = (i: Inscrit) => openDialog({ type: 'confirmer', c: desinscription({ empId: i.empId, sessionId: s.id }, i.nom, `${fm?.court ?? s.formation} du ${fmt(parse(s.date))}`,
+    { recyclage: i.parcours === 'recyclage', convoque: convocationEnvoyee(i), retour: { type: 'sessionDetail', sessionId: s.id } }) });
 
   if (annulation) {
     return (
-      <Dialog title="Annuler la session" width={540} actions={<>
+      <Dialog title="Annuler la session" width={540} onSubmit={() => { if (!busy) act('session.annuler', { id: s.id, motif: motif.trim() }); }} actions={<>
         <button type="button" className="btn btn-secondary" onClick={() => setAnnulation(false)}>Retour</button>
-        <button type="button" className="btn btn-primary" disabled={busy} onClick={() => act('session.annuler', { id: s.id, motif: motif.trim() })}>Annuler la session</button>
+        <SubmitButton busy={busy}>Annuler la session</SubmitButton>
       </>}>
         <Field label="Session"><Static>{fm?.nom ?? s.formation} · {fmt(parse(s.date))} · {s.lieu}</Static></Field>
         <Field label="Motif (facultatif)" htmlFor="sd-motif">

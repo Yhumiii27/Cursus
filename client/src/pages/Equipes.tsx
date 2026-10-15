@@ -1,11 +1,13 @@
 // Équipes & managers (RH) : composition des équipes, désignation des managers et collaborateurs à affecter.
-import { useMemo, useState } from 'react';
+import { useMemo, useState, type Ref } from 'react';
 import { PlusIcon, UserPlusIcon } from '@phosphor-icons/react';
 import { CLS, EMP_LABEL, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../../../shared/constants.ts';
 import type { Domain, EmpX } from '../../../shared/domain.ts';
 import { equipeLabel, fH, fJ, plural } from '../../../shared/format.ts';
 import type { Employe, Equipe } from '../../../shared/types.ts';
+import { usePanneauVisible } from '../components/panneau.ts';
 import { Avatar, Btn, Empty, Fine, Page, Panel, Tag, Two } from '../components/ui.tsx';
+import { changementManager, retraitEquipe, suppressionEquipe, type Confirmation } from '../state/confirmations.ts';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -68,6 +70,8 @@ export function Equipes() {
   }, [d, emps]);
 
   const sel = v.teams.find(t => t.q.ordre === selOrdre) ?? v.teams[0] ?? null;
+  // Écran étroit : le détail de l'équipe s'affiche sous les cartes ; choisir une équipe l'amène dans le champ de vision.
+  const panneau = usePanneauVisible<HTMLElement>(sel && sel.q.ordre === selOrdre ? selOrdre : null);
 
   const act = async (name: string, payload: Record<string, unknown>) => {
     setBusy(true);
@@ -122,7 +126,7 @@ export function Equipes() {
       )}
 
       <div className="row-wrap">
-        {sel && <TeamPanel t={sel} candidates={v.candidates} busy={busy} act={act} onDeleted={() => setSelOrdre(null)} />}
+        {sel && <TeamPanel panneau={panneau} t={sel} candidates={v.candidates} />}
 
         <Panel style={{ flex: '1 1 340px' }} highlight={v.aAffecter.length > 0} title="À affecter"
           aside={plural(v.aAffecter.length, 'collaborateur', 'collaborateurs')}>
@@ -161,10 +165,12 @@ export function Equipes() {
   );
 }
 
-function TeamPanel({ t, candidates, busy, act, onDeleted }: {
-  t: TeamView; candidates: Employe[]; busy: boolean;
-  act: (name: string, payload: Record<string, unknown>) => Promise<{ ok: boolean }>; onDeleted: () => void;
-}) {
+/**
+ * Détail de l'équipe choisie. Changer de manager, retirer un membre et supprimer l'équipe passent par une
+ * confirmation (state/confirmations.ts) : la liste des managers changeait l'équipe dès la sélection, même
+ * parcourue au clavier avec les flèches.
+ */
+function TeamPanel({ panneau, t, candidates }: { panneau: Ref<HTMLElement>; t: TeamView; candidates: Employe[] }) {
   const { d } = useEnriched();
   const { openDialog, go } = useStore();
   const { rh, admin } = useRole();
@@ -180,10 +186,12 @@ function TeamPanel({ t, candidates, busy, act, onDeleted }: {
   const deleteBlock = n
     ? `L’équipe compte encore ${plural(n, 'membre', 'membres')} : affectez-les d’abord à une autre équipe.`
     : t.planLinked ? 'Des actions du plan de formation sont rattachées à cette équipe.' : '';
-  const supprimer = async () => {
-    if (!window.confirm(`Supprimer l’équipe ${nom} ? Ses enveloppes budgétaires de formation seront supprimées.`)) return;
-    const r = await act('equipe.supprimer', { nom });
-    if (r.ok) onDeleted();
+  const confirmer = (c: Confirmation) => openDialog({ type: 'confirmer', c });
+  const choisirManager = (val: string) => {
+    const id = val ? Number(val) : null;
+    if (id === mgrId) return;
+    const nouveau = id != null ? candidates.find(e => e.id === id) ?? d.emp(id) : undefined;
+    confirmer(changementManager(nom, t.mgrNom, nouveau ? { id: nouveau.id, nom: nouveau.nom } : null));
   };
 
   const mgrNotes = [
@@ -193,10 +201,10 @@ function TeamPanel({ t, candidates, busy, act, onDeleted }: {
   ].filter(Boolean).join(' ');
 
   return (
-    <Panel style={{ flex: '1 1 600px' }} head={
+    <Panel panneau={panneau} nommePar="equipe-detail" style={{ flex: '1 1 600px' }} head={
       <div className="panel-head center">
         <div style={{ minWidth: 0 }}>
-          <h2>{nom}</h2>
+          <h2 id="equipe-detail">{nom}</h2>
           <div className="text-muted sub">
             {plural(n, 'membre', 'membres')}{t.pct != null ? ` · ${t.pct} % conformes` : ''} · validations : {t.mgrNom ?? 'service RH'}
           </div>
@@ -204,7 +212,7 @@ function TeamPanel({ t, candidates, busy, act, onDeleted }: {
         {rh && (
           <div className="actions-end">
             <Btn small onClick={() => openDialog({ type: 'equipe', nom })}>Renommer</Btn>
-            {admin && <Btn small disabled={busy || !!deleteBlock} title={deleteBlock || undefined} onClick={supprimer}>Supprimer</Btn>}
+            {admin && <Btn small disabled={!!deleteBlock} title={deleteBlock || undefined} onClick={() => confirmer(suppressionEquipe(nom))}>Supprimer</Btn>}
             <Btn variant="secondary" small icon={<UserPlusIcon size={14} />} onClick={() => openDialog({ type: 'membre', equipe: nom })}>Ajouter un membre</Btn>
           </div>
         )}
@@ -213,8 +221,8 @@ function TeamPanel({ t, candidates, busy, act, onDeleted }: {
       <div style={{ display: 'flex', flexWrap: 'wrap', gap: 'var(--space-4)', alignItems: 'flex-end' }}>
         <div className="field" style={{ flex: '1 1 260px', maxWidth: 380 }}>
           <label htmlFor="equipe-manager">Désigner le manager</label>
-          <select className="input" id="equipe-manager" value={mgrId ?? ''} disabled={busy || !rh}
-            onChange={ev => act('equipe.manager', { nom, managerId: ev.target.value ? Number(ev.target.value) : null })}>
+          {/* La liste garde le manager actuel tant que le changement n'est pas confirmé. */}
+          <select className="input" id="equipe-manager" value={mgrId ?? ''} disabled={!rh} onChange={ev => choisirManager(ev.target.value)}>
             <option value="">Aucun manager — validations par le RH</option>
             {mgrMissing && <option value={mgrId!}>{t.mgrNom}</option>}
             {inTeam.length > 0 && (
@@ -256,7 +264,7 @@ function TeamPanel({ t, candidates, busy, act, onDeleted }: {
                   <td><Tag cls={CLS[e.worst]}>{EMP_LABEL[e.worst]}</Tag></td>
                   <td className="right">
                     <div className="actions-end" style={{ flexWrap: 'nowrap' }}>
-                      {rh && <Btn small disabled={busy} title="Le collaborateur devient « à affecter »" onClick={() => act('equipe.affecter', { empId: e.id, equipe: null })}>Retirer</Btn>}
+                      {rh && <Btn small title="Le collaborateur devient « à affecter »" onClick={() => confirmer(retraitEquipe(e.id, e.nom, nom))}>Retirer</Btn>}
                       <Btn small onClick={() => go('collaborateurs', { selectedId: e.id })}>Fiche →</Btn>
                     </div>
                   </td>

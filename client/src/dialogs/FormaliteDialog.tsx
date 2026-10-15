@@ -6,8 +6,9 @@ import { addMonths, isValidDate, parse } from '../../../shared/dates.ts';
 import { fmt, validiteLabel } from '../../../shared/format.ts';
 import { formaliteCle } from '../../../shared/rules/formalites.ts';
 import type { VaccinId } from '../../../shared/types.ts';
-import { CancelButton, Dialog, Field } from '../components/Dialog.tsx';
+import { CancelButton, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { SectionLabel, Seg } from '../components/ui.tsx';
+import { erreurDate, erreurTexte } from '../components/controles.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -47,17 +48,25 @@ export function FormaliteDialog({ empId: empId0, kind: kind0, dest: dest0, v: v0
   const [v, setV] = useState<VaccinId>(v0 ?? 'fj');
   const [date, setDate] = useState('');
   const [busy, setBusy] = useState(false);
+  const verif = useVerification();
 
   const setDest = (code: string) => { setDestState(code); setVisaType(ruleLabel(code)); };
   const vm = VACCINS[v];
   const vacHint = `${vm.validite == null ? 'Certificat valable à vie' : 'Validité ' + validiteLabel(vm.validite)}${isValidDate(date) && vm.validite ? ' · rappel le ' + fmt(addMonths(parse(date), vm.validite)) : ''}`;
-  const cant = kind === 'passeport' ? !(numero.trim() && isValidDate(expire)) : kind === 'visa' ? !isValidDate(expire) : !isValidDate(date);
+  // Champs obligatoires du type choisi ; la date d'obtention d'un visa est facultative.
+  const erreurs = {
+    numero: kind === 'passeport' ? erreurTexte(numero, 'Indiquez le numéro du passeport.') : null,
+    expire: kind === 'vaccin' ? null : erreurDate(expire, kind === 'passeport' ? 'Indiquez la date d’expiration.' : 'Indiquez la fin de validité du visa.'),
+    obtenu: kind === 'visa' && obtenu && !isValidDate(obtenu) ? 'Date invalide.' : null,
+    date: kind === 'vaccin' ? erreurDate(date, 'Indiquez la date d’injection.') : null,
+  };
   // Le collaborateur déclare : son dossier n'est mis à jour qu'après validation par le service RH.
   const cle = formaliteCle({ kind, dest, v });
   const dejaDeclare = collab && d.ds.demandesCollab.some(r => r.empId === empId && r.statut === 'attente'
     && r.declaration && !r.declaration.dejaAuDossier && formaliteCle(r.declaration) === cle);
 
   const confirm = async () => {
+    if (busy || !verif.verifier(...Object.values(erreurs))) return;
     setBusy(true);
     const r = await run('formalite.enregistrer', { empId, kind, numero, expire, dest, visaType, obtenu, v, date });
     setBusy(false);
@@ -65,9 +74,9 @@ export function FormaliteDialog({ empId: empId0, kind: kind0, dest: dest0, v: v0
   };
 
   return (
-    <Dialog title={collab ? 'Déclarer une formalité' : 'Enregistrer une formalité'} width={520} tall={kind === 'vaccin'} actions={<>
+    <Dialog title={collab ? 'Déclarer une formalité' : 'Enregistrer une formalité'} width={520} tall={kind === 'vaccin'} onSubmit={confirm} actions={<>
       <CancelButton />
-      <button type="button" className="btn btn-primary" disabled={cant || busy} onClick={confirm}>{collab ? 'Envoyer au service RH' : 'Enregistrer'}</button>
+      <SubmitButton busy={busy}>{collab ? 'Envoyer au service RH' : 'Enregistrer'}</SubmitButton>
     </>}>
       <Field label="Collaborateur" htmlFor="fo-emp">
         <select className="input" id="fo-emp" value={empId} disabled={lockEmp} onChange={e => setEmpId(Number(e.target.value))}>
@@ -78,8 +87,8 @@ export function FormaliteDialog({ empId: empId0, kind: kind0, dest: dest0, v: v0
         options={[['passeport', 'Passeport'], ['visa', 'Visa'], ['vaccin', 'Vaccination']]} />
       {kind === 'passeport' && (
         <div className="grid-2">
-          <Field label="Numéro" htmlFor="fo-num"><input className="input" id="fo-num" type="text" placeholder="22AB12345" value={numero} onChange={e => setNumero(e.target.value)} /></Field>
-          <Field label="Date d’expiration" htmlFor="fo-pexp"><input className="input" id="fo-pexp" type="date" value={expire} onChange={e => setExpire(e.target.value)} /></Field>
+          <Field label="Numéro" htmlFor="fo-num" requis erreur={verif.erreur(erreurs.numero)}><input className="input" id="fo-num" type="text" placeholder="22AB12345" value={numero} onChange={e => setNumero(e.target.value)} /></Field>
+          <Field label="Date d’expiration" htmlFor="fo-pexp" requis erreur={verif.erreur(erreurs.expire)}><input className="input" id="fo-pexp" type="date" value={expire} onChange={e => setExpire(e.target.value)} /></Field>
         </div>
       )}
       {kind === 'visa' && (
@@ -90,8 +99,8 @@ export function FormaliteDialog({ empId: empId0, kind: kind0, dest: dest0, v: v0
             </select>
           </Field>
           <Field label="Type" htmlFor="fo-vt"><input className="input" id="fo-vt" type="text" value={visaType} onChange={e => setVisaType(e.target.value)} /></Field>
-          <Field label="Date d’obtention" htmlFor="fo-vob"><input className="input" id="fo-vob" type="date" value={obtenu} onChange={e => setObtenu(e.target.value)} /></Field>
-          <Field label="Valable jusqu’au" htmlFor="fo-vexp"><input className="input" id="fo-vexp" type="date" value={expire} onChange={e => setExpire(e.target.value)} /></Field>
+          <Field label="Date d’obtention" htmlFor="fo-vob" erreur={verif.erreur(erreurs.obtenu)}><input className="input" id="fo-vob" type="date" value={obtenu} onChange={e => setObtenu(e.target.value)} /></Field>
+          <Field label="Valable jusqu’au" htmlFor="fo-vexp" requis erreur={verif.erreur(erreurs.expire)}><input className="input" id="fo-vexp" type="date" value={expire} onChange={e => setExpire(e.target.value)} /></Field>
         </div>
       )}
       {kind === 'vaccin' && <>
@@ -102,7 +111,7 @@ export function FormaliteDialog({ empId: empId0, kind: kind0, dest: dest0, v: v0
               {(Object.keys(VACCINS) as VaccinId[]).map(id => <option key={id} value={id}>{VACCINS[id].nom}</option>)}
             </select>
           </Field>
-          <Field label="Date d’injection" htmlFor="fo-vd"><input className="input" id="fo-vd" type="date" value={date} onChange={e => setDate(e.target.value)} /></Field>
+          <Field label="Date d’injection" htmlFor="fo-vd" requis erreur={verif.erreur(erreurs.date)}><input className="input" id="fo-vd" type="date" value={date} onChange={e => setDate(e.target.value)} /></Field>
         </div>
         <p className="text-muted fine">{vacHint}</p>
       </>}

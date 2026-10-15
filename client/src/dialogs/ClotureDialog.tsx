@@ -7,7 +7,7 @@ import { sessionActive } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, plural } from '../../../shared/format.ts';
 import { exigeEvaluation, inscritsDe } from '../../../shared/rules/sessions.ts';
-import { CancelButton, Dialog, Field, Static } from '../components/Dialog.tsx';
+import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Empty, Fine, Seg, Tag } from '../components/ui.tsx';
 import { useEnriched } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -23,6 +23,7 @@ export function ClotureDialog({ sessionId }: { sessionId: number }) {
   const [note, setNote] = useState('');
   const [commentaire, setCommentaire] = useState('');
   const [busy, setBusy] = useState(false);
+  const v = useVerification();
   if (!s) return null;
   const fm = d.fm(s.formation);
   if (!sessionActive(s) || s.date > d.ti) {
@@ -45,6 +46,7 @@ export function ClotureDialog({ sessionId }: { sessionId: number }) {
   const quand = fmt(parse(s.date));
 
   const confirm = async () => {
+    if (busy || !v.verifier(sansPresence.length, manquants.length)) return;
     setBusy(true);
     const r = await run('session.cloturer', {
       id: s.id,
@@ -57,9 +59,9 @@ export function ClotureDialog({ sessionId }: { sessionId: number }) {
   };
 
   return (
-    <Dialog title="Clôturer la session" width={640} tall actions={<>
+    <Dialog title="Clôturer la session" width={640} tall onSubmit={confirm} actions={<>
       <CancelButton />
-      <button type="button" className="btn btn-primary" disabled={sansPresence.length > 0 || manquants.length > 0 || busy} onClick={confirm}>Clôturer la session</button>
+      <SubmitButton busy={busy}>Clôturer la session</SubmitButton>
     </>}>
       <div className="grid-2">
         <Field label="Session"><Static>{fm?.nom ?? s.formation}<div className="text-muted sub">{quand} · {s.lieu}</div></Static></Field>
@@ -91,8 +93,9 @@ export function ClotureDialog({ sessionId }: { sessionId: number }) {
           {inscrits.length === 0 && <Empty pad="sm">Aucun inscrit : la session sera clôturée sans certification.</Empty>}
         </div>
       </Field>
-      {sansPresence.length > 0 && <p className="form-error">Présence à renseigner : {sansPresence.map(i => i.nom).join(', ')}.</p>}
-      {manquants.length > 0 && <p className="form-error">Résultat de l’évaluation à renseigner : {manquants.map(i => i.nom).join(', ')}.</p>}
+      {/* Choix explicites (aucune valeur par défaut) : ce qui manque est listé, et ciblé à l'envoi. */}
+      {sansPresence.length > 0 && <Bloquant>Présence à renseigner : {sansPresence.map(i => i.nom).join(', ')}.</Bloquant>}
+      {manquants.length > 0 && <Bloquant>Résultat de l’évaluation à renseigner : {manquants.map(i => i.nom).join(', ')}.</Bloquant>}
 
       <div className="grid-2">
         <Field label="Évaluation à chaud (facultative)" htmlFor="cl-note">

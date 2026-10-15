@@ -5,10 +5,12 @@
 import { useState } from 'react';
 import { ENT_TYPES } from '../../../shared/constants.ts';
 import { isValidDate } from '../../../shared/dates.ts';
-import { blocage, conflitsDates, type Conflit } from '../../../shared/rules/conflits.ts';
+import { blocage, type Conflit, conflitsDates } from '../../../shared/rules/conflits.ts';
 import { reprogrammation } from '../../../shared/rules/entretiens.ts';
 import type { EntretienType } from '../../../shared/types.ts';
-import { CancelButton, Controles, Dialog, Field } from '../components/Dialog.tsx';
+import { CancelButton, Controles, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
+import { fmtIso } from '../../../shared/format.ts';
+import { erreurDate } from '../components/controles.ts';
 import { Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -20,16 +22,18 @@ export function EntPlanDialog({ empId, kind: kind0 }: { empId: number; kind: Ent
   const [date, setDate] = useState('');
   const [nonTenu, setNonTenu] = useState(false);
   const [busy, setBusy] = useState(false);
+  const v = useVerification();
   const emp = d.emp(empId);
   if (!emp) return null;
+  const dateErr = erreurDate(date, 'Indiquez la date de l’entretien.') ?? (date < d.ti ? `Date passée : à partir du ${fmtIso(d.ti)}.` : null);
   const { prevu, aConfirmer, msg } = reprogrammation(d, empId, kind, date, nonTenu);
   const msgs: Conflit[] = [
     ...(msg ? [msg] : []),
     ...(isValidDate(date) ? conflitsDates(d, empId, date, date, 'entretien', { entretienId: prevu?.id }) : []),
   ];
-  const cant = !isValidDate(date) || date < d.ti || !!blocage(msgs);
 
   const confirm = async () => {
+    if (busy || !v.verifier(dateErr, blocage(msgs))) return;
     setBusy(true);
     const r = await run('entretien.planifier', { empId, kind, date, ...(aConfirmer && nonTenu ? { nonTenu: true } : {}) });
     setBusy(false);
@@ -37,16 +41,16 @@ export function EntPlanDialog({ empId, kind: kind0 }: { empId: number; kind: Ent
   };
 
   return (
-    <Dialog title={`Planifier un entretien — ${emp.nom}`} label="Planifier un entretien" width={520} actions={<>
+    <Dialog title={`Planifier un entretien — ${emp.nom}`} width={520} onSubmit={confirm} actions={<>
       <CancelButton />
-      <button type="button" className="btn btn-primary" disabled={cant || busy} onClick={confirm}>{prevu ? 'Reprogrammer et convoquer' : 'Planifier et convoquer'}</button>
+      <SubmitButton busy={busy}>{prevu ? 'Reprogrammer et convoquer' : 'Planifier et convoquer'}</SubmitButton>
     </>}>
       <Field label="Type" htmlFor="ep-k">
         <select className="input" id="ep-k" value={kind} onChange={e => { setKind(e.target.value as EntretienType); setNonTenu(false); }}>
           {(Object.keys(ENT_TYPES) as EntretienType[]).map(k => <option key={k} value={k}>{ENT_TYPES[k].nom}</option>)}
         </select>
       </Field>
-      <Field label="Date" htmlFor="ep-d">
+      <Field label="Date" htmlFor="ep-d" requis erreur={v.erreur(dateErr)}>
         <input className="input" id="ep-d" type="date" min={d.ti} value={date} onChange={e => setDate(e.target.value)} />
       </Field>
       <Controles msgs={msgs} />

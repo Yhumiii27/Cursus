@@ -55,7 +55,9 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
   Pas d'accès aux données de santé : seuls le verdict d'aptitude et les restrictions de poste en vigueur sont transmis,
   sans date de visite ; du passeport de ses membres, la seule date d'expiration.
 - **Utilisateur** (collaborateur) : ses formations, habilitations, voyages, heures,
-  absences, entretiens et demandes au service RH.
+  absences, entretiens et demandes au service RH. Un refus (demande d'absence, demande au service RH)
+  lui parvient avec son motif, obligatoire à l'écran de celui qui refuse ; le motif d'un refus d'absence
+  est aussi lu par son manager, celui d'une demande au service RH par lui seul.
   Les documents de voyage qu'il déclare (passeport, visa, vaccination) n'entrent dans son
   dossier qu'après validation par le service RH. Ses vaccinations (vaccin et date d'injection) sont des données de
   santé réservées au service RH : l'information sur leur traitement (art. 13 du RGPD) s'affiche avant la saisie.

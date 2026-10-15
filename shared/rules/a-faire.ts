@@ -24,8 +24,13 @@ export function aFaireCollaborateur(d: Domain, empId: number | null): AFaire {
     .sort((a, b) => a.week.localeCompare(b.week))
     .map(f => ({ week: f.week, etat: 'renvoyee', commentaire: f.comment }));
   // Semaine passée : ni soumise ni validée (une semaine d'absence se soumet aussi, sans heure) ; rien hors contrat.
+  // Rien non plus avant le début du suivi des heures dans Cursus, c'est-à-dire avant la première feuille du salarié :
+  // à la mise en service, la dernière semaine de la période reprise de Lucca (28 au 31 décembre 2026) n'est pas
+  // réclamée, ni à un salarié qui n'a encore jamais saisi d'heures (docs/DEPLOIEMENT.md, « Postes et téléphones »).
   const passee = semainePassee(d.ti);
-  const sh = d.ds.feuilles.find(f => f.empId === e.id && f.week === passee);
-  if ((!sh || sh.statut === 'brouillon') && !semaineHorsContrat(e, passee)) feuilles.push({ week: passee, etat: 'a_soumettre', commentaire: null });
+  const siennes = d.ds.feuilles.filter(f => f.empId === e.id);
+  const sh = siennes.find(f => f.week === passee);
+  const suivie = siennes.some(f => f.week <= passee);
+  if (suivie && (!sh || sh.statut === 'brouillon') && !semaineHorsContrat(e, passee)) feuilles.push({ week: passee, etat: 'a_soumettre', commentaire: null });
   return { comptesRendus, feuilles };
 }

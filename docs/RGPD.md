@@ -65,7 +65,7 @@ certificat ou pièce scannée (seule la réception d'un justificatif est notée)
 | Le salarié | Toutes ses données, depuis son espace ; copie complète par « Télécharger mes données » (art. 15 et 20) |
 | Service RH (gestionnaire, administrateur) | Toutes les données du personnel, santé comprise |
 | Manager | Son équipe seulement, sans donnée de santé : avis d'aptitude et restrictions en vigueur (jamais la date de la visite ni les vaccins), absence sans sa nature médicale, du passeport la seule date d'expiration |
-| Référent HSE / formation | Formations, sessions, certifications, habilitations ; aptitude réduite comme pour le manager ; ni temps, ni absences, ni entretiens |
+| Référent HSE / formation | Formations, sessions, certifications, habilitations, demandes de formation et d'habilitation ; aptitude réduite comme pour le manager ; chantiers et demandes Keystone, déplacements avec l'état précalculé du dossier (sans passeport ni visas) et absences des ressources des chantiers, dates seules sans leur nature, pour le Go / No Go ; ni temps, ni soldes, ni entretiens |
 | Gestionnaire de paie (interne ou cabinet) | Temps, absences (sans nature médicale) et soldes, transmission à la paie ; ni formations, ni entretiens, ni déplacements |
 | Consultation (direction, DPO, auditeur) | Tout l'espace RH en lecture, sans donnée de santé détaillée, sans dossier de voyage ni contenu des comptes rendus d'entretien ; journal des actions avec les messages touchant à la santé masqués |
 

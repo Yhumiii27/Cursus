@@ -20,8 +20,10 @@ import {
   ACTION_APPEL_KEYSTONE, ACTIONS_CONNEXION, ACTIONS_PAIE, changementsTexte, CONSERVATION_ARCHIVE_PAIE_MOIS, CONSERVATION_ENVOIS_MOIS,
   CONSERVATION_JOURNAL_MOIS, dossierComplet, estActionPaie, familleAction, FAMILLES_JOURNAL, JOURNAL_LABEL, lecteurJournal, libelleAction,
 } from '../../shared/journal.ts';
+import type { ContactsConfidentialite } from '../../shared/confidentialite.ts';
 import type { CurrentUser, FeuilleTemps, LigneTemps } from '../../shared/types.ts';
 import { journaliser, type Compte } from './comptes.ts';
+import { lireConfidentialite } from './confidentialite.ts';
 import { identite, type Identite } from './connexion.ts';
 import { loadFull, scopeIds } from './dataset.ts';
 import type { Db, TableName } from './db.ts';
@@ -215,8 +217,15 @@ export const REGLES: Record<string, Regle> = {
   'compte.reinitialiser': { champs: ['id'], cible: parId('comptes', []) },
   'envoi.relancer': { champs: ['id'] },
   'envoi.classer': { champs: ['id'] },
-  // Page Confidentialité : nom des champs modifiés, jamais leur texte (coordonnées saisies librement).
-  'confidentialite.regler': { extra: p => ({ champsModifies: ['responsable', 'dpo'].filter(k => p[k] !== undefined) }) },
+  // Page Confidentialité : nom des champs dont la valeur a réellement changé (l'écran Paramètres envoie toujours les
+  // deux), par comparaison du réglage lu avant et après l'action ; jamais leur texte (coordonnées saisies librement).
+  'confidentialite.regler': {
+    etat: db => lireConfidentialite(db),
+    bilan: (_p, x) => {
+      const avant = x.etat as ContactsConfidentialite, apres = lireConfidentialite(x.db);
+      return { champsModifies: (['responsable', 'dpo'] as const).filter(k => avant[k] !== apres[k]) };
+    },
+  },
 };
 
 /** Participants d'une clôture (bornés : une session compte quelques dizaines d'inscrits). */

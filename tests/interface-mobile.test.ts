@@ -6,6 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import type { AddressInfo } from 'node:net';
+import type { FeuilleTemps } from '../shared/types.ts';
 process.env.CURSUS_TODAY = '2026-10-10';
 
 const { default: express } = await import('express');
@@ -67,6 +68,15 @@ test('à faire : compte rendu à signer, feuille renvoyée, semaine passée à s
   db.update('feuilles', feuille()!.id, { statut: 'brouillon', comment: null });
   assert.deepEqual(aFaireCollaborateur(domaine(), 2).feuilles, [{ week: passee, etat: 'a_soumettre', commentaire: null }]);
   db.remove('feuilles', feuille()!.id);
+  assert.equal(aFaireCollaborateur(domaine(), 2).feuilles.length, 1, 'aucune feuille cette semaine-là, mais des feuilles antérieures');
+  // Avant le début du suivi dans Cursus (aucune feuille jusqu'à la semaine passée : mise en service, reprise de
+  // Lucca) : rien n'est réclamé ; une feuille ouverte cette semaine-ci n'y change rien.
+  const anterieures = db.sql.prepare('SELECT id FROM feuilles WHERE emp_id = 2 AND week <= ?').all(passee) as { id: number }[];
+  const sauvegarde = anterieures.map(x => db.get<FeuilleTemps>('feuilles', x.id)!);
+  for (const x of anterieures) db.remove('feuilles', x.id);
+  db.insert('feuilles', { empId: 2, week: '2026-10-05', statut: 'brouillon', comment: null, sage: false, keystone: false, lignes: [], contrat: null });
+  assert.deepEqual(aFaireCollaborateur(domaine(), 2).feuilles, [], 'première semaine suivie dans Cursus : la semaine en cours');
+  for (const { id: _id, ...f } of sauvegarde) db.insert('feuilles', f);
   assert.equal(aFaireCollaborateur(domaine(), 2).feuilles.length, 1);
   // Semaine hors contrat (entrée postérieure) : aucune feuille attendue.
   db.update('employes', 2, { entree: '2026-10-05' });
@@ -138,6 +148,12 @@ test('confidentialite.regler : administrateur RH, champs absents conservés, rie
   // Journal : le nom des champs modifiés, jamais leur texte ; libellé et famille « Administration ».
   const lignes = db.all<{ action: string; payload: Record<string, unknown> }>('journal').filter(l => l.action === 'confidentialite.regler');
   assert.deepEqual(lignes.map(l => l.payload), [{ champsModifies: ['responsable'] }, { champsModifies: ['dpo'] }, { champsModifies: ['dpo'] }]);
+  // Comme l'écran Paramètres : les deux champs envoyés, seul le DPO change (le responsable, renvoyé à l'identique,
+  // n'est pas nommé) ; un enregistrement sans changement ne nomme aucun champ.
+  run(RH, 'confidentialite.regler', { responsable: 'Chimie Industrie SAS, Feyzin', dpo: 'Claire Martin, dpo@entreprise.example' });
+  run(RH, 'confidentialite.regler', { responsable: 'Chimie Industrie SAS, Feyzin', dpo: 'Claire Martin, dpo@entreprise.example' });
+  const suite = db.all<{ action: string; payload: Record<string, unknown> }>('journal').filter(l => l.action === 'confidentialite.regler').slice(3);
+  assert.deepEqual(suite.map(l => l.payload), [{ champsModifies: ['dpo'] }, { champsModifies: [] }]);
   assert.ok(!JSON.stringify(db.all('journal')).includes('Claire Martin'));
   assert.ok(JOURNAL_LABEL['confidentialite.regler']);
   assert.equal(familleAction('confidentialite.regler')?.id, 'administration');

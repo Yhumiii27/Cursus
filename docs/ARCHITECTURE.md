@@ -174,8 +174,8 @@ design/            Prototype Claude Design de référence et guide du design sys
      titre de l'onglet « <page> — Cursus » ; après chaque changement de page (menu, retour arrière, espace, connexion ;
      pas au premier affichage), focus sur le titre de la page (`h1` de `Page`, `tabIndex={-1}`), sauf sous un dialogue.
    - *Ce qui attend le collaborateur* (`aFaireCollaborateur` de `shared/rules/a-faire.ts`) : comptes rendus d'entretien
-     réalisés non signés, feuilles renvoyées et feuille de la semaine passée non soumise (hors contrat exclu) ; en
-     pastille sur « Mes entretiens » et « Mes heures » (lue « N à traiter », comme toutes les pastilles du menu) et
+     réalisés non signés, feuilles renvoyées et feuille de la semaine passée non soumise (hors contrat exclu ; à partir
+     de la première feuille du salarié dans Cursus seulement, rien avant la mise en service) ; en pastille sur « Mes entretiens » et « Mes heures » (lue « N à traiter », comme toutes les pastilles du menu) et
      dans l'encart « À faire » de l'accueil, qui mène au compte rendu ou à la semaine.
 
 ## Sécurité
@@ -522,7 +522,7 @@ aucun champ du paramètre n'est recopié.
 | `messagerie.essai` | adresse : e-mail d'essai (mise en service, `docs/EMAILS.md`) | administrateur RH |
 | `messagerie.recapituler` | — : récapitulatifs des notifications en attente envoyés sans attendre 7 h | RH |
 | `notification.regler` | empId? (soi par défaut), mode (`immediat`/`quotidien`) | la personne elle-même, ou RH |
-| `confidentialite.regler` | responsable?, dpo? (texte, 300 caractères au plus ; vide : effacé, la page renvoie au service RH) ; journal : nom des champs modifiés seulement | administrateur RH |
+| `confidentialite.regler` | responsable?, dpo? (texte, 300 caractères au plus ; vide : effacé, la page renvoie au service RH) ; journal : nom des champs dont la valeur change, jamais leur texte | administrateur RH |
 
 ## Journal des actions
 

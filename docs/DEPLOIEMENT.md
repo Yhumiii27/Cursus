@@ -379,6 +379,10 @@ HTTPS, sans alerte de certificat.
 - Sur téléphone et tablette, le menu se replie derrière le bouton « Menu » (sous 900 px de large) et les heures se
   saisissent jour par jour (sous 600 px ou sur écran tactile) ; aucun réglage. La recette vérifie la saisie d'une
   semaine d'heures et la signature d'un compte rendu depuis un téléphone de l'entreprise.
+- Mise en service : la feuille de la semaine passée n'est réclamée à un salarié (pastille de « Mes heures », encart
+  « À faire ») qu'à partir de sa première feuille dans Cursus. La semaine du 28 décembre 2026 au 1er janvier 2027,
+  qui relève encore de Lucca, n'est donc demandée à personne le 4 janvier ; la première feuille attendue est celle
+  de la semaine du 4 janvier, une fois saisie.
 - Une session dure 12 heures au plus depuis la connexion, sans prolongation : chacun se reconnecte
   au moins une fois par journée de travail. À l'expiration, la reconnexion s'affiche par-dessus l'écran
   sans perdre la saisie en cours. « Se déconnecter » invalide la session aussitôt ; pour un compte

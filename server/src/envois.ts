@@ -1,5 +1,5 @@
-// File d'envoi persistante des messages sortants (Keystone aujourd'hui, Sage Paie quand son envoi
-// sera décidé). Un message est mis en file dans la transaction de l'action qui le produit : si
+// File d'envoi persistante des messages sortants (Keystone, e-mails par Microsoft Graph ; Sage Paie quand
+// son envoi sera décidé). Un message est mis en file dans la transaction de l'action qui le produit : si
 // l'action échoue, rien ne part. Un processus de fond le transmet ensuite, hors de toute requête :
 // un seul envoi à la fois par cible, dans l'ordre d'émission. Le message en tête qui attend une
 // nouvelle tentative retient les suivants : un verdict ancien n'arrive pas après un plus récent
@@ -12,14 +12,27 @@ import type { Db } from './db.ts';
 
 export type { Cible, Envoi, StatutEnvoi };
 export const STATUTS_ENVOI: StatutEnvoi[] = ['a_envoyer', 'envoye', 'echec', 'simule'];
+export const CIBLES: Cible[] = ['keystone', 'email', 'sage'];
 
 /** Requête HTTP d'une cible : adresse, en-têtes (authentification) et corps de chaque message. */
 export interface Transport {
   url: string;
-  entetes: (e: Envoi) => Record<string, string>;
+  /** En-têtes d'authentification ; peut d'abord obtenir un jeton (e-mails : jeton applicatif Microsoft). */
+  entetes: (e: Envoi) => Record<string, string> | Promise<Record<string, string>>;
   corps: (e: Envoi) => unknown;
   /** Délai maximal d'une tentative, en millisecondes. */
   delai?: number;
+  /** Réponse non 2xx : vrai si une nouvelle tentative peut réussir malgré un statut 4xx (jeton expiré, à renouveler). */
+  surRefus?: (status: number) => boolean;
+}
+
+/** Échec survenu avant l'envoi (jeton refusé…) : définitif (configuration à corriger) ou temporaire. */
+export class ErreurEnvoi extends Error {
+  definitif: boolean;
+  constructor(message: string, definitif: boolean) {
+    super(message);
+    this.definitif = definitif;
+  }
 }
 
 export const TENTATIVES_MAX = 10;
@@ -67,12 +80,16 @@ function retryAfter(v: string | null): number | undefined {
   return Number.isFinite(ms) && ms > 0 ? ms : undefined;
 }
 
-/** Erreur renvoyée par le destinataire : statut HTTP, code et message JSON s'il y en a, sinon le début du texte. */
-function erreurHttp(status: number, texte: string): string {
+/**
+ * Erreur renvoyée par le destinataire : statut HTTP, code et message JSON s'il y en a (y compris la forme
+ * `{ error: { code, message } }` de Microsoft Graph), sinon le début du texte.
+ */
+export function erreurHttp(status: number, texte: string): string {
   let detail: string;
   try {
     const j = JSON.parse(texte) as { code?: unknown; error?: unknown; message?: unknown } | null;
-    detail = [j?.code, j?.error ?? j?.message].filter(x => typeof x === 'string' && x).join(' — ');
+    const g = j?.error && typeof j.error === 'object' ? j.error as { code?: unknown; message?: unknown } : null;
+    detail = (g ? [g.code, g.message] : [j?.code, j?.error ?? j?.message]).filter(x => typeof x === 'string' && x).join(' — ');
   } catch {
     detail = court(texte.replace(/\s+/g, ' ').trim(), 200); // corps non JSON (page d'erreur d'un proxy…)
   }
@@ -87,15 +104,17 @@ async function tenter(e: Envoi, t: Transport): Promise<Issue> {
   const delai = t.delai ?? DELAI_MAX;
   let status: number, texte: string, attendre: number | undefined;
   try {
+    const auth = await t.entetes(e);
     const r = await fetch(t.url, {
       method: 'POST', redirect: 'manual', signal: AbortSignal.timeout(delai),
-      headers: { 'content-type': 'application/json', accept: 'application/json', ...t.entetes(e), 'idempotency-key': e.cle },
+      headers: { 'content-type': 'application/json', accept: 'application/json', ...auth, 'idempotency-key': e.cle },
       body: JSON.stringify(t.corps(e)),
     });
     status = r.status;
     attendre = retryAfter(r.headers.get('retry-after'));
     texte = await r.text();
   } catch (err) {
+    if (err instanceof ErreurEnvoi) return { ok: false, definitif: err.definitif, erreur: court(err.message) };
     const nom = (err as Error)?.name;
     if (nom === 'TimeoutError' || nom === 'AbortError') return { ok: false, definitif: false, erreur: `Délai dépassé : aucune réponse en ${delai / 1000} s` };
     return { ok: false, definitif: false, erreur: `Erreur réseau : ${causeReseau(err)}` };
@@ -109,7 +128,7 @@ async function tenter(e: Envoi, t: Transport): Promise<Issue> {
     return { ok: true, accuse };
   }
   const erreur = status >= 300 && status < 400 ? `HTTP ${status} · redirection non suivie : vérifiez l’adresse configurée` : erreurHttp(status, texte);
-  const temporaire = status === 408 || status === 429 || status >= 500;
+  const temporaire = status === 408 || status === 429 || status >= 500 || !!t.surRefus?.(status);
   return { ok: false, definitif: !temporaire, erreur, apres: attendre };
 }
 

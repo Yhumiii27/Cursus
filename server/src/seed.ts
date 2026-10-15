@@ -6,7 +6,7 @@ import { matricule } from '../../shared/format.ts';
 import { identifiantSuggere, typeSuggere } from '../../shared/rules/comptes.ts';
 import { repriseDesAbsences } from '../../shared/rules/absences.ts';
 import { cpDroit, rttDroit } from '../../shared/rules/conges.ts';
-import type { Dataset, Employe, EntretienType, ProfilRh, Statut, TempsTravail, TypeContrat, VaccinId } from '../../shared/types.ts';
+import type { Dataset, Employe, EntretienType, Messagerie, ProfilRh, Statut, TempsTravail, TypeContrat, VaccinId } from '../../shared/types.ts';
 import type { Db } from './db.ts';
 import { DEFAULT_SETTINGS, loadFull } from './dataset.ts';
 import { contexte, enregistrerAffectation, enregistrerChantier, enregistrerProjet, enregistrerTache } from './integrations/keystone-entrant.ts';
@@ -355,6 +355,7 @@ export function seedDemo(db: Db) {
     db.clearAll();
     if (secret) db.setSetting('secret', secret);
     db.setSetting('app', DEFAULT_SETTINGS);
+    db.setSetting('messagerie', MESSAGERIE_DEMO);
     FORMATIONS.forEach(f => db.insert('formations', f));
     HABILITATIONS.forEach(h => db.insert('habilitations', h));
     DESTS.forEach(d => db.insert('destinations', d));
@@ -366,19 +367,21 @@ export function seedDemo(db: Db) {
         id: e.id, nom: e.nom, equipe: e.equipe, poste: e.poste, statut: p.statut, typeContrat: p.typeContrat, temps: p.temps,
         heures: p.heures ?? null, forfaitHeures: p.forfaitHeures ?? null, forfaitJours: p.forfaitJours ?? null, jourOff: p.jourOff ?? [],
         entree: p.entree, fin: p.fin ?? null, naissance: p.naissance, agence: p.agence ?? null,
+        // Chacun a une adresse professionnelle (décision de l'entreprise) ; Karim Haddad reçoit un récapitulatif quotidien.
+        email: identifiantSuggere(e.nom, 'microsoft', DOMAINE_DEMO), notifications: e.id === 12 ? 'quotidien' : 'immediat',
         repriseMotif: p.reprise?.motif ?? null, repriseDate: p.reprise?.date ?? null, visite: x.visite ?? null,
         passeportNumero: x.passeport?.numero ?? null, passeportExpire: x.passeport?.expire ?? null,
       });
-      [...e.certs, ...(x.certsPlus || [])].forEach(c => db.insert('certifications', { empId: e.id, f: c.f, obtenue: c.obtenue, sessionId: c.session ?? null, convoc: c.convoc ?? null }));
+      [...e.certs, ...(x.certsPlus || [])].forEach(c => db.insert('certifications', { empId: e.id, f: c.f, obtenue: c.obtenue, sessionId: c.session ?? null, convoc: c.convoc ?? null, convocLe: c.convoc ? CONVOQUES_LE : null }));
       (x.habs || []).forEach(h => db.insert('habTitres', { empId: e.id, h: h.h, delivree: h.delivree ?? null, par: h.par ?? null, demande: h.demande ?? null }));
       (x.visas || []).forEach(v => db.insert('visas', { empId: e.id, ...v }));
       (x.vaccins || []).forEach(v => db.insert('vaccinations', { empId: e.id, ...v }));
     });
     RECYCLAGES.forEach(([empId, f, sessionId]) => {
       const c = db.where<{ id: number; f: string }>('certifications', 'empId', empId).find(x => x.f === f)!;
-      db.update('certifications', c.id, { sessionId, convoc: 'now' });
+      db.update('certifications', c.id, { sessionId, convoc: 'now', convocLe: CONVOQUES_LE });
     });
-    INSCRIPTIONS.forEach(([empId, sessionId]) => db.insert('inscriptions', { empId, sessionId, convoc: 'now', date: '2026-09-28' }));
+    INSCRIPTIONS.forEach(([empId, sessionId]) => db.insert('inscriptions', { empId, sessionId, convoc: 'now', date: CONVOQUES_LE, convocLe: CONVOQUES_LE }));
     // Keystone : mêmes contrôles et mêmes tables que l'API entrante (server/src/integrations/keystone-entrant.ts).
     const cx = contexte(db), taches = planning();
     Object.entries(PROJETS).forEach(([code, nom]) => enregistrerProjet(cx, code, { nom }));
@@ -423,6 +426,16 @@ export function seedDemo(db: Db) {
 
 /** Domaine des adresses Microsoft 365 de démonstration (réservé à la documentation, jamais routé). */
 export const DOMAINE_DEMO = 'entreprise.example';
+/** Date des convocations déjà envoyées du jeu de démonstration. */
+const CONVOQUES_LE = '2026-09-28';
+/**
+ * Messagerie de démonstration : boîte du service RH, service de santé au travail, agence de l'intérimaire (domaines
+ * fictifs), dont l'adresse a été renseignée le 5 octobre : le premier relevé automatique est celui de la semaine 40.
+ */
+const MESSAGERIE_DEMO: Messagerie = {
+  rh: `rh@${DOMAINE_DEMO}`, rhMode: 'immediat', santeTravail: 'contact@sante-travail.example',
+  agences: [{ nom: 'Proman Lyon', adresse: 'releves.lyon@agence-interim.example', depuis: '2026-10-05' }],
+};
 /** Compte RH de démonstration : la responsable RH du jeu de données, administratrice RH, sans fiche salarié. */
 export const RH_DEMO = 'Sandrine Vidal';
 

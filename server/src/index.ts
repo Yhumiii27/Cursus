@@ -8,18 +8,20 @@ import { ACTIONS, changeVerdicts } from './actions/index.ts';
 import { ActionError, makeCtx } from './actions/context.ts';
 import { DEMO, purgeSessions } from './auth.ts';
 import { adminsActifs } from './comptes.ts';
-import { enProduction, hoteEcoute, portEcoute, trustProxy, verifierConfig } from './config.ts';
+import { configMail, enProduction, hoteEcoute, portEcoute, trustProxy, verifierConfig } from './config.ts';
 import { espaceChange, identite, routesConnexion } from './connexion.ts';
 import { buildSnapshot, loadFull } from './dataset.ts';
 import { dbFile, openDb } from './db.ts';
 import { limiterDebit } from './debit.ts';
 import { routesDonnees } from './donnees.ts';
-import { demarrerEnvois, etatEnvois, listerEnvois } from './envois.ts';
+import { type Cible, CIBLES, demarrerEnvois, etatEnvois, listerEnvois } from './envois.ts';
 import { demarrerJournal, journaliserAction, preparerTrace, routesJournal, tracerRefus } from './journal.ts';
 import { migrate } from './migrate.ts';
+import { emailMode, transportEmail } from './integrations/email.ts';
 import { KEYSTONE_MODE, transportKeystone } from './integrations/keystone.ts';
 import { suivreVerdicts, suivreVerdictsChaqueJour } from './integrations/keystone-verdicts.ts';
 import { keystoneRoutes } from './integrations/keystone-routes.ts';
+import { planifierEmails, recapitulatifEnAttente } from './notifications.ts';
 import { demoPosteLocal, protectionCsrf, securityHeaders } from './securite.ts';
 import { poserVerrou } from './sauvegarde.ts';
 import { comptesDemo, seedDemo } from './seed.ts';
@@ -52,7 +54,9 @@ setInterval(() => purgeSessions(db), 3600_000).unref();
 demarrerJournal(db);
 // Messages sortants : file d'envoi traitée en tâche de fond, verdicts Go / No Go recalculés chaque jour.
 suivreVerdictsChaqueJour(db);
-demarrerEnvois(db, { keystone: transportKeystone() });
+demarrerEnvois(db, { keystone: transportKeystone(), email: transportEmail() });
+// E-mails planifiés : récapitulatif quotidien des notifications, relevés d'heures des intérimaires (server/src/notifications.ts).
+planifierEmails(db);
 
 const app = express();
 app.disable('x-powered-by');
@@ -125,7 +129,13 @@ app.get('/api/envois', (req, res) => {
     if (id) tracerRefus(db, id, 'Envois sortants', 'réservé au service RH');
     return res.status(403).json({ error: 'Réservé au service RH' });
   }
-  res.json({ keystone: { mode: KEYSTONE_MODE, ...etatEnvois(db, 'keystone') }, envois: listerEnvois(db, { statut: req.query.statut }) });
+  const cible = CIBLES.includes(req.query.cible as Cible) ? req.query.cible as Cible : undefined;
+  res.json({
+    keystone: { mode: KEYSTONE_MODE, ...etatEnvois(db, 'keystone') },
+    // E-mails : boîte d'envoi, notifications en attente du récapitulatif quotidien.
+    email: { mode: emailMode(), expediteur: configMail()?.from ?? null, recapitulatif: recapitulatifEnAttente(db), ...etatEnvois(db, 'email') },
+    envois: listerEnvois(db, { statut: req.query.statut, cible }),
+  });
 });
 
 // — Application web —

@@ -10,6 +10,7 @@ import { ActionError } from './actions/context.ts';
 import { revokeSessionsDuCompte } from './auth.ts';
 import { attribuerProvisoire, compteParIdentifiant, creerCompte, journaliser, nomDuCompte, rattacherCompte, refusDuCompte, type Compte } from './comptes.ts';
 import { dbFile, openDb } from './db.ts';
+import { adresseDuCompte } from './messagerie.ts';
 
 const USAGE = `Usage : npm run comptes -- admin <identifiant> [--local] [--nom "Prénom Nom"] [--adresse <e-mail>] [--salarie <n°>]
   <identifiant>  adresse Microsoft 365 de la personne, ou identifiant d'un compte Cursus avec --local
@@ -69,7 +70,10 @@ try {
     }, AUTEUR);
     compte = r.compte;
     motDePasse = r.motDePasse;
-    message = `Administrateur RH créé : ${nomDuCompte(db, compte)} (${compte.identifiant}, ${compte.type === 'local' ? 'compte Cursus' : 'Microsoft 365'})`;
+    // Compte Microsoft 365 d'un salarié sans adresse e-mail : son identifiant devient l'adresse de sa fiche (comme compte.creer).
+    const email = adresseDuCompte(db, compte);
+    message = `Administrateur RH créé : ${nomDuCompte(db, compte)} (${compte.identifiant}, ${compte.type === 'local' ? 'compte Cursus' : 'Microsoft 365'})`
+      + (email ? ` · adresse e-mail ${email} reprise sur la fiche` : '');
   }
   journaliser(db, { actor: AUTEUR, role: null, action: 'compte.admin', message, payload: { identifiant }, compte });
   console.log(`${message}.`);

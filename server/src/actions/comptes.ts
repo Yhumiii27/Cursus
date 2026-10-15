@@ -6,7 +6,8 @@ import { COMPTE_TYPE_LABEL, PROFILS_RH } from '../../../shared/constants.ts';
 import { plural } from '../../../shared/format.ts';
 import type { ProfilRh } from '../../../shared/types.ts';
 import { revokeSessionsDuCompte } from '../auth.ts';
-import { adminsActifs, attribuerProvisoire, creerCompte, nomDuCompte, PROFILS, rattacherCompte, refusDuCompte, type Compte } from '../comptes.ts';
+import { adminsActifs, attribuerProvisoire, type Compte, creerCompte, nomDuCompte, PROFILS, rattacherCompte, refusDuCompte } from '../comptes.ts';
+import { adresseDuCompte } from '../messagerie.ts';
 import { ActionError, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
 function getCompte(ctx: Ctx, id: unknown): Compte {
@@ -25,7 +26,9 @@ const creer: ActionHandler = (ctx, p) => {
     empId: p.empId ? Number(p.empId) : null, nom: str(p.nom), adresse: str(p.adresse), type: p.type, identifiant: str(p.identifiant), profilRh: p.profilRh,
   }, ctx.user.nom);
   const nom = nomDuCompte(ctx.db, compte);
-  const profil = compte.profilRh !== 'aucun' ? ` · ${PROFILS_RH[compte.profilRh].label}` : '';
+  // Compte Microsoft 365 d'un salarié sans adresse e-mail : son identifiant devient l'adresse de sa fiche.
+  const email = adresseDuCompte(ctx.db, compte) ? ' · adresse e-mail reprise sur la fiche' : '';
+  const profil = (compte.profilRh !== 'aucun' ? ` · ${PROFILS_RH[compte.profilRh].label}` : '') + email;
   return {
     message: `Compte créé — ${nom} · ${compte.identifiant} (${COMPTE_TYPE_LABEL[compte.type]})${profil}${motDePasse ? ' · mot de passe provisoire à communiquer' : ''}`,
     // Affiché une seule fois par l'interface ; ni conservé en clair, ni écrit dans le journal.

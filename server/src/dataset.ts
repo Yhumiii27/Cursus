@@ -7,13 +7,14 @@ import { absenceVueManager, repriseMedicale } from '../../shared/rules/absences.
 import { avecInscrits } from '../../shared/rules/sessions.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Chantier, CurrentUser, Dataset, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
-  Equipe, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mission, Participation, PlanAction, Projet, ReportCp, SagePush, Session, Settings, SoldeReprise,
-  TacheKeystone, Vaccination, Visa, Voyage,
+  Envoi, Equipe, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mission, Participation, PlanAction, Projet, ReleveInterim, ReportCp, SagePush, Session,
+  Settings, SoldeReprise, TacheKeystone, Vaccination, Visa, Voyage,
 } from '../../shared/types.ts';
-import { droitsRh, PROFILS_RH, type DroitRh } from '../../shared/constants.ts';
+import { type DroitRh, droitsRh, PROFILS_RH } from '../../shared/constants.ts';
 import type { Db } from './db.ts';
 import type { SessionInfo } from './auth.ts';
 import { compteValide, espacesDuCompte, nomDuCompte } from './comptes.ts';
+import { lireMessagerie } from './messagerie.ts';
 
 export const DEFAULT_SETTINGS: Settings = {
   horizonAlerte: 90, uniquementReglementaire: false, seuilBudget: 85, partageKeystone: 'minimal', rtt39: 23, vueInitiale: 'dashboard',
@@ -43,6 +44,7 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
   const employes: Employe[] = db.all<EmpRow>('employes').map(({ passeportNumero, passeportExpire, ...e }) => ({
     ...e,
     jourOff: e.jourOff ?? [],
+    notifications: e.notifications === 'quotidien' ? 'quotidien' : 'immediat',
     passeport: passeportNumero && passeportExpire ? { numero: passeportNumero, expire: passeportExpire } : null,
     certs: certs.filter(c => c.empId === e.id),
     habs: habs.filter(h => h.empId === e.id),
@@ -85,6 +87,9 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     entretiens: db.all<Entretien>('entretiens'),
     demandesCollab: db.all<DemandeCollab>('demandesCollab'),
     lastSagePush: db.getSetting<SagePush | null>('lastSagePush', null),
+    // Messagerie (Paramètres → Messagerie) et relevés transmis aux agences d'intérim, avec le statut de leur e-mail.
+    messagerie: lireMessagerie(db),
+    releves: db.all<Omit<ReleveInterim, 'envoi'>>('releves').map(r => ({ ...r, envoi: r.envoiId ? db.get<Envoi>('envois', r.envoiId)?.statut ?? null : null })),
   };
 }
 
@@ -184,6 +189,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     inscriptions: mine(full.inscriptions),
     participations: mine(full.participations),
     lastSagePush: null,
+    messagerie: null,
+    releves: [],
   };
 }
 

@@ -33,7 +33,10 @@ server/src/
   envois.ts        File d'envoi persistante des messages sortants (table envois), traitée en tâche de fond
   journal.ts       Journal des actions : liste blanche par action, conservation et archive paie, consultation, export CSV
   donnees.ts       Données personnelles d'un salarié (droit d'accès) : export RH et téléchargement par l'intéressé
-  integrations/    Adaptateurs Keystone et Sage Paie (simulation par défaut) ; API Keystone entrante :
+  messagerie.ts    Adresses (fiche, service RH, santé au travail, agences), forme commune des e-mails
+  notifications.ts Notifications d'étapes (aussitôt ou récapitulatif quotidien), convocations .ics, tâches planifiées
+  releves.ts       Relevés d'heures hebdomadaires des intérimaires envoyés à leur agence
+  integrations/    Adaptateurs Keystone, Sage Paie et e-mails (email.ts : Microsoft Graph, .ics ; simulation par défaut) ; API Keystone entrante :
                    keystone-entrant.ts (contrôles, écritures, instantané) et keystone-routes.ts (routes /v1) ;
                    keystone-verdicts.ts (verdicts Go / No Go transmis, changements signalés)
   index.ts         Routes HTTP
@@ -87,7 +90,9 @@ design/            Prototype Claude Design de référence et guide du design sys
   n'est pas une adresse http(s) ou qui porte des identifiants, `CURSUS_TODAY` définie, démonstration sans
   `CURSUS_HOST` (ou `HOST`) explicite sur la boucle locale, `CURSUS_INSECURE_COOKIE=1` hors de ce cas,
   connexion Microsoft 365 configurée en partie, locataire autre qu'un GUID, `CURSUS_PUBLIC_URL` hors
-  https, `CURSUS_OIDC_AUTORITE` définie (réservée aux tests).
+  https, `CURSUS_OIDC_AUTORITE` définie (réservée aux tests), envoi des e-mails mal configuré (`CURSUS_MAIL_FROM`
+  qui n'est pas une adresse, application Entra incomplète ou locataire autre qu'un GUID, variables `CURSUS_MAIL_*`
+  sans `CURSUS_MAIL_FROM`).
   Le mode démonstration ne s'active qu'avec `CURSUS_DEMO=1` ; en production (application de bureau),
   `demoPosteLocal` (`server/src/securite.ts`) refuse en plus (403) toute requête relayée par un proxy
   ou adressée à un autre nom que la boucle locale.
@@ -232,7 +237,9 @@ aucun champ du paramètre n'est recopié.
 | `equipe.supprimer` | nom | administrateur RH |
 | `equipe.manager` | nom, managerId (null = aucun) | RH |
 | `equipe.affecter` | empId, equipe (null = à affecter) | RH ; manager : ajout à une équipe qu'il encadre d'un salarié « à affecter » (libéré par son manager) ou d'un membre d'une autre de ses équipes, retrait d'un membre — jamais le membre d'une autre équipe : sa mutation relève du RH |
-| `plan.inscrire` | empId, certId (recyclage) ou inscriptionId (formation initiale à replanifier), sessionId, conv (`now`/`later`) ; refusé depuis une session passée non clôturée | RH, référent HSE, manager direct |
+| `plan.inscrire` | empId, certId (recyclage) ou inscriptionId (formation initiale à replanifier), sessionId, conv (`now`/`later`) ; refusé depuis une session passée non clôturée ; convocation reçue pour l'ancienne session à venir annulée par e-mail | RH, référent HSE, manager direct |
+| `convocation.envoyer` | sessionId, empIds? (sans liste : toutes les convocations « à envoyer » ; avec : envoi ou renvoi) ; session à venir ; e-mail avec `.ics`, date d'envoi `convocLe` | RH, référent HSE ; manager direct pour les membres de son équipe |
+| `plan.desinscrire` | empId, sessionId (session à venir) : place libérée, recyclage de nouveau à planifier ou inscription initiale retirée, convocation reçue (même remise « à renvoyer ») annulée par e-mail | RH, référent HSE, manager direct |
 | `cert.ajouter` | empId, f, date | RH, référent HSE |
 | `session.creer` | f, date (postérieure à aujourd’hui), lieu, places (entier ≥ 1), planId? (action « prévue » de la même formation) | RH, référent HSE |
 | `session.confirmer` | id | RH, référent HSE |
@@ -259,6 +266,7 @@ aucun champ du paramètre n'est recopié.
 | `temps.suggest` / `temps.submit` | empId, week | idem (soumission : brouillon ou à corriger, sans heures un jour d’absence validée ; semaine entièrement couverte par une absence : sans heure) |
 | `temps.validate` / `temps.reject` | empId, week, comment? | manager direct ou RH, jamais pour sa propre feuille (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence) |
 | `temps.pushSage` | — | administrateur RH, paie |
+| `releve.envoyer` | agence, semaine (lundi, pas à venir) : relevé des feuilles validées des intérimaires de l'agence, envoi ou renvoi (feuilles en attente nommées) | RH, paie |
 | `absence.demander` | empId, kind (`CP`/`RTT`/`RECUP`), du, au | intéressé ou RH (demande, refusée si ces jours portent des heures sur une feuille validée) ; manager direct (posée et validée, refusée si des heures sont saisies ces jours-là) |
 | `absence.decider` | id, ok | manager direct ou RH, jamais pour sa propre demande (validation refusée si des heures sont saisies ces jours-là) |
 | `absence.signaler` | empId, du, au | intéressé, manager direct ou RH : absence imprévue « à qualifier », en vigueur aussitôt |
@@ -281,6 +289,10 @@ aucun champ du paramètre n'est recopié.
 | `compte.reinitialiser` | id | administrateur RH (compte local : nouveau mot de passe provisoire ; compte Microsoft rattaché : « Délier », `oid` retiré pour une identité recréée ; sessions fermées) |
 | `envoi.relancer` | id | RH (envoi en échec, intégration configurée : nouvelle série de tentatives, même clé d'idempotence) |
 | `envoi.classer` | id | RH (envoi en échec examiné : reste listé, ne compte plus parmi les échecs en cours ; une relance le remet en cours) |
+| `messagerie.regler` | rh?, rhMode? (`immediat`/`quotidien`), santeTravail?, agences? [{nom, adresse}] (adresse vide : agence retirée ; date `depuis` gardée, celle du jour pour une agence ajoutée) | administrateur RH |
+| `messagerie.essai` | adresse : e-mail d'essai (mise en service, `docs/EMAILS.md`) | administrateur RH |
+| `messagerie.recapituler` | — : récapitulatifs des notifications en attente envoyés sans attendre 7 h | RH |
+| `notification.regler` | empId? (soi par défaut), mode (`immediat`/`quotidien`) | la personne elle-même, ou RH |
 
 ## Journal des actions
 
@@ -394,7 +406,17 @@ Règles dans `shared/rules/sessions.ts` (inscrits nominatifs, contrôles, liste 
 - **Création** : date postérieure à aujourd'hui, places entières ; l'action du plan indiquée existe, porte la
   même formation et est « prévue » : elle passe « engagée » et reste rattachée (`planId`).
 - **Confirmer** : le RH transmet la liste nominative à l'organisme (affichage, export CSV : nom, poste,
-  parcours, date de la certification à renouveler) ; l'envoi par e-mail viendra avec le module d'e-mails.
+  parcours, date de la certification à renouveler) ; l'organisme n'a pas encore d'adresse dans Cursus.
+- **Convocations** : « Envoyer maintenant » (`plan.inscrire`) ou « Envoyer la convocation » (`convocation.envoyer`,
+  unitaire ou groupé, pour les convocations « à envoyer ») : e-mail avec un fichier `.ics` (journée entière,
+  `UID` stable par session et salarié : un renvoi met à jour l'événement), date d'envoi `convocLe` sur la
+  certification ou l'inscription. Sans adresse e-mail, la convocation est notée envoyée, à remettre en main propre.
+  Le `.ics` porte l'organisateur (boîte d'envoi, sinon celle du service RH) et, pour une session « à confirmer »,
+  le statut provisoire (`TENTATIVE`). « Désinscrire » (`plan.desinscrire`) libère la place. Une convocation reçue
+  (`convocationEnvoyee` : « envoyée », ou remise « à renvoyer » avec sa date `convocLe`) est annulée par e-mail
+  (`.ics` d'annulation, même `UID`) dès que la personne quitte une session à venir : désinscription, changement
+  de session (`plan.inscrire`, `demande.accepter`), recyclage enregistré avant la session (`cert.ajouter`), place
+  libérée par une nouvelle date (`session.modifier`), annulation de la session.
   **Modifier** : date, lieu, places (au moins les inscrits). Une session à venir garde une date future ; un
   changement de date ou de lieu repasse les convocations envoyées « à envoyer », et une nouvelle date repasse
   une session confirmée « à confirmer ». Une session passée, à clôturer, se redate au jour où elle a eu lieu
@@ -550,3 +572,31 @@ Règles : `shared/rules/absences.ts` (confidentialité, décompte, reprise, annu
   `sage` (colonne `cible`, transports par cible), sans la brancher tant que l'envoi n'est pas décidé.
 - **Microsoft 365** : `server/src/microsoft.ts` (voir Sécurité) ; un compte Microsoft se retrouve par
   son `oid`, ou par son identifiant (adresse de connexion) à la première connexion.
+- **E-mails** (`server/src/integrations/email.ts`, guide `docs/EMAILS.md`) : cible `email` de la file d'envoi,
+  `POST https://graph.microsoft.com/v1.0/users/{CURSUS_MAIL_FROM}/sendMail` avec un jeton applicatif (client
+  credentials, `fetch`, gardé jusqu'à 5 min de son expiration ; refusé par le service de jetons : échec
+  définitif ; 401 de Graph : jeton renouvelé et nouvelle tentative). Configuration `configMail` de
+  `server/src/config.ts` (variables `CURSUS_MAIL_*`, sinon `CURSUS_OIDC_*`) ; sans elle, statut « simulé » et
+  ligne `email.<type>` au journal. Contenu (`Courriel` : destinataires, objet, texte brut, réponse au service
+  RH, pièces jointes `.ics` ou CSV) mis en file dans la transaction de l'action. Jamais de donnée de santé, de
+  nature d'absence médicale, de numéro de passeport ni de texte libre saisi (commentaire, motif).
+  - Adresses (`server/src/messagerie.ts`) : `employes.email` (fiche, saisie par le RH, unique, en minuscules ;
+    reprise de l'identifiant du compte Microsoft 365 à sa création, par `compte.creer` ou `npm run comptes`, et
+    une fois pour une base existante), réglage `messagerie` (boîte du service RH et son mode, service de santé au
+    travail, agences d'intérim avec la date `depuis` où leur adresse a été renseignée).
+  - Notifications (`server/src/notifications.ts`) : demande de congés → valideur ; décision ou congés posés →
+    salarié ; feuille soumise → valideur ; feuille renvoyée → salarié ; compte rendu d'entretien clos →
+    salarié ; réponse à une demande au service RH → salarié et manager demandeur. Valideur sans manager : la
+    boîte du service RH. Ni à l'auteur de l'action, ni à un salarié sans adresse ou sorti. Réglage
+    `employes.notifications` : aussitôt, ou table `notifications` regroupée chaque jour à partir de 7 h
+    (`tachesEmails`, relevé tous les quarts d'heure par `planifierEmails` ; réglage `recapitulatifLe`) ou sur
+    demande (`messagerie.recapituler`), à l'adresse en vigueur à l'envoi (destinataire sorti ou sans adresse :
+    notifications closes sans envoi). Convocations (formation, entretien) : toujours aussitôt.
+  - Relevés des intérimaires (`server/src/releves.ts`, règles `shared/rules/releves.ts`) : par agence et par
+    semaine, heures des feuilles validées (par jour, normales, majorées), jours d'absence sans leur nature,
+    CSV joint, heures au centième. Envoi automatique (`semainesAutomatiques` : les cinq semaines précédentes, et la
+    semaine en cours après son vendredi, sans remonter avant la semaine qui précède l'adresse de l'agence) quand
+    toutes les feuilles de l'agence sont validées, à la validation de la dernière (`temps.validate`) et par les
+    tâches de fond, si la semaine n'a pas été transmise ou si le dernier envoi était incomplet ; envoi (feuilles
+    en attente comprises) ou renvoi par le RH (`releve.envoyer`). Chaque envoi est conservé (table `releves`, avec
+    le nombre de feuilles alors en attente `enAttente` ; instantané RH `releves` avec le statut de l'e-mail).

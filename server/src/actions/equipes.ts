@@ -2,6 +2,7 @@
 import { isValidDate } from '../../../shared/dates.ts';
 import { key } from '../../../shared/format.ts';
 import { contratFige } from '../../../shared/rules/temps.ts';
+import { adressesPrises } from '../../../shared/rules/messagerie.ts';
 import { MANAGER_FIELDS, PROFIL_FIELDS, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
 import type { Employe, Equipe, FeuilleTemps } from '../../../shared/types.ts';
 import { ActionError, getEmp, isManagerOf, isRh, requireRh, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
@@ -15,7 +16,8 @@ function getEquipe(ctx: Ctx, nom: unknown): Equipe {
 }
 
 function check(ctx: Ctx, p: ProfilInput, empId?: number) {
-  const v = validerProfil(p, { equipes: equipesNoms(ctx), year: ctx.d.year, encadre: empId ? ctx.d.teamsOf(empId) : [] });
+  // L'adresse e-mail est unique : comparée à celles des autres salariés.
+  const v = validerProfil(p, { equipes: equipesNoms(ctx), year: ctx.d.year, encadre: empId ? ctx.d.teamsOf(empId) : [], adressesPrises: adressesPrises(ctx.ds.employes, empId) });
   if (!v.ok) throw new ActionError(v.errors.join(' '));
   return v;
 }

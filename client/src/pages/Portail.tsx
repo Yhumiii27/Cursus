@@ -1,11 +1,12 @@
 // Espace collaborateur : certifications, habilitations, voyages et demandes du salarié connecté.
 import { DownloadSimpleIcon, PlusIcon } from '@phosphor-icons/react';
-import { CERT_LABEL, CLS, EMP_LABEL, HAB_CLS, HAB_LABEL, REQ_CLS, REQ_LABEL, SESS_CLS, TRIP_CLS, TRIP_LABEL } from '../../../shared/constants.ts';
+import { CERT_LABEL, CLS, EMP_LABEL, HAB_CLS, HAB_LABEL, MODE_NOTIFICATION_LABEL, REQ_CLS, REQ_LABEL, SESS_CLS, TRIP_CLS, TRIP_LABEL } from '../../../shared/constants.ts';
 import { parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, fmtShort, matricule, plural, rel } from '../../../shared/format.ts';
 import { declarationDetail, formaliteCle } from '../../../shared/rules/formalites.ts';
 import { etatInscription } from '../../../shared/rules/sessions.ts';
-import { Bar, Btn, Chips, Empty, Fine, Kpi, Kpis, NoteAccent, Page, Panel, Tag } from '../components/ui.tsx';
+import type { ModeNotification } from '../../../shared/types.ts';
+import { Bar, Btn, Chips, Empty, Fine, Kpi, Kpis, NoteAccent, Page, Panel, Seg, Tag } from '../components/ui.tsx';
 import { useEnriched, useRole, useTrips } from '../state/derived.ts';
 import { api } from '../api.ts';
 import { useStore } from '../state/store.tsx';
@@ -19,7 +20,7 @@ export function Portail() {
   const { emps, upcoming, horizon, d } = useEnriched();
   const trips = useTrips();
   const { me: meId } = useRole();
-  const { openDialog, notify } = useStore();
+  const { openDialog, notify, run } = useStore();
   const me = emps.find(e => e.id === meId);
   if (!me) return <Page title="Mon espace"><Empty>Aucun dossier collaborateur n’est associé à votre compte.</Empty></Page>;
 
@@ -93,7 +94,7 @@ export function Portail() {
                   <div className="sub text-n400">
                     {x.etat === 'passee' ? 'Présence et résultat en cours d’enregistrement par le service RH'
                       : x.etat === 'a_planifier' ? 'Le service RH vous inscrira à une prochaine session'
-                      : i.convoc === 'now' ? `Convocation envoyée le ${fmtShort(parse(i.date))}` : 'Convocation à venir'}
+                      : i.convoc === 'now' ? `Convocation envoyée le ${fmtShort(parse(i.convocLe ?? i.date))}` : 'Convocation à venir'}
                   </div>
                 </div>
               ))}
@@ -104,7 +105,8 @@ export function Portail() {
             {me.certs.map(c => {
               const avail = upcoming.find(s => s.formation === c.f && s.inscrits < s.places);
               const pend = myReqs.some(r => r.type === 'formation' && r.f === c.f && r.statut === 'attente');
-              const info = c.session ? `Inscrit à la session du ${fmt(parse(c.session.date))}`
+              const convocation = c.convoc === 'now' ? ` · convocation envoyée${c.convocLe ? ` le ${fmtShort(parse(c.convocLe))}` : ''}` : ' · convocation à venir';
+              const info = c.session ? `Inscrit à la session du ${fmt(parse(c.session.date))}${convocation}`
                 : c.sessionPassee ? `Session du ${fmt(parse(c.sessionPassee.date))} passée — présence et résultat en cours d’enregistrement par le service RH`
                 : pend ? 'Demande de recyclage envoyée au service RH' : '';
               return (
@@ -206,6 +208,17 @@ export function Portail() {
               <Btn small icon={<DownloadSimpleIcon size={14} />} onClick={() => api.mesDonnees().catch(err => notify((err as Error).message, true))}>Télécharger mes données</Btn>
             </div>
             <Fine>Le journal des actions qui vous concernent vous est remis sur demande par le service RH.</Fine>
+          </Panel>
+
+          <Panel title="Mes notifications par e-mail" style={{ gap: 'var(--space-3)' }}>
+            <div style={{ fontSize: 14, overflowWrap: 'anywhere' }}>{me.email ?? 'Aucune adresse e-mail sur votre fiche'}</div>
+            <Seg name="notif-mode" label="Notifications par e-mail" value={me.notifications} disabled={!me.email} style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }}
+              options={Object.entries(MODE_NOTIFICATION_LABEL) as [ModeNotification, string][]} onChange={mode => run('notification.regler', { mode })} />
+            <Fine>
+              {me.email
+                ? 'Demandes à valider, décisions, feuilles de temps renvoyées, comptes rendus d’entretien à signer : chaque notification part aussitôt, ou toutes ensemble dans un récapitulatif chaque matin. Les convocations (formations, entretiens) partent toujours aussitôt, avec leur fichier pour l’agenda.'
+                : 'Demandez au service RH d’inscrire votre adresse e-mail professionnelle sur votre fiche : notifications et convocations vous y parviendront.'}
+            </Fine>
           </Panel>
         </div>
       </div>

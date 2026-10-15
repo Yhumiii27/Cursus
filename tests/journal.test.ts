@@ -199,7 +199,10 @@ test('feuilles de temps : renvoi, saisie, soumission et validation par le manage
   for (let di = 0; di < 5; di++) run(KARIM, 'temps.setCell', { empId: 2, week: '2026-10-19', li: 0, di, value: '4' });
   run(KARIM, 'temps.submit', { empId: 2, week: '2026-10-19' });
   run(KARIM, 'temps.validate', { empId: 2, week: '2026-10-19' });
-  const ls = lignes().slice(n);
+  // Les e-mails de notification (simulés) ont leurs propres lignes : seules les actions des personnes sont comptées ici.
+  const toutes = lignes().slice(n);
+  assert.ok(toutes.some(l => l.action === 'email.temps.renvoyee'), 'feuille renvoyée : salarié prévenu');
+  const ls = toutes.filter(l => !l.action.startsWith('email.'));
   assert.deepEqual(ls.map(l => l.action), ['temps.reject', ...Array(5).fill('temps.correction'), 'temps.submit', 'temps.validate']);
   const corrections = ls.filter(l => l.action === 'temps.correction');
   assert.ok(corrections.every(l => l.paie && l.payload.feuille === 'rejetee' && l.payload.avant.heures === 7 && l.payload.apres.heures === 4 && l.actor === 'Karim Haddad'));

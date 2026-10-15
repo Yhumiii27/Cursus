@@ -102,6 +102,15 @@ const MATRICE: Ligne[] = [
   { action: 'equipe.affecter', variante: 'membre d’une autre équipe', droits: 'O    O    -    -    -    -    -    -    -', p: () => ({ empId: 20, equipe: 'Maintenance' }) },
   // Formations, certifications, habilitations
   { action: 'plan.inscrire', droits: '                       O    O    O    -    -    -    O    -    -', p: () => ({ empId: 2, certId: cert('sst'), sessionId: 2, conv: 'now' }) },
+  // Convocations (e-mail avec .ics) et désinscription : service RH, référent HSE / formation ou manager direct.
+  { action: 'convocation.envoyer', droits: '                 O    O    O    -    -    -    O    -    -', p: () => {
+    db.update('certifications', cert('sst'), { sessionId: 2, convoc: 'later' });
+    return { sessionId: 2, empIds: [2] };
+  } },
+  { action: 'plan.desinscrire', droits: '                    O    O    O    -    -    -    O    -    -', p: () => {
+    db.update('certifications', cert('sst'), { sessionId: 2, convoc: 'now' });
+    return { empId: 2, sessionId: 2 };
+  } },
   { action: 'cert.ajouter', droits: '                        O    O    -    -    -    -    O    -    -', p: () => ({ empId: 2, f: 'sst', date: '2026-10-01' }) },
   { action: 'session.creer', droits: '                       O    O    -    -    -    -    O    -    -', p: () => ({ f: 'sst', date: '2026-12-01', lieu: 'Site de Lyon', places: 8 }) },
   // Sessions : cycle de vie et clôture par le service RH (session 2 : SST du 18 novembre, à confirmer).
@@ -150,6 +159,8 @@ const MATRICE: Ligne[] = [
   { action: 'temps.pushSage', droits: '                      O    -    -    -    -    -    -    O    -', p: () => ({}) },
   // Un membre du RH ne valide pas sa propre feuille : son valideur (ici le service RH) le fait.
   { action: 'temps.validate', variante: 'feuille du gestionnaire RH', droits: 'O    -    -    -    -    -    -    -    -', p: () => { feuilleAntoine(); return { empId: 14, week: WEEK }; } },
+  // Relevé d'heures des intérimaires (Léa Girard, agence Proman Lyon) : service RH ou gestionnaire de paie.
+  { action: 'releve.envoyer', droits: '                      O    O    -    -    -    -    -    O    -', p: () => ({ agence: 'Proman Lyon', semaine: '2026-09-21' }) },
   // Congés
   { action: 'absence.demander', droits: '                    O    O    O    -    O    -    -    -    -', p: () => ({ empId: 2, kind: 'CP', du: '2026-12-07', au: '2026-12-08' }) },
   { action: 'absence.decider', droits: '                     O    O    O    -    -    -    -    -    -', p: () => ({ id: (db.sql.prepare(`SELECT id FROM absences WHERE emp_id = 2 AND statut = 'demandee'`).get() as { id: number }).id, ok: true }) },
@@ -183,6 +194,15 @@ const MATRICE: Ligne[] = [
   } },
   { action: 'compte.activer', droits: '                      O    -    -    -    -    -    -    -    -', p: () => ({ id: compteDe(1).id, actif: false }) },
   { action: 'compte.reinitialiser', droits: '                O    -    -    -    -    -    -    -    -', p: () => ({ id: compteDe(1).id }) },
+  // Messagerie : adresses et e-mail d'essai (administrateur RH), récapitulatif sans attendre (RH) ;
+  // réglage des notifications : la personne elle-même ou le service RH.
+  { action: 'messagerie.regler', droits: '                   O    -    -    -    -    -    -    -    -', p: () => ({ rh: 'drh@entreprise.example' }) },
+  { action: 'messagerie.essai', droits: '                    O    -    -    -    -    -    -    -    -', p: () => ({ adresse: 'it@entreprise.example' }) },
+  { action: 'messagerie.recapituler', droits: '              O    O    -    -    -    -    -    -    -', p: () => {
+    db.insert('notifications', { empId: 12, adresse: 'karim.haddad@entreprise.example', type: 'temps.soumise', objet: 'Feuille à valider', texte: '—', creation: '2026-10-07T06:00:00.000Z', envoiId: null });
+    return {};
+  } },
+  { action: 'notification.regler', droits: '                 O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, mode: 'quotidien' }) },
   // Envois sortants (Paramètres → Envois) : le service RH suit, relance (intégration configurée) ou classe un échec.
   { action: 'envoi.relancer', droits: '                      O    O    -    -    -    -    -    -    -', p: () => ({ id: envoiEnEchec() }), env: { KEYSTONE_URL: 'http://keystone.essai', KEYSTONE_TOKEN: 'jeton' } },
   { action: 'envoi.classer', droits: '                       O    O    -    -    -    -    -    -    -', p: () => ({ id: envoiEnEchec() }) },

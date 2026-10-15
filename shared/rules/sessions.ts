@@ -35,12 +35,21 @@ export interface Inscrit {
   /** Recyclage : date d'obtention de la certification à renouveler. */
   obtenue: ISODate | null;
   convoc: 'now' | 'later' | null;
+  /** Date d'envoi de la dernière convocation (e-mail avec fichier .ics). */
+  convocLe: ISODate | null;
   /**
    * Recyclage déjà enregistré, daté du jour de la session ou après : rien à décider à la clôture. Un recyclage
    * antérieur à la session ne compte pas : la personne ne l'a pas suivie pour autant (la clôture le dira).
    */
   dejaObtenue: Certification | null;
 }
+
+/**
+ * Une convocation a déjà été envoyée pour la session : « envoyée », ou remise « à renvoyer » par un changement
+ * de date ou de lieu (la date d'envoi `convocLe` reste). La personne a l'événement dans son agenda : si elle
+ * quitte la session, ou si la session est annulée, la convocation est annulée par e-mail.
+ */
+export const convocationEnvoyee = (x: { convoc: 'now' | 'later' | null; convocLe?: ISODate | null }) => x.convoc === 'now' || !!x.convocLe;
 
 /** `n` remplace `c` : même formation, enregistrée après (recyclage). */
 const remplace = (n: Certification, c: Certification) => n.f === c.f && (n.obtenue > c.obtenue || (n.obtenue === c.obtenue && n.id > c.id));
@@ -69,7 +78,7 @@ export function inscritsDe(d: Domain, s: Pick<Session, 'id' | 'date'>): Inscrit[
       const deja = e.certs.filter(n => remplace(n, c) && n.obtenue >= s.date)
         .sort((a, b) => a.obtenue.localeCompare(b.obtenue) || a.id - b.id)[0] ?? null;
       const x: Inscrit = {
-        empId: e.id, ...personne(e.id), parcours: 'recyclage', certId: c.id, inscriptionId: null, obtenue: c.obtenue, convoc: c.convoc,
+        empId: e.id, ...personne(e.id), parcours: 'recyclage', certId: c.id, inscriptionId: null, obtenue: c.obtenue, convoc: c.convoc, convocLe: c.convocLe ?? null,
         dejaObtenue: deja,
       };
       // Deux certifications rattachées (ancienne et en vigueur) : celle qui reste à décider prime.
@@ -79,7 +88,9 @@ export function inscritsDe(d: Domain, s: Pick<Session, 'id' | 'date'>): Inscrit[
   }
   for (const i of d.ds.inscriptions.filter(x => x.sessionId === s.id)) {
     if (out.has(i.empId)) continue;
-    out.set(i.empId, { empId: i.empId, ...personne(i.empId), parcours: 'initiale', certId: null, inscriptionId: i.id, obtenue: null, convoc: i.convoc, dejaObtenue: null });
+    out.set(i.empId, {
+      empId: i.empId, ...personne(i.empId), parcours: 'initiale', certId: null, inscriptionId: i.id, obtenue: null, convoc: i.convoc, convocLe: i.convocLe ?? null, dejaObtenue: null,
+    });
   }
   return [...out.values()].sort((a, b) => a.nom.localeCompare(b.nom));
 }

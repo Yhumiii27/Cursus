@@ -7,7 +7,7 @@ import type { Formation } from '../../../shared/types.ts';
 import { days, parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, fmtIso, fmtShort, norm, plural, rel } from '../../../shared/format.ts';
 import { absenceKinds } from '../../../shared/rules/conges.ts';
-import { etatInscription } from '../../../shared/rules/sessions.ts';
+import { convocationEnvoyee, etatInscription } from '../../../shared/rules/sessions.ts';
 import { JOURS_SEMAINE } from '../../../shared/rules/profil.ts';
 import { Avatar, Bar, Btn, Chips, CloseButton, Empty, Fine, NoteAccent, Page, SectionLabel, Seg, Tag, Two } from '../components/ui.tsx';
 import { printDocument } from '../print.ts';
@@ -203,6 +203,15 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
     if (a.intent.type === 'goFormation') return { label: 'Demander la formation', intent: a.intent };
     return null;
   };
+  /** Convocation à une session à venir (e-mail avec fichier .ics), envoi ou renvoi ; désinscription qui libère la place. */
+  const convoquer = (sessionId: number) => run('convocation.envoyer', { sessionId, empIds: [e.id] });
+  const desinscrire = (sessionId: number, quoi: string, convoque: boolean) => {
+    if (!window.confirm(`Désinscrire ${e.nom} de la session ${quoi} ?\n\nLa place est libérée.${convoque ? ' La convocation envoyée est annulée par e-mail.' : ''}`)) return;
+    run('plan.desinscrire', { empId: e.id, sessionId });
+  };
+  // « À renvoyer » : convocation déjà envoyée, avant un changement de date ou de lieu de la session.
+  const convocation = (convoc: 'now' | 'later' | null, le: string | null) =>
+    convoc === 'now' ? `convocation envoyée${le ? ` le ${fmtShort(parse(le))}` : ''}` : le ? `convocation à renvoyer (envoyée le ${fmtShort(parse(le))})` : 'convocation à envoyer';
   const runProposal = (a: Proposal) => {
     const it = a.intent;
     if (!formations && it.type === 'goFormation') openDialog({ type: 'reqForm', empId: e.id, f: it.f });
@@ -232,6 +241,7 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
         <div style={{ flex: 1, minWidth: 0 }}>
           <h3>{e.nom}</h3>
           <div className="text-muted" style={{ fontSize: 13 }}>{e.poste} · {equipeLabel(e)}</div>
+          <div className="text-muted sub" style={{ overflowWrap: 'anywhere' }}>{e.email ?? 'Aucune adresse e-mail professionnelle'}</div>
         </div>
         <CloseButton onClick={() => setUi({ selectedId: null })} />
       </div>
@@ -253,7 +263,17 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
                 <Tag cls={CLS[c.key]} style={{ flex: 'none' }}>{CERT_LABEL[c.key]}</Tag>
               </div>
               <Bar variant="thin" pct={c.pct} color={c.key === 'ok' ? 'var(--color-accent-600)' : 'var(--color-accent-300)'} />
-              {c.session && <NoteAccent icon>Session du {fmt(parse(c.session.date))}{c.convoc === 'now' ? ' · convocation envoyée' : ' · convocation à envoyer'}</NoteAccent>}
+              {c.session && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+                  <NoteAccent icon>Session du {fmt(parse(c.session.date))} · {convocation(c.convoc, c.convocLe)}</NoteAccent>
+                  {canPlan && (
+                    <div className="actions-end">
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => convoquer(c.session!.id)}>{convocationEnvoyee(c) ? 'Renvoyer la convocation' : 'Envoyer la convocation'}</button>
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => desinscrire(c.session!.id, `${c.fm.court} du ${fmt(parse(c.session!.date))}`, convocationEnvoyee(c))}>Désinscrire</button>
+                    </div>
+                  )}
+                </div>
+              )}
               {c.sessionPassee && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
                   <NoteAccent>{SESSION_PASSEE} · session du {fmt(parse(c.sessionPassee.date))}</NoteAccent>
@@ -306,8 +326,17 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
                 </div>
                 {x.etat === 'passee' ? <Tag cls="tag-outline" style={{ flex: 'none' }}>Session passée</Tag>
                   : x.etat === 'a_planifier' ? <Tag cls="tag-accent" style={{ flex: 'none' }}>À planifier</Tag>
-                  : <Tag cls={i.convoc === 'now' ? 'tag-neutral' : 'tag-outline'} style={{ flex: 'none' }}>{i.convoc === 'now' ? 'Convocation envoyée' : 'Convocation à envoyer'}</Tag>}
+                  : <Tag cls={i.convoc === 'now' ? 'tag-neutral' : 'tag-outline'} style={{ flex: 'none' }}>{i.convoc === 'now' ? 'Convocation envoyée' : i.convocLe ? 'Convocation à renvoyer' : 'Convocation à envoyer'}</Tag>}
               </div>
+              {x.etat === 'planifiee' && canPlan && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+                  <span className="text-muted sub">{convocation(i.convoc, i.convocLe)}</span>
+                  <div className="actions-end">
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => convoquer(s.id)}>{convocationEnvoyee(i) ? 'Renvoyer la convocation' : 'Envoyer la convocation'}</button>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => desinscrire(s.id, `${fm?.court ?? s.formation} du ${fmt(parse(s.date))}`, convocationEnvoyee(i))}>Désinscrire</button>
+                  </div>
+                </div>
+              )}
               {x.etat === 'passee' && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
                   <NoteAccent>{formations ? SESSION_PASSEE : `${SESSION_PASSEE} par le service RH`}</NoteAccent>

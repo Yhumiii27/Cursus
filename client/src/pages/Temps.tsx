@@ -10,7 +10,7 @@ import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
 import { ABS_ABREGE, TEMPS_TRAVAIL, TS_CLS, TS_LABEL } from '../../../shared/constants.ts';
 import type { Domain } from '../../../shared/domain.ts';
 import { addD, isFerie, isoWeek, mondayOf, parse, wDays } from '../../../shared/dates.ts';
-import { cap, equipeLabel, fH, fJ, fmt, fmtShort, num, plural } from '../../../shared/format.ts';
+import { cap, equipeLabel, fH, fJ, fmt, fmtShort, key, num, plural } from '../../../shared/format.ts';
 import { jourHorsContrat, semaineHorsContrat } from '../../../shared/rules/absences.ts';
 import {
   absenceCeJour, calcSheet, cumulAnnuel, demandesAbsence, demandesEnAttenteMessage, employeDeLaFeuille, heuresSurAbsence, heuresSurAbsenceMessage, joursAbsence,
@@ -20,6 +20,7 @@ import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
 import { CloseButton, Fine, Page, Panel, Pre, Tag, Two, stop } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { RelevesPanel } from './Releves.tsx';
 
 /** Valeur affichée dans une cellule : vide pour zéro, virgule décimale. */
 const cellText = (v: number) => v ? String(v).replace('.', ',') : '';
@@ -225,6 +226,8 @@ export function Temps() {
           </>}
         </Panel>
       )}
+
+      {rh && <RelevesPanel wk={wk} />}
     </Page>
   );
 }
@@ -291,8 +294,10 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const recap = recapOf(d, empF, calc, wk);
   const rowStyle = { display: 'flex', justifyContent: 'space-between', gap: 'var(--space-3)', fontSize: 13, padding: 'var(--space-2) 0', background: 'var(--rule-soft) no-repeat bottom / 100% 1px' } as const;
 
+  // Intérimaire : relevé hebdomadaire à l'agence (le service RH voit s'il a été transmis).
+  const releve = data.releves.filter(r => key(r.agence) === key(emp.agence) && r.semaine === wk).at(-1);
   const paie = sh?.sage ? ' · transmise à Sage Paie'
-    : c.interim ? ' · relevé envoyé à l’agence d’intérim'
+    : c.interim ? (releve ? ` · relevé transmis à l’agence le ${fmtShort(new Date(releve.creation))}` : ' · relevé hebdomadaire à l’agence d’intérim')
     : c.dirigeant ? ' · non transmise à la paie (cadre dirigeant, art. L3111-2)'
     : ' · en attente de transmission à Sage Paie';
   const flow = st === 'validee'

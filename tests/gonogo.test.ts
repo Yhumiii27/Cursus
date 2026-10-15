@@ -200,8 +200,12 @@ test('t084 : seul un déplacement couvrant toute la présence vaut ; un voyage d
   assert.equal(p.level, 'reserve');
   assert.equal(p.detailed, 'Couverture partielle : déplacement du 28 oct. au 6 nov. 2026, présence du 27 oct. au 6 nov. 2026');
 
-  // Déplacement de la veille au lendemain : couvert ; seules ses formalités comptent.
-  run(RH, 'voyage.creer', { empId: 6, dest: 'MA', depart: '2026-10-26', retour: '2026-11-07', motif: 'Rétrofit — Tanger' });
+  // Déplacement de la veille au lendemain : couvert ; seules ses formalités comptent. Il chevauche le précédent, ce que
+  // `voyage.creer` refuse désormais (conflits de dates) ; une base antérieure peut en garder : inséré directement.
+  db.insert('voyages', {
+    empId: 6, dest: 'MA', depart: '2026-10-26', retour: '2026-11-07', motif: 'Rétrofit — Tanger', origine: 'cursus', ref: null, chantier: null,
+    detachementLe: null, informationLe: null,
+  });
   assert.ok(!motifs('K-2614', 6).some(m => m.startsWith('DEPLACEMENT')));
   assert.equal(voyages(6).length, 3);
   // Couverte : seules comptent les formalités du déplacement qui la couvre (celui du 28, sans certificat, est ignoré).

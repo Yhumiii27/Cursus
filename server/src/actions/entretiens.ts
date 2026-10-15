@@ -3,7 +3,8 @@
 import { ENT_TYPES } from '../../../shared/constants.ts';
 import { isValidDate, parse } from '../../../shared/dates.ts';
 import { fmt } from '../../../shared/format.ts';
-import { needsFinCarriere } from '../../../shared/rules/entretiens.ts';
+import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
+import { debutCloture, needsFinCarriere, reprogrammation } from '../../../shared/rules/entretiens.ts';
 import type { Entretien, EntretienType } from '../../../shared/types.ts';
 import { convoquerEntretien, notifierEntretienClos } from '../notifications.ts';
 import { ActionError, type ActionHandler, type Ctx, getEmp, isValidatorOf, refuserSoiMeme, str } from './context.ts';
@@ -21,10 +22,24 @@ const planifier: ActionHandler = (ctx, p) => {
   const kind = str(p.kind) as EntretienType;
   if (!ENT_TYPES[kind]) throw new ActionError('Type d’entretien inconnu');
   if (!isValidDate(p.date) || p.date < ctx.d.ti) throw new ActionError('Date à venir requise');
-  const x = ctx.db.insert<Entretien>('entretiens', { empId: emp.id, type: kind, date: p.date, statut: 'planifie', cr: {}, info: false, signSal: null, signMgr: null });
-  // Convocation par e-mail, avec le fichier .ics ; sans adresse, elle est à remettre au salarié.
-  const envoyee = convoquerEntretien(ctx, emp, x);
-  return `${ENT_TYPES[kind].nom} planifié le ${fmt(parse(p.date))} — ${envoyee ? `convocation envoyée à ${emp.nom}` : `convocation à remettre à ${emp.nom} (aucune adresse e-mail)`}`;
+  // Un seul entretien planifié par type : déjà prévu (à venir, ou passé sans avoir été clos), il est reprogrammé. Passé avec un
+  // compte rendu commencé, il a pu avoir lieu : reprogrammé seulement sur confirmation qu'il n'a pas été tenu (`nonTenu`).
+  const { prevu, msg } = reprogrammation(ctx.d, emp.id, kind, p.date, p.nonTenu === true);
+  if (msg?.bad) throw new ActionError(msg.text);
+  // Salarié absent ce jour-là (congé validé, arrêt…) : refusé.
+  const conflit = blocage(conflitsDates(ctx.d, emp.id, p.date, p.date, 'entretien', { entretienId: prevu?.id }));
+  if (conflit) throw new ActionError(conflit);
+  // Convocation par e-mail, avec le fichier .ics (même événement d'agenda : une reprogrammation le déplace) ; sans adresse,
+  // elle est à remettre au salarié.
+  const convocation = (x: Pick<Entretien, 'id' | 'type' | 'date'>) => convoquerEntretien(ctx, emp, x)
+    ? `convocation envoyée à ${emp.nom}` : `convocation à remettre à ${emp.nom} (aucune adresse e-mail)`;
+  // `planifieLe` : la date réelle saisie à la clôture n'est pas antérieure à la planification (`debutCloture`).
+  if (prevu) {
+    ctx.db.update<Entretien>('entretiens', prevu.id, { date: p.date, planifieLe: ctx.d.ti });
+    return `${ENT_TYPES[kind].nom} reprogrammé le ${fmt(parse(p.date))} (prévu le ${fmt(parse(prevu.date))}${prevu.date < ctx.d.ti ? ', non tenu' : ''}) — ${convocation({ ...prevu, date: p.date })}`;
+  }
+  const x = ctx.db.insert<Entretien>('entretiens', { empId: emp.id, type: kind, date: p.date, statut: 'planifie', cr: {}, info: false, signSal: null, signMgr: null, planifieLe: ctx.d.ti });
+  return `${ENT_TYPES[kind].nom} planifié le ${fmt(parse(p.date))} — ${convocation(x)}`;
 };
 
 /** Modification d'une section du compte rendu ou de la case « information remise ». */
@@ -49,13 +64,28 @@ const modifier: ActionHandler = (ctx, p) => {
   return null;
 };
 
+/**
+ * Clôture par l'évaluateur, une fois l'entretien tenu : `date` (facultative) est la date à laquelle il a eu lieu, aujourd'hui
+ * au plus tard et pas avant sa planification (`debutCloture`) ; elle remplace la date prévue. Un entretien à venir ne se
+ * clôt pas sur sa date prévue, ni un entretien sur une date ancienne : l'un et l'autre fausseraient l'échéance suivante
+ * (tous les 4 ans) et l'état des lieux à 8 ans.
+ */
 const clore: ActionHandler = (ctx, p) => {
   const { x, e } = entretien(ctx, p.id);
   refuserSoiMeme(ctx, e, 'Vous ne pouvez pas clore votre propre entretien');
   if (x.statut !== 'planifie' || !isValidatorOf(ctx, e)) throw new ActionError('Clôture réservée à l’évaluateur', 403);
-  ctx.db.update<Entretien>('entretiens', x.id, { statut: 'realise', signMgr: ctx.d.ti });
-  notifierEntretienClos(ctx, e, x);
-  return 'Compte rendu clos et signé — transmis au salarié pour signature';
+  const date = p.date ? p.date : x.date;
+  if (!isValidDate(date)) throw new ActionError('Date de l’entretien invalide');
+  if (date > ctx.d.ti) {
+    throw new ActionError(p.date
+      ? 'Date de l’entretien : aujourd’hui au plus tard'
+      : `Entretien prévu le ${fmt(parse(x.date))} : il se clôt une fois tenu — indiquez la date à laquelle il a eu lieu (aujourd’hui au plus tard)`);
+  }
+  const debut = debutCloture(ctx.d, x);
+  if (date < debut.min) throw new ActionError(`Date de l’entretien : le ${fmt(parse(debut.min))} au plus tôt (${debut.raison})`);
+  ctx.db.update<Entretien>('entretiens', x.id, { statut: 'realise', date, signMgr: ctx.d.ti });
+  notifierEntretienClos(ctx, e, { ...x, date });
+  return `Compte rendu clos et signé${date !== x.date ? ` — entretien daté du ${fmt(parse(date))}` : ''} — transmis au salarié pour signature`;
 };
 
 const signer: ActionHandler = (ctx, p) => {

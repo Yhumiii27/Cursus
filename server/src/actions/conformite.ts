@@ -1,7 +1,8 @@
 // Formations, sessions, certifications, habilitations et demandes des collaborateurs.
 import { addMonths, isValidDate, parse } from '../../../shared/dates.ts';
 import { certEnVigueur, Domain, habEnCours, sessionActive } from '../../../shared/domain.ts';
-import { fmt, plural } from '../../../shared/format.ts';
+import { fmt, key, plural } from '../../../shared/format.ts';
+import { blocage, conflitsDates, sessionsInscrit } from '../../../shared/rules/conflits.ts';
 import { estAuDossier, relireDeclaration, retireeAuRefus } from '../../../shared/rules/formalites.ts';
 import type { Certification, DemandeCollab, Employe, HabTitre, HabType, Inscription } from '../../../shared/types.ts';
 import { loadFull } from '../dataset.ts';
@@ -45,6 +46,9 @@ const inscrire: ActionHandler = (ctx, p) => {
     return `${emp.nom} est déjà inscrit à cette session`;
   }
   if (sess.inscrits >= sess.places) throw new ActionError('Cette session est complète');
+  // Absent ce jour-là (congé validé, arrêt…) ou inscrit à une autre session le même jour : refusé.
+  const conflit = blocage(conflitsDates(ctx.d, emp.id, sess.date, sess.date, 'formation', { sessionId: (cert ?? insc)!.sessionId }));
+  if (conflit) throw new ActionError(conflit);
   const conv = p.conv === 'later' ? 'later' : 'now';
   const convocLe = conv === 'now' ? ctx.d.ti : null;
   // Changement de session : la convocation de l'ancienne (à venir) est annulée avant l'envoi de la nouvelle.
@@ -127,6 +131,10 @@ const accepterDemande: ActionHandler = (ctx, p) => {
       : undefined;
     if (sess) {
       const cert = certEnVigueur(emp.certs, r.f!);
+      // Absent le jour de la session, ou inscrit ailleurs ce jour-là : la demande ne peut pas être acceptée telle quelle.
+      const quittee = cert ? cert.sessionId : ctx.ds.inscriptions.find(i => i.empId === emp.id && ctx.d.session(i.sessionId)?.formation === r.f)?.sessionId;
+      const conflit = blocage(conflitsDates(ctx.d, emp.id, sess.date, sess.date, 'formation', { sessionId: quittee }));
+      if (conflit) throw new ActionError(`${conflit} : refusez la demande, ou inscrivez ${emp.nom} à une autre session depuis sa fiche`);
       // Le nombre d'inscrits est calculé : rattacher à la session libère l'éventuelle place d'une autre
       // (une session passée, à clôturer, garde ses inscrits jusqu'à la clôture).
       // Inscription déplacée d'une autre session à venir : la convocation reçue pour celle-ci est annulée par e-mail.
@@ -218,9 +226,19 @@ const demandeFormation: ActionHandler = (ctx, p) => {
   const libelle = str(p.libelle), motif = str(p.motif);
   if (!motif || (autre && !libelle)) throw new ActionError('Motif et intitulé requis');
   if (!autre && !ctx.d.fm(p.f)) throw new ActionError('Formation inconnue');
+  // Doublons : une demande identique attend la réponse du service RH (hors catalogue : même intitulé), ou le salarié
+  // est déjà inscrit à une session à venir de cette formation.
+  const qui = parId ? emp.nom : 'vous';
+  const identique = ctx.ds.demandesCollab.some(r => r.empId === emp.id && r.type === 'formation' && r.statut === 'attente'
+    && (autre ? !r.f && key(r.libelle) === key(libelle) : r.f === p.f));
+  if (identique) throw new ActionError(`Une demande pour cette formation est déjà en cours pour ${qui}, en attente de réponse du service RH`);
+  const inscrit = autre ? undefined : sessionsInscrit(ctx.d, emp.id).find(s => s.formation === p.f && s.date >= ctx.d.ti);
+  if (inscrit) throw new ActionError(`${parId ? `${emp.nom} est` : 'Vous êtes'} déjà inscrit à la session du ${fmt(parse(inscrit.date))}`);
   if (p.sessionId) {
     const s = ctx.d.session(Number(p.sessionId));
     if (autre || !s || s.formation !== p.f || s.date < ctx.d.ti || !sessionActive(s)) throw new ActionError('Session invalide pour cette formation');
+    const conflit = blocage(conflitsDates(ctx.d, emp.id, s.date, s.date, 'formation'));
+    if (conflit) throw new ActionError(conflit);
   }
   ctx.db.insert<DemandeCollab>('demandesCollab', {
     empId: emp.id, type: 'formation', f: autre ? null : p.f, h: null, libelle: autre ? libelle : null, label: null,

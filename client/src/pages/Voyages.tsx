@@ -6,6 +6,7 @@ import { SECU_RULES, TRIP_CLS, TRIP_LABEL, VISA_RULES, secuDe, type StatusKey } 
 import type { TripItem, TripX } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, fmtShort, monthShort, plural, rel } from '../../../shared/format.ts';
+import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
 import { Btn, Chips, CloseButton, Empty, Fine, Page, Panel, Tag, Two, stop } from '../components/ui.tsx';
 import { useEnriched, useTrips } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -34,7 +35,9 @@ export function Voyages() {
     // Chef de projet facultatif dans l'API Keystone : « K. Haddad », rien s'il n'est pas renseigné.
     const mots = c?.chef ? c.chef.trim().split(/\s+/) : [];
     const chefCourt = mots.map((w, i) => i === 0 && mots.length > 1 ? w[0] + '.' : w).join(' ');
-    return { dm, emp, c, dest, r, chefCourt };
+    // Déjà en déplacement ou absent sur ces dates : l'acceptation est refusée (`keystone.accepter`), reste le refus.
+    const conflit = blocage(conflitsDates(d, dm.empId, dm.depart, dm.retour, 'voyage'));
+    return { dm, emp, c, dest, r, chefCourt, conflit };
   });
 
   const count = (st: TripX['r']['status']) => trips.filter(t => t.r.status === st).length;
@@ -62,15 +65,18 @@ export function Voyages() {
             <table className="table">
               <thead><tr><th>Collaborateur</th><th>Chantier</th><th>Formalités</th><th></th></tr></thead>
               <tbody>
-                {demandes.map(({ dm, emp, c, dest, r, chefCourt }) => (
+                {demandes.map(({ dm, emp, c, dest, r, chefCourt, conflit }) => (
                   <tr key={dm.id}>
-                    <td><Two nowrap main={emp?.nom ?? d.personName(dm.empId)} sub={`${dest?.pays ?? dm.dest} · ${fmtShort(parse(dm.depart))} → ${fmtShort(parse(dm.retour))}`} /></td>
+                    <td>
+                      <Two nowrap main={emp?.nom ?? d.personName(dm.empId)} sub={`${dest?.pays ?? dm.dest} · ${fmtShort(parse(dm.depart))} → ${fmtShort(parse(dm.retour))}`} />
+                      {conflit && <div className="note-accent">{conflit}</div>}
+                    </td>
                     <td><Two main={c ? `${c.id} · ${c.nom}` : dm.chantier} sub={`Reçue le ${fmtShort(parse(dm.recue))}${dm.ref ? ` · réf. ${dm.ref}` : ''}${chefCourt ? ' · ' + chefCourt : ''}`} /></td>
                     <td>{r && <Tag cls={TRIP_CLS[r.status]}>{r.todo ? plural(r.todo, 'formalité à prévoir', 'formalités à prévoir') : 'Dossier complet'}</Tag>}</td>
                     <td className="right">
                       <div className="actions-end">
                         <Btn small onClick={() => run('keystone.refuser', { id: dm.id })}>Refuser</Btn>
-                        <Btn small variant="secondary" onClick={() => accept(dm.id)}>Accepter</Btn>
+                        <Btn small variant="secondary" disabled={!!conflit} title={conflit ?? undefined} onClick={() => accept(dm.id)}>Accepter</Btn>
                       </div>
                     </td>
                   </tr>

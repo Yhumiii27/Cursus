@@ -160,7 +160,8 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
   const anciennes = e.anciennes.filter(c => formIds.has(c.f));
   const tv = d.travelOf(e, horizon);
   const nt = trips.find(t => t.empId === e.id);
-  const ntStatus = nt ? TRIP_LABEL[nt.r.status] : null;
+  // État calculé par le serveur pour le manager, qui ne reçoit pas les vaccinations (comme Missions).
+  const ntStatus = nt ? TRIP_LABEL[d.tripStatus(nt)] : null;
   const docChips = [
     ...tv.visas.map(v => ({ key: 'v' + v.dest, label: `${v.type} ${d.destOf(v.dest)?.pays ?? v.dest} · ${v.key === 'exp' ? 'expiré' : 'jusqu’au ' + fmtShort(v.exp)}`, cls: docCls(v.key) })),
     ...(manager ? [] : tv.vaccins.map(x => ({ key: 'x' + x.v, label: `${x.vm.court}${x.exp ? ' · ' + (x.key === 'exp' ? 'rappel dépassé' : x.exp.getFullYear()) : ''}`, cls: docCls(x.key) }))),

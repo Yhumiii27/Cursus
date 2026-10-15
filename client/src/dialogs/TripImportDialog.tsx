@@ -1,4 +1,5 @@
 // Importer des demandes de déplacement depuis l'export CSV du formulaire de demande.
+// Lignes refusées : collaborateur ou destination inconnus, dates impossibles, déplacement ou absence qui chevauche (conflits.ts).
 import { useMemo, useState, type ChangeEvent } from 'react';
 import { TRIP_CLS, TRIP_LABEL } from '../../../shared/constants.ts';
 import { plural } from '../../../shared/format.ts';
@@ -77,7 +78,8 @@ export function TripImportDialog() {
                   <td className="nowrap">{r.nomLabel}</td>
                   <td>{r.destLabel}</td>
                   <td className="nowrap">{r.dates}</td>
-                  <td><Tag cls={r.cls}>{r.ctrl}</Tag></td>
+                  {/* Motif du refus en clair (conflit de dates, doublon…) : il peut être long, il passe à la ligne. */}
+                  <td>{r.ok ? <Tag cls={r.cls}>{r.ctrl}</Tag> : <span className="note-accent">{r.errs.join(' · ')}</span>}</td>
                 </tr>
               ))}
             </tbody>

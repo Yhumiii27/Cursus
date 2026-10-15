@@ -1,7 +1,9 @@
 // Nouveau déplacement : collaborateur, destination, dates et motif.
+// Conflits de dates contrôlés en direct : un autre déplacement ou une absence en vigueur bloquent, le reste avertit.
 import { useState } from 'react';
 import { isValidDate } from '../../../shared/dates.ts';
-import { CancelButton, Dialog, Field } from '../components/Dialog.tsx';
+import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
+import { CancelButton, Controles, Dialog, Field } from '../components/Dialog.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -18,7 +20,9 @@ export function TripDialog() {
   const [motif, setMotif] = useState('');
   const [busy, setBusy] = useState(false);
   const destDef = d.destOf(dest);
-  const cant = !(isValidDate(depart) && isValidDate(retour) && retour >= depart && motif.trim());
+  const dates = isValidDate(depart) && isValidDate(retour) && retour >= depart;
+  const conflits = dates ? conflitsDates(d, empId, depart, retour, 'voyage') : [];
+  const cant = !(dates && motif.trim()) || !!blocage(conflits);
 
   const confirm = async () => {
     setBusy(true);
@@ -50,6 +54,7 @@ export function TripDialog() {
         <Field label="Départ" htmlFor="tr-dep"><input className="input" id="tr-dep" type="date" value={depart} onChange={e => setDepart(e.target.value)} /></Field>
         <Field label="Retour" htmlFor="tr-ret"><input className="input" id="tr-ret" type="date" value={retour} onChange={e => setRetour(e.target.value)} /></Field>
       </div>
+      <Controles msgs={conflits} />
       <Field label="Motif" htmlFor="tr-motif"><input className="input" id="tr-motif" type="text" placeholder="Visite client — Casablanca" value={motif} onChange={e => setMotif(e.target.value)} /></Field>
       <p className="text-muted fine">{destDef ? d.destSummary(destDef) : ''}</p>
     </Dialog>

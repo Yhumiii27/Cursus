@@ -377,7 +377,8 @@ test('t033 : chaque étape notifie son destinataire, aussitôt ou dans le récap
   assert.match(ics, /DTSTART;VALUE=DATE:20261116/);
   assert.match(ics, /UID:entretien-\d+@cursus\.example\.fr/);
   const ent = db.sql.prepare(`SELECT id FROM entretiens WHERE emp_id = 2 AND date = '2026-11-16'`).get() as { id: number };
-  run(KARIM, 'entretien.clore', { id: ent.id });
+  // Prévu le 16 novembre, tenu dès aujourd'hui : la clôture porte la date à laquelle il a eu lieu.
+  run(KARIM, 'entretien.clore', { id: ent.id, date: '2026-10-10' });
   assert.equal(mails('entretien.clos').at(-1)!.m.objet, 'Compte rendu d’entretien à signer');
 
   // Demande au service RH : décision au salarié et au manager qui l'a émise.

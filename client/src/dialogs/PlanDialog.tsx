@@ -2,11 +2,13 @@
 // (session annulée, absent, évaluation échouée) : inscription à une session et convocation.
 // Sans session ouverte, le RH crée une session ; un manager transmet une demande au service RH.
 // Un inscrit d'une session passée, pas encore clôturée, attend d'abord la clôture.
+// Conflits de dates (absence, déplacement, autre session, entretien) contrôlés en direct : un salarié absent ne s'inscrit pas.
 import { useState } from 'react';
 import { sessionActive } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
-import { CancelButton, Dialog, Field, Static } from '../components/Dialog.tsx';
+import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
+import { CancelButton, Controles, Dialog, Field, Static } from '../components/Dialog.tsx';
 import { Seg } from '../components/ui.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -43,6 +45,8 @@ export function PlanDialog({ empId, certId, inscriptionId }: { empId: number; ce
   const ouvertes = sessions.some(s => s.inscrits < s.places);
   // Seul le service RH crée des sessions : les autres transmettent une demande de formation.
   const demander = !formations && !ouvertes;
+  const choisie = sessions.find(s => s.id === sessionId);
+  const conflits = choisie ? conflitsDates(d, empId, choisie.date, choisie.date, 'formation', { sessionId: actuelle?.id }) : [];
 
   const confirm = async () => {
     setBusy(true);
@@ -58,7 +62,7 @@ export function PlanDialog({ empId, certId, inscriptionId }: { empId: number; ce
         ? <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'reqForm', empId, f })}>Demander au RH</button>
         : sessions.length === 0
           ? <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'session', f })}>Créer une session</button>
-          : <button type="button" className="btn btn-primary" disabled={!sessionId || busy} onClick={confirm}>Confirmer l’inscription</button>}
+          : <button type="button" className="btn btn-primary" disabled={!sessionId || busy || !!blocage(conflits)} onClick={confirm}>Confirmer l’inscription</button>}
     </>}>
       <div className="grid-2">
         <Field label="Collaborateur"><Static>{emp.nom}</Static></Field>
@@ -85,6 +89,7 @@ export function PlanDialog({ empId, certId, inscriptionId }: { empId: number; ce
           {sessions.length > 0 && demander && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>Toutes les sessions sont complètes — la demande sera transmise au service RH.</p>}
         </div>
       </Field>
+      <Controles msgs={conflits} />
       {ouvertes && (
         <Field label="Convocation">
           <Seg name="convoc" label="Convocation" value={conv} onChange={setConv} options={[['now', 'Envoyer maintenant'], ['later', 'Envoyer plus tard']]} />

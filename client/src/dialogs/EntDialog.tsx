@@ -1,9 +1,11 @@
 // Compte rendu d'entretien : sections rédigées par l'évaluateur et le salarié, clôture, signatures, impression.
+// Un entretien se clôt une fois tenu : prévu à une date à venir, l'évaluateur indique la date à laquelle il a eu lieu,
+// pas avant sa planification (`debutCloture`).
 import { useEffect, useRef, useState } from 'react';
 import { ENT_TYPES, type EntSection } from '../../../shared/constants.ts';
-import { parse } from '../../../shared/dates.ts';
+import { isValidDate, parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt } from '../../../shared/format.ts';
-import { needsFinCarriere, obligations } from '../../../shared/rules/entretiens.ts';
+import { debutCloture, needsFinCarriere, obligations } from '../../../shared/rules/entretiens.ts';
 import { CancelButton, Dialog, Field } from '../components/Dialog.tsx';
 import { Fine } from '../components/ui.tsx';
 import { printDocument, type PrintSection } from '../print.ts';
@@ -17,7 +19,7 @@ const whoLabel = (who: EntSection[2]) => who === 'mgr' ? 'Évaluateur' : 'Salari
 export function EntDialog({ entId }: { entId: number }) {
   const d = useDomain();
   const { rh, manager, collab, me, soi } = useRole();
-  const { run, closeDialog, notify } = useStore();
+  const { run, closeDialog, notify, openDialog } = useStore();
   const x = d.ds.entretiens.find(y => y.id === entId);
   const e = x ? d.emp(x.empId) : undefined;
 
@@ -25,6 +27,8 @@ export function EntDialog({ entId }: { entId: number }) {
   const [vals, setVals] = useState<Record<string, string>>(() => ({ ...(x?.cr ?? {}) }));
   const [info, setInfo] = useState(!!x?.info);
   const [busy, setBusy] = useState(false);
+  // Date à laquelle l'entretien a eu lieu, demandée quand la date prévue n'est pas encore passée.
+  const [tenu, setTenu] = useState(d.ti);
   const saved = useRef<Record<string, string>>({ ...(x?.cr ?? {}) });
   const queue = useRef<Promise<unknown>>(Promise.resolve());
   const valsRef = useRef(vals);
@@ -74,12 +78,22 @@ export function EntDialog({ entId }: { entId: number }) {
     if (!r.ok) setInfo(!checked);
   };
 
+  const aVenir = x.statut === 'planifie' && x.date > d.ti;
+  const debut = debutCloture(d, x);
+  const tenuErr = !aVenir ? '' : !isValidDate(tenu) ? 'Date invalide.' : tenu > d.ti ? 'Aujourd’hui au plus tard.'
+    : tenu < debut.min ? `Le ${fmt(parse(debut.min))} au plus tôt (${debut.raison}).` : '';
+
   const finish = async (action: 'entretien.clore' | 'entretien.signer') => {
     setBusy(true);
     await flush();
-    const r = await run(action, { id: x.id });
+    const r = await run(action, action === 'entretien.clore' && aVenir ? { id: x.id, date: tenu } : { id: x.id });
     setBusy(false);
     if (r.ok) closeDialog();
+  };
+  // Entretien à déplacer (absence accordée ce jour-là, empêchement) ou non tenu : la planification le reprogramme.
+  const reprogrammer = async () => {
+    await flush();
+    openDialog({ type: 'entPlan', empId: x.empId, kind: x.type });
   };
 
   const download = () => {
@@ -107,7 +121,8 @@ export function EntDialog({ entId }: { entId: number }) {
       <CancelButton label="Fermer" />
       {!!x.signSal && <button type="button" className="btn btn-ghost" onClick={download}>Télécharger le compte rendu</button>}
       {canSign && <button type="button" className="btn btn-primary" disabled={busy} onClick={() => finish('entretien.signer')}>Signer le compte rendu</button>}
-      {canMgr && <button type="button" className="btn btn-primary" disabled={busy} onClick={() => finish('entretien.clore')}>Clore et signer</button>}
+      {canMgr && <button type="button" className="btn btn-secondary" disabled={busy} onClick={reprogrammer}>Reprogrammer</button>}
+      {canMgr && <button type="button" className="btn btn-primary" disabled={busy || !!tenuErr} onClick={() => finish('entretien.clore')}>Clore et signer</button>}
     </>}>
       <div>
         <div style={{ fontSize: 14 }}>{e.nom} · {e.poste} · {fmt(parse(x.date))}</div>
@@ -131,6 +146,14 @@ export function EntDialog({ entId }: { entId: number }) {
           <input type="checkbox" checked={info} disabled={!canMgr} onChange={ev => toggleInfo(ev.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
           {INFO_LABEL}
         </label>
+      )}
+      {canMgr && aVenir && (
+        <Field label="Date à laquelle l’entretien a eu lieu" htmlFor="ent-tenu">
+          <input className="input" id="ent-tenu" type="date" min={debut.min} max={d.ti} value={tenu} onChange={ev => setTenu(ev.target.value)} aria-invalid={tenuErr ? true : undefined} />
+          {tenuErr
+            ? <p className="fine note-accent">{tenuErr}</p>
+            : <Fine>Prévu le {fmt(parse(x.date))} : la clôture enregistre la date réelle de l’entretien (échéance suivante, état des lieux à 8 ans).</Fine>}
+        </Field>
       )}
       <p className="fine note-accent">{status}</p>
     </Dialog>

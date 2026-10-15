@@ -1,10 +1,12 @@
 // Demander une formation (catalogue ou hors catalogue) au service RH :
 // le collaborateur pour lui-même, ou le manager pour un membre de son équipe.
+// Doublons (demande identique en attente, inscription à venir) et conflits de dates de la session souhaitée contrôlés en direct.
 import { useMemo, useState } from 'react';
 import { certEnVigueur, sessionActive, type EmpX } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
-import { fmt, plural } from '../../../shared/format.ts';
-import { CancelButton, Dialog, Field, Static } from '../components/Dialog.tsx';
+import { fmt, key, plural } from '../../../shared/format.ts';
+import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
+import { CancelButton, Controles, Dialog, Field, Static } from '../components/Dialog.tsx';
 import { Fine } from '../components/ui.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -70,18 +72,27 @@ export function ReqFormDialog({ f: f0, sessionId: s0, empId }: { f?: string; ses
   const isAutre = f === 'autre';
   const sessions = isAutre ? [] : d.upcoming().filter(s => s.formation === f && s.inscrits < s.places);
 
-  // Manager : contrôle de l'existant pour le collaborateur concerné.
+  // Collaborateur concerné : le membre choisi par le manager, ou le collaborateur lui-même (`soi`).
   const e = c.cible;
-  const last = e && !isAutre ? derniere(e, f) : undefined;
+  const soi = c.pourMembre ? undefined : emps.find(x => x.id === me);
+  const sujet = e ?? soi;
+  const last = sujet && !isAutre ? derniere(sujet, f) : undefined;
   // Session à venir : recyclage rattaché à la certification, ou inscription en formation initiale.
-  const initiale = e && !isAutre
-    ? d.ds.inscriptions.map(i => i.empId === e.id ? d.session(i.sessionId) : null).find(s => !!s && s.formation === f && sessionActive(s) && s.date >= d.ti) ?? null
+  const initiale = sujet && !isAutre
+    ? d.ds.inscriptions.map(i => i.empId === sujet.id ? d.session(i.sessionId) : null).find(s => !!s && s.formation === f && sessionActive(s) && s.date >= d.ti) ?? null
     : null;
   const inscrit = (last?.session && last.session.date >= d.ti ? last.session : null) ?? initiale;
-  const enCours = !!e && !isAutre && d.ds.demandesCollab.some(r => r.empId === e.id && r.type === 'formation' && r.f === f && r.statut === 'attente');
-  const bloque = c.pourMembre && (!e || enCours || !!inscrit);
-  const existant = !e || isAutre ? null
+  // Demande identique en attente (hors catalogue : même intitulé) : refusée par le serveur.
+  const enCours = !!sujet && d.ds.demandesCollab.some(r => r.empId === sujet.id && r.type === 'formation' && r.statut === 'attente'
+    && (isAutre ? !r.f && !!libelle.trim() && key(r.libelle) === key(libelle) : r.f === f));
+  const choisie = session ? d.session(Number(session)) : null;
+  const conflits = sujet && choisie ? conflitsDates(d, sujet.id, choisie.date, choisie.date, 'formation') : [];
+  const bloque = (c.pourMembre && !e) || enCours || !!inscrit || !!blocage(conflits);
+  const existant = soi
+    ? (enCours ? 'Une demande pour cette formation est déjà en cours.' : inscrit ? `Vous êtes déjà inscrit à la session du ${fmt(parse(inscrit.date))}.` : null)
+    : !e ? null
     : enCours ? `Une demande pour cette formation est déjà en cours pour ${e.nom}.`
+    : isAutre ? null
     : inscrit ? `${e.nom} est déjà inscrit à la session du ${fmt(parse(inscrit.date))}.`
     : !last ? `${e.nom} n’a pas encore suivi cette formation.`
     : last.key === 'ok' ? `${e.nom} détient cette certification, valide jusqu’au ${fmt(last.exp)}.`
@@ -129,6 +140,7 @@ export function ReqFormDialog({ f: f0, sessionId: s0, empId }: { f?: string; ses
           </select>
         </Field>
       )}
+      <Controles msgs={conflits} />
       {!isAutre && sessions.length === 0 && <Fine>Aucune session ouverte : la demande sera ajoutée au plan de formation.</Fine>}
       <Field label="Motif" htmlFor="rf-m">
         <textarea className="input mid" id="rf-m" rows={3} placeholder={c.pourMembre ? 'Besoin identifié, échéance, chantier à venir…' : 'Pourquoi cette formation ?'}

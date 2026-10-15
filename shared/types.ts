@@ -207,7 +207,11 @@ export interface TacheKeystone { id: number; ref: string | null; empId: number; 
 export interface LigneTemps { projet: string; tache: string; ks: boolean; h: number[] }
 /** Régime de temps de travail figé sur une feuille soumise : un changement de contrat ultérieur ne la recalcule pas. */
 export type ContratFige = Pick<Employe, 'statut' | 'typeContrat' | 'temps' | 'heures' | 'forfaitHeures' | 'forfaitJours' | 'jourOff'>;
-export interface FeuilleTemps { id: number; empId: number; week: ISODate; statut: FeuilleStatut; comment: string | null; sage: boolean; keystone: boolean; lignes: LigneTemps[]; contrat: ContratFige | null }
+export interface FeuilleTemps {
+  id: number; empId: number; week: ISODate; statut: FeuilleStatut; comment: string | null; sage: boolean; keystone: boolean; lignes: LigneTemps[]; contrat: ContratFige | null;
+  /** Motif d'un dépassement des durées maximales (10 h par jour, 48 h par semaine), exigé à la soumission ou à la validation. */
+  motifDepassement?: string | null;
+}
 export interface Absence {
   id: number; empId: number; type: AbsenceType; du: ISODate; au: ISODate; statut: AbsenceStatut;
   /** Indisponibilité transmise à Keystone (une annulation l'en retire). */
@@ -229,7 +233,11 @@ export interface ReportCp { id: number; empId: number; jours: number; motif: str
 export interface SoldeReprise { empId: number; cpPris: number; rttPris: number; recupAcquis: number; recupPris: number }
 
 // — Entretiens & demandes —
-export interface Entretien { id: number; empId: number; type: EntretienType; date: ISODate; statut: 'planifie' | 'realise'; cr: Record<string, string>; info: boolean; signSal: ISODate | null; signMgr: ISODate | null }
+/**
+ * `planifieLe` : jour où l'entretien a été planifié ou reprogrammé (`entretien.planifier`), borne de la date réelle
+ * enregistrée à la clôture (`debutCloture`) ; null pour un entretien planifié avant que Cursus la conserve.
+ */
+export interface Entretien { id: number; empId: number; type: EntretienType; date: ISODate; statut: 'planifie' | 'realise'; cr: Record<string, string>; info: boolean; signSal: ISODate | null; signMgr: ISODate | null; planifieLe?: ISODate | null }
 /** Demande au service RH, émise par le collaborateur ou par son manager (`parId`). */
 export interface DemandeCollab { id: number; empId: number; type: DemandeType; f: string | null; h: string | null; libelle: string | null; label: string | null; sessionId: number | null; motif: string | null; date: ISODate; statut: DemandeStatut; reponse: string | null; parId: number | null; declaration: Declaration | null }
 /**

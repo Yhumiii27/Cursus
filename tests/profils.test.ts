@@ -228,7 +228,7 @@ test('membre du RH salarié : il ne décide pas de ses propres absences, feuille
   const ent = (db.sql.prepare(`SELECT id FROM entretiens WHERE emp_id = 14 AND date = '2026-11-20'`).get() as { id: number }).id;
   assert.throws(() => run(ANTOINE, 'entretien.modifier', { id: ent, section: 'bilan', value: 'Très bonne année' }), refus(/votre propre entretien/));
   assert.throws(() => run(ANTOINE, 'entretien.clore', { id: ent }), refus(/clore votre propre entretien/));
-  run(ADMIN, 'entretien.clore', { id: ent });
+  run(ADMIN, 'entretien.clore', { id: ent, date: '2026-10-10' });
   // Pour les autres salariés, rien ne change.
   run(user(2, 'collaborateur'), 'absence.demander', { empId: 2, kind: 'CP', du: '2026-12-21', au: '2026-12-21' });
   const mehdi = (db.sql.prepare(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2026-12-21'`).get() as { id: number }).id;

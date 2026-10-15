@@ -30,8 +30,9 @@ export function Entretiens() {
       key: `${o.id}-${o.kind}`, o,
       due: o.pl ? `Prévu le ${fmt(parse(o.pl.date))}` : fmt(parse(o.due)),
       rel: o.pl ? `évaluateur : ${d.mgrName(d.mgrOf(o.e))}` : o.st === 'todo' ? 'non obligatoire' : rel(days(d.today, parse(o.due))),
-      // Planification réservée au service RH (jamais pour son propre entretien) et au manager direct (le serveur refuse sinon).
-      canPlan: !o.pl && ((rh && o.id !== soi) || (manager && d.mgrOf(o.e) === me)),
+      // Planification réservée au service RH (jamais pour son propre entretien) et au manager direct (le serveur refuse
+      // sinon) ; déjà planifié, il se reprogramme.
+      canPlan: (rh && o.id !== soi) || (manager && d.mgrOf(o.e) === me),
     }));
 
     const entRows = data.entretiens
@@ -91,7 +92,7 @@ export function Entretiens() {
                       <td><Two main={due} sub={relLabel} nowrap subNowrap /></td>
                       <td><Tag cls={ENT_ST[o.st][1]}>{ENT_ST[o.st][0]}</Tag></td>
                       <td className="right">
-                        {canPlan && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'entPlan', empId: o.id, kind: o.kind })}>Planifier</button>}
+                        {canPlan && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'entPlan', empId: o.id, kind: o.kind })}>{o.pl ? 'Reprogrammer' : 'Planifier'}</button>}
                       </td>
                     </tr>
                   ))}

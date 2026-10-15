@@ -10,6 +10,7 @@ import { AbsSignalDialog } from './AbsSignalDialog.tsx';
 import { BudgetDialog } from './BudgetDialog.tsx';
 import { CertDialog } from './CertDialog.tsx';
 import { CetDialog } from './CetDialog.tsx';
+import { ClotureCongesDialog } from './ClotureCongesDialog.tsx';
 import { ClotureDialog } from './ClotureDialog.tsx';
 import { CompteDialog } from './CompteDialog.tsx';
 import { DetachementDialog } from './DetachementDialog.tsx';
@@ -72,6 +73,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'absAnnuler': return <AbsAnnulerDialog {...d} />;
     case 'cet': return <CetDialog {...d} />;
     case 'report': return <ReportDialog {...d} />;
+    case 'clotureConges': return <ClotureCongesDialog {...d} />;
     case 'entPlan': return <EntPlanDialog {...d} />;
     case 'ent': return <EntDialog {...d} />;
     case 'tripImport': return <TripImportDialog />;

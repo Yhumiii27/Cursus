@@ -23,6 +23,8 @@ const run = (name: string, p: Record<string, unknown>) => db.tx(() => ACTIONS[na
 test('réglages par défaut : une ligne par champ, valeurs d’avant le découpage', () => {
   assert.deepEqual(DEFAULT_SETTINGS, {
     horizonAlerte: 90, uniquementReglementaire: false, seuilBudget: 85, partageKeystone: 'minimal', rtt39: 23, vueInitiale: 'dashboard',
+    // Lot 4, reprise : Keystone garde le matricule Cursus, clôture des CP au cas par cas, RTT de l'année suivante sans restriction.
+    identifiantKeystone: 'cursus', politiqueReportCp: 'cas_par_cas', rttAnneeSuivanteDes: '',
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

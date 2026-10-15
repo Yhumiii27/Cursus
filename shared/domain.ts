@@ -7,8 +7,9 @@ import {
   TEMPS_TRAVAIL, TYPES_CONTRAT, VACCINS, VISA_RULES, secuDe, type CodeMotif, type HabKey, type HabMesureAction, type StatusKey,
 } from './constants.ts';
 import { addD, addMonths, days, isFerie, iso, parse, weekday } from './dates.ts';
-import { cap, fmt, fmtShort, matricule } from './format.ts';
+import { cap, fmt, fmtShort } from './format.ts';
 import { absenceActive, absenceBloque, borneContrat, periodeTexte } from './rules/absences.ts';
+import { identifiantKeystone } from './rules/matricules.ts';
 import { restrictionEnVigueur } from './rules/sante.ts';
 import type {
   AvisMedical, Certification, Chantier, Dataset, DemandeVisite, Destination, Employe, FormaliteManquante, Formation, HabTitre, HabType, ISODate,
@@ -735,7 +736,7 @@ export class Domain {
     return {
       chantier: ch.c.id, evalue_le: evalueLe, statut: GNG_CODE[ch.status],
       ressources: ch.res.map(r => ({
-        matricule: matricule(r.e.id), statut: GNG_CODE[r.status],
+        matricule: identifiantKeystone(this.ds.settings.identifiantKeystone, r.e), statut: GNG_CODE[r.status],
         motifs: r.reasons.map(x => detail ? { code: x.code, libelle: x.transmis ?? x.detailed } : x.code),
       })),
     };
@@ -749,7 +750,7 @@ export class Domain {
     return {
       chantier: ch.c.id, evalue_le: evalueLe, statut: GNG_CODE[ch.status],
       ressources: ch.res.map(r => ({
-        matricule: matricule(r.e.id), statut: GNG_CODE[r.status],
+        matricule: identifiantKeystone(this.ds.settings.identifiantKeystone, r.e), statut: GNG_CODE[r.status],
         motifs: r.reasons.map(x => ({ code: x.code, niveau: GNG_CODE[x.level], ...(detail ? { libelle: x.transmis ?? x.detailed } : {}) })),
       })),
     };

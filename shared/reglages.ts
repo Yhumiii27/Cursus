@@ -4,6 +4,9 @@
 // en est tiré. Ajouter un réglage : docs/ARCHITECTURE.md, « Cadre commun du lot 4 ».
 import type { Settings } from './types.ts';
 
+/** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
+export const RTT_ANNEE_SUIVANTE_DES = ['', '09-01', '10-01', '11-01', '12-01'] as const;
+
 /** Saisie refusée par un contrôle : `parametres.maj` répond 400 avec ce message et n'enregistre rien. */
 export class ReglageInvalide extends Error {}
 
@@ -49,6 +52,11 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   rtt39: { defaut: 23, controle: entier(0, 40) },
   // — Écran d'accueil de l'espace RH : pas de contrôle, non modifiable depuis l'écran —
   vueInitiale: { defaut: 'dashboard' },
+  // — Matricules de paie (parametres/MatriculesPaie.tsx) : Keystone garde le matricule Cursus (contrat de l'API v1) —
+  identifiantKeystone: { defaut: 'cursus', controle: choix(['cursus', 'paie']) },
+  // — Congés et clôtures (parametres/Conges.tsx) : aucune perte d'office, le RH décide ligne par ligne —
+  politiqueReportCp: { defaut: 'cas_par_cas', controle: choix(['cas_par_cas', 'proposer_report']) },
+  rttAnneeSuivanteDes: { defaut: '', controle: choix<string>(RTT_ANNEE_SUIVANTE_DES) },
 };
 
 /** Vue non typée de la table, pour la parcourir (les contrôles reçoivent la valeur en vigueur du même champ). */

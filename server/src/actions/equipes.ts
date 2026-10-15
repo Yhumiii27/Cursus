@@ -2,6 +2,7 @@
 import { isValidDate } from '../../../shared/dates.ts';
 import { key } from '../../../shared/format.ts';
 import { contratFige } from '../../../shared/rules/temps.ts';
+import { matriculesPris } from '../../../shared/rules/matricules.ts';
 import { adressesPrises } from '../../../shared/rules/messagerie.ts';
 import { MANAGER_FIELDS, PROFIL_FIELDS, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
 import type { Employe, Equipe, FeuilleTemps } from '../../../shared/types.ts';
@@ -15,10 +16,18 @@ function getEquipe(ctx: Ctx, nom: unknown): Equipe {
   return q;
 }
 
-function check(ctx: Ctx, p: ProfilInput, empId?: number) {
-  // L'adresse e-mail est unique : comparée à celles des autres salariés.
-  const v = validerProfil(p, { equipes: equipesNoms(ctx), year: ctx.d.year, encadre: empId ? ctx.d.teamsOf(empId) : [], adressesPrises: adressesPrises(ctx.ds.employes, empId) });
+/**
+ * Contrôle de la fiche. L'adresse e-mail et le matricule de paie sont uniques : comparés à ceux des autres salariés.
+ * Réutiliser le matricule de paie d'un salarié sorti (réembauche) : confirmé par l'administrateur RH (`reutiliserMatricule`).
+ */
+function check(ctx: Ctx, p: ProfilInput, empId?: number, reutiliser = false) {
+  const actuel = empId ? ctx.d.emp(empId)?.matriculePaie ?? null : null;
+  const v = validerProfil(p, {
+    equipes: equipesNoms(ctx), year: ctx.d.year, encadre: empId ? ctx.d.teamsOf(empId) : [], adressesPrises: adressesPrises(ctx.ds.employes, empId),
+    matricules: { pris: matriculesPris(ctx.ds.employes, ctx.d.ti, empId), actuel, reutiliser },
+  });
   if (!v.ok) throw new ActionError(v.errors.join(' '));
+  if (reutiliser && v.matriculeAConfirmer) requireRhAdmin(ctx);
   return v;
 }
 
@@ -38,9 +47,10 @@ const creer: ActionHandler = (ctx, p) => {
   requireRh(ctx);
   const input = {} as Record<string, unknown>;
   PROFIL_FIELDS.forEach(k => { input[k] = p[k] ?? null; });
-  const v = check(ctx, input as unknown as ProfilInput);
+  const v = check(ctx, input as unknown as ProfilInput, undefined, !!p.reutiliserMatricule);
   const row = ctx.db.insert<Employe>('employes', toRow(v.profil));
-  ctx.db.insert('soldesReprise', { empId: row.id, cpPris: 0, rttPris: 0, recupAcquis: 0, recupPris: 0 });
+  // Compteurs repris à zéro, datés de la création : la fiche commence dans Cursus.
+  ctx.db.insert('soldesReprise', { empId: row.id, cpPris: 0, rttPris: 0, recupAcquis: 0, recupPris: 0, arreteLe: ctx.d.ti });
   return { message: `Fiche créée — ${v.profil.nom}${v.profil.equipe ? ' · équipe ' + v.profil.equipe : ' · à affecter'}`, result: { id: row.id } };
 };
 
@@ -52,13 +62,13 @@ const modifier: ActionHandler = (ctx, p) => {
   if (isRh(ctx)) fields = PROFIL_FIELDS;
   else if (isManagerOf(ctx, emp)) fields = MANAGER_FIELDS;
   else throw new ActionError('Fiche réservée au service RH ou au manager du collaborateur', 403);
-  const patch = Object.keys(p).filter(k => k !== 'id') as (keyof ProfilInput)[];
+  const patch = Object.keys(p).filter(k => k !== 'id' && k !== 'reutiliserMatricule') as (keyof ProfilInput)[];
   const refused = patch.filter(k => !fields.includes(k));
   if (refused.length) throw new ActionError(`Champs réservés au service RH : ${refused.join(', ')}`, 403);
   if (!isRh(ctx) && patch.includes('jourOff') && cur.temps !== 'partiel') throw new ActionError('Les jours non travaillés ne concernent que le temps partiel');
   const next = { ...cur } as Record<string, unknown>;
   patch.forEach(k => { next[k] = p[k]; });
-  const v = check(ctx, next as unknown as ProfilInput, emp.id);
+  const v = check(ctx, next as unknown as ProfilInput, emp.id, !!p.reutiliserMatricule);
   // Une nouvelle visite s'enregistre avec l'avis du médecin du travail (`medical.avis`), qui clôt la demande en cours.
   if (patch.includes('visite') && v.profil.visite !== (emp.visite ?? null)) {
     throw new ActionError('La visite médicale s’enregistre avec l’avis du médecin du travail : bouton « Avis du médecin du travail » de la fiche');

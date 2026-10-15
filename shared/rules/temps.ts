@@ -1,9 +1,10 @@
 // Feuilles de temps : décompte des heures, majorations, variables de paie.
 import { horodatageParis, isFerie, isoWeek, isoWeekYear, parse, wDays } from '../dates.ts';
-import { matricule, num, r1 } from '../format.ts';
+import { num, r1 } from '../format.ts';
 import type { Domain } from '../domain.ts';
 import type { Absence, AbsenceType, ContratFige, Employe, FeuilleTemps, ISODate, LigneTemps, SagePush, TacheKeystone } from '../types.ts';
 import { absenceBloque, jourHorsContrat, natureDef, natureMedicale } from './absences.ts';
+import { matriculeAffiche } from './matricules.ts';
 
 /** Régime de temps de travail en vigueur d'une fiche, à figer sur une feuille soumise. */
 export function contratFige(e: Employe): ContratFige {
@@ -247,8 +248,9 @@ export function buildSagePayload(d: Domain, sheets: FeuilleTemps[], dossier: str
     dossier,
     periode_paie: d.ti.slice(0, 7),
     envoye_le: horodatageParis(maintenant),
+    // Matricule du dossier de paie ; à défaut (simulation seulement : une transmission réelle le refuse), le matricule Cursus.
     lignes: sheets.map(sh => ({
-      matricule: matricule(sh.empId),
+      matricule: matriculeAffiche(d.emp(sh.empId) ?? { id: sh.empId, matriculePaie: null }),
       semaine: `${isoWeekYear(sh.week)}-S${String(isoWeek(sh.week)).padStart(2, '0')}`,
       rubriques: sageRubriques(d, d.emp(sh.empId)!, sh),
     })),

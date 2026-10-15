@@ -25,7 +25,7 @@ const TITRES: Partial<Record<TableName, string>> = {
   demandesKeystone: 'Demandes de déplacement reçues de Keystone', missions: 'Affectations sur chantier', taches: 'Tâches planifiées (Keystone)',
   feuilles: 'Feuilles de temps', absences: 'Absences et congés', cet: 'Compte épargne-temps', reports: 'Reports de congés payés',
   soldesReprise: 'Compteurs repris de l’ancien outil', entretiens: 'Entretiens professionnels', demandesCollab: 'Demandes et déclarations',
-  comptes: 'Compte de connexion', verdictsKeystone: 'Verdicts Go / No Go transmis à Keystone',
+  comptes: 'Compte de connexion', verdictsKeystone: 'Verdicts Go / No Go transmis à Keystone', clotures: 'Clôtures des périodes de congés',
 };
 /** Colonnes jamais exportées : empreinte du mot de passe (secret). */
 const RETIREES: Partial<Record<TableName, string[]>> = { comptes: ['motDePasse'] };
@@ -50,8 +50,10 @@ export function donneesSalarie(db: Db, empId: number, o: { journal: boolean; par
     : [];
   sections['Équipes encadrées'] = db.where<Ligne>('equipes', 'managerId', empId).map(q => q.nom);
   // Messages envoyés (ou simulés) à Keystone au matricule du salarié : heures, absences (période seule), verdicts, décisions.
-  const m = matricule(empId);
-  sections['Messages envoyés à Keystone'] = (db.sql.prepare(`SELECT id, cible, type, statut, creation, envoi, contenu FROM envois WHERE contenu LIKE ? ORDER BY id`).all(`%"${m}"%`) as Ligne[])
+  // Matricule Cursus, ou matricule de paie si le réglage « identifiant envoyé à Keystone » l'a retenu.
+  const m = matricule(empId), paie = typeof e.matriculePaie === 'string' && e.matriculePaie ? e.matriculePaie : null;
+  sections['Messages envoyés à Keystone'] = (db.sql.prepare(`SELECT id, cible, type, statut, creation, envoi, contenu FROM envois WHERE contenu LIKE ? OR contenu LIKE ? ORDER BY id`)
+    .all(`%"${m}"%`, paie ? `%"matricule":"${paie}"%` : `%"${m}"%`) as Ligne[])
     .map(r => ({ ...r, contenu: JSON.parse(String(r.contenu)) }));
   if (o.journal) {
     // Actions qui le concernent (sa fiche, ses absences…) et actions faites avec son compte (connexions comprises), archive paie comprise.
@@ -67,7 +69,7 @@ export function donneesSalarie(db: Db, empId: number, o: { journal: boolean; par
     cadre: 'Droit d’accès et portabilité (RGPD, articles 15 et 20) : copie de toutes les données qui concernent cette personne.',
     genereLe: new Date().toISOString(),
     par: o.par,
-    salarie: { id: empId, matricule: m, nom: e.nom },
+    salarie: { id: empId, matricule: m, matriculePaie: paie, nom: e.nom },
     ...(o.journal ? {} : { note: 'Le journal des actions vous concernant vous est remis sur demande par le service RH.' }),
     sections,
   };

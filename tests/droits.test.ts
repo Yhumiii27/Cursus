@@ -180,6 +180,11 @@ const MATRICE: Ligne[] = [
   { action: 'absence.decider', variante: 'demande du gestionnaire RH', droits: 'O    -    -    -    -    -    -    -    -', p: () => ({ id: demandeAntoine(), ok: true }) },
   { action: 'cet.placer', droits: '                          O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, kind: 'RTT', jours: 1 }) },
   { action: 'report.accorder', droits: '                     O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, jours: 1, motif: 'Arrêt maladie' }) },
+  // Clôture d'une période de congés : service RH (RTT 2025 de Mehdi, compteurs repris arrêtés en 2025 pour l'essai).
+  { action: 'conges.cloturer', droits: '                     O    O    -    -    -    -    -    -    -', p: () => {
+    db.update('soldesReprise', 2, { arreteLe: '2025-09-01' });
+    return { type: 'RTT', periode: 2025 };
+  } },
   // Absences hors congés : le salarié ou son manager signale, le RH qualifie ou saisit ; annulation selon le statut.
   { action: 'absence.signaler', droits: '                    O    O    O    -    O    -    -    -    -', p: () => ({ empId: 2, du: '2026-12-15', au: '2026-12-15' }) },
   { action: 'absence.saisir', droits: '                      O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, nature: 'MARIAGE', du: '2026-12-15', au: '2026-12-16' }) },

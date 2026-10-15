@@ -4,10 +4,12 @@ import { ABS_LABEL, NATURES_ABSENCE } from '../../../shared/constants.ts';
 import { addD, cpPeriods, isValidDate, isoWeek, parse } from '../../../shared/dates.ts';
 import { Domain } from '../../../shared/domain.ts';
 import { fH, fJ, fmt, num } from '../../../shared/format.ts';
+import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
 import {
   absenceVueManager, borneContrat, droitAnnulation, estConge, estNature, natureDef, periodeTexte, prolongeable, repriseAInscrire,
 } from '../../../shared/rules/absences.ts';
-import { cetInfo, checkAbsence, checkNature, cpInfo, heuresAvantAbsence } from '../../../shared/rules/conges.ts';
+import { echeanceMax } from '../../../shared/rules/clotures.ts';
+import { anneeCp, cetInfo, checkAbsence, checkNature, cpInfo, finPeriodeCp, heuresAvantAbsence, periodeCp, rttAnneeClose } from '../../../shared/rules/conges.ts';
 import { semaineCouverte } from '../../../shared/rules/temps.ts';
 import type { Absence, AbsenceType, CetMouvement, CongeType, Employe, FeuilleTemps, NatureAbsence, ReportCp } from '../../../shared/types.ts';
 import { absenceKeystone, sendToKeystone } from '../integrations/keystone.ts';
@@ -72,7 +74,7 @@ function absenceOf(ctx: Ctx, id: unknown): Absence {
  * (congé, arrêt…). Pour une même absence, le dernier événement remplace le précédent (docs/API-KEYSTONE.md).
  */
 function keystone(ctx: Ctx, type: 'absence.validee' | 'absence.annulee', a: Pick<Absence, 'id' | 'empId' | 'du' | 'au'>) {
-  sendToKeystone(ctx.db, absenceKeystone(type, a));
+  sendToKeystone(ctx.db, absenceKeystone(type, a, identifiantKeystone(ctx.ds.settings.identifiantKeystone, getEmp(ctx, a.empId))));
 }
 
 function natureDe(p: Record<string, any>): NatureAbsence {
@@ -231,27 +233,43 @@ const annuler: ActionHandler = (ctx, p) => {
 /** Nature dans un message : « congés payés », « RTT / repos », « arrêt maladie » ; rien pour une absence à qualifier. */
 const libelle = (t: AbsenceType) => t === 'ABSENCE' ? '' : t === 'RTT' ? 'RTT / repos' : natureDef(t)?.court ?? ABS_LABEL[t].toLowerCase();
 
+/**
+ * Placement sur le compte épargne-temps : RTT de l'année (`annee` : l'année précédente, tant que sa clôture n'est pas
+ * faite) ou CP de la 5e semaine de la période en cours.
+ */
 const placerCet: ActionHandler = (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
   if (!(isRh(ctx) || isSelf(ctx, emp.id))) throw new ActionError('Vous ne pouvez alimenter que votre propre CET', 403);
   const kind = p.kind === 'CP' ? 'CP' : 'RTT';
-  const j = Number(p.jours), ct = cetInfo(ctx.d, emp), max = kind === 'CP' ? ct.placeCp : ct.placeRtt;
+  const ct = cetInfo(ctx.d, emp);
+  const annee = kind === 'RTT' && p.annee != null ? Number(p.annee) : ctx.d.year;
+  if (annee !== ctx.d.year && (annee !== ct.anneePrec || rttAnneeClose(ctx.d, emp, annee))) {
+    throw new ActionError(`Les RTT ${annee} ne se placent plus sur le compte épargne-temps (année close)`);
+  }
+  const j = Number(p.jours), max = kind === 'CP' ? ct.placeCp : annee === ctx.d.year ? ct.placeRtt : ct.placeRttPrec;
   if (!ct.eligible) throw new ActionError('Compte épargne-temps non ouvert pour ce contrat (intérim : congés gérés par l’agence)');
   if (!(j > 0) || j > max || (j * 2) % 1 !== 0) throw new ActionError(`Nombre de jours invalide (maximum ${fJ(max)}, par demi-journée)`);
-  const periode = kind === 'CP' ? cpPeriods(ctx.d.ti).label : String(ctx.d.year);
+  const periode = kind === 'CP' ? cpPeriods(ctx.d.ti).label : String(annee);
   ctx.db.insert<CetMouvement>('cet', { empId: emp.id, type: kind, jours: j, date: ctx.d.ti, periode });
-  return `${fJ(j)} de ${kind === 'CP' ? 'CP (5e semaine)' : 'RTT'} placés sur le compte épargne-temps de ${emp.nom}`;
+  return `${fJ(j)} de ${kind === 'CP' ? 'CP (5e semaine)' : `RTT ${annee}`} placés sur le compte épargne-temps de ${emp.nom}`;
 };
 
+/**
+ * Report de CP accordé en cours de période (décision du service RH, au cas par cas) : jours de la période en cours
+ * reportés sur la suivante, dans la limite du solde non encore reporté, jusqu'à l'échéance choisie (31 mai suivant au plus
+ * tôt). Appliqué par la clôture de la période (`conges.cloturer`), qui le plafonne au solde restant au 31 mai.
+ */
 const accorderReport: ActionHandler = (ctx, p) => {
   requireRh(ctx);
   const emp = getEmp(ctx, p.empId);
   refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas vous accorder un report de congés');
-  const cp = cpInfo(ctx.d, emp);
-  const j = Number(p.jours), motif = str(p.motif);
-  if (!cp || !(j > 0) || j > cp.solde || !motif) throw new ActionError('Nombre de jours (dans la limite du solde) et motif requis');
-  ctx.db.insert<ReportCp>('reports', { empId: emp.id, jours: j, motif, par: ctx.user.nom, date: ctx.d.ti, sens: 'accorde' });
-  return `${fJ(j)} de CP reportés pour ${emp.nom} — utilisables jusqu’au ${fmt(parse(cp.periodes.reportDeadline))}`;
+  const cp = cpInfo(ctx.d, emp), A = anneeCp(ctx.d.ti);
+  const j = Number(p.jours), motif = str(p.motif), max = cp ? cp.solde - cp.accorde : 0;
+  if (!cp || !(j > 0) || (j * 2) % 1 !== 0 || j > max || !motif) throw new ActionError(`Nombre de jours (${fJ(Math.max(0, max))} au plus : solde non encore reporté) et motif requis`);
+  const min = finPeriodeCp(A + 1), expire = str(p.expire) || min;
+  if (!isValidDate(expire) || expire < min || expire > echeanceMax(A)) throw new ActionError(`Échéance du report invalide : du ${fmt(parse(min))} au ${fmt(parse(echeanceMax(A)))}`);
+  ctx.db.insert<ReportCp>('reports', { empId: emp.id, jours: j, motif, par: ctx.user.nom, date: ctx.d.ti, sens: 'accorde', periode: A + 1, expire });
+  return `${fJ(j)} de CP ${periodeCp(A)} reportés pour ${emp.nom} sur la période ${periodeCp(A + 1)} (appliqués à la clôture du ${fmt(parse(finPeriodeCp(A)))}) — utilisables jusqu’au ${fmt(parse(expire))}`;
 };
 
 export const absencesActions: Record<string, ActionHandler> = {

@@ -19,7 +19,7 @@ Contrat formel : spécification OpenAPI 3.1 `docs/keystone-openapi.json`, servie
 | Authentification | en-tête `X-Api-Key: <clé>` sur chaque appel |
 | Format | JSON en UTF-8, en-tête `Content-Type: application/json` pour `PUT` et `POST` ; 2 Mo au plus par appel |
 | Dates | `AAAA-MM-JJ`, date existante (`2026-02-31` est refusée) |
-| Salariés | matricule Cursus (`EMP-0018`), jamais de nom |
+| Salariés | matricule Cursus (`EMP-0018`) par défaut, ou matricule de paie après la bascule annoncée ; jamais de nom |
 | Objets | identifiant Keystone dans l'URL : renvoyer le même objet ne crée pas de doublon |
 
 Dans les exemples, `$CURSUS` vaut `https://cursus.example.fr/api/integrations/keystone/v1` et
@@ -48,10 +48,15 @@ Le corps d'un appel n'est lu qu'une fois la clé vérifiée.
 - **Identifiants Keystone** (chantier, projet, affectation, tâche, référence de demande) : 1 à 64
   caractères, lettres, chiffres, `.`, `_`, `:` ou `-`, commençant par une lettre ou un chiffre.
   Ils sont stables : Cursus les utilise pour reconnaître un objet déjà reçu.
-- **Matricule** : identifie le salarié dans Cursus. Il vaut aujourd'hui `EMP-` suivi de quatre
-  chiffres, dérivé de la fiche Cursus. Il deviendra le matricule de paie (chantier distinct dans
-  Cursus) : les routes et la forme des messages ne changeront pas, seules les valeurs ; Cursus
-  préviendra avant la bascule. Un matricule inconnu de Cursus est refusé (`400`).
+- **Matricule** : identifie le salarié dans Cursus. Par défaut, le matricule Cursus : `EMP-` suivi de
+  quatre chiffres, dérivé de la fiche Cursus (contrat de l'API v1, inchangé). Cursus enregistre aussi
+  le matricule de paie de chaque salarié (1 à 20 lettres et chiffres, sans tiret) ; un réglage de
+  Cursus (Paramètres → Matricules de paie, « Identifiant envoyé à Keystone ») peut basculer sur lui.
+  La bascule vaut dans les deux sens : messages envoyés par Cursus, réponses et appels reçus ; les
+  routes et la forme des messages ne changent pas, seules les valeurs. Cursus prévient avant la
+  bascule ; un salarié sans matricule de paie garde alors son matricule Cursus (les deux formes ne se
+  confondent jamais : un matricule de paie n'a pas de tiret). Un matricule inconnu de Cursus est
+  refusé (`400`), y compris l'ancien matricule Cursus d'un salarié une fois la bascule faite.
 - **Dates** : `AAAA-MM-JJ`. Une période (`debut` → `fin`, `du` → `au`, `depart` → `retour`) se
   termine le jour même au plus tôt.
 

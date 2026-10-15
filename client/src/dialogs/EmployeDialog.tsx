@@ -1,10 +1,12 @@
 // Fiche collaborateur : création ou modification complète (RH) ; poste et jours non
 // travaillés du temps partiel pour le manager d'un membre de son équipe.
+// Matricule de paie : unique ; reprendre celui d'un salarié sorti (réembauche) se confirme, par l'administrateur RH.
 import { useState } from 'react';
 import { isValidDate } from '../../../shared/dates.ts';
 import { AVIS_MEDICAL, MODE_NOTIFICATION_LABEL, MOTIFS_REPRISE, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../../../shared/constants.ts';
 import { cap, equipeLabel, fmtIso, plural } from '../../../shared/format.ts';
 import { reposForfait } from '../../../shared/rules/conges.ts';
+import { matriculesPris, normaliserMatricule } from '../../../shared/rules/matricules.ts';
 import { adressesPrises } from '../../../shared/rules/messagerie.ts';
 import { JOURS_SEMAINE, PROFIL_FIELDS, PROFIL_VIDE, normaliserProfil, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
 import type { Statut, TempsTravail, TypeContrat } from '../../../shared/types.ts';
@@ -16,7 +18,7 @@ import { useStore } from '../state/store.tsx';
 /** État du formulaire : les nombres et dates restent des chaînes pendant la saisie. */
 interface Form {
   nom: string; poste: string; equipe: string; naissance: string;
-  statut: Statut; typeContrat: TypeContrat; entree: string; fin: string; agence: string; email: string;
+  statut: Statut; typeContrat: TypeContrat; entree: string; fin: string; agence: string; email: string; matriculePaie: string;
   temps: TempsTravail; heures: string; forfaitHeures: string; forfaitJours: string; jourOff: number[];
   visite: string; repriseMotif: string; repriseDate: string;
   /** Date d'effet d'un changement d'organisation du temps (défaut : aujourd'hui). */
@@ -35,7 +37,7 @@ const toNum = (s: string) => {
 function toForm(p: ProfilInput, today: string): Form {
   return {
     nom: p.nom, poste: p.poste, equipe: p.equipe ?? '', naissance: numStr(p.naissance),
-    statut: p.statut, typeContrat: p.typeContrat, entree: p.entree, fin: p.fin ?? '', agence: p.agence ?? '', email: p.email ?? '',
+    statut: p.statut, typeContrat: p.typeContrat, entree: p.entree, fin: p.fin ?? '', agence: p.agence ?? '', email: p.email ?? '', matriculePaie: p.matriculePaie ?? '',
     temps: p.temps, heures: numStr(p.heures),
     forfaitHeures: numStr(p.forfaitHeures ?? (p.temps === 'forfait_heures_annuel' ? 1607 : null)),
     forfaitJours: numStr(p.forfaitJours ?? (p.temps === 'forfait_jours' ? 218 : null)),
@@ -50,7 +52,7 @@ function toInput(f: Form, tempsDepuis: string | null): ProfilInput {
   return {
     nom: f.nom, poste: f.poste, equipe: f.equipe || null, statut: f.statut, typeContrat: f.typeContrat, temps: f.temps,
     heures: toNum(f.heures), forfaitHeures: toNum(f.forfaitHeures), forfaitJours: toNum(f.forfaitJours), jourOff: f.jourOff, tempsDepuis,
-    entree: f.entree, fin: f.fin || null, naissance: toNum(f.naissance) ?? Number.NaN, agence: f.agence || null, email: f.email || null,
+    entree: f.entree, fin: f.fin || null, naissance: toNum(f.naissance) ?? Number.NaN, agence: f.agence || null, matriculePaie: f.matriculePaie || null, email: f.email || null,
     visite: f.visite || null, repriseMotif: f.repriseMotif || null, repriseDate: f.repriseDate || null,
   };
 }
@@ -68,6 +70,7 @@ const CHAMP_ERREUR: [RegExp, keyof Form][] = [
   [/^Temps partiel|^Forfait hebdomadaire/, 'heures'], [/^Forfait annuel en heures/, 'forfaitHeures'], [/^Forfait jours/, 'forfaitJours'],
   [/^Au moins un jour travaillé|^Répartition impossible/, 'jourOff'],
   [/visite médicale/, 'visite'], [/^Date de reprise/, 'repriseDate'], [/^Motif de l’absence longue/, 'repriseMotif'],
+  [/^Matricule de paie/, 'matriculePaie'],
 ];
 
 /** Erreurs rattachées à leur champ, et celles sans champ. */
@@ -99,7 +102,7 @@ function JoursOff({ value, onChange }: { value: number[]; onChange: (v: number[]
 
 export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | null; equipe?: string | null }) {
   const d = useDomain();
-  const { rh, manager, me } = useRole();
+  const { rh, admin, manager, me } = useRole();
   const { run, closeDialog, setUi, notify } = useStore();
   const emp = empId != null ? d.emp(empId) ?? null : null;
   const creation = empId == null;
@@ -111,6 +114,9 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   const [f, setF] = useState<Form>(() => ({ ...toForm(initial, d.ti), naissance: creation ? '' : numStr(initial.naissance) }));
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Réembauche : réutilisation du matricule de paie d'un salarié sorti, confirmée par l'administrateur RH (matricule confirmé).
+  const [reutiliser, setReutiliser] = useState<string | null>(null);
+  const [confirmer, setConfirmer] = useState(false);
   const verif = useVerification();
 
   if ((creation && !rh) || (!creation && (!emp || !(rh || limited)))) return null;
@@ -133,18 +139,25 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   const saisie = toInput(f, initial.tempsDepuis);
   const ref0 = normaliserProfil(initial), nv = normaliserProfil(saisie);
   const nouveauRegime = !creation && !limited && REGIME_TEMPS.some(k => nv[k] !== ref0[k]);
+  const confirme = !!reutiliser && reutiliser === normaliserMatricule(f.matriculePaie);
   const input: ProfilInput = limited ? { ...initial, poste: f.poste, jourOff: f.jourOff }
     : nouveauRegime ? { ...saisie, tempsDepuis: f.effet || null } : saisie;
   // Un manager d'équipe ne peut pas passer en intérim (équipes encadrées).
-  const v = validerProfil(input, { equipes: d.equipes, year: d.year, encadre: emp ? d.teamsOf(emp.id) : [], adressesPrises: adressesPrises(d.ds.employes, emp?.id) });
+  const v = validerProfil(input, {
+    equipes: d.equipes, year: d.year, encadre: emp ? d.teamsOf(emp.id) : [], adressesPrises: adressesPrises(d.ds.employes, emp?.id),
+    matricules: { pris: matriculesPris(d.ds.employes, d.ti, emp?.id), actuel: initial.matriculePaie, reutiliser: confirme },
+  });
+  // Matricule d'un salarié sorti, pas encore confirmé : l'administrateur RH confirme à l'envoi ; pour le gestionnaire RH,
+  // l'erreur sous le champ le renvoie à l'administrateur.
+  const aConfirmer = !limited && !confirme ? v.matriculeAConfirmer : null;
   const errEffet = !nouveauRegime ? null
     : !f.effet ? 'Date d’effet du nouveau régime de temps requise.'
     : !isValidDate(f.effet) ? null
     : isValidDate(f.entree) && f.effet < f.entree ? 'La date d’effet du nouveau régime précède la date d’entrée.'
     : f.effet > d.ti ? 'Date d’effet future : enregistrez le changement d’organisation du temps le jour de sa prise d’effet.'
     : null;
-  const errors = errEffet ? [...v.errors, errEffet] : v.errors;
-  const ok = v.ok && !errEffet;
+  const errors = [...v.errors.filter(m => !(aConfirmer && admin && /^Matricule de paie de /.test(m))), ...(errEffet ? [errEffet] : [])];
+  const ok = errors.length === 0;
   const dirty = creation || !same(v.profil, ref0);
   // Erreurs affichées en direct en modification, dès la première saisie en création, et après un envoi bloqué.
   const showErrors = !creation || touched || verif.tente;
@@ -156,6 +169,11 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
     if (busy || !verif.verifier(!ok)) return;
     // Rien de changé : rien à envoyer, le dialogue se ferme.
     if (!dirty) { closeDialog(); notify('Aucune modification à enregistrer'); return; }
+    // Matricule de paie d'un salarié sorti : l'administrateur RH confirme la réembauche avant l'envoi.
+    if (aConfirmer) { setConfirmer(true); return; }
+    await envoyer(confirme);
+  };
+  const envoyer = async (reutiliserMatricule: boolean) => {
     setBusy(true);
     let payload: Record<string, unknown>;
     if (limited) payload = { id: emp!.id, poste: v.profil.poste, ...(partielEmp ? { jourOff: v.profil.jourOff } : {}) };
@@ -164,9 +182,11 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
       PROFIL_FIELDS.forEach(k => { payload[k] = v.profil[k]; });
       // La date d'effet ne concerne qu'un changement d'organisation du temps : sinon le serveur garde la date en vigueur.
       if (!creation && !nouveauRegime) delete payload.tempsDepuis;
+      if (reutiliserMatricule) payload.reutiliserMatricule = true;
     }
     const r = await run(creation ? 'employe.creer' : 'employe.modifier', payload);
     setBusy(false);
+    setConfirmer(false);
     if (!r.ok) return;
     closeDialog();
     const id = (r.result as { id?: number } | undefined)?.id;
@@ -226,7 +246,10 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   const regimeActuel = emp ? d.contratOf(emp).label : '';
 
   return (
-    <Dialog title={creation ? 'Nouveau collaborateur' : `Modifier la fiche — ${emp!.nom}`} width={640} tall onSubmit={save} actions={actions}>
+    <Dialog title={creation ? 'Nouveau collaborateur' : `Modifier la fiche — ${emp!.nom}`} width={640} tall onSubmit={save} actions={actions} confirmation={confirmer && aConfirmer ? {
+      texte: `Réembauche : reprendre le matricule de paie ${v.profil.matriculePaie} de ${aConfirmer.nom}, sorti le ${fmtIso(aConfirmer.sortiLe!)} ? Les deux fiches porteront ce matricule ; Sage et Keystone ne reçoivent que la fiche présente.`,
+      bouton: 'Réutiliser le matricule', occupe: busy, confirmer: () => { setReutiliser(v.profil.matriculePaie); void envoyer(true); }, annuler: () => setConfirmer(false),
+    } : null}>
       <SectionLabel>Identité</SectionLabel>
       <div className="grid-2">
         <Field label="Nom" htmlFor="emp-nom" requis erreur={err('nom')}>
@@ -251,6 +274,14 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
         </Field>
         <Field label="Notifications par e-mail">
           <Static pad>{emp ? MODE_NOTIFICATION_LABEL[emp.notifications] : MODE_NOTIFICATION_LABEL.immediat}<div className="text-muted sub">Réglées par le salarié dans son espace</div></Static>
+        </Field>
+        <Field label="Matricule de paie" htmlFor="emp-matricule" erreur={err('matriculePaie')}>
+          <input className="input" id="emp-matricule" type="text" autoComplete="off" spellCheck={false} maxLength={20} placeholder="004102"
+            value={f.matriculePaie} onChange={ev => set('matriculePaie', ev.target.value)} />
+          <span className="text-muted sub">
+            {aConfirmer && admin ? `Celui de ${aConfirmer.nom}, sorti le ${fmtIso(aConfirmer.sortiLe!)} : réembauche à confirmer à l’enregistrement`
+              : 'Dossier de paie Sage : 1 à 20 lettres et chiffres ; à défaut, le salarié est refusé d’une transmission réelle à la paie'}
+          </span>
         </Field>
       </div>
 

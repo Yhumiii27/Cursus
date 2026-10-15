@@ -15,12 +15,13 @@ import express, { type Request, type Response, type Router } from 'express';
 import { ESPACE_LABEL, NATURES_ABSENCE, TS_LABEL, VACCINS } from '../../shared/constants.ts';
 import { addD, isValidDate } from '../../shared/dates.ts';
 import { Domain } from '../../shared/domain.ts';
-import { fmtIso, matricule, num, plural } from '../../shared/format.ts';
+import { fmtIso, num, plural } from '../../shared/format.ts';
+import { matriculeAffiche } from '../../shared/rules/matricules.ts';
 import {
   ACTION_APPEL_KEYSTONE, ACTIONS_CONNEXION, ACTIONS_PAIE, changementsTexte, CONSERVATION_ARCHIVE_PAIE_MOIS, CONSERVATION_ENVOIS_MOIS,
   CONSERVATION_JOURNAL_MOIS, dossierComplet, estActionPaie, familleAction, FAMILLES_JOURNAL, JOURNAL_LABEL, lecteurJournal, libelleAction,
 } from '../../shared/journal.ts';
-import type { CurrentUser, FeuilleTemps, LigneTemps } from '../../shared/types.ts';
+import type { ClotureConges, CurrentUser, FeuilleTemps, LigneTemps } from '../../shared/types.ts';
 import { journaliser, type Compte } from './comptes.ts';
 import { identite, type Identite } from './connexion.ts';
 import { loadFull, scopeIds } from './dataset.ts';
@@ -72,7 +73,7 @@ interface Regle {
 }
 
 const parId = (table: TableName, colonnes: readonly string[]): Cible => ({ table, cle: p => Number(p.id) || null, colonnes });
-const FICHE = ['nom', 'poste', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis', 'entree', 'fin', 'agence'];
+const FICHE = ['nom', 'poste', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis', 'entree', 'fin', 'agence', 'matriculePaie'];
 const FEUILLE: Cible = {
   table: 'feuilles', colonnes: ['statut'],
   cle: (p, db) => (db.sql.prepare('SELECT id FROM feuilles WHERE emp_id = ? AND week = ?').get(Number(p.empId) || 0, String(p.week ?? '')) as { id: number } | undefined)?.id ?? null,
@@ -104,14 +105,20 @@ const inscritsAvantApres: Partial<Regle> = { etat: (db, p) => inscrits(db, p.id)
 
 /** Feuilles transmises à la paie : validées et non transmises avant l'action, marquées transmises après. */
 const transmises = (x: Contexte) => (x.etat as number[]).map(id => x.db.get<FeuilleTemps>('feuilles', id)).filter((f): f is FeuilleTemps => !!f?.sage);
+/** Lignes de clôture des congés créées par l'action (identifiants au-delà du dernier d'avant l'action). */
+const cloturees = (x: Contexte) => (x.db.sql.prepare('SELECT id FROM clotures WHERE id > ? ORDER BY id').all(Number(x.etat) || 0) as { id: number }[])
+  .map(r => x.db.get<ClotureConges>('clotures', r.id)!);
 /** Salariés des déplacements créés par un import (identifiants au-delà du dernier d'avant l'action). */
 const importes = (x: Contexte) => (x.db.sql.prepare('SELECT emp_id AS e FROM voyages WHERE id > ? ORDER BY id').all(Number(x.etat) || 0) as { e: number }[]).map(r => r.e);
 
 export const REGLES: Record<string, Regle> = {
   // Fiches et équipes
-  'employe.creer': { champs: ['equipe', 'poste', 'statut', 'typeContrat', 'temps', 'entree', 'fin'], salaries: (_p, x) => [(x.result as { id?: number } | null)?.id] },
+  // Réembauche : réutilisation d'un matricule de paie confirmée par l'administrateur RH (`reutiliserMatricule`).
+  'employe.creer': {
+    champs: ['equipe', 'poste', 'statut', 'typeContrat', 'temps', 'entree', 'fin', 'matriculePaie', 'reutiliserMatricule'], salaries: (_p, x) => [(x.result as { id?: number } | null)?.id],
+  },
   // Les champs modifiés sont nommés ; seules les colonnes de FICHE ont leurs valeurs (ni visite médicale, ni reprise, ni naissance).
-  'employe.modifier': { champs: ['id'], extra: p => ({ champsModifies: Object.keys(p).filter(k => k !== 'id' && /^[A-Za-z]{1,40}$/.test(k)).slice(0, 30) }), cible: parId('employes', FICHE), salaries: p => [p.id] },
+  'employe.modifier': { champs: ['id', 'reutiliserMatricule'], extra: p => ({ champsModifies: Object.keys(p).filter(k => k !== 'id' && /^[A-Za-z]{1,40}$/.test(k)).slice(0, 30) }), cible: parId('employes', FICHE), salaries: p => [p.id] },
   'equipe.creer': { champs: ['nom', 'managerId'], salaries: p => [p.managerId] },
   'equipe.renommer': { champs: ['nom', 'nouveau'] },
   'equipe.supprimer': { champs: ['nom'] },
@@ -196,8 +203,16 @@ export const REGLES: Record<string, Regle> = {
   'absence.qualifier': { champs: ['id', 'du', 'au', 'justificatif', 'justificatifLe'], cible: parId('absences', ['du', 'au', 'statut', 'justificatif']) },
   'absence.prolonger': { champs: ['id', 'au'], cible: parId('absences', ['au', 'statut']) },
   'absence.annuler': { champs: ['id'], cible: parId('absences', ['statut']) },
-  'cet.placer': { champs: ['empId', 'kind', 'jours'] },
-  'report.accorder': { champs: ['empId', 'jours'] },
+  'cet.placer': { champs: ['empId', 'kind', 'jours', 'annee'] },
+  'report.accorder': { champs: ['empId', 'jours', 'expire'] },
+  // Clôture d'une période de congés : décision de chaque ligne enregistrée (report, perte, solde nul ; jours, échéance),
+  // jamais le motif d'un report imposé (il laisse deviner une absence de santé).
+  'conges.cloturer': {
+    champs: ['type', 'periode'],
+    etat: db => Number((db.sql.prepare('SELECT MAX(id) AS n FROM clotures').get() as { n: number | null }).n ?? 0),
+    bilan: (_p, x) => ({ lignes: cloturees(x).map(c => ({ empId: c.empId, decision: c.decision, solde: c.solde, reportes: c.reportes, perdus: c.perdus, expire: c.expire })) }),
+    salaries: (_p, x) => cloturees(x).map(c => c.empId),
+  },
   // Entretiens : la section rédigée est nommée, jamais son contenu ; une ligne par compte rendu et par demi-heure.
   'entretien.planifier': { champs: ['empId', 'kind', 'date'] },
   'entretien.modifier': {
@@ -585,13 +600,14 @@ const ROLE_LABEL: Record<string, string> = { ...ESPACE_LABEL, rh: 'Service RH', 
 
 /** Fichier CSV du journal (UTF-8 avec BOM pour Excel) : une ligne par entrée, libellés français. */
 export function csvJournal(db: Db, lignes: LigneJournal[]): string {
-  const noms = new Map((db.sql.prepare('SELECT id, nom FROM employes').all() as { id: number; nom: string }[]).map(e => [e.id, e.nom]));
+  // Salarié désigné par son nom et son matricule de paie (matricule Cursus tant qu'il manque, ou fiche supprimée).
+  const fiches = new Map((db.sql.prepare('SELECT id, nom, matricule_paie AS matriculePaie FROM employes').all() as { id: number; nom: string; matriculePaie: string | null }[]).map(e => [e.id, e]));
   const tete = ['Date', 'Heure', 'Auteur', 'Identifiant', 'Espace', 'Action', 'Code', 'Salariés concernés', 'Message', 'Anciennes et nouvelles valeurs', 'Détail', 'Archivée le'];
   const corps = lignes.map(l => {
     const d = new Date(l.at);
     return [
       d.toLocaleDateString('fr-FR'), d.toLocaleTimeString('fr-FR'), l.actor, l.identifiant, l.role ? ROLE_LABEL[l.role] ?? l.role : '', libelleAction(l.action), l.action,
-      l.salaries.map(id => `${noms.get(id) ?? 'salarié supprimé'} (${matricule(id)})`).join(', '), l.message, changementsTexte(l.details),
+      l.salaries.map(id => `${fiches.get(id)?.nom ?? 'salarié supprimé'} (${matriculeAffiche(fiches.get(id) ?? { id, matriculePaie: null })})`).join(', '), l.message, changementsTexte(l.details),
       Object.keys(l.details).length ? JSON.stringify(l.details) : '', l.archivee ? new Date(l.archivee).toLocaleDateString('fr-FR') : '',
     ];
   });

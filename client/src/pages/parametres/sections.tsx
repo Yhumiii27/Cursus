@@ -8,9 +8,11 @@ import { ComptesPanel } from '../Comptes.tsx';
 import { JournalPanel } from '../Journal.tsx';
 import { MessageriePanel } from '../Messagerie.tsx';
 import type { SectionProps } from './commun.ts';
+import { Conges } from './Conges.tsx';
 import { Demonstration } from './Demonstration.tsx';
 import { Envois } from './Envois.tsx';
 import { Keystone } from './Keystone.tsx';
+import { MatriculesPaie } from './MatriculesPaie.tsx';
 import { SagePaie } from './SagePaie.tsx';
 import { Suivi } from './Suivi.tsx';
 
@@ -34,6 +36,8 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'demonstration', place: 'gauche', Section: Demonstration },
   { id: 'keystone', place: 'droite', Section: Keystone },
   { id: 'sage', place: 'droite', Section: SagePaie },
+  { id: 'matricules', place: 'droite', Section: MatriculesPaie },
+  { id: 'conges', place: 'gauche', Section: Conges },
   { id: 'messagerie', place: 'large', Section: Messagerie },
   { id: 'envois', place: 'large', Section: Envois },
   { id: 'comptes', place: 'large', Section: Comptes },

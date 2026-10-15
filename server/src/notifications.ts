@@ -8,7 +8,8 @@
 import { ENT_TYPES, HEURE_RECAPITULATIF, MOTIFS_VISITE } from '../../shared/constants.ts';
 import { addD, isoWeek, parse } from '../../shared/dates.ts';
 import { type Domain, sessionActive } from '../../shared/domain.ts';
-import { equipeLabel, fmt, fmtIso, matricule, plural } from '../../shared/format.ts';
+import { equipeLabel, fmt, fmtIso, plural } from '../../shared/format.ts';
+import { matriculeAffiche } from '../../shared/rules/matricules.ts';
 import { convocationEnvoyee } from '../../shared/rules/sessions.ts';
 import type { Absence, Certification, CurrentUser, Dataset, DemandeCollab, DemandeVisite, Employe, Entretien, Messagerie, Session } from '../../shared/types.ts';
 import { configMail } from './config.ts';
@@ -224,7 +225,7 @@ export function transmettreDemandeVisite(cx: Contexte & { d: Domain }, emp: Empl
   envoyerEmail(cx.db, 'visite.demande', courriel(m, m.santeTravail, `Demande de visite médicale — ${emp.nom}`, [
     'Le service RH vous demande de convoquer le salarié ci-dessous à une visite médicale.',
     '',
-    `Salarié : ${emp.nom} (matricule ${matricule(emp.id)}), né en ${emp.naissance}`,
+    `Salarié : ${emp.nom} (matricule ${matriculeAffiche(emp)}), né en ${emp.naissance}`,
     `Poste : ${emp.poste} — équipe ${equipeLabel(emp)}`,
     `Contrat : ${cx.d.contratOf(emp).libelle}, depuis le ${fmtIso(emp.entree)}`,
     '',

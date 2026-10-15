@@ -2,7 +2,8 @@
 import { DownloadSimpleIcon, PlusIcon } from '@phosphor-icons/react';
 import { CERT_LABEL, CLS, EMP_LABEL, HAB_CLS, HAB_LABEL, MODE_NOTIFICATION_LABEL, REQ_CLS, REQ_LABEL, SESS_CLS, TRIP_CLS, TRIP_LABEL } from '../../../shared/constants.ts';
 import { parse } from '../../../shared/dates.ts';
-import { equipeLabel, fmt, fmtShort, matricule, plural, rel } from '../../../shared/format.ts';
+import { equipeLabel, fmt, fmtShort, plural, rel } from '../../../shared/format.ts';
+import { matriculeAffiche } from '../../../shared/rules/matricules.ts';
 import { declarationDetail, formaliteCle } from '../../../shared/rules/formalites.ts';
 import { etatInscription } from '../../../shared/rules/sessions.ts';
 import type { ModeNotification } from '../../../shared/types.ts';
@@ -54,7 +55,7 @@ export function Portail() {
     <div className="page">
       <header className="page-head">
         <div>
-          <div className="kicker">{me.poste} · {equipeLabel(me)} · {matricule(me.id)}</div>
+          <div className="kicker">{me.poste} · {equipeLabel(me)} · {matriculeAffiche(me)}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
             <h1>Bonjour {me.nom.split(' ')[0]}</h1>
             <Tag cls={CLS[me.worst]}>{EMP_LABEL[me.worst]}</Tag>

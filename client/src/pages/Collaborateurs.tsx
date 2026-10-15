@@ -5,7 +5,7 @@ import { CERT_LABEL, CLS, EMP_LABEL, HAB_CLS, HAB_LABEL, HAB_MESURE_LABEL, RANK,
 import type { ContratX, EmpX, HabInfo, Proposal } from '../../../shared/domain.ts';
 import type { Formation } from '../../../shared/types.ts';
 import { days, parse } from '../../../shared/dates.ts';
-import { equipeLabel, fmt, fmtIso, fmtShort, norm, plural, rel } from '../../../shared/format.ts';
+import { equipeLabel, fmt, fmtIso, fmtShort, matricule, norm, plural, rel } from '../../../shared/format.ts';
 import { absenceKinds } from '../../../shared/rules/conges.ts';
 import { convocationEnvoyee, etatInscription } from '../../../shared/rules/sessions.ts';
 import { JOURS_SEMAINE } from '../../../shared/rules/profil.ts';
@@ -62,7 +62,8 @@ export function Collaborateurs() {
   const q = norm(ui.search.trim());
   const rows = useMemo(() => team
     .filter(e => (filtre === 'Toutes' || (filtre === SANS_EQUIPE ? !e.equipe : e.equipe === filtre)) && (ui.statut === 'tous' || e.worst === ui.statut)
-      && (!q || norm(`${e.nom} ${e.poste} ${equipeLabel(e)}`).includes(q)))
+      // Recherche aussi par matricule : de paie (fiche) ou Cursus (EMP-0001, celui des messages de Keystone).
+      && (!q || norm(`${e.nom} ${e.poste} ${equipeLabel(e)} ${e.matriculePaie ?? ''} ${matricule(e.id)}`).includes(q)))
     .sort((a, b) => RANK[b.worst] - RANK[a.worst] || (a.next ? a.next.d : 1e9) - (b.next ? b.next.d : 1e9) || a.nom.localeCompare(b.nom)),
   [team, filtre, ui.statut, q]);
 
@@ -156,7 +157,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
 }) {
   const { d, formIds } = useEnriched();
   // `formations` : service RH et référent HSE (sessions, certifications, habilitations) ; `rh` : le reste de la fiche.
-  const { rh, formations, manager, me } = useRole();
+  const { espaceRh, rh, formations, manager, me } = useRole();
   const permis = useIntentPermis();
   const { setUi, openDialog, go, run, runIntent, notify } = useStore();
   /** Manager direct consultant un membre de son équipe (jamais sa propre fiche). */
@@ -424,6 +425,12 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
           {e.tempsDepuis ? <span className="text-muted"> · depuis le {fmtIso(e.tempsDepuis)}</span> : null}
         </Info>
         <Info label="Date d’entrée">{fmtIso(e.entree)}</Info>
+        {/* Matricule du dossier de paie (Sage) : à saisir sur la fiche, faute de quoi le salarié est refusé d'une transmission réelle. */}
+        {espaceRh && !c.interim && (
+          <Info label="Matricule de paie" sub={`Matricule Cursus ${matricule(e.id)}`}>
+            {e.matriculePaie ?? <span className="note-accent">À saisir</span>}
+          </Info>
+        )}
         <Info label="Manager valideur">{d.mgrName(valideur)}</Info>
         {rh && e.repriseDate && <Info label="Reprise après absence longue">{`${e.repriseMotif ?? 'Motif non renseigné'} · le ${fmtIso(e.repriseDate)}`}</Info>}
       </div>

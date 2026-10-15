@@ -254,7 +254,7 @@ aucun champ du paramètre n'est recopié.
 | `hab.suspendre` | empId, h, motif, date? (aujourd’hui par défaut) | RH, référent HSE ; manager pour un membre de son équipe (jamais lui-même) |
 | `hab.lever` | empId, h | RH, référent HSE |
 | `hab.retirer` | empId, h, motif, date? | RH, référent HSE |
-| `medical.demander` | empId, motif? (`periodique`/`embauche`/`reprise`/`employeur` ; par défaut embauche sans visite enregistrée, sinon périodique) | RH (une demande en cours par collaborateur) |
+| `medical.demander` | empId, motif? (`periodique`/`embauche`/`reprise`/`employeur` ; par défaut embauche sans visite enregistrée, sinon périodique) ; e-mail au service de santé au travail | RH (une demande en cours par collaborateur) |
 | `medical.annuler` | id | RH (demande de visite en cours) |
 | `medical.avis` | empId, date (passée), avis (`apte`/`restrictions`/`inapte`), restrictions [{texte, jusquau?}] (avis avec restrictions), suspendre [h]?, lever [h]? | RH (suspensions « Restriction d’aptitude » ; levée des seules suspensions d’un avis précédent, jamais pour un avis d’inaptitude) |
 | `demande.accepter` / `demande.refuser` | id | RH ; référent HSE pour une demande de formation ou d'habilitation (document déclaré : RH) |
@@ -410,8 +410,9 @@ Règles dans `shared/rules/sante.ts` et `Domain.medInfo` (`shared/domain.ts`), a
   d'office (prérequis). Une visite ne se saisit plus dans la fiche (`employe.modifier` refuse de changer `visite`) ; la
   création d'une fiche peut porter la dernière visite (avis apte).
 - **Demandes de visite** (table `demandesVisite`, `medical.demander`) : motif, date, auteur ; une seule en cours par
-  collaborateur. Le service RH l'imprime pour le service de prévention et de santé au travail (identité, poste, motif,
-  habilitations qui exigent l'aptitude, aucune donnée médicale) ; l'envoi par e-mail viendra avec le module d'e-mails. Tant
+  collaborateur. Elle part par e-mail au service de prévention et de santé au travail (`transmettreDemandeVisite`,
+  adresse de Paramètres → Messagerie), dans la transaction de la demande, et s'imprime aussi (identité, poste, motif,
+  habilitations qui exigent l'aptitude, aucune donnée médicale) ; sans adresse, le service RH transmet l'imprimé. Tant
   qu'elle est en cours, « Visite demandée le … » remplace l'action « Demander une visite médicale » : dans les échéances
   (visite et habilitations qui en dépendent, affichées comme planifiées) et sur les habilitations (`Domain.habAction`, qui
   ouvre la demande en cours : impression, annulation). La saisie d'une visite datée du jour de la demande ou après la

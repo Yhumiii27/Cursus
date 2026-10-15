@@ -1,5 +1,6 @@
-// Demande de visite médicale (service RH) : motif, puis demande imprimable à transmettre au service de prévention
-// et de santé au travail. La demande reste en cours jusqu'à la saisie de l'avis du médecin du travail, ou son annulation.
+// Demande de visite médicale (service RH) : motif, puis demande envoyée par e-mail au service de prévention et de santé
+// au travail (adresse de Paramètres → Messagerie), ou imprimée pour lui. La demande reste en cours jusqu'à la saisie de
+// l'avis du médecin du travail, ou son annulation.
 import { useState } from 'react';
 import { MOTIFS_VISITE } from '../../../shared/constants.ts';
 import { fmtIso } from '../../../shared/format.ts';
@@ -20,6 +21,8 @@ export function VisiteDialog({ empId }: { empId: number }) {
   const [busy, setBusy] = useState(false);
   if (!emp || !rh) return null;
   const demande = emp.med.demande;
+  // Adresse du service de santé au travail : la demande lui part par e-mail à son enregistrement.
+  const sante = d.ds.messagerie?.santeTravail ?? null;
 
   const imprimer = () => {
     if (demande && !imprimerDemandeVisite(d, emp, demande)) notify('Autorisez les fenêtres surgissantes pour imprimer la demande', true);
@@ -53,8 +56,10 @@ export function VisiteDialog({ empId }: { empId: number }) {
         <Field label="Motif"><Static>{MOTIFS_VISITE[demande.motif].label}</Static></Field>
         <div className="boxed text-muted sub">{emp.med.text}</div>
         <Fine>
-          Transmettez la demande imprimée (ou enregistrée en PDF) au service de prévention et de santé au travail : elle ne contient
-          aucune information médicale. Elle reste en cours jusqu’à l’enregistrement de l’avis du médecin du travail sur la fiche.
+          {sante
+            ? `Envoyée par e-mail au service de prévention et de santé au travail (${sante}) à son enregistrement : suivi dans Paramètres → Envois. `
+            : 'Transmettez la demande imprimée (ou enregistrée en PDF) au service de prévention et de santé au travail. '}
+          Elle ne contient aucune information médicale et reste en cours jusqu’à l’enregistrement de l’avis du médecin du travail sur la fiche.
         </Fine>
       </Dialog>
     );
@@ -84,7 +89,12 @@ export function VisiteDialog({ empId }: { empId: number }) {
           ))}
         </div>
       </Field>
-      <Fine>La demande est enregistrée, puis imprimée pour le service de prévention et de santé au travail. Le manager n’en est pas informé.</Fine>
+      <Fine>
+        {sante
+          ? `La demande est enregistrée et envoyée par e-mail au service de prévention et de santé au travail (${sante}).`
+          : 'La demande est enregistrée, puis imprimée pour le service de prévention et de santé au travail (aucune adresse dans Paramètres → Messagerie).'}
+        {' '}Le manager n’en est pas informé.
+      </Fine>
     </Dialog>
   );
 }

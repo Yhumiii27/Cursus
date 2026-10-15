@@ -179,8 +179,8 @@ périodique : `docs/SAUVEGARDE.md`.
   `CURSUS_MAIL_FROM`, par la file d'envoi (suivi et relance dans Paramètres → Envois) ; sans elle, simulés
   et tracés dans le journal. Adresse professionnelle sur la fiche (reprise du compte Microsoft 365), adresses
   du service RH, du service de santé au travail et des agences dans Paramètres → Messagerie.
-- **Demandes de visite médicale** : enregistrées et suivies jusqu'à la saisie de la visite, imprimables pour le service de
-  prévention et de santé au travail ; sans envoi d'e-mail.
+- **Demandes de visite médicale** : enregistrées et suivies jusqu'à la saisie de la visite, envoyées par e-mail au service
+  de prévention et de santé au travail (adresse de Paramètres → Messagerie) et imprimables, sans information médicale.
 - **Liste des inscrits d'une session pour l'organisme** : affichée et exportée en CSV à la confirmation, sans envoi d'e-mail.
 
 ## Contrat et temps de travail

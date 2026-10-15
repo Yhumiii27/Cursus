@@ -227,7 +227,8 @@ export const EMAIL_LABEL: Record<string, string> = {
   'absence.demande': 'Demande de congés à valider', 'absence.decision': 'Décision sur une demande de congés', 'temps.soumise': 'Feuille de temps à valider',
   'temps.renvoyee': 'Feuille de temps renvoyée', 'entretien.convocation': 'Convocation à un entretien', 'entretien.clos': 'Compte rendu d’entretien à signer',
   'demande.reponse': 'Réponse à une demande au service RH', 'convocation': 'Convocation à une formation', 'convocation.annulee': 'Convocation annulée',
-  'releve.interim': 'Relevé d’heures des intérimaires', 'recapitulatif': 'Récapitulatif quotidien', 'essai': 'E-mail d’essai',
+  'releve.interim': 'Relevé d’heures des intérimaires', 'visite.demande': 'Demande de visite médicale', 'recapitulatif': 'Récapitulatif quotidien',
+  'essai': 'E-mail d’essai',
 };
 export const CIBLE_LABEL = { keystone: 'Keystone', sage: 'Sage Paie', email: 'E-mail' } as const;
 export const MODE_NOTIFICATION_LABEL = { immediat: 'Aussitôt', quotidien: 'Récapitulatif quotidien' } as const;

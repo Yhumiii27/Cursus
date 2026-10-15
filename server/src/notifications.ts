@@ -5,12 +5,12 @@
 //   personne qui fait l'action, ni à un salarié sans adresse ou sorti de l'entreprise.
 // - Convocations (formation, entretien) : toujours aussitôt, avec le fichier .ics de l'événement.
 // Tout passe par la file d'envoi, dans la transaction de l'action (server/src/integrations/email.ts).
-import { ENT_TYPES, HEURE_RECAPITULATIF } from '../../shared/constants.ts';
+import { ENT_TYPES, HEURE_RECAPITULATIF, MOTIFS_VISITE } from '../../shared/constants.ts';
 import { addD, isoWeek, parse } from '../../shared/dates.ts';
-import { sessionActive } from '../../shared/domain.ts';
-import { fmt, plural } from '../../shared/format.ts';
+import { type Domain, sessionActive } from '../../shared/domain.ts';
+import { equipeLabel, fmt, fmtIso, matricule, plural } from '../../shared/format.ts';
 import { convocationEnvoyee } from '../../shared/rules/sessions.ts';
-import type { Absence, Certification, CurrentUser, Dataset, DemandeCollab, Employe, Entretien, Messagerie, Session } from '../../shared/types.ts';
+import type { Absence, Certification, CurrentUser, Dataset, DemandeCollab, DemandeVisite, Employe, Entretien, Messagerie, Session } from '../../shared/types.ts';
 import { configMail } from './config.ts';
 import { todayIso } from './dataset.ts';
 import type { Db } from './db.ts';
@@ -208,6 +208,33 @@ export function convoquerEntretien(cx: Contexte, emp: Pick<Employe, 'id' | 'nom'
     '',
     'Vous pouvez préparer vos sections du compte rendu dans Cursus (Entretiens). Ouvrez le fichier joint pour ajouter l’entretien à votre agenda.',
   ].join('\n'), { nom: emp.nom, pj: [pieceJointe(`entretien-${x.date}.ics`, 'text/calendar; charset=utf-8; method=PUBLISH', ics)] }));
+  return true;
+}
+
+/**
+ * Demande de visite médicale adressée au service de prévention et de santé au travail (Paramètres → Messagerie) :
+ * le contenu de la demande imprimable, sans aucune information médicale. Renvoie faux sans adresse : la demande est
+ * alors à imprimer et à transmettre par le service RH.
+ */
+export function transmettreDemandeVisite(cx: Contexte & { d: Domain }, emp: Employe, x: Pick<DemandeVisite, 'motif' | 'le' | 'par'>): boolean {
+  const m = messagerie(cx);
+  if (!m.santeTravail) return false;
+  const motif = MOTIFS_VISITE[x.motif];
+  const habs = emp.habs.filter(h => h.delivree && h.mesure !== 'retrait' && cx.d.hm(h.h)?.medical).map(h => cx.d.hm(h.h).nom);
+  envoyerEmail(cx.db, 'visite.demande', courriel(m, m.santeTravail, `Demande de visite médicale — ${emp.nom}`, [
+    'Le service RH vous demande de convoquer le salarié ci-dessous à une visite médicale.',
+    '',
+    `Salarié : ${emp.nom} (matricule ${matricule(emp.id)}), né en ${emp.naissance}`,
+    `Poste : ${emp.poste} — équipe ${equipeLabel(emp)}`,
+    `Contrat : ${cx.d.contratOf(emp).libelle}, depuis le ${fmtIso(emp.entree)}`,
+    '',
+    `Visite demandée : ${motif.label} (${motif.article} du Code du travail)`,
+    `Demandée le ${fmtIso(x.le)} par ${x.par}, service RH`,
+    `Dernière visite enregistrée : ${emp.visite ? fmtIso(emp.visite) : 'aucune'}`,
+    ...(habs.length ? [`Habilitations du poste qui exigent l’aptitude médicale : ${habs.join(', ')}`] : []),
+    '',
+    'Merci d’adresser l’avis d’aptitude au service RH, qui l’enregistre dans Cursus. Cette demande ne contient aucune information médicale.',
+  ].join('\n')));
   return true;
 }
 

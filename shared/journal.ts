@@ -1,7 +1,7 @@
 // Journal des actions : libellés français, familles (filtre « Action »), actions liées à la paie et durées
 // de conservation, mise en forme des anciennes et nouvelles valeurs, droits de lecture. Partagé par le serveur
 // (consultation, export CSV, conservation : server/src/journal.ts) et l'écran Paramètres → Journal des actions.
-import { droitsRh } from './constants.ts';
+import { droitsRh, EMAIL_LABEL } from './constants.ts';
 import type { CurrentUser } from './types.ts';
 
 /**
@@ -133,7 +133,9 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'migration.detachement': 'Reprise des formalités de détachement',
 };
 
-export const libelleAction = (code: string) => JOURNAL_LABEL[code] ?? code;
+/** Libellé d'un code ; un e-mail simulé (`email.<nature>`, sans boîte d'envoi) est nommé par sa nature. */
+export const libelleAction = (code: string) => JOURNAL_LABEL[code]
+  ?? (code.startsWith('email.') && Object.hasOwn(EMAIL_LABEL, code.slice(6)) ? `E-mail simulé : ${EMAIL_LABEL[code.slice(6)]}` : code);
 
 /**
  * Droits de la personne connectée : ceux de son profil RH (PROFILS_RH), dans l'espace RH seulement. Lus comme
@@ -164,7 +166,10 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
   { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.'] },
   { id: 'connexions', label: 'Connexions et accès', prefixes: ACTIONS_CONNEXION },
-  { id: 'integrations', label: 'Intégrations (Keystone)', prefixes: ['keystone.appel', 'keystone.echec', 'keystone.demande.', 'keystone.heures.', 'keystone.absence.', 'keystone.verdict.'] },
+  {
+    id: 'integrations', label: 'Intégrations (Keystone, e-mails)',
+    prefixes: ['keystone.appel', 'keystone.echec', 'keystone.demande.', 'keystone.heures.', 'keystone.absence.', 'keystone.verdict.', 'email.'],
+  },
 ];
 
 /** Famille d'un code : la première qui le reconnaît. */

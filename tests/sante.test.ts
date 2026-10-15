@@ -251,8 +251,17 @@ test('t114 : la demande de visite est enregistrée, affichée « Visite demandé
   const { db, run, domain, emp, echeance, demandes } = fresh();
   const he = () => emp(6).habs.find(h => h.h === 'he')!;
   assert.equal(domain().habAction(6, he())!.intent.type, 'medical');
-  assert.equal(run(RH, 'medical.demander', { empId: 6 }), 'Visite médicale demandée — Thomas Garnier (renouvellement) · demande à transmettre au service de santé au travail');
+  assert.equal(run(RH, 'medical.demander', { empId: 6 }), 'Visite médicale demandée — Thomas Garnier (renouvellement) · demande envoyée au service de santé au travail');
   assert.deepEqual(demandes(6).map(x => [x.motif, x.le, x.par, x.statut, x.closeLe]), [['periodique', '2026-10-10', 'Sandrine Vidal', 'demandee', null]]);
+  // E-mail au service de santé au travail : le contenu de la demande imprimable, sans aucune information médicale.
+  const [mail] = db.all<{ cible: string; type: string; contenu: { a: string[]; objet: string; texte: string; repondreA?: string } }>('envois')
+    .filter(e => e.type === 'visite.demande');
+  assert.deepEqual([mail.cible, mail.contenu.a, mail.contenu.objet], ['email', ['contact@sante-travail.example'], 'Demande de visite médicale — Thomas Garnier']);
+  assert.match(mail.contenu.texte, /matricule EMP-0006/);
+  assert.match(mail.contenu.texte, /Visite demandée : Visite périodique — renouvellement de l’aptitude \(Art\. R4624-16 et R4624-28 du Code du travail\)/);
+  assert.match(mail.contenu.texte, /Habilitations du poste qui exigent l’aptitude médicale : .*Habilitation électrique/);
+  assert.doesNotMatch(mail.contenu.texte, /[Éé]chue|[Ii]napte|restriction|apte avec/);
+  assert.ok(mail.contenu.repondreA, 'les réponses vont au service RH');
   // Le bouton n'est plus proposé : « Visite demandée le … » à sa place, dans les habilitations (ouvre la demande en cours)
   // comme dans les échéances (visite et habilitation, affichées comme planifiées).
   assert.deepEqual(domain().habAction(6, he()), { label: 'Visite demandée le 10 oct.', intent: { type: 'medical', empId: 6 } });
@@ -278,14 +287,17 @@ test('t114 : la demande de visite est enregistrée, affichée « Visite demandé
 });
 
 test('t114 : annulation d’une demande ; une visite antérieure à la demande ne la clôt pas', () => {
-  const { run, demandes, emp } = fresh();
+  const { db, run, demandes, emp } = fresh();
   const [x] = demandes(24);
   assert.equal(x.motif, 'embauche');
   assert.equal(run(RH, 'medical.annuler', { id: x.id }), 'Demande de visite annulée — Bastien Morel');
   assert.deepEqual([demandes(24)[0].statut, demandes(24)[0].closeLe, demandes(24)[0].closePar], ['annulee', '2026-10-10', 'Sandrine Vidal']);
   assert.throws(() => run(RH, 'medical.annuler', { id: x.id }), refus(/introuvable ou déjà close/));
-  // Sans visite enregistrée, le motif proposé est la visite d'embauche.
-  run(RH, 'medical.demander', { empId: 24 });
+  // Sans visite enregistrée, le motif proposé est la visite d'embauche. Sans adresse du service de santé au travail,
+  // rien ne part : la demande est à imprimer.
+  run(RH, 'messagerie.regler', { santeTravail: '' });
+  assert.match(String(run(RH, 'medical.demander', { empId: 24 })), /demande à imprimer pour le service de santé au travail \(aucune adresse/);
+  assert.ok(!db.all<{ type: string }>('envois').some(e => e.type === 'visite.demande'));
   assert.deepEqual(demandes(24).map(v => [v.motif, v.statut]), [['embauche', 'annulee'], ['embauche', 'demandee']]);
   run(RH, 'medical.avis', { empId: 24, date: '2026-10-01', avis: 'apte' });
   assert.equal(demandes(24)[1].statut, 'demandee', 'visite du 1er octobre : la demande du 10 reste en cours');

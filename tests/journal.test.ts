@@ -28,7 +28,7 @@ const {
 const { journaliser } = await import('../server/src/comptes.ts');
 const { ActionError } = await import('../server/src/actions/context.ts');
 const { donneesSalarie, TABLES_SALARIE } = await import('../server/src/donnees.ts');
-const { changementsTexte, dossierComplet, JOURNAL_LABEL, lecteurJournal } = await import('../shared/journal.ts');
+const { changementsTexte, dossierComplet, familleAction, JOURNAL_LABEL, lecteurJournal, libelleAction } = await import('../shared/journal.ts');
 const { PROFILS_RH } = await import('../shared/constants.ts');
 const { SAMPLE_TRIPS_CSV } = await import('../shared/rules/imports.ts');
 type Db = InstanceType<typeof Db>;
@@ -384,12 +384,18 @@ test('droits : journal au droit « rh » ou « consultation », dossier complet 
     run(RH, 'absence.saisir', { empId: 2, nature: 'MALADIE', du: '2026-12-14', au: '2026-12-16', justificatif: true, justificatifLe: '2026-10-09' });
     run(MEHDI, 'formalite.enregistrer', { empId: 2, kind: 'vaccin', v: 'fj', date: '2026-09-01' });
     run(RH, 'employe.modifier', { id: 2, poste: 'Technicien confirmé' });
+    // Demande de visite médicale et son e-mail au service de santé au travail (simulé : ligne `email.visite.demande`).
+    run(RH, 'medical.demander', { empId: 2 });
     const page = lireJournal(db, { vue: 'tout', du: null, au: null, auteur: null, action: null, salarie: null }).lignes;
     assert.deepEqual(pourLecteur(RH, page), page);
     const vues = pourLecteur(u('lecture_seule'), page);
     const de = (a: string) => vues.find(l => l.action === a)!;
     assert.deepEqual([de('absence.saisir').message, de('absence.saisir').details, de('absence.saisir').salaries], [DETAIL_RESERVE, {}, [2]]);
     assert.deepEqual([de('formalite.enregistrer').message, de('formalite.enregistrer').details], [DETAIL_RESERVE, {}]);
+    assert.deepEqual([de('medical.demander').message, de('email.visite.demande').message], [DETAIL_RESERVE, DETAIL_RESERVE]);
+    assert.match(page.find(l => l.action === 'email.visite.demande')!.message!, /Demande de visite médicale — Mehdi Benali/);
+    assert.equal(libelleAction('email.visite.demande'), 'E-mail simulé : Demande de visite médicale');
+    assert.equal(familleAction('email.visite.demande')!.id, 'integrations');
     assert.equal(de('employe.modifier').details.apres.poste, 'Technicien confirmé');
   } finally {
     for (const [p] of ajoutes) delete profils[p];

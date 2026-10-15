@@ -6,14 +6,15 @@ import { parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
 import { controlerAvis, estMotifVisite, motifParDefaut, suspendueParAvis } from '../../../shared/rules/sante.ts';
 import type { DemandeVisite, Employe, HabTitre, HabType } from '../../../shared/types.ts';
+import { transmettreDemandeVisite } from '../notifications.ts';
 import { signaler } from './conformite.ts';
 import { ActionError, getEmp, requireRh, type ActionHandler, type Ctx } from './context.ts';
 
 /**
  * Demande de visite au service de prévention et de santé au travail : enregistrée (date, motif, auteur) et suivie
- * jusqu'à la saisie de la visite (`medical.avis`) ; une seule en cours par collaborateur. Le service RH la transmet
- * avec la demande imprimable de la fiche du collaborateur. L'envoi par e-mail viendra avec le module d'e-mails : mis
- * en file ici, dans la même transaction, sans aucune donnée médicale (comme la demande imprimable).
+ * jusqu'à la saisie de la visite (`medical.avis`) ; une seule en cours par collaborateur. Envoyée par e-mail au
+ * service de santé au travail (adresse de Paramètres → Messagerie), dans la même transaction, sans aucune donnée
+ * médicale (comme la demande imprimable) ; sans adresse, le service RH transmet la demande imprimée.
  */
 const demanderVisite: ActionHandler = (ctx, p) => {
   requireRh(ctx);
@@ -23,8 +24,10 @@ const demanderVisite: ActionHandler = (ctx, p) => {
   const motif = p.motif == null || p.motif === '' ? motifParDefaut(emp) : p.motif;
   if (!estMotifVisite(motif)) throw new ActionError('Motif de visite inconnu');
   const x = ctx.db.insert<DemandeVisite>('demandesVisite', { empId: emp.id, motif, le: ctx.d.ti, par: ctx.user.nom, statut: 'demandee', closeLe: null, closePar: null });
+  const envoyee = transmettreDemandeVisite(ctx, emp, x);
   return {
-    message: `Visite médicale demandée — ${emp.nom} (${MOTIFS_VISITE[motif].court}) · demande à transmettre au service de santé au travail`,
+    message: `Visite médicale demandée — ${emp.nom} (${MOTIFS_VISITE[motif].court}) · ${envoyee
+      ? 'demande envoyée au service de santé au travail' : 'demande à imprimer pour le service de santé au travail (aucune adresse dans Paramètres → Messagerie)'}`,
     result: { id: x.id },
   };
 };

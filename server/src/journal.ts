@@ -627,7 +627,7 @@ export function exigerRh(db: Db, req: Request, res: Response, quoi: string, auto
 /** Actions dont le message ou le détail touche à la santé : absence (dates d'un arrêt), visite médicale, vaccination, document déclaré. */
 const ACTIONS_SANTE = new Set([
   'absence.saisir', 'absence.qualifier', 'absence.prolonger', 'absence.annuler', 'medical.demander', 'medical.annuler', 'medical.avis',
-  'formalite.enregistrer', 'demande.accepter',
+  'formalite.enregistrer', 'demande.accepter', 'email.visite.demande',
 ]);
 export const DETAIL_RESERVE = 'Détail réservé au service RH';
 

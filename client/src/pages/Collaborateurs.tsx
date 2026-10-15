@@ -7,11 +7,13 @@ import type { Formation } from '../../../shared/types.ts';
 import { days, parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, fmtIso, fmtShort, norm, plural, rel } from '../../../shared/format.ts';
 import { absenceKinds } from '../../../shared/rules/conges.ts';
+import { MOTIFS_SORTIE, sorti } from '../../../shared/rules/contrats.ts';
 import { convocationEnvoyee, etatInscription } from '../../../shared/rules/sessions.ts';
 import { JOURS_SEMAINE } from '../../../shared/rules/profil.ts';
 import { usePanneauVisible } from '../components/panneau.ts';
 import { Avatar, Bar, Btn, Chips, CloseButton, Empty, Fine, NoteAccent, Page, SectionLabel, Seg, Tag, Two } from '../components/ui.tsx';
 import { Aptitude } from '../components/Aptitude.tsx';
+import { SortieFiche } from '../components/Sortie.tsx';
 import { printDocument } from '../print.ts';
 import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derived.ts';
 import { desinscription, retraitEquipe } from '../state/confirmations.ts';
@@ -45,7 +47,7 @@ const joursListe = (js: number[]) => {
 };
 
 export function Collaborateurs() {
-  const { emps, upcoming, horizon, d } = useEnriched();
+  const { emps, upcoming, horizon, onlyReg, d } = useEnriched();
   const trips = useTrips();
   // `espaceRh` : tout le site (service RH, référent HSE, lecture seule) ; `rh` : fiches et équipes.
   const { espaceRh, rh, manager, me } = useRole();
@@ -53,6 +55,10 @@ export function Collaborateurs() {
 
   const myTeams = useMemo(() => manager ? d.teamsOf(me) : [], [d, manager, me]);
   const team = useMemo(() => manager ? emps.filter(e => e.id !== me && d.mgrOf(e) === me) : emps, [emps, manager, me, d]);
+  // Filtre « Sortis » : les salariés dont la date de sortie est passée, que `emps` ne compte plus (Domain.enrich).
+  const sortis = ui.statut === 'sortis';
+  const liste = useMemo(() => !sortis ? team : d.enrich(horizon, onlyReg, { sortis: true })
+    .filter(e => sorti(e, d.ti) && (!manager || (e.id !== me && d.mgrOf(e) === me))), [sortis, team, d, horizon, onlyReg, manager, me]);
   const teamOptions = espaceRh ? d.equipes : myTeams;
   const multi = espaceRh || myTeams.length > 1;
   // Un filtre devenu sans objet (équipe renommée, hors périmètre) revient à « Toutes ».
@@ -60,13 +66,15 @@ export function Collaborateurs() {
   const aAffecter = espaceRh ? emps.filter(e => !e.equipe).length : 0;
 
   const q = norm(ui.search.trim());
-  const rows = useMemo(() => team
-    .filter(e => (filtre === 'Toutes' || (filtre === SANS_EQUIPE ? !e.equipe : e.equipe === filtre)) && (ui.statut === 'tous' || e.worst === ui.statut)
+  const rows = useMemo(() => liste
+    .filter(e => (filtre === 'Toutes' || (filtre === SANS_EQUIPE ? !e.equipe : e.equipe === filtre)) && (ui.statut === 'tous' || sortis || e.worst === ui.statut)
       && (!q || norm(`${e.nom} ${e.poste} ${equipeLabel(e)}`).includes(q)))
-    .sort((a, b) => RANK[b.worst] - RANK[a.worst] || (a.next ? a.next.d : 1e9) - (b.next ? b.next.d : 1e9) || a.nom.localeCompare(b.nom)),
-  [team, filtre, ui.statut, q]);
+    // Sortis : les départs les plus récents d'abord.
+    .sort((a, b) => sortis ? (b.fin ?? '').localeCompare(a.fin ?? '') || a.nom.localeCompare(b.nom)
+      : RANK[b.worst] - RANK[a.worst] || (a.next ? a.next.d : 1e9) - (b.next ? b.next.d : 1e9) || a.nom.localeCompare(b.nom)),
+  [liste, filtre, ui.statut, sortis, q]);
 
-  const sel = team.find(e => e.id === ui.selectedId) || null;
+  const sel = liste.find(e => e.id === ui.selectedId) || null;
   // Écran étroit : la fiche s'affiche sous la liste ; la sélection l'amène dans le champ de vision.
   const panneau = usePanneauVisible<HTMLElement>(sel?.id);
   const certCount = team.reduce((n, e) => n + e.certs.length, 0);
@@ -87,7 +95,7 @@ export function Collaborateurs() {
         </select>
       )}
       <Seg name="statut" label="Statut" value={ui.statut} onChange={v => setUi({ statut: v })}
-        options={[['tous', 'Tous'], ['ok', 'À jour'], ['due', 'À renouveler'], ['exp', 'Non conformes']]} />
+        options={[['tous', 'Tous'], ['ok', 'À jour'], ['due', 'À renouveler'], ['exp', 'Non conformes'], ['sortis', 'Sortis']]} />
       {rh && <Btn variant="primary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'employe', equipe: cible })}>Nouveau collaborateur</Btn>}
       {manager && myTeams.length > 0 && (
         <Btn variant="primary" icon={<UserPlusIcon size={14} />} onClick={() => openDialog({ type: 'membre', equipe: cible ?? myTeams[0] })}>Ajouter un membre</Btn>
@@ -97,7 +105,7 @@ export function Collaborateurs() {
         <section style={{ flex: '1 1 420px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Collaborateur</th>{showEquipe && <th>Équipe</th>}<th>Certifications</th><th>Habilitations</th><th>Prochaine échéance</th><th>Statut</th></tr></thead>
+              <thead><tr><th>Collaborateur</th>{showEquipe && <th>Équipe</th>}<th>Certifications</th><th>Habilitations</th><th>{sortis ? 'Sortie' : 'Prochaine échéance'}</th><th>Statut</th></tr></thead>
               <tbody>
                 {rows.map(e => {
                   const hs = habSummary(e);
@@ -116,8 +124,10 @@ export function Collaborateurs() {
                       {showEquipe && <td className={e.equipe ? 'text-muted' : undefined}>{e.equipe ?? <Tag cls="tag-outline">À affecter</Tag>}</td>}
                       <td><Chips items={e.certs.map(c => ({ key: c.id, label: c.fm.court, cls: CLS[c.key] }))} /></td>
                       <td>{e.habs.length ? <Tag cls={hs.cls}>{hs.label}</Tag> : <span className="text-muted">—</span>}</td>
-                      <td><Two main={e.next ? fmt(e.next.exp) : '—'} sub={e.next ? rel(e.next.d) : 'aucune certification suivie'} nowrap /></td>
-                      <td><Tag cls={CLS[e.worst]}>{EMP_LABEL[e.worst]}</Tag></td>
+                      {sortis
+                        ? <td><Two main={e.fin ? fmtIso(e.fin) : '—'} sub={e.motifSortie ? MOTIFS_SORTIE[e.motifSortie] : 'fin de contrat'} nowrap /></td>
+                        : <td><Two main={e.next ? fmt(e.next.exp) : '—'} sub={e.next ? rel(e.next.d) : 'aucune certification suivie'} nowrap /></td>}
+                      <td>{sortis ? <Tag cls="tag-outline">Sorti</Tag> : <Tag cls={CLS[e.worst]}>{EMP_LABEL[e.worst]}</Tag>}</td>
                     </tr>
                   );
                 })}
@@ -126,12 +136,13 @@ export function Collaborateurs() {
           </div>
           {rows.length === 0 && (
             <Empty pad="md">
-              {team.length > 0 ? 'Aucun collaborateur ne correspond à ces filtres.'
+              {sortis && liste.length === 0 ? 'Aucun salarié sorti : la sortie s’enregistre depuis la fiche (section Contrat).'
+                : liste.length > 0 ? 'Aucun collaborateur ne correspond à ces filtres.'
                 : manager ? (myTeams.length ? 'Votre équipe ne compte encore aucun collaborateur : ajoutez un membre.' : 'Aucune équipe ne vous est confiée — le service RH désigne les managers d’équipe.')
                 : 'Aucun collaborateur enregistré.'}
             </Empty>
           )}
-          <p className="text-muted fine">{rows.length} {rows.length > 1 ? 'collaborateurs affichés' : 'collaborateur affiché'} sur {team.length}</p>
+          <p className="text-muted fine">{rows.length} {rows.length > 1 ? 'collaborateurs affichés' : 'collaborateur affiché'} sur {liste.length}</p>
         </section>
 
         {sel && <EmployeePanel panneau={panneau} e={sel} upcomingCount={(f: string) => upcoming.filter(s => s.formation === f && s.inscrits < s.places).length} trips={trips} horizon={horizon} />}
@@ -159,9 +170,11 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
   const { rh, formations, manager, me } = useRole();
   const permis = useIntentPermis();
   const { setUi, openDialog, go, run, runIntent, notify } = useStore();
+  /** Salarié sorti : fiche consultable (historique, passeport formation), sans action à planifier. */
+  const parti = sorti(e, d.ti);
   /** Manager direct consultant un membre de son équipe (jamais sa propre fiche). */
-  const membre = manager && e.id !== me && d.mgrOf(e) === me;
-  const canPlan = formations || membre;
+  const membre = manager && e.id !== me && d.mgrOf(e) === me && !parti;
+  const canPlan = (formations || membre) && !parti;
   /** Certifications remplacées par un recyclage (historique), selon le filtre « réglementaires uniquement ». */
   const anciennes = e.anciennes.filter(c => formIds.has(c.f));
   const tv = d.travelOf(e, horizon);
@@ -182,7 +195,8 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
     : e.fin
       ? `${TYPES_CONTRAT[c.typeContrat].label} · du ${fmtIso(e.entree)} au ${fmtIso(e.fin)}`
       : TYPES_CONTRAT[c.typeContrat].label;
-  const finD = c.typeContrat !== 'cdi' && e.fin ? days(d.today, parse(e.fin)) : null;
+  // Sortie enregistrée : son échéance est rappelée par la section Sortie (SortieFiche).
+  const finD = c.typeContrat !== 'cdi' && e.fin && !e.motifSortie ? days(d.today, parse(e.fin)) : null;
   const valideur = d.mgrOf(e);
   /** Types d'absence ouverts par le contrat (aucun pour un intérimaire : congés gérés par l'agence). */
   const poseAbsence = absenceKinds(d, e).length > 0;
@@ -204,7 +218,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
    * recyclage ou demande de formation pour le manager.
    */
   const habProposal = (h: HabInfo): Proposal | null => {
-    const a = d.habAction(e.id, h);
+    const a = parti ? null : d.habAction(e.id, h);
     if (!a || formations) return a && permis(a.intent) ? a : null;
     if (!membre) return null;
     if (a.intent.type === 'openPlan') return a;
@@ -249,14 +263,16 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
         <CloseButton onClick={() => setUi({ selectedId: null })} />
       </div>
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-        <Tag cls={CLS[e.worst]}>{EMP_LABEL[e.worst]}</Tag>
+        {parti ? <Tag cls="tag-outline">Sorti</Tag> : <Tag cls={CLS[e.worst]}>{EMP_LABEL[e.worst]}</Tag>}
         {!e.equipe && <Tag cls="tag-outline">À affecter</Tag>}
-        <span className="text-muted sub">{plural(e.certs.length, 'certification', 'certifications')} · {e.next ? 'prochaine échéance le ' + fmt(e.next.exp) : 'aucune échéance'}</span>
+        <span className="text-muted sub">
+          {plural(e.certs.length, 'certification', 'certifications')} · {parti ? `sorti le ${fmtIso(e.fin!)} : plus d’échéance suivie` : e.next ? 'prochaine échéance le ' + fmt(e.next.exp) : 'aucune échéance'}
+        </span>
       </div>
       {/* Manager : verdict et restrictions en vigueur seulement ; demandes de visite et avis : service RH. */}
       <SectionLabel>Aptitude médicale</SectionLabel>
       <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
-        <Aptitude e={e} d={d} horizon={horizon} actions={rh ? <>
+        <Aptitude e={e} d={d} horizon={horizon} actions={rh && !parti ? <>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'visite', empId: e.id })}>{e.med.demande ? 'Demande de visite' : 'Demander une visite'}</button>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'avis', empId: e.id })}>Avis du médecin du travail</button>
         </> : undefined} />
@@ -369,8 +385,8 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
           {e.habs.map(h => {
             const a = habProposal(h);
             // Suspendre : RH, référent HSE ou manager direct ; lever la suspension, retirer, délivrer de nouveau : RH et référent HSE.
-            const mesures = formations || membre ? d.habMesures(h, formations) : [];
-            const redelivrer = formations && h.key === 'retiree';
+            const mesures = (formations || membre) && !parti ? d.habMesures(h, formations) : [];
+            const redelivrer = formations && !parti && h.key === 'retiree';
             return (
               <div key={h.hm.id} className="list-row stack">
                 <div className="item-head">
@@ -405,7 +421,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
           </div>
           {docChips.length > 0 && <Chips items={docChips} />}
           <div className="text-muted sub">{nt ? `Prochain déplacement : ${nt.r.dest.pays}, ${fmt(nt.r.dep)} · ${ntStatus}` : 'Aucun déplacement prévu'}</div>
-          {rh && (
+          {rh && !parti && (
             <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
               <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'fo', empId: e.id })}>Enregistrer une formalité</button>
               <button type="button" className="btn btn-ghost btn-sm" onClick={() => go('voyages', { tripSel: nt ? nt.id : null })}>Dossier voyage →</button>
@@ -424,6 +440,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
           {e.tempsDepuis ? <span className="text-muted"> · depuis le {fmtIso(e.tempsDepuis)}</span> : null}
         </Info>
         <Info label="Date d’entrée">{fmtIso(e.entree)}</Info>
+        <SortieFiche e={e} />
         <Info label="Manager valideur">{d.mgrName(valideur)}</Info>
         {rh && e.repriseDate && <Info label="Reprise après absence longue">{`${e.repriseMotif ?? 'Motif non renseigné'} · le ${fmtIso(e.repriseDate)}`}</Info>}
       </div>
@@ -447,7 +464,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
 
       <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
         {(rh || membre) && <Btn variant="secondary" icon={<PencilSimpleIcon size={14} />} onClick={() => openDialog({ type: 'employe', empId: e.id })}>Modifier la fiche</Btn>}
-        {formations && <Btn variant="secondary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'cert', empId: e.id })}>Ajouter une certification</Btn>}
+        {formations && !parti && <Btn variant="secondary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'cert', empId: e.id })}>Ajouter une certification</Btn>}
         <Btn onClick={passeportFormation}>Passeport formation</Btn>
         {retirable && <Btn icon={<UserMinusIcon size={14} />} onClick={retirer}>Retirer de l’équipe</Btn>}
       </div>

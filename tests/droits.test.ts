@@ -93,6 +93,12 @@ const MATRICE: Ligne[] = [
   // Fiches et équipes
   { action: 'employe.creer', droits: '                       O    O    -    -    -    -    -    -    -', p: () => ({ ...PROFIL_VIDE('Maintenance', '2026-10-07'), nom: 'Nouvel Embauché', poste: 'Technicien' }) },
   { action: 'employe.modifier', droits: '                    O    O    O    -    -    -    -    -    -', p: () => ({ id: 2, poste: 'Technicien de maintenance confirmé' }) },
+  // Sortie d'un salarié (date et motif) et son annulation : service RH.
+  { action: 'employe.sortie', droits: '                      O    O    -    -    -    -    -    -    -', p: () => ({ id: 2, date: '2026-12-31', motif: 'demission' }) },
+  { action: 'employe.annulerSortie', droits: '               O    O    -    -    -    -    -    -    -', p: () => {
+    db.update('employes', 2, { fin: '2026-12-31', motifSortie: 'demission', finPrevue: null });
+    return { id: 2 };
+  } },
   { action: 'equipe.creer', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Méthodes' }) },
   { action: 'equipe.renommer', droits: '                     O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Commercial', nouveau: 'Ventes' }) },
   { action: 'equipe.manager', droits: '                      O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Commercial', managerId: 19 }) },

@@ -31,6 +31,7 @@ import { ReqFormDialog } from './ReqFormDialog.tsx';
 import { ReqHabDialog } from './ReqHabDialog.tsx';
 import { SessionDetailDialog } from './SessionDetailDialog.tsx';
 import { SessionDialog } from './SessionDialog.tsx';
+import { SortieDialog } from './SortieDialog.tsx';
 import { TripDialog } from './TripDialog.tsx';
 import { TripImportDialog } from './TripImportDialog.tsx';
 import { AvisDialog } from './AvisDialog.tsx';
@@ -63,6 +64,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'reqForm': return <ReqFormDialog {...d} />;
     case 'reqHab': return <ReqHabDialog {...d} />;
     case 'employe': return <EmployeDialog {...d} />;
+    case 'sortie': return <SortieDialog {...d} />;
     case 'membre': return <MembreDialog {...d} />;
     case 'equipe': return <EquipeDialog {...d} />;
     case 'abs': return <AbsDialog {...d} />;

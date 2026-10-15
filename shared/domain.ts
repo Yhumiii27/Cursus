@@ -9,6 +9,7 @@ import {
 import { addD, addMonths, days, isFerie, iso, parse, weekday } from './dates.ts';
 import { cap, fmt, fmtShort, matricule } from './format.ts';
 import { absenceActive, absenceBloque, borneContrat, periodeTexte } from './rules/absences.ts';
+import { present } from './rules/contrats.ts';
 import { restrictionEnVigueur } from './rules/sante.ts';
 import type {
   AvisMedical, Certification, Chantier, Dataset, DemandeVisite, Destination, Employe, FormaliteManquante, Formation, HabTitre, HabType, ISODate,
@@ -410,10 +411,13 @@ export class Domain {
     return { label: dem ? `Visite demandée le ${fmtShort(parse(dem.le))}` : 'Demander une visite médicale', intent: { type: 'medical', empId } };
   }
 
-  /** Collaborateurs enrichis de leurs statuts de conformité. */
-  enrich(horizon: number, onlyReg: boolean): EmpX[] {
+  /**
+   * Collaborateurs enrichis de leurs statuts de conformité. Les salariés sortis (date de sortie passée) n'y sont plus :
+   * conformité, échéances, tableaux de bord, habilitations. `sortis` : eux aussi (filtre « Sortis » de Collaborateurs).
+   */
+  enrich(horizon: number, onlyReg: boolean, opts: { sortis?: boolean } = {}): EmpX[] {
     const formIds = new Set(this.forms(onlyReg).map(f => f.id));
-    return this.ds.employes.map(e => {
+    return this.ds.employes.filter(e => opts.sortis || present(e, this.ti)).map(e => {
       // Seule la certification en vigueur de chaque formation compte ; les remplacées restent en historique.
       const { vigueur: rawCerts, anciennes } = this.certsOf(e, horizon);
       const certs = rawCerts.filter(c => formIds.has(c.f));
@@ -566,7 +570,8 @@ export class Domain {
   // — Échéances —
   echeances(emps: EmpX[], horizon: number): EchItem[] {
     const ech: EchItem[] = [];
-    emps.forEach(e => {
+    // Un salarié sorti n'a plus d'échéance, même passé dans la liste (filtre « Sortis »).
+    emps.filter(e => present(e, this.ti)).forEach(e => {
       e.certs.forEach(c => ech.push({
         kind: 'cert', kindLabel: c.fm.type === 'Réglementaire' ? 'Certification réglementaire' : 'Certification', label: c.fm.court, emp: e,
         exp: c.exp, d: c.d, key: c.key, statut: CERT_LABEL[c.key], cls: CLS[c.key], planned: !!c.session,
@@ -715,11 +720,16 @@ export class Domain {
     return { status: reasons.some(r => r.level === 'nogo') ? 'nogo' : reasons.length ? 'reserve' : 'go', reasons };
   }
 
-  /** Verdict des chantiers actifs ; un chantier archivé dans Keystone n'est plus évalué. */
+  /**
+   * Verdict des chantiers actifs ; un chantier archivé dans Keystone n'est plus évalué. Une ressource sortie de l'entreprise,
+   * absente de `emps` (Domain.enrich), reste évaluée : « No Go CONTRAT » prévient Keystone au lieu de la faire disparaître.
+   */
   evaluateChantiers(emps: EmpX[], trips: TripX[]): ChantierEval[] {
+    let sortis: EmpX[] | null = null;
+    const sortie = (id: number) => (sortis ??= this.enrich(this.ds.settings.horizonAlerte, false, { sortis: true }).filter(e => !present(e, this.ti))).find(e => e.id === id);
     return this.ds.referentiels.chantiers.filter(c => c.statut !== 'archive').map(c => {
       const res = c.ressources
-        .map(id => emps.find(x => x.id === id))
+        .map(id => emps.find(x => x.id === id) ?? sortie(id))
         .filter((e): e is EmpX => !!e)
         .map(e => ({ e, ...this.resourceStatus(e, c, trips) }));
       const status: GngStatus = res.some(r => r.status === 'nogo') ? 'nogo' : res.some(r => r.status === 'reserve') ? 'reserve' : 'go';

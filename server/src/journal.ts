@@ -72,7 +72,12 @@ interface Regle {
 }
 
 const parId = (table: TableName, colonnes: readonly string[]): Cible => ({ table, cle: p => Number(p.id) || null, colonnes });
-const FICHE = ['nom', 'poste', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis', 'entree', 'fin', 'agence'];
+const FICHE = ['nom', 'poste', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis', 'entree', 'fin', 'motifSortie', 'agence'];
+/**
+ * Solde de RTT de l'année affiché avant un changement de régime qui n'en ouvre plus (garde-fou de `employe.modifier`) :
+ * gardé au journal pour la paie, sous un code de l'archive paie (`employe.rtt`).
+ */
+const soldeRttGarde = (x: Contexte) => (x.result as { soldeRtt?: Ligne } | null)?.soldeRtt ?? null;
 const FEUILLE: Cible = {
   table: 'feuilles', colonnes: ['statut'],
   cle: (p, db) => (db.sql.prepare('SELECT id FROM feuilles WHERE emp_id = ? AND week = ?').get(Number(p.empId) || 0, String(p.week ?? '')) as { id: number } | undefined)?.id ?? null,
@@ -109,9 +114,20 @@ const importes = (x: Contexte) => (x.db.sql.prepare('SELECT emp_id AS e FROM voy
 
 export const REGLES: Record<string, Regle> = {
   // Fiches et équipes
-  'employe.creer': { champs: ['equipe', 'poste', 'statut', 'typeContrat', 'temps', 'entree', 'fin'], salaries: (_p, x) => [(x.result as { id?: number } | null)?.id] },
+  'employe.creer': { champs: ['equipe', 'poste', 'statut', 'typeContrat', 'temps', 'entree', 'fin', 'motifSortie'], salaries: (_p, x) => [(x.result as { id?: number } | null)?.id] },
   // Les champs modifiés sont nommés ; seules les colonnes de FICHE ont leurs valeurs (ni visite médicale, ni reprise, ni naissance).
-  'employe.modifier': { champs: ['id'], extra: p => ({ champsModifies: Object.keys(p).filter(k => k !== 'id' && /^[A-Za-z]{1,40}$/.test(k)).slice(0, 30) }), cible: parId('employes', FICHE), salaries: p => [p.id] },
+  'employe.modifier': {
+    champs: ['id'], extra: p => ({ champsModifies: Object.keys(p).filter(k => k !== 'id' && k !== 'confirmerRtt' && /^[A-Za-z]{1,40}$/.test(k)).slice(0, 30) }),
+    cible: parId('employes', FICHE), salaries: p => [p.id],
+    code: (_p, x) => (soldeRttGarde(x) ? 'employe.rtt' : ''),
+    bilan: (_p, x) => { const s = soldeRttGarde(x); return s ? { soldeRtt: { annee: s.annee, droit: s.droit, pris: s.pris, poses: s.poses, solde: s.solde } } : {}; },
+  },
+  // Sortie : date et motif (code de la liste fermée), nombre d'éléments annulés ; jamais le détail d'une absence.
+  'employe.sortie': {
+    champs: ['id', 'date', 'motif'], cible: parId('employes', ['fin', 'motifSortie']), salaries: p => [p.id],
+    bilan: (_p, x) => (x.result as { annulations?: Ligne } | null)?.annulations ?? {},
+  },
+  'employe.annulerSortie': { champs: ['id'], cible: parId('employes', ['fin', 'motifSortie']), salaries: p => [p.id] },
   'equipe.creer': { champs: ['nom', 'managerId'], salaries: p => [p.managerId] },
   'equipe.renommer': { champs: ['nom', 'nouveau'] },
   'equipe.supprimer': { champs: ['nom'] },

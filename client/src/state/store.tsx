@@ -25,7 +25,8 @@ export interface UiState {
   horizon: number | null;
   search: string;
   equipe: string;
-  statut: 'tous' | 'ok' | 'due' | 'exp';
+  /** Statut de conformité affiché dans Collaborateurs, ou les salariés sortis (`sortis`). */
+  statut: 'tous' | 'ok' | 'due' | 'exp' | 'sortis';
   selectedId: number | null;
   typeForm: 'toutes' | 'reg' | 'rec' | 'int';
   formationFilter: string | null;
@@ -62,6 +63,7 @@ export type DialogState =
   | { type: 'reqForm'; f?: string; sessionId?: number | null; empId?: number | null }
   | { type: 'reqHab'; empId?: number | null }
   | { type: 'employe'; empId?: number | null; equipe?: string | null }
+  | { type: 'sortie'; empId: number }
   | { type: 'membre'; equipe?: string | null }
   | { type: 'equipe'; nom?: string | null }
   | { type: 'abs'; empId: number }

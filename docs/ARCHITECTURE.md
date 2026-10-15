@@ -17,7 +17,8 @@ shared/            Domaine partagé (aucune dépendance)
   journal.ts       Journal des actions : libellés, familles, actions liées à la paie, durées de conservation, droits de lecture
   reglages.ts      Réglages de Paramètres : table « champ → contrôle » (valeur par défaut, contrôle de chaque champ de Settings)
   rules/           temps.ts, conges.ts, entretiens.ts, budget.ts, imports.ts, sante.ts (avis et visites médicales) ;
-                   conflits.ts : doublons et conflits de dates
+                   conflits.ts : doublons et conflits de dates ; contrats.ts : sortie des salariés (présence, contrôles et
+                   effets d'une sortie), garde-fou d'un changement de régime de temps
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   migrate.ts       Reprises des bases antérieures, rejouées à chaque démarrage (idempotentes)
@@ -430,7 +431,9 @@ aucun champ du paramètre n'est recopié.
 | Action | Paramètres | Droits |
 | --- | --- | --- |
 | `employe.creer` | fiche complète (`ProfilInput` de `shared/rules/profil.ts`) | RH |
-| `employe.modifier` | id + champs de la fiche | RH : tous ; manager : `poste`, `jourOff` (temps partiel) des membres de son équipe |
+| `employe.modifier` | id + champs de la fiche, `confirmerRtt` (changement de régime qui ferme le compteur de RTT de l'année) ; ni le motif ni la date d'une sortie enregistrée | RH : tous ; manager : `poste`, `jourOff` (temps partiel) des membres de son équipe |
+| `employe.sortie` | id, date (dernier jour du contrat), motif (`MOTIFS_SORTIE`) ; refusée tant que le salarié encadre une équipe, qu'une feuille porte des heures après la date, qu'une absence est à cheval sur elle, au-delà de la fin prévue du contrat ou pour le dernier administrateur RH actif ; une sortie enregistrée se modifie par la même action | RH (jamais pour lui-même) |
+| `employe.annulerSortie` | id : fin prévue au contrat rétablie (aucune pour un CDI) ; ce que la sortie a annulé ne l'est pas | RH (jamais pour lui-même) |
 | `equipe.creer` / `equipe.renommer` | nom, managerId? / nom, nouveau | RH |
 | `equipe.supprimer` | nom | administrateur RH |
 | `equipe.manager` | nom, managerId (null = aucun) | RH |
@@ -526,7 +529,8 @@ Table `journal`, écrite par `server/src/journal.ts` (actions) et `journaliser` 
   ligne par compte et par filtre pendant 15 minutes) ; application des durées de conservation.
 - **Conservation** (décision de l'entreprise) : 1 an pour tout ; au-delà, les actions liées à la paie
   (`ACTIONS_PAIE` : validations des feuilles et des absences, prolongations et annulations d'absences,
-  corrections d'heures, transmissions à la paie) passent dans l'archive (`archivee`), absente de l'écran et
+  corrections d'heures, transmissions à la paie, sorties et leur annulation, solde de RTT gardé lors d'un changement de
+  régime) passent dans l'archive (`archivee`), absente de l'écran et
   consultée sur demande par le service RH, et toute ligne est supprimée au bout de 3 ans. Une action ajoutée
   à `ACTIONS_PAIE` vaut aussi pour les lignes déjà écrites (`marquerPaie`, au démarrage). Appliquée au
   démarrage puis toutes les heures (`demarrerJournal`), avec la purge de la file d'envoi (envois réussis ou
@@ -570,6 +574,58 @@ le formulaire et le serveur. Une base créée avant ce modèle est convertie au 
 
 Les équipes (`referentiels.equipes`) portent leur manager ; un collaborateur sans équipe (`equipe = null`)
 est « à affecter » et relève du service RH.
+
+### Sortie d'un salarié
+
+Règles dans `shared/rules/contrats.ts`, actions dans `server/src/actions/sorties.ts`, dialogue `dialogs/SortieDialog.tsx`,
+section Contrat de la fiche `components/Sortie.tsx`. Décision de l'entreprise : Cursus fait foi pour la liste des salariés
+après la reprise depuis Lucca ; la sortie se saisit dans Cursus (si Sage faisait foi plus tard, elle viendrait d'un import).
+
+- **Date et motif** : la date de fin du contrat (`Employe.fin`, son dernier jour) sert de date de sortie pour tous les
+  contrats, CDI compris ; s'y ajoute un motif en liste fermée (`motifSortie`, `MOTIFS_SORTIE` : démission, rupture
+  conventionnelle, licenciement, fin de CDD, fin de période d'essai, retraite, décès, fin de mission, autre), sans texte
+  libre. Un CDI ne prend fin qu'avec son motif (`validerProfil`) ; la fin d'un CDD, d'une mission ou d'une alternance sans
+  motif n'est que prévue. La fiche (`employe.modifier`) ne change ni le motif ni la date d'une sortie enregistrée ; le
+  passage d'un CDD en CDI efface la fin du CDD (dialogue de la fiche). Une fiche reprise d'un autre outil peut porter sa
+  sortie dès sa création (`employe.creer`).
+- **Effets** (`employe.sortie`, `controleSortie`, partagé avec le dialogue qui les affiche avant l'envoi) : les absences et
+  demandes entièrement postérieures à la date sont annulées (Keystone reçoit `absence.annulee`) ; le salarié quitte les
+  sessions ouvertes postérieures (recyclage détaché, inscription en formation initiale retirée, convocation reçue annulée
+  par e-mail, `annulerSiConvoque`) ; ses entretiens planifiés après la date sont retirés (sans e-mail d'annulation) ; ses
+  demandes de visite en cours sont annulées (le service de santé au travail est à prévenir) ; ses feuilles de temps vides
+  non validées des semaines suivantes sont retirées ; une sortie déjà passée ferme ses sessions de connexion
+  (`revokeSessionsOf`). La fin prévue au contrat est gardée (`finPrevue`) et rétablie par `employe.annulerSortie` ; ce que
+  la sortie a annulé ne l'est pas.
+- **Blocages** : salarié manager d'une équipe (le remplacer d'abord), heures saisies après la date sur une feuille de
+  n'importe quel statut, absence ou demande à cheval sur la date (la raccourcir ou l'annuler d'abord), date antérieure à
+  l'entrée ou postérieure à la fin prévue du contrat (prolonger d'abord le contrat dans la fiche), dernier administrateur RH
+  actif. La nature d'une absence n'est jamais citée.
+- **Passé la date** (`present`, `sorti`) : connexion refusée et sessions sans effet (`refusDuCompte`), plus de notification
+  (`adresseSalarie`), aucune feuille ni absence (bornes du contrat) — protections déjà en place pour les CDD ; le salarié
+  quitte `Domain.enrich` (conformité, tableaux de bord, habilitations, formations, équipes), les échéances
+  (`Domain.echeances`) et les obligations d'entretien (`obligations`). Il reste consultable dans Collaborateurs avec le
+  filtre « Sortis » (`enrich(…, { sortis: true })`, fiche sans action à planifier). Sur les chantiers où il est affecté, il
+  reste évalué en « No Go CONTRAT » (`Domain.evaluateChantiers`) : Keystone en est prévenu au lieu de le voir disparaître.
+  Un salarié sorti n'est plus désigné manager ; une équipe qui ne compte plus que des salariés sortis se supprime (ils
+  en sont détachés).
+- **Confidentialité** : le motif et la fin prévue ne sont transmis qu'au service RH, à la paie (solde de tout compte), à la
+  lecture seule et à l'intéressé ; le manager et le référent HSE ne voient que la date (`server/src/dataset.ts`).
+- **Journal** : `employe.sortie` (date, motif, nombre d'éléments annulés, anciennes et nouvelles valeurs de `fin` et
+  `motifSortie`) et `employe.annulerSortie`, actions liées à la paie (archive de 3 ans).
+
+### Garde-fou d'un changement de régime de temps
+
+En attendant l'historique daté des contrats (lot 5), `employe.modifier` protège les calculs déjà faits quand le régime
+change (organisation du temps, durée, forfait, jours non travaillés, statut ou nature du contrat) :
+
+- les feuilles existantes antérieures à la date d'effet gardent l'ancien régime (`contrat`, comme avant) ; chaque semaine
+  sous contrat des 8 semaines qui précèdent la date d'effet (`SEMAINES_FIGEES`, `semainesAFiger`) qui n'a pas encore de
+  feuille en reçoit une, brouillon et vide, figée sur l'ancien régime : une feuille saisie ensuite pour cette semaine
+  n'est plus calculée avec le nouveau (heures supplémentaires faussées) ;
+- des RTT ou jours de repos de l'année pris ou posés que le nouveau régime n'ouvre plus (`rttPerdus` : 39 h + RTT vers
+  35 h, forfait jours vers horaire collectif, passage en intérim) : le compteur disparaîtrait sans bruit. Le service RH
+  confirme (`confirmerRtt`, confirmation dans le dialogue de la fiche, refus 400 sinon) et le solde affiché juste avant est
+  gardé au journal pour la paie, sous le code `employe.rtt` (archive paie) avec `soldeRtt` (droit, pris, posés, solde).
 
 ## Certifications et habilitations
 
@@ -726,8 +782,9 @@ paie sera stocké. Contrat : `docs/API-KEYSTONE.md` et `docs/keystone-openapi.js
   fusionnées si elles se touchent ; sans affectation connue, les dates du chantier. Disponibilité, déplacement et
   formalités portent sur la présence restante (`Domain.presenceRestante`, à partir du jour même) : sur un chantier en
   cours, une absence terminée ou une entrée déjà faite ne bloque plus ; une présence finie n'exige plus de déplacement.
-- **Disponibilité** (No Go) : contrat (CDD, intérim, alternance) qui finit avant la fin de la présence ou commence
-  après son début (`CONTRAT`, `borneContrat`) ; absence validée ou signalée pendant la présence (`ABSENCE`), une
+- **Disponibilité** (No Go) : contrat (CDD, intérim, alternance, ou sortie enregistrée, CDI compris) qui finit avant la
+  fin de la présence ou commence après son début (`CONTRAT`, `borneContrat`) ; un salarié sorti, absent des collaborateurs
+  enrichis, reste évalué sur les chantiers où il est affecté ; absence validée ou signalée pendant la présence (`ABSENCE`), une
   demande en attente ne donnant qu'une réserve. Le libellé, même en partage détaillé, ne nomme jamais la nature.
 - **Aptitude médicale** (`APTITUDE`) : état du jour, jamais rapporté aux dates de présence que Keystone fixe lui-même
   (des affectations sondes en déduiraient la date d'une visite ou la fin d'une restriction). Avis d'inaptitude : No Go ;

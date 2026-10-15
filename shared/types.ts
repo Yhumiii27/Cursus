@@ -15,6 +15,8 @@ export type SecuDetachement = 'a1' | 'convention' | 'hors_convention';
 /** Catégories de la CCN Industries chimiques. */
 export type Statut = 'ouvrier' | 'technicien' | 'cadre';
 export type TypeContrat = 'cdi' | 'cdd' | 'interim' | 'alternance';
+/** Motif de sortie de l'entreprise (liste fermée, sans texte libre : MOTIFS_SORTIE de shared/rules/contrats.ts). */
+export type MotifSortie = 'demission' | 'rupture_conventionnelle' | 'licenciement' | 'fin_cdd' | 'fin_periode_essai' | 'retraite' | 'deces' | 'fin_mission' | 'autre';
 /** Organisation du temps de travail (durée de référence ou convention de forfait). */
 export type TempsTravail = '35h' | '39h_rtt' | 'forfait_heures_hebdo' | 'forfait_heures_annuel' | 'forfait_jours' | 'partiel' | 'dirigeant';
 /** Congés décomptés sur un solde : congés payés, RTT / jours de repos, récupération. */
@@ -122,7 +124,18 @@ export interface Employe {
   /** Date d'effet de l'organisation du temps actuelle (null = depuis l'entrée). */
   tempsDepuis: ISODate | null;
   entree: ISODate;
+  /**
+   * Dernier jour du contrat, qui sert de date de sortie pour tous les contrats, CDI compris : passé ce jour, connexion
+   * refusée, plus de saisie ni de notification, salarié retiré de la conformité et des échéances (shared/rules/contrats.ts).
+   */
   fin: ISODate | null;
+  /**
+   * Motif de la sortie enregistrée par le service RH (`employe.sortie`) ; null tant qu'aucune sortie n'est enregistrée
+   * (la fin d'un CDD, d'une mission ou d'une alternance n'est alors que prévue). Service RH, paie, lecture seule et intéressé.
+   */
+  motifSortie?: MotifSortie | null;
+  /** Fin prévue au contrat avant l'enregistrement de la sortie (CDD, mission, alternance) : rétablie si la sortie est annulée. */
+  finPrevue?: ISODate | null;
   naissance: number;
   agence: string | null;
   /** Adresse e-mail professionnelle (notifications, convocations), saisie par le service RH ; unique, en minuscules. */

@@ -22,6 +22,8 @@ export const CONSERVATION_ENVOIS_MOIS = 12;
  */
 export const ACTIONS_PAIE: readonly string[] = [
   'temps.validate', 'temps.correction', 'temps.pushSage', 'absence.decider', 'absence.qualifier', 'absence.saisir', 'absence.prolonger', 'absence.annuler',
+  // Sortie (solde de tout compte, absences qu'elle annule) et solde de RTT gardé avant un changement de régime.
+  'employe.sortie', 'employe.annulerSortie', 'employe.rtt',
 ];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
@@ -35,6 +37,9 @@ export const JOURNAL_LABEL: Record<string, string> = {
   // Fiches et équipes
   'employe.creer': 'Création d’une fiche',
   'employe.modifier': 'Modification d’une fiche',
+  'employe.rtt': 'Changement de régime : solde de RTT gardé pour la paie',
+  'employe.sortie': 'Sortie d’un salarié',
+  'employe.annulerSortie': 'Sortie annulée',
   'equipe.creer': 'Création d’une équipe',
   'equipe.renommer': 'Équipe renommée',
   'equipe.supprimer': 'Suppression d’une équipe',
@@ -181,7 +186,7 @@ export function familleAction(code: string) {
 export const CHAMP_LABEL: Record<string, string> = {
   nom: 'Nom', poste: 'Poste', equipe: 'Équipe', statut: 'Statut', typeContrat: 'Nature du contrat', temps: 'Organisation du temps',
   heures: 'Heures', forfaitHeures: 'Forfait en heures', forfaitJours: 'Forfait en jours', jourOff: 'Jours non travaillés',
-  tempsDepuis: 'Date d’effet', entree: 'Date d’entrée', fin: 'Fin de contrat', agence: 'Agence', managerId: 'Manager', profilRh: 'Profil RH',
+  tempsDepuis: 'Date d’effet', entree: 'Date d’entrée', fin: 'Fin de contrat', motifSortie: 'Motif de sortie', agence: 'Agence', managerId: 'Manager', profilRh: 'Profil RH',
   actif: 'Actif', date: 'Date', lieu: 'Lieu', places: 'Places', du: 'Du', au: 'Au', type: 'Type', justificatif: 'Justificatif reçu',
   signMgr: 'Signature de l’évaluateur', signSal: 'Signature du salarié', horizonAlerte: 'Seuil d’alerte', seuilBudget: 'Seuil budgétaire',
   rtt39: 'Jours de RTT (39 h)', uniquementReglementaire: 'Formations réglementaires seules', partageKeystone: 'Partage des motifs avec Keystone',

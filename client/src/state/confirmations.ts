@@ -203,6 +203,25 @@ export function annulationVisite(x: { id: number; le: string }, nom: string, le:
   };
 }
 
+/**
+ * Annulation d'une sortie saisie par erreur (service RH). `sortie` : « Démission · le 30 nov. 2026 » ; `fin` : fin prévue au
+ * contrat, rétablie (« 29 janv. 2027 »), null pour un contrat sans date de fin.
+ */
+export function annulationSortie(e: { id: number; nom: string }, sortie: string, fin: string | null): Confirmation {
+  return {
+    titre: 'Annuler la sortie',
+    question: `Annuler la sortie de ${e.nom} (${sortie}) ?`,
+    suites: [
+      fin ? `Le contrat reprend sa fin prévue, le ${fin}.` : `Le contrat redevient sans date de fin : ${e.nom} retrouve ses accès à Cursus et revient dans la conformité et les échéances.`,
+      'Ce que la sortie a annulé (absences, inscriptions aux sessions, entretiens planifiés, demandes de visite) n’est pas rétabli : à saisir de nouveau si besoin.',
+      'Keystone reçoit le nouveau verdict des chantiers où le salarié est affecté.',
+    ],
+    bouton: 'Annuler la sortie',
+    action: 'employe.annulerSortie',
+    payload: { id: e.id },
+  };
+}
+
 /** Comptes et accès (administrateur RH). */
 /** Rattachement d'un compte (externe) à la fiche de la personne. */
 export function rattachementCompte(c: { id: number; nom: string; identifiant: string }, e: { id: number; nom: string }): Confirmation {

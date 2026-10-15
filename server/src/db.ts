@@ -25,6 +25,8 @@ export const TABLES = {
       email: 'text', notifications: 'text', // adresse professionnelle et réglage des notifications (server/src/notifications.ts)
       // Avis du médecin du travail à la dernière visite et restrictions datées (`medical.avis`) : données de santé.
       avis: 'text', restrictions: 'json',
+      // Sortie enregistrée par le service RH (`employe.sortie`) : motif, et fin prévue au contrat rétablie si elle est annulée.
+      motifSortie: 'text', finPrevue: 'text',
     },
   },
   // Demandes de visite médicale du service RH, closes par la saisie de la visite (server/src/actions/sante.ts).

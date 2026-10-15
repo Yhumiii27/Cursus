@@ -1,6 +1,7 @@
 // Fiches collaborateurs (contrat, statut, temps de travail), équipes et managers.
 import { isValidDate } from '../../../shared/dates.ts';
-import { key } from '../../../shared/format.ts';
+import { fmtIso, key, plural } from '../../../shared/format.ts';
+import { rttPerdus, semainesAFiger, soldeRttTexte, sorti } from '../../../shared/rules/contrats.ts';
 import { contratFige } from '../../../shared/rules/temps.ts';
 import { adressesPrises } from '../../../shared/rules/messagerie.ts';
 import { MANAGER_FIELDS, PROFIL_FIELDS, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
@@ -22,10 +23,11 @@ function check(ctx: Ctx, p: ProfilInput, empId?: number) {
   return v;
 }
 
-/** Un manager doit être un collaborateur de l'entreprise (pas un intérimaire). */
+/** Un manager doit être un collaborateur de l'entreprise (pas un intérimaire), toujours présent. */
 function checkManager(ctx: Ctx, id: unknown): Employe {
   const m = getEmp(ctx, id);
   if (m.typeContrat === 'interim') throw new ActionError('Un intérimaire ne peut pas être désigné manager');
+  if (sorti(m, ctx.d.ti)) throw new ActionError(`${m.nom} a quitté l’entreprise le ${fmtIso(m.fin!)} : il ne peut pas être désigné manager`);
   return m;
 }
 
@@ -52,7 +54,8 @@ const modifier: ActionHandler = (ctx, p) => {
   if (isRh(ctx)) fields = PROFIL_FIELDS;
   else if (isManagerOf(ctx, emp)) fields = MANAGER_FIELDS;
   else throw new ActionError('Fiche réservée au service RH ou au manager du collaborateur', 403);
-  const patch = Object.keys(p).filter(k => k !== 'id') as (keyof ProfilInput)[];
+  // `confirmerRtt` : confirmation d'un changement de régime qui ferme le compteur de RTT de l'année (garde-fou ci-dessous).
+  const patch = Object.keys(p).filter(k => k !== 'id' && k !== 'confirmerRtt') as (keyof ProfilInput)[];
   const refused = patch.filter(k => !fields.includes(k));
   if (refused.length) throw new ActionError(`Champs réservés au service RH : ${refused.join(', ')}`, 403);
   if (!isRh(ctx) && patch.includes('jourOff') && cur.temps !== 'partiel') throw new ActionError('Les jours non travaillés ne concernent que le temps partiel');
@@ -63,10 +66,16 @@ const modifier: ActionHandler = (ctx, p) => {
   if (patch.includes('visite') && v.profil.visite !== (emp.visite ?? null)) {
     throw new ActionError('La visite médicale s’enregistre avec l’avis du médecin du travail : bouton « Avis du médecin du travail » de la fiche');
   }
+  // La sortie (date et motif) s'enregistre et s'annule par ses actions (`employe.sortie`, `employe.annulerSortie`), qui
+  // annulent ce qui était prévu après le départ : la fiche ne change ni le motif, ni la date d'une sortie enregistrée.
+  if (v.profil.motifSortie !== (emp.motifSortie ?? null) || (emp.motifSortie && v.profil.fin !== emp.fin)) {
+    throw new ActionError('La sortie s’enregistre, se modifie ou s’annule par le bouton « Sortie » de la fiche du collaborateur');
+  }
   // Changement d'organisation du temps : date d'effet, et gel de l'ancien régime sur les semaines antérieures
   // pas encore figées, pour que l'historique ne soit pas recalculé avec le nouveau contrat.
   const avant = JSON.stringify(contratFige(emp)), apres = JSON.stringify(contratFige({ ...emp, ...v.profil }));
   const row = toRow(v.profil);
+  let figees: string[] = [], soldeRtt: ReturnType<typeof rttPerdus> = null;
   if (avant !== apres && REGIME.some(k => patch.includes(k))) {
     const P = v.profil;
     const regimeTemps = emp.temps !== P.temps || emp.heures !== P.heures || emp.forfaitHeures !== P.forfaitHeures || emp.forfaitJours !== P.forfaitJours;
@@ -76,11 +85,27 @@ const modifier: ActionHandler = (ctx, p) => {
     if (effet > ctx.d.ti) throw new ActionError('Date d’effet future : enregistrez le changement le jour de sa prise d’effet');
     if (regimeTemps) row.tempsDepuis = effet;
     else row.tempsDepuis = emp.tempsDepuis;
+    // Garde-fou (en attendant l'historique daté des contrats) : RTT de l'année pris ou posés que le nouveau régime n'ouvre
+    // plus. Le compteur disparaîtrait sans bruit : le service RH confirme, et le solde affiché avant est gardé au journal.
+    soldeRtt = rttPerdus(ctx.d, emp, { ...emp, ...v.profil, tempsDepuis: row.tempsDepuis });
+    if (soldeRtt && p.confirmerRtt !== true) {
+      throw new ActionError(`Le nouveau régime n’ouvre ni RTT ni jours de repos : le compteur de ${emp.nom} (${soldeRttTexte(soldeRtt)}) ne sera plus suivi dans Cursus. Confirmez le changement : ce solde sera gardé au journal pour la paie`);
+    }
     ctx.ds.feuilles.filter(f => f.empId === emp.id && !f.contrat && f.week < effet)
       .forEach(f => ctx.db.update<FeuilleTemps>('feuilles', f.id, { contrat: contratFige(emp) }));
+    // Semaines des 8 dernières avant la date d'effet encore sans feuille : feuille brouillon vide figée sur l'ancien
+    // régime, sans quoi une feuille créée ensuite pour l'une d'elles prendrait le nouveau (heures supplémentaires faussées).
+    figees = semainesAFiger(emp, effet, ctx.ds.feuilles);
+    figees.forEach(week => ctx.db.insert<FeuilleTemps>('feuilles', {
+      empId: emp.id, week, statut: 'brouillon', comment: null, sage: false, keystone: false, lignes: [], contrat: contratFige(emp),
+    }));
   } else row.tempsDepuis = emp.tempsDepuis;
   ctx.db.update('employes', emp.id, row);
-  return `Fiche de ${v.profil.nom} mise à jour`;
+  const suite = [
+    figees.length ? `${plural(figees.length, 'semaine sans feuille figée', 'semaines sans feuille figées')} sur l’ancien régime` : '',
+    soldeRtt ? `solde ${soldeRttTexte(soldeRtt)} gardé au journal pour la paie` : '',
+  ].filter(Boolean).map(x => ` · ${x}`).join('');
+  return { message: `Fiche de ${v.profil.nom} mise à jour${suite}`, result: soldeRtt ? { soldeRtt } : undefined };
 };
 
 const creerEquipe: ActionHandler = (ctx, p) => {
@@ -123,12 +148,14 @@ const designer: ActionHandler = (ctx, p) => {
 const supprimer: ActionHandler = (ctx, p) => {
   requireRhAdmin(ctx);
   const q = getEquipe(ctx, p.nom);
-  const n = ctx.ds.employes.filter(e => e.equipe === q.nom).length;
+  // Les salariés sortis ne comptent plus parmi les membres (écran Équipes) : ils sont détachés de l'équipe supprimée.
+  const membres = ctx.ds.employes.filter(e => e.equipe === q.nom), n = membres.filter(e => !sorti(e, ctx.d.ti)).length;
   if (n) throw new ActionError(`L’équipe compte encore ${n} collaborateur${n > 1 ? 's' : ''} : affectez-les d’abord à une autre équipe`);
   if (ctx.ds.plan.some(l => l.equipe === q.nom)) throw new ActionError('Des actions du plan de formation sont rattachées à cette équipe');
+  membres.forEach(e => ctx.db.update('employes', e.id, { equipe: null }));
   ctx.db.sql.prepare('DELETE FROM budgets WHERE equipe = ?').run(q.nom);
   ctx.db.remove('equipes', q.nom);
-  return `Équipe ${q.nom} supprimée`;
+  return `Équipe ${q.nom} supprimée${membres.length ? ` · ${plural(membres.length, 'salarié sorti détaché', 'salariés sortis détachés')} de l’équipe` : ''}`;
 };
 
 /**

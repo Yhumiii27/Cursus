@@ -5,6 +5,7 @@ import { fmt, fmtIso, norm } from '../format.ts';
 import type { Domain } from '../domain.ts';
 import type { Employe, Entretien, EntretienType, ISODate } from '../types.ts';
 import type { Conflit } from './conflits.ts';
+import { present } from './contrats.ts';
 
 export type ObligStatus = 'late' | 'soon' | 'planifie' | 'todo' | 'ok';
 export interface Obligation { id: number; e: Employe; kind: EntretienType; due: ISODate; detail: string; pl?: Entretien; st: ObligStatus; risk?: boolean }
@@ -21,7 +22,8 @@ export function obligations(d: Domain, scopeIds: number[]): Obligation[] {
   const out: Obligation[] = [];
   scopeIds.forEach(id => {
     const e = d.emp(id);
-    if (!e) return;
+    // Salarié sorti : plus d'obligation d'entretien.
+    if (!e || !present(e, d.ti)) return;
     const c = d.contratOf(e);
     if (c.interim) return;
     const list = d.ds.entretiens.filter(x => x.empId === id);

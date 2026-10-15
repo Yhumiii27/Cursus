@@ -3,7 +3,8 @@
 import { estMotifReprise, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../constants.ts';
 import { isValidDate } from '../dates.ts';
 import { r1 } from '../format.ts';
-import type { Employe, Statut, TempsTravail, TypeContrat } from '../types.ts';
+import type { Employe, MotifSortie, Statut, TempsTravail, TypeContrat } from '../types.ts';
+import { estMotifSortie } from './contrats.ts';
 import { controleAdresse, normaliserAdresse } from './messagerie.ts';
 
 /** Champs d'une fiche saisis par le service RH. */
@@ -21,7 +22,13 @@ export interface ProfilInput {
   /** Date d'effet de l'organisation du temps (renseignée lors d'un changement de régime). */
   tempsDepuis: string | null;
   entree: string;
+  /** Dernier jour du contrat : fin prévue (CDD, mission, alternance), ou date de sortie enregistrée (tous contrats). */
   fin: string | null;
+  /**
+   * Motif de la sortie (liste fermée MOTIFS_SORTIE) : enregistré ou annulé par `employe.sortie` et `employe.annulerSortie`,
+   * jamais par `employe.modifier` ; une fiche reprise d'un autre outil peut le porter à sa création.
+   */
+  motifSortie?: MotifSortie | null;
   naissance: number;
   agence: string | null;
   /** Adresse e-mail professionnelle (notifications, convocations). */
@@ -33,7 +40,7 @@ export interface ProfilInput {
 
 export const PROFIL_FIELDS: (keyof ProfilInput)[] = [
   'nom', 'poste', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis',
-  'entree', 'fin', 'naissance', 'agence', 'email', 'visite', 'repriseMotif', 'repriseDate',
+  'entree', 'fin', 'motifSortie', 'naissance', 'agence', 'email', 'visite', 'repriseMotif', 'repriseDate',
 ];
 
 /** Champs qu'un manager peut modifier pour un membre de son équipe ; le contrat et le statut restent au RH. */
@@ -49,7 +56,7 @@ export function profilOf(e: Employe): ProfilInput {
 
 export const PROFIL_VIDE = (equipe: string | null, today: string): ProfilInput => ({
   nom: '', poste: '', equipe, statut: 'ouvrier', typeContrat: 'cdi', temps: '35h', heures: null, forfaitHeures: null, forfaitJours: null,
-  jourOff: [], tempsDepuis: null, entree: today, fin: null, naissance: Number(today.slice(0, 4)) - 30, agence: null, email: null, visite: null, repriseMotif: null, repriseDate: null,
+  jourOff: [], tempsDepuis: null, entree: today, fin: null, motifSortie: null, naissance: Number(today.slice(0, 4)) - 30, agence: null, email: null, visite: null, repriseMotif: null, repriseDate: null,
 });
 
 /**
@@ -61,8 +68,6 @@ export function normaliserProfil(p: ProfilInput): ProfilInput {
   const s = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
   const txt = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
   const n = (v: unknown) => (v === null || v === undefined || v === '' ? null : Number(String(v).replace(',', '.')));
-  const tc = TYPES_CONTRAT[p.typeContrat];
-  const finPossible = !!tc?.fin || !!tc?.finFacultative || p.typeContrat === 'interim';
   return {
     ...p,
     nom: txt(p.nom),
@@ -74,7 +79,9 @@ export function normaliserProfil(p: ProfilInput): ProfilInput {
     jourOff: t === 'partiel' && Array.isArray(p.jourOff) ? [...new Set(p.jourOff.map(Number))].filter(j => Number.isInteger(j) && j >= 0 && j <= 4).sort() : [],
     tempsDepuis: s(p.tempsDepuis),
     entree: txt(p.entree),
-    fin: finPossible ? s(p.fin) : null,
+    // La date de fin sert de date de sortie pour tous les contrats : celle d'un CDI n'existe qu'avec son motif (validerProfil).
+    fin: s(p.fin),
+    motifSortie: s(p.motifSortie) as MotifSortie | null,
     naissance: Number(p.naissance),
     agence: p.typeContrat === 'interim' ? s(p.agence) : null,
     email: normaliserAdresse(p.email),
@@ -104,6 +111,10 @@ export function validerProfil(raw: ProfilInput, opts: { equipes: string[]; year:
     if (!isValidDate(p.fin)) errors.push('Date de fin invalide.');
     else if (isValidDate(p.entree) && p.fin < p.entree) errors.push('La date de fin précède la date d’entrée.');
   }
+  // Sortie : motif en liste fermée, avec sa date ; un CDI ne prend fin que par une sortie enregistrée.
+  if (p.motifSortie && !estMotifSortie(p.motifSortie)) errors.push('Motif de sortie à choisir dans la liste.');
+  if (p.motifSortie && !p.fin) errors.push('Date de sortie requise avec le motif de sortie.');
+  if (p.fin && p.typeContrat === 'cdi' && !p.motifSortie) errors.push('Un CDI ne prend fin que par une sortie enregistrée avec son motif.');
   if (p.typeContrat === 'interim' && !p.agence) errors.push('Agence d’intérim requise.');
   if (p.typeContrat === 'interim' && opts.encadre?.length) errors.push(`Manager de l’équipe ${opts.encadre.join(', ')} : désignez d’abord un autre manager (Équipes & managers) avant de passer la fiche en intérim.`);
   if (p.typeContrat === 'interim' && ['forfait_jours', 'forfait_heures_annuel', 'forfait_heures_hebdo', 'dirigeant'].includes(p.temps)) {

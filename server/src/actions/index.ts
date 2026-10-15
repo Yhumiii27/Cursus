@@ -10,6 +10,7 @@ import { envoisActions } from './envois.ts';
 import { equipesActions } from './equipes.ts';
 import { messagerieActions } from './messagerie.ts';
 import { parametresActions } from './parametres.ts';
+import { referentielsActions } from './referentiels.ts';
 import { santeActions } from './sante.ts';
 import { sessionsActions } from './sessions.ts';
 import { tempsActions } from './temps.ts';
@@ -30,6 +31,7 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...convocationsActions,
   ...messagerieActions,
   ...santeActions,
+  ...referentielsActions,
 };
 
 /**

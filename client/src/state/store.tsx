@@ -13,6 +13,7 @@ import { createContext, useCallback, useContext, useEffect, useMemo, useRef, use
 import { vuesDe, type ALLOWED_VIEWS, type HabMesureAction } from '../../../shared/constants.ts';
 import { mondayOf } from '../../../shared/dates.ts';
 import type { FormaliteKind, UiIntent } from '../../../shared/domain.ts';
+import type { ReferentielId } from '../../../shared/rules/referentiels.ts';
 import type { CompteSession, Dataset, EntretienType, ISODate, PlanStatut, ProfilRh, Role, VaccinId } from '../../../shared/types.ts';
 import { api, lienMicrosoft, surSessionExpiree, type ActionResponse, type ApiError, type SessionState } from '../api.ts';
 import { AppelsEnCours, cleAction } from './actions.ts';
@@ -38,11 +39,14 @@ export interface UiState {
   planFilter: 'tous' | PlanStatut;
   weekStart: ISODate | null;
   tsEmp: number | null;
+  /** Onglet de l'écran Référentiels. */
+  refOnglet: ReferentielId;
 }
 
 const INITIAL_UI: UiState = {
   horizon: null, search: '', equipe: 'Toutes', statut: 'tous', selectedId: null, typeForm: 'toutes', formationFilter: null,
   habFilter: 'tous', habType: null, tripSel: null, echType: 'tous', goSel: null, exercice: null, planFilter: 'tous', weekStart: null, tsEmp: null,
+  refOnglet: 'formations',
 };
 
 /** Dialogues ouverts depuis plusieurs écrans — rendus par <DialogHost />. */
@@ -79,6 +83,10 @@ export type DialogState =
   | { type: 'compte' }
   | { type: 'motDePasseProvisoire'; nom: string; identifiant: string; motDePasse: string }
   | { type: 'motDePasse' }
+  /** Écran Référentiels : création (sans identifiant) ou modification d'une formation, d'une habilitation, d'une destination. */
+  | { type: 'refFormation'; id?: string | null }
+  | { type: 'refHabilitation'; id?: string | null }
+  | { type: 'refDestination'; code?: string | null }
   /** Refus ou action irréversible à confirmer (state/confirmations.ts). */
   | { type: 'confirmer'; c: Confirmation };
 

@@ -17,7 +17,8 @@ shared/            Domaine partagé (aucune dépendance)
   journal.ts       Journal des actions : libellés, familles, actions liées à la paie, durées de conservation, droits de lecture
   reglages.ts      Réglages de Paramètres : table « champ → contrôle » (valeur par défaut, contrôle de chaque champ de Settings)
   rules/           temps.ts, conges.ts, entretiens.ts, budget.ts, imports.ts, sante.ts (avis et visites médicales) ;
-                   conflits.ts : doublons et conflits de dates
+                   conflits.ts : doublons et conflits de dates ; referentiels.ts : formations, habilitations et destinations
+                   (contrôles de saisie, archivage, effet d'une validité modifiée)
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   migrate.ts       Reprises des bases antérieures, rejouées à chaque démarrage (idempotentes)
@@ -448,6 +449,13 @@ aucun champ du paramètre n'est recopié.
 | `hab.suspendre` | empId, h, motif, date? (aujourd’hui par défaut) | RH, référent HSE ; manager pour un membre de son équipe (jamais lui-même) |
 | `hab.lever` | empId, h | RH, référent HSE |
 | `hab.retirer` | empId, h, motif, date? | RH, référent HSE |
+| `referentiel.formation.enregistrer` | code (création) ou id (modification : le code ne change pas), nom, court, type, validite (mois, 1 à 240), duree?, organisme?, cout?, validation (`presence`/`evaluation`) ; message : titres devenus échus si la validité change | RH, référent HSE |
+| `referentiel.formation.archiver` | id, archive? (faux : rétablie) ; refusé tant qu'une habilitation en vigueur l'exige en prérequis ou qu'une session est ouverte | RH, référent HSE |
+| `referentiel.habilitation.enregistrer` | code ou id, nom, detail?, prereqs (formations du catalogue en vigueur), medical, validite, signataire (proposé à la délivrance) | RH, référent HSE |
+| `referentiel.habilitation.archiver` | id, archive? | RH, référent HSE |
+| `referentiel.destination.enregistrer` | code (pays ISO à deux lettres, pas FR) ou id, pays, visa (`VISA_RULES`), visaSub?, oblig [vaccins], rec [vaccins, sans le DTP], passMois (0 à 24), secu? (vide : selon le code pays) | RH |
+| `referentiel.destination.archiver` | id, archive? | RH |
+| `referentiel.charger` | referentiel (`formations`/`habilitations`/`destinations`) : référentiel type (celui de la démonstration) chargé dans un référentiel vide, archivés compris ; habilitations après les formations | RH, référent HSE (destinations : RH) |
 | `medical.demander` | empId, motif? (`periodique`/`embauche`/`reprise`/`employeur` ; par défaut embauche sans visite enregistrée, sinon périodique) ; e-mail au service de santé au travail | RH (une demande en cours par collaborateur) |
 | `medical.annuler` | id | RH (demande de visite en cours) |
 | `medical.avis` | empId, date (passée), avis (`apte`/`restrictions`/`inapte`), restrictions [{texte, jusquau?}] (avis avec restrictions), suspendre [h]?, lever [h]? | RH (suspensions « Restriction d’aptitude » ; levée des seules suspensions d’un avis précédent, jamais pour un avis d’inaptitude) |
@@ -585,8 +593,43 @@ est « à affecter » et relève du service RH.
   La suspension se lève (RH) ; le retrait est définitif, seule une nouvelle délivrance, datée au plus tôt
   du jour du retrait, rétablit le titre. Une demande acceptée après un retrait reste notée sur le titre
   (`demande`) jusqu'à cette nouvelle délivrance.
+- **Renouvellement d'un titre expiré** : la demande acceptée (`demande.accepter`) inscrit sa date sur le titre existant
+  (`demande`), comme après un retrait ; « Renouvellement demandé le … » (`HabInfo.note`), compté « En attente » dans
+  l'écran Habilitations (filtre et cartes, `renouvellementDemande`) sans changer son statut : il reste expiré pour le statut,
+  les échéances et le Go / No Go jusqu'à la nouvelle délivrance, qui efface la demande. Un titre expiré ou retiré dont le
+  renouvellement est accepté ne se redemande pas (`habEnCours`).
   Le motif est un texte libre visible du manager et du collaborateur, jamais transmis à Keystone.
   Une base existante reçoit les nouvelles colonnes au démarrage (schéma déclaratif de `server/src/db.ts`).
+
+## Référentiels
+
+Formations, habilitations et destinations (tables `formations`, `habilitations`, `destinations`) se tiennent dans
+l'écran Référentiels (`client/src/pages/Referentiels.tsx`, onglets Formations, Habilitations, Destinations), avec les
+actions `referentiel.*` (`server/src/actions/referentiels.ts`) et les contrôles partagés de `shared/rules/referentiels.ts`.
+Une base de production démarre avec des référentiels vides (seul le jeu de démonstration les remplit).
+
+- **Droits** (décision de l'entreprise) : formations et habilitations, service RH et référent HSE / formation (droit
+  `formations`) ; destinations, service RH ; la lecture seule consulte l'écran. Chaque création, modification, archivage
+  ou rétablissement est tracé au journal avec les valeurs avant et après (famille « Référentiels »).
+- **Codes** : identifiant d'une formation ou d'une habilitation (minuscules, chiffres, « - », « _ ») ou code pays ISO
+  d'une destination ; choisi à la création (proposé d'après le nom court), jamais modifié, unique même parmi les archivés :
+  il désigne l'élément dans les dossiers et auprès de Keystone (exigences des chantiers, `GET /referentiels`).
+- **Archivage plutôt que suppression** (`archive` : date d'archivage) : un élément archivé n'est plus proposé (catalogue
+  `Domain.forms`, dialogues de certification, de session, de délivrance, de demande, de déplacement et de visa, import
+  des déplacements) et le serveur refuse toute nouvelle saisie sur lui (`refusArchive`) ; ses titres ne comptent plus dans
+  les statuts ni les échéances (`habSuivie`) mais restent au dossier (historique de la fiche), dans les prérequis, le
+  Go / No Go et les échanges avec Keystone. Il se rétablit d'un clic. Une formation exigée en prérequis par une
+  habilitation en vigueur, ou qui a une session ouverte, ne s'archive pas.
+- **Validité modifiée** (décision de l'entreprise) : les échéances étant calculées à l'affichage, la nouvelle durée (ou les
+  nouveaux prérequis et la condition d'aptitude d'une habilitation) vaut aussi pour les titres déjà délivrés. Avant
+  l'enregistrement, le dialogue annonce les titres qui deviennent échus (`effetModification`) et demande confirmation ;
+  le message de l'action les reprend, et les verdicts Go / No Go modifiés partent à Keystone (`changeVerdicts`).
+- **Référentiel type** : « Charger le référentiel type » (`referentiel.charger`) reprend, dans un référentiel vide, les
+  11 formations, 6 habilitations et 8 destinations de la démonstration (`FORMATIONS`, `HABILITATIONS`, `DESTS` de
+  `server/src/seed.ts`), à vérifier ensuite par le service RH ; les habilitations après les formations, leurs prérequis.
+- **Instantanés** : les référentiels, archivés compris, sont transmis à tous les espaces (aucune donnée personnelle) :
+  ils nomment les titres de l'historique, et les listes en écartent les archivés (`actifs`).
+- Vaccins (`VACCINS`) et règles de visa (`VISA_RULES`) restent dans le code (`shared/constants.ts`) pour cette version.
 
 ## Santé au travail
 
@@ -752,7 +795,9 @@ paie sera stocké. Contrat : `docs/API-KEYSTONE.md` et `docs/keystone-openapi.js
 ## Dates, temps de travail et congés payés
 
 - **Dates** : `isValidDate` (`shared/dates.ts`) n'accepte qu'une date qui existe au calendrier (« 2026-02-31 » est refusée,
-  jamais décalée au mois suivant) ; `toIso` (import CSV) aussi. La date du jour (`todayIso` de `server/src/dataset.ts`) est
+  jamais décalée au mois suivant) ; `toIso` (import CSV) aussi. Une échéance de date à date (`addMonths`, `addM` : titres,
+  aptitude, vaccins, passeport, entretiens) tombe au même jour du mois cible, ou à son dernier jour quand ce jour n'y existe
+  pas : 29/02/2024 + 36 mois donne le 28/02/2027, 31/03 + 6 mois le 30/09. La date du jour (`todayIso` de `server/src/dataset.ts`) est
   celle de Paris (`isoParis`), quel que soit le fuseau du serveur ; la transmission à Sage est horodatée à l'heure réelle,
   décalage d'hiver ou d'été compris (`horodatageParis`).
 - **Semaines** : l'année d'une semaine ISO est celle de son jeudi (`isoWeekYear`) : la semaine du lundi 29 décembre 2025

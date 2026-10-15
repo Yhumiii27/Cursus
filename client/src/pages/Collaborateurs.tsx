@@ -7,6 +7,7 @@ import type { Formation } from '../../../shared/types.ts';
 import { days, parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, fmtIso, fmtShort, norm, plural, rel } from '../../../shared/format.ts';
 import { absenceKinds } from '../../../shared/rules/conges.ts';
+import { habSuivie } from '../../../shared/rules/referentiels.ts';
 import { convocationEnvoyee, etatInscription } from '../../../shared/rules/sessions.ts';
 import { JOURS_SEMAINE } from '../../../shared/rules/profil.ts';
 import { usePanneauVisible } from '../components/panneau.ts';
@@ -23,9 +24,10 @@ const SANS_EQUIPE = '';
 
 const docCls = (k: string) => k === 'exp' ? 'tag-accent' : k === 'due' ? 'tag-outline' : 'tag-neutral';
 
+/** Titres suivis (habilitation du référentiel en vigueur) : valides, à renouveler, non conformes, en attente. */
 function habSummary(e: EmpX) {
-  const hs = e.habs.filter(h => h.key !== 'pending');
-  const ko = hs.filter(h => h.key === 'exp' || h.key === 'susp' || h.key === 'retiree').length, due = hs.filter(h => h.key === 'due').length, pend = e.habs.length - hs.length;
+  const suivies = e.habs.filter(habSuivie), hs = suivies.filter(h => h.key !== 'pending');
+  const ko = hs.filter(h => h.key === 'exp' || h.key === 'susp' || h.key === 'retiree').length, due = hs.filter(h => h.key === 'due').length, pend = suivies.length - hs.length;
   return {
     label: ko ? plural(ko, 'non conforme', 'non conformes') : due ? `${due} à renouveler` : !hs.length ? `${pend} en attente` : plural(hs.length, 'valide', 'valides'),
     cls: ko ? 'tag-accent' : due || !hs.length ? 'tag-outline' : 'tag-neutral',
@@ -115,7 +117,7 @@ export function Collaborateurs() {
                       </td>
                       {showEquipe && <td className={e.equipe ? 'text-muted' : undefined}>{e.equipe ?? <Tag cls="tag-outline">À affecter</Tag>}</td>}
                       <td><Chips items={e.certs.map(c => ({ key: c.id, label: c.fm.court, cls: CLS[c.key] }))} /></td>
-                      <td>{e.habs.length ? <Tag cls={hs.cls}>{hs.label}</Tag> : <span className="text-muted">—</span>}</td>
+                      <td>{e.habs.some(habSuivie) ? <Tag cls={hs.cls}>{hs.label}</Tag> : <span className="text-muted">—</span>}</td>
                       <td><Two main={e.next ? fmt(e.next.exp) : '—'} sub={e.next ? rel(e.next.d) : 'aucune certification suivie'} nowrap /></td>
                       <td><Tag cls={CLS[e.worst]}>{EMP_LABEL[e.worst]}</Tag></td>
                     </tr>
@@ -164,6 +166,8 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
   const canPlan = formations || membre;
   /** Certifications remplacées par un recyclage (historique), selon le filtre « réglementaires uniquement ». */
   const anciennes = e.anciennes.filter(c => formIds.has(c.f));
+  /** Certifications en vigueur d'une formation archivée au référentiel : plus suivies, gardées au dossier. */
+  const archivees = e.rawCerts.filter(c => c.fm.archive);
   const tv = d.travelOf(e, horizon);
   const nt = trips.find(t => t.empId === e.id);
   // État calculé par le serveur pour le manager, qui ne reçoit pas les vaccinations (comme Missions).
@@ -305,9 +309,18 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
         {e.certs.length === 0 && <Empty pad="sm">Aucune certification suivie.</Empty>}
       </div>
 
-      {anciennes.length > 0 && <>
+      {(anciennes.length > 0 || archivees.length > 0) && <>
         <SectionLabel>Historique des certifications</SectionLabel>
         <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
+          {archivees.map(c => (
+            <div key={c.id} className="list-row past">
+              <div className="grow">
+                <div style={{ fontSize: 13 }}>{c.fm.nom}</div>
+                <div className="sub">Obtenue le {fmt(c.obt)} · expire le {fmt(c.exp)} · plus suivie</div>
+              </div>
+              <Tag cls="tag-outline" style={{ flex: 'none' }}>Formation archivée</Tag>
+            </div>
+          ))}
           {anciennes.map(c => (
             <div key={c.id} className="list-row past">
               <div className="grow">

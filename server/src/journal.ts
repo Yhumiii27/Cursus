@@ -20,6 +20,7 @@ import {
   ACTION_APPEL_KEYSTONE, ACTIONS_CONNEXION, ACTIONS_PAIE, changementsTexte, CONSERVATION_ARCHIVE_PAIE_MOIS, CONSERVATION_ENVOIS_MOIS,
   CONSERVATION_JOURNAL_MOIS, dossierComplet, estActionPaie, familleAction, FAMILLES_JOURNAL, JOURNAL_LABEL, lecteurJournal, libelleAction,
 } from '../../shared/journal.ts';
+import { codeDestination, codeTitre, type ReferentielId } from '../../shared/rules/referentiels.ts';
 import type { CurrentUser, FeuilleTemps, LigneTemps } from '../../shared/types.ts';
 import { journaliser, type Compte } from './comptes.ts';
 import { identite, type Identite } from './connexion.ts';
@@ -72,6 +73,9 @@ interface Regle {
 }
 
 const parId = (table: TableName, colonnes: readonly string[]): Cible => ({ table, cle: p => Number(p.id) || null, colonnes });
+/** Élément d'un référentiel : désigné par `id` (modification, archivage) ou `code` (création), normalisé comme l'action. */
+const referentiel = (table: ReferentielId, code: (v: unknown) => string, colonnes: readonly string[]): Cible => ({ table, cle: p => code(p.id ?? p.code) || null, colonnes });
+const nombreReferentiel = (db: Db, p: P) => (['formations', 'habilitations', 'destinations'].includes(p.referentiel) ? db.count(p.referentiel) : 0);
 const FICHE = ['nom', 'poste', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis', 'entree', 'fin', 'agence'];
 const FEUILLE: Cible = {
   table: 'feuilles', colonnes: ['statut'],
@@ -142,6 +146,17 @@ export const REGLES: Record<string, Regle> = {
   'medical.demander': { champs: ['empId'] },
   'medical.annuler': { champs: ['id'] },
   'medical.avis': { champs: ['empId', 'date', 'suspendre', 'lever'] },
+  // Référentiels (catalogue, aucune donnée personnelle) : code de l'élément, valeurs avant et après de chaque champ.
+  'referentiel.formation.enregistrer': { champs: ['id', 'code'], cible: referentiel('formations', codeTitre, ['nom', 'court', 'type', 'validite', 'duree', 'organisme', 'cout', 'validation']) },
+  'referentiel.formation.archiver': { champs: ['id', 'archive'], cible: referentiel('formations', codeTitre, ['archive']) },
+  'referentiel.habilitation.enregistrer': { champs: ['id', 'code'], cible: referentiel('habilitations', codeTitre, ['nom', 'detail', 'prereqs', 'medical', 'validite', 'signataire']) },
+  'referentiel.habilitation.archiver': { champs: ['id', 'archive'], cible: referentiel('habilitations', codeTitre, ['archive']) },
+  'referentiel.destination.enregistrer': { champs: ['id', 'code'], cible: referentiel('destinations', codeDestination, ['pays', 'visa', 'visaSub', 'oblig', 'rec', 'passMois', 'secu']) },
+  'referentiel.destination.archiver': { champs: ['id', 'archive'], cible: referentiel('destinations', codeDestination, ['archive']) },
+  // Référentiel type : nombre d'éléments ajoutés.
+  'referentiel.charger': {
+    champs: ['referentiel'], etat: (db, p) => nombreReferentiel(db, p), bilan: (p, x) => ({ ajoutes: nombreReferentiel(x.db, p) - Number(x.etat) }),
+  },
   // Demandes des collaborateurs : ni motif, ni réponse, ni contenu d'une déclaration.
   'demande.formation': { champs: ['empId', 'f', 'sessionId'], salaries: (p, x) => [p.empId ?? x.user.empId] },
   'demande.habilitation': { champs: ['empId', 'h'], salaries: (p, x) => [p.empId ?? x.user.empId] },

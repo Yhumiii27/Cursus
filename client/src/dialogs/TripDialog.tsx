@@ -2,6 +2,7 @@
 // Conflits de dates contrôlés en direct : un autre déplacement ou une absence en vigueur bloquent, le reste avertit.
 import { useState } from 'react';
 import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
+import { actifs } from '../../../shared/rules/referentiels.ts';
 import { CancelButton, Controles, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { erreursPeriode, erreurTexte } from '../components/controles.ts';
 import { useDomain } from '../state/derived.ts';
@@ -11,7 +12,7 @@ export function TripDialog() {
   const d = useDomain();
   const { run, closeDialog, go } = useStore();
   const employes = d.ds.employes;
-  const dests = d.ds.referentiels.destinations;
+  const dests = actifs(d.ds.referentiels.destinations);
   const empOptions = [...employes].sort((a, b) => a.nom.localeCompare(b.nom));
   const [empId, setEmpId] = useState((employes.find(e => e.passeport) ?? employes[0])?.id ?? 0);
   const [dest, setDest] = useState(dests[0]?.code ?? '');
@@ -23,11 +24,12 @@ export function TripDialog() {
   const destDef = d.destOf(dest);
   const dates = erreursPeriode(depart, retour, { du: 'Indiquez la date de départ.', au: 'Indiquez la date de retour.' });
   const motifErr = erreurTexte(motif, 'Indiquez le motif du déplacement.');
+  const destErr = destDef ? null : dests.length ? 'Choisissez la destination.' : 'Aucune destination au référentiel : ajoutez-la dans l’écran Référentiels.';
   // Conflits d'une période valide, affichés en direct : un autre déplacement ou une absence en vigueur bloquent l'envoi.
   const conflits = !dates.du && !dates.au ? conflitsDates(d, empId, depart, retour, 'voyage') : [];
 
   const confirm = async () => {
-    if (busy || !v.verifier(dates.du, dates.au, motifErr, blocage(conflits))) return;
+    if (busy || !v.verifier(destErr, dates.du, dates.au, motifErr, blocage(conflits))) return;
     setBusy(true);
     const r = await run('voyage.creer', { empId, dest, depart, retour, motif });
     setBusy(false);
@@ -47,7 +49,7 @@ export function TripDialog() {
             {empOptions.map(o => <option key={o.id} value={o.id}>{o.nom}</option>)}
           </select>
         </Field>
-        <Field label="Destination" htmlFor="tr-dest">
+        <Field label="Destination" htmlFor="tr-dest" erreur={v.erreur(destErr)}>
           <select className="input" id="tr-dest" value={dest} onChange={e => setDest(e.target.value)}>
             {dests.map(o => <option key={o.code} value={o.code}>{o.pays}</option>)}
           </select>

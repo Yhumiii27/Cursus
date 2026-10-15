@@ -19,6 +19,7 @@ import { Missions } from './pages/Missions.tsx';
 import { MotDePasse } from './pages/MotDePasse.tsx';
 import { Parametres } from './pages/Parametres.tsx';
 import { Portail } from './pages/Portail.tsx';
+import { Referentiels } from './pages/Referentiels.tsx';
 import { Temps } from './pages/Temps.tsx';
 import { Voyages } from './pages/Voyages.tsx';
 import { useStore, type View } from './state/store.tsx';
@@ -26,7 +27,7 @@ import { useStore, type View } from './state/store.tsx';
 const PAGES: Record<View, () => ReactElement> = {
   dashboard: Dashboard, collaborateurs: Collaborateurs, equipes: Equipes, formations: Formations, habilitations: Habilitations, voyages: Voyages,
   chantiers: Chantiers, echeances: Echeances, budget: Budget, temps: Temps, absences: Absences, entretiens: Entretiens,
-  missions: Missions, parametres: Parametres, portail: Portail,
+  missions: Missions, parametres: Parametres, portail: Portail, referentiels: Referentiels,
 };
 
 export function App() {

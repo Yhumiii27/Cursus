@@ -2,8 +2,10 @@
 // le collaborateur pour lui-même, ou le manager pour un membre de son équipe.
 import { useState } from 'react';
 import { habEnCours } from '../../../shared/domain.ts';
+import { actifs } from '../../../shared/rules/referentiels.ts';
 import { erreurTexte } from '../components/controles.ts';
 import { Bloquant, CancelButton, CheckList, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
+import { ReferentielVide } from '../components/ReferentielVide.tsx';
 import { Fine } from '../components/ui.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -14,13 +16,14 @@ export function ReqHabDialog({ empId }: { empId?: number | null }) {
   const { me: meId } = useRole();
   const { run, closeDialog } = useStore();
   const c = useCible(empId);
-  const habs = d.ds.referentiels.habilitations;
+  const habs = actifs(d.ds.referentiels.habilitations);
   const [h, setH] = useState(habs[0]?.id ?? '');
   const [motif, setMotif] = useState('');
   const [busy, setBusy] = useState(false);
   const v = useVerification();
   // Manager : le membre concerné (éventuellement à choisir) ; collaborateur : lui-même.
   const who = c.pourMembre ? c.cible : emps.find(e => e.id === meId);
+  if (!habs.length) return <ReferentielVide titre="Demander une habilitation" onglet="habilitations" texte="Aucune habilitation au référentiel." />;
   if (!h || (!c.pourMembre && !who)) return null;
 
   const info = who ? d.habInfo({ h }, who.rawCerts, who.med, horizon) : null;

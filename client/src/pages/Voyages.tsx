@@ -7,6 +7,7 @@ import type { TripItem, TripX } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, fmtShort, monthShort, plural, rel } from '../../../shared/format.ts';
 import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
+import { actifs } from '../../../shared/rules/referentiels.ts';
 import { usePanneauVisible } from '../components/panneau.ts';
 import { Btn, Chips, CloseButton, Empty, Fine, Page, Panel, Tag, Two, stop } from '../components/ui.tsx';
 import { useAgir } from '../state/actions.ts';
@@ -158,12 +159,12 @@ export function Voyages() {
         </div>
       </Panel>
 
-      <Panel title="Référentiel destinations">
+      <Panel title="Référentiel destinations" aside={<Btn small onClick={() => go('referentiels', { refOnglet: 'destinations' })}>Modifier les destinations</Btn>}>
         <div className="scroll-x">
           <table className="table">
             <thead><tr><th>Pays</th><th>Entrée</th><th>Sécurité sociale</th><th>Vaccin obligatoire</th><th>Vaccins recommandés</th><th>Passeport</th></tr></thead>
             <tbody>
-              {data.referentiels.destinations.map(x => {
+              {actifs(data.referentiels.destinations).map(x => {
                 const rule = VISA_RULES[x.visa], secu = SECU_RULES[secuDe(x)];
                 return (
                   <tr key={x.code}>
@@ -179,7 +180,7 @@ export function Voyages() {
             </tbody>
           </table>
         </div>
-        <Fine>Données indicatives tenues par le service RH — à vérifier sur France Diplomatie, auprès d’un centre de vaccinations internationales et, pour la sécurité sociale, sur cleiss.fr avant chaque départ.</Fine>
+        <Fine>Données indicatives tenues par le service RH (écran Référentiels) — à vérifier sur France Diplomatie, auprès d’un centre de vaccinations internationales et, pour la sécurité sociale, sur cleiss.fr avant chaque départ.</Fine>
       </Panel>
     </Page>
   );

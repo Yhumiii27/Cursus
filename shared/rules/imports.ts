@@ -80,6 +80,7 @@ export function parseTrips(d: Domain, text: string): TripRow[] {
     if (!emp) errs.push(v.collaborateur ? `Collaborateur inconnu : ${v.collaborateur}` : 'Collaborateur manquant');
     const dest = d.ds.referentiels.destinations.find(x => key(x.pays) === key(v.destination) || x.code === (v.destination || '').toUpperCase());
     if (!dest) errs.push(v.destination ? `Destination hors référentiel : ${v.destination}` : 'Destination manquante');
+    else if (dest.archive) errs.push(`Destination archivée : ${dest.pays}`);
     const depart = toIso(v.depart), retour = toIso(v.retour);
     if (!depart || !retour || retour < depart) errs.push('Dates invalides');
     else if (emp) {

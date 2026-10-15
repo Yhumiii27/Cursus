@@ -9,6 +9,7 @@ import { parse } from '../../../shared/dates.ts';
 import { fmt, fmtShort, plural, rel, validiteLabel } from '../../../shared/format.ts';
 import { inscritsDe } from '../../../shared/rules/sessions.ts';
 import type { Session } from '../../../shared/types.ts';
+import { CatalogueVide } from '../components/ReferentielVide.tsx';
 import { Bar, Btn, Empty, Fine, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore, type UiState } from '../state/store.tsx';
@@ -152,6 +153,7 @@ export function Formations() {
         </Panel>
       )}
 
+      {forms.length === 0 && <CatalogueVide onglet="formations" texte="Catalogue des formations vide." />}
       <div className="cards-grid">
         {cards.map(c => {
           const selected = ui.formationFilter === c.f.id;

@@ -18,7 +18,9 @@ import { figerFeuilles } from './migrate.ts';
 
 // Mode de validation : évaluation réussie pour les habilitations électriques, CACES, SST, ATEX, AIPR et PRAP ;
 // la présence suffit pour les sensibilisations et formations d'information.
-const FORMATIONS = [
+// FORMATIONS, HABILITATIONS et DESTS forment aussi le référentiel type, chargé sur une base vide par le service RH
+// (`referentiel.charger`, server/src/actions/referentiels.ts), sans les salariés.
+export const FORMATIONS = [
   { id: 'sst', nom: 'Sauveteur secouriste du travail (SST)', court: 'SST', type: 'Réglementaire', validite: 24, duree: '7 h (MAC)', organisme: 'Croix-Rouge française', cout: 180, validation: 'evaluation' },
   { id: 'elec', nom: 'Préparation à l’habilitation électrique B1V · B2V · BR', court: 'Formation élec. B1V-BR', type: 'Réglementaire', validite: 36, duree: '21 h', organisme: 'Apave', cout: 480, validation: 'evaluation' },
   { id: 'atex', nom: 'Intervention en zone ATEX (niveau 1)', court: 'ATEX', type: 'Réglementaire', validite: 36, duree: '7 h', organisme: 'Apave', cout: 350, validation: 'evaluation' },
@@ -32,7 +34,7 @@ const FORMATIONS = [
   { id: 'rgpd', nom: 'Sensibilisation RGPD et sécurité de l’information', court: 'RGPD', type: 'Interne', validite: 24, duree: '2 h', organisme: 'Interne · DSI', cout: 0, validation: 'presence' },
 ];
 
-const HABILITATIONS = [
+export const HABILITATIONS = [
   { id: 'he', nom: 'Habilitation électrique', detail: 'B1V · B2V · BR — NF C18-510', prereqs: ['elec'], medical: true, validite: 36, signataire: 'Karim Haddad' },
   { id: 'ac489', nom: 'Autorisation de conduite — chariots R489', detail: 'Chariots élévateurs cat. 3', prereqs: ['caces489'], medical: true, validite: 60, signataire: 'Olivier Marchal' },
   { id: 'ac486', nom: 'Autorisation de conduite — nacelles R486', detail: 'PEMP cat. B', prereqs: ['caces486'], medical: true, validite: 60, signataire: 'Karim Haddad' },
@@ -42,7 +44,7 @@ const HABILITATIONS = [
 ];
 
 // `secu` : convention bilatérale de sécurité sociale (Maroc, Inde, États-Unis, Côte d'Ivoire, Brésil), sinon maintien au régime français.
-const DESTS = [
+export const DESTS = [
   { code: 'MA', pays: 'Maroc', visa: 'none', visaSub: 'séjour ≤ 90 jours', oblig: [], rec: ['hepA', 'typhoide'], passMois: 0, secu: 'convention' },
   { code: 'IN', pays: 'Inde', visa: 'evisa', visaSub: '', oblig: [], rec: ['hepA', 'typhoide', 'hepB'], passMois: 6, secu: 'convention' },
   { code: 'US', pays: 'États-Unis', visa: 'esta', visaSub: '', oblig: [], rec: [], passMois: 0, secu: 'convention' },

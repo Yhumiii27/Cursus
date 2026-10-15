@@ -396,7 +396,7 @@ export const TRIMESTRES = ['T1', 'T2', 'T3', 'T4'] as const;
 
 /** Vues accessibles par rôle (la première est la page d'accueil). */
 export const ALLOWED_VIEWS = {
-  rh: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'voyages', 'chantiers', 'echeances', 'budget', 'temps', 'absences', 'entretiens', 'missions', 'parametres'],
+  rh: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'voyages', 'chantiers', 'echeances', 'budget', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels'],
   manager: ['collaborateurs', 'formations', 'temps', 'absences', 'entretiens', 'missions'],
   collaborateur: ['portail', 'temps', 'absences', 'entretiens'],
 } as const;
@@ -428,7 +428,7 @@ export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits:
   referent_hse: {
     label: 'Référent HSE / formation', espace: 'HSE', droits: ['formations'],
     aide: 'Catalogue, sessions et présences, certifications et habilitations, verdicts Go / No Go ; aptitude médicale réduite au verdict et aux restrictions en vigueur, comme pour un manager ; ni temps, ni paie, ni entretiens',
-    vues: ['dashboard', 'collaborateurs', 'formations', 'habilitations', 'echeances', 'chantiers'],
+    vues: ['dashboard', 'collaborateurs', 'formations', 'habilitations', 'echeances', 'chantiers', 'referentiels'],
   },
   paie: {
     label: 'Gestionnaire de paie', espace: 'Paie', droits: ['paie'],
@@ -438,7 +438,7 @@ export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits:
   lecture_seule: {
     label: 'Lecture seule', espace: 'Lecture', droits: ['consultation'],
     aide: 'Direction, DPO, auditeur : tableaux de bord, alertes et journal des actions, sans rien modifier ; ni données de santé détaillées, ni dossiers de voyage',
-    vues: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'echeances', 'budget', 'chantiers', 'temps', 'absences', 'entretiens', 'missions', 'parametres'],
+    vues: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'echeances', 'budget', 'chantiers', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels'],
   },
 };
 export const aDroitRh = (p: ProfilRh | undefined, droit: DroitRh) => !!p && !!PROFILS_RH[p]?.droits.includes(droit);

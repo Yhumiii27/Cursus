@@ -211,6 +211,36 @@ test('retrait par le RH : définitif, nouvelle délivrance possible', () => {
   assert.deepEqual(retour.find(e => e.payload.chantier === 'K-2614')!.payload.ressource, { matricule: 'EMP-0018', statut: 'GO', motifs: [], precedent: 'NO_GO' });
 });
 
+test('t091 renouvellement accepté d’une habilitation expirée : « en attente », toujours expirée pour le Go / No Go', async () => {
+  const { renouvellementDemande } = await import('../shared/domain.ts');
+  const MEHDI: User = { role: 'collaborateur', empId: 2, nom: 'Mehdi Benali', intitule: '' };
+  const { db, run, emp, domain } = fresh();
+  // Habilitation électrique de Mehdi Benali délivrée le 1er octobre 2023 (36 mois) : expirée depuis le 1er octobre 2026.
+  assert.equal(emp(2).habs.find(x => x.h === 'he')!.key, 'exp');
+  run(MEHDI, 'demande.habilitation', { h: 'he', motif: 'Renouvellement pour les consignations' });
+  const demande = db.all<{ id: number; empId: number; statut: string; reponse: string | null }>('demandesCollab').find(r => r.empId === 2 && r.statut === 'attente')!;
+  assert.match(String(run(RH, 'demande.accepter', { id: demande.id })), /Habilitation électrique expirée : renouvellement en attente de délivrance/);
+  assert.match(db.get<{ reponse: string }>('demandesCollab', demande.id)!.reponse, /renouvellement/);
+  const he = emp(2).habs.find(x => x.h === 'he')!;
+  // Date de la demande inscrite sur le titre existant, sans nouveau titre ; statut réglementaire inchangé.
+  assert.equal(db.all<{ empId: number; h: string }>('habTitres').filter(t => t.empId === 2 && t.h === 'he').length, 1);
+  assert.deepEqual([he.key, he.demande, he.delivree], ['exp', '2026-10-10', '2023-10-01']);
+  assert.ok(renouvellementDemande(he));
+  assert.match(he.note, /Renouvellement demandé le 10 oct/);
+  assert.equal(emp(2).worst, 'exp');
+  const d = domain(), chantier = d.chantier('K-2614')!;
+  const mehdi = d.enrich(90, false).find(e => e.id === 2)!;
+  assert.ok(d.resourceStatus(mehdi, chantier, []).reasons.some(r => r.code === 'HABILITATION' && r.level === 'nogo'), 'toujours No Go');
+  // Demande acceptée en attente de délivrance : pas de nouvelle demande.
+  assert.throws(() => run(MEHDI, 'demande.habilitation', { h: 'he', motif: 'Encore' }), /une demande est déjà en cours/);
+  // La nouvelle délivrance (prérequis rétabli) efface la demande.
+  run(RH, 'cert.ajouter', { empId: 2, f: 'elec', date: '2026-10-06' });
+  run(RH, 'hab.delivrer', { empId: 2, h: 'he', date: '2026-10-10', par: 'Karim Haddad', mode: 'renew' });
+  const neuve = emp(2).habs.find(x => x.h === 'he')!;
+  assert.deepEqual([neuve.key, neuve.demande], ['ok', null]);
+  assert.equal(renouvellementDemande(neuve), false);
+});
+
 test('migration d’une base antérieure aux suspensions d’habilitation', () => {
   const dir = mkdtempSync(join(tmpdir(), 'cursus-'));
   const file = join(dir, 'ancienne.db');

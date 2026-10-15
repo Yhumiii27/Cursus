@@ -5,6 +5,7 @@ import type { FormaliteKind } from '../../../shared/domain.ts';
 import { addMonths, isValidDate, parse } from '../../../shared/dates.ts';
 import { fmt, validiteLabel } from '../../../shared/format.ts';
 import { formaliteCle } from '../../../shared/rules/formalites.ts';
+import { actif } from '../../../shared/rules/referentiels.ts';
 import type { VaccinId } from '../../../shared/types.ts';
 import { CancelButton, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { SectionLabel, Seg } from '../components/ui.tsx';
@@ -34,7 +35,8 @@ export function FormaliteDialog({ empId: empId0, kind: kind0, dest: dest0, v: v0
   const { run, closeDialog } = useStore();
   const employes = d.ds.employes;
   const empOptions = [...employes].sort((a, b) => a.nom.localeCompare(b.nom));
-  const visaDests = d.ds.referentiels.destinations.filter(x => x.visa !== 'none');
+  // Destinations en vigueur, et celle du visa à mettre à jour même archivée depuis.
+  const visaDests = d.ds.referentiels.destinations.filter(x => x.visa !== 'none' && (actif(x) || x.code === dest0));
   const lockEmp = collab || !!empId0;
   const ruleLabel = (code: string) => { const x = d.destOf(code); return x ? VISA_RULES[x.visa].label : ''; };
 

@@ -2,9 +2,11 @@
 import { useMemo } from 'react';
 import { PlusIcon } from '@phosphor-icons/react';
 import { HAB_CLS, HAB_LABEL, HAB_MESURE_LABEL, type HabKey } from '../../../shared/constants.ts';
-import type { PrereqCheck } from '../../../shared/domain.ts';
+import { renouvellementDemande, type HabInfo, type PrereqCheck } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, plural, rel, validiteLabel } from '../../../shared/format.ts';
+import { actifs, habSuivie } from '../../../shared/rules/referentiels.ts';
+import { CatalogueVide } from '../components/ReferentielVide.tsx';
 import { Btn, Chips, Empty, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
 import { useEnriched, useIntentPermis, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -14,6 +16,8 @@ const ORDER: Record<HabKey, number> = { exp: 0, susp: 0, retiree: 0, due: 1, pen
 const prereqCls = (c: PrereqCheck) => c.ok ? (c.due ? 'tag-outline' : 'tag-neutral') : 'tag-accent';
 /** Titre non valide : expiré, suspendu (prérequis ou décision de l'employeur) ou retiré. */
 const isKo = (k: HabKey) => k === 'exp' || k === 'susp' || k === 'retiree';
+/** En attente de délivrance : titre demandé, ou titre expiré dont le renouvellement est accepté (qui reste non valide). */
+const enAttente = (h: HabInfo) => h.key === 'pending' || renouvellementDemande(h);
 
 export function Habilitations() {
   const { emps, d } = useEnriched();
@@ -23,19 +27,20 @@ export function Habilitations() {
   const { ui, setUi, go, openDialog, runIntent } = useStore();
 
   const v = useMemo(() => {
-    const all = emps.flatMap(e => e.habs.map(h => ({ e, h })));
+    // Habilitations suivies : celles du référentiel en vigueur (les titres d'une habilitation archivée restent à la fiche).
+    const all = emps.flatMap(e => e.habs.filter(habSuivie).map(h => ({ e, h })));
     const titres = all.filter(x => x.h.key !== 'pending');
-    const types = d.ds.referentiels.habilitations.map(hm => {
+    const types = actifs(d.ds.referentiels.habilitations).map(hm => {
       const list = all.filter(x => x.h.hm.id === hm.id), t = list.filter(x => x.h.key !== 'pending');
-      return { hm, titulaires: t.length, due: t.filter(x => x.h.key === 'due').length, ko: t.filter(x => isKo(x.h.key)).length, pending: list.length - t.length };
+      return { hm, titulaires: t.length, due: t.filter(x => x.h.key === 'due').length, ko: t.filter(x => isKo(x.h.key)).length, pending: list.filter(x => enAttente(x.h)).length };
     });
     const f = ui.habFilter;
     const rows = all
-      .filter(({ h }) => (!ui.habType || h.hm.id === ui.habType) && (f === 'tous' || (f === 'due' ? h.key === 'due' : f === 'ko' ? isKo(h.key) : h.key === 'pending')))
+      .filter(({ h }) => (!ui.habType || h.hm.id === ui.habType) && (f === 'tous' || (f === 'due' ? h.key === 'due' : f === 'ko' ? isKo(h.key) : enAttente(h))))
       .sort((a, b) => ORDER[a.h.key] - ORDER[b.h.key] || (a.h.d ?? 1e9) - (b.h.d ?? 1e9) || a.e.nom.localeCompare(b.e.nom));
     return {
       types, rows,
-      kicker: `${plural(titres.length, 'titre en cours', 'titres en cours')} · ${titres.filter(x => x.h.key === 'due').length} à renouveler · ${titres.filter(x => isKo(x.h.key)).length} non valides · ${all.length - titres.length} en attente`,
+      kicker: `${plural(titres.length, 'titre en cours', 'titres en cours')} · ${titres.filter(x => x.h.key === 'due').length} à renouveler · ${titres.filter(x => isKo(x.h.key)).length} non valides · ${all.filter(x => enAttente(x.h)).length} en attente`,
     };
   }, [emps, d, ui.habFilter, ui.habType]);
 
@@ -47,12 +52,13 @@ export function Habilitations() {
         options={[['tous', 'Toutes'], ['due', 'À renouveler'], ['ko', 'Non valides'], ['pending', 'En attente']]} />
       {formations && <Btn variant="primary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'hab', mode: 'new' })}>Délivrer une habilitation</Btn>}
     </>}>
+      {v.types.length === 0 && <CatalogueVide onglet="habilitations" texte="Aucune habilitation au référentiel." />}
       <div className="cards-grid">
         {v.types.map(t => {
           const selected = ui.habType === t.hm.id;
           return (
             <PickCard key={t.hm.id} kicker={t.hm.detail} title={t.hm.nom} selected={selected}
-              body={`Prérequis : ${[...t.hm.prereqs.map(f => d.fm(f).court), ...(t.hm.medical ? ['aptitude médicale'] : [])].join(' · ')} · validité ${validiteLabel(t.hm.validite)}`}
+              body={`Prérequis : ${[...t.hm.prereqs.map(f => d.fm(f)?.court ?? f), ...(t.hm.medical ? ['aptitude médicale'] : [])].join(' · ') || 'aucun'} · validité ${validiteLabel(t.hm.validite)}`}
               stats={[[t.titulaires, 'titulaires'], [t.due, 'à renouveler'], [t.ko, 'non valides']]}
               meta={<span>{t.pending ? plural(t.pending, 'demande en attente', 'demandes en attente') : `Signataire : ${t.hm.signataire}`}</span>}
               onClick={() => setUi({ habType: selected ? null : t.hm.id })} />
@@ -84,6 +90,7 @@ export function Habilitations() {
                       <Tag cls={HAB_CLS[h.key]}>{HAB_LABEL[h.key]}</Tag>
                       {h.mesure && h.mesureLe && <div className="text-muted sub" style={{ marginTop: 'var(--space-1)' }}>le {fmt(h.mesureLe)} — {h.mesureMotif}</div>}
                       {h.key === 'retiree' && h.demande && <div className="text-muted sub">Redemandée le {fmt(parse(h.demande))}</div>}
+                      {renouvellementDemande(h) && <div className="text-muted sub">Renouvellement demandé le {fmt(parse(h.demande!))}</div>}
                     </td>
                     <td className="right">
                       <div className="actions-end">

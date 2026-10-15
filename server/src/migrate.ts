@@ -1,4 +1,5 @@
-// Migrations de données des bases créées par une version antérieure de Cursus.
+// Migrations de données des bases créées par une version antérieure de Cursus, rejouées à chaque démarrage (idempotentes).
+// Les nouvelles reprises à ne faire qu'une fois sont des migrations nommées (server/src/migrations/), pas des ajouts ici.
 import { estMotifReprise, MISSION_LONGUE_JOURS, type MotifReprise, VACCINS } from '../../shared/constants.ts';
 import { Domain } from '../../shared/domain.ts';
 import { matricule, norm, plural } from '../../shared/format.ts';

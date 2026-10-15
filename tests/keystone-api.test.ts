@@ -452,6 +452,9 @@ test('base existante : statuts repris, tâches sans dates retirées, index d’u
   assert.equal(db.count('taches'), 0);
   migrerKeystone(db, () => { sauvegardes++; });
   assert.equal(sauvegardes, 1, 'rien à reprendre au démarrage suivant');
+  // Index d'unicité des références : migration nommée, appliquée au démarrage après la reprise (server/src/migrations/).
+  const { appliquerMigrations } = await import('../server/src/migrations/cadre.ts');
+  appliquerMigrations(db);
   db.insert('missions', { empId: 1, projet: 'K-1', lieu: 'Lyon', du: '2026-10-01', au: '2026-10-02', type: 'Mission', ref: 'AF-1' });
   assert.throws(() => db.insert('missions', { empId: 2, projet: 'K-1', lieu: 'Lyon', du: '2026-10-01', au: '2026-10-02', type: 'Mission', ref: 'AF-1' }), /UNIQUE/);
 });

@@ -17,6 +17,7 @@ import { routesDonnees } from './donnees.ts';
 import { type Cible, CIBLES, demarrerEnvois, etatEnvois, listerEnvois } from './envois.ts';
 import { demarrerJournal, journaliserAction, preparerTrace, routesJournal, tracerRefus } from './journal.ts';
 import { migrate } from './migrate.ts';
+import { appliquerMigrations, controlerMigrations } from './migrations/cadre.ts';
 import { emailMode, transportEmail } from './integrations/email.ts';
 import { KEYSTONE_MODE, transportKeystone } from './integrations/keystone.ts';
 import { suivreVerdicts, suivreVerdictsChaqueJour } from './integrations/keystone-verdicts.ts';
@@ -33,12 +34,22 @@ verifierConfig();
 // et un second serveur sur la même base s'arrête ici, avant toute migration.
 try {
   poserVerrou(dbFile());
+  // Base mise à jour par une version plus récente (migration nommée inconnue de ce code) : refus avant toute écriture.
+  controlerMigrations(dbFile());
 } catch (err) {
   console.error(`Démarrage impossible : ${err instanceof Error ? err.message : err}`);
   process.exit(1);
 }
 const db = openDb();
 migrate(db);
+// Migrations nommées (server/src/migrations/) : chacune une seule fois par base, après les reprises ci-dessus ;
+// une migration interrompue est annulée et le serveur ne démarre pas (elle sera retentée au démarrage suivant).
+try {
+  appliquerMigrations(db);
+} catch (err) {
+  console.error(`Démarrage impossible : ${err instanceof Error ? err.message : err}`);
+  process.exit(1);
+}
 if (db.count('employes') === 0) {
   // Les salariés fictifs ne sont chargés qu'en démonstration, jamais dans une base de production.
   if (DEMO) { seedDemo(db); console.log('Base vide : données de démonstration chargées.'); }

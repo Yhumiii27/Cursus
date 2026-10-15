@@ -194,7 +194,8 @@ const lire = (p: string) => readFileSync(new URL(`../client/src/${p}`, import.me
 const DIALOGUES = readdirSync(new URL('../client/src/dialogs/', import.meta.url)).filter(f => f.endsWith('Dialog.tsx'));
 
 test('plus aucun window.confirm : les confirmations passent par le dialogue de confirmation', () => {
-  const fichiers = ['pages', 'dialogs', 'layout', 'components'].flatMap(d => readdirSync(new URL(`../client/src/${d}/`, import.meta.url)).map(f => `${d}/${f}`));
+  // Sous-dossiers compris (sections de Paramètres : pages/parametres/).
+  const fichiers = ['pages', 'dialogs', 'layout', 'components'].flatMap(d => readdirSync(new URL(`../client/src/${d}/`, import.meta.url), { recursive: true }).map(f => `${d}/${f}`));
   const avec = fichiers.filter(f => /\.tsx?$/.test(f) && /window\.confirm\(|\bconfirm\(['`]/.test(lire(f)));
   assert.deepEqual(avec, []);
 });

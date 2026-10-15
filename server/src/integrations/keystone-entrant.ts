@@ -555,7 +555,7 @@ export function motifsRefusAcceptation(db: Db, dm: DemandeKeystone, today: ISODa
 
 /**
  * Base existante : statuts par défaut des données antérieures à l'API, retrait des tâches sans dates
- * (anciennes données de démonstration recopiées chaque semaine), index d'unicité des identifiants Keystone.
+ * (anciennes données de démonstration recopiées chaque semaine).
  */
 export function migrerKeystone(db: Db, avant: () => void = () => {}) {
   const q = (sql: string) => Number((db.sql.prepare(sql).get() as { n: number }).n);
@@ -572,7 +572,5 @@ export function migrerKeystone(db: Db, avant: () => void = () => {}) {
     });
     if (sansDates) console.log(`Migration : ${plural(sansDates, 'tâche Keystone sans dates retirée', 'tâches Keystone sans dates retirées')} (Keystone transmet désormais des tâches datées).`);
   }
-  db.sql.exec(`CREATE UNIQUE INDEX IF NOT EXISTS demandes_keystone_ref ON demandes_keystone (ref) WHERE ref IS NOT NULL;
-    CREATE UNIQUE INDEX IF NOT EXISTS missions_ref ON missions (ref) WHERE ref IS NOT NULL;
-    CREATE UNIQUE INDEX IF NOT EXISTS taches_ref ON taches (ref) WHERE ref IS NOT NULL;`);
+  // Index d'unicité des références (`ref`) : migration nommée, après cette reprise (server/src/migrations/exploitation.ts).
 }

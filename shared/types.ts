@@ -259,6 +259,7 @@ export type Declaration = (
 ) & { dejaAuDossier?: boolean };
 
 // — Paramètres & session —
+/** Réglages de l'écran Paramètres : chaque champ a sa ligne (défaut, contrôle) dans REGLAGES de shared/reglages.ts. */
 export interface Settings {
   horizonAlerte: number;
   uniquementReglementaire: boolean;

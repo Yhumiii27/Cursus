@@ -11,6 +11,8 @@ import { revokeSessionsDuCompte } from './auth.ts';
 import { attribuerProvisoire, compteParIdentifiant, creerCompte, journaliser, nomDuCompte, rattacherCompte, refusDuCompte, type Compte } from './comptes.ts';
 import { dbFile, openDb } from './db.ts';
 import { adresseDuCompte } from './messagerie.ts';
+import { migrate } from './migrate.ts';
+import { appliquerMigrations, controlerPourOutil } from './migrations/cadre.ts';
 
 const USAGE = `Usage : npm run comptes -- admin <identifiant> [--local] [--nom "Prénom Nom"] [--adresse <e-mail>] [--salarie <n°>]
   <identifiant>  adresse Microsoft 365 de la personne, ou identifiant d'un compte Cursus avec --local
@@ -42,7 +44,25 @@ const AUTEUR = 'Ligne de commande (npm run comptes)';
 const empId = typeof options.salarie === 'string' ? Number(options.salarie.replace(/\D/g, '')) : null;
 if (options.salarie !== undefined && !empId) arreter('Numéro de salarié invalide (--salarie 12 ou --salarie EMP-0012).');
 
+// Base mise à jour par une version plus récente de Cursus, ou pas encore par le serveur en service : refusée.
+let aMettreAJour = true;
+try {
+  aMettreAJour = controlerPourOutil(dbFile());
+} catch (err) {
+  arreter(`Commande impossible : ${err instanceof Error ? err.message : err}`);
+}
 const db = openDb();
+// Service arrêté : base mise à jour comme au démarrage du serveur (reprises, migrations nommées) avant d'y écrire ;
+// le compte n'est jamais écrit dans une colonne qu'une migration reprendrait ensuite.
+if (aMettreAJour) {
+  try {
+    migrate(db);
+    appliquerMigrations(db);
+  } catch (err) {
+    db.sql.close();
+    arreter(`Commande impossible : ${err instanceof Error ? err.message : err}`);
+  }
+}
 let existant: Compte | undefined;
 try {
   existant = compteParIdentifiant(db, identifiant);

@@ -191,7 +191,11 @@ export function sauvegarder(base: string, opts: OptionsSauvegarde = {}): Sauvega
   if (!existsSync(source)) throw new SauvegardeError(`Base introuvable : ${source}`);
   const keep = opts.keep ?? copiesConservees();
   const dir = resolve(opts.dir ?? dossierSauvegardes(source));
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+  } catch (e) {
+    throw new SauvegardeError(`Copie impossible vers ${dir} (${message(e)})`);
+  }
   const fichier = nomLibre(dir, source, opts.date ?? new Date(), opts.motif);
   const partiel = fichier + '.partiel';
   let verification: Verification;

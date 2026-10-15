@@ -449,17 +449,17 @@ aucun champ du paramètre n'est recopié.
 | `hab.suspendre` | empId, h, motif, date? (aujourd’hui par défaut) | RH, référent HSE ; manager pour un membre de son équipe (jamais lui-même) |
 | `hab.lever` | empId, h | RH, référent HSE |
 | `hab.retirer` | empId, h, motif, date? | RH, référent HSE |
-| `referentiel.formation.enregistrer` | code (création) ou id (modification : le code ne change pas), nom, court, type, validite (mois, 1 à 240), duree?, organisme?, cout?, validation (`presence`/`evaluation`) ; message : titres devenus échus si la validité change | RH, référent HSE |
-| `referentiel.formation.archiver` | id, archive? (faux : rétablie) ; refusé tant qu'une habilitation en vigueur l'exige en prérequis ou qu'une session est ouverte | RH, référent HSE |
-| `referentiel.habilitation.enregistrer` | code ou id, nom, detail?, prereqs (formations du catalogue en vigueur), medical, validite, signataire (proposé à la délivrance) | RH, référent HSE |
-| `referentiel.habilitation.archiver` | id, archive? | RH, référent HSE |
+| `referentiel.formation.enregistrer` | code (création) ou id (modification : le code ne change pas), nom, court, type, validite (mois, 1 à 240), duree?, organisme?, cout?, validation (`presence`/`evaluation`) ; message : titres devenus échus si la validité change, ligne du journal rattachée à leurs titulaires | RH, référent HSE |
+| `referentiel.formation.archiver` | id, archive? (faux : rétablie) ; refusé tant qu'une habilitation en vigueur l'exige en prérequis ou qu'une session est ouverte ; message : demandes des collaborateurs restées en attente | RH, référent HSE |
+| `referentiel.habilitation.enregistrer` | code ou id, nom, detail?, prereqs (formations du catalogue en vigueur ; une habilitation archivée garde ceux déjà inscrits, archivés depuis), medical, validite, signataire (proposé à la délivrance) ; message : titres devenus échus, ligne du journal rattachée à leurs titulaires | RH, référent HSE |
+| `referentiel.habilitation.archiver` | id, archive? ; rétablissement refusé tant qu'un prérequis est archivé (formation à rétablir d'abord) ; message : titres demandés et demandes restés en attente | RH, référent HSE |
 | `referentiel.destination.enregistrer` | code (pays ISO à deux lettres, pas FR) ou id, pays, visa (`VISA_RULES`), visaSub?, oblig [vaccins], rec [vaccins, sans le DTP], passMois (0 à 24), secu? (vide : selon le code pays) | RH |
 | `referentiel.destination.archiver` | id, archive? | RH |
 | `referentiel.charger` | referentiel (`formations`/`habilitations`/`destinations`) : référentiel type (celui de la démonstration) chargé dans un référentiel vide, archivés compris ; habilitations après les formations | RH, référent HSE (destinations : RH) |
 | `medical.demander` | empId, motif? (`periodique`/`embauche`/`reprise`/`employeur` ; par défaut embauche sans visite enregistrée, sinon périodique) ; e-mail au service de santé au travail | RH (une demande en cours par collaborateur) |
 | `medical.annuler` | id | RH (demande de visite en cours) |
 | `medical.avis` | empId, date (passée), avis (`apte`/`restrictions`/`inapte`), restrictions [{texte, jusquau?}] (avis avec restrictions), suspendre [h]?, lever [h]? | RH (suspensions « Restriction d’aptitude » ; levée des seules suspensions d’un avis précédent, jamais pour un avis d’inaptitude) |
-| `demande.accepter` / `demande.refuser` | id ; refus : motif? (500 caractères, `motifRefus`, montré au collaborateur seul, même quand son manager a fait la demande) | RH ; référent HSE pour une demande de formation ou d'habilitation (document déclaré : RH) |
+| `demande.accepter` / `demande.refuser` | id ; refus : motif? (500 caractères, `motifRefus`, montré au collaborateur seul, même quand son manager a fait la demande) ; acceptation refusée quand la formation ou l'habilitation demandée a été archivée depuis (à refuser, ou à rétablir d'abord) | RH ; référent HSE pour une demande de formation ou d'habilitation (document déclaré : RH) |
 | `demande.formation` | f (ou `autre`), libelle, sessionId, motif, empId (manager) ; refusée si une demande identique attend (même formation, ou même intitulé hors catalogue), si le salarié est déjà inscrit à une session à venir, ou absent le jour de la session souhaitée | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `demande.habilitation` | h, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `voyage.creer` | empId, dest, depart, retour, motif ; refusé s'il chevauche un autre déplacement ou une absence en vigueur | RH |
@@ -610,20 +610,30 @@ Une base de production démarre avec des référentiels vides (seul le jeu de d�
 
 - **Droits** (décision de l'entreprise) : formations et habilitations, service RH et référent HSE / formation (droit
   `formations`) ; destinations, service RH ; la lecture seule consulte l'écran. Chaque création, modification, archivage
-  ou rétablissement est tracé au journal avec les valeurs avant et après (famille « Référentiels »).
+  ou rétablissement est tracé au journal avec les valeurs avant et après (famille « Référentiels ») : du paramètre, seul
+  le code normalisé de l'élément est recopié (et `retablir` pour un archivage), jamais une valeur libre.
 - **Codes** : identifiant d'une formation ou d'une habilitation (minuscules, chiffres, « - », « _ ») ou code pays ISO
   d'une destination ; choisi à la création (proposé d'après le nom court), jamais modifié, unique même parmi les archivés :
-  il désigne l'élément dans les dossiers et auprès de Keystone (exigences des chantiers, `GET /referentiels`).
+  il désigne l'élément dans les dossiers et auprès de Keystone (exigences des chantiers, `GET /referentiels`, qui donne
+  aussi la date d'archivage : un code archivé reste reçu, mais Keystone ne le propose plus).
 - **Archivage plutôt que suppression** (`archive` : date d'archivage) : un élément archivé n'est plus proposé (catalogue
   `Domain.forms`, dialogues de certification, de session, de délivrance, de demande, de déplacement et de visa, import
   des déplacements) et le serveur refuse toute nouvelle saisie sur lui (`refusArchive`) ; ses titres ne comptent plus dans
-  les statuts ni les échéances (`habSuivie`) mais restent au dossier (historique de la fiche), dans les prérequis, le
+  les statuts ni les échéances (`habSuivie`) mais restent au dossier et lisibles (historique de la fiche, certifications
+  remplacées comprises ; « Mes certifications » et « Mes habilitations » de l'espace collaborateur), dans les prérequis, le
   Go / No Go et les échanges avec Keystone. Il se rétablit d'un clic. Une formation exigée en prérequis par une
-  habilitation en vigueur, ou qui a une session ouverte, ne s'archive pas.
+  habilitation en vigueur, ou qui a une session ouverte, ne s'archive pas ; symétriquement, une habilitation ne se
+  rétablit pas tant qu'un de ses prérequis est archivé (`prerequisArchives`) : une habilitation en vigueur n'exige
+  jamais une formation que nul ne peut plus obtenir.
+- **Demandes en attente** : une demande de formation ou d'habilitation déposée avant l'archivage ne s'accepte plus
+  (`demande.accepter` refusée : à refuser, ou à rétablir l'élément d'abord). La confirmation d'archivage annonce ces
+  demandes (`demandesEnAttente`) et, pour une habilitation, les titres demandés pas encore délivrés (`titresADelivrer`),
+  qui sortent de « En attente » ; le tableau de bord marque la demande « archivée ».
 - **Validité modifiée** (décision de l'entreprise) : les échéances étant calculées à l'affichage, la nouvelle durée (ou les
   nouveaux prérequis et la condition d'aptitude d'une habilitation) vaut aussi pour les titres déjà délivrés. Avant
   l'enregistrement, le dialogue annonce les titres qui deviennent échus (`effetModification`) et demande confirmation ;
-  le message de l'action les reprend, et les verdicts Go / No Go modifiés partent à Keystone (`changeVerdicts`).
+  le message de l'action les reprend (la ligne du journal est donc rattachée à leurs titulaires : filtre « salarié »,
+  export de leurs données), et les verdicts Go / No Go modifiés partent à Keystone (`changeVerdicts`).
 - **Référentiel type** : « Charger le référentiel type » (`referentiel.charger`) reprend, dans un référentiel vide, les
   11 formations, 6 habilitations et 8 destinations de la démonstration (`FORMATIONS`, `HABILITATIONS`, `DESTS` de
   `server/src/seed.ts`), à vérifier ensuite par le service RH ; les habilitations après les formations, leurs prérequis.

@@ -36,6 +36,30 @@ export function refusArchive(x: { archive?: ISODate | null } | null | undefined,
   return x?.archive ? `${nature} archivée : rétablissez-la d’abord (écran Référentiels)` : null;
 }
 
+/**
+ * Demandes des collaborateurs en attente de décision sur une formation ou une habilitation. Archivée, elle ne permet
+ * plus de les accepter (`demande.accepter` refusée) : l'archivage les annonce, le service RH les refuse ensuite.
+ */
+export function demandesEnAttente(ds: Pick<Dataset, 'demandesCollab'>, ref: 'formations' | 'habilitations', id: string): number {
+  return ds.demandesCollab.filter(r => r.statut === 'attente' && (ref === 'formations' ? r.type === 'formation' && r.f === id : r.type === 'habilitation' && r.h === id)).length;
+}
+
+/**
+ * Titres d'une habilitation demandés et pas encore délivrés : première délivrance, renouvellement d'un titre expiré ou
+ * nouvelle délivrance après un retrait (« En attente » de l'écran Habilitations). Archivée, elle ne se délivre plus.
+ */
+export function titresADelivrer(ds: Pick<Dataset, 'employes'>, h: string): number {
+  return ds.employes.filter(e => e.habs.some(t => t.h === h && (!t.delivree || !!t.demande))).length;
+}
+
+/**
+ * Formations prérequises archivées d'une habilitation. Une habilitation en vigueur n'en a pas : la formation ne s'archive
+ * pas tant qu'une habilitation en vigueur l'exige, et l'habilitation ne se rétablit qu'après ses prérequis.
+ */
+export function prerequisArchives(h: Pick<HabType, 'prereqs'>, formations: readonly Formation[]): Formation[] {
+  return h.prereqs.flatMap(f => formations.filter(x => x.id === f && !actif(x)));
+}
+
 // — Codes —
 
 /** Code d'une formation ou d'une habilitation : minuscules, chiffres, « - » ou « _ », 32 caractères au plus. */
@@ -133,8 +157,9 @@ export type ChampHabilitation = 'code' | 'nom' | 'detail' | 'prereqs' | 'medical
 export type SaisieHabilitation = Partial<Record<ChampHabilitation, Saisie>>;
 
 /**
- * Habilitation saisie, contrôlée. Prérequis : formations du catalogue en vigueur ; un prérequis déjà inscrit dont la
- * formation a été archivée depuis peut rester.
+ * Habilitation saisie, contrôlée. Prérequis : formations du catalogue en vigueur ; une habilitation archivée garde ses
+ * prérequis déjà inscrits dont la formation a été archivée depuis (rétablie, elle les exigera de nouveau : voir
+ * `prerequisArchives`). Une habilitation en vigueur n'exige jamais une formation archivée, que nul ne pourrait obtenir.
  */
 export function controlerHabilitation(
   s: SaisieHabilitation, existantes: readonly HabType[], formations: readonly Formation[], id: string | null = null,
@@ -150,7 +175,7 @@ export function controlerHabilitation(
   const liste = Array.isArray(s.prereqs) ? s.prereqs : [];
   if (s.prereqs != null && !Array.isArray(s.prereqs)) e.prereqs = 'Liste de formations attendue.';
   const prereqs = [...new Set(liste.map(codeTitre))];
-  const permis = (f: string) => formations.some(x => x.id === f && (actif(x) || avant?.prereqs.includes(f)));
+  const permis = (f: string) => formations.some(x => x.id === f && (actif(x) || (!!avant && !actif(avant) && avant.prereqs.includes(f))));
   const inconnus = prereqs.filter(f => !permis(f));
   if (inconnus.length) e.prereqs = `Formation inconnue ou archivée : ${inconnus.join(', ')}.`;
   const validite = validiteMois(e, s.validite);

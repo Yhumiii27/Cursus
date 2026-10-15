@@ -7,12 +7,12 @@
 import { sessionActive } from '../../../shared/domain.ts';
 import { plural } from '../../../shared/format.ts';
 import {
-  actif, codeDestination, codeTitre, controlerDestination, controlerFormation, controlerHabilitation, effetModification, premiereErreur, titresTexte,
-  type EffetModification, type ReferentielId,
+  actif, codeDestination, codeTitre, controlerDestination, controlerFormation, controlerHabilitation, demandesEnAttente, effetModification,
+  premiereErreur, prerequisArchives, titresADelivrer, titresTexte, type EffetModification, type ReferentielId,
 } from '../../../shared/rules/referentiels.ts';
 import type { Destination, Formation, HabType } from '../../../shared/types.ts';
 import { DESTS, FORMATIONS, HABILITATIONS } from '../seed.ts';
-import { ActionError, type ActionHandler, type Ctx, requireFormations, requireRh } from './context.ts';
+import { ActionError, type ActionHandler, type ActionOutput, type Ctx, requireFormations, requireRh } from './context.ts';
 
 /** Élément visé par une modification ou un archivage (`id` : son code), introuvable : 404. */
 function trouver<T>(liste: readonly T[], cle: (x: T) => string, id: string, nature: string): T {
@@ -35,6 +35,16 @@ function effetTexte(x: EffetModification | null): string {
   ].filter(Boolean).map(t => ` · ${t}`).join('');
 }
 const validiteTexte = (avant: number, apres: number) => (avant !== apres ? ` · validité ${avant} → ${apres} mois, échéances recalculées` : '');
+/**
+ * Message d'une modification, et salariés dont un titre change de statut : le message en nomme, la ligne du journal
+ * leur est donc rattachée (filtre « salarié », export de leurs données).
+ */
+function modifie(message: string, effet: EffetModification | null): ActionOutput {
+  const salaries = [...new Set([...(effet?.echus ?? []), ...(effet?.retablis ?? [])].map(t => t.empId))];
+  return { message: `${message}${effetTexte(effet)}`, result: { salaries } };
+}
+/** Demandes des collaborateurs restées en attente sur l'élément archivé : à refuser (ou à accepter après rétablissement). */
+const attenteTexte = (n: number) => (n ? ` · ${plural(n, 'demande en attente', 'demandes en attente')} : à refuser, ou à accepter après rétablissement` : '');
 
 // — Formations —
 
@@ -52,7 +62,7 @@ const enregistrerFormation: ActionHandler = (ctx, p) => {
   // Une nouvelle validité vaut aussi pour les certifications déjà obtenues (et les habilitations qui les exigent).
   const effet = f.validite !== avant.validite ? effetModification(ctx.ds, 'formations', f) : null;
   ctx.db.update<Formation>('formations', f.id, f);
-  return `Formation « ${f.court} » modifiée${validiteTexte(avant.validite, f.validite)}${effetTexte(effet)}`;
+  return modifie(`Formation « ${f.court} » modifiée${validiteTexte(avant.validite, f.validite)}`, effet);
 };
 
 /**
@@ -75,7 +85,7 @@ const archiverFormation: ActionHandler = (ctx, p) => {
   const ouvertes = ctx.ds.sessions.filter(s => s.formation === f.id && sessionActive(s)).length;
   if (ouvertes) throw new ActionError(`${plural(ouvertes, 'session ouverte', 'sessions ouvertes')} (à venir ou à clôturer) : annulez-les ou clôturez-les d’abord`);
   ctx.db.update<Formation>('formations', f.id, { archive: ctx.d.ti });
-  return `Formation « ${f.court} » archivée — plus proposée ni suivie ; les certifications restent au dossier`;
+  return `Formation « ${f.court} » archivée — plus proposée ni suivie ; les certifications restent au dossier${attenteTexte(demandesEnAttente(ctx.ds, 'formations', f.id))}`;
 };
 
 // — Habilitations —
@@ -95,22 +105,34 @@ const enregistrerHabilitation: ActionHandler = (ctx, p) => {
   const regle = (x: HabType) => JSON.stringify([x.validite, [...x.prereqs].sort(), x.medical]);
   const effet = regle(h) !== regle(avant) ? effetModification(ctx.ds, 'habilitations', h) : null;
   ctx.db.update<HabType>('habilitations', h.id, h);
-  return `Habilitation « ${h.nom} » modifiée${validiteTexte(avant.validite, h.validite)}${effetTexte(effet)}`;
+  return modifie(`Habilitation « ${h.nom} » modifiée${validiteTexte(avant.validite, h.validite)}`, effet);
 };
 
-/** Archivage ou rétablissement d'une habilitation : les titres délivrés restent au dossier, hors du suivi. */
+/**
+ * Archivage ou rétablissement d'une habilitation : les titres délivrés restent au dossier, hors du suivi. Rétablie,
+ * elle exige de nouveau ses prérequis : refusé tant que l'un d'eux est archivé (plus personne ne pourrait l'obtenir).
+ */
 const archiverHabilitation: ActionHandler = (ctx, p) => {
   requireFormations(ctx);
   const h = trouver(ctx.ds.referentiels.habilitations, x => x.id, codeTitre(p.id), 'Habilitation');
   if (p.archive === false) {
     if (actif(h)) return `Habilitation « ${h.nom} » déjà au référentiel`;
+    const archives = prerequisArchives(h, ctx.ds.referentiels.formations);
+    if (archives.length) {
+      const [la, les] = archives.length > 1 ? ['ces formations', 'les'] : ['cette formation', 'la'];
+      throw new ActionError(`${plural(archives.length, 'prérequis archivé', 'prérequis archivés')} : ${archives.map(f => f.court).join(', ')} — rétablissez d’abord ${la} (onglet Formations), ou retirez-${les} de ses prérequis`);
+    }
     ctx.db.update<HabType>('habilitations', h.id, { archive: null });
     return `Habilitation « ${h.nom} » rétablie au référentiel`;
   }
   if (!actif(h)) return `Habilitation « ${h.nom} » déjà archivée`;
   ctx.db.update<HabType>('habilitations', h.id, { archive: ctx.d.ti });
   const titres = ctx.ds.employes.filter(e => e.habs.some(t => t.h === h.id && t.delivree)).length;
-  return `Habilitation « ${h.nom} » archivée — plus proposée ni suivie${titres ? ` ; ${plural(titres, 'titre reste', 'titres restent')} au dossier` : ''}`;
+  // Titres demandés pas encore délivrés : ils sortent de « En attente » et ne se délivrent plus.
+  const aDelivrer = titresADelivrer(ctx.ds, h.id);
+  return `Habilitation « ${h.nom} » archivée — plus proposée ni suivie${titres ? ` ; ${plural(titres, 'titre reste', 'titres restent')} au dossier` : ''}`
+    + (aDelivrer ? ` · ${plural(aDelivrer, 'titre demandé sort', 'titres demandés sortent')} de « En attente » sans être délivré${aDelivrer > 1 ? 's' : ''}` : '')
+    + attenteTexte(demandesEnAttente(ctx.ds, 'habilitations', h.id));
 };
 
 // — Destinations —

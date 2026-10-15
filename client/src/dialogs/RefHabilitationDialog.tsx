@@ -29,7 +29,8 @@ export function RefHabilitationDialog({ id }: { id?: string | null }) {
   const v = useVerification();
   const disparue = !!id && !avant;
 
-  // Formations proposées : le catalogue en vigueur, et les prérequis déjà inscrits d'une formation archivée depuis.
+  // Formations proposées : le catalogue en vigueur, et les prérequis déjà inscrits d'une formation archivée depuis (une
+  // habilitation archivée les garde ; en vigueur, elle ne peut pas les exiger : controlerHabilitation les signale).
   const formations = d.ds.referentiels.formations.filter(f => actif(f) || avant?.prereqs.includes(f.id));
   const propose = nom.trim() ? codeSuggere(nom, liste.map(h => h.id)) : '';
   const codeFinal = code.trim() || propose;

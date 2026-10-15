@@ -10,7 +10,9 @@ const { seedDemo } = await import('../server/src/seed.ts');
 const { currentUser, loadFull, buildSnapshot } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
 const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
-const { journaliserAction, preparerTrace, REGLES } = await import('../server/src/journal.ts');
+const { champsRetenus, journaliserAction, preparerTrace, REGLES } = await import('../server/src/journal.ts');
+const { donneesSalarie } = await import('../server/src/donnees.ts');
+const { ROUTES_V1 } = await import('../server/src/integrations/keystone-routes.ts');
 const { contexte } = await import('../server/src/integrations/keystone-entrant.ts');
 const { suivreVerdicts } = await import('../server/src/integrations/keystone-verdicts.ts');
 const { Domain } = await import('../shared/domain.ts');
@@ -19,7 +21,7 @@ const { parseTrips } = await import('../shared/rules/imports.ts');
 const R = await import('../shared/rules/referentiels.ts');
 type User = NonNullable<ReturnType<typeof currentUser>>;
 type Db = InstanceType<typeof Db>;
-interface Ligne { action: string; message: string | null; payload: Record<string, any> }
+interface Ligne { action: string; message: string | null; payload: Record<string, any>; salaries: number[] | null }
 
 /** Jeu de démonstration ; `run` suit le chemin de POST /api/actions/:nom (état lu avant l'action, trace après). */
 function fresh() {
@@ -81,7 +83,7 @@ test('formation : création contrôlée (code, intitulé, validité, coût), mod
   assert.deepEqual([f.validite, f.cout, f.type, f.archive], [60, 450.5, 'Réglementaire', null], 'code en minuscules, nombres lus en français');
   assert.ok(domain().forms(false).some(x => x.id === 'caces485'), 'proposée dans les listes');
   const cree = derniere('referentiel.formation.enregistrer');
-  assert.equal(cree.payload.code, 'CACES485');
+  assert.equal(cree.payload.code, 'caces485', 'code normalisé comme l’action');
   assert.deepEqual(cree.payload.apres, { nom: 'CACES R485 — Gerbeurs', court: 'CACES R485', type: 'Réglementaire', validite: 60, duree: '14 h', organisme: 'AFTRAL', cout: 450.5, validation: 'evaluation' });
   // Modification : le code ne change pas, seules les valeurs modifiées sont tracées.
   run(HSE, 'referentiel.formation.enregistrer', { ...nouvelle, id: 'caces485', code: 'ignore', organisme: 'Apave', cout: 480 });
@@ -172,6 +174,100 @@ test('habilitation : prérequis du catalogue, archivage (titres au dossier, hors
   assert.deepEqual(feyzin(), verdicts);
   run(HSE, 'referentiel.habilitation.archiver', { id: 'atex', archive: false });
   assert.equal(domain().hm('atex').archive, null);
+});
+
+test('habilitation rétablie : jamais avec un prérequis archivé, que plus personne ne pourrait obtenir', () => {
+  const { run, refuse, domain, HSE } = fresh();
+  // L'archivage de la formation n'est permis qu'une fois l'habilitation qui l'exige archivée…
+  run(HSE, 'referentiel.habilitation.archiver', { id: 'aipr' });
+  run(HSE, 'referentiel.formation.archiver', { id: 'aipr' });
+  // … qui ne se rétablit pas avant elle (sinon : en vigueur, proposée, mais aucune certification AIPR possible).
+  refuse(HSE, 'referentiel.habilitation.archiver', { id: 'aipr', archive: false }, /^1 prérequis archivé : AIPR — rétablissez d’abord cette formation \(onglet Formations\), ou retirez-la de ses prérequis$/);
+  assert.equal(domain().hm('aipr').archive, '2026-10-10');
+  assert.deepEqual(R.prerequisArchives(domain().hm('aipr'), domain().ds.referentiels.formations).map(f => f.id), ['aipr']);
+  // Une habilitation en vigueur n'accepte pas de prérequis archivé, même déjà inscrit (donnée incohérente à corriger).
+  const enVigueur = { ...domain().hm('aipr'), archive: null };
+  const { erreurs } = R.controlerHabilitation({ ...enVigueur }, [enVigueur], domain().ds.referentiels.formations, 'aipr');
+  assert.equal(erreurs.prereqs, 'Formation inconnue ou archivée : aipr.');
+  // Dans l'ordre : la formation, puis l'habilitation.
+  run(HSE, 'referentiel.formation.archiver', { id: 'aipr', archive: false });
+  assert.match(run(HSE, 'referentiel.habilitation.archiver', { id: 'aipr', archive: false }), /rétablie au référentiel/);
+  assert.equal(domain().hm('aipr').archive, null);
+  // Ou bien le prérequis retiré de l'habilitation archivée, qui se rétablit alors sans lui.
+  run(HSE, 'referentiel.habilitation.archiver', { id: 'aipr' });
+  run(HSE, 'referentiel.formation.archiver', { id: 'aipr' });
+  run(HSE, 'referentiel.habilitation.enregistrer', { ...domain().hm('aipr'), id: 'aipr', prereqs: [] });
+  run(HSE, 'referentiel.habilitation.archiver', { id: 'aipr', archive: false });
+  assert.deepEqual([domain().hm('aipr').archive, domain().hm('aipr').prereqs], [null, []]);
+});
+
+test('demandes déposées avant l’archivage : acceptation refusée, annoncées à l’archivage et dans sa confirmation', async () => {
+  const { db, run, refuse, domain, RH, HSE, MEHDI } = fresh();
+  const C = await import('../client/src/state/confirmations-referentiels.ts');
+  const attente = (q: Record<string, unknown>) => db.all<{ id: number; empId: number; statut: string } & Record<string, unknown>>('demandesCollab')
+    .find(r => r.empId === 2 && r.statut === 'attente' && Object.entries(q).every(([k, v]) => r[k] === v))!;
+  // Mehdi Benali : AIPR demandée et acceptée (titre en attente de délivrance), nacelles R486 et formation AIPR demandées.
+  run(MEHDI, 'demande.habilitation', { h: 'aipr', motif: 'Chantier réseaux' });
+  assert.match(run(RH, 'demande.accepter', { id: attente({ h: 'aipr' }).id }), /en attente de délivrance/);
+  run(MEHDI, 'demande.habilitation', { h: 'ac486', motif: 'Maintenance en hauteur' });
+  run(MEHDI, 'demande.formation', { f: 'aipr', motif: 'Chantier réseaux' });
+  const ds = domain().ds;
+  assert.deepEqual([R.titresADelivrer(ds, 'aipr'), R.demandesEnAttente(ds, 'habilitations', 'ac486'), R.demandesEnAttente(ds, 'formations', 'aipr')], [1, 1, 1]);
+  assert.equal(R.demandesEnAttente(ds, 'habilitations', 'aipr'), 0, 'demande acceptée : plus en attente');
+  // Confirmations : titres demandés qui sortent de « En attente », demandes qui ne pourront plus qu'être refusées.
+  const h = C.archivageHabilitation(domain().hm('aipr'), 1, { demandes: 0, aDelivrer: 1 });
+  assert.ok(h.suites!.includes('1 titre demandé attend sa délivrance : il sort de « En attente » et ne se délivre plus.'));
+  const f = C.archivageFormation(domain().fm('aipr'), 1, 2);
+  assert.ok(f.suites!.includes('2 demandes de collaborateurs attendent une réponse (tableau de bord) : elles ne pourront plus qu’être refusées, sauf à rétablir la formation.'));
+  assert.ok(!C.archivageFormation(domain().fm('aipr'), 1).suites!.some(x => /attend/.test(x)));
+  // Archivage : le message reprend ce qui reste en attente.
+  assert.match(run(HSE, 'referentiel.habilitation.archiver', { id: 'aipr' }), / · 1 titre demandé sort de « En attente » sans être délivré$/);
+  assert.match(run(HSE, 'referentiel.habilitation.archiver', { id: 'ac486' }), / · 1 demande en attente : à refuser, ou à accepter après rétablissement$/);
+  assert.match(run(HSE, 'referentiel.formation.archiver', { id: 'aipr' }), / · 1 demande en attente : à refuser, ou à accepter après rétablissement$/);
+  // Acceptation refusée : rien ne pourrait aboutir (délivrance, session). Ni titre « en attente », ni action du plan.
+  const titres = db.all('habTitres').length, plan = db.all('planActions').length;
+  refuse(RH, 'demande.accepter', { id: attente({ h: 'ac486' }).id }, /^Habilitation archivée : rétablissez-la d’abord \(écran Référentiels\), ou refusez la demande$/);
+  refuse(HSE, 'demande.accepter', { id: attente({ type: 'formation', f: 'aipr' }).id }, /^Formation archivée : rétablissez-la d’abord \(écran Référentiels\), ou refusez la demande$/);
+  assert.deepEqual([db.all('habTitres').length, db.all('planActions').length], [titres, plan]);
+  // Le refus reste possible ; rétablie, l'habilitation accepte de nouveau la demande.
+  assert.match(run(RH, 'demande.refuser', { id: attente({ type: 'formation', f: 'aipr' }).id, motif: 'Formation retirée du catalogue' }), /Demande refusée/);
+  run(HSE, 'referentiel.habilitation.archiver', { id: 'ac486', archive: false });
+  assert.match(run(RH, 'demande.accepter', { id: attente({ h: 'ac486' }).id }), /en attente de délivrance/);
+});
+
+test('journal des référentiels : code normalisé, jamais de texte libre ; validité modifiée rattachée aux titulaires', () => {
+  const { db, run, derniere, domain, RH, HSE } = fresh();
+  // Champs ignorés par l'action (code en modification, valeur d'`archive`) : jamais recopiés tels quels.
+  run(HSE, 'referentiel.formation.enregistrer', { ...SST, code: 'Texte libre : Mehdi Benali inapte' });
+  assert.deepEqual(derniere('referentiel.formation.enregistrer').payload, { code: 'sst' });
+  run(HSE, 'referentiel.habilitation.archiver', { id: 'aipr', archive: 'arrêt maladie de Mehdi Benali' });
+  assert.deepEqual(derniere('referentiel.habilitation.archiver').payload, { code: 'aipr', retablir: false, avant: { archive: null }, apres: { archive: '2026-10-10' } });
+  run(HSE, 'referentiel.habilitation.archiver', { id: 'aipr', archive: false });
+  assert.equal(derniere('referentiel.habilitation.archiver').payload.retablir, true);
+  // Refus d'accès (tracé avec les champs retenus) : une saisie qui n'a pas la forme d'un code n'est pas recopiée.
+  assert.deepEqual(champsRetenus('referentiel.formation.enregistrer', { code: 'Mehdi Benali, arrêt maladie', nom: 'x' }), { code: null });
+  assert.deepEqual(champsRetenus('referentiel.destination.archiver', { id: 'vn', archive: 'texte libre' }), { code: 'VN', retablir: false });
+  // Validité SST de 24 à 12 mois : le message nomme des titulaires, la ligne leur est rattachée (filtre, export de leurs données).
+  const effet = R.effetModification(domain().ds, 'formations', { ...domain().fm('sst'), validite: 12 });
+  const message = run(RH, 'referentiel.formation.enregistrer', { ...SST, validite: 12 });
+  assert.deepEqual(new Set(derniere('referentiel.formation.enregistrer').salaries), new Set(effet.echus.map(t => t.empId)));
+  const nomme = effet.echus.find(t => message.includes(t.nom))!;
+  const lignes = donneesSalarie(db, nomme.empId, { journal: true, par: 'test' })!.sections['Journal des actions le concernant'] as { code: string; message: string }[];
+  assert.ok(lignes.some(x => x.code === 'referentiel.formation.enregistrer' && x.message.includes(nomme.nom)), `${nomme.nom} : ligne dans l’export de ses données`);
+  // Sans titre touché : aucun salarié rattaché.
+  run(RH, 'referentiel.formation.enregistrer', { ...SST, validite: 12, organisme: 'Apave' });
+  assert.deepEqual(derniere('referentiel.formation.enregistrer').salaries, []);
+});
+
+test('Keystone : GET /referentiels donne la date d’archivage, le code archivé reste reçu', () => {
+  const { db, run, RH } = fresh();
+  run(RH, 'referentiel.destination.archiver', { id: 'VN' });
+  const lire = ROUTES_V1.find(([m, chemin]) => m === 'get' && chemin === '/referentiels')![2];
+  const ref = lire(db, {} as never, {} as never).body as Record<string, { code: string; archive: string | null }[]>;
+  assert.deepEqual(ref.destinations.find(x => x.code === 'VN'), { code: 'VN', pays: 'Vietnam', archive: '2026-10-10' });
+  assert.equal(ref.destinations.find(x => x.code === 'MA')!.archive, null);
+  assert.ok(ref.habilitations.every(x => x.archive === null) && ref.certifications.every(x => x.archive === null));
+  assert.ok(contexte(db).destinations.has('VN'), 'toujours reçu');
 });
 
 test('destination : code pays, vaccins obligatoires ou recommandés, archivage ; service RH seulement', () => {

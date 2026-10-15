@@ -164,8 +164,11 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
   /** Manager direct consultant un membre de son équipe (jamais sa propre fiche). */
   const membre = manager && e.id !== me && d.mgrOf(e) === me;
   const canPlan = formations || membre;
-  /** Certifications remplacées par un recyclage (historique), selon le filtre « réglementaires uniquement ». */
-  const anciennes = e.anciennes.filter(c => formIds.has(c.f));
+  /**
+   * Certifications remplacées par un recyclage (historique), selon le filtre « réglementaires uniquement » ; celles
+   * d'une formation archivée restent lisibles, comme sa certification en vigueur.
+   */
+  const anciennes = e.anciennes.filter(c => formIds.has(c.f) || c.fm.archive);
   /** Certifications en vigueur d'une formation archivée au référentiel : plus suivies, gardées au dossier. */
   const archivees = e.rawCerts.filter(c => c.fm.archive);
   const tv = d.travelOf(e, horizon);
@@ -325,7 +328,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
             <div key={c.id} className="list-row past">
               <div className="grow">
                 <div style={{ fontSize: 13 }}>{c.fm.nom}</div>
-                <div className="sub">Obtenue le {fmt(c.obt)} · remplacée le {fmt(c.remplacee!)}</div>
+                <div className="sub">Obtenue le {fmt(c.obt)} · remplacée le {fmt(c.remplacee!)}{c.fm.archive ? ' · formation archivée' : ''}</div>
               </div>
               <Tag cls="tag-outline" style={{ flex: 'none' }}>Remplacée</Tag>
             </div>

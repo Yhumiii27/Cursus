@@ -7,7 +7,7 @@ import { PlusIcon } from '@phosphor-icons/react';
 import { SECU_RULES, VALIDATION_LABEL, VISA_RULES, secuDe } from '../../../shared/constants.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, fmtEur, plural, validiteLabel } from '../../../shared/format.ts';
-import { actif, actifs, type ReferentielId } from '../../../shared/rules/referentiels.ts';
+import { actif, actifs, demandesEnAttente, titresADelivrer, type ReferentielId } from '../../../shared/rules/referentiels.ts';
 import type { Destination, Formation, HabType, ISODate } from '../../../shared/types.ts';
 import { Btn, Chips, Empty, Fine, Page, Panel, Seg, Tag, Two } from '../components/ui.tsx';
 import { useAgir } from '../state/actions.ts';
@@ -128,7 +128,7 @@ function Formations() {
                   <td className="right">
                     <ActionsLigne archive={f.archive} occupe={occupe}
                       modifier={() => openDialog({ type: 'refFormation', id: f.id })}
-                      archiver={() => openDialog({ type: 'confirmer', c: archivageFormation(f, titulaires(f)) })}
+                      archiver={() => openDialog({ type: 'confirmer', c: archivageFormation(f, titulaires(f), demandesEnAttente(d.ds, 'formations', f.id)) })}
                       retablir={agir(() => run('referentiel.formation.archiver', { id: f.id, archive: false }))} />
                   </td>
                 )}
@@ -178,7 +178,7 @@ function Habilitations() {
                   <td className="right">
                     <ActionsLigne archive={h.archive} occupe={occupe}
                       modifier={() => openDialog({ type: 'refHabilitation', id: h.id })}
-                      archiver={() => openDialog({ type: 'confirmer', c: archivageHabilitation(h, titres(h)) })}
+                      archiver={() => openDialog({ type: 'confirmer', c: archivageHabilitation(h, titres(h), { demandes: demandesEnAttente(d.ds, 'habilitations', h.id), aDelivrer: titresADelivrer(d.ds, h.id) }) })}
                       retablir={agir(() => run('referentiel.habilitation.archiver', { id: h.id, archive: false }))} />
                   </td>
                 )}

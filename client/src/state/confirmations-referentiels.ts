@@ -1,13 +1,22 @@
 // Confirmations de l'écran Référentiels (dialogue « confirmer », comme celles de state/confirmations.ts) : archivage
 // d'une formation, d'une habilitation ou d'une destination, chargement du référentiel type. Données seulement.
-// L'archivage se défait (« Rétablir », sans confirmation) ; la confirmation annonce ce qu'il change.
+// L'archivage se défait (« Rétablir », sans confirmation) ; la confirmation annonce ce qu'il change, dont les demandes des
+// collaborateurs encore en attente : sur un élément archivé, elles ne s'acceptent plus (à refuser, ou à rétablir d'abord).
 import { plural } from '../../../shared/format.ts';
 import type { ReferentielId } from '../../../shared/rules/referentiels.ts';
 import type { Destination, Formation, HabType } from '../../../shared/types.ts';
 import type { Confirmation } from './confirmations.ts';
 
-/** Archivage d'une formation du catalogue ; `titulaires` : salariés qui en détiennent une certification. */
-export function archivageFormation(f: Pick<Formation, 'id' | 'court'>, titulaires: number): Confirmation {
+/** Demandes des collaborateurs en attente sur l'élément (`quoi` : « la formation »…) : elles ne s'acceptent plus une fois archivé. */
+const demandesTexte = (demandes: number, quoi: string) => (demandes
+  ? [`${plural(demandes, 'demande de collaborateur attend', 'demandes de collaborateurs attendent')} une réponse (tableau de bord) : ${demandes > 1 ? 'elles ne pourront plus qu’être refusées' : 'elle ne pourra plus qu’être refusée'}, sauf à rétablir ${quoi}.`]
+  : []);
+
+/**
+ * Archivage d'une formation du catalogue ; `titulaires` : salariés qui en détiennent une certification ; `demandes` :
+ * demandes de formation des collaborateurs en attente de réponse.
+ */
+export function archivageFormation(f: Pick<Formation, 'id' | 'court'>, titulaires: number, demandes = 0): Confirmation {
   return {
     titre: 'Archiver la formation',
     question: `Archiver la formation « ${f.court} » ?`,
@@ -16,6 +25,7 @@ export function archivageFormation(f: Pick<Formation, 'id' | 'court'>, titulaire
       titulaires
         ? `Les certifications de ${plural(titulaires, 'salarié', 'salariés')} restent au dossier (historique, prérequis, Go / No Go), sans compter dans les statuts ni les échéances.`
         : 'Aucun salarié n’en détient de certification.',
+      ...demandesTexte(demandes, 'la formation'),
       'Elle reste reconnue dans les échanges avec Keystone, et se rétablit à tout moment.',
     ],
     bouton: 'Archiver',
@@ -24,8 +34,12 @@ export function archivageFormation(f: Pick<Formation, 'id' | 'court'>, titulaire
   };
 }
 
-/** Archivage d'une habilitation ; `titres` : titres délivrés à des salariés. */
-export function archivageHabilitation(h: Pick<HabType, 'id' | 'nom'>, titres: number): Confirmation {
+/**
+ * Archivage d'une habilitation ; `titres` : titres délivrés à des salariés ; `attente` : demandes des collaborateurs en
+ * attente de réponse, et titres demandés pas encore délivrés (« En attente » de l'écran Habilitations).
+ */
+export function archivageHabilitation(h: Pick<HabType, 'id' | 'nom'>, titres: number, attente: { demandes: number; aDelivrer: number } = { demandes: 0, aDelivrer: 0 }): Confirmation {
+  const { demandes, aDelivrer } = attente;
   return {
     titre: 'Archiver l’habilitation',
     question: `Archiver l’habilitation « ${h.nom} » ?`,
@@ -34,6 +48,12 @@ export function archivageHabilitation(h: Pick<HabType, 'id' | 'nom'>, titres: nu
       titres
         ? `${plural(titres, 'titre délivré reste', 'titres délivrés restent')} au dossier et dans le Go / No Go, sans compter dans les statuts ni les échéances.`
         : 'Aucun titre n’a été délivré.',
+      ...(aDelivrer
+        ? [aDelivrer > 1
+          ? `${aDelivrer} titres demandés attendent leur délivrance : ils sortent de « En attente » et ne se délivrent plus.`
+          : '1 titre demandé attend sa délivrance : il sort de « En attente » et ne se délivre plus.']
+        : []),
+      ...demandesTexte(demandes, 'l’habilitation'),
       'Elle reste reconnue dans les échanges avec Keystone, et se rétablit à tout moment.',
     ],
     bouton: 'Archiver',

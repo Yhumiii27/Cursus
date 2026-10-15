@@ -127,6 +127,10 @@ function demandeADecider(ctx: Ctx, id: unknown): DemandeCollab {
 const accepterDemande: ActionHandler = (ctx, p) => {
   const r = demandeADecider(ctx, p.id);
   const emp = getEmp(ctx, r.empId);
+  // Formation ou habilitation archivée depuis la demande : ni session, ni délivrance ne pourraient plus aboutir.
+  const archivee = r.type === 'formation' && r.f ? refusArchive(ctx.d.fm(r.f), 'Formation')
+    : r.type === 'habilitation' && r.h ? refusArchive(ctx.d.hm(r.h), 'Habilitation') : null;
+  if (archivee) throw new ActionError(`${archivee}, ou refusez la demande`);
   const done = (reponse: string) => ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'acceptee', reponse });
   if (r.type === 'formation') {
     const sess = r.sessionId && r.f

@@ -60,11 +60,12 @@ export const ROUTES_V1: RouteV1[] = [
     spec ??= JSON.parse(readFileSync(SPEC, 'utf8'));
     return { body: spec };
   }],
+  // Éléments archivés compris (`archive` : date d'archivage) : leur code reste reçu, mais ne doit plus être proposé.
   ['get', '/referentiels', db => ({
     body: {
-      habilitations: db.all<HabType>('habilitations', 'rowid').map(h => ({ code: h.id, nom: h.nom })),
-      certifications: db.all<Formation>('formations', 'rowid').map(f => ({ code: f.id, nom: f.nom })),
-      destinations: db.all<Destination>('destinations', 'rowid').map(d => ({ code: d.code, pays: d.pays })),
+      habilitations: db.all<HabType>('habilitations', 'rowid').map(h => ({ code: h.id, nom: h.nom, archive: h.archive ?? null })),
+      certifications: db.all<Formation>('formations', 'rowid').map(f => ({ code: f.id, nom: f.nom, archive: f.archive ?? null })),
+      destinations: db.all<Destination>('destinations', 'rowid').map(d => ({ code: d.code, pays: d.pays, archive: d.archive ?? null })),
     },
   })],
   ['put', '/projets/{code}', (db, req, res) => ecriture(res, 'projet', db.tx(() => enregistrerProjet(contexte(db), param(req, res, 'code'), req.body)))],

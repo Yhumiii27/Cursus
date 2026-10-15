@@ -115,10 +115,13 @@ export function Dashboard() {
                     const s = d.session(r.sessionId);
                     const detail = [r.motif, s ? `session souhaitée le ${fmt(parse(s.date))}${sessionActive(s) ? '' : ` (${s.statut.toLowerCase()})`}` : ''].filter(Boolean).join(' · ');
                     const x = r.declaration;
+                    // Formation ou habilitation archivée depuis la demande : elle ne s'accepte plus (refus du serveur).
+                    const archivee = r.type === 'formation' ? !!(r.f && d.fm(r.f)?.archive) : r.type === 'habilitation' && !!(r.h && d.hm(r.h)?.archive);
+                    const sub = [reqKind(r), r.parId ? `par ${d.personName(r.parId)} (manager)` : '', archivee ? `${r.type} archivée : à refuser, ou à rétablir d’abord` : ''].filter(Boolean).join(' · ');
                     return (
                       <tr key={r.id} className="clickable" onClick={() => openEmp(r.empId)}>
                         <td><Two main={e?.nom} sub={`${equipeLabel(e)} · Reçue le ${fmtShort(parse(r.date))}`} nowrap /></td>
-                        <td><Two main={reqLabel(r, id => d.fm(id).nom, id => d.hm(id).nom)} sub={r.parId ? `${reqKind(r)} · par ${d.personName(r.parId)} (manager)` : reqKind(r)} /></td>
+                        <td><Two main={reqLabel(r, id => d.fm(id).nom, id => d.hm(id).nom)} sub={sub} /></td>
                         {x && e
                           // Document déclaré : contenu saisi et valeur du dossier qu'il remplacera à la validation
                           // (sauf déclaration reprise d'une ancienne base, encore au dossier : un refus l'en retire).

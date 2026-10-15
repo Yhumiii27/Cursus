@@ -158,7 +158,7 @@ test('gestionnaire de paie : temps, absences et soldes sans nature médicale, tr
   for (const k of ['sessions', 'inscriptions', 'participations', 'entretiens', 'demandesCollab', 'voyages', 'demandesKeystone', 'plan', 'missions'] as const) assert.deepEqual(ds[k], [], k);
   assert.deepEqual(ds.referentiels.chantiers, []);
   // Transmission à la paie : la dernière transmission lui est renvoyée.
-  assert.match(msg(run(PAIE, 'temps.pushSage', {})), /transmises? à Sage Paie/);
+  assert.match(msg(run(PAIE, 'temps.pushSage', {})), /marquées? transmises? — simulation, rien n’est envoyé à Sage Paie/);
   assert.ok(buildSnapshot(db, PAIE).lastSagePush);
   assert.throws(() => run(PAIE, 'temps.validate', { empId: 2, week: '2026-10-05' }), (e: unknown) => e instanceof ActionError && e.status >= 400);
 });

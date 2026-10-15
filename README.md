@@ -116,6 +116,8 @@ qui n'est pas un GUID ou une adresse publique qui n'est pas en https, ou si `CUR
 définie ; hors production, il les signale seulement.
 De même pour l'envoi des e-mails (`docs/EMAILS.md`) : `CURSUS_MAIL_FROM` qui n'est pas une adresse, application
 d'envoi non entièrement désignée (`CURSUS_MAIL_*` ou `CURSUS_OIDC_*`), variables `CURSUS_MAIL_*` sans `CURSUS_MAIL_FROM`.
+Et pour Sage Paie : `SAGE_MODE` inconnu ou `api` (aucun contrat d'API fourni par Sage), `SAGE_URL` définie,
+`SAGE_MODE=simulation` hors application de bureau (des feuilles seraient marquées transmises sans que rien ne parte).
 En production, la démonstration refuse aussi (403) toute requête relayée par un proxy (`Forwarded`,
 `X-Forwarded-*`) ou adressée à un autre nom que 127.0.0.1 / localhost / [::1].
 
@@ -134,7 +136,8 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `CURSUS_INSECURE_COOKIE` | `1` : cookie sans l'attribut `Secure`, pour l'application de bureau en http://127.0.0.1 uniquement. Refusée en production hors application de bureau |
 | `KEYSTONE_API_KEY` | Clé attendue des appels entrants de Keystone (en-tête `X-Api-Key`). Obligatoire en production ; sans elle, les routes Keystone répondent 503. La clé `demo-keystone` n'est acceptée qu'en mode démonstration, quand la variable est vide |
 | `KEYSTONE_URL`, `KEYSTONE_TOKEN` | Envois à Keystone : adresse de base (`POST {KEYSTONE_URL}/api/cursus/v1/evenements`) et jeton (`Authorization: Bearer`), obligatoire en production avec l'adresse. Sans `KEYSTONE_URL`, les messages sont seulement tracés dans le journal (simulation) |
-| `SAGE_URL`, `SAGE_DOSSIER` | Bascule de l'adaptateur Sage Paie en mode API (à compléter, voir ci-dessous) |
+| `SAGE_MODE` | Transmission à Sage Paie : `fichier` (fichier d'import, mode de production par défaut), `simulation` (par défaut hors production : rien ne part, les feuilles sont seulement marquées transmises) ; `api` refusé, faute de contrat d'API fourni par Sage. Voir `docs/DEPLOIEMENT.md`, « Sage Paie » |
+| `SAGE_DOSSIER` | Dossier de paie inscrit dans les variables transmises (`CURSUS-CHIMIE` par défaut). `SAGE_URL` ne sert plus : refusée en production |
 | `CURSUS_OIDC_TENANT`, `CURSUS_OIDC_CLIENT_ID`, `CURSUS_OIDC_CLIENT_SECRET` | Connexion Microsoft 365 : ID de l'annuaire (GUID), ID d'application et secret client de l'inscription dans Entra (`docs/CONNEXION-MICROSOFT.md`). Les quatre variables avec `CURSUS_PUBLIC_URL`, ou aucune |
 | `CURSUS_PUBLIC_URL` | Adresse publique de Cursus, en https (`https://cursus.example.fr`) : Microsoft renvoie à `${CURSUS_PUBLIC_URL}/api/auth/microsoft/retour` |
 | `CURSUS_OIDC_AUTORITE` | Remplace `https://login.microsoftonline.com` : réservée aux tests automatiques (faux fournisseur local). Refusée en production |
@@ -172,8 +175,12 @@ périodique : `docs/SAUVEGARDE.md`.
   heures validées sur les projets Keystone, absences validées et annulées (période seulement, jamais la nature), changements de verdict Go / No Go) passent
   par une file d'envoi persistante : envoyés à Keystone avec `KEYSTONE_URL` (nouvelles tentatives, suivi
   et relance dans Paramètres → Envois), seulement tracés dans le journal sans elle (`server/src/envois.ts`).
-- **Sage Paie** : la transmission produit le JSON des variables et un accusé fictif
-  (`server/src/integrations/sage.ts`) ; la correspondance des rubriques avec le plan de paie reste à paramétrer.
+- **Sage Paie** (`SAGE_MODE`, `server/src/integrations/sage.ts`) : en simulation, la transmission produit le JSON des
+  variables par période de paie (rappel d'une période close compris) et marque les feuilles transmises, sans rien envoyer,
+  ce que l'écran, la confirmation et le message disent. Le fichier d'import pour Sage (mode de production) arrive avec
+  l'étape suivante : d'ici là, en mode fichier, aucune feuille n'est marquée transmise. Le mode API est refusé, sans accusé
+  fictif. Les codes des rubriques dans le plan de paie se saisissent et se confirment dans l'écran Temps de travail
+  (administrateur RH, gestionnaire de paie) : tant qu'une rubrique utilisée n'est pas confirmée, seule la simulation transmet.
 - **E-mails** (`docs/EMAILS.md`) : notifications des étapes de validation (demande de congés et décision,
   feuille soumise ou renvoyée, compte rendu d'entretien à signer, réponse à une demande au service RH),
   aussitôt ou en récapitulatif quotidien selon le réglage de chacun ; convocations aux formations (envoi
@@ -208,8 +215,9 @@ voyage par destination (passeport, visas, vaccins, délais) et de détachement (
 convention bilatérale de sécurité sociale, information écrite au-delà de 4 semaines) · Go / No Go par
 chantier (matricules et codes de motif uniquement) : contrat et absences sur la présence, aptitude médicale, habilitations,
 certifications, déplacement couvrant la présence, formalités de voyage et de détachement · heures supplémentaires +25 % / +50 %,
-heures complémentaires +10 % / +25 %, forfait jours, alertes 10 h / 48 h · repos
-compensateur · journée de 24 h au plus, motif exigé au-delà des durées maximales · CP 25 jours
+payées avec majoration (ou remplacées par un repos compensateur avec la référence de l'accord qui le prévoit, mode figé sur
+chaque feuille à sa validation), heures complémentaires +10 % / +25 %, forfait jours, alertes 10 h / 48 h · période de paie
+déduite de la semaine (mois du dimanche par défaut, clôture des variables, rappel d'une période close) · journée de 24 h au plus, motif exigé au-delà des durées maximales · CP 25 jours
 ouvrés (+5 j à 59 ans, CCN Chimie), chaque jour imputé sur sa période de référence, prise par
 anticipation dans la limite des jours acquis à la date du congé · RTT et jours de repos forfait
 calculés au prorata de l'entrée et de la fin du contrat, CET (5 RTT/an, 5e semaine de CP), reports

@@ -156,6 +156,22 @@ function problemesMail(env: Env): string[] {
   return out;
 }
 
+// — Sage Paie (server/src/integrations/sage.ts) : fichier d'import en production, aucun connecteur API —
+
+/**
+ * SAGE_MODE inconnu ; mode API, qui n'existe pas faute de contrat d'API fourni par Sage ; SAGE_URL, qui faisait croire à
+ * un envoi ; simulation en production (hors application de bureau), qui marquerait des feuilles transmises sans envoi.
+ */
+function problemesSage(env: Env): string[] {
+  const out: string[] = [];
+  const mode = (env.SAGE_MODE ?? '').trim();
+  if (mode && !['simulation', 'fichier', 'api'].includes(mode)) out.push(`SAGE_MODE vaut « ${mode} » : indiquez simulation, fichier (fichier d’import, mode de production par défaut) ou api.`);
+  if (mode === 'api') out.push('SAGE_MODE=api : l’envoi à Sage Paie par API n’existe pas, faute de contrat d’API fourni par Sage. Utilisez le fichier d’import (SAGE_MODE=fichier, ou variable absente).');
+  if (env.SAGE_URL?.trim()) out.push('SAGE_URL est définie alors qu’aucun connecteur API vers Sage Paie n’existe : rien n’y serait envoyé. Retirez-la ; le mode de production est le fichier d’import.');
+  if (mode === 'simulation' && enProduction(env) && !demoActive(env)) out.push('SAGE_MODE=simulation en production : des feuilles seraient marquées transmises à la paie sans que rien ne parte. Retirez la variable (fichier d’import par défaut).');
+  return out;
+}
+
 /** Problèmes de configuration : bloquants en production, simples avertissements ailleurs. */
 export function problemesConfig(env: Env = process.env): string[] {
   const out: string[] = [];
@@ -179,6 +195,7 @@ export function problemesConfig(env: Env = process.env): string[] {
   if (env.CURSUS_INSECURE_COOKIE === '1' && !local) out.push('CURSUS_INSECURE_COOKIE=1 retire l’attribut Secure du cookie de session : réservé à l’application de bureau (démonstration sur la boucle locale).');
   out.push(...problemesOidc(env));
   out.push(...problemesMail(env));
+  out.push(...problemesSage(env));
   if (env.CURSUS_OIDC_AUTORITE) out.push(`CURSUS_OIDC_AUTORITE est définie (${env.CURSUS_OIDC_AUTORITE}) : elle remplace le service de connexion de Microsoft et reste réservée aux tests.`);
   return out;
 }

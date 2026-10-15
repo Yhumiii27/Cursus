@@ -188,6 +188,11 @@ export const REGLES: Record<string, Regle> = {
     etat: db => db.where<FeuilleTemps>('feuilles', 'statut', 'validee').filter(f => !f.sage).map(f => f.id),
     bilan: (_p, x) => ({ feuilles: transmises(x).map(f => ({ empId: f.empId, week: f.week })) }), salaries: (_p, x) => transmises(x).map(f => f.empId),
   },
+  // Correspondance d'une rubrique avec le plan de paie Sage : codes, case « exportée », date de confirmation.
+  'paie.rubrique': {
+    champs: ['code', 'codeSage', 'active', 'confirmer'],
+    cible: { table: 'rubriquesPaie', cle: p => (typeof p.code === 'string' && p.code ? p.code : null), colonnes: ['codeSage', 'active', 'confirmeLe'] },
+  },
   // Absences : la nature n'est jamais recopiée (son absence trahirait une nature médicale) ; dates et statut seulement.
   'absence.demander': { champs: ['empId', 'kind', 'du', 'au'] },
   'absence.decider': { champs: ['id', 'ok'], cible: parId('absences', ['statut']) },

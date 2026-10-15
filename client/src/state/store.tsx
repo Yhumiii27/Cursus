@@ -79,6 +79,8 @@ export type DialogState =
   | { type: 'compte' }
   | { type: 'motDePasseProvisoire'; nom: string; identifiant: string; motDePasse: string }
   | { type: 'motDePasse' }
+  /** Correspondance d'une rubrique de paie avec le plan de paie Sage (écran Temps, components/RubriquesPaie.tsx). */
+  | { type: 'rubrique'; code: string }
   /** Refus ou action irréversible à confirmer (state/confirmations.ts). */
   | { type: 'confirmer'; c: Confirmation };
 

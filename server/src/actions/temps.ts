@@ -2,12 +2,13 @@
 import { addD, isValidDate, isoWeek, mondayOf, wDays } from '../../../shared/dates.ts';
 import { fH, matricule, num, plural } from '../../../shared/format.ts';
 import { jourHorsContrat, semaineHorsContrat } from '../../../shared/rules/absences.ts';
+import { periodeLabel, rubriquesAConfirmer, rubriquesPaie, rubriquesTexte } from '../../../shared/rules/paie.ts';
 import {
   absenceCeJour, buildSagePayload, calcSheet, contratFige, demandesAbsence, demandesEnAttenteMessage, HEURES_JOUR_MAX, heuresSurAbsence, heuresSurAbsenceMessage,
-  joursAbsence, joursAuDela24, joursTexte, sagePending, semaineCouverte, suggestLines,
+  joursAbsence, joursAuDela24, joursTexte, rubriquesEmises, sagePending, semaineCouverte, suggestLines,
 } from '../../../shared/rules/temps.ts';
 import type { Employe, FeuilleTemps, LigneTemps } from '../../../shared/types.ts';
-import { pushToSage, SAGE_DOSSIER } from '../integrations/sage.ts';
+import { pushToSage, SAGE_DOSSIER, SageIndisponible, sageMode } from '../integrations/sage.ts';
 import { heuresKeystone, sendToKeystone } from '../integrations/keystone.ts';
 import { notifierFeuilleRenvoyee, notifierFeuilleSoumise } from '../notifications.ts';
 import { relevesAutomatiques } from '../releves.ts';
@@ -163,7 +164,10 @@ const validate: ActionHandler = (ctx, p) => {
   const motif = motifDepassement(ctx, emp, { ...sh, contrat }, p, 'avant de valider la feuille', true);
   // Seules les heures des projets Keystone lui sont renvoyées : ni activités internes (INT-*), ni cours en CFA (ECOLE).
   const projets = heuresKeystone(sh.lignes), keystone = Object.keys(projets).length > 0;
-  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif });
+  // Mode des heures supplémentaires (payées ou en repos) figé à la validation, comme le régime à la soumission :
+  // un changement ultérieur du réglage ne recalcule ni la paie ni le repos acquis de cette semaine.
+  const heuresSup = sh.heuresSup ?? ctx.ds.settings.heuresSupMode;
+  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif, heuresSup });
   if (keystone) sendToKeystone(ctx.db, { type: 'heures.validees', matricule: matricule(emp.id), semaine: sh.week, projets });
   // Intérimaire : la dernière feuille validée d'une semaine révolue fait partir le relevé de son agence.
   const releve = emp.typeContrat === 'interim' && emp.agence ? relevesAutomatiques(ctx.db, { agence: emp.agence, semaine: sh.week }).length > 0 : false;
@@ -177,17 +181,37 @@ const reject: ActionHandler = (ctx, p) => {
   return 'Feuille renvoyée pour correction';
 };
 
-/** Transmission à la paie : administrateur RH et gestionnaire de paie. */
+/**
+ * Transmission à la paie : administrateur RH et gestionnaire de paie. Hors simulation, chaque rubrique émise et exportée
+ * doit avoir un code Sage confirmé (écran Temps, « Rubriques de paie »), sinon refus (409) avec la liste. Les feuilles
+ * ne sont marquées transmises qu'en simulation, qui le dit : le mode fichier (à venir) et le mode API (aucun contrat
+ * d'API) sont refusés (503), rien n'est modifié et aucun accusé n'est inventé.
+ */
 const pushSage: ActionHandler = (ctx) => {
   requirePaie(ctx);
   const sheets = sagePending(ctx.d);
   if (!sheets.length) throw new ActionError('Aucune feuille validée en attente de transmission');
-  const payload = buildSagePayload(ctx.d, sheets, SAGE_DOSSIER);
-  const ack = pushToSage(payload);
-  if (!ack.ok) throw new ActionError('Sage Paie a refusé la transmission', 502);
+  const mode = sageMode();
+  const payload = buildSagePayload(ctx.d, sheets, SAGE_DOSSIER, new Date(), mode);
+  if (mode !== 'simulation') {
+    const manquantes = rubriquesAConfirmer(rubriquesEmises(ctx.d, sheets), rubriquesPaie(ctx.ds.rubriquesPaie));
+    if (manquantes.length) {
+      throw new ActionError(`Transmission impossible : code Sage à confirmer pour ${manquantes.length > 1 ? 'les rubriques' : 'la rubrique'} ${rubriquesTexte(manquantes)} (écran Temps, « Rubriques de paie »)`, 409);
+    }
+  }
+  try {
+    pushToSage(payload, mode);
+  } catch (err) {
+    if (err instanceof SageIndisponible) throw new ActionError(err.message, 503);
+    throw err;
+  }
   sheets.forEach(sh => ctx.db.update<FeuilleTemps>('feuilles', sh.id, { sage: true }));
   ctx.db.setSetting('lastSagePush', payload);
-  return `${plural(sheets.length, 'feuille transmise', 'feuilles transmises')} à Sage Paie — accusé de réception reçu`;
+  // Semaines de périodes déjà closes : parties en rappel sur la période ouverte.
+  const rappels = [...new Set(payload.lignes.flatMap(l => (l.periode_origine ? [l.periode_origine] : [])))].sort();
+  return `${plural(sheets.length, 'feuille marquée transmise', 'feuilles marquées transmises')} — simulation, rien n’est envoyé à Sage Paie`
+    + (payload.periodes?.length ? ` · ${payload.periodes.length > 1 ? 'périodes' : 'période'} ${payload.periodes.map(periodeLabel).join(', ')}` : '')
+    + (rappels.length ? ` · rappel de ${rappels.map(periodeLabel).join(', ')}` : '');
 };
 
 export const tempsActions: Record<string, ActionHandler> = {

@@ -29,6 +29,7 @@ import { PlanImportDialog } from './PlanImportDialog.tsx';
 import { ReportDialog } from './ReportDialog.tsx';
 import { ReqFormDialog } from './ReqFormDialog.tsx';
 import { ReqHabDialog } from './ReqHabDialog.tsx';
+import { RubriqueDialog } from './RubriqueDialog.tsx';
 import { SessionDetailDialog } from './SessionDetailDialog.tsx';
 import { SessionDialog } from './SessionDialog.tsx';
 import { TripDialog } from './TripDialog.tsx';
@@ -80,6 +81,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'compte': return <CompteDialog />;
     case 'motDePasseProvisoire': return <MotDePasseProvisoireDialog {...d} />;
     case 'motDePasse': return <MotDePasseDialog />;
+    case 'rubrique': return <RubriqueDialog {...d} />;
     case 'confirmer': return <ConfirmerDialog c={d.c} />;
   }
 }

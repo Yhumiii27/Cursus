@@ -34,6 +34,16 @@ export const choix = <T extends string>(valeurs: readonly T[], sinon?: T) => (v:
   (valeurs as readonly unknown[]).includes(v) ? v as T : sinon ?? actuelle;
 
 /**
+ * Texte court sur une ligne (référence d'un accord…), espaces réduits ; au-delà de `max` caractères, refus. Recopié dans
+ * le journal et transmis à toute personne connectée : jamais de donnée personnelle.
+ */
+export const texte = (max: number, libelle: string) => (v: unknown): string => {
+  const t = typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '';
+  if (t.length > max) throw new ReglageInvalide(`${libelle} : ${max} caractères au plus`);
+  return t;
+};
+
+/**
  * Table des réglages, groupée par section de Paramètres (client/src/pages/parametres/) : un champ de Settings sans sa
  * ligne ici est une erreur de compilation. Chaque valeur enregistrée est tracée dans le journal (anciennes et nouvelles
  * valeurs) : codes, nombres, dates et cases à cocher seulement, jamais de texte libre.
@@ -49,7 +59,23 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   rtt39: { defaut: 23, controle: entier(0, 40) },
   // — Écran d'accueil de l'espace RH : pas de contrôle, non modifiable depuis l'écran —
   vueInitiale: { defaut: 'dashboard' },
+  // — Paie (parametres/ReglagesPaie.tsx, shared/rules/paie.ts) : heures supplémentaires payées par défaut ; repos seulement
+  // avec la référence de l'accord (COHERENCE) ; semaine à cheval sur le mois de son dimanche ; clôture le dernier jour (0) —
+  heuresSupMode: { defaut: 'paiement', controle: choix(['paiement', 'repos']) },
+  heuresSupAccord: { defaut: '', controle: texte(120, 'Référence de l’accord') },
+  periodeRattachement: { defaut: 'dimanche', controle: choix(['dimanche', 'vendredi', 'jour']) },
+  clotureJour: { defaut: 0, controle: entier(0, 28) },
 };
+
+/**
+ * Contrôles qui portent sur plusieurs champs, appliqués aux réglages complets après ceux de chaque champ : un message
+ * refuse toute la modification (ReglageInvalide, 400). Une ligne par règle, avec le groupe de sa section.
+ */
+export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
+  // — Paie : le repos de remplacement des heures supplémentaires suppose un accord collectif (art. L3121-37) —
+  s => (s.heuresSupMode === 'repos' && !s.heuresSupAccord
+    ? 'Heures supplémentaires remplacées par un repos : indiquez la référence de l’accord collectif qui le prévoit (art. L3121-37)' : null),
+];
 
 /** Vue non typée de la table, pour la parcourir (les contrôles reçoivent la valeur en vigueur du même champ). */
 type Table = Record<string, { defaut: unknown; controle?: (v: unknown, actuelle: never) => unknown }>;
@@ -61,12 +87,17 @@ export function reglagesParDefaut(table: Table = REGLAGES): Settings {
 
 /**
  * Réglages après une modification : chaque champ présent dans `p` et doté d'un contrôle y passe, avec sa valeur en
- * vigueur ; les autres clés (`silent`, champ inconnu ou sans contrôle) sont ignorées. ReglageInvalide si un contrôle refuse.
+ * vigueur ; les autres clés (`silent`, champ inconnu ou sans contrôle) sont ignorées. ReglageInvalide si un contrôle refuse,
+ * ou si le résultat ne respecte pas une règle de COHERENCE.
  */
-export function appliquerReglages(actuels: Settings, p: Record<string, unknown>, table: Table = REGLAGES): Settings {
+export function appliquerReglages(actuels: Settings, p: Record<string, unknown>, table: Table = REGLAGES, coherence = COHERENCE): Settings {
   const cur = actuels as unknown as Record<string, unknown>, next = { ...cur };
   for (const [k, r] of Object.entries(table)) {
     if (p[k] !== undefined && r.controle) next[k] = r.controle(p[k], cur[k] as never);
+  }
+  for (const c of coherence) {
+    const refus = c(next as unknown as Settings);
+    if (refus) throw new ReglageInvalide(refus);
   }
   return next as unknown as Settings;
 }

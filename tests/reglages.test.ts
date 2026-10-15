@@ -23,6 +23,8 @@ const run = (name: string, p: Record<string, unknown>) => db.tx(() => ACTIONS[na
 test('réglages par défaut : une ligne par champ, valeurs d’avant le découpage', () => {
   assert.deepEqual(DEFAULT_SETTINGS, {
     horizonAlerte: 90, uniquementReglementaire: false, seuilBudget: 85, partageKeystone: 'minimal', rtt39: 23, vueInitiale: 'dashboard',
+    // Paie (lot 4) : heures supplémentaires payées, semaine à cheval sur le mois de son dimanche, clôture le dernier jour.
+    heuresSupMode: 'paiement', heuresSupAccord: '', periodeRattachement: 'dimanche', clotureJour: 0,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

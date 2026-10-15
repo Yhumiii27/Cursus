@@ -17,7 +17,7 @@ shared/            Domaine partagé (aucune dépendance)
   journal.ts       Journal des actions : libellés, familles, actions liées à la paie, durées de conservation, droits de lecture
   reglages.ts      Réglages de Paramètres : table « champ → contrôle » (valeur par défaut, contrôle de chaque champ de Settings)
   rules/           temps.ts, conges.ts, entretiens.ts, budget.ts, imports.ts, sante.ts (avis et visites médicales) ;
-                   conflits.ts : doublons et conflits de dates
+                   conflits.ts : doublons et conflits de dates ; paie.ts : période de paie, rubriques Sage, modes (Paie)
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   migrate.ts       Reprises des bases antérieures, rejouées à chaque démarrage (idempotentes)
@@ -56,7 +56,8 @@ client/src/
   components/      ui.tsx (Page, Kpi, Panel, Tag, Seg, Two, Bar…), Dialog.tsx (Dialog, Field…) et
                    ErreurRendu.tsx (erreur de rendu d'une page, d'un dialogue ou de l'application)
                    focus.ts (focus des fenêtres modales), controles.ts (messages d'erreur des champs),
-                   panneau.ts (panneau de détail amené dans le champ de vision sur écran étroit)
+                   panneau.ts (panneau de détail amené dans le champ de vision sur écran étroit),
+                   LotsPaie.tsx et RubriquesPaie.tsx (transmission à Sage et rubriques de paie, écran Temps)
   layout/Shell.tsx Barre latérale, en-tête, notification ; layout/Reconnexion.tsx : session expirée, par-dessus l'écran
   pages/           Un fichier par écran ; pages/parametres/ : une section de l'écran Paramètres par fichier (sections.tsx)
   dialogs/         Un fichier par dialogue, rendus par DialogHost
@@ -139,7 +140,7 @@ design/            Prototype Claude Design de référence et guide du design sys
      tentative ; une saisie incorrecte (date passée, doublon, adresse invalide) l'est dès la saisie.
    - *Confirmations* (`state/confirmations.ts`, `dialogs/ConfirmerDialog.tsx`, dialogue `confirmer`) : refus d'une
      demande au service RH, d'une demande d'absence ou d'une demande Keystone (motif obligatoire), suppression d'une
-     ligne de feuille de temps qui porte des heures, transmission à Sage Paie, changement de manager, retrait d'un
+     ligne de feuille de temps qui porte des heures, transmission à Sage Paie (simulation, périodes et rappels), changement de manager, retrait d'un
      membre, suppression d'une équipe, comptes (désactiver, délier, nouveau mot de passe), réinitialisation de la
      démonstration ; plus aucun `window.confirm`. Une confirmation n'est faite que de données (brouillon d'une
      reconnexion Microsoft) ; le dialogue reste ouvert si le serveur refuse. Depuis un dialogue, la confirmation
@@ -160,7 +161,8 @@ design/            Prototype Claude Design de référence et guide du design sys
   connexion Microsoft 365 configurée en partie, locataire autre qu'un GUID, `CURSUS_PUBLIC_URL` hors
   https, `CURSUS_OIDC_AUTORITE` définie (réservée aux tests), envoi des e-mails mal configuré (`CURSUS_MAIL_FROM`
   qui n'est pas une adresse, application Entra incomplète ou locataire autre qu'un GUID, variables `CURSUS_MAIL_*`
-  sans `CURSUS_MAIL_FROM`).
+  sans `CURSUS_MAIL_FROM`), Sage Paie (`SAGE_MODE` inconnu ou `api`, `SAGE_URL` définie, `SAGE_MODE=simulation` hors
+  application de bureau : des feuilles seraient marquées transmises sans que rien ne parte).
   Le mode démonstration ne s'active qu'avec `CURSUS_DEMO=1` ; en production (application de bureau),
   `demoPosteLocal` (`server/src/securite.ts`) refuse en plus (403) toute requête relayée par un proxy
   ou adressée à un autre nom que la boucle locale.
@@ -390,11 +392,14 @@ Réglages de l'écran Paramètres, modifiés par l'administrateur RH (`parametre
 
 1. `shared/types.ts`, interface `Settings` : le champ.
 2. `shared/reglages.ts`, table `REGLAGES` : sa ligne, dans le groupe de sa section, `champ: { defaut, controle }`.
-   Contrôles prêts : `entier(min, max, pas)` (borné, arrondi au pas), `booleen`, `choix(valeurs, sinon?)` ; sinon une
+   Contrôles prêts : `entier(min, max, pas)` (borné, arrondi au pas), `booleen`, `choix(valeurs, sinon?)`,
+   `texte(max, libellé)` (une ligne, espaces réduits, refus au-delà de `max`) ; sinon une
    fonction `(v, actuelle) => valeur` qui borne ou ramène la saisie, ou lève `ReglageInvalide('message')` : refus 400,
    rien n'est enregistré. Un champ de `Settings` sans ligne ne compile pas ; sans `controle`, l'écran ne le modifie pas.
 3. `shared/journal.ts`, `CHAMP_LABEL` : son libellé, sous lequel le journal affiche l'ancienne et la nouvelle valeur
    (« Seuil d’alerte : 60 → 90 ») ; sans lui, le nom brut du champ.
+4. Une règle qui lie plusieurs champs (repos de remplacement des heures supplémentaires : la référence de l'accord est
+   exigée) : une ligne dans `COHERENCE` (`shared/reglages.ts`), appliquée aux réglages complets après les contrôles.
 
 Rien d'autre côté serveur : `DEFAULT_SETTINGS` est tiré de la table, `parametres.maj` contrôle et enregistre, le journal
 trace l'ancienne et la nouvelle valeur. Une base existante a la valeur par défaut tant que l'administrateur ne l'a pas
@@ -466,7 +471,8 @@ aucun champ du paramètre n'est recopié.
 | `temps.addLine` / `temps.removeLine` | empId, week, projet / li, projet?, tache?, lignes? (ligne visée : déjà supprimée, rien n'est refait ; feuille changée, refus) | idem |
 | `temps.suggest` / `temps.submit` | empId, week, motif? | idem (soumission : brouillon ou à corriger, sans heures un jour d’absence validée ; semaine entièrement couverte par une absence : sans heure ; 24 h par jour au plus, toutes lignes cumulées ; motif exigé au-delà de 10 h par jour ou 48 h par semaine, 13 h pour un forfait jours) |
 | `temps.validate` / `temps.reject` | empId, week, comment?, motif? | manager direct ou RH, jamais pour sa propre feuille (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence ; 24 h par jour au plus ; motif du dépassement exigé s'il manque, après une correction du valideur : celui du salarié n'est jamais remplacé) |
-| `temps.pushSage` | — | administrateur RH, paie |
+| `temps.pushSage` | — ; simulation seulement (feuilles marquées transmises, rien n'est envoyé, message qui le dit) : en mode fichier ou API, refus 503 sans rien marquer ; hors simulation, refus 409 si une rubrique émise et exportée n'a pas de code Sage confirmé (liste) | administrateur RH, paie |
+| `paie.rubrique` | code (RUBRIQUES_PAIE), codeSage?, active?, confirmer? (`true` : confirmé ce jour par la personne connectée ; `false` : confirmation retirée ; un code changé sans `true` repasse « à confirmer ») ; jamais deux unités sur un même code Sage | administrateur RH, paie (écran Temps) |
 | `releve.envoyer` | agence, semaine (lundi, pas à venir) : relevé des feuilles validées des intérimaires de l'agence, envoi ou renvoi (feuilles en attente nommées) | RH, paie |
 | `absence.demander` | empId, kind (`CP`/`RTT`/`RECUP`), du, au | intéressé ou RH (demande, refusée si ces jours portent des heures sur une feuille validée) ; manager direct (posée et validée, refusée si des heures sont saisies ces jours-là) |
 | `absence.decider` | id, ok, motif? (refus : `motifRefus`, montré au salarié et à son manager) | manager direct ou RH, jamais pour sa propre demande (validation refusée si des heures sont saisies ces jours-là ; même décision déjà prise : rien n'est refait) |
@@ -481,7 +487,7 @@ aucun champ du paramètre n'est recopié.
 | `entretien.modifier` | id, section?, value?, info? | évaluateur / salarié selon la section (un membre du RH n'évalue pas son propre entretien) |
 | `entretien.clore` | id, date? (jour où l'entretien a eu lieu, aujourd'hui au plus tard et pas avant sa planification ; exigée pour un entretien prévu à une date à venir) | évaluateur (l'écran enregistre d'abord chaque section ; un échec interrompt la clôture) |
 | `entretien.signer` | id | salarié |
-| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone), silent? ; saisie refusée par un contrôle : 400, rien n'est enregistré | administrateur RH |
+| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord) : 400, rien n'est enregistré | administrateur RH |
 | `demo.reinitialiser` | — | administrateur RH, mode démonstration |
 | `compte.creer` | empId (ou nom, adresse : compte externe), type (`microsoft`/`local`), identifiant, profilRh | administrateur RH (mot de passe provisoire dans `result`, affiché une fois) |
 | `compte.profil` | id, profilRh (`aucun`/`rh_gestionnaire`/`rh_admin`/`referent_hse`/`paie`/`lecture_seule`) | administrateur RH (jamais le dernier administrateur actif ; un compte externe garde un profil) |
@@ -757,6 +763,21 @@ paie sera stocké. Contrat : `docs/API-KEYSTONE.md` et `docs/keystone-openapi.js
   décalage d'hiver ou d'été compris (`horodatageParis`).
 - **Semaines** : l'année d'une semaine ISO est celle de son jeudi (`isoWeekYear`) : la semaine du lundi 29 décembre 2025
   part à Sage en « 2026-S01 ». Le cumul du forfait annuel en heures (`cumulAnnuel`) ventile une semaine à cheval jour par jour.
+- **Période de paie** (`shared/rules/paie.ts`) : déduite de la semaine, plus du jour de l'envoi. Une semaine à cheval sur deux
+  mois va sur le mois de son dimanche (réglage `periodeRattachement` : aussi le mois du vendredi, ou une ventilation jour par
+  jour, `partsSemaine`, où chaque part reçoit le décompte cumulé jusqu'à son dernier jour moins celui des parts précédentes :
+  les heures supplémentaires, dernières heures de la semaine, suivent leur jour et les parts s'additionnent exactement).
+  Clôture des variables le dernier jour du mois (`clotureJour`, ou le 1er au 28) : une période close reçoit encore ses
+  semaines en rappel sur la période ouverte (`periode_origine`), signalé dans la confirmation et le message de la
+  transmission. L'écran Temps montre les feuilles en attente par période (`feuillesParPeriode`).
+- **Heures supplémentaires** (`calcSheet`, `sageRubriques`) : payées avec majoration par défaut (HS25, HS50, sans repos) ;
+  remplacées par un repos compensateur équivalent (RCR_ACQUIS seul, crédité au compteur de récupération) quand l'administrateur
+  RH choisit ce mode avec la référence de l'accord collectif qui le prévoit (art. L3121-37) ; heures incluses à un forfait
+  hebdomadaire (HSF25, HSF50) toujours payées. Le mode est figé sur la feuille à sa validation (`FeuilleTemps.heuresSup`),
+  comme le régime à la soumission. Reprise d'une base antérieure (migration `lot4-paie-heures-sup`) : feuilles déjà
+  transmises au calcul d'origine (« historique » : payées et repos crédité), feuilles validées non transmises au mode
+  réglé ; le journal (`migration.heuresSup`) liste les salariés dont le solde de récupération devient négatif. Sans repos
+  repris, acquis ni posé, le compteur de récupération n'apparaît pas (`recupInfo`).
 - **Durées** : une journée compte 24 h au plus, toutes lignes de la feuille cumulées (saisie, proposition Keystone,
   soumission, validation). Au-delà des durées maximales (`SheetCalc.depassements`), la soumission exige un motif
   (`FeuilleTemps.motifDepassement`), affiché au valideur ; s'il a lui-même porté la feuille au-delà, il le donne en validant.
@@ -875,8 +896,19 @@ Règles : `shared/rules/absences.ts` (confidentialité, décompte, reprise, annu
   sans envoi. Ceux mémorisés en simulation ne sont pas réputés transmis : le réglage `verdictsKeystoneMode`
   retient le mode du suivi, et le premier calcul en mode API vide la table, d'où un premier verdict
   (`precedent: null`) pour chaque ressource suivie.
-- **Sage Paie** : `server/src/integrations/sage.ts` (`pushToSage`). La file d'envoi prévoit la cible
-  `sage` (colonne `cible`, transports par cible), sans la brancher tant que l'envoi n'est pas décidé.
+- **Sage Paie** : `server/src/integrations/sage.ts`, mode `SAGE_MODE` (`sageMode`) : `simulation` (démonstration et
+  développement : rien ne part, les feuilles sont marquées transmises et l'écran, la confirmation et le message le disent),
+  `fichier` (mode de production par défaut : fichier d'import téléchargé par la paie puis import confirmé, qui seul marquera
+  les feuilles transmises — livré à l'étape suivante ; d'ici là, `temps.pushSage` refuse sans rien marquer) et `api`
+  (aucun contrat d'API fourni par Sage : refusé au démarrage en production, refusé à la transmission ; plus aucun accusé
+  fictif). `SAGE_URL` ne fait plus basculer en mode API et est refusée en production (`server/src/config.ts`), comme la
+  simulation hors application de bureau. Rubriques (`shared/rules/paie.ts`) : liste unique des codes internes
+  (`RUBRIQUES_PAIE` de `shared/constants.ts`), correspondance enregistrée par rubrique modifiée (table `rubriquesPaie` ; sans
+  ligne : code Sage égal au code interne, à confirmer), traduite par `buildSagePayload` (rubriques désactivées retirées,
+  quantités nulles omises, deux rubriques sur un même code additionnées). Écran Temps (`components/LotsPaie.tsx`,
+  `RubriquesPaie.tsx`) : l'administrateur RH et la paie saisissent et confirment les codes ; le service RH et la lecture
+  seule consultent ; le manager, le collaborateur et le référent HSE ne reçoivent pas la table (`dataset.ts`). La file
+  d'envoi prévoit la cible `sage`, sans la brancher (envoi automatique non fait).
 - **Microsoft 365** : `server/src/microsoft.ts` (voir Sécurité) ; un compte Microsoft se retrouve par
   son `oid`, ou par son identifiant (adresse de connexion) à la première connexion.
 - **E-mails** (`server/src/integrations/email.ts`, guide `docs/EMAILS.md`) : cible `email` de la file d'envoi,

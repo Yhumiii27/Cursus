@@ -213,7 +213,17 @@ export interface FeuilleTemps {
   id: number; empId: number; week: ISODate; statut: FeuilleStatut; comment: string | null; sage: boolean; keystone: boolean; lignes: LigneTemps[]; contrat: ContratFige | null;
   /** Motif d'un dépassement des durées maximales (10 h par jour, 48 h par semaine), exigé à la soumission ou à la validation. */
   motifDepassement?: string | null;
+  /**
+   * Mode des heures supplémentaires figé à la validation (réglage `heuresSupMode` du jour) : payées ou remplacées par un
+   * repos ; « historique » pour une feuille transmise avant ce choix (payées et repos crédité, calcul d'origine). Null
+   * avant la validation : le réglage en vigueur s'applique (`calcSheet` de shared/rules/temps.ts).
+   */
+  heuresSup?: ModeHeuresSupFige | null;
 }
+/** Heures supplémentaires payées avec majoration, ou remplacées par un repos compensateur (accord collectif, art. L3121-37). */
+export type ModeHeuresSup = 'paiement' | 'repos';
+/** Mode figé sur une feuille validée ; `historique` : feuille transmise à la paie avant le choix du mode (lot 4). */
+export type ModeHeuresSupFige = ModeHeuresSup | 'historique';
 export interface Absence {
   id: number; empId: number; type: AbsenceType; du: ISODate; au: ISODate; statut: AbsenceStatut;
   /** Indisponibilité transmise à Keystone (une annulation l'en retire). */
@@ -267,6 +277,12 @@ export interface Settings {
   partageKeystone: 'minimal' | 'detaille';
   rtt39: number;
   vueInitiale: string;
+  // Paie (client/src/pages/parametres/ReglagesPaie.tsx, shared/rules/paie.ts) : heures supplémentaires payées ou en repos
+  // (référence de l'accord qui le prévoit), rattachement d'une semaine à cheval sur deux mois, jour de clôture (0 : dernier jour).
+  heuresSupMode: ModeHeuresSup;
+  heuresSupAccord: string;
+  periodeRattachement: RattachementPeriode;
+  clotureJour: number;
 }
 
 /**
@@ -398,7 +414,30 @@ export interface ReleveInterim {
   enAttente: number;
 }
 
-export interface SagePush { endpoint: string; dossier: string; periode_paie: string; envoye_le: string; lignes: { matricule: string; semaine: string; rubriques: Record<string, number> }[] }
+/** Transmission à Sage Paie : simulation (rien ne part), fichier d'import (mode de production), API (pas encore de contrat). */
+export type SageMode = 'simulation' | 'fichier' | 'api';
+/**
+ * Variables de paie d'une transmission : une ligne par feuille et par période de paie (une semaine ventilée jour par jour
+ * peut en donner deux), rubriques traduites en codes Sage (shared/rules/paie.ts). `periode_origine` : période naturelle
+ * déjà close, la ligne part en rappel sur la période ouverte. `periode_paie` : ancien format (période unique du lot).
+ */
+export interface SagePush {
+  endpoint: string; dossier: string; mode?: SageMode; envoye_le: string; periodes?: string[]; periode_paie?: string;
+  lignes: { matricule: string; semaine: string; periode?: string; periode_origine?: string; rubriques: Record<string, number> }[];
+}
+/** Rattachement d'une semaine à cheval sur deux mois : mois de son dimanche, de son vendredi, ou ventilation jour par jour. */
+export type RattachementPeriode = 'dimanche' | 'vendredi' | 'jour';
+/**
+ * Correspondance d'une rubrique interne (RUBRIQUES_PAIE de shared/constants.ts) avec le plan de paie Sage, modifiée par
+ * l'administrateur RH ou la paie (`paie.rubrique`). Sans ligne : code Sage égal au code interne, à confirmer.
+ */
+export interface RubriquePaie {
+  code: string; codeSage: string;
+  /** Rubrique exportée ; désactivée, elle ne part plus (heures normales des mensualisés, par exemple). */
+  active: boolean;
+  /** Code vérifié dans le plan de paie Sage : date et auteur ; effacés quand le code change sans être confirmé. */
+  confirmeLe: ISODate | null; confirmePar: string | null;
+}
 
 /** Instantané des données visibles par l'utilisateur connecté. */
 export interface Dataset {
@@ -426,6 +465,8 @@ export interface Dataset {
   demandesCollab: DemandeCollab[];
   demandesVisite: DemandeVisite[];
   lastSagePush: SagePush | null;
+  /** Correspondance des rubriques avec le plan de paie Sage : service RH, paie et lecture seule (vide ailleurs). */
+  rubriquesPaie: RubriquePaie[];
   /** Adresses de la messagerie et relevés transmis aux agences d'intérim : service RH seulement (null et vide ailleurs). */
   messagerie: Messagerie | null;
   releves: ReleveInterim[];

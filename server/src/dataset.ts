@@ -10,7 +10,7 @@ import { reglagesParDefaut } from '../../shared/reglages.ts';
 import type { DemandeVisite } from '../../shared/types.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Chantier, CurrentUser, Dataset, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
-  Envoi, Equipe, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mission, Participation, PlanAction, Projet, ReleveInterim, ReportCp, SagePush, Session,
+  Envoi, Equipe, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mission, Participation, PlanAction, Projet, ReleveInterim, ReportCp, RubriquePaie, SagePush, Session,
   Settings, SoldeReprise, TacheKeystone, Vaccination, Visa, Voyage,
 } from '../../shared/types.ts';
 import { type DroitRh, droitsRh, PROFILS_RH } from '../../shared/constants.ts';
@@ -94,6 +94,8 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     demandesCollab: db.all<DemandeCollab>('demandesCollab'),
     demandesVisite: db.all<DemandeVisite>('demandesVisite'),
     lastSagePush: db.getSetting<SagePush | null>('lastSagePush', null),
+    // Correspondance des rubriques avec le plan de paie Sage (lignes modifiées ; les autres : shared/rules/paie.ts).
+    rubriquesPaie: db.all<RubriquePaie>('rubriquesPaie'),
     // Messagerie (Paramètres → Messagerie) et relevés transmis aux agences d'intérim, avec le statut de leur e-mail.
     messagerie: lireMessagerie(db),
     releves: db.all<Omit<ReleveInterim, 'envoi'>>('releves').map(r => ({ ...r, envoi: r.envoiId ? db.get<Envoi>('envois', r.envoiId)?.statut ?? null : null })),
@@ -199,6 +201,7 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     inscriptions: mine(full.inscriptions),
     participations: mine(full.participations),
     lastSagePush: null,
+    rubriquesPaie: [],
     messagerie: null,
     releves: [],
   };
@@ -213,7 +216,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
  * - `formations` (référent HSE) : sessions et résultats, certifications et habilitations, demandes de formation et
  *   d'habilitation, chantiers avec l'état précalculé des déplacements et les absences de leurs ressources (sans nature)
  *   pour les verdicts Go / No Go ; ni passeport, ni visas (dossiers de voyage réservés au service RH) ;
- * - `paie` : feuilles de temps, absences, soldes, CET, reports, dernière transmission à Sage — aucune formation ;
+ * - `paie` : feuilles de temps, absences, soldes, CET, reports, dernière transmission à Sage et correspondance des
+ *   rubriques de paie — aucune formation ;
  * - `consultation` (lecture seule) : tout ce qui précède, plus plan et budget, missions, entretiens sans le contenu
  *   des comptes rendus ; échéances des passeports (date d'expiration seule) et des visas, comme pour le manager, pour
  *   que les alertes et les échéances soient celles du service RH.
@@ -265,6 +269,7 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     demandesCollab: formations ? full.demandesCollab.filter(r => r.type !== 'document').map(r => ({ ...r, declaration: null })) : [],
     demandesVisite: [],
     lastSagePush: paie ? full.lastSagePush : null,
+    rubriquesPaie: paie ? full.rubriquesPaie : [],
   };
 }
 

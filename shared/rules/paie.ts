@@ -1,0 +1,186 @@
+// Paie : période de paie d'une semaine (rattachement d'une semaine à cheval sur deux mois, clôture des variables,
+// rappel d'une période close), correspondance des rubriques internes avec le plan de paie Sage (table `rubriquesPaie`,
+// action `paie.rubrique`), mode de transmission et mode des heures supplémentaires (payées ou remplacées par un repos).
+// Partagé par la transmission (server/src/actions/temps.ts), l'écran Temps (client/src/components/LotsPaie.tsx) et
+// Paramètres → Paie. Le décompte des heures et les rubriques de chaque feuille restent dans shared/rules/temps.ts.
+import { RUBRIQUES_PAIE, type UniteRubrique } from '../constants.ts';
+import { addD, addM, parse } from '../dates.ts';
+import { r1 } from '../format.ts';
+import type { FeuilleTemps, ISODate, ModeHeuresSupFige, RattachementPeriode, RubriquePaie, SageMode, Settings } from '../types.ts';
+
+// — Modes —
+
+/** Transmission à Sage Paie (variable SAGE_MODE, server/src/integrations/sage.ts). */
+export const MODES_SAGE: Record<SageMode, { label: string; aide: string }> = {
+  simulation: {
+    label: 'Simulation',
+    aide: 'Rien n’est envoyé à Sage Paie : les feuilles sont seulement marquées transmises (démonstration, essais).',
+  },
+  fichier: {
+    label: 'Fichier d’import',
+    aide: 'Mode de production : la paie télécharge un fichier d’import pour Sage, puis confirme son import, qui seul marque les feuilles transmises. La génération du fichier arrive avec la prochaine version : d’ici là, rien n’est marqué transmis et les variables restent saisies dans Sage.',
+  },
+  api: {
+    label: 'API',
+    aide: 'Envoi direct à Sage Paie : aucun contrat d’API n’a été fourni par Sage, aucune transmission n’est possible dans ce mode.',
+  },
+};
+
+/** Mode des heures supplémentaires (réglage `heuresSupMode`, figé sur chaque feuille à sa validation). */
+export const MODES_HEURES_SUP: Record<ModeHeuresSupFige, { label: string; aide: string }> = {
+  paiement: {
+    label: 'Payées avec majoration',
+    aide: 'Heures supplémentaires payées avec leur majoration (rubriques HS25 et HS50, art. L3121-28 et L3121-36), sans repos de remplacement.',
+  },
+  repos: {
+    label: 'Remplacées par un repos compensateur',
+    aide: 'Heures supplémentaires et majoration remplacées par un repos compensateur équivalent (rubrique RCR_ACQUIS), sans paiement, comme le prévoit l’accord collectif (art. L3121-37).',
+  },
+  historique: {
+    label: 'Calcul d’avant le choix du mode',
+    aide: 'Feuille transmise à la paie avant le choix du mode : heures supplémentaires payées et repos compensateur crédité, comme alors calculé.',
+  },
+};
+
+/** Rattachement d'une semaine à cheval sur deux mois (réglage `periodeRattachement`). */
+export const RATTACHEMENTS: Record<RattachementPeriode, { label: string; aide: string }> = {
+  dimanche: {
+    label: 'Mois du dimanche',
+    aide: 'La semaine va sur le mois où elle se termine, le dimanche : les heures supplémentaires se décomptent par semaine civile (art. L3121-35).',
+  },
+  vendredi: {
+    label: 'Mois du vendredi',
+    aide: 'La semaine va sur le mois de son vendredi, dernier jour de la semaine de travail.',
+  },
+  jour: {
+    label: 'Ventilation jour par jour',
+    aide: 'Les heures de chaque jour vont sur leur mois ; les heures supplémentaires, dernières heures de la semaine, suivent le jour où elles sont faites.',
+  },
+};
+
+/** Mode des heures supplémentaires d'une feuille : figé à sa validation, sinon celui du réglage (paiement par défaut). */
+export function modeHeuresSup(sh: { heuresSup?: ModeHeuresSupFige | null } | null, s: Partial<Pick<Settings, 'heuresSupMode'>> | undefined): ModeHeuresSupFige {
+  return sh?.heuresSup ?? s?.heuresSupMode ?? 'paiement';
+}
+
+// — Périodes de paie —
+
+/** Période de paie (AAAA-MM) d'une date. */
+export const moisDe = (s: ISODate) => s.slice(0, 7);
+/** « octobre 2026 ». */
+export const periodeLabel = (p: string) => parse(`${p}-01`).toLocaleDateString('fr-FR', { month: 'long', year: 'numeric' });
+const suivante = (p: string) => moisDe(addM(`${p}-01`, 1));
+const dernierJour = (p: string) => addD(`${suivante(p)}-01`, -1);
+
+/**
+ * Parts d'une semaine (lundi `week`) par période de rattachement, dans l'ordre : jours de la feuille (0 = lundi …
+ * 4 = vendredi) et période. Une seule part, sauf pour une semaine à cheval sur deux mois ventilée jour par jour.
+ */
+export function partsSemaine(week: ISODate, rattachement: RattachementPeriode = 'dimanche'): { periode: string; jours: number[] }[] {
+  if (rattachement !== 'jour') return [{ periode: moisDe(addD(week, rattachement === 'vendredi' ? 4 : 6)), jours: [0, 1, 2, 3, 4] }];
+  const parts: { periode: string; jours: number[] }[] = [];
+  for (let i = 0; i < 5; i++) {
+    const periode = moisDe(addD(week, i)), der = parts.at(-1);
+    if (der?.periode === periode) der.jours.push(i);
+    else parts.push({ periode, jours: [i] });
+  }
+  return parts;
+}
+
+/**
+ * Clôture des variables d'une période : le `jour` du mois (0, ou au-delà de la fin du mois : le dernier jour). Après
+ * elle, la période est close : ses variables partent en rappel sur la période ouverte.
+ */
+export function clotureDe(p: string, jour = 0): ISODate {
+  const fin = dernierJour(p);
+  return jour >= 1 && jour < Number(fin.slice(8)) ? `${p}-${String(jour).padStart(2, '0')}` : fin;
+}
+
+/** Première période encore ouverte le jour `today` : celle du mois, ou la suivante une fois sa clôture passée. */
+export function periodeOuverte(today: ISODate, jour = 0): string {
+  const p = moisDe(today);
+  return today > clotureDe(p, jour) ? suivante(p) : p;
+}
+
+/** Part d'une feuille dans une période de paie : `origine`, période naturelle déjà close (la part part en rappel). */
+export interface PartPaie { periode: string; origine: string | null; jours: number[] }
+
+/**
+ * Périodes où partent les heures d'une semaine transmise le jour `today` : période de rattachement tant qu'elle est
+ * ouverte, sinon la période ouverte, avec la période d'origine (rappel).
+ */
+export function periodesSemaine(week: ISODate, s: Partial<Pick<Settings, 'periodeRattachement' | 'clotureJour'>> | undefined, today: ISODate): PartPaie[] {
+  const ouverte = periodeOuverte(today, s?.clotureJour ?? 0);
+  return partsSemaine(week, s?.periodeRattachement ?? 'dimanche')
+    .map(x => (x.periode >= ouverte ? { ...x, origine: null } : { periode: ouverte, origine: x.periode, jours: x.jours }));
+}
+
+/** Feuilles en attente d'une période (et d'une période d'origine, pour un rappel). */
+export interface GroupePaie { periode: string; origine: string | null; feuilles: number; salaries: number }
+
+/**
+ * Feuilles en attente de transmission regroupées par période de destination, les rappels à part : une semaine
+ * ventilée jour par jour sur deux périodes compte dans chacune.
+ */
+export function feuillesParPeriode(sheets: Pick<FeuilleTemps, 'empId' | 'week'>[], s: Partial<Settings> | undefined, today: ISODate): GroupePaie[] {
+  const groupes = new Map<string, { periode: string; origine: string | null; feuilles: number; emps: Set<number> }>();
+  for (const sh of sheets) {
+    for (const p of periodesSemaine(sh.week, s, today)) {
+      const cle = `${p.periode}|${p.origine ?? ''}`;
+      const g = groupes.get(cle) ?? { periode: p.periode, origine: p.origine, feuilles: 0, emps: new Set<number>() };
+      g.feuilles++;
+      g.emps.add(sh.empId);
+      groupes.set(cle, g);
+    }
+  }
+  return [...groupes.values()]
+    .sort((a, b) => a.periode.localeCompare(b.periode) || (a.origine ?? '').localeCompare(b.origine ?? ''))
+    .map(({ emps, ...g }) => ({ ...g, salaries: emps.size }));
+}
+
+// — Rubriques —
+
+/** Rubrique telle qu'affichée et utilisée : correspondance enregistrée, libellé et unité du code interne. */
+export interface RubriqueVue extends RubriquePaie { label: string; unite: UniteRubrique; confirmee: boolean }
+
+/**
+ * Table des rubriques : chaque code de RUBRIQUES_PAIE, avec sa correspondance enregistrée ou, à défaut, un code Sage égal
+ * au code interne, active et à confirmer. Un code retiré de la liste n'est plus lu.
+ */
+export function rubriquesPaie(stockees: readonly RubriquePaie[] = []): RubriqueVue[] {
+  return Object.entries(RUBRIQUES_PAIE).map(([code, def]) => {
+    const r = stockees.find(x => x.code === code) ?? { code, codeSage: code, active: true, confirmeLe: null, confirmePar: null };
+    return { ...r, label: def.label, unite: def.unite, confirmee: !!r.confirmeLe };
+  });
+}
+
+/**
+ * Rubriques internes → codes Sage : rubriques désactivées retirées, quantités nulles omises, quantités de deux rubriques
+ * portées sur le même code Sage additionnées (même unité, contrôlée par `paie.rubrique`).
+ */
+export function traduireRubriques(rubriques: Record<string, number>, table: readonly RubriqueVue[]): Record<string, number> {
+  const out: Record<string, number> = {};
+  for (const [code, q] of Object.entries(rubriques)) {
+    const r = table.find(x => x.code === code);
+    if (!q || (r && !r.active)) continue;
+    const cible = r?.codeSage ?? code;
+    out[cible] = r1((out[cible] ?? 0) + q);
+  }
+  return out;
+}
+
+/** Rubriques émises par des feuilles (codes internes) et exportées dont le code Sage n'est pas confirmé. */
+export function rubriquesAConfirmer(emises: Iterable<string>, table: readonly RubriqueVue[]): RubriqueVue[] {
+  const codes = new Set(emises);
+  return table.filter(r => codes.has(r.code) && r.active && !r.confirmee);
+}
+
+/** « HN (Heures normales), HS25 (…) ». */
+export const rubriquesTexte = (list: readonly Pick<RubriqueVue, 'code' | 'label'>[]) => list.map(r => `${r.code} (${r.label})`).join(', ');
+
+/** Code Sage saisi : 1 à 20 caractères, lettres, chiffres, tiret, point ou soulignement. */
+export function erreurCodeSage(v: string): string | null {
+  const t = v.trim();
+  if (!t) return 'Indiquez le code de la rubrique dans le plan de paie Sage.';
+  return /^[A-Za-z0-9_.-]{1,20}$/.test(t) ? null : 'Code Sage : 20 caractères au plus, lettres, chiffres, tiret, point ou soulignement.';
+}

@@ -170,6 +170,8 @@ const MATRICE: Ligne[] = [
   { action: 'temps.validate', droits: '                      O    O    O    -    -    -    -    -    -', p: () => { feuille('soumise', H7); return { empId: 2, week: WEEK }; } },
   { action: 'temps.reject', droits: '                        O    O    O    -    -    -    -    -    -', p: () => { feuille('soumise', H7); return { empId: 2, week: WEEK, comment: 'Projet à corriger' }; } },
   { action: 'temps.pushSage', droits: '                      O    -    -    -    -    -    -    O    -', p: () => ({}) },
+  // Correspondance des rubriques avec le plan de paie Sage : administrateur RH et gestionnaire de paie (écran Temps).
+  { action: 'paie.rubrique', droits: '                       O    -    -    -    -    -    -    O    -', p: () => ({ code: 'HS25', codeSage: '3010', confirmer: true }) },
   // Un membre du RH ne valide pas sa propre feuille : son valideur (ici le service RH) le fait.
   { action: 'temps.validate', variante: 'feuille du gestionnaire RH', droits: 'O    -    -    -    -    -    -    -    -', p: () => { feuilleAntoine(); return { empId: 14, week: WEEK }; } },
   // Relevé d'heures des intérimaires (Léa Girard, agence Proman Lyon) : service RH ou gestionnaire de paie.

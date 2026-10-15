@@ -1,5 +1,5 @@
 // Appels à l'API Cursus.
-import type { CibleEnvoi, CompteSession, CompteVue, CurrentUser, Dataset, Envoi, EtatEnvois, Role, StatutEnvoi } from '../../shared/types.ts';
+import type { CibleEnvoi, CompteSession, CompteVue, CurrentUser, Dataset, Envoi, EtatEnvois, Role, SageMode, StatutEnvoi } from '../../shared/types.ts';
 
 /** Compte proposé à la connexion de démonstration (`id` : identifiant du compte). */
 export interface LoginOption { id: number; nom: string }
@@ -19,7 +19,8 @@ export interface SessionState {
   microsoft: boolean;
   /** Déconnexion d'une session Microsoft : adresse de la déconnexion Microsoft, qui revient sur Cursus. */
   deconnexion?: string;
-  integrations: { keystone: string; sage: string; email?: string };
+  /** Modes des intégrations : Keystone et e-mails (api / simulation), Sage Paie (simulation, fichier d'import, api). */
+  integrations: { keystone: string; sage: SageMode; email?: string };
 }
 /**
  * File d'envoi (Paramètres → Envois) : état de l'intégration Keystone, de la messagerie (boîte d'envoi,

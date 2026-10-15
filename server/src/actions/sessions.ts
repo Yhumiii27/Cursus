@@ -4,6 +4,7 @@
 import { sessionActive } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
+import { refusArchive } from '../../../shared/rules/referentiels.ts';
 import { controleSession, exigeEvaluation, inscritsDe, placesRemplacees } from '../../../shared/rules/sessions.ts';
 import type { Certification, Inscription, Participation, PlanAction, Session, SessionBilan } from '../../../shared/types.ts';
 import { annulerSiConvoque } from '../notifications.ts';
@@ -31,6 +32,7 @@ const creer: ActionHandler = (ctx, p) => {
   requireFormations(ctx);
   const fm = ctx.d.fm(str(p.f));
   if (!fm) throw new ActionError('Formation inconnue');
+  if (fm.archive) throw new ActionError(refusArchive(fm, 'Formation')!);
   const err = controleSession(ctx.d.ti, { date: p.date, lieu: p.lieu, places: p.places });
   if (err) throw new ActionError(err);
   let plan: PlanAction | undefined;

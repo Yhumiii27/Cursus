@@ -30,8 +30,10 @@ vide le reste.
 Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode démonstration) :
 
 - **RH** : tout l'outil, dont la création et la modification des fiches
-  (statut, contrat, organisation du temps) et l'écran « Équipes & managers » (créer, renommer,
-  supprimer une équipe, désigner son manager, affecter les collaborateurs). Deux profils : les
+  (statut, contrat, organisation du temps), l'écran « Équipes & managers » (créer, renommer,
+  supprimer une équipe, désigner son manager, affecter les collaborateurs) et l'écran « Référentiels »
+  (catalogue des formations, habilitations et destinations : création, modification, archivage, référentiel
+  type à charger dans une base vide ; formations et habilitations aussi pour le référent HSE). Deux profils : les
   **gestionnaires RH** (fiches, formations, absences…) et l'**administrateur RH**, seul à régler les
   paramètres, supprimer et gérer les comptes (Paramètres → Comptes et accès) et, avec le gestionnaire de paie, à
   transmettre la paie.
@@ -224,7 +226,10 @@ parcours (L6315-1 : 1re année puis tous les 4 ans, reprise, état des lieux 8 a
 risque d'abondement CPF), entretien annuel forfait jours (L3121-64) · plan de formation,
 enveloppes par équipe, import CSV · sessions de formation : confirmation, modification, annulation,
 clôture (présence, évaluation selon la formation, certification datée du jour de la session, absents et
-échecs à replanifier, évaluation à chaud), nombre d'inscrits calculé.
+échecs à replanifier, évaluation à chaud), nombre d'inscrits calculé · référentiels administrés (formations,
+habilitations, destinations), archivés plutôt que supprimés, validité modifiée appliquée aux titres détenus ·
+échéances au dernier jour du mois cible quand le jour n'y existe pas (29/02 + 36 mois = 28/02) · renouvellement
+accepté d'une habilitation expirée compté « en attente ».
 
 Jours fériés et périodes de référence (CP, RTT, campagnes) calculés à partir de la date du jour, celle de Paris
 quel que soit le fuseau du serveur ; dates impossibles (« 31/02 ») refusées à la saisie et à l'import.

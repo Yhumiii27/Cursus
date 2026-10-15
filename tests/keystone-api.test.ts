@@ -433,7 +433,7 @@ test('contrat OpenAPI : servi, conforme aux routes, aux codes de motif et aux co
   // Référentiels : codes admis pour les exigences d'un chantier.
   const ref = (await (await fresh()).call('GET', '/v1/referentiels')).body;
   assert.ok(ref.habilitations.some((h: Corps) => h.code === 'atex') && ref.certifications.some((c: Corps) => c.code === 'sst'));
-  assert.deepEqual(ref.destinations[0], { code: 'MA', pays: 'Maroc' });
+  assert.deepEqual(ref.destinations[0], { code: 'MA', pays: 'Maroc', archive: null });
 });
 
 test('base existante : statuts repris, tâches sans dates retirées, index d’unicité', async () => {

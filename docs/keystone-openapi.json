@@ -37,7 +37,7 @@
         "tags": ["Documentation"],
         "operationId": "referentiels",
         "summary": "Codes admis par Cursus",
-        "description": "Habilitations et certifications exigibles d'un chantier, destinations des déplacements (pays dont Cursus connaît les formalités).",
+        "description": "Habilitations et certifications exigibles d'un chantier, destinations des déplacements (pays dont Cursus connaît les formalités). Un élément archivé dans Cursus (`archive` renseigné) reste reçu, mais ne doit plus être proposé pour une nouvelle exigence ni un nouveau déplacement.",
         "responses": {
           "200": { "description": "Référentiels", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Referentiels" } } } },
           "401": { "$ref": "#/components/responses/CleInvalide" },
@@ -624,10 +624,14 @@
         "type": "object",
         "required": ["habilitations", "certifications", "destinations"],
         "properties": {
-          "habilitations": { "type": "array", "items": { "type": "object", "required": ["code", "nom"], "properties": { "code": { "type": "string" }, "nom": { "type": "string" } } } },
-          "certifications": { "type": "array", "items": { "type": "object", "required": ["code", "nom"], "properties": { "code": { "type": "string" }, "nom": { "type": "string" } } } },
-          "destinations": { "type": "array", "items": { "type": "object", "required": ["code", "pays"], "properties": { "code": { "type": "string" }, "pays": { "type": "string" } } } }
+          "habilitations": { "type": "array", "items": { "type": "object", "required": ["code", "nom"], "properties": { "code": { "type": "string" }, "nom": { "type": "string" }, "archive": { "$ref": "#/components/schemas/ArchiveReferentiel" } } } },
+          "certifications": { "type": "array", "items": { "type": "object", "required": ["code", "nom"], "properties": { "code": { "type": "string" }, "nom": { "type": "string" }, "archive": { "$ref": "#/components/schemas/ArchiveReferentiel" } } } },
+          "destinations": { "type": "array", "items": { "type": "object", "required": ["code", "pays"], "properties": { "code": { "type": "string" }, "pays": { "type": "string" }, "archive": { "$ref": "#/components/schemas/ArchiveReferentiel" } } } }
         }
+      },
+      "ArchiveReferentiel": {
+        "type": ["string", "null"], "format": "date",
+        "description": "Date d'archivage dans Cursus, null pour un élément en vigueur. Archivé, le code reste reçu (exigences, déplacements) mais ne doit plus être proposé."
       },
       "ErreurChamp": {
         "type": "object",

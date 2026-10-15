@@ -65,6 +65,8 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     today: todayIso(),
     user,
     settings: loadSettings(db),
+    // Formations, habilitations et destinations, archivées comprises (`archive`, date d'archivage) : transmises à tous les
+    // espaces, qui en ont besoin pour nommer les titres et écarter les archivées des listes ; aucune donnée personnelle.
     referentiels: {
       formations: db.all<Formation>('formations', 'rowid'),
       habilitations: db.all<HabType>('habilitations', 'rowid'),

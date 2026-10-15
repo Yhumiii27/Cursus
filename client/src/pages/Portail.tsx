@@ -29,6 +29,8 @@ export function Portail() {
   const myTrips = trips.filter(t => t.empId === me.id);
   const myReqs = d.ds.demandesCollab.filter(r => r.empId === me.id);
   const okCerts = me.certs.filter(c => c.key !== 'exp').length, dueCerts = me.certs.filter(c => c.key !== 'ok').length;
+  // Certifications d'une formation archivée par le service RH : gardées au dossier, lisibles, hors des compteurs.
+  const archivees = me.rawCerts.filter(c => c.fm.archive);
   const okHabs = me.habs.filter(h => h.key === 'ok' || h.key === 'due').length;
   const habKinds = [...new Set(me.habs.map(h => HAB_LABEL[h.key].toLowerCase()))].join(' · ');
   const nextTrip = myTrips[0];
@@ -126,7 +128,15 @@ export function Portail() {
                 </div>
               );
             })}
-            {me.certs.length === 0 && <Empty>Aucune certification enregistrée.</Empty>}
+            {archivees.map(c => (
+              <div key={c.id} className="list-row stack" style={rowStyle}>
+                <div className="item-head">
+                  <div><div style={{ fontSize: 14 }}>{c.fm.nom}</div><div className="text-muted sub">Obtenue le {fmt(c.obt)} · formation retirée du catalogue, plus suivie</div></div>
+                  <Tag cls="tag-outline" style={{ flex: 'none' }}>Formation archivée</Tag>
+                </div>
+              </div>
+            ))}
+            {me.certs.length === 0 && archivees.length === 0 && <Empty>Aucune certification enregistrée.</Empty>}
           </Panel>
 
           <Panel title="Mes habilitations" style={{ gap: 'var(--space-2)' }}>

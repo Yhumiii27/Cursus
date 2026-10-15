@@ -9,10 +9,12 @@ type ColType = 'text' | 'int' | 'real' | 'bool' | 'json';
 interface TableDef { pk: string; auto?: boolean; cols: Record<string, ColType>; unique?: string[][] }
 
 export const TABLES = {
-  formations: { pk: 'id', cols: { id: 'text', nom: 'text', court: 'text', type: 'text', validite: 'int', duree: 'text', organisme: 'text', cout: 'real', validation: 'text' } },
-  habilitations: { pk: 'id', cols: { id: 'text', nom: 'text', detail: 'text', prereqs: 'json', medical: 'bool', validite: 'int', signataire: 'text' } },
+  // Référentiels administrés par le service RH (server/src/actions/referentiels.ts) : `archive`, date d'archivage (null :
+  // en vigueur) ; on archive au lieu de supprimer.
+  formations: { pk: 'id', cols: { id: 'text', nom: 'text', court: 'text', type: 'text', validite: 'int', duree: 'text', organisme: 'text', cout: 'real', validation: 'text', archive: 'text' } },
+  habilitations: { pk: 'id', cols: { id: 'text', nom: 'text', detail: 'text', prereqs: 'json', medical: 'bool', validite: 'int', signataire: 'text', archive: 'text' } },
   // `secu` : formalité de sécurité sociale du détachement (null : déduite du code pays, shared/constants.ts).
-  destinations: { pk: 'code', cols: { code: 'text', pays: 'text', visa: 'text', visaSub: 'text', oblig: 'json', rec: 'json', passMois: 'int', secu: 'text' } },
+  destinations: { pk: 'code', cols: { code: 'text', pays: 'text', visa: 'text', visaSub: 'text', oblig: 'json', rec: 'json', passMois: 'int', secu: 'text', archive: 'text' } },
   equipes: { pk: 'nom', cols: { nom: 'text', managerId: 'int', ordre: 'int' } },
   projets: { pk: 'code', cols: { code: 'text', nom: 'text', statut: 'text' } },
   chantiers: { pk: 'id', cols: { id: 'text', nom: 'text', client: 'text', lieu: 'text', pays: 'text', debut: 'text', fin: 'text', chef: 'text', habs: 'json', certs: 'json', ressources: 'json', statut: 'text' } },

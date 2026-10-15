@@ -230,6 +230,16 @@ envoyées en même temps ne passent pas ces limites (une connexion réussie est 
 Connexions réussies et refusées sont tracées dans le journal, jamais les mots de passe ; la vue
 « Connexions et accès » / « Opérations » de Paramètres → Journal les sépare des opérations RH.
 
+## Référentiels de l'entreprise
+
+Une base neuve n'a ni formation, ni habilitation, ni destination : sans elles, aucune certification ne se saisit et
+Keystone voit refusés les chantiers qui en exigent (« inconnue du référentiel de Cursus »). Avant la reprise des
+titres et l'ouverture à Keystone, l'administrateur RH (ou le référent HSE pour les formations et les habilitations)
+les remplit dans l'écran Référentiels : saisie, ou « Charger le référentiel type » (11 formations, 6 habilitations
+et 8 destinations courantes, les habilitations après les formations) puis vérification des validités, coûts,
+organismes, signataires et formalités. Les codes, choisis à la création, sont ceux que Keystone envoie dans les
+exigences de ses chantiers : les convenir avec l'équipe Keystone. Un élément inutile s'archive.
+
 ## Reverse proxy HTTPS : Caddy (recommandé)
 
 Caddy obtient et renouvelle seul le certificat (Let's Encrypt) et redirige HTTP vers HTTPS.

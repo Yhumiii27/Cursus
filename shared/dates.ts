@@ -12,9 +12,19 @@ export function iso(d: Date): ISODate {
 export function isValidDate(s: string | null | undefined): s is ISODate {
   return typeof s === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(s) && iso(parse(s)) === s;
 }
+/**
+ * `n` mois plus tard (ou plus tôt), au même jour du mois ; ramené au dernier jour du mois cible quand ce jour n'y
+ * existe pas : un titre obtenu le 29/02/2024 et valable 36 mois expire le 28/02/2027, celui du 31/03 valable 6 mois
+ * le 30/09 (jamais le 1er du mois suivant, qui le rendrait valide un jour de trop). Toutes les échéances en dépendent.
+ */
 export function addMonths(d: Date, n: number): Date {
   const r = new Date(d.getTime());
+  const jour = r.getDate();
+  r.setDate(1);
   r.setMonth(r.getMonth() + n);
+  // Dernier jour du mois cible : le jour 0 du mois suivant.
+  const dernier = new Date(r.getFullYear(), r.getMonth() + 1, 0).getDate();
+  r.setDate(Math.min(jour, dernier));
   return r;
 }
 export function addD(s: ISODate, n: number): ISODate {

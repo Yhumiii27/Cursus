@@ -59,6 +59,14 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'medical.demander': 'Visite médicale demandée',
   'medical.annuler': 'Demande de visite annulée',
   'medical.avis': 'Avis du médecin du travail',
+  // Référentiels
+  'referentiel.formation.enregistrer': 'Formation du catalogue créée ou modifiée',
+  'referentiel.formation.archiver': 'Formation archivée ou rétablie',
+  'referentiel.habilitation.enregistrer': 'Habilitation du référentiel créée ou modifiée',
+  'referentiel.habilitation.archiver': 'Habilitation archivée ou rétablie',
+  'referentiel.destination.enregistrer': 'Destination créée ou modifiée',
+  'referentiel.destination.archiver': 'Destination archivée ou rétablie',
+  'referentiel.charger': 'Référentiel type chargé',
   // Demandes des collaborateurs
   'demande.formation': 'Demande de formation',
   'demande.habilitation': 'Demande d’habilitation',
@@ -159,6 +167,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.'] },
   { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.'] },
   { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.'] },
+  { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations)', prefixes: ['referentiel.'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
   { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement'] },
   { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.'] },
@@ -186,6 +195,11 @@ export const CHAMP_LABEL: Record<string, string> = {
   signMgr: 'Signature de l’évaluateur', signSal: 'Signature du salarié', horizonAlerte: 'Seuil d’alerte', seuilBudget: 'Seuil budgétaire',
   rtt39: 'Jours de RTT (39 h)', uniquementReglementaire: 'Formations réglementaires seules', partageKeystone: 'Partage des motifs avec Keystone',
   projet: 'Projet', jour: 'Jour',
+  // Référentiels
+  court: 'Nom court', validite: 'Validité (mois)', duree: 'Durée', organisme: 'Organisme', cout: 'Coût', validation: 'Validation', detail: 'Précision',
+  prereqs: 'Prérequis', medical: 'Aptitude médicale exigée', signataire: 'Signataire', pays: 'Pays', visa: 'Entrée', visaSub: 'Précision sur l’entrée',
+  oblig: 'Vaccins obligatoires', rec: 'Vaccins recommandés', passMois: 'Validité du passeport après l’entrée (mois)', secu: 'Sécurité sociale',
+  archive: 'Archivée le',
 };
 
 const valeur = (v: unknown): string => {

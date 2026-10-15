@@ -20,6 +20,7 @@ import {
   ACTION_APPEL_KEYSTONE, ACTIONS_CONNEXION, ACTIONS_PAIE, changementsTexte, CONSERVATION_ARCHIVE_PAIE_MOIS, CONSERVATION_ENVOIS_MOIS,
   CONSERVATION_JOURNAL_MOIS, dossierComplet, estActionPaie, familleAction, FAMILLES_JOURNAL, JOURNAL_LABEL, lecteurJournal, libelleAction,
 } from '../../shared/journal.ts';
+import { CODE_PAYS, CODE_TITRE, codeDestination, codeTitre, type ReferentielId } from '../../shared/rules/referentiels.ts';
 import type { CurrentUser, FeuilleTemps, LigneTemps } from '../../shared/types.ts';
 import { journaliser, type Compte } from './comptes.ts';
 import { identite, type Identite } from './connexion.ts';
@@ -72,6 +73,22 @@ interface Regle {
 }
 
 const parId = (table: TableName, colonnes: readonly string[]): Cible => ({ table, cle: p => Number(p.id) || null, colonnes });
+/**
+ * Élément d'un référentiel, désigné par `id` (modification, archivage) ou `code` (création) et normalisé comme l'action :
+ * son code, recopié seulement s'il en a la forme (jamais un texte libre), et ses colonnes avant et après. `archiver` :
+ * archivage, ou rétablissement (`retablir`), sans recopier la valeur reçue.
+ */
+function referentiel(table: ReferentielId, colonnes: readonly string[], archiver = false): Partial<Regle> {
+  const [normaliser, motif] = table === 'destinations' ? [codeDestination, CODE_PAYS] : [codeTitre, CODE_TITRE];
+  const code = (p: P) => {
+    const c = normaliser(p.id != null && p.id !== '' ? p.id : p.code);
+    return motif.test(c) ? c : null;
+  };
+  return { extra: p => ({ code: code(p), ...(archiver ? { retablir: p.archive === false } : {}) }), cible: { table, cle: code, colonnes } };
+}
+/** Salariés dont un titre change de statut avec la règle modifiée (résultat de l'action). */
+const salariesTouches = (x: Contexte) => (x.result as { salaries?: unknown[] } | null | undefined)?.salaries ?? [];
+const nombreReferentiel = (db: Db, p: P) => (['formations', 'habilitations', 'destinations'].includes(p.referentiel) ? db.count(p.referentiel) : 0);
 const FICHE = ['nom', 'poste', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis', 'entree', 'fin', 'agence'];
 const FEUILLE: Cible = {
   table: 'feuilles', colonnes: ['statut'],
@@ -142,6 +159,22 @@ export const REGLES: Record<string, Regle> = {
   'medical.demander': { champs: ['empId'] },
   'medical.annuler': { champs: ['id'] },
   'medical.avis': { champs: ['empId', 'date', 'suspendre', 'lever'] },
+  // Référentiels (catalogue, aucune donnée personnelle) : code de l'élément, valeurs avant et après de chaque champ.
+  // Une validité modifiée rattache la ligne aux salariés dont un titre change de statut (le message en nomme).
+  'referentiel.formation.enregistrer': {
+    ...referentiel('formations', ['nom', 'court', 'type', 'validite', 'duree', 'organisme', 'cout', 'validation']), salaries: (_p, x) => salariesTouches(x),
+  },
+  'referentiel.formation.archiver': referentiel('formations', ['archive'], true),
+  'referentiel.habilitation.enregistrer': {
+    ...referentiel('habilitations', ['nom', 'detail', 'prereqs', 'medical', 'validite', 'signataire']), salaries: (_p, x) => salariesTouches(x),
+  },
+  'referentiel.habilitation.archiver': referentiel('habilitations', ['archive'], true),
+  'referentiel.destination.enregistrer': referentiel('destinations', ['pays', 'visa', 'visaSub', 'oblig', 'rec', 'passMois', 'secu']),
+  'referentiel.destination.archiver': referentiel('destinations', ['archive'], true),
+  // Référentiel type : nombre d'éléments ajoutés.
+  'referentiel.charger': {
+    champs: ['referentiel'], etat: (db, p) => nombreReferentiel(db, p), bilan: (p, x) => ({ ajoutes: nombreReferentiel(x.db, p) - Number(x.etat) }),
+  },
   // Demandes des collaborateurs : ni motif, ni réponse, ni contenu d'une déclaration.
   'demande.formation': { champs: ['empId', 'f', 'sessionId'], salaries: (p, x) => [p.empId ?? x.user.empId] },
   'demande.habilitation': { champs: ['empId', 'h'], salaries: (p, x) => [p.empId ?? x.user.empId] },

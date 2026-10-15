@@ -43,12 +43,15 @@ export type ValidationMode = 'presence' | 'evaluation';
 export type SessionStatut = 'À confirmer' | 'Confirmée' | 'Clôturée' | 'Annulée';
 
 // — Référentiels —
-export interface Formation { id: string; nom: string; court: string; type: FormationType; validite: number; duree: string; organisme: string; cout: number; validation: ValidationMode }
-export interface HabType { id: string; nom: string; detail: string; prereqs: string[]; medical: boolean; validite: number; signataire: string }
+// Administrés depuis l'écran Référentiels (shared/rules/referentiels.ts). `archive` : date d'archivage (null : en
+// vigueur) ; un élément archivé n'est plus proposé dans les listes, mais reste reconnu (dossiers, journal, Keystone).
+export interface Formation { id: string; nom: string; court: string; type: FormationType; validite: number; duree: string; organisme: string; cout: number; validation: ValidationMode; archive?: ISODate | null }
+export interface HabType { id: string; nom: string; detail: string; prereqs: string[]; medical: boolean; validite: number; signataire: string; archive?: ISODate | null }
 export interface Destination {
   code: string; pays: string; visa: VisaKind; visaSub: string; oblig: VaccinId[]; rec: VaccinId[]; passMois: number;
   /** Formalité de sécurité sociale du détachement ; null : déduite du code pays (`secuDe` de shared/constants.ts). */
   secu: SecuDetachement | null;
+  archive?: ISODate | null;
 }
 export interface Equipe { nom: string; managerId: number | null; ordre: number }
 /** Projet ou chantier tenu dans Keystone : archivé, il reste en base (historique) sans plus être proposé ni évalué. */

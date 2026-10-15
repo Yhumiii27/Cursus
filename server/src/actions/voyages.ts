@@ -5,6 +5,7 @@ import { fmt, matricule, plural } from '../../../shared/format.ts';
 import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
 import { declarationLabel, estAuDossier, formaliteCle, lignesAuDossier, lireFormalite } from '../../../shared/rules/formalites.ts';
 import { parseTrips } from '../../../shared/rules/imports.ts';
+import { refusArchive } from '../../../shared/rules/referentiels.ts';
 import type { Declaration, DemandeCollab, DemandeKeystone, Employe, Vaccination, Visa, Voyage } from '../../../shared/types.ts';
 import { sendToKeystone } from '../integrations/keystone.ts';
 import { motifsRefusAcceptation } from '../integrations/keystone-entrant.ts';
@@ -16,6 +17,7 @@ const creer: ActionHandler = (ctx, p) => {
   const dest = ctx.d.destOf(str(p.dest));
   const motif = str(p.motif);
   if (!dest) throw new ActionError('Destination hors référentiel');
+  if (dest.archive) throw new ActionError(refusArchive(dest, 'Destination')!);
   if (!isValidDate(p.depart) || !isValidDate(p.retour) || p.retour < p.depart || !motif) throw new ActionError('Dates et motif requis');
   // Déjà en déplacement ces jours-là, ou absent (congé validé, arrêt…) : refusé.
   const conflit = blocage(conflitsDates(ctx.d, emp.id, p.depart, p.retour, 'voyage'));

@@ -9,6 +9,7 @@ import {
 import { addD, addMonths, days, isFerie, iso, parse, weekday } from './dates.ts';
 import { cap, fmt, fmtShort, matricule } from './format.ts';
 import { absenceActive, absenceBloque, borneContrat, periodeTexte } from './rules/absences.ts';
+import { actifs, habSuivie } from './rules/referentiels.ts';
 import { restrictionEnVigueur } from './rules/sante.ts';
 import type {
   AvisMedical, Certification, Chantier, Dataset, DemandeVisite, Destination, Employe, FormaliteManquante, Formation, HabTitre, HabType, ISODate,
@@ -135,10 +136,16 @@ const docKey = (d: number, h: number): StatusKey => d < 0 ? 'exp' : d <= h ? 'du
 const habStatus = (k: HabKey): StatusKey => k === 'susp' || k === 'retiree' ? 'exp' : k === 'pending' ? 'ok' : k;
 
 /**
- * Titre détenu ou déjà demandé, qu'un collaborateur ne peut pas redemander. Un titre expiré peut l'être, un titre
- * retiré aussi tant qu'aucune demande de nouvelle délivrance n'a été acceptée (`demande` renseignée).
+ * Titre détenu ou déjà demandé, qu'un collaborateur ne peut pas redemander. Un titre expiré ou retiré peut l'être, tant
+ * qu'aucune demande de renouvellement ou de nouvelle délivrance n'a été acceptée (`demande` renseignée).
  */
-export const habEnCours = (h: Pick<HabInfo, 'key' | 'demande'>) => h.key === 'retiree' ? !!h.demande : h.key !== 'exp';
+export const habEnCours = (h: Pick<HabInfo, 'key' | 'demande'>) => h.key === 'retiree' || h.key === 'exp' ? !!h.demande : true;
+
+/**
+ * Titre expiré dont le renouvellement a été accepté par le service RH (`demande.accepter`) : il reste expiré (statut,
+ * échéances, Go / No Go) mais compte « en attente » de délivrance dans l'onglet Habilitations.
+ */
+export const renouvellementDemande = (h: Pick<HabInfo, 'key' | 'demande' | 'delivree'>) => h.key === 'exp' && !!h.delivree && !!h.demande;
 
 /** Session ouverte : ni clôturée, ni annulée (inscriptions, planification, clôture). */
 export const sessionActive = (s: Pick<Session, 'statut'>) => s.statut !== 'Clôturée' && s.statut !== 'Annulée';
@@ -270,8 +277,9 @@ export class Domain {
     if (!sessionActive(s)) return s.statut;
     return s.date < this.ti ? SESSION_PASSEE : s.inscrits >= s.places ? 'Complète' : s.statut;
   }
+  /** Formations suivies : catalogue en vigueur (les archivées ne sont plus proposées ni suivies), réglementaires seules au besoin. */
   forms(onlyReg: boolean): Formation[] {
-    const all = this.ds.referentiels.formations;
+    const all = actifs(this.ds.referentiels.formations);
     return onlyReg ? all.filter(f => f.type === 'Réglementaire') : all;
   }
 
@@ -366,10 +374,12 @@ export class Domain {
     const mesureNote = mesure
       ? `${mesure === 'retrait' ? 'Retirée' : 'Suspendue'}${mesureLe ? ' le ' + fmt(mesureLe) : ''}${h.mesurePar ? ' par ' + h.mesurePar : ''}${h.mesureMotif ? ' — ' + h.mesureMotif : ''}`
       : '';
-    // Après un retrait, la demande acceptée attend la nouvelle délivrance du service RH.
+    // Après un retrait, la demande acceptée attend la nouvelle délivrance du service RH ; après une expiration, le renouvellement.
+    const renouvellement = key === 'exp' && h.demande ? `Renouvellement demandé le ${fmt(parse(h.demande))}` : '';
+    const archivee = habSuivie({ hm }) ? '' : 'Habilitation archivée au référentiel : plus suivie';
     const note = mesure === 'retrait'
-      ? [mesureNote, h.demande ? `Nouvelle délivrance demandée le ${fmt(parse(h.demande))}` : ''].filter(Boolean).join(' · ')
-      : [mesureNote, prereqNote].filter(Boolean).join(' · ');
+      ? [mesureNote, h.demande ? `Nouvelle délivrance demandée le ${fmt(parse(h.demande))}` : '', archivee].filter(Boolean).join(' · ')
+      : [mesureNote, renouvellement, prereqNote, archivee].filter(Boolean).join(' · ');
     return {
       id: 0, empId: 0, delivree: null, par: null, demande: null, mesure: null, mesureDate: null, mesureMotif: null, mesurePar: null, ...h,
       hm, checks, failing, prereqOk, exp, d, key, note, mesureLe,
@@ -390,8 +400,9 @@ export class Domain {
   }
 
   habAction(empId: number, hi: HabInfo): Proposal | null {
-    // Lever une suspension ou délivrer de nouveau après un retrait reste une décision explicite du RH.
-    if (hi.key === 'ok' || (hi.delivree && hi.mesure)) return null;
+    // Lever une suspension ou délivrer de nouveau après un retrait reste une décision explicite du RH ; une habilitation
+    // archivée n'appelle plus rien.
+    if (hi.key === 'ok' || (hi.delivree && hi.mesure) || !habSuivie(hi)) return null;
     if (!hi.failing.length) {
       const pending = hi.key === 'pending';
       return { label: pending ? 'Délivrer' : 'Renouveler', intent: { type: 'openHab', empId, h: hi.h, mode: pending ? 'deliver' : 'renew' } };
@@ -419,11 +430,13 @@ export class Domain {
       const certs = rawCerts.filter(c => formIds.has(c.f));
       const med = this.medInfo(e);
       const habs = e.habs.map(h => this.habInfo(h, rawCerts, med, horizon));
+      // Titres d'une habilitation archivée : au dossier, hors du statut et des échéances.
+      const suivies = habs.filter(habSuivie);
       // L'aptitude médicale compte dans le statut, même sans habilitation qui l'exige.
-      const keys: StatusKey[] = [...certs.map(c => c.key), ...habs.map(h => habStatus(h.key)), this.medKey(med, horizon)];
+      const keys: StatusKey[] = [...certs.map(c => c.key), ...suivies.map(h => habStatus(h.key)), this.medKey(med, horizon)];
       const worst = keys.reduce<StatusKey>((w, k) => RANK[k] > RANK[w] ? k : w, 'ok');
       const dated = [
-        ...certs.map(c => ({ exp: c.exp, d: c.d })), ...habs.flatMap(h => this.habEcheance(h) ?? []),
+        ...certs.map(c => ({ exp: c.exp, d: c.d })), ...suivies.flatMap(h => this.habEcheance(h) ?? []),
         ...(med.exp && med.avis !== 'inapte' ? [{ exp: med.exp, d: med.d! }] : []),
       ];
       const next = dated.sort((a, b) => a.d - b.d)[0] || null;
@@ -577,7 +590,7 @@ export class Domain {
       }));
       e.habs.forEach(h => {
         const t = this.habEcheance(h);
-        if (!t) return;
+        if (!t || !habSuivie(h)) return;
         // Prérequis d'aptitude en attente d'une visite déjà demandée : affichée comme planifiée, comme l'échéance de la visite.
         const a = this.habAction(e.id, h), visite = a?.intent.type === 'medical' && !!this.demandeVisite(e.id);
         ech.push({

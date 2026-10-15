@@ -2,15 +2,18 @@
 import { useState } from 'react';
 import { addMonths, isValidDate, parse } from '../../../shared/dates.ts';
 import { fmt, validiteLabel } from '../../../shared/format.ts';
+import { actif } from '../../../shared/rules/referentiels.ts';
 import { erreurDate, erreurTexte } from '../components/controles.ts';
 import { Bloquant, CancelButton, CheckList, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
+import { ReferentielVide } from '../components/ReferentielVide.tsx';
 import { useEnriched } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
 export function HabDialog({ empId: empId0, h: h0, mode }: { empId?: number | null; h?: string | null; mode: 'new' | 'deliver' | 'renew' }) {
   const { d, emps, horizon } = useEnriched();
   const { run, closeDialog } = useStore();
-  const habs = d.ds.referentiels.habilitations;
+  // Habilitations en vigueur (référentiel), et celle du titre visé même archivée : le serveur dira pourquoi il refuse.
+  const habs = d.ds.referentiels.habilitations.filter(x => actif(x) || x.id === h0);
   const [empId, setEmpId] = useState<number>(empId0 ?? d.ds.employes[0]?.id ?? 0);
   const [h, setH] = useState<string>(h0 ?? habs[0]?.id ?? '');
   const [date, setDate] = useState<string>(d.ds.today);
@@ -19,6 +22,7 @@ export function HabDialog({ empId: empId0, h: h0, mode }: { empId?: number | nul
   const v = useVerification();
   const emp = emps.find(e => e.id === empId) ?? emps[0];
   const hm = d.hm(h);
+  if (!habs.length) return <ReferentielVide titre="Délivrer une habilitation" onglet="habilitations" texte="Aucune habilitation au référentiel." />;
   if (!emp || !hm) return null;
 
   const lock = mode !== 'new';

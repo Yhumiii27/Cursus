@@ -148,6 +148,39 @@ const MATRICE: Ligne[] = [
   // Le collaborateur demande pour lui-même (l'autre collaborateur aussi, pour lui) ; le manager pour un membre de son équipe.
   { action: 'demande.formation', droits: '                   -    -    O    -    O    O    -    -    -', p: () => ({ f: 'autre', libelle: 'Lean management', motif: 'Évolution', empId: 2 }) },
   { action: 'demande.habilitation', droits: '                -    -    O    -    O    O    -    -    -', p: () => ({ h: 'aipr', motif: 'Chantier réseaux', empId: 2 }) },
+  // Référentiels : formations et habilitations (service RH, référent HSE / formation), destinations (service RH).
+  { action: 'referentiel.formation.enregistrer', droits: '   O    O    -    -    -    -    O    -    -', p: () => ({
+    id: 'sst', nom: 'Sauveteur secouriste du travail (SST)', court: 'SST', type: 'Réglementaire', validite: 24, duree: '7 h (MAC)', organisme: 'Croix-Rouge française', cout: 190, validation: 'evaluation',
+  }) },
+  { action: 'referentiel.formation.enregistrer', variante: 'création', droits: 'O    O    -    -    -    -    O    -    -', p: () => ({
+    code: 'caces485', nom: 'CACES R485 — Gerbeurs à conducteur accompagnant', court: 'CACES R485', type: 'Réglementaire', validite: 60, duree: '14 h', organisme: 'AFTRAL', cout: 450, validation: 'evaluation',
+  }) },
+  // Formation AIPR : prérequis de l'habilitation AIPR, archivée d'abord.
+  { action: 'referentiel.formation.archiver', droits: '      O    O    -    -    -    -    O    -    -', p: () => {
+    db.update('habilitations', 'aipr', { archive: '2026-10-07' });
+    return { id: 'aipr' };
+  } },
+  { action: 'referentiel.habilitation.enregistrer', droits: 'O    O    -    -    -    -    O    -    -', p: () => ({
+    id: 'aipr', nom: 'Autorisation AIPR', detail: 'Intervention à proximité des réseaux', prereqs: ['aipr'], medical: false, validite: 60, signataire: 'Karim Haddad',
+  }) },
+  { action: 'referentiel.habilitation.archiver', droits: '   O    O    -    -    -    -    O    -    -', p: () => ({ id: 'aipr' }) },
+  { action: 'referentiel.destination.enregistrer', droits: ' O    O    -    -    -    -    -    -    -', p: () => ({
+    id: 'MA', pays: 'Maroc', visa: 'none', visaSub: 'séjour ≤ 90 jours', oblig: [], rec: ['hepA', 'typhoide'], passMois: 3, secu: 'convention',
+  }) },
+  { action: 'referentiel.destination.archiver', droits: '    O    O    -    -    -    -    -    -    -', p: () => ({ id: 'VN' }) },
+  // Référentiel type : dans un référentiel vide seulement (vidé pour l'essai, transaction annulée).
+  { action: 'referentiel.charger', variante: 'formations', droits: 'O    O    -    -    -    -    O    -    -', p: () => {
+    db.sql.exec('DELETE FROM formations');
+    return { referentiel: 'formations' };
+  } },
+  { action: 'referentiel.charger', variante: 'habilitations', droits: 'O    O    -    -    -    -    O    -    -', p: () => {
+    db.sql.exec('DELETE FROM habilitations');
+    return { referentiel: 'habilitations' };
+  } },
+  { action: 'referentiel.charger', variante: 'destinations', droits: 'O    O    -    -    -    -    -    -    -', p: () => {
+    db.sql.exec('DELETE FROM destinations');
+    return { referentiel: 'destinations' };
+  } },
   // Déplacements
   { action: 'voyage.creer', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, dest: 'MA', depart: '2026-11-02', retour: '2026-11-06', motif: 'Chantier Tanger' }) },
   // Formalités de détachement (certificat de sécurité sociale, information écrite) : démarches du service RH.

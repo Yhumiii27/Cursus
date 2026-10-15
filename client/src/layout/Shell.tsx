@@ -4,7 +4,7 @@
 // région insérée avec son texte) : les succès en « status », les erreurs en « alert ».
 import { useMemo, type ReactNode } from 'react';
 import {
-  AirplaneIcon, BellIcon, BookOpenIcon, BriefcaseIcon, CalendarBlankIcon, ChartBarIcon, ChatIcon, CheckIcon, ClockIcon, GearSixIcon,
+  AirplaneIcon, BellIcon, BookOpenIcon, BooksIcon, BriefcaseIcon, CalendarBlankIcon, ChartBarIcon, ChatIcon, CheckIcon, ClockIcon, GearSixIcon,
   HouseIcon, KeyIcon, MagnifyingGlassIcon, MapPinIcon, PlusIcon, ShieldCheckIcon, SignOutIcon, UserIcon, UsersThreeIcon, WarningIcon, XIcon, type Icon,
 } from '@phosphor-icons/react';
 import { droitsRh, PROFILS_RH, vuesDe } from '../../../shared/constants.ts';
@@ -43,7 +43,7 @@ function navGroups(data: Dataset | null, role: Role): NavGroup[] {
       ['Compétences', [{ view: 'formations', label: 'Formations', icon: BookOpenIcon }, { view: 'habilitations', label: 'Habilitations', icon: ShieldCheckIcon }]],
       ['Temps & absences', [{ view: 'temps', label: 'Feuilles de temps', icon: ClockIcon, badge: nQ }, { view: 'absences', label: 'Congés & absences', icon: CalendarBlankIcon, badge: nAbs }]],
       ['Projets & déplacements', [{ view: 'missions', label: 'Missions', icon: MapPinIcon }, { view: 'voyages', label: 'Voyages', icon: AirplaneIcon, badge: data.demandesKeystone.filter(x => x.statut === 'attente').length }, { view: 'chantiers', label: 'Chantiers · Go / No Go', icon: BriefcaseIcon }]],
-      ['Administration', [{ view: 'parametres', label: 'Paramètres', icon: GearSixIcon }]],
+      ['Administration', [{ view: 'referentiels', label: 'Référentiels', icon: BooksIcon }, { view: 'parametres', label: 'Paramètres', icon: GearSixIcon }]],
     ];
     return groupes.map(([g, items]): NavGroup => [g, items.filter(i => vues.includes(i.view))]).filter(([, items]) => items.length > 0);
   }

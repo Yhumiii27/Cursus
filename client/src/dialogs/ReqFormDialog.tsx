@@ -63,7 +63,7 @@ export function ReqFormDialog({ f: f0, sessionId: s0, empId }: { f?: string; ses
   const { run, closeDialog, openDialog } = useStore();
   const c = useCible(empId);
   // La formation demandée reste proposée même si le catalogue est filtré (« réglementaires uniquement »).
-  const demandee = f0 && f0 !== 'autre' ? d.ds.referentiels.formations.find(x => x.id === f0) : undefined;
+  const demandee = f0 && f0 !== 'autre' ? d.ds.referentiels.formations.find(x => x.id === f0 && !x.archive) : undefined;
   const options = demandee && !forms.some(x => x.id === demandee.id) ? [...forms, demandee] : forms;
   const [f, setF] = useState(demandee?.id ?? forms[0]?.id ?? 'autre');
   const [libelle, setLibelle] = useState('');

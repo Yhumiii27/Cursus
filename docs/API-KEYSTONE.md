@@ -82,7 +82,11 @@ instantané chaque nuit pour rattraper un envoi perdu (voir « Synchronisation c
 
 `GET /referentiels` donne les codes admis : habilitations et certifications exigibles d'un chantier,
 destinations des déplacements (pays dont Cursus connaît les formalités de voyage). Ces référentiels
-sont tenus dans Cursus.
+sont tenus dans Cursus (écran Référentiels), qui archive un élément au lieu de le supprimer : `archive`
+porte alors la date d'archivage (`null` pour un élément en vigueur). Un code archivé reste reçu (exigences
+d'un chantier, demandes de déplacement, Go / No Go), mais ne doit plus être proposé pour un nouveau chantier :
+le service RH ne délivre ni ne saisit plus de titre pour lui, et les ressources qui n'en ont pas de valide
+resteraient No Go.
 
 ```bash
 curl -s -H "X-Api-Key: $CLE" "$CURSUS/referentiels"
@@ -90,9 +94,9 @@ curl -s -H "X-Api-Key: $CLE" "$CURSUS/referentiels"
 
 ```json
 {
-  "habilitations": [{ "code": "he", "nom": "Habilitation électrique" }, { "code": "atex", "nom": "Habilitation ATEX" }],
-  "certifications": [{ "code": "sst", "nom": "Sauveteur secouriste du travail (SST)" }],
-  "destinations": [{ "code": "MA", "pays": "Maroc" }, { "code": "CI", "pays": "Côte d’Ivoire" }]
+  "habilitations": [{ "code": "he", "nom": "Habilitation électrique", "archive": null }, { "code": "atex", "nom": "Habilitation ATEX", "archive": null }],
+  "certifications": [{ "code": "sst", "nom": "Sauveteur secouriste du travail (SST)", "archive": null }],
+  "destinations": [{ "code": "MA", "pays": "Maroc", "archive": null }, { "code": "VN", "pays": "Vietnam", "archive": "2026-10-10" }]
 }
 ```
 

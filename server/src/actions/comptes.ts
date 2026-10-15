@@ -6,7 +6,7 @@ import { COMPTE_TYPE_LABEL, PROFILS_RH } from '../../../shared/constants.ts';
 import { plural } from '../../../shared/format.ts';
 import type { ProfilRh } from '../../../shared/types.ts';
 import { revokeSessionsDuCompte } from '../auth.ts';
-import { adminsActifs, attribuerProvisoire, type Compte, creerCompte, nomDuCompte, PROFILS, rattacherCompte, refusDuCompte } from '../comptes.ts';
+import { adminsDurables, attribuerProvisoire, type Compte, creerCompte, nomDuCompte, PROFILS, rattacherCompte, refusDuCompte } from '../comptes.ts';
 import { adresseDuCompte } from '../messagerie.ts';
 import { ActionError, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
@@ -16,7 +16,7 @@ function getCompte(ctx: Ctx, id: unknown): Compte {
   return c;
 }
 
-const DERNIER_ADMIN = 'Cursus doit garder au moins un administrateur RH actif : désignez-en un autre d’abord';
+const DERNIER_ADMIN = 'Cursus doit garder au moins un administrateur RH actif, sans date de sortie : désignez-en un autre d’abord';
 const fermees = (n: number) => n ? ` — ${plural(n, 'session fermée', 'sessions fermées')}` : '';
 
 /** Compte d'un salarié (`empId`) ou externe (`nom`, `adresse`) ; un compte Cursus reçoit un mot de passe provisoire. */
@@ -42,7 +42,7 @@ const profil: ActionHandler = (ctx, p) => {
   const next = str(p.profilRh) as ProfilRh;
   if (!PROFILS.includes(next)) throw new ActionError('Profil RH inconnu');
   if (next === c.profilRh) return null;
-  if (c.profilRh === 'rh_admin' && !adminsActifs(ctx.db, c.id) && !refusDuCompte(ctx.db, c)) throw new ActionError(DERNIER_ADMIN);
+  if (c.profilRh === 'rh_admin' && !adminsDurables(ctx.db, c.id, null) && !refusDuCompte(ctx.db, c)) throw new ActionError(DERNIER_ADMIN);
   if (!c.empId && next === 'aucun') throw new ActionError('Un compte externe n’ouvre que l’espace RH : désactivez-le plutôt');
   ctx.db.update<Compte>('comptes', c.id, { profilRh: next });
   // Les sessions ouvertes dans l'espace RH passent à un autre espace du compte, ou sont fermées (auth.ts).
@@ -75,7 +75,7 @@ const activer: ActionHandler = (ctx, p) => {
   }
   if (!c.actif) return null;
   if (c.id === ctx.user.compteId) throw new ActionError('Vous ne pouvez pas désactiver votre propre compte', 403);
-  if (c.profilRh === 'rh_admin' && !adminsActifs(ctx.db, c.id)) throw new ActionError(DERNIER_ADMIN);
+  if (c.profilRh === 'rh_admin' && !adminsDurables(ctx.db, c.id, null)) throw new ActionError(DERNIER_ADMIN);
   ctx.db.update<Compte>('comptes', c.id, { actif: false });
   return `Compte de ${nom} désactivé${fermees(revokeSessionsDuCompte(ctx.db, c.id))}`;
 };

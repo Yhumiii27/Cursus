@@ -8,6 +8,7 @@ import { sessionActive } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
 import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
+import { horsContratLe } from '../../../shared/rules/contrats.ts';
 import { Bloquant, CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Seg } from '../components/ui.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
@@ -49,7 +50,8 @@ export function PlanDialog({ empId, certId, inscriptionId }: { empId: number; ce
   const choisie = sessions.find(s => s.id === sessionId);
   const conflits = choisie ? conflitsDates(d, empId, choisie.date, choisie.date, 'formation', { sessionId: actuelle?.id }) : [];
 
-  const sessionErr = !sessionId ? 'Choisissez une session.' : null;
+  // Session postérieure au départ (sortie enregistrée, fin de CDD…) : refusée, comme par le serveur.
+  const sessionErr = !sessionId ? 'Choisissez une session.' : choisie ? horsContratLe(emp, choisie.date) : null;
   const confirm = async () => {
     if (busy || !v.verifier(sessionErr, blocage(conflits))) return;
     setBusy(true);

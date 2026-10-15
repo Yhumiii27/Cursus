@@ -36,6 +36,15 @@ export const present = (e: Pick<Employe, 'fin'>, date: ISODate) => !e.fin || e.f
 /** Salarié sorti à la date (le lendemain de son dernier jour). */
 export const sorti = (e: Pick<Employe, 'fin'>, date: ISODate) => !present(e, date);
 
+/**
+ * Planification au-delà du dernier jour du contrat (sortie enregistrée, ou fin prévue d'un CDD, d'une mission, d'une
+ * alternance) : inscription à une session, entretien, demande de visite. Refusée par le serveur et signalée dans les
+ * dialogues ; message, ou null. Le motif de sortie n'est jamais cité (le manager ne le voit pas).
+ */
+export function horsContratLe(e: Pick<Employe, 'nom' | 'fin'>, date: ISODate): string | null {
+  return present(e, date) ? null : `Date postérieure au dernier jour du contrat de ${e.nom} (${fmtIso(e.fin!)}) : rien ne se planifie après son départ.`;
+}
+
 /** Fin prévue au contrat, avant toute sortie enregistrée (CDD, mission, alternance ; null pour un CDI). */
 export const finContrat = (e: Pick<Employe, 'fin' | 'motifSortie' | 'finPrevue'>) => (e.motifSortie ? e.finPrevue ?? null : e.fin);
 
@@ -60,7 +69,10 @@ export interface ControleSortie {
   inscriptions: Inscription[];
   /** Entretiens planifiés après la sortie : retirés. */
   entretiens: Entretien[];
-  /** Demandes de visite médicale en cours : annulées. */
+  /**
+   * Demandes de visite médicale en cours, annulées par une sortie passée ou du jour. Avant la date, elles sont gardées :
+   * une visite de reprise (art. R4624-31) reste due tant que le salarié travaille.
+   */
   visites: DemandeVisite[];
   /** Feuilles de temps sans heure, non validées, des semaines qui suivent la sortie : retirées. */
   feuilles: FeuilleTemps[];
@@ -98,7 +110,9 @@ export function controleSortie(d: Domain, e: Employe, date: ISODate): ControleSo
   c.certs = e.certs.filter(x => apres(x.sessionId));
   c.inscriptions = d.ds.inscriptions.filter(i => i.empId === e.id && apres(i.sessionId));
   c.entretiens = d.ds.entretiens.filter(x => x.empId === e.id && x.statut === 'planifie' && x.date > date);
-  c.visites = d.ds.demandesVisite.filter(x => x.empId === e.id && x.statut === 'demandee');
+  const visites = d.ds.demandesVisite.filter(x => x.empId === e.id && x.statut === 'demandee');
+  if (date <= d.ti) c.visites = visites;
+  else if (visites.length) c.avertissements.push('Demande de visite médicale en cours : gardée jusqu’au départ (une visite de reprise reste due tant que le salarié travaille) ; annulez-la depuis la fiche si elle n’a plus d’objet.');
   c.feuilles = feuilles.filter(f => f.statut !== 'validee' && f.week > date && [0, 1, 2, 3, 4].every(i => heuresDuJour(f, i) === 0));
 
   d.ds.voyages.filter(v => v.empId === e.id && v.retour > date).forEach(v => {

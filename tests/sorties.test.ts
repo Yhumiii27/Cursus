@@ -1,8 +1,10 @@
 // Sortie des salariés (t124) et garde-fou d'un changement de régime de temps (t074) : date et motif de sortie pour tous
 // les contrats, CDI compris ; contrôles (manager d'équipe, heures ou absence au-delà de la date) ; annulations (absences,
-// Keystone prévenu ; inscriptions et convocations ; entretiens ; demandes de visite ; feuilles vides) ; sessions fermées ;
-// salarié sorti retiré de la conformité, des échéances et des obligations, gardé en « No Go CONTRAT » pour Keystone ;
-// annulation d'une sortie ; motif réservé au service RH, à la paie et à l'intéressé. Changement de régime : feuilles des
+// Keystone prévenu ; inscriptions et convocations ; entretiens ; demandes de visite d'une sortie passée ; feuilles vides) ;
+// sessions fermées ; rien ne se planifie après la date ; salarié sorti retiré de la conformité, des échéances et des
+// obligations (et, avant la date, de ce qui échoit après), gardé en « No Go CONTRAT » pour Keystone ; annulation d'une
+// sortie ; motif réservé au service RH, à la paie et à l'intéressé ; sortie d'un membre de l'espace RH réservée à
+// l'administrateur, qui en garde toujours un après la date. Changement de régime : feuilles des
 // 8 semaines précédentes figées sur l'ancien régime, confirmation et solde gardé au journal quand des RTT sont perdus.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -21,6 +23,7 @@ const { suivreVerdicts } = await import('../server/src/integrations/keystone-ver
 const { contexte, enregistrerAffectation, enregistrerChantier } = await import('../server/src/integrations/keystone-entrant.ts');
 const { Domain } = await import('../shared/domain.ts');
 const { matricule } = await import('../shared/format.ts');
+const { iso } = await import('../shared/dates.ts');
 const { obligations } = await import('../shared/rules/entretiens.ts');
 const { calcSheet } = await import('../shared/rules/temps.ts');
 const { rttInfo } = await import('../shared/rules/conges.ts');
@@ -107,7 +110,7 @@ test('sortie : contrôles, annulations (Keystone prévenu, convocation annulée)
 
   const o = run(RH, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' }) as { message: string };
   assert.match(o.message, /^Sortie de Mehdi Benali enregistrée le 16 oct\. 2026 — Démission/);
-  assert.match(o.message, /2 absences annulées \(Keystone prévenu\) · 1 inscription à une session retirée · 1 entretien planifié retiré · demande de visite médicale annulée · 1 feuille de temps vide retirée/);
+  assert.match(o.message, /2 absences annulées \(Keystone prévenu\) · 1 inscription à une session retirée · 1 entretien planifié retiré · 1 feuille de temps vide retirée/);
   assert.match(o.message, /annulation de convocation envoyée par e-mail · accès à Cursus jusqu’au 16 oct\. 2026 inclus$/);
   const e = db.get<{ fin: string; motifSortie: string; finPrevue: string | null }>('employes', 2)!;
   assert.deepEqual([e.fin, e.motifSortie, e.finPrevue], ['2026-10-16', 'demission', null]);
@@ -117,12 +120,13 @@ test('sortie : contrôles, annulations (Keystone prévenu, convocation annulée)
   assert.equal(db.get<{ sessionId: number | null }>('certifications', sst.id)!.sessionId, null);
   assert.equal(envois('convocation.annulee').length, 1);
   assert.ok(!db.all<{ empId: number; statut: string }>('entretiens').some(x => x.empId === 2 && x.statut === 'planifie'));
-  assert.ok(db.all<{ empId: number; statut: string }>('demandesVisite').filter(x => x.empId === 2).every(x => x.statut === 'annulee'));
+  // Sortie à venir : la demande de visite reste suivie jusqu'au départ (une visite de reprise reste due).
+  assert.deepEqual(db.all<{ empId: number; statut: string }>('demandesVisite').filter(x => x.empId === 2).map(x => x.statut), ['demandee']);
   assert.ok(!db.all<{ empId: number; week: string }>('feuilles').some(x => x.empId === 2 && x.week === '2026-10-26'));
   // Journal : date, motif (code), anciennes et nouvelles valeurs, nombre d'éléments annulés ; archive paie.
   const j = derniere('employe.sortie')!;
   assert.deepEqual(j.payload, {
-    id: 2, date: '2026-10-16', motif: 'demission', absences: 2, inscriptions: 1, entretiens: 1, visites: 1, feuilles: 1, sessions: 0,
+    id: 2, date: '2026-10-16', motif: 'demission', absences: 2, inscriptions: 1, entretiens: 1, visites: 0, feuilles: 1, sessions: 0,
     avant: { fin: null, motifSortie: null }, apres: { fin: '2026-10-16', motifSortie: 'demission' },
   });
   assert.deepEqual([j.salaries, j.paie], [[2], true]);
@@ -130,6 +134,16 @@ test('sortie : contrôles, annulations (Keystone prévenu, convocation annulée)
   const v = envois('verdict.modifie').at(-1)!.contenu;
   assert.deepEqual([v.chantier, v.ressource.matricule, v.ressource.statut, v.ressource.motifs], ['K-SO', 'EMP-0002', 'NO_GO', [{ code: 'CONTRAT', niveau: 'NO_GO' }]]);
 
+  // Rien ne se planifie après le dernier jour : session, entretien (ni dans le dialogue, ni par le serveur).
+  const hors = /Date postérieure au dernier jour du contrat de Mehdi Benali \(16 oct\. 2026\)/;
+  refus(RH, 'plan.inscrire', { empId: 2, certId: sst.id, sessionId: 2, conv: 'now' }, hors);
+  refus(RH, 'entretien.planifier', { empId: 2, kind: 'annuel', date: '2026-11-20' }, hors);
+  refus(user(12, 'manager'), 'entretien.planifier', { empId: 2, kind: 'annuel', date: '2026-11-20' }, hors);
+  // Avant la date, les échéances et obligations postérieures au départ disparaissent (passeport du 2 décembre, campagne
+  // annuelle au 15 décembre : l'entretien retiré par la sortie ne réapparaît pas « à planifier ») ; les échues restent.
+  const d0 = domain();
+  assert.deepEqual(d0.echeances(d0.enrich(180, false), 180).filter(x => x.emp.id === 2 && iso(x.exp) > '2026-10-16').map(x => x.label), []);
+  assert.deepEqual(obligations(d0, [2]).filter(x => x.due > '2026-10-16').map(x => x.kind), []);
   // Avant la date : toujours présent ; après : retiré de la conformité, des échéances et des obligations d'entretien, mais
   // consultable (filtre « Sortis ») et gardé en No Go CONTRAT sur le chantier.
   assert.ok(domain().enrich(90, false).some(x => x.id === 2));
@@ -144,6 +158,8 @@ test('sortie : contrôles, annulations (Keystone prévenu, convocation annulée)
     // Connexion refusée passé la date (déjà en place pour les CDD : vaut désormais pour un CDI).
     const c = db.sql.prepare('SELECT * FROM comptes WHERE emp_id = 2').get() as Record<string, unknown>;
     assert.match(refusDuCompte(db, db.get<Compte>('comptes', Number(c.id))!)!, /date de sortie de ce salarié est passée/);
+    // Plus de visite à demander passé la date.
+    refus(RH, 'medical.demander', { empId: 2 }, /dernier jour du contrat de Mehdi Benali/);
   });
 });
 
@@ -154,8 +170,10 @@ test('sortie : une date passée ferme les sessions ; motif réservé au RH, à l
     id: 'session-essai', compteId: compteDe(6).id, role: 'collaborateur', methode: 'demo', demoComptes: {},
     creation: maintenant.toISOString(), expiration: new Date(maintenant.getTime() + 3600_000).toISOString(), activite: maintenant.toISOString(),
   });
+  run(RH, 'medical.demander', { empId: 6 });
   const o = run(RH, 'employe.sortie', { id: 6, date: '2026-10-09', motif: 'rupture_conventionnelle' }) as { message: string };
-  assert.match(o.message, /sessions de connexion fermées$/);
+  assert.match(o.message, /demande de visite médicale annulée · sessions de connexion fermées$/);
+  assert.deepEqual(db.all<{ empId: number; statut: string }>('demandesVisite').filter(x => x.empId === 6).map(x => x.statut), ['annulee'], 'sortie passée : visite annulée');
   assert.ok(db.get<{ revocation: string | null }>('connexions', 'session-essai')!.revocation, 'session révoquée');
   // Motif : ni le manager ni le référent HSE ; la paie et la lecture seule, oui.
   const vu = (u: User) => buildSnapshot(db, u).employes.find(x => x.id === 6);
@@ -198,6 +216,38 @@ test('sortie d’un CDD : jamais au-delà de la fin prévue, rétablie par l’a
   refus(RH, 'employe.modifier', { id: 4, typeContrat: 'cdi' }, /CDI ne prend fin que par une sortie/);
   run(RH, 'employe.modifier', { id: 4, typeContrat: 'cdi', fin: null });
   assert.equal(db.get<{ fin: string | null }>('employes', 4)!.fin, null);
+});
+
+test('sortie d’un CDD devenu CDI : l’annulation ne rétablit pas la fin du CDD', () => {
+  const { db, run, RH } = fresh();
+  run(RH, 'employe.sortie', { id: 4, date: '2026-11-30', motif: 'fin_cdd' });
+  run(RH, 'employe.modifier', { id: 4, typeContrat: 'cdi' });
+  assert.match((run(RH, 'employe.annulerSortie', { id: 4 }) as { message: string }).message, /contrat sans date de fin/);
+  const e = db.get<{ typeContrat: string; fin: string | null; motifSortie: string | null; finPrevue: string | null }>('employes', 4)!;
+  assert.deepEqual([e.typeContrat, e.fin, e.motifSortie, e.finPrevue], ['cdi', null, null, null]);
+  run(RH, 'employe.modifier', { id: 4, poste: 'Technicien' });
+});
+
+test('sortie d’un membre de l’espace RH : réservée à l’administrateur, qui en garde toujours un après la date', () => {
+  const { db, user, run, refus, RH, compteDe } = fresh();
+  const gestionnaire = user(14, 'rh');
+  // Le gestionnaire RH saisit la sortie d'un salarié, pas celle d'un membre de l'espace RH (comptes : administrateur seul).
+  refus(gestionnaire, 'employe.sortie', { id: 7, date: '2026-10-31', motif: 'demission' }, /administrateur RH/, 403);
+  db.update('comptes', compteDe(1).id, { profilRh: 'rh_admin' });
+  refus(gestionnaire, 'employe.sortie', { id: 1, date: '2026-10-09', motif: 'autre' }, /administrateur RH/, 403);
+  run(gestionnaire, 'employe.sortie', { id: 6, date: '2026-10-31', motif: 'demission' });
+  // Deux administrateurs salariés en CDI, le compte non rattaché désactivé : une sortie à venir ne compte pas.
+  db.update('comptes', compteDe(2).id, { profilRh: 'rh_admin' });
+  db.update('comptes', compteDe(null).id, { actif: false });
+  run(RH, 'employe.sortie', { id: 1, date: '2026-10-31', motif: 'demission' });
+  refus(RH, 'employe.sortie', { id: 2, date: '2026-10-31', motif: 'demission' }, /dernier administrateur RH actif après le 31 oct\. 2026/);
+  refus(RH, 'employe.sortie', { id: 2, date: '2026-11-15', motif: 'demission' }, /dernier administrateur RH actif/);
+  // Ni désactivation ni changement de profil du seul administrateur sans date de sortie.
+  refus(RH, 'compte.activer', { id: compteDe(2).id, actif: false }, /au moins un administrateur RH actif, sans date de sortie/);
+  refus(RH, 'compte.profil', { id: compteDe(2).id, profilRh: 'rh_gestionnaire' }, /au moins un administrateur RH actif/);
+  // Annulée, la première sortie rend la seconde possible.
+  run(RH, 'employe.annulerSortie', { id: 1 });
+  run(RH, 'employe.sortie', { id: 2, date: '2026-10-31', motif: 'demission' });
 });
 
 test('t074 : un changement de régime fige les 8 semaines précédentes et garde au journal le solde de RTT perdu', () => {

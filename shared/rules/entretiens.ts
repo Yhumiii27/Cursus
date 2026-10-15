@@ -30,6 +30,8 @@ export function obligations(d: Domain, scopeIds: number[]): Obligation[] {
     const done = (t: EntretienType[]) => list.filter(x => t.includes(x.type) && x.statut === 'realise').sort((a, b) => b.date.localeCompare(a.date));
     const push = (kind: EntretienType, due: ISODate, detail: string, extra?: Partial<Obligation>) => {
       const pl = list.find(x => x.type === kind && x.statut === 'planifie');
+      // Due après le départ (sortie enregistrée, fin de CDD…) et pas planifiée avant : plus d'obligation.
+      if (!pl && !present(e, due)) return;
       out.push({ id, e, kind, due, detail, pl, st: pl ? 'planifie' : due < Ti ? 'late' : due <= in90 ? 'soon' : 'ok', ...(extra || {}) });
     };
     const lastE = done(['epp', 'reprise'])[0];
@@ -52,7 +54,7 @@ export function obligations(d: Domain, scopeIds: number[]): Obligation[] {
       const lf = done(['forfait']).filter(x => x.date >= debut)[0];
       push('forfait', lf ? addM(lf.date, 12) : addM(debut, 12), lf ? `Dernier le ${fmt(parse(lf.date))} · chaque année` : debut > e.entree ? `Forfait jours depuis le ${fmt(parse(debut))} — premier entretien dans l’année` : 'Aucun entretien enregistré');
     }
-    if (!list.some(x => x.type === 'annuel' && x.date >= `${Y}-01-01`)) {
+    if (!list.some(x => x.type === 'annuel' && x.date >= `${Y}-01-01`) && present(e, `${Y}-12-15`)) {
       out.push({ id, e, kind: 'annuel', due: `${Y}-12-15`, st: 'todo', detail: `Campagne ${Y} — du 1er octobre au 15 décembre` });
     }
   });

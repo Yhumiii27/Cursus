@@ -608,7 +608,8 @@ export class Domain {
         });
       }
     });
-    return ech;
+    // Échéance postérieure au départ (sortie enregistrée, fin de CDD…) : plus rien à renouveler.
+    return ech.filter(x => present(x.emp, iso(x.exp)));
   }
 
   // — Chantiers Keystone : Go / No Go —

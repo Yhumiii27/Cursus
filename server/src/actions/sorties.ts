@@ -5,20 +5,32 @@
 // suivantes et ferme les sessions de connexion d'une sortie déjà passée. Passé la date, le salarié ne se connecte plus et
 // quitte la conformité, les échéances et les tableaux de bord (shared/rules/contrats.ts) ; sur les chantiers, il reste en
 // « No Go CONTRAT » pour Keystone (verdicts recalculés après l'action). Une sortie saisie par erreur s'annule.
+import { ouvreEspaceRh } from '../../../shared/constants.ts';
 import { fmtIso } from '../../../shared/format.ts';
 import { controleSortie, effetsSortie, estMotifSortie, finContrat, MOTIFS_SORTIE } from '../../../shared/rules/contrats.ts';
 import type { Certification, DemandeVisite, Absence, Employe } from '../../../shared/types.ts';
 import { revokeSessionsOf } from '../auth.ts';
-import { adminsActifs, type Compte, refusDuCompte } from '../comptes.ts';
+import { adminsDurables, type Compte, refusDuCompte } from '../comptes.ts';
 import { absenceKeystone, sendToKeystone } from '../integrations/keystone.ts';
 import { annulerSiConvoque } from '../notifications.ts';
-import { ActionError, getEmp, refuserSoiMeme, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
+import { ActionError, getEmp, refuserSoiMeme, requireRh, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
-/** Cursus garde un administrateur RH en mesure de se connecter : sa sortie attend la désignation d'un autre. */
-function dernierAdministrateur(ctx: Ctx, emp: Employe) {
+/**
+ * Sortie d'un membre de l'espace RH (service RH, référent HSE, paie, lecture seule) : elle ferme son compte, ce que seul
+ * l'administrateur RH décide (Comptes et accès) ; un gestionnaire RH ne la saisit ni ne l'annule.
+ */
+function compteRh(ctx: Ctx, emp: Employe) {
+  if (ctx.db.where<Compte>('comptes', 'empId', emp.id).some(c => ouvreEspaceRh(c.profilRh))) requireRhAdmin(ctx);
+}
+
+/**
+ * Cursus garde un administrateur RH en mesure de se connecter : la sortie d'un administrateur attend qu'un autre reste
+ * en place au-delà de la date (`adminsDurables` : une autre sortie déjà enregistrée à cette date ou avant ne compte pas).
+ */
+function dernierAdministrateur(ctx: Ctx, emp: Employe, date: string) {
   const comptes = ctx.db.where<Compte>('comptes', 'empId', emp.id);
-  if (comptes.some(c => c.profilRh === 'rh_admin' && !refusDuCompte(ctx.db, c) && !adminsActifs(ctx.db, c.id))) {
-    throw new ActionError(`${emp.nom} est le dernier administrateur RH actif : Cursus doit en garder un, désignez-en un autre d’abord (Comptes et accès)`);
+  if (comptes.some(c => c.profilRh === 'rh_admin' && !refusDuCompte(ctx.db, c) && !adminsDurables(ctx.db, c.id, date))) {
+    throw new ActionError(`${emp.nom} est le dernier administrateur RH actif après le ${fmtIso(date)} : Cursus doit en garder un, désignez-en un autre d’abord (Comptes et accès)`);
   }
 }
 
@@ -31,12 +43,13 @@ const sortie: ActionHandler = (ctx, p) => {
   requireRh(ctx);
   const emp = getEmp(ctx, p.id);
   refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas enregistrer votre propre sortie');
+  compteRh(ctx, emp);
   const date = str(p.date), motif = str(p.motif);
   if (!date) throw new ActionError('Date de sortie requise');
   if (!estMotifSortie(motif)) throw new ActionError('Motif de sortie à choisir dans la liste');
   const c = controleSortie(ctx.d, emp, date);
   if (c.bloquants.length) throw new ActionError(c.bloquants.join(' '));
-  dernierAdministrateur(ctx, emp);
+  dernierAdministrateur(ctx, emp, date);
 
   ctx.db.update<Employe>('employes', emp.id, { fin: date, motifSortie: motif, finPrevue: finContrat(emp) });
   // Fiche mise à jour d'abord : les convocations d'un salarié déjà parti ne lui sont plus envoyées (adresse close).
@@ -82,12 +95,14 @@ const annulerSortie: ActionHandler = (ctx, p) => {
   requireRh(ctx);
   const emp = getEmp(ctx, p.id);
   refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas annuler votre propre sortie');
+  compteRh(ctx, emp);
   if (!emp.motifSortie) {
     throw new ActionError(emp.fin ? 'Aucune sortie enregistrée : la fin prévue du contrat se modifie dans la fiche' : 'Aucune sortie enregistrée pour ce salarié');
   }
   // Fin prévue gardée par la sortie ; une fiche reprise d'un autre outil avec sa sortie n'en a pas : la date reste alors
-  // la fin prévue d'un CDD, d'une mission ou d'une alternance, et un CDI n'en a plus.
-  const fin = emp.finPrevue ?? (emp.typeContrat === 'cdi' ? null : emp.fin);
+  // la fin prévue d'un CDD, d'une mission ou d'une alternance. Un CDI n'en a aucune, même devenu CDI depuis la sortie
+  // (la fin du CDD gardée ne vaut plus).
+  const fin = emp.typeContrat === 'cdi' ? null : emp.finPrevue ?? emp.fin;
   ctx.db.update<Employe>('employes', emp.id, { fin, motifSortie: null, finPrevue: null });
   return `Sortie de ${emp.nom} annulée — ${fin ? `fin de contrat prévue le ${fmtIso(fin)}` : 'contrat sans date de fin'}`
     + ' · les absences, inscriptions, entretiens et demandes de visite annulés par la sortie ne sont pas rétablis';

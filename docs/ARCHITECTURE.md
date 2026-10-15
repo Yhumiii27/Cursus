@@ -432,8 +432,8 @@ aucun champ du paramètre n'est recopié.
 | --- | --- | --- |
 | `employe.creer` | fiche complète (`ProfilInput` de `shared/rules/profil.ts`) | RH |
 | `employe.modifier` | id + champs de la fiche, `confirmerRtt` (changement de régime qui ferme le compteur de RTT de l'année) ; ni le motif ni la date d'une sortie enregistrée | RH : tous ; manager : `poste`, `jourOff` (temps partiel) des membres de son équipe |
-| `employe.sortie` | id, date (dernier jour du contrat), motif (`MOTIFS_SORTIE`) ; refusée tant que le salarié encadre une équipe, qu'une feuille porte des heures après la date, qu'une absence est à cheval sur elle, au-delà de la fin prévue du contrat ou pour le dernier administrateur RH actif ; une sortie enregistrée se modifie par la même action | RH (jamais pour lui-même) |
-| `employe.annulerSortie` | id : fin prévue au contrat rétablie (aucune pour un CDI) ; ce que la sortie a annulé ne l'est pas | RH (jamais pour lui-même) |
+| `employe.sortie` | id, date (dernier jour du contrat), motif (`MOTIFS_SORTIE`) ; refusée tant que le salarié encadre une équipe, qu'une feuille porte des heures après la date, qu'une absence est à cheval sur elle, au-delà de la fin prévue du contrat ou quand aucun autre administrateur RH ne reste en place après la date ; une sortie enregistrée se modifie par la même action | RH (jamais pour lui-même) ; administrateur RH seul pour un salarié dont le compte ouvre l'espace RH |
+| `employe.annulerSortie` | id : fin prévue au contrat rétablie (aucune pour un CDI, même devenu CDI depuis la sortie) ; ce que la sortie a annulé ne l'est pas | RH (jamais pour lui-même) ; administrateur RH seul pour un salarié dont le compte ouvre l'espace RH |
 | `equipe.creer` / `equipe.renommer` | nom, managerId? / nom, nouveau | RH |
 | `equipe.supprimer` | nom | administrateur RH |
 | `equipe.manager` | nom, managerId (null = aucun) | RH |
@@ -592,14 +592,24 @@ après la reprise depuis Lucca ; la sortie se saisit dans Cursus (si Sage faisai
   demandes entièrement postérieures à la date sont annulées (Keystone reçoit `absence.annulee`) ; le salarié quitte les
   sessions ouvertes postérieures (recyclage détaché, inscription en formation initiale retirée, convocation reçue annulée
   par e-mail, `annulerSiConvoque`) ; ses entretiens planifiés après la date sont retirés (sans e-mail d'annulation) ; ses
-  demandes de visite en cours sont annulées (le service de santé au travail est à prévenir) ; ses feuilles de temps vides
+  demandes de visite en cours sont annulées par une sortie passée ou du jour (le service de santé au travail est à
+  prévenir) — à venir, elles restent suivies jusqu'au départ, une visite de reprise restant due tant que le salarié
+  travaille (avertissement du dialogue) ; ses feuilles de temps vides
   non validées des semaines suivantes sont retirées ; une sortie déjà passée ferme ses sessions de connexion
-  (`revokeSessionsOf`). La fin prévue au contrat est gardée (`finPrevue`) et rétablie par `employe.annulerSortie` ; ce que
-  la sortie a annulé ne l'est pas.
+  (`revokeSessionsOf`). La fin prévue au contrat est gardée (`finPrevue`) et rétablie par `employe.annulerSortie` (aucune
+  pour un CDI) ; ce que la sortie a annulé ne l'est pas.
+- **Après le dernier jour, rien ne se planifie** (`horsContratLe`, sortie enregistrée ou fin prévue d'un CDD) : inscription
+  à une session (`plan.inscrire`, demande de formation acceptée), entretien (`entretien.planifier`), et, une fois la date
+  passée, demande de visite (`medical.demander`) ; les dialogues le signalent avant l'envoi. Dès l'enregistrement, les
+  échéances (`Domain.echeances`) et obligations d'entretien (`obligations`) qui tombent après la date disparaissent ; les
+  échues restent, comme un entretien planifié avant le départ.
 - **Blocages** : salarié manager d'une équipe (le remplacer d'abord), heures saisies après la date sur une feuille de
   n'importe quel statut, absence ou demande à cheval sur la date (la raccourcir ou l'annuler d'abord), date antérieure à
-  l'entrée ou postérieure à la fin prévue du contrat (prolonger d'abord le contrat dans la fiche), dernier administrateur RH
-  actif. La nature d'une absence n'est jamais citée.
+  l'entrée ou postérieure à la fin prévue du contrat (prolonger d'abord le contrat dans la fiche), aucun autre administrateur
+  RH en place après la date (`adminsDurables` : un administrateur dont la sortie est déjà enregistrée ne compte pas ; de
+  même pour désactiver ou changer le profil d'un administrateur, `compte.activer`, `compte.profil`). La sortie d'un
+  salarié dont le compte ouvre l'espace RH, qui ferme ce compte, est réservée à l'administrateur RH, comme la gestion des
+  comptes. La nature d'une absence n'est jamais citée.
 - **Passé la date** (`present`, `sorti`) : connexion refusée et sessions sans effet (`refusDuCompte`), plus de notification
   (`adresseSalarie`), aucune feuille ni absence (bornes du contrat) — protections déjà en place pour les CDD ; le salarié
   quitte `Domain.enrich` (conformité, tableaux de bord, habilitations, formations, équipes), les échéances

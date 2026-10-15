@@ -24,7 +24,7 @@ export function SortieFiche({ e }: { e: Employe }) {
   // Sans sortie enregistrée, la fin prévue d'un CDD ou d'une mission figure déjà dans la nature du contrat.
   if (!enregistree) return rh ? <div style={BOUTONS}>{enregistrer}</div> : null;
   const texte = sortieTexte(e)!, avant = e.fin ? days(d.today, parse(e.fin)) : null;
-  const annuler = () => openDialog({ type: 'confirmer', c: annulationSortie(e, texte, e.finPrevue ? fmtIso(e.finPrevue) : null) });
+  const annuler = () => openDialog({ type: 'confirmer', c: annulationSortie(e, texte, e.typeContrat !== 'cdi' && (e.finPrevue ?? e.fin) ? fmtIso((e.finPrevue ?? e.fin)!) : null) });
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
       <div>

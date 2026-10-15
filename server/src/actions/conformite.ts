@@ -3,6 +3,7 @@ import { addMonths, isValidDate, parse } from '../../../shared/dates.ts';
 import { certEnVigueur, Domain, habEnCours, sessionActive } from '../../../shared/domain.ts';
 import { fmt, key, plural } from '../../../shared/format.ts';
 import { blocage, conflitsDates, sessionsInscrit } from '../../../shared/rules/conflits.ts';
+import { horsContratLe } from '../../../shared/rules/contrats.ts';
 import { estAuDossier, relireDeclaration, retireeAuRefus } from '../../../shared/rules/formalites.ts';
 import type { Certification, DemandeCollab, Employe, HabTitre, HabType, Inscription } from '../../../shared/types.ts';
 import { loadFull } from '../dataset.ts';
@@ -41,6 +42,8 @@ const inscrire: ActionHandler = (ctx, p) => {
   if (cert && certEnVigueur(emp.certs, cert.f) !== cert) throw new ActionError('Certification remplacée par un recyclage : planifiez la certification en vigueur');
   if (!sessionActive(sess)) throw new ActionError(`Session ${sess.statut === 'Annulée' ? 'annulée' : 'clôturée'}`);
   if (sess.date < ctx.d.ti) throw new ActionError('Session déjà passée');
+  const hors = horsContratLe(emp, sess.date);
+  if (hors) throw new ActionError(hors);
   attendCloture(ctx, (cert ?? insc)!.sessionId);
   if ((cert ?? insc)!.sessionId === sess.id || (insc && ctx.ds.inscriptions.some(i => i.empId === emp.id && i.sessionId === sess.id))) {
     return `${emp.nom} est déjà inscrit à cette session`;
@@ -133,7 +136,7 @@ const accepterDemande: ActionHandler = (ctx, p) => {
       const cert = certEnVigueur(emp.certs, r.f!);
       // Absent le jour de la session, ou inscrit ailleurs ce jour-là : la demande ne peut pas être acceptée telle quelle.
       const quittee = cert ? cert.sessionId : ctx.ds.inscriptions.find(i => i.empId === emp.id && ctx.d.session(i.sessionId)?.formation === r.f)?.sessionId;
-      const conflit = blocage(conflitsDates(ctx.d, emp.id, sess.date, sess.date, 'formation', { sessionId: quittee }));
+      const conflit = horsContratLe(emp, sess.date) ?? blocage(conflitsDates(ctx.d, emp.id, sess.date, sess.date, 'formation', { sessionId: quittee }));
       if (conflit) throw new ActionError(`${conflit} : refusez la demande, ou inscrivez ${emp.nom} à une autre session depuis sa fiche`);
       // Le nombre d'inscrits est calculé : rattacher à la session libère l'éventuelle place d'une autre
       // (une session passée, à clôturer, garde ses inscrits jusqu'à la clôture).

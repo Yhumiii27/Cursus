@@ -1,10 +1,15 @@
 // Espace collaborateur : certifications, habilitations, voyages et demandes du salarié connecté.
-import { PlusIcon } from '@phosphor-icons/react';
-import { CERT_LABEL, CLS, EMP_LABEL, HAB_CLS, HAB_LABEL, REQ_CLS, REQ_LABEL, SESS_CLS, TRIP_CLS, TRIP_LABEL } from '../../../shared/constants.ts';
+import { DownloadSimpleIcon, PlusIcon } from '@phosphor-icons/react';
+import { CERT_LABEL, CLS, EMP_LABEL, HAB_CLS, HAB_LABEL, MODE_NOTIFICATION_LABEL, REQ_CLS, REQ_LABEL, SESS_CLS, TRIP_CLS, TRIP_LABEL } from '../../../shared/constants.ts';
 import { parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, fmtShort, matricule, plural, rel } from '../../../shared/format.ts';
-import { Bar, Btn, Chips, Empty, Fine, Kpi, Kpis, NoteAccent, Page, Panel, Tag } from '../components/ui.tsx';
+import { declarationDetail, formaliteCle } from '../../../shared/rules/formalites.ts';
+import { etatInscription } from '../../../shared/rules/sessions.ts';
+import type { ModeNotification } from '../../../shared/types.ts';
+import { Bar, Btn, Chips, Empty, Fine, Kpi, Kpis, NoteAccent, Page, Panel, Seg, Tag } from '../components/ui.tsx';
+import { Aptitude } from '../components/Aptitude.tsx';
 import { useEnriched, useRole, useTrips } from '../state/derived.ts';
+import { api } from '../api.ts';
 import { useStore } from '../state/store.tsx';
 import { reqKind, reqLabel } from './Dashboard.tsx';
 
@@ -16,7 +21,7 @@ export function Portail() {
   const { emps, upcoming, horizon, d } = useEnriched();
   const trips = useTrips();
   const { me: meId } = useRole();
-  const { openDialog } = useStore();
+  const { openDialog, notify, run } = useStore();
   const me = emps.find(e => e.id === meId);
   if (!me) return <Page title="Mon espace"><Empty>Aucun dossier collaborateur n’est associé à votre compte.</Empty></Page>;
 
@@ -32,12 +37,16 @@ export function Portail() {
     ...tv.vaccins.map(x => ({ key: 'x' + x.v, label: `${x.vm.court}${x.exp ? ' · ' + (x.key === 'exp' ? 'rappel dépassé' : x.exp.getFullYear()) : ''}`, cls: docCls(x.key) })),
   ];
   const reqs = [...myReqs].sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
+  // Formalités déclarées, pas encore validées par le service RH : le dossier ne les compte pas encore.
+  const declarees = reqs.filter(r => r.statut === 'attente' && r.declaration && !r.declaration.dejaAuDossier);
+  const enAttente = new Set(declarees.map(r => formaliteCle(r.declaration!)));
   const openMyDocs = () => openDialog({ type: 'fo', empId: me.id });
   const contrat = d.contratOf(me);
-  // Formations initiales planifiées : inscriptions à une session d'une formation jamais suivie.
+  // Formations initiales : inscriptions à une session d'une formation jamais suivie (planifiées, session
+  // passée en attente de clôture, ou à replanifier par le service RH).
   const planifiees = d.ds.inscriptions.flatMap(i => {
-    const s = i.empId === me.id ? d.session(i.sessionId) : null;
-    return s ? [{ i, s, fm: d.fm(s.formation) }] : [];
+    const x = i.empId === me.id ? etatInscription(d, i) : null;
+    return x ? [{ i, x, s: x.s, fm: d.fm(x.s.formation) }] : [];
   }).sort((a, b) => a.s.date.localeCompare(b.s.date));
   const mgrId = d.mgrOf(me);
 
@@ -72,24 +81,24 @@ export function Portail() {
         <div className="col-stack" style={{ flex: '1 1 480px' }}>
           {planifiees.length > 0 && (
             <Panel title="Formations planifiées" aside="formation initiale" style={{ gap: 'var(--space-2)' }}>
-              {planifiees.map(({ i, s, fm }) => {
-                const passee = s.date < d.ti;
-                return (
-                  <div key={i.id} className="list-row stack" style={{ ...rowStyle, gap: 'var(--space-1)' }}>
-                    <div className="item-head">
-                      <div>
-                        <div style={{ fontSize: 14 }}>{fm.nom}</div>
-                        <div className="text-muted sub">Session du {fmt(parse(s.date))} · {s.lieu} · {fm.organisme}</div>
-                      </div>
-                      <Tag cls={passee ? 'tag-outline' : SESS_CLS[s.statut]} style={{ flex: 'none' }}>{passee ? 'Session passée' : s.statut}</Tag>
+              {planifiees.map(({ i, x, s, fm }) => (
+                <div key={i.id} className="list-row stack" style={{ ...rowStyle, gap: 'var(--space-1)' }}>
+                  <div className="item-head">
+                    <div>
+                      <div style={{ fontSize: 14 }}>{fm.nom}</div>
+                      <div className="text-muted sub">{x.etat === 'a_planifier' ? x.motif : `Session du ${fmt(parse(s.date))} · ${s.lieu} · ${fm.organisme}`}</div>
                     </div>
-                    <div className="sub text-n400">
-                      {passee ? 'Certification en cours d’enregistrement par le service RH'
-                        : i.convoc === 'now' ? `Convocation envoyée le ${fmtShort(parse(i.date))}` : 'Convocation à venir'}
-                    </div>
+                    {x.etat === 'planifiee'
+                      ? <Tag cls={SESS_CLS[s.statut]} style={{ flex: 'none' }}>{s.statut}</Tag>
+                      : <Tag cls="tag-outline" style={{ flex: 'none' }}>{x.etat === 'passee' ? 'Session passée' : 'À replanifier'}</Tag>}
                   </div>
-                );
-              })}
+                  <div className="sub text-n400">
+                    {x.etat === 'passee' ? 'Présence et résultat en cours d’enregistrement par le service RH'
+                      : x.etat === 'a_planifier' ? 'Le service RH vous inscrira à une prochaine session'
+                      : i.convoc === 'now' ? `Convocation envoyée le ${fmtShort(parse(i.convocLe ?? i.date))}` : 'Convocation à venir'}
+                  </div>
+                </div>
+              ))}
             </Panel>
           )}
 
@@ -97,7 +106,10 @@ export function Portail() {
             {me.certs.map(c => {
               const avail = upcoming.find(s => s.formation === c.f && s.inscrits < s.places);
               const pend = myReqs.some(r => r.type === 'formation' && r.f === c.f && r.statut === 'attente');
-              const info = c.session ? `Inscrit à la session du ${fmt(parse(c.session.date))}` : pend ? 'Demande de recyclage envoyée au service RH' : '';
+              const convocation = c.convoc === 'now' ? ` · convocation envoyée${c.convocLe ? ` le ${fmtShort(parse(c.convocLe))}` : ''}` : ' · convocation à venir';
+              const info = c.session ? `Inscrit à la session du ${fmt(parse(c.session.date))}${convocation}`
+                : c.sessionPassee ? `Session du ${fmt(parse(c.sessionPassee.date))} passée — présence et résultat en cours d’enregistrement par le service RH`
+                : pend ? 'Demande de recyclage envoyée au service RH' : '';
               return (
                 <div key={c.id} className="list-row stack" style={rowStyle}>
                   <div className="item-head">
@@ -106,7 +118,7 @@ export function Portail() {
                   </div>
                   <Bar variant="thin" pct={c.pct} color={c.key === 'ok' ? 'var(--color-accent-600)' : 'var(--color-accent-300)'} />
                   {info && <NoteAccent>{info}</NoteAccent>}
-                  {c.key !== 'ok' && !c.session && !pend && (
+                  {c.key !== 'ok' && !c.session && !c.sessionPassee && !pend && (
                     <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                       <Btn small onClick={() => openDialog({ type: 'reqForm', f: c.f, sessionId: avail?.id ?? null })}>Demander le recyclage</Btn>
                     </div>
@@ -136,6 +148,12 @@ export function Portail() {
             ))}
             {me.habs.length === 0 && <Empty>Aucune habilitation. Votre poste en nécessite une ? Faites une demande.</Empty>}
           </Panel>
+
+          {/* Avis du médecin du travail, restrictions de poste et visite demandée par le service RH. */}
+          <Panel title="Mon aptitude médicale" style={{ gap: 'var(--space-2)' }}>
+            <Aptitude e={me} d={d} horizon={horizon} />
+            <Fine>{me.med.demande ? 'Le service de santé au travail vous convoquera. ' : ''}Seuls la date de la visite, l’avis et les restrictions de poste sont enregistrés ; votre manager ne voit que l’avis et les restrictions en vigueur, jamais la date de la visite.</Fine>
+          </Panel>
         </div>
 
         <div className="col-stack" style={{ flex: '1 1 380px' }}>
@@ -144,6 +162,9 @@ export function Portail() {
               {tv.pass ? `Passeport valide jusqu’au ${fmt(tv.pass.exp)}${tv.pass.key !== 'ok' ? ' · ' + (tv.pass.key === 'exp' ? 'expiré' : 'expire ' + rel(tv.pass.d)) : ''}` : 'Passeport non renseigné'}
             </div>
             {docChips.length > 0 && <Chips items={docChips} />}
+            {declarees.map(r => (
+              <NoteAccent key={r.id}>{r.label} · {declarationDetail(r.declaration!)} — en attente de validation RH</NoteAccent>
+            ))}
             {myTrips.map(t => {
               const items = t.r.items.filter(i => !i.ok);
               return (
@@ -155,8 +176,9 @@ export function Portail() {
                   {items.map(i => (
                     <div key={i.k + i.label} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--space-3)' }}>
                       <div style={{ minWidth: 0 }}><div style={{ fontSize: 13 }}>{i.label}</div><div className="text-muted sub">{i.text}</div></div>
-                      {i.fix && (
-                        <Btn small style={{ flex: 'none' }} onClick={() => openDialog({ type: 'fo', empId: me.id, kind: i.fix!.kind, dest: i.fix!.dest, v: i.fix!.v })}>Renseigner</Btn>
+                      {i.fix && (enAttente.has(formaliteCle(i.fix))
+                        ? <span className="sub text-n400" style={{ flex: 'none' }}>En attente de validation RH</span>
+                        : <Btn small style={{ flex: 'none' }} onClick={() => openDialog({ type: 'fo', empId: me.id, kind: i.fix!.kind, dest: i.fix!.dest, v: i.fix!.v })}>Renseigner</Btn>
                       )}
                     </div>
                   ))}
@@ -165,7 +187,7 @@ export function Portail() {
               );
             })}
             {myTrips.length === 0 && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>Aucun déplacement prévu.</p>}
-            <Fine>Seules les dates de vaccination sont enregistrées, sans aucune information médicale.</Fine>
+            <Fine>Vos vaccinations (vaccin et date d’injection) sont des données de santé : seul le service RH y a accès, jamais votre manager. L’information sur leur traitement s’affiche avant chaque déclaration.</Fine>
           </Panel>
 
           <Panel title="Mes demandes" style={{ gap: 'var(--space-2)' }}>
@@ -178,10 +200,33 @@ export function Portail() {
                   </div>
                   <Tag cls={REQ_CLS[r.statut]} style={{ flex: 'none' }}>{REQ_LABEL[r.statut]}</Tag>
                 </div>
-                <div className="sub text-n400">{r.reponse || 'En cours de traitement par le service RH'}</div>
+                {r.declaration && <div className="sub">Déclaré : {declarationDetail(r.declaration)}</div>}
+                <div className="sub text-n400">{r.reponse || (r.type === 'document' ? 'En attente de validation RH' : 'En cours de traitement par le service RH')}</div>
+                {r.statut === 'refusee' && r.motifRefus && <div className="sub">Motif du refus : {r.motifRefus}</div>}
               </div>
             ))}
             {reqs.length === 0 && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>Aucune demande envoyée.</p>}
+          </Panel>
+
+          <Panel title="Mes données personnelles">
+            <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>
+              Copie de toutes les données que Cursus conserve sur vous (fiche, formations, habilitations, voyages, temps, absences, entretiens, demandes, compte) dans un fichier lisible, que vous pouvez conserver ou transmettre.
+            </p>
+            <div>
+              <Btn small icon={<DownloadSimpleIcon size={14} />} onClick={() => api.mesDonnees().catch(err => notify((err as Error).message, true))}>Télécharger mes données</Btn>
+            </div>
+            <Fine>Le journal des actions qui vous concernent vous est remis sur demande par le service RH.</Fine>
+          </Panel>
+
+          <Panel title="Mes notifications par e-mail" style={{ gap: 'var(--space-3)' }}>
+            <div style={{ fontSize: 14, overflowWrap: 'anywhere' }}>{me.email ?? 'Aucune adresse e-mail sur votre fiche'}</div>
+            <Seg name="notif-mode" label="Notifications par e-mail" value={me.notifications} disabled={!me.email} style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }}
+              options={Object.entries(MODE_NOTIFICATION_LABEL) as [ModeNotification, string][]} onChange={mode => run('notification.regler', { mode })} />
+            <Fine>
+              {me.email
+                ? 'Demandes à valider, décisions, feuilles de temps renvoyées, comptes rendus d’entretien à signer : chaque notification part aussitôt, ou toutes ensemble dans un récapitulatif chaque matin. Les convocations (formations, entretiens) partent toujours aussitôt, avec leur fichier pour l’agenda.'
+                : 'Demandez au service RH d’inscrire votre adresse e-mail professionnelle sur votre fiche : notifications et convocations vous y parviendront.'}
+            </Fine>
           </Panel>
         </div>
       </div>

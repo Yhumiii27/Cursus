@@ -1,10 +1,10 @@
-// Échéances : renouvellements des 12 prochains mois (certifications, habilitations, formalités de voyage).
+// Échéances : renouvellements des 12 prochains mois (certifications, habilitations, visites médicales, formalités de voyage).
 import { useMemo } from 'react';
 import { DownloadSimpleIcon } from '@phosphor-icons/react';
 import { cap, equipeLabel, monthShort, plural } from '../../../shared/format.ts';
 import { Btn, Empty, Page, Panel, Seg } from '../components/ui.tsx';
 import { downloadCsv } from '../print.ts';
-import { useEnriched, useRole } from '../state/derived.ts';
+import { useEnriched, useIntentPermis } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { EchRow } from './Dashboard.tsx';
 
@@ -12,20 +12,22 @@ const dmy = (d: Date) => d.toLocaleDateString('fr-FR', { day: '2-digit', month: 
 
 export function Echeances() {
   const { emps, horizon, d } = useEnriched();
-  const { rh } = useRole();
+  const permis = useIntentPermis();
   const { ui, setUi, go, runIntent, notify } = useStore();
 
   const v = useMemo(() => {
     const list = d.echeances(emps, horizon)
       .filter(x => ui.echType === 'tous' || x.kind === ui.echType)
-      .map(x => rh ? x : { ...x, action: null });
+      // Propositions d'action réservées aux profils qui peuvent les lancer (aucune en lecture seule).
+      .map(x => !x.action || permis(x.action.intent) ? x : { ...x, action: null });
     const exp = list.filter(x => x.key === 'exp').sort((a, b) => a.d - b.d);
     const t = d.today;
     const months = Array.from({ length: 12 }, (_, i) => {
       const m = new Date(t.getFullYear(), t.getMonth() + i, 1);
       const end = new Date(m.getFullYear(), m.getMonth() + 1, 1);
       const from = i === 0 ? t : m;
-      return { m, items: list.filter(x => x.exp >= from && x.exp < end).sort((a, b) => a.d - b.d) };
+      // Un titre suspendu ou retiré aujourd'hui (non valide, échéance du jour) reste parmi les dépassées.
+      return { m, items: list.filter(x => x.exp >= from && x.exp < end && !(x.key === 'exp' && x.d <= 0)).sort((a, b) => a.d - b.d) };
     });
     const max = Math.max(1, ...months.map(m => m.items.length));
     const year = months.reduce((n, m) => n + m.items.length, 0);
@@ -37,12 +39,12 @@ export function Echeances() {
       })),
     ];
     return { months, max, year, exp: exp.length, groups };
-  }, [d, emps, horizon, ui.echType, rh]);
+  }, [d, emps, horizon, ui.echType, permis]);
 
   const exportCsv = () => {
     const items = v.groups.flatMap(g => g.items);
     downloadCsv(`echeances-${d.ti}.csv`, ['Collaborateur', 'Équipe', 'Élément', 'Type', 'Échéance', 'Statut', 'Planifié'],
-      items.map(x => [x.emp.nom, equipeLabel(x.emp), x.label, x.kindLabel, dmy(x.exp), x.statut, x.planned ? x.plannedLabel : '']));
+      items.map(x => [x.emp.nom, equipeLabel(x.emp), x.label, x.kindLabel, x.sansDate ? '' : dmy(x.exp), x.statut, x.planned ? x.plannedLabel : '']));
     notify(`Export CSV généré — ${plural(items.length, 'échéance', 'échéances')}`);
   };
 
@@ -52,7 +54,7 @@ export function Echeances() {
       title="Échéances"
       actions={<>
         <Seg name="echType" label="Type d’échéance" value={ui.echType} onChange={x => setUi({ echType: x })}
-          options={[['tous', 'Tout'], ['cert', 'Certifications'], ['hab', 'Habilitations'], ['trip', 'Voyages']]} />
+          options={[['tous', 'Tout'], ['cert', 'Certifications'], ['hab', 'Habilitations'], ['med', 'Visites médicales'], ['trip', 'Voyages']]} />
         <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exportCsv}>Exporter (CSV)</Btn>
       </>}
     >

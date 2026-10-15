@@ -1,0 +1,824 @@
+{
+  "openapi": "3.1.0",
+  "info": {
+    "title": "Cursus — API Keystone",
+    "version": "1.0.0",
+    "summary": "Appels de Keystone vers Cursus (référentiel des chantiers, affectations, planning, verdict Go / No Go, demandes de déplacement) et événements envoyés par Cursus à Keystone.",
+    "description": "Keystone transmet à Cursus ses projets, chantiers, affectations (présence d'un salarié sur un chantier) et tâches planifiées, interroge le verdict Go / No Go d'un chantier et dépose des demandes de déplacement que le service RH valide. Les salariés sont désignés par leur matricule ; seuls des matricules et des codes de motif sortent de Cursus (aucune donnée de santé, aucun document de voyage). Chaque objet porte son identifiant Keystone : renvoyer le même objet ne crée pas de doublon. Dans l'autre sens, Cursus envoie ses décisions sur les demandes, les heures et absences validées et les changements de verdict à une route que Keystone implémente (webhook `evenement`). Guide en français pour le développeur de Keystone : docs/API-KEYSTONE.md."
+  },
+  "servers": [
+    { "url": "/api/integrations/keystone", "description": "Cursus, derrière son reverse proxy HTTPS (même origine que l'application)" }
+  ],
+  "security": [{ "cleApi": [] }],
+  "tags": [
+    { "name": "Référentiel", "description": "Projets, chantiers, affectations et tâches tenus dans Keystone" },
+    { "name": "Go / No Go", "description": "Verdict des ressources d'un chantier" },
+    { "name": "Demandes", "description": "Demandes de déplacement à valider par le service RH" },
+    { "name": "Documentation", "description": "Contrat et référentiels de Cursus" },
+    { "name": "Obsolète", "description": "Anciennes routes, sans /v1 : servies à l'identique, à remplacer" },
+    { "name": "Événements", "description": "Envois de Cursus vers Keystone : route à implémenter par Keystone" }
+  ],
+  "paths": {
+    "/v1/openapi.json": {
+      "get": {
+        "tags": ["Documentation"],
+        "operationId": "specification",
+        "summary": "Cette spécification",
+        "responses": {
+          "200": { "description": "Spécification OpenAPI 3.1", "content": { "application/json": { "schema": { "type": "object" } } } },
+          "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
+          "503": { "$ref": "#/components/responses/NonConfiguree" }
+        }
+      }
+    },
+    "/v1/referentiels": {
+      "get": {
+        "tags": ["Documentation"],
+        "operationId": "referentiels",
+        "summary": "Codes admis par Cursus",
+        "description": "Habilitations et certifications exigibles d'un chantier, destinations des déplacements (pays dont Cursus connaît les formalités).",
+        "responses": {
+          "200": { "description": "Référentiels", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Referentiels" } } } },
+          "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
+          "503": { "$ref": "#/components/responses/NonConfiguree" }
+        }
+      }
+    },
+    "/v1/projets/{code}": {
+      "put": {
+        "tags": ["Référentiel"],
+        "operationId": "enregistrerProjet",
+        "summary": "Créer ou mettre à jour un projet",
+        "description": "Projet sur lequel les heures s'imputent dans les feuilles de temps. Archivé, il n'est plus proposé à la saisie ; il n'est jamais supprimé.",
+        "parameters": [{ "$ref": "#/components/parameters/Code" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/ProjetEntree" }, "example": { "nom": "Rétrofit presse hydraulique" } } }
+        },
+        "responses": {
+          "200": { "description": "Mis à jour, ou envoi identique (`inchange`)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EcritureProjet" } } } },
+          "201": { "description": "Créé", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EcritureProjet" } } } },
+          "400": { "$ref": "#/components/responses/Invalide" },
+          "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
+          "413": { "$ref": "#/components/responses/TropVolumineux" },
+          "415": { "$ref": "#/components/responses/PasJson" },
+          "503": { "$ref": "#/components/responses/NonConfiguree" }
+        }
+      }
+    },
+    "/v1/chantiers/{id}": {
+      "put": {
+        "tags": ["Référentiel"],
+        "operationId": "enregistrerChantier",
+        "summary": "Créer ou mettre à jour un chantier",
+        "description": "Dates, lieu, exigences du Go / No Go (habilitations, certifications) et statut. Un chantier archivé n'est plus évalué ; ses missions restent en historique. Les ressources sont déduites des affectations.",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/ChantierEntree" },
+              "example": {
+                "nom": "Rétrofit presse hydraulique", "client": "Atlas Emboutissage", "lieu": "Tanger", "pays": "MA",
+                "debut": "2026-10-27", "fin": "2026-11-06", "chef": "Karim Haddad",
+                "habilitations": ["he", "hauteur"], "certifications": ["sst"], "statut": "actif"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Mis à jour, ou envoi identique (`inchange`)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EcritureChantier" } } } },
+          "201": { "description": "Créé", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EcritureChantier" } } } },
+          "400": { "$ref": "#/components/responses/Invalide" },
+          "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
+          "413": { "$ref": "#/components/responses/TropVolumineux" },
+          "415": { "$ref": "#/components/responses/PasJson" },
+          "503": { "$ref": "#/components/responses/NonConfiguree" }
+        }
+      }
+    },
+    "/v1/chantiers/{id}/go-no-go": {
+      "get": {
+        "tags": ["Go / No Go"],
+        "operationId": "verdict",
+        "summary": "Verdict Go / No Go d'un chantier",
+        "description": "Réévalué à chaque appel : contrat en cours et aucune absence sur la présence de la ressource (ses affectations, dans les dates du chantier ; à partir du jour même pour un chantier en cours), aptitude médicale (le verdict seulement, selon l'état du jour), habilitations et certifications exigées, valides sur les dates du chantier, et, hors de France, déplacement couvrant la présence, formalités de voyage et de détachement. Matricules et codes de motif uniquement ; libellés ajoutés si le service RH a choisi le partage détaillé, jamais la nature d'une absence ni une donnée de santé.",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": {
+          "200": {
+            "description": "Verdict",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/Verdict" },
+                "example": {
+                  "chantier": "K-2614", "evalue_le": "2026-10-10T07:12:44.120Z", "statut": "NO_GO",
+                  "ressources": [
+                    { "matricule": "EMP-0018", "statut": "GO", "motifs": [] },
+                    { "matricule": "EMP-0006", "statut": "NO_GO", "motifs": [{ "code": "HABILITATION", "niveau": "NO_GO" }, { "code": "DEPLACEMENT", "niveau": "GO_RESERVE" }] },
+                    { "matricule": "EMP-0012", "statut": "GO_RESERVE", "motifs": [{ "code": "DEPLACEMENT", "niveau": "GO_RESERVE" }] }
+                  ]
+                }
+              }
+            }
+          },
+          "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
+          "404": { "$ref": "#/components/responses/Inconnu" },
+          "410": { "$ref": "#/components/responses/Archive" },
+          "503": { "$ref": "#/components/responses/NonConfiguree" }
+        }
+      }
+    },
+    "/v1/affectations/{id}": {
+      "put": {
+        "tags": ["Référentiel"],
+        "operationId": "enregistrerAffectation",
+        "summary": "Créer ou mettre à jour une affectation",
+        "description": "Présence d'un salarié sur un chantier, du … au … : mission du salarié (planning, feuilles de temps, absences) et, si elle chevauche les dates du chantier, ressource du Go / No Go. Une demande de déplacement exige une affectation sur ses dates.",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AffectationEntree" }, "example": { "matricule": "EMP-0018", "chantier": "K-2614", "du": "2026-10-27", "au": "2026-11-06" } } }
+        },
+        "responses": {
+          "200": { "description": "Mise à jour, ou envoi identique (`inchange`)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EcritureAffectation" } } } },
+          "201": { "description": "Créée", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EcritureAffectation" } } } },
+          "400": { "$ref": "#/components/responses/Invalide" },
+          "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
+          "413": { "$ref": "#/components/responses/TropVolumineux" },
+          "415": { "$ref": "#/components/responses/PasJson" },
+          "503": { "$ref": "#/components/responses/NonConfiguree" }
+        }
+      },
+      "delete": {
+        "tags": ["Référentiel"],
+        "operationId": "supprimerAffectation",
+        "summary": "Supprimer une affectation",
+        "description": "Retire la mission et, le cas échéant, la ressource du chantier. 404 : déjà supprimée ou jamais reçue, rien à faire.",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": {
+          "200": { "description": "Supprimée", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Suppression" } } } },
+          "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
+          "404": { "$ref": "#/components/responses/Inconnu" },
+          "503": { "$ref": "#/components/responses/NonConfiguree" }
+        }
+      }
+    },
+    "/v1/taches/{id}": {
+      "put": {
+        "tags": ["Référentiel"],
+        "operationId": "enregistrerTache",
+        "summary": "Créer ou mettre à jour une tâche planifiée",
+        "description": "Tâche d'un projet planifiée pour un salarié, avec les heures prévues jour par jour. « Proposer depuis Keystone » (feuille de temps) ne reprend que les heures de la semaine affichée, du lundi au vendredi, à zéro les jours fériés, d'absence validée ou non travaillés.",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/TacheEntree" },
+              "example": {
+                "projet": "K-2614", "tache": "Rétrofit — circuit hydraulique", "matricule": "EMP-0018", "debut": "2026-10-27", "fin": "2026-10-30",
+                "heures": { "2026-10-27": 8, "2026-10-28": 8, "2026-10-29": 8, "2026-10-30": 7 }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Mise à jour, ou envoi identique (`inchange`)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EcritureTache" } } } },
+          "201": { "description": "Créée", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EcritureTache" } } } },
+          "400": { "$ref": "#/components/responses/Invalide" },
+          "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
+          "413": { "$ref": "#/components/responses/TropVolumineux" },
+          "415": { "$ref": "#/components/responses/PasJson" },
+          "503": { "$ref": "#/components/responses/NonConfiguree" }
+        }
+      },
+      "delete": {
+        "tags": ["Référentiel"],
+        "operationId": "supprimerTache",
+        "summary": "Supprimer une tâche planifiée",
+        "description": "Les feuilles de temps déjà saisies ne changent pas. 404 : déjà supprimée ou jamais reçue, rien à faire.",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": {
+          "200": { "description": "Supprimée", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Suppression" } } } },
+          "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
+          "404": { "$ref": "#/components/responses/Inconnu" },
+          "503": { "$ref": "#/components/responses/NonConfiguree" }
+        }
+      }
+    },
+    "/v1/instantane": {
+      "put": {
+        "tags": ["Référentiel"],
+        "operationId": "synchroniser",
+        "summary": "Synchronisation complète (instantané)",
+        "description": "État de référence des sections transmises, appliqué en une transaction (tout ou rien) : chaque objet est créé ou mis à jour ; un projet ou un chantier absent est archivé (sauf les activités internes INT-* et ECOLE, jamais archivées par un instantané) ; une affectation ou une tâche absente est supprimée, seulement si elle se termine à partir de `depuis` quand cette date est fournie. Une section omise n'est pas touchée. Corps limité à 2 Mo : au-delà, une section par appel.",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/Instantane" },
+              "example": {
+                "depuis": "2026-10-01",
+                "projets": [{ "code": "K-2614", "nom": "Rétrofit presse hydraulique" }],
+                "chantiers": [{ "id": "K-2614", "nom": "Rétrofit presse hydraulique", "client": "Atlas Emboutissage", "lieu": "Tanger", "pays": "MA", "debut": "2026-10-27", "fin": "2026-11-06", "chef": "Karim Haddad", "habilitations": ["he", "hauteur"], "certifications": ["sst"] }],
+                "affectations": [{ "id": "AF-K-2614-18", "matricule": "EMP-0018", "chantier": "K-2614", "du": "2026-10-27", "au": "2026-11-06" }],
+                "taches": [{ "id": "KT-18-1", "projet": "K-2614", "tache": "Rétrofit — circuit hydraulique", "matricule": "EMP-0018", "debut": "2026-10-27", "fin": "2026-10-28", "heures": { "2026-10-27": 8, "2026-10-28": 8 } }]
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Synchronisé", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Synchronisation" } } } },
+          "400": { "$ref": "#/components/responses/Invalide" },
+          "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
+          "413": { "$ref": "#/components/responses/TropVolumineux" },
+          "415": { "$ref": "#/components/responses/PasJson" },
+          "503": { "$ref": "#/components/responses/NonConfiguree" }
+        }
+      }
+    },
+    "/v1/demandes": {
+      "post": {
+        "tags": ["Demandes"],
+        "operationId": "deposerDemande",
+        "summary": "Déposer une demande de déplacement",
+        "description": "Pour une ressource affectée à un chantier hors de France. Le service RH l'accepte (déplacement créé, rattaché au chantier) ou la refuse dans l'écran Voyages ; Cursus la revalide à l'acceptation. La référence est unique : un réessai reçoit 409 avec la demande déjà enregistrée.",
+        "requestBody": {
+          "required": true,
+          "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DemandeEntree" }, "example": { "reference": "DK-2026-0412", "matricule": "EMP-0018", "chantier": "K-2611", "destination": "CI", "depart": "2026-11-09", "retour": "2026-11-27" } } }
+        },
+        "responses": {
+          "201": { "description": "Reçue, en attente de validation RH", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/EcritureDemande" } } } },
+          "400": { "$ref": "#/components/responses/Invalide" },
+          "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
+          "409": { "$ref": "#/components/responses/Doublon" },
+          "413": { "$ref": "#/components/responses/TropVolumineux" },
+          "415": { "$ref": "#/components/responses/PasJson" },
+          "503": { "$ref": "#/components/responses/NonConfiguree" }
+        }
+      }
+    },
+    "/v1/demandes/{reference}": {
+      "get": {
+        "tags": ["Demandes"],
+        "operationId": "lireDemande",
+        "summary": "Statut d'une demande",
+        "description": "En attente de validation RH, acceptée ou refusée, avec la date de décision.",
+        "parameters": [{ "$ref": "#/components/parameters/Reference" }],
+        "responses": {
+          "200": { "description": "Demande", "content": { "application/json": { "schema": { "type": "object", "required": ["demande"], "properties": { "demande": { "$ref": "#/components/schemas/Demande" } } } } } },
+          "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
+          "404": { "$ref": "#/components/responses/Inconnu" },
+          "503": { "$ref": "#/components/responses/NonConfiguree" }
+        }
+      }
+    },
+    "/chantiers/{id}/go-no-go": {
+      "get": {
+        "tags": ["Obsolète"],
+        "operationId": "verdictObsolete",
+        "deprecated": true,
+        "summary": "Ancienne route du verdict (remplacée par /v1/chantiers/{id}/go-no-go)",
+        "description": "Réponse inchangée : motifs en codes simples, ou en objets `{ code, libelle }` en partage détaillé. En-têtes `Deprecation: true` et `Link` vers la route v1.",
+        "parameters": [{ "$ref": "#/components/parameters/Id" }],
+        "responses": {
+          "200": { "description": "Verdict (ancienne forme)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/VerdictObsolete" } } } },
+          "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
+          "404": { "$ref": "#/components/responses/Inconnu" },
+          "410": { "$ref": "#/components/responses/Archive" },
+          "503": { "$ref": "#/components/responses/NonConfiguree" }
+        }
+      }
+    },
+    "/demandes": {
+      "post": {
+        "tags": ["Obsolète"],
+        "operationId": "deposerDemandeObsolete",
+        "deprecated": true,
+        "summary": "Ancienne route des demandes (remplacée par /v1/demandes)",
+        "description": "Mêmes contrôles qu'en v1 ; la référence y est facultative. Réponse inchangée.",
+        "requestBody": { "required": true, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/DemandeEntreeObsolete" } } } },
+        "responses": {
+          "201": {
+            "description": "Reçue",
+            "content": { "application/json": { "schema": { "type": "object", "required": ["id", "statut"], "properties": { "id": { "type": "integer" }, "statut": { "const": "en_attente_rh" } } } } }
+          },
+          "400": { "$ref": "#/components/responses/Invalide" },
+          "401": { "$ref": "#/components/responses/CleInvalide" },
+          "429": { "$ref": "#/components/responses/TropDeClesInvalides" },
+          "409": { "$ref": "#/components/responses/Doublon" },
+          "415": { "$ref": "#/components/responses/PasJson" },
+          "503": { "$ref": "#/components/responses/NonConfiguree" }
+        }
+      }
+    }
+  },
+  "webhooks": {
+    "evenement": {
+      "post": {
+        "tags": ["Événements"],
+        "operationId": "recevoirEvenement",
+        "summary": "Événement envoyé par Cursus (route implémentée par Keystone)",
+        "description": "Cursus appelle POST {KEYSTONE_URL}/api/cursus/v1/evenements, un événement par appel, depuis sa file d'envoi : un envoi à la fois, dans l'ordre d'émission, réponse attendue en 10 s. 2xx : reçu (accusé facultatif). 408, 429, 5xx, délai dépassé ou erreur réseau : nouvelle tentative après 1, 2, 4, 8, 16, 32 min puis 1 h (Retry-After respecté jusqu'à 1 h), 10 tentatives au plus, puis échec. Autre 4xx ou redirection : échec définitif, visible du service RH qui peut relancer. Un même événement peut arriver plusieurs fois : Keystone l'écarte grâce à l'en-tête Idempotency-Key (égal à `id`). Un type inconnu est à accepter (2xx) et ignorer.",
+        "security": [{ "jetonKeystone": [] }],
+        "parameters": [
+          { "name": "Idempotency-Key", "in": "header", "required": true, "description": "Identifiant de l'événement (égal à `id`), le même à chaque tentative", "schema": { "type": "string", "format": "uuid" } }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": { "$ref": "#/components/schemas/Evenement" },
+              "examples": {
+                "demande.decision": { "value": { "id": "0b9d7c1e-2f4a-4d3b-9a61-3c5e8f7a1b20", "type": "demande.decision", "emis_le": "2026-10-10T08:41:07.512Z", "donnees": { "demande": 7, "reference": "DK-2026-0412", "matricule": "EMP-0018", "chantier": "K-2611", "decision": "acceptee", "date": "2026-10-10" } } },
+                "heures.validees": { "value": { "id": "5f2e8a90-7c1d-4b6e-8f03-a9d4c2e1b7f6", "type": "heures.validees", "emis_le": "2026-10-12T16:05:31.004Z", "donnees": { "matricule": "EMP-0012", "semaine": "2026-10-05", "projets": { "K-2614": 15, "K-2611": 15 } } } },
+                "absence.validee": { "value": { "id": "c41a6e2d-93b7-4f58-a0e1-6d2b8c9f3e47", "type": "absence.validee", "emis_le": "2026-10-10T09:12:44.120Z", "donnees": { "absence": 31, "matricule": "EMP-0018", "du": "2026-12-14", "au": "2026-12-18" } } },
+                "verdict.modifie": { "value": { "id": "9e7f3b21-48ac-4d0e-b5f6-12c8a7d3e940", "type": "verdict.modifie", "emis_le": "2026-10-10T10:02:18.377Z", "donnees": { "chantier": "K-2614", "statut": "NO_GO", "ressource": { "matricule": "EMP-0018", "statut": "NO_GO", "motifs": [{ "code": "HABILITATION_SUSPENDUE", "niveau": "NO_GO" }], "precedent": "GO" } } } }
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": { "description": "Reçu, ou déjà reçu (même Idempotency-Key) : rien n'est retraité", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AccuseReception" } } } },
+          "202": { "description": "Reçu, traitement différé", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/AccuseReception" } } } },
+          "204": { "description": "Reçu, sans accusé : Cursus note le statut HTTP" },
+          "4XX": { "description": "Refus définitif (hors 408 et 429) : l'envoi passe en échec, sans nouvelle tentative ; le service RH le relance après correction", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/RefusEvenement" } } } },
+          "408": { "description": "Délai de lecture dépassé côté Keystone : nouvelle tentative" },
+          "429": { "description": "Trop d'envois : nouvelle tentative, après l'attente indiquée par Retry-After (1 h au plus)" },
+          "5XX": { "description": "Incident côté Keystone : nouvelle tentative" }
+        }
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "cleApi": { "type": "apiKey", "in": "header", "name": "X-Api-Key", "description": "Clé convenue avec Cursus (variable KEYSTONE_API_KEY du serveur), transmise par un canal sûr." },
+      "jetonKeystone": { "type": "http", "scheme": "bearer", "description": "Événements envoyés par Cursus : jeton convenu avec Keystone (variable KEYSTONE_TOKEN du serveur Cursus), distinct de la clé X-Api-Key." }
+    },
+    "parameters": {
+      "Id": { "name": "id", "in": "path", "required": true, "description": "Identifiant Keystone de l'objet", "schema": { "$ref": "#/components/schemas/Identifiant" } },
+      "Code": { "name": "code", "in": "path", "required": true, "description": "Code du projet dans Keystone", "schema": { "$ref": "#/components/schemas/Identifiant" } },
+      "Reference": { "name": "reference", "in": "path", "required": true, "description": "Référence Keystone de la demande", "schema": { "$ref": "#/components/schemas/Identifiant" } }
+    },
+    "schemas": {
+      "Identifiant": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$", "description": "1 à 64 caractères : lettres, chiffres, « . », « _ », « : », « - »", "examples": ["K-2614", "AF-K-2614-18"] },
+      "Date": { "type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "AAAA-MM-JJ, date existante (2026-02-31 est refusée)" },
+      "Matricule": { "type": "string", "maxLength": 32, "description": "Matricule du salarié dans Cursus (aujourd'hui « EMP- » suivi de quatre chiffres ; deviendra le matricule de paie)", "examples": ["EMP-0018"] },
+      "StatutKeystone": { "type": "string", "enum": ["actif", "archive"], "default": "actif" },
+      "Resultat": { "type": "string", "enum": ["cree", "modifie", "inchange"], "description": "`inchange` : envoi identique à l'état enregistré, rien n'a été écrit" },
+      "ProjetEntree": {
+        "type": "object",
+        "required": ["nom"],
+        "properties": {
+          "code": { "$ref": "#/components/schemas/Identifiant", "description": "Facultatif ; s'il est présent, égal à celui de l'URL" },
+          "nom": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "statut": { "$ref": "#/components/schemas/StatutKeystone" }
+        }
+      },
+      "Projet": {
+        "type": "object",
+        "required": ["code", "nom", "statut"],
+        "properties": { "code": { "$ref": "#/components/schemas/Identifiant" }, "nom": { "type": "string" }, "statut": { "$ref": "#/components/schemas/StatutKeystone" } }
+      },
+      "ChantierEntree": {
+        "type": "object",
+        "required": ["nom", "lieu", "pays", "debut", "fin"],
+        "properties": {
+          "id": { "$ref": "#/components/schemas/Identifiant", "description": "Obligatoire dans l'instantané ; sinon facultatif et égal à celui de l'URL" },
+          "nom": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "client": { "type": "string", "maxLength": 120 },
+          "lieu": { "type": "string", "minLength": 1, "maxLength": 120 },
+          "pays": { "type": "string", "pattern": "^[A-Z]{2}$", "description": "Code ISO 3166-1 alpha-2 (FR, MA…). Hors de France, le Go / No Go contrôle aussi déplacement et formalités." },
+          "debut": { "$ref": "#/components/schemas/Date" },
+          "fin": { "$ref": "#/components/schemas/Date", "description": "Le même jour que `debut` au plus tôt" },
+          "chef": { "type": "string", "maxLength": 120, "description": "Chef de projet, affiché au service RH" },
+          "habilitations": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Codes du référentiel de Cursus (GET /v1/referentiels)" },
+          "certifications": { "type": "array", "items": { "type": "string" }, "default": [], "description": "Codes du référentiel de Cursus (GET /v1/referentiels)" },
+          "statut": { "$ref": "#/components/schemas/StatutKeystone" }
+        }
+      },
+      "Chantier": {
+        "type": "object",
+        "required": ["id", "nom", "client", "lieu", "pays", "debut", "fin", "chef", "habilitations", "certifications", "statut", "ressources"],
+        "properties": {
+          "id": { "$ref": "#/components/schemas/Identifiant" },
+          "nom": { "type": "string" }, "client": { "type": "string" }, "lieu": { "type": "string" }, "pays": { "type": "string" },
+          "debut": { "$ref": "#/components/schemas/Date" }, "fin": { "$ref": "#/components/schemas/Date" }, "chef": { "type": "string" },
+          "habilitations": { "type": "array", "items": { "type": "string" } },
+          "certifications": { "type": "array", "items": { "type": "string" } },
+          "statut": { "$ref": "#/components/schemas/StatutKeystone" },
+          "ressources": { "type": "array", "items": { "$ref": "#/components/schemas/Matricule" }, "description": "Salariés dont une affectation chevauche les dates du chantier" }
+        }
+      },
+      "AffectationEntree": {
+        "type": "object",
+        "required": ["matricule", "chantier", "du", "au"],
+        "properties": {
+          "id": { "$ref": "#/components/schemas/Identifiant", "description": "Obligatoire dans l'instantané ; sinon facultatif et égal à celui de l'URL" },
+          "matricule": { "$ref": "#/components/schemas/Matricule" },
+          "chantier": { "$ref": "#/components/schemas/Identifiant", "description": "Chantier déjà transmis" },
+          "du": { "$ref": "#/components/schemas/Date" },
+          "au": { "$ref": "#/components/schemas/Date" }
+        }
+      },
+      "Affectation": {
+        "type": "object",
+        "required": ["id", "matricule", "chantier", "du", "au", "ressource"],
+        "properties": {
+          "id": { "$ref": "#/components/schemas/Identifiant" },
+          "matricule": { "$ref": "#/components/schemas/Matricule" },
+          "chantier": { "$ref": "#/components/schemas/Identifiant" },
+          "du": { "$ref": "#/components/schemas/Date" },
+          "au": { "$ref": "#/components/schemas/Date" },
+          "ressource": { "type": "boolean", "description": "Vrai si l'affectation chevauche les dates du chantier : le salarié entre dans son Go / No Go" }
+        }
+      },
+      "TacheEntree": {
+        "type": "object",
+        "required": ["projet", "tache", "matricule", "debut", "fin", "heures"],
+        "properties": {
+          "id": { "$ref": "#/components/schemas/Identifiant", "description": "Obligatoire dans l'instantané ; sinon facultatif et égal à celui de l'URL" },
+          "projet": { "$ref": "#/components/schemas/Identifiant", "description": "Projet déjà transmis" },
+          "tache": { "type": "string", "minLength": 1, "maxLength": 160 },
+          "matricule": { "$ref": "#/components/schemas/Matricule" },
+          "debut": { "$ref": "#/components/schemas/Date" },
+          "fin": { "$ref": "#/components/schemas/Date" },
+          "heures": { "$ref": "#/components/schemas/HeuresParJour" }
+        }
+      },
+      "HeuresParJour": {
+        "type": "object",
+        "description": "Heures planifiées par date, entre `debut` et `fin` ; un jour absent ou à 0 n'est pas planifié",
+        "propertyNames": { "pattern": "^\\d{4}-\\d{2}-\\d{2}$" },
+        "additionalProperties": { "type": "number", "minimum": 0, "maximum": 24 }
+      },
+      "Tache": {
+        "type": "object",
+        "required": ["id", "projet", "tache", "matricule", "debut", "fin", "heures"],
+        "properties": {
+          "id": { "$ref": "#/components/schemas/Identifiant" },
+          "projet": { "$ref": "#/components/schemas/Identifiant" },
+          "tache": { "type": "string" },
+          "matricule": { "$ref": "#/components/schemas/Matricule" },
+          "debut": { "$ref": "#/components/schemas/Date" },
+          "fin": { "$ref": "#/components/schemas/Date" },
+          "heures": { "$ref": "#/components/schemas/HeuresParJour" }
+        }
+      },
+      "Instantane": {
+        "type": "object",
+        "minProperties": 1,
+        "properties": {
+          "depuis": { "$ref": "#/components/schemas/Date", "description": "Les affectations et tâches terminées avant cette date, absentes de l'instantané, sont conservées" },
+          "projets": { "type": "array", "items": { "allOf": [{ "$ref": "#/components/schemas/ProjetEntree" }, { "required": ["code"] }] } },
+          "chantiers": { "type": "array", "items": { "allOf": [{ "$ref": "#/components/schemas/ChantierEntree" }, { "required": ["id"] }] } },
+          "affectations": { "type": "array", "items": { "allOf": [{ "$ref": "#/components/schemas/AffectationEntree" }, { "required": ["id"] }] } },
+          "taches": { "type": "array", "items": { "allOf": [{ "$ref": "#/components/schemas/TacheEntree" }, { "required": ["id"] }] } }
+        }
+      },
+      "BilanSection": {
+        "type": "object",
+        "required": ["crees", "modifies", "inchanges"],
+        "properties": {
+          "crees": { "type": "integer" }, "modifies": { "type": "integer" }, "inchanges": { "type": "integer" },
+          "archives": { "type": "integer", "description": "Projets (hors activités internes INT-* et ECOLE) et chantiers absents de l'instantané" },
+          "supprimes": { "type": "integer", "description": "Affectations et tâches absentes de l'instantané" }
+        }
+      },
+      "Synchronisation": {
+        "type": "object",
+        "required": ["resultat", "bilan"],
+        "properties": {
+          "resultat": { "const": "synchronise" },
+          "bilan": {
+            "type": "object",
+            "description": "Une entrée par section transmise",
+            "properties": {
+              "projets": { "$ref": "#/components/schemas/BilanSection" },
+              "chantiers": { "$ref": "#/components/schemas/BilanSection" },
+              "affectations": { "$ref": "#/components/schemas/BilanSection" },
+              "taches": { "$ref": "#/components/schemas/BilanSection" }
+            }
+          }
+        }
+      },
+      "EcritureProjet": { "type": "object", "required": ["resultat", "projet"], "properties": { "resultat": { "$ref": "#/components/schemas/Resultat" }, "projet": { "$ref": "#/components/schemas/Projet" } } },
+      "EcritureChantier": { "type": "object", "required": ["resultat", "chantier"], "properties": { "resultat": { "$ref": "#/components/schemas/Resultat" }, "chantier": { "$ref": "#/components/schemas/Chantier" } } },
+      "EcritureAffectation": { "type": "object", "required": ["resultat", "affectation"], "properties": { "resultat": { "$ref": "#/components/schemas/Resultat" }, "affectation": { "$ref": "#/components/schemas/Affectation" } } },
+      "EcritureTache": { "type": "object", "required": ["resultat", "tache"], "properties": { "resultat": { "$ref": "#/components/schemas/Resultat" }, "tache": { "$ref": "#/components/schemas/Tache" } } },
+      "EcritureDemande": { "type": "object", "required": ["resultat", "demande"], "properties": { "resultat": { "const": "cree" }, "demande": { "$ref": "#/components/schemas/Demande" } } },
+      "Suppression": { "type": "object", "required": ["resultat"], "properties": { "resultat": { "const": "supprime" } } },
+      "StatutVerdict": { "type": "string", "enum": ["GO", "GO_RESERVE", "NO_GO"] },
+      "CodeMotif": {
+        "type": "string",
+        "enum": ["HABILITATION", "HABILITATION_SUSPENDUE", "HABILITATION_RETIREE", "CERTIFICATION", "DEPLACEMENT", "FORMALITES_VOYAGE", "CONTRAT", "ABSENCE", "DEPLACEMENT_PARTIEL", "DETACHEMENT", "APTITUDE"],
+        "description": "HABILITATION : habilitation exigée absente, en attente, expirée ou expirant pendant le chantier ; HABILITATION_SUSPENDUE / HABILITATION_RETIREE : mesure prise par l'employeur ; CERTIFICATION : certification exigée absente, expirée ou expirant pendant le chantier ; DEPLACEMENT : aucun déplacement validé pour ce chantier ; FORMALITES_VOYAGE : passeport, visa ou vaccination à régulariser ; CONTRAT : contrat (CDD, intérim, alternance) terminé avant la fin de la présence, ou commencé après son début (NO_GO) ; ABSENCE : absence en vigueur pendant la présence (NO_GO) ou demande d'absence en attente (GO_RESERVE), jamais sa nature ; DEPLACEMENT_PARTIEL : déplacement qui ne couvre pas toute la présence (GO_RESERVE) ; DETACHEMENT : certificat de sécurité sociale (A1, convention bilatérale ou maintien au régime français) ou information écrite d'une mission de plus de 4 semaines à faire avant le départ (GO_RESERVE), ou non fait au départ (NO_GO, à partir du jour du départ) ; APTITUDE : aptitude médicale du jour — avis d'inaptitude du médecin du travail (NO_GO), aptitude non valide ou restrictions d'aptitude en vigueur (GO_RESERVE) — le verdict seulement, indépendant des dates de présence, jamais une date de visite ni une restriction (libellé neutre en partage détaillé)."
+      },
+      "Motif": {
+        "type": "object",
+        "required": ["code", "niveau"],
+        "properties": {
+          "code": { "$ref": "#/components/schemas/CodeMotif" },
+          "niveau": { "type": "string", "enum": ["GO_RESERVE", "NO_GO"], "description": "Effet du motif sur le verdict de la ressource" },
+          "libelle": { "type": "string", "description": "Seulement en partage détaillé (réglage du service RH) ; jamais de donnée de santé" }
+        }
+      },
+      "Verdict": {
+        "type": "object",
+        "required": ["chantier", "evalue_le", "statut", "ressources"],
+        "properties": {
+          "chantier": { "$ref": "#/components/schemas/Identifiant" },
+          "evalue_le": { "type": "string", "format": "date-time" },
+          "statut": { "$ref": "#/components/schemas/StatutVerdict", "description": "Le plus défavorable des verdicts des ressources" },
+          "ressources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "required": ["matricule", "statut", "motifs"],
+              "properties": {
+                "matricule": { "$ref": "#/components/schemas/Matricule" },
+                "statut": { "$ref": "#/components/schemas/StatutVerdict" },
+                "motifs": { "type": "array", "items": { "$ref": "#/components/schemas/Motif" }, "description": "Un motif par exigence non satisfaite : un code peut revenir" }
+              }
+            }
+          }
+        }
+      },
+      "VerdictObsolete": {
+        "type": "object",
+        "required": ["chantier", "evalue_le", "statut", "ressources"],
+        "properties": {
+          "chantier": { "type": "string" },
+          "evalue_le": { "type": "string", "format": "date-time" },
+          "statut": { "$ref": "#/components/schemas/StatutVerdict" },
+          "ressources": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "matricule": { "$ref": "#/components/schemas/Matricule" },
+                "statut": { "$ref": "#/components/schemas/StatutVerdict" },
+                "motifs": {
+                  "type": "array",
+                  "items": { "oneOf": [{ "$ref": "#/components/schemas/CodeMotif" }, { "type": "object", "properties": { "code": { "$ref": "#/components/schemas/CodeMotif" }, "libelle": { "type": "string" } } }] }
+                }
+              }
+            }
+          }
+        }
+      },
+      "DemandeEntree": {
+        "type": "object",
+        "required": ["reference", "matricule", "chantier", "depart", "retour"],
+        "properties": {
+          "reference": { "$ref": "#/components/schemas/Identifiant", "description": "Référence unique de la demande dans Keystone" },
+          "matricule": { "$ref": "#/components/schemas/Matricule" },
+          "chantier": { "$ref": "#/components/schemas/Identifiant", "description": "Chantier actif" },
+          "destination": { "type": "string", "pattern": "^[A-Z]{2}$", "description": "Pays du chantier (valeur par défaut), présent dans le référentiel des destinations" },
+          "depart": { "$ref": "#/components/schemas/Date" },
+          "retour": { "$ref": "#/components/schemas/Date", "description": "Le même jour que le départ au plus tôt, et pas avant aujourd'hui" }
+        }
+      },
+      "DemandeEntreeObsolete": {
+        "type": "object",
+        "required": ["matricule", "chantier", "depart", "retour"],
+        "properties": {
+          "reference": { "$ref": "#/components/schemas/Identifiant" },
+          "matricule": { "$ref": "#/components/schemas/Matricule" },
+          "chantier": { "$ref": "#/components/schemas/Identifiant" },
+          "destination": { "type": "string" },
+          "depart": { "$ref": "#/components/schemas/Date" },
+          "retour": { "$ref": "#/components/schemas/Date" }
+        }
+      },
+      "Demande": {
+        "type": "object",
+        "required": ["id", "reference", "matricule", "chantier", "destination", "depart", "retour", "statut", "recue", "decidee"],
+        "properties": {
+          "id": { "type": "integer", "description": "Numéro de la demande dans Cursus" },
+          "reference": { "type": ["string", "null"], "description": "Null pour une demande reçue sans référence par l'ancienne route" },
+          "matricule": { "$ref": "#/components/schemas/Matricule" },
+          "chantier": { "type": "string" },
+          "destination": { "type": "string" },
+          "depart": { "$ref": "#/components/schemas/Date" },
+          "retour": { "$ref": "#/components/schemas/Date" },
+          "statut": { "type": "string", "enum": ["en_attente_rh", "acceptee", "refusee"] },
+          "recue": { "$ref": "#/components/schemas/Date" },
+          "decidee": { "type": ["string", "null"], "format": "date", "description": "Date de la décision du service RH" }
+        }
+      },
+      "Referentiels": {
+        "type": "object",
+        "required": ["habilitations", "certifications", "destinations"],
+        "properties": {
+          "habilitations": { "type": "array", "items": { "type": "object", "required": ["code", "nom"], "properties": { "code": { "type": "string" }, "nom": { "type": "string" } } } },
+          "certifications": { "type": "array", "items": { "type": "object", "required": ["code", "nom"], "properties": { "code": { "type": "string" }, "nom": { "type": "string" } } } },
+          "destinations": { "type": "array", "items": { "type": "object", "required": ["code", "pays"], "properties": { "code": { "type": "string" }, "pays": { "type": "string" } } } }
+        }
+      },
+      "ErreurChamp": {
+        "type": "object",
+        "required": ["champ", "message"],
+        "properties": {
+          "champ": { "type": "string", "description": "Chemin du champ : `debut`, `chantiers[2].fin`, `heures.2026-10-12`", "examples": ["retour"] },
+          "message": { "type": "string" }
+        }
+      },
+      "CodeErreur": {
+        "type": "string",
+        "enum": [
+          "VALIDATION", "JSON_INVALIDE", "CORPS_INVALIDE", "CORPS_TROP_VOLUMINEUX", "TYPE_NON_PRIS_EN_CHARGE", "CLE_INVALIDE", "TROP_DE_CLES_INVALIDES", "NON_CONFIGUREE",
+          "CHANTIER_INCONNU", "CHANTIER_ARCHIVE", "AFFECTATION_INCONNUE", "TACHE_INCONNUE", "DEMANDE_INCONNUE", "DEMANDE_EN_DOUBLE", "ROUTE_INCONNUE", "ERREUR_INTERNE"
+        ]
+      },
+      "Erreur": {
+        "type": "object",
+        "required": ["error", "code"],
+        "properties": {
+          "error": { "type": "string", "description": "Message en français" },
+          "code": { "$ref": "#/components/schemas/CodeErreur" },
+          "details": { "type": "array", "items": { "$ref": "#/components/schemas/ErreurChamp" }, "description": "Champs refusés (400 VALIDATION)" },
+          "demande": { "$ref": "#/components/schemas/Demande", "description": "Demande déjà enregistrée (409 DEMANDE_EN_DOUBLE)" }
+        }
+      },
+      "Evenement": {
+        "oneOf": [
+          { "$ref": "#/components/schemas/EvenementDemandeDecision" },
+          { "$ref": "#/components/schemas/EvenementHeuresValidees" },
+          { "$ref": "#/components/schemas/EvenementAbsence" },
+          { "$ref": "#/components/schemas/EvenementVerdictModifie" }
+        ],
+        "discriminator": {
+          "propertyName": "type",
+          "mapping": {
+            "demande.decision": "#/components/schemas/EvenementDemandeDecision",
+            "heures.validees": "#/components/schemas/EvenementHeuresValidees",
+            "absence.validee": "#/components/schemas/EvenementAbsence",
+            "absence.annulee": "#/components/schemas/EvenementAbsence",
+            "verdict.modifie": "#/components/schemas/EvenementVerdictModifie"
+          }
+        },
+        "description": "Enveloppe commune : `id` (égal à l'en-tête Idempotency-Key), `type`, `emis_le` (mise en file, inchangée d'une tentative à l'autre : ordre des événements) et `donnees`. Seuls des matricules, identifiants et codes sortent de Cursus."
+      },
+      "EnveloppeEvenement": {
+        "type": "object",
+        "required": ["id", "type", "emis_le", "donnees"],
+        "properties": {
+          "id": { "type": "string", "format": "uuid", "description": "Identifiant unique de l'événement, égal à l'en-tête Idempotency-Key" },
+          "type": { "type": "string" },
+          "emis_le": { "type": "string", "format": "date-time", "description": "Date de mise en file (UTC), la même à chaque tentative" },
+          "donnees": { "type": "object" }
+        }
+      },
+      "EvenementDemandeDecision": {
+        "allOf": [
+          { "$ref": "#/components/schemas/EnveloppeEvenement" },
+          {
+            "description": "Le service RH a accepté ou refusé une demande de déplacement.",
+            "properties": {
+              "type": { "const": "demande.decision" },
+              "donnees": {
+                "type": "object",
+                "required": ["demande", "reference", "matricule", "chantier", "decision", "date"],
+                "properties": {
+                  "demande": { "type": "integer", "description": "Identifiant Cursus de la demande (`demande.id` de POST /v1/demandes)" },
+                  "reference": { "oneOf": [{ "$ref": "#/components/schemas/Identifiant" }, { "type": "null" }], "description": "Référence Keystone ; null pour une demande déposée sans référence (ancienne route)" },
+                  "matricule": { "$ref": "#/components/schemas/Matricule" },
+                  "chantier": { "$ref": "#/components/schemas/Identifiant" },
+                  "decision": { "type": "string", "enum": ["acceptee", "refusee"] },
+                  "date": { "$ref": "#/components/schemas/Date", "description": "Jour de la décision" }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "EvenementHeuresValidees": {
+        "allOf": [
+          { "$ref": "#/components/schemas/EnveloppeEvenement" },
+          {
+            "description": "Une feuille de temps a été validée : heures de la semaine sur les projets Keystone. Activités internes (INT-*) et cours en CFA (ECOLE) jamais transmis ; une semaine sans heure sur un projet Keystone n'envoie rien.",
+            "properties": {
+              "type": { "const": "heures.validees" },
+              "donnees": {
+                "type": "object",
+                "required": ["matricule", "semaine", "projets"],
+                "properties": {
+                  "matricule": { "$ref": "#/components/schemas/Matricule" },
+                  "semaine": { "$ref": "#/components/schemas/Date", "description": "Lundi de la semaine" },
+                  "projets": {
+                    "type": "object",
+                    "minProperties": 1,
+                    "propertyNames": { "$ref": "#/components/schemas/Identifiant" },
+                    "additionalProperties": { "type": "number", "exclusiveMinimum": 0, "description": "Heures de la semaine sur ce projet (deux décimales au plus)" }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "EvenementAbsence": {
+        "allOf": [
+          { "$ref": "#/components/schemas/EnveloppeEvenement" },
+          {
+            "description": "Absence validée (absence.validee) ou absence validée puis annulée (absence.annulee). Sa nature (congé, RTT, maladie…) n'est jamais transmise.",
+            "properties": {
+              "type": { "enum": ["absence.validee", "absence.annulee"] },
+              "donnees": {
+                "type": "object",
+                "required": ["absence", "matricule", "du", "au"],
+                "properties": {
+                  "absence": { "type": "integer", "description": "Identifiant Cursus de l'absence, repris par l'annulation" },
+                  "matricule": { "$ref": "#/components/schemas/Matricule" },
+                  "du": { "$ref": "#/components/schemas/Date" },
+                  "au": { "$ref": "#/components/schemas/Date", "description": "Dernier jour d'absence, inclus" }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "EvenementVerdictModifie": {
+        "allOf": [
+          { "$ref": "#/components/schemas/EnveloppeEvenement" },
+          {
+            "description": "Le verdict Go / No Go d'une ressource a changé (statut ou codes de motif), ou une nouvelle ressource a reçu son premier verdict (`precedent` null). Recalculé après chaque action de Cursus qui peut le changer, après chaque écriture de Keystone et chaque jour. Les verdicts calculés en simulation (sans KEYSTONE_URL) ne comptent pas comme transmis : à la mise en service des envois, chaque ressource suivie reçoit son verdict actuel comme premier verdict.",
+            "properties": {
+              "type": { "const": "verdict.modifie" },
+              "donnees": {
+                "type": "object",
+                "required": ["chantier", "statut", "ressource"],
+                "properties": {
+                  "chantier": { "$ref": "#/components/schemas/Identifiant" },
+                  "statut": { "$ref": "#/components/schemas/StatutVerdict", "description": "Verdict du chantier après le changement" },
+                  "ressource": {
+                    "type": "object",
+                    "required": ["matricule", "statut", "motifs", "precedent"],
+                    "properties": {
+                      "matricule": { "$ref": "#/components/schemas/Matricule" },
+                      "statut": { "$ref": "#/components/schemas/StatutVerdict" },
+                      "motifs": { "type": "array", "items": { "$ref": "#/components/schemas/MotifCode" } },
+                      "precedent": { "oneOf": [{ "$ref": "#/components/schemas/StatutVerdict" }, { "type": "null" }], "description": "Dernier verdict transmis pour cette ressource ; null : premier verdict" }
+                    }
+                  }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "MotifCode": {
+        "type": "object",
+        "required": ["code", "niveau"],
+        "additionalProperties": false,
+        "description": "Motif d'un verdict envoyé par Cursus : code et effet seulement, jamais de libellé (même en partage détaillé)",
+        "properties": {
+          "code": { "$ref": "#/components/schemas/CodeMotif" },
+          "niveau": { "type": "string", "enum": ["GO_RESERVE", "NO_GO"] }
+        }
+      },
+      "AccuseReception": {
+        "type": "object",
+        "properties": { "accuse": { "type": "string", "maxLength": 200, "description": "Identifiant de réception dans Keystone, conservé par Cursus et montré au service RH" } }
+      },
+      "RefusEvenement": {
+        "type": "object",
+        "description": "Corps conseillé d'un refus : repris dans le détail de l'erreur (Paramètres → Envois)",
+        "properties": { "error": { "type": "string" }, "code": { "type": "string" } }
+      }
+    },
+    "responses": {
+      "Invalide": {
+        "description": "Données refusées : `details` liste chaque champ (VALIDATION), ou corps illisible (JSON_INVALIDE, CORPS_INVALIDE)",
+        "content": {
+          "application/json": {
+            "schema": { "$ref": "#/components/schemas/Erreur" },
+            "example": { "error": "Données invalides : retour", "code": "VALIDATION", "details": [{ "champ": "retour", "message": "Antérieure à depart" }] }
+          }
+        }
+      },
+      "CleInvalide": { "description": "En-tête X-Api-Key absent ou faux (CLE_INVALIDE)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Erreur" } } } },
+      "NonConfiguree": { "description": "Aucune clé configurée sur le serveur Cursus (NON_CONFIGUREE)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Erreur" } } } },
+      "TropDeClesInvalides": { "description": "Trop d'appels sans clé valide depuis cette adresse (60 en 5 minutes) : aucun appel n'est lu jusqu'à la fin de la période, indiquée en secondes par l'en-tête Retry-After (TROP_DE_CLES_INVALIDES)", "headers": { "Retry-After": { "description": "Secondes à attendre avant de rappeler", "schema": { "type": "integer" } } }, "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Erreur" } } } },
+      "Inconnu": { "description": "Objet inconnu (CHANTIER_INCONNU, AFFECTATION_INCONNUE, TACHE_INCONNUE, DEMANDE_INCONNUE)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Erreur" } } } },
+      "Archive": { "description": "Chantier archivé : plus de verdict (CHANTIER_ARCHIVE)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Erreur" } } } },
+      "Doublon": { "description": "Même référence, ou demande identique encore en attente (DEMANDE_EN_DOUBLE) : `demande` est la demande déjà enregistrée", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Erreur" } } } },
+      "TropVolumineux": { "description": "Corps de plus de 2 Mo (CORPS_TROP_VOLUMINEUX)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Erreur" } } } },
+      "PasJson": { "description": "En-tête Content-Type autre que application/json (TYPE_NON_PRIS_EN_CHARGE)", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Erreur" } } } }
+    }
+  }
+}

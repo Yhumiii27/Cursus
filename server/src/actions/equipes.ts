@@ -2,9 +2,10 @@
 import { isValidDate } from '../../../shared/dates.ts';
 import { key } from '../../../shared/format.ts';
 import { contratFige } from '../../../shared/rules/temps.ts';
+import { adressesPrises } from '../../../shared/rules/messagerie.ts';
 import { MANAGER_FIELDS, PROFIL_FIELDS, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
 import type { Employe, Equipe, FeuilleTemps } from '../../../shared/types.ts';
-import { ActionError, getEmp, isManagerOf, isRh, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
+import { ActionError, getEmp, isManagerOf, isRh, requireRh, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
 function equipesNoms(ctx: Ctx) { return ctx.ds.referentiels.equipes.map(q => q.nom); }
 
@@ -15,7 +16,8 @@ function getEquipe(ctx: Ctx, nom: unknown): Equipe {
 }
 
 function check(ctx: Ctx, p: ProfilInput, empId?: number) {
-  const v = validerProfil(p, { equipes: equipesNoms(ctx), year: ctx.d.year, encadre: empId ? ctx.d.teamsOf(empId) : [] });
+  // L'adresse e-mail est unique : comparée à celles des autres salariés.
+  const v = validerProfil(p, { equipes: equipesNoms(ctx), year: ctx.d.year, encadre: empId ? ctx.d.teamsOf(empId) : [], adressesPrises: adressesPrises(ctx.ds.employes, empId) });
   if (!v.ok) throw new ActionError(v.errors.join(' '));
   return v;
 }
@@ -57,6 +59,10 @@ const modifier: ActionHandler = (ctx, p) => {
   const next = { ...cur } as Record<string, unknown>;
   patch.forEach(k => { next[k] = p[k]; });
   const v = check(ctx, next as unknown as ProfilInput, emp.id);
+  // Une nouvelle visite s'enregistre avec l'avis du médecin du travail (`medical.avis`), qui clôt la demande en cours.
+  if (patch.includes('visite') && v.profil.visite !== (emp.visite ?? null)) {
+    throw new ActionError('La visite médicale s’enregistre avec l’avis du médecin du travail : bouton « Avis du médecin du travail » de la fiche');
+  }
   // Changement d'organisation du temps : date d'effet, et gel de l'ancien régime sur les semaines antérieures
   // pas encore figées, pour que l'historique ne soit pas recalculé avec le nouveau contrat.
   const avant = JSON.stringify(contratFige(emp)), apres = JSON.stringify(contratFige({ ...emp, ...v.profil }));
@@ -113,8 +119,9 @@ const designer: ActionHandler = (ctx, p) => {
   return `${m.nom} devient manager de l’équipe ${q.nom}`;
 };
 
+/** Suppression d'une équipe vide : administrateur RH. */
 const supprimer: ActionHandler = (ctx, p) => {
-  requireRh(ctx);
+  requireRhAdmin(ctx);
   const q = getEquipe(ctx, p.nom);
   const n = ctx.ds.employes.filter(e => e.equipe === q.nom).length;
   if (n) throw new ActionError(`L’équipe compte encore ${n} collaborateur${n > 1 ? 's' : ''} : affectez-les d’abord à une autre équipe`);
@@ -126,8 +133,9 @@ const supprimer: ActionHandler = (ctx, p) => {
 
 /**
  * Affectation d'un collaborateur à une équipe (`equipe` = null : à affecter).
- * RH : toute affectation. Manager : ajouter un collaborateur à une équipe qu'il encadre,
- * ou retirer un membre de son équipe (il revient alors au service RH).
+ * RH : toute affectation. Manager : ajouter à une équipe qu'il encadre un salarié « à affecter », c'est-à-dire déjà
+ * libéré par son manager d'origine (jamais prendre directement le membre d'une autre équipe : sa mutation passe
+ * par le service RH), ou retirer un membre de son équipe (il revient alors au service RH).
  */
 const affecter: ActionHandler = (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
@@ -140,6 +148,11 @@ const affecter: ActionHandler = (ctx, p) => {
     if (emp.id === ctx.user.empId) throw new ActionError('Votre propre affectation relève du service RH', 403);
     if (cible && !mine.includes(cible)) throw new ActionError('Vous ne pouvez affecter qu’à une équipe que vous encadrez', 403);
     if (!cible && !(avant && mine.includes(avant))) throw new ActionError('Ce collaborateur ne fait pas partie de votre équipe', 403);
+    // Décision de l'entreprise : le manager n'accueille qu'un salarié « à affecter », libéré par son manager d'origine
+    // (ou un membre d'une autre équipe qu'il encadre lui-même).
+    if (cible && avant && !mine.includes(avant)) {
+      throw new ActionError(`${emp.nom} fait partie de l’équipe ${avant} : seul un salarié « à affecter », libéré par son manager, peut rejoindre votre équipe — sinon, demandez sa mutation au service RH`, 403);
+    }
     // Les managers et le valideur du manager ne changent d'équipe que par le service RH (pas de validation croisée).
     if (ctx.d.teamsOf(emp.id).length) throw new ActionError(`${emp.nom} encadre une équipe : son affectation relève du service RH`, 403);
     const moi = ctx.d.emp(ctx.user.empId!);

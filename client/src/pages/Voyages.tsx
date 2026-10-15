@@ -1,22 +1,29 @@
 // Voyages professionnels : demandes Keystone, déplacements à venir, dossier voyage,
 // dossiers voyageurs et référentiel des destinations.
-import { useMemo } from 'react';
+import { useMemo, type RefObject } from 'react';
 import { PlusIcon, UploadSimpleIcon } from '@phosphor-icons/react';
-import { TRIP_CLS, TRIP_LABEL, VISA_RULES, type StatusKey } from '../../../shared/constants.ts';
+import { SECU_RULES, TRIP_CLS, TRIP_LABEL, VISA_RULES, secuDe, type StatusKey } from '../../../shared/constants.ts';
 import type { TripItem, TripX } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, fmtShort, monthShort, plural, rel } from '../../../shared/format.ts';
+import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
+import { usePanneauVisible } from '../components/panneau.ts';
 import { Btn, Chips, CloseButton, Empty, Fine, Page, Panel, Tag, Two, stop } from '../components/ui.tsx';
+import { useAgir } from '../state/actions.ts';
+import { refusKeystone } from '../state/confirmations.ts';
 import { useEnriched, useTrips } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
 const docCls = (k: StatusKey) => k === 'exp' ? 'tag-accent' : k === 'due' ? 'tag-outline' : 'tag-neutral';
 const itemAction = (i: TripItem) => i.k === 'passeport' ? 'Mettre à jour le passeport' : i.k === 'visa' ? 'Enregistrer le visa' : 'Enregistrer la vaccination';
+/** Formalités de détachement, accomplies par le service RH (dialogue « Formalités de détachement ») : saisie, ou correction. */
+const detachementAction = (i: TripItem) => i.ok ? 'Modifier' : i.k === 'information' ? 'Enregistrer la remise' : 'Enregistrer l’obtention';
 
 export function Voyages() {
   const { d, emps, horizon } = useEnriched();
   const trips = useTrips();
   const { ui, setUi, go, run, openDialog } = useStore();
+  const { occupe, agir } = useAgir();
   const data = d.ds;
 
   const travelers = useMemo(() => emps
@@ -25,15 +32,22 @@ export function Voyages() {
     .sort((a, b) => (a.nt ? a.nt.depart : '9').localeCompare(b.nt ? b.nt.depart : '9') || a.e.nom.localeCompare(b.e.nom)),
   [d, emps, trips, horizon]);
 
-  const demandes = data.demandesKeystone.map(dm => {
+  // Les demandes décidées restent en base (statut, date, décideur) ; seules celles en attente s'affichent ici.
+  const demandes = data.demandesKeystone.filter(dm => dm.statut === 'attente').map(dm => {
     const emp = d.emp(dm.empId), c = d.chantier(dm.chantier), dest = d.destOf(dm.dest);
     const r = emp && dest ? d.readiness(emp, dm) : null;
-    const chefCourt = c ? c.chef.split(' ').map((w, i) => i === 0 ? w[0] + '.' : w).join(' ') : '';
-    return { dm, emp, c, dest, r, chefCourt };
+    // Chef de projet facultatif dans l'API Keystone : « K. Haddad », rien s'il n'est pas renseigné.
+    const mots = c?.chef ? c.chef.trim().split(/\s+/) : [];
+    const chefCourt = mots.map((w, i) => i === 0 && mots.length > 1 ? w[0] + '.' : w).join(' ');
+    // Déjà en déplacement ou absent sur ces dates : l'acceptation est refusée (`keystone.accepter`), reste le refus.
+    const conflit = blocage(conflitsDates(d, dm.empId, dm.depart, dm.retour, 'voyage'));
+    return { dm, emp, c, dest, r, chefCourt, conflit };
   });
 
   const count = (st: TripX['r']['status']) => trips.filter(t => t.r.status === st).length;
   const sel = trips.find(t => t.id === ui.tripSel) || null;
+  // Écran étroit : le dossier voyage s'affiche sous la liste ; la sélection l'amène dans le champ de vision.
+  const panneau = usePanneauVisible<HTMLElement>(sel?.id);
   const openEmp = (id: number) => go('collaborateurs', { selectedId: id });
 
   const accept = async (id: number) => {
@@ -57,15 +71,20 @@ export function Voyages() {
             <table className="table">
               <thead><tr><th>Collaborateur</th><th>Chantier</th><th>Formalités</th><th></th></tr></thead>
               <tbody>
-                {demandes.map(({ dm, emp, c, dest, r, chefCourt }) => (
+                {demandes.map(({ dm, emp, c, dest, r, chefCourt, conflit }) => (
                   <tr key={dm.id}>
-                    <td><Two nowrap main={emp?.nom ?? d.personName(dm.empId)} sub={`${dest?.pays ?? dm.dest} · ${fmtShort(parse(dm.depart))} → ${fmtShort(parse(dm.retour))}`} /></td>
-                    <td><Two main={c ? `${c.id} · ${c.nom}` : dm.chantier} sub={`Reçue le ${fmtShort(parse(dm.recue))}${chefCourt ? ' · ' + chefCourt : ''}`} /></td>
+                    <td>
+                      <Two nowrap main={emp?.nom ?? d.personName(dm.empId)} sub={`${dest?.pays ?? dm.dest} · ${fmtShort(parse(dm.depart))} → ${fmtShort(parse(dm.retour))}`} />
+                      {conflit && <div className="note-accent">{conflit}</div>}
+                    </td>
+                    <td><Two main={c ? `${c.id} · ${c.nom}` : dm.chantier} sub={`Reçue le ${fmtShort(parse(dm.recue))}${dm.ref ? ` · réf. ${dm.ref}` : ''}${chefCourt ? ' · ' + chefCourt : ''}`} /></td>
                     <td>{r && <Tag cls={TRIP_CLS[r.status]}>{r.todo ? plural(r.todo, 'formalité à prévoir', 'formalités à prévoir') : 'Dossier complet'}</Tag>}</td>
                     <td className="right">
                       <div className="actions-end">
-                        <Btn small onClick={() => run('keystone.refuser', { id: dm.id })}>Refuser</Btn>
-                        <Btn small variant="secondary" onClick={() => accept(dm.id)}>Accepter</Btn>
+                        {/* Refus : confirmation et motif, conservé dans Cursus (jamais transmis à Keystone). */}
+                        <Btn small disabled={occupe} onClick={() => openDialog({ type: 'confirmer',
+                          c: refusKeystone(dm, emp?.nom ?? d.personName(dm.empId), c ? `${c.id} · ${c.nom}` : dm.chantier) })}>Refuser</Btn>
+                        <Btn small variant="secondary" disabled={occupe || !!conflit} title={conflit ?? undefined} onClick={agir(() => accept(dm.id))}>Accepter</Btn>
                       </div>
                     </td>
                   </tr>
@@ -105,7 +124,7 @@ export function Voyages() {
           {trips.length === 0 && <Empty>Aucun déplacement prévu.</Empty>}
         </Panel>
 
-        {sel && <TripPanel t={sel} onClose={() => setUi({ tripSel: null })} onOpenEmp={() => openEmp(sel.emp.id)} />}
+        {sel && <TripPanel panneau={panneau} t={sel} onClose={() => setUi({ tripSel: null })} onOpenEmp={() => openEmp(sel.emp.id)} />}
       </div>
 
       <Panel title="Dossiers voyageurs" aside={plural(travelers.length, 'dossier voyageur', 'dossiers voyageurs')}>
@@ -142,14 +161,15 @@ export function Voyages() {
       <Panel title="Référentiel destinations">
         <div className="scroll-x">
           <table className="table">
-            <thead><tr><th>Pays</th><th>Entrée</th><th>Vaccin obligatoire</th><th>Vaccins recommandés</th><th>Passeport</th></tr></thead>
+            <thead><tr><th>Pays</th><th>Entrée</th><th>Sécurité sociale</th><th>Vaccin obligatoire</th><th>Vaccins recommandés</th><th>Passeport</th></tr></thead>
             <tbody>
               {data.referentiels.destinations.map(x => {
-                const rule = VISA_RULES[x.visa];
+                const rule = VISA_RULES[x.visa], secu = SECU_RULES[secuDe(x)];
                 return (
                   <tr key={x.code}>
                     <td className="nowrap">{x.pays}</td>
                     <td><Two nowrap main={rule.label} sub={x.visaSub || rule.sub} /></td>
+                    <td><Two main={secu.label} sub={secu.portee} /></td>
                     <td>{x.oblig.length ? d.vaccinNames(x.oblig) : '—'}</td>
                     <td className="text-muted">{d.vaccinNames([...x.rec, 'dtp'])}</td>
                     <td className="text-muted">{x.passMois ? `${x.passMois} mois après l’entrée` : 'Valide pendant le séjour'}</td>
@@ -159,22 +179,22 @@ export function Voyages() {
             </tbody>
           </table>
         </div>
-        <Fine>Données indicatives tenues par le service RH — à vérifier sur France Diplomatie et auprès d’un centre de vaccinations internationales avant chaque départ.</Fine>
+        <Fine>Données indicatives tenues par le service RH — à vérifier sur France Diplomatie, auprès d’un centre de vaccinations internationales et, pour la sécurité sociale, sur cleiss.fr avant chaque départ.</Fine>
       </Panel>
     </Page>
   );
 }
 
 /** Dossier voyage du déplacement sélectionné : pièces exigées et actions. */
-function TripPanel({ t, onClose, onOpenEmp }: { t: TripX; onClose: () => void; onOpenEmp: () => void }) {
+function TripPanel({ panneau, t, onClose, onOpenEmp }: { panneau: RefObject<HTMLElement | null>; t: TripX; onClose: () => void; onOpenEmp: () => void }) {
   const { d } = useEnriched();
   const { openDialog } = useStore();
   const r = t.r;
   return (
-    <aside className="card elev-md side-panel" style={{ flex: '0 1 400px' }}>
+    <aside ref={panneau} tabIndex={-1} aria-labelledby="dossier-voyage-nom" className="card elev-md side-panel" style={{ flex: '0 1 400px' }}>
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)' }}>
         <div style={{ flex: 1, minWidth: 0 }}>
-          <h3>{t.emp.nom}</h3>
+          <h3 id="dossier-voyage-nom">{t.emp.nom}</h3>
           <div className="text-muted" style={{ fontSize: 13 }}>{r.dest.pays} — {t.motif}</div>
         </div>
         <CloseButton onClick={onClose} />
@@ -194,6 +214,11 @@ function TripPanel({ t, onClose, onOpenEmp }: { t: TripX; onClose: () => void; o
             {!i.ok && i.fix && (
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <Btn small onClick={() => openDialog({ type: 'fo', empId: t.emp.id, kind: i.fix!.kind, dest: i.fix!.dest, v: i.fix!.v })}>{itemAction(i)}</Btn>
+              </div>
+            )}
+            {(i.k === 'detachement' || i.k === 'information') && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <Btn small onClick={() => openDialog({ type: 'detachement', id: t.id })}>{detachementAction(i)}</Btn>
               </div>
             )}
           </div>

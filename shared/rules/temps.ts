@@ -1,8 +1,9 @@
 // Feuilles de temps : décompte des heures, majorations, variables de paie.
-import { isFerie, isoWeek, parse, wDays } from '../dates.ts';
+import { horodatageParis, isFerie, isoWeek, isoWeekYear, parse, wDays } from '../dates.ts';
 import { matricule, num, r1 } from '../format.ts';
 import type { Domain } from '../domain.ts';
-import type { ContratFige, Employe, FeuilleTemps, ISODate, LigneTemps, SagePush } from '../types.ts';
+import type { Absence, AbsenceType, ContratFige, Employe, FeuilleTemps, ISODate, LigneTemps, SagePush, TacheKeystone } from '../types.ts';
+import { absenceBloque, jourHorsContrat, natureDef, natureMedicale } from './absences.ts';
 
 /** Régime de temps de travail en vigueur d'une fiche, à figer sur une feuille soumise. */
 export function contratFige(e: Employe): ContratFige {
@@ -15,6 +16,11 @@ export function employeDeLaFeuille(e: Employe, sh: { contrat?: ContratFige | nul
 
 export interface SheetCalc {
   perDay: number[]; total: number; warn: string[];
+  /**
+   * Durées maximales dépassées (plus de 10 h sur une journée ou de 48 h dans la semaine ; plus de 13 h pour un forfait
+   * jours) : sous-ensemble de `warn`. La soumission, et la validation, exigent alors un motif (`motifDepassement`).
+   */
+  depassements: string[];
   /** Heures payées au taux normal (dans la limite de 35 h). */
   normal: number;
   /** Heures supplémentaires structurelles incluses dans un forfait hebdomadaire (total, dont +25 % et +50 %). */
@@ -36,15 +42,16 @@ export function calcSheet(d: Domain, e: Employe, sh: (Pick<FeuilleTemps, 'lignes
   const c = d.contratOf(employeDeLaFeuille(e, sh));
   const perDay = [0, 1, 2, 3, 4].map(i => (sh ? sh.lignes : []).reduce((n, l) => n + num(l.h[i]), 0));
   const total = perDay.reduce((a, b) => a + b, 0);
-  const warn: string[] = [];
+  const depassements: string[] = [];
   if (c.forfait) {
     // Forfait jours : durées maximales exclues (art. L3121-62) ; seuls les repos quotidien et hebdomadaire s'appliquent.
-    if (perDay.some(h => h > 13)) warn.push('Plus de 13 h sur une journée : repos quotidien de 11 h non respecté (art. L3131-1)');
+    if (perDay.some(h => h > 13)) depassements.push('Plus de 13 h sur une journée : repos quotidien de 11 h non respecté (art. L3131-1)');
   } else if (!c.dirigeant) {
-    if (perDay.some(h => h > 10)) warn.push('Plus de 10 h sur une journée (art. L3121-18)');
-    if (total > 48) warn.push('Plus de 48 h dans la semaine (art. L3121-20)');
+    if (perDay.some(h => h > 10)) depassements.push('Plus de 10 h sur une journée (art. L3121-18)');
+    if (total > 48) depassements.push('Plus de 48 h dans la semaine (art. L3121-20)');
   }
-  const r: SheetCalc = { perDay, total, c, warn, normal: total, incluses: 0, incluses25: 0, incluses50: 0, sup25: 0, sup50: 0, hc10: 0, hc25: 0, recup: 0, jours: 0 };
+  const warn = [...depassements];
+  const r: SheetCalc = { perDay, total, c, warn, depassements, normal: total, incluses: 0, incluses25: 0, incluses50: 0, sup25: 0, sup50: 0, hc10: 0, hc25: 0, recup: 0, jours: 0 };
   const jours = perDay.reduce((n, h) => n + (h === 0 ? 0 : h <= 4 ? 0.5 : 1), 0);
   if (c.forfait || c.dirigeant || c.annuel) r.jours = jours;
   else if (c.partiel) {
@@ -72,15 +79,27 @@ export function calcSheet(d: Domain, e: Employe, sh: (Pick<FeuilleTemps, 'lignes
   return r;
 }
 
+/** Durée maximale d'une journée, toutes lignes de la feuille cumulées : au-delà, la saisie est refusée. */
+export const HEURES_JOUR_MAX = 24;
+
+/** Jours (0 = lundi … 4 = vendredi) dont le total, toutes lignes cumulées, dépasse 24 h. */
+export const joursAuDela24 = (lignes: Pick<LigneTemps, 'h'>[]): number[] =>
+  [0, 1, 2, 3, 4].filter(i => lignes.reduce((n, l) => n + num(l.h[i]), 0) > HEURES_JOUR_MAX);
+
 /**
  * Forfait annuel en heures : cumul des feuilles validées de l'année, cible proratisée selon la présence
- * (entrée, fin de contrat) et part de la cible correspondant à la période déjà écoulée.
+ * (entrée, fin de contrat) et part de la cible correspondant à la période déjà écoulée. Une semaine à cheval
+ * sur deux années est ventilée jour par jour : le lundi 29 décembre compte pour l'année qui s'achève.
  */
 export function cumulAnnuel(d: Domain, e: Employe, year = d.year) {
   const c = d.contratOf(e);
+  const annee = String(year);
   const done = d.ds.feuilles
-    .filter(sh => sh.empId === e.id && sh.statut === 'validee' && sh.week.startsWith(String(year)))
-    .reduce((n, sh) => n + calcSheet(d, e, sh).total, 0);
+    .filter(sh => sh.empId === e.id && sh.statut === 'validee' && wDays(sh.week).some(day => day.startsWith(annee)))
+    .reduce((n, sh) => {
+      const perDay = calcSheet(d, e, sh).perDay;
+      return n + wDays(sh.week).reduce((m, day, i) => m + (day.startsWith(annee) ? perDay[i] : 0), 0);
+    }, 0);
   const start = new Date(year, 0, 1).getTime(), end = new Date(year + 1, 0, 1).getTime();
   const debut = Math.max(start, parse(e.entree).getTime());
   const fin = e.fin ? Math.min(end, parse(e.fin).getTime() + 864e5) : end;
@@ -90,12 +109,105 @@ export function cumulAnnuel(d: Domain, e: Employe, year = d.year) {
   return { done, cible, prorata: cible * ecoule, depasse: done > cible, annee: year };
 }
 
-/** Lignes proposées à partir des tâches Keystone (fériés, absences et jours non travaillés à zéro). */
+/** Absence vue par la feuille de temps : une absence validée ou signalée, ou sur le point de l'être. */
+export type AbsenceJour = Pick<Absence, 'empId' | 'type' | 'du' | 'au'> & Partial<Pick<Absence, 'statut'>>;
+
+/**
+ * Absence en vigueur couvrant chaque jour de la semaine `w`, du lundi au vendredi ; null les autres jours :
+ * congé validé (CP, RTT / repos, récupération), absence hors congés qualifiée (arrêt, maternité, événement familial…)
+ * ou signalée en attendant sa qualification. Aucune heure ne peut être saisie ces jours-là (double paiement sinon).
+ * Source unique pour la saisie, la proposition Keystone, la soumission, la validation et la grille.
+ * `absences` remplace les absences en vigueur pour contrôler une absence avant de la poser ou de la valider,
+ * ou pour repérer les demandes en attente (`demandesAbsence`).
+ */
+export function joursAbsence(d: Domain, empId: number, w: ISODate, absences: AbsenceJour[] = d.ds.absences.filter(absenceBloque)): (AbsenceJour | null)[] {
+  return wDays(w).map(day => absences.find(a => a.empId === empId && a.du <= day && a.au >= day) ?? null);
+}
+
+/** Demandes d'absence en attente de décision : elles ne bloquent pas la saisie, mais la validation de la feuille. */
+export const demandesAbsence = (d: Domain): AbsenceJour[] => d.ds.absences.filter(a => a.statut === 'demandee');
+
+export interface HeuresSurAbsence { di: number; day: ISODate; absence: AbsenceJour }
+
+/** Jours d'absence de la feuille qui portent encore des heures, à retirer avant soumission et validation. */
+export function heuresSurAbsence(d: Domain, sh: Pick<FeuilleTemps, 'empId' | 'week' | 'lignes'>, absences?: AbsenceJour[]): HeuresSurAbsence[] {
+  const wd = wDays(sh.week);
+  return joursAbsence(d, sh.empId, sh.week, absences).flatMap((absence, di) =>
+    absence && sh.lignes.some(l => num(l.h[di]) > 0) ? [{ di, day: wd[di], absence }] : []);
+}
+
+/**
+ * Nature d'une absence dans un message : « CP », « RTT », « récupération », « congé de maternité »…
+ * Vide pour une absence à qualifier ou une nature médicale : un message ne la révèle jamais, quel que soit son lecteur.
+ */
+export const natureAbsence = (t: AbsenceType): string =>
+  t === 'CP' || t === 'RTT' ? t : t === 'RECUP' ? 'récupération' : natureMedicale(t) ? '' : natureDef(t)?.court ?? '';
+const entreParentheses = (a: AbsenceJour) => { const n = natureAbsence(a.type); return n ? ` (${n})` : ''; };
+const jourCourt = (s: ISODate) => parse(s).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
+const liste = (items: string[]) => items.length > 1 ? `les ${items.slice(0, -1).join(', ')} et ${items.at(-1)}` : `le ${items[0]}`;
+
+/** « Absence validée ce jour-là (CP) », « Absence signalée ce jour-là ». */
+export const absenceCeJour = (a: AbsenceJour) => `Absence ${a.statut === 'signalee' ? 'signalée' : 'validée'} ce jour-là${entreParentheses(a)}`;
+
+/** « le lun. 12 oct. », « les lun. 12 oct. et mar. 13 oct. ». */
+export const joursTexte = (days: ISODate[]) => liste(days.map(jourCourt));
+
+/** « le lun. 12 oct. (CP) », « les lun. 12 oct. et mar. 13 oct. (CP) », « les lun. 12 oct. (CP) et ven. 16 oct. (RTT) ». */
+export function joursAbsenceTexte(list: { day: ISODate; absence: AbsenceJour }[]): string {
+  const natures = [...new Set(list.map(x => entreParentheses(x.absence)))];
+  return natures.length === 1
+    ? `${joursTexte(list.map(x => x.day))}${natures[0]}`
+    : liste(list.map(x => `${jourCourt(x.day)}${entreParentheses(x.absence)}`));
+}
+
+/** Refus de soumission ou de validation : jours concernés et marche à suivre (`suite` : « avant de soumettre la feuille »…). */
+export function heuresSurAbsenceMessage(list: HeuresSurAbsence[], suite: string): string {
+  const etats = new Set(list.map(x => x.absence.statut === 'signalee' ? 'signalée' : 'validée'));
+  return `Absence ${etats.size > 1 ? 'validée ou signalée' : [...etats][0]} ${joursAbsenceTexte(list)} : retirez les heures saisies ${list.length > 1 ? 'ces jours-là' : 'ce jour-là'} ${suite}`;
+}
+
+/**
+ * Semaine sans heure attendue : chaque jour est férié, non travaillé (temps partiel), hors contrat ou couvert par une
+ * absence en vigueur, et au moins un par une absence (semaine d'arrêt, de congés…). La feuille se soumet alors sans heure.
+ */
+export function semaineCouverte(d: Domain, e: Employe, w: ISODate, sh: { contrat?: ContratFige | null } | null = null): boolean {
+  const off = d.contratOf(employeDeLaFeuille(e, sh)).jourOff, abs = joursAbsence(d, e.id, w);
+  return abs.some(Boolean) && wDays(w).every((day, i) => !!abs[i] || isFerie(day) || off.includes(i) || !!jourHorsContrat(e, day));
+}
+
+/**
+ * Demande d'absence en attente sur des jours qui portent des heures : à décider avant de valider la feuille,
+ * car une feuille validée n'est plus modifiable et l'absence ne pourrait alors plus être validée.
+ * `valideur` : refus de validation et marche à suivre ; sinon, simple signalement dans la grille.
+ */
+export function demandesEnAttenteMessage(list: HeuresSurAbsence[], valideur = true): string {
+  const plus = new Set(list.map(x => x.absence)).size > 1, jours = list.length > 1 ? 'ces jours-là' : 'ce jour-là';
+  const debut = `${plus ? 'Demandes' : 'Demande'} d’absence en attente ${joursAbsenceTexte(list)}`;
+  return valideur
+    ? `${debut} : ${plus ? 'décidez-les' : 'décidez-la'} avant de valider la feuille — pour ${plus ? 'les ' : 'l’'}accepter, retirez d’abord les heures saisies ${jours}`
+    : `${debut} : des heures sont saisies ${jours}, à retirer si ${plus ? 'elles sont acceptées' : 'elle est acceptée'}`;
+}
+
+/**
+ * Tâches Keystone du salarié planifiées la semaine `w` : dates de la tâche et heures prévues
+ * du lundi au vendredi (le samedi et le dimanche ne figurent pas sur la feuille). Un projet archivé
+ * dans Keystone ne reçoit plus d'heures (temps.addLine) : ses tâches ne sont plus proposées.
+ */
+export function tachesDeLaSemaine(d: Domain, empId: number, w: ISODate): TacheKeystone[] {
+  const wd = wDays(w);
+  const clos = new Set(d.ds.referentiels.projets.filter(p => p.statut === 'archive').map(p => p.code));
+  return d.ds.taches.filter(t => t.empId === empId && !clos.has(t.projet) && t.debut <= wd[4] && t.fin >= w && wd.some(day => num(t.heures?.[day]) > 0));
+}
+
+/**
+ * Lignes proposées à partir des tâches Keystone de la semaine : heures planifiées jour par jour
+ * (fériés, absences, jours non travaillés et hors contrat à zéro).
+ */
 export function suggestLines(d: Domain, e: Employe, w: ISODate): LigneTemps[] {
-  const wd = wDays(w), off = d.contratOf(e).jourOff;
-  return d.ds.taches.filter(t => t.empId === e.id).map(t => ({
+  const wd = wDays(w), off = d.contratOf(e).jourOff, abs = joursAbsence(d, e.id, w);
+  return tachesDeLaSemaine(d, e.id, w).map(t => ({
     projet: t.projet, tache: t.tache, ks: true,
-    h: t.heures.map((v, i) => isFerie(wd[i]) || d.absOn(e.id, wd[i]) || off.includes(i) ? 0 : v),
+    h: wd.map((day, i) => isFerie(day) || abs[i] || off.includes(i) || jourHorsContrat(e, day) ? 0 : num(t.heures[day])),
   }));
 }
 
@@ -125,16 +237,19 @@ export function sagePending(d: Domain): FeuilleTemps[] {
   });
 }
 
-export function buildSagePayload(d: Domain, sheets: FeuilleTemps[], dossier: string): SagePush {
-  const today = d.ti;
+/**
+ * Variables de paie transmises à Sage. Semaine ISO : son année est celle du jeudi (la semaine du 29 décembre 2025
+ * est « 2026-S01 ») ; `envoye_le` : heure réelle de l'envoi, à l'heure de Paris (décalage d'hiver ou d'été).
+ */
+export function buildSagePayload(d: Domain, sheets: FeuilleTemps[], dossier: string, maintenant = new Date()): SagePush {
   return {
     endpoint: 'POST /sage-paie/v1/variables',
     dossier,
-    periode_paie: today.slice(0, 7),
-    envoye_le: `${today}T09:00:00+02:00`,
+    periode_paie: d.ti.slice(0, 7),
+    envoye_le: horodatageParis(maintenant),
     lignes: sheets.map(sh => ({
       matricule: matricule(sh.empId),
-      semaine: `${parse(sh.week).getFullYear()}-S${String(isoWeek(sh.week)).padStart(2, '0')}`,
+      semaine: `${isoWeekYear(sh.week)}-S${String(isoWeek(sh.week)).padStart(2, '0')}`,
       rubriques: sageRubriques(d, d.emp(sh.empId)!, sh),
     })),
   };

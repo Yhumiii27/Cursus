@@ -13,10 +13,12 @@ const RISK_TEXT = 'Conditions non remplies — abondement correctif de 3 000 €
 
 export function Entretiens() {
   const d = useDomain();
-  const { rh, manager, collab, me } = useRole();
+  // Lecture seule : obligations et calendrier, sans les comptes rendus (non transmis).
+  const { rh, manager, collab, me, soi } = useRole();
   const { openDialog } = useStore();
   const data = d.ds;
   const year = d.year;
+  const compteRendu = rh || manager || collab;
 
   const v = useMemo(() => {
     const yStart = `${year}-01-01`;
@@ -28,8 +30,9 @@ export function Entretiens() {
       key: `${o.id}-${o.kind}`, o,
       due: o.pl ? `Prévu le ${fmt(parse(o.pl.date))}` : fmt(parse(o.due)),
       rel: o.pl ? `évaluateur : ${d.mgrName(d.mgrOf(o.e))}` : o.st === 'todo' ? 'non obligatoire' : rel(days(d.today, parse(o.due))),
-      // Planification réservée au service RH et au manager direct (le serveur refuse sinon).
-      canPlan: !o.pl && (rh || (manager && d.mgrOf(o.e) === me)),
+      // Planification réservée au service RH (jamais pour son propre entretien) et au manager direct (le serveur refuse
+      // sinon) ; déjà planifié, il se reprogramme.
+      canPlan: (rh && o.id !== soi) || (manager && d.mgrOf(o.e) === me),
     }));
 
     const entRows = data.entretiens
@@ -59,7 +62,7 @@ export function Entretiens() {
       : 'Code du travail · loi n° 2025-989 du 24 octobre 2025';
 
     return { obligRows, entRows, k, kicker };
-  }, [d, data, year, rh, manager, collab, me]);
+  }, [d, data, year, rh, manager, collab, me, soi]);
 
   return (
     <Page kicker={v.kicker} title="Entretiens">
@@ -89,7 +92,7 @@ export function Entretiens() {
                       <td><Two main={due} sub={relLabel} nowrap subNowrap /></td>
                       <td><Tag cls={ENT_ST[o.st][1]}>{ENT_ST[o.st][0]}</Tag></td>
                       <td className="right">
-                        {canPlan && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'entPlan', empId: o.id, kind: o.kind })}>Planifier</button>}
+                        {canPlan && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'entPlan', empId: o.id, kind: o.kind })}>{o.pl ? 'Reprogrammer' : 'Planifier'}</button>}
                       </td>
                     </tr>
                   ))}
@@ -101,8 +104,8 @@ export function Entretiens() {
 
         <Panel style={{ flex: '1 1 360px', gap: 'var(--space-2)' }} title={`Entretiens ${year}`}>
           {v.entRows.map(r => (
-            <div key={r.x.id} className="list-row top clickable" style={{ justifyContent: 'space-between', gap: 'var(--space-3)' }}
-              onClick={() => openDialog({ type: 'ent', entId: r.x.id })}>
+            <div key={r.x.id} className={`list-row top${compteRendu ? ' clickable' : ''}`} style={{ justifyContent: 'space-between', gap: 'var(--space-3)' }}
+              onClick={compteRendu ? () => openDialog({ type: 'ent', entId: r.x.id }) : undefined}>
               <div style={{ minWidth: 0 }}>
                 <div style={{ fontSize: 14 }}>{r.nom} · {ENT_TYPES[r.x.type].nom}</div>
                 <div className="text-muted sub">{fmt(parse(r.x.date))} · {r.eval}</div>

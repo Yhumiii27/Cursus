@@ -1,17 +1,22 @@
 // Annuaire (RH) ou équipe (manager) : statut de conformité, contrat et fiche détaillée.
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, type ReactNode, type RefObject } from 'react';
 import { PencilSimpleIcon, PlusIcon, UserMinusIcon, UserPlusIcon } from '@phosphor-icons/react';
-import { CERT_LABEL, CLS, EMP_LABEL, HAB_CLS, HAB_LABEL, RANK, STATUTS, TEMPS_TRAVAIL, TRIP_LABEL, TYPES_CONTRAT } from '../../../shared/constants.ts';
+import { CERT_LABEL, CLS, EMP_LABEL, HAB_CLS, HAB_LABEL, HAB_MESURE_LABEL, RANK, SESSION_PASSEE, STATUTS, TEMPS_TRAVAIL, TRIP_LABEL, TYPES_CONTRAT } from '../../../shared/constants.ts';
 import type { ContratX, EmpX, HabInfo, Proposal } from '../../../shared/domain.ts';
 import type { Formation } from '../../../shared/types.ts';
 import { days, parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, fmtIso, fmtShort, norm, plural, rel } from '../../../shared/format.ts';
 import { absenceKinds } from '../../../shared/rules/conges.ts';
+import { convocationEnvoyee, etatInscription } from '../../../shared/rules/sessions.ts';
 import { JOURS_SEMAINE } from '../../../shared/rules/profil.ts';
+import { usePanneauVisible } from '../components/panneau.ts';
 import { Avatar, Bar, Btn, Chips, CloseButton, Empty, Fine, NoteAccent, Page, SectionLabel, Seg, Tag, Two } from '../components/ui.tsx';
+import { Aptitude } from '../components/Aptitude.tsx';
 import { printDocument } from '../print.ts';
-import { useEnriched, useRole, useTrips } from '../state/derived.ts';
+import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derived.ts';
+import { desinscription, retraitEquipe } from '../state/confirmations.ts';
 import { useStore } from '../state/store.tsx';
+import { HistoriqueFiche } from './Journal.tsx';
 
 /** Valeur du filtre d'équipe pour les collaborateurs sans équipe (« À affecter »). */
 const SANS_EQUIPE = '';
@@ -20,7 +25,7 @@ const docCls = (k: string) => k === 'exp' ? 'tag-accent' : k === 'due' ? 'tag-ou
 
 function habSummary(e: EmpX) {
   const hs = e.habs.filter(h => h.key !== 'pending');
-  const ko = hs.filter(h => h.key === 'exp' || h.key === 'susp').length, due = hs.filter(h => h.key === 'due').length, pend = e.habs.length - hs.length;
+  const ko = hs.filter(h => h.key === 'exp' || h.key === 'susp' || h.key === 'retiree').length, due = hs.filter(h => h.key === 'due').length, pend = e.habs.length - hs.length;
   return {
     label: ko ? plural(ko, 'non conforme', 'non conformes') : due ? `${due} à renouveler` : !hs.length ? `${pend} en attente` : plural(hs.length, 'valide', 'valides'),
     cls: ko ? 'tag-accent' : due || !hs.length ? 'tag-outline' : 'tag-neutral',
@@ -42,16 +47,17 @@ const joursListe = (js: number[]) => {
 export function Collaborateurs() {
   const { emps, upcoming, horizon, d } = useEnriched();
   const trips = useTrips();
-  const { rh, manager, me } = useRole();
+  // `espaceRh` : tout le site (service RH, référent HSE, lecture seule) ; `rh` : fiches et équipes.
+  const { espaceRh, rh, manager, me } = useRole();
   const { ui, setUi, openDialog } = useStore();
 
   const myTeams = useMemo(() => manager ? d.teamsOf(me) : [], [d, manager, me]);
   const team = useMemo(() => manager ? emps.filter(e => e.id !== me && d.mgrOf(e) === me) : emps, [emps, manager, me, d]);
-  const teamOptions = rh ? d.equipes : myTeams;
-  const multi = rh || myTeams.length > 1;
+  const teamOptions = espaceRh ? d.equipes : myTeams;
+  const multi = espaceRh || myTeams.length > 1;
   // Un filtre devenu sans objet (équipe renommée, hors périmètre) revient à « Toutes ».
-  const filtre = multi && (ui.equipe === SANS_EQUIPE ? rh : teamOptions.includes(ui.equipe)) ? ui.equipe : 'Toutes';
-  const aAffecter = rh ? emps.filter(e => !e.equipe).length : 0;
+  const filtre = multi && (ui.equipe === SANS_EQUIPE ? espaceRh : teamOptions.includes(ui.equipe)) ? ui.equipe : 'Toutes';
+  const aAffecter = espaceRh ? emps.filter(e => !e.equipe).length : 0;
 
   const q = norm(ui.search.trim());
   const rows = useMemo(() => team
@@ -61,6 +67,8 @@ export function Collaborateurs() {
   [team, filtre, ui.statut, q]);
 
   const sel = team.find(e => e.id === ui.selectedId) || null;
+  // Écran étroit : la fiche s'affiche sous la liste ; la sélection l'amène dans le champ de vision.
+  const panneau = usePanneauVisible<HTMLElement>(sel?.id);
   const certCount = team.reduce((n, e) => n + e.certs.length, 0);
   const certs = plural(certCount, 'certification suivie', 'certifications suivies');
   const kicker = manager
@@ -73,9 +81,9 @@ export function Collaborateurs() {
     <Page tight kicker={kicker} title="Collaborateurs" actions={<>
       {multi && (
         <select className="input" aria-label="Équipe" value={filtre} onChange={e => setUi({ equipe: e.target.value })} style={{ width: 'auto', minWidth: 190 }}>
-          <option value="Toutes">{rh ? 'Toutes les équipes' : 'Toutes mes équipes'}</option>
+          <option value="Toutes">{espaceRh ? 'Toutes les équipes' : 'Toutes mes équipes'}</option>
           {teamOptions.map(nom => <option key={nom} value={nom}>{nom}</option>)}
-          {rh && <option value={SANS_EQUIPE}>{aAffecter ? `À affecter (${aAffecter})` : 'À affecter'}</option>}
+          {espaceRh && <option value={SANS_EQUIPE}>{aAffecter ? `À affecter (${aAffecter})` : 'À affecter'}</option>}
         </select>
       )}
       <Seg name="statut" label="Statut" value={ui.statut} onChange={v => setUi({ statut: v })}
@@ -126,7 +134,7 @@ export function Collaborateurs() {
           <p className="text-muted fine">{rows.length} {rows.length > 1 ? 'collaborateurs affichés' : 'collaborateur affiché'} sur {team.length}</p>
         </section>
 
-        {sel && <EmployeePanel e={sel} upcomingCount={(f: string) => upcoming.filter(s => s.formation === f && s.inscrits < s.places).length} trips={trips} horizon={horizon} />}
+        {sel && <EmployeePanel panneau={panneau} e={sel} upcomingCount={(f: string) => upcoming.filter(s => s.formation === f && s.inscrits < s.places).length} trips={trips} horizon={horizon} />}
       </div>
     </Page>
   );
@@ -143,16 +151,23 @@ function Info({ label, sub, children }: { label: ReactNode; sub?: ReactNode; chi
   );
 }
 
-function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcomingCount: (f: string) => number; trips: ReturnType<typeof useTrips>; horizon: number }) {
-  const { d } = useEnriched();
-  const { rh, manager, me } = useRole();
+function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
+  panneau: RefObject<HTMLElement | null>; e: EmpX; upcomingCount: (f: string) => number; trips: ReturnType<typeof useTrips>; horizon: number;
+}) {
+  const { d, formIds } = useEnriched();
+  // `formations` : service RH et référent HSE (sessions, certifications, habilitations) ; `rh` : le reste de la fiche.
+  const { rh, formations, manager, me } = useRole();
+  const permis = useIntentPermis();
   const { setUi, openDialog, go, run, runIntent, notify } = useStore();
   /** Manager direct consultant un membre de son équipe (jamais sa propre fiche). */
   const membre = manager && e.id !== me && d.mgrOf(e) === me;
-  const canPlan = rh || membre;
+  const canPlan = formations || membre;
+  /** Certifications remplacées par un recyclage (historique), selon le filtre « réglementaires uniquement ». */
+  const anciennes = e.anciennes.filter(c => formIds.has(c.f));
   const tv = d.travelOf(e, horizon);
   const nt = trips.find(t => t.empId === e.id);
-  const ntStatus = nt ? TRIP_LABEL[nt.r.status] : null;
+  // État calculé par le serveur pour le manager, qui ne reçoit pas les vaccinations (comme Missions).
+  const ntStatus = nt ? TRIP_LABEL[d.tripStatus(nt)] : null;
   const docChips = [
     ...tv.visas.map(v => ({ key: 'v' + v.dest, label: `${v.type} ${d.destOf(v.dest)?.pays ?? v.dest} · ${v.key === 'exp' ? 'expiré' : 'jusqu’au ' + fmtShort(v.exp)}`, cls: docCls(v.key) })),
     ...(manager ? [] : tv.vaccins.map(x => ({ key: 'x' + x.v, label: `${x.vm.court}${x.exp ? ' · ' + (x.key === 'exp' ? 'rappel dépassé' : x.exp.getFullYear()) : ''}`, cls: docCls(x.key) }))),
@@ -174,51 +189,62 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
   /** Un membre qui encadre lui-même une équipe ne change d'équipe que par le service RH. */
   const retirable = membre && d.teamsOf(e.id).length === 0;
 
-  // Inscriptions en formation initiale (formation jamais suivie), jusqu'à l'enregistrement de la certification.
+  // Inscriptions en formation initiale (formation jamais suivie), jusqu'à l'obtention de la certification :
+  // planifiées, session passée à clôturer, ou à replanifier (session annulée, absent, évaluation échouée).
   const inscriptions = d.ds.inscriptions
     .filter(i => i.empId === e.id)
     .flatMap(i => {
-      const s = d.session(i.sessionId);
-      return s ? [{ i, s, fm: d.fm(s.formation) as Formation | undefined }] : [];
+      const x = etatInscription(d, i);
+      return x ? [{ i, x, s: x.s, fm: d.fm(x.s.formation) as Formation | undefined }] : [];
     })
     .sort((a, b) => a.s.date.localeCompare(b.s.date));
 
-  /** Propositions d'action sur une habilitation : toutes pour le RH ; recyclage ou demande de formation pour le manager. */
+  /**
+   * Propositions d'action sur une habilitation : toutes pour le RH, celles de formation pour le référent HSE ;
+   * recyclage ou demande de formation pour le manager.
+   */
   const habProposal = (h: HabInfo): Proposal | null => {
     const a = d.habAction(e.id, h);
-    if (!a || rh) return a;
+    if (!a || formations) return a && permis(a.intent) ? a : null;
     if (!membre) return null;
     if (a.intent.type === 'openPlan') return a;
     if (a.intent.type === 'goFormation') return { label: 'Demander la formation', intent: a.intent };
     return null;
   };
+  /** Convocation à une session à venir (e-mail avec fichier .ics), envoi ou renvoi ; désinscription confirmée, qui libère la place. */
+  const convoquer = (sessionId: number) => run('convocation.envoyer', { sessionId, empIds: [e.id] });
+  const desinscrire = (sessionId: number, quoi: string, convoque: boolean, recyclage: boolean) =>
+    openDialog({ type: 'confirmer', c: desinscription({ empId: e.id, sessionId }, e.nom, quoi, { recyclage, convoque }) });
+  // « À renvoyer » : convocation déjà envoyée, avant un changement de date ou de lieu de la session.
+  const convocation = (convoc: 'now' | 'later' | null, le: string | null) =>
+    convoc === 'now' ? `convocation envoyée${le ? ` le ${fmtShort(parse(le))}` : ''}` : le ? `convocation à renvoyer (envoyée le ${fmtShort(parse(le))})` : 'convocation à envoyer';
   const runProposal = (a: Proposal) => {
     const it = a.intent;
-    if (!rh && it.type === 'goFormation') openDialog({ type: 'reqForm', empId: e.id, f: it.f });
+    if (!formations && it.type === 'goFormation') openDialog({ type: 'reqForm', empId: e.id, f: it.f });
     else runIntent(it);
   };
 
-  const retirer = async () => {
-    if (!window.confirm(`Retirer ${e.nom} de l’équipe ${equipeLabel(e)} ?\n\n${e.nom} passera « à affecter » : le service RH lui attribuera une nouvelle équipe.`)) return;
-    const r = await run('equipe.affecter', { empId: e.id, equipe: null });
-    if (r.ok) setUi({ selectedId: null });
-  };
+  // Confirmation, puis la fiche se ferme : un manager ne voit plus le collaborateur retiré de son équipe.
+  const retirer = () => openDialog({ type: 'confirmer', c: retraitEquipe(e.id, e.nom, equipeLabel(e), { selectedId: null }) });
 
   const passeportFormation = () => {
     const ok = printDocument(`Passeport formation — ${e.nom}`, `${e.poste} · ${equipeLabel(e)}`, [
       { title: 'Certifications', table: { head: ['Formation', 'Obtenue le', 'Expire le', 'Statut'], rows: e.rawCerts.map(c => [c.fm.nom, fmt(c.obt), fmt(c.exp), CERT_LABEL[c.key]]) } },
-      ...(e.habs.length ? [{ title: 'Habilitations', table: { head: ['Habilitation', 'Délivrée le', 'Par', 'Expire le', 'Statut'], rows: e.habs.map(h => [h.hm.nom, h.delivree ? fmt(parse(h.delivree)) : '—', h.par ?? '—', h.exp ? fmt(h.exp) : '—', HAB_LABEL[h.key]]) } }] : []),
-    ]);
+      ...(e.anciennes.length ? [{ title: 'Certifications remplacées', table: { head: ['Formation', 'Obtenue le', 'Expirait le', 'Remplacée le'], rows: e.anciennes.map(c => [c.fm.nom, fmt(c.obt), fmt(c.exp), fmt(c.remplacee!)]) } }] : []),
+      // Le motif d'une suspension ou d'un retrait n'est pas imprimé : seuls l'état et sa date figurent au passeport.
+      ...(e.habs.length ? [{ title: 'Habilitations', table: { head: ['Habilitation', 'Délivrée le', 'Par', 'Expire le', 'Statut'], rows: e.habs.map(h => [h.hm.nom, h.delivree ? fmt(parse(h.delivree)) : '—', h.par ?? '—', h.exp ? fmt(h.exp) : '—', HAB_LABEL[h.key] + (h.mesureLe ? ` le ${fmt(h.mesureLe)}` : '')]) } }] : []),
+    ], e.id);
     if (!ok) notify('Autorisez les fenêtres surgissantes pour imprimer le passeport formation', true);
   };
 
   return (
-    <aside className="card elev-md side-panel">
+    <aside ref={panneau} tabIndex={-1} aria-labelledby="fiche-nom" className="card elev-md side-panel">
       <div style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)' }}>
         <Avatar nom={e.nom} size={40} />
         <div style={{ flex: 1, minWidth: 0 }}>
-          <h3>{e.nom}</h3>
+          <h3 id="fiche-nom">{e.nom}</h3>
           <div className="text-muted" style={{ fontSize: 13 }}>{e.poste} · {equipeLabel(e)}</div>
+          <div className="text-muted sub" style={{ overflowWrap: 'anywhere' }}>{e.email ?? 'Aucune adresse e-mail professionnelle'}</div>
         </div>
         <CloseButton onClick={() => setUi({ selectedId: null })} />
       </div>
@@ -227,7 +253,14 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
         {!e.equipe && <Tag cls="tag-outline">À affecter</Tag>}
         <span className="text-muted sub">{plural(e.certs.length, 'certification', 'certifications')} · {e.next ? 'prochaine échéance le ' + fmt(e.next.exp) : 'aucune échéance'}</span>
       </div>
-      <div className="text-muted sub">{e.med.text}</div>
+      {/* Manager : verdict et restrictions en vigueur seulement ; demandes de visite et avis : service RH. */}
+      <SectionLabel>Aptitude médicale</SectionLabel>
+      <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
+        <Aptitude e={e} d={d} horizon={horizon} actions={rh ? <>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'visite', empId: e.id })}>{e.med.demande ? 'Demande de visite' : 'Demander une visite'}</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'avis', empId: e.id })}>Avis du médecin du travail</button>
+        </> : undefined} />
+      </div>
 
       <SectionLabel>Certifications</SectionLabel>
       <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
@@ -240,12 +273,28 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
                 <Tag cls={CLS[c.key]} style={{ flex: 'none' }}>{CERT_LABEL[c.key]}</Tag>
               </div>
               <Bar variant="thin" pct={c.pct} color={c.key === 'ok' ? 'var(--color-accent-600)' : 'var(--color-accent-300)'} />
-              {c.session && <NoteAccent icon>Session du {fmt(parse(c.session.date))}{c.convoc === 'now' ? ' · convocation envoyée' : ' · convocation à envoyer'}</NoteAccent>}
-              {c.key !== 'ok' && !c.session && canPlan && (
+              {c.session && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+                  <NoteAccent icon>Session du {fmt(parse(c.session.date))} · {convocation(c.convoc, c.convocLe)}</NoteAccent>
+                  {canPlan && (
+                    <div className="actions-end">
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => convoquer(c.session!.id)}>{convocationEnvoyee(c) ? 'Renvoyer la convocation' : 'Envoyer la convocation'}</button>
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => desinscrire(c.session!.id, `${c.fm.court} du ${fmt(parse(c.session!.date))}`, convocationEnvoyee(c), true)}>Désinscrire</button>
+                    </div>
+                  )}
+                </div>
+              )}
+              {c.sessionPassee && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
+                  <NoteAccent>{SESSION_PASSEE} · session du {fmt(parse(c.sessionPassee.date))}</NoteAccent>
+                  {formations && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cloture', sessionId: c.sessionPassee!.id })}>Clôturer la session</button>}
+                </div>
+              )}
+              {c.key !== 'ok' && !c.session && !c.sessionPassee && canPlan && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
                   <span className="text-muted sub">{avail ? plural(avail, 'session disponible', 'sessions disponibles') : 'Aucune session disponible'}</span>
                   {/* Sans session ouverte, le manager ne peut pas en créer : il adresse la demande au service RH. */}
-                  {!rh && !avail
+                  {!formations && !avail
                     ? <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'reqForm', empId: e.id, f: c.f })}>Demander la formation</button>
                     : <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'plan', empId: e.id, certId: c.id })}>Planifier un renouvellement</button>}
                 </div>
@@ -256,32 +305,61 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
         {e.certs.length === 0 && <Empty pad="sm">Aucune certification suivie.</Empty>}
       </div>
 
+      {anciennes.length > 0 && <>
+        <SectionLabel>Historique des certifications</SectionLabel>
+        <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
+          {anciennes.map(c => (
+            <div key={c.id} className="list-row past">
+              <div className="grow">
+                <div style={{ fontSize: 13 }}>{c.fm.nom}</div>
+                <div className="sub">Obtenue le {fmt(c.obt)} · remplacée le {fmt(c.remplacee!)}</div>
+              </div>
+              <Tag cls="tag-outline" style={{ flex: 'none' }}>Remplacée</Tag>
+            </div>
+          ))}
+        </div>
+      </>}
+
       {inscriptions.length > 0 && <>
         <SectionLabel>Formations planifiées</SectionLabel>
         <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
-          {inscriptions.map(({ i, s, fm }) => {
-            const passee = s.date < d.ti;
-            return (
-              <div key={i.id} className="list-row stack">
-                <div className="item-head">
-                  <div>
-                    <div style={{ fontSize: 14 }}>{fm?.nom ?? s.formation}</div>
-                    <div className="text-muted sub">
-                      Session du {fmt(parse(s.date))} · {s.lieu}{fm?.organisme ? ` · ${fm.organisme}` : ''}{s.statut === 'À confirmer' ? ' · à confirmer' : ''}
-                    </div>
-                  </div>
-                  {passee
-                    ? <Tag cls="tag-outline" style={{ flex: 'none' }}>Session passée</Tag>
-                    : <Tag cls={i.convoc === 'now' ? 'tag-neutral' : 'tag-outline'} style={{ flex: 'none' }}>{i.convoc === 'now' ? 'Convocation envoyée' : 'Convocation à envoyer'}</Tag>}
-                </div>
-                {passee && (
+          {inscriptions.map(({ i, x, s, fm }) => (
+            <div key={i.id} className="list-row stack">
+              <div className="item-head">
+                <div>
+                  <div style={{ fontSize: 14 }}>{fm?.nom ?? s.formation}</div>
                   <div className="text-muted sub">
-                    {rh ? 'Ajoutez la certification obtenue pour clore l’inscription.' : 'Certification en attente d’enregistrement par le service RH.'}
+                    {x.etat === 'a_planifier'
+                      ? `${x.motif} · formation initiale à replanifier`
+                      : `Session du ${fmt(parse(s.date))} · ${s.lieu}${fm?.organisme ? ` · ${fm.organisme}` : ''}${s.statut === 'À confirmer' ? ' · à confirmer' : ''}`}
                   </div>
-                )}
+                </div>
+                {x.etat === 'passee' ? <Tag cls="tag-outline" style={{ flex: 'none' }}>Session passée</Tag>
+                  : x.etat === 'a_planifier' ? <Tag cls="tag-accent" style={{ flex: 'none' }}>À planifier</Tag>
+                  : <Tag cls={i.convoc === 'now' ? 'tag-neutral' : 'tag-outline'} style={{ flex: 'none' }}>{i.convoc === 'now' ? 'Convocation envoyée' : i.convocLe ? 'Convocation à renvoyer' : 'Convocation à envoyer'}</Tag>}
               </div>
-            );
-          })}
+              {x.etat === 'planifiee' && canPlan && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+                  <span className="text-muted sub">{convocation(i.convoc, i.convocLe)}</span>
+                  <div className="actions-end">
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => convoquer(s.id)}>{convocationEnvoyee(i) ? 'Renvoyer la convocation' : 'Envoyer la convocation'}</button>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => desinscrire(s.id, `${fm?.court ?? s.formation} du ${fmt(parse(s.date))}`, convocationEnvoyee(i), false)}>Désinscrire</button>
+                  </div>
+                </div>
+              )}
+              {x.etat === 'passee' && (
+                <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
+                  <NoteAccent>{formations ? SESSION_PASSEE : `${SESSION_PASSEE} par le service RH`}</NoteAccent>
+                  {formations && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cloture', sessionId: s.id })}>Clôturer la session</button>}
+                </div>
+              )}
+              {x.etat === 'a_planifier' && canPlan && (
+                <div className="actions-end">
+                  <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'plan', empId: e.id, inscriptionId: i.id })}>Planifier</button>
+                </div>
+              )}
+            </div>
+          ))}
         </div>
       </>}
 
@@ -290,6 +368,9 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
         <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
           {e.habs.map(h => {
             const a = habProposal(h);
+            // Suspendre : RH, référent HSE ou manager direct ; lever la suspension, retirer, délivrer de nouveau : RH et référent HSE.
+            const mesures = formations || membre ? d.habMesures(h, formations) : [];
+            const redelivrer = formations && h.key === 'retiree';
             return (
               <div key={h.hm.id} className="list-row stack">
                 <div className="item-head">
@@ -300,14 +381,23 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
                   <Tag cls={HAB_CLS[h.key]} style={{ flex: 'none' }}>{HAB_LABEL[h.key]}</Tag>
                 </div>
                 {h.note && <NoteAccent>{h.note}</NoteAccent>}
-                {a && <div style={{ display: 'flex', justifyContent: 'flex-end' }}><button type="button" className="btn btn-ghost btn-sm" onClick={() => runProposal(a)}>{a.label}</button></div>}
+                {(a || redelivrer || mesures.length > 0) && (
+                  <div className="actions-end">
+                    {a && <button type="button" className="btn btn-ghost btn-sm" onClick={() => runProposal(a)}>{a.label}</button>}
+                    {redelivrer && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'hab', empId: e.id, h: h.h, mode: 'deliver' })}>Nouvelle délivrance</button>}
+                    {mesures.map(m => (
+                      <button key={m} type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'habMesure', empId: e.id, h: h.h, action: m })}>{HAB_MESURE_LABEL[m]}</button>
+                    ))}
+                  </div>
+                )}
               </div>
             );
           })}
         </div>
       </>}
 
-      {hasTravel && <>
+      {/* Dossier voyage (passeport, visas, vaccinations) : service RH ; pour le manager, sans les vaccinations. */}
+      {hasTravel && (rh || manager) && <>
         <SectionLabel>Voyages</SectionLabel>
         <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', marginTop: 'calc(-1 * var(--space-2))' }}>
           <div style={{ fontSize: 14 }}>
@@ -344,6 +434,7 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'reqForm', empId: e.id })}>Demander une formation</button>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'reqHab', empId: e.id })}>Demander une habilitation</button>
           {poseAbsence && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'abs', empId: e.id })}>Poser une absence</button>}
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'absSignal', empId: e.id })}>Signaler une absence</button>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => go('temps', { tsEmp: e.id })}>Feuille de temps →</button>
         </div>
         {!poseAbsence && (
@@ -351,9 +442,12 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
         )}
       </>}
 
+      {/* Lecteurs du journal : actions qui concernent ce salarié ; droit « rh » : export de toutes ses données (droit d'accès). */}
+      <HistoriqueFiche empId={e.id} />
+
       <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
         {(rh || membre) && <Btn variant="secondary" icon={<PencilSimpleIcon size={14} />} onClick={() => openDialog({ type: 'employe', empId: e.id })}>Modifier la fiche</Btn>}
-        {rh && <Btn variant="secondary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'cert', empId: e.id })}>Ajouter une certification</Btn>}
+        {formations && <Btn variant="secondary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'cert', empId: e.id })}>Ajouter une certification</Btn>}
         <Btn onClick={passeportFormation}>Passeport formation</Btn>
         {retirable && <Btn icon={<UserMinusIcon size={14} />} onClick={retirer}>Retirer de l’équipe</Btn>}
       </div>

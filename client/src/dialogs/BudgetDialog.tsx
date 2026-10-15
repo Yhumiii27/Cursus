@@ -1,7 +1,7 @@
 // Enveloppes budgétaires de formation d'un exercice, par équipe.
 import { useState } from 'react';
 import { fmtEur, key } from '../../../shared/format.ts';
-import { CancelButton, Dialog } from '../components/Dialog.tsx';
+import { CancelButton, Dialog, SubmitButton } from '../components/Dialog.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -18,6 +18,7 @@ export function BudgetDialog({ exercice }: { exercice: number }) {
   const total = equipes.reduce((n, e) => n + amount(e), 0);
 
   const confirm = async () => {
+    if (busy) return;
     setBusy(true);
     const r = await run('budget.enveloppes', { exercice, enveloppes: Object.fromEntries(equipes.map(e => [e, amount(e)])) });
     setBusy(false);
@@ -25,9 +26,9 @@ export function BudgetDialog({ exercice }: { exercice: number }) {
   };
 
   return (
-    <Dialog title={`Enveloppes budgétaires ${exercice}`} label="Enveloppes budgétaires" actions={<>
+    <Dialog title={`Enveloppes budgétaires ${exercice}`} onSubmit={confirm} actions={<>
       <CancelButton />
-      <button type="button" className="btn btn-primary" disabled={busy} onClick={confirm}>Enregistrer</button>
+      <SubmitButton busy={busy}>Enregistrer</SubmitButton>
     </>}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
         {equipes.map(e => {

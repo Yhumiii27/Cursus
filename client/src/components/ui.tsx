@@ -1,5 +1,5 @@
 // Kit d'interface Cursus, construit sur les classes du design system Nocturne.
-import type { CSSProperties, ReactNode } from 'react';
+import type { CSSProperties, ReactNode, Ref } from 'react';
 import { CheckIcon, XIcon } from '@phosphor-icons/react';
 import { ini, monthShort } from '../../../shared/format.ts';
 
@@ -31,12 +31,17 @@ export function Kpi({ kicker, value, sub, action }: { kicker: ReactNode; value: 
   );
 }
 
-/** Carte de section : titre, complément à droite, contenu. */
-export function Panel({ title, aside, highlight, className = '', style, children, head }: {
+/**
+ * Carte de section : titre, complément à droite, contenu. `panneau` : panneau de détail amené dans le champ de
+ * vision sur écran étroit (components/panneau.ts), ciblable et nommé par `nommePar` (id de son titre).
+ */
+export function Panel({ title, aside, highlight, className = '', style, children, head, panneau, nommePar }: {
   title?: ReactNode; aside?: ReactNode; highlight?: boolean; className?: string; style?: CSSProperties; children?: ReactNode; head?: ReactNode;
+  panneau?: Ref<HTMLElement>; nommePar?: string;
 }) {
   return (
-    <section className={`card elev-sm panel${highlight ? ' highlight' : ''} ${className}`} style={style}>
+    <section ref={panneau} tabIndex={panneau ? -1 : undefined} aria-labelledby={nommePar}
+      className={`card elev-sm panel${highlight ? ' highlight' : ''}${panneau ? ' panneau-detail' : ''} ${className}`} style={style}>
       {head ?? (title != null && (aside != null
         ? <div className="panel-head"><h2>{title}</h2>{typeof aside === 'string' ? <span className="text-muted sub">{aside}</span> : aside}</div>
         : <h2>{title}</h2>))}
@@ -54,14 +59,14 @@ export function Chips({ items }: { items: { key?: string | number; label: ReactN
 }
 
 /** Contrôle segmenté (boutons radio stylés). */
-export function Seg<T extends string | number>({ name, value, options, onChange, label, style }: {
-  name: string; value: T; options: [T, ReactNode][]; onChange: (v: T) => void; label: string; style?: CSSProperties;
+export function Seg<T extends string | number>({ name, value, options, onChange, label, style, disabled }: {
+  name: string; value: T; options: [T, ReactNode][]; onChange: (v: T) => void; label: string; style?: CSSProperties; disabled?: boolean;
 }) {
   return (
-    <div className="seg" role="radiogroup" aria-label={label} style={style}>
+    <div className="seg" role="radiogroup" aria-label={label} aria-disabled={disabled || undefined} style={style}>
       {options.map(([v, l]) => (
         <label key={String(v)} className="seg-opt">
-          <input type="radio" name={name} checked={value === v} onChange={() => onChange(v)} />{l}
+          <input type="radio" name={name} checked={value === v} disabled={disabled} onChange={() => onChange(v)} />{l}
         </label>
       ))}
     </div>
@@ -120,9 +125,9 @@ export function NoteAccent({ children, icon }: { children: ReactNode; icon?: boo
 
 export function SectionLabel({ children }: { children: ReactNode }) { return <h4 className="section-label">{children}</h4>; }
 
-export function CloseButton({ onClick, size = 32, label = 'Fermer' }: { onClick: () => void; size?: number; label?: string }) {
+export function CloseButton({ onClick, size = 32, label = 'Fermer', disabled }: { onClick: (ev: React.MouseEvent) => void; size?: number; label?: string; disabled?: boolean }) {
   return (
-    <button type="button" className="btn btn-ghost btn-icon" aria-label={label} title={label} onClick={onClick} style={{ color: 'inherit', width: size, height: size }}>
+    <button type="button" className="btn btn-ghost btn-icon" aria-label={label} title={label} onClick={onClick} disabled={disabled} style={{ color: 'inherit', width: size, height: size }}>
       <XIcon size={size <= 28 ? 12 : 14} />
     </button>
   );

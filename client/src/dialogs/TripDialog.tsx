@@ -1,7 +1,9 @@
 // Nouveau déplacement : collaborateur, destination, dates et motif.
+// Conflits de dates contrôlés en direct : un autre déplacement ou une absence en vigueur bloquent, le reste avertit.
 import { useState } from 'react';
-import { isValidDate } from '../../../shared/dates.ts';
-import { CancelButton, Dialog, Field } from '../components/Dialog.tsx';
+import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
+import { CancelButton, Controles, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
+import { erreursPeriode, erreurTexte } from '../components/controles.ts';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -17,10 +19,15 @@ export function TripDialog() {
   const [retour, setRetour] = useState('');
   const [motif, setMotif] = useState('');
   const [busy, setBusy] = useState(false);
+  const v = useVerification();
   const destDef = d.destOf(dest);
-  const cant = !(isValidDate(depart) && isValidDate(retour) && retour >= depart && motif.trim());
+  const dates = erreursPeriode(depart, retour, { du: 'Indiquez la date de départ.', au: 'Indiquez la date de retour.' });
+  const motifErr = erreurTexte(motif, 'Indiquez le motif du déplacement.');
+  // Conflits d'une période valide, affichés en direct : un autre déplacement ou une absence en vigueur bloquent l'envoi.
+  const conflits = !dates.du && !dates.au ? conflitsDates(d, empId, depart, retour, 'voyage') : [];
 
   const confirm = async () => {
+    if (busy || !v.verifier(dates.du, dates.au, motifErr, blocage(conflits))) return;
     setBusy(true);
     const r = await run('voyage.creer', { empId, dest, depart, retour, motif });
     setBusy(false);
@@ -30,9 +37,9 @@ export function TripDialog() {
   };
 
   return (
-    <Dialog title="Nouveau déplacement" width={560} actions={<>
+    <Dialog title="Nouveau déplacement" width={560} onSubmit={confirm} actions={<>
       <CancelButton />
-      <button type="button" className="btn btn-primary" disabled={cant || busy} onClick={confirm}>Créer le déplacement</button>
+      <SubmitButton busy={busy}>Créer le déplacement</SubmitButton>
     </>}>
       <div className="grid-2">
         <Field label="Collaborateur" htmlFor="tr-emp">
@@ -47,10 +54,13 @@ export function TripDialog() {
         </Field>
       </div>
       <div className="grid-2">
-        <Field label="Départ" htmlFor="tr-dep"><input className="input" id="tr-dep" type="date" value={depart} onChange={e => setDepart(e.target.value)} /></Field>
-        <Field label="Retour" htmlFor="tr-ret"><input className="input" id="tr-ret" type="date" value={retour} onChange={e => setRetour(e.target.value)} /></Field>
+        <Field label="Départ" htmlFor="tr-dep" requis erreur={v.erreur(dates.du)}><input className="input" id="tr-dep" type="date" value={depart} onChange={e => setDepart(e.target.value)} /></Field>
+        <Field label="Retour" htmlFor="tr-ret" requis erreur={retour && dates.au && !dates.du ? dates.au : v.erreur(dates.au)}>
+          <input className="input" id="tr-ret" type="date" min={depart || undefined} value={retour} onChange={e => setRetour(e.target.value)} />
+        </Field>
       </div>
-      <Field label="Motif" htmlFor="tr-motif"><input className="input" id="tr-motif" type="text" placeholder="Visite client — Casablanca" value={motif} onChange={e => setMotif(e.target.value)} /></Field>
+      <Controles msgs={conflits} />
+      <Field label="Motif" htmlFor="tr-motif" requis erreur={v.erreur(motifErr)}><input className="input" id="tr-motif" type="text" placeholder="Visite client — Casablanca" value={motif} onChange={e => setMotif(e.target.value)} /></Field>
       <p className="text-muted fine">{destDef ? d.destSummary(destDef) : ''}</p>
     </Dialog>
   );

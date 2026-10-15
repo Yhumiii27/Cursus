@@ -2,12 +2,13 @@
 // travaillés du temps partiel pour le manager d'un membre de son équipe.
 import { useState } from 'react';
 import { isValidDate } from '../../../shared/dates.ts';
-import { STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../../../shared/constants.ts';
-import { equipeLabel, fmtIso, plural } from '../../../shared/format.ts';
+import { AVIS_MEDICAL, MODE_NOTIFICATION_LABEL, MOTIFS_REPRISE, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../../../shared/constants.ts';
+import { cap, equipeLabel, fmtIso, plural } from '../../../shared/format.ts';
 import { reposForfait } from '../../../shared/rules/conges.ts';
+import { adressesPrises } from '../../../shared/rules/messagerie.ts';
 import { JOURS_SEMAINE, PROFIL_FIELDS, PROFIL_VIDE, normaliserProfil, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
 import type { Statut, TempsTravail, TypeContrat } from '../../../shared/types.ts';
-import { CancelButton, Dialog, Field, Static } from '../components/Dialog.tsx';
+import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine, NoteAccent, SectionLabel, Seg } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -15,7 +16,7 @@ import { useStore } from '../state/store.tsx';
 /** État du formulaire : les nombres et dates restent des chaînes pendant la saisie. */
 interface Form {
   nom: string; poste: string; equipe: string; naissance: string;
-  statut: Statut; typeContrat: TypeContrat; entree: string; fin: string; agence: string;
+  statut: Statut; typeContrat: TypeContrat; entree: string; fin: string; agence: string; email: string;
   temps: TempsTravail; heures: string; forfaitHeures: string; forfaitJours: string; jourOff: number[];
   visite: string; repriseMotif: string; repriseDate: string;
   /** Date d'effet d'un changement d'organisation du temps (défaut : aujourd'hui). */
@@ -34,7 +35,7 @@ const toNum = (s: string) => {
 function toForm(p: ProfilInput, today: string): Form {
   return {
     nom: p.nom, poste: p.poste, equipe: p.equipe ?? '', naissance: numStr(p.naissance),
-    statut: p.statut, typeContrat: p.typeContrat, entree: p.entree, fin: p.fin ?? '', agence: p.agence ?? '',
+    statut: p.statut, typeContrat: p.typeContrat, entree: p.entree, fin: p.fin ?? '', agence: p.agence ?? '', email: p.email ?? '',
     temps: p.temps, heures: numStr(p.heures),
     forfaitHeures: numStr(p.forfaitHeures ?? (p.temps === 'forfait_heures_annuel' ? 1607 : null)),
     forfaitJours: numStr(p.forfaitJours ?? (p.temps === 'forfait_jours' ? 218 : null)),
@@ -49,12 +50,37 @@ function toInput(f: Form, tempsDepuis: string | null): ProfilInput {
   return {
     nom: f.nom, poste: f.poste, equipe: f.equipe || null, statut: f.statut, typeContrat: f.typeContrat, temps: f.temps,
     heures: toNum(f.heures), forfaitHeures: toNum(f.forfaitHeures), forfaitJours: toNum(f.forfaitJours), jourOff: f.jourOff, tempsDepuis,
-    entree: f.entree, fin: f.fin || null, naissance: toNum(f.naissance) ?? Number.NaN, agence: f.agence || null,
+    entree: f.entree, fin: f.fin || null, naissance: toNum(f.naissance) ?? Number.NaN, agence: f.agence || null, email: f.email || null,
     visite: f.visite || null, repriseMotif: f.repriseMotif || null, repriseDate: f.repriseDate || null,
   };
 }
 
 const same = (a: ProfilInput, b: ProfilInput) => PROFIL_FIELDS.every(k => JSON.stringify(a[k]) === JSON.stringify(b[k]));
+
+/**
+ * Champ concerné par une erreur de `validerProfil` (shared/rules/profil.ts), reconnu à son message : l'erreur
+ * s'affiche sous ce champ. Un message non reconnu reste dans la liste sous le formulaire.
+ */
+const CHAMP_ERREUR: [RegExp, keyof Form][] = [
+  [/^Nom requis/, 'nom'], [/^Poste requis/, 'poste'], [/^Équipe inconnue/, 'equipe'], [/^Année de naissance/, 'naissance'],
+  [/^Date d’entrée/, 'entree'], [/date de fin/i, 'fin'], [/^Agence d’intérim/, 'agence'], [/^Manager de l’équipe/, 'typeContrat'],
+  [/^Un intérimaire ne peut|cadre dirigeant/, 'temps'], [/date d’effet/i, 'effet'],
+  [/^Temps partiel|^Forfait hebdomadaire/, 'heures'], [/^Forfait annuel en heures/, 'forfaitHeures'], [/^Forfait jours/, 'forfaitJours'],
+  [/^Au moins un jour travaillé|^Répartition impossible/, 'jourOff'],
+  [/visite médicale/, 'visite'], [/^Date de reprise/, 'repriseDate'], [/^Motif de l’absence longue/, 'repriseMotif'],
+];
+
+/** Erreurs rattachées à leur champ, et celles sans champ. */
+function repartir(errors: string[]) {
+  const champs: Partial<Record<keyof Form, string>> = {};
+  const autres: string[] = [];
+  for (const m of errors) {
+    const c = CHAMP_ERREUR.find(([r]) => r.test(m))?.[1];
+    if (c) champs[c] = champs[c] ? `${champs[c]} ${m}` : m;
+    else autres.push(m);
+  }
+  return { champs, autres };
+}
 
 /** Jours non travaillés du temps partiel (cases à cocher du lundi au vendredi). */
 function JoursOff({ value, onChange }: { value: number[]; onChange: (v: number[]) => void }) {
@@ -74,7 +100,7 @@ function JoursOff({ value, onChange }: { value: number[]; onChange: (v: number[]
 export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | null; equipe?: string | null }) {
   const d = useDomain();
   const { rh, manager, me } = useRole();
-  const { run, closeDialog, setUi } = useStore();
+  const { run, closeDialog, setUi, notify } = useStore();
   const emp = empId != null ? d.emp(empId) ?? null : null;
   const creation = empId == null;
   /** Manager direct d'un membre de son équipe : modification limitée. */
@@ -85,6 +111,7 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   const [f, setF] = useState<Form>(() => ({ ...toForm(initial, d.ti), naissance: creation ? '' : numStr(initial.naissance) }));
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
+  const verif = useVerification();
 
   if ((creation && !rh) || (!creation && (!emp || !(rh || limited)))) return null;
 
@@ -109,7 +136,7 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   const input: ProfilInput = limited ? { ...initial, poste: f.poste, jourOff: f.jourOff }
     : nouveauRegime ? { ...saisie, tempsDepuis: f.effet || null } : saisie;
   // Un manager d'équipe ne peut pas passer en intérim (équipes encadrées).
-  const v = validerProfil(input, { equipes: d.equipes, year: d.year, encadre: emp ? d.teamsOf(emp.id) : [] });
+  const v = validerProfil(input, { equipes: d.equipes, year: d.year, encadre: emp ? d.teamsOf(emp.id) : [], adressesPrises: adressesPrises(d.ds.employes, emp?.id) });
   const errEffet = !nouveauRegime ? null
     : !f.effet ? 'Date d’effet du nouveau régime de temps requise.'
     : !isValidDate(f.effet) ? null
@@ -119,11 +146,16 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   const errors = errEffet ? [...v.errors, errEffet] : v.errors;
   const ok = v.ok && !errEffet;
   const dirty = creation || !same(v.profil, ref0);
-  const showErrors = !creation || touched;
+  // Erreurs affichées en direct en modification, dès la première saisie en création, et après un envoi bloqué.
+  const showErrors = !creation || touched || verif.tente;
+  const { champs: errChamp, autres } = repartir(errors);
+  const err = (k: keyof Form) => showErrors ? errChamp[k] ?? null : null;
   const partielEmp = !!emp && d.contratOf(emp).partiel;
 
   const save = async () => {
-    if (!ok) return;
+    if (busy || !verif.verifier(!ok)) return;
+    // Rien de changé : rien à envoyer, le dialogue se ferme.
+    if (!dirty) { closeDialog(); notify('Aucune modification à enregistrer'); return; }
     setBusy(true);
     let payload: Record<string, unknown>;
     if (limited) payload = { id: emp!.id, poste: v.profil.poste, ...(partielEmp ? { jourOff: v.profil.jourOff } : {}) };
@@ -141,12 +173,9 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
     if (creation && id) setUi({ selectedId: id });
   };
 
+  // Erreurs sans champ (statut, nature du contrat…) : sous le formulaire, ciblées à l'envoi.
   const messages = <>
-    {showErrors && errors.length > 0 && (
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
-        {errors.map(m => <p key={m} className="form-error">{m}</p>)}
-      </div>
-    )}
+    {showErrors && autres.map(m => <Bloquant key={m}>{m}</Bloquant>)}
     {!limited && v.warnings.map(w => <NoteAccent key={w}>{w}</NoteAccent>)}
   </>;
   const actions = <>
@@ -154,7 +183,7 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
       <span className="form-error" style={{ marginRight: 'auto', alignSelf: 'center' }}>{plural(errors.length, 'point à corriger', 'points à corriger')}</span>
     )}
     <CancelButton />
-    <button type="button" className="btn btn-primary" disabled={!ok || !dirty || busy} onClick={save}>{creation ? 'Créer la fiche' : 'Enregistrer'}</button>
+    <SubmitButton busy={busy}>{creation ? 'Créer la fiche' : 'Enregistrer'}</SubmitButton>
   </>;
 
   // — Manager : poste et jours non travaillés ; le reste en lecture seule —
@@ -162,15 +191,15 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
     const c = d.contratOf(emp);
     const finTxt = emp.fin ? ` · jusqu’au ${fmtIso(emp.fin)}` : '';
     return (
-      <Dialog title={`Modifier la fiche — ${emp.nom}`} label="Modifier la fiche" width={640} tall actions={actions}>
+      <Dialog title={`Modifier la fiche — ${emp.nom}`} width={640} tall onSubmit={save} actions={actions}>
         <div className="grid-2">
-          <Field label="Poste" htmlFor="emp-poste">
+          <Field label="Poste" htmlFor="emp-poste" requis erreur={err('poste')}>
             <input className="input" id="emp-poste" type="text" value={f.poste} onChange={ev => set('poste', ev.target.value)} />
           </Field>
           <Field label="Équipe"><Static pad>{equipeLabel(emp)}</Static></Field>
         </div>
         {partielEmp && (
-          <Field label="Jours non travaillés">
+          <Field label="Jours non travaillés" erreur={err('jourOff')}>
             <JoursOff value={f.jourOff} onChange={j => set('jourOff', j)} />
           </Field>
         )}
@@ -197,44 +226,51 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   const regimeActuel = emp ? d.contratOf(emp).label : '';
 
   return (
-    <Dialog title={creation ? 'Nouveau collaborateur' : `Modifier la fiche — ${emp!.nom}`} label={creation ? 'Nouveau collaborateur' : 'Modifier la fiche'} width={640} tall actions={actions}>
+    <Dialog title={creation ? 'Nouveau collaborateur' : `Modifier la fiche — ${emp!.nom}`} width={640} tall onSubmit={save} actions={actions}>
       <SectionLabel>Identité</SectionLabel>
       <div className="grid-2">
-        <Field label="Nom" htmlFor="emp-nom">
+        <Field label="Nom" htmlFor="emp-nom" requis erreur={err('nom')}>
           <input className="input" id="emp-nom" type="text" autoFocus={creation} placeholder="Prénom Nom" value={f.nom} onChange={ev => set('nom', ev.target.value)} />
         </Field>
-        <Field label="Poste" htmlFor="emp-poste">
+        <Field label="Poste" htmlFor="emp-poste" requis erreur={err('poste')}>
           <input className="input" id="emp-poste" type="text" placeholder="Technicien de maintenance…" value={f.poste} onChange={ev => set('poste', ev.target.value)} />
         </Field>
-        <Field label="Équipe" htmlFor="emp-equipe">
+        <Field label="Équipe" htmlFor="emp-equipe" erreur={err('equipe')}>
           <select className="input" id="emp-equipe" value={f.equipe} onChange={ev => set('equipe', ev.target.value)}>
             <option value="">À affecter</option>
             {d.equipes.map(nom => <option key={nom} value={nom}>{nom}</option>)}
           </select>
           <span className="text-muted sub">Manager valideur : {d.mgrName(valideur)}</span>
         </Field>
-        <Field label="Année de naissance" htmlFor="emp-naiss">
+        <Field label="Année de naissance" htmlFor="emp-naiss" requis erreur={err('naissance')}>
           <input className="input" id="emp-naiss" type="text" inputMode="numeric" placeholder="1990" value={f.naissance} onChange={ev => set('naissance', ev.target.value)} />
+        </Field>
+        <Field label="Adresse e-mail professionnelle" htmlFor="emp-email">
+          <input className="input" id="emp-email" type="email" autoComplete="off" placeholder="prenom.nom@entreprise.fr" value={f.email} onChange={ev => set('email', ev.target.value)} />
+          <span className="text-muted sub">Notifications et convocations ; à défaut, celle du compte Microsoft 365 est reprise à sa création</span>
+        </Field>
+        <Field label="Notifications par e-mail">
+          <Static pad>{emp ? MODE_NOTIFICATION_LABEL[emp.notifications] : MODE_NOTIFICATION_LABEL.immediat}<div className="text-muted sub">Réglées par le salarié dans son espace</div></Static>
         </Field>
       </div>
 
       <SectionLabel>Contrat</SectionLabel>
       <div className="grid-2">
-        <Field label="Nature du contrat" htmlFor="emp-type">
+        <Field label="Nature du contrat" htmlFor="emp-type" erreur={err('typeContrat')}>
           <select className="input" id="emp-type" value={f.typeContrat} onChange={ev => set('typeContrat', ev.target.value as TypeContrat)}>
             {(Object.keys(TYPES_CONTRAT) as TypeContrat[]).map(k => <option key={k} value={k}>{TYPES_CONTRAT[k].label}</option>)}
           </select>
         </Field>
-        <Field label="Date d’entrée" htmlFor="emp-entree">
+        <Field label="Date d’entrée" htmlFor="emp-entree" requis erreur={err('entree')}>
           <input className="input" id="emp-entree" type="date" value={f.entree} onChange={ev => set('entree', ev.target.value)} />
         </Field>
         {(tc.fin || tc.interim || tc.finFacultative) && (
-          <Field label={tc.interim ? 'Fin de mission prévue (facultatif)' : tc.finFacultative ? 'Date de fin (facultatif)' : 'Date de fin'} htmlFor="emp-fin">
+          <Field label={tc.interim ? 'Fin de mission prévue (facultatif)' : tc.finFacultative ? 'Date de fin (facultatif)' : 'Date de fin'} htmlFor="emp-fin" requis={!!tc.fin} erreur={err('fin')}>
             <input className="input" id="emp-fin" type="date" min={f.entree || undefined} value={f.fin} onChange={ev => set('fin', ev.target.value)} />
           </Field>
         )}
         {tc.interim && (
-          <Field label="Agence d’intérim" htmlFor="emp-agence">
+          <Field label="Agence d’intérim" htmlFor="emp-agence" requis erreur={err('agence')}>
             <input className="input" id="emp-agence" type="text" value={f.agence} onChange={ev => set('agence', ev.target.value)} />
           </Field>
         )}
@@ -247,30 +283,30 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
 
       <SectionLabel>Temps de travail</SectionLabel>
       <div className="grid-2">
-        <Field label="Organisation du temps" htmlFor="emp-temps">
+        <Field label="Organisation du temps" htmlFor="emp-temps" erreur={err('temps')}>
           <select className="input" id="emp-temps" value={f.temps} onChange={ev => setTemps(ev.target.value as TempsTravail)}>
             {(Object.keys(TEMPS_TRAVAIL) as TempsTravail[]).map(k => <option key={k} value={k}>{TEMPS_TRAVAIL[k].label}</option>)}
           </select>
           {!nouveauRegime && initial.tempsDepuis && <span className="text-muted sub">En vigueur depuis le {fmtIso(initial.tempsDepuis)}</span>}
         </Field>
         {(f.temps === 'partiel' || f.temps === 'forfait_heures_hebdo') && (
-          <Field label="Durée hebdomadaire (heures)" htmlFor="emp-heures">
+          <Field label="Durée hebdomadaire (heures)" htmlFor="emp-heures" requis erreur={err('heures')}>
             <input className="input" id="emp-heures" type="text" inputMode="decimal" placeholder={f.temps === 'partiel' ? '28' : '38,5'} value={f.heures} onChange={ev => set('heures', ev.target.value)} />
           </Field>
         )}
         {f.temps === 'forfait_heures_annuel' && (
-          <Field label="Durée annuelle (heures)" htmlFor="emp-fh">
+          <Field label="Durée annuelle (heures)" htmlFor="emp-fh" requis erreur={err('forfaitHeures')}>
             <input className="input" id="emp-fh" type="text" inputMode="numeric" placeholder="1607" value={f.forfaitHeures} onChange={ev => set('forfaitHeures', ev.target.value)} />
           </Field>
         )}
         {f.temps === 'forfait_jours' && (
-          <Field label="Jours travaillés par an" htmlFor="emp-fj">
+          <Field label="Jours travaillés par an" htmlFor="emp-fj" requis erreur={err('forfaitJours')}>
             <input className="input" id="emp-fj" type="text" inputMode="numeric" placeholder="218" value={f.forfaitJours} onChange={ev => set('forfaitJours', ev.target.value)} />
             {repos != null && <span className="text-muted sub">Soit {plural(repos, 'jour de repos', 'jours de repos')} en {d.year}</span>}
           </Field>
         )}
         {nouveauRegime && (
-          <Field label="Date d’effet" htmlFor="emp-effet">
+          <Field label="Date d’effet" htmlFor="emp-effet" requis erreur={err('effet')}>
             <input className="input" id="emp-effet" type="date" min={f.entree || undefined} max={d.ti} value={f.effet} onChange={ev => set('effet', ev.target.value)} />
           </Field>
         )}
@@ -282,7 +318,7 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
         </Fine>
       )}
       {f.temps === 'partiel' && (
-        <Field label="Jours non travaillés">
+        <Field label="Jours non travaillés" erreur={err('jourOff')}>
           <JoursOff value={f.jourOff} onChange={j => set('jourOff', j)} />
         </Field>
       )}
@@ -290,20 +326,36 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
 
       <SectionLabel>Suivi</SectionLabel>
       <div className="grid-2">
-        <Field label="Dernière visite d’aptitude médicale" htmlFor="emp-visite">
-          <input className="input" id="emp-visite" type="date" max={d.ti} value={f.visite} onChange={ev => set('visite', ev.target.value)} />
-        </Field>
+        {/* Fiche existante : une nouvelle visite s'enregistre avec l'avis du médecin du travail (bouton de la fiche). */}
+        {creation ? (
+          <Field label="Dernière visite d’aptitude médicale" htmlFor="emp-visite" erreur={err('visite')}>
+            <input className="input" id="emp-visite" type="date" max={d.ti} value={f.visite} onChange={ev => set('visite', ev.target.value)} />
+            <span className="text-muted sub">Avis « apte » ; un autre avis s’enregistre ensuite sur la fiche.</span>
+          </Field>
+        ) : (
+          <Field label="Dernière visite d’aptitude médicale">
+            <Static pad>{emp?.visite ? `${fmtIso(emp.visite)} · ${AVIS_MEDICAL[emp.avis ?? 'apte'].court}` : 'Non renseignée'}</Static>
+            <span className="text-muted sub">Nouvelle visite : « Avis du médecin du travail » sur la fiche.</span>
+          </Field>
+        )}
         <div />
-        <Field label="Reprise après absence longue — motif" htmlFor="emp-rmotif">
-          <input className="input" id="emp-rmotif" type="text" placeholder="Congé parental, congé sabbatique, congé de proche aidant…" value={f.repriseMotif} onChange={ev => set('repriseMotif', ev.target.value)} />
+        <Field label="Reprise après absence longue — motif" htmlFor="emp-rmotif" requis={!!f.repriseDate} erreur={err('repriseMotif')}>
+          {/* Liste fermée (art. L6315-1), sans texte libre : aucune information médicale sur la fiche. */}
+          <select className="input" id="emp-rmotif" value={f.repriseMotif} onChange={ev => set('repriseMotif', ev.target.value)}>
+            <option value="">Aucune reprise</option>
+            {MOTIFS_REPRISE.map(m => <option key={m} value={m}>{cap(m)}</option>)}
+          </select>
         </Field>
-        <Field label="Date de reprise" htmlFor="emp-rdate">
+        <Field label="Date de reprise" htmlFor="emp-rdate" erreur={err('repriseDate')}>
           <input className="input" id="emp-rdate" type="date" value={f.repriseDate} onChange={ev => set('repriseDate', ev.target.value)} />
         </Field>
       </div>
       <Fine>
         La date de reprise déclenche la proposition d’un entretien de parcours professionnel (art. L6315-1).
-        Le motif reste réservé au service RH : le manager ne voit que la mention « absence longue ».
+        Elle est renseignée automatiquement à la fin d’une maternité, d’une adoption, d’un congé parental ou d’un arrêt longue maladie
+        saisi dans Congés &amp; absences ; à saisir ici pour une absence antérieure à Cursus.
+        Le motif se choisit dans la liste, sans information médicale : un arrêt longue maladie s’inscrit « absence longue ».
+        Il reste réservé au service RH : le manager ne voit que la mention « absence longue ».
       </Fine>
 
       {messages}

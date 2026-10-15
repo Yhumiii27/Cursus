@@ -1,25 +1,35 @@
 // Jeu de données de démonstration (repris du prototype Claude Design) :
 // 24 collaborateurs d'un site industriel lyonnais, CCN Industries chimiques.
 import { Domain } from '../../shared/domain.ts';
-import { addM } from '../../shared/dates.ts';
+import { addD, addM, isFerie, wDays, weekday } from '../../shared/dates.ts';
+import { matricule } from '../../shared/format.ts';
+import { identifiantSuggere, typeSuggere } from '../../shared/rules/comptes.ts';
+import { repriseDesAbsences } from '../../shared/rules/absences.ts';
 import { cpDroit, rttDroit } from '../../shared/rules/conges.ts';
-import type { Dataset, Employe, EntretienType, Statut, TempsTravail, TypeContrat, VaccinId } from '../../shared/types.ts';
+import type {
+  AvisMedical, Dataset, Employe, EntretienType, Messagerie, ProfilRh, Restriction, Statut, TempsTravail, TypeContrat, VaccinId,
+} from '../../shared/types.ts';
+import { MOTIF_RESTRICTION } from '../../shared/constants.ts';
 import type { Db } from './db.ts';
 import { DEFAULT_SETTINGS, loadFull } from './dataset.ts';
+import { contexte, enregistrerAffectation, enregistrerChantier, enregistrerProjet, enregistrerTache } from './integrations/keystone-entrant.ts';
+import { suivreVerdicts } from './integrations/keystone-verdicts.ts';
 import { figerFeuilles } from './migrate.ts';
 
+// Mode de validation : évaluation réussie pour les habilitations électriques, CACES, SST, ATEX, AIPR et PRAP ;
+// la présence suffit pour les sensibilisations et formations d'information.
 const FORMATIONS = [
-  { id: 'sst', nom: 'Sauveteur secouriste du travail (SST)', court: 'SST', type: 'Réglementaire', validite: 24, duree: '7 h (MAC)', organisme: 'Croix-Rouge française', cout: 180 },
-  { id: 'elec', nom: 'Préparation à l’habilitation électrique B1V · B2V · BR', court: 'Formation élec. B1V-BR', type: 'Réglementaire', validite: 36, duree: '21 h', organisme: 'Apave', cout: 480 },
-  { id: 'atex', nom: 'Intervention en zone ATEX (niveau 1)', court: 'ATEX', type: 'Réglementaire', validite: 36, duree: '7 h', organisme: 'Apave', cout: 350 },
-  { id: 'caces489', nom: 'CACES R489 — Chariots élévateurs (cat. 3)', court: 'CACES R489', type: 'Réglementaire', validite: 60, duree: '21 h', organisme: 'AFTRAL', cout: 650 },
-  { id: 'caces486', nom: 'CACES R486 — Nacelles PEMP (cat. B)', court: 'CACES R486', type: 'Réglementaire', validite: 60, duree: '21 h', organisme: 'AFTRAL', cout: 650 },
-  { id: 'epi', nom: 'Équipier de première intervention incendie', court: 'EPI incendie', type: 'Réglementaire', validite: 12, duree: '4 h', organisme: 'Interne · HSE', cout: 40 },
-  { id: 'fco', nom: 'FCO Marchandises', court: 'FCO', type: 'Réglementaire', validite: 60, duree: '35 h', organisme: 'AFTRAL', cout: 900 },
-  { id: 'aipr', nom: 'AIPR — Opérateur', court: 'AIPR', type: 'Réglementaire', validite: 60, duree: '7 h', organisme: 'Apave', cout: 190 },
-  { id: 'hauteur', nom: 'Travail en hauteur et port du harnais', court: 'Travail en hauteur', type: 'Recommandée', validite: 36, duree: '7 h', organisme: 'Socotec', cout: 320 },
-  { id: 'prap', nom: 'PRAP IBC — Prévention des risques liés à l’activité physique', court: 'PRAP', type: 'Recommandée', validite: 24, duree: '14 h', organisme: 'INRS', cout: 420 },
-  { id: 'rgpd', nom: 'Sensibilisation RGPD et sécurité de l’information', court: 'RGPD', type: 'Interne', validite: 24, duree: '2 h', organisme: 'Interne · DSI', cout: 0 },
+  { id: 'sst', nom: 'Sauveteur secouriste du travail (SST)', court: 'SST', type: 'Réglementaire', validite: 24, duree: '7 h (MAC)', organisme: 'Croix-Rouge française', cout: 180, validation: 'evaluation' },
+  { id: 'elec', nom: 'Préparation à l’habilitation électrique B1V · B2V · BR', court: 'Formation élec. B1V-BR', type: 'Réglementaire', validite: 36, duree: '21 h', organisme: 'Apave', cout: 480, validation: 'evaluation' },
+  { id: 'atex', nom: 'Intervention en zone ATEX (niveau 1)', court: 'ATEX', type: 'Réglementaire', validite: 36, duree: '7 h', organisme: 'Apave', cout: 350, validation: 'evaluation' },
+  { id: 'caces489', nom: 'CACES R489 — Chariots élévateurs (cat. 3)', court: 'CACES R489', type: 'Réglementaire', validite: 60, duree: '21 h', organisme: 'AFTRAL', cout: 650, validation: 'evaluation' },
+  { id: 'caces486', nom: 'CACES R486 — Nacelles PEMP (cat. B)', court: 'CACES R486', type: 'Réglementaire', validite: 60, duree: '21 h', organisme: 'AFTRAL', cout: 650, validation: 'evaluation' },
+  { id: 'epi', nom: 'Équipier de première intervention incendie', court: 'EPI incendie', type: 'Réglementaire', validite: 12, duree: '4 h', organisme: 'Interne · HSE', cout: 40, validation: 'presence' },
+  { id: 'fco', nom: 'FCO Marchandises', court: 'FCO', type: 'Réglementaire', validite: 60, duree: '35 h', organisme: 'AFTRAL', cout: 900, validation: 'presence' },
+  { id: 'aipr', nom: 'AIPR — Opérateur', court: 'AIPR', type: 'Réglementaire', validite: 60, duree: '7 h', organisme: 'Apave', cout: 190, validation: 'evaluation' },
+  { id: 'hauteur', nom: 'Travail en hauteur et port du harnais', court: 'Travail en hauteur', type: 'Recommandée', validite: 36, duree: '7 h', organisme: 'Socotec', cout: 320, validation: 'presence' },
+  { id: 'prap', nom: 'PRAP IBC — Prévention des risques liés à l’activité physique', court: 'PRAP', type: 'Recommandée', validite: 24, duree: '14 h', organisme: 'INRS', cout: 420, validation: 'evaluation' },
+  { id: 'rgpd', nom: 'Sensibilisation RGPD et sécurité de l’information', court: 'RGPD', type: 'Interne', validite: 24, duree: '2 h', organisme: 'Interne · DSI', cout: 0, validation: 'presence' },
 ];
 
 const HABILITATIONS = [
@@ -31,18 +41,21 @@ const HABILITATIONS = [
   { id: 'aipr', nom: 'Autorisation AIPR', detail: 'Intervention à proximité des réseaux', prereqs: ['aipr'], medical: false, validite: 60, signataire: 'Karim Haddad' },
 ];
 
+// `secu` : convention bilatérale de sécurité sociale (Maroc, Inde, États-Unis, Côte d'Ivoire, Brésil), sinon maintien au régime français.
 const DESTS = [
-  { code: 'MA', pays: 'Maroc', visa: 'none', visaSub: 'séjour ≤ 90 jours', oblig: [], rec: ['hepA', 'typhoide'], passMois: 0 },
-  { code: 'IN', pays: 'Inde', visa: 'evisa', visaSub: '', oblig: [], rec: ['hepA', 'typhoide', 'hepB'], passMois: 6 },
-  { code: 'US', pays: 'États-Unis', visa: 'esta', visaSub: '', oblig: [], rec: [], passMois: 0 },
-  { code: 'CI', pays: 'Côte d’Ivoire', visa: 'evisa', visaSub: '', oblig: ['fj'], rec: ['hepA', 'typhoide'], passMois: 6 },
-  { code: 'GH', pays: 'Ghana', visa: 'embassy', visaSub: '', oblig: ['fj'], rec: ['hepA', 'typhoide'], passMois: 6 },
-  { code: 'BR', pays: 'Brésil', visa: 'none', visaSub: 'séjour ≤ 90 jours', oblig: [], rec: ['fj', 'hepA', 'typhoide'], passMois: 6 },
-  { code: 'SA', pays: 'Arabie saoudite', visa: 'evisa', visaSub: '', oblig: [], rec: ['hepA', 'typhoide'], passMois: 6 },
-  { code: 'VN', pays: 'Vietnam', visa: 'none', visaSub: 'séjour ≤ 45 jours', oblig: [], rec: ['hepA', 'typhoide'], passMois: 6 },
+  { code: 'MA', pays: 'Maroc', visa: 'none', visaSub: 'séjour ≤ 90 jours', oblig: [], rec: ['hepA', 'typhoide'], passMois: 0, secu: 'convention' },
+  { code: 'IN', pays: 'Inde', visa: 'evisa', visaSub: '', oblig: [], rec: ['hepA', 'typhoide', 'hepB'], passMois: 6, secu: 'convention' },
+  { code: 'US', pays: 'États-Unis', visa: 'esta', visaSub: '', oblig: [], rec: [], passMois: 0, secu: 'convention' },
+  { code: 'CI', pays: 'Côte d’Ivoire', visa: 'evisa', visaSub: '', oblig: ['fj'], rec: ['hepA', 'typhoide'], passMois: 6, secu: 'convention' },
+  { code: 'GH', pays: 'Ghana', visa: 'embassy', visaSub: '', oblig: ['fj'], rec: ['hepA', 'typhoide'], passMois: 6, secu: 'hors_convention' },
+  { code: 'BR', pays: 'Brésil', visa: 'none', visaSub: 'séjour ≤ 90 jours', oblig: [], rec: ['fj', 'hepA', 'typhoide'], passMois: 6, secu: 'convention' },
+  { code: 'SA', pays: 'Arabie saoudite', visa: 'evisa', visaSub: '', oblig: [], rec: ['hepA', 'typhoide'], passMois: 6, secu: 'hors_convention' },
+  { code: 'VN', pays: 'Vietnam', visa: 'none', visaSub: 'séjour ≤ 45 jours', oblig: [], rec: ['hepA', 'typhoide'], passMois: 6, secu: 'hors_convention' },
 ];
 
 const EQUIPES: [string, number][] = [['Logistique', 16], ['Maintenance', 12], ['Production', 3], ['Qualité & HSE', 23], ['Administration', 14], ['Commercial', 9]];
+
+// — Keystone : projets, chantiers, affectations et planning, chargés par les fonctions de l'API entrante —
 
 const PROJETS: Record<string, string> = {
   'K-2614': 'Rétrofit presse hydraulique', 'K-2620': 'Maintenance zone ATEX', 'K-2611': 'Mise en service ligne d’embouteillage', 'K-2625': 'Audit HSE usine',
@@ -51,13 +64,29 @@ const PROJETS: Record<string, string> = {
   'INT-QUA': 'Contrôle qualité', 'INT-ADM': 'Fonctions support', 'INT-COM': 'Commercial & avant-vente', 'ECOLE': 'Cours en CFA (alternance)',
 };
 
+/** Chantiers et exigences du Go / No Go ; le dépannage de Grenoble, terminé, est archivé. Les ressources viennent des affectations. */
 const CHANTIERS = [
-  { id: 'K-2614', nom: 'Rétrofit presse hydraulique', client: 'Atlas Emboutissage', lieu: 'Tanger', pays: 'MA', debut: '2026-10-27', fin: '2026-11-06', chef: 'Karim Haddad', habs: ['he', 'hauteur'], certs: ['sst'], ressources: [18, 6, 12] },
-  { id: 'K-2620', nom: 'Maintenance zone ATEX', client: 'Pétrochimie du Rhône', lieu: 'Feyzin', pays: 'FR', debut: '2026-10-19', fin: '2026-10-23', chef: 'Sarah Cohen', habs: ['atex'], certs: ['sst'], ressources: [3, 8, 22] },
-  { id: 'K-2611', nom: 'Mise en service ligne d’embouteillage', client: 'Sivop Boissons', lieu: 'Abidjan', pays: 'CI', debut: '2026-11-09', fin: '2026-11-27', chef: 'Karim Haddad', habs: ['he'], certs: ['sst'], ressources: [12, 18] },
-  { id: 'K-2625', nom: 'Audit HSE usine', client: 'Tema Packaging', lieu: 'Tema', pays: 'GH', debut: '2026-12-01', fin: '2026-12-05', chef: 'Sarah Cohen', habs: [], certs: ['sst'], ressources: [23, 5] },
-  { id: 'K-2631', nom: 'Transfert de ligne de conditionnement', client: 'Embalagens Paulista', lieu: 'São Paulo', pays: 'BR', debut: '2027-01-18', fin: '2027-01-29', chef: 'Olivier Marchal', habs: ['ac489'], certs: ['caces489'], ressources: [22, 16] },
+  { id: 'K-2614', nom: 'Rétrofit presse hydraulique', client: 'Atlas Emboutissage', lieu: 'Tanger', pays: 'MA', debut: '2026-10-27', fin: '2026-11-06', chef: 'Karim Haddad', habilitations: ['he', 'hauteur'], certifications: ['sst'] },
+  { id: 'K-2620', nom: 'Maintenance zone ATEX', client: 'Pétrochimie du Rhône', lieu: 'Feyzin', pays: 'FR', debut: '2026-10-19', fin: '2026-10-23', chef: 'Sarah Cohen', habilitations: ['atex'], certifications: ['sst'] },
+  { id: 'K-2611', nom: 'Mise en service ligne d’embouteillage', client: 'Sivop Boissons', lieu: 'Abidjan', pays: 'CI', debut: '2026-11-09', fin: '2026-11-27', chef: 'Karim Haddad', habilitations: ['he'], certifications: ['sst'] },
+  { id: 'K-2625', nom: 'Audit HSE usine', client: 'Tema Packaging', lieu: 'Tema', pays: 'GH', debut: '2026-12-01', fin: '2026-12-05', chef: 'Sarah Cohen', habilitations: [], certifications: ['sst'] },
+  { id: 'K-2631', nom: 'Transfert de ligne de conditionnement', client: 'Embalagens Paulista', lieu: 'São Paulo', pays: 'BR', debut: '2027-01-18', fin: '2027-01-29', chef: 'Olivier Marchal', habilitations: ['ac489'], certifications: ['caces489'] },
+  { id: 'K-2633', nom: 'Dépannage four tunnel', client: 'Céramiques du Dauphiné', lieu: 'Grenoble', pays: 'FR', debut: '2026-10-06', fin: '2026-10-08', chef: 'Karim Haddad', habilitations: [], certifications: [], statut: 'archive' },
 ];
+
+/**
+ * Affectations (présence sur un chantier) : missions des salariés et ressources des chantiers. Le repérage
+ * de Mehdi Benali à Feyzin précède le chantier : mission sans entrer dans le Go / No Go.
+ */
+const AFFECTATIONS = [
+  { empId: 6, chantier: 'K-2633', du: '2026-10-06', au: '2026-10-08' },
+  { empId: 2, chantier: 'K-2620', du: '2026-10-08', au: '2026-10-09' },
+  ...[3, 8, 22].map(empId => ({ empId, chantier: 'K-2620', du: '2026-10-19', au: '2026-10-23' })),
+  ...[18, 6, 12].map(empId => ({ empId, chantier: 'K-2614', du: '2026-10-27', au: '2026-11-06' })),
+  ...[12, 18].map(empId => ({ empId, chantier: 'K-2611', du: '2026-11-09', au: '2026-11-27' })),
+  ...[23, 5].map(empId => ({ empId, chantier: 'K-2625', du: '2026-12-01', au: '2026-12-05' })),
+  ...[22, 16].map(empId => ({ empId, chantier: 'K-2631', du: '2027-01-18', au: '2027-01-29' })),
+].map(a => ({ id: `AF-${a.chantier}-${a.empId}`, ...a }));
 
 interface Profil {
   statut: Statut; typeContrat: TypeContrat; temps: TempsTravail; entree: string; naissance: number;
@@ -120,15 +149,21 @@ const EMPLOYES: { id: number; nom: string; equipe: string; poste: string; certs:
 ];
 
 interface Extra {
-  visite?: string; certsPlus?: C[]; habs?: { h: string; delivree?: string; par?: string; demande?: string }[];
+  visite?: string; certsPlus?: C[]; habs?: { h: string; delivree?: string; par?: string; demande?: string; restriction?: boolean }[];
   passeport?: { numero: string; expire: string }; visas?: { dest: string; type: string; obtenu: string; expire: string }[]; vaccins?: { v: VaccinId; date: string }[];
+  /** Avis du médecin du travail à la visite et restrictions ; `restriction` : titre suspendu à la suite de cet avis. */
+  avis?: AvisMedical; restrictions?: Restriction[];
 }
 const EXTRA: Record<number, Extra> = {
   1: { visite: '2025-02-10', habs: [{ h: 'ac489', delivree: '2022-04-15', par: 'Olivier Marchal' }] },
   2: { visite: '2025-06-15', habs: [{ h: 'he', delivree: '2023-10-01', par: 'Karim Haddad' }, { h: 'hauteur', delivree: '2025-02-01', par: 'Sarah Cohen' }], passeport: { numero: '20AB···91', expire: '2026-12-02' }, vaccins: [{ v: 'dtp', date: '2016-09-10' }, { v: 'hepA', date: '2022-03-11' }] },
   3: { visite: '2025-09-12', certsPlus: [{ f: 'atex', obtenue: '2024-05-20' }], habs: [{ h: 'atex', delivree: '2024-06-01', par: 'Sarah Cohen' }] },
   4: { visite: '2025-01-22', habs: [{ h: 'ac489', delivree: '2021-11-15', par: 'Olivier Marchal' }] },
-  5: { visite: '2026-01-20', habs: [{ h: 'hauteur', delivree: '2025-03-15', par: 'Sarah Cohen' }] },
+  // Avis avec restrictions jusqu'à la fin de l'année : autorisation de travail en hauteur suspendue, réserve sur l'audit de Tema.
+  5: {
+    visite: '2026-09-28', avis: 'restrictions', habs: [{ h: 'hauteur', delivree: '2025-03-15', par: 'Sarah Cohen', restriction: true }],
+    restrictions: [{ texte: 'Pas de port de charges de plus de 15 kg', jusquau: '2026-12-31' }, { texte: 'Pas de travail en hauteur', jusquau: '2026-12-31' }],
+  },
   6: { visite: '2024-08-20', habs: [{ h: 'he', delivree: '2024-02-05', par: 'Karim Haddad' }, { h: 'ac486', delivree: '2021-09-15', par: 'Karim Haddad' }] },
   7: { visite: '2025-10-01' }, 11: { visite: '2025-04-08' }, 13: { visite: '2025-12-02' }, 14: { visite: '2025-02-27' }, 15: { visite: '2026-02-09' }, 17: { visite: '2025-08-18' }, 20: { visite: '2025-09-25' }, 21: { visite: '2025-01-16' },
   8: { visite: '2025-07-03', certsPlus: [{ f: 'atex', obtenue: '2023-11-02' }], habs: [{ h: 'atex', delivree: '2023-11-20', par: 'Sarah Cohen' }] },
@@ -143,62 +178,95 @@ const EXTRA: Record<number, Extra> = {
   24: { habs: [{ h: 'he', demande: '2026-09-20' }] },
 };
 
+// Le nombre d'inscrits découle des certifications et inscriptions rattachées (RECYCLAGES, INSCRIPTIONS).
+// `planId` : action du plan engagée pour la session (identifiants des lignes de PLAN, insérées dans l'ordre).
 const SESSIONS = [
-  { id: 1, formation: 'sst', date: '2026-10-14', lieu: 'Site de Lyon — salle B', places: 12, inscrits: 9, statut: 'Confirmée' },
-  { id: 2, formation: 'sst', date: '2026-11-18', lieu: 'Site de Lyon — salle B', places: 12, inscrits: 4, statut: 'À confirmer' },
-  { id: 3, formation: 'caces489', date: '2026-10-21', lieu: 'AFTRAL Saint-Priest', places: 6, inscrits: 6, statut: 'Confirmée' },
-  { id: 4, formation: 'caces489', date: '2026-11-25', lieu: 'AFTRAL Saint-Priest', places: 6, inscrits: 2, statut: 'Confirmée' },
-  { id: 5, formation: 'elec', date: '2026-10-27', lieu: 'Apave Vénissieux', places: 8, inscrits: 5, statut: 'Confirmée' },
-  { id: 6, formation: 'epi', date: '2026-10-09', lieu: 'Site de Lyon — atelier', places: 15, inscrits: 11, statut: 'Confirmée' },
-  { id: 7, formation: 'hauteur', date: '2026-11-04', lieu: 'Socotec Lyon', places: 8, inscrits: 3, statut: 'À confirmer' },
-  { id: 8, formation: 'rgpd', date: '2026-11-12', lieu: 'Visioconférence', places: 30, inscrits: 17, statut: 'Confirmée' },
-  { id: 9, formation: 'caces486', date: '2026-12-02', lieu: 'AFTRAL Saint-Priest', places: 6, inscrits: 1, statut: 'À confirmer' },
-  { id: 10, formation: 'prap', date: '2026-11-20', lieu: 'Site de Lyon — salle B', places: 10, inscrits: 6, statut: 'Confirmée' },
-  { id: 11, formation: 'fco', date: '2027-01-11', lieu: 'AFTRAL Saint-Priest', places: 12, inscrits: 3, statut: 'À confirmer' },
-  { id: 12, formation: 'epi', date: '2026-12-10', lieu: 'Site de Lyon — atelier', places: 15, inscrits: 2, statut: 'À confirmer' },
-  { id: 13, formation: 'atex', date: '2026-11-16', lieu: 'Apave Vénissieux', places: 8, inscrits: 3, statut: 'Confirmée' },
+  { id: 1, formation: 'sst', date: '2026-10-14', lieu: 'Site de Lyon — salle B', places: 12, statut: 'Confirmée', planId: 7 },
+  { id: 2, formation: 'sst', date: '2026-11-18', lieu: 'Site de Lyon — salle B', places: 12, statut: 'À confirmer' },
+  { id: 3, formation: 'caces489', date: '2026-10-21', lieu: 'AFTRAL Saint-Priest', places: 6, statut: 'Confirmée', planId: 8 },
+  { id: 4, formation: 'caces489', date: '2026-11-25', lieu: 'AFTRAL Saint-Priest', places: 6, statut: 'Confirmée' },
+  { id: 5, formation: 'elec', date: '2026-10-27', lieu: 'Apave Vénissieux', places: 8, statut: 'Confirmée', planId: 9 },
+  { id: 6, formation: 'epi', date: '2026-10-09', lieu: 'Site de Lyon — atelier', places: 15, statut: 'Confirmée' },
+  { id: 7, formation: 'hauteur', date: '2026-11-04', lieu: 'Socotec Lyon', places: 8, statut: 'À confirmer' },
+  { id: 8, formation: 'rgpd', date: '2026-11-12', lieu: 'Visioconférence', places: 30, statut: 'Confirmée', planId: 10 },
+  { id: 9, formation: 'caces486', date: '2026-12-02', lieu: 'AFTRAL Saint-Priest', places: 6, statut: 'À confirmer' },
+  { id: 10, formation: 'prap', date: '2026-11-20', lieu: 'Site de Lyon — salle B', places: 10, statut: 'Confirmée' },
+  { id: 11, formation: 'fco', date: '2027-01-11', lieu: 'AFTRAL Saint-Priest', places: 12, statut: 'À confirmer' },
+  { id: 12, formation: 'epi', date: '2026-12-10', lieu: 'Site de Lyon — atelier', places: 15, statut: 'À confirmer' },
+  { id: 13, formation: 'atex', date: '2026-11-16', lieu: 'Apave Vénissieux', places: 8, statut: 'Confirmée' },
 ];
 
-const TACHES: Record<number, [string, string, number[]][]> = {
-  1: [['INT-LOG', 'Réception / expédition', [7, 7, 7, 7, 7]]], 2: [['INT-MAINT', 'Maintenance préventive', [8, 8, 8, 0, 0]], ['K-2620', 'Repérage site Feyzin', [0, 0, 0, 8, 7]]],
+/** Recyclages planifiés en plus de ceux des fiches : [collaborateur, formation, session]. */
+const RECYCLAGES: [number, string, number][] = [
+  [10, 'sst', 1], [13, 'sst', 1], [14, 'epi', 6], [11, 'epi', 6], [6, 'elec', 5], [8, 'prap', 10], [7, 'rgpd', 8], [11, 'rgpd', 8],
+];
+/** Inscriptions en formation initiale (formation jamais suivie) : [collaborateur, session]. */
+const INSCRIPTIONS: [number, number][] = [[7, 1], [19, 1], [14, 1], [9, 2], [20, 3], [17, 6], [20, 6], [5, 8], [23, 8]];
+
+const PLAN_DEBUT = '2026-09-14', PLAN_FIN = '2026-12-31';
+
+/**
+ * Planning Keystone : tâches de chaque salarié, gabarit du lundi au vendredi appliqué du 14 septembre
+ * au 31 décembre, ou entre les dates indiquées. Les feuilles de temps passées en sont tirées.
+ */
+const TACHES: Record<number, [projet: string, tache: string, h: number[], du?: string, au?: string][]> = {
+  1: [['INT-LOG', 'Réception / expédition', [7, 7, 7, 7, 7]]],
+  2: [['INT-MAINT', 'Maintenance préventive', [8, 8, 8, 0, 0], PLAN_DEBUT, '2026-10-16'], ['K-2620', 'Repérage site Feyzin', [0, 0, 0, 8, 7], '2026-09-21', '2026-10-16'], ['INT-MAINT', 'Maintenance préventive', [8, 8, 8, 8, 7], '2026-10-19']],
   3: [['INT-PROD', 'Encadrement ligne 2', [8, 8, 8, 8, 7]]], 4: [['INT-LOG', 'Préparation de commandes', [7, 7, 7, 7, 7]]],
-  5: [['INT-HSE', 'Animation sécurité', [4, 4, 4, 4, 4]], ['K-2625', 'Préparation audit Tema', [3, 3, 3, 3, 3]]], 6: [['INT-MAINT', 'Maintenance préventive', [8, 0, 0, 0, 7]], ['K-2633', 'Dépannage four — sur site', [0, 8, 8, 8, 0]]],
+  5: [['INT-HSE', 'Animation sécurité', [4, 4, 4, 4, 4]], ['K-2625', 'Préparation audit Tema', [3, 3, 3, 3, 3], PLAN_DEBUT, '2026-11-27']],
+  6: [['INT-MAINT', 'Maintenance préventive', [8, 0, 0, 0, 7], PLAN_DEBUT, '2026-10-09'], ['K-2633', 'Dépannage four — sur site', [0, 8, 8, 8, 0], '2026-09-21', '2026-10-08'], ['INT-MAINT', 'Maintenance préventive', [8, 8, 8, 8, 7], '2026-10-12']],
   7: [['INT-ADM', 'Paie & administration du personnel', [7, 7, 0, 7, 7]]], 8: [['INT-PROD', 'Conduite ligne 1', [7, 7, 7, 7, 7]]],
   9: [['INT-COM', 'Avant-vente grands comptes', [4, 4, 4, 4, 4]], ['K-2631', 'Suivi client Embalagens', [3, 3, 3, 3, 3]]], 10: [['INT-LOG', 'Tournées de livraison', [7, 7, 7, 7, 7]]],
-  11: [['INT-QUA', 'Audits internes', [7, 7, 7, 7, 7]]], 12: [['K-2614', 'Pilotage chantier', [3, 3, 3, 3, 3]], ['K-2611', 'Préparation mise en service', [3, 3, 3, 3, 3]], ['INT-MAINT', 'Management d’équipe', [2, 2, 2, 2, 2]]],
+  11: [['INT-QUA', 'Audits internes', [7, 7, 7, 7, 7]]],
+  12: [['K-2614', 'Pilotage chantier', [3, 3, 3, 3, 3], PLAN_DEBUT, '2026-11-06'], ['K-2611', 'Préparation mise en service', [3, 3, 3, 3, 3], PLAN_DEBUT, '2026-11-27'], ['INT-MAINT', 'Management d’équipe', [2, 2, 2, 2, 2]]],
   13: [['INT-PROD', 'Conditionnement', [7, 7, 7, 0, 0]]], 14: [['INT-ADM', 'Recrutement & RH', [8, 8, 8, 8, 6.5]]], 15: [['INT-PROD', 'Opératrice ligne 1', [7, 7, 7, 7, 7]]],
-  16: [['INT-LOG', 'Coordination du quai', [8, 8, 8, 8, 7]]], 17: [['INT-QUA', 'Contrôle réception', [7, 7, 7, 7, 7]]], 18: [['K-2614', 'Rétrofit — circuit hydraulique', [8, 8, 8, 8, 7]]],
+  16: [['INT-LOG', 'Coordination du quai', [8, 8, 8, 8, 7]]], 17: [['INT-QUA', 'Contrôle réception', [7, 7, 7, 7, 7]]],
+  18: [['K-2614', 'Rétrofit — circuit hydraulique', [8, 8, 8, 8, 7], PLAN_DEBUT, '2026-11-06'], ['INT-MAINT', 'Maintenance curative', [8, 8, 8, 8, 7], '2026-11-09']],
   19: [['INT-COM', 'Affaires export États-Unis', [7, 7, 7, 7, 7]]], 20: [['INT-LOG', 'Tournées de livraison', [7, 7, 7, 7, 7]]], 21: [['INT-ADM', 'Assistance de direction', [7, 7, 7, 7, 0]]],
-  22: [['INT-PROD', 'Conduite ligne 2', [8, 8, 8, 8, 7]]], 23: [['INT-HSE', 'Pilotage HSE', [4, 4, 4, 4, 4]], ['K-2620', 'Plan de prévention ATEX', [3, 3, 3, 3, 3]]],
+  22: [['INT-PROD', 'Conduite ligne 2', [8, 8, 8, 8, 7]]], 23: [['INT-HSE', 'Pilotage HSE', [4, 4, 4, 4, 4]], ['K-2620', 'Plan de prévention ATEX', [3, 3, 3, 3, 3], PLAN_DEBUT, '2026-10-23']],
   24: [['INT-MAINT', 'Apprentissage — maintenance', [7, 7, 7, 0, 0]], ['ECOLE', 'Cours au CFA', [0, 0, 0, 7, 7]]],
 };
 
-const MISSIONS = [
-  { empId: 6, projet: 'K-2633', lieu: 'Grenoble (38)', du: '2026-10-06', au: '2026-10-08', type: 'Déplacement' },
-  { empId: 2, projet: 'K-2620', lieu: 'Feyzin (69)', du: '2026-10-08', au: '2026-10-09', type: 'Mission' },
-  ...[3, 8, 22].map(empId => ({ empId, projet: 'K-2620', lieu: 'Feyzin (69)', du: '2026-10-19', au: '2026-10-23', type: 'Mission' })),
-  ...[18, 6, 12].map(empId => ({ empId, projet: 'K-2614', lieu: 'Tanger, Maroc', du: '2026-10-27', au: '2026-11-06', type: 'Déplacement international' })),
-  ...[12, 18].map(empId => ({ empId, projet: 'K-2611', lieu: 'Abidjan, Côte d’Ivoire', du: '2026-11-09', au: '2026-11-27', type: 'Déplacement international' })),
-  ...[23, 5].map(empId => ({ empId, projet: 'K-2625', lieu: 'Tema, Ghana', du: '2026-12-01', au: '2026-12-05', type: 'Déplacement international' })),
-  ...[22, 16].map(empId => ({ empId, projet: 'K-2631', lieu: 'São Paulo, Brésil', du: '2027-01-18', au: '2027-01-29', type: 'Déplacement international' })),
-];
+/**
+ * Tâches planifiées, heures par date (jours ouvrés hors fériés). Pendant une affectation, les heures
+ * prévues sur d'autres projets passent au chantier (« Intervention sur site »).
+ */
+function planning() {
+  const taches = Object.entries(TACHES).flatMap(([id, list]) => list.map(([projet, tache, h, du = PLAN_DEBUT, au = PLAN_FIN], i) => {
+    const heures: Record<string, number> = {};
+    for (let s = du; s <= au; s = addD(s, 1)) if (weekday(s) < 5 && !isFerie(s) && h[weekday(s)]) heures[s] = h[weekday(s)];
+    return { id: `KT-${id}-${i + 1}`, empId: Number(id), projet, tache, debut: du, fin: au, heures };
+  }));
+  AFFECTATIONS.forEach(a => {
+    const site = { id: `KT-${a.id}`, empId: a.empId, projet: a.chantier, tache: 'Intervention sur site', debut: a.du, fin: a.au, heures: {} as Record<string, number> };
+    taches.filter(t => t.empId === a.empId && t.projet !== a.chantier).forEach(t => Object.entries(t.heures).forEach(([s, h]) => {
+      if (s < a.du || s > a.au) return;
+      site.heures[s] = (site.heures[s] ?? 0) + h;
+      delete t.heures[s];
+    }));
+    if (Object.keys(site.heures).length) taches.push(site);
+  });
+  return taches;
+}
 
+/** `detachementLe` : certificat de sécurité sociale obtenu ; ceux de Riyad, Mumbai et São Paulo restent à demander. */
 const VOYAGES = [
-  { empId: 19, dest: 'US', depart: '2026-10-12', retour: '2026-10-16', motif: 'Visite client — Houston', origine: 'formulaire', ref: 'DD-2026-0398' },
+  { empId: 19, dest: 'US', depart: '2026-10-12', retour: '2026-10-16', motif: 'Visite client — Houston', origine: 'formulaire', ref: 'DD-2026-0398', detachementLe: '2026-09-30' },
   { empId: 9, dest: 'IN', depart: '2026-10-19', retour: '2026-10-24', motif: 'Salon Automation Expo — Mumbai', origine: 'formulaire', ref: 'DD-2026-0402' },
-  { empId: 18, dest: 'MA', depart: '2026-10-27', retour: '2026-11-06', motif: 'Rétrofit presse hydraulique — Tanger', origine: 'keystone', chantier: 'K-2614' },
-  { empId: 12, dest: 'CI', depart: '2026-11-09', retour: '2026-11-27', motif: 'Mise en service ligne — Abidjan', origine: 'keystone', chantier: 'K-2611' },
+  { empId: 18, dest: 'MA', depart: '2026-10-27', retour: '2026-11-06', motif: 'Rétrofit presse hydraulique — Tanger', origine: 'keystone', chantier: 'K-2614', detachementLe: '2026-10-05' },
+  { empId: 12, dest: 'CI', depart: '2026-11-09', retour: '2026-11-27', motif: 'Mise en service ligne — Abidjan', origine: 'keystone', chantier: 'K-2611', detachementLe: '2026-10-08' },
   { empId: 9, dest: 'SA', depart: '2026-11-23', retour: '2026-11-26', motif: 'Négociation distributeur — Riyad', origine: 'cursus' },
-  { empId: 23, dest: 'GH', depart: '2026-12-01', retour: '2026-12-05', motif: 'Audit HSE usine — Tema', origine: 'keystone', chantier: 'K-2625' },
+  { empId: 23, dest: 'GH', depart: '2026-12-01', retour: '2026-12-05', motif: 'Audit HSE usine — Tema', origine: 'keystone', chantier: 'K-2625', detachementLe: '2026-10-02' },
   { empId: 22, dest: 'BR', depart: '2027-01-18', retour: '2027-01-29', motif: 'Transfert de ligne — São Paulo', origine: 'keystone', chantier: 'K-2631' },
 ];
 
+/** Demandes en attente, enregistrées telles quelles : leur contrôle à la réception dépend de la date du jour. */
 const DEMANDES_KEYSTONE = [
-  { empId: 18, chantier: 'K-2611', dest: 'CI', depart: '2026-11-09', retour: '2026-11-27', recue: '2026-10-05' },
-  { empId: 6, chantier: 'K-2614', dest: 'MA', depart: '2026-10-27', retour: '2026-11-06', recue: '2026-10-02' },
-  { empId: 16, chantier: 'K-2631', dest: 'BR', depart: '2027-01-18', retour: '2027-01-29', recue: '2026-10-06' },
-  { empId: 5, chantier: 'K-2625', dest: 'GH', depart: '2026-12-01', retour: '2026-12-05', recue: '2026-10-06' },
-];
+  { ref: 'DK-2026-0412', empId: 18, chantier: 'K-2611', dest: 'CI', depart: '2026-11-09', retour: '2026-11-27', recue: '2026-10-05' },
+  { ref: 'DK-2026-0398', empId: 6, chantier: 'K-2614', dest: 'MA', depart: '2026-10-27', retour: '2026-11-06', recue: '2026-10-02' },
+  { ref: 'DK-2026-0417', empId: 16, chantier: 'K-2631', dest: 'BR', depart: '2027-01-18', retour: '2027-01-29', recue: '2026-10-06' },
+  { ref: 'DK-2026-0418', empId: 5, chantier: 'K-2625', dest: 'GH', depart: '2026-12-01', retour: '2026-12-05', recue: '2026-10-06' },
+].map(d => ({ ...d, statut: 'attente' }));
 
 const ABSENCES = [
   { empId: 22, type: 'RTT', du: '2026-10-09', au: '2026-10-09', statut: 'validee', keystone: true },
@@ -210,6 +278,13 @@ const ABSENCES = [
   { empId: 16, type: 'RTT', du: '2026-10-30', au: '2026-10-30', statut: 'validee', keystone: true },
   { empId: 8, type: 'CP', du: '2026-10-12', au: '2026-10-16', statut: 'validee', keystone: true },
   { empId: 18, type: 'CP', du: '2026-12-21', au: '2026-12-24', statut: 'demandee' },
+  // Congé validé pendant l'audit de Tema, où Inès Dupont est affectée : No Go (motif ABSENCE, sans sa nature).
+  { empId: 5, type: 'CP', du: '2026-12-04', au: '2026-12-04', statut: 'validee', keystone: true },
+  // Absences hors congés : un signalement à qualifier, un arrêt qualifié (semaine sans heure), une maternité, un mariage.
+  { empId: 20, type: 'ABSENCE', du: '2026-10-07', au: '2026-10-16', statut: 'signalee', keystone: true, signaleLe: '2026-10-07', signalePar: 'Hugo Lambert' },
+  { empId: 13, type: 'MALADIE', du: '2026-10-05', au: '2026-10-07', statut: 'validee', keystone: true, signaleLe: '2026-10-05', signalePar: 'Sophie Lemaire', justificatif: true, justificatifLe: '2026-10-06' },
+  { empId: 19, type: 'MATERNITE', du: '2026-11-16', au: '2027-03-07', statut: 'validee', keystone: true, justificatif: true, justificatifLe: '2026-09-15' },
+  { empId: 10, type: 'MARIAGE', du: '2026-11-03', au: '2026-11-06', statut: 'validee', keystone: true },
 ];
 
 const CET = [
@@ -221,7 +296,7 @@ const CET = [
 const DEMANDES_COLLAB = [
   { empId: 13, type: 'formation', f: 'caces489', sessionId: 4, motif: 'Polyvalence sur le quai de chargement', date: '2026-10-02', statut: 'attente', parId: 3 },
   { empId: 3, type: 'habilitation', h: 'hauteur', motif: 'Interventions sur les passerelles de la ligne 2', date: '2026-10-05', statut: 'attente' },
-  { empId: 9, type: 'document', label: 'Passeport mis à jour', date: '2026-10-06', statut: 'attente' },
+  { empId: 9, type: 'document', label: 'Passeport mis à jour', date: '2026-10-06', statut: 'attente', declaration: { kind: 'passeport', numero: '26FD···63', expire: '2036-09-29' } },
   { empId: 19, type: 'formation', f: null, libelle: 'Anglais technique', motif: 'Échanges avec les clients américains', date: '2026-09-28', statut: 'refusee', reponse: 'Reportée au plan 2027 — enveloppe Commercial atteinte' },
 ];
 
@@ -249,11 +324,13 @@ const PLAN = [
   { f: null, libelle: 'Excel avancé', equipe: 'Administration', periode: 'T2', effectif: 4, cout: 1200, statut: 'realise' },
 ];
 
-/** Feuilles de temps des deux semaines précédentes, plus un brouillon en cours. */
-function feuilles() {
+/** Feuilles de temps des deux semaines précédentes (tâches planifiées ces semaines-là), plus un brouillon en cours. */
+function feuilles(taches: ReturnType<typeof planning>) {
   const out: { empId: number; week: string; statut: string; sage: boolean; keystone: boolean; lignes: unknown[] }[] = [];
   Object.keys(TACHES).map(Number).forEach(id => ['2026-09-21', '2026-09-28'].forEach((week, wi) => {
-    const lignes = TACHES[id].map(([projet, tache, h]) => ({ projet, tache, ks: true, h: h.map((v, i) => v + ((id === 22 || id === 18) && wi === 1 && i < 2 && v ? 2 : 0)) }));
+    const lignes = taches.filter(t => t.empId === id).map(t => ({ projet: t.projet, tache: t.tache, ks: true, h: wDays(week).map(s => t.heures[s] ?? 0) }))
+      .filter(l => l.h.some(v => v > 0))
+      .map(l => ({ ...l, h: l.h.map((v, i) => v + ((id === 22 || id === 18) && wi === 1 && i < 2 && v ? 2 : 0)) }));
     out.push({ empId: id, week, lignes, statut: wi === 1 && id % 3 === 0 ? 'soumise' : 'validee', sage: wi === 0 && id !== 15, keystone: wi === 0 });
   }));
   out.push({ empId: 1, week: '2026-10-05', lignes: [{ projet: 'INT-LOG', tache: 'Réception / expédition', ks: true, h: [7, 7.5, 0, 0, 0] }], statut: 'brouillon', sage: false, keystone: false });
@@ -291,12 +368,11 @@ export function seedDemo(db: Db) {
     db.clearAll();
     if (secret) db.setSetting('secret', secret);
     db.setSetting('app', DEFAULT_SETTINGS);
+    db.setSetting('messagerie', MESSAGERIE_DEMO);
     FORMATIONS.forEach(f => db.insert('formations', f));
     HABILITATIONS.forEach(h => db.insert('habilitations', h));
     DESTS.forEach(d => db.insert('destinations', d));
     EQUIPES.forEach(([nom, managerId], ordre) => db.insert('equipes', { nom, managerId, ordre }));
-    Object.entries(PROJETS).forEach(([code, nom]) => db.insert('projets', { code, nom }));
-    CHANTIERS.forEach(c => db.insert('chantiers', c));
     SESSIONS.forEach(s => db.insert('sessions', s));
     EMPLOYES.forEach(e => {
       const p = PROFILS[e.id], x = EXTRA[e.id] || {};
@@ -304,27 +380,45 @@ export function seedDemo(db: Db) {
         id: e.id, nom: e.nom, equipe: e.equipe, poste: e.poste, statut: p.statut, typeContrat: p.typeContrat, temps: p.temps,
         heures: p.heures ?? null, forfaitHeures: p.forfaitHeures ?? null, forfaitJours: p.forfaitJours ?? null, jourOff: p.jourOff ?? [],
         entree: p.entree, fin: p.fin ?? null, naissance: p.naissance, agence: p.agence ?? null,
+        // Chacun a une adresse professionnelle (décision de l'entreprise) ; Karim Haddad reçoit un récapitulatif quotidien.
+        email: identifiantSuggere(e.nom, 'microsoft', DOMAINE_DEMO), notifications: e.id === 12 ? 'quotidien' : 'immediat',
         repriseMotif: p.reprise?.motif ?? null, repriseDate: p.reprise?.date ?? null, visite: x.visite ?? null,
+        avis: x.avis ?? null, restrictions: x.restrictions ?? [],
         passeportNumero: x.passeport?.numero ?? null, passeportExpire: x.passeport?.expire ?? null,
       });
-      [...e.certs, ...(x.certsPlus || [])].forEach(c => db.insert('certifications', { empId: e.id, f: c.f, obtenue: c.obtenue, sessionId: c.session ?? null, convoc: c.convoc ?? null }));
-      (x.habs || []).forEach(h => db.insert('habTitres', { empId: e.id, h: h.h, delivree: h.delivree ?? null, par: h.par ?? null, demande: h.demande ?? null }));
+      [...e.certs, ...(x.certsPlus || [])].forEach(c => db.insert('certifications', { empId: e.id, f: c.f, obtenue: c.obtenue, sessionId: c.session ?? null, convoc: c.convoc ?? null, convocLe: c.convoc ? CONVOQUES_LE : null }));
+      (x.habs || []).forEach(h => db.insert('habTitres', {
+        empId: e.id, h: h.h, delivree: h.delivree ?? null, par: h.par ?? null, demande: h.demande ?? null,
+        ...(h.restriction ? { mesure: 'suspension', mesureDate: '2026-09-30', mesureMotif: MOTIF_RESTRICTION, mesurePar: RH_DEMO } : {}),
+      }));
       (x.visas || []).forEach(v => db.insert('visas', { empId: e.id, ...v }));
       (x.vaccins || []).forEach(v => db.insert('vaccinations', { empId: e.id, ...v }));
     });
-    Object.entries(TACHES).forEach(([id, list]) => list.forEach(([projet, tache, heures]) => db.insert('taches', { empId: Number(id), projet, tache, heures })));
-    MISSIONS.forEach(m => db.insert('missions', m));
+    RECYCLAGES.forEach(([empId, f, sessionId]) => {
+      const c = db.where<{ id: number; f: string }>('certifications', 'empId', empId).find(x => x.f === f)!;
+      db.update('certifications', c.id, { sessionId, convoc: 'now', convocLe: CONVOQUES_LE });
+    });
+    INSCRIPTIONS.forEach(([empId, sessionId]) => db.insert('inscriptions', { empId, sessionId, convoc: 'now', date: CONVOQUES_LE, convocLe: CONVOQUES_LE }));
+    // Keystone : mêmes contrôles et mêmes tables que l'API entrante (server/src/integrations/keystone-entrant.ts).
+    const cx = contexte(db), taches = planning();
+    Object.entries(PROJETS).forEach(([code, nom]) => enregistrerProjet(cx, code, { nom }));
+    CHANTIERS.forEach(({ id, ...c }) => enregistrerChantier(cx, id, c));
+    AFFECTATIONS.forEach(({ id, empId, ...a }) => enregistrerAffectation(cx, id, { matricule: matricule(empId), ...a }));
+    taches.forEach(({ id, empId, ...t }) => enregistrerTache(cx, id, { matricule: matricule(empId), ...t }));
     VOYAGES.forEach(v => db.insert('voyages', v));
     DEMANDES_KEYSTONE.forEach(d => db.insert('demandesKeystone', d));
     ABSENCES.forEach(a => db.insert('absences', a));
     CET.forEach(c => db.insert('cet', c));
     db.insert('reports', { empId: 6, jours: 4, motif: 'CP 2024-2025 non pris — arrêt de travail', par: 'Sandrine Vidal', date: '2026-06-02', sens: 'recu' });
     DEMANDES_COLLAB.forEach(d => db.insert('demandesCollab', d));
+    // Visite d'embauche demandée pour l'apprenti, jamais vu par le médecin du travail.
+    db.insert('demandesVisite', { empId: 24, motif: 'embauche', le: '2026-10-05', par: RH_DEMO, statut: 'demandee', closeLe: null, closePar: null });
     Object.entries(BUDGETS).forEach(([ex, list]) => Object.entries(list).forEach(([equipe, montant]) => db.insert('budgets', { exercice: Number(ex), equipe, montant })));
     PLAN.forEach(l => db.insert('planActions', { exercice: 2026, ...l }));
-    feuilles().forEach(f => db.insert('feuilles', f));
+    feuilles(taches).forEach(f => db.insert('feuilles', f));
     figerFeuilles(db);
     entretiens().forEach(e => db.insert('entretiens', e));
+    comptesDemo(db);
 
     // Reprise des compteurs : jours déjà pris sur les périodes en cours,
     // plafonnés pour laisser un solde réaliste.
@@ -339,6 +433,67 @@ export function seedDemo(db: Db) {
       const recupDemandee = ds.absences.filter(a => a.empId === e.id && a.type === 'RECUP' && a.statut === 'demandee')
         .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'RECUP') * d.dayH(e), 0);
       db.insert('soldesReprise', { empId: e.id, cpPris: cp, rttPris: rtt, recupAcquis: Math.max(h.recA, h.recP + recupDemandee), recupPris: h.recP });
+      // Reprise après une absence longue (maternité…), inscrite comme à la saisie par le RH.
+      const r = repriseDesAbsences(ds.absences, e.id);
+      if (r && !e.repriseDate) db.update('employes', e.id, { repriseMotif: r.motif, repriseDate: r.date });
+    });
+    // Verdicts Go / No Go de départ, mémorisés sans envoi : en mode API, réputés connus de Keystone, seuls leurs
+    // changements lui seront envoyés ; en simulation, ils repartiront tous au passage en mode API.
+    suivreVerdicts(db, { initial: true });
+  });
+}
+
+/** Domaine des adresses Microsoft 365 de démonstration (réservé à la documentation, jamais routé). */
+export const DOMAINE_DEMO = 'entreprise.example';
+/** Date des convocations déjà envoyées du jeu de démonstration. */
+const CONVOQUES_LE = '2026-09-28';
+/**
+ * Messagerie de démonstration : boîte du service RH, service de santé au travail, agence de l'intérimaire (domaines
+ * fictifs), dont l'adresse a été renseignée le 5 octobre : le premier relevé automatique est celui de la semaine 40.
+ */
+const MESSAGERIE_DEMO: Messagerie = {
+  rh: `rh@${DOMAINE_DEMO}`, rhMode: 'immediat', santeTravail: 'contact@sante-travail.example',
+  agences: [{ nom: 'Proman Lyon', adresse: 'releves.lyon@agence-interim.example', depuis: '2026-10-05' }],
+};
+/** Compte RH de démonstration : la responsable RH du jeu de données, administratrice RH, sans fiche salarié. */
+export const RH_DEMO = 'Sandrine Vidal';
+
+/** Profils des comptes de démonstration, selon le poste du salarié. */
+const PROFILS_DEMO: Record<string, ProfilRh> = {
+  'Chargé RH': 'rh_gestionnaire', 'Responsable HSE': 'referent_hse', 'Gestionnaire paie': 'paie', 'Auditrice interne': 'lecture_seule',
+};
+
+/**
+ * Comptes de démonstration, créés une seule fois : la RH de démonstration (administratrice RH, compte
+ * externe) et un compte par salarié — Microsoft 365, ou compte Cursus pour les ouvriers, intérimaires et
+ * alternants. Antoine Leroy, chargé RH, est gestionnaire RH ; Sarah Cohen, responsable HSE, référente HSE / formation ;
+ * Aïcha Diallo, gestionnaire de paie ; Élodie Bernard, auditrice interne, en lecture seule (PROFILS_DEMO). Les comptes
+ * Cursus n'ont pas de mot de passe : en démonstration, la connexion est libre ; l'administrateur peut en attribuer un
+ * (Comptes et accès).
+ * Appelé aussi au démarrage pour une base de démonstration antérieure aux comptes.
+ */
+export function comptesDemo(db: Db) {
+  if (db.count('comptes')) return;
+  // Une ancienne base de démonstration a pu renommer la RH unique (paramètre rhNom) : même personne.
+  const rhNom = db.getSetting<{ rhNom?: string }>('app', {}).rhNom || RH_DEMO;
+  const base = {
+    oid: null, actif: true, motDePasse: null, changerMotDePasse: false, echecs: 0, blocageFin: null,
+    creation: new Date().toISOString(), creePar: 'Jeu de démonstration', derniereConnexion: null,
+  };
+  const pris = new Set<string>();
+  const unique = (id: string) => {
+    let x = id, n = 1;
+    while (pris.has(x)) x = id.replace(/^([^@]+)/, `$1${++n}`);
+    pris.add(x);
+    return x;
+  };
+  const adresse = unique(identifiantSuggere(rhNom, 'microsoft', DOMAINE_DEMO));
+  db.insert('comptes', { ...base, empId: null, nom: rhNom, adresse, identifiant: adresse, type: 'microsoft', profilRh: 'rh_admin' });
+  db.all<Employe>('employes').forEach(e => {
+    const type = typeSuggere(e);
+    db.insert('comptes', {
+      ...base, empId: e.id, nom: null, adresse: null, identifiant: unique(identifiantSuggere(e.nom, type, DOMAINE_DEMO)), type,
+      profilRh: PROFILS_DEMO[e.poste] ?? 'aucun',
     });
   });
 }

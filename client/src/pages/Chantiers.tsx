@@ -3,7 +3,8 @@ import { useMemo } from 'react';
 import { GNG_CLS, GNG_LABEL } from '../../../shared/constants.ts';
 import type { GngStatus } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
-import { fmt, fmtShort, matricule, plural } from '../../../shared/format.ts';
+import { cap, fmt, fmtShort, matricule, plural } from '../../../shared/format.ts';
+import { usePanneauVisible } from '../components/panneau.ts';
 import { Empty, Fine, Page, Panel, Pre, Tag, Two } from '../components/ui.tsx';
 import { useEnriched, useTrips } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -16,20 +17,28 @@ export function Chantiers() {
 
   const chant = useMemo(() => d.evaluateChantiers(emps, trips), [d, emps, trips]);
   const sel = chant.find(x => x.c.id === ui.goSel) || chant[0] || null;
-  const payload = useMemo(() => sel ? JSON.stringify(d.keystonePayload(sel, detail), null, 2) : '', [d, sel, detail]);
+  // Écran étroit : le détail s'affiche sous les cartes ; choisir un chantier l'amène dans le champ de vision.
+  const panneau = usePanneauVisible<HTMLElement>(ui.goSel && sel?.c.id === ui.goSel ? ui.goSel : null);
+  // Réponse de l'API v1 (GET /api/integrations/keystone/v1/chantiers/:id/go-no-go).
+  const payload = useMemo(() => sel ? JSON.stringify(d.verdictKeystone(sel, detail), null, 2) : '', [d, sel, detail]);
   const gngCount = (st: GngStatus) => chant.filter(x => x.status === st).length;
+  // Client et chef de projet sont facultatifs dans l'API Keystone : seuls ceux renseignés s'affichent.
+  const entete = sel ? cap([sel.c.client && `client ${sel.c.client}`, sel.c.chef && `chef de projet ${sel.c.chef}`].filter(Boolean).join(' · ')) : '';
 
   return (
     <Page
       kicker={`${plural(chant.length, 'chantier Keystone', 'chantiers Keystone')} · ${gngCount('go')} go · ${gngCount('reserve')} sous réserve · ${gngCount('nogo')} no go`}
       title="Chantiers · Go / No Go"
-      note="Keystone interroge Cursus pour chaque ressource affectée. Seul le verdict et des codes de motif sortent de Cursus : aucune donnée médicale, aucun numéro de passeport, aucune date de vaccination."
+      note="Keystone interroge Cursus pour chaque ressource affectée. Seul le verdict et des codes de motif sortent de Cursus : aucune donnée médicale, aucune nature d’absence, aucun numéro de passeport, aucune date de vaccination."
     >
       <div className="cards-grid">
         {chant.map(x => {
           const dest = d.destOf(x.c.pays);
           const n = (st: GngStatus) => x.res.filter(r => r.status === st).length;
-          const req = [...x.c.habs.map(h => d.hm(h).nom), ...x.c.certs.map(f => d.fm(f).court), ...(x.c.pays !== 'FR' ? ['formalités de voyage'] : [])];
+          // Toujours : contrat en cours et aucune absence sur la présence, aptitude médicale du jour ; hors de France, déplacement
+          // couvrant la présence et formalités.
+          const req = ['disponibilité (contrat, absences)', 'aptitude médicale', ...x.c.habs.map(h => d.hm(h).nom), ...x.c.certs.map(f => d.fm(f).court),
+            ...(x.c.pays !== 'FR' ? ['déplacement couvrant la présence', 'formalités de voyage et de détachement'] : [])];
           return (
             <article key={x.c.id} className={`card elev-sm pick${x === sel ? ' selected' : ''}`} onClick={() => setUi({ goSel: x.c.id })}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--space-3)' }}>
@@ -48,9 +57,9 @@ export function Chantiers() {
 
       {sel && (
         <div className="row-wrap">
-          <Panel style={{ flex: '1 1 520px' }} head={
+          <Panel panneau={panneau} nommePar="chantier-detail" style={{ flex: '1 1 520px' }} head={
             <div className="panel-head top">
-              <div><h2>{sel.c.id} — {sel.c.nom}</h2><div className="text-muted sub">Client {sel.c.client} · chef de projet {sel.c.chef}</div></div>
+              <div><h2 id="chantier-detail">{sel.c.id} — {sel.c.nom}</h2>{entete && <div className="text-muted sub">{entete}</div>}</div>
               <Tag cls={GNG_CLS[sel.status]}>{GNG_LABEL[sel.status]}</Tag>
             </div>
           }>
@@ -76,7 +85,7 @@ export function Chantiers() {
 
           <Panel style={{ flex: '1 1 360px' }} title="Réponse transmise à Keystone" aside={detail ? 'Codes et libellés des motifs' : 'Codes de motifs uniquement'}>
             <Pre>{payload}</Pre>
-            <Fine>Identifiant : matricule uniquement. Réévalué à chaque consultation ; un changement de verdict est poussé à Keystone. Niveau de détail réglable dans les paramètres.</Fine>
+            <Fine>Identifiant : matricule uniquement. Réévalué à chaque consultation. Un changement de verdict d’une ressource (statut ou codes de motif, jamais de libellé) est poussé à Keystone après l’action qui le provoque, après une mise à jour reçue de Keystone et chaque jour (expirations) — suivi dans Paramètres → Envois. Niveau de détail réglable dans les paramètres.</Fine>
           </Panel>
         </div>
       )}

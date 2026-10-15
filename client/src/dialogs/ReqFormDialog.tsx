@@ -1,10 +1,13 @@
 // Demander une formation (catalogue ou hors catalogue) au service RH :
 // le collaborateur pour lui-même, ou le manager pour un membre de son équipe.
+// Doublons (demande identique en attente, inscription à venir) et conflits de dates de la session souhaitée contrôlés en direct.
 import { useMemo, useState } from 'react';
-import type { EmpX } from '../../../shared/domain.ts';
+import { certEnVigueur, sessionActive, type EmpX } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
-import { fmt, plural } from '../../../shared/format.ts';
-import { CancelButton, Dialog, Field, Static } from '../components/Dialog.tsx';
+import { fmt, key, plural } from '../../../shared/format.ts';
+import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
+import { Bloquant, CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
+import { erreurTexte } from '../components/controles.ts';
 import { Fine } from '../components/ui.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -26,11 +29,11 @@ export function useCible(empId: number | null | undefined) {
   return { pourMembre: manager, membres, fixe, cible, setSel };
 }
 
-/** Champ « Pour » : nom du membre désigné, ou choix parmi les membres de l'équipe. */
-export function CibleField({ c, id }: { c: ReturnType<typeof useCible>; id: string }) {
+/** Champ « Pour » : nom du membre désigné, ou choix parmi les membres de l'équipe (obligatoire). */
+export function CibleField({ c, id, erreur }: { c: ReturnType<typeof useCible>; id: string; erreur?: string | null }) {
   if (c.fixe && c.cible) return <Field label="Pour"><Static>{c.cible.nom} · {c.cible.poste}</Static></Field>;
   return (
-    <Field label="Pour" htmlFor={id}>
+    <Field label="Pour" htmlFor={id} requis erreur={erreur}>
       <select className="input" id={id} value={c.cible ? String(c.cible.id) : ''} onChange={e => c.setSel(e.target.value ? Number(e.target.value) : null)}>
         <option value="">{c.membres.length ? 'Choisir un collaborateur de votre équipe' : 'Aucun collaborateur dans votre équipe'}</option>
         {c.membres.map(e => <option key={e.id} value={String(e.id)}>{`${e.nom} · ${e.poste}`}</option>)}
@@ -39,8 +42,8 @@ export function CibleField({ c, id }: { c: ReturnType<typeof useCible>; id: stri
   );
 }
 
-/** Dernière certification détenue pour une formation (toutes formations, filtre réglementaire ignoré). */
-const derniere = (e: EmpX, f: string) => e.rawCerts.filter(x => x.f === f).sort((a, b) => b.exp.getTime() - a.exp.getTime())[0];
+/** Certification en vigueur pour une formation (toutes formations, filtre réglementaire ignoré). */
+const derniere = (e: EmpX, f: string) => certEnVigueur(e.rawCerts, f);
 
 /**
  * Motif proposé : recyclage seulement si la formation a déjà été suivie ; sinon prérequis
@@ -67,21 +70,31 @@ export function ReqFormDialog({ f: f0, sessionId: s0, empId }: { f?: string; ses
   const [session, setSession] = useState(s0 != null ? String(s0) : '');
   const [motif, setMotif] = useState(() => motifPropose(c.pourMembre ? c.cible : emps.find(x => x.id === me), demandee?.id));
   const [busy, setBusy] = useState(false);
+  const v = useVerification();
   const isAutre = f === 'autre';
   const sessions = isAutre ? [] : d.upcoming().filter(s => s.formation === f && s.inscrits < s.places);
 
-  // Manager : contrôle de l'existant pour le collaborateur concerné.
+  // Collaborateur concerné : le membre choisi par le manager, ou le collaborateur lui-même (`soi`).
   const e = c.cible;
-  const last = e && !isAutre ? derniere(e, f) : undefined;
+  const soi = c.pourMembre ? undefined : emps.find(x => x.id === me);
+  const sujet = e ?? soi;
+  const last = sujet && !isAutre ? derniere(sujet, f) : undefined;
   // Session à venir : recyclage rattaché à la certification, ou inscription en formation initiale.
-  const initiale = e && !isAutre
-    ? d.ds.inscriptions.map(i => i.empId === e.id ? d.session(i.sessionId) : null).find(s => !!s && s.formation === f && s.date >= d.ti) ?? null
+  const initiale = sujet && !isAutre
+    ? d.ds.inscriptions.map(i => i.empId === sujet.id ? d.session(i.sessionId) : null).find(s => !!s && s.formation === f && sessionActive(s) && s.date >= d.ti) ?? null
     : null;
   const inscrit = (last?.session && last.session.date >= d.ti ? last.session : null) ?? initiale;
-  const enCours = !!e && !isAutre && d.ds.demandesCollab.some(r => r.empId === e.id && r.type === 'formation' && r.f === f && r.statut === 'attente');
-  const bloque = c.pourMembre && (!e || enCours || !!inscrit);
-  const existant = !e || isAutre ? null
+  // Demande identique en attente (hors catalogue : même intitulé) : refusée par le serveur.
+  const enCours = !!sujet && d.ds.demandesCollab.some(r => r.empId === sujet.id && r.type === 'formation' && r.statut === 'attente'
+    && (isAutre ? !r.f && !!libelle.trim() && key(r.libelle) === key(libelle) : r.f === f));
+  const choisie = session ? d.session(Number(session)) : null;
+  const conflits = sujet && choisie ? conflitsDates(d, sujet.id, choisie.date, choisie.date, 'formation') : [];
+  const bloque = (c.pourMembre && !e) || enCours || !!inscrit || !!blocage(conflits);
+  const existant = soi
+    ? (enCours ? 'Une demande pour cette formation est déjà en cours.' : inscrit ? `Vous êtes déjà inscrit à la session du ${fmt(parse(inscrit.date))}.` : null)
+    : !e ? null
     : enCours ? `Une demande pour cette formation est déjà en cours pour ${e.nom}.`
+    : isAutre ? null
     : inscrit ? `${e.nom} est déjà inscrit à la session du ${fmt(parse(inscrit.date))}.`
     : !last ? `${e.nom} n’a pas encore suivi cette formation.`
     : last.key === 'ok' ? `${e.nom} détient cette certification, valide jusqu’au ${fmt(last.exp)}.`
@@ -89,9 +102,14 @@ export function ReqFormDialog({ f: f0, sessionId: s0, empId }: { f?: string; ses
     : `Certification de ${e.nom} expirée le ${fmt(last.exp)}.`;
   // Inscription directe (dialogue de planification) : formations du catalogue affiché uniquement.
   const directe = !!e && !!last && last.key !== 'ok' && !inscrit && sessions.length > 0 && forms.some(x => x.id === f);
-  const cant = !motif.trim() || (isAutre && !libelle.trim()) || bloque;
+  const erreurs = {
+    cible: c.pourMembre && !e ? 'Choisissez le collaborateur concerné.' : null,
+    libelle: isAutre ? erreurTexte(libelle, 'Indiquez l’intitulé de la formation souhaitée.') : null,
+    motif: erreurTexte(motif, 'Indiquez le motif de la demande.'),
+  };
 
   const confirm = async () => {
+    if (busy || !v.verifier(...Object.values(erreurs), bloque)) return;
     setBusy(true);
     const r = await run('demande.formation', {
       f, libelle: libelle.trim(), sessionId: session ? Number(session) : null, motif: motif.trim(), ...(c.pourMembre && e ? { empId: e.id } : {}),
@@ -101,21 +119,21 @@ export function ReqFormDialog({ f: f0, sessionId: s0, empId }: { f?: string; ses
   };
 
   return (
-    <Dialog title="Demander une formation" width={540} actions={<>
+    <Dialog title="Demander une formation" width={540} onSubmit={confirm} actions={<>
       <CancelButton />
       {directe && <button type="button" className="btn btn-ghost" onClick={() => openDialog({ type: 'plan', empId: e!.id, certId: last!.id })}>Inscrire directement</button>}
-      <button type="button" className="btn btn-primary" disabled={cant || busy} onClick={confirm}>Envoyer la demande</button>
+      <SubmitButton busy={busy}>Envoyer la demande</SubmitButton>
     </>}>
-      {c.pourMembre && <CibleField c={c} id="rf-emp" />}
+      {c.pourMembre && <CibleField c={c} id="rf-emp" erreur={v.erreur(erreurs.cible)} />}
       <Field label="Formation" htmlFor="rf-f">
         <select className="input" id="rf-f" value={f} onChange={ev => { setF(ev.target.value); setSession(''); }}>
           {options.map(o => <option key={o.id} value={o.id}>{o.nom}</option>)}
           <option value="autre">Autre — hors catalogue</option>
         </select>
       </Field>
-      {existant && (enCours || inscrit ? <p className="fine note-accent">{existant}</p> : <Fine>{existant}</Fine>)}
+      {existant && (enCours || inscrit ? <Bloquant>{existant}</Bloquant> : <Fine>{existant}</Fine>)}
       {isAutre && (
-        <Field label="Intitulé souhaité" htmlFor="rf-lib">
+        <Field label="Intitulé souhaité" htmlFor="rf-lib" requis erreur={v.erreur(erreurs.libelle)}>
           <input className="input" id="rf-lib" type="text" placeholder="Anglais technique, management…" value={libelle} onChange={ev => setLibelle(ev.target.value)} />
         </Field>
       )}
@@ -129,8 +147,9 @@ export function ReqFormDialog({ f: f0, sessionId: s0, empId }: { f?: string; ses
           </select>
         </Field>
       )}
+      <Controles msgs={conflits} />
       {!isAutre && sessions.length === 0 && <Fine>Aucune session ouverte : la demande sera ajoutée au plan de formation.</Fine>}
-      <Field label="Motif" htmlFor="rf-m">
+      <Field label="Motif" htmlFor="rf-m" requis erreur={v.erreur(erreurs.motif)}>
         <textarea className="input mid" id="rf-m" rows={3} placeholder={c.pourMembre ? 'Besoin identifié, échéance, chantier à venir…' : 'Pourquoi cette formation ?'}
           value={motif} onChange={ev => setMotif(ev.target.value)} />
       </Field>

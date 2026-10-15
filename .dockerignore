@@ -8,3 +8,6 @@ data
 !.env.example
 *.zip
 desktop
+.claude
+backups
+coverage

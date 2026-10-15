@@ -2,7 +2,8 @@
 import { useState } from 'react';
 import { addMonths, isValidDate, parse } from '../../../shared/dates.ts';
 import { fmt, validiteLabel } from '../../../shared/format.ts';
-import { CancelButton, CheckList, Dialog, Field } from '../components/Dialog.tsx';
+import { erreurDate, erreurTexte } from '../components/controles.ts';
+import { Bloquant, CancelButton, CheckList, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { useEnriched } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -15,6 +16,7 @@ export function HabDialog({ empId: empId0, h: h0, mode }: { empId?: number | nul
   const [date, setDate] = useState<string>(d.ds.today);
   const [par, setPar] = useState<string>(d.hm(h0 ?? habs[0]?.id ?? '')?.signataire ?? '');
   const [busy, setBusy] = useState(false);
+  const v = useVerification();
   const emp = emps.find(e => e.id === empId) ?? emps[0];
   const hm = d.hm(h);
   if (!emp || !hm) return null;
@@ -26,10 +28,18 @@ export function HabDialog({ empId: empId0, h: h0, mode }: { empId?: number | nul
     key: c.label, label: c.label, text: c.text,
     cls: c.ok ? (c.due ? 'tag-outline' : 'tag-neutral') : 'tag-accent', statut: c.ok ? (c.due ? 'À renouveler' : 'OK') : 'Manquant',
   }));
-  const hint = info.prereqOk
-    ? `Validité ${validiteLabel(hm.validite)}${valid ? ' — le titre expirera le ' + fmt(addMonths(parse(date), hm.validite)) : ''}.`
-    : `Délivrance impossible — ${info.failing.map(c => c.label).join(', ')}.`;
-  const cant = !info.prereqOk || !valid || !par.trim();
+  // Une suspension se lève d'abord ; après un retrait, la nouvelle délivrance est possible, à partir de la date du retrait.
+  const titre = emp.habs.find(x => x.h === h && x.delivree);
+  const suspendu = titre?.mesure === 'suspension';
+  const retraitLe = titre?.mesure === 'retrait' ? titre.mesureDate : null;
+  const avantRetrait = valid && !!retraitLe && date < retraitLe;
+  // Blocage du titre (suspension, prérequis) : affiché en accent et ciblé à l'envoi ; sinon la validité.
+  const blocage = suspendu ? `Titre suspendu le ${fmt(titre.mesureLe!)} — levez d’abord la suspension.`
+    : !info.prereqOk ? `Délivrance impossible — ${info.failing.map(c => c.label).join(', ')}.` : null;
+  const hint = `Validité ${validiteLabel(hm.validite)}${valid ? ' — le titre expirera le ' + fmt(addMonths(parse(date), hm.validite)) : ''}.${retraitLe ? ` Nouvelle délivrance après le retrait du ${fmt(parse(retraitLe))}.` : ''}`;
+  const dateErr = erreurDate(date, 'Indiquez la date de délivrance.')
+    ?? (avantRetrait ? `Nouvelle délivrance antérieure au retrait du ${fmt(parse(retraitLe!))} : choisissez une date postérieure.` : null);
+  const parErr = erreurTexte(par, 'Indiquez le signataire.');
   const empOptions = [...d.ds.employes].sort((a, b) => a.nom.localeCompare(b.nom));
 
   const changeH = (id: string) => {
@@ -38,6 +48,7 @@ export function HabDialog({ empId: empId0, h: h0, mode }: { empId?: number | nul
   };
 
   const confirm = async () => {
+    if (busy || !v.verifier(blocage, dateErr, parErr)) return;
     setBusy(true);
     const r = await run('hab.delivrer', { empId: emp.id, h, date, par: par.trim(), mode });
     setBusy(false);
@@ -45,9 +56,9 @@ export function HabDialog({ empId: empId0, h: h0, mode }: { empId?: number | nul
   };
 
   return (
-    <Dialog title={mode === 'renew' ? 'Renouveler une habilitation' : 'Délivrer une habilitation'} label="Habilitation" width={560} actions={<>
+    <Dialog title={mode === 'renew' ? 'Renouveler une habilitation' : 'Délivrer une habilitation'} width={560} onSubmit={confirm} actions={<>
       <CancelButton />
-      <button type="button" className="btn btn-primary" disabled={cant || busy} onClick={confirm}>{mode === 'renew' ? 'Renouveler le titre' : 'Délivrer le titre'}</button>
+      <SubmitButton busy={busy}>{mode === 'renew' ? 'Renouveler le titre' : 'Délivrer le titre'}</SubmitButton>
     </>}>
       <div className="grid-2">
         <Field label="Collaborateur" htmlFor="hab-emp">
@@ -63,10 +74,12 @@ export function HabDialog({ empId: empId0, h: h0, mode }: { empId?: number | nul
       </div>
       <Field label="Contrôle des prérequis"><CheckList checks={checks} /></Field>
       <div className="grid-2">
-        <Field label="Date de délivrance" htmlFor="hab-date"><input className="input" id="hab-date" type="date" value={date} onChange={e => setDate(e.target.value)} /></Field>
-        <Field label="Signataire (employeur)" htmlFor="hab-par"><input className="input" id="hab-par" type="text" value={par} onChange={e => setPar(e.target.value)} /></Field>
+        <Field label="Date de délivrance" htmlFor="hab-date" requis erreur={avantRetrait ? dateErr : v.erreur(dateErr)}>
+          <input className="input" id="hab-date" type="date" min={retraitLe ?? undefined} value={date} onChange={e => setDate(e.target.value)} />
+        </Field>
+        <Field label="Signataire (employeur)" htmlFor="hab-par" requis erreur={v.erreur(parErr)}><input className="input" id="hab-par" type="text" value={par} onChange={e => setPar(e.target.value)} /></Field>
       </div>
-      <p className="text-muted fine">{hint}</p>
+      {blocage ? <Bloquant>{blocage}</Bloquant> : <p className="text-muted fine">{hint}</p>}
     </Dialog>
   );
 }

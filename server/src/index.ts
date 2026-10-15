@@ -1,171 +1,155 @@
 // Serveur HTTP de Cursus : API JSON + application web compilée.
-import express, { type NextFunction, type Request, type Response } from 'express';
+import express from 'express';
 import { existsSync } from 'node:fs';
 import { resolve } from 'node:path';
-import { Domain } from '../../shared/domain.ts';
-import { matricule } from '../../shared/format.ts';
-import type { CurrentUser, Role } from '../../shared/types.ts';
-import { ACTIONS, QUIET_ACTIONS } from './actions/index.ts';
+import { droitsRh } from '../../shared/constants.ts';
+import { libelleAction } from '../../shared/journal.ts';
+import { ACTIONS, changeVerdicts } from './actions/index.ts';
 import { ActionError, makeCtx } from './actions/context.ts';
-import { DEMO, isAuthenticated, readSession, writeSession, type SessionInfo } from './auth.ts';
-import { buildSnapshot, currentUser, loadFull, loadSettings } from './dataset.ts';
-import { openDb } from './db.ts';
+import { DEMO, purgeSessions } from './auth.ts';
+import { adminsActifs } from './comptes.ts';
+import { configMail, enProduction, hoteEcoute, portEcoute, trustProxy, verifierConfig } from './config.ts';
+import { espaceChange, identite, routesConnexion } from './connexion.ts';
+import { buildSnapshot, loadFull } from './dataset.ts';
+import { dbFile, openDb } from './db.ts';
+import { limiterDebit } from './debit.ts';
+import { routesDonnees } from './donnees.ts';
+import { type Cible, CIBLES, demarrerEnvois, etatEnvois, listerEnvois } from './envois.ts';
+import { demarrerJournal, journaliserAction, preparerTrace, routesJournal, tracerRefus } from './journal.ts';
 import { migrate } from './migrate.ts';
-import { KEYSTONE_API_KEY, KEYSTONE_MODE } from './integrations/keystone.ts';
-import { SAGE_MODE } from './integrations/sage.ts';
-import { seedDemo } from './seed.ts';
+import { emailMode, transportEmail } from './integrations/email.ts';
+import { KEYSTONE_MODE, transportKeystone } from './integrations/keystone.ts';
+import { suivreVerdicts, suivreVerdictsChaqueJour } from './integrations/keystone-verdicts.ts';
+import { keystoneRoutes } from './integrations/keystone-routes.ts';
+import { planifierEmails, recapitulatifEnAttente } from './notifications.ts';
+import { demoPosteLocal, protectionCsrf, securityHeaders } from './securite.ts';
+import { poserVerrou } from './sauvegarde.ts';
+import { comptesDemo, seedDemo } from './seed.ts';
 
+// En production, une configuration dangereuse arrête le serveur avant toute ouverture de la base.
+verifierConfig();
+
+// Verrou posé avant d'ouvrir la base : il signale à npm run restore qu'elle est en service,
+// et un second serveur sur la même base s'arrête ici, avant toute migration.
+try {
+  poserVerrou(dbFile());
+} catch (err) {
+  console.error(`Démarrage impossible : ${err instanceof Error ? err.message : err}`);
+  process.exit(1);
+}
 const db = openDb();
 migrate(db);
 if (db.count('employes') === 0) {
-  seedDemo(db);
-  console.log('Base vide : données de démonstration chargées.');
+  // Les salariés fictifs ne sont chargés qu'en démonstration, jamais dans une base de production.
+  if (DEMO) { seedDemo(db); console.log('Base vide : données de démonstration chargées.'); }
+  else console.log('Base vide : aucune donnée de démonstration chargée (mode démonstration inactif).');
 }
+// Base de démonstration antérieure aux comptes : un compte par salarié et la RH de démonstration.
+if (DEMO && db.count('employes') > 0) comptesDemo(db);
+if (!DEMO && !adminsActifs(db)) console.log('Aucun administrateur RH : créez-le avec npm run comptes -- admin <identifiant> (docs/DEPLOIEMENT.md).');
+// Sessions expirées : purgées au démarrage puis toutes les heures.
+purgeSessions(db);
+setInterval(() => purgeSessions(db), 3600_000).unref();
+// Journal : anciennes lignes expurgées une fois, durées de conservation appliquées au démarrage puis toutes les heures.
+demarrerJournal(db);
+// Messages sortants : file d'envoi traitée en tâche de fond, verdicts Go / No Go recalculés chaque jour.
+suivreVerdictsChaqueJour(db);
+demarrerEnvois(db, { keystone: transportKeystone(), email: transportEmail() });
+// E-mails planifiés : récapitulatif quotidien des notifications, relevés d'heures des intérimaires (server/src/notifications.ts).
+planifierEmails(db);
 
 const app = express();
 app.disable('x-powered-by');
+app.set('trust proxy', trustProxy());
+app.use(securityHeaders(enProduction()));
+// Démonstration en production (application de bureau) : requêtes de ce poste uniquement, jamais via le proxy.
+if (DEMO && enProduction()) app.use(demoPosteLocal());
+// API Keystone (clé X-Api-Key, journal de chaque appel) : avant l'analyse JSON, faite après la vérification de la clé.
+app.use('/api/integrations/keystone', keystoneRoutes(db));
+// Débit limité par adresse IP et par compte (429, Retry-After), puis refus des requêtes qui modifient sans venir de Cursus (CSRF).
+app.use('/api', limiterDebit(db));
+app.use(protectionCsrf());
 app.use(express.json({ limit: '2mb' }));
 
-function session(req: Request): SessionInfo | null { return readSession(db, req); }
-function authedUser(req: Request): CurrentUser | null {
-  const s = session(req);
-  return isAuthenticated(s) ? currentUser(db, s) : null;
-}
-
-/** Comptes proposés sur l'écran de connexion de démonstration. */
-function loginOptions() {
-  const full = loadFull(db, { role: 'rh', empId: null, nom: '', intitule: '' });
-  const d = new Domain(full);
-  const settings = loadSettings(db);
-  return {
-    rh: [{ id: 0, nom: `${settings.rhNom} — ${settings.rhIntitule}` }],
-    manager: [...new Set(d.managers().map(m => m.id))].map(id => ({ id, nom: `${d.personName(id)} — ${d.teamsOf(id).join(', ')}` })),
-    collaborateur: [...full.annuaire].sort((a, b) => a.nom.localeCompare(b.nom)).map(p => ({ id: p.id, nom: p.nom })),
-  };
-}
-
-function sessionPayload(req: Request, s: SessionInfo | null) {
-  const user = isAuthenticated(s) ? currentUser(db, s) : null;
-  // La liste des comptes (annuaire, organigramme) n'est exposée qu'en démonstration.
-  return { demo: DEMO, role: s?.role ?? 'rh', user, loginOptions: DEMO ? loginOptions() : null, integrations: { keystone: KEYSTONE_MODE, sage: SAGE_MODE } };
-}
-
-app.get('/api/session', (req, res) => {
-  let s = session(req);
-  // En démonstration, l'espace RH s'ouvre directement à la première visite.
-  if (!s && DEMO) { s = { role: 'rh', rh: true, managerId: null, collabId: null }; writeSession(db, res, s); }
-  res.json(sessionPayload(req, s));
-});
-
-app.post('/api/mode', (req, res) => {
-  const role = req.body?.role as Role;
-  if (!['rh', 'manager', 'collaborateur'].includes(role)) return res.status(400).json({ error: 'Espace inconnu' });
-  const s: SessionInfo = { ...(session(req) ?? { rh: false, managerId: null, collabId: null }), role };
-  if (role === 'rh' && DEMO) s.rh = true;
-  writeSession(db, res, s);
-  res.json(sessionPayload(req, s));
-});
-
-app.post('/api/login', (req, res) => {
-  const { role, empId, password } = req.body ?? {};
-  if (!['rh', 'manager', 'collaborateur'].includes(role)) return res.status(400).json({ error: 'Espace inconnu' });
-  if (!DEMO) return res.status(501).json({ error: 'Authentification unique non configurée (voir server/src/auth.ts)' });
-  if (role !== 'rh' && !String(password ?? '').trim()) return res.status(400).json({ error: 'Mot de passe requis' });
-  const s: SessionInfo = { ...(session(req) ?? { rh: false, managerId: null, collabId: null }), role };
-  if (role === 'rh') s.rh = true;
-  else {
-    const opts = loginOptions()[role as 'manager' | 'collaborateur'];  // DEMO uniquement (vérifié plus haut)
-    if (!opts.some(o => o.id === Number(empId))) return res.status(400).json({ error: 'Identifiant inconnu' });
-    if (role === 'manager') s.managerId = Number(empId); else s.collabId = Number(empId);
-  }
-  writeSession(db, res, s);
-  res.json(sessionPayload(req, s));
-});
-
-app.post('/api/logout', (req, res) => {
-  const s = session(req);
-  if (!s) return res.json(sessionPayload(req, null));
-  const next: SessionInfo = { ...s, ...(s.role === 'rh' ? { rh: false } : s.role === 'manager' ? { managerId: null } : { collabId: null }) };
-  writeSession(db, res, next);
-  res.json(sessionPayload(req, next));
-});
+// Session, connexion, changement d'espace, mot de passe et liste des comptes : server/src/connexion.ts.
+app.use(routesConnexion(db));
 
 app.get('/api/data', (req, res) => {
-  const user = authedUser(req);
-  if (!user) return res.status(401).json({ error: 'Connexion requise' });
-  res.json(buildSnapshot(db, user));
+  const id = identite(db, req);
+  if (!id) return res.status(401).json({ error: 'Connexion requise' });
+  if (espaceChange(req, res, id)) return;
+  res.json(buildSnapshot(db, id.user));
 });
 
 app.post('/api/actions/:name', (req, res) => {
-  const user = authedUser(req);
-  if (!user) return res.status(401).json({ error: 'Connexion requise' });
+  const id = identite(db, req);
+  if (!id) return res.status(401).json({ error: 'Connexion requise' });
+  // Espace changé dans un autre onglet : l'action n'est pas faite avec les droits d'un autre espace.
+  if (espaceChange(req, res, id)) return;
+  const { user, compte } = id;
   const name = String(req.params.name);
   const handler = ACTIONS[name];
   if (!handler) return res.status(404).json({ error: `Action inconnue : ${name}` });
   try {
     const out = db.tx(() => {
       const ctx = makeCtx(db, user, loadFull(db, user));
+      const trace = preparerTrace(db, name, req.body ?? {});
       const r = handler(ctx, req.body ?? {});
       const o = typeof r === 'object' && r !== null ? r : { message: r };
-      if (!QUIET_ACTIONS.has(name)) {
-        db.insert('journal', { at: new Date().toISOString(), actor: user.nom, role: user.role, action: name, message: o.message ?? null, payload: req.body ?? {} });
-      }
+      // Journal signé du nom de la personne connectée et de son compte : champs de la liste blanche de l'action,
+      // anciennes et nouvelles valeurs, salariés concernés (server/src/journal.ts).
+      journaliserAction(db, trace, { user, compte, message: o.message ?? null, result: o.result });
+      // Verdicts transmis à Keystone : un changement est mis en file avec l'action, dans la même transaction.
+      if (changeVerdicts(name)) suivreVerdicts(db);
       return o;
     });
-    res.json({ message: out.message ?? null, result: out.result, data: buildSnapshot(db, user) });
+    // L'action a pu changer le compte (profil RH retiré, équipe confiée à un autre) : la session est relue,
+    // et l'instantané est celui de l'espace où elle se trouve désormais ; aucun si elle ne vaut plus.
+    const apres = identite(db, req)?.user;
+    res.json({ message: out.message ?? null, result: out.result, data: apres ? buildSnapshot(db, apres) : undefined });
   } catch (err) {
+    // Refus d'accès : tracé hors de la transaction annulée (rien n'a été modifié).
+    if (err instanceof ActionError && err.status === 403) tracerRefus(db, id, libelleAction(name), err.message, { action: name, p: req.body });
     if (err instanceof ActionError) return res.status(err.status).json({ error: err.message });
     console.error(err);
     res.status(500).json({ error: 'Erreur interne' });
   }
 });
 
-app.get('/api/journal', (req, res) => {
-  const user = authedUser(req);
-  if (!user || user.role !== 'rh') return res.status(403).json({ error: 'Réservé au service RH' });
-  const rows = db.sql.prepare('SELECT at, actor, role, action, message FROM journal ORDER BY id DESC LIMIT 100').all();
-  res.json(rows);
-});
+// Journal des actions (consultation filtrée et paginée, export CSV, archive paie, exports de l'interface) et
+// données personnelles d'un salarié (export RH, téléchargement par l'intéressé) : server/src/journal.ts, donnees.ts.
+app.use(routesJournal(db));
+app.use(routesDonnees(db));
 
-// — Intégration Keystone : appels entrants —
-function keystoneAuth(req: Request, res: Response, next: NextFunction) {
-  if (req.get('x-api-key') !== KEYSTONE_API_KEY) return res.status(401).json({ error: 'Clé API invalide' });
-  next();
-}
-
-/** Keystone interroge Cursus : verdict Go / No Go d'un chantier (matricules et codes de motif uniquement). */
-app.get('/api/integrations/keystone/chantiers/:id/go-no-go', keystoneAuth, (req, res) => {
-  const full = loadFull(db, { role: 'rh', empId: null, nom: 'Keystone', intitule: '' });
-  const d = new Domain(full);
-  const emps = d.enrich(full.settings.horizonAlerte, false);
-  const ch = d.evaluateChantiers(emps, d.tripsAll()).find(x => x.c.id === req.params.id);
-  if (!ch) return res.status(404).json({ error: 'Chantier inconnu' });
-  res.json(d.keystonePayload(ch, full.settings.partageKeystone === 'detaille', new Date().toISOString()));
-});
-
-/** Keystone transmet une demande de déplacement pour une ressource affectée à un chantier. */
-app.post('/api/integrations/keystone/demandes', keystoneAuth, (req, res) => {
-  const { matricule: mat, chantier, destination, depart, retour } = req.body ?? {};
-  const full = loadFull(db, { role: 'rh', empId: null, nom: 'Keystone', intitule: '' });
-  const emp = full.employes.find(e => matricule(e.id) === mat);
-  const d = new Domain(full);
-  if (!emp || !d.chantier(chantier) || !d.destOf(destination) || !/^\d{4}-\d{2}-\d{2}$/.test(depart) || !/^\d{4}-\d{2}-\d{2}$/.test(retour)) {
-    return res.status(400).json({ error: 'Demande invalide : matricule, chantier, destination, depart, retour' });
+// File d'envoi des messages sortants (Paramètres → Envois) : état de l'intégration et derniers messages.
+// Service RH et lecture seule (droit `consultation`) ; ni le référent HSE, ni la paie.
+app.get('/api/envois', (req, res) => {
+  const id = identite(db, req), user = id?.user;
+  if (!user || !droitsRh(user).includes('consultation')) {
+    if (id) tracerRefus(db, id, 'Envois sortants', 'réservé au service RH');
+    return res.status(403).json({ error: 'Réservé au service RH' });
   }
-  const row = db.insert<{ id: number }>('demandesKeystone', { empId: emp.id, chantier, dest: destination, depart, retour, recue: full.today });
-  res.status(201).json({ id: row.id, statut: 'en_attente_rh' });
+  const cible = CIBLES.includes(req.query.cible as Cible) ? req.query.cible as Cible : undefined;
+  res.json({
+    keystone: { mode: KEYSTONE_MODE, ...etatEnvois(db, 'keystone') },
+    // E-mails : boîte d'envoi, notifications en attente du récapitulatif quotidien.
+    email: { mode: emailMode(), expediteur: configMail()?.from ?? null, recapitulatif: recapitulatifEnAttente(db), ...etatEnvois(db, 'email') },
+    envois: listerEnvois(db, { statut: req.query.statut, cible }),
+  });
 });
 
 // — Application web —
 const dist = resolve('dist');
 if (existsSync(dist)) {
   app.use(express.static(dist, { index: false }));
-  app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile(resolve(dist, 'index.html')));
+  // `root` : seul le chemin relatif est contrôlé (un dossier parent caché comme .xxx/ ne bloque pas l'envoi).
+  app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile('index.html', { root: dist }));
 }
 
-const PORT = Number(process.env.CURSUS_API_PORT || process.env.PORT || 3210);
-// CURSUS_HOST=127.0.0.1 limite l'accès au poste local (application de bureau).
-const HOST = process.env.CURSUS_HOST || '0.0.0.0';
+const PORT = portEcoute();
+// Production : boucle locale par défaut, derrière le reverse proxy HTTPS (docs/DEPLOIEMENT.md).
+const HOST = hoteEcoute();
+const shownHost = HOST === '0.0.0.0' ? 'localhost' : HOST.includes(':') ? `[${HOST}]` : HOST;
 app.listen(PORT, HOST, () => {
-  console.log(`Cursus — API sur http://localhost:${PORT}${existsSync(dist) ? ' (application servie)' : ''}${DEMO ? ' · mode démonstration' : ''}`);
+  console.log(`Cursus — API sur http://${shownHost}:${PORT}${existsSync(dist) ? ' (application servie)' : ''}${DEMO ? ' · mode démonstration' : ''}`);
 });

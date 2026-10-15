@@ -97,6 +97,8 @@ input[type='date'].input { color-scheme: dark; }
 .center { text-align: center; }
 .ellipsis { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .note-accent { font-size: 12px; color: var(--color-accent-300); }
+/* Cellule d'heures saisie un jour d'absence validée (feuilles de temps) : à vider avant soumission. */
+.input.alerte, .input.alerte:hover { border-color: var(--color-accent-400); color: var(--color-accent-300); background: color-mix(in srgb, var(--color-accent) 14%, var(--color-surface)); }
 .muted-70 { color: var(--text-70); }
 .text-n400 { color: var(--color-neutral-400); }
 .text-n300 { color: var(--color-neutral-300); }
@@ -115,6 +117,7 @@ tr.selected { background: color-mix(in srgb, var(--color-accent) 10%, transparen
 .list-row.top { align-items: flex-start; }
 .list-row.stack { flex-direction: column; align-items: stretch; gap: 8px; padding: var(--space-4) 0; }
 .list-row .grow { min-width: 0; flex: 1; }
+.list-row.past { color: var(--color-neutral-500); }
 .item-head { display: flex; justify-content: space-between; gap: var(--space-3); align-items: flex-start; }
 .item-head > div { min-width: 0; }
 
@@ -138,6 +141,9 @@ tr.selected { background: color-mix(in srgb, var(--color-accent) 10%, transparen
 .stat-trio .v { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 20px; line-height: 1.1; font-feature-settings: 'tnum' 1; }
 
 .side-panel { flex: 0 1 360px; min-width: 300px; padding: var(--space-6); gap: var(--space-4); position: sticky; top: 76px; max-height: calc(100vh - 92px); overflow: auto; }
+/* Panneau de détail amené dans le champ de vision sur écran étroit (components/panneau.ts) : sous la barre du haut. */
+.side-panel, .panneau-detail { scroll-margin-top: 72px; }
+.side-panel:focus, .panneau-detail:focus { outline: none; }
 .side-panel h3 { font-size: 20px; margin: 0; }
 .section-label { font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; color: var(--color-accent); margin: 0; }
 
@@ -151,10 +157,22 @@ tr.selected { background: color-mix(in srgb, var(--color-accent) 10%, transparen
 .legend span { display: inline-flex; align-items: center; gap: 6px; }
 .rules { margin: 0; padding-left: 18px; display: flex; flex-direction: column; gap: 4px; font-size: 13px; color: var(--color-neutral-300); }
 
+/* Journal des actions (Paramètres) : filtres sur une ligne qui se replie, pied avec pagination. */
+.journal-filtres { display: grid; grid-template-columns: repeat(auto-fill, minmax(160px, 1fr)); gap: var(--space-3); align-items: start; }
+.journal-filtres > .fin { align-self: end; }
+.journal-pied { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+
 /* — Dialogues — */
-.dialog-backdrop { z-index: 20; }
+/* Fond défilable : un dialogue plus haut que l'écran se lit jusqu'à ses boutons. Les marges automatiques le
+   centrent quand il tient dans l'écran et l'alignent en haut sinon (un centrage simple couperait son haut). */
+.dialog-backdrop { z-index: 20; overflow-y: auto; overscroll-behavior: contain; place-items: start center; }
+.dialog-backdrop > .dialog { margin-block: auto; }
+/* La carte reçoit le focus à l'ouverture d'une confirmation, le titre de la page à la fermeture d'un dialogue dont
+   le bouton d'origine a disparu (components/focus.ts) : pas de contour autour d'eux. */
+.dialog:focus, main h1[tabindex='-1']:focus { outline: none; }
+.dialog-actions { flex-wrap: wrap; }
 .dialog .dialog-body { display: flex; flex-direction: column; gap: var(--space-4); opacity: 1; }
-.dialog.tall { max-height: 90vh; display: flex; flex-direction: column; }
+.dialog.tall { max-height: 90vh; max-height: 90dvh; display: flex; flex-direction: column; }
 .dialog.tall .dialog-body { overflow: auto; min-height: 0; }
 /* Dans un dialogue défilant, les blocs gardent leur hauteur (un .seg en overflow: hidden serait sinon écrasé). */
 .dialog-body > * { flex-shrink: 0; }
@@ -169,15 +187,59 @@ textarea.input.mid { height: auto; min-height: 72px; }
 .radio-opt.checked { border-color: var(--color-accent); }
 .radio-opt.full { opacity: 0.45; cursor: not-allowed; }
 .form-error { font-size: 12px; margin: 0; color: var(--color-accent-300); }
+/* Validation des formulaires (components/Dialog.tsx) : champ obligatoire marqué d'un astérisque, erreur sous le champ. */
+.field .requis { color: var(--color-accent-300); }
+.legende-requis { font-size: 12px; margin: 0; color: var(--color-neutral-400); }
+.field-erreur { font-size: 12px; margin: 4px 0 0; color: var(--color-accent-300); }
+.input[aria-invalid='true'], .input[aria-invalid='true']:hover { border-color: var(--color-accent-300); }
+.bloquant:focus { outline: none; }
+.bloquant:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+/* Fermeture d'un dialogue dont la saisie serait perdue : confirmation à la place des actions. */
+.dialog-actions.confirmer-fermeture { flex-wrap: wrap; align-items: center; }
+.confirmer-fermeture p { flex: 1 1 100%; margin: 0; font-size: 13px; color: var(--color-accent-300); }
 
-.toast {
-  position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 30; display: flex; align-items: center; gap: 10px;
-  padding: var(--space-3) var(--space-4); border-radius: var(--radius-md); background: var(--color-surface); box-shadow: var(--shadow-lg); font-size: 14px; max-width: min(90vw, 600px);
+/* Notifications : deux régions live permanentes (succès, erreurs), la carte centrée en bas de l'écran,
+   au-dessus des dialogues et de la reconnexion. */
+.toasts {
+  position: fixed; left: 50%; bottom: 28px; transform: translateX(-50%); z-index: 30; pointer-events: none;
+  display: flex; flex-direction: column; align-items: center; width: max-content; max-width: min(90vw, 600px);
 }
+.toast {
+  display: flex; align-items: center; gap: 10px; pointer-events: auto;
+  padding: var(--space-2) var(--space-2) var(--space-2) var(--space-4); border-radius: var(--radius-md); background: var(--color-surface); box-shadow: var(--shadow-lg); font-size: 14px;
+}
+.toast.error { box-shadow: var(--shadow-lg), inset 0 0 0 1px var(--color-accent-300); }
 .toast svg { color: var(--color-accent); flex: none; }
-.toast.error svg { color: var(--color-accent-300); }
+.toast.error > svg { color: var(--color-accent-300); }
+.toast .toast-fermer { width: 28px; height: 28px; flex: none; color: inherit; }
+.toast .toast-fermer svg { color: inherit; }
+/* Texte lu par les lecteurs d'écran seulement. */
+.sr-only { position: absolute; width: 1px; height: 1px; padding: 0; margin: -1px; overflow: hidden; clip-path: inset(50%); white-space: nowrap; border: 0; }
 
 .loading { display: grid; place-items: center; min-height: 60vh; color: var(--color-neutral-400); font-size: 14px; }
+
+/* Erreur de rendu d'une page, d'un dialogue ou de l'application (components/ErreurRendu.tsx). */
+.erreur-rendu { color: var(--color-text); gap: var(--space-3); }
+.erreur-rendu h2 { display: flex; align-items: center; gap: var(--space-2); }
+.erreur-rendu h2 svg { color: var(--color-accent-300); flex: none; }
+.erreur-rendu p { margin: 0; font-size: 14px; }
+.erreur-detail summary { cursor: pointer; font-size: 12px; color: var(--color-neutral-400); }
+.erreur-detail .pre { margin-top: var(--space-2); max-height: 160px; white-space: pre-wrap; }
+.erreur-actions { display: flex; gap: var(--space-2); flex-wrap: wrap; }
+
+/* — Connexion et reconnexion — */
+/* Reconnexion après une session expirée : au-dessus du dialogue ouvert, sous les notifications. */
+.dialog-backdrop.reconnexion { z-index: 25; }
+.btn-microsoft { gap: var(--space-2); }
+.connexion-erreur { margin: 0; font-size: 13px; border-color: var(--color-accent-300); }
+.connexion-erreur strong { color: var(--color-accent-300); font-weight: 600; }
+
+/* — Petits écrans (téléphone) : formulaires des dialogues en une colonne, boutons étirés sur la largeur — */
+@media (max-width: 600px) {
+  .dialog-backdrop { padding: var(--space-4) var(--space-3); }
+  .grid-2 { grid-template-columns: minmax(0, 1fr); }
+  .dialog-actions > .btn { flex: 1 1 auto; }
+}
 
 /* — Écrans étroits — */
 @media (max-width: 900px) {
@@ -190,7 +252,7 @@ textarea.input.mid { height: auto; min-height: 72px; }
 
 /* — Impression (passeport formation, comptes rendus) — */
 @media print {
-  .sidebar, .topbar, .no-print, .toast { display: none !important; }
+  .sidebar, .topbar, .no-print, .toasts { display: none !important; }
   .app, html, body { background: #fff; color: #111; }
   .content { padding: 0; max-width: none; }
 }

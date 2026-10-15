@@ -1,34 +1,42 @@
-// Tableau de bord RH : conformité, échéances prioritaires, sessions et déplacements.
+// Tableau de bord RH : conformité, échéances prioritaires, sessions et déplacements. Le référent HSE y traite les
+// formations et habilitations ; la lecture seule le consulte sans bouton d'action.
 import { useMemo } from 'react';
-import { SESS_CLS, TRIP_CLS, TRIP_LABEL } from '../../../shared/constants.ts';
-import type { EchItem } from '../../../shared/domain.ts';
+import { SESS_CLS, SESSION_PASSEE, TRIP_CLS, TRIP_LABEL } from '../../../shared/constants.ts';
+import { sessionActive, type Domain, type EchItem } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { cap, equipeLabel, fmt, fmtShort, plural, rel } from '../../../shared/format.ts';
+import { declarationDetail, retireeAuRefus, valeurActuelle } from '../../../shared/rules/formalites.ts';
 import type { DemandeCollab, Session } from '../../../shared/types.ts';
 import { Bar, DateBlock, Kpi, Kpis, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
-import { useEnriched, useTrips } from '../state/derived.ts';
+import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derived.ts';
+import { useAgir } from '../state/actions.ts';
+import { refusDemande } from '../state/confirmations.ts';
 import { useStore } from '../state/store.tsx';
 
 /** Ligne d'échéance (tableau de bord, page Échéances). */
-export function EchRow({ x, onOpen, onAct }: { x: EchItem; onOpen: () => void; onAct: () => void }) {
+export function EchRow({ x, onOpen, onAct }: { x: EchItem; onOpen: () => void; onAct: () => unknown }) {
+  const { occupe, agir } = useAgir();
   return (
     <tr className="clickable" onClick={onOpen}>
       <td><Two main={x.emp.nom} sub={equipeLabel(x.emp)} /></td>
       <td><Two main={x.label} sub={x.kindLabel} /></td>
-      <td><Two main={fmt(x.exp)} sub={rel(x.d)} nowrap /></td>
+      <td>{x.sansDate ? <Two main="Non renseignée" sub="aucune visite enregistrée" nowrap /> : <Two main={fmt(x.exp)} sub={rel(x.d)} nowrap />}</td>
       <td><Tag cls={x.cls}>{x.statut}</Tag></td>
       <td className="right">
-        {x.planned && <span className="note-accent nowrap">{x.plannedLabel}</span>}
-        {!!x.action && !x.planned && <button type="button" className="btn btn-ghost btn-sm" onClick={stop(onAct)}>{x.action.label}</button>}
+        {/* Session à venir (planifié), ou passée en attente de clôture (note et bouton « Clôturer »). */}
+        <div className="actions-end" style={{ alignItems: 'center' }}>
+          {x.plannedLabel && <span className="note-accent nowrap">{x.plannedLabel}</span>}
+          {!!x.action && !x.planned && <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={agir(onAct)}>{x.action.label}</button>}
+        </div>
       </td>
     </tr>
   );
 }
 
-/** Ligne de session : date, formation, lieu, remplissage, statut. */
-export function sessionView(s: Session, nom: string) {
+/** Ligne de session : date, formation, lieu, remplissage, statut (passée à clôturer, complète…). */
+export function sessionView(d: Domain, s: Session, nom: string) {
   const full = s.inscrits >= s.places;
-  const statut = full ? 'Complète' : s.statut;
+  const statut = d.sessionStatut(s);
   return { full, statut, cls: SESS_CLS[statut], pct: Math.round(s.inscrits / s.places * 100), nom, date: parse(s.date) };
 }
 
@@ -43,8 +51,12 @@ export { reqLabel };
 export function Dashboard() {
   const { emps, upcoming, horizon, d } = useEnriched();
   const trips = useTrips();
-  const { setUi, go, run, runIntent } = useStore();
+  const { setUi, go, run, runIntent, openDialog } = useStore();
+  const { rh, formations } = useRole();
+  const permis = useIntentPermis();
+  const { occupe, agir } = useAgir();
   const data = d.ds;
+  const aCloturer = d.aCloturer();
 
   const v = useMemo(() => {
     const ech = d.echeances(emps, horizon);
@@ -64,9 +76,10 @@ export function Dashboard() {
       total, nonExp, plannedCount, placesLeft, teams,
       due: compl.filter(c => c.key === 'due').length,
       exp: compl.filter(c => c.key === 'exp').length,
-      priority: compl.filter(c => c.key !== 'ok').sort((a, b) => a.d - b.d).slice(0, 8),
+      // Propositions d'action réservées aux profils qui peuvent les lancer (aucune en lecture seule).
+      priority: compl.filter(c => c.key !== 'ok').sort((a, b) => a.d - b.d).slice(0, 8).map(x => x.action && !permis(x.action.intent) ? { ...x, action: null } : x),
     };
-  }, [d, emps, horizon, upcoming]);
+  }, [d, emps, horizon, upcoming, permis]);
 
   const reqs = data.demandesCollab.filter(r => r.statut === 'attente').sort((a, b) => a.date.localeCompare(b.date));
   const openEmp = (id: number) => go('collaborateurs', { selectedId: id });
@@ -83,10 +96,11 @@ export function Dashboard() {
       </>}
     >
       <Kpis>
-        <Kpi kicker="Conformité" value={v.total ? `${Math.round(v.nonExp / v.total * 100)} %` : '—'} sub={`${v.nonExp} collaborateurs sur ${v.total} sans certification expirée`} />
+        <Kpi kicker="Conformité" value={v.total ? `${Math.round(v.nonExp / v.total * 100)} %` : '—'} sub={`${v.nonExp} collaborateurs sur ${v.total} sans échéance dépassée`} />
         <Kpi kicker="À renouveler" value={v.due} sub={`sous ${horizon} jours · ${plural(v.plannedCount, 'inscription planifiée', 'inscriptions planifiées')}`} />
-        <Kpi kicker="Expirées" value={v.exp} sub={v.exp ? `${plural(v.total - v.nonExp, 'collaborateur non conforme', 'collaborateurs non conformes')} · certifications et habilitations` : 'aucune certification ni habilitation expirée'} />
-        <Kpi kicker="Sessions à venir" value={upcoming.length} sub={nextUp ? `prochaine le ${fmtShort(parse(nextUp.date))} · ${plural(v.placesLeft, 'place restante', 'places restantes')}` : 'aucune session planifiée'} />
+        <Kpi kicker="Expirées" value={v.exp} sub={v.exp ? `${plural(v.total - v.nonExp, 'collaborateur non conforme', 'collaborateurs non conformes')} · certifications, habilitations et aptitudes médicales` : 'aucune certification, habilitation ni aptitude médicale expirée'} />
+        <Kpi kicker="Sessions à venir" value={upcoming.length}
+          sub={`${nextUp ? `prochaine le ${fmtShort(parse(nextUp.date))} · ${plural(v.placesLeft, 'place restante', 'places restantes')}` : 'aucune session planifiée'}${aCloturer.length ? ` · ${plural(aCloturer.length, 'session à clôturer', 'sessions à clôturer')}` : ''}`} />
       </Kpis>
 
       <div className="row-wrap">
@@ -99,17 +113,28 @@ export function Dashboard() {
                   {reqs.map(r => {
                     const e = d.emp(r.empId);
                     const s = d.session(r.sessionId);
-                    const detail = [r.motif, s ? `session souhaitée le ${fmt(parse(s.date))}` : ''].filter(Boolean).join(' · ');
+                    const detail = [r.motif, s ? `session souhaitée le ${fmt(parse(s.date))}${sessionActive(s) ? '' : ` (${s.statut.toLowerCase()})`}` : ''].filter(Boolean).join(' · ');
+                    const x = r.declaration;
                     return (
                       <tr key={r.id} className="clickable" onClick={() => openEmp(r.empId)}>
                         <td><Two main={e?.nom} sub={`${equipeLabel(e)} · Reçue le ${fmtShort(parse(r.date))}`} nowrap /></td>
                         <td><Two main={reqLabel(r, id => d.fm(id).nom, id => d.hm(id).nom)} sub={r.parId ? `${reqKind(r)} · par ${d.personName(r.parId)} (manager)` : reqKind(r)} /></td>
-                        <td className="text-muted" style={{ fontSize: 13 }}>{detail || 'À contrôler dans le dossier voyageur'}</td>
+                        {x && e
+                          // Document déclaré : contenu saisi et valeur du dossier qu'il remplacera à la validation
+                          // (sauf déclaration reprise d'une ancienne base, encore au dossier : un refus l'en retire).
+                          ? <td style={{ fontSize: 13 }}><Two main={`Déclaré : ${declarationDetail(x)}`}
+                              sub={retireeAuRefus(d, e, r) ? 'Déjà enregistré dans le dossier (avant validation RH) — un refus l’en retire' : `Actuellement : ${valeurActuelle(d, e, x)}`} /></td>
+                          : <td className="text-muted" style={{ fontSize: 13 }}>{detail || 'À contrôler dans le dossier voyageur'}</td>}
                         <td className="right">
-                          <div className="actions-end">
-                            <button type="button" className="btn btn-ghost btn-sm" onClick={stop(() => run('demande.refuser', { id: r.id }))}>Refuser</button>
-                            <button type="button" className="btn btn-secondary btn-sm" onClick={stop(() => run('demande.accepter', { id: r.id }))}>{r.type === 'document' ? 'Valider' : 'Accepter'}</button>
-                          </div>
+                          {/* Documents déclarés : service RH ; formations et habilitations : aussi le référent HSE. */}
+                          {(r.type === 'document' ? rh : formations) && (
+                            <div className="actions-end">
+                              {/* Refus : confirmation et motif, communiqué au collaborateur seul (le manager qui a fait la demande n'en voit rien). */}
+                              <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={stop(() => openDialog({ type: 'confirmer', c: refusDemande(r, e?.nom ?? d.personName(r.empId),
+                                reqLabel(r, id => d.fm(id).nom, id => d.hm(id).nom), { manager: r.parId ? d.personName(r.parId) : null, retire: !!e && retireeAuRefus(d, e, r) }) }))}>Refuser</button>
+                              <button type="button" className="btn btn-secondary btn-sm" disabled={occupe} onClick={agir(() => run('demande.accepter', { id: r.id }))}>{r.type === 'document' ? 'Valider' : 'Accepter'}</button>
+                            </div>
+                          )}
                         </td>
                       </tr>
                     );
@@ -133,6 +158,23 @@ export function Dashboard() {
         </Panel>
 
         <div className="col-stack" style={{ flex: '1 1 320px' }}>
+          {aCloturer.length > 0 && (
+            <Panel highlight title="Sessions à clôturer" aside={<a href="/formations" className="link-more" onClick={e => { e.preventDefault(); go('formations'); }}>Formations →</a>}>
+              <div className="list">
+                {aCloturer.map(s => (
+                  <div key={s.id} className="list-row clickable" onClick={() => openDialog({ type: 'sessionDetail', sessionId: s.id })}>
+                    <DateBlock date={parse(s.date)} />
+                    <div className="grow">
+                      <div className="ellipsis" style={{ fontSize: 14 }}>{d.fm(s.formation).court}</div>
+                      <div className="note-accent ellipsis">{SESSION_PASSEE} · {plural(s.inscrits, 'inscrit', 'inscrits')}</div>
+                    </div>
+                    {formations && <button type="button" className="btn btn-ghost btn-sm" style={{ flex: 'none' }} onClick={stop(() => openDialog({ type: 'cloture', sessionId: s.id }))}>Clôturer</button>}
+                  </div>
+                ))}
+              </div>
+            </Panel>
+          )}
+
           <Panel title="Conformité par équipe" style={{ gap: 'var(--space-4)' }}>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
               {v.teams.map(t => (
@@ -148,9 +190,9 @@ export function Dashboard() {
           <Panel title="Prochaines sessions" aside={<a href="/formations" className="link-more" onClick={e => { e.preventDefault(); go('formations'); }}>Toutes →</a>}>
             <div className="list">
               {upcoming.slice(0, 3).map(s => {
-                const sv = sessionView(s, d.fm(s.formation).court);
+                const sv = sessionView(d, s, d.fm(s.formation).court);
                 return (
-                  <div key={s.id} className="list-row">
+                  <div key={s.id} className="list-row clickable" onClick={() => openDialog({ type: 'sessionDetail', sessionId: s.id })}>
                     <DateBlock date={sv.date} />
                     <div className="grow">
                       <div className="ellipsis" style={{ fontSize: 14 }}>{sv.nom}</div>
@@ -163,7 +205,8 @@ export function Dashboard() {
             </div>
           </Panel>
 
-          <Panel title="Déplacements à préparer" aside={<a href="/voyages" className="link-more" onClick={e => { e.preventDefault(); go('voyages'); }}>Tous →</a>}>
+          {/* Dossiers de voyage (passeport, visas, vaccinations) : service RH seulement. */}
+          {rh && <Panel title="Déplacements à préparer" aside={<a href="/voyages" className="link-more" onClick={e => { e.preventDefault(); go('voyages'); }}>Tous →</a>}>
             <div className="list">
               {trips.slice(0, 3).map(t => (
                 <div key={t.id} className="list-row clickable" onClick={() => go('voyages', { tripSel: t.id })}>
@@ -176,7 +219,7 @@ export function Dashboard() {
                 </div>
               ))}
             </div>
-          </Panel>
+          </Panel>}
         </div>
       </div>
     </Page>

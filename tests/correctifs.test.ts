@@ -41,7 +41,7 @@ test('#1 pas de validation croisée entre managers', () => {
 test('#2 #4 aucune donnée de santé dans le périmètre du manager', () => {
   const { db, run } = fresh();
   run(collab(2), 'formalite.enregistrer', { empId: 2, kind: 'vaccin', v: 'fj', date: '2026-09-01' });
-  run(RH, 'employe.modifier', { id: 6, repriseMotif: 'longue maladie', repriseDate: '2026-09-15' });
+  run(RH, 'employe.modifier', { id: 6, repriseMotif: 'congé sabbatique', repriseDate: '2026-09-15' });
   const s = buildSnapshot(db, mgr(12));
   assert.ok(!s.demandesCollab.some(r => r.type === 'document' && r.empId !== 12));
   assert.equal(s.employes.find(e => e.id === 6)!.repriseMotif, 'absence longue');
@@ -53,21 +53,23 @@ test('#3 #33 inscription : bonne formation, session à venir, sans double compta
   const elec = d.emp(2)!.certs.find(c => c.f === 'elec')!;
   assert.throws(() => run(mgr(12), 'plan.inscrire', { empId: 2, certId: elec.id, sessionId: 13 }), /autre formation/);
   const sst = d.emp(1)!.certs.find(c => c.f === 'sst')!; // déjà inscrite en session 1
+  const avant = (id: number) => d.session(id)!.inscrits;
   run(RH, 'plan.inscrire', { empId: 1, certId: sst.id, sessionId: 2 });
   run(RH, 'plan.inscrire', { empId: 1, certId: sst.id, sessionId: 2 });
   const s = domain().ds.sessions;
-  assert.equal(s.find(x => x.id === 1)!.inscrits, 8, 'ancienne place libérée');
-  assert.equal(s.find(x => x.id === 2)!.inscrits, 5, 'compté une seule fois');
+  assert.equal(s.find(x => x.id === 1)!.inscrits, avant(1) - 1, 'ancienne place libérée');
+  assert.equal(s.find(x => x.id === 2)!.inscrits, avant(2) + 1, 'compté une seule fois');
 });
 
 test('#6 #32 #31 demande de formation : session contrôlée, inscription en formation initiale', () => {
   const { run, domain } = fresh();
   assert.throws(() => run(mgr(12), 'demande.formation', { empId: 18, f: 'aipr', sessionId: 9, motif: 'x' }), /Session invalide/);
   const dem = domain().ds.demandesCollab.find(r => r.empId === 13 && r.f === 'caces489')!; // Marion n'a jamais eu le CACES
+  const avant = domain().session(4)!.inscrits;
   run(RH, 'demande.accepter', { id: dem.id });
   const d = domain();
   assert.ok(d.ds.inscriptions.some(i => i.empId === 13 && i.sessionId === 4));
-  assert.equal(d.ds.sessions.find(s => s.id === 4)!.inscrits, 3);
+  assert.equal(d.ds.sessions.find(s => s.id === 4)!.inscrits, avant + 1);
   run(RH, 'cert.ajouter', { empId: 13, f: 'caces489', date: '2026-11-26' });
   assert.ok(!domain().ds.inscriptions.some(i => i.empId === 13), 'clôturée par la certification');
 });

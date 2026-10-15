@@ -381,7 +381,7 @@ export function seedDemo(db: Db) {
       db.insert('employes', {
         id: e.id, nom: e.nom, equipe: e.equipe, poste: e.poste, statut: p.statut, typeContrat: p.typeContrat, temps: p.temps,
         heures: p.heures ?? null, forfaitHeures: p.forfaitHeures ?? null, forfaitJours: p.forfaitJours ?? null, jourOff: p.jourOff ?? [],
-        entree: p.entree, fin: p.fin ?? null, naissance: p.naissance, agence: p.agence ?? null,
+        entree: p.entree, fin: p.fin ?? null, naissance: p.naissance, agence: p.agence ?? null, matriculePaie: matriculePaieDemo(e.id, p.typeContrat),
         // Chacun a une adresse professionnelle (décision de l'entreprise) ; Karim Haddad reçoit un récapitulatif quotidien.
         email: identifiantSuggere(e.nom, 'microsoft', DOMAINE_DEMO), notifications: e.id === 12 ? 'quotidien' : 'immediat',
         repriseMotif: p.reprise?.motif ?? null, repriseDate: p.reprise?.date ?? null, visite: x.visite ?? null,
@@ -411,7 +411,8 @@ export function seedDemo(db: Db) {
     DEMANDES_KEYSTONE.forEach(d => db.insert('demandesKeystone', d));
     ABSENCES.forEach(a => db.insert('absences', a));
     CET.forEach(c => db.insert('cet', c));
-    db.insert('reports', { empId: 6, jours: 4, motif: 'CP 2024-2025 non pris — arrêt de travail', par: 'Sandrine Vidal', date: '2026-06-02', sens: 'recu' });
+    // Report légal de 15 mois (arrêt de travail), reçu sur la période 2026-2027 et courant au-delà : sa clôture l'imposera.
+    db.insert('reports', { empId: 6, jours: 4, motif: 'CP 2024-2025 non pris — arrêt de travail', par: 'Sandrine Vidal', date: '2026-06-02', sens: 'recu', periode: 2026, expire: '2027-08-31' });
     DEMANDES_COLLAB.forEach(d => db.insert('demandesCollab', d));
     // Visite d'embauche demandée pour l'apprenti, jamais vu par le médecin du travail.
     db.insert('demandesVisite', { empId: 24, motif: 'embauche', le: '2026-10-05', par: RH_DEMO, statut: 'demandee', closeLe: null, closePar: null });
@@ -422,10 +423,10 @@ export function seedDemo(db: Db) {
     entretiens().forEach(e => db.insert('entretiens', e));
     comptesDemo(db);
 
-    // Reprise des compteurs : jours déjà pris sur les périodes en cours,
-    // plafonnés pour laisser un solde réaliste.
+    // Reprise des compteurs : jours déjà pris sur les périodes en cours, arrêtés au jour du chargement (période de CP à
+    // prendre et année de RTT de cette date), plafonnés pour laisser un solde réaliste.
     const ds: Dataset = loadFull(db, { role: 'rh', empId: null, nom: '', intitule: '' });
-    const d = new Domain(ds);
+    const d = new Domain(ds), arrete = ds.today;
     ds.employes.forEach((e: Employe) => {
       const c = d.contratOf(e), h = histo(e.id, !!c.forfait);
       const cp = c.interim ? 0 : Math.min(h.cp, Math.max(0, cpDroit(d, e).droit - 4));
@@ -434,7 +435,7 @@ export function seedDemo(db: Db) {
       // Les demandes de récupération en attente doivent rester couvertes par le compteur acquis.
       const recupDemandee = ds.absences.filter(a => a.empId === e.id && a.type === 'RECUP' && a.statut === 'demandee')
         .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'RECUP') * d.dayH(e), 0);
-      db.insert('soldesReprise', { empId: e.id, cpPris: cp, rttPris: rtt, recupAcquis: Math.max(h.recA, h.recP + recupDemandee), recupPris: h.recP });
+      db.insert('soldesReprise', { empId: e.id, cpPris: cp, rttPris: rtt, recupAcquis: Math.max(h.recA, h.recP + recupDemandee), recupPris: h.recP, arreteLe: arrete });
       // Reprise après une absence longue (maternité…), inscrite comme à la saisie par le RH.
       const r = repriseDesAbsences(ds.absences, e.id);
       if (r && !e.repriseDate) db.update('employes', e.id, { repriseMotif: r.motif, repriseDate: r.date });
@@ -445,6 +446,11 @@ export function seedDemo(db: Db) {
   });
 }
 
+/**
+ * Matricule de paie de démonstration (dossier Sage fictif) : l'intérimaire, payé par son agence, n'en a pas, ni l'apprenti
+ * tout juste embauché, à saisir (Paramètres → Matricules de paie).
+ */
+const matriculePaieDemo = (id: number, typeContrat: string) => typeContrat === 'interim' || id === 24 ? null : String(4100 + id).padStart(6, '0');
 /** Domaine des adresses Microsoft 365 de démonstration (réservé à la documentation, jamais routé). */
 export const DOMAINE_DEMO = 'entreprise.example';
 /** Date des convocations déjà envoyées du jeu de démonstration. */

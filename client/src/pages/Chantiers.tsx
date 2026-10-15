@@ -3,7 +3,8 @@ import { useMemo } from 'react';
 import { GNG_CLS, GNG_LABEL } from '../../../shared/constants.ts';
 import type { GngStatus } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
-import { cap, fmt, fmtShort, matricule, plural } from '../../../shared/format.ts';
+import { cap, fmt, fmtShort, plural } from '../../../shared/format.ts';
+import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
 import { usePanneauVisible } from '../components/panneau.ts';
 import { Empty, Fine, Page, Panel, Pre, Tag, Two } from '../components/ui.tsx';
 import { useEnriched, useTrips } from '../state/derived.ts';
@@ -68,7 +69,7 @@ export function Chantiers() {
               <tbody>
                 {sel.res.map(r => (
                   <tr key={r.e.id} className="clickable" onClick={() => go('collaborateurs', { selectedId: r.e.id })}>
-                    <td><Two nowrap main={r.e.nom} sub={`${matricule(r.e.id)} · ${r.e.poste}`} /></td>
+                    <td><Two nowrap main={r.e.nom} sub={`${identifiantKeystone(d.ds.settings.identifiantKeystone, r.e)} · ${r.e.poste}`} /></td>
                     <td><Tag cls={GNG_CLS[r.status]}>{GNG_LABEL[r.status]}</Tag></td>
                     <td>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>

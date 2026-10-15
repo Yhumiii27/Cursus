@@ -6,10 +6,11 @@ import { addD, isoParis, isValidDate, mondayOf } from '../../shared/dates.ts';
 import { absenceVueManager, repriseMedicale } from '../../shared/rules/absences.ts';
 import { aptitudeVueManager } from '../../shared/rules/sante.ts';
 import { avecInscrits } from '../../shared/rules/sessions.ts';
+import { finPeriodeCp, periodeReport } from '../../shared/rules/conges.ts';
 import { reglagesParDefaut } from '../../shared/reglages.ts';
 import type { DemandeVisite } from '../../shared/types.ts';
 import type {
-  Absence, Certification, Inscription, CetMouvement, Chantier, CurrentUser, Dataset, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
+  Absence, Certification, Inscription, CetMouvement, Chantier, ClotureConges, CurrentUser, Dataset, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
   Envoi, Equipe, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mission, Participation, PlanAction, Projet, ReleveInterim, ReportCp, SagePush, Session,
   Settings, SoldeReprise, TacheKeystone, Vaccination, Visa, Voyage,
 } from '../../shared/types.ts';
@@ -92,6 +93,7 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     cet: db.all<CetMouvement>('cet'),
     reports: db.all<ReportCp>('reports'),
     soldesReprise: db.all<SoldeReprise>('soldesReprise'),
+    clotures: db.all<ClotureConges>('clotures'),
     entretiens: db.all<Entretien>('entretiens'),
     demandesCollab: db.all<DemandeCollab>('demandesCollab'),
     demandesVisite: db.all<DemandeVisite>('demandesVisite'),
@@ -144,6 +146,16 @@ export function tachesProches(taches: TacheKeystone[], today: ISODate): TacheKey
     .map(t => ({ ...t, heures: Object.fromEntries(Object.entries(t.heures ?? {}).filter(([jour]) => jour >= du && jour <= au)) }));
 }
 
+/**
+ * Report de CP vu par le manager (membres de son équipe) et les profils restreints : sans motif (texte libre) et avec une
+ * échéance ramenée à la fin de sa période. L'échéance d'un report légal (31 août, 15 mois après la période) désignerait
+ * un salarié revenu d'arrêt, de maternité ou de paternité. Seul effet : leur calcul du solde d'un salarié ne retire pas
+ * les jours d'un report légal échu en cours de période (le serveur, qui contrôle les demandes, les retire).
+ */
+const reportNeutre = (r: ReportCp): ReportCp => ({ ...r, motif: '', expire: finPeriodeCp(periodeReport(r).periode) });
+/** Ligne de clôture des congés vue de même : sans motif de report imposé, échéance d'un report au 31 mai suivant. */
+const clotureNeutre = (c: ClotureConges): ClotureConges => ({ ...c, motif: null, expire: c.expire ? finPeriodeCp(c.periode + 1) : null });
+
 export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
   const full = loadFull(db, user);
   if (user.role === 'rh') {
@@ -158,9 +170,10 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
   // jamais les données de santé (date de visite, avis daté, demande de visite, vaccinations). Une reprise ouverte par
   // un arrêt longue maladie leur est masquée : elle trahirait la nature de l'arrêt (l'entretien de reprise est suivi par le RH).
   // Du passeport d'un membre, seule la date d'expiration est transmise (l'écran n'affiche qu'elle) ; les visas restent montrés.
+  // Le matricule de paie d'un membre ne lui sert à rien : il n'est pas transmis.
   const employes = full.employes.filter(e => ids.has(e.id)).map(e => isMgr && e.id !== user.empId
     ? {
-      ...e, visite: null, avis: null, restrictions: [], aptitude: aptitudeVueManager(e, d.medInfo(e).ok, full.today), vaccins: [],
+      ...e, visite: null, avis: null, restrictions: [], aptitude: aptitudeVueManager(e, d.medInfo(e).ok, full.today), vaccins: [], matriculePaie: null,
       passeport: e.passeport && { expire: e.passeport.expire },
       ...(repriseMedicale(e, full.absences) ? { repriseMotif: null, repriseDate: null } : { repriseMotif: e.repriseDate ? 'absence longue' : null }),
     }
@@ -187,9 +200,13 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     // Arrêt maladie, accident, maladie professionnelle : le manager ne voit qu'une « Absence » (dates, état).
     absences: mine(full.absences).map(a => isMgr && a.empId !== user.empId ? absenceVueManager(a) : a),
     cet: mine(full.cet),
-    // Motif d'un report de CP (texte libre, « arrêt de travail »…) : celui d'un membre n'est pas transmis au manager.
-    reports: mine(full.reports).map(r => isMgr && r.empId !== user.empId ? { ...r, motif: '' } : r),
+    // Motif d'un report de CP (texte libre, « arrêt de travail »…) : celui d'un membre n'est pas transmis au manager, ni
+    // l'échéance d'un report légal (`reportNeutre`).
+    reports: mine(full.reports).map(r => isMgr && r.empId !== user.empId ? reportNeutre(r) : r),
     soldesReprise: mine(full.soldesReprise),
+    // Clôture des congés : le motif d'un report imposé et son échéance laissent deviner une absence de santé, réservés à
+    // l'intéressé (`clotureNeutre`).
+    clotures: mine(full.clotures).map(c => isMgr && c.empId !== user.empId ? clotureNeutre(c) : c),
     entretiens: mine(full.entretiens),
     // Les documents déclarés (passeport, visas, vaccinations) des membres ne sont pas montrés au manager ;
     // le contenu d'une déclaration et le motif d'un refus ne sont transmis qu'à l'intéressé (et au RH), même
@@ -211,11 +228,13 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
  * jamais de donnée de santé détaillée. Pour tous, comme pour le manager : aptitude réduite au verdict (aptitude valide
  * ou non, avis) et aux restrictions de poste en vigueur, sans date ; ni visite, ni demande de visite, ni vaccinations ;
  * nature médicale des absences masquée et reprise d'un arrêt longue maladie retirée ; motif des reports de CP retiré
- * (texte libre).
+ * (texte libre), comme celui d'un report imposé à la clôture des congés, et échéances ramenées au 31 mai (celle d'un
+ * report légal, 31 août, laisse deviner une absence de santé, de maternité ou de paternité : `reportNeutre`).
  * - `formations` (référent HSE) : sessions et résultats, certifications et habilitations, demandes de formation et
  *   d'habilitation, chantiers avec l'état précalculé des déplacements et les absences de leurs ressources (sans nature)
  *   pour les verdicts Go / No Go ; ni passeport, ni visas (dossiers de voyage réservés au service RH) ;
- * - `paie` : feuilles de temps, absences, soldes, CET, reports, dernière transmission à Sage — aucune formation ;
+ * - `paie` : feuilles de temps, absences, soldes, CET, reports, clôtures des congés, dernière transmission à Sage — aucune
+ *   formation ;
  * - `consultation` (lecture seule) : tout ce qui précède, plus plan et budget, missions, entretiens sans le contenu
  *   des comptes rendus ; échéances des passeports (date d'expiration seule) et des visas, comme pour le manager, pour
  *   que les alertes et les échéances soient celles du service RH.
@@ -260,8 +279,9 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     absences: paie ? full.absences.map(absenceVueManager)
       : formations ? full.absences.filter(a => ressources.has(a.empId)).map(absenceVueManager) : [],
     cet: paie ? full.cet : [],
-    reports: paie ? full.reports.map(r => ({ ...r, motif: '' })) : [],
+    reports: paie ? full.reports.map(reportNeutre) : [],
     soldesReprise: paie ? full.soldesReprise : [],
+    clotures: paie ? full.clotures.map(clotureNeutre) : [],
     entretiens: lecture ? full.entretiens.map(x => ({ ...x, cr: {} })) : [],
     // Demandes de formation et d'habilitation ; les documents déclarés (passeport, visa, vaccination) restent au RH.
     demandesCollab: formations ? full.demandesCollab.filter(r => r.type !== 'document').map(r => ({ ...r, declaration: null })) : [],

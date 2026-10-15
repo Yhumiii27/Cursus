@@ -43,11 +43,14 @@ export function useSuiviEnvois(consultation: boolean): SuiviEnvois {
   return { etat, erreur, filtre, setFiltre, cible, setCible, recharger };
 }
 
-/** Personne désignée par un matricule (le RH voit tous les collaborateurs), sinon le matricule seul. */
+/**
+ * Personne désignée par un matricule (le RH voit tous les collaborateurs), sinon le matricule seul. Matricule Cursus, ou
+ * matricule de paie quand le réglage « identifiant envoyé à Keystone » l'a retenu (messages envoyés depuis).
+ */
 function useNomMatricule() {
   const data = useData();
   return (m: unknown) => {
-    const e = data.employes.find(x => matricule(x.id) === m);
+    const e = data.employes.find(x => matricule(x.id) === m) ?? data.employes.find(x => !!x.matriculePaie && x.matriculePaie === m);
     return e ? `${e.nom} (${String(m)})` : String(m ?? '—');
   };
 }

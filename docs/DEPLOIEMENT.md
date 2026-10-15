@@ -423,6 +423,40 @@ précède chaque mise en production.
 - Le service informatique consigne la version, la date et l'accord des trois pilotes avant de
   passer en production.
 
+## Mise en service : reprise depuis Lucca
+
+Cursus fait foi, après la reprise, pour la liste des salariés et les compteurs de congés (décision de l'entreprise) ;
+les compteurs sont arrêtés dans Lucca au 1er janvier 2027.
+
+- **Matricules de paie** : chaque fiche porte le matricule du dossier de paie Sage (1 à 20 lettres et chiffres,
+  unique), saisi par le service RH (fiche du collaborateur) ou repris de Lucca. Paramètres → Matricules de paie liste
+  les salariés présents qui n'en ont pas (intérimaires exclus : payés par leur agence). Tant qu'il manque, le salarié
+  est transmis à Sage sous son matricule Cursus en simulation, et une transmission réelle est refusée en le nommant :
+  tous les matricules sont à saisir avant la première transmission réelle. Réembauche : reprendre le matricule d'un
+  salarié sorti se confirme par l'administrateur RH (les deux fiches portent alors le même matricule ; Sage et Keystone
+  ne reçoivent que la fiche présente). Seul l'administrateur RH change ou retire un matricule déjà enregistré.
+- **Keystone** : il reçoit par défaut le matricule Cursus (`EMP-0001`), contrat de l'API v1. La bascule sur le
+  matricule de paie (Paramètres → Matricules de paie, « Identifiant envoyé à Keystone », administrateur RH) vaut dans
+  les deux sens, envois et appels reçus : l'annoncer à Keystone avant (`docs/API-KEYSTONE.md`), et ne la faire qu'une
+  fois les matricules saisis.
+- **Compteurs repris datés** : chaque compteur repris porte sa date d'arrêté ; les CP pris comptent sur la période de
+  cette date (du 1er juin au 31 mai), les RTT pris sur son année civile, jamais au-delà. Au premier démarrage de cette
+  version, une base existante reçoit la date du jour comme date d'arrêté et ses reports de CP leur période (un report
+  accordé dont la période visée a déjà commencé devient un report reçu sur elle ; migration
+  `lot4-reprise-soldes-dates`, journal : `migration.soldes`) : sans elle, les RTT repris seraient déduits à nouveau
+  au 1er janvier et les CP au 1er juin.
+- **Clôtures** : Cursus propose la clôture des RTT à partir du 1er janvier et celle des CP à partir du 1er juin
+  (bandeau de l'écran Congés & absences), pour les périodes tenues par Cursus (postérieures à la date d'arrêté). Le
+  service RH la confirme ; pour les CP, il décide salarié par salarié du report (plafonné au solde, jusqu'au 31 mai
+  suivant) ou de la perte du solde, jamais d'office ; après une absence de santé, une maternité, une paternité ou une
+  adoption dans la période, le solde est reporté de 15 mois. Un report légal reçu qui court au-delà du 31 mai (15 mois)
+  est reporté de nouveau pour ses seuls jours restants, jusqu'à sa propre échéance, où il s'éteint ; le reste du solde
+  est au choix du service RH. Une demande de CP de la période encore en attente est à décider avant la clôture de la
+  ligne ; des jours rendus plus tard à une période close (refus, annulation) sont reportés sur la période suivante.
+  Les RTT ne sont pas reportables : leur clôture photographie les soldes perdus, après le rappel du compte
+  épargne-temps (un salarié dont une demande de RTT de l'année est en attente n'est clôturé qu'après sa décision). Première clôture des CP de la reprise : le
+  1er juin 2027. Chaque clôture est tracée (`conges.cloturer`, archive paie de 3 ans) et sans effet si on la relance.
+
 ## Mise à jour
 
 1. Recette de la nouvelle version (ci-dessus).

@@ -7,7 +7,7 @@
 // passage en mode API (KEYSTONE_URL) les renvoie tous comme des premiers verdicts.
 import { GNG_CODE } from '../../../shared/constants.ts';
 import { Domain } from '../../../shared/domain.ts';
-import { matricule } from '../../../shared/format.ts';
+import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
 import type { CurrentUser } from '../../../shared/types.ts';
 import { loadFull, todayIso } from '../dataset.ts';
 import type { Db } from '../db.ts';
@@ -60,7 +60,7 @@ export function suivreVerdicts(db: Db, { initial = false } = {}): { chantier: st
       if (initial) continue;
       sendToKeystone(db, {
         type: 'verdict.modifie', chantier: x.c.id, statut: GNG_CODE[x.status],
-        ressource: { matricule: matricule(r.e.id), statut, motifs, precedent: avant?.statut ?? null },
+        ressource: { matricule: identifiantKeystone(full.settings.identifiantKeystone, r.e), statut, motifs, precedent: avant?.statut ?? null },
       });
       signales.push({ chantier: x.c.id, empId: r.e.id });
     }

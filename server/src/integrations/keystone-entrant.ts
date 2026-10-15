@@ -1,13 +1,15 @@
 // API entrante de Keystone : contrôle et enregistrement des projets, chantiers, affectations,
 // tâches planifiées et demandes de déplacement (routes : keystone-routes.ts, contrat : docs/API-KEYSTONE.md).
 // Chaque objet porte son identifiant Keystone : un nouvel envoi le met à jour (idempotence).
-// Les salariés sont désignés par leur matricule, `matricule()` de shared/format.ts : aujourd'hui dérivé
-// de l'identifiant interne (EMP-0001), il deviendra le matricule de paie (tâche distincte), sans autre
-// changement ici que la correspondance de `contexte()`. Le jeu de démonstration passe par ces mêmes fonctions (seed.ts).
+// Les salariés sont désignés par leur matricule : le matricule Cursus (EMP-0001, défaut), ou leur matricule de paie si
+// le réglage « identifiant envoyé à Keystone » l'a retenu (`identifiantKeystone` de shared/rules/matricules.ts). Point
+// unique de correspondance dans les deux sens : `contexte()`. Le jeu de démonstration passe par ces mêmes fonctions (seed.ts).
 import { ACTIVITES_INTERNES } from '../../../shared/constants.ts';
 import { isValidDate, iso, parse } from '../../../shared/dates.ts';
-import { matricule, plural } from '../../../shared/format.ts';
+import { plural } from '../../../shared/format.ts';
+import { identifiantKeystone, sortiLe } from '../../../shared/rules/matricules.ts';
 import type { Chantier, DemandeKeystone, DemandeStatut, Destination, ISODate, Mission, Projet, StatutKeystone, TacheKeystone, Voyage } from '../../../shared/types.ts';
+import { loadSettings, todayIso } from '../dataset.ts';
 import type { Db } from '../db.ts';
 
 /** Champ refusé : chemin (`debut`, `chantiers[2].fin`, `heures.2026-10-12`) et explication. */
@@ -51,10 +53,12 @@ const IDENTIFIANT_AIDE = 'Identifiant invalide : 1 à 64 caractères, lettres, c
 type Entree = Record<string, unknown>;
 const estObjet = (v: unknown): v is Entree => !!v && typeof v === 'object' && !Array.isArray(v);
 
-/** Référentiels lus une fois par appel : salariés par matricule, habilitations, formations, destinations. */
+/** Référentiels lus une fois par appel : salariés par matricule (et matricule de chaque salarié), habilitations, formations, destinations. */
 export interface Contexte {
   db: Db;
   salaries: Map<string, { id: number; fin: ISODate | null }>;
+  /** Matricule d'un salarié dans les réponses à Keystone (même réglage que la lecture). */
+  matricule: (empId: number) => string;
   habilitations: Set<string>;
   formations: Set<string>;
   destinations: Map<string, string>;
@@ -63,11 +67,25 @@ export interface Contexte {
 export function contexte(db: Db): Contexte {
   return {
     db,
-    // Point unique de correspondance matricule → salarié (matricule de paie à venir).
-    salaries: new Map(db.all<{ id: number; fin: ISODate | null }>('employes').map(e => [matricule(e.id), { id: e.id, fin: e.fin }])),
+    ...correspondance(db),
     habilitations: new Set(db.all<{ id: string }>('habilitations').map(h => h.id)),
     formations: new Set(db.all<{ id: string }>('formations').map(f => f.id)),
     destinations: new Map(db.all<Destination>('destinations').map(d => [d.code, d.pays])),
+  };
+}
+
+/**
+ * Correspondance matricule ↔ salarié, dans les deux sens, selon le réglage « identifiant envoyé à Keystone ». Deux fiches
+ * portent le même matricule de paie après une réembauche confirmée : le salarié présent (le plus récent) l'emporte.
+ */
+export function correspondance(db: Db): Pick<Contexte, 'salaries' | 'matricule'> {
+  const mode = loadSettings(db).identifiantKeystone, ti = todayIso();
+  const fiches = db.all<{ id: number; fin: ISODate | null; entree: ISODate; matriculePaie: string | null }>('employes')
+    .sort((a, b) => Number(!sortiLe(a, ti)) - Number(!sortiLe(b, ti)) || a.entree.localeCompare(b.entree));
+  const parId = new Map(fiches.map(e => [e.id, e]));
+  return {
+    salaries: new Map(fiches.map(e => [identifiantKeystone(mode, e), { id: e.id, fin: e.fin }])),
+    matricule: id => identifiantKeystone(mode, parId.get(id) ?? { id }),
   };
 }
 
@@ -187,9 +205,9 @@ export interface ChantierApi {
   id: string; nom: string; client: string; lieu: string; pays: string; debut: ISODate; fin: ISODate; chef: string;
   habilitations: string[]; certifications: string[]; statut: StatutKeystone; ressources: string[];
 }
-const chantierApi = (c: Chantier): ChantierApi => ({
+const chantierApi = (cx: Contexte, c: Chantier): ChantierApi => ({
   id: c.id, nom: c.nom, client: c.client, lieu: c.lieu, pays: c.pays, debut: c.debut, fin: c.fin, chef: c.chef,
-  habilitations: c.habs, certifications: c.certs, statut: c.statut ?? 'actif', ressources: c.ressources.map(matricule),
+  habilitations: c.habs, certifications: c.certs, statut: c.statut ?? 'actif', ressources: c.ressources.map(cx.matricule),
 });
 
 /** Lieu et nature d'une mission sur un chantier : « Tanger, Maroc » et déplacement international hors de France. */
@@ -245,7 +263,7 @@ function ecrireChantier(cx: Contexte, id: string | undefined, body: unknown, err
     }
   }
   if (resultat !== 'inchange') recalculerRessources(cx.db, cid);
-  return { resultat, objet: chantierApi(cx.db.get<Chantier>('chantiers', cid)!) };
+  return { resultat, objet: chantierApi(cx, cx.db.get<Chantier>('chantiers', cid)!) };
 }
 
 /**
@@ -263,9 +281,9 @@ export function enregistrerChantier(cx: Contexte, id: string | undefined, body: 
 
 export interface AffectationApi { id: string; matricule: string; chantier: string; du: ISODate; au: ISODate; ressource: boolean }
 
-function affectationApi(db: Db, m: Mission): AffectationApi {
-  const c = db.get<Chantier>('chantiers', m.projet);
-  return { id: m.ref!, matricule: matricule(m.empId), chantier: m.projet, du: m.du, au: m.au, ressource: !!c && m.du <= c.fin && m.au >= c.debut };
+function affectationApi(cx: Contexte, m: Mission): AffectationApi {
+  const c = cx.db.get<Chantier>('chantiers', m.projet);
+  return { id: m.ref!, matricule: cx.matricule(m.empId), chantier: m.projet, du: m.du, au: m.au, ressource: !!c && m.du <= c.fin && m.au >= c.debut };
 }
 
 const missionKeystone = (db: Db, ref: string) => db.where<Mission>('missions', 'ref', ref)[0];
@@ -286,15 +304,15 @@ function ecrireAffectation(cx: Contexte, id: string | undefined, body: unknown, 
   if (!ex) {
     const m = cx.db.insert<Mission>('missions', val);
     recalculerRessources(cx.db, c.id);
-    return { resultat: 'cree', objet: affectationApi(cx.db, m) };
+    return { resultat: 'cree', objet: affectationApi(cx, m) };
   }
   if (ex.empId === val.empId && ex.projet === val.projet && ex.du === du && ex.au === au && ex.lieu === val.lieu && ex.type === val.type) {
-    return { resultat: 'inchange', objet: affectationApi(cx.db, ex) };
+    return { resultat: 'inchange', objet: affectationApi(cx, ex) };
   }
   const m = cx.db.update<Mission>('missions', ex.id, val);
   recalculerRessources(cx.db, c.id);
   if (ex.projet !== c.id) recalculerRessources(cx.db, ex.projet);
-  return { resultat: 'modifie', objet: affectationApi(cx.db, m) };
+  return { resultat: 'modifie', objet: affectationApi(cx, m) };
 }
 
 /** Crée ou met à jour une affectation : mission du salarié et, si elle chevauche les dates du chantier, ressource du Go / No Go. */
@@ -315,7 +333,7 @@ export function supprimerAffectation(db: Db, ref: string) {
 // — Tâches planifiées —
 
 export interface TacheApi { id: string; projet: string; tache: string; matricule: string; debut: ISODate; fin: ISODate; heures: Record<ISODate, number> }
-const tacheApi = (t: TacheKeystone): TacheApi => ({ id: t.ref!, projet: t.projet, tache: t.tache, matricule: matricule(t.empId), debut: t.debut, fin: t.fin, heures: t.heures });
+const tacheApi = (cx: Contexte, t: TacheKeystone): TacheApi => ({ id: t.ref!, projet: t.projet, tache: t.tache, matricule: cx.matricule(t.empId), debut: t.debut, fin: t.fin, heures: t.heures });
 const tacheKeystone = (db: Db, ref: string) => db.where<TacheKeystone>('taches', 'ref', ref)[0];
 
 /** Heures planifiées par date : { "AAAA-MM-JJ": heures }, entre les dates de la tâche ; les jours à 0 sont omis. */
@@ -348,11 +366,11 @@ function ecrireTache(cx: Contexte, id: string | undefined, body: unknown, err: E
   if (err.liste.length > n || empId == null) return null;
   const val = { ref, empId, projet, tache, debut, fin, heures };
   const ex = tacheKeystone(cx.db, ref);
-  if (!ex) return { resultat: 'cree', objet: tacheApi(cx.db.insert<TacheKeystone>('taches', val)) };
+  if (!ex) return { resultat: 'cree', objet: tacheApi(cx, cx.db.insert<TacheKeystone>('taches', val)) };
   if (ex.empId === empId && ex.projet === projet && ex.tache === tache && ex.debut === debut && ex.fin === fin && egal(ex.heures, heures)) {
-    return { resultat: 'inchange', objet: tacheApi(ex) };
+    return { resultat: 'inchange', objet: tacheApi(cx, ex) };
   }
-  return { resultat: 'modifie', objet: tacheApi(cx.db.update<TacheKeystone>('taches', ex.id, val)) };
+  return { resultat: 'modifie', objet: tacheApi(cx, cx.db.update<TacheKeystone>('taches', ex.id, val)) };
 }
 
 /** Crée ou met à jour une tâche planifiée : proposée dans la feuille de temps des semaines où des heures sont prévues. */
@@ -478,7 +496,7 @@ export function bilanTexte(b: Bilan): string {
 /** Statut d'une demande dans l'API (l'ancienne route renvoyait déjà « en_attente_rh »). */
 const STATUT_DEMANDE: Record<DemandeStatut, string> = { attente: 'en_attente_rh', acceptee: 'acceptee', refusee: 'refusee' };
 
-export function demandeApi(dm: DemandeKeystone) {
+export function demandeApi(dm: DemandeKeystone, matricule: (empId: number) => string) {
   return {
     id: dm.id, reference: dm.ref, matricule: matricule(dm.empId), chantier: dm.chantier, destination: dm.dest,
     depart: dm.depart, retour: dm.retour, statut: STATUT_DEMANDE[dm.statut ?? 'attente'], recue: dm.recue, decidee: dm.decidee,
@@ -519,7 +537,7 @@ export function recevoirDemande(cx: Contexte, body: unknown, today: ISODate, ref
   const ref = referenceRequise || l.o.reference != null ? l.identifiant('reference') : null;
   if (ref) {
     const ex = cx.db.where<DemandeKeystone>('demandesKeystone', 'ref', ref)[0];
-    if (ex) throw new ErreurKeystone(409, 'DEMANDE_EN_DOUBLE', 'Demande déjà reçue sous cette référence', [], { demande: demandeApi(ex) });
+    if (ex) throw new ErreurKeystone(409, 'DEMANDE_EN_DOUBLE', 'Demande déjà reçue sous cette référence', [], { demande: demandeApi(ex, cx.matricule) });
   }
   const empId = l.salarie(cx, 'matricule');
   const chantier = l.texte('chantier', 64);
@@ -534,7 +552,7 @@ export function recevoirDemande(cx: Contexte, body: unknown, today: ISODate, ref
   err.verifier();
   const doublon = cx.db.where<DemandeKeystone>('demandesKeystone', 'empId', x.empId)
     .find(d => d.statut === 'attente' && d.chantier === x.chantier && d.depart === x.depart && d.retour === x.retour);
-  if (doublon) throw new ErreurKeystone(409, 'DEMANDE_EN_DOUBLE', 'Demande identique déjà en attente de validation RH', [], { demande: demandeApi(doublon) });
+  if (doublon) throw new ErreurKeystone(409, 'DEMANDE_EN_DOUBLE', 'Demande identique déjà en attente de validation RH', [], { demande: demandeApi(doublon, cx.matricule) });
   return cx.db.insert<DemandeKeystone>('demandesKeystone', { ...x, recue: today, ref, statut: 'attente', decidee: null, decideur: null, voyageId: null });
 }
 

@@ -10,6 +10,7 @@ import { cap, equipeLabel, fH, fJ, fmt, fmtIso, fmtShort, plural } from '../../.
 import { absenceActive, droitAnnulation, estConge, joursDecomptes, natureDef, periodeTexte, prolongeable, statutAbsence, uniteDecompte } from '../../../shared/rules/absences.ts';
 import { absenceKinds, cetInfo, cpInfo, recupInfo, reposForfait, rttInfo } from '../../../shared/rules/conges.ts';
 import type { Absence, Employe, NatureAbsence } from '../../../shared/types.ts';
+import { CloturesConges } from '../components/CloturesConges.tsx';
 import { Empty, Fine, Kpi, Kpis, Page, Panel, Tag, Two } from '../components/ui.tsx';
 import { useAgir } from '../state/actions.ts';
 import { refusAbsence } from '../state/confirmations.ts';
@@ -23,21 +24,25 @@ import { useStore } from '../state/store.tsx';
 function soldeRow(d: Domain, e: Employe) {
   const c = d.contratOf(e), cp = cpInfo(d, e), rt = rttInfo(d, e), rc = recupInfo(d, e), ct = cetInfo(d, e);
   const cet = !c.interim && ct.eligible;
+  const P = cpPeriods(d.ti);
+  // RTT de l'année suivante déjà posés ou validés (posables dès maintenant sur le droit de cette année-là).
+  const suiv = rt ? rttInfo(d, e, d.year + 1) : null, rttSuivants = suiv ? suiv.pris + suiv.poses : 0;
+  const rttSuivTxt = rttSuivants ? ` · ${fJ(rttSuivants)} posé${rttSuivants > 1 ? 's' : ''} sur ${d.year + 1}` : '';
   return {
-    e, cpSolde: cp ? cp.solde : 0, cetPlaceable: cet && (ct.placeCp > 0 || ct.placeRtt > 0),
+    e, cpSolde: cp ? cp.solde : 0, cetPlaceable: cet && (ct.placeCp > 0 || ct.placeRtt > 0 || ct.placeRttPrec > 0),
     poser: absenceKinds(d, e).length > 0, cpGere: !!cp,
     contrat: `${STATUTS[c.statut].court} · ${c.label}`,
     cp: cp ? fJ(cp.solde) : 'Agence',
     cpSub: cp
-      ? `sur ${cp.droit} j${cp.ageSupp ? ' · dont 5 j CCN (59 ans et +)' : ''}${cp.recu ? ` · report +${cp.recu} j` : ''}${cp.accorde ? ` · ${cp.accorde} j protégés au-delà du 31 mai` : ''}`
+      ? `sur ${cp.droit} j${cp.ageSupp ? ' · dont 5 j CCN (59 ans et +)' : ''}${cp.recu ? ` · dont ${fJ(cp.recu)} de report reçu` : ''}${cp.accorde ? ` · ${fJ(cp.accorde)} reportés sur ${P.labelN} à la clôture` : ''}`
       : 'géré par l’agence d’intérim',
     cpN: cp ? fJ(cp.enCours) : '—',
     // Jours déjà imputés sur la période en cours d'acquisition : pris par anticipation, ou posés à partir du 1er juin.
     cpNSub: cp && cp.suivante ? `dont ${fJ(cp.suivante)} déjà posé${cp.suivante > 1 ? 's' : ''}${cp.anticipes ? ` (${fJ(cp.anticipes)} par anticipation)` : ''}` : undefined,
     rtt: rt ? fJ(rt.solde) : '—',
-    rttSub: rt ? `${rt.label} · sur ${rt.droit} j · perdus au 31 déc.` : 'non concerné',
+    rttSub: rt ? `${rt.label} · sur ${rt.droit} j · perdus au 31 déc.${rttSuivTxt}` : 'non concerné',
     rttLabel: rt ? rt.label : 'RTT',
-    rttCard: rt ? `sur ${rt.droit} j · perdus au 31 déc.`
+    rttCard: rt ? `sur ${rt.droit} j · perdus au 31 déc.${rttSuivTxt}`
       : c.dirigeant ? 'cadre dirigeant : congés payés uniquement'
       : c.annuel ? 'forfait annuel en heures : pas de RTT'
       : 'non concerné',
@@ -130,6 +135,8 @@ export function Absences() {
             action={canCet(mine) ? <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cet', empId: mine.e.id })}>Épargner</button> : undefined} />
         </Kpis>
       )}
+
+      {espaceRh && <CloturesConges />}
 
       {aQualifier.length > 0 && (
         <Panel highlight title="Absences à qualifier" aside={`${plural(aQualifier.length, 'absence signalée', 'absences signalées')} · nature et justificatif à préciser`}>
@@ -261,7 +268,9 @@ export function Absences() {
             <li>Forfait hebdomadaire en heures : heures supplémentaires incluses au forfait (au-delà de 35 h) majorées dans la rémunération ; repos compensateur pour les heures effectuées au-delà du forfait.</li>
             <li>Cadre dirigeant (art. L3111-2) : congés payés uniquement — ni RTT, ni repos compensateur.</li>
             <li>Temps partiel : même droit à congés ; le décompte des CP inclut les jours non travaillés de la période.</li>
-            <li>Report d’une année sur l’autre : CP uniquement, au cas par cas par le service RH. RTT perdus au 31 décembre.</li>
+            <li>Clôture des congés payés, proposée à partir du 1er juin : aucun jour n’est perdu d’office, le service RH décide pour chaque salarié du report du solde (plafonné au solde, jusqu’au 31 mai suivant) ou de sa perte. Après une absence de santé, une maternité, une paternité ou une adoption dans la période, le solde est reporté de 15 mois. Un report accordé en cours de période est appliqué à la clôture.</li>
+            <li>RTT et jours de repos : non reportables, clôturés au 31 décembre (soldes non pris perdus, après le rappel du CET). Ceux de l’année suivante se posent dès maintenant sur son propre droit ; une demande à cheval sur deux années est refusée.</li>
+            <li>Compteurs repris de l’ancien outil : décomptés sur la période de CP et l’année de RTT de leur date d’arrêté, jamais au-delà.</li>
             <li>Compte épargne-temps : jusqu’à 5 RTT par an (avant le 31 décembre) et 5 CP par période, uniquement ceux de la 5e semaine (au-delà de 20 jours ouvrés).</li>
             <li>Intérim : congés gérés par l’agence ; CDD : indemnité compensatrice des CP non pris à l’échéance.</li>
             <li>Absences et feuilles de temps restent dans les bornes du contrat : entrée, fin du CDD, de la mission ou de l’alternance.</li>

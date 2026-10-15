@@ -18,7 +18,8 @@ shared/            Domaine partagé (aucune dépendance)
   reglages.ts      Réglages de Paramètres : table « champ → contrôle » (valeur par défaut, contrôle de chaque champ de Settings)
   rules/           temps.ts, conges.ts, entretiens.ts, budget.ts, imports.ts, sante.ts (avis et visites médicales) ;
                    conflits.ts : doublons et conflits de dates ; referentiels.ts : formations, habilitations et destinations
-                   (contrôles de saisie, archivage, effet d'une validité modifiée)
+                   (contrôles de saisie, archivage, effet d'une validité modifiée) ; matricules.ts : matricule de paie,
+                   identifiant Keystone ; clotures.ts : clôture des périodes de congés (CP au 31 mai, RTT au 31 décembre)
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   migrate.ts       Reprises des bases antérieures, rejouées à chaque démarrage (idempotentes)
@@ -72,7 +73,7 @@ design/            Prototype Claude Design de référence et guide du design sys
    (`visite`, `avis` et `restrictions` remplacés par `aptitude` : verdict et restrictions en
    vigueur, sans date ; ni demandes de visite ni vaccinations ; état des dossiers
    voyage précalculé dans `voyage.dossierStatut`), et du passeport de ses membres la seule date
-   d'expiration (les visas restent transmis) ; un collaborateur ne reçoit que
+   d'expiration (les visas restent transmis), sans leur matricule de paie ; un collaborateur ne reçoit que
    ses propres données ; un profil restreint de l'espace RH (référent HSE, paie, lecture
    seule) ne reçoit que ce que ses droits ouvrent (« Profils », section Sécurité), avec la même
    aptitude que le manager.
@@ -209,7 +210,10 @@ design/            Prototype Claude Design de référence et guide du design sys
   `server/src/dataset.ts`) : jamais de visite ni de vaccination ; ni passeport ni visa pour le référent HSE et la
   paie (la lecture seule reçoit, comme le manager, la date d'expiration du passeport et les visas : ses échéances et
   alertes sont celles du service RH, vaccinations exceptées) ; nature médicale des absences masquée et reprise
-  d'un arrêt longue maladie retirée (comme pour le manager), motif des reports de CP retiré ; le référent HSE ne reçoit ni temps, ni absences, ni entretiens, ni plan ; la paie ni formations, ni
+  d'un arrêt longue maladie retirée (comme pour le manager), motif des reports de CP retiré, comme celui d'un report imposé à la
+  clôture des congés (`ClotureConges.motif` : il laisse deviner une absence de santé), et échéance des reports et des
+  clôtures ramenée au 31 mai (`reportNeutre`, `clotureNeutre` : le 31 août d'un report légal la trahirait aussi, pour le
+  manager comme pour ces profils) ; le référent HSE ne reçoit ni temps, ni absences, ni entretiens, ni plan ; la paie ni formations, ni
   entretiens, ni déplacements ; la lecture seule tout le reste, sans le contenu des comptes rendus d'entretien ni
   les documents déclarés. L'état des déplacements (`dossierStatut`, `dossierManque`) est calculé par le serveur
   pour que le verdict Go / No Go reste exact sans les pièces. `GET /api/journal` et `GET /api/envois` : droit
@@ -430,8 +434,8 @@ aucun champ du paramètre n'est recopié.
 
 | Action | Paramètres | Droits |
 | --- | --- | --- |
-| `employe.creer` | fiche complète (`ProfilInput` de `shared/rules/profil.ts`) | RH |
-| `employe.modifier` | id + champs de la fiche | RH : tous ; manager : `poste`, `jourOff` (temps partiel) des membres de son équipe |
+| `employe.creer` | fiche complète (`ProfilInput` de `shared/rules/profil.ts`, matricule de paie compris : unique), reutiliserMatricule? (réembauche : matricule d'un salarié sorti) | RH ; réutiliser un matricule : administrateur RH |
+| `employe.modifier` | id + champs de la fiche, reutiliserMatricule? | RH : tous ; manager : `poste`, `jourOff` (temps partiel) des membres de son équipe ; changer ou retirer un matricule de paie déjà enregistré, réutiliser celui d'un salarié sorti : administrateur RH |
 | `equipe.creer` / `equipe.renommer` | nom, managerId? / nom, nouveau | RH |
 | `equipe.supprimer` | nom | administrateur RH |
 | `equipe.manager` | nom, managerId (null = aucun) | RH |
@@ -474,22 +478,23 @@ aucun champ du paramètre n'est recopié.
 | `temps.addLine` / `temps.removeLine` | empId, week, projet / li, projet?, tache?, lignes? (ligne visée : déjà supprimée, rien n'est refait ; feuille changée, refus) | idem |
 | `temps.suggest` / `temps.submit` | empId, week, motif? | idem (soumission : brouillon ou à corriger, sans heures un jour d’absence validée ; semaine entièrement couverte par une absence : sans heure ; 24 h par jour au plus, toutes lignes cumulées ; motif exigé au-delà de 10 h par jour ou 48 h par semaine, 13 h pour un forfait jours) |
 | `temps.validate` / `temps.reject` | empId, week, comment?, motif? | manager direct ou RH, jamais pour sa propre feuille (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence ; 24 h par jour au plus ; motif du dépassement exigé s'il manque, après une correction du valideur : celui du salarié n'est jamais remplacé) |
-| `temps.pushSage` | — | administrateur RH, paie |
+| `temps.pushSage` | — ; matricule de paie de chaque salarié (`matriculeDe`) : en simulation, un salarié sans matricule part sous son matricule Cursus et le message le nomme ; toute transmission qui n'est pas une simulation (`SAGE_MODE`) refusée tant qu'un salarié du lot n'en a pas | administrateur RH, paie |
 | `releve.envoyer` | agence, semaine (lundi, pas à venir) : relevé des feuilles validées des intérimaires de l'agence, envoi ou renvoi (feuilles en attente nommées) | RH, paie |
 | `absence.demander` | empId, kind (`CP`/`RTT`/`RECUP`), du, au | intéressé ou RH (demande, refusée si ces jours portent des heures sur une feuille validée) ; manager direct (posée et validée, refusée si des heures sont saisies ces jours-là) |
-| `absence.decider` | id, ok, motif? (refus : `motifRefus`, montré au salarié et à son manager) | manager direct ou RH, jamais pour sa propre demande (validation refusée si des heures sont saisies ces jours-là ; même décision déjà prise : rien n'est refait) |
+| `absence.decider` | id, ok, motif? (refus : `motifRefus`, montré au salarié et à son manager ; jours rendus à une période de CP close : report reçu sur la suivante, `recrediterPeriodesCloses`) | manager direct ou RH, jamais pour sa propre demande (validation refusée si des heures sont saisies ces jours-là ; même décision déjà prise : rien n'est refait) |
 | `absence.signaler` | empId, du, au | intéressé, manager direct ou RH : absence imprévue « à qualifier », en vigueur aussitôt |
 | `absence.saisir` | empId, nature, du, au, justificatif, justificatifLe | RH (absence hors congés validée d’emblée), jamais pour lui-même |
 | `absence.qualifier` | id, nature, du?, au?, justificatif, justificatifLe | RH (absence signalée ou qualifiée, hors congés), jamais la sienne |
 | `absence.prolonger` | id, au | intéressé, manager direct ou RH (hors congés ; hors RH, l’absence repasse « à qualifier ») |
-| `absence.annuler` | id | demande : intéressé ou RH ; absence à venir : manager direct ou RH (et l’intéressé pour son propre signalement, ni qualifié ni prolongé) ; commencée ou passée : RH ; hors périmètre : refus unique (403) |
-| `cet.placer` | empId, kind, jours | intéressé ou RH |
-| `report.accorder` | empId, jours, motif | RH, jamais pour lui-même |
+| `absence.annuler` | id (jours rendus à une période de CP close : report reçu sur la suivante, tracé) | demande : intéressé ou RH ; absence à venir : manager direct ou RH (et l’intéressé pour son propre signalement, ni qualifié ni prolongé) ; commencée ou passée : RH ; hors périmètre : refus unique (403) |
+| `cet.placer` | empId, kind, jours, annee? (RTT de l'année précédente, tant que sa clôture n'est pas faite) | intéressé ou RH |
+| `report.accorder` | empId, jours, motif (échéance : 31 mai suivant, seul un report légal court au-delà) : jours de la période en cours reportés sur la suivante, dans la limite du solde non encore reporté, appliqués à la clôture | RH, jamais pour lui-même |
+| `conges.cloturer` | type (`CP`/`RTT`), periode (année de prise des CP, année des RTT), lignes? [{empId, decision `reporter`/`perdre`, jours? (report imposé compris)}] (CP) : période terminée ; une ligne déjà clôturée n'est jamais refaite, une ligne sans décision reste à clôturer, un salarié sans solde est clos d'emblée ; une ligne dont une demande de CP de la période est en attente n'est pas close (refus nommant la demande) ; perte refusée pour les jours d'un report imposé ; RTT : soldes perdus (non reportables), salarié dont une demande de RTT de l'année est en attente non clôturé | RH ; jamais sa propre ligne de CP |
 | `entretien.planifier` | empId, kind, date, nonTenu? ; un seul entretien planifié par type : une nouvelle date le reprogramme (passé avec un compte rendu commencé, seulement avec `nonTenu`, l'évaluateur confirmant qu'il n'a pas eu lieu) ; refusé un jour d'absence du salarié ; convocation par e-mail (`.ics`, même événement à la reprogrammation) | manager direct ou RH (jamais son propre entretien) |
 | `entretien.modifier` | id, section?, value?, info? | évaluateur / salarié selon la section (un membre du RH n'évalue pas son propre entretien) |
 | `entretien.clore` | id, date? (jour où l'entretien a eu lieu, aujourd'hui au plus tard et pas avant sa planification ; exigée pour un entretien prévu à une date à venir) | évaluateur (l'écran enregistre d'abord chaque section ; un échec interrompt la clôture) |
 | `entretien.signer` | id | salarié |
-| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone), silent? ; saisie refusée par un contrôle : 400, rien n'est enregistré | administrateur RH |
+| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes), silent? ; saisie refusée par un contrôle : 400, rien n'est enregistré | administrateur RH |
 | `demo.reinitialiser` | — | administrateur RH, mode démonstration |
 | `compte.creer` | empId (ou nom, adresse : compte externe), type (`microsoft`/`local`), identifiant, profilRh | administrateur RH (mot de passe provisoire dans `result`, affiché une fois) |
 | `compte.profil` | id, profilRh (`aucun`/`rh_gestionnaire`/`rh_admin`/`referent_hse`/`paie`/`lecture_seule`) | administrateur RH (jamais le dernier administrateur actif ; un compte externe garde un profil) |
@@ -533,7 +538,7 @@ Table `journal`, écrite par `server/src/journal.ts` (actions) et `journaliser` 
   signalés par `POST /api/exports`, `client/src/print.ts`) ; consultation de l'archive (chaque page lue, une
   ligne par compte et par filtre pendant 15 minutes) ; application des durées de conservation.
 - **Conservation** (décision de l'entreprise) : 1 an pour tout ; au-delà, les actions liées à la paie
-  (`ACTIONS_PAIE` : validations des feuilles et des absences, prolongations et annulations d'absences,
+  (`ACTIONS_PAIE` : validations des feuilles et des absences, prolongations et annulations d'absences, clôtures des congés,
   corrections d'heures, transmissions à la paie) passent dans l'archive (`archivee`), absente de l'écran et
   consultée sur demande par le service RH, et toute ligne est supprimée au bout de 3 ans. Une action ajoutée
   à `ACTIONS_PAIE` vaut aussi pour les lignes déjà écrites (`marquerPaie`, au démarrage). Appliquée au
@@ -768,9 +773,12 @@ affectations, tâches et demandes, index uniques créés au démarrage) : un nou
 - **Demande de déplacement** (`demandesKeystone`) : contrôlée à la réception (affectation exigée),
   revalidée à l'acceptation, conservée après décision.
 
-Les salariés sont désignés par `matricule()` (`shared/format.ts`) ; la correspondance inverse est
-faite à un seul endroit (`contexte()` de keystone-entrant.ts), à reprendre quand le matricule de
-paie sera stocké. Contrat : `docs/API-KEYSTONE.md` et `docs/keystone-openapi.json` (codes de motif :
+Les salariés sont désignés par `identifiantKeystone` (`shared/rules/matricules.ts`) : le matricule Cursus
+(`matricule()` de `shared/format.ts`, `EMP-0001`) par défaut, ou le matricule de paie si le réglage
+`identifiantKeystone` l'a retenu (un salarié sans matricule de paie garde le sien) ; même fonction pour les
+envois, les verdicts et les réponses de l'API. La correspondance inverse est faite à un seul endroit
+(`correspondance()` de keystone-entrant.ts, dans `contexte()`) : après une réembauche, deux fiches portent le
+même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEYSTONE.md` et `docs/keystone-openapi.json` (codes de motif :
 `CODES_MOTIF` de `shared/constants.ts`).
 
 ## Go / No Go
@@ -819,6 +827,29 @@ paie sera stocké. Contrat : `docs/API-KEYSTONE.md` et `docs/keystone-openapi.js
   soumission, validation). Au-delà des durées maximales (`SheetCalc.depassements`), la soumission exige un motif
   (`FeuilleTemps.motifDepassement`), affiché au valideur ; s'il a lui-même porté la feuille au-delà, il le donne en validant.
   Le motif du salarié est conservé : celui du valideur ne sert que s'il manque.
+- **Reports de CP** (`ReportCp.periode`, `expire`) : un report reçu s'ajoute aux droits de sa période (année de prise) ;
+  un report accordé en cours de période (`report.accorder`) vise la suivante et ne compte qu'une fois appliqué par la
+  clôture (`reportEnAttente`). Un report décidé par le service RH s'éteint le 31 mai (`echeanceReport`) ; seul un report
+  légal (`estReportLegal`) a une autre échéance. Échu en cours de période, il ne garde que ses jours déjà pris
+  (`reportsAu` : jours pris imputés d'abord sur lui) ; les jours posés après l'échéance ne le consomment plus.
+- **Clôture des congés** (`shared/rules/clotures.ts`, `conges.cloturer`) : proposée par le bandeau de l'écran Congés &
+  absences (`cloturesAFaire`) à partir du 1er juin (CP de la période close au 31 mai) et du 1er janvier (RTT de l'année
+  close), pour les périodes postérieures à la date d'arrêté des compteurs repris. CP : solde photographié pour chaque
+  salarié présent au 31 mai (ni intérimaire, ni sorti : indemnité compensatrice), report (plafonné au solde, échéance
+  au 31 mai suivant, report reçu sur la période suivante) ou perte décidés ligne par ligne, jamais d'office
+  ni en bloc ; réglage `politiqueReportCp` : sans proposition (défaut) ou report du solde proposé. Report imposé (perte
+  refusée) : tout le solde, 15 mois (31 août A+2 : art. L3141-2 et L3141-19-1), après une absence de santé, une
+  maternité, une paternité, une adoption ou une absence encore à qualifier dans la période ; les seuls jours restants
+  d'un report légal reçu qui court au-delà de la période, jusqu'à sa propre échéance (le reste du solde est au choix du
+  service RH) ; motif réservé au service RH et à l'intéressé. Une ligne n'est pas close tant qu'une demande de CP de la
+  période attend une décision ; une période close ne reçoit plus de congé (`checkAbsence`), et les jours qu'un refus ou
+  une annulation lui rendent sont reportés sur la période suivante (`recrediterPeriodesCloses`, tracé). RTT : non reportables, soldes photographiés et perdus ; ceux
+  de l'année close restent plaçables sur le CET (`cet.placer`, `annee`) jusqu'à la confirmation. Table `clotures` (une
+  ligne par salarié et période, unique) : relancer est sans effet.
+- **RTT de l'année suivante** (`rttDemande`) : une demande de RTT est évaluée sur l'année de son premier jour, avec le
+  droit et le solde de cette année (`rttInfo(d, e, Y)`), dès maintenant (réglage `rttAnneeSuivanteDes` : à partir d'un
+  jour de l'année, vide par défaut) ; refusée à cheval sur deux années, sur une année close (`rttAnneeClose` : clôture
+  faite, année antérieure à la précédente ou à la date d'arrêté) ou au-delà de l'année suivante.
 - **RTT et jours de repos** (`rttDroit`) : au prorata des mois passés dans l'année sous le régime actuel, de l'entrée (ou
   du changement de régime) à la fin du contrat ; un mois compte si le salarié y est présent à la mi-mois (`monthsPresent`,
   comme l'acquisition des CP) : un contrat d'une semaine ne donne aucun jour.
@@ -829,7 +860,9 @@ paie sera stocké. Contrat : `docs/API-KEYSTONE.md` et `docs/keystone-openapi.js
   dans la limite des jours qui seront acquis à la date du congé (décision de l'entreprise), puis déduite de celle-ci au
   1er juin ; au-delà, solde insuffisant (`checkAbsence`, qui refuse aussi une demande qui repousserait un congé déjà posé
   au-delà des jours acquis). `cpInfo` donne le solde de la période en cours et `suivante` / `anticipes`, les jours déjà
-  imputés sur la suivante. Les compteurs repris de l'ancien système (`soldesReprise`) restent imputés sur la période en cours.
+  imputés sur la suivante. Les compteurs repris de l'ancien système (`soldesReprise`) sont datés (`arreteLe`) : les CP pris
+  s'imputent sur la période de cette date (`anneeCp`), les RTT pris sur son année civile, la récupération reste cumulée
+  (`reprise`). Une base existante a reçu la date de mise en service (migration `lot4-reprise-soldes-dates`).
   Les 5 jours de la CCN à partir de 59 ans (`supplementAge`) suivent une seule règle pour la période en cours et les autres :
   accordés dès l'année civile des 59 ans, ils restent acquis à la période une fois passée (sans quoi les jours pris dessus
   seraient repris par anticipation sur la suivante au 1er juin).

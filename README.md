@@ -176,6 +176,8 @@ périodique : `docs/SAUVEGARDE.md`.
   et relance dans Paramètres → Envois), seulement tracés dans le journal sans elle (`server/src/envois.ts`).
 - **Sage Paie** : la transmission produit le JSON des variables et un accusé fictif
   (`server/src/integrations/sage.ts`) ; la correspondance des rubriques avec le plan de paie reste à paramétrer.
+  Chaque salarié y est désigné par son matricule de paie, saisi sur sa fiche (Paramètres → Matricules de paie liste
+  ceux qui manquent) : sans lui, il part sous son matricule Cursus en simulation, et une transmission réelle est refusée.
 - **E-mails** (`docs/EMAILS.md`) : notifications des étapes de validation (demande de congés et décision,
   feuille soumise ou renvoyée, compte rendu d'entretien à signer, réponse à une demande au service RH),
   aussitôt ou en récapitulatif quotidien selon le réglage de chacun ; convocations aux formations (envoi
@@ -214,8 +216,12 @@ heures complémentaires +10 % / +25 %, forfait jours, alertes 10 h / 48 h · rep
 compensateur · journée de 24 h au plus, motif exigé au-delà des durées maximales · CP 25 jours
 ouvrés (+5 j à 59 ans, CCN Chimie), chaque jour imputé sur sa période de référence, prise par
 anticipation dans la limite des jours acquis à la date du congé · RTT et jours de repos forfait
-calculés au prorata de l'entrée et de la fin du contrat, CET (5 RTT/an, 5e semaine de CP), reports
-tracés · doublons et conflits de dates (formation, absence, déplacement, entretien) signalés ou
+calculés au prorata de l'entrée et de la fin du contrat, ceux de l'année suivante posables dès maintenant, CET (5 RTT/an,
+5e semaine de CP), reports de CP rattachés à une période et datés · clôture des congés proposée au 1er juin (CP : report
+ou perte décidés salarié par salarié, jamais d'office, report de 15 mois après une absence de santé, une maternité ou
+une paternité) et au 1er janvier (RTT non reportables) · compteurs repris de l'ancien outil datés (période de leur date
+d'arrêté) · matricule de paie unique sur la fiche (réembauche confirmée par l'administrateur RH), identifiant envoyé à
+Keystone réglable (matricule Cursus par défaut) · doublons et conflits de dates (formation, absence, déplacement, entretien) signalés ou
 bloqués · absences hors congés
 (maladie, accident du travail ou de trajet, maladie professionnelle, maternité, paternité, adoption,
 congé parental, événements familiaux, enfant malade, absences non payées) signalées par le manager et

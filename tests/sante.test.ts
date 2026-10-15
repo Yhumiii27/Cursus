@@ -257,7 +257,7 @@ test('t114 : la demande de visite est enregistrée, affichée « Visite demandé
   const [mail] = db.all<{ cible: string; type: string; contenu: { a: string[]; objet: string; texte: string; repondreA?: string } }>('envois')
     .filter(e => e.type === 'visite.demande');
   assert.deepEqual([mail.cible, mail.contenu.a, mail.contenu.objet], ['email', ['contact@sante-travail.example'], 'Demande de visite médicale — Thomas Garnier']);
-  assert.match(mail.contenu.texte, /matricule EMP-0006/);
+  assert.match(mail.contenu.texte, /matricule 004106/, 'matricule de paie');
   assert.match(mail.contenu.texte, /Visite demandée : Visite périodique — renouvellement de l’aptitude \(Art\. R4624-16 et R4624-28 du Code du travail\)/);
   assert.match(mail.contenu.texte, /Habilitations du poste qui exigent l’aptitude médicale : .*Habilitation électrique/);
   assert.doesNotMatch(mail.contenu.texte, /[Éé]chue|[Ii]napte|restriction|apte avec/);

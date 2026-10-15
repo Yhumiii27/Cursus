@@ -22,6 +22,9 @@ export const CONSERVATION_ENVOIS_MOIS = 12;
  */
 export const ACTIONS_PAIE: readonly string[] = [
   'temps.validate', 'temps.correction', 'temps.pushSage', 'absence.decider', 'absence.qualifier', 'absence.saisir', 'absence.prolonger', 'absence.annuler',
+  // Clôture des congés (report ou perte du solde de chaque salarié, à justifier en cas de litige) et datation des
+  // compteurs repris de l'ancien système (période sur laquelle ils sont décomptés).
+  'conges.cloturer', 'migration.soldes',
 ];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
@@ -99,6 +102,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'absence.annuler': 'Absence annulée',
   'cet.placer': 'Placement sur le compte épargne-temps',
   'report.accorder': 'Report de congés payés',
+  'conges.cloturer': 'Clôture d’une période de congés',
   // Entretiens
   'entretien.planifier': 'Entretien planifié',
   'entretien.modifier': 'Compte rendu d’entretien rédigé',
@@ -139,6 +143,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'sage.echec': 'Envoi à Sage Paie en échec',
   // Mise à jour de la base
   'migration.detachement': 'Reprise des formalités de détachement',
+  'migration.soldes': 'Datation des compteurs repris et des reports de CP',
 };
 
 /** Libellé d'un code ; un e-mail simulé (`email.<nature>`, sans boîte d'envoi) est nommé par sa nature. */
@@ -171,7 +176,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
   { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement'] },
   { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.'] },
-  { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.'] },
+  { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.', 'conges.', 'migration.soldes'] },
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
   { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.'] },
   { id: 'connexions', label: 'Connexions et accès', prefixes: ACTIONS_CONNEXION },
@@ -200,6 +205,8 @@ export const CHAMP_LABEL: Record<string, string> = {
   prereqs: 'Prérequis', medical: 'Aptitude médicale exigée', signataire: 'Signataire', pays: 'Pays', visa: 'Entrée', visaSub: 'Précision sur l’entrée',
   oblig: 'Vaccins obligatoires', rec: 'Vaccins recommandés', passMois: 'Validité du passeport après l’entrée (mois)', secu: 'Sécurité sociale',
   archive: 'Archivée le',
+  matriculePaie: 'Matricule de paie', identifiantKeystone: 'Identifiant envoyé à Keystone', politiqueReportCp: 'Politique de report des CP',
+  rttAnneeSuivanteDes: 'RTT de l’année suivante posables à partir du',
 };
 
 const valeur = (v: unknown): string => {

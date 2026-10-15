@@ -66,9 +66,12 @@ export function heuresKeystone(lignes: LigneTemps[]): Record<string, number> {
   return out;
 }
 
-/** Absence validée ou annulée : période seulement, jamais sa nature (congé, maladie…), sans utilité pour la planification. */
-export function absenceKeystone(type: 'absence.validee' | 'absence.annulee', a: Pick<Absence, 'id' | 'empId' | 'du' | 'au'>): KeystoneEvent {
-  return { type, absence: a.id, matricule: matricule(a.empId), du: a.du, au: a.au };
+/**
+ * Absence validée ou annulée : période seulement, jamais sa nature (congé, maladie…), sans utilité pour la planification.
+ * `identifiant` : celui du salarié selon le réglage « identifiant envoyé à Keystone » (shared/rules/matricules.ts).
+ */
+export function absenceKeystone(type: 'absence.validee' | 'absence.annulee', a: Pick<Absence, 'id' | 'empId' | 'du' | 'au'>, identifiant = matricule(a.empId)): KeystoneEvent {
+  return { type, absence: a.id, matricule: identifiant, du: a.du, au: a.au };
 }
 
 /**

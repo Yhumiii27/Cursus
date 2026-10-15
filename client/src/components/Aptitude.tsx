@@ -3,7 +3,8 @@
 import type { ReactNode } from 'react';
 import { AVIS_MEDICAL, CLS, MOTIFS_VISITE } from '../../../shared/constants.ts';
 import type { Domain, EmpX } from '../../../shared/domain.ts';
-import { equipeLabel, fmtIso, matricule } from '../../../shared/format.ts';
+import { equipeLabel, fmtIso } from '../../../shared/format.ts';
+import { matriculeAffiche } from '../../../shared/rules/matricules.ts';
 import { restrictionEnVigueur, restrictionTexte } from '../../../shared/rules/sante.ts';
 import type { DemandeVisite } from '../../../shared/types.ts';
 import { printDocument } from '../print.ts';
@@ -19,7 +20,7 @@ export function imprimerDemandeVisite(d: Domain, e: EmpX, x: DemandeVisite): boo
   return printDocument('Demande de visite médicale', 'À l’attention du service de prévention et de santé au travail', [
     {
       title: 'Salarié',
-      rows: [['Nom', e.nom], ['Matricule', matricule(e.id)], ['Année de naissance', String(e.naissance)], ['Poste', e.poste], ['Équipe', equipeLabel(e)],
+      rows: [['Nom', e.nom], ['Matricule', matriculeAffiche(e)], ['Année de naissance', String(e.naissance)], ['Poste', e.poste], ['Équipe', equipeLabel(e)],
         ['Contrat', d.contratOf(e).libelle], ['Date d’entrée', fmtIso(e.entree)]],
     },
     {

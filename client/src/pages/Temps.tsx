@@ -19,6 +19,7 @@ import {
   joursAbsenceTexte, natureAbsence, sagePending, semaineCouverte, tachesDeLaSemaine, type SheetCalc,
 } from '../../../shared/rules/temps.ts';
 import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
+import { SansMatriculePaie } from '../components/MatriculesPaie.tsx';
 import { CloseButton, Fine, Page, Panel, Pre, Tag, Two, stop } from '../components/ui.tsx';
 import { useAgir } from '../state/actions.ts';
 import { suppressionLigne, transmissionSage } from '../state/confirmations.ts';
@@ -232,6 +233,7 @@ export function Temps() {
               : <span className="text-muted sub">Transmission réservée à l’administrateur RH et au gestionnaire de paie</span>}
           </div>
         }>
+          <SansMatriculePaie empIds={aTransmettre.map(sh => sh.empId)} />
           {data.lastSagePush && <>
             <Pre maxHeight={320}>{JSON.stringify(data.lastSagePush, null, 2)}</Pre>
             <Fine>Rubriques indicatives (HN, HSF25 et HSF50 heures incluses au forfait à +25 % et +50 %, HS25, HS50, HC10, HC25, RCR_ACQUIS, JTRAV) — correspondance avec le plan de paie Sage à paramétrer.</Fine>

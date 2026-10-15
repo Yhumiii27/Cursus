@@ -128,6 +128,12 @@ export interface Employe {
   fin: ISODate | null;
   naissance: number;
   agence: string | null;
+  /**
+   * Matricule du dossier de paie (Sage), saisi ou repris par le service RH : 1 à 20 lettres et chiffres, unique (sauf
+   * réembauche confirmée par l'administrateur RH). Null : à saisir ; le salarié est alors refusé d'une transmission réelle
+   * à la paie (shared/rules/matricules.ts). Retiré des fiches des membres de son équipe envoyées au manager.
+   */
+  matriculePaie: string | null;
   /** Adresse e-mail professionnelle (notifications, convocations), saisie par le service RH ; unique, en minuscules. */
   email: string | null;
   /** Notifications d'étapes par e-mail : aussitôt, ou regroupées dans un récapitulatif quotidien (réglage de la personne). */
@@ -235,9 +241,34 @@ export interface Absence {
   motifRefus?: string | null;
 }
 export interface CetMouvement { id: number; empId: number; type: 'CP' | 'RTT'; jours: number; date: ISODate; periode: string }
-export interface ReportCp { id: number; empId: number; jours: number; motif: string; par: string; date: ISODate; sens: 'recu' | 'accorde' }
-/** Compteurs repris de l'ancien système pour les périodes en cours. */
-export interface SoldeReprise { empId: number; cpPris: number; rttPris: number; recupAcquis: number; recupPris: number }
+/**
+ * Report de congés payés. `recu` : jours ajoutés aux droits de la période `periode` (année de prise, `anneeCp` de
+ * shared/rules/conges.ts), utilisables jusqu'à `expire`. `accorde` : report décidé par le service RH en cours de période,
+ * des jours de la période `periode - 1` vers `periode`, appliqué à la clôture de la période (`conges.cloturer`), qui le
+ * plafonne au solde et crée le report reçu. Null : report antérieur aux périodes datées (migration lot4-reprise-soldes-dates).
+ */
+export interface ReportCp {
+  id: number; empId: number; jours: number; motif: string; par: string; date: ISODate; sens: 'recu' | 'accorde';
+  periode: number | null; expire: ISODate | null;
+}
+/**
+ * Compteurs repris de l'ancien système (Lucca), arrêtés le `arreteLe` : `cpPris` porte sur la période de congés payés
+ * de cette date (`anneeCp`), `rttPris` sur son année civile ; la récupération reste cumulée. Null : date de mise en service.
+ */
+export interface SoldeReprise { empId: number; cpPris: number; rttPris: number; recupAcquis: number; recupPris: number; arreteLe: ISODate | null }
+/**
+ * Clôture d'une période de congés pour un salarié (`conges.cloturer`) : photographie du solde restant et décision du
+ * service RH. CP (`periode` : année de prise de la période close au 31 mai) : report (`reportes` en tout, report imposé
+ * compris ; reports reçus sur la période suivante : `reportId`, celui décidé par le service RH, jusqu'au 31 mai suivant
+ * — `expire` —, à défaut le report imposé) ou perte, choisis ligne par ligne ; `motif` : report imposé (absence de
+ * santé, maternité ou paternité dans la période, report légal en cours), réservé au service RH. RTT (`periode` : année
+ * close au 31 décembre) : non reportables, le solde est perdu. `solde_nul` : rien à décider.
+ */
+export interface ClotureConges {
+  id: number; empId: number; type: 'CP' | 'RTT'; periode: number; solde: number;
+  decision: 'reporter' | 'perdre' | 'solde_nul'; reportes: number; perdus: number; expire: ISODate | null; reportId: number | null;
+  motif: 'report_legal' | 'report_en_cours' | null; le: ISODate; par: string;
+}
 
 // — Entretiens & demandes —
 /**
@@ -270,6 +301,15 @@ export interface Settings {
   partageKeystone: 'minimal' | 'detaille';
   rtt39: number;
   vueInitiale: string;
+  /**
+   * Identifiant des salariés échangé avec Keystone : matricule Cursus (EMP-0001, contrat de l'API v1, par défaut) ou
+   * matricule de paie (bascule annoncée à Keystone à l'avance ; un salarié sans matricule de paie garde le matricule Cursus).
+   */
+  identifiantKeystone: 'cursus' | 'paie';
+  /** Clôture des congés payés : le service RH choisit chaque ligne sans proposition, ou Cursus propose le report du solde. */
+  politiqueReportCp: 'cas_par_cas' | 'proposer_report';
+  /** RTT de l'année suivante posables à partir de ce jour de l'année (« MM-JJ ») ; vide : sans restriction. */
+  rttAnneeSuivanteDes: string;
 }
 
 /**
@@ -425,6 +465,8 @@ export interface Dataset {
   cet: CetMouvement[];
   reports: ReportCp[];
   soldesReprise: SoldeReprise[];
+  /** Clôtures des périodes de congés (CP au 31 mai, RTT au 31 décembre), une ligne par salarié et par période. */
+  clotures: ClotureConges[];
   entretiens: Entretien[];
   demandesCollab: DemandeCollab[];
   demandesVisite: DemandeVisite[];

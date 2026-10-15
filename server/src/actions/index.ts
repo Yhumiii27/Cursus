@@ -1,6 +1,7 @@
 // Registre des actions métier exposées par POST /api/actions/:nom.
 import { absencesActions } from './absences.ts';
 import { budgetActions } from './budget.ts';
+import { cloturesActions } from './clotures.ts';
 import { comptesActions } from './comptes.ts';
 import { conformiteActions } from './conformite.ts';
 import type { ActionHandler } from './context.ts';
@@ -32,6 +33,7 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...messagerieActions,
   ...santeActions,
   ...referentielsActions,
+  ...cloturesActions,
 };
 
 /**
@@ -40,5 +42,5 @@ export const ACTIONS: Record<string, ActionHandler> = {
  * après toute autre action, les verdicts transmis à Keystone sont recalculés (integrations/keystone-verdicts.ts).
  * Les actions d'absence en font partie : une absence pendant la présence sur un chantier bloque la ressource.
  */
-const SANS_EFFET_VERDICT = ['temps.', 'cet.', 'report.', 'entretien.', 'budget.', 'equipe.', 'envoi.', 'convocation.', 'messagerie.', 'notification.', 'releve.'];
+const SANS_EFFET_VERDICT = ['temps.', 'cet.', 'report.', 'conges.', 'entretien.', 'budget.', 'equipe.', 'envoi.', 'convocation.', 'messagerie.', 'notification.', 'releve.'];
 export const changeVerdicts = (nom: string) => !SANS_EFFET_VERDICT.some(p => nom.startsWith(p));

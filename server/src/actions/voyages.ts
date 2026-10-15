@@ -1,7 +1,8 @@
 // Déplacements, formalités (passeport, visas, vaccinations) et demandes Keystone.
 import { SECU_RULES, VACCINS, secuDe } from '../../../shared/constants.ts';
 import { isValidDate, parse } from '../../../shared/dates.ts';
-import { fmt, matricule, plural } from '../../../shared/format.ts';
+import { fmt, plural } from '../../../shared/format.ts';
+import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
 import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
 import { declarationLabel, estAuDossier, formaliteCle, lignesAuDossier, lireFormalite } from '../../../shared/rules/formalites.ts';
 import { parseTrips } from '../../../shared/rules/imports.ts';
@@ -135,7 +136,7 @@ const accepterKeystone: ActionHandler = (ctx, p) => {
     origine: 'keystone', ref: dm.ref, chantier: dm.chantier,
   });
   ctx.db.update<DemandeKeystone>('demandesKeystone', dm.id, { statut: 'acceptee', decidee: ctx.d.ti, decideur: ctx.user.nom, voyageId: t.id });
-  sendToKeystone(ctx.db, { type: 'demande.decision', demande: dm.id, reference: dm.ref, matricule: matricule(emp.id), chantier: dm.chantier, decision: 'acceptee', date: ctx.d.ti });
+  sendToKeystone(ctx.db, { type: 'demande.decision', demande: dm.id, reference: dm.ref, matricule: identifiantKeystone(ctx.ds.settings.identifiantKeystone, emp), chantier: dm.chantier, decision: 'acceptee', date: ctx.d.ti });
   return { message: `Déplacement créé pour ${emp.nom} — chantier ${dm.chantier} · statut renvoyé à Keystone`, result: { id: t.id } };
 };
 
@@ -148,7 +149,7 @@ const refuserKeystone: ActionHandler = (ctx, p) => {
   const motif = str(p.motif);
   if (motif.length > 500) throw new ActionError('Motif trop long (500 caractères au plus)');
   ctx.db.update<DemandeKeystone>('demandesKeystone', dm.id, { statut: 'refusee', decidee: ctx.d.ti, decideur: ctx.user.nom, motifRefus: motif || null });
-  sendToKeystone(ctx.db, { type: 'demande.decision', demande: dm.id, reference: dm.ref, matricule: matricule(dm.empId), chantier: dm.chantier, decision: 'refusee', date: ctx.d.ti });
+  sendToKeystone(ctx.db, { type: 'demande.decision', demande: dm.id, reference: dm.ref, matricule: identifiantKeystone(ctx.ds.settings.identifiantKeystone, ctx.d.emp(dm.empId) ?? { id: dm.empId }), chantier: dm.chantier, decision: 'refusee', date: ctx.d.ti });
   return `Demande refusée — ${ctx.d.personName(dm.empId)} · ${c ? c.chef || 'le chef de projet' : 'le chef de projet'} notifié dans Keystone${motif ? ` · motif : ${motif}` : ''}`;
 };
 

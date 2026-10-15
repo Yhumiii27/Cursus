@@ -1,13 +1,14 @@
 // Feuilles de temps : saisie, soumission, validation, transmission à Sage Paie.
 import { addD, isValidDate, isoWeek, mondayOf, wDays } from '../../../shared/dates.ts';
-import { fH, matricule, num, plural } from '../../../shared/format.ts';
+import { fH, num, plural } from '../../../shared/format.ts';
+import { identifiantKeystone, sansMatriculePaie } from '../../../shared/rules/matricules.ts';
 import { jourHorsContrat, semaineHorsContrat } from '../../../shared/rules/absences.ts';
 import {
   absenceCeJour, buildSagePayload, calcSheet, contratFige, demandesAbsence, demandesEnAttenteMessage, HEURES_JOUR_MAX, heuresSurAbsence, heuresSurAbsenceMessage,
   joursAbsence, joursAuDela24, joursTexte, sagePending, semaineCouverte, suggestLines,
 } from '../../../shared/rules/temps.ts';
 import type { Employe, FeuilleTemps, LigneTemps } from '../../../shared/types.ts';
-import { pushToSage, SAGE_DOSSIER } from '../integrations/sage.ts';
+import { pushToSage, SAGE_DOSSIER, SAGE_MODE } from '../integrations/sage.ts';
 import { heuresKeystone, sendToKeystone } from '../integrations/keystone.ts';
 import { notifierFeuilleRenvoyee, notifierFeuilleSoumise } from '../notifications.ts';
 import { relevesAutomatiques } from '../releves.ts';
@@ -164,7 +165,7 @@ const validate: ActionHandler = (ctx, p) => {
   // Seules les heures des projets Keystone lui sont renvoyées : ni activités internes (INT-*), ni cours en CFA (ECOLE).
   const projets = heuresKeystone(sh.lignes), keystone = Object.keys(projets).length > 0;
   ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif });
-  if (keystone) sendToKeystone(ctx.db, { type: 'heures.validees', matricule: matricule(emp.id), semaine: sh.week, projets });
+  if (keystone) sendToKeystone(ctx.db, { type: 'heures.validees', matricule: identifiantKeystone(ctx.ds.settings.identifiantKeystone, emp), semaine: sh.week, projets });
   // Intérimaire : la dernière feuille validée d'une semaine révolue fait partir le relevé de son agence.
   const releve = emp.typeContrat === 'interim' && emp.agence ? relevesAutomatiques(ctx.db, { agence: emp.agence, semaine: sh.week }).length > 0 : false;
   return `Semaine ${isoWeek(sh.week)} validée${keystone ? ' — heures des projets Keystone renvoyées à Keystone' : ''}${releve ? ` · relevé d’heures envoyé à l’agence ${emp.agence}` : ''}`;
@@ -177,17 +178,26 @@ const reject: ActionHandler = (ctx, p) => {
   return 'Feuille renvoyée pour correction';
 };
 
-/** Transmission à la paie : administrateur RH et gestionnaire de paie. */
+/**
+ * Transmission à la paie : administrateur RH et gestionnaire de paie. Salariés du lot sans matricule de paie : refus d'une
+ * transmission réelle (contrôle bloquant qui les nomme) ; en simulation, avertissement (matricule Cursus à la place).
+ */
 const pushSage: ActionHandler = (ctx) => {
   requirePaie(ctx);
   const sheets = sagePending(ctx.d);
   if (!sheets.length) throw new ActionError('Aucune feuille validée en attente de transmission');
+  const sans = sansMatriculePaie(ctx.ds.employes, ctx.d.ti, sheets.map(sh => sh.empId)).map(e => e.nom);
+  // Toute transmission qui n'est pas une simulation (API, fichier d'import…) est contrôlée.
+  if (sans.length && SAGE_MODE !== 'simulation') {
+    throw new ActionError(`Transmission refusée : ${plural(sans.length, 'salarié sans matricule de paie', 'salariés sans matricule de paie')} (${sans.join(', ')}). Saisissez-le sur la fiche, puis transmettez de nouveau.`);
+  }
   const payload = buildSagePayload(ctx.d, sheets, SAGE_DOSSIER);
   const ack = pushToSage(payload);
   if (!ack.ok) throw new ActionError('Sage Paie a refusé la transmission', 502);
   sheets.forEach(sh => ctx.db.update<FeuilleTemps>('feuilles', sh.id, { sage: true }));
   ctx.db.setSetting('lastSagePush', payload);
-  return `${plural(sheets.length, 'feuille transmise', 'feuilles transmises')} à Sage Paie — accusé de réception reçu`;
+  return `${plural(sheets.length, 'feuille transmise', 'feuilles transmises')} à Sage Paie — accusé de réception reçu`
+    + (sans.length ? ` · simulation : ${plural(sans.length, 'salarié sans matricule de paie', 'salariés sans matricule de paie')} (${sans.join(', ')}), transmis sous le matricule Cursus et refusés d’une transmission réelle` : '');
 };
 
 export const tempsActions: Record<string, ActionHandler> = {

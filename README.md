@@ -156,7 +156,8 @@ le code de sortie signale un échec à la supervision. Une copie est aussi faite
 une migration de la base et avant la réinitialisation de la démonstration. `npm run restore -- <fichier>`
 vérifie la sauvegarde, refuse de s'exécuter si le serveur tourne (sauf `--force`), copie la base
 actuelle puis la remplace. Le serveur signale qu'il utilise la base par un verrou (`<base>.pid`) et
-refuse de démarrer si un autre serveur l'utilise déjà.
+refuse de démarrer si un autre serveur l'utilise déjà, ou si une version plus récente de Cursus a migré la base
+(migrations nommées, `server/src/migrations/` : restaurer alors la copie avant-migration).
 
 Planification (timer systemd), copie chiffrée hors de la machine, restauration pas à pas et test
 périodique : `docs/SAUVEGARDE.md`.

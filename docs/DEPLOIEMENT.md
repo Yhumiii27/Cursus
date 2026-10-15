@@ -426,6 +426,10 @@ précède chaque mise en production.
    journalctl -u cursus -n 50       # les migrations de données s'exécutent au démarrage
    ```
 
+   Chaque migration nommée ne s'exécute qu'une fois par base (« Migration lot4-… faite »), après la copie
+   `…-avant-migration.db` ; une migration interrompue est annulée et le service ne démarre pas (« Démarrage
+   impossible : migration … interrompue ») : la cause corrigée, il la retente au démarrage suivant.
+
 4. Vérifications après installation (ci-dessus).
    Mise à jour vers la version qui suit les formalités de détachement (certificat A1 ou de la convention bilatérale,
    information écrite au-delà de 4 semaines) : les déplacements déjà partis sont réputés en règle au premier démarrage
@@ -433,7 +437,11 @@ précède chaque mise en production.
    jour les formalités déjà obtenues (écran Voyages, dossier du déplacement : « Enregistrer l’obtention »), faute de
    quoi le Go / No Go transmis à Keystone reste en réserve jusqu'au départ, puis passe en No Go le jour du départ.
 5. En cas de problème : revenir à la version précédente (`git checkout <version>`, `npm ci`,
-   `npm run build`), restaurer la sauvegarde et redémarrer.
+   `npm run build`), restaurer la sauvegarde et redémarrer. Sans restauration, la version précédente refuse de
+   démarrer sur une base que la nouvelle a migrée (« Démarrage impossible : la base a été mise à jour par une version
+   plus récente de Cursus (… migration inconnue …) », code 1) : restaurer la copie `…-avant-migration.db` que le message
+   nomme, faite au premier démarrage de la nouvelle version, ou la sauvegarde de l'étape 2
+   (`npm run restore -- <fichier>`, `docs/SAUVEGARDE.md`) ; les saisies faites depuis la mise à jour sont perdues.
 6. Mise à jour qui expurge le journal des actions (première version à liste blanche) : au démarrage, le
    serveur signale « Journal : … lignes antérieures expurgées » et nomme la copie `…-avant-migration.db`
    faite juste avant. Cette copie contient l'ancien journal non expurgé (numéros de passeport, CSV

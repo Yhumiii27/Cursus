@@ -15,10 +15,14 @@ shared/            Domaine partagé (aucune dépendance)
   domain.ts        Classe Domain : conformité, habilitations, voyages, échéances, Go / No Go
   csv.ts           Exports CSV : cellules échappées, formules neutralisées (apostrophe devant = + - @)
   journal.ts       Journal des actions : libellés, familles, actions liées à la paie, durées de conservation, droits de lecture
+  reglages.ts      Réglages de Paramètres : table « champ → contrôle » (valeur par défaut, contrôle de chaque champ de Settings)
   rules/           temps.ts, conges.ts, entretiens.ts, budget.ts, imports.ts, sante.ts (avis et visites médicales) ;
                    conflits.ts : doublons et conflits de dates
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
+  migrate.ts       Reprises des bases antérieures, rejouées à chaque démarrage (idempotentes)
+  migrations/      Migrations nommées, exécutées une seule fois par base : cadre.ts (contrôle et exécution), liste.ts (ordre),
+                   outils.ts (reconstruction d'une table, index), un fichier par chantier (voir « Cadre commun du lot 4 »)
   seed.ts          Données de démonstration
   sauvegarde.ts    Copie à chaud (VACUUM INTO), rotation, restauration, verrou du serveur ;
                    scripts backup.ts et restore.ts (npm run backup / restore, voir docs/SAUVEGARDE.md)
@@ -54,7 +58,7 @@ client/src/
                    focus.ts (focus des fenêtres modales), controles.ts (messages d'erreur des champs),
                    panneau.ts (panneau de détail amené dans le champ de vision sur écran étroit)
   layout/Shell.tsx Barre latérale, en-tête, notification ; layout/Reconnexion.tsx : session expirée, par-dessus l'écran
-  pages/           Un fichier par écran
+  pages/           Un fichier par écran ; pages/parametres/ : une section de l'écran Paramètres par fichier (sections.tsx)
   dialogs/         Un fichier par dialogue, rendus par DialogHost
   styles/          nocturne.css (design system, ne pas modifier) et app.css (mise en page)
 design/            Prototype Claude Design de référence et guide du design system Nocturne
@@ -292,6 +296,104 @@ design/            Prototype Claude Design de référence et guide du design sys
   `useIntentPermis()` filtre les propositions d'action du domaine.
 - Icônes : Phosphor (`@phosphor-icons/react`, noms suffixés `Icon`).
 
+## Cadre commun du lot 4 : migrations nommées, réglages, sections de Paramètres
+
+Les chantiers menés en parallèle écrivent leurs migrations, leurs réglages et leurs sections de Paramètres dans leurs
+propres fichiers ; les fichiers communs ne reçoivent qu'une ligne par ajout (`liste.ts`, `REGLAGES`, `Settings`,
+`sections.tsx`), à garder toutes lors des fusions.
+
+### Démarrage de la base
+
+`server/src/index.ts`, dans l'ordre : verrou (`<base>.pid`) ; `controlerMigrations` : une base qui porte une migration
+inconnue de ce code (mise à jour par une version plus récente) est refusée avant toute écriture, code 1, message
+« restaurer la copie avant-migration » ; ouverture (`openDb` : tables et colonnes de `TABLES` ajoutées) ; reprises
+historiques de `server/src/migrate.ts`, rejouées à chaque démarrage et laissées telles quelles ; migrations nommées
+(`appliquerMigrations`). Une seule copie `…-avant-migration.db` par démarrage, faite par la première étape qui modifie
+une base existante. `npm run comptes` et `npm run reset-demo` font le même contrôle.
+
+### Ajouter une migration nommée
+
+Pour une reprise de données à ne faire qu'une fois (lots historiques, mode des heures supplémentaires, date d'arrêté des
+soldes, postes, coût réel, rubriques…), un renommage ou une suppression de colonne, une contrainte, un index. Une table
+ou une colonne nouvelle n'en demande pas : la déclarer dans `TABLES` (`server/src/db.ts`) suffit.
+
+1. L'écrire dans le fichier du chantier, `server/src/migrations/<chantier>.ts` (modèle : `exploitation.ts`) :
+
+   ```ts
+   export const LOTS_HISTORIQUES: Migration = {
+     nom: 'lot4-paie-lots-historiques',
+     necessaire: db => …,                                // facultatif ; faux : notée faite, sans copie ni modification
+     executer: db => { …; return `${n} lots repris`; },  // compte rendu facultatif, affiché au démarrage
+   };
+   ```
+
+2. Ajouter une ligne à la fin de `MIGRATIONS` (`server/src/migrations/liste.ts`), après celles dont elle dépend.
+3. La tester avec `appliquerMigrations(db, [LOTS_HISTORIQUES])` sur une base préparée dans l'ancien état (modèle :
+   `tests/migrations.test.ts`) : reprise faite, sans effet sur une base neuve, rien à refaire au démarrage suivant.
+
+Règles :
+
+- **Nom** : `lot<n>-<chantier>-<objet>` (minuscules, chiffres, tirets), unique et définitif. Il est enregistré dans la
+  table `migrations` de la base (nom, date `appliquee`, `executee` : 0 si seulement notée faite) ; aucun numéro de
+  version global (`PRAGMA user_version` reste à 0), d'où aucune collision entre chantiers. Une migration n'est jamais
+  renommée ni retirée de la liste, même devenue inutile (`executer: () => {}`) : une base qui porte un nom absent de la
+  liste est refusée au démarrage.
+- **Une seule fois, tout ou rien** : chaque migration s'exécute dans une transaction, avec l'enregistrement de son nom,
+  après la copie « avant-migration » d'une base existante. Une erreur annule tout ce qu'elle a fait (les précédentes
+  restent faites) ; le serveur refuse alors de démarrer (`Démarrage impossible : migration … interrompue`) et la
+  retente au démarrage suivant.
+- **Base neuve** : la migration s'y exécute aussi (schéma déjà à jour, aucune donnée, avant le jeu de démonstration) et
+  doit y être sans effet. Une base existante déjà dans l'état visé ne doit pas être modifiée : `necessaire` renvoie
+  faux (`colonneExiste`, `indexExiste` de `outils.ts`, ou une requête qui compte les lignes à reprendre).
+- **Contenu** : préférer des requêtes SQL au code métier, qui évoluera ; la migration doit produire le même résultat
+  quand une base restée ancienne la recevra plus tard. Une reprise qui change des données métier se trace dans le
+  journal (`journaliser`, action `migration.<objet>`, libellé dans `JOURNAL_LABEL` de `shared/journal.ts`), comme
+  `reprendreDetachements` de `migrate.ts` ; jamais de texte libre ni de donnée de santé dans ce qui est tracé.
+- **Colonne renommée ou supprimée, type changé, contrainte ajoutée** (`unique` de `TABLES`) : modifier `TABLES`, puis
+  dans la migration `reconstruireTable(db, 'table', { depuis: { nouveauNom: 'ancien_nom' } })` (`outils.ts` : nouvelle
+  table, lignes recopiées, index recréés, compteur des identifiants conservé ; `ligne` pour une transformation en
+  JavaScript, le chiffrement d'une colonne par exemple), avec `necessaire: db => colonneExiste(db, 'table', 'ancienNom')`.
+  Au démarrage, le schéma déclaratif a déjà ajouté la nouvelle colonne, vide : la reconstruction la remplit. Les
+  colonnes absentes de `TABLES` sont abandonnées (un index qui en porte une est à supprimer avant, `DROP INDEX` dans la
+  migration) ; une ligne qui viole la nouvelle contrainte fait échouer la migration.
+- **Index** : `CREATE INDEX IF NOT EXISTS …` dans une migration, `necessaire` avec `indexExiste` (modèle : `index()` de
+  `exploitation.ts`), plus jamais dans une fonction appelée à chaque démarrage.
+
+Retour à une version précédente : `docs/DEPLOIEMENT.md`, « Mise à jour ».
+
+### Ajouter un réglage
+
+Réglages de l'écran Paramètres, modifiés par l'administrateur RH (`parametres.maj`) et lus dans `data.settings`
+(client, domaine) ou `loadSettings(db)` (serveur) :
+
+1. `shared/types.ts`, interface `Settings` : le champ.
+2. `shared/reglages.ts`, table `REGLAGES` : sa ligne, dans le groupe de sa section, `champ: { defaut, controle }`.
+   Contrôles prêts : `entier(min, max, pas)` (borné, arrondi au pas), `booleen`, `choix(valeurs, sinon?)` ; sinon une
+   fonction `(v, actuelle) => valeur` qui borne ou ramène la saisie, ou lève `ReglageInvalide('message')` : refus 400,
+   rien n'est enregistré. Un champ de `Settings` sans ligne ne compile pas ; sans `controle`, l'écran ne le modifie pas.
+
+Rien d'autre côté serveur : `DEFAULT_SETTINGS` est tiré de la table, `parametres.maj` contrôle et enregistre, le journal
+trace l'ancienne et la nouvelle valeur. Une base existante a la valeur par défaut tant que l'administrateur ne l'a pas
+changée ; une migration nommée ne sert que pour donner aux bases existantes une autre valeur que celle des bases neuves.
+Les réglages sont transmis à toute personne connectée (managers et collaborateurs compris) et recopiés dans le journal :
+codes, nombres, dates, cases à cocher seulement, jamais de texte libre ni de donnée personnelle. Un réglage plus riche
+(adresses de la messagerie) ou modifiable par un autre profil a sa propre action et sa propre clé de la table
+`settings`, comme `messagerie.regler`. Tests : `appliquerReglages` (`tests/reglages.test.ts`).
+
+### Ajouter une section de Paramètres
+
+1. Un fichier `client/src/pages/parametres/<Nom>.tsx` qui exporte `function <Nom>({ s, envois }: SectionProps)`
+   (`commun.ts`) et rend un `<Panel>` : réglages lus dans `s`, enregistrés par `useEnregistrerReglages()(patch)` ;
+   contrôles désactivés sans `useRole().admin` (le gestionnaire RH et la lecture seule consultent) ; la section se
+   masque en renvoyant `null` (profil, démonstration…). Chaque modification s'enregistre aussitôt (sélecteur, case) ou
+   au bouton « Enregistrer » d'un groupe de champs (Messagerie).
+2. Une ligne dans `SECTIONS` (`client/src/pages/parametres/sections.tsx`) : `{ id, place, Section }`, `place` valant
+   `gauche` ou `droite` (deux colonnes du haut) ou `large` (pleine largeur, dessous) ; l'ordre de la liste est celui
+   de l'écran.
+
+`pages/Parametres.tsx` ne contient que le cadre de la page et le chargement des envois (`useSuiviEnvois`), qu'il passe
+aux sections ; `tests/reglages.test.ts` vérifie que chaque fichier de section est inscrit dans `SECTIONS`.
+
 ## Actions disponibles
 
 « RH » : administrateur et gestionnaires RH ; « administrateur RH » : profil `rh_admin` seulement ; « référent HSE »,
@@ -355,7 +457,7 @@ aucun champ du paramètre n'est recopié.
 | `entretien.modifier` | id, section?, value?, info? | évaluateur / salarié selon la section (un membre du RH n'évalue pas son propre entretien) |
 | `entretien.clore` | id, date? (jour où l'entretien a eu lieu, aujourd'hui au plus tard et pas avant sa planification ; exigée pour un entretien prévu à une date à venir) | évaluateur (l'écran enregistre d'abord chaque section ; un échec interrompt la clôture) |
 | `entretien.signer` | id | salarié |
-| `parametres.maj` | horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, silent? | administrateur RH |
+| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone), silent? ; saisie refusée par un contrôle : 400, rien n'est enregistré | administrateur RH |
 | `demo.reinitialiser` | — | administrateur RH, mode démonstration |
 | `compte.creer` | empId (ou nom, adresse : compte externe), type (`microsoft`/`local`), identifiant, profilRh | administrateur RH (mot de passe provisoire dans `result`, affiché une fois) |
 | `compte.profil` | id, profilRh (`aucun`/`rh_gestionnaire`/`rh_admin`/`referent_hse`/`paie`/`lecture_seule`) | administrateur RH (jamais le dernier administrateur actif ; un compte externe garde un profil) |

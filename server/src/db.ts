@@ -137,8 +137,19 @@ export const TABLES = {
 export type TableName = keyof typeof TABLES;
 type Row = Record<string, unknown>;
 
-const snake = (s: string) => s.replace(/[A-Z]/g, m => '_' + m.toLowerCase());
+export const snake = (s: string) => s.replace(/[A-Z]/g, m => '_' + m.toLowerCase());
 const SQL_TYPE: Record<ColType, string> = { text: 'TEXT', int: 'INTEGER', real: 'REAL', bool: 'INTEGER', json: 'TEXT' };
+
+/** Colonnes et contraintes d'une table du schéma, telles que CREATE TABLE les attend (reprises par reconstruireTable). */
+export function colonnesSql(name: TableName): string {
+  const def = TABLES[name] as TableDef;
+  const cols = Object.entries(def.cols).map(([c, t]) => {
+    const pk = c === def.pk ? (def.auto ? ' PRIMARY KEY AUTOINCREMENT' : ' PRIMARY KEY') : '';
+    return `${snake(c)} ${SQL_TYPE[t]}${pk}`;
+  });
+  for (const u of def.unique ?? []) cols.push(`UNIQUE (${u.map(snake).join(', ')})`);
+  return cols.join(', ');
+}
 
 function toDb(t: ColType, v: unknown): string | number | null {
   if (v === undefined || v === null) return null;
@@ -157,25 +168,28 @@ function fromDb(t: ColType, v: unknown): unknown {
 
 export class Db {
   sql: DatabaseSync;
+  /** Base sans aucune table de Cursus à l'ouverture, créée à l'instant : les migrations nommées s'y appliquent sans copie. */
+  readonly neuve: boolean;
   private depth = 0;
 
   constructor(file: string) {
     if (file !== ':memory:') mkdirSync(dirname(resolve(file)), { recursive: true });
     this.sql = new DatabaseSync(file);
     this.sql.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+    const tables = this.tablesSql();
+    this.neuve = !Object.keys(TABLES).some(n => tables.has(snake(n)));
     this.createSchema();
+  }
+
+  private tablesSql(): Set<string> {
+    return new Set((this.sql.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as { name: string }[]).map(t => t.name));
   }
 
   private createSchema() {
     // Base existante à laquelle il manque des tables ou des colonnes : copie de sécurité d'abord.
     if (this.schemaAMigrer()) sauvegarderAvantMigration(this);
     for (const [name, def] of Object.entries(TABLES) as [TableName, TableDef][]) {
-      const cols = Object.entries(def.cols).map(([c, t]) => {
-        const pk = c === def.pk ? (def.auto ? ' PRIMARY KEY AUTOINCREMENT' : ' PRIMARY KEY') : '';
-        return `${snake(c)} ${SQL_TYPE[t]}${pk}`;
-      });
-      for (const u of def.unique ?? []) cols.push(`UNIQUE (${u.map(snake).join(', ')})`);
-      this.sql.exec(`CREATE TABLE IF NOT EXISTS ${snake(name)} (${cols.join(', ')})`);
+      this.sql.exec(`CREATE TABLE IF NOT EXISTS ${snake(name)} (${colonnesSql(name)})`);
       // Base existante : ajoute les colonnes apparues depuis sa création.
       const existing = new Set((this.sql.prepare(`PRAGMA table_info(${snake(name)})`).all() as { name: string }[]).map(c => c.name));
       for (const [c, t] of Object.entries(def.cols)) {
@@ -186,8 +200,8 @@ export class Db {
 
   /** Vrai si la base contient déjà des tables de Cursus mais pas toutes les tables ou colonnes du schéma. */
   private schemaAMigrer(): boolean {
-    const tables = new Set((this.sql.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as { name: string }[]).map(t => t.name));
-    if (!Object.keys(TABLES).some(n => tables.has(snake(n)))) return false; // base neuve
+    if (this.neuve) return false;
+    const tables = this.tablesSql();
     return (Object.entries(TABLES) as [TableName, TableDef][]).some(([name, def]) => {
       if (!tables.has(snake(name))) return true;
       const cols = new Set(this.columns(name));

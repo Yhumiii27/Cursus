@@ -180,8 +180,7 @@ export async function traiterFile(db: Db, cible: Cible, t: Transport, horloge = 
  * puis toutes les `intervalle` ms, sans bloquer les requêtes. Renvoie la fonction d'arrêt.
  */
 export function demarrerEnvois(db: Db, transports: Partial<Record<Cible, Transport | null>>, intervalle = 2000): () => void {
-  // Tête de file relue toutes les 2 s : index sur les messages à envoyer de chaque cible.
-  db.sql.exec('CREATE INDEX IF NOT EXISTS envois_file ON envois (cible, statut, id)');
+  // Tête de file relue toutes les 2 s : index `envois_file`, créé par une migration nommée (server/src/migrations/exploitation.ts).
   const actives = (Object.entries(transports) as [Cible, Transport | null][]).filter((x): x is [Cible, Transport] => !!x[1]);
   const relever = () => actives.forEach(([cible, t]) => { traiterFile(db, cible, t).catch(err => console.error(`Envois ${cible} :`, err)); });
   if (!actives.length) return () => {};

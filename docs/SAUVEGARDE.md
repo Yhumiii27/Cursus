@@ -99,7 +99,9 @@ l'emplacement attendu par la copie externe.
   à une base existante, ou en convertir les données, le serveur fait une copie `avant-migration`
   (une seule par démarrage) puis migre. **Si cette copie échoue, le serveur refuse de démarrer** : lire
   `journalctl -u cursus`, libérer de l'espace ou corriger `CURSUS_BACKUP_DIR`, puis redémarrer.
-  Une base déjà à jour ou neuve ne produit aucune copie.
+  Une base déjà à jour ou neuve ne produit aucune copie. Chaque migration nommée n'est faite qu'une fois par base
+  (table `migrations`) ; une base qu'une version plus récente a migrée est refusée par une version plus ancienne
+  (« restaurer la copie avant-migration » : c'est cette copie qu'il faut restaurer pour revenir en arrière).
 - **Avant la réinitialisation de la démonstration** (`npm run reset-demo`, bouton de l'écran
   Paramètres) : si la copie échoue, rien n'est effacé. Le message de confirmation donne le nom de la copie.
 

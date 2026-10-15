@@ -6,6 +6,7 @@ import { addD, isoParis, isValidDate, mondayOf } from '../../shared/dates.ts';
 import { absenceVueManager, repriseMedicale } from '../../shared/rules/absences.ts';
 import { aptitudeVueManager } from '../../shared/rules/sante.ts';
 import { avecInscrits } from '../../shared/rules/sessions.ts';
+import { reglagesParDefaut } from '../../shared/reglages.ts';
 import type { DemandeVisite } from '../../shared/types.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Chantier, CurrentUser, Dataset, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
@@ -18,9 +19,8 @@ import type { SessionInfo } from './auth.ts';
 import { compteValide, espacesDuCompte, nomDuCompte } from './comptes.ts';
 import { lireMessagerie } from './messagerie.ts';
 
-export const DEFAULT_SETTINGS: Settings = {
-  horizonAlerte: 90, uniquementReglementaire: false, seuilBudget: 85, partageKeystone: 'minimal', rtt39: 23, vueInitiale: 'dashboard',
-};
+/** Réglages par défaut : colonne `defaut` de la table des réglages (shared/reglages.ts). */
+export const DEFAULT_SETTINGS: Settings = reglagesParDefaut();
 
 /**
  * Date du jour à Paris, quel que soit le fuseau du serveur (souvent UTC chez l'hébergeur : entre minuit et 2 h,

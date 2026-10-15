@@ -462,10 +462,11 @@ export function reprendreJournal(db: Db): number {
   });
 }
 
-/** Au démarrage : index, reprise des anciennes lignes, conservation appliquée puis relancée toutes les heures. */
+/**
+ * Au démarrage : reprise des anciennes lignes, conservation appliquée puis relancée toutes les heures. Index du journal
+ * (`journal_at`, `journal_action`) : migration nommée (server/src/migrations/exploitation.ts).
+ */
 export function demarrerJournal(db: Db) {
-  db.sql.exec('CREATE INDEX IF NOT EXISTS journal_at ON journal (at)');
-  db.sql.exec('CREATE INDEX IF NOT EXISTS journal_action ON journal (action)');
   const reduites = reprendreJournal(db);
   if (reduites) {
     // La copie faite avant la migration (et toute sauvegarde antérieure) garde l'ancien journal, non expurgé.

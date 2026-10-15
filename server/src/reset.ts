@@ -3,6 +3,7 @@
 import { existsSync } from 'node:fs';
 import { demoActive } from './config.ts';
 import { dbFile, openDb } from './db.ts';
+import { controlerMigrations } from './migrations/cadre.ts';
 import { sauvegarderBase } from './sauvegarde.ts';
 import { seedDemo } from './seed.ts';
 
@@ -12,6 +13,13 @@ if (!demoActive()) {
 }
 
 const existait = existsSync(dbFile());
+// Base mise à jour par une version plus récente de Cursus : refusée, comme au démarrage du serveur.
+try {
+  controlerMigrations(dbFile());
+} catch (err) {
+  console.error(`Réinitialisation refusée : ${err instanceof Error ? err.message : err}`);
+  process.exit(1);
+}
 const db = openDb();
 // Une base existante est d'abord copiée ; sans copie, rien n'est effacé.
 if (existait) {

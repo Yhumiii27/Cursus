@@ -11,6 +11,7 @@ import { revokeSessionsDuCompte } from './auth.ts';
 import { attribuerProvisoire, compteParIdentifiant, creerCompte, journaliser, nomDuCompte, rattacherCompte, refusDuCompte, type Compte } from './comptes.ts';
 import { dbFile, openDb } from './db.ts';
 import { adresseDuCompte } from './messagerie.ts';
+import { controlerMigrations } from './migrations/cadre.ts';
 
 const USAGE = `Usage : npm run comptes -- admin <identifiant> [--local] [--nom "Prénom Nom"] [--adresse <e-mail>] [--salarie <n°>]
   <identifiant>  adresse Microsoft 365 de la personne, ou identifiant d'un compte Cursus avec --local
@@ -42,6 +43,12 @@ const AUTEUR = 'Ligne de commande (npm run comptes)';
 const empId = typeof options.salarie === 'string' ? Number(options.salarie.replace(/\D/g, '')) : null;
 if (options.salarie !== undefined && !empId) arreter('Numéro de salarié invalide (--salarie 12 ou --salarie EMP-0012).');
 
+// Base mise à jour par une version plus récente de Cursus : refusée, comme au démarrage du serveur.
+try {
+  controlerMigrations(dbFile());
+} catch (err) {
+  arreter(`Commande impossible : ${err instanceof Error ? err.message : err}`);
+}
 const db = openDb();
 let existant: Compte | undefined;
 try {

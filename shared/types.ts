@@ -7,6 +7,11 @@ export type Role = 'rh' | 'manager' | 'collaborateur';
 export type FormationType = 'Réglementaire' | 'Recommandée' | 'Interne';
 export type VaccinId = 'fj' | 'hepA' | 'hepB' | 'typhoide' | 'dtp';
 export type VisaKind = 'none' | 'evisa' | 'esta' | 'embassy';
+/**
+ * Sécurité sociale du salarié envoyé dans le pays : certificat A1 (Union européenne, EEE, Suisse, Royaume-Uni),
+ * certificat de détachement d'une convention bilatérale, ou maintien au régime français (pays sans convention).
+ */
+export type SecuDetachement = 'a1' | 'convention' | 'hors_convention';
 /** Catégories de la CCN Industries chimiques. */
 export type Statut = 'ouvrier' | 'technicien' | 'cadre';
 export type TypeContrat = 'cdi' | 'cdd' | 'interim' | 'alternance';
@@ -40,7 +45,11 @@ export type SessionStatut = 'À confirmer' | 'Confirmée' | 'Clôturée' | 'Annu
 // — Référentiels —
 export interface Formation { id: string; nom: string; court: string; type: FormationType; validite: number; duree: string; organisme: string; cout: number; validation: ValidationMode }
 export interface HabType { id: string; nom: string; detail: string; prereqs: string[]; medical: boolean; validite: number; signataire: string }
-export interface Destination { code: string; pays: string; visa: VisaKind; visaSub: string; oblig: VaccinId[]; rec: VaccinId[]; passMois: number }
+export interface Destination {
+  code: string; pays: string; visa: VisaKind; visaSub: string; oblig: VaccinId[]; rec: VaccinId[]; passMois: number;
+  /** Formalité de sécurité sociale du détachement ; null : déduite du code pays (`secuDe` de shared/constants.ts). */
+  secu: SecuDetachement | null;
+}
 export interface Equipe { nom: string; managerId: number | null; ordre: number }
 /** Projet ou chantier tenu dans Keystone : archivé, il reste en base (historique) sans plus être proposé ni évalué. */
 export type StatutKeystone = 'actif' | 'archive';
@@ -69,6 +78,24 @@ export interface HabTitre {
   id: number; empId: number; h: string; delivree: ISODate | null; par: string | null; demande: ISODate | null;
   /** Suspension ou retrait en cours (null = aucun), avec sa date, son motif (texte libre) et son auteur. */
   mesure: HabMesure | null; mesureDate: ISODate | null; mesureMotif: string | null; mesurePar: string | null;
+}
+/** Avis du médecin du travail à l'issue d'une visite : apte, apte avec restrictions ou aménagements de poste, inapte. */
+export type AvisMedical = 'apte' | 'restrictions' | 'inapte';
+/**
+ * Restriction ou aménagement de poste, recopié tel qu'écrit sur l'avis (« pas de port de charges de plus de 15 kg »),
+ * jusqu'à une date (incluse) ou sans terme.
+ */
+export interface Restriction { texte: string; jusquau: ISODate | null }
+/** Motif d'une demande de visite au service de prévention et de santé au travail. */
+export type MotifVisite = 'periodique' | 'embauche' | 'reprise' | 'employeur';
+/**
+ * Demande de visite médicale du service RH : en cours (`demandee`) jusqu'à la saisie de la visite (`realisee`,
+ * datée du jour de la visite) ou son annulation. Réservée au service RH et à l'intéressé.
+ */
+export interface DemandeVisite {
+  id: number; empId: number; motif: MotifVisite; le: ISODate; par: string;
+  statut: 'demandee' | 'realisee' | 'annulee';
+  closeLe: ISODate | null; closePar: string | null;
 }
 export interface Visa { id: number; empId: number; dest: string; type: string; obtenu: ISODate | null; expire: ISODate }
 export interface Vaccination { id: number; empId: number; v: VaccinId; date: ISODate }
@@ -106,8 +133,17 @@ export interface Employe {
   repriseDate: ISODate | null;
   /** Date de la dernière visite d'aptitude — réservée au service RH. */
   visite: ISODate | null;
-  /** Remplace `visite` dans les vues manager et des profils sans données de santé : seul le verdict est transmis. */
-  aptitude?: { ok: boolean };
+  /**
+   * Avis rendu à cette visite (null : apte, visite saisie avant l'enregistrement des avis) et ses restrictions,
+   * enregistrés par `medical.avis` — réservés au service RH et à l'intéressé.
+   */
+  avis: AvisMedical | null;
+  restrictions: Restriction[];
+  /**
+   * Remplace `visite` et `avis` dans les vues manager et des profils restreints de l'espace RH : seul le verdict est
+   * transmis (aptitude valide ou non, avis), avec les restrictions en vigueur recopiées telles qu'écrites, sans date de visite.
+   */
+  aptitude?: { ok: boolean; avis?: AvisMedical | null; restrictions?: Restriction[] };
   passeport: Passeport | null;
   certs: Certification[];
   habs: HabTitre[];
@@ -144,10 +180,18 @@ export interface Participation {
 export interface PlanAction { id: number; exercice: number; f: string | null; libelle: string | null; equipe: string; periode: Trimestre; effectif: number; cout: number; statut: PlanStatut; origine: string | null }
 
 // — Déplacements & projets —
+/** Formalité obligatoire manquante d'un déplacement (« formalité sanitaire » pour un vaccin), hors délai ou non. */
+export interface FormaliteManquante { label: string; late: boolean; detachement: boolean }
+
 export interface Voyage {
   id: number; empId: number; dest: string; depart: ISODate; retour: ISODate; motif: string; origine: VoyageOrigine; ref: string | null; chantier: string | null; dossierStatut?: TripStatus;
-  /** Formalités obligatoires manquantes, précalculées avec `dossierStatut` quand les pièces ne sont pas transmises (« formalité sanitaire » pour un vaccin). */
-  dossierManque?: string[];
+  /**
+   * Formalités de détachement tenues par le service RH : obtention du certificat de sécurité sociale (A1, convention
+   * bilatérale ou maintien au régime français) et remise de l'information écrite d'une mission de plus de 4 semaines.
+   */
+  detachementLe: ISODate | null; informationLe: ISODate | null;
+  /** Formalités obligatoires manquantes, précalculées avec `dossierStatut` quand les pièces ne sont pas transmises. */
+  dossierManque?: FormaliteManquante[];
 }
 /** Demande de déplacement reçue de Keystone (`ref` : référence externe unique), conservée après décision du RH. */
 export interface DemandeKeystone {
@@ -364,6 +408,7 @@ export interface Dataset {
   soldesReprise: SoldeReprise[];
   entretiens: Entretien[];
   demandesCollab: DemandeCollab[];
+  demandesVisite: DemandeVisite[];
   lastSagePush: SagePush | null;
   /** Adresses de la messagerie et relevés transmis aux agences d'intérim : service RH seulement (null et vide ailleurs). */
   messagerie: Messagerie | null;

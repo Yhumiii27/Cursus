@@ -10,6 +10,7 @@ import { CertDialog } from './CertDialog.tsx';
 import { CetDialog } from './CetDialog.tsx';
 import { ClotureDialog } from './ClotureDialog.tsx';
 import { CompteDialog } from './CompteDialog.tsx';
+import { DetachementDialog } from './DetachementDialog.tsx';
 import { EntDialog } from './EntDialog.tsx';
 import { EmployeDialog } from './EmployeDialog.tsx';
 import { EntPlanDialog } from './EntPlanDialog.tsx';
@@ -29,6 +30,8 @@ import { SessionDetailDialog } from './SessionDetailDialog.tsx';
 import { SessionDialog } from './SessionDialog.tsx';
 import { TripDialog } from './TripDialog.tsx';
 import { TripImportDialog } from './TripImportDialog.tsx';
+import { AvisDialog } from './AvisDialog.tsx';
+import { VisiteDialog } from './VisiteDialog.tsx';
 
 export function DialogHost() {
   const { dialog: d } = useStore();
@@ -43,6 +46,9 @@ export function DialogHost() {
     case 'habMesure': return <HabMesureDialog {...d} />;
     case 'trip': return <TripDialog />;
     case 'fo': return <FormaliteDialog {...d} />;
+    case 'detachement': return <DetachementDialog {...d} />;
+    case 'visite': return <VisiteDialog {...d} />;
+    case 'avis': return <AvisDialog {...d} />;
     case 'reqForm': return <ReqFormDialog {...d} />;
     case 'reqHab': return <ReqHabDialog {...d} />;
     case 'employe': return <EmployeDialog {...d} />;

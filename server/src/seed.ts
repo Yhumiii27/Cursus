@@ -6,7 +6,10 @@ import { matricule } from '../../shared/format.ts';
 import { identifiantSuggere, typeSuggere } from '../../shared/rules/comptes.ts';
 import { repriseDesAbsences } from '../../shared/rules/absences.ts';
 import { cpDroit, rttDroit } from '../../shared/rules/conges.ts';
-import type { Dataset, Employe, EntretienType, Messagerie, ProfilRh, Statut, TempsTravail, TypeContrat, VaccinId } from '../../shared/types.ts';
+import type {
+  AvisMedical, Dataset, Employe, EntretienType, Messagerie, ProfilRh, Restriction, Statut, TempsTravail, TypeContrat, VaccinId,
+} from '../../shared/types.ts';
+import { MOTIF_RESTRICTION } from '../../shared/constants.ts';
 import type { Db } from './db.ts';
 import { DEFAULT_SETTINGS, loadFull } from './dataset.ts';
 import { contexte, enregistrerAffectation, enregistrerChantier, enregistrerProjet, enregistrerTache } from './integrations/keystone-entrant.ts';
@@ -38,15 +41,16 @@ const HABILITATIONS = [
   { id: 'aipr', nom: 'Autorisation AIPR', detail: 'Intervention à proximité des réseaux', prereqs: ['aipr'], medical: false, validite: 60, signataire: 'Karim Haddad' },
 ];
 
+// `secu` : convention bilatérale de sécurité sociale (Maroc, Inde, États-Unis, Côte d'Ivoire, Brésil), sinon maintien au régime français.
 const DESTS = [
-  { code: 'MA', pays: 'Maroc', visa: 'none', visaSub: 'séjour ≤ 90 jours', oblig: [], rec: ['hepA', 'typhoide'], passMois: 0 },
-  { code: 'IN', pays: 'Inde', visa: 'evisa', visaSub: '', oblig: [], rec: ['hepA', 'typhoide', 'hepB'], passMois: 6 },
-  { code: 'US', pays: 'États-Unis', visa: 'esta', visaSub: '', oblig: [], rec: [], passMois: 0 },
-  { code: 'CI', pays: 'Côte d’Ivoire', visa: 'evisa', visaSub: '', oblig: ['fj'], rec: ['hepA', 'typhoide'], passMois: 6 },
-  { code: 'GH', pays: 'Ghana', visa: 'embassy', visaSub: '', oblig: ['fj'], rec: ['hepA', 'typhoide'], passMois: 6 },
-  { code: 'BR', pays: 'Brésil', visa: 'none', visaSub: 'séjour ≤ 90 jours', oblig: [], rec: ['fj', 'hepA', 'typhoide'], passMois: 6 },
-  { code: 'SA', pays: 'Arabie saoudite', visa: 'evisa', visaSub: '', oblig: [], rec: ['hepA', 'typhoide'], passMois: 6 },
-  { code: 'VN', pays: 'Vietnam', visa: 'none', visaSub: 'séjour ≤ 45 jours', oblig: [], rec: ['hepA', 'typhoide'], passMois: 6 },
+  { code: 'MA', pays: 'Maroc', visa: 'none', visaSub: 'séjour ≤ 90 jours', oblig: [], rec: ['hepA', 'typhoide'], passMois: 0, secu: 'convention' },
+  { code: 'IN', pays: 'Inde', visa: 'evisa', visaSub: '', oblig: [], rec: ['hepA', 'typhoide', 'hepB'], passMois: 6, secu: 'convention' },
+  { code: 'US', pays: 'États-Unis', visa: 'esta', visaSub: '', oblig: [], rec: [], passMois: 0, secu: 'convention' },
+  { code: 'CI', pays: 'Côte d’Ivoire', visa: 'evisa', visaSub: '', oblig: ['fj'], rec: ['hepA', 'typhoide'], passMois: 6, secu: 'convention' },
+  { code: 'GH', pays: 'Ghana', visa: 'embassy', visaSub: '', oblig: ['fj'], rec: ['hepA', 'typhoide'], passMois: 6, secu: 'hors_convention' },
+  { code: 'BR', pays: 'Brésil', visa: 'none', visaSub: 'séjour ≤ 90 jours', oblig: [], rec: ['fj', 'hepA', 'typhoide'], passMois: 6, secu: 'convention' },
+  { code: 'SA', pays: 'Arabie saoudite', visa: 'evisa', visaSub: '', oblig: [], rec: ['hepA', 'typhoide'], passMois: 6, secu: 'hors_convention' },
+  { code: 'VN', pays: 'Vietnam', visa: 'none', visaSub: 'séjour ≤ 45 jours', oblig: [], rec: ['hepA', 'typhoide'], passMois: 6, secu: 'hors_convention' },
 ];
 
 const EQUIPES: [string, number][] = [['Logistique', 16], ['Maintenance', 12], ['Production', 3], ['Qualité & HSE', 23], ['Administration', 14], ['Commercial', 9]];
@@ -145,15 +149,21 @@ const EMPLOYES: { id: number; nom: string; equipe: string; poste: string; certs:
 ];
 
 interface Extra {
-  visite?: string; certsPlus?: C[]; habs?: { h: string; delivree?: string; par?: string; demande?: string }[];
+  visite?: string; certsPlus?: C[]; habs?: { h: string; delivree?: string; par?: string; demande?: string; restriction?: boolean }[];
   passeport?: { numero: string; expire: string }; visas?: { dest: string; type: string; obtenu: string; expire: string }[]; vaccins?: { v: VaccinId; date: string }[];
+  /** Avis du médecin du travail à la visite et restrictions ; `restriction` : titre suspendu à la suite de cet avis. */
+  avis?: AvisMedical; restrictions?: Restriction[];
 }
 const EXTRA: Record<number, Extra> = {
   1: { visite: '2025-02-10', habs: [{ h: 'ac489', delivree: '2022-04-15', par: 'Olivier Marchal' }] },
   2: { visite: '2025-06-15', habs: [{ h: 'he', delivree: '2023-10-01', par: 'Karim Haddad' }, { h: 'hauteur', delivree: '2025-02-01', par: 'Sarah Cohen' }], passeport: { numero: '20AB···91', expire: '2026-12-02' }, vaccins: [{ v: 'dtp', date: '2016-09-10' }, { v: 'hepA', date: '2022-03-11' }] },
   3: { visite: '2025-09-12', certsPlus: [{ f: 'atex', obtenue: '2024-05-20' }], habs: [{ h: 'atex', delivree: '2024-06-01', par: 'Sarah Cohen' }] },
   4: { visite: '2025-01-22', habs: [{ h: 'ac489', delivree: '2021-11-15', par: 'Olivier Marchal' }] },
-  5: { visite: '2026-01-20', habs: [{ h: 'hauteur', delivree: '2025-03-15', par: 'Sarah Cohen' }] },
+  // Avis avec restrictions jusqu'à la fin de l'année : autorisation de travail en hauteur suspendue, réserve sur l'audit de Tema.
+  5: {
+    visite: '2026-09-28', avis: 'restrictions', habs: [{ h: 'hauteur', delivree: '2025-03-15', par: 'Sarah Cohen', restriction: true }],
+    restrictions: [{ texte: 'Pas de port de charges de plus de 15 kg', jusquau: '2026-12-31' }, { texte: 'Pas de travail en hauteur', jusquau: '2026-12-31' }],
+  },
   6: { visite: '2024-08-20', habs: [{ h: 'he', delivree: '2024-02-05', par: 'Karim Haddad' }, { h: 'ac486', delivree: '2021-09-15', par: 'Karim Haddad' }] },
   7: { visite: '2025-10-01' }, 11: { visite: '2025-04-08' }, 13: { visite: '2025-12-02' }, 14: { visite: '2025-02-27' }, 15: { visite: '2026-02-09' }, 17: { visite: '2025-08-18' }, 20: { visite: '2025-09-25' }, 21: { visite: '2025-01-16' },
   8: { visite: '2025-07-03', certsPlus: [{ f: 'atex', obtenue: '2023-11-02' }], habs: [{ h: 'atex', delivree: '2023-11-20', par: 'Sarah Cohen' }] },
@@ -239,13 +249,14 @@ function planning() {
   return taches;
 }
 
+/** `detachementLe` : certificat de sécurité sociale obtenu ; ceux de Riyad, Mumbai et São Paulo restent à demander. */
 const VOYAGES = [
-  { empId: 19, dest: 'US', depart: '2026-10-12', retour: '2026-10-16', motif: 'Visite client — Houston', origine: 'formulaire', ref: 'DD-2026-0398' },
+  { empId: 19, dest: 'US', depart: '2026-10-12', retour: '2026-10-16', motif: 'Visite client — Houston', origine: 'formulaire', ref: 'DD-2026-0398', detachementLe: '2026-09-30' },
   { empId: 9, dest: 'IN', depart: '2026-10-19', retour: '2026-10-24', motif: 'Salon Automation Expo — Mumbai', origine: 'formulaire', ref: 'DD-2026-0402' },
-  { empId: 18, dest: 'MA', depart: '2026-10-27', retour: '2026-11-06', motif: 'Rétrofit presse hydraulique — Tanger', origine: 'keystone', chantier: 'K-2614' },
-  { empId: 12, dest: 'CI', depart: '2026-11-09', retour: '2026-11-27', motif: 'Mise en service ligne — Abidjan', origine: 'keystone', chantier: 'K-2611' },
+  { empId: 18, dest: 'MA', depart: '2026-10-27', retour: '2026-11-06', motif: 'Rétrofit presse hydraulique — Tanger', origine: 'keystone', chantier: 'K-2614', detachementLe: '2026-10-05' },
+  { empId: 12, dest: 'CI', depart: '2026-11-09', retour: '2026-11-27', motif: 'Mise en service ligne — Abidjan', origine: 'keystone', chantier: 'K-2611', detachementLe: '2026-10-08' },
   { empId: 9, dest: 'SA', depart: '2026-11-23', retour: '2026-11-26', motif: 'Négociation distributeur — Riyad', origine: 'cursus' },
-  { empId: 23, dest: 'GH', depart: '2026-12-01', retour: '2026-12-05', motif: 'Audit HSE usine — Tema', origine: 'keystone', chantier: 'K-2625' },
+  { empId: 23, dest: 'GH', depart: '2026-12-01', retour: '2026-12-05', motif: 'Audit HSE usine — Tema', origine: 'keystone', chantier: 'K-2625', detachementLe: '2026-10-02' },
   { empId: 22, dest: 'BR', depart: '2027-01-18', retour: '2027-01-29', motif: 'Transfert de ligne — São Paulo', origine: 'keystone', chantier: 'K-2631' },
 ];
 
@@ -267,6 +278,8 @@ const ABSENCES = [
   { empId: 16, type: 'RTT', du: '2026-10-30', au: '2026-10-30', statut: 'validee', keystone: true },
   { empId: 8, type: 'CP', du: '2026-10-12', au: '2026-10-16', statut: 'validee', keystone: true },
   { empId: 18, type: 'CP', du: '2026-12-21', au: '2026-12-24', statut: 'demandee' },
+  // Congé validé pendant l'audit de Tema, où Inès Dupont est affectée : No Go (motif ABSENCE, sans sa nature).
+  { empId: 5, type: 'CP', du: '2026-12-04', au: '2026-12-04', statut: 'validee', keystone: true },
   // Absences hors congés : un signalement à qualifier, un arrêt qualifié (semaine sans heure), une maternité, un mariage.
   { empId: 20, type: 'ABSENCE', du: '2026-10-07', au: '2026-10-16', statut: 'signalee', keystone: true, signaleLe: '2026-10-07', signalePar: 'Hugo Lambert' },
   { empId: 13, type: 'MALADIE', du: '2026-10-05', au: '2026-10-07', statut: 'validee', keystone: true, signaleLe: '2026-10-05', signalePar: 'Sophie Lemaire', justificatif: true, justificatifLe: '2026-10-06' },
@@ -370,10 +383,14 @@ export function seedDemo(db: Db) {
         // Chacun a une adresse professionnelle (décision de l'entreprise) ; Karim Haddad reçoit un récapitulatif quotidien.
         email: identifiantSuggere(e.nom, 'microsoft', DOMAINE_DEMO), notifications: e.id === 12 ? 'quotidien' : 'immediat',
         repriseMotif: p.reprise?.motif ?? null, repriseDate: p.reprise?.date ?? null, visite: x.visite ?? null,
+        avis: x.avis ?? null, restrictions: x.restrictions ?? [],
         passeportNumero: x.passeport?.numero ?? null, passeportExpire: x.passeport?.expire ?? null,
       });
       [...e.certs, ...(x.certsPlus || [])].forEach(c => db.insert('certifications', { empId: e.id, f: c.f, obtenue: c.obtenue, sessionId: c.session ?? null, convoc: c.convoc ?? null, convocLe: c.convoc ? CONVOQUES_LE : null }));
-      (x.habs || []).forEach(h => db.insert('habTitres', { empId: e.id, h: h.h, delivree: h.delivree ?? null, par: h.par ?? null, demande: h.demande ?? null }));
+      (x.habs || []).forEach(h => db.insert('habTitres', {
+        empId: e.id, h: h.h, delivree: h.delivree ?? null, par: h.par ?? null, demande: h.demande ?? null,
+        ...(h.restriction ? { mesure: 'suspension', mesureDate: '2026-09-30', mesureMotif: MOTIF_RESTRICTION, mesurePar: RH_DEMO } : {}),
+      }));
       (x.visas || []).forEach(v => db.insert('visas', { empId: e.id, ...v }));
       (x.vaccins || []).forEach(v => db.insert('vaccinations', { empId: e.id, ...v }));
     });
@@ -394,6 +411,8 @@ export function seedDemo(db: Db) {
     CET.forEach(c => db.insert('cet', c));
     db.insert('reports', { empId: 6, jours: 4, motif: 'CP 2024-2025 non pris — arrêt de travail', par: 'Sandrine Vidal', date: '2026-06-02', sens: 'recu' });
     DEMANDES_COLLAB.forEach(d => db.insert('demandesCollab', d));
+    // Visite d'embauche demandée pour l'apprenti, jamais vu par le médecin du travail.
+    db.insert('demandesVisite', { empId: 24, motif: 'embauche', le: '2026-10-05', par: RH_DEMO, statut: 'demandee', closeLe: null, closePar: null });
     Object.entries(BUDGETS).forEach(([ex, list]) => Object.entries(list).forEach(([equipe, montant]) => db.insert('budgets', { exercice: Number(ex), equipe, montant })));
     PLAN.forEach(l => db.insert('planActions', { exercice: 2026, ...l }));
     feuilles(taches).forEach(f => db.insert('feuilles', f));

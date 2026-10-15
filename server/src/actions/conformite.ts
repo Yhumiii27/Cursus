@@ -105,12 +105,6 @@ const delivrerHab: ActionHandler = (ctx, p) => {
   return `${hm.nom} ${p.mode === 'renew' ? 'renouvelée' : 'délivrée'} — ${emp.nom} · valide jusqu’au ${fmt(addMonths(parse(p.date), hm.validite))}${keystone}`;
 };
 
-const demanderVisite: ActionHandler = (ctx, p) => {
-  requireRh(ctx);
-  const emp = getEmp(ctx, p.empId);
-  return `Demande de visite médicale transmise au service de santé au travail — ${emp.nom}`;
-};
-
 /**
  * Décision sur une demande : formation et habilitation, service RH et référent HSE / formation ; document déclaré
  * (passeport, visa, vaccination), service RH seulement.
@@ -275,9 +269,9 @@ function decision(ctx: Ctx, p: Record<string, any>, t: HabTitre) {
 /**
  * Signale à Keystone les verdicts Go / No Go modifiés par l'écriture (suivi des verdicts transmis :
  * matricule et codes de motif uniquement). Renvoie l'état après l'écriture et le nombre de chantiers
- * signalés pour le collaborateur.
+ * signalés pour le collaborateur (aussi pour l'avis du médecin du travail : actions/sante.ts).
  */
-function signaler(ctx: Ctx, emp: Employe) {
+export function signaler(ctx: Ctx, emp: Employe) {
   const signales = suivreVerdicts(ctx.db).filter(v => v.empId === emp.id).length;
   return { apres: new Domain(loadFull(ctx.db, ctx.user)), keystone: signales ? ` · ${plural(signales, 'chantier signalé', 'chantiers signalés')} à Keystone` : '' };
 }
@@ -331,7 +325,6 @@ export const conformiteActions: Record<string, ActionHandler> = {
   'hab.suspendre': suspendreHab,
   'hab.lever': leverHab,
   'hab.retirer': retirerHab,
-  'medical.demander': demanderVisite,
   'demande.accepter': accepterDemande,
   'demande.refuser': refuserDemande,
   'demande.formation': demandeFormation,

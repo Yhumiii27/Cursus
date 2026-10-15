@@ -57,6 +57,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'hab.lever': 'Suspension levée',
   'hab.retirer': 'Habilitation retirée',
   'medical.demander': 'Visite médicale demandée',
+  'medical.annuler': 'Demande de visite annulée',
+  'medical.avis': 'Avis du médecin du travail',
   // Demandes des collaborateurs
   'demande.formation': 'Demande de formation',
   'demande.habilitation': 'Demande d’habilitation',
@@ -64,6 +66,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'demande.refuser': 'Demande refusée',
   // Déplacements
   'voyage.creer': 'Déplacement créé',
+  'voyage.detachement': 'Formalités de détachement',
   'formalite.enregistrer': 'Formalité de voyage',
   'voyages.importer': 'Import de déplacements',
   'keystone.accepter': 'Demande de Keystone acceptée',
@@ -126,6 +129,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'keystone.absence.annulee': 'Message à Keystone : absence annulée (simulation)',
   'keystone.verdict.modifie': 'Message à Keystone : verdict Go / No Go modifié (simulation)',
   'sage.echec': 'Envoi à Sage Paie en échec',
+  // Mise à jour de la base
+  'migration.detachement': 'Reprise des formalités de détachement',
 };
 
 export const libelleAction = (code: string) => JOURNAL_LABEL[code] ?? code;
@@ -153,7 +158,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.'] },
   { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
-  { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser'] },
+  { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement'] },
   { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.'] },
   { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.'] },
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },

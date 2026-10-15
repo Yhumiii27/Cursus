@@ -77,6 +77,10 @@ const demandeAntoine = () => db.insert<{ id: number }>('absences', { empId: 14, 
 const feuilleAntoine = () => db.insert('feuilles', {
   empId: 14, week: WEEK, statut: 'soumise', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-ADM', tache: 'Fonctions support', ks: false, h: H7 }],
 });
+/** Déplacement de Mehdi à Tanger, sans formalité de détachement. */
+const voyage = () => db.insert<{ id: number }>('voyages', {
+  empId: 2, dest: 'MA', depart: '2026-11-02', retour: '2026-11-06', motif: 'Chantier Tanger', origine: 'cursus', ref: null, chantier: null,
+}).id;
 /** Envoi vers Keystone en échec définitif, à relancer ou classer. */
 const envoiEnEchec = () => db.insert<{ id: number }>('envois', {
   cible: 'keystone', type: 'heures.validees', cle: 'essai-droits', contenu: {}, statut: 'echec', tentatives: 1, prochaine: null,
@@ -128,7 +132,14 @@ const MATRICE: Ligne[] = [
     return { empId: 2, h: 'hauteur' };
   } },
   { action: 'hab.retirer', droits: '                         O    O    -    -    -    -    O    -    -', p: () => ({ empId: 2, h: 'hauteur', motif: 'Restriction médicale' }) },
+  // Santé au travail : demandes de visite et avis du médecin du travail, données de santé réservées au service RH.
   { action: 'medical.demander', droits: '                    O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2 }) },
+  { action: 'medical.annuler', droits: '                     O    O    -    -    -    -    -    -    -', p: () => ({
+    id: db.insert<{ id: number }>('demandesVisite', { empId: 2, motif: 'periodique', le: '2026-10-05', par: 'Sandrine Vidal', statut: 'demandee', closeLe: null, closePar: null }).id,
+  }) },
+  { action: 'medical.avis', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({
+    empId: 2, date: '2026-10-06', avis: 'restrictions', restrictions: [{ texte: 'Pas de travail en hauteur', jusquau: '2026-12-31' }], suspendre: ['hauteur'],
+  }) },
   { action: 'demande.accepter', droits: '                    O    O    -    -    -    -    O    -    -', p: () => ({ id: demande('aipr') }) },
   { action: 'demande.refuser', droits: '                     O    O    -    -    -    -    O    -    -', p: () => ({ id: demande('aipr') }) },
   // Document déclaré (passeport, visa, vaccination) : service RH seulement.
@@ -139,6 +150,8 @@ const MATRICE: Ligne[] = [
   { action: 'demande.habilitation', droits: '                -    -    O    -    O    O    -    -    -', p: () => ({ h: 'aipr', motif: 'Chantier réseaux', empId: 2 }) },
   // Déplacements
   { action: 'voyage.creer', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, dest: 'MA', depart: '2026-11-02', retour: '2026-11-06', motif: 'Chantier Tanger' }) },
+  // Formalités de détachement (certificat de sécurité sociale, information écrite) : démarches du service RH.
+  { action: 'voyage.detachement', droits: '                  O    O    -    -    -    -    -    -    -', p: () => ({ id: voyage(), detachementLe: '2026-10-06' }) },
   { action: 'formalite.enregistrer', droits: '               O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, kind: 'passeport', numero: '21XY12345', expire: '2032-01-01' }) },
   { action: 'voyages.importer', droits: '                    O    O    -    -    -    -    -    -    -', p: () => ({ texte: SAMPLE_TRIPS_CSV }) },
   { action: 'keystone.accepter', droits: '                   O    O    -    -    -    -    -    -    -', p: () => ({ id: 1 }) },

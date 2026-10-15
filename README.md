@@ -41,7 +41,8 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
   avant la fiche s'y rattache dans Comptes et accès).
   Trois profils restreints ouvrent aussi l'espace RH, sans rien voir ni faire d'autre que leur mission :
   **référent HSE / formation** (catalogue, sessions et présences, certifications et habilitations, verdicts
-  Go / No Go ; aptitude médicale réduite à « à jour » ou « à renouveler »), **gestionnaire de paie**, interne ou
+  Go / No Go ; aptitude médicale réduite, comme pour un manager, au verdict et aux restrictions en vigueur),
+  **gestionnaire de paie**, interne ou
   cabinet extérieur (temps, absences et soldes en lecture, transmission à Sage Paie ; ni formations, ni entretiens, ni
   données de santé) et **lecture seule** pour la direction, le DPO ou un auditeur (tableaux de bord, alertes et
   journal des actions, sans modification ni donnée de santé détaillée). En démonstration : Sarah Cohen,
@@ -51,8 +52,8 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
   communiquée au manager pour un arrêt de travail ou la santé d'un enfant), saisie et correction des feuilles de temps, poste et jours non
   travaillés des fiches, ajout de salariés « à affecter » (libérés par leur manager d'origine ; une mutation
   directe passe par le service RH) et retrait de membres, entretiens, missions.
-  Pas d'accès aux données de santé (seul le verdict d'aptitude est transmis) ; du passeport de ses membres, la seule
-  date d'expiration.
+  Pas d'accès aux données de santé : seuls le verdict d'aptitude et les restrictions de poste en vigueur sont transmis,
+  sans date de visite ; du passeport de ses membres, la seule date d'expiration.
 - **Utilisateur** (collaborateur) : ses formations, habilitations, voyages, heures,
   absences, entretiens et demandes au service RH.
   Les documents de voyage qu'il déclare (passeport, visa, vaccination) n'entrent dans son
@@ -178,7 +179,8 @@ périodique : `docs/SAUVEGARDE.md`.
   `CURSUS_MAIL_FROM`, par la file d'envoi (suivi et relance dans Paramètres → Envois) ; sans elle, simulés
   et tracés dans le journal. Adresse professionnelle sur la fiche (reprise du compte Microsoft 365), adresses
   du service RH, du service de santé au travail et des agences dans Paramètres → Messagerie.
-- **Demandes de visite médicale** : notifiées dans l'interface et tracées, sans envoi d'e-mail.
+- **Demandes de visite médicale** : enregistrées et suivies jusqu'à la saisie de la visite, imprimables pour le service de
+  prévention et de santé au travail ; sans envoi d'e-mail.
 - **Liste des inscrits d'une session pour l'organisme** : affichée et exportée en CSV à la confirmation, sans envoi d'e-mail.
 
 ## Contrat et temps de travail
@@ -195,10 +197,14 @@ sont proratisés.
 
 Validité des certifications et seuil d'alerte (30–180 j) · prérequis des habilitations
 (formation + aptitude médicale de 24 mois) avec suspension automatique, suspension et
-retrait manuels (motif, date, auteur) · seule la dernière certification compte après un
+retrait manuels (motif, date, auteur) · aptitude médicale dans le statut et les échéances, avis du médecin
+du travail (apte, restrictions datées, inapte) avec suspension des habilitations incompatibles, demandes de
+visite suivies jusqu'à la visite · seule la dernière certification compte après un
 recyclage, les précédentes restent en historique · formalités de
-voyage par destination (passeport, visas, vaccins, délais) · Go / No Go par chantier
-(matricules et codes de motif uniquement) · heures supplémentaires +25 % / +50 %,
+voyage par destination (passeport, visas, vaccins, délais) et de détachement (certificat A1 ou de la
+convention bilatérale de sécurité sociale, information écrite au-delà de 4 semaines) · Go / No Go par
+chantier (matricules et codes de motif uniquement) : contrat et absences sur la présence, aptitude médicale, habilitations,
+certifications, déplacement couvrant la présence, formalités de voyage et de détachement · heures supplémentaires +25 % / +50 %,
 heures complémentaires +10 % / +25 %, forfait jours, alertes 10 h / 48 h · repos
 compensateur · CP 25 jours ouvrés (+5 j à 59 ans, CCN Chimie), RTT, jours de repos
 forfait calculés, CET (5 RTT/an, 5e semaine de CP), reports tracés · absences hors congés

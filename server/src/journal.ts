@@ -138,7 +138,10 @@ export const REGLES: Record<string, Regle> = {
   'hab.suspendre': { champs: ['empId', 'h', 'date'] },
   'hab.lever': { champs: ['empId', 'h'] },
   'hab.retirer': { champs: ['empId', 'h', 'date'] },
+  // Santé au travail : ni le motif de la visite, ni l'avis, ni les restrictions (le message, masqué au lecteur, dit l'avis).
   'medical.demander': { champs: ['empId'] },
+  'medical.annuler': { champs: ['id'] },
+  'medical.avis': { champs: ['empId', 'date', 'suspendre', 'lever'] },
   // Demandes des collaborateurs : ni motif, ni réponse, ni contenu d'une déclaration.
   'demande.formation': { champs: ['empId', 'f', 'sessionId'], salaries: (p, x) => [p.empId ?? x.user.empId] },
   'demande.habilitation': { champs: ['empId', 'h'], salaries: (p, x) => [p.empId ?? x.user.empId] },
@@ -146,6 +149,7 @@ export const REGLES: Record<string, Regle> = {
   'demande.refuser': { champs: ['id'], cible: parId('demandesCollab', ['statut']) },
   // Déplacements : jamais le numéro de passeport ni une vaccination (donnée de santé) ; le motif n'est pas recopié.
   'voyage.creer': { champs: ['empId', 'dest', 'depart', 'retour'] },
+  'voyage.detachement': { champs: ['id', 'detachementLe', 'informationLe'], cible: parId('voyages', ['detachementLe', 'informationLe']) },
   'formalite.enregistrer': {
     champs: p => p.kind === 'passeport' ? ['empId', 'kind', 'expire'] : p.kind === 'visa' ? ['empId', 'kind', 'dest', 'visaType', 'obtenu', 'expire'] : ['empId', 'kind'],
   },
@@ -621,7 +625,10 @@ export function exigerRh(db: Db, req: Request, res: Response, quoi: string, auto
 }
 
 /** Actions dont le message ou le détail touche à la santé : absence (dates d'un arrêt), visite médicale, vaccination, document déclaré. */
-const ACTIONS_SANTE = new Set(['absence.saisir', 'absence.qualifier', 'absence.prolonger', 'absence.annuler', 'medical.demander', 'formalite.enregistrer', 'demande.accepter']);
+const ACTIONS_SANTE = new Set([
+  'absence.saisir', 'absence.qualifier', 'absence.prolonger', 'absence.annuler', 'medical.demander', 'medical.annuler', 'medical.avis',
+  'formalite.enregistrer', 'demande.accepter',
+]);
 export const DETAIL_RESERVE = 'Détail réservé au service RH';
 
 /**

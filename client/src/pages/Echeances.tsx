@@ -1,4 +1,4 @@
-// Échéances : renouvellements des 12 prochains mois (certifications, habilitations, formalités de voyage).
+// Échéances : renouvellements des 12 prochains mois (certifications, habilitations, visites médicales, formalités de voyage).
 import { useMemo } from 'react';
 import { DownloadSimpleIcon } from '@phosphor-icons/react';
 import { cap, equipeLabel, monthShort, plural } from '../../../shared/format.ts';
@@ -44,7 +44,7 @@ export function Echeances() {
   const exportCsv = () => {
     const items = v.groups.flatMap(g => g.items);
     downloadCsv(`echeances-${d.ti}.csv`, ['Collaborateur', 'Équipe', 'Élément', 'Type', 'Échéance', 'Statut', 'Planifié'],
-      items.map(x => [x.emp.nom, equipeLabel(x.emp), x.label, x.kindLabel, dmy(x.exp), x.statut, x.planned ? x.plannedLabel : '']));
+      items.map(x => [x.emp.nom, equipeLabel(x.emp), x.label, x.kindLabel, x.sansDate ? '' : dmy(x.exp), x.statut, x.planned ? x.plannedLabel : '']));
     notify(`Export CSV généré — ${plural(items.length, 'échéance', 'échéances')}`);
   };
 
@@ -54,7 +54,7 @@ export function Echeances() {
       title="Échéances"
       actions={<>
         <Seg name="echType" label="Type d’échéance" value={ui.echType} onChange={x => setUi({ echType: x })}
-          options={[['tous', 'Tout'], ['cert', 'Certifications'], ['hab', 'Habilitations'], ['trip', 'Voyages']]} />
+          options={[['tous', 'Tout'], ['cert', 'Certifications'], ['hab', 'Habilitations'], ['med', 'Visites médicales'], ['trip', 'Voyages']]} />
         <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exportCsv}>Exporter (CSV)</Btn>
       </>}
     >

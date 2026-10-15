@@ -152,9 +152,10 @@ test('archive paie : une absence saisie, prolongée puis annulée y figure en en
 
 test('anciennes et nouvelles valeurs : fiche, équipe, profil, paramètres', () => {
   const { run, derniere, RH, KARIM } = fresh();
-  run(RH, 'employe.modifier', { id: 2, poste: 'Technicien confirmé', visite: '2026-10-01' });
+  // La visite médicale s'enregistre avec l'avis (`medical.avis`) : l'année de naissance sert ici de champ hors fiche.
+  run(RH, 'employe.modifier', { id: 2, poste: 'Technicien confirmé', naissance: 1985 });
   const m = derniere('employe.modifier')!;
-  assert.deepEqual(m.payload, { id: 2, champsModifies: ['poste', 'visite'], avant: { poste: 'Technicien de maintenance' }, apres: { poste: 'Technicien confirmé' } });
+  assert.deepEqual(m.payload, { id: 2, champsModifies: ['poste', 'naissance'], avant: { poste: 'Technicien de maintenance' }, apres: { poste: 'Technicien confirmé' } });
   assert.equal(changementsTexte(m.payload), 'Poste : Technicien de maintenance → Technicien confirmé');
   assert.deepEqual(m.salaries, [2]);
   run(KARIM, 'equipe.affecter', { empId: 2, equipe: null });

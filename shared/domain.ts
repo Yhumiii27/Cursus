@@ -3,15 +3,16 @@
 // Fonctions pures d'un instantané de données — utilisées par le client pour
 // l'affichage et par le serveur pour valider les actions et les intégrations.
 import {
-  CERT_LABEL, CLS, DOC_LABEL, GNG_CODE, HAB_CLS, HAB_LABEL, MED_VALIDITE, RANK, SESSION_PASSEE, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT, VACCINS, VISA_RULES,
-  type CodeMotif, type HabKey, type HabMesureAction, type StatusKey,
+  AVIS_MEDICAL, CERT_LABEL, CLS, DOC_LABEL, GNG_CODE, HAB_CLS, HAB_LABEL, MED_LABEL, MED_VALIDITE, MISSION_LONGUE_JOURS, RANK, SECU_RULES, SESSION_PASSEE, STATUTS,
+  TEMPS_TRAVAIL, TYPES_CONTRAT, VACCINS, VISA_RULES, secuDe, type CodeMotif, type HabKey, type HabMesureAction, type StatusKey,
 } from './constants.ts';
 import { addD, addMonths, days, isFerie, iso, parse, weekday } from './dates.ts';
-import { fmt, fmtShort, matricule } from './format.ts';
-import { absenceActive, absenceBloque } from './rules/absences.ts';
+import { cap, fmt, fmtShort, matricule } from './format.ts';
+import { absenceActive, absenceBloque, borneContrat, periodeTexte } from './rules/absences.ts';
+import { restrictionEnVigueur } from './rules/sante.ts';
 import type {
-  Certification, Chantier, Dataset, Destination, Employe, Formation, HabTitre, HabType, ISODate, Session,
-  Statut, TempsTravail, TripStatus, TypeContrat, VaccinId, Voyage,
+  AvisMedical, Certification, Chantier, Dataset, DemandeVisite, Destination, Employe, FormaliteManquante, Formation, HabTitre, HabType, ISODate,
+  Restriction, Session, Statut, TempsTravail, TripStatus, TypeContrat, VaccinId, Voyage,
 } from './types.ts';
 
 export interface CertInfo extends Certification {
@@ -23,7 +24,22 @@ export interface CertInfo extends Certification {
   /** Certification remplacée par un recyclage : date d'obtention de la suivante (null = en vigueur). */
   remplacee: Date | null;
 }
-export interface MedInfo { ok: boolean; exp: Date | null; d: number | null; text: string }
+/**
+ * Aptitude médicale d'un collaborateur : valide (visite de moins de 24 mois, sans avis d'inaptitude), échéance,
+ * avis et restrictions de la dernière visite, demande de visite en cours.
+ */
+export interface MedInfo {
+  ok: boolean; exp: Date | null; d: number | null; text: string;
+  /** Date de la dernière visite ; null : aucune visite enregistrée, ou verdict seul. */
+  visite: Date | null;
+  /** Avis de la dernière visite (null : aucune visite) et ses restrictions, en vigueur ou non (vue manager : en vigueur). */
+  avis: AvisMedical | null;
+  restrictions: Restriction[];
+  /** Demande de visite en cours (service RH et intéressé). */
+  demande: DemandeVisite | null;
+  /** Vue manager (ou profil restreint) : verdict seul, sans date de visite ni demande. */
+  verdictSeul: boolean;
+}
 export interface PrereqCheck { type: 'cert' | 'med'; f: string | null; certId: number | null; label: string; ok: boolean; due: boolean; exp: Date | null; text: string }
 export interface HabInfo extends HabTitre {
   hm: HabType; checks: PrereqCheck[]; failing: PrereqCheck[]; prereqOk: boolean; exp: Date | null; d: number | null; key: HabKey; note: string;
@@ -54,21 +70,35 @@ export type UiIntent =
 export type FormaliteKind = 'passeport' | 'visa' | 'vaccin';
 export interface Proposal { label: string; intent: UiIntent }
 
+/** Pièce du dossier voyage : formalité du salarié, ou formalité de détachement tenue par le service RH (`voyage.detachement`). */
+export type TripItemKind = FormaliteKind | 'detachement' | 'information';
 export interface TripItem {
-  k: FormaliteKind; label: string; ok: boolean; mandatory: boolean; lapsed?: boolean; lead: number; text: string; short?: string;
+  k: TripItemKind; label: string; ok: boolean; mandatory: boolean; lapsed?: boolean; lead: number; text: string; short?: string;
   fix?: { kind: FormaliteKind; dest?: string; v?: VaccinId }; late: boolean; statut: string; cls: string;
 }
 export interface Readiness { dest: Destination; dep: Date; ret: Date; toGo: number; items: TripItem[]; todo: number; status: TripStatus }
 export interface TripX extends Voyage { emp: Employe; r: Readiness }
 
 export interface EchItem {
-  kind: 'cert' | 'hab' | 'trip'; kindLabel: string; label: string; emp: EmpX; exp: Date; d: number; key: StatusKey;
+  kind: 'cert' | 'hab' | 'trip' | 'med'; kindLabel: string; label: string; emp: EmpX; exp: Date; d: number; key: StatusKey;
   statut: string; cls: string; planned: boolean; plannedLabel: string; action: Proposal | null;
+  /** Échéance sans date connue (aucune visite médicale enregistrée) : classée au jour, parmi les dépassées. */
+  sansDate?: boolean;
 }
 
 export type GngStatus = 'go' | 'reserve' | 'nogo';
-export interface GngReason { level: 'reserve' | 'nogo'; code: CodeMotif; minimal: string; detailed: string }
+/**
+ * Motif d'un verdict : `detailed` s'affiche au service RH (écran Chantiers) et part à Keystone en partage détaillé,
+ * sauf `transmis` : libellé neutre envoyé à sa place (aptitude médicale, dont le détail reste au service RH).
+ */
+export interface GngReason { level: 'reserve' | 'nogo'; code: CodeMotif; minimal: string; detailed: string; transmis?: string }
 export interface ChantierEval { c: Chantier; res: { e: EmpX; status: GngStatus; reasons: GngReason[] }[]; status: GngStatus }
+/** Période de présence d'une ressource sur un chantier (dates incluses). */
+export interface Presence { du: ISODate; au: ISODate }
+/** Pièces du dossier voyage qui relèvent du détachement, les autres des formalités de voyage (motifs distincts du Go / No Go). */
+const PIECES_DETACHEMENT: readonly TripItemKind[] = ['detachement', 'information'];
+/** Seul libellé du motif APTITUDE (réserve) transmis à Keystone en partage détaillé, quelle qu'en soit la cause. */
+const APTITUDE_A_VERIFIER = 'Aptitude médicale à vérifier avec le service RH';
 
 /** Lecture du contrat d'un collaborateur : statut, nature du contrat, organisation du temps. */
 export interface ContratX {
@@ -267,15 +297,40 @@ export class Domain {
     return { vigueur, anciennes };
   }
 
+  /** Demande de visite médicale en cours d'un collaborateur. */
+  demandeVisite(empId: number): DemandeVisite | null {
+    return this.ds.demandesVisite.find(x => x.empId === empId && x.statut === 'demandee') ?? null;
+  }
+
+  /**
+   * Aptitude médicale : visite de moins de 24 mois, sans avis d'inaptitude. Un avis avec restrictions laisse
+   * l'aptitude valide : le service RH suspend les habilitations incompatibles (`medical.avis`).
+   */
   medInfo(e: Employe): MedInfo {
-    if (!e.visite) {
-      // Verdict seul (manager, profils restreints) : `ok` dit que la visite périodique est à jour, pas un avis
-      // d'inaptitude (art. L4624-4), que Cursus n'enregistre pas.
-      if (e.aptitude) return { ok: e.aptitude.ok, exp: null, d: null, text: `Aptitude médicale : ${e.aptitude.ok ? 'à jour' : 'à renouveler (visite échue ou non renseignée)'} · détail réservé au service RH` };
-      return { ok: false, exp: null, d: null, text: 'Visite médicale non renseignée' };
+    if (!e.visite && e.aptitude) {
+      // Vue manager et profils restreints de l'espace RH : verdict et restrictions en vigueur, jamais la date de la
+      // visite ni la demande.
+      const a = e.aptitude, avis = a.avis ?? null;
+      const text = avis === 'inapte' ? 'Inapte — avis du médecin du travail'
+        : !a.ok ? 'Aptitude médicale non valide — visite à programmer par le service RH'
+        : avis === 'restrictions' ? 'Apte avec restrictions — avis du médecin du travail' : 'Aptitude médicale valide';
+      return { ok: a.ok, exp: null, d: null, text, visite: null, avis, restrictions: a.restrictions ?? [], demande: null, verdictSeul: true };
     }
+    const demande = this.demandeVisite(e.id), demandee = demande ? `visite demandée le ${fmt(parse(demande.le))}` : 'visite à programmer';
+    if (!e.visite) return { ok: false, exp: null, d: null, text: `Visite médicale non renseignée — ${demandee}`, visite: null, avis: null, restrictions: [], demande, verdictSeul: false };
     const date = parse(e.visite), exp = addMonths(date, MED_VALIDITE), d = days(this.today, exp);
-    return { ok: d >= 0, exp, d, text: d >= 0 ? `Visite du ${fmt(date)} · aptitude valide jusqu’au ${fmt(exp)}` : `Aptitude échue le ${fmt(exp)} — visite à programmer` };
+    // Visite saisie avant l'enregistrement des avis : apte.
+    const avis = e.avis ?? 'apte', inapte = avis === 'inapte';
+    const suite = demande ? ` · ${demandee}` : '';
+    const text = inapte ? `Inapte — avis du médecin du travail du ${fmt(date)}${suite}`
+      : d >= 0 ? `Visite du ${fmt(date)} · ${avis === 'restrictions' ? 'apte avec restrictions, ' : ''}aptitude valide jusqu’au ${fmt(exp)}${suite}`
+      : `Aptitude échue le ${fmt(exp)} — ${demandee}`;
+    return { ok: d >= 0 && !inapte, exp, d, text, visite: date, avis, restrictions: avis === 'restrictions' ? e.restrictions ?? [] : [], demande, verdictSeul: false };
+  }
+
+  /** Statut de l'aptitude dans la conformité : non valide (inapte, échue, aucune visite), ou à renouveler sous l'horizon d'alerte. */
+  medKey(med: MedInfo, horizon: number): StatusKey {
+    return !med.ok ? 'exp' : med.d != null && med.d <= horizon ? 'due' : 'ok';
   }
 
   habInfo(h: Pick<HabTitre, 'h'> & Partial<HabTitre>, rawCerts: CertInfo[], med: MedInfo, horizon: number): HabInfo {
@@ -345,7 +400,9 @@ export class Domain {
         ? { label: 'Planifier le recyclage', intent: { type: 'openPlan', empId, certId: fc.certId } }
         : { label: 'Inscrire à la formation', intent: { type: 'goFormation', f: fc.f! } };
     }
-    return { label: 'Demander une visite médicale', intent: { type: 'medical', empId } };
+    // Visite déjà demandée : « Visite demandée le … » à la place, qui ouvre la demande en cours (impression, annulation).
+    const dem = this.demandeVisite(empId);
+    return { label: dem ? `Visite demandée le ${fmtShort(parse(dem.le))}` : 'Demander une visite médicale', intent: { type: 'medical', empId } };
   }
 
   /** Collaborateurs enrichis de leurs statuts de conformité. */
@@ -357,9 +414,13 @@ export class Domain {
       const certs = rawCerts.filter(c => formIds.has(c.f));
       const med = this.medInfo(e);
       const habs = e.habs.map(h => this.habInfo(h, rawCerts, med, horizon));
-      const keys: StatusKey[] = [...certs.map(c => c.key), ...habs.map(h => habStatus(h.key))];
+      // L'aptitude médicale compte dans le statut, même sans habilitation qui l'exige.
+      const keys: StatusKey[] = [...certs.map(c => c.key), ...habs.map(h => habStatus(h.key)), this.medKey(med, horizon)];
       const worst = keys.reduce<StatusKey>((w, k) => RANK[k] > RANK[w] ? k : w, 'ok');
-      const dated = [...certs.map(c => ({ exp: c.exp, d: c.d })), ...habs.flatMap(h => this.habEcheance(h) ?? [])];
+      const dated = [
+        ...certs.map(c => ({ exp: c.exp, d: c.d })), ...habs.flatMap(h => this.habEcheance(h) ?? []),
+        ...(med.exp && med.avis !== 'inapte' ? [{ exp: med.exp, d: med.d! }] : []),
+      ];
       const next = dated.sort((a, b) => a.d - b.d)[0] || null;
       return { ...e, certs, rawCerts, anciennes, med, habs, worst, next };
     });
@@ -378,10 +439,14 @@ export class Domain {
   vaccinNames(list: VaccinId[]): string { return list.map(v => VACCINS[v].nom.replace(/ \(.*\)/, '')).join(', '); }
   destSummary(dest: Destination): string {
     const rule = VISA_RULES[dest.visa];
-    return `${rule.label}${dest.visaSub ? ' (' + dest.visaSub + ')' : ''} · ${dest.oblig.length ? 'vaccin obligatoire : ' + this.vaccinNames(dest.oblig) : 'aucun vaccin obligatoire'} · recommandés : ${this.vaccinNames([...dest.rec, 'dtp'])} · passeport ${dest.passMois ? 'valide ' + dest.passMois + ' mois après l’entrée' : 'valide pendant le séjour'}.`;
+    return `${rule.label}${dest.visaSub ? ' (' + dest.visaSub + ')' : ''} · ${dest.oblig.length ? 'vaccin obligatoire : ' + this.vaccinNames(dest.oblig) : 'aucun vaccin obligatoire'} · recommandés : ${this.vaccinNames([...dest.rec, 'dtp'])} · passeport ${dest.passMois ? 'valide ' + dest.passMois + ' mois après l’entrée' : 'valide pendant le séjour'} · sécurité sociale : ${SECU_RULES[secuDe(dest)].label}.`;
   }
 
-  readiness(emp: Employe, trip: { dest: string; depart: ISODate; retour: ISODate }): Readiness {
+  /**
+   * Dossier voyage d'un déplacement (ou d'une demande Keystone) : pièces du salarié (passeport, visa, vaccins) et
+   * formalités de détachement du service RH (certificat de sécurité sociale, information écrite d'une mission longue).
+   */
+  readiness(emp: Employe, trip: Pick<Voyage, 'dest' | 'depart' | 'retour'> & Partial<Pick<Voyage, 'detachementLe' | 'informationLe'>>): Readiness {
     const dest = this.destOf(trip.dest)!, rule = VISA_RULES[dest.visa];
     const dep = parse(trip.depart), ret = parse(trip.retour), toGo = days(this.today, dep);
     const before = (lead: number) => { const x = new Date(dep.getTime()); x.setDate(x.getDate() - lead); return fmt(x); };
@@ -410,6 +475,23 @@ export class Domain {
         k: 'visa', label: rule.label, ok: false, mandatory: true, lead: rule.delai,
         text: v ? `${v.type} expiré le ${fmt(parse(v.expire))} — à renouveler avant le ${before(rule.delai)}` : `À demander avant le ${before(rule.delai)} · ${rule.sub}`,
         short: `${rule.label} · à demander`, fix: { kind: 'visa', dest: dest.code },
+      });
+    }
+    // Détachement : certificat de sécurité sociale du pays, obtenu par le service RH avant le départ.
+    const secu = SECU_RULES[secuDe(dest)];
+    if (trip.detachementLe) add({ k: 'detachement', label: secu.label, ok: true, mandatory: true, lead: 0, text: `Obtenu le ${fmt(parse(trip.detachementLe))} · ${secu.portee}` });
+    else add({
+      k: 'detachement', label: secu.label, ok: false, mandatory: true, lead: secu.delai,
+      text: `À obtenir par le service RH avant le ${before(secu.delai)} · ${secu.demarche}`, short: `${secu.court} · à obtenir`,
+    });
+    // Mission de plus de 4 semaines consécutives : information écrite remise au salarié avant son départ (au plus tard la veille).
+    const duree = days(dep, ret) + 1;
+    if (duree > MISSION_LONGUE_JOURS) {
+      const label = 'Information écrite (mission de plus de 4 semaines)';
+      if (trip.informationLe) add({ k: 'information', label, ok: true, mandatory: true, lead: 0, text: `Remise au salarié le ${fmt(parse(trip.informationLe))}` });
+      else add({
+        k: 'information', label, ok: false, mandatory: true, lead: 1, short: 'Information écrite · à remettre',
+        text: `Mission de ${duree} jours : à remettre par le service RH avant le ${fmt(dep)} — pays, durée, devise de la rémunération, avantages, conditions de rapatriement`,
       });
     }
     const vac = (v: VaccinId, mandatory: boolean) => {
@@ -446,11 +528,12 @@ export class Domain {
   }
 
   /**
-   * Formalités obligatoires manquantes d'un déplacement, sans nommer un vaccin (« formalité sanitaire ») — précalculées
-   * par le serveur (`dossierManque`) quand les pièces du dossier ne sont pas transmises.
+   * Formalités obligatoires manquantes d'un déplacement (voyage ou détachement), sans nommer un vaccin (« formalité
+   * sanitaire ») — précalculées par le serveur (`dossierManque`) quand les pièces du dossier ne sont pas transmises.
    */
-  formalitesManquantes(t: TripX): string[] {
-    return t.dossierManque ?? [...new Set(t.r.items.filter(i => !i.ok && i.mandatory).map(i => i.k === 'vaccin' ? 'formalité sanitaire' : i.label))];
+  formalitesManquantes(t: TripX): FormaliteManquante[] {
+    return t.dossierManque ?? t.r.items.filter(i => !i.ok && i.mandatory)
+      .map(i => ({ label: i.k === 'vaccin' ? 'formalité sanitaire' : i.label, late: i.late, detachement: PIECES_DETACHEMENT.includes(i.k) }));
   }
 
   travelOf(e: Employe, horizon: number) {
@@ -483,23 +566,92 @@ export class Domain {
       }));
       e.habs.forEach(h => {
         const t = this.habEcheance(h);
-        if (t) ech.push({
+        if (!t) return;
+        // Prérequis d'aptitude en attente d'une visite déjà demandée : affichée comme planifiée, comme l'échéance de la visite.
+        const a = this.habAction(e.id, h), visite = a?.intent.type === 'medical' && !!this.demandeVisite(e.id);
+        ech.push({
           kind: 'hab', kindLabel: 'Habilitation', label: h.hm.nom, emp: e, exp: t.exp, d: t.d, key: habStatus(h.key),
-          statut: HAB_LABEL[h.key], cls: HAB_CLS[h.key], planned: false, plannedLabel: '', action: this.habAction(e.id, h),
+          statut: HAB_LABEL[h.key], cls: HAB_CLS[h.key], planned: visite, plannedLabel: visite ? a!.label : '', action: a,
         });
       });
       const t = this.travelOf(e, horizon);
       if (t.pass) ech.push({ kind: 'trip', kindLabel: 'Passeport', label: 'Passeport', emp: e, exp: t.pass.exp, d: t.pass.d, key: t.pass.key, statut: DOC_LABEL[t.pass.key], cls: CLS[t.pass.key], planned: false, plannedLabel: '', action: { label: 'Mettre à jour', intent: { type: 'openFormalite', empId: e.id, kind: 'passeport' } } });
       t.visas.forEach(v => ech.push({ kind: 'trip', kindLabel: 'Visa · autorisation', label: `${v.type} — ${this.destOf(v.dest)?.pays ?? v.dest}`, emp: e, exp: v.exp, d: v.d, key: v.key, statut: DOC_LABEL[v.key], cls: CLS[v.key], planned: false, plannedLabel: '', action: { label: 'Mettre à jour', intent: { type: 'openFormalite', empId: e.id, kind: 'visa', dest: v.dest } } }));
       t.vaccins.filter(x => x.exp).forEach(x => ech.push({ kind: 'trip', kindLabel: 'Vaccination', label: `Rappel ${x.vm.nom}`, emp: e, exp: x.exp!, d: x.d!, key: x.key, statut: DOC_LABEL[x.key], cls: CLS[x.key], planned: false, plannedLabel: '', action: { label: 'Mettre à jour', intent: { type: 'openFormalite', empId: e.id, kind: 'vaccin', v: x.v } } }));
+      // Aptitude médicale : visite périodique, visite jamais enregistrée (sans date, parmi les dépassées) ou avis
+      // d'inaptitude (daté de la visite). Le verdict seul (vue manager) ne donne aucune échéance.
+      const m = e.med;
+      if (!m.verdictSeul) {
+        const inapte = m.avis === 'inapte', sansDate = !m.exp, exp = inapte ? m.visite! : m.exp ?? this.today, key = this.medKey(m, horizon);
+        ech.push({
+          kind: 'med', kindLabel: 'Visite médicale', label: inapte ? 'Avis d’inaptitude' : sansDate ? 'Visite médicale non renseignée' : 'Aptitude médicale', emp: e,
+          exp, d: days(this.today, exp), key, statut: inapte ? AVIS_MEDICAL.inapte.court : sansDate ? 'Non renseignée' : MED_LABEL[key], cls: CLS[key], sansDate,
+          planned: !!m.demande, plannedLabel: m.demande ? `Visite demandée le ${fmtShort(parse(m.demande.le))}` : '',
+          // Visite à demander : aptitude non valide ou à renouveler sous l'horizon d'alerte (sinon depuis la fiche).
+          action: m.demande || key === 'ok' ? null : { label: 'Demander la visite', intent: { type: 'medical', empId: e.id } },
+        });
+      }
     });
     return ech;
   }
 
   // — Chantiers Keystone : Go / No Go —
+  /**
+   * Présence d'une ressource sur un chantier : ses affectations ramenées aux dates du chantier (un repérage ou une
+   * préparation hors de ces dates n'entre pas dans le Go / No Go), les périodes jointives fusionnées. Sans affectation
+   * connue, les dates du chantier.
+   */
+  presence(empId: number, c: Chantier): Presence[] {
+    const out: Presence[] = [];
+    this.ds.missions
+      .filter(m => m.empId === empId && m.projet === c.id && m.du <= c.fin && m.au >= c.debut)
+      .map(m => ({ du: m.du > c.debut ? m.du : c.debut, au: m.au < c.fin ? m.au : c.fin }))
+      .sort((a, b) => a.du.localeCompare(b.du))
+      .forEach(p => {
+        const der = out.at(-1);
+        if (der && p.du <= addD(der.au, 1)) { if (p.au > der.au) der.au = p.au; } else out.push(p);
+      });
+    return out.length ? out : [{ du: c.debut, au: c.fin }];
+  }
+
+  /**
+   * Présence restante : les périodes de présence ramenées à partir d'aujourd'hui, celles déjà finies écartées. Sur un
+   * chantier en cours, une absence terminée ou une entrée déjà faite ne bloque plus une ressource qui a repris.
+   */
+  presenceRestante(empId: number, c: Chantier): Presence[] {
+    return this.presence(empId, c).filter(s => s.au >= this.ti).map(s => ({ du: s.du > this.ti ? s.du : this.ti, au: s.au }));
+  }
+
   resourceStatus(e: EmpX, c: Chantier, trips: TripX[]): { status: GngStatus; reasons: GngReason[] } {
     const start = parse(c.debut), end = parse(c.fin), reasons: GngReason[] = [];
-    const push = (level: GngReason['level'], code: CodeMotif, minimal: string, detailed: string) => { reasons.push({ level, code, minimal, detailed }); };
+    const push = (level: GngReason['level'], code: CodeMotif, minimal: string, detailed: string, transmis?: string) => {
+      reasons.push({ level, code, minimal, detailed, ...(transmis ? { transmis } : {}) });
+    };
+    // Disponibilité, déplacement et formalités : sur la présence restante (vide une fois la présence finie).
+    const sejours = this.presenceRestante(e.id, c), du = sejours[0]?.du ?? c.debut, au = sejours.at(-1)?.au ?? c.fin;
+    const pendant = (p: { du: ISODate; au: ISODate }) => sejours.some(s => p.du <= s.au && p.au >= s.du);
+    // Disponibilité sur la présence : contrat en cours (fin d'un CDD, d'une mission d'intérim, d'une alternance),
+    // aucune absence en vigueur. Jamais la nature d'une absence, même dans le libellé du partage détaillé.
+    const borne = sejours.length ? borneContrat(e, du, au) : null;
+    if (borne) push('nogo', 'CONTRAT', du < e.entree ? 'Contrat non commencé au début du chantier' : 'Contrat terminé avant la fin du chantier', `${cap(borne)} — présence prévue ${periodeTexte(du, au)}`);
+    this.ds.absences.filter(a => a.empId === e.id && absenceActive(a) && pendant(a)).forEach(a => {
+      if (a.statut === 'demandee') push('reserve', 'ABSENCE', 'Demande d’absence en attente pendant le chantier', `Demande d’absence en attente ${periodeTexte(a.du, a.au)}`);
+      else push('nogo', 'ABSENCE', 'Absent pendant le chantier', `Absent ${periodeTexte(a.du, a.au)}`);
+    });
+    // Aptitude médicale : état du jour seulement, jamais rapporté aux dates de présence, que Keystone fixe lui-même (des
+    // affectations sondes en déduiraient la date d'une visite ou la fin d'une restriction). Inapte : No Go. Aptitude non
+    // valide (visite périodique en retard, aucune visite) ou restrictions en vigueur aujourd'hui : une seule réserve, qu'une
+    // habilitation exigée dépende de l'aptitude ou non. Keystone n'en reçoit que le code et, en partage détaillé, un
+    // libellé neutre : ni date, ni restriction, ni même leur existence (réservée au manager).
+    const med = e.med;
+    if (med.avis === 'inapte') push('nogo', 'APTITUDE', 'Inapte au poste', 'Avis d’inaptitude du médecin du travail', 'Inapte au poste');
+    else {
+      const retard = med.ok ? '' : med.verdictSeul ? 'Aptitude médicale non valide' : !med.exp ? 'Aucune visite médicale enregistrée' : 'Visite médicale périodique en retard';
+      const restreinte = med.restrictions.some(r => restrictionEnVigueur(r, this.ti)) ? 'Restrictions d’aptitude en vigueur' : '';
+      if (retard || restreinte) {
+        push('reserve', 'APTITUDE', retard || restreinte, `${[retard, restreinte].filter(Boolean).join(' · ')} : affectation à vérifier avec le service RH`, APTITUDE_A_VERIFIER);
+      }
+    }
     c.habs.forEach(h => {
       const hm = this.hm(h), hi = e.habs.find(x => x.h === h);
       if (!hi) return push('nogo', 'HABILITATION', 'Habilitation requise absente', `${hm.nom} — non détenue`);
@@ -518,14 +670,35 @@ export class Domain {
       if (ci.exp < start) return push(recycl ? 'reserve' : 'nogo', 'CERTIFICATION', recycl ? 'Recyclage planifié avant le démarrage' : 'Certification requise non valide', `${fm.court} — expire le ${fmt(ci.exp)}${recycl ? ', recyclage le ' + fmt(parse(ci.session!.date)) : ''}`);
       if (ci.exp < end) push('reserve', 'CERTIFICATION', 'Certification expirant pendant le chantier', `${fm.court} — expire le ${fmt(ci.exp)}, en cours de chantier`);
     });
-    if (c.pays !== 'FR') {
-      const t = trips.find(x => x.empId === e.id && x.chantier === c.id) || trips.find(x => x.empId === e.id && x.dest === c.pays);
+    // Présence finie (chantier en cours, ressource rentrée) : plus de déplacement à exiger.
+    if (c.pays !== 'FR' && sejours.length) {
+      // Déplacements retenus : rattachés au chantier, ou vers son pays pendant la présence (un voyage des mois plus tôt ne vaut pas).
+      const siens = trips.filter(x => x.empId === e.id && (x.chantier === c.id || (x.dest === c.pays && pendant({ du: x.depart, au: x.retour }))));
       const dem = this.ds.demandesKeystone.some(d => d.empId === e.id && d.chantier === c.id && d.statut === 'attente');
-      if (!t) push('reserve', 'DEPLACEMENT', dem ? 'Déplacement en attente de validation RH' : 'Déplacement à créer', dem ? 'Demande Keystone en attente de validation RH' : 'Aucun déplacement créé pour ce chantier');
-      else if ((t.dossierStatut ?? t.r.status) !== 'pret') {
-        const list = this.formalitesManquantes(t).join(', ');
-        if ((t.dossierStatut ?? t.r.status) === 'bloc') push('nogo', 'FORMALITES_VOYAGE', 'Formalités de voyage hors délai', `Formalités hors délai : ${list}`);
-        else push('reserve', 'FORMALITES_VOYAGE', 'Formalités de voyage en cours', `Formalités en cours : ${list}`);
+      if (!siens.length) push('reserve', 'DEPLACEMENT', dem ? 'Déplacement en attente de validation RH' : 'Déplacement à créer', dem ? 'Demande Keystone en attente de validation RH' : 'Aucun déplacement créé pour ce chantier');
+      else {
+        // Chaque période de présence (restante) doit tenir dans un déplacement : départ au plus tard le premier jour, retour au
+        // plus tôt le dernier. Couverte, seules comptent les formalités des déplacements qui la couvrent ; sinon, celles de tous
+        // les déplacements retenus.
+        const couvrants = sejours.map(p => siens.find(t => t.depart <= p.du && t.retour >= p.au));
+        const couverte = couvrants.every(t => !!t), retenus = couverte ? [...new Set(couvrants as TripX[])] : siens;
+        if (!couverte) {
+          push('reserve', 'DEPLACEMENT_PARTIEL', 'Déplacement ne couvrant pas toute la présence',
+            `Couverture partielle : ${siens.map(t => `déplacement ${periodeTexte(t.depart, t.retour)}`).join(', ')}, présence ${periodeTexte(du, au)}`);
+        }
+        const manquantes = (t: TripX, detachement: boolean) => this.formalitesManquantes(t).filter(m => m.detachement === detachement);
+        const voyage = retenus.flatMap(t => manquantes(t, false)), detachement = retenus.flatMap(t => manquantes(t, true));
+        const liste = (items: FormaliteManquante[]) => [...new Set(items.map(i => i.label))].join(', ');
+        if (voyage.some(i => i.late)) push('nogo', 'FORMALITES_VOYAGE', 'Formalités de voyage hors délai', `Formalités hors délai : ${liste(voyage)}`);
+        else if (voyage.length) push('reserve', 'FORMALITES_VOYAGE', 'Formalités de voyage en cours', `Formalités en cours : ${liste(voyage)}`);
+        // Formalités de détachement (décision de l'entreprise : bloquent si elles ne sont pas faites au départ) : réserve
+        // avant le départ, même une fois le délai indicatif d'obtention entamé (le dossier voyage les dit alors « Urgent » ;
+        // un certificat A1 demandé en ligne est souvent délivré tout de suite) ; No Go à partir du jour du départ.
+        const parti = retenus.some(t => t.r.toGo <= 0 && manquantes(t, true).length > 0);
+        if (parti) push('nogo', 'DETACHEMENT', 'Formalités de détachement non faites au départ', `Détachement non fait au départ : ${liste(detachement)}`);
+        else if (detachement.length) {
+          push('reserve', 'DETACHEMENT', 'Formalités de détachement à faire avant le départ', `Détachement à préparer${detachement.some(i => i.late) ? ' d’urgence' : ''} : ${liste(detachement)}`);
+        }
       }
     }
     return { status: reasons.some(r => r.level === 'nogo') ? 'nogo' : reasons.length ? 'reserve' : 'go', reasons };
@@ -552,7 +725,7 @@ export class Domain {
       chantier: ch.c.id, evalue_le: evalueLe, statut: GNG_CODE[ch.status],
       ressources: ch.res.map(r => ({
         matricule: matricule(r.e.id), statut: GNG_CODE[r.status],
-        motifs: r.reasons.map(x => detail ? { code: x.code, libelle: x.detailed } : x.code),
+        motifs: r.reasons.map(x => detail ? { code: x.code, libelle: x.transmis ?? x.detailed } : x.code),
       })),
     };
   }
@@ -566,7 +739,7 @@ export class Domain {
       chantier: ch.c.id, evalue_le: evalueLe, statut: GNG_CODE[ch.status],
       ressources: ch.res.map(r => ({
         matricule: matricule(r.e.id), statut: GNG_CODE[r.status],
-        motifs: r.reasons.map(x => ({ code: x.code, niveau: GNG_CODE[x.level], ...(detail ? { libelle: x.detailed } : {}) })),
+        motifs: r.reasons.map(x => ({ code: x.code, niveau: GNG_CODE[x.level], ...(detail ? { libelle: x.transmis ?? x.detailed } : {}) })),
       })),
     };
   }

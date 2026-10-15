@@ -26,13 +26,16 @@ export function Chantiers() {
     <Page
       kicker={`${plural(chant.length, 'chantier Keystone', 'chantiers Keystone')} · ${gngCount('go')} go · ${gngCount('reserve')} sous réserve · ${gngCount('nogo')} no go`}
       title="Chantiers · Go / No Go"
-      note="Keystone interroge Cursus pour chaque ressource affectée. Seul le verdict et des codes de motif sortent de Cursus : aucune donnée médicale, aucun numéro de passeport, aucune date de vaccination."
+      note="Keystone interroge Cursus pour chaque ressource affectée. Seul le verdict et des codes de motif sortent de Cursus : aucune donnée médicale, aucune nature d’absence, aucun numéro de passeport, aucune date de vaccination."
     >
       <div className="cards-grid">
         {chant.map(x => {
           const dest = d.destOf(x.c.pays);
           const n = (st: GngStatus) => x.res.filter(r => r.status === st).length;
-          const req = [...x.c.habs.map(h => d.hm(h).nom), ...x.c.certs.map(f => d.fm(f).court), ...(x.c.pays !== 'FR' ? ['formalités de voyage'] : [])];
+          // Toujours : contrat en cours et aucune absence sur la présence, aptitude médicale du jour ; hors de France, déplacement
+          // couvrant la présence et formalités.
+          const req = ['disponibilité (contrat, absences)', 'aptitude médicale', ...x.c.habs.map(h => d.hm(h).nom), ...x.c.certs.map(f => d.fm(f).court),
+            ...(x.c.pays !== 'FR' ? ['déplacement couvrant la présence', 'formalités de voyage et de détachement'] : [])];
           return (
             <article key={x.c.id} className={`card elev-sm pick${x === sel ? ' selected' : ''}`} onClick={() => setUi({ goSel: x.c.id })}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--space-3)' }}>

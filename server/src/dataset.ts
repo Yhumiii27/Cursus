@@ -4,7 +4,9 @@
 import { Domain } from '../../shared/domain.ts';
 import { addD, iso, mondayOf } from '../../shared/dates.ts';
 import { absenceVueManager, repriseMedicale } from '../../shared/rules/absences.ts';
+import { aptitudeVueManager } from '../../shared/rules/sante.ts';
 import { avecInscrits } from '../../shared/rules/sessions.ts';
+import type { DemandeVisite } from '../../shared/types.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Chantier, CurrentUser, Dataset, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
   Envoi, Equipe, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mission, Participation, PlanAction, Projet, ReleveInterim, ReportCp, SagePush, Session,
@@ -45,6 +47,7 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     ...e,
     jourOff: e.jourOff ?? [],
     notifications: e.notifications === 'quotidien' ? 'quotidien' : 'immediat',
+    restrictions: e.restrictions ?? [],
     passeport: passeportNumero && passeportExpire ? { numero: passeportNumero, expire: passeportExpire } : null,
     certs: certs.filter(c => c.empId === e.id),
     habs: habs.filter(h => h.empId === e.id),
@@ -86,6 +89,7 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     soldesReprise: db.all<SoldeReprise>('soldesReprise'),
     entretiens: db.all<Entretien>('entretiens'),
     demandesCollab: db.all<DemandeCollab>('demandesCollab'),
+    demandesVisite: db.all<DemandeVisite>('demandesVisite'),
     lastSagePush: db.getSetting<SagePush | null>('lastSagePush', null),
     // Messagerie (Paramètres → Messagerie) et relevés transmis aux agences d'intérim, avec le statut de leur e-mail.
     messagerie: lireMessagerie(db),
@@ -145,13 +149,13 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
   const ids = new Set(scopeIds(d, user));
   const mine = <T extends { empId: number }>(list: T[]) => list.filter(x => ids.has(x.empId));
   const isMgr = user.role === 'manager';
-  // Les managers voient le verdict d'aptitude et l'état des dossiers voyage,
-  // jamais les données de santé (visite, vaccinations). Une reprise ouverte par un arrêt longue maladie
-  // leur est masquée : elle trahirait la nature de l'arrêt (l'entretien de reprise est suivi par le RH).
+  // Les managers voient le verdict d'aptitude, les restrictions de poste en vigueur et l'état des dossiers voyage,
+  // jamais les données de santé (date de visite, avis daté, demande de visite, vaccinations). Une reprise ouverte par
+  // un arrêt longue maladie leur est masquée : elle trahirait la nature de l'arrêt (l'entretien de reprise est suivi par le RH).
   // Du passeport d'un membre, seule la date d'expiration est transmise (l'écran n'affiche qu'elle) ; les visas restent montrés.
   const employes = full.employes.filter(e => ids.has(e.id)).map(e => isMgr && e.id !== user.empId
     ? {
-      ...e, visite: null, aptitude: { ok: d.medInfo(e).ok }, vaccins: [],
+      ...e, visite: null, avis: null, restrictions: [], aptitude: aptitudeVueManager(e, d.medInfo(e).ok, full.today), vaccins: [],
       passeport: e.passeport && { expire: e.passeport.expire },
       ...(repriseMedicale(e, full.absences) ? { repriseMotif: null, repriseDate: null } : { repriseMotif: e.repriseDate ? 'absence longue' : null }),
     }
@@ -186,6 +190,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     // le contenu d'une déclaration n'est de toute façon transmis qu'à l'intéressé (et au RH).
     demandesCollab: mine(full.demandesCollab).filter(r => !isMgr || r.empId === user.empId || r.type !== 'document')
       .map(r => r.empId === user.empId ? r : { ...r, declaration: null }),
+    // Demandes de visite médicale : l'intéressé seulement (jamais le manager).
+    demandesVisite: full.demandesVisite.filter(x => x.empId === user.empId),
     inscriptions: mine(full.inscriptions),
     participations: mine(full.participations),
     lastSagePush: null,
@@ -196,12 +202,13 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
 
 /**
  * Instantané d'un profil restreint de l'espace RH (sans le droit `rh`) : seulement ce que ses droits ouvrent,
- * jamais de donnée de santé détaillée. Pour tous : aptitude réduite au verdict (visite à jour ou à renouveler), ni
- * visite, ni vaccinations ; nature médicale des absences masquée et reprise d'un arrêt longue maladie retirée, comme
- * pour le manager ; motif des reports de CP retiré (texte libre).
+ * jamais de donnée de santé détaillée. Pour tous, comme pour le manager : aptitude réduite au verdict (aptitude valide
+ * ou non, avis) et aux restrictions de poste en vigueur, sans date ; ni visite, ni demande de visite, ni vaccinations ;
+ * nature médicale des absences masquée et reprise d'un arrêt longue maladie retirée ; motif des reports de CP retiré
+ * (texte libre).
  * - `formations` (référent HSE) : sessions et résultats, certifications et habilitations, demandes de formation et
- *   d'habilitation, chantiers avec l'état précalculé des déplacements pour les verdicts Go / No Go ; ni passeport, ni
- *   visas (dossiers de voyage réservés au service RH) ;
+ *   d'habilitation, chantiers avec l'état précalculé des déplacements et les absences de leurs ressources (sans nature)
+ *   pour les verdicts Go / No Go ; ni passeport, ni visas (dossiers de voyage réservés au service RH) ;
  * - `paie` : feuilles de temps, absences, soldes, CET, reports, dernière transmission à Sage — aucune formation ;
  * - `consultation` (lecture seule) : tout ce qui précède, plus plan et budget, missions, entretiens sans le contenu
  *   des comptes rendus ; échéances des passeports (date d'expiration seule) et des visas, comme pour le manager, pour
@@ -214,11 +221,12 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
   const d = new Domain(full);
   const employes = full.employes.map(e => ({
     ...e,
-    visite: null, aptitude: formations ? { ok: d.medInfo(e).ok } : undefined, vaccins: [],
+    visite: null, avis: null, restrictions: [], aptitude: formations ? aptitudeVueManager(e, d.medInfo(e).ok, full.today) : undefined, vaccins: [],
     passeport: lecture ? e.passeport && { expire: e.passeport.expire } : null, visas: lecture ? e.visas : [],
     certs: formations ? e.certs : [], habs: formations ? e.habs : [],
     ...(lecture && !repriseMedicale(e, full.absences) ? { repriseMotif: e.repriseDate ? 'absence longue' : null } : { repriseMotif: null, repriseDate: null }),
   }));
+  const ressources = new Set(full.referentiels.chantiers.filter(c => c.statut !== 'archive').flatMap(c => c.ressources));
   // Déplacements : l'état du dossier et les formalités manquantes sont calculés ici, avec les pièces du dossier,
   // pour que le verdict Go / No Go soit exact sans les transmettre.
   const voyages = !formations ? [] : full.voyages.map(v => {
@@ -241,13 +249,17 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     missions: lecture ? full.missions : [],
     taches: lecture ? tachesProches(full.taches, full.today) : [],
     feuilles: paie ? full.feuilles : [],
-    absences: paie ? full.absences.map(absenceVueManager) : [],
+    // Le référent HSE ne reçoit, sans leur nature, que les absences des ressources des chantiers : celles qui comptent au
+    // Go / No Go.
+    absences: paie ? full.absences.map(absenceVueManager)
+      : formations ? full.absences.filter(a => ressources.has(a.empId)).map(absenceVueManager) : [],
     cet: paie ? full.cet : [],
     reports: paie ? full.reports.map(r => ({ ...r, motif: '' })) : [],
     soldesReprise: paie ? full.soldesReprise : [],
     entretiens: lecture ? full.entretiens.map(x => ({ ...x, cr: {} })) : [],
     // Demandes de formation et d'habilitation ; les documents déclarés (passeport, visa, vaccination) restent au RH.
     demandesCollab: formations ? full.demandesCollab.filter(r => r.type !== 'document').map(r => ({ ...r, declaration: null })) : [],
+    demandesVisite: [],
     lastSagePush: paie ? full.lastSagePush : null,
   };
 }

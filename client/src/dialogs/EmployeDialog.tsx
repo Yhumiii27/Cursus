@@ -2,7 +2,7 @@
 // travaillés du temps partiel pour le manager d'un membre de son équipe.
 import { useState } from 'react';
 import { isValidDate } from '../../../shared/dates.ts';
-import { MODE_NOTIFICATION_LABEL, MOTIFS_REPRISE, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../../../shared/constants.ts';
+import { AVIS_MEDICAL, MODE_NOTIFICATION_LABEL, MOTIFS_REPRISE, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../../../shared/constants.ts';
 import { cap, equipeLabel, fmtIso, plural } from '../../../shared/format.ts';
 import { reposForfait } from '../../../shared/rules/conges.ts';
 import { adressesPrises } from '../../../shared/rules/messagerie.ts';
@@ -298,9 +298,18 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
 
       <SectionLabel>Suivi</SectionLabel>
       <div className="grid-2">
-        <Field label="Dernière visite d’aptitude médicale" htmlFor="emp-visite">
-          <input className="input" id="emp-visite" type="date" max={d.ti} value={f.visite} onChange={ev => set('visite', ev.target.value)} />
-        </Field>
+        {/* Fiche existante : une nouvelle visite s'enregistre avec l'avis du médecin du travail (bouton de la fiche). */}
+        {creation ? (
+          <Field label="Dernière visite d’aptitude médicale" htmlFor="emp-visite">
+            <input className="input" id="emp-visite" type="date" max={d.ti} value={f.visite} onChange={ev => set('visite', ev.target.value)} />
+            <span className="text-muted sub">Avis « apte » ; un autre avis s’enregistre ensuite sur la fiche.</span>
+          </Field>
+        ) : (
+          <Field label="Dernière visite d’aptitude médicale">
+            <Static pad>{emp?.visite ? `${fmtIso(emp.visite)} · ${AVIS_MEDICAL[emp.avis ?? 'apte'].court}` : 'Non renseignée'}</Static>
+            <span className="text-muted sub">Nouvelle visite : « Avis du médecin du travail » sur la fiche.</span>
+          </Field>
+        )}
         <div />
         <Field label="Reprise après absence longue — motif" htmlFor="emp-rmotif">
           {/* Liste fermée (art. L6315-1), sans texte libre : aucune information médicale sur la fiche. */}

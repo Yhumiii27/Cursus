@@ -14,7 +14,7 @@ shared/            Domaine partagé (aucune dépendance)
   domain.ts        Classe Domain : conformité, habilitations, voyages, échéances, Go / No Go
   csv.ts           Exports CSV : cellules échappées, formules neutralisées (apostrophe devant = + - @)
   journal.ts       Journal des actions : libellés, familles, actions liées à la paie, durées de conservation, droits de lecture
-  rules/           temps.ts, conges.ts, entretiens.ts, budget.ts, imports.ts
+  rules/           temps.ts, conges.ts, entretiens.ts, budget.ts, imports.ts, sante.ts (avis et visites médicales)
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   seed.ts          Données de démonstration
@@ -56,11 +56,13 @@ design/            Prototype Claude Design de référence et guide du design sys
 
 1. `GET /api/data` renvoie l'instantané `Dataset` **déjà restreint au périmètre**
    de l'utilisateur : un manager ne reçoit que son équipe, sans données de santé
-   (`visite` remplacée par `aptitude.ok`, vaccinations retirées, état des dossiers
+   (`visite`, `avis` et `restrictions` remplacés par `aptitude` : verdict et restrictions en
+   vigueur, sans date ; ni demandes de visite ni vaccinations ; état des dossiers
    voyage précalculé dans `voyage.dossierStatut`), et du passeport de ses membres la seule date
    d'expiration (les visas restent transmis) ; un collaborateur ne reçoit que
    ses propres données ; un profil restreint de l'espace RH (référent HSE, paie, lecture
-   seule) ne reçoit que ce que ses droits ouvrent (« Profils », section Sécurité).
+   seule) ne reçoit que ce que ses droits ouvrent (« Profils », section Sécurité), avec la même
+   aptitude que le manager.
 2. Le client calcule l'affichage avec `shared/` (statuts, soldes, échéances…).
 3. Toute modification passe par `run('nom.action', payload)` → `POST /api/actions/:nom`.
    Le serveur vérifie les droits, valide, écrit dans une transaction, trace l'action
@@ -250,11 +252,14 @@ aucun champ du paramètre n'est recopié.
 | `hab.suspendre` | empId, h, motif, date? (aujourd’hui par défaut) | RH, référent HSE ; manager pour un membre de son équipe (jamais lui-même) |
 | `hab.lever` | empId, h | RH, référent HSE |
 | `hab.retirer` | empId, h, motif, date? | RH, référent HSE |
-| `medical.demander` | empId | RH |
+| `medical.demander` | empId, motif? (`periodique`/`embauche`/`reprise`/`employeur` ; par défaut embauche sans visite enregistrée, sinon périodique) | RH (une demande en cours par collaborateur) |
+| `medical.annuler` | id | RH (demande de visite en cours) |
+| `medical.avis` | empId, date (passée), avis (`apte`/`restrictions`/`inapte`), restrictions [{texte, jusquau?}] (avis avec restrictions), suspendre [h]?, lever [h]? | RH (suspensions « Restriction d’aptitude » ; levée des seules suspensions d’un avis précédent, jamais pour un avis d’inaptitude) |
 | `demande.accepter` / `demande.refuser` | id | RH ; référent HSE pour une demande de formation ou d'habilitation (document déclaré : RH) |
 | `demande.formation` | f (ou `autre`), libelle, sessionId, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `demande.habilitation` | h, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `voyage.creer` | empId, dest, depart, retour, motif | RH |
+| `voyage.detachement` | id, detachementLe?, informationLe? (date passée ; vide : saisie effacée) | RH (certificat de sécurité sociale du détachement, information écrite d’une mission de plus de 4 semaines) |
 | `formalite.enregistrer` | empId, kind (`passeport`/`visa`/`vaccin`), numero, expire, dest, visaType, obtenu, v, date | RH (écrit dans le dossier), ou le collaborateur pour lui-même (déclaration en attente, voir ci-dessous) |
 | `voyages.importer` | texte (CSV) | RH |
 | `keystone.accepter` / `keystone.refuser` | id | RH (demande en attente ; l'acceptation revalide affectation, chantier actif, destination, effectifs et l'absence de déplacement déjà créé ; la demande reste en base avec statut, date et décideur) |
@@ -387,6 +392,32 @@ est « à affecter » et relève du service RH.
   Le motif est un texte libre visible du manager et du collaborateur, jamais transmis à Keystone.
   Une base existante reçoit les nouvelles colonnes au démarrage (schéma déclaratif de `server/src/db.ts`).
 
+## Santé au travail
+
+Règles dans `shared/rules/sante.ts` et `Domain.medInfo` (`shared/domain.ts`), actions dans `server/src/actions/sante.ts`.
+
+- **Aptitude** : valide 24 mois après la dernière visite (`MED_VALIDITE`), sauf avis d'inaptitude. Elle compte dans le statut
+  du collaborateur (`EmpX.worst`, même sans habilitation qui l'exige) et dans les échéances (type « Visite médicale » : échue,
+  à renouveler sous l'horizon d'alerte, jamais enregistrée — sans date, parmi les dépassées —, avis d'inaptitude ; action
+  « Demander la visite »). Une visite saisie avant l'enregistrement des avis (colonne `avis` vide) vaut avis apte.
+- **Avis du médecin du travail** (`medical.avis`) : date de la visite, avis (apte, apte avec restrictions ou aménagements de
+  poste, inapte) et restrictions recopiées telles qu'écrites, chacune jusqu'à une date ou sans terme (`Employe.avis`,
+  `Employe.restrictions`, contrôlés par `controlerAvis`, partagé avec le dialogue). Dans la même écriture, le service RH
+  suspend les habilitations incompatibles — motif `MOTIF_RESTRICTION` (« Restriction d’aptitude »), sans détail, daté du
+  jour de la décision — et lève celles d'un avis précédent. Inapte : les habilitations qui exigent l'aptitude sont non valides
+  d'office (prérequis). Une visite ne se saisit plus dans la fiche (`employe.modifier` refuse de changer `visite`) ; la
+  création d'une fiche peut porter la dernière visite (avis apte).
+- **Demandes de visite** (table `demandesVisite`, `medical.demander`) : motif, date, auteur ; une seule en cours par
+  collaborateur. Le service RH l'imprime pour le service de prévention et de santé au travail (identité, poste, motif,
+  habilitations qui exigent l'aptitude, aucune donnée médicale) ; l'envoi par e-mail viendra avec le module d'e-mails. Tant
+  qu'elle est en cours, « Visite demandée le … » remplace l'action « Demander une visite médicale » : dans les échéances
+  (visite et habilitations qui en dépendent, affichées comme planifiées) et sur les habilitations (`Domain.habAction`, qui
+  ouvre la demande en cours : impression, annulation). La saisie d'une visite datée du jour de la demande ou après la
+  clôt (`realisee`) ; le service RH peut l'annuler (`medical.annuler`).
+- **Confidentialité** : dates de visite, avis daté et demandes sont réservés au service RH et à l'intéressé. Le manager reçoit
+  `aptitude` (`aptitudeVueManager` : aptitude valide ou non, avis, restrictions en vigueur), aucune échéance datée ; Keystone,
+  le seul code `APTITUDE`, selon l'état du jour, avec un libellé neutre en partage détaillé (voir Go / No Go).
+
 ## Sessions de formation
 
 Règles dans `shared/rules/sessions.ts` (inscrits nominatifs, contrôles, liste pour l'organisme), actions dans
@@ -489,6 +520,39 @@ faite à un seul endroit (`contexte()` de keystone-entrant.ts), à reprendre qua
 paie sera stocké. Contrat : `docs/API-KEYSTONE.md` et `docs/keystone-openapi.json` (codes de motif :
 `CODES_MOTIF` de `shared/constants.ts`).
 
+## Go / No Go
+
+`Domain.resourceStatus` (`shared/domain.ts`) évalue chaque ressource d'un chantier actif ; codes de motif
+`CODES_MOTIF` (`shared/constants.ts`), contrat `docs/API-KEYSTONE.md`.
+
+- **Présence** (`Domain.presence`) : affectations du salarié sur le chantier, ramenées aux dates du chantier et
+  fusionnées si elles se touchent ; sans affectation connue, les dates du chantier. Disponibilité, déplacement et
+  formalités portent sur la présence restante (`Domain.presenceRestante`, à partir du jour même) : sur un chantier en
+  cours, une absence terminée ou une entrée déjà faite ne bloque plus ; une présence finie n'exige plus de déplacement.
+- **Disponibilité** (No Go) : contrat (CDD, intérim, alternance) qui finit avant la fin de la présence ou commence
+  après son début (`CONTRAT`, `borneContrat`) ; absence validée ou signalée pendant la présence (`ABSENCE`), une
+  demande en attente ne donnant qu'une réserve. Le libellé, même en partage détaillé, ne nomme jamais la nature.
+- **Aptitude médicale** (`APTITUDE`) : état du jour, jamais rapporté aux dates de présence que Keystone fixe lui-même
+  (des affectations sondes en déduiraient la date d'une visite ou la fin d'une restriction). Avis d'inaptitude : No Go ;
+  aptitude non valide (visite périodique en retard, aucune visite) ou restrictions en vigueur aujourd'hui : une seule
+  réserve (affectation à vérifier avec le service RH), qu'une habilitation exigée dépende de l'aptitude ou non. L'écran
+  Chantiers en donne la cause au service RH ; Keystone, en partage détaillé, un libellé neutre (`GngReason.transmis`).
+- **Titres** : habilitations et certifications exigées, valides sur les dates du chantier.
+- **Hors de France** : un déplacement rattaché au chantier, ou vers son pays pendant la présence (un voyage des mois
+  plus tôt ne compte pas : `DEPLACEMENT`, à créer ou demande en attente). Chaque période de présence doit tenir dans
+  un déplacement (départ au plus tard le premier jour, retour au plus tôt le dernier), sinon réserve
+  `DEPLACEMENT_PARTIEL`. Formalités du salarié (`FORMALITES_VOYAGE`) : réserve tant que leur délai d'obtention le
+  permet, No Go au-delà. Formalités de détachement (`DETACHEMENT`) : réserve jusqu'au départ, même une fois le délai
+  indicatif entamé (« Urgent » au dossier voyage) ; No Go à partir du jour du départ si elles ne sont pas faites.
+- **Détachement** : la destination porte sa formalité de sécurité sociale (`Destination.secu` ; sinon `secuDe` la
+  déduit du code pays : certificat A1 dans l'Union européenne, l'EEE, en Suisse et au Royaume-Uni, certificat de la
+  convention bilatérale, ou maintien au régime français sans convention). Une mission de plus de 4 semaines
+  (`MISSION_LONGUE_JOURS`) exige en plus l'information écrite du salarié avant son départ. Le service RH en
+  enregistre les dates sur le déplacement (`voyage.detachement` : `detachementLe`, `informationLe`), écran Voyages ;
+  elles entrent dans le dossier voyage (`Domain.readiness`) et ne sont pas des données de santé. À la mise à jour d'une
+  base antérieure, les déplacements déjà partis sont réputés en règle, une seule fois (`reprendreDetachements` de
+  `server/src/migrate.ts`, tracé dans le journal : `migration.detachement`).
+
 ## Absences hors congés
 
 Référentiel `NATURES_ABSENCE` (`shared/constants.ts`) : santé (arrêt maladie, arrêt longue maladie, accident du travail
@@ -563,7 +627,8 @@ Règles : `shared/rules/absences.ts` (confidentialité, décompte, reprise, annu
 - **Verdicts Go / No Go** : `server/src/integrations/keystone-verdicts.ts` (`suivreVerdicts`) mémorise le
   dernier verdict transmis par chantier et ressource (table `verdictsKeystone`) et met en file
   `verdict.modifie` (codes de motif seulement) quand il change. Recalcul après chaque action, sauf les
-  familles sans effet (`changeVerdicts` de `actions/index.ts` : temps, absences, entretiens…), après
+  familles sans effet (`changeVerdicts` de `actions/index.ts` : temps, compteurs de congés, entretiens… ;
+  les actions d'absence, qui peuvent bloquer une ressource, y donnent lieu), après
   chaque écriture de Keystone et une fois par jour. Les verdicts du jeu de démonstration sont mémorisés
   sans envoi. Ceux mémorisés en simulation ne sont pas réputés transmis : le réglage `verdictsKeystoneMode`
   retient le mode du suivi, et le premier calcul en mode API vide la table, d'où un premier verdict

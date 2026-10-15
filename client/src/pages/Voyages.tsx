@@ -2,7 +2,7 @@
 // dossiers voyageurs et référentiel des destinations.
 import { useMemo } from 'react';
 import { PlusIcon, UploadSimpleIcon } from '@phosphor-icons/react';
-import { TRIP_CLS, TRIP_LABEL, VISA_RULES, type StatusKey } from '../../../shared/constants.ts';
+import { SECU_RULES, TRIP_CLS, TRIP_LABEL, VISA_RULES, secuDe, type StatusKey } from '../../../shared/constants.ts';
 import type { TripItem, TripX } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, fmtShort, monthShort, plural, rel } from '../../../shared/format.ts';
@@ -12,6 +12,8 @@ import { useStore } from '../state/store.tsx';
 
 const docCls = (k: StatusKey) => k === 'exp' ? 'tag-accent' : k === 'due' ? 'tag-outline' : 'tag-neutral';
 const itemAction = (i: TripItem) => i.k === 'passeport' ? 'Mettre à jour le passeport' : i.k === 'visa' ? 'Enregistrer le visa' : 'Enregistrer la vaccination';
+/** Formalités de détachement, accomplies par le service RH (dialogue « Formalités de détachement ») : saisie, ou correction. */
+const detachementAction = (i: TripItem) => i.ok ? 'Modifier' : i.k === 'information' ? 'Enregistrer la remise' : 'Enregistrer l’obtention';
 
 export function Voyages() {
   const { d, emps, horizon } = useEnriched();
@@ -145,14 +147,15 @@ export function Voyages() {
       <Panel title="Référentiel destinations">
         <div className="scroll-x">
           <table className="table">
-            <thead><tr><th>Pays</th><th>Entrée</th><th>Vaccin obligatoire</th><th>Vaccins recommandés</th><th>Passeport</th></tr></thead>
+            <thead><tr><th>Pays</th><th>Entrée</th><th>Sécurité sociale</th><th>Vaccin obligatoire</th><th>Vaccins recommandés</th><th>Passeport</th></tr></thead>
             <tbody>
               {data.referentiels.destinations.map(x => {
-                const rule = VISA_RULES[x.visa];
+                const rule = VISA_RULES[x.visa], secu = SECU_RULES[secuDe(x)];
                 return (
                   <tr key={x.code}>
                     <td className="nowrap">{x.pays}</td>
                     <td><Two nowrap main={rule.label} sub={x.visaSub || rule.sub} /></td>
+                    <td><Two main={secu.label} sub={secu.portee} /></td>
                     <td>{x.oblig.length ? d.vaccinNames(x.oblig) : '—'}</td>
                     <td className="text-muted">{d.vaccinNames([...x.rec, 'dtp'])}</td>
                     <td className="text-muted">{x.passMois ? `${x.passMois} mois après l’entrée` : 'Valide pendant le séjour'}</td>
@@ -162,7 +165,7 @@ export function Voyages() {
             </tbody>
           </table>
         </div>
-        <Fine>Données indicatives tenues par le service RH — à vérifier sur France Diplomatie et auprès d’un centre de vaccinations internationales avant chaque départ.</Fine>
+        <Fine>Données indicatives tenues par le service RH — à vérifier sur France Diplomatie, auprès d’un centre de vaccinations internationales et, pour la sécurité sociale, sur cleiss.fr avant chaque départ.</Fine>
       </Panel>
     </Page>
   );
@@ -197,6 +200,11 @@ function TripPanel({ t, onClose, onOpenEmp }: { t: TripX; onClose: () => void; o
             {!i.ok && i.fix && (
               <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
                 <Btn small onClick={() => openDialog({ type: 'fo', empId: t.emp.id, kind: i.fix!.kind, dest: i.fix!.dest, v: i.fix!.v })}>{itemAction(i)}</Btn>
+              </div>
+            )}
+            {(i.k === 'detachement' || i.k === 'information') && (
+              <div style={{ display: 'flex', justifyContent: 'flex-end' }}>
+                <Btn small onClick={() => openDialog({ type: 'detachement', id: t.id })}>{detachementAction(i)}</Btn>
               </div>
             )}
           </div>

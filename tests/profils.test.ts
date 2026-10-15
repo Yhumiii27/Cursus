@@ -20,7 +20,7 @@ const { ActionError, makeCtx } = await import('../server/src/actions/context.ts'
 const { espacesDuCompte } = await import('../server/src/comptes.ts');
 const { Domain } = await import('../shared/domain.ts');
 const { droitsRh, PROFILS_RH, vuesDe } = await import('../shared/constants.ts');
-const { natureMedicale } = await import('../shared/rules/absences.ts');
+const { absenceVueManager, natureMedicale } = await import('../shared/rules/absences.ts');
 const { PROFIL_VIDE } = await import('../shared/rules/profil.ts');
 type Db = InstanceType<typeof Db>;
 type User = NonNullable<ReturnType<typeof currentUser>>;
@@ -108,22 +108,28 @@ test('référent HSE : formations et habilitations, aptitude à jour ou à renou
   assert.equal(ds.sessions.length, full.sessions.length);
   assert.deepEqual([ds.inscriptions.length, ds.participations.length], [full.inscriptions.length, full.participations.length]);
   assert.ok(ds.demandesCollab.length > 0 && ds.demandesCollab.every(r => r.type !== 'document'));
-  // Ni temps, ni absences, ni paie, ni entretiens, ni plan et budget, ni missions.
-  for (const k of ['feuilles', 'absences', 'cet', 'reports', 'soldesReprise', 'entretiens', 'plan', 'missions', 'taches'] as const) assert.deepEqual(ds[k], [], k);
+  // Ni temps, ni paie, ni entretiens, ni plan et budget, ni missions ; des absences, celles des ressources des chantiers
+  // seulement (elles comptent au Go / No Go), sans nature médicale.
+  for (const k of ['feuilles', 'cet', 'reports', 'soldesReprise', 'entretiens', 'plan', 'missions', 'taches', 'demandesVisite'] as const) assert.deepEqual(ds[k], [], k);
+  const ressources = new Set(full.referentiels.chantiers.filter(c => c.statut !== 'archive').flatMap(c => c.ressources));
+  assert.ok(ds.absences.length > 0 && ds.absences.length < full.absences.length && ds.absences.every(a => ressources.has(a.empId)));
+  assert.deepEqual(ds.absences, full.absences.filter(a => ressources.has(a.empId)).map(absenceVueManager));
   assert.deepEqual([ds.budgets, ds.lastSagePush], [{}, null]);
-  // Verdict exact : « à renouveler » pour une visite échue ou jamais saisie, jamais « non apte » (avis d'inaptitude,
-  // art. L4624-4, que Cursus n'enregistre pas).
+  // Verdict exact, comme pour le manager : aptitude non valide pour une visite échue ou jamais saisie, sans date.
   const d = new Domain(ds), dRh = new Domain(full);
   assert.match(dRh.medInfo(dRh.emp(24)!).text, /non renseignée/, 'Bastien Morel : aucune visite enregistrée');
   assert.match(dRh.medInfo(dRh.emp(6)!).text, /^Aptitude échue/, 'Thomas Garnier : visite échue');
-  for (const id of [24, 6]) assert.equal(d.medInfo(d.emp(id)!).text, 'Aptitude médicale : à renouveler (visite échue ou non renseignée) · détail réservé au service RH');
+  for (const id of [24, 6]) assert.equal(d.medInfo(d.emp(id)!).text, 'Aptitude médicale non valide — visite à programmer par le service RH');
   assert.ok(dRh.medInfo(dRh.emp(2)!).ok);
-  assert.equal(d.medInfo(d.emp(2)!).text, 'Aptitude médicale : à jour · détail réservé au service RH');
-  assert.ok(ds.employes.every(e => !/apte/.test(d.medInfo(e).text)), 'ni « apte » ni « non apte »');
-  // Verdicts Go / No Go identiques à ceux du service RH : l'état des déplacements est calculé par le serveur.
+  assert.equal(d.medInfo(d.emp(2)!).text, 'Aptitude médicale valide');
+  assert.ok(ds.employes.every(e => !/\d|[Vv]isite du/.test(d.medInfo(e).text)), 'ni date de visite, ni échéance');
+  assert.ok(ds.employes.every(e => e.visite === null && e.avis === null && !e.restrictions.length), 'avis daté et restrictions : seulement via l’aptitude');
+  // Verdicts Go / No Go identiques à ceux du service RH : l'état des déplacements est calculé par le serveur. Seul le
+  // libellé du motif APTITUDE est moins précis (ni « visite en retard », ni « aucune visite enregistrée »).
   const verdicts = (x: Dataset) => {
     const dx = new Domain(x);
-    return dx.evaluateChantiers(dx.enrich(90, false), dx.tripsAll()).map(c => [c.c.id, c.status, c.res.map(r => [r.e.id, r.status, r.reasons.map(m => m.detailed)])]);
+    return dx.evaluateChantiers(dx.enrich(90, false), dx.tripsAll())
+      .map(c => [c.c.id, c.status, c.res.map(r => [r.e.id, r.status, r.reasons.map(m => m.code === 'APTITUDE' ? m.code : m.detailed)])]);
   };
   const attendu = verdicts(full);
   assert.ok(JSON.stringify(attendu).includes('Formalités'), 'jeu de démonstration : des formalités de voyage pèsent sur un verdict');
@@ -164,13 +170,13 @@ test('lecture seule : tout en lecture, sans donnée de santé détaillée ni con
   sansSante(ds, true);
   for (const k of ['sessions', 'inscriptions', 'feuilles', 'absences', 'cet', 'plan', 'missions', 'entretiens'] as const) assert.equal(ds[k].length, full[k].length, k);
   // Échéances et alertes : celles du service RH, passeports (date d'expiration seule) et visas compris ; seuls les
-  // rappels de vaccination (données de santé) n'y figurent pas.
+  // rappels de vaccination et les échéances des visites médicales (données de santé) n'y figurent pas.
   ds.employes.forEach((e, i) => {
     const f = full.employes[i];
     assert.deepEqual([e.passeport, e.visas], [f.passeport && { expire: f.passeport.expire }, f.visas], e.nom);
   });
   const echeances = (x: Dataset) => { const dx = new Domain(x); return dx.echeances(dx.enrich(90, false), 90).map(c => `${c.emp.id} ${c.kindLabel} ${c.label} ${c.d}`); };
-  const attendues = echeances(full).filter(c => !/Vaccination/.test(c));
+  const attendues = echeances(full).filter(c => !/Vaccination|Visite médicale/.test(c));
   assert.ok(attendues.some(c => / Passeport /.test(c)) && attendues.some(c => /Visa/.test(c)), 'jeu de démonstration : échéances de passeport et de visa');
   assert.deepEqual(echeances(ds), attendues);
   assert.deepEqual(ds.budgets, full.budgets);

@@ -489,7 +489,8 @@ test('production : base vide alimentée par l’API, Go / No Go servi, appels tr
   const r = await fetch(`${url}/chantiers/K-1/go-no-go`, { headers: { 'x-api-key': CLE } });
   assert.equal(r.status, 200);
   const v = await r.json() as Corps;
-  assert.deepEqual(v.ressources, [{ matricule: 'EMP-0001', statut: 'NO_GO', motifs: [{ code: 'HABILITATION', niveau: 'NO_GO' }] }]);
+  // Aucune visite médicale enregistrée : réserve (APTITUDE), sans autre détail.
+  assert.deepEqual(v.ressources, [{ matricule: 'EMP-0001', statut: 'NO_GO', motifs: [{ code: 'APTITUDE', niveau: 'GO_RESERVE' }, { code: 'HABILITATION', niveau: 'NO_GO' }] }]);
   assert.match(r.headers.get('content-security-policy') ?? '', /default-src 'self'/, 'en-têtes de sécurité');
   const journal = new Db(fichier).all<{ action: string; message: string }>('journal').filter(j => j.action === 'keystone.appel').map(j => j.message);
   assert.deepEqual(journal.map(m => m.split(' · ')[0]), [

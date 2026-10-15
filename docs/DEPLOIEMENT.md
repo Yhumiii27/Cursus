@@ -26,7 +26,7 @@ boîte d'envoi, stratégie d'accès d'Exchange Online) : voir `docs/EMAILS.md`.
 - **Recette** : chaque mise en production, première installation comme mise à jour, est précédée
   d'une recette par le groupe pilote (un RH, un manager, un collaborateur). Voir « Recette ».
 - **Données personnelles** : Cursus conserve des données relatives à la santé (visites médicales,
-  aptitude, vaccinations) et des documents de voyage. Faire valider le choix de l'hébergeur par le
+  avis d'aptitude et restrictions de poste, vaccinations) et des documents de voyage. Faire valider le choix de l'hébergeur par le
   DPO : localisation dans l'UE, contrat de sous-traitance (RGPD, article 28) et question d'un
   hébergement certifié HDS. Le DPO valide aussi l'information affichée avant la saisie d'une vaccination
   (art. 13 du RGPD : `INFO_VACCINATIONS` de `shared/constants.ts`), qu'il complète au besoin de ses coordonnées,
@@ -426,6 +426,11 @@ précède chaque mise en production.
    ```
 
 4. Vérifications après installation (ci-dessus).
+   Mise à jour vers la version qui suit les formalités de détachement (certificat A1 ou de la convention bilatérale,
+   information écrite au-delà de 4 semaines) : les déplacements déjà partis sont réputés en règle au premier démarrage
+   (journal : `migration.detachement`). Ceux à venir apparaissent « à faire » : le service RH saisit dès la mise à
+   jour les formalités déjà obtenues (écran Voyages, dossier du déplacement : « Enregistrer l’obtention »), faute de
+   quoi le Go / No Go transmis à Keystone reste en réserve jusqu'au départ, puis passe en No Go le jour du départ.
 5. En cas de problème : revenir à la version précédente (`git checkout <version>`, `npm ci`,
    `npm run build`), restaurer la sauvegarde et redémarrer.
 6. Mise à jour qui expurge le journal des actions (première version à liste blanche) : au démarrage, le

@@ -27,7 +27,7 @@ export interface UiState {
   habFilter: 'tous' | 'due' | 'ko' | 'pending';
   habType: string | null;
   tripSel: number | null;
-  echType: 'tous' | 'cert' | 'hab' | 'trip';
+  echType: 'tous' | 'cert' | 'hab' | 'trip' | 'med';
   goSel: string | null;
   exercice: number | null;
   planFilter: 'tous' | PlanStatut;
@@ -51,6 +51,9 @@ export type DialogState =
   | { type: 'habMesure'; empId: number; h: string; action: HabMesureAction }
   | { type: 'trip' }
   | { type: 'fo'; empId?: number | null; kind?: FormaliteKind; dest?: string; v?: VaccinId }
+  | { type: 'detachement'; id: number }
+  | { type: 'visite'; empId: number }
+  | { type: 'avis'; empId: number }
   | { type: 'reqForm'; f?: string; sessionId?: number | null; empId?: number | null }
   | { type: 'reqHab'; empId?: number | null }
   | { type: 'employe'; empId?: number | null; equipe?: string | null }
@@ -343,11 +346,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       case 'openHab': setDialog({ type: 'hab', empId: intent.empId, h: intent.h, mode: intent.mode }); break;
       case 'openPlan': setDialog({ type: 'plan', empId: intent.empId, certId: intent.certId }); break;
       case 'goFormation': go('formations', { formationFilter: intent.f }); break;
-      case 'medical': run('medical.demander', { empId: intent.empId }); break;
+      // Demande de visite : motif choisi, puis demande imprimable pour le service de santé au travail.
+      case 'medical': setDialog({ type: 'visite', empId: intent.empId }); break;
       case 'openFormalite': setDialog({ type: 'fo', empId: intent.empId, kind: intent.kind, dest: intent.dest, v: intent.v }); break;
       case 'openCloture': setDialog({ type: 'cloture', sessionId: intent.sessionId }); break;
     }
-  }, [go, run]);
+  }, [go]);
 
   /**
    * Changement d'espace : le nouvel espace ne s'affiche qu'avec ses données, d'un seul coup. En cas

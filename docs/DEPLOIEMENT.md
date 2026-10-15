@@ -183,7 +183,9 @@ qu'aucun administrateur RH n'existe, il le rappelle : `Aucun administrateur RH :
 ## Premier administrateur RH
 
 Une installation vide n'a aucun compte. Le service informatique crée le premier administrateur RH
-sur le serveur, en tant qu'utilisateur `cursus` ; la commande fonctionne service démarré ou arrêté.
+sur le serveur, en tant qu'utilisateur `cursus` ; la commande fonctionne service démarré ou arrêté
+(service arrêté, elle met d'abord la base à jour comme au démarrage ; service démarré avec une version
+antérieure à celle installée, elle refuse : redémarrer d'abord le service).
 Avec la connexion Microsoft 365 configurée, l'identifiant est l'adresse de connexion Microsoft de la
 personne : `npm run comptes -- admin prenom.nom@entreprise.fr` (aucun mot de passe : elle se connecte
 par « Se connecter avec Microsoft »). Sinon, ou en secours, créer un compte Cursus (`--local`) :
@@ -428,7 +430,9 @@ précède chaque mise en production.
 
    Chaque migration nommée ne s'exécute qu'une fois par base (« Migration lot4-… faite »), après la copie
    `…-avant-migration.db` ; une migration interrompue est annulée et le service ne démarre pas (« Démarrage
-   impossible : migration … interrompue ») : la cause corrigée, il la retente au démarrage suivant.
+   impossible : migration … interrompue ») : la cause corrigée, il la retente au démarrage suivant. Une version qui
+   apporte des migrations nommées fait toujours cette copie, même si elles ne changent rien d'autre (« notées faites
+   sans modification ») : leurs noms enregistrés suffisent à faire refuser la base par la version précédente.
 
 4. Vérifications après installation (ci-dessus).
    Mise à jour vers la version qui suit les formalités de détachement (certificat A1 ou de la convention bilatérale,
@@ -439,9 +443,13 @@ précède chaque mise en production.
 5. En cas de problème : revenir à la version précédente (`git checkout <version>`, `npm ci`,
    `npm run build`), restaurer la sauvegarde et redémarrer. Sans restauration, la version précédente refuse de
    démarrer sur une base que la nouvelle a migrée (« Démarrage impossible : la base a été mise à jour par une version
-   plus récente de Cursus (… migration inconnue …) », code 1) : restaurer la copie `…-avant-migration.db` que le message
-   nomme, faite au premier démarrage de la nouvelle version, ou la sauvegarde de l'étape 2
-   (`npm run restore -- <fichier>`, `docs/SAUVEGARDE.md`) ; les saisies faites depuis la mise à jour sont perdues.
+   plus récente de Cursus le … (… migration inconnue …) », code 1). Restaurer la copie `…-avant-migration.db` que le
+   message nomme : celle enregistrée dans la base avec la première migration que la version précédente ne connaît
+   pas, faite juste avant, au premier démarrage de la nouvelle version (ou par `npm run comptes` ou
+   `npm run reset-demo` lancés avant lui). Si le message n'en nomme aucune (copie supprimée depuis, à l'étape 6 ou par
+   la rotation ; base créée par la nouvelle version), restaurer la sauvegarde de l'étape 2, jamais une copie plus
+   ancienne. Commande : `npm run restore -- <fichier>` (`docs/SAUVEGARDE.md`) ; les saisies faites depuis la mise à
+   jour sont perdues.
 6. Mise à jour qui expurge le journal des actions (première version à liste blanche) : au démarrage, le
    serveur signale « Journal : … lignes antérieures expurgées » et nomme la copie `…-avant-migration.db`
    faite juste avant. Cette copie contient l'ancien journal non expurgé (numéros de passeport, CSV

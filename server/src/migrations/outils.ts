@@ -12,9 +12,10 @@ export const colonneExiste = (db: Db, table: TableName, colonne: string) => db.c
 
 export interface Reconstruction {
   /**
-   * Colonne de la table reconstruite (camelCase, comme dans TABLES) → expression SQL sur l'ancienne table : ancien nom
-   * d'une colonne renommée (`'montant_ht'`), valeur calculée (`"COALESCE(statut, 'actif')"`). Sans entrée, la colonne
-   * de même nom, ou NULL si l'ancienne table ne l'a pas.
+   * Colonne de la table reconstruite (camelCase, comme dans TABLES) → expression SQL sur l'ancienne table : colonne
+   * renommée (`'COALESCE(montant, montant_ht)'` : le schéma déclaratif a ajouté `montant` avant la migration, et les
+   * lignes que cette version y a écrites entre-temps gardent leur valeur), valeur calculée
+   * (`"COALESCE(statut, 'actif')"`). Sans entrée, la colonne de même nom, ou NULL si l'ancienne table ne l'a pas.
    */
   depuis?: Record<string, string>;
   /**

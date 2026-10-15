@@ -68,7 +68,7 @@ Sauvegarde de /var/lib/cursus/cursus.db
 | Fichier | Créé par |
 | --- | --- |
 | `cursus-2026-10-10T021500Z.db` | `npm run backup` (planifié ou manuel) |
-| `cursus-…Z-avant-migration.db` | le démarrage d'une nouvelle version qui doit modifier une base existante |
+| `cursus-…Z-avant-migration.db` | le démarrage d'une nouvelle version qui doit modifier une base existante ou y enregistrer des migrations nommées (ou `npm run comptes` / `npm run reset-demo` lancés avant lui) |
 | `cursus-…Z-avant-reinitialisation.db` | `npm run reset-demo` et le bouton « Réinitialiser les données » (démonstration) |
 | `cursus-…Z-avant-restauration.db` | `npm run restore` (état remplacé, pour pouvoir revenir en arrière) |
 | `cursus-…Z-avant-restauration-brut/` | `npm run restore -- … --force` sur une base illisible : fichiers copiés tels quels, hors rotation |
@@ -99,9 +99,13 @@ l'emplacement attendu par la copie externe.
   à une base existante, ou en convertir les données, le serveur fait une copie `avant-migration`
   (une seule par démarrage) puis migre. **Si cette copie échoue, le serveur refuse de démarrer** : lire
   `journalctl -u cursus`, libérer de l'espace ou corriger `CURSUS_BACKUP_DIR`, puis redémarrer.
-  Une base déjà à jour ou neuve ne produit aucune copie. Chaque migration nommée n'est faite qu'une fois par base
-  (table `migrations`) ; une base qu'une version plus récente a migrée est refusée par une version plus ancienne
-  (« restaurer la copie avant-migration » : c'est cette copie qu'il faut restaurer pour revenir en arrière).
+  Une base neuve, ou déjà à jour sans nouvelle migration nommée, ne produit aucune copie. Chaque migration nommée
+  n'est faite qu'une fois par base (table `migrations`) ; une version qui en apporte fait toujours sa copie avant
+  d'enregistrer leurs noms, même si elles ne changent rien d'autre, et le chemin de la copie est enregistré avec eux.
+  Une base qu'une version plus récente a migrée est refusée par une version plus ancienne (« restaurer la copie
+  avant-migration ») : le message nomme la copie faite au début de cette mise à jour, celle qu'il faut restaurer pour
+  revenir en arrière ; s'il n'en nomme aucune (copie supprimée depuis), restaurer la sauvegarde faite juste avant la
+  mise à jour (section 9), jamais une copie plus ancienne : les saisies faites depuis seraient perdues.
 - **Avant la réinitialisation de la démonstration** (`npm run reset-demo`, bouton de l'écran
   Paramètres) : si la copie échoue, rien n'est effacé. Le message de confirmation donne le nom de la copie.
 
@@ -392,4 +396,5 @@ test, qui valide aussi la copie externe, le mot de passe de chiffrement et la pr
 
 Lancer `sudo systemctl start cursus-sauvegarde.service` et vérifier son compte rendu avant d'installer la
 nouvelle version : la copie `avant-migration` faite au redémarrage s'y ajoute, mais seulement si la base
-doit être modifiée.
+doit être modifiée ou recevoir de nouvelles migrations nommées. C'est aussi la sauvegarde à restaurer pour
+revenir à la version précédente si la copie `avant-migration` a disparu depuis.

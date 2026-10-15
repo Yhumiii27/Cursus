@@ -1,5 +1,6 @@
 // Tests des migrations nommées (server/src/migrations/) : base neuve, base existante notée à jour sans être modifiée,
-// base mise à jour par une version plus récente refusée avant toute écriture (serveur compris), migration interrompue
+// base mise à jour par une version plus récente refusée avant toute écriture (serveur et outils compris) avec la copie à
+// restaurer, retour à la version précédente, outils qui mettent la base à jour avant d'y écrire, migration interrompue
 // annulée, reconstruction d'une table (colonne renommée ou supprimée, contrainte ajoutée).
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -7,7 +8,7 @@ import { spawn, spawnSync } from 'node:child_process';
 import { DatabaseSync } from 'node:sqlite';
 import { existsSync, mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
-import { join } from 'node:path';
+import { basename, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 process.env.CURSUS_TODAY = '2026-10-07';
 delete process.env.CURSUS_BACKUP_DIR; // copies à côté de chaque base de test
@@ -30,6 +31,19 @@ async function dansDossier(fn: (dir: string) => unknown) {
   try { await fn(dir); } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 const copies = (dir: string) => listerSauvegardes(join(dir, 'backups')).filter(c => c.motif === 'avant-migration');
+/** Noms des migrations enregistrées dans un fichier de base (copie comprise), lu sans écriture. */
+function enregistreesDans(fichier: string): string[] {
+  const sql = new DatabaseSync(fichier, { readOnly: true });
+  try { return migrationsEnregistrees(sql); } finally { sql.close(); }
+}
+/** Nom du salarié 1 dans un fichier de base. */
+function nomEmp1(fichier: string): string {
+  const sql = new DatabaseSync(fichier, { readOnly: true });
+  try { return (sql.prepare('SELECT nom FROM employes WHERE id = 1').get() as { nom: string }).nom; } finally { sql.close(); }
+}
+/** Outil en ligne de commande (server/src/<script>) lancé sur une base. */
+const outil = (env: Record<string, string>, script: string, ...args: string[]) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', `server/src/${script}`, ...args],
+  { cwd: RACINE, env: { ...process.env, ...env }, encoding: 'utf8', timeout: 20000 });
 const lignes = (db: Db) => (db.sql.prepare('SELECT nom, executee FROM migrations ORDER BY rowid').all() as { nom: string; executee: number }[]).map(r => ({ ...r }));
 /** Contenu complet d'une base (tables et index, lignes de chaque table), hors table des migrations. */
 function contenu(sql: DatabaseSync): string {
@@ -70,10 +84,28 @@ test('base neuve : migrations exécutées et enregistrées une seule fois, sans 
   assert.deepEqual(appliquerMigrations(encore), []);
   encore.sql.close();
   assert.equal(copies(dir).length, 0, 'aucune copie pour une base neuve ou à jour');
+  const lue = new DatabaseSync(file, { readOnly: true });
+  assert.ok(lue.prepare('SELECT copie FROM migrations').all().every(r => r.copie === null), 'base neuve : aucune copie enregistrée');
+  lue.close();
+
   // Aucun numéro de version global : les noms suffisent.
   const sql = new DatabaseSync(file, { readOnly: true });
   assert.equal((sql.prepare('PRAGMA user_version').get() as { user_version: number }).user_version, 0);
   sql.close();
+}));
+
+test('table des migrations sans la colonne copie (version de développement du cadre) : lue, puis complétée', () => dansDossier(dir => {
+  const file = join(dir, 'cursus.db');
+  const db = new Db(file);
+  appliquerMigrations(db);
+  db.sql.exec('ALTER TABLE migrations DROP COLUMN copie');
+  db.sql.close();
+  controlerMigrations(file);
+  const suite = new Db(file);
+  assert.deepEqual(appliquerMigrations(suite, [...MIGRATIONS, { nom: 'essai-apres', executer: () => {} }]), ['essai-apres']);
+  const copie = (suite.sql.prepare(`SELECT copie FROM migrations WHERE nom = 'essai-apres'`).get() as { copie: string }).copie;
+  suite.sql.close();
+  assert.deepEqual(copies(dir).map(c => c.fichier), [copie], 'copie faite, et enregistrée avec le nom');
 }));
 
 test('base existante antérieure au cadre : notée à jour sans être modifiée, puis seules les migrations utiles s’exécutent', () => dansDossier(dir => {
@@ -92,7 +124,9 @@ test('base existante antérieure au cadre : notée à jour sans être modifiée,
   const apres = new DatabaseSync(file, { readOnly: true });
   assert.equal(contenu(apres), etat, 'données, tables et index inchangés');
   apres.close();
-  assert.equal(copies(dir).length, 0, 'aucune copie : la base n’a pas été modifiée');
+  // Copie quand même : les noms enregistrés suffisent à faire refuser la base par une version qui ne les connaît pas.
+  assert.equal(copies(dir).length, 1, 'copie avant d’enregistrer les noms');
+  assert.deepEqual(enregistreesDans(copies(dir)[0].fichier), [], 'copie de la base telle qu’avant, sans aucun nom');
 
   // Base plus ancienne, sans l'index de la file d'envoi : seule la migration qui le crée s'exécute, après une copie.
   const ancienne = join(dir, 'ancienne.db');
@@ -109,40 +143,155 @@ test('base mise à jour par une version plus récente : refusée avant toute éc
   const file = join(dir, 'cursus.db');
   // Base de la version plus récente : une migration inconnue de ce code, et une table qui n'a pas encore toutes les
   // colonnes de ce code (l'ouvrir les ajouterait).
+  // Copies avant-migration : d'une mise à jour antérieure, de celle qui a enregistré la migration inconnue (enregistrée
+  // avec elle, faite quand les sauvegardes étaient ailleurs), d'une mise à jour postérieure.
+  mkdirSync(join(dir, 'backups'));
+  const copie = (horodatage: string) => join(dir, 'backups', `cursus-${horodatage}-avant-migration.db`);
+  const [anterieure, bonne, posterieure] = ['2027-01-01T020000Z', '2027-03-01T020000Z', '2027-04-01T020000Z'].map(copie);
+  for (const f of [anterieure, bonne, posterieure]) writeFileSync(f, '');
   const sql = new DatabaseSync(file);
   sql.exec(`CREATE TABLE employes (id INTEGER PRIMARY KEY AUTOINCREMENT, nom TEXT);
-    CREATE TABLE migrations (nom TEXT PRIMARY KEY, appliquee TEXT NOT NULL, executee INTEGER NOT NULL);`);
-  sql.prepare('INSERT INTO migrations VALUES (?, ?, 1)').run(MIGRATIONS[0].nom, '2027-01-01T00:00:00Z');
-  sql.prepare('INSERT INTO migrations VALUES (?, ?, 1)').run('lot9-futur-colonne-renommee', '2027-03-01T00:00:00Z');
+    CREATE TABLE migrations (nom TEXT PRIMARY KEY, appliquee TEXT NOT NULL, executee INTEGER NOT NULL, copie TEXT);`);
+  sql.prepare('INSERT INTO migrations VALUES (?, ?, 1, ?)').run(MIGRATIONS[0].nom, '2027-01-01T02:00:03Z', anterieure);
+  sql.prepare('INSERT INTO migrations VALUES (?, ?, 1, ?)').run('lot9-futur-colonne-renommee', '2027-03-01T02:00:07Z', join('/ancien/emplacement', basename(bonne)));
   sql.close();
-  mkdirSync(join(dir, 'backups'));
-  const copie = join(dir, 'backups', 'cursus-2027-03-01T020000Z-avant-migration.db');
-  writeFileSync(copie, '');
 
-  assert.throws(() => controlerMigrations(file), (e: unknown) => e instanceof MigrationError
-    && /version plus récente de Cursus \(1 migration inconnue de cette version : lot9-futur-colonne-renommee\)/.test(e.message)
-    && /restaurer la copie avant-migration/.test(e.message) && e.message.includes(copie));
+  // La copie nommée est celle enregistrée avec la première migration inconnue (retrouvée dans le dossier actuel des
+  // sauvegardes), aucune autre.
+  const refus = (e: unknown) => e instanceof MigrationError
+    && /version plus récente de Cursus le .* \(1 migration inconnue de cette version : lot9-futur-colonne-renommee\)/.test(e.message)
+    && /restaurer la copie avant-migration faite au début de cette mise à jour/.test(e.message)
+    && e.message.includes(bonne) && ![anterieure, posterieure].some(f => e.message.includes(f));
+  assert.throws(() => controlerMigrations(file), refus);
 
   // Serveur : refus au démarrage (code 1, pour systemd), base intacte, verrou retiré.
-  const env = { ...process.env, CURSUS_DB: file, CURSUS_API_PORT: '0', CURSUS_HOST: '127.0.0.1' };
-  const srv = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/index.ts'], { cwd: RACINE, env, encoding: 'utf8', timeout: 20000 });
+  const env = { CURSUS_DB: file, CURSUS_API_PORT: '0', CURSUS_HOST: '127.0.0.1' };
+  const srv = outil(env, 'index.ts');
   assert.equal(srv.status, 1, srv.stdout + srv.stderr);
   assert.match(srv.stderr, /Démarrage impossible : la base a été mise à jour par une version plus récente de Cursus[\s\S]*restaurer la copie avant-migration/);
   const lu = new DatabaseSync(file, { readOnly: true });
   assert.deepEqual((lu.prepare('PRAGMA table_info(employes)').all() as { name: string }[]).map(c => c.name), ['id', 'nom'], 'aucune colonne ajoutée');
   assert.equal(migrationsEnregistrees(lu).length, 2);
   lu.close();
-  assert.equal(copies(dir).length, 1, 'aucune nouvelle copie');
+  assert.equal(copies(dir).length, 3, 'aucune nouvelle copie');
   assert.ok(!existsSync(fichierVerrou(file)), 'verrou retiré');
-  // npm run comptes : même refus.
-  const cli = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/comptes-cli.ts', 'admin', 'rh@exemple.fr'], { cwd: RACINE, env, encoding: 'utf8', timeout: 20000 });
+  // npm run comptes et npm run reset-demo (qui efface toute la base) : même refus, rien d'écrit.
+  const cli = outil(env, 'comptes-cli.ts', 'admin', 'rh@exemple.fr');
   assert.equal(cli.status, 1);
   assert.match(cli.stderr, /Commande impossible : la base a été mise à jour par une version plus récente/);
+  const reset = outil({ ...env, CURSUS_DEMO: '1' }, 'reset.ts');
+  assert.equal(reset.status, 1, reset.stdout + reset.stderr);
+  assert.match(reset.stderr, /Réinitialisation refusée : la base a été mise à jour par une version plus récente[\s\S]*restaurer la copie avant-migration/);
+  assert.deepEqual(enregistreesDans(file), [MIGRATIONS[0].nom, 'lot9-futur-colonne-renommee']);
+  const intacte = new DatabaseSync(file, { readOnly: true });
+  assert.deepEqual((intacte.prepare('PRAGMA table_info(employes)').all() as { name: string }[]).map(c => c.name), ['id', 'nom'], 'aucune colonne ajoutée');
+  intacte.close();
+  assert.equal(listerSauvegardes(join(dir, 'backups')).length, 3, 'aucune copie avant réinitialisation');
 
   // Base ouverte malgré tout (contrôle préalable impossible) : appliquerMigrations refuse aussi.
   const db = new Db(file);
   assert.throws(() => appliquerMigrations(db), (e: unknown) => e instanceof MigrationError && /lot9-futur-colonne-renommee/.test(e.message));
   db.sql.close();
+
+  // Copie de cette mise à jour supprimée depuis (étape 6 de la mise à jour, rotation) : renvoi à la sauvegarde faite
+  // avant la mise à jour, jamais à une copie plus ancienne qui ferait perdre des mois de saisies.
+  rmSync(bonne);
+  assert.throws(() => controlerMigrations(file), (e: unknown) => e instanceof MigrationError
+    && e.message.includes(`restaurer la copie avant-migration faite au début de cette mise à jour (${basename(bonne)}, introuvable : supprimée ou déplacée depuis) ; `
+      + 'à défaut, restaurer la sauvegarde faite juste avant la mise à jour')
+    && ![anterieure, posterieure].some(f => e.message.includes(f)));
+}));
+
+test('retour à la version précédente : chaque mise à jour qui enregistre des noms a sa copie, que la version précédente accepte', () => dansDossier(dir => {
+  const file = join(dir, 'cursus.db');
+  // Version 1 : base créée et migrée ; une copie avant-migration d'une mise à jour bien plus ancienne traîne.
+  const V1 = MIGRATIONS;
+  const db = new Db(file);
+  seedDemo(db);
+  appliquerMigrations(db, V1);
+  db.sql.close();
+  mkdirSync(join(dir, 'backups'));
+  const ancienne = join(dir, 'backups', 'cursus-2020-01-02T020000Z-avant-migration.db');
+  writeFileSync(ancienne, '');
+  const nom1 = nomEmp1(file);
+
+  // Version 2 : une reprise sans objet sur cette base (seulement notée faite), puis une reprise utile.
+  const sansObjet: Migration = { nom: 'lot9-essai-sans-objet', necessaire: () => false, executer: () => { throw new Error('jamais exécutée'); } };
+  const utile: Migration = { nom: 'lot9-essai-utile', executer: d => { d.update('employes', 1, { nom: 'Repris' }); } };
+  const V2 = [...V1, sansObjet, utile];
+  const db2 = new Db(file);
+  assert.deepEqual(appliquerMigrations(db2, V2), ['lot9-essai-utile']);
+  db2.sql.close();
+  const [c2, ...autres] = copies(dir).filter(c => c.fichier !== ancienne);
+  assert.equal(autres.length, 0);
+  // La copie est faite avant d'enregistrer le premier nom, même seulement noté : la version 1 l'accepte.
+  assert.deepEqual(enregistreesDans(c2.fichier), V1.map(m => m.nom));
+  assert.equal(nomEmp1(c2.fichier), nom1);
+  controlerMigrations(c2.fichier, V1);
+  assert.throws(() => controlerMigrations(file, V1), (e: unknown) => e instanceof MigrationError
+    && /2 migrations inconnues de cette version : lot9-essai-sans-objet, lot9-essai-utile/.test(e.message)
+    && e.message.includes(c2.fichier) && !e.message.includes(ancienne));
+
+  // Version 3 : seulement une reprise sans objet. Rien n'est modifié, mais le nom enregistré a sa copie.
+  const V3 = [...V2, { nom: 'lot9-essai-suivante', necessaire: () => false, executer: () => {} }];
+  const db3 = new Db(file);
+  assert.deepEqual(appliquerMigrations(db3, V3), []);
+  db3.sql.close();
+  const c3 = copies(dir).filter(c => c.fichier !== ancienne && c.fichier !== c2.fichier);
+  assert.equal(c3.length, 1, 'copie avant le nom seulement noté');
+  controlerMigrations(c3[0].fichier, V2);
+  // Retour de la version 3 à la 2 : sa copie ; à la 1 : celle de la mise à jour vers la 2, enregistrée avec la première
+  // migration que la version 1 ne connaît pas.
+  assert.throws(() => controlerMigrations(file, V2), (e: unknown) => e instanceof MigrationError && e.message.includes(c3[0].fichier));
+  assert.throws(() => controlerMigrations(file, V1), (e: unknown) => e instanceof MigrationError
+    && e.message.includes(c2.fichier) && !e.message.includes(c3[0].fichier));
+
+  // Base créée par la version 2 : aucune copie à nommer, renvoi à la sauvegarde d'avant la mise à jour.
+  const neuve = join(dir, 'neuve.db');
+  const db4 = new Db(neuve);
+  appliquerMigrations(db4, V2);
+  db4.sql.close();
+  assert.throws(() => controlerMigrations(neuve, V1), (e: unknown) => e instanceof MigrationError
+    && /faite au début de cette mise à jour : aucune pour cette base \(créée par la version plus récente \?\) ; à défaut, restaurer la sauvegarde/.test(e.message)
+    && !e.message.includes(ancienne));
+}));
+
+test('npm run reset-demo et npm run comptes : base mise à jour avant d’y écrire, refus si le serveur en service ne l’a pas fait', () => dansDossier(dir => {
+  const file = join(dir, 'cursus.db');
+  baseAnterieure(file, { sansIndex: ['envois_file'] });
+  // Serveur en service avec la version précédente (nouvelle version installée, service pas encore redémarré) : verrou
+  // d'un processus vivant, celui des tests. Les outils refusent, sans rien écrire.
+  writeFileSync(fichierVerrou(file), JSON.stringify({ pid: process.pid, depuis: new Date().toISOString() }));
+  const env = { CURSUS_DB: file, CURSUS_DEMO: '1' };
+  for (const [script, ...args] of [['reset.ts'], ['comptes-cli.ts', 'admin', 'rh@exemple.fr']]) {
+    const r = outil(env, script, ...args);
+    assert.equal(r.status, 1, r.stdout + r.stderr);
+    assert.match(r.stderr, new RegExp(`le serveur Cursus en service \\(processus ${process.pid}\\) n’a pas encore mis la base à jour pour cette version `
+      + `\\(${MIGRATIONS.length} migrations en attente : ${MIGRATIONS[0].nom}[\\s\\S]*Redémarrer d’abord le service`));
+  }
+  assert.deepEqual(enregistreesDans(file), []);
+  assert.equal(copies(dir).length, 0);
+  rmSync(fichierVerrou(file));
+
+  // Service arrêté : reset-demo met la base à jour comme le serveur au démarrage (copie, migrations nommées), puis la
+  // recharge. Le premier démarrage n'a plus aucune migration à faire sur les données de démonstration.
+  const r = outil(env, 'reset.ts');
+  assert.equal(r.status, 0, r.stderr);
+  assert.match(r.stdout, /Sauvegarde avant migration[\s\S]*Migration lot4-exploitation-index-envois faite[\s\S]*avant-reinitialisation[\s\S]*Données de démonstration rechargées/);
+  assert.equal(copies(dir).length, 1);
+  const db = new Db(file);
+  assert.deepEqual(migrationsEnregistrees(db.sql), MIGRATIONS.map(m => m.nom));
+  assert.ok(indexExiste(db, 'envois_file'));
+  assert.deepEqual(appliquerMigrations(db), [], 'rien à faire au démarrage suivant');
+  db.sql.close();
+
+  // npm run comptes, service arrêté : de même, avant de créer le compte.
+  const autre = join(dir, 'autre.db');
+  baseAnterieure(autre, { sansIndex: ['journal_at'] });
+  const c = outil({ CURSUS_DB: autre }, 'comptes-cli.ts', 'admin', 'rh@exemple.fr');
+  assert.equal(c.status, 0, c.stderr);
+  assert.match(c.stdout, /Migration lot4-exploitation-index-journal faite[\s\S]*Administrateur RH créé/);
+  assert.deepEqual(enregistreesDans(autre), MIGRATIONS.map(m => m.nom));
 }));
 
 test('migration interrompue : ses modifications sont annulées, les précédentes restent faites, elle est retentée ensuite', () => dansDossier(dir => {
@@ -191,20 +340,23 @@ test('reconstruction d’une table : colonne renommée et supprimée, contrainte
     INSERT INTO budgets (exercice, equipe, somme, obsolete) VALUES (2026, 'Production', 1000, 'x'), (2026, 'Maintenance', 500, 'y'), (2027, 'Production', 1, 'z');
     DELETE FROM budgets WHERE id = 3;`);
   ancienne.close();
-  const db = new Db(file); // le schéma déclaratif ajoute `montant`, vide
+  const db = new Db(file); // le schéma déclaratif ajoute `montant`, vide pour les lignes existantes
   assert.ok(colonneExiste(db, 'budgets', 'montant') && colonneExiste(db, 'budgets', 'somme'));
+  // Ligne écrite par cette version avant la migration (reprise de server/src/migrate.ts…) : `montant` rempli, `somme` vide.
+  db.insert('budgets', { exercice: 2028, equipe: 'Logistique', montant: 750 });
   assert.throws(() => reconstruireTable(db, 'budgets'), /hors transaction/);
   const renommer: Migration = {
     nom: 'essai-budgets-montant',
     necessaire: d => colonneExiste(d, 'budgets', 'somme'),
-    executer: d => `${reconstruireTable(d, 'budgets', { depuis: { montant: 'somme' }, ligne: r => ({ ...r, equipe: String(r.equipe).toUpperCase() }) })} lignes`,
+    executer: d => `${reconstruireTable(d, 'budgets', { depuis: { montant: 'COALESCE(montant, somme)' }, ligne: r => ({ ...r, equipe: String(r.equipe).toUpperCase() }) })} lignes`,
   };
   assert.deepEqual(appliquerMigrations(db, [renommer]), ['essai-budgets-montant']);
   assert.deepEqual(db.columns('budgets'), ['id', 'exercice', 'equipe', 'montant']);
-  assert.deepEqual(db.all<{ id: number; equipe: string; montant: number }>('budgets').map(b => [b.id, b.equipe, b.montant]), [[1, 'PRODUCTION', 1000], [2, 'MAINTENANCE', 500]]);
+  assert.deepEqual(db.all<{ id: number; equipe: string; montant: number }>('budgets').map(b => [b.id, b.equipe, b.montant]),
+    [[1, 'PRODUCTION', 1000], [2, 'MAINTENANCE', 500], [4, 'LOGISTIQUE', 750]], 'anciennes valeurs reprises, nouvelle conservée');
   assert.ok(indexExiste(db, 'budgets_equipe'), 'index recréé');
   assert.throws(() => db.insert('budgets', { exercice: 2026, equipe: 'PRODUCTION', montant: 1 }), /UNIQUE/, 'contrainte de TABLES appliquée');
-  assert.equal(db.insert<{ id: number }>('budgets', { exercice: 2028, equipe: 'X', montant: 1 }).id, 4, 'identifiant 3 jamais réutilisé');
+  assert.equal(db.insert<{ id: number }>('budgets', { exercice: 2029, equipe: 'X', montant: 1 }).id, 5, 'identifiant 3 jamais réutilisé');
   assert.deepEqual(db.sql.prepare(`SELECT name FROM sqlite_sequence WHERE name LIKE 'budgets%'`).all().map(r => r.name), ['budgets']);
   db.sql.close();
 
@@ -222,7 +374,7 @@ test('reconstruction d’une table : colonne renommée et supprimée, contrainte
   db2.sql.close();
 }));
 
-test('serveur : une base antérieure au cadre démarre, notée à jour sans copie', { skip: process.platform === 'win32' }, async () => dansDossier(async dir => {
+test('serveur : une base antérieure au cadre démarre, notée à jour sans être modifiée, après sa copie', { skip: process.platform === 'win32' }, async () => dansDossier(async dir => {
   const file = join(dir, 'cursus.db');
   baseAnterieure(file);
   const env = { ...process.env, CURSUS_DB: file, CURSUS_API_PORT: '0', CURSUS_HOST: '127.0.0.1', CURSUS_DEMO: '1' };
@@ -234,12 +386,12 @@ test('serveur : une base antérieure au cadre démarre, notée à jour sans copi
       srv.stderr.on('data', b => { out += b; });
       srv.on('exit', code => ko(new Error(`serveur arrêté (${code}) : ${out}`)));
     });
-    assert.match(sortie, new RegExp(`Migrations : ${MIGRATIONS.length} migrations notées faites sans modification`));
-    assert.doesNotMatch(sortie, /Sauvegarde avant migration/);
+    assert.match(sortie, new RegExp(`Sauvegarde avant migration : .*-avant-migration\\.db\\n[\\s\\S]*Migrations : ${MIGRATIONS.length} migrations notées faites sans modification`));
   } finally {
     srv.kill('SIGKILL');
   }
   const lu = new DatabaseSync(file, { readOnly: true });
   assert.deepEqual(migrationsEnregistrees(lu), MIGRATIONS.map(m => m.nom));
   lu.close();
+  assert.equal(copies(dir).length, 1);
 }));

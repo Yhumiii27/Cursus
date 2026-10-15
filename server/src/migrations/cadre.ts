@@ -6,11 +6,11 @@
 // Le schéma déclaratif (tables et colonnes ajoutées, server/src/db.ts) et les reprises rejouées à chaque démarrage
 // (server/src/migrate.ts) passent avant.
 import { existsSync } from 'node:fs';
-import { basename } from 'node:path';
+import { basename, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { plural } from '../../../shared/format.ts';
 import type { Db } from '../db.ts';
-import { dossierSauvegardes, listerSauvegardes, sauvegarderAvantMigration } from '../sauvegarde.ts';
+import { dossierSauvegardes, fmtDateHeure, sauvegarderAvantMigration, serveurActif } from '../sauvegarde.ts';
 import { MIGRATIONS } from './liste.ts';
 
 export interface Migration {
@@ -18,7 +18,7 @@ export interface Migration {
   nom: string;
   /**
    * Vrai si la base a besoin de la migration (anciennes valeurs à reprendre, index absent…). Faux : elle est seulement
-   * notée faite, sans copie ni modification (base neuve, ou déjà dans l'état visé). Absent : toujours vrai.
+   * notée faite, sans être exécutée (base neuve, ou déjà dans l'état visé). Absent : toujours vrai.
    */
   necessaire?: (db: Db) => boolean;
   /**
@@ -31,14 +31,38 @@ export interface Migration {
 /** Démarrage refusé : base trop récente, ou migration interrompue (message en français, pour le service informatique). */
 export class MigrationError extends Error {}
 
-/** Table des migrations faites, hors du schéma déclaratif : la réinitialisation de la démonstration ne la vide pas. */
-const TABLE = 'CREATE TABLE IF NOT EXISTS migrations (nom TEXT PRIMARY KEY, appliquee TEXT NOT NULL, executee INTEGER NOT NULL)';
+/**
+ * Table des migrations faites, hors du schéma déclaratif : la réinitialisation de la démonstration ne la vide pas.
+ * `copie` : copie « avant-migration » faite juste avant que la mise à jour n'enregistre son premier nom (null pour une
+ * base neuve), celle qu'une version plus ancienne demande de restaurer.
+ */
+const TABLE = 'CREATE TABLE IF NOT EXISTS migrations (nom TEXT PRIMARY KEY, appliquee TEXT NOT NULL, executee INTEGER NOT NULL, copie TEXT)';
 const NOM = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
+
+/** Migration enregistrée dans une base : son nom, l'instant (ISO) de son enregistrement et la copie faite avant. */
+interface Enregistree { nom: string; appliquee: string; copie: string | null }
+
+function lireMigrations(sql: DatabaseSync): Enregistree[] {
+  if (!sql.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'migrations'`).get()) return [];
+  // `*` : table créée avant la colonne `copie` lisible aussi (lecture seule, rien n'est ajouté ici).
+  return (sql.prepare('SELECT * FROM migrations ORDER BY rowid').all() as Record<string, unknown>[])
+    .map(r => ({ nom: String(r.nom), appliquee: String(r.appliquee), copie: typeof r.copie === 'string' && r.copie ? r.copie : null }));
+}
 
 /** Noms des migrations enregistrées dans une base, dans l'ordre où elles ont été faites (aucun avant ce cadre). */
 export function migrationsEnregistrees(sql: DatabaseSync): string[] {
-  if (!sql.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'migrations'`).get()) return [];
-  return (sql.prepare('SELECT nom FROM migrations ORDER BY rowid').all() as { nom: string }[]).map(r => r.nom);
+  return lireMigrations(sql).map(r => r.nom);
+}
+
+/** Migrations enregistrées dans un fichier de base, lu sans l'ouvrir en écriture ; null s'il est absent ou illisible. */
+function lireFichier(fichier: string): Enregistree[] | null {
+  if (!existsSync(fichier)) return null;
+  try {
+    const sql = new DatabaseSync(fichier, { readOnly: true });
+    try { return lireMigrations(sql); } finally { sql.close(); }
+  } catch {
+    return null; // journal à rejouer, fichier endommagé…
+  }
 }
 
 /** Liste valide : noms bien formés et uniques (erreur de programmation sinon, vue par les tests). */
@@ -51,25 +75,39 @@ export function verifierListe(liste: readonly Migration[]) {
   }
 }
 
-/** Copie « avant-migration » la plus récente de cette base, ou null. */
-function derniereCopie(fichier: string): string | null {
+const inconnuesDe = (faites: Enregistree[], liste: readonly Migration[]) => faites.filter(f => !liste.some(m => m.nom === f.nom));
+
+/** Copie enregistrée, à son emplacement d'origine ou, déplacée, dans le dossier actuel des sauvegardes ; null sinon. */
+function retrouverCopie(fichier: string | null | undefined, copie: string): string | null {
+  if (existsSync(copie)) return copie;
   try {
-    const base = basename(fichier).replace(/\.(db|sqlite3?)$/i, '');
-    return listerSauvegardes(dossierSauvegardes(fichier)).find(c => c.base === base && c.motif === 'avant-migration')?.fichier ?? null;
+    const ici = fichier ? join(dossierSauvegardes(fichier), basename(copie)) : null;
+    return ici && existsSync(ici) ? ici : null;
   } catch {
-    return null; // dossier illisible : le message reste utile sans le nom de la copie
+    return null;
   }
 }
 
-function refusBaseRecente(fichier: string | null | undefined, inconnues: string[]): MigrationError {
-  const copie = fichier ? derniereCopie(fichier) : null;
-  return new MigrationError(`la base a été mise à jour par une version plus récente de Cursus (${plural(inconnues.length, 'migration inconnue', 'migrations inconnues')} `
-    + `de cette version : ${inconnues.join(', ')}). Pour revenir à cette version, restaurer la copie avant-migration faite à cette mise à jour`
-    + (copie ? ` (la plus récente : ${copie})` : ' (fichier …-avant-migration.db du dossier des sauvegardes)')
+/**
+ * Refus d'une base mise à jour par une version plus récente. La copie à restaurer est celle enregistrée avec la première
+ * migration inconnue : faite juste avant que cette mise à jour n'enregistre son premier nom, cette version l'accepte.
+ * Aucune copie enregistrée (base créée par la version plus récente) ou fichier disparu : renvoi à la sauvegarde faite
+ * avant la mise à jour, jamais à une autre copie, plus ancienne (des mois de saisies perdues) ou plus récente (refusée).
+ */
+function refusBaseRecente(fichier: string | null | undefined, inconnues: Enregistree[]): MigrationError {
+  const premiere = inconnues[0];
+  const copie = premiere.copie ? retrouverCopie(fichier, premiere.copie) : null;
+  const date = Date.parse(premiere.appliquee);
+  const aDefaut = ' ; à défaut, restaurer la sauvegarde faite juste avant la mise à jour (docs/DEPLOIEMENT.md, « Mise à jour »)';
+  const aRestaurer = copie ? ` (${copie})`
+    : premiere.copie ? ` (${basename(premiere.copie)}, introuvable : supprimée ou déplacée depuis)${aDefaut}`
+      : ` : aucune pour cette base (créée par la version plus récente ?)${aDefaut}`;
+  return new MigrationError('la base a été mise à jour par une version plus récente de Cursus'
+    + (Number.isFinite(date) ? ` le ${fmtDateHeure(new Date(date))}` : '')
+    + ` (${plural(inconnues.length, 'migration inconnue', 'migrations inconnues')} de cette version : ${inconnues.map(m => m.nom).join(', ')}).`
+    + ` Pour revenir à cette version, restaurer la copie avant-migration faite au début de cette mise à jour${aRestaurer}`
     + ' avec npm run restore -- <fichier>, les saisies faites depuis étant perdues (docs/SAUVEGARDE.md) ; sinon, réinstaller la version plus récente.');
 }
-
-const inconnuesDe = (noms: string[], liste: readonly Migration[]) => noms.filter(n => !liste.some(m => m.nom === n));
 
 /**
  * Contrôle d'une base avant de l'ouvrir : MigrationError si elle porte une migration que ce code ne connaît pas. Lecture
@@ -77,42 +115,67 @@ const inconnuesDe = (noms: string[], liste: readonly Migration[]) => noms.filter
  * ici (journal à rejouer…) : pas de refus, appliquerMigrations refait le contrôle une fois la base ouverte.
  */
 export function controlerMigrations(fichier: string, liste: readonly Migration[] = MIGRATIONS) {
-  if (!existsSync(fichier)) return;
-  let noms: string[];
-  try {
-    const sql = new DatabaseSync(fichier, { readOnly: true });
-    try { noms = migrationsEnregistrees(sql); } finally { sql.close(); }
-  } catch {
-    return;
-  }
-  const inconnues = inconnuesDe(noms, liste);
+  const faites = lireFichier(fichier);
+  if (!faites) return;
+  const inconnues = inconnuesDe(faites, liste);
   if (inconnues.length) throw refusBaseRecente(fichier, inconnues);
 }
 
 /**
+ * Contrôle d'une base par un outil en ligne de commande qui y écrit (npm run comptes, npm run reset-demo), avant de
+ * l'ouvrir : celui de controlerMigrations, puis refus si un serveur en service ne l'a pas encore mise à jour pour ce code
+ * (nouvelle version installée, service pas encore redémarré) : l'outil écrirait selon le nouveau schéma des lignes
+ * qu'une migration reprendrait ensuite (colonne renommée remplie depuis l'ancienne, vide pour elles). Renvoie vrai si
+ * aucun serveur n'est en service : l'outil met alors lui-même la base à jour, comme le serveur au démarrage (migrate
+ * puis appliquerMigrations) avant d'y écrire ; faux : le serveur en service l'a déjà fait.
+ */
+export function controlerPourOutil(fichier: string, liste: readonly Migration[] = MIGRATIONS): boolean {
+  controlerMigrations(fichier, liste);
+  const serveur = serveurActif(fichier);
+  if (!serveur) return true;
+  const faites = new Set((lireFichier(fichier) ?? []).map(f => f.nom));
+  const enAttente = liste.filter(m => !faites.has(m.nom)).map(m => m.nom);
+  if (enAttente.length) {
+    throw new MigrationError(`le serveur Cursus en service (processus ${serveur.pid}) n’a pas encore mis la base à jour pour cette version `
+      + `(${plural(enAttente.length, 'migration en attente', 'migrations en attente')} : ${enAttente.join(', ')}). `
+      + 'Redémarrer d’abord le service (sudo systemctl restart cursus), puis relancer la commande.');
+  }
+  return false;
+}
+
+/**
  * Applique, dans l'ordre de la liste, les migrations que la base n'a pas encore : chacune dans sa transaction, avec
- * l'enregistrement de son nom. Avant la première qui modifie une base existante, copie « avant-migration » (une seule
- * par ouverture, partagée avec le schéma déclaratif et server/src/migrate.ts ; son échec arrête tout). Une erreur
- * annule la migration en cours (les précédentes restent faites) et lève une MigrationError : le serveur refuse de
- * démarrer, et la retentera au démarrage suivant. Renvoie les noms des migrations exécutées.
+ * l'enregistrement de son nom. Base existante : copie « avant-migration » avant le premier nom enregistré, même d'une
+ * migration seulement notée faite, car ce nom suffit à faire refuser la base par la version précédente, qui demande de
+ * restaurer cette copie : son chemin est enregistré avec chaque nom (une seule copie par ouverture, partagée avec le
+ * schéma déclaratif et server/src/migrate.ts ; son échec arrête tout). Une erreur annule la migration en cours (les
+ * précédentes restent faites) et lève une MigrationError : le serveur refuse de démarrer, et la retentera au démarrage
+ * suivant. Renvoie les noms des migrations exécutées.
  */
 export function appliquerMigrations(db: Db, liste: readonly Migration[] = MIGRATIONS): string[] {
   verifierListe(liste);
-  db.sql.exec(TABLE);
-  const faites = new Set(migrationsEnregistrees(db.sql));
-  const inconnues = inconnuesDe([...faites], liste);
+  const enregistrees = lireMigrations(db.sql);
+  const inconnues = inconnuesDe(enregistrees, liste);
   if (inconnues.length) throw refusBaseRecente(db.sql.location(), inconnues);
-  const noter = db.sql.prepare('INSERT INTO migrations (nom, appliquee, executee) VALUES (?, ?, ?)');
+  const faites = new Set(enregistrees.map(m => m.nom));
+  const aFaire = liste.filter(x => !faites.has(x.nom));
+  if (!aFaire.length) return [];
+  // Base antérieure au cadre comprise : un retour à une version intermédiaire, qui connaît le cadre mais pas tous ces
+  // noms, doit aussi trouver sa copie. Elle est enregistrée avec chaque nom.
+  const copie = db.neuve ? null : sauvegarderAvantMigration(db);
+  db.sql.exec(TABLE);
+  // Table créée avant la colonne `copie` (version de développement du cadre) : colonne ajoutée.
+  if (!(db.sql.prepare('PRAGMA table_info(migrations)').all() as { name: string }[]).some(c => c.name === 'copie')) db.sql.exec('ALTER TABLE migrations ADD COLUMN copie TEXT');
+  const noter = db.sql.prepare('INSERT INTO migrations (nom, appliquee, executee, copie) VALUES (?, ?, ?, ?)');
   const executees: string[] = [];
   let notees = 0;
-  for (const m of liste.filter(x => !faites.has(x.nom))) {
+  for (const m of aFaire) {
     const utile = m.necessaire ? m.necessaire(db) : true;
-    if (utile && !db.neuve) sauvegarderAvantMigration(db);
     let compteRendu: string | void;
     try {
       compteRendu = db.tx(() => {
         const r = utile ? m.executer(db) : undefined;
-        noter.run(m.nom, new Date().toISOString(), utile ? 1 : 0);
+        noter.run(m.nom, new Date().toISOString(), utile ? 1 : 0, copie);
         return r;
       });
     } catch (err) {

@@ -229,3 +229,21 @@ Jours fériés et périodes de référence (CP, RTT, campagnes) calculés à par
 quel que soit le fuseau du serveur ; dates impossibles (« 31/02 ») refusées à la saisie et à l'import.
 
 Architecture et conventions : `docs/ARCHITECTURE.md`. Travail restant, priorisé : `docs/RESTE_A_FAIRE.md`.
+
+## Mise en ligne (Docker, Coolify)
+
+Le `Dockerfile` à la racine construit l'interface et lance le serveur en production. Réglages à donner à l'hébergeur :
+
+| Réglage | Valeur |
+| --- | --- |
+| Port interne | `3000` |
+| Volume persistant | `/data` : base SQLite `cursus.db` et ses sauvegardes (`/data/backups`) |
+| Adresse | en `https://` : le cookie de session est marqué `Secure` en production |
+| Variables obligatoires | `CURSUS_SECRET` et `KEYSTONE_API_KEY` ; les autres selon les intégrations (tableau ci-dessus) |
+
+Dans le conteneur, Cursus écoute sur toutes les interfaces (`CURSUS_HOST=0.0.0.0`) : le proxy de l'hébergeur, placé
+dans un autre conteneur, doit pouvoir le joindre. Il ne croit les en-têtes `X-Forwarded-*` que des adresses privées du
+réseau Docker (`CURSUS_TRUST_PROXY=loopback,uniquelocal`), où se trouve le proxy de Coolify : c'est ce qui lui fait reconnaître
+le HTTPS et l'adresse réelle des utilisateurs. Le mode démonstration est refusé derrière ce proxy : la connexion passe
+par les comptes nominatifs (premier administrateur créé avec `npm run comptes` dans le conteneur, `docs/DEPLOIEMENT.md`),
+puis par Microsoft 365 une fois configuré (`docs/CONNEXION-MICROSOFT.md`).

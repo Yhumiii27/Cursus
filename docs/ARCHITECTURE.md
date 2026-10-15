@@ -455,7 +455,7 @@ aucun champ du paramètre n'est recopié.
 | `referentiel.habilitation.archiver` | id, archive? ; rétablissement refusé tant qu'un prérequis est archivé (formation à rétablir d'abord) ; message : titres demandés et demandes restés en attente | RH, référent HSE |
 | `referentiel.destination.enregistrer` | code (pays ISO à deux lettres, pas FR) ou id, pays, visa (`VISA_RULES`), visaSub?, oblig [vaccins], rec [vaccins, sans le DTP], passMois (0 à 24), secu? (vide : selon le code pays) | RH |
 | `referentiel.destination.archiver` | id, archive? | RH |
-| `referentiel.charger` | referentiel (`formations`/`habilitations`/`destinations`) : référentiel type (celui de la démonstration) chargé dans un référentiel vide, archivés compris ; habilitations après les formations | RH, référent HSE (destinations : RH) |
+| `referentiel.charger` | referentiel (`formations`/`habilitations`/`destinations`) : référentiel type (celui de la démonstration) chargé dans un référentiel vide, archivés compris ; habilitations après les formations (prérequis présents et en vigueur) | RH, référent HSE (destinations : RH) |
 | `medical.demander` | empId, motif? (`periodique`/`embauche`/`reprise`/`employeur` ; par défaut embauche sans visite enregistrée, sinon périodique) ; e-mail au service de santé au travail | RH (une demande en cours par collaborateur) |
 | `medical.annuler` | id | RH (demande de visite en cours) |
 | `medical.avis` | empId, date (passée), avis (`apte`/`restrictions`/`inapte`), restrictions [{texte, jusquau?}] (avis avec restrictions), suspendre [h]?, lever [h]? | RH (suspensions « Restriction d’aptitude » ; levée des seules suspensions d’un avis précédent, jamais pour un avis d’inaptitude) |
@@ -611,7 +611,8 @@ Une base de production démarre avec des référentiels vides (seul le jeu de d�
 - **Droits** (décision de l'entreprise) : formations et habilitations, service RH et référent HSE / formation (droit
   `formations`) ; destinations, service RH ; la lecture seule consulte l'écran. Chaque création, modification, archivage
   ou rétablissement est tracé au journal avec les valeurs avant et après (famille « Référentiels ») : du paramètre, seul
-  le code normalisé de l'élément est recopié (et `retablir` pour un archivage), jamais une valeur libre.
+  le code normalisé de l'élément est recopié (et `retablir` pour un archivage, le référentiel visé pour un chargement),
+  jamais une valeur libre.
 - **Codes** : identifiant d'une formation ou d'une habilitation (minuscules, chiffres, « - », « _ ») ou code pays ISO
   d'une destination ; choisi à la création (proposé d'après le nom court), jamais modifié, unique même parmi les archivés :
   il désigne l'élément dans les dossiers et auprès de Keystone (exigences des chantiers, `GET /referentiels`, qui donne
@@ -628,7 +629,8 @@ Une base de production démarre avec des référentiels vides (seul le jeu de d�
 - **Demandes en attente** : une demande de formation ou d'habilitation déposée avant l'archivage ne s'accepte plus
   (`demande.accepter` refusée : à refuser, ou à rétablir l'élément d'abord). La confirmation d'archivage annonce ces
   demandes (`demandesEnAttente`) et, pour une habilitation, les titres demandés pas encore délivrés (`titresADelivrer`),
-  qui sortent de « En attente » ; le tableau de bord marque la demande « archivée ».
+  qui quittent l'écran Habilitations et restent à délivrer après un rétablissement ; le tableau de bord marque la
+  demande « archivée ».
 - **Validité modifiée** (décision de l'entreprise) : les échéances étant calculées à l'affichage, la nouvelle durée (ou les
   nouveaux prérequis et la condition d'aptitude d'une habilitation) vaut aussi pour les titres déjà délivrés. Avant
   l'enregistrement, le dialogue annonce les titres qui deviennent échus (`effetModification`) et demande confirmation ;
@@ -636,7 +638,8 @@ Une base de production démarre avec des référentiels vides (seul le jeu de d�
   export de leurs données), et les verdicts Go / No Go modifiés partent à Keystone (`changeVerdicts`).
 - **Référentiel type** : « Charger le référentiel type » (`referentiel.charger`) reprend, dans un référentiel vide, les
   11 formations, 6 habilitations et 8 destinations de la démonstration (`FORMATIONS`, `HABILITATIONS`, `DESTS` de
-  `server/src/seed.ts`), à vérifier ensuite par le service RH ; les habilitations après les formations, leurs prérequis.
+  `server/src/seed.ts`), à vérifier ensuite par le service RH ; les habilitations après les formations, leurs prérequis
+  (refusé tant que l'une de ces formations manque ou est archivée).
 - **Instantanés** : les référentiels, archivés compris, sont transmis à tous les espaces (aucune donnée personnelle) :
   ils nomment les titres de l'historique, et les listes en écartent les archivés (`actifs`).
 - Vaccins (`VACCINS`) et règles de visa (`VISA_RULES`) restent dans le code (`shared/constants.ts`) pour cette version.

@@ -68,6 +68,21 @@ test('base neuve : référentiels vides, puis référentiel type chargé une seu
   assert.deepEqual(loadFull(db, RH).referentiels.habilitations.find(h => h.id === 'he')!.prereqs, ['elec']);
 });
 
+test('référentiel type des habilitations : jamais chargé en vigueur sur une formation prérequise archivée', () => {
+  const db = new Db(':memory:');
+  const HSE = { role: 'rh', empId: null, nom: 'Référent HSE', intitule: '', profilRh: 'referent_hse' } as User;
+  const run = (name: string, p: Record<string, unknown>) => db.tx(() => String(ACTIONS[name](makeCtx(db, HSE, loadFull(db, HSE)), p)));
+  run('referentiel.charger', { referentiel: 'formations' });
+  // Aucune habilitation ne l'exige encore : la formation AIPR s'archive…
+  run('referentiel.formation.archiver', { id: 'aipr' });
+  // … mais l'habilitation AIPR, chargée en vigueur, l'exigerait sans que personne ne puisse plus l'obtenir.
+  assert.throws(() => run('referentiel.charger', { referentiel: 'habilitations' }),
+    (e: unknown) => e instanceof ActionError && e.message === '1 formation prérequise archivée : AIPR — rétablissez-la d’abord (onglet Formations), puis chargez le référentiel type');
+  assert.equal(loadFull(db, HSE).referentiels.habilitations.length, 0, 'rien de chargé');
+  run('referentiel.formation.archiver', { id: 'aipr', archive: false });
+  assert.match(run('referentiel.charger', { referentiel: 'habilitations' }), /^6 habilitations/);
+});
+
 test('formation : création contrôlée (code, intitulé, validité, coût), modification tracée avant / après', () => {
   const { run, refuse, derniere, domain, HSE } = fresh();
   const nouvelle = { code: 'CACES485', nom: 'CACES R485 — Gerbeurs', court: 'CACES R485', type: 'Réglementaire', validite: '60', duree: '14 h', organisme: 'AFTRAL', cout: '450,50', validation: 'evaluation' };
@@ -216,12 +231,12 @@ test('demandes déposées avant l’archivage : acceptation refusée, annoncées
   assert.equal(R.demandesEnAttente(ds, 'habilitations', 'aipr'), 0, 'demande acceptée : plus en attente');
   // Confirmations : titres demandés qui sortent de « En attente », demandes qui ne pourront plus qu'être refusées.
   const h = C.archivageHabilitation(domain().hm('aipr'), 1, { demandes: 0, aDelivrer: 1 });
-  assert.ok(h.suites!.includes('1 titre demandé attend sa délivrance : il sort de « En attente » et ne se délivre plus.'));
+  assert.ok(h.suites!.includes('1 titre demandé attend sa délivrance : il quitte l’écran Habilitations et ne se délivre plus, sauf à rétablir l’habilitation.'));
   const f = C.archivageFormation(domain().fm('aipr'), 1, 2);
   assert.ok(f.suites!.includes('2 demandes de collaborateurs attendent une réponse (tableau de bord) : elles ne pourront plus qu’être refusées, sauf à rétablir la formation.'));
   assert.ok(!C.archivageFormation(domain().fm('aipr'), 1).suites!.some(x => /attend/.test(x)));
   // Archivage : le message reprend ce qui reste en attente.
-  assert.match(run(HSE, 'referentiel.habilitation.archiver', { id: 'aipr' }), / · 1 titre demandé sort de « En attente » sans être délivré$/);
+  assert.match(run(HSE, 'referentiel.habilitation.archiver', { id: 'aipr' }), / · 1 titre demandé reste à délivrer après rétablissement$/);
   assert.match(run(HSE, 'referentiel.habilitation.archiver', { id: 'ac486' }), / · 1 demande en attente : à refuser, ou à accepter après rétablissement$/);
   assert.match(run(HSE, 'referentiel.formation.archiver', { id: 'aipr' }), / · 1 demande en attente : à refuser, ou à accepter après rétablissement$/);
   // Acceptation refusée : rien ne pourrait aboutir (délivrance, session). Ni titre « en attente », ni action du plan.
@@ -247,6 +262,8 @@ test('journal des référentiels : code normalisé, jamais de texte libre ; vali
   // Refus d'accès (tracé avec les champs retenus) : une saisie qui n'a pas la forme d'un code n'est pas recopiée.
   assert.deepEqual(champsRetenus('referentiel.formation.enregistrer', { code: 'Mehdi Benali, arrêt maladie', nom: 'x' }), { code: null });
   assert.deepEqual(champsRetenus('referentiel.destination.archiver', { id: 'vn', archive: 'texte libre' }), { code: 'VN', retablir: false });
+  assert.deepEqual(champsRetenus('referentiel.charger', { referentiel: 'Mehdi Benali, arrêt maladie' }), { referentiel: null });
+  assert.deepEqual(champsRetenus('referentiel.charger', { referentiel: 'habilitations' }), { referentiel: 'habilitations' });
   // Validité SST de 24 à 12 mois : le message nomme des titulaires, la ligne leur est rattachée (filtre, export de leurs données).
   const effet = R.effetModification(domain().ds, 'formations', { ...domain().fm('sst'), validite: 12 });
   const message = run(RH, 'referentiel.formation.enregistrer', { ...SST, validite: 12 });

@@ -2,7 +2,7 @@
 
 Audit du 10 octobre 2026 (branche `main-n9x7ps`). Chaque point a été relevé dans le code puis contre-vérifié par une seconde lecture qui a écarté ce qui était déjà fait ou inexact. Les preuves renvoient aux fichiers et lignes à cette date.
 
-**179 tâches** (27 faites au 12 octobre 2026 ; suivi à jour : https://claude.ai/artifact/8Dn4CRz3fcHgew8RzbNGEc) : 26 bloquantes pour une mise en production, 98 importantes, 55 souhaitables.
+**179 tâches** (66 faites au 15 octobre 2026 ; suivi à jour : https://claude.ai/artifact/8Dn4CRz3fcHgew8RzbNGEc) : 26 bloquantes pour une mise en production, 98 importantes, 55 souhaitables.
 
 Légende — priorité : 🔴 **Bloquant** (empêche un usage réel : sécurité, données faussées, obligation légale) · 🟠 **Important** (attendu par les utilisateurs) · 🟢 **Souhaitable** (confort). Effort : **S** moins d’une journée · **M** 1 à 3 jours · **L** plus de 3 jours.
 
@@ -73,34 +73,34 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Créer des comptes nominatifs reliés aux salariés** — 🔴 Bloquant · L
   Le RH est une identité unique dont le nom est modifiable dans les paramètres : toutes les actions RH sont signées du même nom et l'auteur du journal est falsifiable. Créer une table de comptes (identifiant SSO → salarié, rôle, actif), permettre plusieurs RH, et une session portant une seule personne sans changement d'espace non authentifié.
   <br><sub>Preuves : server/src/dataset.ts:85 (RH = settings.rhNom) · server/src/actions/parametres.ts:23 (rhNom modifiable) · server/src/index.ts:111 (actor: user.nom) et :60-67 (/api/mode) · server/src/db.ts:17-24 (aucun identifiant de connexion)</sub>
-- [ ] **Ne plus envoyer au manager le numéro de passeport de son équipe** — 🟠 Important · S
+- [x] **Ne plus envoyer au manager le numéro de passeport de son équipe** — 🟠 Important · S
   Les données envoyées au manager contiennent le numéro de passeport complet des membres, alors que l'écran n'affiche que la date d'expiration. Ne transmettre que cette date (les visas restent affichés volontairement) et ajouter le cas au test serveur.
   <br><sub>Preuves : server/src/dataset.ts:116-118 (seuls visite et vaccins masqués) · client/src/pages/Collaborateurs.tsx:314 · tests/server.test.ts:26-37 (aucune assertion passeport) · buildSnapshot manager 12 → employes[2].passeport.numero = '20AB···91'</sub>
-- [ ] **Empêcher un manager de prendre seul un salarié d'une autre équipe** — 🟠 Important · S
+- [x] **Empêcher un manager de prendre seul un salarié d'une autre équipe** — 🟠 Important · S
   Un manager peut affecter à son équipe n'importe quel salarié d'une autre équipe et accéder aussitôt à ses absences, temps et entretiens. Limiter l'ajout direct aux salariés « à affecter », ou passer par une demande de mutation validée par le RH.
   <br><sub>Preuves : server/src/actions/equipes.ts:132-148 (équipe d'origine non contrôlée) · tests/equipes.test.ts:145 (transfert Logistique → Maintenance validé) · server/src/dataset.ts:98-104 (périmètre manager)</sub>
 - [ ] **Chiffrer la base et les données sensibles au repos** — 🟠 Important · M
   Le fichier SQLite est en clair et contient passeports, vaccinations, visites médicales et, sans CURSUS_SECRET, la clé de signature des sessions. Chiffrer les colonnes sensibles ou la base, restreindre les droits du fichier et documenter des sauvegardes chiffrées.
   <br><sub>Preuves : server/src/db.ts:193-194 (base en clair) · server/src/db.ts:22,28 (passeport, visite, vaccinations) · server/src/auth.ts:23-24 (secret stocké en base) · .gitignore:15</sub>
-- [ ] **Ajouter une protection CSRF sur les requêtes POST** — 🟢 Souhaitable · S
+- [x] **Ajouter une protection CSRF sur les requêtes POST** — 🟢 Souhaitable · S
   Seul l'attribut SameSite=Lax protège les actions ; un POST text/plain d'une autre origine est exécuté. Refuser les POST dont l'origine n'est pas Cursus ou dont le type n'est pas JSON.
   <br><sub>Preuves : server/src/auth.ts:61 · server/src/index.ts:99-121 · curl POST text/plain Origin evil.example sur temps.pushSage → handler exécuté</sub>
-- [ ] **Neutraliser l'injection de formules dans les exports CSV** — 🟢 Souhaitable · S
+- [x] **Neutraliser l'injection de formules dans les exports CSV** — 🟢 Souhaitable · S
   Une cellule commençant par =, +, - ou @ s'exécute comme formule dans Excel ; un collaborateur peut en glisser une via le type de visa, exporté ensuite par le RH. Préfixer ces cellules d'une apostrophe.
   <br><sub>Preuves : client/src/print.ts:41 (cell()) · server/src/actions/voyages.ts:36 (visaType libre) · shared/domain.ts:376 · client/src/pages/Echeances.tsx:44</sub>
-- [ ] **Limiter le débit des appels** — 🟢 Souhaitable · S
+- [x] **Limiter le débit des appels** — 🟢 Souhaitable · S
   Aucune limite n'existe sur la connexion, les actions et les routes Keystone. Ajouter un limiteur par IP et par identité (réponse 429) et configurer trust proxy derrière le reverse proxy.
   <br><sub>Preuves : server/src/index.ts:131-133 · package.json (aucune dépendance de limitation)</sub>
 
 ## Données personnelles & traçabilité
 
-- [ ] **Expurger le journal et lui fixer une durée de conservation** — 🟠 Important · M
+- [x] **Expurger le journal et lui fixer une durée de conservation** — 🟠 Important · M
   Le journal copie le contenu complet de chaque requête (numéro de passeport, vaccinations, CSV importés) sans limite de durée, et la réinitialisation de démo l'efface. Journaliser une liste blanche de champs par action, fixer une durée de conservation avec purge et archive, et exclure le journal de la réinitialisation.
   <br><sub>Preuves : server/src/index.ts:111 (payload: req.body) · server/src/actions/voyages.ts:28-30 et :41-47 · server/src/db.ts:48 (aucune purge) · server/src/seed.ts:291 (clearAll, journal compris)</sub>
-- [ ] **Rendre le journal d'audit complet et consultable** — 🟠 Important · M
+- [x] **Rendre le journal d'audit complet et consultable** — 🟠 Important · M
   Seules les 100 dernières lignes s'affichent, sans filtre ni export, avec des codes techniques ; connexions, changements d'espace, appels Keystone entrants et corrections d'heures par le valideur ne sont pas tracés. Tracer ces événements, puis ajouter filtres (dates, auteur, action, salarié), pagination, export CSV, libellés français et historique par fiche.
   <br><sub>Preuves : server/src/index.ts:126 (LIMIT 100) et :60-91, :147-157 (non tracés) · server/src/actions/index.ts:23-24 (temps.setCell et entretien.modifier silencieux) · server/src/actions/temps.ts:24 (correction d'une feuille soumise) · client/src/pages/Parametres.tsx:191, :210</sub>
-- [ ] **Encadrer les données de santé (vaccins, motif de reprise)** — 🟠 Important · M
+- [x] **Encadrer les données de santé (vaccins, motif de reprise)** — 🟠 Important · M
   Cursus stocke vaccins, dates d'injection et un motif de reprise en texte libre, alors que le portail affirme « sans aucune information médicale ». Passer le motif en liste fermée non médicale, ne garder que la conformité requise, corriger la mention et afficher l'information art. 13 avant saisie.
   <br><sub>Preuves : server/src/actions/voyages.ts:41-47 · client/src/dialogs/EmployeDialog.tsx:297-298 · client/src/pages/Portail.tsx:168 · shared/constants.ts:92</sub>
 - [ ] **Anonymiser les salariés sortis et purger les données échues** — 🟠 Important · M
@@ -109,7 +109,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Rédiger la documentation RGPD et une page Confidentialité** — 🟢 Souhaitable · S
   Aucun descriptif du traitement ni mention d'information n'existe. Rédiger docs/RGPD.md (finalités, catégories, destinataires, durées) pour alimenter le registre et l'AIPD de l'employeur, et ajouter une page Confidentialité dans la navigation.
   <br><sub>Preuves : ls docs → ARCHITECTURE.md uniquement · client/src/layout/Shell.tsx:39-49 (aucune page d'information)</sub>
-- [ ] **Permettre l'export complet des données d'un salarié** — 🟢 Souhaitable · M
+- [x] **Permettre l'export complet des données d'un salarié** — 🟢 Souhaitable · M
   Rien ne permet de remettre à un salarié l'ensemble de ses données (droit d'accès et portabilité). Ajouter une route RH d'export JSON/PDF et un bouton « Télécharger mes données » dans le portail.
   <br><sub>Preuves : server/src/index.ts:53-157 (aucune route d'export) · client/src/pages/Collaborateurs.tsx:207 (export partiel)</sub>
 
@@ -148,16 +148,16 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Tracer chaque transmission Sage en lot identifié et rejouable** — 🟠 Important · M
   Une feuille ne garde qu'un booléen et le dernier envoi est écrasé à chaque transmission. Créer une table des lots (période, date, statut, accusé), référencer le lot sur chaque feuille, l'envoyer comme clé d'idempotence et afficher l'historique avec Renvoyer / Annuler.
   <br><sub>Preuves : server/src/db.ts:37 · server/src/actions/temps.ts:108 (lastSagePush écrasé) · server/src/dataset.ts:78</sub>
-- [ ] **Produire et envoyer le relevé d'heures des intérimaires** — 🟠 Important · M
+- [x] **Produire et envoyer le relevé d'heures des intérimaires** — 🟠 Important · M
   L'écran affiche « relevé envoyé à l'agence d'intérim » alors qu'aucun relevé n'est produit. Créer un export hebdomadaire par agence, un indicateur « relevé transmis » et l'envoi à l'adresse de l'agence.
   <br><sub>Preuves : client/src/pages/Temps.tsx:255 et :192 · shared/rules/temps.ts:124-125 (intérimaires seulement exclus) · grep relevé server → aucun résultat</sub>
 - [ ] **Transmettre à la paie les jours de déplacement et le temps de trajet** — 🟠 Important · M
   Déplacements et missions ne produisent aucune variable de paie (grand déplacement, travail à l'étranger, contrepartie du trajet inhabituel, L3121-4). Calculer ces jours par salarié et période et créer les rubriques correspondantes, à paramétrer.
   <br><sub>Preuves : shared/rules/temps.ts:102-116 · shared/types.ts:95, :97 · grep trajet → aucun résultat</sub>
-- [ ] **Créer le module d'envoi d'e-mails et stocker les adresses** — 🟠 Important · M
+- [x] **Créer le module d'envoi d'e-mails et stocker les adresses** — 🟠 Important · M
   Aucune adresse e-mail ni aucun envoi n'existe, alors que l'interface parle de convocations envoyées et de personnes notifiées. Ajouter l'e-mail sur la fiche, les adresses RH, santé au travail et agences, et un module SMTP avec mode simulation tracé.
   <br><sub>Preuves : shared/types.ts:49-86 (aucune adresse) · package.json (aucun client SMTP) · grep smtp\|nodemailer\|courriel → aucun résultat</sub>
-- [ ] **Notifier par e-mail les étapes de validation** — 🟠 Important · M
+- [x] **Notifier par e-mail les étapes de validation** — 🟠 Important · M
   Demande d'absence, feuille soumise ou renvoyée, entretien planifié ou clos, demande refusée : le destinataire ne l'apprend qu'en ouvrant Cursus. Émettre une notification par e-mail pour chaque étape, avec un réglage immédiat ou récapitulatif quotidien.
   <br><sub>Preuves : server/src/actions/absences.ts:24 · server/src/actions/temps.ts:74, :97 · server/src/actions/entretiens.ts:22, :50 · server/src/actions/conformite.ts:121</sub>
 - [ ] **Planifier des relances automatiques des échéances** — 🟠 Important · L
@@ -232,13 +232,13 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Définir les formations et habilitations exigées par poste** — 🔴 Bloquant · L
   Le statut ne regarde que les titres détenus : un cariste sans CACES apparaît « À jour ». Créer un référentiel poste → exigences, calculer les manquants dans le statut, le tableau de bord et les Échéances.
   <br><sub>Preuves : shared/domain.ts:249-262 · shared/types.ts:55 (poste en texte libre) · client/src/pages/Dashboard.tsx:59</sub>
-- [ ] **Afficher l'échéance d'aptitude médicale dans les Échéances et le statut** — 🟠 Important · S
+- [x] **Afficher l'échéance d'aptitude médicale dans les Échéances et le statut** — 🟠 Important · S
   Une aptitude échue n'apparaît nulle part si le salarié n'a pas d'habilitation qui l'exige. Ajouter un type « Visite médicale » aux Échéances (filtre, export, action) et en tenir compte dans le statut.
   <br><sub>Preuves : shared/domain.ts:361-380 · shared/domain.ts:256 · client/src/pages/Echeances.tsx:55</sub>
 - [ ] **Remettre le compte rendu d'entretien sans signature électronique** — 🟠 Important · S
   Le compte rendu ne s'imprime qu'après signature du salarié dans Cursus ; un salarié sans compte ou qui refuse bloque la remise de la copie (L6315-1). Le rendre imprimable dès la clôture et tracer « remis en main propre / refus de signer ».
   <br><sub>Preuves : client/src/dialogs/EntDialog.tsx:107 · server/src/actions/entretiens.ts:53-58</sub>
-- [ ] **Go / No Go : refuser une ressource dont le contrat finit avant le chantier** — 🟠 Important · S
+- [x] **Go / No Go : refuser une ressource dont le contrat finit avant le chantier** — 🟠 Important · S
   Le verdict ignore la fin d'un CDD, d'une mission d'intérim ou d'une alternance, que seul Cursus connaît. Ajouter un motif CONTRAT (et facultativement ABSENCE pour les congés validés).
   <br><sub>Preuves : shared/domain.ts:383-411 · server/src/actions/absences.ts:21, :34</sub>
 - [ ] **Moduler la périodicité des visites selon le type de suivi (VIP, SIR)** — 🟠 Important · M
@@ -250,7 +250,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Identifier les postes à risques et exiger la formation renforcée des CDD et intérimaires** — 🟠 Important · M
   Ni postes ni chantiers ne portent de notion de risque particulier. Ajouter l'indicateur, la formation renforcée obligatoire pour CDD, intérimaires et alternants concernés, et un motif No Go.
   <br><sub>Preuves : shared/types.ts:32 · shared/domain.ts:383-411 · server/src/seed.ts:56 (chantier ATEX)</sub>
-- [ ] **Enregistrer l'avis du médecin du travail (apte, restrictions, inapte)** — 🟠 Important · M
+- [x] **Enregistrer l'avis du médecin du travail (apte, restrictions, inapte)** — 🟠 Important · M
   Seule la date de visite est gardée : impossible de saisir une inaptitude ou une restriction (charges, hauteur, conduite). Ajouter type d'avis et restrictions datées, suspendre les habilitations incompatibles et ne montrer au manager que le verdict.
   <br><sub>Preuves : shared/types.ts:76 · shared/domain.ts:196-203 · client/src/dialogs/EmployeDialog.tsx:293-294</sub>
 - [ ] **Suivre la période d'essai et alerter avant les fins de contrat** — 🟠 Important · M
@@ -259,7 +259,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Suivre les titres de séjour valant autorisation de travail** — 🟠 Important · M
   L'employeur ne peut pas employer un étranger dont l'autorisation a expiré (L5221-8), mais Cursus ne suit ni nationalité ni titre de séjour. Ajouter ce document avec échéance et alerte anticipée.
   <br><sub>Preuves : grep séjour\|nationalit → libellés de visa seulement · shared/types.ts:50-84</sub>
-- [ ] **Exiger le certificat de détachement (A1) pour les missions à l'étranger** — 🟠 Important · M
+- [x] **Exiger le certificat de détachement (A1) pour les missions à l'étranger** — 🟠 Important · M
   Une destination ne décrit que visa, vaccins et passeport : aucune formalité de sécurité sociale ou de détachement n'est contrôlée, ni l'information écrite au-delà de 4 semaines. Ajouter ces formalités à la destination, à la préparation et au Go / No Go.
   <br><sub>Preuves : shared/types.ts:29 · shared/domain.ts:280-327 · server/src/seed.ts:34-43</sub>
 - [ ] **Exporter les formations santé-sécurité vers le Passeport de prévention** — 🟠 Important · M
@@ -292,22 +292,22 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Historiser les régimes de temps et contrats avec leur date d'effet** — 🔴 Bloquant · L
   Une feuille créée après un changement de régime pour une semaine antérieure prend le nouveau régime (heures sup faussées), un changement en cours d'année fait perdre les RTT acquis, et une réembauche n'est pas représentable. Créer un historique daté des contrats et avenants utilisé par les feuilles, RTT et CP.
   <br><sub>Preuves : server/src/actions/equipes.ts:73-74 · server/src/actions/temps.ts:73 · shared/rules/conges.ts:68-70, :77-79 · script : 39 h→35 h → {HN:35, HS25:4} sur semaine antérieure</sub>
-- [ ] **Afficher au manager le statut de dossier voyage calculé par le serveur** — 🟠 Important · S
+- [x] **Afficher au manager le statut de dossier voyage calculé par le serveur** — 🟠 Important · S
   Le manager voit « À compléter » là où le RH voit « Prêt », car le statut est recalculé sans les vaccins masqués. Utiliser d.tripStatus() comme dans Missions.
   <br><sub>Preuves : client/src/pages/Collaborateurs.tsx:155, :317 · server/src/dataset.ts:116-123 · client/src/pages/Missions.tsx:30</sub>
-- [ ] **Utiliser l'année ISO pour les semaines à cheval sur deux ans** — 🟠 Important · S
+- [x] **Utiliser l'année ISO pour les semaines à cheval sur deux ans** — 🟠 Important · S
   La semaine du 29/12/2025 part à Sage en « 2025-S01 » au lieu de 2026-S01 et le cumul du forfait annuel est mal rattaché. Calculer l'année du jeudi et ventiler le cumul jour par jour, avec test aux bornes.
   <br><sub>Preuves : shared/rules/temps.ts:137, :82 · shared/dates.ts:39-44</sub>
-- [ ] **Bloquer une journée de plus de 24 h** — 🟠 Important · S
+- [x] **Bloquer une journée de plus de 24 h** — 🟠 Important · S
   Deux lignes à 20 h le même jour sont acceptées puis payées. Refuser plus de 24 h par jour toutes lignes cumulées et demander un motif au-delà de 10 h ou 48 h.
   <br><sub>Preuves : server/src/actions/temps.ts:39, :67-75 · shared/rules/temps.ts:37-46</sub>
-- [ ] **Proratiser RTT et jours de repos jusqu'à la fin de contrat** — 🟠 Important · S
+- [x] **Proratiser RTT et jours de repos jusqu'à la fin de contrat** — 🟠 Important · S
   Un CDD de janvier à mars reçoit 23 RTT au lieu d'environ 6. Borner le calcul sur l'entrée et la date de fin.
   <br><sub>Preuves : shared/rules/conges.ts:64-71 · shared/rules/conges.ts:12-19</sub>
-- [ ] **Rejeter les dates impossibles** — 🟠 Important · S
+- [x] **Rejeter les dates impossibles** — 🟠 Important · S
   « 2026-02-31 » ou « 2026-13-45 » sont acceptées puis décalées au mois suivant, notamment via l'import CSV et l'API Keystone. Vérifier que la date relue est identique.
   <br><sub>Preuves : shared/dates.ts:11-13, :46-51 · server/src/index.ts:152</sub>
-- [ ] **Interdire la clôture d'un entretien avant sa date** — 🟠 Important · S
+- [x] **Interdire la clôture d'un entretien avant sa date** — 🟠 Important · S
   Un entretien futur peut être clos et signé, ce qui fausse l'échéance suivante et l'état des lieux à 8 ans. Exiger une date passée ou mettre la date à jour à la clôture.
   <br><sub>Preuves : server/src/actions/entretiens.ts:46-50 · shared/rules/entretiens.ts:23, :29, :38</sub>
 - [x] **Contrôler action du plan, date et places à la création de session** — 🟠 Important · S
@@ -316,22 +316,22 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Refuser absences et feuilles hors de la période de contrat** — 🟠 Important · S
   Un CP après la fin d'un CDD ou une feuille de 2020 pour un intérimaire entré en 2026 sont acceptés. Borner sur entrée et fin de contrat.
   <br><sub>Preuves : shared/rules/conges.ts:122-144 · server/src/actions/temps.ts:18-27</sub>
-- [ ] **Calculer « aujourd'hui » dans le fuseau Europe/Paris** — 🟠 Important · S
+- [x] **Calculer « aujourd'hui » dans le fuseau Europe/Paris** — 🟠 Important · S
   Sur un serveur en UTC, « aujourd'hui » reste la veille entre minuit et 2 h : échéances, Go / No Go et bascules sont décalés ; l'envoi Sage porte une heure fixe fausse en hiver. Calculer la date en Europe/Paris et horodater réellement.
   <br><sub>Preuves : server/src/dataset.ts:20-23 · shared/dates.ts:8-10 · shared/rules/temps.ts:134</sub>
-- [ ] **Go / No Go : n'accepter qu'un déplacement couvrant les dates du chantier** — 🟠 Important · S
+- [x] **Go / No Go : n'accepter qu'un déplacement couvrant les dates du chantier** — 🟠 Important · S
   N'importe quel voyage vers le même pays, même des mois plus tard, valide le chantier. Exiger départ avant le début et retour après la fin, sinon motif « couverture partielle ».
   <br><sub>Preuves : shared/domain.ts:401 · shared/domain.ts:330-336 · script : voyage Maroc en mars → Go pour Tanger en novembre</sub>
 - [x] **Dater les tâches Keystone pour ne proposer que les heures de la semaine** — 🟠 Important · S
   « Proposer depuis Keystone » recopie les mêmes heures chaque semaine, même avant le début du chantier. Ajouter des dates aux tâches et filtrer sur la semaine affichée.
   <br><sub>Preuves : shared/types.ts:98 · shared/rules/temps.ts:94-100 · server/src/seed.ts:54, :166</sub>
-- [ ] **Imputer chaque jour de CP sur sa période de référence** — 🟠 Important · M
+- [x] **Imputer chaque jour de CP sur sa période de référence** — 🟠 Important · M
   Des CP de juillet 2027 sont déduits de la période en cours, des jours de juin d'une absence commencée en mai ne sont jamais décomptés, et les CP pris par anticipation sont effacés au 1er juin. Ventiler jour par jour et contrôler contre le solde de la bonne période.
   <br><sub>Preuves : shared/rules/conges.ts:40-42 · shared/rules/conges.ts:127-131 · script : solde -19 au 20/05/2027 puis +10 au 15/06/2027</sub>
 - [ ] **Permettre de poser des RTT de l'année suivante avant le 1er janvier** — 🟠 Important · M
   Un RTT du 5 janvier demandé en octobre est refusé. Évaluer la demande sur le droit de l'année de la date et ne bloquer que les demandes à cheval.
   <br><sub>Preuves : shared/rules/conges.ts:132, :139 · shared/rules/conges.ts:64-82</sub>
-- [ ] **Contrôler doublons et conflits de dates (formation, absence, déplacement, entretien)** — 🟠 Important · M
+- [x] **Contrôler doublons et conflits de dates (formation, absence, déplacement, entretien)** — 🟠 Important · M
   On peut créer deux demandes de formation identiques, deux entretiens planifiés, deux déplacements qui se chevauchent, ou inscrire un salarié en formation pendant ses congés. Ajouter un contrôle commun (avertissement ou blocage) affiché dans les dialogues.
   <br><sub>Preuves : server/src/actions/conformite.ts:7-24, :136-151 · server/src/actions/entretiens.ts:15-23 · server/src/actions/voyages.ts:10-20 · shared/rules/conges.ts:128-129</sub>
 - [ ] **Afficher l'horodatage réel dans « Réponse transmise à Keystone »** — 🟢 Souhaitable · S
@@ -355,22 +355,22 @@ Les tâches 🔴, toutes thématiques confondues :
 
 ## Bugs de l'interface
 
-- [ ] **Bloquer clôture et signature d'un entretien si une section n'est pas enregistrée** — 🟠 Important · S
+- [x] **Bloquer clôture et signature d'un entretien si une section n'est pas enregistrée** — 🟠 Important · S
   Une section dont l'envoi a échoué est marquée enregistrée, puis l'entretien est clos sans elle et n'est plus modifiable. Ne marquer qu'après succès et interrompre la clôture en cas d'échec.
   <br><sub>Preuves : client/src/dialogs/EntDialog.tsx:43-47, :76-82 · server/src/actions/entretiens.ts:49</sub>
-- [ ] **Bloquer les doubles clics et rendre les transitions idempotentes** — 🟠 Important · S
+- [x] **Bloquer les doubles clics et rendre les transitions idempotentes** — 🟠 Important · S
   Un double clic sur « Engager » passe la ligne du plan directement en « Réalisé » ; ailleurs le second appel affiche une erreur qui masque le succès, et la croix de ligne supprime deux lignes. Désactiver les boutons pendant l'appel et envoyer le statut attendu au serveur.
   <br><sub>Preuves : client/src/pages/Budget.tsx:34-37, :139-140 · server/src/actions/budget.ts:37-43 · client/src/pages/Absences.tsx:143-144 · client/src/pages/Temps.tsx:310 et server/src/actions/temps.ts:54-57</sub>
-- [ ] **Empêcher la fermeture involontaire des dialogues** — 🟠 Important · S
+- [x] **Empêcher la fermeture involontaire des dialogues** — 🟠 Important · S
   Une sélection de texte relâchée sur le fond ferme le dialogue et perd la saisie (fiche de 30 champs, CSV collé). Ne fermer que si clic complet sur le fond et demander confirmation si le formulaire est modifié.
   <br><sub>Preuves : client/src/components/Dialog.tsx:10, :15, :18 · client/src/dialogs/EmployeDialog.tsx:121</sub>
-- [ ] **Gérer les échecs de chargement et les erreurs de rendu** — 🟠 Important · S
+- [x] **Gérer les échecs de chargement et les erreurs de rendu** — 🟠 Important · S
   Si le serveur ne répond pas, l'écran reste sur « Chargement… » ou propose à tort l'authentification unique, et une erreur de rendu laisse un écran blanc. Ajouter un écran d'erreur avec « Réessayer » et une ErrorBoundary par page et autour des dialogues.
   <br><sub>Preuves : client/src/App.tsx:31-33 · client/src/state/store.tsx:123-129, :138 · client/src/pages/Login.tsx:22 · grep ErrorBoundary client/src → aucun résultat</sub>
-- [ ] **Corriger les notifications d'erreur** — 🟠 Important · S
+- [x] **Corriger les notifications d'erreur** — 🟠 Important · S
   Une erreur s'affiche avec une coche verte, n'est pas annoncée aux lecteurs d'écran, disparaît en 4,5 s et montre « Failed to fetch ». Ajouter une région live permanente, role=alert, icône d'avertissement, fermeture manuelle et messages réseau en français.
   <br><sub>Preuves : client/src/layout/Shell.tsx:130-138 · client/src/state/store.tsx:120 · client/src/api.ts:16, :22-23, :38-39</sub>
-- [ ] **Rafraîchir les données au retour sur l'onglet et périodiquement** — 🟠 Important · S
+- [x] **Rafraîchir les données au retour sur l'onglet et périodiquement** — 🟠 Important · S
   Un manager qui garde l'écran ouvert ne voit pas les nouvelles demandes de son équipe. Recharger au retour sur l'onglet, toutes les quelques minutes et après une action refusée.
   <br><sub>Preuves : client/src/state/store.tsx:163-168, :209 · grep visibilitychange\|setInterval client/src → aucun résultat</sub>
 - [x] **Gérer l'expiration de session sans perdre la saisie** — 🟠 Important · M
@@ -412,10 +412,10 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Gérer le cycle de vie des sessions : confirmer, modifier, annuler, voir les inscrits** — 🟠 Important · M
   Une session reste « À confirmer » pour toujours, ne peut être ni modifiée ni annulée, et le RH ne voit qu'un compteur d'inscrits. Ajouter confirmer (avec envoi de la liste à l'organisme), modifier, annuler (libère inscriptions et certifications) et le détail nominatif des inscrits.
   <br><sub>Preuves : server/src/actions/conformite.ts:44, :170 (seul session.creer) · shared/types.ts:89 · client/src/pages/Formations.tsx:172-184 · shared/types.ts:27 (organisme sans contact)</sub>
-- [ ] **Ajouter « Envoyer la convocation » et « Désinscrire »** — 🟠 Important · M
+- [x] **Ajouter « Envoyer la convocation » et « Désinscrire »** — 🟠 Important · M
   Après « Envoyer plus tard », la convocation reste « à envoyer » pour toujours, et on ne peut pas désinscrire quelqu'un. Ajouter l'envoi (unitaire et groupé, daté, par e-mail avec .ics) et la désinscription qui libère la place.
   <br><sub>Preuves : client/src/dialogs/PlanDialog.tsx:70 · client/src/pages/Collaborateurs.tsx:243, :275 · server/src/actions/conformite.ts:15, :21, :90, :93 · README.md:85</sub>
-- [ ] **Suivre les demandes de visite médicale** — 🟠 Important · M
+- [x] **Suivre les demandes de visite médicale** — 🟠 Important · M
   « Demander une visite médicale » ne fait qu'afficher un message : rien n'est enregistré ni envoyé et le bouton reste proposé. Stocker la demande, l'envoyer au service de santé au travail, afficher « Visite demandée le … » et la clore à la saisie de la visite.
   <br><sub>Preuves : server/src/actions/conformite.ts:66-70 · shared/domain.ts:245 · client/src/state/store.tsx:178</sub>
 - [ ] **Imprimer le titre d'habilitation et le passeport formation du collaborateur** — 🟠 Important · M
@@ -490,19 +490,19 @@ Les tâches 🔴, toutes thématiques confondues :
 
 ## Ergonomie & accessibilité
 
-- [ ] **Gérer le focus dans les dialogues** — 🟠 Important · S
+- [x] **Gérer le focus dans les dialogues** — 🟠 Important · S
   À l'ouverture le focus ne va pas dans le dialogue et Tab parcourt la page derrière. Ajouter focus initial, piège Tab, retour au bouton d'origine et aria-labelledby.
   <br><sub>Preuves : client/src/components/Dialog.tsx:9-25, :17</sub>
-- [ ] **Rendre les dialogues défilables sur petit écran** — 🟠 Important · S
+- [x] **Rendre les dialogues défilables sur petit écran** — 🟠 Important · S
   Un dialogue plus haut que l'écran est coupé et ses boutons deviennent inaccessibles. Rendre le fond défilable et passer les formulaires en une colonne sous 600 px.
   <br><sub>Preuves : client/src/styles/nocturne.css:277-281 · client/src/styles/app.css:157-161</sub>
-- [ ] **Afficher le panneau de détail dans le champ de vision sur petit écran** — 🟠 Important · S
+- [x] **Afficher le panneau de détail dans le champ de vision sur petit écran** — 🟠 Important · S
   Sur téléphone, toucher une ligne ouvre la fiche sous toute la liste, sans effet visible. Faire défiler et placer le focus sur le panneau, ou l'afficher en plein écran.
   <br><sub>Preuves : client/src/styles/app.css:188 · client/src/pages/Collaborateurs.tsx:127</sub>
 - [ ] **Ajouter des exports CSV aux listes RH** — 🟠 Important · S
   Seule la page Échéances s'exporte ; en cas d'audit, le RH ne peut extraire ni le registre des habilitations, ni l'annuaire, ni les soldes, ni le plan. Ajouter « Exporter (CSV) » respectant les filtres.
   <br><sub>Preuves : grep downloadCsv → Echeances.tsx:44 seulement · client/src/print.ts:39-48</sub>
-- [ ] **Demander confirmation et motif avant les refus et actions irréversibles** — 🟠 Important · M
+- [x] **Demander confirmation et motif avant les refus et actions irréversibles** — 🟠 Important · M
   Refus d'absence ou de demande, refus Keystone, suppression de ligne, clôture d'entretien, transmission à Sage partent en un clic, et le salarié ne voit jamais le motif du refus. Créer un dialogue de confirmation avec motif (remplaçant les window.confirm) et stocker le motif.
   <br><sub>Preuves : client/src/pages/Dashboard.tsx:110 (refus sans motif) · server/src/actions/conformite.ts:120 · client/src/pages/Absences.tsx:143 · client/src/pages/Equipes.tsx:209-210, :252</sub>
 - [ ] **Rendre accessibles au clavier les lignes et cartes cliquables** — 🟠 Important · M
@@ -511,7 +511,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Adapter la saisie des heures au téléphone et étiqueter chaque cellule** — 🟠 Important · M
   La grille demande environ 620 px et toutes les cellules s'appellent « Heures » pour un lecteur d'écran. Étiqueter projet et jour, et proposer une vue par jour sur mobile.
   <br><sub>Preuves : client/src/pages/Temps.tsx:37-39, :299, :284-321</sub>
-- [ ] **Rendre explicite la validation des formulaires** — 🟠 Important · M
+- [x] **Rendre explicite la validation des formulaires** — 🟠 Important · M
   Dix-huit dialogues grisent le bouton sans dire pourquoi et Entrée ne valide pas. Marquer les champs obligatoires, afficher l'erreur sous chaque champ et utiliser de vrais formulaires.
   <br><sub>Preuves : client/src/dialogs/SessionDialog.tsx:19, :34 · client/src/dialogs/EmployeDialog.tsx:145-148 · grep aria-invalid → aucun résultat</sub>
 - [ ] **Ajouter tri par colonne et pagination aux grandes listes** — 🟠 Important · M

@@ -10,7 +10,7 @@
 // manager qui garde l'écran ouvert voit arriver les demandes de son équipe. Une lecture partie avant une
 // action n'écrase jamais les données renvoyées par celle-ci.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { vuesDe, type ALLOWED_VIEWS, type HabMesureAction } from '../../../shared/constants.ts';
+import { VUES_COMMUNES, vuesDe, type ALLOWED_VIEWS, type HabMesureAction } from '../../../shared/constants.ts';
 import { mondayOf } from '../../../shared/dates.ts';
 import type { FormaliteKind, UiIntent } from '../../../shared/domain.ts';
 import type { ReferentielId } from '../../../shared/rules/referentiels.ts';
@@ -20,7 +20,7 @@ import { AppelsEnCours, cleAction } from './actions.ts';
 import type { Confirmation } from './confirmations.ts';
 import { effacerBrouillon, lireBrouillon, sauverBrouillon, type Champs } from './brouillon.ts';
 
-export type View = (typeof ALLOWED_VIEWS)[Role][number];
+export type View = (typeof ALLOWED_VIEWS)[Role][number] | (typeof VUES_COMMUNES)[number];
 
 export interface UiState {
   horizon: number | null;
@@ -42,12 +42,15 @@ export interface UiState {
   tsEmp: number | null;
   /** Onglet de l'écran Référentiels. */
   refOnglet: ReferentielId;
+  /** Saisie des heures jour par jour (téléphone, tablette) : jour affiché, du lundi (0) au vendredi (4) ; null : le jour courant. */
+  tsJour: number | null;
 }
 
 const INITIAL_UI: UiState = {
   horizon: null, search: '', equipe: 'Toutes', statut: 'tous', selectedId: null, typeForm: 'toutes', formationFilter: null,
   habFilter: 'tous', habType: null, tripSel: null, echType: 'tous', goSel: null, exercice: null, planFilter: 'tous', weekStart: null, tsEmp: null,
   refOnglet: 'formations',
+  tsJour: null,
 };
 
 /** Dialogues ouverts depuis plusieurs écrans — rendus par <DialogHost />. */
@@ -198,8 +201,12 @@ async function avecDonnees(s: SessionState): Promise<[SessionState, Dataset | nu
   }
 }
 
-/** Vue affichable dans l'espace (selon le profil pour l'espace RH), sinon la vue de repli, sinon la page d'accueil. */
+/**
+ * Vue affichable dans l'espace (selon le profil pour l'espace RH), sinon la vue de repli, sinon la page d'accueil. Les vues
+ * communes (Confidentialité) s'ouvrent dans tous les espaces, et sans connexion.
+ */
 export function allowedView(role: Role, v: string, fallback?: string, profilRh?: ProfilRh): View {
+  if ((VUES_COMMUNES as readonly string[]).includes(v)) return v as View;
   const list = vuesDe(role, profilRh);
   if (list.includes(v)) return v as View;
   if (fallback && list.includes(fallback)) return fallback as View;

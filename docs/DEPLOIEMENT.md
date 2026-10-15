@@ -39,6 +39,9 @@ facultatif est fourni pour un hébergeur qui imposerait des conteneurs (« Varia
   (art. 13 du RGPD : `INFO_VACCINATIONS` de `shared/constants.ts`), qu'il complète au besoin de ses coordonnées,
   et y fixe la durée de conservation (rubrique « Conservation », « à préciser avant la mise en service ») : Cursus
   n'efface encore rien, même au départ du salarié, et garde les déclarations antérieures et le journal des actions.
+  Il complète `docs/RGPD.md` (registre des traitements, analyse d'impact) et valide la page Confidentialité, que
+  chaque salarié ouvre depuis l'écran de connexion ; l'administrateur RH y renseigne le responsable du traitement et
+  le contact du DPO (Paramètres → Confidentialité), sans quoi elle renvoie au service RH.
 - **Disque chiffré** (prérequis) : la base et ses sauvegardes sont sur un volume chiffré au repos (voir « Protection
   des données sur le disque »).
 - **Nom de domaine** : un sous-domaine dédié (dans ce guide `cursus.example.fr`) dont les
@@ -490,6 +493,13 @@ HTTPS, sans alerte de certificat.
 
 - Ordinateurs Windows attribués : Edge ou Chrome à jour. Téléphones fournis : Safari ou Chrome à
   jour, verrouillage de l'écran imposé par la gestion de flotte.
+- Sur téléphone et tablette, le menu se replie derrière le bouton « Menu » (sous 900 px de large) et les heures se
+  saisissent jour par jour (sous 600 px ou sur écran tactile) ; aucun réglage. La recette vérifie la saisie d'une
+  semaine d'heures et la signature d'un compte rendu depuis un téléphone de l'entreprise.
+- Mise en service : la feuille de la semaine passée n'est réclamée à un salarié (pastille de « Mes heures », encart
+  « À faire ») qu'à partir de sa première feuille dans Cursus. La semaine du 28 décembre 2026 au 1er janvier 2027,
+  qui relève encore de Lucca, n'est donc demandée à personne le 4 janvier ; la première feuille attendue est celle
+  de la semaine du 4 janvier, une fois saisie.
 - Une session dure 12 heures au plus depuis la connexion, sans prolongation : chacun se reconnecte
   au moins une fois par journée de travail. À l'expiration, la reconnexion s'affiche par-dessus l'écran
   sans perdre la saisie en cours. « Se déconnecter » invalide la session aussitôt ; pour un compte

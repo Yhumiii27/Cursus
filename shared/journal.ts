@@ -129,6 +129,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'compte.admin': 'Administrateur RH désigné (ligne de commande)',
   'envoi.relancer': 'Envoi relancé',
   'envoi.classer': 'Échec d’envoi classé',
+  'confidentialite.regler': 'Coordonnées de la page Confidentialité modifiées',
   'export': 'Export ou impression',
   'journal.export': 'Export du journal',
   'journal.archive': 'Consultation de l’archive paie',
@@ -191,7 +192,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'migration.heuresSup'] },
   { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.', 'conges.', 'migration.soldes'] },
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
-  { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.'] },
+  { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.', 'confidentialite.'] },
   { id: 'connexions', label: 'Connexions et accès', prefixes: ACTIONS_CONNEXION },
   {
     id: 'integrations', label: 'Intégrations (Keystone, e-mails)',

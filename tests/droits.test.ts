@@ -276,6 +276,8 @@ const MATRICE: Ligne[] = [
     db.insert('notifications', { empId: 12, adresse: 'karim.haddad@entreprise.example', type: 'temps.soumise', objet: 'Feuille à valider', texte: '—', creation: '2026-10-07T06:00:00.000Z', envoiId: null });
     return {};
   } },
+  // Page Confidentialité : coordonnées du responsable et du DPO (administrateur RH).
+  { action: 'confidentialite.regler', droits: '              O    -    -    -    -    -    -    -    -', p: () => ({ responsable: 'Entreprise, 1 rue du Site, Feyzin', dpo: 'dpo@entreprise.example' }) },
   { action: 'notification.regler', droits: '                 O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, mode: 'quotidien' }) },
   // Envois sortants (Paramètres → Envois) : le service RH suit, relance (intégration configurée) ou classe un échec.
   { action: 'envoi.relancer', droits: '                      O    O    -    -    -    -    -    -    -', p: () => ({ id: envoiEnEchec() }), env: { KEYSTONE_URL: 'http://keystone.essai', KEYSTONE_TOKEN: 'jeton' } },

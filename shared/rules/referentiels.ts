@@ -45,8 +45,9 @@ export function demandesEnAttente(ds: Pick<Dataset, 'demandesCollab'>, ref: 'for
 }
 
 /**
- * Titres d'une habilitation demandés et pas encore délivrés : première délivrance, renouvellement d'un titre expiré ou
- * nouvelle délivrance après un retrait (« En attente » de l'écran Habilitations). Archivée, elle ne se délivre plus.
+ * Titres d'une habilitation demandés et pas encore délivrés : première délivrance ou renouvellement d'un titre expiré
+ * (« En attente » de l'écran Habilitations), nouvelle délivrance après un retrait (« Redemandée »). Archivée, elle ne se
+ * délivre plus et ses titres quittent l'écran Habilitations : ils restent à délivrer après son rétablissement.
  */
 export function titresADelivrer(ds: Pick<Dataset, 'employes'>, h: string): number {
   return ds.employes.filter(e => e.habs.some(t => t.h === h && (!t.delivree || !!t.demande))).length;

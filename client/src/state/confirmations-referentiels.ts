@@ -36,7 +36,7 @@ export function archivageFormation(f: Pick<Formation, 'id' | 'court'>, titulaire
 
 /**
  * Archivage d'une habilitation ; `titres` : titres délivrés à des salariés ; `attente` : demandes des collaborateurs en
- * attente de réponse, et titres demandés pas encore délivrés (« En attente » de l'écran Habilitations).
+ * attente de réponse, et titres demandés pas encore délivrés (« En attente » ou « Redemandée » de l'écran Habilitations).
  */
 export function archivageHabilitation(h: Pick<HabType, 'id' | 'nom'>, titres: number, attente: { demandes: number; aDelivrer: number } = { demandes: 0, aDelivrer: 0 }): Confirmation {
   const { demandes, aDelivrer } = attente;
@@ -50,8 +50,8 @@ export function archivageHabilitation(h: Pick<HabType, 'id' | 'nom'>, titres: nu
         : 'Aucun titre n’a été délivré.',
       ...(aDelivrer
         ? [aDelivrer > 1
-          ? `${aDelivrer} titres demandés attendent leur délivrance : ils sortent de « En attente » et ne se délivrent plus.`
-          : '1 titre demandé attend sa délivrance : il sort de « En attente » et ne se délivre plus.']
+          ? `${aDelivrer} titres demandés attendent leur délivrance : ils quittent l’écran Habilitations et ne se délivrent plus, sauf à rétablir l’habilitation.`
+          : '1 titre demandé attend sa délivrance : il quitte l’écran Habilitations et ne se délivre plus, sauf à rétablir l’habilitation.']
         : []),
       ...demandesTexte(demandes, 'l’habilitation'),
       'Elle reste reconnue dans les échanges avec Keystone, et se rétablit à tout moment.',

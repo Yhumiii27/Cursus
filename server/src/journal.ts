@@ -88,7 +88,9 @@ function referentiel(table: ReferentielId, colonnes: readonly string[], archiver
 }
 /** Salariés dont un titre change de statut avec la règle modifiée (résultat de l'action). */
 const salariesTouches = (x: Contexte) => (x.result as { salaries?: unknown[] } | null | undefined)?.salaries ?? [];
-const nombreReferentiel = (db: Db, p: P) => (['formations', 'habilitations', 'destinations'].includes(p.referentiel) ? db.count(p.referentiel) : 0);
+/** Référentiel désigné (`referentiel.charger`), seulement s'il en est un : jamais la valeur reçue telle quelle. */
+const referentielRecu = (p: P): ReferentielId | null => (['formations', 'habilitations', 'destinations'].includes(p.referentiel) ? p.referentiel : null);
+const nombreReferentiel = (db: Db, p: P) => { const r = referentielRecu(p); return r ? db.count(r) : 0; };
 const FICHE = ['nom', 'poste', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis', 'entree', 'fin', 'agence'];
 const FEUILLE: Cible = {
   table: 'feuilles', colonnes: ['statut'],
@@ -173,7 +175,7 @@ export const REGLES: Record<string, Regle> = {
   'referentiel.destination.archiver': referentiel('destinations', ['archive'], true),
   // Référentiel type : nombre d'éléments ajoutés.
   'referentiel.charger': {
-    champs: ['referentiel'], etat: (db, p) => nombreReferentiel(db, p), bilan: (p, x) => ({ ajoutes: nombreReferentiel(x.db, p) - Number(x.etat) }),
+    extra: p => ({ referentiel: referentielRecu(p) }), etat: (db, p) => nombreReferentiel(db, p), bilan: (p, x) => ({ ajoutes: nombreReferentiel(x.db, p) - Number(x.etat) }),
   },
   // Demandes des collaborateurs : ni motif, ni réponse, ni contenu d'une déclaration.
   'demande.formation': { champs: ['empId', 'f', 'sessionId'], salaries: (p, x) => [p.empId ?? x.user.empId] },

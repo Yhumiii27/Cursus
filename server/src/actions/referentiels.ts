@@ -128,10 +128,10 @@ const archiverHabilitation: ActionHandler = (ctx, p) => {
   if (!actif(h)) return `Habilitation « ${h.nom} » déjà archivée`;
   ctx.db.update<HabType>('habilitations', h.id, { archive: ctx.d.ti });
   const titres = ctx.ds.employes.filter(e => e.habs.some(t => t.h === h.id && t.delivree)).length;
-  // Titres demandés pas encore délivrés : ils sortent de « En attente » et ne se délivrent plus.
+  // Titres demandés pas encore délivrés : ils quittent l'écran Habilitations et ne se délivrent plus d'ici le rétablissement.
   const aDelivrer = titresADelivrer(ctx.ds, h.id);
   return `Habilitation « ${h.nom} » archivée — plus proposée ni suivie${titres ? ` ; ${plural(titres, 'titre reste', 'titres restent')} au dossier` : ''}`
-    + (aDelivrer ? ` · ${plural(aDelivrer, 'titre demandé sort', 'titres demandés sortent')} de « En attente » sans être délivré${aDelivrer > 1 ? 's' : ''}` : '')
+    + (aDelivrer ? ` · ${plural(aDelivrer, 'titre demandé reste', 'titres demandés restent')} à délivrer après rétablissement` : '')
     + attenteTexte(demandesEnAttente(ctx.ds, 'habilitations', h.id));
 };
 
@@ -190,8 +190,15 @@ const charger: ActionHandler = (ctx, p) => {
     throw new ActionError(`Référentiel des ${t.nature[1]} déjà rempli : le référentiel type ne se charge que dans un référentiel vide`);
   }
   if (ref === 'habilitations') {
-    const manquantes = [...new Set(HABILITATIONS.flatMap(h => h.prereqs))].filter(f => !ctx.ds.referentiels.formations.some(x => x.id === f));
+    const prereqs = [...new Set(HABILITATIONS.flatMap(h => h.prereqs))];
+    const manquantes = prereqs.filter(f => !ctx.ds.referentiels.formations.some(x => x.id === f));
     if (manquantes.length) throw new ActionError(`Formations prérequises absentes du catalogue (${manquantes.join(', ')}) : chargez d’abord le catalogue type des formations`);
+    // Habilitations chargées en vigueur : aucune ne doit exiger une formation archivée, que nul ne pourrait plus obtenir.
+    const archivees = prerequisArchives({ prereqs }, ctx.ds.referentiels.formations);
+    if (archivees.length) {
+      const la = archivees.length > 1 ? 'les' : 'la';
+      throw new ActionError(`${plural(archivees.length, 'formation prérequise archivée', 'formations prérequises archivées')} : ${archivees.map(f => f.court).join(', ')} — rétablissez-${la} d’abord (onglet Formations), puis chargez le référentiel type`);
+    }
   }
   t.lignes.forEach(x => ctx.db.insert(ref, { ...x, archive: null }));
   return `${plural(t.lignes.length, t.nature[0], t.nature[1])} du référentiel type ${t.lignes.length > 1 ? 'ajoutées' : 'ajoutée'} : à vérifier et compléter (validités, coûts, organismes, signataires)`;

@@ -187,7 +187,8 @@ const pushSage: ActionHandler = (ctx) => {
   const sheets = sagePending(ctx.d);
   if (!sheets.length) throw new ActionError('Aucune feuille validée en attente de transmission');
   const sans = sansMatriculePaie(ctx.ds.employes, ctx.d.ti, sheets.map(sh => sh.empId)).map(e => e.nom);
-  if (sans.length && SAGE_MODE === 'api') {
+  // Toute transmission qui n'est pas une simulation (API, fichier d'import…) est contrôlée.
+  if (sans.length && SAGE_MODE !== 'simulation') {
     throw new ActionError(`Transmission refusée : ${plural(sans.length, 'salarié sans matricule de paie', 'salariés sans matricule de paie')} (${sans.join(', ')}). Saisissez-le sur la fiche, puis transmettez de nouveau.`);
   }
   const payload = buildSagePayload(ctx.d, sheets, SAGE_DOSSIER);

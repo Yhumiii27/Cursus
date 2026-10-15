@@ -8,11 +8,12 @@ import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
 import {
   absenceVueManager, borneContrat, droitAnnulation, estConge, estNature, natureDef, periodeTexte, prolongeable, repriseAInscrire,
 } from '../../../shared/rules/absences.ts';
-import { echeanceMax } from '../../../shared/rules/clotures.ts';
+import { echeanceReport } from '../../../shared/rules/clotures.ts';
 import { anneeCp, cetInfo, checkAbsence, checkNature, cpInfo, finPeriodeCp, heuresAvantAbsence, periodeCp, rttAnneeClose } from '../../../shared/rules/conges.ts';
 import { semaineCouverte } from '../../../shared/rules/temps.ts';
 import type { Absence, AbsenceType, CetMouvement, CongeType, Employe, FeuilleTemps, NatureAbsence, ReportCp } from '../../../shared/types.ts';
 import { absenceKeystone, sendToKeystone } from '../integrations/keystone.ts';
+import { recrediterPeriodesCloses } from './clotures.ts';
 import { notifierDecisionConge, notifierDemandeConge, notifierFeuilleRenvoyee } from '../notifications.ts';
 import {
   ActionError, type ActionHandler, type Ctx, estSoiMeme, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, refuserSoiMeme, requireRh, str,
@@ -58,7 +59,9 @@ const decider: ActionHandler = (ctx, p) => {
   ctx.db.update<Absence>('absences', a.id, { statut: ok ? 'validee' : 'refusee', keystone: ok, motifRefus: motif || null });
   if (ok) keystone(ctx, 'absence.validee', a);
   notifierDecisionConge(ctx, emp, a, ok);
-  return ok ? `Absence de ${emp.nom} validée — transmise à Keystone pour la planification` : `Absence de ${emp.nom} refusée${motif ? ' · motif communiqué au salarié' : ''}`;
+  // Jours d'une période déjà close rendus par le refus : reportés sur la période suivante, jamais perdus sans trace.
+  const rendus = !ok && a.type === 'CP' ? recrediterPeriodesCloses(ctx, emp, ctx.d) : '';
+  return ok ? `Absence de ${emp.nom} validée — transmise à Keystone pour la planification` : `Absence de ${emp.nom} refusée${motif ? ' · motif communiqué au salarié' : ''}${rendus ? ` · ${rendus}` : ''}`;
 };
 
 // — Absences hors congés : le manager (ou le salarié) signale, le service RH précise la nature —
@@ -219,7 +222,10 @@ const annuler: ActionHandler = (ctx, p) => {
   ctx.db.update<Absence>('absences', a.id, { statut: 'annulee', annuleeLe: ctx.d.ti, annuleePar: ctx.user.nom, keystone: false });
   if (a.keystone) keystone(ctx, 'absence.annulee', a);
   const n = estConge(a.type) ? ctx.d.countDays(emp, a.du, a.au, a.type) : 0, h = a.type === 'RECUP' ? n * ctx.d.dayH(emp) : 0;
-  const recredit = !n ? '' : h ? ` — ${fH(h)} de récupération recréditée${h > 1 ? 's' : ''}` : ` — ${fJ(n)} de ${a.type} recrédité${n > 1 ? 's' : ''} sur le solde`;
+  // CP d'une période déjà close : la ligne de clôture n'est pas refaite, les jours rendus sont reportés sur la suivante.
+  const rendus = a.type === 'CP' ? recrediterPeriodesCloses(ctx, emp, ctx.d) : '';
+  const recredit = !n ? '' : h ? ` — ${fH(h)} de récupération recréditée${h > 1 ? 's' : ''}`
+    : rendus ? ` — ${fJ(n)} de CP rendus : ${rendus}` : ` — ${fJ(n)} de ${a.type} recrédité${n > 1 ? 's' : ''} sur le solde`;
   // Une feuille validée n'est jamais modifiée rétroactivement : des heures travaillées ces jours-là restent à régulariser.
   const semaines = ctx.ds.feuilles.filter(sh => sh.empId === emp.id && sh.statut === 'validee' && sh.week <= a.au && addD(sh.week, 4) >= a.du).map(sh => isoWeek(sh.week));
   const feuilles = semaines.length ? ` · ${semaines.length > 1 ? `feuilles de temps validées (semaines ${semaines.join(', ')}) non modifiées` : `feuille de temps validée (semaine ${semaines[0]}) non modifiée`}` : '';
@@ -256,8 +262,8 @@ const placerCet: ActionHandler = (ctx, p) => {
 
 /**
  * Report de CP accordé en cours de période (décision du service RH, au cas par cas) : jours de la période en cours
- * reportés sur la suivante, dans la limite du solde non encore reporté, jusqu'à l'échéance choisie (31 mai suivant au plus
- * tôt). Appliqué par la clôture de la période (`conges.cloturer`), qui le plafonne au solde restant au 31 mai.
+ * reportés sur la suivante, dans la limite du solde non encore reporté, jusqu'au 31 mai suivant (`echeanceReport` : seul
+ * un report légal court au-delà). Appliqué par la clôture de la période (`conges.cloturer`), qui le plafonne au solde restant au 31 mai.
  */
 const accorderReport: ActionHandler = (ctx, p) => {
   requireRh(ctx);
@@ -266,8 +272,8 @@ const accorderReport: ActionHandler = (ctx, p) => {
   const cp = cpInfo(ctx.d, emp), A = anneeCp(ctx.d.ti);
   const j = Number(p.jours), motif = str(p.motif), max = cp ? cp.solde - cp.accorde : 0;
   if (!cp || !(j > 0) || (j * 2) % 1 !== 0 || j > max || !motif) throw new ActionError(`Nombre de jours (${fJ(Math.max(0, max))} au plus : solde non encore reporté) et motif requis`);
-  const min = finPeriodeCp(A + 1), expire = str(p.expire) || min;
-  if (!isValidDate(expire) || expire < min || expire > echeanceMax(A)) throw new ActionError(`Échéance du report invalide : du ${fmt(parse(min))} au ${fmt(parse(echeanceMax(A)))}`);
+  const expire = echeanceReport(A);
+  if (p.expire != null && str(p.expire) && str(p.expire) !== expire) throw new ActionError(`Échéance du report invalide : le ${fmt(parse(expire))}, 31 mai suivant (seul un report légal court au-delà)`);
   ctx.db.insert<ReportCp>('reports', { empId: emp.id, jours: j, motif, par: ctx.user.nom, date: ctx.d.ti, sens: 'accorde', periode: A + 1, expire });
   return `${fJ(j)} de CP ${periodeCp(A)} reportés pour ${emp.nom} sur la période ${periodeCp(A + 1)} (appliqués à la clôture du ${fmt(parse(finPeriodeCp(A)))}) — utilisables jusqu’au ${fmt(parse(expire))}`;
 };

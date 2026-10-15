@@ -10,7 +10,8 @@ export function SansMatriculePaie({ empIds }: { empIds: number[] }) {
   const { session } = useStore();
   const sans = sansMatriculePaie(data.employes, data.today, empIds);
   if (!sans.length) return null;
-  const reel = session?.integrations.sage === 'api';
+  // Toute transmission qui n'est pas une simulation (API, fichier d'import…) refuse ces salariés.
+  const reel = !!session && session.integrations.sage !== 'simulation';
   return (
     <NoteAccent>
       {plural(sans.length, 'salarié sans matricule de paie', 'salariés sans matricule de paie')} : {sans.map(e => e.nom).join(', ')}.

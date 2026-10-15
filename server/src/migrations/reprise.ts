@@ -17,7 +17,10 @@ const aDater = (db: Db) => {
  * de la période en cours : RTT faux au 1er janvier, CP au 1er juin) ni période des reports (reçus jamais échus, accordés
  * jamais appliqués). Les compteurs reçoivent la date de mise en service de cette version (date du jour de la migration) :
  * ils valaient pour les périodes en cours. Les reports sont rattachés à la période de leur date (reçus) ou à la suivante
- * (accordés), avec pour échéance la fin de cette période. Tracé dans le journal (comptes seulement). Base neuve : sans effet.
+ * (accordés), avec pour échéance la fin de cette période. Un report accordé dont la période visée a déjà commencé (accordé
+ * pendant une période terminée) devient un report reçu sur elle : aucune clôture de la période précédente, tenue par
+ * l'ancien outil, ne l'appliquera, et ses jours promis au salarié comptent aussitôt. Seul un report accordé pendant la
+ * période en cours attend sa clôture. Tracé dans le journal (comptes seulement). Base neuve : sans effet.
  */
 export const SOLDES_DATES: Migration = {
   nom: 'lot4-reprise-soldes-dates',
@@ -31,12 +34,16 @@ export const SOLDES_DATES: Migration = {
     const jour = todayIso();
     db.sql.prepare('UPDATE soldes_reprise SET arrete_le = ? WHERE arrete_le IS NULL').run(jour);
     db.sql.exec(`UPDATE reports SET periode = ${anneeCpSql('date')} + (CASE WHEN sens = 'recu' THEN 0 ELSE 1 END) WHERE periode IS NULL`);
+    // Période en cours au jour de la migration (année de prise, anneeCp de shared/rules/conges.ts).
+    const enCours = Number(jour.slice(0, 4)) - (jour.slice(5) < '06-01' ? 1 : 0);
+    const recus = Number(db.sql.prepare(`UPDATE reports SET sens = 'recu' WHERE sens = 'accorde' AND expire IS NULL AND periode <= ?`).run(enCours).changes);
     db.sql.exec(`UPDATE reports SET expire = CAST(periode + 1 AS TEXT) || '-05-31' WHERE expire IS NULL`);
     journaliser(db, {
       actor: 'Cursus', role: null, action: 'migration.soldes',
-      message: `Reprise : compteurs repris datés du ${jour} (${x.soldes} salariés), ${x.reports} reports de CP rattachés à leur période`,
-      payload: { arreteLe: jour, soldes: x.soldes, reports: x.reports },
+      message: `Reprise : compteurs repris datés du ${jour} (${x.soldes} salariés), ${x.reports} reports de CP rattachés à leur période`
+        + (recus ? `, dont ${recus} accordés devenus reçus (période déjà commencée)` : ''),
+      payload: { arreteLe: jour, soldes: x.soldes, reports: x.reports, accordesRecus: recus },
     });
-    return `${x.soldes} compteurs repris datés du ${jour}, ${x.reports} reports rattachés à leur période`;
+    return `${x.soldes} compteurs repris datés du ${jour}, ${x.reports} reports rattachés à leur période${recus ? ` (${recus} accordés devenus reçus)` : ''}`;
   },
 };

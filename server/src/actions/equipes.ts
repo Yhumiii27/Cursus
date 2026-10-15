@@ -6,7 +6,7 @@ import { matriculesPris } from '../../../shared/rules/matricules.ts';
 import { adressesPrises } from '../../../shared/rules/messagerie.ts';
 import { MANAGER_FIELDS, PROFIL_FIELDS, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
 import type { Employe, Equipe, FeuilleTemps } from '../../../shared/types.ts';
-import { ActionError, getEmp, isManagerOf, isRh, requireRh, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
+import { ActionError, getEmp, isManagerOf, isRh, isRhAdmin, requireRh, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
 function equipesNoms(ctx: Ctx) { return ctx.ds.referentiels.equipes.map(q => q.nom); }
 
@@ -19,6 +19,9 @@ function getEquipe(ctx: Ctx, nom: unknown): Equipe {
 /**
  * Contrôle de la fiche. L'adresse e-mail et le matricule de paie sont uniques : comparés à ceux des autres salariés.
  * Réutiliser le matricule de paie d'un salarié sorti (réembauche) : confirmé par l'administrateur RH (`reutiliserMatricule`).
+ * Changer ou retirer un matricule de paie déjà enregistré : administrateur RH seul. Sinon, vider celui d'un salarié sorti
+ * puis l'attribuer à une nouvelle fiche contournerait la confirmation de la réembauche, et l'ancienne fiche perdrait son
+ * lien avec le dossier de paie.
  */
 function check(ctx: Ctx, p: ProfilInput, empId?: number, reutiliser = false) {
   const actuel = empId ? ctx.d.emp(empId)?.matriculePaie ?? null : null;
@@ -28,6 +31,9 @@ function check(ctx: Ctx, p: ProfilInput, empId?: number, reutiliser = false) {
   });
   if (!v.ok) throw new ActionError(v.errors.join(' '));
   if (reutiliser && v.matriculeAConfirmer) requireRhAdmin(ctx);
+  if (actuel && v.profil.matriculePaie !== actuel && !isRhAdmin(ctx)) {
+    throw new ActionError(`Matricule de paie ${actuel} déjà enregistré : seul l’administrateur RH le change ou le retire`, 403);
+  }
   return v;
 }
 

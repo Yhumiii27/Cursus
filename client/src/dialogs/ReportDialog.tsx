@@ -1,23 +1,22 @@
 // Reporter des congés payés sur la période suivante (décision RH tracée, au cas par cas) : jours de la période en cours,
-// dans la limite du solde non encore reporté, utilisables jusqu'à l'échéance choisie. Le report est appliqué à la clôture
-// de la période (31 mai), qui le plafonne au solde restant alors.
+// dans la limite du solde non encore reporté, utilisables jusqu'au 31 mai suivant (seul un report légal court au-delà).
+// Le report est appliqué à la clôture de la période (31 mai), qui le plafonne au solde restant alors.
 import { useState } from 'react';
-import { isValidDate, parse } from '../../../shared/dates.ts';
-import { fJ, fmt, fmtIso } from '../../../shared/format.ts';
-import { echeanceMax } from '../../../shared/rules/clotures.ts';
+import { parse } from '../../../shared/dates.ts';
+import { fJ, fmt } from '../../../shared/format.ts';
+import { echeanceReport } from '../../../shared/rules/clotures.ts';
 import { anneeCp, cpInfo, finPeriodeCp, periodeCp, periodeReport } from '../../../shared/rules/conges.ts';
 import { erreurJours, erreurTexte } from '../components/controles.ts';
-import { CancelButton, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
+import { CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
 export function ReportDialog({ empId }: { empId: number }) {
   const d = useDomain();
   const { run, closeDialog } = useStore();
-  const A = anneeCp(d.ti), min = finPeriodeCp(A + 1), max = echeanceMax(A);
+  const A = anneeCp(d.ti), expire = echeanceReport(A);
   const [jours, setJours] = useState('');
   const [motif, setMotif] = useState('');
-  const [expire, setExpire] = useState(min);
   const [busy, setBusy] = useState(false);
   const v = useVerification();
   const emp = d.emp(empId);
@@ -30,14 +29,12 @@ export function ReportDialog({ empId }: { empId: number }) {
   const j = Number(jours);
   const joursErr = erreurJours(jours, plafond);
   const motifErr = erreurTexte(motif, 'Indiquez le motif du report.');
-  const expireErr = !isValidDate(expire) ? 'Indiquez l’échéance du report.'
-    : expire < min ? `Le ${fmtIso(min)} au plus tôt.` : expire > max ? `Le ${fmtIso(max)} au plus tard.` : null;
   const hist = d.ds.reports.filter(r => r.empId === empId);
 
   const confirm = async () => {
-    if (busy || !v.verifier(joursErr, motifErr, expireErr)) return;
+    if (busy || !v.verifier(joursErr, motifErr)) return;
     setBusy(true);
-    const r = await run('report.accorder', { empId, jours: j, motif: motif.trim(), expire });
+    const r = await run('report.accorder', { empId, jours: j, motif: motif.trim() });
     setBusy(false);
     if (r.ok) closeDialog();
   };
@@ -56,8 +53,8 @@ export function ReportDialog({ empId }: { empId: number }) {
         <Field label="Jours" htmlFor="rp-j" requis erreur={v.erreur(joursErr)}>
           <input className="input" id="rp-j" type="number" min={0.5} step={0.5} max={plafond} value={jours} onChange={ev => setJours(ev.target.value)} style={{ textAlign: 'right' }} />
         </Field>
-        <Field label="Utilisables jusqu’au" htmlFor="rp-e" requis erreur={v.erreur(expireErr)}>
-          <input className="input" id="rp-e" type="date" min={min} max={max} value={expire} onChange={ev => setExpire(ev.target.value)} />
+        <Field label="Utilisables jusqu’au">
+          <Static>{fmt(parse(expire))}</Static>
         </Field>
       </div>
       <Field label="Motif" htmlFor="rp-m" requis erreur={v.erreur(motifErr)}>
@@ -76,7 +73,7 @@ export function ReportDialog({ empId }: { empId: number }) {
           })}
         </div>
       )}
-      <p className="text-muted fine">Échéance par défaut : le {fmtIso(min)}, fin de la période suivante. Décision tracée (auteur, date, échéance) ; le motif n’est lu que par le service RH et le salarié.</p>
+      <p className="text-muted fine">Échéance : le {fmt(parse(expire))}, fin de la période suivante (seul un report légal court au-delà). Décision tracée (auteur, date, échéance) ; le motif n’est lu que par le service RH et le salarié.</p>
     </Dialog>
   );
 }

@@ -51,18 +51,53 @@ export const reportEnAttente = (d: Domain, r: ReportCp, A: number) => r.sens ===
   && !d.ds.clotures.some(c => c.empId === r.empId && c.type === 'CP' && c.periode === A - 1);
 
 /**
+ * Report à échéance en cours de période (`expire` avant la fin de la période `A`) : report légal de 15 mois (art.
+ * L3141-19-1) reçu à la clôture précédente. Ses jours comptent jusqu'à l'échéance ; ensuite, seuls ceux déjà pris restent
+ * acquis (les jours pris s'imputent d'abord sur lui, le plus ancien), le reste s'éteint. Un report ordinaire court
+ * jusqu'à la fin de sa période (31 mai).
+ */
+const echeanceEnCours = (A: number, expire: ISODate) => expire < finPeriodeCp(A);
+
+/** Reports reçus sur la période `A`, non échus à son début : jours et échéance, dans l'ordre des échéances. */
+function recusSur(d: Domain, e: Employe, A: number) {
+  return d.ds.reports.filter(r => r.empId === e.id && r.sens === 'recu').map(r => ({ jours: r.jours, ...periodeReport(r) }))
+    .filter(x => x.periode === A && x.expire >= `${A}-06-01`).sort((a, b) => a.expire.localeCompare(b.expire));
+}
+
+/**
+ * Jours des reports reçus sur la période `A` qui comptent au jour `jour`. `consommes(expire)` : jours imputés sur la
+ * période à cette échéance (`imputer`). Un report échu en cours de période ne garde que ses jours déjà pris, après ceux
+ * des reports échus avant lui.
+ */
+function reportsAu(recus: ReturnType<typeof recusSur>, A: number, jour: ISODate, consommes: (expire: ISODate) => number): number {
+  let n = 0, pris = 0;
+  for (const x of recus) {
+    if (!echeanceEnCours(A, x.expire) || jour <= x.expire) { n += x.jours; continue; }
+    const garde = Math.max(0, Math.min(x.jours, consommes(x.expire) - pris));
+    pris += garde;
+    n += garde;
+  }
+  return n;
+}
+
+/** Droits d'une période sans les reports reçus : jours acquis et supplément de la CCN (voir `cpDroit`). */
+function droitsAcquis(d: Domain, e: Employe, A: number) {
+  return { acq: Math.ceil(25 / 12 * monthsPresent(e, `${A - 1}-06-01`, 12)), ageSupp: supplementAge(d, e, A) };
+}
+
+/**
  * Droits CP de la période `A` (année de prise, par défaut la période en cours), avant décompte des jours pris : jours
  * acquis du 1er juin A-1 au 31 mai A — pour une période à venir, ceux qui le seront d'ici là, dates du contrat comprises —,
- * 5 jours de la CCN à partir de 59 ans (`supplementAge`) et reports reçus sur cette période, non échus. `accorde` : reports
- * accordés vers la période suivante, appliqués à la clôture de celle-ci.
+ * 5 jours de la CCN à partir de 59 ans (`supplementAge`) et reports reçus sur cette période, non échus (un report légal
+ * échu en cours de période ne garde que ses jours pris : `reportsAu`). `accorde` : reports accordés vers la période
+ * suivante, appliqués à la clôture de celle-ci.
  */
 export function cpDroit(d: Domain, e: Employe, A = anneeCp(d.ti)) {
-  const acq = Math.ceil(25 / 12 * monthsPresent(e, `${A - 1}-06-01`, 12));
-  const ageSupp = supplementAge(d, e, A);
-  const reports = d.ds.reports.filter(r => r.empId === e.id);
-  const recu = reports.filter(r => r.sens === 'recu').map(r => ({ r, ...periodeReport(r) }))
-    .filter(x => x.periode === A && x.expire >= `${A}-06-01`).reduce((n, x) => n + x.r.jours, 0);
-  const accorde = reports.filter(r => reportEnAttente(d, r, A + 1)).reduce((n, r) => n + r.jours, 0);
+  const { acq, ageSupp } = droitsAcquis(d, e, A);
+  // Imputation calculée seulement si un report est échu en cours de période.
+  let imp: ReturnType<typeof imputer> | null = null;
+  const recu = reportsAu(recusSur(d, e, A), A, d.ti, expire => (imp ??= imputer(d, e)).consommes(A, expire));
+  const accorde = d.ds.reports.filter(r => r.empId === e.id && reportEnAttente(d, r, A + 1)).reduce((n, r) => n + r.jours, 0);
   return { acq, ageSupp, recu, accorde, droit: acq + ageSupp + recu };
 }
 
@@ -111,10 +146,26 @@ export interface JourCp { jour: ISODate; statut: 'validee' | 'demandee' | 'nouve
  * (par période).
  */
 export function imputationCp(d: Domain, e: Employe, nouveau?: { du: ISODate; au: ISODate }): JourCp[] {
-  const droits = new Map<number, number>(), imputes = new Map<number, number>();
-  const droit = (A: number) => droits.get(A) ?? droits.set(A, droitPeriode(d, e, A)).get(A)!;
+  return imputer(d, e, nouveau).jours;
+}
+
+/**
+ * Imputation jour par jour (`imputationCp`). Le droit d'une période est celui du jour imputé : un report échu en cours de
+ * période ne couvre plus les jours posés après son échéance. `consommes(A, expire)` : jours imputés sur la période `A` à
+ * la date `expire` (`reportsAu`).
+ */
+function imputer(d: Domain, e: Employe, nouveau?: { du: ISODate; au: ISODate }) {
+  const acquis = new Map<number, number>(), recus = new Map<number, ReturnType<typeof recusSur>>();
+  const imputes = new Map<number, number>(), releves = new Map<string, number>();
   const impute = (A: number) => imputes.get(A) ?? 0;
   const ajoute = (A: number, n: number) => imputes.set(A, impute(A) + n);
+  // Jours imputés à une échéance : relevés au premier jour de la période posé après elle (les jours sont dans l'ordre).
+  const consommes = (A: number, expire: ISODate) => releves.get(`${A}|${expire}`) ?? impute(A);
+  const droit = (A: number, jour: ISODate) => {
+    if (!acquis.has(A)) { const x = droitsAcquis(d, e, A); acquis.set(A, x.acq + x.ageSupp); recus.set(A, recusSur(d, e, A)); }
+    for (const x of recus.get(A)!) if (jour > x.expire && !releves.has(`${A}|${x.expire}`)) releves.set(`${A}|${x.expire}`, impute(A));
+    return acquis.get(A)! + reportsAu(recus.get(A)!, A, jour, ex => consommes(A, ex));
+  };
   /** Encore un jour de place sur la période `A` dans la limite donnée (droits, ou jours acquis à la date). */
   const place = (A: number, limite: number) => impute(A) + 1 <= limite + 1e-9;
   const R = reprise(d, e.id);
@@ -125,16 +176,17 @@ export function imputationCp(d: Domain, e: Employe, nouveau?: { du: ISODate; au:
       .map(a => ({ du: a.du, au: a.au, statut: a.statut as 'validee' | 'demandee' })),
     ...(nouveau ? [{ ...nouveau, statut: 'nouveau' as const }] : []),
   ];
-  return conges
+  const jours = conges
     .flatMap(a => d.countedDays(e, a.du, a.au, 'CP').map(jour => ({ jour, statut: a.statut })))
     .sort((x, y) => x.jour.localeCompare(y.jour))
-    .map(({ jour, statut }) => {
+    .map(({ jour, statut }): JourCp => {
       const A = anneeCp(jour);
-      if (place(A, droit(A))) { ajoute(A, 1); return { jour, statut, periode: A, anticipe: false, horsDroit: false }; }
+      if (place(A, droit(A, jour))) { ajoute(A, 1); return { jour, statut, periode: A, anticipe: false, horsDroit: false }; }
       if (place(A + 1, acquisAu(e, A + 1, jour))) { ajoute(A + 1, 1); return { jour, statut, periode: A + 1, anticipe: true, horsDroit: false }; }
       ajoute(A, 1);
       return { jour, statut, periode: A, anticipe: false, horsDroit: true };
     });
+  return { jours, consommes };
 }
 
 /** Solde d'une période (`A` : année de prise) : droits moins jours imputés (validés, demandés, CET, compteurs repris). */
@@ -326,6 +378,8 @@ export function checkAbsence(d: Domain, e: Employe, kind: CongeType, du: string,
   const anticip = !horsDroit && nouveaux.some(j => j.anticipe);
   const autres = [...new Set(nouveaux.filter(j => !j.anticipe && j.periode !== anneeCp(d.ti)).map(j => j.periode))];
   const insuff = cpJours ? horsDroit : n > dispo;
+  // Période de CP close (`conges.cloturer`) : son solde est photographié et décidé, aucun congé ne s'y pose plus.
+  const close = cpJours ? [...new Set(nouveaux.map(j => anneeCp(j.jour)))].find(A => d.ds.clotures.some(x => x.empId === e.id && x.type === 'CP' && x.periode === A)) : undefined;
   const rttRefus = rtt?.refus ?? null;
   const heures = valid ? heuresAvantAbsence(d, { empId: e.id, type: kind, du, au }, valider ? 'avant de poser l’absence' : 'avant la validation de l’absence') : null;
   const heuresBloquent = !!heures && (valider || heures.validee);
@@ -334,6 +388,7 @@ export function checkAbsence(d: Domain, e: Employe, kind: CongeType, du: string,
   if (valid) add(`Décompte : ${fJ(n)} ${kind === 'CP' ? 'ouvrés' : 'travaillés'} — week-ends et jours fériés exclus${kind !== 'CP' && c.jourOff.length ? ', jour non travaillé exclu' : ''}.`);
   if (hors) add(`Absence hors contrat : ${hors}.`, true);
   if (overlap) add('Une absence existe déjà sur ces dates.', true);
+  if (close != null) add(`Les congés payés de la période ${periodeCp(close)} sont clos : aucun congé ne se pose plus sur ses dates.`, true);
   if (insuff) add(cpJours ? 'Solde insuffisant pour cette demande, même par anticipation sur les jours acquis à la date du congé.' : 'Solde insuffisant pour cette demande.', true);
   autres.forEach(A => add(`Congés imputés sur la période ${periodeCp(A)}, dont les droits se prennent à partir du 1er juin ${A}.`));
   if (anticip) {
@@ -352,7 +407,7 @@ export function checkAbsence(d: Domain, e: Employe, kind: CongeType, du: string,
     : Ademande != null && Ademande !== anneeCp(d.ti) ? `Disponible sur la période ${periodeCp(Ademande)} : ${fJ(soldePeriode(d, e, Ademande))}`
     : rtt && rtt.annee !== d.year ? `Disponible sur ${rtt.annee} : ${fJ(dispo)}`
     : `Disponible : ${fJ(dispo)}`;
-  const cant = !valid || n === 0 || !!hors || overlap || insuff || !!rttRefus || heuresBloquent || !kinds.some(k => k[0] === kind);
+  const cant = !valid || n === 0 || !!hors || overlap || insuff || close != null || !!rttRefus || heuresBloquent || !kinds.some(k => k[0] === kind);
   return { valid, n, dispo, msgs, soldeLabel, cant, kinds };
 }
 

@@ -108,6 +108,17 @@ const transmises = (x: Contexte) => (x.etat as number[]).map(id => x.db.get<Feui
 /** Lignes de clôture des congés créées par l'action (identifiants au-delà du dernier d'avant l'action). */
 const cloturees = (x: Contexte) => (x.db.sql.prepare('SELECT id FROM clotures WHERE id > ? ORDER BY id').all(Number(x.etat) || 0) as { id: number }[])
   .map(r => x.db.get<ClotureConges>('clotures', r.id)!);
+/**
+ * Jours rendus à une période de CP close par un refus ou une annulation : reports reçus créés par l'action (identifiants
+ * au-delà du dernier d'avant), tracés par leurs jours, période et échéance — jamais leur motif.
+ */
+const reportsRendus: Partial<Regle> = {
+  etat: db => Number((db.sql.prepare('SELECT MAX(id) AS n FROM reports').get() as { n: number | null }).n ?? 0),
+  bilan: (_p, x) => {
+    const l = x.db.sql.prepare('SELECT id, jours, periode, expire FROM reports WHERE id > ? ORDER BY id').all(Number(x.etat) || 0) as Ligne[];
+    return l.length ? { reportsRendus: l.map(r => ({ id: r.id, jours: r.jours, periode: r.periode, expire: r.expire })) } : {};
+  },
+};
 /** Salariés des déplacements créés par un import (identifiants au-delà du dernier d'avant l'action). */
 const importes = (x: Contexte) => (x.db.sql.prepare('SELECT emp_id AS e FROM voyages WHERE id > ? ORDER BY id').all(Number(x.etat) || 0) as { e: number }[]).map(r => r.e);
 
@@ -197,12 +208,12 @@ export const REGLES: Record<string, Regle> = {
   },
   // Absences : la nature n'est jamais recopiée (son absence trahirait une nature médicale) ; dates et statut seulement.
   'absence.demander': { champs: ['empId', 'kind', 'du', 'au'] },
-  'absence.decider': { champs: ['id', 'ok'], cible: parId('absences', ['statut']) },
+  'absence.decider': { champs: ['id', 'ok'], cible: parId('absences', ['statut']), ...reportsRendus },
   'absence.signaler': { champs: ['empId', 'du', 'au'] },
   'absence.saisir': { champs: ['empId', 'du', 'au', 'justificatif', 'justificatifLe'] },
   'absence.qualifier': { champs: ['id', 'du', 'au', 'justificatif', 'justificatifLe'], cible: parId('absences', ['du', 'au', 'statut', 'justificatif']) },
   'absence.prolonger': { champs: ['id', 'au'], cible: parId('absences', ['au', 'statut']) },
-  'absence.annuler': { champs: ['id'], cible: parId('absences', ['statut']) },
+  'absence.annuler': { champs: ['id'], cible: parId('absences', ['statut']), ...reportsRendus },
   'cet.placer': { champs: ['empId', 'kind', 'jours', 'annee'] },
   'report.accorder': { champs: ['empId', 'jours', 'expire'] },
   // Clôture d'une période de congés : décision de chaque ligne enregistrée (report, perte, solde nul ; jours, échéance),

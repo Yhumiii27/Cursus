@@ -210,7 +210,9 @@ design/            Prototype Claude Design de référence et guide du design sys
   paie (la lecture seule reçoit, comme le manager, la date d'expiration du passeport et les visas : ses échéances et
   alertes sont celles du service RH, vaccinations exceptées) ; nature médicale des absences masquée et reprise
   d'un arrêt longue maladie retirée (comme pour le manager), motif des reports de CP retiré, comme celui d'un report imposé à la
-  clôture des congés (`ClotureConges.motif` : il laisse deviner une absence de santé) ; le référent HSE ne reçoit ni temps, ni absences, ni entretiens, ni plan ; la paie ni formations, ni
+  clôture des congés (`ClotureConges.motif` : il laisse deviner une absence de santé), et échéance des reports et des
+  clôtures ramenée au 31 mai (`reportNeutre`, `clotureNeutre` : le 31 août d'un report légal la trahirait aussi, pour le
+  manager comme pour ces profils) ; le référent HSE ne reçoit ni temps, ni absences, ni entretiens, ni plan ; la paie ni formations, ni
   entretiens, ni déplacements ; la lecture seule tout le reste, sans le contenu des comptes rendus d'entretien ni
   les documents déclarés. L'état des déplacements (`dossierStatut`, `dossierManque`) est calculé par le serveur
   pour que le verdict Go / No Go reste exact sans les pièces. `GET /api/journal` et `GET /api/envois` : droit
@@ -432,7 +434,7 @@ aucun champ du paramètre n'est recopié.
 | Action | Paramètres | Droits |
 | --- | --- | --- |
 | `employe.creer` | fiche complète (`ProfilInput` de `shared/rules/profil.ts`, matricule de paie compris : unique), reutiliserMatricule? (réembauche : matricule d'un salarié sorti) | RH ; réutiliser un matricule : administrateur RH |
-| `employe.modifier` | id + champs de la fiche | RH : tous ; manager : `poste`, `jourOff` (temps partiel) des membres de son équipe |
+| `employe.modifier` | id + champs de la fiche, reutiliserMatricule? | RH : tous ; manager : `poste`, `jourOff` (temps partiel) des membres de son équipe ; changer ou retirer un matricule de paie déjà enregistré, réutiliser celui d'un salarié sorti : administrateur RH |
 | `equipe.creer` / `equipe.renommer` | nom, managerId? / nom, nouveau | RH |
 | `equipe.supprimer` | nom | administrateur RH |
 | `equipe.manager` | nom, managerId (null = aucun) | RH |
@@ -468,18 +470,18 @@ aucun champ du paramètre n'est recopié.
 | `temps.addLine` / `temps.removeLine` | empId, week, projet / li, projet?, tache?, lignes? (ligne visée : déjà supprimée, rien n'est refait ; feuille changée, refus) | idem |
 | `temps.suggest` / `temps.submit` | empId, week, motif? | idem (soumission : brouillon ou à corriger, sans heures un jour d’absence validée ; semaine entièrement couverte par une absence : sans heure ; 24 h par jour au plus, toutes lignes cumulées ; motif exigé au-delà de 10 h par jour ou 48 h par semaine, 13 h pour un forfait jours) |
 | `temps.validate` / `temps.reject` | empId, week, comment?, motif? | manager direct ou RH, jamais pour sa propre feuille (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence ; 24 h par jour au plus ; motif du dépassement exigé s'il manque, après une correction du valideur : celui du salarié n'est jamais remplacé) |
-| `temps.pushSage` | — ; matricule de paie de chaque salarié (`matriculeDe`) : en simulation, un salarié sans matricule part sous son matricule Cursus et le message le nomme ; transmission réelle (`SAGE_URL`) refusée tant qu'un salarié du lot n'en a pas | administrateur RH, paie |
+| `temps.pushSage` | — ; matricule de paie de chaque salarié (`matriculeDe`) : en simulation, un salarié sans matricule part sous son matricule Cursus et le message le nomme ; toute transmission qui n'est pas une simulation (`SAGE_MODE`) refusée tant qu'un salarié du lot n'en a pas | administrateur RH, paie |
 | `releve.envoyer` | agence, semaine (lundi, pas à venir) : relevé des feuilles validées des intérimaires de l'agence, envoi ou renvoi (feuilles en attente nommées) | RH, paie |
 | `absence.demander` | empId, kind (`CP`/`RTT`/`RECUP`), du, au | intéressé ou RH (demande, refusée si ces jours portent des heures sur une feuille validée) ; manager direct (posée et validée, refusée si des heures sont saisies ces jours-là) |
-| `absence.decider` | id, ok, motif? (refus : `motifRefus`, montré au salarié et à son manager) | manager direct ou RH, jamais pour sa propre demande (validation refusée si des heures sont saisies ces jours-là ; même décision déjà prise : rien n'est refait) |
+| `absence.decider` | id, ok, motif? (refus : `motifRefus`, montré au salarié et à son manager ; jours rendus à une période de CP close : report reçu sur la suivante, `recrediterPeriodesCloses`) | manager direct ou RH, jamais pour sa propre demande (validation refusée si des heures sont saisies ces jours-là ; même décision déjà prise : rien n'est refait) |
 | `absence.signaler` | empId, du, au | intéressé, manager direct ou RH : absence imprévue « à qualifier », en vigueur aussitôt |
 | `absence.saisir` | empId, nature, du, au, justificatif, justificatifLe | RH (absence hors congés validée d’emblée), jamais pour lui-même |
 | `absence.qualifier` | id, nature, du?, au?, justificatif, justificatifLe | RH (absence signalée ou qualifiée, hors congés), jamais la sienne |
 | `absence.prolonger` | id, au | intéressé, manager direct ou RH (hors congés ; hors RH, l’absence repasse « à qualifier ») |
-| `absence.annuler` | id | demande : intéressé ou RH ; absence à venir : manager direct ou RH (et l’intéressé pour son propre signalement, ni qualifié ni prolongé) ; commencée ou passée : RH ; hors périmètre : refus unique (403) |
+| `absence.annuler` | id (jours rendus à une période de CP close : report reçu sur la suivante, tracé) | demande : intéressé ou RH ; absence à venir : manager direct ou RH (et l’intéressé pour son propre signalement, ni qualifié ni prolongé) ; commencée ou passée : RH ; hors périmètre : refus unique (403) |
 | `cet.placer` | empId, kind, jours, annee? (RTT de l'année précédente, tant que sa clôture n'est pas faite) | intéressé ou RH |
-| `report.accorder` | empId, jours, motif, expire? (31 mai suivant par défaut, au plus tôt) : jours de la période en cours reportés sur la suivante, dans la limite du solde non encore reporté, appliqués à la clôture | RH, jamais pour lui-même |
-| `conges.cloturer` | type (`CP`/`RTT`), periode (année de prise des CP, année des RTT), lignes? [{empId, decision `reporter`/`perdre`, jours?, expire?}] (CP) : période terminée ; une ligne déjà clôturée n'est jamais refaite, une ligne sans décision reste à clôturer, un salarié sans solde est clos d'emblée ; perte refusée pour un report imposé ; RTT : soldes perdus (non reportables) | RH ; jamais sa propre ligne de CP |
+| `report.accorder` | empId, jours, motif (échéance : 31 mai suivant, seul un report légal court au-delà) : jours de la période en cours reportés sur la suivante, dans la limite du solde non encore reporté, appliqués à la clôture | RH, jamais pour lui-même |
+| `conges.cloturer` | type (`CP`/`RTT`), periode (année de prise des CP, année des RTT), lignes? [{empId, decision `reporter`/`perdre`, jours? (report imposé compris)}] (CP) : période terminée ; une ligne déjà clôturée n'est jamais refaite, une ligne sans décision reste à clôturer, un salarié sans solde est clos d'emblée ; une ligne dont une demande de CP de la période est en attente n'est pas close (refus nommant la demande) ; perte refusée pour les jours d'un report imposé ; RTT : soldes perdus (non reportables), salarié dont une demande de RTT de l'année est en attente non clôturé | RH ; jamais sa propre ligne de CP |
 | `entretien.planifier` | empId, kind, date, nonTenu? ; un seul entretien planifié par type : une nouvelle date le reprogramme (passé avec un compte rendu commencé, seulement avec `nonTenu`, l'évaluateur confirmant qu'il n'a pas eu lieu) ; refusé un jour d'absence du salarié ; convocation par e-mail (`.ics`, même événement à la reprogrammation) | manager direct ou RH (jamais son propre entretien) |
 | `entretien.modifier` | id, section?, value?, info? | évaluateur / salarié selon la section (un membre du RH n'évalue pas son propre entretien) |
 | `entretien.clore` | id, date? (jour où l'entretien a eu lieu, aujourd'hui au plus tard et pas avant sa planification ; exigée pour un entretien prévu à une date à venir) | évaluateur (l'écran enregistre d'abord chaque section ; un échec interrompt la clôture) |
@@ -769,16 +771,21 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
   Le motif du salarié est conservé : celui du valideur ne sert que s'il manque.
 - **Reports de CP** (`ReportCp.periode`, `expire`) : un report reçu s'ajoute aux droits de sa période (année de prise) ;
   un report accordé en cours de période (`report.accorder`) vise la suivante et ne compte qu'une fois appliqué par la
-  clôture (`reportEnAttente`).
+  clôture (`reportEnAttente`). Un report décidé par le service RH s'éteint le 31 mai (`echeanceReport`) ; seul un report
+  légal (`estReportLegal`) a une autre échéance. Échu en cours de période, il ne garde que ses jours déjà pris
+  (`reportsAu` : jours pris imputés d'abord sur lui) ; les jours posés après l'échéance ne le consomment plus.
 - **Clôture des congés** (`shared/rules/clotures.ts`, `conges.cloturer`) : proposée par le bandeau de l'écran Congés &
   absences (`cloturesAFaire`) à partir du 1er juin (CP de la période close au 31 mai) et du 1er janvier (RTT de l'année
   close), pour les périodes postérieures à la date d'arrêté des compteurs repris. CP : solde photographié pour chaque
   salarié présent au 31 mai (ni intérimaire, ni sorti : indemnité compensatrice), report (plafonné au solde, échéance
-  au 31 mai suivant au plus tôt, report reçu sur la période suivante) ou perte décidés ligne par ligne, jamais d'office
+  au 31 mai suivant, report reçu sur la période suivante) ou perte décidés ligne par ligne, jamais d'office
   ni en bloc ; réglage `politiqueReportCp` : sans proposition (défaut) ou report du solde proposé. Report imposé (perte
-  refusée, échéance de 15 mois, au 31 août A+2 : art. L3141-2 et L3141-19-1) après une absence de santé, une maternité,
-  une paternité, une adoption ou une absence encore à qualifier dans la période, ou tant qu'un report reçu court
-  au-delà ; motif réservé au service RH et à l'intéressé. RTT : non reportables, soldes photographiés et perdus ; ceux
+  refusée) : tout le solde, 15 mois (31 août A+2 : art. L3141-2 et L3141-19-1), après une absence de santé, une
+  maternité, une paternité, une adoption ou une absence encore à qualifier dans la période ; les seuls jours restants
+  d'un report légal reçu qui court au-delà de la période, jusqu'à sa propre échéance (le reste du solde est au choix du
+  service RH) ; motif réservé au service RH et à l'intéressé. Une ligne n'est pas close tant qu'une demande de CP de la
+  période attend une décision ; une période close ne reçoit plus de congé (`checkAbsence`), et les jours qu'un refus ou
+  une annulation lui rendent sont reportés sur la période suivante (`recrediterPeriodesCloses`, tracé). RTT : non reportables, soldes photographiés et perdus ; ceux
   de l'année close restent plaçables sur le CET (`cet.placer`, `annee`) jusqu'à la confirmation. Table `clotures` (une
   ligne par salarié et période, unique) : relancer est sans effet.
 - **RTT de l'année suivante** (`rttDemande`) : une demande de RTT est évaluée sur l'année de son premier jour, avec le

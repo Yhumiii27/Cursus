@@ -1,6 +1,7 @@
 // Fiche collaborateur : création ou modification complète (RH) ; poste et jours non
 // travaillés du temps partiel pour le manager d'un membre de son équipe.
-// Matricule de paie : unique ; reprendre celui d'un salarié sorti (réembauche) se confirme, par l'administrateur RH.
+// Matricule de paie : unique ; reprendre celui d'un salarié sorti (réembauche) se confirme, par l'administrateur RH, qui
+// seul change ou retire un matricule déjà enregistré.
 import { useState } from 'react';
 import { isValidDate } from '../../../shared/dates.ts';
 import { AVIS_MEDICAL, MODE_NOTIFICATION_LABEL, MOTIFS_REPRISE, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../../../shared/constants.ts';
@@ -156,7 +157,10 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
     : isValidDate(f.entree) && f.effet < f.entree ? 'La date d’effet du nouveau régime précède la date d’entrée.'
     : f.effet > d.ti ? 'Date d’effet future : enregistrez le changement d’organisation du temps le jour de sa prise d’effet.'
     : null;
-  const errors = [...v.errors.filter(m => !(aConfirmer && admin && /^Matricule de paie de /.test(m))), ...(errEffet ? [errEffet] : [])];
+  // Matricule de paie déjà enregistré : changé ou retiré par l'administrateur RH seul (contrôlé aussi par le serveur).
+  const errMatricule = !admin && !limited && initial.matriculePaie && v.profil.matriculePaie !== initial.matriculePaie
+    ? `Matricule de paie déjà enregistré (${initial.matriculePaie}) : seul l’administrateur RH le change ou le retire.` : null;
+  const errors = [...v.errors.filter(m => !(aConfirmer && admin && /^Matricule de paie de /.test(m))), ...(errEffet ? [errEffet] : []), ...(errMatricule ? [errMatricule] : [])];
   const ok = errors.length === 0;
   const dirty = creation || !same(v.profil, ref0);
   // Erreurs affichées en direct en modification, dès la première saisie en création, et après un envoi bloqué.

@@ -255,8 +255,9 @@ export interface ReportCp {
 export interface SoldeReprise { empId: number; cpPris: number; rttPris: number; recupAcquis: number; recupPris: number; arreteLe: ISODate | null }
 /**
  * Clôture d'une période de congés pour un salarié (`conges.cloturer`) : photographie du solde restant et décision du
- * service RH. CP (`periode` : année de prise de la période close au 31 mai) : report (`reportes`, jusqu'à `expire`, report
- * reçu `reportId` sur la période suivante) ou perte, choisis ligne par ligne ; `motif` : report imposé (absence de
+ * service RH. CP (`periode` : année de prise de la période close au 31 mai) : report (`reportes` en tout, report imposé
+ * compris ; reports reçus sur la période suivante : `reportId`, celui décidé par le service RH, jusqu'au 31 mai suivant
+ * — `expire` —, à défaut le report imposé) ou perte, choisis ligne par ligne ; `motif` : report imposé (absence de
  * santé, maternité ou paternité dans la période, report légal en cours), réservé au service RH. RTT (`periode` : année
  * close au 31 décembre) : non reportables, le solde est perdu. `solde_nul` : rien à décider.
  */

@@ -1,13 +1,15 @@
 // Clôture d'une période de congés (service RH, `conges.cloturer`). Congés payés : solde restant de chaque salarié et
-// décision ligne par ligne — report (plafonné au solde, jusqu'à une échéance) ou perte ; jamais de perte d'office, ni pour
-// un salarié dont le report est imposé (absence de santé, maternité, paternité ou adoption dans la période : 15 mois).
-// Une ligne sans décision reste à clôturer ; un salarié sans solde est clos d'emblée ; un membre du RH ne décide pas de
-// son propre solde. RTT : non reportables, soldes non pris photographiés après le rappel du compte épargne-temps.
+// décision ligne par ligne — report (plafonné au solde, jusqu'au 31 mai suivant) ou perte ; jamais de perte d'office, ni
+// des jours d'un report imposé (absence de santé, maternité, paternité ou adoption dans la période : 15 mois ; report
+// légal reçu encore en cours : jusqu'à son échéance). Une ligne sans décision reste à clôturer ; une ligne dont une demande
+// de CP de la période attend une décision aussi ; un salarié sans solde est clos d'emblée ; un membre du RH ne décide pas
+// de son propre solde. RTT : non reportables, soldes non pris photographiés après le rappel du compte épargne-temps.
 // Règles : shared/rules/clotures.ts ; relancer une clôture est sans effet.
 import { useMemo, useState } from 'react';
-import { isValidDate, parse } from '../../../shared/dates.ts';
+import { parse } from '../../../shared/dates.ts';
 import { equipeLabel, fJ, fmt, fmtIso, plural } from '../../../shared/format.ts';
-import { echeanceMax, lignesClotureCp, lignesClotureRtt, MOTIF_CLOTURE_LABEL, type LigneClotureCp } from '../../../shared/rules/clotures.ts';
+import { periodeTexte } from '../../../shared/rules/absences.ts';
+import { echeanceReport, lignesClotureCp, lignesClotureRtt, MOTIF_CLOTURE_LABEL, type LigneClotureCp } from '../../../shared/rules/clotures.ts';
 import { finPeriodeCp, periodeCp } from '../../../shared/rules/conges.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Empty, Fine, NoteAccent, Seg, Tag } from '../components/ui.tsx';
@@ -18,23 +20,24 @@ export function ClotureCongesDialog({ conges, periode }: { conges: 'CP' | 'RTT';
   return conges === 'CP' ? <ClotureCp A={periode} /> : <ClotureRtt Y={periode} />;
 }
 
-/** Choix du service RH pour une ligne : décision (vide : pas encore décidée), jours reportés et échéance saisis. */
-interface Choix { decision: 'reporter' | 'perdre' | ''; jours: string; expire: string }
+/** Choix du service RH pour une ligne : décision (vide : pas encore décidée) et jours reportés saisis (report imposé compris). */
+interface Choix { decision: 'reporter' | 'perdre' | ''; jours: string }
 
 const egal = (a: number, b: number) => Math.abs(a - b) < 1e-9;
+const saisie = (n: number) => String(n).replace('.', ',');
 
-/** Erreurs d'une ligne à reporter : jours (tout le solde, ou une partie par demi-journée) et échéance. */
-function erreurs(A: number, l: LigneClotureCp, c: Choix) {
-  if (c.decision !== 'reporter') return { jours: null, expire: null };
+/** Choix initial d'une ligne : la proposition de Cursus. */
+const initial = (l: LigneClotureCp): Choix => ({ decision: l.proposition.decision ?? '', jours: saisie(l.proposition.jours) });
+
+/** Erreur d'une ligne à reporter : jours (tout le solde, le report imposé, ou une partie par demi-journée). */
+function erreur(l: LigneClotureCp, c: Choix): string | null {
+  if (c.decision !== 'reporter') return null;
   const j = Number(c.jours.replace(',', '.'));
-  const jours = !c.jours.trim() || Number.isNaN(j) ? 'Indiquez le nombre de jours.'
-    : egal(j, l.solde) ? null
+  return !c.jours.trim() || Number.isNaN(j) ? 'Indiquez le nombre de jours.'
+    : egal(j, l.solde) || egal(j, l.legal) ? null
     : !(j > 0) || (j * 2) % 1 !== 0 ? 'Nombre de jours par demi-journée : 0,5, 1, 1,5…'
-    : j > l.solde ? `${fJ(l.solde)} au plus.` : null;
-  const expire = !isValidDate(c.expire) ? 'Indiquez l’échéance du report.'
-    : c.expire < l.echeanceMin ? `Le ${fmtIso(l.echeanceMin)} au plus tôt.`
-    : c.expire > echeanceMax(A) ? `Le ${fmtIso(echeanceMax(A))} au plus tard.` : null;
-  return { jours, expire };
+    : j > l.solde ? `${fJ(l.solde)} au plus.`
+    : j < l.legal ? `${fJ(l.legal)} au moins (report légal).` : null;
 }
 
 function ClotureCp({ A }: { A: number }) {
@@ -42,27 +45,30 @@ function ClotureCp({ A }: { A: number }) {
   const { run, closeDialog } = useStore();
   const { soi } = useRole();
   const lignes = useMemo(() => lignesClotureCp(d, A), [d, A]);
-  const [choix, setChoix] = useState<Record<number, Choix>>(() => Object.fromEntries(lignes.filter(l => !l.deja && l.solde > 0)
-    .map(l => [l.e.id, { decision: l.proposition.decision ?? '', jours: String(l.proposition.jours).replace('.', ','), expire: l.proposition.expire }])));
+  // Décisions saisies ; une ligne apparue depuis l'ouverture (données relues) part de la proposition de Cursus.
+  const [saisis, setChoix] = useState<Record<number, Choix>>({});
+  const choix = (l: LigneClotureCp) => saisis[l.e.id] ?? initial(l);
   const [busy, setBusy] = useState(false);
   const v = useVerification();
 
-  const ouvertes = lignes.filter(l => !l.deja && l.solde > 0);
+  // Demande de CP de la période en attente : la ligne attend sa décision, même à solde nul.
+  const enAttente = lignes.filter(l => !l.deja && l.attente.length);
+  const ouvertes = lignes.filter(l => !l.deja && !l.attente.length && l.solde > 0);
   const decidables = ouvertes.filter(l => l.e.id !== soi);
   const miennes = ouvertes.filter(l => l.e.id === soi);
-  const sansSolde = lignes.filter(l => !l.deja && l.solde <= 0);
+  const sansSolde = lignes.filter(l => !l.deja && !l.attente.length && l.solde <= 0);
   const faites = lignes.filter(l => l.deja);
-  const decidees = decidables.filter(l => choix[l.e.id]?.decision);
+  const decidees = decidables.filter(l => choix(l).decision);
   const sansDecision = decidables.length - decidees.length;
-  const set = (id: number, patch: Partial<Choix>) => setChoix(c => ({ ...c, [id]: { ...c[id], ...patch } }));
+  const set = (l: LigneClotureCp, patch: Partial<Choix>) => setChoix(c => ({ ...c, [l.e.id]: { ...(c[l.e.id] ?? initial(l)), ...patch } }));
   // Report proposé à toutes les lignes encore sans décision (jamais une perte en bloc : elle se décide ligne par ligne).
   const reporterTout = () => setChoix(c => ({
-    ...c, ...Object.fromEntries(decidables.filter(l => !c[l.e.id]?.decision).map(l => [l.e.id, { ...c[l.e.id], decision: 'reporter' as const, jours: String(l.solde).replace('.', ',') }])),
+    ...c, ...Object.fromEntries(decidables.filter(l => !(c[l.e.id] ?? initial(l)).decision).map(l => [l.e.id, { decision: 'reporter' as const, jours: saisie(l.solde) }])),
   }));
 
   const rien = !decidees.length && !sansSolde.length ? 'Choisissez le report ou la perte du solde pour au moins un salarié.' : null;
-  const bloquants = decidees.flatMap(l => Object.values(erreurs(A, l, choix[l.e.id])));
-  const reportes = decidees.filter(l => choix[l.e.id].decision === 'reporter').length;
+  const bloquants = decidees.map(l => erreur(l, choix(l)));
+  const reportes = decidees.filter(l => choix(l).decision === 'reporter').length;
   const pertes = decidees.length - reportes;
 
   const confirm = async () => {
@@ -71,16 +77,15 @@ function ClotureCp({ A }: { A: number }) {
     const r = await run('conges.cloturer', {
       type: 'CP', periode: A,
       lignes: decidees.map(l => {
-        const c = choix[l.e.id];
-        return c.decision === 'perdre' ? { empId: l.e.id, decision: 'perdre' }
-          : { empId: l.e.id, decision: 'reporter', jours: l.impose ? l.solde : Number(c.jours.replace(',', '.')), expire: c.expire };
+        const c = choix(l);
+        return c.decision === 'perdre' ? { empId: l.e.id, decision: 'perdre' } : { empId: l.e.id, decision: 'reporter', jours: Number(c.jours.replace(',', '.')) };
       }),
     });
     setBusy(false);
     if (r.ok) closeDialog();
   };
 
-  if (!ouvertes.length && !sansSolde.length) {
+  if (!ouvertes.length && !sansSolde.length && !enAttente.length) {
     return (
       <Dialog title={`Clôture des congés payés ${periodeCp(A)}`} actions={<CancelButton label="Fermer" />}>
         <p className="text-muted" style={{ margin: 0 }}>
@@ -97,7 +102,7 @@ function ClotureCp({ A }: { A: number }) {
     </>}>
       <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>
         Période terminée le {fmt(parse(finPeriodeCp(A)))}. Aucun jour n’est perdu d’office : pour chaque salarié, choisissez le report du solde sur la
-        période {periodeCp(A + 1)} (plafonné au solde) ou sa perte. Une ligne sans décision reste à clôturer.
+        période {periodeCp(A + 1)} (plafonné au solde, utilisable jusqu’au {fmt(parse(echeanceReport(A)))}) ou sa perte. Une ligne sans décision reste à clôturer.
       </p>
       {decidables.length > 0 && sansDecision > 0 && (
         <div className="actions-end">
@@ -106,8 +111,8 @@ function ClotureCp({ A }: { A: number }) {
       )}
       <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
         {decidables.map(l => {
-          const c = choix[l.e.id], e = erreurs(A, l, c), j = Number(c.jours.replace(',', '.'));
-          const perdus = c.decision === 'perdre' ? l.solde : c.decision === 'reporter' && !l.impose && j > 0 && j < l.solde ? l.solde - j : 0;
+          const c = choix(l), err = erreur(l, c), j = Number(c.jours.replace(',', '.'));
+          const perdus = c.decision === 'perdre' ? l.solde : c.decision === 'reporter' && !err && j < l.solde ? Math.round((l.solde - j) * 100) / 100 : 0;
           return (
             <div key={l.e.id} className="boxed" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
               <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
@@ -118,19 +123,23 @@ function ClotureCp({ A }: { A: number }) {
                   </div>
                 </div>
                 <Seg name={`cl-${l.e.id}`} label={`Décision pour ${l.e.nom}`} value={c.decision}
-                  options={l.impose ? [['reporter', 'Reporter']] : [['reporter', 'Reporter'], ['perdre', 'Perdre']]}
-                  onChange={x => set(l.e.id, { decision: x })} />
+                  options={l.legal > 0 ? [['reporter', 'Reporter']] : [['reporter', 'Reporter'], ['perdre', 'Perdre']]}
+                  onChange={x => set(l, { decision: x })} />
               </div>
-              {l.impose && <NoteAccent>{MOTIF_CLOTURE_LABEL[l.impose]} : perte impossible, tout le solde est reporté.</NoteAccent>}
+              {l.impose && (
+                <NoteAccent>
+                  {MOTIF_CLOTURE_LABEL[l.impose]} : perte impossible pour {egal(l.legal, l.solde) ? 'tout le solde' : fJ(l.legal)}, reporté{l.legal > 1 ? 's' : ''} jusqu’au {fmtIso(l.expireLegal!)}.
+                </NoteAccent>
+              )}
               {c.decision === 'reporter' && (
                 <div className="grid-2">
-                  <Field label="Jours reportés" htmlFor={`cl-j-${l.e.id}`} erreur={v.erreur(e.jours)}>
-                    {l.impose ? <Static>{fJ(l.solde)}</Static> : (
-                      <input className="input" id={`cl-j-${l.e.id}`} type="text" inputMode="decimal" value={c.jours} onChange={ev => set(l.e.id, { jours: ev.target.value })} />
-                    )}
+                  <Field label={l.legal > 0 && !egal(l.legal, l.solde) ? 'Jours reportés, report légal compris' : 'Jours reportés'} htmlFor={`cl-j-${l.e.id}`} erreur={v.erreur(err)}>
+                    <input className="input" id={`cl-j-${l.e.id}`} type="text" inputMode="decimal" value={c.jours} onChange={ev => set(l, { jours: ev.target.value })} />
                   </Field>
-                  <Field label="Utilisables jusqu’au" htmlFor={`cl-e-${l.e.id}`} erreur={v.erreur(e.expire)}>
-                    <input className="input" id={`cl-e-${l.e.id}`} type="date" min={l.echeanceMin} max={echeanceMax(A)} value={c.expire} onChange={ev => set(l.e.id, { expire: ev.target.value })} />
+                  <Field label="Utilisables jusqu’au">
+                    <Static>
+                      {l.legal > 0 ? `${fmtIso(l.expireLegal!)} (report légal)${egal(l.legal, l.solde) ? '' : `, ${fmtIso(echeanceReport(A))} au-delà`}` : fmtIso(echeanceReport(A))}
+                    </Static>
                   </Field>
                 </div>
               )}
@@ -139,19 +148,27 @@ function ClotureCp({ A }: { A: number }) {
             </div>
           );
         })}
+        {enAttente.map(l => (
+          <div key={l.e.id} className="boxed">
+            <div style={{ fontSize: 14 }}>{l.e.nom}</div>
+            <div className="text-muted sub">
+              Demande de congés payés en attente ({l.attente.map(a => periodeTexte(a.du, a.au)).join(', ')}) : à valider ou refuser avant de clôturer son solde.
+            </div>
+          </div>
+        ))}
         {miennes.map(l => (
           <div key={l.e.id} className="boxed">
             <div style={{ fontSize: 14 }}>{l.e.nom}</div>
             <div className="text-muted sub">Votre solde ({fJ(l.solde)}) : décision par un autre membre du service RH.</div>
           </div>
         ))}
-        {!ouvertes.length && <Empty pad="sm">Aucun solde restant à décider.</Empty>}
+        {!ouvertes.length && !enAttente.length && <Empty pad="sm">Aucun solde restant à décider.</Empty>}
       </div>
       {rien && v.tente && <Bloquant>{rien}</Bloquant>}
       <Fine>
         À la validation : {plural(reportes, 'report', 'reports')} (report reçu sur la période {periodeCp(A + 1)}, jusqu’à son échéance),
         {' '}{plural(pertes, 'perte', 'pertes')}{sansSolde.length ? `, ${plural(sansSolde.length, 'salarié sans solde clôturé', 'salariés sans solde clôturés')} d’emblée` : ''}
-        {sansDecision + miennes.length ? ` ; ${plural(sansDecision + miennes.length, 'ligne reste', 'lignes restent')} à décider` : ''}.
+        {sansDecision + miennes.length + enAttente.length ? ` ; ${plural(sansDecision + miennes.length + enAttente.length, 'ligne reste', 'lignes restent')} à décider` : ''}.
         {faites.length ? ` Déjà clôturés : ${plural(faites.length, 'salarié', 'salariés')}.` : ''} Chaque ligne clôturée est tracée et définitive.
       </Fine>
     </Dialog>
@@ -163,7 +180,9 @@ function ClotureRtt({ Y }: { Y: number }) {
   const { run, closeDialog } = useStore();
   const lignes = useMemo(() => lignesClotureRtt(d, Y).filter(l => !l.deja), [d, Y]);
   const [busy, setBusy] = useState(false);
-  const perdus = lignes.reduce((n, l) => n + Math.max(0, l.solde), 0);
+  // Demande de RTT de l'année en attente : le salarié n'est pas clôturé tant qu'elle n'est pas décidée.
+  const attente = lignes.filter(l => l.attente.length), closes = lignes.filter(l => !l.attente.length);
+  const perdus = closes.reduce((n, l) => n + Math.max(0, l.solde), 0);
   const cet = lignes.filter(l => l.cet > 0);
 
   const confirm = async () => {
@@ -206,14 +225,23 @@ function ClotureRtt({ Y }: { Y: number }) {
                 <td><div className="nowrap">{l.e.nom}</div><div className="text-muted sub">{l.info.label}</div></td>
                 <td className="tnum">{fJ(l.info.droit)}</td>
                 <td className="tnum">{fJ(l.info.pris + l.info.poses)}</td>
-                <td className="tnum">{l.solde > 0 ? fJ(l.solde) : '—'}</td>
+                <td className="tnum">
+                  {l.solde > 0 ? fJ(l.solde) : '—'}
+                  {l.attente.length > 0 && <div className="text-muted sub">Demande en attente ({l.attente.map(a => periodeTexte(a.du, a.au)).join(', ')}) : non clôturé</div>}
+                </td>
                 <td className="tnum">{l.cet > 0 ? fJ(l.cet) : '—'}</td>
               </tr>
             ))}
           </tbody>
         </table>
       </div>
-      <Fine>À la validation : {plural(lignes.length, 'salarié clôturé', 'salariés clôturés')}, {perdus ? `${fJ(perdus)} non pris perdus` : 'aucun RTT perdu'}. Tracé et définitif.</Fine>
+      {attente.length > 0 && (
+        <NoteAccent>
+          {plural(attente.length, 'salarié a', 'salariés ont')} une demande de RTT {Y} en attente : à valider ou refuser d’abord, puis relancer la clôture
+          ({attente.map(l => l.e.nom).join(', ')}).
+        </NoteAccent>
+      )}
+      <Fine>À la validation : {plural(closes.length, 'salarié clôturé', 'salariés clôturés')}, {perdus ? `${fJ(perdus)} non pris perdus` : 'aucun RTT perdu'}. Tracé et définitif.</Fine>
     </Dialog>
   );
 }

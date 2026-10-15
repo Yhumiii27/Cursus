@@ -60,7 +60,7 @@ export function Budget() {
           <Btn onClick={() => openDialog({ type: 'budget', exercice: ex })}>Enveloppes</Btn>
           <Btn variant="secondary" icon={<UploadSimpleIcon size={14} />} onClick={openImport}>Importer un plan</Btn>
         </>}
-        {admin && !clos && ex <= year && <Btn onClick={() => openDialog({ type: 'exerciceCloture', exercice: ex })}>Clôturer l’exercice</Btn>}
+        {admin && !clos && ex < year && <Btn onClick={() => openDialog({ type: 'exerciceCloture', exercice: ex })}>Clôturer l’exercice</Btn>}
       </>}
       note={clos ? `Exercice clos le ${fmtIso(clos.le)} par ${clos.par} : plan et enveloppes en lecture seule.` : undefined}
     >

@@ -161,8 +161,8 @@ const MATRICE: Ligne[] = [
   { action: 'plan.importer', variante: 'remplacer', droits: 'O    -    -    -    -    -    -    -    -', p: () => ({ texte: SAMPLE_PLAN_CSV, exercice: 2026, mode: 'replace' }) },
   { action: 'budget.enveloppes', droits: '                   O    O    -    -    -    -    -    -    -', p: () => ({ exercice: 2027, enveloppes: { Maintenance: 5000 } }) },
   { action: 'plan.avancer', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ id: (db.sql.prepare(`SELECT id FROM plan_actions WHERE statut <> 'realise' LIMIT 1`).get() as { id: number }).id, coutReel: 1000 }) },
-  // Clôture de l'exercice 2026 (administrateur RH), avec le report d'une action engagée sur 2027.
-  { action: 'plan.cloturerExercice', droits: '               O    -    -    -    -    -    -    -    -', p: () => ({ exercice: 2026, reporter: [(db.sql.prepare(`SELECT id FROM plan_actions WHERE statut = 'engage' LIMIT 1`).get() as { id: number }).id] }) },
+  // Clôture de l'exercice 2026 (administrateur RH), une fois passé, avec le report d'une action engagée sur 2027.
+  { action: 'plan.cloturerExercice', droits: '               O    -    -    -    -    -    -    -    -', env: { CURSUS_TODAY: '2027-01-05' }, p: () => ({ exercice: 2026, reporter: [(db.sql.prepare(`SELECT id FROM plan_actions WHERE statut = 'engage' LIMIT 1`).get() as { id: number }).id] }) },
   // Feuilles de temps : saisie par le salarié, son manager ou le RH ; validation par le manager ou le RH ; paie : administrateur RH.
   { action: 'temps.setCell', droits: '                       O    O    O    -    O    -    -    -    -', p: () => { feuille('brouillon'); return { empId: 2, week: WEEK, li: 0, di: 0, value: '7' }; } },
   { action: 'temps.addLine', droits: '                       O    O    O    -    O    -    -    -    -', p: () => ({ empId: 2, week: WEEK, projet: 'INT-MAINT' }) },

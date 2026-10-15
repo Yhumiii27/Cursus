@@ -448,7 +448,7 @@ aucun champ du paramètre n'est recopié.
 | `session.confirmer` | id | RH, référent HSE |
 | `session.modifier` | id, date? (postérieure à aujourd’hui ; session passée, à clôturer : aussi une date passée), lieu?, places? (≥ inscrits) | RH, référent HSE |
 | `session.annuler` | id, motif? | RH, référent HSE |
-| `session.cloturer` | id, participants [{empId, present, reussi?}], note? (1 à 5), commentaire?, coutReel? (de l'action du plan qu'elle réalise ; coût prévu par défaut) | RH, référent HSE |
+| `session.cloturer` | id, participants [{empId, present, reussi?}], note? (1 à 5), commentaire?, coutReel? (de l'action du plan qu'elle réalise, service RH seulement ; coût prévu par défaut et pour le référent HSE) | RH, référent HSE |
 | `hab.delivrer` | empId, h, date, par, mode | RH, référent HSE |
 | `hab.suspendre` | empId, h, motif, date? (aujourd’hui par défaut) | RH, référent HSE ; manager pour un membre de son équipe (jamais lui-même) |
 | `hab.lever` | empId, h | RH, référent HSE |
@@ -467,7 +467,7 @@ aucun champ du paramètre n'est recopié.
 | `plan.importer` | texte, exercice, mode (`add`/`replace`) ; exercice clos refusé | RH ; `replace` (supprime les lignes prévues d'origine `import` ; celles issues d'une demande, d'un report ou sans origine sont conservées) : administrateur RH |
 | `budget.enveloppes` | exercice, enveloppes {équipe: montant} ; exercice clos refusé | RH |
 | `plan.avancer` | id, de? (statut affiché : déjà dépassé, rien n'est refait ; revenu à « prévue », refus), coutReel (vers « réalisé », exigé : euros, 0 accepté), effectifReel? ; exercice clos ou action reportée refusés | RH |
-| `plan.cloturerExercice` | exercice (en cours ou passé, ouvert), reporter [id] (actions prévues ou engagées à reporter sur l'exercice suivant) | administrateur RH |
+| `plan.cloturerExercice` | exercice (passé et ouvert : jamais l'exercice en cours), reporter [id] (actions prévues ou engagées à reporter sur l'exercice suivant) | administrateur RH |
 | `temps.setCell` | empId, week, li, di, value | salarié, manager direct ou RH (feuille soumise : valideur uniquement) ; aucune heure un jour d’absence validée ou signalée, ni hors contrat, vider la cellule reste possible ; pas de feuille pour une semaine hors contrat |
 | `temps.addLine` / `temps.removeLine` | empId, week, projet / li, projet?, tache?, lignes? (ligne visée : déjà supprimée, rien n'est refait ; feuille changée, refus) | idem |
 | `temps.suggest` / `temps.submit` | empId, week, motif? | idem (soumission : brouillon ou à corriger, sans heures un jour d’absence validée ; semaine entièrement couverte par une absence : sans heure ; 24 h par jour au plus, toutes lignes cumulées ; motif exigé au-delà de 10 h par jour ou 48 h par semaine, 13 h pour un forfait jours) |
@@ -817,15 +817,16 @@ Règles dans `shared/rules/exercices.ts` et `shared/rules/budget.ts`, actions da
 
 - **Coût réel** : une action engagée passe « réalisée » avec son coût réel (`coutReel`, 0 accepté, 1 000 000 € au plus) et
   son effectif réel (`effectifReel`, facultatif), saisis dans `dialogs/PlanRealiserDialog.tsx`, préremplis du prévu. La
-  clôture d'une session qui réalise l'action rattachée propose ce coût (`ClotureDialog`) ; sans coût transmis (référent HSE,
-  qui ne voit pas le plan), le coût prévu ; effectif réel : les présents de ses sessions clôturées. Le réalisé des enveloppes
+  clôture d'une session qui réalise l'action rattachée propose ce coût (`ClotureDialog`) ; le coût réel est réservé au service
+  RH : sans coût transmis, ou pour le référent HSE (qui ne voit pas le plan), le coût prévu ; effectif réel : les présents de ses sessions clôturées. Le réalisé des enveloppes
   compte le coût réel, avec l'écart au prévu (`budgetSummary`). Les actions déjà réalisées d'une base existante reçoivent
   leur coût prévu comme coût réel (migration `lot4-entretiens-cout-reel`, tracée `migration.coutReel`).
 - **Import « Remplacer »** : seules les lignes prévues d'origine `import` sont supprimées ; celles issues d'une demande
   acceptée (`demande`), d'un report (`report`) ou sans origine (anciennes bases, démonstration) sont conservées.
 - **Exercices** : le sélecteur propose tous les exercices qui ont un plan ou des enveloppes, l'année en cours et la
   suivante ; « Reprendre les enveloppes de N » préremplit celles d'un exercice. `plan.cloturerExercice` (administrateur RH,
-  exercice en cours ou passé) fige le plan et les enveloppes (table `exercicesClos` : `plan.avancer`, `plan.importer`,
+  exercice passé seulement : clos en cours d'année, ses actions engagées réaliseraient sur l'enveloppe suivante une
+  dépense de l'année) fige le plan et les enveloppes (table `exercicesClos` : `plan.avancer`, `plan.importer`,
   `budget.enveloppes` et la création d'une session sur une de ses actions prévues sont refusés) ; les actions prévues ou
   engagées cochées sont recréées sur l'exercice suivant (premier trimestre, même coût prévu, même statut, origine `report`,
   `reportDe`), l'action d'origine passe « reportée » (hors des sommes) et ses sessions ouvertes suivent la nouvelle ligne.

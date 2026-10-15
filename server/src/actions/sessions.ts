@@ -8,7 +8,7 @@ import { clotureDe, montantReel } from '../../../shared/rules/exercices.ts';
 import { controleSession, exigeEvaluation, inscritsDe, placesRemplacees } from '../../../shared/rules/sessions.ts';
 import type { Certification, Inscription, Participation, PlanAction, Session, SessionBilan } from '../../../shared/types.ts';
 import { annulerSiConvoque } from '../notifications.ts';
-import { ActionError, type ActionHandler, type Ctx, requireFormations, str } from './context.ts';
+import { ActionError, type ActionHandler, type Ctx, isRh, requireFormations, str } from './context.ts';
 
 /** Session désignée par `id` ; refusée si elle est clôturée ou annulée (sauf `toutes`). */
 function sessionOf(ctx: Ctx, id: unknown, toutes = false): Session {
@@ -185,11 +185,12 @@ const cloturer: ActionHandler = (ctx, p) => {
     ctx.db.insert<Participation>('participations', { sessionId: s.id, empId: l.i.empId, parcours: l.i.parcours, present: l.present, reussi: l.reussi, certId });
   }
   // L'action du plan réalisée prend le coût réel saisi à la clôture (`coutReel`, prérempli du coût prévu ; le coût prévu
-  // s'il n'est pas transmis) et, pour effectif réel, les présents de ses sessions clôturées.
+  // s'il n'est pas transmis) et, pour effectif réel, les présents de ses sessions clôturées. Le coût réel est réservé au
+  // service RH : le référent HSE, sans droit sur le plan ni sur les enveloppes, clôt au coût prévu.
   const plan = s.planId ? ctx.ds.plan.find(x => x.id === s.planId) : undefined;
   const realise = !!plan && plan.statut !== 'realise' && plan.statut !== 'reporte' && !autreSessionDuPlan(ctx, s);
   if (realise) {
-    const coutReel = p.coutReel === undefined || p.coutReel === null || p.coutReel === '' ? plan!.cout : montantReel(p.coutReel);
+    const coutReel = !isRh(ctx) || p.coutReel === undefined || p.coutReel === null || p.coutReel === '' ? plan!.cout : montantReel(p.coutReel);
     if (coutReel === null) throw new ActionError('Coût réel de l’action du plan : montant en euros, 0 ou plus');
     const presents = Number((ctx.db.sql.prepare('SELECT COUNT(*) AS n FROM participations p JOIN sessions s ON s.id = p.session_id WHERE s.plan_id = ? AND p.present = 1')
       .get(plan!.id) as { n: number }).n);

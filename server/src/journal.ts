@@ -126,7 +126,9 @@ export const REGLES: Record<string, Regle> = {
   'session.annuler': { champs: ['id'], cible: parId('sessions', ['statut']), ...inscritsAvantApres },
   // Résultats de chaque inscrit (présent, reçu) ; ni la note ni le commentaire de l'évaluation à chaud.
   'session.cloturer': {
-    champs: ['id', 'coutReel'], cible: parId('sessions', ['statut']),
+    // Le coût réel saisi n'est pas recopié : il n'est contrôlé que si la clôture réalise une action du plan, dont la trace
+    // (planActions) le porte alors. Sinon ce serait un texte libre.
+    champs: ['id'], cible: parId('sessions', ['statut']),
     extra: p => ({ participants: participants(p).map((x: P) => ({ empId: Number(x?.empId) || null, present: !!x?.present, reussi: typeof x?.reussi === 'boolean' ? x.reussi : null })) }),
     salaries: p => participants(p).map((x: P) => x?.empId),
   },
@@ -209,7 +211,8 @@ export const REGLES: Record<string, Regle> = {
   'entretien.clore': { champs: ['id'], cible: parId('entretiens', ['statut', 'signMgr']) },
   'entretien.signer': { champs: ['id'], cible: parId('entretiens', ['signSal']) },
   // Remise du compte rendu (mode, jour) ; premier téléchargement par le salarié, tracé une fois.
-  'entretien.remettre': { champs: ['id', 'mode', 'date'], cible: parId('entretiens', ['remiseLe', 'remiseMode']) },
+  // La date envoyée n'est pas recopiée (ignorée en mode portail, donc non contrôlée) : remiseLe, avant et après, la trace.
+  'entretien.remettre': { champs: ['id', 'mode'], cible: parId('entretiens', ['remiseLe', 'remiseMode']) },
   'entretien.telecharger': { champs: ['id'], cible: parId('entretiens', ['telechargeLe']), tracer: (_p, x) => !x.avant?.telechargeLe && !!x.apres?.telechargeLe },
   // Administration
   'parametres.maj': { cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true } },

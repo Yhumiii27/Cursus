@@ -77,9 +77,9 @@ test('remise en main propre : sans signature du salarié, datée et tracée, pui
   assert.equal(run(KARIM, 'entretien.remettre', { id, mode: 'main_propre', date: '2026-10-10' }), 'Compte rendu remis en main propre à Mehdi Benali le 10 oct. 2026');
   const e = entretien(db, id);
   assert.deepEqual([e.remiseLe, e.remiseMode, e.remisePar], ['2026-10-10', 'main_propre', 'Karim Haddad']);
-  // Journal : identifiant, mode et date ; ni le compte rendu, ni aucun texte libre.
+  // Journal : identifiant et mode, date par la trace ; ni le compte rendu, ni aucun texte libre.
   const j = x.journal('entretien.remettre').at(-1)!;
-  assert.deepEqual(j.payload, { id, mode: 'main_propre', date: '2026-10-10', avant: { remiseLe: null, remiseMode: null }, apres: { remiseLe: '2026-10-10', remiseMode: 'main_propre' } });
+  assert.deepEqual(j.payload, { id, mode: 'main_propre', avant: { remiseLe: null, remiseMode: null }, apres: { remiseLe: '2026-10-10', remiseMode: 'main_propre' } });
   assert.deepEqual(j.salaries, [2]);
   assert.ok(!JSON.stringify(j).includes('objectifs tenus'));
   // Remise sur papier définitive ; la copie fait foi : le salarié ne modifie plus ses sections, il peut encore signer.
@@ -115,6 +115,9 @@ test('mise à disposition dans le portail : e-mail avec le seul lien vers Cursus
   assert.equal(run(KARIM, 'entretien.remettre', { id, mode: 'portail', date: '2026-10-09' }),
     'Compte rendu mis à disposition de Mehdi Benali dans son espace — e-mail envoyé avec le lien vers Cursus');
   assert.equal(entretien(db, id).remiseLe, '2026-10-10', 'datée du jour, quelle que soit la date envoyée');
+  // La date envoyée, ignorée donc non contrôlée, n'entre pas au journal : seule la date enregistrée (trace) y figure.
+  const j = x.journal('entretien.remettre').at(-1)!;
+  assert.deepEqual(j.payload, { id, mode: 'portail', avant: { remiseLe: null, remiseMode: null }, apres: { remiseLe: '2026-10-10', remiseMode: 'portail' } });
   const [m] = mails();
   assert.deepEqual(m.contenu.a, ['mehdi.benali@entreprise.example']);
   assert.equal(m.contenu.objet, 'Compte rendu d’entretien disponible dans Cursus');
@@ -277,14 +280,25 @@ test('coût réel à la clôture d’une session : proposé, sinon le coût pré
   assert.match(String(run(RH, 'session.cloturer', { id: 6, participants, coutReel: '540' })), /action du plan réalisée/);
   const l = db.get<Ligne>('planActions', plan)!;
   assert.deepEqual([l.statut, l.coutReel, l.effectifReel], ['realise', 540, 3]);
-  // Sans coût transmis (référent HSE, qui ne voit pas le plan) : le coût prévu.
+  // Le coût réel transmis entre dans la trace de l'action du plan, pas dans les paramètres recopiés.
+  const j = db.all<Ligne>('journal').filter(x => x.action === 'session.cloturer').at(-1)!;
+  assert.equal(j.payload.coutReel, undefined);
+  // Référent HSE (ni plan ni enveloppes) : le coût réel qu'il enverrait est ignoré, le coût prévu est retenu.
   const y = fresh();
   const plan2 = y.db.insert<{ id: number }>('planActions', {
     exercice: 2026, f: 'epi', libelle: null, equipe: 'Qualité & HSE', periode: 'T4', effectif: 5, cout: 600, statut: 'engage', origine: 'import',
   }).id;
   y.db.update('sessions', 6, { planId: plan2 });
-  y.run(y.user(23, 'rh'), 'session.cloturer', { id: 6, participants });
-  assert.equal(y.db.get<Ligne>('planActions', plan2)!.coutReel, 600);
+  const realiseAvant = budgetSummary(y.domain(), 2026, 85).realise;
+  y.run(y.user(23, 'rh'), 'session.cloturer', { id: 6, participants, coutReel: 999999 });
+  const l2 = y.db.get<Ligne>('planActions', plan2)!;
+  assert.deepEqual([l2.statut, l2.coutReel], ['realise', 600]);
+  assert.equal(budgetSummary(y.domain(), 2026, 85).realise - realiseAvant, 600);
+  // Session sans action du plan : un coût réel envoyé n'est pas contrôlé, il n'entre donc pas au journal (texte libre).
+  const z = fresh();
+  z.run(z.RH, 'session.cloturer', { id: 6, participants, coutReel: 'Absent : hospitalisé' });
+  const jz = z.journal('session.cloturer').at(-1)!;
+  assert.ok(!JSON.stringify(jz).includes('hospitalisé'));
 });
 
 test('migration nommée : coût réel des actions déjà réalisées repris du coût prévu, une seule fois, tracée', () => {
@@ -342,22 +356,37 @@ test('exercices proposés : tous ceux du plan ou des enveloppes, l’année en c
   assert.deepEqual(exercicesProposes(domain().ds, 2027), [2024, 2025, 2026, 2027, 2028]);
 });
 
-test('clôture d’exercice : report coché des actions engagées, sessions suivies, exercice figé', () => {
+/** Exécute `fn` au jour donné (CURSUS_TODAY, relu à chaque chargement du jeu de données), puis revient au 10 octobre. */
+function aLaDate<T>(jour: string, fn: () => T): T {
+  process.env.CURSUS_TODAY = jour;
+  try { return fn(); } finally { process.env.CURSUS_TODAY = '2026-10-10'; }
+}
+
+test('clôture d’exercice : jamais l’exercice en cours, ni un exercice à venir', () => {
+  const { refus, RH } = fresh();
+  // Le 10 octobre 2026 : clos maintenant, la SST Logistique engagée, dont la session a lieu en 2026, serait réalisée
+  // sur l'enveloppe 2027. La clôture est définitive : elle attend le 1er janvier.
+  refus(RH, 'plan.cloturerExercice', { exercice: 2026, reporter: [7] }, /Exercice 2026 en cours ou à venir : il se clôt à partir du 1er janvier 2027/);
+  refus(RH, 'plan.cloturerExercice', { exercice: 2027 }, /Exercice 2027 en cours ou à venir/);
+  aLaDate('2026-12-31', () => refus(RH, 'plan.cloturerExercice', { exercice: 2026 }, /en cours ou à venir/));
+});
+
+test('clôture d’exercice : report coché des actions engagées, sessions suivies, exercice figé', () => aLaDate('2027-01-05', () => {
   const { db, run, refus, domain, RH, user } = fresh();
   refus(user(14, 'rh'), 'plan.cloturerExercice', { exercice: 2026 }, /administrateur RH/, 403);
-  refus(RH, 'plan.cloturerExercice', { exercice: 2027 }, /pas encore commencé/);
+  refus(RH, 'plan.cloturerExercice', { exercice: 2027 }, /en cours ou à venir/);
   refus(RH, 'plan.cloturerExercice', { exercice: 2026, reporter: [1] }, /ni prévue ni engagée/, 400);
   const avant = budgetSummary(domain(), 2026, 85);
   // Report de la SST Logistique (7, engagée, session 1 ouverte) et de la FCO (11, prévue) ; les autres restent en 2026.
   const msg = run(RH, 'plan.cloturerExercice', { exercice: 2026, reporter: [7, 11] });
-  assert.equal(msg, 'Exercice 2026 clos le 10 oct. 2026 · 2 actions reportées sur 2027 · 6 actions non réalisées laissées dans 2026');
+  assert.equal(msg, 'Exercice 2026 clos le 5 janv. 2027 · 2 actions reportées sur 2027 · 6 actions non réalisées laissées dans 2026');
   const plan = db.all<Ligne>('planActions');
   const sst = plan.find(l => l.reportDe === 7)!, fco = plan.find(l => l.reportDe === 11)!;
   assert.deepEqual([sst.exercice, sst.statut, sst.origine, sst.periode, sst.cout, sst.equipe], [2027, 'engage', 'report', 'T1', 1080, 'Logistique']);
   assert.deepEqual([fco.exercice, fco.statut], [2027, 'prevu']);
   assert.deepEqual(plan.filter(l => [7, 11].includes(l.id)).map(l => l.statut), ['reporte', 'reporte']);
   assert.equal(db.get<Ligne>('sessions', 1)!.planId, sst.id, 'la session ouverte suit l’action reportée');
-  assert.deepEqual(db.all<Ligne>('exercicesClos'), [{ exercice: 2026, le: '2026-10-10', par: 'Sandrine Vidal' }]);
+  assert.deepEqual(db.all<Ligne>('exercicesClos'), [{ exercice: 2026, le: '2027-01-05', par: 'Sandrine Vidal' }]);
   // Les actions reportées sortent des sommes de 2026 et entrent dans celles de 2027.
   const b26 = budgetSummary(domain(), 2026, 85), b27 = budgetSummary(domain(), 2027, 85);
   assert.equal(avant.engage - b26.engage, 1080);
@@ -369,8 +398,8 @@ test('clôture d’exercice : report coché des actions engagées, sessions suiv
   refus(RH, 'plan.avancer', { id: 7, de: 'engage', coutReel: 1000 }, /reportée sur l’exercice 2027/);
   refus(RH, 'plan.importer', { texte: SAMPLE_PLAN_CSV, exercice: 2026, mode: 'add' }, /Exercice 2026 clos/);
   refus(RH, 'budget.enveloppes', { exercice: 2026, enveloppes: { Production: 1 } }, /Exercice 2026 clos/);
-  refus(RH, 'plan.cloturerExercice', { exercice: 2026 }, /déjà clos \(le 10 oct\. 2026 par Sandrine Vidal\)/);
-  refus(RH, 'session.creer', { f: 'caces486', date: '2026-12-01', lieu: 'Lyon', places: 4, planId: 12 }, /exercice clos/);
+  refus(RH, 'plan.cloturerExercice', { exercice: 2026 }, /déjà clos \(le 5 janv\. 2027 par Sandrine Vidal\)/);
+  refus(RH, 'session.creer', { f: 'caces486', date: '2027-02-01', lieu: 'Lyon', places: 4, planId: 12 }, /exercice clos/);
   // La session reportée se clôt sur l'action de 2027 ; une demande acceptée s'ajoute au plan 2027.
   assert.match(String(run(RH, 'plan.avancer', { id: sst.id, de: 'engage', coutReel: 1000 })), /réalisé/);
   run(RH, 'demande.accepter', { id: db.insert<{ id: number }>('demandesCollab', {
@@ -380,12 +409,12 @@ test('clôture d’exercice : report coché des actions engagées, sessions suiv
   assert.deepEqual([ajoutee.exercice, ajoutee.periode, ajoutee.origine], [2027, 'T1', 'demande']);
   // Journal : exercice et actions reportées (identifiants).
   assert.deepEqual(db.all<Ligne>('journal').filter(l => l.action === 'plan.cloturerExercice').map(l => l.payload), [{ exercice: 2026, reporter: [7, 11] }]);
-});
+}));
 
-test('clôture d’exercice : données transmises au service RH et à la lecture seule seulement', () => {
+test('clôture d’exercice : données transmises au service RH et à la lecture seule seulement', () => aLaDate('2027-01-05', () => {
   const { db, run, RH, KARIM, MEHDI, user } = fresh();
   run(RH, 'plan.cloturerExercice', { exercice: 2026, reporter: [] });
   assert.equal(buildSnapshot(db, RH).exercicesClos.length, 1);
   assert.equal(buildSnapshot(db, user(11, 'rh')).exercicesClos.length, 1, 'lecture seule');
   for (const u of [KARIM, MEHDI, user(23, 'rh'), user(7, 'rh')]) assert.deepEqual(buildSnapshot(db, u).exercicesClos, []);
-});
+}));

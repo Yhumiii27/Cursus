@@ -30,12 +30,16 @@ export function exerciceOuvert(ds: Pick<Dataset, 'exercicesClos'>, annee: number
 export const reportables = (ds: Pick<Dataset, 'plan'>, exercice: number): PlanAction[] =>
   ds.plan.filter(l => l.exercice === exercice && (l.statut === 'prevu' || l.statut === 'engage'));
 
-/** Clôture possible de l'exercice : message du refus, ou null. Un exercice à venir ne se clôt pas. */
+/**
+ * Clôture possible de l'exercice : message du refus, ou null. Seul un exercice passé se clôt : clos en cours d'année,
+ * ses actions engagées reportées réaliseraient leurs sessions de l'année sur l'enveloppe suivante, et la clôture est
+ * définitive.
+ */
 export function controleCloture(ds: Pick<Dataset, 'exercicesClos'>, exercice: number, annee: number): string | null {
   if (!Number.isInteger(exercice) || exercice <= 2000) return 'Exercice invalide';
   const clos = clotureDe(ds, exercice);
   if (clos) return `Exercice ${exercice} déjà clos (le ${fmtIso(clos.le)} par ${clos.par})`;
-  if (exercice > annee) return `Exercice ${exercice} pas encore commencé : il se clôt à partir du 1er janvier ${exercice}`;
+  if (exercice >= annee) return `Exercice ${exercice} en cours ou à venir : il se clôt à partir du 1er janvier ${exercice + 1}`;
   return null;
 }
 

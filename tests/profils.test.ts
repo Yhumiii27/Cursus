@@ -319,8 +319,12 @@ test('HTTP : journal et envois pour le service RH et la lecture seule, messages 
   const connecter = async (nom: string) => (await call('/api/login', { cookie: admin, body: { role: 'rh', compteId: rh.find(o => o.nom.startsWith(nom))!.id } })).cookie!;
   // L'administratrice enregistre un arrêt maladie : le message du journal nomme la nature.
   assert.equal((await call('/api/actions/absence.saisir', { cookie: admin, body: { empId: 2, nature: 'MALADIE', du: '2026-12-14', au: '2026-12-15' } })).status, 200);
-  const ligne = (rows: { action: string; message: string | null }[]) => rows.find(r => r.action === 'absence.saisir')!;
-  assert.match(ligne((await call('/api/journal', { cookie: admin })).json).message!, /arrêt maladie/);
+  // Réponse paginée du journal (server/src/journal.ts) : { lignes, total, page, taille }.
+  const ligne = (j: { lignes: { action: string; message: string | null }[] }) => j.lignes.find(r => r.action === 'absence.saisir')!;
+  // Le journal n'enregistre jamais la nature d'un arrêt (server/src/journal.ts), même pour le RH.
+  const vueRh = ligne((await call('/api/journal', { cookie: admin })).json).message!;
+  assert.match(vueRh, /^Absence de Mehdi Benali enregistrée/);
+  assert.doesNotMatch(vueRh, /maladie/i);
   const lecture = await connecter('Élodie Bernard');
   const j = await call('/api/journal', { cookie: lecture });
   assert.equal(j.status, 200);

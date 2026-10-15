@@ -6,6 +6,7 @@
 // manager si le salarié encadre au moins une équipe, collaborateur s'il est salarié.
 import { randomBytes, randomInt, scrypt, scryptSync, timingSafeEqual, type ScryptOptions } from 'node:crypto';
 import { BLOCAGE_MINUTES, COMPTE_TYPE_LABEL, ECHECS_MAX, ouvreEspaceRh, PROFILS_RH } from '../../shared/constants.ts';
+import { estActionPaie } from '../../shared/journal.ts';
 import { adresseValide, controleIdentifiant, normaliserIdentifiant } from '../../shared/rules/comptes.ts';
 import type { CompteSession, CompteType, CompteVue, Employe, ProfilRh, Role } from '../../shared/types.ts';
 import { ActionError } from './actions/context.ts';
@@ -257,12 +258,24 @@ export function libelleCompte(db: Db, c: Compte): string {
 export interface EntreeJournal {
   actor: string; role: string | null; action: string; message: string | null; payload?: unknown;
   compte?: Pick<Compte, 'id' | 'identifiant'> | null;
+  /** Salariés concernés (historique de la fiche, filtre « salarié », export de ses données). */
+  salaries?: number[];
+  /** Horodatage, maintenant par défaut (bilan de la durée de conservation : date du passage). */
+  at?: string;
 }
 
-/** Trace une opération dans le journal, signée du nom de la personne et de son compte. */
+/** Longueur au plus d'un message du journal, par sécurité (un message peut reprendre une donnée reçue). */
+const MESSAGE_MAX = 2000;
+
+/**
+ * Trace une opération dans le journal, signée du nom de la personne et de son compte. Le contenu est
+ * déjà expurgé (liste blanche de server/src/journal.ts) ; une action liée à la paie est marquée pour
+ * l'archive (conservée 3 ans au lieu d'1 an).
+ */
 export function journaliser(db: Db, e: EntreeJournal) {
+  const message = e.message != null && e.message.length > MESSAGE_MAX ? `${e.message.slice(0, MESSAGE_MAX)}…` : e.message;
   db.insert('journal', {
-    at: new Date().toISOString(), actor: e.actor, role: e.role, action: e.action, message: e.message, payload: e.payload ?? {},
-    compteId: e.compte?.id ?? null, identifiant: e.compte?.identifiant ?? null,
+    at: e.at ?? new Date().toISOString(), actor: e.actor, role: e.role, action: e.action, message, payload: e.payload ?? {},
+    compteId: e.compte?.id ?? null, identifiant: e.compte?.identifiant ?? null, salaries: [...new Set(e.salaries ?? [])], paie: estActionPaie(e.action),
   });
 }

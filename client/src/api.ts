@@ -28,8 +28,28 @@ export interface ActionResponse { ok: boolean; message: string | null; result?: 
 /** Erreur d'appel : `status` 0 quand le serveur n'a pas pu être joint. */
 export type ApiError = Error & { status: number };
 
-/** Filtre du journal (Paramètres) : opérations, connexions (et mots de passe), ou tout. */
-export type FiltreJournal = 'tout' | 'operations' | 'connexions' | 'keystone';
+/** Vue du journal (Paramètres) : tout, opérations, connexions et accès, appels de Keystone, archive paie (sur demande). */
+export type VueJournal = 'tout' | 'operations' | 'connexions' | 'keystone' | 'archive';
+/** Filtres du journal : vue, période (dates incluses), personne (nom ou identifiant), action (code ou `famille:<id>`), salarié concerné. */
+export interface FiltreJournal { vue: VueJournal; du?: string; au?: string; auteur?: string; action?: string; salarie?: number | null }
+/** Ligne du journal : `details` porte les champs retenus et les anciennes et nouvelles valeurs (`avant`, `apres`). */
+export interface LigneJournal {
+  id: number; at: string; actor: string; role: string | null; action: string; message: string | null; identifiant: string | null;
+  salaries: number[]; details: Record<string, unknown>; archivee: string | null;
+}
+export interface PageJournal { lignes: LigneJournal[]; total: number; page: number; taille: number }
+
+/** Paramètres d'adresse d'un filtre du journal (valeurs vides omises). */
+export function requeteJournal(f: FiltreJournal, page?: number, taille?: number): string {
+  const p = new URLSearchParams();
+  if (f.vue !== 'tout') p.set('vue', f.vue);
+  for (const k of ['du', 'au', 'auteur', 'action'] as const) if (f[k]?.trim()) p.set(k, f[k]!.trim());
+  if (f.salarie) p.set('salarie', String(f.salarie));
+  if (page && page > 1) p.set('page', String(page));
+  if (taille) p.set('taille', String(taille));
+  const q = p.toString();
+  return q ? `?${q}` : '';
+}
 
 export const MSG_RESEAU = 'Connexion au serveur impossible : vérifiez le réseau, puis réessayez.';
 
@@ -69,6 +89,31 @@ async function request<T>(method: string, url: string, body?: unknown, espace?: 
   return json as T;
 }
 
+/**
+ * Télécharge un fichier produit par le serveur (export CSV du journal, données personnelles d'un salarié) :
+ * le nom vient de l'en-tête Content-Disposition. Le serveur trace l'export.
+ */
+async function telecharger(url: string): Promise<void> {
+  let res: Response;
+  try {
+    res = await fetch(url, { credentials: 'same-origin' });
+  } catch {
+    throw Object.assign(new Error(MSG_RESEAU), { status: 0 });
+  }
+  if (!res.ok) {
+    const json = await res.json().catch(() => ({})) as { error?: string };
+    if (res.status === 401) auRefus?.();
+    throw Object.assign(new Error(json.error || `Erreur ${res.status}`), { status: res.status });
+  }
+  const nom = /filename="([^"]+)"/.exec(res.headers.get('content-disposition') ?? '')?.[1] ?? 'export';
+  const href = URL.createObjectURL(await res.blob());
+  const a = Object.assign(document.createElement('a'), { href, download: nom });
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(href), 1000);
+}
+
 /** Adresse de la connexion Microsoft 365 : page de retour, identifiant proposé, choix d'un autre compte. */
 export function lienMicrosoft(o: { retour?: string; identifiant?: string; choix?: boolean } = {}): string {
   const p = new URLSearchParams();
@@ -90,9 +135,21 @@ export const api = {
   logout: () => request<SessionState>('POST', '/api/logout'),
   /** Instantané de l'espace `espace` (409 si la session est passée à un autre espace entre-temps). */
   data: (espace?: Role) => request<Dataset>('GET', '/api/data', undefined, espace),
-  /** 100 dernières lignes du journal : toutes, opérations seules, connexions seules, ou appels entrants de Keystone. */
-  journal: (filtre: FiltreJournal = 'tout') => request<{ at: string; actor: string; role: string | null; action: string; message: string | null; identifiant: string | null }[]>(
-    'GET', filtre === 'tout' ? '/api/journal' : filtre === 'keystone' ? '/api/journal?vue=keystone' : `/api/journal?filtre=${filtre}`),
+  /** Page du journal (les plus récentes d'abord) : filtres, numéro de page, lignes par page (50 par défaut). */
+  journal: (f: FiltreJournal = { vue: 'tout' }, page = 1, taille?: number) => request<PageJournal>('GET', `/api/journal${requeteJournal(f, page, taille)}`),
+  /** Export CSV du journal filtré (toutes les pages). */
+  journalCsv: (f: FiltreJournal) => telecharger(`/api/journal/csv${requeteJournal(f)}`),
+  /** Service RH : données personnelles d'un salarié (droit d'accès), journal des actions le concernant compris. */
+  donneesSalarie: (empId: number) => telecharger(`/api/salaries/${empId}/donnees`),
+  /** Le salarié connecté : ses propres données. */
+  mesDonnees: () => telecharger('/api/mes-donnees'),
+  /**
+   * Export ou impression produit par le navigateur (CSV, passeport formation, compte rendu) : signalé au serveur
+   * pour le journal, sans attendre ni bloquer le téléchargement.
+   */
+  signalerExport: (x: { nature: 'csv' | 'impression'; titre: string; lignes?: number; empId?: number }) => {
+    fetch('/api/exports', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(x) }).catch(() => {});
+  },
   comptes: () => request<CompteVue[]>('GET', '/api/comptes'),
   envois: (statut: StatutEnvoi | null) => request<EnvoisState>('GET', `/api/envois${statut ? `?statut=${statut}` : ''}`),
   async action(name: string, payload: Record<string, unknown>, espace?: Role): Promise<ActionResponse> {

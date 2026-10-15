@@ -13,6 +13,7 @@ import { Avatar, Bar, Btn, Chips, CloseButton, Empty, Fine, NoteAccent, Page, Se
 import { printDocument } from '../print.ts';
 import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { HistoriqueFiche } from './Journal.tsx';
 
 /** Valeur du filtre d'équipe pour les collaborateurs sans équipe (« À affecter »). */
 const SANS_EQUIPE = '';
@@ -220,7 +221,7 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
       ...(e.anciennes.length ? [{ title: 'Certifications remplacées', table: { head: ['Formation', 'Obtenue le', 'Expirait le', 'Remplacée le'], rows: e.anciennes.map(c => [c.fm.nom, fmt(c.obt), fmt(c.exp), fmt(c.remplacee!)]) } }] : []),
       // Le motif d'une suspension ou d'un retrait n'est pas imprimé : seuls l'état et sa date figurent au passeport.
       ...(e.habs.length ? [{ title: 'Habilitations', table: { head: ['Habilitation', 'Délivrée le', 'Par', 'Expire le', 'Statut'], rows: e.habs.map(h => [h.hm.nom, h.delivree ? fmt(parse(h.delivree)) : '—', h.par ?? '—', h.exp ? fmt(h.exp) : '—', HAB_LABEL[h.key] + (h.mesureLe ? ` le ${fmt(h.mesureLe)}` : '')]) } }] : []),
-    ]);
+    ], e.id);
     if (!ok) notify('Autorisez les fenêtres surgissantes pour imprimer le passeport formation', true);
   };
 
@@ -401,6 +402,9 @@ function EmployeePanel({ e, upcomingCount, trips, horizon }: { e: EmpX; upcoming
           <Fine>{c.interim ? `Congés gérés par l’agence d’intérim${e.agence ? ' ' + e.agence : ''} : aucune absence à poser dans Cursus.` : 'Aucune absence à poser pour ce contrat.'}</Fine>
         )}
       </>}
+
+      {/* Lecteurs du journal : actions qui concernent ce salarié ; droit « rh » : export de toutes ses données (droit d'accès). */}
+      <HistoriqueFiche empId={e.id} />
 
       <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
         {(rh || membre) && <Btn variant="secondary" icon={<PencilSimpleIcon size={14} />} onClick={() => openDialog({ type: 'employe', empId: e.id })}>Modifier la fiche</Btn>}

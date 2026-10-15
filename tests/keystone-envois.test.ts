@@ -562,10 +562,10 @@ test('serveur : l’action met en file, le processus de fond envoie, la vue Envo
   assert.deepEqual((await lire().then(() => fetch(`${base}/api/envois?statut=echec`, { headers: { cookie } })).then(assert200)).envois, []);
   // Journal : les appels entrants de Keystone ont leur vue, sans masquer les actions.
   assert.equal((await fetch(`${base}/api/integrations/keystone/v1/chantiers/K-2614/go-no-go`, { headers: { 'x-api-key': 'demo-keystone' } })).status, 200);
-  const actions = await fetch(`${base}/api/journal`, { headers: { cookie } }).then(assert200) as unknown as Corps[];
+  const actions = (await fetch(`${base}/api/journal`, { headers: { cookie } }).then(assert200)).lignes as Corps[];
   assert.ok(actions.some(x => x.action === 'keystone.refuser'));
   assert.ok(!actions.some(x => x.action === 'keystone.appel'));
-  const appels = await fetch(`${base}/api/journal?vue=keystone`, { headers: { cookie } }).then(assert200) as unknown as Corps[];
+  const appels = (await fetch(`${base}/api/journal?vue=keystone`, { headers: { cookie } }).then(assert200)).lignes as Corps[];
   assert.deepEqual(appels.map(x => [x.action, x.message]), [['keystone.appel', 'GET /v1/chantiers/K-2614/go-no-go → 200 · réf. K-2614']]);
   // Réservée au service RH.
   await fetch(`${base}/api/mode`, { method: 'POST', headers: { cookie, 'content-type': 'application/json' }, body: JSON.stringify({ role: 'manager' }) });

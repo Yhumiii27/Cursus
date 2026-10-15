@@ -1,5 +1,5 @@
 // Espace collaborateur : certifications, habilitations, voyages et demandes du salarié connecté.
-import { PlusIcon } from '@phosphor-icons/react';
+import { DownloadSimpleIcon, PlusIcon } from '@phosphor-icons/react';
 import { CERT_LABEL, CLS, EMP_LABEL, HAB_CLS, HAB_LABEL, REQ_CLS, REQ_LABEL, SESS_CLS, TRIP_CLS, TRIP_LABEL } from '../../../shared/constants.ts';
 import { parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, fmtShort, matricule, plural, rel } from '../../../shared/format.ts';
@@ -7,6 +7,7 @@ import { declarationDetail, formaliteCle } from '../../../shared/rules/formalite
 import { etatInscription } from '../../../shared/rules/sessions.ts';
 import { Bar, Btn, Chips, Empty, Fine, Kpi, Kpis, NoteAccent, Page, Panel, Tag } from '../components/ui.tsx';
 import { useEnriched, useRole, useTrips } from '../state/derived.ts';
+import { api } from '../api.ts';
 import { useStore } from '../state/store.tsx';
 import { reqKind, reqLabel } from './Dashboard.tsx';
 
@@ -18,7 +19,7 @@ export function Portail() {
   const { emps, upcoming, horizon, d } = useEnriched();
   const trips = useTrips();
   const { me: meId } = useRole();
-  const { openDialog } = useStore();
+  const { openDialog, notify } = useStore();
   const me = emps.find(e => e.id === meId);
   if (!me) return <Page title="Mon espace"><Empty>Aucun dossier collaborateur n’est associé à votre compte.</Empty></Page>;
 
@@ -195,6 +196,16 @@ export function Portail() {
               </div>
             ))}
             {reqs.length === 0 && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>Aucune demande envoyée.</p>}
+          </Panel>
+
+          <Panel title="Mes données personnelles">
+            <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>
+              Copie de toutes les données que Cursus conserve sur vous (fiche, formations, habilitations, voyages, temps, absences, entretiens, demandes, compte) dans un fichier lisible, que vous pouvez conserver ou transmettre.
+            </p>
+            <div>
+              <Btn small icon={<DownloadSimpleIcon size={14} />} onClick={() => api.mesDonnees().catch(err => notify((err as Error).message, true))}>Télécharger mes données</Btn>
+            </div>
+            <Fine>Le journal des actions qui vous concernent vous est remis sur demande par le service RH.</Fine>
           </Panel>
         </div>
       </div>

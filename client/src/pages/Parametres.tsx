@@ -1,20 +1,19 @@
 // Paramètres (service RH) : règles de suivi, intégrations Keystone et Sage Paie, envois sortants, comptes et accès,
-// journal des actions, démonstration. Les réglages, les comptes et la réinitialisation sont réservés à l'administrateur RH ;
-// le gestionnaire RH et la lecture seule consultent (la lecture seule ne relance ni ne classe les envois).
+// journal des actions (pages/Journal.tsx), démonstration. Les réglages, les comptes et la réinitialisation sont réservés
+// à l'administrateur RH ; le gestionnaire RH et la lecture seule consultent (la lecture seule ne relance ni ne classe les envois).
 import { Fragment, useCallback, useEffect, useRef, useState } from 'react';
 import { ArchiveIcon, ArrowClockwiseIcon, ArrowCounterClockwiseIcon } from '@phosphor-icons/react';
 import { ENVOI_CLS, ENVOI_LABEL, EVENEMENT_LABEL, GNG_LABEL } from '../../../shared/constants.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, fmtShort, matricule, num, plural } from '../../../shared/format.ts';
 import type { Envoi, Settings, StatutEnvoi } from '../../../shared/types.ts';
-import { api, type EnvoisState, type FiltreJournal } from '../api.ts';
+import { api, type EnvoisState } from '../api.ts';
 import { Field } from '../components/Dialog.tsx';
 import { Btn, Empty, Fine, Page, Panel, Pre, SectionLabel, Seg, Tag, Two, stop } from '../components/ui.tsx';
 import { useRole } from '../state/derived.ts';
 import { useData, useStore } from '../state/store.tsx';
 import { ComptesPanel } from './Comptes.tsx';
-
-type JournalRow = Awaited<ReturnType<typeof api.journal>>[number];
+import { JournalPanel } from './Journal.tsx';
 
 /** Police à chasse fixe pour les codes (pas de classe dédiée dans app.css). */
 const MONO = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12 };
@@ -41,8 +40,6 @@ const KEYSTONE_ENDPOINTS: [string, string, string][] = [
   ['GET', '/chantiers/:id/go-no-go', 'Verdict Go / No Go d’un chantier et de ses ressources'],
   ['POST', '/demandes', 'Demande de déplacement d’une ressource, à valider dans Voyages'],
 ];
-
-const ROLE_LABEL: Record<string, string> = { rh: 'Service RH', manager: 'Manager', collaborateur: 'Collaborateur', integration: 'Intégration' };
 
 function ModeTag({ mode }: { mode: string }) {
   return mode === 'api' ? <Tag cls="tag-neutral">API connectée</Tag> : <Tag cls="tag-outline">Simulation</Tag>;
@@ -96,20 +93,6 @@ export function Parametres() {
     const t = setInterval(loadEnvois, 10_000);
     return () => clearInterval(t);
   }, [consultation, enAttente, loadEnvois]);
-
-  // Journal : rechargé au montage, à chaque nouvel instantané (donc après chaque action) et au changement de filtre.
-  // Les appels entrants de Keystone, nombreux, ont leur propre filtre pour ne pas masquer les actions.
-  const [journal, setJournal] = useState<JournalRow[] | null>(null);
-  const [journalError, setJournalError] = useState<string | null>(null);
-  const [journalFiltre, setJournalFiltre] = useState<FiltreJournal>('tout');
-  const loadJournal = useCallback(() => {
-    let cancelled = false;
-    api.journal(journalFiltre)
-      .then(rows => { if (!cancelled) { setJournal(rows); setJournalError(null); } })
-      .catch(err => { if (!cancelled) setJournalError((err as Error).message); });
-    return () => { cancelled = true; };
-  }, [journalFiltre]);
-  useEffect(() => (consultation ? loadJournal() : undefined), [data, consultation, loadJournal]);
 
   // Seuil budgétaire : valeur en cours de glissement, enregistrée au relâchement.
   const [seuilDraft, setSeuilDraft] = useState<number | null>(null);
@@ -179,7 +162,7 @@ export function Parametres() {
           {session?.demo && admin && (
             <Panel title="Données de démonstration">
               <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>
-                Remet les collaborateurs, formations, feuilles de temps, absences, entretiens, paramètres et le journal dans leur état initial de démonstration. Une sauvegarde de la base actuelle est faite au préalable sur le serveur.
+                Remet les collaborateurs, formations, feuilles de temps, absences, entretiens et paramètres dans leur état initial de démonstration. Le journal des actions est conservé (la réinitialisation y est tracée). Une sauvegarde de la base actuelle est faite au préalable sur le serveur.
               </p>
               <div>
                 <Btn variant="secondary" icon={<ArrowCounterClockwiseIcon size={14} />} onClick={reset}>Réinitialiser les données</Btn>
@@ -256,38 +239,7 @@ export function Parametres() {
 
       {admin && <ComptesPanel />}
 
-      <Panel title="Journal des actions" aside={
-        <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap', justifyContent: 'flex-end' }}>
-          <Seg name="journal-filtre" label="Lignes du journal" value={journalFiltre} onChange={setJournalFiltre}
-            options={[['tout', 'Tout'], ['operations', 'Opérations'], ['connexions', 'Connexions'], ['keystone', 'Appels de Keystone']]} />
-          <span className="text-muted sub">100 dernières lignes</span>
-          <Btn small onClick={() => loadJournal()}>Actualiser</Btn>
-        </div>
-      }>
-        {journalError && <p className="form-error">{journalError}</p>}
-        {journal == null && !journalError && <Empty pad="sm">Chargement du journal…</Empty>}
-        {journal != null && journal.length === 0 && <Empty pad="sm">{journalFiltre === 'connexions' ? 'Aucune connexion enregistrée.' : journalFiltre === 'keystone' ? 'Aucun appel de Keystone enregistré.' : 'Aucune action enregistrée.'}</Empty>}
-        {journal != null && journal.length > 0 && (
-          <div className="scroll-x" style={{ maxHeight: 520, overflowY: 'auto' }}>
-            <table className="table">
-              <thead><tr><th>Date / heure</th><th>Auteur</th><th>Action</th><th>Message</th></tr></thead>
-              <tbody>
-                {journal.map((j, i) => {
-                  const at = new Date(j.at);
-                  return (
-                    <tr key={`${j.at}-${i}`}>
-                      <td><Two main={fmt(at)} sub={at.toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} nowrap /></td>
-                      <td><Two main={j.actor} sub={[j.role && (ROLE_LABEL[j.role] ?? j.role), j.identifiant].filter(Boolean).join(' · ')} nowrap /></td>
-                      <td className="nowrap text-n300" style={MONO}>{j.action}</td>
-                      <td className="text-muted" style={{ fontSize: 13 }}>{j.message ?? '—'}</td>
-                    </tr>
-                  );
-                })}
-              </tbody>
-            </table>
-          </div>
-        )}
-      </Panel>
+      <JournalPanel />
     </Page>
   );
 }

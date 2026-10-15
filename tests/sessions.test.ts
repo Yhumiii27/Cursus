@@ -12,7 +12,8 @@ const { Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, loadFull } = await import('../server/src/dataset.ts');
 const { migrate } = await import('../server/src/migrate.ts');
-const { ACTIONS, QUIET_ACTIONS } = await import('../server/src/actions/index.ts');
+const { ACTIONS } = await import('../server/src/actions/index.ts');
+const { REGLES } = await import('../server/src/journal.ts');
 const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
 const { Domain } = await import('../shared/domain.ts');
 const { etatInscription, inscritsDe, listeOrganisme } = await import('../shared/rules/sessions.ts');
@@ -442,9 +443,9 @@ test('droits : le manager inscrit son équipe, sans clôture ni annulation ; ré
   }
   const rh = buildSnapshot(db, RH).sessions;
   assert.deepEqual([rh.find(s => s.id === 6)!.bilan?.commentaire, rh.find(s => s.id === 7)!.bilan?.motif], [commentaire, 'Formateur malade']);
-  // Toutes ces actions sont tracées dans le journal (route POST /api/actions/:nom).
+  // Toutes ces actions sont tracées dans le journal (route POST /api/actions/:nom), sans condition.
   for (const a of ['session.creer', 'session.confirmer', 'session.modifier', 'session.annuler', 'session.cloturer']) {
-    assert.ok(ACTIONS[a] && !QUIET_ACTIONS.has(a), a);
+    assert.ok(ACTIONS[a] && REGLES[a] && !REGLES[a].tracer, a);
   }
 });
 

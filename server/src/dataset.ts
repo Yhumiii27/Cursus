@@ -245,11 +245,3 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
   };
 }
 
-/** Actions dont le message du journal peut nommer une donnée de santé (nature d'un arrêt, visite, vaccination). */
-const JOURNAL_SANTE = new Set(['absence.saisir', 'absence.qualifier', 'absence.prolonger', 'absence.annuler', 'medical.demander', 'formalite.enregistrer', 'demande.accepter']);
-
-/** Journal lu par un profil sans le droit `rh` (lecture seule) : messages des actions touchant à la santé masqués. */
-export function journalPourProfil<T extends { action: string; message: string | null }>(user: CurrentUser, rows: T[]): T[] {
-  if (droitsRh(user).includes('rh')) return rows;
-  return rows.map(r => JOURNAL_SANTE.has(r.action) && r.message ? { ...r, message: 'Détail réservé au service RH' } : r);
-}

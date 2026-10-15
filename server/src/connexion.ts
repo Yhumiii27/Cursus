@@ -5,7 +5,7 @@
 // En démonstration, la connexion reste libre (choix d'un compte, mot de passe quelconque) mais passe
 // par les mêmes comptes que la production.
 import express, { type Request, type Response, type Router } from 'express';
-import { aDroitRh, BLOCAGE_MINUTES, ECHECS_MAX, PROFILS_RH } from '../../shared/constants.ts';
+import { aDroitRh, BLOCAGE_MINUTES, ECHECS_MAX, ESPACE_LABEL, PROFILS_RH } from '../../shared/constants.ts';
 import { controleMotDePasse, normaliserIdentifiant } from '../../shared/rules/comptes.ts';
 import type { CurrentUser, Role } from '../../shared/types.ts';
 import {
@@ -63,6 +63,11 @@ export function routesConnexion(db: Db): Router {
   /** Refus 429 d'une adresse qui a dépassé ses échecs : Retry-After jusqu'à la fin de sa fenêtre. */
   const tropDeTentatives = (res: Response, adresse: string) =>
     res.status(429).set('Retry-After', String(limite.attente(adresse))).json({ error: TROP_DE_TENTATIVES });
+  /** Connexion, déconnexion, changement d'espace ou refus d'accès, signé du compte (rien sans compte). */
+  const tracer = (c: Compte | null | undefined, action: string, message: string, role: Role | null, req: Request, extra: Record<string, unknown> = {}) => {
+    if (c) journaliser(db, { actor: nomDuCompte(db, c), role, action, message, payload: { ip: ip(req), ...extra }, compte: c });
+  };
+  const compteDe = (s: SessionInfo | null) => (s?.compteId ? db.get<Compte>('comptes', s.compteId) : undefined);
 
   /** Comptes proposés sur l'écran de connexion de démonstration, par espace. */
   function loginOptions() {
@@ -116,7 +121,10 @@ export function routesConnexion(db: Db): Router {
   r.get('/api/session', (req, res) => {
     let s = readSession(db, req);
     // En démonstration, l'espace RH s'ouvre directement à la première visite.
-    if (!s && DEMO) s = sessionDemo(res, null, 'rh');
+    if (!s && DEMO) {
+      s = sessionDemo(res, null, 'rh');
+      tracer(compteDe(s), 'connexion', 'Connexion (démonstration) — espace RH ouvert à la première visite', 'rh', req, { methode: 'demo' });
+    }
     res.json(payload(s));
   });
 
@@ -125,11 +133,18 @@ export function routesConnexion(db: Db): Router {
     const role = req.body?.role as Role;
     if (!ROLES.includes(role)) return res.status(400).json({ error: 'Espace inconnu' });
     const cur = readSession(db, req);
-    if (DEMO) return res.json(payload(sessionDemo(res, cur, role)));
+    const change = (s: SessionInfo) => {
+      if (cur?.role !== s.role) tracer(compteDe(s), 'espace.change', `Espace ${cur ? `${ESPACE_LABEL[cur.role]} → ` : ''}${ESPACE_LABEL[s.role]}`, s.role, req, { de: cur?.role ?? null, vers: s.role });
+      return s;
+    };
+    if (DEMO) return res.json(payload(change(sessionDemo(res, cur, role))));
     const id = identite(db, req);
     if (!cur || !id) return res.status(401).json({ error: 'Connexion requise' });
-    if (!espacesDuCompte(db, id.compte).includes(role)) return res.status(403).json({ error: 'Cet espace n’est pas ouvert à votre compte' });
-    res.json(payload(updateSession(db, { ...cur, role })));
+    if (!espacesDuCompte(db, id.compte).includes(role)) {
+      tracer(id.compte, 'acces.refuse', `Changement d’espace — l’espace ${ESPACE_LABEL[role]} n’est pas ouvert à ce compte`, cur.role, req, { vers: role });
+      return res.status(403).json({ error: 'Cet espace n’est pas ouvert à votre compte' });
+    }
+    res.json(payload(change(updateSession(db, { ...cur, role }))));
   });
 
   r.post('/api/login', async (req, res) => {
@@ -148,6 +163,7 @@ export function routesConnexion(db: Db): Router {
       if (cur?.id) revokeSession(db, cur.id);
       enregistrerConnexion(db, c);
       const s = openSession(db, res, { compteId: c.id, role, methode: 'demo', demoComptes: { ...cur?.demoComptes, [role]: c.id } });
+      tracer(c, 'connexion', `Connexion (démonstration) — espace ${ESPACE_LABEL[role]}`, role, req, { methode: 'demo' });
       return res.json(payload(s));
     }
 
@@ -236,6 +252,7 @@ export function routesConnexion(db: Db): Router {
     const s = readSession(db, req);
     if (!s) { clearSessionCookie(res); return res.json(payload(null)); }
     revokeSession(db, s.id!);
+    tracer(compteDe(s), 'deconnexion', 'Déconnexion', s.role, req, { methode: s.methode });
     // Session Microsoft : le navigateur passe ensuite par la déconnexion Microsoft, qui revient sur Cursus.
     if (s.methode === 'microsoft' && OIDC) {
       clearSessionCookie(res);
@@ -253,7 +270,10 @@ export function routesConnexion(db: Db): Router {
 
   r.get('/api/comptes', (req, res) => {
     const id = identite(db, req);
-    if (!id || id.user.role !== 'rh' || !aDroitRh(id.user.profilRh, 'admin')) return res.status(403).json({ error: 'Réservé à l’administrateur RH' });
+    if (!id || id.user.role !== 'rh' || !aDroitRh(id.user.profilRh, 'admin')) {
+      tracer(id?.compte, 'acces.refuse', 'Comptes et accès — réservé à l’administrateur RH', id?.user.role ?? null, req);
+      return res.status(403).json({ error: 'Réservé à l’administrateur RH' });
+    }
     res.json(comptesVue(db));
   });
 

@@ -1,5 +1,6 @@
 // Paramètres → Paie : heures supplémentaires payées avec majoration ou remplacées par un repos (seulement avec la
-// référence de l'accord collectif qui le prévoit, art. L3121-37), rattachement d'une semaine à cheval sur deux mois et
+// référence de l'accord collectif qui le prévoit, art. L3121-33, ou, sans délégué syndical,
+// de la décision de l'employeur non contestée par le CSE, art. L3121-37), rattachement d'une semaine à cheval sur deux mois et
 // jour de clôture des variables (shared/rules/paie.ts). Réglages de l'administrateur RH ; les autres profils consultent.
 // Le mode des heures supplémentaires est figé sur chaque feuille à sa validation : le changer ne recalcule rien.
 import { useEffect, useState } from 'react';

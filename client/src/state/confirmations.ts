@@ -6,7 +6,7 @@
 // Les actions confirmées gardent leurs contrôles serveur : un écran en retard (demande déjà traitée, feuille
 // modifiée ailleurs) est refusé par le serveur et le dialogue reste ouvert avec le message.
 import { fH, plural } from '../../../shared/format.ts';
-import { periodeLabel } from '../../../shared/rules/paie.ts';
+import { feuillesDeLaPeriode, type GroupePaie, periodeLabel } from '../../../shared/rules/paie.ts';
 import type { DialogState, UiState } from './store.tsx';
 
 /** Longueur maximale d'un motif (contrôlée aussi par le serveur). */
@@ -106,10 +106,10 @@ export function suppressionLigne(payload: Record<string, unknown>, ligne: string
  * feuilles sont marquées transmises. `periodes` : feuilles par période de paie, dont les rappels d'une période close
  * (`feuillesParPeriode` de shared/rules/paie.ts), annoncés avant de confirmer.
  */
-export function transmissionSage(feuilles: number, salaries: number, periodes: { periode: string; origine: string | null; feuilles: number }[] = []): Confirmation {
+export function transmissionSage(feuilles: number, salaries: number, periodes: GroupePaie[] = []): Confirmation {
   const rappels = periodes.filter(p => p.origine);
-  const parPeriode = [...new Set(periodes.map(p => p.periode))]
-    .map(p => `${periodeLabel(p)} (${plural(periodes.filter(x => x.periode === p).reduce((n, x) => n + x.feuilles, 0), 'feuille', 'feuilles')})`);
+  // Feuilles distinctes : une semaine ventilée jour par jour entre un rappel et la période ouverte n'y compte qu'une fois.
+  const parPeriode = feuillesDeLaPeriode(periodes).map(p => `${periodeLabel(p.periode)} (${plural(p.feuilles, 'feuille', 'feuilles')})`);
   return {
     titre: 'Transmettre à Sage Paie (simulation)',
     question: `Marquer transmises à Sage Paie ${plural(feuilles, 'feuille validée', 'feuilles validées')} (${plural(salaries, 'salarié', 'salariés')}) ?`,

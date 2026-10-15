@@ -34,7 +34,7 @@ export const MODES_HEURES_SUP: Record<ModeHeuresSupFige, { label: string; aide: 
   },
   repos: {
     label: 'Remplacées par un repos compensateur',
-    aide: 'Heures supplémentaires et majoration remplacées par un repos compensateur équivalent (rubrique RCR_ACQUIS), sans paiement, comme le prévoit l’accord collectif (art. L3121-37).',
+    aide: 'Heures supplémentaires et majoration remplacées par un repos compensateur équivalent (rubrique RCR_ACQUIS), sans paiement, comme le prévoit l’accord collectif (art. L3121-33) ou, sans délégué syndical, la décision de l’employeur à laquelle le CSE ne s’est pas opposé (art. L3121-37).',
   },
   historique: {
     label: 'Calcul d’avant le choix du mode',
@@ -115,27 +115,36 @@ export function periodesSemaine(week: ISODate, s: Partial<Pick<Settings, 'period
     .map(x => (x.periode >= ouverte ? { ...x, origine: null } : { periode: ouverte, origine: x.periode, jours: x.jours }));
 }
 
-/** Feuilles en attente d'une période (et d'une période d'origine, pour un rappel). */
-export interface GroupePaie { periode: string; origine: string | null; feuilles: number; salaries: number }
+/**
+ * Feuilles en attente d'une période (et d'une période d'origine, pour un rappel). `semaines` : feuilles du groupe
+ * (« salarié|lundi »), pour compter une seule fois, par période, une semaine ventilée entre rappel et période ouverte.
+ */
+export interface GroupePaie { periode: string; origine: string | null; feuilles: number; salaries: number; semaines: string[] }
 
 /**
  * Feuilles en attente de transmission regroupées par période de destination, les rappels à part : une semaine
  * ventilée jour par jour sur deux périodes compte dans chacune.
  */
 export function feuillesParPeriode(sheets: Pick<FeuilleTemps, 'empId' | 'week'>[], s: Partial<Settings> | undefined, today: ISODate): GroupePaie[] {
-  const groupes = new Map<string, { periode: string; origine: string | null; feuilles: number; emps: Set<number> }>();
+  const groupes = new Map<string, { periode: string; origine: string | null; semaines: string[]; emps: Set<number> }>();
   for (const sh of sheets) {
     for (const p of periodesSemaine(sh.week, s, today)) {
       const cle = `${p.periode}|${p.origine ?? ''}`;
-      const g = groupes.get(cle) ?? { periode: p.periode, origine: p.origine, feuilles: 0, emps: new Set<number>() };
-      g.feuilles++;
+      const g = groupes.get(cle) ?? { periode: p.periode, origine: p.origine, semaines: [], emps: new Set<number>() };
+      g.semaines.push(`${sh.empId}|${sh.week}`);
       g.emps.add(sh.empId);
       groupes.set(cle, g);
     }
   }
   return [...groupes.values()]
     .sort((a, b) => a.periode.localeCompare(b.periode) || (a.origine ?? '').localeCompare(b.origine ?? ''))
-    .map(({ emps, ...g }) => ({ ...g, salaries: emps.size }));
+    .map(({ emps, ...g }) => ({ ...g, feuilles: g.semaines.length, salaries: emps.size }));
+}
+
+/** Feuilles distinctes par période de destination, rappels compris (une semaine ventilée n'y compte qu'une fois). */
+export function feuillesDeLaPeriode(groupes: readonly Pick<GroupePaie, 'periode' | 'semaines'>[]): { periode: string; feuilles: number }[] {
+  return [...new Set(groupes.map(g => g.periode))]
+    .map(periode => ({ periode, feuilles: new Set(groupes.filter(g => g.periode === periode).flatMap(g => g.semaines)).size }));
 }
 
 // — Rubriques —
@@ -183,4 +192,21 @@ export function erreurCodeSage(v: string): string | null {
   const t = v.trim();
   if (!t) return 'Indiquez le code de la rubrique dans le plan de paie Sage.';
   return /^[A-Za-z0-9_.-]{1,20}$/.test(t) ? null : 'Code Sage : 20 caractères au plus, lettres, chiffres, tiret, point ou soulignement.';
+}
+
+/**
+ * Case « Code vérifié dans le plan de paie Sage » après une saisie du code (client/src/dialogs/RubriqueDialog.tsx) :
+ * décochée dès que le code saisi diffère du code enregistré, puisqu'il reste à vérifier ; rétablie telle qu'enregistrée
+ * quand on revient au code enregistré.
+ */
+export const verifieApresSaisie = (r: Pick<RubriqueVue, 'codeSage' | 'confirmee'>, saisi: string): boolean =>
+  saisi.trim() === r.codeSage ? r.confirmee : false;
+
+/**
+ * Valeur de `confirmer` envoyée à `paie.rubrique` : case cochée, nouvelle confirmation si le code change ou ne l'était
+ * pas ; décochée, confirmation retirée d'un code inchangé (un code changé repasse de lui-même « à confirmer »).
+ */
+export function confirmationEnvoyee(r: Pick<RubriqueVue, 'codeSage' | 'confirmee'>, saisi: string, verifie: boolean): boolean | undefined {
+  const change = saisi.trim() !== r.codeSage;
+  return verifie ? (change || !r.confirmee ? true : undefined) : (r.confirmee && !change ? false : undefined);
 }

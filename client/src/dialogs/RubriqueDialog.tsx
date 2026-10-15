@@ -3,7 +3,7 @@
 // n'a pas de code confirmé, seule la simulation transmet (server/src/actions/temps.ts).
 import { useState } from 'react';
 import { fmtIso } from '../../../shared/format.ts';
-import { erreurCodeSage, rubriquesPaie } from '../../../shared/rules/paie.ts';
+import { confirmationEnvoyee, erreurCodeSage, rubriquesPaie, verifieApresSaisie } from '../../../shared/rules/paie.ts';
 import { CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine } from '../components/ui.tsx';
 import { useData, useStore } from '../state/store.tsx';
@@ -27,8 +27,7 @@ export function RubriqueDialog({ code }: { code: string }) {
 
   const enregistrer = async () => {
     if (busy || !v.verifier(erreur)) return;
-    // Confirmée : nouvelle confirmation si le code change ou ne l'était pas ; décochée : confirmation retirée.
-    const confirmer = confirme ? (change || !r.confirmee ? true : undefined) : (r.confirmee && !change ? false : undefined);
+    const confirmer = confirmationEnvoyee(r, codeSage, confirme);
     setBusy(true);
     const res = await run('paie.rubrique', { code, codeSage: codeSage.trim(), active, ...(confirmer === undefined ? {} : { confirmer }) });
     setBusy(false);
@@ -42,7 +41,11 @@ export function RubriqueDialog({ code }: { code: string }) {
     </>}>
       <Field label="Rubrique de Cursus"><Static>{r.code} · {r.label} ({UNITE[r.unite]})</Static></Field>
       <Field label="Code dans le plan de paie Sage" htmlFor="rb-code" requis erreur={codeSage.trim() ? erreur : v.erreur(erreur)}>
-        <input className="input" id="rb-code" autoFocus maxLength={20} value={codeSage} onChange={ev => setCodeSage(ev.target.value)} style={{ maxWidth: 240 }} />
+        <input className="input" id="rb-code" autoFocus maxLength={20} value={codeSage} onChange={ev => {
+          // Un code modifié est à vérifier de nouveau : la case se décoche (rétablie si l'on revient au code enregistré).
+          setCodeSage(ev.target.value);
+          setConfirme(verifieApresSaisie(r, ev.target.value));
+        }} style={{ maxWidth: 240 }} />
       </Field>
       <label style={{ display: 'flex', alignItems: 'flex-start', gap: 'var(--space-3)', fontSize: 14, cursor: 'pointer' }}>
         <input type="checkbox" checked={active} onChange={ev => setActive(ev.target.checked)} style={{ accentColor: 'var(--color-accent)', marginTop: 'var(--space-1)', flex: 'none' }} />

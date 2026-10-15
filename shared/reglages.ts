@@ -34,8 +34,9 @@ export const choix = <T extends string>(valeurs: readonly T[], sinon?: T) => (v:
   (valeurs as readonly unknown[]).includes(v) ? v as T : sinon ?? actuelle;
 
 /**
- * Texte court sur une ligne (référence d'un accord…), espaces réduits ; au-delà de `max` caractères, refus. Recopié dans
- * le journal et transmis à toute personne connectée : jamais de donnée personnelle.
+ * Texte court sur une ligne (référence d'un accord…), espaces réduits ; au-delà de `max` caractères, refus. Transmis à
+ * toute personne connectée : jamais de donnée personnelle. Le journal n'en garde que le fait qu'il soit renseigné
+ * (`masques` de la règle de parametres.maj, server/src/journal.ts).
  */
 export const texte = (max: number, libelle: string) => (v: unknown): string => {
   const t = typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '';
@@ -72,9 +73,10 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
  * refuse toute la modification (ReglageInvalide, 400). Une ligne par règle, avec le groupe de sa section.
  */
 export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
-  // — Paie : le repos de remplacement des heures supplémentaires suppose un accord collectif (art. L3121-37) —
+  // — Paie : le repos de remplacement des heures supplémentaires suppose un accord collectif (art. L3121-33) ou, sans
+  // délégué syndical, l'absence d'opposition du CSE (art. L3121-37) —
   s => (s.heuresSupMode === 'repos' && !s.heuresSupAccord
-    ? 'Heures supplémentaires remplacées par un repos : indiquez la référence de l’accord collectif qui le prévoit (art. L3121-37)' : null),
+    ? 'Heures supplémentaires remplacées par un repos : indiquez la référence de l’accord collectif qui le prévoit (art. L3121-33) ou, sans délégué syndical, de la décision non contestée par le CSE (art. L3121-37)' : null),
 ];
 
 /** Vue non typée de la table, pour la parcourir (les contrôles reçoivent la valeur en vigueur du même champ). */

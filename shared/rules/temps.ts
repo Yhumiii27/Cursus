@@ -81,7 +81,7 @@ export function calcSheet(d: Domain, e: Employe, sh: (Pick<FeuilleTemps, 'lignes
       r.incluses50 = Math.max(0, Math.min(total, seuil) - 43);
       r.incluses = r.incluses25 + r.incluses50;
     } else r.normal = total - sup;
-    // Repos de remplacement : heures et majoration (art. L3121-37) ; payées, les heures supplémentaires n'en donnent pas.
+    // Repos de remplacement : heures et majoration (art. L3121-33) ; payées, les heures supplémentaires n'en donnent pas.
     r.recup = c.interim || modeHS === 'paiement' ? 0 : r.sup25 * 1.25 + r.sup50 * 1.5;
   }
   return r;

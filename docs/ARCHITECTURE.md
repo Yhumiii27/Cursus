@@ -402,7 +402,8 @@ Réglages de l'écran Paramètres, modifiés par l'administrateur RH (`parametre
    exigée) : une ligne dans `COHERENCE` (`shared/reglages.ts`), appliquée aux réglages complets après les contrôles.
 
 Rien d'autre côté serveur : `DEFAULT_SETTINGS` est tiré de la table, `parametres.maj` contrôle et enregistre, le journal
-trace l'ancienne et la nouvelle valeur. Une base existante a la valeur par défaut tant que l'administrateur ne l'a pas
+trace l'ancienne et la nouvelle valeur ; un réglage en texte libre (`heuresSupAccord`) est déclaré dans `masques` de la
+règle de `parametres.maj` (`server/src/journal.ts`) : le journal n'en garde que « [texte renseigné] ». Une base existante a la valeur par défaut tant que l'administrateur ne l'a pas
 changée ; une migration nommée ne sert que pour donner aux bases existantes une autre valeur que celle des bases neuves.
 Les réglages sont transmis à toute personne connectée (managers et collaborateurs compris) et recopiés dans le journal :
 codes, nombres, dates, cases à cocher seulement, jamais de texte libre ni de donnée personnelle. Un réglage plus riche
@@ -772,8 +773,9 @@ paie sera stocké. Contrat : `docs/API-KEYSTONE.md` et `docs/keystone-openapi.js
   transmission. L'écran Temps montre les feuilles en attente par période (`feuillesParPeriode`).
 - **Heures supplémentaires** (`calcSheet`, `sageRubriques`) : payées avec majoration par défaut (HS25, HS50, sans repos) ;
   remplacées par un repos compensateur équivalent (RCR_ACQUIS seul, crédité au compteur de récupération) quand l'administrateur
-  RH choisit ce mode avec la référence de l'accord collectif qui le prévoit (art. L3121-37) ; heures incluses à un forfait
-  hebdomadaire (HSF25, HSF50) toujours payées. Le mode est figé sur la feuille à sa validation (`FeuilleTemps.heuresSup`),
+  RH choisit ce mode avec la référence de l'accord collectif qui le prévoit (art. L3121-33 ; à défaut de délégué
+  syndical, décision de l'employeur sans opposition du CSE, art. L3121-37) ; heures incluses à un forfait hebdomadaire
+  (HSF25, HSF50) toujours payées. Le mode est figé sur la feuille à sa validation (`FeuilleTemps.heuresSup`),
   comme le régime à la soumission. Reprise d'une base antérieure (migration `lot4-paie-heures-sup`) : feuilles déjà
   transmises au calcul d'origine (« historique » : payées et repos crédité), feuilles validées non transmises au mode
   réglé ; le journal (`migration.heuresSup`) liste les salariés dont le solde de récupération devient négatif. Sans repos

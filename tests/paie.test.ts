@@ -22,7 +22,9 @@ const { appliquerMigrations } = await import('../server/src/migrations/cadre.ts'
 const { Domain } = await import('../shared/domain.ts');
 const { buildSagePayload, calcSheet, rubriquesParPeriode, sageRubriques } = await import('../shared/rules/temps.ts');
 const { recupInfo } = await import('../shared/rules/conges.ts');
-const { clotureDe, feuillesParPeriode, partsSemaine, periodeOuverte, periodesSemaine, rubriquesPaie, traduireRubriques } = await import('../shared/rules/paie.ts');
+const {
+  clotureDe, confirmationEnvoyee, feuillesParPeriode, partsSemaine, periodeOuverte, periodesSemaine, rubriquesPaie, traduireRubriques, verifieApresSaisie,
+} = await import('../shared/rules/paie.ts');
 const { appliquerReglages, ReglageInvalide } = await import('../shared/reglages.ts');
 const { estActionPaie, familleAction, JOURNAL_LABEL } = await import('../shared/journal.ts');
 const { RUBRIQUES_PAIE } = await import('../shared/constants.ts');
@@ -130,6 +132,15 @@ test('t037 mode figé à la validation ; repos seulement avec la référence de 
   assert.throws(() => appliquerReglages({ ...loadSettings(db), heuresSupMode: 'repos', heuresSupAccord: 'Accord 2024' }, { heuresSupAccord: '  ' }), ReglageInvalide, 'accord effacé en mode repos');
   run(ADMIN, 'parametres.maj', { heuresSupMode: 'repos', heuresSupAccord: '  Accord   d’entreprise du 12/03/2024 ' });
   assert.equal(loadSettings(db).heuresSupAccord, 'Accord d’entreprise du 12/03/2024');
+  // Journal : la référence, texte libre, n'est jamais recopiée ; seul le fait qu'elle soit renseignée ou changée l'est.
+  run(ADMIN, 'parametres.maj', { heuresSupAccord: 'Accord signé avec M. X, délégué CSE' });
+  const traces = db.all<{ action: string; payload: Record<string, any> }>('journal').filter(x => x.action === 'parametres.maj');
+  assert.equal(traces.length, 2);
+  assert.deepEqual([traces[0].payload.avant, traces[0].payload.apres],
+    [{ heuresSupMode: 'paiement', heuresSupAccord: null }, { heuresSupMode: 'repos', heuresSupAccord: '[texte renseigné]' }]);
+  assert.deepEqual([traces[1].payload.avant, traces[1].payload.apres], [{ heuresSupAccord: '[texte renseigné]' }, { heuresSupAccord: '[texte renseigné]' }]);
+  assert.ok(!JSON.stringify(traces).includes('M. X') && !JSON.stringify(traces).includes('12/03/2024'));
+  run(ADMIN, 'parametres.maj', { heuresSupAccord: 'Accord d’entreprise du 12/03/2024' });
   // Feuille de Mehdi (39 h + RTT, équipe de Karim) à 45 h : validée en mode repos.
   db.insert('feuilles', { empId: 2, week: '2026-10-05', statut: 'soumise', comment: null, sage: false, keystone: false, contrat: null, lignes: [{ projet: 'INT-MAINT', tache: 'Maintenance', ks: false, h: [9, 9, 9, 9, 9] }] });
   run(KARIM, 'temps.validate', { empId: 2, week: '2026-10-05' });
@@ -222,6 +233,19 @@ test('t022 rubriques : pré-remplies au code interne, à confirmer ; saisie, con
   run(ADMIN, 'paie.rubrique', { code: 'HS25', codeSage: '3011' });
   hs25 = rubriquesPaie(domain().ds.rubriquesPaie).find(r => r.code === 'HS25')!;
   assert.deepEqual([hs25.codeSage, hs25.confirmee], ['3011', false]);
+  // Dialogue : code confirmé changé sans nouvelle vérification (case décochée par la saisie), à confirmer de nouveau.
+  run(PAIE, 'paie.rubrique', { code: 'HS25', codeSage: '3010', confirmer: true });
+  hs25 = rubriquesPaie(domain().ds.rubriquesPaie).find(r => r.code === 'HS25')!;
+  assert.equal(verifieApresSaisie(hs25, '3100'), false, 'faute de frappe : case décochée');
+  assert.equal(verifieApresSaisie(hs25, ' 3010 '), true, 'retour au code enregistré : case rétablie');
+  assert.equal(confirmationEnvoyee(hs25, '3100', verifieApresSaisie(hs25, '3100')), undefined);
+  assert.equal(confirmationEnvoyee(hs25, '3100', true), true, 'case cochée après la saisie : confirmé');
+  assert.equal(confirmationEnvoyee(hs25, '3010', false), false, 'décochée sur un code inchangé : confirmation retirée');
+  assert.equal(confirmationEnvoyee(hs25, '3010', true), undefined, 'inchangé : confirmation gardée');
+  run(PAIE, 'paie.rubrique', { code: 'HS25', codeSage: '3100', active: true });
+  hs25 = rubriquesPaie(domain().ds.rubriquesPaie).find(r => r.code === 'HS25')!;
+  assert.deepEqual([hs25.codeSage, hs25.confirmee], ['3100', false]);
+  run(ADMIN, 'paie.rubrique', { code: 'HS25', codeSage: '3011' });
   // Jours et heures ne partagent pas un code ; deux rubriques en heures peuvent le faire.
   refus(PAIE, 'paie.rubrique', { code: 'JTRAV', codeSage: '3011' }, 400, /ne mélange pas les unités/);
   run(PAIE, 'paie.rubrique', { code: 'HSF25', codeSage: '3011', confirmer: true });
@@ -230,7 +254,7 @@ test('t022 rubriques : pré-remplies au code interne, à confirmer ; saisie, con
   assert.deepEqual(traduireRubriques({ HN: 35, HSF25: 3.5, HS25: 1.5, HS50: 0 }, t), { 3011: 5 }, 'HN non exportée, quantités additionnées, nulles omises');
   // Journal : codes et dates, action liée à la paie (archive de 3 ans), famille « Feuilles de temps et paie ».
   const j = db.all<{ action: string; payload: Record<string, any>; paie: boolean }>('journal').filter(x => x.action === 'paie.rubrique');
-  assert.equal(j.length, 4);
+  assert.equal(j.length, 7);
   assert.deepEqual(j[1].payload.avant, { codeSage: '3010', confirmeLe: '2026-10-10' });
   assert.deepEqual(j[1].payload.apres, { codeSage: '3011', confirmeLe: null });
   assert.ok(j.every(x => x.paie) && estActionPaie('paie.rubrique'));
@@ -239,7 +263,7 @@ test('t022 rubriques : pré-remplies au code interne, à confirmer ; saisie, con
 });
 
 test('t022 hors simulation, une rubrique utilisée sans code confirmé bloque la transmission, avec la liste', () => {
-  const { run, refus, transmises, ADMIN, PAIE } = fresh();
+  const { db, run, refus, transmises, ADMIN, PAIE } = fresh();
   const avant = transmises();
   avecEnv({ SAGE_MODE: 'fichier' }, () => {
     refus(PAIE, 'temps.pushSage', {}, 409, /^Transmission impossible : code Sage à confirmer pour les rubriques HN \(Heures normales\), HSF25 \(.*\), HS25 \(.*\), JTRAV \(Jours travaillés, forfait jours\) \(écran Temps, « Rubriques de paie »\)$/);
@@ -252,6 +276,10 @@ test('t022 hors simulation, une rubrique utilisée sans code confirmé bloque la
   assert.equal(transmises(), avant);
   // Simulation : les codes à confirmer ne bloquent pas, mais les rubriques désactivées ne partent pas.
   run(PAIE, 'temps.pushSage', {});
+  const lignes = loadFull(db, PAIE).lastSagePush!.lignes;
+  const emises = new Set(lignes.flatMap(l => Object.keys(l.rubriques)));
+  assert.ok(!emises.has('JTRAV'), 'JTRAV désactivée : absente du lot');
+  for (const code of ['HN', 'HSF25', 'HS25']) assert.ok(lignes.some(l => l.rubriques[code] > 0), `${code} émise`);
 });
 
 test('t022 données : correspondance transmise au service RH, à la paie et à la lecture seule, à personne d’autre', () => {
@@ -299,8 +327,8 @@ test('t025 clôture et rappel : une semaine d’une période close part sur la p
   assert.deepEqual(periodesSemaine('2026-10-26', s, '2026-10-30'), [{ periode: '2026-11', origine: null, jours: [0, 1, 2, 3, 4] }], 'période à venir : ouverte');
   assert.deepEqual(periodesSemaine('2026-09-28', { ...s, periodeRattachement: 'jour' }, '2026-10-10').map(p => [p.periode, p.origine]), [['2026-10', '2026-09'], ['2026-10', null]]);
   assert.deepEqual(feuillesParPeriode([{ empId: 1, week: '2026-09-21' }, { empId: 2, week: '2026-09-21' }, { empId: 1, week: '2026-09-28' }], s, '2026-10-10'), [
-    { periode: '2026-10', origine: null, feuilles: 1, salaries: 1 },
-    { periode: '2026-10', origine: '2026-09', feuilles: 2, salaries: 2 },
+    { periode: '2026-10', origine: null, feuilles: 1, salaries: 1, semaines: ['1|2026-09-28'] },
+    { periode: '2026-10', origine: '2026-09', feuilles: 2, salaries: 2, semaines: ['1|2026-09-21', '2|2026-09-21'] },
   ]);
 });
 
@@ -330,4 +358,13 @@ test('t025 transmission : une ligne par période, ventilation jour par jour exac
   const push = loadFull(db, PAIE).lastSagePush!;
   assert.deepEqual(push.lignes.filter(l => l.matricule === 'EMP-0001').map(l => [l.semaine, l.periode, l.periode_origine ?? null]),
     [['2026-S39', '2026-10', '2026-09'], ['2026-S40', '2026-10', null]]);
+  // Ventilation jour par jour : la semaine du 28 septembre, rappel pour lundi à mercredi et part ordinaire pour jeudi et
+  // vendredi, ne compte qu'une feuille dans la période d'octobre.
+  const cj = C.transmissionSage(1, 1, feuillesParPeriode([sh], { periodeRattachement: 'jour', clotureJour: 0 }, '2026-10-10'));
+  assert.match(cj.question, /Marquer transmises à Sage Paie 1 feuille validée \(1 salarié\)/);
+  assert.ok(cj.suites!.includes('Période de paie : octobre 2026 (1 feuille).'), cj.suites!.join(' | '));
+  assert.ok(cj.suites!.includes('Rappel : 1 feuille de septembre 2026, période close, part sur octobre 2026.'), cj.suites!.join(' | '));
+  // Plusieurs feuilles, dont une ventilée : deux feuilles distinctes en octobre.
+  const deux = feuillesParPeriode([sh, { empId: 2, week: '2026-10-05' }], { periodeRattachement: 'jour', clotureJour: 0 }, '2026-10-10');
+  assert.ok(C.transmissionSage(2, 2, deux).suites!.includes('Période de paie : octobre 2026 (2 feuilles).'));
 });

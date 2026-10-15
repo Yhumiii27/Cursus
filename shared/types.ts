@@ -220,7 +220,10 @@ export interface FeuilleTemps {
    */
   heuresSup?: ModeHeuresSupFige | null;
 }
-/** Heures supplémentaires payées avec majoration, ou remplacées par un repos compensateur (accord collectif, art. L3121-37). */
+/**
+ * Heures supplémentaires payées avec majoration, ou remplacées par un repos compensateur (accord collectif, art. L3121-33 ;
+ * à défaut de délégué syndical, sans opposition du CSE, art. L3121-37).
+ */
 export type ModeHeuresSup = 'paiement' | 'repos';
 /** Mode figé sur une feuille validée ; `historique` : feuille transmise à la paie avant le choix du mode (lot 4). */
 export type ModeHeuresSupFige = ModeHeuresSup | 'historique';

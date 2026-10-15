@@ -15,6 +15,7 @@ import { Envois } from './Envois.tsx';
 import { Keystone } from './Keystone.tsx';
 import { MatriculesPaie } from './MatriculesPaie.tsx';
 import { ReglagesPaie } from './ReglagesPaie.tsx';
+import { Reprise } from './Reprise.tsx';
 import { Rgpd } from './Rgpd.tsx';
 import { SagePaie } from './SagePaie.tsx';
 import { Suivi } from './Suivi.tsx';
@@ -42,6 +43,7 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'sage', place: 'droite', Section: SagePaie },
   { id: 'matricules', place: 'droite', Section: MatriculesPaie },
   { id: 'conges', place: 'gauche', Section: Conges },
+  { id: 'reprise', place: 'gauche', Section: Reprise },
   { id: 'paie', place: 'droite', Section: ReglagesPaie },
   { id: 'confidentialite', place: 'droite', Section: Rgpd },
   { id: 'messagerie', place: 'large', Section: Messagerie },

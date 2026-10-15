@@ -61,7 +61,7 @@ export function CetDialog({ empId }: { empId: number }) {
         </Field>
       </div>
       <p className="text-muted fine">{rule}</p>
-      <div style={{ fontSize: 13 }}>Solde CET actuel : {fJ(ct.total)} ({ct.cp} j CP · {ct.rtt} j RTT)</div>
+      <div style={{ fontSize: 13 }}>Solde CET actuel : {fJ(ct.total)} ({ct.cp} j CP · {ct.rtt} j RTT{ct.repris ? ` · ${ct.repris} j repris de l’ancien outil` : ''})</div>
     </Dialog>
   );
 }

@@ -95,7 +95,23 @@ export const TABLES = {
   // `periode` : année de prise de la période dont les droits reçoivent les jours ; `expire` : échéance (shared/rules/conges.ts).
   reports: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', jours: 'real', motif: 'text', par: 'text', date: 'text', sens: 'text', periode: 'int', expire: 'text' } },
   // `arreteLe` : date d'arrêté des compteurs repris, qui fixe la période CP et l'année RTT sur lesquelles ils comptent.
-  soldesReprise: { pk: 'empId', cols: { empId: 'int', cpPris: 'real', rttPris: 'real', recupAcquis: 'real', recupPris: 'real', arreteLe: 'text' } },
+  // `cpSolde`, `cpSoldeSuivant`, `rttSolde`, `cetSolde` : soldes d'ouverture importés à la mise en service (actions/reprise.ts).
+  soldesReprise: {
+    pk: 'empId',
+    cols: {
+      empId: 'int', cpPris: 'real', rttPris: 'real', recupAcquis: 'real', recupPris: 'real', arreteLe: 'text',
+      cpSolde: 'real', cpSoldeSuivant: 'real', rttSolde: 'real', cetSolde: 'real',
+    },
+  },
+  // Lots importés depuis l'écran Mise en service (`reprise.importer`) : type, date de reprise, colonnes rapprochées,
+  // options, compte rendu ligne par ligne. Le fichier lui-même n'est pas conservé (données personnelles, avis médicaux).
+  reprises: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', type: 'text', le: 'text', par: 'text', dateReprise: 'text', fichier: 'text', colonnes: 'json', options: 'json',
+      lignes: 'int', crees: 'int', majs: 'int', ignorees: 'int', refusees: 'int', rapport: 'json',
+    },
+  },
   // Clôtures des périodes de congés (`conges.cloturer`) : solde photographié et décision, une ligne par salarié et période.
   clotures: {
     pk: 'id', auto: true,

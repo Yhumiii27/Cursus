@@ -22,6 +22,7 @@ import {
   CONSERVATION_JOURNAL_MOIS, dossierComplet, estActionPaie, familleAction, FAMILLES_JOURNAL, JOURNAL_LABEL, lecteurJournal, libelleAction,
 } from '../../shared/journal.ts';
 import { CODE_PAYS, CODE_TITRE, codeDestination, codeTitre, type ReferentielId } from '../../shared/rules/referentiels.ts';
+import { estTypeReprise } from '../../shared/rules/reprise.ts';
 import type { ClotureConges, CurrentUser, FeuilleTemps, LigneTemps } from '../../shared/types.ts';
 import type { ContactsConfidentialite } from '../../shared/confidentialite.ts';
 import { journaliser, type Compte } from './comptes.ts';
@@ -321,6 +322,17 @@ export const REGLES: Record<string, Regle> = {
       const avant = x.etat as ContactsConfidentialite, apres = lireConfidentialite(x.db);
       return { champsModifies: (['responsable', 'dpo'] as const).filter(k => avant[k] !== apres[k]) };
     },
+  },
+  // Reprise depuis Lucca (écran Mise en service) : code par import (`reprise.soldes`…), date de reprise, case des comptes,
+  // décompte et salariés concernés ; jamais le fichier, ni les colonnes, ni les noms d'équipes (textes du fichier).
+  'reprise.importer': {
+    code: p => (estTypeReprise(p.type) ? `reprise.${p.type}` : ''),
+    extra: p => ({ type: estTypeReprise(p.type) ? p.type : null, dateReprise: isValidDate(p.dateReprise) ? p.dateReprise : null, comptes: p.comptes === true }),
+    bilan: (_p, x) => {
+      const r = (x.result ?? {}) as Record<string, unknown>;
+      return { lot: r.lot ?? null, crees: r.crees ?? 0, majs: r.majs ?? 0, ignorees: r.ignorees ?? 0, refusees: r.refusees ?? 0, comptesCrees: r.comptes ?? 0 };
+    },
+    salaries: (_p, x) => salariesTouches(x),
   },
 };
 
@@ -740,7 +752,7 @@ export function exigerRh(db: Db, req: Request, res: Response, quoi: string, auto
 /** Actions dont le message ou le détail touche à la santé : absence (dates d'un arrêt), visite médicale, vaccination, document déclaré. */
 const ACTIONS_SANTE = new Set([
   'absence.saisir', 'absence.qualifier', 'absence.prolonger', 'absence.annuler', 'medical.demander', 'medical.annuler', 'medical.avis',
-  'formalite.enregistrer', 'demande.accepter', 'email.visite.demande',
+  'formalite.enregistrer', 'demande.accepter', 'email.visite.demande', 'reprise.visites',
 ]);
 export const DETAIL_RESERVE = 'Détail réservé au service RH';
 

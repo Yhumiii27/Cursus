@@ -29,6 +29,8 @@ export const ACTIONS_PAIE: readonly string[] = [
   'employe.sortie', 'employe.annulerSortie', 'employe.rtt',
   // Paie : correspondance des rubriques avec le plan de paie Sage, mode des heures supplémentaires figé sur les feuilles.
   'paie.rubrique', 'migration.heuresSup',
+  // Soldes d'ouverture repris de l'ancien outil à la mise en service (point de départ des compteurs de congés).
+  'reprise.soldes',
 ];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
@@ -130,6 +132,13 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'envoi.relancer': 'Envoi relancé',
   'envoi.classer': 'Échec d’envoi classé',
   'confidentialite.regler': 'Coordonnées de la page Confidentialité modifiées',
+  // Reprise depuis Lucca (écran Mise en service) : un code par import.
+  'reprise.importer': 'Import de mise en service',
+  'reprise.salaries': 'Mise en service : salariés importés',
+  'reprise.soldes': 'Mise en service : soldes de congés repris',
+  'reprise.certifications': 'Mise en service : certifications reprises',
+  'reprise.habilitations': 'Mise en service : habilitations reprises',
+  'reprise.visites': 'Mise en service : visites médicales reprises',
   'export': 'Export ou impression',
   'journal.export': 'Export du journal',
   'journal.archive': 'Consultation de l’archive paie',
@@ -192,6 +201,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'migration.heuresSup'] },
   { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.', 'conges.', 'migration.soldes'] },
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
+  { id: 'reprise', label: 'Mise en service (reprise depuis Lucca)', prefixes: ['reprise.'] },
   { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.', 'confidentialite.'] },
   { id: 'connexions', label: 'Connexions et accès', prefixes: ACTIONS_CONNEXION },
   {

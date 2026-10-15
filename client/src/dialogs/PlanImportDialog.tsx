@@ -11,7 +11,7 @@ import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
 /** Lit un fichier texte en UTF-8, puis en Windows-1252 si des caractères ne sont pas décodables (export Excel). */
-function readText(file: File, onText: (text: string) => void) {
+export function readText(file: File, onText: (text: string) => void) {
   const read = (enc: 'utf-8' | 'windows-1252') => {
     const r = new FileReader();
     r.onload = () => {

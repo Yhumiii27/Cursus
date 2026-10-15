@@ -602,6 +602,48 @@ les compteurs sont arrêtés dans Lucca au 1er janvier 2027.
   épargne-temps (un salarié dont une demande de RTT de l'année est en attente n'est clôturé qu'après sa décision). Première clôture des CP de la reprise : le
   1er juin 2027. Chaque clôture est tracée (`conges.cloturer`, archive paie de 3 ans) et sans effet si on la relance.
 
+### Procédure de reprise
+
+Écran **Mise en service** (Paramètres → Mise en service → « Ouvrir la mise en service »), réservé à l'administrateur
+RH ; le gestionnaire RH consulte les lots. Une base de production démarre vide (le jeu de démonstration n'est chargé
+qu'avec `CURSUS_DEMO=1`). Cinq imports CSV, dans cet ordre :
+
+1. **Référentiels** (écran Référentiels, voir ci-dessus) : les titres repris doivent y figurer, désignés par leur code,
+   leur nom court ou leur nom.
+2. **Salariés** : un export Lucca des salariés, sorties comprises (matricule de paie, nom et prénom, poste, équipe,
+   statut, contrat, temps de travail, dates d'entrée et de fin, motif de sortie, naissance, agence d'intérim, adresse
+   e-mail). Une fiche existante se retrouve par son matricule de paie, sinon par son nom et sa date d'entrée, et se
+   met à jour au lieu d'être dupliquée. Les équipes inconnues sont créées ou rattachées à une équipe existante dans
+   l'aperçu ; les managers se désignent ensuite (Équipes & managers). Case facultative (décochée) : créer les comptes
+   Microsoft 365 à partir des adresses. Sur une fiche qui a déjà des feuilles ou des absences, un changement de régime
+   de temps ou de contrat, et toute sortie, se font depuis la fiche (gel des feuilles, compteur de RTT, annulations).
+3. **Soldes de congés**, arrêtés dans Lucca à la date de reprise (conseillée : 1er janvier 2027), saisie dans l'écran :
+   CP de la période en cours (« CP N-1 »), CP acquis sur la période en cours d'acquisition (« CP N »), RTT ou jours de
+   repos de l'année, récupération (heures), CET (jours). Ils sont repris tels quels, sans recalcul : à la date d'arrêté,
+   Cursus affiche les soldes de Lucca, puis les fait vivre (acquisition, congés, clôtures). Une cellule vide : compteur
+   non repris. Un congé déjà saisi dans Cursus avant la date d'arrêté est signalé (il serait décompté deux fois).
+4. **Certifications** (formation, date d'obtention) puis **habilitations** (habilitation, date de délivrance,
+   signataire, à défaut celui du référentiel) : un prérequis manquant n'est qu'un avertissement (la délivrance a eu
+   lieu) ; un élément absent du catalogue ou archivé fait refuser la ligne.
+5. **Visites médicales** : date de la dernière visite et avis (apte, apte avec restrictions, inapte). Une ligne sans
+   avis n'est enregistrée « apte » qu'après avoir coché sa confirmation dans l'aperçu ; sinon l'aptitude reste « à
+   vérifier ». Un avis avec restrictions porte une mention provisoire (réserve au Go / No Go) jusqu'à ce que le service
+   RH recopie l'avis sur la fiche (« Avis du médecin du travail »).
+
+Pour chaque import : « Télécharger le modèle CSV » donne les colonnes attendues (séparateur « ; », première ligne
+d'en-têtes, dates JJ/MM/AAAA, virgule décimale). Un export Lucca s'utilise tel quel : ses colonnes sont reconnues par
+leur nom et se rapprochent à la main dans l'aperçu (colonne ignorée sinon) ; guillemets, BOM et encodage Windows
+d'Excel sont lus. L'aperçu donne, ligne par ligne, l'ajout, la mise à jour, la ligne ignorée (déjà à jour) ou refusée
+avec son motif ; seules les lignes annoncées sont écrites, après confirmation. Chaque lot reste listé avec son compte
+rendu (date, auteur, décompte, motif par ligne) ; « Rejouer » reprend son type, ses colonnes et sa date, le fichier
+étant rechargé (Cursus n'en garde pas le contenu). Rejouer un fichier corrigé ne crée aucun doublon. Le journal trace
+chaque import (`reprise.salaries`, `reprise.soldes` — archive paie de 3 ans —, `reprise.certifications`,
+`reprise.habilitations`, `reprise.visites`), sans le contenu du fichier.
+
+Vérifier ensuite : Paramètres → Matricules de paie (salariés sans matricule), les soldes de quelques salariés dans
+Congés & absences au lendemain de la date d'arrêté, les échéances et le Go / No Go. Une fois la reprise faite, les
+entrées, sorties et compteurs ne se tiennent plus dans Lucca.
+
 ## Mise à jour
 
 1. Recette de la nouvelle version (ci-dessus).

@@ -73,6 +73,8 @@ const VUES: [Role, string][] = [['rh', 'RH'], ['manager', 'Manager'], ['collabor
 /** Groupe et libellé de la page affichée : fil d'Ariane de l'en-tête et titre de l'onglet. */
 function pageAffichee(groups: NavGroup[], view: View, connecte: boolean): [string, string] {
   if (view === 'confidentialite') return ['Cursus', 'Confidentialité'];
+  // Hors du menu : ouverte depuis Paramètres.
+  if (view === 'miseEnService') return ['Administration', 'Mise en service'];
   const g = groups.find(([, items]) => items.some(i => i.view === view));
   const page = g?.[1].find(i => i.view === view);
   return g && page ? [g[0], page.label] : ['Cursus', connecte ? 'Cursus' : 'Connexion'];

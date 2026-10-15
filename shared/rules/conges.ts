@@ -25,12 +25,26 @@ export function monthsPresent(e: Employe, start: ISODate, n: number): number {
  * Compteurs repris de l'ancien système, datés : `cpPris` porte sur la période CP de la date d'arrêté (`periodeCp`),
  * `rttPris` sur son année civile (`anneeRtt`) ; ni l'un ni l'autre ne se déduisent d'une autre période. Sans date
  * (fiche antérieure à la migration lot4-reprise-soldes-dates), la période en cours.
+ * Soldes d'ouverture importés à la mise en service (`cpSolde`, `cpSoldeSuivant`, `rttSolde`) : repris tels quels, les
+ * jours pris s'en déduisent à partir des droits que Cursus calcule à la date d'arrêté (CP acquis de la période, jours
+ * acquis à cette date sur la période en cours d'acquisition — `cpPrisSuivant` —, RTT de l'année), si bien que le solde
+ * affiché à cette date est celui de l'ancien outil, même après une correction de la fiche. Un solde supérieur aux droits
+ * calculés (reliquat, report) donne des jours pris négatifs.
  */
 export function reprise(d: Domain, id: number) {
   const r = d.ds.soldesReprise.find(s => s.empId === id) ?? { empId: id, cpPris: 0, rttPris: 0, recupAcquis: 0, recupPris: 0, arreteLe: null };
   const arrete = r.arreteLe ?? d.ti;
-  return { ...r, periodeCp: anneeCp(arrete), anneeRtt: Number(arrete.slice(0, 4)) };
+  const periodeCp = anneeCp(arrete), anneeRtt = Number(arrete.slice(0, 4));
+  let { cpPris, rttPris } = r, cpPrisSuivant = 0;
+  const e = r.cpSolde != null || r.cpSoldeSuivant != null || r.rttSolde != null ? d.emp(id) : undefined;
+  if (e && r.cpSolde != null) { const x = droitsAcquis(d, e, periodeCp); cpPris = x.acq + x.ageSupp - r.cpSolde; }
+  if (e && r.cpSoldeSuivant != null) cpPrisSuivant = acquisAu(e, periodeCp + 1, arrete) - r.cpSoldeSuivant;
+  if (e && r.rttSolde != null) rttPris = (rttDroit(d, e, anneeRtt) ?? 0) - r.rttSolde;
+  return { ...r, cpPris, rttPris, cpPrisSuivant, periodeCp, anneeRtt };
 }
+
+/** Jours repris de l'ancien outil imputés sur la période `A` : période de la date d'arrêté, ou période suivante (« CP N »). */
+const reprisSur = (R: ReturnType<typeof reprise>, A: number) => (A === R.periodeCp ? R.cpPris : A === R.periodeCp + 1 ? R.cpPrisSuivant : 0);
 
 /** Fin d'une période de congés payés (`A` : année de prise) : le 31 mai A+1, échéance des reports reçus sur elle. */
 export const finPeriodeCp = (A: number): ISODate => `${A + 1}-05-31`;
@@ -171,6 +185,7 @@ function imputer(d: Domain, e: Employe, nouveau?: { du: ISODate; au: ISODate }) 
   const place = (A: number, limite: number) => impute(A) + 1 <= limite + 1e-9;
   const R = reprise(d, e.id);
   ajoute(R.periodeCp, R.cpPris);
+  ajoute(R.periodeCp + 1, R.cpPrisSuivant);
   d.ds.cet.filter(x => x.empId === e.id && x.type === 'CP').forEach(x => ajoute(Number(x.periode.slice(-4)), x.jours));
   const conges: { du: ISODate; au: ISODate; statut: JourCp['statut'] }[] = [
     ...d.ds.absences.filter(a => a.empId === e.id && a.type === 'CP' && (a.statut === 'validee' || a.statut === 'demandee'))
@@ -193,7 +208,7 @@ function imputer(d: Domain, e: Employe, nouveau?: { du: ISODate; au: ISODate }) 
 /** Solde d'une période (`A` : année de prise) : droits moins jours imputés (validés, demandés, CET, compteurs repris). */
 export function soldePeriode(d: Domain, e: Employe, A: number): number {
   const cet = d.ds.cet.filter(x => x.empId === e.id && x.type === 'CP' && Number(x.periode.slice(-4)) === A).reduce((n, x) => n + x.jours, 0);
-  const R = reprise(d, e.id), repris = A === R.periodeCp ? R.cpPris : 0;
+  const repris = reprisSur(reprise(d, e.id), A);
   return droitPeriode(d, e, A) - imputationCp(d, e).filter(j => j.periode === A).length - cet - repris;
 }
 
@@ -211,7 +226,7 @@ export function cpInfo(d: Domain, e: Employe) {
   const sur = (periode: number, statut: JourCp['statut']) => jours.filter(j => j.periode === periode && j.statut === statut).length;
   const cetCp = d.ds.cet.filter(x => x.empId === e.id && x.type === 'CP' && x.periode === P.label).reduce((n, x) => n + x.jours, 0);
   const R = reprise(d, e.id);
-  const pris = (R.periodeCp === A ? R.cpPris : 0) + sur(A, 'validee') + cetCp, poses = sur(A, 'demandee');
+  const pris = reprisSur(R, A) + sur(A, 'validee') + cetCp, poses = sur(A, 'demandee');
   const suivante = jours.filter(j => j.periode === A + 1).length, anticipes = jours.filter(j => j.periode === A + 1 && j.anticipe).length;
   return {
     ...base, cetCp, pris, poses, solde: base.droit - pris - poses, suivante, anticipes,
@@ -291,7 +306,7 @@ export function recupInfo(d: Domain, e: Employe) {
   return { acq, pris, poses, solde: acq - pris - poses, dh };
 }
 
-/** Compte épargne-temps : 5 RTT par an et 5 CP de 5e semaine par période au maximum. */
+/** Compte épargne-temps : 5 RTT par an et 5 CP de 5e semaine par période au maximum ; `repris` : solde repris de l'ancien outil. */
 export function cetInfo(d: Domain, e: Employe) {
   const cp = cpInfo(d, e), rt = rttInfo(d, e), list = d.ds.cet.filter(x => x.empId === e.id);
   const sum = (t: string) => list.filter(x => x.type === t).reduce((n, x) => n + x.jours, 0);
@@ -300,8 +315,10 @@ export function cetInfo(d: Domain, e: Employe) {
   // RTT de l'année précédente : encore plaçables tant que sa clôture n'est pas faite (rappel de la clôture du 31 décembre).
   const prec = cp && rt && !rttAnneeClose(d, e, d.year - 1) ? rttInfo(d, e, d.year - 1) : null;
   const placeRttPrec = prec ? Math.max(0, Math.min(5 - prec.cetRtt, prec.solde)) : 0;
+  // Solde du CET repris de l'ancien outil à la mise en service (jours), compté en plus des placements faits dans Cursus.
+  const repris = d.ds.soldesReprise.find(s => s.empId === e.id)?.cetSolde ?? 0;
   return {
-    total: sum('CP') + sum('RTT'), cp: sum('CP'), rtt: sum('RTT'), placeCp, placeRtt, placeRttPrec, anneePrec: d.year - 1,
+    total: sum('CP') + sum('RTT') + repris, cp: sum('CP'), rtt: sum('RTT'), repris, placeCp, placeRtt, placeRttPrec, anneePrec: d.year - 1,
     cp5: cp ? Math.max(0, cp.acq - 20) : 0, cpDone: cp ? cp.cetCp : 0, rttDone: rt ? rt.cetRtt : 0,
     rttLabel: rt ? rt.label : 'RTT', eligible: !!cp,
   };

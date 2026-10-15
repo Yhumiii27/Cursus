@@ -16,8 +16,10 @@ shared/            Domaine partagé (aucune dépendance)
   csv.ts           Exports CSV : cellules échappées, formules neutralisées (apostrophe devant = + - @)
   journal.ts       Journal des actions : libellés, familles, actions liées à la paie, durées de conservation, droits de lecture
   reglages.ts      Réglages de Paramètres : table « champ → contrôle » (valeur par défaut, contrôle de chaque champ de Settings)
+  confidentialite.ts Page Confidentialité : texte de l'information des salariés (art. 13), contrôle des coordonnées du
+                   responsable et du DPO (descriptif complet du traitement : docs/RGPD.md)
   rules/           temps.ts, conges.ts, entretiens.ts, budget.ts, imports.ts, sante.ts (avis et visites médicales) ;
-                   conflits.ts : doublons et conflits de dates
+                   conflits.ts : doublons et conflits de dates ; a-faire.ts : ce qui attend le collaborateur
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   migrate.ts       Reprises des bases antérieures, rejouées à chaque démarrage (idempotentes)
@@ -39,6 +41,7 @@ server/src/
   envois.ts        File d'envoi persistante des messages sortants (table envois), traitée en tâche de fond
   journal.ts       Journal des actions : liste blanche par action, conservation et archive paie, consultation, export CSV
   donnees.ts       Données personnelles d'un salarié (droit d'accès) : export RH et téléchargement par l'intéressé
+  confidentialite.ts Coordonnées de la page Confidentialité : GET /api/confidentialite, lisible sans connexion
   messagerie.ts    Adresses (fiche, service RH, santé au travail, agences), forme commune des e-mails
   notifications.ts Notifications d'étapes (aussitôt ou récapitulatif quotidien), convocations .ics, tâches planifiées
   releves.ts       Relevés d'heures hebdomadaires des intérimaires envoyés à leur agence
@@ -56,8 +59,11 @@ client/src/
   components/      ui.tsx (Page, Kpi, Panel, Tag, Seg, Two, Bar…), Dialog.tsx (Dialog, Field…) et
                    ErreurRendu.tsx (erreur de rendu d'une page, d'un dialogue ou de l'application)
                    focus.ts (focus des fenêtres modales), controles.ts (messages d'erreur des champs),
-                   panneau.ts (panneau de détail amené dans le champ de vision sur écran étroit)
-  layout/Shell.tsx Barre latérale, en-tête, notification ; layout/Reconnexion.tsx : session expirée, par-dessus l'écran
+                   panneau.ts (panneau de détail amené dans le champ de vision sur écran étroit),
+                   media.ts (requête média suivie), heures.ts (cellule d'heures, vue « un jour »)
+  layout/Shell.tsx Barre latérale, en-tête, notification ; layout/Reconnexion.tsx : session expirée, par-dessus l'écran ;
+                   layout/Tiroir.tsx : menu en tiroir sur écran étroit ; layout/navigation.ts : titre de l'onglet, focus
+                   sur le titre après un changement de page
   pages/           Un fichier par écran ; pages/parametres/ : une section de l'écran Paramètres par fichier (sections.tsx)
   dialogs/         Un fichier par dialogue, rendus par DialogHost
   styles/          nocturne.css (design system, ne pas modifier) et app.css (mise en page)
@@ -149,6 +155,28 @@ design/            Prototype Claude Design de référence et guide du design sys
      jusqu'à ses boutons) ; sous 600 px, formulaires en une colonne et boutons pleine largeur. Sous 900 px, choisir
      une ligne amène son panneau de détail (fiche, dossier voyage, équipe, chantier), affiché sous la liste, dans le
      champ de vision et lui donne le focus ; le fermer ramène à la position de la liste (`components/panneau.ts`).
+   - *Téléphone et tablette* (décision de l'entreprise : accès depuis Internet, smartphone compris) :
+     - menu en tiroir sous 900 px, pour tous les espaces (`layout/Tiroir.tsx`) : la barre latérale (espaces, menu,
+       pastilles, utilisateur) sort de l'écran et s'ouvre par le bouton « Menu » de l'en-tête (`aria-expanded`,
+       `aria-controls`, total des pastilles). Ouverte, elle est modale (`useModale`, page derrière inerte) ; Échap, le
+       fond, « Fermer le menu » ou le choix d'une page la referment. Le menu (`navGroups`) ne change pas ;
+     - feuilles de temps jour par jour sous 600 px ou sur écran tactile (`pages/SaisieJour.tsx`, `VUE_JOUR`) : cinq
+       jours avec leur total, une ligne par projet avec un champ de 44 px en 16 px, total du jour et de la semaine,
+       même action `temps.setCell` ; « Ajouter un projet » et la soumission restent dessous. Ouverte sur aujourd'hui
+       (le vendredi un week-end, le lundi d'une autre semaine), jour choisi gardé dans `ui.tsJour`. Le PC garde la
+       grille de la semaine ;
+     - sur écran tactile (`pointer: coarse`), champs en 16 px (pas de zoom automatique d'iOS) et cibles de 44 px
+       (boutons, icônes, options, entrées du menu, fermetures) ; sous 600 px, les contrôles segmentés passent à la
+       ligne, une bordure par option. Tout est surchargé dans `styles/app.css`, `nocturne.css` restant la copie du
+       design system ; de même les contrastes : bordure des champs, de `.seg` et des boutons radio à 45 % du texte
+       (3:1 au moins), métadonnées des cartes à 60 %, `--color-divider` gardé pour les filets décoratifs.
+   - *Navigation* (`layout/navigation.ts`) : lien « Aller au contenu », premier arrêt de Tab, vers `main id="contenu"` ;
+     titre de l'onglet « <page> — Cursus » ; après chaque changement de page (menu, retour arrière, espace, connexion ;
+     pas au premier affichage), focus sur le titre de la page (`h1` de `Page`, `tabIndex={-1}`), sauf sous un dialogue.
+   - *Ce qui attend le collaborateur* (`aFaireCollaborateur` de `shared/rules/a-faire.ts`) : comptes rendus d'entretien
+     réalisés non signés, feuilles renvoyées et feuille de la semaine passée non soumise (hors contrat exclu) ; en
+     pastille sur « Mes entretiens » et « Mes heures » (lue « N à traiter », comme toutes les pastilles du menu) et
+     dans l'encart « À faire » de l'accueil, qui mène au compte rendu ou à la semaine.
 
 ## Sécurité
 
@@ -494,6 +522,7 @@ aucun champ du paramètre n'est recopié.
 | `messagerie.essai` | adresse : e-mail d'essai (mise en service, `docs/EMAILS.md`) | administrateur RH |
 | `messagerie.recapituler` | — : récapitulatifs des notifications en attente envoyés sans attendre 7 h | RH |
 | `notification.regler` | empId? (soi par défaut), mode (`immediat`/`quotidien`) | la personne elle-même, ou RH |
+| `confidentialite.regler` | responsable?, dpo? (texte, 300 caractères au plus ; vide : effacé, la page renvoie au service RH) ; journal : nom des champs modifiés seulement | administrateur RH |
 
 ## Journal des actions
 
@@ -552,6 +581,13 @@ Table `journal`, écrite par `server/src/journal.ts` (actions) et `journaliser` 
   le journal des actions le concernant (archive comprise). `GET /api/mes-donnees` : le salarié connecté
   (espace collaborateur ou manager) télécharge les siennes depuis le portail, sans le journal, que le RH
   remet sur demande. Chaque export est tracé (`salarie.export`, `donnees.export`).
+- **Information des salariés** (art. 13 du RGPD) : page Confidentialité (`pages/Confidentialite.tsx`, vue commune
+  `confidentialite` de `VUES_COMMUNES`, ouverte dans tous les espaces et sans connexion depuis l'écran de connexion),
+  texte `INFO_CONFIDENTIALITE` de `shared/confidentialite.ts` (modèle à faire valider par le DPO, mentions « à compléter
+  par le DPO », durées décidées reprises de `shared/journal.ts`). Responsable du traitement et contact du DPO : clé
+  `confidentialite` de la table `settings`, réglée par `confidentialite.regler` (Paramètres → Confidentialité,
+  `pages/parametres/Rgpd.tsx`) et lue sans connexion par `GET /api/confidentialite` ; vides, la page renvoie au service
+  RH. Descriptif du traitement pour le registre et l'AIPD : `docs/RGPD.md`, à tenir à jour avec la page.
 
 ## Contrat et temps de travail
 

@@ -11,6 +11,7 @@ import type { SectionProps } from './commun.ts';
 import { Demonstration } from './Demonstration.tsx';
 import { Envois } from './Envois.tsx';
 import { Keystone } from './Keystone.tsx';
+import { Rgpd } from './Rgpd.tsx';
 import { SagePaie } from './SagePaie.tsx';
 import { Suivi } from './Suivi.tsx';
 
@@ -34,6 +35,7 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'demonstration', place: 'gauche', Section: Demonstration },
   { id: 'keystone', place: 'droite', Section: Keystone },
   { id: 'sage', place: 'droite', Section: SagePaie },
+  { id: 'confidentialite', place: 'droite', Section: Rgpd },
   { id: 'messagerie', place: 'large', Section: Messagerie },
   { id: 'envois', place: 'large', Section: Envois },
   { id: 'comptes', place: 'large', Section: Comptes },

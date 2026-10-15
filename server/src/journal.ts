@@ -215,6 +215,8 @@ export const REGLES: Record<string, Regle> = {
   'compte.reinitialiser': { champs: ['id'], cible: parId('comptes', []) },
   'envoi.relancer': { champs: ['id'] },
   'envoi.classer': { champs: ['id'] },
+  // Page Confidentialité : nom des champs modifiés, jamais leur texte (coordonnées saisies librement).
+  'confidentialite.regler': { extra: p => ({ champsModifies: ['responsable', 'dpo'].filter(k => p[k] !== undefined) }) },
 };
 
 /** Participants d'une clôture (bornés : une session compte quelques dizaines d'inscrits). */

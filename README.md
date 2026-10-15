@@ -61,6 +61,8 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
   Les documents de voyage qu'il déclare (passeport, visa, vaccination) n'entrent dans son
   dossier qu'après validation par le service RH. Ses vaccinations (vaccin et date d'injection) sont des données de
   santé réservées au service RH : l'information sur leur traitement (art. 13 du RGPD) s'affiche avant la saisie.
+  Ce qui l'attend (compte rendu d'entretien à signer, feuille de temps renvoyée ou semaine passée à soumettre) est
+  signalé par une pastille dans le menu et dans l'encart « À faire » de son accueil.
 
 Chaque personne se connecte avec son compte nominatif : compte Microsoft 365 de l'entreprise pour
 les salariés qui en ont un (« Se connecter avec Microsoft », voir `docs/CONNEXION-MICROSOFT.md`),
@@ -77,6 +79,13 @@ s'exporte en CSV. Conservation : 1 an ; les actions liées à la paie passent en
 consultable sur demande, gardée 3 ans. La fiche d'un collaborateur montre son historique et permet au
 service RH d'exporter toutes ses données (droit d'accès) ; chaque salarié télécharge les siennes depuis
 son espace (« Télécharger mes données »).
+
+Cursus s'utilise aussi sur **téléphone et tablette** (accès depuis Internet) : menu replié derrière un bouton
+« Menu », feuilles de temps saisies jour par jour, champs et boutons à la taille du doigt ; la grille de la semaine
+reste sur PC. Chaque page a son titre d'onglet et un lien « Aller au contenu » pour le clavier. La page
+**Confidentialité**, ouverte depuis l'écran de connexion et depuis chaque espace, informe les salariés sur le
+traitement de leurs données ; le responsable du traitement et le DPO se règlent dans Paramètres → Confidentialité, et
+`docs/RGPD.md` décrit le traitement pour le registre et l'analyse d'impact de l'employeur.
 
 ## Application de bureau (macOS)
 

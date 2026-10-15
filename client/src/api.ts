@@ -1,5 +1,6 @@
 // Appels à l'API Cursus.
 import type { CibleEnvoi, CompteSession, CompteVue, CurrentUser, Dataset, Envoi, EtatEnvois, Role, StatutEnvoi } from '../../shared/types.ts';
+import type { ContactsConfidentialite } from '../../shared/confidentialite.ts';
 
 /** Compte proposé à la connexion de démonstration (`id` : identifiant du compte). */
 export interface LoginOption { id: number; nom: string }
@@ -179,6 +180,8 @@ export const api = {
     fetch('/api/exports', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(x) }).catch(() => {});
   },
   comptes: () => request<CompteVue[]>('GET', '/api/comptes'),
+  /** Page Confidentialité : coordonnées du responsable du traitement et du DPO, lisibles sans connexion. */
+  confidentialite: () => request<ContactsConfidentialite>('GET', '/api/confidentialite'),
   envois: (statut: StatutEnvoi | null, cible: CibleEnvoi | null = null) => {
     const q = new URLSearchParams();
     if (statut) q.set('statut', statut);

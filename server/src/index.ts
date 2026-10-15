@@ -10,6 +10,7 @@ import { DEMO, purgeSessions } from './auth.ts';
 import { adminsActifs } from './comptes.ts';
 import { configMail, enProduction, hoteEcoute, portEcoute, trustProxy, verifierConfig } from './config.ts';
 import { espaceChange, identite, routesConnexion } from './connexion.ts';
+import { routesConfidentialite } from './confidentialite.ts';
 import { buildSnapshot, loadFull } from './dataset.ts';
 import { dbFile, openDb } from './db.ts';
 import { limiterDebit } from './debit.ts';
@@ -84,6 +85,8 @@ app.use(express.json({ limit: '2mb' }));
 
 // Session, connexion, changement d'espace, mot de passe et liste des comptes : server/src/connexion.ts.
 app.use(routesConnexion(db));
+// Page Confidentialité : coordonnées du responsable et du DPO, lisibles sans connexion (server/src/confidentialite.ts).
+app.use(routesConfidentialite(db));
 
 app.get('/api/data', (req, res) => {
   const id = identite(db, req);

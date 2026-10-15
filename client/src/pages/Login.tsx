@@ -4,6 +4,7 @@
 // de passe) pour le personnel sans compte Microsoft. En démonstration, choix libre d'un compte de l'espace
 // (tout mot de passe est accepté), ou connexion par compte Cursus pour essayer le parcours réel.
 // Un échec de la connexion Microsoft revient ici avec ?connexion=<code> (ERREURS_MICROSOFT).
+// Sous la carte, la page Confidentialité (information sur les données personnelles), lisible sans connexion.
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { BLOCAGE_MINUTES, ECHECS_MAX, ERREURS_MICROSOFT, type ErreurMicrosoft } from '../../../shared/constants.ts';
 import { lienMicrosoft, type LoginOption } from '../api.ts';
@@ -30,15 +31,16 @@ function erreurMicrosoft(): ErreurMicrosoft | null {
 }
 
 export function Login() {
-  const { session } = useStore();
+  const { session, go } = useStore();
   const demo = !!session?.loginOptions;
   const [erreur] = useState(erreurMicrosoft);
   const [cursus, setCursus] = useState(!!erreur);
   // Le code d'erreur quitte l'adresse une fois lu : un rechargement ne le réaffiche pas.
   useEffect(() => { if (location.search) history.replaceState(null, '', location.pathname); }, []);
   return (
-    <div style={{ display: 'flex', justifyContent: 'center', paddingTop: 'calc(var(--space-8) * 2)' }}>
+    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-4)', paddingTop: 'calc(var(--space-8) * 2)' }}>
       {demo && !cursus ? <DemoLogin onCursus={() => setCursus(true)} /> : <CursusLogin erreur={erreur} onDemo={demo ? () => setCursus(false) : undefined} />}
+      <a className="fine" href="/confidentialite" onClick={e => { e.preventDefault(); go('confidentialite'); }}>Confidentialité : vos données dans Cursus</a>
     </div>
   );
 }

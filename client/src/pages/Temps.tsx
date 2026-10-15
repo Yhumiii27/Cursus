@@ -7,7 +7,7 @@
 // Une demande d'absence en attente sur des jours qui portent des heures est décidée avant la validation de la feuille.
 // Une journée compte 24 h au plus (toutes lignes cumulées) ; au-delà des durées maximales (10 h par jour, 48 h par
 // semaine), la soumission exige un motif, que le valideur lit (ou donne, s'il a lui-même corrigé la feuille).
-import { useState, type KeyboardEvent } from 'react';
+import { useState, type MouseEvent } from 'react';
 import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
 import { ABS_ABREGE, TEMPS_TRAVAIL, TS_CLS, TS_LABEL } from '../../../shared/constants.ts';
 import type { Domain } from '../../../shared/domain.ts';
@@ -19,44 +19,14 @@ import {
   joursAbsenceTexte, natureAbsence, sagePending, semaineCouverte, tachesDeLaSemaine, type SheetCalc,
 } from '../../../shared/rules/temps.ts';
 import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
+import { jourLong, nomChamp } from '../components/heures.ts';
 import { CloseButton, Fine, Page, Panel, Pre, Tag, Two, stop } from '../components/ui.tsx';
 import { useAgir } from '../state/actions.ts';
 import { suppressionLigne, transmissionSage } from '../state/confirmations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { RelevesPanel } from './Releves.tsx';
-
-/** Valeur affichée dans une cellule : vide pour zéro, virgule décimale. */
-const cellText = (v: number) => v ? String(v).replace('.', ',') : '';
-/** Même normalisation que le serveur (0 à 24 h, au centième). */
-const cellValue = (raw: string) => Math.round(Math.max(0, Math.min(24, num(raw))) * 100) / 100;
-
-/**
- * Cellule d'heures : valeur locale, envoyée au serveur à la sortie du champ ou sur Entrée.
- * `alert` : heures saisies un jour d'absence validée — cellule signalée, son texte en infobulle.
- */
-function HourCell({ value, disabled, alert, onCommit }: { value: number; disabled: boolean; alert?: string; onCommit: (raw: string) => Promise<boolean> }) {
-  const [text, setText] = useState(cellText(value));
-  const [prev, setPrev] = useState(value);
-  if (prev !== value) { setPrev(value); setText(cellText(value)); }
-
-  const commit = async () => {
-    const n = cellValue(text);
-    if (n === value) { setText(cellText(value)); return; }
-    setText(cellText(n));
-    if (!(await onCommit(text))) setText(cellText(value));
-  };
-  const onKey = (ev: KeyboardEvent<HTMLInputElement>) => { if (ev.key === 'Enter') ev.currentTarget.blur(); };
-
-  return (
-    <input
-      className={alert ? 'input tnum alerte' : 'input tnum'} type="text" inputMode="decimal" aria-label="Heures" value={text} disabled={disabled}
-      title={alert} aria-invalid={alert ? true : undefined}
-      onChange={ev => setText(ev.target.value.replace(/[^\d.,]/g, '').slice(0, 5))} onBlur={commit} onKeyDown={onKey}
-      style={{ width: 56, textAlign: 'right', padding: '0 var(--space-3)' }}
-    />
-  );
-}
+import { ChampHeures, SaisieJour, useVueJour } from './SaisieJour.tsx';
 
 /** Année d'une feuille : celle de sa semaine ISO (son jeudi) ; le cumul annuel ventile une semaine à cheval jour par jour. */
 const anneeDe = (week: ISODate) => isoWeekYear(week);
@@ -252,6 +222,8 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const { run, openDialog } = useStore();
   const { occupe, agir } = useAgir();
   const [comment, setComment] = useState('');
+  // Téléphone, tablette : la feuille se saisit jour par jour (pages/SaisieJour.tsx) ; le PC garde la grille de la semaine.
+  const vueJour = useVueJour();
 
   const wdays = wDays(wk);
   const sh = data.feuilles.find(f => f.empId === emp.id && f.week === wk) ?? null;
@@ -293,13 +265,28 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
     const m = data.missions.find(x => x.empId === emp.id && x.du <= day && x.au >= day);
     return {
       day, a, locked: fer || !!a || hors, hl: (!!m && !fer && !a) || [...surAbsence, ...enAttente].some(x => x.di === i),
-      label: cap(parse(day).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })),
+      label: cap(parse(day).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })), long: jourLong(day),
       note: fer ? 'Férié' : hors ? 'Hors contrat'
         : a ? `${ABS_ABREGE[a.type]}${a.statut === 'signalee' ? ' (signalée)' : ''}`
         : dem ? `${cap(natureAbsence(dem.type))} demandé${dem.type === 'RECUP' ? 'e' : ''}` : off ? 'Non travaillé' : m ? `Mission ${m.projet}` : '—',
     };
   });
   const lignes = sh ? sh.lignes : [];
+  // Cellule remplie un jour d'absence : signalée (à vider) ; elle reste modifiable pour être vidée, vide elle est verrouillée.
+  const alerteDe = (li: number, di: number) => {
+    const a = days[di].a;
+    return a && num(lignes[li]?.h[di]) > 0 ? `${absenceCeJour(a)} : ${editable ? 'videz la cellule' : 'aucune heure ne devrait être saisie'}` : undefined;
+  };
+  const enregistrer = async (li: number, di: number, raw: string) => (await run('temps.setCell', { ...base, li, di, value: raw }, { silent: true })).ok;
+  // La ligne visée accompagne l'indice : un second clic ne supprime pas la ligne venue à sa place.
+  // Une ligne qui porte des heures n'est supprimée qu'après confirmation.
+  const supprimer = (li: number, ev: MouseEvent) => {
+    const l = lignes[li];
+    const ligne = { ...base, li, projet: l.projet, tache: l.tache, lignes: lignes.length };
+    const heures = l.h.reduce((n, v) => n + num(v), 0);
+    if (heures > 0) openDialog({ type: 'confirmer', c: suppressionLigne(ligne, `${l.projet} · ${l.tache}`, heures) });
+    else agir(() => run('temps.removeLine', ligne))(ev);
+  };
   const used = new Set(lignes.map(l => l.projet));
   const projOptions = data.referentiels.projets.filter(p => !used.has(p.code) && p.statut !== 'archive');
   // Proposition Keystone : seulement si des heures sont planifiées cette semaine-là.
@@ -346,6 +333,10 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
         )}
         {sh?.comment && st === 'rejetee' && <div style={{ fontSize: 13, color: 'var(--color-accent-300)' }}>Retour du manager : {sh.comment}</div>}
 
+        {vueJour ? (
+          <SaisieJour wk={wk} days={days} lignes={lignes} perDay={calc.perDay} total={calc.total} editable={editable} occupe={occupe}
+            projet={code => d.projet(code)} alerteDe={alerteDe} enregistrer={enregistrer} supprimer={supprimer} />
+        ) : (
         <div className="scroll-x">
           <table className="table" style={{ fontSize: 13 }}>
             <thead><tr>
@@ -366,26 +357,19 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
                     <div className="text-muted sub">{l.tache}</div>
                   </td>
                   {l.h.map((v, di) => {
-                    // Une cellule remplie un jour d'absence reste modifiable, pour la vider ; vide, elle reste verrouillée.
-                    const a = days[di].a, alerte = !!a && num(v) > 0;
+                    // Chaque cellule est nommée (projet, tâche, jour) ; l'alerte d'absence lui est reliée pour un lecteur d'écran.
+                    const alerte = alerteDe(li, di), alerteId = `ts-alerte-${li}-${di}`;
                     return (
                       <td key={di} className="center">
-                        <HourCell value={num(v)} disabled={!editable || (days[di].locked && !alerte)}
-                          alert={alerte ? `${absenceCeJour(a)} : ${editable ? 'videz la cellule' : 'aucune heure ne devrait être saisie'}` : undefined}
-                          onCommit={async raw => (await run('temps.setCell', { ...base, li, di, value: raw }, { silent: true })).ok} />
+                        <ChampHeures value={num(v)} disabled={!editable || (days[di].locked && !alerte)} label={nomChamp(l, days[di].long)}
+                          alerte={alerte} alerteId={alerteId} onCommit={raw => enregistrer(li, di, raw)}
+                          style={{ width: 56, textAlign: 'right', padding: '0 var(--space-3)' }} />
+                        {alerte && <span id={alerteId} className="sr-only">{alerte}</span>}
                       </td>
                     );
                   })}
                   <td className="right nowrap tnum">{fH(l.h.reduce((n, v) => n + num(v), 0))}</td>
-                  {/* La ligne visée accompagne l'indice : un second clic ne supprime pas la ligne venue à sa place.
-                      Une ligne qui porte des heures n'est supprimée qu'après confirmation. */}
-                  <td className="right">{editable && <CloseButton size={28} label={`Supprimer la ligne ${l.projet}`} disabled={occupe}
-                    onClick={ev => {
-                      const ligne = { ...base, li, projet: l.projet, tache: l.tache, lignes: lignes.length };
-                      const heures = l.h.reduce((n, v) => n + num(v), 0);
-                      if (heures > 0) openDialog({ type: 'confirmer', c: suppressionLigne(ligne, `${l.projet} · ${l.tache}`, heures) });
-                      else agir(() => run('temps.removeLine', ligne))(ev);
-                    }} />}</td>
+                  <td className="right">{editable && <CloseButton size={28} label={`Supprimer la ligne ${l.projet}`} disabled={occupe} onClick={ev => supprimer(li, ev)} />}</td>
                 </tr>
               ))}
               <tr>
@@ -398,6 +382,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
             </tbody>
           </table>
         </div>
+        )}
         {horsSemaine && <div className="note-accent">Semaine hors contrat : {horsSemaine}. Aucune feuille de temps.</div>}
         {!horsSemaine && lignes.length === 0 && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>Aucune heure saisie pour cette semaine.</p>}
         {couverte && !(calc.total > 0) && editable && !correction && <Fine>Semaine couverte par une absence : la feuille se soumet sans heure.</Fine>}

@@ -12,8 +12,11 @@ import { ActionError, requireRhAdmin, str, type ActionHandler, type Ctx } from '
 /** Taille maximale du fichier importé (caractères) : quelques centaines de salariés tiennent largement. */
 const TEXTE_MAX = 1_000_000;
 
-/** Écrit une ligne retenue ; renvoie l'identifiant du salarié et une remarque éventuelle (compte non créé…). */
-function ecrire(ctx: Ctx, l: LigneReprise, o: { comptes: boolean }): { empId: number; note?: string } {
+/**
+ * Écrit une ligne retenue ; renvoie l'identifiant du salarié, une remarque éventuelle (compte non créé…) et l'identifiant
+ * du compte Microsoft 365 ouvert (journal).
+ */
+function ecrire(ctx: Ctx, l: LigneReprise, o: { comptes: boolean }): { empId: number; note?: string; compte?: string } {
   const w = l.ecriture!;
   switch (w.type) {
     case 'salaries': {
@@ -29,25 +32,29 @@ function ecrire(ctx: Ctx, l: LigneReprise, o: { comptes: boolean }): { empId: nu
         ctx.db.insert('soldesReprise', { empId, cpPris: 0, rttPris: 0, recupAcquis: 0, recupPris: 0, arreteLe: ctx.d.ti });
       }
       // Compte Microsoft 365 à partir de l'adresse de la fiche (case cochée) : un salarié présent qui n'en a pas encore.
-      let note: string | undefined;
+      let note: string | undefined, compte: string | undefined;
       if (o.comptes && w.profil.email && !(w.profil.fin && w.profil.fin < ctx.d.ti) && !ctx.db.where('comptes', 'empId', empId).length) {
         try {
-          creerCompte(ctx.db, { empId, type: 'microsoft', identifiant: w.profil.email }, ctx.user.nom);
+          compte = creerCompte(ctx.db, { empId, type: 'microsoft', identifiant: w.profil.email }, ctx.user.nom).compte.identifiant;
           note = 'compte Microsoft 365 créé';
         } catch (e) {
           note = `compte non créé : ${e instanceof Error ? e.message : String(e)}`;
         }
       }
-      return { empId, note };
+      return { empId, note, compte };
     }
     case 'soldes': {
-      const recup = w.recup ?? 0;
-      const row: SoldeReprise = {
-        empId: l.empId!, cpPris: 0, rttPris: 0, recupAcquis: Math.max(recup, 0), recupPris: Math.max(-recup, 0), arreteLe: w.arreteLe,
-        cpSolde: w.cpSolde, cpSoldeSuivant: w.cpSoldeSuivant, rttSolde: w.rttSolde, cetSolde: w.cetSolde,
-      };
-      if (ctx.db.get('soldesReprise', l.empId!)) ctx.db.update('soldesReprise', l.empId!, row);
-      else ctx.db.insert('soldesReprise', row);
+      // Même date d'arrêté : seuls les compteurs de la ligne changent (l'analyse a fusionné ceux déjà repris) ; la
+      // récupération n'est réécrite que si le fichier la porte. Autre date d'arrêté : la ligne est remplacée.
+      const R = ctx.db.get<SoldeReprise>('soldesReprise', l.empId!);
+      const soldes = { arreteLe: w.arreteLe, cpSolde: w.cpSolde, cpSoldeSuivant: w.cpSoldeSuivant, rttSolde: w.rttSolde, cetSolde: w.cetSolde };
+      const recup = (x: number) => ({ recupAcquis: Math.max(x, 0), recupPris: Math.max(-x, 0) });
+      if (R && R.arreteLe === w.arreteLe) ctx.db.update('soldesReprise', l.empId!, { ...soldes, ...(w.recup != null ? recup(w.recup) : {}) });
+      else {
+        const row: SoldeReprise = { empId: l.empId!, cpPris: 0, rttPris: 0, ...recup(w.recup ?? 0), ...soldes };
+        if (R) ctx.db.update('soldesReprise', l.empId!, row);
+        else ctx.db.insert('soldesReprise', row);
+      }
       return { empId: l.empId! };
     }
     case 'certifications':
@@ -71,8 +78,17 @@ function ecrire(ctx: Ctx, l: LigneReprise, o: { comptes: boolean }): { empId: nu
   }
 }
 
-/** Motif d'une ligne au compte rendu : erreurs (refus), sinon avertissements, sinon ce qui a été écrit. */
-const motifDe = (l: LigneReprise, note?: string) => [...(l.issue === 'refus' ? l.erreurs : [l.detail, ...l.avertissements]), note ?? ''].filter(Boolean).join(' · ');
+/**
+ * Motif d'une ligne au compte rendu conservé : erreurs (refus), sinon avertissements, sinon ce qui a été écrit. Visites :
+ * jamais l'avis ni ce qui le laisse deviner (restrictions, inaptitude) — donnée de santé, comme au journal ; une visite
+ * écrite n'est rappelée que par sa date.
+ */
+const motifDe = (type: TypeReprise, l: LigneReprise, note?: string) => {
+  if (type === 'visites' && l.issue !== 'refus') {
+    return l.ecriture?.type === 'visites' ? `Visite du ${fmtIso(l.ecriture.date)} reprise` : l.avertissements.filter(x => !/apte|restriction/i.test(x)).join(' · ');
+  }
+  return [...(l.issue === 'refus' ? l.erreurs : [l.detail, ...l.avertissements]), note ?? ''].filter(Boolean).join(' · ');
+};
 
 /**
  * `reprise.importer` : type, texte (CSV), colonnes (champ de chaque colonne), dateReprise (soldes), equipes (rapprochement),
@@ -90,7 +106,10 @@ const importer: ActionHandler = (ctx, p) => {
   const confirmations = Array.isArray(p.confirmations) ? p.confirmations.map(Number).filter(Number.isInteger) : [];
   const dateReprise = type === 'soldes' ? str(p.dateReprise) : null;
   const comptes = type === 'salaries' && p.comptes === true;
-  const a = analyserReprise(ctx.d, type, texte, { colonnes, dateReprise, equipes, confirmations });
+  // Case cochée : fiches qui ont déjà un compte (une fiche à jour sans compte reste à écrire, pour lui en ouvrir un).
+  const avecCompte = comptes ? ctx.db.all<{ empId: number | null }>('comptes').map(c => c.empId).filter((x): x is number => x != null) : null;
+  const soiMeme = ctx.user.role === 'rh' ? ctx.user.salarieId ?? null : null;
+  const a = analyserReprise(ctx.d, type, texte, { colonnes, dateReprise, equipes, confirmations, avecCompte, soiMeme });
   if (a.bloquant) throw new ActionError(a.bloquant);
   const retenues = a.lignes.filter(l => l.ecriture);
   if (!retenues.length) {
@@ -99,27 +118,28 @@ const importer: ActionHandler = (ctx, p) => {
   }
   const salaries = new Set<number>();
   const notes = new Map<number, string>();
-  let comptesCrees = 0;
+  const ouverts: { empId: number; identifiant: string }[] = [];
   for (const l of retenues) {
     const r = ecrire(ctx, l, { comptes });
     salaries.add(r.empId);
     if (r.note) notes.set(l.n, r.note);
-    if (r.note === 'compte Microsoft 365 créé') comptesCrees++;
+    if (r.compte) ouverts.push({ empId: r.empId, identifiant: r.compte });
   }
+  const comptesCrees = ouverts.length;
   const b = bilanReprise(a.lignes);
   const fichier = str(p.fichier).slice(0, 200) || null;
   const lot = ctx.db.insert<LotReprise>('reprises', {
     type, le: new Date().toISOString(), par: ctx.user.nom, dateReprise, fichier, colonnes,
     options: { comptes, equipes, entetes: a.entetes.slice(0, 60).map(h => h.slice(0, 80)) },
     lignes: a.lignes.length, ...b,
-    rapport: a.lignes.map(l => ({ n: l.n, issue: ISSUE_LABEL[l.issue], nom: l.nom, motif: motifDe(l, notes.get(l.n)) })),
+    rapport: a.lignes.map(l => ({ n: l.n, issue: ISSUE_LABEL[l.issue], nom: l.nom, motif: motifDe(type, l, notes.get(l.n)) })),
   });
   const libelle = REPRISES[type].court;
   const message = `Import des ${libelle} : ${[
     b.crees ? plural(b.crees, 'ajout', 'ajouts') : '', b.majs ? plural(b.majs, 'mise à jour', 'mises à jour') : '',
     b.ignorees ? plural(b.ignorees, 'ligne ignorée', 'lignes ignorées') : '', b.refusees ? plural(b.refusees, 'ligne refusée', 'lignes refusées') : '',
   ].filter(Boolean).join(', ')}${dateReprise ? ` · soldes au ${fmtIso(dateReprise)}` : ''}${comptesCrees ? ` · ${plural(comptesCrees, 'compte Microsoft 365 créé', 'comptes Microsoft 365 créés')}` : ''}`;
-  return { message, result: { lot: lot.id, salaries: [...salaries], ...b, comptes: comptesCrees } };
+  return { message, result: { lot: lot.id, salaries: [...salaries], ...b, comptes: comptesCrees, comptesOuverts: ouverts } };
 };
 
 export const repriseActions: Record<string, ActionHandler> = {

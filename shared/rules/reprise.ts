@@ -34,7 +34,10 @@ const MATRICULE: ChampReprise = {
 const NOM: ChampReprise = { id: 'nom', label: 'Nom', noms: ['nom', 'nom complet', 'nom prenom', 'prenom nom', 'collaborateur', 'salarie', 'nom d usage', 'nom de famille'] };
 const PRENOM: ChampReprise = { id: 'prenom', label: 'Prénom', noms: ['prenom'], aide: 'Joint au nom (« Prénom Nom ») s’il est dans une colonne à part' };
 
-/** Les cinq imports, dans l'ordre conseillé (référentiels chargés d'abord : écran Référentiels). */
+/**
+ * Les cinq imports, dans l'ordre conseillé (référentiels chargés d'abord : écran Référentiels). Les visites passent avant
+ * les habilitations : l'aptitude médicale, prérequis de plusieurs habilitations, est alors connue à leur aperçu.
+ */
 export const REPRISES: Record<TypeReprise, { label: string; court: string; aide: string; champs: ChampReprise[]; requis: string[]; exemple: string[][] }> = {
   salaries: {
     label: 'Salariés', court: 'salariés',
@@ -58,10 +61,11 @@ export const REPRISES: Record<TypeReprise, { label: string; court: string; aide:
     ],
     requis: ['nom', 'entree'],
     exemple: [
-      ['Matricule de paie', 'Prénom', 'Nom', 'Poste', 'Équipe', 'Statut', 'Contrat', 'Temps de travail', 'Heures par semaine', 'Date d’entrée', 'Date de fin', 'Motif de sortie', 'Naissance', 'Agence d’intérim', 'Adresse e-mail'],
-      ['A0123', 'Julie', 'Martin', 'Technicienne de maintenance', 'Maintenance', 'Technicien', 'CDI', '39 h avec RTT', '', '01/09/2015', '', '', '12/04/1988', '', 'julie.martin@exemple.fr'],
-      ['A0456', 'Marc', 'Petit', 'Opérateur de production', 'Production', 'Ouvrier', 'CDD', '35 h', '', '05/01/2026', '30/06/2027', '', '1997', '', 'marc.petit@exemple.fr'],
-      ['', 'Léa', 'Roux', 'Cariste', 'Logistique', 'Ouvrier', 'Intérim', '35 h', '', '04/01/2027', '26/03/2027', '', '2001', 'Agence Intérim Lyon', ''],
+      ['Matricule de paie', 'Prénom', 'Nom', 'Poste', 'Équipe', 'Statut', 'Contrat', 'Temps de travail', 'Heures par semaine', 'Forfait jours', 'Forfait annuel en heures', 'Date d’entrée', 'Date de fin', 'Motif de sortie', 'Naissance', 'Agence d’intérim', 'Adresse e-mail'],
+      ['A0123', 'Julie', 'Martin', 'Technicienne de maintenance', 'Maintenance', 'Technicien', 'CDI', '39 h avec RTT', '', '', '', '01/09/2015', '', '', '12/04/1988', '', 'julie.martin@exemple.fr'],
+      ['A0456', 'Marc', 'Petit', 'Opérateur de production', 'Production', 'Ouvrier', 'CDD', '35 h', '', '', '', '05/01/2026', '30/06/2027', '', '1997', '', 'marc.petit@exemple.fr'],
+      ['A0789', 'Nora', 'Saïd', 'Responsable qualité', 'Qualité', 'Cadre', 'CDI', 'Forfait jours', '', '218', '', '01/02/2020', '', '', '1980', '', 'nora.said@exemple.fr'],
+      ['', 'Léa', 'Roux', 'Cariste', 'Logistique', 'Ouvrier', 'Intérim', '35 h', '', '', '', '04/01/2027', '26/03/2027', '', '2001', 'Agence Intérim Lyon', ''],
     ],
   },
   soldes: {
@@ -93,6 +97,17 @@ export const REPRISES: Record<TypeReprise, { label: string; court: string; aide:
     requis: ['formation', 'date'],
     exemple: [['Matricule de paie', 'Prénom', 'Nom', 'Formation', 'Date d’obtention'], ['A0123', 'Julie', 'Martin', 'SST', '14/03/2025'], ['A0456', 'Marc', 'Petit', 'CACES R489', '02/02/2026']],
   },
+  visites: {
+    label: 'Visites médicales', court: 'visites',
+    aide: 'Dernière visite de chaque salarié et avis du médecin du travail : apte, apte avec restrictions, inapte. Sans avis, la visite n’est enregistrée « apte » qu’après confirmation dans l’aperçu ; les restrictions se recopient ensuite sur la fiche.',
+    champs: [
+      MATRICULE, NOM, PRENOM,
+      { id: 'date', label: 'Date de visite', noms: ['date de visite', 'date de la visite', 'visite', 'date visite medicale', 'derniere visite', 'date'] },
+      { id: 'avis', label: 'Avis', noms: ['avis', 'aptitude', 'avis d aptitude', 'conclusion', 'resultat', 'avis du medecin'] },
+    ],
+    requis: ['date'],
+    exemple: [['Matricule de paie', 'Prénom', 'Nom', 'Date de visite', 'Avis'], ['A0123', 'Julie', 'Martin', '10/06/2025', 'Apte'], ['A0456', 'Marc', 'Petit', '15/01/2026', 'Apte avec restrictions']],
+  },
   habilitations: {
     label: 'Habilitations', court: 'habilitations',
     aide: 'Habilitations délivrées, avec leur date et leur signataire (à défaut, le signataire du référentiel). Un prérequis manquant n’est qu’un avertissement : la délivrance a eu lieu.',
@@ -104,17 +119,6 @@ export const REPRISES: Record<TypeReprise, { label: string; court: string; aide:
     ],
     requis: ['habilitation', 'date'],
     exemple: [['Matricule de paie', 'Prénom', 'Nom', 'Habilitation', 'Date de délivrance', 'Signataire'], ['A0123', 'Julie', 'Martin', 'Habilitation électrique', '20/03/2025', 'Directeur du site']],
-  },
-  visites: {
-    label: 'Visites médicales', court: 'visites',
-    aide: 'Dernière visite de chaque salarié et avis du médecin du travail : apte, apte avec restrictions, inapte. Sans avis, la visite n’est enregistrée « apte » qu’après confirmation dans l’aperçu ; les restrictions se recopient ensuite sur la fiche.',
-    champs: [
-      MATRICULE, NOM, PRENOM,
-      { id: 'date', label: 'Date de visite', noms: ['date de visite', 'date de la visite', 'visite', 'date visite medicale', 'derniere visite', 'date'] },
-      { id: 'avis', label: 'Avis', noms: ['avis', 'aptitude', 'avis d aptitude', 'conclusion', 'resultat', 'avis du medecin'] },
-    ],
-    requis: ['date'],
-    exemple: [['Matricule de paie', 'Prénom', 'Nom', 'Date de visite', 'Avis'], ['A0123', 'Julie', 'Martin', '10/06/2025', 'Apte'], ['A0456', 'Marc', 'Petit', '15/01/2026', 'Apte avec restrictions']],
   },
 };
 export const TYPES_REPRISE = Object.keys(REPRISES) as TypeReprise[];
@@ -195,6 +199,13 @@ export interface OptionsReprise {
   equipes?: Record<string, string>;
   /** Numéros des lignes confirmées dans l'aperçu. */
   confirmations?: number[];
+  /**
+   * Salariés : case « Créer les comptes Microsoft 365 » cochée, avec les fiches qui ont déjà un compte ; null ou absent :
+   * case décochée. Une fiche déjà à jour sans compte devient alors une mise à jour (compte à créer).
+   */
+  avecCompte?: number[] | null;
+  /** Fiche rattachée au compte qui importe : ses propres soldes sont repris par un autre membre du service RH. */
+  soiMeme?: number | null;
 }
 
 export interface AnalyseReprise {
@@ -214,8 +225,13 @@ const nombre = (s: string | undefined): number | null => {
   if (!v) return null;
   return /^-?\d+(\.\d+)?$/.test(v) ? Number(v) : NaN;
 };
-const statutDe = (s: string): Statut | null => {
+/**
+ * Statut d'une cellule. « Non cadre » (export qui ne distingue que cadres et non-cadres) ne dit pas s'il s'agit d'un
+ * ouvrier ou d'un technicien : `non_cadre`, traité comme un statut absent (testé avant « cadre », qu'il contient).
+ */
+const statutDe = (s: string): Statut | 'non_cadre' | null => {
   const k = key(s);
+  if (/\b(non|pas)\s+cadres?\b/.test(k)) return 'non_cadre';
   if (/\b(cadre|ingenieur|ic)\b/.test(k)) return 'cadre';
   if (/\b(techn\w*|maitrise|etam|tam|am)\b/.test(k)) return 'technicien';
   if (/\b(ouvrier\w*|employe\w*|oe)\b/.test(k)) return 'ouvrier';
@@ -246,9 +262,14 @@ const motifSortieDe = (s: string): MotifSortie | null => {
     ?? (Object.entries(MOTIFS_SORTIE) as [MotifSortie, string][]).find(([, l]) => k && key(l).includes(k));
   return m ? m[0] : null;
 };
+/**
+ * Avis d'une cellule. La négation d'abord (« Non apte » contient « apte »), puis « sans restriction » (contient
+ * « restriction ») : un salarié inapte ne doit jamais ressortir apte.
+ */
 const avisDe = (s: string): AvisMedical | null => {
   const k = key(s);
-  if (/\binapte\b/.test(k)) return 'inapte';
+  if (/\b(non|pas)\s+apte\b|\binapt/.test(k)) return 'inapte';
+  if (/\bsans\s+(restrictions?|reserves?|amenagements?)\b/.test(k)) return /\bapte\b/.test(k) ? 'apte' : null;
   if (/restriction|amenagement|reserve/.test(k)) return 'restrictions';
   if (/\bapte\b/.test(k)) return 'apte';
   return null;
@@ -328,8 +349,8 @@ export function analyserReprise(d: Domain, type: TypeReprise, texte: string, o: 
   const confirmees = new Set((o.confirmations ?? []).map(Number));
   const lignes = rows.slice(1).map((cells, i) => ({ n: numeros[i + 1], v: valeurs(cells, colonnes) }));
   switch (type) {
-    case 'salaries': return analyserSalaries(d, entetes, lignes, o.equipes ?? {}, confirmees);
-    case 'soldes': return { entetes, bloquant: null, equipesInconnues: [], lignes: lignes.map(l => analyserSolde(d, l.n, l.v, dateReprise!)) };
+    case 'salaries': return analyserSalaries(d, entetes, lignes, o.equipes ?? {}, confirmees, o.avecCompte ?? null);
+    case 'soldes': return { entetes, bloquant: null, equipesInconnues: [], lignes: lignes.map(l => analyserSolde(d, l.n, l.v, dateReprise!, o.soiMeme ?? null)) };
     case 'certifications': return { entetes, bloquant: null, equipesInconnues: [], lignes: analyserCertifications(d, lignes) };
     case 'habilitations': return { entetes, bloquant: null, equipesInconnues: [], lignes: analyserHabilitations(d, lignes) };
     case 'visites': return { entetes, bloquant: null, equipesInconnues: [], lignes: analyserVisites(d, lignes, confirmees) };
@@ -341,7 +362,10 @@ export function analyserReprise(d: Domain, type: TypeReprise, texte: string, o: 
 /** Champs du régime de temps et du contrat : leur changement sur une fiche qui a déjà des feuilles ou des absences passe par la fiche. */
 const REGIME: (keyof ProfilInput)[] = ['temps', 'heures', 'forfaitHeures', 'forfaitJours', 'statut', 'typeContrat'];
 
-function analyserSalaries(d: Domain, entetes: string[], lignes: { n: number; v: Valeurs }[], equipesO: Record<string, string>, confirmees: Set<number>): AnalyseReprise {
+/** Nom comparé sans ordre des mots (« Julie Martin », « MARTIN Julie ») : une faute de matricule ne passe pas pour une mise à jour. */
+const memeNom = (a: string, b: string) => key(a).split(' ').sort().join(' ') === key(b).split(' ').sort().join(' ');
+
+function analyserSalaries(d: Domain, entetes: string[], lignes: { n: number; v: Valeurs }[], equipesO: Record<string, string>, confirmees: Set<number>, avecCompte: number[] | null): AnalyseReprise {
   const existantes = d.equipes;
   // Équipe du fichier : rapprochement choisi dans l'aperçu, sinon même nom (casse et accents ignorés), sinon à créer.
   const inconnues = [...new Set(lignes.map(l => (l.v.equipe ?? '').trim()).filter(Boolean))]
@@ -354,7 +378,7 @@ function analyserSalaries(d: Domain, entetes: string[], lignes: { n: number; v: 
   };
   const aCreer = [...new Set(inconnues.map(q => equipeDe(q)).filter(x => x.creer).map(x => x.nom))];
   // Matricules, adresses et salariés déjà retenus plus haut dans le fichier (doublons du fichier).
-  const matriculesFichier: Record<string, { id: number; nom: string; sortiLe: null }> = {};
+  const matriculesFichier: Record<string, { id: number; nom: string; sortiLe: ISODate | null }> = {};
   const adressesFichier: Record<string, string> = {};
   const vus = new Map<string, number>();
   const out = lignes.map(({ n, v }): LigneReprise => {
@@ -373,6 +397,12 @@ function analyserSalaries(d: Domain, entetes: string[], lignes: { n: number; v: 
     const e = (reembauche ? undefined : parMatricule) ?? d.ds.employes.find(x => key(x.nom) === key(nom) && x.entree === entree);
     const cle = e ? `id:${e.id}` : `${key(nom)}|${entree}`;
     if (vus.has(cle)) { l.erreurs.push(`Même salarié qu’à la ligne ${vus.get(cle)}`); return conclure(l); }
+    // Fiche trouvée par le matricule mais autre nom ou autre date d'entrée : faute de frappe probable, la mise à jour
+    // renommerait la personne et lui attribuerait l'historique d'une autre. Refus : le fichier est à vérifier.
+    if (e && e === parMatricule && (!memeNom(e.nom, nom) || e.entree !== entree)) {
+      l.erreurs.push(`Matricule ${m} porté par ${e.nom} (entrée le ${fmtIso(e.entree)}) : nom ou date d’entrée différents, vérifiez le fichier`);
+      return conclure(l);
+    }
     if (e && m && e.matriculePaie && e.matriculePaie !== m) {
       l.erreurs.push(`Matricule de paie ${m} différent de celui de la fiche (${e.matriculePaie}) : à corriger depuis la fiche`);
       return conclure(l);
@@ -392,7 +422,13 @@ function analyserSalaries(d: Domain, entetes: string[], lignes: { n: number; v: 
       return true;
     };
     if (v.poste?.trim()) p.poste = v.poste.trim();
-    if (!lire('statut', statutDe, 'Statut', x => { p.statut = x; }) && !e) l.avertissements.push('Statut absent : ouvrier / employé retenu');
+    let nonCadre = false;
+    if (!lire('statut', statutDe, 'Statut', x => { if (x === 'non_cadre') nonCadre = true; else p.statut = x; }) && !e) l.avertissements.push('Statut absent : ouvrier / employé retenu');
+    // « Non cadre » : la fiche existante garde son statut s'il n'est pas cadre ; sinon ouvrier / employé, à préciser.
+    if (nonCadre && (!e || p.statut === 'cadre')) {
+      p.statut = 'ouvrier';
+      l.avertissements.push('Statut « non cadre » : ouvrier / employé retenu, à préciser sur la fiche (technicien, agent de maîtrise)');
+    }
     if (!lire('typeContrat', contratDe, 'Contrat', x => { p.typeContrat = x; }) && !e) l.avertissements.push('Contrat absent : CDI retenu');
     if (!lire('temps', tempsDe, 'Temps de travail', x => { p.temps = x; }) && !e) l.avertissements.push('Temps de travail absent : horaire collectif 35 h retenu');
     lire('heures', nombre, 'Heures par semaine', x => { p.heures = x; });
@@ -446,14 +482,19 @@ function analyserSalaries(d: Domain, entetes: string[], lignes: { n: number; v: 
       P.matriculePaie ? `matricule ${P.matriculePaie}` : '', P.fin ? `fin le ${fmtIso(P.fin)}` : ''].filter(Boolean).join(' · ');
     if (!l.erreurs.length) {
       vus.set(cle, n);
-      if (P.matriculePaie) matriculesFichier[P.matriculePaie] = { id: -n, nom: P.nom, sortiLe: null };
+      // Salarié sorti dans le fichier : son matricule peut servir à une réembauche plus bas (à confirmer).
+      if (P.matriculePaie) matriculesFichier[P.matriculePaie] = { id: -n, nom: P.nom, sortiLe: P.fin && P.fin < d.ti ? P.fin : null };
       if (P.email) adressesFichier[P.email] = P.nom;
     }
+    // Compte Microsoft 365 à créer (case cochée) : salarié présent, avec une adresse, sans compte.
+    const compte = avecCompte != null && !!P.email && !(P.fin && P.fin < d.ti) && !(e && avecCompte.includes(e.id));
     if (e && PROFIL_FIELDS.every(k => JSON.stringify(profilOf(e)[k] ?? null) === JSON.stringify(P[k] ?? null))) {
-      l.issue = 'ignoree';
       l.avertissements = ['Fiche déjà à jour'];
-      return conclure(l);
+      // Ouverture progressive (service RH, équipe pilote, puis tout le site) : rejouer le fichier, case cochée, crée les
+      // comptes manquants sans rien changer à la fiche.
+      if (!compte) { l.issue = 'ignoree'; return conclure(l); }
     }
+    if (compte) l.avertissements.push('Compte Microsoft 365 à créer');
     l.issue = e ? 'maj' : 'creation';
     l.ecriture = { type: 'salaries', profil: P, equipeACreer, reutiliser: !!val.matriculeAConfirmer && reutiliser };
     return conclure(l);
@@ -463,11 +504,18 @@ function analyserSalaries(d: Domain, entetes: string[], lignes: { n: number; v: 
 
 // — Soldes —
 
-function analyserSolde(d: Domain, n: number, v: Valeurs, arreteLe: ISODate): LigneReprise {
+/**
+ * Soldes d'un salarié. Même date d'arrêté qu'un import précédent : seuls les compteurs lus remplacent ceux déjà repris
+ * (Lucca peut exporter un compteur par fichier, un fichier corrigé peut ne porter qu'une colonne). Autre date d'arrêté :
+ * les compteurs repris se rapportaient à une autre période, ceux qui manquent au fichier ne sont plus repris (aperçu).
+ */
+function analyserSolde(d: Domain, n: number, v: Valeurs, arreteLe: ISODate, soiMeme: number | null): LigneReprise {
   const { e, erreur } = trouverSalarie(d, v);
   const l = ligneVide(n, e?.nom ?? (nomDe(v) || v.matricule || '—'));
   if (!e) { l.erreurs.push(erreur!); return conclure(l); }
   l.empId = e.id;
+  // Pas de décision sur soi-même (comme report.accorder ou la clôture des congés).
+  if (soiMeme != null && e.id === soiMeme) { l.erreurs.push('Vos propres soldes sont repris par un autre membre du service RH'); return conclure(l); }
   const lu: Record<'cpN1' | 'cpN' | 'rtt' | 'recup' | 'cet', number | null> = { cpN1: null, cpN: null, rtt: null, recup: null, cet: null };
   const bornes = { cpN1: [-60, 100], cpN: [-60, 100], rtt: [-30, 60], recup: [-500, 2000], cet: [0, 400] } as const;
   const noms = { cpN1: 'CP N-1', cpN: 'CP N', rtt: 'RTT', recup: 'Récupération', cet: 'CET' };
@@ -488,16 +536,24 @@ function analyserSolde(d: Domain, n: number, v: Valeurs, arreteLe: ISODate): Lig
   const avant = d.ds.absences.filter(a => a.empId === e.id && (a.type === 'CP' || a.type === 'RTT') && (a.statut === 'validee' || a.statut === 'demandee') && a.du < arreteLe);
   if (avant.length) l.avertissements.push(`${plural(avant.length, 'congé saisi', 'congés saisis')} dans Cursus avant le ${fmtIso(arreteLe)} : décompté en plus du solde repris`);
   const R = d.ds.soldesReprise.find(s => s.empId === e.id);
-  const recupR = R ? R.recupAcquis - R.recupPris : null;
-  const ecriture = { type: 'soldes' as const, arreteLe, cpSolde: lu.cpN1, cpSoldeSuivant: lu.cpN, rttSolde: lu.rtt, recup: lu.recup, cetSolde: lu.cet };
-  const repris = R && [R.cpSolde, R.cpSoldeSuivant, R.rttSolde, R.cetSolde].some(x => x != null);
+  const recupR = R ? R.recupAcquis - R.recupPris : 0;
+  const deja = { cpN1: R?.cpSolde ?? null, cpN: R?.cpSoldeSuivant ?? null, rtt: R?.rttSolde ?? null, recup: recupR || null, cet: R?.cetSolde ?? null };
+  const repris = Object.values(deja).some(x => x != null);
+  const fusion = !!R && R.arreteLe === arreteLe;
+  // Compteurs après l'import : ceux du fichier, et à même date d'arrêté ceux déjà repris que le fichier ne porte pas.
+  const apres = fusion ? { cpN1: lu.cpN1 ?? deja.cpN1, cpN: lu.cpN ?? deja.cpN, rtt: lu.rtt ?? deja.rtt, recup: lu.recup ?? deja.recup, cet: lu.cet ?? deja.cet } : lu;
+  const ecriture = { type: 'soldes' as const, arreteLe, cpSolde: apres.cpN1, cpSoldeSuivant: apres.cpN, rttSolde: apres.rtt, recup: apres.recup, cetSolde: apres.cet };
   l.detail = [`au ${fmtIso(arreteLe)}`, lu.cpN1 != null ? `CP N-1 ${nombreTexte(lu.cpN1)} j` : '', lu.cpN != null ? `CP N ${nombreTexte(lu.cpN)} j` : '',
     lu.rtt != null ? `RTT ${nombreTexte(lu.rtt)} j` : '', lu.recup != null ? `récupération ${nombreTexte(lu.recup)} h` : '', lu.cet != null ? `CET ${nombreTexte(lu.cet)} j` : '']
     .filter(Boolean).join(' · ');
-  if (repris && R!.arreteLe === arreteLe && (R!.cpSolde ?? null) === lu.cpN1 && (R!.cpSoldeSuivant ?? null) === lu.cpN && (R!.rttSolde ?? null) === lu.rtt
-    && (R!.cetSolde ?? null) === lu.cet && (lu.recup == null ? recupR === 0 : recupR === lu.recup)) {
+  const gardes = (Object.keys(deja) as (keyof typeof deja)[]).filter(k => deja[k] != null && lu[k] == null).map(k => noms[k]);
+  if (fusion && gardes.length) l.detail += ` · inchangés : ${gardes.join(', ')}`;
+  if (fusion && (Object.keys(apres) as (keyof typeof apres)[]).every(k => (k === 'recup' ? apres.recup || null : apres[k] ?? null) === deja[k])) {
     l.avertissements.push('Soldes déjà repris');
     return conclure(l);
+  }
+  if (repris && !fusion && gardes.length) {
+    l.avertissements.push(`Date d’arrêté changée (soldes repris au ${R!.arreteLe ? fmtIso(R!.arreteLe) : '—'}) : ${gardes.join(', ')} absents du fichier, plus repris`);
   }
   l.issue = repris ? 'maj' : 'creation';
   l.ecriture = ecriture;
@@ -608,7 +664,8 @@ function analyserVisites(d: Domain, lignes: { n: number; v: Valeurs }[], confirm
     const date = datePassee(d, l, v.date, 'Date de visite');
     const brut = (v.avis ?? '').trim();
     let avis = brut ? avisDe(brut) : null;
-    if (brut && !avis) l.erreurs.push(`Avis non reconnu : « ${brut} » (apte, apte avec restrictions, inapte)`);
+    // Jamais la cellule recopiée : elle peut contenir un diagnostic, et le motif d'un refus est conservé au compte rendu.
+    if (brut && !avis) l.erreurs.push('Avis non reconnu : attendu apte, apte avec restrictions ou inapte');
     if (!e || !date || l.erreurs.length) return conclure(l);
     l.empId = e.id;
     if (e.visite && e.visite > date) { l.avertissements.push(`Visite plus récente déjà enregistrée (${fmtIso(e.visite)})`); return conclure(l); }

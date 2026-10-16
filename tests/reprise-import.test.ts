@@ -264,3 +264,110 @@ test('lots de reprise : absents des instantanés du manager, du collaborateur et
   assert.throws(() => ACTIONS['reprise.importer'](makeCtx(db, u(14, 'rh'), loadFull(db, RH)), { type: 'soldes' }),
     (e: unknown) => e instanceof ActionError && e.status === 403);
 });
+
+// — Corrections de la relecture —
+
+test('soldes : un fichier par compteur à la même date d’arrêté garde les compteurs déjà repris', () => {
+  const { importer, emp, domain, db } = base();
+  importer('salaries', SALARIES);
+  const julie = emp('Julie Martin');
+  importer('soldes', 'Matricule;CP N-1;CP N\nA0123;12,5;14,58', { dateReprise: '2027-01-01' });
+  const rtt = importer('soldes', 'Matricule;RTT;Récupération (heures)\nA0123;4;6', { dateReprise: '2027-01-01' });
+  assert.equal(rtt.apercu.lignes[0].issue, 'maj');
+  assert.match(rtt.apercu.lignes[0].detail, /inchangés : CP N-1, CP N$/);
+  const cet = importer('soldes', 'Matricule;CET\nA0123;3', { dateReprise: '2027-01-01' });
+  assert.match(cet.apercu.lignes[0].detail, /inchangés : CP N-1, CP N, RTT, Récupération$/);
+  const jan = domain('2027-01-02');
+  assert.equal(cpInfo(jan, julie)!.solde, 12.5, 'CP N-1 gardé');
+  assert.equal(rttInfo(jan, julie, 2027)!.solde, 4, 'RTT gardés');
+  assert.equal(recupInfo(jan, julie)!.solde, 6, 'récupération gardée');
+  assert.equal(cetInfo(jan, julie).total, 3);
+  // Rejouer un des fichiers : rien à écrire.
+  assert.throws(() => importer('soldes', 'Matricule;RTT\nA0123;4', { dateReprise: '2027-01-01' }), /Aucune ligne à importer/);
+  // Autre date d'arrêté : la ligne est remplacée, l'aperçu nomme les compteurs qui ne seront plus repris.
+  const autre = importer('soldes', 'Matricule;CET\nA0123;5', { dateReprise: '2026-12-31' });
+  assert.match(autre.apercu.lignes[0].avertissements.join(' '), /^Date d’arrêté changée \(soldes repris au 1 janv\. 2027\) : CP N-1, CP N, RTT, Récupération absents du fichier, plus repris$/);
+  assert.deepEqual([(db.get('soldesReprise', julie.id) as any).cpSolde, (db.get('soldesReprise', julie.id) as any).recupAcquis], [null, 0]);
+});
+
+test('soldes : un membre du service RH ne reprend pas ses propres soldes', () => {
+  const { importer, run, emp, domain } = base();
+  importer('salaries', SALARIES);
+  const julie = emp('Julie Martin');
+  const soi = { ...ADMIN, salarieId: julie.id } as User;
+  const fichier = 'Matricule;CP N-1;CET\nA0123;99;399\nA0456;3;';
+  const a = R.analyserReprise(domain(), 'soldes', fichier, { colonnes: ['matricule', 'cpN1', 'cet'], dateReprise: '2026-10-01', soiMeme: julie.id });
+  assert.deepEqual(a.lignes.map(l => [l.issue, l.erreurs[0] ?? '']), [['refus', 'Vos propres soldes sont repris par un autre membre du service RH'], ['creation', '']]);
+  const r = run('reprise.importer', { type: 'soldes', texte: fichier, colonnes: ['matricule', 'cpN1', 'cet'], dateReprise: '2026-10-01' }, soi);
+  assert.deepEqual([r.result.crees, r.result.refusees], [1, 1]);
+  assert.equal(cetInfo(domain(), julie).repris, 0, 'aucun CET repris sur sa propre fiche');
+  assert.throws(() => run('reprise.importer', { type: 'soldes', texte: 'Matricule;CET\nA0123;399', colonnes: ['matricule', 'cet'], dateReprise: '2026-10-01' }, soi), /Aucune ligne à importer/);
+});
+
+test('visites : la négation d’abord (« non apte » : inapte, « apte sans restriction » : apte), avis jamais recopié', () => {
+  const { importer, domain, db } = base();
+  importer('salaries', SALARIES);
+  const avis = (s: string) => {
+    const l = R.analyserReprise(domain(), 'visites', `Matricule;Date de visite;Avis\nA0123;01/06/2026;${s}`, { colonnes: ['matricule', 'date', 'avis'] }).lignes[0];
+    return l.ecriture?.type === 'visites' ? l.ecriture.avis : l.erreurs[0];
+  };
+  assert.deepEqual(['Non apte', 'Pas apte', 'Non-apte', 'Inapte', 'Inaptitude temporaire', 'Apte', 'Apte sans restriction', 'Apte sans réserve', 'Apte sans aménagement', 'Apte avec restrictions', 'Apte avec aménagement de poste'].map(avis),
+    ['inapte', 'inapte', 'inapte', 'inapte', 'inapte', 'apte', 'apte', 'apte', 'apte', 'restrictions', 'restrictions']);
+  assert.equal(avis('Lombalgie chronique'), 'Avis non reconnu : attendu apte, apte avec restrictions ou inapte', 'cellule jamais recopiée');
+  // Compte rendu conservé : ni l'avis, ni ce qui le laisse deviner.
+  importer('visites', 'Matricule;Date de visite;Avis\nA0123;10/06/2025;Inapte\nA0456;10/06/2025;Apte avec restrictions\nA0789;10/06/2025;Lombalgie chronique');
+  const rapport: { issue: string; motif: string }[] = (db.all('reprises').at(-1) as any).rapport;
+  assert.deepEqual(rapport.map(x => x.motif), ['Visite du 10 juin 2025 reprise', 'Visite du 10 juin 2025 reprise', 'Avis non reconnu : attendu apte, apte avec restrictions ou inapte']);
+});
+
+test('salariés : « Non cadre » n’est pas cadre, modèle CSV complet, faute de frappe sur un matricule refusée', () => {
+  const { importer, emp, domain } = base();
+  const statut = (s: string) => {
+    const f = `Nom;Poste;Statut;Entrée;Naissance\nPaul Durand;Soudeur;${s};01/03/2021;1990`;
+    const l = R.analyserReprise(domain(), 'salaries', f, { colonnes: ['nom', 'poste', 'statut', 'entree', 'naissance'] }).lignes[0];
+    return [(l.ecriture as any)?.profil.statut ?? l.erreurs.join(' | '), l.avertissements.some(x => /non cadre/.test(x))];
+  };
+  assert.deepEqual(['Non cadre', 'Non-cadre', 'NON CADRES', 'Cadre', 'ETAM', 'Employé'].map(statut),
+    [['ouvrier', true], ['ouvrier', true], ['ouvrier', true], ['cadre', false], ['technicien', false], ['ouvrier', false]]);
+  // Le modèle téléchargé s'importe tel quel, cadre au forfait jours compris.
+  const m = R.modeleReprise('salaries');
+  const modele = [m.entetes, ...m.lignes].map(l => l.join(';')).join('\n');
+  const r = importer('salaries', modele);
+  assert.deepEqual(r.apercu.lignes.map(l => [l.issue, l.erreurs.join(' | ')]), m.lignes.map(() => ['creation', '']));
+  assert.deepEqual([emp('Nora Saïd').temps, emp('Nora Saïd').forfaitJours], ['forfait_jours', 218]);
+  // Fiche existante : « Non cadre » garde le statut technicien.
+  assert.equal(R.analyserReprise(domain(), 'salaries', 'Matricule;Nom;Statut;Entrée\nA0123;Julie Martin;Non cadre;01/09/2015', { colonnes: ['matricule', 'nom', 'statut', 'entree'] }).lignes[0].issue, 'ignoree');
+  // Matricule d'une autre personne : refus, la fiche n'est ni renommée ni réattribuée.
+  const typo = 'Matricule;Prénom;Nom;Poste;Date d entrée;Naissance\nA0456;Julie;Durand;Tech;01/09/2015;1988\nA0456;Petit;Marc;Tech;05/01/2026;1997';
+  const a = R.analyserReprise(domain(), 'salaries', typo, { colonnes: R.reconnaitreColonnes('salaries', lireCsv(typo).lignes[0]) });
+  assert.deepEqual(a.lignes[0].erreurs, ['Matricule A0456 porté par Marc Petit (entrée le 5 janv. 2026) : nom ou date d’entrée différents, vérifiez le fichier']);
+  assert.equal(a.lignes[1].issue, 'maj', 'même personne, prénom et nom inversés');
+  assert.throws(() => importer('salaries', typo.split('\n').slice(0, 2).join('\n')), /Aucune ligne à importer/);
+  assert.deepEqual([emp('Marc Petit').entree, emp('Marc Petit').naissance], ['2026-01-05', 1997]);
+});
+
+test('salariés : réembauche dans un même fichier, comptes ouverts en rejouant le fichier et tracés un par un', () => {
+  const { importer, db, emp } = base();
+  const reemb = 'Matricule;Nom;Poste;Entrée;Date de sortie;Motif de sortie;Naissance\nA1;Paul Durand;Soudeur;01/01/2015;31/12/2019;Démission;1980\nA1;Paul Durand;Soudeur;01/03/2022;;;1980';
+  const cols = R.reconnaitreColonnes('salaries', lireCsv(reemb).lignes[0]);
+  const sans = R.analyserReprise(new Domain(loadFull(db, ADMIN)), 'salaries', reemb, { colonnes: cols });
+  assert.equal(sans.lignes[1].issue, 'refus');
+  assert.match(sans.lignes[1].confirmation!, /^Réembauche : réutiliser le matricule A1 de Paul Durand, sorti le 31 déc\. 2019$/);
+  const r = importer('salaries', reemb, { confirmations: [3] });
+  assert.deepEqual(r.apercu.lignes.map(l => l.issue), ['creation', 'creation']);
+  assert.equal(loadFull(db, ADMIN).employes.filter(e => e.matriculePaie === 'A1').length, 2);
+  // Ouverture progressive : premier import sans comptes, puis le même fichier, case cochée.
+  importer('salaries', SALARIES);
+  assert.equal(db.all('comptes').length, 1);
+  const c = importer('salaries', SALARIES, { comptes: true, avecCompte: [] });
+  assert.deepEqual(c.apercu.lignes.map(l => [l.issue, l.avertissements.join(' · ')]), [0, 1, 2].map(() => ['maj', 'Fiche déjà à jour · Compte Microsoft 365 à créer']));
+  assert.match(c.message, /^Import des salariés : 3 mises à jour · 3 comptes Microsoft 365 créés$/);
+  assert.equal(db.all('comptes').length, 4);
+  const j = db.all<Ligne>('journal').filter(x => x.action === 'reprise.salaries').at(-1)!;
+  assert.deepEqual(j.payload.comptesOuverts, [
+    { empId: emp('Julie Martin').id, identifiant: 'julie.martin@exemple.fr' }, { empId: emp('Marc Petit').id, identifiant: 'marc.petit@exemple.fr' },
+    { empId: emp('Nora Saïd').id, identifiant: 'nora.said@exemple.fr' },
+  ]);
+  // Tous les comptes ouverts : plus rien à écrire.
+  assert.throws(() => importer('salaries', SALARIES, { comptes: true }), /Aucune ligne à importer/);
+});

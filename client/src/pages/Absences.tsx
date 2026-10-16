@@ -49,7 +49,7 @@ function soldeRow(d: Domain, e: Employe) {
     rec: rc ? fH(rc.solde) : '—',
     recSub: rc ? `≈ ${fJ(rc.solde / rc.dh)}` : 'non concerné',
     cet: cet ? fJ(ct.total) : '—',
-    cetSub: cet ? (ct.total ? `${ct.cp} j CP · ${ct.rtt} j RTT` : 'aucun jour épargné') : 'non concerné',
+    cetSub: cet ? (ct.total ? `${ct.cp} j CP · ${ct.rtt} j RTT${ct.repris ? ` · ${ct.repris} j repris` : ''}` : 'aucun jour épargné') : 'non concerné',
   };
 }
 

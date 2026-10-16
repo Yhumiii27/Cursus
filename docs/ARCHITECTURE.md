@@ -613,7 +613,7 @@ aucun champ du paramètre n'est recopié.
 | `messagerie.recapituler` | — : récapitulatifs des notifications en attente envoyés sans attendre 7 h | RH |
 | `notification.regler` | empId? (soi par défaut), mode (`immediat`/`quotidien`) | la personne elle-même, ou RH |
 | `confidentialite.regler` | responsable?, dpo? (texte, 300 caractères au plus ; vide : effacé, la page renvoie au service RH) ; journal : nom des champs dont la valeur change, jamais leur texte | administrateur RH |
-| `reprise.importer` | type (`salaries`/`soldes`/`certifications`/`habilitations`/`visites`), texte (CSV), colonnes (champ de chaque colonne), dateReprise (soldes), equipes (rapprochement), confirmations (lignes cochées : réembauche sur un matricule, visite sans avis), comptes (comptes Microsoft 365), fichier ; analyse de `shared/rules/reprise.ts`, seules les lignes retenues par l'aperçu sont écrites ; lot conservé (table `reprises`) ; journal `reprise.<type>` | administrateur RH |
+| `reprise.importer` | type (`salaries`/`soldes`/`certifications`/`visites`/`habilitations`), texte (CSV), colonnes (champ de chaque colonne), dateReprise (soldes), equipes (rapprochement), confirmations (lignes cochées : réembauche sur un matricule, visite sans avis), comptes (comptes Microsoft 365, y compris pour une fiche déjà à jour), fichier ; analyse de `shared/rules/reprise.ts`, seules les lignes retenues par l'aperçu sont écrites ; ses propres soldes refusés (fiche rattachée au compte) ; lot conservé (table `reprises`) ; journal `reprise.<type>` | administrateur RH |
 
 ## Journal des actions
 
@@ -1262,18 +1262,27 @@ procédure dans `docs/DEPLOIEMENT.md` (« Procédure de reprise »).
   l'emporte), puis rapprochées à la main dans l'aperçu ; un modèle CSV par import (`modeleReprise`).
 - **Analyse partagée** (`analyserReprise`) : l'aperçu et le serveur calculent la même issue par ligne (ajout, mise à
   jour, ignorée, refusée avec ses motifs) ; le serveur n'écrit que les lignes retenues, dans une transaction. Salariés :
-  rapprochés par matricule de paie, sinon nom et date d'entrée ; contrôles de `validerProfil` (doublons du fichier
+  rapprochés par matricule de paie, sinon nom et date d'entrée (matricule trouvé sous un autre nom ou une autre date
+  d'entrée : refus, faute de frappe probable) ; « Non cadre » repris ouvrier / employé avec un avertissement ; case des
+  comptes cochée (`avecCompte`) : une fiche à jour sans compte devient une mise à jour qui l'ouvre ; contrôles de `validerProfil` (doublons du fichier
   compris) ; réembauche sur un matricule et visite sans avis confirmées ligne par ligne (`confirmations`) ; sortie et
   changement de régime d'une fiche qui a déjà des feuilles ou des absences refusés (à faire depuis la fiche). Titres :
   catalogue exigé, prérequis en avertissement ; habilitation et visite : la plus récente du fichier l'emporte, une
-  plus récente déjà enregistrée n'est pas remplacée.
+  plus récente déjà enregistrée n'est pas remplacée. Avis : la négation d'abord (« non apte » : inapte, « apte sans
+  restriction » : apte).
 - **Soldes repris tels quels** : colonnes `cpSolde`, `cpSoldeSuivant`, `rttSolde`, `cetSolde` de `soldesReprise` (la
   récupération va dans `recupAcquis` / `recupPris`) ; `reprise()` de `shared/rules/conges.ts` en déduit les jours pris à
   partir des droits calculés à la date d'arrêté (CP acquis de la période, jours acquis sur la période suivante, RTT de
   l'année) : le solde affiché à cette date est celui de Lucca, même si la fiche est corrigée ensuite. Le CET repris
-  s'ajoute au total de `cetInfo`.
+  s'ajoute au total de `cetInfo`. Même date d'arrêté qu'un import précédent : seuls les compteurs du fichier changent
+  (cellule ou colonne absente : compteur gardé) ; autre date : la ligne est remplacée (aperçu averti). Pas de soldes
+  sur sa propre fiche (`soiMeme`, comme `report.accorder`).
 - **Lots** (table `reprises`, `Dataset.reprises`) : type, date, auteur, colonnes, options, décompte et compte rendu
-  (nominatif) ; jamais le fichier. Transmis au service RH seul (vide pour le manager, le collaborateur et les profils
+  (nominatif) ; jamais le fichier. Pas de donnée de santé dans le compte rendu : une visite écrite y figure par sa date
+  seule (« Visite du … reprise »), sans avis ni avertissement qui le laisse deviner, et un avis illisible n'est jamais
+  recopié dans un motif. Le compte rendu ne porte donc que noms, issues et motifs administratifs ; il reste le temps
+  de la reprise (les lots ne sont pas purgés) et n'entre pas dans l'export des données d'un salarié (pas de colonne
+  `empId`) : les données qu'il décrit y sont, sur leurs propres tables. Transmis au service RH seul (vide pour le manager, le collaborateur et les profils
   restreints) ; « Rejouer » reprend colonnes, rapprochements et date avec un fichier rechargé.
 - **Journal** : code `reprise.<type>` (`code` de la règle), type, date de reprise, case des comptes, décompte, salariés
-  concernés ; `reprise.soldes` dans `ACTIONS_PAIE`, `reprise.visites` masqué pour la lecture seule (`ACTIONS_SANTE`).
+  concernés, comptes Microsoft 365 ouverts (`comptesOuverts` : fiche et identifiant de chacun, comme `compte.creer`) ; `reprise.soldes` dans `ACTIONS_PAIE`, `reprise.visites` masqué pour la lecture seule (`ACTIONS_SANTE`).

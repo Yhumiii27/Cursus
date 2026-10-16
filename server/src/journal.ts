@@ -325,12 +325,18 @@ export const REGLES: Record<string, Regle> = {
   },
   // Reprise depuis Lucca (écran Mise en service) : code par import (`reprise.soldes`…), date de reprise, case des comptes,
   // décompte et salariés concernés ; jamais le fichier, ni les colonnes, ni les noms d'équipes (textes du fichier).
+  // Comptes Microsoft 365 ouverts par l'import : fiche et identifiant de chacun, comme compte.creer (accès au site).
   'reprise.importer': {
     code: p => (estTypeReprise(p.type) ? `reprise.${p.type}` : ''),
     extra: p => ({ type: estTypeReprise(p.type) ? p.type : null, dateReprise: isValidDate(p.dateReprise) ? p.dateReprise : null, comptes: p.comptes === true }),
     bilan: (_p, x) => {
       const r = (x.result ?? {}) as Record<string, unknown>;
-      return { lot: r.lot ?? null, crees: r.crees ?? 0, majs: r.majs ?? 0, ignorees: r.ignorees ?? 0, refusees: r.refusees ?? 0, comptesCrees: r.comptes ?? 0 };
+      const ouverts = (Array.isArray(r.comptesOuverts) ? r.comptesOuverts as P[] : []).slice(0, 1000)
+        .map(c => ({ empId: Number(c.empId) || null, identifiant: String(c.identifiant ?? '').slice(0, 254) }));
+      return {
+        lot: r.lot ?? null, crees: r.crees ?? 0, majs: r.majs ?? 0, ignorees: r.ignorees ?? 0, refusees: r.refusees ?? 0, comptesCrees: r.comptes ?? 0,
+        ...(ouverts.length ? { comptesOuverts: ouverts } : {}),
+      };
     },
     salaries: (_p, x) => salariesTouches(x),
   },

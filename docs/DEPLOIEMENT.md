@@ -606,39 +606,48 @@ les compteurs sont arrêtés dans Lucca au 1er janvier 2027.
 
 Écran **Mise en service** (Paramètres → Mise en service → « Ouvrir la mise en service »), réservé à l'administrateur
 RH ; le gestionnaire RH consulte les lots. Une base de production démarre vide (le jeu de démonstration n'est chargé
-qu'avec `CURSUS_DEMO=1`). Cinq imports CSV, dans cet ordre :
+qu'avec `CURSUS_DEMO=1`). Après les référentiels, cinq imports CSV, dans cet ordre :
 
 1. **Référentiels** (écran Référentiels, voir ci-dessus) : les titres repris doivent y figurer, désignés par leur code,
    leur nom court ou leur nom.
 2. **Salariés** : un export Lucca des salariés, sorties comprises (matricule de paie, nom et prénom, poste, équipe,
    statut, contrat, temps de travail, dates d'entrée et de fin, motif de sortie, naissance, agence d'intérim, adresse
    e-mail). Une fiche existante se retrouve par son matricule de paie, sinon par son nom et sa date d'entrée, et se
-   met à jour au lieu d'être dupliquée. Les équipes inconnues sont créées ou rattachées à une équipe existante dans
+   met à jour au lieu d'être dupliquée ; un matricule porté par une fiche d'un autre nom ou d'une autre date d'entrée
+   fait refuser la ligne (faute de frappe probable). Un statut « Non cadre » est repris ouvrier / employé, à préciser
+   sur la fiche. Les équipes inconnues sont créées ou rattachées à une équipe existante dans
    l'aperçu ; les managers se désignent ensuite (Équipes & managers). Case facultative (décochée) : créer les comptes
-   Microsoft 365 à partir des adresses. Sur une fiche qui a déjà des feuilles ou des absences, un changement de régime
+   Microsoft 365 à partir des adresses ; rejouer le même fichier, case cochée, ouvre les comptes qui manquent sans
+   rien changer aux fiches (ouverture progressive : service RH, équipe pilote, puis tout le site). Sur une fiche qui a déjà des feuilles ou des absences, un changement de régime
    de temps ou de contrat, et toute sortie, se font depuis la fiche (gel des feuilles, compteur de RTT, annulations).
 3. **Soldes de congés**, arrêtés dans Lucca à la date de reprise (conseillée : 1er janvier 2027), saisie dans l'écran :
    CP de la période en cours (« CP N-1 »), CP acquis sur la période en cours d'acquisition (« CP N »), RTT ou jours de
    repos de l'année, récupération (heures), CET (jours). Ils sont repris tels quels, sans recalcul : à la date d'arrêté,
    Cursus affiche les soldes de Lucca, puis les fait vivre (acquisition, congés, clôtures). Une cellule vide : compteur
-   non repris. Un congé déjà saisi dans Cursus avant la date d'arrêté est signalé (il serait décompté deux fois).
-4. **Certifications** (formation, date d'obtention) puis **habilitations** (habilitation, date de délivrance,
-   signataire, à défaut celui du référentiel) : un prérequis manquant n'est qu'un avertissement (la délivrance a eu
-   lieu) ; un élément absent du catalogue ou archivé fait refuser la ligne.
-5. **Visites médicales** : date de la dernière visite et avis (apte, apte avec restrictions, inapte). Une ligne sans
-   avis n'est enregistrée « apte » qu'après avoir coché sa confirmation dans l'aperçu ; sinon l'aptitude reste « à
-   vérifier ». Un avis avec restrictions porte une mention provisoire (réserve au Go / No Go) jusqu'à ce que le service
-   RH recopie l'avis sur la fiche (« Avis du médecin du travail »).
+   non repris ; à la même date d'arrêté, un compteur déjà repris par un fichier précédent est alors gardé (un fichier
+   par compteur convient). Changer la date d'arrêté remplace tous les soldes du salarié : ceux absents du fichier ne
+   sont plus repris (l'aperçu le signale). Les soldes d'un membre du service RH rattaché à sa fiche sont importés par
+   un autre membre du service RH. Un congé déjà saisi dans Cursus avant la date d'arrêté est signalé (il serait décompté deux fois).
+4. **Certifications** (formation, date d'obtention).
+5. **Visites médicales** : date de la dernière visite et avis (apte, apte avec restrictions, inapte ; « non apte »
+   vaut inapte). Une ligne sans avis n'est enregistrée « apte » qu'après avoir coché sa confirmation dans l'aperçu ;
+   sinon l'aptitude reste « à vérifier ». Un avis avec restrictions porte une mention provisoire (réserve au Go / No Go)
+   jusqu'à ce que le service RH recopie l'avis sur la fiche (« Avis du médecin du travail »). Les visites passent avant
+   les habilitations : l'aptitude médicale, prérequis de plusieurs habilitations, est alors connue.
+6. **Habilitations** (habilitation, date de délivrance, signataire, à défaut celui du référentiel) : un prérequis
+   manquant n'est qu'un avertissement (la délivrance a eu lieu) ; un élément absent du catalogue ou archivé fait refuser
+   la ligne, comme pour les certifications.
 
 Pour chaque import : « Télécharger le modèle CSV » donne les colonnes attendues (séparateur « ; », première ligne
 d'en-têtes, dates JJ/MM/AAAA, virgule décimale). Un export Lucca s'utilise tel quel : ses colonnes sont reconnues par
 leur nom et se rapprochent à la main dans l'aperçu (colonne ignorée sinon) ; guillemets, BOM et encodage Windows
 d'Excel sont lus. L'aperçu donne, ligne par ligne, l'ajout, la mise à jour, la ligne ignorée (déjà à jour) ou refusée
 avec son motif ; seules les lignes annoncées sont écrites, après confirmation. Chaque lot reste listé avec son compte
-rendu (date, auteur, décompte, motif par ligne) ; « Rejouer » reprend son type, ses colonnes et sa date, le fichier
+rendu (date, auteur, décompte, motif par ligne ; pour les visites, ni l'avis ni les restrictions) ; « Rejouer » reprend son type, ses colonnes et sa date, le fichier
 étant rechargé (Cursus n'en garde pas le contenu). Rejouer un fichier corrigé ne crée aucun doublon. Le journal trace
 chaque import (`reprise.salaries`, `reprise.soldes` — archive paie de 3 ans —, `reprise.certifications`,
-`reprise.habilitations`, `reprise.visites`), sans le contenu du fichier.
+`reprise.habilitations`, `reprise.visites`), sans le contenu du fichier ; les comptes Microsoft 365 ouverts par
+l'import y figurent un par un (fiche et identifiant).
 
 Vérifier ensuite : Paramètres → Matricules de paie (salariés sans matricule), les soldes de quelques salariés dans
 Congés & absences au lendemain de la date d'arrêté, les échéances et le Go / No Go. Une fois la reprise faite, les

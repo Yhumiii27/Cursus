@@ -4,7 +4,7 @@
 // ignorée, refusée avec son motif), cases de confirmation (réembauche sur un matricule, visite sans avis), puis import
 // confirmé. Chaque lot reste listé avec son compte rendu ; « Rejouer » reprend son type, ses colonnes et sa date, le
 // fichier étant rechargé (son contenu n'est pas conservé). Règles : shared/rules/reprise.ts ; serveur : actions/reprise.ts.
-import { useMemo, useRef, useState, type ChangeEvent } from 'react';
+import { useEffect, useMemo, useRef, useState, type ChangeEvent } from 'react';
 import { fmtIso, plural } from '../../../shared/format.ts';
 import { lireCsv } from '../../../shared/rules/imports.ts';
 import {
@@ -12,6 +12,7 @@ import {
   type TypeReprise, TYPES_REPRISE,
 } from '../../../shared/rules/reprise.ts';
 import type { LotReprise } from '../../../shared/types.ts';
+import { api } from '../api.ts';
 import { Field } from '../components/Dialog.tsx';
 import { Empty, Fine, NoteAccent, Page, Panel, SectionLabel, Seg, Tag } from '../components/ui.tsx';
 import { readText } from '../dialogs/PlanImportDialog.tsx';
@@ -46,10 +47,21 @@ export function MiseEnService() {
   const [rejeu, setRejeu] = useState<Rejeu | null>(null);
   const [ouvert, setOuvert] = useState<number | null>(null);
   const champFichier = useRef<HTMLInputElement>(null);
+  // Case des comptes cochée : fiches qui ont déjà un compte (liste des comptes, administrateur RH), pour annoncer dans
+  // l'aperçu les comptes à créer, y compris sur une fiche déjà à jour (ouverture progressive du site).
+  const [avecCompte, setAvecCompte] = useState<number[] | null>(null);
+  const voirComptes = admin && type === 'salaries' && comptes;
+  useEffect(() => {
+    if (!voirComptes) { setAvecCompte(null); return; }
+    let actif = true;
+    api.comptes().then(l => { if (actif) setAvecCompte(l.map(c => c.empId).filter((x): x is number => x != null)); }, () => { if (actif) setAvecCompte(null); });
+    return () => { actif = false; };
+  }, [voirComptes, data.reprises.length]);
 
   const R = REPRISES[type];
-  const analyse = useMemo(() => (texte.trim() ? analyserReprise(d, type, texte, { colonnes, dateReprise, equipes, confirmations }) : null),
-    [d, type, texte, colonnes, dateReprise, equipes, confirmations]);
+  const soiMeme = data.user.role === 'rh' ? data.user.salarieId ?? null : null;
+  const analyse = useMemo(() => (texte.trim() ? analyserReprise(d, type, texte, { colonnes, dateReprise, equipes, confirmations, avecCompte, soiMeme }) : null),
+    [d, type, texte, colonnes, dateReprise, equipes, confirmations, avecCompte, soiMeme]);
   const b = analyse ? bilanReprise(analyse.lignes) : null;
   const aEcrire = b ? b.crees + b.majs : 0;
   const premiere = useMemo(() => lireCsv(texte).lignes[1] ?? [], [texte]);
@@ -106,7 +118,7 @@ export function MiseEnService() {
   return (
     <Page kicker="Administration · Reprise depuis Lucca" title="Mise en service" actions={
       <button type="button" className="btn btn-ghost btn-sm" onClick={() => go('parametres')}>← Paramètres</button>
-    } note="Ordre conseillé : référentiels (écran Référentiels), salariés, soldes de congés, certifications, habilitations, visites médicales. Chaque import se rejoue sans créer de doublon ; après la reprise, Cursus fait foi pour les salariés et les compteurs.">
+    } note="Ordre conseillé : référentiels (écran Référentiels), salariés, soldes de congés, certifications, visites médicales (l’aptitude, prérequis de plusieurs habilitations), habilitations. Chaque import se rejoue sans créer de doublon ; après la reprise, Cursus fait foi pour les salariés et les compteurs.">
       <Panel title="Import" aside={!admin ? <Tag cls="tag-outline">Consultation</Tag> : undefined} style={{ gap: 'var(--space-4)' }}>
         <Seg name="reprise-type" label="Données à importer" value={type} onChange={changerType}
           options={TYPES_REPRISE.map(t => [t, <>{REPRISES[t].label}{faits(t) ? ' · importé' : ''}</>])} />

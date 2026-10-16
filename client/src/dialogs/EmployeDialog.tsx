@@ -1,5 +1,7 @@
-// Fiche collaborateur : création ou modification complète (RH) ; poste et jours non
+// Fiche collaborateur : création ou modification complète (RH) ; intitulé du poste et jours non
 // travaillés du temps partiel pour le manager d'un membre de son équipe.
+// Poste choisi dans la liste du référentiel (components/PosteChoix.tsx), dont les exigences s'appliquent ; le service RH
+// peut aussi en saisir un nouveau, ajouté au référentiel sans exigence.
 // Matricule de paie : unique ; reprendre celui d'un salarié sorti (réembauche) se confirme, par l'administrateur RH, qui
 // seul change ou retire un matricule déjà enregistré.
 import { useState } from 'react';
@@ -15,12 +17,15 @@ import { contratFige } from '../../../shared/rules/temps.ts';
 import type { Statut, TempsTravail, TypeContrat } from '../../../shared/types.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine, NoteAccent, SectionLabel, Seg } from '../components/ui.tsx';
+import { NOUVEAU_POSTE, PosteChoix, PosteLibelle } from '../components/PosteChoix.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
 /** État du formulaire : les nombres et dates restent des chaînes pendant la saisie. */
 interface Form {
   nom: string; poste: string; equipe: string; naissance: string;
+  /** Poste du référentiel choisi (identifiant), `''` : aucun, NOUVEAU_POSTE : intitulé saisi, poste créé à l'enregistrement. */
+  posteId: string;
   statut: Statut; typeContrat: TypeContrat; entree: string; fin: string; agence: string; email: string; matriculePaie: string;
   temps: TempsTravail; heures: string; forfaitHeures: string; forfaitJours: string; jourOff: number[];
   visite: string; repriseMotif: string; repriseDate: string;
@@ -39,7 +44,7 @@ const toNum = (s: string) => {
 
 function toForm(p: ProfilInput, today: string): Form {
   return {
-    nom: p.nom, poste: p.poste, equipe: p.equipe ?? '', naissance: numStr(p.naissance),
+    nom: p.nom, poste: p.poste, posteId: p.posteId != null ? String(p.posteId) : '', equipe: p.equipe ?? '', naissance: numStr(p.naissance),
     statut: p.statut, typeContrat: p.typeContrat, entree: p.entree, fin: p.fin ?? '', agence: p.agence ?? '', email: p.email ?? '', matriculePaie: p.matriculePaie ?? '',
     temps: p.temps, heures: numStr(p.heures),
     forfaitHeures: numStr(p.forfaitHeures ?? (p.temps === 'forfait_heures_annuel' ? 1607 : null)),
@@ -53,12 +58,15 @@ function toForm(p: ProfilInput, today: string): Form {
 /** Fiche saisie ; `tempsDepuis` : date d'effet de l'organisation du temps à enregistrer. */
 function toInput(f: Form, tempsDepuis: string | null): ProfilInput {
   return {
-    nom: f.nom, poste: f.poste, equipe: f.equipe || null, statut: f.statut, typeContrat: f.typeContrat, temps: f.temps,
+    nom: f.nom, poste: f.poste, posteId: posteIdSaisi(f.posteId), equipe: f.equipe || null, statut: f.statut, typeContrat: f.typeContrat, temps: f.temps,
     heures: toNum(f.heures), forfaitHeures: toNum(f.forfaitHeures), forfaitJours: toNum(f.forfaitJours), jourOff: f.jourOff, tempsDepuis,
     entree: f.entree, fin: f.fin || null, naissance: toNum(f.naissance) ?? Number.NaN, agence: f.agence || null, matriculePaie: f.matriculePaie || null, email: f.email || null,
     visite: f.visite || null, repriseMotif: f.repriseMotif || null, repriseDate: f.repriseDate || null,
   };
 }
+
+/** Poste du référentiel saisi : identifiant, ou aucun (intitulé seul, nouveau poste). */
+const posteIdSaisi = (v: string) => (v && v !== NOUVEAU_POSTE ? Number(v) : null);
 
 const same = (a: ProfilInput, b: ProfilInput) => PROFIL_FIELDS.every(k => JSON.stringify(a[k]) === JSON.stringify(b[k]));
 
@@ -127,6 +135,8 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   if ((creation && !rh) || (!creation && (!emp || !(rh || limited)))) return null;
 
   const set = <K extends keyof Form>(k: K, v: Form[K]) => { setF(s => ({ ...s, [k]: v })); setTouched(true); };
+  /** Poste choisi dans la liste (son intitulé devient celui de la fiche), ou intitulé d'un nouveau poste. */
+  const choisirPoste = (posteId: string, poste: string) => { setF(s => ({ ...s, posteId, poste })); setTouched(true); };
   const setTemps = (t: TempsTravail) => {
     setF(s => {
       const n = { ...s, temps: t };
@@ -150,6 +160,7 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   const ref0 = normaliserProfil(initial), nv = normaliserProfil(saisie);
   const nouveauRegime = !creation && !limited && REGIME_TEMPS.some(k => nv[k] !== ref0[k]);
   const confirme = !!reutiliser && reutiliser === normaliserMatricule(f.matriculePaie);
+  // Manager : le poste du référentiel reste celui du service RH ; seul son intitulé se précise.
   const input: ProfilInput = limited ? { ...initial, poste: f.poste, jourOff: f.jourOff }
     : nouveauRegime ? { ...saisie, tempsDepuis: f.effet || null } : saisie;
   // Un manager d'équipe ne peut pas passer en intérim (équipes encadrées).
@@ -234,9 +245,7 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
     return (
       <Dialog title={`Modifier la fiche — ${emp.nom}`} width={640} tall onSubmit={save} actions={actions}>
         <div className="grid-2">
-          <Field label="Poste" htmlFor="emp-poste" requis erreur={err('poste')}>
-            <input className="input" id="emp-poste" type="text" value={f.poste} onChange={ev => set('poste', ev.target.value)} />
-          </Field>
+          <PosteLibelle emp={emp} poste={f.poste} erreur={err('poste')} onChange={v => set('poste', v)} />
           <Field label="Équipe"><Static pad>{equipeLabel(emp)}</Static></Field>
         </div>
         {partielEmp && (
@@ -280,9 +289,7 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
         <Field label="Nom" htmlFor="emp-nom" requis erreur={err('nom')}>
           <input className="input" id="emp-nom" type="text" autoFocus={creation} placeholder="Prénom Nom" value={f.nom} onChange={ev => set('nom', ev.target.value)} />
         </Field>
-        <Field label="Poste" htmlFor="emp-poste" requis erreur={err('poste')}>
-          <input className="input" id="emp-poste" type="text" placeholder="Technicien de maintenance…" value={f.poste} onChange={ev => set('poste', ev.target.value)} />
-        </Field>
+        <PosteChoix posteId={f.posteId} poste={f.poste} actuel={initial.posteId ?? null} erreur={err('poste')} onChange={choisirPoste} nouveau />
         <Field label="Équipe" htmlFor="emp-equipe" erreur={err('equipe')}>
           <select className="input" id="emp-equipe" value={f.equipe} onChange={ev => set('equipe', ev.target.value)}>
             <option value="">À affecter</option>

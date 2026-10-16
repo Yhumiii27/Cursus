@@ -58,6 +58,8 @@ const demande = (h: string) => db.insert<{ id: number }>('demandesCollab', {
 }).id;
 const titre = (h: string) => db.sql.prepare('SELECT id FROM hab_titres WHERE emp_id = 2 AND h = ?').get(h) as { id: number };
 const cert = (f: string) => (db.sql.prepare('SELECT id FROM certifications WHERE emp_id = 2 AND f = ?').get(f) as { id: number }).id;
+/** Poste du référentiel créé depuis les fiches de démonstration. */
+const posteNomme = (nom: string) => (db.sql.prepare('SELECT id FROM postes WHERE nom = ?').get(nom) as { id: number }).id;
 const ENTRETIEN = () => (db.sql.prepare(`SELECT id FROM entretiens WHERE emp_id = 2 AND statut = 'planifie'`).get() as { id: number }).id;
 
 /** Absence de Mehdi le 15 décembre, dans l'état voulu (signalée par son manager, ou validée). */
@@ -187,6 +189,16 @@ const MATRICE: Ligne[] = [
     db.sql.exec('DELETE FROM destinations');
     return { referentiel: 'destinations' };
   } },
+  // Postes et exigences (t055) : service RH ; habilitation exigée demandée : service RH et référent HSE.
+  { action: 'referentiel.poste.enregistrer', droits: '     O    O    -    -    -    -    -    -    -', p: () => ({
+    id: posteNomme('Technicien de maintenance'), nom: 'Technicien de maintenance', formations: ['elec', 'sst'], habilitations: ['he'],
+  }) },
+  { action: 'referentiel.poste.enregistrer', variante: 'création', droits: 'O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Soudeur', formations: [], habilitations: [] }) },
+  { action: 'referentiel.poste.archiver', droits: '        O    O    -    -    -    -    -    -    -', p: () => ({
+    id: db.insert<{ id: number }>('postes', { nom: 'Poste inoccupé', formations: [], habilitations: [], archive: null }).id,
+  }) },
+  { action: 'referentiel.equipe.exigences', droits: '      O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Maintenance', formations: ['sst'], habilitations: [] }) },
+  { action: 'hab.demander', droits: '                      O    O    -    -    -    -    O    -    -', p: () => ({ empId: 2, h: 'atex' }) },
   // Déplacements
   { action: 'voyage.creer', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, dest: 'MA', depart: '2026-11-02', retour: '2026-11-06', motif: 'Chantier Tanger' }) },
   // Formalités de détachement (certificat de sécurité sociale, information écrite) : démarches du service RH.

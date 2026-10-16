@@ -10,6 +10,7 @@ import { addD, addMonths, days, isFerie, iso, parse, weekday } from './dates.ts'
 import { cap, fmt, fmtShort } from './format.ts';
 import { absenceActive, absenceBloque, borneContrat, periodeTexte } from './rules/absences.ts';
 import { actifs, habSuivie } from './rules/referentiels.ts';
+import { echeanceExigence, exigencesManquantes, type ExigenceManquante } from './rules/exigences.ts';
 import { identifiantKeystone } from './rules/matricules.ts';
 import { present } from './rules/contrats.ts';
 import { restrictionEnVigueur } from './rules/sante.ts';
@@ -58,6 +59,8 @@ export interface EmpX extends Omit<Employe, 'certs' | 'habs'> {
   anciennes: CertInfo[];
   med: MedInfo;
   habs: HabInfo[];
+  /** Formations et habilitations exigées (poste, équipe) jamais obtenues : comptées « Non conforme » (rules/exigences.ts). */
+  manquants: ExigenceManquante[];
   worst: StatusKey;
   next: { exp: Date; d: number } | null;
 }
@@ -69,7 +72,9 @@ export type UiIntent =
   | { type: 'goFormation'; f: string }
   | { type: 'medical'; empId: number }
   | { type: 'openFormalite'; empId: number; kind: FormaliteKind; dest?: string; v?: VaccinId }
-  | { type: 'openCloture'; sessionId: number };
+  | { type: 'openCloture'; sessionId: number }
+  /** Habilitation exigée jamais délivrée : titre demandé (`hab.demander`), « en attente » de délivrance. */
+  | { type: 'demanderHab'; empId: number; h: string; nom: string; label: string };
 export type FormaliteKind = 'passeport' | 'visa' | 'vaccin';
 export interface Proposal { label: string; intent: UiIntent }
 
@@ -83,10 +88,12 @@ export interface Readiness { dest: Destination; dep: Date; ret: Date; toGo: numb
 export interface TripX extends Voyage { emp: Employe; r: Readiness }
 
 export interface EchItem {
-  kind: 'cert' | 'hab' | 'trip' | 'med'; kindLabel: string; label: string; emp: EmpX; exp: Date; d: number; key: StatusKey;
+  kind: 'cert' | 'hab' | 'trip' | 'med' | 'exigence'; kindLabel: string; label: string; emp: EmpX; exp: Date; d: number; key: StatusKey;
   statut: string; cls: string; planned: boolean; plannedLabel: string; action: Proposal | null;
   /** Échéance sans date connue (aucune visite médicale enregistrée) : classée au jour, parmi les dépassées. */
   sansDate?: boolean;
+  /** Texte de la colonne « Échéance » d'une échéance sans date autre qu'une visite (exigence manquante). */
+  sansDateTexte?: { main: string; sub: string };
 }
 
 export type GngStatus = 'go' | 'reserve' | 'nogo';
@@ -437,15 +444,17 @@ export class Domain {
       const habs = e.habs.map(h => this.habInfo(h, rawCerts, med, horizon));
       // Titres d'une habilitation archivée : au dossier, hors du statut et des échéances.
       const suivies = habs.filter(habSuivie);
+      // Exigences du poste et de l'équipe jamais obtenues : non conforme.
+      const manquants = exigencesManquantes(this.ds, e, rawCerts, e.habs, formIds);
       // L'aptitude médicale compte dans le statut, même sans habilitation qui l'exige.
-      const keys: StatusKey[] = [...certs.map(c => c.key), ...suivies.map(h => habStatus(h.key)), this.medKey(med, horizon)];
+      const keys: StatusKey[] = [...certs.map(c => c.key), ...suivies.map(h => habStatus(h.key)), this.medKey(med, horizon), ...manquants.map((): StatusKey => 'exp')];
       const worst = keys.reduce<StatusKey>((w, k) => RANK[k] > RANK[w] ? k : w, 'ok');
       const dated = [
         ...certs.map(c => ({ exp: c.exp, d: c.d })), ...suivies.flatMap(h => this.habEcheance(h) ?? []),
         ...(med.exp && med.avis !== 'inapte' ? [{ exp: med.exp, d: med.d! }] : []),
       ];
       const next = dated.sort((a, b) => a.d - b.d)[0] || null;
-      return { ...e, certs, rawCerts, anciennes, med, habs, worst, next };
+      return { ...e, certs, rawCerts, anciennes, med, habs, manquants, worst, next };
     });
   }
 
@@ -604,6 +613,8 @@ export class Domain {
           statut: HAB_LABEL[h.key], cls: HAB_CLS[h.key], planned: visite, plannedLabel: visite ? a!.label : '', action: a,
         });
       });
+      // Exigences manquantes : sans date, parmi les dépassées.
+      e.manquants.forEach(m => ech.push(echeanceExigence(this, e, m)));
       const t = this.travelOf(e, horizon);
       if (t.pass) ech.push({ kind: 'trip', kindLabel: 'Passeport', label: 'Passeport', emp: e, exp: t.pass.exp, d: t.pass.d, key: t.pass.key, statut: DOC_LABEL[t.pass.key], cls: CLS[t.pass.key], planned: false, plannedLabel: '', action: { label: 'Mettre à jour', intent: { type: 'openFormalite', empId: e.id, kind: 'passeport' } } });
       t.visas.forEach(v => ech.push({ kind: 'trip', kindLabel: 'Visa · autorisation', label: `${v.type} — ${this.destOf(v.dest)?.pays ?? v.dest}`, emp: e, exp: v.exp, d: v.d, key: v.key, statut: DOC_LABEL[v.key], cls: CLS[v.key], planned: false, plannedLabel: '', action: { label: 'Mettre à jour', intent: { type: 'openFormalite', empId: e.id, kind: 'visa', dest: v.dest } } }));

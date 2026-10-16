@@ -2,6 +2,7 @@
 // HSE / formation tiennent les formations et les habilitations, le service RH les destinations ; la lecture seule
 // consulte. Création, modification (dialogues Ref*Dialog), archivage au lieu de la suppression (confirmé, rétabli d'un
 // clic), référentiel type à charger dans un référentiel vide, à vérifier ensuite. Règles : shared/rules/referentiels.ts.
+// Onglet Postes (formations et habilitations exigées par poste et par équipe) : pages/ReferentielsPostes.tsx.
 import { useState, type ReactNode } from 'react';
 import { PlusIcon } from '@phosphor-icons/react';
 import { SECU_RULES, VALIDATION_LABEL, VISA_RULES, secuDe } from '../../../shared/constants.ts';
@@ -14,8 +15,9 @@ import { useAgir } from '../state/actions.ts';
 import { archivageDestination, archivageFormation, archivageHabilitation, chargementType } from '../state/confirmations-referentiels.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { Postes } from './ReferentielsPostes.tsx';
 
-const ONGLETS: [ReferentielId, string][] = [['formations', 'Formations'], ['habilitations', 'Habilitations'], ['destinations', 'Destinations']];
+const ONGLETS: [ReferentielId | 'postes', string][] = [['formations', 'Formations'], ['habilitations', 'Habilitations'], ['postes', 'Postes'], ['destinations', 'Destinations']];
 
 /** État d'un élément : en vigueur, ou archivé (date). */
 const Etat = ({ archive }: { archive?: ISODate | null }) => (archive
@@ -29,6 +31,7 @@ export function Referentiels() {
   const kicker = [
     plural(actifs(r.formations).length, 'formation', 'formations'),
     plural(actifs(r.habilitations).length, 'habilitation', 'habilitations'),
+    plural(actifs(r.postes).length, 'poste', 'postes'),
     plural(actifs(r.destinations).length, 'destination', 'destinations'),
   ].join(' · ') + ' en vigueur';
   return (
@@ -36,6 +39,7 @@ export function Referentiels() {
       actions={<Seg name="refOnglet" label="Référentiel" value={ui.refOnglet} onChange={x => setUi({ refOnglet: x })} options={ONGLETS} />}>
       {ui.refOnglet === 'formations' && <Formations />}
       {ui.refOnglet === 'habilitations' && <Habilitations />}
+      {ui.refOnglet === 'postes' && <Postes />}
       {ui.refOnglet === 'destinations' && <Destinations />}
     </Page>
   );

@@ -11,7 +11,10 @@ import { controleAdresse, normaliserAdresse } from './messagerie.ts';
 /** Champs d'une fiche saisis par le service RH. */
 export interface ProfilInput {
   nom: string;
+  /** Intitulé du poste : celui du poste choisi dans le référentiel (`posteId`), conservé sur la fiche. */
   poste: string;
+  /** Poste du référentiel (shared/rules/exigences.ts), dont les exigences s'appliquent ; null : intitulé seul. */
+  posteId?: number | null;
   equipe: string | null;
   statut: Statut;
   typeContrat: TypeContrat;
@@ -42,11 +45,14 @@ export interface ProfilInput {
 }
 
 export const PROFIL_FIELDS: (keyof ProfilInput)[] = [
-  'nom', 'poste', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis',
+  'nom', 'poste', 'posteId', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis',
   'entree', 'fin', 'motifSortie', 'naissance', 'agence', 'matriculePaie', 'email', 'visite', 'repriseMotif', 'repriseDate',
 ];
 
-/** Champs qu'un manager peut modifier pour un membre de son équipe ; le contrat et le statut restent au RH. */
+/**
+ * Champs qu'un manager peut modifier pour un membre de son équipe ; le contrat et le statut restent au RH, comme le poste
+ * du référentiel (`posteId`), dont les exigences décident de la conformité : le manager n'en précise que l'intitulé.
+ */
 export const MANAGER_FIELDS: (keyof ProfilInput)[] = ['poste', 'jourOff'];
 
 export const JOURS_SEMAINE = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi'];
@@ -58,7 +64,7 @@ export function profilOf(e: Employe): ProfilInput {
 }
 
 export const PROFIL_VIDE = (equipe: string | null, today: string): ProfilInput => ({
-  nom: '', poste: '', equipe, statut: 'ouvrier', typeContrat: 'cdi', temps: '35h', heures: null, forfaitHeures: null, forfaitJours: null,
+  nom: '', poste: '', posteId: null, equipe, statut: 'ouvrier', typeContrat: 'cdi', temps: '35h', heures: null, forfaitHeures: null, forfaitJours: null,
   jourOff: [], tempsDepuis: null, entree: today, fin: null, motifSortie: null, naissance: Number(today.slice(0, 4)) - 30, agence: null, matriculePaie: null, email: null, visite: null, repriseMotif: null, repriseDate: null,
 });
 
@@ -75,6 +81,7 @@ export function normaliserProfil(p: ProfilInput): ProfilInput {
     ...p,
     nom: txt(p.nom),
     poste: txt(p.poste),
+    posteId: p.posteId == null || (p.posteId as unknown) === '' ? null : Number(p.posteId),
     equipe: s(p.equipe),
     heures: t === 'partiel' || t === 'forfait_heures_hebdo' ? n(p.heures) : null,
     forfaitHeures: t === 'forfait_heures_annuel' ? (n(p.forfaitHeures) ?? 1607) : null,
@@ -110,6 +117,7 @@ export function validerProfil(raw: ProfilInput, opts: {
   const errors: string[] = [], warnings: string[] = [];
   if (!p.nom) errors.push('Nom requis.');
   if (!p.poste) errors.push('Poste requis.');
+  else if (p.posteId != null && !Number.isInteger(p.posteId)) errors.push('Poste inconnu : choisissez-le dans la liste.');
   if (p.equipe && !opts.equipes.includes(p.equipe)) errors.push(`Équipe inconnue : ${p.equipe}.`);
   if (!STATUTS[p.statut]) errors.push('Statut inconnu.');
   if (!TYPES_CONTRAT[p.typeContrat]) errors.push('Nature du contrat inconnue.');

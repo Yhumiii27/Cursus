@@ -1,4 +1,5 @@
-// Échéances : renouvellements des 12 prochains mois (certifications, habilitations, visites médicales, formalités de voyage).
+// Échéances : renouvellements des 12 prochains mois (certifications, habilitations, visites médicales, formalités de voyage),
+// et exigences des postes et des équipes jamais obtenues, parmi les dépassées (shared/rules/exigences.ts).
 import { useMemo } from 'react';
 import { DownloadSimpleIcon } from '@phosphor-icons/react';
 import { cap, equipeLabel, monthShort, plural } from '../../../shared/format.ts';
@@ -54,7 +55,7 @@ export function Echeances() {
       title="Échéances"
       actions={<>
         <Seg name="echType" label="Type d’échéance" value={ui.echType} onChange={x => setUi({ echType: x })}
-          options={[['tous', 'Tout'], ['cert', 'Certifications'], ['hab', 'Habilitations'], ['med', 'Visites médicales'], ['trip', 'Voyages']]} />
+          options={[['tous', 'Tout'], ['cert', 'Certifications'], ['hab', 'Habilitations'], ['med', 'Visites médicales'], ['exigence', 'Exigences'], ['trip', 'Voyages']]} />
         <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exportCsv}>Exporter (CSV)</Btn>
       </>}
     >

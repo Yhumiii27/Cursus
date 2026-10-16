@@ -37,7 +37,8 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
   (dernier jour et motif en liste fermée : ce qui était prévu après son départ est annulé, il quitte la conformité et les
   échéances et reste consultable avec le filtre « Sortis » de Collaborateurs) et l'écran « Référentiels »
   (catalogue des formations, habilitations et destinations : création, modification, archivage, référentiel
-  type à charger dans une base vide ; formations et habilitations aussi pour le référent HSE). Deux profils : les
+  type à charger dans une base vide ; formations et habilitations aussi pour le référent HSE ; postes et formations ou
+  habilitations exigées par poste et par équipe). Deux profils : les
   **gestionnaires RH** (fiches, formations, absences…) et l'**administrateur RH**, seul à régler les
   paramètres, supprimer et gérer les comptes (Paramètres → Comptes et accès) et, avec le gestionnaire de paie, à
   transmettre la paie.
@@ -55,7 +56,7 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
   Aïcha Diallo et Élodie Bernard.
 - **Manager** : son équipe — inscriptions aux sessions et demandes de formation / habilitation,
   absences posées et validées, absences imprévues signalées (le service RH en précise la nature, jamais
-  communiquée au manager pour un arrêt de travail ou la santé d'un enfant), saisie et correction des feuilles de temps, poste et jours non
+  communiquée au manager pour un arrêt de travail ou la santé d'un enfant), saisie et correction des feuilles de temps, intitulé du poste et jours non
   travaillés des fiches, ajout de salariés « à affecter » (libérés par leur manager d'origine ; une mutation
   directe passe par le service RH) et retrait de membres, entretiens (ses propres entretiens, que mène son responsable,
   se préparent et se signent dans son espace collaborateur), missions.
@@ -285,7 +286,9 @@ clôture (présence, évaluation selon la formation, certification datée du jou
 échecs à replanifier, évaluation à chaud), nombre d'inscrits calculé · référentiels administrés (formations,
 habilitations, destinations), archivés plutôt que supprimés, validité modifiée appliquée aux titres détenus ·
 échéances au dernier jour du mois cible quand le jour n'y existe pas (29/02 + 36 mois = 28/02) · renouvellement
-accepté d'une habilitation expirée compté « en attente ».
+accepté d'une habilitation expirée compté « en attente » · exigences par poste et par équipe : une formation ou une
+habilitation exigée jamais obtenue rend « Non conforme », avec une échéance « exigence manquante » (inscrire, demander
+l'habilitation) et un indicateur au tableau de bord ; postes créés depuis les intitulés déjà saisis, choisis en liste.
 
 Jours fériés et périodes de référence (CP, RTT, campagnes) calculés à partir de la date du jour, celle de Paris
 quel que soit le fuseau du serveur ; dates impossibles (« 31/02 ») refusées à la saisie et à l'import.

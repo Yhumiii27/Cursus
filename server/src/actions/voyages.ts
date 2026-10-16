@@ -37,6 +37,7 @@ const detachement: ActionHandler = (ctx, p) => {
   requireRh(ctx);
   const t = ctx.ds.voyages.find(v => v.id === Number(p.id));
   if (!t) throw new ActionError('Déplacement introuvable', 404);
+  if (t.annuleLe) throw new ActionError('Déplacement annulé', 409);
   const emp = getEmp(ctx, t.empId), dest = ctx.d.destOf(t.dest);
   if (!dest) throw new ActionError('Destination hors référentiel');
   const champs = { detachementLe: SECU_RULES[secuDe(dest)].label, informationLe: 'Information écrite' };

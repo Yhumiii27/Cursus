@@ -296,7 +296,8 @@ export function reinitialisationDemo(): Confirmation {
 export function erreurMotif(c: Confirmation, motif: string): string | null {
   if (!c.motif) return null;
   const m = motif.trim();
-  if (c.motif.requis && !m) return 'Indiquez le motif du refus.';
+  // « Indiquez le motif du refus. », « Indiquez le motif de l’annulation. »
+  if (c.motif.requis && !m) return `Indiquez le ${c.motif.label.charAt(0).toLowerCase()}${c.motif.label.slice(1)}.`;
   if (m.length > MOTIF_MAX) return `Motif trop long (${MOTIF_MAX} caractères au plus).`;
   return null;
 }

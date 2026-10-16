@@ -12,6 +12,7 @@ import { absenceActive, absenceBloque, borneContrat, periodeTexte } from './rule
 import { actifs, habSuivie } from './rules/referentiels.ts';
 import { identifiantKeystone } from './rules/matricules.ts';
 import { present } from './rules/contrats.ts';
+import { voyageActif } from './rules/deplacements.ts';
 import { restrictionEnVigueur } from './rules/sante.ts';
 import type {
   AvisMedical, Certification, Chantier, Dataset, DemandeVisite, Destination, Employe, FormaliteManquante, Formation, HabTitre, HabType, ISODate,
@@ -537,10 +538,12 @@ export class Domain {
 
   /**
    * Déplacements non terminés, avec l'état de préparation du dossier. Pour le manager, les vaccinations ne sont pas
-   * transmises : l'état est celui calculé par le serveur (`tripStatus`), pas celui des pièces reçues.
+   * transmises : l'état est celui calculé par le serveur (`tripStatus`), pas celui des pièces reçues. Un déplacement annulé
+   * n'y figure pas (ni dossier, ni Go / No Go : shared/rules/deplacements.ts).
    */
   tripsAll(): TripX[] {
     return this.ds.voyages
+      .filter(voyageActif)
       .map(t => ({ t, emp: this.emp(t.empId) }))
       .filter((x): x is { t: Voyage; emp: Employe } => !!x.emp && x.t.retour >= this.ti)
       .sort((a, b) => a.t.depart.localeCompare(b.t.depart))

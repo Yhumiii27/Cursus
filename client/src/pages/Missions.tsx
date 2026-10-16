@@ -21,7 +21,7 @@ export function Missions() {
   const ti = data.today;
 
   const v = useMemo(() => {
-    const voyages = data.voyages.filter(t => t.retour >= ti && d.emp(t.empId));
+    const voyages = data.voyages.filter(t => t.retour >= ti && !t.annuleLe && d.emp(t.empId));
     const rows = data.missions.filter(m => m.au >= ti).sort((a, b) => a.du.localeCompare(b.du)).map(m => {
       const t = voyages.find(x => x.empId === m.empId && x.chantier === m.projet), now = m.du <= ti;
       const e = d.emp(m.empId);

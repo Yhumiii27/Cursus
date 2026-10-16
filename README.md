@@ -229,7 +229,9 @@ relèvent au fil des tests ajoutés.
   feuille soumise ou renvoyée, compte rendu d'entretien à signer ou mis à disposition, réponse à une demande au service RH),
   aussitôt ou en récapitulatif quotidien selon le réglage de chacun ; convocations aux formations (envoi
   unitaire ou groupé, daté, désinscription) et aux entretiens, avec fichier `.ics` ; relevé hebdomadaire des
-  heures des intérimaires envoyé à leur agence (CSV). Envoyés par Microsoft Graph depuis la boîte
+  heures des intérimaires envoyé à leur agence (CSV) ; récapitulatif des échéances (titres, visites, formalités,
+  entretiens, fins de contrat) au service RH, à chaque manager pour son équipe (sans donnée de santé) et au référent HSE,
+  une seule fois par palier (90, 30, 7 jours, échu), désactivable dans Paramètres → Messagerie. Envoyés par Microsoft Graph depuis la boîte
   `CURSUS_MAIL_FROM`, par la file d'envoi (suivi et relance dans Paramètres → Envois) ; sans elle, simulés
   et tracés dans le journal. Adresse professionnelle sur la fiche (reprise du compte Microsoft 365), adresses
   du service RH, du service de santé au travail et des agences dans Paramètres → Messagerie.
@@ -279,7 +281,8 @@ bornées par le contrat · entretiens de
 parcours (L6315-1 : 1re année puis tous les 4 ans, reprise, état des lieux 8 ans avec
 risque d'abondement CPF), entretien annuel forfait jours (L3121-64), campagne d'entretiens annuels réglable (dates,
 ancienneté, contrats exclus), compte rendu imprimable dès la clôture et remise de la copie tracée (main propre, refus de
-signer, mise à disposition dans le portail) · plan de formation, enveloppes par équipe, import CSV, coût réel saisi à la
+signer, mise à disposition dans le portail), entretien annulé (`.ics` d'annulation) et entretien planifié à une date
+dépassée compté en retard · déplacements modifiés ou annulés (historique gardé, hors du Go / No Go, Keystone prévenu) · plan de formation, enveloppes par équipe, import CSV, coût réel saisi à la
 clôture d'une action, exercices passés consultables, clôture d'exercice avec report des actions engagées · sessions de formation : confirmation, modification, annulation,
 clôture (présence, évaluation selon la formation, certification datée du jour de la session, absents et
 échecs à replanifier, évaluation à chaud), nombre d'inscrits calculé · référentiels administrés (formations,

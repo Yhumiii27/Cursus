@@ -14,10 +14,11 @@ import { useEffect, useRef, useState } from 'react';
 import { ENT_TYPES, type EntSection } from '../../../shared/constants.ts';
 import { isValidDate, parse } from '../../../shared/dates.ts';
 import { fmt } from '../../../shared/format.ts';
-import { debutCloture, obligations } from '../../../shared/rules/entretiens.ts';
+import { crCommence, debutCloture, obligations } from '../../../shared/rules/entretiens.ts';
 import { remisePhysique, texteRemise } from '../../../shared/rules/remise.ts';
 import { CancelButton, Dialog, Field } from '../components/Dialog.tsx';
 import { Fine } from '../components/ui.tsx';
+import { annulationEntretien } from '../state/confirmations-annulations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { EnregistrementAuFil } from '../state/enregistrement.ts';
 import { useStore } from '../state/store.tsx';
@@ -89,7 +90,9 @@ export function EntDialog({ entId }: { entId: number }) {
   const evaluateur = d.mgrName(mgr);
   const remise = texteRemise(x);
   const status = x.statut === 'planifie'
-    ? `Planifié le ${fmt(parse(x.date))} — le salarié peut préparer sa partie à l’avance.`
+    ? x.date < d.ti
+      ? `Planifié le ${fmt(parse(x.date))}, date dépassée — à clore s’il a eu lieu, sinon à reprogrammer ou à annuler.`
+      : `Planifié le ${fmt(parse(x.date))} — le salarié peut préparer sa partie à l’avance.`
     : !x.signSal
       ? `Clos et signé par l’évaluateur le ${fmt(parse(x.signMgr ?? x.date))} — ${remise
         ? `non signé par le salarié. ${remise}.`
@@ -136,6 +139,9 @@ export function EntDialog({ entId }: { entId: number }) {
     await flush();
     openDialog({ type: 'entPlan', empId: x.empId, kind: x.type });
   };
+  // Entretien qui n'a plus lieu d'être (départ, changement de poste, doublon) : annulation confirmée, compte rendu compris
+  // (la saisie en cours compte : supprimée avec lui).
+  const annuler = () => openDialog({ type: 'confirmer', c: annulationEntretien(x, e.nom, { crCommence: crCommence({ ...x, cr: { ...x.cr, ...vals } }), passe: x.date < d.ti }) });
 
   // Imprimable dès la clôture. Le salarié qui le télécharge depuis son espace : la date du premier téléchargement est
   // enregistrée (après l'ouverture de la fenêtre, que le navigateur n'autorise que pendant le clic).
@@ -154,6 +160,7 @@ export function EntDialog({ entId }: { entId: number }) {
       {x.statut === 'realise' && <button type="button" className="btn btn-ghost" onClick={download}>Télécharger le compte rendu</button>}
       {canRemettre && <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => openDialog({ type: 'entRemise', entId: x.id })}>Remettre la copie</button>}
       {canSign && <button type="button" className="btn btn-primary" disabled={busy} onClick={() => setAConfirmer('entretien.signer')}>Signer le compte rendu</button>}
+      {canMgr && <button type="button" className="btn btn-ghost" disabled={busy} onClick={annuler}>Annuler l’entretien</button>}
       {canMgr && <button type="button" className="btn btn-secondary" disabled={busy} onClick={reprogrammer}>Reprogrammer</button>}
       {canMgr && <button type="button" className="btn btn-primary" disabled={busy || !!tenuErr} onClick={() => setAConfirmer('entretien.clore')}>Clore et signer</button>}
     </>}>

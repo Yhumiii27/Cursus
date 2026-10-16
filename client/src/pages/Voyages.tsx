@@ -1,5 +1,5 @@
-// Voyages professionnels : demandes Keystone, déplacements à venir, dossier voyage,
-// dossiers voyageurs et référentiel des destinations.
+// Voyages professionnels : demandes Keystone, déplacements à venir, dossier voyage (modification, annulation),
+// déplacements annulés (historique), dossiers voyageurs et référentiel des destinations.
 import { useMemo, type RefObject } from 'react';
 import { PlusIcon, UploadSimpleIcon } from '@phosphor-icons/react';
 import { SECU_RULES, TRIP_CLS, TRIP_LABEL, VISA_RULES, secuDe, type StatusKey } from '../../../shared/constants.ts';
@@ -7,12 +7,14 @@ import type { TripItem, TripX } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, fmtShort, monthShort, plural, rel } from '../../../shared/format.ts';
 import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
+import { voyagesAnnules } from '../../../shared/rules/deplacements.ts';
 import { actifs } from '../../../shared/rules/referentiels.ts';
 import { usePanneauVisible } from '../components/panneau.ts';
 import { Btn, Chips, CloseButton, Empty, Fine, Page, Panel, Tag, Two, stop } from '../components/ui.tsx';
 import { useAgir } from '../state/actions.ts';
 import { refusKeystone } from '../state/confirmations.ts';
-import { useEnriched, useTrips } from '../state/derived.ts';
+import { annulationVoyage } from '../state/confirmations-annulations.ts';
+import { useEnriched, useRole, useTrips } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
 const docCls = (k: StatusKey) => k === 'exp' ? 'tag-accent' : k === 'due' ? 'tag-outline' : 'tag-neutral';
@@ -45,6 +47,8 @@ export function Voyages() {
     return { dm, emp, c, dest, r, chefCourt, conflit };
   });
 
+  // Déplacements annulés : conservés, hors de tous les calculs (shared/rules/deplacements.ts) ; les six derniers.
+  const annules = voyagesAnnules(data.voyages).slice(0, 6);
   const count = (st: TripX['r']['status']) => trips.filter(t => t.r.status === st).length;
   const sel = trips.find(t => t.id === ui.tripSel) || null;
   // Écran étroit : le dossier voyage s'affiche sous la liste ; la sélection l'amène dans le champ de vision.
@@ -128,6 +132,26 @@ export function Voyages() {
         {sel && <TripPanel panneau={panneau} t={sel} onClose={() => setUi({ tripSel: null })} onOpenEmp={() => openEmp(sel.emp.id)} />}
       </div>
 
+      {annules.length > 0 && (
+        <Panel title="Déplacements annulés" aside="historique · hors du dossier à préparer et du Go / No Go">
+          <div className="scroll-x">
+            <table className="table">
+              <thead><tr><th>Collaborateur</th><th>Déplacement</th><th>Annulation</th><th>Motif</th></tr></thead>
+              <tbody>
+                {annules.map(t => (
+                  <tr key={t.id}>
+                    <td><Two nowrap main={d.personName(t.empId)} sub={d.originLabel(t)} /></td>
+                    <td><Two main={`${d.destOf(t.dest)?.pays ?? t.dest} · ${fmtShort(parse(t.depart))} → ${fmt(parse(t.retour))}`} sub={t.motif} /></td>
+                    <td><Two nowrap main={fmt(parse(t.annuleLe!))} sub={t.annulePar ?? ''} /></td>
+                    <td className="text-muted">{t.annuleMotif || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      )}
+
       <Panel title="Dossiers voyageurs" aside={plural(travelers.length, 'dossier voyageur', 'dossiers voyageurs')}>
         <div className="scroll-x">
           <table className="table">
@@ -190,6 +214,7 @@ export function Voyages() {
 function TripPanel({ panneau, t, onClose, onOpenEmp }: { panneau: RefObject<HTMLElement | null>; t: TripX; onClose: () => void; onOpenEmp: () => void }) {
   const { d } = useEnriched();
   const { openDialog } = useStore();
+  const { rh } = useRole();
   const r = t.r;
   return (
     <aside ref={panneau} tabIndex={-1} aria-labelledby="dossier-voyage-nom" className="card elev-md side-panel" style={{ flex: '0 1 400px' }}>
@@ -226,7 +251,12 @@ function TripPanel({ panneau, t, onClose, onOpenEmp }: { panneau: RefObject<HTML
         ))}
       </div>
       <Fine>{d.destSummary(r.dest)} Exigences tenues à jour par le service RH — à vérifier sur France Diplomatie avant le départ.</Fine>
-      <Btn style={{ alignSelf: 'flex-start' }} onClick={onOpenEmp}>Fiche collaborateur →</Btn>
+      <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', alignItems: 'center' }}>
+        <Btn onClick={onOpenEmp}>Fiche collaborateur →</Btn>
+        {/* Modification (dates ; destination et motif hors Keystone) et annulation : service RH, Keystone prévenu. */}
+        {rh && <Btn onClick={() => openDialog({ type: 'tripModifier', id: t.id })}>Modifier le déplacement</Btn>}
+        {rh && <Btn onClick={() => openDialog({ type: 'confirmer', c: annulationVoyage(t, t.emp.nom, `${r.dest.pays} du ${fmtShort(r.dep)} au ${fmt(r.ret)}`) })}>Annuler le déplacement</Btn>}
+      </div>
     </aside>
   );
 }

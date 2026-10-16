@@ -42,6 +42,7 @@ import { SessionDialog } from './SessionDialog.tsx';
 import { SortieDialog } from './SortieDialog.tsx';
 import { TripDialog } from './TripDialog.tsx';
 import { TripImportDialog } from './TripImportDialog.tsx';
+import { TripModifierDialog } from './TripModifierDialog.tsx';
 import { AvisDialog } from './AvisDialog.tsx';
 import { VisiteDialog } from './VisiteDialog.tsx';
 
@@ -67,6 +68,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'trip': return <TripDialog />;
     case 'fo': return <FormaliteDialog {...d} />;
     case 'detachement': return <DetachementDialog {...d} />;
+    case 'tripModifier': return <TripModifierDialog {...d} />;
     case 'visite': return <VisiteDialog {...d} />;
     case 'avis': return <AvisDialog {...d} />;
     case 'reqForm': return <ReqFormDialog {...d} />;

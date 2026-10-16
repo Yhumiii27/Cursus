@@ -182,7 +182,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
       ...(repriseMedicale(e, full.absences) ? { repriseMotif: null, repriseDate: null } : { repriseMotif: e.repriseDate ? 'absence longue' : null }),
     }
     : e);
-  const voyages = mine(full.voyages).map(v => {
+  // Motif d'une annulation (texte libre du service RH) : jamais transmis hors du service RH.
+  const voyages = mine(full.voyages).map(v => (v.annuleMotif ? { ...v, annuleMotif: null } : v)).map(v => {
     if (!isMgr || v.empId === user.empId) return v;
     const emp = d.emp(v.empId);
     return emp ? { ...v, dossierStatut: d.readiness(emp, v).status } : v;
@@ -262,7 +263,7 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
   const ressources = new Set(full.referentiels.chantiers.filter(c => c.statut !== 'archive').flatMap(c => c.ressources));
   // Déplacements : l'état du dossier et les formalités manquantes sont calculés ici, avec les pièces du dossier,
   // pour que le verdict Go / No Go soit exact sans les transmettre.
-  const voyages = !formations ? [] : full.voyages.map(v => {
+  const voyages = !formations ? [] : full.voyages.map(v => (v.annuleMotif ? { ...v, annuleMotif: null } : v)).map(v => {
     const emp = d.emp(v.empId);
     if (!emp || !d.destOf(v.dest)) return v;
     const r = d.readiness(emp, v);

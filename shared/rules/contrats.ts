@@ -11,6 +11,7 @@ import type { Domain } from '../domain.ts';
 import type { Absence, Certification, DemandeVisite, Employe, Entretien, FeuilleTemps, ISODate, Inscription, MotifSortie, Session } from '../types.ts';
 import { absenceActive, periodeTexte, semaineHorsContrat } from './absences.ts';
 import { rttDroit, rttInfo } from './conges.ts';
+import { voyageActif } from './deplacements.ts';
 
 // — Sortie —
 
@@ -115,7 +116,7 @@ export function controleSortie(d: Domain, e: Employe, date: ISODate): ControleSo
   else if (visites.length) c.avertissements.push('Demande de visite médicale en cours : gardée jusqu’au départ (une visite de reprise reste due tant que le salarié travaille) ; annulez-la depuis la fiche si elle n’a plus d’objet.');
   c.feuilles = feuilles.filter(f => f.statut !== 'validee' && f.week > date && [0, 1, 2, 3, 4].every(i => heuresDuJour(f, i) === 0));
 
-  d.ds.voyages.filter(v => v.empId === e.id && v.retour > date).forEach(v => {
+  d.ds.voyages.filter(v => v.empId === e.id && v.retour > date && voyageActif(v)).forEach(v => {
     c.avertissements.push(`Déplacement ${d.destOf(v.dest)?.pays ?? v.dest} ${periodeTexte(v.depart, v.retour)} au-delà de la sortie : à annuler ou écourter (Voyages).`);
   });
   const demandes = d.ds.demandesCollab.filter(r => r.empId === e.id && r.statut === 'attente').length;

@@ -43,7 +43,7 @@ export function RefDestinationDialog({ code: code0 }: { code?: string | null }) 
   const erreur = (k: ChampDestination, saisi: string) => (saisi.trim() ? erreurs[k] ?? null : v.erreur(erreurs[k]));
   // Sécurité sociale déduite du code pays, tant qu'aucune n'est choisie.
   const deduite = SECU_RULES[secuDe({ code: codePays, secu: null })].label;
-  const prevus = avant ? d.ds.voyages.filter(x => x.dest === avant.code && x.retour >= d.ti).length : 0;
+  const prevus = avant ? d.ds.voyages.filter(x => x.dest === avant.code && x.retour >= d.ti && !x.annuleLe).length : 0;
 
   const confirm = async () => {
     if (busy || !v.verifier(...Object.values(erreurs), disparue)) return;

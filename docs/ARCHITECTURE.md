@@ -25,7 +25,8 @@ shared/            Domaine partagé (aucune dépendance)
                    contrats.ts : sortie des salariés (présence, contrôles et effets d'une sortie), garde-fou d'un
                    changement de régime de temps ; paie.ts : période de paie, rubriques Sage, modes (Paie) ;
                    campagne.ts (campagne d'entretiens annuels réglable), remise.ts (remise du compte rendu d'entretien),
-                   exercices.ts (exercices du plan, clôture, coût réel) ; a-faire.ts : ce qui attend le collaborateur
+                   exercices.ts (exercices du plan, clôture, coût réel) ; a-faire.ts : ce qui attend le collaborateur ;
+                   deplacements.ts (déplacement modifié ou annulé), relances.ts (récapitulatif des échéances par paliers)
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   migrate.ts       Reprises des bases antérieures, rejouées à chaque démarrage (idempotentes)
@@ -56,6 +57,7 @@ server/src/
   messagerie.ts    Adresses (fiche, service RH, santé au travail, agences), forme commune des e-mails
   notifications.ts Notifications d'étapes (aussitôt ou récapitulatif quotidien), convocations .ics, tâches planifiées
   releves.ts       Relevés d'heures hebdomadaires des intérimaires envoyés à leur agence
+  relances.ts      Récapitulatif des échéances par paliers (RH, managers, référent HSE), relances notées (table relances)
   integrations/    Adaptateurs Keystone, Sage Paie et e-mails (email.ts : Microsoft Graph, .ics ; simulation par défaut) ; API Keystone entrante :
                    keystone-entrant.ts (contrôles, écritures, instantané) et keystone-routes.ts (routes /v1) ;
                    keystone-verdicts.ts (verdicts Go / No Go transmis, changements signalés)
@@ -567,7 +569,9 @@ aucun champ du paramètre n'est recopié.
 | `demande.formation` | f (ou `autre`), libelle, sessionId, motif, empId (manager) ; refusée si une demande identique attend (même formation, ou même intitulé hors catalogue), si le salarié est déjà inscrit à une session à venir, ou absent le jour de la session souhaitée | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `demande.habilitation` | h, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `voyage.creer` | empId, dest, depart, retour, motif ; refusé s'il chevauche un autre déplacement ou une absence en vigueur | RH |
-| `voyage.detachement` | id, detachementLe?, informationLe? (date passée ; vide : saisie effacée) | RH (certificat de sécurité sociale du détachement, information écrite d’une mission de plus de 4 semaines) |
+| `voyage.detachement` | id, detachementLe?, informationLe? (date passée ; vide : saisie effacée) ; déplacement annulé refusé | RH (certificat de sécurité sociale du détachement, information écrite d’une mission de plus de 4 semaines) |
+| `voyage.modifier` | id, dest?, depart, retour, motif? (non transmis : inchangés) ; contrôles de `voyage.creer`, le déplacement lui-même exclu des conflits ; venu de Keystone : dates seules (destination et motif du chantier), `deplacement.modifie` mis en file ; annulé ou terminé : 409 | RH |
+| `voyage.annuler` | id, motif (obligatoire pour un déplacement venu de Keystone, 500 caractères ; gardé dans Cursus, `annuleMotif`, jamais transmis) : `annuleLe`, `annulePar` ; déplacement gardé dans l'historique, hors de tous les calculs ; venu de Keystone : `deplacement.annule` mis en file ; déjà annulé ou terminé : 409 | RH |
 | `formalite.enregistrer` | empId, kind (`passeport`/`visa`/`vaccin`), numero, expire, dest, visaType, obtenu, v, date | RH (écrit dans le dossier), ou le collaborateur pour lui-même (déclaration en attente, voir ci-dessous) |
 | `voyages.importer` | texte (CSV) | RH |
 | `keystone.accepter` / `keystone.refuser` | id ; refus : motif? (conservé dans Cursus, demande et message du journal, jamais transmis à Keystone) | RH (demande en attente ; l'acceptation revalide affectation, chantier actif, destination, effectifs et l'absence de déplacement déjà créé, et est refusée si le salarié est déjà en déplacement ou absent ces jours-là ; la demande reste en base avec statut, date et décideur) |
@@ -593,12 +597,13 @@ aucun champ du paramètre n'est recopié.
 | `report.accorder` | empId, jours, motif (échéance : 31 mai suivant, seul un report légal court au-delà) : jours de la période en cours reportés sur la suivante, dans la limite du solde non encore reporté, appliqués à la clôture | RH, jamais pour lui-même |
 | `conges.cloturer` | type (`CP`/`RTT`), periode (année de prise des CP, année des RTT), lignes? [{empId, decision `reporter`/`perdre`, jours? (report imposé compris)}] (CP) : période terminée ; une ligne déjà clôturée n'est jamais refaite, une ligne sans décision reste à clôturer, un salarié sans solde est clos d'emblée ; une ligne dont une demande de CP de la période est en attente n'est pas close (refus nommant la demande) ; perte refusée pour les jours d'un report imposé ; RTT : soldes perdus (non reportables), salarié dont une demande de RTT de l'année est en attente non clôturé | RH ; jamais sa propre ligne de CP |
 | `entretien.planifier` | empId, kind, date, nonTenu? ; un seul entretien planifié par type : une nouvelle date le reprogramme (passé avec un compte rendu commencé, seulement avec `nonTenu`, l'évaluateur confirmant qu'il n'a pas eu lieu) ; refusé un jour d'absence du salarié ; convocation par e-mail (`.ics`, même événement à la reprogrammation) | manager direct ou RH (jamais son propre entretien) |
+| `entretien.annuler` | id, confirmer? (exigé si le compte rendu est commencé : supprimé avec l'entretien) ; entretien planifié seulement (clos : 409), retiré ; date à venir : `.ics` d'annulation au salarié (même UID `entretien-<id>`) | évaluateur (manager direct) ou RH, jamais son propre entretien |
 | `entretien.modifier` | id, section?, value?, info? | évaluateur / salarié selon la section (un membre du RH n'évalue pas son propre entretien) |
 | `entretien.clore` | id, date? (jour où l'entretien a eu lieu, aujourd'hui au plus tard et pas avant sa planification ; exigée pour un entretien prévu à une date à venir) | évaluateur (l'écran enregistre d'abord chaque section ; un échec interrompt la clôture) |
 | `entretien.signer` | id | salarié |
 | `entretien.remettre` | id, mode (`main_propre`/`refus`/`portail`), date? (main propre, refus : de la clôture à aujourd'hui ; portail : le jour même, compte actif exigé, e-mail avec le seul lien vers Cursus) ; une remise sur papier est définitive, une mise à disposition se complète par une remise sur papier | évaluateur (manager direct) ou RH, jamais pour son propre entretien |
 | `entretien.telecharger` | id : premier téléchargement du compte rendu clos, daté (`telechargeLe`) | salarié, depuis son espace |
-| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
+| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
 | `demo.reinitialiser` | — | administrateur RH, mode démonstration |
 | `compte.creer` | empId (ou nom, adresse : compte externe), type (`microsoft`/`local`), identifiant, profilRh | administrateur RH (mot de passe provisoire dans `result`, affiché une fois) |
 | `compte.profil` | id, profilRh (`aucun`/`rh_gestionnaire`/`rh_admin`/`referent_hse`/`paie`/`lecture_seule`) | administrateur RH (jamais le dernier administrateur actif ; un compte externe garde un profil) |
@@ -1084,6 +1089,55 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
 - **Espace manager** : ses propres entretiens (échéances, liste, indicateurs, pastille du menu) n'y figurent pas
   (`perimetreEntretiens`) ; son responsable les mène, il les prépare et les signe dans son espace collaborateur, vers
   lequel l'écran le renvoie (« Mes entretiens »). Les données restent transmises : rien ne change côté serveur.
+- **Annulation et date dépassée** (`server/src/actions/annulation-entretien.ts`) : l'évaluateur ou le service RH annule un
+  entretien planifié qui n'a plus lieu d'être (`entretien.annuler`, bouton « Annuler l’entretien » du compte rendu) ; il est
+  retiré et l'obligation redevient à planifier. Un compte rendu commencé n'est supprimé avec lui que sur confirmation
+  (`confirmer`, que la confirmation de l'écran envoie après l'avoir annoncé). Date à venir : le salarié reçoit l'annulation
+  de l'événement de sa convocation (`.ics` CANCEL, même UID `entretien-<id>`, e-mail `convocation.annulee`). Un entretien
+  planifié dont la date est passée sans avoir été clos compte en retard dans `obligations()` (`st: 'late'`, libellé
+  « Planifié, date dépassée » : `statutObligation`), donc dans les indicateurs et la pastille du menu ; la liste et le compte
+  rendu le signalent (« Date dépassée » : à clore s'il a eu lieu, sinon à reprogrammer ou à annuler).
+
+## Déplacements modifiés ou annulés
+
+Règles dans `shared/rules/deplacements.ts`, actions dans `server/src/actions/deplacements.ts`, écran Voyages (boutons
+« Modifier le déplacement » et « Annuler le déplacement » du dossier voyage, `dialogs/TripModifierDialog.tsx`, confirmation
+`state/confirmations-annulations.ts`).
+
+- **Modification** (`voyage.modifier`) : dates, destination et motif, avec les contrôles de la création (destination du
+  référentiel en vigueur ou déjà celle du déplacement, conflits de dates en excluant le déplacement lui-même). Un
+  déplacement venu de Keystone ne change que de dates (destination et motif sont ceux du chantier).
+- **Annulation** (`voyage.annuler`) : colonnes `annuleLe`, `annulePar`, `annuleMotif` (texte libre du service RH : retiré
+  des instantanés manager, collaborateur et profils restreints ; le journal n'en garde que « renseigné »). Motif obligatoire
+  pour un déplacement venu de Keystone. Le déplacement reste en base et s'affiche dans « Déplacements annulés » (six
+  derniers), mais `voyageActif` l'écarte de tous les calculs : `Domain.tripsAll` (dossier à préparer, tableau de bord,
+  Go / No Go, verdicts transmis), conflits de dates, avertissements d'une sortie, acceptation d'une demande Keystone
+  (`motifsRefusAcceptation`), déplacements prévus d'une destination, missions, relances. Annulé ou terminé (retour passé),
+  un déplacement ne se modifie plus et ne s'annule plus (409), ni ses formalités de détachement.
+- **Keystone** : pour un déplacement d'origine `keystone`, `deplacement.modifie` et `deplacement.annule` (identifiant du
+  déplacement, de la demande acceptée, référence, matricule, chantier, destination, dates ; jamais le motif) partent par la
+  file d'envoi, simulés tant que `KEYSTONE_URL` n'est pas défini (docs/API-KEYSTONE.md) ; le verdict recalculé suit
+  (`verdict.modifie`), toute action `voyage.*` relançant le recalcul.
+
+## Récapitulatif des échéances
+
+Règles dans `shared/rules/relances.ts`, envoi dans `server/src/relances.ts`, appelé par `tachesEmails` (tâches de fond des
+e-mails, tous les quarts d'heure) : une fois par jour à partir de 7 h (réglage `relancesEcheancesLe` de la table
+`settings`), le jour réglé, si le récapitulatif est actif (Paramètres → Messagerie · récapitulatif des échéances,
+`pages/parametres/RelancesEcheances.tsx` ; réglages `relancesActives`, `relancesPaliers`, `relancesJour`).
+
+- **Contenu** (`relancesDues`) : échéances du domaine (certifications, habilitations, visite médicale, passeport, visas,
+  vaccinations), déplacements au dossier incomplet (selon la date de départ), obligations d'entretien non planifiées ou
+  planifiées à une date dépassée, fins de contrat prévues sans sortie enregistrée. Écartés : salariés sortis, échéances
+  déjà prises en charge (session planifiée, visite demandée), avis d'inaptitude, feuilles de temps (relance propre au suivi
+  des feuilles). Une vaccination n'est qu'une « formalité sanitaire de voyage », une visite qu'une « visite médicale ».
+- **Paliers** : 90, 30 et 7 jours avant l'échéance par défaut (90, 60, 30, 15, 7 au choix, un au moins), puis l'échéance
+  dépassée. La table `relances` (clé de l'objet avec sa date d'échéance, palier, jour) retient chaque palier relancé :
+  un objet n'est relancé qu'une fois par palier, même si personne ne l'a reçu ; un renouvellement (nouvelle date)
+  repart de zéro. Lignes de plus de 400 jours purgées.
+- **Destinataires** : la boîte du service RH (tout) ; chaque manager d'une équipe, à l'adresse de sa fiche (ses membres
+  sans lui-même, sans visite, vaccination ni entretien de reprise) ; chaque compte actif de référent HSE (formations et
+  habilitations). Une même adresse reçoit un seul e-mail. Type `echeances.recapitulatif` de la file d'envoi.
 
 ## Plan de formation : coût réel et exercices
 
@@ -1115,7 +1169,7 @@ Règles dans `shared/rules/exercices.ts` et `shared/rules/budget.ts`, actions da
 (en vigueur ou demandées), déplacements, sessions de formation où il est inscrit (`sessionsInscrit`), entretiens planifiés.
 Il bloque quand le salarié est absent (absence validée ou signalée) ou qu'un engagement du même genre existe déjà
 (deux déplacements, deux sessions le même jour), et avertit sinon. Les dialogues l'affichent en direct (`Controles`) ;
-le serveur refuse les blocages (`blocage`) : `plan.inscrire`, `demande.formation`, `demande.accepter`, `voyage.creer`,
+le serveur refuse les blocages (`blocage`) : `plan.inscrire`, `demande.formation`, `demande.accepter`, `voyage.creer`, `voyage.modifier`,
 `voyages.importer` (lignes en conflit, ou qui se chevauchent dans le fichier), `keystone.accepter` (affiché sur la demande,
 dans Voyages), `entretien.planifier`. Une absence posée sur une session, un déplacement ou un entretien n'est qu'avertie
 (`checkAbsence`, `checkNature`) : à reprogrammer. La nature d'une absence médicale n'est jamais citée. S'y ajoutent les

@@ -29,6 +29,8 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     heuresSupMode: 'paiement', heuresSupAccord: '', periodeRattachement: 'dimanche', clotureJour: 0,
     // Campagne d'entretiens : le fonctionnement d'avant le réglage (shared/rules/campagne.ts).
     campagneDebut: '10-01', campagneFin: '12-15', campagneAncienneteMois: 0, campagneExclus: [], campagnePreavisJours: 365,
+    // Récapitulatif des échéances (shared/rules/relances.ts) : actif, à 90, 30 et 7 jours puis échu, chaque jour.
+    relancesActives: true, relancesPaliers: [90, 30, 7], relancesJour: 'quotidien',
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

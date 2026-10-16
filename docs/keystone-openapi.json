@@ -346,7 +346,8 @@
                 "demande.decision": { "value": { "id": "0b9d7c1e-2f4a-4d3b-9a61-3c5e8f7a1b20", "type": "demande.decision", "emis_le": "2026-10-10T08:41:07.512Z", "donnees": { "demande": 7, "reference": "DK-2026-0412", "matricule": "EMP-0018", "chantier": "K-2611", "decision": "acceptee", "date": "2026-10-10" } } },
                 "heures.validees": { "value": { "id": "5f2e8a90-7c1d-4b6e-8f03-a9d4c2e1b7f6", "type": "heures.validees", "emis_le": "2026-10-12T16:05:31.004Z", "donnees": { "matricule": "EMP-0012", "semaine": "2026-10-05", "projets": { "K-2614": 15, "K-2611": 15 } } } },
                 "absence.validee": { "value": { "id": "c41a6e2d-93b7-4f58-a0e1-6d2b8c9f3e47", "type": "absence.validee", "emis_le": "2026-10-10T09:12:44.120Z", "donnees": { "absence": 31, "matricule": "EMP-0018", "du": "2026-12-14", "au": "2026-12-18" } } },
-                "verdict.modifie": { "value": { "id": "9e7f3b21-48ac-4d0e-b5f6-12c8a7d3e940", "type": "verdict.modifie", "emis_le": "2026-10-10T10:02:18.377Z", "donnees": { "chantier": "K-2614", "statut": "NO_GO", "ressource": { "matricule": "EMP-0018", "statut": "NO_GO", "motifs": [{ "code": "HABILITATION_SUSPENDUE", "niveau": "NO_GO" }], "precedent": "GO" } } } }
+                "verdict.modifie": { "value": { "id": "9e7f3b21-48ac-4d0e-b5f6-12c8a7d3e940", "type": "verdict.modifie", "emis_le": "2026-10-10T10:02:18.377Z", "donnees": { "chantier": "K-2614", "statut": "NO_GO", "ressource": { "matricule": "EMP-0018", "statut": "NO_GO", "motifs": [{ "code": "HABILITATION_SUSPENDUE", "niveau": "NO_GO" }], "precedent": "GO" } } } },
+                "deplacement.annule": { "value": { "id": "3a8c1f60-5d2e-4b7a-9c41-e7f0b2d6a815", "type": "deplacement.annule", "emis_le": "2026-10-14T13:20:05.218Z", "donnees": { "deplacement": 12, "demande": 7, "reference": "DK-2026-0412", "matricule": "EMP-0018", "chantier": "K-2611", "destination": "MA", "depart": "2026-11-02", "retour": "2026-11-20", "date": "2026-10-14" } } }
               }
             }
           }
@@ -663,7 +664,8 @@
           { "$ref": "#/components/schemas/EvenementDemandeDecision" },
           { "$ref": "#/components/schemas/EvenementHeuresValidees" },
           { "$ref": "#/components/schemas/EvenementAbsence" },
-          { "$ref": "#/components/schemas/EvenementVerdictModifie" }
+          { "$ref": "#/components/schemas/EvenementVerdictModifie" },
+          { "$ref": "#/components/schemas/EvenementDeplacement" }
         ],
         "discriminator": {
           "propertyName": "type",
@@ -672,7 +674,9 @@
             "heures.validees": "#/components/schemas/EvenementHeuresValidees",
             "absence.validee": "#/components/schemas/EvenementAbsence",
             "absence.annulee": "#/components/schemas/EvenementAbsence",
-            "verdict.modifie": "#/components/schemas/EvenementVerdictModifie"
+            "verdict.modifie": "#/components/schemas/EvenementVerdictModifie",
+            "deplacement.modifie": "#/components/schemas/EvenementDeplacement",
+            "deplacement.annule": "#/components/schemas/EvenementDeplacement"
           }
         },
         "description": "Enveloppe commune : `id` (égal à l'en-tête Idempotency-Key), `type`, `emis_le` (mise en file, inchangée d'une tentative à l'autre : ordre des événements) et `donnees`. Seuls des matricules, identifiants et codes sortent de Cursus."
@@ -779,6 +783,32 @@
                       "precedent": { "oneOf": [{ "$ref": "#/components/schemas/StatutVerdict" }, { "type": "null" }], "description": "Dernier verdict transmis pour cette ressource ; null : premier verdict" }
                     }
                   }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "EvenementDeplacement": {
+        "allOf": [
+          { "$ref": "#/components/schemas/EnveloppeEvenement" },
+          {
+            "description": "Déplacement créé par l'acceptation d'une demande Keystone, modifié (deplacement.modifie : nouvelles dates) ou annulé (deplacement.annule) par le service RH. Le motif d'une annulation reste dans Cursus, jamais transmis. Un déplacement annulé ne compte plus dans le Go / No Go : le nouveau verdict suit dans un événement verdict.modifie distinct.",
+            "properties": {
+              "type": { "enum": ["deplacement.modifie", "deplacement.annule"] },
+              "donnees": {
+                "type": "object",
+                "required": ["deplacement", "demande", "reference", "matricule", "chantier", "destination", "depart", "retour", "date"],
+                "properties": {
+                  "deplacement": { "type": "integer", "description": "Identifiant Cursus du déplacement, repris par chaque événement qui le concerne" },
+                  "demande": { "oneOf": [{ "type": "integer" }, { "type": "null" }], "description": "Identifiant Cursus de la demande acceptée (`demande` de demande.decision)" },
+                  "reference": { "oneOf": [{ "$ref": "#/components/schemas/Identifiant" }, { "type": "null" }], "description": "Référence Keystone de la demande ; null pour une demande déposée sans référence (ancienne route)" },
+                  "matricule": { "$ref": "#/components/schemas/Matricule" },
+                  "chantier": { "$ref": "#/components/schemas/Identifiant" },
+                  "destination": { "type": "string", "description": "Code pays de la destination (celui du chantier)" },
+                  "depart": { "$ref": "#/components/schemas/Date" },
+                  "retour": { "$ref": "#/components/schemas/Date", "description": "Dernier jour du déplacement, inclus" },
+                  "date": { "$ref": "#/components/schemas/Date", "description": "Jour de la modification ou de l'annulation" }
                 }
               }
             }

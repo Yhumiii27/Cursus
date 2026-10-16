@@ -1,0 +1,110 @@
+// Récapitulatif des échéances par e-mail (t034), envoyé par les tâches de fond (`tachesEmails`, server/src/notifications.ts)
+// une fois par jour à partir de 7 h, ou un jour de la semaine (Paramètres → Messagerie, réglages `relances*`). Destinataires :
+// - la boîte du service RH : tout le périmètre ;
+// - chaque manager (adresse de sa fiche) : les membres de son équipe, sans lui-même, sans visite médicale ni vaccination
+//   (verdict seul, comme son instantané) ni entretien de reprise (il trahirait un arrêt long) ;
+// - chaque référent HSE (compte actif) : formations et habilitations.
+// Seuls les paliers franchis depuis le dernier envoi partent (table `relances`, clé de l'objet et palier) : un objet n'est
+// relancé qu'une fois par palier, même si personne ne l'a reçu (boîte du service RH non renseignée…). Règles et contenu :
+// shared/rules/relances.ts ; jamais de donnée de santé ni de texte libre dans l'e-mail (docs/EMAILS.md).
+import { HEURE_RECAPITULATIF } from '../../shared/constants.ts';
+import { addD, weekday } from '../../shared/dates.ts';
+import { Domain } from '../../shared/domain.ts';
+import { equipeLabel, fmtIso, plural } from '../../shared/format.ts';
+import { CATEGORIES_HSE, jourDEnvoi, relancesDues, titrePalier, type Relance } from '../../shared/rules/relances.ts';
+import type { CurrentUser, Employe } from '../../shared/types.ts';
+import type { Compte } from './comptes.ts';
+import { loadFull, todayIso } from './dataset.ts';
+import type { Db } from './db.ts';
+import { envoyerEmail } from './integrations/email.ts';
+import { adresseSalarie, courriel, lireMessagerie } from './messagerie.ts';
+
+/** Lecture du périmètre complet, comme le service RH. */
+const SUIVI: CurrentUser = { role: 'rh', empId: null, nom: 'Cursus', intitule: 'Relance des échéances' };
+
+/** Réglage : jour du dernier passage du récapitulatif des échéances (un seul par jour, même après un redémarrage). */
+const DERNIERE_RELANCE = 'relancesEcheancesLe';
+/** Relances notées gardées 400 jours : au-delà, l'échéance est renouvelée ou le salarié sorti depuis longtemps. */
+const CONSERVATION_JOURS = 400;
+
+interface Destinataire { adresse: string; nom: string | null; relances: Relance[] }
+
+/** Texte du récapitulatif : par palier, de l'échéance dépassée à la plus lointaine, une ligne par objet. */
+function texteRecapitulatif(d: Domain, relances: Relance[]): string {
+  const ordre = ['echu', ...[...new Set(relances.map(r => r.palier).filter(p => p !== 'echu'))].sort((a, b) => Number(a) - Number(b))];
+  const blocs = ordre.filter(p => relances.some(r => r.palier === p)).map(p => [
+    `${titrePalier(p)} :`,
+    ...relances.filter(r => r.palier === p).map(r => {
+      const e = d.emp(r.empId)!;
+      return `• ${e.nom} (${equipeLabel(e)}) — ${r.libelle} : ${r.jours < 0 ? 'dépassée depuis le' : 'échéance le'} ${fmtIso(r.echeance)}`;
+    }),
+  ].join('\n'));
+  return [
+    'Voici les échéances qui viennent d’atteindre un palier de relance :',
+    '',
+    blocs.join('\n\n'),
+    '',
+    'Chacune n’est rappelée qu’une fois par palier. Le détail et la suite à donner sont dans Cursus (Échéances, Entretiens, Voyages).',
+  ].join('\n');
+}
+
+/** Destinataires et ce que chacun reçoit (adresses identiques réunies). */
+function destinataires(db: Db, d: Domain, relances: Relance[], today: string): Destinataire[] {
+  const out = new Map<string, Destinataire>();
+  const ajouter = (adresse: string | null | undefined, nom: string | null, liste: Relance[]) => {
+    if (!adresse || !liste.length) return;
+    const k = adresse.toLowerCase(), x = out.get(k);
+    if (x) x.relances = [...new Set([...x.relances, ...liste])];
+    else out.set(k, { adresse, nom, relances: liste });
+  };
+  ajouter(lireMessagerie(db).rh, null, relances);
+  // Managers : équipes encadrées par un salarié présent, chacun pour ses membres (lui-même relève de son responsable).
+  const managers = new Set(d.ds.referentiels.equipes.map(q => q.managerId).filter((m): m is number => !!m));
+  for (const m of managers) {
+    const a = adresseSalarie(db, m, today);
+    ajouter(a?.adresse, a?.nom ?? null, relances.filter(r => !r.sante && r.empId !== m && d.mgrOf(d.emp(r.empId) as Employe) === m
+      && !(r.categorie === 'entretien' && r.cle.split(':')[2] === 'reprise')));
+  }
+  // Référents HSE : formations et habilitations de tous.
+  for (const c of db.where<Compte>('comptes', 'profilRh', 'referent_hse').filter(x => x.actif)) {
+    const a = c.empId ? adresseSalarie(db, c.empId, today) : c.adresse ? { adresse: c.adresse, nom: c.nom } : null;
+    ajouter(a?.adresse, a?.nom ?? null, relances.filter(r => CATEGORIES_HSE.includes(r.categorie)));
+  }
+  return [...out.values()];
+}
+
+/**
+ * Un passage du récapitulatif des échéances : paliers atteints et pas encore relancés, un e-mail par destinataire
+ * concerné, paliers notés envoyés. Renvoie le nombre d'e-mails et de relances nouvelles.
+ */
+export function recapitulatifEcheances(db: Db): { emails: number; relances: number } {
+  const full = loadFull(db, SUIVI), d = new Domain(full), today = full.today;
+  const dues = relancesDues(d, d.enrich(full.settings.horizonAlerte, full.settings.uniquementReglementaire), full.settings.relancesPaliers);
+  const deja = new Set((db.sql.prepare('SELECT cle, palier FROM relances').all() as { cle: string; palier: string }[]).map(r => `${r.cle}|${r.palier}`));
+  const nouvelles = dues.filter(r => !deja.has(`${r.cle}|${r.palier}`));
+  let emails = 0;
+  if (nouvelles.length) {
+    const m = lireMessagerie(db);
+    for (const x of destinataires(db, d, nouvelles, today)) {
+      const liste = nouvelles.filter(r => x.relances.includes(r));
+      const e = envoyerEmail(db, 'echeances.recapitulatif', courriel(m, x.adresse, `Cursus — échéances à traiter : ${plural(liste.length, 'nouvelle relance', 'nouvelles relances')}`, texteRecapitulatif(d, liste), { nom: x.nom }));
+      if (e) emails++;
+    }
+    nouvelles.forEach(r => db.insert('relances', { cle: r.cle, palier: r.palier, le: today }));
+  }
+  db.sql.prepare('DELETE FROM relances WHERE le < ?').run(addD(today, -CONSERVATION_JOURS));
+  return { emails, relances: nouvelles.length };
+}
+
+/**
+ * Tâche de fond (appelée par `tachesEmails`, dans sa transaction) : à partir de 7 h, une fois par jour, le jour réglé,
+ * si le récapitulatif est actif. Null : rien à faire à ce passage.
+ */
+export function relancerEcheances(db: Db, heure: number): { emails: number; relances: number } | null {
+  const jour = todayIso();
+  if (heure < HEURE_RECAPITULATIF || db.getSetting<string | null>(DERNIERE_RELANCE, null) === jour) return null;
+  const s = loadFull(db, SUIVI).settings;
+  db.setSetting(DERNIERE_RELANCE, jour);
+  if (!s.relancesActives || !jourDEnvoi(s, weekday(jour))) return null;
+  return recapitulatifEcheances(db);
+}

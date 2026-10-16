@@ -6,6 +6,7 @@ import { sessionActive, type Domain } from '../domain.ts';
 import { fmtIso } from '../format.ts';
 import type { ISODate, Session } from '../types.ts';
 import { absenceActive, absenceBloque, periodeTexte } from './absences.ts';
+import { voyageActif } from './deplacements.ts';
 import { natureAbsence } from './temps.ts';
 
 /** Ce que l'on s'apprête à enregistrer pour le salarié. */
@@ -44,7 +45,7 @@ export function conflitsDates(d: Domain, empId: number, du: ISODate, au: ISODate
         : { text: `Demande d’absence en attente${nature} ${periodeTexte(a.du, a.au)}`, bad: false });
     });
   }
-  d.ds.voyages.filter(v => v.empId === empId && v.id !== exclure.voyageId && chevauche(v.depart, v.retour)).forEach(v => {
+  d.ds.voyages.filter(v => v.empId === empId && v.id !== exclure.voyageId && voyageActif(v) && chevauche(v.depart, v.retour)).forEach(v => {
     out.push({ text: `Déplacement ${objet === 'voyage' ? 'déjà prévu' : 'prévu'} — ${d.destOf(v.dest)?.pays ?? v.dest} ${periodeTexte(v.depart, v.retour)}`, bad: objet === 'voyage' });
   });
   sessionsInscrit(d, empId).filter(s => s.id !== exclure.sessionId && chevauche(s.date, s.date)).forEach(s => {

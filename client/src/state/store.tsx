@@ -65,6 +65,7 @@ export type DialogState =
   | { type: 'trip' }
   | { type: 'fo'; empId?: number | null; kind?: FormaliteKind; dest?: string; v?: VaccinId }
   | { type: 'detachement'; id: number }
+  | { type: 'tripModifier'; id: number }
   | { type: 'visite'; empId: number }
   | { type: 'avis'; empId: number }
   | { type: 'reqForm'; f?: string; sessionId?: number | null; empId?: number | null }

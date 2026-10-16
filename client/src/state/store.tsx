@@ -99,6 +99,9 @@ export type DialogState =
   | { type: 'refDestination'; code?: string | null }
   /** Correspondance d'une rubrique de paie avec le plan de paie Sage (écran Temps, components/RubriquesPaie.tsx). */
   | { type: 'rubrique'; code: string }
+  /** Lots de paie (écran Temps, components/LotsPaie.tsx) : confirmation de l'import dans Sage, format du fichier d'import. */
+  | { type: 'lotImport'; id: number }
+  | { type: 'formatFichier' }
   /** Refus ou action irréversible à confirmer (state/confirmations.ts). */
   | { type: 'confirmer'; c: Confirmation };
 

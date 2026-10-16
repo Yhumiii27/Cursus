@@ -88,6 +88,11 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   heuresSupAccord: { defaut: '', controle: texte(120, 'Référence de l’accord') },
   periodeRattachement: { defaut: 'dimanche', controle: choix(['dimanche', 'vendredi', 'jour']) },
   clotureJour: { defaut: 0, controle: entier(0, 28) },
+  // — Suivi des feuilles de temps (parametres/FeuillesTemps.tsx, shared/rules/suivi-feuilles.ts) : 5 semaines affichées ;
+  //   feuille attendue le lundi suivant à 12 h —
+  suiviSemaines: { defaut: 5, controle: entier(2, 12) },
+  feuilleLimiteJour: { defaut: 1, controle: entier(1, 5) },
+  feuilleLimiteHeure: { defaut: 12, controle: entier(0, 23) },
   // — Campagne d'entretiens annuels (parametres/Entretiens.tsx, shared/rules/campagne.ts) : par défaut du 1er octobre au
   //   15 décembre, sans ancienneté minimale, seul l'intérim exclu, échéance affichée toute l'année —
   campagneDebut: { defaut: '10-01', controle: jourDeLAnnee },

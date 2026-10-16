@@ -15,6 +15,7 @@ import { DEFAULT_SETTINGS, loadFull } from './dataset.ts';
 import { contexte, enregistrerAffectation, enregistrerChantier, enregistrerProjet, enregistrerTache } from './integrations/keystone-entrant.ts';
 import { suivreVerdicts } from './integrations/keystone-verdicts.ts';
 import { figerFeuilles } from './migrate.ts';
+import { lotHistorique } from './migrations/paie.ts';
 
 // Mode de validation : évaluation réussie pour les habilitations électriques, CACES, SST, ATEX, AIPR et PRAP ;
 // la présence suffit pour les sensibilisations et formations d'information.
@@ -422,6 +423,8 @@ export function seedDemo(db: Db) {
     Object.entries(BUDGETS).forEach(([ex, list]) => Object.entries(list).forEach(([equipe, montant]) => db.insert('budgets', { exercice: Number(ex), equipe, montant })));
     PLAN.forEach(l => db.insert('planActions', { exercice: 2026, ...(l.statut === 'realise' ? { coutReel: l.cout, effectifReel: l.effectif } : {}), ...l }));
     feuilles(taches).forEach(f => db.insert('feuilles', f));
+    // Feuilles déjà transmises de la démonstration : réunies en un lot de paie historique, comme une base reprise.
+    lotHistorique(db, 'Démonstration', '2026-10-02T15:00:00.000Z');
     figerFeuilles(db);
     entretiens().forEach(e => db.insert('entretiens', e));
     comptesDemo(db);

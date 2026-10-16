@@ -21,8 +21,10 @@ import { EntPlanDialog } from './EntPlanDialog.tsx';
 import { EquipeDialog } from './EquipeDialog.tsx';
 import { ExerciceClotureDialog } from './ExerciceClotureDialog.tsx';
 import { FormaliteDialog } from './FormaliteDialog.tsx';
+import { FormatFichierDialog } from './FormatFichierDialog.tsx';
 import { HabDialog } from './HabDialog.tsx';
 import { HabMesureDialog } from './HabMesureDialog.tsx';
+import { LotImportDialog } from './LotImportDialog.tsx';
 import { MembreDialog } from './MembreDialog.tsx';
 import { MotDePasseDialog } from './MotDePasseDialog.tsx';
 import { MotDePasseProvisoireDialog } from './MotDePasseProvisoireDialog.tsx';
@@ -98,6 +100,8 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'refHabilitation': return <RefHabilitationDialog {...d} />;
     case 'refDestination': return <RefDestinationDialog {...d} />;
     case 'rubrique': return <RubriqueDialog {...d} />;
+    case 'lotImport': return <LotImportDialog {...d} />;
+    case 'formatFichier': return <FormatFichierDialog />;
     case 'confirmer': return <ConfirmerDialog c={d.c} />;
   }
 }

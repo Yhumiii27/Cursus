@@ -114,7 +114,7 @@ test('référent HSE : formations et habilitations, aptitude à jour ou à renou
   const ressources = new Set(full.referentiels.chantiers.filter(c => c.statut !== 'archive').flatMap(c => c.ressources));
   assert.ok(ds.absences.length > 0 && ds.absences.length < full.absences.length && ds.absences.every(a => ressources.has(a.empId)));
   assert.deepEqual(ds.absences, full.absences.filter(a => ressources.has(a.empId)).map(absenceVueManager));
-  assert.deepEqual([ds.budgets, ds.lastSagePush], [{}, null]);
+  assert.deepEqual([ds.budgets, ds.lotsPaie, ds.formatFichierPaie], [{}, [], null]);
   // Verdict exact, comme pour le manager : aptitude non valide pour une visite échue ou jamais saisie, sans date.
   const d = new Domain(ds), dRh = new Domain(full);
   assert.match(dRh.medInfo(dRh.emp(24)!).text, /non renseignée/, 'Bastien Morel : aucune visite enregistrée');
@@ -157,9 +157,9 @@ test('gestionnaire de paie : temps, absences et soldes sans nature médicale, tr
   assert.ok(ds.employes.every(e => !e.certs.length && !e.habs.length && e.aptitude === undefined), 'ni formations, ni aptitude');
   for (const k of ['sessions', 'inscriptions', 'participations', 'entretiens', 'demandesCollab', 'voyages', 'demandesKeystone', 'plan', 'missions'] as const) assert.deepEqual(ds[k], [], k);
   assert.deepEqual(ds.referentiels.chantiers, []);
-  // Transmission à la paie : la dernière transmission lui est renvoyée.
+  // Transmission à la paie : les lots de paie (sans leur contenu) lui sont renvoyés.
   assert.match(msg(run(PAIE, 'temps.pushSage', {})), /marquées? transmises? — simulation, rien n’est envoyé à Sage Paie/);
-  assert.ok(buildSnapshot(db, PAIE).lastSagePush);
+  assert.ok(buildSnapshot(db, PAIE).lotsPaie.some(l => l.statut === 'transmis' && !('contenu' in l)));
   assert.throws(() => run(PAIE, 'temps.validate', { empId: 2, week: '2026-10-05' }), (e: unknown) => e instanceof ActionError && e.status >= 400);
 });
 

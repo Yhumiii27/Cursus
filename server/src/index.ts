@@ -16,6 +16,7 @@ import { dbFile, openDb } from './db.ts';
 import { limiterDebit } from './debit.ts';
 import { routesDonnees } from './donnees.ts';
 import { type Cible, CIBLES, demarrerEnvois, envoiEnCours, etatEnvois, listerEnvois } from './envois.ts';
+import { routesFichierPaie } from './fichier-paie.ts';
 import { demarrerJournal, journaliserAction, preparerTrace, routesJournal, tracerRefus } from './journal.ts';
 import { migrate } from './migrate.ts';
 import { appliquerMigrations, controlerMigrations } from './migrations/cadre.ts';
@@ -150,6 +151,8 @@ app.post('/api/actions/:name', (req, res) => {
 // données personnelles d'un salarié (export RH, téléchargement par l'intéressé) : server/src/journal.ts, donnees.ts.
 app.use(routesJournal(db));
 app.use(routesDonnees(db));
+// Fichier d'import d'un lot de paie pour Sage (paie et administrateur RH, téléchargement tracé) : server/src/fichier-paie.ts.
+app.use(routesFichierPaie(db));
 
 // File d'envoi des messages sortants (Paramètres → Envois) : état de l'intégration et derniers messages.
 // Service RH et lecture seule (droit `consultation`) ; ni le référent HSE, ni la paie.

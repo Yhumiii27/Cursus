@@ -73,6 +73,11 @@ const documentDeclare = () => db.insert<{ id: number }>('demandesCollab', {
 // Antoine Leroy, gestionnaire RH, est aussi salarié (14) ; il encadre l'Administration : son valideur est le service RH.
 /** Demande de CP d'Antoine Leroy, en attente. */
 const demandeAntoine = () => db.insert<{ id: number }>('absences', { empId: 14, type: 'CP', du: '2026-12-07', au: '2026-12-07', statut: 'demandee', keystone: false, justificatif: false }).id;
+/** Lot de paie de simulation généré (import à confirmer), sans feuille. */
+const lotGenere = () => db.insert<{ id: number }>('lotsPaie', {
+  cle: 'essai-droits', mode: 'simulation', statut: 'genere', periode: '2026-10', periodes: ['2026-10'], rappels: [], creation: '2026-10-07T08:00:00.000Z', auteur: 'Essai',
+  feuilles: [], resume: { lignes: 0, salaries: 0, rubriques: {} }, sansMatricule: [], contenu: { endpoint: '', dossier: 'X', envoye_le: '', lignes: [] }, telechargements: 0, historique: false,
+}).id;
 /** Feuille d'Antoine Leroy soumise pour la semaine 42. */
 const feuilleAntoine = () => db.insert('feuilles', {
   empId: 14, week: WEEK, statut: 'soumise', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-ADM', tache: 'Fonctions support', ks: false, h: H7 }],
@@ -213,6 +218,18 @@ const MATRICE: Ligne[] = [
   { action: 'temps.pushSage', droits: '                      O    -    -    -    -    -    -    O    -', p: () => ({}) },
   // Correspondance des rubriques avec le plan de paie Sage : administrateur RH et gestionnaire de paie (écran Temps).
   { action: 'paie.rubrique', droits: '                       O    -    -    -    -    -    -    O    -', p: () => ({ code: 'HS25', codeSage: '3010', confirmer: true }) },
+  // Lots de paie (écran Temps) : génération, confirmation de l'import, annulation, format du fichier d'import.
+  { action: 'paie.lotGenerer', droits: '                     O    -    -    -    -    -    -    O    -', p: () => ({ periode: '2026-10' }) },
+  { action: 'paie.lotConfirmer', droits: '                   O    -    -    -    -    -    -    O    -', p: () => ({ id: lotGenere() }) },
+  { action: 'paie.lotAnnuler', droits: '                     O    -    -    -    -    -    -    O    -', p: () => ({ id: lotGenere() }) },
+  { action: 'paie.formatFichier', droits: '                  O    -    -    -    -    -    -    O    -', p: () => ({ separateur: ',', decimale: '.' }) },
+  // Suivi des feuilles : relance et validation groupée par le manager direct ou le service RH (jamais les profils restreints).
+  { action: 'temps.relancer', droits: '                      O    O    O    -    -    -    -    -    -', p: () => {
+    // Feuille de la semaine 40 renvoyée pour correction, échéance passée : en retard.
+    db.sql.exec(`UPDATE feuilles SET statut = 'rejetee' WHERE emp_id = 2 AND week = '2026-09-28'`);
+    return { empId: 2 };
+  } },
+  { action: 'temps.validerLot', droits: '                    O    O    O    -    -    -    -    -    -', p: () => { feuille('soumise', H7); return { feuilles: [{ empId: 2, week: WEEK }] }; } },
   // Un membre du RH ne valide pas sa propre feuille : son valideur (ici le service RH) le fait.
   { action: 'temps.validate', variante: 'feuille du gestionnaire RH', droits: 'O    -    -    -    -    -    -    -    -', p: () => { feuilleAntoine(); return { empId: 14, week: WEEK }; } },
   // Relevé d'heures des intérimaires (Léa Girard, agence Proman Lyon) : service RH ou gestionnaire de paie.

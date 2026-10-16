@@ -14,11 +14,11 @@ import type { FeuilleTemps, ISODate, ModeHeuresSupFige, RattachementPeriode, Rub
 export const MODES_SAGE: Record<SageMode, { label: string; aide: string }> = {
   simulation: {
     label: 'Simulation',
-    aide: 'Rien n’est envoyé à Sage Paie : les feuilles sont seulement marquées transmises (démonstration, essais).',
+    aide: 'Rien n’est envoyé à Sage Paie : les feuilles sont seulement marquées transmises, en un clic ou par un lot dont le fichier se télécharge pour essai (démonstration, essais).',
   },
   fichier: {
     label: 'Fichier d’import',
-    aide: 'Mode de production : la paie télécharge un fichier d’import pour Sage, puis confirme son import, qui seul marque les feuilles transmises. La génération du fichier arrive avec la prochaine version : d’ici là, rien n’est marqué transmis et les variables restent saisies dans Sage.',
+    aide: 'Mode de production : la paie génère le lot de chaque période de paie, télécharge son fichier d’import et l’importe dans Sage, puis confirme l’import, qui seul marque les feuilles transmises. Avant cette confirmation, le lot peut être annulé.',
   },
   api: {
     label: 'API',

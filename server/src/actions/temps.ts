@@ -1,19 +1,18 @@
-// Feuilles de temps : saisie, soumission, validation, transmission à Sage Paie.
+// Feuilles de temps : saisie, soumission, validation, transmission à Sage Paie (lots de paie : actions/paie.ts).
 import { addD, isValidDate, isoWeek, mondayOf, wDays } from '../../../shared/dates.ts';
 import { fH, num, plural } from '../../../shared/format.ts';
-import { identifiantKeystone, sansMatriculePaie } from '../../../shared/rules/matricules.ts';
+import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
 import { jourHorsContrat, semaineHorsContrat } from '../../../shared/rules/absences.ts';
-import { periodeLabel, rubriquesAConfirmer, rubriquesPaie, rubriquesTexte } from '../../../shared/rules/paie.ts';
 import {
-  absenceCeJour, buildSagePayload, calcSheet, contratFige, demandesAbsence, demandesEnAttenteMessage, HEURES_JOUR_MAX, heuresSurAbsence, heuresSurAbsenceMessage,
-  joursAbsence, joursAuDela24, joursTexte, rubriquesEmises, sagePending, semaineCouverte, suggestLines,
+  absenceCeJour, calcSheet, contratFige, demandesAbsence, demandesEnAttenteMessage, HEURES_JOUR_MAX, heuresSurAbsence, heuresSurAbsenceMessage,
+  joursAbsence, joursAuDela24, joursTexte, semaineCouverte, suggestLines,
 } from '../../../shared/rules/temps.ts';
 import type { Employe, FeuilleTemps, LigneTemps } from '../../../shared/types.ts';
-import { pushToSage, SAGE_DOSSIER, SageIndisponible, sageMode } from '../integrations/sage.ts';
 import { heuresKeystone, sendToKeystone } from '../integrations/keystone.ts';
 import { notifierFeuilleRenvoyee, notifierFeuilleSoumise } from '../notifications.ts';
 import { relevesAutomatiques } from '../releves.ts';
-import { ActionError, type ActionHandler, type Ctx, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, refuserSoiMeme, requirePaie, str } from './context.ts';
+import { ActionError, type ActionHandler, type Ctx, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, refuserSoiMeme, str } from './context.ts';
+import { pushSageSimulation } from './paie.ts';
 
 function sheetOf(ctx: Ctx, empId: number, week: string): FeuilleTemps | undefined {
   return ctx.ds.feuilles.find(f => f.empId === empId && f.week === week);
@@ -183,43 +182,12 @@ const reject: ActionHandler = (ctx, p) => {
 };
 
 /**
- * Transmission à la paie : administrateur RH et gestionnaire de paie. Hors simulation, chaque salarié du lot doit avoir
- * un matricule de paie (contrôle bloquant qui les nomme ; en simulation, avertissement et matricule Cursus à la place),
- * et chaque rubrique émise et exportée un code Sage confirmé (écran Temps, « Rubriques de paie »), sinon refus (409)
- * avec la liste. Les feuilles ne sont marquées transmises qu'en simulation, qui le dit : le mode fichier (à venir) et le
- * mode API (aucun contrat d'API) sont refusés (503), rien n'est modifié et aucun accusé n'est inventé.
+ * Transmission à la paie en un clic : administrateur RH et gestionnaire de paie, en simulation seulement (lot de toutes
+ * les feuilles en attente, aussitôt marqué transmis, rien n'est envoyé : server/src/actions/paie.ts). Mode fichier : le
+ * lot de chaque période passe par le fichier d'import et la confirmation de l'import (paie.lotGenerer, paie.lotConfirmer) ;
+ * mode API : aucun contrat d'API. Les deux sont refusés (503) sans rien marquer ni inventer d'accusé.
  */
-const pushSage: ActionHandler = (ctx) => {
-  requirePaie(ctx);
-  const sheets = sagePending(ctx.d);
-  if (!sheets.length) throw new ActionError('Aucune feuille validée en attente de transmission');
-  const mode = sageMode();
-  const sans = sansMatriculePaie(ctx.ds.employes, ctx.d.ti, sheets.map(sh => sh.empId)).map(e => e.nom);
-  if (sans.length && mode !== 'simulation') {
-    throw new ActionError(`Transmission refusée : ${plural(sans.length, 'salarié sans matricule de paie', 'salariés sans matricule de paie')} (${sans.join(', ')}). Saisissez-le sur la fiche, puis transmettez de nouveau.`);
-  }
-  const payload = buildSagePayload(ctx.d, sheets, SAGE_DOSSIER, new Date(), mode);
-  if (mode !== 'simulation') {
-    const manquantes = rubriquesAConfirmer(rubriquesEmises(ctx.d, sheets), rubriquesPaie(ctx.ds.rubriquesPaie));
-    if (manquantes.length) {
-      throw new ActionError(`Transmission impossible : code Sage à confirmer pour ${manquantes.length > 1 ? 'les rubriques' : 'la rubrique'} ${rubriquesTexte(manquantes)} (écran Temps, « Rubriques de paie »)`, 409);
-    }
-  }
-  try {
-    pushToSage(payload, mode);
-  } catch (err) {
-    if (err instanceof SageIndisponible) throw new ActionError(err.message, 503);
-    throw err;
-  }
-  sheets.forEach(sh => ctx.db.update<FeuilleTemps>('feuilles', sh.id, { sage: true }));
-  ctx.db.setSetting('lastSagePush', payload);
-  // Semaines de périodes déjà closes : parties en rappel sur la période ouverte.
-  const rappels = [...new Set(payload.lignes.flatMap(l => (l.periode_origine ? [l.periode_origine] : [])))].sort();
-  return `${plural(sheets.length, 'feuille marquée transmise', 'feuilles marquées transmises')} — simulation, rien n’est envoyé à Sage Paie`
-    + (payload.periodes?.length ? ` · ${payload.periodes.length > 1 ? 'périodes' : 'période'} ${payload.periodes.map(periodeLabel).join(', ')}` : '')
-    + (rappels.length ? ` · rappel de ${rappels.map(periodeLabel).join(', ')}` : '')
-    + (sans.length ? ` · ${plural(sans.length, 'salarié sans matricule de paie', 'salariés sans matricule de paie')} (${sans.join(', ')}), sous le matricule Cursus et refusés d’une transmission réelle` : '');
-};
+const pushSage: ActionHandler = ctx => pushSageSimulation(ctx);
 
 export const tempsActions: Record<string, ActionHandler> = {
   'temps.setCell': setCell,

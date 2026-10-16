@@ -24,12 +24,12 @@ test('t021 transmission réelle : refusée tant qu’un salarié du lot n’a pa
   for (const empId of [2, 24]) {
     db.insert('feuilles', { empId, week: '2026-10-05', statut: 'validee', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-MAINT', tache: '', ks: false, h: [7, 7, 7, 7, 7] }], contrat: null });
   }
-  assert.throws(() => run(PAIE, 'temps.pushSage', {}),
+  assert.throws(() => run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }),
     (e: unknown) => e instanceof ActionError && e.status === 400 && /Transmission refusée : 1 salarié sans matricule de paie \(Bastien Morel\)/.test(e.message));
   assert.ok(loadFull(db, ADMIN).feuilles.filter(f => f.week === '2026-10-05').every(f => !f.sage), 'rien de transmis');
   run(ADMIN, 'employe.modifier', { id: 24, matriculePaie: '004124' });
   // Matricule saisi : ce contrôle passe ; la suite (codes Sage à confirmer, fichier d'import) ne concerne plus le matricule.
-  assert.throws(() => run(PAIE, 'temps.pushSage', {}), (e: unknown) => e instanceof ActionError && !/matricule/.test(e.message));
+  assert.throws(() => run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }), (e: unknown) => e instanceof ActionError && !/matricule/.test(e.message));
   const ds = loadFull(db, ADMIN), d = new Domain(ds);
   const lignes = buildSagePayload(d, ds.feuilles.filter(f => f.week === '2026-10-05' && [2, 24].includes(f.empId)), 'TEST', new Date(), 'fichier').lignes;
   assert.ok(lignes.some(l => l.matricule === '004124') && lignes.every(l => !l.matricule.startsWith('EMP-')), 'matricules de paie seulement');

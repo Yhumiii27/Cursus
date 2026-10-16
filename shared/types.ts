@@ -252,6 +252,8 @@ export interface FeuilleTemps {
    * avant la validation : le réglage en vigueur s'applique (`calcSheet` de shared/rules/temps.ts).
    */
   heuresSup?: ModeHeuresSupFige | null;
+  /** Lot de paie (`lotsPaie`) qui porte la feuille : généré ou transmis ; null une fois le lot annulé (feuille libérée). */
+  lotId?: number | null;
 }
 /**
  * Heures supplémentaires payées avec majoration, ou remplacées par un repos compensateur (accord collectif, art. L3121-33 ;
@@ -362,6 +364,11 @@ export interface Settings {
   heuresSupAccord: string;
   periodeRattachement: RattachementPeriode;
   clotureJour: number;
+  // Suivi des feuilles de temps (client/src/pages/parametres/FeuillesTemps.tsx, shared/rules/suivi-feuilles.ts) : semaines
+  // affichées, feuille attendue le `feuilleLimiteJour` (1 : lundi … 5 : vendredi) de la semaine suivante à `feuilleLimiteHeure` h.
+  suiviSemaines: number;
+  feuilleLimiteJour: number;
+  feuilleLimiteHeure: number;
   /** Campagne d'entretiens annuels (shared/rules/campagne.ts) : ouverture et clôture (« MM-JJ »), ancienneté minimale en mois,
    * contrats exclus (l'intérim l'est toujours), jours d'affichage de l'échéance avant l'ouverture (365 : toute l'année). */
   campagneDebut: string;
@@ -525,6 +532,45 @@ export interface RubriquePaie {
   confirmeLe: ISODate | null; confirmePar: string | null;
 }
 
+/**
+ * Lot de paie (shared/rules/lots-paie.ts, server/src/actions/paie.ts) : feuilles validées d'une période, contenu figé à la
+ * génération. Généré : fichier d'import prêt, feuilles réservées ; transmis : import dans Sage confirmé par la paie
+ * (date, auteur, référence) ou simulation ; annulé : feuilles libérées, possible seulement avant la confirmation.
+ * L'envoi par API (statuts « à envoyer », « échec ») arrivera avec le connecteur Sage.
+ */
+export type StatutLotPaie = 'genere' | 'transmis' | 'annule';
+export interface LotPaie {
+  id: number;
+  /** Clé d'idempotence (UUID) : identique à chaque téléchargement, puis à chaque envoi quand l'API existera. */
+  cle: string;
+  mode: SageMode; statut: StatutLotPaie;
+  /** Période de paie choisie (AAAA-MM) ; `periodes` : celles des lignes ; `rappels` : périodes closes reprises. */
+  periode: string; periodes: string[]; rappels: string[];
+  creation: string; auteur: string;
+  /** Feuilles du lot (gardées après une annulation, qui les libère). */
+  feuilles: { empId: number; week: ISODate }[];
+  /** Totaux du contenu figé : lignes du fichier, salariés, quantité par code Sage. */
+  resume: { lignes: number; salaries: number; rubriques: Record<string, number> };
+  /** Salariés partis sous leur matricule Cursus, faute de matricule de paie (simulation seulement). */
+  sansMatricule: number[];
+  telechargeLe: string | null; telechargePar: string | null; telechargements: number;
+  /** Accusé : confirmation de l'import dans Sage (date, auteur, référence d'import facultative) ; « SIM-… » en simulation. */
+  confirmeLe: string | null; confirmePar: string | null; reference: string | null;
+  annuleLe: string | null; annulePar: string | null;
+  /** Lot repris des transmissions d'avant les lots (migration lot4-paie-lots-historiques) : contenu inconnu. */
+  historique: boolean;
+}
+/** Colonnes du fichier d'import Sage, dans l'ordre réglé par la paie. */
+export type ColonneFichierPaie = 'matricule' | 'periode' | 'rubrique' | 'quantite';
+/** Format du fichier d'import (action `paie.formatFichier`, écran Temps) : ajusté par la paie à l'import de son Sage. */
+export interface FormatFichierPaie {
+  separateur: ';' | ',' | 'tab';
+  colonnes: ColonneFichierPaie[];
+  formatPeriode: 'AAAA-MM' | 'MM/AAAA' | 'AAAAMM' | 'MMAAAA';
+  decimale: ',' | '.';
+  entete: boolean;
+}
+
 /** Instantané des données visibles par l'utilisateur connecté. */
 export interface Dataset {
   today: ISODate;
@@ -554,7 +600,10 @@ export interface Dataset {
   entretiens: Entretien[];
   demandesCollab: DemandeCollab[];
   demandesVisite: DemandeVisite[];
-  lastSagePush: SagePush | null;
+  /** Lots de paie, sans leur contenu (résumé) : service RH, paie et lecture seule (vide ailleurs). */
+  lotsPaie: LotPaie[];
+  /** Format du fichier d'import Sage : service RH, paie et lecture seule (null ailleurs). */
+  formatFichierPaie: FormatFichierPaie | null;
   /** Correspondance des rubriques avec le plan de paie Sage : service RH, paie et lecture seule (vide ailleurs). */
   rubriquesPaie: RubriquePaie[];
   /** Adresses de la messagerie et relevés transmis aux agences d'intérim : service RH seulement (null et vide ailleurs). */

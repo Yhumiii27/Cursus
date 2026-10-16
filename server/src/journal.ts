@@ -134,6 +134,10 @@ const statutEtTotal: Partial<Regle> = { cible: FEUILLE, bilan: (_p, x) => ({ heu
 /** Inscrits avant et après l'action : une annulation ou des places retirées détachent des recyclages rattachés. */
 const inscritsAvantApres: Partial<Regle> = { etat: (db, p) => inscrits(db, p.id), salaries: (p, x) => [...(x.etat as number[]), ...inscrits(x.db, p.id)] };
 
+/** Lot de paie renvoyé par l'action (`paie.lot…`, `temps.pushSage`) : son numéro et ses feuilles `{ empId, week }`. */
+const lotDuResultat = (x: Contexte) => x.result as { lot?: number; feuilles?: { empId: number; week: string }[] } | null | undefined;
+const lotRetenu = (x: Contexte) => ({ lot: lotDuResultat(x)?.lot ?? null, feuilles: lotDuResultat(x)?.feuilles ?? [] });
+const salariesDuLot = (x: Contexte) => (lotDuResultat(x)?.feuilles ?? []).map(f => f.empId);
 /** Feuilles transmises à la paie : validées et non transmises avant l'action, marquées transmises après. */
 const transmises = (x: Contexte) => (x.etat as number[]).map(id => x.db.get<FeuilleTemps>('feuilles', id)).filter((f): f is FeuilleTemps => !!f?.sage);
 /** Lignes de clôture des congés créées par l'action (identifiants au-delà du dernier d'avant l'action). */
@@ -263,16 +267,35 @@ export const REGLES: Record<string, Regle> = {
   'temps.submit': { champs: ['empId', 'week'], ...statutEtTotal },
   'temps.validate': { champs: ['empId', 'week'], ...statutEtTotal },
   'temps.reject': { champs: ['empId', 'week'], cible: FEUILLE },
+  // Suivi des feuilles : relance (salarié visé ou tout le périmètre ; semaines relancées, salarié par salarié) et
+  // validation groupée (feuilles validées, nombre de refus ; le message nomme les refus).
+  'temps.relancer': {
+    champs: ['empId'], bilan: (_p, x) => ({ feuilles: (x.result as { feuilles?: unknown[] } | null)?.feuilles ?? [] }),
+    salaries: (_p, x) => ((x.result as { feuilles?: { empId: number }[] } | null)?.feuilles ?? []).map(f => f.empId),
+  },
+  'temps.validerLot': {
+    bilan: (_p, x) => {
+      const r = x.result as { validees?: unknown[]; refus?: unknown[] } | null;
+      return { validees: r?.validees ?? [], refus: r?.refus?.length ?? 0 };
+    },
+    salaries: (_p, x) => ((x.result as { validees?: { empId: number }[] } | null)?.validees ?? []).map(f => f.empId),
+  },
   // Transmission à la paie : semaines transmises, salarié par salarié (archive paie, historique, export de ses données).
   'temps.pushSage': {
     etat: db => db.where<FeuilleTemps>('feuilles', 'statut', 'validee').filter(f => !f.sage).map(f => f.id),
-    bilan: (_p, x) => ({ feuilles: transmises(x).map(f => ({ empId: f.empId, week: f.week })) }), salaries: (_p, x) => transmises(x).map(f => f.empId),
+    bilan: (_p, x) => ({ lot: lotDuResultat(x)?.lot ?? null, feuilles: transmises(x).map(f => ({ empId: f.empId, week: f.week })) }), salaries: (_p, x) => transmises(x).map(f => f.empId),
   },
   // Correspondance d'une rubrique avec le plan de paie Sage : codes, case « exportée », date de confirmation.
   'paie.rubrique': {
     champs: ['code', 'codeSage', 'active', 'confirmer'],
     cible: { table: 'rubriquesPaie', cle: p => (typeof p.code === 'string' && p.code ? p.code : null), colonnes: ['codeSage', 'active', 'confirmeLe'] },
   },
+  // Lots de paie : période choisie, numéro du lot, feuilles salarié par salarié ; confirmation de l'import (statut, date,
+  // référence d'import contrôlée : un code) ou annulation ; format du fichier d'import (codes, avant et après).
+  'paie.lotGenerer': { champs: ['periode'], bilan: (_p, x) => lotRetenu(x), salaries: (_p, x) => salariesDuLot(x) },
+  'paie.lotConfirmer': { champs: ['id', 'reference'], cible: parId('lotsPaie', ['statut', 'confirmeLe']), bilan: (_p, x) => lotRetenu(x), salaries: (_p, x) => salariesDuLot(x) },
+  'paie.lotAnnuler': { champs: ['id'], cible: parId('lotsPaie', ['statut', 'annuleLe']), bilan: (_p, x) => lotRetenu(x), salaries: (_p, x) => salariesDuLot(x) },
+  'paie.formatFichier': { cible: { table: 'settings', cle: () => 'formatFichierPaie', colonnes: ['value'], aplatir: true } },
   // Absences : la nature n'est jamais recopiée (son absence trahirait une nature médicale) ; dates et statut seulement.
   'absence.demander': { champs: ['empId', 'kind', 'du', 'au'] },
   'absence.decider': { champs: ['id', 'ok'], cible: parId('absences', ['statut']), ...reportsRendus },

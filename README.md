@@ -217,11 +217,13 @@ relèvent au fil des tests ajoutés.
   heures validées sur les projets Keystone, absences validées et annulées (période seulement, jamais la nature), changements de verdict Go / No Go) passent
   par une file d'envoi persistante : envoyés à Keystone avec `KEYSTONE_URL` (nouvelles tentatives, suivi
   et relance dans Paramètres → Envois), seulement tracés dans le journal sans elle (`server/src/envois.ts`).
-- **Sage Paie** (`SAGE_MODE`, `server/src/integrations/sage.ts`) : en simulation, la transmission produit le JSON des
-  variables par période de paie (rappel d'une période close compris) et marque les feuilles transmises, sans rien envoyer,
-  ce que l'écran, la confirmation et le message disent. Le fichier d'import pour Sage (mode de production) arrive avec
-  l'étape suivante : d'ici là, en mode fichier, aucune feuille n'est marquée transmise. Le mode API est refusé, sans accusé
-  fictif. Les codes des rubriques dans le plan de paie se saisissent et se confirment dans l'écran Temps de travail
+- **Sage Paie** (`SAGE_MODE`, `server/src/integrations/sage.ts`) : en mode fichier (production), la paie génère le lot de
+  chaque période de paie (feuilles validées réservées, contenu figé, rappels compris), télécharge son fichier d'import CSV
+  (format réglable, téléchargement tracé), l'importe dans Sage puis confirme l'import, confirmation datée et signée qui
+  seule marque les feuilles transmises ; avant elle, le lot peut être annulé. Historique des lots dans l'écran Temps de
+  travail (`docs/DEPLOIEMENT.md`, « Sage Paie »). En simulation, rien n'est envoyé : les feuilles sont marquées
+  transmises, en un clic ou par un lot d'essai, ce que l'écran, la confirmation et le message disent. Le mode API est
+  refusé, sans accusé fictif. Les codes des rubriques dans le plan de paie se saisissent et se confirment dans l'écran Temps de travail
   (administrateur RH, gestionnaire de paie) : tant qu'une rubrique utilisée n'est pas confirmée, seule la simulation transmet.
   Chaque salarié y est désigné par son matricule de paie, saisi sur sa fiche (Paramètres → Matricules de paie liste
   ceux qui manquent) : sans lui, il part sous son matricule Cursus en simulation, et une transmission réelle est refusée.
@@ -261,7 +263,9 @@ chantier (matricules et codes de motif uniquement) : contrat et absences sur la 
 certifications, déplacement couvrant la présence, formalités de voyage et de détachement · heures supplémentaires +25 % / +50 %,
 payées avec majoration (ou remplacées par un repos compensateur avec la référence de l'accord qui le prévoit, mode figé sur
 chaque feuille à sa validation), heures complémentaires +10 % / +25 %, forfait jours, alertes 10 h / 48 h · période de paie
-déduite de la semaine (mois du dimanche par défaut, clôture des variables, rappel d'une période close) · journée de 24 h au plus, motif exigé au-delà des durées maximales · CP 25 jours
+déduite de la semaine (mois du dimanche par défaut, clôture des variables, rappel d'une période close) · lots de paie figés,
+fichier d'import pour Sage, transmis seulement à la confirmation de l'import · suivi des feuilles de temps semaine par
+semaine (échéance le lundi suivant à 12 h, relance, validation groupée) · journée de 24 h au plus, motif exigé au-delà des durées maximales · CP 25 jours
 ouvrés (+5 j à 59 ans, CCN Chimie), chaque jour imputé sur sa période de référence, prise par
 anticipation dans la limite des jours acquis à la date du congé · RTT et jours de repos forfait
 calculés au prorata de l'entrée et de la fin du contrat, ceux de l'année suivante posables dès maintenant, CET (5 RTT/an,

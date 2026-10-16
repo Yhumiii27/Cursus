@@ -264,11 +264,14 @@ export function rubriquesParPeriode(d: Domain, e: Employe, sh: FeuilleTemps): Ru
   });
 }
 
-/** Feuilles validées, non encore transmises, hors intérimaires (relevé envoyé à l'agence) et cadres dirigeants. */
+/**
+ * Feuilles validées, ni transmises ni réservées par un lot de paie actif (un lot annulé les libère : `lotId` vidé), hors
+ * intérimaires (relevé envoyé à l'agence) et cadres dirigeants.
+ */
 export function sagePending(d: Domain): FeuilleTemps[] {
   return d.ds.feuilles.filter(sh => {
     const e = d.emp(sh.empId);
-    if (!e || sh.statut !== 'validee' || sh.sage) return false;
+    if (!e || sh.statut !== 'validee' || sh.sage || sh.lotId) return false;
     const c = d.contratOf(employeDeLaFeuille(e, sh));
     return !c.interim && !c.dirigeant;
   });

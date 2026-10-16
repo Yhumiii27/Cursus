@@ -23,6 +23,7 @@ import { MODES_HEURES_SUP } from '../../../shared/rules/paie.ts';
 import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
 import { CloseButton, Fine, Page, Panel, stop, Tag, Two } from '../components/ui.tsx';
 import { LotsPaie } from '../components/LotsPaie.tsx';
+import { SuiviFeuilles } from '../components/SuiviFeuilles.tsx';
 import { jourLong, nomChamp } from '../components/heures.ts';
 import { useAgir } from '../state/actions.ts';
 import { suppressionLigne } from '../state/confirmations.ts';
@@ -189,6 +190,8 @@ export function Temps() {
         </Panel>
       )}
 
+      {!collab && <SuiviFeuilles />}
+
       {tsEmp && <Sheet key={`${tsEmp.id}|${wk}`} emp={tsEmp} wk={wk} />}
 
       {espaceRh && <LotsPaie />}
@@ -282,7 +285,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
 
   // Intérimaire : relevé hebdomadaire à l'agence (le service RH voit s'il a été transmis).
   const releve = data.releves.filter(r => key(r.agence) === key(emp.agence) && r.semaine === wk).at(-1);
-  const paie = sh?.sage ? ' · transmise à Sage Paie'
+  const paie = sh?.sage ? ' · transmise à Sage Paie' : sh?.lotId ? ` · dans le lot de paie n° ${sh.lotId}, import dans Sage à confirmer`
     : c.interim ? (releve ? ` · relevé transmis à l’agence le ${fmtShort(new Date(releve.creation))}` : ' · relevé hebdomadaire à l’agence d’intérim')
     : c.dirigeant ? ' · non transmise à la paie (cadre dirigeant, art. L3111-2)'
     : ' · en attente de transmission à Sage Paie';

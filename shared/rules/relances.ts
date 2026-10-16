@@ -73,6 +73,16 @@ export function relancesDues(d: Domain, emps: EmpX[], paliers: readonly number[]
       // Avis d'inaptitude : rien à renouveler, suivi par le service RH ; visite jamais enregistrée : relancée comme échue.
       if (x.label === 'Avis d’inaptitude') continue;
       ajouter({ ...base, cle: `med:${x.emp.id}:${x.sansDate ? 'sans-date' : echeance}`, categorie: 'visite', libelle: x.sansDate ? 'Visite médicale non enregistrée' : 'Visite médicale', sante: true }, !!x.sansDate);
+    } else if (x.kind === 'exigence') {
+      // Exigence du poste ou de l'équipe jamais obtenue : sans date, relancée comme échue tant qu'elle manque.
+      const formation = x.statut?.startsWith('Formation');
+      ajouter({ ...base, cle: `exigence:${x.emp.id}:${formation ? 'f' : 'h'}:${x.label}`, categorie: formation ? 'formation' : 'habilitation', libelle: `${x.statut} : ${x.label}`, sante: false }, true);
+    } else if (x.kind === 'contrat') {
+      // Fin de contrat : relancée plus bas, même sans échéance affichée. Titre de séjour : réservé au service RH, comme une
+      // donnée de santé (jamais dans le récapitulatif d'un manager), sans le type de titre.
+      if (x.kindLabel === 'Fin de contrat') continue;
+      const titre = x.kindLabel === 'Titre de séjour';
+      ajouter({ ...base, cle: `${titre ? 'titre' : 'essai'}:${x.emp.id}:${echeance}`, categorie: 'contrat', libelle: titre ? 'Titre de séjour' : x.label, sante: titre });
     } else if (x.kindLabel === 'Vaccination') {
       ajouter({ ...base, cle: `vaccin:${x.emp.id}:${x.label}:${echeance}`, categorie: 'sanitaire', libelle: 'Formalité sanitaire de voyage', sante: true });
     } else ajouter({ ...base, cle: `doc:${x.emp.id}:${x.label}:${echeance}`, categorie: 'formalite', libelle: x.kindLabel === 'Passeport' ? 'Passeport' : x.label, sante: false });

@@ -182,3 +182,23 @@ test('tâche de fond : à partir de 7 h, une fois par jour, le jour réglé, dé
   le('2026-10-13', () => tachesEmails(db, 7));
   assert.equal(db.getSetting('relancesEcheancesLe', null), '2026-10-13');
 });
+
+test('exigences manquantes et échéances du contrat : relancées au service RH ; titre de séjour jamais au manager', () => {
+  const { db, RH } = fresh();
+  // Le 15 novembre, le titre de séjour de la démonstration (expire le 29 janvier 2027) est sous 90 jours.
+  const dues = le('2026-11-15', () => {
+    const full = loadFull(db, RH), d = new Domain(full);
+    return relancesDues(d, d.enrich(full.settings.horizonAlerte, full.settings.uniquementReglementaire), [90, 30, 7]);
+  });
+  // Exigences de la démonstration (Lucas Martin, cariste sans CACES) : relancées comme échues, en formation ou habilitation.
+  const exigences = dues.filter(r => r.cle.startsWith('exigence:'));
+  assert.ok(exigences.length && exigences.every(r => r.palier === 'echu' && ['formation', 'habilitation'].includes(r.categorie)));
+  assert.ok(!dues.some(r => r.categorie === 'formalite' && /exigée|essai|séjour/i.test(r.libelle)));
+  // Titres de séjour : catégorie contrat, sans type de titre, exclus du récapitulatif des managers.
+  const titres = dues.filter(r => r.cle.startsWith('titre:'));
+  assert.equal(titres.length, 1);
+  for (const r of titres) assert.deepEqual([r.categorie, r.libelle, r.sante], ['contrat', 'Titre de séjour', true]);
+  // Une fin de contrat n'est relancée qu'une fois.
+  const fins = dues.filter(r => /Fin de contrat|Fin de CDD/.test(r.libelle)).map(r => r.empId);
+  assert.equal(new Set(fins).size, fins.length);
+});

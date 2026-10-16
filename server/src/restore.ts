@@ -1,6 +1,8 @@
 // npm run restore -- <fichier> [--force] : remplace la base par une sauvegarde vérifiée, après
 // avoir copié la base actuelle (« avant-restauration »). Le serveur doit être arrêté.
 // Sans argument : liste des sauvegardes disponibles. Procédure complète : docs/SAUVEGARDE.md.
+// Image Docker : volume rendu au compte du service, droits root abandonnés (avant tout autre import).
+import './conteneur.ts';
 import { resolve } from 'node:path';
 import { dbFile } from './db.ts';
 import { dossierSauvegardes, fmtDateHeure, fmtTaille, listerSauvegardes, restaurer, SauvegardeError } from './sauvegarde.ts';

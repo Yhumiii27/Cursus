@@ -1,4 +1,6 @@
 // Serveur HTTP de Cursus : API JSON + application web compilée.
+// Image Docker : volume rendu au compte du service, droits root abandonnés (avant tout autre import).
+import './conteneur.ts';
 import express from 'express';
 import { existsSync } from 'node:fs';
 import { droitsRh } from '../../shared/constants.ts';

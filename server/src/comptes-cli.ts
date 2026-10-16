@@ -5,6 +5,8 @@
 // du service informatique quand plus aucun administrateur ne peut se connecter.
 // Sans --salarie, le compte est externe (aucune fiche salarié) : nom et adresse lui sont propres. Avec --salarie, un
 // compte externe existant est rattaché à la fiche saisie depuis (le premier administrateur, créé avant les fiches).
+// Image Docker : volume rendu au compte du service, droits root abandonnés (avant tout autre import).
+import './conteneur.ts';
 import { normaliserIdentifiant } from '../../shared/rules/comptes.ts';
 import { ActionError } from './actions/context.ts';
 import { revokeSessionsDuCompte } from './auth.ts';

@@ -787,8 +787,10 @@ test('serveur : l’action met l’e-mail en file, la vue Envois le montre (cibl
   assert.match(r.message, /E-mail d’essai simulé/);
   assert.equal(r.data.messagerie.rh, 'rh@entreprise.example');
   const v = await ok(await fetch(`${base}/api/envois?cible=email`, { headers: { cookie } }));
-  assert.deepEqual([v.email.mode, v.email.expediteur, v.email.nombres.simule, v.email.recapitulatif], ['simulation', null, 1, 0]);
-  assert.deepEqual(v.envois.map((x: Corps) => [x.cible, x.type, x.contenu.a]), [['email', 'essai', ['it@entreprise.example']]]);
+  // Le récapitulatif des échéances part à partir de 7 h (heure réelle du serveur) : ses e-mails s'ajoutent alors à l'essai.
+  const echeances = v.envois.filter((x: Corps) => x.type === 'echeances.recapitulatif').length;
+  assert.deepEqual([v.email.mode, v.email.expediteur, v.email.nombres.simule, v.email.recapitulatif], ['simulation', null, 1 + echeances, 0]);
+  assert.deepEqual(v.envois.filter((x: Corps) => x.type !== 'echeances.recapitulatif').map((x: Corps) => [x.cible, x.type, x.contenu.a]), [['email', 'essai', ['it@entreprise.example']]]);
   assert.deepEqual((await ok(await fetch(`${base}/api/envois?cible=keystone`, { headers: { cookie } }))).envois.filter((x: Corps) => x.cible !== 'keystone'), []);
   // Réponse paginée du journal (server/src/journal.ts) : { lignes, total, page, taille }.
   const journal = (await ok(await fetch(`${base}/api/journal`, { headers: { cookie } })) as unknown as { lignes: Corps[] }).lignes;

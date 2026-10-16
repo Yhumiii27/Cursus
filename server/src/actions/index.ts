@@ -21,6 +21,7 @@ import { santeActions } from './sante.ts';
 import { sessionsActions } from './sessions.ts';
 import { sortiesActions } from './sorties.ts';
 import { suiviFeuillesActions } from './suivi-feuilles.ts';
+import { contratsActions } from './contrats.ts';
 import { tempsActions } from './temps.ts';
 import { voyagesActions } from './voyages.ts';
 
@@ -42,6 +43,7 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...referentielsActions,
   ...cloturesActions,
   ...sortiesActions,
+  ...contratsActions,
   ...paieActions,
   ...remiseActions,
   ...exercicesActions,

@@ -61,7 +61,9 @@ export function Dashboard() {
 
   const v = useMemo(() => {
     const ech = d.echeances(emps, horizon);
-    const compl = ech.filter(x => x.kind !== 'trip');
+    // Renouvellements (certifications, habilitations, aptitudes) ; les échéances du contrat ont leur propre panneau.
+    const compl = ech.filter(x => x.kind !== 'trip' && x.kind !== 'contrat');
+    const sansAction = (x: EchItem) => (x.action && !permis(x.action.intent) ? { ...x, action: null } : x);
     const total = emps.length;
     const nonExp = emps.filter(e => e.worst !== 'exp').length;
     const allCerts = emps.flatMap(e => e.certs);
@@ -83,7 +85,9 @@ export function Dashboard() {
       manquants: emps.reduce((n, e) => n + e.manquants.length, 0), sansExigence: emps.filter(e => e.manquants.length).length,
       declarees: d.ds.referentiels.postes.some(p => nombreExigences(p) > 0) || d.ds.referentiels.equipes.some(q => nombreExigences(exigencesEquipe(q)) > 0),
       // Propositions d'action réservées aux profils qui peuvent les lancer (aucune en lecture seule).
-      priority: compl.filter(c => c.key !== 'ok').sort((a, b) => a.d - b.d).slice(0, 8).map(x => x.action && !permis(x.action.intent) ? { ...x, action: null } : x),
+      priority: compl.filter(c => c.key !== 'ok').sort((a, b) => a.d - b.d).slice(0, 8).map(sansAction),
+      // Fins d'essai (avant le délai de prévenance), fins de contrat et titres de séjour à traiter (shared/rules/contrats.ts).
+      contrats: ech.filter(c => c.kind === 'contrat' && c.key !== 'ok').sort((a, b) => a.d - b.d).slice(0, 6).map(sansAction),
     };
   }, [d, emps, horizon, upcoming, permis]);
 
@@ -152,6 +156,23 @@ export function Dashboard() {
                       </tr>
                     );
                   })}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+        )}
+
+        {/* Fins d'essai, fins de contrat et titres de séjour (shared/rules/contrats.ts) : service RH et lecture seule. */}
+        {v.contrats.length > 0 && (
+          <Panel highlight style={{ flex: '1 1 100%' }} title="Contrats à suivre"
+            aside={<a href="/echeances" className="link-more" onClick={e => { e.preventDefault(); go('echeances', { echType: 'contrat' }); }}>Toutes les échéances du contrat →</a>}>
+            <div className="scroll-x">
+              <table className="table">
+                <thead><tr><th>Collaborateur</th><th>Élément</th><th>Échéance</th><th>Statut</th><th></th></tr></thead>
+                <tbody>
+                  {v.contrats.map(x => (
+                    <EchRow key={`${x.kind}-${x.emp.id}-${x.label}`} x={x} onOpen={() => openEmp(x.emp.id)} onAct={() => x.action && runIntent(x.action.intent)} />
+                  ))}
                 </tbody>
               </table>
             </div>

@@ -34,6 +34,9 @@ export const TABLES = {
       matriculePaie: 'text',
       // Sortie enregistrée par le service RH (`employe.sortie`) : motif, et fin prévue au contrat rétablie si elle est annulée.
       motifSortie: 'text', finPrevue: 'text',
+      // Période d'essai écrite au contrat (fin, fin après renouvellement) et titre de séjour valant autorisation de travail
+      // ({ type, numero, expire, demandeLe, verifieLe } ; null : non requise), le numéro réservé au service RH (server/src/dataset.ts).
+      essaiFin: 'text', essaiRenouveleJusquau: 'text', autorisationTravail: 'json',
     },
   },
   // Demandes de visite médicale du service RH, closes par la saisie de la visite (server/src/actions/sante.ts).

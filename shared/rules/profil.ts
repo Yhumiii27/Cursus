@@ -5,7 +5,7 @@ import { isValidDate } from '../dates.ts';
 import { r1 } from '../format.ts';
 import type { Employe, MotifSortie, Statut, TempsTravail, TypeContrat } from '../types.ts';
 import { controleMatriculePaie, normaliserMatricule, type TitulaireMatricule, unicite } from './matricules.ts';
-import { estMotifSortie } from './contrats.ts';
+import { controleEssai, estMotifSortie } from './contrats.ts';
 import { controleAdresse, normaliserAdresse } from './messagerie.ts';
 
 /** Champs d'une fiche saisis par le service RH. */
@@ -33,6 +33,9 @@ export interface ProfilInput {
    * jamais par `employe.modifier` ; une fiche reprise d'un autre outil peut le porter à sa création.
    */
   motifSortie?: MotifSortie | null;
+  /** Période d'essai écrite au contrat : dernier jour, et dernier jour après renouvellement (aucune valeur proposée). */
+  essaiFin?: string | null;
+  essaiRenouveleJusquau?: string | null;
   naissance: number;
   agence: string | null;
   /** Matricule du dossier de paie (Sage) : 1 à 20 lettres et chiffres, unique (shared/rules/matricules.ts). */
@@ -46,7 +49,7 @@ export interface ProfilInput {
 
 export const PROFIL_FIELDS: (keyof ProfilInput)[] = [
   'nom', 'poste', 'posteId', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis',
-  'entree', 'fin', 'motifSortie', 'naissance', 'agence', 'matriculePaie', 'email', 'visite', 'repriseMotif', 'repriseDate',
+  'entree', 'fin', 'motifSortie', 'essaiFin', 'essaiRenouveleJusquau', 'naissance', 'agence', 'matriculePaie', 'email', 'visite', 'repriseMotif', 'repriseDate',
 ];
 
 /**
@@ -65,7 +68,7 @@ export function profilOf(e: Employe): ProfilInput {
 
 export const PROFIL_VIDE = (equipe: string | null, today: string): ProfilInput => ({
   nom: '', poste: '', posteId: null, equipe, statut: 'ouvrier', typeContrat: 'cdi', temps: '35h', heures: null, forfaitHeures: null, forfaitJours: null,
-  jourOff: [], tempsDepuis: null, entree: today, fin: null, motifSortie: null, naissance: Number(today.slice(0, 4)) - 30, agence: null, matriculePaie: null, email: null, visite: null, repriseMotif: null, repriseDate: null,
+  jourOff: [], tempsDepuis: null, entree: today, fin: null, motifSortie: null, essaiFin: null, essaiRenouveleJusquau: null, naissance: Number(today.slice(0, 4)) - 30, agence: null, matriculePaie: null, email: null, visite: null, repriseMotif: null, repriseDate: null,
 });
 
 /**
@@ -92,6 +95,8 @@ export function normaliserProfil(p: ProfilInput): ProfilInput {
     // La date de fin sert de date de sortie pour tous les contrats : celle d'un CDI n'existe qu'avec son motif (validerProfil).
     fin: s(p.fin),
     motifSortie: s(p.motifSortie) as MotifSortie | null,
+    essaiFin: s(p.essaiFin),
+    essaiRenouveleJusquau: s(p.essaiRenouveleJusquau),
     naissance: Number(p.naissance),
     agence: p.typeContrat === 'interim' ? s(p.agence) : null,
     matriculePaie: normaliserMatricule(p.matriculePaie),
@@ -112,6 +117,11 @@ export function normaliserProfil(p: ProfilInput): ProfilInput {
 export function validerProfil(raw: ProfilInput, opts: {
   equipes: string[]; year: number; encadre?: string[]; adressesPrises?: Record<string, string>;
   matricules?: { pris: Record<string, TitulaireMatricule>; actuel?: string | null; reutiliser?: boolean };
+  /**
+   * Fiche enregistrée : fin prévue au contrat avant la sortie, et indication d'une sortie enregistrée (vues sans le
+   * motif). La période d'essai se compare à la fin prévue, jamais à la date de sortie.
+   */
+  contrat?: Partial<Pick<Employe, 'finPrevue' | 'sortieEnregistree'>>;
 }) {
   const p = normaliserProfil(raw);
   const errors: string[] = [], warnings: string[] = [];
@@ -131,7 +141,14 @@ export function validerProfil(raw: ProfilInput, opts: {
   // Sortie : motif en liste fermée, avec sa date ; un CDI ne prend fin que par une sortie enregistrée.
   if (p.motifSortie && !estMotifSortie(p.motifSortie)) errors.push('Motif de sortie à choisir dans la liste.');
   if (p.motifSortie && !p.fin) errors.push('Date de sortie requise avec le motif de sortie.');
-  if (p.fin && p.typeContrat === 'cdi' && !p.motifSortie) errors.push('Un CDI ne prend fin que par une sortie enregistrée avec son motif.');
+  // (Vue du manager : le motif ne lui parvient pas, l'indication de la sortie si.)
+  if (p.fin && p.typeContrat === 'cdi' && !p.motifSortie && !opts.contrat?.sortieEnregistree) errors.push('Un CDI ne prend fin que par une sortie enregistrée avec son motif.');
+  // Période d'essai : cohérence avec le contrat (bloquant), maximum légal (avertissement, shared/rules/contrats.ts).
+  if (isValidDate(p.entree)) {
+    const essai = controleEssai({ ...p, finPrevue: opts.contrat?.finPrevue ?? null, sortieEnregistree: opts.contrat?.sortieEnregistree });
+    errors.push(...essai.errors);
+    warnings.push(...essai.warnings);
+  }
   if (p.typeContrat === 'interim' && !p.agence) errors.push('Agence d’intérim requise.');
   if (p.typeContrat === 'interim' && opts.encadre?.length) errors.push(`Manager de l’équipe ${opts.encadre.join(', ')} : désignez d’abord un autre manager (Équipes & managers) avant de passer la fiche en intérim.`);
   if (p.typeContrat === 'interim' && ['forfait_jours', 'forfait_heures_annuel', 'forfait_heures_hebdo', 'dirigeant'].includes(p.temps)) {

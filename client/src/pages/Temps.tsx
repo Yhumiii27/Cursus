@@ -29,6 +29,7 @@ import { useAgir } from '../state/actions.ts';
 import { suppressionLigne } from '../state/confirmations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { AlerteAutorisation } from '../components/ContratFiche.tsx';
 import { RelevesPanel } from './Releves.tsx';
 import { ChampHeures, SaisieJour, useVueJour } from './SaisieJour.tsx';
 
@@ -192,6 +193,7 @@ export function Temps() {
 
       {!collab && <SuiviFeuilles />}
 
+      {tsEmp && <AlerteAutorisation e={tsEmp} />}
       {tsEmp && <Sheet key={`${tsEmp.id}|${wk}`} emp={tsEmp} wk={wk} />}
 
       {espaceRh && <LotsPaie />}

@@ -17,6 +17,15 @@ export type Statut = 'ouvrier' | 'technicien' | 'cadre';
 export type TypeContrat = 'cdi' | 'cdd' | 'interim' | 'alternance';
 /** Motif de sortie de l'entreprise (liste fermée, sans texte libre : MOTIFS_SORTIE de shared/rules/contrats.ts). */
 export type MotifSortie = 'demission' | 'rupture_conventionnelle' | 'licenciement' | 'fin_cdd' | 'fin_periode_essai' | 'retraite' | 'deces' | 'fin_mission' | 'autre';
+/** Titre de séjour valant autorisation de travail (liste fermée, TYPES_TITRE_SEJOUR de shared/rules/contrats.ts). */
+export type TypeTitreSejour = 'salarie' | 'travailleur_temporaire' | 'pluriannuelle' | 'talent' | 'vie_privee' | 'etudiant' | 'resident' | 'resident_permanent' | 'recepisse' | 'apt' | 'autre';
+/**
+ * Titre de séjour valant autorisation de travail (art. L5221-2 et L5221-8), sans copie du document (elle ira dans la GED) :
+ * type, numéro (exigé au registre unique du personnel ; service RH seulement, jamais au journal), expiration (null : carte
+ * de résident permanent), date d'envoi de la demande d'authentification à la préfecture (art. R5221-41 : au moins 2 jours
+ * ouvrables avant l'embauche ; sans réponse sous 2 jours ouvrables, l'obligation est remplie) et date de sa réponse.
+ */
+export interface AutorisationTravail { type: TypeTitreSejour; numero?: string | null; expire: ISODate | null; demandeLe?: ISODate | null; verifieLe: ISODate | null }
 /** Organisation du temps de travail (durée de référence ou convention de forfait). */
 export type TempsTravail = '35h' | '39h_rtt' | 'forfait_heures_hebdo' | 'forfait_heures_annuel' | 'forfait_jours' | 'partiel' | 'dirigeant';
 /** Congés décomptés sur un solde : congés payés, RTT / jours de repos, récupération. */
@@ -152,6 +161,27 @@ export interface Employe {
   motifSortie?: MotifSortie | null;
   /** Fin prévue au contrat avant l'enregistrement de la sortie (CDD, mission, alternance) : rétablie si la sortie est annulée. */
   finPrevue?: ISODate | null;
+  /**
+   * Vues sans le motif (manager, référent HSE) : une sortie est enregistrée, et `fin` en est la date (et non la fin prévue
+   * du contrat). Sans le motif ni la fin prévue, pour que les échéances du contrat soient celles du service RH.
+   */
+  sortieEnregistree?: boolean;
+  /**
+   * Période d'essai écrite au contrat (art. L1221-23) : dernier jour, et dernier jour après renouvellement. Saisies par le
+   * service RH sans valeur proposée ; Cursus avertit au-delà du maximum légal (shared/rules/contrats.ts).
+   */
+  essaiFin?: ISODate | null;
+  essaiRenouveleJusquau?: ISODate | null;
+  /**
+   * Titre de séjour valant autorisation de travail ; null : non requise (ressortissant français, de l'UE, de l'EEE ou de la
+   * Suisse). Service RH (numéro compris), lecture seule (sans numéro) et intéressé ; enregistré par `employe.autorisationTravail`.
+   */
+  autorisationTravail?: AutorisationTravail | null;
+  /**
+   * Remplace `autorisationTravail` dans les vues du manager, du référent HSE et de la paie : verdict seul (« valide » aussi
+   * quand aucune autorisation n'est requise), sans type, numéro ni date.
+   */
+  autorisationVerdict?: 'valide' | 'expiree';
   naissance: number;
   agence: string | null;
   /**
@@ -397,6 +427,9 @@ export interface Settings {
   campagneAncienneteMois: number;
   campagneExclus: TypeContrat[];
   campagnePreavisJours: number;
+  /** Titres de séjour (client/src/pages/parametres/Contrats.tsx) : première alerte et relance, en jours avant l'expiration. */
+  titreSejourAlerte: number;
+  titreSejourRelance: number;
 }
 
 /**

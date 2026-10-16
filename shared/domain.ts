@@ -12,7 +12,7 @@ import { absenceActive, absenceBloque, borneContrat, periodeTexte } from './rule
 import { actifs, habSuivie } from './rules/referentiels.ts';
 import { echeanceExigence, exigencesManquantes, type ExigenceManquante } from './rules/exigences.ts';
 import { identifiantKeystone } from './rules/matricules.ts';
-import { present } from './rules/contrats.ts';
+import { echeancesContrat, etatAutorisation, present, SITUATION_A_REGULARISER } from './rules/contrats.ts';
 import { restrictionEnVigueur } from './rules/sante.ts';
 import type {
   AvisMedical, Certification, Chantier, Dataset, DemandeVisite, Destination, Employe, FormaliteManquante, Formation, HabTitre, HabType, ISODate,
@@ -74,7 +74,9 @@ export type UiIntent =
   | { type: 'openFormalite'; empId: number; kind: FormaliteKind; dest?: string; v?: VaccinId }
   | { type: 'openCloture'; sessionId: number }
   /** Habilitation exigée jamais délivrée : titre demandé (`hab.demander`), « en attente » de délivrance. */
-  | { type: 'demanderHab'; empId: number; h: string; nom: string; label: string };
+  | { type: 'demanderHab'; empId: number; h: string; nom: string; label: string }
+  // Échéances du contrat (shared/rules/contrats.ts) : fiche (période d'essai), sortie, titre de séjour.
+  | { type: 'openContrat'; empId: number; quoi: 'fiche' | 'sortie' | 'titre' };
 export type FormaliteKind = 'passeport' | 'visa' | 'vaccin';
 export interface Proposal { label: string; intent: UiIntent }
 
@@ -88,7 +90,7 @@ export interface Readiness { dest: Destination; dep: Date; ret: Date; toGo: numb
 export interface TripX extends Voyage { emp: Employe; r: Readiness }
 
 export interface EchItem {
-  kind: 'cert' | 'hab' | 'trip' | 'med' | 'exigence'; kindLabel: string; label: string; emp: EmpX; exp: Date; d: number; key: StatusKey;
+  kind: 'cert' | 'hab' | 'trip' | 'med' | 'exigence' | 'contrat'; kindLabel: string; label: string; emp: EmpX; exp: Date; d: number; key: StatusKey;
   statut: string; cls: string; planned: boolean; plannedLabel: string; action: Proposal | null;
   /** Échéance sans date connue (aucune visite médicale enregistrée) : classée au jour, parmi les dépassées. */
   sansDate?: boolean;
@@ -448,6 +450,8 @@ export class Domain {
       const manquants = exigencesManquantes(this.ds, e, rawCerts, e.habs, formIds);
       // L'aptitude médicale compte dans le statut, même sans habilitation qui l'exige.
       const keys: StatusKey[] = [...certs.map(c => c.key), ...suivies.map(h => habStatus(h.key)), this.medKey(med, horizon), ...manquants.map((): StatusKey => 'exp')];
+      // Titre de séjour expiré (art. L5221-8) : non conforme, comme un verdict seul « expiré » (shared/rules/contrats.ts).
+      if (etatAutorisation(e, this.ti).expiree) keys.push('exp');
       const worst = keys.reduce<StatusKey>((w, k) => RANK[k] > RANK[w] ? k : w, 'ok');
       const dated = [
         ...certs.map(c => ({ exp: c.exp, d: c.d })), ...suivies.flatMap(h => this.habEcheance(h) ?? []),
@@ -632,6 +636,8 @@ export class Domain {
           action: m.demande || key === 'ok' ? null : { label: 'Demander la visite', intent: { type: 'medical', empId: e.id } },
         });
       }
+      // Fin d'essai, fin prévue du contrat, titre de séjour (shared/rules/contrats.ts).
+      ech.push(...echeancesContrat(this, e, horizon));
     });
     // Échéance postérieure au départ (sortie enregistrée, fin de CDD…) : plus rien à renouveler.
     return ech.filter(x => present(x.emp, iso(x.exp)));
@@ -676,6 +682,12 @@ export class Domain {
     // aucune absence en vigueur. Jamais la nature d'une absence, même dans le libellé du partage détaillé.
     const borne = sejours.length ? borneContrat(e, du, au) : null;
     if (borne) push('nogo', 'CONTRAT', du < e.entree ? 'Contrat non commencé au début du chantier' : 'Contrat terminé avant la fin du chantier', `${cap(borne)} — présence prévue ${periodeTexte(du, au)}`);
+    // Titre de séjour expiré : état du jour, comme l'aptitude. Keystone ne reçoit que le libellé générique, jamais la
+    // mention d'un titre ; le service RH lit le détail sur la fiche.
+    const titre = etatAutorisation(e, this.ti);
+    if (titre.expiree) {
+      push('nogo', 'CONTRAT', SITUATION_A_REGULARISER, titre.verdictSeul ? `${SITUATION_A_REGULARISER} avec le service RH` : `Autorisation de travail expirée le ${fmt(parse(titre.expire!))}`, SITUATION_A_REGULARISER);
+    }
     this.ds.absences.filter(a => a.empId === e.id && absenceActive(a) && pendant(a)).forEach(a => {
       if (a.statut === 'demandee') push('reserve', 'ABSENCE', 'Demande d’absence en attente pendant le chantier', `Demande d’absence en attente ${periodeTexte(a.du, a.au)}`);
       else push('nogo', 'ABSENCE', 'Absent pendant le chantier', `Absent ${periodeTexte(a.du, a.au)}`);

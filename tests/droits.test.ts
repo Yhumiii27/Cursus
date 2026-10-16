@@ -106,6 +106,8 @@ const MATRICE: Ligne[] = [
     db.update('employes', 2, { fin: '2026-12-31', motifSortie: 'demission', finPrevue: null });
     return { id: 2 };
   } },
+  // Titre de séjour valant autorisation de travail (numéro au registre unique du personnel) : service RH.
+  { action: 'employe.autorisationTravail', droits: '         O    O    -    -    -    -    -    -    -', p: () => ({ id: 2, requise: true, type: 'salarie', numero: 'AB1234567', expire: '2027-06-30', verifieLe: '2016-08-26' }) },
   { action: 'equipe.creer', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Méthodes' }) },
   { action: 'equipe.renommer', droits: '                     O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Commercial', nouveau: 'Ventes' }) },
   { action: 'equipe.manager', droits: '                      O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Commercial', managerId: 19 }) },

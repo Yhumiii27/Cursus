@@ -23,7 +23,7 @@ shared/            Domaine partagé (aucune dépendance)
                    (contrôles de saisie, archivage, effet d'une validité modifiée) ; matricules.ts : matricule de paie,
                    identifiant Keystone ; clotures.ts : clôture des périodes de congés (CP au 31 mai, RTT au 31 décembre) ;
                    contrats.ts : sortie des salariés (présence, contrôles et effets d'une sortie), garde-fou d'un
-                   changement de régime de temps ; paie.ts : période de paie, rubriques Sage, modes (Paie) ;
+                   changement de régime de temps, période d'essai, titre de séjour, échéances du contrat ; paie.ts : période de paie, rubriques Sage, modes (Paie) ;
                    lots-paie.ts : lots de paie et fichier d'import Sage ; suivi-feuilles.ts : suivi des feuilles de temps ;
                    campagne.ts (campagne d'entretiens annuels réglable), remise.ts (remise du compte rendu d'entretien),
                    exercices.ts (exercices du plan, clôture, coût réel) ; a-faire.ts : ce qui attend le collaborateur ;
@@ -99,7 +99,8 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
    (`visite`, `avis` et `restrictions` remplacés par `aptitude` : verdict et restrictions en
    vigueur, sans date ; ni demandes de visite ni vaccinations ; état des dossiers
    voyage précalculé dans `voyage.dossierStatut`), et du passeport de ses membres la seule date
-   d'expiration (les visas restent transmis), sans leur matricule de paie ; un collaborateur ne reçoit que
+   d'expiration (les visas restent transmis), sans leur matricule de paie, et de leur titre de séjour le seul verdict
+   (`autorisationVerdict`, « valide » aussi sans titre requis) ; un collaborateur ne reçoit que
    ses propres données ; un profil restreint de l'espace RH (référent HSE, paie, lecture
    seule) ne reçoit que ce que ses droits ouvrent (« Profils », section Sécurité), avec la même
    aptitude que le manager.
@@ -541,6 +542,7 @@ aucun champ du paramètre n'est recopié.
 | `employe.creer` | fiche complète (`ProfilInput` de `shared/rules/profil.ts`, matricule de paie compris : unique), reutiliserMatricule? (réembauche : matricule d'un salarié sorti) | RH ; réutiliser un matricule : administrateur RH |
 | `employe.modifier` | id + champs de la fiche, reutiliserMatricule?, `confirmerRtt` (changement de régime qui ferme le compteur de RTT de l'année) ; ni le motif ni la date d'une sortie enregistrée | RH : tous ; manager : `poste` (intitulé précisé ; le poste du référentiel, `posteId`, reste au RH), `jourOff` (temps partiel) des membres de son équipe ; changer ou retirer un matricule de paie déjà enregistré, réutiliser celui d'un salarié sorti : administrateur RH |
 | `employe.sortie` | id, date (dernier jour du contrat), motif (`MOTIFS_SORTIE`) ; refusée tant que le salarié encadre une équipe, qu'une feuille porte des heures après la date, qu'une absence est à cheval sur elle, au-delà de la fin prévue du contrat ou quand aucun autre administrateur RH ne reste en place après la date ; une sortie enregistrée se modifie par la même action | RH (jamais pour lui-même) ; administrateur RH seul pour un salarié dont le compte ouvre l'espace RH |
+| `employe.autorisationTravail` | id, requise (faux : ressortissant français, de l'UE, de l'EEE ou de la Suisse, titre effacé), type (`TYPES_TITRE_SEJOUR`), numero, expire (sauf résident permanent), demandeLe (envoi de la demande d'authentification) et verifieLe (réponse de la préfecture), jamais futures ; avertissements sans blocage (titre expiré, demande d'authentification non tracée ou tardive) ; journal : codes et dates validés seulement ; refusée pour un salarié sorti | RH (jamais pour lui-même) |
 | `employe.annulerSortie` | id : fin prévue au contrat rétablie (aucune pour un CDI, même devenu CDI depuis la sortie) ; ce que la sortie a annulé ne l'est pas | RH (jamais pour lui-même) ; administrateur RH seul pour un salarié dont le compte ouvre l'espace RH |
 | `equipe.creer` / `equipe.renommer` | nom, managerId? / nom, nouveau | RH |
 | `equipe.supprimer` | nom | administrateur RH |
@@ -758,9 +760,63 @@ après la reprise depuis Lucca ; la sortie se saisit dans Cursus (si Sage faisai
   Un salarié sorti n'est plus désigné manager ; une équipe qui ne compte plus que des salariés sortis se supprime (ils
   en sont détachés).
 - **Confidentialité** : le motif et la fin prévue ne sont transmis qu'au service RH, à la paie (solde de tout compte), à la
-  lecture seule et à l'intéressé ; le manager et le référent HSE ne voient que la date (`server/src/dataset.ts`).
+  lecture seule et à l'intéressé ; le manager et le référent HSE ne voient que la date et l'indication qu'une sortie est
+  enregistrée (`sortieEnregistree`, `server/src/dataset.ts`), pour que leurs échéances du contrat soient celles du RH.
 - **Journal** : `employe.sortie` (date, motif, nombre d'éléments annulés, anciennes et nouvelles valeurs de `fin` et
   `motifSortie`) et `employe.annulerSortie`, actions liées à la paie (archive de 3 ans).
+
+### Période d'essai
+
+Règles dans `shared/rules/contrats.ts` (`essaiMaximum`, `controleEssai`, `limitePrevenance`), champs `essaiFin` et
+`essaiRenouveleJusquau` de la fiche (`employe.creer`, `employe.modifier`, section « Période d'essai » du dialogue de la
+fiche, `components/ContratFiche.tsx` dans la section Contrat du panneau).
+
+- **Aucune durée proposée** : l'essai n'existe que s'il est écrit au contrat (art. L1221-23) et la CCN Industries
+  chimiques peut prévoir moins que la loi. Le service RH saisit la fin (et celle du renouvellement) écrite au contrat ;
+  une valeur proposée et gardée par erreur ferait arriver l'alerte après la vraie fin (rupture devenue licenciement).
+- **Contrôles** (`validerProfil`) : bloquants pour la cohérence (fin avant l'entrée ou après la fin prévue du contrat,
+  renouvellement sans période initiale ou qui finit avant elle). La borne est la fin prévue au contrat (`finPrevue` après
+  une sortie), jamais la date de sortie : une rupture pendant l'essai la précède, et la fiche reste modifiable ; avertissement au-delà du maximum légal — CDI : 2, 3 ou
+  4 mois selon le statut, 4, 6 ou 8 renouvellement compris (`ESSAI_MAX_CDI` de `shared/constants.ts`, art. L1221-19 et
+  L1221-21) ; CDD et alternance à terme : 1 jour par semaine, au plus 2 semaines jusqu'à 6 mois de contrat, 1 mois
+  au-delà (art. L1242-10), sans renouvellement légal ; intérim : 2, 3 ou 5 jours travaillés selon la mission
+  (art. L1251-14). La table des durées de la CCN s'ajoutera à `ESSAI_MAX_CDI` une fois vérifiée.
+- **Délai de prévenance** (art. L1221-25 : 24 h, 48 h, 2 semaines, 1 mois selon la présence ; il ne prolonge pas
+  l'essai) : `limitePrevenance` donne le dernier jour où notifier une rupture en le respectant ; ni l'intérim ni un essai
+  de moins d'une semaine n'en ont (la fin de l'essai elle-même).
+- **Visibilité** : service RH, paie, lecture seule, manager (il en évalue l'issue) et intéressé ; pas le référent HSE.
+
+### Titre de séjour (autorisation de travail)
+
+Règles dans `shared/rules/contrats.ts` (`TYPES_TITRE_SEJOUR`, `validerAutorisation`, `etatAutorisation`), action
+`employe.autorisationTravail` (`server/src/actions/contrats.ts`), dialogue `dialogs/AutorisationDialog.tsx`, colonne JSON
+`autorisationTravail` de `employes` (null : non requise).
+
+- **Données** : type (liste fermée), numéro (registre unique du personnel), expiration (sauf carte de résident permanent),
+  date de vérification auprès de la préfecture ; ni copie (elle ira dans la GED Codex), ni nationalité. Information des
+  salariés : `INFO_TITRE_SEJOUR`, affichée dans le dialogue, à faire valider par le DPO (`docs/RGPD.md`).
+- **Embauche** (art. R5221-41) : la règle porte sur l'envoi de la demande d'authentification (`demandeLe`), au moins 2
+  jours ouvrables avant une embauche récente ou à venir (`joursOuvrablesAvant`), pas sur la réponse (`verifieLe`) : sans
+  réponse sous 2 jours ouvrables, l'obligation est remplie. Avertissement si rien n'est tracé, si la demande est tardive,
+  ou si, sans date d'envoi, la réponse arrive après la date limite (elle ne prouve alors rien).
+- **Alertes** : échéance « Titre de séjour » à la première alerte (`titreSejourAlerte`, 120 jours, fenêtre de la demande
+  de renouvellement) puis « Relance » (`titreSejourRelance`, 60 jours), réglables (Paramètres → Contrats). Expiré
+  (art. L5221-8) : « Expiré — non conforme », salarié non conforme (`Domain.enrich`), « No Go CONTRAT » sur les chantiers
+  (état du jour, comme l'aptitude), avertissement sur la feuille de temps (`AlerteAutorisation`, sans bloquer la saisie).
+- **Confidentialité** : numéro au service RH et à l'intéressé seulement, jamais au journal (règle de
+  `employe.autorisationTravail` : colonne aplatie, `numero` masqué) ; la lecture seule voit le titre sans numéro ; le
+  manager, le référent HSE et la paie reçoivent le verdict seul (`autorisationVerdict`, aucune échéance datée). Keystone
+  ne reçoit, en partage détaillé, que « Situation contractuelle à régulariser » (`SITUATION_A_REGULARISER`), jamais la
+  mention d'un titre. Le titre fait partie de la fiche dans l'export des données du salarié (`server/src/donnees.ts`).
+
+### Échéances du contrat
+
+`echeancesContrat` (type `contrat` de `Domain.echeances`, filtre « Contrats » de l'écran Échéances et export CSV) :
+fin de période d'essai datée de `limitePrevenance` (« À décider » sous le seuil d'alerte, « Prévenance dépassée » ensuite,
+jusqu'à la fin de l'essai ; retirée par une sortie enregistrée) ; fin prévue d'un CDD, d'une mission ou d'une alternance sans sortie enregistrée (« À
+anticiper » sous le seuil, action « Enregistrer la sortie ») ; titre de séjour. Tableau de bord : panneau « Contrats à
+suivre » (hors des indicateurs de renouvellement) ; manager : panneau « Fins d'essai et de contrat » de son équipe en
+tête de l'écran Équipe. Les relances par e-mail relèvent de t034.
 
 ### Garde-fou d'un changement de régime de temps
 
@@ -1027,7 +1083,8 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
   formalités portent sur la présence restante (`Domain.presenceRestante`, à partir du jour même) : sur un chantier en
   cours, une absence terminée ou une entrée déjà faite ne bloque plus ; une présence finie n'exige plus de déplacement.
 - **Disponibilité** (No Go) : contrat (CDD, intérim, alternance, ou sortie enregistrée, CDI compris) qui finit avant la
-  fin de la présence ou commence après son début (`CONTRAT`, `borneContrat`) ; un salarié sorti, absent des collaborateurs
+  fin de la présence ou commence après son début (`CONTRAT`, `borneContrat`) ; titre de séjour expiré au jour de
+  l'évaluation (`CONTRAT`, libellé transmis « Situation contractuelle à régulariser », jamais la mention du titre) ; un salarié sorti, absent des collaborateurs
   enrichis, reste évalué sur les chantiers où il est affecté ; absence validée ou signalée pendant la présence (`ABSENCE`), une
   demande en attente ne donnant qu'une réserve. Le libellé, même en partage détaillé, ne nomme jamais la nature.
 - **Aptitude médicale** (`APTITUDE`) : état du jour, jamais rapporté aux dates de présence que Keystone fixe lui-même

@@ -35,7 +35,7 @@ export interface UiState {
   habFilter: 'tous' | 'due' | 'ko' | 'pending';
   habType: string | null;
   tripSel: number | null;
-  echType: 'tous' | 'cert' | 'hab' | 'trip' | 'med' | 'exigence';
+  echType: 'tous' | 'cert' | 'hab' | 'trip' | 'med' | 'exigence' | 'contrat';
   goSel: string | null;
   exercice: number | null;
   planFilter: 'tous' | PlanStatut;
@@ -72,6 +72,7 @@ export type DialogState =
   | { type: 'reqHab'; empId?: number | null }
   | { type: 'employe'; empId?: number | null; equipe?: string | null }
   | { type: 'sortie'; empId: number }
+  | { type: 'autorisation'; empId: number }
   | { type: 'membre'; equipe?: string | null }
   | { type: 'equipe'; nom?: string | null }
   | { type: 'abs'; empId: number }
@@ -453,6 +454,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       case 'openCloture': setDialog({ type: 'cloture', sessionId: intent.sessionId }); break;
       // Habilitation exigée jamais délivrée : titre demandé, « en attente » de délivrance, qui ne se retire pas (confirmé).
       case 'demanderHab': setDialog({ type: 'confirmer', c: demandeHabilitation(intent) }); break;
+      // Échéances du contrat : fiche (période d'essai), sortie (fin de contrat), titre de séjour.
+      case 'openContrat': setDialog(intent.quoi === 'sortie' ? { type: 'sortie', empId: intent.empId }
+        : intent.quoi === 'titre' ? { type: 'autorisation', empId: intent.empId } : { type: 'employe', empId: intent.empId }); break;
     }
   }, [go]);
 

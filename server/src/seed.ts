@@ -7,7 +7,7 @@ import { identifiantSuggere, typeSuggere } from '../../shared/rules/comptes.ts';
 import { repriseDesAbsences } from '../../shared/rules/absences.ts';
 import { cpDroit, rttDroit } from '../../shared/rules/conges.ts';
 import type {
-  AvisMedical, Dataset, Employe, EntretienType, Messagerie, ProfilRh, Restriction, Statut, TempsTravail, TypeContrat, VaccinId,
+  AutorisationTravail, AvisMedical, Dataset, Employe, EntretienType, Messagerie, ProfilRh, Restriction, Statut, TempsTravail, TypeContrat, VaccinId,
 } from '../../shared/types.ts';
 import { MOTIF_RESTRICTION } from '../../shared/constants.ts';
 import type { Db } from './db.ts';
@@ -407,6 +407,7 @@ export function seedDemo(db: Db) {
         repriseMotif: p.reprise?.motif ?? null, repriseDate: p.reprise?.date ?? null, visite: x.visite ?? null,
         avis: x.avis ?? null, restrictions: x.restrictions ?? [],
         passeportNumero: x.passeport?.numero ?? null, passeportExpire: x.passeport?.expire ?? null,
+        autorisationTravail: TITRES_DEMO[e.id] ?? null,
       });
       [...e.certs, ...(x.certsPlus || [])].forEach(c => db.insert('certifications', { empId: e.id, f: c.f, obtenue: c.obtenue, sessionId: c.session ?? null, convoc: c.convoc ?? null, convocLe: c.convoc ? CONVOQUES_LE : null }));
       (x.habs || []).forEach(h => db.insert('habTitres', {
@@ -480,6 +481,13 @@ const matriculePaieDemo = (id: number, typeContrat: string) => typeContrat === '
 export const DOMAINE_DEMO = 'entreprise.example';
 /** Date des convocations déjà envoyées du jeu de démonstration. */
 const CONVOQUES_LE = '2026-09-28';
+/**
+ * Titre de séjour valant autorisation de travail (shared/rules/contrats.ts) : celui de Fatou Ndiaye expire fin janvier 2027,
+ * dans la fenêtre de la demande de renouvellement (alerte à 120 jours) ; les autres n'en ont pas besoin.
+ */
+const TITRES_DEMO: Record<number, AutorisationTravail> = {
+  17: { type: 'pluriannuelle', numero: 'CS7712345', expire: '2027-01-29', verifieLe: '2023-12-20' },
+};
 /**
  * Messagerie de démonstration : boîte du service RH, service de santé au travail, agence de l'intérimaire (domaines
  * fictifs), dont l'adresse a été renseignée le 5 octobre : le premier relevé automatique est celui de la semaine 40.

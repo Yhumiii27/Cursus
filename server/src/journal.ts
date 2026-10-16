@@ -18,6 +18,7 @@ import { Domain } from '../../shared/domain.ts';
 import { fmtIso, num, plural } from '../../shared/format.ts';
 import { erreurReference } from '../../shared/rules/lots-paie.ts';
 import { matriculeAffiche } from '../../shared/rules/matricules.ts';
+import { estTypeTitre } from '../../shared/rules/contrats.ts';
 import {
   ACTION_APPEL_KEYSTONE, ACTIONS_CONNEXION, ACTIONS_PAIE, changementsTexte, CONSERVATION_ARCHIVE_PAIE_MOIS, CONSERVATION_ENVOIS_MOIS,
   CONSERVATION_JOURNAL_MOIS, dossierComplet, estActionPaie, familleAction, FAMILLES_JOURNAL, JOURNAL_LABEL, lecteurJournal, libelleAction,
@@ -101,7 +102,10 @@ const salariesTouches = (x: Contexte) => (x.result as { salaries?: unknown[] } |
 /** Référentiel désigné (`referentiel.charger`), seulement s'il en est un : jamais la valeur reçue telle quelle. */
 const referentielRecu = (p: P): ReferentielId | null => (['formations', 'habilitations', 'destinations'].includes(p.referentiel) ? p.referentiel : null);
 const nombreReferentiel = (db: Db, p: P) => { const r = referentielRecu(p); return r ? db.count(r) : 0; };
-const FICHE = ['nom', 'poste', 'posteId', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis', 'entree', 'fin', 'motifSortie', 'agence', 'matriculePaie'];
+const FICHE = [
+  'nom', 'poste', 'posteId', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis', 'entree', 'fin',
+  'motifSortie', 'essaiFin', 'essaiRenouveleJusquau', 'agence', 'matriculePaie',
+];
 /**
  * Solde de RTT de l'année affiché avant un changement de régime qui n'en ouvre plus (garde-fou de `employe.modifier`) :
  * gardé au journal pour la paie, sous un code de l'archive paie (`employe.rtt`).
@@ -163,7 +167,7 @@ export const REGLES: Record<string, Regle> = {
   // Fiches et équipes
   // Réembauche : réutilisation d'un matricule de paie confirmée par l'administrateur RH (`reutiliserMatricule`).
   'employe.creer': {
-    champs: ['equipe', 'poste', 'statut', 'typeContrat', 'temps', 'entree', 'fin', 'motifSortie', 'matriculePaie', 'reutiliserMatricule'], salaries: (_p, x) => [(x.result as { id?: number } | null)?.id],
+    champs: ['equipe', 'poste', 'statut', 'typeContrat', 'temps', 'entree', 'fin', 'motifSortie', 'essaiFin', 'essaiRenouveleJusquau', 'matriculePaie', 'reutiliserMatricule'], salaries: (_p, x) => [(x.result as { id?: number } | null)?.id],
     // Poste du référentiel retenu (choisi, rattaché d'après l'intitulé ou créé) : lu sur la fiche créée.
     bilan: (_p, x) => ({ posteId: x.db.get<{ posteId: number | null }>('employes', Number((x.result as { id?: number } | null)?.id))?.posteId ?? null }),
   },
@@ -180,6 +184,19 @@ export const REGLES: Record<string, Regle> = {
     bilan: (_p, x) => (x.result as { annulations?: Ligne } | null)?.annulations ?? {},
   },
   'employe.annulerSortie': { champs: ['id'], cible: parId('employes', ['fin', 'motifSortie']), salaries: p => [p.id] },
+  // Titre de séjour : type, expiration, demande d'authentification et vérification en préfecture, avant et après ; jamais
+  // le numéro (masqué : seul le fait qu'il change est tracé). Des valeurs reçues, seules celles qui ont la forme d'un code
+  // ou d'une date sont recopiées, et seulement pour un titre requis (sinon l'action les ignore) : jamais de texte libre.
+  'employe.autorisationTravail': {
+    champs: ['id', 'requise'], salaries: p => [p.id],
+    extra: p => (p.requise !== true ? {} : {
+      type: estTypeTitre(p.type) ? p.type : null,
+      expire: p.type !== 'resident_permanent' && isValidDate(p.expire) ? p.expire : null,
+      demandeLe: isValidDate(p.demandeLe) ? p.demandeLe : null,
+      verifieLe: isValidDate(p.verifieLe) ? p.verifieLe : null,
+    }),
+    cible: { ...parId('employes', ['autorisationTravail']), aplatir: true, masques: ['numero'] },
+  },
   'equipe.creer': { champs: ['nom', 'managerId'], salaries: p => [p.managerId] },
   'equipe.renommer': { champs: ['nom', 'nouveau'] },
   'equipe.supprimer': { champs: ['nom'] },

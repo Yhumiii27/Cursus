@@ -247,6 +247,13 @@ dirigeant. Un changement d'organisation du temps prend effet à une date choisie
 antérieures gardent l'ancien régime (figé sur chaque feuille soumise) et les RTT / jours de repos
 sont proratisés.
 
+La fiche porte aussi la **période d'essai** écrite au contrat (aucune durée proposée : Cursus avertit au-delà du maximum
+légal) et, pour un salarié étranger, le **titre de séjour** valant autorisation de travail (type, numéro réservé au
+service RH, expiration, vérification en préfecture). L'écran Échéances (filtre « Contrats »), le tableau de bord et le
+résumé du manager signalent les fins d'essai (au dernier jour du délai de prévenance), les fins de CDD, de mission et
+d'alternance et les titres à renouveler (alertes à 120 et 60 jours, Paramètres → Contrats) ; un titre expiré rend le
+salarié non conforme et le passe en « No Go » sur les chantiers (`docs/ARCHITECTURE.md`, « Contrat et temps de travail »).
+
 ## Règles métier implémentées
 
 Validité des certifications et seuil d'alerte (30–180 j) · prérequis des habilitations

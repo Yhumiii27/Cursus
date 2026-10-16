@@ -8,7 +8,7 @@ import { AVIS_MEDICAL, MODE_NOTIFICATION_LABEL, MOTIFS_REPRISE, STATUTS, TEMPS_T
 import { cap, equipeLabel, fmtIso, plural } from '../../../shared/format.ts';
 import { reposForfait } from '../../../shared/rules/conges.ts';
 import { matriculesPris, normaliserMatricule } from '../../../shared/rules/matricules.ts';
-import { rttPerdus, SEMAINES_FIGEES, soldeRttTexte, sortieTexte } from '../../../shared/rules/contrats.ts';
+import { essaiMaximum, limitePrevenance, rttPerdus, SEMAINES_FIGEES, soldeRttTexte, sortieTexte } from '../../../shared/rules/contrats.ts';
 import { adressesPrises } from '../../../shared/rules/messagerie.ts';
 import { JOURS_SEMAINE, PROFIL_FIELDS, PROFIL_VIDE, normaliserProfil, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
 import { contratFige } from '../../../shared/rules/temps.ts';
@@ -24,6 +24,8 @@ interface Form {
   statut: Statut; typeContrat: TypeContrat; entree: string; fin: string; agence: string; email: string; matriculePaie: string;
   temps: TempsTravail; heures: string; forfaitHeures: string; forfaitJours: string; jourOff: number[];
   visite: string; repriseMotif: string; repriseDate: string;
+  /** Période d'essai écrite au contrat : dernier jour, et dernier jour après renouvellement (aucune valeur proposée). */
+  essaiFin: string; essaiRenouvele: string;
   /** Date d'effet d'un changement d'organisation du temps (défaut : aujourd'hui). */
   effet: string;
 }
@@ -46,6 +48,7 @@ function toForm(p: ProfilInput, today: string): Form {
     forfaitJours: numStr(p.forfaitJours ?? (p.temps === 'forfait_jours' ? 218 : null)),
     jourOff: [...(p.jourOff ?? [])],
     visite: p.visite ?? '', repriseMotif: p.repriseMotif ?? '', repriseDate: p.repriseDate ?? '',
+    essaiFin: p.essaiFin ?? '', essaiRenouvele: p.essaiRenouveleJusquau ?? '',
     effet: today,
   };
 }
@@ -57,6 +60,7 @@ function toInput(f: Form, tempsDepuis: string | null): ProfilInput {
     heures: toNum(f.heures), forfaitHeures: toNum(f.forfaitHeures), forfaitJours: toNum(f.forfaitJours), jourOff: f.jourOff, tempsDepuis,
     entree: f.entree, fin: f.fin || null, naissance: toNum(f.naissance) ?? Number.NaN, agence: f.agence || null, matriculePaie: f.matriculePaie || null, email: f.email || null,
     visite: f.visite || null, repriseMotif: f.repriseMotif || null, repriseDate: f.repriseDate || null,
+    essaiFin: f.essaiFin || null, essaiRenouveleJusquau: f.essaiRenouvele || null,
   };
 }
 
@@ -68,7 +72,7 @@ const same = (a: ProfilInput, b: ProfilInput) => PROFIL_FIELDS.every(k => JSON.s
  */
 const CHAMP_ERREUR: [RegExp, keyof Form][] = [
   [/^Nom requis/, 'nom'], [/^Poste requis/, 'poste'], [/^Équipe inconnue/, 'equipe'], [/^Année de naissance/, 'naissance'],
-  [/^Date d’entrée/, 'entree'], [/date de fin/i, 'fin'], [/^Agence d’intérim/, 'agence'], [/^Manager de l’équipe/, 'typeContrat'],
+  [/^Date d’entrée/, 'entree'], [/renouvellement de l’essai/i, 'essaiRenouvele'], [/période d’essai/, 'essaiFin'], [/date de fin/i, 'fin'], [/^Agence d’intérim/, 'agence'], [/^Manager de l’équipe/, 'typeContrat'],
   [/^Un intérimaire ne peut|cadre dirigeant/, 'temps'], [/date d’effet/i, 'effet'],
   [/^Temps partiel|^Forfait hebdomadaire/, 'heures'], [/^Forfait annuel en heures/, 'forfaitHeures'], [/^Forfait jours/, 'forfaitJours'],
   [/^Au moins un jour travaillé|^Répartition impossible/, 'jourOff'],
@@ -250,6 +254,11 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
           <Field label="Nature du contrat"><Static>{TYPES_CONTRAT[c.typeContrat].label}{finTxt}</Static></Field>
           <Field label="Organisation du temps"><Static>{c.label}{emp.tempsDepuis ? <span className="text-muted"> · depuis le {fmtIso(emp.tempsDepuis)}</span> : null}</Static></Field>
           <Field label="Date d’entrée"><Static>{fmtIso(emp.entree)}</Static></Field>
+          {(emp.essaiRenouveleJusquau ?? emp.essaiFin) && (
+            <Field label="Période d’essai">
+              <Static>jusqu’au {fmtIso((emp.essaiRenouveleJusquau ?? emp.essaiFin)!)}{emp.essaiRenouveleJusquau ? <span className="text-muted"> · renouvelée</span> : null}</Static>
+            </Field>
+          )}
         </div>
         <Fine>Le contrat, le statut et l’organisation du temps de travail relèvent du service RH.</Fine>
         {messages}
@@ -265,6 +274,14 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   const repos = f.temps === 'forfait_jours' && nj != null && nj >= 1 && nj <= 218 ? reposForfait(d.year, nj) : null;
   const valideur = d.mgrOf({ id: emp?.id ?? -1, equipe: f.equipe || null });
   const regimeActuel = emp ? d.contratOf(emp).label : '';
+  // Période d'essai : maximum légal rappelé (aucune durée proposée) et dernier jour pour notifier une rupture.
+  const max = essaiMaximum(v.profil);
+  const prev = limitePrevenance(v.profil);
+  const essaiAide = [
+    'L’essai n’existe que s’il est écrit au contrat (art. L1221-23) : saisissez ses dates telles qu’elles y figurent, la convention collective pouvant prévoir moins.',
+    max ? `Maximum légal : le ${fmtIso(max.fin)} (${max.texte})${max.renouvele ? `, le ${fmtIso(max.renouvele)} en cas de renouvellement (${max.texteRenouvele}, si un accord de branche étendu le prévoit)` : ''}.` : '',
+    prev?.delai ? `Rupture par l’employeur à notifier au plus tard le ${fmtIso(prev.le)} (délai de prévenance de ${prev.delai}, art. L1221-25) : l’alerte des Échéances tombe à cette date.` : '',
+  ].filter(Boolean).join(' ');
 
   return (
     <Dialog title={creation ? 'Nouveau collaborateur' : `Modifier la fiche — ${emp!.nom}`} width={640} tall onSubmit={() => save()} actions={actions}
@@ -335,6 +352,19 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
           </Field>
         )}
       </div>
+
+      <SectionLabel>Période d’essai</SectionLabel>
+      <div className="grid-2">
+        <Field label="Fin de la période d’essai" htmlFor="emp-essai" erreur={err('essaiFin')}>
+          <input className="input" id="emp-essai" type="date" min={f.entree || undefined} max={f.fin || undefined} value={f.essaiFin} onChange={ev => set('essaiFin', ev.target.value)} />
+          <span className="text-muted sub">Date écrite au contrat ; vide s’il n’en prévoit pas</span>
+        </Field>
+        <Field label="Renouvelée jusqu’au" htmlFor="emp-essai-ren" erreur={err('essaiRenouvele')}>
+          <input className="input" id="emp-essai-ren" type="date" min={f.essaiFin || undefined} max={f.fin || undefined} value={f.essaiRenouvele} onChange={ev => set('essaiRenouvele', ev.target.value)} />
+          <span className="text-muted sub">Accord écrit du salarié pendant l’essai initial</span>
+        </Field>
+      </div>
+      <Fine>{essaiAide}</Fine>
 
       <SectionLabel>Statut</SectionLabel>
       <Seg name="emp-statut" label="Statut" value={f.statut} onChange={s => set('statut', s)}

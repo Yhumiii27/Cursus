@@ -34,7 +34,7 @@ export interface UiState {
   habFilter: 'tous' | 'due' | 'ko' | 'pending';
   habType: string | null;
   tripSel: number | null;
-  echType: 'tous' | 'cert' | 'hab' | 'trip' | 'med';
+  echType: 'tous' | 'cert' | 'hab' | 'trip' | 'med' | 'contrat';
   goSel: string | null;
   exercice: number | null;
   planFilter: 'tous' | PlanStatut;
@@ -71,6 +71,7 @@ export type DialogState =
   | { type: 'reqHab'; empId?: number | null }
   | { type: 'employe'; empId?: number | null; equipe?: string | null }
   | { type: 'sortie'; empId: number }
+  | { type: 'autorisation'; empId: number }
   | { type: 'membre'; equipe?: string | null }
   | { type: 'equipe'; nom?: string | null }
   | { type: 'abs'; empId: number }
@@ -444,6 +445,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       case 'medical': setDialog({ type: 'visite', empId: intent.empId }); break;
       case 'openFormalite': setDialog({ type: 'fo', empId: intent.empId, kind: intent.kind, dest: intent.dest, v: intent.v }); break;
       case 'openCloture': setDialog({ type: 'cloture', sessionId: intent.sessionId }); break;
+      // Échéances du contrat : fiche (période d'essai), sortie (fin de contrat), titre de séjour.
+      case 'openContrat': setDialog(intent.quoi === 'sortie' ? { type: 'sortie', empId: intent.empId }
+        : intent.quoi === 'titre' ? { type: 'autorisation', empId: intent.empId } : { type: 'employe', empId: intent.empId }); break;
     }
   }, [go]);
 

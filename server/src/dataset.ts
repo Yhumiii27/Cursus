@@ -5,6 +5,7 @@ import { Domain } from '../../shared/domain.ts';
 import { addD, isoParis, isValidDate, mondayOf } from '../../shared/dates.ts';
 import { absenceVueManager, repriseMedicale } from '../../shared/rules/absences.ts';
 import { aptitudeVueManager } from '../../shared/rules/sante.ts';
+import { verdictAutorisation } from '../../shared/rules/contrats.ts';
 import { avecInscrits } from '../../shared/rules/sessions.ts';
 import { finPeriodeCp, periodeReport } from '../../shared/rules/conges.ts';
 import { reglagesParDefaut } from '../../shared/reglages.ts';
@@ -174,11 +175,14 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
   // un arrêt longue maladie leur est masquée : elle trahirait la nature de l'arrêt (l'entretien de reprise est suivi par le RH).
   // Du passeport d'un membre, seule la date d'expiration est transmise (l'écran n'affiche qu'elle) ; les visas restent montrés.
   // Le matricule de paie d'un membre ne lui sert à rien : il n'est pas transmis. De la sortie d'un membre, seule la date
-  // (fin du contrat) : ni le motif (démission, licenciement…), ni la fin prévue.
+  // (fin du contrat) : ni le motif (démission, licenciement…), ni la fin prévue. Du titre de séjour d'un membre, le verdict
+  // seul (`autorisationVerdict`, « valide » aussi sans titre requis) : ni type, ni numéro, ni date. La période d'essai lui
+  // est transmise : il en évalue l'issue avec le service RH.
   const employes = full.employes.filter(e => ids.has(e.id)).map(e => isMgr && e.id !== user.empId
     ? {
       ...e, visite: null, avis: null, restrictions: [], aptitude: aptitudeVueManager(e, d.medInfo(e).ok, full.today), vaccins: [], matriculePaie: null,
       passeport: e.passeport && { expire: e.passeport.expire }, motifSortie: null, finPrevue: null,
+      autorisationTravail: null, autorisationVerdict: verdictAutorisation(e, full.today),
       ...(repriseMedicale(e, full.absences) ? { repriseMotif: null, repriseDate: null } : { repriseMotif: e.repriseDate ? 'absence longue' : null }),
     }
     : e);
@@ -240,10 +244,11 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
  *   d'habilitation, chantiers avec l'état précalculé des déplacements et les absences de leurs ressources (sans nature)
  *   pour les verdicts Go / No Go ; ni passeport, ni visas (dossiers de voyage réservés au service RH) ;
  * - `paie` : feuilles de temps, absences, soldes, CET, reports, clôtures des congés, dernière transmission à Sage,
- *   correspondance des rubriques de paie, motif des sorties — aucune formation ;
+ *   correspondance des rubriques de paie, motif des sorties, période d'essai — aucune formation ;
  * - `consultation` (lecture seule) : tout ce qui précède, plus plan et budget, missions, entretiens sans le contenu
  *   des comptes rendus ; échéances des passeports (date d'expiration seule) et des visas, comme pour le manager, pour
- *   que les alertes et les échéances soient celles du service RH.
+ *   que les alertes et les échéances soient celles du service RH ; titre de séjour sans son numéro.
+ * Hors lecture seule, le titre de séjour se réduit au verdict (`autorisationVerdict`), comme pour le manager.
  */
 function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
   const lecture = droits.includes('consultation');
@@ -257,6 +262,11 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     certs: formations ? e.certs : [], habs: formations ? e.habs : [],
     // Motif de sortie : paie (solde de tout compte) et lecture seule ; le référent HSE ne voit que la date.
     motifSortie: paie ? e.motifSortie : null, finPrevue: paie ? e.finPrevue : null,
+    essaiFin: paie ? e.essaiFin ?? null : null, essaiRenouveleJusquau: paie ? e.essaiRenouveleJusquau ?? null : null,
+    // Titre de séjour : la lecture seule le voit sans numéro (échéances du service RH) ; les autres, le verdict seul.
+    ...(lecture
+      ? { autorisationTravail: e.autorisationTravail ? { ...e.autorisationTravail, numero: null } : null }
+      : { autorisationTravail: null, autorisationVerdict: verdictAutorisation(e, full.today) }),
     ...(lecture && !repriseMedicale(e, full.absences) ? { repriseMotif: e.repriseDate ? 'absence longue' : null } : { repriseMotif: null, repriseDate: null }),
   }));
   const ressources = new Set(full.referentiels.chantiers.filter(c => c.statut !== 'archive').flatMap(c => c.ressources));

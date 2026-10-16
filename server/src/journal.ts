@@ -99,7 +99,10 @@ const salariesTouches = (x: Contexte) => (x.result as { salaries?: unknown[] } |
 /** Référentiel désigné (`referentiel.charger`), seulement s'il en est un : jamais la valeur reçue telle quelle. */
 const referentielRecu = (p: P): ReferentielId | null => (['formations', 'habilitations', 'destinations'].includes(p.referentiel) ? p.referentiel : null);
 const nombreReferentiel = (db: Db, p: P) => { const r = referentielRecu(p); return r ? db.count(r) : 0; };
-const FICHE = ['nom', 'poste', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis', 'entree', 'fin', 'motifSortie', 'agence', 'matriculePaie'];
+const FICHE = [
+  'nom', 'poste', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis', 'entree', 'fin', 'motifSortie',
+  'essaiFin', 'essaiRenouveleJusquau', 'agence', 'matriculePaie',
+];
 /**
  * Solde de RTT de l'année affiché avant un changement de régime qui n'en ouvre plus (garde-fou de `employe.modifier`) :
  * gardé au journal pour la paie, sous un code de l'archive paie (`employe.rtt`).
@@ -157,7 +160,7 @@ export const REGLES: Record<string, Regle> = {
   // Fiches et équipes
   // Réembauche : réutilisation d'un matricule de paie confirmée par l'administrateur RH (`reutiliserMatricule`).
   'employe.creer': {
-    champs: ['equipe', 'poste', 'statut', 'typeContrat', 'temps', 'entree', 'fin', 'motifSortie', 'matriculePaie', 'reutiliserMatricule'], salaries: (_p, x) => [(x.result as { id?: number } | null)?.id],
+    champs: ['equipe', 'poste', 'statut', 'typeContrat', 'temps', 'entree', 'fin', 'motifSortie', 'essaiFin', 'essaiRenouveleJusquau', 'matriculePaie', 'reutiliserMatricule'], salaries: (_p, x) => [(x.result as { id?: number } | null)?.id],
   },
   // Les champs modifiés sont nommés ; seules les colonnes de FICHE ont leurs valeurs (ni visite médicale, ni reprise, ni naissance).
   'employe.modifier': {
@@ -172,6 +175,12 @@ export const REGLES: Record<string, Regle> = {
     bilan: (_p, x) => (x.result as { annulations?: Ligne } | null)?.annulations ?? {},
   },
   'employe.annulerSortie': { champs: ['id'], cible: parId('employes', ['fin', 'motifSortie']), salaries: p => [p.id] },
+  // Titre de séjour : type, expiration et date de vérification en préfecture, avant et après ; jamais le numéro (masqué :
+  // seul le fait qu'il change est tracé).
+  'employe.autorisationTravail': {
+    champs: ['id', 'requise', 'type', 'expire', 'verifieLe'], salaries: p => [p.id],
+    cible: { ...parId('employes', ['autorisationTravail']), aplatir: true, masques: ['numero'] },
+  },
   'equipe.creer': { champs: ['nom', 'managerId'], salaries: p => [p.managerId] },
   'equipe.renommer': { champs: ['nom', 'nouveau'] },
   'equipe.supprimer': { champs: ['nom'] },

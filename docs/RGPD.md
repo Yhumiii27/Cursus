@@ -25,7 +25,8 @@ le tenir à jour avec ce document. Le responsable du traitement et le contact du
 
 | Module | Finalité | Base légale |
 | --- | --- | --- |
-| Fiches et équipes | Gérer le dossier administratif utile au suivi : poste, équipe, manager, statut, contrat, organisation du temps | Exécution du contrat de travail (art. 6.1.b) ; obligations légales (art. 6.1.c) |
+| Fiches et équipes | Gérer le dossier administratif utile au suivi : poste, équipe, manager, statut, contrat, organisation du temps, période d'essai | Exécution du contrat de travail (art. 6.1.b) ; obligations légales (art. 6.1.c) |
+| Titres de séjour | Vérifier qu'un salarié étranger est autorisé à travailler, à l'embauche et pendant le contrat, et anticiper le renouvellement du titre | Obligation légale (art. L5221-8 et R5221-41 du Code du travail ; registre unique du personnel, art. L1221-13 et D1221-23) ; art. 6.1.c |
 | Formations, sessions, plan et budget | Suivre les formations obligatoires et leurs recyclages, organiser les sessions et les convocations, tenir le plan de formation | Obligation légale de formation à la sécurité (art. L4141-2 du Code du travail) et d'adaptation au poste (art. L6321-1) ; contrat |
 | Habilitations | Délivrer, suspendre, retirer les habilitations (électrique, conduite d'engins, travail en hauteur…) ; vérifier leurs prérequis | Obligations légales (R4544-9, R4323-55…) ; obligation de sécurité (art. L4121-1) |
 | Santé au travail | Savoir si l'aptitude médicale est à jour, appliquer les restrictions de poste, demander les visites au service de prévention et de santé au travail | Obligation légale (art. L4624-1 et suivants) ; art. 9.2.b et 9.2.h du RGPD |
@@ -42,7 +43,8 @@ réserve ou un refus est vérifié par le service RH.
 
 | Catégorie | Données | Où (tables) |
 | --- | --- | --- |
-| Identité et contrat | Nom, poste, équipe, statut, nature du contrat, organisation du temps, heures et forfaits, jours non travaillés, dates d'entrée et de fin, **année** de naissance (5 jours de congés de la CCN à 59 ans), agence d'intérim, adresse e-mail professionnelle, réglage des notifications, motif et date de reprise (liste fermée de l'art. L6315-1, sans information médicale) | `employes`, `equipes` |
+| Titre de séjour | Type de titre, numéro, date d'expiration, date de vérification auprès de la préfecture ; ni copie du document (GED Codex à venir), ni nationalité | `employes` (`autorisationTravail`) |
+| Identité et contrat | Nom, poste, équipe, statut, nature du contrat, organisation du temps, heures et forfaits, jours non travaillés, dates d'entrée et de fin, fin de la période d'essai et de son renouvellement, **année** de naissance (5 jours de congés de la CCN à 59 ans), agence d'intérim, adresse e-mail professionnelle, réglage des notifications, motif et date de reprise (liste fermée de l'art. L6315-1, sans information médicale) | `employes`, `equipes` |
 | Compétences | Certifications (date d'obtention), inscriptions et résultats des sessions, habilitations et leurs mesures (suspension, retrait : date, motif saisi, auteur) | `certifications`, `inscriptions`, `participations`, `habTitres` |
 | **Santé (art. 9)** | Date de la dernière visite médicale, avis d'aptitude (apte, restrictions, inapte), restrictions de poste recopiées telles qu'écrites par le médecin du travail et leur échéance ; demandes de visite (motif administratif) ; **vaccins et dates d'injection** (déplacements) ; nature des absences pour raison de santé (arrêt, accident du travail ou de trajet, maladie professionnelle, enfant malade) et justificatif reçu | `employes` (`visite`, `avis`, `restrictions`), `demandesVisite`, `vaccinations`, `absences` |
 | Temps de travail | Heures par jour et par projet, statut des feuilles, commentaire du valideur, motif d'un dépassement des durées maximales, régime figé à la soumission | `feuilles` |
@@ -64,10 +66,10 @@ certificat ou pièce scannée (seule la réception d'un justificatif est notée)
 | --- | --- |
 | Le salarié | Toutes ses données, depuis son espace ; copie complète par « Télécharger mes données » (art. 15 et 20) |
 | Service RH (gestionnaire, administrateur) | Toutes les données du personnel, santé comprise |
-| Manager | Son équipe seulement, sans donnée de santé : avis d'aptitude et restrictions en vigueur (jamais la date de la visite ni les vaccins), absence sans sa nature médicale, du passeport la seule date d'expiration |
+| Manager | Son équipe seulement, sans donnée de santé : avis d'aptitude et restrictions en vigueur (jamais la date de la visite ni les vaccins), absence sans sa nature médicale, du passeport la seule date d'expiration, du titre de séjour le seul verdict (valide ou à régulariser) |
 | Référent HSE / formation | Formations, sessions, certifications, habilitations, demandes de formation et d'habilitation ; aptitude réduite comme pour le manager ; chantiers et demandes Keystone, déplacements avec l'état précalculé du dossier (sans passeport ni visas) et absences des ressources des chantiers, dates seules sans leur nature, pour le Go / No Go ; ni temps, ni soldes, ni entretiens |
 | Gestionnaire de paie (interne ou cabinet) | Temps, absences (sans nature médicale) et soldes, transmission à la paie ; ni formations, ni entretiens, ni déplacements |
-| Consultation (direction, DPO, auditeur) | Tout l'espace RH en lecture, sans donnée de santé détaillée, sans dossier de voyage ni contenu des comptes rendus d'entretien ; journal des actions avec les messages touchant à la santé masqués |
+| Consultation (direction, DPO, auditeur) | Tout l'espace RH en lecture, sans donnée de santé détaillée, sans dossier de voyage ni contenu des comptes rendus d'entretien ; titre de séjour sans son numéro ; journal des actions avec les messages touchant à la santé masqués |
 
 ### Hors de Cursus (sous-traitants et destinataires externes)
 
@@ -93,6 +95,7 @@ Aucun transfert hors de l'Union européenne n'est prévu par Cursus ; à vérifi
 | Dossier du salarié (fiche, compétences, temps, absences, entretiens) | Pendant le contrat, puis à compléter par le DPO (référence usuelle : 5 ans après le départ pour le dossier, 3 ans pour le décompte du temps de travail, le temps de la prescription pour les éléments de paie) | **Aucune purge** : rien n'est effacé, même au départ |
 | Données de santé (visites, avis, restrictions, vaccinations) | à compléter par le DPO | **Aucune purge** ; les déclarations successives gardent les injections antérieures |
 | Passeport, visas | Validité du document, puis à compléter par le DPO | Aucune purge |
+| Titre de séjour (type, numéro, expiration, vérification) | Registre unique du personnel : 5 ans après le départ ; à confirmer par le DPO | Aucune purge |
 | Sauvegardes | 14 copies locales ; copies distantes selon le calendrier de `docs/SAUVEGARDE.md` (à valider avec le DPO) | Une donnée effacée subsiste dans les copies jusqu'à leur expiration |
 
 Tant que les durées « à compléter » ne sont pas fixées et appliquées, l'information des salariés indique que rien
@@ -133,4 +136,6 @@ Contact : le DPO (Paramètres → Confidentialité), sinon le service RH.
 - Statut de Keystone (outil interne ou sous-traitant) et contrat avec l'éditeur de Sage Paie.
 - Accès depuis Internet, smartphone compris (décision de l'entreprise) : téléphones fournis, verrouillage imposé par
   la gestion de flotte (`docs/DEPLOIEMENT.md`, « Postes et téléphones »).
-- Validation par le DPO du texte de la page Confidentialité et de l'information sur les vaccinations.
+- Validation par le DPO du texte de la page Confidentialité, de l'information sur les vaccinations et de celle sur les
+  titres de séjour (`INFO_TITRE_SEJOUR` de `shared/rules/contrats.ts`), et de l'inscription des titres au registre.
+  Le numéro du titre n'est jamais au journal ; Keystone ne reçoit qu'une « situation contractuelle à régulariser ».

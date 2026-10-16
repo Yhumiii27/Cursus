@@ -95,6 +95,10 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   campagneAncienneteMois: { defaut: 0, controle: entier(0, 24) },
   campagneExclus: { defaut: [], controle: parmi(CONTRATS_EXCLUABLES) },
   campagnePreavisJours: { defaut: PREAVIS_TOUTE_ANNEE, controle: entier(0, PREAVIS_TOUTE_ANNEE) },
+  // — Contrats (parametres/Contrats.tsx, shared/rules/contrats.ts) : titres de séjour, alerte à 4 mois (fenêtre de demande
+  //   de renouvellement en préfecture) puis relance à 2 mois —
+  titreSejourAlerte: { defaut: 120, controle: entier(30, 180, 15) },
+  titreSejourRelance: { defaut: 60, controle: entier(15, 120, 15) },
 };
 
 /**
@@ -108,6 +112,8 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
     ? 'Heures supplémentaires remplacées par un repos : indiquez la référence de l’accord collectif qui le prévoit (art. L3121-33) ou, sans délégué syndical, de la décision non contestée par le CSE (art. L3121-37)' : null),
   // — Campagne d'entretiens : dans l'année civile, l'ouverture au plus tard le jour de la clôture —
   s => (s.campagneDebut > s.campagneFin ? 'Campagne d’entretiens : l’ouverture doit précéder la clôture, dans la même année' : null),
+  // — Contrats : la relance d'un titre de séjour vient après la première alerte —
+  s => (s.titreSejourRelance >= s.titreSejourAlerte ? 'Titres de séjour : la relance doit être plus proche de l’expiration que la première alerte' : null),
 ];
 
 /** Vue non typée de la table, pour la parcourir (les contrôles reçoivent la valeur en vigueur du même champ). */

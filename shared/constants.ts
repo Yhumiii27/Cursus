@@ -337,6 +337,18 @@ export const STATUTS: Record<Statut, { label: string; court: string; cadre: bool
   cadre: { label: 'Ingénieur / cadre', court: 'Cadre', cadre: true },
 };
 
+/**
+ * Période d'essai d'un CDI : durées maximales légales selon le statut, en mois, avant et après un renouvellement
+ * (art. L1221-19 et L1221-21 ; le renouvellement n'est possible que si un accord de branche étendu le prévoit et que le
+ * contrat le stipule). Cursus ne propose aucune durée : il avertit quand la date saisie les dépasse. Les durées de la CCN
+ * Industries chimiques, qui peuvent être plus courtes, s'ajouteront ici une fois vérifiées.
+ */
+export const ESSAI_MAX_CDI: Record<Statut, { mois: number; renouvele: number }> = {
+  ouvrier: { mois: 2, renouvele: 4 },
+  technicien: { mois: 3, renouvele: 6 },
+  cadre: { mois: 4, renouvele: 8 },
+};
+
 /** `fin` : date de fin obligatoire ; `finFacultative` : date de fin possible mais non requise. */
 export const TYPES_CONTRAT: Record<TypeContrat, { label: string; fin?: boolean; finFacultative?: boolean; interim?: boolean }> = {
   cdi: { label: 'CDI' },

@@ -12,14 +12,16 @@ import { MOTIFS_SORTIE, sorti } from '../../../shared/rules/contrats.ts';
 import { convocationEnvoyee, etatInscription } from '../../../shared/rules/sessions.ts';
 import { JOURS_SEMAINE } from '../../../shared/rules/profil.ts';
 import { usePanneauVisible } from '../components/panneau.ts';
-import { Avatar, Bar, Btn, Chips, CloseButton, Empty, Fine, NoteAccent, Page, SectionLabel, Seg, Tag, Two } from '../components/ui.tsx';
+import { Avatar, Bar, Btn, Chips, CloseButton, Empty, Fine, NoteAccent, Page, Panel, SectionLabel, Seg, Tag, Two } from '../components/ui.tsx';
 import { Aptitude } from '../components/Aptitude.tsx';
 import { SortieFiche } from '../components/Sortie.tsx';
+import { ContratFiche } from '../components/ContratFiche.tsx';
 import { printDocument } from '../print.ts';
 import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derived.ts';
 import { desinscription, retraitEquipe } from '../state/confirmations.ts';
 import { useStore } from '../state/store.tsx';
 import { HistoriqueFiche } from './Journal.tsx';
+import { EchRow } from './Dashboard.tsx';
 
 /** Valeur du filtre d'équipe pour les collaborateurs sans équipe (« À affecter »). */
 const SANS_EQUIPE = '';
@@ -87,6 +89,9 @@ export function Collaborateurs() {
     : `${plural(emps.length, 'collaborateur', 'collaborateurs')} · ${plural(d.equipes.length, 'équipe', 'équipes')}${aAffecter ? ` · ${aAffecter} à affecter` : ''} · ${certs}`;
   const showEquipe = multi && !sel;
   const cible = filtre !== 'Toutes' && filtre !== SANS_EQUIPE ? filtre : null;
+  // Résumé du manager : fins d'essai (avant le délai de prévenance) et fins de contrat de son équipe (shared/rules/contrats.ts).
+  const contrats = useMemo(() => manager ? d.echeances(team, horizon).filter(x => x.kind === 'contrat' && x.key !== 'ok').sort((a, b) => a.d - b.d)
+    .map(x => ({ ...x, action: null })) : [], [manager, d, team, horizon]);
 
   return (
     <Page tight kicker={kicker} title="Collaborateurs" actions={<>
@@ -104,6 +109,18 @@ export function Collaborateurs() {
         <Btn variant="primary" icon={<UserPlusIcon size={14} />} onClick={() => openDialog({ type: 'membre', equipe: cible ?? myTeams[0] })}>Ajouter un membre</Btn>
       )}
     </>}>
+      {contrats.length > 0 && (
+        <Panel highlight title="Fins d’essai et de contrat" aside={plural(contrats.length, 'échéance à anticiper', 'échéances à anticiper')}>
+          <div className="scroll-x">
+            <table className="table">
+              <tbody>
+                {contrats.map(x => <EchRow key={`${x.emp.id}-${x.label}`} x={x} onOpen={() => setUi({ selectedId: x.emp.id })} onAct={() => undefined} />)}
+              </tbody>
+            </table>
+          </div>
+          <Fine>Fin d’essai : date limite pour notifier une rupture dans le délai de prévenance (art. L1221-25) ; décision à prendre avec le service RH.</Fine>
+        </Panel>
+      )}
       <div className="row-wrap">
         <section style={{ flex: '1 1 420px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
           <div className="scroll-x">
@@ -464,6 +481,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
           </Info>
         )}
         <SortieFiche e={e} />
+        <ContratFiche e={e} />
         <Info label="Manager valideur">{d.mgrName(valideur)}</Info>
         {rh && e.repriseDate && <Info label="Reprise après absence longue">{`${e.repriseMotif ?? 'Motif non renseigné'} · le ${fmtIso(e.repriseDate)}`}</Info>}
       </div>

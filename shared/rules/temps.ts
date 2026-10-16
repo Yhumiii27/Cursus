@@ -1,9 +1,11 @@
 // Feuilles de temps : décompte des heures, majorations, variables de paie.
 import { horodatageParis, isFerie, isoWeek, isoWeekYear, parse, wDays } from '../dates.ts';
-import { matricule, num, r1 } from '../format.ts';
+import { num, r1 } from '../format.ts';
 import type { Domain } from '../domain.ts';
-import type { Absence, AbsenceType, ContratFige, Employe, FeuilleTemps, ISODate, LigneTemps, SagePush, TacheKeystone } from '../types.ts';
+import type { Absence, AbsenceType, ContratFige, Employe, FeuilleTemps, ISODate, LigneTemps, ModeHeuresSupFige, SageMode, SagePush, TacheKeystone } from '../types.ts';
 import { absenceBloque, jourHorsContrat, natureDef, natureMedicale } from './absences.ts';
+import { matriculeAffiche } from './matricules.ts';
+import { modeHeuresSup, periodesSemaine, rubriquesPaie, traduireRubriques } from './paie.ts';
 
 /** Régime de temps de travail en vigueur d'une fiche, à figer sur une feuille soumise. */
 export function contratFige(e: Employe): ContratFige {
@@ -25,7 +27,11 @@ export interface SheetCalc {
   normal: number;
   /** Heures supplémentaires structurelles incluses dans un forfait hebdomadaire (total, dont +25 % et +50 %). */
   incluses: number; incluses25: number; incluses50: number;
-  sup25: number; sup50: number; hc10: number; hc25: number; recup: number; jours: number;
+  sup25: number; sup50: number; hc10: number; hc25: number;
+  /** Repos compensateur acquis (heures supplémentaires majorées) : en mode « repos » (ou « historique ») seulement, hors intérim. */
+  recup: number; jours: number;
+  /** Mode des heures supplémentaires : figé sur la feuille à sa validation, sinon le réglage en vigueur. */
+  modeHS: ModeHeuresSupFige;
   c: ReturnType<Domain['contratOf']>;
 }
 
@@ -33,12 +39,13 @@ export interface SheetCalc {
  * Décompte hebdomadaire selon l'organisation du temps de travail en vigueur la semaine de la feuille
  * (régime figé à la soumission, sinon celui de la fiche) :
  * - 35 h, 39 h + RTT, forfait hebdomadaire : heures supplémentaires au-delà du seuil
- *   (+25 % de la 36e à la 43e heure, +50 % au-delà), converties en repos compensateur ;
+ *   (+25 % de la 36e à la 43e heure, +50 % au-delà), payées ou remplacées par un repos compensateur équivalent selon
+ *   le mode figé à la validation (`modeHS` ; « historique » : les deux, calcul d'avant le choix du mode) ;
  * - temps partiel : heures complémentaires (+10 % jusqu'au dixième de la durée, +25 % au-delà) ;
  * - forfait jours et cadre dirigeant : décompte en jours, pas d'heures supplémentaires ;
  * - forfait annuel en heures : pas de décompte hebdomadaire (cumul annuel, voir `cumulAnnuel`).
  */
-export function calcSheet(d: Domain, e: Employe, sh: (Pick<FeuilleTemps, 'lignes'> & { contrat?: ContratFige | null }) | null): SheetCalc {
+export function calcSheet(d: Domain, e: Employe, sh: (Pick<FeuilleTemps, 'lignes'> & Partial<Pick<FeuilleTemps, 'contrat' | 'heuresSup'>>) | null): SheetCalc {
   const c = d.contratOf(employeDeLaFeuille(e, sh));
   const perDay = [0, 1, 2, 3, 4].map(i => (sh ? sh.lignes : []).reduce((n, l) => n + num(l.h[i]), 0));
   const total = perDay.reduce((a, b) => a + b, 0);
@@ -51,7 +58,8 @@ export function calcSheet(d: Domain, e: Employe, sh: (Pick<FeuilleTemps, 'lignes
     if (total > 48) depassements.push('Plus de 48 h dans la semaine (art. L3121-20)');
   }
   const warn = [...depassements];
-  const r: SheetCalc = { perDay, total, c, warn, depassements, normal: total, incluses: 0, incluses25: 0, incluses50: 0, sup25: 0, sup50: 0, hc10: 0, hc25: 0, recup: 0, jours: 0 };
+  const modeHS = modeHeuresSup(sh, d.ds.settings);
+  const r: SheetCalc = { perDay, total, c, warn, depassements, normal: total, incluses: 0, incluses25: 0, incluses50: 0, sup25: 0, sup50: 0, hc10: 0, hc25: 0, recup: 0, jours: 0, modeHS };
   const jours = perDay.reduce((n, h) => n + (h === 0 ? 0 : h <= 4 ? 0.5 : 1), 0);
   if (c.forfait || c.dirigeant || c.annuel) r.jours = jours;
   else if (c.partiel) {
@@ -74,7 +82,8 @@ export function calcSheet(d: Domain, e: Employe, sh: (Pick<FeuilleTemps, 'lignes
       r.incluses50 = Math.max(0, Math.min(total, seuil) - 43);
       r.incluses = r.incluses25 + r.incluses50;
     } else r.normal = total - sup;
-    r.recup = c.interim ? 0 : r.sup25 * 1.25 + r.sup50 * 1.5;
+    // Repos de remplacement : heures et majoration (art. L3121-33) ; payées, les heures supplémentaires n'en donnent pas.
+    r.recup = c.interim || modeHS === 'paiement' ? 0 : r.sup25 * 1.25 + r.sup50 * 1.5;
   }
   return r;
 }
@@ -211,46 +220,90 @@ export function suggestLines(d: Domain, e: Employe, w: ISODate): LigneTemps[] {
   }));
 }
 
-export function sageRubriques(d: Domain, e: Employe, sh: FeuilleTemps): Record<string, number> {
+/**
+ * Rubriques de paie d'une feuille (codes internes, RUBRIQUES_PAIE de shared/constants.ts). Heures supplémentaires selon
+ * le mode : payées (HS25, HS50), remplacées par un repos (RCR_ACQUIS seul) ou, feuille d'avant le choix du mode, les deux.
+ * Les heures incluses à un forfait hebdomadaire (HSF25, HSF50) restent payées.
+ */
+export function sageRubriques(d: Domain, e: Employe, sh: Pick<FeuilleTemps, 'lignes'> & Partial<Pick<FeuilleTemps, 'contrat' | 'heuresSup'>>): Record<string, number> {
   const c = calcSheet(d, e, sh);
   if (c.c.forfait) return { JTRAV: c.jours };
   if (c.c.annuel) return { HN: r1(c.total) };
+  const payees = c.modeHS !== 'repos' || c.c.interim;
   return {
     HN: r1(c.normal),
     ...(c.incluses25 ? { HSF25: r1(c.incluses25) } : {}),
     ...(c.incluses50 ? { HSF50: r1(c.incluses50) } : {}),
-    ...(c.sup25 ? { HS25: r1(c.sup25) } : {}),
-    ...(c.sup50 ? { HS50: r1(c.sup50) } : {}),
+    ...(payees && c.sup25 ? { HS25: r1(c.sup25) } : {}),
+    ...(payees && c.sup50 ? { HS50: r1(c.sup50) } : {}),
     ...(c.hc10 ? { HC10: r1(c.hc10) } : {}),
     ...(c.hc25 ? { HC25: r1(c.hc25) } : {}),
     ...(c.recup ? { RCR_ACQUIS: r1(c.recup) } : {}),
   };
 }
 
-/** Feuilles validées, non encore transmises, hors intérimaires (relevé envoyé à l'agence) et cadres dirigeants. */
+/** Variables d'une feuille dans une période de paie (codes internes) ; `origine` : période close, d'où le rappel. */
+export interface RubriquesPeriode { periode: string; origine: string | null; rubriques: Record<string, number> }
+
+/**
+ * Rubriques d'une feuille par période de paie (shared/rules/paie.ts) : une seule part, sauf une semaine à cheval sur deux
+ * mois ventilée jour par jour. Chaque part reçoit le décompte cumulé jusqu'à son dernier jour, moins celui des parts
+ * précédentes : les heures gardent leur rang dans la semaine (les heures supplémentaires sont les dernières) et les
+ * parts s'additionnent exactement au décompte de la semaine.
+ */
+export function rubriquesParPeriode(d: Domain, e: Employe, sh: FeuilleTemps): RubriquesPeriode[] {
+  const parts = periodesSemaine(sh.week, d.ds.settings, d.ti);
+  if (parts.length === 1) return [{ periode: parts[0].periode, origine: parts[0].origine, rubriques: sageRubriques(d, e, sh) }];
+  let avant: Record<string, number> = {};
+  return parts.map(p => {
+    const dernier = Math.max(...p.jours);
+    const cumul = sageRubriques(d, e, { ...sh, lignes: sh.lignes.map(l => ({ ...l, h: l.h.map((v, i) => (i <= dernier ? v : 0)) })) });
+    const rubriques = Object.fromEntries(Object.entries(cumul).map(([k, v]) => [k, r1(v - (avant[k] ?? 0))]));
+    avant = cumul;
+    return { periode: p.periode, origine: p.origine, rubriques };
+  });
+}
+
+/**
+ * Feuilles validées, ni transmises ni réservées par un lot de paie actif (un lot annulé les libère : `lotId` vidé), hors
+ * intérimaires (relevé envoyé à l'agence) et cadres dirigeants.
+ */
 export function sagePending(d: Domain): FeuilleTemps[] {
   return d.ds.feuilles.filter(sh => {
     const e = d.emp(sh.empId);
-    if (!e || sh.statut !== 'validee' || sh.sage) return false;
+    if (!e || sh.statut !== 'validee' || sh.sage || sh.lotId) return false;
     const c = d.contratOf(employeDeLaFeuille(e, sh));
     return !c.interim && !c.dirigeant;
   });
 }
 
 /**
- * Variables de paie transmises à Sage. Semaine ISO : son année est celle du jeudi (la semaine du 29 décembre 2025
- * est « 2026-S01 ») ; `envoye_le` : heure réelle de l'envoi, à l'heure de Paris (décalage d'hiver ou d'été).
+ * Variables de paie transmises à Sage : une ligne par feuille et par période de paie (rappel d'une période close avec
+ * `periode_origine`), rubriques traduites en codes Sage (désactivées retirées, quantités nulles omises ; une ligne sans
+ * quantité n'est pas émise). Semaine ISO : son année est celle du jeudi (la semaine du 29 décembre 2025 est
+ * « 2026-S01 ») ; `envoye_le` : heure réelle de l'envoi, à l'heure de Paris (décalage d'hiver ou d'été).
  */
-export function buildSagePayload(d: Domain, sheets: FeuilleTemps[], dossier: string, maintenant = new Date()): SagePush {
+export function buildSagePayload(d: Domain, sheets: FeuilleTemps[], dossier: string, maintenant = new Date(), mode: SageMode = 'simulation'): SagePush {
+  const table = rubriquesPaie(d.ds.rubriquesPaie);
+  // Matricule du dossier de paie ; à défaut (simulation seulement : une transmission réelle le refuse), le matricule Cursus.
+  const lignes = sheets.flatMap(sh => rubriquesParPeriode(d, d.emp(sh.empId)!, sh).map(p => ({
+    matricule: matriculeAffiche(d.emp(sh.empId) ?? { id: sh.empId, matriculePaie: null }),
+    semaine: `${isoWeekYear(sh.week)}-S${String(isoWeek(sh.week)).padStart(2, '0')}`,
+    periode: p.periode,
+    ...(p.origine ? { periode_origine: p.origine } : {}),
+    rubriques: traduireRubriques(p.rubriques, table),
+  }))).filter(l => Object.keys(l.rubriques).length > 0);
   return {
     endpoint: 'POST /sage-paie/v1/variables',
     dossier,
-    periode_paie: d.ti.slice(0, 7),
+    mode,
     envoye_le: horodatageParis(maintenant),
-    lignes: sheets.map(sh => ({
-      matricule: matricule(sh.empId),
-      semaine: `${isoWeekYear(sh.week)}-S${String(isoWeek(sh.week)).padStart(2, '0')}`,
-      rubriques: sageRubriques(d, d.emp(sh.empId)!, sh),
-    })),
+    periodes: [...new Set(lignes.map(l => l.periode))].sort(),
+    lignes,
   };
+}
+
+/** Codes internes émis (quantité non nulle) par des feuilles : ceux dont la correspondance doit être confirmée. */
+export function rubriquesEmises(d: Domain, sheets: FeuilleTemps[]): Set<string> {
+  return new Set(sheets.flatMap(sh => rubriquesParPeriode(d, d.emp(sh.empId)!, sh).flatMap(p => Object.keys(p.rubriques).filter(k => p.rubriques[k]))));
 }

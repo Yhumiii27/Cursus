@@ -1,30 +1,42 @@
 // Accès SQLite (module node:sqlite) : schéma déclaratif et requêtes génériques.
 // Les champs sont en camelCase côté code et en snake_case dans la base.
 import { DatabaseSync } from 'node:sqlite';
-import { mkdirSync } from 'node:fs';
+import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
+import { fichierBase } from './chemins.ts';
 import { sauvegarderAvantMigration } from './sauvegarde.ts';
 
 type ColType = 'text' | 'int' | 'real' | 'bool' | 'json';
 interface TableDef { pk: string; auto?: boolean; cols: Record<string, ColType>; unique?: string[][] }
 
 export const TABLES = {
-  formations: { pk: 'id', cols: { id: 'text', nom: 'text', court: 'text', type: 'text', validite: 'int', duree: 'text', organisme: 'text', cout: 'real', validation: 'text' } },
-  habilitations: { pk: 'id', cols: { id: 'text', nom: 'text', detail: 'text', prereqs: 'json', medical: 'bool', validite: 'int', signataire: 'text' } },
+  // Référentiels administrés par le service RH (server/src/actions/referentiels.ts) : `archive`, date d'archivage (null :
+  // en vigueur) ; on archive au lieu de supprimer.
+  formations: { pk: 'id', cols: { id: 'text', nom: 'text', court: 'text', type: 'text', validite: 'int', duree: 'text', organisme: 'text', cout: 'real', validation: 'text', archive: 'text' } },
+  habilitations: { pk: 'id', cols: { id: 'text', nom: 'text', detail: 'text', prereqs: 'json', medical: 'bool', validite: 'int', signataire: 'text', archive: 'text' } },
   // `secu` : formalité de sécurité sociale du détachement (null : déduite du code pays, shared/constants.ts).
-  destinations: { pk: 'code', cols: { code: 'text', pays: 'text', visa: 'text', visaSub: 'text', oblig: 'json', rec: 'json', passMois: 'int', secu: 'text' } },
-  equipes: { pk: 'nom', cols: { nom: 'text', managerId: 'int', ordre: 'int' } },
+  destinations: { pk: 'code', cols: { code: 'text', pays: 'text', visa: 'text', visaSub: 'text', oblig: 'json', rec: 'json', passMois: 'int', secu: 'text', archive: 'text' } },
+  // Postes et formations ou habilitations exigées (shared/rules/exigences.ts) ; `exigences` d'une équipe : communes à ses membres.
+  postes: { pk: 'id', auto: true, cols: { id: 'int', nom: 'text', formations: 'json', habilitations: 'json', archive: 'text' } },
+  equipes: { pk: 'nom', cols: { nom: 'text', managerId: 'int', ordre: 'int', exigences: 'json' } },
   projets: { pk: 'code', cols: { code: 'text', nom: 'text', statut: 'text' } },
   chantiers: { pk: 'id', cols: { id: 'text', nom: 'text', client: 'text', lieu: 'text', pays: 'text', debut: 'text', fin: 'text', chef: 'text', habs: 'json', certs: 'json', ressources: 'json', statut: 'text' } },
   employes: {
     pk: 'id', auto: true,
     cols: {
-      id: 'int', nom: 'text', equipe: 'text', poste: 'text', statut: 'text', typeContrat: 'text', temps: 'text', heures: 'real',
+      id: 'int', nom: 'text', equipe: 'text', poste: 'text', posteId: 'int', statut: 'text', typeContrat: 'text', temps: 'text', heures: 'real',
       forfaitHeures: 'real', forfaitJours: 'real', jourOff: 'json', tempsDepuis: 'text', entree: 'text', fin: 'text',
       naissance: 'int', agence: 'text', repriseMotif: 'text', repriseDate: 'text', visite: 'text', passeportNumero: 'text', passeportExpire: 'text',
       email: 'text', notifications: 'text', // adresse professionnelle et réglage des notifications (server/src/notifications.ts)
       // Avis du médecin du travail à la dernière visite et restrictions datées (`medical.avis`) : données de santé.
       avis: 'text', restrictions: 'json',
+      // Matricule du dossier de paie (Sage) : unique, contrôlé par le serveur (une réembauche confirmée le réutilise).
+      matriculePaie: 'text',
+      // Sortie enregistrée par le service RH (`employe.sortie`) : motif, et fin prévue au contrat rétablie si elle est annulée.
+      motifSortie: 'text', finPrevue: 'text',
+      // Période d'essai écrite au contrat (fin, fin après renouvellement) et titre de séjour valant autorisation de travail
+      // ({ type, numero, expire, demandeLe, verifieLe } ; null : non requise), le numéro réservé au service RH (server/src/dataset.ts).
+      essaiFin: 'text', essaiRenouveleJusquau: 'text', autorisationTravail: 'json',
     },
   },
   // Demandes de visite médicale du service RH, closes par la saisie de la visite (server/src/actions/sante.ts).
@@ -38,12 +50,23 @@ export const TABLES = {
   inscriptions: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', sessionId: 'int', convoc: 'text', date: 'text', convocLe: 'text' }, unique: [['empId', 'sessionId']] },
   // `reussi` peut rester indéterminé (null) : stocké en JSON pour garder true / false / null.
   participations: { pk: 'id', auto: true, cols: { id: 'int', sessionId: 'int', empId: 'int', parcours: 'text', present: 'bool', reussi: 'json', certId: 'int' }, unique: [['sessionId', 'empId']] },
-  planActions: { pk: 'id', auto: true, cols: { id: 'int', exercice: 'int', f: 'text', libelle: 'text', equipe: 'text', periode: 'text', effectif: 'int', cout: 'real', statut: 'text', origine: 'text' } },
+  // `coutReel`, `effectifReel` : saisis à la clôture de l'action ; `reportDe` : action d'un exercice clos qu'elle reporte.
+  planActions: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', exercice: 'int', f: 'text', libelle: 'text', equipe: 'text', periode: 'text', effectif: 'int', cout: 'real', statut: 'text', origine: 'text',
+      coutReel: 'real', effectifReel: 'int', reportDe: 'int',
+    },
+  },
   budgets: { pk: 'id', auto: true, cols: { id: 'int', exercice: 'int', equipe: 'text', montant: 'real' }, unique: [['exercice', 'equipe']] },
+  // Exercices du plan de formation clos (`plan.cloturerExercice`) : plan et enveloppes en lecture seule.
+  exercicesClos: { pk: 'exercice', cols: { exercice: 'int', le: 'text', par: 'text' } },
   // Formalités de détachement tenues par le RH (`voyage.detachement`) : certificat de sécurité sociale, information écrite.
   voyages: {
     pk: 'id', auto: true,
-    cols: { id: 'int', empId: 'int', dest: 'text', depart: 'text', retour: 'text', motif: 'text', origine: 'text', ref: 'text', chantier: 'text', detachementLe: 'text', informationLe: 'text' },
+    cols: { id: 'int', empId: 'int', dest: 'text', depart: 'text', retour: 'text', motif: 'text', origine: 'text', ref: 'text', chantier: 'text', detachementLe: 'text', informationLe: 'text',
+      // Annulation (`voyage.annuler`) : le déplacement reste dans l'historique, hors de tous les calculs.
+      annuleLe: 'text', annulePar: 'text', annuleMotif: 'text' },
   },
   // Références Keystone (`ref`) uniques : index créés au démarrage (server/src/integrations/keystone-entrant.ts).
   demandesKeystone: {
@@ -55,7 +78,26 @@ export const TABLES = {
   missions: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', projet: 'text', lieu: 'text', du: 'text', au: 'text', type: 'text', ref: 'text' } },
   taches: { pk: 'id', auto: true, cols: { id: 'int', ref: 'text', empId: 'int', projet: 'text', tache: 'text', debut: 'text', fin: 'text', heures: 'json' } },
   // `motifDepassement` : motif d'un dépassement des durées maximales de travail (server/src/actions/temps.ts).
-  feuilles: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', week: 'text', statut: 'text', comment: 'text', sage: 'bool', keystone: 'bool', lignes: 'json', contrat: 'json', motifDepassement: 'text' }, unique: [['empId', 'week']] },
+  // `heuresSup` : mode des heures supplémentaires figé à la validation (payées, en repos ; historique : migrations/paie.ts).
+  feuilles: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', empId: 'int', week: 'text', statut: 'text', comment: 'text', sage: 'bool', keystone: 'bool', lignes: 'json', contrat: 'json', motifDepassement: 'text', heuresSup: 'text', lotId: 'int' },
+    unique: [['empId', 'week']],
+  },
+  // Lots de paie (server/src/actions/paie.ts, shared/rules/lots-paie.ts) : contenu figé à la génération (`contenu`, lignes
+  // de SagePush), feuilles du lot, téléchargements du fichier d'import, confirmation de l'import (accusé) ou annulation.
+  lotsPaie: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', cle: 'text', mode: 'text', statut: 'text', periode: 'text', periodes: 'json', rappels: 'json', creation: 'text', auteur: 'text',
+      feuilles: 'json', resume: 'json', sansMatricule: 'json', contenu: 'json', telechargeLe: 'text', telechargePar: 'text', telechargements: 'int',
+      confirmeLe: 'text', confirmePar: 'text', reference: 'text', annuleLe: 'text', annulePar: 'text', historique: 'bool',
+    },
+    unique: [['cle']],
+  },
+  // Correspondance des rubriques de paie avec le plan de paie Sage (server/src/actions/paie.ts) : une ligne par rubrique
+  // modifiée ; sans ligne, code Sage égal au code interne, à confirmer (shared/rules/paie.ts).
+  rubriquesPaie: { pk: 'code', cols: { code: 'text', codeSage: 'text', active: 'bool', confirmeLe: 'text', confirmePar: 'text', modifieLe: 'text', modifiePar: 'text' } },
   absences: {
     pk: 'id', auto: true,
     cols: {
@@ -68,10 +110,44 @@ export const TABLES = {
     },
   },
   cet: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', type: 'text', jours: 'real', date: 'text', periode: 'text' } },
-  reports: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', jours: 'real', motif: 'text', par: 'text', date: 'text', sens: 'text' } },
-  soldesReprise: { pk: 'empId', cols: { empId: 'int', cpPris: 'real', rttPris: 'real', recupAcquis: 'real', recupPris: 'real' } },
+  // `periode` : année de prise de la période dont les droits reçoivent les jours ; `expire` : échéance (shared/rules/conges.ts).
+  reports: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', jours: 'real', motif: 'text', par: 'text', date: 'text', sens: 'text', periode: 'int', expire: 'text' } },
+  // `arreteLe` : date d'arrêté des compteurs repris, qui fixe la période CP et l'année RTT sur lesquelles ils comptent.
+  // `cpSolde`, `cpSoldeSuivant`, `rttSolde`, `cetSolde` : soldes d'ouverture importés à la mise en service (actions/reprise.ts).
+  soldesReprise: {
+    pk: 'empId',
+    cols: {
+      empId: 'int', cpPris: 'real', rttPris: 'real', recupAcquis: 'real', recupPris: 'real', arreteLe: 'text',
+      cpSolde: 'real', cpSoldeSuivant: 'real', rttSolde: 'real', cetSolde: 'real',
+    },
+  },
+  // Lots importés depuis l'écran Mise en service (`reprise.importer`) : type, date de reprise, colonnes rapprochées,
+  // options, compte rendu ligne par ligne. Le fichier lui-même n'est pas conservé (données personnelles, avis médicaux).
+  reprises: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', type: 'text', le: 'text', par: 'text', dateReprise: 'text', fichier: 'text', colonnes: 'json', options: 'json',
+      lignes: 'int', crees: 'int', majs: 'int', ignorees: 'int', refusees: 'int', rapport: 'json',
+    },
+  },
+  // Clôtures des périodes de congés (`conges.cloturer`) : solde photographié et décision, une ligne par salarié et période.
+  clotures: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', type: 'text', periode: 'int', solde: 'real', decision: 'text', reportes: 'real', perdus: 'real', expire: 'text',
+      reportId: 'int', motif: 'text', le: 'text', par: 'text',
+    },
+    unique: [['empId', 'type', 'periode']],
+  },
   // `planifieLe` : jour de la planification (ou de la reprogrammation), borne de la date réelle saisie à la clôture.
-  entretiens: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', type: 'text', date: 'text', statut: 'text', cr: 'json', info: 'bool', signSal: 'text', signMgr: 'text', planifieLe: 'text' } },
+  // `remise*` : remise du compte rendu au salarié (jour, mode, auteur) ; `telechargeLe` : son premier téléchargement.
+  entretiens: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', type: 'text', date: 'text', statut: 'text', cr: 'json', info: 'bool', signSal: 'text', signMgr: 'text', planifieLe: 'text',
+      remiseLe: 'text', remiseMode: 'text', remisePar: 'text', telechargeLe: 'text',
+    },
+  },
   demandesCollab: {
     pk: 'id', auto: true,
     // `motifRefus` : motif d'un refus par le service RH, montré au collaborateur seul (server/src/dataset.ts).
@@ -132,13 +208,27 @@ export const TABLES = {
   },
   // Dernier verdict Go / No Go transmis à Keystone, par chantier et ressource (server/src/integrations/keystone-verdicts.ts).
   verdictsKeystone: { pk: 'id', auto: true, cols: { id: 'int', chantier: 'text', empId: 'int', statut: 'text', motifs: 'json', date: 'text' }, unique: [['chantier', 'empId']] },
+  // Relances des échéances (server/src/relances.ts) : palier franchi par objet (titre, visite, entretien, fin de contrat…),
+  // noté une fois envoyé pour qu'il ne reparte pas ; `cle` porte la date d'échéance (un renouvellement repart de zéro).
+  relances: { pk: 'id', auto: true, cols: { id: 'int', cle: 'text', palier: 'text', le: 'text' }, unique: [['cle', 'palier']] },
 } satisfies Record<string, TableDef>;
 
 export type TableName = keyof typeof TABLES;
 type Row = Record<string, unknown>;
 
-const snake = (s: string) => s.replace(/[A-Z]/g, m => '_' + m.toLowerCase());
+export const snake = (s: string) => s.replace(/[A-Z]/g, m => '_' + m.toLowerCase());
 const SQL_TYPE: Record<ColType, string> = { text: 'TEXT', int: 'INTEGER', real: 'REAL', bool: 'INTEGER', json: 'TEXT' };
+
+/** Colonnes et contraintes d'une table du schéma, telles que CREATE TABLE les attend (reprises par reconstruireTable). */
+export function colonnesSql(name: TableName): string {
+  const def = TABLES[name] as TableDef;
+  const cols = Object.entries(def.cols).map(([c, t]) => {
+    const pk = c === def.pk ? (def.auto ? ' PRIMARY KEY AUTOINCREMENT' : ' PRIMARY KEY') : '';
+    return `${snake(c)} ${SQL_TYPE[t]}${pk}`;
+  });
+  for (const u of def.unique ?? []) cols.push(`UNIQUE (${u.map(snake).join(', ')})`);
+  return cols.join(', ');
+}
 
 function toDb(t: ColType, v: unknown): string | number | null {
   if (v === undefined || v === null) return null;
@@ -157,25 +247,34 @@ function fromDb(t: ColType, v: unknown): unknown {
 
 export class Db {
   sql: DatabaseSync;
+  /** Base sans aucune table de Cursus à l'ouverture, créée à l'instant : les migrations nommées s'y appliquent sans copie. */
+  readonly neuve: boolean;
   private depth = 0;
 
   constructor(file: string) {
-    if (file !== ':memory:') mkdirSync(dirname(resolve(file)), { recursive: true });
+    if (file !== ':memory:') {
+      mkdirSync(dirname(resolve(file)), { recursive: true, mode: 0o700 });
+      // Base neuve créée vide en 600 avant que SQLite ne l'ouvre (données de santé et de paie) : ses fichiers -wal et
+      // -shm prennent les mêmes droits. Base existante : droits contrôlés au démarrage (server/src/protection.ts).
+      try { writeFileSync(file, '', { flag: 'wx', mode: 0o600 }); } catch { /* déjà présente */ }
+    }
     this.sql = new DatabaseSync(file);
-    this.sql.exec('PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+    // Base occupée par une autre connexion (npm run comptes, sauvegarde) : attente jusqu'à 5 s plutôt qu'un échec immédiat.
+    this.sql.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
+    const tables = this.tablesSql();
+    this.neuve = !Object.keys(TABLES).some(n => tables.has(snake(n)));
     this.createSchema();
+  }
+
+  private tablesSql(): Set<string> {
+    return new Set((this.sql.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as { name: string }[]).map(t => t.name));
   }
 
   private createSchema() {
     // Base existante à laquelle il manque des tables ou des colonnes : copie de sécurité d'abord.
     if (this.schemaAMigrer()) sauvegarderAvantMigration(this);
     for (const [name, def] of Object.entries(TABLES) as [TableName, TableDef][]) {
-      const cols = Object.entries(def.cols).map(([c, t]) => {
-        const pk = c === def.pk ? (def.auto ? ' PRIMARY KEY AUTOINCREMENT' : ' PRIMARY KEY') : '';
-        return `${snake(c)} ${SQL_TYPE[t]}${pk}`;
-      });
-      for (const u of def.unique ?? []) cols.push(`UNIQUE (${u.map(snake).join(', ')})`);
-      this.sql.exec(`CREATE TABLE IF NOT EXISTS ${snake(name)} (${cols.join(', ')})`);
+      this.sql.exec(`CREATE TABLE IF NOT EXISTS ${snake(name)} (${colonnesSql(name)})`);
       // Base existante : ajoute les colonnes apparues depuis sa création.
       const existing = new Set((this.sql.prepare(`PRAGMA table_info(${snake(name)})`).all() as { name: string }[]).map(c => c.name));
       for (const [c, t] of Object.entries(def.cols)) {
@@ -186,8 +285,8 @@ export class Db {
 
   /** Vrai si la base contient déjà des tables de Cursus mais pas toutes les tables ou colonnes du schéma. */
   private schemaAMigrer(): boolean {
-    const tables = new Set((this.sql.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as { name: string }[]).map(t => t.name));
-    if (!Object.keys(TABLES).some(n => tables.has(snake(n)))) return false; // base neuve
+    if (this.neuve) return false;
+    const tables = this.tablesSql();
     return (Object.entries(TABLES) as [TableName, TableDef][]).some(([name, def]) => {
       if (!tables.has(snake(name))) return true;
       const cols = new Set(this.columns(name));
@@ -265,7 +364,9 @@ export class Db {
   /** Exécute `fn` dans une transaction (annulée en cas d'erreur). */
   tx<T>(fn: () => T): T {
     if (this.depth > 0) return fn(); // transaction englobante déjà ouverte
-    this.sql.exec('BEGIN');
+    // IMMEDIATE : verrou d'écriture pris d'emblée, en attendant au besoin (busy_timeout) qu'une autre connexion libère la
+    // base ; une transaction différée qui lit puis écrit échouerait sans attendre si une autre connexion a écrit entre-temps.
+    this.sql.exec('BEGIN IMMEDIATE');
     this.depth++;
     try {
       const r = fn();
@@ -290,8 +391,8 @@ export class Db {
   }
 }
 
-/** Fichier de la base : CURSUS_DB, sinon data/cursus.db. */
-export const dbFile = () => process.env.CURSUS_DB || 'data/cursus.db';
+/** Fichier de la base, en chemin absolu : CURSUS_DB, sinon data/cursus.db du projet (server/src/chemins.ts). */
+export const dbFile = () => fichierBase();
 
 export function openDb(file = dbFile()) {
   return new Db(file);

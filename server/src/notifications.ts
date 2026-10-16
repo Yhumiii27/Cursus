@@ -8,7 +8,8 @@
 import { ENT_TYPES, HEURE_RECAPITULATIF, MOTIFS_VISITE } from '../../shared/constants.ts';
 import { addD, isoWeek, parse } from '../../shared/dates.ts';
 import { type Domain, sessionActive } from '../../shared/domain.ts';
-import { equipeLabel, fmt, fmtIso, matricule, plural } from '../../shared/format.ts';
+import { equipeLabel, fmt, fmtIso, plural } from '../../shared/format.ts';
+import { matriculeAffiche } from '../../shared/rules/matricules.ts';
 import { convocationEnvoyee } from '../../shared/rules/sessions.ts';
 import type { Absence, Certification, CurrentUser, Dataset, DemandeCollab, DemandeVisite, Employe, Entretien, Messagerie, Session } from '../../shared/types.ts';
 import { configMail } from './config.ts';
@@ -17,6 +18,7 @@ import type { Db } from './db.ts';
 import { calendrier, domaineAgenda, envoyerEmail, pieceJointe, type EvenementAgenda } from './integrations/email.ts';
 import { adresseSalarie, courriel, jourLong, lireMessagerie, periodeLongue } from './messagerie.ts';
 import { relevesAutomatiques } from './releves.ts';
+import { relancerEcheances } from './relances.ts';
 
 /** Ce dont une notification a besoin du contexte d'une action. */
 type Contexte = { db: Db; ds: Dataset; user: CurrentUser };
@@ -91,6 +93,36 @@ export function notifierFeuilleRenvoyee(cx: Contexte, emp: Employe, week: string
     texte: auto
       ? `Votre feuille de temps de la ${semaineTexte(week)} vous est renvoyée : l’absence qui couvrait la semaine a été annulée ou raccourcie. Saisissez les heures travaillées, puis soumettez-la de nouveau.`
       : `Votre feuille de temps de la ${semaineTexte(week)} vous est renvoyée pour correction par ${auteur(cx.user)}. Le commentaire est à lire dans Cursus (Temps de travail).`,
+  });
+}
+
+/** Feuille en retard d'une relance (temps.relancer) : semaine et état, jamais d'heure ni de commentaire. */
+/** « Relance du service RH. » ou « Relance de Karim Haddad. » (auteur() donnerait « de le service RH »). */
+const relancePar = (user: CurrentUser) => `Relance ${user.role === 'rh' ? 'du service RH' : `de ${user.nom}`}.`;
+
+export interface FeuilleARelancer { week: string; etat: 'absente' | 'brouillon' | 'a_corriger' }
+const ETAT_RELANCE = { absente: 'non saisie', brouillon: 'en brouillon, pas encore soumise', a_corriger: 'renvoyée pour correction' } as const;
+
+/** Relance des feuilles de temps en retard (suivi des feuilles) : au salarié, semaine par semaine. */
+export function notifierRelanceFeuilles(cx: Contexte, emp: Employe, feuilles: FeuilleARelancer[]) {
+  const plus = feuilles.length > 1;
+  return notifier(cx, emp.id, {
+    type: 'temps.relance',
+    objet: `${plus ? 'Feuilles' : 'Feuille'} de temps à ${feuilles.every(f => f.etat === 'a_corriger') ? 'corriger' : 'saisir'} — ${plus ? 'semaines' : 'semaine'} ${feuilles.map(f => isoWeek(f.week)).join(', ')}`,
+    texte: `${plus ? 'Vos feuilles de temps ne sont' : 'Votre feuille de temps n’est'} pas encore ${plus ? 'soumises' : 'soumise'} :\n`
+      + feuilles.map(f => `- ${semaineTexte(f.week)} : ${ETAT_RELANCE[f.etat]}`).join('\n')
+      + `\nSaisissez vos heures et soumettez ${plus ? 'chaque feuille' : 'la feuille'} dans Cursus (Temps de travail) : les heures partent à la paie une fois validées. ${relancePar(cx.user)}`,
+  });
+}
+
+/** Relance des feuilles de temps en retard : à leur valideur (manager direct, sinon le service RH), membre par membre. */
+export function notifierRelanceValideur(cx: Contexte, valideur: number, retards: { emp: Employe; feuilles: FeuilleARelancer[] }[]) {
+  const n = retards.reduce((k, r) => k + r.feuilles.length, 0);
+  return notifier(cx, valideur, {
+    type: 'temps.relance', objet: `${plural(n, 'feuille de temps en retard', 'feuilles de temps en retard')} — ${plural(retards.length, 'collaborateur', 'collaborateurs')}`,
+    texte: `Ces feuilles de temps ne sont pas encore soumises ; ${retards.length > 1 ? 'chaque collaborateur a été relancé' : 'le collaborateur a été relancé'} :\n`
+      + retards.map(r => `- ${r.emp.nom} : ${r.feuilles.map(f => `semaine ${isoWeek(f.week)} (${ETAT_RELANCE[f.etat]})`).join(', ')}`).join('\n')
+      + `\nElles sont à valider ensuite dans Cursus (Temps de travail), avant l’envoi des heures à la paie. ${relancePar(cx.user)}`,
   });
 }
 
@@ -212,6 +244,21 @@ export function convoquerEntretien(cx: Contexte, emp: Pick<Employe, 'id' | 'nom'
 }
 
 /**
+ * Entretien planifié annulé (`entretien.annuler`) : le salarié reçoit l'annulation de l'événement d'agenda de sa
+ * convocation (même UID `entretien-<id>`, méthode CANCEL). Faux s'il n'a pas d'adresse (à prévenir de vive voix).
+ */
+export function annulerConvocationEntretien(cx: Contexte, emp: Pick<Employe, 'id' | 'nom'>, x: Pick<Entretien, 'id' | 'type' | 'date'>): boolean {
+  const d = adresseSalarie(cx.db, emp.id, cx.ds.today);
+  if (!d) return false;
+  const nom = nomEntretien(x);
+  const ics = calendrier({ uid: `entretien-${x.id}@${domaineAgenda()}`, date: x.date, titre: ENT_TYPES[x.type]?.nom ?? 'Entretien', annule: true, organisateur: organisateur(cx) });
+  envoyerEmail(cx.db, 'convocation.annulee', courriel(messagerie(cx), d.adresse, `Annulation : ${nom} — ${fmt(parse(x.date))}`,
+    `Votre ${nom} ${periodeLongue(x.date, x.date)} est annulé par ${auteur(cx.user)} : votre convocation ne vaut plus. Une nouvelle date vous sera proposée s’il y a lieu.\n\nOuvrez le fichier joint pour retirer l’événement de votre agenda, ou supprimez-le vous-même.`,
+    { nom: emp.nom, pj: [pieceJointe(`annulation-entretien-${x.date}.ics`, 'text/calendar; charset=utf-8; method=CANCEL', ics)] }));
+  return true;
+}
+
+/**
  * Demande de visite médicale adressée au service de prévention et de santé au travail (Paramètres → Messagerie) :
  * le contenu de la demande imprimable, sans aucune information médicale. Renvoie faux sans adresse : la demande est
  * alors à imprimer et à transmettre par le service RH.
@@ -224,7 +271,7 @@ export function transmettreDemandeVisite(cx: Contexte & { d: Domain }, emp: Empl
   envoyerEmail(cx.db, 'visite.demande', courriel(m, m.santeTravail, `Demande de visite médicale — ${emp.nom}`, [
     'Le service RH vous demande de convoquer le salarié ci-dessous à une visite médicale.',
     '',
-    `Salarié : ${emp.nom} (matricule ${matricule(emp.id)}), né en ${emp.naissance}`,
+    `Salarié : ${emp.nom} (matricule ${matriculeAffiche(emp)}), né en ${emp.naissance}`,
     `Poste : ${emp.poste} — équipe ${equipeLabel(emp)}`,
     `Contrat : ${cx.d.contratOf(emp).libelle}, depuis le ${fmtIso(emp.entree)}`,
     '',
@@ -286,6 +333,8 @@ const DERNIER_RECAPITULATIF = 'recapitulatifLe';
 export function tachesEmails(db: Db, heure = new Date().getHours()): { releves: number; recapitulatifs: number | null } {
   return db.tx(() => {
     const releves = relevesAutomatiques(db).length;
+    // Récapitulatif des échéances par paliers (server/src/relances.ts) : sa propre date de passage, son propre réglage.
+    relancerEcheances(db, heure);
     const jour = todayIso();
     if (heure < HEURE_RECAPITULATIF || db.getSetting<string | null>(DERNIER_RECAPITULATIF, null) === jour) return { releves, recapitulatifs: null };
     const recapitulatifs = envoyerRecapitulatifs(db);

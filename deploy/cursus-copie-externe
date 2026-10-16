@@ -1,0 +1,6 @@
+#!/bin/sh
+# Copie chiffrée des sauvegardes de Cursus hors de la machine (restic), lancée sous root.
+# Ajout seul : la purge des copies expirées se fait depuis un poste d'administration.
+set -eu
+set -a; . /etc/cursus/restic.env; set +a
+restic backup --quiet --tag cursus /var/lib/cursus/backups

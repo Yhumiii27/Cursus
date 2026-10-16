@@ -1,10 +1,12 @@
 // Déplacements, formalités (passeport, visas, vaccinations) et demandes Keystone.
 import { SECU_RULES, VACCINS, secuDe } from '../../../shared/constants.ts';
 import { isValidDate, parse } from '../../../shared/dates.ts';
-import { fmt, matricule, plural } from '../../../shared/format.ts';
+import { fmt, plural } from '../../../shared/format.ts';
+import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
 import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
 import { declarationLabel, estAuDossier, formaliteCle, lignesAuDossier, lireFormalite } from '../../../shared/rules/formalites.ts';
 import { parseTrips } from '../../../shared/rules/imports.ts';
+import { refusArchive } from '../../../shared/rules/referentiels.ts';
 import type { Declaration, DemandeCollab, DemandeKeystone, Employe, Vaccination, Visa, Voyage } from '../../../shared/types.ts';
 import { sendToKeystone } from '../integrations/keystone.ts';
 import { motifsRefusAcceptation } from '../integrations/keystone-entrant.ts';
@@ -16,6 +18,7 @@ const creer: ActionHandler = (ctx, p) => {
   const dest = ctx.d.destOf(str(p.dest));
   const motif = str(p.motif);
   if (!dest) throw new ActionError('Destination hors référentiel');
+  if (dest.archive) throw new ActionError(refusArchive(dest, 'Destination')!);
   if (!isValidDate(p.depart) || !isValidDate(p.retour) || p.retour < p.depart || !motif) throw new ActionError('Dates et motif requis');
   // Déjà en déplacement ces jours-là, ou absent (congé validé, arrêt…) : refusé.
   const conflit = blocage(conflitsDates(ctx.d, emp.id, p.depart, p.retour, 'voyage'));
@@ -34,6 +37,7 @@ const detachement: ActionHandler = (ctx, p) => {
   requireRh(ctx);
   const t = ctx.ds.voyages.find(v => v.id === Number(p.id));
   if (!t) throw new ActionError('Déplacement introuvable', 404);
+  if (t.annuleLe) throw new ActionError('Déplacement annulé', 409);
   const emp = getEmp(ctx, t.empId), dest = ctx.d.destOf(t.dest);
   if (!dest) throw new ActionError('Destination hors référentiel');
   const champs = { detachementLe: SECU_RULES[secuDe(dest)].label, informationLe: 'Information écrite' };
@@ -133,7 +137,7 @@ const accepterKeystone: ActionHandler = (ctx, p) => {
     origine: 'keystone', ref: dm.ref, chantier: dm.chantier,
   });
   ctx.db.update<DemandeKeystone>('demandesKeystone', dm.id, { statut: 'acceptee', decidee: ctx.d.ti, decideur: ctx.user.nom, voyageId: t.id });
-  sendToKeystone(ctx.db, { type: 'demande.decision', demande: dm.id, reference: dm.ref, matricule: matricule(emp.id), chantier: dm.chantier, decision: 'acceptee', date: ctx.d.ti });
+  sendToKeystone(ctx.db, { type: 'demande.decision', demande: dm.id, reference: dm.ref, matricule: identifiantKeystone(ctx.ds.settings.identifiantKeystone, emp), chantier: dm.chantier, decision: 'acceptee', date: ctx.d.ti });
   return { message: `Déplacement créé pour ${emp.nom} — chantier ${dm.chantier} · statut renvoyé à Keystone`, result: { id: t.id } };
 };
 
@@ -146,7 +150,7 @@ const refuserKeystone: ActionHandler = (ctx, p) => {
   const motif = str(p.motif);
   if (motif.length > 500) throw new ActionError('Motif trop long (500 caractères au plus)');
   ctx.db.update<DemandeKeystone>('demandesKeystone', dm.id, { statut: 'refusee', decidee: ctx.d.ti, decideur: ctx.user.nom, motifRefus: motif || null });
-  sendToKeystone(ctx.db, { type: 'demande.decision', demande: dm.id, reference: dm.ref, matricule: matricule(dm.empId), chantier: dm.chantier, decision: 'refusee', date: ctx.d.ti });
+  sendToKeystone(ctx.db, { type: 'demande.decision', demande: dm.id, reference: dm.ref, matricule: identifiantKeystone(ctx.ds.settings.identifiantKeystone, ctx.d.emp(dm.empId) ?? { id: dm.empId }), chantier: dm.chantier, decision: 'refusee', date: ctx.d.ti });
   return `Demande refusée — ${ctx.d.personName(dm.empId)} · ${c ? c.chef || 'le chef de projet' : 'le chef de projet'} notifié dans Keystone${motif ? ` · motif : ${motif}` : ''}`;
 };
 

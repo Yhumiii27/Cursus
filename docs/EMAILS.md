@@ -24,9 +24,11 @@ part, chaque e-mail est tracé dans le journal et visible dans Paramètres → E
 | Feuille de temps à valider | Valideur | Soumission |
 | Feuille de temps à corriger | Salarié | Renvoi par le valideur, ou absence annulée qui couvrait la semaine |
 | Compte rendu d'entretien à signer | Salarié | Clôture par l'évaluateur |
+| Compte rendu d'entretien mis à disposition (lien vers Cursus seulement, jamais le texte du compte rendu) | Salarié | Remise « mis à disposition dans le portail » par l'évaluateur ou le service RH ; toujours aussitôt |
 | Réponse à une demande au service RH | Salarié, et le manager qui l'a faite pour lui | Acceptation ou refus |
 | Convocation à une formation, à un entretien (fichier `.ics` joint) | Salarié | Inscription avec « Envoyer maintenant », « Envoyer la convocation », planification d'un entretien |
-| Annulation d'une convocation (`.ics` d'annulation) | Salarié qui a reçu la convocation, même remise « à renvoyer » par un changement de date ou de lieu | Désinscription, changement de session, recyclage enregistré avant la session, session annulée |
+| Annulation d'une convocation (`.ics` d'annulation) | Salarié qui a reçu la convocation, même remise « à renvoyer » par un changement de date ou de lieu | Désinscription, changement de session, recyclage enregistré avant la session, session annulée ; entretien planifié annulé (`entretien.annuler`, date à venir) |
+| Récapitulatif des échéances : titres, visites médicales (échéance seule), formalités de voyage (une vaccination n'est qu'une « formalité sanitaire »), déplacements au dossier incomplet, entretiens, fins de contrat ; jamais d'avis d'aptitude | Boîte du service RH (tout le périmètre) ; chaque manager (son équipe, sans visite ni vaccination ni entretien de reprise) ; chaque référent HSE (formations et habilitations) | Chaque jour à partir de 7 h (ou un jour de la semaine), seulement les paliers franchis depuis la dernière relance (90, 30, 7 jours, échu par défaut) ; désactivable dans Paramètres → Messagerie |
 | Demande de visite médicale (contenu de la demande imprimable : salarié, poste, motif, habilitations qui exigent l'aptitude ; aucune information médicale) | Service de prévention et de santé au travail (Paramètres → Messagerie) | Demande de visite enregistrée par le service RH ; sans adresse, la demande est à imprimer |
 | Relevé d'heures des intérimaires (CSV joint) | Agence d'intérim | Chaque semaine, dès que toutes les feuilles de ses intérimaires sont validées, même avec retard (jusqu'à cinq semaines) ; relevé complet après un relevé envoyé incomplet par le service RH ; renvoi par le service RH |
 | Récapitulatif quotidien | Personne qui l'a choisi | Chaque jour à partir de 7 h |
@@ -34,7 +36,7 @@ part, chaque e-mail est tracé dans le journal et visible dans Paramètres → E
 
 Les notifications d'étapes partent aussitôt, ou sont regroupées dans un récapitulatif quotidien : chacun le
 règle dans son espace (Accueil → « Mes notifications par e-mail ») ; le service RH règle celui de sa boîte
-(Paramètres → Messagerie). Les convocations partent toujours aussitôt. Rien n'est envoyé à la personne qui
+(Paramètres → Messagerie). Les convocations et les mises à disposition d'un compte rendu partent toujours aussitôt. Rien n'est envoyé à la personne qui
 fait l'action, ni à un salarié sans adresse ou dont la date de sortie est passée. Le récapitulatif part à
 l'adresse en vigueur le jour de son envoi (fiche, ou boîte du service RH) ; les notifications d'une personne
 sortie ou sans adresse entre-temps sont closes sans envoi.

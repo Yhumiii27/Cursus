@@ -7,21 +7,22 @@
 // « Fermer sans enregistrer » abandonne la saisie restante : ni le champ quitté pour cette confirmation, ni le
 // démontage du dialogue ne l'envoient.
 // Clore et signer sont définitifs : une confirmation remplace les boutons avant l'envoi.
+// Le compte rendu s'imprime dès la clôture, signé ou non par le salarié ; l'évaluateur ou le service RH enregistre la
+// remise de sa copie (RemiseDialog : main propre, refus de signer, portail). Après une remise sur papier, la copie fait
+// foi : les sections du salarié ne se modifient plus. Le premier téléchargement par le salarié est daté.
 import { useEffect, useRef, useState } from 'react';
 import { ENT_TYPES, type EntSection } from '../../../shared/constants.ts';
 import { isValidDate, parse } from '../../../shared/dates.ts';
-import { equipeLabel, fmt } from '../../../shared/format.ts';
-import { debutCloture, needsFinCarriere, obligations } from '../../../shared/rules/entretiens.ts';
+import { fmt } from '../../../shared/format.ts';
+import { crCommence, debutCloture, obligations } from '../../../shared/rules/entretiens.ts';
+import { remisePhysique, texteRemise } from '../../../shared/rules/remise.ts';
 import { CancelButton, Dialog, Field } from '../components/Dialog.tsx';
 import { Fine } from '../components/ui.tsx';
-import { printDocument, type PrintSection } from '../print.ts';
+import { annulationEntretien } from '../state/confirmations-annulations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { EnregistrementAuFil } from '../state/enregistrement.ts';
 import { useStore } from '../state/store.tsx';
-
-const FIN_CARRIERE: EntSection = ['fincarriere', 'Fin de carrière : maintien dans l’emploi, aménagements souhaités', 'sal'];
-const INFO_LABEL = 'Information remise : CPF, VAE, conseil en évolution professionnelle (CEP), abondement employeur';
-const whoLabel = (who: EntSection[2]) => who === 'mgr' ? 'Évaluateur' : 'Salarié';
+import { imprimerCompteRendu, INFO_LABEL, sectionsDe, whoLabel } from './compteRendu.ts';
 /**
  * Focus pris par la confirmation de fermeture affichée après un échec (« Reprendre la saisie » ciblé à son
  * apparition, ou bouton choisi) : la section n'est pas renvoyée en quittant le champ, sans quoi un envoi parti
@@ -63,8 +64,9 @@ export function EntDialog({ entId }: { entId: number }) {
   const mgr = e ? d.mgrOf(e) : 0;
   // Évaluateur : manager direct ou service RH, jamais un membre du RH pour son propre entretien.
   const canMgr = !!x && x.statut === 'planifie' && ((rh && x.empId !== soi) || (manager && mgr === me));
-  const canSal = !!x && !x.signSal && collab && x.empId === me;
-  const sections: EntSection[] = x && e && T0 ? [...T0.sections, ...(needsFinCarriere(d, e, x.type) ? [FIN_CARRIERE] : [])] : [];
+  // Le salarié rédige ses sections jusqu'à sa signature, ou jusqu'à la remise d'une copie sur papier, qui fait foi.
+  const canSal = !!x && !x.signSal && !remisePhysique(x) && collab && x.empId === me;
+  const sections: EntSection[] = x && e && T0 ? sectionsDe(d, x) : [];
   const editable = sections.filter(([, , who]) => who === 'mgr' ? canMgr : canSal || canMgr).map(([k]) => k);
   const editableRef = useRef(editable);
   editableRef.current = editable;
@@ -82,12 +84,20 @@ export function EntDialog({ entId }: { entId: number }) {
   const hasInfo = ['epp', 'reprise'].includes(x.type);
   const bilan = x.type === 'bilan' ? obligations(d, [e.id]).find(o => o.kind === 'bilan') : undefined;
   const canSign = collab && x.empId === me && x.statut === 'realise' && !x.signSal;
+  // Remise de la copie : évaluateur (manager direct) ou service RH, une fois le compte rendu clos ; une mise à disposition
+  // dans le portail se complète par une remise sur papier.
+  const canRemettre = x.statut === 'realise' && !remisePhysique(x) && ((rh && x.empId !== soi) || (manager && mgr === me));
   const evaluateur = d.mgrName(mgr);
+  const remise = texteRemise(x);
   const status = x.statut === 'planifie'
-    ? `Planifié le ${fmt(parse(x.date))} — le salarié peut préparer sa partie à l’avance.`
+    ? x.date < d.ti
+      ? `Planifié le ${fmt(parse(x.date))}, date dépassée — à clore s’il a eu lieu, sinon à reprogrammer ou à annuler.`
+      : `Planifié le ${fmt(parse(x.date))} — le salarié peut préparer sa partie à l’avance.`
     : !x.signSal
-      ? `Clos et signé par l’évaluateur le ${fmt(parse(x.signMgr ?? x.date))} — en attente de la signature du salarié.`
-      : `Signé par les deux parties le ${fmt(parse(x.signSal))} — copie remise au salarié.`;
+      ? `Clos et signé par l’évaluateur le ${fmt(parse(x.signMgr ?? x.date))} — ${remise
+        ? `non signé par le salarié. ${remise}.`
+        : 'en attente de la signature du salarié. Le compte rendu s’imprime dès maintenant, pour une remise en main propre.'}`
+      : `Signé par les deux parties le ${fmt(parse(x.signSal))} — copie disponible dans l’espace du salarié.${remise ? ` ${remise}.` : ''}`;
 
   const toggleInfo = async (checked: boolean) => {
     setInfo(checked);
@@ -129,33 +139,28 @@ export function EntDialog({ entId }: { entId: number }) {
     await flush();
     openDialog({ type: 'entPlan', empId: x.empId, kind: x.type });
   };
+  // Entretien qui n'a plus lieu d'être (départ, changement de poste, doublon) : annulation confirmée, compte rendu compris
+  // (la saisie en cours compte : supprimée avec lui).
+  const annuler = () => openDialog({ type: 'confirmer', c: annulationEntretien(x, e.nom, { crCommence: crCommence({ ...x, cr: { ...x.cr, ...vals } }), passe: x.date < d.ti }) });
 
+  // Imprimable dès la clôture. Le salarié qui le télécharge depuis son espace : la date du premier téléchargement est
+  // enregistrée (après l'ouverture de la fenêtre, que le navigateur n'autorise que pendant le clic).
   const download = () => {
-    const doc: PrintSection[] = [
-      { title: 'Entretien', rows: [
-        ['Collaborateur', `${e.nom} — ${e.poste}, ${equipeLabel(e)}`],
-        ['Date de l’entretien', fmt(parse(x.date))],
-        ['Évaluateur', evaluateur],
-      ] },
-      { title: 'Base légale', text: T0.base },
-      ...(bilan ? [{ title: 'Contrôle automatique', text: bilan.detail }] : []),
-      ...sections.map(([k, label, who]) => ({ title: `${label} · ${whoLabel(who)}`, text: x.cr[k]?.trim() || 'Non renseigné' })),
-      ...(hasInfo ? [{ title: 'Information du salarié', text: x.info ? `${INFO_LABEL}.` : 'Information sur le CPF, la VAE, le CEP et l’abondement employeur non remise.' }] : []),
-      { title: 'Signatures', rows: [
-        ['Évaluateur', x.signMgr ? `${evaluateur} — signé le ${fmt(parse(x.signMgr))}` : 'Non signé'],
-        ['Salarié', x.signSal ? `${e.nom} — signé le ${fmt(parse(x.signSal))}` : 'Non signé'],
-      ] },
-    ];
-    const ok = printDocument(`${T0.nom} — compte rendu`, `${e.nom} · ${e.poste} · ${fmt(parse(x.date))}`, doc, e.id);
-    if (!ok) notify('Autorisez les fenêtres surgissantes pour télécharger le compte rendu', true);
+    if (!imprimerCompteRendu(d, x)) {
+      notify('Autorisez les fenêtres surgissantes pour télécharger le compte rendu', true);
+      return;
+    }
+    if (collab && x.empId === me && !x.telechargeLe) run('entretien.telecharger', { id: x.id }, { silent: true });
   };
 
   return (
     <Dialog title={T0.nom} width={720} tall enregistrer={async () => (await flush()).length === 0} abandonner={() => enregistrement.abandonner()}
       confirmation={confirmation} actions={<>
       <CancelButton label="Fermer" />
-      {!!x.signSal && <button type="button" className="btn btn-ghost" onClick={download}>Télécharger le compte rendu</button>}
+      {x.statut === 'realise' && <button type="button" className="btn btn-ghost" onClick={download}>Télécharger le compte rendu</button>}
+      {canRemettre && <button type="button" className="btn btn-secondary" disabled={busy} onClick={() => openDialog({ type: 'entRemise', entId: x.id })}>Remettre la copie</button>}
       {canSign && <button type="button" className="btn btn-primary" disabled={busy} onClick={() => setAConfirmer('entretien.signer')}>Signer le compte rendu</button>}
+      {canMgr && <button type="button" className="btn btn-ghost" disabled={busy} onClick={annuler}>Annuler l’entretien</button>}
       {canMgr && <button type="button" className="btn btn-secondary" disabled={busy} onClick={reprogrammer}>Reprogrammer</button>}
       {canMgr && <button type="button" className="btn btn-primary" disabled={busy || !!tenuErr} onClick={() => setAConfirmer('entretien.clore')}>Clore et signer</button>}
     </>}>

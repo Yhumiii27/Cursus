@@ -14,7 +14,7 @@ import type { Db } from '../db.ts';
 import { KEYSTONE_API_KEY, keystoneKeyOk } from './keystone.ts';
 import { suivreVerdicts } from './keystone-verdicts.ts';
 import {
-  ErreurKeystone, IDENTIFIANT, bilanTexte, contexte, dateReelle, demandeApi, enregistrerAffectation, enregistrerChantier, enregistrerProjet,
+  ErreurKeystone, IDENTIFIANT, bilanTexte, contexte, correspondance, dateReelle, demandeApi, enregistrerAffectation, enregistrerChantier, enregistrerProjet,
   enregistrerTache, recevoirDemande, supprimerAffectation, supprimerTache, synchroniser, type Ecriture,
 } from './keystone-entrant.ts';
 
@@ -60,11 +60,12 @@ export const ROUTES_V1: RouteV1[] = [
     spec ??= JSON.parse(readFileSync(SPEC, 'utf8'));
     return { body: spec };
   }],
+  // Éléments archivés compris (`archive` : date d'archivage) : leur code reste reçu, mais ne doit plus être proposé.
   ['get', '/referentiels', db => ({
     body: {
-      habilitations: db.all<HabType>('habilitations', 'rowid').map(h => ({ code: h.id, nom: h.nom })),
-      certifications: db.all<Formation>('formations', 'rowid').map(f => ({ code: f.id, nom: f.nom })),
-      destinations: db.all<Destination>('destinations', 'rowid').map(d => ({ code: d.code, pays: d.pays })),
+      habilitations: db.all<HabType>('habilitations', 'rowid').map(h => ({ code: h.id, nom: h.nom, archive: h.archive ?? null })),
+      certifications: db.all<Formation>('formations', 'rowid').map(f => ({ code: f.id, nom: f.nom, archive: f.archive ?? null })),
+      destinations: db.all<Destination>('destinations', 'rowid').map(d => ({ code: d.code, pays: d.pays, archive: d.archive ?? null })),
     },
   })],
   ['put', '/projets/{code}', (db, req, res) => ecriture(res, 'projet', db.tx(() => enregistrerProjet(contexte(db), param(req, res, 'code'), req.body)))],
@@ -94,12 +95,12 @@ export const ROUTES_V1: RouteV1[] = [
     res.locals.reference = referenceTracee(req.body);
     const dm = db.tx(() => recevoirDemande(contexte(db), req.body, todayIso(), true));
     res.locals.resultat = 'cree';
-    return { status: 201, body: { resultat: 'cree', demande: demandeApi(dm) } };
+    return { status: 201, body: { resultat: 'cree', demande: demandeApi(dm, correspondance(db).matricule) } };
   }],
   ['get', '/demandes/{reference}', (db, req, res) => {
     const dm = db.where<DemandeKeystone>('demandesKeystone', 'ref', param(req, res, 'reference'))[0];
     if (!dm) throw new ErreurKeystone(404, 'DEMANDE_INCONNUE', 'Demande inconnue');
-    return { body: { demande: demandeApi(dm) } };
+    return { body: { demande: demandeApi(dm, correspondance(db).matricule) } };
   }],
 ];
 

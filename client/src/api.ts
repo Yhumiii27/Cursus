@@ -1,5 +1,6 @@
 // Appels à l'API Cursus.
-import type { CibleEnvoi, CompteSession, CompteVue, CurrentUser, Dataset, Envoi, EtatEnvois, Role, StatutEnvoi } from '../../shared/types.ts';
+import type { CibleEnvoi, CompteSession, CompteVue, CurrentUser, Dataset, Envoi, EtatEnvois, Role, SageMode, StatutEnvoi } from '../../shared/types.ts';
+import type { ContactsConfidentialite } from '../../shared/confidentialite.ts';
 
 /** Compte proposé à la connexion de démonstration (`id` : identifiant du compte). */
 export interface LoginOption { id: number; nom: string }
@@ -19,7 +20,8 @@ export interface SessionState {
   microsoft: boolean;
   /** Déconnexion d'une session Microsoft : adresse de la déconnexion Microsoft, qui revient sur Cursus. */
   deconnexion?: string;
-  integrations: { keystone: string; sage: string; email?: string };
+  /** Modes des intégrations : Keystone et e-mails (api / simulation), Sage Paie (simulation, fichier d'import, api). */
+  integrations: { keystone: string; sage: SageMode; email?: string };
 }
 /**
  * File d'envoi (Paramètres → Envois) : état de l'intégration Keystone, de la messagerie (boîte d'envoi,
@@ -171,6 +173,8 @@ export const api = {
   donneesSalarie: (empId: number) => telecharger(`/api/salaries/${empId}/donnees`),
   /** Le salarié connecté : ses propres données. */
   mesDonnees: () => telecharger('/api/mes-donnees'),
+  /** Paie : fichier d'import Sage d'un lot de paie (téléchargement tracé et compté sur le lot). */
+  fichierLotPaie: (id: number) => telecharger(`/api/paie/lots/${id}/fichier`),
   /**
    * Export ou impression produit par le navigateur (CSV, passeport formation, compte rendu) : signalé au serveur
    * pour le journal, sans attendre ni bloquer le téléchargement.
@@ -179,6 +183,8 @@ export const api = {
     fetch('/api/exports', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(x) }).catch(() => {});
   },
   comptes: () => request<CompteVue[]>('GET', '/api/comptes'),
+  /** Page Confidentialité : coordonnées du responsable du traitement et du DPO, lisibles sans connexion. */
+  confidentialite: () => request<ContactsConfidentialite>('GET', '/api/confidentialite'),
   envois: (statut: StatutEnvoi | null, cible: CibleEnvoi | null = null) => {
     const q = new URLSearchParams();
     if (statut) q.set('statut', statut);

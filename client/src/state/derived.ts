@@ -66,9 +66,10 @@ export function useRole() {
 
 /**
  * Proposition d'action calculée par le domaine (échéance, habilitation) que la personne peut lancer depuis l'espace
- * RH : planifier, délivrer, clôturer pour les formations ; visite médicale et formalités de voyage pour le service RH.
+ * RH : planifier, délivrer, clôturer pour les formations ; visite médicale, formalités de voyage et échéances du contrat
+ * (essai, sortie, titre de séjour) pour le service RH.
  */
 export function useIntentPermis(): (it: UiIntent) => boolean {
   const { rh, formations } = useRole();
-  return useMemo(() => (it: UiIntent) => it.type === 'medical' || it.type === 'openFormalite' ? rh : formations, [rh, formations]);
+  return useMemo(() => (it: UiIntent) => it.type === 'medical' || it.type === 'openFormalite' || it.type === 'openContrat' ? rh : formations, [rh, formations]);
 }

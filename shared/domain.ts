@@ -7,8 +7,13 @@ import {
   TEMPS_TRAVAIL, TYPES_CONTRAT, VACCINS, VISA_RULES, secuDe, type CodeMotif, type HabKey, type HabMesureAction, type StatusKey,
 } from './constants.ts';
 import { addD, addMonths, days, isFerie, iso, parse, weekday } from './dates.ts';
-import { cap, fmt, fmtShort, matricule } from './format.ts';
+import { cap, fmt, fmtShort } from './format.ts';
 import { absenceActive, absenceBloque, borneContrat, periodeTexte } from './rules/absences.ts';
+import { actifs, habSuivie } from './rules/referentiels.ts';
+import { echeanceExigence, exigencesManquantes, type ExigenceManquante } from './rules/exigences.ts';
+import { identifiantKeystone } from './rules/matricules.ts';
+import { echeancesContrat, etatAutorisation, present, SITUATION_A_REGULARISER } from './rules/contrats.ts';
+import { voyageActif } from './rules/deplacements.ts';
 import { restrictionEnVigueur } from './rules/sante.ts';
 import type {
   AvisMedical, Certification, Chantier, Dataset, DemandeVisite, Destination, Employe, FormaliteManquante, Formation, HabTitre, HabType, ISODate,
@@ -55,6 +60,8 @@ export interface EmpX extends Omit<Employe, 'certs' | 'habs'> {
   anciennes: CertInfo[];
   med: MedInfo;
   habs: HabInfo[];
+  /** Formations et habilitations exigées (poste, équipe) jamais obtenues : comptées « Non conforme » (rules/exigences.ts). */
+  manquants: ExigenceManquante[];
   worst: StatusKey;
   next: { exp: Date; d: number } | null;
 }
@@ -66,7 +73,11 @@ export type UiIntent =
   | { type: 'goFormation'; f: string }
   | { type: 'medical'; empId: number }
   | { type: 'openFormalite'; empId: number; kind: FormaliteKind; dest?: string; v?: VaccinId }
-  | { type: 'openCloture'; sessionId: number };
+  | { type: 'openCloture'; sessionId: number }
+  /** Habilitation exigée jamais délivrée : titre demandé (`hab.demander`), « en attente » de délivrance. */
+  | { type: 'demanderHab'; empId: number; h: string; nom: string; label: string }
+  // Échéances du contrat (shared/rules/contrats.ts) : fiche (période d'essai), sortie, titre de séjour.
+  | { type: 'openContrat'; empId: number; quoi: 'fiche' | 'sortie' | 'titre' };
 export type FormaliteKind = 'passeport' | 'visa' | 'vaccin';
 export interface Proposal { label: string; intent: UiIntent }
 
@@ -80,10 +91,12 @@ export interface Readiness { dest: Destination; dep: Date; ret: Date; toGo: numb
 export interface TripX extends Voyage { emp: Employe; r: Readiness }
 
 export interface EchItem {
-  kind: 'cert' | 'hab' | 'trip' | 'med'; kindLabel: string; label: string; emp: EmpX; exp: Date; d: number; key: StatusKey;
+  kind: 'cert' | 'hab' | 'trip' | 'med' | 'exigence' | 'contrat'; kindLabel: string; label: string; emp: EmpX; exp: Date; d: number; key: StatusKey;
   statut: string; cls: string; planned: boolean; plannedLabel: string; action: Proposal | null;
   /** Échéance sans date connue (aucune visite médicale enregistrée) : classée au jour, parmi les dépassées. */
   sansDate?: boolean;
+  /** Texte de la colonne « Échéance » d'une échéance sans date autre qu'une visite (exigence manquante). */
+  sansDateTexte?: { main: string; sub: string };
 }
 
 export type GngStatus = 'go' | 'reserve' | 'nogo';
@@ -135,10 +148,16 @@ const docKey = (d: number, h: number): StatusKey => d < 0 ? 'exp' : d <= h ? 'du
 const habStatus = (k: HabKey): StatusKey => k === 'susp' || k === 'retiree' ? 'exp' : k === 'pending' ? 'ok' : k;
 
 /**
- * Titre détenu ou déjà demandé, qu'un collaborateur ne peut pas redemander. Un titre expiré peut l'être, un titre
- * retiré aussi tant qu'aucune demande de nouvelle délivrance n'a été acceptée (`demande` renseignée).
+ * Titre détenu ou déjà demandé, qu'un collaborateur ne peut pas redemander. Un titre expiré ou retiré peut l'être, tant
+ * qu'aucune demande de renouvellement ou de nouvelle délivrance n'a été acceptée (`demande` renseignée).
  */
-export const habEnCours = (h: Pick<HabInfo, 'key' | 'demande'>) => h.key === 'retiree' ? !!h.demande : h.key !== 'exp';
+export const habEnCours = (h: Pick<HabInfo, 'key' | 'demande'>) => h.key === 'retiree' || h.key === 'exp' ? !!h.demande : true;
+
+/**
+ * Titre expiré dont le renouvellement a été accepté par le service RH (`demande.accepter`) : il reste expiré (statut,
+ * échéances, Go / No Go) mais compte « en attente » de délivrance dans l'onglet Habilitations.
+ */
+export const renouvellementDemande = (h: Pick<HabInfo, 'key' | 'demande' | 'delivree'>) => h.key === 'exp' && !!h.delivree && !!h.demande;
 
 /** Session ouverte : ni clôturée, ni annulée (inscriptions, planification, clôture). */
 export const sessionActive = (s: Pick<Session, 'statut'>) => s.statut !== 'Clôturée' && s.statut !== 'Annulée';
@@ -270,8 +289,9 @@ export class Domain {
     if (!sessionActive(s)) return s.statut;
     return s.date < this.ti ? SESSION_PASSEE : s.inscrits >= s.places ? 'Complète' : s.statut;
   }
+  /** Formations suivies : catalogue en vigueur (les archivées ne sont plus proposées ni suivies), réglementaires seules au besoin. */
   forms(onlyReg: boolean): Formation[] {
-    const all = this.ds.referentiels.formations;
+    const all = actifs(this.ds.referentiels.formations);
     return onlyReg ? all.filter(f => f.type === 'Réglementaire') : all;
   }
 
@@ -366,10 +386,12 @@ export class Domain {
     const mesureNote = mesure
       ? `${mesure === 'retrait' ? 'Retirée' : 'Suspendue'}${mesureLe ? ' le ' + fmt(mesureLe) : ''}${h.mesurePar ? ' par ' + h.mesurePar : ''}${h.mesureMotif ? ' — ' + h.mesureMotif : ''}`
       : '';
-    // Après un retrait, la demande acceptée attend la nouvelle délivrance du service RH.
+    // Après un retrait, la demande acceptée attend la nouvelle délivrance du service RH ; après une expiration, le renouvellement.
+    const renouvellement = key === 'exp' && h.demande ? `Renouvellement demandé le ${fmt(parse(h.demande))}` : '';
+    const archivee = habSuivie({ hm }) ? '' : 'Habilitation archivée au référentiel : plus suivie';
     const note = mesure === 'retrait'
-      ? [mesureNote, h.demande ? `Nouvelle délivrance demandée le ${fmt(parse(h.demande))}` : ''].filter(Boolean).join(' · ')
-      : [mesureNote, prereqNote].filter(Boolean).join(' · ');
+      ? [mesureNote, h.demande ? `Nouvelle délivrance demandée le ${fmt(parse(h.demande))}` : '', archivee].filter(Boolean).join(' · ')
+      : [mesureNote, renouvellement, prereqNote, archivee].filter(Boolean).join(' · ');
     return {
       id: 0, empId: 0, delivree: null, par: null, demande: null, mesure: null, mesureDate: null, mesureMotif: null, mesurePar: null, ...h,
       hm, checks, failing, prereqOk, exp, d, key, note, mesureLe,
@@ -390,8 +412,9 @@ export class Domain {
   }
 
   habAction(empId: number, hi: HabInfo): Proposal | null {
-    // Lever une suspension ou délivrer de nouveau après un retrait reste une décision explicite du RH.
-    if (hi.key === 'ok' || (hi.delivree && hi.mesure)) return null;
+    // Lever une suspension ou délivrer de nouveau après un retrait reste une décision explicite du RH ; une habilitation
+    // archivée n'appelle plus rien.
+    if (hi.key === 'ok' || (hi.delivree && hi.mesure) || !habSuivie(hi)) return null;
     if (!hi.failing.length) {
       const pending = hi.key === 'pending';
       return { label: pending ? 'Délivrer' : 'Renouveler', intent: { type: 'openHab', empId, h: hi.h, mode: pending ? 'deliver' : 'renew' } };
@@ -410,24 +433,33 @@ export class Domain {
     return { label: dem ? `Visite demandée le ${fmtShort(parse(dem.le))}` : 'Demander une visite médicale', intent: { type: 'medical', empId } };
   }
 
-  /** Collaborateurs enrichis de leurs statuts de conformité. */
-  enrich(horizon: number, onlyReg: boolean): EmpX[] {
+  /**
+   * Collaborateurs enrichis de leurs statuts de conformité. Les salariés sortis (date de sortie passée) n'y sont plus :
+   * conformité, échéances, tableaux de bord, habilitations. `sortis` : eux aussi (filtre « Sortis » de Collaborateurs).
+   */
+  enrich(horizon: number, onlyReg: boolean, opts: { sortis?: boolean } = {}): EmpX[] {
     const formIds = new Set(this.forms(onlyReg).map(f => f.id));
-    return this.ds.employes.map(e => {
+    return this.ds.employes.filter(e => opts.sortis || present(e, this.ti)).map(e => {
       // Seule la certification en vigueur de chaque formation compte ; les remplacées restent en historique.
       const { vigueur: rawCerts, anciennes } = this.certsOf(e, horizon);
       const certs = rawCerts.filter(c => formIds.has(c.f));
       const med = this.medInfo(e);
       const habs = e.habs.map(h => this.habInfo(h, rawCerts, med, horizon));
+      // Titres d'une habilitation archivée : au dossier, hors du statut et des échéances.
+      const suivies = habs.filter(habSuivie);
+      // Exigences du poste et de l'équipe jamais obtenues : non conforme.
+      const manquants = exigencesManquantes(this.ds, e, rawCerts, e.habs, formIds);
       // L'aptitude médicale compte dans le statut, même sans habilitation qui l'exige.
-      const keys: StatusKey[] = [...certs.map(c => c.key), ...habs.map(h => habStatus(h.key)), this.medKey(med, horizon)];
+      const keys: StatusKey[] = [...certs.map(c => c.key), ...suivies.map(h => habStatus(h.key)), this.medKey(med, horizon), ...manquants.map((): StatusKey => 'exp')];
+      // Titre de séjour expiré (art. L5221-8) : non conforme, comme un verdict seul « expiré » (shared/rules/contrats.ts).
+      if (etatAutorisation(e, this.ti).expiree) keys.push('exp');
       const worst = keys.reduce<StatusKey>((w, k) => RANK[k] > RANK[w] ? k : w, 'ok');
       const dated = [
-        ...certs.map(c => ({ exp: c.exp, d: c.d })), ...habs.flatMap(h => this.habEcheance(h) ?? []),
+        ...certs.map(c => ({ exp: c.exp, d: c.d })), ...suivies.flatMap(h => this.habEcheance(h) ?? []),
         ...(med.exp && med.avis !== 'inapte' ? [{ exp: med.exp, d: med.d! }] : []),
       ];
       const next = dated.sort((a, b) => a.d - b.d)[0] || null;
-      return { ...e, certs, rawCerts, anciennes, med, habs, worst, next };
+      return { ...e, certs, rawCerts, anciennes, med, habs, manquants, worst, next };
     });
   }
 
@@ -519,10 +551,12 @@ export class Domain {
 
   /**
    * Déplacements non terminés, avec l'état de préparation du dossier. Pour le manager, les vaccinations ne sont pas
-   * transmises : l'état est celui calculé par le serveur (`tripStatus`), pas celui des pièces reçues.
+   * transmises : l'état est celui calculé par le serveur (`tripStatus`), pas celui des pièces reçues. Un déplacement annulé
+   * n'y figure pas (ni dossier, ni Go / No Go : shared/rules/deplacements.ts).
    */
   tripsAll(): TripX[] {
     return this.ds.voyages
+      .filter(voyageActif)
       .map(t => ({ t, emp: this.emp(t.empId) }))
       .filter((x): x is { t: Voyage; emp: Employe } => !!x.emp && x.t.retour >= this.ti)
       .sort((a, b) => a.t.depart.localeCompare(b.t.depart))
@@ -566,7 +600,8 @@ export class Domain {
   // — Échéances —
   echeances(emps: EmpX[], horizon: number): EchItem[] {
     const ech: EchItem[] = [];
-    emps.forEach(e => {
+    // Un salarié sorti n'a plus d'échéance, même passé dans la liste (filtre « Sortis »).
+    emps.filter(e => present(e, this.ti)).forEach(e => {
       e.certs.forEach(c => ech.push({
         kind: 'cert', kindLabel: c.fm.type === 'Réglementaire' ? 'Certification réglementaire' : 'Certification', label: c.fm.court, emp: e,
         exp: c.exp, d: c.d, key: c.key, statut: CERT_LABEL[c.key], cls: CLS[c.key], planned: !!c.session,
@@ -577,7 +612,7 @@ export class Domain {
       }));
       e.habs.forEach(h => {
         const t = this.habEcheance(h);
-        if (!t) return;
+        if (!t || !habSuivie(h)) return;
         // Prérequis d'aptitude en attente d'une visite déjà demandée : affichée comme planifiée, comme l'échéance de la visite.
         const a = this.habAction(e.id, h), visite = a?.intent.type === 'medical' && !!this.demandeVisite(e.id);
         ech.push({
@@ -585,6 +620,8 @@ export class Domain {
           statut: HAB_LABEL[h.key], cls: HAB_CLS[h.key], planned: visite, plannedLabel: visite ? a!.label : '', action: a,
         });
       });
+      // Exigences manquantes : sans date, parmi les dépassées.
+      e.manquants.forEach(m => ech.push(echeanceExigence(this, e, m)));
       const t = this.travelOf(e, horizon);
       if (t.pass) ech.push({ kind: 'trip', kindLabel: 'Passeport', label: 'Passeport', emp: e, exp: t.pass.exp, d: t.pass.d, key: t.pass.key, statut: DOC_LABEL[t.pass.key], cls: CLS[t.pass.key], planned: false, plannedLabel: '', action: { label: 'Mettre à jour', intent: { type: 'openFormalite', empId: e.id, kind: 'passeport' } } });
       t.visas.forEach(v => ech.push({ kind: 'trip', kindLabel: 'Visa · autorisation', label: `${v.type} — ${this.destOf(v.dest)?.pays ?? v.dest}`, emp: e, exp: v.exp, d: v.d, key: v.key, statut: DOC_LABEL[v.key], cls: CLS[v.key], planned: false, plannedLabel: '', action: { label: 'Mettre à jour', intent: { type: 'openFormalite', empId: e.id, kind: 'visa', dest: v.dest } } }));
@@ -602,8 +639,11 @@ export class Domain {
           action: m.demande || key === 'ok' ? null : { label: 'Demander la visite', intent: { type: 'medical', empId: e.id } },
         });
       }
+      // Fin d'essai, fin prévue du contrat, titre de séjour (shared/rules/contrats.ts).
+      ech.push(...echeancesContrat(this, e, horizon));
     });
-    return ech;
+    // Échéance postérieure au départ (sortie enregistrée, fin de CDD…) : plus rien à renouveler.
+    return ech.filter(x => present(x.emp, iso(x.exp)));
   }
 
   // — Chantiers Keystone : Go / No Go —
@@ -645,6 +685,12 @@ export class Domain {
     // aucune absence en vigueur. Jamais la nature d'une absence, même dans le libellé du partage détaillé.
     const borne = sejours.length ? borneContrat(e, du, au) : null;
     if (borne) push('nogo', 'CONTRAT', du < e.entree ? 'Contrat non commencé au début du chantier' : 'Contrat terminé avant la fin du chantier', `${cap(borne)} — présence prévue ${periodeTexte(du, au)}`);
+    // Titre de séjour expiré : état du jour, comme l'aptitude. Keystone ne reçoit que le libellé générique, jamais la
+    // mention d'un titre ; le service RH lit le détail sur la fiche.
+    const titre = etatAutorisation(e, this.ti);
+    if (titre.expiree) {
+      push('nogo', 'CONTRAT', SITUATION_A_REGULARISER, titre.verdictSeul ? `${SITUATION_A_REGULARISER} avec le service RH` : `Autorisation de travail expirée le ${fmt(parse(titre.expire!))}`, SITUATION_A_REGULARISER);
+    }
     this.ds.absences.filter(a => a.empId === e.id && absenceActive(a) && pendant(a)).forEach(a => {
       if (a.statut === 'demandee') push('reserve', 'ABSENCE', 'Demande d’absence en attente pendant le chantier', `Demande d’absence en attente ${periodeTexte(a.du, a.au)}`);
       else push('nogo', 'ABSENCE', 'Absent pendant le chantier', `Absent ${periodeTexte(a.du, a.au)}`);
@@ -715,11 +761,16 @@ export class Domain {
     return { status: reasons.some(r => r.level === 'nogo') ? 'nogo' : reasons.length ? 'reserve' : 'go', reasons };
   }
 
-  /** Verdict des chantiers actifs ; un chantier archivé dans Keystone n'est plus évalué. */
+  /**
+   * Verdict des chantiers actifs ; un chantier archivé dans Keystone n'est plus évalué. Une ressource sortie de l'entreprise,
+   * absente de `emps` (Domain.enrich), reste évaluée : « No Go CONTRAT » prévient Keystone au lieu de la faire disparaître.
+   */
   evaluateChantiers(emps: EmpX[], trips: TripX[]): ChantierEval[] {
+    let sortis: EmpX[] | null = null;
+    const sortie = (id: number) => (sortis ??= this.enrich(this.ds.settings.horizonAlerte, false, { sortis: true }).filter(e => !present(e, this.ti))).find(e => e.id === id);
     return this.ds.referentiels.chantiers.filter(c => c.statut !== 'archive').map(c => {
       const res = c.ressources
-        .map(id => emps.find(x => x.id === id))
+        .map(id => emps.find(x => x.id === id) ?? sortie(id))
         .filter((e): e is EmpX => !!e)
         .map(e => ({ e, ...this.resourceStatus(e, c, trips) }));
       const status: GngStatus = res.some(r => r.status === 'nogo') ? 'nogo' : res.some(r => r.status === 'reserve') ? 'reserve' : 'go';
@@ -735,7 +786,7 @@ export class Domain {
     return {
       chantier: ch.c.id, evalue_le: evalueLe, statut: GNG_CODE[ch.status],
       ressources: ch.res.map(r => ({
-        matricule: matricule(r.e.id), statut: GNG_CODE[r.status],
+        matricule: identifiantKeystone(this.ds.settings.identifiantKeystone, r.e), statut: GNG_CODE[r.status],
         motifs: r.reasons.map(x => detail ? { code: x.code, libelle: x.transmis ?? x.detailed } : x.code),
       })),
     };
@@ -749,7 +800,7 @@ export class Domain {
     return {
       chantier: ch.c.id, evalue_le: evalueLe, statut: GNG_CODE[ch.status],
       ressources: ch.res.map(r => ({
-        matricule: matricule(r.e.id), statut: GNG_CODE[r.status],
+        matricule: identifiantKeystone(this.ds.settings.identifiantKeystone, r.e), statut: GNG_CODE[r.status],
         motifs: r.reasons.map(x => ({ code: x.code, niveau: GNG_CODE[x.level], ...(detail ? { libelle: x.transmis ?? x.detailed } : {}) })),
       })),
     };

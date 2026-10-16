@@ -225,7 +225,7 @@ test('transmission à la paie : feuilles transmises et salariés concernés (arc
   // Celles qui viennent d'être transmises (les feuilles transmises auparavant n'y figurent pas ; intérim et dirigeants non plus).
   const transmises = (db.sql.prepare(`SELECT emp_id AS empId, week FROM feuilles WHERE sage = 1 AND id IN (${avant.join(', ')}) ORDER BY id`).all() as { empId: number; week: string }[]);
   assert.ok(transmises.length > 0 && transmises.length <= avant.length);
-  assert.match(String(r.message), new RegExp(`^${transmises.length} feuilles transmises`));
+  assert.match(String(r.message), new RegExp(`^${transmises.length} feuilles marquées transmises — simulation, rien n’est envoyé à Sage Paie`));
   const l = derniere('temps.pushSage')!;
   assert.ok(l.paie);
   assert.deepEqual(l.payload.feuilles, transmises.map(f => ({ ...f })));
@@ -584,7 +584,7 @@ test('serveur : journal consultable, filtré, paginé, exporté ; accès et expo
     const [tete, ...corps] = octets.subarray(3).toString('utf8').trim().split('\r\n');
     assert.match(tete, /^Date;Heure;Auteur;Identifiant;Espace;Action;Code;Salariés concernés;Message;Anciennes et nouvelles valeurs;Détail;Archivée le$/);
     assert.ok(corps.some(l => l.includes(`'@pirate`) && l.includes(`"'=HYPERLINK(""http://exemple.invalid"")"`)));
-    assert.ok(corps.some(l => l.includes('Modification d’une fiche') && l.includes('Mehdi Benali (EMP-0002)') && l.includes('Poste : Technicien de maintenance → Technicien confirmé')));
+    assert.ok(corps.some(l => l.includes('Modification d’une fiche') && l.includes('Mehdi Benali (004102)') && l.includes('Poste : Technicien de maintenance → Technicien confirmé')));
     const trace = db.all<Ligne>('journal').findLast(l => l.action === 'journal.export')!;
     assert.match(trace.message!, /^Export CSV du journal — \d+ lignes \(opérations\)$/);
     assert.equal((await srv.call('/api/journal/csv', { cookie: ck })).status, 403);

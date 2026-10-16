@@ -20,7 +20,9 @@ export type KeystoneEvent =
   | { type: 'demande.decision'; demande: number; reference: string | null; matricule: string; chantier: string; decision: 'acceptee' | 'refusee'; date: ISODate }
   | { type: 'heures.validees'; matricule: string; semaine: ISODate; projets: Record<string, number> }
   | { type: 'absence.validee' | 'absence.annulee'; absence: number; matricule: string; du: ISODate; au: ISODate }
-  | { type: 'verdict.modifie'; chantier: string; statut: CodeGng; ressource: { matricule: string; statut: CodeGng; motifs: MotifKeystone[]; precedent: CodeGng | null } };
+  | { type: 'verdict.modifie'; chantier: string; statut: CodeGng; ressource: { matricule: string; statut: CodeGng; motifs: MotifKeystone[]; precedent: CodeGng | null } }
+  // Déplacement venu de Keystone modifié (dates) ou annulé par le service RH : jamais le motif de l'annulation (texte libre).
+  | { type: 'deplacement.modifie' | 'deplacement.annule'; deplacement: number; demande: number | null; reference: string | null; matricule: string; chantier: string; destination: string; depart: ISODate; retour: ISODate; date: ISODate };
 
 /** Adresse et jeton des envois à Keystone ; null sans KEYSTONE_URL (simulation). */
 export function keystoneSortant(env: Env = process.env): { url: string; token: string | null } | null {
@@ -66,9 +68,12 @@ export function heuresKeystone(lignes: LigneTemps[]): Record<string, number> {
   return out;
 }
 
-/** Absence validée ou annulée : période seulement, jamais sa nature (congé, maladie…), sans utilité pour la planification. */
-export function absenceKeystone(type: 'absence.validee' | 'absence.annulee', a: Pick<Absence, 'id' | 'empId' | 'du' | 'au'>): KeystoneEvent {
-  return { type, absence: a.id, matricule: matricule(a.empId), du: a.du, au: a.au };
+/**
+ * Absence validée ou annulée : période seulement, jamais sa nature (congé, maladie…), sans utilité pour la planification.
+ * `identifiant` : celui du salarié selon le réglage « identifiant envoyé à Keystone » (shared/rules/matricules.ts).
+ */
+export function absenceKeystone(type: 'absence.validee' | 'absence.annulee', a: Pick<Absence, 'id' | 'empId' | 'du' | 'au'>, identifiant = matricule(a.empId)): KeystoneEvent {
+  return { type, absence: a.id, matricule: identifiant, du: a.du, au: a.au };
 }
 
 /**

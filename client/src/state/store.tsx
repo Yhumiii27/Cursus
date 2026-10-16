@@ -10,39 +10,48 @@
 // manager qui garde l'écran ouvert voit arriver les demandes de son équipe. Une lecture partie avant une
 // action n'écrase jamais les données renvoyées par celle-ci.
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
-import { vuesDe, type ALLOWED_VIEWS, type HabMesureAction } from '../../../shared/constants.ts';
+import { VUES_COMMUNES, vuesDe, type ALLOWED_VIEWS, type HabMesureAction } from '../../../shared/constants.ts';
 import { mondayOf } from '../../../shared/dates.ts';
 import type { FormaliteKind, UiIntent } from '../../../shared/domain.ts';
+import type { ReferentielId } from '../../../shared/rules/referentiels.ts';
 import type { CompteSession, Dataset, EntretienType, ISODate, PlanStatut, ProfilRh, Role, VaccinId } from '../../../shared/types.ts';
 import { api, lienMicrosoft, surSessionExpiree, type ActionResponse, type ApiError, type SessionState } from '../api.ts';
 import { AppelsEnCours, cleAction } from './actions.ts';
 import type { Confirmation } from './confirmations.ts';
+import { demandeHabilitation } from './confirmations-referentiels.ts';
 import { effacerBrouillon, lireBrouillon, sauverBrouillon, type Champs } from './brouillon.ts';
 
-export type View = (typeof ALLOWED_VIEWS)[Role][number];
+export type View = (typeof ALLOWED_VIEWS)[Role][number] | (typeof VUES_COMMUNES)[number];
 
 export interface UiState {
   horizon: number | null;
   search: string;
   equipe: string;
-  statut: 'tous' | 'ok' | 'due' | 'exp';
+  /** Statut de conformité affiché dans Collaborateurs, ou les salariés sortis (`sortis`). */
+  statut: 'tous' | 'ok' | 'due' | 'exp' | 'sortis';
   selectedId: number | null;
   typeForm: 'toutes' | 'reg' | 'rec' | 'int';
   formationFilter: string | null;
   habFilter: 'tous' | 'due' | 'ko' | 'pending';
   habType: string | null;
   tripSel: number | null;
-  echType: 'tous' | 'cert' | 'hab' | 'trip' | 'med';
+  echType: 'tous' | 'cert' | 'hab' | 'trip' | 'med' | 'exigence' | 'contrat';
   goSel: string | null;
   exercice: number | null;
   planFilter: 'tous' | PlanStatut;
   weekStart: ISODate | null;
   tsEmp: number | null;
+  /** Onglet de l'écran Référentiels. */
+  refOnglet: ReferentielId | 'postes';
+  /** Saisie des heures jour par jour (téléphone, tablette) : jour affiché, du lundi (0) au vendredi (4) ; null : le jour courant. */
+  tsJour: number | null;
 }
 
 const INITIAL_UI: UiState = {
   horizon: null, search: '', equipe: 'Toutes', statut: 'tous', selectedId: null, typeForm: 'toutes', formationFilter: null,
   habFilter: 'tous', habType: null, tripSel: null, echType: 'tous', goSel: null, exercice: null, planFilter: 'tous', weekStart: null, tsEmp: null,
+  refOnglet: 'formations',
+  tsJour: null,
 };
 
 /** Dialogues ouverts depuis plusieurs écrans — rendus par <DialogHost />. */
@@ -57,11 +66,14 @@ export type DialogState =
   | { type: 'trip' }
   | { type: 'fo'; empId?: number | null; kind?: FormaliteKind; dest?: string; v?: VaccinId }
   | { type: 'detachement'; id: number }
+  | { type: 'tripModifier'; id: number }
   | { type: 'visite'; empId: number }
   | { type: 'avis'; empId: number }
   | { type: 'reqForm'; f?: string; sessionId?: number | null; empId?: number | null }
   | { type: 'reqHab'; empId?: number | null }
   | { type: 'employe'; empId?: number | null; equipe?: string | null }
+  | { type: 'sortie'; empId: number }
+  | { type: 'autorisation'; empId: number }
   | { type: 'membre'; equipe?: string | null }
   | { type: 'equipe'; nom?: string | null }
   | { type: 'abs'; empId: number }
@@ -71,14 +83,31 @@ export type DialogState =
   | { type: 'absAnnuler'; id: number }
   | { type: 'cet'; empId: number }
   | { type: 'report'; empId: number }
+  /** Clôture d'une période de congés : CP (`periode` : année de prise) ou RTT (`periode` : année). */
+  | { type: 'clotureConges'; conges: 'CP' | 'RTT'; periode: number }
   | { type: 'entPlan'; empId: number; kind: EntretienType }
   | { type: 'ent'; entId: number }
+  | { type: 'entRemise'; entId: number }
+  | { type: 'planRealiser'; id: number }
+  | { type: 'exerciceCloture'; exercice: number }
   | { type: 'tripImport' }
   | { type: 'planImport'; exercice: number }
   | { type: 'budget'; exercice: number }
   | { type: 'compte' }
   | { type: 'motDePasseProvisoire'; nom: string; identifiant: string; motDePasse: string }
   | { type: 'motDePasse' }
+  /** Écran Référentiels : création (sans identifiant) ou modification d'une formation, d'une habilitation, d'une destination. */
+  | { type: 'refFormation'; id?: string | null }
+  | { type: 'refHabilitation'; id?: string | null }
+  | { type: 'refDestination'; code?: string | null }
+  /** Onglet Postes : poste (création sans identifiant) et exigences communes d'une équipe (shared/rules/exigences.ts). */
+  | { type: 'refPoste'; id?: number | null }
+  | { type: 'refEquipe'; nom: string }
+  /** Correspondance d'une rubrique de paie avec le plan de paie Sage (écran Temps, components/RubriquesPaie.tsx). */
+  | { type: 'rubrique'; code: string }
+  /** Lots de paie (écran Temps, components/LotsPaie.tsx) : confirmation de l'import dans Sage, format du fichier d'import. */
+  | { type: 'lotImport'; id: number }
+  | { type: 'formatFichier' }
   /** Refus ou action irréversible à confirmer (state/confirmations.ts). */
   | { type: 'confirmer'; c: Confirmation };
 
@@ -181,8 +210,12 @@ async function avecDonnees(s: SessionState): Promise<[SessionState, Dataset | nu
   }
 }
 
-/** Vue affichable dans l'espace (selon le profil pour l'espace RH), sinon la vue de repli, sinon la page d'accueil. */
+/**
+ * Vue affichable dans l'espace (selon le profil pour l'espace RH), sinon la vue de repli, sinon la page d'accueil. Les vues
+ * communes (Confidentialité) s'ouvrent dans tous les espaces, et sans connexion.
+ */
 export function allowedView(role: Role, v: string, fallback?: string, profilRh?: ProfilRh): View {
+  if ((VUES_COMMUNES as readonly string[]).includes(v)) return v as View;
   const list = vuesDe(role, profilRh);
   if (list.includes(v)) return v as View;
   if (fallback && list.includes(fallback)) return fallback as View;
@@ -420,6 +453,11 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       case 'medical': setDialog({ type: 'visite', empId: intent.empId }); break;
       case 'openFormalite': setDialog({ type: 'fo', empId: intent.empId, kind: intent.kind, dest: intent.dest, v: intent.v }); break;
       case 'openCloture': setDialog({ type: 'cloture', sessionId: intent.sessionId }); break;
+      // Habilitation exigée jamais délivrée : titre demandé, « en attente » de délivrance, qui ne se retire pas (confirmé).
+      case 'demanderHab': setDialog({ type: 'confirmer', c: demandeHabilitation(intent) }); break;
+      // Échéances du contrat : fiche (période d'essai), sortie (fin de contrat), titre de séjour.
+      case 'openContrat': setDialog(intent.quoi === 'sortie' ? { type: 'sortie', empId: intent.empId }
+        : intent.quoi === 'titre' ? { type: 'autorisation', empId: intent.empId } : { type: 'employe', empId: intent.empId }); break;
     }
   }, [go]);
 

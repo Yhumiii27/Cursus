@@ -7,7 +7,7 @@ import { identifiantSuggere, typeSuggere } from '../../shared/rules/comptes.ts';
 import { repriseDesAbsences } from '../../shared/rules/absences.ts';
 import { cpDroit, rttDroit } from '../../shared/rules/conges.ts';
 import type {
-  AvisMedical, Dataset, Employe, EntretienType, Messagerie, ProfilRh, Restriction, Statut, TempsTravail, TypeContrat, VaccinId,
+  AutorisationTravail, AvisMedical, Dataset, Employe, EntretienType, Messagerie, ProfilRh, Restriction, Statut, TempsTravail, TypeContrat, VaccinId,
 } from '../../shared/types.ts';
 import { MOTIF_RESTRICTION } from '../../shared/constants.ts';
 import type { Db } from './db.ts';
@@ -15,10 +15,14 @@ import { DEFAULT_SETTINGS, loadFull } from './dataset.ts';
 import { contexte, enregistrerAffectation, enregistrerChantier, enregistrerProjet, enregistrerTache } from './integrations/keystone-entrant.ts';
 import { suivreVerdicts } from './integrations/keystone-verdicts.ts';
 import { figerFeuilles } from './migrate.ts';
+import { postesDepuisFiches } from './migrations/referentiels.ts';
+import { lotHistorique } from './migrations/paie.ts';
 
 // Mode de validation : évaluation réussie pour les habilitations électriques, CACES, SST, ATEX, AIPR et PRAP ;
 // la présence suffit pour les sensibilisations et formations d'information.
-const FORMATIONS = [
+// FORMATIONS, HABILITATIONS et DESTS forment aussi le référentiel type, chargé sur une base vide par le service RH
+// (`referentiel.charger`, server/src/actions/referentiels.ts), sans les salariés.
+export const FORMATIONS = [
   { id: 'sst', nom: 'Sauveteur secouriste du travail (SST)', court: 'SST', type: 'Réglementaire', validite: 24, duree: '7 h (MAC)', organisme: 'Croix-Rouge française', cout: 180, validation: 'evaluation' },
   { id: 'elec', nom: 'Préparation à l’habilitation électrique B1V · B2V · BR', court: 'Formation élec. B1V-BR', type: 'Réglementaire', validite: 36, duree: '21 h', organisme: 'Apave', cout: 480, validation: 'evaluation' },
   { id: 'atex', nom: 'Intervention en zone ATEX (niveau 1)', court: 'ATEX', type: 'Réglementaire', validite: 36, duree: '7 h', organisme: 'Apave', cout: 350, validation: 'evaluation' },
@@ -32,7 +36,7 @@ const FORMATIONS = [
   { id: 'rgpd', nom: 'Sensibilisation RGPD et sécurité de l’information', court: 'RGPD', type: 'Interne', validite: 24, duree: '2 h', organisme: 'Interne · DSI', cout: 0, validation: 'presence' },
 ];
 
-const HABILITATIONS = [
+export const HABILITATIONS = [
   { id: 'he', nom: 'Habilitation électrique', detail: 'B1V · B2V · BR — NF C18-510', prereqs: ['elec'], medical: true, validite: 36, signataire: 'Karim Haddad' },
   { id: 'ac489', nom: 'Autorisation de conduite — chariots R489', detail: 'Chariots élévateurs cat. 3', prereqs: ['caces489'], medical: true, validite: 60, signataire: 'Olivier Marchal' },
   { id: 'ac486', nom: 'Autorisation de conduite — nacelles R486', detail: 'PEMP cat. B', prereqs: ['caces486'], medical: true, validite: 60, signataire: 'Karim Haddad' },
@@ -42,7 +46,7 @@ const HABILITATIONS = [
 ];
 
 // `secu` : convention bilatérale de sécurité sociale (Maroc, Inde, États-Unis, Côte d'Ivoire, Brésil), sinon maintien au régime français.
-const DESTS = [
+export const DESTS = [
   { code: 'MA', pays: 'Maroc', visa: 'none', visaSub: 'séjour ≤ 90 jours', oblig: [], rec: ['hepA', 'typhoide'], passMois: 0, secu: 'convention' },
   { code: 'IN', pays: 'Inde', visa: 'evisa', visaSub: '', oblig: [], rec: ['hepA', 'typhoide', 'hepB'], passMois: 6, secu: 'convention' },
   { code: 'US', pays: 'États-Unis', visa: 'esta', visaSub: '', oblig: [], rec: [], passMois: 0, secu: 'convention' },
@@ -306,9 +310,10 @@ const BUDGETS: Record<number, Record<string, number>> = {
 };
 
 const PLAN = [
-  { f: 'sst', equipe: 'Production', periode: 'T1', effectif: 8, cout: 1440, statut: 'realise' },
+  // Actions réalisées : coût et effectif réels saisis à la clôture (par défaut, ceux du plan).
+  { f: 'sst', equipe: 'Production', periode: 'T1', effectif: 8, cout: 1440, statut: 'realise', coutReel: 1260, effectifReel: 7 },
   { f: 'elec', equipe: 'Maintenance', periode: 'T1', effectif: 4, cout: 1920, statut: 'realise' },
-  { f: 'caces489', equipe: 'Logistique', periode: 'T2', effectif: 5, cout: 3250, statut: 'realise' },
+  { f: 'caces489', equipe: 'Logistique', periode: 'T2', effectif: 5, cout: 3250, statut: 'realise', coutReel: 3480 },
   { f: 'prap', equipe: 'Production', periode: 'T2', effectif: 6, cout: 2520, statut: 'realise' },
   { f: 'hauteur', equipe: 'Maintenance', periode: 'T2', effectif: 3, cout: 960, statut: 'realise' },
   { f: 'epi', equipe: 'Administration', periode: 'T3', effectif: 6, cout: 240, statut: 'realise' },
@@ -326,12 +331,14 @@ const PLAN = [
 
 /** Feuilles de temps des deux semaines précédentes (tâches planifiées ces semaines-là), plus un brouillon en cours. */
 function feuilles(taches: ReturnType<typeof planning>) {
-  const out: { empId: number; week: string; statut: string; sage: boolean; keystone: boolean; lignes: unknown[] }[] = [];
+  const out: { empId: number; week: string; statut: string; sage: boolean; keystone: boolean; lignes: unknown[]; heuresSup?: string | null }[] = [];
   Object.keys(TACHES).map(Number).forEach(id => ['2026-09-21', '2026-09-28'].forEach((week, wi) => {
     const lignes = taches.filter(t => t.empId === id).map(t => ({ projet: t.projet, tache: t.tache, ks: true, h: wDays(week).map(s => t.heures[s] ?? 0) }))
       .filter(l => l.h.some(v => v > 0))
       .map(l => ({ ...l, h: l.h.map((v, i) => v + ((id === 22 || id === 18) && wi === 1 && i < 2 && v ? 2 : 0)) }));
-    out.push({ empId: id, week, lignes, statut: wi === 1 && id % 3 === 0 ? 'soumise' : 'validee', sage: wi === 0 && id !== 15, keystone: wi === 0 });
+    const statut = wi === 1 && id % 3 === 0 ? 'soumise' : 'validee';
+    // Heures supplémentaires payées, mode figé à la validation (comme temps.validate).
+    out.push({ empId: id, week, lignes, statut, sage: wi === 0 && id !== 15, keystone: wi === 0, heuresSup: statut === 'validee' ? 'paiement' : null });
   }));
   out.push({ empId: 1, week: '2026-10-05', lignes: [{ projet: 'INT-LOG', tache: 'Réception / expédition', ks: true, h: [7, 7.5, 0, 0, 0] }], statut: 'brouillon', sage: false, keystone: false });
   return out;
@@ -362,6 +369,21 @@ function histo(id: number, forfait: boolean) {
   return { cp: [12, 15, 18, 20][k], rtt: forfait ? [3, 5, 4, 6][k] : [10, 14, 16, 12][k], recA: [0, 7, 3.5, 10.5][k], recP: [0, 7, 0, 3.5][k] };
 }
 
+/**
+ * Exigences de démonstration (t055) : en production, aucune n'est créée d'office (référentiel des postes à compléter par
+ * le service RH). Caristes et techniciens de maintenance détiennent déjà les leurs ; l'apprenti électromécanicien attend
+ * la délivrance de son habilitation électrique, et la Logistique exige le SST de tous ses membres (Lucas Martin ne l'a pas).
+ */
+const EXIGENCES_DEMO: Record<string, { formations: string[]; habilitations: string[] }> = {
+  'Cariste': { formations: ['caces489'], habilitations: ['ac489'] },
+  'Technicien de maintenance': { formations: ['elec'], habilitations: ['he'] },
+  'Apprenti électromécanicien': { formations: ['elec'], habilitations: ['he'] },
+};
+function exigencesDemo(db: Db) {
+  for (const [nom, x] of Object.entries(EXIGENCES_DEMO)) db.sql.prepare('UPDATE postes SET formations = ?, habilitations = ? WHERE nom = ?').run(JSON.stringify(x.formations), JSON.stringify(x.habilitations), nom);
+  db.update('equipes', 'Logistique', { exigences: { formations: ['sst'], habilitations: [] } });
+}
+
 export function seedDemo(db: Db) {
   db.tx(() => {
     const secret = db.getSetting<string | null>('secret', null); // conserve les sessions ouvertes
@@ -379,12 +401,13 @@ export function seedDemo(db: Db) {
       db.insert('employes', {
         id: e.id, nom: e.nom, equipe: e.equipe, poste: e.poste, statut: p.statut, typeContrat: p.typeContrat, temps: p.temps,
         heures: p.heures ?? null, forfaitHeures: p.forfaitHeures ?? null, forfaitJours: p.forfaitJours ?? null, jourOff: p.jourOff ?? [],
-        entree: p.entree, fin: p.fin ?? null, naissance: p.naissance, agence: p.agence ?? null,
+        entree: p.entree, fin: p.fin ?? null, naissance: p.naissance, agence: p.agence ?? null, matriculePaie: matriculePaieDemo(e.id, p.typeContrat),
         // Chacun a une adresse professionnelle (décision de l'entreprise) ; Karim Haddad reçoit un récapitulatif quotidien.
         email: identifiantSuggere(e.nom, 'microsoft', DOMAINE_DEMO), notifications: e.id === 12 ? 'quotidien' : 'immediat',
         repriseMotif: p.reprise?.motif ?? null, repriseDate: p.reprise?.date ?? null, visite: x.visite ?? null,
         avis: x.avis ?? null, restrictions: x.restrictions ?? [],
         passeportNumero: x.passeport?.numero ?? null, passeportExpire: x.passeport?.expire ?? null,
+        autorisationTravail: TITRES_DEMO[e.id] ?? null,
       });
       [...e.certs, ...(x.certsPlus || [])].forEach(c => db.insert('certifications', { empId: e.id, f: c.f, obtenue: c.obtenue, sessionId: c.session ?? null, convoc: c.convoc ?? null, convocLe: c.convoc ? CONVOQUES_LE : null }));
       (x.habs || []).forEach(h => db.insert('habTitres', {
@@ -394,6 +417,9 @@ export function seedDemo(db: Db) {
       (x.visas || []).forEach(v => db.insert('visas', { empId: e.id, ...v }));
       (x.vaccins || []).forEach(v => db.insert('vaccinations', { empId: e.id, ...v }));
     });
+    // Postes du référentiel d'après les intitulés des fiches (comme la reprise d'une base existante), puis exigences.
+    postesDepuisFiches(db);
+    exigencesDemo(db);
     RECYCLAGES.forEach(([empId, f, sessionId]) => {
       const c = db.where<{ id: number; f: string }>('certifications', 'empId', empId).find(x => x.f === f)!;
       db.update('certifications', c.id, { sessionId, convoc: 'now', convocLe: CONVOQUES_LE });
@@ -409,21 +435,24 @@ export function seedDemo(db: Db) {
     DEMANDES_KEYSTONE.forEach(d => db.insert('demandesKeystone', d));
     ABSENCES.forEach(a => db.insert('absences', a));
     CET.forEach(c => db.insert('cet', c));
-    db.insert('reports', { empId: 6, jours: 4, motif: 'CP 2024-2025 non pris — arrêt de travail', par: 'Sandrine Vidal', date: '2026-06-02', sens: 'recu' });
+    // Report légal de 15 mois (arrêt de travail), reçu sur la période 2026-2027 et courant au-delà : sa clôture l'imposera.
+    db.insert('reports', { empId: 6, jours: 4, motif: 'CP 2024-2025 non pris — arrêt de travail', par: 'Sandrine Vidal', date: '2026-06-02', sens: 'recu', periode: 2026, expire: '2027-08-31' });
     DEMANDES_COLLAB.forEach(d => db.insert('demandesCollab', d));
     // Visite d'embauche demandée pour l'apprenti, jamais vu par le médecin du travail.
     db.insert('demandesVisite', { empId: 24, motif: 'embauche', le: '2026-10-05', par: RH_DEMO, statut: 'demandee', closeLe: null, closePar: null });
     Object.entries(BUDGETS).forEach(([ex, list]) => Object.entries(list).forEach(([equipe, montant]) => db.insert('budgets', { exercice: Number(ex), equipe, montant })));
-    PLAN.forEach(l => db.insert('planActions', { exercice: 2026, ...l }));
+    PLAN.forEach(l => db.insert('planActions', { exercice: 2026, ...(l.statut === 'realise' ? { coutReel: l.cout, effectifReel: l.effectif } : {}), ...l }));
     feuilles(taches).forEach(f => db.insert('feuilles', f));
+    // Feuilles déjà transmises de la démonstration : réunies en un lot de paie historique, comme une base reprise.
+    lotHistorique(db, 'Démonstration', '2026-10-02T15:00:00.000Z');
     figerFeuilles(db);
     entretiens().forEach(e => db.insert('entretiens', e));
     comptesDemo(db);
 
-    // Reprise des compteurs : jours déjà pris sur les périodes en cours,
-    // plafonnés pour laisser un solde réaliste.
+    // Reprise des compteurs : jours déjà pris sur les périodes en cours, arrêtés au jour du chargement (période de CP à
+    // prendre et année de RTT de cette date), plafonnés pour laisser un solde réaliste.
     const ds: Dataset = loadFull(db, { role: 'rh', empId: null, nom: '', intitule: '' });
-    const d = new Domain(ds);
+    const d = new Domain(ds), arrete = ds.today;
     ds.employes.forEach((e: Employe) => {
       const c = d.contratOf(e), h = histo(e.id, !!c.forfait);
       const cp = c.interim ? 0 : Math.min(h.cp, Math.max(0, cpDroit(d, e).droit - 4));
@@ -432,7 +461,7 @@ export function seedDemo(db: Db) {
       // Les demandes de récupération en attente doivent rester couvertes par le compteur acquis.
       const recupDemandee = ds.absences.filter(a => a.empId === e.id && a.type === 'RECUP' && a.statut === 'demandee')
         .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'RECUP') * d.dayH(e), 0);
-      db.insert('soldesReprise', { empId: e.id, cpPris: cp, rttPris: rtt, recupAcquis: Math.max(h.recA, h.recP + recupDemandee), recupPris: h.recP });
+      db.insert('soldesReprise', { empId: e.id, cpPris: cp, rttPris: rtt, recupAcquis: Math.max(h.recA, h.recP + recupDemandee), recupPris: h.recP, arreteLe: arrete });
       // Reprise après une absence longue (maternité…), inscrite comme à la saisie par le RH.
       const r = repriseDesAbsences(ds.absences, e.id);
       if (r && !e.repriseDate) db.update('employes', e.id, { repriseMotif: r.motif, repriseDate: r.date });
@@ -443,10 +472,22 @@ export function seedDemo(db: Db) {
   });
 }
 
+/**
+ * Matricule de paie de démonstration (dossier Sage fictif) : l'intérimaire, payé par son agence, n'en a pas, ni l'apprenti
+ * tout juste embauché, à saisir (Paramètres → Matricules de paie).
+ */
+const matriculePaieDemo = (id: number, typeContrat: string) => typeContrat === 'interim' || id === 24 ? null : String(4100 + id).padStart(6, '0');
 /** Domaine des adresses Microsoft 365 de démonstration (réservé à la documentation, jamais routé). */
 export const DOMAINE_DEMO = 'entreprise.example';
 /** Date des convocations déjà envoyées du jeu de démonstration. */
 const CONVOQUES_LE = '2026-09-28';
+/**
+ * Titre de séjour valant autorisation de travail (shared/rules/contrats.ts) : celui de Fatou Ndiaye expire fin janvier 2027,
+ * dans la fenêtre de la demande de renouvellement (alerte à 120 jours) ; les autres n'en ont pas besoin.
+ */
+const TITRES_DEMO: Record<number, AutorisationTravail> = {
+  17: { type: 'pluriannuelle', numero: 'CS7712345', expire: '2027-01-29', verifieLe: '2023-12-20' },
+};
 /**
  * Messagerie de démonstration : boîte du service RH, service de santé au travail, agence de l'intérimaire (domaines
  * fictifs), dont l'adresse a été renseignée le 5 octobre : le premier relevé automatique est celui de la semaine 40.

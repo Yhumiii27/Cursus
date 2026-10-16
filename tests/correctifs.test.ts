@@ -90,7 +90,9 @@ test('#10 #30 changement de régime : historique figé, RTT au prorata', () => {
   const d0 = domain();
   const nico = d0.emp(22)!;
   const recupAvant = recupInfo(d0, nico)!.acq;
-  run(RH, 'employe.modifier', { id: 22, temps: '35h' });
+  // RTT de l'année déjà pris, que le 35 h n'ouvre pas : le changement se confirme (garde-fou, tests/sorties.test.ts).
+  assert.throws(() => run(RH, 'employe.modifier', { id: 22, temps: '35h' }), /Confirmez le changement/);
+  run(RH, 'employe.modifier', { id: 22, temps: '35h', confirmerRtt: true });
   const d1 = domain();
   assert.equal(recupInfo(d1, d1.emp(22)!)!.acq, recupAvant, 'semaines validées recalculées avec leur régime');
   assert.equal(d1.emp(22)!.tempsDepuis, '2026-10-07');
@@ -99,7 +101,7 @@ test('#10 #30 changement de régime : historique figé, RTT au prorata', () => {
   assert.equal(rttInfo(d2, d2.emp(1)!)!.droit, Math.round(23 * 3 / 12), 'RTT d’octobre à décembre');
   const sh = d2.ds.feuilles.find(f => f.empId === 9 && f.statut === 'validee')!;
   const avant = sageRubriques(d2, d2.emp(9)!, sh);
-  run(RH, 'employe.modifier', { id: 9, temps: '35h' });
+  run(RH, 'employe.modifier', { id: 9, temps: '35h', confirmerRtt: true });
   const d3 = domain();
   assert.deepEqual(sageRubriques(d3, d3.emp(9)!, d3.ds.feuilles.find(f => f.id === sh.id)!), avant);
 });

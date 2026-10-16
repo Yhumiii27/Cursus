@@ -6,6 +6,7 @@ import { useState } from 'react';
 import { ENT_TYPES } from '../../../shared/constants.ts';
 import { isValidDate } from '../../../shared/dates.ts';
 import { blocage, type Conflit, conflitsDates } from '../../../shared/rules/conflits.ts';
+import { horsContratLe } from '../../../shared/rules/contrats.ts';
 import { reprogrammation } from '../../../shared/rules/entretiens.ts';
 import type { EntretienType } from '../../../shared/types.ts';
 import { CancelButton, Controles, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
@@ -25,7 +26,7 @@ export function EntPlanDialog({ empId, kind: kind0 }: { empId: number; kind: Ent
   const v = useVerification();
   const emp = d.emp(empId);
   if (!emp) return null;
-  const dateErr = erreurDate(date, 'Indiquez la date de l’entretien.') ?? (date < d.ti ? `Date passée : à partir du ${fmtIso(d.ti)}.` : null);
+  const dateErr = erreurDate(date, 'Indiquez la date de l’entretien.') ?? (date < d.ti ? `Date passée : à partir du ${fmtIso(d.ti)}.` : horsContratLe(emp, date));
   const { prevu, aConfirmer, msg } = reprogrammation(d, empId, kind, date, nonTenu);
   const msgs: Conflit[] = [
     ...(msg ? [msg] : []),

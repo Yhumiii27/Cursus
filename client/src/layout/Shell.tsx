@@ -1,19 +1,25 @@
 // Coque de l'application : barre latérale (rôle, navigation, utilisateur), en-tête, notification, et
 // reconnexion par-dessus l'écran quand la session expire (le reste devient inerte).
+// Sur écran étroit, la barre latérale devient un tiroir ouvert par le bouton « Menu » (layout/Tiroir.tsx). Lien
+// « Aller au contenu » en tête, titre de l'onglet par page et focus sur le titre après un changement de page
+// (layout/navigation.ts). Chaque pastille du menu est lue « N à traiter » par un lecteur d'écran.
 // Les notifications passent par deux régions live toujours présentes (un lecteur d'écran n'annonce pas une
 // région insérée avec son texte) : les succès en « status », les erreurs en « alert ».
-import { useMemo, type ReactNode } from 'react';
+import { useMemo, useRef, type ReactNode } from 'react';
 import {
-  AirplaneIcon, BellIcon, BookOpenIcon, BriefcaseIcon, CalendarBlankIcon, ChartBarIcon, ChatIcon, CheckIcon, ClockIcon, GearSixIcon,
-  HouseIcon, KeyIcon, MagnifyingGlassIcon, MapPinIcon, PlusIcon, ShieldCheckIcon, SignOutIcon, UserIcon, UsersThreeIcon, WarningIcon, XIcon, type Icon,
+  AirplaneIcon, BellIcon, BookOpenIcon, BooksIcon, BriefcaseIcon, CalendarBlankIcon, ChartBarIcon, ChatIcon, CheckIcon, ClockIcon, GearSixIcon,
+  HouseIcon, KeyIcon, LockSimpleIcon, MagnifyingGlassIcon, MapPinIcon, PlusIcon, ShieldCheckIcon, SignOutIcon, UserIcon, UsersThreeIcon, WarningIcon, XIcon, type Icon,
 } from '@phosphor-icons/react';
 import { droitsRh, PROFILS_RH, vuesDe } from '../../../shared/constants.ts';
 import { Domain } from '../../../shared/domain.ts';
-import { obligations } from '../../../shared/rules/entretiens.ts';
+import { aFaireCollaborateur } from '../../../shared/rules/a-faire.ts';
+import { obligations, perimetreEntretiens } from '../../../shared/rules/entretiens.ts';
 import type { Dataset, Role } from '../../../shared/types.ts';
 import { Avatar } from '../components/ui.tsx';
 import { useStore, type Toast as StoreToast, type View } from '../state/store.tsx';
+import { ID_CONTENU, useNavigationAnnoncee } from './navigation.ts';
 import { Reconnexion } from './Reconnexion.tsx';
+import { BoutonMenu, ID_MENU, PiegeTiroir, useTiroir, type Tiroir } from './Tiroir.tsx';
 
 interface NavItem { view: View; label: string; icon: Icon; badge?: number }
 type NavGroup = [string, NavItem[]];
@@ -22,8 +28,8 @@ function navGroups(data: Dataset | null, role: Role): NavGroup[] {
   if (!data) return [];
   const d = new Domain(data);
   const me = data.user.empId;
-  const scope = data.employes.map(e => e.id);
-  const late = obligations(d, scope).filter(o => o.kind === 'epp' && o.st === 'late').length;
+  // Entretiens en retard de l'équipe : ceux du manager lui-même relèvent de son responsable (espace collaborateur).
+  const late = obligations(d, perimetreEntretiens(data)).filter(o => o.kind === 'epp' && o.st === 'late').length;
   // Service RH (jamais pour ses propres demandes) ou manager direct ; les profils restreints ne valident rien.
   const rh = droitsRh(data.user).includes('rh'), soi = data.user.salarieId ?? null;
   const canValidate = (empId: number) => {
@@ -43,7 +49,7 @@ function navGroups(data: Dataset | null, role: Role): NavGroup[] {
       ['Compétences', [{ view: 'formations', label: 'Formations', icon: BookOpenIcon }, { view: 'habilitations', label: 'Habilitations', icon: ShieldCheckIcon }]],
       ['Temps & absences', [{ view: 'temps', label: 'Feuilles de temps', icon: ClockIcon, badge: nQ }, { view: 'absences', label: 'Congés & absences', icon: CalendarBlankIcon, badge: nAbs }]],
       ['Projets & déplacements', [{ view: 'missions', label: 'Missions', icon: MapPinIcon }, { view: 'voyages', label: 'Voyages', icon: AirplaneIcon, badge: data.demandesKeystone.filter(x => x.statut === 'attente').length }, { view: 'chantiers', label: 'Chantiers · Go / No Go', icon: BriefcaseIcon }]],
-      ['Administration', [{ view: 'parametres', label: 'Paramètres', icon: GearSixIcon }]],
+      ['Administration', [{ view: 'referentiels', label: 'Référentiels', icon: BooksIcon }, { view: 'parametres', label: 'Paramètres', icon: GearSixIcon }]],
     ];
     return groupes.map(([g, items]): NavGroup => [g, items.filter(i => vues.includes(i.view))]).filter(([, items]) => items.length > 0);
   }
@@ -54,16 +60,36 @@ function navGroups(data: Dataset | null, role: Role): NavGroup[] {
       ['Projets & déplacements', [{ view: 'missions', label: 'Missions', icon: MapPinIcon }]],
     ];
   }
+  // Collaborateur : comptes rendus à signer, feuilles renvoyées ou semaine passée à soumettre (shared/rules/a-faire.ts).
+  const aFaire = aFaireCollaborateur(d, me);
   return [
-    ['Mon espace', [{ view: 'portail', label: 'Accueil', icon: HouseIcon }, { view: 'entretiens', label: 'Mes entretiens', icon: ChatIcon }]],
-    ['Temps & absences', [{ view: 'temps', label: 'Mes heures', icon: ClockIcon }, { view: 'absences', label: 'Mes absences', icon: CalendarBlankIcon }]],
+    ['Mon espace', [{ view: 'portail', label: 'Accueil', icon: HouseIcon }, { view: 'entretiens', label: 'Mes entretiens', icon: ChatIcon, badge: aFaire.comptesRendus.length }]],
+    ['Temps & absences', [{ view: 'temps', label: 'Mes heures', icon: ClockIcon, badge: aFaire.feuilles.length }, { view: 'absences', label: 'Mes absences', icon: CalendarBlankIcon }]],
   ];
 }
 
 const VUES: [Role, string][] = [['rh', 'RH'], ['manager', 'Manager'], ['collaborateur', 'Utilisateur']];
 
-function Sidebar({ groups }: { groups: NavGroup[] }) {
-  const { session, data, view, go, switchMode, bascule, logout, openDialog } = useStore();
+/** Groupe et libellé de la page affichée : fil d'Ariane de l'en-tête et titre de l'onglet. */
+function pageAffichee(groups: NavGroup[], view: View, connecte: boolean): [string, string] {
+  if (view === 'confidentialite') return ['Cursus', 'Confidentialité'];
+  // Hors du menu : ouverte depuis Paramètres.
+  if (view === 'miseEnService') return ['Administration', 'Mise en service'];
+  const g = groups.find(([, items]) => items.some(i => i.view === view));
+  const page = g?.[1].find(i => i.view === view);
+  return g && page ? [g[0], page.label] : ['Cursus', connecte ? 'Cursus' : 'Connexion'];
+}
+
+/** Pastille d'une entrée du menu : le nombre, lu « N à traiter » par un lecteur d'écran. */
+const Pastille = ({ n }: { n: number }) => (
+  <span className="tag tag-accent nav-badge"><span aria-hidden="true">{n}</span><span className="sr-only">, {n} à traiter</span></span>
+);
+
+function Sidebar({ groups, tiroir }: { groups: NavGroup[]; tiroir: Tiroir }) {
+  const { session, data, view, go, switchMode, bascule, logout, openDialog, reconnexion } = useStore();
+  const barre = useRef<HTMLElement>(null);
+  // Écran étroit : un choix (page, espace, mot de passe, déconnexion) referme d'abord le tiroir.
+  const puis = (f: () => void) => () => { tiroir.fermer(); f(); };
   const role = session?.role ?? 'rh';
   const user = session?.user ?? null;
   const compte = session?.compte ?? null;
@@ -73,12 +99,20 @@ function Sidebar({ groups }: { groups: NavGroup[] }) {
   const vues = session?.demo ? VUES : user && compte && compte.espaces.length > 1
     ? VUES.filter(([r]) => compte.espaces.includes(r)).map(([r, l]): [Role, string] => [r, r === 'rh' ? PROFILS_RH[compte.profilRh]?.espace ?? l : l])
     : [];
+  const ouvert = tiroir.ouvert;
   return (
-    <aside className="sidebar">
-      <span className="brand">
-        <span className="brand-mark"><CheckIcon size={13} weight="bold" /></span>
-        <span>Cursus</span>
-      </span>
+    <aside ref={barre} id={ID_MENU} className={`sidebar${ouvert ? ' ouvert' : ''}`} tabIndex={ouvert ? -1 : undefined}
+      role={ouvert ? 'dialog' : undefined} aria-modal={ouvert || undefined} aria-label={ouvert ? 'Menu' : undefined}>
+      {ouvert && <PiegeTiroir barre={barre} actif={!reconnexion} fermer={tiroir.fermer} />}
+      <div className="side-tete">
+        <span className="brand">
+          <span className="brand-mark"><CheckIcon size={13} weight="bold" /></span>
+          <span>Cursus</span>
+        </span>
+        <button type="button" className="btn btn-ghost btn-icon fermer-tiroir" aria-label="Fermer le menu" title="Fermer le menu" onClick={tiroir.fermer}>
+          <XIcon size={16} />
+        </button>
+      </div>
       {vues.length > 0 && (
         <div className="side-block">
           <span className="side-label">{session?.demo ? 'Vue' : 'Espace'}</span>
@@ -86,7 +120,7 @@ function Sidebar({ groups }: { groups: NavGroup[] }) {
           <div className="seg" role="radiogroup" aria-label="Espace" aria-busy={bascule} style={{ fontSize: 12, alignSelf: 'stretch', display: 'flex' }}>
             {vues.map(([r, l]) => (
               <label key={r} className="seg-opt" style={{ flex: 1, justifyContent: 'center' }}>
-                <input type="radio" name="mode" checked={role === r} disabled={bascule} onChange={() => switchMode(r)} />{l}
+                <input type="radio" name="mode" checked={role === r} disabled={bascule} onChange={puis(() => switchMode(r))} />{l}
               </label>
             ))}
           </div>
@@ -98,14 +132,24 @@ function Sidebar({ groups }: { groups: NavGroup[] }) {
             <span className="side-label">{label}</span>
             {items.map(it => (
               <a key={it.view} href={`/${it.view}`} className="nav-item" aria-current={view === it.view ? 'page' : undefined}
-                onClick={e => { e.preventDefault(); go(it.view); }}>
+                onClick={e => { e.preventDefault(); tiroir.fermer(); go(it.view); }}>
                 <it.icon size={16} />
                 <span>{it.label}</span>
-                {!!it.badge && <span className="tag tag-accent nav-badge">{it.badge}</span>}
+                {!!it.badge && <Pastille n={it.badge} />}
               </a>
             ))}
           </div>
         ))}
+        {/* Information sur les données personnelles : dans tous les espaces (et depuis l'écran de connexion). */}
+        {data && (
+          <div className="nav-group">
+            <a href="/confidentialite" className="nav-item" aria-current={view === 'confidentialite' ? 'page' : undefined}
+              onClick={e => { e.preventDefault(); tiroir.fermer(); go('confidentialite'); }}>
+              <LockSimpleIcon size={16} />
+              <span>Confidentialité</span>
+            </a>
+          </div>
+        )}
       </nav>
       <div className="side-user">
         {user ? <Avatar nom={user.nom} size={32} /> : <span className="avatar" style={{ width: 32, height: 32, fontSize: 12 }}>—</span>}
@@ -114,12 +158,12 @@ function Sidebar({ groups }: { groups: NavGroup[] }) {
           <div className="text-muted" style={{ fontSize: 11 }}>{roleLabel}</div>
         </div>
         {user && session?.methode === 'local' && (
-          <button type="button" className="btn btn-ghost btn-icon" aria-label="Changer mon mot de passe" title="Changer mon mot de passe" onClick={() => openDialog({ type: 'motDePasse' })} style={{ color: 'inherit', width: 30, height: 30, flex: 'none' }}>
+          <button type="button" className="btn btn-ghost btn-icon" aria-label="Changer mon mot de passe" title="Changer mon mot de passe" onClick={puis(() => openDialog({ type: 'motDePasse' }))} style={{ color: 'inherit', width: 30, height: 30, flex: 'none' }}>
             <KeyIcon size={14} />
           </button>
         )}
         {user && (
-          <button type="button" className="btn btn-ghost btn-icon" aria-label="Se déconnecter" title="Se déconnecter" onClick={logout} style={{ color: 'inherit', width: 30, height: 30, flex: 'none' }}>
+          <button type="button" className="btn btn-ghost btn-icon" aria-label="Se déconnecter" title="Se déconnecter" onClick={puis(logout)} style={{ color: 'inherit', width: 30, height: 30, flex: 'none' }}>
             <SignOutIcon size={14} />
           </button>
         )}
@@ -128,17 +172,19 @@ function Sidebar({ groups }: { groups: NavGroup[] }) {
   );
 }
 
-function Topbar({ groups }: { groups: NavGroup[] }) {
+function Topbar({ groups, tiroir }: { groups: NavGroup[]; tiroir: Tiroir }) {
   const { session, view, ui, setUi, go, openDialog, data } = useStore();
-  const g = groups.find(([, items]) => items.some(i => i.view === view));
-  const page = g?.[1].find(i => i.view === view);
+  const [groupe, page] = pageAffichee(groups, view, !!session?.user);
+  // Pastilles du menu replié : leur total sur le bouton « Menu ».
+  const aTraiter = groups.reduce((n, [, items]) => n + items.reduce((m, i) => m + (i.badge ?? 0), 0), 0);
   // Espace RH : recherche si le profil ouvre l'annuaire, nouvelle session pour le service RH et le référent HSE.
   const user = data?.user;
   const recherche = user?.role === 'rh' && vuesDe('rh', user.profilRh).includes('collaborateurs');
   const sessions = !!user && droitsRh(user).includes('formations');
   return (
     <header className="topbar">
-      <div className="crumb"><span>{g ? g[0] : 'Cursus'}</span><span className="sep">/</span><span className="here">{page ? page.label : 'Connexion'}</span></div>
+      <BoutonMenu tiroir={tiroir} aTraiter={aTraiter} />
+      <div className="crumb"><span>{groupe}</span><span className="sep">/</span><span className="here">{page}</span></div>
       {session?.user && data && (recherche || sessions) && (
         <div className="topbar-actions">
           {recherche && (
@@ -187,16 +233,26 @@ export function Toast() {
 }
 
 export function Shell({ children }: { children: ReactNode }) {
-  const { session, data, reconnexion } = useStore();
+  const { session, data, reconnexion, loading, view } = useStore();
   const role = session?.role ?? 'rh';
   const groups = useMemo(() => navGroups(data, role), [data, role]);
+  const tiroir = useTiroir();
+  // Page affichée (null pendant le chargement) : titre de l'onglet, focus sur son titre quand elle change.
+  const connecte = !!session?.user;
+  const enCours = loading || (connecte && !data);
+  useNavigationAnnoncee(enCours ? null : connecte ? `${role}/${view}` : view === 'confidentialite' ? view : 'connexion',
+    enCours ? null : pageAffichee(groups, view, connecte)[1]);
+  const allerAuContenu = (e: React.MouseEvent) => { e.preventDefault(); document.getElementById(ID_CONTENU)?.focus(); };
   return (
     <>
       <div className="app" inert={!!reconnexion}>
-        <Sidebar groups={groups} />
-        <div className="main-col">
-          <Topbar groups={groups} />
-          <main className="content">{children}</main>
+        <a className="lien-evitement" href={`#${ID_CONTENU}`} onClick={allerAuContenu}>Aller au contenu</a>
+        <Sidebar groups={groups} tiroir={tiroir} />
+        {/* Tiroir ouvert : fond qui le referme ; la page derrière devient inerte. */}
+        {tiroir.ouvert && <div className="tiroir-fond" aria-hidden="true" onClick={tiroir.fermer} />}
+        <div className="main-col" inert={tiroir.ouvert}>
+          <Topbar groups={groups} tiroir={tiroir} />
+          <main className="content" id={ID_CONTENU} tabIndex={-1}>{children}</main>
         </div>
       </div>
       {reconnexion && <Reconnexion />}

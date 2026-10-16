@@ -209,8 +209,9 @@ export type CodeMotif = typeof CODES_MOTIF[number];
  * jamais renvoyées à Keystone, qui ne reçoit que les heures passées sur ses projets.
  */
 export const ACTIVITES_INTERNES = /^(?:INT-|ECOLE$)/;
-export const PLAN_CLS = { prevu: 'tag-outline', engage: 'tag-accent', realise: 'tag-neutral' } as const;
-export const PLAN_LABEL = { prevu: 'Prévu', engage: 'Engagé', realise: 'Réalisé' } as const;
+// « Reporté » : action d'un exercice clos reprise sur l'exercice suivant (`plan.cloturerExercice`), hors des sommes.
+export const PLAN_CLS = { prevu: 'tag-outline', engage: 'tag-accent', realise: 'tag-neutral', reporte: 'tag-outline' } as const;
+export const PLAN_LABEL = { prevu: 'Prévu', engage: 'Engagé', realise: 'Réalisé', reporte: 'Reporté' } as const;
 export const REQ_CLS = { attente: 'tag-outline', acceptee: 'tag-neutral', refusee: 'tag-accent' } as const;
 export const REQ_LABEL = { attente: 'En attente', acceptee: 'Acceptée', refusee: 'Refusée' } as const;
 /** File d'envoi des messages sortants (Paramètres → Envois). */
@@ -220,6 +221,7 @@ export const ENVOI_LABEL = { a_envoyer: 'À envoyer', envoye: 'Envoyé', echec: 
 export const EVENEMENT_LABEL: Record<string, string> = {
   'demande.decision': 'Décision sur une demande de déplacement', 'heures.validees': 'Heures validées', 'absence.validee': 'Absence validée',
   'absence.annulee': 'Absence annulée', 'verdict.modifie': 'Verdict Go / No Go modifié',
+  'deplacement.modifie': 'Déplacement modifié', 'deplacement.annule': 'Déplacement annulé',
 };
 
 /** E-mails (cible `email` de la file d'envoi) : nature de chaque message, affichée dans Paramètres → Envois. */
@@ -228,7 +230,9 @@ export const EMAIL_LABEL: Record<string, string> = {
   'temps.renvoyee': 'Feuille de temps renvoyée', 'entretien.convocation': 'Convocation à un entretien', 'entretien.clos': 'Compte rendu d’entretien à signer',
   'demande.reponse': 'Réponse à une demande au service RH', 'convocation': 'Convocation à une formation', 'convocation.annulee': 'Convocation annulée',
   'releve.interim': 'Relevé d’heures des intérimaires', 'visite.demande': 'Demande de visite médicale', 'recapitulatif': 'Récapitulatif quotidien',
-  'essai': 'E-mail d’essai',
+  'essai': 'E-mail d’essai', 'entretien.remise': 'Compte rendu d’entretien mis à disposition',
+  'temps.relance': 'Relance des feuilles de temps en retard',
+  'echeances.recapitulatif': 'Récapitulatif des échéances',
 };
 export const CIBLE_LABEL = { keystone: 'Keystone', sage: 'Sage Paie', email: 'E-mail' } as const;
 export const MODE_NOTIFICATION_LABEL = { immediat: 'Aussitôt', quotidien: 'Récapitulatif quotidien' } as const;
@@ -336,6 +340,18 @@ export const STATUTS: Record<Statut, { label: string; court: string; cadre: bool
   cadre: { label: 'Ingénieur / cadre', court: 'Cadre', cadre: true },
 };
 
+/**
+ * Période d'essai d'un CDI : durées maximales légales selon le statut, en mois, avant et après un renouvellement
+ * (art. L1221-19 et L1221-21 ; le renouvellement n'est possible que si un accord de branche étendu le prévoit et que le
+ * contrat le stipule). Cursus ne propose aucune durée : il avertit quand la date saisie les dépasse. Les durées de la CCN
+ * Industries chimiques, qui peuvent être plus courtes, s'ajouteront ici une fois vérifiées.
+ */
+export const ESSAI_MAX_CDI: Record<Statut, { mois: number; renouvele: number }> = {
+  ouvrier: { mois: 2, renouvele: 4 },
+  technicien: { mois: 3, renouvele: 6 },
+  cadre: { mois: 4, renouvele: 8 },
+};
+
 /** `fin` : date de fin obligatoire ; `finFacultative` : date de fin possible mais non requise. */
 export const TYPES_CONTRAT: Record<TypeContrat, { label: string; fin?: boolean; finFacultative?: boolean; interim?: boolean }> = {
   cdi: { label: 'CDI' },
@@ -360,6 +376,26 @@ export const TEMPS_TRAVAIL: Record<TempsTravail, TempsDef> = {
   forfait_jours: { label: 'Forfait annuel en jours', court: 'Forfait jours', aide: 'Décompte en jours travaillés (218 au plus), jours de repos calculés chaque année, entretien annuel obligatoire sur la charge de travail.', article: 'Art. L3121-58 et L3121-64' },
   partiel: { label: 'Temps partiel', court: 'Temps partiel', aide: 'Durée hebdomadaire inférieure à 35 h ; heures complémentaires majorées de 10 % puis 25 %, dans la limite du tiers de la durée prévue.', article: 'Art. L3123-1' },
   dirigeant: { label: 'Cadre dirigeant', court: 'Cadre dirigeant', aide: 'Non soumis à la réglementation de la durée du travail : ni heures supplémentaires, ni RTT, ni décompte en jours.', article: 'Art. L3111-2' },
+};
+
+// — Rubriques de paie (shared/rules/paie.ts) —
+/** Unité d'une rubrique de paie : heures, jours ou nombre. */
+export type UniteRubrique = 'h' | 'j' | 'nombre';
+/**
+ * Rubriques de paie émises par Cursus, liste unique (code interne → libellé, unité), dans l'ordre d'affichage : chaque
+ * code se fait correspondre un code du plan de paie Sage, confirmé par l'administrateur RH ou la paie (table
+ * `rubriquesPaie`). Y ajouter les futurs codes : absences, déplacements, contrepartie en repos, régularisations.
+ */
+export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubrique }> = {
+  HN: { label: 'Heures normales', unite: 'h' },
+  HSF25: { label: 'Heures supplémentaires incluses au forfait hebdomadaire, majorées à 25 %', unite: 'h' },
+  HSF50: { label: 'Heures supplémentaires incluses au forfait hebdomadaire, majorées à 50 %', unite: 'h' },
+  HS25: { label: 'Heures supplémentaires payées, majorées à 25 %', unite: 'h' },
+  HS50: { label: 'Heures supplémentaires payées, majorées à 50 %', unite: 'h' },
+  HC10: { label: 'Heures complémentaires de temps partiel, majorées à 10 %', unite: 'h' },
+  HC25: { label: 'Heures complémentaires de temps partiel, majorées à 25 %', unite: 'h' },
+  RCR_ACQUIS: { label: 'Repos compensateur de remplacement acquis, majoration incluse', unite: 'h' },
+  JTRAV: { label: 'Jours travaillés, forfait jours', unite: 'j' },
 };
 
 /** Sections d'un compte rendu : [clé, libellé, rédacteur] — 'mgr' évaluateur, 'sal' salarié. */
@@ -396,10 +432,13 @@ export const TRIMESTRES = ['T1', 'T2', 'T3', 'T4'] as const;
 
 /** Vues accessibles par rôle (la première est la page d'accueil). */
 export const ALLOWED_VIEWS = {
-  rh: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'voyages', 'chantiers', 'echeances', 'budget', 'temps', 'absences', 'entretiens', 'missions', 'parametres'],
+  // `miseEnService` : reprise depuis Lucca, ouverte depuis Paramètres (hors du menu ; imports réservés à l'administrateur RH).
+  rh: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'voyages', 'chantiers', 'echeances', 'budget', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels', 'miseEnService'],
   manager: ['collaborateurs', 'formations', 'temps', 'absences', 'entretiens', 'missions'],
   collaborateur: ['portail', 'temps', 'absences', 'entretiens'],
 } as const;
+/** Vues ouvertes dans tous les espaces et sans connexion : information sur les données personnelles (shared/confidentialite.ts). */
+export const VUES_COMMUNES = ['confidentialite'] as const;
 
 // — Comptes et droits —
 /**
@@ -428,7 +467,7 @@ export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits:
   referent_hse: {
     label: 'Référent HSE / formation', espace: 'HSE', droits: ['formations'],
     aide: 'Catalogue, sessions et présences, certifications et habilitations, verdicts Go / No Go ; aptitude médicale réduite au verdict et aux restrictions en vigueur, comme pour un manager ; ni temps, ni paie, ni entretiens',
-    vues: ['dashboard', 'collaborateurs', 'formations', 'habilitations', 'echeances', 'chantiers'],
+    vues: ['dashboard', 'collaborateurs', 'formations', 'habilitations', 'echeances', 'chantiers', 'referentiels'],
   },
   paie: {
     label: 'Gestionnaire de paie', espace: 'Paie', droits: ['paie'],
@@ -438,7 +477,7 @@ export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits:
   lecture_seule: {
     label: 'Lecture seule', espace: 'Lecture', droits: ['consultation'],
     aide: 'Direction, DPO, auditeur : tableaux de bord, alertes et journal des actions, sans rien modifier ; ni données de santé détaillées, ni dossiers de voyage',
-    vues: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'echeances', 'budget', 'chantiers', 'temps', 'absences', 'entretiens', 'missions', 'parametres'],
+    vues: ['dashboard', 'collaborateurs', 'equipes', 'formations', 'habilitations', 'echeances', 'budget', 'chantiers', 'temps', 'absences', 'entretiens', 'missions', 'parametres', 'referentiels'],
   },
 };
 export const aDroitRh = (p: ProfilRh | undefined, droit: DroitRh) => !!p && !!PROFILS_RH[p]?.droits.includes(droit);

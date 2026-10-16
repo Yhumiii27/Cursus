@@ -18,7 +18,7 @@ export function CertDialog({ empId }: { empId: number }) {
   if (!emp) return null;
   const fm = d.fm(f);
   const valid = isValidDate(date);
-  const fErr = !fm ? 'Choisissez la formation.' : null;
+  const fErr = !fm ? (forms.length ? 'Choisissez la formation.' : 'Catalogue des formations vide : ajoutez-les dans l’écran Référentiels.') : null;
   const dateErr = erreurDate(date, 'Indiquez la date d’obtention.');
 
   const confirm = async () => {

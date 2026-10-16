@@ -22,6 +22,18 @@ export const CONSERVATION_ENVOIS_MOIS = 12;
  */
 export const ACTIONS_PAIE: readonly string[] = [
   'temps.validate', 'temps.correction', 'temps.pushSage', 'absence.decider', 'absence.qualifier', 'absence.saisir', 'absence.prolonger', 'absence.annuler',
+  // Clôture des congés (report ou perte du solde de chaque salarié, à justifier en cas de litige) et datation des
+  // compteurs repris de l'ancien système (période sur laquelle ils sont décomptés).
+  'conges.cloturer', 'migration.soldes',
+  // Sortie (solde de tout compte, absences qu'elle annule) et solde de RTT gardé avant un changement de régime.
+  'employe.sortie', 'employe.annulerSortie', 'employe.rtt',
+  // Paie : correspondance des rubriques avec le plan de paie Sage, mode des heures supplémentaires figé sur les feuilles.
+  'paie.rubrique', 'migration.heuresSup',
+  // Soldes d'ouverture repris de l'ancien outil à la mise en service (point de départ des compteurs de congés).
+  'reprise.soldes',
+  // Lots de paie (génération, confirmation de l'import, annulation, format du fichier, reprise des transmissions d'avant
+  // les lots) et validation groupée des feuilles ; le téléchargement du fichier est tracé sous `sage.fichier`.
+  'paie.lotGenerer', 'paie.lotConfirmer', 'paie.lotAnnuler', 'paie.formatFichier', 'migration.lotsPaie', 'temps.validerLot',
 ];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
@@ -35,6 +47,10 @@ export const JOURNAL_LABEL: Record<string, string> = {
   // Fiches et équipes
   'employe.creer': 'Création d’une fiche',
   'employe.modifier': 'Modification d’une fiche',
+  'employe.rtt': 'Changement de régime : solde de RTT gardé pour la paie',
+  'employe.sortie': 'Sortie d’un salarié',
+  'employe.annulerSortie': 'Sortie annulée',
+  'employe.autorisationTravail': 'Titre de séjour (autorisation de travail)',
   'equipe.creer': 'Création d’une équipe',
   'equipe.renommer': 'Équipe renommée',
   'equipe.supprimer': 'Suppression d’une équipe',
@@ -50,15 +66,29 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'session.cloturer': 'Session clôturée',
   'plan.importer': 'Import du plan de formation',
   'plan.avancer': 'Avancement du plan de formation',
+  'plan.cloturerExercice': 'Clôture d’un exercice du plan de formation',
   'budget.enveloppes': 'Enveloppes budgétaires',
   // Habilitations
   'hab.delivrer': 'Habilitation délivrée',
   'hab.suspendre': 'Habilitation suspendue',
   'hab.lever': 'Suspension levée',
   'hab.retirer': 'Habilitation retirée',
+  'hab.demander': 'Habilitation exigée demandée',
   'medical.demander': 'Visite médicale demandée',
   'medical.annuler': 'Demande de visite annulée',
   'medical.avis': 'Avis du médecin du travail',
+  // Référentiels
+  'referentiel.formation.enregistrer': 'Formation du catalogue créée ou modifiée',
+  'referentiel.formation.archiver': 'Formation archivée ou rétablie',
+  'referentiel.habilitation.enregistrer': 'Habilitation du référentiel créée ou modifiée',
+  'referentiel.habilitation.archiver': 'Habilitation archivée ou rétablie',
+  'referentiel.destination.enregistrer': 'Destination créée ou modifiée',
+  'referentiel.destination.archiver': 'Destination archivée ou rétablie',
+  'referentiel.charger': 'Référentiel type chargé',
+  'referentiel.poste.enregistrer': 'Poste créé ou modifié',
+  'referentiel.poste.archiver': 'Poste archivé ou rétabli',
+  'referentiel.equipe.exigences': 'Exigences communes d’une équipe',
+  'migration.postes': 'Reprise : postes créés depuis les fiches',
   // Demandes des collaborateurs
   'demande.formation': 'Demande de formation',
   'demande.habilitation': 'Demande d’habilitation',
@@ -67,6 +97,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   // Déplacements
   'voyage.creer': 'Déplacement créé',
   'voyage.detachement': 'Formalités de détachement',
+  'voyage.modifier': 'Déplacement modifié',
+  'voyage.annuler': 'Déplacement annulé',
   'formalite.enregistrer': 'Formalité de voyage',
   'voyages.importer': 'Import de déplacements',
   'keystone.accepter': 'Demande de Keystone acceptée',
@@ -81,6 +113,14 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'temps.reject': 'Feuille de temps renvoyée',
   'temps.correction': 'Correction d’heures par le manager ou le RH',
   'temps.pushSage': 'Transmission à la paie',
+  'paie.rubrique': 'Rubrique de paie Sage',
+  'paie.lotGenerer': 'Lot de paie généré',
+  'paie.lotConfirmer': 'Import du lot de paie confirmé dans Sage',
+  'paie.lotAnnuler': 'Lot de paie annulé',
+  'paie.formatFichier': 'Format du fichier d’import Sage',
+  'sage.fichier': 'Fichier d’import Sage téléchargé',
+  'temps.relancer': 'Relance des feuilles de temps',
+  'temps.validerLot': 'Validation groupée des feuilles de temps',
   // Absences et congés
   'absence.demander': 'Demande d’absence',
   'absence.decider': 'Décision sur une absence',
@@ -91,11 +131,15 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'absence.annuler': 'Absence annulée',
   'cet.placer': 'Placement sur le compte épargne-temps',
   'report.accorder': 'Report de congés payés',
+  'conges.cloturer': 'Clôture d’une période de congés',
   // Entretiens
   'entretien.planifier': 'Entretien planifié',
+  'entretien.annuler': 'Entretien annulé',
   'entretien.modifier': 'Compte rendu d’entretien rédigé',
   'entretien.clore': 'Entretien clos',
   'entretien.signer': 'Entretien signé par le salarié',
+  'entretien.remettre': 'Compte rendu d’entretien remis au salarié',
+  'entretien.telecharger': 'Compte rendu d’entretien téléchargé par le salarié',
   // Administration
   'parametres.maj': 'Paramètres modifiés',
   'demo.reinitialiser': 'Démonstration réinitialisée',
@@ -106,6 +150,14 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'compte.admin': 'Administrateur RH désigné (ligne de commande)',
   'envoi.relancer': 'Envoi relancé',
   'envoi.classer': 'Échec d’envoi classé',
+  'confidentialite.regler': 'Coordonnées de la page Confidentialité modifiées',
+  // Reprise depuis Lucca (écran Mise en service) : un code par import.
+  'reprise.importer': 'Import de mise en service',
+  'reprise.salaries': 'Mise en service : salariés importés',
+  'reprise.soldes': 'Mise en service : soldes de congés repris',
+  'reprise.certifications': 'Mise en service : certifications reprises',
+  'reprise.habilitations': 'Mise en service : habilitations reprises',
+  'reprise.visites': 'Mise en service : visites médicales reprises',
   'export': 'Export ou impression',
   'journal.export': 'Export du journal',
   'journal.archive': 'Consultation de l’archive paie',
@@ -128,9 +180,15 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'keystone.absence.validee': 'Message à Keystone : absence validée (simulation)',
   'keystone.absence.annulee': 'Message à Keystone : absence annulée (simulation)',
   'keystone.verdict.modifie': 'Message à Keystone : verdict Go / No Go modifié (simulation)',
+  'keystone.deplacement.modifie': 'Message à Keystone : déplacement modifié (simulation)',
+  'keystone.deplacement.annule': 'Message à Keystone : déplacement annulé (simulation)',
   'sage.echec': 'Envoi à Sage Paie en échec',
   // Mise à jour de la base
   'migration.detachement': 'Reprise des formalités de détachement',
+  'migration.soldes': 'Datation des compteurs repris et des reports de CP',
+  'migration.heuresSup': 'Reprise : mode des heures supplémentaires figé sur les feuilles validées',
+  'migration.lotsPaie': 'Reprise : feuilles déjà transmises réunies en un lot historique',
+  'migration.coutReel': 'Reprise du coût réel des actions réalisées du plan',
 };
 
 /** Libellé d'un code ; un e-mail simulé (`email.<nature>`, sans boîte d'envoi) est nommé par sa nature. */
@@ -157,18 +215,20 @@ export const dossierComplet = (u: Pick<CurrentUser, 'role' | 'profilRh'>) => dro
 /** Familles du filtre « Action » : codes commençant par l'un des préfixes (ou égaux à l'un d'eux). */
 export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly string[] }[] = [
   { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.'] },
-  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.'] },
+  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'migration.coutReel'] },
   { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.'] },
+  { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes)', prefixes: ['referentiel.', 'migration.postes'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
   { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement'] },
-  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.'] },
-  { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.'] },
+  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'migration.heuresSup', 'migration.lotsPaie'] },
+  { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.', 'conges.', 'migration.soldes'] },
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
-  { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.'] },
+  { id: 'reprise', label: 'Mise en service (reprise depuis Lucca)', prefixes: ['reprise.'] },
+  { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.', 'confidentialite.'] },
   { id: 'connexions', label: 'Connexions et accès', prefixes: ACTIONS_CONNEXION },
   {
     id: 'integrations', label: 'Intégrations (Keystone, e-mails)',
-    prefixes: ['keystone.appel', 'keystone.echec', 'keystone.demande.', 'keystone.heures.', 'keystone.absence.', 'keystone.verdict.', 'email.'],
+    prefixes: ['keystone.appel', 'keystone.echec', 'keystone.demande.', 'keystone.heures.', 'keystone.absence.', 'keystone.verdict.', 'keystone.deplacement.', 'email.'],
   },
 ];
 
@@ -181,11 +241,36 @@ export function familleAction(code: string) {
 export const CHAMP_LABEL: Record<string, string> = {
   nom: 'Nom', poste: 'Poste', equipe: 'Équipe', statut: 'Statut', typeContrat: 'Nature du contrat', temps: 'Organisation du temps',
   heures: 'Heures', forfaitHeures: 'Forfait en heures', forfaitJours: 'Forfait en jours', jourOff: 'Jours non travaillés',
-  tempsDepuis: 'Date d’effet', entree: 'Date d’entrée', fin: 'Fin de contrat', agence: 'Agence', managerId: 'Manager', profilRh: 'Profil RH',
+  tempsDepuis: 'Date d’effet', entree: 'Date d’entrée', fin: 'Fin de contrat', motifSortie: 'Motif de sortie',
+  essaiFin: 'Fin de la période d’essai', essaiRenouveleJusquau: 'Essai renouvelé jusqu’au', expire: 'Expiration', demandeLe: 'Authentification demandée le', verifieLe: 'Vérifié en préfecture le',
+  numero: 'Numéro', requise: 'Autorisation de travail requise', titreSejourAlerte: 'Alerte avant l’expiration d’un titre de séjour (jours)',
+  titreSejourRelance: 'Relance avant l’expiration d’un titre de séjour (jours)', agence: 'Agence', managerId: 'Manager', profilRh: 'Profil RH',
   actif: 'Actif', date: 'Date', lieu: 'Lieu', places: 'Places', du: 'Du', au: 'Au', type: 'Type', justificatif: 'Justificatif reçu',
   signMgr: 'Signature de l’évaluateur', signSal: 'Signature du salarié', horizonAlerte: 'Seuil d’alerte', seuilBudget: 'Seuil budgétaire',
   rtt39: 'Jours de RTT (39 h)', uniquementReglementaire: 'Formations réglementaires seules', partageKeystone: 'Partage des motifs avec Keystone',
   projet: 'Projet', jour: 'Jour',
+  // Référentiels
+  court: 'Nom court', validite: 'Validité (mois)', duree: 'Durée', organisme: 'Organisme', cout: 'Coût', validation: 'Validation', detail: 'Précision',
+  prereqs: 'Prérequis', medical: 'Aptitude médicale exigée', signataire: 'Signataire', pays: 'Pays', visa: 'Entrée', visaSub: 'Précision sur l’entrée',
+  oblig: 'Vaccins obligatoires', rec: 'Vaccins recommandés', passMois: 'Validité du passeport après l’entrée (mois)', secu: 'Sécurité sociale',
+  archive: 'Archivée le',
+  matriculePaie: 'Matricule de paie', identifiantKeystone: 'Identifiant envoyé à Keystone', politiqueReportCp: 'Politique de report des CP',
+  rttAnneeSuivanteDes: 'RTT de l’année suivante posables à partir du',
+  heuresSupMode: 'Heures supplémentaires', heuresSupAccord: 'Accord sur le repos de remplacement', periodeRattachement: 'Semaine à cheval sur deux mois',
+  clotureJour: 'Jour de clôture des variables de paie', codeSage: 'Code Sage', confirmeLe: 'Code Sage confirmé le',
+  suiviSemaines: 'Semaines du suivi des feuilles de temps', feuilleLimiteJour: 'Feuille de temps attendue le (jour de la semaine suivante)',
+  feuilleLimiteHeure: 'Feuille de temps attendue à (heure)',
+  separateur: 'Séparateur du fichier d’import', colonnes: 'Ordre des colonnes du fichier d’import', decimale: 'Séparateur décimal du fichier d’import',
+  entete: 'Ligne d’en-tête du fichier d’import', formatPeriode: 'Format de la période du fichier d’import',
+  // Campagne d'entretiens annuels (Paramètres) ; remise du compte rendu d'entretien ; coût réel d'une action du plan.
+  campagneDebut: 'Ouverture de la campagne d’entretiens', campagneFin: 'Clôture de la campagne d’entretiens',
+  campagneAncienneteMois: 'Ancienneté minimale pour la campagne (mois)', campagneExclus: 'Contrats exclus de la campagne',
+  campagnePreavisJours: 'Affichage de la campagne avant l’ouverture (jours)',
+  remiseLe: 'Remise du compte rendu', remiseMode: 'Mode de remise', telechargeLe: 'Premier téléchargement par le salarié',
+  coutReel: 'Coût réel', effectifReel: 'Effectif réel',
+  // Récapitulatif des échéances (Paramètres → Messagerie) ; annulation d'un déplacement.
+  relancesActives: 'Récapitulatif des échéances', relancesPaliers: 'Paliers de relance (jours)', relancesJour: 'Envoi du récapitulatif des échéances',
+  annuleLe: 'Annulé le', annuleMotif: 'Motif de l’annulation',
 };
 
 const valeur = (v: unknown): string => {

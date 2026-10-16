@@ -1,10 +1,12 @@
-// Entretiens obligatoires (art. L6315-1, L3121-64) et campagne annuelle.
+// Entretiens obligatoires (art. L6315-1, L3121-64) et campagne annuelle (réglages : shared/rules/campagne.ts).
 import { ENT_TYPES } from '../constants.ts';
 import { addD, addM, parse } from '../dates.ts';
 import { fmt, fmtIso, norm } from '../format.ts';
 import type { Domain } from '../domain.ts';
-import type { Employe, Entretien, EntretienType, ISODate } from '../types.ts';
+import type { Dataset, Employe, Entretien, EntretienType, ISODate } from '../types.ts';
+import { campagne, concerneParCampagne } from './campagne.ts';
 import type { Conflit } from './conflits.ts';
+import { present } from './contrats.ts';
 
 export type ObligStatus = 'late' | 'soon' | 'planifie' | 'todo' | 'ok';
 export interface Obligation { id: number; e: Employe; kind: EntretienType; due: ISODate; detail: string; pl?: Entretien; st: ObligStatus; risk?: boolean }
@@ -13,22 +15,32 @@ export const ENT_ST: Record<ObligStatus, [string, string]> = {
   late: ['En retard', 'tag-accent'], soon: ['À échéance', 'tag-outline'], planifie: ['Planifié', 'tag-neutral'], todo: ['À planifier', 'tag-outline'], ok: ['À jour', 'tag-neutral'],
 };
 
+/** Libellé et classe d'une obligation : planifiée à une date passée sans avoir été close, « Planifié, date dépassée » (en retard). */
+export const statutObligation = (o: Pick<Obligation, 'st' | 'pl'>): [string, string] =>
+  o.pl && o.st === 'late' ? ['Planifié, date dépassée', 'tag-accent'] : ENT_ST[o.st];
+
 /** « de congé parental », « d’absence longue » : élision devant une voyelle. */
 const de = (s: string) => /^[aeiouy]/.test(norm(s)) ? `d’${s}` : `de ${s}`;
 
 export function obligations(d: Domain, scopeIds: number[]): Obligation[] {
   const Ti = d.ti, in90 = addD(Ti, 90), Y = d.year;
+  // Campagne annuelle réglée dans Paramètres → Campagne d’entretiens annuels (dates, population, affichage avant l'ouverture).
+  const camp = campagne(d.ds.settings, Y);
   const out: Obligation[] = [];
   scopeIds.forEach(id => {
     const e = d.emp(id);
-    if (!e) return;
+    // Salarié sorti : plus d'obligation d'entretien.
+    if (!e || !present(e, d.ti)) return;
     const c = d.contratOf(e);
     if (c.interim) return;
     const list = d.ds.entretiens.filter(x => x.empId === id);
     const done = (t: EntretienType[]) => list.filter(x => t.includes(x.type) && x.statut === 'realise').sort((a, b) => b.date.localeCompare(a.date));
     const push = (kind: EntretienType, due: ISODate, detail: string, extra?: Partial<Obligation>) => {
       const pl = list.find(x => x.type === kind && x.statut === 'planifie');
-      out.push({ id, e, kind, due, detail, pl, st: pl ? 'planifie' : due < Ti ? 'late' : due <= in90 ? 'soon' : 'ok', ...(extra || {}) });
+      // Due après le départ (sortie enregistrée, fin de CDD…) et pas planifiée avant : plus d'obligation.
+      if (!pl && !present(e, due)) return;
+      // Planifié à une date passée sans avoir été clos (reporté, oublié) : en retard, comme s'il ne l'était pas.
+      out.push({ id, e, kind, due, detail, pl, st: pl ? (pl.date < Ti ? 'late' : 'planifie') : due < Ti ? 'late' : due <= in90 ? 'soon' : 'ok', ...(extra || {}) });
     };
     const lastE = done(['epp', 'reprise'])[0];
     push('epp', lastE ? addM(lastE.date, 48) : addM(e.entree, 12),
@@ -50,8 +62,14 @@ export function obligations(d: Domain, scopeIds: number[]): Obligation[] {
       const lf = done(['forfait']).filter(x => x.date >= debut)[0];
       push('forfait', lf ? addM(lf.date, 12) : addM(debut, 12), lf ? `Dernier le ${fmt(parse(lf.date))} · chaque année` : debut > e.entree ? `Forfait jours depuis le ${fmt(parse(debut))} — premier entretien dans l’année` : 'Aucun entretien enregistré');
     }
-    if (!list.some(x => x.type === 'annuel' && x.date >= `${Y}-01-01`)) {
-      out.push({ id, e, kind: 'annuel', due: `${Y}-12-15`, st: 'todo', detail: `Campagne ${Y} — du 1er octobre au 15 décembre` });
+    // Entretien annuel de l'année planifié à une date passée sans avoir été clos (reporté pendant la campagne, oublié) :
+    // en retard, « Planifié, date dépassée », comme les obligations ci-dessus (compteurs, récapitulatif des échéances).
+    const annuels = list.filter(x => x.type === 'annuel' && x.date >= `${Y}-01-01`);
+    const depasse = annuels.find(x => x.statut === 'planifie' && x.date < Ti);
+    if (depasse && !annuels.some(x => x.statut === 'realise')) {
+      out.push({ id, e, kind: 'annuel', due: camp.fin, pl: depasse, st: 'late', detail: camp.libelle });
+    } else if (Ti >= camp.visibleDes && concerneParCampagne(d, e, camp) && present(e, camp.fin) && !annuels.length) {
+      out.push({ id, e, kind: 'annuel', due: camp.fin, st: 'todo', detail: camp.libelle });
     }
   });
   return out;
@@ -103,4 +121,14 @@ export function debutCloture(d: Domain, x: Entretien): { min: ISODate; raison: s
     ...(dernier ? [{ min: addD(dernier, 1), raison: `${ENT_TYPES[x.type].nom} déjà réalisé le ${fmtIso(dernier)}` }] : []),
   ];
   return bornes.reduce((a, b) => b.min > a.min ? b : a);
+}
+
+/**
+ * Salariés dont les entretiens se suivent dans l'espace affiché : dans l'espace manager, son équipe sans lui-même — ses
+ * propres entretiens relèvent de son responsable, et il les prépare et les signe dans son espace collaborateur ; ailleurs,
+ * tout l'instantané (le RH, l'intéressé).
+ */
+export function perimetreEntretiens(ds: Pick<Dataset, 'user' | 'employes'>): number[] {
+  const moi = ds.user.role === 'manager' ? ds.user.empId : null;
+  return ds.employes.filter(e => e.id !== moi).map(e => e.id);
 }

@@ -58,6 +58,8 @@ const demande = (h: string) => db.insert<{ id: number }>('demandesCollab', {
 }).id;
 const titre = (h: string) => db.sql.prepare('SELECT id FROM hab_titres WHERE emp_id = 2 AND h = ?').get(h) as { id: number };
 const cert = (f: string) => (db.sql.prepare('SELECT id FROM certifications WHERE emp_id = 2 AND f = ?').get(f) as { id: number }).id;
+/** Poste du référentiel créé depuis les fiches de démonstration. */
+const posteNomme = (nom: string) => (db.sql.prepare('SELECT id FROM postes WHERE nom = ?').get(nom) as { id: number }).id;
 const ENTRETIEN = () => (db.sql.prepare(`SELECT id FROM entretiens WHERE emp_id = 2 AND statut = 'planifie'`).get() as { id: number }).id;
 
 /** Absence de Mehdi le 15 décembre, dans l'état voulu (signalée par son manager, ou validée). */
@@ -73,6 +75,11 @@ const documentDeclare = () => db.insert<{ id: number }>('demandesCollab', {
 // Antoine Leroy, gestionnaire RH, est aussi salarié (14) ; il encadre l'Administration : son valideur est le service RH.
 /** Demande de CP d'Antoine Leroy, en attente. */
 const demandeAntoine = () => db.insert<{ id: number }>('absences', { empId: 14, type: 'CP', du: '2026-12-07', au: '2026-12-07', statut: 'demandee', keystone: false, justificatif: false }).id;
+/** Lot de paie de simulation généré (import à confirmer), sans feuille. */
+const lotGenere = () => db.insert<{ id: number }>('lotsPaie', {
+  cle: 'essai-droits', mode: 'simulation', statut: 'genere', periode: '2026-10', periodes: ['2026-10'], rappels: [], creation: '2026-10-07T08:00:00.000Z', auteur: 'Essai',
+  feuilles: [], resume: { lignes: 0, salaries: 0, rubriques: {} }, sansMatricule: [], contenu: { endpoint: '', dossier: 'X', envoye_le: '', lignes: [] }, telechargements: 0, historique: false,
+}).id;
 /** Feuille d'Antoine Leroy soumise pour la semaine 42. */
 const feuilleAntoine = () => db.insert('feuilles', {
   empId: 14, week: WEEK, statut: 'soumise', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-ADM', tache: 'Fonctions support', ks: false, h: H7 }],
@@ -93,6 +100,14 @@ const MATRICE: Ligne[] = [
   // Fiches et équipes
   { action: 'employe.creer', droits: '                       O    O    -    -    -    -    -    -    -', p: () => ({ ...PROFIL_VIDE('Maintenance', '2026-10-07'), nom: 'Nouvel Embauché', poste: 'Technicien' }) },
   { action: 'employe.modifier', droits: '                    O    O    O    -    -    -    -    -    -', p: () => ({ id: 2, poste: 'Technicien de maintenance confirmé' }) },
+  // Sortie d'un salarié (date et motif) et son annulation : service RH.
+  { action: 'employe.sortie', droits: '                      O    O    -    -    -    -    -    -    -', p: () => ({ id: 2, date: '2026-12-31', motif: 'demission' }) },
+  { action: 'employe.annulerSortie', droits: '               O    O    -    -    -    -    -    -    -', p: () => {
+    db.update('employes', 2, { fin: '2026-12-31', motifSortie: 'demission', finPrevue: null });
+    return { id: 2 };
+  } },
+  // Titre de séjour valant autorisation de travail (numéro au registre unique du personnel) : service RH.
+  { action: 'employe.autorisationTravail', droits: '         O    O    -    -    -    -    -    -    -', p: () => ({ id: 2, requise: true, type: 'salarie', numero: 'AB1234567', expire: '2027-06-30', verifieLe: '2016-08-26' }) },
   { action: 'equipe.creer', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Méthodes' }) },
   { action: 'equipe.renommer', droits: '                     O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Commercial', nouveau: 'Ventes' }) },
   { action: 'equipe.manager', droits: '                      O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Commercial', managerId: 19 }) },
@@ -148,10 +163,56 @@ const MATRICE: Ligne[] = [
   // Le collaborateur demande pour lui-même (l'autre collaborateur aussi, pour lui) ; le manager pour un membre de son équipe.
   { action: 'demande.formation', droits: '                   -    -    O    -    O    O    -    -    -', p: () => ({ f: 'autre', libelle: 'Lean management', motif: 'Évolution', empId: 2 }) },
   { action: 'demande.habilitation', droits: '                -    -    O    -    O    O    -    -    -', p: () => ({ h: 'aipr', motif: 'Chantier réseaux', empId: 2 }) },
+  // Référentiels : formations et habilitations (service RH, référent HSE / formation), destinations (service RH).
+  { action: 'referentiel.formation.enregistrer', droits: '   O    O    -    -    -    -    O    -    -', p: () => ({
+    id: 'sst', nom: 'Sauveteur secouriste du travail (SST)', court: 'SST', type: 'Réglementaire', validite: 24, duree: '7 h (MAC)', organisme: 'Croix-Rouge française', cout: 190, validation: 'evaluation',
+  }) },
+  { action: 'referentiel.formation.enregistrer', variante: 'création', droits: 'O    O    -    -    -    -    O    -    -', p: () => ({
+    code: 'caces485', nom: 'CACES R485 — Gerbeurs à conducteur accompagnant', court: 'CACES R485', type: 'Réglementaire', validite: 60, duree: '14 h', organisme: 'AFTRAL', cout: 450, validation: 'evaluation',
+  }) },
+  // Formation AIPR : prérequis de l'habilitation AIPR, archivée d'abord.
+  { action: 'referentiel.formation.archiver', droits: '      O    O    -    -    -    -    O    -    -', p: () => {
+    db.update('habilitations', 'aipr', { archive: '2026-10-07' });
+    return { id: 'aipr' };
+  } },
+  { action: 'referentiel.habilitation.enregistrer', droits: 'O    O    -    -    -    -    O    -    -', p: () => ({
+    id: 'aipr', nom: 'Autorisation AIPR', detail: 'Intervention à proximité des réseaux', prereqs: ['aipr'], medical: false, validite: 60, signataire: 'Karim Haddad',
+  }) },
+  { action: 'referentiel.habilitation.archiver', droits: '   O    O    -    -    -    -    O    -    -', p: () => ({ id: 'aipr' }) },
+  { action: 'referentiel.destination.enregistrer', droits: ' O    O    -    -    -    -    -    -    -', p: () => ({
+    id: 'MA', pays: 'Maroc', visa: 'none', visaSub: 'séjour ≤ 90 jours', oblig: [], rec: ['hepA', 'typhoide'], passMois: 3, secu: 'convention',
+  }) },
+  { action: 'referentiel.destination.archiver', droits: '    O    O    -    -    -    -    -    -    -', p: () => ({ id: 'VN' }) },
+  // Référentiel type : dans un référentiel vide seulement (vidé pour l'essai, transaction annulée).
+  { action: 'referentiel.charger', variante: 'formations', droits: 'O    O    -    -    -    -    O    -    -', p: () => {
+    db.sql.exec('DELETE FROM formations');
+    return { referentiel: 'formations' };
+  } },
+  { action: 'referentiel.charger', variante: 'habilitations', droits: 'O    O    -    -    -    -    O    -    -', p: () => {
+    db.sql.exec('DELETE FROM habilitations');
+    return { referentiel: 'habilitations' };
+  } },
+  { action: 'referentiel.charger', variante: 'destinations', droits: 'O    O    -    -    -    -    -    -    -', p: () => {
+    db.sql.exec('DELETE FROM destinations');
+    return { referentiel: 'destinations' };
+  } },
+  // Postes et exigences (t055) : service RH ; habilitation exigée demandée : service RH et référent HSE.
+  { action: 'referentiel.poste.enregistrer', droits: '     O    O    -    -    -    -    -    -    -', p: () => ({
+    id: posteNomme('Technicien de maintenance'), nom: 'Technicien de maintenance', formations: ['elec', 'sst'], habilitations: ['he'],
+  }) },
+  { action: 'referentiel.poste.enregistrer', variante: 'création', droits: 'O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Soudeur', formations: [], habilitations: [] }) },
+  { action: 'referentiel.poste.archiver', droits: '        O    O    -    -    -    -    -    -    -', p: () => ({
+    id: db.insert<{ id: number }>('postes', { nom: 'Poste inoccupé', formations: [], habilitations: [], archive: null }).id,
+  }) },
+  { action: 'referentiel.equipe.exigences', droits: '      O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Maintenance', formations: ['sst'], habilitations: [] }) },
+  { action: 'hab.demander', droits: '                      O    O    -    -    -    -    O    -    -', p: () => ({ empId: 2, h: 'atex' }) },
   // Déplacements
   { action: 'voyage.creer', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, dest: 'MA', depart: '2026-11-02', retour: '2026-11-06', motif: 'Chantier Tanger' }) },
   // Formalités de détachement (certificat de sécurité sociale, information écrite) : démarches du service RH.
   { action: 'voyage.detachement', droits: '                  O    O    -    -    -    -    -    -    -', p: () => ({ id: voyage(), detachementLe: '2026-10-06' }) },
+  // Modification et annulation d'un déplacement : service RH (Keystone prévenu pour un déplacement venu de Keystone).
+  { action: 'voyage.modifier', droits: '                 O    O    -    -    -    -    -    -    -', p: () => ({ id: voyage(), depart: '2026-11-03', retour: '2026-11-06' }) },
+  { action: 'voyage.annuler', droits: '                  O    O    -    -    -    -    -    -    -', p: () => ({ id: voyage(), motif: 'Chantier reporté' }) },
   { action: 'formalite.enregistrer', droits: '               O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, kind: 'passeport', numero: '21XY12345', expire: '2032-01-01' }) },
   { action: 'voyages.importer', droits: '                    O    O    -    -    -    -    -    -    -', p: () => ({ texte: SAMPLE_TRIPS_CSV }) },
   { action: 'keystone.accepter', droits: '                   O    O    -    -    -    -    -    -    -', p: () => ({ id: 1 }) },
@@ -160,7 +221,9 @@ const MATRICE: Ligne[] = [
   { action: 'plan.importer', variante: 'compléter', droits: 'O    O    -    -    -    -    -    -    -', p: () => ({ texte: SAMPLE_PLAN_CSV, exercice: 2027, mode: 'add' }) },
   { action: 'plan.importer', variante: 'remplacer', droits: 'O    -    -    -    -    -    -    -    -', p: () => ({ texte: SAMPLE_PLAN_CSV, exercice: 2026, mode: 'replace' }) },
   { action: 'budget.enveloppes', droits: '                   O    O    -    -    -    -    -    -    -', p: () => ({ exercice: 2027, enveloppes: { Maintenance: 5000 } }) },
-  { action: 'plan.avancer', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ id: (db.sql.prepare(`SELECT id FROM plan_actions WHERE statut <> 'realise' LIMIT 1`).get() as { id: number }).id }) },
+  { action: 'plan.avancer', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ id: (db.sql.prepare(`SELECT id FROM plan_actions WHERE statut <> 'realise' LIMIT 1`).get() as { id: number }).id, coutReel: 1000 }) },
+  // Clôture de l'exercice 2026 (administrateur RH), une fois passé, avec le report d'une action engagée sur 2027.
+  { action: 'plan.cloturerExercice', droits: '               O    -    -    -    -    -    -    -    -', env: { CURSUS_TODAY: '2027-01-05' }, p: () => ({ exercice: 2026, reporter: [(db.sql.prepare(`SELECT id FROM plan_actions WHERE statut = 'engage' LIMIT 1`).get() as { id: number }).id] }) },
   // Feuilles de temps : saisie par le salarié, son manager ou le RH ; validation par le manager ou le RH ; paie : administrateur RH.
   { action: 'temps.setCell', droits: '                       O    O    O    -    O    -    -    -    -', p: () => { feuille('brouillon'); return { empId: 2, week: WEEK, li: 0, di: 0, value: '7' }; } },
   { action: 'temps.addLine', droits: '                       O    O    O    -    O    -    -    -    -', p: () => ({ empId: 2, week: WEEK, projet: 'INT-MAINT' }) },
@@ -170,6 +233,20 @@ const MATRICE: Ligne[] = [
   { action: 'temps.validate', droits: '                      O    O    O    -    -    -    -    -    -', p: () => { feuille('soumise', H7); return { empId: 2, week: WEEK }; } },
   { action: 'temps.reject', droits: '                        O    O    O    -    -    -    -    -    -', p: () => { feuille('soumise', H7); return { empId: 2, week: WEEK, comment: 'Projet à corriger' }; } },
   { action: 'temps.pushSage', droits: '                      O    -    -    -    -    -    -    O    -', p: () => ({}) },
+  // Correspondance des rubriques avec le plan de paie Sage : administrateur RH et gestionnaire de paie (écran Temps).
+  { action: 'paie.rubrique', droits: '                       O    -    -    -    -    -    -    O    -', p: () => ({ code: 'HS25', codeSage: '3010', confirmer: true }) },
+  // Lots de paie (écran Temps) : génération, confirmation de l'import, annulation, format du fichier d'import.
+  { action: 'paie.lotGenerer', droits: '                     O    -    -    -    -    -    -    O    -', p: () => ({ periode: '2026-10' }) },
+  { action: 'paie.lotConfirmer', droits: '                   O    -    -    -    -    -    -    O    -', p: () => ({ id: lotGenere() }) },
+  { action: 'paie.lotAnnuler', droits: '                     O    -    -    -    -    -    -    O    -', p: () => ({ id: lotGenere() }) },
+  { action: 'paie.formatFichier', droits: '                  O    -    -    -    -    -    -    O    -', p: () => ({ separateur: ',', decimale: '.' }) },
+  // Suivi des feuilles : relance et validation groupée par le manager direct ou le service RH (jamais les profils restreints).
+  { action: 'temps.relancer', droits: '                      O    O    O    -    -    -    -    -    -', p: () => {
+    // Feuille de la semaine 40 renvoyée pour correction, échéance passée : en retard.
+    db.sql.exec(`UPDATE feuilles SET statut = 'rejetee' WHERE emp_id = 2 AND week = '2026-09-28'`);
+    return { empId: 2 };
+  } },
+  { action: 'temps.validerLot', droits: '                    O    O    O    -    -    -    -    -    -', p: () => { feuille('soumise', H7); return { feuilles: [{ empId: 2, week: WEEK }] }; } },
   // Un membre du RH ne valide pas sa propre feuille : son valideur (ici le service RH) le fait.
   { action: 'temps.validate', variante: 'feuille du gestionnaire RH', droits: 'O    -    -    -    -    -    -    -    -', p: () => { feuilleAntoine(); return { empId: 14, week: WEEK }; } },
   // Relevé d'heures des intérimaires (Léa Girard, agence Proman Lyon) : service RH ou gestionnaire de paie.
@@ -180,6 +257,11 @@ const MATRICE: Ligne[] = [
   { action: 'absence.decider', variante: 'demande du gestionnaire RH', droits: 'O    -    -    -    -    -    -    -    -', p: () => ({ id: demandeAntoine(), ok: true }) },
   { action: 'cet.placer', droits: '                          O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, kind: 'RTT', jours: 1 }) },
   { action: 'report.accorder', droits: '                     O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, jours: 1, motif: 'Arrêt maladie' }) },
+  // Clôture d'une période de congés : service RH (RTT 2025 de Mehdi, compteurs repris arrêtés en 2025 pour l'essai).
+  { action: 'conges.cloturer', droits: '                     O    O    -    -    -    -    -    -    -', p: () => {
+    db.update('soldesReprise', 2, { arreteLe: '2025-09-01' });
+    return { type: 'RTT', periode: 2025 };
+  } },
   // Absences hors congés : le salarié ou son manager signale, le RH qualifie ou saisit ; annulation selon le statut.
   { action: 'absence.signaler', droits: '                    O    O    O    -    O    -    -    -    -', p: () => ({ empId: 2, du: '2026-12-15', au: '2026-12-15' }) },
   { action: 'absence.saisir', droits: '                      O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, nature: 'MARIAGE', du: '2026-12-15', au: '2026-12-16' }) },
@@ -189,6 +271,8 @@ const MATRICE: Ligne[] = [
   // Entretiens : l'évaluateur (manager direct ou RH) et le salarié pour ses sections et sa signature.
   // Mehdi a déjà un entretien annuel planifié (le 20 octobre) : un entretien de parcours professionnel.
   { action: 'entretien.planifier', droits: '                 O    O    O    -    -    -    -    -    -', p: () => ({ empId: 2, kind: 'epp', date: '2026-11-16' }) },
+  // Annulation d'un entretien planifié : l'évaluateur (manager direct) ou le RH ; compte rendu commencé : sur confirmation.
+  { action: 'entretien.annuler', droits: '                  O    O    O    -    -    -    -    -    -', p: () => ({ id: ENTRETIEN(), confirmer: true }) },
   { action: 'entretien.modifier', droits: '                  O    O    O    -    O    -    -    -    -', p: () => ({ id: ENTRETIEN(), section: 'avis', value: 'Année riche en chantiers' }) },
   // Entretien prévu le 20 octobre, tenu plus tôt : la clôture porte la date à laquelle il a eu lieu.
   { action: 'entretien.clore', droits: '                     O    O    O    -    -    -    -    -    -', p: () => ({ id: ENTRETIEN(), date: '2026-10-06' }) },
@@ -197,9 +281,24 @@ const MATRICE: Ligne[] = [
     db.update('entretiens', id, { statut: 'realise', signMgr: '2026-10-07' });
     return { id };
   } },
+  // Remise de la copie du compte rendu clos (évaluateur ou RH) ; téléchargement enregistré pour le salarié seul.
+  { action: 'entretien.remettre', droits: '                  O    O    O    -    -    -    -    -    -', p: () => {
+    const id = ENTRETIEN();
+    db.update('entretiens', id, { statut: 'realise', signMgr: '2026-10-07' });
+    return { id, mode: 'main_propre', date: '2026-10-07' };
+  } },
+  { action: 'entretien.telecharger', droits: '               -    -    -    -    O    -    -    -    -', p: () => {
+    const id = ENTRETIEN();
+    db.update('entretiens', id, { statut: 'realise', signMgr: '2026-10-07' });
+    return { id };
+  } },
   // Administration : administrateur RH.
   { action: 'parametres.maj', droits: '                      O    -    -    -    -    -    -    -    -', p: () => ({ horizonAlerte: 60 }) },
   { action: 'demo.reinitialiser', droits: '                  O    -    -    -    -    -    -    -    -', p: () => ({}) },
+  // Mise en service (reprise depuis Lucca) : administrateur RH seul, quel que soit l'import.
+  { action: 'reprise.importer', droits: '                    O    -    -    -    -    -    -    -    -', p: () => ({
+    type: 'soldes', texte: 'Nom;CP N-1\nMehdi Benali;10', colonnes: ['nom', 'cpN1'], dateReprise: '2026-10-01',
+  }) },
   { action: 'compte.creer', droits: '                        O    -    -    -    -    -    -    -    -', p: () => ({ type: 'microsoft', identifiant: 'paie@cabinet.example', nom: 'Cabinet Paie', profilRh: 'rh_gestionnaire' }) },
   { action: 'compte.profil', droits: '                       O    -    -    -    -    -    -    -    -', p: () => ({ id: compteDe(2).id, profilRh: 'rh_gestionnaire' }) },
   // Compte externe de Sandrine Vidal rattaché à une fiche sans compte (celui d'Inès Dupont, retiré pour l'essai).
@@ -217,6 +316,8 @@ const MATRICE: Ligne[] = [
     db.insert('notifications', { empId: 12, adresse: 'karim.haddad@entreprise.example', type: 'temps.soumise', objet: 'Feuille à valider', texte: '—', creation: '2026-10-07T06:00:00.000Z', envoiId: null });
     return {};
   } },
+  // Page Confidentialité : coordonnées du responsable et du DPO (administrateur RH).
+  { action: 'confidentialite.regler', droits: '              O    -    -    -    -    -    -    -    -', p: () => ({ responsable: 'Entreprise, 1 rue du Site, Feyzin', dpo: 'dpo@entreprise.example' }) },
   { action: 'notification.regler', droits: '                 O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, mode: 'quotidien' }) },
   // Envois sortants (Paramètres → Envois) : le service RH suit, relance (intégration configurée) ou classe un échec.
   { action: 'envoi.relancer', droits: '                      O    O    -    -    -    -    -    -    -', p: () => ({ id: envoiEnEchec() }), env: { KEYSTONE_URL: 'http://keystone.essai', KEYSTONE_TOKEN: 'jeton' } },

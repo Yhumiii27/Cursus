@@ -4,6 +4,7 @@
 import { AVIS_MEDICAL, MOTIF_RESTRICTION, MOTIFS_VISITE } from '../../../shared/constants.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
+import { horsContratLe } from '../../../shared/rules/contrats.ts';
 import { controlerAvis, estMotifVisite, motifParDefaut, suspendueParAvis } from '../../../shared/rules/sante.ts';
 import type { DemandeVisite, Employe, HabTitre, HabType } from '../../../shared/types.ts';
 import { transmettreDemandeVisite } from '../notifications.ts';
@@ -19,6 +20,9 @@ import { ActionError, getEmp, requireRh, type ActionHandler, type Ctx } from './
 const demanderVisite: ActionHandler = (ctx, p) => {
   requireRh(ctx);
   const emp = getEmp(ctx, p.empId);
+  // Salarié sorti : plus de visite à demander (une demande faite avant la date reste suivie jusqu'au départ).
+  const hors = horsContratLe(emp, ctx.d.ti);
+  if (hors) throw new ActionError(hors);
   const encours = ctx.d.demandeVisite(emp.id);
   if (encours) throw new ActionError(`Visite déjà demandée le ${fmt(parse(encours.le))} pour ${emp.nom}`);
   const motif = p.motif == null || p.motif === '' ? motifParDefaut(emp) : p.motif;

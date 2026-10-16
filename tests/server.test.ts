@@ -93,5 +93,7 @@ test('feuille de temps : saisie, soumission, validation, paie', () => {
   assert.equal(sh.statut, 'validee');
   run(RH, 'temps.pushSage', {});
   assert.ok(loadFull(db, RH).feuilles.find(f => f.id === sh.id)!.sage);
-  assert.ok(loadFull(db, RH).lastSagePush!.lignes.some(l => l.matricule === 'EMP-0002'));
+  // Matricule du dossier de paie de Mehdi Benali (t021), et non plus le matricule Cursus EMP-0002.
+  const lot = db.all<{ contenu: { lignes: { matricule: string }[] } }>('lotsPaie').at(-1)!;
+  assert.ok(lot.contenu.lignes.some(l => l.matricule === '004102'));
 });

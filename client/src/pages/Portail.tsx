@@ -1,13 +1,19 @@
-// Espace collaborateur : certifications, habilitations, voyages et demandes du salarié connecté.
+// Espace collaborateur : certifications, habilitations, voyages et demandes du salarié connecté. En tête, l'encart « À faire »
+// (shared/rules/a-faire.ts) : compte rendu d'entretien à signer, feuille de temps renvoyée ou à soumettre, avec un accès direct.
 import { DownloadSimpleIcon, PlusIcon } from '@phosphor-icons/react';
-import { CERT_LABEL, CLS, EMP_LABEL, HAB_CLS, HAB_LABEL, MODE_NOTIFICATION_LABEL, REQ_CLS, REQ_LABEL, SESS_CLS, TRIP_CLS, TRIP_LABEL } from '../../../shared/constants.ts';
-import { parse } from '../../../shared/dates.ts';
-import { equipeLabel, fmt, fmtShort, matricule, plural, rel } from '../../../shared/format.ts';
+import {
+  CERT_LABEL, CLS, EMP_LABEL, ENT_TYPES, HAB_CLS, HAB_LABEL, MODE_NOTIFICATION_LABEL, REQ_CLS, REQ_LABEL, SESS_CLS, TRIP_CLS, TRIP_LABEL,
+} from '../../../shared/constants.ts';
+import { isoWeek, parse } from '../../../shared/dates.ts';
+import { equipeLabel, fmt, fmtShort, plural, rel } from '../../../shared/format.ts';
+import { matriculeAffiche } from '../../../shared/rules/matricules.ts';
+import { aFaireCollaborateur } from '../../../shared/rules/a-faire.ts';
 import { declarationDetail, formaliteCle } from '../../../shared/rules/formalites.ts';
 import { etatInscription } from '../../../shared/rules/sessions.ts';
 import type { ModeNotification } from '../../../shared/types.ts';
 import { Bar, Btn, Chips, Empty, Fine, Kpi, Kpis, NoteAccent, Page, Panel, Seg, Tag } from '../components/ui.tsx';
 import { Aptitude } from '../components/Aptitude.tsx';
+import { ExigencesPortail } from '../components/Exigences.tsx';
 import { useEnriched, useRole, useTrips } from '../state/derived.ts';
 import { api } from '../api.ts';
 import { useStore } from '../state/store.tsx';
@@ -21,7 +27,7 @@ export function Portail() {
   const { emps, upcoming, horizon, d } = useEnriched();
   const trips = useTrips();
   const { me: meId } = useRole();
-  const { openDialog, notify, run } = useStore();
+  const { openDialog, notify, run, go } = useStore();
   const me = emps.find(e => e.id === meId);
   if (!me) return <Page title="Mon espace"><Empty>Aucun dossier collaborateur n’est associé à votre compte.</Empty></Page>;
 
@@ -29,6 +35,8 @@ export function Portail() {
   const myTrips = trips.filter(t => t.empId === me.id);
   const myReqs = d.ds.demandesCollab.filter(r => r.empId === me.id);
   const okCerts = me.certs.filter(c => c.key !== 'exp').length, dueCerts = me.certs.filter(c => c.key !== 'ok').length;
+  // Certifications d'une formation archivée par le service RH : gardées au dossier, lisibles, hors des compteurs.
+  const archivees = me.rawCerts.filter(c => c.fm.archive);
   const okHabs = me.habs.filter(h => h.key === 'ok' || h.key === 'due').length;
   const habKinds = [...new Set(me.habs.map(h => HAB_LABEL[h.key].toLowerCase()))].join(' · ');
   const nextTrip = myTrips[0];
@@ -49,18 +57,23 @@ export function Portail() {
     return x ? [{ i, x, s: x.s, fm: d.fm(x.s.formation) }] : [];
   }).sort((a, b) => a.s.date.localeCompare(b.s.date));
   const mgrId = d.mgrOf(me);
+  // Ce qui attend le collaborateur : les mêmes nombres que les pastilles du menu (layout/Shell.tsx).
+  const aFaire = aFaireCollaborateur(d, me.id);
+  const nAFaire = aFaire.comptesRendus.length + aFaire.feuilles.length;
 
   return (
     <div className="page">
       <header className="page-head">
         <div>
-          <div className="kicker">{me.poste} · {equipeLabel(me)} · {matricule(me.id)}</div>
+          <div className="kicker">{me.poste} · {equipeLabel(me)} · {matriculeAffiche(me)}</div>
           <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-            <h1>Bonjour {me.nom.split(' ')[0]}</h1>
+            <h1 tabIndex={-1}>Bonjour {me.nom.split(' ')[0]}</h1>
             <Tag cls={CLS[me.worst]}>{EMP_LABEL[me.worst]}</Tag>
           </div>
           <div className="text-muted sub" style={{ marginTop: 'var(--space-1)' }}>{me.med.text}</div>
           <div className="text-muted sub">{contrat.libelle} · {mgrId ? `Manager : ${d.mgrName(mgrId)}` : `Validations : ${d.mgrName(0)}`}</div>
+          {/* « Non conforme » dû aux exigences du poste ou de l'équipe : ce qui manque, et sa demande. */}
+          <ExigencesPortail e={me} />
         </div>
         <div className="head-actions">
           <Btn onClick={openMyDocs}>Mes documents de voyage</Btn>
@@ -68,6 +81,35 @@ export function Portail() {
           <Btn variant="primary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'reqForm' })}>Demander une formation</Btn>
         </div>
       </header>
+
+      {nAFaire > 0 && (
+        <Panel highlight title="À faire" aside={plural(nAFaire, 'action attendue', 'actions attendues')} style={{ gap: 'var(--space-2)' }}>
+          <div className="list">
+            {aFaire.comptesRendus.map(x => (
+              <div key={`e${x.id}`} className="list-row">
+                <div className="grow">
+                  <div style={{ fontSize: 14 }}>{ENT_TYPES[x.type].nom} du {fmt(parse(x.date))}</div>
+                  <div className="text-muted sub">Compte rendu clos par votre évaluateur : à relire et à signer</div>
+                </div>
+                <Btn small variant="secondary" style={{ flex: 'none' }} onClick={() => openDialog({ type: 'ent', entId: x.id })}>Signer le compte rendu</Btn>
+              </div>
+            ))}
+            {aFaire.feuilles.map(f => (
+              <div key={`f${f.week}`} className="list-row">
+                <div className="grow">
+                  <div style={{ fontSize: 14 }}>Feuille de temps de la semaine {isoWeek(f.week)} · du {fmtShort(parse(f.week))}</div>
+                  <div className="text-muted sub">
+                    {f.etat === 'renvoyee' ? `Renvoyée pour correction${f.commentaire ? ` : ${f.commentaire}` : ''}` : 'Semaine passée, pas encore soumise'}
+                  </div>
+                </div>
+                <Btn small variant="secondary" style={{ flex: 'none' }} onClick={() => go('temps', { weekStart: f.week })}>
+                  {f.etat === 'renvoyee' ? 'Corriger la feuille' : 'Saisir la feuille'}
+                </Btn>
+              </div>
+            ))}
+          </div>
+        </Panel>
+      )}
 
       <Kpis>
         <Kpi kicker="Mes certifications valides" value={`${okCerts} / ${me.certs.length}`}
@@ -126,7 +168,15 @@ export function Portail() {
                 </div>
               );
             })}
-            {me.certs.length === 0 && <Empty>Aucune certification enregistrée.</Empty>}
+            {archivees.map(c => (
+              <div key={c.id} className="list-row stack" style={rowStyle}>
+                <div className="item-head">
+                  <div><div style={{ fontSize: 14 }}>{c.fm.nom}</div><div className="text-muted sub">Obtenue le {fmt(c.obt)} · formation retirée du catalogue, plus suivie</div></div>
+                  <Tag cls="tag-outline" style={{ flex: 'none' }}>Formation archivée</Tag>
+                </div>
+              </div>
+            ))}
+            {me.certs.length === 0 && archivees.length === 0 && <Empty>Aucune certification enregistrée.</Empty>}
           </Panel>
 
           <Panel title="Mes habilitations" style={{ gap: 'var(--space-2)' }}>

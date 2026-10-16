@@ -1,0 +1,6 @@
+[Unit]
+Description=Cursus : alerte d'échec de %i
+
+[Service]
+Type=oneshot
+ExecStart=/bin/sh -c 'systemctl status --no-pager --full %i | mail -s "[Cursus] échec : %i" informatique@exemple.fr'

@@ -30,6 +30,7 @@ const { contexte, enregistrerAffectation, enregistrerChantier } = await import('
 const { keystoneRoutes } = await import('../server/src/integrations/keystone-routes.ts');
 const { problemesConfig } = await import('../server/src/config.ts');
 const { EVENEMENT_LABEL } = await import('../shared/constants.ts');
+const { addD } = await import('../shared/dates.ts');
 type User = Parameters<typeof buildSnapshot>[1];
 type Envoi = import('../shared/types.ts').Envoi;
 type Corps = Record<string, any>;
@@ -496,6 +497,10 @@ test('contrat OpenAPI : chaque événement émis a la forme décrite par le webh
   assert.deepEqual(Object.keys(mapping).sort(), Object.keys(EVENEMENT_LABEL).sort(), 'types déclarés = types affichés');
   const { db, run, envois, demande } = fresh();
   run(RH, 'keystone.accepter', { id: demande('DK-2026-0412').id }); // décision et verdict modifié
+  // Déplacement venu de Keystone : nouvelles dates, puis annulation.
+  const t = loadFull(db, RH).voyages.find(v => v.ref === 'DK-2026-0412')!;
+  run(RH, 'voyage.modifier', { id: t.id, depart: t.depart, retour: addD(t.retour, -1) });
+  run(RH, 'voyage.annuler', { id: t.id, motif: 'Chantier reporté' });
   run(RH, 'temps.validate', { empId: 12, week: '2026-09-28' });
   run(KARIM, 'absence.demander', { empId: 18, kind: 'RTT', du: '2026-12-14', au: '2026-12-14' });
   const a = loadFull(db, RH).absences.find(x => x.empId === 18 && x.du === '2026-12-14')!;

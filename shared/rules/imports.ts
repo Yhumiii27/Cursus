@@ -1,15 +1,50 @@
-// Imports CSV : plan prévisionnel de formation et demandes de déplacement.
+// Imports CSV : lecture robuste des fichiers, plan prévisionnel de formation et demandes de déplacement (reprise depuis
+// Lucca : shared/rules/reprise.ts).
 import { parse, toIso } from '../dates.ts';
 import { fmt, fmtShort, key, norm } from '../format.ts';
 import { blocage, conflitsDates } from './conflits.ts';
 import type { Destination, Employe, Formation, ISODate, Trimestre } from '../types.ts';
 import type { Domain } from '../domain.ts';
 
+/**
+ * Lecture d'un fichier CSV (exports d'Excel, de Lucca…) : BOM retiré, séparateur détecté sur la première ligne
+ * (« ; », tabulation ou « , », hors guillemets), cellules entre guillemets avec « ; », guillemets doublés (« "" ») ou
+ * sauts de ligne, fins de ligne Windows ou Unix. Les lignes vides sont écartées ; chaque ligne garde son numéro dans le
+ * fichier (`numeros`, à partir de 1), cité par les rapports d'erreurs.
+ */
+export function lireCsv(text: string): { lignes: string[][]; numeros: number[]; sep: string } {
+  const t = String(text || '').replace(/^﻿/, '');
+  // Séparateur : le plus fréquent hors guillemets sur la première ligne non vide (« ; » à égalité, celui d'Excel en France).
+  const premiere = (t.split(/\r?\n/).find(l => l.trim()) ?? '').replace(/"[^"]*"/g, '');
+  const compte = (c: string) => premiere.split(c).length - 1;
+  const sep = [';', '\t', ','].reduce((a, c) => (compte(c) > compte(a) ? c : a), ';');
+  const lignes: string[][] = [], numeros: number[] = [];
+  let ligne: string[] = [], cellule = '', guillemets = false, n = 1, debut = 1;
+  const finCellule = () => { ligne.push(cellule.trim()); cellule = ''; };
+  const finLigne = () => {
+    finCellule();
+    if (ligne.some(c => c !== '')) { lignes.push(ligne); numeros.push(debut); }
+    ligne = [];
+  };
+  for (let i = 0; i < t.length; i++) {
+    const c = t[i];
+    if (guillemets) {
+      if (c === '"' && t[i + 1] === '"') { cellule += '"'; i++; } else if (c === '"') guillemets = false;
+      else { if (c === '\n') n++; cellule += c; }
+    } else if (c === '"' && !cellule.trim()) { guillemets = true; cellule = ''; } else if (c === sep) finCellule();
+    else if (c === '\n' || c === '\r') {
+      if (c === '\r' && t[i + 1] === '\n') i++;
+      finLigne();
+      debut = ++n;
+    } else cellule += c;
+  }
+  finLigne();
+  return { lignes, numeros, sep };
+}
+
+/** Lignes du fichier, découpées en cellules (`lireCsv`) : imports du plan et des déplacements. */
 function splitCsv(text: string) {
-  const lines = String(text || '').split(/\r?\n/).map(l => l.trim()).filter(Boolean);
-  const sep = lines.length ? ([';', '\t', ','].find(c => lines[0].includes(c)) || ';') : ';';
-  const cells = (l: string) => l.split(sep).map(c => c.trim().replace(/^"|"$/g, '').trim());
-  return { lines, cells };
+  return { lines: lireCsv(text).lignes, cells: (l: string[]) => l };
 }
 
 export function matchFormation(formations: Formation[], label: string): Formation | null {
@@ -80,6 +115,7 @@ export function parseTrips(d: Domain, text: string): TripRow[] {
     if (!emp) errs.push(v.collaborateur ? `Collaborateur inconnu : ${v.collaborateur}` : 'Collaborateur manquant');
     const dest = d.ds.referentiels.destinations.find(x => key(x.pays) === key(v.destination) || x.code === (v.destination || '').toUpperCase());
     if (!dest) errs.push(v.destination ? `Destination hors référentiel : ${v.destination}` : 'Destination manquante');
+    else if (dest.archive) errs.push(`Destination archivée : ${dest.pays}`);
     const depart = toIso(v.depart), retour = toIso(v.retour);
     if (!depart || !retour || retour < depart) errs.push('Dates invalides');
     else if (emp) {

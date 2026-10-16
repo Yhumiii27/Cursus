@@ -8,6 +8,7 @@ import { fmt, plural } from '../../../shared/format.ts';
 import { inscritsDe, sessionPassee } from '../../../shared/rules/sessions.ts';
 import { erreursSession, type ChampSession } from '../components/controles.ts';
 import { CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
+import { ReferentielVide } from '../components/ReferentielVide.tsx';
 import { Fine } from '../components/ui.tsx';
 import { useEnriched } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -26,6 +27,7 @@ export function SessionDialog({ f: f0, planId, places: places0, sessionId }: { f
   const [busy, setBusy] = useState(false);
   const v = useVerification();
   if (sessionId != null && !s) return null;
+  if (!s && !fixe && !forms.length) return <ReferentielVide titre="Nouvelle session" onglet="formations" texte="Catalogue des formations vide." />;
   const fm = d.fm(f);
   const waiting = emps.flatMap(e => e.certs).filter(c => c.f === f && c.key !== 'ok' && !c.session && !c.sessionPassee).length;
   // Sous chaque champ, tous à la fois : un champ vide à l'envoi ; une saisie incorrecte ou contraire au contrôle

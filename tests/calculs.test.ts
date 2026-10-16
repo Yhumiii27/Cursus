@@ -178,6 +178,43 @@ test('t079 dates impossibles refusées (saisie, import CSV, actions)', () => {
   try { assert.notEqual(todayIso(), '2026-02-31'); } finally { process.env.CURSUS_TODAY = avant; }
 });
 
+test('t094 une échéance tombe au dernier jour du mois cible quand son jour n’y existe pas', async () => {
+  const { addM, iso, parse } = await import('../shared/dates.ts');
+  // 29 février + 36 mois : le 28 février, jamais le 1er mars (titre valide un jour de trop).
+  assert.equal(addM('2024-02-29', 36), '2027-02-28');
+  assert.equal(addM('2024-02-29', 48), '2028-02-29');
+  assert.equal(addM('2027-01-31', 1), '2027-02-28');
+  assert.equal(addM('2028-01-31', 1), '2028-02-29');
+  assert.equal(addM('2026-08-31', 6), '2027-02-28');
+  assert.equal(addM('2027-08-31', 6), '2028-02-29');
+  assert.equal(addM('2026-03-31', 6), '2026-09-30');
+  assert.equal(addM('2026-03-31', -1), '2026-02-28');
+  // Jour présent dans le mois cible : inchangé.
+  assert.equal(addM('2026-10-10', 12), '2027-10-10');
+  assert.equal(addM('2026-12-31', 1), '2027-01-31');
+  // Échéances calculées à l'affichage : certification (ATEX, 36 mois) et habilitation (AIPR, 60 mois) du 29 février.
+  const { db, domain } = fresh();
+  db.insert('certifications', { empId: 1, f: 'atex', obtenue: '2024-02-29', sessionId: null, convoc: null, convocLe: null });
+  db.insert('habTitres', { empId: 1, h: 'aipr', delivree: '2024-02-29', par: 'Karim Haddad', demande: null });
+  const camille = domain().enrich(90, false).find(e => e.id === 1)!;
+  assert.equal(iso(camille.rawCerts.find(c => c.f === 'atex')!.exp), '2027-02-28');
+  assert.equal(iso(camille.habs.find(h => h.h === 'aipr')!.exp!), '2029-02-28');
+  // Non-régression du jeu de démonstration : chaque échéance tombe dans le mois cible, au même jour que le titre,
+  // ou au dernier jour du mois quand ce jour n'y existe pas.
+  const d = domain(), emps = d.enrich(90, false);
+  const conforme = (base: string, mois: number, exp: Date) => {
+    const b = parse(base), ecart = exp.getFullYear() * 12 + exp.getMonth() - (b.getFullYear() * 12 + b.getMonth());
+    const dernier = new Date(exp.getFullYear(), exp.getMonth() + 1, 0).getDate();
+    return ecart === mois && (exp.getDate() === b.getDate() || (exp.getDate() === dernier && b.getDate() > dernier));
+  };
+  let n = 0;
+  for (const e of emps) {
+    for (const c of [...e.rawCerts, ...e.anciennes]) { n++; assert.ok(conforme(c.obtenue, c.fm.validite, c.exp), `${e.nom} · ${c.f}`); }
+    for (const h of e.habs.filter(x => x.delivree)) { n++; assert.ok(conforme(h.delivree!, h.hm.validite, h.exp!), `${e.nom} · ${h.h}`); }
+  }
+  assert.ok(n > 50, 'titres du jeu de démonstration contrôlés');
+});
+
 test('t080 un entretien ne se clôt pas avant sa date ; la clôture enregistre la date réelle', () => {
   const { run, refused, domain } = fresh();
   const x = domain().ds.entretiens.find(e => e.empId === 1 && e.statut === 'planifie')!;

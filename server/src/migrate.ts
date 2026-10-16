@@ -1,4 +1,5 @@
-// Migrations de données des bases créées par une version antérieure de Cursus.
+// Migrations de données des bases créées par une version antérieure de Cursus, rejouées à chaque démarrage (idempotentes).
+// Les nouvelles reprises à ne faire qu'une fois sont des migrations nommées (server/src/migrations/), pas des ajouts ici.
 import { estMotifReprise, MISSION_LONGUE_JOURS, type MotifReprise, VACCINS } from '../../shared/constants.ts';
 import { Domain } from '../../shared/domain.ts';
 import { matricule, norm, plural } from '../../shared/format.ts';
@@ -13,6 +14,7 @@ import { loadFull, todayIso } from './dataset.ts';
 import type { Db } from './db.ts';
 import { migrerKeystone } from './integrations/keystone-entrant.ts';
 import { reprendreAdressesDesComptes } from './messagerie.ts';
+import { rattacherFiches } from './migrations/referentiels.ts';
 import { sauvegarderAvantMigration } from './sauvegarde.ts';
 
 /** Ancienne colonne `contrat` (qui mêlait nature du contrat et durée du travail) → statut, type de contrat, temps. */
@@ -48,6 +50,8 @@ export function migrate(db: Db) {
   motifsDeReprise(db, avant);
   reprendreAdressesDesComptes(db, avant);
   reprendreDetachements(db, avant);
+  // Fiches écrites sans poste du référentiel (import, reprise des salariés) : rattachées au poste de même intitulé.
+  rattacherFiches(db, avant);
 }
 
 /**

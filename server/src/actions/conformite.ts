@@ -3,7 +3,10 @@ import { addMonths, isValidDate, parse } from '../../../shared/dates.ts';
 import { certEnVigueur, Domain, habEnCours, sessionActive } from '../../../shared/domain.ts';
 import { fmt, key, plural } from '../../../shared/format.ts';
 import { blocage, conflitsDates, sessionsInscrit } from '../../../shared/rules/conflits.ts';
+import { horsContratLe } from '../../../shared/rules/contrats.ts';
+import { exerciceOuvert } from '../../../shared/rules/exercices.ts';
 import { estAuDossier, relireDeclaration, retireeAuRefus } from '../../../shared/rules/formalites.ts';
+import { refusArchive } from '../../../shared/rules/referentiels.ts';
 import type { Certification, DemandeCollab, Employe, HabTitre, HabType, Inscription } from '../../../shared/types.ts';
 import { loadFull } from '../dataset.ts';
 import { suivreVerdicts } from '../integrations/keystone-verdicts.ts';
@@ -41,6 +44,8 @@ const inscrire: ActionHandler = (ctx, p) => {
   if (cert && certEnVigueur(emp.certs, cert.f) !== cert) throw new ActionError('Certification remplacée par un recyclage : planifiez la certification en vigueur');
   if (!sessionActive(sess)) throw new ActionError(`Session ${sess.statut === 'Annulée' ? 'annulée' : 'clôturée'}`);
   if (sess.date < ctx.d.ti) throw new ActionError('Session déjà passée');
+  const hors = horsContratLe(emp, sess.date);
+  if (hors) throw new ActionError(hors);
   attendCloture(ctx, (cert ?? insc)!.sessionId);
   if ((cert ?? insc)!.sessionId === sess.id || (insc && ctx.ds.inscriptions.some(i => i.empId === emp.id && i.sessionId === sess.id))) {
     return `${emp.nom} est déjà inscrit à cette session`;
@@ -67,6 +72,7 @@ const ajouterCert: ActionHandler = (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
   const fm = ctx.d.fm(str(p.f));
   if (!fm) throw new ActionError('Formation inconnue');
+  if (fm.archive) throw new ActionError(refusArchive(fm, 'Formation')!);
   if (!isValidDate(p.date)) throw new ActionError('Date d’obtention invalide');
   const avant = certEnVigueur(emp.certs, fm.id);
   const cert = ctx.db.insert<Certification>('certifications', { empId: emp.id, f: fm.id, obtenue: p.date, sessionId: null, convoc: null });
@@ -91,6 +97,7 @@ const delivrerHab: ActionHandler = (ctx, p) => {
   const hm = ctx.d.hm(str(p.h));
   const par = str(p.par);
   if (!hm) throw new ActionError('Habilitation inconnue');
+  if (hm.archive) throw new ActionError(refusArchive(hm, 'Habilitation')!);
   if (!isValidDate(p.date) || !par) throw new ActionError('Date de délivrance et signataire requis');
   const existing = emp.habs.find(h => h.h === hm.id);
   // Une suspension se lève explicitement ; après un retrait, une nouvelle délivrance reste possible.
@@ -124,6 +131,10 @@ function demandeADecider(ctx: Ctx, id: unknown): DemandeCollab {
 const accepterDemande: ActionHandler = (ctx, p) => {
   const r = demandeADecider(ctx, p.id);
   const emp = getEmp(ctx, r.empId);
+  // Formation ou habilitation archivée depuis la demande : ni session, ni délivrance ne pourraient plus aboutir.
+  const archivee = r.type === 'formation' && r.f ? refusArchive(ctx.d.fm(r.f), 'Formation')
+    : r.type === 'habilitation' && r.h ? refusArchive(ctx.d.hm(r.h), 'Habilitation') : null;
+  if (archivee) throw new ActionError(`${archivee}, ou refusez la demande`);
   const done = (reponse: string) => ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'acceptee', reponse });
   if (r.type === 'formation') {
     const sess = r.sessionId && r.f
@@ -133,7 +144,7 @@ const accepterDemande: ActionHandler = (ctx, p) => {
       const cert = certEnVigueur(emp.certs, r.f!);
       // Absent le jour de la session, ou inscrit ailleurs ce jour-là : la demande ne peut pas être acceptée telle quelle.
       const quittee = cert ? cert.sessionId : ctx.ds.inscriptions.find(i => i.empId === emp.id && ctx.d.session(i.sessionId)?.formation === r.f)?.sessionId;
-      const conflit = blocage(conflitsDates(ctx.d, emp.id, sess.date, sess.date, 'formation', { sessionId: quittee }));
+      const conflit = horsContratLe(emp, sess.date) ?? blocage(conflitsDates(ctx.d, emp.id, sess.date, sess.date, 'formation', { sessionId: quittee }));
       if (conflit) throw new ActionError(`${conflit} : refusez la demande, ou inscrivez ${emp.nom} à une autre session depuis sa fiche`);
       // Le nombre d'inscrits est calculé : rattacher à la session libère l'éventuelle place d'une autre
       // (une session passée, à clôturer, garde ses inscrits jusqu'à la clôture).
@@ -161,8 +172,9 @@ const accepterDemande: ActionHandler = (ctx, p) => {
       return `${emp.nom} inscrit à la session du ${fmt(parse(sess.date))}`;
     }
     if (!emp.equipe) throw new ActionError(`Affectez d’abord ${emp.nom} à une équipe pour l’inscrire au plan de formation`);
-    const ex = ctx.d.year;
-    const tri = `T${Math.floor(ctx.d.today.getMonth() / 3) + 1}`;
+    // Exercice en cours, ou le suivant s'il est déjà clos (plan.cloturerExercice) : alors au premier trimestre.
+    const ex = exerciceOuvert(ctx.ds, ctx.d.year);
+    const tri = ex > ctx.d.year ? 'T1' : `T${Math.floor(ctx.d.today.getMonth() / 3) + 1}`;
     ctx.db.insert('planActions', { exercice: ex, f: r.f, libelle: r.libelle, equipe: emp.equipe, periode: tri, effectif: 1, cout: r.f ? ctx.d.fm(r.f).cout : 0, statut: 'prevu', origine: 'demande' });
     done(`Ajoutée au plan de formation ${ex} (${tri})`);
     notifierDecisionDemande(ctx, emp, r, true);
@@ -170,15 +182,19 @@ const accepterDemande: ActionHandler = (ctx, p) => {
   }
   if (r.type === 'habilitation') {
     const t = emp.habs.find(h => h.h === r.h);
-    // Titre retiré : la demande acceptée reste attachée au titre jusqu'à la nouvelle délivrance.
+    // Titre retiré ou expiré : la demande acceptée reste attachée au titre jusqu'à la nouvelle délivrance, qui l'efface.
+    // Le titre expiré le reste pour le Go / No Go ; l'onglet Habilitations le compte « en attente » de renouvellement.
     const retire = t?.delivree && t.mesure === 'retrait' ? t : null;
-    if (retire) ctx.db.update<HabTitre>('habTitres', retire.id, { demande: ctx.d.ti });
+    const expire = t?.delivree && enriched(ctx).find(e => e.id === emp.id)?.habs.find(x => x.h === t.h)?.key === 'exp' ? t : null;
+    if (retire || expire) ctx.db.update<HabTitre>('habTitres', (retire ?? expire)!.id, { demande: ctx.d.ti });
     else if (r.h && !t) ctx.db.insert<HabTitre>('habTitres', { empId: emp.id, h: r.h, delivree: null, par: null, demande: ctx.d.ti });
-    done('Acceptée — délivrance après contrôle des prérequis');
+    done(expire ? 'Acceptée — renouvellement après contrôle des prérequis' : 'Acceptée — délivrance après contrôle des prérequis');
     notifierDecisionDemande(ctx, emp, r, true);
     return retire
       ? `${emp.nom} — ${ctx.d.hm(r.h!).nom} retirée : nouvelle délivrance à effectuer après contrôle des prérequis (onglet Habilitations)`
-      : `${emp.nom} — ${ctx.d.hm(r.h!).nom} en attente de délivrance (onglet Habilitations)`;
+      : expire
+        ? `${emp.nom} — ${ctx.d.hm(r.h!).nom} expirée : renouvellement en attente de délivrance (onglet Habilitations, « En attente »)`
+        : `${emp.nom} — ${ctx.d.hm(r.h!).nom} en attente de délivrance (onglet Habilitations)`;
   }
   // Document déclaré : revalidé puis écrit dans le dossier (même transaction que la décision).
   // Une déclaration reprise d'une ancienne base, encore au dossier telle quelle, n'a rien à réécrire.
@@ -229,6 +245,7 @@ const demandeFormation: ActionHandler = (ctx, p) => {
   const libelle = str(p.libelle), motif = str(p.motif);
   if (!motif || (autre && !libelle)) throw new ActionError('Motif et intitulé requis');
   if (!autre && !ctx.d.fm(p.f)) throw new ActionError('Formation inconnue');
+  if (!autre && ctx.d.fm(p.f).archive) throw new ActionError(refusArchive(ctx.d.fm(p.f), 'Formation')!);
   // Doublons : une demande identique attend la réponse du service RH (hors catalogue : même intitulé), ou le salarié
   // est déjà inscrit à une session à venir de cette formation.
   const qui = parId ? emp.nom : 'vous';
@@ -254,6 +271,7 @@ const demandeHabilitation: ActionHandler = (ctx, p) => {
   const { emp, parId } = demandeur(ctx, p);
   const motif = str(p.motif), hm = ctx.d.hm(str(p.h));
   if (!hm || !motif) throw new ActionError('Habilitation et motif requis');
+  if (hm.archive) throw new ActionError(refusArchive(hm, 'Habilitation')!);
   const x = enriched(ctx).find(e => e.id === emp.id)!;
   const already = x.habs.some(h => h.h === hm.id && habEnCours(h))
     || ctx.ds.demandesCollab.some(r => r.empId === emp.id && r.type === 'habilitation' && r.h === hm.id && r.statut === 'attente');

@@ -82,7 +82,9 @@ test('feuilles de temps : heures supplémentaires et complémentaires', () => {
   assert.equal(c.total, 45);
   assert.equal(c.sup25, 4);
   assert.equal(c.sup50, 2);
-  assert.equal(c.recup, 8);
+  // Heures supplémentaires payées par défaut : aucun repos ; remplacées par un repos, 4 × 1,25 + 2 × 1,5.
+  assert.equal(c.recup, 0);
+  assert.equal(calcSheet(d, h39, { lignes: [{ projet: 'X', tache: '', ks: false, h: [9, 9, 9, 9, 9] }], heuresSup: 'repos' }).recup, 8);
   const partiel = d.emp(7)!; // 28 h
   const p = calcSheet(d, partiel, { lignes: [{ projet: 'X', tache: '', ks: false, h: [8, 8, 0, 8, 8] }] });
   assert.equal(p.hc10, 2.8);

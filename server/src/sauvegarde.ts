@@ -191,7 +191,11 @@ export function sauvegarder(base: string, opts: OptionsSauvegarde = {}): Sauvega
   if (!existsSync(source)) throw new SauvegardeError(`Base introuvable : ${source}`);
   const keep = opts.keep ?? copiesConservees();
   const dir = resolve(opts.dir ?? dossierSauvegardes(source));
-  mkdirSync(dir, { recursive: true, mode: 0o700 });
+  try {
+    mkdirSync(dir, { recursive: true, mode: 0o700 });
+  } catch (e) {
+    throw new SauvegardeError(`Copie impossible vers ${dir} (${message(e)})`);
+  }
   const fichier = nomLibre(dir, source, opts.date ?? new Date(), opts.motif);
   const partiel = fichier + '.partiel';
   let verification: Verification;
@@ -295,12 +299,13 @@ export function serveurActif(base: string): Verrou | null {
 }
 
 /**
- * Pose le verrou du serveur ; il est retiré à la sortie du processus et sur SIGINT / SIGTERM.
- * Lève une SauvegardeError si un autre serveur en service utilise déjà la base : son verrou reste
- * en place, sinon l'arrêt de la seconde instance le retirerait et npm run restore ne serait plus bloqué.
+ * Pose le verrou du serveur ; il est retiré à la sortie du processus (process.exit compris). Les signaux SIGINT et
+ * SIGTERM relèvent de l'arrêt ordonné du serveur (server/src/service.ts), qui retire le verrou après avoir fermé la
+ * base : la fonction renvoyée. Lève une SauvegardeError si un autre serveur en service utilise déjà la base : son verrou
+ * reste en place, sinon l'arrêt de la seconde instance le retirerait et npm run restore ne serait plus bloqué.
  */
 export function poserVerrou(base: string) {
-  mkdirSync(dirname(resolve(base)), { recursive: true }); // premier démarrage : dossier pas encore créé
+  mkdirSync(dirname(resolve(base)), { recursive: true, mode: 0o700 }); // premier démarrage : dossier pas encore créé
   const f = fichierVerrou(base);
   const contenu = JSON.stringify({ pid: process.pid, depuis: new Date().toISOString(), boot: bootId(), lancement: lancement(process.pid) }) + '\n';
   for (let essai = 1; ; essai++) {
@@ -323,15 +328,6 @@ export function poserVerrou(base: string) {
     try { if (lireVerrou(f)?.pid === process.pid) unlinkSync(f); } catch { /* déjà retiré */ }
   };
   process.once('exit', retirer);
-  for (const sig of ['SIGINT', 'SIGTERM'] as const) {
-    const h = () => {
-      retirer();
-      process.removeListener(sig, h);
-      // Sans autre gestionnaire (arrêt propre), le signal reprend son effet par défaut : l'arrêt.
-      if (process.listenerCount(sig) === 0) process.kill(process.pid, sig);
-    };
-    process.on(sig, h);
-  }
   return retirer;
 }
 

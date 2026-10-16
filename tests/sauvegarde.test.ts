@@ -353,7 +353,7 @@ test('npm run backup / restore : compte rendu et code de sortie pour la supervis
   assert.match(restau.stdout, /Base actuelle sauvegardée : .*avant-restauration\.db/);
 }));
 
-test('serveur : verrou posé au démarrage, seconde instance refusée, verrou retiré à l’arrêt (SIGTERM)', { skip: process.platform === 'win32' }, async () => {
+test('serveur : verrou posé au démarrage, seconde instance refusée, verrou retiré à l’arrêt propre (SIGTERM)', { skip: process.platform === 'win32' }, async () => {
   const dir = mkdtempSync(join(tmpdir(), 'cursus-verrou-'));
   const file = join(dir, 'cursus.db');
   const env = { ...process.env, CURSUS_DB: file, CURSUS_API_PORT: '0', CURSUS_HOST: '127.0.0.1' };
@@ -380,9 +380,9 @@ test('serveur : verrou posé au démarrage, seconde instance refusée, verrou re
     const copie = sauvegarder(file); // copie à chaud, serveur démarré
     assert.throws(() => restaurer(copie.fichier, file), /serveur Cursus semble démarré/);
 
-    const fin = new Promise<NodeJS.Signals | null>(ok => srv.on('exit', (_code, signal) => ok(signal)));
+    const fin = new Promise<{ code: number | null; signal: NodeJS.Signals | null }>(ok => srv.on('exit', (code, signal) => ok({ code, signal })));
     srv.kill('SIGTERM');
-    assert.equal(await fin, 'SIGTERM', 'le signal garde son effet par défaut');
+    assert.deepEqual(await fin, { code: 0, signal: null }, 'arrêt propre (server/src/service.ts), code de sortie 0');
     assert.ok(!existsSync(verrou), 'verrou retiré');
   } finally {
     srv.kill('SIGKILL');

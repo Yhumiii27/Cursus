@@ -14,6 +14,22 @@ input[type='date'].input { color-scheme: dark; }
   --text-70: color-mix(in srgb, var(--color-text) 70%, transparent);
 }
 
+/* — Contrastes : bordure des champs à 45 % du texte, environ 3,7:1 sur la surface (WCAG 1.4.11 : 3:1 au moins ; celle du
+   design system, --color-divider à 16 %, donnait 1,6:1), métadonnées des cartes à 60 % (WCAG 1.4.3 : 4,5:1). Surcharge
+   de nocturne.css (copie du design system, à ne pas modifier) ; --color-divider reste celui des filets décoratifs. Placée
+   avant les états propres à Cursus (cellule en alerte, champ en erreur), qui l'emportent. — */
+:root {
+  --bordure-champ: color-mix(in srgb, var(--color-text) 45%, transparent);
+  --bordure-champ-survol: color-mix(in srgb, var(--color-text) 70%, transparent);
+}
+.input, .seg, .radio .dot { border-color: var(--bordure-champ); }
+.input:hover { border-color: var(--bordure-champ-survol); }
+.input:focus-visible { border-color: var(--color-accent); }
+/* Désactivé : bordure estompée, pour ne pas paraître modifiable (le design system ne le distinguait pas). */
+.input:disabled { border-color: var(--color-divider); cursor: not-allowed; }
+.seg[aria-disabled='true'] { border-color: var(--color-divider); }
+.card-meta { color: color-mix(in srgb, var(--color-text) 60%, transparent); }
+
 .app { min-height: 100vh; display: flex; font-family: var(--font-body); font-size: 15px; line-height: 1.55; color: var(--color-text); background: var(--color-bg); text-wrap: pretty; }
 
 /* — Barre latérale — */
@@ -39,6 +55,13 @@ input[type='date'].input { color-scheme: dark; }
 .nav-item > span:not(.tag) { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .nav-item > svg { flex: none; }
 .nav-badge { flex: none; font-size: 11px; padding: 0 6px; min-width: 18px; justify-content: center; }
+/* Marque et, sur écran étroit, fermeture du tiroir. */
+.side-tete { display: flex; align-items: center; justify-content: space-between; gap: var(--space-3); }
+.sidebar:focus { outline: none; }
+/* Bouton « Menu » de l'en-tête et fermeture du tiroir : écran étroit seulement (layout/Tiroir.tsx). */
+.menu-btn, .fermer-tiroir { display: none; }
+.menu-btn { flex: none; color: var(--color-text); padding-inline: var(--space-2); margin-left: calc(-1 * var(--space-2)); }
+.fermer-tiroir { color: inherit; flex: none; }
 .side-user { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-3) var(--space-2) 0; background: var(--rule) no-repeat top / 100% 1px; }
 .side-user .who { min-width: 0; flex: 1; }
 .side-user .who > div { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -57,6 +80,13 @@ input[type='date'].input { color-scheme: dark; }
 .search { position: relative; display: block; width: 240px; }
 .search svg { position: absolute; left: 10px; top: 50%; transform: translateY(-50%); opacity: 0.55; pointer-events: none; }
 .search .input { padding-left: 32px; }
+/* Lien « Aller au contenu » : premier arrêt de Tab, hors de l'écran tant qu'il n'a pas le focus. */
+.lien-evitement {
+  position: fixed; top: var(--space-3); left: var(--space-3); z-index: 40; padding: var(--space-2) var(--space-4);
+  border-radius: var(--radius-md); background: var(--color-surface); box-shadow: var(--shadow-lg); font-size: 14px;
+}
+.lien-evitement:not(:focus) { width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; box-shadow: none; }
+.content:focus { outline: none; }
 .content {
   flex: 1; width: 100%; max-width: 1480px; padding: calc(var(--space-8) * 1.25) calc(var(--space-8) * 1.25) calc(var(--space-8) * 2);
   display: flex; flex-direction: column; gap: var(--space-6);
@@ -109,6 +139,16 @@ input[type='date'].input { color-scheme: dark; }
 .btn-sm { font-size: 13px; white-space: nowrap; }
 .btn-icon.plain { color: inherit; width: 32px; height: 32px; }
 tr.clickable, .clickable { cursor: pointer; }
+/* Bouton d'ouverture d'une ligne cliquable (components/Cliquable.tsx) : le nom, sans habillage, focalisable au clavier. */
+.ouvrir {
+  background: none; border: 0; padding: 0; margin: 0; font: inherit; color: inherit; letter-spacing: inherit; text-align: inherit;
+  cursor: pointer; max-width: 100%; border-radius: var(--radius-sm);
+}
+.ouvrir:hover { text-decoration: underline; text-underline-offset: 3px; text-decoration-color: var(--bordure-champ); }
+.ouvrir:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
+.ellipsis > .ouvrir { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; vertical-align: bottom; }
+/* Ligne dont le bouton a le focus du clavier : repérée comme au survol. */
+.clickable:has(> td .ouvrir:focus-visible), .list-row.clickable:has(.ouvrir:focus-visible) { background-color: color-mix(in srgb, var(--color-text) 5%, transparent); }
 tr.selected { background: color-mix(in srgb, var(--color-accent) 10%, transparent); }
 
 /* Lignes de liste avec filet estompé */
@@ -136,6 +176,7 @@ tr.selected { background: color-mix(in srgb, var(--color-accent) 10%, transparen
 .cards-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(280px, 1fr)); gap: var(--space-4); }
 .card.pick { cursor: pointer; padding: var(--space-6); gap: var(--space-2); }
 .card.pick.selected { box-shadow: 0 0 0 1px var(--color-accent); }
+.card.pick:focus-visible { outline: 2px solid var(--color-accent); outline-offset: 2px; }
 .card .card-body.dim { opacity: 1; color: var(--color-neutral-400); }
 .stat-trio { display: flex; gap: var(--space-8); margin-top: var(--space-2); }
 .stat-trio .v { font-family: var(--font-heading); font-weight: var(--font-heading-weight); font-size: 20px; line-height: 1.1; font-feature-settings: 'tnum' 1; }
@@ -239,20 +280,77 @@ textarea.input.mid { height: auto; min-height: 72px; }
   .dialog-backdrop { padding: var(--space-4) var(--space-3); }
   .grid-2 { grid-template-columns: minmax(0, 1fr); }
   .dialog-actions > .btn { flex: 1 1 auto; }
+  /* Contrôles segmentés : les options passent à la ligne (4 options débordaient à 360 px), chacune avec sa bordure. */
+  .seg { flex-wrap: wrap; overflow: visible; border: 0; gap: var(--space-1); }
+  .seg-opt, .seg-opt + .seg-opt { flex: 1 1 auto; justify-content: center; border: 1px solid var(--bordure-champ); border-radius: var(--radius-md); }
+  .seg[aria-disabled='true'] .seg-opt { border-color: var(--color-divider); }
+  /* Fil d'Ariane réduit à la page, sur la ligne du bouton « Menu ». */
+  .crumb > :not(.here) { display: none; }
 }
 
 /* — Écrans étroits — */
 @media (max-width: 900px) {
   .app { flex-direction: column; }
-  .sidebar { width: 100%; height: auto; position: static; }
+  /* Barre latérale rangée hors de l'écran, ouverte en tiroir par le bouton « Menu » (layout/Tiroir.tsx). */
+  .sidebar {
+    position: fixed; top: 0; bottom: 0; left: 0; z-index: 15; width: min(320px, 86vw); height: auto; overscroll-behavior: contain;
+    transform: translateX(-100%); visibility: hidden; transition: transform 0.2s ease, visibility 0s linear 0.2s;
+  }
+  .sidebar.ouvert { transform: none; visibility: visible; transition: transform 0.2s ease; box-shadow: var(--shadow-lg); }
+  .tiroir-fond { position: fixed; inset: 0; z-index: 14; background: color-mix(in srgb, var(--color-neutral-900) 60%, transparent); }
+  .menu-btn, .fermer-tiroir { display: inline-flex; }
+  .topbar { flex-wrap: wrap; gap: var(--space-2) var(--space-4); }
   .topbar, .content { padding-left: 16px; padding-right: 16px; }
   .search { width: 100%; }
   .side-panel { position: static; max-height: none; flex-basis: 100%; }
 }
 
+/* — Écrans tactiles (téléphone, tablette) : champs en 16 px, sans quoi iOS agrandit la page à chaque saisie, et cibles de
+   44 px au moins (boutons, icônes, options, entrées du menu, fermeture des notifications). — */
+@media (pointer: coarse) {
+  .input { font-size: 16px; min-height: 44px; }
+  .btn, .seg-opt, .nav-item, .jour-btn { min-height: 44px; }
+  /* min-* l'emportent sur la taille donnée au bouton (style en ligne d'une icône, croix d'une ligne d'heures). */
+  .btn-icon { min-width: 44px; min-height: 44px; }
+  .toast .toast-fermer { width: 44px; height: 44px; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .sidebar, .sidebar.ouvert { transition: none; }
+}
+html.tiroir-ouvert { overflow: hidden; }
+
+/* — Saisie des heures jour par jour (téléphone, tablette : pages/SaisieJour.tsx) — */
+.saisie-jour { display: flex; flex-direction: column; gap: var(--space-4); }
+.jours-semaine { display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); gap: var(--space-1); }
+.jour-btn {
+  display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 2px; padding: var(--space-2) var(--space-1);
+  border: 1px solid var(--bordure-champ); border-radius: var(--radius-md); background: transparent; color: var(--color-text);
+  font-size: 13px; line-height: 1.2; cursor: pointer;
+}
+.jour-btn:hover { background: color-mix(in srgb, var(--color-text) 7%, transparent); }
+.jour-btn[aria-pressed='true'] { color: var(--color-accent-200); border-color: var(--color-accent); background: color-mix(in srgb, var(--color-accent) 16%, transparent); }
+.jour-total { font-size: 12px; color: var(--text-70); }
+.jour-total.signale { color: var(--color-accent-300); }
+.jour-btn[aria-pressed='true'] .jour-total { color: inherit; }
+.jour-detail { display: flex; flex-direction: column; gap: var(--space-2); }
+.jour-tete { display: flex; align-items: baseline; justify-content: space-between; gap: var(--space-3); flex-wrap: wrap; }
+.jour-tete h3 { font-size: 15px; margin: 0; }
+.jour-ligne { display: flex; align-items: center; gap: var(--space-3); padding: var(--space-2) 0; background: var(--rule-soft) no-repeat bottom / 100% 1px; font-size: 14px; }
+.jour-ligne .grow { min-width: 0; flex: 1; }
+.input.champ-jour { flex: none; width: 88px; min-height: 44px; font-size: 16px; text-align: right; }
+.jour-totaux { display: flex; justify-content: space-between; gap: var(--space-3); font-size: 14px; }
+.jour-totaux:last-child { font-weight: 500; }
+
+/* — Page Confidentialité — */
+.info-intro { margin: 0; font-size: 14px; }
+.info-points { margin: 0; display: flex; flex-direction: column; gap: var(--space-3); }
+.info-points dt { font-size: 13px; font-weight: 500; }
+.info-points dd { margin: 2px 0 0; font-size: 14px; color: var(--color-neutral-300); }
+.a-completer { color: var(--color-accent-300); }
+
 /* — Impression (passeport formation, comptes rendus) — */
 @media print {
-  .sidebar, .topbar, .no-print, .toasts { display: none !important; }
+  .sidebar, .topbar, .no-print, .toasts, .lien-evitement, .tiroir-fond { display: none !important; }
   .app, html, body { background: #fff; color: #111; }
   .content { padding: 0; max-width: none; }
 }

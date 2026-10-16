@@ -1,11 +1,16 @@
 // Plan & budget : enveloppes par équipe, consommation (réalisé + engagé), plan prévisionnel de formation.
+// Tous les exercices présents en base se consultent ; un exercice clos (shared/rules/exercices.ts) est en lecture seule.
+// Le réalisé compte le coût réel saisi à la clôture de chaque action (PlanRealiserDialog), avec son écart au prévu.
 import { useMemo } from 'react';
-import { UploadSimpleIcon } from '@phosphor-icons/react';
+import { DownloadSimpleIcon, UploadSimpleIcon } from '@phosphor-icons/react';
 import { PLAN_CLS, PLAN_LABEL } from '../../../shared/constants.ts';
-import { fmtEur, plural } from '../../../shared/format.ts';
+import { fmtEur, fmtIso, plural } from '../../../shared/format.ts';
 import { budgetSummary } from '../../../shared/rules/budget.ts';
+import { clotureDe, coutRetenu, exercicesProposes } from '../../../shared/rules/exercices.ts';
 import type { PlanAction, PlanStatut } from '../../../shared/types.ts';
 import { Bar, Btn, Empty, Kpi, Kpis, Page, Panel, Seg, StackBar, Tag, Two } from '../components/ui.tsx';
+import { csvPlan } from '../listes-csv.ts';
+import { downloadCsv } from '../print.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useAgir } from '../state/actions.ts';
 import { useStore } from '../state/store.tsx';
@@ -18,26 +23,38 @@ const parts = (r: number, g: number, p: number, base: number) => [
 
 export function Budget() {
   const d = useDomain();
-  const { ui, setUi, openDialog, run } = useStore();
+  const { ui, setUi, openDialog, run, notify } = useStore();
   // Lecture seule : plan et enveloppes consultés, sans import ni avancement.
-  const { rh } = useRole();
+  const { rh, admin } = useRole();
   const { occupe, agir } = useAgir();
   const year = d.year;
   const ex = ui.exercice ?? year;
   const seuil = d.ds.settings.seuilBudget;
   const b = useMemo(() => budgetSummary(d, ex, seuil), [d, ex, seuil]);
 
-  const exOptions = [...new Set([year, year + 1, ex])].sort((a, z) => a - z).map(y => [y, String(y)] as [number, string]);
+  const exOptions = [...new Set([...exercicesProposes(d.ds, year), ex])].sort((a, z) => a - z).map(y => [y, String(y)] as [number, string]);
+  // Exercice clos : ni enveloppes, ni import, ni avancement.
+  const clos = clotureDe(d.ds, ex);
+  const modifiable = rh && !clos;
   const count = (st: PlanStatut) => b.planEx.filter(l => l.statut === st).length;
+  const ecart = (n: number) => `${n > 0 ? '+' : '−'}${fmtEur(Math.abs(n))}`;
   const qMax = Math.max(1, ...b.quarters.map(q => q.r + q.g + q.p));
   const planRows = b.planEx
     .filter(l => ui.planFilter === 'tous' || l.statut === ui.planFilter)
     .sort((a, z) => a.periode.localeCompare(z.periode) || a.equipe.localeCompare(z.equipe));
 
   const openImport = () => openDialog({ type: 'planImport', exercice: ex });
+  // Plan de l'exercice affiché, avec le filtre de statut.
+  const exporter = () => {
+    const x = csvPlan(d, ex, planRows);
+    downloadCsv(x.fichier, x.head, x.rows);
+    notify(`Export CSV généré — ${plural(planRows.length, 'action', 'actions')}`);
+  };
   // Le statut affiché accompagne la demande : un second clic n'avance pas l'action d'un cran de plus.
+  // Clôturer une action engagée : coût et effectif réels demandés (PlanRealiserDialog).
   const act = (l: PlanAction) => {
     if (l.statut === 'prevu' && l.f) openDialog({ type: 'session', f: l.f, planId: l.id, places: l.effectif });
+    else if (l.statut === 'engage') openDialog({ type: 'planRealiser', id: l.id });
     else return run('plan.avancer', { id: l.id, de: l.statut });
   };
 
@@ -46,17 +63,19 @@ export function Budget() {
       kicker={`Exercice ${ex} · ${plural(b.planEx.length, 'action', 'actions')} · ${fmtEur(b.envTotal)} d’enveloppe`}
       title="Plan & budget"
       actions={<>
-        <Seg name="exercice" label="Exercice" value={ex} onChange={v => setUi({ exercice: v, planFilter: 'tous' })} options={exOptions} />
-        {rh && <>
+        <Seg name="exercice" label="Exercice" value={ex} onChange={v => setUi({ exercice: v, planFilter: 'tous' })} options={exOptions} style={{ flexWrap: 'wrap' }} />
+        {modifiable && <>
           <Btn onClick={() => openDialog({ type: 'budget', exercice: ex })}>Enveloppes</Btn>
           <Btn variant="secondary" icon={<UploadSimpleIcon size={14} />} onClick={openImport}>Importer un plan</Btn>
         </>}
+        {admin && !clos && ex < year && <Btn onClick={() => openDialog({ type: 'exerciceCloture', exercice: ex })}>Clôturer l’exercice</Btn>}
       </>}
+      note={clos ? `Exercice clos le ${fmtIso(clos.le)} par ${clos.par} : plan et enveloppes en lecture seule.` : undefined}
     >
       <Kpis>
         <Kpi kicker="Enveloppe annuelle" value={fmtEur(b.envTotal)} sub={`${d.equipes.length} équipes · ${plural(b.planEx.length, 'action au plan', 'actions au plan')}`} />
         <Kpi kicker="Réalisé" value={fmtEur(b.realise)}
-          sub={`${b.envTotal ? Math.round(b.realise / b.envTotal * 100) : 0} % de l’enveloppe · ${plural(count('realise'), 'action réalisée', 'actions réalisées')}`} />
+          sub={`${b.envTotal ? Math.round(b.realise / b.envTotal * 100) : 0} % de l’enveloppe · ${plural(count('realise'), 'action réalisée', 'actions réalisées')}${b.ecart ? ` · ${ecart(b.ecart)} par rapport au prévu` : ''}`} />
         <Kpi kicker="Engagé" value={fmtEur(b.engage)} sub={`${plural(count('engage'), 'session commandée', 'sessions commandées')} · à réaliser`} />
         <Kpi kicker="Disponible" value={fmtEur(b.dispo)} sub={b.dispo < 0 ? 'enveloppe dépassée' : `dont ${fmtEur(b.prevu)} déjà prévus au plan`} />
       </Kpis>
@@ -119,8 +138,11 @@ export function Budget() {
       <Panel head={
         <div className="panel-head center">
           <h2>Plan prévisionnel {ex}</h2>
-          <Seg name="planFilter" label="Statut du plan" value={ui.planFilter} onChange={v => setUi({ planFilter: v })}
-            options={[['tous', 'Tout'], ['prevu', 'Prévu'], ['engage', 'Engagé'], ['realise', 'Réalisé']]} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+            <Seg name="planFilter" label="Statut du plan" value={ui.planFilter} onChange={v => setUi({ planFilter: v })}
+              options={[['tous', 'Tout'], ['prevu', 'Prévu'], ['engage', 'Engagé'], ['realise', 'Réalisé'], ...(count('reporte') ? [['reporte', 'Reporté'] as ['reporte', string]] : [])]} />
+            {planRows.length > 0 && <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exporter}>Exporter (CSV)</Btn>}
+          </div>
         </div>
       }>
         {b.planEx.length > 0 && planRows.length > 0 && (
@@ -135,14 +157,21 @@ export function Budget() {
                       <td><Two main={fm ? fm.nom : l.libelle} sub={fm ? `${fm.type} · ${fm.organisme}` : 'Hors catalogue'} /></td>
                       <td className="text-muted nowrap">{l.equipe}</td>
                       <td>{l.periode}</td>
-                      <td className="tnum">{l.effectif}</td>
+                      <td className="tnum">{l.statut === 'realise' && l.effectifReel != null ? l.effectifReel : l.effectif}</td>
                       <td>
-                        <div className="tnum nowrap">{fmtEur(l.cout)}</div>
-                        {l.effectif > 0 && <div className="text-muted sub nowrap">{fmtEur(l.cout / l.effectif)} / pers.</div>}
+                        <div className="tnum nowrap">{fmtEur(coutRetenu(l))}</div>
+                        {/* Réalisée : coût réel, avec le prévu s'il diffère ; sinon coût par personne. */}
+                        {l.statut === 'realise' && l.coutReel != null && l.coutReel !== l.cout
+                          ? <div className="text-muted sub nowrap">prévu {fmtEur(l.cout)} · {ecart(l.coutReel - l.cout)}</div>
+                          : l.effectif > 0 && <div className="text-muted sub nowrap">{fmtEur(l.cout / l.effectif)} / pers.</div>}
                       </td>
-                      <td><Tag cls={PLAN_CLS[l.statut]}>{PLAN_LABEL[l.statut]}</Tag></td>
+                      <td>
+                        <Tag cls={PLAN_CLS[l.statut]}>{PLAN_LABEL[l.statut]}</Tag>
+                        {l.statut === 'reporte' && <div className="text-muted sub nowrap">sur {l.exercice + 1}</div>}
+                        {l.origine === 'report' && <div className="text-muted sub nowrap">reporté de {l.exercice - 1}</div>}
+                      </td>
                       <td className="right">
-                        {rh && l.statut !== 'realise' && (
+                        {modifiable && (l.statut === 'prevu' || l.statut === 'engage') && (
                           <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={agir(() => act(l))}>
                             {l.statut === 'prevu' ? (fm ? 'Planifier la session' : 'Engager') : 'Clôturer'}
                           </button>
@@ -159,10 +188,12 @@ export function Budget() {
         {b.planEx.length === 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', gap: 'var(--space-3)', padding: 'var(--space-6) 0' }}>
             <p style={{ fontSize: 15, margin: 0 }}>Aucun plan pour cet exercice.</p>
-            <p className="text-muted" style={{ fontSize: 13, margin: 0, maxWidth: '56ch' }}>
-              Importez le plan prévisionnel (CSV exporté de votre tableur) : chaque ligne devient une action « Prévue », rattachée à une équipe et à un trimestre, et vient alimenter les enveloppes ci-dessus.
-            </p>
-            {rh && <Btn variant="primary" onClick={openImport}>Importer un plan</Btn>}
+            {!clos && (
+              <p className="text-muted" style={{ fontSize: 13, margin: 0, maxWidth: '56ch' }}>
+                Importez le plan prévisionnel (CSV exporté de votre tableur) : chaque ligne devient une action « Prévue », rattachée à une équipe et à un trimestre, et vient alimenter les enveloppes ci-dessus.
+              </p>
+            )}
+            {modifiable && <Btn variant="primary" onClick={openImport}>Importer un plan</Btn>}
           </div>
         )}
       </Panel>

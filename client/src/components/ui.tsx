@@ -9,7 +9,8 @@ export function Page({ kicker, title, actions, note, tight, children }: { kicker
       <header className="page-head">
         <div>
           {kicker != null && <div className="kicker">{kicker}</div>}
-          <h1>{title}</h1>
+          {/* Ciblable : reçoit le focus après un changement de page (layout/navigation.ts). */}
+          <h1 tabIndex={-1}>{title}</h1>
         </div>
         {actions && <div className="head-actions">{actions}</div>}
         {note && <p className="text-muted head-note">{note}</p>}

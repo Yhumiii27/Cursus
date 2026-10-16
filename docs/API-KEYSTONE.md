@@ -19,7 +19,7 @@ Contrat formel : spécification OpenAPI 3.1 `docs/keystone-openapi.json`, servie
 | Authentification | en-tête `X-Api-Key: <clé>` sur chaque appel |
 | Format | JSON en UTF-8, en-tête `Content-Type: application/json` pour `PUT` et `POST` ; 2 Mo au plus par appel |
 | Dates | `AAAA-MM-JJ`, date existante (`2026-02-31` est refusée) |
-| Salariés | matricule Cursus (`EMP-0018`), jamais de nom |
+| Salariés | matricule Cursus (`EMP-0018`) par défaut, ou matricule de paie après la bascule annoncée ; jamais de nom |
 | Objets | identifiant Keystone dans l'URL : renvoyer le même objet ne crée pas de doublon |
 
 Dans les exemples, `$CURSUS` vaut `https://cursus.example.fr/api/integrations/keystone/v1` et
@@ -48,10 +48,15 @@ Le corps d'un appel n'est lu qu'une fois la clé vérifiée.
 - **Identifiants Keystone** (chantier, projet, affectation, tâche, référence de demande) : 1 à 64
   caractères, lettres, chiffres, `.`, `_`, `:` ou `-`, commençant par une lettre ou un chiffre.
   Ils sont stables : Cursus les utilise pour reconnaître un objet déjà reçu.
-- **Matricule** : identifie le salarié dans Cursus. Il vaut aujourd'hui `EMP-` suivi de quatre
-  chiffres, dérivé de la fiche Cursus. Il deviendra le matricule de paie (chantier distinct dans
-  Cursus) : les routes et la forme des messages ne changeront pas, seules les valeurs ; Cursus
-  préviendra avant la bascule. Un matricule inconnu de Cursus est refusé (`400`).
+- **Matricule** : identifie le salarié dans Cursus. Par défaut, le matricule Cursus : `EMP-` suivi de
+  quatre chiffres, dérivé de la fiche Cursus (contrat de l'API v1, inchangé). Cursus enregistre aussi
+  le matricule de paie de chaque salarié (1 à 20 lettres et chiffres, sans tiret) ; un réglage de
+  Cursus (Paramètres → Matricules de paie, « Identifiant envoyé à Keystone ») peut basculer sur lui.
+  La bascule vaut dans les deux sens : messages envoyés par Cursus, réponses et appels reçus ; les
+  routes et la forme des messages ne changent pas, seules les valeurs. Cursus prévient avant la
+  bascule ; un salarié sans matricule de paie garde alors son matricule Cursus (les deux formes ne se
+  confondent jamais : un matricule de paie n'a pas de tiret). Un matricule inconnu de Cursus est
+  refusé (`400`), y compris l'ancien matricule Cursus d'un salarié une fois la bascule faite.
 - **Dates** : `AAAA-MM-JJ`. Une période (`debut` → `fin`, `du` → `au`, `depart` → `retour`) se
   termine le jour même au plus tôt.
 
@@ -82,7 +87,11 @@ instantané chaque nuit pour rattraper un envoi perdu (voir « Synchronisation c
 
 `GET /referentiels` donne les codes admis : habilitations et certifications exigibles d'un chantier,
 destinations des déplacements (pays dont Cursus connaît les formalités de voyage). Ces référentiels
-sont tenus dans Cursus.
+sont tenus dans Cursus (écran Référentiels), qui archive un élément au lieu de le supprimer : `archive`
+porte alors la date d'archivage (`null` pour un élément en vigueur). Un code archivé reste reçu (exigences
+d'un chantier, demandes de déplacement, Go / No Go), mais ne doit plus être proposé pour un nouveau chantier :
+le service RH ne délivre ni ne saisit plus de titre pour lui, et les ressources qui n'en ont pas de valide
+resteraient No Go.
 
 ```bash
 curl -s -H "X-Api-Key: $CLE" "$CURSUS/referentiels"
@@ -90,9 +99,9 @@ curl -s -H "X-Api-Key: $CLE" "$CURSUS/referentiels"
 
 ```json
 {
-  "habilitations": [{ "code": "he", "nom": "Habilitation électrique" }, { "code": "atex", "nom": "Habilitation ATEX" }],
-  "certifications": [{ "code": "sst", "nom": "Sauveteur secouriste du travail (SST)" }],
-  "destinations": [{ "code": "MA", "pays": "Maroc" }, { "code": "CI", "pays": "Côte d’Ivoire" }]
+  "habilitations": [{ "code": "he", "nom": "Habilitation électrique", "archive": null }, { "code": "atex", "nom": "Habilitation ATEX", "archive": null }],
+  "certifications": [{ "code": "sst", "nom": "Sauveteur secouriste du travail (SST)", "archive": null }],
+  "destinations": [{ "code": "MA", "pays": "Maroc", "archive": null }, { "code": "VN", "pays": "Vietnam", "archive": "2026-10-10" }]
 }
 ```
 
@@ -308,7 +317,7 @@ curl -s -H "X-Api-Key: $CLE" "$CURSUS/chantiers/K-2614/go-no-go"
 | `CERTIFICATION` | certification exigée absente ou expirée (réserve si un recyclage est planifié avant le démarrage, ou si elle expire pendant le chantier) |
 | `DEPLACEMENT` | chantier hors de France sans déplacement validé (demande en attente ou déplacement à créer) |
 | `FORMALITES_VOYAGE` | passeport, visa ou vaccination à régulariser (réserve), ou hors délai (No Go) |
-| `CONTRAT` | contrat (CDD, mission d'intérim, alternance) qui se termine avant la fin de la présence, ou qui commence après son début (No Go) |
+| `CONTRAT` | contrat (CDD, mission d'intérim, alternance) qui se termine avant la fin de la présence, ou qui commence après son début (No Go) ; ou sortie de l'entreprise enregistrée, CDI compris (le salarié reste évalué sur les chantiers où il est affecté) ; ou situation contractuelle à régulariser au jour de l'évaluation (No Go ; libellé du partage détaillé : « Situation contractuelle à régulariser », sans autre précision) |
 | `ABSENCE` | absence validée ou signalée pendant la présence (No Go), demande d'absence en attente (réserve) ; jamais la nature de l'absence, même dans le libellé |
 | `DEPLACEMENT_PARTIEL` | déplacement qui ne couvre pas toute la présence : départ après le premier jour ou retour avant le dernier (réserve) |
 | `DETACHEMENT` | formalités de détachement à faire avant le départ (réserve, même dans les derniers jours) — certificat de sécurité sociale (A1 en Europe, formulaire de la convention bilatérale ailleurs, maintien au régime français sans convention) et, pour une mission de plus de 4 semaines, information écrite du salarié —, ou non faites au départ (No Go, à partir du jour du départ) |
@@ -524,13 +533,41 @@ RTT, maladie…) n'est jamais transmise : seule l'indisponibilité compte pour l
 { "absence": 31, "matricule": "EMP-0018", "du": "2026-12-14", "au": "2026-12-18" }
 ```
 
+### `deplacement.modifie` et `deplacement.annule`
+
+Le service RH modifie (dates) ou annule un déplacement créé par l'acceptation d'une demande Keystone
+(écran Voyages). La destination et le motif d'un tel déplacement sont ceux du chantier : seules ses
+dates se modifient. L'annulation exige un motif, conservé dans Cursus (service RH) et jamais transmis.
+Un déplacement annulé reste dans l'historique de Cursus mais ne compte plus dans le Go / No Go : le
+nouveau verdict suit dans un événement `verdict.modifie` distinct. Les déplacements créés dans Cursus
+ou importés du formulaire de demande ne produisent pas d'événement.
+
+| Champ | Type | Contenu |
+| --- | --- | --- |
+| `deplacement` | entier | identifiant Cursus du déplacement, repris par chaque événement qui le concerne |
+| `demande` | entier ou `null` | identifiant Cursus de la demande acceptée (`demande` de `demande.decision`) |
+| `reference` | identifiant ou `null` | référence Keystone de la demande |
+| `matricule` | matricule | |
+| `chantier` | identifiant | |
+| `destination` | code pays | celui du chantier |
+| `depart`, `retour` | dates | dates du déplacement après la modification ; pour l'annulation, celles du déplacement annulé |
+| `date` | date | jour de la modification ou de l'annulation |
+
+```json
+{ "deplacement": 12, "demande": 7, "reference": "DK-2026-0412", "matricule": "EMP-0018", "chantier": "K-2611", "destination": "MA", "depart": "2026-11-02", "retour": "2026-11-20", "date": "2026-10-14" }
+```
+
+Ces deux types s'ajoutent à ceux de la version 1 sans la changer : un Keystone qui ne les connaît pas
+les accepte et les ignore (voir « Enveloppe »). Une annulation est définitive ; la demande garde son
+statut `acceptee` dans `GET /demandes/{reference}`.
+
 ### `verdict.modifie`
 
 Le verdict Go / No Go d'une ressource change : statut ou codes de motif. Cursus mémorise le dernier
 verdict transmis par chantier et par ressource et le recalcule après chaque action qui peut le changer
 (habilitation suspendue, levée, retirée ou délivrée, certification enregistrée, recyclage planifié,
-déplacement créé, formalités de voyage ou de détachement mises à jour, absence posée, validée, prolongée
-ou annulée, fin de contrat modifiée…), après chaque écriture de Keystone (affectation,
+déplacement créé, modifié ou annulé, formalités de voyage ou de détachement mises à jour, absence
+posée, validée, prolongée ou annulée, fin de contrat modifiée…), après chaque écriture de Keystone (affectation,
 exigences ou dates d'un chantier, instantané) et chaque jour (expirations, délais des formalités). Une
 nouvelle ressource reçoit aussi son premier verdict (`precedent: null`), comme chaque ressource des
 chantiers en cours ou à venir à la mise en service des envois : les verdicts calculés tant que Cursus

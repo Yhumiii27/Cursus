@@ -15,13 +15,20 @@ import express, { type Request, type Response, type Router } from 'express';
 import { ESPACE_LABEL, NATURES_ABSENCE, TS_LABEL, VACCINS } from '../../shared/constants.ts';
 import { addD, isValidDate } from '../../shared/dates.ts';
 import { Domain } from '../../shared/domain.ts';
-import { fmtIso, matricule, num, plural } from '../../shared/format.ts';
+import { fmtIso, num, plural } from '../../shared/format.ts';
+import { erreurReference } from '../../shared/rules/lots-paie.ts';
+import { matriculeAffiche } from '../../shared/rules/matricules.ts';
+import { estTypeTitre } from '../../shared/rules/contrats.ts';
 import {
   ACTION_APPEL_KEYSTONE, ACTIONS_CONNEXION, ACTIONS_PAIE, changementsTexte, CONSERVATION_ARCHIVE_PAIE_MOIS, CONSERVATION_ENVOIS_MOIS,
   CONSERVATION_JOURNAL_MOIS, dossierComplet, estActionPaie, familleAction, FAMILLES_JOURNAL, JOURNAL_LABEL, lecteurJournal, libelleAction,
 } from '../../shared/journal.ts';
-import type { CurrentUser, FeuilleTemps, LigneTemps } from '../../shared/types.ts';
+import { CODE_PAYS, CODE_TITRE, codeDestination, codeTitre, type ReferentielId } from '../../shared/rules/referentiels.ts';
+import { estTypeReprise } from '../../shared/rules/reprise.ts';
+import type { ClotureConges, CurrentUser, FeuilleTemps, LigneTemps } from '../../shared/types.ts';
+import type { ContactsConfidentialite } from '../../shared/confidentialite.ts';
 import { journaliser, type Compte } from './comptes.ts';
+import { lireConfidentialite } from './confidentialite.ts';
 import { identite, type Identite } from './connexion.ts';
 import { loadFull, scopeIds } from './dataset.ts';
 import type { Db, TableName } from './db.ts';
@@ -40,6 +47,11 @@ interface Cible {
   /** Colonnes dont les anciennes et nouvelles valeurs sont tracées. `aplatir` : objet JSON comparé clé par clé. */
   colonnes: readonly string[];
   aplatir?: boolean;
+  /**
+   * Champs de texte libre, comparés mais jamais recopiés : seul le fait qu'ils soient renseignés est tracé
+   * (MENTION_TEXTE), par exemple la référence de l'accord des heures supplémentaires dans les réglages.
+   */
+  masques?: readonly string[];
 }
 
 /** Ce que la règle sait de l'action : ligne visée avant et après, état lu avant l'action (`etat`), résultat. */
@@ -72,7 +84,33 @@ interface Regle {
 }
 
 const parId = (table: TableName, colonnes: readonly string[]): Cible => ({ table, cle: p => Number(p.id) || null, colonnes });
-const FICHE = ['nom', 'poste', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis', 'entree', 'fin', 'agence'];
+/**
+ * Élément d'un référentiel, désigné par `id` (modification, archivage) ou `code` (création) et normalisé comme l'action :
+ * son code, recopié seulement s'il en a la forme (jamais un texte libre), et ses colonnes avant et après. `archiver` :
+ * archivage, ou rétablissement (`retablir`), sans recopier la valeur reçue.
+ */
+function referentiel(table: ReferentielId, colonnes: readonly string[], archiver = false): Partial<Regle> {
+  const [normaliser, motif] = table === 'destinations' ? [codeDestination, CODE_PAYS] : [codeTitre, CODE_TITRE];
+  const code = (p: P) => {
+    const c = normaliser(p.id != null && p.id !== '' ? p.id : p.code);
+    return motif.test(c) ? c : null;
+  };
+  return { extra: p => ({ code: code(p), ...(archiver ? { retablir: p.archive === false } : {}) }), cible: { table, cle: code, colonnes } };
+}
+/** Salariés dont un titre change de statut avec la règle modifiée (résultat de l'action). */
+const salariesTouches = (x: Contexte) => (x.result as { salaries?: unknown[] } | null | undefined)?.salaries ?? [];
+/** Référentiel désigné (`referentiel.charger`), seulement s'il en est un : jamais la valeur reçue telle quelle. */
+const referentielRecu = (p: P): ReferentielId | null => (['formations', 'habilitations', 'destinations'].includes(p.referentiel) ? p.referentiel : null);
+const nombreReferentiel = (db: Db, p: P) => { const r = referentielRecu(p); return r ? db.count(r) : 0; };
+const FICHE = [
+  'nom', 'poste', 'posteId', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis', 'entree', 'fin',
+  'motifSortie', 'essaiFin', 'essaiRenouveleJusquau', 'agence', 'matriculePaie',
+];
+/**
+ * Solde de RTT de l'année affiché avant un changement de régime qui n'en ouvre plus (garde-fou de `employe.modifier`) :
+ * gardé au journal pour la paie, sous un code de l'archive paie (`employe.rtt`).
+ */
+const soldeRttGarde = (x: Contexte) => (x.result as { soldeRtt?: Ligne } | null)?.soldeRtt ?? null;
 const FEUILLE: Cible = {
   table: 'feuilles', colonnes: ['statut'],
   cle: (p, db) => (db.sql.prepare('SELECT id FROM feuilles WHERE emp_id = ? AND week = ?').get(Number(p.empId) || 0, String(p.week ?? '')) as { id: number } | undefined)?.id ?? null,
@@ -102,16 +140,63 @@ const statutEtTotal: Partial<Regle> = { cible: FEUILLE, bilan: (_p, x) => ({ heu
 /** Inscrits avant et après l'action : une annulation ou des places retirées détachent des recyclages rattachés. */
 const inscritsAvantApres: Partial<Regle> = { etat: (db, p) => inscrits(db, p.id), salaries: (p, x) => [...(x.etat as number[]), ...inscrits(x.db, p.id)] };
 
+/** Lot de paie renvoyé par l'action (`paie.lot…`, `temps.pushSage`) : son numéro et ses feuilles `{ empId, week }`. */
+const lotDuResultat = (x: Contexte) => x.result as { lot?: number; feuilles?: { empId: number; week: string }[] } | null | undefined;
+const lotRetenu = (x: Contexte) => ({ lot: lotDuResultat(x)?.lot ?? null, feuilles: lotDuResultat(x)?.feuilles ?? [] });
+const salariesDuLot = (x: Contexte) => (lotDuResultat(x)?.feuilles ?? []).map(f => f.empId);
 /** Feuilles transmises à la paie : validées et non transmises avant l'action, marquées transmises après. */
 const transmises = (x: Contexte) => (x.etat as number[]).map(id => x.db.get<FeuilleTemps>('feuilles', id)).filter((f): f is FeuilleTemps => !!f?.sage);
+/** Lignes de clôture des congés créées par l'action (identifiants au-delà du dernier d'avant l'action). */
+const cloturees = (x: Contexte) => (x.db.sql.prepare('SELECT id FROM clotures WHERE id > ? ORDER BY id').all(Number(x.etat) || 0) as { id: number }[])
+  .map(r => x.db.get<ClotureConges>('clotures', r.id)!);
+/**
+ * Jours rendus à une période de CP close par un refus ou une annulation : reports reçus créés par l'action (identifiants
+ * au-delà du dernier d'avant), tracés par leurs jours, période et échéance — jamais leur motif.
+ */
+const reportsRendus: Partial<Regle> = {
+  etat: db => Number((db.sql.prepare('SELECT MAX(id) AS n FROM reports').get() as { n: number | null }).n ?? 0),
+  bilan: (_p, x) => {
+    const l = x.db.sql.prepare('SELECT id, jours, periode, expire FROM reports WHERE id > ? ORDER BY id').all(Number(x.etat) || 0) as Ligne[];
+    return l.length ? { reportsRendus: l.map(r => ({ id: r.id, jours: r.jours, periode: r.periode, expire: r.expire })) } : {};
+  },
+};
 /** Salariés des déplacements créés par un import (identifiants au-delà du dernier d'avant l'action). */
 const importes = (x: Contexte) => (x.db.sql.prepare('SELECT emp_id AS e FROM voyages WHERE id > ? ORDER BY id').all(Number(x.etat) || 0) as { e: number }[]).map(r => r.e);
 
 export const REGLES: Record<string, Regle> = {
   // Fiches et équipes
-  'employe.creer': { champs: ['equipe', 'poste', 'statut', 'typeContrat', 'temps', 'entree', 'fin'], salaries: (_p, x) => [(x.result as { id?: number } | null)?.id] },
+  // Réembauche : réutilisation d'un matricule de paie confirmée par l'administrateur RH (`reutiliserMatricule`).
+  'employe.creer': {
+    champs: ['equipe', 'poste', 'statut', 'typeContrat', 'temps', 'entree', 'fin', 'motifSortie', 'essaiFin', 'essaiRenouveleJusquau', 'matriculePaie', 'reutiliserMatricule'], salaries: (_p, x) => [(x.result as { id?: number } | null)?.id],
+    // Poste du référentiel retenu (choisi, rattaché d'après l'intitulé ou créé) : lu sur la fiche créée.
+    bilan: (_p, x) => ({ posteId: x.db.get<{ posteId: number | null }>('employes', Number((x.result as { id?: number } | null)?.id))?.posteId ?? null }),
+  },
   // Les champs modifiés sont nommés ; seules les colonnes de FICHE ont leurs valeurs (ni visite médicale, ni reprise, ni naissance).
-  'employe.modifier': { champs: ['id'], extra: p => ({ champsModifies: Object.keys(p).filter(k => k !== 'id' && /^[A-Za-z]{1,40}$/.test(k)).slice(0, 30) }), cible: parId('employes', FICHE), salaries: p => [p.id] },
+  'employe.modifier': {
+    champs: ['id', 'reutiliserMatricule'], extra: p => ({ champsModifies: Object.keys(p).filter(k => k !== 'id' && k !== 'confirmerRtt' && k !== 'reutiliserMatricule' && /^[A-Za-z]{1,40}$/.test(k)).slice(0, 30) }),
+    cible: parId('employes', FICHE), salaries: p => [p.id],
+    code: (_p, x) => (soldeRttGarde(x) ? 'employe.rtt' : ''),
+    bilan: (_p, x) => { const s = soldeRttGarde(x); return s ? { soldeRtt: { annee: s.annee, droit: s.droit, pris: s.pris, poses: s.poses, solde: s.solde } } : {}; },
+  },
+  // Sortie : date et motif (code de la liste fermée), nombre d'éléments annulés ; jamais le détail d'une absence.
+  'employe.sortie': {
+    champs: ['id', 'date', 'motif'], cible: parId('employes', ['fin', 'motifSortie']), salaries: p => [p.id],
+    bilan: (_p, x) => (x.result as { annulations?: Ligne } | null)?.annulations ?? {},
+  },
+  'employe.annulerSortie': { champs: ['id'], cible: parId('employes', ['fin', 'motifSortie']), salaries: p => [p.id] },
+  // Titre de séjour : type, expiration, demande d'authentification et vérification en préfecture, avant et après ; jamais
+  // le numéro (masqué : seul le fait qu'il change est tracé). Des valeurs reçues, seules celles qui ont la forme d'un code
+  // ou d'une date sont recopiées, et seulement pour un titre requis (sinon l'action les ignore) : jamais de texte libre.
+  'employe.autorisationTravail': {
+    champs: ['id', 'requise'], salaries: p => [p.id],
+    extra: p => (p.requise !== true ? {} : {
+      type: estTypeTitre(p.type) ? p.type : null,
+      expire: p.type !== 'resident_permanent' && isValidDate(p.expire) ? p.expire : null,
+      demandeLe: isValidDate(p.demandeLe) ? p.demandeLe : null,
+      verifieLe: isValidDate(p.verifieLe) ? p.verifieLe : null,
+    }),
+    cible: { ...parId('employes', ['autorisationTravail']), aplatir: true, masques: ['numero'] },
+  },
   'equipe.creer': { champs: ['nom', 'managerId'], salaries: p => [p.managerId] },
   'equipe.renommer': { champs: ['nom', 'nouveau'] },
   'equipe.supprimer': { champs: ['nom'] },
@@ -126,22 +211,59 @@ export const REGLES: Record<string, Regle> = {
   'session.annuler': { champs: ['id'], cible: parId('sessions', ['statut']), ...inscritsAvantApres },
   // Résultats de chaque inscrit (présent, reçu) ; ni la note ni le commentaire de l'évaluation à chaud.
   'session.cloturer': {
+    // Le coût réel saisi n'est pas recopié : il n'est contrôlé que si la clôture réalise une action du plan, dont la trace
+    // (planActions) le porte alors. Sinon ce serait un texte libre.
     champs: ['id'], cible: parId('sessions', ['statut']),
     extra: p => ({ participants: participants(p).map((x: P) => ({ empId: Number(x?.empId) || null, present: !!x?.present, reussi: typeof x?.reussi === 'boolean' ? x.reussi : null })) }),
     salaries: p => participants(p).map((x: P) => x?.empId),
   },
   'plan.importer': { champs: ['exercice', 'mode'] },
-  'plan.avancer': { champs: ['id'], cible: parId('planActions', ['statut']) },
+  'plan.avancer': { champs: ['id'], cible: parId('planActions', ['statut', 'coutReel', 'effectifReel']) },
   'budget.enveloppes': { champs: ['exercice', 'enveloppes'] },
+  // Clôture d'un exercice : actions reportées (identifiants) sur l'exercice suivant.
+  'plan.cloturerExercice': { champs: ['exercice', 'reporter'] },
   // Habilitations : le motif d'une suspension ou d'un retrait (texte libre, parfois médical) n'est pas recopié.
   'hab.delivrer': { champs: ['empId', 'h', 'date', 'par', 'mode'] },
   'hab.suspendre': { champs: ['empId', 'h', 'date'] },
   'hab.lever': { champs: ['empId', 'h'] },
   'hab.retirer': { champs: ['empId', 'h', 'date'] },
+  // Habilitation exigée demandée (titre en attente de délivrance).
+  'hab.demander': { champs: ['empId', 'h'] },
   // Santé au travail : ni le motif de la visite, ni l'avis, ni les restrictions (le message, masqué au lecteur, dit l'avis).
   'medical.demander': { champs: ['empId'] },
   'medical.annuler': { champs: ['id'] },
   'medical.avis': { champs: ['empId', 'date', 'suspendre', 'lever'] },
+  // Référentiels (catalogue, aucune donnée personnelle) : code de l'élément, valeurs avant et après de chaque champ.
+  // Une validité modifiée rattache la ligne aux salariés dont un titre change de statut (le message en nomme).
+  'referentiel.formation.enregistrer': {
+    ...referentiel('formations', ['nom', 'court', 'type', 'validite', 'duree', 'organisme', 'cout', 'validation']), salaries: (_p, x) => salariesTouches(x),
+  },
+  'referentiel.formation.archiver': referentiel('formations', ['archive'], true),
+  'referentiel.habilitation.enregistrer': {
+    ...referentiel('habilitations', ['nom', 'detail', 'prereqs', 'medical', 'validite', 'signataire']), salaries: (_p, x) => salariesTouches(x),
+  },
+  'referentiel.habilitation.archiver': referentiel('habilitations', ['archive'], true),
+  'referentiel.destination.enregistrer': referentiel('destinations', ['pays', 'visa', 'visaSub', 'oblig', 'rec', 'passMois', 'secu']),
+  'referentiel.destination.archiver': referentiel('destinations', ['archive'], true),
+  // Postes et exigences (aucune donnée personnelle) : identifiant du poste, intitulé et codes exigés avant et après ; la
+  // ligne est rattachée aux salariés qui deviennent non conformes (le message en nomme).
+  'referentiel.poste.enregistrer': {
+    extra: p => ({ id: Number(p.id) || null }), cible: parId('postes', ['nom', 'formations', 'habilitations']), salaries: (_p, x) => salariesTouches(x),
+    // Création : le poste créé, lu après l'action.
+    bilan: (p, x) => {
+      if (Number(p.id)) return {};
+      const cree = x.db.get<Ligne>('postes', Number((x.result as { id?: number } | null)?.id));
+      return cree ? { id: cree.id, apres: { nom: cree.nom, formations: cree.formations, habilitations: cree.habilitations } } : {};
+    },
+  },
+  'referentiel.poste.archiver': { extra: p => ({ id: Number(p.id) || null, retablir: p.archive === false }), cible: parId('postes', ['archive']) },
+  'referentiel.equipe.exigences': {
+    champs: ['nom'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['exigences'], aplatir: true }, salaries: (_p, x) => salariesTouches(x),
+  },
+  // Référentiel type : nombre d'éléments ajoutés.
+  'referentiel.charger': {
+    extra: p => ({ referentiel: referentielRecu(p) }), etat: (db, p) => nombreReferentiel(db, p), bilan: (p, x) => ({ ajoutes: nombreReferentiel(x.db, p) - Number(x.etat) }),
+  },
   // Demandes des collaborateurs : ni motif, ni réponse, ni contenu d'une déclaration.
   'demande.formation': { champs: ['empId', 'f', 'sessionId'], salaries: (p, x) => [p.empId ?? x.user.empId] },
   'demande.habilitation': { champs: ['empId', 'h'], salaries: (p, x) => [p.empId ?? x.user.empId] },
@@ -150,6 +272,10 @@ export const REGLES: Record<string, Regle> = {
   // Déplacements : jamais le numéro de passeport ni une vaccination (donnée de santé) ; le motif n'est pas recopié.
   'voyage.creer': { champs: ['empId', 'dest', 'depart', 'retour'] },
   'voyage.detachement': { champs: ['id', 'detachementLe', 'informationLe'], cible: parId('voyages', ['detachementLe', 'informationLe']) },
+  // Modification : destination et dates avant et après (le motif, texte libre, n'est pas recopié) ; annulation : sa date,
+  // et seulement le fait qu'un motif soit renseigné.
+  'voyage.modifier': { champs: ['id'], cible: parId('voyages', ['dest', 'depart', 'retour', 'detachementLe', 'informationLe']) },
+  'voyage.annuler': { champs: ['id'], cible: { ...parId('voyages', ['annuleLe', 'annuleMotif']), masques: ['annuleMotif'] } },
   'formalite.enregistrer': {
     champs: p => p.kind === 'passeport' ? ['empId', 'kind', 'expire'] : p.kind === 'visa' ? ['empId', 'kind', 'dest', 'visaType', 'obtenu', 'expire'] : ['empId', 'kind'],
   },
@@ -183,31 +309,71 @@ export const REGLES: Record<string, Regle> = {
   'temps.submit': { champs: ['empId', 'week'], ...statutEtTotal },
   'temps.validate': { champs: ['empId', 'week'], ...statutEtTotal },
   'temps.reject': { champs: ['empId', 'week'], cible: FEUILLE },
+  // Suivi des feuilles : relance (salarié visé ou tout le périmètre ; semaines relancées, salarié par salarié) et
+  // validation groupée (feuilles validées, nombre de refus ; le message nomme les refus).
+  'temps.relancer': {
+    champs: ['empId'], bilan: (_p, x) => ({ feuilles: (x.result as { feuilles?: unknown[] } | null)?.feuilles ?? [] }),
+    salaries: (_p, x) => ((x.result as { feuilles?: { empId: number }[] } | null)?.feuilles ?? []).map(f => f.empId),
+  },
+  'temps.validerLot': {
+    bilan: (_p, x) => {
+      const r = x.result as { validees?: unknown[]; refus?: unknown[] } | null;
+      return { validees: r?.validees ?? [], refus: r?.refus?.length ?? 0 };
+    },
+    salaries: (_p, x) => ((x.result as { validees?: { empId: number }[] } | null)?.validees ?? []).map(f => f.empId),
+  },
   // Transmission à la paie : semaines transmises, salarié par salarié (archive paie, historique, export de ses données).
   'temps.pushSage': {
     etat: db => db.where<FeuilleTemps>('feuilles', 'statut', 'validee').filter(f => !f.sage).map(f => f.id),
-    bilan: (_p, x) => ({ feuilles: transmises(x).map(f => ({ empId: f.empId, week: f.week })) }), salaries: (_p, x) => transmises(x).map(f => f.empId),
+    bilan: (_p, x) => ({ lot: lotDuResultat(x)?.lot ?? null, feuilles: transmises(x).map(f => ({ empId: f.empId, week: f.week })) }), salaries: (_p, x) => transmises(x).map(f => f.empId),
   },
+  // Correspondance d'une rubrique avec le plan de paie Sage : codes, case « exportée », date de confirmation.
+  'paie.rubrique': {
+    champs: ['code', 'codeSage', 'active', 'confirmer'],
+    cible: { table: 'rubriquesPaie', cle: p => (typeof p.code === 'string' && p.code ? p.code : null), colonnes: ['codeSage', 'active', 'confirmeLe'] },
+  },
+  // Lots de paie : période choisie, numéro du lot, feuilles salarié par salarié ; confirmation de l'import (statut, date,
+  // référence d'import contrôlée : un code) ou annulation ; format du fichier d'import (codes, avant et après).
+  'paie.lotGenerer': { champs: ['periode'], bilan: (_p, x) => lotRetenu(x), salaries: (_p, x) => salariesDuLot(x) },
+  // Référence recopiée seulement si c'est un code valide (une requête refusée a pu porter un texte libre).
+  'paie.lotConfirmer': { champs: p => (erreurReference(String(p.reference ?? '')) ? ['id'] : ['id', 'reference']), cible: parId('lotsPaie', ['statut', 'confirmeLe']), bilan: (_p, x) => lotRetenu(x), salaries: (_p, x) => salariesDuLot(x) },
+  'paie.lotAnnuler': { champs: ['id'], cible: parId('lotsPaie', ['statut', 'annuleLe']), bilan: (_p, x) => lotRetenu(x), salaries: (_p, x) => salariesDuLot(x) },
+  'paie.formatFichier': { cible: { table: 'settings', cle: () => 'formatFichierPaie', colonnes: ['value'], aplatir: true } },
   // Absences : la nature n'est jamais recopiée (son absence trahirait une nature médicale) ; dates et statut seulement.
   'absence.demander': { champs: ['empId', 'kind', 'du', 'au'] },
-  'absence.decider': { champs: ['id', 'ok'], cible: parId('absences', ['statut']) },
+  'absence.decider': { champs: ['id', 'ok'], cible: parId('absences', ['statut']), ...reportsRendus },
   'absence.signaler': { champs: ['empId', 'du', 'au'] },
   'absence.saisir': { champs: ['empId', 'du', 'au', 'justificatif', 'justificatifLe'] },
   'absence.qualifier': { champs: ['id', 'du', 'au', 'justificatif', 'justificatifLe'], cible: parId('absences', ['du', 'au', 'statut', 'justificatif']) },
   'absence.prolonger': { champs: ['id', 'au'], cible: parId('absences', ['au', 'statut']) },
-  'absence.annuler': { champs: ['id'], cible: parId('absences', ['statut']) },
-  'cet.placer': { champs: ['empId', 'kind', 'jours'] },
-  'report.accorder': { champs: ['empId', 'jours'] },
+  'absence.annuler': { champs: ['id'], cible: parId('absences', ['statut']), ...reportsRendus },
+  'cet.placer': { champs: ['empId', 'kind', 'jours', 'annee'] },
+  'report.accorder': { champs: ['empId', 'jours', 'expire'] },
+  // Clôture d'une période de congés : décision de chaque ligne enregistrée (report, perte, solde nul ; jours, échéance),
+  // jamais le motif d'un report imposé (il laisse deviner une absence de santé).
+  'conges.cloturer': {
+    champs: ['type', 'periode'],
+    etat: db => Number((db.sql.prepare('SELECT MAX(id) AS n FROM clotures').get() as { n: number | null }).n ?? 0),
+    bilan: (_p, x) => ({ lignes: cloturees(x).map(c => ({ empId: c.empId, decision: c.decision, solde: c.solde, reportes: c.reportes, perdus: c.perdus, expire: c.expire })) }),
+    salaries: (_p, x) => cloturees(x).map(c => c.empId),
+  },
   // Entretiens : la section rédigée est nommée, jamais son contenu ; une ligne par compte rendu et par demi-heure.
   'entretien.planifier': { champs: ['empId', 'kind', 'date'] },
+  // Annulation : type, date et statut de l'entretien retiré (jamais le compte rendu).
+  'entretien.annuler': { champs: ['id'], cible: parId('entretiens', ['type', 'date', 'statut']) },
   'entretien.modifier': {
     champs: ['id', 'info'], extra: p => (p.section ? { sections: [String(p.section)] } : {}),
     cible: { table: 'entretiens', cle: p => Number(p.id) || null, colonnes: [] }, regrouper: 30,
   },
   'entretien.clore': { champs: ['id'], cible: parId('entretiens', ['statut', 'signMgr']) },
   'entretien.signer': { champs: ['id'], cible: parId('entretiens', ['signSal']) },
+  // Remise du compte rendu (mode, jour) ; premier téléchargement par le salarié, tracé une fois.
+  // La date envoyée n'est pas recopiée (ignorée en mode portail, donc non contrôlée) : remiseLe, avant et après, la trace.
+  'entretien.remettre': { champs: ['id', 'mode'], cible: parId('entretiens', ['remiseLe', 'remiseMode']) },
+  'entretien.telecharger': { champs: ['id'], cible: parId('entretiens', ['telechargeLe']), tracer: (_p, x) => !x.avant?.telechargeLe && !!x.apres?.telechargeLe },
   // Administration
-  'parametres.maj': { cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true } },
+  // Réglages : anciennes et nouvelles valeurs, sauf la référence de l'accord des heures supplémentaires (texte libre).
+  'parametres.maj': { cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord'] } },
   'demo.reinitialiser': {},
   'compte.creer': { champs: ['empId', 'type', 'identifiant', 'profilRh'] },
   'compte.profil': { champs: ['id', 'profilRh'], cible: parId('comptes', ['profilRh']) },
@@ -215,6 +381,32 @@ export const REGLES: Record<string, Regle> = {
   'compte.reinitialiser': { champs: ['id'], cible: parId('comptes', []) },
   'envoi.relancer': { champs: ['id'] },
   'envoi.classer': { champs: ['id'] },
+  // Page Confidentialité : nom des champs dont la valeur a réellement changé (l'écran Paramètres envoie toujours les
+  // deux), par comparaison du réglage lu avant et après l'action ; jamais leur texte (coordonnées saisies librement).
+  'confidentialite.regler': {
+    etat: db => lireConfidentialite(db),
+    bilan: (_p, x) => {
+      const avant = x.etat as ContactsConfidentialite, apres = lireConfidentialite(x.db);
+      return { champsModifies: (['responsable', 'dpo'] as const).filter(k => avant[k] !== apres[k]) };
+    },
+  },
+  // Reprise depuis Lucca (écran Mise en service) : code par import (`reprise.soldes`…), date de reprise, case des comptes,
+  // décompte et salariés concernés ; jamais le fichier, ni les colonnes, ni les noms d'équipes (textes du fichier).
+  // Comptes Microsoft 365 ouverts par l'import : fiche et identifiant de chacun, comme compte.creer (accès au site).
+  'reprise.importer': {
+    code: p => (estTypeReprise(p.type) ? `reprise.${p.type}` : ''),
+    extra: p => ({ type: estTypeReprise(p.type) ? p.type : null, dateReprise: isValidDate(p.dateReprise) ? p.dateReprise : null, comptes: p.comptes === true }),
+    bilan: (_p, x) => {
+      const r = (x.result ?? {}) as Record<string, unknown>;
+      const ouverts = (Array.isArray(r.comptesOuverts) ? r.comptesOuverts as P[] : []).slice(0, 1000)
+        .map(c => ({ empId: Number(c.empId) || null, identifiant: String(c.identifiant ?? '').slice(0, 254) }));
+      return {
+        lot: r.lot ?? null, crees: r.crees ?? 0, majs: r.majs ?? 0, ignorees: r.ignorees ?? 0, refusees: r.refusees ?? 0, comptesCrees: r.comptes ?? 0,
+        ...(ouverts.length ? { comptesOuverts: ouverts } : {}),
+      };
+    },
+    salaries: (_p, x) => salariesTouches(x),
+  },
 };
 
 /** Participants d'une clôture (bornés : une session compte quelques dizaines d'inscrits). */
@@ -273,10 +465,12 @@ function comparer(c: Cible, avant: Ligne | null, apres: Ligne | null): { avant: 
       return [...new Set([...Object.keys(x), ...Object.keys(y)])].map(k => [k, x[k], y[k]] as [string, unknown, unknown]);
     })
     : c.colonnes.map(col => [col, avant?.[col], apres?.[col]]);
+  // Texte libre masqué : « renseigné » ou vide, la modification restant visible par la présence du champ.
+  const masque = (k: string, v: unknown) => (c.masques?.includes(k) ? (v ? MENTION_TEXTE : null) : v ?? null);
   for (const [k, x, y] of paires) {
     if (JSON.stringify(x ?? null) === JSON.stringify(y ?? null)) continue;
-    a[k] = x ?? null;
-    b[k] = y ?? null;
+    a[k] = masque(k, x);
+    b[k] = masque(k, y);
   }
   return Object.keys(a).length || Object.keys(b).length ? { avant: a, apres: b } : null;
 }
@@ -301,6 +495,8 @@ const NATURES = termes(Object.values(NATURES_ABSENCE).flatMap(n => [n.label, n.a
 const VACCINS_NOMMES = termes(Object.values(VACCINS).flatMap(v => [v.nom, v.nom.replace(/ \(.*\)/, ''), v.court]));
 export const MENTION_NATURE = '[nature d’absence]';
 export const MENTION_SANTE = '[donnée de santé]';
+/** Texte libre renseigné, jamais recopié au journal (Cible.masques). */
+export const MENTION_TEXTE = '[texte renseigné]';
 
 /** Message tracé sans nature d'absence ni vaccin : le RH les retrouve dans le dossier. */
 export function expurgerMessage(m: string | null): string | null {
@@ -462,10 +658,11 @@ export function reprendreJournal(db: Db): number {
   });
 }
 
-/** Au démarrage : index, reprise des anciennes lignes, conservation appliquée puis relancée toutes les heures. */
+/**
+ * Au démarrage : reprise des anciennes lignes, conservation appliquée puis relancée toutes les heures. Index du journal
+ * (`journal_at`, `journal_action`) : migration nommée (server/src/migrations/exploitation.ts).
+ */
 export function demarrerJournal(db: Db) {
-  db.sql.exec('CREATE INDEX IF NOT EXISTS journal_at ON journal (at)');
-  db.sql.exec('CREATE INDEX IF NOT EXISTS journal_action ON journal (action)');
   const reduites = reprendreJournal(db);
   if (reduites) {
     // La copie faite avant la migration (et toute sauvegarde antérieure) garde l'ancien journal, non expurgé.
@@ -584,13 +781,14 @@ const ROLE_LABEL: Record<string, string> = { ...ESPACE_LABEL, rh: 'Service RH', 
 
 /** Fichier CSV du journal (UTF-8 avec BOM pour Excel) : une ligne par entrée, libellés français. */
 export function csvJournal(db: Db, lignes: LigneJournal[]): string {
-  const noms = new Map((db.sql.prepare('SELECT id, nom FROM employes').all() as { id: number; nom: string }[]).map(e => [e.id, e.nom]));
+  // Salarié désigné par son nom et son matricule de paie (matricule Cursus tant qu'il manque, ou fiche supprimée).
+  const fiches = new Map((db.sql.prepare('SELECT id, nom, matricule_paie AS matriculePaie FROM employes').all() as { id: number; nom: string; matriculePaie: string | null }[]).map(e => [e.id, e]));
   const tete = ['Date', 'Heure', 'Auteur', 'Identifiant', 'Espace', 'Action', 'Code', 'Salariés concernés', 'Message', 'Anciennes et nouvelles valeurs', 'Détail', 'Archivée le'];
   const corps = lignes.map(l => {
     const d = new Date(l.at);
     return [
       d.toLocaleDateString('fr-FR'), d.toLocaleTimeString('fr-FR'), l.actor, l.identifiant, l.role ? ROLE_LABEL[l.role] ?? l.role : '', libelleAction(l.action), l.action,
-      l.salaries.map(id => `${noms.get(id) ?? 'salarié supprimé'} (${matricule(id)})`).join(', '), l.message, changementsTexte(l.details),
+      l.salaries.map(id => `${fiches.get(id)?.nom ?? 'salarié supprimé'} (${matriculeAffiche(fiches.get(id) ?? { id, matriculePaie: null })})`).join(', '), l.message, changementsTexte(l.details),
       Object.keys(l.details).length ? JSON.stringify(l.details) : '', l.archivee ? new Date(l.archivee).toLocaleDateString('fr-FR') : '',
     ];
   });
@@ -627,7 +825,7 @@ export function exigerRh(db: Db, req: Request, res: Response, quoi: string, auto
 /** Actions dont le message ou le détail touche à la santé : absence (dates d'un arrêt), visite médicale, vaccination, document déclaré. */
 const ACTIONS_SANTE = new Set([
   'absence.saisir', 'absence.qualifier', 'absence.prolonger', 'absence.annuler', 'medical.demander', 'medical.annuler', 'medical.avis',
-  'formalite.enregistrer', 'demande.accepter', 'email.visite.demande',
+  'formalite.enregistrer', 'demande.accepter', 'email.visite.demande', 'reprise.visites',
 ]);
 export const DETAIL_RESERVE = 'Détail réservé au service RH';
 

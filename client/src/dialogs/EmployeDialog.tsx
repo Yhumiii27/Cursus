@@ -1,24 +1,36 @@
-// Fiche collaborateur : création ou modification complète (RH) ; poste et jours non
+// Fiche collaborateur : création ou modification complète (RH) ; intitulé du poste et jours non
 // travaillés du temps partiel pour le manager d'un membre de son équipe.
+// Poste choisi dans la liste du référentiel (components/PosteChoix.tsx), dont les exigences s'appliquent ; le service RH
+// peut aussi en saisir un nouveau, ajouté au référentiel sans exigence.
+// Matricule de paie : unique ; reprendre celui d'un salarié sorti (réembauche) se confirme, par l'administrateur RH, qui
+// seul change ou retire un matricule déjà enregistré.
 import { useState } from 'react';
 import { isValidDate } from '../../../shared/dates.ts';
 import { AVIS_MEDICAL, MODE_NOTIFICATION_LABEL, MOTIFS_REPRISE, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../../../shared/constants.ts';
 import { cap, equipeLabel, fmtIso, plural } from '../../../shared/format.ts';
 import { reposForfait } from '../../../shared/rules/conges.ts';
+import { matriculesPris, normaliserMatricule } from '../../../shared/rules/matricules.ts';
+import { essaiMaximum, limitePrevenance, rttPerdus, SEMAINES_FIGEES, soldeRttTexte, sortieTexte } from '../../../shared/rules/contrats.ts';
 import { adressesPrises } from '../../../shared/rules/messagerie.ts';
 import { JOURS_SEMAINE, PROFIL_FIELDS, PROFIL_VIDE, normaliserProfil, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
+import { contratFige } from '../../../shared/rules/temps.ts';
 import type { Statut, TempsTravail, TypeContrat } from '../../../shared/types.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine, NoteAccent, SectionLabel, Seg } from '../components/ui.tsx';
+import { NOUVEAU_POSTE, PosteChoix, PosteLibelle } from '../components/PosteChoix.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
 /** État du formulaire : les nombres et dates restent des chaînes pendant la saisie. */
 interface Form {
   nom: string; poste: string; equipe: string; naissance: string;
-  statut: Statut; typeContrat: TypeContrat; entree: string; fin: string; agence: string; email: string;
+  /** Poste du référentiel choisi (identifiant), `''` : aucun, NOUVEAU_POSTE : intitulé saisi, poste créé à l'enregistrement. */
+  posteId: string;
+  statut: Statut; typeContrat: TypeContrat; entree: string; fin: string; agence: string; email: string; matriculePaie: string;
   temps: TempsTravail; heures: string; forfaitHeures: string; forfaitJours: string; jourOff: number[];
   visite: string; repriseMotif: string; repriseDate: string;
+  /** Période d'essai écrite au contrat : dernier jour, et dernier jour après renouvellement (aucune valeur proposée). */
+  essaiFin: string; essaiRenouvele: string;
   /** Date d'effet d'un changement d'organisation du temps (défaut : aujourd'hui). */
   effet: string;
 }
@@ -34,13 +46,14 @@ const toNum = (s: string) => {
 
 function toForm(p: ProfilInput, today: string): Form {
   return {
-    nom: p.nom, poste: p.poste, equipe: p.equipe ?? '', naissance: numStr(p.naissance),
-    statut: p.statut, typeContrat: p.typeContrat, entree: p.entree, fin: p.fin ?? '', agence: p.agence ?? '', email: p.email ?? '',
+    nom: p.nom, poste: p.poste, posteId: p.posteId != null ? String(p.posteId) : '', equipe: p.equipe ?? '', naissance: numStr(p.naissance),
+    statut: p.statut, typeContrat: p.typeContrat, entree: p.entree, fin: p.fin ?? '', agence: p.agence ?? '', email: p.email ?? '', matriculePaie: p.matriculePaie ?? '',
     temps: p.temps, heures: numStr(p.heures),
     forfaitHeures: numStr(p.forfaitHeures ?? (p.temps === 'forfait_heures_annuel' ? 1607 : null)),
     forfaitJours: numStr(p.forfaitJours ?? (p.temps === 'forfait_jours' ? 218 : null)),
     jourOff: [...(p.jourOff ?? [])],
     visite: p.visite ?? '', repriseMotif: p.repriseMotif ?? '', repriseDate: p.repriseDate ?? '',
+    essaiFin: p.essaiFin ?? '', essaiRenouvele: p.essaiRenouveleJusquau ?? '',
     effet: today,
   };
 }
@@ -48,12 +61,16 @@ function toForm(p: ProfilInput, today: string): Form {
 /** Fiche saisie ; `tempsDepuis` : date d'effet de l'organisation du temps à enregistrer. */
 function toInput(f: Form, tempsDepuis: string | null): ProfilInput {
   return {
-    nom: f.nom, poste: f.poste, equipe: f.equipe || null, statut: f.statut, typeContrat: f.typeContrat, temps: f.temps,
+    nom: f.nom, poste: f.poste, posteId: posteIdSaisi(f.posteId), equipe: f.equipe || null, statut: f.statut, typeContrat: f.typeContrat, temps: f.temps,
     heures: toNum(f.heures), forfaitHeures: toNum(f.forfaitHeures), forfaitJours: toNum(f.forfaitJours), jourOff: f.jourOff, tempsDepuis,
-    entree: f.entree, fin: f.fin || null, naissance: toNum(f.naissance) ?? Number.NaN, agence: f.agence || null, email: f.email || null,
+    entree: f.entree, fin: f.fin || null, naissance: toNum(f.naissance) ?? Number.NaN, agence: f.agence || null, matriculePaie: f.matriculePaie || null, email: f.email || null,
     visite: f.visite || null, repriseMotif: f.repriseMotif || null, repriseDate: f.repriseDate || null,
+    essaiFin: f.essaiFin || null, essaiRenouveleJusquau: f.essaiRenouvele || null,
   };
 }
+
+/** Poste du référentiel saisi : identifiant, ou aucun (intitulé seul, nouveau poste). */
+const posteIdSaisi = (v: string) => (v && v !== NOUVEAU_POSTE ? Number(v) : null);
 
 const same = (a: ProfilInput, b: ProfilInput) => PROFIL_FIELDS.every(k => JSON.stringify(a[k]) === JSON.stringify(b[k]));
 
@@ -63,11 +80,12 @@ const same = (a: ProfilInput, b: ProfilInput) => PROFIL_FIELDS.every(k => JSON.s
  */
 const CHAMP_ERREUR: [RegExp, keyof Form][] = [
   [/^Nom requis/, 'nom'], [/^Poste requis/, 'poste'], [/^Équipe inconnue/, 'equipe'], [/^Année de naissance/, 'naissance'],
-  [/^Date d’entrée/, 'entree'], [/date de fin/i, 'fin'], [/^Agence d’intérim/, 'agence'], [/^Manager de l’équipe/, 'typeContrat'],
+  [/^Date d’entrée/, 'entree'], [/renouvellement de l’essai/i, 'essaiRenouvele'], [/période d’essai/, 'essaiFin'], [/date de fin/i, 'fin'], [/^Agence d’intérim/, 'agence'], [/^Manager de l’équipe/, 'typeContrat'],
   [/^Un intérimaire ne peut|cadre dirigeant/, 'temps'], [/date d’effet/i, 'effet'],
   [/^Temps partiel|^Forfait hebdomadaire/, 'heures'], [/^Forfait annuel en heures/, 'forfaitHeures'], [/^Forfait jours/, 'forfaitJours'],
   [/^Au moins un jour travaillé|^Répartition impossible/, 'jourOff'],
   [/visite médicale/, 'visite'], [/^Date de reprise/, 'repriseDate'], [/^Motif de l’absence longue/, 'repriseMotif'],
+  [/^Matricule de paie/, 'matriculePaie'],
 ];
 
 /** Erreurs rattachées à leur champ, et celles sans champ. */
@@ -99,7 +117,7 @@ function JoursOff({ value, onChange }: { value: number[]; onChange: (v: number[]
 
 export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | null; equipe?: string | null }) {
   const d = useDomain();
-  const { rh, manager, me } = useRole();
+  const { rh, admin, manager, me } = useRole();
   const { run, closeDialog, setUi, notify } = useStore();
   const emp = empId != null ? d.emp(empId) ?? null : null;
   const creation = empId == null;
@@ -111,11 +129,18 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   const [f, setF] = useState<Form>(() => ({ ...toForm(initial, d.ti), naissance: creation ? '' : numStr(initial.naissance) }));
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
+  // Réembauche : réutilisation du matricule de paie d'un salarié sorti, confirmée par l'administrateur RH (matricule confirmé).
+  const [reutiliser, setReutiliser] = useState<string | null>(null);
+  const [confirmer, setConfirmer] = useState(false);
+  /** Confirmation demandée : le nouveau régime ferme le compteur de RTT de l'année (garde-fou du changement de régime). */
+  const [confRtt, setConfRtt] = useState(false);
   const verif = useVerification();
 
   if ((creation && !rh) || (!creation && (!emp || !(rh || limited)))) return null;
 
   const set = <K extends keyof Form>(k: K, v: Form[K]) => { setF(s => ({ ...s, [k]: v })); setTouched(true); };
+  /** Poste choisi dans la liste (son intitulé devient celui de la fiche), ou intitulé d'un nouveau poste. */
+  const choisirPoste = (posteId: string, poste: string) => { setF(s => ({ ...s, posteId, poste })); setTouched(true); };
   const setTemps = (t: TempsTravail) => {
     setF(s => {
       const n = { ...s, temps: t };
@@ -129,22 +154,43 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
     setTouched(true);
   };
 
+  // Sortie enregistrée : sa date et son motif ne changent que par le dialogue de sortie. Sans elle, un CDI n'a pas de date
+  // de fin (passage d'un CDD en CDI : la fin du CDD est effacée).
+  const sortieEnregistree = !creation && !!initial.motifSortie;
+  const tcSaisi = TYPES_CONTRAT[f.typeContrat];
+  const finSaisie = sortieEnregistree || !!(tcSaisi?.fin || tcSaisi?.finFacultative || tcSaisi?.interim);
   // Changement d'organisation du temps d'une fiche existante : date d'effet saisie ; sinon la date en vigueur est conservée.
-  const saisie = toInput(f, initial.tempsDepuis);
+  const saisie = { ...toInput(f, initial.tempsDepuis), motifSortie: initial.motifSortie ?? null, ...(finSaisie ? {} : { fin: null }) };
   const ref0 = normaliserProfil(initial), nv = normaliserProfil(saisie);
   const nouveauRegime = !creation && !limited && REGIME_TEMPS.some(k => nv[k] !== ref0[k]);
+  const confirme = !!reutiliser && reutiliser === normaliserMatricule(f.matriculePaie);
+  // Manager : le poste du référentiel reste celui du service RH ; seul son intitulé se précise.
   const input: ProfilInput = limited ? { ...initial, poste: f.poste, jourOff: f.jourOff }
     : nouveauRegime ? { ...saisie, tempsDepuis: f.effet || null } : saisie;
   // Un manager d'équipe ne peut pas passer en intérim (équipes encadrées).
-  const v = validerProfil(input, { equipes: d.equipes, year: d.year, encadre: emp ? d.teamsOf(emp.id) : [], adressesPrises: adressesPrises(d.ds.employes, emp?.id) });
+  const v = validerProfil(input, {
+    equipes: d.equipes, year: d.year, encadre: emp ? d.teamsOf(emp.id) : [], adressesPrises: adressesPrises(d.ds.employes, emp?.id),
+    matricules: { pris: matriculesPris(d.ds.employes, d.ti, emp?.id), actuel: initial.matriculePaie, reutiliser: confirme },
+    contrat: { finPrevue: emp?.finPrevue ?? null, sortieEnregistree: emp?.sortieEnregistree },
+  });
+  // Matricule d'un salarié sorti, pas encore confirmé : l'administrateur RH confirme à l'envoi ; pour le gestionnaire RH,
+  // l'erreur sous le champ le renvoie à l'administrateur.
+  const aConfirmer = !limited && !confirme ? v.matriculeAConfirmer : null;
   const errEffet = !nouveauRegime ? null
     : !f.effet ? 'Date d’effet du nouveau régime de temps requise.'
     : !isValidDate(f.effet) ? null
     : isValidDate(f.entree) && f.effet < f.entree ? 'La date d’effet du nouveau régime précède la date d’entrée.'
     : f.effet > d.ti ? 'Date d’effet future : enregistrez le changement d’organisation du temps le jour de sa prise d’effet.'
     : null;
-  const errors = errEffet ? [...v.errors, errEffet] : v.errors;
-  const ok = v.ok && !errEffet;
+  // Matricule de paie déjà enregistré : changé ou retiré par l'administrateur RH seul (contrôlé aussi par le serveur).
+  const errMatricule = !admin && !limited && initial.matriculePaie && v.profil.matriculePaie !== initial.matriculePaie
+    ? `Matricule de paie déjà enregistré (${initial.matriculePaie}) : seul l’administrateur RH le change ou le retire.` : null;
+  const errors = [...v.errors.filter(m => !(aConfirmer && admin && /^Matricule de paie de /.test(m))), ...(errEffet ? [errEffet] : []), ...(errMatricule ? [errMatricule] : [])];
+  const ok = errors.length === 0;
+  // Garde-fou (en attendant l'historique des contrats) : RTT ou jours de repos de l'année pris ou posés que le nouveau régime
+  // n'ouvre plus. Le serveur exige la confirmation ; le solde affiché est gardé au journal pour la paie.
+  const changeRegime = !creation && !limited && !!emp && JSON.stringify(contratFige(emp)) !== JSON.stringify(contratFige({ ...emp, ...v.profil }));
+  const perte = changeRegime && ok ? rttPerdus(d, emp!, { ...emp!, ...v.profil, tempsDepuis: nouveauRegime ? f.effet : emp!.tempsDepuis }) : null;
   const dirty = creation || !same(v.profil, ref0);
   // Erreurs affichées en direct en modification, dès la première saisie en création, et après un envoi bloqué.
   const showErrors = !creation || touched || verif.tente;
@@ -152,10 +198,17 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   const err = (k: keyof Form) => showErrors ? errChamp[k] ?? null : null;
   const partielEmp = !!emp && d.contratOf(emp).partiel;
 
-  const save = async () => {
+  const save = async (confirmeRtt = false) => {
     if (busy || !verif.verifier(!ok)) return;
     // Rien de changé : rien à envoyer, le dialogue se ferme.
     if (!dirty) { closeDialog(); notify('Aucune modification à enregistrer'); return; }
+    // Matricule de paie d'un salarié sorti : l'administrateur RH confirme la réembauche avant l'envoi.
+    if (aConfirmer) { setConfirmer(true); return; }
+    await envoyer(confirme, confirmeRtt);
+  };
+  const envoyer = async (reutiliserMatricule: boolean, confirmeRtt: boolean) => {
+    // Changement de régime qui ferme le compteur de RTT de l'année : confirmation d'abord.
+    if (perte && !confirmeRtt) { setConfirmer(false); setConfRtt(true); return; }
     setBusy(true);
     let payload: Record<string, unknown>;
     if (limited) payload = { id: emp!.id, poste: v.profil.poste, ...(partielEmp ? { jourOff: v.profil.jourOff } : {}) };
@@ -164,9 +217,13 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
       PROFIL_FIELDS.forEach(k => { payload[k] = v.profil[k]; });
       // La date d'effet ne concerne qu'un changement d'organisation du temps : sinon le serveur garde la date en vigueur.
       if (!creation && !nouveauRegime) delete payload.tempsDepuis;
+      if (reutiliserMatricule) payload.reutiliserMatricule = true;
+      if (perte) payload.confirmerRtt = true;
     }
     const r = await run(creation ? 'employe.creer' : 'employe.modifier', payload);
     setBusy(false);
+    setConfirmer(false);
+    setConfRtt(false);
     if (!r.ok) return;
     closeDialog();
     const id = (r.result as { id?: number } | undefined)?.id;
@@ -193,9 +250,7 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
     return (
       <Dialog title={`Modifier la fiche — ${emp.nom}`} width={640} tall onSubmit={save} actions={actions}>
         <div className="grid-2">
-          <Field label="Poste" htmlFor="emp-poste" requis erreur={err('poste')}>
-            <input className="input" id="emp-poste" type="text" value={f.poste} onChange={ev => set('poste', ev.target.value)} />
-          </Field>
+          <PosteLibelle emp={emp} poste={f.poste} erreur={err('poste')} onChange={v => set('poste', v)} />
           <Field label="Équipe"><Static pad>{equipeLabel(emp)}</Static></Field>
         </div>
         {partielEmp && (
@@ -209,6 +264,11 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
           <Field label="Nature du contrat"><Static>{TYPES_CONTRAT[c.typeContrat].label}{finTxt}</Static></Field>
           <Field label="Organisation du temps"><Static>{c.label}{emp.tempsDepuis ? <span className="text-muted"> · depuis le {fmtIso(emp.tempsDepuis)}</span> : null}</Static></Field>
           <Field label="Date d’entrée"><Static>{fmtIso(emp.entree)}</Static></Field>
+          {(emp.essaiRenouveleJusquau ?? emp.essaiFin) && (
+            <Field label="Période d’essai">
+              <Static>jusqu’au {fmtIso((emp.essaiRenouveleJusquau ?? emp.essaiFin)!)}{emp.essaiRenouveleJusquau ? <span className="text-muted"> · renouvelée</span> : null}</Static>
+            </Field>
+          )}
         </div>
         <Fine>Le contrat, le statut et l’organisation du temps de travail relèvent du service RH.</Fine>
         {messages}
@@ -224,17 +284,32 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   const repos = f.temps === 'forfait_jours' && nj != null && nj >= 1 && nj <= 218 ? reposForfait(d.year, nj) : null;
   const valideur = d.mgrOf({ id: emp?.id ?? -1, equipe: f.equipe || null });
   const regimeActuel = emp ? d.contratOf(emp).label : '';
+  // Période d'essai : maximum légal rappelé (aucune durée proposée) et dernier jour pour notifier une rupture.
+  const max = essaiMaximum(v.profil);
+  const prev = limitePrevenance(v.profil);
+  // Borne des dates d'essai : la fin prévue au contrat, jamais la date d'une sortie enregistrée (rupture pendant l'essai).
+  const finEssaiMax = (sortieEnregistree || emp?.sortieEnregistree ? emp?.finPrevue : f.fin) || undefined;
+  const essaiAide = [
+    'L’essai n’existe que s’il est écrit au contrat (art. L1221-23) : saisissez ses dates telles qu’elles y figurent, la convention collective pouvant prévoir moins.',
+    max ? `Maximum légal : le ${fmtIso(max.fin)} (${max.texte})${max.renouvele ? `, le ${fmtIso(max.renouvele)} en cas de renouvellement (${max.texteRenouvele}, si un accord de branche étendu le prévoit)` : ''}.` : '',
+    prev?.delai ? `Rupture par l’employeur à notifier au plus tard le ${fmtIso(prev.le)} (délai de prévenance de ${prev.delai}, art. L1221-25) : l’alerte des Échéances tombe à cette date.` : '',
+  ].filter(Boolean).join(' ');
 
   return (
-    <Dialog title={creation ? 'Nouveau collaborateur' : `Modifier la fiche — ${emp!.nom}`} width={640} tall onSubmit={save} actions={actions}>
+    <Dialog title={creation ? 'Nouveau collaborateur' : `Modifier la fiche — ${emp!.nom}`} width={640} tall onSubmit={() => save()} actions={actions}
+      confirmation={confirmer && aConfirmer ? {
+        texte: `Réembauche : reprendre le matricule de paie ${v.profil.matriculePaie} de ${aConfirmer.nom}, sorti le ${fmtIso(aConfirmer.sortiLe!)} ? Les deux fiches porteront ce matricule ; Sage et Keystone ne reçoivent que la fiche présente.`,
+        bouton: 'Réutiliser le matricule', occupe: busy, confirmer: () => { setReutiliser(v.profil.matriculePaie); void envoyer(true, false); }, annuler: () => setConfirmer(false),
+      } : confRtt && perte ? {
+        texte: `Le nouveau régime n’ouvre ni RTT ni jours de repos : le compteur de ${emp!.nom} (${soldeRttTexte(perte)}) ne sera plus suivi dans Cursus. Ce solde est gardé au journal pour la paie.`,
+        bouton: 'Confirmer le changement', occupe: busy, confirmer: () => save(true), annuler: () => setConfRtt(false),
+      } : null}>
       <SectionLabel>Identité</SectionLabel>
       <div className="grid-2">
         <Field label="Nom" htmlFor="emp-nom" requis erreur={err('nom')}>
           <input className="input" id="emp-nom" type="text" autoFocus={creation} placeholder="Prénom Nom" value={f.nom} onChange={ev => set('nom', ev.target.value)} />
         </Field>
-        <Field label="Poste" htmlFor="emp-poste" requis erreur={err('poste')}>
-          <input className="input" id="emp-poste" type="text" placeholder="Technicien de maintenance…" value={f.poste} onChange={ev => set('poste', ev.target.value)} />
-        </Field>
+        <PosteChoix posteId={f.posteId} poste={f.poste} actuel={initial.posteId ?? null} erreur={err('poste')} onChange={choisirPoste} nouveau />
         <Field label="Équipe" htmlFor="emp-equipe" erreur={err('equipe')}>
           <select className="input" id="emp-equipe" value={f.equipe} onChange={ev => set('equipe', ev.target.value)}>
             <option value="">À affecter</option>
@@ -252,6 +327,14 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
         <Field label="Notifications par e-mail">
           <Static pad>{emp ? MODE_NOTIFICATION_LABEL[emp.notifications] : MODE_NOTIFICATION_LABEL.immediat}<div className="text-muted sub">Réglées par le salarié dans son espace</div></Static>
         </Field>
+        <Field label="Matricule de paie" htmlFor="emp-matricule" erreur={err('matriculePaie')}>
+          <input className="input" id="emp-matricule" type="text" autoComplete="off" spellCheck={false} maxLength={20} placeholder="004102"
+            value={f.matriculePaie} onChange={ev => set('matriculePaie', ev.target.value)} />
+          <span className="text-muted sub">
+            {aConfirmer && admin ? `Celui de ${aConfirmer.nom}, sorti le ${fmtIso(aConfirmer.sortiLe!)} : réembauche à confirmer à l’enregistrement`
+              : 'Dossier de paie Sage : 1 à 20 lettres et chiffres ; à défaut, le salarié est refusé d’une transmission réelle à la paie'}
+          </span>
+        </Field>
       </div>
 
       <SectionLabel>Contrat</SectionLabel>
@@ -264,7 +347,11 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
         <Field label="Date d’entrée" htmlFor="emp-entree" requis erreur={err('entree')}>
           <input className="input" id="emp-entree" type="date" value={f.entree} onChange={ev => set('entree', ev.target.value)} />
         </Field>
-        {(tc.fin || tc.interim || tc.finFacultative) && (
+        {sortieEnregistree ? (
+          <Field label="Sortie">
+            <Static pad>{sortieTexte(emp!)}<div className="text-muted sub">Se modifie ou s’annule depuis la fiche (section Contrat)</div></Static>
+          </Field>
+        ) : (tc.fin || tc.interim || tc.finFacultative) && (
           <Field label={tc.interim ? 'Fin de mission prévue (facultatif)' : tc.finFacultative ? 'Date de fin (facultatif)' : 'Date de fin'} htmlFor="emp-fin" requis={!!tc.fin} erreur={err('fin')}>
             <input className="input" id="emp-fin" type="date" min={f.entree || undefined} value={f.fin} onChange={ev => set('fin', ev.target.value)} />
           </Field>
@@ -275,6 +362,19 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
           </Field>
         )}
       </div>
+
+      <SectionLabel>Période d’essai</SectionLabel>
+      <div className="grid-2">
+        <Field label="Fin de la période d’essai" htmlFor="emp-essai" erreur={err('essaiFin')}>
+          <input className="input" id="emp-essai" type="date" min={f.entree || undefined} max={finEssaiMax} value={f.essaiFin} onChange={ev => set('essaiFin', ev.target.value)} />
+          <span className="text-muted sub">Date écrite au contrat ; vide s’il n’en prévoit pas</span>
+        </Field>
+        <Field label="Renouvelée jusqu’au" htmlFor="emp-essai-ren" erreur={err('essaiRenouvele')}>
+          <input className="input" id="emp-essai-ren" type="date" min={f.essaiFin || undefined} max={finEssaiMax} value={f.essaiRenouvele} onChange={ev => set('essaiRenouvele', ev.target.value)} />
+          <span className="text-muted sub">Accord écrit du salarié pendant l’essai initial</span>
+        </Field>
+      </div>
+      <Fine>{essaiAide}</Fine>
 
       <SectionLabel>Statut</SectionLabel>
       <Seg name="emp-statut" label="Statut" value={f.statut} onChange={s => set('statut', s)}
@@ -313,8 +413,9 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
       </div>
       {nouveauRegime && (
         <Fine>
-          Les semaines antérieures {isValidDate(f.effet) ? `au ${fmtIso(f.effet)}` : 'à la date d’effet'} restent calculées avec l’ancien régime ({regimeActuel}) ;
-          les RTT et jours de repos sont proratisés à partir de cette date.
+          Les semaines antérieures {isValidDate(f.effet) ? `au ${fmtIso(f.effet)}` : 'à la date d’effet'} restent calculées avec l’ancien régime ({regimeActuel}) :
+          celles des {SEMAINES_FIGEES} dernières qui n’ont pas encore de feuille de temps en reçoivent une, vide, figée sur ce régime.
+          Les RTT et jours de repos sont proratisés à partir de cette date.
         </Fine>
       )}
       {f.temps === 'partiel' && (

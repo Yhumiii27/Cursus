@@ -10,7 +10,8 @@ Construit à partir de la maquette Claude Design « Outil RH gestion formations 
 
 ## Démarrer
 
-Prérequis : Node.js 22.18 ou plus récent (aucune base de données à installer : SQLite est intégré à Node).
+Prérequis : Node.js 22.18 ou plus récent, version 22 de référence (`.nvmrc` : `nvm use`) ; aucune base de données à
+installer : SQLite est intégré à Node.
 
 ```bash
 npm install
@@ -21,7 +22,8 @@ npm run dev
 ```
 
 Ouvrir http://localhost:5173. `npm run dev` active le mode démonstration (`CURSUS_DEMO=1`) :
-au premier lancement, la base `data/cursus.db` est créée avec les données de démonstration
+au premier lancement, la base `data/cursus.db` (dossier du code, quel que soit le dossier de lancement) est créée
+avec les données de démonstration
 (24 collaborateurs d'un site industriel, CCN Industries chimiques). Hors démonstration, une base
 vide le reste.
 
@@ -30,8 +32,15 @@ vide le reste.
 Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode démonstration) :
 
 - **RH** : tout l'outil, dont la création et la modification des fiches
-  (statut, contrat, organisation du temps) et l'écran « Équipes & managers » (créer, renommer,
-  supprimer une équipe, désigner son manager, affecter les collaborateurs). Deux profils : les
+  (statut, contrat, organisation du temps), l'écran « Équipes & managers » (créer, renommer,
+  supprimer une équipe, désigner son manager, affecter les collaborateurs), la **sortie** d'un salarié, CDI compris
+  (dernier jour et motif en liste fermée : ce qui était prévu après son départ est annulé, il quitte la conformité et les
+  échéances et reste consultable avec le filtre « Sortis » de Collaborateurs) et l'écran « Référentiels »
+  (catalogue des formations, habilitations et destinations : création, modification, archivage, référentiel
+  type à charger dans une base vide ; formations et habilitations aussi pour le référent HSE ; postes et formations ou
+  habilitations exigées par poste et par équipe), et l'écran « Mise en
+  service » (Paramètres : reprise depuis Lucca des salariés, des soldes de congés, des certifications, des
+  habilitations et des visites médicales par imports CSV, avec aperçu et compte rendu ; administrateur RH). Deux profils : les
   **gestionnaires RH** (fiches, formations, absences…) et l'**administrateur RH**, seul à régler les
   paramètres, supprimer et gérer les comptes (Paramètres → Comptes et accès) et, avec le gestionnaire de paie, à
   transmettre la paie.
@@ -49,9 +58,10 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
   Aïcha Diallo et Élodie Bernard.
 - **Manager** : son équipe — inscriptions aux sessions et demandes de formation / habilitation,
   absences posées et validées, absences imprévues signalées (le service RH en précise la nature, jamais
-  communiquée au manager pour un arrêt de travail ou la santé d'un enfant), saisie et correction des feuilles de temps, poste et jours non
+  communiquée au manager pour un arrêt de travail ou la santé d'un enfant), saisie et correction des feuilles de temps, intitulé du poste et jours non
   travaillés des fiches, ajout de salariés « à affecter » (libérés par leur manager d'origine ; une mutation
-  directe passe par le service RH) et retrait de membres, entretiens, missions.
+  directe passe par le service RH) et retrait de membres, entretiens (ses propres entretiens, que mène son responsable,
+  se préparent et se signent dans son espace collaborateur), missions.
   Pas d'accès aux données de santé : seuls le verdict d'aptitude et les restrictions de poste en vigueur sont transmis,
   sans date de visite ; du passeport de ses membres, la seule date d'expiration.
 - **Utilisateur** (collaborateur) : ses formations, habilitations, voyages, heures,
@@ -61,6 +71,8 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
   Les documents de voyage qu'il déclare (passeport, visa, vaccination) n'entrent dans son
   dossier qu'après validation par le service RH. Ses vaccinations (vaccin et date d'injection) sont des données de
   santé réservées au service RH : l'information sur leur traitement (art. 13 du RGPD) s'affiche avant la saisie.
+  Ce qui l'attend (compte rendu d'entretien à signer, feuille de temps renvoyée ou semaine passée à soumettre) est
+  signalé par une pastille dans le menu et dans l'encart « À faire » de son accueil.
 
 Chaque personne se connecte avec son compte nominatif : compte Microsoft 365 de l'entreprise pour
 les salariés qui en ont un (« Se connecter avec Microsoft », voir `docs/CONNEXION-MICROSOFT.md`),
@@ -77,6 +89,16 @@ s'exporte en CSV. Conservation : 1 an ; les actions liées à la paie passent en
 consultable sur demande, gardée 3 ans. La fiche d'un collaborateur montre son historique et permet au
 service RH d'exporter toutes ses données (droit d'accès) ; chaque salarié télécharge les siennes depuis
 son espace (« Télécharger mes données »).
+
+Cursus s'utilise aussi sur **téléphone et tablette** (accès depuis Internet) : menu replié derrière un bouton
+« Menu », feuilles de temps saisies jour par jour, champs et boutons à la taille du doigt ; la grille de la semaine
+reste sur PC. Chaque page a son titre d'onglet et un lien « Aller au contenu » pour le clavier ; chaque ligne ou carte
+cliquable s'ouvre aussi au clavier (bouton sur le nom). L'annuaire, le registre des habilitations, les soldes et les
+absences, et le plan de formation s'exportent en CSV (« Exporter (CSV) »), avec les filtres de l'écran et sans donnée de
+santé ; chaque export est tracé au journal. La page
+**Confidentialité**, ouverte depuis l'écran de connexion et depuis chaque espace, informe les salariés sur le
+traitement de leurs données ; le responsable du traitement et le DPO se règlent dans Paramètres → Confidentialité, et
+`docs/RGPD.md` décrit le traitement pour le registre et l'analyse d'impact de l'employeur.
 
 ## Application de bureau (macOS)
 
@@ -95,9 +117,11 @@ Relancez `npm run app` après une modification du code ou un déplacement du dos
 | Commande | Rôle |
 | --- | --- |
 | `npm run dev` | API (port 3210) + interface Vite (port 5173) avec rechargement à chaud, en mode démonstration (`CURSUS_DEMO=0 npm run dev` pour le couper) |
-| `npm run build` puis `npm start` | Production : l'API sert l'interface compilée sur le port `PORT` (3210 par défaut), derrière un reverse proxy HTTPS — voir `docs/DEPLOIEMENT.md` |
+| `npm run build` puis `npm start` | Production (`NODE_ENV=production`, Windows compris) : l'API sert l'interface compilée sur le port `PORT` (3210 par défaut), derrière un reverse proxy HTTPS — voir `docs/DEPLOIEMENT.md` (service systemd et fichiers prêts à copier de `deploy/`, ou `Dockerfile` facultatif) |
 | `npm test` | Tests des règles métier, des droits d'accès et de la sécurité |
 | `npm run typecheck` | Vérification TypeScript |
+| `npm run test:coverage` | Tests avec mesure de la couverture du serveur et de `shared/` (client et tests exclus) ; échoue sous les seuils fixés dans `package.json` |
+| `npm run check` | Tout ce que vérifie la CI avant d'accepter une modification : typage, tests avec seuils de couverture, compilation de l'interface |
 | `CURSUS_DEMO=1 npm run reset-demo` | Recharge les données de démonstration (efface la base ; refusé hors démonstration) |
 | `npm run backup` | Copie à chaud vérifiée de la base dans `data/backups`, avec rotation |
 | `npm run restore -- <fichier>` | Remplace la base par une sauvegarde (serveur arrêté) |
@@ -115,7 +139,11 @@ qu'en partie (les quatre variables `CURSUS_OIDC_*` et `CURSUS_PUBLIC_URL`, ou au
 qui n'est pas un GUID ou une adresse publique qui n'est pas en https, ou si `CURSUS_OIDC_AUTORITE` est
 définie ; hors production, il les signale seulement.
 De même pour l'envoi des e-mails (`docs/EMAILS.md`) : `CURSUS_MAIL_FROM` qui n'est pas une adresse, application
-d'envoi non entièrement désignée (`CURSUS_MAIL_*` ou `CURSUS_OIDC_*`), variables `CURSUS_MAIL_*` sans `CURSUS_MAIL_FROM`.
+d'envoi non entièrement désignée (`CURSUS_MAIL_*` ou `CURSUS_OIDC_*`), variables `CURSUS_MAIL_*` sans `CURSUS_MAIL_FROM` ;
+et pour un `CURSUS_SUPERVISION_TOKEN` de moins de 32 caractères. En production toujours, il refuse une base restée
+accessible à d'autres comptes que le sien (droits impossibles à ramener à `600`).
+Et pour Sage Paie : `SAGE_MODE` inconnu ou `api` (aucun contrat d'API fourni par Sage), `SAGE_URL` définie,
+`SAGE_MODE=simulation` hors application de bureau (des feuilles seraient marquées transmises sans que rien ne parte).
 En production, la démonstration refuse aussi (403) toute requête relayée par un proxy (`Forwarded`,
 `X-Forwarded-*`) ou adressée à un autre nom que 127.0.0.1 / localhost / [::1].
 
@@ -125,16 +153,19 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `PORT` / `CURSUS_API_PORT` | Port du serveur (3210 par défaut) |
 | `CURSUS_HOST` / `HOST` | Adresse d'écoute : 127.0.0.1 en production (derrière le reverse proxy), 0.0.0.0 sinon |
 | `CURSUS_TRUST_PROXY` | Proxys dont les en-têtes `X-Forwarded-*` sont crus (`loopback` par défaut : proxy sur la même machine) |
-| `CURSUS_DB` | Fichier SQLite (`data/cursus.db` par défaut) |
+| `CURSUS_DB` | Fichier SQLite (`data/cursus.db` du dossier du code par défaut ; un chemin relatif part du dossier de lancement). Son chemin complet s'affiche au démarrage ; le fichier est réservé au compte du serveur (`600`, dossier en `700`) |
+| `CURSUS_DIST` | Interface compilée servie (`dist/` du dossier du code par défaut) : pour les tests automatiques et une installation qui la place ailleurs |
+| `CURSUS_SUPERVISION_TOKEN` | Jeton (32 caractères au moins) de l'outil de supervision : avec `Authorization: Bearer <jeton>`, `/api/health` donne aussi la version, le mode et les envois en échec. Facultatif ; ce détail est toujours donné à un appel local fait sur la machine (dans le conteneur avec Docker : `docker exec`) |
 | `CURSUS_BACKUP_DIR` | Dossier des sauvegardes (`backups/` à côté de la base par défaut) |
 | `CURSUS_BACKUP_KEEP` | Sauvegardes conservées par type (14 par défaut, `0` pour tout garder) |
 | `CURSUS_TODAY` | Fige la date du jour (AAAA-MM-JJ), utile pour la démonstration — les données de démo sont datées d'octobre 2026. Refusée en production |
 | `CURSUS_DEMO` | `1` pour activer le mode démonstration (connexion libre, sélecteur de vue, réinitialisation, données fictives dans une base vide). Inactif par défaut ; en production, admis seulement pour l'application de bureau (`CURSUS_HOST=127.0.0.1` explicite), jamais derrière le reverse proxy |
-| `CURSUS_SECRET` | Clé de signature des sessions, 32 caractères au moins (`openssl rand -hex 32`). Obligatoire en production ; ailleurs, générée et stockée en base |
+| `CURSUS_SECRET` | Clé de signature des sessions, 32 caractères au moins (`openssl rand -hex 32`). Obligatoire en production ; ailleurs, générée et stockée en base, puis retirée de la base au premier démarrage avec la variable |
 | `CURSUS_INSECURE_COOKIE` | `1` : cookie sans l'attribut `Secure`, pour l'application de bureau en http://127.0.0.1 uniquement. Refusée en production hors application de bureau |
 | `KEYSTONE_API_KEY` | Clé attendue des appels entrants de Keystone (en-tête `X-Api-Key`). Obligatoire en production ; sans elle, les routes Keystone répondent 503. La clé `demo-keystone` n'est acceptée qu'en mode démonstration, quand la variable est vide |
 | `KEYSTONE_URL`, `KEYSTONE_TOKEN` | Envois à Keystone : adresse de base (`POST {KEYSTONE_URL}/api/cursus/v1/evenements`) et jeton (`Authorization: Bearer`), obligatoire en production avec l'adresse. Sans `KEYSTONE_URL`, les messages sont seulement tracés dans le journal (simulation) |
-| `SAGE_URL`, `SAGE_DOSSIER` | Bascule de l'adaptateur Sage Paie en mode API (à compléter, voir ci-dessous) |
+| `SAGE_MODE` | Transmission à Sage Paie : `fichier` (fichier d'import, mode de production par défaut), `simulation` (par défaut hors production : rien ne part, les feuilles sont seulement marquées transmises) ; `api` refusé, faute de contrat d'API fourni par Sage. Voir `docs/DEPLOIEMENT.md`, « Sage Paie » |
+| `SAGE_DOSSIER` | Dossier de paie inscrit dans les variables transmises (`CURSUS-CHIMIE` par défaut). `SAGE_URL` ne sert plus : refusée en production |
 | `CURSUS_OIDC_TENANT`, `CURSUS_OIDC_CLIENT_ID`, `CURSUS_OIDC_CLIENT_SECRET` | Connexion Microsoft 365 : ID de l'annuaire (GUID), ID d'application et secret client de l'inscription dans Entra (`docs/CONNEXION-MICROSOFT.md`). Les quatre variables avec `CURSUS_PUBLIC_URL`, ou aucune |
 | `CURSUS_PUBLIC_URL` | Adresse publique de Cursus, en https (`https://cursus.example.fr`) : Microsoft renvoie à `${CURSUS_PUBLIC_URL}/api/auth/microsoft/retour` |
 | `CURSUS_OIDC_AUTORITE` | Remplace `https://login.microsoftonline.com` : réservée aux tests automatiques (faux fournisseur local). Refusée en production |
@@ -156,10 +187,31 @@ le code de sortie signale un échec à la supervision. Une copie est aussi faite
 une migration de la base et avant la réinitialisation de la démonstration. `npm run restore -- <fichier>`
 vérifie la sauvegarde, refuse de s'exécuter si le serveur tourne (sauf `--force`), copie la base
 actuelle puis la remplace. Le serveur signale qu'il utilise la base par un verrou (`<base>.pid`) et
-refuse de démarrer si un autre serveur l'utilise déjà.
+refuse de démarrer si un autre serveur l'utilise déjà, ou si une version plus récente de Cursus a migré la base
+(migrations nommées, `server/src/migrations/` : restaurer alors la copie avant-migration).
 
 Planification (timer systemd), copie chiffrée hors de la machine, restauration pas à pas et test
 périodique : `docs/SAUVEGARDE.md`.
+
+## Exploitation
+
+- **Installation** : `docs/DEPLOIEMENT.md` (machine Linux louée dans l'UE, service systemd, Caddy). Les unités systemd,
+  la configuration Caddy et le script de copie externe sont livrés prêts à copier dans `deploy/` ; un `Dockerfile`
+  facultatif sert si l'hébergeur impose des conteneurs.
+- **Démarrage** : chemins complets de la base et des sauvegardes affichés ; port déjà pris, interface non compilée ou
+  base accessible à d'autres comptes signalés en clair (code de sortie 1 quand le démarrage est impossible).
+- **Arrêt** (SIGTERM, Ctrl+C) : requêtes en cours terminées (10 s au plus), base fermée, verrou retiré.
+- **Santé** : `GET /api/health`, sans connexion : `{"statut":"ok","base":"ok"}` (503 si la base ne répond pas).
+- **Disque** : la base et ses sauvegardes sont sur un volume chiffré, prérequis de l'installation.
+
+## Vérification automatique
+
+Chaque modification poussée sur GitHub passe `npm run check` (`.github/workflows/ci.yml`) : `npm ci`, typage, tests
+avec seuils de couverture, compilation de l'interface, sur Node 22 (`.nvmrc`), avec un essai non bloquant sur Node 24.
+L'interface compilée est publiée comme artefact pour l'instance de recette. Toute la logique est dans `npm run check` :
+une autre forge (GitLab, Azure DevOps) l'appelle en une ligne après `npm ci`. Les seuils de couverture (lignes,
+branches, fonctions) sont fixés juste sous la mesure du jour, dans le script `test:coverage` de `package.json`, et se
+relèvent au fil des tests ajoutés.
 
 ## Ce qui reste simulé
 
@@ -171,13 +223,23 @@ périodique : `docs/SAUVEGARDE.md`.
   heures validées sur les projets Keystone, absences validées et annulées (période seulement, jamais la nature), changements de verdict Go / No Go) passent
   par une file d'envoi persistante : envoyés à Keystone avec `KEYSTONE_URL` (nouvelles tentatives, suivi
   et relance dans Paramètres → Envois), seulement tracés dans le journal sans elle (`server/src/envois.ts`).
-- **Sage Paie** : la transmission produit le JSON des variables et un accusé fictif
-  (`server/src/integrations/sage.ts`) ; la correspondance des rubriques avec le plan de paie reste à paramétrer.
+- **Sage Paie** (`SAGE_MODE`, `server/src/integrations/sage.ts`) : en mode fichier (production), la paie génère le lot de
+  chaque période de paie (feuilles validées réservées, contenu figé, rappels compris), télécharge son fichier d'import CSV
+  (format réglable, téléchargement tracé), l'importe dans Sage puis confirme l'import, confirmation datée et signée qui
+  seule marque les feuilles transmises ; avant elle, le lot peut être annulé. Historique des lots dans l'écran Temps de
+  travail (`docs/DEPLOIEMENT.md`, « Sage Paie »). En simulation, rien n'est envoyé : les feuilles sont marquées
+  transmises, en un clic ou par un lot d'essai, ce que l'écran, la confirmation et le message disent. Le mode API est
+  refusé, sans accusé fictif. Les codes des rubriques dans le plan de paie se saisissent et se confirment dans l'écran Temps de travail
+  (administrateur RH, gestionnaire de paie) : tant qu'une rubrique utilisée n'est pas confirmée, seule la simulation transmet.
+  Chaque salarié y est désigné par son matricule de paie, saisi sur sa fiche (Paramètres → Matricules de paie liste
+  ceux qui manquent) : sans lui, il part sous son matricule Cursus en simulation, et une transmission réelle est refusée.
 - **E-mails** (`docs/EMAILS.md`) : notifications des étapes de validation (demande de congés et décision,
-  feuille soumise ou renvoyée, compte rendu d'entretien à signer, réponse à une demande au service RH),
+  feuille soumise ou renvoyée, compte rendu d'entretien à signer ou mis à disposition, réponse à une demande au service RH),
   aussitôt ou en récapitulatif quotidien selon le réglage de chacun ; convocations aux formations (envoi
   unitaire ou groupé, daté, désinscription) et aux entretiens, avec fichier `.ics` ; relevé hebdomadaire des
-  heures des intérimaires envoyé à leur agence (CSV). Envoyés par Microsoft Graph depuis la boîte
+  heures des intérimaires envoyé à leur agence (CSV) ; récapitulatif des échéances (titres, visites, formalités,
+  entretiens, fins de contrat) au service RH, à chaque manager pour son équipe (sans donnée de santé) et au référent HSE,
+  une seule fois par palier (90, 30, 7 jours, échu), désactivable dans Paramètres → Messagerie. Envoyés par Microsoft Graph depuis la boîte
   `CURSUS_MAIL_FROM`, par la file d'envoi (suivi et relance dans Paramètres → Envois) ; sans elle, simulés
   et tracés dans le journal. Adresse professionnelle sur la fiche (reprise du compte Microsoft 365), adresses
   du service RH, du service de santé au travail et des agences dans Paramètres → Messagerie.
@@ -195,6 +257,13 @@ dirigeant. Un changement d'organisation du temps prend effet à une date choisie
 antérieures gardent l'ancien régime (figé sur chaque feuille soumise) et les RTT / jours de repos
 sont proratisés.
 
+La fiche porte aussi la **période d'essai** écrite au contrat (aucune durée proposée : Cursus avertit au-delà du maximum
+légal) et, pour un salarié étranger, le **titre de séjour** valant autorisation de travail (type, numéro réservé au
+service RH, expiration, vérification en préfecture). L'écran Échéances (filtre « Contrats »), le tableau de bord et le
+résumé du manager signalent les fins d'essai (au dernier jour du délai de prévenance), les fins de CDD, de mission et
+d'alternance et les titres à renouveler (alertes à 120 et 60 jours, Paramètres → Contrats) ; un titre expiré rend le
+salarié non conforme et le passe en « No Go » sur les chantiers (`docs/ARCHITECTURE.md`, « Contrat et temps de travail »).
+
 ## Règles métier implémentées
 
 Validité des certifications et seuil d'alerte (30–180 j) · prérequis des habilitations
@@ -207,12 +276,19 @@ voyage par destination (passeport, visas, vaccins, délais) et de détachement (
 convention bilatérale de sécurité sociale, information écrite au-delà de 4 semaines) · Go / No Go par
 chantier (matricules et codes de motif uniquement) : contrat et absences sur la présence, aptitude médicale, habilitations,
 certifications, déplacement couvrant la présence, formalités de voyage et de détachement · heures supplémentaires +25 % / +50 %,
-heures complémentaires +10 % / +25 %, forfait jours, alertes 10 h / 48 h · repos
-compensateur · journée de 24 h au plus, motif exigé au-delà des durées maximales · CP 25 jours
+payées avec majoration (ou remplacées par un repos compensateur avec la référence de l'accord qui le prévoit, mode figé sur
+chaque feuille à sa validation), heures complémentaires +10 % / +25 %, forfait jours, alertes 10 h / 48 h · période de paie
+déduite de la semaine (mois du dimanche par défaut, clôture des variables, rappel d'une période close) · lots de paie figés,
+fichier d'import pour Sage, transmis seulement à la confirmation de l'import · suivi des feuilles de temps semaine par
+semaine (échéance le lundi suivant à 12 h, relance, validation groupée) · journée de 24 h au plus, motif exigé au-delà des durées maximales · CP 25 jours
 ouvrés (+5 j à 59 ans, CCN Chimie), chaque jour imputé sur sa période de référence, prise par
 anticipation dans la limite des jours acquis à la date du congé · RTT et jours de repos forfait
-calculés au prorata de l'entrée et de la fin du contrat, CET (5 RTT/an, 5e semaine de CP), reports
-tracés · doublons et conflits de dates (formation, absence, déplacement, entretien) signalés ou
+calculés au prorata de l'entrée et de la fin du contrat, ceux de l'année suivante posables dès maintenant, CET (5 RTT/an,
+5e semaine de CP), reports de CP rattachés à une période et datés · clôture des congés proposée au 1er juin (CP : report
+ou perte décidés salarié par salarié, jamais d'office, report de 15 mois après une absence de santé, une maternité ou
+une paternité) et au 1er janvier (RTT non reportables) · compteurs repris de l'ancien outil datés (période de leur date
+d'arrêté) · matricule de paie unique sur la fiche (réembauche confirmée par l'administrateur RH), identifiant envoyé à
+Keystone réglable (matricule Cursus par défaut) · doublons et conflits de dates (formation, absence, déplacement, entretien) signalés ou
 bloqués · absences hors congés
 (maladie, accident du travail ou de trajet, maladie professionnelle, maternité, paternité, adoption,
 congé parental, événements familiaux, enfant malade, absences non payées) signalées par le manager et
@@ -220,10 +296,18 @@ qualifiées par le service RH, prolongation, reprise inscrite automatiquement, n
 et à l'intéressé · annulation des absences selon le rôle, solde recrédité · absences et feuilles de temps
 bornées par le contrat · entretiens de
 parcours (L6315-1 : 1re année puis tous les 4 ans, reprise, état des lieux 8 ans avec
-risque d'abondement CPF), entretien annuel forfait jours (L3121-64) · plan de formation,
-enveloppes par équipe, import CSV · sessions de formation : confirmation, modification, annulation,
+risque d'abondement CPF), entretien annuel forfait jours (L3121-64), campagne d'entretiens annuels réglable (dates,
+ancienneté, contrats exclus), compte rendu imprimable dès la clôture et remise de la copie tracée (main propre, refus de
+signer, mise à disposition dans le portail), entretien annulé (`.ics` d'annulation) et entretien planifié à une date
+dépassée compté en retard · déplacements modifiés ou annulés (historique gardé, hors du Go / No Go, Keystone prévenu) · plan de formation, enveloppes par équipe, import CSV, coût réel saisi à la
+clôture d'une action, exercices passés consultables, clôture d'exercice avec report des actions engagées · sessions de formation : confirmation, modification, annulation,
 clôture (présence, évaluation selon la formation, certification datée du jour de la session, absents et
-échecs à replanifier, évaluation à chaud), nombre d'inscrits calculé.
+échecs à replanifier, évaluation à chaud), nombre d'inscrits calculé · référentiels administrés (formations,
+habilitations, destinations), archivés plutôt que supprimés, validité modifiée appliquée aux titres détenus ·
+échéances au dernier jour du mois cible quand le jour n'y existe pas (29/02 + 36 mois = 28/02) · renouvellement
+accepté d'une habilitation expirée compté « en attente » · exigences par poste et par équipe : une formation ou une
+habilitation exigée jamais obtenue rend « Non conforme », avec une échéance « exigence manquante » (inscrire, demander
+l'habilitation) et un indicateur au tableau de bord ; postes créés depuis les intitulés déjà saisis, choisis en liste.
 
 Jours fériés et périodes de référence (CP, RTT, campagnes) calculés à partir de la date du jour, celle de Paris
 quel que soit le fuseau du serveur ; dates impossibles (« 31/02 ») refusées à la saisie et à l'import.

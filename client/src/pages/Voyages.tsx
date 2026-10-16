@@ -1,5 +1,5 @@
-// Voyages professionnels : demandes Keystone, déplacements à venir, dossier voyage,
-// dossiers voyageurs et référentiel des destinations.
+// Voyages professionnels : demandes Keystone, déplacements à venir, dossier voyage (modification, annulation),
+// déplacements annulés (historique), dossiers voyageurs et référentiel des destinations.
 import { useMemo, type RefObject } from 'react';
 import { PlusIcon, UploadSimpleIcon } from '@phosphor-icons/react';
 import { SECU_RULES, TRIP_CLS, TRIP_LABEL, VISA_RULES, secuDe, type StatusKey } from '../../../shared/constants.ts';
@@ -7,11 +7,15 @@ import type { TripItem, TripX } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, fmtShort, monthShort, plural, rel } from '../../../shared/format.ts';
 import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
+import { voyagesAnnules } from '../../../shared/rules/deplacements.ts';
+import { actifs } from '../../../shared/rules/referentiels.ts';
 import { usePanneauVisible } from '../components/panneau.ts';
 import { Btn, Chips, CloseButton, Empty, Fine, Page, Panel, Tag, Two, stop } from '../components/ui.tsx';
+import { Ouvrir } from '../components/Cliquable.tsx';
 import { useAgir } from '../state/actions.ts';
 import { refusKeystone } from '../state/confirmations.ts';
-import { useEnriched, useTrips } from '../state/derived.ts';
+import { annulationVoyage } from '../state/confirmations-annulations.ts';
+import { useEnriched, useRole, useTrips } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
 const docCls = (k: StatusKey) => k === 'exp' ? 'tag-accent' : k === 'due' ? 'tag-outline' : 'tag-neutral';
@@ -44,6 +48,8 @@ export function Voyages() {
     return { dm, emp, c, dest, r, chefCourt, conflit };
   });
 
+  // Déplacements annulés : conservés, hors de tous les calculs (shared/rules/deplacements.ts) ; les six derniers.
+  const annules = voyagesAnnules(data.voyages).slice(0, 6);
   const count = (st: TripX['r']['status']) => trips.filter(t => t.r.status === st).length;
   const sel = trips.find(t => t.id === ui.tripSel) || null;
   // Écran étroit : le dossier voyage s'affiche sous la liste ; la sélection l'amène dans le champ de vision.
@@ -110,7 +116,7 @@ export function Voyages() {
                 <div className="grow" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <div className="item-head">
                     <div>
-                      <div style={{ fontSize: 14 }}>{t.emp.nom} — {t.r.dest.pays}</div>
+                      <div style={{ fontSize: 14 }}><Ouvrir pressed={selected} onOpen={() => setUi({ tripSel: selected ? null : t.id })}>{t.emp.nom} — {t.r.dest.pays}</Ouvrir></div>
                       <div className="text-muted sub">{t.motif} · {fmtShort(t.r.dep)} → {fmt(t.r.ret)} · départ {rel(t.r.toGo)}</div>
                       <div className="sub-11" style={{ color: 'var(--color-accent-300)' }}>{d.originLabel(t)}</div>
                     </div>
@@ -127,6 +133,26 @@ export function Voyages() {
         {sel && <TripPanel panneau={panneau} t={sel} onClose={() => setUi({ tripSel: null })} onOpenEmp={() => openEmp(sel.emp.id)} />}
       </div>
 
+      {annules.length > 0 && (
+        <Panel title="Déplacements annulés" aside="historique · hors du dossier à préparer et du Go / No Go">
+          <div className="scroll-x">
+            <table className="table">
+              <thead><tr><th>Collaborateur</th><th>Déplacement</th><th>Annulation</th><th>Motif</th></tr></thead>
+              <tbody>
+                {annules.map(t => (
+                  <tr key={t.id}>
+                    <td><Two nowrap main={d.personName(t.empId)} sub={d.originLabel(t)} /></td>
+                    <td><Two main={`${d.destOf(t.dest)?.pays ?? t.dest} · ${fmtShort(parse(t.depart))} → ${fmt(parse(t.retour))}`} sub={t.motif} /></td>
+                    <td><Two nowrap main={fmt(parse(t.annuleLe!))} sub={t.annulePar ?? ''} /></td>
+                    <td className="text-muted">{t.annuleMotif || '—'}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      )}
+
       <Panel title="Dossiers voyageurs" aside={plural(travelers.length, 'dossier voyageur', 'dossiers voyageurs')}>
         <div className="scroll-x">
           <table className="table">
@@ -134,7 +160,7 @@ export function Voyages() {
             <tbody>
               {travelers.map(({ e, tv, nt }) => (
                 <tr key={e.id} className="clickable" onClick={() => openEmp(e.id)}>
-                  <td><Two nowrap main={e.nom} sub={e.poste} /></td>
+                  <td><Two nowrap main={<Ouvrir onOpen={() => openEmp(e.id)}>{e.nom}</Ouvrir>} sub={e.poste} /></td>
                   <td>
                     <Two nowrap main={tv.pass ? `Valide jusqu’au ${fmt(tv.pass.exp)}` : 'Non renseigné'}
                       sub={tv.pass ? (tv.pass.key === 'ok' ? `n° ${e.passeport!.numero}` : tv.pass.key === 'exp' ? 'expiré' : `expire ${rel(tv.pass.d)}`) : 'à fournir'} />
@@ -158,12 +184,12 @@ export function Voyages() {
         </div>
       </Panel>
 
-      <Panel title="Référentiel destinations">
+      <Panel title="Référentiel destinations" aside={<Btn small onClick={() => go('referentiels', { refOnglet: 'destinations' })}>Modifier les destinations</Btn>}>
         <div className="scroll-x">
           <table className="table">
             <thead><tr><th>Pays</th><th>Entrée</th><th>Sécurité sociale</th><th>Vaccin obligatoire</th><th>Vaccins recommandés</th><th>Passeport</th></tr></thead>
             <tbody>
-              {data.referentiels.destinations.map(x => {
+              {actifs(data.referentiels.destinations).map(x => {
                 const rule = VISA_RULES[x.visa], secu = SECU_RULES[secuDe(x)];
                 return (
                   <tr key={x.code}>
@@ -179,7 +205,7 @@ export function Voyages() {
             </tbody>
           </table>
         </div>
-        <Fine>Données indicatives tenues par le service RH — à vérifier sur France Diplomatie, auprès d’un centre de vaccinations internationales et, pour la sécurité sociale, sur cleiss.fr avant chaque départ.</Fine>
+        <Fine>Données indicatives tenues par le service RH (écran Référentiels) — à vérifier sur France Diplomatie, auprès d’un centre de vaccinations internationales et, pour la sécurité sociale, sur cleiss.fr avant chaque départ.</Fine>
       </Panel>
     </Page>
   );
@@ -189,6 +215,7 @@ export function Voyages() {
 function TripPanel({ panneau, t, onClose, onOpenEmp }: { panneau: RefObject<HTMLElement | null>; t: TripX; onClose: () => void; onOpenEmp: () => void }) {
   const { d } = useEnriched();
   const { openDialog } = useStore();
+  const { rh } = useRole();
   const r = t.r;
   return (
     <aside ref={panneau} tabIndex={-1} aria-labelledby="dossier-voyage-nom" className="card elev-md side-panel" style={{ flex: '0 1 400px' }}>
@@ -225,7 +252,12 @@ function TripPanel({ panneau, t, onClose, onOpenEmp }: { panneau: RefObject<HTML
         ))}
       </div>
       <Fine>{d.destSummary(r.dest)} Exigences tenues à jour par le service RH — à vérifier sur France Diplomatie avant le départ.</Fine>
-      <Btn style={{ alignSelf: 'flex-start' }} onClick={onOpenEmp}>Fiche collaborateur →</Btn>
+      <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', alignItems: 'center' }}>
+        <Btn onClick={onOpenEmp}>Fiche collaborateur →</Btn>
+        {/* Modification (dates ; destination et motif hors Keystone) et annulation : service RH, Keystone prévenu. */}
+        {rh && <Btn onClick={() => openDialog({ type: 'tripModifier', id: t.id })}>Modifier le déplacement</Btn>}
+        {rh && <Btn onClick={() => openDialog({ type: 'confirmer', c: annulationVoyage(t, t.emp.nom, `${r.dest.pays} du ${fmtShort(r.dep)} au ${fmt(r.ret)}`) })}>Annuler le déplacement</Btn>}
+      </div>
     </aside>
   );
 }

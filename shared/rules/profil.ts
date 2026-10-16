@@ -3,13 +3,18 @@
 import { estMotifReprise, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../constants.ts';
 import { isValidDate } from '../dates.ts';
 import { r1 } from '../format.ts';
-import type { Employe, Statut, TempsTravail, TypeContrat } from '../types.ts';
+import type { Employe, MotifSortie, Statut, TempsTravail, TypeContrat } from '../types.ts';
+import { controleMatriculePaie, normaliserMatricule, type TitulaireMatricule, unicite } from './matricules.ts';
+import { controleEssai, estMotifSortie } from './contrats.ts';
 import { controleAdresse, normaliserAdresse } from './messagerie.ts';
 
 /** Champs d'une fiche saisis par le service RH. */
 export interface ProfilInput {
   nom: string;
+  /** Intitulé du poste : celui du poste choisi dans le référentiel (`posteId`), conservé sur la fiche. */
   poste: string;
+  /** Poste du référentiel (shared/rules/exigences.ts), dont les exigences s'appliquent ; null : intitulé seul. */
+  posteId?: number | null;
   equipe: string | null;
   statut: Statut;
   typeContrat: TypeContrat;
@@ -21,9 +26,20 @@ export interface ProfilInput {
   /** Date d'effet de l'organisation du temps (renseignée lors d'un changement de régime). */
   tempsDepuis: string | null;
   entree: string;
+  /** Dernier jour du contrat : fin prévue (CDD, mission, alternance), ou date de sortie enregistrée (tous contrats). */
   fin: string | null;
+  /**
+   * Motif de la sortie (liste fermée MOTIFS_SORTIE) : enregistré ou annulé par `employe.sortie` et `employe.annulerSortie`,
+   * jamais par `employe.modifier` ; une fiche reprise d'un autre outil peut le porter à sa création.
+   */
+  motifSortie?: MotifSortie | null;
+  /** Période d'essai écrite au contrat : dernier jour, et dernier jour après renouvellement (aucune valeur proposée). */
+  essaiFin?: string | null;
+  essaiRenouveleJusquau?: string | null;
   naissance: number;
   agence: string | null;
+  /** Matricule du dossier de paie (Sage) : 1 à 20 lettres et chiffres, unique (shared/rules/matricules.ts). */
+  matriculePaie: string | null;
   /** Adresse e-mail professionnelle (notifications, convocations). */
   email: string | null;
   visite: string | null;
@@ -32,11 +48,14 @@ export interface ProfilInput {
 }
 
 export const PROFIL_FIELDS: (keyof ProfilInput)[] = [
-  'nom', 'poste', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis',
-  'entree', 'fin', 'naissance', 'agence', 'email', 'visite', 'repriseMotif', 'repriseDate',
+  'nom', 'poste', 'posteId', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis',
+  'entree', 'fin', 'motifSortie', 'essaiFin', 'essaiRenouveleJusquau', 'naissance', 'agence', 'matriculePaie', 'email', 'visite', 'repriseMotif', 'repriseDate',
 ];
 
-/** Champs qu'un manager peut modifier pour un membre de son équipe ; le contrat et le statut restent au RH. */
+/**
+ * Champs qu'un manager peut modifier pour un membre de son équipe ; le contrat et le statut restent au RH, comme le poste
+ * du référentiel (`posteId`), dont les exigences décident de la conformité : le manager n'en précise que l'intitulé.
+ */
 export const MANAGER_FIELDS: (keyof ProfilInput)[] = ['poste', 'jourOff'];
 
 export const JOURS_SEMAINE = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi'];
@@ -48,8 +67,8 @@ export function profilOf(e: Employe): ProfilInput {
 }
 
 export const PROFIL_VIDE = (equipe: string | null, today: string): ProfilInput => ({
-  nom: '', poste: '', equipe, statut: 'ouvrier', typeContrat: 'cdi', temps: '35h', heures: null, forfaitHeures: null, forfaitJours: null,
-  jourOff: [], tempsDepuis: null, entree: today, fin: null, naissance: Number(today.slice(0, 4)) - 30, agence: null, email: null, visite: null, repriseMotif: null, repriseDate: null,
+  nom: '', poste: '', posteId: null, equipe, statut: 'ouvrier', typeContrat: 'cdi', temps: '35h', heures: null, forfaitHeures: null, forfaitJours: null,
+  jourOff: [], tempsDepuis: null, entree: today, fin: null, motifSortie: null, essaiFin: null, essaiRenouveleJusquau: null, naissance: Number(today.slice(0, 4)) - 30, agence: null, matriculePaie: null, email: null, visite: null, repriseMotif: null, repriseDate: null,
 });
 
 /**
@@ -61,12 +80,11 @@ export function normaliserProfil(p: ProfilInput): ProfilInput {
   const s = (v: unknown) => (typeof v === 'string' && v.trim() ? v.trim() : null);
   const txt = (v: unknown) => (typeof v === 'string' ? v.trim() : '');
   const n = (v: unknown) => (v === null || v === undefined || v === '' ? null : Number(String(v).replace(',', '.')));
-  const tc = TYPES_CONTRAT[p.typeContrat];
-  const finPossible = !!tc?.fin || !!tc?.finFacultative || p.typeContrat === 'interim';
   return {
     ...p,
     nom: txt(p.nom),
     poste: txt(p.poste),
+    posteId: p.posteId == null || (p.posteId as unknown) === '' ? null : Number(p.posteId),
     equipe: s(p.equipe),
     heures: t === 'partiel' || t === 'forfait_heures_hebdo' ? n(p.heures) : null,
     forfaitHeures: t === 'forfait_heures_annuel' ? (n(p.forfaitHeures) ?? 1607) : null,
@@ -74,9 +92,14 @@ export function normaliserProfil(p: ProfilInput): ProfilInput {
     jourOff: t === 'partiel' && Array.isArray(p.jourOff) ? [...new Set(p.jourOff.map(Number))].filter(j => Number.isInteger(j) && j >= 0 && j <= 4).sort() : [],
     tempsDepuis: s(p.tempsDepuis),
     entree: txt(p.entree),
-    fin: finPossible ? s(p.fin) : null,
+    // La date de fin sert de date de sortie pour tous les contrats : celle d'un CDI n'existe qu'avec son motif (validerProfil).
+    fin: s(p.fin),
+    motifSortie: s(p.motifSortie) as MotifSortie | null,
+    essaiFin: s(p.essaiFin),
+    essaiRenouveleJusquau: s(p.essaiRenouveleJusquau),
     naissance: Number(p.naissance),
     agence: p.typeContrat === 'interim' ? s(p.agence) : null,
+    matriculePaie: normaliserMatricule(p.matriculePaie),
     email: normaliserAdresse(p.email),
     visite: s(p.visite),
     repriseMotif: s(p.repriseMotif),
@@ -88,12 +111,23 @@ export function normaliserProfil(p: ProfilInput): ProfilInput {
  * Contrôles bloquants (`errors`) et points d'attention (`warnings`).
  * `encadre` : équipes dont le collaborateur est manager (un intérimaire ne peut pas l'être).
  * `adressesPrises` : adresses e-mail des autres salariés, avec leur nom (`adressesPrises` de rules/messagerie.ts).
+ * `matricules` : matricules de paie des autres salariés (`matriculesPris` de rules/matricules.ts), matricule enregistré
+ * sur la fiche (`actuel`, inchangé : pas de nouveau contrôle) et réutilisation confirmée par l'administrateur RH.
  */
-export function validerProfil(raw: ProfilInput, opts: { equipes: string[]; year: number; encadre?: string[]; adressesPrises?: Record<string, string> }) {
+export function validerProfil(raw: ProfilInput, opts: {
+  equipes: string[]; year: number; encadre?: string[]; adressesPrises?: Record<string, string>;
+  matricules?: { pris: Record<string, TitulaireMatricule>; actuel?: string | null; reutiliser?: boolean };
+  /**
+   * Fiche enregistrée : fin prévue au contrat avant la sortie, et indication d'une sortie enregistrée (vues sans le
+   * motif). La période d'essai se compare à la fin prévue, jamais à la date de sortie.
+   */
+  contrat?: Partial<Pick<Employe, 'finPrevue' | 'sortieEnregistree'>>;
+}) {
   const p = normaliserProfil(raw);
   const errors: string[] = [], warnings: string[] = [];
   if (!p.nom) errors.push('Nom requis.');
   if (!p.poste) errors.push('Poste requis.');
+  else if (p.posteId != null && !Number.isInteger(p.posteId)) errors.push('Poste inconnu : choisissez-le dans la liste.');
   if (p.equipe && !opts.equipes.includes(p.equipe)) errors.push(`Équipe inconnue : ${p.equipe}.`);
   if (!STATUTS[p.statut]) errors.push('Statut inconnu.');
   if (!TYPES_CONTRAT[p.typeContrat]) errors.push('Nature du contrat inconnue.');
@@ -103,6 +137,17 @@ export function validerProfil(raw: ProfilInput, opts: { equipes: string[]; year:
   if (p.fin) {
     if (!isValidDate(p.fin)) errors.push('Date de fin invalide.');
     else if (isValidDate(p.entree) && p.fin < p.entree) errors.push('La date de fin précède la date d’entrée.');
+  }
+  // Sortie : motif en liste fermée, avec sa date ; un CDI ne prend fin que par une sortie enregistrée.
+  if (p.motifSortie && !estMotifSortie(p.motifSortie)) errors.push('Motif de sortie à choisir dans la liste.');
+  if (p.motifSortie && !p.fin) errors.push('Date de sortie requise avec le motif de sortie.');
+  // (Vue du manager : le motif ne lui parvient pas, l'indication de la sortie si.)
+  if (p.fin && p.typeContrat === 'cdi' && !p.motifSortie && !opts.contrat?.sortieEnregistree) errors.push('Un CDI ne prend fin que par une sortie enregistrée avec son motif.');
+  // Période d'essai : cohérence avec le contrat (bloquant), maximum légal (avertissement, shared/rules/contrats.ts).
+  if (isValidDate(p.entree)) {
+    const essai = controleEssai({ ...p, finPrevue: opts.contrat?.finPrevue ?? null, sortieEnregistree: opts.contrat?.sortieEnregistree });
+    errors.push(...essai.errors);
+    warnings.push(...essai.warnings);
   }
   if (p.typeContrat === 'interim' && !p.agence) errors.push('Agence d’intérim requise.');
   if (p.typeContrat === 'interim' && opts.encadre?.length) errors.push(`Manager de l’équipe ${opts.encadre.join(', ')} : désignez d’abord un autre manager (Équipes & managers) avant de passer la fiche en intérim.`);
@@ -116,6 +161,13 @@ export function validerProfil(raw: ProfilInput, opts: { equipes: string[]; year:
   if (errEmail) errors.push(`${errEmail}.`);
   else if (p.email && opts.adressesPrises?.[p.email]) errors.push(`Adresse e-mail déjà attribuée à ${opts.adressesPrises[p.email]}.`);
   if (!p.email) warnings.push('Adresse e-mail professionnelle manquante : ni les notifications ni les convocations ne lui parviendront.');
+  // Matricule de paie : format, unicité (réembauche : réutilisation confirmée par l'administrateur RH), et rappel tant qu'il manque.
+  const errMatricule = controleMatriculePaie(p.matriculePaie);
+  const u = !errMatricule && opts.matricules ? unicite(p.matriculePaie, opts.matricules.pris, opts.matricules) : null;
+  if (errMatricule) errors.push(`${errMatricule}.`);
+  else if (u?.erreur) errors.push(u.erreur);
+  if (u?.avertissement) warnings.push(u.avertissement);
+  if (!p.matriculePaie && p.typeContrat !== 'interim') warnings.push('Matricule de paie manquant : le salarié sera refusé d’une transmission réelle à la paie.');
   if (p.visite && !isValidDate(p.visite)) errors.push('Date de visite médicale invalide.');
   if (p.repriseDate && !isValidDate(p.repriseDate)) errors.push('Date de reprise invalide.');
   if (p.repriseDate && !p.repriseMotif) errors.push('Motif de l’absence longue requis avec la date de reprise.');
@@ -152,5 +204,5 @@ export function validerProfil(raw: ProfilInput, opts: { equipes: string[]; year:
   if (p.typeContrat === 'alternance' && (p.temps === 'forfait_jours' || p.temps === 'forfait_heures_annuel' || p.temps === 'dirigeant')) {
     warnings.push('Un alternant relève en principe de l’horaire collectif : vérifier la compatibilité avec le contrat d’apprentissage ou de professionnalisation.');
   }
-  return { profil: p, errors, warnings, ok: errors.length === 0 };
+  return { profil: p, errors, warnings, ok: errors.length === 0, matriculeAConfirmer: u?.aConfirmer ?? null };
 }

@@ -5,9 +5,11 @@ import { SESS_CLS, SESSION_PASSEE, TRIP_CLS, TRIP_LABEL } from '../../../shared/
 import { sessionActive, type Domain, type EchItem } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { cap, equipeLabel, fmt, fmtShort, plural, rel } from '../../../shared/format.ts';
+import { exigencesEquipe, nombreExigences } from '../../../shared/rules/exigences.ts';
 import { declarationDetail, retireeAuRefus, valeurActuelle } from '../../../shared/rules/formalites.ts';
 import type { DemandeCollab, Session } from '../../../shared/types.ts';
 import { Bar, DateBlock, Kpi, Kpis, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
+import { Ouvrir } from '../components/Cliquable.tsx';
 import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derived.ts';
 import { useAgir } from '../state/actions.ts';
 import { refusDemande } from '../state/confirmations.ts';
@@ -18,9 +20,9 @@ export function EchRow({ x, onOpen, onAct }: { x: EchItem; onOpen: () => void; o
   const { occupe, agir } = useAgir();
   return (
     <tr className="clickable" onClick={onOpen}>
-      <td><Two main={x.emp.nom} sub={equipeLabel(x.emp)} /></td>
+      <td><Two main={<Ouvrir onOpen={onOpen}>{x.emp.nom}</Ouvrir>} sub={equipeLabel(x.emp)} /></td>
       <td><Two main={x.label} sub={x.kindLabel} /></td>
-      <td>{x.sansDate ? <Two main="Non renseignée" sub="aucune visite enregistrée" nowrap /> : <Two main={fmt(x.exp)} sub={rel(x.d)} nowrap />}</td>
+      <td>{x.sansDate ? <Two main={x.sansDateTexte?.main ?? 'Non renseignée'} sub={x.sansDateTexte?.sub ?? 'aucune visite enregistrée'} nowrap /> : <Two main={fmt(x.exp)} sub={rel(x.d)} nowrap />}</td>
       <td><Tag cls={x.cls}>{x.statut}</Tag></td>
       <td className="right">
         {/* Session à venir (planifié), ou passée en attente de clôture (note et bouton « Clôturer »). */}
@@ -60,7 +62,9 @@ export function Dashboard() {
 
   const v = useMemo(() => {
     const ech = d.echeances(emps, horizon);
-    const compl = ech.filter(x => x.kind !== 'trip');
+    // Renouvellements (certifications, habilitations, aptitudes) ; les échéances du contrat ont leur propre panneau.
+    const compl = ech.filter(x => x.kind !== 'trip' && x.kind !== 'contrat');
+    const sansAction = (x: EchItem) => (x.action && !permis(x.action.intent) ? { ...x, action: null } : x);
     const total = emps.length;
     const nonExp = emps.filter(e => e.worst !== 'exp').length;
     const allCerts = emps.flatMap(e => e.certs);
@@ -75,9 +79,16 @@ export function Dashboard() {
     return {
       total, nonExp, plannedCount, placesLeft, teams,
       due: compl.filter(c => c.key === 'due').length,
-      exp: compl.filter(c => c.key === 'exp').length,
+      // Titres expirés ; les exigences manquantes (jamais obtenues) ont leur indicateur.
+      exp: compl.filter(c => c.key === 'exp' && c.kind !== 'exigence').length,
+      // Collaborateurs qui ont un titre expiré (hors exigences manquantes, comptées à part).
+      expires: new Set(compl.filter(c => c.key === 'exp' && c.kind !== 'exigence').map(c => c.emp.id)).size,
+      manquants: emps.reduce((n, e) => n + e.manquants.length, 0), sansExigence: emps.filter(e => e.manquants.length).length,
+      declarees: d.ds.referentiels.postes.some(p => nombreExigences(p) > 0) || d.ds.referentiels.equipes.some(q => nombreExigences(exigencesEquipe(q)) > 0),
       // Propositions d'action réservées aux profils qui peuvent les lancer (aucune en lecture seule).
-      priority: compl.filter(c => c.key !== 'ok').sort((a, b) => a.d - b.d).slice(0, 8).map(x => x.action && !permis(x.action.intent) ? { ...x, action: null } : x),
+      priority: compl.filter(c => c.key !== 'ok').sort((a, b) => a.d - b.d).slice(0, 8).map(sansAction),
+      // Fins d'essai (avant le délai de prévenance), fins de contrat et titres de séjour à traiter (shared/rules/contrats.ts).
+      contrats: ech.filter(c => c.kind === 'contrat' && c.key !== 'ok').sort((a, b) => a.d - b.d).slice(0, 6).map(sansAction),
     };
   }, [d, emps, horizon, upcoming, permis]);
 
@@ -98,7 +109,11 @@ export function Dashboard() {
       <Kpis>
         <Kpi kicker="Conformité" value={v.total ? `${Math.round(v.nonExp / v.total * 100)} %` : '—'} sub={`${v.nonExp} collaborateurs sur ${v.total} sans échéance dépassée`} />
         <Kpi kicker="À renouveler" value={v.due} sub={`sous ${horizon} jours · ${plural(v.plannedCount, 'inscription planifiée', 'inscriptions planifiées')}`} />
-        <Kpi kicker="Expirées" value={v.exp} sub={v.exp ? `${plural(v.total - v.nonExp, 'collaborateur non conforme', 'collaborateurs non conformes')} · certifications, habilitations et aptitudes médicales` : 'aucune certification, habilitation ni aptitude médicale expirée'} />
+        <Kpi kicker="Expirées" value={v.exp} sub={v.exp ? `${plural(v.expires, 'collaborateur non conforme', 'collaborateurs non conformes')} · certifications, habilitations et aptitudes médicales` : 'aucune certification, habilitation ni aptitude médicale expirée'} />
+        {/* Exigences des postes et des équipes (t055) : formations jamais suivies, habilitations jamais délivrées. */}
+        <Kpi kicker="Exigences manquantes" value={v.declarees ? v.manquants : '—'}
+          sub={!v.declarees ? 'aucune exigence déclarée par poste ni par équipe (Référentiels → Postes)'
+            : v.manquants ? `${plural(v.sansExigence, 'collaborateur non conforme', 'collaborateurs non conformes')} · formation ou habilitation exigée jamais obtenue` : 'toutes les exigences des postes et des équipes sont remplies'} />
         <Kpi kicker="Sessions à venir" value={upcoming.length}
           sub={`${nextUp ? `prochaine le ${fmtShort(parse(nextUp.date))} · ${plural(v.placesLeft, 'place restante', 'places restantes')}` : 'aucune session planifiée'}${aCloturer.length ? ` · ${plural(aCloturer.length, 'session à clôturer', 'sessions à clôturer')}` : ''}`} />
       </Kpis>
@@ -115,10 +130,13 @@ export function Dashboard() {
                     const s = d.session(r.sessionId);
                     const detail = [r.motif, s ? `session souhaitée le ${fmt(parse(s.date))}${sessionActive(s) ? '' : ` (${s.statut.toLowerCase()})`}` : ''].filter(Boolean).join(' · ');
                     const x = r.declaration;
+                    // Formation ou habilitation archivée depuis la demande : elle ne s'accepte plus (refus du serveur).
+                    const archivee = r.type === 'formation' ? !!(r.f && d.fm(r.f)?.archive) : r.type === 'habilitation' && !!(r.h && d.hm(r.h)?.archive);
+                    const sub = [reqKind(r), r.parId ? `par ${d.personName(r.parId)} (manager)` : '', archivee ? `${r.type} archivée : à refuser, ou à rétablir d’abord` : ''].filter(Boolean).join(' · ');
                     return (
                       <tr key={r.id} className="clickable" onClick={() => openEmp(r.empId)}>
-                        <td><Two main={e?.nom} sub={`${equipeLabel(e)} · Reçue le ${fmtShort(parse(r.date))}`} nowrap /></td>
-                        <td><Two main={reqLabel(r, id => d.fm(id).nom, id => d.hm(id).nom)} sub={r.parId ? `${reqKind(r)} · par ${d.personName(r.parId)} (manager)` : reqKind(r)} /></td>
+                        <td><Two main={<Ouvrir onOpen={() => openEmp(r.empId)}>{e?.nom ?? d.personName(r.empId)}</Ouvrir>} sub={`${equipeLabel(e)} · Reçue le ${fmtShort(parse(r.date))}`} nowrap /></td>
+                        <td><Two main={reqLabel(r, id => d.fm(id).nom, id => d.hm(id).nom)} sub={sub} /></td>
                         {x && e
                           // Document déclaré : contenu saisi et valeur du dossier qu'il remplacera à la validation
                           // (sauf déclaration reprise d'une ancienne base, encore au dossier : un refus l'en retire).
@@ -145,6 +163,23 @@ export function Dashboard() {
           </Panel>
         )}
 
+        {/* Fins d'essai, fins de contrat et titres de séjour (shared/rules/contrats.ts) : service RH et lecture seule. */}
+        {v.contrats.length > 0 && (
+          <Panel highlight style={{ flex: '1 1 100%' }} title="Contrats à suivre"
+            aside={<a href="/echeances" className="link-more" onClick={e => { e.preventDefault(); go('echeances', { echType: 'contrat' }); }}>Toutes les échéances du contrat →</a>}>
+            <div className="scroll-x">
+              <table className="table">
+                <thead><tr><th>Collaborateur</th><th>Élément</th><th>Échéance</th><th>Statut</th><th></th></tr></thead>
+                <tbody>
+                  {v.contrats.map(x => (
+                    <EchRow key={`${x.kind}-${x.emp.id}-${x.label}`} x={x} onOpen={() => openEmp(x.emp.id)} onAct={() => x.action && runIntent(x.action.intent)} />
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </Panel>
+        )}
+
         <Panel style={{ flex: '1 1 560px' }} title="Échéances prioritaires"
           aside={<a href="/echeances" className="link-more" onClick={e => { e.preventDefault(); go('echeances'); }}>Toutes les échéances →</a>}>
           <table className="table">
@@ -165,7 +200,7 @@ export function Dashboard() {
                   <div key={s.id} className="list-row clickable" onClick={() => openDialog({ type: 'sessionDetail', sessionId: s.id })}>
                     <DateBlock date={parse(s.date)} />
                     <div className="grow">
-                      <div className="ellipsis" style={{ fontSize: 14 }}>{d.fm(s.formation).court}</div>
+                      <div className="ellipsis" style={{ fontSize: 14 }}><Ouvrir onOpen={() => openDialog({ type: 'sessionDetail', sessionId: s.id })}>{d.fm(s.formation).court}</Ouvrir></div>
                       <div className="note-accent ellipsis">{SESSION_PASSEE} · {plural(s.inscrits, 'inscrit', 'inscrits')}</div>
                     </div>
                     {formations && <button type="button" className="btn btn-ghost btn-sm" style={{ flex: 'none' }} onClick={stop(() => openDialog({ type: 'cloture', sessionId: s.id }))}>Clôturer</button>}
@@ -195,7 +230,7 @@ export function Dashboard() {
                   <div key={s.id} className="list-row clickable" onClick={() => openDialog({ type: 'sessionDetail', sessionId: s.id })}>
                     <DateBlock date={sv.date} />
                     <div className="grow">
-                      <div className="ellipsis" style={{ fontSize: 14 }}>{sv.nom}</div>
+                      <div className="ellipsis" style={{ fontSize: 14 }}><Ouvrir onOpen={() => openDialog({ type: 'sessionDetail', sessionId: s.id })}>{sv.nom}</Ouvrir></div>
                       <div className="text-muted sub ellipsis">{s.lieu} · {s.inscrits}/{s.places} inscrits</div>
                     </div>
                     <Tag cls={sv.cls} style={{ flex: 'none' }}>{sv.statut}</Tag>
@@ -212,7 +247,7 @@ export function Dashboard() {
                 <div key={t.id} className="list-row clickable" onClick={() => go('voyages', { tripSel: t.id })}>
                   <DateBlock date={t.r.dep} />
                   <div className="grow">
-                    <div className="ellipsis" style={{ fontSize: 14 }}>{t.emp.nom}</div>
+                    <div className="ellipsis" style={{ fontSize: 14 }}><Ouvrir onOpen={() => go('voyages', { tripSel: t.id })}>{t.emp.nom}</Ouvrir></div>
                     <div className="text-muted sub ellipsis">{t.r.dest.pays} · {t.motif}</div>
                   </div>
                   <Tag cls={TRIP_CLS[t.r.status]} style={{ flex: 'none' }}>{TRIP_LABEL[t.r.status]}</Tag>

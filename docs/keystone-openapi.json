@@ -4,7 +4,7 @@
     "title": "Cursus — API Keystone",
     "version": "1.0.0",
     "summary": "Appels de Keystone vers Cursus (référentiel des chantiers, affectations, planning, verdict Go / No Go, demandes de déplacement) et événements envoyés par Cursus à Keystone.",
-    "description": "Keystone transmet à Cursus ses projets, chantiers, affectations (présence d'un salarié sur un chantier) et tâches planifiées, interroge le verdict Go / No Go d'un chantier et dépose des demandes de déplacement que le service RH valide. Les salariés sont désignés par leur matricule ; seuls des matricules et des codes de motif sortent de Cursus (aucune donnée de santé, aucun document de voyage). Chaque objet porte son identifiant Keystone : renvoyer le même objet ne crée pas de doublon. Dans l'autre sens, Cursus envoie ses décisions sur les demandes, les heures et absences validées et les changements de verdict à une route que Keystone implémente (webhook `evenement`). Guide en français pour le développeur de Keystone : docs/API-KEYSTONE.md."
+    "description": "Keystone transmet à Cursus ses projets, chantiers, affectations (présence d'un salarié sur un chantier) et tâches planifiées, interroge le verdict Go / No Go d'un chantier et dépose des demandes de déplacement que le service RH valide. Les salariés sont désignés par leur matricule (matricule Cursus EMP-xxxx par défaut, matricule de paie après une bascule annoncée : schéma Matricule) ; seuls des matricules et des codes de motif sortent de Cursus (aucune donnée de santé, aucun document de voyage). Chaque objet porte son identifiant Keystone : renvoyer le même objet ne crée pas de doublon. Dans l'autre sens, Cursus envoie ses décisions sur les demandes, les heures et absences validées et les changements de verdict à une route que Keystone implémente (webhook `evenement`). Guide en français pour le développeur de Keystone : docs/API-KEYSTONE.md."
   },
   "servers": [
     { "url": "/api/integrations/keystone", "description": "Cursus, derrière son reverse proxy HTTPS (même origine que l'application)" }
@@ -37,7 +37,7 @@
         "tags": ["Documentation"],
         "operationId": "referentiels",
         "summary": "Codes admis par Cursus",
-        "description": "Habilitations et certifications exigibles d'un chantier, destinations des déplacements (pays dont Cursus connaît les formalités).",
+        "description": "Habilitations et certifications exigibles d'un chantier, destinations des déplacements (pays dont Cursus connaît les formalités). Un élément archivé dans Cursus (`archive` renseigné) reste reçu, mais ne doit plus être proposé pour une nouvelle exigence ni un nouveau déplacement.",
         "responses": {
           "200": { "description": "Référentiels", "content": { "application/json": { "schema": { "$ref": "#/components/schemas/Referentiels" } } } },
           "401": { "$ref": "#/components/responses/CleInvalide" },
@@ -346,7 +346,8 @@
                 "demande.decision": { "value": { "id": "0b9d7c1e-2f4a-4d3b-9a61-3c5e8f7a1b20", "type": "demande.decision", "emis_le": "2026-10-10T08:41:07.512Z", "donnees": { "demande": 7, "reference": "DK-2026-0412", "matricule": "EMP-0018", "chantier": "K-2611", "decision": "acceptee", "date": "2026-10-10" } } },
                 "heures.validees": { "value": { "id": "5f2e8a90-7c1d-4b6e-8f03-a9d4c2e1b7f6", "type": "heures.validees", "emis_le": "2026-10-12T16:05:31.004Z", "donnees": { "matricule": "EMP-0012", "semaine": "2026-10-05", "projets": { "K-2614": 15, "K-2611": 15 } } } },
                 "absence.validee": { "value": { "id": "c41a6e2d-93b7-4f58-a0e1-6d2b8c9f3e47", "type": "absence.validee", "emis_le": "2026-10-10T09:12:44.120Z", "donnees": { "absence": 31, "matricule": "EMP-0018", "du": "2026-12-14", "au": "2026-12-18" } } },
-                "verdict.modifie": { "value": { "id": "9e7f3b21-48ac-4d0e-b5f6-12c8a7d3e940", "type": "verdict.modifie", "emis_le": "2026-10-10T10:02:18.377Z", "donnees": { "chantier": "K-2614", "statut": "NO_GO", "ressource": { "matricule": "EMP-0018", "statut": "NO_GO", "motifs": [{ "code": "HABILITATION_SUSPENDUE", "niveau": "NO_GO" }], "precedent": "GO" } } } }
+                "verdict.modifie": { "value": { "id": "9e7f3b21-48ac-4d0e-b5f6-12c8a7d3e940", "type": "verdict.modifie", "emis_le": "2026-10-10T10:02:18.377Z", "donnees": { "chantier": "K-2614", "statut": "NO_GO", "ressource": { "matricule": "EMP-0018", "statut": "NO_GO", "motifs": [{ "code": "HABILITATION_SUSPENDUE", "niveau": "NO_GO" }], "precedent": "GO" } } } },
+                "deplacement.annule": { "value": { "id": "3a8c1f60-5d2e-4b7a-9c41-e7f0b2d6a815", "type": "deplacement.annule", "emis_le": "2026-10-14T13:20:05.218Z", "donnees": { "deplacement": 12, "demande": 7, "reference": "DK-2026-0412", "matricule": "EMP-0018", "chantier": "K-2611", "destination": "MA", "depart": "2026-11-02", "retour": "2026-11-20", "date": "2026-10-14" } } }
               }
             }
           }
@@ -376,7 +377,7 @@
     "schemas": {
       "Identifiant": { "type": "string", "pattern": "^[A-Za-z0-9][A-Za-z0-9._:-]{0,63}$", "description": "1 à 64 caractères : lettres, chiffres, « . », « _ », « : », « - »", "examples": ["K-2614", "AF-K-2614-18"] },
       "Date": { "type": "string", "format": "date", "pattern": "^\\d{4}-\\d{2}-\\d{2}$", "description": "AAAA-MM-JJ, date existante (2026-02-31 est refusée)" },
-      "Matricule": { "type": "string", "maxLength": 32, "description": "Matricule du salarié dans Cursus (aujourd'hui « EMP- » suivi de quatre chiffres ; deviendra le matricule de paie)", "examples": ["EMP-0018"] },
+      "Matricule": { "type": "string", "maxLength": 32, "description": "Matricule du salarié. Par défaut, le matricule Cursus : « EMP- » suivi de quatre chiffres (contrat de l'API v1). Après une bascule annoncée par Cursus (réglage « Identifiant envoyé à Keystone »), le matricule de paie : 1 à 20 caractères, lettres A-Z et chiffres, sans tiret ; un salarié sans matricule de paie garde alors son matricule Cursus. La bascule vaut dans les deux sens (messages envoyés, réponses, appels reçus) : un matricule inconnu, y compris l'ancien matricule Cursus d'un salarié qui a un matricule de paie, est refusé (400).", "examples": ["EMP-0018", "004118"] },
       "StatutKeystone": { "type": "string", "enum": ["actif", "archive"], "default": "actif" },
       "Resultat": { "type": "string", "enum": ["cree", "modifie", "inchange"], "description": "`inchange` : envoi identique à l'état enregistré, rien n'a été écrit" },
       "ProjetEntree": {
@@ -525,7 +526,7 @@
       "CodeMotif": {
         "type": "string",
         "enum": ["HABILITATION", "HABILITATION_SUSPENDUE", "HABILITATION_RETIREE", "CERTIFICATION", "DEPLACEMENT", "FORMALITES_VOYAGE", "CONTRAT", "ABSENCE", "DEPLACEMENT_PARTIEL", "DETACHEMENT", "APTITUDE"],
-        "description": "HABILITATION : habilitation exigée absente, en attente, expirée ou expirant pendant le chantier ; HABILITATION_SUSPENDUE / HABILITATION_RETIREE : mesure prise par l'employeur ; CERTIFICATION : certification exigée absente, expirée ou expirant pendant le chantier ; DEPLACEMENT : aucun déplacement validé pour ce chantier ; FORMALITES_VOYAGE : passeport, visa ou vaccination à régulariser ; CONTRAT : contrat (CDD, intérim, alternance) terminé avant la fin de la présence, ou commencé après son début (NO_GO) ; ABSENCE : absence en vigueur pendant la présence (NO_GO) ou demande d'absence en attente (GO_RESERVE), jamais sa nature ; DEPLACEMENT_PARTIEL : déplacement qui ne couvre pas toute la présence (GO_RESERVE) ; DETACHEMENT : certificat de sécurité sociale (A1, convention bilatérale ou maintien au régime français) ou information écrite d'une mission de plus de 4 semaines à faire avant le départ (GO_RESERVE), ou non fait au départ (NO_GO, à partir du jour du départ) ; APTITUDE : aptitude médicale du jour — avis d'inaptitude du médecin du travail (NO_GO), aptitude non valide ou restrictions d'aptitude en vigueur (GO_RESERVE) — le verdict seulement, indépendant des dates de présence, jamais une date de visite ni une restriction (libellé neutre en partage détaillé)."
+        "description": "HABILITATION : habilitation exigée absente, en attente, expirée ou expirant pendant le chantier ; HABILITATION_SUSPENDUE / HABILITATION_RETIREE : mesure prise par l'employeur ; CERTIFICATION : certification exigée absente, expirée ou expirant pendant le chantier ; DEPLACEMENT : aucun déplacement validé pour ce chantier ; FORMALITES_VOYAGE : passeport, visa ou vaccination à régulariser ; CONTRAT : contrat (CDD, intérim, alternance) terminé avant la fin de la présence, ou commencé après son début, ou sortie de l'entreprise enregistrée, CDI compris (le salarié reste évalué sur les chantiers où il est affecté) (NO_GO) ; ABSENCE : absence en vigueur pendant la présence (NO_GO) ou demande d'absence en attente (GO_RESERVE), jamais sa nature ; DEPLACEMENT_PARTIEL : déplacement qui ne couvre pas toute la présence (GO_RESERVE) ; DETACHEMENT : certificat de sécurité sociale (A1, convention bilatérale ou maintien au régime français) ou information écrite d'une mission de plus de 4 semaines à faire avant le départ (GO_RESERVE), ou non fait au départ (NO_GO, à partir du jour du départ) ; APTITUDE : aptitude médicale du jour — avis d'inaptitude du médecin du travail (NO_GO), aptitude non valide ou restrictions d'aptitude en vigueur (GO_RESERVE) — le verdict seulement, indépendant des dates de présence, jamais une date de visite ni une restriction (libellé neutre en partage détaillé)."
       },
       "Motif": {
         "type": "object",
@@ -624,10 +625,14 @@
         "type": "object",
         "required": ["habilitations", "certifications", "destinations"],
         "properties": {
-          "habilitations": { "type": "array", "items": { "type": "object", "required": ["code", "nom"], "properties": { "code": { "type": "string" }, "nom": { "type": "string" } } } },
-          "certifications": { "type": "array", "items": { "type": "object", "required": ["code", "nom"], "properties": { "code": { "type": "string" }, "nom": { "type": "string" } } } },
-          "destinations": { "type": "array", "items": { "type": "object", "required": ["code", "pays"], "properties": { "code": { "type": "string" }, "pays": { "type": "string" } } } }
+          "habilitations": { "type": "array", "items": { "type": "object", "required": ["code", "nom"], "properties": { "code": { "type": "string" }, "nom": { "type": "string" }, "archive": { "$ref": "#/components/schemas/ArchiveReferentiel" } } } },
+          "certifications": { "type": "array", "items": { "type": "object", "required": ["code", "nom"], "properties": { "code": { "type": "string" }, "nom": { "type": "string" }, "archive": { "$ref": "#/components/schemas/ArchiveReferentiel" } } } },
+          "destinations": { "type": "array", "items": { "type": "object", "required": ["code", "pays"], "properties": { "code": { "type": "string" }, "pays": { "type": "string" }, "archive": { "$ref": "#/components/schemas/ArchiveReferentiel" } } } }
         }
+      },
+      "ArchiveReferentiel": {
+        "type": ["string", "null"], "format": "date",
+        "description": "Date d'archivage dans Cursus, null pour un élément en vigueur. Archivé, le code reste reçu (exigences, déplacements) mais ne doit plus être proposé."
       },
       "ErreurChamp": {
         "type": "object",
@@ -659,7 +664,8 @@
           { "$ref": "#/components/schemas/EvenementDemandeDecision" },
           { "$ref": "#/components/schemas/EvenementHeuresValidees" },
           { "$ref": "#/components/schemas/EvenementAbsence" },
-          { "$ref": "#/components/schemas/EvenementVerdictModifie" }
+          { "$ref": "#/components/schemas/EvenementVerdictModifie" },
+          { "$ref": "#/components/schemas/EvenementDeplacement" }
         ],
         "discriminator": {
           "propertyName": "type",
@@ -668,7 +674,9 @@
             "heures.validees": "#/components/schemas/EvenementHeuresValidees",
             "absence.validee": "#/components/schemas/EvenementAbsence",
             "absence.annulee": "#/components/schemas/EvenementAbsence",
-            "verdict.modifie": "#/components/schemas/EvenementVerdictModifie"
+            "verdict.modifie": "#/components/schemas/EvenementVerdictModifie",
+            "deplacement.modifie": "#/components/schemas/EvenementDeplacement",
+            "deplacement.annule": "#/components/schemas/EvenementDeplacement"
           }
         },
         "description": "Enveloppe commune : `id` (égal à l'en-tête Idempotency-Key), `type`, `emis_le` (mise en file, inchangée d'une tentative à l'autre : ordre des événements) et `donnees`. Seuls des matricules, identifiants et codes sortent de Cursus."
@@ -775,6 +783,32 @@
                       "precedent": { "oneOf": [{ "$ref": "#/components/schemas/StatutVerdict" }, { "type": "null" }], "description": "Dernier verdict transmis pour cette ressource ; null : premier verdict" }
                     }
                   }
+                }
+              }
+            }
+          }
+        ]
+      },
+      "EvenementDeplacement": {
+        "allOf": [
+          { "$ref": "#/components/schemas/EnveloppeEvenement" },
+          {
+            "description": "Déplacement créé par l'acceptation d'une demande Keystone, modifié (deplacement.modifie : nouvelles dates) ou annulé (deplacement.annule) par le service RH. Le motif d'une annulation reste dans Cursus, jamais transmis. Un déplacement annulé ne compte plus dans le Go / No Go : le nouveau verdict suit dans un événement verdict.modifie distinct.",
+            "properties": {
+              "type": { "enum": ["deplacement.modifie", "deplacement.annule"] },
+              "donnees": {
+                "type": "object",
+                "required": ["deplacement", "demande", "reference", "matricule", "chantier", "destination", "depart", "retour", "date"],
+                "properties": {
+                  "deplacement": { "type": "integer", "description": "Identifiant Cursus du déplacement, repris par chaque événement qui le concerne" },
+                  "demande": { "oneOf": [{ "type": "integer" }, { "type": "null" }], "description": "Identifiant Cursus de la demande acceptée (`demande` de demande.decision)" },
+                  "reference": { "oneOf": [{ "$ref": "#/components/schemas/Identifiant" }, { "type": "null" }], "description": "Référence Keystone de la demande ; null pour une demande déposée sans référence (ancienne route)" },
+                  "matricule": { "$ref": "#/components/schemas/Matricule" },
+                  "chantier": { "$ref": "#/components/schemas/Identifiant" },
+                  "destination": { "type": "string", "description": "Code pays de la destination (celui du chantier)" },
+                  "depart": { "$ref": "#/components/schemas/Date" },
+                  "retour": { "$ref": "#/components/schemas/Date", "description": "Dernier jour du déplacement, inclus" },
+                  "date": { "$ref": "#/components/schemas/Date", "description": "Jour de la modification ou de l'annulation" }
                 }
               }
             }

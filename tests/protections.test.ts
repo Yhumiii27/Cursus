@@ -1,7 +1,7 @@
 // Protections de l'API : falsification de requête (CSRF), limitation du débit (par adresse IP, par compte, connexion
 // Microsoft, clés Keystone invalides ; 429 avec Retry-After, mémoire bornée) et neutralisation des formules dans les
 // exports CSV. Les scénarios HTTP lancent un vrai serveur de démonstration (node server/src/index.ts) sur une base
-// temporaire, depuis un dossier temporaire muni d'une interface minimale.
+// temporaire, depuis un dossier temporaire muni d'une interface minimale (CURSUS_DIST).
 import { after, test } from 'node:test';
 import assert from 'node:assert/strict';
 import { spawn, type ChildProcess } from 'node:child_process';
@@ -45,7 +45,7 @@ async function serveur(name: string, env: Record<string, string> = {}) {
   const port = await freePort();
   const p = spawn(process.execPath, [join(ROOT, 'server/src/index.ts')], {
     cwd: dir, stdio: ['ignore', 'pipe', 'pipe'],
-    env: { PATH: process.env.PATH ?? '', CURSUS_API_PORT: String(port), CURSUS_DB: join(dir, `${name}.db`), CURSUS_DEMO: '1', CURSUS_TODAY: '2026-10-10', ...env },
+    env: { PATH: process.env.PATH ?? '', CURSUS_API_PORT: String(port), CURSUS_DB: join(dir, `${name}.db`), CURSUS_DIST: join(dir, 'dist'), CURSUS_DEMO: '1', CURSUS_TODAY: '2026-10-10', ...env },
   });
   procs.push(p);
   let out = '';
@@ -68,7 +68,8 @@ test('CSRF : une requête qui modifie doit venir de l’interface de Cursus, en 
   const cookie = await srv.session();
   const etatPaie = async () => {
     const ds = await (await fetch(`${srv.base}/api/data`, { headers: { cookie } })).json();
-    return { transmises: ds.feuilles.filter((f: { sage: boolean }) => f.sage).length, dernier: ds.lastSagePush };
+    // Feuilles transmises et lots de paie : une requête refusée ne crée aucun lot, même sans marquer de feuille.
+    return { transmises: ds.feuilles.filter((f: { sage: boolean }) => f.sage).length, lots: ds.lotsPaie.map((l: { id: number }) => l.id) };
   };
   const avant = await etatPaie();
   const action = (nom: string, headers: Record<string, string>, body: string | undefined = '{}') =>
@@ -90,7 +91,8 @@ test('CSRF : une requête qui modifie doit venir de l’interface de Cursus, en 
   // L'interface de Cursus : même origine, JSON.
   const ok = await action('temps.pushSage', { 'content-type': 'application/json', origin: srv.base, 'sec-fetch-site': 'same-origin' });
   assert.equal(ok.status, 200);
-  assert.match((await ok.json()).message, /transmises à Sage Paie/);
+  assert.match((await ok.json()).message, /feuilles marquées transmises — simulation/);
+  assert.equal((await etatPaie()).lots.length, avant.lots.length + 1, 'la requête acceptée, elle, crée son lot');
   // Adresse publique (CURSUS_PUBLIC_URL) et nom transmis par le reverse proxy de confiance (X-Forwarded-Host).
   const silencieux = (headers: Record<string, string>) => action('parametres.maj', { 'content-type': 'application/json', ...headers }, JSON.stringify({ silent: true }));
   assert.equal((await silencieux({ origin: 'https://cursus.example.fr' })).status, 200, 'adresse publique');

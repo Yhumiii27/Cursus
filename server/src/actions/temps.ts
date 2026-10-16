@@ -1,17 +1,18 @@
-// Feuilles de temps : saisie, soumission, validation, transmission à Sage Paie.
+// Feuilles de temps : saisie, soumission, validation, transmission à Sage Paie (lots de paie : actions/paie.ts).
 import { addD, isValidDate, isoWeek, mondayOf, wDays } from '../../../shared/dates.ts';
-import { fH, matricule, num, plural } from '../../../shared/format.ts';
+import { fH, num, plural } from '../../../shared/format.ts';
+import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
 import { jourHorsContrat, semaineHorsContrat } from '../../../shared/rules/absences.ts';
 import {
-  absenceCeJour, buildSagePayload, calcSheet, contratFige, demandesAbsence, demandesEnAttenteMessage, HEURES_JOUR_MAX, heuresSurAbsence, heuresSurAbsenceMessage,
-  joursAbsence, joursAuDela24, joursTexte, sagePending, semaineCouverte, suggestLines,
+  absenceCeJour, calcSheet, contratFige, demandesAbsence, demandesEnAttenteMessage, HEURES_JOUR_MAX, heuresSurAbsence, heuresSurAbsenceMessage,
+  joursAbsence, joursAuDela24, joursTexte, semaineCouverte, suggestLines,
 } from '../../../shared/rules/temps.ts';
 import type { Employe, FeuilleTemps, LigneTemps } from '../../../shared/types.ts';
-import { pushToSage, SAGE_DOSSIER } from '../integrations/sage.ts';
 import { heuresKeystone, sendToKeystone } from '../integrations/keystone.ts';
 import { notifierFeuilleRenvoyee, notifierFeuilleSoumise } from '../notifications.ts';
 import { relevesAutomatiques } from '../releves.ts';
-import { ActionError, type ActionHandler, type Ctx, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, refuserSoiMeme, requirePaie, str } from './context.ts';
+import { ActionError, type ActionHandler, type Ctx, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, refuserSoiMeme, str } from './context.ts';
+import { pushSageSimulation } from './paie.ts';
 
 function sheetOf(ctx: Ctx, empId: number, week: string): FeuilleTemps | undefined {
   return ctx.ds.feuilles.find(f => f.empId === empId && f.week === week);
@@ -163,8 +164,11 @@ const validate: ActionHandler = (ctx, p) => {
   const motif = motifDepassement(ctx, emp, { ...sh, contrat }, p, 'avant de valider la feuille', true);
   // Seules les heures des projets Keystone lui sont renvoyées : ni activités internes (INT-*), ni cours en CFA (ECOLE).
   const projets = heuresKeystone(sh.lignes), keystone = Object.keys(projets).length > 0;
-  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif });
-  if (keystone) sendToKeystone(ctx.db, { type: 'heures.validees', matricule: matricule(emp.id), semaine: sh.week, projets });
+  // Mode des heures supplémentaires (payées ou en repos) figé à la validation, comme le régime à la soumission :
+  // un changement ultérieur du réglage ne recalcule ni la paie ni le repos acquis de cette semaine.
+  const heuresSup = sh.heuresSup ?? ctx.ds.settings.heuresSupMode;
+  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif, heuresSup });
+  if (keystone) sendToKeystone(ctx.db, { type: 'heures.validees', matricule: identifiantKeystone(ctx.ds.settings.identifiantKeystone, emp), semaine: sh.week, projets });
   // Intérimaire : la dernière feuille validée d'une semaine révolue fait partir le relevé de son agence.
   const releve = emp.typeContrat === 'interim' && emp.agence ? relevesAutomatiques(ctx.db, { agence: emp.agence, semaine: sh.week }).length > 0 : false;
   return `Semaine ${isoWeek(sh.week)} validée${keystone ? ' — heures des projets Keystone renvoyées à Keystone' : ''}${releve ? ` · relevé d’heures envoyé à l’agence ${emp.agence}` : ''}`;
@@ -177,18 +181,13 @@ const reject: ActionHandler = (ctx, p) => {
   return 'Feuille renvoyée pour correction';
 };
 
-/** Transmission à la paie : administrateur RH et gestionnaire de paie. */
-const pushSage: ActionHandler = (ctx) => {
-  requirePaie(ctx);
-  const sheets = sagePending(ctx.d);
-  if (!sheets.length) throw new ActionError('Aucune feuille validée en attente de transmission');
-  const payload = buildSagePayload(ctx.d, sheets, SAGE_DOSSIER);
-  const ack = pushToSage(payload);
-  if (!ack.ok) throw new ActionError('Sage Paie a refusé la transmission', 502);
-  sheets.forEach(sh => ctx.db.update<FeuilleTemps>('feuilles', sh.id, { sage: true }));
-  ctx.db.setSetting('lastSagePush', payload);
-  return `${plural(sheets.length, 'feuille transmise', 'feuilles transmises')} à Sage Paie — accusé de réception reçu`;
-};
+/**
+ * Transmission à la paie en un clic : administrateur RH et gestionnaire de paie, en simulation seulement (lot de toutes
+ * les feuilles en attente, aussitôt marqué transmis, rien n'est envoyé : server/src/actions/paie.ts). Mode fichier : le
+ * lot de chaque période passe par le fichier d'import et la confirmation de l'import (paie.lotGenerer, paie.lotConfirmer) ;
+ * mode API : aucun contrat d'API. Les deux sont refusés (503) sans rien marquer ni inventer d'accusé.
+ */
+const pushSage: ActionHandler = ctx => pushSageSimulation(ctx);
 
 export const tempsActions: Record<string, ActionHandler> = {
   'temps.setCell': setCell,

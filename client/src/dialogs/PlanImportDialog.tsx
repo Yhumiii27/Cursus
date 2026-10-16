@@ -1,14 +1,17 @@
-// Importer un plan prévisionnel de formation (CSV) : aperçu contrôlé ligne à ligne avant import.
+// Importer un plan prévisionnel de formation (CSV) : aperçu contrôlé ligne à ligne avant import. « Remplacer » ne
+// supprime que les lignes prévues issues d'un import : celles issues d'une demande acceptée, d'un report ou sans origine
+// connue (ancienne base) sont conservées. Un exercice clos ne s'importe plus.
 import { useMemo, useState, type ChangeEvent } from 'react';
 import { fmtEur, plural } from '../../../shared/format.ts';
+import { clotureDe, exercicesProposes } from '../../../shared/rules/exercices.ts';
 import { parsePlan, SAMPLE_PLAN_CSV } from '../../../shared/rules/imports.ts';
 import { CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
-import { Seg, Tag } from '../components/ui.tsx';
+import { Fine, Seg, Tag } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
 /** Lit un fichier texte en UTF-8, puis en Windows-1252 si des caractères ne sont pas décodables (export Excel). */
-function readText(file: File, onText: (text: string) => void) {
+export function readText(file: File, onText: (text: string) => void) {
   const read = (enc: 'utf-8' | 'windows-1252') => {
     const r = new FileReader();
     r.onload = () => {
@@ -36,7 +39,7 @@ export function PlanImportDialog({ exercice }: { exercice: number }) {
   const parsed = useMemo(() => parsePlan(d, texte), [d, texte]);
   const okRows = parsed.filter(r => r.ok);
   const total = okRows.reduce((n, r) => n + r.cout, 0);
-  const years = [...new Set([d.year, d.year + 1, exercice])].sort((a, z) => a - z);
+  const years = [...new Set([...exercicesProposes(d.ds, d.year), exercice])].filter(y => !clotureDe(d.ds, y)).sort((a, z) => a - z);
 
   const onFile = (ev: ChangeEvent<HTMLInputElement>) => {
     const file = ev.target.files?.[0];
@@ -44,7 +47,9 @@ export function PlanImportDialog({ exercice }: { exercice: number }) {
     readText(file, t => { setTexte(t); setFichier(file.name); });
   };
 
-  const prevues = d.ds.plan.filter(l => l.exercice === ex && l.statut === 'prevu').length;
+  // Lignes que « Remplacer » supprime (prévues, issues d'un import) et lignes prévues conservées (demandes, reports…).
+  const prevuesEx = d.ds.plan.filter(l => l.exercice === ex && l.statut === 'prevu');
+  const prevues = prevuesEx.filter(l => l.origine === 'import').length, conservees = prevuesEx.length - prevues;
   const texteErr = !texte.trim() ? 'Chargez un fichier ou collez le contenu du plan.'
     : !okRows.length ? 'Aucune ligne valide à importer : corrigez le fichier (voir l’aperçu).' : null;
   const envoyer = () => {
@@ -64,7 +69,7 @@ export function PlanImportDialog({ exercice }: { exercice: number }) {
 
   return (
     <Dialog title="Importer un plan prévisionnel" width={780} tall onSubmit={envoyer} confirmation={confirmer ? {
-      texte: `Remplacer : ${plural(prevues, 'ligne « Prévue »', 'lignes « Prévues »')} de l’exercice ${ex} ${prevues > 1 ? 'seront supprimées' : 'sera supprimée'} avant l’import de ${plural(okRows.length, 'ligne', 'lignes')}. Continuer ?`,
+      texte: `Remplacer : ${plural(prevues, 'ligne « Prévue » importée', 'lignes « Prévues » importées')} de l’exercice ${ex} ${prevues > 1 ? 'seront supprimées' : 'sera supprimée'} avant l’import de ${plural(okRows.length, 'ligne', 'lignes')}.${conservees ? ` ${conservees > 1 ? `Les ${conservees} lignes prévues issues de demandes acceptées, de reports ou saisies autrement sont conservées` : 'La ligne prévue issue d’une demande acceptée, d’un report ou saisie autrement est conservée'}.` : ''} Continuer ?`,
       bouton: 'Remplacer et importer', occupe: busy, confirmer: confirm, annuler: () => setConfirmer(false),
     } : null} actions={<>
       <CancelButton />
@@ -76,13 +81,19 @@ export function PlanImportDialog({ exercice }: { exercice: number }) {
             {years.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
         </Field>
-        <Field label="Lignes « Prévues » existantes">
-          {/* Remplacer supprime les lignes prévues de l'exercice : réservé à l'administrateur RH. */}
+        <Field label="Lignes « Prévues » importées">
+          {/* Remplacer supprime les lignes prévues importées de l'exercice : réservé à l'administrateur RH. */}
           {admin
             ? <Seg name="impmode" label="Mode d’import" value={mode} onChange={setMode} options={[['add', 'Compléter'], ['replace', 'Remplacer']]} />
             : <Static pad>Compléter (remplacer : administrateur RH)</Static>}
         </Field>
       </div>
+      {mode === 'replace' && (
+        <Fine>
+          Remplacer supprime {prevues === 0 ? 'les lignes prévues importées (aucune à ce jour)' : prevues === 1 ? 'la ligne prévue importée' : `les ${prevues} lignes prévues importées`} de l’exercice {ex}
+          {conservees ? ` ; ${plural(conservees, 'ligne prévue issue d’une demande ou d’un report conservée', 'lignes prévues issues de demandes ou de reports conservées')}` : ''}. Les lignes engagées et réalisées ne sont jamais supprimées.
+        </Fine>
+      )}
       <Field label="Fichier CSV" htmlFor="imp-file">
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
           <input id="imp-file" type="file" accept=".csv,.txt,text/csv" onChange={onFile} className="text-n300" style={{ fontSize: 13, maxWidth: '100%' }} />

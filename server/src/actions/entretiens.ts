@@ -4,7 +4,9 @@ import { ENT_TYPES } from '../../../shared/constants.ts';
 import { isValidDate, parse } from '../../../shared/dates.ts';
 import { fmt } from '../../../shared/format.ts';
 import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
+import { horsContratLe } from '../../../shared/rules/contrats.ts';
 import { debutCloture, needsFinCarriere, reprogrammation } from '../../../shared/rules/entretiens.ts';
+import { remisePhysique } from '../../../shared/rules/remise.ts';
 import type { Entretien, EntretienType } from '../../../shared/types.ts';
 import { convoquerEntretien, notifierEntretienClos } from '../notifications.ts';
 import { ActionError, type ActionHandler, type Ctx, getEmp, isValidatorOf, refuserSoiMeme, str } from './context.ts';
@@ -22,6 +24,8 @@ const planifier: ActionHandler = (ctx, p) => {
   const kind = str(p.kind) as EntretienType;
   if (!ENT_TYPES[kind]) throw new ActionError('Type d’entretien inconnu');
   if (!isValidDate(p.date) || p.date < ctx.d.ti) throw new ActionError('Date à venir requise');
+  const hors = horsContratLe(emp, p.date);
+  if (hors) throw new ActionError(hors);
   // Un seul entretien planifié par type : déjà prévu (à venir, ou passé sans avoir été clos), il est reprogrammé. Passé avec un
   // compte rendu commencé, il a pu avoir lieu : reprogrammé seulement sur confirmation qu'il n'a pas été tenu (`nonTenu`).
   const { prevu, msg } = reprogrammation(ctx.d, emp.id, kind, p.date, p.nonTenu === true);
@@ -47,8 +51,9 @@ const modifier: ActionHandler = (ctx, p) => {
   const { x, e } = entretien(ctx, p.id);
   refuserSoiMeme(ctx, e, 'Vous ne pouvez pas rédiger, comme évaluateur, votre propre entretien');
   const canMgr = x.statut === 'planifie' && isValidatorOf(ctx, e);
-  // Le salarié rédige ses sections jusqu'à sa signature (y compris après clôture par l'évaluateur).
-  const canSal = !x.signSal && ctx.user.role === 'collaborateur' && ctx.user.empId === e.id;
+  // Le salarié rédige ses sections jusqu'à sa signature (y compris après clôture par l'évaluateur), ou jusqu'à la remise
+  // d'une copie sur papier, qui fait foi (main propre, refus de signer : shared/rules/remise.ts).
+  const canSal = !x.signSal && !remisePhysique(x) && ctx.user.role === 'collaborateur' && ctx.user.empId === e.id;
   if (p.section) {
     const sections = [...ENT_TYPES[x.type].sections, ...(needsFinCarriere(ctx.d, e, x.type) ? [['fincarriere', '', 'sal'] as const] : [])];
     const sec = sections.find(s => s[0] === p.section);

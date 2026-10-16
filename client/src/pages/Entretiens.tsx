@@ -1,11 +1,16 @@
-// Entretiens : obligations légales (parcours professionnel, état des lieux 8 ans, forfait jours),
-// campagne annuelle et comptes rendus de l'année.
+// Entretiens : obligations légales (parcours professionnel, état des lieux 8 ans, forfait jours), campagne annuelle
+// (réglée dans Paramètres → Campagne d’entretiens annuels) et comptes rendus de l'année, avec la remise de leur copie.
+// Dans l'espace manager, ses propres entretiens n'apparaissent pas : son responsable les mène, et il les prépare et les
+// signe dans son espace collaborateur, vers lequel un bouton le renvoie.
 import { useMemo } from 'react';
 import { ENT_TYPES } from '../../../shared/constants.ts';
 import { days, parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, rel } from '../../../shared/format.ts';
-import { ENT_ST, obligations } from '../../../shared/rules/entretiens.ts';
-import { Fine, Kpi, Kpis, Page, Panel, Tag, Two } from '../components/ui.tsx';
+import { populationCampagne } from '../../../shared/rules/campagne.ts';
+import { obligations, perimetreEntretiens, statutObligation } from '../../../shared/rules/entretiens.ts';
+import { statutEntretien } from '../../../shared/rules/remise.ts';
+import { Btn, Fine, Kpi, Kpis, Page, Panel, Tag, Two } from '../components/ui.tsx';
+import { Ouvrir } from '../components/Cliquable.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -15,14 +20,15 @@ export function Entretiens() {
   const d = useDomain();
   // Lecture seule : obligations et calendrier, sans les comptes rendus (non transmis).
   const { rh, manager, collab, me, soi } = useRole();
-  const { openDialog } = useStore();
+  const { openDialog, switchMode, go, bascule } = useStore();
   const data = d.ds;
   const year = d.year;
   const compteRendu = rh || manager || collab;
 
   const v = useMemo(() => {
     const yStart = `${year}-01-01`;
-    const scopeIds = data.employes.map(e => e.id);
+    // Manager : son équipe, sans lui-même (échéances, liste, indicateurs ; pastille du menu : layout/Shell.tsx).
+    const scopeIds = perimetreEntretiens(data);
     const inScope = new Set(scopeIds);
     const oblig = obligations(d, scopeIds);
 
@@ -41,12 +47,14 @@ export function Entretiens() {
       .flatMap(x => {
         const e = d.emp(x.empId);
         if (!e) return [];
-        const [statut, cls] = x.statut === 'planifie' ? ['Planifié', 'tag-outline'] : !x.signSal ? ['À signer', 'tag-outline'] : ['Signé', 'tag-neutral'];
+        // Planifié à une date passée sans avoir été clos : à clore s'il a eu lieu, sinon à reprogrammer ou annuler.
+        const [statut, cls] = x.statut === 'planifie' && x.date < d.ti ? ['Date dépassée', 'tag-accent'] : statutEntretien(x);
         return [{ x, nom: e.nom, eval: `Évaluateur : ${d.mgrName(d.mgrOf(e))}`, statut, cls }];
       });
 
     const eppO = oblig.filter(o => o.kind === 'epp');
-    const annO = data.employes.filter(e => !d.contratOf(e).interim).map(e => e.id);
+    // Population de la campagne, selon ses réglages (intérim toujours exclu).
+    const annO = populationCampagne(d, scopeIds);
     const annDone = annO.filter(id => data.entretiens.some(x => x.empId === id && x.type === 'annuel' && x.statut === 'realise' && x.date >= yStart)).length;
     const k = {
       late: eppO.filter(o => o.st === 'late').length,
@@ -64,8 +72,20 @@ export function Entretiens() {
     return { obligRows, entRows, k, kicker };
   }, [d, data, year, rh, manager, collab, me, soi]);
 
+  // Le manager a aussi un espace collaborateur (tout compte manager est salarié) : ses propres entretiens s'y trouvent.
+  const versMesEntretiens = async () => {
+    await switchMode('collaborateur');
+    go('entretiens');
+  };
+
   return (
     <Page kicker={v.kicker} title="Entretiens">
+      {manager && (
+        <div className="boxed" style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+          <span style={{ fontSize: 13 }}>Vos propres entretiens se préparent et se signent dans votre espace collaborateur ; votre responsable les conduit.</span>
+          <Btn variant="secondary" small disabled={bascule} onClick={versMesEntretiens}>Mes entretiens</Btn>
+        </div>
+      )}
       {!collab && (
         <Kpis>
           <Kpi kicker="Parcours pro en retard" value={v.k.late} sub="premier dans l’année, puis tous les 4 ans" />
@@ -90,7 +110,7 @@ export function Entretiens() {
                         {o.risk && <div className="note-accent">{RISK_TEXT}</div>}
                       </td>
                       <td><Two main={due} sub={relLabel} nowrap subNowrap /></td>
-                      <td><Tag cls={ENT_ST[o.st][1]}>{ENT_ST[o.st][0]}</Tag></td>
+                      <td><Tag cls={statutObligation(o)[1]}>{statutObligation(o)[0]}</Tag></td>
                       <td className="right">
                         {canPlan && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'entPlan', empId: o.id, kind: o.kind })}>{o.pl ? 'Reprogrammer' : 'Planifier'}</button>}
                       </td>
@@ -107,7 +127,9 @@ export function Entretiens() {
             <div key={r.x.id} className={`list-row top${compteRendu ? ' clickable' : ''}`} style={{ justifyContent: 'space-between', gap: 'var(--space-3)' }}
               onClick={compteRendu ? () => openDialog({ type: 'ent', entId: r.x.id }) : undefined}>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 14 }}>{r.nom} · {ENT_TYPES[r.x.type].nom}</div>
+                <div style={{ fontSize: 14 }}>{compteRendu
+                  ? <Ouvrir onOpen={() => openDialog({ type: 'ent', entId: r.x.id })}>{r.nom} · {ENT_TYPES[r.x.type].nom}</Ouvrir>
+                  : <>{r.nom} · {ENT_TYPES[r.x.type].nom}</>}</div>
                 <div className="text-muted sub">{fmt(parse(r.x.date))} · {r.eval}</div>
               </div>
               <Tag cls={r.cls} style={{ flex: 'none' }}>{r.statut}</Tag>

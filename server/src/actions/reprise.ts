@@ -7,6 +7,7 @@ import { fmtIso, plural } from '../../../shared/format.ts';
 import { analyserReprise, bilanReprise, estTypeReprise, ISSUE_LABEL, type LigneReprise, REPRISES, RESTRICTION_A_RECOPIER, type TypeReprise } from '../../../shared/rules/reprise.ts';
 import type { Certification, DemandeVisite, Employe, HabTitre, LotReprise, SoldeReprise } from '../../../shared/types.ts';
 import { creerCompte } from '../comptes.ts';
+import { rattacherFiches } from '../migrations/referentiels.ts';
 import { ActionError, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
 /** Taille maximale du fichier importé (caractères) : quelques centaines de salariés tiennent largement. */
@@ -125,6 +126,9 @@ const importer: ActionHandler = (ctx, p) => {
     if (r.note) notes.set(l.n, r.note);
     if (r.compte) ouverts.push({ empId: r.empId, identifiant: r.compte });
   }
+  // Fiches créées sans poste du référentiel : rattachées tout de suite au poste de même intitulé (créé au besoin sans
+  // exigence), dans la même transaction. Une fiche mise à jour garde son poste (`posteId` repris de la fiche).
+  if (type === 'salaries') rattacherFiches(ctx.db);
   const comptesCrees = ouverts.length;
   const b = bilanReprise(a.lignes);
   const fichier = str(p.fichier).slice(0, 200) || null;

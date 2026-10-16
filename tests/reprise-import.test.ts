@@ -371,3 +371,18 @@ test('salariés : réembauche dans un même fichier, comptes ouverts en rejouant
   // Tous les comptes ouverts : plus rien à écrire.
   assert.throws(() => importer('salaries', SALARIES, { comptes: true }), /Aucune ligne à importer/);
 });
+
+test('salariés : fiches reprises rattachées au poste de même intitulé ; une mise à jour garde le poste', () => {
+  const { db, importer, emp } = base();
+  importer('salaries', SALARIES);
+  const postes = db.all<{ id: number; nom: string }>('postes');
+  for (const nom of ['Julie Martin', 'Marc Petit', 'Nora Saïd']) {
+    const e = emp(nom) as any;
+    assert.ok(e.posteId, `${nom} rattaché`);
+    assert.equal(postes.find(p => p.id === e.posteId)!.nom, e.poste);
+  }
+  const avant = (emp('Marc Petit') as any).posteId;
+  importer('salaries', SALARIES.replace('Opérateur de production', 'Opérateur de production confirmé'));
+  assert.equal((emp('Marc Petit') as any).posteId, avant);
+  assert.equal(db.all('postes').length, postes.length);
+});

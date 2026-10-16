@@ -272,6 +272,10 @@ export const REGLES: Record<string, Regle> = {
   // Déplacements : jamais le numéro de passeport ni une vaccination (donnée de santé) ; le motif n'est pas recopié.
   'voyage.creer': { champs: ['empId', 'dest', 'depart', 'retour'] },
   'voyage.detachement': { champs: ['id', 'detachementLe', 'informationLe'], cible: parId('voyages', ['detachementLe', 'informationLe']) },
+  // Modification : destination et dates avant et après (le motif, texte libre, n'est pas recopié) ; annulation : sa date,
+  // et seulement le fait qu'un motif soit renseigné.
+  'voyage.modifier': { champs: ['id'], cible: parId('voyages', ['dest', 'depart', 'retour', 'detachementLe', 'informationLe']) },
+  'voyage.annuler': { champs: ['id'], cible: { ...parId('voyages', ['annuleLe', 'annuleMotif']), masques: ['annuleMotif'] } },
   'formalite.enregistrer': {
     champs: p => p.kind === 'passeport' ? ['empId', 'kind', 'expire'] : p.kind === 'visa' ? ['empId', 'kind', 'dest', 'visaType', 'obtenu', 'expire'] : ['empId', 'kind'],
   },
@@ -355,6 +359,8 @@ export const REGLES: Record<string, Regle> = {
   },
   // Entretiens : la section rédigée est nommée, jamais son contenu ; une ligne par compte rendu et par demi-heure.
   'entretien.planifier': { champs: ['empId', 'kind', 'date'] },
+  // Annulation : type, date et statut de l'entretien retiré (jamais le compte rendu).
+  'entretien.annuler': { champs: ['id'], cible: parId('entretiens', ['type', 'date', 'statut']) },
   'entretien.modifier': {
     champs: ['id', 'info'], extra: p => (p.section ? { sections: [String(p.section)] } : {}),
     cible: { table: 'entretiens', cle: p => Number(p.id) || null, colonnes: [] }, regrouper: 30,

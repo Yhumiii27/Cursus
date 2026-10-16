@@ -97,6 +97,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   // Déplacements
   'voyage.creer': 'Déplacement créé',
   'voyage.detachement': 'Formalités de détachement',
+  'voyage.modifier': 'Déplacement modifié',
+  'voyage.annuler': 'Déplacement annulé',
   'formalite.enregistrer': 'Formalité de voyage',
   'voyages.importer': 'Import de déplacements',
   'keystone.accepter': 'Demande de Keystone acceptée',
@@ -132,6 +134,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'conges.cloturer': 'Clôture d’une période de congés',
   // Entretiens
   'entretien.planifier': 'Entretien planifié',
+  'entretien.annuler': 'Entretien annulé',
   'entretien.modifier': 'Compte rendu d’entretien rédigé',
   'entretien.clore': 'Entretien clos',
   'entretien.signer': 'Entretien signé par le salarié',
@@ -177,6 +180,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'keystone.absence.validee': 'Message à Keystone : absence validée (simulation)',
   'keystone.absence.annulee': 'Message à Keystone : absence annulée (simulation)',
   'keystone.verdict.modifie': 'Message à Keystone : verdict Go / No Go modifié (simulation)',
+  'keystone.deplacement.modifie': 'Message à Keystone : déplacement modifié (simulation)',
+  'keystone.deplacement.annule': 'Message à Keystone : déplacement annulé (simulation)',
   'sage.echec': 'Envoi à Sage Paie en échec',
   // Mise à jour de la base
   'migration.detachement': 'Reprise des formalités de détachement',
@@ -223,7 +228,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'connexions', label: 'Connexions et accès', prefixes: ACTIONS_CONNEXION },
   {
     id: 'integrations', label: 'Intégrations (Keystone, e-mails)',
-    prefixes: ['keystone.appel', 'keystone.echec', 'keystone.demande.', 'keystone.heures.', 'keystone.absence.', 'keystone.verdict.', 'email.'],
+    prefixes: ['keystone.appel', 'keystone.echec', 'keystone.demande.', 'keystone.heures.', 'keystone.absence.', 'keystone.verdict.', 'keystone.deplacement.', 'email.'],
   },
 ];
 
@@ -263,6 +268,9 @@ export const CHAMP_LABEL: Record<string, string> = {
   campagnePreavisJours: 'Affichage de la campagne avant l’ouverture (jours)',
   remiseLe: 'Remise du compte rendu', remiseMode: 'Mode de remise', telechargeLe: 'Premier téléchargement par le salarié',
   coutReel: 'Coût réel', effectifReel: 'Effectif réel',
+  // Récapitulatif des échéances (Paramètres → Messagerie) ; annulation d'un déplacement.
+  relancesActives: 'Récapitulatif des échéances', relancesPaliers: 'Paliers de relance (jours)', relancesJour: 'Envoi du récapitulatif des échéances',
+  annuleLe: 'Annulé le', annuleMotif: 'Motif de l’annulation',
 };
 
 const valeur = (v: unknown): string => {

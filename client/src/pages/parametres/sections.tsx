@@ -18,6 +18,7 @@ import { Keystone } from './Keystone.tsx';
 import { MatriculesPaie } from './MatriculesPaie.tsx';
 import { ReglagesPaie } from './ReglagesPaie.tsx';
 import { Reprise } from './Reprise.tsx';
+import { RelancesEcheances } from './RelancesEcheances.tsx';
 import { Rgpd } from './Rgpd.tsx';
 import { SagePaie } from './SagePaie.tsx';
 import { Suivi } from './Suivi.tsx';
@@ -51,6 +52,7 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'feuilles', place: 'gauche', Section: FeuillesTemps },
   { id: 'confidentialite', place: 'droite', Section: Rgpd },
   { id: 'messagerie', place: 'large', Section: Messagerie },
+  { id: 'relances', place: 'large', Section: RelancesEcheances },
   { id: 'envois', place: 'large', Section: Envois },
   { id: 'comptes', place: 'large', Section: Comptes },
   { id: 'journal', place: 'large', Section: Journal },

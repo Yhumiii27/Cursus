@@ -210,6 +210,9 @@ const MATRICE: Ligne[] = [
   { action: 'voyage.creer', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, dest: 'MA', depart: '2026-11-02', retour: '2026-11-06', motif: 'Chantier Tanger' }) },
   // Formalités de détachement (certificat de sécurité sociale, information écrite) : démarches du service RH.
   { action: 'voyage.detachement', droits: '                  O    O    -    -    -    -    -    -    -', p: () => ({ id: voyage(), detachementLe: '2026-10-06' }) },
+  // Modification et annulation d'un déplacement : service RH (Keystone prévenu pour un déplacement venu de Keystone).
+  { action: 'voyage.modifier', droits: '                 O    O    -    -    -    -    -    -    -', p: () => ({ id: voyage(), depart: '2026-11-03', retour: '2026-11-06' }) },
+  { action: 'voyage.annuler', droits: '                  O    O    -    -    -    -    -    -    -', p: () => ({ id: voyage(), motif: 'Chantier reporté' }) },
   { action: 'formalite.enregistrer', droits: '               O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, kind: 'passeport', numero: '21XY12345', expire: '2032-01-01' }) },
   { action: 'voyages.importer', droits: '                    O    O    -    -    -    -    -    -    -', p: () => ({ texte: SAMPLE_TRIPS_CSV }) },
   { action: 'keystone.accepter', droits: '                   O    O    -    -    -    -    -    -    -', p: () => ({ id: 1 }) },
@@ -268,6 +271,8 @@ const MATRICE: Ligne[] = [
   // Entretiens : l'évaluateur (manager direct ou RH) et le salarié pour ses sections et sa signature.
   // Mehdi a déjà un entretien annuel planifié (le 20 octobre) : un entretien de parcours professionnel.
   { action: 'entretien.planifier', droits: '                 O    O    O    -    -    -    -    -    -', p: () => ({ empId: 2, kind: 'epp', date: '2026-11-16' }) },
+  // Annulation d'un entretien planifié : l'évaluateur (manager direct) ou le RH ; compte rendu commencé : sur confirmation.
+  { action: 'entretien.annuler', droits: '                  O    O    O    -    -    -    -    -    -', p: () => ({ id: ENTRETIEN(), confirmer: true }) },
   { action: 'entretien.modifier', droits: '                  O    O    O    -    O    -    -    -    -', p: () => ({ id: ENTRETIEN(), section: 'avis', value: 'Année riche en chantiers' }) },
   // Entretien prévu le 20 octobre, tenu plus tôt : la clôture porte la date à laquelle il a eu lieu.
   { action: 'entretien.clore', droits: '                     O    O    O    -    -    -    -    -    -', p: () => ({ id: ENTRETIEN(), date: '2026-10-06' }) },

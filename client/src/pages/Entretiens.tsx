@@ -7,7 +7,7 @@ import { ENT_TYPES } from '../../../shared/constants.ts';
 import { days, parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, rel } from '../../../shared/format.ts';
 import { populationCampagne } from '../../../shared/rules/campagne.ts';
-import { ENT_ST, obligations, perimetreEntretiens } from '../../../shared/rules/entretiens.ts';
+import { obligations, perimetreEntretiens, statutObligation } from '../../../shared/rules/entretiens.ts';
 import { statutEntretien } from '../../../shared/rules/remise.ts';
 import { Btn, Fine, Kpi, Kpis, Page, Panel, Tag, Two } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
@@ -46,7 +46,8 @@ export function Entretiens() {
       .flatMap(x => {
         const e = d.emp(x.empId);
         if (!e) return [];
-        const [statut, cls] = statutEntretien(x);
+        // Planifié à une date passée sans avoir été clos : à clore s'il a eu lieu, sinon à reprogrammer ou annuler.
+        const [statut, cls] = x.statut === 'planifie' && x.date < d.ti ? ['Date dépassée', 'tag-accent'] : statutEntretien(x);
         return [{ x, nom: e.nom, eval: `Évaluateur : ${d.mgrName(d.mgrOf(e))}`, statut, cls }];
       });
 
@@ -108,7 +109,7 @@ export function Entretiens() {
                         {o.risk && <div className="note-accent">{RISK_TEXT}</div>}
                       </td>
                       <td><Two main={due} sub={relLabel} nowrap subNowrap /></td>
-                      <td><Tag cls={ENT_ST[o.st][1]}>{ENT_ST[o.st][0]}</Tag></td>
+                      <td><Tag cls={statutObligation(o)[1]}>{statutObligation(o)[0]}</Tag></td>
                       <td className="right">
                         {canPlan && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'entPlan', empId: o.id, kind: o.kind })}>{o.pl ? 'Reprogrammer' : 'Planifier'}</button>}
                       </td>

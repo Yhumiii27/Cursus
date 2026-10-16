@@ -156,7 +156,7 @@ const enregistrerDestination: ActionHandler = (ctx, p) => {
   }
   ctx.db.update<Destination>('destinations', d.code, d);
   // Les dossiers voyage sont recalculés à l'affichage : les déplacements prévus suivent la nouvelle règle.
-  const prevus = ctx.ds.voyages.filter(v => v.dest === d.code && v.retour >= ctx.d.ti).length;
+  const prevus = ctx.ds.voyages.filter(v => v.dest === d.code && v.retour >= ctx.d.ti && !v.annuleLe).length;
   return `Destination « ${d.pays} » modifiée${prevus ? ` · ${plural(prevus, 'déplacement prévu suit', 'déplacements prévus suivent')} la nouvelle règle` : ''}`;
 };
 

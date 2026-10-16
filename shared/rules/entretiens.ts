@@ -15,6 +15,10 @@ export const ENT_ST: Record<ObligStatus, [string, string]> = {
   late: ['En retard', 'tag-accent'], soon: ['À échéance', 'tag-outline'], planifie: ['Planifié', 'tag-neutral'], todo: ['À planifier', 'tag-outline'], ok: ['À jour', 'tag-neutral'],
 };
 
+/** Libellé et classe d'une obligation : planifiée à une date passée sans avoir été close, « Planifié, date dépassée » (en retard). */
+export const statutObligation = (o: Pick<Obligation, 'st' | 'pl'>): [string, string] =>
+  o.pl && o.st === 'late' ? ['Planifié, date dépassée', 'tag-accent'] : ENT_ST[o.st];
+
 /** « de congé parental », « d’absence longue » : élision devant une voyelle. */
 const de = (s: string) => /^[aeiouy]/.test(norm(s)) ? `d’${s}` : `de ${s}`;
 
@@ -35,7 +39,8 @@ export function obligations(d: Domain, scopeIds: number[]): Obligation[] {
       const pl = list.find(x => x.type === kind && x.statut === 'planifie');
       // Due après le départ (sortie enregistrée, fin de CDD…) et pas planifiée avant : plus d'obligation.
       if (!pl && !present(e, due)) return;
-      out.push({ id, e, kind, due, detail, pl, st: pl ? 'planifie' : due < Ti ? 'late' : due <= in90 ? 'soon' : 'ok', ...(extra || {}) });
+      // Planifié à une date passée sans avoir été clos (reporté, oublié) : en retard, comme s'il ne l'était pas.
+      out.push({ id, e, kind, due, detail, pl, st: pl ? (pl.date < Ti ? 'late' : 'planifie') : due < Ti ? 'late' : due <= in90 ? 'soon' : 'ok', ...(extra || {}) });
     };
     const lastE = done(['epp', 'reprise'])[0];
     push('epp', lastE ? addM(lastE.date, 48) : addM(e.entree, 12),
@@ -57,7 +62,13 @@ export function obligations(d: Domain, scopeIds: number[]): Obligation[] {
       const lf = done(['forfait']).filter(x => x.date >= debut)[0];
       push('forfait', lf ? addM(lf.date, 12) : addM(debut, 12), lf ? `Dernier le ${fmt(parse(lf.date))} · chaque année` : debut > e.entree ? `Forfait jours depuis le ${fmt(parse(debut))} — premier entretien dans l’année` : 'Aucun entretien enregistré');
     }
-    if (Ti >= camp.visibleDes && concerneParCampagne(d, e, camp) && present(e, camp.fin) && !list.some(x => x.type === 'annuel' && x.date >= `${Y}-01-01`)) {
+    // Entretien annuel de l'année planifié à une date passée sans avoir été clos (reporté pendant la campagne, oublié) :
+    // en retard, « Planifié, date dépassée », comme les obligations ci-dessus (compteurs, récapitulatif des échéances).
+    const annuels = list.filter(x => x.type === 'annuel' && x.date >= `${Y}-01-01`);
+    const depasse = annuels.find(x => x.statut === 'planifie' && x.date < Ti);
+    if (depasse && !annuels.some(x => x.statut === 'realise')) {
+      out.push({ id, e, kind: 'annuel', due: camp.fin, pl: depasse, st: 'late', detail: camp.libelle });
+    } else if (Ti >= camp.visibleDes && concerneParCampagne(d, e, camp) && present(e, camp.fin) && !annuels.length) {
       out.push({ id, e, kind: 'annuel', due: camp.fin, st: 'todo', detail: camp.libelle });
     }
   });

@@ -558,13 +558,13 @@ export function recevoirDemande(cx: Contexte, body: unknown, today: ISODate, ref
 
 /**
  * Contrôles repris à l'acceptation d'une demande par le RH : la situation a pu changer depuis la réception
- * (affectation retirée, chantier archivé, départ du salarié…). Un déplacement déjà créé pour ce chantier
+ * (affectation retirée, chantier archivé, départ du salarié…). Un déplacement déjà créé (et non annulé) pour ce chantier
  * sur ces dates est aussi refusé. Renvoie les motifs de refus (liste vide : acceptable).
  */
 export function motifsRefusAcceptation(db: Db, dm: DemandeKeystone, today: ISODate): string[] {
   const motifs = controlesDemande(contexte(db), dm, today).map(e => e.message);
   if (!db.where<{ id: number }>('employes', 'id', dm.empId).length) motifs.unshift('Salarié inconnu');
-  const deja = db.where<Voyage>('voyages', 'empId', dm.empId).some(v => v.chantier === dm.chantier && v.depart <= dm.retour && v.retour >= dm.depart);
+  const deja = db.where<Voyage>('voyages', 'empId', dm.empId).some(v => !v.annuleLe && v.chantier === dm.chantier && v.depart <= dm.retour && v.retour >= dm.depart);
   if (deja) motifs.push('Un déplacement existe déjà pour ce chantier sur ces dates');
   return motifs;
 }

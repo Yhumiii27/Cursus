@@ -1,5 +1,6 @@
 // Registre des actions métier exposées par POST /api/actions/:nom.
 import { absencesActions } from './absences.ts';
+import { annulationEntretienActions } from './annulation-entretien.ts';
 import { budgetActions } from './budget.ts';
 import { cloturesActions } from './clotures.ts';
 import { comptesActions } from './comptes.ts';
@@ -7,6 +8,7 @@ import { conformiteActions } from './conformite.ts';
 import { confidentialiteActions } from './confidentialite.ts';
 import type { ActionHandler } from './context.ts';
 import { convocationsActions } from './convocations.ts';
+import { deplacementsActions } from './deplacements.ts';
 import { entretiensActions } from './entretiens.ts';
 import { envoisActions } from './envois.ts';
 import { equipesActions } from './equipes.ts';
@@ -50,6 +52,8 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...confidentialiteActions,
   ...repriseActions,
   ...suiviFeuillesActions,
+  ...deplacementsActions,
+  ...annulationEntretienActions,
 };
 
 /**

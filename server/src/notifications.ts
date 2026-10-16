@@ -18,6 +18,7 @@ import type { Db } from './db.ts';
 import { calendrier, domaineAgenda, envoyerEmail, pieceJointe, type EvenementAgenda } from './integrations/email.ts';
 import { adresseSalarie, courriel, jourLong, lireMessagerie, periodeLongue } from './messagerie.ts';
 import { relevesAutomatiques } from './releves.ts';
+import { relancerEcheances } from './relances.ts';
 
 /** Ce dont une notification a besoin du contexte d'une action. */
 type Contexte = { db: Db; ds: Dataset; user: CurrentUser };
@@ -243,6 +244,21 @@ export function convoquerEntretien(cx: Contexte, emp: Pick<Employe, 'id' | 'nom'
 }
 
 /**
+ * Entretien planifié annulé (`entretien.annuler`) : le salarié reçoit l'annulation de l'événement d'agenda de sa
+ * convocation (même UID `entretien-<id>`, méthode CANCEL). Faux s'il n'a pas d'adresse (à prévenir de vive voix).
+ */
+export function annulerConvocationEntretien(cx: Contexte, emp: Pick<Employe, 'id' | 'nom'>, x: Pick<Entretien, 'id' | 'type' | 'date'>): boolean {
+  const d = adresseSalarie(cx.db, emp.id, cx.ds.today);
+  if (!d) return false;
+  const nom = nomEntretien(x);
+  const ics = calendrier({ uid: `entretien-${x.id}@${domaineAgenda()}`, date: x.date, titre: ENT_TYPES[x.type]?.nom ?? 'Entretien', annule: true, organisateur: organisateur(cx) });
+  envoyerEmail(cx.db, 'convocation.annulee', courriel(messagerie(cx), d.adresse, `Annulation : ${nom} — ${fmt(parse(x.date))}`,
+    `Votre ${nom} ${periodeLongue(x.date, x.date)} est annulé par ${auteur(cx.user)} : votre convocation ne vaut plus. Une nouvelle date vous sera proposée s’il y a lieu.\n\nOuvrez le fichier joint pour retirer l’événement de votre agenda, ou supprimez-le vous-même.`,
+    { nom: emp.nom, pj: [pieceJointe(`annulation-entretien-${x.date}.ics`, 'text/calendar; charset=utf-8; method=CANCEL', ics)] }));
+  return true;
+}
+
+/**
  * Demande de visite médicale adressée au service de prévention et de santé au travail (Paramètres → Messagerie) :
  * le contenu de la demande imprimable, sans aucune information médicale. Renvoie faux sans adresse : la demande est
  * alors à imprimer et à transmettre par le service RH.
@@ -317,6 +333,8 @@ const DERNIER_RECAPITULATIF = 'recapitulatifLe';
 export function tachesEmails(db: Db, heure = new Date().getHours()): { releves: number; recapitulatifs: number | null } {
   return db.tx(() => {
     const releves = relevesAutomatiques(db).length;
+    // Récapitulatif des échéances par paliers (server/src/relances.ts) : sa propre date de passage, son propre réglage.
+    relancerEcheances(db, heure);
     const jour = todayIso();
     if (heure < HEURE_RECAPITULATIF || db.getSetting<string | null>(DERNIER_RECAPITULATIF, null) === jour) return { releves, recapitulatifs: null };
     const recapitulatifs = envoyerRecapitulatifs(db);

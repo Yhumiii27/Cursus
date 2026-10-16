@@ -200,7 +200,7 @@ function Destinations() {
   const { openDialog, run } = useStore();
   const { occupe, agir } = useAgir();
   const liste = d.ds.referentiels.destinations;
-  const prevus = (x: Destination) => d.ds.voyages.filter(v => v.dest === x.code && v.retour >= d.ti).length;
+  const prevus = (x: Destination) => d.ds.voyages.filter(v => v.dest === x.code && v.retour >= d.ti && !v.annuleLe).length;
   return (
     <Onglet titre="Destinations" liste={liste} nature={['destination', 'destinations']} peut={peut}
       creer={() => openDialog({ type: 'refDestination' })}

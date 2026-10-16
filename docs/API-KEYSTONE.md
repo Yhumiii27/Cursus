@@ -533,13 +533,41 @@ RTT, maladie…) n'est jamais transmise : seule l'indisponibilité compte pour l
 { "absence": 31, "matricule": "EMP-0018", "du": "2026-12-14", "au": "2026-12-18" }
 ```
 
+### `deplacement.modifie` et `deplacement.annule`
+
+Le service RH modifie (dates) ou annule un déplacement créé par l'acceptation d'une demande Keystone
+(écran Voyages). La destination et le motif d'un tel déplacement sont ceux du chantier : seules ses
+dates se modifient. L'annulation exige un motif, conservé dans Cursus (service RH) et jamais transmis.
+Un déplacement annulé reste dans l'historique de Cursus mais ne compte plus dans le Go / No Go : le
+nouveau verdict suit dans un événement `verdict.modifie` distinct. Les déplacements créés dans Cursus
+ou importés du formulaire de demande ne produisent pas d'événement.
+
+| Champ | Type | Contenu |
+| --- | --- | --- |
+| `deplacement` | entier | identifiant Cursus du déplacement, repris par chaque événement qui le concerne |
+| `demande` | entier ou `null` | identifiant Cursus de la demande acceptée (`demande` de `demande.decision`) |
+| `reference` | identifiant ou `null` | référence Keystone de la demande |
+| `matricule` | matricule | |
+| `chantier` | identifiant | |
+| `destination` | code pays | celui du chantier |
+| `depart`, `retour` | dates | dates du déplacement après la modification ; pour l'annulation, celles du déplacement annulé |
+| `date` | date | jour de la modification ou de l'annulation |
+
+```json
+{ "deplacement": 12, "demande": 7, "reference": "DK-2026-0412", "matricule": "EMP-0018", "chantier": "K-2611", "destination": "MA", "depart": "2026-11-02", "retour": "2026-11-20", "date": "2026-10-14" }
+```
+
+Ces deux types s'ajoutent à ceux de la version 1 sans la changer : un Keystone qui ne les connaît pas
+les accepte et les ignore (voir « Enveloppe »). Une annulation est définitive ; la demande garde son
+statut `acceptee` dans `GET /demandes/{reference}`.
+
 ### `verdict.modifie`
 
 Le verdict Go / No Go d'une ressource change : statut ou codes de motif. Cursus mémorise le dernier
 verdict transmis par chantier et par ressource et le recalcule après chaque action qui peut le changer
 (habilitation suspendue, levée, retirée ou délivrée, certification enregistrée, recyclage planifié,
-déplacement créé, formalités de voyage ou de détachement mises à jour, absence posée, validée, prolongée
-ou annulée, fin de contrat modifiée…), après chaque écriture de Keystone (affectation,
+déplacement créé, modifié ou annulé, formalités de voyage ou de détachement mises à jour, absence
+posée, validée, prolongée ou annulée, fin de contrat modifiée…), après chaque écriture de Keystone (affectation,
 exigences ou dates d'un chantier, instantané) et chaque jour (expirations, délais des formalités). Une
 nouvelle ressource reçoit aussi son premier verdict (`precedent: null`), comme chaque ressource des
 chantiers en cours ou à venir à la mise en service des envois : les verdicts calculés tant que Cursus

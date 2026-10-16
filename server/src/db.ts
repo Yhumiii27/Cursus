@@ -64,7 +64,9 @@ export const TABLES = {
   // Formalités de détachement tenues par le RH (`voyage.detachement`) : certificat de sécurité sociale, information écrite.
   voyages: {
     pk: 'id', auto: true,
-    cols: { id: 'int', empId: 'int', dest: 'text', depart: 'text', retour: 'text', motif: 'text', origine: 'text', ref: 'text', chantier: 'text', detachementLe: 'text', informationLe: 'text' },
+    cols: { id: 'int', empId: 'int', dest: 'text', depart: 'text', retour: 'text', motif: 'text', origine: 'text', ref: 'text', chantier: 'text', detachementLe: 'text', informationLe: 'text',
+      // Annulation (`voyage.annuler`) : le déplacement reste dans l'historique, hors de tous les calculs.
+      annuleLe: 'text', annulePar: 'text', annuleMotif: 'text' },
   },
   // Références Keystone (`ref`) uniques : index créés au démarrage (server/src/integrations/keystone-entrant.ts).
   demandesKeystone: {
@@ -206,6 +208,9 @@ export const TABLES = {
   },
   // Dernier verdict Go / No Go transmis à Keystone, par chantier et ressource (server/src/integrations/keystone-verdicts.ts).
   verdictsKeystone: { pk: 'id', auto: true, cols: { id: 'int', chantier: 'text', empId: 'int', statut: 'text', motifs: 'json', date: 'text' }, unique: [['chantier', 'empId']] },
+  // Relances des échéances (server/src/relances.ts) : palier franchi par objet (titre, visite, entretien, fin de contrat…),
+  // noté une fois envoyé pour qu'il ne reparte pas ; `cle` porte la date d'échéance (un renouvellement repart de zéro).
+  relances: { pk: 'id', auto: true, cols: { id: 'int', cle: 'text', palier: 'text', le: 'text' }, unique: [['cle', 'palier']] },
 } satisfies Record<string, TableDef>;
 
 export type TableName = keyof typeof TABLES;

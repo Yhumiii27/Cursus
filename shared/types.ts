@@ -268,6 +268,11 @@ export interface Voyage {
   detachementLe: ISODate | null; informationLe: ISODate | null;
   /** Formalités obligatoires manquantes, précalculées avec `dossierStatut` quand les pièces ne sont pas transmises. */
   dossierManque?: FormaliteManquante[];
+  /**
+   * Annulation par le service RH (`voyage.annuler`, shared/rules/deplacements.ts) : jour, auteur et motif (texte libre,
+   * réservé au service RH). Annulé, le déplacement reste dans l'historique mais sort de tous les calculs.
+   */
+  annuleLe?: ISODate | null; annulePar?: string | null; annuleMotif?: string | null;
 }
 /** Demande de déplacement reçue de Keystone (`ref` : référence externe unique), conservée après décision du RH. */
 export interface DemandeKeystone {
@@ -430,6 +435,10 @@ export interface Settings {
   /** Titres de séjour (client/src/pages/parametres/Contrats.tsx) : première alerte et relance, en jours avant l'expiration. */
   titreSejourAlerte: number;
   titreSejourRelance: number;
+  /** Récapitulatif des échéances (shared/rules/relances.ts) : envoi actif, paliers en jours avant l'échéance, jour d'envoi. */
+  relancesActives: boolean;
+  relancesPaliers: number[];
+  relancesJour: 'quotidien' | 'lundi' | 'mardi' | 'mercredi' | 'jeudi' | 'vendredi';
 }
 
 /**

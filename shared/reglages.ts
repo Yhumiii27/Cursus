@@ -4,6 +4,7 @@
 // en est tiré. Ajouter un réglage : docs/ARCHITECTURE.md, « Cadre commun du lot 4 ».
 import { isValidDate } from './dates.ts';
 import { CONTRATS_EXCLUABLES, PREAVIS_TOUTE_ANNEE } from './rules/campagne.ts';
+import { JOURS_RELANCE, paliersRelance } from './rules/relances.ts';
 import type { Settings } from './types.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
@@ -104,6 +105,11 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   //   de renouvellement en préfecture) puis relance à 2 mois —
   titreSejourAlerte: { defaut: 120, controle: entier(30, 180, 15) },
   titreSejourRelance: { defaut: 60, controle: entier(15, 120, 15) },
+  // — Récapitulatif des échéances (parametres/RelancesEcheances.tsx, shared/rules/relances.ts) : actif, à 90, 30 et 7 jours
+  //   puis échu, chaque jour à 7 h —
+  relancesActives: { defaut: true, controle: booleen },
+  relancesPaliers: { defaut: [90, 30, 7], controle: paliersRelance },
+  relancesJour: { defaut: 'quotidien', controle: choix(JOURS_RELANCE) },
 };
 
 /**

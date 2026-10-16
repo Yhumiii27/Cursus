@@ -1,12 +1,14 @@
 // Migrations nommées du chantier « paie » (lot 4) : mode des heures supplémentaires figé sur les feuilles validées ;
 // feuilles déjà transmises réunies en un lot de paie historique.
 import { randomUUID } from 'node:crypto';
+import { isoParis } from '../../../shared/dates.ts';
 import { Domain } from '../../../shared/domain.ts';
 import { matricule, plural } from '../../../shared/format.ts';
 import { recupInfo } from '../../../shared/rules/conges.ts';
+import { periodesSemaine } from '../../../shared/rules/paie.ts';
 import type { CurrentUser, Dataset, FeuilleTemps } from '../../../shared/types.ts';
 import { journaliser } from '../comptes.ts';
-import { loadFull, loadSettings } from '../dataset.ts';
+import { loadFull, loadSettings, todayIso } from '../dataset.ts';
 import type { Db } from '../db.ts';
 import type { Migration } from './cadre.ts';
 
@@ -73,13 +75,20 @@ const transmisesSansLot = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS
 export function lotHistorique(db: Db, auteur = 'Cursus', date?: string): { id: number; feuilles: { empId: number; week: string }[] } | null {
   const feuilles = db.sql.prepare(`SELECT emp_id AS empId, week FROM feuilles WHERE ${sansLot} ORDER BY week, emp_id`).all() as { empId: number; week: string }[];
   if (!feuilles.length) return null;
-  const dernier = db.getSetting<{ mode?: string; envoye_le?: string } | null>('lastSagePush', null);
+  const dernier = db.getSetting<{ mode?: string; envoye_le?: string; periodes?: unknown } | null>('lastSagePush', null);
   const envoi = new Date(date ?? dernier?.envoye_le ?? Number.NaN);
-  const quand = Number.isNaN(envoi.getTime()) ? new Date().toISOString() : envoi.toISOString();
-  const periodes = [...new Set(feuilles.map(f => f.week.slice(0, 7)))].sort();
+  const connu = !Number.isNaN(envoi.getTime());
+  const quand = connu ? envoi.toISOString() : new Date().toISOString();
+  // Périodes selon la règle de rattachement réglée, au jour de l'envoi (mois du dimanche par défaut, rappel d'une
+  // période close), plus celles que la dernière transmission a annoncées ; période du lot : la plus récente.
+  const settings = loadSettings(db), jour = connu ? isoParis(envoi) : todayIso();
+  const parts = feuilles.flatMap(f => periodesSemaine(f.week, settings, jour));
+  const annoncees = Array.isArray(dernier?.periodes) ? dernier.periodes.filter((p): p is string => typeof p === 'string' && /^\d{4}-\d{2}$/.test(p)) : [];
+  const periodes = [...new Set([...parts.map(x => x.periode), ...annoncees])].sort();
+  const rappels = [...new Set(parts.flatMap(x => (x.origine ? [x.origine] : [])))].sort();
   const lot = db.insert<{ id: number }>('lotsPaie', {
     cle: randomUUID(), mode: dernier?.mode === 'api' || dernier?.mode === 'fichier' ? dernier.mode : 'simulation', statut: 'transmis',
-    periode: periodes.at(-1), periodes, rappels: [], creation: quand, auteur, feuilles,
+    periode: periodes.at(-1), periodes, rappels, creation: quand, auteur, feuilles,
     resume: { lignes: 0, salaries: new Set(feuilles.map(f => f.empId)).size, rubriques: {} }, sansMatricule: [], contenu: null,
     telechargeLe: null, telechargePar: null, telechargements: 0, confirmeLe: quand, confirmePar: auteur, reference: null,
     annuleLe: null, annulePar: null, historique: true,

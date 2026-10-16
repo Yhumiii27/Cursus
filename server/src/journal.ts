@@ -16,6 +16,7 @@ import { ESPACE_LABEL, NATURES_ABSENCE, TS_LABEL, VACCINS } from '../../shared/c
 import { addD, isValidDate } from '../../shared/dates.ts';
 import { Domain } from '../../shared/domain.ts';
 import { fmtIso, num, plural } from '../../shared/format.ts';
+import { erreurReference } from '../../shared/rules/lots-paie.ts';
 import { matriculeAffiche } from '../../shared/rules/matricules.ts';
 import {
   ACTION_APPEL_KEYSTONE, ACTIONS_CONNEXION, ACTIONS_PAIE, changementsTexte, CONSERVATION_ARCHIVE_PAIE_MOIS, CONSERVATION_ENVOIS_MOIS,
@@ -293,7 +294,8 @@ export const REGLES: Record<string, Regle> = {
   // Lots de paie : période choisie, numéro du lot, feuilles salarié par salarié ; confirmation de l'import (statut, date,
   // référence d'import contrôlée : un code) ou annulation ; format du fichier d'import (codes, avant et après).
   'paie.lotGenerer': { champs: ['periode'], bilan: (_p, x) => lotRetenu(x), salaries: (_p, x) => salariesDuLot(x) },
-  'paie.lotConfirmer': { champs: ['id', 'reference'], cible: parId('lotsPaie', ['statut', 'confirmeLe']), bilan: (_p, x) => lotRetenu(x), salaries: (_p, x) => salariesDuLot(x) },
+  // Référence recopiée seulement si c'est un code valide (une requête refusée a pu porter un texte libre).
+  'paie.lotConfirmer': { champs: p => (erreurReference(String(p.reference ?? '')) ? ['id'] : ['id', 'reference']), cible: parId('lotsPaie', ['statut', 'confirmeLe']), bilan: (_p, x) => lotRetenu(x), salaries: (_p, x) => salariesDuLot(x) },
   'paie.lotAnnuler': { champs: ['id'], cible: parId('lotsPaie', ['statut', 'annuleLe']), bilan: (_p, x) => lotRetenu(x), salaries: (_p, x) => salariesDuLot(x) },
   'paie.formatFichier': { cible: { table: 'settings', cle: () => 'formatFichierPaie', colonnes: ['value'], aplatir: true } },
   // Absences : la nature n'est jamais recopiée (son absence trahirait une nature médicale) ; dates et statut seulement.

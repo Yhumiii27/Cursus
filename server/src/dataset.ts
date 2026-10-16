@@ -7,6 +7,7 @@ import { absenceVueManager, repriseMedicale } from '../../shared/rules/absences.
 import { aptitudeVueManager } from '../../shared/rules/sante.ts';
 import { avecInscrits } from '../../shared/rules/sessions.ts';
 import { finPeriodeCp, periodeReport } from '../../shared/rules/conges.ts';
+import { debutSaisieDe } from '../../shared/rules/suivi-feuilles.ts';
 import { reglagesParDefaut } from '../../shared/reglages.ts';
 import type { DemandeVisite } from '../../shared/types.ts';
 import type {
@@ -59,6 +60,7 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     visas: visas.filter(v => v.empId === e.id),
     vaccins: vaccins.filter(v => v.empId === e.id),
   }));
+  const feuilles = db.all<FeuilleTemps>('feuilles');
   const budgets: Dataset['budgets'] = {};
   db.all<{ exercice: number; equipe: string; montant: number }>('budgets').forEach(b => {
     (budgets[String(b.exercice)] ||= {})[b.equipe] = b.montant;
@@ -90,7 +92,7 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     demandesKeystone: db.all<DemandeKeystone>('demandesKeystone'),
     missions: db.all<Mission>('missions'),
     taches: db.all<TacheKeystone>('taches'),
-    feuilles: db.all<FeuilleTemps>('feuilles'),
+    feuilles,
     absences: db.all<Absence>('absences'),
     cet: db.all<CetMouvement>('cet'),
     reports: db.all<ReportCp>('reports'),
@@ -99,6 +101,8 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     entretiens: db.all<Entretien>('entretiens'),
     demandesCollab: db.all<DemandeCollab>('demandesCollab'),
     demandesVisite: db.all<DemandeVisite>('demandesVisite'),
+    // Début de la saisie des feuilles, sur toutes les feuilles : transmis tel quel à tous les espaces (une date).
+    debutSaisieFeuilles: debutSaisieDe(feuilles),
     // Lots de paie, sans leur contenu figé (lu par le téléchargement du fichier : server/src/fichier-paie.ts), et format
     // du fichier d'import réglé par la paie (shared/rules/lots-paie.ts).
     lotsPaie: lireLots(db),

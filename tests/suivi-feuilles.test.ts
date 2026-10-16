@@ -7,7 +7,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 
 const { Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
-const { currentUser, loadFull } = await import('../server/src/dataset.ts');
+const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
 const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
 const { journaliserAction, preparerTrace } = await import('../server/src/journal.ts');
@@ -93,6 +93,24 @@ test('t130 tableau semaine × collaborateur : états, retards, exclusions et com
   assert.deepEqual(S.etatSemaines(domain(), [2, 999], ['2026-10-05'], m).map(l => l.cellules[0].etat), [null]);
 });
 
+test('t130 vue du manager : début de la saisie calculé sur toutes les feuilles, comme la relance du serveur', () => {
+  const { db, run, KARIM } = fresh();
+  const m = { jour: '2026-10-10', heure: 13 };
+  const equipe = [2, 6, 18, 24];
+  const semaines = S.semainesSuivies('2026-10-10', 5);
+  // L'équipe de Karim n'a encore rien saisi dans Cursus (mise en service « tout en même temps ») ; les autres équipes, si.
+  db.sql.exec(`DELETE FROM feuilles WHERE emp_id IN (${[...equipe, 12].join(', ')})`);
+  const serveur = S.compteursSuivi(S.etatSemaines(new Domain(loadFull(db, KARIM)), equipe, semaines, m));
+  const vue = buildSnapshot(db, KARIM);
+  assert.ok(vue.feuilles.every(f => equipe.includes(f.empId) || f.empId === 12), 'instantané du manager réduit à son équipe');
+  assert.equal(vue.debutSaisieFeuilles, loadFull(db, KARIM).debutSaisieFeuilles);
+  const ecran = S.compteursSuivi(S.etatSemaines(new Domain(vue), equipe, semaines, m));
+  assert.ok(serveur.enRetard > 0);
+  assert.deepEqual(ecran, serveur, 'l’écran du manager montre les feuilles que le serveur relance');
+  const relancees = (run(KARIM, 'temps.relancer', {}) as string).match(/pour (\d+) feuille/)![1];
+  assert.equal(Number(relancees), ecran.enRetard);
+});
+
 test('t130 relance : salarié et valideur notifiés, périmètre du manager, rien à relancer', () => {
   const { db, run, refus, feuille, journal, ADMIN, PAIE, KARIM, HUGO, MEHDI } = fresh();
   const mails = () => db.all<{ type: string; contenu: { a: string[]; objet: string; texte: string } }>('envois').filter(e => e.type === 'temps.relance');
@@ -122,6 +140,10 @@ test('t130 relance : salarié et valideur notifiés, périmètre du manager, rie
   assert.equal(r.empId, 12);
   assert.equal(r.objet, '1 feuille de temps en retard — 1 collaborateur');
   assert.match(r.texte, /- Mehdi Benali : semaine 40 \(renvoyée pour correction\)/);
+  // Relance faite par le service RH : « Relance du service RH. » (jamais « de le service RH »), au salarié comme au valideur.
+  assert.match(mails().at(-1)!.contenu.texte, /Relance du service RH\./);
+  assert.match(r.texte, /Relance du service RH\./);
+  assert.ok(![...mails().map(x => x.contenu.texte), r.texte].some(t => /de le service/.test(t)));
   assert.match(String(run(ADMIN, 'temps.relancer', {})), /2 collaborateurs et son valideur$/);
 });
 

@@ -4,7 +4,6 @@
 // (server/src/fichier-paie.ts) et l'écran Temps (client/src/components/LotsPaie.tsx).
 // Périmètre du fichier : heures validées du lundi au vendredi seulement ; absences, déplacements, samedi, dimanche et
 // nuit restent saisis dans Sage (PERIMETRE_FICHIER, repris par l'écran, la confirmation et la procédure).
-import { r1 } from '../format.ts';
 import type { ColonneFichierPaie, FeuilleTemps, FormatFichierPaie, ISODate, LotPaie, SagePush, Settings, StatutLotPaie } from '../types.ts';
 import { periodesSemaine } from './paie.ts';
 
@@ -80,6 +79,9 @@ export function periodeFichier(p: string, f: FormatFichierPaie['formatPeriode'])
   return f === 'MM/AAAA' ? `${m}/${a}` : f === 'AAAAMM' ? `${a}${m}` : f === 'MMAAAA' ? `${m}${a}` : p;
 }
 
+/** Quantités du fichier au centième (quart d'heure : 0,25) ; les totaux du lot, contrôlés dans Sage, de même. */
+const r2 = (n: number) => Math.round(n * 100) / 100;
+
 export interface LigneFichier { matricule: string; periode: string; rubrique: string; quantite: number }
 
 /**
@@ -93,7 +95,7 @@ export function lignesFichier(contenu: Pick<SagePush, 'lignes'>): LigneFichier[]
       const periode = l.periode ?? '';
       const cle = `${l.matricule}|${periode}|${rubrique}`;
       const x = somme.get(cle) ?? { matricule: l.matricule, periode, rubrique, quantite: 0 };
-      x.quantite = Math.round((x.quantite + q) * 100) / 100;
+      x.quantite = r2(x.quantite + q);
       somme.set(cle, x);
     }
   }
@@ -122,7 +124,7 @@ export const nomFichierLot = (l: Pick<LotPaie, 'id' | 'periode'>, f: FormatFichi
 /** Totaux d'un contenu : lignes du fichier, salariés (matricules), quantité par code Sage. */
 export function resumeContenu(contenu: Pick<SagePush, 'lignes'>): LotPaie['resume'] {
   const lignes = lignesFichier(contenu), rubriques: Record<string, number> = {};
-  for (const l of lignes) rubriques[l.rubrique] = r1((rubriques[l.rubrique] ?? 0) + l.quantite);
+  for (const l of lignes) rubriques[l.rubrique] = r2((rubriques[l.rubrique] ?? 0) + l.quantite);
   return { lignes: lignes.length, salaries: new Set(lignes.map(l => l.matricule)).size, rubriques };
 }
 

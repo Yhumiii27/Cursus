@@ -600,6 +600,12 @@ export interface Dataset {
   entretiens: Entretien[];
   demandesCollab: DemandeCollab[];
   demandesVisite: DemandeVisite[];
+  /**
+   * Début de la saisie des feuilles de temps dans Cursus (lundi de la première feuille enregistrée, null : aucune),
+   * calculé sur toutes les feuilles avant le filtrage par périmètre : le suivi des feuilles (shared/rules/suivi-feuilles.ts)
+   * d'un manager exclut ainsi les mêmes semaines que la relance du serveur. Une date, aucune donnée personnelle.
+   */
+  debutSaisieFeuilles: ISODate | null;
   /** Lots de paie, sans leur contenu (résumé) : service RH, paie et lecture seule (vide ailleurs). */
   lotsPaie: LotPaie[];
   /** Format du fichier d'import Sage : service RH, paie et lecture seule (null ailleurs). */

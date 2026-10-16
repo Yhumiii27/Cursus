@@ -16,7 +16,7 @@ const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
 const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
-const { journaliserAction, preparerTrace } = await import('../server/src/journal.ts');
+const { champsRetenus, journaliserAction, preparerTrace, tracerRefus } = await import('../server/src/journal.ts');
 const { openSession } = await import('../server/src/auth.ts');
 const { routesFichierPaie } = await import('../server/src/fichier-paie.ts');
 const { lireLots } = await import('../server/src/lots-paie.ts');
@@ -98,6 +98,10 @@ test('t019 fichier d’import : une ligne par salarié, période et rubrique, fo
   // Un code qui contient le séparateur est mis entre guillemets.
   assert.equal(L.fichierLot({ lignes: [{ matricule: 'A', semaine: '', periode: '2026-10', rubriques: { 'X,1': 1 } }] }, { ...L.FORMAT_FICHIER_DEFAUT, separateur: ',', decimale: '.', entete: false }), 'A,2026-10,"X,1",1\r\n');
   assert.deepEqual(L.resumeContenu(contenu), { lignes: 3, salaries: 2, rubriques: { HN: 91, HS25: 3.5 } });
+  // Quarts d'heure : totaux au centième, comme les lignes du fichier (12,25 et non 12,3, que Sage ne retrouverait pas).
+  const quarts = { lignes: [{ matricule: 'A', semaine: '', periode: '2026-10', rubriques: { HS25: 4.25 } }, { matricule: 'B', semaine: '', periode: '2026-10', rubriques: { HS25: 8 } }] };
+  assert.deepEqual(L.resumeContenu(quarts).rubriques, { HS25: 12.25 });
+  assert.equal(L.totauxTexte(L.resumeContenu(quarts)), 'HS25 12,25');
   assert.equal(L.totauxTexte({ lignes: 3, salaries: 2, rubriques: { HN: 1225.5, HS25: 3.5 } }), `HN ${(1225.5).toLocaleString('fr-FR')} · HS25 3,5`);
   assert.equal(L.nomFichierLot({ id: 12, periode: '2026-10' }), 'sage-paie-2026-10-lot-12.csv');
   assert.equal(L.nomFichierLot({ id: 12, periode: '2026-10' }, { ...L.FORMAT_FICHIER_DEFAUT, separateur: 'tab' }), 'sage-paie-2026-10-lot-12.txt');
@@ -190,6 +194,21 @@ test('t029 lot de fichier : généré, feuilles réservées, fichier tracé, imp
       // Confirmation de l'import : datée, signée, référence contrôlée ; elle seule marque les feuilles transmises.
       refus(PAIE, 'paie.lotConfirmer', { id: lot.id, reference: 'import du 12 octobre' }, 400, /40 caractères au plus/);
       refus(GEST, 'paie.lotConfirmer', { id: lot.id }, 403);
+      // Refus de droits (403, tracé au journal comme POST /api/actions/:nom le fait) : une référence en texte libre est
+      // refusée avant les droits, jamais recopiée au journal ; une référence valide (un code) l'est.
+      const refusTrace = (p: Record<string, unknown>) => {
+        try { run(GEST, 'paie.lotConfirmer', p); } catch (e) {
+          if (e instanceof ActionError && e.status === 403) tracerRefus(db, { user: GEST, compte: db.get('comptes', GEST.compteId)! }, 'Confirmer l’import', e.message, { action: 'paie.lotConfirmer', p });
+          return (e as InstanceType<typeof ActionError>).status;
+        }
+      };
+      const libre = 'Import fait par Mme Martin, voir son commentaire';
+      assert.equal(refusTrace({ id: lot.id, reference: libre }), 400);
+      assert.equal(refusTrace({ id: lot.id, reference: 'IMP-X' }), 403);
+      const refuses = journal('acces.refuse').filter(l => l.payload.action === 'paie.lotConfirmer');
+      assert.deepEqual(refuses.map(l => l.payload.reference), ['IMP-X']);
+      assert.ok(!JSON.stringify(journal('acces.refuse')).includes('Mme Martin'));
+      assert.deepEqual(champsRetenus('paie.lotConfirmer', { id: lot.id, reference: libre }), { id: lot.id }, 'règle du journal : texte libre écarté');
       assert.match(String(run(PAIE, 'paie.lotConfirmer', { id: lot.id, reference: 'IMP-2026-10' })),
         new RegExp(`^Lot n° ${lot.id} : import dans Sage confirmé — ${enAttente} feuilles marquées transmises · référence IMP-2026-10$`));
       const confirme = lots().at(-1)!;
@@ -294,7 +313,8 @@ test('t029 migration : feuilles déjà transmises réunies en un lot historique,
     seedDemo(db);
     // Base d'avant les lots : feuilles transmises sans lot, dernière transmission gardée dans un réglage.
     db.sql.exec(`UPDATE feuilles SET lot_id = NULL; DELETE FROM lots_paie; DELETE FROM migrations WHERE nom = 'lot4-paie-lots-historiques'`);
-    db.setSetting('lastSagePush', { mode: 'simulation', envoye_le: '2026-09-25T17:02:00+02:00', lignes: [] });
+    // Envoi du 2 octobre (septembre clos) de la semaine du 21 septembre : rappel de septembre sur la paie d'octobre.
+    db.setSetting('lastSagePush', { mode: 'simulation', envoye_le: '2026-10-02T17:02:00+02:00', lignes: [], periodes: ['2026-10'] });
     const transmises = Number((db.sql.prepare('SELECT COUNT(*) AS n FROM feuilles WHERE sage = 1').get() as { n: number }).n);
     assert.ok(transmises > 0);
     db.sql.close();
@@ -302,7 +322,9 @@ test('t029 migration : feuilles déjà transmises réunies en un lot historique,
     assert.equal(LOTS_HISTORIQUES.necessaire!(ancienne), true);
     assert.deepEqual(appliquerMigrations(ancienne), ['lot4-paie-lots-historiques']);
     const [lot] = lireLots(ancienne);
-    assert.deepEqual([lot.statut, lot.historique, lot.mode, lot.feuilles.length, lot.creation], ['transmis', true, 'simulation', transmises, '2026-09-25T15:02:00.000Z']);
+    assert.deepEqual([lot.statut, lot.historique, lot.mode, lot.feuilles.length, lot.creation], ['transmis', true, 'simulation', transmises, '2026-10-02T15:02:00.000Z']);
+    // Période selon la règle de rattachement au jour de l'envoi (et non le mois du lundi de la semaine).
+    assert.deepEqual([lot.periode, lot.periodes, lot.rappels], ['2026-10', ['2026-10'], ['2026-09']]);
     assert.equal(Number((ancienne.sql.prepare('SELECT COUNT(*) AS n FROM feuilles WHERE sage = 1 AND lot_id IS NULL').get() as { n: number }).n), 0);
     const j = ancienne.all<Ligne>('journal').filter(l => l.action === 'migration.lotsPaie');
     assert.equal(j.length, 1);

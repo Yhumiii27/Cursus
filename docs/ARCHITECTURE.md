@@ -1238,14 +1238,17 @@ Règles : `shared/rules/absences.ts` (confidentialité, décompte, reprise, annu
     décimale et en-tête réglés par `paie.formatFichier` ; refusé pour un lot annulé ou historique. Chaque téléchargement
     est compté sur le lot et tracé (`sage.fichier`, archive paie, salariés du lot).
   - Reprise : migration `lot4-paie-lots-historiques` (feuilles déjà transmises sans lot réunies en un lot historique,
-    transmis, sans contenu ; journal `migration.lotsPaie`). Le réglage `lastSagePush` n'est plus écrit ni transmis.
+    transmis, sans contenu, périodes selon la règle de rattachement au jour de la dernière transmission, plus celles
+    qu'elle avait annoncées ; journal `migration.lotsPaie`). Le réglage `lastSagePush` n'est plus écrit ni transmis.
   - Envoi par API (mise en file, cible `sage`, clé d'idempotence = `cle` du lot, statut au succès) : avec le connecteur,
     quand Sage fournira un contrat d'API.
 - **Suivi des feuilles de temps** (`shared/rules/suivi-feuilles.ts`, `client/src/components/SuiviFeuilles.tsx`,
   `server/src/actions/suivi-feuilles.ts`) : état de chaque semaine × collaborateur sur les `suiviSemaines` dernières
   semaines (attendue, non saisie, brouillon, à valider, à corriger, validée, transmise ; en retard après l'échéance
   `feuilleLimiteJour` / `feuilleLimiteHeure` de la semaine suivante, heure de Paris) ; semaines hors contrat, couvertes
-  par une absence ou antérieures à la première feuille enregistrée exclues. Service RH (par équipe), paie et lecture seule
+  par une absence ou antérieures à la première feuille enregistrée exclues (début de la saisie calculé par le serveur sur
+  toutes les feuilles et transmis dans l'instantané, `debutSaisieFeuilles` : le manager voit les mêmes retards que ceux
+  que la relance envoie, même si son équipe n'a encore rien saisi). Service RH (par équipe), paie et lecture seule
   (consultation), manager (son équipe). Relance (`temps.relancer`, e-mail `temps.relance` au salarié et à son valideur,
   `server/src/notifications.ts`) et validation groupée (`temps.validerLot`). Réglages : Paramètres → Suivi des feuilles
   de temps (`pages/parametres/FeuillesTemps.tsx`).

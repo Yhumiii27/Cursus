@@ -134,11 +134,12 @@ export function confirmerLot(ctx: Ctx, lot: LotEnregistre, reference: string | n
 }
 
 const lotConfirmer: ActionHandler = (ctx, p) => {
-  requirePaie(ctx);
-  // Référence contrôlée avant tout (elle est recopiée au journal : un code, jamais un texte libre).
+  // Référence contrôlée avant tout, droits compris (elle est recopiée au journal, refus 403 compris : un code, jamais
+  // un texte libre).
   const reference = str(p.reference);
   const erreur = erreurReference(reference);
   if (erreur) throw new ActionError(erreur);
+  requirePaie(ctx);
   const lot = lotDe(ctx, p.id);
   if (lot.statut === 'transmis') return { message: `Lot n° ${lot.id} : import déjà confirmé`, result: resultatLot(lot) };
   if (lot.statut === 'annule') throw new ActionError(`Lot n° ${lot.id} annulé : générez un nouveau lot`, 409);

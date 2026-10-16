@@ -65,7 +65,14 @@ export function semainesSuivies(today: ISODate, n = 5): ISODate[] {
 export interface CelluleSuivi { empId: number; week: ISODate; etat: EtatSemaine | null; enRetard: boolean; feuille: FeuilleTemps | null }
 
 /** Première semaine où une feuille de temps a été enregistrée dans Cursus (null : aucune) : début de la saisie. */
-export const debutSaisie = (d: Domain): ISODate | null => d.ds.feuilles.reduce<ISODate | null>((m, f) => (!m || f.week < m ? f.week : m), null);
+export const debutSaisieDe = (feuilles: readonly Pick<FeuilleTemps, 'week'>[]): ISODate | null =>
+  feuilles.reduce<ISODate | null>((m, f) => (!m || f.week < m ? f.week : m), null);
+/**
+ * Début de la saisie, calculé par le serveur sur toutes les feuilles (`debutSaisieFeuilles`) : les feuilles de
+ * l'instantané d'un manager sont réduites à son équipe, et une équipe qui n'a encore rien saisi y paraîtrait hors suivi.
+ */
+export const debutSaisie = (d: Domain): ISODate | null =>
+  d.ds.debutSaisieFeuilles !== undefined ? d.ds.debutSaisieFeuilles : debutSaisieDe(d.ds.feuilles);
 
 /** État d'une semaine pour un collaborateur, à `m` ; `debut` : début de la saisie dans Cursus (semaines antérieures exclues). */
 export function etatSemaine(d: Domain, e: Employe, week: ISODate, m: Maintenant, debut: ISODate | null = debutSaisie(d)): CelluleSuivi {

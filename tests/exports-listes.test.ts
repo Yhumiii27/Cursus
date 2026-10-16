@@ -107,6 +107,28 @@ test('absences : jamais la nature d’une absence hors congés, quel que soit le
   }
 });
 
+test('absences : deux natures hors congés sur une même période donnent la même ligne (ni unité, ni nombre de jours)', () => {
+  const { domaine, run, RH, user } = fresh();
+  // Du vendredi au lundi (week-end compris) : 4 jours calendaires, 2 jours ouvrés.
+  run(RH, 'absence.saisir', { empId: 2, nature: 'MALADIE', du: '2026-10-16', au: '2026-10-19', justificatif: true, justificatifLe: '2026-10-09' });
+  run(RH, 'absence.saisir', { empId: 3, nature: 'ENFANT_MALADE', du: '2026-10-16', au: '2026-10-19', justificatif: true, justificatifLe: '2026-10-09' });
+  for (const u of [RH, user(12, 'manager')]) {
+    const d = domaine(u);
+    const list = d.ds.absences.map(a => ({ a, e: d.emp(a.empId)! })).filter(x => x.e);
+    const x = csvAbsences(d, list);
+    const ligne = (m: string) => x.rows.find(r => r[1] === m && r[4] === '16/10/2026');
+    const arret = ligne('EMP-0002');
+    assert.ok(arret, u.role);
+    assert.deepEqual(arret.slice(3), ['Absence', '16/10/2026', '19/10/2026', '4', 'jours calendaires', 'Qualifiée']);
+    // Le manager ne voit que son équipe : l'enfant malade de l'EMP-0003 n'y figure que pour le RH.
+    const enfant = ligne('EMP-0003');
+    if (u === RH) {
+      assert.ok(enfant);
+      assert.deepEqual(enfant.slice(3), arret.slice(3), 'lignes identiques hors nom, matricule et équipe');
+    }
+  }
+});
+
 test('plan de formation : exercice, filtre de statut, coût retenu et origine', () => {
   const { domaine, RH } = fresh();
   const d = domaine(RH);

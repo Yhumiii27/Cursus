@@ -23,7 +23,7 @@ const jmaDate = (d: Date | null | undefined) => d ? d.toLocaleDateString('fr-FR'
 /** Nombre à la française (virgule décimale, deux décimales au plus), lu comme un nombre par Excel. */
 export const nombre = (n: number) => String(Math.round(n * 100) / 100).replace('.', ',');
 
-/** Mention des soldes tant que l'outil qui fait foi pour les compteurs reste à confirmer (choix du chantier). */
+/** Mention des soldes : Cursus fait foi pour les compteurs depuis la reprise (réponse de l'entreprise) ; la mention précise la source du fichier. */
 export const MENTION_SOLDES = 'Soldes calculés par Cursus';
 
 /** Contrat en clair : « CDD · Cadre · Forfait jours ». */
@@ -82,14 +82,19 @@ export function csvSoldes(d: Domain, emps: Employe[]): ListeCsv {
 /**
  * Absences (écran Congés & absences) : lignes affichées. Congés payés, RTT et récupération sont nommés ; toute autre
  * absence reste « Absence » (jamais sa nature : arrêt, accident, enfant malade… sont des données de santé), quel que
- * soit le profil. Ni motif de refus, ni signalement nominatif.
+ * soit le profil. Son décompte aussi est celui d'une absence générique (jours calendaires) : l'unité et le nombre de
+ * jours de la nature réelle (calendaires pour un arrêt, ouvrés pour un enfant malade) trahiraient sa catégorie.
+ * Ni motif de refus, ni signalement nominatif.
  */
 export function csvAbsences(d: Domain, list: { a: Absence; e: Employe }[]): ListeCsv {
   return {
     fichier: `absences-${d.ti}.csv`,
     head: ['Collaborateur', 'Matricule', 'Équipe', 'Absence', 'Du', 'Au', 'Jours', 'Décompte', 'Statut'],
-    rows: list.map(({ a, e }) => [e.nom, matricule(e.id), e.equipe ?? 'À affecter', estConge(a.type) ? ABS_LABEL[a.type] : 'Absence',
-      jma(a.du), jma(a.au), nombre(joursDecomptes(d, e, a)), `jours ${uniteDecompte(a.type)}`, statutAbsence(a)]),
+    rows: list.map(({ a, e }) => {
+      const t = estConge(a.type) ? a.type : 'ABSENCE';
+      return [e.nom, matricule(e.id), e.equipe ?? 'À affecter', estConge(t) ? ABS_LABEL[t] : 'Absence',
+        jma(a.du), jma(a.au), nombre(joursDecomptes(d, e, { ...a, type: t })), `jours ${uniteDecompte(t)}`, statutAbsence(a)];
+    }),
   };
 }
 

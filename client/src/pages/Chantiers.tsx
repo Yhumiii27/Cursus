@@ -7,6 +7,7 @@ import { cap, fmt, fmtShort, plural } from '../../../shared/format.ts';
 import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
 import { usePanneauVisible } from '../components/panneau.ts';
 import { Empty, Fine, Page, Panel, Pre, Tag, Two } from '../components/ui.tsx';
+import { CartePick, Ouvrir } from '../components/Cliquable.tsx';
 import { useEnriched, useTrips } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -41,7 +42,7 @@ export function Chantiers() {
           const req = ['disponibilité (contrat, absences)', 'aptitude médicale', ...x.c.habs.map(h => d.hm(h).nom), ...x.c.certs.map(f => d.fm(f).court),
             ...(x.c.pays !== 'FR' ? ['déplacement couvrant la présence', 'formalités de voyage et de détachement'] : [])];
           return (
-            <article key={x.c.id} className={`card elev-sm pick${x === sel ? ' selected' : ''}`} onClick={() => setUi({ goSel: x.c.id })}>
+            <CartePick key={x.c.id} selected={x === sel} onSelect={() => setUi({ goSel: x.c.id })}>
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--space-3)' }}>
                 <div className="card-kicker">{x.c.id}</div>
                 <Tag cls={GNG_CLS[x.status]}>{GNG_LABEL[x.status]}</Tag>
@@ -50,7 +51,7 @@ export function Chantiers() {
               <p className="card-body dim">{x.c.lieu}{dest ? ', ' + dest.pays : ''} · {fmtShort(parse(x.c.debut))} → {fmt(parse(x.c.fin))}</p>
               <Fine>Exigences : {req.join(' · ')}</Fine>
               <div className="card-meta"><span>{n('go')} go · {n('reserve')} sous réserve · {n('nogo')} no go</span></div>
-            </article>
+            </CartePick>
           );
         })}
       </div>
@@ -69,7 +70,7 @@ export function Chantiers() {
               <tbody>
                 {sel.res.map(r => (
                   <tr key={r.e.id} className="clickable" onClick={() => go('collaborateurs', { selectedId: r.e.id })}>
-                    <td><Two nowrap main={r.e.nom} sub={`${identifiantKeystone(d.ds.settings.identifiantKeystone, r.e)} · ${r.e.poste}`} /></td>
+                    <td><Two nowrap main={<Ouvrir onOpen={() => go('collaborateurs', { selectedId: r.e.id })}>{r.e.nom}</Ouvrir>} sub={`${identifiantKeystone(d.ds.settings.identifiantKeystone, r.e)} · ${r.e.poste}`} /></td>
                     <td><Tag cls={GNG_CLS[r.status]}>{GNG_LABEL[r.status]}</Tag></td>
                     <td>
                       <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>

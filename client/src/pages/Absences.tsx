@@ -10,8 +10,11 @@ import { cap, equipeLabel, fH, fJ, fmt, fmtIso, fmtShort, plural } from '../../.
 import { absenceActive, droitAnnulation, estConge, joursDecomptes, natureDef, periodeTexte, prolongeable, statutAbsence, uniteDecompte } from '../../../shared/rules/absences.ts';
 import { absenceKinds, cetInfo, cpInfo, recupInfo, reposForfait, rttInfo } from '../../../shared/rules/conges.ts';
 import type { Absence, Employe, NatureAbsence } from '../../../shared/types.ts';
+import { DownloadSimpleIcon } from '@phosphor-icons/react';
 import { CloturesConges } from '../components/CloturesConges.tsx';
-import { Empty, Fine, Kpi, Kpis, Page, Panel, Tag, Two } from '../components/ui.tsx';
+import { Btn, Empty, Fine, Kpi, Kpis, Page, Panel, Tag, Two } from '../components/ui.tsx';
+import { csvAbsences, csvSoldes } from '../listes-csv.ts';
+import { downloadCsv } from '../print.ts';
 import { useAgir } from '../state/actions.ts';
 import { refusAbsence } from '../state/confirmations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
@@ -82,7 +85,7 @@ export function Absences() {
   // Espace RH : toutes les absences ; décisions par le service RH, jamais sur ses propres absences (`soi`) ; la paie et
   // la lecture seule consultent.
   const { espaceRh, rh, manager, collab, me, soi } = useRole();
-  const { openDialog, run } = useStore();
+  const { openDialog, run, notify } = useStore();
   const { occupe, agir } = useAgir();
   const P = cpPeriods(data.today);
   const Y = d.year;
@@ -113,6 +116,18 @@ export function Absences() {
       };
     });
   const nDecide = absList.filter(x => x.canDecide).length;
+  // Exports des tableaux affichés : soldes avec la mention « soldes calculés par Cursus », absences sans leur nature.
+  const exporterSoldes = () => {
+    const x = csvSoldes(d, rows.map(r => r.e));
+    downloadCsv(x.fichier, x.head, x.rows);
+    notify(`Export CSV généré — ${plural(rows.length, 'solde', 'soldes')}`);
+  };
+  const exporterAbsences = () => {
+    const x = csvAbsences(d, absList);
+    downloadCsv(x.fichier, x.head, x.rows);
+    notify(`Export CSV généré — ${plural(absList.length, 'absence', 'absences')}`);
+  };
+  const boutonExport = (onClick: () => void) => <Btn small variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={onClick}>Exporter (CSV)</Btn>;
   const aQualifier = rh ? absList.filter(x => x.a.statut === 'signalee' && x.e.id !== soi) : [];
 
   return (
@@ -165,7 +180,7 @@ export function Absences() {
       )}
 
       {!collab && (
-        <Panel title="Soldes">
+        <Panel title="Soldes" aside={rows.length > 0 ? boutonExport(exporterSoldes) : undefined}>
           <div className="scroll-x">
             <table className="table">
               <thead><tr><th>Collaborateur</th><th>CP {P.label}</th><th>En acquisition</th><th>RTT / repos {Y}</th><th>Récupération</th><th>CET</th><th></th></tr></thead>
@@ -197,7 +212,12 @@ export function Absences() {
         </Panel>
       )}
 
-      <Panel title="Demandes et absences prévues" aside={`${plural(nDecide, 'demande à valider', 'demandes à valider')} · indisponibilités transmises à Keystone pour la planification, sans la nature des arrêts`}>
+      <Panel title="Demandes et absences prévues" aside={
+        <div className="actions-end" style={{ alignItems: 'center' }}>
+          <span className="text-muted sub">{`${plural(nDecide, 'demande à valider', 'demandes à valider')} · indisponibilités transmises à Keystone pour la planification, sans la nature des arrêts`}</span>
+          {!collab && absList.length > 0 && boutonExport(exporterAbsences)}
+        </div>
+      }>
         {absList.length > 0 ? (
           <div className="scroll-x">
             <table className="table">

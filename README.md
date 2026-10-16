@@ -92,7 +92,10 @@ son espace (« Télécharger mes données »).
 
 Cursus s'utilise aussi sur **téléphone et tablette** (accès depuis Internet) : menu replié derrière un bouton
 « Menu », feuilles de temps saisies jour par jour, champs et boutons à la taille du doigt ; la grille de la semaine
-reste sur PC. Chaque page a son titre d'onglet et un lien « Aller au contenu » pour le clavier. La page
+reste sur PC. Chaque page a son titre d'onglet et un lien « Aller au contenu » pour le clavier ; chaque ligne ou carte
+cliquable s'ouvre aussi au clavier (bouton sur le nom). L'annuaire, le registre des habilitations, les soldes et les
+absences, et le plan de formation s'exportent en CSV (« Exporter (CSV) »), avec les filtres de l'écran et sans donnée de
+santé ; chaque export est tracé au journal. La page
 **Confidentialité**, ouverte depuis l'écran de connexion et depuis chaque espace, informe les salariés sur le
 traitement de leurs données ; le responsable du traitement et le DPO se règlent dans Paramètres → Confidentialité, et
 `docs/RGPD.md` décrit le traitement pour le registre et l'analyse d'impact de l'employeur.

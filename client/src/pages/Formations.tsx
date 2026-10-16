@@ -11,18 +11,19 @@ import { inscritsDe } from '../../../shared/rules/sessions.ts';
 import type { Session } from '../../../shared/types.ts';
 import { CatalogueVide } from '../components/ReferentielVide.tsx';
 import { Bar, Btn, Empty, Fine, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
+import { CartePick, Ouvrir } from '../components/Cliquable.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore, type UiState } from '../state/store.tsx';
 import { sessionView } from './Dashboard.tsx';
 
 const TYPES: Record<UiState['typeForm'], string | null> = { toutes: null, reg: 'Réglementaire', rec: 'Recommandée', int: 'Interne' };
 
-/** Carte de catalogue sélectionnable (formations, habilitations) : un clic bascule le filtre. */
+/** Carte de catalogue sélectionnable (formations, habilitations) : un clic, Entrée ou Espace bascule le filtre. */
 export function PickCard({ kicker, title, body, stats, meta, selected, onClick }: {
   kicker: ReactNode; title: ReactNode; body: ReactNode; stats: [number, string][]; meta: ReactNode; selected: boolean; onClick: () => void;
 }) {
   return (
-    <article className={`card elev-sm pick${selected ? ' selected' : ''}`} onClick={onClick}>
+    <CartePick selected={selected} onSelect={onClick}>
       <div className="card-kicker">{kicker}</div>
       <div className="card-title">{title}</div>
       <p className="card-body dim">{body}</p>
@@ -30,7 +31,7 @@ export function PickCard({ kicker, title, body, stats, meta, selected, onClick }
         {stats.map(([v, l]) => <div key={l}><div className="v">{v}</div><div className="text-muted sub-11">{l}</div></div>)}
       </div>
       <div className="card-meta">{meta}</div>
-    </article>
+    </CartePick>
   );
 }
 
@@ -117,7 +118,7 @@ export function Formations() {
                     const s = openSession(c.f);
                     return (
                       <tr key={c.id} className="clickable" onClick={() => go('collaborateurs', { selectedId: e.id })}>
-                        <td><Two main={e.nom} sub={e.poste} nowrap /></td>
+                        <td><Two main={<Ouvrir onOpen={() => go('collaborateurs', { selectedId: e.id })}>{e.nom}</Ouvrir>} sub={e.poste} nowrap /></td>
                         <td><Two main={c.fm.court} sub={c.fm.type} /></td>
                         <td><Two main={fmt(c.exp)} sub={rel(c.d)} nowrap subNowrap /></td>
                         <td><Tag cls={CLS[c.key]}>{CERT_LABEL[c.key]}</Tag></td>
@@ -178,7 +179,7 @@ export function Formations() {
                   const fm = d.fm(s.formation);
                   return (
                     <tr key={s.id} className="clickable" onClick={() => openDetail(s)}>
-                      <td className="nowrap">{fmt(parse(s.date))}</td>
+                      <td className="nowrap"><Ouvrir onOpen={() => openDetail(s)}>{fmt(parse(s.date))}</Ouvrir></td>
                       <td><Two main={fm.nom} sub={fm.organisme} /></td>
                       <td className="text-muted">{s.lieu}</td>
                       <td className="tnum nowrap">{plural(s.inscrits, 'inscrit', 'inscrits')}</td>
@@ -212,7 +213,7 @@ export function Formations() {
                 const team = manager ? enrolled(s) : [];
                 return (
                   <tr key={s.id} className={espaceRh ? 'clickable' : undefined} onClick={espaceRh ? () => openDetail(s) : undefined}>
-                    <td className="nowrap">{fmt(sv.date)}</td>
+                    <td className="nowrap">{espaceRh ? <Ouvrir onOpen={() => openDetail(s)}>{fmt(sv.date)}</Ouvrir> : fmt(sv.date)}</td>
                     <td><Two main={sv.nom} sub={fm.organisme} /></td>
                     <td className="text-muted">{s.lieu}</td>
                     <td>
@@ -245,7 +246,7 @@ export function Formations() {
                   const fm = d.fm(s.formation);
                   return (
                     <tr key={s.id} className="clickable" onClick={() => openDetail(s)}>
-                      <td className="nowrap">{fmt(parse(s.date))}</td>
+                      <td className="nowrap"><Ouvrir onOpen={() => openDetail(s)}>{fmt(parse(s.date))}</Ouvrir></td>
                       <td><Two main={fm.nom} sub={fm.organisme} /></td>
                       <td className="text-muted">{s.lieu}</td>
                       <td className="tnum nowrap">{s.statut === 'Annulée' ? '—' : plural(s.inscrits, 'inscrit', 'inscrits')}</td>

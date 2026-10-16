@@ -9,6 +9,7 @@ import { fmt, fmtShort, matricule, num, plural } from '../../../../shared/format
 import type { CibleEnvoi, Courriel, Envoi } from '../../../../shared/types.ts';
 import { api, type EnvoisState } from '../../api.ts';
 import { Btn, Empty, Fine, Panel, Pre, Seg, Tag, Two, stop } from '../../components/ui.tsx';
+import { Ouvrir } from '../../components/Cliquable.tsx';
 import { useRole } from '../../state/derived.ts';
 import { useData, useStore } from '../../state/store.tsx';
 import { type FiltreCible, type FiltreEnvoi, MONO, quand, type SectionProps, type SuiviEnvois } from './commun.ts';
@@ -142,8 +143,8 @@ export function Envois({ envois: { etat, erreur: error, filtre, setFiltre, cible
             <tbody>
               {liste.map(e => (
                 <Fragment key={e.id}>
-                  <tr className={`clickable${ouvert === e.id ? ' selected' : ''}`} onClick={() => setOuvert(ouvert === e.id ? null : e.id)} aria-expanded={ouvert === e.id}>
-                    <td><Two nowrap main={fmt(new Date(e.creation))} sub={new Date(e.creation).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} /></td>
+                  <tr className={`clickable${ouvert === e.id ? ' selected' : ''}`} onClick={() => setOuvert(ouvert === e.id ? null : e.id)}>
+                    <td><Two nowrap main={<Ouvrir expanded={ouvert === e.id} onOpen={() => setOuvert(ouvert === e.id ? null : e.id)}>{fmt(new Date(e.creation))}</Ouvrir>} sub={new Date(e.creation).toLocaleTimeString('fr-FR', { hour: '2-digit', minute: '2-digit', second: '2-digit' })} /></td>
                     <td><Two main={`${CIBLE_LABEL[e.cible] ?? e.cible} · ${(e.cible === 'email' ? EMAIL_LABEL[e.type] : EVENEMENT_LABEL[e.type]) ?? e.type}`} sub={resumeEnvoi(e, nom)} /></td>
                     <td><Tag cls={ENVOI_CLS[e.statut]}>{ENVOI_LABEL[e.statut]}</Tag></td>
                     <td className="text-muted" style={{ fontSize: 13 }}>{suiviEnvoi(e)}</td>

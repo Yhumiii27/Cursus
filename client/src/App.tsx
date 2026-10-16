@@ -16,6 +16,7 @@ import { Equipes } from './pages/Equipes.tsx';
 import { Formations } from './pages/Formations.tsx';
 import { Habilitations } from './pages/Habilitations.tsx';
 import { Login } from './pages/Login.tsx';
+import { MiseEnService } from './pages/MiseEnService.tsx';
 import { Missions } from './pages/Missions.tsx';
 import { MotDePasse } from './pages/MotDePasse.tsx';
 import { Parametres } from './pages/Parametres.tsx';
@@ -28,7 +29,7 @@ import { useStore, type View } from './state/store.tsx';
 const PAGES: Record<View, () => ReactElement> = {
   dashboard: Dashboard, collaborateurs: Collaborateurs, equipes: Equipes, formations: Formations, habilitations: Habilitations, voyages: Voyages,
   chantiers: Chantiers, echeances: Echeances, budget: Budget, temps: Temps, absences: Absences, entretiens: Entretiens,
-  missions: Missions, parametres: Parametres, portail: Portail, referentiels: Referentiels,
+  missions: Missions, parametres: Parametres, portail: Portail, referentiels: Referentiels, miseEnService: MiseEnService,
   // Vue commune à tous les espaces, ouverte aussi sans connexion (depuis l'écran de connexion).
   confidentialite: Confidentialite,
 };

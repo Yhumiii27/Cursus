@@ -38,7 +38,9 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
   échéances et reste consultable avec le filtre « Sortis » de Collaborateurs) et l'écran « Référentiels »
   (catalogue des formations, habilitations et destinations : création, modification, archivage, référentiel
   type à charger dans une base vide ; formations et habilitations aussi pour le référent HSE ; postes et formations ou
-  habilitations exigées par poste et par équipe). Deux profils : les
+  habilitations exigées par poste et par équipe), et l'écran « Mise en
+  service » (Paramètres : reprise depuis Lucca des salariés, des soldes de congés, des certifications, des
+  habilitations et des visites médicales par imports CSV, avec aperçu et compte rendu ; administrateur RH). Deux profils : les
   **gestionnaires RH** (fiches, formations, absences…) et l'**administrateur RH**, seul à régler les
   paramètres, supprimer et gérer les comptes (Paramètres → Comptes et accès) et, avec le gestionnaire de paie, à
   transmettre la paie.

@@ -8,7 +8,7 @@ import { aptitudeVueManager } from '../../shared/rules/sante.ts';
 import { avecInscrits } from '../../shared/rules/sessions.ts';
 import { finPeriodeCp, periodeReport } from '../../shared/rules/conges.ts';
 import { reglagesParDefaut } from '../../shared/reglages.ts';
-import type { DemandeVisite } from '../../shared/types.ts';
+import type { DemandeVisite, LotReprise } from '../../shared/types.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Chantier, ClotureConges, CurrentUser, Dataset, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
   Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mission, Participation, PlanAction, Poste, Projet, ReleveInterim, ReportCp, RubriquePaie, SagePush, Session,
@@ -106,6 +106,8 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     // Messagerie (Paramètres → Messagerie) et relevés transmis aux agences d'intérim, avec le statut de leur e-mail.
     messagerie: lireMessagerie(db),
     releves: db.all<Omit<ReleveInterim, 'envoi'>>('releves').map(r => ({ ...r, envoi: r.envoiId ? db.get<Envoi>('envois', r.envoiId)?.statut ?? null : null })),
+    // Lots importés à la mise en service (écran Mise en service) : compte rendu nominatif, service RH seulement.
+    reprises: db.all<LotReprise>('reprises').reverse(),
   };
 }
 
@@ -228,6 +230,7 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     rubriquesPaie: [],
     messagerie: null,
     releves: [],
+    reprises: [],
   };
 }
 
@@ -310,6 +313,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     demandesVisite: [],
     lastSagePush: paie ? full.lastSagePush : null,
     rubriquesPaie: paie ? full.rubriquesPaie : [],
+    // Comptes rendus de la reprise depuis Lucca (noms, motifs de refus) : service RH seulement.
+    reprises: [],
   };
 }
 

@@ -271,6 +271,10 @@ const MATRICE: Ligne[] = [
   // Administration : administrateur RH.
   { action: 'parametres.maj', droits: '                      O    -    -    -    -    -    -    -    -', p: () => ({ horizonAlerte: 60 }) },
   { action: 'demo.reinitialiser', droits: '                  O    -    -    -    -    -    -    -    -', p: () => ({}) },
+  // Mise en service (reprise depuis Lucca) : administrateur RH seul, quel que soit l'import.
+  { action: 'reprise.importer', droits: '                    O    -    -    -    -    -    -    -    -', p: () => ({
+    type: 'soldes', texte: 'Nom;CP N-1\nMehdi Benali;10', colonnes: ['nom', 'cpN1'], dateReprise: '2026-10-01',
+  }) },
   { action: 'compte.creer', droits: '                        O    -    -    -    -    -    -    -    -', p: () => ({ type: 'microsoft', identifiant: 'paie@cabinet.example', nom: 'Cabinet Paie', profilRh: 'rh_gestionnaire' }) },
   { action: 'compte.profil', droits: '                       O    -    -    -    -    -    -    -    -', p: () => ({ id: compteDe(2).id, profilRh: 'rh_gestionnaire' }) },
   // Compte externe de Sandrine Vidal rattaché à une fiche sans compte (celui d'Inès Dupont, retiré pour l'essai).

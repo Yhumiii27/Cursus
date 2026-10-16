@@ -25,7 +25,8 @@ shared/            Domaine partagé (aucune dépendance)
                    contrats.ts : sortie des salariés (présence, contrôles et effets d'une sortie), garde-fou d'un
                    changement de régime de temps ; paie.ts : période de paie, rubriques Sage, modes (Paie) ;
                    campagne.ts (campagne d'entretiens annuels réglable), remise.ts (remise du compte rendu d'entretien),
-                   exercices.ts (exercices du plan, clôture, coût réel) ; a-faire.ts : ce qui attend le collaborateur
+                   exercices.ts (exercices du plan, clôture, coût réel) ; a-faire.ts : ce qui attend le collaborateur ;
+                   reprise.ts : reprise depuis Lucca (imports de mise en service, colonnes reconnues, analyse ligne par ligne)
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   migrate.ts       Reprises des bases antérieures, rejouées à chaque démarrage (idempotentes)
@@ -617,6 +618,7 @@ aucun champ du paramètre n'est recopié.
 | `messagerie.recapituler` | — : récapitulatifs des notifications en attente envoyés sans attendre 7 h | RH |
 | `notification.regler` | empId? (soi par défaut), mode (`immediat`/`quotidien`) | la personne elle-même, ou RH |
 | `confidentialite.regler` | responsable?, dpo? (texte, 300 caractères au plus ; vide : effacé, la page renvoie au service RH) ; journal : nom des champs dont la valeur change, jamais leur texte | administrateur RH |
+| `reprise.importer` | type (`salaries`/`soldes`/`certifications`/`visites`/`habilitations`), texte (CSV), colonnes (champ de chaque colonne), dateReprise (soldes), equipes (rapprochement), confirmations (lignes cochées : réembauche sur un matricule, visite sans avis), comptes (comptes Microsoft 365, y compris pour une fiche déjà à jour), fichier ; analyse de `shared/rules/reprise.ts`, seules les lignes retenues par l'aperçu sont écrites ; ses propres soldes refusés (fiche rattachée au compte) ; lot conservé (table `reprises`) ; journal `reprise.<type>` | administrateur RH |
 
 ## Journal des actions
 
@@ -1296,3 +1298,40 @@ Règles : `shared/rules/absences.ts` (confidentialité, décompte, reprise, annu
     tâches de fond, si la semaine n'a pas été transmise ou si le dernier envoi était incomplet ; envoi (feuilles
     en attente comprises) ou renvoi par le RH (`releve.envoyer`). Chaque envoi est conservé (table `releves`, avec
     le nombre de feuilles alors en attente `enAttente` ; instantané RH `releves` avec le statut de l'e-mail).
+
+## Mise en service : reprise depuis Lucca
+
+Écran `pages/MiseEnService.tsx` (vue `miseEnService`, hors du menu, ouverte depuis Paramètres → Mise en service,
+`pages/parametres/Reprise.tsx`), règles `shared/rules/reprise.ts`, action `reprise.importer` (`server/src/actions/reprise.ts`),
+procédure dans `docs/DEPLOIEMENT.md` (« Procédure de reprise »).
+
+- **Lecture** : `lireCsv` (`shared/rules/imports.ts`, aussi pour le plan et les déplacements) : BOM, séparateur détecté
+  hors guillemets, cellules entre guillemets (« ; », guillemets doublés, sauts de ligne), numéro de ligne gardé pour le
+  compte rendu. Colonnes reconnues par leur en-tête (`reconnaitreColonnes` : nom exact, sinon contenu, le plus long
+  l'emporte), puis rapprochées à la main dans l'aperçu ; un modèle CSV par import (`modeleReprise`).
+- **Analyse partagée** (`analyserReprise`) : l'aperçu et le serveur calculent la même issue par ligne (ajout, mise à
+  jour, ignorée, refusée avec ses motifs) ; le serveur n'écrit que les lignes retenues, dans une transaction. Salariés :
+  rapprochés par matricule de paie, sinon nom et date d'entrée (matricule trouvé sous un autre nom ou une autre date
+  d'entrée : refus, faute de frappe probable) ; « Non cadre » repris ouvrier / employé avec un avertissement ; case des
+  comptes cochée (`avecCompte`) : une fiche à jour sans compte devient une mise à jour qui l'ouvre ; contrôles de `validerProfil` (doublons du fichier
+  compris) ; réembauche sur un matricule et visite sans avis confirmées ligne par ligne (`confirmations`) ; sortie et
+  changement de régime d'une fiche qui a déjà des feuilles ou des absences refusés (à faire depuis la fiche). Titres :
+  catalogue exigé, prérequis en avertissement ; habilitation et visite : la plus récente du fichier l'emporte, une
+  plus récente déjà enregistrée n'est pas remplacée. Avis : la négation d'abord (« non apte » : inapte, « apte sans
+  restriction » : apte).
+- **Soldes repris tels quels** : colonnes `cpSolde`, `cpSoldeSuivant`, `rttSolde`, `cetSolde` de `soldesReprise` (la
+  récupération va dans `recupAcquis` / `recupPris`) ; `reprise()` de `shared/rules/conges.ts` en déduit les jours pris à
+  partir des droits calculés à la date d'arrêté (CP acquis de la période, jours acquis sur la période suivante, RTT de
+  l'année) : le solde affiché à cette date est celui de Lucca, même si la fiche est corrigée ensuite. Le CET repris
+  s'ajoute au total de `cetInfo`. Même date d'arrêté qu'un import précédent : seuls les compteurs du fichier changent
+  (cellule ou colonne absente : compteur gardé) ; autre date : la ligne est remplacée (aperçu averti). Pas de soldes
+  sur sa propre fiche (`soiMeme`, comme `report.accorder`).
+- **Lots** (table `reprises`, `Dataset.reprises`) : type, date, auteur, colonnes, options, décompte et compte rendu
+  (nominatif) ; jamais le fichier. Pas de donnée de santé dans le compte rendu : une visite écrite y figure par sa date
+  seule (« Visite du … reprise »), sans avis ni avertissement qui le laisse deviner, et un avis illisible n'est jamais
+  recopié dans un motif. Le compte rendu ne porte donc que noms, issues et motifs administratifs ; il reste le temps
+  de la reprise (les lots ne sont pas purgés) et n'entre pas dans l'export des données d'un salarié (pas de colonne
+  `empId`) : les données qu'il décrit y sont, sur leurs propres tables. Transmis au service RH seul (vide pour le manager, le collaborateur et les profils
+  restreints) ; « Rejouer » reprend colonnes, rapprochements et date avec un fichier rechargé.
+- **Journal** : code `reprise.<type>` (`code` de la règle), type, date de reprise, case des comptes, décompte, salariés
+  concernés, comptes Microsoft 365 ouverts (`comptesOuverts` : fiche et identifiant de chacun, comme `compte.creer`) ; `reprise.soldes` dans `ACTIONS_PAIE`, `reprise.visites` masqué pour la lecture seule (`ACTIONS_SANTE`).

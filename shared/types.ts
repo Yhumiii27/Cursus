@@ -305,7 +305,15 @@ export interface ReportCp {
  * Compteurs repris de l'ancien système (Lucca), arrêtés le `arreteLe` : `cpPris` porte sur la période de congés payés
  * de cette date (`anneeCp`), `rttPris` sur son année civile ; la récupération reste cumulée. Null : date de mise en service.
  */
-export interface SoldeReprise { empId: number; cpPris: number; rttPris: number; recupAcquis: number; recupPris: number; arreteLe: ISODate | null }
+export interface SoldeReprise {
+  empId: number; cpPris: number; rttPris: number; recupAcquis: number; recupPris: number; arreteLe: ISODate | null;
+  /**
+   * Soldes d'ouverture importés à la mise en service (`reprise.importer`, shared/rules/reprise.ts), repris tels quels à la
+   * date d'arrêté : CP de la période en cours (« CP N-1 »), CP acquis de la période en cours d'acquisition (« CP N »),
+   * RTT de l'année, CET (jours). Null : non repris (compteur calculé depuis `cpPris`, `rttPris`).
+   */
+  cpSolde?: number | null; cpSoldeSuivant?: number | null; rttSolde?: number | null; cetSolde?: number | null;
+}
 /**
  * Clôture d'une période de congés pour un salarié (`conges.cloturer`) : photographie du solde restant et décision du
  * service RH. CP (`periode` : année de prise de la période close au 31 mai) : report (`reportes` en tout, report imposé
@@ -573,6 +581,20 @@ export interface Dataset {
   /** Adresses de la messagerie et relevés transmis aux agences d'intérim : service RH seulement (null et vide ailleurs). */
   messagerie: Messagerie | null;
   releves: ReleveInterim[];
+  /** Lots importés à la mise en service (reprise depuis Lucca) : service RH seulement (vide ailleurs). */
+  reprises: LotReprise[];
+}
+
+/**
+ * Lot importé depuis l'écran Mise en service (`reprise.importer`, shared/rules/reprise.ts) : type, date de reprise des
+ * soldes, colonnes rapprochées et options (pour le rejouer), décompte et compte rendu ligne par ligne (numéro, issue,
+ * salarié, motifs). Le contenu du fichier n'est pas conservé.
+ */
+export interface LotReprise {
+  id: number; type: string; le: string; par: string; dateReprise: ISODate | null; fichier: string | null;
+  colonnes: (string | null)[]; options: { comptes?: boolean; equipes?: Record<string, string>; entetes?: string[] } | null;
+  lignes: number; crees: number; majs: number; ignorees: number; refusees: number;
+  rapport: { n: number; issue: string; nom: string; motif: string }[];
 }
 
 export interface ActionResult { message: string | null; data: Dataset; result?: unknown }

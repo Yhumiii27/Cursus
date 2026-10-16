@@ -24,6 +24,7 @@ shared/            Domaine partagé (aucune dépendance)
                    identifiant Keystone ; clotures.ts : clôture des périodes de congés (CP au 31 mai, RTT au 31 décembre) ;
                    contrats.ts : sortie des salariés (présence, contrôles et effets d'une sortie), garde-fou d'un
                    changement de régime de temps ; paie.ts : période de paie, rubriques Sage, modes (Paie) ;
+                   lots-paie.ts : lots de paie et fichier d'import Sage ; suivi-feuilles.ts : suivi des feuilles de temps ;
                    campagne.ts (campagne d'entretiens annuels réglable), remise.ts (remise du compte rendu d'entretien),
                    exercices.ts (exercices du plan, clôture, coût réel) ; a-faire.ts : ce qui attend le collaborateur ;
                    reprise.ts : reprise depuis Lucca (imports de mise en service, colonnes reconnues, analyse ligne par ligne)
@@ -33,7 +34,7 @@ server/src/
   migrations/      Migrations nommées, exécutées une seule fois par base : cadre.ts (contrôle et exécution), liste.ts (ordre),
                    outils.ts (reconstruction d'une table, index), un fichier par chantier (voir « Cadre commun du lot 4 ») :
                    exploitation.ts (index), entretiens.ts (coût réel des actions déjà réalisées), referentiels.ts (postes
-                   créés depuis les intitulés des fiches)
+                   créés depuis les intitulés des fiches), paie.ts (mode des heures supplémentaires, lot de paie historique)
   seed.ts          Données de démonstration
   sauvegarde.ts    Copie à chaud (VACUUM INTO), rotation, restauration, verrou du serveur ;
                    scripts backup.ts et restore.ts (npm run backup / restore, voir docs/SAUVEGARDE.md)
@@ -53,6 +54,8 @@ server/src/
   actions/         Actions métier (POST /api/actions/:nom), contrôles d'accès et validations
   envois.ts        File d'envoi persistante des messages sortants (table envois), traitée en tâche de fond
   journal.ts       Journal des actions : liste blanche par action, conservation et archive paie, consultation, export CSV
+  lots-paie.ts     Lots de paie (lecture sans contenu, format du fichier d'import) ; fichier-paie.ts : téléchargement du fichier
+                   d'import d'un lot (GET /api/paie/lots/:id/fichier, tracé)
   donnees.ts       Données personnelles d'un salarié (droit d'accès) : export RH et téléchargement par l'intéressé
   confidentialite.ts Coordonnées de la page Confidentialité : GET /api/confidentialite, lisible sans connexion
   messagerie.ts    Adresses (fiche, service RH, santé au travail, agences), forme commune des e-mails
@@ -73,7 +76,8 @@ client/src/
                    ErreurRendu.tsx (erreur de rendu d'une page, d'un dialogue ou de l'application)
                    focus.ts (focus des fenêtres modales), controles.ts (messages d'erreur des champs),
                    panneau.ts (panneau de détail amené dans le champ de vision sur écran étroit),
-                   LotsPaie.tsx et RubriquesPaie.tsx (transmission à Sage et rubriques de paie, écran Temps) ;
+                   LotsPaie.tsx et RubriquesPaie.tsx (lots de paie, fichier d'import et rubriques de paie, écran Temps) ;
+                   SuiviFeuilles.tsx (suivi des feuilles semaine par semaine, relance, validation groupée, écran Temps) ;
                    media.ts (requête média suivie), heures.ts (cellule d'heures, vue « un jour »)
   layout/Shell.tsx Barre latérale, en-tête, notification ; layout/Reconnexion.tsx : session expirée, par-dessus l'écran ;
                    layout/Tiroir.tsx : menu en tiroir sur écran étroit ; layout/navigation.ts : titre de l'onglet, focus
@@ -585,7 +589,13 @@ aucun champ du paramètre n'est recopié.
 | `temps.addLine` / `temps.removeLine` | empId, week, projet / li, projet?, tache?, lignes? (ligne visée : déjà supprimée, rien n'est refait ; feuille changée, refus) | idem |
 | `temps.suggest` / `temps.submit` | empId, week, motif? | idem (soumission : brouillon ou à corriger, sans heures un jour d’absence validée ; semaine entièrement couverte par une absence : sans heure ; 24 h par jour au plus, toutes lignes cumulées ; motif exigé au-delà de 10 h par jour ou 48 h par semaine, 13 h pour un forfait jours) |
 | `temps.validate` / `temps.reject` | empId, week, comment?, motif? | manager direct ou RH, jamais pour sa propre feuille (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence ; 24 h par jour au plus ; motif du dépassement exigé s'il manque, après une correction du valideur : celui du salarié n'est jamais remplacé) |
-| `temps.pushSage` | — ; simulation seulement (feuilles marquées transmises, rien n'est envoyé, message qui le dit) : en mode fichier ou API, refus 503 sans rien marquer ; hors simulation, refus si un salarié du lot n'a pas de matricule de paie (`matriculeDe` ; en simulation, il part sous son matricule Cursus et le message le nomme) ou 409 si une rubrique émise et exportée n'a pas de code Sage confirmé (liste) | administrateur RH, paie |
+| `temps.pushSage` | — ; simulation seulement : lot de toutes les feuilles en attente, aussitôt marqué transmis (référence « SIM-… », rien n'est envoyé, message qui le dit) ; en mode fichier ou API, refus 503 sans rien marquer | administrateur RH, paie |
+| `temps.relancer` | empId? (sinon tout le périmètre) : feuilles des semaines suivies manquantes, en brouillon ou à corriger, échéance passée ; e-mail (ou récapitulatif) au salarié et à son valideur ; rien en retard : refus | manager direct (son équipe) ou RH |
+| `temps.validerLot` | feuilles [{empId, week}] (200 au plus) : chacune passe par `temps.validate` dans son point de reprise (SAVEPOINT) ; refus listés dans le message, les autres validées ; aucune validée : 403 si toutes l'étaient pour des droits, sinon 400 avec la liste | manager direct ou RH (comme `temps.validate`) |
+| `paie.lotGenerer` | periode (AAAA-MM) : lot des feuilles validées en attente dont la période de destination vient au plus tard (rappels compris), contenu figé, clé d'idempotence (UUID), feuilles réservées (`feuilles.lotId`) ; mode API : 503 ; hors simulation, refus si un salarié n'a pas de matricule de paie (liste) ou 409 si une rubrique émise et exportée n'a pas de code Sage confirmé (liste) ; en simulation, avertissement | administrateur RH, paie (écran Temps) |
+| `paie.lotConfirmer` | id, reference? (code de 40 caractères au plus) : confirmation de l'import dans Sage, datée et signée, qui seule marque les feuilles transmises ; lot de fichier : fichier téléchargé au moins une fois (409 sinon) ; lot de simulation refusé hors simulation ; déjà confirmé : rien n'est refait ; annulé : 409 | administrateur RH, paie |
+| `paie.lotAnnuler` | id : avant la confirmation seulement (409 ensuite : lot correctif à venir) ; feuilles libérées | administrateur RH, paie |
+| `paie.formatFichier` | separateur? (`;`/`,`/`tab`), colonnes? (matricule, periode, rubrique, quantite, chacune une fois), formatPeriode? (`AAAA-MM`/`MM/AAAA`/`AAAAMM`/`MMAAAA`), decimale? (`,`/`.`, différente du séparateur), entete? : clé `formatFichierPaie` de la table settings | administrateur RH, paie |
 | `paie.rubrique` | code (RUBRIQUES_PAIE), codeSage?, active?, confirmer? (`true` : confirmé ce jour par la personne connectée ; `false` : confirmation retirée ; un code changé sans `true` repasse « à confirmer ») ; jamais deux unités sur un même code Sage | administrateur RH, paie (écran Temps) |
 | `releve.envoyer` | agence, semaine (lundi, pas à venir) : relevé des feuilles validées des intérimaires de l'agence, envoi ou renvoi (feuilles en attente nommées) | RH, paie |
 | `absence.demander` | empId, kind (`CP`/`RTT`/`RECUP`), du, au | intéressé ou RH (demande, refusée si ces jours portent des heures sur une feuille validée) ; manager direct (posée et validée, refusée si des heures sont saisies ces jours-là) |
@@ -650,9 +660,9 @@ Table `journal`, écrite par `server/src/journal.ts` (actions) et `journaliser` 
   signalés par `POST /api/exports`, `client/src/print.ts`) ; consultation de l'archive (chaque page lue, une
   ligne par compte et par filtre pendant 15 minutes) ; application des durées de conservation.
 - **Conservation** (décision de l'entreprise) : 1 an pour tout ; au-delà, les actions liées à la paie
-  (`ACTIONS_PAIE` : validations des feuilles et des absences, prolongations et annulations d'absences, clôtures des congés,
-  corrections d'heures, transmissions à la paie, sorties et leur annulation, solde de RTT gardé lors d'un changement de
-  régime) passent dans l'archive (`archivee`), absente de l'écran et
+  (`ACTIONS_PAIE` : validations des feuilles (une à une ou en groupe) et des absences, prolongations et annulations
+  d'absences, clôtures des congés, corrections d'heures, transmissions à la paie, lots de paie et téléchargements de leur
+  fichier (`sage.fichier`), sorties et leur annulation, solde de RTT gardé lors d'un changement de régime) passent dans l'archive (`archivee`), absente de l'écran et
   consultée sur demande par le service RH, et toute ligne est supprimée au bout de 3 ans. Une action ajoutée
   à `ACTIONS_PAIE` vaut aussi pour les lignes déjà écrites (`marquerPaie`, au démarrage). Appliquée au
   démarrage puis toutes les heures (`demarrerJournal`), avec la purge de la file d'envoi (envois réussis ou
@@ -1256,8 +1266,8 @@ Règles : `shared/rules/absences.ts` (confidentialité, décompte, reprise, annu
   (`precedent: null`) pour chaque ressource suivie.
 - **Sage Paie** : `server/src/integrations/sage.ts`, mode `SAGE_MODE` (`sageMode`) : `simulation` (démonstration et
   développement : rien ne part, les feuilles sont marquées transmises et l'écran, la confirmation et le message le disent),
-  `fichier` (mode de production par défaut : fichier d'import téléchargé par la paie puis import confirmé, qui seul marquera
-  les feuilles transmises — livré à l'étape suivante ; d'ici là, `temps.pushSage` refuse sans rien marquer) et `api`
+  `fichier` (mode de production par défaut : lot de paie, fichier d'import téléchargé par la paie, import confirmé, qui seul
+  marque les feuilles transmises ; `temps.pushSage` y refuse sans rien marquer) et `api`
   (aucun contrat d'API fourni par Sage : refusé au démarrage en production, refusé à la transmission ; plus aucun accusé
   fictif). `SAGE_URL` ne fait plus basculer en mode API et est refusée en production (`server/src/config.ts`), comme la
   simulation hors application de bureau. Rubriques (`shared/rules/paie.ts`) : liste unique des codes internes
@@ -1267,6 +1277,31 @@ Règles : `shared/rules/absences.ts` (confidentialité, décompte, reprise, annu
   `RubriquesPaie.tsx`) : l'administrateur RH et la paie saisissent et confirment les codes ; le service RH et la lecture
   seule consultent ; le manager, le collaborateur et le référent HSE ne reçoivent pas la table (`dataset.ts`). La file
   d'envoi prévoit la cible `sage`, sans la brancher (envoi automatique non fait).
+  - Lots de paie (`shared/rules/lots-paie.ts`, actions `paie.lot…` de `server/src/actions/paie.ts`, table `lotsPaie`) :
+    cycle généré → transmis (confirmation de l'import, ou simulation) ou annulé avant la confirmation ; contenu figé
+    (`SagePush` : une ligne par feuille et par période, matricule de paie, codes Sage), feuilles du lot gardées même après
+    une annulation, `feuilles.lotId` (une feuille n'est que dans un lot actif ; `sagePending` : feuilles validées sans lot
+    ni case `sage`). L'instantané (service RH, paie, lecture seule) porte les lots sans leur contenu, et le format du
+    fichier ; le manager, le collaborateur et le référent HSE ne reçoivent ni l'un ni l'autre.
+  - Fichier d'import (`GET /api/paie/lots/:id/fichier`, `server/src/fichier-paie.ts`, droit « paie ») : CSV d'une ligne par
+    salarié, période et rubrique (quantités additionnées sur la période, rappel compris), colonnes, séparateur, période,
+    décimale et en-tête réglés par `paie.formatFichier` ; refusé pour un lot annulé ou historique. Chaque téléchargement
+    est compté sur le lot et tracé (`sage.fichier`, archive paie, salariés du lot).
+  - Reprise : migration `lot4-paie-lots-historiques` (feuilles déjà transmises sans lot réunies en un lot historique,
+    transmis, sans contenu, périodes selon la règle de rattachement au jour de la dernière transmission, plus celles
+    qu'elle avait annoncées ; journal `migration.lotsPaie`). Le réglage `lastSagePush` n'est plus écrit ni transmis.
+  - Envoi par API (mise en file, cible `sage`, clé d'idempotence = `cle` du lot, statut au succès) : avec le connecteur,
+    quand Sage fournira un contrat d'API.
+- **Suivi des feuilles de temps** (`shared/rules/suivi-feuilles.ts`, `client/src/components/SuiviFeuilles.tsx`,
+  `server/src/actions/suivi-feuilles.ts`) : état de chaque semaine × collaborateur sur les `suiviSemaines` dernières
+  semaines (attendue, non saisie, brouillon, à valider, à corriger, validée, transmise ; en retard après l'échéance
+  `feuilleLimiteJour` / `feuilleLimiteHeure` de la semaine suivante, heure de Paris) ; semaines hors contrat, couvertes
+  par une absence ou antérieures à la première feuille enregistrée exclues (début de la saisie calculé par le serveur sur
+  toutes les feuilles et transmis dans l'instantané, `debutSaisieFeuilles` : le manager voit les mêmes retards que ceux
+  que la relance envoie, même si son équipe n'a encore rien saisi). Service RH (par équipe), paie et lecture seule
+  (consultation), manager (son équipe). Relance (`temps.relancer`, e-mail `temps.relance` au salarié et à son valideur,
+  `server/src/notifications.ts`) et validation groupée (`temps.validerLot`). Réglages : Paramètres → Suivi des feuilles
+  de temps (`pages/parametres/FeuillesTemps.tsx`).
 - **Microsoft 365** : `server/src/microsoft.ts` (voir Sécurité) ; un compte Microsoft se retrouve par
   son `oid`, ou par son identifiant (adresse de connexion) à la première connexion.
 - **E-mails** (`server/src/integrations/email.ts`, guide `docs/EMAILS.md`) : cible `email` de la file d'envoi,

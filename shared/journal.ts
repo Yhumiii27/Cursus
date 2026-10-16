@@ -31,6 +31,9 @@ export const ACTIONS_PAIE: readonly string[] = [
   'paie.rubrique', 'migration.heuresSup',
   // Soldes d'ouverture repris de l'ancien outil à la mise en service (point de départ des compteurs de congés).
   'reprise.soldes',
+  // Lots de paie (génération, confirmation de l'import, annulation, format du fichier, reprise des transmissions d'avant
+  // les lots) et validation groupée des feuilles ; le téléchargement du fichier est tracé sous `sage.fichier`.
+  'paie.lotGenerer', 'paie.lotConfirmer', 'paie.lotAnnuler', 'paie.formatFichier', 'migration.lotsPaie', 'temps.validerLot',
 ];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
@@ -108,6 +111,13 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'temps.correction': 'Correction d’heures par le manager ou le RH',
   'temps.pushSage': 'Transmission à la paie',
   'paie.rubrique': 'Rubrique de paie Sage',
+  'paie.lotGenerer': 'Lot de paie généré',
+  'paie.lotConfirmer': 'Import du lot de paie confirmé dans Sage',
+  'paie.lotAnnuler': 'Lot de paie annulé',
+  'paie.formatFichier': 'Format du fichier d’import Sage',
+  'sage.fichier': 'Fichier d’import Sage téléchargé',
+  'temps.relancer': 'Relance des feuilles de temps',
+  'temps.validerLot': 'Validation groupée des feuilles de temps',
   // Absences et congés
   'absence.demander': 'Demande d’absence',
   'absence.decider': 'Décision sur une absence',
@@ -171,6 +181,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'migration.detachement': 'Reprise des formalités de détachement',
   'migration.soldes': 'Datation des compteurs repris et des reports de CP',
   'migration.heuresSup': 'Reprise : mode des heures supplémentaires figé sur les feuilles validées',
+  'migration.lotsPaie': 'Reprise : feuilles déjà transmises réunies en un lot historique',
   'migration.coutReel': 'Reprise du coût réel des actions réalisées du plan',
 };
 
@@ -203,7 +214,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes)', prefixes: ['referentiel.', 'migration.postes'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
   { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement'] },
-  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'migration.heuresSup'] },
+  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'migration.heuresSup', 'migration.lotsPaie'] },
   { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.', 'conges.', 'migration.soldes'] },
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
   { id: 'reprise', label: 'Mise en service (reprise depuis Lucca)', prefixes: ['reprise.'] },
@@ -238,6 +249,10 @@ export const CHAMP_LABEL: Record<string, string> = {
   rttAnneeSuivanteDes: 'RTT de l’année suivante posables à partir du',
   heuresSupMode: 'Heures supplémentaires', heuresSupAccord: 'Accord sur le repos de remplacement', periodeRattachement: 'Semaine à cheval sur deux mois',
   clotureJour: 'Jour de clôture des variables de paie', codeSage: 'Code Sage', confirmeLe: 'Code Sage confirmé le',
+  suiviSemaines: 'Semaines du suivi des feuilles de temps', feuilleLimiteJour: 'Feuille de temps attendue le (jour de la semaine suivante)',
+  feuilleLimiteHeure: 'Feuille de temps attendue à (heure)',
+  separateur: 'Séparateur du fichier d’import', colonnes: 'Ordre des colonnes du fichier d’import', decimale: 'Séparateur décimal du fichier d’import',
+  entete: 'Ligne d’en-tête du fichier d’import', formatPeriode: 'Format de la période du fichier d’import',
   // Campagne d'entretiens annuels (Paramètres) ; remise du compte rendu d'entretien ; coût réel d'une action du plan.
   campagneDebut: 'Ouverture de la campagne d’entretiens', campagneFin: 'Clôture de la campagne d’entretiens',
   campagneAncienneteMois: 'Ancienneté minimale pour la campagne (mois)', campagneExclus: 'Contrats exclus de la campagne',

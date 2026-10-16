@@ -7,17 +7,19 @@ import { absenceVueManager, repriseMedicale } from '../../shared/rules/absences.
 import { aptitudeVueManager } from '../../shared/rules/sante.ts';
 import { avecInscrits } from '../../shared/rules/sessions.ts';
 import { finPeriodeCp, periodeReport } from '../../shared/rules/conges.ts';
+import { debutSaisieDe } from '../../shared/rules/suivi-feuilles.ts';
 import { reglagesParDefaut } from '../../shared/reglages.ts';
 import type { DemandeVisite, LotReprise } from '../../shared/types.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Chantier, ClotureConges, CurrentUser, Dataset, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
-  Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mission, Participation, PlanAction, Poste, Projet, ReleveInterim, ReportCp, RubriquePaie, SagePush, Session,
+  Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mission, Participation, PlanAction, Poste, Projet, ReleveInterim, ReportCp, RubriquePaie, Session,
   Settings, SoldeReprise, TacheKeystone, Vaccination, Visa, Voyage,
 } from '../../shared/types.ts';
 import { type DroitRh, droitsRh, PROFILS_RH } from '../../shared/constants.ts';
 import type { Db } from './db.ts';
 import type { SessionInfo } from './auth.ts';
 import { compteValide, espacesDuCompte, nomDuCompte } from './comptes.ts';
+import { lireFormatFichier, lireLots } from './lots-paie.ts';
 import { lireMessagerie } from './messagerie.ts';
 
 /** Réglages par défaut : colonne `defaut` de la table des réglages (shared/reglages.ts). */
@@ -58,6 +60,7 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     visas: visas.filter(v => v.empId === e.id),
     vaccins: vaccins.filter(v => v.empId === e.id),
   }));
+  const feuilles = db.all<FeuilleTemps>('feuilles');
   const budgets: Dataset['budgets'] = {};
   db.all<{ exercice: number; equipe: string; montant: number }>('budgets').forEach(b => {
     (budgets[String(b.exercice)] ||= {})[b.equipe] = b.montant;
@@ -91,7 +94,7 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     demandesKeystone: db.all<DemandeKeystone>('demandesKeystone'),
     missions: db.all<Mission>('missions'),
     taches: db.all<TacheKeystone>('taches'),
-    feuilles: db.all<FeuilleTemps>('feuilles'),
+    feuilles,
     absences: db.all<Absence>('absences'),
     cet: db.all<CetMouvement>('cet'),
     reports: db.all<ReportCp>('reports'),
@@ -100,7 +103,12 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     entretiens: db.all<Entretien>('entretiens'),
     demandesCollab: db.all<DemandeCollab>('demandesCollab'),
     demandesVisite: db.all<DemandeVisite>('demandesVisite'),
-    lastSagePush: db.getSetting<SagePush | null>('lastSagePush', null),
+    // Début de la saisie des feuilles, sur toutes les feuilles : transmis tel quel à tous les espaces (une date).
+    debutSaisieFeuilles: debutSaisieDe(feuilles),
+    // Lots de paie, sans leur contenu figé (lu par le téléchargement du fichier : server/src/fichier-paie.ts), et format
+    // du fichier d'import réglé par la paie (shared/rules/lots-paie.ts).
+    lotsPaie: lireLots(db),
+    formatFichierPaie: lireFormatFichier(db),
     // Correspondance des rubriques avec le plan de paie Sage (lignes modifiées ; les autres : shared/rules/paie.ts).
     rubriquesPaie: db.all<RubriquePaie>('rubriquesPaie'),
     // Messagerie (Paramètres → Messagerie) et relevés transmis aux agences d'intérim, avec le statut de leur e-mail.
@@ -226,7 +234,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     demandesVisite: full.demandesVisite.filter(x => x.empId === user.empId),
     inscriptions: mine(full.inscriptions),
     participations: mine(full.participations),
-    lastSagePush: null,
+    lotsPaie: [],
+    formatFichierPaie: null,
     rubriquesPaie: [],
     messagerie: null,
     releves: [],
@@ -250,8 +259,8 @@ const sansExigences = (r: Dataset['referentiels']): Pick<Dataset['referentiels']
  * - `formations` (référent HSE) : sessions et résultats, certifications et habilitations, demandes de formation et
  *   d'habilitation, chantiers avec l'état précalculé des déplacements et les absences de leurs ressources (sans nature)
  *   pour les verdicts Go / No Go ; ni passeport, ni visas (dossiers de voyage réservés au service RH) ;
- * - `paie` : feuilles de temps, absences, soldes, CET, reports, clôtures des congés, dernière transmission à Sage,
- *   correspondance des rubriques de paie, motif des sorties — aucune formation ;
+ * - `paie` : feuilles de temps, absences, soldes, CET, reports, clôtures des congés, lots de paie (sans leur contenu) et
+ *   format du fichier d'import, correspondance des rubriques de paie, motif des sorties — aucune formation ;
  * - `consultation` (lecture seule) : tout ce qui précède, plus plan et budget, missions, entretiens sans le contenu
  *   des comptes rendus ; échéances des passeports (date d'expiration seule) et des visas, comme pour le manager, pour
  *   que les alertes et les échéances soient celles du service RH.
@@ -311,7 +320,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     // Demandes de formation et d'habilitation ; les documents déclarés (passeport, visa, vaccination) restent au RH.
     demandesCollab: formations ? full.demandesCollab.filter(r => r.type !== 'document').map(r => ({ ...r, declaration: null })) : [],
     demandesVisite: [],
-    lastSagePush: paie ? full.lastSagePush : null,
+    lotsPaie: paie ? full.lotsPaie : [],
+    formatFichierPaie: paie ? full.formatFichierPaie : null,
     rubriquesPaie: paie ? full.rubriquesPaie : [],
     // Comptes rendus de la reprise depuis Lucca (noms, motifs de refus) : service RH seulement.
     reprises: [],

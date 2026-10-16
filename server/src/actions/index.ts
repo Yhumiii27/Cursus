@@ -20,6 +20,7 @@ import { repriseActions } from './reprise.ts';
 import { santeActions } from './sante.ts';
 import { sessionsActions } from './sessions.ts';
 import { sortiesActions } from './sorties.ts';
+import { suiviFeuillesActions } from './suivi-feuilles.ts';
 import { tempsActions } from './temps.ts';
 import { voyagesActions } from './voyages.ts';
 
@@ -46,6 +47,7 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...exercicesActions,
   ...confidentialiteActions,
   ...repriseActions,
+  ...suiviFeuillesActions,
 };
 
 /**

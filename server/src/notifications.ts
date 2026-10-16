@@ -95,6 +95,36 @@ export function notifierFeuilleRenvoyee(cx: Contexte, emp: Employe, week: string
   });
 }
 
+/** Feuille en retard d'une relance (temps.relancer) : semaine et état, jamais d'heure ni de commentaire. */
+/** « Relance du service RH. » ou « Relance de Karim Haddad. » (auteur() donnerait « de le service RH »). */
+const relancePar = (user: CurrentUser) => `Relance ${user.role === 'rh' ? 'du service RH' : `de ${user.nom}`}.`;
+
+export interface FeuilleARelancer { week: string; etat: 'absente' | 'brouillon' | 'a_corriger' }
+const ETAT_RELANCE = { absente: 'non saisie', brouillon: 'en brouillon, pas encore soumise', a_corriger: 'renvoyée pour correction' } as const;
+
+/** Relance des feuilles de temps en retard (suivi des feuilles) : au salarié, semaine par semaine. */
+export function notifierRelanceFeuilles(cx: Contexte, emp: Employe, feuilles: FeuilleARelancer[]) {
+  const plus = feuilles.length > 1;
+  return notifier(cx, emp.id, {
+    type: 'temps.relance',
+    objet: `${plus ? 'Feuilles' : 'Feuille'} de temps à ${feuilles.every(f => f.etat === 'a_corriger') ? 'corriger' : 'saisir'} — ${plus ? 'semaines' : 'semaine'} ${feuilles.map(f => isoWeek(f.week)).join(', ')}`,
+    texte: `${plus ? 'Vos feuilles de temps ne sont' : 'Votre feuille de temps n’est'} pas encore ${plus ? 'soumises' : 'soumise'} :\n`
+      + feuilles.map(f => `- ${semaineTexte(f.week)} : ${ETAT_RELANCE[f.etat]}`).join('\n')
+      + `\nSaisissez vos heures et soumettez ${plus ? 'chaque feuille' : 'la feuille'} dans Cursus (Temps de travail) : les heures partent à la paie une fois validées. ${relancePar(cx.user)}`,
+  });
+}
+
+/** Relance des feuilles de temps en retard : à leur valideur (manager direct, sinon le service RH), membre par membre. */
+export function notifierRelanceValideur(cx: Contexte, valideur: number, retards: { emp: Employe; feuilles: FeuilleARelancer[] }[]) {
+  const n = retards.reduce((k, r) => k + r.feuilles.length, 0);
+  return notifier(cx, valideur, {
+    type: 'temps.relance', objet: `${plural(n, 'feuille de temps en retard', 'feuilles de temps en retard')} — ${plural(retards.length, 'collaborateur', 'collaborateurs')}`,
+    texte: `Ces feuilles de temps ne sont pas encore soumises ; ${retards.length > 1 ? 'chaque collaborateur a été relancé' : 'le collaborateur a été relancé'} :\n`
+      + retards.map(r => `- ${r.emp.nom} : ${r.feuilles.map(f => `semaine ${isoWeek(f.week)} (${ETAT_RELANCE[f.etat]})`).join(', ')}`).join('\n')
+      + `\nElles sont à valider ensuite dans Cursus (Temps de travail), avant l’envoi des heures à la paie. ${relancePar(cx.user)}`,
+  });
+}
+
 const nomEntretien = (x: Pick<Entretien, 'type'>) => { const n = ENT_TYPES[x.type]?.nom ?? 'Entretien'; return n.charAt(0).toLowerCase() + n.slice(1); };
 
 /** Compte rendu clos par l'évaluateur : au salarié, pour relecture et signature. */

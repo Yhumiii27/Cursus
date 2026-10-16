@@ -6,7 +6,9 @@
 // Les actions confirmées gardent leurs contrôles serveur : un écran en retard (demande déjà traitée, feuille
 // modifiée ailleurs) est refusé par le serveur et le dialogue reste ouvert avec le message.
 import { fH, plural } from '../../../shared/format.ts';
+import { PERIMETRE_FICHIER } from '../../../shared/rules/lots-paie.ts';
 import { feuillesDeLaPeriode, type GroupePaie, periodeLabel } from '../../../shared/rules/paie.ts';
+import type { LotPaie, SageMode } from '../../../shared/types.ts';
 import type { DialogState, UiState } from './store.tsx';
 
 /** Longueur maximale d'un motif (contrôlée aussi par le serveur). */
@@ -122,6 +124,62 @@ export function transmissionSage(feuilles: number, salaries: number, periodes: G
     bouton: 'Marquer transmises',
     action: 'temps.pushSage',
     payload: {},
+  };
+}
+
+/**
+ * Génération du lot de paie d'une période (components/LotsPaie.tsx) : feuilles réservées, transmises seulement à la
+ * confirmation de l'import ; rappels de périodes closes, salariés sans matricule (simulation), périmètre du fichier.
+ */
+export function generationLot(o: { periode: string; feuilles: number; salaries: number; rappels: GroupePaie[]; mode: SageMode; sansMatricule: string[] }): Confirmation {
+  const simulation = o.mode === 'simulation';
+  return {
+    titre: simulation ? 'Générer le lot (simulation)' : 'Générer le fichier d’import',
+    question: `Générer le lot ${/^[aeiou]/.test(periodeLabel(o.periode)) ? 'd’' : 'de '}${periodeLabel(o.periode)} : ${plural(o.feuilles, 'feuille validée', 'feuilles validées')} (${plural(o.salaries, 'salarié', 'salariés')}) ?`,
+    suites: [
+      simulation
+        ? 'Simulation : rien n’est envoyé à Sage Paie. Le fichier se télécharge pour essai ; les feuilles ne passent « transmises » qu’à la confirmation.'
+        : 'Les feuilles sont réservées au lot. Téléchargez ensuite son fichier, importez-le dans Sage, puis confirmez l’import : lui seul les marque transmises.',
+      'Avant cette confirmation, le lot peut être annulé : ses feuilles redeviennent en attente.',
+      ...o.rappels.map(r => `Rappel : ${plural(r.feuilles, 'feuille', 'feuilles')} de ${periodeLabel(r.origine!)}, période close, ${r.feuilles > 1 ? 'partent' : 'part'} sur ${periodeLabel(r.periode)}.`),
+      o.sansMatricule.length ? `Sans matricule de paie, sous leur matricule Cursus (simulation seulement) : ${o.sansMatricule.join(', ')}.` : '',
+      PERIMETRE_FICHIER,
+    ].filter(Boolean),
+    bouton: 'Générer le lot',
+    action: 'paie.lotGenerer',
+    payload: { periode: o.periode },
+  };
+}
+
+/** Annulation d'un lot dont l'import n'est pas confirmé : ses feuilles sont libérées. */
+export function annulationLot(lot: Pick<LotPaie, 'id' | 'periode' | 'feuilles' | 'telechargements'>): Confirmation {
+  return {
+    titre: 'Annuler le lot',
+    question: `Annuler le lot n° ${lot.id} (${periodeLabel(lot.periode)}) ?`,
+    suites: [
+      lot.feuilles.length > 1
+        ? `Ses ${lot.feuilles.length} feuilles redeviennent en attente et pourront partir dans un nouveau lot.`
+        : 'Sa feuille redevient en attente et pourra partir dans un nouveau lot.',
+      lot.telechargements ? 'Son fichier a déjà été téléchargé : s’il a été importé dans Sage, supprimez-y cet import, sans quoi les heures seraient payées deux fois.' : '',
+    ].filter(Boolean),
+    bouton: 'Annuler le lot',
+    action: 'paie.lotAnnuler',
+    payload: { id: lot.id },
+  };
+}
+
+/** Validation groupée des feuilles soumises (components/SuiviFeuilles.tsx) : contrôles feuille par feuille, refus listés. */
+export function validationGroupee(feuilles: { empId: number; week: string }[], salaries: number): Confirmation {
+  return {
+    titre: 'Valider les feuilles soumises',
+    question: `Valider ${plural(feuilles.length, 'feuille soumise', 'feuilles soumises')} (${plural(salaries, 'salarié', 'salariés')}) ?`,
+    suites: [
+      'Chaque feuille passe les contrôles de la validation : dépassement sans motif, demande d’absence en attente, heures un jour d’absence. Une feuille refusée reste à valider et le message la nomme.',
+      'Les heures des projets Keystone sont renvoyées à Keystone ; les feuilles validées partent ensuite à la paie.',
+    ],
+    bouton: feuilles.length > 1 ? `Valider les ${feuilles.length} feuilles` : 'Valider la feuille',
+    action: 'temps.validerLot',
+    payload: { feuilles },
   };
 }
 

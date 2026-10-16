@@ -68,7 +68,8 @@ test('CSRF : une requête qui modifie doit venir de l’interface de Cursus, en 
   const cookie = await srv.session();
   const etatPaie = async () => {
     const ds = await (await fetch(`${srv.base}/api/data`, { headers: { cookie } })).json();
-    return { transmises: ds.feuilles.filter((f: { sage: boolean }) => f.sage).length, dernier: ds.lastSagePush };
+    // Feuilles transmises et lots de paie : une requête refusée ne crée aucun lot, même sans marquer de feuille.
+    return { transmises: ds.feuilles.filter((f: { sage: boolean }) => f.sage).length, lots: ds.lotsPaie.map((l: { id: number }) => l.id) };
   };
   const avant = await etatPaie();
   const action = (nom: string, headers: Record<string, string>, body: string | undefined = '{}') =>
@@ -91,6 +92,7 @@ test('CSRF : une requête qui modifie doit venir de l’interface de Cursus, en 
   const ok = await action('temps.pushSage', { 'content-type': 'application/json', origin: srv.base, 'sec-fetch-site': 'same-origin' });
   assert.equal(ok.status, 200);
   assert.match((await ok.json()).message, /feuilles marquées transmises — simulation/);
+  assert.equal((await etatPaie()).lots.length, avant.lots.length + 1, 'la requête acceptée, elle, crée son lot');
   // Adresse publique (CURSUS_PUBLIC_URL) et nom transmis par le reverse proxy de confiance (X-Forwarded-Host).
   const silencieux = (headers: Record<string, string>) => action('parametres.maj', { 'content-type': 'application/json', ...headers }, JSON.stringify({ silent: true }));
   assert.equal((await silencieux({ origin: 'https://cursus.example.fr' })).status, 200, 'adresse publique');

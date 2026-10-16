@@ -27,6 +27,8 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     identifiantKeystone: 'cursus', politiqueReportCp: 'cas_par_cas', rttAnneeSuivanteDes: '',
     // Paie (lot 4) : heures supplémentaires payées, semaine à cheval sur le mois de son dimanche, clôture le dernier jour.
     heuresSupMode: 'paiement', heuresSupAccord: '', periodeRattachement: 'dimanche', clotureJour: 0,
+    // Suivi des feuilles de temps (lot 4) : 5 semaines affichées, feuille attendue le lundi suivant à 12 h.
+    suiviSemaines: 5, feuilleLimiteJour: 1, feuilleLimiteHeure: 12,
     // Campagne d'entretiens : le fonctionnement d'avant le réglage (shared/rules/campagne.ts).
     campagneDebut: '10-01', campagneFin: '12-15', campagneAncienneteMois: 0, campagneExclus: [], campagnePreavisJours: 365,
   });

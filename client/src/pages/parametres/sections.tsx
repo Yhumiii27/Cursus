@@ -12,6 +12,7 @@ import { Conges } from './Conges.tsx';
 import { Demonstration } from './Demonstration.tsx';
 import { Entretiens } from './Entretiens.tsx';
 import { Envois } from './Envois.tsx';
+import { FeuillesTemps } from './FeuillesTemps.tsx';
 import { Keystone } from './Keystone.tsx';
 import { MatriculesPaie } from './MatriculesPaie.tsx';
 import { ReglagesPaie } from './ReglagesPaie.tsx';
@@ -45,6 +46,7 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'conges', place: 'gauche', Section: Conges },
   { id: 'reprise', place: 'gauche', Section: Reprise },
   { id: 'paie', place: 'droite', Section: ReglagesPaie },
+  { id: 'feuilles', place: 'gauche', Section: FeuillesTemps },
   { id: 'confidentialite', place: 'droite', Section: Rgpd },
   { id: 'messagerie', place: 'large', Section: Messagerie },
   { id: 'envois', place: 'large', Section: Envois },

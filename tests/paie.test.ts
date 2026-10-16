@@ -61,6 +61,8 @@ function avecEnv<T>(env: Record<string, string | undefined>, fn: () => T): T {
     Object.entries(avant).forEach(([k, v]) => { if (v === undefined) delete process.env[k]; else process.env[k] = v; });
   }
 }
+/** Dernier lot de paie enregistré, avec son contenu figé. */
+const dernierLot = (db: InstanceType<typeof Db>) => db.all<Dataset['lotsPaie'][number] & { contenu: ReturnType<typeof buildSagePayload> | null }>('lotsPaie').at(-1)!;
 const feuille = (empId: number, week: string, h: number[], extra: Partial<Feuille> = {}): Feuille =>
   ({ id: 9000, empId, week, statut: 'validee', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-PROD', tache: '', ks: false, h }], contrat: null, ...extra });
 
@@ -74,10 +76,10 @@ test('t019 SAGE_MODE : simulation hors production, fichier d’import en product
   assert.equal(sageMode({ SAGE_MODE: 'api' }), 'api');
   assert.equal(sageMode({ SAGE_MODE: 'fichier' }), 'fichier');
   assert.equal(sageMode({ SAGE_MODE: 'n’importe quoi', NODE_ENV: 'production' }), 'fichier');
-  // Plus aucun accusé fictif : le mode API et le mode fichier (à venir) refusent.
+  // Plus aucun accusé fictif : le mode API et le mode fichier (le fichier passe par la paie) refusent l'envoi direct.
   const p = { endpoint: '', dossier: 'X', envoye_le: '', periodes: ['2026-10'], lignes: [] };
   assert.throws(() => pushToSage(p, 'api'), (e: unknown) => e instanceof SageIndisponible && /aucun contrat d’API/.test(e.message));
-  assert.throws(() => pushToSage(p, 'fichier'), (e: unknown) => e instanceof SageIndisponible && /prochaine version/.test(e.message));
+  assert.throws(() => pushToSage(p, 'fichier'), (e: unknown) => e instanceof SageIndisponible && /Générez le lot de la période/.test(e.message));
   assert.match(pushToSage(p, 'simulation').reference, /^SIM-2026-10-0$/);
 });
 
@@ -96,16 +98,16 @@ test('t019 configuration : mode API, SAGE_URL et simulation refusés en producti
 
 test('t019 transmission : mode API et mode fichier refusés sans rien marquer ; simulation annoncée comme telle', () => {
   const { db, run, refus, transmises, ADMIN, PAIE } = fresh();
-  const avant = transmises(), dernier = db.getSetting('lastSagePush', null);
+  const avant = transmises(), lots = () => db.count('lotsPaie'), avantLots = lots();
   // Toutes les rubriques confirmées : seul le mode bloque.
   for (const code of Object.keys(RUBRIQUES_PAIE)) run(ADMIN, 'paie.rubrique', { code, confirmer: true });
   avecEnv({ SAGE_MODE: 'api' }, () => refus(PAIE, 'temps.pushSage', {}, 503, /par API impossible : aucun contrat d’API/));
-  avecEnv({ SAGE_MODE: 'fichier' }, () => refus(PAIE, 'temps.pushSage', {}, 503, /Aucune feuille n’est marquée transmise/));
+  avecEnv({ SAGE_MODE: 'fichier' }, () => refus(PAIE, 'temps.pushSage', {}, 503, /rien n’est envoyé directement à Sage Paie/));
   assert.equal(transmises(), avant, 'aucune feuille marquée transmise');
-  assert.deepEqual(db.getSetting('lastSagePush', null), dernier, 'aucune transmission enregistrée');
+  assert.equal(lots(), avantLots, 'aucun lot enregistré');
   const msg = avecEnv({ SAGE_MODE: undefined }, () => run(PAIE, 'temps.pushSage', {}));
   assert.match(String(msg), /^\d+ feuilles marquées transmises — simulation, rien n’est envoyé à Sage Paie · période octobre 2026$/);
-  assert.equal(loadFull(db, PAIE).lastSagePush!.mode, 'simulation');
+  assert.deepEqual([dernierLot(db).mode, dernierLot(db).statut, dernierLot(db).reference], ['simulation', 'transmis', dernierLot(db).reference!.startsWith('SIM-') ? dernierLot(db).reference : 'SIM-…']);
   assert.ok(transmises() > avant);
 });
 
@@ -266,17 +268,20 @@ test('t022 hors simulation, une rubrique utilisée sans code confirmé bloque la
   const { db, run, refus, transmises, ADMIN, PAIE } = fresh();
   const avant = transmises();
   avecEnv({ SAGE_MODE: 'fichier' }, () => {
-    refus(PAIE, 'temps.pushSage', {}, 409, /^Transmission impossible : code Sage à confirmer pour les rubriques HN \(Heures normales\), HSF25 \(.*\), HS25 \(.*\), JTRAV \(Jours travaillés, forfait jours\) \(écran Temps, « Rubriques de paie »\)$/);
+    refus(PAIE, 'paie.lotGenerer', { periode: '2026-10' }, 409, /^Transmission impossible : code Sage à confirmer pour les rubriques HN \(Heures normales\), HSF25 \(.*\), HS25 \(.*\), JTRAV \(Jours travaillés, forfait jours\) \(écran Temps, « Rubriques de paie »\)$/);
     // Rubriques non utilisées par les feuilles en attente (HS50, RCR_ACQUIS…) : sans effet ; désactivée : plus exigée.
     for (const code of ['HN', 'HSF25', 'HS25']) run(ADMIN, 'paie.rubrique', { code, confirmer: true });
-    refus(PAIE, 'temps.pushSage', {}, 409, /pour la rubrique JTRAV \(Jours travaillés, forfait jours\)/);
+    refus(PAIE, 'paie.lotGenerer', { periode: '2026-10' }, 409, /pour la rubrique JTRAV \(Jours travaillés, forfait jours\)/);
     run(ADMIN, 'paie.rubrique', { code: 'JTRAV', active: false });
-    refus(PAIE, 'temps.pushSage', {}, 503, /Mode fichier d’import/);
+    // Rubriques confirmées : le lot du fichier d'import se génère ; l'envoi direct reste refusé.
+    assert.match(String(run(PAIE, 'paie.lotGenerer', { periode: '2026-10' })), /^Lot n° \d+ généré — .* · téléchargez le fichier d’import/);
+    refus(PAIE, 'temps.pushSage', {}, 400, /Aucune feuille validée en attente/);
   });
-  assert.equal(transmises(), avant);
+  assert.equal(transmises(), avant, 'lot généré : rien n’est transmis avant la confirmation de l’import');
+  run(PAIE, 'paie.lotAnnuler', { id: dernierLot(db).id });
   // Simulation : les codes à confirmer ne bloquent pas, mais les rubriques désactivées ne partent pas.
   run(PAIE, 'temps.pushSage', {});
-  const lignes = loadFull(db, PAIE).lastSagePush!.lignes;
+  const lignes = dernierLot(db).contenu!.lignes;
   const emises = new Set(lignes.flatMap(l => Object.keys(l.rubriques)));
   assert.ok(!emises.has('JTRAV'), 'JTRAV désactivée : absente du lot');
   for (const code of ['HN', 'HSF25', 'HS25']) assert.ok(lignes.some(l => l.rubriques[code] > 0), `${code} émise`);
@@ -346,7 +351,7 @@ test('t025 transmission : une ligne par période, ventilation jour par jour exac
   assert.deepEqual(p.periodes, ['2026-10']);
   assert.deepEqual(p.lignes.map(l => [l.semaine, l.periode, l.periode_origine ?? null]), [['2026-S40', '2026-10', '2026-09'], ['2026-S40', '2026-10', null]]);
   // Semaine du 21 septembre validée, pas encore transmise : rappel annoncé dans le message et la confirmation.
-  db.sql.exec(`UPDATE feuilles SET sage = 0 WHERE emp_id = 1 AND week = '2026-09-21'`);
+  db.sql.exec(`UPDATE feuilles SET sage = 0, lot_id = NULL WHERE emp_id = 1 AND week = '2026-09-21'`);
   run(ADMIN, 'parametres.maj', { clotureJour: 0, periodeRattachement: 'dimanche' });
   const groupes = feuillesParPeriode(domain().ds.feuilles.filter(f => f.statut === 'validee' && !f.sage && f.empId === 1), domain().ds.settings, '2026-10-10');
   const c = C.transmissionSage(2, 1, groupes);
@@ -355,7 +360,7 @@ test('t025 transmission : une ligne par période, ventilation jour par jour exac
   assert.ok(c.suites!.some(x => /^Simulation : rien n’est envoyé à Sage Paie/.test(x)));
   assert.ok(c.suites!.some(x => /lundi au vendredi seulement/.test(x)));
   assert.match(String(run(PAIE, 'temps.pushSage', {})), /· période octobre 2026 · rappel de septembre 2026$/);
-  const push = loadFull(db, PAIE).lastSagePush!;
+  const push = dernierLot(db).contenu!;
   // Camille (1) : matricule de paie 004101.
   assert.deepEqual(push.lignes.filter(l => l.matricule === '004101').map(l => [l.semaine, l.periode, l.periode_origine ?? null]),
     [['2026-S39', '2026-10', '2026-09'], ['2026-S40', '2026-10', null]]);

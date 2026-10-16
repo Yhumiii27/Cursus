@@ -514,17 +514,40 @@ HTTPS, sans alerte de certificat.
 
 Les variables de paie (heures des feuilles validées) passent par Sage Paie selon `SAGE_MODE` :
 
-| Mode | Usage | Effet de « Transmettre » (écran Temps de travail) |
+| Mode | Usage | Transmission (écran Temps de travail, « Transmission à Sage Paie ») |
 | --- | --- | --- |
-| `fichier` | production (valeur par défaut avec `NODE_ENV=production`) | fichier d'import téléchargé par la paie, puis import confirmé dans Sage, qui seul marque les feuilles transmises — **livré à l'étape suivante** : d'ici là, la transmission est refusée et aucune feuille n'est marquée transmise ; les variables restent saisies dans Sage |
-| `simulation` | démonstration, développement, application de bureau | rien n'est envoyé ; les feuilles sont marquées transmises et l'écran, la confirmation et le message le disent. Refusé en production hors application de bureau |
-| `api` | aucun | refusé : Sage n'a fourni aucun contrat d'API. Cursus refuse de démarrer en production ; ailleurs, la transmission répond 503 sans rien marquer |
+| `fichier` | production (valeur par défaut avec `NODE_ENV=production`) | lot de paie par période, fichier d'import téléchargé par la paie, import confirmé dans Sage, qui seul marque les feuilles transmises (procédure ci-dessous) ; rien ne part automatiquement |
+| `simulation` | démonstration, développement, application de bureau | rien n'est envoyé ; les feuilles sont marquées transmises, en un clic ou par un lot dont le fichier se télécharge pour essai, et l'écran, la confirmation et le message le disent. Refusé en production hors application de bureau |
+| `api` | aucun | refusé : Sage n'a fourni aucun contrat d'API. Cursus refuse de démarrer en production ; ailleurs, la génération d'un lot et la transmission répondent 503 sans rien marquer |
 
 `SAGE_URL` (ancienne bascule vers un envoi qui n'existait pas) est refusée en production. Avant toute transmission
 réelle, le gestionnaire de paie ou l'administrateur RH saisit et confirme le code de chaque rubrique dans le plan de
 paie Sage (écran Temps de travail, « Rubriques de paie ») : tant qu'une rubrique utilisée n'est pas confirmée, seule la
 simulation transmet, et le refus liste les rubriques manquantes. Une rubrique dont la paie ne se sert pas (heures
-normales des salariés mensualisés) peut être désactivée.
+normales des salariés mensualisés) peut être désactivée. Chaque salarié du lot doit avoir son matricule de paie
+(Paramètres → Matricules de paie) : sinon le lot est refusé, avec la liste des salariés concernés.
+
+Procédure mensuelle du gestionnaire de paie (ou de l'administrateur RH), écran Temps de travail :
+
+1. Avant la clôture, le tableau « Suivi des feuilles de temps » montre qui n'a pas saisi, soumis ou corrigé sa feuille
+   (feuille attendue le lundi suivant à 12 h, réglable dans Paramètres → Suivi des feuilles de temps) : relance en un
+   clic (e-mail au salarié et à son valideur) ; managers et service RH valident les feuilles soumises, une à une ou en
+   groupe (une feuille refusée par un contrôle reste à valider et le message la nomme).
+2. « Générer le fichier » sur la période de paie : le lot réunit les feuilles validées de la période (rappels de périodes
+   closes compris), son contenu est figé et ses feuilles réservées. Elles ne sont pas encore transmises.
+3. « Fichier » télécharge le fichier d'import (CSV : une ligne par salarié, période et rubrique, quantités additionnées
+   sur la période). Son format (séparateur, ordre des colonnes, format de la période, décimale, en-tête) se règle par
+   « Modifier le format », sur le modèle d'import de votre Sage, sans changer le contenu du lot. Chaque téléchargement
+   est tracé dans le journal (archive paie).
+4. Importer le fichier dans Sage Paie et contrôler les totaux (rappelés dans la confirmation).
+5. « Confirmer l'import » : confirmation datée et signée, avec la référence de l'import si Sage en donne une. Elle seule
+   marque les feuilles transmises ; le lot ne s'annule plus ensuite (une correction se fait dans Sage, en attendant le
+   lot correctif). Si l'import échoue ou si le lot est faux, « Annuler » avant la confirmation libère ses feuilles,
+   qui pourront partir dans un nouveau lot (si le fichier a déjà été importé, supprimer cet import dans Sage).
+
+L'historique des lots (période, auteur, état, accusé) reste dans l'écran Temps de travail. À la mise à jour vers cette
+version, les feuilles déjà transmises sont réunies en un lot « historique », sans fichier (migration
+`lot4-paie-lots-historiques`, tracée au journal).
 
 Périmètre : heures validées du lundi au vendredi seulement ; ni absences, ni déplacements, ni heures du samedi, du
 dimanche ou de nuit, qui restent saisis dans Sage. Intérimaires (relevé envoyé à l'agence) et cadres dirigeants exclus.

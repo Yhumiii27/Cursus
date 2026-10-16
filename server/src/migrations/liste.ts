@@ -5,7 +5,7 @@ import type { Migration } from './cadre.ts';
 import { COUT_REEL } from './entretiens.ts';
 import { INDEX_ENVOIS, INDEX_JOURNAL, INDEX_KEYSTONE } from './exploitation.ts';
 import { SOLDES_DATES } from './reprise.ts';
-import { HEURES_SUP } from './paie.ts';
+import { HEURES_SUP, LOTS_HISTORIQUES } from './paie.ts';
 import { POSTES } from './referentiels.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
@@ -16,4 +16,5 @@ export const MIGRATIONS: readonly Migration[] = [
   HEURES_SUP,
   COUT_REEL,
   POSTES,
+  LOTS_HISTORIQUES,
 ];

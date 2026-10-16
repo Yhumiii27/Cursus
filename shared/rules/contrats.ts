@@ -52,8 +52,15 @@ export function horsContratLe(e: Pick<Employe, 'nom' | 'fin'>, date: ISODate): s
   return present(e, date) ? null : `Date postérieure au dernier jour du contrat de ${e.nom} (${fmtIso(e.fin!)}) : rien ne se planifie après son départ.`;
 }
 
+/**
+ * Sortie enregistrée (`employe.sortie`) : `fin` en est la date. Le motif ne parvient qu'au service RH, à la paie et à la
+ * lecture seule ; le manager et le référent HSE reçoivent l'indication seule (`sortieEnregistree`, server/src/dataset.ts).
+ */
+export const sortieEnregistree = (e: Partial<Pick<Employe, 'motifSortie' | 'sortieEnregistree'>>) => !!e.motifSortie || !!e.sortieEnregistree;
+
 /** Fin prévue au contrat, avant toute sortie enregistrée (CDD, mission, alternance ; null pour un CDI). */
-export const finContrat = (e: Pick<Employe, 'fin' | 'motifSortie' | 'finPrevue'>) => (e.motifSortie ? e.finPrevue ?? null : e.fin);
+export const finContrat = (e: Pick<Employe, 'fin' | 'motifSortie' | 'finPrevue'> & Partial<Pick<Employe, 'sortieEnregistree'>>) =>
+  (sortieEnregistree(e) ? e.finPrevue ?? null : e.fin);
 
 /** « Démission · le 30 nov. 2026 », « Fin de contrat le 29 janv. 2027 » (fin prévue, sans sortie enregistrée). */
 export function sortieTexte(e: Pick<Employe, 'fin' | 'motifSortie'>): string | null {
@@ -186,7 +193,9 @@ export const soldeRttTexte = (s: SoldeRtt) =>
 // date de fin (et celle du renouvellement) écrite au contrat ; Cursus avertit au-delà du maximum légal (une date trop
 // tardive, gardée par erreur, ferait arriver l'alerte après la vraie fin : une rupture serait alors un licenciement).
 
-type ContratEssai = Pick<Employe, 'statut' | 'typeContrat' | 'entree' | 'fin'> & Partial<Pick<Employe, 'motifSortie' | 'finPrevue'>>;
+type ContratEssai = Pick<Employe, 'statut' | 'typeContrat' | 'entree' | 'fin'> & Partial<Pick<Employe, 'motifSortie' | 'finPrevue' | 'sortieEnregistree'>>;
+/** Fin prévue au contrat d'une saisie : la date de sortie enregistrée n'en est pas une (rupture de l'essai, départ anticipé). */
+const termeContrat = (e: ContratEssai) => finContrat({ fin: e.fin, motifSortie: e.motifSortie ?? null, finPrevue: e.finPrevue ?? null, sortieEnregistree: e.sortieEnregistree });
 
 /** Maximum légal de l'essai : dernier jour possible, avant et après renouvellement (null : pas de renouvellement légal). */
 export interface EssaiMax { fin: ISODate; texte: string; renouvele: ISODate | null; texteRenouvele: string }
@@ -211,7 +220,7 @@ const finMois = (du: ISODate, n: number) => addD(addM(du, n), -1);
  */
 export function essaiMaximum(e: ContratEssai): EssaiMax | null {
   if (!isValidDate(e.entree)) return null;
-  const terme = finContrat({ fin: e.fin, motifSortie: e.motifSortie ?? null, finPrevue: e.finPrevue ?? null });
+  const terme = termeContrat(e);
   const sansRenouvellement = (texte: string) => ({ renouvele: null, texteRenouvele: `aucun renouvellement prévu par la loi pour ${texte}` });
   if (e.typeContrat === 'interim') {
     const n = !terme || !isValidDate(terme) ? 5 : terme <= finMois(e.entree, 1) ? 2 : terme <= finMois(e.entree, 2) ? 3 : 5;
@@ -239,7 +248,9 @@ type EssaiSaisi = ContratEssai & { essaiFin?: string | null; essaiRenouveleJusqu
 
 /**
  * Contrôles de la période d'essai : dates cohérentes avec le contrat (bloquants), maximum légal dépassé (avertissement :
- * la date reste celle du contrat, que le service RH vérifie).
+ * la date reste celle du contrat, que le service RH vérifie). La borne de fin est la fin prévue au contrat, jamais la date
+ * d'une sortie enregistrée : une rupture pendant l'essai la précède normalement, et la fiche doit rester modifiable sans
+ * effacer l'essai écrit au contrat.
  */
 export function controleEssai(p: EssaiSaisi): { errors: string[]; warnings: string[] } {
   const errors: string[] = [], warnings: string[] = [];
@@ -250,9 +261,10 @@ export function controleEssai(p: EssaiSaisi): { errors: string[]; warnings: stri
   if (errors.length) return { errors, warnings };
   if (!fin) errors.push('Renouvellement de l’essai sans la fin de la période initiale.');
   if (fin && isValidDate(p.entree) && fin < p.entree) errors.push('La fin de la période d’essai précède la date d’entrée.');
-  if (fin && p.fin && fin > p.fin) errors.push('La fin de la période d’essai dépasse la fin du contrat.');
+  const terme = termeContrat(p);
+  if (fin && terme && fin > terme) errors.push('La fin de la période d’essai dépasse la fin prévue du contrat.');
   if (fin && ren && ren <= fin) errors.push('Le renouvellement de l’essai doit finir après la période initiale.');
-  if (ren && p.fin && ren > p.fin) errors.push('Le renouvellement de l’essai dépasse la fin du contrat.');
+  if (ren && terme && ren > terme) errors.push('Le renouvellement de l’essai dépasse la fin prévue du contrat.');
   if (errors.length) return { errors, warnings };
   const max = essaiMaximum(p);
   if (max && fin && fin > max.fin) {
@@ -323,13 +335,13 @@ export const SITUATION_A_REGULARISER = 'Situation contractuelle à régulariser'
 /** État de l'autorisation de travail à une date : détail (service RH, lecture seule, intéressé) ou verdict seul. */
 export interface EtatAutorisation {
   requise: boolean; expiree: boolean; verdictSeul: boolean;
-  type: TypeTitreSejour | null; expire: ISODate | null; verifieLe: ISODate | null;
+  type: TypeTitreSejour | null; expire: ISODate | null; demandeLe: ISODate | null; verifieLe: ISODate | null;
 }
 export function etatAutorisation(e: Pick<Employe, 'autorisationTravail' | 'autorisationVerdict'>, date: ISODate): EtatAutorisation {
   const t = e.autorisationTravail;
-  if (t) return { requise: true, expiree: !!t.expire && t.expire < date, verdictSeul: false, type: t.type, expire: t.expire, verifieLe: t.verifieLe };
+  if (t) return { requise: true, expiree: !!t.expire && t.expire < date, verdictSeul: false, type: t.type, expire: t.expire, demandeLe: t.demandeLe ?? null, verifieLe: t.verifieLe };
   const expiree = e.autorisationVerdict === 'expiree';
-  return { requise: expiree, expiree, verdictSeul: !!e.autorisationVerdict, type: null, expire: null, verifieLe: null };
+  return { requise: expiree, expiree, verdictSeul: !!e.autorisationVerdict, type: null, expire: null, demandeLe: null, verifieLe: null };
 }
 
 /** Verdict transmis au manager, au référent HSE et à la paie : « valide » aussi quand aucune autorisation n'est requise. */
@@ -344,16 +356,18 @@ export function joursOuvrablesAvant(date: ISODate, n: number): ISODate {
 }
 
 /** Saisie du titre : `requise` faux pour un ressortissant français, de l'UE, de l'EEE ou de la Suisse. */
-export interface AutorisationSaisie { requise: boolean; type?: unknown; numero?: unknown; expire?: unknown; verifieLe?: unknown }
+export interface AutorisationSaisie { requise: boolean; type?: unknown; numero?: unknown; expire?: unknown; demandeLe?: unknown; verifieLe?: unknown }
 
 /** Numéro du titre : lettres et chiffres en majuscules, sans espace. */
 export const normaliserNumeroTitre = (v: unknown) => (typeof v === 'string' ? v.replace(/\s+/g, '').toUpperCase() : '');
 
 /**
  * Contrôles d'un titre (`employe.autorisationTravail`, dialogue de la fiche) : type de la liste, numéro (registre unique du
- * personnel), expiration (sauf résident permanent), vérification en préfecture jamais future. Avertissements : titre
- * expiré (art. L5221-8), vérification non tracée, ou faite moins de 2 jours ouvrables avant une embauche récente ou à venir
- * (art. R5221-41 : la demande d'authentification part au moins 2 jours ouvrables avant l'embauche).
+ * personnel), expiration (sauf résident permanent), envoi de la demande d'authentification à la préfecture et réponse,
+ * jamais futurs, la réponse après la demande. Avertissements : titre expiré (art. L5221-8), demande non tracée, ou envoyée
+ * moins de 2 jours ouvrables avant une embauche récente ou à venir (art. R5221-41). La règle porte sur l'envoi de la
+ * demande, pas sur la réponse : sans réponse sous 2 jours ouvrables, l'obligation est remplie. Faute de date d'envoi, une
+ * réponse reçue avant la date limite prouve une demande dans les délais ; reçue après, elle ne prouve rien.
  */
 export function validerAutorisation(raw: AutorisationSaisie, opts: { entree: ISODate; ti: ISODate }): { valeur: AutorisationTravail | null; errors: string[]; warnings: string[] } {
   const errors: string[] = [], warnings: string[] = [];
@@ -367,17 +381,24 @@ export function validerAutorisation(raw: AutorisationSaisie, opts: { entree: ISO
   const expire = permanent ? null : typeof raw.expire === 'string' && raw.expire ? raw.expire : null;
   if (!permanent && !expire) errors.push('Date d’expiration du titre requise.');
   else if (expire && !isValidDate(expire)) errors.push('Date d’expiration du titre invalide.');
+  const demandeLe = typeof raw.demandeLe === 'string' && raw.demandeLe ? raw.demandeLe : null;
+  if (demandeLe && !isValidDate(demandeLe)) errors.push('Date d’envoi de la demande d’authentification invalide.');
+  else if (demandeLe && demandeLe > opts.ti) errors.push('Date d’envoi de la demande d’authentification future : saisissez-la une fois la demande envoyée.');
   const verifieLe = typeof raw.verifieLe === 'string' && raw.verifieLe ? raw.verifieLe : null;
   if (verifieLe && !isValidDate(verifieLe)) errors.push('Date de vérification en préfecture invalide.');
   else if (verifieLe && verifieLe > opts.ti) errors.push('Date de vérification en préfecture future : saisissez-la une fois la réponse reçue.');
+  else if (verifieLe && demandeLe && isValidDate(demandeLe) && verifieLe < demandeLe) errors.push('Date de vérification en préfecture antérieure à l’envoi de la demande.');
   if (errors.length || !type) return { valeur: null, errors, warnings };
   if (expire && expire < opts.ti) warnings.push(`Titre expiré le ${fmtIso(expire)} : le salarié ne peut plus être employé sans titre valable (art. L5221-8). Il est non conforme et en « No Go » sur les chantiers.`);
-  const limite = isValidDate(opts.entree) ? joursOuvrablesAvant(opts.entree, 2) : null;
-  if (!verifieLe) warnings.push('Vérification de l’authenticité du titre auprès de la préfecture non tracée (art. R5221-41).');
-  else if (limite && verifieLe > limite && opts.entree >= addD(opts.ti, -30)) {
-    warnings.push(`Vérification en préfecture à demander au moins 2 jours ouvrables avant l’embauche, soit le ${fmtIso(limite)} au plus tard (art. R5221-41).`);
+  // Date limite de la demande, pour une embauche récente ou à venir (un titre renouvelé depuis longtemps n'est pas concerné).
+  const limite = isValidDate(opts.entree) && opts.entree >= addD(opts.ti, -30) ? joursOuvrablesAvant(opts.entree, 2) : null;
+  if (!demandeLe && !verifieLe) warnings.push('Demande d’authentification du titre auprès de la préfecture non tracée (art. R5221-41).');
+  else if (limite && demandeLe && demandeLe > limite) {
+    warnings.push(`Demande d’authentification à envoyer à la préfecture au moins 2 jours ouvrables avant l’embauche, soit le ${fmtIso(limite)} au plus tard (art. R5221-41).`);
+  } else if (limite && !demandeLe && verifieLe && verifieLe > limite) {
+    warnings.push(`Réponse de la préfecture reçue après le ${fmtIso(limite)} : tracez la date d’envoi de la demande d’authentification, à faire au moins 2 jours ouvrables avant l’embauche (art. R5221-41).`);
   }
-  return { valeur: { type, numero, expire, verifieLe }, errors, warnings };
+  return { valeur: { type, numero, expire, demandeLe, verifieLe }, errors, warnings };
 }
 
 /**
@@ -390,7 +411,7 @@ export const INFO_TITRE_SEJOUR = {
     ['Responsable', 'votre employeur, tenu de vérifier que vous êtes autorisé à travailler en France.'],
     ['Finalité', 'vérifier l’autorisation de travail à l’embauche et pendant le contrat, et anticiper son renouvellement.'],
     ['Base légale', 'obligation légale de l’employeur (art. L5221-8 et R5221-41 du Code du travail ; registre unique du personnel, art. L1221-13 et D1221-23 ; art. 6.1.c du RGPD).'],
-    ['Données', 'le type de titre, son numéro, sa date d’expiration et la date de la vérification auprès de la préfecture ; ni copie du document, ni nationalité.'],
+    ['Données', 'le type de titre, son numéro, sa date d’expiration, les dates de la demande de vérification auprès de la préfecture et de sa réponse ; ni copie du document, ni nationalité.'],
     ['Destinataires', 'le service RH ; la lecture seule (direction, audit) sans le numéro. Votre manager et les autres profils ne voient qu’un verdict (titre valide ou à régulariser) ; Keystone ne reçoit qu’une « situation contractuelle à régulariser ».'],
     ['Conservation', 'durée fixée par l’entreprise avec son délégué à la protection des données (à préciser avant la mise en service) ; le registre unique du personnel se conserve 5 ans après votre départ.'],
     ['Vos droits', 'accès, rectification et limitation auprès du service RH ou du délégué à la protection des données ; réclamation auprès de la CNIL (cnil.fr).'],
@@ -414,9 +435,10 @@ export function echeancesContrat(d: Domain, e: EmpX, horizon: number): EchItem[]
     const { le, ...x } = o, exp = parse(le);
     return { ...x, kind: 'contrat', emp: e, exp, d: days(d.today, exp), cls: CLS_CONTRAT[o.key], planned: false, plannedLabel: '' };
   };
-  // Fin de la période d'essai, tant qu'elle n'est pas passée.
-  const fe = finEssai(e), lim = limitePrevenance(e);
-  if (fe && lim && fe >= d.ti) {
+  // Fin de la période d'essai, tant qu'elle n'est pas passée et qu'aucune sortie ne la précède : une rupture de l'essai
+  // (ou un départ) déjà enregistrée n'est plus « à décider ».
+  const fe = finEssai(e), lim = limitePrevenance(e), sortie = sortieEnregistree(e);
+  if (fe && lim && fe >= d.ti && !sortie && !(e.fin && e.fin < fe)) {
     const n = days(d.today, parse(lim.le)), key = n < 0 ? 'exp' : n <= horizon ? 'due' : 'ok';
     out.push(item({
       kindLabel: lim.delai ? `Période d’essai · prévenance de ${lim.delai}` : 'Période d’essai',
@@ -425,8 +447,9 @@ export function echeancesContrat(d: Domain, e: EmpX, horizon: number): EchItem[]
       action: { label: 'Mettre à jour', intent: { type: 'openContrat', empId: e.id, quoi: 'fiche' } },
     }));
   }
-  // Fin prévue d'un contrat à terme : une sortie enregistrée (avec son motif) la remplace.
-  if (e.typeContrat !== 'cdi' && e.fin && !e.motifSortie) {
+  // Fin prévue d'un contrat à terme : une sortie enregistrée la remplace (le motif, ou l'indication seule pour le manager
+  // et le référent HSE, pour que leurs échéances soient celles du service RH).
+  if (e.typeContrat !== 'cdi' && e.fin && !sortie) {
     const key = days(d.today, parse(e.fin)) <= horizon ? 'due' : 'ok';
     out.push(item({
       kindLabel: 'Fin de contrat', label: FIN_CONTRAT_LABEL[e.typeContrat] ?? 'Fin de contrat', le: e.fin, key,

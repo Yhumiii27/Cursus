@@ -160,6 +160,7 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   const v = validerProfil(input, {
     equipes: d.equipes, year: d.year, encadre: emp ? d.teamsOf(emp.id) : [], adressesPrises: adressesPrises(d.ds.employes, emp?.id),
     matricules: { pris: matriculesPris(d.ds.employes, d.ti, emp?.id), actuel: initial.matriculePaie, reutiliser: confirme },
+    contrat: { finPrevue: emp?.finPrevue ?? null, sortieEnregistree: emp?.sortieEnregistree },
   });
   // Matricule d'un salarié sorti, pas encore confirmé : l'administrateur RH confirme à l'envoi ; pour le gestionnaire RH,
   // l'erreur sous le champ le renvoie à l'administrateur.
@@ -277,6 +278,8 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   // Période d'essai : maximum légal rappelé (aucune durée proposée) et dernier jour pour notifier une rupture.
   const max = essaiMaximum(v.profil);
   const prev = limitePrevenance(v.profil);
+  // Borne des dates d'essai : la fin prévue au contrat, jamais la date d'une sortie enregistrée (rupture pendant l'essai).
+  const finEssaiMax = (sortieEnregistree || emp?.sortieEnregistree ? emp?.finPrevue : f.fin) || undefined;
   const essaiAide = [
     'L’essai n’existe que s’il est écrit au contrat (art. L1221-23) : saisissez ses dates telles qu’elles y figurent, la convention collective pouvant prévoir moins.',
     max ? `Maximum légal : le ${fmtIso(max.fin)} (${max.texte})${max.renouvele ? `, le ${fmtIso(max.renouvele)} en cas de renouvellement (${max.texteRenouvele}, si un accord de branche étendu le prévoit)` : ''}.` : '',
@@ -356,11 +359,11 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
       <SectionLabel>Période d’essai</SectionLabel>
       <div className="grid-2">
         <Field label="Fin de la période d’essai" htmlFor="emp-essai" erreur={err('essaiFin')}>
-          <input className="input" id="emp-essai" type="date" min={f.entree || undefined} max={f.fin || undefined} value={f.essaiFin} onChange={ev => set('essaiFin', ev.target.value)} />
+          <input className="input" id="emp-essai" type="date" min={f.entree || undefined} max={finEssaiMax} value={f.essaiFin} onChange={ev => set('essaiFin', ev.target.value)} />
           <span className="text-muted sub">Date écrite au contrat ; vide s’il n’en prévoit pas</span>
         </Field>
         <Field label="Renouvelée jusqu’au" htmlFor="emp-essai-ren" erreur={err('essaiRenouvele')}>
-          <input className="input" id="emp-essai-ren" type="date" min={f.essaiFin || undefined} max={f.fin || undefined} value={f.essaiRenouvele} onChange={ev => set('essaiRenouvele', ev.target.value)} />
+          <input className="input" id="emp-essai-ren" type="date" min={f.essaiFin || undefined} max={finEssaiMax} value={f.essaiRenouvele} onChange={ev => set('essaiRenouvele', ev.target.value)} />
           <span className="text-muted sub">Accord écrit du salarié pendant l’essai initial</span>
         </Field>
       </div>

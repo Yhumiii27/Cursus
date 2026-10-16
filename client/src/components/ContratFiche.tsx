@@ -49,7 +49,7 @@ export function ContratFiche({ e }: { e: Employe }) {
   } else if (t.requise && t.type) {
     const n = t.expire ? days(d.today, parse(t.expire)) : null;
     titre = (
-      <Ligne label="Titre de séjour" sub={`${e.autorisationTravail?.numero ? `N° ${e.autorisationTravail.numero} · ` : ''}${t.verifieLe ? `vérifié en préfecture le ${fmtIso(t.verifieLe)}` : 'vérification en préfecture non tracée'}`}>
+      <Ligne label="Titre de séjour" sub={`${e.autorisationTravail?.numero ? `N° ${e.autorisationTravail.numero} · ` : ''}${t.verifieLe ? `vérifié en préfecture le ${fmtIso(t.verifieLe)}` : t.demandeLe ? `authentification demandée à la préfecture le ${fmtIso(t.demandeLe)}` : 'demande d’authentification en préfecture non tracée'}`}>
         {TYPES_TITRE_SEJOUR[t.type].court}{t.expire ? ` · jusqu’au ${fmtIso(t.expire)}` : ' · sans expiration'}
         {n != null && (n < 0 ? <Tag cls="tag-accent">Expiré — non conforme</Tag> : n <= s.titreSejourAlerte ? <Tag cls="tag-outline">À renouveler {rel(n)}</Tag> : null)}
       </Ligne>

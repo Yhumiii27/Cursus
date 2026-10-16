@@ -43,7 +43,7 @@ réserve ou un refus est vérifié par le service RH.
 
 | Catégorie | Données | Où (tables) |
 | --- | --- | --- |
-| Titre de séjour | Type de titre, numéro, date d'expiration, date de vérification auprès de la préfecture ; ni copie du document (GED Codex à venir), ni nationalité | `employes` (`autorisationTravail`) |
+| Titre de séjour | Type de titre, numéro, date d'expiration, dates de la demande d'authentification à la préfecture et de sa réponse ; ni copie du document (GED Codex à venir), ni nationalité | `employes` (`autorisationTravail`) |
 | Identité et contrat | Nom, poste, équipe, statut, nature du contrat, organisation du temps, heures et forfaits, jours non travaillés, dates d'entrée et de fin, fin de la période d'essai et de son renouvellement, **année** de naissance (5 jours de congés de la CCN à 59 ans), agence d'intérim, adresse e-mail professionnelle, réglage des notifications, motif et date de reprise (liste fermée de l'art. L6315-1, sans information médicale) | `employes`, `equipes` |
 | Compétences | Certifications (date d'obtention), inscriptions et résultats des sessions, habilitations et leurs mesures (suspension, retrait : date, motif saisi, auteur) | `certifications`, `inscriptions`, `participations`, `habTitres` |
 | **Santé (art. 9)** | Date de la dernière visite médicale, avis d'aptitude (apte, restrictions, inapte), restrictions de poste recopiées telles qu'écrites par le médecin du travail et leur échéance ; demandes de visite (motif administratif) ; **vaccins et dates d'injection** (déplacements) ; nature des absences pour raison de santé (arrêt, accident du travail ou de trajet, maladie professionnelle, enfant malade) et justificatif reçu | `employes` (`visite`, `avis`, `restrictions`), `demandesVisite`, `vaccinations`, `absences` |
@@ -95,7 +95,7 @@ Aucun transfert hors de l'Union européenne n'est prévu par Cursus ; à vérifi
 | Dossier du salarié (fiche, compétences, temps, absences, entretiens) | Pendant le contrat, puis à compléter par le DPO (référence usuelle : 5 ans après le départ pour le dossier, 3 ans pour le décompte du temps de travail, le temps de la prescription pour les éléments de paie) | **Aucune purge** : rien n'est effacé, même au départ |
 | Données de santé (visites, avis, restrictions, vaccinations) | à compléter par le DPO | **Aucune purge** ; les déclarations successives gardent les injections antérieures |
 | Passeport, visas | Validité du document, puis à compléter par le DPO | Aucune purge |
-| Titre de séjour (type, numéro, expiration, vérification) | Registre unique du personnel : 5 ans après le départ ; à confirmer par le DPO | Aucune purge |
+| Titre de séjour (type, numéro, expiration, demande d'authentification et réponse) | Registre unique du personnel : 5 ans après le départ ; à confirmer par le DPO | Aucune purge |
 | Sauvegardes | 14 copies locales ; copies distantes selon le calendrier de `docs/SAUVEGARDE.md` (à valider avec le DPO) | Une donnée effacée subsiste dans les copies jusqu'à leur expiration |
 
 Tant que les durées « à compléter » ne sont pas fixées et appliquées, l'information des salariés indique que rien

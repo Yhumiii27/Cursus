@@ -1,5 +1,6 @@
 // Titre de séjour valant autorisation de travail (service RH) : non requise (ressortissant français, de l'UE, de l'EEE ou
-// de la Suisse), ou titre { type, numéro, expiration, vérification en préfecture }, sans copie du document (GED à venir).
+// de la Suisse), ou titre { type, numéro, expiration, demande d'authentification et réponse de la préfecture }, sans copie
+// du document (GED à venir).
 // Contrôles partagés avec le serveur (`validerAutorisation` de shared/rules/contrats.ts) ; information du salarié (art. 13
 // du RGPD) affichée avant l'enregistrement, sur le modèle des vaccinations.
 import { useState } from 'react';
@@ -34,16 +35,18 @@ export function AutorisationDialog({ empId }: { empId: number }) {
   const [type, setType] = useState<TypeTitreSejour | ''>(t0?.type ?? '');
   const [numero, setNumero] = useState(t0?.numero ?? '');
   const [expire, setExpire] = useState(t0?.expire ?? '');
+  const [demandeLe, setDemandeLe] = useState(t0?.demandeLe ?? '');
   const [verifieLe, setVerifieLe] = useState(t0?.verifieLe ?? '');
   const [busy, setBusy] = useState(false);
   const v = useVerification();
   if (!emp || !rh) return null;
 
-  const saisie = { requise: requise === 'oui', type, numero, expire, verifieLe };
+  const saisie = { requise: requise === 'oui', type, numero, expire, demandeLe, verifieLe };
   const r = validerAutorisation(saisie, { entree: emp.entree, ti: d.ti });
   // Erreurs rattachées à leur champ, reconnues à leur message (comme la fiche).
   const erreur = (re: RegExp) => r.errors.filter(m => re.test(m)).join(' ') || null;
   const errType = erreur(/^Type de titre/), errNumero = erreur(/^Numéro du titre/), errExpire = erreur(/expiration/), errVerif = erreur(/vérification en préfecture/i);
+  const errDemande = erreur(/demande d’authentification/);
   const permanent = type === 'resident_permanent';
   const limite = joursOuvrablesAvant(emp.entree, 2);
 
@@ -87,9 +90,13 @@ export function AutorisationDialog({ empId }: { empId: number }) {
               <input className="input" id="titre-expire" type="date" value={expire} onChange={ev => setExpire(ev.target.value)} />
             </Field>
           )}
-          <Field label="Vérifié auprès de la préfecture le" htmlFor="titre-verif" erreur={errVerif}>
-            <input className="input" id="titre-verif" type="date" max={d.ti} value={verifieLe} onChange={ev => setVerifieLe(ev.target.value)} />
-            <span className="text-muted sub">Embauche : demande d’authentification au moins 2 jours ouvrables avant, soit le {fmtIso(limite)} (art. R5221-41)</span>
+          <Field label="Authentification demandée à la préfecture le" htmlFor="titre-demande" erreur={errDemande}>
+            <input className="input" id="titre-demande" type="date" max={d.ti} value={demandeLe} onChange={ev => setDemandeLe(ev.target.value)} />
+            <span className="text-muted sub">Embauche : au moins 2 jours ouvrables avant, soit le {fmtIso(limite)} (art. R5221-41)</span>
+          </Field>
+          <Field label="Réponse de la préfecture le" htmlFor="titre-verif" erreur={errVerif}>
+            <input className="input" id="titre-verif" type="date" min={demandeLe || undefined} max={d.ti} value={verifieLe} onChange={ev => setVerifieLe(ev.target.value)} />
+            <span className="text-muted sub">Vide sans réponse : passé 2 jours ouvrables, la vérification est réputée faite</span>
           </Field>
         </div>
         {r.warnings.map(w => <NoteAccent key={w}>{w}</NoteAccent>)}
@@ -100,7 +107,7 @@ export function AutorisationDialog({ empId }: { empId: number }) {
         </Fine>
         <InfoTitre />
       </>}
-      {v.tente && r.errors.length > 0 && !errType && !errNumero && !errExpire && !errVerif && <Controles msgs={r.errors.map(text => ({ text, bad: true }))} />}
+      {v.tente && r.errors.length > 0 && !errType && !errNumero && !errExpire && !errVerif && !errDemande && <Controles msgs={r.errors.map(text => ({ text, bad: true }))} />}
     </Dialog>
   );
 }

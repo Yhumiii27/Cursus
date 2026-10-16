@@ -25,7 +25,7 @@ const { appliquerReglages, ReglageInvalide } = await import('../shared/reglages.
 const {
   controleEssai, essaiMaximum, joursOuvrablesAvant, limitePrevenance, prevenance, SITUATION_A_REGULARISER, validerAutorisation,
 } = await import('../shared/rules/contrats.ts');
-const { PROFIL_VIDE, validerProfil } = await import('../shared/rules/profil.ts');
+const { PROFIL_VIDE, profilOf, validerProfil } = await import('../shared/rules/profil.ts');
 type User = NonNullable<ReturnType<typeof currentUser>>;
 type Compte = import('../server/src/comptes.ts').Compte;
 interface Ligne { action: string; payload: Record<string, any>; salaries: number[] | null; message: string | null }
@@ -77,7 +77,7 @@ test('période d’essai : cohérence bloquante, maximum légal et renouvellemen
   assert.match(controleEssai({ ...base, essaiFin: '2026-09-01' }).errors.join(), /précède la date d’entrée/);
   assert.match(controleEssai({ ...base, essaiRenouveleJusquau: '2027-01-31' }).errors.join(), /sans la fin de la période initiale/);
   assert.match(controleEssai({ ...base, essaiFin: '2026-12-13', essaiRenouveleJusquau: '2026-12-01' }).errors.join(), /finir après la période initiale/);
-  assert.match(controleEssai({ ...base, typeContrat: 'cdd', fin: '2026-12-31', essaiFin: '2027-01-15' }).errors.join(), /dépasse la fin du contrat/);
+  assert.match(controleEssai({ ...base, typeContrat: 'cdd', fin: '2026-12-31', essaiFin: '2027-01-15' }).errors.join(), /dépasse la fin prévue du contrat/);
   assert.match(controleEssai({ ...base, essaiFin: '2026-12-20' }).warnings.join(), /au-delà du maximum légal \(3 mois pour un technicien \/ agent de maîtrise, art\. L1221-19\) : le 13 déc\. 2026/);
   assert.match(controleEssai({ ...base, essaiFin: '2026-12-13', essaiRenouveleJusquau: '2027-04-01' }).warnings.join(), /renouvelé au-delà du maximum légal \(6 mois/);
   assert.match(controleEssai({ ...base, typeContrat: 'cdd', fin: '2027-09-13', essaiFin: '2026-10-01', essaiRenouveleJusquau: '2026-10-10' }).warnings.join(), /aucun renouvellement prévu par la loi/);
@@ -146,7 +146,7 @@ test('titre de séjour : contrôles, alertes réglables, non conforme et No Go C
   refus(RH, 'employe.autorisationTravail', { id: 2, requise: true, type: 'salarie', numero: 'AB1234567', expire: '2027-06-30', verifieLe: '2026-11-01' }, /future/);
   // Relance sous 60 jours.
   run(RH, 'employe.autorisationTravail', { id: 2, requise: true, type: 'salarie', numero: 'ab 123 4567', expire: '2026-11-30', verifieLe: '2016-08-26' });
-  assert.deepEqual(db.get<{ autorisationTravail: unknown }>('employes', 2)!.autorisationTravail, { type: 'salarie', numero: 'AB1234567', expire: '2026-11-30', verifieLe: '2016-08-26' });
+  assert.deepEqual(db.get<{ autorisationTravail: unknown }>('employes', 2)!.autorisationTravail, { type: 'salarie', numero: 'AB1234567', expire: '2026-11-30', demandeLe: null, verifieLe: '2016-08-26' });
   assert.equal(contrats(domain()).find(x => x.emp.id === 2)!.statut, 'Relance');
 
   // Chantier de Mehdi Benali reçu de Keystone : Go / No Go avant et après l'expiration.
@@ -192,7 +192,7 @@ test('titre de séjour : contrôles, alertes réglables, non conforme et No Go C
   assert.ok(motifs(new Domain(buildSnapshot(db, user(23, 'rh')))).some(x => x.code === 'CONTRAT' && x.detailed === `${SITUATION_A_REGULARISER} avec le service RH`));
   assert.equal(mgr.enrich(90, false).find(e => e.id === 2)!.worst, 'exp');
   assert.ok(!contrats(mgr).some(x => x.emp.id === 2), 'verdict seul : aucune échéance datée');
-  assert.deepEqual(buildSnapshot(db, user(11, 'rh')).employes.find(x => x.id === 2)!.autorisationTravail, { type: 'salarie', numero: null, expire: '2026-10-01', verifieLe: '2016-08-26' });
+  assert.deepEqual(buildSnapshot(db, user(11, 'rh')).employes.find(x => x.id === 2)!.autorisationTravail, { type: 'salarie', numero: null, expire: '2026-10-01', demandeLe: null, verifieLe: '2016-08-26' });
   assert.equal(buildSnapshot(db, user(2, 'collaborateur')).employes.find(x => x.id === 2)!.autorisationTravail?.numero, 'AB1234567');
   // Export des données personnelles (droit d'accès) : le titre fait partie de la fiche.
   assert.deepEqual((donneesSalarie(db, 2, { journal: false, par: 'test' })!.sections as Record<string, any>).Fiche.autorisationTravail.numero, 'AB1234567');
@@ -213,10 +213,78 @@ test('titre de séjour : contrôle à l’embauche (vérification en préfecture
   const embauche = { entree: '2026-11-02', ti: '2026-10-10' };
   assert.deepEqual(validerAutorisation({ ...titre, verifieLe: '2026-10-09' }, embauche).warnings, []);
   assert.match(validerAutorisation(titre, embauche).warnings.join(), /non tracée/);
-  assert.match(validerAutorisation({ ...titre, verifieLe: '2026-10-10' }, { entree: '2026-10-12', ti: '2026-10-10' }).warnings.join(), /au moins 2 jours ouvrables avant l’embauche, soit le 9 oct\. 2026/);
+  // Sans date d'envoi, une réponse reçue après la date limite ne prouve rien : la date d'envoi est à tracer.
+  assert.match(validerAutorisation({ ...titre, verifieLe: '2026-10-10' }, { entree: '2026-10-12', ti: '2026-10-10' }).warnings.join(), /Réponse de la préfecture reçue après le 9 oct\. 2026 : tracez la date d’envoi/);
+  // La règle porte sur l'envoi de la demande : envoyée le 27 octobre, réponse le 31, aucune alerte ; sans réponse, non plus
+  // (passé 2 jours ouvrables, l'obligation est remplie) ; envoyée le 31, tardive.
+  const apres = { entree: '2026-11-02', ti: '2026-11-02' };
+  assert.deepEqual(validerAutorisation({ ...titre, demandeLe: '2026-10-27', verifieLe: '2026-10-31' }, apres).warnings, []);
+  assert.deepEqual(validerAutorisation({ ...titre, demandeLe: '2026-10-27' }, apres).warnings, []);
+  assert.match(validerAutorisation({ ...titre, demandeLe: '2026-10-31', verifieLe: '2026-10-31' }, apres).warnings.join(), /Demande d’authentification à envoyer à la préfecture au moins 2 jours ouvrables avant l’embauche, soit le 30 oct\. 2026/);
+  assert.match(validerAutorisation({ ...titre, demandeLe: '2026-10-30', verifieLe: '2026-10-29' }, apres).errors.join(), /antérieure à l’envoi de la demande/);
+  assert.match(validerAutorisation({ ...titre, demandeLe: '2026-11-03' }, apres).errors.join(), /demande d’authentification future/);
+  assert.deepEqual(validerAutorisation({ ...titre, demandeLe: '2026-10-27' }, apres).valeur, { type: 'salarie', numero: 'XY98765', expire: '2028-01-31', demandeLe: '2026-10-27', verifieLe: null });
   // Ancienne embauche (titre renouvelé depuis) : pas d'avertissement d'embauche.
   assert.deepEqual(validerAutorisation({ ...titre, verifieLe: '2026-09-01' }, { entree: '2016-09-01', ti: '2026-10-10' }).warnings, []);
   // Carte de résident permanent : sans expiration.
   assert.deepEqual(validerAutorisation({ requise: true, type: 'resident_permanent', numero: 'RP12345', verifieLe: '2016-08-01' }, { entree: '2016-09-01', ti: '2026-10-10' }).valeur,
-    { type: 'resident_permanent', numero: 'RP12345', expire: null, verifieLe: '2016-08-01' });
+    { type: 'resident_permanent', numero: 'RP12345', expire: null, demandeLe: null, verifieLe: '2016-08-01' });
+});
+
+test('période d’essai rompue ou départ anticipé : la fiche reste modifiable, plus d’échéance d’essai ni de fin de contrat', () => {
+  const { db, run, refus, RH, user, domain, contrats } = fresh();
+  // Nina Morel, technicienne en CDI entrée le 14 septembre, essai jusqu'au 13 décembre ; rupture de l'essai au 20 octobre.
+  const { id } = run(RH, 'employe.creer', {
+    ...PROFIL_VIDE('Maintenance', '2026-10-10'), nom: 'Nina Morel', poste: 'Technicienne', statut: 'technicien', entree: '2026-09-14', naissance: 1998, essaiFin: '2026-12-13',
+  }).result as { id: number };
+  run(RH, 'employe.sortie', { id, date: '2026-10-20', motif: 'fin_periode_essai' });
+  // La date de sortie précède la fin de l'essai écrite au contrat : ni le RH ni le manager ne sont bloqués.
+  run(RH, 'employe.modifier', { id, poste: 'Technicienne de maintenance' });
+  const KARIM = user(12, 'manager');
+  run(KARIM, 'employe.modifier', { id, poste: 'Technicienne de maintenance électrique' });
+  assert.equal(db.get<{ essaiFin: string }>('employes', id)!.essaiFin, '2026-12-13', 'l’essai écrit au contrat est gardé');
+  // Contrôle du dialogue, avec la vue du manager (sans le motif ni la fin prévue, mais l'indication de la sortie).
+  const vue = buildSnapshot(db, KARIM).employes.find(x => x.id === id)!;
+  assert.deepEqual([vue.motifSortie, vue.finPrevue, vue.sortieEnregistree], [null, null, true]);
+  const opts = { equipes: ['Maintenance'], year: 2026 };
+  assert.deepEqual(validerProfil(profilOf(vue), { ...opts, contrat: { finPrevue: vue.finPrevue, sortieEnregistree: vue.sortieEnregistree } }).errors, []);
+  // Rupture déjà enregistrée : plus « à décider », ni chez le service RH ni chez le manager.
+  assert.ok(!contrats(domain()).some(x => x.emp.id === id));
+  assert.ok(!contrats(domain(KARIM)).some(x => x.emp.id === id));
+
+  // CDD avec essai, départ anticipé : l'essai reste borné par la fin prévue au contrat, pas par la date de sortie.
+  run(RH, 'employe.modifier', { id: 4, essaiFin: '2026-10-20' });
+  run(RH, 'employe.sortie', { id: 4, date: '2026-10-15', motif: 'fin_periode_essai' });
+  run(RH, 'employe.modifier', { id: 4, poste: 'Opérateur' });
+  refus(RH, 'employe.modifier', { id: 4, essaiFin: '2027-02-15' }, /dépasse la fin prévue du contrat/);
+});
+
+test('échéances « Contrats » : une sortie enregistrée retire la fin de CDD chez le manager et le référent HSE comme chez le RH', () => {
+  const { run, RH, user, domain, contrats } = fresh();
+  // Lucas Martin, CDD jusqu'au 29 janvier 2027 : démission au 15 novembre.
+  const finCdd = (d: InstanceType<typeof Domain>) => contrats(d, 180).some(x => x.emp.id === 4 && x.label === 'Fin de CDD');
+  const MGR = user(16, 'manager'), HSE = user(23, 'rh');
+  assert.ok([domain(), domain(MGR), domain(HSE)].every(finCdd));
+  run(RH, 'employe.sortie', { id: 4, date: '2026-11-15', motif: 'demission' });
+  assert.deepEqual([domain(), domain(MGR), domain(HSE)].map(finCdd), [false, false, false]);
+  // Le motif ne leur parvient pas.
+  for (const u of [MGR, HSE]) assert.deepEqual([domain(u).emp(4)!.motifSortie, domain(u).emp(4)!.finPrevue], [null, null]);
+  // Fin d'essai notifiée (sortie le 24 octobre, essai jusqu'au 31) : plus d'échéance « À décider ».
+  run(RH, 'employe.modifier', { id: 2, essaiFin: '2026-10-31' });
+  assert.ok(contrats(domain()).some(x => x.emp.id === 2 && /^Fin d’essai/.test(x.label)));
+  run(RH, 'employe.sortie', { id: 2, date: '2026-10-24', motif: 'fin_periode_essai' });
+  assert.ok(!contrats(domain()).some(x => x.emp.id === 2 && /^Fin d’essai/.test(x.label)));
+});
+
+test('titre de séjour : le journal ne recopie que des codes et des dates validés, jamais du texte libre', () => {
+  const { db, run, RH } = fresh();
+  const derniere = () => db.all<Ligne>('journal').filter(x => x.action === 'employe.autorisationTravail').at(-1)!;
+  run(RH, 'employe.autorisationTravail', { id: 2, requise: false, type: 'texte libre type', expire: 'Nationalité malienne', verifieLe: 'commentaire' });
+  assert.ok(!/texte libre|Nationalité|commentaire/.test(JSON.stringify(derniere())), JSON.stringify(derniere()));
+  run(RH, 'employe.autorisationTravail', { id: 2, requise: true, type: 'resident_permanent', numero: 'AB12345', expire: 'Nationalité malienne' });
+  const l = derniere();
+  assert.ok(!/Nationalité|AB12345/.test(JSON.stringify(l)), JSON.stringify(l));
+  assert.deepEqual([l.payload.type, l.payload.expire, l.payload.demandeLe], ['resident_permanent', null, null]);
+  run(RH, 'employe.autorisationTravail', { id: 2, requise: true, type: 'salarie', numero: 'AB12345', expire: '2027-06-30', demandeLe: '2016-08-20', verifieLe: '2016-08-26' });
+  assert.deepEqual([derniere().payload.type, derniere().payload.expire, derniere().payload.demandeLe, derniere().payload.verifieLe], ['salarie', '2027-06-30', '2016-08-20', '2016-08-26']);
 });

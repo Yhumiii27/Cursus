@@ -33,7 +33,7 @@ export const TABLES = {
       // Sortie enregistrée par le service RH (`employe.sortie`) : motif, et fin prévue au contrat rétablie si elle est annulée.
       motifSortie: 'text', finPrevue: 'text',
       // Période d'essai écrite au contrat (fin, fin après renouvellement) et titre de séjour valant autorisation de travail
-      // ({ type, numero, expire, verifieLe } ; null : non requise), le numéro réservé au service RH (server/src/dataset.ts).
+      // ({ type, numero, expire, demandeLe, verifieLe } ; null : non requise), le numéro réservé au service RH (server/src/dataset.ts).
       essaiFin: 'text', essaiRenouveleJusquau: 'text', autorisationTravail: 'json',
     },
   },

@@ -110,6 +110,11 @@ export function normaliserProfil(p: ProfilInput): ProfilInput {
 export function validerProfil(raw: ProfilInput, opts: {
   equipes: string[]; year: number; encadre?: string[]; adressesPrises?: Record<string, string>;
   matricules?: { pris: Record<string, TitulaireMatricule>; actuel?: string | null; reutiliser?: boolean };
+  /**
+   * Fiche enregistrée : fin prévue au contrat avant la sortie, et indication d'une sortie enregistrée (vues sans le
+   * motif). La période d'essai se compare à la fin prévue, jamais à la date de sortie.
+   */
+  contrat?: Partial<Pick<Employe, 'finPrevue' | 'sortieEnregistree'>>;
 }) {
   const p = normaliserProfil(raw);
   const errors: string[] = [], warnings: string[] = [];
@@ -128,10 +133,11 @@ export function validerProfil(raw: ProfilInput, opts: {
   // Sortie : motif en liste fermée, avec sa date ; un CDI ne prend fin que par une sortie enregistrée.
   if (p.motifSortie && !estMotifSortie(p.motifSortie)) errors.push('Motif de sortie à choisir dans la liste.');
   if (p.motifSortie && !p.fin) errors.push('Date de sortie requise avec le motif de sortie.');
-  if (p.fin && p.typeContrat === 'cdi' && !p.motifSortie) errors.push('Un CDI ne prend fin que par une sortie enregistrée avec son motif.');
+  // (Vue du manager : le motif ne lui parvient pas, l'indication de la sortie si.)
+  if (p.fin && p.typeContrat === 'cdi' && !p.motifSortie && !opts.contrat?.sortieEnregistree) errors.push('Un CDI ne prend fin que par une sortie enregistrée avec son motif.');
   // Période d'essai : cohérence avec le contrat (bloquant), maximum légal (avertissement, shared/rules/contrats.ts).
   if (isValidDate(p.entree)) {
-    const essai = controleEssai(p);
+    const essai = controleEssai({ ...p, finPrevue: opts.contrat?.finPrevue ?? null, sortieEnregistree: opts.contrat?.sortieEnregistree });
     errors.push(...essai.errors);
     warnings.push(...essai.warnings);
   }

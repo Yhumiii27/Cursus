@@ -25,10 +25,11 @@ function getEquipe(ctx: Ctx, nom: unknown): Equipe {
  * lien avec le dossier de paie.
  */
 function check(ctx: Ctx, p: ProfilInput, empId?: number, reutiliser = false) {
-  const actuel = empId ? ctx.d.emp(empId)?.matriculePaie ?? null : null;
+  const emp = empId ? ctx.d.emp(empId) : null;
+  const actuel = emp?.matriculePaie ?? null;
   const v = validerProfil(p, {
     equipes: equipesNoms(ctx), year: ctx.d.year, encadre: empId ? ctx.d.teamsOf(empId) : [], adressesPrises: adressesPrises(ctx.ds.employes, empId),
-    matricules: { pris: matriculesPris(ctx.ds.employes, ctx.d.ti, empId), actuel, reutiliser },
+    matricules: { pris: matriculesPris(ctx.ds.employes, ctx.d.ti, empId), actuel, reutiliser }, contrat: { finPrevue: emp?.finPrevue ?? null },
   });
   if (!v.ok) throw new ActionError(v.errors.join(' '));
   if (reutiliser && v.matriculeAConfirmer) requireRhAdmin(ctx);

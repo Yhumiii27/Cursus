@@ -17,6 +17,7 @@ import { addD, isValidDate } from '../../shared/dates.ts';
 import { Domain } from '../../shared/domain.ts';
 import { fmtIso, num, plural } from '../../shared/format.ts';
 import { matriculeAffiche } from '../../shared/rules/matricules.ts';
+import { estTypeTitre } from '../../shared/rules/contrats.ts';
 import {
   ACTION_APPEL_KEYSTONE, ACTIONS_CONNEXION, ACTIONS_PAIE, changementsTexte, CONSERVATION_ARCHIVE_PAIE_MOIS, CONSERVATION_ENVOIS_MOIS,
   CONSERVATION_JOURNAL_MOIS, dossierComplet, estActionPaie, familleAction, FAMILLES_JOURNAL, JOURNAL_LABEL, lecteurJournal, libelleAction,
@@ -175,10 +176,17 @@ export const REGLES: Record<string, Regle> = {
     bilan: (_p, x) => (x.result as { annulations?: Ligne } | null)?.annulations ?? {},
   },
   'employe.annulerSortie': { champs: ['id'], cible: parId('employes', ['fin', 'motifSortie']), salaries: p => [p.id] },
-  // Titre de séjour : type, expiration et date de vérification en préfecture, avant et après ; jamais le numéro (masqué :
-  // seul le fait qu'il change est tracé).
+  // Titre de séjour : type, expiration, demande d'authentification et vérification en préfecture, avant et après ; jamais
+  // le numéro (masqué : seul le fait qu'il change est tracé). Des valeurs reçues, seules celles qui ont la forme d'un code
+  // ou d'une date sont recopiées, et seulement pour un titre requis (sinon l'action les ignore) : jamais de texte libre.
   'employe.autorisationTravail': {
-    champs: ['id', 'requise', 'type', 'expire', 'verifieLe'], salaries: p => [p.id],
+    champs: ['id', 'requise'], salaries: p => [p.id],
+    extra: p => (p.requise !== true ? {} : {
+      type: estTypeTitre(p.type) ? p.type : null,
+      expire: p.type !== 'resident_permanent' && isValidDate(p.expire) ? p.expire : null,
+      demandeLe: isValidDate(p.demandeLe) ? p.demandeLe : null,
+      verifieLe: isValidDate(p.verifieLe) ? p.verifieLe : null,
+    }),
     cible: { ...parId('employes', ['autorisationTravail']), aplatir: true, masques: ['numero'] },
   },
   'equipe.creer': { champs: ['nom', 'managerId'], salaries: p => [p.managerId] },

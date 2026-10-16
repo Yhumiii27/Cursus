@@ -536,7 +536,7 @@ aucun champ du paramètre n'est recopié.
 | `employe.creer` | fiche complète (`ProfilInput` de `shared/rules/profil.ts`, matricule de paie compris : unique), reutiliserMatricule? (réembauche : matricule d'un salarié sorti) | RH ; réutiliser un matricule : administrateur RH |
 | `employe.modifier` | id + champs de la fiche, reutiliserMatricule?, `confirmerRtt` (changement de régime qui ferme le compteur de RTT de l'année) ; ni le motif ni la date d'une sortie enregistrée | RH : tous ; manager : `poste`, `jourOff` (temps partiel) des membres de son équipe ; changer ou retirer un matricule de paie déjà enregistré, réutiliser celui d'un salarié sorti : administrateur RH |
 | `employe.sortie` | id, date (dernier jour du contrat), motif (`MOTIFS_SORTIE`) ; refusée tant que le salarié encadre une équipe, qu'une feuille porte des heures après la date, qu'une absence est à cheval sur elle, au-delà de la fin prévue du contrat ou quand aucun autre administrateur RH ne reste en place après la date ; une sortie enregistrée se modifie par la même action | RH (jamais pour lui-même) ; administrateur RH seul pour un salarié dont le compte ouvre l'espace RH |
-| `employe.autorisationTravail` | id, requise (faux : ressortissant français, de l'UE, de l'EEE ou de la Suisse, titre effacé), type (`TYPES_TITRE_SEJOUR`), numero, expire (sauf résident permanent), verifieLe (jamais future) ; avertissements sans blocage (titre expiré, vérification en préfecture non tracée ou tardive) ; refusée pour un salarié sorti | RH (jamais pour lui-même) |
+| `employe.autorisationTravail` | id, requise (faux : ressortissant français, de l'UE, de l'EEE ou de la Suisse, titre effacé), type (`TYPES_TITRE_SEJOUR`), numero, expire (sauf résident permanent), demandeLe (envoi de la demande d'authentification) et verifieLe (réponse de la préfecture), jamais futures ; avertissements sans blocage (titre expiré, demande d'authentification non tracée ou tardive) ; journal : codes et dates validés seulement ; refusée pour un salarié sorti | RH (jamais pour lui-même) |
 | `employe.annulerSortie` | id : fin prévue au contrat rétablie (aucune pour un CDI, même devenu CDI depuis la sortie) ; ce que la sortie a annulé ne l'est pas | RH (jamais pour lui-même) ; administrateur RH seul pour un salarié dont le compte ouvre l'espace RH |
 | `equipe.creer` / `equipe.renommer` | nom, managerId? / nom, nouveau | RH |
 | `equipe.supprimer` | nom | administrateur RH |
@@ -743,7 +743,8 @@ après la reprise depuis Lucca ; la sortie se saisit dans Cursus (si Sage faisai
   Un salarié sorti n'est plus désigné manager ; une équipe qui ne compte plus que des salariés sortis se supprime (ils
   en sont détachés).
 - **Confidentialité** : le motif et la fin prévue ne sont transmis qu'au service RH, à la paie (solde de tout compte), à la
-  lecture seule et à l'intéressé ; le manager et le référent HSE ne voient que la date (`server/src/dataset.ts`).
+  lecture seule et à l'intéressé ; le manager et le référent HSE ne voient que la date et l'indication qu'une sortie est
+  enregistrée (`sortieEnregistree`, `server/src/dataset.ts`), pour que leurs échéances du contrat soient celles du RH.
 - **Journal** : `employe.sortie` (date, motif, nombre d'éléments annulés, anciennes et nouvelles valeurs de `fin` et
   `motifSortie`) et `employe.annulerSortie`, actions liées à la paie (archive de 3 ans).
 
@@ -756,8 +757,9 @@ fiche, `components/ContratFiche.tsx` dans la section Contrat du panneau).
 - **Aucune durée proposée** : l'essai n'existe que s'il est écrit au contrat (art. L1221-23) et la CCN Industries
   chimiques peut prévoir moins que la loi. Le service RH saisit la fin (et celle du renouvellement) écrite au contrat ;
   une valeur proposée et gardée par erreur ferait arriver l'alerte après la vraie fin (rupture devenue licenciement).
-- **Contrôles** (`validerProfil`) : bloquants pour la cohérence (fin avant l'entrée ou après la fin du contrat,
-  renouvellement sans période initiale ou qui finit avant elle) ; avertissement au-delà du maximum légal — CDI : 2, 3 ou
+- **Contrôles** (`validerProfil`) : bloquants pour la cohérence (fin avant l'entrée ou après la fin prévue du contrat,
+  renouvellement sans période initiale ou qui finit avant elle). La borne est la fin prévue au contrat (`finPrevue` après
+  une sortie), jamais la date de sortie : une rupture pendant l'essai la précède, et la fiche reste modifiable ; avertissement au-delà du maximum légal — CDI : 2, 3 ou
   4 mois selon le statut, 4, 6 ou 8 renouvellement compris (`ESSAI_MAX_CDI` de `shared/constants.ts`, art. L1221-19 et
   L1221-21) ; CDD et alternance à terme : 1 jour par semaine, au plus 2 semaines jusqu'à 6 mois de contrat, 1 mois
   au-delà (art. L1242-10), sans renouvellement légal ; intérim : 2, 3 ou 5 jours travaillés selon la mission
@@ -776,8 +778,10 @@ Règles dans `shared/rules/contrats.ts` (`TYPES_TITRE_SEJOUR`, `validerAutorisat
 - **Données** : type (liste fermée), numéro (registre unique du personnel), expiration (sauf carte de résident permanent),
   date de vérification auprès de la préfecture ; ni copie (elle ira dans la GED Codex), ni nationalité. Information des
   salariés : `INFO_TITRE_SEJOUR`, affichée dans le dialogue, à faire valider par le DPO (`docs/RGPD.md`).
-- **Embauche** (art. R5221-41) : avertissement si la vérification n'est pas tracée, ou faite moins de 2 jours ouvrables
-  avant une embauche récente ou à venir (`joursOuvrablesAvant`).
+- **Embauche** (art. R5221-41) : la règle porte sur l'envoi de la demande d'authentification (`demandeLe`), au moins 2
+  jours ouvrables avant une embauche récente ou à venir (`joursOuvrablesAvant`), pas sur la réponse (`verifieLe`) : sans
+  réponse sous 2 jours ouvrables, l'obligation est remplie. Avertissement si rien n'est tracé, si la demande est tardive,
+  ou si, sans date d'envoi, la réponse arrive après la date limite (elle ne prouve alors rien).
 - **Alertes** : échéance « Titre de séjour » à la première alerte (`titreSejourAlerte`, 120 jours, fenêtre de la demande
   de renouvellement) puis « Relance » (`titreSejourRelance`, 60 jours), réglables (Paramètres → Contrats). Expiré
   (art. L5221-8) : « Expiré — non conforme », salarié non conforme (`Domain.enrich`), « No Go CONTRAT » sur les chantiers
@@ -792,7 +796,7 @@ Règles dans `shared/rules/contrats.ts` (`TYPES_TITRE_SEJOUR`, `validerAutorisat
 
 `echeancesContrat` (type `contrat` de `Domain.echeances`, filtre « Contrats » de l'écran Échéances et export CSV) :
 fin de période d'essai datée de `limitePrevenance` (« À décider » sous le seuil d'alerte, « Prévenance dépassée » ensuite,
-jusqu'à la fin de l'essai) ; fin prévue d'un CDD, d'une mission ou d'une alternance sans sortie enregistrée (« À
+jusqu'à la fin de l'essai ; retirée par une sortie enregistrée) ; fin prévue d'un CDD, d'une mission ou d'une alternance sans sortie enregistrée (« À
 anticiper » sous le seuil, action « Enregistrer la sortie ») ; titre de séjour. Tableau de bord : panneau « Contrats à
 suivre » (hors des indicateurs de renouvellement) ; manager : panneau « Fins d'essai et de contrat » de son équipe en
 tête de l'écran Équipe. Les relances par e-mail relèvent de t034.

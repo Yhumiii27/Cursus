@@ -211,7 +211,7 @@ export const CHAMP_LABEL: Record<string, string> = {
   nom: 'Nom', poste: 'Poste', equipe: 'Équipe', statut: 'Statut', typeContrat: 'Nature du contrat', temps: 'Organisation du temps',
   heures: 'Heures', forfaitHeures: 'Forfait en heures', forfaitJours: 'Forfait en jours', jourOff: 'Jours non travaillés',
   tempsDepuis: 'Date d’effet', entree: 'Date d’entrée', fin: 'Fin de contrat', motifSortie: 'Motif de sortie',
-  essaiFin: 'Fin de la période d’essai', essaiRenouveleJusquau: 'Essai renouvelé jusqu’au', expire: 'Expiration', verifieLe: 'Vérifié en préfecture le',
+  essaiFin: 'Fin de la période d’essai', essaiRenouveleJusquau: 'Essai renouvelé jusqu’au', expire: 'Expiration', demandeLe: 'Authentification demandée le', verifieLe: 'Vérifié en préfecture le',
   numero: 'Numéro', requise: 'Autorisation de travail requise', titreSejourAlerte: 'Alerte avant l’expiration d’un titre de séjour (jours)',
   titreSejourRelance: 'Relance avant l’expiration d’un titre de séjour (jours)', agence: 'Agence', managerId: 'Manager', profilRh: 'Profil RH',
   actif: 'Actif', date: 'Date', lieu: 'Lieu', places: 'Places', du: 'Du', au: 'Au', type: 'Type', justificatif: 'Justificatif reçu',

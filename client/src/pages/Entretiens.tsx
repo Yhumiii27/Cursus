@@ -10,6 +10,7 @@ import { populationCampagne } from '../../../shared/rules/campagne.ts';
 import { obligations, perimetreEntretiens, statutObligation } from '../../../shared/rules/entretiens.ts';
 import { statutEntretien } from '../../../shared/rules/remise.ts';
 import { Btn, Fine, Kpi, Kpis, Page, Panel, Tag, Two } from '../components/ui.tsx';
+import { Ouvrir } from '../components/Cliquable.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -126,7 +127,9 @@ export function Entretiens() {
             <div key={r.x.id} className={`list-row top${compteRendu ? ' clickable' : ''}`} style={{ justifyContent: 'space-between', gap: 'var(--space-3)' }}
               onClick={compteRendu ? () => openDialog({ type: 'ent', entId: r.x.id }) : undefined}>
               <div style={{ minWidth: 0 }}>
-                <div style={{ fontSize: 14 }}>{r.nom} · {ENT_TYPES[r.x.type].nom}</div>
+                <div style={{ fontSize: 14 }}>{compteRendu
+                  ? <Ouvrir onOpen={() => openDialog({ type: 'ent', entId: r.x.id })}>{r.nom} · {ENT_TYPES[r.x.type].nom}</Ouvrir>
+                  : <>{r.nom} · {ENT_TYPES[r.x.type].nom}</>}</div>
                 <div className="text-muted sub">{fmt(parse(r.x.date))} · {r.eval}</div>
               </div>
               <Tag cls={r.cls} style={{ flex: 'none' }}>{r.statut}</Tag>

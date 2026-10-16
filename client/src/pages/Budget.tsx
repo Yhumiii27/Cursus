@@ -2,13 +2,15 @@
 // Tous les exercices présents en base se consultent ; un exercice clos (shared/rules/exercices.ts) est en lecture seule.
 // Le réalisé compte le coût réel saisi à la clôture de chaque action (PlanRealiserDialog), avec son écart au prévu.
 import { useMemo } from 'react';
-import { UploadSimpleIcon } from '@phosphor-icons/react';
+import { DownloadSimpleIcon, UploadSimpleIcon } from '@phosphor-icons/react';
 import { PLAN_CLS, PLAN_LABEL } from '../../../shared/constants.ts';
 import { fmtEur, fmtIso, plural } from '../../../shared/format.ts';
 import { budgetSummary } from '../../../shared/rules/budget.ts';
 import { clotureDe, coutRetenu, exercicesProposes } from '../../../shared/rules/exercices.ts';
 import type { PlanAction, PlanStatut } from '../../../shared/types.ts';
 import { Bar, Btn, Empty, Kpi, Kpis, Page, Panel, Seg, StackBar, Tag, Two } from '../components/ui.tsx';
+import { csvPlan } from '../listes-csv.ts';
+import { downloadCsv } from '../print.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useAgir } from '../state/actions.ts';
 import { useStore } from '../state/store.tsx';
@@ -21,7 +23,7 @@ const parts = (r: number, g: number, p: number, base: number) => [
 
 export function Budget() {
   const d = useDomain();
-  const { ui, setUi, openDialog, run } = useStore();
+  const { ui, setUi, openDialog, run, notify } = useStore();
   // Lecture seule : plan et enveloppes consultés, sans import ni avancement.
   const { rh, admin } = useRole();
   const { occupe, agir } = useAgir();
@@ -42,6 +44,12 @@ export function Budget() {
     .sort((a, z) => a.periode.localeCompare(z.periode) || a.equipe.localeCompare(z.equipe));
 
   const openImport = () => openDialog({ type: 'planImport', exercice: ex });
+  // Plan de l'exercice affiché, avec le filtre de statut.
+  const exporter = () => {
+    const x = csvPlan(d, ex, planRows);
+    downloadCsv(x.fichier, x.head, x.rows);
+    notify(`Export CSV généré — ${plural(planRows.length, 'action', 'actions')}`);
+  };
   // Le statut affiché accompagne la demande : un second clic n'avance pas l'action d'un cran de plus.
   // Clôturer une action engagée : coût et effectif réels demandés (PlanRealiserDialog).
   const act = (l: PlanAction) => {
@@ -130,8 +138,11 @@ export function Budget() {
       <Panel head={
         <div className="panel-head center">
           <h2>Plan prévisionnel {ex}</h2>
-          <Seg name="planFilter" label="Statut du plan" value={ui.planFilter} onChange={v => setUi({ planFilter: v })}
-            options={[['tous', 'Tout'], ['prevu', 'Prévu'], ['engage', 'Engagé'], ['realise', 'Réalisé'], ...(count('reporte') ? [['reporte', 'Reporté'] as ['reporte', string]] : [])]} />
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+            <Seg name="planFilter" label="Statut du plan" value={ui.planFilter} onChange={v => setUi({ planFilter: v })}
+              options={[['tous', 'Tout'], ['prevu', 'Prévu'], ['engage', 'Engagé'], ['realise', 'Réalisé'], ...(count('reporte') ? [['reporte', 'Reporté'] as ['reporte', string]] : [])]} />
+            {planRows.length > 0 && <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exporter}>Exporter (CSV)</Btn>}
+          </div>
         </div>
       }>
         {b.planEx.length > 0 && planRows.length > 0 && (

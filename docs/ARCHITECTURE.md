@@ -80,7 +80,9 @@ client/src/
                    panneau.ts (panneau de détail amené dans le champ de vision sur écran étroit),
                    LotsPaie.tsx et RubriquesPaie.tsx (lots de paie, fichier d'import et rubriques de paie, écran Temps) ;
                    SuiviFeuilles.tsx (suivi des feuilles semaine par semaine, relance, validation groupée, écran Temps) ;
-                   media.ts (requête média suivie), heures.ts (cellule d'heures, vue « un jour »)
+                   media.ts (requête média suivie), heures.ts (cellule d'heures, vue « un jour ») ;
+                   Cliquable.tsx (bouton « Ouvrir » d'une ligne cliquable, carte sélectionnable CartePick)
+  listes-csv.ts    Exports CSV des listes (annuaire, registre des habilitations, soldes, absences, plan de formation)
   layout/Shell.tsx Barre latérale, en-tête, notification ; layout/Reconnexion.tsx : session expirée, par-dessus l'écran ;
                    layout/Tiroir.tsx : menu en tiroir sur écran étroit ; layout/navigation.ts : titre de l'onglet, focus
                    sur le titre après un changement de page
@@ -198,6 +200,19 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
    - *Navigation* (`layout/navigation.ts`) : lien « Aller au contenu », premier arrêt de Tab, vers `main id="contenu"` ;
      titre de l'onglet « <page> — Cursus » ; après chaque changement de page (menu, retour arrière, espace, connexion ;
      pas au premier affichage), focus sur le titre de la page (`h1` de `Page`, `tabIndex={-1}`), sauf sous un dialogue.
+   - *Lignes et cartes cliquables* (`components/Cliquable.tsx`) : une ligne qui ouvre une fiche, un dialogue ou un détail
+     porte un vrai bouton sur son nom (`Ouvrir`, première cellule ; `aria-pressed` pour une ligne qui sélectionne,
+     `aria-expanded` pour une ligne qui se déplie), la ligne entière restant cliquable à la souris ; le bouton arrête son
+     clic, comme les boutons secondaires de la ligne (`stop`, `garde`). Une carte sélectionnable (catalogue des formations
+     et des habilitations, chantiers, équipes) est un `CartePick` : rôle de bouton, `aria-pressed`, Entrée et Espace.
+     Focus visible (`.ouvrir`, `.card.pick`) ; `tests/cliquable.test.ts` refuse tout élément cliquable sans élément focalisable.
+   - *Exports des listes* (`listes-csv.ts`, bouton « Exporter (CSV) ») : annuaire (Collaborateurs), registre des
+     habilitations, soldes et absences (Congés & absences, hors espace collaborateur), plan de formation (Plan & budget).
+     Exactement les lignes affichées, avec les filtres de l'écran ; le jeu de données est déjà restreint au profil, donc qui
+     voit l'écran peut l'exporter. Jamais de donnée de santé ni de texte libre : une absence hors congés reste « Absence »
+     (sans sa nature, quel que soit le profil), une suspension sans son motif, aucun motif de refus. Les soldes portent la
+     mention « Soldes calculés par Cursus » et leur date d'arrêté. Nombres à la française (« 12,5 », un négatif reste un
+     nombre), dates JJ/MM/AAAA, fichiers datés ; chaque export est tracé avec son nombre de lignes (`downloadCsv`).
    - *Ce qui attend le collaborateur* (`aFaireCollaborateur` de `shared/rules/a-faire.ts`) : comptes rendus d'entretien
      réalisés non signés, feuilles renvoyées et feuille de la semaine passée non soumise (hors contrat exclu ; à partir
      de la première feuille du salarié dans Cursus seulement, rien avant la mise en service) ; en pastille sur « Mes entretiens » et « Mes heures » (lue « N à traiter », comme toutes les pastilles du menu) et

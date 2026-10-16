@@ -6,6 +6,8 @@
  * à l'ouverture du fichier par le service RH.
  */
 const FORMULE = /^[=+\-@\t\r]/;
+/** Nombre négatif écrit à la française (« -2,5 ») : aucun tableur ne l'évalue comme une formule, il reste un nombre. */
+const NEGATIF = /^-\d+(,\d+)?$/;
 
 /**
  * Cellule CSV : un texte commençant comme une formule est préfixé d'une apostrophe (affiché comme du texte, jamais
@@ -13,7 +15,7 @@ const FORMULE = /^[=+\-@\t\r]/;
  */
 export function celluleCsv(v: string | number | null | undefined): string {
   let s = String(v ?? '');
-  if (typeof v === 'string' && FORMULE.test(s)) s = `'${s}`;
+  if (typeof v === 'string' && FORMULE.test(s) && !NEGATIF.test(s)) s = `'${s}`;
   return /[;"\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s;
 }
 

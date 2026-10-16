@@ -8,6 +8,7 @@ import { present } from '../../../shared/rules/contrats.ts';
 import type { Employe, Equipe } from '../../../shared/types.ts';
 import { usePanneauVisible } from '../components/panneau.ts';
 import { Avatar, Btn, Empty, Fine, Page, Panel, Tag, Two } from '../components/ui.tsx';
+import { CartePick } from '../components/Cliquable.tsx';
 import { changementManager, retraitEquipe, suppressionEquipe, type Confirmation } from '../state/confirmations.ts';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -94,8 +95,7 @@ export function Equipes() {
             const pending = t.feuilles + t.absences;
             const select = () => setSelOrdre(t.q.ordre);
             return (
-              <article key={t.q.ordre} className={`card elev-sm pick${selected ? ' selected' : ''}`} role="button" tabIndex={0} aria-pressed={selected}
-                onClick={select} onKeyDown={ev => { if (ev.key === 'Enter' || ev.key === ' ') { ev.preventDefault(); select(); } }}>
+              <CartePick key={t.q.ordre} selected={selected} onSelect={select}>
                 <div className="card-kicker">{plural(t.members.length, 'membre', 'membres')}</div>
                 <div className="card-title">{t.q.nom}</div>
                 {t.mgrNom ? (
@@ -118,7 +118,7 @@ export function Equipes() {
                     ? [t.feuilles && plural(t.feuilles, 'feuille de temps', 'feuilles de temps'), t.absences && plural(t.absences, 'absence', 'absences')].filter(Boolean).join(' · ') + ' à valider'
                     : t.members.length ? `${t.conformes} sur ${t.members.length} sans élément expiré` : 'Aucun collaborateur affecté'}</span>
                 </div>
-              </article>
+              </CartePick>
             );
           })}
         </div>

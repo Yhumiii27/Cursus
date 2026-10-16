@@ -22,6 +22,7 @@ import {
 import { MODES_HEURES_SUP } from '../../../shared/rules/paie.ts';
 import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
 import { CloseButton, Fine, Page, Panel, stop, Tag, Two } from '../components/ui.tsx';
+import { Ouvrir } from '../components/Cliquable.tsx';
 import { LotsPaie } from '../components/LotsPaie.tsx';
 import { SuiviFeuilles } from '../components/SuiviFeuilles.tsx';
 import { jourLong, nomChamp } from '../components/heures.ts';
@@ -170,7 +171,7 @@ export function Temps() {
                   const open = () => setUi({ tsEmp: e.id, weekStart: sh.week });
                   return (
                     <tr key={sh.id} className="clickable" onClick={open}>
-                      <td><Two main={e.nom} sub={equipeLabel(e)} nowrap /></td>
+                      <td><Two main={<Ouvrir onOpen={open}>{e.nom}</Ouvrir>} sub={equipeLabel(e)} nowrap /></td>
                       <td className="nowrap">S{isoWeek(sh.week)} · {fmtShort(parse(sh.week))}</td>
                       <td>
                         <div className="tnum">{tot.main}</div>

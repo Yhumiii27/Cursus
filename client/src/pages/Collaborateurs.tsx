@@ -1,6 +1,6 @@
 // Annuaire (RH) ou équipe (manager) : statut de conformité, contrat et fiche détaillée.
 import { useMemo, type ReactNode, type RefObject } from 'react';
-import { PencilSimpleIcon, PlusIcon, UserMinusIcon, UserPlusIcon } from '@phosphor-icons/react';
+import { DownloadSimpleIcon, PencilSimpleIcon, PlusIcon, UserMinusIcon, UserPlusIcon } from '@phosphor-icons/react';
 import { CERT_LABEL, CLS, EMP_LABEL, HAB_CLS, HAB_LABEL, HAB_MESURE_LABEL, RANK, SESSION_PASSEE, STATUTS, TEMPS_TRAVAIL, TRIP_LABEL, TYPES_CONTRAT } from '../../../shared/constants.ts';
 import type { ContratX, EmpX, HabInfo, Proposal } from '../../../shared/domain.ts';
 import type { Formation } from '../../../shared/types.ts';
@@ -13,11 +13,13 @@ import { convocationEnvoyee, etatInscription } from '../../../shared/rules/sessi
 import { JOURS_SEMAINE } from '../../../shared/rules/profil.ts';
 import { usePanneauVisible } from '../components/panneau.ts';
 import { Avatar, Bar, Btn, Chips, CloseButton, Empty, Fine, NoteAccent, Page, Panel, SectionLabel, Seg, Tag, Two } from '../components/ui.tsx';
+import { Ouvrir } from '../components/Cliquable.tsx';
 import { Aptitude } from '../components/Aptitude.tsx';
 import { ExigencesCellule, ExigencesFiche, ExigencesMotif } from '../components/Exigences.tsx';
 import { SortieFiche } from '../components/Sortie.tsx';
 import { ContratFiche } from '../components/ContratFiche.tsx';
-import { printDocument } from '../print.ts';
+import { downloadCsv, printDocument } from '../print.ts';
+import { csvAnnuaire } from '../listes-csv.ts';
 import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derived.ts';
 import { desinscription, retraitEquipe } from '../state/confirmations.ts';
 import { useStore } from '../state/store.tsx';
@@ -56,7 +58,7 @@ export function Collaborateurs() {
   const trips = useTrips();
   // `espaceRh` : tout le site (service RH, référent HSE, lecture seule) ; `rh` : fiches et équipes.
   const { espaceRh, rh, manager, me } = useRole();
-  const { ui, setUi, openDialog } = useStore();
+  const { ui, setUi, openDialog, notify } = useStore();
 
   const myTeams = useMemo(() => manager ? d.teamsOf(me) : [], [d, manager, me]);
   const team = useMemo(() => manager ? emps.filter(e => e.id !== me && d.mgrOf(e) === me) : emps, [emps, manager, me, d]);
@@ -94,6 +96,13 @@ export function Collaborateurs() {
   const contrats = useMemo(() => manager ? d.echeances(team, horizon).filter(x => x.kind === 'contrat' && x.key !== 'ok').sort((a, b) => a.d - b.d)
     .map(x => ({ ...x, action: null })) : [], [manager, d, team, horizon]);
 
+  // Export de l'annuaire : les lignes affichées (équipe, statut, recherche), dans le périmètre de l'utilisateur.
+  const exporter = () => {
+    const x = csvAnnuaire(d, rows);
+    downloadCsv(x.fichier, x.head, x.rows);
+    notify(`Export CSV généré — ${plural(rows.length, 'collaborateur', 'collaborateurs')}`);
+  };
+
   return (
     <Page tight kicker={kicker} title="Collaborateurs" actions={<>
       {multi && (
@@ -105,6 +114,7 @@ export function Collaborateurs() {
       )}
       <Seg name="statut" label="Statut" value={ui.statut} onChange={v => setUi({ statut: v })}
         options={[['tous', 'Tous'], ['ok', 'À jour'], ['due', 'À renouveler'], ['exp', 'Non conformes'], ['sortis', 'Sortis']]} />
+      <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exporter}>Exporter (CSV)</Btn>
       {rh && <Btn variant="primary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'employe', equipe: cible })}>Nouveau collaborateur</Btn>}
       {manager && myTeams.length > 0 && (
         <Btn variant="primary" icon={<UserPlusIcon size={14} />} onClick={() => openDialog({ type: 'membre', equipe: cible ?? myTeams[0] })}>Ajouter un membre</Btn>
@@ -136,7 +146,7 @@ export function Collaborateurs() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <Avatar nom={e.nom} />
                           <div>
-                            <div className="nowrap">{e.nom}</div>
+                            <div className="nowrap"><Ouvrir pressed={ui.selectedId === e.id} onOpen={() => setUi({ selectedId: ui.selectedId === e.id ? null : e.id })}>{e.nom}</Ouvrir></div>
                             <div className="text-muted sub">{e.poste}</div>
                             <div className="text-muted sub-11">{contratCourt(d.contratOf(e))}</div>
                           </div>

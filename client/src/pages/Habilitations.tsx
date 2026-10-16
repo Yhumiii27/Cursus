@@ -1,6 +1,6 @@
 // Habilitations : titres par type, prérequis, échéances, délivrance, suspension et retrait.
 import { useMemo } from 'react';
-import { PlusIcon } from '@phosphor-icons/react';
+import { DownloadSimpleIcon, PlusIcon } from '@phosphor-icons/react';
 import { HAB_CLS, HAB_LABEL, HAB_MESURE_LABEL, type HabKey } from '../../../shared/constants.ts';
 import { renouvellementDemande, type HabInfo, type PrereqCheck } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
@@ -8,6 +8,9 @@ import { equipeLabel, fmt, plural, rel, validiteLabel } from '../../../shared/fo
 import { actifs, habSuivie } from '../../../shared/rules/referentiels.ts';
 import { CatalogueVide } from '../components/ReferentielVide.tsx';
 import { Btn, Chips, Empty, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
+import { Ouvrir } from '../components/Cliquable.tsx';
+import { csvRegistre } from '../listes-csv.ts';
+import { downloadCsv } from '../print.ts';
 import { useEnriched, useIntentPermis, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { PickCard } from './Formations.tsx';
@@ -24,7 +27,7 @@ export function Habilitations() {
   // Délivrance, mesures et propositions : service RH et référent HSE ; la visite médicale reste au service RH.
   const { formations } = useRole();
   const permis = useIntentPermis();
-  const { ui, setUi, go, openDialog, runIntent } = useStore();
+  const { ui, setUi, go, openDialog, runIntent, notify } = useStore();
 
   const v = useMemo(() => {
     // Habilitations suivies : celles du référentiel en vigueur (les titres d'une habilitation archivée restent à la fiche).
@@ -45,11 +48,18 @@ export function Habilitations() {
   }, [emps, d, ui.habFilter, ui.habType]);
 
   const habFm = ui.habType ? d.hm(ui.habType) ?? null : null;
+  // Registre : les titres affichés (statut et type choisis), sans le motif d'une suspension ou d'un retrait.
+  const exporter = () => {
+    const x = csvRegistre(d, v.rows);
+    downloadCsv(x.fichier, x.head, x.rows);
+    notify(`Export CSV généré — ${plural(v.rows.length, 'titre', 'titres')}`);
+  };
 
   return (
     <Page kicker={v.kicker} title="Habilitations" actions={<>
       <Seg name="habFilter" label="Statut des habilitations" value={ui.habFilter} onChange={x => setUi({ habFilter: x })}
         options={[['tous', 'Toutes'], ['due', 'À renouveler'], ['ko', 'Non valides'], ['pending', 'En attente']]} />
+      <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exporter}>Exporter (CSV)</Btn>
       {formations && <Btn variant="primary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'hab', mode: 'new' })}>Délivrer une habilitation</Btn>}
     </>}>
       {v.types.length === 0 && <CatalogueVide onglet="habilitations" texte="Aucune habilitation au référentiel." />}
@@ -81,7 +91,7 @@ export function Habilitations() {
                 const mesures = formations ? d.habMesures(h, true) : [];
                 return (
                   <tr key={`${e.id}-${h.hm.id}`} className="clickable" onClick={() => go('collaborateurs', { selectedId: e.id })}>
-                    <td><Two main={e.nom} sub={equipeLabel(e)} nowrap /></td>
+                    <td><Two main={<Ouvrir onOpen={() => go('collaborateurs', { selectedId: e.id })}>{e.nom}</Ouvrir>} sub={equipeLabel(e)} nowrap /></td>
                     <td><Two main={h.hm.nom} sub={h.hm.detail} /></td>
                     <td><Two main={h.delivree ? fmt(parse(h.delivree)) : h.demande ? `Demandée le ${fmt(parse(h.demande))}` : '—'} sub={h.par ? `par ${h.par}` : 'titre à signer'} nowrap subNowrap /></td>
                     <td><Two main={h.exp ? fmt(h.exp) : '—'} sub={h.exp ? rel(h.d!) : `validité ${validiteLabel(h.hm.validite)}`} nowrap subNowrap /></td>

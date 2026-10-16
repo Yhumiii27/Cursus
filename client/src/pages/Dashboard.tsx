@@ -9,6 +9,7 @@ import { exigencesEquipe, nombreExigences } from '../../../shared/rules/exigence
 import { declarationDetail, retireeAuRefus, valeurActuelle } from '../../../shared/rules/formalites.ts';
 import type { DemandeCollab, Session } from '../../../shared/types.ts';
 import { Bar, DateBlock, Kpi, Kpis, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
+import { Ouvrir } from '../components/Cliquable.tsx';
 import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derived.ts';
 import { useAgir } from '../state/actions.ts';
 import { refusDemande } from '../state/confirmations.ts';
@@ -19,7 +20,7 @@ export function EchRow({ x, onOpen, onAct }: { x: EchItem; onOpen: () => void; o
   const { occupe, agir } = useAgir();
   return (
     <tr className="clickable" onClick={onOpen}>
-      <td><Two main={x.emp.nom} sub={equipeLabel(x.emp)} /></td>
+      <td><Two main={<Ouvrir onOpen={onOpen}>{x.emp.nom}</Ouvrir>} sub={equipeLabel(x.emp)} /></td>
       <td><Two main={x.label} sub={x.kindLabel} /></td>
       <td>{x.sansDate ? <Two main={x.sansDateTexte?.main ?? 'Non renseignée'} sub={x.sansDateTexte?.sub ?? 'aucune visite enregistrée'} nowrap /> : <Two main={fmt(x.exp)} sub={rel(x.d)} nowrap />}</td>
       <td><Tag cls={x.cls}>{x.statut}</Tag></td>
@@ -134,7 +135,7 @@ export function Dashboard() {
                     const sub = [reqKind(r), r.parId ? `par ${d.personName(r.parId)} (manager)` : '', archivee ? `${r.type} archivée : à refuser, ou à rétablir d’abord` : ''].filter(Boolean).join(' · ');
                     return (
                       <tr key={r.id} className="clickable" onClick={() => openEmp(r.empId)}>
-                        <td><Two main={e?.nom} sub={`${equipeLabel(e)} · Reçue le ${fmtShort(parse(r.date))}`} nowrap /></td>
+                        <td><Two main={<Ouvrir onOpen={() => openEmp(r.empId)}>{e?.nom ?? d.personName(r.empId)}</Ouvrir>} sub={`${equipeLabel(e)} · Reçue le ${fmtShort(parse(r.date))}`} nowrap /></td>
                         <td><Two main={reqLabel(r, id => d.fm(id).nom, id => d.hm(id).nom)} sub={sub} /></td>
                         {x && e
                           // Document déclaré : contenu saisi et valeur du dossier qu'il remplacera à la validation
@@ -199,7 +200,7 @@ export function Dashboard() {
                   <div key={s.id} className="list-row clickable" onClick={() => openDialog({ type: 'sessionDetail', sessionId: s.id })}>
                     <DateBlock date={parse(s.date)} />
                     <div className="grow">
-                      <div className="ellipsis" style={{ fontSize: 14 }}>{d.fm(s.formation).court}</div>
+                      <div className="ellipsis" style={{ fontSize: 14 }}><Ouvrir onOpen={() => openDialog({ type: 'sessionDetail', sessionId: s.id })}>{d.fm(s.formation).court}</Ouvrir></div>
                       <div className="note-accent ellipsis">{SESSION_PASSEE} · {plural(s.inscrits, 'inscrit', 'inscrits')}</div>
                     </div>
                     {formations && <button type="button" className="btn btn-ghost btn-sm" style={{ flex: 'none' }} onClick={stop(() => openDialog({ type: 'cloture', sessionId: s.id }))}>Clôturer</button>}
@@ -229,7 +230,7 @@ export function Dashboard() {
                   <div key={s.id} className="list-row clickable" onClick={() => openDialog({ type: 'sessionDetail', sessionId: s.id })}>
                     <DateBlock date={sv.date} />
                     <div className="grow">
-                      <div className="ellipsis" style={{ fontSize: 14 }}>{sv.nom}</div>
+                      <div className="ellipsis" style={{ fontSize: 14 }}><Ouvrir onOpen={() => openDialog({ type: 'sessionDetail', sessionId: s.id })}>{sv.nom}</Ouvrir></div>
                       <div className="text-muted sub ellipsis">{s.lieu} · {s.inscrits}/{s.places} inscrits</div>
                     </div>
                     <Tag cls={sv.cls} style={{ flex: 'none' }}>{sv.statut}</Tag>
@@ -246,7 +247,7 @@ export function Dashboard() {
                 <div key={t.id} className="list-row clickable" onClick={() => go('voyages', { tripSel: t.id })}>
                   <DateBlock date={t.r.dep} />
                   <div className="grow">
-                    <div className="ellipsis" style={{ fontSize: 14 }}>{t.emp.nom}</div>
+                    <div className="ellipsis" style={{ fontSize: 14 }}><Ouvrir onOpen={() => go('voyages', { tripSel: t.id })}>{t.emp.nom}</Ouvrir></div>
                     <div className="text-muted sub ellipsis">{t.r.dest.pays} · {t.motif}</div>
                   </div>
                   <Tag cls={TRIP_CLS[t.r.status]} style={{ flex: 'none' }}>{TRIP_LABEL[t.r.status]}</Tag>

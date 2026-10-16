@@ -11,6 +11,7 @@ import { voyagesAnnules } from '../../../shared/rules/deplacements.ts';
 import { actifs } from '../../../shared/rules/referentiels.ts';
 import { usePanneauVisible } from '../components/panneau.ts';
 import { Btn, Chips, CloseButton, Empty, Fine, Page, Panel, Tag, Two, stop } from '../components/ui.tsx';
+import { Ouvrir } from '../components/Cliquable.tsx';
 import { useAgir } from '../state/actions.ts';
 import { refusKeystone } from '../state/confirmations.ts';
 import { annulationVoyage } from '../state/confirmations-annulations.ts';
@@ -115,7 +116,7 @@ export function Voyages() {
                 <div className="grow" style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
                   <div className="item-head">
                     <div>
-                      <div style={{ fontSize: 14 }}>{t.emp.nom} — {t.r.dest.pays}</div>
+                      <div style={{ fontSize: 14 }}><Ouvrir pressed={selected} onOpen={() => setUi({ tripSel: selected ? null : t.id })}>{t.emp.nom} — {t.r.dest.pays}</Ouvrir></div>
                       <div className="text-muted sub">{t.motif} · {fmtShort(t.r.dep)} → {fmt(t.r.ret)} · départ {rel(t.r.toGo)}</div>
                       <div className="sub-11" style={{ color: 'var(--color-accent-300)' }}>{d.originLabel(t)}</div>
                     </div>
@@ -159,7 +160,7 @@ export function Voyages() {
             <tbody>
               {travelers.map(({ e, tv, nt }) => (
                 <tr key={e.id} className="clickable" onClick={() => openEmp(e.id)}>
-                  <td><Two nowrap main={e.nom} sub={e.poste} /></td>
+                  <td><Two nowrap main={<Ouvrir onOpen={() => openEmp(e.id)}>{e.nom}</Ouvrir>} sub={e.poste} /></td>
                   <td>
                     <Two nowrap main={tv.pass ? `Valide jusqu’au ${fmt(tv.pass.exp)}` : 'Non renseigné'}
                       sub={tv.pass ? (tv.pass.key === 'ok' ? `n° ${e.passeport!.numero}` : tv.pass.key === 'exp' ? 'expiré' : `expire ${rel(tv.pass.d)}`) : 'à fournir'} />

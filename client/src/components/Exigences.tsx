@@ -32,6 +32,26 @@ export function ExigencesMotif({ e }: { e: EmpX }) {
 }
 
 /**
+ * Espace collaborateur : motif du statut « Non conforme » dû aux exigences de son poste ou de son équipe, avec la demande
+ * de chaque formation ou habilitation manquante au service RH (dialogues de demande du portail).
+ */
+export function ExigencesPortail({ e }: { e: EmpX }) {
+  const { openDialog } = useStore();
+  if (!e.manquants.length) return null;
+  return (
+    <div style={{ marginTop: 'var(--space-2)', display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+      <ExigencesMotif e={e} />
+      {e.manquants.map(m => (
+        <button key={`${m.type}-${m.id}`} type="button" className="btn btn-ghost btn-sm"
+          onClick={() => openDialog(m.type === 'formation' ? { type: 'reqForm', f: m.id } : { type: 'reqHab' })}>
+          {m.type === 'formation' ? `Demander la formation ${m.label}` : `Demander l’habilitation ${m.label}`}
+        </button>
+      ))}
+    </div>
+  );
+}
+
+/**
  * Section de la fiche : exigences qui s'appliquent, obtenues ou manquantes, avec l'action d'une manquante. `membre` :
  * manager direct (demandes au service RH) ; `parti` : salarié sorti, sans action.
  */
@@ -50,7 +70,7 @@ export function ExigencesFiche({ e, membre, parti }: { e: EmpX; membre: boolean;
     if (!membre) return null;
     return m.type === 'formation'
       ? { label: 'Demander la formation', intent: { type: 'goFormation', f: m.id } }
-      : { label: 'Demander l’habilitation', intent: { type: 'demanderHab', empId: e.id, h: m.id } };
+      : { label: 'Demander l’habilitation', intent: { type: 'demanderHab', empId: e.id, h: m.id, nom: e.nom, label: m.label } };
   };
   // Manager : demandes adressées au service RH (dialogues de demande) plutôt que les actions du service RH.
   const lancer = (m: (typeof e.manquants)[number], a: Proposal) => {

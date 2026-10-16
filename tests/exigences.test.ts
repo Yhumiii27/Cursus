@@ -16,7 +16,8 @@ const { ACTIONS } = await import('../server/src/actions/index.ts');
 const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
 const { journaliserAction, preparerTrace } = await import('../server/src/journal.ts');
 const { appliquerMigrations } = await import('../server/src/migrations/cadre.ts');
-const { POSTES } = await import('../server/src/migrations/referentiels.ts');
+const { POSTES, postesDepuisFiches, rattacherFiches } = await import('../server/src/migrations/referentiels.ts');
+const { migrate } = await import('../server/src/migrate.ts');
 const { Domain } = await import('../shared/domain.ts');
 const { JOURNAL_LABEL, familleAction } = await import('../shared/journal.ts');
 const X = await import('../shared/rules/exigences.ts');
@@ -82,7 +83,7 @@ test('sans exigence déclarée, le statut ne change pas ; une exigence jamais ob
   const [f, h] = ech(1);
   assert.deepEqual([f.label, f.kindLabel, f.statut, f.key, f.sansDate, f.d], ['CACES R489', 'Exigence du poste Cariste', 'Formation exigée non suivie', 'exp', true, 0]);
   assert.deepEqual(f.action, { label: 'Inscrire à la formation', intent: { type: 'goFormation', f: 'caces489' } });
-  assert.deepEqual(h.action, { label: 'Demander l’habilitation', intent: { type: 'demanderHab', empId: 1, h: 'ac489' } });
+  assert.deepEqual(h.action, { label: 'Demander l’habilitation', intent: { type: 'demanderHab', empId: 1, h: 'ac489', nom: 'Camille Roux', label: 'Autorisation de conduite — chariots R489' } });
   // Hugo Lambert, cariste qui détient les deux, reste tel quel.
   assert.equal(emp(16).worst, sansExigence.get(16));
 });
@@ -118,7 +119,7 @@ test('exigences du poste et de l’équipe réunies, éléments archivés et fil
   assert.deepEqual(marion(true), []);
 });
 
-test('habilitation exigée : demandée (hab.demander), en attente de délivrance, puis délivrée', () => {
+test('habilitation exigée : demandée (hab.demander), en attente de délivrance, puis délivrée', async () => {
   const { db, run, refuse, user, RH, emp, ech, poste } = fresh();
   db.update('postes', poste('Technicien de maintenance').id, { formations: ['elec'], habilitations: ['he', 'aipr'] });
   // Mehdi Benali n'a pas l'AIPR (ni formation, ni habilitation : prérequis non satisfait).
@@ -134,6 +135,11 @@ test('habilitation exigée : demandée (hab.demander), en attente de délivrance
   const [e] = ech(2);
   assert.equal(e.plannedLabel, 'Demandée le 10 oct.');
   assert.deepEqual(e.action, { label: 'Inscrire à la formation', intent: { type: 'goFormation', f: 'aipr' } });
+  // Interface : la demande se confirme (le titre en attente ne se retire pas), puis lance `hab.demander`.
+  const C = await import('../client/src/state/confirmations-referentiels.ts');
+  const c = C.demandeHabilitation({ empId: 2, h: 'aipr', nom: 'Mehdi Benali', label: 'AIPR' });
+  assert.deepEqual([c.action, c.payload, c.question], ['hab.demander', { empId: 2, h: 'aipr' }, 'Demander l’habilitation « AIPR » pour Mehdi Benali ?']);
+  assert.ok(c.suites!.some(t => /ne se retire pas/.test(t)));
   // Habilitation archivée : plus demandée.
   db.update('habilitations', 'atex', { archive: '2026-10-01' });
   refuse(RH, 'hab.demander', { empId: 2, h: 'atex' }, /archivée/);
@@ -200,7 +206,7 @@ test('exigences communes d’une équipe : enregistrées, effet annoncé, vidée
 });
 
 test('fiche : poste choisi dans la liste, intitulé repris, nouveau poste créé par le service RH', () => {
-  const { db, run, refuse, user, RH, emp, poste } = fresh();
+  const { db, run, refuse, RH, emp, poste } = fresh();
   const fiche = {
     nom: 'Nouvel Embauché', equipe: 'Logistique', statut: 'ouvrier', typeContrat: 'cdi', temps: '35h', jourOff: [], entree: '2026-10-10',
     naissance: 1995, email: 'nouvel.embauche@entreprise.example', matriculePaie: 'N9999',
@@ -215,14 +221,89 @@ test('fiche : poste choisi dans la liste, intitulé repris, nouveau poste créé
   const id3 = run(RH, 'employe.creer', { ...fiche, nom: 'Troisième', email: 'trois@entreprise.example', matriculePaie: 'N9997', poste: 'Soudeur  TIG' }).result!.id as number;
   assert.deepEqual([poste('Soudeur TIG').formations, emp(id3).posteId], [[], poste('Soudeur TIG').id]);
   refuse(RH, 'employe.creer', { ...fiche, nom: 'Quatre', email: 'quatre@entreprise.example', matriculePaie: 'N9996', posteId: 9999 }, /Poste inconnu/);
-  // Manager : poste choisi dans la liste ; un intitulé seul précise le poste actuel sans le changer ; pas de création.
-  const karim = user(12, 'manager');
-  run(karim, 'employe.modifier', { id: 2, posteId: poste('Électromécanicien').id, poste: '' });
+  // Libellé précisé du même poste : gardé quand la fiche est renvoyée avec son poste (dialogue du service RH).
+  run(RH, 'employe.modifier', { id: 2, poste: 'Technicien de maintenance confirmé' });
+  const tech = poste('Technicien de maintenance').id;
+  assert.deepEqual([emp(2).poste, emp(2).posteId], ['Technicien de maintenance confirmé', tech]);
+  run(RH, 'employe.modifier', { id: 2, posteId: tech, poste: 'Technicien de maintenance confirmé', jourOff: [] });
+  assert.equal(emp(2).poste, 'Technicien de maintenance confirmé', 'libellé précisé gardé');
+  // Renommer le poste ne l'écrase pas ; les fiches qui portaient l'intitulé du poste le suivent.
+  run(RH, 'referentiel.poste.enregistrer', { id: tech, nom: 'Technicien de maintenance industrielle', formations: [], habilitations: [] });
+  assert.equal(emp(2).poste, 'Technicien de maintenance confirmé');
+  assert.ok(db.all<{ id: number; poste: string; posteId: number }>('employes').filter(e => e.posteId === tech && e.id !== 2).every(e => e.poste === 'Technicien de maintenance industrielle'));
+  // Un autre poste choisi donne son intitulé.
+  run(RH, 'employe.modifier', { id: 2, posteId: poste('Électromécanicien').id, poste: 'Technicien de maintenance confirmé' });
   assert.deepEqual([emp(2).poste, emp(2).posteId], ['Électromécanicien', poste('Électromécanicien').id]);
-  run(karim, 'employe.modifier', { id: 2, poste: 'Électromécanicien confirmé' });
-  assert.deepEqual([emp(2).poste, emp(2).posteId], ['Électromécanicien confirmé', poste('Électromécanicien').id]);
-  refuse(karim, 'employe.modifier', { id: 2, posteId: null, poste: 'Poste inventé' }, /Poste inconnu : choisissez-le dans la liste/);
   assert.equal(db.all('postes').length, new Set(db.all<{ nom: string }>('postes').map(p => p.nom)).size);
+});
+
+test('manager : précise l’intitulé du poste sans en changer ; le poste et ses exigences restent au service RH', () => {
+  const { db, run, refuse, user, RH, emp, poste } = fresh();
+  // Camille Roux (Logistique, cariste) : le CACES exigé du poste ne s'évite pas en changeant de poste.
+  const hugo = user(16, 'manager');
+  run(RH, 'employe.modifier', { id: 1, posteId: poste('Cariste').id });
+  db.sql.exec(`DELETE FROM certifications WHERE emp_id = 1 AND f = 'caces489'`);
+  assert.ok(emp(1).manquants.some(m => m.id === 'caces489'));
+  const autre = poste('Préparateur de commandes').id;
+  refuse(hugo, 'employe.modifier', { id: 1, posteId: autre, poste: 'Préparateur de commandes' }, /réservés au service RH : posteId/, 403);
+  // Intitulé d'un autre poste saisi : le poste reste celui du service RH, l'intitulé n'en est qu'un libellé précisé.
+  run(hugo, 'employe.modifier', { id: 1, poste: 'Préparateur de commandes' });
+  assert.deepEqual([emp(1).poste, emp(1).posteId], ['Préparateur de commandes', poste('Cariste').id]);
+  assert.ok(emp(1).manquants.some(m => m.id === 'caces489'), 'toujours non conforme');
+  run(hugo, 'employe.modifier', { id: 1, poste: 'Cariste confirmée' });
+  assert.deepEqual([emp(1).poste, emp(1).posteId], ['Cariste confirmée', poste('Cariste').id]);
+  // Fiche hors référentiel (écrite sans poste) : intitulé renvoyé tel quel avec les jours non travaillés, sans refus.
+  const sophie = user(3, 'manager');
+  db.sql.exec(`UPDATE employes SET poste = 'Régleuse', poste_id = NULL WHERE id = 13`);
+  run(sophie, 'employe.modifier', { id: 13, poste: 'Régleuse', jourOff: [2] });
+  assert.deepEqual([emp(13).jourOff, emp(13).posteId], [[2], null]);
+  refuse(sophie, 'employe.modifier', { id: 13, poste: 'Poste inventé' }, /Poste inconnu : le service RH l’ajoute d’abord/);
+  // Intitulé d'un poste existant : rattachée à ce poste (ses exigences s'ajoutent, rien n'est levé).
+  run(sophie, 'employe.modifier', { id: 13, poste: 'opératrice' });
+  assert.equal(emp(13).posteId, poste('Opératrice').id);
+});
+
+test('fiches écrites sans poste (import, reprise depuis Lucca) : exigences appliquées, rattachées au démarrage', () => {
+  const dir = mkdtempSync(join(tmpdir(), 'cursus-fiches-'));
+  try {
+    // Base neuve de production : migrations passées sans effet, aucun poste.
+    const db = new Db(join(dir, 'cursus.db'));
+    migrate(db);
+    appliquerMigrations(db);
+    assert.equal(db.count('postes'), 0);
+    db.insert('formations', { id: 'caces489', nom: 'CACES R489', court: 'CACES R489', type: 'Réglementaire', validite: 60, cout: 0, organisme: null, validation: 'presence', archive: null });
+    // Import des salariés : fiches écrites directement, sans `posteId`.
+    const fiche = (nom: string, poste: string) => db.insert<{ id: number }>('employes', {
+      nom, poste, posteId: null, equipe: null, statut: 'ouvrier', typeContrat: 'cdi', temps: '35h', jourOff: [], entree: '2027-01-01', naissance: 1990,
+    }).id;
+    const a = fiche('Ana Cariste', 'Cariste'), b = fiche('Bruno Cariste', 'CARISTE'), c = fiche('Chloé Soudeuse', 'Soudeuse');
+    const RH = { role: 'rh', empId: null, nom: 'RH', intitule: 'RH' } as unknown as User;
+    // Poste déclaré par le service RH avant tout redémarrage : ses exigences s'appliquent déjà aux fiches de même intitulé.
+    db.insert('postes', { nom: 'Cariste', formations: ['caces489'], habilitations: [], archive: null });
+    const d = new Domain(loadFull(db, RH));
+    const manquants = (id: number) => d.enrich(90, false).find(e => e.id === id)!.manquants.map(m => m.id);
+    assert.deepEqual([manquants(a), manquants(b), manquants(c)], [['caces489'], ['caces489'], []]);
+    assert.deepEqual(X.titulaires(d.ds, d.ds.referentiels.postes[0].id).map(e => e.id), [a, b]);
+    // Démarrage suivant (ou fin d'import) : fiches rattachées, poste créé sans exigence pour l'intitulé inconnu, libellés gardés.
+    migrate(db);
+    const emps = db.all<{ id: number; poste: string; posteId: number | null }>('employes');
+    const cariste = db.all<{ id: number; nom: string }>('postes').find(p => p.nom === 'Cariste')!.id;
+    assert.deepEqual(emps.map(e => [e.poste, e.posteId]), [['Cariste', cariste], ['CARISTE', cariste], ['Soudeuse', db.all<{ id: number; nom: string }>('postes').find(p => p.nom === 'Soudeuse')!.id]]);
+    assert.equal(db.all<Ligne>('journal').filter(l => l.action === 'migration.postes').length, 1);
+    assert.equal(rattacherFiches(db), undefined, 'rien à refaire');
+    db.sql.close();
+  } finally {
+    rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('effet des exigences annoncé avec le filtre « réglementaires uniquement » de l’affichage', () => {
+  const { domain, poste } = fresh();
+  const d = domain();
+  const avec = (onlyReg: boolean) => X.effetExigences({ ...d.ds, settings: { ...d.ds.settings, uniquementReglementaire: onlyReg } },
+    { postes: d.ds.referentiels.postes.map(x => (x.id === poste('Opératrice').id ? { ...x, formations: ['rgpd'] } : x)) });
+  assert.ok(avec(false).nouveaux.length > 0);
+  assert.deepEqual(avec(true).nouveaux, [], 'formation non réglementaire : personne ne devient non conforme à l’écran');
 });
 
 test('données transmises : postes à tous les espaces, exigences retirées pour le profil paie (sans titres)', () => {
@@ -279,7 +360,7 @@ test('migration nommée : un poste par intitulé déjà saisi, variantes réunie
     assert.ok(postes.every(p => !p.formations.length && !p.habilitations.length), 'aucune exigence créée d’office');
     const emps = ancienne.all<{ id: number; poste: string; posteId: number }>('employes');
     const op = postes.find(p => p.nom === 'Opératrice')!;
-    assert.deepEqual(emps.filter(e => e.posteId === op.id).map(e => [e.id, e.poste]), [[13, 'Opératrice'], [15, 'Opératrice']], 'variante réunie, libellé aligné');
+    assert.deepEqual(emps.filter(e => e.posteId === op.id).map(e => [e.id, e.poste]), [[13, 'Opératrice'], [15, 'opératrice ']], 'variante réunie, libellé saisi gardé');
     const j = ancienne.all<Ligne>('journal').filter(l => l.action === 'migration.postes');
     assert.equal(j.length, 1);
     assert.match(j[0].message!, new RegExp(`^Reprise : ${n} postes pour 24 fiches — exigences à saisir`));
@@ -290,4 +371,14 @@ test('migration nommée : un poste par intitulé déjà saisi, variantes réunie
   } finally {
     rmSync(dir, { recursive: true, force: true });
   }
+});
+
+test('migration : à égalité de variantes, le poste ne prend pas la forme tout en capitales', () => {
+  const db = new Db(':memory:');
+  seedDemo(db);
+  db.sql.exec(`DELETE FROM postes; UPDATE employes SET poste_id = NULL; UPDATE employes SET poste = 'CARISTE' WHERE id = 1`);
+  postesDepuisFiches(db);
+  const p = db.all<{ id: number; nom: string }>('postes').find(x => x.nom.toLowerCase() === 'cariste')!;
+  assert.equal(p.nom, 'Cariste');
+  assert.deepEqual(db.all<{ id: number; poste: string; posteId: number }>('employes').filter(e => e.posteId === p.id).map(e => [e.id, e.poste]), [[1, 'CARISTE'], [16, 'Cariste']]);
 });

@@ -221,7 +221,7 @@ function exigencesModifiees(message: string, effet: { nouveaux: NouveauManquant[
 
 /**
  * Création (sans `id`) ou modification d'un poste : intitulé et exigences. Un intitulé modifié est recopié sur les fiches
- * de ses titulaires (le libellé conservé suit le poste choisi).
+ * de ses titulaires qui portaient l'ancien (le libellé conservé suit le poste choisi ; un libellé précisé reste).
  */
 const enregistrerPoste: ActionHandler = (ctx, p) => {
   requireRh(ctx);
@@ -237,7 +237,8 @@ const enregistrerPoste: ActionHandler = (ctx, p) => {
   ctx.db.update<Poste>('postes', avant.id, poste);
   let renommes = 0;
   if (poste.nom !== avant.nom) {
-    for (const e of ctx.ds.employes.filter(x => x.posteId === avant.id)) { ctx.db.update('employes', e.id, { poste: poste.nom }); renommes++; }
+    // Un libellé précisé (« Cariste confirmé ») n'est pas l'intitulé du poste : il reste tel quel.
+    for (const e of ctx.ds.employes.filter(x => x.posteId === avant.id && key(x.poste) === key(avant.nom))) { ctx.db.update('employes', e.id, { poste: poste.nom }); renommes++; }
   }
   const nom = poste.nom !== avant.nom ? `Poste « ${avant.nom} » renommé « ${poste.nom} »${renommes ? ` sur ${plural(renommes, 'fiche', 'fiches')}` : ''}` : `Poste « ${poste.nom} » modifié`;
   return exigencesModifiees(nom, effet);
@@ -298,26 +299,35 @@ const demanderHab: ActionHandler = (ctx, p) => {
  * intitulé à la fiche. Un intitulé saisi seul est rattaché au poste en vigueur du même nom ; sinon, quand la saisie ne
  * touche pas au poste (`garder` : intitulé modifié par l'API, sans `posteId`), il n'est qu'un libellé précisé du poste
  * actuel, dont les exigences continuent de s'appliquer ; sinon encore, le service RH crée ce poste, sans exigence (fiche
- * créée ou importée, « Nouveau poste » de la fiche). Le poste actuel d'une fiche reste admis même archivé depuis.
+ * créée, « Nouveau poste » de la fiche). Le poste actuel d'une fiche reste admis même archivé depuis, et son libellé
+ * précisé est gardé tant que le poste ne change pas. Le manager ne change pas de poste : ses exigences décident de la
+ * conformité, et seul le service RH en répond ; il ne fait que préciser l'intitulé (fiche hors référentiel : rattachée
+ * au poste de même intitulé, s'il existe).
  */
 export function rattacherPoste(ctx: Ctx, fiche: Record<string, unknown>, actuel: number | null = null, garder = false): void {
   const postes = ctx.ds.referentiels.postes;
   const id = fiche.posteId == null || fiche.posteId === '' ? null : Number(fiche.posteId);
+  const libelle = str(fiche.poste).replace(/\s+/g, ' ');
+  if (!isRh(ctx)) {
+    if (id != null && id !== actuel) throw new ActionError('Le poste se change par le service RH : seul l’intitulé peut être précisé', 403);
+    fiche.posteId = actuel ?? posteParLibelle(postes, libelle)?.id ?? null;
+    if (fiche.posteId == null && key(libelle)) throw new ActionError('Poste inconnu : le service RH l’ajoute d’abord au référentiel des postes');
+    return;
+  }
   if (id != null) {
     const x = postes.find(y => y.id === id);
     if (!x) throw new ActionError('Poste inconnu : choisissez-le dans la liste');
     if (!actif(x) && x.id !== actuel) throw new ActionError(`Poste « ${x.nom} » archivé : rétablissez-le d’abord (écran Référentiels)`);
     fiche.posteId = x.id;
-    fiche.poste = x.nom;
+    // Même poste : l'intitulé saisi (libellé précisé, « Cariste confirmé ») est gardé ; un autre poste donne le sien.
+    fiche.poste = x.id === actuel && key(libelle) ? libelle : x.nom;
     return;
   }
-  const libelle = str(fiche.poste).replace(/\s+/g, ' ');
   fiche.posteId = garder ? actuel : null;
   if (!key(libelle)) return;
   const x = posteParLibelle(postes, libelle);
   if (x) { fiche.posteId = x.id; fiche.poste = x.nom; return; }
   if (garder && actuel != null) return;
-  if (!isRh(ctx)) throw new ActionError('Poste inconnu : choisissez-le dans la liste');
   if (libelle.length > 80) throw new ActionError('Intitulé du poste : 80 caractères au plus');
   fiche.posteId = ctx.db.insert<Poste>('postes', { nom: libelle, formations: [], habilitations: [], archive: null }).id;
   fiche.poste = libelle;

@@ -13,6 +13,7 @@ import { etatInscription } from '../../../shared/rules/sessions.ts';
 import type { ModeNotification } from '../../../shared/types.ts';
 import { Bar, Btn, Chips, Empty, Fine, Kpi, Kpis, NoteAccent, Page, Panel, Seg, Tag } from '../components/ui.tsx';
 import { Aptitude } from '../components/Aptitude.tsx';
+import { ExigencesPortail } from '../components/Exigences.tsx';
 import { useEnriched, useRole, useTrips } from '../state/derived.ts';
 import { api } from '../api.ts';
 import { useStore } from '../state/store.tsx';
@@ -71,6 +72,8 @@ export function Portail() {
           </div>
           <div className="text-muted sub" style={{ marginTop: 'var(--space-1)' }}>{me.med.text}</div>
           <div className="text-muted sub">{contrat.libelle} · {mgrId ? `Manager : ${d.mgrName(mgrId)}` : `Validations : ${d.mgrName(0)}`}</div>
+          {/* « Non conforme » dû aux exigences du poste ou de l'équipe : ce qui manque, et sa demande. */}
+          <ExigencesPortail e={me} />
         </div>
         <div className="head-actions">
           <Btn onClick={openMyDocs}>Mes documents de voyage</Btn>

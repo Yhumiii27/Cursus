@@ -1,5 +1,6 @@
 // Confirmations de l'écran Référentiels (dialogue « confirmer », comme celles de state/confirmations.ts) : archivage
-// d'une formation, d'une habilitation ou d'une destination, chargement du référentiel type. Données seulement.
+// d'une formation, d'une habilitation, d'une destination ou d'un poste, chargement du référentiel type, demande d'une
+// habilitation exigée. Données seulement.
 // L'archivage se défait (« Rétablir », sans confirmation) ; la confirmation annonce ce qu'il change, dont les demandes des
 // collaborateurs encore en attente : sur un élément archivé, elles ne s'acceptent plus (à refuser, ou à rétablir d'abord).
 import { plural } from '../../../shared/format.ts';
@@ -110,5 +111,23 @@ export function archivagePoste(p: Pick<Poste, 'id' | 'nom'>): Confirmation {
     bouton: 'Archiver',
     action: 'referentiel.poste.archiver',
     payload: { id: p.id },
+  };
+}
+
+/**
+ * Habilitation exigée jamais délivrée, demandée par le service RH ou le référent HSE (Échéances, tableau de bord, fiche) :
+ * le titre « en attente » créé ne se retire pas, d'où la confirmation.
+ */
+export function demandeHabilitation(x: { empId: number; h: string; nom: string; label: string }): Confirmation {
+  return {
+    titre: 'Demander l’habilitation',
+    question: `Demander l’habilitation « ${x.label} » pour ${x.nom} ?`,
+    suites: [
+      'Un titre « en attente » de délivrance s’ajoute à l’écran Habilitations ; il se délivre après contrôle des prérequis.',
+      'Une fois demandé, le titre ne se retire pas : il reste en attente jusqu’à sa délivrance.',
+    ],
+    bouton: 'Demander l’habilitation',
+    action: 'hab.demander',
+    payload: { empId: x.empId, h: x.h },
   };
 }

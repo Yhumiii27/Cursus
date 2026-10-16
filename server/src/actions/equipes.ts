@@ -5,6 +5,7 @@ import { rttPerdus, semainesAFiger, soldeRttTexte, sorti } from '../../../shared
 import { contratFige } from '../../../shared/rules/temps.ts';
 import { matriculesPris } from '../../../shared/rules/matricules.ts';
 import { adressesPrises } from '../../../shared/rules/messagerie.ts';
+import { posteDe } from '../../../shared/rules/exigences.ts';
 import { MANAGER_FIELDS, PROFIL_FIELDS, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
 import type { Employe, Equipe, FeuilleTemps } from '../../../shared/types.ts';
 import { rattacherPoste } from './referentiels.ts';
@@ -80,9 +81,11 @@ const modifier: ActionHandler = (ctx, p) => {
   const next = { ...cur } as Record<string, unknown>;
   patch.forEach(k => { next[k] = p[k]; });
   // Poste choisi dans la liste, ou intitulé seul (rattaché au poste du même nom, ou libellé précisé du poste actuel).
-  if (patch.includes('posteId') || patch.includes('poste')) {
+  // Intitulé renvoyé tel quel (jours non travaillés seuls modifiés) : le poste n'est pas revu. Poste actuel : celui de la
+  // fiche, ou celui de même intitulé d'une fiche pas encore rattachée (import).
+  if (patch.includes('posteId') || (patch.includes('poste') && key(str(p.poste)) !== key(cur.poste))) {
     if (!patch.includes('posteId')) next.posteId = null;
-    rattacherPoste(ctx, next, emp.posteId ?? null, !patch.includes('posteId'));
+    rattacherPoste(ctx, next, posteDe(ctx.ds, emp)?.id ?? null, !patch.includes('posteId'));
   }
   const v = check(ctx, next as unknown as ProfilInput, emp.id, !!p.reutiliserMatricule);
   // Une nouvelle visite s'enregistre avec l'avis du médecin du travail (`medical.avis`), qui clôt la demande en cours.

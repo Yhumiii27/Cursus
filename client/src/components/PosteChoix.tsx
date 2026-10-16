@@ -1,8 +1,10 @@
 // Poste d'une fiche collaborateur (dialogs/EmployeDialog.tsx) : choisi dans la liste des postes en vigueur du référentiel,
 // dont les exigences s'appliquent (shared/rules/exigences.ts) ; l'intitulé de la fiche suit le poste choisi. Le service RH
-// peut saisir un nouveau poste (`nouveau`), ajouté au référentiel sans exigence à l'enregistrement de la fiche.
+// peut saisir un nouveau poste (`nouveau`), ajouté au référentiel sans exigence à l'enregistrement de la fiche. Le manager
+// n'en précise que l'intitulé (`PosteLibelle`).
 import { useMemo } from 'react';
-import { nombreExigences } from '../../../shared/rules/exigences.ts';
+import { nombreExigences, posteDe } from '../../../shared/rules/exigences.ts';
+import type { Employe } from '../../../shared/types.ts';
 import { actif } from '../../../shared/rules/referentiels.ts';
 import { Field } from './Dialog.tsx';
 import { useDomain } from '../state/derived.ts';
@@ -44,6 +46,25 @@ export function PosteChoix({ posteId, poste, actuel, erreur, onChange, nouveau }
         {saisie ? 'Ajouté au référentiel des postes, sans exigence (Référentiels → Postes).'
           : choisi ? (nombreExigences(choisi) && exigences.length ? `Exige : ${exigences.join(', ')}` : 'Aucune exigence déclarée pour ce poste')
           : 'Les exigences du poste (formations, habilitations) s’appliquent au collaborateur.'}
+      </span>
+    </Field>
+  );
+}
+
+/**
+ * Manager : intitulé du poste d'un membre de son équipe, à préciser (« Cariste confirmé ») ; le poste du référentiel, dont
+ * les exigences décident de la conformité, reste celui que le service RH a choisi.
+ */
+export function PosteLibelle({ emp, poste, erreur, onChange }: {
+  emp: Pick<Employe, 'posteId' | 'poste'>; poste: string; erreur: string | null; onChange: (poste: string) => void;
+}) {
+  const d = useDomain();
+  const x = posteDe(d.ds, emp);
+  return (
+    <Field label="Intitulé du poste" htmlFor="emp-poste" requis erreur={erreur}>
+      <input className="input" id="emp-poste" type="text" maxLength={80} value={poste} onChange={ev => onChange(ev.target.value)} />
+      <span className="text-muted sub">
+        {x ? `Poste du référentiel : ${x.nom} — changé par le service RH seulement.` : 'Hors référentiel des postes : le service RH l’y rattache.'}
       </span>
     </Field>
   );

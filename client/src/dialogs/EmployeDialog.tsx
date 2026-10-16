@@ -1,4 +1,4 @@
-// Fiche collaborateur : création ou modification complète (RH) ; poste et jours non
+// Fiche collaborateur : création ou modification complète (RH) ; intitulé du poste et jours non
 // travaillés du temps partiel pour le manager d'un membre de son équipe.
 // Poste choisi dans la liste du référentiel (components/PosteChoix.tsx), dont les exigences s'appliquent ; le service RH
 // peut aussi en saisir un nouveau, ajouté au référentiel sans exigence.
@@ -17,7 +17,7 @@ import { contratFige } from '../../../shared/rules/temps.ts';
 import type { Statut, TempsTravail, TypeContrat } from '../../../shared/types.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine, NoteAccent, SectionLabel, Seg } from '../components/ui.tsx';
-import { NOUVEAU_POSTE, PosteChoix } from '../components/PosteChoix.tsx';
+import { NOUVEAU_POSTE, PosteChoix, PosteLibelle } from '../components/PosteChoix.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -160,7 +160,8 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   const ref0 = normaliserProfil(initial), nv = normaliserProfil(saisie);
   const nouveauRegime = !creation && !limited && REGIME_TEMPS.some(k => nv[k] !== ref0[k]);
   const confirme = !!reutiliser && reutiliser === normaliserMatricule(f.matriculePaie);
-  const input: ProfilInput = limited ? { ...initial, poste: f.poste, posteId: posteIdSaisi(f.posteId), jourOff: f.jourOff }
+  // Manager : le poste du référentiel reste celui du service RH ; seul son intitulé se précise.
+  const input: ProfilInput = limited ? { ...initial, poste: f.poste, jourOff: f.jourOff }
     : nouveauRegime ? { ...saisie, tempsDepuis: f.effet || null } : saisie;
   // Un manager d'équipe ne peut pas passer en intérim (équipes encadrées).
   const v = validerProfil(input, {
@@ -205,7 +206,7 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
     if (perte && !confirmeRtt) { setConfirmer(false); setConfRtt(true); return; }
     setBusy(true);
     let payload: Record<string, unknown>;
-    if (limited) payload = { id: emp!.id, poste: v.profil.poste, posteId: v.profil.posteId, ...(partielEmp ? { jourOff: v.profil.jourOff } : {}) };
+    if (limited) payload = { id: emp!.id, poste: v.profil.poste, ...(partielEmp ? { jourOff: v.profil.jourOff } : {}) };
     else {
       payload = creation ? {} : { id: emp!.id };
       PROFIL_FIELDS.forEach(k => { payload[k] = v.profil[k]; });
@@ -244,7 +245,7 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
     return (
       <Dialog title={`Modifier la fiche — ${emp.nom}`} width={640} tall onSubmit={save} actions={actions}>
         <div className="grid-2">
-          <PosteChoix posteId={f.posteId} poste={f.poste} actuel={initial.posteId ?? null} erreur={err('poste')} onChange={choisirPoste} />
+          <PosteLibelle emp={emp} poste={f.poste} erreur={err('poste')} onChange={v => set('poste', v)} />
           <Field label="Équipe"><Static pad>{equipeLabel(emp)}</Static></Field>
         </div>
         {partielEmp && (

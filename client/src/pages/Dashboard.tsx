@@ -78,6 +78,8 @@ export function Dashboard() {
       due: compl.filter(c => c.key === 'due').length,
       // Titres expirés ; les exigences manquantes (jamais obtenues) ont leur indicateur.
       exp: compl.filter(c => c.key === 'exp' && c.kind !== 'exigence').length,
+      // Collaborateurs qui ont un titre expiré (hors exigences manquantes, comptées à part).
+      expires: new Set(compl.filter(c => c.key === 'exp' && c.kind !== 'exigence').map(c => c.emp.id)).size,
       manquants: emps.reduce((n, e) => n + e.manquants.length, 0), sansExigence: emps.filter(e => e.manquants.length).length,
       declarees: d.ds.referentiels.postes.some(p => nombreExigences(p) > 0) || d.ds.referentiels.equipes.some(q => nombreExigences(exigencesEquipe(q)) > 0),
       // Propositions d'action réservées aux profils qui peuvent les lancer (aucune en lecture seule).
@@ -102,7 +104,7 @@ export function Dashboard() {
       <Kpis>
         <Kpi kicker="Conformité" value={v.total ? `${Math.round(v.nonExp / v.total * 100)} %` : '—'} sub={`${v.nonExp} collaborateurs sur ${v.total} sans échéance dépassée`} />
         <Kpi kicker="À renouveler" value={v.due} sub={`sous ${horizon} jours · ${plural(v.plannedCount, 'inscription planifiée', 'inscriptions planifiées')}`} />
-        <Kpi kicker="Expirées" value={v.exp} sub={v.exp ? `${plural(v.total - v.nonExp, 'collaborateur non conforme', 'collaborateurs non conformes')} · certifications, habilitations et aptitudes médicales` : 'aucune certification, habilitation ni aptitude médicale expirée'} />
+        <Kpi kicker="Expirées" value={v.exp} sub={v.exp ? `${plural(v.expires, 'collaborateur non conforme', 'collaborateurs non conformes')} · certifications, habilitations et aptitudes médicales` : 'aucune certification, habilitation ni aptitude médicale expirée'} />
         {/* Exigences des postes et des équipes (t055) : formations jamais suivies, habilitations jamais délivrées. */}
         <Kpi kicker="Exigences manquantes" value={v.declarees ? v.manquants : '—'}
           sub={!v.declarees ? 'aucune exigence déclarée par poste ni par équipe (Référentiels → Postes)'

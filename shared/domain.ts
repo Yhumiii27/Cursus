@@ -74,7 +74,7 @@ export type UiIntent =
   | { type: 'openFormalite'; empId: number; kind: FormaliteKind; dest?: string; v?: VaccinId }
   | { type: 'openCloture'; sessionId: number }
   /** Habilitation exigée jamais délivrée : titre demandé (`hab.demander`), « en attente » de délivrance. */
-  | { type: 'demanderHab'; empId: number; h: string };
+  | { type: 'demanderHab'; empId: number; h: string; nom: string; label: string };
 export type FormaliteKind = 'passeport' | 'visa' | 'vaccin';
 export interface Proposal { label: string; intent: UiIntent }
 

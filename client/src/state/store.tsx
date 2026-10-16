@@ -18,6 +18,7 @@ import type { CompteSession, Dataset, EntretienType, ISODate, PlanStatut, Profil
 import { api, lienMicrosoft, surSessionExpiree, type ActionResponse, type ApiError, type SessionState } from '../api.ts';
 import { AppelsEnCours, cleAction } from './actions.ts';
 import type { Confirmation } from './confirmations.ts';
+import { demandeHabilitation } from './confirmations-referentiels.ts';
 import { effacerBrouillon, lireBrouillon, sauverBrouillon, type Champs } from './brouillon.ts';
 
 export type View = (typeof ALLOWED_VIEWS)[Role][number] | (typeof VUES_COMMUNES)[number];
@@ -447,10 +448,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       case 'medical': setDialog({ type: 'visite', empId: intent.empId }); break;
       case 'openFormalite': setDialog({ type: 'fo', empId: intent.empId, kind: intent.kind, dest: intent.dest, v: intent.v }); break;
       case 'openCloture': setDialog({ type: 'cloture', sessionId: intent.sessionId }); break;
-      // Habilitation exigée jamais délivrée : titre demandé, « en attente » de délivrance.
-      case 'demanderHab': void run('hab.demander', { empId: intent.empId, h: intent.h }); break;
+      // Habilitation exigée jamais délivrée : titre demandé, « en attente » de délivrance, qui ne se retire pas (confirmé).
+      case 'demanderHab': setDialog({ type: 'confirmer', c: demandeHabilitation(intent) }); break;
     }
-  }, [go, run]);
+  }, [go]);
 
   /**
    * Changement d'espace : le nouvel espace ne s'affiche qu'avec ses données, d'un seul coup. En cas

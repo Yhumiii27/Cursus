@@ -534,7 +534,7 @@ aucun champ du paramètre n'est recopié.
 | Action | Paramètres | Droits |
 | --- | --- | --- |
 | `employe.creer` | fiche complète (`ProfilInput` de `shared/rules/profil.ts`, matricule de paie compris : unique), reutiliserMatricule? (réembauche : matricule d'un salarié sorti) | RH ; réutiliser un matricule : administrateur RH |
-| `employe.modifier` | id + champs de la fiche, reutiliserMatricule?, `confirmerRtt` (changement de régime qui ferme le compteur de RTT de l'année) ; ni le motif ni la date d'une sortie enregistrée | RH : tous ; manager : `poste` et `posteId` (poste choisi dans la liste, sans en créer), `jourOff` (temps partiel) des membres de son équipe ; changer ou retirer un matricule de paie déjà enregistré, réutiliser celui d'un salarié sorti : administrateur RH |
+| `employe.modifier` | id + champs de la fiche, reutiliserMatricule?, `confirmerRtt` (changement de régime qui ferme le compteur de RTT de l'année) ; ni le motif ni la date d'une sortie enregistrée | RH : tous ; manager : `poste` (intitulé précisé ; le poste du référentiel, `posteId`, reste au RH), `jourOff` (temps partiel) des membres de son équipe ; changer ou retirer un matricule de paie déjà enregistré, réutiliser celui d'un salarié sorti : administrateur RH |
 | `employe.sortie` | id, date (dernier jour du contrat), motif (`MOTIFS_SORTIE`) ; refusée tant que le salarié encadre une équipe, qu'une feuille porte des heures après la date, qu'une absence est à cheval sur elle, au-delà de la fin prévue du contrat ou quand aucun autre administrateur RH ne reste en place après la date ; une sortie enregistrée se modifie par la même action | RH (jamais pour lui-même) ; administrateur RH seul pour un salarié dont le compte ouvre l'espace RH |
 | `employe.annulerSortie` | id : fin prévue au contrat rétablie (aucune pour un CDI, même devenu CDI depuis la sortie) ; ce que la sortie a annulé ne l'est pas | RH (jamais pour lui-même) ; administrateur RH seul pour un salarié dont le compte ouvre l'espace RH |
 | `equipe.creer` / `equipe.renommer` | nom, managerId? / nom, nouveau | RH |
@@ -841,26 +841,37 @@ Table `postes` (intitulé, `formations` et `habilitations` exigées, `archive`),
   `worst`) et donne une échéance `kind: 'exigence'` sans date, classée au jour parmi les dépassées
   (`echeanceExigence`) : « Inscrire à la formation » (ou la session planifiée, la session passée à clôturer),
   « Demander l'habilitation » (`hab.demander` : titre en attente, puis l'action d'un titre demandé : délivrer, ou d'abord
-  ses prérequis). Un titre obtenu mais échu reste suivi par sa propre échéance. Formations et habilitations archivées ne
+  ses prérequis ; confirmée, car le titre en attente ne se retire pas). Un titre obtenu mais échu reste suivi par sa propre échéance. Formations et habilitations archivées ne
   sont plus exigées ; le filtre « réglementaires uniquement » écarte les formations exigées qui ne le sont pas.
 - **Aucune exigence d'office** (décision de l'entreprise) : tant qu'un poste n'en a pas, le statut de ses titulaires ne
   change pas. Le dialogue propose comme point de départ les titres que détiennent déjà tous les titulaires
   (`exigencesProposees`), à valider, et annonce avant l'enregistrement les salariés qui deviennent non conformes
   (`effetExigences`, confirmation).
 - **Poste de la fiche** : choisi dans la liste (`components/PosteChoix.tsx`), son intitulé devient celui de la fiche
-  (libellé conservé : exports, imports, historique ; un poste renommé est recopié sur les fiches). `rattacherPoste`
-  (`server/src/actions/referentiels.ts`) : un intitulé seul est rattaché au poste en vigueur du même nom ; sans
-  `posteId`, une fiche qui a un poste n'en reçoit qu'un libellé précisé ; sinon le service RH crée le poste, sans
-  exigence (« Nouveau poste… », import). Le manager choisit dans la liste, sans créer. Un poste occupé ne s'archive pas.
+  (libellé conservé : exports, imports, historique ; un poste renommé est recopié sur les fiches qui portaient son
+  ancien intitulé). `rattacherPoste` (`server/src/actions/referentiels.ts`, appelé par `employe.creer` et
+  `employe.modifier`) : un intitulé seul est rattaché au poste en vigueur du même nom ; sans `posteId`, ou avec le
+  même poste, une fiche qui a un poste en garde le libellé précisé (« Cariste confirmé ») ; sinon le service RH crée le
+  poste, sans exigence (« Nouveau poste… »). Le poste se change par le service RH seulement : ses exigences décident
+  de la conformité. Le manager ne fait que préciser l'intitulé (`posteId` refusé, poste inchangé). Un poste occupé ne
+  s'archive pas.
+- **Fiches écrites sans poste** (import ou reprise des salariés, base antérieure) : le statut applique tout de suite les
+  exigences du poste en vigueur de même intitulé (`posteDe` de `shared/rules/exigences.ts`) ; `rattacherFiches`
+  (`server/src/migrations/referentiels.ts`) les rattache, en créant au besoin le poste sans exigence, à chaque démarrage
+  (`server/src/migrate.ts`). Note de fusion pour la reprise depuis Lucca (chantier 2, étape 2, `ecrire` de
+  `server/src/actions/reprise.ts`) : appeler `rattacherFiches(ctx.db)` à la fin de l'écriture des salariés, et ne pas
+  remettre `posteId` à null sur une fiche mise à jour qui en a un (ne pas le recopier de `normaliserProfil`).
 - **Reprise** : la migration nommée `lot4-referentiels-postes` crée un poste par intitulé déjà saisi (casse, accents et
-  ponctuation ignorés, variantes réunies sous la plus fréquente) et y rattache les fiches, sans exigence ; tracée
-  (`migration.postes` : identifiants et nombres de fiches, jamais d'intitulé). La démonstration en déclare quelques-unes
-  (cariste, technicien de maintenance, apprenti électromécanicien, SST de la Logistique).
+  ponctuation ignorés, variantes réunies sous la plus fréquente, à égalité une forme qui n'est pas tout en capitales)
+  et y rattache les fiches, sans exigence ni changement de leur libellé ; tracée (`migration.postes` : identifiants et
+  nombres de fiches, jamais d'intitulé). La démonstration en déclare quelques-unes (cariste, technicien de maintenance,
+  apprenti électromécanicien, SST de la Logistique).
 - **Données transmises** : postes et exigences des équipes à tous les espaces (aucune donnée personnelle) ; le profil
   paie, qui ne reçoit ni certifications ni habilitations, les reçoit sans exigences (`sansExigences` de
   `server/src/dataset.ts`), sans quoi tout le monde y serait non conforme.
 - **Écrans** : colonne « Exigences » et section « Exigences du poste » de Collaborateurs (`components/Exigences.tsx`),
-  filtre « Exigences » des Échéances, indicateur « Exigences manquantes » du tableau de bord.
+  filtre « Exigences » des Échéances, indicateur « Exigences manquantes » du tableau de bord (celui des expirées n'en
+  compte ni les échéances ni les salariés), motif et demandes de l'espace collaborateur (`ExigencesPortail`).
 
 ## Santé au travail
 

@@ -14,6 +14,7 @@ import { loadFull, todayIso } from './dataset.ts';
 import type { Db } from './db.ts';
 import { migrerKeystone } from './integrations/keystone-entrant.ts';
 import { reprendreAdressesDesComptes } from './messagerie.ts';
+import { rattacherFiches } from './migrations/referentiels.ts';
 import { sauvegarderAvantMigration } from './sauvegarde.ts';
 
 /** Ancienne colonne `contrat` (qui mêlait nature du contrat et durée du travail) → statut, type de contrat, temps. */
@@ -49,6 +50,8 @@ export function migrate(db: Db) {
   motifsDeReprise(db, avant);
   reprendreAdressesDesComptes(db, avant);
   reprendreDetachements(db, avant);
+  // Fiches écrites sans poste du référentiel (import, reprise des salariés) : rattachées au poste de même intitulé.
+  rattacherFiches(db, avant);
 }
 
 /**

@@ -49,8 +49,11 @@ export const PROFIL_FIELDS: (keyof ProfilInput)[] = [
   'entree', 'fin', 'motifSortie', 'naissance', 'agence', 'matriculePaie', 'email', 'visite', 'repriseMotif', 'repriseDate',
 ];
 
-/** Champs qu'un manager peut modifier pour un membre de son équipe ; le contrat et le statut restent au RH. */
-export const MANAGER_FIELDS: (keyof ProfilInput)[] = ['poste', 'posteId', 'jourOff'];
+/**
+ * Champs qu'un manager peut modifier pour un membre de son équipe ; le contrat et le statut restent au RH, comme le poste
+ * du référentiel (`posteId`), dont les exigences décident de la conformité : le manager n'en précise que l'intitulé.
+ */
+export const MANAGER_FIELDS: (keyof ProfilInput)[] = ['poste', 'jourOff'];
 
 export const JOURS_SEMAINE = ['Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi'];
 

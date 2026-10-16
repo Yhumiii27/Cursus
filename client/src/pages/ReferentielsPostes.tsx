@@ -5,7 +5,7 @@ import { useMemo, useState } from 'react';
 import { PlusIcon } from '@phosphor-icons/react';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
-import { exigencesEquipe, nombreExigences, titulaires } from '../../../shared/rules/exigences.ts';
+import { exigencesEquipe, nombreExigences, posteDe, titulaires } from '../../../shared/rules/exigences.ts';
 import { actif, actifs } from '../../../shared/rules/referentiels.ts';
 import type { Exigences } from '../../../shared/types.ts';
 import { Btn, Chips, Empty, Fine, Panel, Tag, Two } from '../components/ui.tsx';
@@ -36,7 +36,7 @@ export function Postes() {
   const enVigueur = actifs(liste), nArchives = liste.length - enVigueur.length;
   const lignes = archives ? liste : enVigueur;
   // Titulaires présents à qui il manque une exigence (du poste ou de leur équipe).
-  const nonConformes = (id: number) => emps.filter(e => e.posteId === id && e.manquants.length).length;
+  const nonConformes = (id: number) => emps.filter(e => posteDe(d.ds, e)?.id === id && e.manquants.length).length;
   const sansExigence = enVigueur.filter(p => !nombreExigences(p)).length;
 
   return <>

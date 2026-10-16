@@ -37,9 +37,14 @@ export const exigencesEquipe = (q: { exigences?: Exigences | null } | null | und
 /** Nombre d'exigences déclarées (formations et habilitations). */
 export const nombreExigences = (x: Exigences | null | undefined) => (x?.formations.length ?? 0) + (x?.habilitations.length ?? 0);
 
-/** Poste du référentiel d'une fiche (null : intitulé hors référentiel). */
-export function posteDe(ds: Pick<Dataset, 'referentiels'>, e: Pick<Employe, 'posteId'>): Poste | null {
-  return e.posteId == null ? null : ds.referentiels.postes.find(p => p.id === e.posteId) ?? null;
+/**
+ * Poste du référentiel d'une fiche (null : intitulé hors référentiel). Une fiche écrite sans `posteId` (import, reprise,
+ * base antérieure) relève du poste en vigueur de même intitulé, sans attendre son rattachement (`rattacherFiches` de
+ * server/src/migrations/referentiels.ts, au démarrage) : ses exigences s'appliquent quel que soit le chemin d'écriture.
+ */
+export function posteDe(ds: Pick<Dataset, 'referentiels'>, e: Pick<Employe, 'posteId' | 'poste'>): Poste | null {
+  if (e.posteId == null) return posteParLibelle(ds.referentiels.postes, e.poste ?? '');
+  return ds.referentiels.postes.find(p => p.id === e.posteId) ?? null;
 }
 
 /**
@@ -47,7 +52,7 @@ export function posteDe(ds: Pick<Dataset, 'referentiels'>, e: Pick<Employe, 'pos
  * deux n'est comptée qu'une fois, avec ses deux origines). Seules les formations et habilitations en vigueur au
  * référentiel sont exigées.
  */
-export function exigencesDe(ds: Pick<Dataset, 'referentiels'>, e: Pick<Employe, 'posteId' | 'equipe'>): Exigence[] {
+export function exigencesDe(ds: Pick<Dataset, 'referentiels'>, e: Pick<Employe, 'posteId' | 'poste' | 'equipe'>): Exigence[] {
   const out = new Map<string, Exigence>();
   const ajouter = (x: Exigences, origine: string) => {
     for (const [type, ids, liste] of [
@@ -75,7 +80,7 @@ export function exigencesDe(ds: Pick<Dataset, 'referentiels'>, e: Pick<Employe, 
  * suffit pas). `formIds` : formations suivies (filtre « réglementaires uniquement »).
  */
 export function exigencesManquantes(
-  ds: Pick<Dataset, 'referentiels'>, e: Pick<Employe, 'posteId' | 'equipe'>,
+  ds: Pick<Dataset, 'referentiels'>, e: Pick<Employe, 'posteId' | 'poste' | 'equipe'>,
   certs: readonly { f: string }[], habs: readonly { h: string; delivree: ISODate | null }[], formIds?: ReadonlySet<string>,
 ): ExigenceManquante[] {
   return exigencesDe(ds, e).flatMap(x => {
@@ -128,7 +133,7 @@ export function echeanceExigence(d: Domain, e: EmpX, m: ExigenceManquante): EchI
   return {
     ...base, statut: 'Habilitation exigée non délivrée', planned: false,
     plannedLabel: titre?.demande ? `Demandée le ${fmtShort(parse(titre.demande))}` : '',
-    action: titre ? d.habAction(e.id, titre) : { label: 'Demander l’habilitation', intent: { type: 'demanderHab', empId: e.id, h: m.id } },
+    action: titre ? d.habAction(e.id, titre) : { label: 'Demander l’habilitation', intent: { type: 'demanderHab', empId: e.id, h: m.id, nom: e.nom, label: m.label } },
   };
 }
 
@@ -181,9 +186,9 @@ export function posteParLibelle(postes: readonly Poste[], libelle: string): Post
   return k ? postes.find(p => actif(p) && key(p.nom) === k) ?? null : null;
 }
 
-/** Salariés présents qui occupent un poste. */
-export function titulaires(ds: Pick<Dataset, 'employes' | 'today'>, posteId: number): Employe[] {
-  return ds.employes.filter(e => e.posteId === posteId && present(e, ds.today));
+/** Salariés présents qui occupent un poste (rattachés, ou de même intitulé sans rattachement : `posteDe`). */
+export function titulaires(ds: Pick<Dataset, 'employes' | 'today' | 'referentiels'>, posteId: number): Employe[] {
+  return ds.employes.filter(e => posteDe(ds, e)?.id === posteId && present(e, ds.today));
 }
 
 /**
@@ -209,7 +214,8 @@ export interface NouveauManquant { empId: number; nom: string; manquants: string
  */
 export function effetExigences(ds: Dataset, referentiels: Partial<Pick<Dataset['referentiels'], 'postes' | 'equipes'>>): { nouveaux: NouveauManquant[]; resolus: number } {
   const horizon = ds.settings.horizonAlerte;
-  const enrichis = (x: Dataset) => new Domain(x).enrich(horizon, false);
+  // Même filtre « réglementaires uniquement » que l'affichage : une formation non réglementaire exigée n'y compte pas.
+  const enrichis = (x: Dataset) => new Domain(x).enrich(horizon, !!ds.settings.uniquementReglementaire);
   const cles = (e: EmpX) => e.manquants.map(m => `${m.type}:${m.id}`);
   const a = new Map(enrichis(ds).map(e => [e.id, cles(e)]));
   const nouveaux: NouveauManquant[] = [];

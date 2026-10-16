@@ -553,7 +553,9 @@ test('serveur : l’action met en file, le processus de fond envoie, la vue Envo
   assert.match(r.message, /Demande refusée/);
 
   // Le processus de fond relève la file toutes les 2 s.
-  const lire = () => fetch(`${base}/api/envois`, { headers: { cookie } }).then(assert200);
+  // Envois à Keystone seulement : le récapitulatif des échéances (à partir de 7 h, heure réelle) peut aussi mettre des
+  // e-mails en file pendant le test.
+  const lire = () => fetch(`${base}/api/envois?cible=keystone`, { headers: { cookie } }).then(assert200);
   let v = await lire();
   for (let i = 0; i < 50 && v.envois[0]?.statut !== 'envoye'; i++) {
     await new Promise(res => setTimeout(res, 100));

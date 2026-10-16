@@ -433,7 +433,10 @@ sudo nginx -t && sudo systemctl reload nginx
 Pour un hébergeur à conteneurs, Coolify en tête (réglages : README.md, « Mise en ligne »), ou une machine où l'on préfère Docker au service systemd. Le
 `Dockerfile` du code construit l'interface dans une première étape, puis une image d'exécution sur `node:22-slim`
 sans les dépendances de développement, sous un compte `cursus` sans droits, avec un volume `/data` pour la
-base et ses sauvegardes, et une sonde `HEALTHCHECK` sur `/api/health`. L'image fixe le port 3000, la base `/data/cursus.db`, l'écoute sur toutes les
+base et ses sauvegardes, et une sonde `HEALTHCHECK` sur `/api/health`. Le conteneur démarre sous root le temps de
+rendre `/data` au compte `cursus`, puis prend son identité avant d'ouvrir la base (`server/src/conteneur.ts`) : un
+volume créé par une image antérieure, qui tournait sous root, reste ainsi utilisable, et les commandes lancées par
+`docker exec` (comptes, sauvegarde, restauration) écrivent elles aussi sous le compte `cursus`. L'image fixe le port 3000, la base `/data/cursus.db`, l'écoute sur toutes les
 interfaces du conteneur (`CURSUS_HOST=0.0.0.0`) et la confiance dans les proxys de la boucle locale et des réseaux
 privés (`CURSUS_TRUST_PROXY=loopback,uniquelocal`). Avec Coolify, il suffit de déclarer le port, le volume et les
 variables ; sur une machine à soi, seul le port local est publié, derrière le même reverse proxy.

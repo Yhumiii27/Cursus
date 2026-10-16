@@ -1,6 +1,8 @@
 // npm run backup : copie cohérente de la base, serveur démarré ou non (VACUUM INTO),
 // vérifiée puis rotation. Code de sortie 1 en cas d'échec, pour la supervision
 // (timer systemd ou cron, voir docs/SAUVEGARDE.md).
+// Image Docker : volume rendu au compte du service, droits root abandonnés (avant tout autre import).
+import './conteneur.ts';
 import { statfsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { dbFile } from './db.ts';

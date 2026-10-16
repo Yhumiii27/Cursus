@@ -5,7 +5,8 @@
 //   (verdict seul, comme son instantané) ni entretien de reprise (il trahirait un arrêt long) ;
 // - chaque référent HSE (compte actif) : formations et habilitations.
 // Seuls les paliers franchis depuis le dernier envoi partent (table `relances`, clé de l'objet et palier) : un objet n'est
-// relancé qu'une fois par palier, même si personne ne l'a reçu (boîte du service RH non renseignée…). Règles et contenu :
+// relancé qu'une fois par palier. Tant que la boîte du service RH, destinataire de tout le périmètre, n'est pas renseignée,
+// le passage n'envoie ni ne note rien : les paliers franchis partiront au premier passage qui suit son réglage. Règles et contenu :
 // shared/rules/relances.ts ; jamais de donnée de santé ni de texte libre dans l'e-mail (docs/EMAILS.md).
 import { HEURE_RECAPITULATIF } from '../../shared/constants.ts';
 import { addD, weekday } from '../../shared/dates.ts';
@@ -78,6 +79,8 @@ function destinataires(db: Db, d: Domain, relances: Relance[], today: string): D
  * concerné, paliers notés envoyés. Renvoie le nombre d'e-mails et de relances nouvelles.
  */
 export function recapitulatifEcheances(db: Db): { emails: number; relances: number } {
+  // Boîte du service RH non renseignée (mise en service…) : rien n'est noté, rien ne se perd.
+  if (!lireMessagerie(db).rh) return { emails: 0, relances: 0 };
   const full = loadFull(db, SUIVI), d = new Domain(full), today = full.today;
   const dues = relancesDues(d, d.enrich(full.settings.horizonAlerte, full.settings.uniquementReglementaire), full.settings.relancesPaliers);
   const deja = new Set((db.sql.prepare('SELECT cle, palier FROM relances').all() as { cle: string; palier: string }[]).map(r => `${r.cle}|${r.palier}`));

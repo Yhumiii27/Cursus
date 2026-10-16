@@ -62,7 +62,13 @@ export function obligations(d: Domain, scopeIds: number[]): Obligation[] {
       const lf = done(['forfait']).filter(x => x.date >= debut)[0];
       push('forfait', lf ? addM(lf.date, 12) : addM(debut, 12), lf ? `Dernier le ${fmt(parse(lf.date))} · chaque année` : debut > e.entree ? `Forfait jours depuis le ${fmt(parse(debut))} — premier entretien dans l’année` : 'Aucun entretien enregistré');
     }
-    if (Ti >= camp.visibleDes && concerneParCampagne(d, e, camp) && present(e, camp.fin) && !list.some(x => x.type === 'annuel' && x.date >= `${Y}-01-01`)) {
+    // Entretien annuel de l'année planifié à une date passée sans avoir été clos (reporté pendant la campagne, oublié) :
+    // en retard, « Planifié, date dépassée », comme les obligations ci-dessus (compteurs, récapitulatif des échéances).
+    const annuels = list.filter(x => x.type === 'annuel' && x.date >= `${Y}-01-01`);
+    const depasse = annuels.find(x => x.statut === 'planifie' && x.date < Ti);
+    if (depasse && !annuels.some(x => x.statut === 'realise')) {
+      out.push({ id, e, kind: 'annuel', due: camp.fin, pl: depasse, st: 'late', detail: camp.libelle });
+    } else if (Ti >= camp.visibleDes && concerneParCampagne(d, e, camp) && present(e, camp.fin) && !annuels.length) {
       out.push({ id, e, kind: 'annuel', due: camp.fin, st: 'todo', detail: camp.libelle });
     }
   });

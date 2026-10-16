@@ -6,7 +6,7 @@
 import { parse } from '../../../shared/dates.ts';
 import { fmt, fmtShort, plural } from '../../../shared/format.ts';
 import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
-import { refusAnnulation, refusChangement, refusModification } from '../../../shared/rules/deplacements.ts';
+import { formalitesCaduques, refusAnnulation, refusChangement, refusModification } from '../../../shared/rules/deplacements.ts';
 import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
 import { refusArchive } from '../../../shared/rules/referentiels.ts';
 import type { Voyage } from '../../../shared/types.ts';
@@ -52,11 +52,14 @@ const modifier: ActionHandler = (ctx, p) => {
   const conflit = blocage(conflitsDates(ctx.d, emp.id, depart, retour, 'voyage', { voyageId: t.id }));
   if (conflit) throw new ActionError(conflit);
   if (dest.code === t.dest && depart === t.depart && retour === t.retour && champs.motif === t.motif) throw new ActionError('Aucune modification à enregistrer');
-  const apres = { ...t, dest: dest.code, depart, retour, motif: champs.motif };
-  ctx.db.update<Voyage>('voyages', t.id, { dest: dest.code, depart, retour, motif: champs.motif });
+  // Formalités de détachement devenues caduques (formalitesCaduques) : à refaire, le dossier redevient incomplet.
+  const caduques = formalitesCaduques(t, { dest: dest.code, depart, retour });
+  const apres = { ...t, dest: dest.code, depart, retour, motif: champs.motif, ...caduques };
+  ctx.db.update<Voyage>('voyages', t.id, { dest: dest.code, depart, retour, motif: champs.motif, ...caduques });
   const ks = prevenirKeystone(ctx, 'deplacement.modifie', apres);
   const r = ctx.d.readiness(emp, apres);
-  return `Déplacement modifié — ${emp.nom}, ${dest.pays} du ${fmtShort(parse(depart))} au ${fmt(parse(retour))} · ${r.todo ? plural(r.todo, 'formalité à prévoir', 'formalités à prévoir') : 'dossier complet'}${ks ? ' · Keystone prévenu' : ''}`;
+  const refaire = Object.keys(caduques).length ? ' · formalités de détachement à refaire' : '';
+  return `Déplacement modifié — ${emp.nom}, ${dest.pays} du ${fmtShort(parse(depart))} au ${fmt(parse(retour))}${refaire} · ${r.todo ? plural(r.todo, 'formalité à prévoir', 'formalités à prévoir') : 'dossier complet'}${ks ? ' · Keystone prévenu' : ''}`;
 };
 
 /**

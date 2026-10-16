@@ -36,6 +36,24 @@ export function refusModification(avant: Pick<Voyage, 'origine' | 'dest' | 'moti
   return null;
 }
 
+/**
+ * Formalités de détachement qu'une modification rend caduques, remises à null (le dossier redevient incomplet) :
+ * - certificat de sécurité sociale (`detachementLe`) : il est délivré pour un pays et une période ; un autre pays, ou une
+ *   période qui déborde de celle d'origine, n'est plus couvert (une période raccourcie l'est toujours) ;
+ * - information écrite d'une mission longue (`informationLe`) : elle indique le pays et la durée ; tout changement de
+ *   destination ou de dates la rend inexacte.
+ * Objet vide : rien à refaire.
+ */
+export function formalitesCaduques(avant: Pick<Voyage, 'dest' | 'depart' | 'retour' | 'detachementLe' | 'informationLe'>, apres: Pick<Voyage, 'dest' | 'depart' | 'retour'>): Partial<Pick<Voyage, 'detachementLe' | 'informationLe'>> {
+  const autrePays = apres.dest !== avant.dest;
+  const deborde = apres.depart < avant.depart || apres.retour > avant.retour;
+  const autresDates = apres.depart !== avant.depart || apres.retour !== avant.retour;
+  return {
+    ...(avant.detachementLe && (autrePays || deborde) ? { detachementLe: null } : {}),
+    ...(avant.informationLe && (autrePays || autresDates) ? { informationLe: null } : {}),
+  };
+}
+
 /** Annulation : motif obligatoire pour un déplacement venu de Keystone, facultatif sinon ; 500 caractères au plus. */
 export function refusAnnulation(v: Pick<Voyage, 'origine'>, motif: string): string | null {
   if (motif.length > MOTIF_ANNULATION_MAX) return `Motif trop long (${MOTIF_ANNULATION_MAX} caractères au plus)`;

@@ -7,7 +7,8 @@ import type { Confirmation } from './confirmations.ts';
 
 /**
  * Annulation d'un déplacement par le service RH. `quoi` : « Maroc du 2 nov. au 6 nov. 2026 ». Venu de Keystone : motif
- * obligatoire, Keystone prévenu sans le motif ; sinon motif facultatif. Le motif reste dans Cursus (service RH).
+ * obligatoire, Keystone prévenu sans le motif ; sinon motif facultatif. Le motif reste dans Cursus (service RH ; le
+ * salarié le retrouve dans la copie de ses données, au titre du droit d'accès).
  */
 export function annulationVoyage(t: Pick<Voyage, 'id' | 'origine' | 'chantier'>, nom: string, quoi: string): Confirmation {
   const keystone = t.origine === 'keystone';
@@ -24,7 +25,7 @@ export function annulationVoyage(t: Pick<Voyage, 'id' | 'origine' | 'chantier'>,
     payload: { id: t.id },
     motif: {
       label: 'Motif de l’annulation', requis: keystone,
-      aide: 'Le motif reste dans Cursus, lisible du seul service RH : il n’est jamais transmis à Keystone ni au salarié.',
+      aide: 'Le motif reste dans Cursus : jamais transmis à Keystone ni montré au manager ; le salarié peut le lire dans la copie de ses données (droit d’accès). N’y indiquez aucune information médicale.',
       placeholder: 'Chantier reporté, mission confiée à un autre technicien…',
     },
     ensuite: { ui: { tripSel: null } },
@@ -47,6 +48,8 @@ export function annulationEntretien(x: Pick<Entretien, 'id' | 'type' | 'date'>, 
     ].filter(Boolean),
     bouton: 'Annuler l’entretien',
     action: 'entretien.annuler',
-    payload: { id: x.id, confirmer: true },
+    // `confirmer` seulement si la confirmation a annoncé la suppression d'un compte rendu commencé : sinon, un compte rendu
+    // écrit depuis la dernière relecture (le salarié rédige au fil) fait refuser l'annulation (409), affichée dans le dialogue.
+    payload: { id: x.id, ...(o.crCommence ? { confirmer: true } : {}) },
   };
 }

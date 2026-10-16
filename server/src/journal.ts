@@ -232,7 +232,7 @@ export const REGLES: Record<string, Regle> = {
   'voyage.detachement': { champs: ['id', 'detachementLe', 'informationLe'], cible: parId('voyages', ['detachementLe', 'informationLe']) },
   // Modification : destination et dates avant et après (le motif, texte libre, n'est pas recopié) ; annulation : sa date,
   // et seulement le fait qu'un motif soit renseigné.
-  'voyage.modifier': { champs: ['id'], cible: parId('voyages', ['dest', 'depart', 'retour']) },
+  'voyage.modifier': { champs: ['id'], cible: parId('voyages', ['dest', 'depart', 'retour', 'detachementLe', 'informationLe']) },
   'voyage.annuler': { champs: ['id'], cible: { ...parId('voyages', ['annuleLe', 'annuleMotif']), masques: ['annuleMotif'] } },
   'formalite.enregistrer': {
     champs: p => p.kind === 'passeport' ? ['empId', 'kind', 'expire'] : p.kind === 'visa' ? ['empId', 'kind', 'dest', 'visaType', 'obtenu', 'expire'] : ['empId', 'kind'],

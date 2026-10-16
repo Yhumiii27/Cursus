@@ -18,6 +18,7 @@ const { Domain } = await import('../shared/domain.ts');
 const { jourDEnvoi, palierDe, paliersRelance, relancesDues } = await import('../shared/rules/relances.ts');
 const { appliquerReglages, reglagesParDefaut } = await import('../shared/reglages.ts');
 const { VACCINS } = await import('../shared/constants.ts');
+const { equipeLabel } = await import('../shared/format.ts');
 type User = NonNullable<ReturnType<typeof currentUser>>;
 type Ligne = Record<string, any>;
 
@@ -97,6 +98,20 @@ test('récapitulatif : RH tout le périmètre, manager son équipe sans santé, 
   assert.equal(db.all('relances').length, n.relances);
 });
 
+test('récapitulatif : boîte du service RH non renseignée, rien n’est noté ; les échéances partent après son réglage', () => {
+  const { db, run, RH, recaps, passer } = fresh();
+  run(RH, 'messagerie.regler', { rh: '' });
+  // Mise en service sans adresse RH : ni e-mail (managers compris), ni relance notée.
+  assert.deepEqual(passer(), { emails: 0, relances: 0 });
+  assert.equal(db.all('relances').length, 0);
+  assert.equal(Object.keys(recaps()).length, 0);
+  // Boîte réglée quelques jours plus tard : les échéances dépassées lui parviennent, visites médicales comprises.
+  run(RH, 'messagerie.regler', { rh: RH_MAIL });
+  le('2026-10-13', () => assert.ok(passer().relances > 0));
+  assert.match(recaps()[RH_MAIL][0], /Échéances dépassées :\n• /);
+  assert.ok(recaps()[RH_MAIL][0].includes('Visite médicale'));
+});
+
 test('récapitulatif : un nouveau palier franchi repart, une fois ; fin de contrat ; salarié sorti absent', () => {
   const { recaps, passer } = fresh();
   passer();
@@ -131,6 +146,22 @@ test('relance déjà prise en charge (session planifiée) ou entretien planifié
   const planifiees = d.echeances(d.enrich(90, false), 90).filter(x => x.planned).map(x => `${x.emp.id}:${x.label}`);
   assert.ok(planifiees.length > 0);
   assert.ok(!dues.some(r => planifiees.some(p => r.cle.includes(p))));
+});
+
+test('entretien annuel planifié à une date dépassée, jamais clos : relancé comme échu', () => {
+  const { db, recaps, passer } = fresh();
+  const x = db.sql.prepare(`SELECT id, emp_id AS empId, date FROM entretiens WHERE type = 'annuel' AND statut = 'planifie' ORDER BY date`).get() as { id: number; empId: number; date: string };
+  // Le lendemain de la date prévue, sans clôture ni reprogrammation.
+  const lendemain = new Date(Date.parse(x.date) + 86400000).toISOString().slice(0, 10);
+  le(lendemain, () => {
+    const d = new Domain(loadFull(db, currentUser(db, { compteId: 1, role: 'rh', methode: 'demo' })!));
+    const r = relancesDues(d, d.enrich(90, false), [90, 30, 7]).find(y => y.cle === `entretien:${x.empId}:annuel:${x.date}`);
+    assert.ok(r, 'relance de l’entretien annuel dépassé');
+    assert.equal(r!.palier, 'echu');
+    assert.match(r!.libelle, /planifié, date dépassée/);
+    passer();
+    assert.ok(recaps()[RH_MAIL][0].includes(`${d.emp(x.empId)!.nom} (${equipeLabel(d.emp(x.empId)!)}) — ${r!.libelle}`));
+  });
 });
 
 test('tâche de fond : à partir de 7 h, une fois par jour, le jour réglé, désactivable', () => {

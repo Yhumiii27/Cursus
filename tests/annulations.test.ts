@@ -19,6 +19,7 @@ const { blocage, conflitsDates } = await import('../shared/rules/conflits.ts');
 const { controleSortie } = await import('../shared/rules/contrats.ts');
 const { refusAnnulation, refusChangement, refusModification, voyagesAnnules } = await import('../shared/rules/deplacements.ts');
 const { obligations, statutObligation } = await import('../shared/rules/entretiens.ts');
+const { annulationEntretien } = await import('../client/src/state/confirmations-annulations.ts');
 type User = NonNullable<ReturnType<typeof currentUser>>;
 type Ligne = Record<string, any>;
 
@@ -85,6 +86,31 @@ test('voyage.modifier : mêmes contrôles qu’à la création, le déplacement 
   assert.deepEqual(e.contenu, { deplacement: ci.id, demande: null, reference: null, matricule: 'EMP-0012', chantier: 'K-2611', destination: 'CI', depart: ci.depart, retour: '2026-11-25', date: '2026-10-10' });
   // Manager : refusé (service RH seulement).
   refus(KARIM, 'voyage.modifier', { id: ci.id, depart: ci.depart, retour: '2026-11-24' }, /./, 403);
+});
+
+test('voyage.modifier : autre pays ou période élargie, formalités de détachement à refaire ; dates resserrées, certificat gardé', () => {
+  const { db, run, domain, journal, RH } = fresh();
+  run(RH, 'voyage.creer', { empId: 3, dest: 'MA', depart: '2026-11-02', retour: '2026-11-06', motif: 'Rétrofit — Tanger' });
+  const t = db.all<Ligne>('voyages').find(v => v.empId === 3 && v.dest === 'MA')!;
+  run(RH, 'voyage.detachement', { id: t.id, detachementLe: '2026-10-05' });
+  const certificat = () => domain().readiness(domain().emp(3)!, db.get<Ligne>('voyages', t.id) as any).items.find(i => i.k === 'detachement')!;
+  assert.ok(certificat().ok);
+  // Dates resserrées dans la période couverte : le certificat vaut toujours.
+  run(RH, 'voyage.modifier', { id: t.id, depart: '2026-11-03', retour: '2026-11-06' });
+  assert.equal(db.get<Ligne>('voyages', t.id)!.detachementLe, '2026-10-05');
+  // Ghana (pays sans convention) : le certificat obtenu pour le Maroc ne le couvre pas, le dossier redevient incomplet.
+  assert.match(run(RH, 'voyage.modifier', { id: t.id, dest: 'GH', depart: '2026-11-03', retour: '2026-11-06' }), /formalités de détachement à refaire/);
+  assert.equal(db.get<Ligne>('voyages', t.id)!.detachementLe, null);
+  assert.equal(certificat().ok, false);
+  assert.deepEqual(journal('voyage.modifier').at(-1)!.payload.apres, { dest: 'GH', detachementLe: null });
+  // Période élargie au-delà de celle du certificat : à refaire aussi ; mission devenue longue : information écrite à remettre.
+  run(RH, 'voyage.detachement', { id: t.id, detachementLe: '2026-10-09' });
+  run(RH, 'voyage.modifier', { id: t.id, dest: 'GH', depart: '2026-11-03', retour: '2026-12-11' });
+  assert.equal(db.get<Ligne>('voyages', t.id)!.detachementLe, null);
+  run(RH, 'voyage.detachement', { id: t.id, detachementLe: '2026-10-09', informationLe: '2026-10-09' });
+  run(RH, 'voyage.modifier', { id: t.id, dest: 'GH', depart: '2026-11-03', retour: '2026-12-10' });
+  const v = db.get<Ligne>('voyages', t.id)!;
+  assert.deepEqual([v.detachementLe, v.informationLe], ['2026-10-09', null], 'durée changée : information écrite à refaire, certificat gardé');
 });
 
 test('voyage.annuler : historique gardé, hors du dossier, du Go / No Go et des conflits ; Keystone prévenu sans le motif', () => {
@@ -172,6 +198,35 @@ test('entretien.annuler : compte rendu commencé, sur confirmation seulement ; e
   const annuel = (db.sql.prepare(`SELECT id FROM entretiens WHERE emp_id = 2 AND statut = 'planifie'`).get() as { id: number }).id;
   run(KARIM, 'entretien.clore', { id: annuel, date: '2026-10-08' });
   refus(KARIM, 'entretien.annuler', { id: annuel, confirmer: true }, /déjà clos/, 409);
+});
+
+test('entretien.annuler : compte rendu écrit par le salarié depuis la dernière relecture, annulation non confirmée refusée', () => {
+  const { db, run, refus, KARIM, MEHDI } = fresh();
+  run(KARIM, 'entretien.planifier', { empId: 2, kind: 'epp', date: '2026-11-16' });
+  const x = db.all<Ligne>('entretiens').find(y => y.empId === 2 && y.type === 'epp' && y.statut === 'planifie')!;
+  // L'évaluateur a ouvert l'entretien vierge : la confirmation n'annonce aucune suppression, et n'envoie pas `confirmer`.
+  const c = annulationEntretien(x as any, 'Mehdi Benali', { crCommence: false, passe: false });
+  assert.deepEqual(c.payload, { id: x.id });
+  // Entre-temps, le salarié rédige sa section depuis son portail.
+  run(MEHDI, 'entretien.modifier', { id: x.id, section: 'parcours', value: 'Évoluer vers la maintenance' });
+  refus(KARIM, 'entretien.annuler', c.payload!, /compte rendu commencé/, 409);
+  assert.ok(db.get('entretiens', x.id), 'entretien et compte rendu du salarié conservés');
+  // Rouverte sur des données à jour, la confirmation annonce la suppression et la confirme.
+  assert.deepEqual(annulationEntretien(x as any, 'Mehdi Benali', { crCommence: true, passe: false }).payload, { id: x.id, confirmer: true });
+});
+
+test('obligations : entretien annuel de l’année planifié à une date dépassée, en retard ; clos, plus rien', () => {
+  const { db, run, domain, KARIM } = fresh();
+  const annuel = () => obligations(domain(), [2]).find(o => o.kind === 'annuel');
+  const x = db.all<Ligne>('entretiens').find(y => y.empId === 2 && y.type === 'annuel' && y.statut === 'planifie')!;
+  assert.equal(annuel(), undefined, 'planifié à venir : rien à traiter');
+  db.sql.exec(`UPDATE entretiens SET date = '2026-10-05' WHERE id = ${x.id}`);
+  const o = annuel()!;
+  assert.equal(o.st, 'late');
+  assert.equal(o.pl!.id, x.id);
+  assert.deepEqual(statutObligation(o), ['Planifié, date dépassée', 'tag-accent']);
+  run(KARIM, 'entretien.clore', { id: x.id, date: '2026-10-05' });
+  assert.equal(annuel(), undefined);
 });
 
 test('obligations : un entretien planifié à une date dépassée est en retard, « Planifié, date dépassée »', () => {

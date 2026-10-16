@@ -570,8 +570,8 @@ aucun champ du paramètre n'est recopié.
 | `demande.habilitation` | h, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `voyage.creer` | empId, dest, depart, retour, motif ; refusé s'il chevauche un autre déplacement ou une absence en vigueur | RH |
 | `voyage.detachement` | id, detachementLe?, informationLe? (date passée ; vide : saisie effacée) ; déplacement annulé refusé | RH (certificat de sécurité sociale du détachement, information écrite d’une mission de plus de 4 semaines) |
-| `voyage.modifier` | id, dest?, depart, retour, motif? (non transmis : inchangés) ; contrôles de `voyage.creer`, le déplacement lui-même exclu des conflits ; venu de Keystone : dates seules (destination et motif du chantier), `deplacement.modifie` mis en file ; annulé ou terminé : 409 | RH |
-| `voyage.annuler` | id, motif (obligatoire pour un déplacement venu de Keystone, 500 caractères ; gardé dans Cursus, `annuleMotif`, jamais transmis) : `annuleLe`, `annulePar` ; déplacement gardé dans l'historique, hors de tous les calculs ; venu de Keystone : `deplacement.annule` mis en file ; déjà annulé ou terminé : 409 | RH |
+| `voyage.modifier` | id, dest?, depart, retour, motif? (non transmis : inchangés) ; contrôles de `voyage.creer`, le déplacement lui-même exclu des conflits ; formalités de détachement devenues caduques effacées (`formalitesCaduques`) ; venu de Keystone : dates seules (destination et motif du chantier), `deplacement.modifie` mis en file ; annulé ou terminé : 409 | RH |
+| `voyage.annuler` | id, motif (obligatoire pour un déplacement venu de Keystone, 500 caractères ; gardé dans Cursus, `annuleMotif`, jamais transmis à Keystone ; remis au salarié dans la copie de ses données) : `annuleLe`, `annulePar` ; déplacement gardé dans l'historique, hors de tous les calculs ; venu de Keystone : `deplacement.annule` mis en file ; déjà annulé ou terminé : 409 | RH |
 | `formalite.enregistrer` | empId, kind (`passeport`/`visa`/`vaccin`), numero, expire, dest, visaType, obtenu, v, date | RH (écrit dans le dossier), ou le collaborateur pour lui-même (déclaration en attente, voir ci-dessous) |
 | `voyages.importer` | texte (CSV) | RH |
 | `keystone.accepter` / `keystone.refuser` | id ; refus : motif? (conservé dans Cursus, demande et message du journal, jamais transmis à Keystone) | RH (demande en attente ; l'acceptation revalide affectation, chantier actif, destination, effectifs et l'absence de déplacement déjà créé, et est refusée si le salarié est déjà en déplacement ou absent ces jours-là ; la demande reste en base avec statut, date et décideur) |
@@ -1092,10 +1092,12 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
 - **Annulation et date dépassée** (`server/src/actions/annulation-entretien.ts`) : l'évaluateur ou le service RH annule un
   entretien planifié qui n'a plus lieu d'être (`entretien.annuler`, bouton « Annuler l’entretien » du compte rendu) ; il est
   retiré et l'obligation redevient à planifier. Un compte rendu commencé n'est supprimé avec lui que sur confirmation
-  (`confirmer`, que la confirmation de l'écran envoie après l'avoir annoncé). Date à venir : le salarié reçoit l'annulation
+  (`confirmer`, que la confirmation de l'écran n'envoie que si elle a annoncé un compte rendu commencé : écrit depuis par le
+  salarié, il fait refuser l'annulation, 409, et l'évaluateur la reprend sur des données à jour). Date à venir : le salarié reçoit l'annulation
   de l'événement de sa convocation (`.ics` CANCEL, même UID `entretien-<id>`, e-mail `convocation.annulee`). Un entretien
   planifié dont la date est passée sans avoir été clos compte en retard dans `obligations()` (`st: 'late'`, libellé
-  « Planifié, date dépassée » : `statutObligation`), donc dans les indicateurs et la pastille du menu ; la liste et le compte
+  « Planifié, date dépassée » : `statutObligation`), entretien annuel de l'année compris, donc dans les indicateurs, la
+  pastille du menu et le récapitulatif des échéances ; la liste et le compte
   rendu le signalent (« Date dépassée » : à clore s'il a eu lieu, sinon à reprogrammer ou à annuler).
 
 ## Déplacements modifiés ou annulés
@@ -1106,14 +1108,18 @@ Règles dans `shared/rules/deplacements.ts`, actions dans `server/src/actions/de
 
 - **Modification** (`voyage.modifier`) : dates, destination et motif, avec les contrôles de la création (destination du
   référentiel en vigueur ou déjà celle du déplacement, conflits de dates en excluant le déplacement lui-même). Un
-  déplacement venu de Keystone ne change que de dates (destination et motif sont ceux du chantier).
+  déplacement venu de Keystone ne change que de dates (destination et motif sont ceux du chantier). Les formalités de
+  détachement devenues caduques sont effacées (`formalitesCaduques`), et le dossier redevient incomplet : le certificat de
+  sécurité sociale si le pays change ou si la période déborde de celle d'origine, l'information écrite d'une mission longue
+  si le pays ou les dates changent.
 - **Annulation** (`voyage.annuler`) : colonnes `annuleLe`, `annulePar`, `annuleMotif` (texte libre du service RH : retiré
-  des instantanés manager, collaborateur et profils restreints ; le journal n'en garde que « renseigné »). Motif obligatoire
+  des instantanés manager, collaborateur et profils restreints ; le journal n'en garde que « renseigné » ; le salarié le
+  retrouve dans la copie de ses données, `GET /api/mes-donnees`, au titre du droit d'accès). Motif obligatoire
   pour un déplacement venu de Keystone. Le déplacement reste en base et s'affiche dans « Déplacements annulés » (six
   derniers), mais `voyageActif` l'écarte de tous les calculs : `Domain.tripsAll` (dossier à préparer, tableau de bord,
   Go / No Go, verdicts transmis), conflits de dates, avertissements d'une sortie, acceptation d'une demande Keystone
   (`motifsRefusAcceptation`), déplacements prévus d'une destination, missions, relances. Annulé ou terminé (retour passé),
-  un déplacement ne se modifie plus et ne s'annule plus (409), ni ses formalités de détachement.
+  un déplacement ne se modifie plus et ne s'annule plus (409) ; annulé, ses formalités de détachement non plus.
 - **Keystone** : pour un déplacement d'origine `keystone`, `deplacement.modifie` et `deplacement.annule` (identifiant du
   déplacement, de la demande acceptée, référence, matricule, chantier, destination, dates ; jamais le motif) partent par la
   file d'envoi, simulés tant que `KEYSTONE_URL` n'est pas défini (docs/API-KEYSTONE.md) ; le verdict recalculé suit
@@ -1133,8 +1139,9 @@ e-mails, tous les quarts d'heure) : une fois par jour à partir de 7 h (réglage
   des feuilles). Une vaccination n'est qu'une « formalité sanitaire de voyage », une visite qu'une « visite médicale ».
 - **Paliers** : 90, 30 et 7 jours avant l'échéance par défaut (90, 60, 30, 15, 7 au choix, un au moins), puis l'échéance
   dépassée. La table `relances` (clé de l'objet avec sa date d'échéance, palier, jour) retient chaque palier relancé :
-  un objet n'est relancé qu'une fois par palier, même si personne ne l'a reçu ; un renouvellement (nouvelle date)
-  repart de zéro. Lignes de plus de 400 jours purgées.
+  un objet n'est relancé qu'une fois par palier ; un renouvellement (nouvelle date) repart de zéro. Tant que la boîte du
+  service RH (destinataire de tout le périmètre) n'est pas renseignée, le passage du jour n'envoie ni ne note rien : les
+  paliers franchis partent au premier passage qui suit son réglage. Lignes de plus de 400 jours purgées.
 - **Destinataires** : la boîte du service RH (tout) ; chaque manager d'une équipe, à l'adresse de sa fiche (ses membres
   sans lui-même, sans visite, vaccination ni entretien de reprise) ; chaque compte actif de référent HSE (formations et
   habilitations). Une même adresse reçoit un seul e-mail. Type `echeances.recapitulatif` de la file d'envoi.

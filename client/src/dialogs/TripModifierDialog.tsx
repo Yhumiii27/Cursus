@@ -3,6 +3,7 @@
 // garde la destination et le motif de son chantier : seules ses dates changent, et Keystone en est prévenu.
 import { useState } from 'react';
 import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
+import { formalitesCaduques } from '../../../shared/rules/deplacements.ts';
 import { actifs } from '../../../shared/rules/referentiels.ts';
 import { CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { erreursPeriode, erreurTexte } from '../components/controles.ts';
@@ -32,6 +33,12 @@ export function TripModifierDialog({ id }: { id: number }) {
   const destErr = destDef ? null : 'Choisissez la destination.';
   const conflits = !dates.du && !dates.au ? conflitsDates(d, emp.id, depart, retour, 'voyage', { voyageId: t.id }) : [];
   const inchange = dest === t.dest && depart === t.depart && retour === t.retour && motif.trim() === t.motif;
+  // Formalités de détachement que la modification rend caduques (autre pays, période élargie, autre durée).
+  const caduques = !dates.du && !dates.au ? formalitesCaduques(t, { dest, depart, retour }) : {};
+  const aRefaire = [
+    'detachementLe' in caduques ? 'le certificat de sécurité sociale' : '',
+    'informationLe' in caduques ? 'l’information écrite de la mission' : '',
+  ].filter(Boolean);
 
   const confirm = async () => {
     if (busy || !v.verifier(destErr, dates.du, dates.au, motifErr, blocage(conflits))) return;
@@ -67,6 +74,7 @@ export function TripModifierDialog({ id }: { id: number }) {
         </Field>
       </div>
       <Controles msgs={conflits} />
+      {aRefaire.length > 0 && <Fine>Formalités de détachement à refaire après cette modification : {aRefaire.join(' et ')}. Le dossier redevient incomplet.</Fine>}
       {keystone
         ? <Field label="Motif"><Static>{t.motif}</Static></Field>
         : <Field label="Motif" htmlFor="tm-motif" requis erreur={v.erreur(motifErr)}><input className="input" id="tm-motif" type="text" value={motif} onChange={e => setMotif(e.target.value)} /></Field>}

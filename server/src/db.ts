@@ -118,6 +118,8 @@ export const TABLES = {
       signaleParInteresse: 'bool',
       // Motif d'une demande refusée, montré au salarié et à son manager.
       motifRefus: 'text',
+      // Demi-journées du premier et du dernier jour (null : journée entière), shared/rules/demi-journees.ts.
+      debutDemi: 'text', finDemi: 'text',
     },
   },
   cet: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', type: 'text', jours: 'real', date: 'text', periode: 'text' } },

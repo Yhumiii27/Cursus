@@ -10,6 +10,7 @@ import { addD, isoWeek, parse } from '../../shared/dates.ts';
 import { type Domain, sessionActive } from '../../shared/domain.ts';
 import { equipeLabel, fmt, fmtIso, plural } from '../../shared/format.ts';
 import { matriculeAffiche } from '../../shared/rules/matricules.ts';
+import { demiTexte } from '../../shared/rules/demi-journees.ts';
 import { convocationEnvoyee } from '../../shared/rules/sessions.ts';
 import type { Absence, Certification, CurrentUser, Dataset, DemandeCollab, DemandeVisite, Employe, Entretien, Messagerie, Session } from '../../shared/types.ts';
 import { configMail } from './config.ts';
@@ -59,21 +60,24 @@ const semaineTexte = (week: string) => `semaine ${isoWeek(week)} (${periodeLongu
 // — Étapes de validation —
 
 /** Demande de congés : au valideur (manager direct, sinon le service RH). */
-export function notifierDemandeConge(cx: Contexte, emp: Employe, a: Pick<Absence, 'type' | 'du' | 'au'>, valideur: number) {
+/** Demi-journées d'un congé dans un e-mail : « (après-midi le premier jour) », vide pour des journées entières. */
+const demiCourriel = (a: Pick<Absence, 'du' | 'au' | 'debutDemi' | 'finDemi'>) => { const t = demiTexte(a); return t ? ` (${t})` : ''; };
+
+export function notifierDemandeConge(cx: Contexte, emp: Employe, a: Pick<Absence, 'type' | 'du' | 'au' | 'debutDemi' | 'finDemi'>, valideur: number) {
   const c = conge(a.type);
   return notifier(cx, valideur, {
     type: 'absence.demande', objet: `Demande de ${c.objet} à valider — ${emp.nom}`,
-    texte: `${emp.nom} demande ${c.texte} ${periodeLongue(a.du, a.au)}. La demande attend votre décision (Congés & absences).`,
+    texte: `${emp.nom} demande ${c.texte} ${periodeLongue(a.du, a.au)}${demiCourriel(a)}. La demande attend votre décision (Congés & absences).`,
   });
 }
 
 /** Décision sur une demande de congés, ou congés posés et validés par le manager : au salarié. */
-export function notifierDecisionConge(cx: Contexte, emp: Employe, a: Pick<Absence, 'type' | 'du' | 'au'>, ok: boolean, posee = false) {
+export function notifierDecisionConge(cx: Contexte, emp: Employe, a: Pick<Absence, 'type' | 'du' | 'au' | 'debutDemi' | 'finDemi'>, ok: boolean, posee = false) {
   const c = conge(a.type);
   const objet = posee ? `Congés posés pour vous : ${c.objet}` : `Demande de ${c.objet} ${ok ? 'validée' : 'refusée'}`;
   const texte = posee
-    ? `${auteur(cx.user)} a posé et validé pour vous ${c.texte} ${periodeLongue(a.du, a.au)}.`
-    : `Votre demande de ${c.objet} ${periodeLongue(a.du, a.au)} a été ${ok ? 'validée' : 'refusée'} par ${auteur(cx.user)}.`;
+    ? `${auteur(cx.user)} a posé et validé pour vous ${c.texte} ${periodeLongue(a.du, a.au)}${demiCourriel(a)}.`
+    : `Votre demande de ${c.objet} ${periodeLongue(a.du, a.au)}${demiCourriel(a)} a été ${ok ? 'validée' : 'refusée'} par ${auteur(cx.user)}.`;
   return notifier(cx, emp.id, { type: 'absence.decision', objet, texte });
 }
 

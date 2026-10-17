@@ -9,6 +9,7 @@ import type { Domain, EmpX, HabInfo } from '../../shared/domain.ts';
 import { cpPeriods } from '../../shared/dates.ts';
 import { matricule } from '../../shared/format.ts';
 import { estConge, joursDecomptes, statutAbsence, uniteDecompte } from '../../shared/rules/absences.ts';
+import { demiTexte } from '../../shared/rules/demi-journees.ts';
 import { cetInfo, cpInfo, recupInfo, rttInfo } from '../../shared/rules/conges.ts';
 import { sorti } from '../../shared/rules/contrats.ts';
 import { coutRetenu } from '../../shared/rules/exercices.ts';
@@ -84,16 +85,17 @@ export function csvSoldes(d: Domain, emps: Employe[]): ListeCsv {
  * absence reste « Absence » (jamais sa nature : arrêt, accident, enfant malade… sont des données de santé), quel que
  * soit le profil. Son décompte aussi est celui d'une absence générique (jours calendaires) : l'unité et le nombre de
  * jours de la nature réelle (calendaires pour un arrêt, ouvrés pour un enfant malade) trahiraient sa catégorie.
- * Ni motif de refus, ni signalement nominatif.
+ * Ni motif de refus, ni signalement nominatif. Demi-journées d'un congé : jours décomptés 0,5 et dernière colonne
+ * (« après-midi le premier jour · matin le dernier jour »), vide pour des journées entières.
  */
 export function csvAbsences(d: Domain, list: { a: Absence; e: Employe }[]): ListeCsv {
   return {
     fichier: `absences-${d.ti}.csv`,
-    head: ['Collaborateur', 'Matricule', 'Équipe', 'Absence', 'Du', 'Au', 'Jours', 'Décompte', 'Statut'],
+    head: ['Collaborateur', 'Matricule', 'Équipe', 'Absence', 'Du', 'Au', 'Jours', 'Décompte', 'Statut', 'Demi-journées'],
     rows: list.map(({ a, e }) => {
       const t = estConge(a.type) ? a.type : 'ABSENCE';
       return [e.nom, matricule(e.id), e.equipe ?? 'À affecter', estConge(t) ? ABS_LABEL[t] : 'Absence',
-        jma(a.du), jma(a.au), nombre(joursDecomptes(d, e, { ...a, type: t })), `jours ${uniteDecompte(t)}`, statutAbsence(a)];
+        jma(a.du), jma(a.au), nombre(joursDecomptes(d, e, { ...a, type: t })), `jours ${uniteDecompte(t)}`, statutAbsence(a), estConge(t) ? demiTexte(a) : ''];
     }),
   };
 }

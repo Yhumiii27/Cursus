@@ -471,7 +471,7 @@ export function seedDemo(db: Db) {
       const rtt = rd == null ? 0 : Math.min(h.rtt, Math.max(0, rd - 3));
       // Les demandes de récupération en attente doivent rester couvertes par le compteur acquis.
       const recupDemandee = ds.absences.filter(a => a.empId === e.id && a.type === 'RECUP' && a.statut === 'demandee')
-        .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'RECUP') * d.dayH(e), 0);
+        .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'RECUP', a) * d.dayH(e), 0);
       db.insert('soldesReprise', { empId: e.id, cpPris: cp, rttPris: rtt, recupAcquis: Math.max(h.recA, h.recP + recupDemandee), recupPris: h.recP, arreteLe: arrete });
       // Reprise après une absence longue (maternité…), inscrite comme à la saisie par le RH.
       const r = repriseDesAbsences(ds.absences, e.id);

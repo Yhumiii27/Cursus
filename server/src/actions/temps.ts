@@ -4,8 +4,8 @@ import { fH, num, plural } from '../../../shared/format.ts';
 import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
 import { jourHorsContrat, semaineHorsContrat } from '../../../shared/rules/absences.ts';
 import {
-  absenceCeJour, calcSheet, contratFige, demandesAbsence, demandesEnAttenteMessage, HEURES_JOUR_MAX, heuresSurAbsence, heuresSurAbsenceMessage,
-  joursAbsence, joursAuDela24, joursTexte, semaineCouverte, suggestLines,
+  absenceCeJour, calcSheet, contratFige, demandesEnAttenteMessage, demiJourneeRefus, HEURES_JOUR_MAX, heuresSurAbsence,
+  heuresSurAbsenceMessage, heuresSurDemandes, joursAbsence, joursAuDela24, joursTexte, semaineCouverte, suggestLines,
 } from '../../../shared/rules/temps.ts';
 import { estActiviteInterne } from '../../../shared/rules/activites.ts';
 import { completerSemaine, JOURS_FEUILLE } from '../../../shared/rules/semaine.ts';
@@ -85,6 +85,9 @@ const setCell: ActionHandler = (ctx, p) => {
   // d'une journée déjà au-delà, saisie avant ce contrôle, reste possible).
   const jour = lignes.reduce((n, l) => n + num(l.h[di]), 0);
   if (jour > HEURES_JOUR_MAX && v > num(sh.lignes[li].h[di])) throw new ActionError(`Plus de 24 h ce jour-là (${fH(jour)} toutes lignes cumulées) : une journée compte 24 h au plus`);
+  // Demi-journée d'absence : au plus une demi-journée de travail ce jour-là (baisser une cellule reste possible).
+  const demi = v > num(sh.lignes[li].h[di]) ? demiJourneeRefus(ctx.d, sh, di, jour) : null;
+  if (demi) throw new ActionError(demi);
   saveLines(ctx, sh, lignes);
   return null;
 };
@@ -166,7 +169,7 @@ const validate: ActionHandler = (ctx, p) => {
   const surAbsence = heuresSurAbsence(ctx.d, sh);
   if (surAbsence.length) throw new ActionError(heuresSurAbsenceMessage(surAbsence, 'ou renvoyez la feuille avant de la valider'));
   // Demande d'absence en attente sur ces heures : à décider d'abord (même valideur), sinon elle ne pourrait plus être validée.
-  const enAttente = heuresSurAbsence(ctx.d, sh, demandesAbsence(ctx.d));
+  const enAttente = heuresSurDemandes(ctx.d, sh);
   if (enAttente.length) throw new ActionError(demandesEnAttenteMessage(enAttente));
   controleJournees(sh, sh.lignes);
   const contrat = sh.contrat ?? contratFige(emp);

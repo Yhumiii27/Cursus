@@ -8,6 +8,7 @@ import type { Domain } from '../domain.ts';
 import type { AbsenceType, CongeType, Employe, ISODate, NatureAbsence, ReportCp } from '../types.ts';
 import { absenceActive, absenceBloque, borneContrat, joursDecomptes, natureDef, periodeTexte, uniteDecompte } from './absences.ts';
 import { conflitsDates } from './conflits.ts';
+import { chevauche, demiJournees, type DemiJournees } from './demi-journees.ts';
 import { modeHeuresSup } from './paie.ts';
 import { calcSheet, heuresSurAbsence, joursTexte, type AbsenceJour } from './temps.ts';
 
@@ -147,8 +148,15 @@ function acquisAu(e: Employe, A: number, jour: ISODate): number {
   return 25 / 12 * monthsPresent(e, `${A - 1}-06-01`, Math.max(0, Math.min(12, mois)));
 }
 
-/** Jour de CP imputé : `periode` est l'année de prise de la période qui le décompte (voir `anneeCp`). */
-export interface JourCp { jour: ISODate; statut: 'validee' | 'demandee' | 'nouveau'; periode: number; anticipe: boolean; horsDroit: boolean }
+/**
+ * Jour de CP imputé : `periode` est l'année de prise de la période qui le décompte (voir `anneeCp`) ; `poids` : 1, ou 0,5
+ * pour une demi-journée — posée comme telle, ou moitié d'une journée répartie entre deux périodes (la période épuisée
+ * à la mi-journée).
+ */
+export interface JourCp { jour: ISODate; poids: number; statut: 'validee' | 'demandee' | 'nouveau'; periode: number; anticipe: boolean; horsDroit: boolean }
+
+/** Jours de CP d'une liste imputée : somme des poids (demi-journées comprises). */
+export const joursCp = (jours: readonly Pick<JourCp, 'poids'>[]) => jours.reduce((n, j) => n + j.poids, 0);
 
 /**
  * Imputation des congés payés jour par jour, dans l'ordre chronologique (congés validés et demandés ; `nouveau` : la
@@ -160,16 +168,17 @@ export interface JourCp { jour: ISODate; statut: 'validee' | 'demandee' | 'nouve
  * Déjà consommés : les compteurs repris de l'ancien système (période de leur date d'arrêté) et les jours placés sur le CET
  * (par période).
  */
-export function imputationCp(d: Domain, e: Employe, nouveau?: { du: ISODate; au: ISODate }): JourCp[] {
+export function imputationCp(d: Domain, e: Employe, nouveau?: { du: ISODate; au: ISODate } & DemiJournees): JourCp[] {
   return imputer(d, e, nouveau).jours;
 }
 
 /**
- * Imputation jour par jour (`imputationCp`). Le droit d'une période est celui du jour imputé : un report échu en cours de
- * période ne couvre plus les jours posés après son échéance. `consommes(A, expire)` : jours imputés sur la période `A` à
- * la date `expire` (`reportsAu`).
+ * Imputation jour par jour (`imputationCp`), par demi-journée : une journée se répartit entre deux périodes quand la
+ * première n'a plus qu'une demi-journée de place. Le droit d'une période est celui du jour imputé : un report échu en
+ * cours de période ne couvre plus les jours posés après son échéance. `consommes(A, expire)` : jours imputés sur la
+ * période `A` à la date `expire` (`reportsAu`).
  */
-function imputer(d: Domain, e: Employe, nouveau?: { du: ISODate; au: ISODate }) {
+function imputer(d: Domain, e: Employe, nouveau?: { du: ISODate; au: ISODate } & DemiJournees) {
   const acquis = new Map<number, number>(), recus = new Map<number, ReturnType<typeof recusSur>>();
   const imputes = new Map<number, number>(), releves = new Map<string, number>();
   const impute = (A: number) => imputes.get(A) ?? 0;
@@ -181,26 +190,33 @@ function imputer(d: Domain, e: Employe, nouveau?: { du: ISODate; au: ISODate }) 
     for (const x of recus.get(A)!) if (jour > x.expire && !releves.has(`${A}|${x.expire}`)) releves.set(`${A}|${x.expire}`, impute(A));
     return acquis.get(A)! + reportsAu(recus.get(A)!, A, jour, ex => consommes(A, ex));
   };
-  /** Encore un jour de place sur la période `A` dans la limite donnée (droits, ou jours acquis à la date). */
-  const place = (A: number, limite: number) => impute(A) + 1 <= limite + 1e-9;
+  /** Encore une demi-journée de place sur la période `A` dans la limite donnée (droits, ou jours acquis à la date). */
+  const place = (A: number, limite: number) => impute(A) + 0.5 <= limite + 1e-9;
   const R = reprise(d, e.id);
   ajoute(R.periodeCp, R.cpPris);
   ajoute(R.periodeCp + 1, R.cpPrisSuivant);
   d.ds.cet.filter(x => x.empId === e.id && x.type === 'CP').forEach(x => ajoute(Number(x.periode.slice(-4)), x.jours));
-  const conges: { du: ISODate; au: ISODate; statut: JourCp['statut'] }[] = [
+  const conges: ({ du: ISODate; au: ISODate; statut: JourCp['statut'] } & DemiJournees)[] = [
     ...d.ds.absences.filter(a => a.empId === e.id && a.type === 'CP' && (a.statut === 'validee' || a.statut === 'demandee'))
-      .map(a => ({ du: a.du, au: a.au, statut: a.statut as 'validee' | 'demandee' })),
+      .map(a => ({ du: a.du, au: a.au, debutDemi: a.debutDemi, finDemi: a.finDemi, statut: a.statut as 'validee' | 'demandee' })),
     ...(nouveau ? [{ ...nouveau, statut: 'nouveau' as const }] : []),
   ];
+  /** Une demi-journée imputée : sur sa période, par anticipation sur la suivante, ou hors droit. */
+  const demi = (jour: ISODate, statut: JourCp['statut']): JourCp => {
+    const A = anneeCp(jour), j = { jour, poids: 0.5, statut };
+    if (place(A, droit(A, jour))) { ajoute(A, 0.5); return { ...j, periode: A, anticipe: false, horsDroit: false }; }
+    if (place(A + 1, acquisAu(e, A + 1, jour))) { ajoute(A + 1, 0.5); return { ...j, periode: A + 1, anticipe: true, horsDroit: false }; }
+    ajoute(A, 0.5);
+    return { ...j, periode: A, anticipe: false, horsDroit: true };
+  };
   const jours = conges
-    .flatMap(a => d.countedDays(e, a.du, a.au, 'CP').map(jour => ({ jour, statut: a.statut })))
+    .flatMap(a => d.countedDays(e, a.du, a.au, 'CP', a).map(x => ({ ...x, statut: a.statut })))
     .sort((x, y) => x.jour.localeCompare(y.jour))
-    .map(({ jour, statut }): JourCp => {
-      const A = anneeCp(jour);
-      if (place(A, droit(A, jour))) { ajoute(A, 1); return { jour, statut, periode: A, anticipe: false, horsDroit: false }; }
-      if (place(A + 1, acquisAu(e, A + 1, jour))) { ajoute(A + 1, 1); return { jour, statut, periode: A + 1, anticipe: true, horsDroit: false }; }
-      ajoute(A, 1);
-      return { jour, statut, periode: A, anticipe: false, horsDroit: true };
+    .flatMap(({ jour, poids, statut }): JourCp[] => {
+      // Journée entière : deux demi-journées, réunies quand elles vont au même endroit.
+      const parts = poids > 0.5 ? [demi(jour, statut), demi(jour, statut)] : [demi(jour, statut)];
+      const [x, y] = parts;
+      return y && x.periode === y.periode && x.anticipe === y.anticipe && x.horsDroit === y.horsDroit ? [{ ...x, poids: 1 }] : parts;
     });
   return { jours, consommes };
 }
@@ -209,7 +225,7 @@ function imputer(d: Domain, e: Employe, nouveau?: { du: ISODate; au: ISODate }) 
 export function soldePeriode(d: Domain, e: Employe, A: number): number {
   const cet = d.ds.cet.filter(x => x.empId === e.id && x.type === 'CP' && Number(x.periode.slice(-4)) === A).reduce((n, x) => n + x.jours, 0);
   const repris = reprisSur(reprise(d, e.id), A);
-  return droitPeriode(d, e, A) - imputationCp(d, e).filter(j => j.periode === A).length - cet - repris;
+  return droitPeriode(d, e, A) - joursCp(imputationCp(d, e).filter(j => j.periode === A)) - cet - repris;
 }
 
 /**
@@ -223,11 +239,11 @@ export function cpInfo(d: Domain, e: Employe) {
   const P = cpPeriods(d.ti), A = anneeCp(d.ti);
   const base = cpDroit(d, e);
   const jours = imputationCp(d, e);
-  const sur = (periode: number, statut: JourCp['statut']) => jours.filter(j => j.periode === periode && j.statut === statut).length;
+  const sur = (periode: number, statut: JourCp['statut']) => joursCp(jours.filter(j => j.periode === periode && j.statut === statut));
   const cetCp = d.ds.cet.filter(x => x.empId === e.id && x.type === 'CP' && x.periode === P.label).reduce((n, x) => n + x.jours, 0);
   const R = reprise(d, e.id);
   const pris = reprisSur(R, A) + sur(A, 'validee') + cetCp, poses = sur(A, 'demandee');
-  const suivante = jours.filter(j => j.periode === A + 1).length, anticipes = jours.filter(j => j.periode === A + 1 && j.anticipe).length;
+  const suivante = joursCp(jours.filter(j => j.periode === A + 1)), anticipes = joursCp(jours.filter(j => j.periode === A + 1 && j.anticipe));
   return {
     ...base, cetCp, pris, poses, solde: base.droit - pris - poses, suivante, anticipes,
     enCours: r1(25 / 12 * monthsPresent(e, P.prisStart, P.monthsElapsed)), periodes: P,
@@ -272,7 +288,7 @@ export function rttInfo(d: Domain, e: Employe, Y = d.year) {
   const c = d.contratOf(e), R = reprise(d, e.id);
   const absD = (st: string) => d.ds.absences
     .filter(a => a.empId === e.id && a.type === 'RTT' && a.statut === st && a.du >= `${Y}-01-01` && a.du <= `${Y}-12-31`)
-    .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'RTT'), 0);
+    .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'RTT', a), 0);
   const cetRtt = d.ds.cet.filter(x => x.empId === e.id && x.type === 'RTT' && x.periode === String(Y)).reduce((n, x) => n + x.jours, 0);
   const pris = (R.anneeRtt === Y ? R.rttPris : 0) + absD('validee') + cetRtt, poses = absD('demandee');
   return { annee: Y, cetRtt, droit, pris, poses, solde: droit - pris - poses, label: c.forfait ? 'Jours de repos (forfait)' : 'RTT' };
@@ -300,7 +316,7 @@ export function recupInfo(d: Domain, e: Employe) {
   const acq = R.recupAcquis + d.ds.feuilles.filter(sh => sh.empId === e.id && sh.statut === 'validee').reduce((n, sh) => n + calcSheet(d, e, sh).recup, 0);
   const absH = (st: string) => d.ds.absences
     .filter(a => a.empId === e.id && a.type === 'RECUP' && a.statut === st)
-    .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'RECUP') * dh, 0);
+    .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'RECUP', a) * dh, 0);
   const pris = R.recupPris + absH('validee'), poses = absH('demandee');
   if (modeHeuresSup(null, d.ds.settings) === 'paiement' && !acq && !pris && !poses) return null;
   return { acq, pris, poses, solde: acq - pris - poses, dh };
@@ -338,11 +354,14 @@ export function absenceKinds(d: Domain, e: Employe): [CongeType, string][] {
  * Heures déjà saisies sur les jours d'une absence (avant de la poser validée ou de la valider) : marche à suivre,
  * feuille par feuille, ou null. `quand` : « avant de valider l’absence »…
  * Une feuille validée n'est jamais modifiée rétroactivement : l'absence ne peut alors pas couvrir ces jours (`validee`).
+ * Demi-journée : au-delà d'une demi-journée de travail ce jour-là ; avec une demi-journée opposée déjà en vigueur (CP le
+ * matin, RTT l'après-midi), le jour devient entier et n'admet plus aucune heure.
  */
 export function heuresAvantAbsence(d: Domain, a: AbsenceJour, quand: string): { text: string; validee: boolean } | null {
+  const enVigueur = d.ds.absences.filter(x => x.empId === a.empId && absenceBloque(x) && x.du <= a.au && x.au >= a.du);
   const feuilles = d.ds.feuilles
     .filter(sh => sh.empId === a.empId && sh.week <= a.au && addD(sh.week, 6) >= a.du)
-    .map(sh => ({ sh, jours: heuresSurAbsence(d, sh, [a]).map(h => h.day) }))
+    .map(sh => ({ sh, jours: heuresSurAbsence(d, sh, [a, ...enVigueur]).filter(h => h.day >= a.du && h.day <= a.au).map(h => h.day) }))
     .filter(x => x.jours.length)
     .sort((x, y) => x.sh.week.localeCompare(y.sh.week));
   if (!feuilles.length) return null;
@@ -380,35 +399,44 @@ export function rttDemande(d: Domain, e: Employe, du: ISODate, au: ISODate) {
  * Pour une simple demande, elles sont seulement signalées (la validation sera refusée tant qu'elles restent),
  * sauf sur une feuille déjà validée : l'absence ne pourra jamais couvrir ces jours, la demande est refusée.
  * RTT : solde de l'année du premier jour (`rttDemande`), celle de l'année suivante dès maintenant.
+ * `demi` : demi-journées du premier et du dernier jour (`demiJournees` de shared/rules/demi-journees.ts), décomptées 0,5 ;
+ * deux demi-journées opposées le même jour ne se chevauchent pas.
  */
-export function checkAbsence(d: Domain, e: Employe, kind: CongeType, du: string, au: string, valider = false) {
+export function checkAbsence(d: Domain, e: Employe, kind: CongeType, du: string, au: string, valider = false, demi: DemiJournees = {}) {
   const c = d.contratOf(e), cp = cpInfo(d, e), rc = recupInfo(d, e);
   const kinds = absenceKinds(d, e);
   const valid = isValidDate(du) && isValidDate(au) && au >= du;
+  const dj = demiJournees(kind, du, au, demi.debutDemi, demi.finDemi), periode = { du, au, ...dj.demi };
   const rtt = kind === 'RTT' && valid ? rttDemande(d, e, du, au) : null;
   const rt = rtt ? rtt.info : rttInfo(d, e);
-  const n = valid ? d.countDays(e, du, au, kind) : 0;
+  const decomptes = valid ? d.countedDays(e, du, au, kind, dj.demi) : [];
+  const n = decomptes.reduce((x, j) => x + j.poids, 0);
+  // Demi-journée sur un jour non décompté (week-end, férié, jour non travaillé) : sans objet, refusée plutôt qu'ignorée.
+  const demiErreur = !valid ? null : dj.erreur
+    ?? (dj.demi.debutDemi && decomptes[0]?.jour !== du ? 'Le premier jour n’est pas un jour travaillé : la demi-journée ne s’y applique pas.'
+      : dj.demi.finDemi && decomptes.at(-1)?.jour !== au ? 'Le dernier jour n’est pas un jour travaillé : la demi-journée ne s’y applique pas.' : null);
   const dispo = kind === 'CP' ? (cp ? cp.solde : 0) : kind === 'RTT' ? (rt ? rt.solde : 0) : (rc ? rc.solde / rc.dh : 0);
   // Un CP après la fin d'un CDD ou avant l'entrée n'a pas de sens : l'absence reste dans les bornes du contrat.
   const hors = valid ? borneContrat(e, du, au) : null;
-  const overlap = valid && d.ds.absences.some(a => a.empId === e.id && absenceActive(a) && a.du <= au && a.au >= du);
+  const overlap = valid && d.ds.absences.some(a => a.empId === e.id && absenceActive(a) && chevauche(a, periode));
   const m = valid ? d.ds.missions.find(x => x.empId === e.id && x.du <= au && x.au >= du) : undefined;
   // Congés payés : chaque jour est imputé sur sa période (`imputationCp`). Insuffisant si la demande laisse des jours hors
   // droit — les siens, ou ceux d'un congé déjà posé plus tard, qu'elle repousserait au-delà des jours acquis.
-  const cpJours = kind === 'CP' && cp && valid ? imputationCp(d, e, { du, au }) : null;
+  const cpJours = kind === 'CP' && cp && valid ? imputationCp(d, e, periode) : null;
   const nouveaux = cpJours ? cpJours.filter(j => j.statut === 'nouveau') : [];
-  const horsDroit = !!cpJours && cpJours.filter(j => j.horsDroit).length > imputationCp(d, e).filter(j => j.horsDroit).length;
+  const horsDroit = !!cpJours && joursCp(cpJours.filter(j => j.horsDroit)) > joursCp(imputationCp(d, e).filter(j => j.horsDroit)) + 1e-9;
   const anticip = !horsDroit && nouveaux.some(j => j.anticipe);
   const autres = [...new Set(nouveaux.filter(j => !j.anticipe && j.periode !== anneeCp(d.ti)).map(j => j.periode))];
   const insuff = cpJours ? horsDroit : n > dispo;
   // Période de CP close (`conges.cloturer`) : son solde est photographié et décidé, aucun congé ne s'y pose plus.
   const close = cpJours ? [...new Set(nouveaux.map(j => anneeCp(j.jour)))].find(A => d.ds.clotures.some(x => x.empId === e.id && x.type === 'CP' && x.periode === A)) : undefined;
   const rttRefus = rtt?.refus ?? null;
-  const heures = valid ? heuresAvantAbsence(d, { empId: e.id, type: kind, du, au }, valider ? 'avant de poser l’absence' : 'avant la validation de l’absence') : null;
+  const heures = valid ? heuresAvantAbsence(d, { empId: e.id, type: kind, ...periode }, valider ? 'avant de poser l’absence' : 'avant la validation de l’absence') : null;
   const heuresBloquent = !!heures && (valider || heures.validee);
   const msgs: { text: string; bad: boolean }[] = [];
   const add = (text: string, bad = false) => msgs.push({ text, bad });
   if (valid) add(`Décompte : ${fJ(n)} ${kind === 'CP' ? 'ouvrés' : 'travaillés'} — week-ends et jours fériés exclus${kind !== 'CP' && c.jourOff.length ? ', jour non travaillé exclu' : ''}.`);
+  if (demiErreur) add(demiErreur, true);
   if (hors) add(`Absence hors contrat : ${hors}.`, true);
   if (overlap) add('Une absence existe déjà sur ces dates.', true);
   if (close != null) add(`Les congés payés de la période ${periodeCp(close)} sont clos : aucun congé ne se pose plus sur ses dates.`, true);
@@ -430,8 +458,8 @@ export function checkAbsence(d: Domain, e: Employe, kind: CongeType, du: string,
     : Ademande != null && Ademande !== anneeCp(d.ti) ? `Disponible sur la période ${periodeCp(Ademande)} : ${fJ(soldePeriode(d, e, Ademande))}`
     : rtt && rtt.annee !== d.year ? `Disponible sur ${rtt.annee} : ${fJ(dispo)}`
     : `Disponible : ${fJ(dispo)}`;
-  const cant = !valid || n === 0 || !!hors || overlap || insuff || close != null || !!rttRefus || heuresBloquent || !kinds.some(k => k[0] === kind);
-  return { valid, n, dispo, msgs, soldeLabel, cant, kinds };
+  const cant = !valid || n === 0 || !!demiErreur || !!hors || overlap || insuff || close != null || !!rttRefus || heuresBloquent || !kinds.some(k => k[0] === kind);
+  return { valid, n, dispo, msgs, soldeLabel, cant, kinds, demi: dj.demi };
 }
 
 /**
@@ -448,7 +476,8 @@ export function checkNature(d: Domain, e: Employe, type: NatureAbsence | 'ABSENC
   const debut = opts.depuis && opts.depuis < du ? opts.depuis : du;
   const total = valid && debut !== du ? joursDecomptes(d, e, { type, du: debut, au }) : n;
   const hors = valid ? borneContrat(e, du, au) : null;
-  const autre = valid ? d.ds.absences.find(a => a.id !== opts.exclure && a.empId === e.id && absenceActive(a) && a.du <= au && a.au >= du) : undefined;
+  // Absences hors congés : journées entières ; une demi-journée de congé ce jour-là la chevauche donc aussi.
+  const autre = valid ? d.ds.absences.find(a => a.id !== opts.exclure && a.empId === e.id && absenceActive(a) && chevauche(a, { du, au })) : undefined;
   const heures = valid ? heuresAvantAbsence(d, { empId: e.id, type, du, au }, opts.quand) : null;
   const m = valid ? d.ds.missions.find(x => x.empId === e.id && x.du <= au && x.au >= du) : undefined;
   const msgs: { text: string; bad: boolean }[] = [];

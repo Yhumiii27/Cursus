@@ -44,9 +44,9 @@ export function uniteDecompte(t: AbsenceType): 'calendaires' | 'ouvrés' | 'trav
   return t === 'RTT' || t === 'RECUP' ? 'travaillés' : 'ouvrés';
 }
 
-/** Jours décomptés d'une absence, selon sa nature. */
-export function joursDecomptes(d: Domain, e: Employe, a: Pick<Absence, 'type' | 'du' | 'au'>): number {
-  return uniteDecompte(a.type) === 'calendaires' ? days(parse(a.du), parse(a.au)) + 1 : d.countDays(e, a.du, a.au, a.type);
+/** Jours décomptés d'une absence, selon sa nature (demi-journées des congés comprises : 0,5). */
+export function joursDecomptes(d: Domain, e: Employe, a: Pick<Absence, 'type' | 'du' | 'au' | 'debutDemi' | 'finDemi'>): number {
+  return uniteDecompte(a.type) === 'calendaires' ? days(parse(a.du), parse(a.au)) + 1 : d.countDays(e, a.du, a.au, a.type, a);
 }
 
 // — Reprise après une absence longue (entretien de parcours professionnel, art. L6315-1) —

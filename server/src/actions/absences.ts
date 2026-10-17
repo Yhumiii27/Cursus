@@ -9,6 +9,7 @@ import {
   absenceVueManager, borneContrat, droitAnnulation, estConge, estNature, natureDef, periodeTexte, prolongeable, repriseAInscrire,
 } from '../../../shared/rules/absences.ts';
 import { echeanceReport } from '../../../shared/rules/clotures.ts';
+import { periodeDemiTexte } from '../../../shared/rules/demi-journees.ts';
 import { anneeCp, cetInfo, checkAbsence, checkNature, cpInfo, finPeriodeCp, heuresAvantAbsence, periodeCp, rttAnneeClose } from '../../../shared/rules/conges.ts';
 import { semaineCouverte } from '../../../shared/rules/temps.ts';
 import type { Absence, AbsenceType, CetMouvement, CongeType, Employe, FeuilleTemps, NatureAbsence, ReportCp } from '../../../shared/types.ts';
@@ -19,15 +20,19 @@ import {
   ActionError, type ActionHandler, type Ctx, estSoiMeme, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, refuserSoiMeme, requireRh, str,
 } from './context.ts';
 
-/** Le salarié ou le RH demandent ; le manager qui pose pour un membre de son équipe valide du même coup. */
+/**
+ * Le salarié ou le RH demandent ; le manager qui pose pour un membre de son équipe valide du même coup.
+ * `debutDemi`, `finDemi` : demi-journée du premier et du dernier jour (« matin », « apres_midi »), contrôlées par
+ * `checkAbsence` ; Keystone reçoit la journée entière.
+ */
 const demander: ActionHandler = (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
   const parManager = isManagerOf(ctx, emp);
   if (!(isRh(ctx) || isSelf(ctx, emp.id) || parManager)) throw new ActionError('Vous ne pouvez poser une absence que pour vous-même ou votre équipe', 403);
   const kind = str(p.kind) as CongeType;
-  const chk = checkAbsence(ctx.d, emp, kind, p.du, p.au, parManager);
+  const chk = checkAbsence(ctx.d, emp, kind, p.du, p.au, parManager, { debutDemi: p.debutDemi, finDemi: p.finDemi });
   if (chk.cant) throw new ActionError(chk.msgs.find(m => m.bad)?.text || 'Demande invalide');
-  const a = ctx.db.insert<Absence>('absences', { empId: emp.id, type: kind, du: p.du, au: p.au, statut: parManager ? 'validee' : 'demandee', keystone: parManager });
+  const a = ctx.db.insert<Absence>('absences', { empId: emp.id, type: kind, du: p.du, au: p.au, ...chk.demi, statut: parManager ? 'validee' : 'demandee', keystone: parManager });
   if (parManager) {
     keystone(ctx, 'absence.validee', a);
     notifierDecisionConge(ctx, emp, a, true, true); // e-mail : le salarié est informé
@@ -221,7 +226,7 @@ const annuler: ActionHandler = (ctx, p) => {
   if (!droit.ok) throw new ActionError(droit.raison, a.statut === 'refusee' || a.statut === 'annulee' ? 400 : 403);
   ctx.db.update<Absence>('absences', a.id, { statut: 'annulee', annuleeLe: ctx.d.ti, annuleePar: ctx.user.nom, keystone: false });
   if (a.keystone) keystone(ctx, 'absence.annulee', a);
-  const n = estConge(a.type) ? ctx.d.countDays(emp, a.du, a.au, a.type) : 0, h = a.type === 'RECUP' ? n * ctx.d.dayH(emp) : 0;
+  const n = estConge(a.type) ? ctx.d.countDays(emp, a.du, a.au, a.type, a) : 0, h = a.type === 'RECUP' ? n * ctx.d.dayH(emp) : 0;
   // CP d'une période déjà close : la ligne de clôture n'est pas refaite, les jours rendus sont reportés sur la suivante.
   const rendus = a.type === 'CP' ? recrediterPeriodesCloses(ctx, emp, ctx.d) : '';
   const recredit = !n ? '' : h ? ` — ${fH(h)} de récupération recréditée${h > 1 ? 's' : ''}`
@@ -232,7 +237,7 @@ const annuler: ActionHandler = (ctx, p) => {
   const nature = libelle((isRh(ctx) || isSelf(ctx, emp.id) ? a : absenceVueManager(a)).type);
   const renvoi = a.statut === 'demandee' ? '' : renvoyerFeuilles(ctx, emp, a);
   const reprise = majReprise(ctx, emp, a, a.type);
-  if (a.statut === 'demandee') return `Demande de ${nature} ${periodeTexte(a.du, a.au)} ${self ? 'retirée' : 'annulée'}${recredit}`;
+  if (a.statut === 'demandee') return `Demande de ${nature} ${periodeDemiTexte(a)} ${self ? 'retirée' : 'annulée'}${recredit}`;
   return `Absence de ${emp.nom}${nature ? ` (${nature})` : ''} annulée${recredit}${a.keystone ? ' — Keystone prévenu' : ''}${feuilles}${renvoi}${reprise}`;
 };
 

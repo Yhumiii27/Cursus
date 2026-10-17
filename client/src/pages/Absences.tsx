@@ -7,9 +7,10 @@ import { ABS_CLS, ABS_LABEL, CATEGORIES_ABSENCE, NATURES_ABSENCE, STATUTS, type 
 import type { Domain } from '../../../shared/domain.ts';
 import { cpPeriods, parse } from '../../../shared/dates.ts';
 import { cap, equipeLabel, fH, fJ, fmt, fmtIso, fmtShort, plural } from '../../../shared/format.ts';
-import { absenceActive, droitAnnulation, estConge, joursDecomptes, natureDef, periodeTexte, prolongeable, statutAbsence, uniteDecompte } from '../../../shared/rules/absences.ts';
+import { absenceActive, droitAnnulation, estConge, joursDecomptes, natureDef, prolongeable, statutAbsence, uniteDecompte } from '../../../shared/rules/absences.ts';
+import { DEMI_LABEL, periodeDemiTexte } from '../../../shared/rules/demi-journees.ts';
 import { absenceKinds, cetInfo, cpInfo, recupInfo, reposForfait, rttInfo } from '../../../shared/rules/conges.ts';
-import type { Absence, Employe, NatureAbsence } from '../../../shared/types.ts';
+import type { Absence, DemiJournee, Employe, NatureAbsence } from '../../../shared/types.ts';
 import { DownloadSimpleIcon } from '@phosphor-icons/react';
 import { CloturesConges } from '../components/CloturesConges.tsx';
 import { Btn, Empty, Fine, Kpi, Kpis, Page, Panel, Tag, Two } from '../components/ui.tsx';
@@ -62,7 +63,9 @@ function Num({ main, sub }: { main: ReactNode; sub?: ReactNode }) {
 
 const NATURES = Object.entries(NATURES_ABSENCE) as [NatureAbsence, (typeof NATURES_ABSENCE)[NatureAbsence]][];
 const PAIE_COURT: Record<PaieAbsence, string> = { maintenue: 'payée', indemnisee: 'indemnisée (IJSS)', non_payee: 'non payée' };
-const dates = (a: Absence) => a.du === a.au ? fmt(parse(a.du)) : `${fmtShort(parse(a.du))} → ${fmt(parse(a.au))}`;
+// Demi-journées du premier et du dernier jour (CP, RTT, récupération) : « 12 oct. après-midi → 16 oct. 2026 matin ».
+const demi = (x: DemiJournee | null | undefined) => x ? ` ${DEMI_LABEL[x]}` : '';
+const dates = (a: Absence) => a.du === a.au ? `${fmt(parse(a.du))}${demi(a.debutDemi)}` : `${fmtShort(parse(a.du))}${demi(a.debutDemi)} → ${fmt(parse(a.au))}${demi(a.finDemi)}`;
 
 /** Précisions d'une absence : rémunération et justificatif (hors congés), signalement, prolongation, annulation. */
 function details(a: Absence): string[] {
@@ -250,7 +253,7 @@ export function Absences() {
                           {canDecide && <>
                             {/* Refus : confirmation et motif, montré au salarié et à son manager dans leurs absences. */}
                             <button type="button" className="btn btn-ghost btn-sm" disabled={occupe}
-                              onClick={() => openDialog({ type: 'confirmer', c: refusAbsence(a, e.nom, `${ABS_LABEL[a.type]}, ${periodeTexte(a.du, a.au)}`,
+                              onClick={() => openDialog({ type: 'confirmer', c: refusAbsence(a, e.nom, `${ABS_LABEL[a.type]}, ${periodeDemiTexte(a)}`,
                                 mgr && mgr !== me ? d.personName(mgr) : null) })}>Refuser</button>
                             <button type="button" className="btn btn-secondary btn-sm" disabled={occupe} onClick={agir(() => run('absence.decider', { id: a.id, ok: true }))}>Valider</button>
                           </>}

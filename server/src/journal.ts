@@ -19,6 +19,7 @@ import { fmtIso, num, plural } from '../../shared/format.ts';
 import { erreurReference } from '../../shared/rules/lots-paie.ts';
 import { matriculeAffiche } from '../../shared/rules/matricules.ts';
 import { estTypeTitre } from '../../shared/rules/contrats.ts';
+import { estDemi } from '../../shared/rules/demi-journees.ts';
 import {
   ACTION_APPEL_KEYSTONE, ACTIONS_CONNEXION, ACTIONS_PAIE, changementsTexte, CONSERVATION_ARCHIVE_PAIE_MOIS, CONSERVATION_ENVOIS_MOIS,
   CONSERVATION_JOURNAL_MOIS, dossierComplet, estActionPaie, familleAction, FAMILLES_JOURNAL, JOURNAL_LABEL, lecteurJournal, libelleAction,
@@ -375,7 +376,8 @@ export const REGLES: Record<string, Regle> = {
   'paie.lotAnnuler': { champs: ['id'], cible: parId('lotsPaie', ['statut', 'annuleLe']), bilan: (_p, x) => lotRetenu(x), salaries: (_p, x) => salariesDuLot(x) },
   'paie.formatFichier': { cible: { table: 'settings', cle: () => 'formatFichierPaie', colonnes: ['value'], aplatir: true } },
   // Absences : la nature n'est jamais recopiée (son absence trahirait une nature médicale) ; dates et statut seulement.
-  'absence.demander': { champs: ['empId', 'kind', 'du', 'au'] },
+  // Demi-journées : la valeur normalisée seule (« matin », « apres_midi » ou null), jamais la chaîne reçue.
+  'absence.demander': { champs: ['empId', 'kind', 'du', 'au'], extra: p => ({ debutDemi: estDemi(p.debutDemi) ? p.debutDemi : null, finDemi: estDemi(p.finDemi) ? p.finDemi : null }) },
   'absence.decider': { champs: ['id', 'ok'], cible: parId('absences', ['statut']), ...reportsRendus },
   'absence.signaler': { champs: ['empId', 'du', 'au'] },
   'absence.saisir': { champs: ['empId', 'du', 'au', 'justificatif', 'justificatifLe'] },

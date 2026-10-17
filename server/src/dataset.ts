@@ -234,6 +234,7 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     taches: tachesProches(mine(full.taches), full.today),
     feuilles: mine(full.feuilles),
     // Arrêt maladie, accident, maladie professionnelle : le manager ne voit qu'une « Absence » (dates, état).
+    // Demi-journées d'un congé (matin, après-midi) : transmises comme ses dates ; une absence hors congés n'en porte jamais.
     absences: mine(full.absences).map(a => isMgr && a.empId !== user.empId ? absenceVueManager(a) : a),
     cet: mine(full.cet),
     // Motif d'un report de CP (texte libre, « arrêt de travail »…) : celui d'un membre n'est pas transmis au manager, ni

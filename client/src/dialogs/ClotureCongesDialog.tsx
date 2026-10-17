@@ -8,7 +8,7 @@
 import { useMemo, useState } from 'react';
 import { parse } from '../../../shared/dates.ts';
 import { equipeLabel, fJ, fmt, fmtIso, plural } from '../../../shared/format.ts';
-import { periodeTexte } from '../../../shared/rules/absences.ts';
+import { periodeDemiTexte } from '../../../shared/rules/demi-journees.ts';
 import { echeanceReport, lignesClotureCp, lignesClotureRtt, MOTIF_CLOTURE_LABEL, type LigneClotureCp } from '../../../shared/rules/clotures.ts';
 import { finPeriodeCp, periodeCp } from '../../../shared/rules/conges.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
@@ -152,7 +152,7 @@ function ClotureCp({ A }: { A: number }) {
           <div key={l.e.id} className="boxed">
             <div style={{ fontSize: 14 }}>{l.e.nom}</div>
             <div className="text-muted sub">
-              Demande de congés payés en attente ({l.attente.map(a => periodeTexte(a.du, a.au)).join(', ')}) : à valider ou refuser avant de clôturer son solde.
+              Demande de congés payés en attente ({l.attente.map(periodeDemiTexte).join(', ')}) : à valider ou refuser avant de clôturer son solde.
             </div>
           </div>
         ))}
@@ -227,7 +227,7 @@ function ClotureRtt({ Y }: { Y: number }) {
                 <td className="tnum">{fJ(l.info.pris + l.info.poses)}</td>
                 <td className="tnum">
                   {l.solde > 0 ? fJ(l.solde) : '—'}
-                  {l.attente.length > 0 && <div className="text-muted sub">Demande en attente ({l.attente.map(a => periodeTexte(a.du, a.au)).join(', ')}) : non clôturé</div>}
+                  {l.attente.length > 0 && <div className="text-muted sub">Demande en attente ({l.attente.map(periodeDemiTexte).join(', ')}) : non clôturé</div>}
                 </td>
                 <td className="tnum">{l.cet > 0 ? fJ(l.cet) : '—'}</td>
               </tr>

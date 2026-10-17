@@ -349,7 +349,16 @@ export interface Absence {
   annuleeLe: ISODate | null; annuleePar: string | null;
   /** Demande refusée : motif donné par le valideur, montré au salarié. */
   motifRefus?: string | null;
+  /**
+   * Demi-journées (CP, RTT ou repos du forfait jours, récupération ; shared/rules/demi-journees.ts) : null, journée
+   * entière. `debutDemi` : seule demi-journée prise le premier jour (après-midi pour un congé de plusieurs jours, matin
+   * ou après-midi pour un congé d'un seul jour) ; `finDemi` : seule demi-journée prise le dernier jour (matin), jamais
+   * sur un congé d'un seul jour.
+   */
+  debutDemi?: DemiJournee | null; finDemi?: DemiJournee | null;
 }
+/** Demi-journée d'un congé : matin ou après-midi. */
+export type DemiJournee = 'matin' | 'apres_midi';
 export interface CetMouvement { id: number; empId: number; type: 'CP' | 'RTT'; jours: number; date: ISODate; periode: string }
 /**
  * Report de congés payés. `recu` : jours ajoutés aux droits de la période `periode` (année de prise, `anneeCp` de

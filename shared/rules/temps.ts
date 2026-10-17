@@ -1,9 +1,10 @@
 // Feuilles de temps : décompte des heures, majorations, variables de paie.
 import { horodatageParis, isFerie, isoWeek, isoWeekYear, joursSemaine, parse } from '../dates.ts';
-import { num, r1 } from '../format.ts';
+import { fH, num, r1 } from '../format.ts';
 import type { Domain } from '../domain.ts';
-import type { Absence, AbsenceType, ContratFige, Employe, FeuilleTemps, ISODate, LigneTemps, ModeHeuresSupFige, SageMode, SagePush, TacheKeystone } from '../types.ts';
+import type { Absence, AbsenceType, ContratFige, DemiJournee, Employe, FeuilleTemps, ISODate, LigneTemps, ModeHeuresSupFige, SageMode, SagePush, TacheKeystone } from '../types.ts';
 import { absenceBloque, jourHorsContrat, natureDef, natureMedicale } from './absences.ts';
+import { DEMI_LABEL, heuresDemiJournee, moities } from './demi-journees.ts';
 import { matriculeAffiche } from './matricules.ts';
 import { modeHeuresSup, periodesSemaine, rubriquesPaie, traduireRubriques } from './paie.ts';
 import { alertesRepos, DIMANCHE, derogationDe, estWeekEnd, JOURS_FEUILLE } from './semaine.ts';
@@ -133,7 +134,7 @@ export function cumulAnnuel(d: Domain, e: Employe, year = d.year) {
 }
 
 /** Absence vue par la feuille de temps : une absence validée ou signalée, ou sur le point de l'être. */
-export type AbsenceJour = Pick<Absence, 'empId' | 'type' | 'du' | 'au'> & Partial<Pick<Absence, 'statut'>>;
+export type AbsenceJour = Pick<Absence, 'empId' | 'type' | 'du' | 'au'> & Partial<Pick<Absence, 'statut' | 'debutDemi' | 'finDemi'>>;
 
 /**
  * Absence en vigueur couvrant chaque jour de la semaine `w`, du lundi au dimanche ; null les autres jours :
@@ -142,21 +143,68 @@ export type AbsenceJour = Pick<Absence, 'empId' | 'type' | 'du' | 'au'> & Partia
  * Source unique pour la saisie, la proposition Keystone, la soumission, la validation et la grille.
  * `absences` remplace les absences en vigueur pour contrôler une absence avant de la poser ou de la valider,
  * ou pour repérer les demandes en attente (`demandesAbsence`).
+ * Demi-journée de congé (shared/rules/demi-journees.ts) : le jour n'est couvert que si ses deux moitiés le sont (CP le
+ * matin, RTT l'après-midi) ; sinon il est rendu par `demiJoursAbsence`, et une demi-journée de travail y reste saisissable.
  */
 export function joursAbsence(d: Domain, empId: number, w: ISODate, absences: AbsenceJour[] = d.ds.absences.filter(absenceBloque)): (AbsenceJour | null)[] {
-  return joursSemaine(w).map(day => absences.find(a => a.empId === empId && a.du <= day && a.au >= day) ?? null);
+  return joursSemaine(w).map(day => {
+    const ce = absences.filter(a => a.empId === empId && a.du <= day && a.au >= day);
+    const m = ce.map(a => moities(a, day));
+    return m.some(x => x.matin) && m.some(x => x.apres_midi) ? ce.find((_, i) => m[i].matin && m[i].apres_midi) ?? ce[0] : null;
+  });
+}
+
+/** Demi-journée d'absence d'un jour : l'absence, la moitié qu'elle occupe et la durée de travail admise ce jour-là. */
+export interface DemiJourAbsence { absence: AbsenceJour; demi: DemiJournee; max: number }
+
+/**
+ * Jours de la semaine `w` couverts par une seule demi-journée d'absence (même source que `joursAbsence`) ; null les
+ * autres jours. Ce jour-là, au plus une demi-journée de travail (`heuresDemiJournee`).
+ */
+export function demiJoursAbsence(d: Domain, empId: number, w: ISODate, absences: AbsenceJour[] = d.ds.absences.filter(absenceBloque)): (DemiJourAbsence | null)[] {
+  const pleins = joursAbsence(d, empId, w, absences), e = d.emp(empId);
+  const max = heuresDemiJournee(e ? d.dayH(e) : 7);
+  return joursSemaine(w).map((day, i) => {
+    if (pleins[i]) return null;
+    const a = absences.find(x => x.empId === empId && x.du <= day && x.au >= day);
+    if (!a) return null;
+    const m = moities(a, day);
+    return { absence: a, demi: m.matin ? 'matin' : 'apres_midi', max };
+  });
 }
 
 /** Demandes d'absence en attente de décision : elles ne bloquent pas la saisie, mais la validation de la feuille. */
 export const demandesAbsence = (d: Domain): AbsenceJour[] => d.ds.absences.filter(a => a.statut === 'demandee');
 
-export interface HeuresSurAbsence { di: number; day: ISODate; absence: AbsenceJour }
+/**
+ * Heures de la feuille qu'une demande en attente rendrait refusées si elle était acceptée : la demande est réunie aux
+ * absences en vigueur (comme à la décision, `heuresAvantAbsence`), car une demi-journée demandée à côté d'une demi-journée
+ * déjà validée fait un jour entier. Seuls les jours touchés par une demande sont retenus, portés par celle-ci.
+ */
+export function heuresSurDemandes(d: Domain, sh: Pick<FeuilleTemps, 'empId' | 'week' | 'lignes'>): HeuresSurAbsence[] {
+  const demandes = demandesAbsence(d).filter(a => a.empId === sh.empId);
+  if (!demandes.length) return [];
+  return heuresSurAbsence(d, sh, [...demandes, ...d.ds.absences.filter(absenceBloque)]).flatMap(h => {
+    const dem = demandes.find(a => a.du <= h.day && a.au >= h.day);
+    return dem ? [{ ...h, absence: dem }] : [];
+  });
+}
 
-/** Jours d'absence de la feuille qui portent encore des heures, à retirer avant soumission et validation. */
+/** `demi` et `max` : demi-journée d'absence, dont les heures dépassent la demi-journée de travail admise. */
+export interface HeuresSurAbsence { di: number; day: ISODate; absence: AbsenceJour; demi?: DemiJournee; max?: number }
+
+/**
+ * Jours d'absence de la feuille qui portent encore des heures, à retirer avant soumission et validation ; jours d'une
+ * demi-journée d'absence qui portent plus d'une demi-journée de travail, à ramener à `max`.
+ */
 export function heuresSurAbsence(d: Domain, sh: Pick<FeuilleTemps, 'empId' | 'week' | 'lignes'>, absences?: AbsenceJour[]): HeuresSurAbsence[] {
-  const wd = joursSemaine(sh.week);
-  return joursAbsence(d, sh.empId, sh.week, absences).flatMap((absence, di) =>
-    absence && sh.lignes.some(l => num(l.h[di]) > 0) ? [{ di, day: wd[di], absence }] : []);
+  const wd = joursSemaine(sh.week), demis = demiJoursAbsence(d, sh.empId, sh.week, absences);
+  const jour = (di: number) => sh.lignes.reduce((n, l) => n + num(l.h[di]), 0);
+  return joursAbsence(d, sh.empId, sh.week, absences).flatMap((absence, di): HeuresSurAbsence[] => {
+    if (absence) return jour(di) > 0 ? [{ di, day: wd[di], absence }] : [];
+    const x = demis[di];
+    return x && jour(di) > x.max + 1e-9 ? [{ di, day: wd[di], absence: x.absence, demi: x.demi, max: x.max }] : [];
+  });
 }
 
 /**
@@ -183,10 +231,37 @@ export function joursAbsenceTexte(list: { day: ISODate; absence: AbsenceJour }[]
     : liste(list.map(x => `${jourCourt(x.day)}${entreParentheses(x.absence)}`));
 }
 
-/** Refus de soumission ou de validation : jours concernés et marche à suivre (`suite` : « avant de soumettre la feuille »…). */
+/**
+ * Refus de soumission ou de validation : jours concernés et marche à suivre (`suite` : « avant de soumettre la feuille »…).
+ * Demi-journée d'absence : heures à ramener à une demi-journée de travail.
+ */
 export function heuresSurAbsenceMessage(list: HeuresSurAbsence[], suite: string): string {
-  const etats = new Set(list.map(x => x.absence.statut === 'signalee' ? 'signalée' : 'validée'));
-  return `Absence ${etats.size > 1 ? 'validée ou signalée' : [...etats][0]} ${joursAbsenceTexte(list)} : retirez les heures saisies ${list.length > 1 ? 'ces jours-là' : 'ce jour-là'} ${suite}`;
+  const pleins = list.filter(x => !x.demi), demis = list.filter(x => x.demi);
+  const etats = new Set(pleins.map(x => x.absence.statut === 'signalee' ? 'signalée' : 'validée'));
+  const textes = [
+    pleins.length ? `Absence ${etats.size > 1 ? 'validée ou signalée' : [...etats][0]} ${joursAbsenceTexte(pleins)} : retirez les heures saisies ${pleins.length > 1 ? 'ces jours-là' : 'ce jour-là'}` : '',
+    demis.length ? `${demiJourneeTexte(demis)} : ${fH(demis[0].max!)} de travail au plus ${demis.length > 1 ? 'ces jours-là' : 'ce jour-là'}, toutes lignes cumulées` : '',
+  ].filter(Boolean);
+  return `${textes.join(' ; ')} ${suite}`;
+}
+
+/**
+ * Saisie d'un jour de demi-journée d'absence (`di` : 0 = lundi) portée à `total` heures, toutes lignes cumulées : refus
+ * au-delà d'une demi-journée de travail, sinon null.
+ */
+export function demiJourneeRefus(d: Domain, sh: Pick<FeuilleTemps, 'empId' | 'week'>, di: number, total: number): string | null {
+  const x = demiJoursAbsence(d, sh.empId, sh.week)[di];
+  if (!x || total <= x.max + 1e-9) return null;
+  return `${demiJourneeTexte([{ day: joursSemaine(sh.week)[di], ...x }])} : ${fH(x.max)} de travail au plus ce jour-là, toutes lignes cumulées (${fH(total)} saisies)`;
+}
+
+/** « Demi-journée d’absence le lun. 12 oct. (CP, matin) ». */
+export function demiJourneeTexte(list: { day: ISODate; absence: AbsenceJour; demi?: DemiJournee }[]): string {
+  const precision = (x: { absence: AbsenceJour; demi?: DemiJournee }) => {
+    const n = natureAbsence(x.absence.type);
+    return ` (${n ? `${n}, ` : ''}${x.demi ? DEMI_LABEL[x.demi] : ''})`;
+  };
+  return `${list.length > 1 ? 'Demi-journées' : 'Demi-journée'} d’absence ${liste(list.map(x => `${jourCourt(x.day)}${precision(x)}`))}`;
 }
 
 /**
@@ -208,9 +283,15 @@ export function semaineCouverte(d: Domain, e: Employe, w: ISODate, sh: { contrat
 export function demandesEnAttenteMessage(list: HeuresSurAbsence[], valideur = true): string {
   const plus = new Set(list.map(x => x.absence)).size > 1, jours = list.length > 1 ? 'ces jours-là' : 'ce jour-là';
   const debut = `${plus ? 'Demandes' : 'Demande'} d’absence en attente ${joursAbsenceTexte(list)}`;
+  // Demi-journée seule : des heures restent admises, seul le dépassement d'une demi-journée de travail est en cause.
+  const demi = list.every(x => x.demi), max = fH(list[0]?.max ?? 0);
+  if (demi) return valideur
+    ? `${debut} : ${plus ? 'décidez-les' : 'décidez-la'} avant de valider la feuille — pour ${plus ? 'les ' : 'l’'}accepter, ramenez d’abord les heures saisies ${jours} à ${max}`
+    : `${debut} : plus de ${max} saisies ${jours}, à ramener à ${max} si ${plus ? 'elles sont acceptées' : 'elle est acceptée'}`;
+  const mixte = list.some(x => x.demi);
   return valideur
-    ? `${debut} : ${plus ? 'décidez-les' : 'décidez-la'} avant de valider la feuille — pour ${plus ? 'les ' : 'l’'}accepter, retirez d’abord les heures saisies ${jours}`
-    : `${debut} : des heures sont saisies ${jours}, à retirer si ${plus ? 'elles sont acceptées' : 'elle est acceptée'}`;
+    ? `${debut} : ${plus ? 'décidez-les' : 'décidez-la'} avant de valider la feuille — pour ${plus ? 'les ' : 'l’'}accepter, retirez d’abord les heures saisies ${jours}${mixte ? ` (ramenez-les à ${max} les jours de demi-journée)` : ''}`
+    : `${debut} : des heures sont saisies ${jours}, à retirer${mixte ? ` (à ramener à ${max} les jours de demi-journée)` : ''} si ${plus ? 'elles sont acceptées' : 'elle est acceptée'}`;
 }
 
 /**
@@ -230,10 +311,21 @@ export function tachesDeLaSemaine(d: Domain, empId: number, w: ISODate): TacheKe
  */
 export function suggestLines(d: Domain, e: Employe, w: ISODate): LigneTemps[] {
   const wd = joursSemaine(w), off = d.contratOf(e).jourOff, abs = joursAbsence(d, e.id, w);
-  return tachesDeLaSemaine(d, e.id, w).map(t => ({
+  const lignes = tachesDeLaSemaine(d, e.id, w).map(t => ({
     projet: t.projet, tache: t.tache, ks: true,
     h: wd.map((day, i) => isFerie(day) || abs[i] || off.includes(i) || jourHorsContrat(e, day) ? 0 : num(t.heures[day])),
   }));
+  return plafonnerDemiJournees(d, e, w, lignes);
+}
+
+/** Heures proposées un jour de demi-journée d'absence : ramenées à une demi-journée de travail, lignes dans l'ordre. */
+function plafonnerDemiJournees(d: Domain, e: Employe, w: ISODate, lignes: LigneTemps[]): LigneTemps[] {
+  demiJoursAbsence(d, e.id, w).forEach((x, i) => {
+    if (!x) return;
+    let reste = x.max;
+    for (const l of lignes) { const h = Math.min(num(l.h[i]), reste); reste -= h; l.h[i] = Math.round(h * 100) / 100; }
+  });
+  return lignes;
 }
 
 /**

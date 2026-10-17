@@ -1397,6 +1397,15 @@ Règles : `shared/rules/absences.ts` (confidentialité, décompte, reprise, annu
   sans envoi. Ceux mémorisés en simulation ne sont pas réputés transmis : le réglage `verdictsKeystoneMode`
   retient le mode du suivi, et le premier calcul en mode API vide la table, d'où un premier verdict
   (`precedent: null`) pour chaque ressource suivie.
+- **Cursus → Matrix** (catalogue des bases) : `server/src/integrations/matrix.ts`, portage du module de référence de
+  Matrix (`integration/declarer-schema.mjs`, partie SQLite). Au démarrage, après `migrate(db)` et les migrations nommées,
+  `declarerBase` lit le schéma réel (`sqlite_master`, `PRAGMA table_info`, `foreign_key_list`, `index_list` ; table
+  technique `migrations` et tables internes `sqlite_*` écartées) et l'envoie, non attendu, à
+  `POST ${MATRIX_URL}/api/declarations` (contrat `matrix.schema/1`, empreinte qui fait ignorer une déclaration
+  inchangée ; jeton `MATRIX_TOKEN` dans `X-Matrix-Token`, identifiants de l'adresse en Basic, 10 s au plus). Sans
+  `MATRIX_URL`, rien ne part ; `MATRIX_DECLARATIONS_DIR` écrit aussi `cursus.json`. Un échec n'écrit qu'un avertissement
+  `[matrix]`. Les liens logiques entre tables (Cursus ne déclare pas de clés étrangères) sont ajoutés par le collecteur
+  de Matrix.
 - **Sage Paie** : `server/src/integrations/sage.ts`, mode `SAGE_MODE` (`sageMode`) : `simulation` (démonstration et
   développement : rien ne part, les feuilles sont marquées transmises et l'écran, la confirmation et le message le disent),
   `fichier` (mode de production par défaut : lot de paie, fichier d'import téléchargé par la paie, import confirmé, qui seul

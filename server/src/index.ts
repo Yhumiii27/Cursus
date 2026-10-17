@@ -26,6 +26,7 @@ import { emailMode, transportEmail } from './integrations/email.ts';
 import { KEYSTONE_MODE, transportKeystone } from './integrations/keystone.ts';
 import { suivreVerdicts, suivreVerdictsChaqueJour } from './integrations/keystone-verdicts.ts';
 import { keystoneRoutes } from './integrations/keystone-routes.ts';
+import { declarerBase } from './integrations/matrix.ts';
 import { planifierEmails, recapitulatifEnAttente } from './notifications.ts';
 import { protegerBase, retirerSecretStocke } from './protection.ts';
 import { demoPosteLocal, protectionCsrf, securityHeaders } from './securite.ts';
@@ -68,6 +69,9 @@ try {
 } catch (err) {
   arret.echec(err instanceof Error ? err.message : String(err));
 }
+// Schéma de la base déclaré à Matrix (catalogue des bases), une fois les migrations faites : sans MATRIX_URL rien ne
+// part ; appel non attendu, un échec n'écrit qu'un avertissement (server/src/integrations/matrix.ts).
+void declarerBase(db.sql, VERSION);
 // Ancienne clé de session écrite en base (installation lancée sans CURSUS_SECRET) : retirée dès que la variable la remplace.
 if (retirerSecretStocke(db)) console.log('Ancienne clé de session retirée de la base : CURSUS_SECRET la remplace (les sauvegardes antérieures la contiennent encore).');
 if (db.count('employes') === 0) {

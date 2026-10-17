@@ -171,6 +171,7 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `CURSUS_OIDC_AUTORITE` | Remplace `https://login.microsoftonline.com` : réservée aux tests automatiques (faux fournisseur local). Refusée en production |
 | `CURSUS_MAIL_FROM` | Boîte d'envoi dédiée des e-mails (`cursus@entreprise.fr`), envoyés par Microsoft Graph. Sans elle : simulation (e-mails tracés dans le journal et visibles dans Paramètres → Envois, rien ne part). Mise en service : `docs/EMAILS.md` |
 | `CURSUS_MAIL_TENANT`, `CURSUS_MAIL_CLIENT_ID`, `CURSUS_MAIL_CLIENT_SECRET` | Application Entra autorisée à envoyer (`Mail.Send`, restreinte à la boîte d'envoi) ; par défaut celle de la connexion Microsoft (`CURSUS_OIDC_*`) |
+| `MATRIX_URL`, `MATRIX_TOKEN`, `MATRIX_DECLARATIONS_DIR` | Déclaration du schéma de la base à Matrix, le catalogue des bases : voir « Mise en ligne » ci-dessous |
 
 Les sessions durent 12 heures au plus depuis la connexion ; la déconnexion les révoque (pour un compte
 Microsoft, elle passe aussi par la déconnexion Microsoft), et une session est refusée dès que la date de
@@ -331,3 +332,16 @@ réseau Docker (`CURSUS_TRUST_PROXY=loopback,uniquelocal`), où se trouve le pro
 le HTTPS et l'adresse réelle des utilisateurs. Le mode démonstration est refusé derrière ce proxy : la connexion passe
 par les comptes nominatifs (premier administrateur créé avec `npm run comptes` dans le conteneur, `docs/DEPLOIEMENT.md`),
 puis par Microsoft 365 une fois configuré (`docs/CONNEXION-MICROSOFT.md`).
+
+**Déclaration du schéma à Matrix.** Au démarrage, une fois les migrations faites, Cursus lit le schéma réel de sa base
+(tables, colonnes, clés, unicités) et l'envoie à Matrix, le catalogue des bases de Keystone, Codex, Cursus et Vigie
+(`POST {MATRIX_URL}/api/declarations`, contrat `matrix.schema/1` ; `server/src/integrations/matrix.ts`). Une table
+ajoutée entre ainsi d'elle-même au catalogue. La table technique `migrations` n'est pas déclarée. L'envoi ne bloque
+jamais le démarrage : si Matrix est arrêté ou refuse la déclaration, Cursus démarre normalement et écrit un
+avertissement `[matrix]` dans sa console.
+
+| Variable | Effet |
+| --- | --- |
+| `MATRIX_URL` | Adresse de Matrix (`https://matrix.votre-domaine`). Derrière l'authentification HTTP de Coolify : `https://identifiant:mot-de-passe@matrix.votre-domaine` (envoyés en `Authorization: Basic`). Sans elle, rien n'est envoyé (tests, poste local) |
+| `MATRIX_TOKEN` | Jeton partagé avec Matrix (même valeur que `MATRIX_TOKEN` sur le serveur Matrix), envoyé dans l'en-tête `X-Matrix-Token` |
+| `MATRIX_DECLARATIONS_DIR` | Facultatif : écrit aussi la déclaration dans ce dossier (`cursus.json`), pour un volume partagé ou un poste sans réseau |

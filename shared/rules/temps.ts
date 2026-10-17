@@ -281,7 +281,8 @@ export function sagePending(d: Domain): FeuilleTemps[] {
  * Variables de paie transmises à Sage : une ligne par feuille et par période de paie (rappel d'une période close avec
  * `periode_origine`), rubriques traduites en codes Sage (désactivées retirées, quantités nulles omises ; une ligne sans
  * quantité n'est pas émise). Semaine ISO : son année est celle du jeudi (la semaine du 29 décembre 2025 est
- * « 2026-S01 ») ; `envoye_le` : heure réelle de l'envoi, à l'heure de Paris (décalage d'hiver ou d'été).
+ * « 2026-S01 ») ; `envoye_le` : heure réelle de l'envoi, à l'heure de Paris (décalage d'hiver ou d'été). Contenu du
+ * fichier d'import, sans adresse d'envoi : pas d'envoi à Sage par API.
  */
 export function buildSagePayload(d: Domain, sheets: FeuilleTemps[], dossier: string, maintenant = new Date(), mode: SageMode = 'simulation'): SagePush {
   const table = rubriquesPaie(d.ds.rubriquesPaie);
@@ -294,7 +295,6 @@ export function buildSagePayload(d: Domain, sheets: FeuilleTemps[], dossier: str
     rubriques: traduireRubriques(p.rubriques, table),
   }))).filter(l => Object.keys(l.rubriques).length > 0);
   return {
-    endpoint: 'POST /sage-paie/v1/variables',
     dossier,
     mode,
     envoye_le: horodatageParis(maintenant),

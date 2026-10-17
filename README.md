@@ -142,7 +142,7 @@ De même pour l'envoi des e-mails (`docs/EMAILS.md`) : `CURSUS_MAIL_FROM` qui n'
 d'envoi non entièrement désignée (`CURSUS_MAIL_*` ou `CURSUS_OIDC_*`), variables `CURSUS_MAIL_*` sans `CURSUS_MAIL_FROM` ;
 et pour un `CURSUS_SUPERVISION_TOKEN` de moins de 32 caractères. En production toujours, il refuse une base restée
 accessible à d'autres comptes que le sien (droits impossibles à ramener à `600`).
-Et pour Sage Paie : `SAGE_MODE` inconnu ou `api` (aucun contrat d'API fourni par Sage), `SAGE_URL` définie,
+Et pour Sage Paie : `SAGE_MODE` inconnu, `api` compris (pas d'envoi par API : la paie importe le fichier), `SAGE_URL` définie,
 `SAGE_MODE=simulation` hors application de bureau (des feuilles seraient marquées transmises sans que rien ne parte).
 En production, la démonstration refuse aussi (403) toute requête relayée par un proxy (`Forwarded`,
 `X-Forwarded-*`) ou adressée à un autre nom que 127.0.0.1 / localhost / [::1].
@@ -164,8 +164,8 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `CURSUS_INSECURE_COOKIE` | `1` : cookie sans l'attribut `Secure`, pour l'application de bureau en http://127.0.0.1 uniquement. Refusée en production hors application de bureau |
 | `KEYSTONE_API_KEY` | Clé attendue des appels entrants de Keystone (en-tête `X-Api-Key`). Obligatoire en production ; sans elle, les routes Keystone répondent 503. La clé `demo-keystone` n'est acceptée qu'en mode démonstration, quand la variable est vide |
 | `KEYSTONE_URL`, `KEYSTONE_TOKEN` | Envois à Keystone : adresse de base (`POST {KEYSTONE_URL}/api/cursus/v1/evenements`) et jeton (`Authorization: Bearer`), obligatoire en production avec l'adresse. Sans `KEYSTONE_URL`, les messages sont seulement tracés dans le journal (simulation) |
-| `SAGE_MODE` | Transmission à Sage Paie : `fichier` (fichier d'import, mode de production par défaut), `simulation` (par défaut hors production : rien ne part, les feuilles sont seulement marquées transmises) ; `api` refusé, faute de contrat d'API fourni par Sage. Voir `docs/DEPLOIEMENT.md`, « Sage Paie » |
-| `SAGE_DOSSIER` | Dossier de paie inscrit dans les variables transmises (`CURSUS-CHIMIE` par défaut). `SAGE_URL` ne sert plus : refusée en production |
+| `SAGE_MODE` | Transmission à Sage Paie : `fichier` (fichier d'import, mode de production par défaut), `simulation` (par défaut hors production : rien ne part, les feuilles sont seulement marquées transmises). Pas de mode `api` : aucun envoi automatique, la paie importe le fichier dans Sage. Voir `docs/DEPLOIEMENT.md`, « Sage Paie » |
+| `SAGE_DOSSIER` | Dossier de paie inscrit dans les variables transmises (`CURSUS-CHIMIE` par défaut), et dans la colonne facultative « code dossier » du fichier d'import. `SAGE_URL` ne sert plus : refusée en production |
 | `CURSUS_OIDC_TENANT`, `CURSUS_OIDC_CLIENT_ID`, `CURSUS_OIDC_CLIENT_SECRET` | Connexion Microsoft 365 : ID de l'annuaire (GUID), ID d'application et secret client de l'inscription dans Entra (`docs/CONNEXION-MICROSOFT.md`). Les quatre variables avec `CURSUS_PUBLIC_URL`, ou aucune |
 | `CURSUS_PUBLIC_URL` | Adresse publique de Cursus, en https (`https://cursus.example.fr`) : Microsoft renvoie à `${CURSUS_PUBLIC_URL}/api/auth/microsoft/retour` |
 | `CURSUS_OIDC_AUTORITE` | Remplace `https://login.microsoftonline.com` : réservée aux tests automatiques (faux fournisseur local). Refusée en production |

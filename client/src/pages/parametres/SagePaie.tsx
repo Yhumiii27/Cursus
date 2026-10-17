@@ -1,4 +1,4 @@
-// Paramètres → Sage Paie : mode réel de la transmission (simulation, fichier d'import, API), rubriques transmises et leur
+// Paramètres → Sage Paie : mode réel de la transmission (simulation ou fichier d'import), rubriques transmises et leur
 // code Sage (réglés dans l'écran Temps, où la paie y a accès), dernier lot de paie (historique complet : écran Temps).
 import { fmtIso, plural } from '../../../../shared/format.ts';
 import { STATUTS_LOT } from '../../../../shared/rules/lots-paie.ts';
@@ -15,7 +15,7 @@ export function SagePaie(_: SectionProps) {
   const rubriques = rubriquesPaie(data.rubriquesPaie);
   const aConfirmer = rubriques.filter(r => r.active && !r.confirmee).length;
   return (
-    <Panel title="Sage Paie" aside={<Tag cls={mode === 'simulation' ? 'tag-outline' : mode === 'fichier' ? 'tag-neutral' : 'tag-accent'}>{MODES_SAGE[mode].label}</Tag>}>
+    <Panel title="Sage Paie" aside={<Tag cls={mode === 'simulation' ? 'tag-outline' : 'tag-neutral'}>{MODES_SAGE[mode].label}</Tag>}>
       <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>
         {MODES_SAGE[mode].aide} Intérimaires exclus (relevé envoyé à l’agence). Mode choisi par le service informatique (SAGE_MODE).
       </p>

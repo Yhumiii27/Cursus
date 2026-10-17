@@ -182,7 +182,6 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'keystone.verdict.modifie': 'Message à Keystone : verdict Go / No Go modifié (simulation)',
   'keystone.deplacement.modifie': 'Message à Keystone : déplacement modifié (simulation)',
   'keystone.deplacement.annule': 'Message à Keystone : déplacement annulé (simulation)',
-  'sage.echec': 'Envoi à Sage Paie en échec',
   // Mise à jour de la base
   'migration.detachement': 'Reprise des formalités de détachement',
   'migration.soldes': 'Datation des compteurs repris et des reports de CP',

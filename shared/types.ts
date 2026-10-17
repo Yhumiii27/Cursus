@@ -501,8 +501,11 @@ export interface CompteSession {
 }
 
 // — Messages sortants (file d'envoi : server/src/envois.ts) —
-/** Destinataires des messages sortants : Keystone, la messagerie (e-mails) ; Sage Paie n'est pas encore branché sur la file. */
-export type CibleEnvoi = 'keystone' | 'sage' | 'email';
+/**
+ * Destinataires des messages sortants : Keystone, la messagerie (e-mails). Sage Paie n'y figure pas : ses variables
+ * passent par le fichier d'import que la paie importe elle-même (décision du 15 octobre 2026, aucun envoi automatique).
+ */
+export type CibleEnvoi = 'keystone' | 'email';
 /** `simule` : aucune adresse configurée, le message n'est que tracé dans le journal. */
 export type StatutEnvoi = 'a_envoyer' | 'envoye' | 'echec' | 'simule';
 export interface Envoi {
@@ -570,16 +573,23 @@ export interface ReleveInterim {
   enAttente: number;
 }
 
-/** Transmission à Sage Paie : simulation (rien ne part), fichier d'import (mode de production), API (pas encore de contrat). */
-export type SageMode = 'simulation' | 'fichier' | 'api';
+/**
+ * Transmission à Sage Paie : simulation (rien ne part) ou fichier d'import (mode de production). Pas d'envoi par API :
+ * la paie importe le fichier dans Sage (décision du 15 octobre 2026).
+ */
+export type SageMode = 'simulation' | 'fichier';
 /**
  * Variables de paie d'une transmission : une ligne par feuille et par période de paie (une semaine ventilée jour par jour
  * peut en donner deux), rubriques traduites en codes Sage (shared/rules/paie.ts). `periode_origine` : période naturelle
  * déjà close, la ligne part en rappel sur la période ouverte. `periode_paie` : ancien format (période unique du lot).
  */
 export interface SagePush {
-  endpoint: string; dossier: string; mode?: SageMode; envoye_le: string; periodes?: string[]; periode_paie?: string;
+  /** Ancien format : adresse d'un envoi par API qui n'a jamais existé (contenus figés avant le lot 5). */
+  endpoint?: string;
+  dossier: string; mode?: SageMode; envoye_le: string; periodes?: string[]; periode_paie?: string;
   lignes: { matricule: string; semaine: string; periode?: string; periode_origine?: string; rubriques: Record<string, number> }[];
+  /** Libellé de chaque code Sage du contenu, figé à la génération du lot (colonne facultative « libellé » du fichier). */
+  libelles?: Record<string, string>;
 }
 /** Rattachement d'une semaine à cheval sur deux mois : mois de son dimanche, de son vendredi, ou ventilation jour par jour. */
 export type RattachementPeriode = 'dimanche' | 'vendredi' | 'jour';
@@ -599,12 +609,11 @@ export interface RubriquePaie {
  * Lot de paie (shared/rules/lots-paie.ts, server/src/actions/paie.ts) : feuilles validées d'une période, contenu figé à la
  * génération. Généré : fichier d'import prêt, feuilles réservées ; transmis : import dans Sage confirmé par la paie
  * (date, auteur, référence) ou simulation ; annulé : feuilles libérées, possible seulement avant la confirmation.
- * L'envoi par API (statuts « à envoyer », « échec ») arrivera avec le connecteur Sage.
  */
 export type StatutLotPaie = 'genere' | 'transmis' | 'annule';
 export interface LotPaie {
   id: number;
-  /** Clé d'idempotence (UUID) : identique à chaque téléchargement, puis à chaque envoi quand l'API existera. */
+  /** Clé d'idempotence (UUID) : identique à chaque téléchargement du fichier. */
   cle: string;
   mode: SageMode; statut: StatutLotPaie;
   /** Période de paie choisie (AAAA-MM) ; `periodes` : celles des lignes ; `rappels` : périodes closes reprises. */
@@ -623,8 +632,12 @@ export interface LotPaie {
   /** Lot repris des transmissions d'avant les lots (migration lot4-paie-lots-historiques) : contenu inconnu. */
   historique: boolean;
 }
-/** Colonnes du fichier d'import Sage, dans l'ordre réglé par la paie. */
-export type ColonneFichierPaie = 'matricule' | 'periode' | 'rubrique' | 'quantite';
+/**
+ * Colonnes du fichier d'import Sage, dans l'ordre réglé par la paie : matricule, période, rubrique et quantité toujours ;
+ * facultatives, absentes par défaut : code du dossier de paie (SAGE_DOSSIER), libellé de la rubrique, premier et dernier
+ * jour de la période.
+ */
+export type ColonneFichierPaie = 'matricule' | 'periode' | 'rubrique' | 'quantite' | 'dossier' | 'libelle' | 'debut' | 'fin';
 /** Format du fichier d'import (action `paie.formatFichier`, écran Temps) : ajusté par la paie à l'import de son Sage. */
 export interface FormatFichierPaie {
   separateur: ';' | ',' | 'tab';
@@ -632,6 +645,10 @@ export interface FormatFichierPaie {
   formatPeriode: 'AAAA-MM' | 'MM/AAAA' | 'AAAAMM' | 'MMAAAA';
   decimale: ',' | '.';
   entete: boolean;
+  /** UTF-8 sans BOM par défaut ; Windows-1252 (« ANSI »), souvent attendu par l'import de Sage. */
+  encodage: 'utf-8' | 'windows-1252';
+  /** Dates des colonnes « début » et « fin » de période. */
+  formatDate: 'JJ/MM/AAAA' | 'AAAA-MM-JJ' | 'JJMMAAAA';
 }
 
 /** Instantané des données visibles par l'utilisateur connecté. */

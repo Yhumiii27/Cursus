@@ -521,9 +521,10 @@ Les variables de paie (heures des feuilles validées) passent par Sage Paie selo
 | --- | --- | --- |
 | `fichier` | production (valeur par défaut avec `NODE_ENV=production`) | lot de paie par période, fichier d'import téléchargé par la paie, import confirmé dans Sage, qui seul marque les feuilles transmises (procédure ci-dessous) ; rien ne part automatiquement |
 | `simulation` | démonstration, développement, application de bureau | rien n'est envoyé ; les feuilles sont marquées transmises, en un clic ou par un lot dont le fichier se télécharge pour essai, et l'écran, la confirmation et le message le disent. Refusé en production hors application de bureau |
-| `api` | aucun | refusé : Sage n'a fourni aucun contrat d'API. Cursus refuse de démarrer en production ; ailleurs, la génération d'un lot et la transmission répondent 503 sans rien marquer |
 
-`SAGE_URL` (ancienne bascule vers un envoi qui n'existait pas) est refusée en production. Avant toute transmission
+Pas d'envoi automatique à Sage Paie (décision du 15 octobre 2026) : la paie importe elle-même le fichier de chaque lot.
+`SAGE_MODE=api` n'existe plus et Cursus refuse de démarrer en production avec cette valeur (ailleurs, il la signale et
+reste en simulation). `SAGE_URL` (ancienne bascule vers un envoi qui n'existait pas) est refusée en production. Avant toute transmission
 réelle, le gestionnaire de paie ou l'administrateur RH saisit et confirme le code de chaque rubrique dans le plan de
 paie Sage (écran Temps de travail, « Rubriques de paie ») : tant qu'une rubrique utilisée n'est pas confirmée, seule la
 simulation transmet, et le refus liste les rubriques manquantes. Une rubrique dont la paie ne se sert pas (heures
@@ -539,9 +540,11 @@ Procédure mensuelle du gestionnaire de paie (ou de l'administrateur RH), écran
 2. « Générer le fichier » sur la période de paie : le lot réunit les feuilles validées de la période (rappels de périodes
    closes compris), son contenu est figé et ses feuilles réservées. Elles ne sont pas encore transmises.
 3. « Fichier » télécharge le fichier d'import (CSV : une ligne par salarié, période et rubrique, quantités additionnées
-   sur la période). Son format (séparateur, ordre des colonnes, format de la période, décimale, en-tête) se règle par
-   « Modifier le format », sur le modèle d'import de votre Sage, sans changer le contenu du lot. Chaque téléchargement
-   est tracé dans le journal (archive paie).
+   sur la période). Son format (séparateur, ordre des colonnes, format de la période, décimale, en-tête, encodage) se
+   règle par « Modifier le format », sur le modèle d'import de votre Sage, sans changer le contenu du lot : encodage
+   UTF-8 sans BOM par défaut, ou Windows-1252 (ANSI) si Sage affiche mal les accents ; colonnes facultatives, absentes
+   par défaut, à cocher si le modèle les attend : code dossier (`SAGE_DOSSIER`), libellé de la rubrique, début et fin
+   de la période (format de date au choix). Chaque téléchargement est tracé dans le journal (archive paie).
 4. Importer le fichier dans Sage Paie et contrôler les totaux (rappelés dans la confirmation).
 5. « Confirmer l'import » : confirmation datée et signée, avec la référence de l'import si Sage en donne une. Elle seule
    marque les feuilles transmises ; le lot ne s'annule plus ensuite (une correction se fait dans Sage, en attendant le

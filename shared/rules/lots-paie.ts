@@ -1,11 +1,12 @@
 // Lots de paie : feuilles validées d'une période de paie réunies en un lot au contenu figé, fichier d'import pour Sage
-// tiré de ce contenu (format réglé par la paie), cycle du lot (généré → transmis à la confirmation de l'import, ou
+// tiré de ce contenu (format réglé par la paie : colonnes facultatives, encodage UTF-8 ou Windows-1252), cycle du lot (généré → transmis à la confirmation de l'import, ou
 // annulé avant elle). Partagé par les actions (server/src/actions/paie.ts), le téléchargement
 // (server/src/fichier-paie.ts) et l'écran Temps (client/src/components/LotsPaie.tsx).
 // Périmètre du fichier : heures validées du lundi au vendredi seulement ; absences, déplacements, samedi, dimanche et
 // nuit restent saisis dans Sage (PERIMETRE_FICHIER, repris par l'écran, la confirmation et la procédure).
+import { encoderTexte } from '../encodage.ts';
 import type { ColonneFichierPaie, FeuilleTemps, FormatFichierPaie, ISODate, LotPaie, SagePush, Settings, StatutLotPaie } from '../types.ts';
-import { periodesSemaine } from './paie.ts';
+import { periodesSemaine, type RubriqueVue } from './paie.ts';
 
 /** Ce que le fichier contient, et ce qu'il ne contient pas (écran, confirmation, docs/DEPLOIEMENT.md). */
 export const PERIMETRE_FICHIER = 'Heures validées du lundi au vendredi seulement : absences, déplacements et heures du samedi, du dimanche ou de nuit restent saisis dans Sage.';
@@ -34,39 +35,57 @@ export function feuillesDuLot<T extends Pick<FeuilleTemps, 'week'>>(sheets: read
 
 // — Fichier d'import —
 
-export const FORMAT_FICHIER_DEFAUT: FormatFichierPaie = { separateur: ';', colonnes: ['matricule', 'periode', 'rubrique', 'quantite'], formatPeriode: 'AAAA-MM', decimale: ',', entete: true };
+export const FORMAT_FICHIER_DEFAUT: FormatFichierPaie = {
+  separateur: ';', colonnes: ['matricule', 'periode', 'rubrique', 'quantite'], formatPeriode: 'AAAA-MM', decimale: ',', entete: true,
+  encodage: 'utf-8', formatDate: 'JJ/MM/AAAA',
+};
 
 export const SEPARATEURS: Record<FormatFichierPaie['separateur'], string> = { ';': 'Point-virgule ( ; )', ',': 'Virgule ( , )', tab: 'Tabulation' };
 export const FORMATS_PERIODE: Record<FormatFichierPaie['formatPeriode'], string> = { 'AAAA-MM': '2026-10', 'MM/AAAA': '10/2026', AAAAMM: '202610', MMAAAA: '102026' };
 export const DECIMALES: Record<FormatFichierPaie['decimale'], string> = { ',': 'Virgule (7,5)', '.': 'Point (7.5)' };
-export const COLONNES_FICHIER: Record<ColonneFichierPaie, string> = { matricule: 'Matricule de paie', periode: 'Période', rubrique: 'Code rubrique Sage', quantite: 'Quantité' };
+export const ENCODAGES: Record<FormatFichierPaie['encodage'], string> = { 'utf-8': 'UTF-8 (sans BOM)', 'windows-1252': 'Windows-1252 (ANSI)' };
+export const FORMATS_DATE: Record<FormatFichierPaie['formatDate'], string> = { 'JJ/MM/AAAA': '01/10/2026', 'AAAA-MM-JJ': '2026-10-01', JJMMAAAA: '01102026' };
+export const COLONNES_FICHIER: Record<ColonneFichierPaie, string> = {
+  matricule: 'Matricule de paie', periode: 'Période', rubrique: 'Code rubrique Sage', quantite: 'Quantité',
+  dossier: 'Code dossier', libelle: 'Libellé de la rubrique', debut: 'Début de période', fin: 'Fin de période',
+};
+/** Colonnes toujours présentes, chacune une fois ; les autres sont facultatives, absentes par défaut. */
+export const COLONNES_OBLIGATOIRES: readonly ColonneFichierPaie[] = ['matricule', 'periode', 'rubrique', 'quantite'];
+export const COLONNES_FACULTATIVES = (Object.keys(COLONNES_FICHIER) as ColonneFichierPaie[]).filter(c => !COLONNES_OBLIGATOIRES.includes(c));
 /** Nom des colonnes dans la ligne d'en-tête : sans accent, lisible par tout outil d'import. */
-const ENTETE: Record<ColonneFichierPaie, string> = { matricule: 'matricule', periode: 'periode', rubrique: 'rubrique', quantite: 'quantite' };
+const ENTETE: Record<ColonneFichierPaie, string> = {
+  matricule: 'matricule', periode: 'periode', rubrique: 'rubrique', quantite: 'quantite', dossier: 'dossier', libelle: 'libelle', debut: 'debut', fin: 'fin',
+};
 
-const COLONNES = Object.keys(COLONNES_FICHIER) as ColonneFichierPaie[];
+/** Choix parmi les clés d'une table (séparateur, période…) : la valeur reçue, ou null si elle n'en est pas une. */
+const choix = <K extends string>(table: Record<K, string>, v: unknown): K | null => (Object.hasOwn(table, String(v)) ? String(v) as K : null);
 
 /**
- * Format reçu (`paie.formatFichier`) contrôlé : chaque champ absent garde sa valeur ; les quatre colonnes, chacune une
- * fois ; le séparateur décimal différent du séparateur de colonnes. Message d'erreur en français, sinon le format.
+ * Format reçu (`paie.formatFichier`) contrôlé : chaque champ absent garde sa valeur ; les quatre colonnes obligatoires,
+ * chacune une fois, les facultatives une fois au plus ; le séparateur décimal différent du séparateur de colonnes.
+ * Message d'erreur en français, sinon le format.
  */
 export function controlerFormat(p: Record<string, unknown>, actuel: FormatFichierPaie): FormatFichierPaie | string {
-  const f: FormatFichierPaie = { ...actuel };
-  if (p.separateur !== undefined) {
-    if (!Object.hasOwn(SEPARATEURS, String(p.separateur))) return 'Séparateur inconnu : point-virgule, virgule ou tabulation';
-    f.separateur = p.separateur as FormatFichierPaie['separateur'];
-  }
-  if (p.formatPeriode !== undefined) {
-    if (!Object.hasOwn(FORMATS_PERIODE, String(p.formatPeriode))) return 'Format de période inconnu';
-    f.formatPeriode = p.formatPeriode as FormatFichierPaie['formatPeriode'];
-  }
-  if (p.decimale !== undefined) {
-    if (!Object.hasOwn(DECIMALES, String(p.decimale))) return 'Séparateur décimal inconnu : virgule ou point';
-    f.decimale = p.decimale as FormatFichierPaie['decimale'];
+  const f: FormatFichierPaie = { ...FORMAT_FICHIER_DEFAUT, ...actuel };
+  const champs: [keyof FormatFichierPaie, Record<string, string>, string][] = [
+    ['separateur', SEPARATEURS, 'Séparateur inconnu : point-virgule, virgule ou tabulation'],
+    ['formatPeriode', FORMATS_PERIODE, 'Format de période inconnu'],
+    ['decimale', DECIMALES, 'Séparateur décimal inconnu : virgule ou point'],
+    ['encodage', ENCODAGES, 'Encodage inconnu : UTF-8 ou Windows-1252'],
+    ['formatDate', FORMATS_DATE, 'Format de date inconnu'],
+  ];
+  for (const [k, table, erreur] of champs) {
+    if (p[k] === undefined) continue;
+    const v = choix(table, p[k]);
+    if (v === null) return erreur;
+    Object.assign(f, { [k]: v });
   }
   if (p.entete !== undefined) f.entete = !!p.entete;
   if (p.colonnes !== undefined) {
     const c = p.colonnes;
-    if (!Array.isArray(c) || c.length !== COLONNES.length || COLONNES.some(x => !c.includes(x))) return 'Ordre des colonnes : matricule, période, rubrique et quantité, chacune une fois';
+    if (!Array.isArray(c) || c.some(x => choix(COLONNES_FICHIER, x) === null) || new Set(c).size !== c.length || COLONNES_OBLIGATOIRES.some(x => !c.includes(x))) {
+      return 'Colonnes : matricule, période, rubrique et quantité, chacune une fois ; une colonne facultative une fois au plus';
+    }
     f.colonnes = c as ColonneFichierPaie[];
   }
   if (f.separateur === f.decimale) return 'Le séparateur décimal doit différer du séparateur de colonnes';
@@ -77,6 +96,19 @@ export function controlerFormat(p: Record<string, unknown>, actuel: FormatFichie
 export function periodeFichier(p: string, f: FormatFichierPaie['formatPeriode']): string {
   const [a, m] = p.split('-');
   return f === 'MM/AAAA' ? `${m}/${a}` : f === 'AAAAMM' ? `${a}${m}` : f === 'MMAAAA' ? `${m}${a}` : p;
+}
+
+/** Date AAAA-MM-JJ dans le format du fichier. */
+export function dateFichier(iso: ISODate, f: FormatFichierPaie['formatDate']): string {
+  const [a, m, j] = iso.split('-');
+  return f === 'JJ/MM/AAAA' ? `${j}/${m}/${a}` : f === 'JJMMAAAA' ? `${j}${m}${a}` : iso;
+}
+
+/** Premier et dernier jour d'une période de paie AAAA-MM (mois civil). */
+export function bornesPeriode(p: string): { debut: ISODate; fin: ISODate } {
+  const [a, m] = p.split('-').map(Number);
+  const jours = new Date(Date.UTC(a, m, 0)).getUTCDate();
+  return { debut: `${p}-01`, fin: `${p}-${String(jours).padStart(2, '0')}` };
 }
 
 /** Quantités du fichier au centième (quart d'heure : 0,25) ; les totaux du lot, contrôlés dans Sage, de même. */
@@ -104,18 +136,44 @@ export function lignesFichier(contenu: Pick<SagePush, 'lignes'>): LigneFichier[]
 }
 
 /**
- * Texte du fichier d'import : colonnes dans l'ordre réglé, séparateur, période et décimale au format choisi, en-tête
- * facultatif, lignes séparées par CRLF. Contenu fait de matricules, codes et nombres (contrôlés à la saisie) : ni BOM, ni
- * apostrophe devant un tiret, que l'import de Sage lirait.
+ * Libellé de chaque code Sage employé par un contenu : libellés des rubriques internes actives portées sur ce code
+ * (« + » entre deux rubriques additionnées), à défaut le code lui-même. Figé dans le contenu à la génération du lot.
  */
-export function fichierLot(contenu: Pick<SagePush, 'lignes'>, f: FormatFichierPaie = FORMAT_FICHIER_DEFAUT): string {
+export function libellesSage(contenu: Pick<SagePush, 'lignes'>, table: readonly Pick<RubriqueVue, 'codeSage' | 'active' | 'label'>[]): Record<string, string> {
+  const codes = [...new Set(contenu.lignes.flatMap(l => Object.keys(l.rubriques)))].sort();
+  return Object.fromEntries(codes.map(c => [c, table.filter(r => r.active && r.codeSage === c).map(r => r.label).join(' + ') || c]));
+}
+
+/**
+ * Texte du fichier d'import : colonnes dans l'ordre réglé (facultatives comprises : dossier du contenu, libellé figé,
+ * bornes de la période), séparateur, période, dates et décimale au format choisi, en-tête facultatif, lignes séparées par
+ * CRLF. Ni BOM, ni apostrophe devant un tiret, que l'import de Sage lirait. `libelles` : ceux figés dans le contenu, ou
+ * ceux de la table en vigueur pour un lot d'avant cette colonne. L'encodage s'applique ensuite (octetsFichierLot).
+ */
+export function fichierLot(
+  contenu: Pick<SagePush, 'lignes'> & Partial<Pick<SagePush, 'dossier' | 'libelles'>>, f: FormatFichierPaie = FORMAT_FICHIER_DEFAUT, libelles = contenu.libelles ?? {},
+): string {
   const sep = f.separateur === 'tab' ? '\t' : f.separateur;
   const cellule = (s: string) => (s.includes(sep) || /["\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
-  const valeur = (l: LigneFichier, c: ColonneFichierPaie) => c === 'periode' ? periodeFichier(l.periode, f.formatPeriode)
-    : c === 'quantite' ? String(l.quantite).replace('.', f.decimale) : l[c];
+  const valeur = (l: LigneFichier, c: ColonneFichierPaie): string => {
+    switch (c) {
+      case 'periode': return periodeFichier(l.periode, f.formatPeriode);
+      case 'quantite': return String(l.quantite).replace('.', f.decimale);
+      case 'dossier': return contenu.dossier ?? '';
+      case 'libelle': return libelles[l.rubrique] ?? l.rubrique;
+      case 'debut': case 'fin': return l.periode ? dateFichier(bornesPeriode(l.periode)[c], f.formatDate ?? 'JJ/MM/AAAA') : '';
+      default: return l[c];
+    }
+  };
   const rows = lignesFichier(contenu).map(l => f.colonnes.map(c => cellule(valeur(l, c))).join(sep));
   return [...(f.entete ? [f.colonnes.map(c => ENTETE[c]).join(sep)] : []), ...rows].join('\r\n') + '\r\n';
 }
+
+/** Octets du fichier d'import, dans l'encodage réglé : UTF-8 sans BOM par défaut, ou Windows-1252. */
+export const octetsFichierLot = (texte: string, f: Partial<Pick<FormatFichierPaie, 'encodage'>> = FORMAT_FICHIER_DEFAUT) => encoderTexte(texte, f.encodage ?? 'utf-8');
+
+/** Type du fichier téléchargé, avec son jeu de caractères. */
+export const typeFichierLot = (f: Partial<Pick<FormatFichierPaie, 'encodage'>> = FORMAT_FICHIER_DEFAUT) => `text/csv; charset=${f.encodage ?? 'utf-8'}`;
 
 /** « sage-paie-2026-10-lot-12.csv » (`.txt` avec la tabulation). */
 export const nomFichierLot = (l: Pick<LotPaie, 'id' | 'periode'>, f: FormatFichierPaie = FORMAT_FICHIER_DEFAUT) =>

@@ -1,14 +1,16 @@
 // Fichier d'import d'un lot de paie pour Sage (t019, mode fichier) :
 //   GET /api/paie/lots/:id/fichier   administrateur RH et gestionnaire de paie (droit « paie ») : CSV tiré du contenu
-//                                    figé du lot, au format réglé par la paie (shared/rules/lots-paie.ts).
+//                                    figé du lot, au format réglé par la paie (shared/rules/lots-paie.ts), encodé en
+//                                    UTF-8 sans BOM ou en Windows-1252 selon ce format.
 // Chaque téléchargement est tracé (`sage.fichier`, archive paie de 3 ans, salariés du lot) et compté sur le lot : la
 // confirmation de l'import d'un lot de fichier suppose au moins un téléchargement. Un lot annulé ne se télécharge plus
 // (son fichier ne doit pas être importé) ; un lot historique, repris d'avant les lots, n'a pas de contenu.
 import express, { type Router } from 'express';
 import { droitsRh } from '../../shared/constants.ts';
 import { plural } from '../../shared/format.ts';
-import { fichierLot, nomFichierLot } from '../../shared/rules/lots-paie.ts';
-import { periodeLabel } from '../../shared/rules/paie.ts';
+import { fichierLot, libellesSage, nomFichierLot, octetsFichierLot, typeFichierLot } from '../../shared/rules/lots-paie.ts';
+import { periodeLabel, rubriquesPaie } from '../../shared/rules/paie.ts';
+import type { RubriquePaie } from '../../shared/types.ts';
 import { journaliser } from './comptes.ts';
 import { identite } from './connexion.ts';
 import type { Db } from './db.ts';
@@ -30,7 +32,9 @@ export function routesFichierPaie(db: Db): Router {
     if (lot.statut === 'annule') return res.status(409).json({ error: `Lot n° ${lot.id} annulé : son fichier ne doit pas être importé dans Sage` });
     if (!lot.contenu) return res.status(409).json({ error: `Lot n° ${lot.id} repris d’avant les lots de paie : aucun fichier` });
     const format = lireFormatFichier(db);
-    const texte = fichierLot(lot.contenu, format);
+    // Libellés figés à la génération ; lot d'avant la colonne « libellé » : ceux de la table en vigueur.
+    const libelles = lot.contenu.libelles ?? libellesSage(lot.contenu, rubriquesPaie(db.all<RubriquePaie>('rubriquesPaie')));
+    const texte = fichierLot(lot.contenu, format, libelles);
     const lignes = texte.split('\r\n').filter(Boolean).length - (format.entete ? 1 : 0);
     db.tx(() => {
       db.update('lotsPaie', lot.id, { telechargeLe: new Date().toISOString(), telechargePar: id.user.nom, telechargements: (lot.telechargements ?? 0) + 1 });
@@ -40,7 +44,7 @@ export function routesFichierPaie(db: Db): Router {
         payload: { lot: lot.id, cle: lot.cle, periode: lot.periode, lignes, format },
       });
     });
-    fichierJoint(res, 'text/csv; charset=utf-8', nomFichierLot(lot, format), texte);
+    fichierJoint(res, typeFichierLot(format), nomFichierLot(lot, format), Buffer.from(octetsFichierLot(texte, format)));
   });
 
   return r;

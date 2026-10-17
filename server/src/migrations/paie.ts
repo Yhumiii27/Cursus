@@ -1,5 +1,5 @@
 // Migrations nommées du chantier « paie » (lot 4) : mode des heures supplémentaires figé sur les feuilles validées ;
-// feuilles déjà transmises réunies en un lot de paie historique.
+// feuilles déjà transmises réunies en un lot de paie historique. Lot 5 : ancien mode « api » des lots retiré.
 import { randomUUID } from 'node:crypto';
 import { isoParis } from '../../../shared/dates.ts';
 import { Domain } from '../../../shared/domain.ts';
@@ -69,7 +69,7 @@ const transmisesSansLot = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS
  * Feuilles transmises sans lot réunies en un lot « historique », transmis, au contenu inconnu (avant les lots, seule la
  * dernière transmission était gardée, réglage `lastSagePush`, écrasé à chaque fois) : elles ne repartent jamais, et
  * l'historique des lots les montre. Mode de la dernière transmission connue (la simulation, seul mode qui marquait des
- * feuilles avant le lot 4), daté de celle-ci à défaut de mieux (`date` : date imposée). Renvoie le lot créé, ou null.
+ * feuilles avant le lot 4 ; l'ancien mode « api » devient « fichier », mode réel), daté de celle-ci à défaut de mieux (`date` : date imposée). Renvoie le lot créé, ou null.
  * Appelée aussi par le jeu de démonstration (server/src/seed.ts), dont les plus anciennes feuilles sont déjà transmises.
  */
 export function lotHistorique(db: Db, auteur = 'Cursus', date?: string): { id: number; feuilles: { empId: number; week: string }[] } | null {
@@ -87,7 +87,7 @@ export function lotHistorique(db: Db, auteur = 'Cursus', date?: string): { id: n
   const periodes = [...new Set([...parts.map(x => x.periode), ...annoncees])].sort();
   const rappels = [...new Set(parts.flatMap(x => (x.origine ? [x.origine] : [])))].sort();
   const lot = db.insert<{ id: number }>('lotsPaie', {
-    cle: randomUUID(), mode: dernier?.mode === 'api' || dernier?.mode === 'fichier' ? dernier.mode : 'simulation', statut: 'transmis',
+    cle: randomUUID(), mode: dernier?.mode === 'api' || dernier?.mode === 'fichier' ? 'fichier' : 'simulation', statut: 'transmis',
     periode: periodes.at(-1), periodes, rappels, creation: quand, auteur, feuilles,
     resume: { lignes: 0, salaries: new Set(feuilles.map(f => f.empId)).size, rubriques: {} }, sansMatricule: [], contenu: null,
     telechargeLe: null, telechargePar: null, telechargements: 0, confirmeLe: quand, confirmePar: auteur, reference: null,
@@ -115,5 +115,23 @@ export const LOTS_HISTORIQUES: Migration = {
       payload: { lot: lot.id, feuilles: lot.feuilles }, salaries: lot.feuilles.map(f => f.empId),
     });
     return `${plural(lot.feuilles.length, 'feuille transmise', 'feuilles transmises')} : lot historique n° ${lot.id}`;
+  },
+};
+
+/** Lots de paie enregistrés dans l'ancien mode « api » (lot historique repris d'une transmission sous SAGE_URL). */
+const lotsModeApi = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS n FROM lots_paie WHERE mode = 'api'`).get() as { n: number }).n);
+
+/**
+ * Lot 5 : le mode « api » disparaît (la paie importe le fichier dans Sage, décision du 15 octobre 2026). Un lot
+ * historique repris d'une transmission faite sous l'ancienne bascule SAGE_URL portait ce mode : il passe en « fichier »,
+ * mode réel (ni l'un ni l'autre n'a jamais rien envoyé tout seul ; le lot reste transmis, sans contenu).
+ */
+export const MODE_API_RETIRE: Migration = {
+  nom: 'lot5-paie-mode-api-retire',
+  // Base neuve : exécutée, sans effet ; base existante sans lot en mode « api » : notée faite.
+  necessaire: db => db.neuve || lotsModeApi(db) > 0,
+  executer: db => {
+    const n = Number(db.sql.prepare(`UPDATE lots_paie SET mode = 'fichier' WHERE mode = 'api'`).run().changes);
+    if (n) return `${plural(n, 'lot de paie', 'lots de paie')} de l’ancien mode « api » en mode fichier d’import`;
   },
 };

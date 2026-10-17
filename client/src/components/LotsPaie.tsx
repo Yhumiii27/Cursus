@@ -1,5 +1,5 @@
-// Écran Temps, espace RH : transmission des variables de paie à Sage. Mode réel de l'intégration (simulation, fichier
-// d'import, API : server/src/integrations/sage.ts), feuilles validées en attente par période de paie, rappels d'une
+// Écran Temps, espace RH : transmission des variables de paie à Sage. Mode réel de l'intégration (simulation ou fichier
+// d'import : server/src/integrations/sage.ts), feuilles validées en attente par période de paie, rappels d'une
 // période close compris (shared/rules/paie.ts), lots de paie (shared/rules/lots-paie.ts) : génération du lot d'une
 // période, téléchargement de son fichier d'import, confirmation de l'import dans Sage (seule à marquer les feuilles
 // transmises) ou annulation avant elle, historique. En simulation, la transmission en un clic reste possible. Format du
@@ -10,7 +10,7 @@ import { DownloadSimpleIcon } from '@phosphor-icons/react';
 import { fmtIso, plural } from '../../../shared/format.ts';
 import { sansMatriculePaie } from '../../../shared/rules/matricules.ts';
 import {
-  COLONNES_FICHIER, DECIMALES, FORMAT_FICHIER_DEFAUT, feuillesDuLot, PERIMETRE_FICHIER, periodeDeLaFeuille, SEPARATEURS, STATUTS_LOT, totauxTexte,
+  COLONNES_FICHIER, DECIMALES, ENCODAGES, FORMAT_FICHIER_DEFAUT, feuillesDuLot, PERIMETRE_FICHIER, periodeDeLaFeuille, SEPARATEURS, STATUTS_LOT, totauxTexte,
 } from '../../../shared/rules/lots-paie.ts';
 import {
   feuillesParPeriode, MODES_HEURES_SUP, MODES_SAGE, periodeLabel, RATTACHEMENTS, rubriquesAConfirmer, rubriquesPaie, rubriquesTexte,
@@ -83,7 +83,7 @@ export function LotsPaie() {
           </div>
         </div>
         <div className="actions-end" style={{ alignItems: 'center' }}>
-          <Tag cls={mode === 'simulation' ? 'tag-outline' : mode === 'fichier' ? 'tag-neutral' : 'tag-accent'}>{MODES_SAGE[mode].label}</Tag>
+          <Tag cls={mode === 'simulation' ? 'tag-outline' : 'tag-neutral'}>{MODES_SAGE[mode].label}</Tag>
           {paie && mode === 'simulation' && (
             <button type="button" className="btn btn-secondary" disabled={pending === 0}
               onClick={() => openDialog({ type: 'confirmer', c: transmissionSage(pending, salaries, groupes) })}>Transmettre (simulation)</button>
@@ -109,7 +109,7 @@ export function LotsPaie() {
                     <td className="right tnum">{sheets.length}</td>
                     <td className="right tnum">{new Set(sheets.map(sh => sh.empId)).size}</td>
                     <td className="right">
-                      {paie && mode !== 'api' && (
+                      {paie && (
                         <button type="button" className="btn btn-primary btn-sm" onClick={() => generer(p)}>
                           {mode === 'simulation' ? 'Générer le lot (essai)' : 'Générer le fichier'}
                         </button>
@@ -183,7 +183,8 @@ export function LotsPaie() {
       </div>
       <Fine>
         Colonnes : {format.colonnes.map(c => COLONNES_FICHIER[c].replace(/^./, x => x.toLowerCase())).join(', ')} · séparateur {SEPARATEURS[format.separateur].toLowerCase()} · période {format.formatPeriode}
-        {' '}· décimale {DECIMALES[format.decimale].toLowerCase()} · {format.entete ? 'avec' : 'sans'} ligne d’en-tête. Une ligne par salarié, période et rubrique ;
+        {format.colonnes.some(c => c === 'debut' || c === 'fin') ? ` · dates ${format.formatDate}` : ''}
+        {' '}· décimale {DECIMALES[format.decimale].toLowerCase()} · {format.entete ? 'avec' : 'sans'} ligne d’en-tête · encodage {ENCODAGES[format.encodage]}. Une ligne par salarié, période et rubrique ;
         {' '}le gestionnaire de paie ajuste le format au modèle d’import de son Sage. Chaque téléchargement est tracé dans le journal.
       </Fine>
 

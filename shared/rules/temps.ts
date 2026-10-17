@@ -9,6 +9,7 @@ import { lignesFormation } from './formations-temps.ts';
 import { matriculeAffiche } from './matricules.ts';
 import { modeHeuresSup, periodesSemaine, rubriquesPaie, traduireRubriques } from './paie.ts';
 import { alertesRepos, DIMANCHE, derogationDe, estWeekEnd, JOURS_FEUILLE } from './semaine.ts';
+import { controlesMineur, naissanceDeLaFeuille } from './mineurs.ts';
 
 /** Régime de temps de travail en vigueur d'une fiche, à figer sur une feuille soumise. */
 export function contratFige(e: Employe): ContratFige {
@@ -24,7 +25,8 @@ export interface SheetCalc {
   perDay: number[]; total: number; warn: string[];
   /**
    * Durées maximales dépassées (plus de 10 h sur une journée ou de 48 h dans la semaine ; plus de 13 h pour un forfait
-   * jours) : sous-ensemble de `warn`. La soumission, et la validation, exigent alors un motif (`motifDepassement`).
+   * jours ; plus de 8 h ou de 35 h pour un salarié mineur) : sous-ensemble de `warn`. La soumission, et la validation,
+   * exigent alors un motif (`motifDepassement`).
    */
   depassements: string[];
   /**
@@ -32,6 +34,11 @@ export interface SheetCalc {
    * Sous-ensemble de `warn`, en alerte seulement : ni la soumission ni la validation n'en dépendent.
    */
   repos: string[];
+  /**
+   * Salarié de moins de 18 ans (shared/rules/mineurs.ts) : dépassements de 8 h par jour ou de 35 h par semaine, déjà
+   * comptés dans `depassements` (motif ou référence de la dérogation de l'inspection du travail).
+   */
+  depassementsMineur: string[];
   /** Heures du dimanche (rubrique HDIM) et majoration en % (figée à la validation, sinon le réglage) : rubrique MAJ_DIM. */
   dimanche: number; majDimanche: number;
   /** Heures payées au taux normal (dans la limite de 35 h). */
@@ -57,7 +64,7 @@ export interface SheetCalc {
  * - forfait jours et cadre dirigeant : décompte en jours, pas d'heures supplémentaires ;
  * - forfait annuel en heures : pas de décompte hebdomadaire (cumul annuel, voir `cumulAnnuel`).
  */
-export function calcSheet(d: Domain, e: Employe, sh: (Pick<FeuilleTemps, 'lignes'> & Partial<Pick<FeuilleTemps, 'contrat' | 'heuresSup' | 'majDimanche'>>) | null): SheetCalc {
+export function calcSheet(d: Domain, e: Employe, sh: (Pick<FeuilleTemps, 'lignes'> & Partial<Pick<FeuilleTemps, 'contrat' | 'heuresSup' | 'majDimanche' | 'week' | 'mineur'>>) | null): SheetCalc {
   const c = d.contratOf(employeDeLaFeuille(e, sh));
   // Une ligne de 5 valeurs (enregistrée avant la semaine à 7 jours) se lit avec un samedi et un dimanche vides.
   const perDay = Array.from({ length: JOURS_FEUILLE }, (_, i) => (sh ? sh.lignes : []).reduce((n, l) => n + num(l.h[i]), 0));
@@ -70,12 +77,15 @@ export function calcSheet(d: Domain, e: Employe, sh: (Pick<FeuilleTemps, 'lignes
     if (perDay.some(h => h > 10)) depassements.push('Plus de 10 h sur une journée (art. L3121-18)');
     if (total > 48) depassements.push('Plus de 48 h dans la semaine (art. L3121-20)');
   }
+  // Salarié de moins de 18 ans, les jours où il l'est : 8 h par jour, 35 h par semaine, deux jours de repos consécutifs.
+  const jeune = controlesMineur(naissanceDeLaFeuille(e, sh), sh?.week, perDay);
+  depassements.push(...jeune.depassements);
   // Repos hebdomadaire et dominical : alertes, sauf pour un cadre dirigeant (art. L3111-2).
-  const repos = c.dirigeant ? [] : alertesRepos(perDay, derogationDe(d.ds, e));
+  const repos = [...(c.dirigeant ? [] : alertesRepos(perDay, derogationDe(d.ds, e))), ...jeune.repos];
   const warn = [...depassements, ...repos];
   const modeHS = modeHeuresSup(sh, d.ds.settings);
   const majDimanche = sh?.majDimanche ?? d.ds.settings?.majorationDimanche ?? 0;
-  const r: SheetCalc = { perDay, total, c, warn, depassements, repos, dimanche: perDay[DIMANCHE], majDimanche, normal: total, incluses: 0, incluses25: 0, incluses50: 0, sup25: 0, sup50: 0, hc10: 0, hc25: 0, recup: 0, jours: 0, modeHS };
+  const r: SheetCalc = { perDay, total, c, warn, depassements, repos, depassementsMineur: jeune.depassements, dimanche: perDay[DIMANCHE], majDimanche, normal: total, incluses: 0, incluses25: 0, incluses50: 0, sup25: 0, sup50: 0, hc10: 0, hc25: 0, recup: 0, jours: 0, modeHS };
   const jours = perDay.reduce((n, h) => n + (h === 0 ? 0 : h <= 4 ? 0.5 : 1), 0);
   if (c.forfait || c.dirigeant || c.annuel) r.jours = jours;
   else if (c.partiel) {

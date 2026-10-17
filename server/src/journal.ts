@@ -27,8 +27,9 @@ import {
 import { CODE_PAYS, CODE_TITRE, codeDestination, codeTitre, type ReferentielId } from '../../shared/rules/referentiels.ts';
 import { estTypeReprise } from '../../shared/rules/reprise.ts';
 import { CODE_ACTIVITE, normaliserCodeActivite } from '../../shared/rules/activites.ts';
-import { estTypeDerogation } from '../../shared/rules/semaine.ts';
-import type { ClotureConges, CurrentUser, FeuilleTemps, InformationCp, LigneTemps } from '../../shared/types.ts';
+import { estTypeDerogation, JOURS_FEUILLE } from '../../shared/rules/semaine.ts';
+import { controlesMineur } from '../../shared/rules/mineurs.ts';
+import type { ClotureConges, CurrentUser, Employe, FeuilleTemps, InformationCp, LigneTemps } from '../../shared/types.ts';
 import type { ContactsConfidentialite } from '../../shared/confidentialite.ts';
 import { journaliser, type Compte } from './comptes.ts';
 import { lireConfidentialite } from './confidentialite.ts';
@@ -112,7 +113,7 @@ const referentielRecu = (p: P): ReferentielId | null => (['formations', 'habilit
 const nombreReferentiel = (db: Db, p: P) => { const r = referentielRecu(p); return r ? db.count(r) : 0; };
 const FICHE = [
   'nom', 'poste', 'posteId', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis', 'entree', 'fin',
-  'motifSortie', 'essaiFin', 'essaiRenouveleJusquau', 'agence', 'matriculePaie',
+  'motifSortie', 'essaiFin', 'essaiRenouveleJusquau', 'agence', 'matriculePaie', 'derogationTravauxLe',
 ];
 /**
  * Solde de RTT de l'année affiché avant un changement de régime qui n'en ouvre plus (garde-fou de `employe.modifier`) :
@@ -142,8 +143,20 @@ const ligneTemps: Partial<Regle> = {
   changements: (p, x) => (corrigeTotal(p, x)
     ? { avant: { heures: totalHeures(x.avant) }, apres: { heures: totalHeures(x.apres) }, extra: { feuille: statutFeuille(x.avant) } } : null),
 };
+/**
+ * Dépassement des durées maximales motivé : le fait que le motif soit renseigné, jamais son texte ; salarié mineur
+ * (décision de l'entreprise du 17 octobre 2026 : motif ou référence de dérogation tracé au journal), contrôles en cause.
+ */
+function depassementTrace(p: P, x: Contexte): Ligne {
+  if (!x.apres?.motifDepassement) return {};
+  const e = x.db.get<Employe>('employes', Number(p.empId) || 0);
+  const lignes = (x.apres.lignes ?? []) as LigneTemps[];
+  const perDay = Array.from({ length: JOURS_FEUILLE }, (_, i) => lignes.reduce((n, l) => n + num(l.h[i]), 0));
+  const codes = e ? controlesMineur(e, String(x.apres.week ?? ''), perDay).codes.filter(c => c === 'jour_8h' || c === 'semaine_35h') : [];
+  return { motifDepassement: MENTION_TEXTE, ...(codes.length ? { depassementMineur: codes } : {}) };
+}
 /** Soumission, validation : statut avant et après, et total d'heures de la feuille (ce qui part en paie). */
-const statutEtTotal: Partial<Regle> = { cible: FEUILLE, bilan: (_p, x) => ({ heures: totalHeures(x.apres) }) };
+const statutEtTotal: Partial<Regle> = { cible: FEUILLE, bilan: (p, x) => ({ heures: totalHeures(x.apres), ...depassementTrace(p, x) }) };
 
 /** Inscrits avant et après l'action : une annulation ou des places retirées détachent des recyclages rattachés. */
 const inscritsAvantApres: Partial<Regle> = { etat: (db, p) => inscrits(db, p.id), salaries: (p, x) => [...(x.etat as number[]), ...inscrits(x.db, p.id)] };
@@ -302,7 +315,9 @@ export const REGLES: Record<string, Regle> = {
     },
   },
   'referentiel.poste.archiver': { extra: p => ({ id: Number(p.id) || null, retablir: p.archive === false }), cible: parId('postes', ['archive']) },
+  // Case « travail de nuit ou en continu » (salariés mineurs exclus) : valeur avant et après, quand elle est envoyée.
   'referentiel.equipe.exigences': {
+    extra: (p, avant) => (typeof p.nuit === 'boolean' ? { nuit: p.nuit, nuitAvant: avant?.nuit ?? null } : {}),
     champs: ['nom'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['exigences'], aplatir: true }, salaries: (_p, x) => salariesTouches(x),
   },
   // Activités internes (codes INT-… et ECOLE, aucune donnée personnelle) : code, libellé et statut avant et après.

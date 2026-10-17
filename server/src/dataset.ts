@@ -7,7 +7,7 @@ import { absenceVueManager, repriseMedicale } from '../../shared/rules/absences.
 import { acquisitionsCalculees } from '../../shared/rules/acquisition-cp.ts';
 import { aptitudeVueManager } from '../../shared/rules/sante.ts';
 import { visiteAProgrammer } from '../../shared/rules/visites-dues.ts';
-import { naissanceVueManager } from '../../shared/rules/mineurs.ts';
+import { etatMineur, mineurDeLaSemaine, naissanceVueManager } from '../../shared/rules/mineurs.ts';
 import { needsFinCarriere } from '../../shared/rules/entretiens.ts';
 import { verdictAutorisation } from '../../shared/rules/contrats.ts';
 import { completerSession } from '../../shared/rules/plage-session.ts';
@@ -244,6 +244,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
       suivi: null, prochaineVisite: null, examenAptitude: null, expose: null,
       passeport: e.passeport && { expire: e.passeport.expire }, motifSortie: null, finPrevue: null, sortieEnregistree: !!e.motifSortie,
       autorisationTravail: null, autorisationVerdict: verdictAutorisation(e, full.today), ...naissanceVueManager(e, full.today),
+      // Dérogation pour travaux réglementés d'un mineur : dossier du service RH ; le manager a l'indication « mineur ».
+      derogationTravauxLe: null,
       ...(repriseMedicale(e, full.absences) ? { repriseMotif: null, repriseDate: null } : { repriseMotif: e.repriseDate ? 'absence longue' : null }),
     }
     : e);
@@ -268,7 +270,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     demandesKeystone: [],
     missions: mine(full.missions),
     taches: tachesProches(mine(full.taches), full.today),
-    feuilles: mine(full.feuilles),
+    // Feuilles d'un membre : l'indication « mineur » de la semaine, qui remplace la date de naissance pour ses contrôles.
+    feuilles: mine(full.feuilles).map(sh => (isMgr && sh.empId !== user.empId ? feuilleSansNaissance(d, sh) : sh)),
     // Arrêt maladie, accident, maladie professionnelle : le manager ne voit qu'une « Absence » (dates, état).
     // Demi-journées d'un congé (matin, après-midi) : transmises comme ses dates ; une absence hors congés n'en porte jamais.
     absences: mine(full.absences).map(a => isMgr && a.empId !== user.empId ? absenceVueManager(a) : a),
@@ -313,6 +316,12 @@ const sansExigences = (r: Dataset['referentiels']): Pick<Dataset['referentiels']
   equipes: r.equipes.map(q => ({ ...q, exigences: null })),
 });
 
+/** Feuille d'une vue sans la date de naissance : indication « mineur » de la semaine (contrôles des mineurs). */
+function feuilleSansNaissance(d: Domain, sh: FeuilleTemps): FeuilleTemps {
+  const e = d.emp(sh.empId);
+  return e ? { ...sh, mineur: mineurDeLaSemaine(e, sh.week) } : sh;
+}
+
 /**
  * Instantané d'un profil restreint de l'espace RH (sans le droit `rh`) : seulement ce que ses droits ouvrent,
  * jamais de donnée de santé détaillée. Pour tous, comme pour le manager : aptitude réduite au verdict (aptitude valide
@@ -343,6 +352,11 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     passeport: lecture ? e.passeport && { expire: e.passeport.expire } : null, visas: lecture ? e.visas : [],
     // Naissance : l'année et l'indication « mineur » du jour, comme pour le manager ; jamais la date complète.
     ...naissanceVueManager(e, full.today),
+    // Dérogation pour travaux réglementés d'un mineur : référent HSE (prévention des risques) et lecture seule ; pas la paie.
+    derogationTravauxLe: formations ? e.derogationTravauxLe ?? null : null,
+    // Sans la date de naissance, la vue ne sait pas si la dérogation court au-delà des 18 ans : indication du serveur,
+    // pour des échéances identiques à celles du service RH (aucun renouvellement à prévoir dans ce cas).
+    ...(formations && e.derogationTravauxLe ? { derogationApresMajorite: etatMineur(e, full.today)?.derogationApresMajorite ?? false } : {}),
     certs: formations ? sansCorrections(e).certs : [], certsAnnulees: [], habs: formations ? e.habs : [],
     // Motif de sortie : paie (solde de tout compte) et lecture seule ; le référent HSE ne voit que la date, et l'indication
     // qu'elle est enregistrée (ses échéances de fin de contrat sont celles du service RH).
@@ -383,7 +397,7 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     demandesKeystone: formations ? full.demandesKeystone : [],
     missions: lecture ? full.missions : [],
     taches: lecture ? tachesProches(full.taches, full.today) : [],
-    feuilles: paie ? full.feuilles : [],
+    feuilles: paie ? full.feuilles.map(sh => feuilleSansNaissance(d, sh)) : [],
     // Le référent HSE ne reçoit, sans leur nature, que les absences des ressources des chantiers : celles qui comptent au
     // Go / No Go.
     absences: paie ? full.absences.map(absenceVueManager)

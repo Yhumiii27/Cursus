@@ -26,7 +26,7 @@ export const LIBELLE_CHAMP_FICHE: Record<Champ, string> = {
   temps: 'Organisation du temps', heures: 'Heures', forfaitHeures: 'Forfait en heures', forfaitJours: 'Forfait en jours',
   jourOff: 'Jours non travaillés', tempsDepuis: 'Date d’effet du régime de temps', entree: 'Date d’entrée', fin: 'Fin de contrat',
   motifSortie: 'Motif de sortie', essaiFin: 'Fin de la période d’essai', essaiRenouveleJusquau: 'Essai renouvelé jusqu’au',
-  naissance: 'Année de naissance', naissanceLe: 'Date de naissance', agence: 'Agence d’intérim', matriculePaie: 'Matricule de paie', email: 'Adresse e-mail',
+  naissance: 'Année de naissance', naissanceLe: 'Date de naissance', derogationTravauxLe: 'Dérogation pour travaux réglementés', agence: 'Agence d’intérim', matriculePaie: 'Matricule de paie', email: 'Adresse e-mail',
   visite: 'Visite médicale', repriseMotif: 'Motif de l’absence longue', repriseDate: 'Date de reprise',
 };
 

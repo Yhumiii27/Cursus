@@ -15,6 +15,7 @@ import { adressesPrises } from '../../../shared/rules/messagerie.ts';
 import { JOURS_SEMAINE, MANAGER_FIELDS, PROFIL_FIELDS, PROFIL_VIDE, normaliserProfil, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
 import { champsAEnvoyer, champsDifferents, champsEnConflit, LIBELLE_CHAMP_FICHE } from '../../../shared/rules/fiche-concurrente.ts';
 import { contratFige } from '../../../shared/rules/temps.ts';
+import { equipeDeNuit, finDerogationTravaux, mineurAu } from '../../../shared/rules/mineurs.ts';
 import type { Statut, TempsTravail, TypeContrat } from '../../../shared/types.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Btn, Fine, NoteAccent, SectionLabel, Seg } from '../components/ui.tsx';
@@ -27,6 +28,8 @@ interface Form {
   nom: string; poste: string; equipe: string;
   /** Date de naissance saisie ; `naissance` : année de la fiche, gardée tant que la date reste inconnue (fiche antérieure). */
   naissanceLe: string; naissance: string;
+  /** Salarié mineur : date de la déclaration de dérogation pour travaux réglementés (shared/rules/mineurs.ts). */
+  derogationTravaux: string;
   /** Poste du référentiel choisi (identifiant), `''` : aucun, NOUVEAU_POSTE : intitulé saisi, poste créé à l'enregistrement. */
   posteId: string;
   statut: Statut; typeContrat: TypeContrat; entree: string; fin: string; agence: string; email: string; matriculePaie: string;
@@ -50,6 +53,7 @@ const toNum = (s: string) => {
 function toForm(p: ProfilInput, today: string): Form {
   return {
     nom: p.nom, poste: p.poste, posteId: p.posteId != null ? String(p.posteId) : '', equipe: p.equipe ?? '', naissanceLe: p.naissanceLe ?? '', naissance: numStr(p.naissance),
+    derogationTravaux: p.derogationTravauxLe ?? '',
     statut: p.statut, typeContrat: p.typeContrat, entree: p.entree, fin: p.fin ?? '', agence: p.agence ?? '', email: p.email ?? '', matriculePaie: p.matriculePaie ?? '',
     temps: p.temps, heures: numStr(p.heures),
     forfaitHeures: numStr(p.forfaitHeures ?? (p.temps === 'forfait_heures_annuel' ? 1607 : null)),
@@ -66,14 +70,15 @@ function toInput(f: Form, tempsDepuis: string | null): ProfilInput {
   return {
     nom: f.nom, poste: f.poste, posteId: posteIdSaisi(f.posteId), equipe: f.equipe || null, statut: f.statut, typeContrat: f.typeContrat, temps: f.temps,
     heures: toNum(f.heures), forfaitHeures: toNum(f.forfaitHeures), forfaitJours: toNum(f.forfaitJours), jourOff: f.jourOff, tempsDepuis,
-    entree: f.entree, fin: f.fin || null, naissanceLe: f.naissanceLe || null, naissance: toNum(f.naissance) ?? Number.NaN, agence: f.agence || null, matriculePaie: f.matriculePaie || null, email: f.email || null,
+    entree: f.entree, fin: f.fin || null, naissanceLe: f.naissanceLe || null, naissance: toNum(f.naissance) ?? Number.NaN,
+    derogationTravauxLe: f.derogationTravaux || null, agence: f.agence || null, matriculePaie: f.matriculePaie || null, email: f.email || null,
     visite: f.visite || null, repriseMotif: f.repriseMotif || null, repriseDate: f.repriseDate || null,
     essaiFin: f.essaiFin || null, essaiRenouveleJusquau: f.essaiRenouvele || null,
   };
 }
 
 /** Champ de la fiche saisi par chaque champ du formulaire (la date d'effet n'en a pas : elle reste celle saisie). */
-const CHAMP_DU_FORM: Partial<Record<keyof Form, keyof ProfilInput>> = { essaiRenouvele: 'essaiRenouveleJusquau' };
+const CHAMP_DU_FORM: Partial<Record<keyof Form, keyof ProfilInput>> = { essaiRenouvele: 'essaiRenouveleJusquau', derogationTravaux: 'derogationTravauxLe' };
 
 /**
  * Fiche reprise à jour après une modification concurrente : les champs modifiés entre-temps (et ceux de leur groupe)
@@ -102,7 +107,7 @@ const same = (a: ProfilInput, b: ProfilInput) => PROFIL_FIELDS.every(k => JSON.s
  * s'affiche sous ce champ. Un message non reconnu reste dans la liste sous le formulaire.
  */
 const CHAMP_ERREUR: [RegExp, keyof Form][] = [
-  [/^Nom requis/, 'nom'], [/^Poste requis/, 'poste'], [/^Équipe inconnue/, 'equipe'], [/naissance/, 'naissanceLe'],
+  [/^Nom requis/, 'nom'], [/^Poste requis/, 'poste'], [/^Équipe inconnue|travail de nuit ou en continu/, 'equipe'], [/dérogation pour travaux réglementés/i, 'derogationTravaux'], [/naissance/, 'naissanceLe'],
   [/^Date d’entrée/, 'entree'], [/renouvellement de l’essai/i, 'essaiRenouvele'], [/période d’essai/, 'essaiFin'], [/date de fin/i, 'fin'], [/^Agence d’intérim/, 'agence'], [/^Manager de l’équipe/, 'typeContrat'],
   [/^Un intérimaire ne peut|cadre dirigeant/, 'temps'], [/date d’effet/i, 'effet'],
   [/^Temps partiel|^Forfait hebdomadaire/, 'heures'], [/^Forfait annuel en heures/, 'forfaitHeures'], [/^Forfait jours/, 'forfaitJours'],
@@ -203,6 +208,8 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
     contrat: { finPrevue: emp?.finPrevue ?? null, sortieEnregistree: emp?.sortieEnregistree },
     // Date déjà enregistrée : requise (l'année seule ne la remplace pas). Manager : vue sans la date, que le serveur contrôle.
     naissance: { enregistree: !creation && !!initial.naissanceLe, masquee: limited },
+    // Salarié mineur : pas d'équipe de nuit ou en continu, dérogation pour travaux réglementés datée au plus d'aujourd'hui.
+    mineurs: { equipes: d.ds.referentiels.equipes, today: d.ti },
   });
   // Matricule d'un salarié sorti, pas encore confirmé : l'administrateur RH confirme à l'envoi ; pour le gestionnaire RH,
   // l'erreur sous le champ le renvoie à l'administrateur.
@@ -228,6 +235,8 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   const { champs: errChamp, autres } = repartir(errors);
   const err = (k: keyof Form) => showErrors ? errChamp[k] ?? null : null;
   const partielEmp = !!emp && d.contratOf(emp).partiel;
+  // Salarié de moins de 18 ans d'après la saisie, aujourd'hui ou à son entrée : dérogation pour travaux réglementés proposée.
+  const mineurSaisi = mineurAu(v.profil, d.ti) || (isValidDate(v.profil.entree) && v.profil.entree > d.ti && mineurAu(v.profil, v.profil.entree));
 
   const save = async (confirmeRtt = false) => {
     if (busy || !verif.verifier(!ok)) return;
@@ -372,7 +381,7 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
         <Field label="Équipe" htmlFor="emp-equipe" erreur={err('equipe')}>
           <select className="input" id="emp-equipe" value={f.equipe} onChange={ev => set('equipe', ev.target.value)}>
             <option value="">À affecter</option>
-            {d.equipes.map(nom => <option key={nom} value={nom}>{nom}</option>)}
+            {d.equipes.map(nom => <option key={nom} value={nom}>{nom}{equipeDeNuit(d.ds.referentiels.equipes.find(q => q.nom === nom)) ? ' · nuit ou continu' : ''}</option>)}
           </select>
           <span className="text-muted sub">Manager valideur : {d.mgrName(valideur)}</span>
         </Field>
@@ -383,6 +392,17 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
               : 'Âge exact : règles des salariés mineurs, entretiens de fin de carrière'}
           </span>
         </Field>
+        {/* Salarié mineur (ou dérogation déjà saisie) : déclaration de dérogation pour travaux réglementés, valable 3 ans. */}
+        {!limited && (mineurSaisi || !!initial.derogationTravauxLe) && (
+          <Field label={<>Dérogation pour travaux réglementés <span className="who">· facultatif</span></>} htmlFor="emp-derog" erreur={err('derogationTravaux')}>
+            <input className="input" id="emp-derog" type="date" max={d.ti} value={f.derogationTravaux} onChange={ev => set('derogationTravaux', ev.target.value)} />
+            <span className="text-muted sub">
+              {isValidDate(f.derogationTravaux)
+                ? `Déclarée à l’inspection du travail le ${fmtIso(f.derogationTravaux)} : à renouveler avant le ${fmtIso(finDerogationTravaux({ derogationTravauxLe: f.derogationTravaux })!)} (3 ans, art. R4153-41)`
+                : 'Date de la déclaration à l’inspection du travail (art. R4153-40) ; sans elle, aucun travail réglementé avant 18 ans'}
+            </span>
+          </Field>
+        )}
         <Field label="Adresse e-mail professionnelle" htmlFor="emp-email">
           <input className="input" id="emp-email" type="email" autoComplete="off" placeholder="prenom.nom@entreprise.fr" value={f.email} onChange={ev => set('email', ev.target.value)} />
           <span className="text-muted sub">Notifications et convocations ; à défaut, celle du compte Microsoft 365 est reprise à sa création</span>

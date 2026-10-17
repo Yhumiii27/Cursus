@@ -223,6 +223,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
       suivi: null, prochaineVisite: null, examenAptitude: null,
       passeport: e.passeport && { expire: e.passeport.expire }, motifSortie: null, finPrevue: null, sortieEnregistree: !!e.motifSortie,
       autorisationTravail: null, autorisationVerdict: verdictAutorisation(e, full.today), ...naissanceVueManager(e, full.today),
+      // Dérogation pour travaux réglementés d'un mineur : dossier du service RH ; le manager a l'indication « mineur ».
+      derogationTravauxLe: null,
       ...(repriseMedicale(e, full.absences) ? { repriseMotif: null, repriseDate: null } : { repriseMotif: e.repriseDate ? 'absence longue' : null }),
     }
     : e);
@@ -320,6 +322,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     passeport: lecture ? e.passeport && { expire: e.passeport.expire } : null, visas: lecture ? e.visas : [],
     // Naissance : l'année et l'indication « mineur » du jour, comme pour le manager ; jamais la date complète.
     ...naissanceVueManager(e, full.today),
+    // Dérogation pour travaux réglementés d'un mineur : référent HSE (prévention des risques) et lecture seule ; pas la paie.
+    derogationTravauxLe: formations ? e.derogationTravauxLe ?? null : null,
     certs: formations ? e.certs : [], habs: formations ? e.habs : [],
     // Motif de sortie : paie (solde de tout compte) et lecture seule ; le référent HSE ne voit que la date, et l'indication
     // qu'elle est enregistrée (ses échéances de fin de contrat sont celles du service RH).

@@ -629,7 +629,7 @@ aucun champ du paramètre n'est recopié.
 | `equipe.supprimer` | nom | administrateur RH |
 | `equipe.manager` | nom, managerId (null = aucun) | RH |
 | `equipe.modifier` | nom, nouveau? (absent : inchangé), managerId? (null = aucun ; absent : inchangé) : renommage puis manager dans une seule transaction, avec les contrôles de `equipe.renommer` et `equipe.manager` ; un refus n'enregistre rien (dialogue de l'équipe) | RH |
-| `equipe.affecter` | empId, equipe (null = à affecter) | RH ; manager : ajout à une équipe qu'il encadre d'un salarié « à affecter » (libéré par son manager) ou d'un membre d'une autre de ses équipes, retrait d'un membre — jamais le membre d'une autre équipe : sa mutation relève du RH |
+| `equipe.affecter` | empId, equipe (null = à affecter) | RH ; manager : ajout à une équipe qu'il encadre d'un salarié « à affecter » (libéré par son manager) ou d'un membre d'une autre de ses équipes, retrait d'un membre — jamais le membre d'une autre équipe : sa mutation relève du RH ; jamais un salarié mineur dans une équipe de nuit ou en continu |
 | `plan.inscrire` | empId, certId (recyclage) ou inscriptionId (formation initiale à replanifier), sessionId, conv (`now`/`later`) ; refusé depuis une session passée non clôturée, et si le salarié est absent ou inscrit à une autre session ce jour-là ; convocation reçue pour l'ancienne session à venir annulée par e-mail | RH, référent HSE, manager direct |
 | `convocation.envoyer` | sessionId, empIds? (sans liste : toutes les convocations « à envoyer » ; avec : envoi ou renvoi) ; session à venir ; e-mail avec `.ics`, date d'envoi `convocLe` | RH, référent HSE ; manager direct pour les membres de son équipe |
 | `plan.desinscrire` | empId, sessionId (session à venir) : place libérée, recyclage de nouveau à planifier ou inscription initiale retirée, convocation reçue (même remise « à renvoyer ») annulée par e-mail | RH, référent HSE, manager direct |
@@ -651,7 +651,7 @@ aucun champ du paramètre n'est recopié.
 | `referentiel.destination.archiver` | id, archive? | RH |
 | `referentiel.poste.enregistrer` | id? (modification ; sans : création), nom (80 caractères, unique parmi les postes en vigueur), formations [codes], habilitations [codes] (en vigueur ; déjà exigés et archivés depuis : gardés) ; message : salariés qui deviennent non conformes (ligne du journal rattachée à eux), intitulé recopié sur les fiches des titulaires | RH |
 | `referentiel.poste.archiver` | id, archive? ; refusé tant qu'un salarié présent occupe le poste ; rétablissement refusé si un poste en vigueur porte le même intitulé | RH |
-| `referentiel.equipe.exigences` | nom (équipe), formations, habilitations (vides : aucune exigence commune) ; message comme pour un poste | RH |
+| `referentiel.equipe.exigences` | nom (équipe), formations, habilitations (vides : aucune exigence commune), nuit? (travail de nuit ou en continu : refusé si l'équipe compte un salarié mineur) ; message comme pour un poste | RH |
 | `hab.demander` | empId, h : habilitation exigée jamais délivrée, titre « en attente » de délivrance (déjà demandée : rien n'est refait ; déjà délivrée ou archivée : refus) | RH, référent HSE |
 | `referentiel.charger` | referentiel (`formations`/`habilitations`/`destinations`) : référentiel type (celui de la démonstration) chargé dans un référentiel vide, archivés compris ; habilitations après les formations (prérequis présents et en vigueur) | RH, référent HSE (destinations : RH) |
 | `medical.demander` | empId, motif? (`periodique`/`embauche`/`reprise`/`employeur` ; par défaut embauche sans visite enregistrée, sinon périodique) ; e-mail au service de santé au travail | RH (une demande en cours par collaborateur) |
@@ -948,6 +948,41 @@ restreints de l'espace RH reçoivent `naissanceLe: null`, l'année (règle à l'
 `mineur` au jour de l'instantané ; pas d'âge exact, qui à côté de l'année trahirait le jour anniversaire. Les sections de
 fin de carrière de leurs entretiens sont calculées par le serveur (`finCarriere` de l'entretien), pour que l'évaluateur
 rédige celles que `entretien.modifier` accepte. Le journal nomme `naissanceLe` parmi les champs modifiés, sans sa valeur.
+
+### Salariés de moins de 18 ans
+
+Lot 5, chantier E, étape 2. Règles dans `shared/rules/mineurs.ts`, qui ne lisent que `mineurAu` : elles s'appliquent jour
+par jour et cessent d'elles-mêmes le jour des 18 ans (date complète), ou le 1er janvier de l'année des 18 ans (année seule).
+
+- **Durées** (art. L3162-1) : `controlesMineur`, appelé par `calcSheet` (une ligne, `depassementsMineur` de `SheetCalc`) ;
+  plus de 8 h un jour de minorité, plus de 35 h sur les jours de minorité de la semaine (la semaine des 18 ans, les heures
+  faites majeur n'y comptent pas). Ces dépassements rejoignent `depassements` : soumission et validation exigent, comme
+  au-delà de 10 h ou 48 h, un motif (`motifDepassement`), ici « motif ou référence de la dérogation de l'inspection du
+  travail » (décision de l'entreprise du 17 octobre 2026). Le journal de `temps.submit` et `temps.validate` trace que le
+  motif est renseigné (`[texte renseigné]`, jamais son texte) et les contrôles en cause (`depassementMineur` :
+  `jour_8h`, `semaine_35h`). Les rubriques de paie ne changent pas.
+- **Repos** (alertes, `repos` de `SheetCalc`, comme le repos hebdomadaire des majeurs) : heures le dimanche (art.
+  L3164-5, sans dérogation pour l'industrie chimique, même quand l'équipe a une dérogation au repos dominical) ; à défaut,
+  semaine sans deux jours consécutifs sans heure (art. L3164-2), le samedi travaillé laissant possible un repos dimanche
+  et lundi suivant, que l'alerte invite à vérifier. Faute d'horaires, ni le repos quotidien de 12 h (art. L3164-1) ni la
+  pause de 30 min (art. L3162-3) ne sont contrôlés.
+- **Nuit** (art. L3163-2) : case « travail de nuit ou en continu » de l'équipe (`Equipe.nuit`, colonne JSON pour garder
+  `null`, case pas encore renseignée, distincte de « non » ; le schéma déclaratif l'ajoute, sans migration nommée),
+  saisie dans le dialogue des exigences communes (Référentiels → Postes) et envoyée avec elles
+  (`referentiel.equipe.exigences`, paramètre `nuit` ; server/src/actions/mineurs.ts), tracée avec sa valeur d'avant. Un
+  mineur (aujourd'hui, ou à sa date d'entrée si elle est à venir) n'est pas affecté à une équipe cochée : `refusEquipeNuit`,
+  dans `validerProfil` (option `mineurs` : fiche, client et serveur, import de reprise) et dans `equipe.affecter` ; une
+  équipe qui compte un mineur ne se coche pas. Tant que la case de son équipe n'est pas renseignée, la fiche du mineur
+  rappelle l'interdiction (`MineurFiche`, client/src/components/Mineur.tsx).
+- **Travaux réglementés** (art. R4153-40 et suivants) : `derogationTravauxLe`, date de la déclaration de dérogation, saisie
+  par le service RH sur la fiche (champ de `PROFIL_FIELDS`, proposé pour un salarié mineur ; jamais future), sans lien aux
+  postes tant que les postes à risques ne sont pas connus. Validité de 3 ans (`finDerogationTravaux`, art. R4153-41).
+- **Échéances** (`echeancesMineur`, appelée par `echeancesContrat`, type `contrat`) : « 18 ans », qui lève ces règles (à
+  l'année : 1er janvier, avec l'action « Saisir la date de naissance »), et fin de la dérogation quand elle précède les
+  18 ans (à renouveler sous l'horizon d'alerte, expirée ensuite). Aucune dans une vue sans la date de naissance.
+
+Confidentialité : le manager ne reçoit pas la dérogation (`derogationTravauxLe: null`) ; le référent HSE et la lecture
+seule la reçoivent, la paie non. La case de nuit d'une équipe n'est pas une donnée personnelle.
 
 ## Certifications et habilitations
 

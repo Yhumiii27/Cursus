@@ -47,16 +47,19 @@ function controleJournees(sh: Pick<FeuilleTemps, 'week'>, lignes: LigneTemps[], 
 }
 
 /**
- * Durées maximales dépassées (10 h par jour, 48 h par semaine ; 13 h pour un forfait jours) : un motif est exigé,
+ * Durées maximales dépassées (10 h par jour, 48 h par semaine ; 13 h pour un forfait jours ; 8 h et 35 h pour un salarié
+ * mineur, shared/rules/mineurs.ts) : un motif est exigé,
  * donné à la soumission (ou à la validation, quand le valideur a corrigé la feuille). Renvoie le motif à enregistrer.
  * À la validation (`valideur`), le motif du salarié est conservé : celui du valideur ne sert que s'il manque, sans quoi
  * la hiérarchie réécrirait la déclaration du salarié (justification d'un dépassement, art. L3121-18 et L3121-20).
  */
 function motifDepassement(ctx: Ctx, emp: Employe, sh: FeuilleTemps, p: Record<string, any>, quand: string, valideur = false): string | null {
-  const { depassements } = calcSheet(ctx.d, emp, sh);
+  const { depassements, depassementsMineur } = calcSheet(ctx.d, emp, sh);
   if (!depassements.length) return null;
   const motif = (valideur ? sh.motifDepassement || str(p.motif) : str(p.motif) || sh.motifDepassement) || '';
-  if (!motif) throw new ActionError(`${depassements.join(' ; ')} : indiquez le motif du dépassement ${quand}`);
+  // Salarié mineur (décision de l'entreprise du 17 octobre 2026) : motif, ou référence de la dérogation de l'inspection.
+  const quoi = depassementsMineur.length ? 'le motif du dépassement ou la référence de la dérogation de l’inspection du travail' : 'le motif du dépassement';
+  if (!motif) throw new ActionError(`${depassements.join(' ; ')} : indiquez ${quoi} ${quand}`);
   if (motif.length > 500) throw new ActionError('Motif trop long (500 caractères au plus)');
   return motif;
 }

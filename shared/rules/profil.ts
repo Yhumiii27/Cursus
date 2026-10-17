@@ -3,11 +3,11 @@
 import { estMotifReprise, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../constants.ts';
 import { isValidDate } from '../dates.ts';
 import { r1 } from '../format.ts';
-import type { Employe, MotifSortie, Statut, TempsTravail, TypeContrat } from '../types.ts';
+import type { Employe, Equipe, MotifSortie, Statut, TempsTravail, TypeContrat } from '../types.ts';
 import { controleMatriculePaie, normaliserMatricule, type TitulaireMatricule, unicite } from './matricules.ts';
 import { controleEssai, estMotifSortie } from './contrats.ts';
 import { controleAdresse, normaliserAdresse } from './messagerie.ts';
-import { ageAu } from './mineurs.ts';
+import { ageAu, mineurAu, refusEquipeNuit } from './mineurs.ts';
 
 /** Âge minimal d'un salarié : 14 ans, pour des travaux légers pendant les vacances scolaires (art. L4153-3). */
 export const AGE_MINIMUM = 14;
@@ -44,6 +44,8 @@ export interface ProfilInput {
   naissance: number;
   /** Date de naissance complète (shared/rules/mineurs.ts) ; null : inconnue, la fiche garde son année. */
   naissanceLe?: string | null;
+  /** Salarié mineur : date de la déclaration de dérogation pour travaux réglementés (shared/rules/mineurs.ts) ; null : aucune. */
+  derogationTravauxLe?: string | null;
   agence: string | null;
   /** Matricule du dossier de paie (Sage) : 1 à 20 lettres et chiffres, unique (shared/rules/matricules.ts). */
   matriculePaie: string | null;
@@ -56,7 +58,7 @@ export interface ProfilInput {
 
 export const PROFIL_FIELDS: (keyof ProfilInput)[] = [
   'nom', 'poste', 'posteId', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis',
-  'entree', 'fin', 'motifSortie', 'essaiFin', 'essaiRenouveleJusquau', 'naissance', 'naissanceLe', 'agence', 'matriculePaie', 'email', 'visite', 'repriseMotif', 'repriseDate',
+  'entree', 'fin', 'motifSortie', 'essaiFin', 'essaiRenouveleJusquau', 'naissance', 'naissanceLe', 'derogationTravauxLe', 'agence', 'matriculePaie', 'email', 'visite', 'repriseMotif', 'repriseDate',
 ];
 
 /**
@@ -75,7 +77,7 @@ export function profilOf(e: Employe): ProfilInput {
 
 export const PROFIL_VIDE = (equipe: string | null, today: string): ProfilInput => ({
   nom: '', poste: '', posteId: null, equipe, statut: 'ouvrier', typeContrat: 'cdi', temps: '35h', heures: null, forfaitHeures: null, forfaitJours: null,
-  jourOff: [], tempsDepuis: null, entree: today, fin: null, motifSortie: null, essaiFin: null, essaiRenouveleJusquau: null, naissance: Number(today.slice(0, 4)) - 30, naissanceLe: null, agence: null, matriculePaie: null, email: null, visite: null, repriseMotif: null, repriseDate: null,
+  jourOff: [], tempsDepuis: null, entree: today, fin: null, motifSortie: null, essaiFin: null, essaiRenouveleJusquau: null, naissance: Number(today.slice(0, 4)) - 30, naissanceLe: null, derogationTravauxLe: null, agence: null, matriculePaie: null, email: null, visite: null, repriseMotif: null, repriseDate: null,
 });
 
 /**
@@ -107,6 +109,7 @@ export function normaliserProfil(p: ProfilInput): ProfilInput {
     // L'année suit la date complète quand elle est saisie : les deux ne peuvent pas se contredire.
     naissanceLe: s(p.naissanceLe),
     naissance: isValidDate(s(p.naissanceLe)) ? Number(s(p.naissanceLe)!.slice(0, 4)) : Number(p.naissance),
+    derogationTravauxLe: s(p.derogationTravauxLe),
     agence: p.typeContrat === 'interim' ? s(p.agence) : null,
     matriculePaie: normaliserMatricule(p.matriculePaie),
     email: normaliserAdresse(p.email),
@@ -137,6 +140,11 @@ export function validerProfil(raw: ProfilInput, opts: {
    * l'année : le serveur, qui a la date, contrôle la naissance.
    */
   naissance?: { enregistree?: boolean; masquee?: boolean };
+  /**
+   * Règles des salariés mineurs (shared/rules/mineurs.ts) : équipes et leur case « travail de nuit ou en continu »
+   * (affectation refusée), date du jour (dérogation pour travaux réglementés non datée du futur). Absent : non contrôlées.
+   */
+  mineurs?: { equipes: readonly Pick<Equipe, 'nom' | 'nuit'>[]; today: string };
 }) {
   const p = normaliserProfil(raw);
   const errors: string[] = [], warnings: string[] = [];
@@ -178,6 +186,17 @@ export function validerProfil(raw: ProfilInput, opts: {
     else if (isValidDate(p.entree) && ageAu(p, p.entree) < AGE_MINIMUM) errors.push(`Date de naissance : moins de ${AGE_MINIMUM} ans à la date d’entrée.`);
   } else if (Number.isNaN(p.naissance) || opts.naissance?.enregistree) errors.push('Date de naissance requise.');
   else if (!(p.naissance >= 1940 && p.naissance <= opts.year - AGE_MINIMUM)) errors.push('Année de naissance invalide.');
+  if (opts.mineurs && !opts.naissance?.masquee) {
+    const refus = refusEquipeNuit(p, opts.mineurs.equipes.find(q => q.nom === p.equipe), opts.mineurs.today);
+    if (refus) errors.push(refus);
+  }
+  if (p.derogationTravauxLe) {
+    if (!isValidDate(p.derogationTravauxLe) || p.derogationTravauxLe < '2000-01-01') errors.push('Date de la dérogation pour travaux réglementés invalide.');
+    else if (opts.mineurs && p.derogationTravauxLe > opts.mineurs.today) errors.push('Dérogation pour travaux réglementés : la date de la déclaration ne peut pas être future.');
+    else if (opts.mineurs && !opts.naissance?.masquee && !mineurAu(p, opts.mineurs.today) && !(isValidDate(p.entree) && p.entree > opts.mineurs.today && mineurAu(p, p.entree))) {
+      warnings.push('Dérogation pour travaux réglementés : sans objet pour un salarié de 18 ans ou plus (art. R4153-40).');
+    }
+  }
   const errEmail = controleAdresse(p.email, 'Adresse e-mail professionnelle');
   if (errEmail) errors.push(`${errEmail}.`);
   else if (p.email && opts.adressesPrises?.[p.email]) errors.push(`Adresse e-mail déjà attribuée à ${opts.adressesPrises[p.email]}.`);

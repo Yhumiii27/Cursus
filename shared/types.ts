@@ -80,7 +80,14 @@ export interface Poste extends Exigences {
   sir?: boolean;
 }
 /** `exigences` : formations et habilitations exigées de tous ses membres (null : aucune). */
-export interface Equipe { nom: string; managerId: number | null; ordre: number; exigences?: Exigences | null }
+export interface Equipe {
+  nom: string; managerId: number | null; ordre: number; exigences?: Exigences | null;
+  /**
+   * Travail de nuit ou en continu (Référentiels → Postes, exigences communes de l'équipe) : aucun salarié de moins de
+   * 18 ans n'y est affecté (art. L3163-2, shared/rules/mineurs.ts). null : case pas encore renseignée (décochée).
+   */
+  nuit?: boolean | null;
+}
 /** Projet ou chantier tenu dans Keystone : archivé, il reste en base (historique) sans plus être proposé ni évalué. */
 export type StatutKeystone = 'actif' | 'archive';
 export interface Projet { code: string; nom: string; statut: StatutKeystone }
@@ -207,6 +214,12 @@ export interface Employe {
   naissanceLe?: ISODate | null;
   /** Remplace `naissanceLe` dans les vues du manager et des profils restreints : salarié mineur au jour de l'instantané. */
   mineur?: boolean;
+  /**
+   * Salarié de moins de 18 ans affecté à des travaux réglementés : date de la déclaration de dérogation à l'inspection du
+   * travail (art. R4153-40 et suivants), valable 3 ans (shared/rules/mineurs.ts) ; null : aucune. Saisie par le service RH ;
+   * retirée de la vue du manager et de celle de la paie (server/src/dataset.ts).
+   */
+  derogationTravauxLe?: ISODate | null;
   agence: string | null;
   /**
    * Matricule du dossier de paie (Sage), saisi ou repris par le service RH : 1 à 20 lettres et chiffres, unique (sauf

@@ -38,6 +38,7 @@ import { suppressionLigne } from '../state/confirmations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { AlerteAutorisation } from '../components/ContratFiche.tsx';
+import { MINEUR_JOUR_MAX } from '../../../shared/rules/mineurs.ts';
 import { RelevesPanel } from './Releves.tsx';
 import { ChampHeures, SaisieJour, useVueJour } from './SaisieJour.tsx';
 import { CompteurDelegation } from '../components/Delegation.tsx';
@@ -335,6 +336,8 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const motifSoumis = sh?.motifDepassement ?? '';
   const motifManquant = depasse && !motif.trim();
   const motifValideur = canValidate && depasse && !motifSoumis;
+  // Salarié mineur au-delà de 8 h par jour ou de 35 h par semaine : motif, ou référence de la dérogation de l'inspection.
+  const motifLibelle = calc.depassementsMineur.length ? 'Motif du dépassement ou référence de la dérogation de l’inspection du travail' : 'Motif du dépassement';
 
   return (
     <div className="row-wrap">
@@ -404,7 +407,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
               <tr>
                 <td style={{ fontWeight: 500 }}>Total jour</td>
                 {colonnes.map(i => { const h = calc.perDay[i]; return (
-                  <td key={i} className={`center${estWeekEnd(i) ? ' col-weekend' : ''}`}><span className="tnum nowrap" style={{ color: h > 10 ? 'var(--color-accent-300)' : 'inherit' }}>{h ? fH(h) : '—'}</span></td>
+                  <td key={i} className={`center${estWeekEnd(i) ? ' col-weekend' : ''}`}><span className="tnum nowrap" style={{ color: h > 10 || (calc.depassementsMineur.length > 0 && h > MINEUR_JOUR_MAX) ? 'var(--color-accent-300)' : 'inherit' }}>{h ? fH(h) : '—'}</span></td>
                 ); })}
                 {!voirWeekEnd && <td className="center col-weekend tnum nowrap">{heuresWeekEnd(calc.perDay) ? fH(heuresWeekEnd(calc.perDay)) : '—'}</td>}
 
@@ -451,7 +454,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
         )}
         {depasse && editable && !correction && (
           <div className="field">
-            <label htmlFor="ts-motif">Motif du dépassement (obligatoire pour soumettre)</label>
+            <label htmlFor="ts-motif">{motifLibelle} (obligatoire pour soumettre)</label>
             <textarea className="input short" id="ts-motif" rows={2} placeholder="Panne, intervention urgente, inventaire…" value={motif} onChange={ev => setMotif(ev.target.value)} style={{ resize: 'vertical' }} />
           </div>
         )}
@@ -473,7 +476,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
         {canValidate && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', paddingTop: 'var(--space-2)' }}>
             {motifValideur && (
-              <textarea className="input short" rows={2} aria-label="Motif du dépassement" placeholder="Motif du dépassement (obligatoire pour valider)" value={motif} onChange={ev => setMotif(ev.target.value)} style={{ resize: 'vertical' }} />
+              <textarea className="input short" rows={2} aria-label={motifLibelle} placeholder={`${motifLibelle} (obligatoire pour valider)`} value={motif} onChange={ev => setMotif(ev.target.value)} style={{ resize: 'vertical' }} />
             )}
             <textarea className="input short" rows={2} aria-label="Commentaire" placeholder="Commentaire en cas de renvoi (facultatif)" value={comment} onChange={ev => setComment(ev.target.value)} style={{ resize: 'vertical' }} />
             <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end' }}>

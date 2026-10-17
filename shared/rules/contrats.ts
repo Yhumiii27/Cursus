@@ -19,6 +19,7 @@ import type {
 import { absenceActive, periodeTexte, semaineHorsContrat } from './absences.ts';
 import { rttDroit, rttInfo } from './conges.ts';
 import { voyageActif } from './deplacements.ts';
+import { echeancesMineur } from './mineurs.ts';
 
 // — Sortie —
 
@@ -467,5 +468,7 @@ export function echeancesContrat(d: Domain, e: EmpX, horizon: number): EchItem[]
       action: { label: 'Mettre à jour', intent: { type: 'openContrat', empId: e.id, quoi: 'titre' } },
     }));
   }
+  // Salarié mineur : 18 ans, dérogation pour travaux réglementés (shared/rules/mineurs.ts).
+  out.push(...echeancesMineur(d, e, horizon));
   return out;
 }

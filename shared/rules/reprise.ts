@@ -473,6 +473,8 @@ function analyserSalaries(d: Domain, entetes: string[], lignes: { n: number; v: 
       equipes: [...existantes, ...aCreer], year: d.year, encadre: e ? d.teamsOf(e.id) : [],
       adressesPrises: { ...adressesPrises(d.ds.employes, e?.id), ...adressesFichier },
       matricules: { pris: { ...matriculesPris(d.ds.employes, d.ti, e?.id), ...matriculesFichier }, actuel: e?.matriculePaie ?? null, reutiliser },
+      // Salarié mineur : pas d'équipe de nuit ou en continu (shared/rules/mineurs.ts).
+      mineurs: { equipes: d.ds.referentiels.equipes, today: d.ti },
     });
     l.erreurs.push(...val.errors.map(x => x.replace(/\.$/, '')));
     l.avertissements.push(...val.warnings.map(x => x.replace(/\.$/, '')));

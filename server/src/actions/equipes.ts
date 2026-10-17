@@ -6,6 +6,7 @@ import { contratFige } from '../../../shared/rules/temps.ts';
 import { matriculesPris } from '../../../shared/rules/matricules.ts';
 import { adressesPrises } from '../../../shared/rules/messagerie.ts';
 import { posteDe } from '../../../shared/rules/exigences.ts';
+import { refusEquipeNuit } from '../../../shared/rules/mineurs.ts';
 import { champsEnConflit, messageConflit } from '../../../shared/rules/fiche-concurrente.ts';
 import { MANAGER_FIELDS, PROFIL_FIELDS, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
 import type { Employe, Equipe, FeuilleTemps } from '../../../shared/types.ts';
@@ -36,6 +37,8 @@ function check(ctx: Ctx, p: ProfilInput, empId?: number, reutiliser = false) {
     equipes: equipesNoms(ctx), year: ctx.d.year, encadre: empId ? ctx.d.teamsOf(empId) : [], adressesPrises: adressesPrises(ctx.ds.employes, empId),
     matricules: { pris: matriculesPris(ctx.ds.employes, ctx.d.ti, empId), actuel, reutiliser }, contrat: { finPrevue: emp?.finPrevue ?? null },
     naissance: { enregistree: !!emp?.naissanceLe },
+    // Salarié mineur : pas d'équipe de nuit ou en continu (shared/rules/mineurs.ts).
+    mineurs: { equipes: ctx.ds.referentiels.equipes, today: ctx.d.ti },
   });
   if (!v.ok) throw new ActionError(v.errors.join(' '));
   if (reutiliser && v.matriculeAConfirmer) requireRhAdmin(ctx);
@@ -232,6 +235,9 @@ const affecter: ActionHandler = (ctx, p) => {
     const moi = ctx.d.emp(ctx.user.empId!);
     if (moi && ctx.d.mgrOf(moi) === emp.id) throw new ActionError('Votre propre manager ne peut pas rejoindre votre équipe', 403);
   }
+  // Salarié de moins de 18 ans : jamais dans une équipe de nuit ou en continu (art. L3163-2), quel que soit l'auteur.
+  const nuit = refusEquipeNuit(emp, ctx.ds.referentiels.equipes.find(q => q.nom === cible), ctx.d.ti);
+  if (nuit) throw new ActionError(nuit);
   ctx.db.update('employes', emp.id, { equipe: cible });
   if (!cible) return `${emp.nom} retiré de l’équipe ${avant} — à affecter par le service RH`;
   return `${emp.nom} rejoint l’équipe ${cible}${avant ? ` (auparavant ${avant})` : ''}`;

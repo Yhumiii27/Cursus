@@ -217,8 +217,8 @@ export const ACTIVITE_FORMATION = { code: 'INT-FORM', nom: 'Formation' } as cons
 // « Reporté » : action d'un exercice clos reprise sur l'exercice suivant (`plan.cloturerExercice`), hors des sommes.
 export const PLAN_CLS = { prevu: 'tag-outline', engage: 'tag-accent', realise: 'tag-neutral', reporte: 'tag-outline' } as const;
 export const PLAN_LABEL = { prevu: 'Prévu', engage: 'Engagé', realise: 'Réalisé', reporte: 'Reporté' } as const;
-export const REQ_CLS = { attente: 'tag-outline', acceptee: 'tag-neutral', refusee: 'tag-accent' } as const;
-export const REQ_LABEL = { attente: 'En attente', acceptee: 'Acceptée', refusee: 'Refusée' } as const;
+export const REQ_CLS = { attente: 'tag-outline', acceptee: 'tag-neutral', refusee: 'tag-accent', retiree: 'tag-outline' } as const;
+export const REQ_LABEL = { attente: 'En attente', acceptee: 'Acceptée', refusee: 'Refusée', retiree: 'Retirée' } as const;
 /** File d'envoi des messages sortants (Paramètres → Envois). */
 export const ENVOI_CLS = { a_envoyer: 'tag-outline', envoye: 'tag-neutral', echec: 'tag-accent', simule: 'tag-outline' } as const;
 export const ENVOI_LABEL = { a_envoyer: 'À envoyer', envoye: 'Envoyé', echec: 'En échec', simule: 'Simulé' } as const;

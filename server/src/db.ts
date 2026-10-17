@@ -46,7 +46,16 @@ export const TABLES = {
   },
   // Demandes de visite médicale du service RH, closes par la saisie de la visite (server/src/actions/sante.ts).
   demandesVisite: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', motif: 'text', le: 'text', par: 'text', statut: 'text', closeLe: 'text', closePar: 'text' } },
-  certifications: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', f: 'text', obtenue: 'text', sessionId: 'int', convoc: 'text', convocLe: 'text' } },
+  // `corrige…`, `annule…` : correction et annulation d'une saisie erronée (actions/corrections.ts) ; annulée, hors des calculs.
+  certifications: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', f: 'text', obtenue: 'text', sessionId: 'int', convoc: 'text', convocLe: 'text',
+      corrigeLe: 'text', corrigePar: 'text', corrigeMotif: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+      // Inscriptions en formation initiale closes par la certification, rendues à son annulation (actions/inscriptions-closes.ts).
+      inscriptionsCloses: 'json',
+    },
+  },
   habTitres: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', h: 'text', delivree: 'text', par: 'text', demande: 'text', mesure: 'text', mesureDate: 'text', mesureMotif: 'text', mesurePar: 'text' } },
   visas: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', dest: 'text', type: 'text', obtenu: 'text', expire: 'text' } },
   vaccinations: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', v: 'text', date: 'text' } },
@@ -62,6 +71,8 @@ export const TABLES = {
     cols: {
       id: 'int', exercice: 'int', f: 'text', libelle: 'text', equipe: 'text', periode: 'text', effectif: 'int', cout: 'real', statut: 'text', origine: 'text',
       coutReel: 'real', effectifReel: 'int', reportDe: 'int',
+      // Correction et suppression d'une ligne saisie par erreur (actions/corrections.ts) ; supprimée, hors des calculs.
+      corrigeLe: 'text', corrigePar: 'text', corrigeMotif: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
     },
   },
   budgets: { pk: 'id', auto: true, cols: { id: 'int', exercice: 'int', equipe: 'text', montant: 'real' }, unique: [['exercice', 'equipe']] },
@@ -170,7 +181,11 @@ export const TABLES = {
   demandesCollab: {
     pk: 'id', auto: true,
     // `motifRefus` : motif d'un refus par le service RH, montré au collaborateur seul (server/src/dataset.ts).
-    cols: { id: 'int', empId: 'int', type: 'text', f: 'text', h: 'text', libelle: 'text', label: 'text', sessionId: 'int', motif: 'text', date: 'text', statut: 'text', reponse: 'text', parId: 'int', declaration: 'json', motifRefus: 'text' },
+    // `suite` : ce que l'acceptation a créé ; `rouverte…` : réouverture par le service RH (actions/corrections.ts).
+    cols: {
+      id: 'int', empId: 'int', type: 'text', f: 'text', h: 'text', libelle: 'text', label: 'text', sessionId: 'int', motif: 'text', date: 'text', statut: 'text', reponse: 'text', parId: 'int', declaration: 'json', motifRefus: 'text',
+      suite: 'json', rouverteLe: 'text', rouvertePar: 'text', rouverteMotif: 'text',
+    },
   },
   settings: { pk: 'key', cols: { key: 'text', value: 'json' } },
   // `actor` : nom de la personne connectée ; `compteId` et `identifiant` : son compte (server/src/comptes.ts).

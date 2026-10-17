@@ -276,6 +276,11 @@ de santé reste hors du dépôt et se rejoue par `CURSUS_CAS_PAIE=/chemin/absolu
   facultatifs ; conflits, contrat, convocation (`.ics`) et clôture (certification datée du dernier jour) sur toute la
   session ; heures prévues proposées dans la feuille de temps des inscrits (ligne interne INT-FORM, jamais envoyée à
   Keystone ; Paramètres → Formations).
+- **Corrections d'une saisie erronée** : certification corrigée (date, formation ; service RH et référent HSE) ou supprimée
+  (administrateur RH), ligne du plan corrigée ou supprimée, demande retirée par son auteur tant qu'elle attend ou rouverte
+  par le service RH (inscription, ligne du plan ou titre en attente défaits). Motif obligatoire, réservé au service RH ;
+  rien n'est effacé : une certification ou une ligne supprimée sort des calculs et reste tracée. Une certification sur
+  laquelle s'appuie une habilitation délivrée ne se corrige qu'après la suspension de l'habilitation.
 
 ## Contrat et temps de travail
 

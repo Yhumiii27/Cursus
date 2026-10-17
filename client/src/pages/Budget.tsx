@@ -7,6 +7,8 @@ import { PLAN_CLS, PLAN_LABEL } from '../../../shared/constants.ts';
 import { fmtEur, fmtIso, plural } from '../../../shared/format.ts';
 import { budgetSummary } from '../../../shared/rules/budget.ts';
 import { clotureDe, coutRetenu, exercicesProposes } from '../../../shared/rules/exercices.ts';
+import { ligneCorrigeable, sessionsDeLaLigne } from '../../../shared/rules/corrections.ts';
+import { suppressionLignePlan } from '../state/confirmations-corrections.ts';
 import type { PlanAction, PlanStatut } from '../../../shared/types.ts';
 import { Bar, Btn, Empty, Kpi, Kpis, Page, Panel, Seg, StackBar, Tag, Two } from '../components/ui.tsx';
 import { csvPlan } from '../listes-csv.ts';
@@ -171,10 +173,17 @@ export function Budget() {
                         {l.origine === 'report' && <div className="text-muted sub nowrap">reporté de {l.exercice - 1}</div>}
                       </td>
                       <td className="right">
-                        {modifiable && (l.statut === 'prevu' || l.statut === 'engage') && (
-                          <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={agir(() => act(l))}>
-                            {l.statut === 'prevu' ? (fm ? 'Planifier la session' : 'Engager') : 'Clôturer'}
-                          </button>
+                        {modifiable && ligneCorrigeable(l) && (
+                          <div className="actions-end" style={{ flexWrap: 'nowrap' }}>
+                            <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={agir(() => act(l))}>
+                              {l.statut === 'prevu' ? (fm ? 'Planifier la session' : 'Engager') : 'Clôturer'}
+                            </button>
+                            {/* Saisie erronée : correction (service RH), suppression sans session ouverte rattachée (administrateur RH). */}
+                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'planLigne', id: l.id })}>Corriger</button>
+                            {admin && !sessionsDeLaLigne(d, l).length && (
+                              <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'confirmer', c: suppressionLignePlan(l, fm ? fm.nom : l.libelle ?? '') })}>Supprimer</button>
+                            )}
+                          </div>
                         )}
                       </td>
                     </tr>

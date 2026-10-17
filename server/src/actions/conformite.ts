@@ -8,18 +8,19 @@ import { exerciceOuvert } from '../../../shared/rules/exercices.ts';
 import { finSession } from '../../../shared/rules/plage-session.ts';
 import { estAuDossier, relireDeclaration, retireeAuRefus } from '../../../shared/rules/formalites.ts';
 import { refusArchive } from '../../../shared/rules/referentiels.ts';
-import type { Certification, DemandeCollab, Employe, HabTitre, HabType, Inscription } from '../../../shared/types.ts';
+import type { Certification, DemandeCollab, Employe, HabTitre, HabType, Inscription, PlanAction, SuiteDemande } from '../../../shared/types.ts';
 import { loadFull } from '../dataset.ts';
 import { suivreVerdicts } from '../integrations/keystone-verdicts.ts';
 import { annulerSiConvoque, convoquerFormation, notifierDecisionDemande } from '../notifications.ts';
 import { ActionError, type ActionHandler, aDroit, type Ctx, enriched, getEmp, isManagerOf, requireFormations, requireRh, str } from './context.ts';
+import { clore } from './inscriptions-closes.ts';
 import { appliquerFormalite, retirerFormalite } from './voyages.ts';
 
 /**
  * Inscrit d'une session passée, pas encore clôturée : seule la clôture (service RH) l'en sort, avec sa présence
  * et son résultat. Le déplacer avant la clôture effacerait sa participation.
  */
-function attendCloture(ctx: Ctx, sessionId: number | null) {
+export function attendCloture(ctx: Ctx, sessionId: number | null) {
   const s = ctx.d.session(sessionId);
   if (s && sessionActive(s) && s.date < ctx.d.ti) {
     // Session de plusieurs jours commencée : elle se clôt à partir de son dernier jour.
@@ -79,9 +80,10 @@ const ajouterCert: ActionHandler = (ctx, p) => {
   if (fm.archive) throw new ActionError(refusArchive(fm, 'Formation')!);
   if (!isValidDate(p.date)) throw new ActionError('Date d’obtention invalide');
   const avant = certEnVigueur(emp.certs, fm.id);
-  const cert = ctx.db.insert<Certification>('certifications', { empId: emp.id, f: fm.id, obtenue: p.date, sessionId: null, convoc: null });
-  // La certification obtenue clôt l'inscription en formation initiale correspondante.
-  ctx.ds.inscriptions.filter(i => i.empId === emp.id && ctx.d.session(i.sessionId)?.formation === fm.id).forEach(i => ctx.db.remove('inscriptions', i.id));
+  // La certification obtenue clôt l'inscription en formation initiale correspondante ; elle la garde pour la rendre si
+  // elle est annulée (saisie sur la mauvaise fiche, actions/inscriptions-closes.ts).
+  const closes = clore(ctx, emp, fm.id);
+  const cert = ctx.db.insert<Certification>('certifications', { empId: emp.id, f: fm.id, obtenue: p.date, sessionId: null, convoc: null, inscriptionsCloses: closes.length ? closes : null });
   // Recyclage enregistré : une session ouverte, postérieure à l'obtention, n'a plus d'objet pour la certification
   // remplacée (qui ne se planifie plus) ; sa place est libérée. Une session antérieure ou du jour même garde
   // l'inscrit : c'est elle qui a produit le recyclage, sa clôture le constatera.
@@ -139,7 +141,9 @@ const accepterDemande: ActionHandler = (ctx, p) => {
   const archivee = r.type === 'formation' && r.f ? refusArchive(ctx.d.fm(r.f), 'Formation')
     : r.type === 'habilitation' && r.h ? refusArchive(ctx.d.hm(r.h), 'Habilitation') : null;
   if (archivee) throw new ActionError(`${archivee}, ou refusez la demande`);
-  const done = (reponse: string) => ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'acceptee', reponse });
+  // `suite` : ce que l'acceptation crée, que la réouverture (`demande.reouvrir`, actions/corrections.ts) défait.
+  const done = (reponse: string, suite: SuiteDemande = {}) => ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'acceptee', reponse, suite });
+  let suite: SuiteDemande = {};
   if (r.type === 'formation') {
     const sess = r.sessionId && r.f
       ? ctx.ds.sessions.find(s => s.id === r.sessionId && s.formation === r.f && sessionActive(s) && s.date >= ctx.d.ti && s.inscrits < s.places)
@@ -158,6 +162,7 @@ const accepterDemande: ActionHandler = (ctx, p) => {
         if (cert.sessionId !== sess.id) {
           attendCloture(ctx, cert.sessionId);
           annulerSiConvoque(ctx, ctx.d.session(cert.sessionId), emp, cert);
+          suite = { sessionId: sess.id, certId: cert.id, depuis: cert.sessionId };
         }
         ctx.db.update<Certification>('certifications', cert.id, { sessionId: sess.id, convoc: 'now', convocLe: ctx.d.ti });
       } else if (!ctx.ds.inscriptions.some(i => i.empId === emp.id && i.sessionId === sess.id)) {
@@ -168,9 +173,13 @@ const accepterDemande: ActionHandler = (ctx, p) => {
           attendCloture(ctx, existante.sessionId);
           annulerSiConvoque(ctx, ctx.d.session(existante.sessionId), emp, existante);
           ctx.db.update<Inscription>('inscriptions', existante.id, { sessionId: sess.id, convoc: 'now', date: ctx.d.ti, convocLe: ctx.d.ti });
-        } else ctx.db.insert<Inscription>('inscriptions', { empId: emp.id, sessionId: sess.id, convoc: 'now', date: ctx.d.ti, convocLe: ctx.d.ti });
+          suite = { sessionId: sess.id, inscriptionId: existante.id, depuis: existante.sessionId };
+        } else {
+          const i = ctx.db.insert<Inscription>('inscriptions', { empId: emp.id, sessionId: sess.id, convoc: 'now', date: ctx.d.ti, convocLe: ctx.d.ti });
+          suite = { sessionId: sess.id, inscriptionId: i.id, cree: true };
+        }
       }
-      done(`Inscrit à la session du ${fmt(parse(sess.date))} — convocation envoyée`);
+      done(`Inscrit à la session du ${fmt(parse(sess.date))} — convocation envoyée`, suite);
       // La convocation (e-mail et .ics) tient lieu de réponse au salarié ; le manager qui a fait la demande est prévenu.
       notifierDecisionDemande(ctx, emp, r, true, convoquerFormation(ctx, sess, emp, cert ? 'recyclage' : 'initiale'));
       return `${emp.nom} inscrit à la session du ${fmt(parse(sess.date))}`;
@@ -179,8 +188,8 @@ const accepterDemande: ActionHandler = (ctx, p) => {
     // Exercice en cours, ou le suivant s'il est déjà clos (plan.cloturerExercice) : alors au premier trimestre.
     const ex = exerciceOuvert(ctx.ds, ctx.d.year);
     const tri = ex > ctx.d.year ? 'T1' : `T${Math.floor(ctx.d.today.getMonth() / 3) + 1}`;
-    ctx.db.insert('planActions', { exercice: ex, f: r.f, libelle: r.libelle, equipe: emp.equipe, periode: tri, effectif: 1, cout: r.f ? ctx.d.fm(r.f).cout : 0, statut: 'prevu', origine: 'demande' });
-    done(`Ajoutée au plan de formation ${ex} (${tri})`);
+    const l = ctx.db.insert<PlanAction>('planActions', { exercice: ex, f: r.f, libelle: r.libelle, equipe: emp.equipe, periode: tri, effectif: 1, cout: r.f ? ctx.d.fm(r.f).cout : 0, statut: 'prevu', origine: 'demande' });
+    done(`Ajoutée au plan de formation ${ex} (${tri})`, { planId: l.id });
     notifierDecisionDemande(ctx, emp, r, true);
     return `${emp.nom} — demande ajoutée au plan de formation ${ex}`;
   }
@@ -190,9 +199,11 @@ const accepterDemande: ActionHandler = (ctx, p) => {
     // Le titre expiré le reste pour le Go / No Go ; l'onglet Habilitations le compte « en attente » de renouvellement.
     const retire = t?.delivree && t.mesure === 'retrait' ? t : null;
     const expire = t?.delivree && enriched(ctx).find(e => e.id === emp.id)?.habs.find(x => x.h === t.h)?.key === 'exp' ? t : null;
-    if (retire || expire) ctx.db.update<HabTitre>('habTitres', (retire ?? expire)!.id, { demande: ctx.d.ti });
-    else if (r.h && !t) ctx.db.insert<HabTitre>('habTitres', { empId: emp.id, h: r.h, delivree: null, par: null, demande: ctx.d.ti });
-    done(expire ? 'Acceptée — renouvellement après contrôle des prérequis' : 'Acceptée — délivrance après contrôle des prérequis');
+    if (retire || expire) {
+      ctx.db.update<HabTitre>('habTitres', (retire ?? expire)!.id, { demande: ctx.d.ti });
+      suite = { habTitreId: (retire ?? expire)!.id, cree: false };
+    } else if (r.h && !t) suite = { habTitreId: ctx.db.insert<HabTitre>('habTitres', { empId: emp.id, h: r.h, delivree: null, par: null, demande: ctx.d.ti }).id, cree: true };
+    done(expire ? 'Acceptée — renouvellement après contrôle des prérequis' : 'Acceptée — délivrance après contrôle des prérequis', suite);
     notifierDecisionDemande(ctx, emp, r, true);
     return retire
       ? `${emp.nom} — ${ctx.d.hm(r.h!).nom} retirée : nouvelle délivrance à effectuer après contrôle des prérequis (onglet Habilitations)`

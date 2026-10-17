@@ -60,6 +60,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   // Formations
   'plan.inscrire': 'Inscription à une session',
   'cert.ajouter': 'Certification enregistrée',
+  'cert.modifier': 'Certification corrigée',
+  'cert.annuler': 'Certification supprimée (saisie erronée)',
   'session.creer': 'Création d’une session',
   'session.confirmer': 'Session confirmée',
   'session.modifier': 'Session modifiée',
@@ -67,6 +69,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'session.cloturer': 'Session clôturée',
   'plan.importer': 'Import du plan de formation',
   'plan.avancer': 'Avancement du plan de formation',
+  'plan.modifier': 'Ligne du plan de formation corrigée',
+  'plan.supprimer': 'Ligne du plan de formation supprimée (saisie erronée)',
   'plan.cloturerExercice': 'Clôture d’un exercice du plan de formation',
   'budget.enveloppes': 'Enveloppes budgétaires',
   // Habilitations
@@ -98,6 +102,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'demande.habilitation': 'Demande d’habilitation',
   'demande.accepter': 'Demande acceptée',
   'demande.refuser': 'Demande refusée',
+  'demande.annuler': 'Demande retirée par son auteur',
+  'demande.reouvrir': 'Demande rouverte',
   // Déplacements
   'voyage.creer': 'Déplacement créé',
   'voyage.detachement': 'Formalités de détachement',

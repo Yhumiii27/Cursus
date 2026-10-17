@@ -19,6 +19,7 @@ const { RUBRIQUES_PAR_FEUILLE } = await import('../server/src/migrations/paie.ts
 const { Domain } = await import('../shared/domain.ts');
 const { sagePending } = await import('../shared/rules/temps.ts');
 const { recupInfo } = await import('../shared/rules/conges.ts');
+const { contingentAnnuel } = await import('../shared/rules/durees.ts');
 const { fichierLot, lignesFichier } = await import('../shared/rules/lots-paie.ts');
 const R = await import('../shared/rules/regularisation.ts');
 const { estActionPaie, JOURNAL_LABEL } = await import('../shared/journal.ts');
@@ -211,4 +212,118 @@ test('t131 migration lot5-paie-rubriques-par-feuille : rubriques des feuilles re
   for (const r of repris) assert.deepEqual(r, attendu.find(x => x.empId === r.empId && x.week === r.week));
   assert.equal(RUBRIQUES_PAR_FEUILLE.executer(db), undefined, 'plus rien à reprendre');
   assert.ok(db.sql.prepare(`SELECT 1 FROM journal WHERE action = 'migration.rubriquesFeuilles'`).get());
+});
+
+// Semaine 41 (5 octobre) : rattachée à octobre, comme la semaine 40 de Mehdi.
+const S41 = '2026-10-05';
+type Fresh = ReturnType<typeof fresh>;
+/** Semaine 41 (39 h par défaut : 8, 8, 8, 8, 7) saisie, soumise puis validée pour le salarié `empId`. */
+function semaine41({ run, sheet, ADMIN }: Fresh, empId: number, h = ['8', '8', '8', '8', '7']) {
+  if (!sheet(empId, S41)) run(ADMIN, 'temps.addLine', { empId, week: S41, projet: 'INT-MAINT' });
+  h.forEach((value, di) => run(ADMIN, 'temps.setCell', { empId, week: S41, li: 0, di, value }));
+  run(ADMIN, 'temps.submit', { empId, week: S41 });
+  run(ADMIN, 'temps.validate', { empId, week: S41 });
+}
+
+test('t131 annule et remplace : une autre semaine de la période rouverte, pas encore revalidée, reste comptée dans le total', () => {
+  const f = fresh();
+  const { run, sheet, dernierLot, ADMIN, PAIE } = f;
+  run(PAIE, 'paie.formatFichier', { negatifs: false });
+  semaine41(f, 2);
+  run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  run(PAIE, 'paie.lotConfirmer', { id: dernierLot().id });
+  assert.ok(sheet(2, S40).sage && sheet(2, S41).sage);
+  // Les deux semaines rouvertes ; la 41 corrigée (32 h) et revalidée, la 40 reste soumise : Sage a toujours ses 39 h.
+  run(ADMIN, 'temps.rouvrir', { empId: 2, week: S40, motif: MOTIF });
+  run(ADMIN, 'temps.rouvrir', { empId: 2, week: S41, motif: MOTIF });
+  run(ADMIN, 'temps.setCell', { empId: 2, week: S41, li: 0, di: 4, value: '0' });
+  run(ADMIN, 'temps.validate', { empId: 2, week: S41 });
+  assert.equal(sheet(2, S40).statut, 'soumise');
+  run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  assert.deepEqual(dernierLot().contenu!.lignes, [{ matricule: '004102', semaine: '2026-S41', periode: '2026-10', rubriques: { HN: 71 }, correctif: true, remplace: true }],
+    '39 h de la semaine 40 et 32 h de la 41');
+  run(PAIE, 'paie.lotConfirmer', { id: dernierLot().id });
+  // Semaine 40 revalidée à son tour avec un jour de moins : octobre à 32 + 32 h, la 41 lue dans le lot correctif.
+  run(ADMIN, 'temps.setCell', { empId: 2, week: S40, li: 1, di: 4, value: '0' });
+  run(ADMIN, 'temps.validate', { empId: 2, week: S40 });
+  run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  assert.deepEqual(dernierLot().contenu!.lignes.map(x => [x.semaine, x.rubriques, x.remplace]), [['2026-S40', { HN: 64 }, true]]);
+});
+
+test('t131 annule et remplace : le lot correctif part seul, après les lots à confirmer ; les feuilles ordinaires attendent le suivant', () => {
+  const f = fresh();
+  const { run, refus, sheet, dernierLot, ADMIN, PAIE } = f;
+  run(PAIE, 'paie.formatFichier', { negatifs: false });
+  run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  run(PAIE, 'paie.lotConfirmer', { id: dernierLot().id });
+  // Lucas Martin (004104) : semaine 41 validée, lot ordinaire généré pendant que la semaine 40 de Mehdi est rouverte.
+  semaine41(f, 4, ['7', '7', '7', '7', '7']);
+  run(ADMIN, 'temps.rouvrir', { empId: 2, week: S40, motif: MOTIF });
+  run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  const ordinaire = dernierLot();
+  assert.deepEqual([ordinaire.type, ordinaire.feuilles], ['normal', [{ empId: 4, week: S41 }]]);
+  run(ADMIN, 'temps.setCell', { empId: 2, week: S40, li: 1, di: 4, value: '0' });
+  run(ADMIN, 'temps.validate', { empId: 2, week: S40 });
+  // Lot ordinaire à confirmer : importé après le correctif, ses heures sortiraient du total remplacé.
+  refus(PAIE, 'paie.lotGenerer', { periode: '2026-10' }, 409, new RegExp(`Lot n° ${ordinaire.id} à confirmer : en « annule et remplace », le lot correctif se génère quand aucun autre lot n’attend son import`));
+  run(PAIE, 'paie.lotConfirmer', { id: ordinaire.id });
+  // Camille Roux : semaine 41 validée, ordinaire, en attente avec la régularisation de Mehdi.
+  semaine41(f, 1);
+  const msg = run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  assert.match(msg, /annule et remplace : lot à importer seul, en remplacement ; 1 autre feuille et les absences en attente partiront dans le lot suivant/);
+  const correctif = dernierLot();
+  assert.deepEqual([correctif.type, correctif.feuilles], ['correctif', [{ empId: 2, week: S40 }]]);
+  assert.deepEqual(correctif.contenu!.lignes.map(l => [l.matricule, l.rubriques, l.remplace]), [['004102', { HN: 32 }, true]], 'que des totaux de période');
+  assert.equal(sheet(1, S41).lotId, null, 'feuille ordinaire laissée au lot suivant');
+  refus(PAIE, 'paie.lotGenerer', { periode: '2026-10' }, 409, new RegExp(`Lot correctif n° ${correctif.id} \\(annule et remplace\\) à confirmer`));
+  run(PAIE, 'paie.lotConfirmer', { id: correctif.id });
+  run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  const suivant = dernierLot();
+  assert.deepEqual([suivant.type, suivant.feuilles], ['normal', [{ empId: 1, week: S41 }]]);
+  assert.ok(suivant.contenu!.lignes.every(l => !l.remplace && l.matricule === '004101'));
+});
+
+test('t131 contrepartie en repos : vidée à la réouverture, refigée par corAValider, écart COR_ACQUIS dans le lot correctif', () => {
+  const { run, sheet, domain, dernierLot, ADMIN, PAIE } = fresh();
+  // Semaine 40 de Mehdi rouverte puis portée à 47 h (8 h supplémentaires) au-delà d'un contingent réduit : COR due.
+  run(ADMIN, 'temps.rouvrir', { empId: 2, week: S40, motif: MOTIF });
+  const cumul0 = contingentAnnuel(domain(), domain().emp(2)!, 2026)?.cumul ?? 0;
+  const max = Math.ceil(cumul0) + 2;
+  run(ADMIN, 'parametres.maj', { contingentHeuresSup: max });
+  for (const [li, di, value] of [[0, 0, '10'], [0, 1, '10'], [0, 2, '10'], [1, 3, '10']] as const) run(ADMIN, 'temps.setCell', { empId: 2, week: S40, li, di, value });
+  run(ADMIN, 'temps.validate', { empId: 2, week: S40 });
+  const cor1 = sheet(2, S40).cor!['2026'];
+  assert.equal(cor1, Math.round((cumul0 + 8 - max) * 100) / 100);
+  run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  run(PAIE, 'paie.lotConfirmer', { id: dernierLot().id });
+  const transmis = dernierLot().contenu!.rubriquesFeuilles!.find(x => x.empId === 2 && x.week === S40)!.periodes['2026-10'];
+  assert.ok(transmis.COR_ACQUIS > 0, 'COR transmise');
+  // Rouverte de nouveau : COR vidée (hors des COR figées) ; revalidée avec 2 h de moins, COR réduite d'autant.
+  run(ADMIN, 'temps.rouvrir', { empId: 2, week: S40, motif: 'Deux heures en trop le jeudi' });
+  assert.equal(sheet(2, S40).cor, null);
+  assert.deepEqual(sheet(2, S40).reouverture?.rubriques?.['2026-10'], transmis);
+  run(ADMIN, 'temps.setCell', { empId: 2, week: S40, li: 1, di: 3, value: '8' });
+  run(ADMIN, 'temps.validate', { empId: 2, week: S40 });
+  const cor2 = sheet(2, S40).cor!['2026'];
+  assert.equal(Math.round((cor1 - cor2) * 100) / 100, 2, 'COR de l’année recalculée, moins celle figée sur les autres');
+  run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  const l = dernierLot().contenu!.lignes.find(x => x.matricule === '004102' && x.correctif)!;
+  assert.equal(l.rubriques.COR_ACQUIS, -2, 'écart négatif de la contrepartie');
+  assert.equal(l.rubriques.HS50 ?? l.rubriques.HS25, -2);
+});
+
+test('t131 réouverture de sa propre feuille : refus qui renvoie vers un autre administrateur RH', () => {
+  const { refus, ADMIN } = fresh();
+  refus({ ...ADMIN, salarieId: 2 }, 'temps.rouvrir', { empId: 2, week: S40, motif: MOTIF }, 403, /propre feuille de temps : la réouverture revient à un autre administrateur RH$/);
+});
+
+test('t131 renvoyée au salarié : le motif du service RH ne vaut que jusqu’à la nouvelle soumission', () => {
+  const { run, sheet, ADMIN, KARIM, MEHDI } = fresh();
+  run(ADMIN, 'temps.rouvrir', { empId: 2, week: S40, motif: MOTIF, renvoyer: true });
+  assert.deepEqual([sheet(2, S40).comment, sheet(2, S40).reouverture?.renvoyee], [MOTIF, true]);
+  run(MEHDI, 'temps.submit', { empId: 2, week: S40 });
+  assert.equal(sheet(2, S40).reouverture?.renvoyee, false);
+  // Retour suivant du manager : son commentaire, et plus le motif de la réouverture (écran Temps : « Retour du manager »).
+  run(KARIM, 'temps.reject', { empId: 2, week: S40, comment: 'Il manque mercredi' });
+  assert.deepEqual([sheet(2, S40).statut, sheet(2, S40).comment, sheet(2, S40).reouverture?.renvoyee], ['rejetee', 'Il manque mercredi', false]);
 });

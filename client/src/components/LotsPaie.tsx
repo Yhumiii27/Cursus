@@ -63,13 +63,17 @@ export function LotsPaie() {
   const periodes = [...new Set([...groupes.map(g => g.periode), ...absences.map(g => g.periode)])].sort();
 
   const generer = (periode: string) => {
-    const sheets = feuillesDuLot(aTransmettre, periode, s, d.ti);
-    const abs = absencesDuLot(absences, periode);
-    const ids = [...sheets.map(sh => sh.empId), ...abs.empIds];
+    const toutes = feuillesDuLot(aTransmettre, periode, s, d.ti);
+    // « Annule et remplace » : le lot correctif ne porte que les régularisations, le reste attend le lot suivant (serveur :
+    // selectionRemplace, server/src/regularisation-paie.ts).
+    const seul = modeRegularisation(format) === 'remplace' && toutes.some(aRegulariser);
+    const sheets = seul ? toutes.filter(aRegulariser) : toutes;
+    const abs = seul ? null : absencesDuLot(absences, periode);
+    const ids = [...sheets.map(sh => sh.empId), ...(abs?.empIds ?? [])];
     openDialog({
       type: 'confirmer', c: generationLot({
         periode, feuilles: sheets.length, salaries: new Set(ids).size, mode, perimetre, absences: abs,
-        correctifs: sheets.filter(aRegulariser).length, regularisation: modeRegularisation(format),
+        correctifs: sheets.filter(aRegulariser).length, regularisation: modeRegularisation(format), enAttente: seul ? toutes.length - sheets.length : 0,
         rappels: feuillesParPeriode(sheets, s, d.ti).filter(g => g.origine),
         sansMatricule: mode === 'simulation' ? sansMatriculePaie(d.ds.employes, d.ti, ids).map(e => e.nom) : [],
       }),

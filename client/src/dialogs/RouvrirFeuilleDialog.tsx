@@ -17,7 +17,7 @@ import { useStore } from '../state/store.tsx';
 
 const SUITES = {
   corriger: { label: 'Corriger moi-même', aide: 'La feuille repasse « soumise » : son valideur la corrige puis la valide de nouveau.' },
-  renvoyer: { label: 'Renvoyer au salarié', aide: 'La feuille repasse « à corriger » : le salarié est prévenu, le motif lui est montré en commentaire.' },
+  renvoyer: { label: 'Renvoyer au salarié', aide: 'La feuille repasse « à corriger » : le salarié est prévenu ; le motif est montré en commentaire au salarié et à son valideur.' },
 } as const;
 
 export function RouvrirFeuilleDialog({ empId, week }: { empId: number; week: ISODate }) {

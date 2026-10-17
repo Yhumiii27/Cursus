@@ -567,8 +567,11 @@ correction se règle avec l'agence). Déjà transmise, la feuille garde ce que l
 attente « à régulariser » et le lot suivant, marqué « Correctif », n'emporte que l'écart, positif ou négatif, sur la
 période ouverte (rappel de la période d'origine si elle est close). Si l'import de votre Sage refuse les quantités
 négatives, décochez « Quantités négatives acceptées » dans « Modifier le format » : la correction part alors en
-« annule et remplace », rubriques complètes du salarié pour la période d'origine (quantité nulle comprise), à importer
-en mode remplacement. Keystone reçoit les heures corrigées de la semaine (un projet retiré à 0, voir docs/API-KEYSTONE.md) :
+« annule et remplace », rubriques complètes du salarié pour la période d'origine (quantité nulle comprise, heures des
+autres semaines déjà transmises comprises, même rouvertes), à importer en mode remplacement. Ce lot correctif part
+alors seul : les feuilles ordinaires et les absences, des quantités à ajouter, attendent le lot suivant, à générer après
+la confirmation de son import et à importer comme d'habitude ; un lot correctif ne se génère pas tant qu'un autre lot
+attend la confirmation de son import, et aucun autre lot tant que le sien l'attend. Keystone reçoit les heures corrigées de la semaine (un projet retiré à 0, voir docs/API-KEYSTONE.md) :
 **prévenir l'équipe Keystone de ce changement de `heures.validees` avant la mise en service.** Récupération et
 contrepartie en repos sont recalculées à la revalidation. À la mise à jour, les lots déjà générés reçoivent les rubriques
 de chacune de leurs feuilles, rapprochées de leurs lignes (migration `lot5-paie-rubriques-par-feuille`, tracée au journal).

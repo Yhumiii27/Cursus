@@ -21,8 +21,8 @@ import { absencesDansLeFichier, type ElementCalcule } from '../../../shared/rule
 import type { Absence, FeuilleTemps, LotPaie, RubriquePaie, SageMode } from '../../../shared/types.ts';
 import { absencesAEmettre, absencesDuContenu, departAuPremierLot, libererAbsences, traduireElements } from '../absences-paie.ts';
 import { pushToSage, SAGE_DOSSIER, SageIndisponible, sageMode } from '../integrations/sage.ts';
-import { aRegulariser } from '../../../shared/rules/regularisation.ts';
-import { optionsRegularisation } from '../regularisation-paie.ts';
+import { aRegulariser, modeRegularisation } from '../../../shared/rules/regularisation.ts';
+import { optionsRegularisation, selectionRemplace } from '../regularisation-paie.ts';
 import { lireFormatFichier, type LotEnregistre } from '../lots-paie.ts';
 import { ActionError, type ActionHandler, type Ctx, requirePaie, str } from './context.ts';
 
@@ -130,10 +130,14 @@ const lotGenerer: ActionHandler = (ctx, p) => {
   requirePaie(ctx);
   const periode = str(p.periode);
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(periode)) throw new ActionError('Période de paie invalide');
-  const sheets = feuillesDuLot(sagePending(ctx.d), periode, ctx.ds.settings, ctx.d.ti);
+  // « Annule et remplace » : le lot correctif ne porte que les régularisations (le reste attend le lot suivant).
+  const selection = selectionRemplace(ctx.db, feuillesDuLot(sagePending(ctx.d), periode, ctx.ds.settings, ctx.d.ti));
+  if (typeof selection === 'string') throw new ActionError(selection, 409);
+  const { sheets, enAttente } = selection;
+  const seul = sheets.some(aRegulariser) && modeRegularisation(lireFormatFichier(ctx.db)) === 'remplace';
   // Premier lot d'une base sans date de départ : les absences déjà enregistrées ne partent qu'à partir de la période ouverte.
-  const depart = departAuPremierLot(ctx.db, ctx.d, ctx.user);
-  const absences = absencesAEmettre(ctx.db, ctx.d, periode);
+  const depart = seul ? '' : departAuPremierLot(ctx.db, ctx.d, ctx.user);
+  const absences = seul ? [] : absencesAEmettre(ctx.db, ctx.d, periode);
   if (!sheets.length && !absences.length) {
     throw new ActionError(`Aucune feuille validée en attente pour ${periodeLabel(periode)}${absencesDansLeFichier(ctx.ds.settings) ? ', ni absence' : ''}`);
   }
@@ -143,7 +147,8 @@ const lotGenerer: ActionHandler = (ctx, p) => {
   return {
     message: `Lot n° ${lot.id} généré — ${plural(sheets.length, 'feuille', 'feuilles')} (${plural(salaries, 'salarié', 'salariés')}), ${periodeLabel(periode)}`
       + (mode === 'simulation' ? ' · simulation : rien n’est envoyé à Sage Paie' : ' · téléchargez le fichier d’import, importez-le dans Sage, puis confirmez l’import')
-      + suitesLot(ctx, lot) + absencesTexte(absences) + depart,
+      + suitesLot(ctx, lot) + absencesTexte(absences) + depart
+      + (seul ? ` · annule et remplace : lot à importer seul, en remplacement ; ${enAttente ? `${plural(enAttente, 'autre feuille', 'autres feuilles')} et les absences en attente partiront` : 'les feuilles ordinaires et les absences en attente partiront'} dans le lot suivant, à générer après la confirmation de cet import` : ''),
     result: resultatLot(lot),
   };
 };

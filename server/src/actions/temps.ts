@@ -174,7 +174,10 @@ const submit: ActionHandler = (ctx, p) => {
   // Le régime de temps de travail de la semaine est figé à la soumission.
   const contrat = sh.contrat ?? contratFige(emp);
   const motif = motifDepassement(ctx, emp, { ...sh, contrat }, p, 'avant de soumettre la feuille');
-  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'soumise', comment: null, contrat, motifDepassement: motif });
+  // Renvoyée au salarié par une réouverture (t131) : le commentaire, motif du service RH, disparaît ; un retour suivant
+  // vient du valideur.
+  const reouverture = sh.reouverture?.renvoyee ? { reouverture: { ...sh.reouverture, renvoyee: false } } : {};
+  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'soumise', comment: null, contrat, motifDepassement: motif, ...reouverture });
   notifierFeuilleSoumise(ctx, emp, sh.week, ctx.d.mgrOf(emp));
   return `Feuille de temps soumise ${ctx.d.mgrDest(ctx.d.mgrOf(emp))}${couverte ? ' — semaine d’absence, sans heure' : ''}`;
 };

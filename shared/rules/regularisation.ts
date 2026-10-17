@@ -8,7 +8,9 @@
 //   `ReouvertureFeuille.rubriques`). Revalidée, elle revient dans les feuilles en attente (« à régulariser ») ; le lot
 //   suivant, de type « correctif », emporte l'écart sur la période ouverte (rappel de la période d'origine close), positif
 //   ou négatif. Format du fichier sans quantité négative (`negatifs` décoché) : « annule et remplace », rubriques
-//   complètes du salarié pour la période d'origine, une quantité nulle comprise.
+//   complètes du salarié pour la période d'origine, une quantité nulle comprise ; ce lot correctif ne porte alors que
+//   les régularisations (totaux à importer en remplacement), les feuilles ordinaires et les absences attendent le lot
+//   suivant (server/src/regularisation-paie.ts, `selectionRemplace`).
 // - Keystone : la revalidation renvoie `heures.validees`, qui remplace l'événement précédent de la semaine ; un projet
 //   retiré y vaut 0, et une semaine vidée de toute heure Keystone envoie aussi l'événement (docs/API-KEYSTONE.md).
 // - Récupération et contrepartie en repos : recalculées (`recupInfo` ne compte que les feuilles validées ; la COR de la
@@ -43,7 +45,7 @@ export const MODES_REGULARISATION: Record<ModeRegularisation, { label: string; a
   },
   remplace: {
     label: 'Annule et remplace',
-    aide: 'Sans quantité négative : une feuille corrigée après sa transmission envoie les rubriques complètes du salarié pour la période d’origine, quantité nulle comprise, à importer en remplacement.',
+    aide: 'Sans quantité négative : une feuille corrigée après sa transmission envoie les rubriques complètes du salarié pour la période d’origine, quantité nulle comprise. Le lot correctif part seul, à importer en remplacement ; les autres feuilles et les absences suivent dans le lot d’après.',
   },
 };
 
@@ -105,8 +107,9 @@ export interface OptionsRegularisation {
   /** Semaine ISO de la ligne (« 2026-S42 »). */
   semaine: (week: ISODate) => string;
   /**
-   * « Annule et remplace » : rubriques déjà transmises des autres feuilles du salarié pour la période d'origine (lues par
-   * le serveur dans les lots), hors feuilles régularisées par le même lot.
+   * « Annule et remplace » : rubriques déjà dans Sage des autres feuilles du salarié pour la période d'origine (lues par
+   * le serveur dans les lots ; feuille rouverte depuis sa transmission : rubriques gardées à sa réouverture), hors
+   * feuilles régularisées par le même lot.
    */
   autres?: (empId: number, periode: string, exclues: readonly ISODate[]) => Record<string, number>;
 }

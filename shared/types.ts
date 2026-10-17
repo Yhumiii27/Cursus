@@ -439,7 +439,10 @@ export interface FeuilleTemps {
 export interface ReouvertureFeuille {
   /** Instant (ISO), auteur et motif (500 caractères au plus) de la réouverture. */
   le: string; par: string; motif: string;
-  /** Renvoyée au salarié pour correction (« à corriger »), sinon corrigée par son valideur (« soumise »). */
+  /**
+   * Renvoyée au salarié pour correction (« à corriger », le motif en commentaire), sinon corrigée par son valideur
+   * (« soumise ») ; repasse à faux à la nouvelle soumission (un retour suivant vient du valideur).
+   */
   renvoyee: boolean;
   /** Feuille déjà transmise à la paie à sa réouverture (une fois au moins) ; `lot` : dernier lot transmis qui la portait. */
   transmise: boolean; lot: number | null;

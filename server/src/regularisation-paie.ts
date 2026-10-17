@@ -6,7 +6,7 @@ import { isoWeek, isoWeekYear } from '../../shared/dates.ts';
 import type { Domain } from '../../shared/domain.ts';
 import { key } from '../../shared/format.ts';
 import { matriculeAffiche } from '../../shared/rules/matricules.ts';
-import { additionner, modeRegularisation, rubriquesDeLaFeuille, type OptionsRegularisation } from '../../shared/rules/regularisation.ts';
+import { additionner, aRegulariser, modeRegularisation, rubriquesDeLaFeuille, type OptionsRegularisation } from '../../shared/rules/regularisation.ts';
 import type { FeuilleTemps, ISODate, ReouvertureFeuille, RubriquesFeuille, SagePush } from '../../shared/types.ts';
 import type { Db } from './db.ts';
 import { lireFormatFichier, type LotEnregistre } from './lots-paie.ts';
@@ -51,8 +51,19 @@ export function transmisDeLaFeuille(db: Db, d: Domain, sh: FeuilleTemps): Pick<R
 }
 
 /**
+ * Ce que Sage a reçu pour une autre feuille du salarié, en « annule et remplace » : transmise, ce qu'en gardent les lots ;
+ * rouverte depuis sa transmission (en cours de correction, ou revalidée et à régulariser hors de ce lot), les rubriques
+ * gardées à sa réouverture, que Sage a toujours. Null : rien de transmis (feuille jamais partie).
+ */
+function dejaDansSage(db: Db, d: Domain, sh: FeuilleTemps): ParPeriode | null {
+  if (sh.sage) return transmisDeLaFeuille(db, d, sh).rubriques;
+  return sh.reouverture?.rubriques ?? null;
+}
+
+/**
  * Options de la régularisation d'un lot : mode lu dans le format du fichier (quantités négatives acceptées, par défaut) ;
- * en « annule et remplace », rubriques déjà transmises des autres feuilles du salarié pour la période d'origine.
+ * en « annule et remplace », rubriques déjà dans Sage des autres feuilles du salarié pour la période d'origine, celles
+ * des feuilles rouvertes depuis leur transmission comprises (sans elles, le total remplacerait leurs heures par rien).
  */
 export function optionsRegularisation(db: Db, d: Domain): Omit<OptionsRegularisation, 'semaine'> {
   const mode = modeRegularisation(lireFormatFichier(db));
@@ -60,9 +71,32 @@ export function optionsRegularisation(db: Db, d: Domain): Omit<OptionsRegularisa
   return {
     mode,
     autres: (empId, periode, exclues) => additionner(...d.ds.feuilles
-      .filter(sh => sh.empId === empId && sh.sage && !exclues.includes(sh.week))
-      .map(sh => ({ [periode]: transmisDeLaFeuille(db, d, sh).rubriques?.[periode] ?? {} })))[periode] ?? {},
+      .filter(sh => sh.empId === empId && !exclues.includes(sh.week))
+      .map(sh => ({ [periode]: dejaDansSage(db, d, sh)?.[periode] ?? {} })))[periode] ?? {},
   };
+}
+
+/**
+ * « Annule et remplace » (format du fichier sans quantité négative) : un lot qui régularise des feuilles rouvertes ne
+ * porte que ces régularisations, des totaux de période à importer en remplacement ; les feuilles ordinaires et les
+ * absences, des quantités à ajouter, attendent le lot suivant. Pour que les totaux restent justes, ce lot correctif se
+ * génère quand aucun autre lot n'attend la confirmation de son import, et aucun autre lot ne se génère tant que le sien
+ * l'attend. Rend les feuilles du lot (toutes, en écart ou sans régularisation) et le nombre de feuilles qui attendent ;
+ * refus (texte) sinon.
+ */
+export function selectionRemplace(db: Db, sheets: readonly FeuilleTemps[]): { sheets: FeuilleTemps[]; enAttente: number } | string {
+  if (modeRegularisation(lireFormatFichier(db)) !== 'remplace') return { sheets: [...sheets], enAttente: 0 };
+  const generes = db.all<LotEnregistre>('lotsPaie').filter(l => l.statut === 'genere');
+  const remplace = generes.find(l => l.contenu?.regularisation === 'remplace');
+  if (remplace) {
+    return `Lot correctif n° ${remplace.id} (annule et remplace) à confirmer : importez son fichier dans Sage en remplacement et confirmez l’import, ou annulez-le, avant de générer un autre lot`;
+  }
+  const correctifs = sheets.filter(aRegulariser);
+  if (!correctifs.length) return { sheets: [...sheets], enAttente: 0 };
+  if (generes.length) {
+    return `Lot n° ${generes[0].id} à confirmer : en « annule et remplace », le lot correctif se génère quand aucun autre lot n’attend son import. Confirmez ou annulez d’abord ${generes.length > 1 ? `les lots n° ${generes.map(l => l.id).join(', ')}` : 'ce lot'}`;
+  }
+  return { sheets: correctifs, enAttente: sheets.length - correctifs.length };
 }
 
 /** Relevé d'heures déjà parti à l'agence d'intérim pour cette semaine (nom d'agence comparé sans casse ni accents). */

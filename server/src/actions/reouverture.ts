@@ -15,12 +15,14 @@ import type { FeuilleTemps, LotPaie, ReouvertureFeuille } from '../../../shared/
 import { heuresKeystone } from '../integrations/keystone.ts';
 import { notifierFeuilleRenvoyee } from '../notifications.ts';
 import { releveParti, transmisDeLaFeuille } from '../regularisation-paie.ts';
-import { ActionError, type ActionHandler, getEmp, refuserSoiMeme, requireRhAdmin } from './context.ts';
+import { ActionError, type ActionHandler, estSoiMeme, getEmp, requireRhAdmin } from './context.ts';
 
 const rouvrir: ActionHandler = (ctx, p) => {
   requireRhAdmin(ctx);
   const emp = getEmp(ctx, p.empId);
-  refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas rouvrir votre propre feuille de temps');
+  // Pas refuserSoiMeme : son renvoi vers le manager ou un autre membre du service RH ne vaut pas ici, la réouverture est
+  // réservée à l'administrateur RH.
+  if (estSoiMeme(ctx, emp.id)) throw new ActionError('Vous ne pouvez pas rouvrir votre propre feuille de temps : la réouverture revient à un autre administrateur RH', 403);
   const week = String(p.week ?? '');
   const sh = ctx.ds.feuilles.find(f => f.empId === emp.id && f.week === week);
   if (!sh || sh.statut !== 'validee') throw new ActionError('Seule une feuille validée se rouvre');

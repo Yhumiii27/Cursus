@@ -506,8 +506,11 @@ export const ALLOWED_VIEWS = {
   manager: ['collaborateurs', 'formations', 'temps', 'absences', 'entretiens', 'missions'],
   collaborateur: ['portail', 'temps', 'absences', 'entretiens'],
 } as const;
-/** Vues ouvertes dans tous les espaces et sans connexion : information sur les données personnelles (shared/confidentialite.ts). */
-export const VUES_COMMUNES = ['confidentialite'] as const;
+/**
+ * Vues ouvertes dans tous les espaces et sans connexion : information sur les données personnelles (shared/confidentialite.ts)
+ * et aide par rôle (shared/aide.ts).
+ */
+export const VUES_COMMUNES = ['confidentialite', 'aide'] as const;
 
 // — Comptes et droits —
 /**

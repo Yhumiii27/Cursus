@@ -113,12 +113,12 @@ test('champ d’heures : nommé par projet, tâche et jour ; même normalisation
 
 // — Navigation —
 
-test('titre de l’onglet par page ; Confidentialité ouverte dans tous les espaces', () => {
+test('titre de l’onglet par page ; Confidentialité et Aide ouvertes dans tous les espaces', () => {
   assert.equal(titreOnglet('Feuilles de temps'), 'Feuilles de temps — Cursus');
   assert.equal(titreOnglet(null), 'Cursus');
-  assert.deepEqual([...VUES_COMMUNES], ['confidentialite']);
+  assert.deepEqual([...VUES_COMMUNES], ['confidentialite', 'aide']);
   // Vue commune : jamais parmi les vues d'un espace (la première est sa page d'accueil).
-  for (const vues of Object.values(ALLOWED_VIEWS)) assert.ok(!(vues as readonly string[]).includes('confidentialite'));
+  for (const vues of Object.values(ALLOWED_VIEWS)) assert.ok(!(vues as readonly string[]).some(v => (VUES_COMMUNES as readonly string[]).includes(v)));
 });
 
 // — Page Confidentialité —

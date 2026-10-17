@@ -537,7 +537,9 @@ simulation transmet, et le refus liste les rubriques manquantes. Une rubrique do
 normales des salariés mensualisés) peut être désactivée. Chaque salarié du lot doit avoir son matricule de paie
 (Paramètres → Matricules de paie) : sinon le lot est refusé, avec la liste des salariés concernés.
 
-Procédure mensuelle du gestionnaire de paie (ou de l'administrateur RH), écran Temps de travail :
+Procédure mensuelle du gestionnaire de paie (ou de l'administrateur RH), écran Temps de travail (reprise pour les
+utilisateurs, avec le calendrier du mois et les corrections, dans `docs/GUIDE-UTILISATEUR.md`, « Gestionnaire de paie »,
+et dans la page Aide de l'application) :
 
 1. Avant la clôture, le tableau « Suivi des feuilles de temps » montre qui n'a pas saisi, soumis ou corrigé sa feuille
    (feuille attendue le lundi suivant à 12 h, réglable dans Paramètres → Suivi des feuilles de temps) : relance en un
@@ -680,6 +682,8 @@ précède chaque mise en production.
   consultation sur téléphone.
 - Le service informatique consigne la version, la date et l'accord des trois pilotes avant de
   passer en production.
+- Ouverture progressive aux utilisateurs (service RH, puis une équipe en horaires de journée, puis tout le site) et
+  vérifications du groupe pilote : `docs/GUIDE-UTILISATEUR.md`, « Groupe pilote » (page Aide de l'application).
 
 ## Mise en service : reprise depuis Lucca
 

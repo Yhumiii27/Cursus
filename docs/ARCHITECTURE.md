@@ -495,7 +495,10 @@ Cas de paie (t160) : `tests/cas-paie.test.ts` rejoue chaque `tests/cas-paie/<nom
 (migrations nommées appliquées, réglages du cas, fiche, compteurs repris, absences, feuilles validées avec régime et
 mode des heures supplémentaires figés), à la date du cas, et compare valeur par valeur les compteurs (`cpInfo`,
 `rttInfo`, `recupInfo`), le décompte de chaque semaine (`calcSheet`) et les lignes du fichier d'import
-(`lignesFichier(buildSagePayload(...))`). Format et règles d'ajout : `tests/cas-paie/LISEZMOI.md`.
+(`lignesFichier(buildSagePayload(...))`). `controlerCas` refuse tout champ inconnu à chaque niveau, une valeur hors
+des listes de shared/constants.ts (statut, nature de contrat, temps de travail, type d'absence) ou que Paramètres
+corrigerait, et, dans le dépôt, un cas `source: "paie"` avec une nature d'absence médicale ; ces cas se rejouent depuis
+un dossier hors du dépôt (`CURSUS_CAS_PAIE`, chemin absolu). Format et règles d'ajout : `tests/cas-paie/LISEZMOI.md`.
 
 ## Conventions d'écran
 

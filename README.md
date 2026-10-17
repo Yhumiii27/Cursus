@@ -234,7 +234,9 @@ GitHub, Renovate ou l'outil de la forge remplace Dependabot ; `npm run audit` re
 
 Cas de paie : `tests/cas-paie/` reçoit les cas réels anonymisés promis par la paie (un fichier JSON par cas : salarié,
 contrat, absences, heures, compteurs et lignes du fichier Sage attendus), rejoués par `npm test` sans écrire de code ;
-trois cas construits sur les règles légales et les réglages par défaut y sont déjà. Format :
+trois cas construits sur les règles légales et les réglages par défaut y sont déjà. Un cas réel n'y est versionné
+qu'une fois anonymisé (identité fictive, dates décalées, aucune nature d'absence médicale) ; celui qui garde une donnée
+de santé reste hors du dépôt et se rejoue par `CURSUS_CAS_PAIE=/chemin/absolu npm test`. Format et anonymisation :
 `tests/cas-paie/LISEZMOI.md`.
 
 ## Ce qui reste simulé

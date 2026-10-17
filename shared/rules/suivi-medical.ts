@@ -81,6 +81,14 @@ export function echeanceVisite(e: Pick<Employe, 'prochaineVisite' | 'examenAptit
 /** Suivi renforcé sans examen médical d'aptitude enregistré (embauche ou affectation au poste à risques, art. R4624-24). */
 export const examenRequis = (suivi: SuiviInfo, e: Pick<Employe, 'examenAptitude'>) => suivi.type === 'sir' && !e.examenAptitude;
 
+/**
+ * Case « examen médical d'aptitude » cochée par défaut dans l'avis : suivi renforcé dont l'examen est attendu — jamais
+ * enregistré, ou renouvellement plus proche que la visite intermédiaire. Pour une visite intermédiaire, décochée : sinon
+ * chaque visite intermédiaire redaterait l'examen et en reculerait le renouvellement (art. R4624-28).
+ */
+export const examenAttendu = (med: { suivi?: SuiviInfo | null; prochaine?: ProchaineVisite | null; examenRequis?: boolean }) =>
+  med.suivi?.type === 'sir' && (!!med.examenRequis || med.prochaine === 'aptitude');
+
 /** Précision de l'échéance : « date fixée par le médecin du travail », « périodicité VIP de 24 mois »… */
 export function prochaineTexte(x: EcheanceVisite, type: SuiviMedical, s: Partial<Periodicites>): string {
   if (x.prochaine === 'medecin') return 'date fixée par le médecin du travail';

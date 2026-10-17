@@ -983,8 +983,10 @@ Règles dans `shared/rules/sante.ts` et `Domain.medInfo` (`shared/domain.ts`), a
   visite + périodicité intermédiaire) et du renouvellement de l'examen d'aptitude (dernier examen, `Employe.examenAptitude`,
   daté par un avis coché « examen médical d'aptitude », + périodicité de l'examen). Suivi renforcé sans examen enregistré :
   `MedInfo.examenRequis`, l'aptitude en cours reste valide mais passe « à renouveler », avec l'échéance sans date
-  « Examen d’aptitude requis » (`EXAMEN_REQUIS`, à programmer, relancée comme échue, clé `med:<id>:examen`) ; aucun motif
-  Go / No Go. Le texte de l'aptitude précise l'origine de l'échéance hors du cas courant (VIP à la périodicité réglée).
+  « Examen d’aptitude requis » (`EXAMEN_REQUIS`, à programmer, relancée comme échue, clé `med:<id>:examen`), en plus de
+  l'échéance datée de l'aptitude et de ses relances par paliers ; aucun motif Go / No Go. Dans le dialogue d'avis, la case
+  « examen médical d'aptitude » n'est cochée par défaut que si l'examen est attendu (`examenAttendu` : jamais enregistré, ou
+  renouvellement plus proche que la visite intermédiaire), pour qu'une visite intermédiaire ne redate pas l'examen. Le texte de l'aptitude précise l'origine de l'échéance hors du cas courant (VIP à la périodicité réglée).
   Aucune migration nommée : les colonnes nouvelles (`TABLES`) sont vides sur une base existante, ce qui vaut VIP à
   24 mois, l'échéance d'avant.
 - **Avis du médecin du travail** (`medical.avis`) : date de la visite, avis (apte, apte avec restrictions ou aménagements de
@@ -1003,8 +1005,9 @@ Règles dans `shared/rules/sante.ts` et `Domain.medInfo` (`shared/domain.ts`), a
   ouvre la demande en cours : impression, annulation). La saisie d'une visite datée du jour de la demande ou après la
   clôt (`realisee`) ; le service RH peut l'annuler (`medical.annuler`).
 - **Confidentialité** : dates de visite, avis daté, demandes et suivi médical (type, prochaine visite, examen d'aptitude :
-  `suivi`, `prochaineVisite`, `examenAptitude` vidés par `server/src/dataset.ts` ; jamais au journal, `medical.suivi` ne
-  trace que `empId` ; dans la fiche de l'export RGPD) sont réservés au service RH et à l'intéressé. Le manager reçoit
+  `suivi`, `prochaineVisite`, `examenAptitude` vidés par `server/src/dataset.ts` ; au journal, `medical.suivi` ne retient
+  que `empId`, et le message, qui nomme le type, est masqué aux lecteurs hors service RH (`ACTIONS_SANTE`) ; absents de la
+  demande de visite ; dans la fiche de l'export RGPD) sont réservés au service RH et à l'intéressé. Le manager reçoit
   `aptitude` (`aptitudeVueManager` : aptitude valide ou non, avis, restrictions en vigueur), aucune échéance datée ; Keystone,
   le seul code `APTITUDE`, selon l'état du jour, avec un libellé neutre en partage détaillé (voir Go / No Go).
 

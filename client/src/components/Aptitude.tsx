@@ -6,7 +6,7 @@ import type { Domain, EmpX } from '../../../shared/domain.ts';
 import { equipeLabel, fmtIso } from '../../../shared/format.ts';
 import { matriculeAffiche } from '../../../shared/rules/matricules.ts';
 import { restrictionEnVigueur, restrictionTexte } from '../../../shared/rules/sante.ts';
-import { SUIVIS_MEDICAUX, suiviTexte } from '../../../shared/rules/suivi-medical.ts';
+import { suiviTexte } from '../../../shared/rules/suivi-medical.ts';
 import type { DemandeVisite } from '../../../shared/types.ts';
 import { printDocument } from '../print.ts';
 import { Tag } from './ui.tsx';
@@ -27,9 +27,7 @@ export function imprimerDemandeVisite(d: Domain, e: EmpX, x: DemandeVisite): boo
     {
       title: 'Visite demandée',
       rows: [['Motif', m.label], ['Référence', `${m.article} du Code du travail`], ['Demandée le', fmtIso(x.le)], ['Par', `${x.par}, service RH`],
-        ['Dernière visite enregistrée', e.visite ? fmtIso(e.visite) : 'aucune'],
-        // Type de suivi (suivi renforcé : examen médical d'aptitude, art. R4624-24), sans aucune donnée médicale.
-        ...(e.med.suivi ? [['Type de suivi', SUIVIS_MEDICAUX[e.med.suivi.type].label] as [string, string]] : [])],
+        ['Dernière visite enregistrée', e.visite ? fmtIso(e.visite) : 'aucune']],
     },
     ...(habs.length ? [{ title: 'Habilitations du poste qui exigent l’aptitude médicale', table: { head: ['Habilitation', 'Détail'], rows: habs.map(h => [h.hm.nom, h.hm.detail]) } }] : []),
     { title: 'Suite donnée', text: 'Merci de convoquer le salarié et d’adresser l’avis d’aptitude au service RH, qui l’enregistre dans Cursus. Cette demande ne contient aucune information médicale.' },

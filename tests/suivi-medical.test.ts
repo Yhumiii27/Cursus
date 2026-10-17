@@ -1,7 +1,8 @@
 // Suivi médical (t059) : type de suivi (VIP, VIP adaptée, suivi individuel renforcé déduit du référentiel ou saisi),
 // échéance de la prochaine visite — date fixée par le médecin du travail, sinon périodicité de Paramètres → Santé —,
-// alerte « examen d'aptitude requis » du suivi renforcé, et confidentialité : ni le manager, ni les profils restreints,
-// ni le journal ne reçoivent le type de suivi, la prochaine visite ou l'examen ; l'export RGPD les contient.
+// alerte « examen d'aptitude requis » du suivi renforcé, et confidentialité : ni le manager ni les profils restreints ne
+// reçoivent le type de suivi, la prochaine visite ou l'examen ; le journal ne retient que `empId` (le message, qui nomme le
+// type, est masqué aux lecteurs hors service RH) ; l'export RGPD les contient.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
@@ -24,7 +25,8 @@ const { matricule } = await import('../shared/format.ts');
 const { appliquerReglages, ReglageInvalide } = await import('../shared/reglages.ts');
 const { relancesDues } = await import('../shared/rules/relances.ts');
 const { controlerAvis } = await import('../shared/rules/sante.ts');
-const { echeanceVisite, suiviDe } = await import('../shared/rules/suivi-medical.ts');
+const { analyserReprise } = await import('../shared/rules/reprise.ts');
+const { echeanceVisite, examenAttendu, suiviDe } = await import('../shared/rules/suivi-medical.ts');
 type User = import('../shared/types.ts').CurrentUser;
 type Dataset = import('../shared/types.ts').Dataset;
 type Corps = Record<string, any>;
@@ -130,6 +132,43 @@ test('suivi renforcé : visite intermédiaire puis examen d’aptitude, alerte �
     { exp: parse('2028-10-01'), prochaine: 'aptitude' });
 });
 
+test('suivi renforcé sans examen : l’échéance datée de l’aptitude et ses relances par paliers restent, en plus de l’examen requis', () => {
+  const { db, domain } = fresh();
+  // Aptitude valide jusqu'au 25 nov. 2026, à 46 jours : palier 90 jours.
+  db.update('employes', 7, { visite: '2024-11-25', suivi: 'sir' });
+  const d = domain(), emps = d.enrich(90, false);
+  const med = d.echeances(emps, 90).filter(x => x.kind === 'med' && x.emp.id === 7).map(x => [x.label, jour(x.exp), x.key]);
+  assert.deepEqual(med, [[EXAMEN_REQUIS, '2026-10-10', 'due'], ['Aptitude médicale', '2026-11-25', 'due']]);
+  const r = relancesDues(d, emps, [90, 30, 7]).filter(y => y.empId === 7 && y.categorie === 'visite').map(y => [y.cle, y.palier]);
+  assert.deepEqual(r, [['med:7:examen', 'echu'], ['med:7:2026-11-25', '90']]);
+  // Aptitude lointaine : l'échéance datée reste « valide » (seul l'examen est à programmer).
+  db.update('employes', 7, { visite: '2026-06-01' });
+  const loin = domain().echeances(domain().enrich(90, false), 90).find(x => x.label === 'Aptitude médicale' && x.emp.id === 7)!;
+  assert.deepEqual([jour(loin.exp), loin.key, loin.action], ['2028-06-01', 'ok', null]);
+});
+
+test('dialogue d’avis : case « examen médical d’aptitude » cochée seulement quand l’examen est attendu', () => {
+  const { db, emp } = fresh();
+  assert.equal(examenAttendu(emp(7).med), false, 'VIP');
+  db.update('employes', 7, { suivi: 'sir' });
+  assert.equal(examenAttendu(emp(7).med), true, 'suivi renforcé sans examen enregistré');
+  db.update('employes', 7, { visite: '2026-10-01', examenAptitude: '2025-10-01' });
+  assert.equal(emp(7).med.prochaine, 'intermediaire');
+  assert.equal(examenAttendu(emp(7).med), false, 'visite intermédiaire attendue : la case reste décochée');
+  // Renouvellement de l'examen plus proche que la visite intermédiaire : cochée.
+  db.update('employes', 7, { visite: '2027-10-01', examenAptitude: '2025-10-01' });
+  assert.equal(emp(7).med.prochaine, 'aptitude');
+  assert.equal(examenAttendu(emp(7).med), true);
+  assert.equal(examenAttendu({ suivi: null, prochaine: null }), false, 'verdict seul');
+});
+
+test('reprise des visites : l’aperçu annonce l’échéance de la périodicité réglée', () => {
+  const { domain, regler } = fresh();
+  regler({ santeVipMois: 48 });
+  const l = analyserReprise(domain(), 'visites', `Matricule;Date de visite;Avis\n${matricule(7)};02/10/2026;Apte`, { colonnes: ['matricule', 'date', 'avis'] }).lignes[0];
+  assert.match(l.detail ?? '', /à renouveler avant le 2 oct\. 2030$/);
+});
+
 test('avis du médecin : prochaine visite et examen d’aptitude enregistrés, contrôlés, remis à zéro par l’avis suivant', () => {
   const { db, run, emp } = fresh();
   const fiche = () => db.get<Corps>('employes', 7)!;
@@ -159,7 +198,7 @@ test('type de suivi saisi sur la fiche : service RH seul, liste fermée ; vide :
   assert.throws(() => run(HSE, 'medical.suivi', { empId: 2, suivi: 'sir' }), refus(/service RH/, 403));
 });
 
-test('confidentialité : ni le manager ni les profils restreints ne reçoivent le suivi ; l’intéressé et l’export RGPD, oui ; le journal, jamais', () => {
+test('confidentialité : ni le manager ni les profils restreints ne reçoivent le suivi ; l’intéressé et l’export RGPD, oui ; le journal, l’identifiant seul', () => {
   const { db, run } = fresh();
   run(RH, 'medical.suivi', { empId: 2, suivi: 'sir' });
   run(RH, 'medical.avis', { empId: 2, date: '2026-10-08', avis: 'apte', prochaineVisite: '2028-10-08', examen: true });

@@ -10,7 +10,7 @@
 //   l'import, Cursus fait foi (décision de l'entreprise du 15 octobre 2026).
 // - Titres repris : prérequis manquants en avertissement (la délivrance a eu lieu), élément absent du catalogue ou
 //   archivé refusé. Visite sans avis : enregistrée « apte » seulement si le service RH le confirme dans l'aperçu.
-import { MED_VALIDITE, TYPES_CONTRAT } from '../constants.ts';
+import { TYPES_CONTRAT } from '../constants.ts';
 import { addMonths, isValidDate, parse, toIso } from '../dates.ts';
 import type { Domain } from '../domain.ts';
 import { fJ, fmt, fmtIso, key, plural } from '../format.ts';
@@ -20,6 +20,7 @@ import { MOTIFS_SORTIE } from './contrats.ts';
 import { matriculesPris, normaliserMatricule } from './matricules.ts';
 import { adressesPrises } from './messagerie.ts';
 import { PROFIL_FIELDS, profilOf, validerProfil, type ProfilInput } from './profil.ts';
+import { echeanceVisite, suiviDe } from './suivi-medical.ts';
 
 export type TypeReprise = 'salaries' | 'soldes' | 'certifications' | 'habilitations' | 'visites';
 
@@ -683,7 +684,8 @@ function analyserVisites(d: Domain, lignes: { n: number; v: Valeurs }[], confirm
     if (e.visite === date && (e.avis ?? 'apte') === avis) { l.avertissements.push('Déjà enregistrée'); return { ...conclure(l), confirmation: null }; }
     if (avis === 'restrictions') l.avertissements.push('Restrictions à recopier sur la fiche (« Avis du médecin du travail ») : une mention provisoire les signale d’ici là');
     if (avis === 'inapte') l.avertissements.push('Inapte : habilitations qui exigent l’aptitude non valides');
-    const exp = addMonths(parse(date), MED_VALIDITE);
+    // Échéance de la visite reprise : périodicité du type de suivi (Paramètres → Santé), sans date fixée par le médecin.
+    const exp = echeanceVisite({ prochaineVisite: null, examenAptitude: e.examenAptitude }, parse(date), suiviDe(d.ds, e).type, d.ds.settings).exp;
     l.detail = `Visite du ${fmtIso(date)} · ${avis === 'apte' ? 'apte' : avis === 'inapte' ? 'inapte' : 'apte avec restrictions'}${avis !== 'inapte' ? ` · à renouveler avant le ${fmt(exp)}` : ''}`;
     l.issue = e.visite ? 'maj' : 'creation';
     l.ecriture = { type: 'visites', date, avis };

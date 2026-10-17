@@ -31,7 +31,7 @@ export interface CertInfo extends Certification {
   remplacee: Date | null;
 }
 /**
- * Aptitude médicale d'un collaborateur : valide (visite de moins de 24 mois, sans avis d'inaptitude), échéance,
+ * Aptitude médicale d'un collaborateur : valide (échéance de la visite non passée, sans avis d'inaptitude), échéance,
  * avis et restrictions de la dernière visite, demande de visite en cours.
  */
 export interface MedInfo {
@@ -653,15 +653,18 @@ export class Domain {
       // d'inaptitude (daté de la visite). Le verdict seul (vue manager) ne donne aucune échéance.
       const m = e.med;
       if (!m.verdictSeul && m.ok && m.examenRequis) {
-        // Suivi renforcé sans examen d'aptitude : à programmer dès aujourd'hui, sans date, parmi les échéances proches.
+        // Suivi renforcé sans examen d'aptitude : à programmer dès aujourd'hui, sans date, parmi les échéances proches ;
+        // l'échéance datée de l'aptitude suit (et ses relances par paliers).
         ech.push({
           kind: 'med', kindLabel: 'Visite médicale', label: EXAMEN_REQUIS, emp: e, exp: this.today, d: 0, key: 'due', statut: 'Examen requis', cls: CLS.due,
           sansDate: true, sansDateTexte: { main: 'À programmer', sub: 'suivi individuel renforcé' },
           planned: !!m.demande, plannedLabel: m.demande ? `Visite demandée le ${fmtShort(parse(m.demande.le))}` : '',
           action: m.demande ? null : { label: 'Demander la visite', intent: { type: 'medical', empId: e.id } },
         });
-      } else if (!m.verdictSeul) {
-        const inapte = m.avis === 'inapte', sansDate = !m.exp, exp = inapte ? m.visite! : m.exp ?? this.today, key = this.medKey(m, horizon);
+      }
+      if (!m.verdictSeul) {
+        // Statut de la date seule : l'examen requis a son échéance ci-dessus.
+        const inapte = m.avis === 'inapte', sansDate = !m.exp, exp = inapte ? m.visite! : m.exp ?? this.today, key = this.medKey({ ...m, examenRequis: false }, horizon);
         ech.push({
           kind: 'med', kindLabel: 'Visite médicale', label: inapte ? 'Avis d’inaptitude' : sansDate ? 'Visite médicale non renseignée' : 'Aptitude médicale', emp: e,
           exp, d: days(this.today, exp), key, statut: inapte ? AVIS_MEDICAL.inapte.court : sansDate ? 'Non renseignée' : MED_LABEL[key], cls: CLS[key], sansDate,

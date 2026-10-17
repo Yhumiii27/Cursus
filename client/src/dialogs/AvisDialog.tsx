@@ -7,7 +7,7 @@ import { useState } from 'react';
 import { HAB_CLS, HAB_LABEL } from '../../../shared/constants.ts';
 import { fmtIso } from '../../../shared/format.ts';
 import { controlerAvis, RESTRICTION_MAX, RESTRICTIONS_MAX, suspendueParAvis } from '../../../shared/rules/sante.ts';
-import { periodicite, SUIVIS_MEDICAUX } from '../../../shared/rules/suivi-medical.ts';
+import { examenAttendu, periodicite, SUIVIS_MEDICAUX } from '../../../shared/rules/suivi-medical.ts';
 import type { AvisMedical } from '../../../shared/types.ts';
 import { CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine, SectionLabel, Seg, Tag } from '../components/ui.tsx';
@@ -27,9 +27,9 @@ export function AvisDialog({ empId }: { empId: number }) {
   const [avis, setAvisState] = useState<AvisMedical>('apte');
   const [lignes, setLignes] = useState<Ligne[]>([LIGNE_VIDE]);
   const [prochaine, setProchaine] = useState('');
-  // Suivi renforcé : la visite est d'ordinaire l'examen médical d'aptitude (embauche, renouvellement) ; à décocher pour une
-  // visite intermédiaire.
-  const [examen, setExamen] = useState(() => emp?.med.suivi?.type === 'sir');
+  // Suivi renforcé : cochée quand l'examen médical d'aptitude est attendu (jamais enregistré, renouvellement), décochée
+  // pour une visite intermédiaire (examenAttendu).
+  const [examen, setExamen] = useState(() => !!emp && examenAttendu(emp.med));
   const [suspendre, setSuspendre] = useState<string[]>([]);
   // Avis apte : les suspensions décidées à un avis précédent sont levées par défaut.
   const [lever, setLever] = useState<string[]>(() => titres.filter(suspendueParAvis).map(h => h.h));

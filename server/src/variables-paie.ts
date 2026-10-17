@@ -1,6 +1,6 @@
 // Variables de paie d'une période (t028), export CSV de l'écran Temps pour le contrôle de la paie :
 //   GET /api/paie/variables/:periode   administrateur RH et gestionnaire de paie (droit « paie ») : une ligne par
-//                                      salarié, code Sage et origine (semaine d'une feuille, absence), quantité et
+//                                      salarié, code Sage et origine (semaine d'une feuille, absence, solde de sortie), quantité et
 //                                      détail, des lots non annulés de la période, puis de ce qui attend encore un lot
 //                                      (« en attente », calculé comme le serait le lot du jour).
 // Le code de rubrique d'une absence révèle sa catégorie (santé…) : export réservé au droit « paie », comme le fichier
@@ -12,6 +12,7 @@ import { texteCsv } from '../../shared/csv.ts';
 import { Domain } from '../../shared/domain.ts';
 import { plural } from '../../shared/format.ts';
 import { detailElement } from '../../shared/rules/absences-paie.ts';
+import { detailSortie } from '../../shared/rules/solde-sortie.ts';
 import { feuillesDuLot, libellesSage, STATUTS_LOT } from '../../shared/rules/lots-paie.ts';
 import { matriculeAffiche } from '../../shared/rules/matricules.ts';
 import { periodeLabel, rubriquesPaie } from '../../shared/rules/paie.ts';
@@ -25,6 +26,7 @@ import type { Db } from './db.ts';
 import { SAGE_DOSSIER, sageMode } from './integrations/sage.ts';
 import { fichierJoint, tracerRefus } from './journal.ts';
 import type { LotEnregistre } from './lots-paie.ts';
+import { sortiesAEmettre } from './soldes-sortie.ts';
 
 /** Ligne de l'export : `empId` sert au journal (salariés concernés), il n'est pas écrit dans le fichier. */
 export interface VariablePaie {
@@ -47,7 +49,7 @@ export function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: string)
   const nomPar = new Map(d.ds.employes.map(e => [matriculeAffiche(e), { nom: e.nom, id: e.id }]));
   const table = rubriquesPaie(db.all<RubriquePaie>('rubriquesPaie'));
   const out: VariablePaie[] = [];
-  const ajouter = (contenu: Pick<SagePush, 'lignes' | 'absences' | 'libelles'>, lot: string, etat: string) => {
+  const ajouter = (contenu: Pick<SagePush, 'lignes' | 'absences' | 'sorties' | 'libelles'>, lot: string, etat: string) => {
     const libelles = contenu.libelles ?? libellesSage(contenu, table);
     for (const l of contenu.lignes) {
       if ((l.periode ?? '') !== periode) continue;
@@ -71,6 +73,14 @@ export function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: string)
         detail: detailElement(x, periodeLabel),
       });
     }
+    // Soldes de sortie (t128) : rubriques de sortie actives seulement, toujours sous un code Sage.
+    for (const x of contenu.sorties ?? []) {
+      if (x.periode !== periode) continue;
+      out.push({
+        matricule: x.matricule, salarie: d.emp(x.empId)?.nom ?? '', rubrique: x.codeSage, quantite: x.quantite, lot, etat, empId: x.empId,
+        libelle: libelles[x.codeSage] ?? x.codeSage, detail: detailSortie(x),
+      });
+    }
   };
   for (const lot of db.all<LotEnregistre>('lotsPaie')) {
     if (lot.statut !== 'annule' && lot.contenu) ajouter(lot.contenu, `n° ${lot.id}`, STATUTS_LOT[lot.statut].label);
@@ -78,7 +88,8 @@ export function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: string)
   // En attente : ce que le lot de la période emporterait aujourd'hui.
   const sheets = feuillesDuLot(sagePending(d), periode, d.ds.settings, d.ti);
   const absences: ElementAbsencePaie[] = traduireElements(absencesAEmettre(db, d, periode), d.ds.rubriquesPaie);
-  if (sheets.length || absences.length) ajouter({ ...buildSagePayload(d, sheets, SAGE_DOSSIER, new Date(), sageMode()), absences }, '', 'En attente d’un lot');
+  const sorties = sortiesAEmettre(db, d, periode);
+  if (sheets.length || absences.length || sorties.length) ajouter({ ...buildSagePayload(d, sheets, SAGE_DOSSIER, new Date(), sageMode()), absences, sorties }, '', 'En attente d’un lot');
   return out.sort((a, b) => a.matricule.localeCompare(b.matricule) || a.rubrique.localeCompare(b.rubrique) || a.detail.localeCompare(b.detail));
 }
 

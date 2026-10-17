@@ -130,8 +130,17 @@ export const TABLES = {
       confirmeLe: 'text', confirmePar: 'text', reference: 'text', annuleLe: 'text', annulePar: 'text', historique: 'bool',
       // Absences du lot (identifiant, salarié ; lot 5, shared/rules/absences-paie.ts) : leurs quantités sont dans `contenu`.
       absences: 'json',
+      // Soldes de sortie du lot (identifiant, salarié ; t128, shared/rules/solde-sortie.ts) : quantités dans `contenu`.
+      sorties: 'json',
     },
     unique: [['cle']],
+  },
+  // Soldes de sortie photographiés à l'enregistrement de la sortie (t128, server/src/soldes-sortie.ts) : état des compteurs
+  // à la date de sortie, un par salarié ; lot de paie qui l'emporte (`lotId`) et import confirmé (`sage`).
+  soldesSortie: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', empId: 'int', date: 'text', etat: 'json', le: 'text', par: 'text', lotId: 'int', sage: 'bool' },
+    unique: [['empId']],
   },
   // Correspondance des rubriques de paie avec le plan de paie Sage (server/src/actions/paie.ts) : une ligne par rubrique
   // modifiée ; sans ligne, code Sage égal au code interne, à confirmer (shared/rules/paie.ts).

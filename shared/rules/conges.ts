@@ -152,9 +152,10 @@ function droitPeriode(d: Domain, e: Employe, A: number): number {
 
 /**
  * Jours acquis à la date `jour` sur la période `A`, en cours d'acquisition : 2,08 j par mois écoulé depuis le 1er juin A-1,
- * moins pour un mois d'arrêt maladie ou d'absence non assimilée (`acquisMois`).
+ * moins pour un mois d'arrêt maladie ou d'absence non assimilée (`acquisMois`). Exportée pour le solde de sortie
+ * (shared/rules/solde-sortie.ts).
  */
-function acquisAu(d: Domain, e: Employe, A: number, jour: ISODate): number {
+export function acquisAu(d: Domain, e: Employe, A: number, jour: ISODate): number {
   const mois = (Number(jour.slice(0, 4)) - (A - 1)) * 12 + Number(jour.slice(5, 7)) - 6;
   return acquisMois(d, e, A, mois);
 }

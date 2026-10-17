@@ -544,6 +544,40 @@ export interface InformationCp {
   jours: number; arret: number; limite: ISODate; echeance: ISODate; par: string;
 }
 
+/**
+ * État des compteurs d'un salarié à sa date de sortie (t128, shared/rules/solde-sortie.ts), en jours (récupération en
+ * heures), à transmettre à la paie pour le solde de tout compte ; le montant de l'indemnité reste calculé par Sage.
+ * - `cp` : période acquise `periode` (année de prise : droit, reports non échus compris, jours pris et posés, solde) et
+ *   période en cours d'acquisition `periode` + 1 (jours acquis jusqu'au mois de la sortie, jours déjà pris par
+ *   anticipation, solde) ; `total` : jours à indemniser (indemnité compensatrice, rubrique ICCP_J) ;
+ * - `rtt` : droit de l'année au prorata, pris et posés, solde ; `tropPris` : jours pris au-delà du droit, signalés, sans
+ *   retenue automatique ;
+ * - `recup` : repos compensateur, en heures ; `cet` : jours du compte épargne-temps (placements et solde repris), liquidés
+ *   en entier par défaut (aucun accord sur le CET connu).
+ * Null : compteur qui ne concerne pas le contrat (intérim, 35 h sans RTT, heures supplémentaires payées…).
+ */
+export interface EtatSortie {
+  date: ISODate;
+  cp: {
+    periode: number; droit: number; pris: number; poses: number; solde: number;
+    acquis: number; anticipes: number; soldeEnCours: number; total: number;
+  } | null;
+  rtt: { annee: number; label: string; droit: number; pris: number; poses: number; solde: number; tropPris: number } | null;
+  recup: { acquis: number; pris: number; poses: number; solde: number } | null;
+  cet: { cp: number; rtt: number; repris: number; total: number } | null;
+  /** Points à voir avant de transmettre (période précédente non clôturée, demandes en attente…). */
+  avertissements: string[];
+}
+/**
+ * Solde de sortie photographié à l'enregistrement de la sortie (`employe.sortie`, table `soldesSortie`) : une correction
+ * ultérieure d'une feuille ou d'une absence ne change pas ce qui a été transmis. Refait à chaque modification de la sortie
+ * tant qu'il n'est pas parti à la paie ; `lotId` : lot de paie qui l'emporte (rubriques de sortie actives), `sage` :
+ * import de ce lot confirmé. Service RH, paie et lecture seule (vide ailleurs).
+ */
+export interface SoldeSortie {
+  id: number; empId: number; date: ISODate; etat: EtatSortie; le: string; par: string; lotId: number | null; sage: boolean;
+}
+
 // — Entretiens & demandes —
 /**
  * `planifieLe` : jour où l'entretien a été planifié ou reprogrammé (`entretien.planifier`), borne de la date réelle
@@ -831,6 +865,15 @@ export interface SagePush {
   libelles?: Record<string, string>;
   /** Absences du lot, absence par absence, mois et rubrique (shared/rules/absences-paie.ts) ; absent avant le lot 5. */
   absences?: ElementAbsencePaie[];
+  /** Soldes de sortie du lot, salarié par salarié et rubrique (shared/rules/solde-sortie.ts) ; absent avant t128. */
+  sorties?: ElementSortiePaie[];
+}
+/**
+ * Quantité d'un solde de sortie dans un lot de paie : rubrique interne de sortie (ICCP_J, RTT_SOLDE, RECUP_H, CET_LIQ) et
+ * son code Sage figé, partie sur la période `periode` (mois de la sortie, ou période ouverte s'il est clos).
+ */
+export interface ElementSortiePaie {
+  sortie: number; empId: number; matricule: string; periode: string; rubrique: string; codeSage: string; quantite: number; date: ISODate;
 }
 /**
  * Quantité d'une absence dans un lot de paie : jours (heures pour la récupération) d'un mois `mois`, partis sur la période
@@ -883,11 +926,13 @@ export interface LotPaie {
   feuilles: { empId: number; week: ISODate }[];
   /** Absences du lot (identifiant, salarié), gardées après une annulation ; absent avant le lot 5. */
   absences?: { id: number; empId: number }[];
+  /** Soldes de sortie du lot (identifiant du solde, salarié), gardés après une annulation ; absent avant t128. */
+  sorties?: { id: number; empId: number }[];
   /**
    * Totaux du contenu figé : lignes du fichier, salariés, quantité par code Sage des heures ; `absences` : éléments
    * d'absence, salariés et quantité par code Sage (codes retirés hors droit « paie » : server/src/dataset.ts).
    */
-  resume: { lignes: number; salaries: number; rubriques: Record<string, number>; absences?: { elements: number; salaries: number; rubriques: Record<string, number> } };
+  resume: { lignes: number; salaries: number; rubriques: Record<string, number>; absences?: { elements: number; salaries: number; rubriques: Record<string, number> }; sorties?: { elements: number; salaries: number } };
   /** Salariés partis sous leur matricule Cursus, faute de matricule de paie (simulation seulement). */
   sansMatricule: number[];
   telechargeLe: string | null; telechargePar: string | null; telechargements: number;
@@ -951,6 +996,8 @@ export interface Dataset {
   informationsCp?: InformationCp[];
   /** Acquisition des CP calculée par le serveur, par salarié et par période : profil paie seulement (absent ailleurs). */
   acquisitionsCp?: AcquisitionCpCalculee[];
+  /** Soldes de sortie photographiés (t128) : service RH, paie et lecture seule (absent ou vide ailleurs). */
+  soldesSortie?: SoldeSortie[];
   entretiens: Entretien[];
   demandesCollab: DemandeCollab[];
   demandesVisite: DemandeVisite[];

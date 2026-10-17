@@ -1,6 +1,7 @@
 // Sortie d'un salarié dans sa fiche (Collaborateurs, section Contrat) : date et motif enregistrés, fin prévue au contrat
 // rétablie par une annulation, boutons du service RH (enregistrer, modifier ou annuler la sortie). Le motif n'est transmis
 // qu'au service RH, à la paie, à la lecture seule et à l'intéressé (server/src/dataset.ts) : le manager ne voit que la date.
+// Solde de sortie (t128) : compteurs à la date, photographiés pour la paie, imprimables et exportables (SoldeSortie.tsx).
 import { days, parse } from '../../../shared/dates.ts';
 import { fmtIso, rel } from '../../../shared/format.ts';
 import { sorti, sortieTexte } from '../../../shared/rules/contrats.ts';
@@ -8,6 +9,7 @@ import type { Employe } from '../../../shared/types.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { annulationSortie } from '../state/confirmations.ts';
 import { useStore } from '../state/store.tsx';
+import { SoldeSortieFiche } from './SoldeSortie.tsx';
 import { NoteAccent, Tag } from './ui.tsx';
 
 const BOUTONS = { display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' } as const;
@@ -35,6 +37,7 @@ export function SortieFiche({ e }: { e: Employe }) {
         {rh && e.finPrevue && <div className="text-muted sub">Fin prévue au contrat : {fmtIso(e.finPrevue)}</div>}
       </div>
       {!parti && avant != null && <NoteAccent>Dernier jour {rel(avant)} : accès à Cursus jusqu’au {fmtIso(e.fin!)} inclus</NoteAccent>}
+      <SoldeSortieFiche e={e} />
       {rh && (
         <div style={BOUTONS}>
           {enregistrer}

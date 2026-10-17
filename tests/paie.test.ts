@@ -223,7 +223,9 @@ test('t022 rubriques : pré-remplies au code interne, à confirmer ; saisie, con
   const { db, run, refus, domain, ADMIN, PAIE, GEST } = fresh();
   const table = rubriquesPaie(domain().ds.rubriquesPaie);
   assert.deepEqual(table.map(r => r.code), Object.keys(RUBRIQUES_PAIE), 'tous les codes émis, HSF25 et HSF50 compris');
-  assert.ok(table.every(r => r.codeSage === r.code && r.active && !r.confirmee));
+  // Rubriques de sortie (t128) désactivées par défaut : le solde de tout compte reste saisi dans Sage.
+  assert.ok(table.every(r => r.codeSage === r.code && r.active === !RUBRIQUES_PAIE[r.code].inactiveParDefaut && !r.confirmee));
+  assert.deepEqual(table.filter(r => !r.active).map(r => r.code), ['ICCP_J', 'RTT_SOLDE', 'RECUP_H', 'CET_LIQ']);
   refus(GEST, 'paie.rubrique', { code: 'HN', confirmer: true }, 403);
   refus(PAIE, 'paie.rubrique', { code: 'XX', codeSage: '1' }, 404);
   refus(PAIE, 'paie.rubrique', { code: 'HN', codeSage: 'code avec espaces' }, 400, /20 caractères au plus/);

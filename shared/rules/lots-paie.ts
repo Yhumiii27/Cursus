@@ -4,7 +4,8 @@
 // (server/src/fichier-paie.ts) et l'écran Temps (client/src/components/LotsPaie.tsx).
 // Périmètre du fichier : heures validées de la semaine du lundi au dimanche (semaine à 7 jours, heures du dimanche aussi
 // en HDIM, fériés en MAJ_1MAI et FERIE_TRAV, contrepartie en repos en COR_ACQUIS) et, réglage `absencesFichierPaie`
-// actif (par défaut), absences validées ventilées par mois (shared/rules/absences-paie.ts) ; déplacements et nuit restent
+// actif (par défaut), absences validées ventilées par mois (shared/rules/absences-paie.ts), soldes de sortie des rubriques
+// de sortie actives (shared/rules/solde-sortie.ts) ; déplacements et nuit restent
 // saisis dans Sage (`perimetreFichier`, repris par l'écran, la confirmation et la procédure).
 import { encoderTexte } from '../encodage.ts';
 import type { ColonneFichierPaie, FeuilleTemps, FormatFichierPaie, ISODate, LotPaie, SagePush, Settings, StatutLotPaie } from '../types.ts';
@@ -124,14 +125,15 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 
 export interface LigneFichier { matricule: string; periode: string; rubrique: string; quantite: number }
 
-/** Contenu lu par le fichier : lignes des feuilles et, depuis le lot 5, éléments d'absence. */
-type ContenuFichier = Pick<SagePush, 'lignes'> & Partial<Pick<SagePush, 'absences'>>;
+/** Contenu lu par le fichier : lignes des feuilles et, depuis le lot 5, éléments d'absence et soldes de sortie. */
+type ContenuFichier = Pick<SagePush, 'lignes'> & Partial<Pick<SagePush, 'absences' | 'sorties'>>;
 
-/** Quantités du contenu par matricule, période et code Sage : heures des feuilles, puis absences exportées. */
+/** Quantités du contenu par matricule, période et code Sage : heures des feuilles, puis absences et soldes de sortie. */
 function quantites(contenu: ContenuFichier): { matricule: string; periode: string; rubrique: string; q: number }[] {
   return [
     ...contenu.lignes.flatMap(l => Object.entries(l.rubriques).map(([rubrique, q]) => ({ matricule: l.matricule, periode: l.periode ?? '', rubrique, q }))),
     ...(contenu.absences ?? []).flatMap(x => (x.codeSage ? [{ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite }] : [])),
+    ...(contenu.sorties ?? []).map(x => ({ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite })),
   ];
 }
 
@@ -206,6 +208,7 @@ export function resumeContenu(contenu: ContenuFichier): LotPaie['resume'] {
   return {
     lignes: lignes.length, salaries: new Set(lignes.map(l => l.matricule)).size, rubriques,
     ...(contenu.absences?.length ? { absences: resumeAbsences(contenu.absences) } : {}),
+    ...(contenu.sorties?.length ? { sorties: { elements: contenu.sorties.length, salaries: new Set(contenu.sorties.map(x => x.empId)).size } } : {}),
   };
 }
 

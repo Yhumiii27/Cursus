@@ -152,11 +152,12 @@ export interface RubriqueVue extends RubriquePaie { label: string; unite: UniteR
 
 /**
  * Table des rubriques : chaque code de RUBRIQUES_PAIE, avec sa correspondance enregistrée ou, à défaut, un code Sage égal
- * au code interne, active et à confirmer. Un code retiré de la liste n'est plus lu.
+ * au code interne, active (désactivée pour une rubrique `inactiveParDefaut`) et à confirmer. Un code retiré de la liste n'est plus lu.
  */
 export function rubriquesPaie(stockees: readonly RubriquePaie[] = []): RubriqueVue[] {
   return Object.entries(RUBRIQUES_PAIE).map(([code, def]) => {
-    const r = stockees.find(x => x.code === code) ?? { code, codeSage: code, active: true, confirmeLe: null, confirmePar: null };
+    // Rubriques de sortie : désactivées tant que la paie ne les a pas activées (`inactiveParDefaut`).
+    const r = stockees.find(x => x.code === code) ?? { code, codeSage: code, active: !def.inactiveParDefaut, confirmeLe: null, confirmePar: null };
     return { ...r, label: def.label, unite: def.unite, confirmee: !!r.confirmeLe };
   });
 }

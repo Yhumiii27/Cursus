@@ -42,6 +42,7 @@ shared/            Domaine partagé (aucune dépendance)
                    majorations.ts (jours fériés travaillés, plafond des heures complémentaires), durees.ts (moyenne sur
                    12 semaines, requalification du temps partiel, contingent et contrepartie obligatoire en repos)
                    absences-paie.ts : absences dans le fichier d'import de la paie (rubriques, ventilation, écart, régularisation)
+                   solde-sortie.ts : état des compteurs à la date de sortie (CP, RTT, récupération, CET) et rubriques de sortie
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   migrate.ts       Reprises des bases antérieures, rejouées à chaque démarrage (idempotentes)
@@ -681,9 +682,9 @@ aucun champ du paramètre n'est recopié.
 | --- | --- | --- |
 | `employe.creer` | fiche complète (`ProfilInput` de `shared/rules/profil.ts`, matricule de paie compris : unique), reutiliserMatricule? (réembauche : matricule d'un salarié sorti) | RH ; réutiliser un matricule : administrateur RH |
 | `employe.modifier` | id + champs de la fiche (l'écran n'envoie que ceux modifiés), avant? (valeur à l'ouverture de chaque champ envoyé, et d'eux seuls, sinon 400 : un champ changé entre-temps fait tout refuser, 412, rien n'est enregistré ; auteur nommé au service RH seul ; jamais recopié au journal), reutiliserMatricule?, `confirmerRtt` (changement de régime qui ferme le compteur de RTT de l'année) ; ni le motif ni la date d'une sortie enregistrée | RH : tous ; manager : `poste` (intitulé précisé ; le poste du référentiel, `posteId`, reste au RH), `jourOff` (temps partiel) des membres de son équipe ; changer ou retirer un matricule de paie déjà enregistré, réutiliser celui d'un salarié sorti : administrateur RH |
-| `employe.sortie` | id, date (dernier jour du contrat), motif (`MOTIFS_SORTIE`) ; refusée tant que le salarié encadre une équipe, qu'une feuille porte des heures après la date, qu'une absence est à cheval sur elle, au-delà de la fin prévue du contrat ou quand aucun autre administrateur RH ne reste en place après la date ; une sortie enregistrée se modifie par la même action | RH (jamais pour lui-même) ; administrateur RH seul pour un salarié dont le compte ouvre l'espace RH |
+| `employe.sortie` | id, date (dernier jour du contrat), motif (`MOTIFS_SORTIE`) ; refusée tant que le salarié encadre une équipe, qu'une feuille porte des heures après la date, qu'une absence est à cheval sur elle, au-delà de la fin prévue du contrat ou quand aucun autre administrateur RH ne reste en place après la date ; une sortie enregistrée se modifie par la même action ; solde des compteurs à la date photographié (`soldesSortie`), refait à la modification sauf s'il est déjà transmis ; 409 tant que ce solde est dans un lot de paie à confirmer | RH (jamais pour lui-même) ; administrateur RH seul pour un salarié dont le compte ouvre l'espace RH |
 | `employe.autorisationTravail` | id, requise (faux : ressortissant français, de l'UE, de l'EEE ou de la Suisse, titre effacé), type (`TYPES_TITRE_SEJOUR`), numero, expire (sauf résident permanent), demandeLe (envoi de la demande d'authentification) et verifieLe (réponse de la préfecture), jamais futures ; avertissements sans blocage (titre expiré, demande d'authentification non tracée ou tardive) ; journal : codes et dates validés seulement ; refusée pour un salarié sorti | RH (jamais pour lui-même) |
-| `employe.annulerSortie` | id : fin prévue au contrat rétablie (aucune pour un CDI, même devenu CDI depuis la sortie) ; ce que la sortie a annulé ne l'est pas | RH (jamais pour lui-même) ; administrateur RH seul pour un salarié dont le compte ouvre l'espace RH |
+| `employe.annulerSortie` | id : fin prévue au contrat rétablie (aucune pour un CDI, même devenu CDI depuis la sortie) ; ce que la sortie a annulé ne l'est pas ; solde de sortie photographié retiré, sauf s'il est transmis à la paie ; 409 tant qu'il est dans un lot à confirmer | RH (jamais pour lui-même) ; administrateur RH seul pour un salarié dont le compte ouvre l'espace RH |
 | `equipe.creer` / `equipe.renommer` | nom, managerId? / nom, nouveau | RH |
 | `equipe.supprimer` | nom | administrateur RH |
 | `equipe.manager` | nom, managerId (null = aucun) | RH |
@@ -754,7 +755,7 @@ aucun champ du paramètre n'est recopié.
 | `temps.pushSage` | — ; simulation seulement : lot de toutes les feuilles en attente (et des absences jusqu'à leur dernière période), aussitôt marqué transmis (référence « SIM-… », rien n'est envoyé, message qui le dit) ; en mode fichier, refus 503 sans rien marquer | administrateur RH, paie |
 | `temps.relancer` | empId? (sinon tout le périmètre) : feuilles des semaines suivies manquantes, en brouillon ou à corriger, échéance passée ; e-mail (ou récapitulatif) au salarié et à son valideur ; rien en retard : refus | manager direct (son équipe) ou RH |
 | `temps.validerLot` | feuilles [{empId, week}] (200 au plus) : chacune passe par `temps.validate` dans son point de reprise (SAVEPOINT) ; refus listés dans le message, les autres validées ; aucune validée : 403 si toutes l'étaient pour des droits, sinon 400 avec la liste | manager direct ou RH (comme `temps.validate`) |
-| `paie.lotGenerer` | periode (AAAA-MM) : lot des feuilles validées en attente dont la période de destination vient au plus tard (rappels compris) et, réglage `absencesFichierPaie`, des absences validées ventilées par mois avec leurs régularisations (`shared/rules/absences-paie.ts` ; lot possible sans feuille), contenu figé, clé d'idempotence (UUID), feuilles et absences réservées (`feuilles.lotId`, `absences.lotId`), libellé de chaque code Sage figé (`contenu.libelles`) ; hors simulation, refus si un salarié n'a pas de matricule de paie (liste) ou 409 si une rubrique émise et exportée n'a pas de code Sage confirmé (liste) ; en simulation, avertissement | administrateur RH, paie (écran Temps) |
+| `paie.lotGenerer` | periode (AAAA-MM) : lot des feuilles validées en attente dont la période de destination vient au plus tard (rappels compris) et, réglage `absencesFichierPaie`, des absences validées ventilées par mois avec leurs régularisations (`shared/rules/absences-paie.ts` ; lot possible sans feuille), contenu figé, clé d'idempotence (UUID), feuilles et absences réservées (`feuilles.lotId`, `absences.lotId`), libellé de chaque code Sage figé (`contenu.libelles`) ; soldes de sortie des rubriques de sortie actives (`soldesSortie.lotId`, t128) ; hors simulation, refus si un salarié n'a pas de matricule de paie (liste) ou 409 si une rubrique émise et exportée n'a pas de code Sage confirmé (liste) ; en simulation, avertissement | administrateur RH, paie (écran Temps) |
 | `paie.lotConfirmer` | id, reference? (code de 40 caractères au plus) : confirmation de l'import dans Sage, datée et signée, qui seule marque les feuilles et les absences transmises (`absences.sage`) ; lot de fichier : fichier téléchargé au moins une fois (409 sinon) ; lot de simulation refusé hors simulation ; déjà confirmé : rien n'est refait ; annulé : 409 | administrateur RH, paie |
 | `paie.lotAnnuler` | id : avant la confirmation seulement (409 ensuite : lot correctif à venir) ; feuilles et absences libérées (une absence reprend le dernier lot transmis qui l'a emportée) | administrateur RH, paie |
 | `paie.formatFichier` | separateur? (`;`/`,`/`tab`), colonnes? (matricule, periode, rubrique, quantite chacune une fois ; facultatives, absentes par défaut, une fois au plus : dossier, libelle, debut, fin), formatPeriode? (`AAAA-MM`/`MM/AAAA`/`AAAAMM`/`MMAAAA`), formatDate? (`JJ/MM/AAAA`/`AAAA-MM-JJ`/`JJMMAAAA`), decimale? (`,`/`.`, différente du séparateur), entete?, encodage? (`utf-8` sans BOM par défaut, `windows-1252`) : clé `formatFichierPaie` de la table settings | administrateur RH, paie |
@@ -926,8 +927,24 @@ après la reprise depuis Lucca ; la sortie se saisit dans Cursus (si Sage faisai
 - **Confidentialité** : le motif et la fin prévue ne sont transmis qu'au service RH, à la paie (solde de tout compte), à la
   lecture seule et à l'intéressé ; le manager et le référent HSE ne voient que la date et l'indication qu'une sortie est
   enregistrée (`sortieEnregistree`, `server/src/dataset.ts`), pour que leurs échéances du contrat soient celles du RH.
-- **Journal** : `employe.sortie` (date, motif, nombre d'éléments annulés, anciennes et nouvelles valeurs de `fin` et
-  `motifSortie`) et `employe.annulerSortie`, actions liées à la paie (archive de 3 ans).
+- **Solde de sortie** (t128, `shared/rules/solde-sortie.ts`, `server/src/soldes-sortie.ts`, `components/SoldeSortie.tsx`,
+  `client/src/solde-sortie.ts`) : Cursus fait foi pour les compteurs (décision de l'entreprise). `etatSortie(d, e, date)`
+  applique les règles des compteurs à un instantané vu au dernier jour (`domaineALaDate` : jour du calcul et fin du
+  contrat à cette date, absences postérieures annulées) : CP de la période acquise (droits, reports non échus compris,
+  moins pris et posés) et jours acquis sur la période en cours jusqu'au mois de la sortie (`acquisAu`, mois compté si le
+  salarié est sous contrat à la mi-mois) moins les jours pris par anticipation, leur somme étant à indemniser ; RTT ou
+  repos au prorata moins pris et posés (négatif : trop-pris signalé, sans retenue) ; récupération en heures ; CET liquidé
+  en entier (aucun accord connu). Demi-journées comprises. Points à voir : période de CP ou année de RTT précédente pas
+  encore clôturée, demande de congé en attente. Le dialogue de sortie l'affiche avant la confirmation ; `employe.sortie`
+  le photographie (table `soldesSortie`, une ligne par salarié : état, date, auteur), le refait à chaque modification
+  tant qu'il n'est pas parti à la paie (ensuite gardé tel quel, l'écart se corrige dans Sage) ; `employe.annulerSortie`
+  le retire (sauf transmis). Tant qu'il est dans un lot à confirmer, la sortie ne se modifie ni ne s'annule (409 : annuler
+  d'abord le lot). Fiche (section Sortie) : solde photographié, état de sa transmission, calcul du jour s'il diffère
+  (service RH), impression et export CSV tracés. Transmis au service RH, à la paie et à la lecture seule ; ni au manager,
+  ni au référent HSE, ni à l'intéressé (`dataset.ts`).
+- **Journal** : `employe.sortie` (date, motif, nombre d'éléments annulés, identifiant du solde photographié — ses
+  quantités figurent dans le message —, anciennes et nouvelles valeurs de `fin` et `motifSortie`) et
+  `employe.annulerSortie`, actions liées à la paie (archive de 3 ans).
 
 ### Période d'essai
 
@@ -1943,6 +1960,16 @@ Règles : `shared/rules/absences.ts` (confidentialité, décompte, reprise, annu
     de paie, salarié, code Sage, libellé, quantité, détail (semaine, ou absence et ses dates, rappel, régularisation, jamais
     la nature), lot, état ; écran Temps (`components/VariablesPaie.tsx`) ; tracé (`sage.variables`, archive paie,
     salariés concernés, période et nombre de lignes).
+  - Soldes de sortie (lot 5, chantier I, t128 ; `shared/rules/solde-sortie.ts`, `server/src/soldes-sortie.ts`) : rubriques
+    internes `ICCP_J` (CP à indemniser, jours ouvrés), `RTT_SOLDE` (jours), `RECUP_H` (heures), `CET_LIQ` (jours),
+    désactivées par défaut (`inactiveParDefaut` de `RUBRIQUES_PAIE` : le solde de tout compte reste saisi dans Sage tant
+    que la paie n'a pas donné ses codes). Une fois actives, le lot de la période du mois de la sortie (ou de la période
+    ouverte s'il est clos) emporte le solde photographié (`elementsSorties` : quantités positives, rubriques actives,
+    code Sage figé, `contenu.sorties`) ; réservé (`soldesSortie.lotId`), libéré à l'annulation du lot, marqué transmis
+    (`sage`) à la confirmation, comme une absence ; un code à confirmer bloque un lot réel (409). Un solde n'émet qu'une
+    fois : une rubrique activée après son départ ne le rattrape pas. Lot possible sans feuille ; message, journal
+    (`sorties` : identifiants) et variables de la période (« Solde de sortie au JJ/MM/AAAA ») les nomment. Le montant de
+    l'indemnité (dixième ou maintien) reste calculé par Sage.
 - **Suivi des feuilles de temps** (`shared/rules/suivi-feuilles.ts`, `client/src/components/SuiviFeuilles.tsx`,
   `server/src/actions/suivi-feuilles.ts`) : état de chaque semaine × collaborateur sur les `suiviSemaines` dernières
   semaines (attendue, non saisie, brouillon, à valider, à corriger, validée, transmise ; en retard après l'échéance

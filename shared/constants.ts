@@ -424,7 +424,7 @@ export type UniteRubrique = 'h' | 'j' | 'nombre';
  * code se fait correspondre un code du plan de paie Sage, confirmé par l'administrateur RH ou la paie (table
  * `rubriquesPaie`). Y ajouter les futurs codes : absences, déplacements, contrepartie en repos, régularisations.
  */
-export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubrique }> = {
+export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubrique; inactiveParDefaut?: boolean }> = {
   HN: { label: 'Heures normales', unite: 'h' },
   HSF25: { label: 'Heures supplémentaires incluses au forfait hebdomadaire, majorées à 25 %', unite: 'h' },
   HSF50: { label: 'Heures supplémentaires incluses au forfait hebdomadaire, majorées à 50 %', unite: 'h' },
@@ -458,6 +458,13 @@ export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubriqu
   ABS_MAINT_PARENT: { label: 'Absence à salaire maintenu, parentalité (jours de la nature)', unite: 'j' },
   ABS_IND_FAMILLE: { label: 'Absence indemnisée, événement familial (jours ouvrés)', unite: 'j' },
   ABS_MAINT_FAMILLE: { label: 'Absence à salaire maintenu, événement familial (jours ouvrés)', unite: 'j' },
+  // Solde de sortie (shared/rules/solde-sortie.ts, t128) : compteurs à la date de sortie, dans le lot du mois de la sortie.
+  // Désactivées par défaut (solde de tout compte saisi dans Sage) tant que la paie n'a pas donné ses codes ; le montant de
+  // l'indemnité reste calculé par Sage (règle du dixième ou maintien de salaire).
+  ICCP_J: { label: 'Congés payés à indemniser à la sortie, indemnité compensatrice (jours ouvrés)', unite: 'j', inactiveParDefaut: true },
+  RTT_SOLDE: { label: 'RTT ou jours de repos restants à la sortie (jours)', unite: 'j', inactiveParDefaut: true },
+  RECUP_H: { label: 'Repos compensateur restant à la sortie (heures)', unite: 'h', inactiveParDefaut: true },
+  CET_LIQ: { label: 'Compte épargne-temps liquidé à la sortie (jours)', unite: 'j', inactiveParDefaut: true },
 };
 
 /** Sections d'un compte rendu : [clé, libellé, rédacteur] — 'mgr' évaluateur, 'sal' salarié. */

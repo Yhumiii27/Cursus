@@ -135,12 +135,15 @@ export function transmissionSage(feuilles: number, salaries: number, periodes: G
  */
 export function generationLot(o: {
   periode: string; feuilles: number; salaries: number; rappels: GroupePaie[]; mode: SageMode; sansMatricule: string[]; perimetre?: string; absences?: AbsencesLot | null;
+  /** Soldes de sortie emportés (t128, rubriques de sortie actives). */
+  sorties?: number;
 }): Confirmation {
   const simulation = o.mode === 'simulation';
   const absences = o.absences?.absences ? `, ${plural(o.absences.absences, 'absence', 'absences')}` : '';
+  const sorties = o.sorties ? `, ${plural(o.sorties, 'solde de sortie', 'soldes de sortie')}` : '';
   return {
     titre: simulation ? 'Générer le lot (simulation)' : 'Générer le fichier d’import',
-    question: `Générer le lot ${/^[aeiou]/.test(periodeLabel(o.periode)) ? 'd’' : 'de '}${periodeLabel(o.periode)} : ${plural(o.feuilles, 'feuille validée', 'feuilles validées')}${absences} (${plural(o.salaries, 'salarié', 'salariés')}) ?`,
+    question: `Générer le lot ${/^[aeiou]/.test(periodeLabel(o.periode)) ? 'd’' : 'de '}${periodeLabel(o.periode)} : ${plural(o.feuilles, 'feuille validée', 'feuilles validées')}${absences}${sorties} (${plural(o.salaries, 'salarié', 'salariés')}) ?`,
     suites: [
       simulation
         ? 'Simulation : rien n’est envoyé à Sage Paie. Le fichier se télécharge pour essai ; les feuilles ne passent « transmises » qu’à la confirmation.'
@@ -148,6 +151,7 @@ export function generationLot(o: {
       `Avant cette confirmation, le lot peut être annulé : ses feuilles${o.absences?.absences ? ' et ses absences' : ''} redeviennent en attente.`,
       ...o.rappels.map(r => `Rappel : ${plural(r.feuilles, 'feuille', 'feuilles')} de ${periodeLabel(r.origine!)}, période close, ${r.feuilles > 1 ? 'partent' : 'part'} sur ${periodeLabel(r.periode)}.`),
       absencesSuite(o.absences ?? null),
+      o.sorties ? 'Soldes de sortie : compteurs photographiés à la sortie (congés payés à indemniser, RTT, récupération, CET), en jours et en heures ; Sage calcule le montant de l’indemnité.' : '',
       o.sansMatricule.length ? `Sans matricule de paie, sous leur matricule Cursus (simulation seulement) : ${o.sansMatricule.join(', ')}.` : '',
       o.perimetre ?? PERIMETRE_FICHIER,
     ].filter(Boolean),

@@ -1182,15 +1182,18 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
   jours, récupération. Colonnes `debutDemi` et `finDemi` de l'absence (null : journée entière) : après-midi seul le
   premier jour, matin seul le dernier ; un congé d'un seul jour porte une seule demi-journée, matin ou après-midi
   (`debutDemi`). Refusée sur une autre nature, ou sur un premier ou dernier jour non décompté (week-end, férié, jour non
-  travaillé). `countedDays` donne chaque jour décompté avec son poids (1, ou 0,5), `countDays` leur somme : soldes CP,
+  travaillé), comme une valeur inconnue (« Demi-journée inconnue » ; le journal ne garde que la valeur normalisée).
+  `countedDays` donne chaque jour décompté avec son poids (1, ou 0,5), `countDays` leur somme : soldes CP,
   RTT et récupération (une demi-journée de récupération vaut la moitié de `dayH`), exports, annulation. `imputationCp`
   impute par demi-journée : une journée se répartit entre la période en cours et l'anticipation (ou le hors droit) quand
   il ne reste qu'une demi-journée ; la clôture rend les jours au demi-jour (`recrediterPeriodesCloses`). Deux
   demi-journées opposées le même jour ne se chevauchent pas (`chevauche`, dans `checkAbsence` et `checkNature`). Feuille
   de temps : le jour d'une seule demi-journée d'absence reste saisissable, une demi-journée de travail au plus
-  (`heuresDemiJournee` : la moitié de `dayH`, au moins 4 h), toutes lignes cumulées (`demiJoursAbsence`,
-  `heuresSurAbsence`, `temps.setCell`, proposition Keystone plafonnée) ; deux demi-journées opposées couvrent le jour
-  (`joursAbsence`). Keystone reçoit la journée entière (`absence.validee` inchangé). Migration
+  (`heuresDemiJournee` : la moitié de `dayH`, au moins 4 h pour une journée de 7 h ou plus, la moitié seule pour une
+  journée plus courte de temps partiel), toutes lignes cumulées (`demiJoursAbsence`, `heuresSurAbsence`,
+  `temps.setCell`, proposition Keystone plafonnée) ; deux demi-journées opposées couvrent le jour (`joursAbsence`). La
+  validation d'une feuille contrôle les demandes en attente réunies aux absences en vigueur (`heuresSurDemandes`) : une
+  demi-journée demandée à côté d'une demi-journée validée ferait un jour entier, à décider avant. Keystone reçoit la journée entière (`absence.validee` inchangé). Migration
   `lot5-conges-demi-journees` : colonnes ajoutées vides par le schéma (journées entières), valeurs hors de la règle
   ramenées à la journée entière.
 - **RTT de l'année suivante** (`rttDemande`) : une demande de RTT est évaluée sur l'année de son premier jour, avec le

@@ -162,6 +162,20 @@ export function demiJoursAbsence(d: Domain, empId: number, w: ISODate, absences:
 /** Demandes d'absence en attente de décision : elles ne bloquent pas la saisie, mais la validation de la feuille. */
 export const demandesAbsence = (d: Domain): AbsenceJour[] => d.ds.absences.filter(a => a.statut === 'demandee');
 
+/**
+ * Heures de la feuille qu'une demande en attente rendrait refusées si elle était acceptée : la demande est réunie aux
+ * absences en vigueur (comme à la décision, `heuresAvantAbsence`), car une demi-journée demandée à côté d'une demi-journée
+ * déjà validée fait un jour entier. Seuls les jours touchés par une demande sont retenus, portés par celle-ci.
+ */
+export function heuresSurDemandes(d: Domain, sh: Pick<FeuilleTemps, 'empId' | 'week' | 'lignes'>): HeuresSurAbsence[] {
+  const demandes = demandesAbsence(d).filter(a => a.empId === sh.empId);
+  if (!demandes.length) return [];
+  return heuresSurAbsence(d, sh, [...demandes, ...d.ds.absences.filter(absenceBloque)]).flatMap(h => {
+    const dem = demandes.find(a => a.du <= h.day && a.au >= h.day);
+    return dem ? [{ ...h, absence: dem }] : [];
+  });
+}
+
 /** `demi` et `max` : demi-journée d'absence, dont les heures dépassent la demi-journée de travail admise. */
 export interface HeuresSurAbsence { di: number; day: ISODate; absence: AbsenceJour; demi?: DemiJournee; max?: number }
 
@@ -253,9 +267,15 @@ export function semaineCouverte(d: Domain, e: Employe, w: ISODate, sh: { contrat
 export function demandesEnAttenteMessage(list: HeuresSurAbsence[], valideur = true): string {
   const plus = new Set(list.map(x => x.absence)).size > 1, jours = list.length > 1 ? 'ces jours-là' : 'ce jour-là';
   const debut = `${plus ? 'Demandes' : 'Demande'} d’absence en attente ${joursAbsenceTexte(list)}`;
+  // Demi-journée seule : des heures restent admises, seul le dépassement d'une demi-journée de travail est en cause.
+  const demi = list.every(x => x.demi), max = fH(list[0]?.max ?? 0);
+  if (demi) return valideur
+    ? `${debut} : ${plus ? 'décidez-les' : 'décidez-la'} avant de valider la feuille — pour ${plus ? 'les ' : 'l’'}accepter, ramenez d’abord les heures saisies ${jours} à ${max}`
+    : `${debut} : plus de ${max} saisies ${jours}, à ramener à ${max} si ${plus ? 'elles sont acceptées' : 'elle est acceptée'}`;
+  const mixte = list.some(x => x.demi);
   return valideur
-    ? `${debut} : ${plus ? 'décidez-les' : 'décidez-la'} avant de valider la feuille — pour ${plus ? 'les ' : 'l’'}accepter, retirez d’abord les heures saisies ${jours}`
-    : `${debut} : des heures sont saisies ${jours}, à retirer si ${plus ? 'elles sont acceptées' : 'elle est acceptée'}`;
+    ? `${debut} : ${plus ? 'décidez-les' : 'décidez-la'} avant de valider la feuille — pour ${plus ? 'les ' : 'l’'}accepter, retirez d’abord les heures saisies ${jours}${mixte ? ` (ramenez-les à ${max} les jours de demi-journée)` : ''}`
+    : `${debut} : des heures sont saisies ${jours}, à retirer${mixte ? ` (à ramener à ${max} les jours de demi-journée)` : ''} si ${plus ? 'elles sont acceptées' : 'elle est acceptée'}`;
 }
 
 /**

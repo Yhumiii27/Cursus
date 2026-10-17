@@ -19,7 +19,7 @@ const { Domain } = await import('../shared/domain.ts');
 const { checkAbsence, checkNature, cpInfo, imputationCp, joursCp, recupInfo, rttInfo } = await import('../shared/rules/conges.ts');
 const { lignesClotureCp } = await import('../shared/rules/clotures.ts');
 const { chevauche, demiDuJour, demiJournees, demiTexte, heuresDemiJournee, periodeDemiTexte } = await import('../shared/rules/demi-journees.ts');
-const { demiJoursAbsence, heuresSurAbsence, joursAbsence, semaineCouverte } = await import('../shared/rules/temps.ts');
+const { demandesEnAttenteMessage, demiJoursAbsence, heuresSurAbsence, heuresSurDemandes, joursAbsence, semaineCouverte } = await import('../shared/rules/temps.ts');
 const { joursDecomptes } = await import('../shared/rules/absences.ts');
 const { csvAbsences } = await import('../client/src/listes-csv.ts');
 type User = Parameters<typeof buildSnapshot>[1];
@@ -67,8 +67,11 @@ test('règle des demi-journées : natures, premier et dernier jour, congé d’u
   assert.match(demiJournees('CP', '2026-11-09', '2026-11-09', 'matin', 'matin').erreur!, /une seule demi-journée/);
   assert.match(demiJournees('CP', '2026-11-09', '2026-11-10', 'matin', null).erreur!, /premier jour/);
   assert.match(demiJournees('CP', '2026-11-09', '2026-11-10', null, 'apres_midi').erreur!, /dernier jour/);
-  // Valeur inconnue : ignorée (journée entière).
-  assert.deepEqual(demiJournees('CP', '2026-11-09', '2026-11-10', 'soir', 1), { demi: { debutDemi: null, finDemi: null }, erreur: null });
+  // Valeur inconnue : refusée, jamais prise pour une journée entière ; absente, nulle ou vide : journée entière.
+  assert.match(demiJournees('CP', '2026-11-09', '2026-11-10', 'soir', null).erreur!, /Demi-journée inconnue/);
+  assert.match(demiJournees('CP', '2026-11-09', '2026-11-10', null, 1).erreur!, /Demi-journée inconnue/);
+  assert.match(demiJournees('MARIAGE', '2026-11-09', '2026-11-10', 'apres-midi', null).erreur!, /Demi-journée inconnue/);
+  assert.deepEqual(demiJournees('CP', '2026-11-09', '2026-11-10', '', undefined), { demi: { debutDemi: null, finDemi: null }, erreur: null });
 
   const a = { du: '2026-11-09', au: '2026-11-13', debutDemi: 'apres_midi' as const, finDemi: 'matin' as const };
   assert.deepEqual(['2026-11-09', '2026-11-10', '2026-11-13', '2026-11-16'].map(j => demiDuJour(a, j)), ['apres_midi', null, 'matin', null]);
@@ -86,7 +89,11 @@ test('règle des demi-journées : natures, premier et dernier jour, congé d’u
   assert.equal(periodeDemiTexte({ du: '2026-11-09', au: '2026-11-10' }), 'du 9 nov. au 10 nov. 2026');
   assert.equal(demiTexte(a), 'après-midi le premier jour · matin le dernier jour');
   assert.equal(heuresDemiJournee(7), 4);
+  assert.equal(heuresDemiJournee(7.8), 4);
   assert.equal(heuresDemiJournee(10), 5);
+  // Temps partiel à journées courtes : la moitié de la journée, jamais la journée entière.
+  assert.equal(heuresDemiJournee(4), 2);
+  assert.equal(heuresDemiJournee(3.5), 1.75);
 });
 
 test('décompte pondéré : 0,5 par demi-journée, soldes CP, RTT et récupération', () => {
@@ -170,6 +177,9 @@ test('pose par l’action : demi-journées enregistrées, tracées, transmises �
   // Journal : codes seulement.
   const j = db.sql.prepare(`SELECT payload FROM journal WHERE action = 'absence.demander' ORDER BY id DESC LIMIT 1`).get() as { payload: string };
   assert.deepEqual(JSON.parse(j.payload), { empId: 2, kind: 'CP', du: '2026-11-09', au: '2026-11-13', debutDemi: 'apres_midi', finDemi: 'matin' });
+  // Demi-journée inconnue (texte libre) : demande refusée, rien de la chaîne reçue au journal.
+  refused(MEHDI, 'absence.demander', { empId: 2, kind: 'CP', du: '2026-12-07', au: '2026-12-08', debutDemi: 'suivi médical', finDemi: { note: 'x' } }, /Demi-journée inconnue/);
+  assert.ok(!JSON.stringify(db.all('journal')).includes('suivi médical'), 'texte libre absent du journal');
   // E-mail au valideur : la demi-journée est précisée.
   const mail = JSON.stringify([...db.all('envois'), ...db.all('notifications')]);
   assert.ok(mail.includes('du lundi 9 novembre au vendredi 13 novembre 2026 (après-midi le premier jour · matin le dernier jour)'), 'e-mail de la demande');
@@ -227,6 +237,39 @@ test('feuille de temps : heures saisies avant la demi-journée, soumission et va
   autre.refused(MEHDI, 'temps.submit', { empId: 2, week }, /Demi-journée d’absence le mer\. 14 oct\. \(RTT, matin\) : 4 h de travail au plus ce jour-là, toutes lignes cumulées avant de soumettre la feuille/);
   assert.equal(autre.domain().ds.feuilles.find(f => f.empId === 2 && f.week === week)!.statut, 'brouillon');
   assert.equal(domain().ds.absences.find(a => a.id === id)!.statut, 'validee');
+});
+
+test('validation de la feuille : demande en attente sur une demi-journée, seule ou à côté d’une demi-journée validée', () => {
+  const { run, refused, domain, conge, sheet, cell } = fresh();
+  // CP validé le matin du mardi 13 : 4 h admises ce jour-là ; RTT demandé l'après-midi, le jour deviendrait entier.
+  conge(2, 'CP', '2026-10-13', '2026-10-13', { debutDemi: 'matin' });
+  run(MEHDI, 'temps.suggest', { empId: 2, week });
+  assert.match(run(MEHDI, 'absence.demander', { empId: 2, kind: 'RTT', du: '2026-10-13', au: '2026-10-13', debutDemi: 'apres_midi' }), /Demande de rtt \/ repos envoyée/);
+  const enVigueur = heuresSurDemandes(domain(), sheet());
+  assert.deepEqual(enVigueur.map(x => [x.day, x.absence.type, x.absence.statut, x.demi ?? null]), [['2026-10-13', 'RTT', 'demandee', null]]);
+  run(MEHDI, 'temps.submit', { empId: 2, week });
+  refused(KARIM, 'temps.validate', { empId: 2, week },
+    /Demande d’absence en attente le mar\. 13 oct\. \(RTT\) : décidez-la avant de valider la feuille — pour l’accepter, retirez d’abord les heures saisies ce jour-là/);
+  assert.equal(sheet().statut, 'soumise');
+  // Demande refusée : la feuille se valide (4 h sur la demi-journée de CP).
+  const rtt = domain().ds.absences.find(a => a.empId === 2 && a.type === 'RTT' && a.du === '2026-10-13')!;
+  run(KARIM, 'absence.decider', { id: rtt.id, ok: false });
+  run(KARIM, 'temps.validate', { empId: 2, week });
+  assert.equal(sheet().statut, 'validee');
+
+  // Demande seule d'une demi-journée, 8 h saisies : à ramener à 4 h, pas à retirer.
+  const autre = fresh();
+  autre.run(MEHDI, 'temps.suggest', { empId: 2, week });
+  autre.conge(2, 'CP', '2026-10-12', '2026-10-12', { debutDemi: 'apres_midi' }, 'demandee');
+  autre.run(MEHDI, 'temps.submit', { empId: 2, week });
+  autre.refused(KARIM, 'temps.validate', { empId: 2, week },
+    /Demande d’absence en attente le lun\. 12 oct\. \(CP\) : décidez-la avant de valider la feuille — pour l’accepter, ramenez d’abord les heures saisies ce jour-là à 4 h$/);
+  const d = autre.domain(), sh = d.ds.feuilles.find(f => f.empId === 2 && f.week === week)!;
+  assert.match(demandesEnAttenteMessage(heuresSurDemandes(d, sh), false), /plus de 4 h saisies ce jour-là, à ramener à 4 h si elle est acceptée/);
+  // 4 h ce jour-là : plus rien n'empêche la validation.
+  autre.run(KARIM, 'temps.reject', { empId: 2, week });
+  autre.run(MEHDI, 'temps.setCell', cell(0, 0, '4'));
+  assert.deepEqual(heuresSurDemandes(autre.domain(), autre.domain().ds.feuilles.find(f => f.empId === 2 && f.week === week)!), []);
 });
 
 test('export des absences : jours décomptés au demi-jour et colonne des demi-journées', () => {

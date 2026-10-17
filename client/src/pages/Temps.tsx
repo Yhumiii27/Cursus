@@ -17,7 +17,8 @@ import { cap, equipeLabel, fH, fJ, fmt, fmtShort, key, num, plural } from '../..
 import { jourHorsContrat, semaineHorsContrat } from '../../../shared/rules/absences.ts';
 import { DEMI_LABEL } from '../../../shared/rules/demi-journees.ts';
 import {
-  absenceCeJour, calcSheet, cumulAnnuel, demandesAbsence, demiJoursAbsence, demandesEnAttenteMessage, employeDeLaFeuille, heuresSurAbsence, heuresSurAbsenceMessage, joursAbsence,
+  absenceCeJour, calcSheet, cumulAnnuel, demandesAbsence, demiJoursAbsence, demiJourneeTexte, demandesEnAttenteMessage, employeDeLaFeuille, heuresSurAbsence,
+  heuresSurAbsenceMessage, heuresSurDemandes, joursAbsence,
   joursAbsenceTexte, natureAbsence, semaineCouverte, tachesDeLaSemaine, type SheetCalc,
 } from '../../../shared/rules/temps.ts';
 import { MODES_HEURES_SUP } from '../../../shared/rules/paie.ts';
@@ -247,14 +248,16 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   // Heures restées sur un jour d'absence : à retirer avant soumission et validation.
   const surAbsence = sh ? heuresSurAbsence(d, sh) : [];
   // Demande d'absence en attente : saisie libre, mais à décider avant de valider une feuille qui porte des heures ces jours-là.
-  const demandes = demandesAbsence(d), demandeJours = joursAbsence(d, emp.id, wk, demandes);
-  const enAttente = sh ? heuresSurAbsence(d, sh, demandes) : [];
+  // Demande d'une demi-journée : notée comme telle ; heures en attente calculées avec les absences en vigueur, comme à la
+  // décision (une demi-journée demandée à côté d'une demi-journée validée fait un jour entier).
+  const demandes = demandesAbsence(d), demandeJours = joursAbsence(d, emp.id, wk, demandes), demandeDemis = demiJoursAbsence(d, emp.id, wk, demandes);
+  const enAttente = sh ? heuresSurDemandes(d, sh) : [];
   // Semaine d'arrêt, de congés… : aucune heure attendue, la feuille se soumet sans heure.
   const couverte = semaineCouverte(d, emp, wk, sh);
   // Soumise sans heure, la semaine n'est plus couverte (absence annulée ou raccourcie) : à renvoyer, pas à valider.
   const plusCouverte = st === 'soumise' && !(calc.total > 0) && !couverte;
   const days = wdays.map((day, i) => {
-    const a = absences[i], dem = demandeJours[i], off = c.jourOff.includes(i), fer = isFerie(day), hors = !!jourHorsContrat(emp, day);
+    const a = absences[i], dem = demandeJours[i] ?? demandeDemis[i]?.absence, demDemi = demandeJours[i] ? null : demandeDemis[i]?.demi, off = c.jourOff.includes(i), fer = isFerie(day), hors = !!jourHorsContrat(emp, day);
     const m = data.missions.find(x => x.empId === emp.id && x.du <= day && x.au >= day);
     return {
       day, a, locked: fer || !!a || hors, hl: (!!m && !fer && !a) || [...surAbsence, ...enAttente].some(x => x.di === i),
@@ -262,7 +265,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
       note: fer ? 'Férié' : hors ? 'Hors contrat'
         : a ? `${ABS_ABREGE[a.type]}${a.statut === 'signalee' ? ' (signalée)' : ''}`
         : demis[i] ? `${ABS_ABREGE[demis[i].absence.type]} ${DEMI_LABEL[demis[i].demi]} · ${fH(demis[i].max)} max.`
-        : dem ? `${cap(natureAbsence(dem.type))} demandé${dem.type === 'RECUP' ? 'e' : ''}` : off ? 'Non travaillé' : m ? `Mission ${m.projet}` : '—',
+        : dem ? `${cap(natureAbsence(dem.type))}${demDemi ? ` ${DEMI_LABEL[demDemi]}` : ''} demandé${dem.type === 'RECUP' ? 'e' : ''}` : off ? 'Non travaillé' : m ? `Mission ${m.projet}` : '—',
     };
   });
   const lignes = sh ? sh.lignes : [];
@@ -399,7 +402,10 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
           <div className="note-accent">
             {editable
               ? heuresSurAbsenceMessage(surAbsence, correction ? 'ou renvoyez la feuille avant de la valider' : 'avant de soumettre la feuille')
-              : `Absence ${joursAbsenceTexte(surAbsence)} : des heures y sont saisies${st === 'validee' ? ' — feuille validée, non modifiée rétroactivement' : ''}`}
+              : `${[
+                surAbsence.some(x => !x.demi) ? `Absence ${joursAbsenceTexte(surAbsence.filter(x => !x.demi))} : des heures y sont saisies` : '',
+                surAbsence.some(x => x.demi) ? `${demiJourneeTexte(surAbsence.filter(x => x.demi))} : plus d’une demi-journée de travail saisie` : '',
+              ].filter(Boolean).join(' ; ')}${st === 'validee' ? ' — feuille validée, non modifiée rétroactivement' : ''}`}
           </div>
         )}
         {enAttente.length > 0 && st !== 'validee' && <div className="note-accent">{demandesEnAttenteMessage(enAttente, canValidate)}</div>}

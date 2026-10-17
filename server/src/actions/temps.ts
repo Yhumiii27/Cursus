@@ -4,8 +4,8 @@ import { fH, num, plural } from '../../../shared/format.ts';
 import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
 import { jourHorsContrat, semaineHorsContrat } from '../../../shared/rules/absences.ts';
 import {
-  absenceCeJour, calcSheet, contratFige, demandesAbsence, demandesEnAttenteMessage, demiJourneeRefus, HEURES_JOUR_MAX, heuresSurAbsence,
-  heuresSurAbsenceMessage, joursAbsence, joursAuDela24, joursTexte, semaineCouverte, suggestLines,
+  absenceCeJour, calcSheet, contratFige, demandesEnAttenteMessage, demiJourneeRefus, HEURES_JOUR_MAX, heuresSurAbsence,
+  heuresSurAbsenceMessage, heuresSurDemandes, joursAbsence, joursAuDela24, joursTexte, semaineCouverte, suggestLines,
 } from '../../../shared/rules/temps.ts';
 import type { Employe, FeuilleTemps, LigneTemps } from '../../../shared/types.ts';
 import { heuresKeystone, sendToKeystone } from '../integrations/keystone.ts';
@@ -160,7 +160,7 @@ const validate: ActionHandler = (ctx, p) => {
   const surAbsence = heuresSurAbsence(ctx.d, sh);
   if (surAbsence.length) throw new ActionError(heuresSurAbsenceMessage(surAbsence, 'ou renvoyez la feuille avant de la valider'));
   // Demande d'absence en attente sur ces heures : à décider d'abord (même valideur), sinon elle ne pourrait plus être validée.
-  const enAttente = heuresSurAbsence(ctx.d, sh, demandesAbsence(ctx.d));
+  const enAttente = heuresSurDemandes(ctx.d, sh);
   if (enAttente.length) throw new ActionError(demandesEnAttenteMessage(enAttente));
   controleJournees(sh, sh.lignes);
   const contrat = sh.contrat ?? contratFige(emp);

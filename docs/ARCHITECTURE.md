@@ -374,6 +374,31 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
   session générée sans `CURSUS_SECRET`) dès que la variable est définie, avec `secure_delete` puis
   `wal_checkpoint(TRUNCATE)` : la clé ne reste ni dans une page libérée ni dans le `-wal`. Pas de chiffrement applicatif des colonnes :
   disque chiffré chez l'hébergeur (prérequis de `docs/DEPLOIEMENT.md`), avis du DPO attendu.
+- **Application et démarrage** : `createApp(db, options)` (`server/src/app.ts`) construit l'application Express sur une
+  base déjà ouverte et migrée : journal des requêtes, compression, en-têtes de sécurité, santé, Keystone, débit, CSRF,
+  routes, interface compilée, puis 404 JSON de `/api` et gestionnaire d'erreurs final, montés en dernier (rien après).
+  `server/src/index.ts` ne garde que le démarrage : console redirigée, contrôle de la configuration, protection de la
+  base, verrou, migrations, `createApp`, écoute et tâches de fond. Les tests montent `createApp` dans leur processus
+  (`tests/http.test.ts`, options `dist`, `production`, `compression`, `journalRequetes`) ; les scénarios de démarrage
+  et d'arrêt gardent de vrais serveurs (`tests/exploitation.test.ts`).
+- **Erreurs** (`server/src/erreurs.ts`) : toujours `{ error }` en JSON, sans pile : `/api` inconnue 404, JSON illisible
+  (`entity.parse.failed`) 400, corps au-delà de `LIMITE_CORPS` (2 Mo, `entity.too.large`) 413, autre refus 4xx d'un
+  module (encodage, adresse mal formée) son statut, sinon 500 `Erreur interne` ; `signalerErreur` écrit la pile dans
+  les journaux (aussi pour une action qui jette autre chose qu'une `ActionError`). L'API Keystone garde son propre
+  gestionnaire (codes d'erreur du contrat).
+- **Journaux du serveur** (`server/src/logs.ts`) : `log.info / avertissement / erreur`, une ligne JSON (`heure`, `niveau`,
+  `message`, champs) si `CURSUS_LOG_FORMAT=json` (défaut en production, `formatJournaux` de `config.ts`), le message
+  seul sinon. `redirigerConsole()` (au démarrage, en JSON seulement) fait passer par là les `console.*` du reste du
+  serveur. `journalRequetes()` écrit une ligne par requête à la fermeture de la réponse : méthode, `cheminJournal`
+  (sans paramètres, caractères imprimables, 200 au plus), statut, durée, compte (noté par `readSession` via
+  `noterCompte`), `interrompue` ; jamais le corps ni les paramètres ; sonde de santé réussie omise. Un nouveau message
+  d'exploitation passe par `log`, jamais par `console.log` direct dans `index.ts` ou `service.ts`.
+- **Compression et cache** (`server/src/compression.ts`, `app.ts`) : middleware sans dépendance (node:zlib) qui
+  intercepte `res.write` / `res.end` et décide au premier envoi : brotli (qualité 5) sinon gzip, texte / JSON /
+  JavaScript / SVG de 1 Ko et plus, ni HEAD, ni 204 / 206 / 304, ni `no-transform` ; `Vary: Accept-Encoding`, ETag
+  rendu faible, contre-pression respectée. `CURSUS_COMPRESSION=0` (`compressionActive`) la retire. `/assets` : un an,
+  `immutable`, fichier absent 404 en texte (jamais `index.html`) ; `index.html` : `no-cache` ; `/api` : `no-store`
+  (`securite.ts`).
 - **Installation** : `deploy/` reprend à l'identique les blocs de `docs/DEPLOIEMENT.md` et `docs/SAUVEGARDE.md`
   (`tests/exploitation.test.ts` les compare : modifier les deux ensemble) ; `Dockerfile` facultatif.
 

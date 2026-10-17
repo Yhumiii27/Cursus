@@ -52,7 +52,7 @@ réserve ou un refus est vérifié par le service RH.
 | Entretiens | Date, type, comptes rendus rédigés par l'évaluateur et le salarié, signatures | `entretiens` |
 | Déplacements | Destination, dates, motif, numéro et date d'expiration du passeport, visas, dates des formalités de détachement, demandes reçues de Keystone | `employes` (passeport), `visas`, `voyages`, `demandesKeystone`, `missions`, `taches` |
 | Demandes au service RH | Formation, habilitation, documents déclarés par le salarié avant validation | `demandesCollab` |
-| Connexion et traçabilité | Identifiant, type de compte, profil, empreinte du mot de passe (scrypt), dernières connexions, sessions (12 h), adresse IP des connexions et refus, journal des actions (liste blanche : identifiants, codes, dates, statuts — jamais de texte libre ni de donnée de santé) | `comptes`, `connexions`, `journal` |
+| Connexion et traçabilité | Identifiant, type de compte, profil, empreinte du mot de passe (scrypt), dernières connexions, sessions (12 h), adresse IP des connexions et refus, journal des actions (liste blanche : identifiants, codes, dates, statuts — jamais de texte libre ni de donnée de santé) ; journaux techniques du serveur (numéro de compte, méthode, chemin sans paramètres, statut, heure et durée de chaque requête, jamais leur contenu) | `comptes`, `connexions`, `journal` ; journaux du serveur hors de la base (`server/src/logs.ts`) |
 | Messages sortants | E-mails (destinataire, objet, texte sans donnée de santé ni texte libre saisi), événements envoyés à Keystone, relevés d'heures des intérimaires | `envois`, `notifications`, `releves` |
 
 Ne sont **jamais** enregistrés : diagnostic, numéro de sécurité sociale, adresse personnelle, coordonnées bancaires,
@@ -81,6 +81,7 @@ certificat ou pièce scannée (seule la réception d'un justificatif est notée)
 | Agences d'intérim | Relevé hebdomadaire des heures validées de leurs intérimaires, jours d'absence sans leur nature | Contrat de mise à disposition |
 | Service de prévention et de santé au travail | Demande de visite : identité, poste, motif, habilitations qui exigent l'aptitude ; aucune information médicale | Convention d'adhésion |
 | Organismes de formation | Liste nominative des inscrits d'une session (nom, poste, parcours), remise par le service RH | Convention de formation |
+| Hébergeur (Docker, Coolify) et agrégateur de journaux du service informatique | Journaux techniques du serveur : numéro de compte, méthode, chemin sans paramètres, statut, heure et durée des requêtes ; aucun contenu de requête (`docs/DEPLOIEMENT.md`, « Exploitation courante ») | Service informatique interne ; à compléter par le DPO si l'hébergeur ou l'agrégateur est un prestataire |
 | Hébergeur de Cursus et des sauvegardes | Toute la base (données de santé comprises) ; copies chiffrées avant l'envoi (`docs/SAUVEGARDE.md`) | à compléter par le DPO : prestataire, pays, contrat de sous-traitance (art. 28), question d'un hébergement certifié HDS (`docs/DEPLOIEMENT.md`) |
 
 Aucun transfert hors de l'Union européenne n'est prévu par Cursus ; à vérifier pour l'hébergeur et Microsoft 365.
@@ -92,6 +93,7 @@ Aucun transfert hors de l'Union européenne n'est prévu par Cursus ; à vérifi
 | Journal des actions | 1 an ; les actions liées à la paie (validations, corrections d'heures, transmissions) passent dans une archive consultée sur demande et sont supprimées au bout de 3 ans | Décidé et appliqué (`CONSERVATION_JOURNAL_MOIS`, `CONSERVATION_ARCHIVE_PAIE_MOIS` de `shared/journal.ts`) |
 | File d'envoi (e-mails, messages à Keystone) | 1 an ; un échec non traité reste | Appliqué (`CONSERVATION_ENVOIS_MOIS`) |
 | Sessions de connexion | 12 heures, purgées ensuite | Appliqué |
+| Journaux du serveur (requêtes et messages techniques) | 1 an au plus, accès réservé au service informatique | Hors de Cursus : rotation par Docker ou journald (`docs/DEPLOIEMENT.md`), durée à valider par le DPO |
 | Dossier du salarié (fiche, compétences, temps, absences, entretiens) | Pendant le contrat, puis à compléter par le DPO (référence usuelle : 5 ans après le départ pour le dossier, 3 ans pour le décompte du temps de travail, le temps de la prescription pour les éléments de paie) | **Aucune purge** : rien n'est effacé, même au départ |
 | Données de santé (visites, avis, restrictions, vaccinations) | à compléter par le DPO | **Aucune purge** ; les déclarations successives gardent les injections antérieures |
 | Passeport, visas | Validité du document, puis à compléter par le DPO | Aucune purge |

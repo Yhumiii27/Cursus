@@ -36,7 +36,7 @@ export function securityHeaders(production: boolean) {
     // req.secure lit X-Forwarded-Proto si le proxy est de confiance (CURSUS_TRUST_PROXY).
     if (production && req.secure) res.setHeader('Strict-Transport-Security', HSTS);
     // Données personnelles : jamais conservées dans le cache du navigateur ou d'un proxy.
-    if (req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
+    if (req.path === '/api' || req.path.startsWith('/api/')) res.setHeader('Cache-Control', 'no-store');
     next();
   };
 }

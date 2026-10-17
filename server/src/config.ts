@@ -45,6 +45,33 @@ export function trustProxy(env: Env = process.env): boolean | number | string {
   return /^\d+$/.test(v) ? Number(v) : v;
 }
 
+// — Exploitation : journaux du serveur et compression (server/src/logs.ts, server/src/compression.ts) —
+
+/**
+ * Format des journaux (CURSUS_LOG_FORMAT) : `json`, une ligne JSON par message et par requête, lisible par l'agrégateur
+ * de Coolify ou du service informatique, par défaut en production ; `texte`, lisible à l'œil, par défaut ailleurs.
+ */
+export function formatJournaux(env: Env = process.env): 'json' | 'texte' {
+  const v = (env.CURSUS_LOG_FORMAT ?? '').trim().toLowerCase();
+  if (v === 'json' || v === 'texte') return v;
+  return enProduction(env) ? 'json' : 'texte';
+}
+
+/** Compression des réponses par Cursus (CURSUS_COMPRESSION) : active par défaut, `0` si le proxy compresse déjà. */
+export function compressionActive(env: Env = process.env): boolean {
+  return (env.CURSUS_COMPRESSION ?? '').trim() !== '0';
+}
+
+/** Valeurs inconnues de CURSUS_LOG_FORMAT et CURSUS_COMPRESSION : la valeur par défaut s'appliquerait sans le dire. */
+function problemesExploitation(env: Env): string[] {
+  const out: string[] = [];
+  const format = (env.CURSUS_LOG_FORMAT ?? '').trim();
+  if (format && !['json', 'texte'].includes(format.toLowerCase())) out.push(`CURSUS_LOG_FORMAT vaut « ${format} » : indiquez json (par défaut en production) ou texte.`);
+  const compression = (env.CURSUS_COMPRESSION ?? '').trim();
+  if (compression && !['0', '1'].includes(compression)) out.push(`CURSUS_COMPRESSION vaut « ${compression} » : indiquez 1 (par défaut) ou 0 (le proxy compresse déjà).`);
+  return out;
+}
+
 /** Clé Keystone publiée dans la documentation : acceptée uniquement en mode démonstration. */
 export const KEYSTONE_CLE_DEMO = 'demo-keystone';
 
@@ -199,6 +226,7 @@ export function problemesConfig(env: Env = process.env): string[] {
   out.push(...problemesOidc(env));
   out.push(...problemesMail(env));
   out.push(...problemesSage(env));
+  out.push(...problemesExploitation(env));
   if (env.CURSUS_OIDC_AUTORITE) out.push(`CURSUS_OIDC_AUTORITE est définie (${env.CURSUS_OIDC_AUTORITE}) : elle remplace le service de connexion de Microsoft et reste réservée aux tests.`);
   return out;
 }

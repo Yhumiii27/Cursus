@@ -156,6 +156,8 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `CURSUS_DB` | Fichier SQLite (`data/cursus.db` du dossier du code par défaut ; un chemin relatif part du dossier de lancement). Son chemin complet s'affiche au démarrage ; le fichier est réservé au compte du serveur (`600`, dossier en `700`) |
 | `CURSUS_DIST` | Interface compilée servie (`dist/` du dossier du code par défaut) : pour les tests automatiques et une installation qui la place ailleurs |
 | `CURSUS_SUPERVISION_TOKEN` | Jeton (32 caractères au moins) de l'outil de supervision : avec `Authorization: Bearer <jeton>`, `/api/health` donne aussi la version, le mode et les envois en échec. Facultatif ; ce détail est toujours donné à un appel local fait sur la machine (dans le conteneur avec Docker : `docker exec`) |
+| `CURSUS_LOG_FORMAT` | Journaux du serveur : `json` (par défaut en production : une ligne JSON par message et par requête, pour l'agrégateur de Coolify ou du service informatique) ou `texte` (par défaut ailleurs). Jamais le corps ni les paramètres des requêtes |
+| `CURSUS_COMPRESSION` | `1` par défaut : Cursus compresse ses réponses (brotli, sinon gzip) ; `0` si le proxy compresse déjà |
 | `CURSUS_BACKUP_DIR` | Dossier des sauvegardes (`backups/` à côté de la base par défaut) |
 | `CURSUS_BACKUP_KEEP` | Sauvegardes conservées par type (14 par défaut, `0` pour tout garder) |
 | `CURSUS_TODAY` | Fige la date du jour (AAAA-MM-JJ), utile pour la démonstration — les données de démo sont datées d'octobre 2026. Refusée en production |
@@ -202,6 +204,11 @@ périodique : `docs/SAUVEGARDE.md`.
   base accessible à d'autres comptes signalés en clair (code de sortie 1 quand le démarrage est impossible).
 - **Arrêt** (SIGTERM, Ctrl+C) : requêtes en cours terminées (10 s au plus), base fermée, verrou retiré.
 - **Santé** : `GET /api/health`, sans connexion : `{"statut":"ok","base":"ok"}` (503 si la base ne répond pas).
+- **Journaux** : une ligne par requête (heure, méthode, chemin sans paramètres, statut, durée, compte), en JSON en
+  production ; erreurs de l'API toujours en JSON (`404`, `400`, `413`, `500` « Erreur interne » sans pile d'appels).
+- **Performances** : réponses compressées par Cursus (brotli, gzip), fichiers de l'interface gardés un an en cache
+  (noms hachés), `index.html` revalidé à chaque ouverture, API jamais en cache. Détails : `docs/DEPLOIEMENT.md`,
+  « Exploitation courante ».
 - **Disque** : la base et ses sauvegardes sont sur un volume chiffré, prérequis de l'installation.
 
 ## Vérification automatique
@@ -324,6 +331,9 @@ Le `Dockerfile` à la racine construit l'interface et lance le serveur en produc
 | Volume persistant | `/data` : base SQLite `cursus.db` et ses sauvegardes (`/data/backups`) |
 | Adresse | en `https://` : le cookie de session est marqué `Secure` en production |
 | Variables obligatoires | `CURSUS_SECRET` et `KEYSTONE_API_KEY` ; les autres selon les intégrations (tableau ci-dessus) |
+| Journaux | onglet « Logs » de l'application : une ligne JSON par message et par requête (`CURSUS_LOG_FORMAT=json` par défaut en production), que l'agrégateur du service informatique collecte sans réglage |
+| Compression | faite par Cursus (brotli, sinon gzip) : rien à activer dans Coolify. Si l'on active la compression du proxy de Coolify, poser `CURSUS_COMPRESSION=0` |
+| Sonde de santé | celle du `Dockerfile` (`/api/health`, toutes les 30 s) : la laisser active ; ses appels réussis ne remplissent pas les journaux |
 
 Dans le conteneur, Cursus écoute sur toutes les interfaces (`CURSUS_HOST=0.0.0.0`) : le proxy de l'hébergeur, placé
 dans un autre conteneur, doit pouvoir le joindre. Il ne croit les en-têtes `X-Forwarded-*` que des adresses privées du

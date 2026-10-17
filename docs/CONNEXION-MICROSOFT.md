@@ -113,6 +113,13 @@ si le locataire n'est pas un GUID ou si `CURSUS_PUBLIC_URL` n'est pas en https. 
 seuls les comptes Cursus fonctionnent. `CURSUS_OIDC_AUTORITE` est réservée aux tests automatiques (faux
 fournisseur local) : jamais sur un serveur, Cursus refuse alors de démarrer.
 
+**Variables dans Coolify** (installation en conteneur, README.md, « Mise en ligne ») : les quatre variables se
+saisissent dans l'onglet « Environment Variables » de l'application, `CURSUS_OIDC_CLIENT_SECRET` cochée comme secrète
+(« Is Literal » aussi si la valeur contient un `$`), puis « Redeploy » : le conteneur est recréé avec elles.
+`CURSUS_PUBLIC_URL` est l'adresse déclarée dans « Domains » de Coolify, en `https://`. La ligne « Connexion Microsoft 365
+active » se lit dans l'onglet « Logs » (champ `message` de la ligne JSON) ; une configuration refusée y apparaît en
+ligne de niveau `erreur`, et le conteneur s'arrête avec le code 1 (Coolify affiche alors un déploiement en échec).
+
 Instance de recette : une inscription d'application distincte (« Cursus recette »), avec son URI de
 redirection `https://cursus-recette.example.fr/api/auth/microsoft/retour` et son propre secret.
 

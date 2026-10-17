@@ -159,6 +159,8 @@ sudo nano /etc/cursus/cursus.env
 | `CURSUS_SECRET` | 64 caractères aléatoires, propres à cette installation. La changer déconnecte tout le monde |
 | `KEYSTONE_API_KEY` | clé aléatoire transmise à Keystone par un canal sûr. Sans elle, les routes Keystone répondent 503 |
 | `CURSUS_SUPERVISION_TOKEN` | facultative : jeton aléatoire (32 caractères au moins, `openssl rand -hex 32`) de l'outil de supervision, qui obtient alors le détail du point de santé à travers le proxy (« Exploitation courante ») |
+| `CURSUS_LOG_FORMAT` | à laisser vide : `json` en production, une ligne JSON par message et par requête, lue telle quelle par l'agrégateur du service informatique ; `texte` pour lire le journal à l'œil (« Exploitation courante ») |
+| `CURSUS_COMPRESSION` | à laisser vide (`1`) : Cursus compresse lui-même ses réponses (brotli, gzip) ; `0` si le proxy compresse déjà et qu'on préfère lui laisser ce travail |
 | `CURSUS_OIDC_TENANT`, `CURSUS_OIDC_CLIENT_ID`, `CURSUS_OIDC_CLIENT_SECRET` | connexion Microsoft 365 : ID de l'annuaire (GUID), ID d'application et secret client relevés dans Entra (`docs/CONNEXION-MICROSOFT.md`). Noter la date d'expiration du secret |
 | `CURSUS_PUBLIC_URL` | `https://cursus.example.fr` : adresse publique, sans chemin. URI de redirection à inscrire dans Entra : `https://cursus.example.fr/api/auth/microsoft/retour` |
 | `CURSUS_OIDC_AUTORITE` | **jamais** : réservée aux tests automatiques, Cursus refuse de démarrer avec elle |
@@ -329,6 +331,10 @@ cursus.example.fr {
 }
 ```
 
+Compression : Cursus compresse déjà ses réponses (brotli, sinon gzip : `CURSUS_COMPRESSION`, active par défaut) et
+Caddy laisse telles quelles les réponses déjà compressées ; `encode zstd gzip` ne sert alors qu'aux pages d'erreur du
+proxy. Pour confier toute la compression à Caddy (zstd en plus), poser `CURSUS_COMPRESSION=0`.
+
 Caddy n'a pas de limitation de débit sans module complémentaire : Cursus limite lui-même le débit
 (« Protections de l'API » ci-dessous), résume les appels refusés faute de clé (une ligne de journal par
 minute), et la restriction d'adresse suffit à écarter Internet de l'API Keystone.
@@ -449,7 +455,7 @@ sudo docker run -d --name cursus --restart on-failure --stop-timeout 20 \
   --env-file /etc/cursus/cursus.env -e CURSUS_DB=/data/cursus.db -e CURSUS_HOST=0.0.0.0 \
   -e CURSUS_API_PORT=3000 -e CURSUS_TRUST_PROXY=loopback,uniquelocal \
   -v cursus-donnees:/data -p 127.0.0.1:3210:3000 cursus:0.1.0
-sudo docker logs cursus                                          # mêmes messages que journalctl
+sudo docker logs cursus                                          # mêmes messages que journalctl, en JSON
 sudo docker inspect --format '{{.State.Health.Status}}' cursus  # healthy
 ```
 
@@ -738,6 +744,30 @@ entrées, sorties et compteurs ne se tiennent plus dans Lucca.
   pas dans la limite de débit. Compléter par le journal du service (`journalctl -u cursus`) et du proxy, l'espace
   disque de `/var/lib/cursus` et la fraîcheur des sauvegardes (`docs/SAUVEGARDE.md`, section 6). L'application de
   bureau (macOS) garde sa propre sonde, `/api/session`.
+- Journaux du serveur (`server/src/logs.ts`) : une ligne par message de démarrage, d'arrêt ou d'incident, et une ligne
+  par requête : heure, méthode, chemin sans ses paramètres, statut, durée en millisecondes et numéro du compte connecté.
+  Jamais le contenu d'une requête ni ses paramètres, qui portent des données personnelles ; la sonde de santé réussie
+  (toutes les 30 s) n'est pas écrite. En production, chaque ligne est un objet JSON (`CURSUS_LOG_FORMAT=json` par
+  défaut) : `heure`, `niveau` (`info`, `avertissement`, `erreur`), `message`, et pour une requête `type: "requete"`,
+  `methode`, `chemin`, `statut`, `duree_ms`, `compte`. Exemple :
+  `{"heure":"2027-01-04T07:42:10.512Z","niveau":"info","message":"GET /api/data → 200 · 38 ms · compte 12","type":"requete","methode":"GET","chemin":"/api/data","statut":200,"duree_ms":38,"compte":12}`.
+  Lecture : `journalctl -u cursus` (service systemd), `docker logs cursus` ou l'onglet « Logs » de l'application dans
+  Coolify ; l'agrégateur du service informatique (Loki, Graylog, Elastic…) les collecte depuis Docker ou journald sans
+  réglage de format. Filtrer les erreurs : `docker logs cursus 2>&1 | jq -c 'select(.niveau == "erreur")'`. À
+  surveiller : les lignes de niveau `erreur` (une erreur interne ne renvoie que « Erreur interne » au navigateur, sa
+  pile d'appels est dans le journal), une montée des statuts `429` (limite de débit) ou `5xx`. Rotation : journald
+  pour systemd ; pour Docker, borner la taille (`--log-opt max-size=10m --log-opt max-file=5`, ou le réglage équivalent
+  de l'hébergeur). Ces journaux lient un compte à ses heures de connexion : les conserver un an au plus (durée
+  recommandée par la CNIL pour les journaux techniques : six mois à un an), accès réservé au service informatique.
+- Erreurs de l'API : toujours une réponse JSON `{"error": "…"}`, jamais une page HTML ni une pile d'appels :
+  `404` pour une adresse `/api` inconnue ou une action inconnue, `400` pour un corps JSON illisible, `413` au-delà de
+  2 Mo, `500` « Erreur interne » pour une erreur imprévue (détail dans le journal du serveur).
+- Compression et cache (`server/src/compression.ts`, `server/src/app.ts`) : Cursus compresse en brotli, sinon en gzip,
+  le JavaScript, les styles et le JSON de plus de 1 Ko : le script de l'interface passe d'environ 1 Mo à 270 Ko (40 ms
+  de calcul). Les fichiers de `/assets`, dont le nom change à chaque version, sont gardés un an par le navigateur
+  (`Cache-Control: public, max-age=31536000, immutable`) ; `index.html` est revalidé à chaque ouverture (`no-cache`),
+  pour qu'une mise à jour soit vue aussitôt ; l'API n'est jamais mise en cache (`no-store`). Vérification :
+  `curl -sI -H 'Accept-Encoding: br' https://cursus.example.fr/assets/<fichier .js de dist/assets> | grep -iE 'content-encoding|cache-control'`.
 - Certificat : renouvelé automatiquement (Caddy ou minuteur certbot) ; vérifier l'échéance une fois
   par trimestre.
 - Changer la clé Keystone : nouvelle valeur dans `/etc/cursus/cursus.env`, `systemctl restart

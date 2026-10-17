@@ -5,6 +5,7 @@
 import type { Server } from 'node:http';
 import type { Express } from 'express';
 import type { Db } from './db.ts';
+import { log } from './logs.ts';
 
 /** Délai laissé aux requêtes en cours à l'arrêt ; au-delà, les connexions restantes sont coupées. */
 export const DELAI_ARRET = 10_000;
@@ -67,7 +68,7 @@ export class Arret {
 
   /** Démarrage impossible : base fermée, verrou retiré, code de sortie 1 (le message est la cause, pour journalctl). */
   echec(message: string): never {
-    console.error(`Démarrage impossible : ${message}`);
+    log.erreur(`Démarrage impossible : ${message}`);
     this.fermerBase();
     this.retirerVerrou();
     process.exit(1);
@@ -77,20 +78,20 @@ export class Arret {
     try {
       if (this.db?.sql.isOpen) this.db.sql.close();
     } catch (err) {
-      console.error(`Fermeture de la base : ${err instanceof Error ? err.message : err}`);
+      log.erreur(`Fermeture de la base : ${err instanceof Error ? err.message : err}`);
     }
   }
 
   private async signal(sig: NodeJS.Signals) {
     if (this.demande) {
       // Second signal (Ctrl+C répété) : les requêtes encore en cours sont coupées, l'arrêt ordonné se poursuit.
-      console.log('Arrêt immédiat : connexions en cours coupées.');
+      log.info('Arrêt immédiat : connexions en cours coupées.');
       this.serveur?.closeAllConnections();
       return;
     }
     this.demande = true;
     const limite = Date.now() + this.delai;
-    console.log(`Arrêt demandé (${sig}) : fin des requêtes en cours, ${this.delai / 1000} s au plus.`);
+    log.info(`Arrêt demandé (${sig}) : fin des requêtes en cours, ${this.delai / 1000} s au plus.`);
     for (const t of this.taches) {
       try { t(); } catch { /* minuteur déjà arrêté */ }
     }
@@ -101,7 +102,7 @@ export class Arret {
       const relance = setInterval(() => serveur.closeIdleConnections(), 100); // connexions libérées par une réponse
       const delai = new Promise<boolean>(ok => setTimeout(() => ok(true), Math.max(0, limite - Date.now())));
       if (await Promise.race([ferme.then(() => false), delai])) {
-        console.log(`Requêtes encore en cours après ${this.delai / 1000} s : connexions coupées.`);
+        log.info(`Requêtes encore en cours après ${this.delai / 1000} s : connexions coupées.`);
         serveur.closeAllConnections();
       }
       clearInterval(relance);
@@ -111,7 +112,7 @@ export class Arret {
     while (this.enCours.some(f => f()) && Date.now() < limite) await pause(50);
     this.fermerBase();
     this.retirerVerrou();
-    console.log('Cursus arrêté.');
+    log.info('Cursus arrêté.');
     process.exit(0);
   }
 }

@@ -162,10 +162,16 @@ const statutEtTotal: Partial<Regle> = { cible: FEUILLE, bilan: (p, x) => ({ heur
 /** Inscrits avant et après l'action : une annulation ou des places retirées détachent des recyclages rattachés. */
 const inscritsAvantApres: Partial<Regle> = { etat: (db, p) => inscrits(db, p.id), salaries: (p, x) => [...(x.etat as number[]), ...inscrits(x.db, p.id)] };
 
-/** Lot de paie renvoyé par l'action (`paie.lot…`, `temps.pushSage`) : son numéro et ses feuilles `{ empId, week }`. */
-const lotDuResultat = (x: Contexte) => x.result as { lot?: number; feuilles?: { empId: number; week: string }[] } | null | undefined;
-const lotRetenu = (x: Contexte) => ({ lot: lotDuResultat(x)?.lot ?? null, feuilles: lotDuResultat(x)?.feuilles ?? [] });
-const salariesDuLot = (x: Contexte) => (lotDuResultat(x)?.feuilles ?? []).map(f => f.empId);
+/**
+ * Lot de paie renvoyé par l'action (`paie.lot…`, `temps.pushSage`) : son numéro, ses feuilles `{ empId, week }` et ses
+ * absences (identifiants seuls : ni nature, ni rubrique, qui en révèlerait la catégorie).
+ */
+const lotDuResultat = (x: Contexte) => x.result as { lot?: number; feuilles?: { empId: number; week: string }[]; absences?: { id: number; empId: number }[] } | null | undefined;
+const lotRetenu = (x: Contexte) => {
+  const r = lotDuResultat(x);
+  return { lot: r?.lot ?? null, feuilles: r?.feuilles ?? [], ...(r?.absences?.length ? { absences: r.absences.map(a => a.id) } : {}) };
+};
+const salariesDuLot = (x: Contexte) => [...new Set([...(lotDuResultat(x)?.feuilles ?? []).map(f => f.empId), ...(lotDuResultat(x)?.absences ?? []).map(a => a.empId)])];
 /** Feuilles transmises à la paie : validées et non transmises avant l'action, marquées transmises après. */
 const transmises = (x: Contexte) => (x.etat as number[]).map(id => x.db.get<FeuilleTemps>('feuilles', id)).filter((f): f is FeuilleTemps => !!f?.sage);
 /** Lignes de clôture des congés créées par l'action (identifiants au-delà du dernier d'avant l'action). */
@@ -404,7 +410,8 @@ export const REGLES: Record<string, Regle> = {
   // Transmission à la paie : semaines transmises, salarié par salarié (archive paie, historique, export de ses données).
   'temps.pushSage': {
     etat: db => db.where<FeuilleTemps>('feuilles', 'statut', 'validee').filter(f => !f.sage).map(f => f.id),
-    bilan: (_p, x) => ({ lot: lotDuResultat(x)?.lot ?? null, feuilles: transmises(x).map(f => ({ empId: f.empId, week: f.week })) }), salaries: (_p, x) => transmises(x).map(f => f.empId),
+    bilan: (_p, x) => ({ ...lotRetenu(x), feuilles: transmises(x).map(f => ({ empId: f.empId, week: f.week })) }),
+    salaries: (_p, x) => [...new Set([...transmises(x).map(f => f.empId), ...(lotDuResultat(x)?.absences ?? []).map(a => a.empId)])],
   },
   // Dérogation au repos dominical d'une équipe : équipe et type (codes) ; de la référence de l'accord, seulement le fait
   // qu'elle soit renseignée.

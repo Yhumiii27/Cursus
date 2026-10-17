@@ -5,12 +5,16 @@
 // transmises) ou annulation avant elle, historique. En simulation, la transmission en un clic reste possible. Format du
 // fichier, réglages de paie en vigueur, rubriques et leur code Sage (RubriquesPaie.tsx). Lots, fichier et rubriques :
 // administrateur RH et gestionnaire de paie ; le service RH et la lecture seule consultent.
+// Absences (t028, réglage `absencesFichierPaie`) : absences en attente par période, calculées par le serveur
+// (`absencesPaie` de l'instantané, shared/rules/absences-paie.ts), dans le lot avec les feuilles ; export des variables
+// de la période (VariablesPaie.tsx).
 import { useState } from 'react';
 import { DownloadSimpleIcon } from '@phosphor-icons/react';
 import { fmtIso, plural } from '../../../shared/format.ts';
+import { absencesDansLeFichier, absencesDuLot } from '../../../shared/rules/absences-paie.ts';
 import { sansMatriculePaie } from '../../../shared/rules/matricules.ts';
 import {
-  COLONNES_FICHIER, DECIMALES, ENCODAGES, FORMAT_FICHIER_DEFAUT, feuillesDuLot, PERIMETRE_FICHIER, periodeDeLaFeuille, SEPARATEURS, STATUTS_LOT, totauxTexte,
+  COLONNES_FICHIER, DECIMALES, ENCODAGES, FORMAT_FICHIER_DEFAUT, feuillesDuLot, perimetreFichier, periodeDeLaFeuille, SEPARATEURS, STATUTS_LOT, totauxTexte,
 } from '../../../shared/rules/lots-paie.ts';
 import {
   feuillesParPeriode, MODES_HEURES_SUP, MODES_SAGE, periodeLabel, RATTACHEMENTS, rubriquesAConfirmer, rubriquesPaie, rubriquesTexte,
@@ -24,6 +28,7 @@ import { useStore } from '../state/store.tsx';
 import { SansMatriculePaie } from './MatriculesPaie.tsx';
 import { RubriquesPaie } from './RubriquesPaie.tsx';
 import { Btn, Fine, Panel, SectionLabel, Tag, Two } from './ui.tsx';
+import { VariablesPaie } from './VariablesPaie.tsx';
 
 /** « le dernier jour du mois », « le 25 du mois ». */
 const clotureTexte = (jour: number) => (jour >= 1 && jour <= 28 ? `le ${jour === 1 ? '1er' : jour} du mois` : 'le dernier jour du mois');
@@ -42,24 +47,32 @@ export function LotsPaie() {
   const aTransmettre = sagePending(d);
   const pending = aTransmettre.length;
   const groupes = feuillesParPeriode(aTransmettre, s, d.ti);
-  const aConfirmer = rubriquesAConfirmer(rubriquesEmises(d, aTransmettre), rubriquesPaie(d.ds.rubriquesPaie));
+  const avecAbsences = absencesDansLeFichier(s);
+  const absences = avecAbsences ? d.ds.absencesPaie ?? [] : [];
+  const nbAbsences = absences.reduce((n, g) => n + g.absences, 0);
+  const aConfirmer = rubriquesAConfirmer([...rubriquesEmises(d, aTransmettre), ...absences.flatMap(g => g.rubriques)], rubriquesPaie(d.ds.rubriquesPaie));
   const salaries = new Set(aTransmettre.map(sh => sh.empId)).size;
   const lots = d.ds.lotsPaie;
   const format = d.ds.formatFichierPaie ?? FORMAT_FICHIER_DEFAUT;
-  // Une ligne par période de destination : le lot d'une période emporte aussi les feuilles des périodes antérieures.
-  const periodes = [...new Set(groupes.map(g => g.periode))];
+  const perimetre = perimetreFichier(avecAbsences);
+  // Une ligne par période de destination : le lot d'une période emporte aussi les feuilles et absences des périodes antérieures.
+  const periodes = [...new Set([...groupes.map(g => g.periode), ...absences.map(g => g.periode)])].sort();
 
   const generer = (periode: string) => {
     const sheets = feuillesDuLot(aTransmettre, periode, s, d.ti);
-    const ids = sheets.map(sh => sh.empId);
+    const abs = absencesDuLot(absences, periode);
+    const ids = [...sheets.map(sh => sh.empId), ...abs.empIds];
     openDialog({
       type: 'confirmer', c: generationLot({
-        periode, feuilles: sheets.length, salaries: new Set(ids).size, mode,
+        periode, feuilles: sheets.length, salaries: new Set(ids).size, mode, perimetre, absences: abs,
         rappels: feuillesParPeriode(sheets, s, d.ti).filter(g => g.origine),
         sansMatricule: mode === 'simulation' ? sansMatriculePaie(d.ds.employes, d.ti, ids).map(e => e.nom) : [],
       }),
     });
   };
+  // Simulation en un clic : toutes les feuilles en attente, et les absences jusqu'à la dernière de leurs périodes.
+  const derniere = groupes.map(g => g.periode).sort().at(-1);
+  const absencesSimulation = derniere ? absencesDuLot(absences, derniere) : null;
   const telecharger = async (lot: LotPaie) => {
     setTelechargement(lot.id);
     try {
@@ -80,13 +93,14 @@ export function LotsPaie() {
           <h2>Transmission à Sage Paie</h2>
           <div className="text-muted sub">
             {pending ? `${plural(pending, 'feuille validée', 'feuilles validées')} en attente de transmission (${plural(salaries, 'salarié', 'salariés')})` : 'Aucune feuille validée en attente : chacune est transmise ou dans un lot'} · intérimaires (relevé envoyé à l’agence) et cadres dirigeants exclus
+            {avecAbsences && ` · ${nbAbsences ? `${plural(nbAbsences, 'absence', 'absences')} en attente` : 'aucune absence en attente'}`}
           </div>
         </div>
         <div className="actions-end" style={{ alignItems: 'center' }}>
           <Tag cls={mode === 'simulation' ? 'tag-outline' : 'tag-neutral'}>{MODES_SAGE[mode].label}</Tag>
           {paie && mode === 'simulation' && (
             <button type="button" className="btn btn-secondary" disabled={pending === 0}
-              onClick={() => openDialog({ type: 'confirmer', c: transmissionSage(pending, salaries, groupes) })}>Transmettre (simulation)</button>
+              onClick={() => openDialog({ type: 'confirmer', c: transmissionSage(pending, salaries, groupes, perimetre, absencesSimulation) })}>Transmettre (simulation)</button>
           )}
         </div>
       </div>
@@ -98,16 +112,24 @@ export function LotsPaie() {
       {periodes.length > 0 && (
         <div className="scroll-x">
           <table className="table" style={{ fontSize: 13 }}>
-            <thead><tr><th>Période de paie</th><th className="right">Feuilles</th><th className="right">Salariés</th><th></th></tr></thead>
+            <thead><tr><th>Période de paie</th><th className="right">Feuilles</th>{avecAbsences && <th className="right">Absences</th>}<th className="right">Salariés</th><th></th></tr></thead>
             <tbody>
               {periodes.map(p => {
                 const sheets = aTransmettre.filter(sh => periodeDeLaFeuille(sh.week, s, d.ti) === p);
                 const rappels = groupes.filter(g => g.periode === p && g.origine);
+                const abs = absences.find(g => g.periode === p);
+                const rappelsAbs = abs?.rappels.length ? [`absences de ${abs.rappels.map(periodeLabel).join(', ')}`] : [];
+                const textes = [...rappels.map(r => `${plural(r.feuilles, 'feuille', 'feuilles')} de ${periodeLabel(r.origine!)}`), ...rappelsAbs];
                 return (
                   <tr key={p}>
-                    <td><Two main={periodeLabel(p)} sub={rappels.length ? `dont rappel : ${rappels.map(r => `${plural(r.feuilles, 'feuille', 'feuilles')} de ${periodeLabel(r.origine!)}`).join(', ')}, période close` : undefined} /></td>
+                    <td><Two main={periodeLabel(p)} sub={textes.length ? `dont rappel : ${textes.join(', ')}, période close` : undefined} /></td>
                     <td className="right tnum">{sheets.length}</td>
-                    <td className="right tnum">{new Set(sheets.map(sh => sh.empId)).size}</td>
+                    {avecAbsences && (
+                      <td className="right">
+                        <Two main={<span className="tnum">{abs?.absences ?? 0}</span>} sub={abs?.regularisations ? plural(abs.regularisations, 'régularisation', 'régularisations') : undefined} />
+                      </td>
+                    )}
+                    <td className="right tnum">{new Set([...sheets.map(sh => sh.empId), ...(abs?.empIds ?? [])]).size}</td>
                     <td className="right">
                       {paie && (
                         <button type="button" className="btn btn-primary btn-sm" onClick={() => generer(p)}>
@@ -126,7 +148,8 @@ export function LotsPaie() {
         <div className="note-accent">Code Sage à confirmer avant toute génération de lot : {rubriquesTexte(aConfirmer)}.</div>
       )}
       <Fine>
-        {PERIMETRE_FICHIER}
+        {perimetre}
+        {avecAbsences && ' Une absence annulée, raccourcie ou requalifiée après sa transmission part en régularisation (quantité négative) dans le lot suivant.'}
         {' '}Heures supplémentaires {MODES_HEURES_SUP[s.heuresSupMode].label.toLowerCase()}{s.heuresSupMode === 'repos' && s.heuresSupAccord ? ` (${s.heuresSupAccord})` : ''}, mode figé sur chaque feuille à sa validation
         {' '}· semaine à cheval sur deux mois : {RATTACHEMENTS[s.periodeRattachement].label.toLowerCase()} · clôture des variables {clotureTexte(s.clotureJour)} ; une semaine d’une période close part en rappel. Réglages de l’administrateur RH (Paramètres → Paie).
       </Fine>
@@ -141,7 +164,10 @@ export function LotsPaie() {
                 <tr key={l.id}>
                   <td><Two main={`n° ${l.id}${l.mode === 'simulation' ? ' · simulation' : ''}`} sub={l.historique ? 'repris d’avant les lots' : `le ${date(l.creation)} · ${l.auteur}`} /></td>
                   <td><Two main={periodeLabel(l.periode)} sub={l.rappels.length ? `rappel de ${l.rappels.map(periodeLabel).join(', ')}` : undefined} /></td>
-                  <td className="right"><Two main={<span className="tnum">{l.feuilles.length}</span>} sub={l.historique ? undefined : plural(l.resume.lignes, 'ligne', 'lignes')} /></td>
+                  <td className="right">
+                    <Two main={<span className="tnum">{l.feuilles.length}</span>}
+                      sub={l.historique ? undefined : [l.absences?.length ? plural(l.absences.length, 'absence', 'absences') : '', plural(l.resume.lignes, 'ligne', 'lignes')].filter(Boolean).join(' · ')} />
+                  </td>
                   <td>
                     <Two main={<Tag cls={STATUTS_LOT[l.statut].cls}>{STATUTS_LOT[l.statut].label}</Tag>}
                       sub={l.statut === 'genere' ? (l.telechargeLe ? `fichier téléchargé le ${date(l.telechargeLe)}` : l.mode === 'simulation' ? undefined : 'fichier à télécharger') : undefined} />
@@ -175,7 +201,14 @@ export function LotsPaie() {
       {lots.length > LOTS_VISIBLES && (
         <div><button type="button" className="btn btn-ghost btn-sm" onClick={() => setTout(x => !x)}>{tout ? 'Afficher les derniers lots' : `Afficher tout l’historique (${lots.length} lots)`}</button></div>
       )}
-      {lots[0]?.statut === 'transmis' && lots[0].resume.lignes > 0 && <Fine>Dernier lot transmis : {totauxTexte(lots[0].resume)}.</Fine>}
+      {lots[0]?.statut === 'transmis' && lots[0].resume.lignes > 0 && (
+        <Fine>
+          Dernier lot transmis : {totauxTexte(lots[0].resume) || 'aucune heure'}
+          {/* Codes d'absence : droit « paie » seulement (vides sinon, server/src/dataset.ts). */}
+          {lots[0].resume.absences && ` · absences : ${totauxTexte({ ...lots[0].resume, rubriques: lots[0].resume.absences.rubriques }) || plural(lots[0].resume.absences.elements, 'élément', 'éléments')}`}.
+        </Fine>
+      )}
+      {paie && <VariablesPaie periodes={[...new Set([...periodes, ...lots.filter(l => l.statut !== 'annule' && !l.historique).map(l => l.periode)])].sort().reverse()} />}
 
       <div className="item-head" style={{ alignItems: 'center' }}>
         <SectionLabel>Fichier d’import</SectionLabel>

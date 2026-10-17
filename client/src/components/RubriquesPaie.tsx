@@ -12,7 +12,7 @@ import { SectionLabel, Tag, Two } from './ui.tsx';
 const UNITE = { h: 'heures', j: 'jours', nombre: 'nombre' } as const;
 const MONO = { fontFamily: 'ui-monospace, SFMono-Regular, Menlo, monospace', fontSize: 12 };
 
-/** `aConfirmer` : codes internes utilisés par les feuilles en attente et pas encore confirmés (signalés). */
+/** `aConfirmer` : codes internes utilisés par les feuilles et les absences en attente, pas encore confirmés (signalés). */
 export function RubriquesPaie({ aConfirmer }: { aConfirmer: ReadonlySet<string> }) {
   const data = useData();
   const { paie } = useRole();
@@ -34,7 +34,7 @@ export function RubriquesPaie({ aConfirmer }: { aConfirmer: ReadonlySet<string> 
                 <td>
                   {!r.active ? <Tag cls="tag-outline">Non exportée</Tag>
                     : r.confirmee ? <Two main={<Tag cls="tag-neutral">Confirmé</Tag>} sub={`le ${fmtIso(r.confirmeLe!)} · ${r.confirmePar}`} subNowrap />
-                    : <Two main={<Tag cls={aConfirmer.has(r.code) ? 'tag-accent' : 'tag-outline'}>À confirmer</Tag>} sub={aConfirmer.has(r.code) ? 'utilisée par les feuilles en attente' : undefined} />}
+                    : <Two main={<Tag cls={aConfirmer.has(r.code) ? 'tag-accent' : 'tag-outline'}>À confirmer</Tag>} sub={aConfirmer.has(r.code) ? 'utilisée par les variables en attente' : undefined} />}
                 </td>
                 <td className="right">
                   {paie && (

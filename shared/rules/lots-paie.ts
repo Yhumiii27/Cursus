@@ -3,14 +3,18 @@
 // annulé avant elle). Partagé par les actions (server/src/actions/paie.ts), le téléchargement
 // (server/src/fichier-paie.ts) et l'écran Temps (client/src/components/LotsPaie.tsx).
 // Périmètre du fichier : heures validées de la semaine du lundi au dimanche (semaine à 7 jours, heures du dimanche aussi
-// en HDIM, fériés en MAJ_1MAI et FERIE_TRAV, contrepartie en repos en COR_ACQUIS) ; absences, déplacements et nuit
-// restent saisis dans Sage (PERIMETRE_FICHIER, repris par l'écran, la confirmation et la procédure).
+// en HDIM, fériés en MAJ_1MAI et FERIE_TRAV, contrepartie en repos en COR_ACQUIS) et, réglage `absencesFichierPaie`
+// actif (par défaut), absences validées ventilées par mois (shared/rules/absences-paie.ts) ; déplacements et nuit restent
+// saisis dans Sage (`perimetreFichier`, repris par l'écran, la confirmation et la procédure).
 import { encoderTexte } from '../encodage.ts';
 import type { ColonneFichierPaie, FeuilleTemps, FormatFichierPaie, ISODate, LotPaie, SagePush, Settings, StatutLotPaie } from '../types.ts';
+import { PERIMETRE_FICHIER_ABSENCES, resumeAbsences } from './absences-paie.ts';
 import { periodesSemaine, type RubriqueVue } from './paie.ts';
 
-/** Ce que le fichier contient, et ce qu'il ne contient pas (écran, confirmation, docs/DEPLOIEMENT.md). */
+/** Ce que le fichier contient, et ce qu'il ne contient pas, absences laissées à Sage (écran, confirmation, docs/DEPLOIEMENT.md). */
 export const PERIMETRE_FICHIER = 'Heures validées de la semaine, samedi et dimanche compris (heures du dimanche aussi en HDIM, des jours fériés en MAJ_1MAI ou FERIE_TRAV ; contrepartie obligatoire en repos en COR_ACQUIS) : absences, déplacements et heures de nuit restent saisis dans Sage.';
+/** Périmètre selon le réglage `absencesFichierPaie` (absences validées comprises, ou laissées à la saisie dans Sage). */
+export const perimetreFichier = (absences: boolean) => (absences ? PERIMETRE_FICHIER_ABSENCES : PERIMETRE_FICHIER);
 
 export const STATUTS_LOT: Record<StatutLotPaie, { label: string; cls: string }> = {
   genere: { label: 'Import à confirmer', cls: 'tag-accent' },
@@ -120,20 +124,29 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 
 export interface LigneFichier { matricule: string; periode: string; rubrique: string; quantite: number }
 
+/** Contenu lu par le fichier : lignes des feuilles et, depuis le lot 5, éléments d'absence. */
+type ContenuFichier = Pick<SagePush, 'lignes'> & Partial<Pick<SagePush, 'absences'>>;
+
+/** Quantités du contenu par matricule, période et code Sage : heures des feuilles, puis absences exportées. */
+function quantites(contenu: ContenuFichier): { matricule: string; periode: string; rubrique: string; q: number }[] {
+  return [
+    ...contenu.lignes.flatMap(l => Object.entries(l.rubriques).map(([rubrique, q]) => ({ matricule: l.matricule, periode: l.periode ?? '', rubrique, q }))),
+    ...(contenu.absences ?? []).flatMap(x => (x.codeSage ? [{ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite }] : [])),
+  ];
+}
+
 /**
  * Lignes du fichier : une par salarié, période et rubrique, quantités additionnées sur la période (rappel d'une période
- * close compris, puisqu'il part sur la période ouverte), triées par matricule, période et rubrique ; quantité nulle omise.
+ * close compris, puisqu'il part sur la période ouverte ; absences et leurs régularisations négatives comprises), triées
+ * par matricule, période et rubrique ; quantité nulle omise.
  */
-export function lignesFichier(contenu: Pick<SagePush, 'lignes'>): LigneFichier[] {
+export function lignesFichier(contenu: ContenuFichier): LigneFichier[] {
   const somme = new Map<string, LigneFichier>();
-  for (const l of contenu.lignes) {
-    for (const [rubrique, q] of Object.entries(l.rubriques)) {
-      const periode = l.periode ?? '';
-      const cle = `${l.matricule}|${periode}|${rubrique}`;
-      const x = somme.get(cle) ?? { matricule: l.matricule, periode, rubrique, quantite: 0 };
-      x.quantite = r2(x.quantite + q);
-      somme.set(cle, x);
-    }
+  for (const { matricule, periode, rubrique, q } of quantites(contenu)) {
+    const cle = `${matricule}|${periode}|${rubrique}`;
+    const x = somme.get(cle) ?? { matricule, periode, rubrique, quantite: 0 };
+    x.quantite = r2(x.quantite + q);
+    somme.set(cle, x);
   }
   return [...somme.values()].filter(x => x.quantite !== 0)
     .sort((a, b) => a.matricule.localeCompare(b.matricule) || a.periode.localeCompare(b.periode) || a.rubrique.localeCompare(b.rubrique));
@@ -143,8 +156,8 @@ export function lignesFichier(contenu: Pick<SagePush, 'lignes'>): LigneFichier[]
  * Libellé de chaque code Sage employé par un contenu : libellés des rubriques internes actives portées sur ce code
  * (« + » entre deux rubriques additionnées), à défaut le code lui-même. Figé dans le contenu à la génération du lot.
  */
-export function libellesSage(contenu: Pick<SagePush, 'lignes'>, table: readonly Pick<RubriqueVue, 'codeSage' | 'active' | 'label'>[]): Record<string, string> {
-  const codes = [...new Set(contenu.lignes.flatMap(l => Object.keys(l.rubriques)))].sort();
+export function libellesSage(contenu: ContenuFichier, table: readonly Pick<RubriqueVue, 'codeSage' | 'active' | 'label'>[]): Record<string, string> {
+  const codes = [...new Set(quantites(contenu).map(x => x.rubrique))].sort();
   return Object.fromEntries(codes.map(c => [c, table.filter(r => r.active && r.codeSage === c).map(r => r.label).join(' + ') || c]));
 }
 
@@ -155,7 +168,7 @@ export function libellesSage(contenu: Pick<SagePush, 'lignes'>, table: readonly 
  * ceux de la table en vigueur pour un lot d'avant cette colonne. L'encodage s'applique ensuite (octetsFichierLot).
  */
 export function fichierLot(
-  contenu: Pick<SagePush, 'lignes'> & Partial<Pick<SagePush, 'dossier' | 'libelles'>>, f: FormatFichierPaie = FORMAT_FICHIER_DEFAUT, libelles = contenu.libelles ?? {},
+  contenu: ContenuFichier & Partial<Pick<SagePush, 'dossier' | 'libelles'>>, f: FormatFichierPaie = FORMAT_FICHIER_DEFAUT, libelles = contenu.libelles ?? {},
 ): string {
   const sep = f.separateur === 'tab' ? '\t' : f.separateur;
   const cellule = (s: string) => (s.includes(sep) || /["\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
@@ -183,11 +196,17 @@ export const typeFichierLot = (f: Partial<Pick<FormatFichierPaie, 'encodage'>> =
 export const nomFichierLot = (l: Pick<LotPaie, 'id' | 'periode'>, f: FormatFichierPaie = FORMAT_FICHIER_DEFAUT) =>
   `sage-paie-${l.periode}-lot-${l.id}.${f.separateur === 'tab' ? 'txt' : 'csv'}`;
 
-/** Totaux d'un contenu : lignes du fichier, salariés (matricules), quantité par code Sage. */
-export function resumeContenu(contenu: Pick<SagePush, 'lignes'>): LotPaie['resume'] {
-  const lignes = lignesFichier(contenu), rubriques: Record<string, number> = {};
-  for (const l of lignes) rubriques[l.rubrique] = r2((rubriques[l.rubrique] ?? 0) + l.quantite);
-  return { lignes: lignes.length, salaries: new Set(lignes.map(l => l.matricule)).size, rubriques };
+/**
+ * Totaux d'un contenu : lignes du fichier, salariés (matricules), quantité par code Sage des heures ; absences à part
+ * (éléments, salariés, quantité par code Sage), pour qu'un lecteur sans droit « paie » n'en reçoive pas les codes.
+ */
+export function resumeContenu(contenu: ContenuFichier): LotPaie['resume'] {
+  const lignes = lignesFichier(contenu), heures = lignesFichier({ lignes: contenu.lignes }), rubriques: Record<string, number> = {};
+  for (const l of heures) rubriques[l.rubrique] = r2((rubriques[l.rubrique] ?? 0) + l.quantite);
+  return {
+    lignes: lignes.length, salaries: new Set(lignes.map(l => l.matricule)).size, rubriques,
+    ...(contenu.absences?.length ? { absences: resumeAbsences(contenu.absences) } : {}),
+  };
 }
 
 /** « HN 1 225 · HS25 12,5 » : totaux d'un lot. */

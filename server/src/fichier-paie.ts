@@ -39,7 +39,7 @@ export function routesFichierPaie(db: Db): Router {
     db.tx(() => {
       db.update('lotsPaie', lot.id, { telechargeLe: new Date().toISOString(), telechargePar: id.user.nom, telechargements: (lot.telechargements ?? 0) + 1 });
       journaliser(db, {
-        actor: id.user.nom, role: id.user.role, action: 'sage.fichier', compte: id.compte, salaries: [...new Set(lot.feuilles.map(f => f.empId))],
+        actor: id.user.nom, role: id.user.role, action: 'sage.fichier', compte: id.compte, salaries: [...new Set([...lot.feuilles.map(f => f.empId), ...(lot.absences ?? []).map(a => a.empId)])],
         message: `Fichier d’import Sage du lot n° ${lot.id} téléchargé — ${periodeLabel(lot.periode)}, ${plural(lignes, 'ligne', 'lignes')}${lot.mode === 'simulation' ? ' (simulation)' : ''}`,
         payload: { lot: lot.id, cle: lot.cle, periode: lot.periode, lignes, format },
       });

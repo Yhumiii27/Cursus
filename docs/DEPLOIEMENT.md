@@ -544,7 +544,8 @@ Procédure mensuelle du gestionnaire de paie (ou de l'administrateur RH), écran
    clic (e-mail au salarié et à son valideur) ; managers et service RH valident les feuilles soumises, une à une ou en
    groupe (une feuille refusée par un contrôle reste à valider et le message la nomme).
 2. « Générer le fichier » sur la période de paie : le lot réunit les feuilles validées de la période (rappels de périodes
-   closes compris), son contenu est figé et ses feuilles réservées. Elles ne sont pas encore transmises.
+   closes compris) et les absences validées (voir « Absences » ci-dessous), son contenu est figé, ses feuilles et ses
+   absences réservées. Elles ne sont pas encore transmises.
 3. « Fichier » télécharge le fichier d'import (CSV : une ligne par salarié, période et rubrique, quantités additionnées
    sur la période). Son format (séparateur, ordre des colonnes, format de la période, décimale, en-tête, encodage) se
    règle par « Modifier le format », sur le modèle d'import de votre Sage, sans changer le contenu du lot : encodage
@@ -563,9 +564,9 @@ version, les feuilles déjà transmises sont réunies en un lot « historique »
 
 Périmètre : heures validées de la semaine du lundi au dimanche (semaine à 7 jours, lot 5 : les heures du samedi et du
 dimanche prennent leur rang dans les heures supplémentaires, celles du dimanche partent aussi en quantité HDIM, et en
-MAJ_DIM si Paramètres → Paie prévoit une majoration) ; ni absences, ni déplacements, ni heures de nuit, qui restent
-saisis dans Sage. Les rubriques HDIM et MAJ_DIM sont « à confirmer » comme les autres : la paie confirme leur code Sage
-ou les désactive avant le premier lot réel qui en porte. Intérimaires (relevé envoyé à l'agence) et cadres dirigeants exclus.
+MAJ_DIM si Paramètres → Paie prévoit une majoration) ; ni déplacements, ni heures de nuit, qui restent saisis dans Sage.
+Les rubriques HDIM et MAJ_DIM sont « à confirmer » comme les autres : la paie confirme leur code Sage ou les désactive
+avant le premier lot réel qui en porte. Intérimaires (relevé envoyé à l'agence) et cadres dirigeants exclus.
 Jours fériés travaillés (lot 5) : le 1er mai part en MAJ_1MAI (majoration de 100 %, heures équivalentes), les autres
 fériés en quantité FERIE_TRAV (et MAJ_FERIE si Paramètres → Décompte des heures prévoit une majoration) ; la
 contrepartie obligatoire en repos au-delà du contingent annuel part en COR_ACQUIS. Ces quatre rubriques sont « à
@@ -578,6 +579,37 @@ motif. Le tiers se rétablit dans Paramètres → Décompte des heures, avec la 
 Contingent annuel : 220 h par défaut, valeur légale à vérifier avec la convention ou l'accord (référence à saisir) ; à
 une mise en service hors du 1er janvier, les heures supplémentaires déjà faites dans l'année se reprennent avec les soldes
 (colonne « Heures sup de l'année »).
+
+Absences (lot 5, t028 ; Paramètres → Absences et paie, activé par défaut, réponse de l'entreprise du 17 octobre 2026) :
+le lot emporte aussi les absences validées, ventilées mois par mois (un mois clos part en rappel sur la période ouverte) :
+CP en jours ouvrés, RTT ou jours de repos du forfait jours en jours, récupération en heures (demi-journées comprises :
+0,5 jour) ; hors congés, une rubrique par rémunération et par catégorie (`ABS_NP` non payée, `ABS_IND_SANTE`,
+`ABS_IND_PARENT`, `ABS_IND_FAMILLE` indemnisées, `ABS_MAINT_…` à salaire maintenu), en jours de la nature (calendaires
+pour les arrêts et la parentalité, ouvrés pour les événements familiaux). Ces rubriques sont « à confirmer » : tant que
+la paie n'a pas confirmé leur code Sage (et l'unité attendue par son plan de paie), seul un lot de simulation se génère ;
+une rubrique désactivée laisse la nature à la saisie dans Sage (ses jours sont comptés comme partis et ne repartent pas
+à sa réactivation ; leur régularisation reste à faire à la main, l'export des variables la liste « À saisir dans Sage »).
+Une absence annulée, raccourcie ou requalifiée après sa transmission part en régularisation négative dans le lot
+suivant, sous le code Sage de ce qui était parti ; une absence prolongée envoie ses nouveaux jours ; une absence d'un lot
+à confirmer attend sa confirmation ou son annulation. Décoché, le fichier se limite aux heures et la paie saisit les
+absences dans Sage ; coché de nouveau, les absences déjà enregistrées ne partent qu'à partir du premier jour de la
+période de paie ouverte (journal « Absences antérieures laissées à la saisie dans Sage »).
+
+Premier jour transmis : aucune absence ne part pour les jours d'avant la date de mise en service (Paramètres → Absences
+et paie, « Absences transmises à partir du », à renseigner à la reprise, voir « Procédure de reprise ») ; le service RH
+est prévenu quand une absence enregistrée, validée ou annulée a des jours avant cette date (à saisir ou corriger dans
+Sage). Sans cette date, le premier lot de paie d'une base neuve pose une date de départ au premier jour de la période
+ouverte pour les absences déjà enregistrées (message du lot, journal). À la mise à jour vers cette version, une base qui
+porte déjà des absences validées reçoit de même une date de départ au premier jour de la période de paie ouverte
+(migration `lot5-paie-absences-anterieures`, tracée au journal) : la paie a saisi les précédentes dans Sage ; vérifier
+avec elle qu'elle n'a pas déjà saisi celles de la période ouverte. Ces dates de départ ne valent que pour les absences
+déjà enregistrées : une absence d'un mois clos enregistrée ensuite (arrêt reçu en retard) part entière, en rappel.
+
+Contrôle : « Variables de la période » (écran Temps de travail, sous les lots) exporte en CSV, pour une période de paie,
+chaque ligne des lots générés ou transmis et ce qui attend encore un lot : matricule de paie, salarié, code Sage,
+libellé, quantité, détail (semaine, ou absence et ses dates, rappel, régularisation ; jamais la nature). Le code d'une
+absence en révèle la catégorie : export réservé à l'administrateur RH et au gestionnaire de paie, tracé au journal
+(`sage.variables`, archive paie).
 
 Période de paie déduite de la semaine : une semaine à cheval sur deux mois va sur le mois de son dimanche, la clôture
 des variables tombe le dernier jour du mois et une semaine d'une période close part en rappel sur la période ouverte
@@ -684,6 +716,8 @@ qu'avec `CURSUS_DEMO=1`). Après les référentiels, cinq imports CSV, dans cet 
    par compteur convient). Changer la date d'arrêté remplace tous les soldes du salarié : ceux absents du fichier ne
    sont plus repris (l'aperçu le signale). Les soldes d'un membre du service RH rattaché à sa fiche sont importés par
    un autre membre du service RH. Un congé déjà saisi dans Cursus avant la date d'arrêté est signalé (il serait décompté deux fois).
+   Renseigner la même date dans Paramètres → Absences et paie (« Absences transmises à partir du ») : les jours
+   d'absence d'avant, déjà traités par Lucca et Sage, ne partiront jamais dans le fichier d'import de la paie.
 4. **Certifications** (formation, date d'obtention).
 5. **Visites médicales** : date de la dernière visite et avis (apte, apte avec restrictions, inapte ; « non apte »
    vaut inapte). Une ligne sans avis n'est enregistrée « apte » qu'après avoir coché sa confirmation dans l'aperçu ;

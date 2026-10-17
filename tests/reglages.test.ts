@@ -49,6 +49,8 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     // dixième, moyenne de 44 h sur 12 semaines, contingent de 220 h avec alerte à 90 %, sans référence d'accord.
     feriesTravaillesAutorises: true, tauxMajorationFerie: 0, plafondHeuresComplementaires: 'dixieme', heuresComplementairesAccord: '',
     moyenne12SemainesMax: 44, moyenne12SemainesAccord: '', contingentHeuresSup: 220, contingentAlerte: 90, contingentAccord: '',
+    // Paie (lot 5, t028) : absences validées dans le fichier d'import, réponse de l'entreprise du 17 octobre 2026.
+    absencesFichierPaie: true, absencesPaieAPartirDu: null,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

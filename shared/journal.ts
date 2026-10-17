@@ -34,6 +34,9 @@ export const ACTIONS_PAIE: readonly string[] = [
   // Lots de paie (génération, confirmation de l'import, annulation, format du fichier, reprise des transmissions d'avant
   // les lots) et validation groupée des feuilles ; le téléchargement du fichier est tracé sous `sage.fichier`.
   'paie.lotGenerer', 'paie.lotConfirmer', 'paie.lotAnnuler', 'paie.formatFichier', 'migration.lotsPaie', 'temps.validerLot',
+  // Absences dans le fichier de paie : date à partir de laquelle Cursus les transmet (base reprise, lot 5) ; l'export
+  // des variables de la période est tracé sous `sage.variables`.
+  'migration.absencesPaie',
 ];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
@@ -130,6 +133,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'paie.lotAnnuler': 'Lot de paie annulé',
   'paie.formatFichier': 'Format du fichier d’import Sage',
   'sage.fichier': 'Fichier d’import Sage téléchargé',
+  'sage.variables': 'Variables de paie de la période exportées',
+  'migration.absencesPaie': 'Absences antérieures laissées à la saisie dans Sage',
   'temps.relancer': 'Relance des feuilles de temps',
   'temps.validerLot': 'Validation groupée des feuilles de temps',
   'temps.derogationDominicale': 'Dérogation au repos dominical d’une équipe',
@@ -237,7 +242,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
   { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement', 'migration.referencesDeplacements'] },
-  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'mandat.', 'migration.heuresSup', 'migration.lotsPaie'] },
+  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'mandat.', 'migration.heuresSup', 'migration.lotsPaie', 'migration.absencesPaie'] },
   { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.', 'conges.', 'migration.soldes'] },
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
   { id: 'reprise', label: 'Mise en service (reprise depuis Lucca)', prefixes: ['reprise.'] },
@@ -305,6 +310,8 @@ export const CHAMP_LABEL: Record<string, string> = {
   moyenne12SemainesMax: 'Moyenne maximale sur 12 semaines (h)', moyenne12SemainesAccord: 'Accord sur la moyenne de 12 semaines',
   contingentHeuresSup: 'Contingent annuel d’heures supplémentaires (h)', contingentAlerte: 'Alerte du contingent (%)',
   contingentAccord: 'Référence du contingent', ferie: 'Jour férié', cor: 'Contrepartie obligatoire en repos (h)',
+  // Absences dans le fichier d'import de la paie (Paramètres → Absences et paie).
+  absencesFichierPaie: 'Absences dans le fichier d’import de la paie', absencesPaieAPartirDu: 'Absences transmises à la paie à partir du',
 };
 
 const valeur = (v: unknown): string => {

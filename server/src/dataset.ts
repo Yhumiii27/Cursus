@@ -28,6 +28,7 @@ import type { Db } from './db.ts';
 import type { SessionInfo } from './auth.ts';
 import { compteValide, espacesDuCompte, nomDuCompte } from './comptes.ts';
 import { lireFormatFichier, lireLots } from './lots-paie.ts';
+import { absenceSansPaie, resumeAbsencesPaie, sansCodesAbsences } from './absences-paie.ts';
 import { lireMessagerie } from './messagerie.ts';
 
 /** Réglages par défaut : colonne `defaut` de la table des réglages (shared/reglages.ts). */
@@ -76,7 +77,7 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
   db.all<{ exercice: number; equipe: string; montant: number }>('budgets').forEach(b => {
     (budgets[String(b.exercice)] ||= {})[b.equipe] = b.montant;
   });
-  return {
+  const ds: Dataset = {
     today: todayIso(),
     revision: db.revision,
     user,
@@ -139,6 +140,8 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     // l'instantané de l'élu ne contient que lui-même (ou son équipe).
     effectifCse: effectifSite({ employes }, todayIso()),
   };
+  // Absences en attente du fichier de paie par période (server/src/absences-paie.ts) : lit le contenu figé des lots.
+  return { ...ds, absencesPaie: resumeAbsencesPaie(db, user, ds) };
 }
 
 /**
@@ -219,7 +222,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
   const full = loadFull(db, user);
   if (user.role === 'rh') {
     const droits = droitsRh(user);
-    return droits.includes('rh') ? { ...full, taches: tachesProches(full.taches, full.today) } : vueProfil(full, droits);
+    // Sans droit « paie » (gestionnaire RH), ni les rubriques d'absence en attente ni celles des lots : le code révèle la catégorie.
+    return droits.includes('rh') ? { ...full, taches: tachesProches(full.taches, full.today), ...(droits.includes('paie') ? {} : sansCodesAbsences(full)) } : vueProfil(full, droits);
   }
   const d = new Domain(full);
   const ids = new Set(scopeIds(d, user));
@@ -274,7 +278,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     feuilles: mine(full.feuilles).map(sh => (isMgr && sh.empId !== user.empId ? feuilleSansNaissance(d, sh) : sh)),
     // Arrêt maladie, accident, maladie professionnelle : le manager ne voit qu'une « Absence » (dates, état).
     // Demi-journées d'un congé (matin, après-midi) : transmises comme ses dates ; une absence hors congés n'en porte jamais.
-    absences: mine(full.absences).map(a => isMgr && a.empId !== user.empId ? absenceVueManager(a) : a),
+    // Lot de paie et indicateur de transmission d'une absence : service RH et paie seulement.
+    absences: mine(full.absences).map(a => absenceSansPaie(isMgr && a.empId !== user.empId ? absenceVueManager(a) : a)),
     cet: mine(full.cet),
     // Motif d'un report de CP (texte libre, « arrêt de travail »…) : celui d'un membre n'est pas transmis au manager, ni
     // l'échéance d'un report légal (`reportNeutre`).
@@ -297,6 +302,7 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     inscriptions: mine(full.inscriptions),
     participations: mine(full.participations),
     lotsPaie: [],
+    absencesPaie: [],
     formatFichierPaie: null,
     rubriquesPaie: [],
     messagerie: null,
@@ -401,7 +407,7 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     // Le référent HSE ne reçoit, sans leur nature, que les absences des ressources des chantiers : celles qui comptent au
     // Go / No Go.
     absences: paie ? full.absences.map(absenceVueManager)
-      : formations ? full.absences.filter(a => ressources.has(a.empId)).map(absenceVueManager) : [],
+      : formations ? full.absences.filter(a => ressources.has(a.empId)).map(absenceVueManager).map(absenceSansPaie) : [],
     cet: paie ? full.cet : [],
     reports: paie ? full.reports.map(reportNeutre) : [],
     soldesReprise: paie ? full.soldesReprise : [],
@@ -416,6 +422,9 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     demandesCollab: formations ? full.demandesCollab.filter(r => r.type !== 'document').map(r => demandeSansMotifRh({ ...r, declaration: null })) : [],
     demandesVisite: [],
     lotsPaie: paie ? full.lotsPaie : [],
+    // Absences en attente du fichier de paie : la lecture seule les compte, sans les rubriques (catégorie de la nature).
+    absencesPaie: paie ? full.absencesPaie : [],
+    ...(paie && !droits.includes('paie') ? sansCodesAbsences(full) : {}),
     formatFichierPaie: paie ? full.formatFichierPaie : null,
     rubriquesPaie: paie ? full.rubriquesPaie : [],
     // Comptes rendus de la reprise depuis Lucca (noms, motifs de refus) : service RH seulement.

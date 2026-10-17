@@ -1,12 +1,14 @@
 // Migrations nommées du chantier « paie » (lot 4) : mode des heures supplémentaires figé sur les feuilles validées ;
-// feuilles déjà transmises réunies en un lot de paie historique. Lot 5 : ancien mode « api » des lots retiré.
+// feuilles déjà transmises réunies en un lot de paie historique. Lot 5 : ancien mode « api » des lots retiré ; absences
+// des périodes passées laissées à la saisie dans Sage (premier jour transmis par le fichier d'import).
 import { randomUUID } from 'node:crypto';
 import { isoParis } from '../../../shared/dates.ts';
 import { Domain } from '../../../shared/domain.ts';
 import { matricule, plural } from '../../../shared/format.ts';
 import { recupInfo } from '../../../shared/rules/conges.ts';
-import { periodesSemaine } from '../../../shared/rules/paie.ts';
+import { periodeOuverte, periodesSemaine } from '../../../shared/rules/paie.ts';
 import type { CurrentUser, Dataset, FeuilleTemps } from '../../../shared/types.ts';
+import { lireDepuis, poserDepart } from '../absences-paie.ts';
 import { journaliser } from '../comptes.ts';
 import { loadFull, loadSettings, todayIso } from '../dataset.ts';
 import type { Db } from '../db.ts';
@@ -133,5 +135,27 @@ export const MODE_API_RETIRE: Migration = {
   executer: db => {
     const n = Number(db.sql.prepare(`UPDATE lots_paie SET mode = 'fichier' WHERE mode = 'api'`).run().changes);
     if (n) return `${plural(n, 'lot de paie', 'lots de paie')} de l’ancien mode « api » en mode fichier d’import`;
+  },
+};
+
+/** Absences validées d'une base existante : jusqu'au lot 5, la paie les saisissait elle-même dans Sage. */
+const absencesValidees = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS n FROM absences WHERE statut = 'validee'`).get() as { n: number }).n);
+
+/**
+ * Lot 5 (t028) : les absences validées partent dans le fichier d'import de la paie. Sur une base qui en porte déjà, la
+ * paie a saisi celles des périodes passées dans Sage : Cursus ne transmet de ces absences que les jours à partir du
+ * premier jour de la période de paie ouverte (date de départ, `poserDepart`), sans quoi elles repartiraient toutes en
+ * rappel. Une absence enregistrée après la mise à jour part entière, en rappel pour un mois clos : la paie ne l'a pas
+ * saisie. Base neuve, ou sans absence validée : la date de départ est posée par le premier lot de paie (la date de mise
+ * en service se règle dans Paramètres → Absences et paie). Tracé au journal (date et nombre d'absences, jamais leur nature).
+ */
+export const ABSENCES_ANTERIEURES: Migration = {
+  nom: 'lot5-paie-absences-anterieures',
+  // Base neuve : exécutée, sans effet (aucune absence) ; base existante sans absence validée, ou date déjà posée : notée faite.
+  necessaire: db => db.neuve || (absencesValidees(db) > 0 && lireDepuis(db) === null),
+  executer: db => {
+    if (!absencesValidees(db)) return;
+    const r = poserDepart(db, `${periodeOuverte(todayIso(), loadSettings(db).clotureJour)}-01`, { actor: 'Cursus', role: null }, 'Reprise');
+    return `absences transmises à la paie à partir du ${r.depuis}`;
   },
 };

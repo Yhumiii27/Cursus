@@ -137,7 +137,8 @@ test('index sur le salarié : créés par la migration nommée, sans effet sur u
   const avant = MIGRATIONS.slice(0, MIGRATIONS.indexOf(INDEX_SALARIES));
   appliquerMigrations(db, avant);
   assert.ok(!indexExiste(db, 'absences_emp'));
-  assert.deepEqual(appliquerMigrations(db), [INDEX_SALARIES.nom]);
+  // Les migrations nommées plus récentes passent aussi sur cette base neuve.
+  assert.ok(appliquerMigrations(db).includes(INDEX_SALARIES.nom));
   for (const t of ['absences', 'certifications', 'hab_titres', 'taches', 'missions', 'voyages', 'entretiens', 'notifications']) assert.ok(indexExiste(db, `${t}_emp`), t);
   assert.deepEqual(appliquerMigrations(db), [], 'une seule fois');
   // Requête par salarié servie par l'index.

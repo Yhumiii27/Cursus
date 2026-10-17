@@ -259,6 +259,9 @@ de santé reste hors du dépôt et se rejoue par `CURSUS_CAS_PAIE=/chemin/absolu
   (administrateur RH, gestionnaire de paie) : tant qu'une rubrique utilisée n'est pas confirmée, seule la simulation transmet.
   Chaque salarié y est désigné par son matricule de paie, saisi sur sa fiche (Paramètres → Matricules de paie liste
   ceux qui manquent) : sans lui, il part sous son matricule Cursus en simulation, et une transmission réelle est refusée.
+  Absences validées dans le même fichier (lot 5, Paramètres → Absences et paie, activé par défaut) : jours ventilés par
+  mois, demi-journées comprises, régularisation négative d'une absence annulée ou raccourcie après sa transmission ;
+  leurs rubriques restent à confirmer par la paie. Export CSV des variables de la période (droit « paie », tracé).
 - **E-mails** (`docs/EMAILS.md`) : notifications des étapes de validation (demande de congés et décision,
   feuille soumise ou renvoyée, compte rendu d'entretien à signer ou mis à disposition, réponse à une demande au service RH),
   aussitôt ou en récapitulatif quotidien selon le réglage de chacun ; convocations aux formations (envoi
@@ -330,7 +333,8 @@ certifications, déplacement couvrant la présence, formalités de voyage et de 
 payées avec majoration (ou remplacées par un repos compensateur avec la référence de l'accord qui le prévoit, mode figé sur
 chaque feuille à sa validation), heures complémentaires +10 % / +25 %, forfait jours, alertes 10 h / 48 h · période de paie
 déduite de la semaine (mois du dimanche par défaut, clôture des variables, rappel d'une période close) · lots de paie figés,
-fichier d'import pour Sage, transmis seulement à la confirmation de l'import · suivi des feuilles de temps semaine par
+fichier d'import pour Sage, absences validées comprises (jours ventilés par mois, régularisations), transmis seulement à
+la confirmation de l'import, variables de la période exportées en CSV · suivi des feuilles de temps semaine par
 semaine (échéance le lundi suivant à 12 h, relance, validation groupée) · journée de 24 h au plus, motif exigé au-delà des durées maximales ·
 semaine à 7 jours (samedi et dimanche grisés mais saisissables, repos hebdomadaire et dominical signalés, dérogation par équipe,
 heures du dimanche HDIM et majoration réglable) · jours fériés saisissables et repérés (1er mai majoré de 100 %, autres

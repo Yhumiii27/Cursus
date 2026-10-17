@@ -175,6 +175,8 @@ export const api = {
   mesDonnees: () => telecharger('/api/mes-donnees'),
   /** Paie : fichier d'import Sage d'un lot de paie (téléchargement tracé et compté sur le lot). */
   fichierLotPaie: (id: number) => telecharger(`/api/paie/lots/${id}/fichier`),
+  /** Paie : variables d'une période de paie (lots et attente), export CSV tracé (server/src/variables-paie.ts). */
+  variablesPaie: (periode: string) => telecharger(`/api/paie/variables/${encodeURIComponent(periode)}`),
   /**
    * Export ou impression produit par le navigateur (CSV, passeport formation, compte rendu) : signalé au serveur
    * pour le journal, sans attendre ni bloquer le téléchargement.

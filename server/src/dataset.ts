@@ -140,9 +140,11 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
 /**
  * Corrections d'une saisie erronée (shared/rules/corrections.ts), hors du service RH : ni certification annulée, ni motif
  * d'une correction (texte libre du service RH) ; la date et l'auteur restent. Motif d'une ligne du plan corrigée et d'une
- * demande rouverte retiré de même. Le salarié retrouve tout dans la copie de ses données (`GET /api/mes-donnees`).
+ * demande rouverte retiré de même, ainsi que les inscriptions closes gardées sur une certification (service RH). Le salarié retrouve tout dans la copie de ses données (`GET /api/mes-donnees`).
  */
-const sansCorrections = (e: Employe): Employe => ({ ...e, certsAnnulees: [], certs: e.certs.map(c => (c.corrigeMotif ? { ...c, corrigeMotif: null } : c)) });
+const sansCorrections = (e: Employe): Employe => ({
+  ...e, certsAnnulees: [], certs: e.certs.map(c => (c.corrigeMotif || c.inscriptionsCloses ? { ...c, corrigeMotif: null, inscriptionsCloses: null } : c)),
+});
 const ligneSansMotif = (l: PlanAction): PlanAction => (l.corrigeMotif ? { ...l, corrigeMotif: null } : l);
 const demandeSansMotifRh = (r: DemandeCollab): DemandeCollab => (r.rouverteMotif ? { ...r, rouverteMotif: null } : r);
 

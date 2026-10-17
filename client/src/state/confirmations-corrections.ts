@@ -5,17 +5,22 @@ import { fmtEur, fmtIso } from '../../../shared/format.ts';
 import type { PlanAction } from '../../../shared/types.ts';
 import type { Confirmation } from './confirmations.ts';
 
+/** Où va le motif d'une correction (aussi dans dialogs/CertDialog.tsx) : le salarié le retrouve dans la copie de ses données. */
+export const AIDE_MOTIF_CORRECTION = 'Le motif reste dans Cursus, au service RH : jamais montré au manager ni au salarié dans Cursus, jamais recopié au journal ; le salarié le retrouve dans la copie de ses données. N’y indiquez aucune information médicale.';
+
 /** Motif obligatoire d'une correction du service RH : gardé dans Cursus, jamais montré hors du service RH. */
-const motifCorrection = (label: string, placeholder: string) => ({
-  label, requis: true, placeholder,
-  aide: 'Le motif reste dans Cursus, au service RH : jamais montré au manager ni au salarié, jamais recopié au journal (le salarié le retrouve dans la copie de ses données). N’y indiquez aucune information médicale.',
-});
+const motifCorrection = (label: string, placeholder: string) => ({ label, requis: true, placeholder, aide: AIDE_MOTIF_CORRECTION });
 
 /**
  * Suppression d'une certification saisie par erreur. `quoi` : « SST du 3 mai 2025 » ; `precedente` : date de la
- * certification de la même formation qui redevient en vigueur ; `session` : session où elle est inscrite.
+ * certification de la même formation qui redevient en vigueur ; `session` : session où elle est inscrite ; `rendues` :
+ * inscriptions en formation initiale qu'elle avait closes (shared/rules/corrections.ts, inscriptionsARendre), session et
+ * raison pour laquelle elle ne l'accueille plus.
  */
-export function suppressionCertification(c: { id: number }, nom: string, quoi: string, o: { precedente?: string | null; session?: string | null } = {}): Confirmation {
+export function suppressionCertification(
+  c: { id: number }, nom: string, quoi: string,
+  o: { precedente?: string | null; session?: string | null; rendues?: { session: string; refus: string | null; ouverte: boolean }[] } = {},
+): Confirmation {
   return {
     titre: 'Supprimer la certification',
     question: `Supprimer la certification ${quoi} du dossier de ${nom} ?`,
@@ -23,6 +28,10 @@ export function suppressionCertification(c: { id: number }, nom: string, quoi: s
       'Elle reste en base, datée et signée, mais ne compte plus : statut, échéances, prérequis des habilitations, Go / No Go.',
       o.precedente ? `La certification du ${fmtIso(o.precedente)} redevient en vigueur.` : '',
       o.session ? `Sa place à la session ${o.session} est libérée ; une convocation reçue est annulée par e-mail.` : '',
+      ...(o.rendues ?? []).map(r => (r.refus
+        ? `Elle avait clos son inscription à la session ${r.session}, qui ne peut plus l’accueillir (${r.refus}) : réinscrivez-le.`
+        : r.ouverte ? `Elle avait clos son inscription à la session ${r.session} : l’inscription est rétablie.`
+        : `Elle avait clos son inscription à la session ${r.session} : sa formation initiale redevient à replanifier.`)),
       'Une habilitation délivrée qui s’appuie sur elle sans autre certification valide est à suspendre d’abord.',
     ].filter(Boolean),
     bouton: 'Supprimer la certification',

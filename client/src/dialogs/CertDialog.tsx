@@ -8,6 +8,7 @@ import { certsApres, habilitationsAppuyees, MOTIF_CORRECTION_MAX, refusAppui } f
 import { erreurDate } from '../components/controles.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine } from '../components/ui.tsx';
+import { AIDE_MOTIF_CORRECTION } from '../state/confirmations-corrections.ts';
 import { useEnriched } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -66,8 +67,7 @@ export function CertDialog({ empId, certId }: { empId: number; certId?: number }
         </Field>
         {appui && <Bloquant>{appui}</Bloquant>}
         <Fine>
-          Saisie du {fmt(parse(actuelle.obtenue))} pour {d.fm(actuelle.f)?.court ?? actuelle.f}. La correction est datée et signée ; le motif reste au service RH
-          (jamais montré au manager ni au salarié, jamais recopié au journal). N’y indiquez aucune information médicale.
+          Saisie du {fmt(parse(actuelle.obtenue))} pour {d.fm(actuelle.f)?.court ?? actuelle.f}. La correction est datée et signée. {AIDE_MOTIF_CORRECTION}
           {f !== actuelle.f && actuelle.sessionId ?' La nouvelle formation libère sa place à la session prévue, convocation annulée par e-mail.' : ''}
         </Fine>
       </>}

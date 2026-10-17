@@ -8,7 +8,7 @@ import { isValidDate, parse } from '../../../shared/dates.ts';
 import { fmt, fmtEur } from '../../../shared/format.ts';
 import {
   auteurDemande, certsApres, demandeRetirable, demandeRouvrable, effectifPlan, erreurMotifCorrection, erreursLignePlan, habilitationsAppuyees,
-  ligneCorrigeable, refusAppui, refusSuppressionLigne, sessionsDeLaLigne, suiteAcceptation,
+  ligneCorrigeable, refusAppui, refusRetour, refusSuppressionLigne, sessionsDeLaLigne, suiteAcceptation,
 } from '../../../shared/rules/corrections.ts';
 import { montantReel } from '../../../shared/rules/exercices.ts';
 import { refusArchive } from '../../../shared/rules/referentiels.ts';
@@ -16,6 +16,7 @@ import type { Certification, DemandeCollab, Employe, HabTitre, Inscription, Part
 import { annulerSiConvoque } from '../notifications.ts';
 import { refuserExerciceClos } from './budget.ts';
 import { attendCloture, signaler } from './conformite.ts';
+import { clore, rendre } from './inscriptions-closes.ts';
 import { ActionError, type ActionHandler, type Ctx, getEmp, refuserSoiMeme, requireFormations, requireRh, requireRhAdmin, str } from './context.ts';
 
 /** Motif d'une correction : obligatoire, 500 caractères au plus. */
@@ -81,7 +82,8 @@ function libererRemplacees(ctx: Ctx, emp: Employe, certs: Certification[], forma
  * Correction d'une certification saisie avec une mauvaise date ou une mauvaise formation (service RH, référent HSE),
  * motif obligatoire. Refusée si une habilitation délivrée s'appuie sur elle sans autre certification valide (la suspendre
  * d'abord). Nouvelle formation : la session de recyclage de l'ancienne est quittée, le résultat de clôture ne la désigne
- * plus, l'inscription en formation initiale à la nouvelle est close (comme `cert.ajouter`).
+ * plus, les inscriptions qu'elle avait closes à l'ancienne sont rendues (actions/inscriptions-closes.ts) et celle en
+ * formation initiale à la nouvelle est close (comme `cert.ajouter`), gardée sur la certification.
  */
 const modifierCert: ActionHandler = (ctx, p) => {
   requireFormations(ctx);
@@ -100,12 +102,15 @@ const modifierCert: ActionHandler = (ctx, p) => {
   const refus = refusAppui(habilitationsAppuyees(ctx.d, emp, apres), 'modifier');
   if (refus) throw new ActionError(refus);
   const suites: string[] = [];
+  let closes: Pick<Certification, 'inscriptionsCloses'> = {};
   if (f !== c.f) {
     suites.push(quitterSession(ctx, emp, c));
     detacherParticipations(ctx, c);
-    ctx.ds.inscriptions.filter(i => i.empId === emp.id && ctx.d.session(i.sessionId)?.formation === f).forEach(i => ctx.db.remove('inscriptions', i.id));
+    suites.push(...rendre(ctx, emp, c, apres));
+    const nouvelles = clore(ctx, emp, f);
+    closes = { inscriptionsCloses: nouvelles.length ? nouvelles : null };
   }
-  ctx.db.update<Certification>('certifications', c.id, { f, obtenue: date, ...(f !== c.f ? { sessionId: null, convoc: null, convocLe: null } : {}), ...marque(ctx, 'corrige', motif) });
+  ctx.db.update<Certification>('certifications', c.id, { f, obtenue: date, ...(f !== c.f ? { sessionId: null, convoc: null, convocLe: null, ...closes } : {}), ...marque(ctx, 'corrige', motif) });
   suites.push(...libererRemplacees(ctx, emp, apres.map(x => (x.id === c.id && f !== c.f ? { ...x, sessionId: null } : x)), [c.f, f]));
   const { keystone } = signaler(ctx, emp);
   const quoi = [f !== c.f ? `formation : ${fm.court}` : '', date !== c.obtenue ? `obtenue le ${fmt(parse(date))}` : ''].filter(Boolean).join(', ');
@@ -115,7 +120,9 @@ const modifierCert: ActionHandler = (ctx, p) => {
 /**
  * Annulation d'une certification saisie par erreur (administrateur RH), motif obligatoire : elle reste en base, hors de tous
  * les calculs ; la précédente de la même formation, s'il y en a une, redevient en vigueur. Refusée si une habilitation
- * délivrée s'appuie sur elle sans autre certification valide (la suspendre d'abord). Sa place de session est libérée.
+ * délivrée s'appuie sur elle sans autre certification valide (la suspendre d'abord). Sa place de session est libérée ;
+ * l'inscription en formation initiale qu'elle avait close est rendue si la session l'accueille encore, sinon le message
+ * dit de réinscrire le salarié (actions/inscriptions-closes.ts).
  */
 const annulerCert: ActionHandler = (ctx, p) => {
   requireRhAdmin(ctx);
@@ -127,6 +134,7 @@ const annulerCert: ActionHandler = (ctx, p) => {
   if (refus) throw new ActionError(refus);
   const session = quitterSession(ctx, emp, c);
   detacherParticipations(ctx, c);
+  const rendues = rendre(ctx, emp, c, apres);
   ctx.db.update<Certification>('certifications', c.id, { sessionId: null, convoc: null, convocLe: null, ...marque(ctx, 'annule', motif) });
   const precedente = certEnVigueur(apres, c.f);
   const { keystone } = signaler(ctx, emp);
@@ -134,6 +142,7 @@ const annulerCert: ActionHandler = (ctx, p) => {
     `${nomCert(ctx, c)} supprimée du dossier de ${emp.nom}`,
     precedente && certEnVigueur(emp.certs, c.f) === c ? `certification du ${fmt(parse(precedente.obtenue))} de nouveau en vigueur` : '',
     session,
+    ...rendues,
   ].filter(Boolean).join(' · ') + keystone;
 };
 
@@ -220,63 +229,86 @@ const annulerDemande: ActionHandler = (ctx, p) => {
   return r.parId ? `Demande pour ${ctx.d.personName(r.empId)} retirée` : 'Demande retirée';
 };
 
+/** Ce que la réouverture a défait, pour le journal (server/src/journal.ts) : identifiants seulement. */
+interface Defait { sessionId?: number; retourSessionId?: number | null; certId?: number; inscriptionId?: number; inscriptionRetiree?: boolean; planId?: number; habTitreId?: number; titreRetire?: boolean }
+
 /**
  * Ce que l'acceptation a créé est défait : inscription à la session souhaitée (convocation annulée par e-mail ; le recyclage
- * ou l'inscription retrouve la session à venir qu'il avait quittée), ligne du plan prévue (supprimée, avec le motif), titre
- * d'habilitation en attente (retiré) ou demande inscrite sur un titre (effacée). Refus quand c'est déjà allé plus loin :
- * session commencée ou clôturée, ligne engagée, exercice clos, habilitation délivrée depuis.
+ * ou l'inscription retrouve la session qu'il avait quittée si les contrôles de `plan.inscrire` le permettent encore, voir
+ * `refusRetour`), ligne du plan prévue (supprimée, avec le motif), titre d'habilitation en attente (retiré) ou demande
+ * inscrite sur un titre (effacée). Refus quand c'est déjà allé plus loin : session commencée ou clôturée, ligne engagée,
+ * exercice clos, habilitation délivrée depuis.
  */
-function defaireAcceptation(ctx: Ctx, r: DemandeCollab, emp: Employe, motif: string): string {
+function defaireAcceptation(ctx: Ctx, r: DemandeCollab, emp: Employe, motif: string): { texte: string; defait: Defait } {
+  const rien = { texte: '', defait: {} };
   const x = suiteAcceptation(ctx.d, r, emp);
   if (x.sessionId && (x.certId || x.inscriptionId)) {
     const s = ctx.d.session(x.sessionId);
     if (s?.statut === 'Clôturée') throw new ActionError(`Session du ${fmt(parse(s.date))} clôturée : la formation a eu lieu, la demande ne se rouvre plus`);
-    if (!s || !sessionActive(s)) return '';
+    if (!s || !sessionActive(s)) return rien;
     attendCloture(ctx, s.id);
-    const depuis = ctx.d.session(x.depuis ?? null);
-    const retour = depuis && sessionActive(depuis) && depuis.date >= ctx.d.ti ? depuis : null;
     const cert = x.certId ? emp.certs.find(c => c.id === x.certId && c.sessionId === s.id) : undefined;
     const insc = x.inscriptionId ? ctx.ds.inscriptions.find(i => i.id === x.inscriptionId && i.sessionId === s.id) : undefined;
-    if (!cert && !insc) return '';
+    if (!cert && !insc) return rien;
+    // Retour dans la session quittée pour la demande : seulement si elle l'accueille encore (ouverte, à venir, place libre,
+    // dans le contrat, sans conflit) ; sinon le recyclage redevient à planifier, la formation initiale à replanifier.
+    const depuis = ctx.d.session(x.depuis ?? null);
+    const refus = depuis ? refusRetour(ctx.d, emp, depuis, s.id) : null;
+    const retour = depuis && !refus ? depuis : null;
     const annulee = annulerSiConvoque(ctx, s, emp, (cert ?? insc)!);
-    // Recyclage : la certification retrouve la session à venir qu'elle avait quittée, sinon redevient à planifier.
-    // Formation initiale : l'inscription créée par l'acceptation est retirée ; déplacée, elle retrouve sa session
-    // d'origine (à venir, ou annulée ou clôturée : à replanifier).
-    let revenue = !!retour;
-    if (cert) ctx.db.update<Certification>('certifications', cert.id, { sessionId: retour?.id ?? null, convoc: retour ? 'later' : null, convocLe: null });
-    else if (x.cree || !x.depuis || ctx.ds.inscriptions.some(i => i.empId === emp.id && i.sessionId === x.depuis)) {
+    const quand = depuis ? `à la session du ${fmt(parse(depuis.date))}` : '';
+    let suite = '';
+    const defait: Defait = { sessionId: s.id, ...(cert ? { certId: cert.id } : { inscriptionId: insc!.id }) };
+    if (cert) {
+      ctx.db.update<Certification>('certifications', cert.id, { sessionId: retour?.id ?? null, convoc: retour ? 'later' : null, convocLe: null });
+      suite = retour ? `de nouveau inscrit ${quand}, convocation à envoyer` : depuis ? `retour ${quand} impossible (${refus}) : recyclage à planifier` : '';
+    } else if (x.cree || !depuis || ctx.ds.inscriptions.some(i => i.empId === emp.id && i.sessionId === depuis.id)) {
+      // Inscription créée par l'acceptation (ou déjà rétablie ailleurs) : retirée.
       ctx.db.remove('inscriptions', insc!.id);
-      revenue = false;
-    } else ctx.db.update<Inscription>('inscriptions', insc!.id, { sessionId: x.depuis, convoc: 'later', convocLe: null });
-    return `retiré de la session du ${fmt(parse(s.date))}${annulee ? ' · annulation envoyée par e-mail' : ''}${revenue ? ` · de nouveau inscrit à la session du ${fmt(parse(retour!.date))}, convocation à envoyer` : ''}`;
+      defait.inscriptionRetiree = true;
+    } else if (retour || !sessionActive(depuis)) {
+      // Session d'origine à venir et qui l'accueille : l'inscription y revient ; annulée ou clôturée : elle y revient,
+      // à replanifier (comme avant l'acceptation).
+      ctx.db.update<Inscription>('inscriptions', insc!.id, { sessionId: depuis.id, convoc: 'later', convocLe: null });
+      suite = retour ? `de nouveau inscrit ${quand}, convocation à envoyer` : 'formation initiale à replanifier';
+    } else {
+      // Session d'origine ouverte qui ne l'accueille plus (complète, passée, conflit) : y revenir la surréserverait ou y
+      // laisserait un inscrit qui ne l'a pas suivie ; l'inscription est retirée, à refaire.
+      ctx.db.remove('inscriptions', insc!.id);
+      defait.inscriptionRetiree = true;
+      suite = `retour ${quand} impossible (${refus}) : inscription en formation initiale retirée, à refaire`;
+    }
+    defait.retourSessionId = retour?.id ?? null;
+    return { texte: [`retiré de la session du ${fmt(parse(s.date))}`, annulee ? 'annulation envoyée par e-mail' : '', suite].filter(Boolean).join(' · '), defait };
   }
   if (x.planId) {
     const l = ctx.ds.plan.find(y => y.id === x.planId);
-    if (!l) return '';
+    if (!l) return rien;
     refuserExerciceClos(ctx, l.exercice);
     if (l.statut !== 'prevu' || sessionsDeLaLigne(ctx.d, l).length) {
       throw new ActionError(`La ligne du plan ${l.exercice} ajoutée par l’acceptation est déjà ${l.statut === 'prevu' ? 'rattachée à une session' : l.statut === 'engage' ? 'engagée' : l.statut === 'realise' ? 'réalisée' : 'reportée'} : la demande ne se rouvre plus`);
     }
     ctx.db.update<PlanAction>('planActions', l.id, marque(ctx, 'annule', motif));
-    return `ligne retirée du plan de formation ${l.exercice}`;
+    return { texte: `ligne retirée du plan de formation ${l.exercice}`, defait: { planId: l.id } };
   }
   if (x.habTitreId) {
     const t = emp.habs.find(h => h.id === x.habTitreId);
-    if (!t) return '';
+    if (!t) return rien;
     if (x.cree && !t.delivree) {
       ctx.db.remove('habTitres', t.id);
-      return 'titre en attente de délivrance retiré';
+      return { texte: 'titre en attente de délivrance retiré', defait: { habTitreId: t.id, titreRetire: true } };
     }
     if (!t.demande) throw new ActionError(`${ctx.d.hm(t.h)?.nom ?? t.h} délivrée depuis l’acceptation : la demande ne se rouvre plus`);
     ctx.db.update<HabTitre>('habTitres', t.id, { demande: null });
-    return 'demande effacée du titre';
+    return { texte: 'demande effacée du titre', defait: { habTitreId: t.id, titreRetire: false } };
   }
-  return '';
+  return rien;
 }
 
 /**
  * Réouverture d'une demande de formation ou d'habilitation acceptée ou refusée par erreur (service RH, référent HSE), motif
- * obligatoire : la demande revient « en attente », à décider de nouveau ; ce que l'acceptation avait créé est défait.
+ * obligatoire : la demande revient « en attente », à décider de nouveau ; ce que l'acceptation avait créé est défait. Le
+ * résultat (`defait`) en donne les identifiants au journal.
  */
 const rouvrirDemande: ActionHandler = (ctx, p) => {
   requireFormations(ctx);
@@ -286,9 +318,9 @@ const rouvrirDemande: ActionHandler = (ctx, p) => {
   const emp = getEmp(ctx, r.empId);
   refuserSoiMeme(ctx, emp, 'Réouverture de votre propre demande');
   const motif = motifDe(p);
-  const defait = r.statut === 'acceptee' ? defaireAcceptation(ctx, r, emp, motif) : '';
+  const { texte, defait } = r.statut === 'acceptee' ? defaireAcceptation(ctx, r, emp, motif) : { texte: '', defait: {} };
   ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'attente', reponse: null, motifRefus: null, suite: null, ...marque(ctx, 'rouverte', motif) });
-  return `Demande de ${emp.nom} rouverte, à décider de nouveau${defait ? ` · ${defait}` : ''}`;
+  return { message: `Demande de ${emp.nom} rouverte, à décider de nouveau${texte ? ` · ${texte}` : ''}`, result: { defait } };
 };
 
 export const correctionsActions: Record<string, ActionHandler> = {

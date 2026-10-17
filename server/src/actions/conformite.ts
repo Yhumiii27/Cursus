@@ -13,6 +13,7 @@ import { loadFull } from '../dataset.ts';
 import { suivreVerdicts } from '../integrations/keystone-verdicts.ts';
 import { annulerSiConvoque, convoquerFormation, notifierDecisionDemande } from '../notifications.ts';
 import { ActionError, type ActionHandler, aDroit, type Ctx, enriched, getEmp, isManagerOf, requireFormations, requireRh, str } from './context.ts';
+import { clore } from './inscriptions-closes.ts';
 import { appliquerFormalite, retirerFormalite } from './voyages.ts';
 
 /**
@@ -79,9 +80,10 @@ const ajouterCert: ActionHandler = (ctx, p) => {
   if (fm.archive) throw new ActionError(refusArchive(fm, 'Formation')!);
   if (!isValidDate(p.date)) throw new ActionError('Date d’obtention invalide');
   const avant = certEnVigueur(emp.certs, fm.id);
-  const cert = ctx.db.insert<Certification>('certifications', { empId: emp.id, f: fm.id, obtenue: p.date, sessionId: null, convoc: null });
-  // La certification obtenue clôt l'inscription en formation initiale correspondante.
-  ctx.ds.inscriptions.filter(i => i.empId === emp.id && ctx.d.session(i.sessionId)?.formation === fm.id).forEach(i => ctx.db.remove('inscriptions', i.id));
+  // La certification obtenue clôt l'inscription en formation initiale correspondante ; elle la garde pour la rendre si
+  // elle est annulée (saisie sur la mauvaise fiche, actions/inscriptions-closes.ts).
+  const closes = clore(ctx, emp, fm.id);
+  const cert = ctx.db.insert<Certification>('certifications', { empId: emp.id, f: fm.id, obtenue: p.date, sessionId: null, convoc: null, inscriptionsCloses: closes.length ? closes : null });
   // Recyclage enregistré : une session ouverte, postérieure à l'obtention, n'a plus d'objet pour la certification
   // remplacée (qui ne se planifie plus) ; sa place est libérée. Une session antérieure ou du jour même garde
   // l'inscrit : c'est elle qui a produit le recyclage, sa clôture le constatera.

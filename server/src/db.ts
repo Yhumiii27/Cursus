@@ -52,6 +52,8 @@ export const TABLES = {
     cols: {
       id: 'int', empId: 'int', f: 'text', obtenue: 'text', sessionId: 'int', convoc: 'text', convocLe: 'text',
       corrigeLe: 'text', corrigePar: 'text', corrigeMotif: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+      // Inscriptions en formation initiale closes par la certification, rendues à son annulation (actions/inscriptions-closes.ts).
+      inscriptionsCloses: 'json',
     },
   },
   habTitres: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', h: 'text', delivree: 'text', par: 'text', demande: 'text', mesure: 'text', mesureDate: 'text', mesureMotif: 'text', mesurePar: 'text' } },

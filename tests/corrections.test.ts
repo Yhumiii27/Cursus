@@ -14,7 +14,7 @@ const { ActionError, makeCtx } = await import('../server/src/actions/context.ts'
 const { journaliserAction, preparerTrace } = await import('../server/src/journal.ts');
 const { Domain } = await import('../shared/domain.ts');
 const { budgetSummary } = await import('../shared/rules/budget.ts');
-const { effetsReouverture, erreursLignePlan, habilitationsAppuyees, refusSuppressionLigne } = await import('../shared/rules/corrections.ts');
+const { certsApres, effetsReouverture, erreursLignePlan, habilitationsAppuyees, inscriptionsARendre, refusSuppressionLigne } = await import('../shared/rules/corrections.ts');
 const { JOURNAL_LABEL } = await import('../shared/journal.ts');
 type User = NonNullable<ReturnType<typeof currentUser>>;
 type Ligne = Record<string, any>;
@@ -84,6 +84,15 @@ test('certification : refus quand une habilitation délivrée s’appuie sur ell
   refus(HSE, 'cert.modifier', { id: 6, date: '2019-01-10', motif: MOTIF }, /Correction impossible/);
   refus(HSE, 'cert.modifier', { id: 6, date: '2027-01-10', motif: MOTIF }, /postérieure à aujourd’hui/);
   assert.match(run(HSE, 'cert.modifier', { id: 6, date: '2025-01-17', motif: MOTIF }), /corrigée — Mehdi Benali · obtenue le 17 janv\. 2025/);
+  // Une certification plus récente de la même formation, saisie par erreur : la précédente, valide, suffit au prérequis,
+  // la suppression passe sans refus et l'habilitation reste valide.
+  const habHauteur = () => domain().enrich(90, false).find(e => e.id === 2)!.habs.find(h => h.h === 'hauteur')!.key;
+  run(RH, 'cert.ajouter', { empId: 2, f: 'hauteur', date: '2026-09-01' });
+  const recente = mehdi().certs.find(c => c.f === 'hauteur' && c.obtenue === '2026-09-01')!;
+  assert.deepEqual(habilitationsAppuyees(domain(), mehdi(), mehdi().certs.filter(c => c.id !== recente.id)), []);
+  assert.match(run(RH, 'cert.annuler', { id: recente.id, motif: MOTIF }), /certification du 17 janv\. 2025 de nouveau en vigueur/);
+  assert.equal(mehdi().certs.find(c => c.f === 'hauteur')!.id, 6, 'celle du 10 (corrigée au 17) janvier 2025 revient en vigueur');
+  assert.ok(['ok', 'due'].includes(habHauteur()), 'habilitation hauteur toujours valide');
   // Suspendue, l'habilitation ne s'appuie plus sur rien : la suppression passe, l'habilitation reste suspendue.
   run(RH, 'hab.suspendre', { empId: 2, h: 'hauteur', motif: 'Vérification du titre' });
   run(RH, 'cert.annuler', { id: 6, motif: MOTIF });
@@ -272,4 +281,91 @@ test('demande acceptée avant l’enregistrement de sa suite : retrouvée d’ap
   db.update('demandesCollab', 1, { suite: null });
   run(RH, 'demande.reouvrir', { id: 1, motif: MOTIF });
   assert.ok(!ds().inscriptions.some(i => i.empId === 13 && i.sessionId === 4));
+});
+
+test('certification annulée : l’inscription en formation initiale qu’elle avait close est rendue, ou signalée à refaire', () => {
+  const { db, run, ds, domain, user, RH } = fresh();
+  const inscrits = () => ds().sessions.find(s => s.id === 1)!.inscrits;
+  // Aïcha Diallo (7) : inscrite et convoquée à la session SST du 14 octobre (inscription 1, 6 inscrits).
+  assert.equal(inscrits(), 6);
+  run(RH, 'cert.ajouter', { empId: 7, f: 'sst', date: '2026-10-01' });
+  assert.equal(inscrits(), 5, 'la certification clôt l’inscription');
+  const sst = () => ds().employes.find(e => e.id === 7)!.certs.find(c => c.f === 'sst')!;
+  assert.deepEqual(sst().inscriptionsCloses!.map(i => [i.id, i.sessionId]), [[1, 1]]);
+  // Gardées pour le service RH seulement.
+  assert.equal(buildSnapshot(db, user(7, 'collaborateur')).employes.find(e => e.id === 7)!.certs.find(c => c.f === 'sst')!.inscriptionsCloses, null);
+  // La confirmation l'annonce, comme le serveur.
+  const emp = domain().emp(7)!;
+  assert.deepEqual(inscriptionsARendre(domain(), emp, sst(), certsApres(emp.certs, sst().id)).map(r => [r.i.id, r.refus]), [[1, null]]);
+  assert.match(run(RH, 'cert.annuler', { id: sst().id, motif: MOTIF }), /supprimée du dossier de Aïcha Diallo · inscription SST à la session du 14 oct\. 2026 rétablie/);
+  assert.equal(inscrits(), 6);
+  assert.deepEqual(db.get<Ligne>('inscriptions', 1), { id: 1, empId: 7, sessionId: 1, convoc: 'now', date: '2026-09-28', convocLe: '2026-09-28' }, 'telle qu’elle était');
+
+  // Session devenue complète entre-temps : pas de surréservation, le message dit de réinscrire.
+  run(RH, 'cert.ajouter', { empId: 7, f: 'sst', date: '2026-10-02' });
+  db.update('sessions', 1, { places: 5 });
+  assert.match(run(RH, 'cert.annuler', { id: sst().id, motif: MOTIF }), /retour impossible \(session complète\), salarié à réinscrire/);
+  assert.equal(inscrits(), 5);
+  assert.ok(!ds().inscriptions.some(i => i.empId === 7 && i.sessionId === 1));
+
+  // Formation changée par une correction : l'inscription close à l'ancienne formation est rendue.
+  db.update('sessions', 1, { places: 12 });
+  db.insert('inscriptions', { empId: 7, sessionId: 1, convoc: 'later', date: '2026-10-10', convocLe: null });
+  run(RH, 'cert.ajouter', { empId: 7, f: 'sst', date: '2026-10-03' });
+  const id = sst().id;
+  assert.match(run(RH, 'cert.modifier', { id, f: 'prap', motif: MOTIF }), /inscription SST à la session du 14 oct\. 2026 rétablie/);
+  assert.ok(ds().inscriptions.some(i => i.empId === 7 && i.sessionId === 1));
+});
+
+test('demande rouverte : retour à la session quittée seulement si elle l’accueille encore (places, date)', () => {
+  const { db, run, ds, domain, derniere, RH } = fresh();
+  const demande = (empId: number, f: string, sessionId: number) => db.insert<{ id: number }>('demandesCollab', {
+    empId, type: 'formation', f, h: null, libelle: null, label: null, sessionId, motif: null, date: '2026-10-05', statut: 'attente', reponse: null, parId: null, declaration: null,
+  }).id;
+  const inscrits = (id: number) => ds().sessions.find(s => s.id === id)!.inscrits;
+  // Camille Roux (1) : recyclage SST à la session du 14 octobre (6 inscrits) ; demande pour celle du 18 novembre.
+  const a = demande(1, 'sst', 2);
+  run(RH, 'demande.accepter', { id: a });
+  assert.equal(inscrits(1), 5);
+  // Les places du 14 octobre sont ramenées à 5 : la place libérée est reprise.
+  db.update('sessions', 1, { places: 5 });
+  const r = ds().demandesCollab.find(x => x.id === a)!;
+  assert.deepEqual(effetsReouverture(domain(), r, domain().emp(1)!).slice(1), ['Retour à la session du 14 oct. 2026 impossible (session complète) : le recyclage redevient à planifier.']);
+  assert.match(run(RH, 'demande.reouvrir', { id: a, motif: MOTIF }), /retiré de la session du 18 nov\. 2026.*retour à la session du 14 oct\. 2026 impossible \(session complète\) : recyclage à planifier/);
+  assert.equal(inscrits(1), 5, 'pas de surréservation');
+  assert.deepEqual([db.get<Ligne>('certifications', 2)!.sessionId, db.get<Ligne>('certifications', 2)!.convoc], [null, null]);
+  // Le journal garde ce que la réouverture a défait (identifiants seulement).
+  assert.deepEqual(derniere('demande.reouvrir')!.payload.defait, { sessionId: 2, certId: 2, retourSessionId: null });
+
+  // Avec une place libre, le recyclage la retrouve.
+  db.update('sessions', 1, { places: 12 });
+  db.update('certifications', 2, { sessionId: 1, convoc: 'now' });
+  const b = demande(1, 'sst', 2);
+  run(RH, 'demande.accepter', { id: b });
+  assert.match(run(RH, 'demande.reouvrir', { id: b, motif: MOTIF }), /de nouveau inscrit à la session du 14 oct\. 2026, convocation à envoyer/);
+  assert.equal(db.get<Ligne>('certifications', 2)!.sessionId, 1);
+
+  // Yanis Bouzid (20) : formation initiale CACES R489 du 21 octobre (inscription 5), déplacée au 25 novembre ; la session
+  // du 21 octobre passe sans être clôturée : l'inscription n'y revient pas (elle bloquerait toute réinscription).
+  const c = demande(20, 'caces489', 4);
+  run(RH, 'demande.accepter', { id: c });
+  assert.equal(db.get<Ligne>('inscriptions', 5)!.sessionId, 4);
+  db.update('sessions', 3, { date: '2026-10-06', fin: '2026-10-08', jours: ['2026-10-06', '2026-10-07', '2026-10-08'] });
+  assert.match(run(RH, 'demande.reouvrir', { id: c, motif: MOTIF }), /retour à la session du 6 oct\. 2026 impossible \(session commencée ou passée\) : inscription en formation initiale retirée, à refaire/);
+  assert.equal(db.get<Ligne>('inscriptions', 5), undefined);
+  assert.equal(inscrits(4), 0);
+  assert.deepEqual(derniere('demande.reouvrir')!.payload.defait, { sessionId: 4, inscriptionId: 5, inscriptionRetiree: true, retourSessionId: null });
+});
+
+test('demande rouverte : la ligne du plan supprimée est tracée au journal (exercice, formation, équipe, coût)', () => {
+  const { db, run, ds, derniere, RH } = fresh();
+  // Demande 4 (Anglais technique), refusée : rouverte, puis acceptée sans session (ligne ajoutée au plan).
+  run(RH, 'demande.reouvrir', { id: 4, motif: MOTIF });
+  run(RH, 'demande.accepter', { id: 4 });
+  const planId = ds().demandesCollab.find(x => x.id === 4)!.suite!.planId!;
+  const l = db.get<Ligne>('planActions', planId)!;
+  run(RH, 'demande.reouvrir', { id: 4, motif: MOTIF });
+  const j = derniere('demande.reouvrir')!;
+  assert.deepEqual(j.payload.defait, { planId, exercice: l.exercice, f: l.f, equipe: l.equipe, periode: l.periode, cout: l.cout });
+  assert.ok(!JSON.stringify(j).includes('4471'), 'motif absent du journal');
 });

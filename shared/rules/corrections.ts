@@ -7,8 +7,11 @@
 import { certEnVigueur, sessionActive, type Domain } from '../domain.ts';
 import { parse } from '../dates.ts';
 import { fmt, key } from '../format.ts';
+import { blocage, conflitsSession } from './conflits.ts';
+import { horsContratLe } from './contrats.ts';
 import { montantReel } from './exercices.ts';
-import type { Certification, DemandeCollab, Employe, PlanAction, SuiteDemande, Trimestre } from '../types.ts';
+import { finSession } from './plage-session.ts';
+import type { Certification, DemandeCollab, Employe, Inscription, PlanAction, Session, SuiteDemande, Trimestre } from '../types.ts';
 
 /** Longueur maximale d'un motif de correction (comme les motifs de refus et d'annulation). */
 export const MOTIF_CORRECTION_MAX = 500;
@@ -146,17 +149,62 @@ export function suiteAcceptation(d: Domain, r: DemandeCollab, emp: Employe): Sui
   return l ? { planId: l.id } : {};
 }
 
+/**
+ * Retour du salarié dans une session qu'une correction lui avait fait quitter (session quittée pour la demande rouverte,
+ * inscription close par la certification annulée) : mêmes contrôles que `plan.inscrire` (server/src/actions/conformite.ts).
+ * Session ouverte et à venir, place libre, dans le contrat, sans absence ni autre session ces jours-là (`quitte` : session
+ * que le salarié quitte dans la même correction, qui ne compte pas comme un conflit). null : retour possible ; sinon la
+ * raison, en minuscules, à placer dans une phrase.
+ */
+export function refusRetour(d: Domain, emp: Employe, s: Session, quitte: number | null = null): string | null {
+  if (!sessionActive(s)) return `session ${s.statut === 'Annulée' ? 'annulée' : 'clôturée'}`;
+  if (s.date < d.ti) return 'session commencée ou passée';
+  if (s.inscrits >= s.places) return 'session complète';
+  if (horsContratLe(emp, finSession(s))) return 'session après la fin du contrat';
+  const conflit = blocage(conflitsSession(d, emp.id, s, { sessionId: quitte }));
+  return conflit ? `${conflit.charAt(0).toLowerCase()}${conflit.slice(1)}` : null;
+}
+
+/** Inscription close par une certification, à rendre : `refus`, raison pour laquelle sa session ne l'accueille plus. */
+export interface InscriptionARendre { i: Inscription; s: Session; refus: string | null }
+
+/**
+ * Inscriptions en formation initiale closes par la certification `c` (`inscriptionsCloses`), à rendre quand elle est
+ * annulée ou change de formation (`certsApres` : certifications du dossier après la correction), une par formation. Aucune
+ * si une certification de la même formation enregistrée depuis la clôt toujours, ou si le salarié s'est réinscrit.
+ * Session ouverte : elle doit encore l'accueillir (`refusRetour`) ; annulée ou clôturée depuis : l'inscription revient, à
+ * replanifier. Appliqué par server/src/actions/inscriptions-closes.ts, annoncé par la confirmation de suppression.
+ */
+export function inscriptionsARendre(d: Domain, emp: Employe, c: Certification, certsApres: readonly Certification[]): InscriptionARendre[] {
+  const out: InscriptionARendre[] = [];
+  const faites = new Set<string>();
+  for (const i of c.inscriptionsCloses ?? []) {
+    const s = d.session(i.sessionId);
+    if (!s || faites.has(s.formation)) continue;
+    faites.add(s.formation);
+    if (certsApres.some(x => x.f === s.formation && x.id > c.id)) continue;
+    if (d.ds.inscriptions.some(x => x.empId === emp.id && d.session(x.sessionId)?.formation === s.formation)) continue;
+    out.push({ i, s, refus: sessionActive(s) ? refusRetour(d, emp, s, c.sessionId) : null });
+  }
+  return out;
+}
+
 /** Ce que la réouverture d'une demande acceptée défait, une phrase chacune (state/confirmations-corrections.ts). */
 export function effetsReouverture(d: Domain, r: DemandeCollab, emp: Employe): string[] {
   if (r.statut !== 'acceptee') return [];
   const x = suiteAcceptation(d, r, emp);
   const s = x.sessionId ? d.session(x.sessionId) : null;
   if (s && sessionActive(s) && (x.certId || x.inscriptionId)) {
+    // Mêmes règles que la réouverture (server/src/actions/corrections.ts, defaireAcceptation).
     const depuis = x.depuis ? d.session(x.depuis) : null;
-    return [
-      `${emp.nom} est retiré de la session du ${fmt(parse(s.date))} ; une convocation reçue est annulée par e-mail.`,
-      depuis && sessionActive(depuis) && depuis.date >= d.ti ? `Il retrouve sa place à la session du ${fmt(parse(depuis.date))}, convocation à envoyer.` : '',
-    ].filter(Boolean);
+    const refus = depuis ? refusRetour(d, emp, depuis, s.id) : null;
+    const quand = depuis ? `à la session du ${fmt(parse(depuis.date))}` : '';
+    const retour = !depuis ? ''
+      : !refus ? `Il retrouve sa place ${quand}, convocation à envoyer.`
+      : x.certId ? `Retour ${quand} impossible (${refus}) : le recyclage redevient à planifier.`
+      : !sessionActive(depuis) ? `Sa formation initiale redevient à replanifier (${refus}).`
+      : `Retour ${quand} impossible (${refus}) : l’inscription en formation initiale est retirée, à refaire.`;
+    return [`${emp.nom} est retiré de la session du ${fmt(parse(s.date))} ; une convocation reçue est annulée par e-mail.`, retour].filter(Boolean);
   }
   if (x.planId && d.ds.plan.some(l => l.id === x.planId)) return ['La ligne ajoutée au plan de formation est supprimée (gardée en base, hors des calculs).'];
   if (x.habTitreId) {

@@ -6,7 +6,8 @@ import { REQ_CLS, REQ_LABEL } from '../../../shared/constants.ts';
 import type { CertInfo, EmpX } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, fmtShort } from '../../../shared/format.ts';
-import { auteurDemande, demandeRetirable, demandeRouvrable, effetsReouverture } from '../../../shared/rules/corrections.ts';
+import { auteurDemande, certsApres, demandeRetirable, demandeRouvrable, effetsReouverture, inscriptionsARendre } from '../../../shared/rules/corrections.ts';
+import { sessionActive } from '../../../shared/domain.ts';
 import { sessionDu } from '../../../shared/rules/plage-session.ts';
 import { reouvertureDemande, retraitDemande, suppressionCertification } from '../state/confirmations-corrections.ts';
 import { useDomain, useRole } from '../state/derived.ts';
@@ -18,13 +19,19 @@ import { SectionLabel, Tag } from './ui.tsx';
 export function ActionsCertification({ e, c }: { e: EmpX; c: CertInfo }) {
   const { formations, admin } = useRole();
   const { openDialog } = useStore();
+  const d = useDomain();
   if (!formations) return null;
   // Certification en vigueur supprimée : la plus récente des remplacées de la même formation reprend sa place.
   const precedente = !c.remplacee ? e.anciennes.find(x => x.f === c.f)?.obtenue ?? null : null;
-  const supprimer = () => openDialog({
-    type: 'confirmer',
-    c: suppressionCertification(c, e.nom, `${c.fm.court} du ${fmt(c.obt)}`, { precedente, session: c.session ? sessionDu(c.session) : null }),
-  });
+  const supprimer = () => {
+    // Inscriptions en formation initiale que la certification avait closes : rendues, ou à refaire (même règle que le serveur).
+    const emp = d.emp(e.id)!, brute = emp.certs.find(x => x.id === c.id);
+    const rendues = brute ? inscriptionsARendre(d, emp, brute, certsApres(emp.certs, c.id)).map(r => ({ session: sessionDu(r.s), refus: r.refus, ouverte: sessionActive(r.s) })) : [];
+    openDialog({
+      type: 'confirmer',
+      c: suppressionCertification(c, e.nom, `${c.fm.court} du ${fmt(c.obt)}`, { precedente, session: c.session ? sessionDu(c.session) : null, rendues }),
+    });
+  };
   return (
     <div className="actions-end">
       <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cert', empId: e.id, certId: c.id })}>Corriger</button>

@@ -111,6 +111,11 @@ export interface Certification { id: number; empId: number; f: string; obtenue: 
    */
   corrigeLe?: ISODate | null; corrigePar?: string | null; corrigeMotif?: string | null;
   annuleLe?: ISODate | null; annulePar?: string | null; annuleMotif?: string | null;
+  /**
+   * Inscriptions en formation initiale closes par la certification (`cert.ajouter`), telles qu'elles étaient : rendues si
+   * elle est annulée ou change de formation (server/src/actions/inscriptions-closes.ts). Service RH seulement.
+   */
+  inscriptionsCloses?: Inscription[] | null;
 }
 /** Mesure prise sur un titre après un incident ou une restriction : suspension (réversible) ou retrait (définitif). */
 export type HabMesure = 'suspension' | 'retrait';

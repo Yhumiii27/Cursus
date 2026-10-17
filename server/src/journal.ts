@@ -319,7 +319,16 @@ export const REGLES: Record<string, Regle> = {
   'demande.refuser': { champs: ['id'], cible: parId('demandesCollab', ['statut']) },
   // Retrait par l'auteur, réouverture par le service RH : statut avant et après (ni le motif, ni la réponse).
   'demande.annuler': { champs: ['id'], cible: parId('demandesCollab', ['statut']) },
-  'demande.reouvrir': { champs: ['id'], cible: parId('demandesCollab', ['statut']) },
+  // Réouverture : ce qu'elle a défait (identifiants : session quittée et session retrouvée, certification, inscription,
+  // titre d'habilitation) ; ligne du plan supprimée : exercice, formation, équipe, trimestre et coût, comme plan.supprimer.
+  'demande.reouvrir': {
+    champs: ['id'], cible: parId('demandesCollab', ['statut']),
+    bilan: (_p, x) => {
+      const defait = ((x.result as { defait?: Ligne } | null)?.defait ?? {}) as Ligne;
+      const l = defait.planId ? x.db.get<Ligne>('planActions', defait.planId) : null;
+      return { defait: l ? { ...defait, exercice: l.exercice, f: l.f, equipe: l.equipe, periode: l.periode, cout: l.cout } : defait };
+    },
+  },
   // Déplacements : jamais le numéro de passeport ni une vaccination (donnée de santé) ; le motif n'est pas recopié.
   'voyage.creer': { champs: ['empId', 'dest', 'depart', 'retour'] },
   'voyage.detachement': { champs: ['id', 'detachementLe', 'informationLe'], cible: parId('voyages', ['detachementLe', 'informationLe']) },

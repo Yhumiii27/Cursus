@@ -14,6 +14,8 @@
 // Jours fériés (shared/rules/majorations.ts) : saisissables si le réglage le permet, mention « Férié travaillé » et
 // majoration (1er mai : 100 %) au récapitulatif. Moyenne sur 12 semaines, temps partiel à requalifier et contingent annuel
 // (shared/rules/durees.ts) : alertes sur la feuille et, pour le service RH, dans un encart (components/AlertesDurees.tsx).
+// Réouverture d'une feuille validée (t131) : administrateur RH, motif obligatoire (dialogs/RouvrirFeuilleDialog.tsx) ;
+// déjà transmise, seul son écart part à la revalidation (lot correctif, shared/rules/regularisation.ts).
 import { useState, type MouseEvent } from 'react';
 import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
 import { ABS_ABREGE, TEMPS_TRAVAIL, TS_CLS, TS_LABEL } from '../../../shared/constants.ts';
@@ -30,6 +32,7 @@ import {
 } from '../../../shared/rules/temps.ts';
 import { formationsAProposer } from '../../../shared/rules/formations-temps.ts';
 import { MODES_HEURES_SUP } from '../../../shared/rules/paie.ts';
+import { aRegulariser, mentionReouverture } from '../../../shared/rules/regularisation.ts';
 import { feriesDeLaSemaine, MAJORATION_1ER_MAI, mentionFerie, plafondComplementaires } from '../../../shared/rules/majorations.ts';
 import { contingentsDeLaSemaine, contingentTexte, moyenne12Semaines, moyenneTexte, requalificationPartiel, requalificationTexte } from '../../../shared/rules/durees.ts';
 import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
@@ -255,7 +258,7 @@ export function Temps() {
 function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const d = useDomain();
   const data = d.ds;
-  const { rh, manager, me, soi } = useRole();
+  const { rh, admin, manager, me, soi } = useRole();
   const { run, openDialog } = useStore();
   const { occupe, agir } = useAgir();
   const [comment, setComment] = useState('');
@@ -361,6 +364,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const paie = sh?.sage ? ' · transmise à Sage Paie' : sh?.lotId ? ` · dans le lot de paie n° ${sh.lotId}, import dans Sage à confirmer`
     : c.interim ? (releve ? ` · relevé transmis à l’agence le ${fmtShort(new Date(releve.creation))}` : ' · relevé hebdomadaire à l’agence d’intérim')
     : c.dirigeant ? ' · non transmise à la paie (cadre dirigeant, art. L3111-2)'
+    : sh && aRegulariser(sh) ? ' · écart à transmettre à Sage Paie (régularisation, lot correctif)'
     : ' · en attente de transmission à Sage Paie';
   const flow = st === 'validee'
     ? `Validée${sh!.keystone ? ' · heures par projet renvoyées à Keystone' : ''}${paie}`
@@ -393,7 +397,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
             ))}
           </div>
         )}
-        {sh?.comment && st === 'rejetee' && <div style={{ fontSize: 13, color: 'var(--color-accent-300)' }}>Retour du manager : {sh.comment}</div>}
+        {sh?.comment && st === 'rejetee' && <div style={{ fontSize: 13, color: 'var(--color-accent-300)' }}>{sh.reouverture?.renvoyee ? 'Feuille rouverte par le service RH' : 'Retour du manager'} : {sh.comment}</div>}
 
         {vueJour ? (
           <SaisieJour wk={wk} days={days} lignes={lignes} perDay={calc.perDay} total={calc.total} editable={editable} occupe={occupe}
@@ -499,6 +503,13 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
         )}
         {motifSoumis && (st === 'soumise' || st === 'validee') && <Fine>Motif du dépassement : {motifSoumis}</Fine>}
         <Fine>{flow}</Fine>
+        {/* Réouverture (t131) : administrateur RH, jamais sa propre feuille ; une feuille transmise se régularise par écart. */}
+        {sh?.reouverture && <Fine>{mentionReouverture(sh, iso => fmtShort(new Date(iso)))}{sh.reouverture.motif ? ` — motif : ${sh.reouverture.motif}` : ''}</Fine>}
+        {st === 'validee' && admin && emp.id !== soi && (
+          <div className="actions-end">
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => openDialog({ type: 'rouvrirFeuille', empId: emp.id, week: wk })}>Rouvrir la feuille</button>
+          </div>
+        )}
       </Panel>
 
       <aside className="card elev-sm panel" style={{ flex: '0 1 320px', minWidth: 280 }}>

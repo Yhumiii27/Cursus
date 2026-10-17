@@ -166,10 +166,13 @@ const inscritsAvantApres: Partial<Regle> = { etat: (db, p) => inscrits(db, p.id)
  * Lot de paie renvoyé par l'action (`paie.lot…`, `temps.pushSage`) : son numéro, ses feuilles `{ empId, week }` et ses
  * absences (identifiants seuls : ni nature, ni rubrique, qui en révèlerait la catégorie).
  */
-const lotDuResultat = (x: Contexte) => x.result as { lot?: number; feuilles?: { empId: number; week: string }[]; absences?: { id: number; empId: number }[] } | null | undefined;
+const lotDuResultat = (x: Contexte) => x.result as { lot?: number; feuilles?: { empId: number; week: string }[]; absences?: { id: number; empId: number }[]; correctifs?: { empId: number; week: string }[] } | null | undefined;
 const lotRetenu = (x: Contexte) => {
   const r = lotDuResultat(x);
-  return { lot: r?.lot ?? null, feuilles: r?.feuilles ?? [], ...(r?.absences?.length ? { absences: r.absences.map(a => a.id) } : {}) };
+  return {
+    lot: r?.lot ?? null, feuilles: r?.feuilles ?? [], ...(r?.absences?.length ? { absences: r.absences.map(a => a.id) } : {}),
+    ...(r?.correctifs?.length ? { correctifs: r.correctifs } : {}),
+  };
 };
 const salariesDuLot = (x: Contexte) => [...new Set([...(lotDuResultat(x)?.feuilles ?? []).map(f => f.empId), ...(lotDuResultat(x)?.absences ?? []).map(a => a.empId)])];
 /** Feuilles transmises à la paie : validées et non transmises avant l'action, marquées transmises après. */
@@ -394,6 +397,12 @@ export const REGLES: Record<string, Regle> = {
   // Validation : en plus, la contrepartie obligatoire en repos figée sur la feuille (heures, shared/rules/durees.ts).
   'temps.validate': { champs: ['empId', 'week'], cible: FEUILLE, bilan: (_p, x) => ({ heures: totalHeures(x.apres), ...(corDeLaFeuille(x.apres as FeuilleTemps | null) ? { cor: corDeLaFeuille(x.apres as FeuilleTemps | null) } : {}) }) },
   'temps.reject': { champs: ['empId', 'week'], cible: FEUILLE },
+  // Réouverture d'une feuille validée (administrateur RH, t131) : statut avant et après, renvoi au salarié, feuille déjà
+  // transmise et son lot d'origine ; le motif (texte libre) reste sur la feuille, seul le fait qu'il soit renseigné est tracé.
+  'temps.rouvrir': {
+    champs: ['empId', 'week'], cible: FEUILLE,
+    extra: (p, av) => ({ renvoyer: p.renvoyer === true, motif: MENTION_TEXTE, transmise: !!av?.sage, lot: av?.lotId ?? null }),
+  },
   // Suivi des feuilles : relance (salarié visé ou tout le périmètre ; semaines relancées, salarié par salarié) et
   // validation groupée (feuilles validées, nombre de refus ; le message nomme les refus).
   'temps.relancer': {

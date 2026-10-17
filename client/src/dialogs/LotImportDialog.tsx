@@ -66,7 +66,8 @@ export function LotImportDialog({ id }: { id: number }) {
       </Field>
       <Fine>
         La confirmation est datée et porte votre nom ; elle seule marque les feuilles du lot transmises à la paie. Ensuite, le lot ne
-        s’annule plus : une correction se fait dans Sage, en attendant le lot correctif.
+        s’annule plus : pour corriger une feuille, l’administrateur RH la rouvre avec un motif ; revalidée, seul son écart part dans
+        le lot suivant (lot correctif).
       </Fine>
     </Dialog>
   );

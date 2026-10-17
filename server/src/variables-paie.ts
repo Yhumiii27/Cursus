@@ -18,6 +18,7 @@ import { periodeLabel, rubriquesPaie } from '../../shared/rules/paie.ts';
 import { buildSagePayload, sagePending } from '../../shared/rules/temps.ts';
 import type { CurrentUser, ElementAbsencePaie, RubriquePaie, SagePush } from '../../shared/types.ts';
 import { absencesAEmettre, traduireElements } from './absences-paie.ts';
+import { optionsRegularisation } from './regularisation-paie.ts';
 import { journaliser } from './comptes.ts';
 import { identite } from './connexion.ts';
 import { loadFull } from './dataset.ts';
@@ -53,10 +54,11 @@ export function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: string)
       if ((l.periode ?? '') !== periode) continue;
       const e = nomPar.get(l.matricule);
       for (const [rubrique, quantite] of Object.entries(l.rubriques)) {
-        if (!quantite) continue;
+        // « Annule et remplace » : une quantité nulle remplace celle déjà partie, elle est gardée.
+        if (!quantite && !l.remplace) continue;
         out.push({
           matricule: l.matricule, salarie: e?.nom ?? '', rubrique, libelle: libelles[rubrique] ?? rubrique, quantite, lot, etat, empId: e?.id ?? null,
-          detail: `Semaine ${l.semaine}${l.periode_origine ? ` · rappel de ${periodeLabel(l.periode_origine)}` : ''}`,
+          detail: `Semaine ${l.semaine}${l.periode_origine ? ` · rappel de ${periodeLabel(l.periode_origine)}` : ''}${l.remplace ? ' · annule et remplace (feuille rouverte)' : l.correctif ? ' · régularisation (feuille rouverte, écart)' : ''}`,
         });
       }
     }
@@ -78,7 +80,7 @@ export function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: string)
   // En attente : ce que le lot de la période emporterait aujourd'hui.
   const sheets = feuillesDuLot(sagePending(d), periode, d.ds.settings, d.ti);
   const absences: ElementAbsencePaie[] = traduireElements(absencesAEmettre(db, d, periode), d.ds.rubriquesPaie);
-  if (sheets.length || absences.length) ajouter({ ...buildSagePayload(d, sheets, SAGE_DOSSIER, new Date(), sageMode()), absences }, '', 'En attente d’un lot');
+  if (sheets.length || absences.length) ajouter({ ...buildSagePayload(d, sheets, SAGE_DOSSIER, new Date(), sageMode(), optionsRegularisation(db, d)), absences }, '', 'En attente d’un lot');
   return out.sort((a, b) => a.matricule.localeCompare(b.matricule) || a.rubrique.localeCompare(b.rubrique) || a.detail.localeCompare(b.detail));
 }
 

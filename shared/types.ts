@@ -426,6 +426,34 @@ export interface FeuilleTemps {
    * figée sur les autres. Négative pour corriger une COR déjà créditée. Null : aucune.
    */
   cor?: Record<string, number> | null;
+  /**
+   * Dernière réouverture de la feuille validée par l'administrateur RH (t131, shared/rules/regularisation.ts) ; null ou
+   * absente : jamais rouverte. Vues du manager et du collaborateur : sans le motif, les rubriques ni les heures Keystone.
+   */
+  reouverture?: ReouvertureFeuille | null;
+}
+/**
+ * Réouverture d'une feuille validée (action `temps.rouvrir`, administrateur RH seul, motif obligatoire) : ce qui était
+ * déjà parti, gardé pour n'envoyer à la revalidation que la différence.
+ */
+export interface ReouvertureFeuille {
+  /** Instant (ISO), auteur et motif (500 caractères au plus) de la réouverture. */
+  le: string; par: string; motif: string;
+  /** Renvoyée au salarié pour correction (« à corriger »), sinon corrigée par son valideur (« soumise »). */
+  renvoyee: boolean;
+  /** Feuille déjà transmise à la paie à sa réouverture (une fois au moins) ; `lot` : dernier lot transmis qui la portait. */
+  transmise: boolean; lot: number | null;
+  /**
+   * Rubriques déjà transmises à la paie, en codes Sage, par période d'origine (AAAA-MM → code → quantité) : l'écart
+   * avec celles de la feuille revalidée part dans le lot suivant (lot « correctif »). Null : rien de transmis.
+   */
+  rubriques: Record<string, Record<string, number>> | null;
+  /** D'où viennent `rubriques` : contenu figé du lot, lignes du lot rapprochées par matricule, ou recalcul de la feuille. */
+  source?: 'lot' | 'lignes' | 'recalcul' | null;
+  /** Heures par projet déjà renvoyées à Keystone ; un projet retiré y est renvoyé à 0. Null : aucun événement parti. */
+  keystone: Record<string, number> | null;
+  /** Réouvertures précédentes (instant, auteur, motif), de la plus ancienne à la plus récente. */
+  precedentes?: { le: string; par: string; motif: string }[];
 }
 /**
  * Dérogation au repos dominical d'une équipe (shared/rules/semaine.ts) : aucune (heures du dimanche signalées au RH), travail
@@ -826,7 +854,23 @@ export interface SagePush {
   /** Ancien format : adresse d'un envoi par API qui n'a jamais existé (contenus figés avant le lot 5). */
   endpoint?: string;
   dossier: string; mode?: SageMode; envoye_le: string; periodes?: string[]; periode_paie?: string;
-  lignes: { matricule: string; semaine: string; periode?: string; periode_origine?: string; rubriques: Record<string, number> }[];
+  lignes: {
+    matricule: string; semaine: string; periode?: string; periode_origine?: string; rubriques: Record<string, number>;
+    /**
+     * Régularisation d'une feuille rouverte (t131) : écart avec ce qui est déjà parti ; `remplace` : rubriques complètes
+     * du salarié pour la période d'origine (« annule et remplace », quantités négatives refusées par l'import), une
+     * quantité nulle y est gardée.
+     */
+    correctif?: boolean; remplace?: boolean;
+  }[];
+  /**
+   * Rubriques de chaque feuille du lot (codes Sage, par période d'origine), figées à la génération : ce qui est parti pour
+   * elle, que la réouverture garde (`ReouvertureFeuille.rubriques`). Absent avant le lot 5 (repris par la migration
+   * lot5-paie-rubriques-par-feuille quand les lignes le permettent).
+   */
+  rubriquesFeuilles?: RubriquesFeuille[];
+  /** Lot correctif : régularisation par écart (quantités négatives acceptées) ou en « annule et remplace ». */
+  regularisation?: ModeRegularisation;
   /** Libellé de chaque code Sage du contenu, figé à la génération du lot (colonne facultative « libellé » du fichier). */
   libelles?: Record<string, string>;
   /** Absences du lot, absence par absence, mois et rubrique (shared/rules/absences-paie.ts) ; absent avant le lot 5. */
@@ -871,6 +915,12 @@ export interface RubriquePaie {
  * (date, auteur, référence) ou simulation ; annulé : feuilles libérées, possible seulement avant la confirmation.
  */
 export type StatutLotPaie = 'genere' | 'transmis' | 'annule';
+/** Lot ordinaire, ou correctif : il porte la régularisation d'au moins une feuille rouverte après sa transmission. */
+export type TypeLotPaie = 'normal' | 'correctif';
+/** Régularisation d'une feuille transmise : écart sur la période ouverte, ou rubriques complètes de la période d'origine. */
+export type ModeRegularisation = 'ecart' | 'remplace';
+/** Rubriques d'une feuille (codes Sage), par période d'origine (AAAA-MM). */
+export interface RubriquesFeuille { empId: number; week: ISODate; periodes: Record<string, Record<string, number>> }
 export interface LotPaie {
   id: number;
   /** Clé d'idempotence (UUID) : identique à chaque téléchargement du fichier. */
@@ -896,6 +946,9 @@ export interface LotPaie {
   annuleLe: string | null; annulePar: string | null;
   /** Lot repris des transmissions d'avant les lots (migration lot4-paie-lots-historiques) : contenu inconnu. */
   historique: boolean;
+  /** « correctif » : régularisation de feuilles rouvertes (`correctifs`) ; absent avant le lot 5 : lot ordinaire. */
+  type?: TypeLotPaie;
+  correctifs?: { empId: number; week: ISODate }[];
 }
 /**
  * Colonnes du fichier d'import Sage, dans l'ordre réglé par la paie : matricule, période, rubrique et quantité toujours ;
@@ -914,6 +967,12 @@ export interface FormatFichierPaie {
   encodage: 'utf-8' | 'windows-1252';
   /** Dates des colonnes « début » et « fin » de période. */
   formatDate: 'JJ/MM/AAAA' | 'AAAA-MM-JJ' | 'JJMMAAAA';
+  /**
+   * Quantités négatives acceptées par l'import (oui par défaut) : la correction d'une feuille déjà transmise part en
+   * écart, positif ou négatif ; sinon en « annule et remplace » (rubriques complètes de la période d'origine). Lu à la
+   * génération du lot.
+   */
+  negatifs?: boolean;
 }
 
 /** Instantané des données visibles par l'utilisateur connecté. */

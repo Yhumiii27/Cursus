@@ -22,6 +22,9 @@ export const STATUTS_LOT: Record<StatutLotPaie, { label: string; cls: string }> 
   annule: { label: 'Annulé', cls: 'tag-outline' },
 };
 
+/** Lot correctif (t131) : il régularise au moins une feuille rouverte après sa transmission. */
+export const estCorrectif = (l: Pick<LotPaie, 'type'>) => l.type === 'correctif';
+
 /** Lot qui réserve ses feuilles : généré ou transmis (un lot annulé les a libérées). */
 export const lotActif = (l: Pick<LotPaie, 'statut'>) => l.statut !== 'annule';
 
@@ -42,7 +45,7 @@ export function feuillesDuLot<T extends Pick<FeuilleTemps, 'week'>>(sheets: read
 
 export const FORMAT_FICHIER_DEFAUT: FormatFichierPaie = {
   separateur: ';', colonnes: ['matricule', 'periode', 'rubrique', 'quantite'], formatPeriode: 'AAAA-MM', decimale: ',', entete: true,
-  encodage: 'utf-8', formatDate: 'JJ/MM/AAAA',
+  encodage: 'utf-8', formatDate: 'JJ/MM/AAAA', negatifs: true,
 };
 
 export const SEPARATEURS: Record<FormatFichierPaie['separateur'], string> = { ';': 'Point-virgule ( ; )', ',': 'Virgule ( , )', tab: 'Tabulation' };
@@ -89,6 +92,8 @@ export function controlerFormat(p: Record<string, unknown>, actuel: FormatFichie
     Object.assign(f, { [k]: v });
   }
   if (p.entete !== undefined) f.entete = !!p.entete;
+  // Quantités négatives acceptées par l'import (régularisation par écart) ; sinon « annule et remplace » (t131).
+  if (p.negatifs !== undefined) f.negatifs = !!p.negatifs;
   if (p.colonnes !== undefined) {
     const c = p.colonnes;
     if (!Array.isArray(c) || c.some(x => choix(COLONNES_FICHIER, x) === null) || new Set(c).size !== c.length || COLONNES_OBLIGATOIRES.some(x => !c.includes(x))) {
@@ -127,28 +132,33 @@ export interface LigneFichier { matricule: string; periode: string; rubrique: st
 /** Contenu lu par le fichier : lignes des feuilles et, depuis le lot 5, éléments d'absence. */
 type ContenuFichier = Pick<SagePush, 'lignes'> & Partial<Pick<SagePush, 'absences'>>;
 
-/** Quantités du contenu par matricule, période et code Sage : heures des feuilles, puis absences exportées. */
-function quantites(contenu: ContenuFichier): { matricule: string; periode: string; rubrique: string; q: number }[] {
+/**
+ * Quantités du contenu par matricule, période et code Sage : heures des feuilles, puis absences exportées. `garder` :
+ * ligne « annule et remplace » d'une feuille rouverte (t131), dont une quantité nulle remplace celle déjà partie.
+ */
+function quantites(contenu: ContenuFichier): { matricule: string; periode: string; rubrique: string; q: number; garder?: boolean }[] {
   return [
-    ...contenu.lignes.flatMap(l => Object.entries(l.rubriques).map(([rubrique, q]) => ({ matricule: l.matricule, periode: l.periode ?? '', rubrique, q }))),
+    ...contenu.lignes.flatMap(l => Object.entries(l.rubriques).map(([rubrique, q]) => ({ matricule: l.matricule, periode: l.periode ?? '', rubrique, q, ...(l.remplace ? { garder: true } : {}) }))),
     ...(contenu.absences ?? []).flatMap(x => (x.codeSage ? [{ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite }] : [])),
   ];
 }
 
 /**
  * Lignes du fichier : une par salarié, période et rubrique, quantités additionnées sur la période (rappel d'une période
- * close compris, puisqu'il part sur la période ouverte ; absences et leurs régularisations négatives comprises), triées
- * par matricule, période et rubrique ; quantité nulle omise.
+ * close compris, puisqu'il part sur la période ouverte ; absences et leurs régularisations négatives comprises, écarts
+ * d'une feuille rouverte aussi), triées par matricule, période et rubrique ; quantité nulle omise, sauf en « annule et
+ * remplace » (elle remplace la quantité déjà partie).
  */
 export function lignesFichier(contenu: ContenuFichier): LigneFichier[] {
-  const somme = new Map<string, LigneFichier>();
-  for (const { matricule, periode, rubrique, q } of quantites(contenu)) {
+  const somme = new Map<string, LigneFichier>(), gardees = new Set<string>();
+  for (const { matricule, periode, rubrique, q, garder } of quantites(contenu)) {
     const cle = `${matricule}|${periode}|${rubrique}`;
     const x = somme.get(cle) ?? { matricule, periode, rubrique, quantite: 0 };
     x.quantite = r2(x.quantite + q);
     somme.set(cle, x);
+    if (garder) gardees.add(cle);
   }
-  return [...somme.values()].filter(x => x.quantite !== 0)
+  return [...somme.entries()].filter(([cle, x]) => x.quantite !== 0 || gardees.has(cle)).map(([, x]) => x)
     .sort((a, b) => a.matricule.localeCompare(b.matricule) || a.periode.localeCompare(b.periode) || a.rubrique.localeCompare(b.rubrique));
 }
 

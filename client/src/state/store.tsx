@@ -116,6 +116,8 @@ export type DialogState =
   /** Lots de paie (écran Temps, components/LotsPaie.tsx) : confirmation de l'import dans Sage, format du fichier d'import. */
   | { type: 'lotImport'; id: number }
   | { type: 'formatFichier' }
+  /** Réouverture d'une feuille validée (administrateur RH, t131). */
+  | { type: 'rouvrirFeuille'; empId: number; week: ISODate }
   /** Refus ou action irréversible à confirmer (state/confirmations.ts). */
   | { type: 'confirmer'; c: Confirmation };
 

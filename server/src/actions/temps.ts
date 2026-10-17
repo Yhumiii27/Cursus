@@ -12,6 +12,7 @@ import { estActiviteInterne } from '../../../shared/rules/activites.ts';
 import { completerSemaine, JOURS_FEUILLE } from '../../../shared/rules/semaine.ts';
 import { ferieRefus } from '../../../shared/rules/majorations.ts';
 import { alertesValidation, corAValider } from '../../../shared/rules/durees.ts';
+import { aRegulariser, projetsRevalidation } from '../../../shared/rules/regularisation.ts';
 import type { Employe, FeuilleTemps, LigneTemps } from '../../../shared/types.ts';
 import { heuresKeystone, sendToKeystone } from '../integrations/keystone.ts';
 import { notifierFeuilleRenvoyee, notifierFeuilleSoumise } from '../notifications.ts';
@@ -205,7 +206,8 @@ export function validerFeuille(ctx: Ctx, p: Record<string, any>): { message: str
   const contrat = sh.contrat ?? contratFige(emp);
   const motif = motifDepassement(ctx, emp, { ...sh, contrat }, p, 'avant de valider la feuille', true);
   // Seules les heures des projets Keystone lui sont renvoyées : ni activités internes (INT-*), ni cours en CFA (ECOLE).
-  const projets = heuresKeystone(sh.lignes), keystone = Object.keys(projets).length > 0;
+  // Feuille rouverte (t131) : un projet déjà renvoyé puis retiré y part à 0, l'événement remplaçant le précédent.
+  const projets = projetsRevalidation(heuresKeystone(sh.lignes), sh.reouverture), keystone = Object.keys(projets).length > 0;
   // Mode des heures supplémentaires (payées ou en repos) figé à la validation, comme le régime à la soumission :
   // un changement ultérieur du réglage ne recalcule ni la paie ni le repos acquis de cette semaine. De même pour la
   // majoration des heures du dimanche et des jours fériés.
@@ -225,7 +227,8 @@ export function validerFeuille(ctx: Ctx, p: Record<string, any>): { message: str
   // Intérimaire : la dernière feuille validée d'une semaine révolue fait partir le relevé de son agence.
   const releve = emp.typeContrat === 'interim' && emp.agence ? relevesAutomatiques(ctx.db, { agence: emp.agence, semaine: sh.week }).length > 0 : false;
   return {
-    message: `Semaine ${isoWeek(sh.week)} validée${keystone ? ' — heures des projets Keystone renvoyées à Keystone' : ''}${releve ? ` · relevé d’heures envoyé à l’agence ${emp.agence}` : ''}${alertes.map(a => ` · ${a}`).join('')}`,
+    message: `Semaine ${isoWeek(sh.week)} validée${keystone ? ' — heures des projets Keystone renvoyées à Keystone' : ''}${releve ? ` · relevé d’heures envoyé à l’agence ${emp.agence}` : ''}`
+      + `${aRegulariser({ ...sh, statut: 'validee' }) ? ' · feuille déjà transmise à la paie : l’écart partira dans le prochain lot (lot correctif)' : ''}${alertes.map(a => ` · ${a}`).join('')}`,
     alertes,
   };
 }

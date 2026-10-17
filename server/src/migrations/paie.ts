@@ -1,14 +1,18 @@
 // Migrations nommées du chantier « paie » (lot 4) : mode des heures supplémentaires figé sur les feuilles validées ;
 // feuilles déjà transmises réunies en un lot de paie historique. Lot 5 : ancien mode « api » des lots retiré ; absences
-// des périodes passées laissées à la saisie dans Sage (premier jour transmis par le fichier d'import).
+// des périodes passées laissées à la saisie dans Sage (premier jour transmis par le fichier d'import) ; rubriques
+// transmises de chaque feuille reprises dans le contenu des lots (réouverture d'une feuille transmise, t131).
 import { randomUUID } from 'node:crypto';
 import { isoParis } from '../../../shared/dates.ts';
 import { Domain } from '../../../shared/domain.ts';
 import { matricule, plural } from '../../../shared/format.ts';
+import { matriculeAffiche } from '../../../shared/rules/matricules.ts';
 import { recupInfo } from '../../../shared/rules/conges.ts';
 import { periodeOuverte, periodesSemaine } from '../../../shared/rules/paie.ts';
 import type { CurrentUser, Dataset, FeuilleTemps } from '../../../shared/types.ts';
 import { lireDepuis, poserDepart } from '../absences-paie.ts';
+import type { LotEnregistre } from '../lots-paie.ts';
+import { rubriquesFeuillesDuLot } from '../regularisation-paie.ts';
 import { journaliser } from '../comptes.ts';
 import { loadFull, loadSettings, todayIso } from '../dataset.ts';
 import type { Db } from '../db.ts';
@@ -157,5 +161,41 @@ export const ABSENCES_ANTERIEURES: Migration = {
     if (!absencesValidees(db)) return;
     const r = poserDepart(db, `${periodeOuverte(todayIso(), loadSettings(db).clotureJour)}-01`, { actor: 'Cursus', role: null }, 'Reprise');
     return `absences transmises à la paie à partir du ${r.depuis}`;
+  },
+};
+
+/** Lots au contenu figé d'avant les rubriques par feuille (lot 5, t131). */
+const sansRubriquesFeuilles = `FROM lots_paie WHERE contenu IS NOT NULL AND contenu <> 'null' AND json_extract(contenu, '$.rubriquesFeuilles') IS NULL`;
+const lotsAReprendre = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS n ${sansRubriquesFeuilles}`).get() as { n: number }).n);
+
+/**
+ * Lot 5 (t131) : le contenu d'un lot garde les rubriques de chaque feuille (codes Sage, par période d'origine), ce que la
+ * réouverture d'une feuille transmise reprend pour n'envoyer que l'écart. Les lots d'avant ne gardaient que les lignes,
+ * par matricule et semaine : elles sont rapprochées des feuilles du lot avec le matricule de paie actuel de chaque
+ * salarié, au plus près de la transmission (un matricule changé ensuite ne permettrait plus de les retrouver). Une
+ * feuille dont le salarié n'a aucune ligne dans le lot n'est pas reprise : sa réouverture la recalculera. Lots
+ * historiques (sans contenu) inchangés. Tracé au journal (`migration.rubriquesFeuilles` : lots et nombre de feuilles).
+ */
+export const RUBRIQUES_PAR_FEUILLE: Migration = {
+  nom: 'lot5-paie-rubriques-par-feuille',
+  // Base neuve : exécutée, sans effet ; base existante sans lot à reprendre : notée faite.
+  necessaire: db => db.neuve || lotsAReprendre(db) > 0,
+  executer: db => {
+    if (!lotsAReprendre(db)) return;
+    const employes = new Map(db.all<{ id: number; matriculePaie: string | null }>('employes').map(e => [e.id, matriculeAffiche(e)]));
+    const ids = (db.sql.prepare(`SELECT id ${sansRubriquesFeuilles}`).all() as { id: number }[]).map(r => r.id);
+    let feuilles = 0;
+    for (const id of ids) {
+      const lot = db.get<LotEnregistre>('lotsPaie', id)!;
+      const rubriquesFeuilles = rubriquesFeuillesDuLot(lot, empId => employes.get(empId) ?? null);
+      feuilles += rubriquesFeuilles.length;
+      db.update<LotEnregistre>('lotsPaie', id, { contenu: { ...lot.contenu!, rubriquesFeuilles } });
+    }
+    journaliser(db, {
+      actor: 'Cursus', role: null, action: 'migration.rubriquesFeuilles',
+      message: `Reprise : rubriques transmises de ${plural(feuilles, 'feuille', 'feuilles')} gardées dans ${plural(ids.length, 'lot de paie', 'lots de paie')}, pour leur éventuelle réouverture`,
+      payload: { lots: ids, feuilles },
+    });
+    return `${plural(ids.length, 'lot de paie', 'lots de paie')} : rubriques de ${plural(feuilles, 'feuille', 'feuilles')} reprises`;
   },
 };

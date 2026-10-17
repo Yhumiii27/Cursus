@@ -718,7 +718,7 @@
         "allOf": [
           { "$ref": "#/components/schemas/EnveloppeEvenement" },
           {
-            "description": "Une feuille de temps a été validée : heures de la semaine sur les projets Keystone. Activités internes (INT-*) et cours en CFA (ECOLE) jamais transmis ; une semaine sans heure sur un projet Keystone n'envoie rien.",
+            "description": "Une feuille de temps a été validée : heures de la semaine sur les projets Keystone. Activités internes (INT-*) et cours en CFA (ECOLE) jamais transmis ; une semaine sans heure sur un projet Keystone n'envoie rien à sa première validation. Un nouvel événement pour le même salarié et la même semaine remplace le précédent : une feuille rouverte puis revalidée renvoie ses heures corrigées, 0 pour un projet déjà envoyé puis retiré (une semaine vidée de toute heure Keystone envoie tous ses projets à 0).",
             "properties": {
               "type": { "const": "heures.validees" },
               "donnees": {
@@ -731,7 +731,7 @@
                     "type": "object",
                     "minProperties": 1,
                     "propertyNames": { "$ref": "#/components/schemas/Identifiant" },
-                    "additionalProperties": { "type": "number", "exclusiveMinimum": 0, "description": "Heures de la semaine sur ce projet (deux décimales au plus)" }
+                    "additionalProperties": { "type": "number", "minimum": 0, "description": "Heures de la semaine sur ce projet (deux décimales au plus) ; 0 pour un projet retiré par une correction de la feuille" }
                   }
                 }
               }

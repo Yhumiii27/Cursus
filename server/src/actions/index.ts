@@ -23,6 +23,7 @@ import { paieActions } from './paie.ts';
 import { parametresActions } from './parametres.ts';
 import { referentielsActions } from './referentiels.ts';
 import { remiseActions } from './remise.ts';
+import { reouvertureActions } from './reouverture.ts';
 import { repriseActions } from './reprise.ts';
 import { reposDominicalActions } from './repos-dominical.ts';
 import { santeActions } from './sante.ts';
@@ -39,6 +40,7 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...voyagesActions,
   ...budgetActions,
   ...tempsActions,
+  ...reouvertureActions,
   ...absencesActions,
   ...entretiensActions,
   ...equipesActions,

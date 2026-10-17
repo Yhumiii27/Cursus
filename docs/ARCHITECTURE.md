@@ -48,7 +48,8 @@ server/src/
   migrations/      Migrations nommées, exécutées une seule fois par base : cadre.ts (contrôle et exécution), liste.ts (ordre),
                    outils.ts (reconstruction d'une table, index), un fichier par chantier (voir « Cadre commun du lot 4 ») :
                    exploitation.ts (index), entretiens.ts (coût réel des actions déjà réalisées), referentiels.ts (postes
-                   créés depuis les intitulés des fiches), paie.ts (mode des heures supplémentaires, lot de paie historique),
+                   créés depuis les intitulés des fiches), paie.ts (mode des heures supplémentaires, lot de paie historique,
+                   rubriques par feuille des lots d'avant le lot 5),
                    voyages.ts (référence DD-<n°> des déplacements importés sans référence, lot 5)
                    temps.ts (lignes des feuilles complétées à 7 jours, activités internes de base amorcées)
                    conges.ts (lot 5 : demi-journées hors de la règle ramenées à la journée entière)
@@ -749,15 +750,16 @@ aucun champ du paramètre n'est recopié.
 | `temps.validerLot` | feuilles [{empId, week}] (200 au plus) : chacune passe par `temps.validate` dans son point de reprise (SAVEPOINT) ; refus listés dans le message, les autres validées, avec les alertes de durée de chacune (5 au plus en entier) ; aucune validée : 403 si toutes l'étaient pour des droits, sinon 400 avec la liste | manager direct ou RH (comme `temps.validate`) |
 | `paie.lotGenerer` | periode (AAAA-MM) : lot des feuilles validées en attente dont la période de destination vient au plus tard (rappels compris), contenu figé, clé d'idempotence (UUID), feuilles réservées (`feuilles.lotId`), libellé de chaque code Sage figé (`contenu.libelles`) ; hors simulation, refus si un salarié n'a pas de matricule de paie (liste) ou 409 si une rubrique émise et exportée n'a pas de code Sage confirmé (liste) ; en simulation, avertissement | administrateur RH, paie (écran Temps) |
 | `paie.lotConfirmer` | id, reference? (code de 40 caractères au plus) : confirmation de l'import dans Sage, datée et signée, qui seule marque les feuilles transmises ; lot de fichier : fichier téléchargé au moins une fois (409 sinon) ; lot de simulation refusé hors simulation ; déjà confirmé : rien n'est refait ; annulé : 409 | administrateur RH, paie |
-| `paie.lotAnnuler` | id : avant la confirmation seulement (409 ensuite : lot correctif à venir) ; feuilles libérées | administrateur RH, paie |
+| `paie.lotAnnuler` | id : avant la confirmation seulement (409 ensuite : une feuille se corrige par `temps.rouvrir`, puis lot correctif) ; feuilles libérées | administrateur RH, paie |
 | `temps.validate` / `temps.reject` | empId, week, comment?, motif? | manager direct ou RH, jamais pour sa propre feuille (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence ; 24 h par jour au plus ; motif du dépassement exigé s'il manque, après une correction du valideur : celui du salarié n'est jamais remplacé) |
 | `temps.pushSage` | — ; simulation seulement : lot de toutes les feuilles en attente (et des absences jusqu'à leur dernière période), aussitôt marqué transmis (référence « SIM-… », rien n'est envoyé, message qui le dit) ; en mode fichier, refus 503 sans rien marquer | administrateur RH, paie |
+| `temps.rouvrir` | empId, week, motif (obligatoire, 500 caractères ; gardé sur la feuille, `reouverture.motif` ; journal : seulement « renseigné »), renvoyer? (vrai : « à corriger », motif en commentaire, salarié prévenu ; sinon « soumise », corrigée par son valideur) : feuille validée seulement ; 409 si elle est dans un lot de paie généré (annuler d'abord le lot) ou si c'est celle d'un intérimaire dont le relevé est parti ; transmise, elle garde les rubriques parties (`reouverture.rubriques`) et, revalidée, son écart part dans le lot suivant (lot correctif) ; heures déjà renvoyées à Keystone gardées (`reouverture.keystone`) ; COR refigée à la revalidation | administrateur RH, jamais pour sa propre feuille |
 | `temps.relancer` | empId? (sinon tout le périmètre) : feuilles des semaines suivies manquantes, en brouillon ou à corriger, échéance passée ; e-mail (ou récapitulatif) au salarié et à son valideur ; rien en retard : refus | manager direct (son équipe) ou RH |
 | `temps.validerLot` | feuilles [{empId, week}] (200 au plus) : chacune passe par `temps.validate` dans son point de reprise (SAVEPOINT) ; refus listés dans le message, les autres validées ; aucune validée : 403 si toutes l'étaient pour des droits, sinon 400 avec la liste | manager direct ou RH (comme `temps.validate`) |
 | `paie.lotGenerer` | periode (AAAA-MM) : lot des feuilles validées en attente dont la période de destination vient au plus tard (rappels compris) et, réglage `absencesFichierPaie`, des absences validées ventilées par mois avec leurs régularisations (`shared/rules/absences-paie.ts` ; lot possible sans feuille), contenu figé, clé d'idempotence (UUID), feuilles et absences réservées (`feuilles.lotId`, `absences.lotId`), libellé de chaque code Sage figé (`contenu.libelles`) ; hors simulation, refus si un salarié n'a pas de matricule de paie (liste) ou 409 si une rubrique émise et exportée n'a pas de code Sage confirmé (liste) ; en simulation, avertissement | administrateur RH, paie (écran Temps) |
 | `paie.lotConfirmer` | id, reference? (code de 40 caractères au plus) : confirmation de l'import dans Sage, datée et signée, qui seule marque les feuilles et les absences transmises (`absences.sage`) ; lot de fichier : fichier téléchargé au moins une fois (409 sinon) ; lot de simulation refusé hors simulation ; déjà confirmé : rien n'est refait ; annulé : 409 | administrateur RH, paie |
-| `paie.lotAnnuler` | id : avant la confirmation seulement (409 ensuite : lot correctif à venir) ; feuilles et absences libérées (une absence reprend le dernier lot transmis qui l'a emportée) | administrateur RH, paie |
-| `paie.formatFichier` | separateur? (`;`/`,`/`tab`), colonnes? (matricule, periode, rubrique, quantite chacune une fois ; facultatives, absentes par défaut, une fois au plus : dossier, libelle, debut, fin), formatPeriode? (`AAAA-MM`/`MM/AAAA`/`AAAAMM`/`MMAAAA`), formatDate? (`JJ/MM/AAAA`/`AAAA-MM-JJ`/`JJMMAAAA`), decimale? (`,`/`.`, différente du séparateur), entete?, encodage? (`utf-8` sans BOM par défaut, `windows-1252`) : clé `formatFichierPaie` de la table settings | administrateur RH, paie |
+| `paie.lotAnnuler` | id : avant la confirmation seulement (409 ensuite : une feuille se corrige par `temps.rouvrir`, puis lot correctif) ; feuilles et absences libérées (une absence reprend le dernier lot transmis qui l'a emportée) | administrateur RH, paie |
+| `paie.formatFichier` | separateur? (`;`/`,`/`tab`), colonnes? (matricule, periode, rubrique, quantite chacune une fois ; facultatives, absentes par défaut, une fois au plus : dossier, libelle, debut, fin), formatPeriode? (`AAAA-MM`/`MM/AAAA`/`AAAAMM`/`MMAAAA`), formatDate? (`JJ/MM/AAAA`/`AAAA-MM-JJ`/`JJMMAAAA`), decimale? (`,`/`.`, différente du séparateur), entete?, encodage? (`utf-8` sans BOM par défaut, `windows-1252`), negatifs? (quantités négatives acceptées par l'import, vrai par défaut ; faux : feuilles rouvertes régularisées en « annule et remplace », lu à la génération du lot) : clé `formatFichierPaie` de la table settings | administrateur RH, paie |
 | `paie.rubrique` | code (RUBRIQUES_PAIE), codeSage?, active?, confirmer? (`true` : confirmé ce jour par la personne connectée ; `false` : confirmation retirée ; un code changé sans `true` repasse « à confirmer ») ; jamais deux unités sur un même code Sage | administrateur RH, paie (écran Temps) |
 | `releve.envoyer` | agence, semaine (lundi, pas à venir) : relevé des feuilles validées des intérimaires de l'agence, envoi ou renvoi (feuilles en attente nommées) | RH, paie |
 | `absence.demander` | empId, kind (`CP`/`RTT`/`RECUP`), du, au, debutDemi, finDemi (`matin`/`apres_midi`, facultatifs) | intéressé ou RH (demande, refusée si ces jours portent des heures sur une feuille validée) ; manager direct (posée et validée, refusée si des heures sont saisies ces jours-là) |
@@ -1938,6 +1940,28 @@ Règles : `shared/rules/absences.ts` (confidentialité, décompte, reprise, annu
     `resume.absences` retirés hors droit « paie » (`sansCodesAbsences`) ; `lotId` et `sage` des absences retirés pour le
     manager, le collaborateur et le référent HSE (`absenceSansPaie`). Journal des lots : identifiants des absences et
     salariés, jamais la nature ni la rubrique.
+  - Réouverture et lots correctifs (lot 5, chantier A, t131 ; `shared/rules/regularisation.ts`,
+    `server/src/actions/reouverture.ts`, `server/src/regularisation-paie.ts`) : `temps.rouvrir` (administrateur RH seul,
+    motif obligatoire de 500 caractères au plus, réponse de l'entreprise du 17 octobre 2026) remet une feuille validée
+    « soumise » ou « à corriger » et note la réouverture sur la feuille (colonne `feuilles.reouverture` : instant, auteur,
+    motif, réouvertures précédentes). Refus : feuille d'un lot généré (annuler d'abord le lot), intérimaire dont le relevé
+    est parti (table `releves`). Feuille transmise : `sage` et `lotId` vidés, rubriques déjà parties gardées en codes Sage
+    par période d'origine (`reouverture.rubriques`, `transmisDeLaFeuille` : `contenu.rubriquesFeuilles` du dernier lot
+    transmis qui la porte, figé par `buildSagePayload` pour chaque feuille depuis le lot 5 ; sinon ses lignes rapprochées
+    par matricule et semaine ; sinon, lot historique sans contenu, la feuille recalculée telle que validée). Revalidée,
+    elle revient dans `sagePending`, « à régulariser » (`aRegulariser`) ; `buildSagePayload` émet pour elle l'écart
+    (`lignesRegularisation`, `correctif: true`) sur sa période d'origine si elle est ouverte, sinon sur la période ouverte
+    avec `periode_origine` ; le lot porte `type: 'correctif'` et `correctifs` (salarié, semaine). Format du fichier sans
+    quantité négative (`negatifs: false`, `paie.formatFichier`) : « annule et remplace » (`remplace: true`), rubriques
+    complètes du salarié pour la période d'origine (autres feuilles transmises comprises), une quantité nulle gardée dans
+    le fichier ; `contenu.regularisation` dit le mode retenu à la génération. Keystone : `projetsRevalidation` renvoie à 0
+    les projets déjà envoyés puis retirés, et une semaine vidée de toute heure Keystone envoie l'événement. Récupération
+    (`recupInfo`, feuilles validées seulement) et COR (`corAValider`, `cor` vidé à la réouverture) se recalculent. Vues :
+    manager et collaborateur reçoivent la réouverture sans motif, rubriques ni heures Keystone (`reouvertureNeutre`).
+    Journal `temps.rouvrir` (action de paie, archive) : salarié, semaine, statut avant et après, renvoi, feuille
+    transmise et son lot, jamais le motif. Reprise : migration `lot5-paie-rubriques-par-feuille` (rubriques par feuille
+    des lots d'avant, d'après leurs lignes et le matricule actuel ; journal `migration.rubriquesFeuilles`). Les absences
+    gardent leur propre régularisation (quantités négatives, `elementsAbsences`), sans « annule et remplace ».
   - Variables de la période (`GET /api/paie/variables/:periode`, `server/src/variables-paie.ts`, droit « paie ») : CSV
     (« ; », UTF-8 avec BOM) des lignes des lots générés ou transmis de la période puis de ce qui attend un lot : matricule
     de paie, salarié, code Sage, libellé, quantité, détail (semaine, ou absence et ses dates, rappel, régularisation, jamais

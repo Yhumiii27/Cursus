@@ -6,7 +6,7 @@ import { DEMI_JOURNEES } from './conges.ts';
 import { COUT_REEL } from './entretiens.ts';
 import { INDEX_ENVOIS, INDEX_JOURNAL, INDEX_KEYSTONE, INDEX_SALARIES } from './exploitation.ts';
 import { SOLDES_DATES } from './reprise.ts';
-import { ABSENCES_ANTERIEURES, HEURES_SUP, LOTS_HISTORIQUES, MODE_API_RETIRE } from './paie.ts';
+import { ABSENCES_ANTERIEURES, HEURES_SUP, LOTS_HISTORIQUES, MODE_API_RETIRE, RUBRIQUES_PAR_FEUILLE } from './paie.ts';
 import { POSTES } from './referentiels.ts';
 import { REFERENCES_DEPLACEMENTS } from './voyages.ts';
 import { ACTIVITES_INTERNES, SEMAINE_7_JOURS } from './temps.ts';
@@ -30,4 +30,5 @@ export const MIGRATIONS: readonly Migration[] = [
   ACTIVITE_FORMATION_PROJET,
   INDEX_SALARIES,
   ABSENCES_ANTERIEURES,
+  RUBRIQUES_PAR_FEUILLE,
 ];

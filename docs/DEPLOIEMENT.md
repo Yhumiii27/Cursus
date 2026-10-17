@@ -554,9 +554,24 @@ Procédure mensuelle du gestionnaire de paie (ou de l'administrateur RH), écran
    de la période (format de date au choix). Chaque téléchargement est tracé dans le journal (archive paie).
 4. Importer le fichier dans Sage Paie et contrôler les totaux (rappelés dans la confirmation).
 5. « Confirmer l'import » : confirmation datée et signée, avec la référence de l'import si Sage en donne une. Elle seule
-   marque les feuilles transmises ; le lot ne s'annule plus ensuite (une correction se fait dans Sage, en attendant le
-   lot correctif). Si l'import échoue ou si le lot est faux, « Annuler » avant la confirmation libère ses feuilles,
+   marque les feuilles transmises ; le lot ne s'annule plus ensuite (une correction passe par la réouverture de la
+   feuille, voir « Correction après transmission »). Si l'import échoue ou si le lot est faux, « Annuler » avant la confirmation libère ses feuilles,
    qui pourront partir dans un nouveau lot (si le fichier a déjà été importé, supprimer cet import dans Sage).
+
+Correction après transmission (lot 5, t131 ; réponse de l'entreprise du 17 octobre 2026) : seul l'administrateur RH
+rouvre une feuille validée (« Rouvrir la feuille », écran Temps de travail), avec un motif obligatoire (500 caractères au
+plus), gardé sur la feuille ; le journal trace la réouverture (archive paie), sans le texte du motif. La feuille repasse
+« soumise » (le valideur la corrige) ou « à corriger » (renvoyée au salarié). Une feuille d'un lot à confirmer ne se
+rouvre qu'après l'annulation du lot ; celle d'un intérimaire dont le relevé est parti à l'agence ne se rouvre pas (la
+correction se règle avec l'agence). Déjà transmise, la feuille garde ce que la paie a reçu ; revalidée, elle revient en
+attente « à régulariser » et le lot suivant, marqué « Correctif », n'emporte que l'écart, positif ou négatif, sur la
+période ouverte (rappel de la période d'origine si elle est close). Si l'import de votre Sage refuse les quantités
+négatives, décochez « Quantités négatives acceptées » dans « Modifier le format » : la correction part alors en
+« annule et remplace », rubriques complètes du salarié pour la période d'origine (quantité nulle comprise), à importer
+en mode remplacement. Keystone reçoit les heures corrigées de la semaine (un projet retiré à 0, voir docs/API-KEYSTONE.md) :
+**prévenir l'équipe Keystone de ce changement de `heures.validees` avant la mise en service.** Récupération et
+contrepartie en repos sont recalculées à la revalidation. À la mise à jour, les lots déjà générés reçoivent les rubriques
+de chacune de leurs feuilles, rapprochées de leurs lignes (migration `lot5-paie-rubriques-par-feuille`, tracée au journal).
 
 L'historique des lots (période, auteur, état, accusé) reste dans l'écran Temps de travail. À la mise à jour vers cette
 version, les feuilles déjà transmises sont réunies en un lot « historique », sans fichier (migration

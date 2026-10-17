@@ -1,12 +1,14 @@
 // Format du fichier d'import Sage (administrateur RH et gestionnaire de paie, écran Temps) : séparateur, colonnes
 // facultatives (code dossier, libellé de la rubrique, début et fin de période) et ordre des colonnes, format de la
-// période et des dates, séparateur décimal, ligne d'en-tête, encodage (UTF-8 sans BOM ou Windows-1252), ajustés par le
+// période et des dates, séparateur décimal, ligne d'en-tête, encodage (UTF-8 sans BOM ou Windows-1252), quantités
+// négatives acceptées ou non (régularisation d'une feuille rouverte par écart, ou en « annule et remplace »), ajustés par le
 // gestionnaire de paie au modèle d'import de son Sage. Aperçu sur deux lignes d'exemple ; le format s'applique aux
 // prochains téléchargements.
 import { useState } from 'react';
 import {
   COLONNES_FACULTATIVES, COLONNES_FICHIER, controlerFormat, DECIMALES, ENCODAGES, fichierLot, FORMAT_FICHIER_DEFAUT, FORMATS_DATE, FORMATS_PERIODE, SEPARATEURS,
 } from '../../../shared/rules/lots-paie.ts';
+import { modeRegularisation, MODES_REGULARISATION } from '../../../shared/rules/regularisation.ts';
 import type { ColonneFichierPaie, FormatFichierPaie } from '../../../shared/types.ts';
 import { CancelButton, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine, Pre } from '../components/ui.tsx';
@@ -109,6 +111,12 @@ export function FormatFichierDialog() {
         <input type="checkbox" checked={f.entete} onChange={e => maj({ entete: e.target.checked })} style={coche} />
         <span>Première ligne d’en-tête (noms des colonnes)</span>
       </label>
+      {/* Correction d'une feuille déjà transmise (t131) : écart, ou « annule et remplace » si l'import refuse le négatif. */}
+      <label style={caseStyle}>
+        <input type="checkbox" checked={f.negatifs !== false} onChange={e => maj({ negatifs: e.target.checked })} style={coche} />
+        <span>Quantités négatives acceptées par l’import (régularisation par écart)</span>
+      </label>
+      <Fine>{MODES_REGULARISATION[modeRegularisation(f)].aide} Ce choix s’applique aux prochains lots générés.</Fine>
       {!erreur && <>
         <Fine>Aperçu (deux lignes d’exemple) :</Fine>
         {/* Lignes longues (libellés) : défilement dans l'aperçu, sans élargir le dialogue sur un petit écran. */}

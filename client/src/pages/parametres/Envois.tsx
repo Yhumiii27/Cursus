@@ -112,7 +112,6 @@ export function Envois({ envois: { etat, erreur: error, filtre, setFiltre, cible
   const modes: Record<CibleEnvoi, string> = {
     keystone: session?.integrations.keystone ?? 'simulation',
     email: etat?.email.mode ?? session?.integrations.email ?? 'simulation',
-    sage: session?.integrations.sage ?? 'simulation',
   };
   const liste = etat?.envois ?? null;
   const relancer = async (id: number) => {

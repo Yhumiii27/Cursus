@@ -10,7 +10,7 @@ import type { FeuilleTemps, ISODate, ModeHeuresSupFige, RattachementPeriode, Rub
 
 // — Modes —
 
-/** Transmission à Sage Paie (variable SAGE_MODE, server/src/integrations/sage.ts). */
+/** Transmission à Sage Paie (variable SAGE_MODE, server/src/integrations/sage.ts) : pas d'envoi par API. */
 export const MODES_SAGE: Record<SageMode, { label: string; aide: string }> = {
   simulation: {
     label: 'Simulation',
@@ -19,10 +19,6 @@ export const MODES_SAGE: Record<SageMode, { label: string; aide: string }> = {
   fichier: {
     label: 'Fichier d’import',
     aide: 'Mode de production : la paie génère le lot de chaque période de paie, télécharge son fichier d’import et l’importe dans Sage, puis confirme l’import, qui seul marque les feuilles transmises. Avant cette confirmation, le lot peut être annulé.',
-  },
-  api: {
-    label: 'API',
-    aide: 'Envoi direct à Sage Paie : aucun contrat d’API n’a été fourni par Sage, aucune transmission n’est possible dans ce mode.',
   },
 };
 

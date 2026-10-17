@@ -9,7 +9,7 @@ import { randomUUID } from 'node:crypto';
 import { RUBRIQUES_PAIE } from '../../../shared/constants.ts';
 import { plural } from '../../../shared/format.ts';
 import { sansMatriculePaie } from '../../../shared/rules/matricules.ts';
-import { controlerFormat, erreurReference, feuillesDuLot, periodeDeLaFeuille, resumeContenu } from '../../../shared/rules/lots-paie.ts';
+import { controlerFormat, erreurReference, feuillesDuLot, libellesSage, periodeDeLaFeuille, resumeContenu } from '../../../shared/rules/lots-paie.ts';
 import { erreurCodeSage, periodeLabel, rubriquesAConfirmer, rubriquesPaie, rubriquesTexte } from '../../../shared/rules/paie.ts';
 import { buildSagePayload, rubriquesEmises, sagePending } from '../../../shared/rules/temps.ts';
 import type { FeuilleTemps, LotPaie, RubriquePaie, SageMode } from '../../../shared/types.ts';
@@ -55,14 +55,11 @@ const nomsSans = (ctx: Ctx, ids: number[]) => ids.map(id => ctx.d.emp(id)?.nom ?
 
 /**
  * Lot des feuilles `sheets` dans le mode `mode` : contrôles d'une transmission réelle (fichier d'import), contenu figé,
- * feuilles réservées. Mode API : refus 503 (aucun connecteur). Hors simulation, chaque salarié doit avoir un matricule de
- * paie (refus qui les nomme ; en simulation, avertissement et matricule Cursus à la place) et chaque rubrique émise et
- * exportée un code Sage confirmé (409, liste des rubriques).
+ * feuilles réservées. Hors simulation, chaque salarié doit avoir un matricule de paie (refus qui les nomme ; en
+ * simulation, avertissement et matricule Cursus à la place) et chaque rubrique émise et exportée un code Sage confirmé
+ * (409, liste des rubriques). Le libellé de chaque code Sage est figé avec le contenu (colonne facultative du fichier).
  */
 export function creerLot(ctx: Ctx, sheets: FeuilleTemps[], mode: SageMode, periode: string): LotEnregistre {
-  if (mode === 'api') {
-    throw new ActionError('Envoi à Sage Paie par API impossible : aucun contrat d’API n’a été fourni par Sage, rien n’est envoyé ni marqué transmis. Utilisez le mode fichier d’import (SAGE_MODE=fichier).', 503);
-  }
   const sans = sansMatriculePaie(ctx.ds.employes, ctx.d.ti, sheets.map(sh => sh.empId)).map(e => e.id);
   if (sans.length && mode !== 'simulation') {
     throw new ActionError(`Transmission refusée : ${plural(sans.length, 'salarié sans matricule de paie', 'salariés sans matricule de paie')} (${nomsSans(ctx, sans).join(', ')}). Saisissez-le sur la fiche, puis générez de nouveau le lot.`);
@@ -73,7 +70,8 @@ export function creerLot(ctx: Ctx, sheets: FeuilleTemps[], mode: SageMode, perio
       throw new ActionError(`Transmission impossible : code Sage à confirmer pour ${manquantes.length > 1 ? 'les rubriques' : 'la rubrique'} ${rubriquesTexte(manquantes)} (écran Temps, « Rubriques de paie »)`, 409);
     }
   }
-  const contenu = buildSagePayload(ctx.d, sheets, SAGE_DOSSIER, new Date(), mode);
+  const payload = buildSagePayload(ctx.d, sheets, SAGE_DOSSIER, new Date(), mode);
+  const contenu = { ...payload, libelles: libellesSage(payload, rubriquesPaie(ctx.ds.rubriquesPaie)) };
   const lot = ctx.db.insert<LotEnregistre>('lotsPaie', {
     cle: randomUUID(), mode, statut: 'genere', periode, periodes: contenu.periodes ?? [],
     // Semaines de périodes déjà closes : parties en rappel sur la période ouverte.
@@ -150,7 +148,7 @@ const lotConfirmer: ActionHandler = (ctx, p) => {
   if (lot.mode === 'fichier' && !lot.telechargements) {
     throw new ActionError(`Lot n° ${lot.id} : téléchargez d’abord son fichier d’import et importez-le dans Sage, puis confirmez l’import`, 409);
   }
-  const accuse = reference || (lot.mode === 'simulation' ? pushToSage(lot.contenu ?? { endpoint: '', dossier: SAGE_DOSSIER, envoye_le: '', lignes: [] }, 'simulation').reference : null);
+  const accuse = reference || (lot.mode === 'simulation' ? pushToSage(lot.contenu ?? { lignes: [] }, 'simulation').reference : null);
   confirmerLot(ctx, lot, accuse);
   return {
     message: `Lot n° ${lot.id} : ${lot.mode === 'simulation' ? 'marqué transmis (simulation, rien n’est envoyé à Sage Paie)' : 'import dans Sage confirmé'} — ${plural(lot.feuilles.length, 'feuille marquée transmise', 'feuilles marquées transmises')}${accuse ? ` · référence ${accuse}` : ''}`,
@@ -174,7 +172,10 @@ const lotAnnuler: ActionHandler = (ctx, p) => {
   };
 };
 
-/** Format du fichier d'import (séparateur, ordre des colonnes, période, décimale, en-tête), ajusté à l'import de Sage. */
+/**
+ * Format du fichier d'import (séparateur, colonnes et leur ordre, période, dates, décimale, en-tête, encodage), ajusté
+ * à l'import de Sage.
+ */
 const formatFichier: ActionHandler = (ctx, p) => {
   requirePaie(ctx);
   const f = controlerFormat(p, lireFormatFichier(ctx.db));
@@ -186,7 +187,7 @@ const formatFichier: ActionHandler = (ctx, p) => {
 /**
  * Transmission en un clic, en simulation seulement : lot de toutes les feuilles en attente, aussitôt marqué transmis
  * (référence « SIM-… »), rien n'est envoyé. Mode fichier : refus 503, le lot passe par le fichier et la confirmation de
- * l'import (paie.lotGenerer, puis paie.lotConfirmer) ; mode API : refus 503.
+ * l'import (paie.lotGenerer, puis paie.lotConfirmer).
  */
 export function pushSageSimulation(ctx: Ctx) {
   requirePaie(ctx);
@@ -195,7 +196,7 @@ export function pushSageSimulation(ctx: Ctx) {
   const mode = sageMode();
   if (mode !== 'simulation') {
     try {
-      pushToSage({ endpoint: '', dossier: SAGE_DOSSIER, envoye_le: '', lignes: [] }, mode);
+      pushToSage({ lignes: [] }, mode);
     } catch (err) {
       if (err instanceof SageIndisponible) throw new ActionError(err.message, 503);
       throw err;

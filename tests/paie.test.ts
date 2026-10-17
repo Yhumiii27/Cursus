@@ -1,4 +1,4 @@
-// Paie (lot 4, chantier 4, étape 1) : plus aucune feuille marquée transmise sans envoi (SAGE_MODE, mode API refusé,
+// Paie (lot 4, chantier 4, étape 1) : plus aucune feuille marquée transmise sans envoi (SAGE_MODE, « api » inconnu,
 // SAGE_URL refusée en production, textes du mode réel), heures supplémentaires payées ou remplacées par un repos
 // (mode figé à la validation, reprise des feuilles validées), correspondance des rubriques avec le plan de paie Sage
 // (table, confirmation, blocage des modes réels), période de paie déduite de la semaine (rattachement, clôture, rappel).
@@ -73,35 +73,35 @@ test('t019 SAGE_MODE : simulation hors production, fichier d’import en product
   assert.equal(sageMode({ SAGE_URL: 'https://sage.example' }), 'simulation', 'SAGE_URL seule ne fait plus croire à un envoi');
   assert.equal(sageMode({ NODE_ENV: 'production' }), 'fichier', 'mode de production par défaut');
   assert.equal(sageMode({ NODE_ENV: 'production', CURSUS_DEMO: '1' }), 'simulation', 'application de bureau en démonstration');
-  assert.equal(sageMode({ SAGE_MODE: 'api' }), 'api');
+  // « api » n'est plus un mode (fichier, pas d'API) : valeur inconnue, mode par défaut (et refus au démarrage en production).
+  assert.equal(sageMode({ SAGE_MODE: 'api' }), 'simulation');
+  assert.equal(sageMode({ SAGE_MODE: 'api', NODE_ENV: 'production' }), 'fichier');
   assert.equal(sageMode({ SAGE_MODE: 'fichier' }), 'fichier');
   assert.equal(sageMode({ SAGE_MODE: 'n’importe quoi', NODE_ENV: 'production' }), 'fichier');
-  // Plus aucun accusé fictif : le mode API et le mode fichier (le fichier passe par la paie) refusent l'envoi direct.
+  // Plus aucun accusé fictif : le mode fichier (le fichier passe par la paie) refuse l'envoi direct.
   const p = { endpoint: '', dossier: 'X', envoye_le: '', periodes: ['2026-10'], lignes: [] };
-  assert.throws(() => pushToSage(p, 'api'), (e: unknown) => e instanceof SageIndisponible && /aucun contrat d’API/.test(e.message));
   assert.throws(() => pushToSage(p, 'fichier'), (e: unknown) => e instanceof SageIndisponible && /Générez le lot de la période/.test(e.message));
   assert.match(pushToSage(p, 'simulation').reference, /^SIM-2026-10-0$/);
 });
 
-test('t019 configuration : mode API, SAGE_URL et simulation refusés en production, signalés ailleurs', () => {
+test('t019 configuration : SAGE_MODE=api (inconnu), SAGE_URL et simulation refusés en production, signalés ailleurs', () => {
   const base = { CURSUS_SECRET: 'x'.repeat(40), KEYSTONE_API_KEY: 'cle-de-production-assez-longue' };
   const sage = (env: Record<string, string>) => problemesConfig({ ...base, ...env }).filter(p => /SAGE/.test(p));
   assert.deepEqual(sage({ NODE_ENV: 'production' }), [], 'fichier d’import par défaut : rien à signaler');
   assert.deepEqual(sage({ NODE_ENV: 'production', SAGE_MODE: 'fichier', SAGE_DOSSIER: 'CHIMIE' }), []);
-  assert.match(sage({ NODE_ENV: 'production', SAGE_URL: 'https://sage.example/api' }).join(), /SAGE_URL est définie alors qu’aucun connecteur API/);
-  assert.match(sage({ NODE_ENV: 'production', SAGE_MODE: 'api' }).join(), /SAGE_MODE=api : l’envoi à Sage Paie par API n’existe pas/);
+  assert.match(sage({ NODE_ENV: 'production', SAGE_URL: 'https://sage.example/api' }).join(), /SAGE_URL est définie alors qu’aucun envoi à Sage Paie par API n’est prévu/);
+  assert.match(sage({ NODE_ENV: 'production', SAGE_MODE: 'api' }).join(), /SAGE_MODE vaut « api » : indiquez fichier[^]*Aucun envoi à Sage Paie par API n’est prévu/);
   assert.match(sage({ NODE_ENV: 'production', SAGE_MODE: 'simulation' }).join(), /marquées transmises à la paie sans que rien ne parte/);
   assert.match(sage({ SAGE_MODE: 'csv' }).join(), /SAGE_MODE vaut « csv »/);
   assert.deepEqual(sage({ SAGE_MODE: 'simulation' }), [], 'simulation hors production');
   assert.deepEqual(sage({ NODE_ENV: 'production', CURSUS_DEMO: '1', CURSUS_HOST: '127.0.0.1', SAGE_MODE: 'simulation' }), [], 'application de bureau');
 });
 
-test('t019 transmission : mode API et mode fichier refusés sans rien marquer ; simulation annoncée comme telle', () => {
+test('t019 transmission : mode fichier refusé sans rien marquer ; simulation annoncée comme telle', () => {
   const { db, run, refus, transmises, ADMIN, PAIE } = fresh();
   const avant = transmises(), lots = () => db.count('lotsPaie'), avantLots = lots();
   // Toutes les rubriques confirmées : seul le mode bloque.
   for (const code of Object.keys(RUBRIQUES_PAIE)) run(ADMIN, 'paie.rubrique', { code, confirmer: true });
-  avecEnv({ SAGE_MODE: 'api' }, () => refus(PAIE, 'temps.pushSage', {}, 503, /par API impossible : aucun contrat d’API/));
   avecEnv({ SAGE_MODE: 'fichier' }, () => refus(PAIE, 'temps.pushSage', {}, 503, /rien n’est envoyé directement à Sage Paie/));
   assert.equal(transmises(), avant, 'aucune feuille marquée transmise');
   assert.equal(lots(), avantLots, 'aucun lot enregistré');

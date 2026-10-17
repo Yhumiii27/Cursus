@@ -853,7 +853,7 @@ function tracerArchive(db: Db, id: Identite, f: FiltreJournal, page: number, tot
 }
 
 /** Fichier joint à télécharger (jamais mis en cache : données personnelles). */
-export function fichierJoint(res: Response, type: string, nom: string, contenu: string) {
+export function fichierJoint(res: Response, type: string, nom: string, contenu: string | Buffer) {
   res.set({ 'Content-Type': type, 'Content-Disposition': `attachment; filename="${nom}"`, 'Cache-Control': 'no-store' });
   res.send(contenu);
 }

@@ -91,7 +91,7 @@ test('t019 fichier d’import : une ligne par salarié, période et rubrique, fo
     { matricule: '004102', periode: '2026-10', rubrique: 'HS25', quantite: 3.5 },
   ]);
   assert.equal(L.fichierLot(contenu), 'matricule;periode;rubrique;quantite\r\n004101;2026-10;HN;35\r\n004102;2026-10;HN;56\r\n004102;2026-10;HS25;3,5\r\n');
-  const f = { separateur: 'tab', colonnes: ['rubrique', 'matricule', 'quantite', 'periode'], formatPeriode: 'MM/AAAA', decimale: '.', entete: false } as const;
+  const f = { ...L.FORMAT_FICHIER_DEFAUT, separateur: 'tab', colonnes: ['rubrique', 'matricule', 'quantite', 'periode'], formatPeriode: 'MM/AAAA', decimale: '.', entete: false } as const;
   assert.equal(L.fichierLot(contenu, { ...f, colonnes: [...f.colonnes] }).split('\r\n')[2], 'HS25\t004102\t3.5\t10/2026');
   assert.equal(L.periodeFichier('2026-10', 'AAAAMM'), '202610');
   assert.equal(L.periodeFichier('2026-10', 'MMAAAA'), '102026');
@@ -231,7 +231,7 @@ test('t029 lot de fichier : généré, feuilles réservées, fichier tracé, imp
   for (const a of ['paie.lotGenerer', 'paie.lotConfirmer', 'paie.lotAnnuler', 'paie.formatFichier', 'sage.fichier', 'migration.lotsPaie', 'temps.relancer', 'temps.validerLot']) assert.ok(JOURNAL_LABEL[a], a);
 });
 
-test('t029 contrôles d’un lot réel : matricule de paie et codes Sage confirmés, mode API refusé', () => {
+test('t029 contrôles d’un lot réel : matricule de paie et codes Sage confirmés', () => {
   const { db, run, refus, lots, ADMIN, PAIE } = fresh();
   db.insert('feuilles', { empId: 24, week: '2026-10-05', statut: 'validee', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-MAINT', tache: '', ks: false, h: [7, 7, 7, 7, 7] }], contrat: null });
   avecEnv({ SAGE_MODE: 'fichier' }, () => {
@@ -239,7 +239,6 @@ test('t029 contrôles d’un lot réel : matricule de paie et codes Sage confirm
     run(ADMIN, 'employe.modifier', { id: 24, matriculePaie: '004124' });
     refus(PAIE, 'paie.lotGenerer', { periode: '2026-10' }, 409, /^Transmission impossible : code Sage à confirmer pour les rubriques HN/);
   });
-  avecEnv({ SAGE_MODE: 'api' }, () => refus(PAIE, 'paie.lotGenerer', { periode: '2026-10' }, 503, /aucun contrat d’API/));
   assert.equal(lots().filter(l => !l.historique).length, 0, 'aucun lot créé');
 });
 

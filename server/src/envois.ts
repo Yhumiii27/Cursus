@@ -1,5 +1,6 @@
-// File d'envoi persistante des messages sortants (Keystone, e-mails par Microsoft Graph ; Sage Paie quand
-// son envoi sera décidé). Un message est mis en file dans la transaction de l'action qui le produit : si
+// File d'envoi persistante des messages sortants (Keystone, e-mails par Microsoft Graph). Sage Paie n'y passe
+// pas : la paie importe elle-même le fichier de chaque lot (server/src/fichier-paie.ts), suivi par la table
+// `lotsPaie` (décision du 15 octobre 2026). Un message est mis en file dans la transaction de l'action qui le produit : si
 // l'action échoue, rien ne part. Un processus de fond le transmet ensuite, hors de toute requête :
 // un seul envoi à la fois par cible, dans l'ordre d'émission. Le message en tête qui attend une
 // nouvelle tentative retient les suivants : un verdict ancien n'arrive pas après un plus récent
@@ -12,7 +13,7 @@ import type { Db } from './db.ts';
 
 export type { Cible, Envoi, StatutEnvoi };
 export const STATUTS_ENVOI: StatutEnvoi[] = ['a_envoyer', 'envoye', 'echec', 'simule'];
-export const CIBLES: Cible[] = ['keystone', 'email', 'sage'];
+export const CIBLES: Cible[] = ['keystone', 'email'];
 
 /** Requête HTTP d'une cible : adresse, en-têtes (authentification) et corps de chaque message. */
 export interface Transport {
@@ -143,7 +144,7 @@ export async function envoyer(db: Db, e: Envoi, t: Transport, horloge = () => ne
     db.insert('journal', {
       at, actor: 'Cursus', role: 'integration', action: `${e.cible}.echec`,
       message: `Envoi ${e.type} en échec après ${tentatives} tentative${tentatives > 1 ? 's' : ''} — ${issue.erreur}`,
-      payload: { envoi: e.id, type: e.type, cle: e.cle }, paie: e.cible === 'sage',
+      payload: { envoi: e.id, type: e.type, cle: e.cle },
     });
     return x;
   }

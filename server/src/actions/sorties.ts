@@ -5,6 +5,8 @@
 // suivantes et ferme les sessions de connexion d'une sortie déjà passée. Passé la date, le salarié ne se connecte plus et
 // quitte la conformité, les échéances et les tableaux de bord (shared/rules/contrats.ts) ; sur les chantiers, il reste en
 // « No Go CONTRAT » pour Keystone (verdicts recalculés après l'action). Une sortie saisie par erreur s'annule.
+// Solde de sortie (t128) : l'état des compteurs à la date est photographié à l'enregistrement et à chaque modification
+// (server/src/soldes-sortie.ts), pour la paie ; une sortie dont le solde est dans un lot à confirmer ne change plus.
 import { ouvreEspaceRh } from '../../../shared/constants.ts';
 import { fmtIso } from '../../../shared/format.ts';
 import { controleSortie, effetsSortie, estMotifSortie, finContrat, MOTIFS_SORTIE } from '../../../shared/rules/contrats.ts';
@@ -13,6 +15,7 @@ import { revokeSessionsOf } from '../auth.ts';
 import { adminsDurables, type Compte, refusDuCompte } from '../comptes.ts';
 import { absenceKeystone, sendToKeystone } from '../integrations/keystone.ts';
 import { annulerSiConvoque } from '../notifications.ts';
+import { controlerSoldeSortie, photographierSortie, retirerSoldeSortie } from '../soldes-sortie.ts';
 import { ActionError, getEmp, refuserSoiMeme, requireRh, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
 /**
@@ -37,7 +40,8 @@ function dernierAdministrateur(ctx: Ctx, emp: Employe, date: string) {
 /**
  * Enregistre (ou modifie) la sortie : `id`, `date` (dernier jour du contrat), `motif` (MOTIFS_SORTIE). Refusée tant que
  * le salarié encadre une équipe, qu'une feuille porte des heures après la date ou qu'une absence est à cheval sur elle
- * (`controleSortie`). La fin prévue au contrat (CDD, mission, alternance) est gardée pour une annulation.
+ * (`controleSortie`). La fin prévue au contrat (CDD, mission, alternance) est gardée pour une annulation. L'état des
+ * compteurs à la date est photographié (solde de sortie), sauf s'il est déjà parti à la paie.
  */
 const sortie: ActionHandler = (ctx, p) => {
   requireRh(ctx);
@@ -50,6 +54,9 @@ const sortie: ActionHandler = (ctx, p) => {
   const c = controleSortie(ctx.d, emp, date);
   if (c.bloquants.length) throw new ActionError(c.bloquants.join(' '));
   dernierAdministrateur(ctx, emp, date);
+  controlerSoldeSortie(ctx.db, emp);
+  // Photographie calculée sur l'état d'avant la sortie (elle annule d'elle-même les absences postérieures).
+  const solde = photographierSortie(ctx, emp, date);
 
   ctx.db.update<Employe>('employes', emp.id, { fin: date, motifSortie: motif, finPrevue: finContrat(emp) });
   // Fiche mise à jour d'abord : les convocations d'un salarié déjà parti ne lui sont plus envoyées (adresse close).
@@ -75,6 +82,7 @@ const sortie: ActionHandler = (ctx, p) => {
   const effets = effetsSortie(c);
   if (annulees) effets.push(annulees > 1 ? `${annulees} annulations de convocation envoyées par e-mail` : 'annulation de convocation envoyée par e-mail');
   if (fermees) effets.push('sessions de connexion fermées');
+  effets.push(solde.texte);
   const acces = date >= ctx.d.ti ? ` · accès à Cursus jusqu’au ${fmtIso(date)} inclus` : '';
   return {
     message: `Sortie de ${emp.nom} enregistrée le ${fmtIso(date)} — ${MOTIFS_SORTIE[motif]}${effets.map(x => ` · ${x}`).join('')}${acces}`,
@@ -83,6 +91,7 @@ const sortie: ActionHandler = (ctx, p) => {
         absences: c.absences.length, inscriptions: c.certs.length + c.inscriptions.length, entretiens: c.entretiens.length,
         visites: c.visites.length, feuilles: c.feuilles.length, sessions: fermees,
       },
+      soldeSortie: solde.solde.id,
     },
   };
 };
@@ -96,6 +105,7 @@ const annulerSortie: ActionHandler = (ctx, p) => {
   const emp = getEmp(ctx, p.id);
   refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas annuler votre propre sortie');
   compteRh(ctx, emp);
+  controlerSoldeSortie(ctx.db, emp);
   if (!emp.motifSortie) {
     throw new ActionError(emp.fin ? 'Aucune sortie enregistrée : la fin prévue du contrat se modifie dans la fiche' : 'Aucune sortie enregistrée pour ce salarié');
   }
@@ -105,7 +115,7 @@ const annulerSortie: ActionHandler = (ctx, p) => {
   const fin = emp.typeContrat === 'cdi' ? null : emp.finPrevue ?? emp.fin;
   ctx.db.update<Employe>('employes', emp.id, { fin, motifSortie: null, finPrevue: null });
   return `Sortie de ${emp.nom} annulée — ${fin ? `fin de contrat prévue le ${fmtIso(fin)}` : 'contrat sans date de fin'}`
-    + ' · les absences, inscriptions, entretiens et demandes de visite annulés par la sortie ne sont pas rétablis';
+    + ' · les absences, inscriptions, entretiens et demandes de visite annulés par la sortie ne sont pas rétablis' + retirerSoldeSortie(ctx.db, emp);
 };
 
 export const sortiesActions: Record<string, ActionHandler> = {

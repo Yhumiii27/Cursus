@@ -623,6 +623,17 @@ porte déjà des absences validées reçoit de même une date de départ au prem
 avec elle qu'elle n'a pas déjà saisi celles de la période ouverte. Ces dates de départ ne valent que pour les absences
 déjà enregistrées : une absence d'un mois clos enregistrée ensuite (arrêt reçu en retard) part entière, en rappel.
 
+Solde de sortie (lot 5, t128) : à l'enregistrement d'une sortie, Cursus photographie l'état des compteurs au dernier
+jour du contrat (CP à indemniser : solde de la période acquise et jours acquis sur la période en cours ; RTT au prorata ;
+récupération en heures ; CET, liquidé en entier), affiché avant la confirmation, imprimable et exportable depuis la
+fiche. Ses rubriques `ICCP_J`, `RTT_SOLDE`, `RECUP_H` et `CET_LIQ` sont désactivées par défaut : le solde de tout compte
+reste saisi dans Sage à partir de l'état imprimé. Quand la paie a donné leurs codes, elle les saisit, les active et les
+confirme (« Rubriques de paie ») : le lot du mois de la sortie emporte alors le solde, en jours et en heures, et Sage
+calcule le montant (dixième ou maintien). Un solde qu'aucune rubrique active n'emporte est marqué « saisi dans Sage
+hors fichier » à la confirmation du lot de sa période : activer les rubriques plus tard ne le renvoie pas. Une sortie
+annulée ou déplacée après la transmission de son solde garde l'ancien solde pour l'historique (à régulariser dans Sage)
+et en photographie un nouveau. Un trop-pris de RTT est signalé, jamais retenu par Cursus.
+
 Contrôle : « Variables de la période » (écran Temps de travail, sous les lots) exporte en CSV, pour une période de paie,
 chaque ligne des lots générés ou transmis et ce qui attend encore un lot : matricule de paie, salarié, code Sage,
 libellé, quantité, détail (semaine, ou absence et ses dates, rappel, régularisation ; jamais la nature). Le code d'une

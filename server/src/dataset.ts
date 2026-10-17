@@ -19,7 +19,7 @@ import { effectifSite } from '../../shared/rules/delegation.ts';
 import { reglagesParDefaut } from '../../shared/reglages.ts';
 import type { DemandeVisite, LotReprise } from '../../shared/types.ts';
 import type {
-  Absence, Certification, Inscription, CetMouvement, Chantier, ClotureConges, CurrentUser, InformationCp, Dataset, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
+  Absence, Certification, Inscription, CetMouvement, Chantier, ClotureConges, CurrentUser, InformationCp, Dataset, SoldeSortie, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
   DerogationDominicale, Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mandat, Mission, Participation, PlanAction, Poste, Projet, ReleveInterim,
   ReportCp, RubriquePaie, Session,
   Settings, SoldeReprise, TacheKeystone, Vaccination, Visa, Voyage,
@@ -118,6 +118,8 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     clotures: db.all<ClotureConges>('clotures'),
     // Informations au retour d'un arrêt (art. L3141-19-3) : elles désignent un arrêt de santé, service RH et intéressé.
     informationsCp: db.all<InformationCp>('informationsCp'),
+    // Soldes de sortie photographiés (t128) : compteurs du solde de tout compte, service RH, paie et lecture seule.
+    soldesSortie: db.all<SoldeSortie>('soldesSortie'),
     entretiens: db.all<Entretien>('entretiens'),
     demandesCollab: db.all<DemandeCollab>('demandesCollab'),
     demandesVisite: db.all<DemandeVisite>('demandesVisite'),
@@ -293,6 +295,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     clotures: mine(full.clotures).map(c => isMgr && c.empId !== user.empId ? clotureNeutre(c) : c),
     // Information au retour d'un arrêt : elle révèle un arrêt de santé, l'intéressé seul la reçoit (jamais son manager).
     informationsCp: (full.informationsCp ?? []).filter(i => i.empId === user.empId),
+    // Solde de sortie : solde de tout compte, l'affaire du service RH et de la paie (ni le manager, ni l'intéressé).
+    soldesSortie: [],
     // Sections « fin de carrière » des entretiens d'un membre calculées ici : sa date de naissance n'est pas transmise.
     entretiens: mine(full.entretiens).map(x => isMgr && x.empId !== user.empId ? avecFinCarriere(d, x) : x),
     // Les documents déclarés (passeport, visas, vaccinations) des membres ne sont pas montrés au manager ;
@@ -417,6 +421,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     clotures: paie ? full.clotures.map(clotureNeutre) : [],
     // Informations au retour d'un arrêt de santé : service RH seulement.
     informationsCp: [],
+    // Solde de sortie : paie (solde de tout compte) et lecture seule ; pas le référent HSE.
+    soldesSortie: paie ? full.soldesSortie : [],
     // Profil paie : jours de CP acquis chaque mois, calculés ici avec la vraie nature des absences masquées, pour que ses
     // soldes et ses exports soient ceux du service RH ; aucune absence n'y est désignée (pas d'effet absence par absence).
     acquisitionsCp: droits.includes('paie') ? acquisitionsCalculees(d) : [],

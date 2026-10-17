@@ -48,8 +48,11 @@ export function reprise(d: Domain, id: number) {
   return { ...r, cpPris, rttPris, cpPrisSuivant, periodeCp, anneeRtt };
 }
 
-/** Jours repris de l'ancien outil imputés sur la période `A` : période de la date d'arrêté, ou période suivante (« CP N »). */
-const reprisSur = (R: ReturnType<typeof reprise>, A: number) => (A === R.periodeCp ? R.cpPris : A === R.periodeCp + 1 ? R.cpPrisSuivant : 0);
+/**
+ * Jours repris de l'ancien outil imputés sur la période `A` : période de la date d'arrêté, ou période suivante (« CP N »).
+ * Exportée pour le solde de sortie (shared/rules/solde-sortie.ts).
+ */
+export const reprisSur = (R: ReturnType<typeof reprise>, A: number) => (A === R.periodeCp ? R.cpPris : A === R.periodeCp + 1 ? R.cpPrisSuivant : 0);
 
 /** Fin d'une période de congés payés (`A` : année de prise) : le 31 mai A+1, échéance des reports reçus sur elle. */
 export const finPeriodeCp = (A: number): ISODate => `${A + 1}-05-31`;
@@ -152,9 +155,10 @@ function droitPeriode(d: Domain, e: Employe, A: number): number {
 
 /**
  * Jours acquis à la date `jour` sur la période `A`, en cours d'acquisition : 2,08 j par mois écoulé depuis le 1er juin A-1,
- * moins pour un mois d'arrêt maladie ou d'absence non assimilée (`acquisMois`).
+ * moins pour un mois d'arrêt maladie ou d'absence non assimilée (`acquisMois`). Exportée pour le solde de sortie
+ * (shared/rules/solde-sortie.ts).
  */
-function acquisAu(d: Domain, e: Employe, A: number, jour: ISODate): number {
+export function acquisAu(d: Domain, e: Employe, A: number, jour: ISODate): number {
   const mois = (Number(jour.slice(0, 4)) - (A - 1)) * 12 + Number(jour.slice(5, 7)) - 6;
   return acquisMois(d, e, A, mois);
 }

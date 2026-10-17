@@ -164,17 +164,23 @@ const inscritsAvantApres: Partial<Regle> = { etat: (db, p) => inscrits(db, p.id)
 
 /**
  * Lot de paie renvoyé par l'action (`paie.lot…`, `temps.pushSage`) : son numéro, ses feuilles `{ empId, week }` et ses
- * absences (identifiants seuls : ni nature, ni rubrique, qui en révèlerait la catégorie).
+ * absences (identifiants seuls : ni nature, ni rubrique, qui en révèlerait la catégorie) ; soldes de sortie (identifiants).
  */
-const lotDuResultat = (x: Contexte) => x.result as { lot?: number; feuilles?: { empId: number; week: string }[]; absences?: { id: number; empId: number }[]; correctifs?: { empId: number; week: string }[] } | null | undefined;
+const lotDuResultat = (x: Contexte) => x.result as {
+  lot?: number; feuilles?: { empId: number; week: string }[]; absences?: { id: number; empId: number }[]; sorties?: { id: number; empId: number }[];
+  correctifs?: { empId: number; week: string }[];
+} | null | undefined;
 const lotRetenu = (x: Contexte) => {
   const r = lotDuResultat(x);
   return {
     lot: r?.lot ?? null, feuilles: r?.feuilles ?? [], ...(r?.absences?.length ? { absences: r.absences.map(a => a.id) } : {}),
     ...(r?.correctifs?.length ? { correctifs: r.correctifs } : {}),
+    ...(r?.sorties?.length ? { sorties: r.sorties.map(s => s.id) } : {}),
   };
 };
-const salariesDuLot = (x: Contexte) => [...new Set([...(lotDuResultat(x)?.feuilles ?? []).map(f => f.empId), ...(lotDuResultat(x)?.absences ?? []).map(a => a.empId)])];
+const salariesDuLot = (x: Contexte) => [...new Set([
+  ...(lotDuResultat(x)?.feuilles ?? []).map(f => f.empId), ...(lotDuResultat(x)?.absences ?? []).map(a => a.empId), ...(lotDuResultat(x)?.sorties ?? []).map(a => a.empId),
+])];
 /** Feuilles transmises à la paie : validées et non transmises avant l'action, marquées transmises après. */
 const transmises = (x: Contexte) => (x.etat as number[]).map(id => x.db.get<FeuilleTemps>('feuilles', id)).filter((f): f is FeuilleTemps => !!f?.sage);
 /** Lignes de clôture des congés créées par l'action (identifiants au-delà du dernier d'avant l'action). */
@@ -210,10 +216,14 @@ export const REGLES: Record<string, Regle> = {
     code: (_p, x) => (soldeRttGarde(x) ? 'employe.rtt' : ''),
     bilan: (_p, x) => { const s = soldeRttGarde(x); return s ? { soldeRtt: { annee: s.annee, droit: s.droit, pris: s.pris, poses: s.poses, solde: s.solde } } : {}; },
   },
-  // Sortie : date et motif (code de la liste fermée), nombre d'éléments annulés ; jamais le détail d'une absence.
+  // Sortie : date et motif (code de la liste fermée), nombre d'éléments annulés, identifiant du solde de sortie photographié
+  // (ses quantités sont dans le message) ; jamais le détail d'une absence.
   'employe.sortie': {
     champs: ['id', 'date', 'motif'], cible: parId('employes', ['fin', 'motifSortie']), salaries: p => [p.id],
-    bilan: (_p, x) => (x.result as { annulations?: Ligne } | null)?.annulations ?? {},
+    bilan: (_p, x) => {
+      const r = x.result as { annulations?: Ligne; soldeSortie?: number } | null;
+      return { ...(r?.annulations ?? {}), ...(r?.soldeSortie ? { soldeSortie: r.soldeSortie } : {}) };
+    },
   },
   'employe.annulerSortie': { champs: ['id'], cible: parId('employes', ['fin', 'motifSortie']), salaries: p => [p.id] },
   // Titre de séjour : type, expiration, demande d'authentification et vérification en préfecture, avant et après ; jamais

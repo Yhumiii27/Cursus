@@ -134,8 +134,18 @@ export const TABLES = {
       absences: 'json',
       // Lot correctif (t131) : feuilles rouvertes régularisées ; `type` null : lot ordinaire.
       type: 'text', correctifs: 'json',
+      // Soldes de sortie du lot (identifiant, salarié ; t128, shared/rules/solde-sortie.ts) : quantités dans `contenu`.
+      sorties: 'json',
     },
     unique: [['cle']],
+  },
+  // Soldes de sortie photographiés à l'enregistrement de la sortie (t128, server/src/soldes-sortie.ts) : état des compteurs
+  // à la date de sortie ; lot de paie qui l'emporte (`lotId`) et import confirmé (`sage`), ou réglé hors fichier faute de
+  // rubrique active (`horsFichier`). Un solde courant par salarié ; un solde transmis dont la sortie est annulée ou
+  // déplacée reste pour l'historique (`remplaceLe`), d'où l'absence de contrainte d'unicité sur le salarié.
+  soldesSortie: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', empId: 'int', date: 'text', etat: 'json', le: 'text', par: 'text', lotId: 'int', sage: 'bool', horsFichier: 'bool', remplaceLe: 'text' },
   },
   // Correspondance des rubriques de paie avec le plan de paie Sage (server/src/actions/paie.ts) : une ligne par rubrique
   // modifiée ; sans ligne, code Sage égal au code interne, à confirmer (shared/rules/paie.ts).

@@ -111,7 +111,7 @@ test('sortie : contrôles, annulations (Keystone prévenu, convocation annulée)
   const o = run(RH, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' }) as { message: string };
   assert.match(o.message, /^Sortie de Mehdi Benali enregistrée le 16 oct\. 2026 — Démission/);
   assert.match(o.message, /2 absences annulées \(Keystone prévenu\) · 1 inscription à une session retirée · 1 entretien planifié retiré · 1 feuille de temps vide retirée/);
-  assert.match(o.message, /annulation de convocation envoyée par e-mail · accès à Cursus jusqu’au 16 oct\. 2026 inclus$/);
+  assert.match(o.message, /annulation de convocation envoyée par e-mail · solde de sortie photographié : [^·]+( · [^·]+)* · accès à Cursus jusqu’au 16 oct\. 2026 inclus$/);
   const e = db.get<{ fin: string; motifSortie: string; finPrevue: string | null }>('employes', 2)!;
   assert.deepEqual([e.fin, e.motifSortie, e.finPrevue], ['2026-10-16', 'demission', null]);
   // Annulations : absences (la validée prévient Keystone), recyclage détaché et convocation annulée, entretien, visite, feuille vide.
@@ -127,6 +127,7 @@ test('sortie : contrôles, annulations (Keystone prévenu, convocation annulée)
   const j = derniere('employe.sortie')!;
   assert.deepEqual(j.payload, {
     id: 2, date: '2026-10-16', motif: 'demission', absences: 2, inscriptions: 1, entretiens: 1, visites: 0, feuilles: 1, sessions: 0,
+    soldeSortie: db.where<{ id: number }>('soldesSortie', 'empId', 2)[0].id,
     avant: { fin: null, motifSortie: null }, apres: { fin: '2026-10-16', motifSortie: 'demission' },
   });
   assert.deepEqual([j.salaries, j.paie], [[2], true]);
@@ -172,7 +173,7 @@ test('sortie : une date passée ferme les sessions ; motif réservé au RH, à l
   });
   run(RH, 'medical.demander', { empId: 6 });
   const o = run(RH, 'employe.sortie', { id: 6, date: '2026-10-09', motif: 'rupture_conventionnelle' }) as { message: string };
-  assert.match(o.message, /demande de visite médicale annulée · sessions de connexion fermées$/);
+  assert.match(o.message, /demande de visite médicale annulée · sessions de connexion fermées · solde de sortie photographié : /);
   assert.deepEqual(db.all<{ empId: number; statut: string }>('demandesVisite').filter(x => x.empId === 6).map(x => x.statut), ['annulee'], 'sortie passée : visite annulée');
   assert.ok(db.get<{ revocation: string | null }>('connexions', 'session-essai')!.revocation, 'session révoquée');
   // Motif : ni le manager ni le référent HSE ; la paie et la lecture seule, oui.

@@ -1,16 +1,19 @@
 // Sortie d'un salarié (service RH), pour tous les contrats, CDI compris : dernier jour du contrat et motif en liste
 // fermée. Les contrôles et les effets sont ceux du serveur (`controleSortie` de shared/rules/contrats.ts) : ce qui bloque
 // la sortie, ce qu'elle annule ou retire, ce qu'il reste à voir. Une sortie déjà enregistrée se modifie ici et s'annule
-// depuis la fiche (« Annuler la sortie »).
+// depuis la fiche (« Annuler la sortie »). Solde de sortie (t128) : compteurs à la date, montrés avant la confirmation et
+// photographiés à l'enregistrement pour la paie (shared/rules/solde-sortie.ts).
 import { useState } from 'react';
 import { ENT_TYPES } from '../../../shared/constants.ts';
 import { isoWeek } from '../../../shared/dates.ts';
 import { fmtIso } from '../../../shared/format.ts';
 import { periodeTexte } from '../../../shared/rules/absences.ts';
 import { controleSortie, finContrat, MOTIFS_SORTIE } from '../../../shared/rules/contrats.ts';
+import { etatSortie, soldeCourant, transmisTexte } from '../../../shared/rules/solde-sortie.ts';
 import { texteVisiteSortie } from '../../../shared/rules/visites-dues.ts';
 import type { MotifSortie } from '../../../shared/types.ts';
 import { erreurDate } from '../components/controles.ts';
+import { EtatSortieTableau } from '../components/SoldeSortie.tsx';
 import { CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine, NoteAccent } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
@@ -46,6 +49,10 @@ export function SortieDialog({ empId }: { empId: number }) {
   const passee = !dateErr && date < d.ti;
   // Suivi renforcé ou exposition à des risques particuliers : visite de fin de carrière ou post-exposition, ou rappel.
   const visite = c && !c.bloquants.length ? texteVisiteSortie(d, emp, date, motif) : null;
+  // Solde des compteurs à la date (sortie possible seulement) ; un solde déjà transmis à la paie n'est plus refait à la
+  // même date, et il est remplacé à une autre date (écart à régulariser dans Sage).
+  const etat = c && !c.bloquants.length ? etatSortie(d, emp, date) : null;
+  const courant = soldeCourant(d.ds.soldesSortie, emp.id), transmis = courant?.sage ? courant : null;
 
   const confirm = async () => {
     if (busy || !v.verifier(dateErr, motifErr, c?.bloquants.length)) return;
@@ -83,6 +90,14 @@ export function SortieDialog({ empId }: { empId: number }) {
         <Controles msgs={effets.map(text => ({ text, bad: false }))} />
       </>}
       {c?.avertissements.map(a => <NoteAccent key={a}>{a}</NoteAccent>)}
+      {etat && <>
+        <Fine>Solde des compteurs au {fmtIso(date)}, photographié à l’enregistrement pour la paie (le montant de l’indemnité est calculé par Sage) :</Fine>
+        <EtatSortieTableau etat={etat} />
+        {etat.avertissements.map(a => <NoteAccent key={a}>{a}</NoteAccent>)}
+        {transmis && (transmis.date === date
+          ? <NoteAccent>Solde de sortie déjà {transmisTexte(transmis)} : il est gardé tel quel, un écart se corrige dans Sage.</NoteAccent>
+          : <NoteAccent>Solde de sortie au {fmtIso(transmis.date)} déjà {transmisTexte(transmis)} : il sera remplacé par ce nouveau solde, et l’ancien est à régulariser dans Sage.</NoteAccent>)}
+      </>}
       {visite && <NoteAccent>{visite}</NoteAccent>}
       <Fine>
         Passé cette date, {emp.nom} ne se connecte plus à Cursus, ne reçoit plus de notification et n’a plus ni feuille de temps ni

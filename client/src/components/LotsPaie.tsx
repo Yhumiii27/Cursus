@@ -9,6 +9,8 @@
 // (`absencesPaie` de l'instantané, shared/rules/absences-paie.ts), dans le lot avec les feuilles ; export des variables
 // de la période (VariablesPaie.tsx). Feuilles rouvertes après leur transmission (t131) : « à régulariser » dans l'attente,
 // lots « correctifs » dans l'historique (shared/rules/regularisation.ts).
+// de la période (VariablesPaie.tsx). Soldes de sortie (t128) : photographiés à la sortie, dans le lot du mois de la
+// sortie quand les rubriques de sortie sont actives (shared/rules/solde-sortie.ts), sinon à saisir dans Sage.
 import { useState } from 'react';
 import { DownloadSimpleIcon } from '@phosphor-icons/react';
 import { fmtIso, plural } from '../../../shared/format.ts';
@@ -20,6 +22,7 @@ import {
 import {
   feuillesParPeriode, MODES_HEURES_SUP, MODES_SAGE, periodeLabel, RATTACHEMENTS, rubriquesAConfirmer, rubriquesPaie, rubriquesTexte,
 } from '../../../shared/rules/paie.ts';
+import { elementsSorties, quantitesSortie, sortiesDuContenu } from '../../../shared/rules/solde-sortie.ts';
 import { rubriquesEmises, sagePending } from '../../../shared/rules/temps.ts';
 import { aRegulariser, modeRegularisation, MODES_REGULARISATION } from '../../../shared/rules/regularisation.ts';
 import type { LotPaie } from '../../../shared/types.ts';
@@ -52,7 +55,11 @@ export function LotsPaie() {
   const avecAbsences = absencesDansLeFichier(s);
   const absences = avecAbsences ? d.ds.absencesPaie ?? [] : [];
   const nbAbsences = absences.reduce((n, g) => n + g.absences, 0);
-  const aConfirmer = rubriquesAConfirmer([...rubriquesEmises(d, aTransmettre), ...absences.flatMap(g => g.rubriques)], rubriquesPaie(d.ds.rubriquesPaie));
+  // Soldes de sortie en attente d'un lot (rubriques de sortie actives), et ceux qui restent à saisir dans Sage.
+  const sorties = elementsSorties(d, '9999-12', rubriquesPaie(d.ds.rubriquesPaie));
+  const sortiesDe = (periode: string) => sortiesDuContenu(sorties.filter(x => x.periode <= periode));
+  const sortiesASaisir = (d.ds.soldesSortie ?? []).filter(x => x.lotId == null && !x.sage && quantitesSortie(x.etat).length && !sorties.some(y => y.sortie === x.id));
+  const aConfirmer = rubriquesAConfirmer([...rubriquesEmises(d, aTransmettre), ...absences.flatMap(g => g.rubriques), ...sorties.map(x => x.rubrique)], rubriquesPaie(d.ds.rubriquesPaie));
   const salaries = new Set(aTransmettre.map(sh => sh.empId)).size;
   // Feuilles rouvertes après leur transmission, revalidées : seul leur écart partira (lot correctif, t131).
   const regularisations = aTransmettre.filter(aRegulariser).length;
@@ -60,7 +67,7 @@ export function LotsPaie() {
   const format = d.ds.formatFichierPaie ?? FORMAT_FICHIER_DEFAUT;
   const perimetre = perimetreFichier(avecAbsences);
   // Une ligne par période de destination : le lot d'une période emporte aussi les feuilles et absences des périodes antérieures.
-  const periodes = [...new Set([...groupes.map(g => g.periode), ...absences.map(g => g.periode)])].sort();
+  const periodes = [...new Set([...groupes.map(g => g.periode), ...absences.map(g => g.periode), ...sorties.map(x => x.periode)])].sort();
 
   const generer = (periode: string) => {
     const toutes = feuillesDuLot(aTransmettre, periode, s, d.ti);
@@ -69,10 +76,11 @@ export function LotsPaie() {
     const seul = modeRegularisation(format) === 'remplace' && toutes.some(aRegulariser);
     const sheets = seul ? toutes.filter(aRegulariser) : toutes;
     const abs = seul ? null : absencesDuLot(absences, periode);
-    const ids = [...sheets.map(sh => sh.empId), ...(abs?.empIds ?? [])];
+    const so = seul ? [] : sortiesDe(periode);
+    const ids = [...sheets.map(sh => sh.empId), ...(abs?.empIds ?? []), ...so.map(x => x.empId)];
     openDialog({
       type: 'confirmer', c: generationLot({
-        periode, feuilles: sheets.length, salaries: new Set(ids).size, mode, perimetre, absences: abs,
+        periode, feuilles: sheets.length, salaries: new Set(ids).size, mode, perimetre, absences: abs, sorties: so.length,
         correctifs: sheets.filter(aRegulariser).length, regularisation: modeRegularisation(format), enAttente: seul ? toutes.length - sheets.length : 0,
         rappels: feuillesParPeriode(sheets, s, d.ti).filter(g => g.origine),
         sansMatricule: mode === 'simulation' ? sansMatriculePaie(d.ds.employes, d.ti, ids).map(e => e.nom) : [],
@@ -140,7 +148,7 @@ export function LotsPaie() {
                         <Two main={<span className="tnum">{abs?.absences ?? 0}</span>} sub={abs?.regularisations ? plural(abs.regularisations, 'régularisation', 'régularisations') : undefined} />
                       </td>
                     )}
-                    <td className="right tnum">{new Set([...sheets.map(sh => sh.empId), ...(abs?.empIds ?? [])]).size}</td>
+                    <td className="right tnum">{new Set([...sheets.map(sh => sh.empId), ...(abs?.empIds ?? []), ...sorties.filter(x => x.periode === p).map(x => x.empId)]).size}</td>
                     <td className="right">
                       {paie && (
                         <button type="button" className="btn btn-primary btn-sm" onClick={() => generer(p)}>
@@ -154,6 +162,12 @@ export function LotsPaie() {
             </tbody>
           </table>
         </div>
+      )}
+      {(sorties.length > 0 || sortiesASaisir.length > 0) && (
+        <Fine>
+          {sorties.length > 0 && `Soldes de sortie dans le prochain lot de leur période : ${sortiesDuContenu(sorties).map(x => `${d.personName(x.empId)} (${periodeLabel(sorties.find(y => y.sortie === x.id)!.periode)})`).join(', ')}. `}
+          {sortiesASaisir.length > 0 && `${plural(sortiesASaisir.length, 'solde de sortie', 'soldes de sortie')} à saisir dans Sage (rubriques de sortie désactivées) : ${sortiesASaisir.map(x => d.personName(x.empId)).join(', ')}.`}
+        </Fine>
       )}
       {mode !== 'simulation' && aConfirmer.length > 0 && (
         <div className="note-accent">Code Sage à confirmer avant toute génération de lot : {rubriquesTexte(aConfirmer)}.</div>
@@ -181,7 +195,7 @@ export function LotsPaie() {
                   <td><Two main={periodeLabel(l.periode)} sub={l.rappels.length ? `rappel de ${l.rappels.map(periodeLabel).join(', ')}` : undefined} /></td>
                   <td className="right">
                     <Two main={<span className="tnum">{l.feuilles.length}</span>}
-                      sub={l.historique ? undefined : [l.absences?.length ? plural(l.absences.length, 'absence', 'absences') : '', plural(l.resume.lignes, 'ligne', 'lignes')].filter(Boolean).join(' · ')} />
+                      sub={l.historique ? undefined : [l.absences?.length ? plural(l.absences.length, 'absence', 'absences') : '', l.sorties?.length ? plural(l.sorties.length, 'solde de sortie', 'soldes de sortie') : '', plural(l.resume.lignes, 'ligne', 'lignes')].filter(Boolean).join(' · ')} />
                   </td>
                   <td>
                     <Two main={<Tag cls={STATUTS_LOT[l.statut].cls}>{STATUTS_LOT[l.statut].label}</Tag>}

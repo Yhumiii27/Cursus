@@ -22,7 +22,7 @@ const ref = (table: string, colonne: string, cible: string, cle = 'id'): Referen
 export const REFERENCES: readonly Reference[] = [
   ...['demandes_visite', 'certifications', 'hab_titres', 'visas', 'vaccinations', 'inscriptions', 'participations', 'voyages', 'demandes_keystone',
     'missions', 'taches', 'feuilles', 'mandats', 'absences', 'cet', 'reports', 'soldes_reprise', 'clotures', 'entretiens', 'demandes_collab', 'comptes',
-    'notifications', 'verdicts_keystone', 'informations_cp'].map(t => ref(t, 'emp_id', 'employes')),
+    'notifications', 'verdicts_keystone', 'informations_cp', 'soldes_sortie'].map(t => ref(t, 'emp_id', 'employes')),
   ...['certifications', 'inscriptions', 'participations', 'demandes_collab'].map(t => ref(t, 'session_id', 'sessions')),
   ref('participations', 'cert_id', 'certifications'),
   ref('certifications', 'f', 'formations'),
@@ -34,6 +34,7 @@ export const REFERENCES: readonly Reference[] = [
   ref('equipes', 'manager_id', 'employes'),
   ref('feuilles', 'lot_id', 'lots_paie'),
   ref('absences', 'lot_id', 'lots_paie'),
+  ref('soldes_sortie', 'lot_id', 'lots_paie'),
   ref('informations_cp', 'absence_id', 'absences'),
   ref('demandes_keystone', 'voyage_id', 'voyages'),
 ];

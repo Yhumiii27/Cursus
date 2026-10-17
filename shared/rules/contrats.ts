@@ -9,7 +9,7 @@
 // alertée avant le délai de prévenance ; fin prévue d'un CDD, d'une mission, d'une alternance ; titre de séjour valant
 // autorisation de travail (expiré : salarié non conforme et « No Go CONTRAT », libellé générique pour Keystone).
 import { ESSAI_MAX_CDI, STATUTS } from '../constants.ts';
-import { addD, addM, days, isFerie, isValidDate, isoWeek, mondayOf, parse, wDays, weekday } from '../dates.ts';
+import { addD, addM, days, isFerie, isValidDate, isoWeek, joursSemaine, mondayOf, parse, weekday } from '../dates.ts';
 import { fJ, fmtIso, num, plural } from '../format.ts';
 import type { Domain, EchItem, EmpX } from '../domain.ts';
 import type {
@@ -111,7 +111,7 @@ export function controleSortie(d: Domain, e: Employe, date: ISODate): ControleSo
   // Heures saisies après la sortie, sur une feuille de n'importe quel statut : à retirer d'abord (une feuille validée se
   // corrige avec la paie), sans quoi elles seraient payées hors contrat.
   const feuilles = d.ds.feuilles.filter(f => f.empId === e.id);
-  const semaines = feuilles.filter(f => wDays(f.week).some((j, i) => j > date && heuresDuJour(f, i) > 0)).map(f => f.week).sort();
+  const semaines = feuilles.filter(f => joursSemaine(f.week).some((j, i) => j > date && heuresDuJour(f, i) > 0)).map(f => f.week).sort();
   if (semaines.length) {
     c.bloquants.push(`Heures saisies après le ${fmtIso(date)} (${semaines.length > 1 ? 'semaines' : 'semaine'} ${semaines.map(isoWeek).join(', ')}) : retirez-les des feuilles de temps d’abord, ou choisissez une date de sortie postérieure.`);
   }
@@ -128,7 +128,7 @@ export function controleSortie(d: Domain, e: Employe, date: ISODate): ControleSo
   const visites = d.ds.demandesVisite.filter(x => x.empId === e.id && x.statut === 'demandee');
   if (date <= d.ti) c.visites = visites;
   else if (visites.length) c.avertissements.push('Demande de visite médicale en cours : gardée jusqu’au départ (une visite de reprise reste due tant que le salarié travaille) ; annulez-la depuis la fiche si elle n’a plus d’objet.');
-  c.feuilles = feuilles.filter(f => f.statut !== 'validee' && f.week > date && [0, 1, 2, 3, 4].every(i => heuresDuJour(f, i) === 0));
+  c.feuilles = feuilles.filter(f => f.statut !== 'validee' && f.week > date && joursSemaine(f.week).every((_, i) => heuresDuJour(f, i) === 0));
 
   d.ds.voyages.filter(v => v.empId === e.id && v.retour > date && voyageActif(v)).forEach(v => {
     c.avertissements.push(`Déplacement ${d.destOf(v.dest)?.pays ?? v.dest} ${periodeTexte(v.depart, v.retour)} au-delà de la sortie : à annuler ou écourter (Voyages).`);

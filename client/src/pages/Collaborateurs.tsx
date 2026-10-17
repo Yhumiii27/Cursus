@@ -18,6 +18,7 @@ import { Aptitude } from '../components/Aptitude.tsx';
 import { ExigencesCellule, ExigencesFiche, ExigencesMotif } from '../components/Exigences.tsx';
 import { SortieFiche } from '../components/Sortie.tsx';
 import { ContratFiche } from '../components/ContratFiche.tsx';
+import { MandatsFiche } from '../components/Delegation.tsx';
 import { downloadCsv, matriculesImprimes, printDocument } from '../print.ts';
 import { csvAnnuaire } from '../listes-csv.ts';
 import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derived.ts';
@@ -499,6 +500,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
         )}
         <SortieFiche e={e} />
         <ContratFiche e={e} />
+        <MandatsFiche e={e} />
         <Info label="Manager valideur">{d.mgrName(valideur)}</Info>
         {rh && e.repriseDate && <Info label="Reprise après absence longue">{`${e.repriseMotif ?? 'Motif non renseigné'} · le ${fmtIso(e.repriseDate)}`}</Info>}
       </div>

@@ -3,13 +3,15 @@
 // semaines (réglage `suiviSemaines`) : feuille non saisie, en brouillon, à corriger, à valider, validée ou transmise
 // (shared/rules/suivi-feuilles.ts), en retard une fois l'échéance passée (par défaut le lundi suivant à 12 h). Relance
 // en un clic (temps.relancer : e-mail au salarié et à son valideur) et validation groupée des feuilles soumises
-// (temps.validerLot : contrôles feuille par feuille, refus listés) : manager direct et service RH.
+// (temps.validerLot : contrôles feuille par feuille, refus listés ; la confirmation compte les alertes de repos) : manager
+// direct et service RH.
 import { useState } from 'react';
 import { addD, isoWeek, parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmtShort, plural } from '../../../shared/format.ts';
 import {
   type CelluleSuivi, compteursSuivi, delaiTexte, ETATS_SEMAINE, etatSemaines, limiteTexte, maintenantParis, semainesSuivies,
 } from '../../../shared/rules/suivi-feuilles.ts';
+import { nombreAvecRepos } from '../../../shared/rules/repos-a-verifier.ts';
 import { useAgir } from '../state/actions.ts';
 import { validationGroupee } from '../state/confirmations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
@@ -39,6 +41,7 @@ export function SuiviFeuilles() {
   const agit = rh || manager;
   // Feuilles soumises que la personne peut valider : jamais la sienne (un membre du RH passe par son valideur).
   const aValider = lignes.flatMap(l => l.cellules).filter(c => c.etat === 'soumise' && (manager || c.empId !== soi));
+  const selection = aValider.map(c => ({ empId: c.empId, week: c.week }));
   const equipes = [...new Set(d.ds.employes.map(equipeLabel))].sort();
 
   const relancer = (empId?: number) => agir(() => run('temps.relancer', empId === undefined ? {} : { empId }));
@@ -65,7 +68,7 @@ export function SuiviFeuilles() {
           )}
           {agit && aValider.length > 0 && (
             <button type="button" className="btn btn-primary" disabled={occupe}
-              onClick={() => openDialog({ type: 'confirmer', c: validationGroupee(aValider.map(c => ({ empId: c.empId, week: c.week })), new Set(aValider.map(c => c.empId)).size) })}>
+              onClick={() => openDialog({ type: 'confirmer', c: validationGroupee(selection, new Set(aValider.map(c => c.empId)).size, nombreAvecRepos(d, selection)) })}>
               Valider les feuilles soumises ({aValider.length})
             </button>
           )}
@@ -82,7 +85,7 @@ export function SuiviFeuilles() {
               {semaines.map(w => (
                 <th key={w} className="center nowrap">
                   <div>S{isoWeek(w)}</div>
-                  <div style={{ fontSize: 11, fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--color-neutral-500)' }}>{fmtShort(parse(w))} → {fmtShort(parse(addD(w, 4)))}</div>
+                  <div style={{ fontSize: 11, fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--color-neutral-500)' }}>{fmtShort(parse(w))} → {fmtShort(parse(addD(w, 6)))}</div>
                 </th>
               ))}
               <th></th>

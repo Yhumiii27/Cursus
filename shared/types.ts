@@ -307,7 +307,25 @@ export interface FeuilleTemps {
   heuresSup?: ModeHeuresSupFige | null;
   /** Lot de paie (`lotsPaie`) qui porte la feuille : généré ou transmis ; null une fois le lot annulé (feuille libérée). */
   lotId?: number | null;
+  /**
+   * Majoration des heures du dimanche (%, réglage `majorationDimanche`) figée à la validation, comme le mode des heures
+   * supplémentaires : un changement du réglage ne recalcule pas une semaine validée. Null avant : le réglage s'applique.
+   */
+  majDimanche?: number | null;
 }
+/**
+ * Dérogation au repos dominical d'une équipe (shared/rules/semaine.ts) : aucune (heures du dimanche signalées au RH), travail
+ * en continu (art. L3132-12, R3132-5) ou équipe de suppléance (art. L3132-16), avec la référence de l'accord ou de la
+ * décision ; réglée par l'administrateur RH (Paramètres → Repos hebdomadaire, `temps.derogationDominicale`).
+ */
+export type TypeDerogationDominicale = 'aucune' | 'feu_continu' | 'suppleance';
+export interface DerogationDominicale { equipe: string; type: TypeDerogationDominicale; reference: string | null; le: ISODate; par: string }
+/**
+ * Mandat d'élu au CSE (shared/rules/delegation.ts) : titulaire ou suppléant, dates, crédit d'heures de délégation par mois
+ * (proposé d'après l'art. R2314-1, modifiable). Saisi par le service RH sur la fiche ; vu par le RH et l'élu seulement.
+ */
+export type RoleMandat = 'titulaire' | 'suppleant';
+export interface Mandat { id: number; empId: number; role: RoleMandat; du: ISODate; au: ISODate | null; credit: number }
 /**
  * Heures supplémentaires payées avec majoration, ou remplacées par un repos compensateur (accord collectif, art. L3121-33 ;
  * à défaut de délégué syndical, sans opposition du CSE, art. L3121-37).
@@ -444,6 +462,8 @@ export interface Settings {
   relancesActives: boolean;
   relancesPaliers: number[];
   relancesJour: 'quotidien' | 'lundi' | 'mardi' | 'mercredi' | 'jeudi' | 'vendredi';
+  /** Majoration des heures du dimanche, en % (0 par défaut, aucune majoration légale hors accord) : rubrique MAJ_DIM. */
+  majorationDimanche: number;
 }
 
 /**
@@ -707,6 +727,15 @@ export interface Dataset {
   releves: ReleveInterim[];
   /** Lots importés à la mise en service (reprise depuis Lucca) : service RH seulement (vide ailleurs). */
   reprises: LotReprise[];
+  /** Dérogations au repos dominical par équipe : la référence de l'accord n'est transmise qu'au service RH. */
+  derogationsDominicales?: DerogationDominicale[];
+  /** Mandats au CSE : service RH (tous) et l'élu (les siens) ; vide ailleurs (le manager ne voit que la ligne de la feuille). */
+  mandats?: Mandat[];
+  /**
+   * Effectif du site retenu pour les heures de délégation (shared/rules/delegation.ts, `effectifSite` calculé par le serveur
+   * sur toutes les fiches) : service RH, et l'élu avec ses mandats ; null ailleurs. Un nombre, aucune liste nominative.
+   */
+  effectifCse?: number | null;
 }
 
 /**

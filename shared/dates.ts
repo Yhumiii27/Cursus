@@ -47,6 +47,13 @@ export function mondayOf(s: ISODate): ISODate {
 export function wDays(w: ISODate): ISODate[] {
   return [0, 1, 2, 3, 4].map(i => addD(w, i));
 }
+/**
+ * Les sept jours d'une semaine civile commençant le lundi `w`, samedi et dimanche compris : jours de la feuille de temps
+ * (0 = lundi … 5 = samedi, 6 = dimanche ; shared/rules/semaine.ts). `wDays` garde les cinq jours ouvrés (congés, contrats).
+ */
+export function joursSemaine(w: ISODate): ISODate[] {
+  return [0, 1, 2, 3, 4, 5, 6].map(i => addD(w, i));
+}
 /** Année de la semaine ISO de `s` : celle de son jeudi (la semaine du lundi 29 décembre 2025 est la semaine 1 de 2026). */
 export function isoWeekYear(s: ISODate): number {
   return Number(addD(mondayOf(s), 3).slice(0, 4));

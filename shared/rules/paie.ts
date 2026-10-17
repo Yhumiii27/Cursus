@@ -46,7 +46,7 @@ export const RATTACHEMENTS: Record<RattachementPeriode, { label: string; aide: s
   },
   vendredi: {
     label: 'Mois du vendredi',
-    aide: 'La semaine va sur le mois de son vendredi, dernier jour de la semaine de travail.',
+    aide: 'La semaine, samedi et dimanche compris, va sur le mois de son vendredi, dernier jour de la semaine de travail.',
   },
   jour: {
     label: 'Ventilation jour par jour',
@@ -70,12 +70,14 @@ const dernierJour = (p: string) => addD(`${suivante(p)}-01`, -1);
 
 /**
  * Parts d'une semaine (lundi `week`) par période de rattachement, dans l'ordre : jours de la feuille (0 = lundi …
- * 4 = vendredi) et période. Une seule part, sauf pour une semaine à cheval sur deux mois ventilée jour par jour.
+ * 6 = dimanche, le week-end compris) et période. Une seule part, sauf pour une semaine à cheval sur deux mois ventilée
+ * jour par jour : un samedi 31 octobre va en octobre, le dimanche 1er novembre en novembre.
  */
 export function partsSemaine(week: ISODate, rattachement: RattachementPeriode = 'dimanche'): { periode: string; jours: number[] }[] {
-  if (rattachement !== 'jour') return [{ periode: moisDe(addD(week, rattachement === 'vendredi' ? 4 : 6)), jours: [0, 1, 2, 3, 4] }];
+  if (rattachement !== 'jour') return [{ periode: moisDe(addD(week, rattachement === 'vendredi' ? 4 : 6)), jours: [0, 1, 2, 3, 4, 5, 6] }];
   const parts: { periode: string; jours: number[] }[] = [];
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 7; i++) {
+
     const periode = moisDe(addD(week, i)), der = parts.at(-1);
     if (der?.periode === periode) der.jours.push(i);
     else parts.push({ periode, jours: [i] });

@@ -11,6 +11,7 @@ import { MANAGER_FIELDS, PROFIL_FIELDS, profilOf, validerProfil, type ProfilInpu
 import type { Employe, Equipe, FeuilleTemps } from '../../../shared/types.ts';
 import { dernierAuteurFiche } from './fiche-auteur.ts';
 import { rattacherPoste } from './referentiels.ts';
+import { renommerDerogation, retirerDerogation } from './repos-dominical.ts';
 import { ActionError, getEmp, isManagerOf, isRh, isRhAdmin, requireRh, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
 function equipesNoms(ctx: Ctx) { return ctx.ds.referentiels.equipes.map(q => q.nom); }
@@ -172,6 +173,7 @@ const renommer: ActionHandler = (ctx, p) => {
   for (const [table, col] of [['equipes', 'nom'], ['employes', 'equipe'], ['budgets', 'equipe'], ['plan_actions', 'equipe']]) {
     ctx.db.sql.prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`).run(nouveau, q.nom);
   }
+  renommerDerogation(ctx.db, q.nom, nouveau);
   return `Équipe ${q.nom} renommée en ${nouveau}`;
 };
 
@@ -198,6 +200,7 @@ const supprimer: ActionHandler = (ctx, p) => {
   membres.forEach(e => ctx.db.update('employes', e.id, { equipe: null }));
   ctx.db.sql.prepare('DELETE FROM budgets WHERE equipe = ?').run(q.nom);
   ctx.db.remove('equipes', q.nom);
+  retirerDerogation(ctx.db, q.nom);
   return `Équipe ${q.nom} supprimée${membres.length ? ` · ${plural(membres.length, 'salarié sorti détaché', 'salariés sortis détachés')} de l’équipe` : ''}`;
 };
 

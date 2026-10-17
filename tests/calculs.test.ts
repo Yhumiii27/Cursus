@@ -81,7 +81,7 @@ test('t077 journée de plus de 24 h refusée, motif exigé au-delà de 10 h par 
   run(collab(1), 'temps.setCell', { ...base, li: 1, di: 0, value: '4' });
   [1, 2, 3, 4].forEach(di => run(collab(1), 'temps.setCell', { ...base, li: 0, di, value: '7' }));
   const sh = () => domain().ds.feuilles.find(f => f.empId === 1 && f.week === w)!;
-  assert.deepEqual(calcSheet(domain(), domain().emp(1)!, sh()).perDay, [24, 7, 7, 7, 7]);
+  assert.deepEqual(calcSheet(domain(), domain().emp(1)!, sh()).perDay, [24, 7, 7, 7, 7, 0, 0]);
   refused(collab(1), 'temps.submit', base, /motif/i);
   run(collab(1), 'temps.submit', { ...base, motif: 'Panne de la ligne 2, intervention de nuit' });
   assert.equal(sh().statut, 'soumise');

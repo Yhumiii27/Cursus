@@ -8,6 +8,7 @@ import { SOLDES_DATES } from './reprise.ts';
 import { HEURES_SUP, LOTS_HISTORIQUES, MODE_API_RETIRE } from './paie.ts';
 import { POSTES } from './referentiels.ts';
 import { REFERENCES_DEPLACEMENTS } from './voyages.ts';
+import { ACTIVITES_INTERNES, SEMAINE_7_JOURS } from './temps.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   INDEX_JOURNAL,
@@ -20,4 +21,6 @@ export const MIGRATIONS: readonly Migration[] = [
   LOTS_HISTORIQUES,
   MODE_API_RETIRE,
   REFERENCES_DEPLACEMENTS,
+  SEMAINE_7_JOURS,
+  ACTIVITES_INTERNES,
 ];

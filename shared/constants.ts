@@ -396,6 +396,10 @@ export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubriqu
   HC25: { label: 'Heures complémentaires de temps partiel, majorées à 25 %', unite: 'h' },
   RCR_ACQUIS: { label: 'Repos compensateur de remplacement acquis, majoration incluse', unite: 'h' },
   JTRAV: { label: 'Jours travaillés, forfait jours', unite: 'j' },
+  // Semaine à 7 jours (shared/rules/semaine.ts) : heures du dimanche, déjà comprises dans les heures ci-dessus (information
+  // pour la paie), et leur majoration si le réglage `majorationDimanche` en prévoit une (heures équivalentes).
+  HDIM: { label: 'Heures travaillées le dimanche (comprises dans les heures ci-dessus)', unite: 'h' },
+  MAJ_DIM: { label: 'Majoration des heures du dimanche (heures équivalentes)', unite: 'h' },
 };
 
 /** Sections d'un compte rendu : [clé, libellé, rédacteur] — 'mgr' évaluateur, 'sal' salarié. */

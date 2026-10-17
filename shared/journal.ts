@@ -89,6 +89,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'referentiel.poste.enregistrer': 'Poste créé ou modifié',
   'referentiel.poste.archiver': 'Poste archivé ou rétabli',
   'referentiel.equipe.exigences': 'Exigences communes d’une équipe',
+  'referentiel.activite.enregistrer': 'Activité interne créée ou renommée',
+  'referentiel.activite.archiver': 'Activité interne archivée ou rétablie',
   'migration.postes': 'Reprise : postes créés depuis les fiches',
   // Demandes des collaborateurs
   'demande.formation': 'Demande de formation',
@@ -122,6 +124,9 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'sage.fichier': 'Fichier d’import Sage téléchargé',
   'temps.relancer': 'Relance des feuilles de temps',
   'temps.validerLot': 'Validation groupée des feuilles de temps',
+  'temps.derogationDominicale': 'Dérogation au repos dominical d’une équipe',
+  'mandat.enregistrer': 'Mandat au CSE enregistré ou modifié',
+  'mandat.supprimer': 'Mandat au CSE retiré',
   // Absences et congés
   'absence.demander': 'Demande d’absence',
   'absence.decider': 'Décision sur une absence',
@@ -218,10 +223,10 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.'] },
   { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'migration.coutReel'] },
   { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.'] },
-  { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes)', prefixes: ['referentiel.', 'migration.postes'] },
+  { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
   { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement', 'migration.referencesDeplacements'] },
-  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'migration.heuresSup', 'migration.lotsPaie'] },
+  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'mandat.', 'migration.heuresSup', 'migration.lotsPaie'] },
   { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.', 'conges.', 'migration.soldes'] },
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
   { id: 'reprise', label: 'Mise en service (reprise depuis Lucca)', prefixes: ['reprise.'] },
@@ -272,6 +277,8 @@ export const CHAMP_LABEL: Record<string, string> = {
   // Récapitulatif des échéances (Paramètres → Messagerie) ; annulation d'un déplacement.
   relancesActives: 'Récapitulatif des échéances', relancesPaliers: 'Paliers de relance (jours)', relancesJour: 'Envoi du récapitulatif des échéances',
   annuleLe: 'Annulé le', annuleMotif: 'Motif de l’annulation',
+  // Semaine à 7 jours (heures du dimanche), activités internes et mandats au CSE (heures de délégation).
+  majorationDimanche: 'Majoration des heures du dimanche (%)', role: 'Mandat', credit: 'Crédit d’heures par mois',
 };
 
 const valeur = (v: unknown): string => {

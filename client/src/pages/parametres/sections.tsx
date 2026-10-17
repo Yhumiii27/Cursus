@@ -19,6 +19,7 @@ import { MatriculesPaie } from './MatriculesPaie.tsx';
 import { ReglagesPaie } from './ReglagesPaie.tsx';
 import { Reprise } from './Reprise.tsx';
 import { RelancesEcheances } from './RelancesEcheances.tsx';
+import { ReposHebdomadaire } from './ReposHebdomadaire.tsx';
 import { Rgpd } from './Rgpd.tsx';
 import { SagePaie } from './SagePaie.tsx';
 import { Suivi } from './Suivi.tsx';
@@ -50,6 +51,7 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'contrats', place: 'gauche', Section: Contrats },
   { id: 'paie', place: 'droite', Section: ReglagesPaie },
   { id: 'feuilles', place: 'gauche', Section: FeuillesTemps },
+  { id: 'repos', place: 'droite', Section: ReposHebdomadaire },
   { id: 'confidentialite', place: 'droite', Section: Rgpd },
   { id: 'messagerie', place: 'large', Section: Messagerie },
   { id: 'relances', place: 'large', Section: RelancesEcheances },

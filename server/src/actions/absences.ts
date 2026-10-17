@@ -227,7 +227,7 @@ const annuler: ActionHandler = (ctx, p) => {
   const recredit = !n ? '' : h ? ` — ${fH(h)} de récupération recréditée${h > 1 ? 's' : ''}`
     : rendus ? ` — ${fJ(n)} de CP rendus : ${rendus}` : ` — ${fJ(n)} de ${a.type} recrédité${n > 1 ? 's' : ''} sur le solde`;
   // Une feuille validée n'est jamais modifiée rétroactivement : des heures travaillées ces jours-là restent à régulariser.
-  const semaines = ctx.ds.feuilles.filter(sh => sh.empId === emp.id && sh.statut === 'validee' && sh.week <= a.au && addD(sh.week, 4) >= a.du).map(sh => isoWeek(sh.week));
+  const semaines = ctx.ds.feuilles.filter(sh => sh.empId === emp.id && sh.statut === 'validee' && sh.week <= a.au && addD(sh.week, 6) >= a.du).map(sh => isoWeek(sh.week));
   const feuilles = semaines.length ? ` · ${semaines.length > 1 ? `feuilles de temps validées (semaines ${semaines.join(', ')}) non modifiées` : `feuille de temps validée (semaine ${semaines[0]}) non modifiée`}` : '';
   const nature = libelle((isRh(ctx) || isSelf(ctx, emp.id) ? a : absenceVueManager(a)).type);
   const renvoi = a.statut === 'demandee' ? '' : renvoyerFeuilles(ctx, emp, a);

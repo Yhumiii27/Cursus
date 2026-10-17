@@ -54,7 +54,7 @@ const CONGE: Record<string, { objet: string; texte: string }> = {
 };
 /** Seuls les congés (CP, RTT, récupération) font l'objet d'une demande : toute autre nature reste « absence ». */
 const conge = (t: string) => (Object.hasOwn(CONGE, t) ? CONGE[t] : { objet: 'absence', texte: 'une absence' });
-const semaineTexte = (week: string) => `semaine ${isoWeek(week)} (${periodeLongue(week, addD(week, 4))})`;
+const semaineTexte = (week: string) => `semaine ${isoWeek(week)} (${periodeLongue(week, addD(week, 6))})`;
 
 // — Étapes de validation —
 

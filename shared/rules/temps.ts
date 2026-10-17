@@ -1,11 +1,12 @@
 // Feuilles de temps : décompte des heures, majorations, variables de paie.
-import { horodatageParis, isFerie, isoWeek, isoWeekYear, parse, wDays } from '../dates.ts';
+import { horodatageParis, isFerie, isoWeek, isoWeekYear, joursSemaine, parse } from '../dates.ts';
 import { num, r1 } from '../format.ts';
 import type { Domain } from '../domain.ts';
 import type { Absence, AbsenceType, ContratFige, Employe, FeuilleTemps, ISODate, LigneTemps, ModeHeuresSupFige, SageMode, SagePush, TacheKeystone } from '../types.ts';
 import { absenceBloque, jourHorsContrat, natureDef, natureMedicale } from './absences.ts';
 import { matriculeAffiche } from './matricules.ts';
 import { modeHeuresSup, periodesSemaine, rubriquesPaie, traduireRubriques } from './paie.ts';
+import { alertesRepos, DIMANCHE, derogationDe, estWeekEnd, JOURS_FEUILLE } from './semaine.ts';
 
 /** Régime de temps de travail en vigueur d'une fiche, à figer sur une feuille soumise. */
 export function contratFige(e: Employe): ContratFige {
@@ -17,12 +18,20 @@ export function employeDeLaFeuille(e: Employe, sh: { contrat?: ContratFige | nul
 }
 
 export interface SheetCalc {
+  /** Heures par jour, du lundi (0) au dimanche (6), toutes lignes cumulées. */
   perDay: number[]; total: number; warn: string[];
   /**
    * Durées maximales dépassées (plus de 10 h sur une journée ou de 48 h dans la semaine ; plus de 13 h pour un forfait
    * jours) : sous-ensemble de `warn`. La soumission, et la validation, exigent alors un motif (`motifDepassement`).
    */
   depassements: string[];
+  /**
+   * Repos hebdomadaire (shared/rules/semaine.ts) : 7 jours travaillés, heures le dimanche sans dérogation de l'équipe.
+   * Sous-ensemble de `warn`, en alerte seulement : ni la soumission ni la validation n'en dépendent.
+   */
+  repos: string[];
+  /** Heures du dimanche (rubrique HDIM) et majoration en % (figée à la validation, sinon le réglage) : rubrique MAJ_DIM. */
+  dimanche: number; majDimanche: number;
   /** Heures payées au taux normal (dans la limite de 35 h). */
   normal: number;
   /** Heures supplémentaires structurelles incluses dans un forfait hebdomadaire (total, dont +25 % et +50 %). */
@@ -36,7 +45,8 @@ export interface SheetCalc {
 }
 
 /**
- * Décompte hebdomadaire selon l'organisation du temps de travail en vigueur la semaine de la feuille
+ * Décompte hebdomadaire, sur la semaine civile du lundi au dimanche (art. L3121-35 : les heures du samedi et du dimanche
+ * prennent leur rang avec les autres), selon l'organisation du temps de travail en vigueur la semaine de la feuille
  * (régime figé à la soumission, sinon celui de la fiche) :
  * - 35 h, 39 h + RTT, forfait hebdomadaire : heures supplémentaires au-delà du seuil
  *   (+25 % de la 36e à la 43e heure, +50 % au-delà), payées ou remplacées par un repos compensateur équivalent selon
@@ -45,9 +55,10 @@ export interface SheetCalc {
  * - forfait jours et cadre dirigeant : décompte en jours, pas d'heures supplémentaires ;
  * - forfait annuel en heures : pas de décompte hebdomadaire (cumul annuel, voir `cumulAnnuel`).
  */
-export function calcSheet(d: Domain, e: Employe, sh: (Pick<FeuilleTemps, 'lignes'> & Partial<Pick<FeuilleTemps, 'contrat' | 'heuresSup'>>) | null): SheetCalc {
+export function calcSheet(d: Domain, e: Employe, sh: (Pick<FeuilleTemps, 'lignes'> & Partial<Pick<FeuilleTemps, 'contrat' | 'heuresSup' | 'majDimanche'>>) | null): SheetCalc {
   const c = d.contratOf(employeDeLaFeuille(e, sh));
-  const perDay = [0, 1, 2, 3, 4].map(i => (sh ? sh.lignes : []).reduce((n, l) => n + num(l.h[i]), 0));
+  // Une ligne de 5 valeurs (enregistrée avant la semaine à 7 jours) se lit avec un samedi et un dimanche vides.
+  const perDay = Array.from({ length: JOURS_FEUILLE }, (_, i) => (sh ? sh.lignes : []).reduce((n, l) => n + num(l.h[i]), 0));
   const total = perDay.reduce((a, b) => a + b, 0);
   const depassements: string[] = [];
   if (c.forfait) {
@@ -57,9 +68,12 @@ export function calcSheet(d: Domain, e: Employe, sh: (Pick<FeuilleTemps, 'lignes
     if (perDay.some(h => h > 10)) depassements.push('Plus de 10 h sur une journée (art. L3121-18)');
     if (total > 48) depassements.push('Plus de 48 h dans la semaine (art. L3121-20)');
   }
-  const warn = [...depassements];
+  // Repos hebdomadaire et dominical : alertes, sauf pour un cadre dirigeant (art. L3111-2).
+  const repos = c.dirigeant ? [] : alertesRepos(perDay, derogationDe(d.ds, e));
+  const warn = [...depassements, ...repos];
   const modeHS = modeHeuresSup(sh, d.ds.settings);
-  const r: SheetCalc = { perDay, total, c, warn, depassements, normal: total, incluses: 0, incluses25: 0, incluses50: 0, sup25: 0, sup50: 0, hc10: 0, hc25: 0, recup: 0, jours: 0, modeHS };
+  const majDimanche = sh?.majDimanche ?? d.ds.settings?.majorationDimanche ?? 0;
+  const r: SheetCalc = { perDay, total, c, warn, depassements, repos, dimanche: perDay[DIMANCHE], majDimanche, normal: total, incluses: 0, incluses25: 0, incluses50: 0, sup25: 0, sup50: 0, hc10: 0, hc25: 0, recup: 0, jours: 0, modeHS };
   const jours = perDay.reduce((n, h) => n + (h === 0 ? 0 : h <= 4 ? 0.5 : 1), 0);
   if (c.forfait || c.dirigeant || c.annuel) r.jours = jours;
   else if (c.partiel) {
@@ -91,9 +105,9 @@ export function calcSheet(d: Domain, e: Employe, sh: (Pick<FeuilleTemps, 'lignes
 /** Durée maximale d'une journée, toutes lignes de la feuille cumulées : au-delà, la saisie est refusée. */
 export const HEURES_JOUR_MAX = 24;
 
-/** Jours (0 = lundi … 4 = vendredi) dont le total, toutes lignes cumulées, dépasse 24 h. */
+/** Jours (0 = lundi … 6 = dimanche) dont le total, toutes lignes cumulées, dépasse 24 h. */
 export const joursAuDela24 = (lignes: Pick<LigneTemps, 'h'>[]): number[] =>
-  [0, 1, 2, 3, 4].filter(i => lignes.reduce((n, l) => n + num(l.h[i]), 0) > HEURES_JOUR_MAX);
+  Array.from({ length: JOURS_FEUILLE }, (_, i) => i).filter(i => lignes.reduce((n, l) => n + num(l.h[i]), 0) > HEURES_JOUR_MAX);
 
 /**
  * Forfait annuel en heures : cumul des feuilles validées de l'année, cible proratisée selon la présence
@@ -104,10 +118,10 @@ export function cumulAnnuel(d: Domain, e: Employe, year = d.year) {
   const c = d.contratOf(e);
   const annee = String(year);
   const done = d.ds.feuilles
-    .filter(sh => sh.empId === e.id && sh.statut === 'validee' && wDays(sh.week).some(day => day.startsWith(annee)))
+    .filter(sh => sh.empId === e.id && sh.statut === 'validee' && joursSemaine(sh.week).some(day => day.startsWith(annee)))
     .reduce((n, sh) => {
       const perDay = calcSheet(d, e, sh).perDay;
-      return n + wDays(sh.week).reduce((m, day, i) => m + (day.startsWith(annee) ? perDay[i] : 0), 0);
+      return n + joursSemaine(sh.week).reduce((m, day, i) => m + (day.startsWith(annee) ? perDay[i] : 0), 0);
     }, 0);
   const start = new Date(year, 0, 1).getTime(), end = new Date(year + 1, 0, 1).getTime();
   const debut = Math.max(start, parse(e.entree).getTime());
@@ -122,7 +136,7 @@ export function cumulAnnuel(d: Domain, e: Employe, year = d.year) {
 export type AbsenceJour = Pick<Absence, 'empId' | 'type' | 'du' | 'au'> & Partial<Pick<Absence, 'statut'>>;
 
 /**
- * Absence en vigueur couvrant chaque jour de la semaine `w`, du lundi au vendredi ; null les autres jours :
+ * Absence en vigueur couvrant chaque jour de la semaine `w`, du lundi au dimanche ; null les autres jours :
  * congé validé (CP, RTT / repos, récupération), absence hors congés qualifiée (arrêt, maternité, événement familial…)
  * ou signalée en attendant sa qualification. Aucune heure ne peut être saisie ces jours-là (double paiement sinon).
  * Source unique pour la saisie, la proposition Keystone, la soumission, la validation et la grille.
@@ -130,7 +144,7 @@ export type AbsenceJour = Pick<Absence, 'empId' | 'type' | 'du' | 'au'> & Partia
  * ou pour repérer les demandes en attente (`demandesAbsence`).
  */
 export function joursAbsence(d: Domain, empId: number, w: ISODate, absences: AbsenceJour[] = d.ds.absences.filter(absenceBloque)): (AbsenceJour | null)[] {
-  return wDays(w).map(day => absences.find(a => a.empId === empId && a.du <= day && a.au >= day) ?? null);
+  return joursSemaine(w).map(day => absences.find(a => a.empId === empId && a.du <= day && a.au >= day) ?? null);
 }
 
 /** Demandes d'absence en attente de décision : elles ne bloquent pas la saisie, mais la validation de la feuille. */
@@ -140,7 +154,7 @@ export interface HeuresSurAbsence { di: number; day: ISODate; absence: AbsenceJo
 
 /** Jours d'absence de la feuille qui portent encore des heures, à retirer avant soumission et validation. */
 export function heuresSurAbsence(d: Domain, sh: Pick<FeuilleTemps, 'empId' | 'week' | 'lignes'>, absences?: AbsenceJour[]): HeuresSurAbsence[] {
-  const wd = wDays(sh.week);
+  const wd = joursSemaine(sh.week);
   return joursAbsence(d, sh.empId, sh.week, absences).flatMap((absence, di) =>
     absence && sh.lignes.some(l => num(l.h[di]) > 0) ? [{ di, day: wd[di], absence }] : []);
 }
@@ -176,12 +190,14 @@ export function heuresSurAbsenceMessage(list: HeuresSurAbsence[], suite: string)
 }
 
 /**
- * Semaine sans heure attendue : chaque jour est férié, non travaillé (temps partiel), hors contrat ou couvert par une
- * absence en vigueur, et au moins un par une absence (semaine d'arrêt, de congés…). La feuille se soumet alors sans heure.
+ * Semaine sans heure attendue : chaque jour est férié, non travaillé (temps partiel, samedi et dimanche), hors contrat ou
+ * couvert par une absence en vigueur, et au moins un jour du lundi au vendredi par une absence (semaine d'arrêt, de
+ * congés…). La feuille se soumet alors sans heure.
  */
 export function semaineCouverte(d: Domain, e: Employe, w: ISODate, sh: { contrat?: ContratFige | null } | null = null): boolean {
   const off = d.contratOf(employeDeLaFeuille(e, sh)).jourOff, abs = joursAbsence(d, e.id, w);
-  return abs.some(Boolean) && wDays(w).every((day, i) => !!abs[i] || isFerie(day) || off.includes(i) || !!jourHorsContrat(e, day));
+  return abs.some((a, i) => !!a && !estWeekEnd(i))
+    && joursSemaine(w).every((day, i) => estWeekEnd(i) || !!abs[i] || isFerie(day) || off.includes(i) || !!jourHorsContrat(e, day));
 }
 
 /**
@@ -198,14 +214,14 @@ export function demandesEnAttenteMessage(list: HeuresSurAbsence[], valideur = tr
 }
 
 /**
- * Tâches Keystone du salarié planifiées la semaine `w` : dates de la tâche et heures prévues
- * du lundi au vendredi (le samedi et le dimanche ne figurent pas sur la feuille). Un projet archivé
- * dans Keystone ne reçoit plus d'heures (temps.addLine) : ses tâches ne sont plus proposées.
+ * Tâches Keystone du salarié planifiées la semaine `w` : dates de la tâche et heures prévues du lundi au dimanche
+ * (un chantier du week-end est proposé comme les autres jours). Un projet archivé dans Keystone ne reçoit plus
+ * d'heures (temps.addLine) : ses tâches ne sont plus proposées.
  */
 export function tachesDeLaSemaine(d: Domain, empId: number, w: ISODate): TacheKeystone[] {
-  const wd = wDays(w);
+  const wd = joursSemaine(w);
   const clos = new Set(d.ds.referentiels.projets.filter(p => p.statut === 'archive').map(p => p.code));
-  return d.ds.taches.filter(t => t.empId === empId && !clos.has(t.projet) && t.debut <= wd[4] && t.fin >= w && wd.some(day => num(t.heures?.[day]) > 0));
+  return d.ds.taches.filter(t => t.empId === empId && !clos.has(t.projet) && t.debut <= wd[DIMANCHE] && t.fin >= w && wd.some(day => num(t.heures?.[day]) > 0));
 }
 
 /**
@@ -213,7 +229,7 @@ export function tachesDeLaSemaine(d: Domain, empId: number, w: ISODate): TacheKe
  * (fériés, absences, jours non travaillés et hors contrat à zéro).
  */
 export function suggestLines(d: Domain, e: Employe, w: ISODate): LigneTemps[] {
-  const wd = wDays(w), off = d.contratOf(e).jourOff, abs = joursAbsence(d, e.id, w);
+  const wd = joursSemaine(w), off = d.contratOf(e).jourOff, abs = joursAbsence(d, e.id, w);
   return tachesDeLaSemaine(d, e.id, w).map(t => ({
     projet: t.projet, tache: t.tache, ks: true,
     h: wd.map((day, i) => isFerie(day) || abs[i] || off.includes(i) || jourHorsContrat(e, day) ? 0 : num(t.heures[day])),
@@ -223,12 +239,18 @@ export function suggestLines(d: Domain, e: Employe, w: ISODate): LigneTemps[] {
 /**
  * Rubriques de paie d'une feuille (codes internes, RUBRIQUES_PAIE de shared/constants.ts). Heures supplémentaires selon
  * le mode : payées (HS25, HS50), remplacées par un repos (RCR_ACQUIS seul) ou, feuille d'avant le choix du mode, les deux.
- * Les heures incluses à un forfait hebdomadaire (HSF25, HSF50) restent payées.
+ * Les heures incluses à un forfait hebdomadaire (HSF25, HSF50) restent payées. Heures du dimanche, déjà comprises dans
+ * les précédentes, en quantité (HDIM) pour la paie, et leur majoration si le réglage en prévoit une (MAJ_DIM, heures
+ * équivalentes : 4 h à 50 % donnent 2 h) ; un forfait jours n'en a pas (décompte en jours).
  */
-export function sageRubriques(d: Domain, e: Employe, sh: Pick<FeuilleTemps, 'lignes'> & Partial<Pick<FeuilleTemps, 'contrat' | 'heuresSup'>>): Record<string, number> {
+export function sageRubriques(d: Domain, e: Employe, sh: Pick<FeuilleTemps, 'lignes'> & Partial<Pick<FeuilleTemps, 'contrat' | 'heuresSup' | 'majDimanche'>>): Record<string, number> {
   const c = calcSheet(d, e, sh);
   if (c.c.forfait) return { JTRAV: c.jours };
-  if (c.c.annuel) return { HN: r1(c.total) };
+  const dimanche = {
+    ...(c.dimanche ? { HDIM: r1(c.dimanche) } : {}),
+    ...(c.dimanche && c.majDimanche ? { MAJ_DIM: r1(c.dimanche * c.majDimanche / 100) } : {}),
+  };
+  if (c.c.annuel) return { HN: r1(c.total), ...dimanche };
   const payees = c.modeHS !== 'repos' || c.c.interim;
   return {
     HN: r1(c.normal),
@@ -239,8 +261,10 @@ export function sageRubriques(d: Domain, e: Employe, sh: Pick<FeuilleTemps, 'lig
     ...(c.hc10 ? { HC10: r1(c.hc10) } : {}),
     ...(c.hc25 ? { HC25: r1(c.hc25) } : {}),
     ...(c.recup ? { RCR_ACQUIS: r1(c.recup) } : {}),
+    ...dimanche,
   };
 }
+
 
 /** Variables d'une feuille dans une période de paie (codes internes) ; `origine` : période close, d'où le rappel. */
 export interface RubriquesPeriode { periode: string; origine: string | null; rubriques: Record<string, number> }

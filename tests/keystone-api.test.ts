@@ -204,24 +204,24 @@ test('tâches planifiées : heures par jour, contrôles, proposition limitée à
   assert.equal(r.status, 400);
   assert.deepEqual(r.body.details.map((x: Corps) => x.champ), ['projet', 'heures.2026-02-30', 'heures.2026-10-13', 'heures.2026-10-15', 'heures.2026-10-30']);
 
-  // Semaine 42 de Mehdi : ses deux tâches du planning de démonstration, plus la nouvelle du mercredi au vendredi
-  // (le samedi n'est pas sur la feuille).
+  // Semaine 42 de Mehdi : ses deux tâches du planning de démonstration, plus la nouvelle du mercredi au samedi
+  // (semaine à 7 jours : le samedi est proposé comme les autres jours).
   const lignes = (empId: number, w: string) => suggestLines(domain(), domain().emp(empId)!, w).map(l => [l.projet, l.tache, l.h]);
   assert.deepEqual(lignes(2, '2026-10-12'), [
-    ['INT-MAINT', 'Maintenance préventive', [8, 8, 8, 0, 0]],
-    ['K-2620', 'Repérage site Feyzin', [0, 0, 0, 8, 7]],
-    ['K-9001', 'Préparation arrêt', [0, 0, 2, 2, 1.5]],
+    ['INT-MAINT', 'Maintenance préventive', [8, 8, 8, 0, 0, 0, 0]],
+    ['K-2620', 'Repérage site Feyzin', [0, 0, 0, 8, 7, 0, 0]],
+    ['K-9001', 'Préparation arrêt', [0, 0, 2, 2, 1.5, 4, 0]],
   ]);
-  assert.deepEqual(lignes(2, '2026-10-19').at(-1), ['K-9001', 'Préparation arrêt', [0, 0, 3, 0, 0]]);
+  assert.deepEqual(lignes(2, '2026-10-19').at(-1), ['K-9001', 'Préparation arrêt', [0, 0, 3, 0, 0, 0, 0]]);
   assert.ok(!lignes(2, '2026-10-05').some(l => l[0] === 'K-9001'), 'avant le début de la tâche : rien');
   assert.ok(!lignes(2, '2026-10-26').some(l => l[0] === 'K-9001'), 'après la fin : rien');
   // Le repérage s'arrête le 16 octobre ; la maintenance passe à la semaine complète.
-  assert.deepEqual(lignes(2, '2026-10-26'), [['INT-MAINT', 'Maintenance préventive', [8, 8, 8, 8, 7]]]);
+  assert.deepEqual(lignes(2, '2026-10-26'), [['INT-MAINT', 'Maintenance préventive', [8, 8, 8, 8, 7, 0, 0]]]);
   // Pendant son affectation à Feyzin, Sophie Lemaire (3) n'est planifiée que sur le chantier.
-  assert.deepEqual(lignes(3, '2026-10-19'), [['K-2620', 'Intervention sur site', [8, 8, 8, 8, 7]]]);
-  assert.deepEqual(lignes(3, '2026-10-12'), [['INT-PROD', 'Encadrement ligne 2', [8, 8, 8, 8, 7]]]);
+  assert.deepEqual(lignes(3, '2026-10-19'), [['K-2620', 'Intervention sur site', [8, 8, 8, 8, 7, 0, 0]]]);
+  assert.deepEqual(lignes(3, '2026-10-12'), [['INT-PROD', 'Encadrement ligne 2', [8, 8, 8, 8, 7, 0, 0]]]);
   // Le 11 novembre est férié : zéro proposé.
-  assert.deepEqual(lignes(1, '2026-11-09'), [['INT-LOG', 'Réception / expédition', [7, 7, 0, 7, 7]]]);
+  assert.deepEqual(lignes(1, '2026-11-09'), [['INT-LOG', 'Réception / expédition', [7, 7, 0, 7, 7, 0, 0]]]);
 
   // Rien de planifié : la proposition est refusée, la feuille n'est pas vidée.
   assert.throws(() => run(RH, 'temps.suggest', { empId: 2, week: '2027-03-01' }), /Aucune tâche Keystone planifiée/);
@@ -237,7 +237,7 @@ test('tâches planifiées : heures par jour, contrôles, proposition limitée à
   assert.deepEqual(envoyees.find(t => t.ref === 'T-BORD')!.heures, { '2026-12-04': 4 }, 'heures au-delà du 6 décembre retirées');
   assert.deepEqual(envoyees.find(t => t.ref === 'T-1')!.heures, tache.heures);
   assert.ok(loadFull(db, RH).taches.some(t => t.ref === 'T-LOIN'));
-  assert.deepEqual(lignes(2, '2027-02-01').at(-1), ['K-9001', 'Préparation arrêt', [8, 8, 0, 0, 0]], 'temps.suggest lit tout le planning');
+  assert.deepEqual(lignes(2, '2027-02-01').at(-1), ['K-9001', 'Préparation arrêt', [8, 8, 0, 0, 0, 0, 0]], 'temps.suggest lit tout le planning');
   await call('DELETE', '/v1/taches/T-LOIN');
   await call('DELETE', '/v1/taches/T-BORD');
 
@@ -295,10 +295,10 @@ test('instantané : création, archivage, suppression bornée par « depuis », 
   });
   assert.equal(r.body.bilan.projets.archives, 5);
   const internes = db.all<Corps>('projets').filter(p => ACTIVITES_INTERNES.test(p.code));
-  assert.deepEqual([internes.length, internes.every(p => p.statut === 'actif')], [8, true], 'activités internes toujours imputables');
+  assert.deepEqual([internes.length, internes.every(p => p.statut === 'actif')], [9, true], 'activités internes toujours imputables');
   assert.equal(r.body.bilan.taches.modifies, 1);
   assert.equal(db.count('taches'), 1);
-  assert.equal(db.count('projets'), 14);
+  assert.equal(db.count('projets'), 15);
 });
 
 test('demandes : contrôles 400, doublons 409, hors affectation, ancienne route, journal sans donnée personnelle', async () => {

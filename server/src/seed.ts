@@ -1,7 +1,7 @@
 // Jeu de données de démonstration (repris du prototype Claude Design) :
 // 24 collaborateurs d'un site industriel lyonnais, CCN Industries chimiques.
 import { Domain } from '../../shared/domain.ts';
-import { addD, addM, isFerie, wDays, weekday } from '../../shared/dates.ts';
+import { addD, addM, isFerie, joursSemaine, weekday } from '../../shared/dates.ts';
 import { matricule } from '../../shared/format.ts';
 import { identifiantSuggere, typeSuggere } from '../../shared/rules/comptes.ts';
 import { repriseDesAbsences } from '../../shared/rules/absences.ts';
@@ -17,6 +17,7 @@ import { suivreVerdicts } from './integrations/keystone-verdicts.ts';
 import { figerFeuilles } from './migrate.ts';
 import { postesDepuisFiches } from './migrations/referentiels.ts';
 import { lotHistorique } from './migrations/paie.ts';
+import { amorcerActivites } from './migrations/temps.ts';
 
 // Mode de validation : évaluation réussie pour les habilitations électriques, CACES, SST, ATEX, AIPR et PRAP ;
 // la présence suffit pour les sensibilisations et formations d'information.
@@ -333,14 +334,19 @@ const PLAN = [
 function feuilles(taches: ReturnType<typeof planning>) {
   const out: { empId: number; week: string; statut: string; sage: boolean; keystone: boolean; lignes: unknown[]; heuresSup?: string | null }[] = [];
   Object.keys(TACHES).map(Number).forEach(id => ['2026-09-21', '2026-09-28'].forEach((week, wi) => {
-    const lignes = taches.filter(t => t.empId === id).map(t => ({ projet: t.projet, tache: t.tache, ks: true, h: wDays(week).map(s => t.heures[s] ?? 0) }))
+    const lignes = taches.filter(t => t.empId === id).map(t => ({ projet: t.projet, tache: t.tache, ks: true, h: joursSemaine(week).map(s => t.heures[s] ?? 0) }))
       .filter(l => l.h.some(v => v > 0))
       .map(l => ({ ...l, h: l.h.map((v, i) => v + ((id === 22 || id === 18) && wi === 1 && i < 2 && v ? 2 : 0)) }));
+    // Élu au CSE (mandat de démonstration) : 3 h de délégation le mercredi de la semaine 40, prises sur la production.
+    if (id === 8 && wi === 1) {
+      lignes[0].h[2] -= 3;
+      lignes.push({ projet: 'INT-DELEG', tache: 'Réunion du CSE', ks: false, h: [0, 0, 3, 0, 0, 0, 0] });
+    }
     const statut = wi === 1 && id % 3 === 0 ? 'soumise' : 'validee';
     // Heures supplémentaires payées, mode figé à la validation (comme temps.validate).
     out.push({ empId: id, week, lignes, statut, sage: wi === 0 && id !== 15, keystone: wi === 0, heuresSup: statut === 'validee' ? 'paiement' : null });
   }));
-  out.push({ empId: 1, week: '2026-10-05', lignes: [{ projet: 'INT-LOG', tache: 'Réception / expédition', ks: true, h: [7, 7.5, 0, 0, 0] }], statut: 'brouillon', sage: false, keystone: false });
+  out.push({ empId: 1, week: '2026-10-05', lignes: [{ projet: 'INT-LOG', tache: 'Réception / expédition', ks: true, h: [7, 7.5, 0, 0, 0, 0, 0] }], statut: 'brouillon', sage: false, keystone: false });
   return out;
 }
 
@@ -428,6 +434,11 @@ export function seedDemo(db: Db) {
     // Keystone : mêmes contrôles et mêmes tables que l'API entrante (server/src/integrations/keystone-entrant.ts).
     const cx = contexte(db), taches = planning();
     Object.entries(PROJETS).forEach(([code, nom]) => enregistrerProjet(cx, code, { nom }));
+    // Activités internes de base (dont la délégation du CSE) : comme la migration d'une base neuve, rejouée à la réinitialisation.
+    amorcerActivites(db);
+    // Mandat au CSE de Julien Moreau : titulaire, crédit de la table R2314-1 pour une centaine de salariés.
+    db.insert('mandats', { empId: 8, role: 'titulaire', du: '2025-11-01', au: null, credit: 21 });
+
     CHANTIERS.forEach(({ id, ...c }) => enregistrerChantier(cx, id, c));
     AFFECTATIONS.forEach(({ id, empId, ...a }) => enregistrerAffectation(cx, id, { matricule: matricule(empId), ...a }));
     taches.forEach(({ id, empId, ...t }) => enregistrerTache(cx, id, { matricule: matricule(empId), ...t }));

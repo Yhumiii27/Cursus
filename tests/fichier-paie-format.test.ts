@@ -179,7 +179,9 @@ test('t019 contrôle du format : encodage, dates, colonnes facultatives une fois
     { ...d, encodage: 'windows-1252', colonnes: ['dossier', 'matricule', 'periode', 'rubrique', 'quantite'] });
   // Format enregistré avant ces réglages : complété par les valeurs par défaut.
   const ancien = { separateur: ',', colonnes: ['matricule', 'periode', 'rubrique', 'quantite'], formatPeriode: 'AAAAMM', decimale: '.', entete: false } as unknown as Format;
-  assert.deepEqual(L.controlerFormat({}, ancien), { ...ancien, encodage: 'utf-8', formatDate: 'JJ/MM/AAAA' });
+  assert.deepEqual(L.controlerFormat({}, ancien), { ...ancien, encodage: 'utf-8', formatDate: 'JJ/MM/AAAA', negatifs: true });
+  // Quantités négatives refusées par l'import (t131) : les feuilles corrigées partent en « annule et remplace ».
+  assert.equal((L.controlerFormat({ negatifs: false }, d) as Format).negatifs, false);
   assert.equal(L.typeFichierLot({ encodage: 'windows-1252' }), 'text/csv; charset=windows-1252');
   assert.equal(L.typeFichierLot(), 'text/csv; charset=utf-8');
 });

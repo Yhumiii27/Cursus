@@ -37,6 +37,9 @@ export const ACTIONS_PAIE: readonly string[] = [
   // Absences dans le fichier de paie : date à partir de laquelle Cursus les transmet (base reprise, lot 5) ; l'export
   // des variables de la période est tracé sous `sage.variables`.
   'migration.absencesPaie',
+  // Réouverture d'une feuille validée, parfois déjà transmise (régularisation dans un lot correctif, t131), et reprise
+  // des rubriques par feuille des lots d'avant le lot 5.
+  'temps.rouvrir', 'migration.rubriquesFeuilles',
 ];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
@@ -124,6 +127,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'temps.submit': 'Feuille de temps soumise',
   'temps.validate': 'Feuille de temps validée',
   'temps.reject': 'Feuille de temps renvoyée',
+  'temps.rouvrir': 'Feuille de temps validée rouverte',
   'temps.correction': 'Correction d’heures par le manager ou le RH',
   'temps.ferie': 'Heures saisies un jour férié',
   'temps.pushSage': 'Transmission à la paie',
@@ -207,6 +211,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'migration.soldes': 'Datation des compteurs repris et des reports de CP',
   'migration.heuresSup': 'Reprise : mode des heures supplémentaires figé sur les feuilles validées',
   'migration.lotsPaie': 'Reprise : feuilles déjà transmises réunies en un lot historique',
+  'migration.rubriquesFeuilles': 'Reprise : rubriques transmises de chaque feuille des lots de paie',
   'migration.coutReel': 'Reprise du coût réel des actions réalisées du plan',
   'migration.referencesDeplacements': 'Reprise : référence donnée aux déplacements importés sans référence',
   // Contrôle d'intégrité du démarrage (server/src/integrite.ts) : références orphelines, nombres seulement.
@@ -242,7 +247,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
   { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement', 'migration.referencesDeplacements'] },
-  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'mandat.', 'migration.heuresSup', 'migration.lotsPaie', 'migration.absencesPaie'] },
+  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'mandat.', 'migration.heuresSup', 'migration.lotsPaie', 'migration.absencesPaie', 'migration.rubriquesFeuilles'] },
   { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.', 'conges.', 'migration.soldes'] },
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
   { id: 'reprise', label: 'Mise en service (reprise depuis Lucca)', prefixes: ['reprise.'] },

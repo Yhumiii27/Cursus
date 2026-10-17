@@ -506,20 +506,27 @@ Une acceptation lève en général la réserve `DEPLACEMENT` : le nouveau verdic
 Le manager ou le service RH valide une feuille de temps. Seules partent les heures passées sur les
 projets Keystone : les activités internes (codes `INT-…`) et les cours en CFA (`ECOLE`) ne sont jamais
 transmis, pas plus que les projets sans heure. Une semaine sans heure sur un projet Keystone n'envoie
-rien.
+rien à sa première validation.
 
 | Champ | Type | Contenu |
 | --- | --- | --- |
 | `matricule` | matricule | |
 | `semaine` | date | lundi de la semaine |
-| `projets` | objet `{ "code projet": heures }` | total de la semaine par projet, en heures décimales (deux décimales au plus) |
+| `projets` | objet `{ "code projet": heures }` | total de la semaine par projet, en heures décimales (deux décimales au plus) ; `0` pour un projet retiré par une correction (voir ci-dessous) |
 
 ```json
 { "matricule": "EMP-0012", "semaine": "2026-10-05", "projets": { "K-2614": 15, "K-2611": 15 } }
 ```
 
-Une feuille validée n'est plus modifiable : un événement par salarié et par semaine. Si un nouvel
-événement arrivait pour le même salarié et la même semaine, il remplacerait le précédent.
+Un nouvel événement pour le même salarié et la même semaine remplace le précédent. C'est le cas
+d'une correction (lot 5) : le service RH peut rouvrir une feuille validée ; à sa revalidation, Cursus
+renvoie `heures.validees` avec les heures corrigées de chaque projet, et `0` pour un projet déjà envoyé
+qui n'y figure plus. Une semaine vidée de toute heure Keystone par la correction envoie aussi
+l'événement, tous ses projets à `0` (seul cas où l'objet ne porte que des zéros) :
+
+```json
+{ "matricule": "EMP-0012", "semaine": "2026-10-05", "projets": { "K-2614": 0, "K-2611": 30 } }
+```
 
 ### `absence.validee` et `absence.annulee`
 

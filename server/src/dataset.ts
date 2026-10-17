@@ -14,6 +14,7 @@ import { completerSession } from '../../shared/rules/plage-session.ts';
 import { avecInscrits } from '../../shared/rules/sessions.ts';
 import { finPeriodeCp, periodeReport } from '../../shared/rules/conges.ts';
 import { debutSaisieDe } from '../../shared/rules/suivi-feuilles.ts';
+import { reouvertureNeutre } from '../../shared/rules/regularisation.ts';
 import { effectifSite } from '../../shared/rules/delegation.ts';
 import { reglagesParDefaut } from '../../shared/reglages.ts';
 import type { DemandeVisite, LotReprise } from '../../shared/types.ts';
@@ -275,7 +276,9 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     missions: mine(full.missions),
     taches: tachesProches(mine(full.taches), full.today),
     // Feuilles d'un membre : l'indication « mineur » de la semaine, qui remplace la date de naissance pour ses contrôles.
-    feuilles: mine(full.feuilles).map(sh => (isMgr && sh.empId !== user.empId ? feuilleSansNaissance(d, sh) : sh)),
+    // Réouverture par le service RH (t131) : date et auteur seulement, ni motif, ni rubriques de paie, ni heures Keystone.
+    feuilles: mine(full.feuilles).map(sh => (isMgr && sh.empId !== user.empId ? feuilleSansNaissance(d, sh) : sh))
+      .map(sh => (sh.reouverture ? { ...sh, reouverture: reouvertureNeutre(sh.reouverture) } : sh)),
     // Arrêt maladie, accident, maladie professionnelle : le manager ne voit qu'une « Absence » (dates, état).
     // Demi-journées d'un congé (matin, après-midi) : transmises comme ses dates ; une absence hors congés n'en porte jamais.
     // Lot de paie et indicateur de transmission d'une absence : service RH et paie seulement.

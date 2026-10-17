@@ -10,6 +10,7 @@ import { matriculeAffiche } from './matricules.ts';
 import { modeHeuresSup, periodesSemaine, rubriquesPaie, traduireRubriques } from './paie.ts';
 import { alertesRepos, DIMANCHE, derogationDe, estWeekEnd, JOURS_FEUILLE } from './semaine.ts';
 import { controlesMineur, naissanceDeLaFeuille } from './mineurs.ts';
+import { aRegulariser, lignesRegularisation, rubriquesDeLaFeuille, type OptionsRegularisation } from './regularisation.ts';
 import { heuresFeriees, MAJORATION_1ER_MAI, plafondComplementaires } from './majorations.ts';
 
 /** Régime de temps de travail en vigueur d'une fiche, à figer sur une feuille soumise. */
@@ -431,7 +432,8 @@ export function rubriquesParPeriode(d: Domain, e: Employe, sh: FeuilleTemps): Ru
 
 /**
  * Feuilles validées, ni transmises ni réservées par un lot de paie actif (un lot annulé les libère : `lotId` vidé), hors
- * intérimaires (relevé envoyé à l'agence) et cadres dirigeants.
+ * intérimaires (relevé envoyé à l'agence) et cadres dirigeants. Une feuille rouverte après sa transmission puis
+ * revalidée y revient, « à régulariser » (shared/rules/regularisation.ts) : seul son écart partira.
  */
 export function sagePending(d: Domain): FeuilleTemps[] {
   return d.ds.feuilles.filter(sh => {
@@ -449,22 +451,31 @@ export function sagePending(d: Domain): FeuilleTemps[] {
  * « 2026-S01 ») ; `envoye_le` : heure réelle de l'envoi, à l'heure de Paris (décalage d'hiver ou d'été). Contenu du
  * fichier d'import, sans adresse d'envoi : pas d'envoi à Sage par API.
  */
-export function buildSagePayload(d: Domain, sheets: FeuilleTemps[], dossier: string, maintenant = new Date(), mode: SageMode = 'simulation'): SagePush {
+export function buildSagePayload(
+  d: Domain, sheets: FeuilleTemps[], dossier: string, maintenant = new Date(), mode: SageMode = 'simulation',
+  regularisation: Omit<OptionsRegularisation, 'semaine'> = { mode: 'ecart' },
+): SagePush {
   const table = rubriquesPaie(d.ds.rubriquesPaie);
+  const semaine = (week: ISODate) => `${isoWeekYear(week)}-S${String(isoWeek(week)).padStart(2, '0')}`;
+  // Feuille rouverte après sa transmission (t131, shared/rules/regularisation.ts) : seul l'écart part (lot correctif).
+  const correctifs = sheets.filter(aRegulariser);
   // Matricule du dossier de paie ; à défaut (simulation seulement : une transmission réelle le refuse), le matricule Cursus.
-  const lignes = sheets.flatMap(sh => rubriquesParPeriode(d, d.emp(sh.empId)!, sh).map(p => ({
+  const lignes = [...sheets.filter(sh => !aRegulariser(sh)).flatMap(sh => rubriquesParPeriode(d, d.emp(sh.empId)!, sh).map(p => ({
     matricule: matriculeAffiche(d.emp(sh.empId) ?? { id: sh.empId, matriculePaie: null }),
-    semaine: `${isoWeekYear(sh.week)}-S${String(isoWeek(sh.week)).padStart(2, '0')}`,
+    semaine: semaine(sh.week),
     periode: p.periode,
     ...(p.origine ? { periode_origine: p.origine } : {}),
     rubriques: traduireRubriques(p.rubriques, table),
-  }))).filter(l => Object.keys(l.rubriques).length > 0);
+  }))), ...lignesRegularisation(d, correctifs, { ...regularisation, semaine })].filter(l => Object.keys(l.rubriques).length > 0);
   return {
     dossier,
     mode,
     envoye_le: horodatageParis(maintenant),
-    periodes: [...new Set(lignes.map(l => l.periode))].sort(),
+    periodes: [...new Set(lignes.flatMap(l => (l.periode ? [l.periode] : [])))].sort(),
     lignes,
+    // Rubriques de chaque feuille, telles qu'elles partent (régularisée : telle que revalidée), gardées pour une réouverture.
+    rubriquesFeuilles: sheets.map(sh => ({ empId: sh.empId, week: sh.week, periodes: rubriquesDeLaFeuille(d, sh) })),
+    ...(correctifs.length ? { regularisation: regularisation.mode } : {}),
   };
 }
 

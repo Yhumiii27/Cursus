@@ -249,6 +249,8 @@ const MATRICE: Ligne[] = [
   { action: 'temps.validate', droits: '                      O    O    O    -    -    -    -    -    -', p: () => { feuille('soumise', H7); return { empId: 2, week: WEEK }; } },
   { action: 'temps.reject', droits: '                        O    O    O    -    -    -    -    -    -', p: () => { feuille('soumise', H7); return { empId: 2, week: WEEK, comment: 'Projet à corriger' }; } },
   { action: 'temps.pushSage', droits: '                      O    -    -    -    -    -    -    O    -', p: () => ({}) },
+  // Réouverture d'une feuille validée (t131) : administrateur RH seul, motif obligatoire (réponse du 17 octobre 2026).
+  { action: 'temps.rouvrir', droits: '                       O    -    -    -    -    -    -    -    -', p: () => { feuille('validee', H7); return { empId: 2, week: WEEK, motif: 'Heures du mardi imputées au mauvais projet' }; } },
   // Correspondance des rubriques avec le plan de paie Sage : administrateur RH et gestionnaire de paie (écran Temps).
   { action: 'paie.rubrique', droits: '                       O    -    -    -    -    -    -    O    -', p: () => ({ code: 'HS25', codeSage: '3010', confirmer: true }) },
   // Lots de paie (écran Temps) : génération, confirmation de l'import, annulation, format du fichier d'import.

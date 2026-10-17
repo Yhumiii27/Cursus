@@ -9,7 +9,7 @@ import { fH, plural } from '../../../shared/format.ts';
 import { PERIMETRE_FICHIER } from '../../../shared/rules/lots-paie.ts';
 import type { absencesDuLot } from '../../../shared/rules/absences-paie.ts';
 import { feuillesDeLaPeriode, type GroupePaie, periodeLabel } from '../../../shared/rules/paie.ts';
-import type { LotPaie, SageMode } from '../../../shared/types.ts';
+import type { LotPaie, ModeRegularisation, SageMode } from '../../../shared/types.ts';
 import type { DialogState, UiState } from './store.tsx';
 
 /** Longueur maximale d'un motif (contrôlée aussi par le serveur). */
@@ -135,6 +135,10 @@ export function transmissionSage(feuilles: number, salaries: number, periodes: G
  */
 export function generationLot(o: {
   periode: string; feuilles: number; salaries: number; rappels: GroupePaie[]; mode: SageMode; sansMatricule: string[]; perimetre?: string; absences?: AbsencesLot | null;
+  /** Feuilles rouvertes après leur transmission, régularisées par ce lot (lot correctif, t131) ; mode du format du fichier. */
+  correctifs?: number; regularisation?: ModeRegularisation;
+  /** « Annule et remplace » : feuilles ordinaires laissées au lot suivant (le lot correctif part seul). */
+  enAttente?: number;
 }): Confirmation {
   const simulation = o.mode === 'simulation';
   const absences = o.absences?.absences ? `, ${plural(o.absences.absences, 'absence', 'absences')}` : '';
@@ -147,6 +151,9 @@ export function generationLot(o: {
         : 'Les feuilles sont réservées au lot. Téléchargez ensuite son fichier, importez-le dans Sage, puis confirmez l’import : lui seul les marque transmises.',
       `Avant cette confirmation, le lot peut être annulé : ses feuilles${o.absences?.absences ? ' et ses absences' : ''} redeviennent en attente.`,
       ...o.rappels.map(r => `Rappel : ${plural(r.feuilles, 'feuille', 'feuilles')} de ${periodeLabel(r.origine!)}, période close, ${r.feuilles > 1 ? 'partent' : 'part'} sur ${periodeLabel(r.periode)}.`),
+      o.correctifs ? `Lot correctif : ${plural(o.correctifs, 'feuille rouverte', 'feuilles rouvertes')} après transmission — ${o.regularisation === 'remplace'
+        ? `rubriques complètes du salarié pour la période d’origine (annule et remplace). Ce lot part seul, à importer en mode remplacement ; ${o.enAttente ? `${plural(o.enAttente, 'autre feuille', 'autres feuilles')} en attente et les absences partiront` : 'les feuilles ordinaires et les absences partiront'} dans le lot suivant, à générer après la confirmation de cet import et à importer comme d’habitude.`
+        : 'seul l’écart avec ce qui est déjà parti, positif ou négatif, en rappel si la période d’origine est close.'}` : '',
       absencesSuite(o.absences ?? null),
       o.sansMatricule.length ? `Sans matricule de paie, sous leur matricule Cursus (simulation seulement) : ${o.sansMatricule.join(', ')}.` : '',
       o.perimetre ?? PERIMETRE_FICHIER,

@@ -7,19 +7,21 @@
 // administrateur RH et gestionnaire de paie ; le service RH et la lecture seule consultent.
 // Absences (t028, réglage `absencesFichierPaie`) : absences en attente par période, calculées par le serveur
 // (`absencesPaie` de l'instantané, shared/rules/absences-paie.ts), dans le lot avec les feuilles ; export des variables
-// de la période (VariablesPaie.tsx).
+// de la période (VariablesPaie.tsx). Feuilles rouvertes après leur transmission (t131) : « à régulariser » dans l'attente,
+// lots « correctifs » dans l'historique (shared/rules/regularisation.ts).
 import { useState } from 'react';
 import { DownloadSimpleIcon } from '@phosphor-icons/react';
 import { fmtIso, plural } from '../../../shared/format.ts';
 import { absencesDansLeFichier, absencesDuLot } from '../../../shared/rules/absences-paie.ts';
 import { sansMatriculePaie } from '../../../shared/rules/matricules.ts';
 import {
-  COLONNES_FICHIER, DECIMALES, ENCODAGES, FORMAT_FICHIER_DEFAUT, feuillesDuLot, perimetreFichier, periodeDeLaFeuille, SEPARATEURS, STATUTS_LOT, totauxTexte,
+  COLONNES_FICHIER, DECIMALES, ENCODAGES, estCorrectif, FORMAT_FICHIER_DEFAUT, feuillesDuLot, perimetreFichier, periodeDeLaFeuille, SEPARATEURS, STATUTS_LOT, totauxTexte,
 } from '../../../shared/rules/lots-paie.ts';
 import {
   feuillesParPeriode, MODES_HEURES_SUP, MODES_SAGE, periodeLabel, RATTACHEMENTS, rubriquesAConfirmer, rubriquesPaie, rubriquesTexte,
 } from '../../../shared/rules/paie.ts';
 import { rubriquesEmises, sagePending } from '../../../shared/rules/temps.ts';
+import { aRegulariser, modeRegularisation, MODES_REGULARISATION } from '../../../shared/rules/regularisation.ts';
 import type { LotPaie } from '../../../shared/types.ts';
 import { api } from '../api.ts';
 import { annulationLot, generationLot, transmissionSage } from '../state/confirmations.ts';
@@ -52,6 +54,8 @@ export function LotsPaie() {
   const nbAbsences = absences.reduce((n, g) => n + g.absences, 0);
   const aConfirmer = rubriquesAConfirmer([...rubriquesEmises(d, aTransmettre), ...absences.flatMap(g => g.rubriques)], rubriquesPaie(d.ds.rubriquesPaie));
   const salaries = new Set(aTransmettre.map(sh => sh.empId)).size;
+  // Feuilles rouvertes après leur transmission, revalidées : seul leur écart partira (lot correctif, t131).
+  const regularisations = aTransmettre.filter(aRegulariser).length;
   const lots = d.ds.lotsPaie;
   const format = d.ds.formatFichierPaie ?? FORMAT_FICHIER_DEFAUT;
   const perimetre = perimetreFichier(avecAbsences);
@@ -59,12 +63,17 @@ export function LotsPaie() {
   const periodes = [...new Set([...groupes.map(g => g.periode), ...absences.map(g => g.periode)])].sort();
 
   const generer = (periode: string) => {
-    const sheets = feuillesDuLot(aTransmettre, periode, s, d.ti);
-    const abs = absencesDuLot(absences, periode);
-    const ids = [...sheets.map(sh => sh.empId), ...abs.empIds];
+    const toutes = feuillesDuLot(aTransmettre, periode, s, d.ti);
+    // « Annule et remplace » : le lot correctif ne porte que les régularisations, le reste attend le lot suivant (serveur :
+    // selectionRemplace, server/src/regularisation-paie.ts).
+    const seul = modeRegularisation(format) === 'remplace' && toutes.some(aRegulariser);
+    const sheets = seul ? toutes.filter(aRegulariser) : toutes;
+    const abs = seul ? null : absencesDuLot(absences, periode);
+    const ids = [...sheets.map(sh => sh.empId), ...(abs?.empIds ?? [])];
     openDialog({
       type: 'confirmer', c: generationLot({
         periode, feuilles: sheets.length, salaries: new Set(ids).size, mode, perimetre, absences: abs,
+        correctifs: sheets.filter(aRegulariser).length, regularisation: modeRegularisation(format), enAttente: seul ? toutes.length - sheets.length : 0,
         rappels: feuillesParPeriode(sheets, s, d.ti).filter(g => g.origine),
         sansMatricule: mode === 'simulation' ? sansMatriculePaie(d.ds.employes, d.ti, ids).map(e => e.nom) : [],
       }),
@@ -92,7 +101,7 @@ export function LotsPaie() {
         <div>
           <h2>Transmission à Sage Paie</h2>
           <div className="text-muted sub">
-            {pending ? `${plural(pending, 'feuille validée', 'feuilles validées')} en attente de transmission (${plural(salaries, 'salarié', 'salariés')})` : 'Aucune feuille validée en attente : chacune est transmise ou dans un lot'} · intérimaires (relevé envoyé à l’agence) et cadres dirigeants exclus
+            {pending ? `${plural(pending, 'feuille validée', 'feuilles validées')} en attente de transmission (${plural(salaries, 'salarié', 'salariés')})${regularisations ? `, dont ${plural(regularisations, 'feuille rouverte', 'feuilles rouvertes')} à régulariser` : ''}` : 'Aucune feuille validée en attente : chacune est transmise ou dans un lot'} · intérimaires (relevé envoyé à l’agence) et cadres dirigeants exclus
             {avecAbsences && ` · ${nbAbsences ? `${plural(nbAbsences, 'absence', 'absences')} en attente` : 'aucune absence en attente'}`}
           </div>
         </div>
@@ -123,7 +132,9 @@ export function LotsPaie() {
                 return (
                   <tr key={p}>
                     <td><Two main={periodeLabel(p)} sub={textes.length ? `dont rappel : ${textes.join(', ')}, période close` : undefined} /></td>
-                    <td className="right tnum">{sheets.length}</td>
+                    <td className="right">
+                      <Two main={<span className="tnum">{sheets.length}</span>} sub={sheets.some(aRegulariser) ? plural(sheets.filter(aRegulariser).length, 'régularisation', 'régularisations') : undefined} />
+                    </td>
                     {avecAbsences && (
                       <td className="right">
                         <Two main={<span className="tnum">{abs?.absences ?? 0}</span>} sub={abs?.regularisations ? plural(abs.regularisations, 'régularisation', 'régularisations') : undefined} />
@@ -150,6 +161,7 @@ export function LotsPaie() {
       <Fine>
         {perimetre}
         {avecAbsences && ' Une absence annulée, raccourcie ou requalifiée après sa transmission part en régularisation (quantité négative) dans le lot suivant.'}
+        {' '}Une feuille rouverte après sa transmission (administrateur RH, motif obligatoire) puis revalidée part en lot correctif : {MODES_REGULARISATION[modeRegularisation(format)].label.toLowerCase()} (format du fichier).
         {' '}Heures supplémentaires {MODES_HEURES_SUP[s.heuresSupMode].label.toLowerCase()}{s.heuresSupMode === 'repos' && s.heuresSupAccord ? ` (${s.heuresSupAccord})` : ''}, mode figé sur chaque feuille à sa validation
         {' '}· semaine à cheval sur deux mois : {RATTACHEMENTS[s.periodeRattachement].label.toLowerCase()} · clôture des variables {clotureTexte(s.clotureJour)} ; une semaine d’une période close part en rappel. Réglages de l’administrateur RH (Paramètres → Paie).
       </Fine>
@@ -162,7 +174,10 @@ export function LotsPaie() {
             <tbody>
               {(tout ? lots : lots.slice(0, LOTS_VISIBLES)).map(l => (
                 <tr key={l.id}>
-                  <td><Two main={`n° ${l.id}${l.mode === 'simulation' ? ' · simulation' : ''}`} sub={l.historique ? 'repris d’avant les lots' : `le ${date(l.creation)} · ${l.auteur}`} /></td>
+                  <td>
+                    <Two main={<>{`n° ${l.id}${l.mode === 'simulation' ? ' · simulation' : ''}`}{estCorrectif(l) && <> <Tag cls="tag-accent">Correctif</Tag></>}</>}
+                      sub={l.historique ? 'repris d’avant les lots' : `le ${date(l.creation)} · ${l.auteur}${l.correctifs?.length ? ` · ${plural(l.correctifs.length, 'feuille régularisée', 'feuilles régularisées')}` : ''}`} />
+                  </td>
                   <td><Two main={periodeLabel(l.periode)} sub={l.rappels.length ? `rappel de ${l.rappels.map(periodeLabel).join(', ')}` : undefined} /></td>
                   <td className="right">
                     <Two main={<span className="tnum">{l.feuilles.length}</span>}

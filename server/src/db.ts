@@ -108,11 +108,13 @@ export const TABLES = {
   // `lignes` : heures du lundi au dimanche, 7 valeurs par ligne (5 avant la semaine à 7 jours : migrations/temps.ts) ;
   // `majDimanche` : majoration des heures du dimanche (%) figée à la validation ; `majFerie` : celle des fériés autres que
   // le 1er mai ; `cor` : contrepartie obligatoire en repos figée à la validation, par année (shared/rules/durees.ts).
+  // `reouverture` : dernière réouverture d'une feuille validée, rubriques déjà transmises comprises (t131,
+  // shared/rules/regularisation.ts).
   feuilles: {
     pk: 'id', auto: true,
     cols: {
       id: 'int', empId: 'int', week: 'text', statut: 'text', comment: 'text', sage: 'bool', keystone: 'bool', lignes: 'json', contrat: 'json', motifDepassement: 'text', heuresSup: 'text', lotId: 'int',
-      majDimanche: 'int', majFerie: 'int', cor: 'json',
+      majDimanche: 'int', majFerie: 'int', cor: 'json', reouverture: 'json',
     },
     unique: [['empId', 'week']],
   },
@@ -130,6 +132,8 @@ export const TABLES = {
       confirmeLe: 'text', confirmePar: 'text', reference: 'text', annuleLe: 'text', annulePar: 'text', historique: 'bool',
       // Absences du lot (identifiant, salarié ; lot 5, shared/rules/absences-paie.ts) : leurs quantités sont dans `contenu`.
       absences: 'json',
+      // Lot correctif (t131) : feuilles rouvertes régularisées ; `type` null : lot ordinaire.
+      type: 'text', correctifs: 'json',
     },
     unique: [['cle']],
   },

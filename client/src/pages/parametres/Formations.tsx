@@ -19,11 +19,12 @@ export function Formations({ s }: SectionProps) {
         <span>Proposer les heures de formation dans les feuilles de temps</span>
       </label>
       <Fine>
-        « Proposer les heures » de l’écran Temps de travail ajoute, pour chaque session de la semaine où le salarié est inscrit (ou présent, une
-        fois la session clôturée), une ligne {ACTIVITE_FORMATION.code} · {ACTIVITE_FORMATION.nom} avec les heures prévues : celles des horaires de
-        la session, pause déduite, sinon la durée du catalogue répartie sur ses jours ({fH(HEURES_JOUR_MAX)} par jour au plus). Rien les jours
-        fériés, d’absence ou non travaillés. Les heures restent modifiables par le salarié et son valideur ; activité interne, elles ne partent
-        jamais vers Keystone.
+        « Proposer » sur l’écran Temps de travail ajoute à la feuille, pour chaque session de la semaine où le salarié est inscrit (ou présent,
+        une fois la session clôturée), une ligne {ACTIVITE_FORMATION.code} · {ACTIVITE_FORMATION.nom} avec les heures prévues : celles des horaires
+        de la session, pause déduite ({fH(HEURES_JOUR_MAX)} par jour au plus), sinon la durée du catalogue répartie sur ses jours, une journée de
+        travail au plus. Rien les jours fériés, d’absence ou non travaillés. Les lignes déjà saisies sont gardées : seules la ligne de la même
+        formation et les tâches Keystone déjà proposées sont remplacées. Les heures restent modifiables par le salarié et son valideur ; activité
+        interne, elles ne partent jamais vers Keystone.
       </Fine>
     </Panel>
   );

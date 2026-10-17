@@ -285,6 +285,15 @@ export class Domain {
       .filter(s => sessionActive(s) && finSession(s) < this.ti && (!formIds || formIds.has(s.formation)))
       .sort((a, b) => a.date.localeCompare(b.date));
   }
+  /**
+   * Sessions sur plusieurs jours commencées et pas encore finies (premier jour passé, dernier jour à venir ou aujourd'hui) :
+   * ni « à venir » (plus d'inscription), ni « à clôturer » (avant leur dernier jour). Listées à part, clôturables le dernier jour.
+   */
+  enCours(formIds?: Set<string>): Session[] {
+    return this.ds.sessions
+      .filter(s => sessionActive(s) && s.date < this.ti && finSession(s) >= this.ti && (!formIds || formIds.has(s.formation)))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
   /** Statut affiché : passée à clôturer, complète, ou statut enregistré (à confirmer, confirmée, clôturée, annulée). */
   sessionStatut(s: Session): string {
     if (!sessionActive(s)) return s.statut;

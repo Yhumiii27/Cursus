@@ -16,13 +16,14 @@ const { ActionError, makeCtx } = await import('../server/src/actions/context.ts'
 const { calendrier } = await import('../server/src/integrations/email.ts');
 const { heuresKeystone } = await import('../server/src/integrations/keystone.ts');
 const { appliquerMigrations } = await import('../server/src/migrations/cadre.ts');
-const { REGLES } = await import('../server/src/journal.ts');
+const journal = await import('../server/src/journal.ts');
+const { REGLES } = journal;
 const { CHAMP_LABEL } = await import('../shared/journal.ts');
 const { ACTIVITE_FORMATION_PROJET, PLAGE_SESSIONS } = await import('../server/src/migrations/formations.ts');
 const { Domain } = await import('../shared/domain.ts');
 const { ACTIVITES_INTERNES } = await import('../shared/constants.ts');
 const { conflitsDates, conflitsSession } = await import('../shared/rules/conflits.ts');
-const { dureeHeures, formationsAProposer, lignesFormation } = await import('../shared/rules/formations-temps.ts');
+const { dureeHeures, formationsAProposer, fusionProposition, lignesFormation } = await import('../shared/rules/formations-temps.ts');
 const {
   completerSession, controlePlage, decalerPlage, finSession, heuresHoraire, joursOuvres, joursSession, joursTexte, plageCourte, plageTexte, sessionDu,
 } = await import('../shared/rules/plage-session.ts');
@@ -112,6 +113,10 @@ test('plage : contrôles du dernier jour, des jours et des horaires (dialogue et
   assert.equal(controleSession('2026-10-10', { date: '2026-10-21', fin: '2026-10-23', lieu: 'Lyon', places: 6 }), null);
   assert.equal(dureeHeures('7 h (MAC)'), 7);
   assert.equal(dureeHeures('3,5 h'), 3.5);
+  assert.equal(dureeHeures('3 h 30'), 3.5);
+  assert.equal(dureeHeures('1h30 (recyclage)'), 1.5);
+  assert.equal(dureeHeures('21 h 15'), 21.25);
+  assert.equal(dureeHeures('7 h, 2 jours'), 7);
   assert.equal(dureeHeures('2 jours'), null);
 });
 
@@ -149,6 +154,10 @@ test('session.creer et session.modifier : plage enregistrée, décalée avec la 
   assert.equal(run(RH, 'session.modifier', { id: 3, fin: '2026-10-29', jours: ['2026-10-28', '2026-10-29'] }), 'Aucune modification');
   // Le journal garde les jours de la session (dates), pas les horaires.
   assert.deepEqual(REGLES['session.modifier'].cible?.colonnes, ['date', 'jours', 'lieu', 'places', 'statut']);
+  // Création : dernier jour et jours, dates seules.
+  const { champsRetenus } = journal;
+  assert.deepEqual(champsRetenus('session.creer', { f: 'caces489', date: '2026-12-01', fin: '2026-12-03', jours: ['2026-12-01', 'texte', '2026-12-03'], lieu: 'Lyon', places: 4 }),
+    { f: 'caces489', date: '2026-12-01', fin: '2026-12-03', jours: ['2026-12-01', '2026-12-03'], lieu: 'Lyon', places: 4 });
 });
 
 test('inscription : conflits et contrat sur chacun des jours de la session, pas sur le week-end entre deux', () => {
@@ -194,6 +203,36 @@ test('clôture : à partir du dernier jour, certification datée du dernier jour
     const cert = domain().emp(4)!.certs.filter(c => c.f === 'caces489').sort((a, b) => b.id - a.id)[0];
     assert.equal(cert.obtenue, '2026-10-23', 'datée du dernier jour');
   });
+});
+
+test('session en cours : listée « en cours » du deuxième au dernier jour, puis à clôturer', () => {
+  const { domain } = fresh();
+  // Session CACES 3, du 21 au 23 octobre : à venir le premier jour, en cours ensuite, à clôturer après le dernier.
+  const ou = (date: string) => le(date, () => {
+    const d = domain();
+    return { aVenir: d.upcoming().some(s => s.id === 3), enCours: d.enCours().some(s => s.id === 3), aCloturer: d.aCloturer().some(s => s.id === 3) };
+  });
+  assert.deepEqual(ou('2026-10-21'), { aVenir: true, enCours: false, aCloturer: false });
+  assert.deepEqual(ou('2026-10-22'), { aVenir: false, enCours: true, aCloturer: false });
+  assert.deepEqual(ou('2026-10-23'), { aVenir: false, enCours: true, aCloturer: false }, 'dernier jour : en cours, clôturable');
+  assert.deepEqual(ou('2026-10-24'), { aVenir: false, enCours: false, aCloturer: true });
+  // Une session d'un jour n'est jamais « en cours » : à venir le jour même, à clôturer le lendemain.
+  assert.equal(le('2026-10-27', () => domain().enCours().some(s => s.id === 5)), false);
+});
+
+test('session en cours modifiée : convocations à renvoyer jusqu’au dernier jour, sans nouvelle confirmation', () => {
+  const { run, refused, session } = fresh();
+  le('2026-10-22', () => {
+    // Dernier jour reculé au lundi 26 : les convocations repassent « à envoyer », la session reste confirmée.
+    const r = run(RH, 'session.modifier', { id: 3, fin: '2026-10-26', jours: ['2026-10-21', '2026-10-22', '2026-10-23', '2026-10-26'] });
+    assert.match(message(r), /2 convocations à renvoyer/);
+    assert.doesNotMatch(message(r), /à faire confirmer/);
+    assert.equal(session(3).statut, 'Confirmée');
+    // Renvoi possible tant que la session n'est pas finie ; désinscription toujours refusée.
+    assert.match(message(run(RH, 'convocation.envoyer', { sessionId: 3 })), /2 convocations envoyées/);
+    refused(RH, 'plan.desinscrire', { empId: 4, sessionId: 3 }, /en cours jusqu’au 26 oct\. 2026/);
+  });
+  le('2026-10-27', () => refused(RH, 'convocation.envoyer', { sessionId: 3, empIds: [4] }, /passée/));
 });
 
 // — Invitation d'agenda —
@@ -263,11 +302,12 @@ test('feuille de temps : ligne INT-FORM des heures prévues, fériés et absence
   assert.ok(ACTIVITES_INTERNES.test('INT-FORM'));
   assert.equal(d.projet('INT-FORM'), 'Formation', 'activité interne parmi les projets');
   // Sans horaire : la durée du catalogue (FCO 35 h) répartie sur les jours de la session, ouvrés par défaut (le
-  // mercredi 11 novembre, férié, n'en est pas : 8,75 h sur quatre jours) ; un jour d'absence à zéro.
+  // mercredi 11 novembre, férié, n'en est pas : 8,75 h sur quatre jours), plafonnée à la journée de travail (7 h à
+  // 35 h) ; un jour d'absence à zéro.
   const fco = (run(RH, 'session.creer', { f: 'fco', date: '2026-11-09', fin: '2026-11-13', lieu: 'AFTRAL', places: 6 }) as { result: { id: number } }).result.id;
   run(RH, 'plan.inscrire', { empId: 20, certId: domain().emp(20)!.certs.find(c => c.f === 'fco')!.id, sessionId: fco, conv: 'later' });
   db.insert('absences', { empId: 20, type: 'CP', du: '2026-11-13', au: '2026-11-13', statut: 'validee', keystone: false });
-  assert.deepEqual(suggestLines(domain(), domain().emp(20)!, '2026-11-09').find(l => l.projet === 'INT-FORM')!.h, [8.75, 8.75, 0, 8.75, 0], '11 novembre férié, vendredi absent');
+  assert.deepEqual(suggestLines(domain(), domain().emp(20)!, '2026-11-09').find(l => l.projet === 'INT-FORM')!.h, [7, 7, 0, 7, 0], '11 novembre férié, vendredi absent');
   // L'action temps.suggest enregistre la ligne, modifiable ensuite ; message qui nomme les deux sources.
   assert.match(String(run(RH, 'temps.suggest', { empId: 4, week: '2026-10-19' })), /depuis des tâches Keystone et des sessions de formation/);
   const sh = () => domain().ds.feuilles.find(f => f.empId === 4 && f.week === '2026-10-19')!;
@@ -282,6 +322,39 @@ test('feuille de temps : ligne INT-FORM des heures prévues, fériés et absence
   run(RH, 'session.annuler', { id: fco });
   assert.equal(suggestLines(domain(), domain().emp(20)!, '2026-11-09').some(l => l.projet === 'INT-FORM'), false);
   assert.equal(formationsAProposer(domain(), 4, '2026-10-12'), false);
+});
+
+test('« Proposer » : les lignes saisies sont gardées ; une session d’un jour sans horaire ne propose qu’une journée', () => {
+  const { db, run, domain } = fresh();
+  // Thomas Garnier (6), formation élec. « 21 h » le mardi 27 octobre, un seul jour, sans horaire : une journée de travail
+  // (39 h, 7,8 h), pas 21 h ; la tâche Keystone du même jour reste proposée.
+  const lignes = suggestLines(domain(), domain().emp(6)!, '2026-10-26');
+  assert.deepEqual(lignes.find(l => l.projet === 'INT-FORM')!.h, [0, 7.8, 0, 0, 0]);
+  assert.ok(lignes.some(l => l.ks && l.h[1] === 8));
+  assert.match(String(run(RH, 'temps.suggest', { empId: 6, week: '2026-10-26' })), /depuis des tâches Keystone et des sessions de formation/);
+
+  // Julien Moreau (8), sans tâche Keystone : INT-PROD saisi à la main, puis « Proposer » pour le PRAP du lundi 23 novembre.
+  db.sql.exec('DELETE FROM taches');
+  run(RH, 'temps.addLine', { empId: 8, week: '2026-11-23', projet: 'INT-PROD' });
+  for (let di = 0; di < 5; di++) run(RH, 'temps.setCell', { empId: 8, week: '2026-11-23', li: 0, di, value: '7' });
+  const r = run(RH, 'temps.suggest', { empId: 8, week: '2026-11-23' });
+  assert.match(String(r), /depuis des sessions de formation — 1 ligne.*1 ligne déjà saisie conservée/);
+  const sh = () => domain().ds.feuilles.find(f => f.empId === 8 && f.week === '2026-11-23')!;
+  assert.deepEqual(sh().lignes.map(l => [l.projet, l.h]), [['INT-PROD', [7, 7, 7, 7, 7]], ['INT-FORM', [7, 0, 0, 0, 0]]]);
+  // Proposer de nouveau : la ligne de la formation est remplacée, pas doublée ; la saisie à la main reste.
+  const li = sh().lignes.findIndex(l => l.projet === 'INT-FORM');
+  run(RH, 'temps.setCell', { empId: 8, week: '2026-11-23', li, di: 0, value: '3' });
+  run(RH, 'temps.suggest', { empId: 8, week: '2026-11-23' });
+  assert.deepEqual(sh().lignes.map(l => [l.projet, l.h]), [['INT-PROD', [7, 7, 7, 7, 7]], ['INT-FORM', [7, 0, 0, 0, 0]]]);
+
+  // Au-delà de 24 h un jour, toutes lignes cumulées : les heures de formation sont réduites, Keystone reste proposé.
+  const ks = { projet: 'K-1', tache: 'Chantier', ks: true, h: [10, 0, 0, 0, 0] };
+  const form = { projet: 'INT-FORM', tache: 'PRAP', ks: false, h: [7, 7, 0, 0, 0] };
+  const f = fusionProposition([{ projet: 'INT-PROD', tache: 'Conduite', ks: false, h: [10, 0, 0, 0, 0] }, { projet: 'K-1', tache: 'Ancienne', ks: true, h: [0, 0, 4, 0, 0] }], [ks, form]);
+  assert.deepEqual(f.lignes.map(l => [l.projet, l.tache, l.h]), [['K-1', 'Chantier', [10, 0, 0, 0, 0]], ['INT-PROD', 'Conduite', [10, 0, 0, 0, 0]], ['INT-FORM', 'PRAP', [4, 7, 0, 0, 0]]]);
+  assert.deepEqual([f.conservees, f.reduites], [1, true]);
+  // Sans tâche Keystone cette semaine, les lignes Keystone d'une proposition précédente sont gardées.
+  assert.equal(fusionProposition([{ projet: 'K-1', tache: 'Ancienne', ks: true, h: [0, 0, 4, 0, 0] }], [form]).conservees, 1);
 });
 
 test('réglage « Formations » : préremplissage désactivé, rien n’est proposé ; libellé au journal', () => {

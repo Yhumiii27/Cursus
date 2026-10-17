@@ -74,9 +74,9 @@ const confirmer: ActionHandler = (ctx, p) => {
  * Date (premier jour), plage (dernier jour, jours, horaires), lieu, places. Une nouvelle date est postérieure à
  * aujourd'hui, sauf pour une session passée, à clôturer, qui se redate au jour où elle a eu lieu ; les places couvrent
  * les inscrits. Une nouvelle date postérieure à un recyclage déjà enregistré libère la place de la certification
- * remplacée (même règle que `cert.ajouter`). Pour une session à venir, un changement de dates, d'horaires ou de lieu
+ * remplacée (même règle que `cert.ajouter`). Pour une session à venir ou en cours, un changement de dates, d'horaires ou de lieu
  * rend caduques les convocations envoyées (elles repassent « à envoyer »), et de nouvelles dates sont à faire confirmer
- * par l'organisme (« à confirmer »).
+ * par l'organisme (« à confirmer », pour une session pas encore commencée).
  */
 const modifier: ActionHandler = (ctx, p) => {
   requireFormations(ctx);
@@ -109,10 +109,11 @@ const modifier: ActionHandler = (ctx, p) => {
   const liberees = date !== s.date ? placesRemplacees(ctx.d, s.id, date) : [];
   const prevenus = liberees.filter(x => annulerSiConvoque(ctx, s, { id: x.empId, nom: ctx.d.personName(x.empId) }, x.c)).length;
   liberees.forEach(x => ctx.db.update<Certification>('certifications', x.c.id, { sessionId: null, convoc: null, convocLe: null }));
-  // Session passée corrigée après coup : plus de convocation ni de confirmation à demander.
-  const aVenir = date >= ctx.d.ti;
+  // Session passée corrigée après coup : plus de convocation ni de confirmation à demander. Session commencée, pas
+  // finie (jours restants) : convocations à renvoyer, sans nouvelle confirmation (`session.confirmer` la refuse).
+  const aVenir = date >= ctx.d.ti, pasFinie = plage.fin >= ctx.d.ti;
   let aRenvoyer = 0;
-  if (aVenir && (nouvellePlage || nouveauxHoraires || lieu !== s.lieu)) {
+  if (pasFinie && (nouvellePlage || nouveauxHoraires || lieu !== s.lieu)) {
     for (const x of inscritsDe(ctx.d, s).filter(i => i.convoc === 'now' && !liberees.some(l => l.c.id === i.certId))) {
       if (x.certId) ctx.db.update<Certification>('certifications', x.certId, { convoc: 'later' });
       else ctx.db.update<Inscription>('inscriptions', x.inscriptionId!, { convoc: 'later' });

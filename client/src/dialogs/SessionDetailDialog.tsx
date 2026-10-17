@@ -48,8 +48,9 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
     setBusy(false);
     if (r.ok) closeDialog();
   };
-  // Convocations : session à venir seulement (une session passée attend sa clôture). Le dialogue reste ouvert.
-  const aVenir = ouverte && s.date >= d.ti;
+  // Convocations : session à venir, ou en cours jusqu'à son dernier jour (renvoi après un changement des jours restants) ;
+  // une session passée attend sa clôture. Désinscription : session à venir seulement. Le dialogue reste ouvert.
+  const aVenir = ouverte && s.date >= d.ti, convocable = ouverte && dernier >= d.ti;
   const aEnvoyer = inscrits.filter(i => i.convoc !== 'now' && !i.dejaObtenue);
   // Annulation d'une session à venir : les convocations déjà envoyées (même « à renvoyer ») sont annulées par e-mail.
   const convoques = aVenir ? inscrits.filter(convocationEnvoyee).length : 0;
@@ -109,7 +110,7 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
         <div className="panel-head center">
           <h3 className="section-label">Inscrits</h3>
           <div className="actions-end">
-            {formations && aVenir && aEnvoyer.length > 0 && (
+            {formations && convocable && aEnvoyer.length > 0 && (
               <Btn small variant="secondary" icon={<PaperPlaneTiltIcon size={14} />} disabled={busy} onClick={() => convoquer()}>Envoyer les convocations ({aEnvoyer.length})</Btn>
             )}
             <Btn small icon={<DownloadSimpleIcon size={14} />} onClick={exporter} disabled={!inscrits.length}>Exporter la liste (CSV)</Btn>
@@ -122,7 +123,7 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
         {inscrits.length > 0 ? (
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Collaborateur</th><th>Équipe</th><th>Parcours</th><th>Convocation</th>{formations && aVenir && <th></th>}</tr></thead>
+              <thead><tr><th>Collaborateur</th><th>Équipe</th><th>Parcours</th><th>Convocation</th>{formations && convocable && <th></th>}</tr></thead>
               <tbody>
                 {inscrits.map(i => (
                   <tr key={i.empId}>
@@ -136,11 +137,11 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
                       <Tag cls={i.convoc === 'now' ? 'tag-neutral' : 'tag-outline'}>{i.convoc === 'now' ? 'Envoyée' : i.convocLe ? 'À renvoyer' : 'À envoyer'}</Tag>
                       {i.convocLe && <div className="text-muted sub nowrap">{i.convoc === 'now' ? 'le' : 'envoyée le'} {fmtShort(parse(i.convocLe))}</div>}
                     </td>
-                    {formations && aVenir && (
+                    {formations && convocable && (
                       <td className="right">
                         <div className="actions-end">
                           {!i.dejaObtenue && <Btn small disabled={busy} onClick={() => convoquer(i)}>{convocationEnvoyee(i) ? 'Renvoyer' : 'Envoyer'}</Btn>}
-                          <Btn small disabled={busy} onClick={() => desinscrire(i)}>Désinscrire</Btn>
+                          {aVenir && <Btn small disabled={busy} onClick={() => desinscrire(i)}>Désinscrire</Btn>}
                         </div>
                       </td>
                     )}

@@ -1047,17 +1047,24 @@ Règles dans `shared/rules/sessions.ts` (inscrits nominatifs, contrôles, liste 
   quotidienne, `EXDATE` des jours sautés, `RECURRENCE-ID` d'un jour à un autre horaire, un seul UID), la clôture (à
   partir du dernier jour ; certifications datées du dernier jour), l'état « passée » (`Domain.aCloturer`,
   `sessionStatut`, `certInfo`, `etatInscription` : après le dernier jour) et l'affichage (`plageCourte`, `plageTexte`,
-  `sessionDu`, `joursTexte`). Une session commencée ne reçoit plus d'inscrit et ne perd plus les siens avant la clôture.
-  Changer la plage repasse les convocations envoyées « à envoyer » et une session confirmée « à confirmer » ; changer
-  les horaires repasse seulement les convocations. Le journal de `session.modifier` garde les jours, pas les horaires.
+  `sessionDu`, `joursTexte`). Une session commencée ne reçoit plus d'inscrit et ne perd plus les siens avant la clôture ;
+  du deuxième au dernier jour, ni « à venir » ni « à clôturer », elle est listée « en cours » (`Domain.enCours` : page
+  Formations ; tableau de bord le dernier jour, avec la clôture). Changer la plage d'une session pas encore finie
+  repasse les convocations envoyées « à envoyer » (renvoi possible jusqu'au dernier jour) et, avant le premier jour,
+  une session confirmée « à confirmer » ; changer les horaires repasse seulement les convocations. Le journal de
+  `session.creer` et de `session.modifier` garde les jours, pas les horaires.
   Une session écrite sans plage (base ancienne, test) tient en un jour (`completerSession` au chargement ; migration
   nommée `lot5-formations-plage-sessions`).
 - **Heures de formation dans la feuille de temps** (`shared/rules/formations-temps.ts`, une ligne dans `suggestLines`) :
-  « Proposer les heures » ajoute une ligne interne `INT-FORM` / formation (`ks: false`, jamais envoyée à Keystone,
+  « Proposer » propose une ligne interne `INT-FORM` / formation (`ks: false`, jamais envoyée à Keystone,
   `ACTIVITE_FORMATION` de `shared/constants.ts`, amorcée dans les projets par `lot5-formations-activite-interne`) pour
   chaque session de la semaine où le salarié est inscrit, ou présent après la clôture : heures de l'horaire du jour, pause
-  déduite, sinon durée du catalogue (« 21 h ») répartie sur les jours, plafonnées à `HEURES_JOUR_MAX` ; zéro les jours
-  fériés, d'absence, non travaillés ou hors contrat. Modifiables comme toute ligne proposée. Réglage `formationsTemps`
+  déduite (`HEURES_JOUR_MAX` au plus), sinon durée du catalogue (« 21 h », « 3 h 30 ») répartie sur les jours et
+  plafonnée à la journée de travail du salarié (`Domain.dayH` : 7 h à 35 h) ; zéro les jours fériés, d'absence, non
+  travaillés ou hors contrat. Les lignes déjà saisies sont gardées (`fusionProposition`) : seules les lignes Keystone
+  d'une proposition précédente (quand la semaine a des tâches Keystone) et la ligne `INT-FORM` de la même formation sont
+  remplacées ; un jour qui dépasserait 24 h, toutes lignes cumulées, voit ses heures de formation réduites d'autant (la
+  formation ne bloque jamais la proposition Keystone). Modifiables comme toute ligne proposée. Réglage `formationsTemps`
   (Paramètres → Formations, actif par défaut).
 - **Base existante** : colonnes et table ajoutées au démarrage (schéma déclaratif) ; `server/src/migrate.ts`
   valide sur la présence les formations sans mode de validation, libère la place d'une certification remplacée

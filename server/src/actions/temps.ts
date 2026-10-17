@@ -1,7 +1,7 @@
 // Feuilles de temps : saisie, soumission, validation, transmission à Sage Paie (lots de paie : actions/paie.ts).
-import { ACTIVITE_FORMATION } from '../../../shared/constants.ts';
 import { addD, isValidDate, isoWeek, mondayOf, wDays } from '../../../shared/dates.ts';
 import { fH, num, plural } from '../../../shared/format.ts';
+import { fusionProposition } from '../../../shared/rules/formations-temps.ts';
 import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
 import { jourHorsContrat, semaineHorsContrat } from '../../../shared/rules/absences.ts';
 import {
@@ -113,17 +113,30 @@ const removeLine: ActionHandler = (ctx, p) => {
   return null;
 };
 
+/**
+ * « Proposer » : tâches Keystone planifiées et heures des sessions de formation de la semaine. Les lignes déjà saisies
+ * sont gardées (shared/rules/formations-temps.ts, fusionProposition) : seules les lignes Keystone d'une proposition
+ * précédente et la ligne INT-FORM de la même formation sont remplacées.
+ */
 const suggest: ActionHandler = (ctx, p) => {
   const { emp, week, sh } = editable(ctx, p);
   const l = suggestLines(ctx.d, emp, week);
   // Rien de planifié cette semaine : la feuille n'est pas vidée.
   if (!l.length) throw new ActionError('Aucune tâche Keystone ni session de formation planifiée pour ce salarié cette semaine');
-  controleJournees(sh, l, 'Tâches Keystone et formations de plus de 24 h');
-  saveLines(ctx, sh, l);
+  // Heures de formation réduites au besoin ; tâches Keystone et lignes gardées au-delà de 24 h : refus.
+  const f = fusionProposition(sh.lignes, l);
+  controleJournees(sh, f.lignes, 'Tâches Keystone et lignes déjà saisies : plus de 24 h');
+  const ajoutees = f.lignes.length - f.conservees;
+  if (!ajoutees) throw new ActionError('Aucune heure de formation à proposer : les jours de la session comptent déjà 24 h, toutes lignes cumulées');
+  saveLines(ctx, sh, f.lignes);
   // Lignes de formation (INT-FORM) : heures prévues de la session, jamais envoyées à Keystone.
-  const formations = l.filter(x => x.projet === ACTIVITE_FORMATION.code).length;
-  const source = formations === l.length ? 'des sessions de formation' : formations ? 'des tâches Keystone et des sessions de formation' : 'des tâches Keystone';
-  return `Heures proposées depuis ${source} — ${plural(l.length, 'ligne', 'lignes')}, à ajuster si besoin`;
+  const formations = ajoutees - l.filter(x => x.ks).length;
+  const source = formations === ajoutees ? 'des sessions de formation' : formations ? 'des tâches Keystone et des sessions de formation' : 'des tâches Keystone';
+  return [
+    `Heures proposées depuis ${source} — ${plural(ajoutees, 'ligne', 'lignes')}, à ajuster si besoin`,
+    f.conservees ? plural(f.conservees, 'ligne déjà saisie conservée', 'lignes déjà saisies conservées') : '',
+    f.reduites ? 'heures de formation réduites pour rester sous 24 h par jour' : '',
+  ].filter(Boolean).join(' · ');
 };
 
 const submit: ActionHandler = (ctx, p) => {

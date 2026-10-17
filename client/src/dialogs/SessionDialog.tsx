@@ -92,11 +92,12 @@ export function SessionDialog({ f: f0, planId, places: places0, sessionId }: { f
   const err = erreursSession(d.ti, saisie, s ? { dateActuelle: s.date, inscrits: s.inscrits } : {});
   const erreur = (k: ChampSession) => err.vides[k] ? v.erreur(err.champs[k]) : err.champs[k];
   const passee = !!s && sessionPassee(d.ti, s.date);
-  // Session à venir : convocations à renvoyer, nouvelles dates à faire confirmer (comme le serveur).
-  const aVenir = !!date && date >= d.ti;
+  // Session à venir, ou en cours jusqu'à son dernier jour : convocations à renvoyer ; session à venir : nouvelles dates à
+  // faire confirmer (comme le serveur).
+  const aVenir = !!date && date >= d.ti, pasFinie = !!dernier && dernier >= d.ti;
   const nouvellePlage = !!s && (date !== s.date || dernier !== finSession(s) || coches.join() !== s.jours.join());
   const nouveauxHoraires = !!s && JSON.stringify(horaires) !== JSON.stringify(s.horaires);
-  const moved = !!s && aVenir && (nouvellePlage || nouveauxHoraires || lieu.trim() !== s.lieu);
+  const moved = !!s && pasFinie && (nouvellePlage || nouveauxHoraires || lieu.trim() !== s.lieu);
   const reconfirmer = !!s && aVenir && nouvellePlage && s.statut === 'Confirmée';
   const convoquees = s ? inscritsDe(d, s).filter(i => i.convoc === 'now').length : 0;
   // Heures prévues (feuilles de temps) : horaires, pause déduite ; sinon la durée du catalogue répartie sur les jours.

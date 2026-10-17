@@ -8,7 +8,7 @@ import { cap, equipeLabel, fmt, fmtShort, plural, rel } from '../../../shared/fo
 import { exigencesEquipe, nombreExigences } from '../../../shared/rules/exigences.ts';
 import { declarationDetail, retireeAuRefus, valeurActuelle } from '../../../shared/rules/formalites.ts';
 import type { DemandeCollab, Session } from '../../../shared/types.ts';
-import { joursSession, plageCourte, plageTexte, surPlusieursJours } from '../../../shared/rules/plage-session.ts';
+import { finSession, joursSession, plageCourte, plageTexte, surPlusieursJours } from '../../../shared/rules/plage-session.ts';
 import { Bar, DateBlock, Kpi, Kpis, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
 import { Ouvrir } from '../components/Cliquable.tsx';
 import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derived.ts';
@@ -63,7 +63,9 @@ export function Dashboard() {
   const permis = useIntentPermis();
   const { occupe, agir } = useAgir();
   const data = d.ds;
-  const aCloturer = d.aCloturer();
+  // Sessions passées, puis sessions sur plusieurs jours à leur dernier jour (clôturables dès ce jour-là).
+  const dernierJour = d.enCours().filter(s => finSession(s) === d.ti);
+  const aCloturer = [...d.aCloturer(), ...dernierJour];
 
   const v = useMemo(() => {
     const ech = d.echeances(emps, horizon);
@@ -206,7 +208,7 @@ export function Dashboard() {
                     <DateBlock date={parse(s.date)} />
                     <div className="grow">
                       <div className="ellipsis" style={{ fontSize: 14 }}><Ouvrir onOpen={() => openDialog({ type: 'sessionDetail', sessionId: s.id })}>{d.fm(s.formation).court}</Ouvrir></div>
-                      <div className="note-accent ellipsis">{SESSION_PASSEE} · {plural(s.inscrits, 'inscrit', 'inscrits')}{surPlusieursJours(s) ? ` · ${plageCourte(s)}` : ''}</div>
+                      <div className="note-accent ellipsis">{dernierJour.includes(s) ? 'Dernier jour' : SESSION_PASSEE} · {plural(s.inscrits, 'inscrit', 'inscrits')}{surPlusieursJours(s) ? ` · ${plageCourte(s)}` : ''}</div>
                     </div>
                     {formations && <button type="button" className="btn btn-ghost btn-sm" style={{ flex: 'none' }} onClick={stop(() => openDialog({ type: 'cloture', sessionId: s.id }))}>Clôturer</button>}
                   </div>

@@ -14,7 +14,7 @@ import { Bar, Btn, Empty, Fine, Page, Panel, Seg, Tag, Two, stop } from '../comp
 import { CartePick, Ouvrir } from '../components/Cliquable.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore, type UiState } from '../state/store.tsx';
-import { plageCourte } from '../../../shared/rules/plage-session.ts';
+import { finSession, plageCourte } from '../../../shared/rules/plage-session.ts';
 import { sessionView } from './Dashboard.tsx';
 
 const TYPES: Record<UiState['typeForm'], string | null> = { toutes: null, reg: 'Réglementaire', rec: 'Recommandée', int: 'Interne' };
@@ -40,7 +40,7 @@ export function PickCard({ kicker, title, body, stats, meta, selected, onClick }
 interface Renewal { e: EmpX; c: CertInfo; demande: string | null }
 
 export function Formations() {
-  const { emps, forms, upcoming, d } = useEnriched();
+  const { emps, forms, formIds, upcoming, d } = useEnriched();
   // `espaceRh` : vue de tout le site (service RH, référent HSE, lecture seule) ; `formations` : gestion des sessions.
   const { espaceRh, formations, manager, me } = useRole();
   const { ui, setUi, go, openDialog } = useStore();
@@ -80,6 +80,8 @@ export function Formations() {
   const sessions = upcoming.filter(byFm);
   // Espace RH : sessions passées à clôturer, puis les dernières clôturées ou annulées (historique).
   const aCloturer = espaceRh ? d.aCloturer().filter(byFm) : [];
+  // Sessions sur plusieurs jours commencées : ni à venir ni à clôturer avant leur dernier jour (clôture possible ce jour-là).
+  const enCours = d.enCours(formIds).filter(byFm);
   const terminees = espaceRh
     ? d.ds.sessions.filter(s => (s.statut === 'Clôturée' || s.statut === 'Annulée') && byFm(s)).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8)
     : [];
@@ -186,6 +188,35 @@ export function Formations() {
                       <td className="tnum nowrap">{plural(s.inscrits, 'inscrit', 'inscrits')}</td>
                       <td><Tag cls={SESS_CLS[SESSION_PASSEE]}>{SESSION_PASSEE}</Tag></td>
                       <td className="right">{formations && <Btn small variant="secondary" onClick={stop(() => openDialog({ type: 'cloture', sessionId: s.id }))}>Clôturer</Btn>}</td>
+                    </tr>
+                  );
+                })}
+              </tbody>
+            </table>
+          </div>
+        </Panel>
+      )}
+
+      {enCours.length > 0 && (
+        <Panel title={filteredFm ? `Sessions en cours — ${filteredFm.court}` : 'Sessions en cours'}
+          aside={espaceRh ? 'clôture à partir du dernier jour' : 'commencées, plus d’inscription possible'}>
+          <div className="scroll-x">
+            <table className="table">
+              <thead><tr><th>Dates</th><th>Formation</th><th>Lieu</th><th>Inscrits</th>{manager && <th>Votre équipe</th>}<th>Statut</th>{formations && <th></th>}</tr></thead>
+              <tbody>
+                {enCours.map(s => {
+                  const fm = d.fm(s.formation);
+                  const team = manager ? enrolled(s) : [];
+                  const dernierJour = finSession(s) === d.ti;
+                  return (
+                    <tr key={s.id} className={espaceRh ? 'clickable' : undefined} onClick={espaceRh ? () => openDetail(s) : undefined}>
+                      <td className="nowrap">{espaceRh ? <Ouvrir onOpen={() => openDetail(s)}>{plageCourte(s)}</Ouvrir> : plageCourte(s)}</td>
+                      <td><Two main={fm.nom} sub={fm.organisme} /></td>
+                      <td className="text-muted">{s.lieu}</td>
+                      <td className="tnum nowrap">{plural(s.inscrits, 'inscrit', 'inscrits')}</td>
+                      {manager && <td className={team.length ? undefined : 'text-muted'} style={{ fontSize: 13 }}>{team.length ? team.join(', ') : '—'}</td>}
+                      <td><Tag cls="tag-outline">{dernierJour ? 'Dernier jour' : `En cours jusqu’au ${fmtShort(parse(finSession(s)))}`}</Tag></td>
+                      {formations && <td className="right">{dernierJour && <Btn small variant="secondary" onClick={stop(() => openDialog({ type: 'cloture', sessionId: s.id }))}>Clôturer</Btn>}</td>}
                     </tr>
                   );
                 })}

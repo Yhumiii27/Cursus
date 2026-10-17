@@ -42,8 +42,8 @@ export interface UiState {
   weekStart: ISODate | null;
   tsEmp: number | null;
   /** Onglet de l'écran Référentiels. */
-  refOnglet: ReferentielId | 'postes';
-  /** Saisie des heures jour par jour (téléphone, tablette) : jour affiché, du lundi (0) au vendredi (4) ; null : le jour courant. */
+  refOnglet: ReferentielId | 'postes' | 'activites';
+  /** Saisie des heures jour par jour (téléphone, tablette) : jour affiché, du lundi (0) au dimanche (6) ; null : le jour courant. */
   tsJour: number | null;
 }
 
@@ -103,6 +103,9 @@ export type DialogState =
   /** Onglet Postes : poste (création sans identifiant) et exigences communes d'une équipe (shared/rules/exigences.ts). */
   | { type: 'refPoste'; id?: number | null }
   | { type: 'refEquipe'; nom: string }
+  /** Onglet Activités internes (création sans code, renommage) ; mandat au CSE d'un salarié (fiche, service RH). */
+  | { type: 'refActivite'; code?: string | null }
+  | { type: 'mandat'; empId: number; id?: number | null }
   /** Correspondance d'une rubrique de paie avec le plan de paie Sage (écran Temps, components/RubriquesPaie.tsx). */
   | { type: 'rubrique'; code: string }
   /** Lots de paie (écran Temps, components/LotsPaie.tsx) : confirmation de l'import dans Sage, format du fichier d'import. */

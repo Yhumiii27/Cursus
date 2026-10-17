@@ -280,7 +280,10 @@ payées avec majoration (ou remplacées par un repos compensateur avec la réfé
 chaque feuille à sa validation), heures complémentaires +10 % / +25 %, forfait jours, alertes 10 h / 48 h · période de paie
 déduite de la semaine (mois du dimanche par défaut, clôture des variables, rappel d'une période close) · lots de paie figés,
 fichier d'import pour Sage, transmis seulement à la confirmation de l'import · suivi des feuilles de temps semaine par
-semaine (échéance le lundi suivant à 12 h, relance, validation groupée) · journée de 24 h au plus, motif exigé au-delà des durées maximales · CP 25 jours
+semaine (échéance le lundi suivant à 12 h, relance, validation groupée) · journée de 24 h au plus, motif exigé au-delà des durées maximales ·
+semaine à 7 jours (samedi et dimanche grisés mais saisissables, repos hebdomadaire et dominical signalés, dérogation par équipe,
+heures du dimanche HDIM et majoration réglable) · activités internes tenues par le service RH, heures de délégation du CSE
+(mandats, crédit R2314-1, compteur mensuel avec report sur 12 mois) · CP 25 jours
 ouvrés (+5 j à 59 ans, CCN Chimie), chaque jour imputé sur sa période de référence, prise par
 anticipation dans la limite des jours acquis à la date du congé · RTT et jours de repos forfait
 calculés au prorata de l'entrée et de la fin du contrat, ceux de l'année suivante posables dès maintenant, CET (5 RTT/an,

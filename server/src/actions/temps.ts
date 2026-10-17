@@ -1,5 +1,5 @@
 // Feuilles de temps : saisie, soumission, validation, transmission à Sage Paie (lots de paie : actions/paie.ts).
-import { addD, isValidDate, isoWeek, mondayOf, wDays } from '../../../shared/dates.ts';
+import { addD, isValidDate, isoWeek, joursSemaine, mondayOf } from '../../../shared/dates.ts';
 import { fH, num, plural } from '../../../shared/format.ts';
 import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
 import { jourHorsContrat, semaineHorsContrat } from '../../../shared/rules/absences.ts';
@@ -7,6 +7,8 @@ import {
   absenceCeJour, calcSheet, contratFige, demandesAbsence, demandesEnAttenteMessage, HEURES_JOUR_MAX, heuresSurAbsence, heuresSurAbsenceMessage,
   joursAbsence, joursAuDela24, joursTexte, semaineCouverte, suggestLines,
 } from '../../../shared/rules/temps.ts';
+import { estActiviteInterne } from '../../../shared/rules/activites.ts';
+import { completerSemaine, JOURS_FEUILLE } from '../../../shared/rules/semaine.ts';
 import type { Employe, FeuilleTemps, LigneTemps } from '../../../shared/types.ts';
 import { heuresKeystone, sendToKeystone } from '../integrations/keystone.ts';
 import { notifierFeuilleRenvoyee, notifierFeuilleSoumise } from '../notifications.ts';
@@ -40,7 +42,7 @@ function editable(ctx: Ctx, p: Record<string, any>): { emp: Employe; week: strin
 /** Plus de 24 h sur une journée, toutes lignes cumulées : refusé (saisie, proposition Keystone, soumission, validation). */
 function controleJournees(sh: Pick<FeuilleTemps, 'week'>, lignes: LigneTemps[], quoi = 'Plus de 24 h') {
   const jours = joursAuDela24(lignes);
-  if (jours.length) throw new ActionError(`${quoi} ${joursTexte(jours.map(i => wDays(sh.week)[i]))}, toutes lignes cumulées : une journée compte 24 h au plus`);
+  if (jours.length) throw new ActionError(`${quoi} ${joursTexte(jours.map(i => joursSemaine(sh.week)[i]))}, toutes lignes cumulées : une journée compte 24 h au plus`);
 }
 
 /**
@@ -63,17 +65,22 @@ function saveLines(ctx: Ctx, sh: FeuilleTemps, lignes: LigneTemps[]) {
   ctx.db.update<FeuilleTemps>('feuilles', sh.id, { lignes, statut: sh.statut === 'rejetee' || sh.statut === 'soumise' ? sh.statut : 'brouillon' });
 }
 
+/**
+ * Saisie d'une cellule : `di` de 0 (lundi) à 6 (dimanche). Le samedi et le dimanche, grisés dans la feuille, se saisissent
+ * comme les autres jours (chantier, déplacement, impératif) ; le repos hebdomadaire est signalé sur la feuille, sans blocage.
+ */
 const setCell: ActionHandler = (ctx, p) => {
   const { emp, sh } = editable(ctx, p);
   const li = Number(p.li), di = Number(p.di);
-  if (!sh.lignes[li] || !(di >= 0 && di < 5)) throw new ActionError('Cellule invalide');
+  if (!sh.lignes[li] || !(Number.isInteger(di) && di >= 0 && di < JOURS_FEUILLE)) throw new ActionError('Cellule invalide');
   const v = Math.round(Math.max(0, Math.min(24, num(String(p.value ?? '').replace(/[^\d.,]/g, '')))) * 100) / 100;
   // Aucune heure un jour d'absence (validée ou signalée) ni hors contrat ; vider la cellule reste toujours possible, pour corriger.
   const abs = joursAbsence(ctx.d, sh.empId, sh.week)[di];
   if (v > 0 && abs) throw new ActionError(`${absenceCeJour(abs)} : aucune heure ne peut être saisie`);
   const hors = v > 0 ? jourHorsContrat(emp, addD(sh.week, di)) : null;
   if (hors) throw new ActionError(`Hors contrat ce jour-là (${hors}) : aucune heure ne peut être saisie`);
-  const lignes = sh.lignes.map((l, i) => i === li ? { ...l, h: l.h.map((x, j) => j === di ? v : x) } : l);
+  // Ligne enregistrée avant la semaine à 7 jours (5 valeurs) : complétée d'un samedi et d'un dimanche vides.
+  const lignes = sh.lignes.map((l, i) => i === li ? { ...l, h: completerSemaine(l.h).map((x, j) => j === di ? v : x) } : l);
   // Deux lignes de 20 h le même jour ne font pas une journée : 24 h au plus, toutes lignes cumulées (baisser une cellule
   // d'une journée déjà au-delà, saisie avant ce contrôle, reste possible).
   const jour = lignes.reduce((n, l) => n + num(l.h[di]), 0);
@@ -88,8 +95,10 @@ const addLine: ActionHandler = (ctx, p) => {
   // Projets transmis par Keystone (server/src/integrations/keystone-entrant.ts) ; un projet archivé n'est plus proposé.
   const pr = ctx.ds.referentiels.projets.find(x => x.code === projet);
   if (!pr) throw new ActionError('Projet inconnu');
-  if (pr.statut === 'archive') throw new ActionError('Projet clos dans Keystone : aucune heure ne peut plus y être imputée');
-  saveLines(ctx, sh, [...sh.lignes, { projet, tache: pr.nom, ks: false, h: [0, 0, 0, 0, 0] }]);
+  if (pr.statut === 'archive') {
+    throw new ActionError(estActiviteInterne(pr.code) ? 'Activité interne archivée (écran Référentiels) : aucune heure ne peut plus y être imputée' : 'Projet clos dans Keystone : aucune heure ne peut plus y être imputée');
+  }
+  saveLines(ctx, sh, [...sh.lignes, { projet, tache: pr.nom, ks: false, h: completerSemaine([]) }]);
   return null;
 };
 
@@ -165,9 +174,12 @@ const validate: ActionHandler = (ctx, p) => {
   // Seules les heures des projets Keystone lui sont renvoyées : ni activités internes (INT-*), ni cours en CFA (ECOLE).
   const projets = heuresKeystone(sh.lignes), keystone = Object.keys(projets).length > 0;
   // Mode des heures supplémentaires (payées ou en repos) figé à la validation, comme le régime à la soumission :
-  // un changement ultérieur du réglage ne recalcule ni la paie ni le repos acquis de cette semaine.
+  // un changement ultérieur du réglage ne recalcule ni la paie ni le repos acquis de cette semaine. De même pour la
+  // majoration des heures du dimanche.
   const heuresSup = sh.heuresSup ?? ctx.ds.settings.heuresSupMode;
-  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif, heuresSup });
+  const majDimanche = sh.majDimanche ?? ctx.ds.settings.majorationDimanche;
+  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif, heuresSup, majDimanche });
+
   if (keystone) sendToKeystone(ctx.db, { type: 'heures.validees', matricule: identifiantKeystone(ctx.ds.settings.identifiantKeystone, emp), semaine: sh.week, projets });
   // Intérimaire : la dernière feuille validée d'une semaine révolue fait partir le relevé de son agence.
   const releve = emp.typeContrat === 'interim' && emp.agence ? relevesAutomatiques(ctx.db, { agence: emp.agence, semaine: sh.week }).length > 0 : false;

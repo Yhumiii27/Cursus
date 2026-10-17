@@ -28,14 +28,17 @@ shared/            Domaine partagé (aucune dépendance)
                    campagne.ts (campagne d'entretiens annuels réglable), remise.ts (remise du compte rendu d'entretien),
                    exercices.ts (exercices du plan, clôture, coût réel) ; a-faire.ts : ce qui attend le collaborateur ;
                    reprise.ts : reprise depuis Lucca (imports de mise en service, colonnes reconnues, analyse ligne par ligne)
-                   deplacements.ts (déplacement modifié ou annulé), relances.ts (récapitulatif des échéances par paliers)
+                   deplacements.ts (déplacement modifié ou annulé), relances.ts (récapitulatif des échéances par paliers) ;
+                   semaine.ts (semaine à 7 jours : repos hebdomadaire et dominical, dérogations), activites.ts (activités
+                   internes INT-… et ECOLE), delegation.ts (mandats au CSE, crédit R2314-1, compteur des heures de délégation)
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   migrate.ts       Reprises des bases antérieures, rejouées à chaque démarrage (idempotentes)
   migrations/      Migrations nommées, exécutées une seule fois par base : cadre.ts (contrôle et exécution), liste.ts (ordre),
                    outils.ts (reconstruction d'une table, index), un fichier par chantier (voir « Cadre commun du lot 4 ») :
                    exploitation.ts (index), entretiens.ts (coût réel des actions déjà réalisées), referentiels.ts (postes
-                   créés depuis les intitulés des fiches), paie.ts (mode des heures supplémentaires, lot de paie historique)
+                   créés depuis les intitulés des fiches), paie.ts (mode des heures supplémentaires, lot de paie historique),
+                   temps.ts (lignes des feuilles complétées à 7 jours, activités internes de base amorcées)
   seed.ts          Données de démonstration
   sauvegarde.ts    Copie à chaud (VACUUM INTO), rotation, restauration, verrou du serveur ;
                    scripts backup.ts et restore.ts (npm run backup / restore, voir docs/SAUVEGARDE.md)
@@ -187,11 +190,12 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
        pastilles, utilisateur) sort de l'écran et s'ouvre par le bouton « Menu » de l'en-tête (`aria-expanded`,
        `aria-controls`, total des pastilles). Ouverte, elle est modale (`useModale`, page derrière inerte) ; Échap, le
        fond, « Fermer le menu » ou le choix d'une page la referment. Le menu (`navGroups`) ne change pas ;
-     - feuilles de temps jour par jour sous 600 px ou sur écran tactile (`pages/SaisieJour.tsx`, `VUE_JOUR`) : cinq
-       jours avec leur total, une ligne par projet avec un champ de 44 px en 16 px, total du jour et de la semaine,
+     - feuilles de temps jour par jour sous 600 px ou sur écran tactile (`pages/SaisieJour.tsx`, `VUE_JOUR`) : sept
+       jours avec leur total (samedi et dimanche grisés), une ligne par projet avec un champ de 44 px en 16 px, total du jour et de la semaine,
        même action `temps.setCell` ; « Ajouter un projet » et la soumission restent dessous. Ouverte sur aujourd'hui
-       (le vendredi un week-end, le lundi d'une autre semaine), jour choisi gardé dans `ui.tsJour`. Le PC garde la
-       grille de la semaine ;
+       (un week-end : le vendredi, ou le samedi ou le dimanche s'il porte des heures ; le lundi d'une autre semaine),
+       jour choisi gardé dans `ui.tsJour`. Le PC garde la grille de la semaine, samedi et dimanche repliés en une
+       colonne tant qu'ils sont vides ;
      - sur écran tactile (`pointer: coarse`), champs en 16 px (pas de zoom automatique d'iOS) et cibles de 44 px
        (boutons, icônes, options, entrées du menu, fermetures) ; sous 600 px, les contrôles segmentés passent à la
        ligne, une bordure par option. Tout est surchargé dans `styles/app.css`, `nocturne.css` restant la copie du
@@ -606,7 +610,10 @@ aucun champ du paramètre n'est recopié.
 | `budget.enveloppes` | exercice, enveloppes {équipe: montant} ; exercice clos refusé | RH |
 | `plan.avancer` | id, de? (statut affiché : déjà dépassé, rien n'est refait ; revenu à « prévue », refus), coutReel (vers « réalisé », exigé : euros, 0 accepté), effectifReel? ; exercice clos ou action reportée refusés | RH |
 | `plan.cloturerExercice` | exercice (passé et ouvert : jamais l'exercice en cours), reporter [id] (actions prévues ou engagées à reporter sur l'exercice suivant) | administrateur RH |
-| `temps.setCell` | empId, week, li, di, value | salarié, manager direct ou RH (feuille soumise : valideur uniquement) ; aucune heure un jour d’absence validée ou signalée, ni hors contrat, vider la cellule reste possible ; pas de feuille pour une semaine hors contrat |
+| `temps.setCell` | empId, week, li, di (0 = lundi … 5 = samedi, 6 = dimanche), value ; une ligne de 5 valeurs est complétée à 7 | salarié, manager direct ou RH (feuille soumise : valideur uniquement) ; aucune heure un jour d’absence validée ou signalée, ni hors contrat, vider la cellule reste possible ; pas de feuille pour une semaine hors contrat ; samedi et dimanche saisissables, repos hebdomadaire signalé sans blocage |
+| `temps.derogationDominicale` | equipe, type (`aucune`/`feu_continu`/`suppleance`), reference (exigée hors `aucune`, 120 caractères ; journal : seulement « renseignée ») : clé `derogationsDominicales` de la table settings, suit l'équipe renommée | administrateur RH |
+| `referentiel.activite.enregistrer` / `referentiel.activite.archiver` | code (création : `INT-` + 2 à 12 lettres ou chiffres, ou `ECOLE`, unique parmi tous les projets) ou id (le code), nom (80 caractères) / id, archive? (faux : rétablie) ; une activité archivée n'est plus imputable, les heures déjà saisies restent | RH |
+| `mandat.enregistrer` / `mandat.supprimer` | id? (modification), empId, role (`titulaire`/`suppleant`), du, au?, credit (0 à 200 h par mois, au quart d'heure ; deux mandats du même salarié ne se chevauchent pas) / id | RH |
 | `temps.addLine` / `temps.removeLine` | empId, week, projet / li, projet?, tache?, lignes? (ligne visée : déjà supprimée, rien n'est refait ; feuille changée, refus) | idem |
 | `temps.suggest` / `temps.submit` | empId, week, motif? | idem (soumission : brouillon ou à corriger, sans heures un jour d’absence validée ; semaine entièrement couverte par une absence : sans heure ; 24 h par jour au plus, toutes lignes cumulées ; motif exigé au-delà de 10 h par jour ou 48 h par semaine, 13 h pour un forfait jours) |
 | `temps.validate` / `temps.reject` | empId, week, comment?, motif? | manager direct ou RH, jamais pour sa propre feuille (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence ; 24 h par jour au plus ; motif du dépassement exigé s'il manque, après une correction du valideur : celui du salarié n'est jamais remplacé) |
@@ -636,7 +643,7 @@ aucun champ du paramètre n'est recopié.
 | `entretien.signer` | id | salarié |
 | `entretien.remettre` | id, mode (`main_propre`/`refus`/`portail`), date? (main propre, refus : de la clôture à aujourd'hui ; portail : le jour même, compte actif exigé, e-mail avec le seul lien vers Cursus) ; une remise sur papier est définitive, une mise à disposition se complète par une remise sur papier | évaluateur (manager direct) ou RH, jamais pour son propre entretien |
 | `entretien.telecharger` | id : premier téléchargement du compte rendu clos, daté (`telechargeLe`) | salarié, depuis son espace |
-| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
+| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
 | `demo.reinitialiser` | — | administrateur RH, mode démonstration |
 | `compte.creer` | empId (ou nom, adresse : compte externe), type (`microsoft`/`local`), identifiant, profilRh | administrateur RH (mot de passe provisoire dans `result`, affiché une fois) |
 | `compte.profil` | id, profilRh (`aucun`/`rh_gestionnaire`/`rh_admin`/`referent_hse`/`paie`/`lecture_seule`) | administrateur RH (jamais le dernier administrateur actif ; un compte externe garde un profil) |
@@ -916,6 +923,13 @@ Une base de production démarre avec des référentiels vides (seul le jeu de d�
 - **Instantanés** : les référentiels, archivés compris, sont transmis à tous les espaces (aucune donnée personnelle) :
   ils nomment les titres de l'historique, et les listes en écartent les archivés (`actifs`).
 - Vaccins (`VACCINS`) et règles de visa (`VISA_RULES`) restent dans le code (`shared/constants.ts`) pour cette version.
+- **Activités internes** (onglet Activités internes, `pages/ReferentielsActivites.tsx`, `shared/rules/activites.ts`,
+  actions `referentiel.activite.*` de `server/src/actions/activites.ts`) : codes hors projet Keystone (`INT-…`, `ECOLE`)
+  imputables dans les feuilles de temps, dans la table `projets`, jamais renvoyés à Keystone (`ACTIVITES_INTERNES`).
+  Le service RH les crée (code choisi une fois pour toutes), les renomme, les archive et les rétablit ; la lecture seule
+  consulte. Les codes de base (INT-PROD, INT-LOG, INT-MAINT, INT-HSE, INT-QUA, INT-ADM, ECOLE, INT-DELEG) sont amorcés
+  une fois par base, en production comme en démonstration, par la migration `lot5-temps-activites-internes`
+  (`amorcerActivites`, rejouée par le jeu de démonstration) : sans Keystone, les heures internes restent saisissables.
 
 ### Postes et exigences (t055)
 
@@ -1153,7 +1167,30 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
   transmises au calcul d'origine (« historique » : payées et repos crédité), feuilles validées non transmises au mode
   réglé ; le journal (`migration.heuresSup`) liste les salariés dont le solde de récupération devient négatif. Sans repos
   repris, acquis ni posé, le compteur de récupération n'apparaît pas (`recupInfo`).
-- **Durées** : une journée compte 24 h au plus, toutes lignes de la feuille cumulées (saisie, proposition Keystone,
+- **Semaine à 7 jours** (décision de l'entreprise du 17 octobre 2026, `shared/rules/semaine.ts`) : la feuille couvre la
+  semaine civile du lundi au dimanche (`joursSemaine` ; `wDays` garde les cinq jours ouvrés des congés et des contrats).
+  Samedi et dimanche, normalement non travaillés, sont grisés (repliés en une colonne tant qu'ils sont vides) mais
+  saisissables pour un chantier, un déplacement ou un impératif, et proposés depuis Keystone. Leurs heures prennent leur
+  rang dans les heures supplémentaires (art. L3121-35) et la ventilation jour par jour (`partsSemaine`, 7 jours) ; le
+  dimanche part en plus en quantité (HDIM) et, si le réglage `majorationDimanche` (Paramètres → Paie, 0 % par défaut)
+  en prévoit une, en heures équivalentes (MAJ_DIM), majoration figée sur la feuille à sa validation (`majDimanche`).
+  Alertes sans blocage (`SheetCalc.repos`, sous-ensemble de `warn`, signalées dans la file de validation) : 7 jours
+  travaillés (6 au plus, art. L3132-1, et repos de 35 h consécutives approché par une journée sans heure tant que les
+  horaires ne sont pas saisis, art. L3132-2), heures le dimanche sans dérogation de l'équipe (art. L3132-3 ; dérogation
+  réglée par l'administrateur RH dans Paramètres → Repos hebdomadaire : travail en continu, art. L3132-12 et R3132-5, ou
+  équipe de suppléance, art. L3132-16, avec sa référence) ; aucune pour un cadre dirigeant. Les lignes de 5 valeurs
+  sont lues avec un week-end vide et complétées une fois par base (migration `lot5-temps-semaine-7-jours`) ; rien n'est
+  recalculé (le contenu des lots de paie est figé). Relevé des intérimaires et `heures.validees` comptent le week-end.
+- **Heures de délégation** (`shared/rules/delegation.ts`, `components/Delegation.tsx`, `dialogs/MandatDialog.tsx`, table
+  `mandats`) : mandats d'élu au CSE saisis par le service RH sur la fiche (titulaire ou suppléant, dates, crédit mensuel
+  proposé d'après la table de l'art. R2314-1 selon l'effectif présent hors intérim, modifiable). Compteur des 12 derniers
+  mois sous la feuille de temps : heures imputées au code `INT-DELEG` dans les feuilles validées, jour par jour, comparées
+  au crédit ; report sur 12 mois glissants et limite d'une fois et demie le crédit dans le mois (art. R2315-5 et
+  R2315-6 ; pour un suppléant sans crédit propre, celui d'un titulaire). Alerte seulement (circonstances exceptionnelles,
+  art. L2315-7). Instantané : service RH (tous), l'élu (les siens) ; ni le manager (il voit la ligne de la feuille), ni
+  les profils restreints. Sans mandat, rien ne s'affiche.
+- **Durées** : une journée compte 24 h au plus, toutes lignes de la feuille cumulées
+ (saisie, proposition Keystone,
   soumission, validation). Au-delà des durées maximales (`SheetCalc.depassements`), la soumission exige un motif
   (`FeuilleTemps.motifDepassement`), affiché au valideur ; s'il a lui-même porté la feuille au-delà, il le donne en validant.
   Le motif du salarié est conservé : celui du valideur ne sert que s'il manque.

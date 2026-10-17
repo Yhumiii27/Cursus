@@ -341,6 +341,14 @@ html.tiroir-ouvert { overflow: hidden; }
 .jour-totaux { display: flex; justify-content: space-between; gap: var(--space-3); font-size: 14px; }
 .jour-totaux:last-child { font-weight: 500; }
 
+/* — Semaine à 7 jours (pages/Temps.tsx, pages/SaisieJour.tsx) : samedi et dimanche grisés, saisissables — */
+.jours-semaine.sept { grid-template-columns: repeat(7, minmax(0, 1fr)); }
+.jour-btn.weekend { background: color-mix(in srgb, var(--color-neutral-800) 45%, transparent); color: var(--text-70); }
+.jour-btn.weekend[aria-pressed='true'] { color: var(--color-accent-200); background: color-mix(in srgb, var(--color-accent) 16%, transparent); }
+.table .col-weekend { background: color-mix(in srgb, var(--color-neutral-800) 35%, transparent); }
+.table th.col-weekend { color: var(--text-70); }
+.weekend-bascule { min-width: 0; padding: 0 var(--space-2); font-size: 11px; white-space: nowrap; }
+
 /* — Page Confidentialité — */
 .info-intro { margin: 0; font-size: 14px; }
 .info-points { margin: 0; display: flex; flex-direction: column; gap: var(--space-3); }

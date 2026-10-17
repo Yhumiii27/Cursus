@@ -13,7 +13,8 @@ import { reglagesParDefaut } from '../../shared/reglages.ts';
 import type { DemandeVisite, LotReprise } from '../../shared/types.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Chantier, ClotureConges, CurrentUser, Dataset, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
-  Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mission, Participation, PlanAction, Poste, Projet, ReleveInterim, ReportCp, RubriquePaie, Session,
+  DerogationDominicale, Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mandat, Mission, Participation, PlanAction, Poste, Projet, ReleveInterim,
+  ReportCp, RubriquePaie, Session,
   Settings, SoldeReprise, TacheKeystone, Vaccination, Visa, Voyage,
 } from '../../shared/types.ts';
 import { type DroitRh, droitsRh, PROFILS_RH } from '../../shared/constants.ts';
@@ -117,8 +118,14 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     releves: db.all<Omit<ReleveInterim, 'envoi'>>('releves').map(r => ({ ...r, envoi: r.envoiId ? db.get<Envoi>('envois', r.envoiId)?.statut ?? null : null })),
     // Lots importés à la mise en service (écran Mise en service) : compte rendu nominatif, service RH seulement.
     reprises: db.all<LotReprise>('reprises').reverse(),
+    // Dérogations au repos dominical par équipe (shared/rules/semaine.ts) et mandats au CSE (shared/rules/delegation.ts).
+    derogationsDominicales: db.getSetting<DerogationDominicale[]>('derogationsDominicales', []),
+    mandats: db.all<Mandat>('mandats'),
   };
 }
+
+/** Dérogations au repos dominical sans la référence de l'accord (texte libre) : hors du service RH, le type suffit. */
+const derogationsSansReference = (full: Dataset) => (full.derogationsDominicales ?? []).map(x => ({ ...x, reference: null }));
 
 /**
  * Personne connectée dans l'espace actif de la session : le compte doit pouvoir se connecter et ouvrir
@@ -246,6 +253,9 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     messagerie: null,
     releves: [],
     reprises: [],
+    derogationsDominicales: derogationsSansReference(full),
+    // Mandats au CSE : l'élu voit les siens (compteur des heures de délégation) ; le manager, rien de ceux de son équipe.
+    mandats: (full.mandats ?? []).filter(m => m.empId === user.empId),
   };
 }
 
@@ -338,6 +348,10 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     rubriquesPaie: paie ? full.rubriquesPaie : [],
     // Comptes rendus de la reprise depuis Lucca (noms, motifs de refus) : service RH seulement.
     reprises: [],
+    derogationsDominicales: derogationsSansReference(full),
+    // Compteur des heures de délégation : service RH et l'élu seulement.
+    mandats: [],
   };
 }
+
 

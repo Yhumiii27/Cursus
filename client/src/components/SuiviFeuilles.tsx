@@ -82,7 +82,7 @@ export function SuiviFeuilles() {
               {semaines.map(w => (
                 <th key={w} className="center nowrap">
                   <div>S{isoWeek(w)}</div>
-                  <div style={{ fontSize: 11, fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--color-neutral-500)' }}>{fmtShort(parse(w))} → {fmtShort(parse(addD(w, 4)))}</div>
+                  <div style={{ fontSize: 11, fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--color-neutral-500)' }}>{fmtShort(parse(w))} → {fmtShort(parse(addD(w, 6)))}</div>
                 </th>
               ))}
               <th></th>

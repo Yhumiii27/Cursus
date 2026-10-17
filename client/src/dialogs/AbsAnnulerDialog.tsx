@@ -33,7 +33,7 @@ export function AbsAnnulerDialog({ id }: { id: number }) {
   const suites = [
     n ? `${a.type === 'RECUP' ? fH(n * d.dayH(emp)) + ' de récupération' : `${fJ(n)} de ${a.type}`} de nouveau disponible${n > 1 ? 's' : ''} sur le solde.` : '',
     a.keystone ? 'Keystone est prévenu : la période redevient disponible pour la planification.' : '',
-    d.ds.feuilles.some(sh => sh.empId === emp.id && sh.statut === 'validee' && sh.week <= a.au && addD(sh.week, 4) >= a.du)
+    d.ds.feuilles.some(sh => sh.empId === emp.id && sh.statut === 'validee' && sh.week <= a.au && addD(sh.week, 6) >= a.du)
       ? 'Les feuilles de temps déjà validées ne sont pas modifiées : des heures travaillées ces jours-là restent à régulariser.' : '',
     renvoi ? 'La feuille de temps soumise sans heure pour ces jours est renvoyée au salarié pour saisie des heures.' : '',
     rh && natureDef(a.type)?.reprise && emp.repriseDate ? 'La date de reprise inscrite sur la fiche est recalculée.' : '',

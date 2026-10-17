@@ -48,7 +48,7 @@ const PROFILS: [string, User][] = [
 ];
 
 const WEEK = '2026-10-12';
-const H0 = [0, 0, 0, 0, 0], H7 = [7, 7, 7, 7, 7];
+const H0 = [0, 0, 0, 0, 0, 0, 0], H7 = [7, 7, 7, 7, 7, 0, 0];
 /** Feuille de Mehdi pour la semaine 42, dans l'état voulu. */
 const feuille = (statut: string, h = H0) => db.insert('feuilles', {
   empId: 2, week: WEEK, statut, comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-MAINT', tache: 'Maintenance interne', ks: false, h }],
@@ -247,6 +247,13 @@ const MATRICE: Ligne[] = [
     return { empId: 2 };
   } },
   { action: 'temps.validerLot', droits: '                    O    O    O    -    -    -    -    -    -', p: () => { feuille('soumise', H7); return { feuilles: [{ empId: 2, week: WEEK }] }; } },
+  // Semaine à 7 jours : dérogation au repos dominical d'une équipe, réglée par l'administrateur RH (Paramètres).
+  { action: 'temps.derogationDominicale', droits: '          O    -    -    -    -    -    -    -    -', p: () => ({ equipe: 'Maintenance', type: 'feu_continu', reference: 'Accord du 12 mars 2024' }) },
+  // Activités internes (écran Référentiels) et mandats au CSE (fiche) : service RH.
+  { action: 'referentiel.activite.enregistrer', droits: '    O    O    -    -    -    -    -    -    -', p: () => ({ code: 'INT-FORM', nom: 'Formation interne' }) },
+  { action: 'referentiel.activite.archiver', droits: '      O    O    -    -    -    -    -    -    -', p: () => ({ id: 'INT-COM' }) },
+  { action: 'mandat.enregistrer', droits: '                  O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, role: 'titulaire', du: '2026-11-01', credit: 21 }) },
+  { action: 'mandat.supprimer', droits: '                    O    O    -    -    -    -    -    -    -', p: () => ({ id: db.insert<{ id: number }>('mandats', { empId: 2, role: 'suppleant', du: '2026-01-01', au: null, credit: 0 }).id }) },
   // Un membre du RH ne valide pas sa propre feuille : son valideur (ici le service RH) le fait.
   { action: 'temps.validate', variante: 'feuille du gestionnaire RH', droits: 'O    -    -    -    -    -    -    -    -', p: () => { feuilleAntoine(); return { empId: 14, week: WEEK }; } },
   // Relevé d'heures des intérimaires (Léa Girard, agence Proman Lyon) : service RH ou gestionnaire de paie.

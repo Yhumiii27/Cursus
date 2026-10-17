@@ -552,8 +552,12 @@ L'historique des lots (période, auteur, état, accusé) reste dans l'écran Tem
 version, les feuilles déjà transmises sont réunies en un lot « historique », sans fichier (migration
 `lot4-paie-lots-historiques`, tracée au journal).
 
-Périmètre : heures validées du lundi au vendredi seulement ; ni absences, ni déplacements, ni heures du samedi, du
-dimanche ou de nuit, qui restent saisis dans Sage. Intérimaires (relevé envoyé à l'agence) et cadres dirigeants exclus.
+Périmètre : heures validées de la semaine du lundi au dimanche (semaine à 7 jours, lot 5 : les heures du samedi et du
+dimanche prennent leur rang dans les heures supplémentaires, celles du dimanche partent aussi en quantité HDIM, et en
+MAJ_DIM si Paramètres → Paie prévoit une majoration) ; ni absences, ni déplacements, ni heures de nuit, qui restent
+saisis dans Sage. Les rubriques HDIM et MAJ_DIM sont « à confirmer » comme les autres : la paie confirme leur code Sage
+ou les désactive avant le premier lot réel qui en porte. Intérimaires (relevé envoyé à l'agence) et cadres dirigeants exclus.
+
 Période de paie déduite de la semaine : une semaine à cheval sur deux mois va sur le mois de son dimanche, la clôture
 des variables tombe le dernier jour du mois et une semaine d'une période close part en rappel sur la période ouverte
 (Paramètres → Paie : mois du vendredi ou ventilation jour par jour, autre jour de clôture). Heures supplémentaires payées

@@ -25,6 +25,8 @@ import {
 } from '../../shared/journal.ts';
 import { CODE_PAYS, CODE_TITRE, codeDestination, codeTitre, type ReferentielId } from '../../shared/rules/referentiels.ts';
 import { estTypeReprise } from '../../shared/rules/reprise.ts';
+import { CODE_ACTIVITE, normaliserCodeActivite } from '../../shared/rules/activites.ts';
+import { estTypeDerogation } from '../../shared/rules/semaine.ts';
 import type { ClotureConges, CurrentUser, FeuilleTemps, LigneTemps } from '../../shared/types.ts';
 import type { ContactsConfidentialite } from '../../shared/confidentialite.ts';
 import { journaliser, type Compte } from './comptes.ts';
@@ -97,6 +99,11 @@ function referentiel(table: ReferentielId, colonnes: readonly string[], archiver
   };
   return { extra: p => ({ code: code(p), ...(archiver ? { retablir: p.archive === false } : {}) }), cible: { table, cle: code, colonnes } };
 }
+/** Activité interne visée (`id` : modification, archivage ; `code` : création), recopiée seulement si c'est un code d'activité. */
+const codeActivite = (p: P) => {
+  const c = normaliserCodeActivite(p.id != null && p.id !== '' ? p.id : p.code);
+  return CODE_ACTIVITE.test(c) ? c : null;
+};
 /** Salariés dont un titre change de statut avec la règle modifiée (résultat de l'action). */
 const salariesTouches = (x: Contexte) => (x.result as { salaries?: unknown[] } | null | undefined)?.salaries ?? [];
 /** Référentiel désigné (`referentiel.charger`), seulement s'il en est un : jamais la valeur reçue telle quelle. */
@@ -260,6 +267,9 @@ export const REGLES: Record<string, Regle> = {
   'referentiel.equipe.exigences': {
     champs: ['nom'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['exigences'], aplatir: true }, salaries: (_p, x) => salariesTouches(x),
   },
+  // Activités internes (codes INT-… et ECOLE, aucune donnée personnelle) : code, libellé et statut avant et après.
+  'referentiel.activite.enregistrer': { extra: p => ({ code: codeActivite(p) }), cible: { table: 'projets', cle: codeActivite, colonnes: ['nom', 'statut'] } },
+  'referentiel.activite.archiver': { extra: p => ({ code: codeActivite(p), retablir: p.archive === false }), cible: { table: 'projets', cle: codeActivite, colonnes: ['statut'] } },
   // Référentiel type : nombre d'éléments ajoutés.
   'referentiel.charger': {
     extra: p => ({ referentiel: referentielRecu(p) }), etat: (db, p) => nombreReferentiel(db, p), bilan: (p, x) => ({ ajoutes: nombreReferentiel(x.db, p) - Number(x.etat) }),
@@ -327,7 +337,16 @@ export const REGLES: Record<string, Regle> = {
     etat: db => db.where<FeuilleTemps>('feuilles', 'statut', 'validee').filter(f => !f.sage).map(f => f.id),
     bilan: (_p, x) => ({ lot: lotDuResultat(x)?.lot ?? null, feuilles: transmises(x).map(f => ({ empId: f.empId, week: f.week })) }), salaries: (_p, x) => transmises(x).map(f => f.empId),
   },
+  // Dérogation au repos dominical d'une équipe : équipe et type (codes) ; de la référence de l'accord, seulement le fait
+  // qu'elle soit renseignée.
+  'temps.derogationDominicale': {
+    champs: ['equipe'], extra: p => ({ type: estTypeDerogation(p.type) ? p.type : null, reference: typeof p.reference === 'string' && p.reference.trim() ? MENTION_TEXTE : null }),
+  },
+  // Mandats au CSE : rôle, dates et crédit d'heures, avant et après (le salarié est celui du mandat).
+  'mandat.enregistrer': { champs: ['id', 'empId'], cible: parId('mandats', ['role', 'du', 'au', 'credit']) },
+  'mandat.supprimer': { champs: ['id'], cible: parId('mandats', ['role', 'du', 'au', 'credit']) },
   // Correspondance d'une rubrique avec le plan de paie Sage : codes, case « exportée », date de confirmation.
+
   'paie.rubrique': {
     champs: ['code', 'codeSage', 'active', 'confirmer'],
     cible: { table: 'rubriquesPaie', cle: p => (typeof p.code === 'string' && p.code ? p.code : null), colonnes: ['codeSage', 'active', 'confirmeLe'] },

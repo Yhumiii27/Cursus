@@ -341,7 +341,7 @@ export function absenceKinds(d: Domain, e: Employe): [CongeType, string][] {
  */
 export function heuresAvantAbsence(d: Domain, a: AbsenceJour, quand: string): { text: string; validee: boolean } | null {
   const feuilles = d.ds.feuilles
-    .filter(sh => sh.empId === a.empId && sh.week <= a.au && addD(sh.week, 4) >= a.du)
+    .filter(sh => sh.empId === a.empId && sh.week <= a.au && addD(sh.week, 6) >= a.du)
     .map(sh => ({ sh, jours: heuresSurAbsence(d, sh, [a]).map(h => h.day) }))
     .filter(x => x.jours.length)
     .sort((x, y) => x.sh.week.localeCompare(y.sh.week));

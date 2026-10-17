@@ -89,6 +89,8 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   heuresSupAccord: { defaut: '', controle: texte(120, 'Référence de l’accord') },
   periodeRattachement: { defaut: 'dimanche', controle: choix(['dimanche', 'vendredi', 'jour']) },
   clotureJour: { defaut: 0, controle: entier(0, 28) },
+  // Heures du dimanche : aucune majoration légale (hors accord ou dérogation qui la prévoit) ; quantité HDIM toujours émise.
+  majorationDimanche: { defaut: 0, controle: entier(0, 100, 5) },
   // — Suivi des feuilles de temps (parametres/FeuillesTemps.tsx, shared/rules/suivi-feuilles.ts) : 5 semaines affichées ;
   //   feuille attendue le lundi suivant à 12 h —
   suiviSemaines: { defaut: 5, controle: entier(2, 12) },

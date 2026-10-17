@@ -9,6 +9,7 @@ import { posteDe } from '../../../shared/rules/exigences.ts';
 import { MANAGER_FIELDS, PROFIL_FIELDS, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
 import type { Employe, Equipe, FeuilleTemps } from '../../../shared/types.ts';
 import { rattacherPoste } from './referentiels.ts';
+import { renommerDerogation } from './repos-dominical.ts';
 import { ActionError, getEmp, isManagerOf, isRh, isRhAdmin, requireRh, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
 function equipesNoms(ctx: Ctx) { return ctx.ds.referentiels.equipes.map(q => q.nom); }
@@ -156,6 +157,7 @@ const renommer: ActionHandler = (ctx, p) => {
   for (const [table, col] of [['equipes', 'nom'], ['employes', 'equipe'], ['budgets', 'equipe'], ['plan_actions', 'equipe']]) {
     ctx.db.sql.prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`).run(nouveau, q.nom);
   }
+  renommerDerogation(ctx.db, q.nom, nouveau);
   return `Équipe ${q.nom} renommée en ${nouveau}`;
 };
 

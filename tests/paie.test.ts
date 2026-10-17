@@ -301,20 +301,21 @@ test('t022 données : correspondance transmise au service RH, à la paie et à l
 // — t025 : période de paie —
 
 test('t025 rattachement d’une semaine à cheval : mois du dimanche par défaut, du vendredi, ou jour par jour', () => {
-  const tout = [0, 1, 2, 3, 4];
+  const tout = [0, 1, 2, 3, 4, 5, 6];
   // Semaine du 28 septembre 2026 : lundi à mercredi en septembre, jeudi à dimanche en octobre.
   assert.deepEqual(partsSemaine('2026-09-28'), [{ periode: '2026-10', jours: tout }]);
   assert.deepEqual(partsSemaine('2026-09-28', 'vendredi'), [{ periode: '2026-10', jours: tout }]);
-  assert.deepEqual(partsSemaine('2026-09-28', 'jour'), [{ periode: '2026-09', jours: [0, 1, 2] }, { periode: '2026-10', jours: [3, 4] }]);
-  // Le 31 octobre 2026 est un samedi : la semaine du 26 va en novembre (dimanche 1er), en octobre avec le vendredi.
+  assert.deepEqual(partsSemaine('2026-09-28', 'jour'), [{ periode: '2026-09', jours: [0, 1, 2] }, { periode: '2026-10', jours: [3, 4, 5, 6] }]);
+  // Le 31 octobre 2026 est un samedi : la semaine du 26 va en novembre (dimanche 1er), en octobre avec le vendredi ;
+  // jour par jour, le dimanche 1er novembre part seul en novembre.
   assert.deepEqual(partsSemaine('2026-10-26'), [{ periode: '2026-11', jours: tout }]);
   assert.deepEqual(partsSemaine('2026-10-26', 'vendredi'), [{ periode: '2026-10', jours: tout }]);
-  assert.deepEqual(partsSemaine('2026-10-26', 'jour'), [{ periode: '2026-10', jours: tout }]);
+  assert.deepEqual(partsSemaine('2026-10-26', 'jour'), [{ periode: '2026-10', jours: [0, 1, 2, 3, 4, 5] }, { periode: '2026-11', jours: [6] }]);
   // À cheval sur deux années.
   assert.deepEqual(partsSemaine('2026-12-28'), [{ periode: '2027-01', jours: tout }]);
   assert.deepEqual(partsSemaine('2026-12-28', 'vendredi'), [{ periode: '2027-01', jours: tout }]);
-  assert.deepEqual(partsSemaine('2026-12-28', 'jour'), [{ periode: '2026-12', jours: [0, 1, 2, 3] }, { periode: '2027-01', jours: [4] }]);
-  assert.deepEqual(partsSemaine('2025-12-29', 'jour'), [{ periode: '2025-12', jours: [0, 1, 2] }, { periode: '2026-01', jours: [3, 4] }]);
+  assert.deepEqual(partsSemaine('2026-12-28', 'jour'), [{ periode: '2026-12', jours: [0, 1, 2, 3] }, { periode: '2027-01', jours: [4, 5, 6] }]);
+  assert.deepEqual(partsSemaine('2025-12-29', 'jour'), [{ periode: '2025-12', jours: [0, 1, 2] }, { periode: '2026-01', jours: [3, 4, 5, 6] }]);
 });
 
 test('t025 clôture et rappel : une semaine d’une période close part sur la période ouverte', () => {
@@ -327,9 +328,9 @@ test('t025 clôture et rappel : une semaine d’une période close part sur la p
   assert.equal(periodeOuverte('2026-12-28', 20), '2027-01');
   const s = { periodeRattachement: 'dimanche' as const, clotureJour: 0 };
   // Semaine du 21 septembre transmise le 10 octobre : septembre est clos, rappel sur octobre.
-  assert.deepEqual(periodesSemaine('2026-09-21', s, '2026-10-10'), [{ periode: '2026-10', origine: '2026-09', jours: [0, 1, 2, 3, 4] }]);
-  assert.deepEqual(periodesSemaine('2026-09-28', s, '2026-10-10'), [{ periode: '2026-10', origine: null, jours: [0, 1, 2, 3, 4] }]);
-  assert.deepEqual(periodesSemaine('2026-10-26', s, '2026-10-30'), [{ periode: '2026-11', origine: null, jours: [0, 1, 2, 3, 4] }], 'période à venir : ouverte');
+  assert.deepEqual(periodesSemaine('2026-09-21', s, '2026-10-10'), [{ periode: '2026-10', origine: '2026-09', jours: [0, 1, 2, 3, 4, 5, 6] }]);
+  assert.deepEqual(periodesSemaine('2026-09-28', s, '2026-10-10'), [{ periode: '2026-10', origine: null, jours: [0, 1, 2, 3, 4, 5, 6] }]);
+  assert.deepEqual(periodesSemaine('2026-10-26', s, '2026-10-30'), [{ periode: '2026-11', origine: null, jours: [0, 1, 2, 3, 4, 5, 6] }], 'période à venir : ouverte');
   assert.deepEqual(periodesSemaine('2026-09-28', { ...s, periodeRattachement: 'jour' }, '2026-10-10').map(p => [p.periode, p.origine]), [['2026-10', '2026-09'], ['2026-10', null]]);
   assert.deepEqual(feuillesParPeriode([{ empId: 1, week: '2026-09-21' }, { empId: 2, week: '2026-09-21' }, { empId: 1, week: '2026-09-28' }], s, '2026-10-10'), [
     { periode: '2026-10', origine: null, feuilles: 1, salaries: 1, semaines: ['1|2026-09-28'] },
@@ -358,7 +359,7 @@ test('t025 transmission : une ligne par période, ventilation jour par jour exac
   assert.match(c.question, /Marquer transmises à Sage Paie 2 feuilles validées \(1 salarié\)/);
   assert.ok(c.suites!.some(x => x === 'Rappel : 1 feuille de septembre 2026, période close, part sur octobre 2026.'), c.suites!.join(' | '));
   assert.ok(c.suites!.some(x => /^Simulation : rien n’est envoyé à Sage Paie/.test(x)));
-  assert.ok(c.suites!.some(x => /lundi au vendredi seulement/.test(x)));
+  assert.ok(c.suites!.some(x => /samedi et dimanche compris/.test(x)));
   assert.match(String(run(PAIE, 'temps.pushSage', {})), /· période octobre 2026 · rappel de septembre 2026$/);
   const push = dernierLot(db).contenu!;
   // Camille (1) : matricule de paie 004101.

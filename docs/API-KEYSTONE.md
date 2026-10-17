@@ -130,7 +130,9 @@ transmettez aussi son projet (souvent de même code).
 Les activités internes (codes `INT-…`, par exemple `INT-PROD`) et les cours en CFA (`ECOLE`) sont
 aussi imputables : elles se créent et se modifient par cette même route, mais ne sont pas des projets
 Keystone. Leurs heures ne sont jamais renvoyées à Keystone (`heures.validees`), et un instantané qui
-les omet ne les archive pas : pour en clore une, `PUT` avec `"statut": "archive"`.
+les omet ne les archive pas : pour en clore une, `PUT` avec `"statut": "archive"`. Depuis le lot 5, elles sont
+tenues par le service RH dans Cursus (écran Référentiels, onglet Activités internes ; codes de base dont `INT-DELEG`,
+heures de délégation du CSE, amorcés à l'installation) : Keystone n'a plus besoin de les pousser.
 
 ## Chantiers
 
@@ -202,8 +204,8 @@ attente pour cette affectation ne pourra plus être acceptée par le service RH.
 
 `PUT /taches/{id}` — tâche d'un projet planifiée pour un salarié, avec les heures prévues jour par jour.
 Dans la feuille de temps, « Proposer depuis Keystone » reprend les heures de la semaine affichée, du
-lundi au vendredi ; les jours fériés, d'absence validée ou non travaillés (temps partiel) restent à
-zéro. Une semaine sans heure planifiée ne propose rien.
+lundi au dimanche (semaine à 7 jours) ; les jours fériés, d'absence validée ou non travaillés (temps
+partiel) restent à zéro. Une semaine sans heure planifiée ne propose rien.
 
 | Champ | Type | Obligatoire | Contenu |
 | --- | --- | --- | --- |
@@ -225,9 +227,11 @@ curl -s -X PUT -H "X-Api-Key: $CLE" -H 'Content-Type: application/json' -d '{
 { "resultat": "cree", "tache": { "id": "KT-8812-18", "projet": "K-2614", "tache": "Rétrofit — circuit hydraulique", "matricule": "EMP-0018", "debut": "2026-10-27", "fin": "2026-10-30", "heures": { "2026-10-27": 8, "2026-10-28": 8, "2026-10-29": 8, "2026-10-30": 7 } } }
 ```
 
-Les heures du samedi et du dimanche sont acceptées et conservées, mais pas proposées : la feuille
-de temps couvre le lundi au vendredi. `DELETE /taches/{id}` retire la tâche ; les feuilles déjà
+Les heures du samedi et du dimanche sont proposées comme les autres jours (chantier ou arrêt technique
+du week-end) : la feuille de temps couvre la semaine du lundi au dimanche, et `heures.validees` les
+compte dans le total de chaque projet. `DELETE /taches/{id}` retire la tâche ; les feuilles déjà
 saisies ne changent pas.
+
 
 ## Synchronisation complète
 

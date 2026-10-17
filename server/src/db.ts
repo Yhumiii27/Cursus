@@ -79,11 +79,20 @@ export const TABLES = {
   taches: { pk: 'id', auto: true, cols: { id: 'int', ref: 'text', empId: 'int', projet: 'text', tache: 'text', debut: 'text', fin: 'text', heures: 'json' } },
   // `motifDepassement` : motif d'un dépassement des durées maximales de travail (server/src/actions/temps.ts).
   // `heuresSup` : mode des heures supplémentaires figé à la validation (payées, en repos ; historique : migrations/paie.ts).
+  // `lignes` : heures du lundi au dimanche, 7 valeurs par ligne (5 avant la semaine à 7 jours : migrations/temps.ts) ;
+  // `majDimanche` : majoration des heures du dimanche (%) figée à la validation.
   feuilles: {
     pk: 'id', auto: true,
-    cols: { id: 'int', empId: 'int', week: 'text', statut: 'text', comment: 'text', sage: 'bool', keystone: 'bool', lignes: 'json', contrat: 'json', motifDepassement: 'text', heuresSup: 'text', lotId: 'int' },
+    cols: {
+      id: 'int', empId: 'int', week: 'text', statut: 'text', comment: 'text', sage: 'bool', keystone: 'bool', lignes: 'json', contrat: 'json', motifDepassement: 'text', heuresSup: 'text', lotId: 'int',
+      majDimanche: 'int',
+    },
     unique: [['empId', 'week']],
   },
+  // Mandats des élus au CSE (server/src/actions/delegation.ts, shared/rules/delegation.ts) : titulaire ou suppléant, dates,
+  // crédit d'heures de délégation par mois ; saisis par le service RH.
+  mandats: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', role: 'text', du: 'text', au: 'text', credit: 'real' } },
+
   // Lots de paie (server/src/actions/paie.ts, shared/rules/lots-paie.ts) : contenu figé à la génération (`contenu`, lignes
   // de SagePush), feuilles du lot, téléchargements du fichier d'import, confirmation de l'import (accusé) ou annulation.
   lotsPaie: {

@@ -80,7 +80,7 @@ test('chaque nature : saisie par le RH, jours bloqués, soldes CP et RTT intacts
     assert.match(m, /^Absence de Mehdi Benali enregistrée du .* — indisponibilité transmise à Keystone/);
     const a = abs(2, du);
     assert.deepEqual([a.type, a.statut, a.justificatif, a.justificatifLe, a.keystone], [nature, 'validee', true, '2026-10-09', true]);
-    assert.deepEqual(joursAbsence(domain(), 2, du).map(x => x?.type ?? null), [nature, nature, null, null, null], `${nature} : jours bloqués`);
+    assert.deepEqual(joursAbsence(domain(), 2, du).map(x => x?.type ?? null), [nature, nature, null, null, null, null, null], `${nature} : jours bloqués`);
     assert.deepEqual(keystone().at(-1), { type: 'absence.validee', absence: a.id, matricule: 'EMP-0002', du, au });
   });
   const apres = domain(), e1 = apres.emp(2)!;
@@ -307,7 +307,7 @@ test('bornes du contrat : absences et feuilles de temps', () => {
   db.insert('taches', { ref: null, empId: 24, projet: 'INT-MAINT', tache: 'Apprentissage — maintenance', debut: '2027-08-30', fin: '2027-09-03',
     heures: { '2027-08-30': 7, '2027-08-31': 7, '2027-09-01': 7, '2027-09-02': 7, '2027-09-03': 7 } });
   run(RH, 'temps.suggest', { empId: 24, week: '2027-08-30' });
-  assert.deepEqual(sheet(24, '2027-08-30')!.lignes.map(l => l.h), [[7, 7, 0, 0, 0]]);
+  assert.deepEqual(sheet(24, '2027-08-30')!.lignes.map(l => l.h), [[7, 7, 0, 0, 0, 0, 0]]);
   assert.throws(() => run(RH, 'temps.setCell', { empId: 24, week: '2027-08-30', li: 0, di: 2, value: '7' }), /Hors contrat ce jour-là \(fin de contrat le 31 août 2027\) : aucune heure ne peut être saisie/);
   run(RH, 'temps.setCell', { empId: 24, week: '2027-08-30', li: 0, di: 1, value: '6' });
   assert.throws(() => run(RH, 'temps.addLine', { empId: 24, week: '2027-09-06', projet: 'ECOLE' }), /Semaine hors contrat : fin de contrat le 31 août 2027/);

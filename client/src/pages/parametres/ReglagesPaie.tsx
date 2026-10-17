@@ -1,7 +1,8 @@
 // Paramètres → Paie : heures supplémentaires payées avec majoration ou remplacées par un repos (seulement avec la
 // référence de l'accord collectif qui le prévoit, art. L3121-33, ou, sans délégué syndical,
 // de la décision de l'employeur non contestée par le CSE, art. L3121-37), rattachement d'une semaine à cheval sur deux mois et
-// jour de clôture des variables (shared/rules/paie.ts). Réglages de l'administrateur RH ; les autres profils consultent.
+// jour de clôture des variables (shared/rules/paie.ts), majoration des heures du dimanche. Réglages de l’administrateur RH ;
+// les autres profils consultent.
 // Le mode des heures supplémentaires est figé sur chaque feuille à sa validation : le changer ne recalcule rien.
 import { useEffect, useState } from 'react';
 import { MODES_HEURES_SUP, RATTACHEMENTS } from '../../../../shared/rules/paie.ts';
@@ -13,6 +14,8 @@ import { type SectionProps, useEnregistrerReglages } from './commun.ts';
 
 const MODES: [ModeHeuresSup, string][] = [['paiement', 'Payées avec majoration'], ['repos', 'Remplacées par un repos']];
 const RATTACHEMENT_OPTIONS = Object.entries(RATTACHEMENTS).map(([v, r]) => [v, r.label]) as [RattachementPeriode, string][];
+/** Majoration des heures du dimanche (%) : de 0 à 100 par pas de 5 (contrôle entier(0, 100, 5) de shared/reglages.ts). */
+const MAJORATIONS_DIMANCHE = Array.from({ length: 21 }, (_, i) => i * 5);
 const CLOTURES: [number, string][] = [[0, 'Dernier jour du mois'], ...Array.from({ length: 28 }, (_, i): [number, string] => [i + 1, `Le ${i === 0 ? '1er' : i + 1} du mois`])];
 
 export function ReglagesPaie({ s }: SectionProps) {
@@ -71,6 +74,12 @@ export function ReglagesPaie({ s }: SectionProps) {
         </select>
       </Field>
       <Fine>Une fois la clôture passée, la période est close : une semaine qui lui revient part en rappel sur la période suivante, signalé à la transmission.</Fine>
+      <Field label="Majoration des heures du dimanche" htmlFor="paie-dimanche">
+        <select className="input" id="paie-dimanche" value={s.majorationDimanche} disabled={!admin} onChange={e => save({ majorationDimanche: Number(e.target.value) })} style={{ maxWidth: 240 }}>
+          {MAJORATIONS_DIMANCHE.map(v => <option key={v} value={v}>{v ? `${v} %` : 'Aucune (0 %)'}</option>)}
+        </select>
+      </Field>
+      <Fine>Aucune majoration légale du dimanche hors accord ou dérogation qui la prévoit. Les heures du dimanche partent toujours en quantité (HDIM) ; une majoration ajoute la rubrique MAJ_DIM, figée sur chaque feuille à sa validation.</Fine>
     </Panel>
   );
 }

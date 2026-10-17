@@ -349,8 +349,32 @@ html.tiroir-ouvert { overflow: hidden; }
 .a-completer { color: var(--color-accent-300); }
 
 /* — Impression (passeport formation, comptes rendus) — */
+/* Cadre caché où s'écrivent les documents imprimés (client/src/print.ts) : sans taille ni bordure, hors de la page. */
+.cadre-impression { position: fixed; right: 0; bottom: 0; width: 0; height: 0; border: 0; }
 @media print {
-  .sidebar, .topbar, .no-print, .toasts, .lien-evitement, .tiroir-fond { display: none !important; }
-  .app, html, body { background: #fff; color: #111; }
+  /* Ctrl+P sur un écran de Cursus : jetons du thème redéfinis en clair (texte sombre sur fond blanc), les rampes neutre
+     et accent inversées, pour que tout ce qui lit var(--color-*) reste lisible ; nocturne.css n'est pas modifié. */
+  :root {
+    --color-bg: #fff; --color-surface: #fff; --color-text: #1d1f2b;
+    --color-accent: #5d5294; --color-accent-2: #5c5783;
+    --color-divider: color-mix(in srgb, #1d1f2b 18%, transparent);
+    --color-neutral-100: #292b31; --color-neutral-200: #3f424d; --color-neutral-300: #595d6c; --color-neutral-400: #75798c;
+    --color-neutral-500: #75798c; --color-neutral-600: #9397ab; --color-neutral-700: #cfd3e5; --color-neutral-800: #e4e7f5;
+    --color-neutral-900: #f3f5fe;
+    --color-accent-100: #2b2741; --color-accent-200: #423a6a; --color-accent-300: #5d5294; --color-accent-400: #5d5294;
+    --color-accent-500: #796cbf; --color-accent-600: #968ae0; --color-accent-700: #d2cefd; --color-accent-800: #e7e5fe;
+    --color-accent-900: #f5f4ff;
+    --color-accent-2-100: #2b293a; --color-accent-2-200: #423e5d; --color-accent-2-300: #5c5783; --color-accent-2-400: #5c5783;
+    --color-accent-2-500: #7972a9; --color-accent-2-600: #9690c9; --color-accent-2-700: #d2cefd; --color-accent-2-800: #e7e5fe;
+    --color-accent-2-900: #f5f4ff;
+    --shadow-sm: 0 0 0 1px #cfd3e5; --shadow-md: 0 0 0 1px #cfd3e5; --shadow-lg: 0 0 0 1px #cfd3e5;
+    color-scheme: light;
+  }
+  @page { size: A4; margin: 15mm; }
+  /* Menus, notifications et éléments interactifs (boutons, filtres, liens « Tous → ») : non imprimés. */
+  .sidebar, .topbar, .no-print, .toasts, .lien-evitement, .tiroir-fond, .btn, .seg, .link-more { display: none !important; }
+  .app, html, body { background: #fff; color: var(--color-text); }
   .content { padding: 0; max-width: none; }
+  h1, h2, h3 { break-after: avoid; page-break-after: avoid; }
+  tr, .list-row, .kpi { break-inside: avoid; page-break-inside: avoid; }
 }

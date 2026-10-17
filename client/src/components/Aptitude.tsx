@@ -7,7 +7,7 @@ import { equipeLabel, fmtIso } from '../../../shared/format.ts';
 import { matriculeAffiche } from '../../../shared/rules/matricules.ts';
 import { restrictionEnVigueur, restrictionTexte } from '../../../shared/rules/sante.ts';
 import type { DemandeVisite } from '../../../shared/types.ts';
-import { printDocument } from '../print.ts';
+import { matriculesImprimes, printDocument } from '../print.ts';
 import { Tag } from './ui.tsx';
 
 /**
@@ -30,7 +30,7 @@ export function imprimerDemandeVisite(d: Domain, e: EmpX, x: DemandeVisite): boo
     },
     ...(habs.length ? [{ title: 'Habilitations du poste qui exigent l’aptitude médicale', table: { head: ['Habilitation', 'Détail'], rows: habs.map(h => [h.hm.nom, h.hm.detail]) } }] : []),
     { title: 'Suite donnée', text: 'Merci de convoquer le salarié et d’adresser l’avis d’aptitude au service RH, qui l’enregistre dans Cursus. Cette demande ne contient aucune information médicale.' },
-  ]);
+  ], e.id, `${e.nom} · ${matriculesImprimes(e)}`);
 }
 
 /**

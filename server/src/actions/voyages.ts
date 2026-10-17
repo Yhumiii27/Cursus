@@ -5,7 +5,7 @@ import { fmt, plural } from '../../../shared/format.ts';
 import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
 import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
 import { declarationLabel, estAuDossier, formaliteCle, lignesAuDossier, lireFormalite } from '../../../shared/rules/formalites.ts';
-import { parseTrips } from '../../../shared/rules/imports.ts';
+import { parseTrips, referenceDeplacement } from '../../../shared/rules/imports.ts';
 import { refusArchive } from '../../../shared/rules/referentiels.ts';
 import type { Declaration, DemandeCollab, DemandeKeystone, Employe, Vaccination, Visa, Voyage } from '../../../shared/types.ts';
 import { sendToKeystone } from '../integrations/keystone.ts';
@@ -107,9 +107,19 @@ const importer: ActionHandler = (ctx, p) => {
   requireRh(ctx);
   const rows = parseTrips(ctx.d, str(p.texte)).filter(r => r.ok);
   if (!rows.length) throw new ActionError('Aucune demande valide à importer');
-  rows.forEach(r => ctx.db.insert<Voyage>('voyages', {
-    empId: r.emp!.id, dest: r.dest!.code, depart: r.depart!, retour: r.retour!, motif: r.motif, origine: 'formulaire', ref: r.ref || null, chantier: null,
-  }));
+  // Sans référence dans le fichier : `DD-<identifiant>` (comme le prototype), jamais une référence déjà prise, ni en base
+  // ni par une autre ligne du même fichier (une ligne plus bas peut porter « DD-<prochain identifiant> »).
+  const prises = new Set(ctx.ds.voyages.map(v => v.ref).filter((x): x is string => !!x));
+  rows.forEach(r => { if (r.ref) prises.add(r.ref); });
+  rows.forEach(r => {
+    const t = ctx.db.insert<Voyage>('voyages', {
+      empId: r.emp!.id, dest: r.dest!.code, depart: r.depart!, retour: r.retour!, motif: r.motif, origine: 'formulaire', ref: r.ref || null, chantier: null,
+      demandeur: r.demandeur,
+    });
+    const ref = r.ref || referenceDeplacement(t.id, prises);
+    if (!r.ref) ctx.db.update<Voyage>('voyages', t.id, { ref });
+    prises.add(ref);
+  });
   return `${plural(rows.length, 'demande importée', 'demandes importées')} depuis le formulaire de déplacement`;
 };
 

@@ -172,8 +172,9 @@ export const REGLES: Record<string, Regle> = {
     bilan: (_p, x) => ({ posteId: x.db.get<{ posteId: number | null }>('employes', Number((x.result as { id?: number } | null)?.id))?.posteId ?? null }),
   },
   // Les champs modifiés sont nommés ; seules les colonnes de FICHE ont leurs valeurs (ni visite médicale, ni reprise, ni naissance).
+  // Les valeurs d'origine envoyées pour le contrôle des modifications concurrentes (`avant`) ne sont jamais recopiées.
   'employe.modifier': {
-    champs: ['id', 'reutiliserMatricule'], extra: p => ({ champsModifies: Object.keys(p).filter(k => k !== 'id' && k !== 'confirmerRtt' && k !== 'reutiliserMatricule' && /^[A-Za-z]{1,40}$/.test(k)).slice(0, 30) }),
+    champs: ['id', 'reutiliserMatricule'], extra: p => ({ champsModifies: Object.keys(p).filter(k => k !== 'id' && k !== 'confirmerRtt' && k !== 'reutiliserMatricule' && k !== 'avant' && /^[A-Za-z]{1,40}$/.test(k)).slice(0, 30) }),
     cible: parId('employes', FICHE), salaries: p => [p.id],
     code: (_p, x) => (soldeRttGarde(x) ? 'employe.rtt' : ''),
     bilan: (_p, x) => { const s = soldeRttGarde(x); return s ? { soldeRtt: { annee: s.annee, droit: s.droit, pris: s.pris, poses: s.poses, solde: s.solde } } : {}; },
@@ -200,6 +201,21 @@ export const REGLES: Record<string, Regle> = {
   'equipe.creer': { champs: ['nom', 'managerId'], salaries: p => [p.managerId] },
   'equipe.renommer': { champs: ['nom', 'nouveau'] },
   'equipe.supprimer': { champs: ['nom'] },
+  // Renommage et manager en une action : nom et manager avant et après (l'équipe est relue sous son nouveau nom).
+  'equipe.modifier': {
+    champs: ['nom', 'nouveau', 'managerId'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['nom', 'managerId'] },
+    changements: (p, x) => {
+      const apres = x.db.get<Ligne>('equipes', String(p.nouveau || p.nom || '')) ?? null;
+      const avant: Ligne = {}, nouv: Ligne = {};
+      for (const c of ['nom', 'managerId']) {
+        if (JSON.stringify(x.avant?.[c] ?? null) === JSON.stringify(apres?.[c] ?? null)) continue;
+        avant[c] = x.avant?.[c] ?? null;
+        nouv[c] = apres?.[c] ?? null;
+      }
+      return Object.keys(avant).length ? { avant, apres: nouv } : null;
+    },
+    salaries: (p, x) => [p.managerId, x.avant?.managerId],
+  },
   'equipe.manager': { champs: ['nom', 'managerId'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['managerId'] }, salaries: (p, x) => [p.managerId, x.avant?.managerId] },
   'equipe.affecter': { champs: ['empId', 'equipe'], cible: { table: 'employes', cle: p => Number(p.empId) || null, colonnes: ['equipe'] } },
   // Formations

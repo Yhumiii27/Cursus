@@ -8,9 +8,9 @@ import { managerCandidates } from '../pages/Equipes.tsx';
 
 export function EquipeDialog({ nom: nom0 }: { nom?: string | null }) {
   const d = useDomain();
-  const { run, closeDialog, notify } = useStore();
-  // Équipe figée à l'ouverture : pendant l'enregistrement (renommage puis changement de manager),
-  // elle ne se retrouve plus sous son nom initial, sans pour autant avoir disparu.
+  const { run, closeDialog } = useStore();
+  // Équipe figée à l'ouverture : pendant l'enregistrement d'un renommage, elle ne se retrouve plus sous son nom
+  // initial, sans pour autant avoir disparu.
   const [equipe] = useState(() => nom0 ? d.ds.referentiels.equipes.find(q => q.nom === nom0) ?? null : null);
   const edit = !!nom0;
   const [nom, setNom] = useState(equipe?.nom ?? '');
@@ -56,20 +56,10 @@ export function EquipeDialog({ nom: nom0 }: { nom?: string | null }) {
         if (r.ok) closeDialog();
         return;
       }
-      // Renommage puis changement de manager : un seul message récapitulatif quand les deux changent.
-      let cible = equipe!.nom, renameMsg = '';
-      if (renamed) {
-        const r = await run('equipe.renommer', { nom: equipe!.nom, nouveau }, { silent: mgrChanged });
-        if (!r.ok) return;
-        renameMsg = r.message ?? '';
-        cible = nouveau;
-      }
-      if (mgrChanged) {
-        const r = await run('equipe.manager', { nom: cible, managerId: mgr }, { silent: renamed });
-        if (!r.ok && !renamed) return;
-        if (renamed) notify([renameMsg, r.ok ? r.message : r.error].filter(Boolean).join(' — '), !r.ok);
-      }
-      closeDialog();
+      // Renommage et changement de manager en une seule action, dans une seule transaction : un refus n'enregistre
+      // rien, le dialogue reste ouvert avec la saisie (le message d'erreur s'affiche).
+      const r = await run('equipe.modifier', { nom: equipe!.nom, ...(renamed ? { nouveau } : {}), ...(mgrChanged ? { managerId: mgr } : {}) });
+      if (r.ok) closeDialog();
     } finally {
       setBusy(false);
     }

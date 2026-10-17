@@ -7,7 +7,7 @@ import { equipeLabel, fmtIso } from '../../../shared/format.ts';
 import { needsFinCarriere, obligations } from '../../../shared/rules/entretiens.ts';
 import { texteRemise } from '../../../shared/rules/remise.ts';
 import type { Entretien } from '../../../shared/types.ts';
-import { printDocument, type PrintSection } from '../print.ts';
+import { matriculesImprimes, printDocument, type PrintSection } from '../print.ts';
 
 export const FIN_CARRIERE: EntSection = ['fincarriere', 'Fin de carrière : maintien dans l’emploi, aménagements souhaités', 'sal'];
 export const INFO_LABEL = 'Information remise : CPF, VAE, conseil en évolution professionnelle (CEP), abondement employeur';
@@ -44,5 +44,5 @@ export function imprimerCompteRendu(d: Domain, x: Entretien): boolean {
       ...(remise ? [['Remise de la copie', remise] as [string, string]] : []),
     ] },
   ];
-  return printDocument(`${T0.nom} — compte rendu`, `${e.nom} · ${e.poste} · ${fmtIso(x.date)}${x.signSal ? '' : ' · non signé par le salarié'}`, doc, e.id);
+  return printDocument(`${T0.nom} — compte rendu`, `${e.nom} · ${e.poste} · ${fmtIso(x.date)}${x.signSal ? '' : ' · non signé par le salarié'}`, doc, e.id, matriculesImprimes(e));
 }

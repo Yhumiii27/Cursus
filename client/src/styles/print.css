@@ -1,11 +1,17 @@
 /* Documents imprimables (client/src/print.ts) : page A4 claire, indépendante du thème Nocturne.
    Feuille servie comme fichier : la politique de sécurité (CSP) interdit les styles en ligne. */
-body { font: 13px/1.5 Inter, system-ui, sans-serif; color: #1d1f2b; background: #fff; margin: 32px 40px; }
+@page { size: A4; margin: 15mm; }
+body { font: 13px/1.5 Inter, system-ui, sans-serif; color: #1d1f2b; background: #fff; margin: 0; }
+/* Ouvert dans un onglet (secours sans cadre d'impression) : marges d'écran. */
+@media screen { body { margin: 32px 40px; } }
 header { border-bottom: 2px solid #5d5294; padding-bottom: 12px; margin-bottom: 20px; }
 .brand { color: #5d5294; font-size: 11px; letter-spacing: .1em; text-transform: uppercase; }
+/* En-tête de l'employeur : raison sociale et adresse du responsable du traitement, sur plusieurs lignes. */
+.employeur { color: #5d5294; font-size: 12px; white-space: pre-line; }
 h1 { font-size: 22px; font-weight: 500; margin: 4px 0 2px; } .sub { color: #595d6c; }
-h2 { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: #5d5294; margin: 22px 0 8px; }
+h2 { font-size: 13px; letter-spacing: .08em; text-transform: uppercase; color: #5d5294; margin: 22px 0 8px; break-after: avoid; page-break-after: avoid; }
 table { width: 100%; border-collapse: collapse; } th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #e4e7f5; vertical-align: top; }
 th { font-size: 11px; text-transform: uppercase; letter-spacing: .06em; color: #595d6c; }
+thead { display: table-header-group; } tr, dt, dd { break-inside: avoid; page-break-inside: avoid; }
 dl { display: grid; grid-template-columns: 220px 1fr; gap: 4px 12px; margin: 0; } dt { color: #595d6c; } dd { margin: 0; }
 .text { white-space: pre-wrap; margin: 0; } footer { margin-top: 32px; color: #75798c; font-size: 11px; }

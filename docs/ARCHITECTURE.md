@@ -28,7 +28,8 @@ shared/            Domaine partagé (aucune dépendance)
                    lots-paie.ts : lots de paie et fichier d'import Sage ; suivi-feuilles.ts : suivi des feuilles de temps ;
                    campagne.ts (campagne d'entretiens annuels réglable), remise.ts (remise du compte rendu d'entretien),
                    exercices.ts (exercices du plan, clôture, coût réel) ; a-faire.ts : ce qui attend le collaborateur ;
-                   reprise.ts : reprise depuis Lucca (imports de mise en service, colonnes reconnues, analyse ligne par ligne)
+                   reprise.ts : reprise depuis Lucca (imports de mise en service, colonnes reconnues, analyse ligne par ligne) ;
+                   fiche-concurrente.ts : champs envoyés et modifications concurrentes d'une fiche (refus 412)
                    deplacements.ts (déplacement modifié ou annulé), relances.ts (récapitulatif des échéances par paliers)
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
@@ -36,7 +37,8 @@ server/src/
   migrations/      Migrations nommées, exécutées une seule fois par base : cadre.ts (contrôle et exécution), liste.ts (ordre),
                    outils.ts (reconstruction d'une table, index), un fichier par chantier (voir « Cadre commun du lot 4 ») :
                    exploitation.ts (index), entretiens.ts (coût réel des actions déjà réalisées), referentiels.ts (postes
-                   créés depuis les intitulés des fiches), paie.ts (mode des heures supplémentaires, lot de paie historique)
+                   créés depuis les intitulés des fiches), paie.ts (mode des heures supplémentaires, lot de paie historique),
+                   voyages.ts (référence DD-<n°> des déplacements importés sans référence, lot 5)
   seed.ts          Données de démonstration
   sauvegarde.ts    Copie à chaud (VACUUM INTO), rotation, restauration, verrou du serveur ;
                    scripts backup.ts et restore.ts (npm run backup / restore, voir docs/SAUVEGARDE.md)
@@ -72,6 +74,7 @@ client/src/
   state/store.tsx  Session, données, navigation, filtres d'écran (ui), dialogue ouvert, notifications, reconnexion
   state/brouillon.ts Brouillon gardé dans l'onglet pendant une reconnexion Microsoft (page, filtres, dialogue, champs)
   state/actions.ts Actions identiques jamais envoyées deux fois à la fois, garde des boutons (useAgir : double clic)
+  state/revision.ts Instantané plus ancien que celui affiché ignoré (révision de la base : réponses dans le désordre)
   state/enregistrement.ts Enregistrement au fil de la saisie (sections du compte rendu d'entretien), arrêté par l'abandon
   state/confirmations.ts Confirmations des refus (motif) et des actions irréversibles, affichées par dialogs/ConfirmerDialog.tsx
   state/derived.ts Hooks mémorisés : useDomain, useEnriched, useTrips, useRole
@@ -113,7 +116,12 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
 3. Toute modification passe par `run('nom.action', payload)` → `POST /api/actions/:nom`.
    Le serveur vérifie les droits, valide, écrit dans une transaction, trace l'action
    dans le journal et renvoie `{ message, data }` : le client remplace son instantané
-   et affiche le message. L'instantané renvoyé est celui de la session relue après l'action (un compte
+   et affiche le message. Chaque instantané porte la **révision** de la base (`Dataset.revision`, `Db.revision` de
+   `server/src/db.ts`, augmentée à chaque transaction d'écriture validée, partie de l'heure à l'ouverture : elle croît
+   aussi d'un démarrage à l'autre, restauration comprise). Le client ignore un instantané de révision inférieure à celle
+   qu'il affiche (`state/revision.ts`) : deux saisies d'heures parties ensemble peuvent être traitées dans un ordre et
+   revenir dans l'autre, la réponse la plus ancienne ne vide plus la cellule enregistrée par la seconde. Une révision
+   égale (même état de la base) est appliquée. L'instantané renvoyé est celui de la session relue après l'action (un compte
    qui perd l'espace actif reçoit celui de son nouvel espace).
 4. La session et l'instantané de son espace changent ensemble (`store.tsx`) : un changement d'espace
    n'affiche le nouvel espace qu'avec ses données ; en cas d'échec (réseau), l'espace, la page, les
@@ -156,6 +164,27 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
      confirmation, ni au démontage : `abandonner`) ;
      celui qui montre une information une seule fois (`fermerParBouton`, mot de passe provisoire) ne se ferme que
      par son bouton.
+   - *Modifications concurrentes d'une fiche* (`shared/rules/fiche-concurrente.ts`) : la fiche collaborateur n'envoie que
+     les champs modifiés (avec ceux qui leur sont liés : poste et poste du référentiel ; organisation du temps et ses
+     paramètres ; nature du contrat, fin et agence ; période d'essai ; visite et reprise) et leur valeur à l'ouverture
+     (`avant`). Un champ changé entre-temps par quelqu'un d'autre fait tout refuser (412, distinct du 409 du changement
+     d'espace), avec les champs et, pour le service RH seulement, l'auteur : la dernière action du journal qui a pu écrire
+     l'un de ces champs sur cette fiche (`server/src/actions/fiche-auteur.ts`) ; personne n'est nommé si c'est une action
+     qui touche des fiches sans les nommer (renommage d'un poste ou d'une équipe) ou si le journal ne dit rien. Seuls les
+     champs envoyés, donc permis au rôle, sont comparés : une valeur d'origine pour un champ non envoyé est refusée (400),
+     sans quoi un manager vérifierait une donnée qui lui est masquée. Le dialogue reste ouvert, le
+     bloc du conflit en tête et ciblé, et « Reprendre la fiche à jour » reprend les valeurs enregistrées de ces champs en
+     gardant les autres saisies. Sans `avant` (import, appel ancien), aucun contrôle.
+   - *Impression* (`client/src/print.ts`) : les documents (passeport formation, compte rendu d'entretien, demande de
+     visite) s'écrivent dans un cadre caché de la page (`iframe` sans fenêtre surgissante), le nouvel onglet restant le
+     secours d'un navigateur sans cadre ; page A4, marges de 15 mm, titres jamais seuls en bas de page (`print.css`).
+     En-tête : la coordonnée « responsable du traitement » (Paramètres → Confidentialité, lue par
+     `GET /api/confidentialite`), sinon « Cursus » ; matricule de paie et matricule Cursus sous le titre des documents
+     individuels (`matriculesImprimes`). Ctrl+P sur un écran : `@media print` de `app.css` redéfinit les jetons du thème
+     en clair (texte sombre sur blanc, rampes inversées) et masque menus, boutons et filtres.
+   - *Listes vides* : un panneau sans ligne affiche un message (`Empty`) plutôt qu'un cadre vide (tableau de bord :
+     échéances prioritaires, conformité par équipe, prochaines sessions, déplacements à préparer ; missions : planning
+     et missions en cours).
    - *Erreurs de rendu* (`components/ErreurRendu.tsx`) : limites autour de la page (remise à zéro au
      changement de page), du dialogue ouvert et de l'application ; message, détail technique replié, « Réessayer ».
    - *Focus des dialogues* (`components/focus.ts`, `useModale`) : à l'ouverture, le focus va au champ marqué
@@ -583,13 +612,14 @@ aucun champ du paramètre n'est recopié.
 | Action | Paramètres | Droits |
 | --- | --- | --- |
 | `employe.creer` | fiche complète (`ProfilInput` de `shared/rules/profil.ts`, matricule de paie compris : unique), reutiliserMatricule? (réembauche : matricule d'un salarié sorti) | RH ; réutiliser un matricule : administrateur RH |
-| `employe.modifier` | id + champs de la fiche, reutiliserMatricule?, `confirmerRtt` (changement de régime qui ferme le compteur de RTT de l'année) ; ni le motif ni la date d'une sortie enregistrée | RH : tous ; manager : `poste` (intitulé précisé ; le poste du référentiel, `posteId`, reste au RH), `jourOff` (temps partiel) des membres de son équipe ; changer ou retirer un matricule de paie déjà enregistré, réutiliser celui d'un salarié sorti : administrateur RH |
+| `employe.modifier` | id + champs de la fiche (l'écran n'envoie que ceux modifiés), avant? (valeur à l'ouverture de chaque champ envoyé, et d'eux seuls, sinon 400 : un champ changé entre-temps fait tout refuser, 412, rien n'est enregistré ; auteur nommé au service RH seul ; jamais recopié au journal), reutiliserMatricule?, `confirmerRtt` (changement de régime qui ferme le compteur de RTT de l'année) ; ni le motif ni la date d'une sortie enregistrée | RH : tous ; manager : `poste` (intitulé précisé ; le poste du référentiel, `posteId`, reste au RH), `jourOff` (temps partiel) des membres de son équipe ; changer ou retirer un matricule de paie déjà enregistré, réutiliser celui d'un salarié sorti : administrateur RH |
 | `employe.sortie` | id, date (dernier jour du contrat), motif (`MOTIFS_SORTIE`) ; refusée tant que le salarié encadre une équipe, qu'une feuille porte des heures après la date, qu'une absence est à cheval sur elle, au-delà de la fin prévue du contrat ou quand aucun autre administrateur RH ne reste en place après la date ; une sortie enregistrée se modifie par la même action | RH (jamais pour lui-même) ; administrateur RH seul pour un salarié dont le compte ouvre l'espace RH |
 | `employe.autorisationTravail` | id, requise (faux : ressortissant français, de l'UE, de l'EEE ou de la Suisse, titre effacé), type (`TYPES_TITRE_SEJOUR`), numero, expire (sauf résident permanent), demandeLe (envoi de la demande d'authentification) et verifieLe (réponse de la préfecture), jamais futures ; avertissements sans blocage (titre expiré, demande d'authentification non tracée ou tardive) ; journal : codes et dates validés seulement ; refusée pour un salarié sorti | RH (jamais pour lui-même) |
 | `employe.annulerSortie` | id : fin prévue au contrat rétablie (aucune pour un CDI, même devenu CDI depuis la sortie) ; ce que la sortie a annulé ne l'est pas | RH (jamais pour lui-même) ; administrateur RH seul pour un salarié dont le compte ouvre l'espace RH |
 | `equipe.creer` / `equipe.renommer` | nom, managerId? / nom, nouveau | RH |
 | `equipe.supprimer` | nom | administrateur RH |
 | `equipe.manager` | nom, managerId (null = aucun) | RH |
+| `equipe.modifier` | nom, nouveau? (absent : inchangé), managerId? (null = aucun ; absent : inchangé) : renommage puis manager dans une seule transaction, avec les contrôles de `equipe.renommer` et `equipe.manager` ; un refus n'enregistre rien (dialogue de l'équipe) | RH |
 | `equipe.affecter` | empId, equipe (null = à affecter) | RH ; manager : ajout à une équipe qu'il encadre d'un salarié « à affecter » (libéré par son manager) ou d'un membre d'une autre de ses équipes, retrait d'un membre — jamais le membre d'une autre équipe : sa mutation relève du RH |
 | `plan.inscrire` | empId, certId (recyclage) ou inscriptionId (formation initiale à replanifier), sessionId, conv (`now`/`later`) ; refusé depuis une session passée non clôturée, et si le salarié est absent ou inscrit à une autre session ce jour-là ; convocation reçue pour l'ancienne session à venir annulée par e-mail | RH, référent HSE, manager direct |
 | `convocation.envoyer` | sessionId, empIds? (sans liste : toutes les convocations « à envoyer » ; avec : envoi ou renvoi) ; session à venir ; e-mail avec `.ics`, date d'envoi `convocLe` | RH, référent HSE ; manager direct pour les membres de son équipe |
@@ -626,7 +656,7 @@ aucun champ du paramètre n'est recopié.
 | `voyage.modifier` | id, dest?, depart, retour, motif? (non transmis : inchangés) ; contrôles de `voyage.creer`, le déplacement lui-même exclu des conflits ; formalités de détachement devenues caduques effacées (`formalitesCaduques`) ; venu de Keystone : dates seules (destination et motif du chantier), `deplacement.modifie` mis en file ; annulé ou terminé : 409 | RH |
 | `voyage.annuler` | id, motif (obligatoire pour un déplacement venu de Keystone, 500 caractères ; gardé dans Cursus, `annuleMotif`, jamais transmis à Keystone ; remis au salarié dans la copie de ses données) : `annuleLe`, `annulePar` ; déplacement gardé dans l'historique, hors de tous les calculs ; venu de Keystone : `deplacement.annule` mis en file ; déjà annulé ou terminé : 409 | RH |
 | `formalite.enregistrer` | empId, kind (`passeport`/`visa`/`vaccin`), numero, expire, dest, visaType, obtenu, v, date | RH (écrit dans le dossier), ou le collaborateur pour lui-même (déclaration en attente, voir ci-dessous) |
-| `voyages.importer` | texte (CSV) | RH |
+| `voyages.importer` | texte (CSV) ; ligne sans référence : `DD-<n° du déplacement>` (suffixe si déjà prise) ; demandeur : nom du salarié reconnu, sinon tel que saisi (service RH seulement) | RH |
 | `keystone.accepter` / `keystone.refuser` | id ; refus : motif? (conservé dans Cursus, demande et message du journal, jamais transmis à Keystone) | RH (demande en attente ; l'acceptation revalide affectation, chantier actif, destination, effectifs et l'absence de déplacement déjà créé, et est refusée si le salarié est déjà en déplacement ou absent ces jours-là ; la demande reste en base avec statut, date et décideur) |
 | `plan.importer` | texte, exercice, mode (`add`/`replace`) ; exercice clos refusé | RH ; `replace` (supprime les lignes prévues d'origine `import` ; celles issues d'une demande, d'un report ou sans origine sont conservées) : administrateur RH |
 | `budget.enveloppes` | exercice, enveloppes {équipe: montant} ; exercice clos refusé | RH |
@@ -1153,6 +1183,9 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
   elles entrent dans le dossier voyage (`Domain.readiness`) et ne sont pas des données de santé. À la mise à jour d'une
   base antérieure, les déplacements déjà partis sont réputés en règle, une seule fois (`reprendreDetachements` de
   `server/src/migrate.ts`, tracé dans le journal : `migration.detachement`).
+- **Horodatage** : `verdictKeystone` et `keystonePayload` exigent l'heure de l'évaluation (`evalue_le`, ISO UTC), sans
+  valeur par défaut : la route de l'API (`new Date().toISOString()`) et le panneau « Réponse transmise à Keystone » de
+  l'écran Chantiers (heure de l'affichage) donnent l'heure réelle, jamais une heure fictive.
 ## Dates, temps de travail et congés payés
 
 - **Dates** : `isValidDate` (`shared/dates.ts`) n'accepte qu'une date qui existe au calendrier (« 2026-02-31 » est refusée,
@@ -1260,6 +1293,13 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
   rendu le signalent (« Date dépassée » : à clore s'il a eu lieu, sinon à reprogrammer ou à annuler).
 
 ## Déplacements modifiés ou annulés
+
+*Déplacements importés du formulaire de demande* (`voyages.importer`, `parseTrips` de `shared/rules/imports.ts`) : une
+ligne sans référence reçoit `DD-<n° du déplacement>`, comme dans le prototype (`referenceDeplacement` : suffixe si la
+référence est déjà prise) ; les déplacements importés avant le lot 5 sans référence la reçoivent par la migration
+`lot5-voyages-references` (tracée, `migration.referencesDeplacements`). L'origine affichée reste « Formulaire de demande »
+sans « null ». La colonne « demandeur » est gardée (`voyages.demandeur`) : nom du salarié reconnu, sinon tel que saisi ;
+montrée dans l'aperçu de l'import et le dossier voyage, retirée des instantanés manager, collaborateur et profils restreints.
 
 Règles dans `shared/rules/deplacements.ts`, actions dans `server/src/actions/deplacements.ts`, écran Voyages (boutons
 « Modifier le déplacement » et « Annuler le déplacement » du dossier voyage, `dialogs/TripModifierDialog.tsx`, confirmation

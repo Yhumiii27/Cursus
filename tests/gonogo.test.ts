@@ -126,7 +126,7 @@ test('t185 : une absence pendant la présence bloque la ressource, sans jamais s
   run(RH, 'absence.saisir', { empId: 18, nature: 'MALADIE', du: '2026-10-28', au: '2026-10-30', justificatif: true, justificatifLe: '2026-10-10' });
   assert.equal(motif('K-2614', 18, 'ABSENCE')!.detailed, 'Absent du 28 oct. au 30 oct. 2026');
   const d = domain(), ch = d.evaluateChantiers(d.enrich(90, false), d.tripsAll()).find(x => x.c.id === 'K-2614')!;
-  const sortie = JSON.stringify([d.verdictKeystone(ch, true), d.keystonePayload(ch, true), envoyes(), ch.res.flatMap(r => r.reasons)]);
+  const sortie = JSON.stringify([d.verdictKeystone(ch, true, '2026-10-10T05:00:00.000Z'), d.keystonePayload(ch, true, '2026-10-10T05:00:00.000Z'), envoyes(), ch.res.flatMap(r => r.reasons)]);
   assert.doesNotMatch(sortie, /maladie|arrêt|congé|CP\b|MALADIE/i);
 
   // Une absence hors de la présence ne compte que pour le chantier qu'elle touche (Abidjan, à partir du 9 novembre).

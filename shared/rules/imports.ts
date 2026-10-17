@@ -95,6 +95,26 @@ export function parsePlan(d: Domain, text: string): PlanRow[] {
 export interface TripRow {
   n: number; ref: string; emp: Employe | undefined; dest: Destination | undefined; depart: ISODate | null; retour: ISODate | null;
   motif: string; errs: string[]; ok: boolean; nomLabel: string; destLabel: string; dates: string;
+  /**
+   * Demandeur (colonne « demandeur ») : nom du salarié reconnu, sinon le nom tel que saisi (texte libre, 120 caractères au
+   * plus) ; null si la colonne est vide. `demandeurConnu` : un salarié de Cursus porte ce nom.
+   */
+  demandeur: string | null; demandeurConnu: boolean;
+}
+
+/** Longueur maximale du demandeur gardé tel que saisi. */
+export const DEMANDEUR_MAX = 120;
+
+/**
+ * Référence d'un déplacement importé sans référence : `DD-<identifiant>`, comme le prototype ; une référence déjà prise
+ * (saisie telle quelle dans un fichier précédent) reçoit un suffixe (`DD-12-2`). `prises` : références existantes.
+ */
+export function referenceDeplacement(id: number, prises: ReadonlySet<string>): string {
+  const base = `DD-${id}`;
+  if (!prises.has(base)) return base;
+  let n = 2;
+  while (prises.has(`${base}-${n}`)) n++;
+  return `${base}-${n}`;
 }
 
 export function parseTrips(d: Domain, text: string): TripRow[] {
@@ -129,8 +149,12 @@ export function parseTrips(d: Domain, text: string): TripRow[] {
     if (ref && seen.has(ref)) errs.push(`Déjà importée : ${ref}`);
     if (ref) seen.add(ref);
     if (!errs.length) retenues.push({ n: i + 1, empId: emp!.id, depart: depart!, retour: retour! });
+    // Demandeur : rapproché d'un salarié comme le collaborateur, sinon gardé tel que saisi.
+    const saisi = (v.demandeur || '').replace(/\s+/g, ' ').trim().slice(0, DEMANDEUR_MAX);
+    const parQui = saisi ? d.ds.employes.find(e => key(e.nom) === key(saisi)) : undefined;
     return {
       n: i + 1, ref, emp, dest, depart, retour, motif: (v.motif || '').trim() || 'Déplacement professionnel', errs, ok: errs.length === 0,
+      demandeur: parQui ? parQui.nom : saisi || null, demandeurConnu: !!parQui,
       nomLabel: emp ? emp.nom : (v.collaborateur || '—'), destLabel: dest ? dest.pays : (v.destination || '—'),
       dates: depart && retour ? `${fmtShort(parse(depart))} → ${fmt(parse(retour))}` : '—',
     };

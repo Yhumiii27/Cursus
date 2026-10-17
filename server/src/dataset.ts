@@ -68,6 +68,7 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
   });
   return {
     today: todayIso(),
+    revision: db.revision,
     user,
     settings: loadSettings(db),
     // Formations, habilitations et destinations, archivées comprises (`archive`, date d'archivage) : transmises à tous les
@@ -199,8 +200,9 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
       ...(repriseMedicale(e, full.absences) ? { repriseMotif: null, repriseDate: null } : { repriseMotif: e.repriseDate ? 'absence longue' : null }),
     }
     : e);
-  // Motif d'une annulation (texte libre du service RH) : jamais transmis hors du service RH.
-  const voyages = mine(full.voyages).map(v => (v.annuleMotif ? { ...v, annuleMotif: null } : v)).map(v => {
+  // Motif d'une annulation (texte libre du service RH) et demandeur d'un déplacement importé (nom saisi dans le
+  // formulaire) : jamais transmis hors du service RH.
+  const voyages = mine(full.voyages).map(v => (v.annuleMotif || v.demandeur ? { ...v, annuleMotif: null, demandeur: null } : v)).map(v => {
     if (!isMgr || v.empId === user.empId) return v;
     const emp = d.emp(v.empId);
     return emp ? { ...v, dossierStatut: d.readiness(emp, v).status } : v;
@@ -295,7 +297,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
   const ressources = new Set(full.referentiels.chantiers.filter(c => c.statut !== 'archive').flatMap(c => c.ressources));
   // Déplacements : l'état du dossier et les formalités manquantes sont calculés ici, avec les pièces du dossier,
   // pour que le verdict Go / No Go soit exact sans les transmettre.
-  const voyages = !formations ? [] : full.voyages.map(v => (v.annuleMotif ? { ...v, annuleMotif: null } : v)).map(v => {
+  // Ni motif d'annulation, ni demandeur d'un déplacement importé (textes du service RH).
+  const voyages = !formations ? [] : full.voyages.map(v => (v.annuleMotif || v.demandeur ? { ...v, annuleMotif: null, demandeur: null } : v)).map(v => {
     const emp = d.emp(v.empId);
     if (!emp || !d.destOf(v.dest)) return v;
     const r = d.readiness(emp, v);

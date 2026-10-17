@@ -316,6 +316,13 @@ accepté d'une habilitation expirée compté « en attente » · exigences par p
 habilitation exigée jamais obtenue rend « Non conforme », avec une échéance « exigence manquante » (inscrire, demander
 l'habilitation) et un indicateur au tableau de bord ; postes créés depuis les intitulés déjà saisis, choisis en liste.
 
+Interface fiable : une réponse arrivée après une plus récente ne réaffiche pas un état ancien (révision de la base dans
+chaque instantané) · deux personnes qui modifient la même fiche ne s'écrasent plus (seuls les champs modifiés partent,
+refus nommant les champs changés entre-temps, fiche à reprendre sans perdre sa saisie) · équipe renommée et manager changé
+en une seule action · impression sans fenêtre surgissante, en A4 clair, avec l'en-tête de l'employeur (responsable du
+traitement) et les matricules ; Ctrl+P lisible sur tous les écrans · déplacements importés sans référence numérotés
+DD-<n°>, demandeur gardé.
+
 Jours fériés et périodes de référence (CP, RTT, campagnes) calculés à partir de la date du jour, celle de Paris
 quel que soit le fuseau du serveur ; dates impossibles (« 31/02 ») refusées à la saisie et à l'import.
 

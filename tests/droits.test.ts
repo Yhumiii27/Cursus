@@ -111,6 +111,7 @@ const MATRICE: Ligne[] = [
   { action: 'equipe.creer', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Méthodes' }) },
   { action: 'equipe.renommer', droits: '                     O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Commercial', nouveau: 'Ventes' }) },
   { action: 'equipe.manager', droits: '                      O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Commercial', managerId: 19 }) },
+  { action: 'equipe.modifier', droits: '                     O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Commercial', nouveau: 'Ventes', managerId: 19 }) },
   { action: 'equipe.supprimer', droits: '                    O    -    -    -    -    -    -    -    -', p: () => { db.insert('equipes', { nom: 'Vide', managerId: null, ordre: 99 }); return { nom: 'Vide' }; } },
   { action: 'equipe.affecter', variante: 'retrait', droits: 'O    O    O    -    -    -    -    -    -', p: () => ({ empId: 2, equipe: null }) },
   // Le manager n'accueille qu'un salarié « à affecter » (libéré par son manager) ; une mutation directe relève du RH.

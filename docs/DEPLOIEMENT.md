@@ -599,7 +599,8 @@ précède chaque mise en production.
 
 - La nouvelle version y est installée d'abord. Le groupe pilote vérifie, chacun dans son espace :
   connexion et déconnexion, tableau de bord, fiches collaborateurs, temps, absences, formations,
-  impression du passeport formation, consultation sur téléphone.
+  impression du passeport formation (en-tête de l'employeur : Paramètres → Confidentialité, « responsable du traitement »),
+  consultation sur téléphone.
 - Le service informatique consigne la version, la date et l'accord des trois pilotes avant de
   passer en production.
 

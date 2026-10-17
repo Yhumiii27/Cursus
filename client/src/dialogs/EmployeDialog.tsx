@@ -4,7 +4,7 @@
 // peut aussi en saisir un nouveau, ajouté au référentiel sans exigence.
 // Matricule de paie : unique ; reprendre celui d'un salarié sorti (réembauche) se confirme, par l'administrateur RH, qui
 // seul change ou retire un matricule déjà enregistré.
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { isValidDate } from '../../../shared/dates.ts';
 import { AVIS_MEDICAL, MODE_NOTIFICATION_LABEL, MOTIFS_REPRISE, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../../../shared/constants.ts';
 import { cap, equipeLabel, fmtIso, plural } from '../../../shared/format.ts';
@@ -12,11 +12,12 @@ import { reposForfait } from '../../../shared/rules/conges.ts';
 import { matriculesPris, normaliserMatricule } from '../../../shared/rules/matricules.ts';
 import { essaiMaximum, limitePrevenance, rttPerdus, SEMAINES_FIGEES, soldeRttTexte, sortieTexte } from '../../../shared/rules/contrats.ts';
 import { adressesPrises } from '../../../shared/rules/messagerie.ts';
-import { JOURS_SEMAINE, PROFIL_FIELDS, PROFIL_VIDE, normaliserProfil, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
+import { JOURS_SEMAINE, MANAGER_FIELDS, PROFIL_FIELDS, PROFIL_VIDE, normaliserProfil, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
+import { champsAEnvoyer, champsDifferents, champsEnConflit, LIBELLE_CHAMP_FICHE } from '../../../shared/rules/fiche-concurrente.ts';
 import { contratFige } from '../../../shared/rules/temps.ts';
 import type { Statut, TempsTravail, TypeContrat } from '../../../shared/types.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
-import { Fine, NoteAccent, SectionLabel, Seg } from '../components/ui.tsx';
+import { Btn, Fine, NoteAccent, SectionLabel, Seg } from '../components/ui.tsx';
 import { NOUVEAU_POSTE, PosteChoix, PosteLibelle } from '../components/PosteChoix.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -67,6 +68,26 @@ function toInput(f: Form, tempsDepuis: string | null): ProfilInput {
     visite: f.visite || null, repriseMotif: f.repriseMotif || null, repriseDate: f.repriseDate || null,
     essaiFin: f.essaiFin || null, essaiRenouveleJusquau: f.essaiRenouvele || null,
   };
+}
+
+/** Champ de la fiche saisi par chaque champ du formulaire (la date d'effet n'en a pas : elle reste celle saisie). */
+const CHAMP_DU_FORM: Partial<Record<keyof Form, keyof ProfilInput>> = { essaiRenouvele: 'essaiRenouveleJusquau' };
+
+/**
+ * Fiche reprise à jour après une modification concurrente : les champs modifiés entre-temps (et ceux de leur groupe)
+ * prennent la valeur enregistrée, les autres saisies de la personne sont gardées.
+ */
+function reprendreAJour(f: Form, initial: ProfilInput, actuelle: ProfilInput, today: string): Form {
+  const avant = toForm(initial, today), apres = toForm(actuelle, today);
+  const repris = champsDifferents(initial, actuelle);
+  const out = { ...apres, effet: f.effet };
+  for (const k of Object.keys(f) as (keyof Form)[]) {
+    if (k === 'effet') continue;
+    const champ = CHAMP_DU_FORM[k] ?? (k as keyof ProfilInput);
+    const saisi = JSON.stringify(f[k]) !== JSON.stringify(avant[k]);
+    if (saisi && !repris.has(champ)) (out as Record<string, unknown>)[k] = f[k];
+  }
+  return out;
 }
 
 /** Poste du référentiel saisi : identifiant, ou aucun (intitulé seul, nouveau poste). */
@@ -124,8 +145,12 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   /** Manager direct d'un membre de son équipe : modification limitée. */
   const limited = !rh && manager && !!emp && emp.id !== me && d.mgrOf(emp) === me;
 
-  // Fiche de référence : celle de l'ouverture du dialogue.
-  const [initial] = useState<ProfilInput>(() => emp ? profilOf(emp) : PROFIL_VIDE(equipe0 && d.equipes.includes(equipe0) ? equipe0 : null, d.ti));
+  // Fiche de référence : celle de l'ouverture du dialogue (reprise à jour après une modification concurrente).
+  const [initial, setInitial] = useState<ProfilInput>(() => emp ? profilOf(emp) : PROFIL_VIDE(equipe0 && d.equipes.includes(equipe0) ? equipe0 : null, d.ti));
+  /** Champs envoyés avec leur valeur d'origine lors d'un enregistrement refusé pour modification concurrente (412). */
+  const [concurrent, setConcurrent] = useState<Partial<ProfilInput> | null>(null);
+  const conflitRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (concurrent) conflitRef.current?.focus(); }, [concurrent]);
   const [f, setF] = useState<Form>(() => ({ ...toForm(initial, d.ti), naissance: creation ? '' : numStr(initial.naissance) }));
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -211,12 +236,15 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
     if (perte && !confirmeRtt) { setConfirmer(false); setConfRtt(true); return; }
     setBusy(true);
     let payload: Record<string, unknown>;
-    if (limited) payload = { id: emp!.id, poste: v.profil.poste, ...(partielEmp ? { jourOff: v.profil.jourOff } : {}) };
-    else {
-      payload = creation ? {} : { id: emp!.id };
-      PROFIL_FIELDS.forEach(k => { payload[k] = v.profil[k]; });
+    // Modification : seuls les champs modifiés partent (avec les champs qui leur sont liés), accompagnés de leur valeur
+    // d'origine (`avant`) ; le serveur refuse si l'un d'eux a changé entre-temps (shared/rules/fiche-concurrente.ts).
+    const champs = creation ? PROFIL_FIELDS : champsAEnvoyer(ref0, v.profil, limited ? MANAGER_FIELDS.filter(k => k === 'poste' || partielEmp) : PROFIL_FIELDS)
       // La date d'effet ne concerne qu'un changement d'organisation du temps : sinon le serveur garde la date en vigueur.
-      if (!creation && !nouveauRegime) delete payload.tempsDepuis;
+      .filter(k => creation || nouveauRegime || k !== 'tempsDepuis');
+    payload = creation ? {} : { id: emp!.id };
+    champs.forEach(k => { payload[k] = v.profil[k]; });
+    if (!creation) payload.avant = Object.fromEntries(champs.map(k => [k, initial[k] ?? null]));
+    if (!limited) {
       if (reutiliserMatricule) payload.reutiliserMatricule = true;
       if (perte) payload.confirmerRtt = true;
     }
@@ -224,12 +252,35 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
     setBusy(false);
     setConfirmer(false);
     setConfRtt(false);
+    // Fiche modifiée entre-temps par quelqu'un d'autre : rien n'est enregistré, le dialogue reste ouvert et les données
+    // sont relues (store.tsx) ; les champs en conflit s'affichent, la fiche à jour se reprend sans perdre les autres saisies.
+    if (r.status === 412 && !creation) { setConcurrent((payload.avant as Partial<ProfilInput> | undefined) ?? {}); return; }
     if (!r.ok) return;
     closeDialog();
     const id = (r.result as { id?: number } | undefined)?.id;
     if (creation && id) setUi({ selectedId: id });
   };
 
+  // Modification concurrente refusée (412) : champs modifiés entre-temps, lus dans la fiche relue après le refus.
+  const enConflit = concurrent && emp ? champsEnConflit(concurrent, profilOf(emp)) : [];
+  const reprendre = () => {
+    if (!emp) return;
+    const actuelle = profilOf(emp);
+    setF(s => reprendreAJour(s, initial, actuelle, d.ti));
+    setInitial(actuelle);
+    setConcurrent(null);
+  };
+  // En tête du dialogue, et ciblé dès le refus (le bouton « Enregistrer » est en bas d'un long formulaire).
+  const conflitBloc = concurrent && <div ref={conflitRef} tabIndex={-1} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+    <Bloquant>
+      Fiche modifiée entre-temps par une autre personne{enConflit.length ? ` (${enConflit.map(k => LIBELLE_CHAMP_FICHE[k]).join(', ')})` : ''} : rien
+      n’a été enregistré.
+    </Bloquant>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+      <Btn small onClick={reprendre}>Reprendre la fiche à jour</Btn>
+      <Fine>Les champs modifiés entre-temps prennent leur valeur enregistrée ; vos autres saisies sont gardées. Vérifiez, puis enregistrez de nouveau.</Fine>
+    </div>
+  </div>;
   // Erreurs sans champ (statut, nature du contrat…) : sous le formulaire, ciblées à l'envoi.
   const messages = <>
     {showErrors && autres.map(m => <Bloquant key={m}>{m}</Bloquant>)}
@@ -249,6 +300,7 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
     const finTxt = emp.fin ? ` · jusqu’au ${fmtIso(emp.fin)}` : '';
     return (
       <Dialog title={`Modifier la fiche — ${emp.nom}`} width={640} tall onSubmit={save} actions={actions}>
+        {conflitBloc}
         <div className="grid-2">
           <PosteLibelle emp={emp} poste={f.poste} erreur={err('poste')} onChange={v => set('poste', v)} />
           <Field label="Équipe"><Static pad>{equipeLabel(emp)}</Static></Field>
@@ -304,6 +356,7 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
         texte: `Le nouveau régime n’ouvre ni RTT ni jours de repos : le compteur de ${emp!.nom} (${soldeRttTexte(perte)}) ne sera plus suivi dans Cursus. Ce solde est gardé au journal pour la paie.`,
         bouton: 'Confirmer le changement', occupe: busy, confirmer: () => save(true), annuler: () => setConfRtt(false),
       } : null}>
+      {conflitBloc}
       <SectionLabel>Identité</SectionLabel>
       <div className="grid-2">
         <Field label="Nom" htmlFor="emp-nom" requis erreur={err('nom')}>

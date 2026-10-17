@@ -12,6 +12,7 @@ import { deplacementsActions } from './deplacements.ts';
 import { entretiensActions } from './entretiens.ts';
 import { envoisActions } from './envois.ts';
 import { equipesActions } from './equipes.ts';
+import { equipeModifierActions } from './equipe-modifier.ts';
 import { exercicesActions } from './exercices.ts';
 import { messagerieActions } from './messagerie.ts';
 import { paieActions } from './paie.ts';
@@ -54,6 +55,7 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...suiviFeuillesActions,
   ...deplacementsActions,
   ...annulationEntretienActions,
+  ...equipeModifierActions,
 };
 
 /**

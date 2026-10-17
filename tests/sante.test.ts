@@ -111,8 +111,8 @@ test('Go / No Go : aptitude non valide aujourd’hui → réserve APTITUDE ; Key
   assert.deepEqual(motifs('K-M1', 7), ['APTITUDE:reserve'], 'une seule réserve pour le retard et les restrictions');
   assert.equal(verdict('K-M1', 7).reasons[0].detailed, 'Visite médicale périodique en retard · Restrictions d’aptitude en vigueur : affectation à vérifier avec le service RH');
   const d = domain(), ch = d.evaluateChantiers(d.enrich(90, false), d.tripsAll()).find(x => x.c.id === 'K-M1')!;
-  assert.deepEqual(d.verdictKeystone(ch, true).ressources[0].motifs, [{ code: 'APTITUDE', niveau: 'GO_RESERVE', libelle: 'Aptitude médicale à vérifier avec le service RH' }]);
-  assert.deepEqual(d.keystonePayload(ch, true).ressources[0].motifs, [{ code: 'APTITUDE', libelle: 'Aptitude médicale à vérifier avec le service RH' }]);
+  assert.deepEqual(d.verdictKeystone(ch, true, '2026-10-10T05:00:00.000Z').ressources[0].motifs, [{ code: 'APTITUDE', niveau: 'GO_RESERVE', libelle: 'Aptitude médicale à vérifier avec le service RH' }]);
+  assert.deepEqual(d.keystonePayload(ch, true, '2026-10-10T05:00:00.000Z').ressources[0].motifs, [{ code: 'APTITUDE', libelle: 'Aptitude médicale à vérifier avec le service RH' }]);
 });
 
 test('Go / No Go : le motif APTITUDE ne dépend pas des dates de présence — une sonde de Keystone n’apprend ni visite ni fin de restriction', () => {
@@ -123,7 +123,7 @@ test('Go / No Go : le motif APTITUDE ne dépend pas des dates de présence — u
     const id = `K-SONDE-${++n}`;
     chantier(id, { nom: 'Sonde', lieu: 'Lyon', pays: 'FR', debut: jour, fin: jour }, [[empId, jour, jour]]);
     const d = domain(), ch = d.evaluateChantiers(d.enrich(90, false), d.tripsAll()).find(x => x.c.id === id)!;
-    return JSON.stringify(d.verdictKeystone(ch, true).ressources[0].motifs);
+    return JSON.stringify(d.verdictKeystone(ch, true, '2026-10-10T05:00:00.000Z').ressources[0].motifs);
   };
   // Mehdi Benali : visite du 15 juin 2025, aptitude jusqu'au 15 juin 2027. Avant et après l'échéance : mêmes motifs.
   assert.equal(sonde(2, '2027-06-14'), sonde(2, '2027-06-16'));
@@ -180,7 +180,7 @@ test('t062 : avis avec restrictions — restrictions datées, habilitation incom
   // rapporté aux dates de présence) ; le titre reste suspendu.
   assert.deepEqual(motifs('K-R2', 2), ['APTITUDE:reserve', 'HABILITATION_SUSPENDUE:nogo']);
   const d = domain(), ch = d.evaluateChantiers(d.enrich(90, false), d.tripsAll()).find(x => x.c.id === 'K-R1')!;
-  const detaille = JSON.stringify(d.verdictKeystone(ch, true));
+  const detaille = JSON.stringify(d.verdictKeystone(ch, true, '2026-10-10T05:00:00.000Z'));
   for (const x of ['charges', '15 kg', 'hauteur', 'estriction', '2026-10-08', '8 oct.', '31 déc.']) assert.ok(!detaille.includes(x), `rien de l’avis dans le verdict : ${x}`);
   assert.deepEqual(envoyes().filter(v => v.chantier === 'K-R1').at(-1)!.ressource.motifs, [{ code: 'APTITUDE', niveau: 'GO_RESERVE' }]);
 

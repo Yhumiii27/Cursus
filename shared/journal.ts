@@ -53,6 +53,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'employe.autorisationTravail': 'Titre de séjour (autorisation de travail)',
   'equipe.creer': 'Création d’une équipe',
   'equipe.renommer': 'Équipe renommée',
+  'equipe.modifier': 'Équipe modifiée (nom, manager)',
   'equipe.supprimer': 'Suppression d’une équipe',
   'equipe.manager': 'Manager d’une équipe',
   'equipe.affecter': 'Affectation à une équipe',
@@ -188,6 +189,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'migration.heuresSup': 'Reprise : mode des heures supplémentaires figé sur les feuilles validées',
   'migration.lotsPaie': 'Reprise : feuilles déjà transmises réunies en un lot historique',
   'migration.coutReel': 'Reprise du coût réel des actions réalisées du plan',
+  'migration.referencesDeplacements': 'Reprise : référence donnée aux déplacements importés sans référence',
 };
 
 /** Libellé d'un code ; un e-mail simulé (`email.<nature>`, sans boîte d'envoi) est nommé par sa nature. */
@@ -218,7 +220,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.'] },
   { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes)', prefixes: ['referentiel.', 'migration.postes'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
-  { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement'] },
+  { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement', 'migration.referencesDeplacements'] },
   { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'migration.heuresSup', 'migration.lotsPaie'] },
   { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.', 'conges.', 'migration.soldes'] },
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },

@@ -10,6 +10,7 @@ import { adminsActifs } from './comptes.ts';
 import { enProduction, hoteEcoute, portEcoute, verifierConfig } from './config.ts';
 import { dbFile, openDb } from './db.ts';
 import { demarrerEnvois, envoiEnCours } from './envois.ts';
+import { controlerIntegrite } from './integrite.ts';
 import { demarrerJournal } from './journal.ts';
 import { log, redirigerConsole } from './logs.ts';
 import { migrate } from './migrate.ts';
@@ -69,6 +70,9 @@ if (db.count('employes') === 0) {
 }
 // Base de démonstration antérieure aux comptes : un compte par salarié et la RH de démonstration.
 if (DEMO && db.count('employes') > 0) comptesDemo(db);
+// Références orphelines (salarié, session, formation… absents) : signalées dans les journaux, le journal des actions
+// et le point de santé, sans bloquer le démarrage (server/src/integrite.ts).
+controlerIntegrite(db);
 if (!DEMO && !adminsActifs(db)) log.info('Aucun administrateur RH : créez-le avec npm run comptes -- admin <identifiant> (docs/DEPLOIEMENT.md).');
 // Sessions expirées : purgées au démarrage puis toutes les heures.
 purgeSessions(db);

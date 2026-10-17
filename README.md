@@ -122,7 +122,9 @@ Relancez `npm run app` après une modification du code ou un déplacement du dos
 | `npm run typecheck` | Vérification TypeScript |
 | `npm run test:coverage` | Tests avec mesure de la couverture du serveur et de `shared/` (client et tests exclus) ; échoue sous les seuils fixés dans `package.json` |
 | `npm run check` | Tout ce que vérifie la CI avant d'accepter une modification : typage, tests avec seuils de couverture, compilation de l'interface |
-| `CURSUS_DEMO=1 npm run reset-demo` | Recharge les données de démonstration (efface la base ; refusé hors démonstration) |
+| `CURSUS_DEMO=1 npm run reset-demo -- --yes` | Recharge les données de démonstration : efface la base après l'avoir copiée. Refusé hors démonstration, avec `NODE_ENV=production` (sauf l'application de bureau) et si un serveur utilise la base (`--force` pour passer outre) ; sans `--yes`, le mot `EFFACER` est demandé dans un terminal |
+| `npm run audit` | Failles connues des dépendances de production (`npm audit`), en échec à partir de la gravité « high » |
+| `npm run mesure` | Taille de l'instantané et durée des actions sur une base temporaire de 100 salariés et 3 ans (`npm run mesure -- 200` : autre effectif) |
 | `npm run backup` | Copie à chaud vérifiée de la base dans `data/backups`, avec rotation |
 | `npm run restore -- <fichier>` | Remplace la base par une sauvegarde (serveur arrêté) |
 | `npm run comptes -- admin <identifiant> [--local]` | Crée le premier administrateur RH, ou rétablit son accès (voir `docs/DEPLOIEMENT.md`) |
@@ -203,11 +205,14 @@ périodique : `docs/SAUVEGARDE.md`.
 - **Démarrage** : chemins complets de la base et des sauvegardes affichés ; port déjà pris, interface non compilée ou
   base accessible à d'autres comptes signalés en clair (code de sortie 1 quand le démarrage est impossible).
 - **Arrêt** (SIGTERM, Ctrl+C) : requêtes en cours terminées (10 s au plus), base fermée, verrou retiré.
-- **Santé** : `GET /api/health`, sans connexion : `{"statut":"ok","base":"ok"}` (503 si la base ne répond pas).
+- **Santé** : `GET /api/health`, sans connexion : `{"statut":"ok","base":"ok"}` (503 si la base ne répond pas ;
+  `"degrade"` si elle contient des références orphelines, comptées au démarrage et inscrites au journal, détail réservé
+  au poste local et au jeton de supervision).
 - **Journaux** : une ligne par requête (heure, méthode, chemin sans paramètres, statut, durée, compte), en JSON en
   production ; erreurs de l'API toujours en JSON (`404`, `400`, `413`, `500` « Erreur interne » sans pile d'appels).
-- **Performances** : réponses compressées par Cursus (brotli, gzip), fichiers de l'interface gardés un an en cache
-  (noms hachés), `index.html` revalidé à chaque ouverture, API jamais en cache. Détails : `docs/DEPLOIEMENT.md`,
+- **Performances** : réponses compressées par Cursus (brotli, gzip), interface découpée par écran et chargée à la
+  demande, fichiers de l'interface gardés un an en cache (noms hachés), `index.html` revalidé à chaque ouverture, API
+  jamais en cache ; mesure à 100 salariés sur 3 ans par `npm run mesure`. Détails : `docs/DEPLOIEMENT.md`,
   « Exploitation courante ».
 - **Disque** : la base et ses sauvegardes sont sur un volume chiffré, prérequis de l'installation.
 
@@ -219,6 +224,20 @@ L'interface compilée est publiée comme artefact pour l'instance de recette. To
 une autre forge (GitLab, Azure DevOps) l'appelle en une ligne après `npm ci`. Les seuils de couverture (lignes,
 branches, fonctions) sont fixés juste sous la mesure du jour, dans le script `test:coverage` de `package.json`, et se
 relèvent au fil des tests ajoutés.
+
+Dépendances : la CI lance aussi `npm run audit` (failles connues des dépendances de production, bloquant à partir de
+la gravité « high » ; celles des outils de développement sont seulement signalées), et Dependabot
+(`.github/dependabot.yml`) propose chaque lundi les mises à jour des paquets npm, des actions GitHub et de l'image Docker
+`node:22-slim`, mineures et correctifs regroupés. **Le service informatique** examine ces demandes et les accepte une
+fois la vérification passée (une version majeure arrive seule, à lire avec ses notes de version). Si le dépôt quitte
+GitHub, Renovate ou l'outil de la forge remplace Dependabot ; `npm run audit` reste valable partout.
+
+Cas de paie : `tests/cas-paie/` reçoit les cas réels anonymisés promis par la paie (un fichier JSON par cas : salarié,
+contrat, absences, heures, compteurs et lignes du fichier Sage attendus), rejoués par `npm test` sans écrire de code ;
+trois cas construits sur les règles légales et les réglages par défaut y sont déjà. Un cas réel n'y est versionné
+qu'une fois anonymisé (identité fictive, dates décalées, aucune nature d'absence médicale) ; celui qui garde une donnée
+de santé reste hors du dépôt et se rejoue par `CURSUS_CAS_PAIE=/chemin/absolu npm test`. Format et anonymisation :
+`tests/cas-paie/LISEZMOI.md`.
 
 ## Ce qui reste simulé
 

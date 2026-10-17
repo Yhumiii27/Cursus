@@ -1,0 +1,28 @@
+{
+  "description": "Employée à temps partiel (28 h, mercredi non travaillé) : une semaine de congés, une semaine à 32 h",
+  "source": "fabriqué",
+  "aujourdhui": "2026-10-31",
+  "salarie": { "nom": "Salariée B", "matriculePaie": "CAS002", "entree": "2023-03-01", "naissanceLe": "1990-09-30" },
+  "contrat": { "statut": "ouvrier", "typeContrat": "cdi", "temps": "partiel", "heures": 28, "jourOff": [2] },
+  "absences": [
+    { "type": "CP", "du": "2026-07-06", "au": "2026-07-10" }
+  ],
+  "semaines": [
+    { "lundi": "2026-10-05", "heures": [7, 7, 0, 7, 7] },
+    { "lundi": "2026-10-12", "heures": [8, 8, 0, 8, 8] }
+  ],
+  "attendu": {
+    "cp": { "droit": 25, "pris": 5, "solde": 20 },
+    "rtt": null,
+    "recup": null,
+    "semaines": [
+      { "lundi": "2026-10-05", "total": 28, "normal": 28, "hc10": 0, "hc25": 0 },
+      { "lundi": "2026-10-12", "total": 32, "normal": 28, "hc10": 2.8, "hc25": 1.2 }
+    ],
+    "fichierSage": [
+      { "periode": "2026-10", "rubrique": "HN", "quantite": 56 },
+      { "periode": "2026-10", "rubrique": "HC10", "quantite": 2.8 },
+      { "periode": "2026-10", "rubrique": "HC25", "quantite": 1.2 }
+    ]
+  }
+}

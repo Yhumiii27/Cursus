@@ -1,0 +1,26 @@
+{
+  "description": "Cadre au forfait de 218 jours : jours de repos de l'année, jours travaillés transmis en JTRAV",
+  "source": "fabriqué",
+  "aujourdhui": "2026-10-31",
+  "salarie": { "nom": "Salarié C", "matriculePaie": "CAS003", "entree": "2020-09-01", "naissanceLe": "1978-02-03" },
+  "contrat": { "statut": "cadre", "typeContrat": "cdi", "temps": "forfait_jours", "forfaitJours": 218 },
+  "absences": [
+    { "type": "RTT", "du": "2026-10-16", "au": "2026-10-16" }
+  ],
+  "semaines": [
+    { "lundi": "2026-10-05", "heures": [9, 9, 9, 9, 3] },
+    { "lundi": "2026-10-12", "heures": [10, 10, 10, 10, 0] }
+  ],
+  "attendu": {
+    "cp": { "droit": 25, "pris": 0, "solde": 25 },
+    "rtt": { "droit": 9, "pris": 1, "solde": 8 },
+    "recup": null,
+    "semaines": [
+      { "lundi": "2026-10-05", "jours": 4.5, "sup25": 0, "sup50": 0 },
+      { "lundi": "2026-10-12", "jours": 4, "sup25": 0, "sup50": 0 }
+    ],
+    "fichierSage": [
+      { "periode": "2026-10", "rubrique": "JTRAV", "quantite": 8.5 }
+    ]
+  }
+}

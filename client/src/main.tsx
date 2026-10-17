@@ -1,8 +1,11 @@
 import { StrictMode } from 'react';
 import { createRoot } from 'react-dom/client';
-import '@fontsource/inter/400.css';
-import '@fontsource/inter/500.css';
-import '@fontsource/inter/600.css';
+// Police Inter, sous-ensemble latin seulement (français compris : accents, œ, guillemets, espaces fines, €) : les
+// sous-ensembles cyrillique, grec et vietnamien ne sont pas embarqués. Un caractère hors de ce sous-ensemble (flèche)
+// s'affiche dans la police de repli du système.
+import '@fontsource/inter/latin-400.css';
+import '@fontsource/inter/latin-500.css';
+import '@fontsource/inter/latin-600.css';
 import './styles/nocturne.css';
 import './styles/app.css';
 import { App } from './App.tsx';

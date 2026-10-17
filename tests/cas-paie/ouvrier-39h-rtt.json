@@ -1,0 +1,31 @@
+{
+  "description": "Ouvrier en CDI, 39 h avec RTT : congés d'été, un RTT, une semaine à 48 h avec un samedi travaillé",
+  "source": "fabriqué",
+  "aujourdhui": "2026-10-31",
+  "salarie": { "nom": "Salarié A", "matriculePaie": "CAS001", "entree": "2024-01-08", "naissanceLe": "1985-04-12" },
+  "contrat": { "statut": "ouvrier", "typeContrat": "cdi", "temps": "39h_rtt" },
+  "absences": [
+    { "type": "CP", "du": "2026-08-03", "au": "2026-08-14" },
+    { "type": "RTT", "du": "2026-10-23", "au": "2026-10-23" }
+  ],
+  "semaines": [
+    { "lundi": "2026-10-05", "heures": [8, 8, 8, 8, 7, 0, 0] },
+    { "lundi": "2026-10-12", "heures": [9, 9, 9, 9, 8, 4, 0] },
+    { "lundi": "2026-10-19", "heures": [8, 8, 8, 8, 0, 0, 0] }
+  ],
+  "attendu": {
+    "cp": { "droit": 25, "pris": 10, "poses": 0, "solde": 15 },
+    "rtt": { "droit": 23, "pris": 1, "solde": 22 },
+    "recup": null,
+    "semaines": [
+      { "lundi": "2026-10-05", "total": 39, "normal": 39, "sup25": 0, "sup50": 0 },
+      { "lundi": "2026-10-12", "total": 48, "normal": 39, "sup25": 4, "sup50": 5, "recup": 0 },
+      { "lundi": "2026-10-19", "total": 32, "normal": 32, "sup25": 0, "sup50": 0 }
+    ],
+    "fichierSage": [
+      { "periode": "2026-10", "rubrique": "HN", "quantite": 110 },
+      { "periode": "2026-10", "rubrique": "HS25", "quantite": 4 },
+      { "periode": "2026-10", "rubrique": "HS50", "quantite": 5 }
+    ]
+  }
+}

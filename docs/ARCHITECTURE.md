@@ -403,7 +403,35 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
   `/api`, sans connexion. `SELECT 1` et `PRAGMA user_version` ; 200 `{statut: 'ok', base: 'ok'}`, 503
   `{statut: 'indisponible', base: 'erreur'}`. Appel local non relayé (boucle locale, aucun en-tête `X-Forwarded-*`) ou
   `Authorization: Bearer` égal à `CURSUS_SUPERVISION_TOKEN` : en plus `version`, `mode` (`production`, `demo`,
-  `developpement`), `envoisEnEchec` (non classés, toutes cibles) et `depuis`. Jamais de donnée personnelle.
+  `developpement`), `envoisEnEchec` (non classés, toutes cibles), `depuis`, `orphelins` et `references`. Base qui répond
+  mais contient des références orphelines : 200 `{statut: 'degrade', base: 'ok'}`, sans nombre en public. Jamais de
+  donnée personnelle.
+- **Intégrité** (`server/src/integrite.ts`, t179 étape 1) : `REFERENCES` liste les colonnes qui désignent une autre
+  table (tous les `emp_id`, `session_id`, formation, habilitation, destination, poste, équipe, manager, lot de paie,
+  déplacement Keystone, certification d'une participation) ; `controlerOrphelins` compte, par référence, les valeurs
+  renseignées (ni `NULL`, ni `0`, ni vide) absentes de la table visée. `controlerIntegrite` au démarrage
+  (`index.ts`, après les migrations et le jeu de démonstration) : avertissement dans les journaux du serveur et ligne
+  `integrite.orphelins` au journal des actions (nombres par référence, aucun salarié) s'il y en a ; `etatIntegrite`
+  pour la santé, refait au plus une fois par heure (`VALIDITE_CONTROLE`). Aucune clé étrangère ni suppression : les
+  contraintes strictes (`REFERENCES` dans `colonnesSql`, migration qui reconstruit les tables) viendront quand la base
+  de reprise du 1er janvier 2027 aura été vérifiée sans orphelin. Toute colonne `emp_id` ajoutée au schéma doit y
+  figurer (`tests/integrite.test.ts` le vérifie).
+- **Performances** (t171, version courte) : `npm run mesure` (`scripts/mesure-instantane.ts`) construit une base
+  temporaire de 100 salariés sur 3 ans (15 000 feuilles validées, 4 300 absences, journal) et mesure l'instantané et
+  les actions. Mesure du 17 octobre 2026 : instantané RH 7,1 Mo en JSON (100 à 170 Ko compressés sur ce jeu très
+  répétitif ; davantage sur des données réelles), manager 0,9 Mo, collaborateur 0,1 Mo ; lecture complète de la base
+  (`loadFull`) 0,23 s, `/api/data` 0,25 s, saisie d'une cellule d'heures 0,43 à 0,48 s (lecture complète avant
+  l'action, instantané complet après). Livré : index sur `emp_id` des tables qui grossissent (migration
+  `lot5-exploitation-index-salaries`, `migrations/exploitation.ts` ; les feuilles l'ont par leur contrainte unique, le
+  journal porte ses salariés en JSON), compression, un seul `Domain` par instantané côté client (`domaineDe` de
+  `client/src/state/derived.ts`, partagé par `useDomain` et la coque `layout/Shell.tsx`). Pas encore : chargement par
+  périmètre en SQL dans `loadFull` et renvoi partiel de l'instantané (entité modifiée seule, action par action), à
+  reprendre si la mesure dépasse la seconde.
+- **Réinitialisation de la démonstration** (`server/src/reset.ts`, garde-fous dans `server/src/reinitialisation.ts`) :
+  refusée hors `CURSUS_DEMO=1`, avec `NODE_ENV=production` sauf l'application de bureau (`demoSurBoucleLocale`), sur
+  une base qu'un serveur en service n'a pas encore mise à jour (`controlerPourOutil`), sur une base qu'un serveur
+  utilise (verrou, `serveurActif`) sauf `--force` ; confirmation par `--yes` ou par le mot `EFFACER` tapé dans un
+  terminal (sans terminal ni `--yes` : refus). Base existante copiée (« avant-reinitialisation ») avant l'effacement.
 - **Base sur le disque** (`server/src/protection.ts`) : `protegerBase` ramène la base et ses fichiers `-wal`, `-shm`
   en `600` et son dossier en `700` (créé ainsi ; un dossier partagé — bit sticky, racine du système ou du projet,
   dossier de lancement, autre propriétaire — n'est jamais modifié, avertissement ; le dossier personnel du compte de
@@ -438,6 +466,13 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
   rendu faible, contre-pression respectée. `CURSUS_COMPRESSION=0` (`compressionActive`) la retire. `/assets` : un an,
   `immutable`, fichier absent 404 en texte (jamais `index.html`) ; `index.html` : `no-cache` ; `/api` : `no-store`
   (`securite.ts`).
+- **Interface découpée** (t176) : `client/src/App.tsx` charge chaque page de `PAGES` à la demande (`React.lazy`,
+  `aLaDemande(import(...), 'NomExporte')`, dans un `Suspense` sous l'`ErreurRendu` de la page) ; l'écran de connexion
+  et celui du mot de passe restent dans le fichier principal. `DialogHost` et tous les dialogues forment un fichier à
+  part, préchargé dès que les données arrivent et monté seulement quand un dialogue est ouvert (fichier introuvable :
+  `ErreurDialogue`). `vite.config.ts` met React et les icônes Phosphor dans leurs propres fichiers (`manualChunks`) ;
+  seuil d'avertissement par défaut (500 Ko). Police Inter en sous-ensemble latin (`client/src/main.tsx`). Une nouvelle
+  page s'ajoute dans `PAGES` avec `aLaDemande`, jamais par un import statique.
 - **Installation** : `deploy/` reprend à l'identique les blocs de `docs/DEPLOIEMENT.md` et `docs/SAUVEGARDE.md`
   (`tests/exploitation.test.ts` les compare : modifier les deux ensemble) ; `Dockerfile` facultatif.
 
@@ -450,6 +485,20 @@ que le client n'a pas de tests de rendu) et échoue sous les seuils écrits dans
 fixés juste sous la mesure du jour : les relever quand des tests s'ajoutent, jamais les baisser pour faire passer un
 ajout non testé. Les serveurs lancés par les tests avec l'environnement du test sont mesurés aussi. Un contrôle de
 style (lint) s'ajoutera à `check` quand il existera. `@types/node` suit Node 22.
+
+Dépendances (t161) : `npm run audit` (`npm audit --omit=dev --audit-level=high`) est une étape de la CI, bloquante,
+après `check` ; l'audit de toutes les dépendances y est seulement informatif (`continue-on-error`). Il reste hors de
+`check`, qui ne demande pas le réseau. `.github/dependabot.yml` : npm, actions GitHub et image Docker, chaque semaine,
+mineures et correctifs regroupés ; `@types/node` et l'image `node` restent en version 22.
+
+Cas de paie (t160) : `tests/cas-paie.test.ts` rejoue chaque `tests/cas-paie/<nom>.json` sur une base en mémoire neuve
+(migrations nommées appliquées, réglages du cas, fiche, compteurs repris, absences, feuilles validées avec régime et
+mode des heures supplémentaires figés), à la date du cas, et compare valeur par valeur les compteurs (`cpInfo`,
+`rttInfo`, `recupInfo`), le décompte de chaque semaine (`calcSheet`) et les lignes du fichier d'import
+(`lignesFichier(buildSagePayload(...))`). `controlerCas` refuse tout champ inconnu à chaque niveau, une valeur hors
+des listes de shared/constants.ts (statut, nature de contrat, temps de travail, type d'absence) ou que Paramètres
+corrigerait, et, dans le dépôt, un cas `source: "paie"` avec une nature d'absence médicale ; ces cas se rejouent depuis
+un dossier hors du dépôt (`CURSUS_CAS_PAIE`, chemin absolu). Format et règles d'ajout : `tests/cas-paie/LISEZMOI.md`.
 
 ## Conventions d'écran
 
@@ -497,7 +546,7 @@ une base existante, et au plus tard avant d'enregistrer le premier nouveau nom d
 ce nom suffit à faire refuser la base par la version précédente. Le chemin de cette copie est enregistré avec chaque
 nom ; c'est elle que le refus d'une version plus ancienne nomme (celle de la première migration qu'elle ne connaît pas).
 
-`npm run comptes` et `npm run reset-demo` (`controlerPourOutil`) font le même contrôle, puis, service arrêté, mettent la
+`npm run comptes` et `npm run reset-demo -- --yes` (`controlerPourOutil`) font le même contrôle, puis, service arrêté, mettent la
 base à jour comme le serveur (reprises, migrations nommées) avant d'y écrire ; service en marche sur une base qu'il n'a
 pas encore mise à jour pour ce code (nouvelle version installée, service pas redémarré) : refus, « redémarrer d'abord
 le service ». Un outil n'écrit ainsi jamais dans le nouveau schéma des lignes qu'une migration reprendrait ensuite.

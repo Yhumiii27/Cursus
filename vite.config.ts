@@ -15,6 +15,15 @@ export default defineConfig({
   build: {
     outDir: '../dist',
     emptyOutDir: true,
-    chunkSizeWarningLimit: 800,
+    // Seuil d'avertissement par défaut (500 Ko) : pages chargées à la demande (client/src/App.tsx), React et les icônes
+    // dans leurs propres fichiers, qui changent rarement et restent en cache d'une version à l'autre.
+    rollupOptions: {
+      output: {
+        manualChunks(id: string) {
+          if (/node_modules[\\/](react|react-dom|scheduler)[\\/]/.test(id)) return 'react';
+          if (/node_modules[\\/]@phosphor-icons[\\/]/.test(id)) return 'icones';
+        },
+      },
+    },
   },
 });

@@ -211,7 +211,7 @@ test('réinitialisation de la démo annulée si la sauvegarde préalable échoue
 test('npm run reset-demo : copie d’une base existante, aucune pour une base neuve, rien d’effacé si la copie échoue', () => avecBase(({ dir, file, backups, db }) => {
   db.update('employes', 1, { nom: 'Saisie avant reset' });
   db.sql.close();
-  const reset = (env: Record<string, string>) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/reset.ts'],
+  const reset = (env: Record<string, string>) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/reset.ts', '--yes'],
     { cwd: RACINE, encoding: 'utf8', env: { ...process.env, ...env } });
   writeFileSync(join(dir, 'fichier'), '');
   const echec = reset({ CURSUS_DB: file, CURSUS_BACKUP_DIR: join(dir, 'fichier', 'backups') });
@@ -234,6 +234,52 @@ test('npm run reset-demo : copie d’une base existante, aucune pour une base ne
   assert.equal(listerSauvegardes(join(dir, 'neuve', 'backups')).length, 0, 'base neuve : rien à sauvegarder');
   assert.equal(lire<{ n: number }>(neuve, 'SELECT COUNT(*) AS n FROM employes').n, 24);
 }));
+
+test('npm run reset-demo : garde-fous (mode, production, serveur en service, confirmation)', async () => {
+  const { confirmationTapee, controlerMode, controlerServeur, lireOptions, ReinitialisationRefusee } = await import('../server/src/reinitialisation.ts');
+  const refus = (re: RegExp) => (e: unknown) => e instanceof ReinitialisationRefusee && re.test(e.message);
+  assert.deepEqual(lireOptions([]), { oui: false, force: false });
+  assert.deepEqual(lireOptions(['--yes', '--force']), { oui: true, force: true });
+  assert.throws(() => lireOptions(['--oui']), refus(/option inconnue --oui\. Usage : CURSUS_DEMO=1 npm run reset-demo -- --yes/));
+  assert.throws(() => controlerMode({}), refus(/n’est permise qu’en mode démonstration/));
+  assert.throws(() => controlerMode({ CURSUS_DEMO: '1', NODE_ENV: 'production' }), refus(/NODE_ENV=production : une base de production ne se réinitialise pas/));
+  // Application de bureau : démonstration en production sur la boucle locale posée explicitement.
+  assert.doesNotThrow(() => controlerMode({ CURSUS_DEMO: '1', NODE_ENV: 'production', CURSUS_HOST: '127.0.0.1' }));
+  assert.doesNotThrow(() => controlerMode({ CURSUS_DEMO: '1' }));
+  assert.throws(() => controlerServeur({ pid: 4321 }, { force: false }), refus(/le serveur Cursus \(processus 4321\) utilise cette base[\s\S]*--force/));
+  assert.doesNotThrow(() => controlerServeur({ pid: 4321 }, { force: true }));
+  assert.doesNotThrow(() => controlerServeur(null, { force: false }));
+  assert.ok(confirmationTapee(' EFFACER\n'));
+  assert.ok(!confirmationTapee('effacer') && !confirmationTapee('oui') && !confirmationTapee(null));
+
+  await avecBase(async ({ file, backups, db }) => {
+    const { appliquerMigrations } = await import('../server/src/migrations/cadre.ts');
+    appliquerMigrations(db); // base à jour, comme celle d'un serveur en service
+    db.update('employes', 1, { nom: 'Saisie à garder' });
+    db.sql.close();
+    const reset = (env: Record<string, string>, ...args: string[]) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/reset.ts', ...args],
+      { cwd: RACINE, encoding: 'utf8', env: { ...process.env, CURSUS_DB: file, ...env } });
+    const intacte = (r: ReturnType<typeof reset>, re: RegExp) => {
+      assert.equal(r.status, 1, r.stdout + r.stderr);
+      assert.match(r.stderr, re);
+      assert.equal(nomEmp1(file), 'Saisie à garder', 'rien n’est effacé');
+      assert.equal(listerSauvegardes(backups).length, 0, 'aucune copie : rien n’a été commencé');
+    };
+    // Sans --yes ni terminal (script, tâche planifiée) : refus ; option mal tapée : refus.
+    intacte(reset({}), /Réinitialisation refusée : elle efface toute la base .*cursus\.db : ajoutez --yes pour confirmer/);
+    intacte(reset({}, '--oui'), /option inconnue --oui/);
+    intacte(reset({ NODE_ENV: 'production' }, '--yes'), /NODE_ENV=production/);
+    // Serveur en service sur la base (verrou d'un processus vivant, celui des tests) : refus sans --force.
+    writeFileSync(fichierVerrou(file), JSON.stringify({ pid: process.pid, depuis: new Date().toISOString() }));
+    intacte(reset({}, '--yes'), new RegExp(`le serveur Cursus \\(processus ${process.pid}\\) utilise cette base`));
+    const force = reset({}, '--yes', '--force');
+    assert.equal(force.status, 0, force.stderr);
+    assert.match(force.stderr, /Attention : le serveur Cursus en service utilise encore cette base/);
+    assert.match(force.stdout, /avant-reinitialisation[\s\S]*Données de démonstration rechargées/);
+    assert.notEqual(nomEmp1(file), 'Saisie à garder');
+    rmSync(fichierVerrou(file));
+  });
+});
 
 test('base derrière un lien symbolique : la cible est restaurée, le lien conservé, toutes les copies au même endroit', { skip: process.platform === 'win32' }, () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cursus-lien-')));

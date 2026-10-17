@@ -748,10 +748,21 @@ entrées, sorties et compteurs ne se tiennent plus dans Lucca.
   le conteneur, voir « Variante : conteneur Docker ») ou avec le jeton de supervision
   (`curl -s -H "Authorization: Bearer $JETON" https://cursus.example.fr/api/health`, `CURSUS_SUPERVISION_TOKEN`), il
   ajoute la version, le mode (`production` attendu ; `demo` serait une erreur de configuration), le nombre d'envois en
-  échec non classés (à faire traiter par le service RH dans Paramètres → Envois) et l'heure du démarrage. Il ne compte
+  échec non classés (à faire traiter par le service RH dans Paramètres → Envois), l'heure du démarrage et les
+  références orphelines (`orphelins`, `references` : voir « Intégrité de la base » ci-dessous). Il ne compte
   pas dans la limite de débit. Compléter par le journal du service (`journalctl -u cursus`) et du proxy, l'espace
   disque de `/var/lib/cursus` et la fraîcheur des sauvegardes (`docs/SAUVEGARDE.md`, section 6). L'application de
   bureau (macOS) garde sa propre sonde, `/api/session`.
+- Intégrité de la base (`server/src/integrite.ts`) : au démarrage, Cursus compte les lignes qui désignent un salarié,
+  une session, une formation, une habilitation, un poste, une équipe ou un lot de paie absents de leur table
+  (« références orphelines » : reprise de données incomplète, modification faite hors de Cursus). S'il en trouve, il
+  l'écrit dans son journal (niveau `avertissement`, nombre par référence) et dans le journal des actions
+  (`integrite.orphelins`, Paramètres → Journal des actions, famille « Administration »), sans bloquer le démarrage ;
+  le point de santé répond alors 200 `{"statut":"degrade","base":"ok"}`, sans aucun nombre en public, et donne le détail
+  au poste local ou au jeton (`"orphelins": 2, "references": {"feuilles.emp_id → employes": 2}`). Le contrôle est
+  refait au plus une fois par heure. À examiner avec l'éditeur avant toute correction (restaurer une sauvegarde ou
+  compléter la reprise) : Cursus ne supprime rien de lui-même. Aucune clé étrangère n'est encore imposée par la base ;
+  elles le seront une fois la base de reprise du 1er janvier 2027 vérifiée sans orphelin.
 - Journaux du serveur (`server/src/logs.ts`) : une ligne par message de démarrage, d'arrêt ou d'incident, et une ligne
   par requête : heure, méthode, chemin sans ses paramètres, statut, durée en millisecondes et numéro du compte connecté.
   Jamais le contenu d'une requête ni ses paramètres, qui portent des données personnelles ; la sonde de santé réussie
@@ -771,11 +782,22 @@ entrées, sorties et compteurs ne se tiennent plus dans Lucca.
   `404` pour une adresse `/api` inconnue ou une action inconnue, `400` pour un corps JSON illisible, `413` au-delà de
   2 Mo, `500` « Erreur interne » pour une erreur imprévue (détail dans le journal du serveur).
 - Compression et cache (`server/src/compression.ts`, `server/src/app.ts`) : Cursus compresse en brotli, sinon en gzip,
-  le JavaScript, les styles et le JSON de plus de 1 Ko : le script de l'interface passe d'environ 1 Mo à 270 Ko (40 ms
-  de calcul). Les fichiers de `/assets`, dont le nom change à chaque version, sont gardés un an par le navigateur
+  le JavaScript, les styles et le JSON de plus de 1 Ko. L'interface est découpée par écran (`client/src/App.tsx`) :
+  la première ouverture charge la coque, React et les icônes (environ 450 Ko, 140 Ko compressés) puis l'écran
+  affiché ; les autres écrans et les dialogues suivent à la demande, et React et les icônes, qui changent rarement,
+  restent en cache d'une version à l'autre. Les fichiers de `/assets`, dont le nom change à chaque version, sont gardés un an par le navigateur
   (`Cache-Control: public, max-age=31536000, immutable`) ; `index.html` est revalidé à chaque ouverture (`no-cache`),
   pour qu'une mise à jour soit vue aussitôt ; l'API n'est jamais mise en cache (`no-store`). Vérification :
   `curl -sI -H 'Accept-Encoding: br' https://cursus.example.fr/assets/<fichier .js de dist/assets> | grep -iE 'content-encoding|cache-control'`.
+- Performances (`npm run mesure`, base temporaire de 100 salariés sur 3 ans : 15 000 feuilles, 4 300 absences) :
+  instantané complet du service RH d'environ 7 Mo en JSON (une centaine à quelques centaines de Ko compressés), 1 Mo
+  pour un manager, 100 Ko pour un collaborateur ; `/api/data` en 0,25 s, saisie d'une cellule d'heures en 0,4 à 0,5 s
+  (la base est relue avant l'action et l'instantané renvoyé après). Suffisant pour l'effectif prévu ; si ces durées
+  doublent (plus de salariés, d'années), le chargement par périmètre est l'étape suivante (`docs/ARCHITECTURE.md`).
+- Dépendances : Dependabot (`.github/dependabot.yml`) propose chaque lundi les mises à jour des paquets npm, des
+  actions de la vérification automatique et de l'image `node:22-slim` (mineures et correctifs regroupés). Le service
+  informatique examine et accepte ces demandes une fois la vérification passée ; `npm run audit` (failles connues des
+  dépendances de production, bloquant à partir de « high ») s'exécute aussi sur la machine, avant une mise à jour.
 - Certificat : renouvelé automatiquement (Caddy ou minuteur certbot) ; vérifier l'échéance une fois
   par trimestre.
 - Changer la clé Keystone : nouvelle valeur dans `/etc/cursus/cursus.env`, `systemctl restart

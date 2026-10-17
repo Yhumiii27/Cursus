@@ -78,6 +78,11 @@ export interface Poste extends Exigences {
   id: number; nom: string; archive?: ISODate | null;
   /** Poste à risques particuliers : ses titulaires relèvent du suivi individuel renforcé (art. R4624-23). */
   sir?: boolean;
+  /**
+   * Poste exposé à des risques particuliers (agents chimiques dangereux, CMR, ATEX…) : visite post-exposition ou de fin de
+   * carrière de ses titulaires à leur sortie (art. L4624-2-1, shared/rules/visites-dues.ts).
+   */
+  expose?: boolean;
 }
 /** `exigences` : formations et habilitations exigées de tous ses membres (null : aucune). */
 export interface Equipe { nom: string; managerId: number | null; ordre: number; exigences?: Exigences | null }
@@ -123,8 +128,11 @@ export interface Restriction { texte: string; jusquau: ISODate | null }
  * adaptée (travailleur de nuit ou handicapé, art. R4624-17 et R4624-20), suivi individuel renforcé (SIR, art. R4624-23).
  */
 export type SuiviMedical = 'vip' | 'vip_adapte' | 'sir';
-/** Motif d'une demande de visite au service de prévention et de santé au travail. */
-export type MotifVisite = 'periodique' | 'embauche' | 'reprise' | 'employeur';
+/**
+ * Motif d'une demande de visite au service de prévention et de santé au travail ; mi-carrière (art. L4624-2-2) et fin de
+ * carrière ou post-exposition (art. L4624-2-1) : visites dues à un événement (shared/rules/visites-dues.ts).
+ */
+export type MotifVisite = 'periodique' | 'embauche' | 'reprise' | 'employeur' | 'mi_carriere' | 'fin_carriere';
 /**
  * Demande de visite médicale du service RH : en cours (`demandee`) jusqu'à la saisie de la visite (`realisee`,
  * datée du jour de la visite) ou son annulation. Réservée au service RH et à l'intéressé.
@@ -238,10 +246,19 @@ export interface Employe {
   prochaineVisite?: ISODate | null;
   examenAptitude?: ISODate | null;
   /**
+   * Salarié exposé à des risques particuliers, coché par le service RH avec le type de suivi (`medical.suivi`) : visite
+   * post-exposition ou de fin de carrière à sa sortie (shared/rules/visites-dues.ts). Service RH et intéressé seulement.
+   */
+  expose?: boolean | null;
+  /**
    * Remplace `visite` et `avis` dans les vues manager et des profils restreints de l'espace RH : seul le verdict est
    * transmis (aptitude valide ou non, avis), avec les restrictions en vigueur recopiées telles qu'écrites, sans date de visite.
    */
-  aptitude?: { ok: boolean; avis?: AvisMedical | null; restrictions?: Restriction[] };
+  aptitude?: {
+    ok: boolean; avis?: AvisMedical | null; restrictions?: Restriction[];
+    /** Visite due à un événement, échue ou sous l'horizon d'alerte (shared/rules/visites-dues.ts) : ni motif, ni date. */
+    aProgrammer?: boolean;
+  };
   passeport: Passeport | null;
   certs: Certification[];
   habs: HabTitre[];
@@ -525,6 +542,8 @@ export interface Settings {
   santeVipAdapteeMois: number;
   santeSirIntermediaireMois: number;
   santeSirAptitudeMois: number;
+  /** Âge de la visite de mi-carrière (art. L4624-2-2 : 45 ans à défaut d'accord de branche ; shared/rules/visites-dues.ts). */
+  santeMiCarriereAge: number;
   /** Formations (shared/rules/formations-temps.ts) : heures des sessions proposées dans la feuille de temps des inscrits. */
   formationsTemps: boolean;
 }

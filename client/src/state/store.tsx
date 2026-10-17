@@ -14,7 +14,7 @@ import { VUES_COMMUNES, vuesDe, type ALLOWED_VIEWS, type HabMesureAction } from 
 import { mondayOf } from '../../../shared/dates.ts';
 import type { FormaliteKind, UiIntent } from '../../../shared/domain.ts';
 import type { ReferentielId } from '../../../shared/rules/referentiels.ts';
-import type { CompteSession, Dataset, EntretienType, ISODate, PlanStatut, ProfilRh, Role, VaccinId } from '../../../shared/types.ts';
+import type { CompteSession, Dataset, EntretienType, ISODate, MotifVisite, PlanStatut, ProfilRh, Role, VaccinId } from '../../../shared/types.ts';
 import { api, lienMicrosoft, surSessionExpiree, type ActionResponse, type ApiError, type SessionState } from '../api.ts';
 import { AppelsEnCours, cleAction } from './actions.ts';
 import type { Confirmation } from './confirmations.ts';
@@ -68,7 +68,7 @@ export type DialogState =
   | { type: 'fo'; empId?: number | null; kind?: FormaliteKind; dest?: string; v?: VaccinId }
   | { type: 'detachement'; id: number }
   | { type: 'tripModifier'; id: number }
-  | { type: 'visite'; empId: number }
+  | { type: 'visite'; empId: number; motif?: MotifVisite }
   | { type: 'avis'; empId: number }
   | { type: 'suivi'; empId: number }
   | { type: 'reqForm'; f?: string; sessionId?: number | null; empId?: number | null }
@@ -459,7 +459,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       case 'openPlan': setDialog({ type: 'plan', empId: intent.empId, certId: intent.certId }); break;
       case 'goFormation': go('formations', { formationFilter: intent.f }); break;
       // Demande de visite : motif choisi, puis demande imprimable pour le service de santé au travail.
-      case 'medical': setDialog({ type: 'visite', empId: intent.empId }); break;
+      case 'medical': setDialog({ type: 'visite', empId: intent.empId, motif: intent.motif }); break;
       case 'openFormalite': setDialog({ type: 'fo', empId: intent.empId, kind: intent.kind, dest: intent.dest, v: intent.v }); break;
       case 'openCloture': setDialog({ type: 'cloture', sessionId: intent.sessionId }); break;
       // Habilitation exigée jamais délivrée : titre demandé, « en attente » de délivrance, qui ne se retire pas (confirmé).

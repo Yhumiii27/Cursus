@@ -74,6 +74,9 @@ export function relancesDues(d: Domain, emps: EmpX[], paliers: readonly number[]
       if (x.label === 'Avis d’inaptitude') continue;
       // Examen d'aptitude du suivi renforcé jamais enregistré : relancé comme échu tant qu'il manque, sous une clé à part.
       if (x.label === EXAMEN_REQUIS) { ajouter({ ...base, cle: `med:${x.emp.id}:examen`, categorie: 'visite', libelle: 'Examen médical d’aptitude à programmer', sante: true }, true); continue; }
+      // Visite due à un événement (embauche, reprise, mi-carrière, fin de carrière : shared/rules/visites-dues.ts), relancée
+      // par paliers sous une clé par motif ; l'e-mail ne la nomme pas (une visite de reprise trahirait un arrêt).
+      if (x.motifVisite) { ajouter({ ...base, cle: `med:${x.emp.id}:${x.motifVisite}:${echeance}`, categorie: 'visite', libelle: 'Visite médicale à programmer', sante: true }); continue; }
       ajouter({ ...base, cle: `med:${x.emp.id}:${x.sansDate ? 'sans-date' : echeance}`, categorie: 'visite', libelle: x.sansDate ? 'Visite médicale non enregistrée' : 'Visite médicale', sante: true }, !!x.sansDate);
     } else if (x.kind === 'exigence') {
       // Exigence du poste ou de l'équipe jamais obtenue : sans date, relancée comme échue tant qu'elle manque.

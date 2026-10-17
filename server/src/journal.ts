@@ -282,12 +282,12 @@ export const REGLES: Record<string, Regle> = {
   // Postes et exigences (aucune donnée personnelle) : identifiant du poste, intitulé et codes exigés avant et après ; la
   // ligne est rattachée aux salariés qui deviennent non conformes (le message en nomme).
   'referentiel.poste.enregistrer': {
-    extra: p => ({ id: Number(p.id) || null }), cible: parId('postes', ['nom', 'formations', 'habilitations', 'sir']), salaries: (_p, x) => salariesTouches(x),
+    extra: p => ({ id: Number(p.id) || null }), cible: parId('postes', ['nom', 'formations', 'habilitations', 'sir', 'expose']), salaries: (_p, x) => salariesTouches(x),
     // Création : le poste créé, lu après l'action.
     bilan: (p, x) => {
       if (Number(p.id)) return {};
       const cree = x.db.get<Ligne>('postes', Number((x.result as { id?: number } | null)?.id));
-      return cree ? { id: cree.id, apres: { nom: cree.nom, formations: cree.formations, habilitations: cree.habilitations, ...(cree.sir ? { sir: true } : {}) } } : {};
+      return cree ? { id: cree.id, apres: { nom: cree.nom, formations: cree.formations, habilitations: cree.habilitations, ...(cree.sir ? { sir: true } : {}), ...(cree.expose ? { expose: true } : {}) } } : {};
     },
   },
   'referentiel.poste.archiver': { extra: p => ({ id: Number(p.id) || null, retablir: p.archive === false }), cible: parId('postes', ['archive']) },

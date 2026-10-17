@@ -17,7 +17,8 @@ export const TABLES = {
   // `secu` : formalité de sécurité sociale du détachement (null : déduite du code pays, shared/constants.ts).
   destinations: { pk: 'code', cols: { code: 'text', pays: 'text', visa: 'text', visaSub: 'text', oblig: 'json', rec: 'json', passMois: 'int', secu: 'text', archive: 'text' } },
   // Postes et formations ou habilitations exigées (shared/rules/exigences.ts) ; `exigences` d'une équipe : communes à ses membres.
-  postes: { pk: 'id', auto: true, cols: { id: 'int', nom: 'text', formations: 'json', habilitations: 'json', archive: 'text', sir: 'bool' } },
+  // `expose` : poste exposé à des risques particuliers (visite post-exposition à la sortie, shared/rules/visites-dues.ts).
+  postes: { pk: 'id', auto: true, cols: { id: 'int', nom: 'text', formations: 'json', habilitations: 'json', archive: 'text', sir: 'bool', expose: 'bool' } },
   equipes: { pk: 'nom', cols: { nom: 'text', managerId: 'int', ordre: 'int', exigences: 'json' } },
   projets: { pk: 'code', cols: { code: 'text', nom: 'text', statut: 'text' } },
   chantiers: { pk: 'id', cols: { id: 'text', nom: 'text', client: 'text', lieu: 'text', pays: 'text', debut: 'text', fin: 'text', chef: 'text', habs: 'json', certs: 'json', ressources: 'json', statut: 'text' } },
@@ -32,6 +33,8 @@ export const TABLES = {
       avis: 'text', restrictions: 'json',
       // Suivi médical (shared/rules/suivi-medical.ts) : type saisi, prochaine visite fixée par le médecin, dernier examen d'aptitude.
       suivi: 'text', prochaineVisite: 'text', examenAptitude: 'text',
+      // Salarié exposé à des risques particuliers (`medical.suivi`) : visite post-exposition à la sortie (visites-dues.ts).
+      expose: 'bool',
       // Matricule du dossier de paie (Sage) : unique, contrôlé par le serveur (une réembauche confirmée le réutilise).
       matriculePaie: 'text',
       // Sortie enregistrée par le service RH (`employe.sortie`) : motif, et fin prévue au contrat rétablie si elle est annulée.

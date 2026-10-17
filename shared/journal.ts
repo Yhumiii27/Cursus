@@ -285,7 +285,9 @@ export const CHAMP_LABEL: Record<string, string> = {
   // Suivi médical : périodicités (Paramètres → Santé), case « suivi individuel renforcé » des habilitations et des postes.
   santeVipMois: 'Périodicité de la visite d’information et de prévention (mois)', santeVipAdapteeMois: 'Périodicité de la VIP adaptée (mois)',
   santeSirIntermediaireMois: 'Suivi renforcé : visite intermédiaire (mois)', santeSirAptitudeMois: 'Suivi renforcé : examen d’aptitude (mois)',
+  santeMiCarriereAge: 'Âge de la visite de mi-carrière',
   sir: 'Suivi individuel renforcé',
+  expose: 'Exposé à des risques particuliers',
 };
 
 const valeur = (v: unknown): string => {

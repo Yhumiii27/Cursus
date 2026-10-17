@@ -55,22 +55,27 @@ function fresh() {
   return { db, run, domain, emp, echeance, verdict, motifs, chantier, envoyes, demandes, titre };
 }
 const refus = (re: RegExp, status = 400) => (e: unknown) => e instanceof ActionError && e.status === status && re.test(e.message);
+const jour = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 // — t056 : échéance d'aptitude médicale —
 
 test('t056 : l’aptitude médicale a son échéance (type Visite médicale), avec action, et compte dans le statut', () => {
   const { db, domain, emp, echeance } = fresh();
   const d = domain(), ech = d.echeances(d.enrich(90, false), 90).filter(x => x.kind === 'med');
-  assert.equal(ech.length, 24, 'une échéance d’aptitude par collaborateur');
+  // Une échéance d'aptitude par collaborateur, celle de Bastien Morel (aucune visite) remplacée par sa visite d'embauche ;
+  // visites dues à un événement en plus (shared/rules/visites-dues.ts, tests/visites-dues.test.ts).
+  assert.equal(ech.filter(x => !x.motifVisite).length, 23);
+  assert.deepEqual(ech.filter(x => x.motifVisite).map(x => [x.emp.id, x.motifVisite]), [[3, 'mi_carriere'], [19, 'reprise'], [23, 'mi_carriere'], [24, 'embauche']]);
 
   // Thomas Garnier : visite du 20 août 2024, aptitude échue le 20 août 2026.
   const thomas = echeance(6)!;
   assert.deepEqual([thomas.kindLabel, thomas.label, thomas.statut, thomas.key, thomas.exp.getTime(), thomas.d], ['Visite médicale', 'Aptitude médicale', 'Échue', 'exp', new Date(2026, 7, 20).getTime(), -51]);
   assert.deepEqual(thomas.action, { label: 'Demander la visite', intent: { type: 'medical', empId: 6 } });
-  // Bastien Morel : aucune visite enregistrée, visite d'embauche déjà demandée (jeu de démonstration).
+  // Bastien Morel : aucune visite enregistrée, entré le 1er sept. 2025 : visite d'embauche dépassée depuis le 1er déc. 2025,
+  // déjà demandée (jeu de démonstration).
   const bastien = echeance(24)!;
-  assert.deepEqual([bastien.label, bastien.statut, bastien.key, bastien.sansDate, bastien.planned, bastien.plannedLabel, bastien.action],
-    ['Visite médicale non renseignée', 'Non renseignée', 'exp', true, true, 'Visite demandée le 5 oct.', null]);
+  assert.deepEqual([bastien.label, bastien.statut, bastien.key, !!bastien.sansDate, jour(bastien.exp), bastien.planned, bastien.plannedLabel, bastien.action],
+    ['Visite d’embauche', 'Dépassée', 'exp', false, '2025-12-01', true, 'Visite demandée le 5 oct.', null]);
   assert.equal(emp(24).worst, 'exp', 'collaborateur sans visite : non conforme');
 
   // Fatou Ndiaye n'a aucune habilitation : son aptitude compte quand même dans le statut.

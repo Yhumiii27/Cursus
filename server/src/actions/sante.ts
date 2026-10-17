@@ -7,6 +7,7 @@ import { fmt, plural } from '../../../shared/format.ts';
 import { horsContratLe } from '../../../shared/rules/contrats.ts';
 import { controlerAvis, estMotifVisite, motifParDefaut, suspendueParAvis } from '../../../shared/rules/sante.ts';
 import { estSuiviMedical, SUIVIS_MEDICAUX } from '../../../shared/rules/suivi-medical.ts';
+import { visitesDues } from '../../../shared/rules/visites-dues.ts';
 import type { DemandeVisite, Employe, HabTitre, HabType, SuiviMedical } from '../../../shared/types.ts';
 import { transmettreDemandeVisite } from '../notifications.ts';
 import { signaler } from './conformite.ts';
@@ -26,7 +27,9 @@ const demanderVisite: ActionHandler = (ctx, p) => {
   if (hors) throw new ActionError(hors);
   const encours = ctx.d.demandeVisite(emp.id);
   if (encours) throw new ActionError(`Visite déjà demandée le ${fmt(parse(encours.le))} pour ${emp.nom}`);
-  const motif = p.motif == null || p.motif === '' ? motifParDefaut(emp) : p.motif;
+  // Sans motif : celui de la visite due la plus proche (embauche, reprise, mi-carrière, fin de carrière), sinon embauche
+  // ou renouvellement.
+  const motif = p.motif == null || p.motif === '' ? motifParDefaut(emp, visitesDues(ctx.d, emp)) : p.motif;
   if (!estMotifVisite(motif)) throw new ActionError('Motif de visite inconnu');
   const x = ctx.db.insert<DemandeVisite>('demandesVisite', { empId: emp.id, motif, le: ctx.d.ti, par: ctx.user.nom, statut: 'demandee', closeLe: null, closePar: null });
   const envoyee = transmettreDemandeVisite(ctx, emp, x);
@@ -106,19 +109,22 @@ const enregistrerAvis: ActionHandler = (ctx, p) => {
 /**
  * Type de suivi médical saisi sur la fiche (service RH) : VIP, VIP adaptée ou suivi individuel renforcé ; vide : VIP par
  * défaut. Une habilitation ou un poste marqués « SIR » au référentiel placent le salarié en suivi renforcé quel que soit
- * le type saisi (shared/rules/suivi-medical.ts). Donnée réservée au service RH et à l'intéressé : ni le manager, ni le
- * journal ne la reçoivent.
+ * le type saisi (shared/rules/suivi-medical.ts). `expose` (facultatif ; absent : inchangé) : salarié exposé à des risques
+ * particuliers, visite post-exposition ou de fin de carrière à sa sortie (shared/rules/visites-dues.ts). Données réservées
+ * au service RH et à l'intéressé : ni le manager, ni le journal ne les reçoivent.
  */
 const suiviMedical: ActionHandler = (ctx, p) => {
   requireRh(ctx);
   const emp = getEmp(ctx, p.empId);
   const recu: unknown = p.suivi == null || p.suivi === '' ? null : p.suivi;
   if (recu !== null && !estSuiviMedical(recu)) throw new ActionError('Type de suivi inconnu : VIP, VIP adaptée ou suivi individuel renforcé');
+  if (p.expose !== undefined && typeof p.expose !== 'boolean') throw new ActionError('Exposition à des risques particuliers : oui ou non');
   const suivi = recu as SuiviMedical | null;
-  if ((emp.suivi ?? null) === suivi) return `Type de suivi médical inchangé — ${emp.nom}`;
-  ctx.db.update('employes', emp.id, { suivi });
+  const expose = p.expose === undefined ? !!emp.expose : p.expose as boolean;
+  if ((emp.suivi ?? null) === suivi && !!emp.expose === expose) return `Type de suivi médical inchangé — ${emp.nom}`;
+  ctx.db.update('employes', emp.id, { suivi, expose });
   const { keystone } = signaler(ctx, emp);
-  return `Type de suivi médical enregistré — ${emp.nom} · ${suivi ? SUIVIS_MEDICAUX[suivi].court : 'VIP par défaut'}${keystone}`;
+  return `Type de suivi médical enregistré — ${emp.nom} · ${suivi ? SUIVIS_MEDICAUX[suivi].court : 'VIP par défaut'}${expose ? ' · exposé à des risques particuliers' : ''}${keystone}`;
 };
 
 export const santeActions: Record<string, ActionHandler> = {

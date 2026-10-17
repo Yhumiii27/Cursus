@@ -16,7 +16,7 @@ export const whoLabel = (who: EntSection[2]) => who === 'mgr' ? 'Évaluateur' : 
 /** Sections du compte rendu : celles du type d'entretien, plus « fin de carrière » à partir de 58 ans. */
 export function sectionsDe(d: Domain, x: Entretien): EntSection[] {
   const e = d.emp(x.empId);
-  return e ? [...ENT_TYPES[x.type].sections, ...(needsFinCarriere(d, e, x.type) ? [FIN_CARRIERE] : [])] : [];
+  return e ? [...ENT_TYPES[x.type].sections, ...(needsFinCarriere(d, e, x) ? [FIN_CARRIERE] : [])] : [];
 }
 
 /** Ouvre le compte rendu à imprimer ; faux si le navigateur bloque la fenêtre. */

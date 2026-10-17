@@ -195,7 +195,18 @@ export interface Employe {
    * quand aucune autorisation n'est requise), sans type, numéro ni date.
    */
   autorisationVerdict?: 'valide' | 'expiree';
+  /**
+   * Année de naissance : celle de `naissanceLe` quand la date est connue (le serveur la dérive), sinon la seule connue
+   * (fiche antérieure à la date complète). Règle à l'année du supplément de congés de la CCN (shared/rules/conges.ts).
+   */
   naissance: number;
+  /**
+   * Date de naissance complète (âge exact : shared/rules/mineurs.ts) ; null : inconnue, la règle à l'année s'applique.
+   * Service RH et intéressé seulement : retirée des vues du manager et des profils restreints (server/src/dataset.ts).
+   */
+  naissanceLe?: ISODate | null;
+  /** Remplace `naissanceLe` dans les vues du manager et des profils restreints : salarié mineur au jour de l'instantané. */
+  mineur?: boolean;
   agence: string | null;
   /**
    * Matricule du dossier de paie (Sage), saisi ou repris par le service RH : 1 à 20 lettres et chiffres, unique (sauf
@@ -431,6 +442,11 @@ export interface Entretien {
    * `telechargeLe` : premier téléchargement par le salarié lui-même, depuis son espace.
    */
   remiseLe?: ISODate | null; remiseMode?: ModeRemise | null; remisePar?: string | null; telechargeLe?: ISODate | null;
+  /**
+   * Vues sans la date de naissance (manager, profils restreints) : sections « fin de carrière » dues ou non, calculées par
+   * le serveur sur l'âge exact à la date de l'entretien (`needsFinCarriere`, shared/rules/entretiens.ts).
+   */
+  finCarriere?: boolean;
 }
 /** Remise du compte rendu : en main propre, après un refus de signer, ou mis à disposition dans le portail (lien par e-mail). */
 export type ModeRemise = 'main_propre' | 'refus' | 'portail';

@@ -271,6 +271,12 @@ résumé du manager signalent les fins d'essai (au dernier jour du délai de pr�
 d'alternance et les titres à renouveler (alertes à 120 et 60 jours, Paramètres → Contrats) ; un titre expiré rend le
 salarié non conforme et le passe en « No Go » sur les chantiers (`docs/ARCHITECTURE.md`, « Contrat et temps de travail »).
 
+La fiche porte la **date de naissance** complète (saisie, ou reprise de Lucca telle quelle) : l'âge exact décide des
+sections de fin de carrière des entretiens (58 ans à la date de l'entretien) et servira aux règles des salariés de moins
+de 18 ans. Une fiche qui n'a que l'année garde la règle à l'année ; le supplément de 5 jours de congés à 59 ans reste
+calculé sur l'année. Le manager n'en voit que l'année et l'indication « mineur » (`docs/ARCHITECTURE.md`, « Date de
+naissance et âge »).
+
 ## Règles métier implémentées
 
 Validité des certifications et seuil d'alerte (30–180 j) · prérequis des habilitations

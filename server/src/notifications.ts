@@ -275,7 +275,7 @@ export function transmettreDemandeVisite(cx: Contexte & { d: Domain }, emp: Empl
   envoyerEmail(cx.db, 'visite.demande', courriel(m, m.santeTravail, `Demande de visite médicale — ${emp.nom}`, [
     'Le service RH vous demande de convoquer le salarié ci-dessous à une visite médicale.',
     '',
-    `Salarié : ${emp.nom} (matricule ${matriculeAffiche(emp)}), né en ${emp.naissance}`,
+    `Salarié : ${emp.nom} (matricule ${matriculeAffiche(emp)}), ${emp.naissanceLe ? `né le ${fmtIso(emp.naissanceLe)}` : `né en ${emp.naissance}`}`,
     `Poste : ${emp.poste} — équipe ${equipeLabel(emp)}`,
     `Contrat : ${cx.d.contratOf(emp).libelle}, depuis le ${fmtIso(emp.entree)}`,
     '',

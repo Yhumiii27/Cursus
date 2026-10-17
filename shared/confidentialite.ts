@@ -55,7 +55,7 @@ export const INFO_CONFIDENTIALITE: readonly RubriqueConfidentialite[] = [
   {
     id: 'donnees', titre: 'Quelles données',
     points: [
-      ['Identité et contrat', 'nom, poste, équipe, manager, statut, contrat et organisation du temps, dates d’entrée et de fin, année de naissance (congés supplémentaires de la convention collective), adresse e-mail professionnelle, agence d’intérim.'],
+      ['Identité et contrat', 'nom, poste, équipe, manager, statut, contrat et organisation du temps, dates d’entrée et de fin, date de naissance (congés supplémentaires de la convention collective, entretiens de fin de carrière, règles des salariés de moins de 18 ans ; votre manager n’en voit que l’année et, le cas échéant, l’indication « mineur »), adresse e-mail professionnelle, agence d’intérim.'],
       ['Compétences', 'formations suivies, certifications, habilitations et leurs mesures (suspension, retrait).'],
       ['Santé (données sensibles)', 'date de la dernière visite médicale, avis d’aptitude et restrictions de poste ; vaccins et dates d’injection pour les déplacements. Jamais de diagnostic : seule la nature des absences pour raison de santé (arrêt, accident du travail) est connue du service RH.'],
       ['Temps et absences', 'heures par jour et par projet, motifs de dépassement, congés, absences et soldes.'],

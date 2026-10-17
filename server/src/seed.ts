@@ -125,6 +125,12 @@ const PROFILS: Record<number, Profil> = {
   24: { statut: 'ouvrier', typeContrat: 'alternance', temps: '35h', entree: '2025-09-01', fin: '2027-08-31', naissance: 2006 },
 };
 
+/** Jour et mois de naissance (date complète : shared/rules/mineurs.ts), l'année étant celle du profil. */
+const NE_LE: Record<number, string> = {
+  1: '04-17', 2: '11-02', 3: '07-23', 4: '02-09', 5: '05-30', 6: '09-12', 7: '12-05', 8: '03-21', 9: '06-14', 10: '10-28', 11: '01-07', 12: '08-19',
+  13: '04-03', 14: '12-24', 15: '07-01', 16: '02-27', 17: '09-30', 18: '05-11', 19: '11-16', 20: '03-08', 21: '06-25', 22: '10-04', 23: '01-29', 24: '08-02',
+};
+
 type C = { f: string; obtenue: string; session?: number; convoc?: 'now' };
 const EMPLOYES: { id: number; nom: string; equipe: string; poste: string; certs: C[] }[] = [
   { id: 1, nom: 'Camille Roux', equipe: 'Logistique', poste: 'Cariste', certs: [{ f: 'caces489', obtenue: '2022-03-12' }, { f: 'sst', obtenue: '2024-11-20', session: 1, convoc: 'now' }, { f: 'prap', obtenue: '2025-06-01' }] },
@@ -407,7 +413,7 @@ export function seedDemo(db: Db) {
       db.insert('employes', {
         id: e.id, nom: e.nom, equipe: e.equipe, poste: e.poste, statut: p.statut, typeContrat: p.typeContrat, temps: p.temps,
         heures: p.heures ?? null, forfaitHeures: p.forfaitHeures ?? null, forfaitJours: p.forfaitJours ?? null, jourOff: p.jourOff ?? [],
-        entree: p.entree, fin: p.fin ?? null, naissance: p.naissance, agence: p.agence ?? null, matriculePaie: matriculePaieDemo(e.id, p.typeContrat),
+        entree: p.entree, fin: p.fin ?? null, naissance: p.naissance, naissanceLe: `${p.naissance}-${NE_LE[e.id]}`, agence: p.agence ?? null, matriculePaie: matriculePaieDemo(e.id, p.typeContrat),
         // Chacun a une adresse professionnelle (décision de l'entreprise) ; Karim Haddad reçoit un récapitulatif quotidien.
         email: identifiantSuggere(e.nom, 'microsoft', DOMAINE_DEMO), notifications: e.id === 12 ? 'quotidien' : 'immediat',
         repriseMotif: p.reprise?.motif ?? null, repriseDate: p.reprise?.date ?? null, visite: x.visite ?? null,

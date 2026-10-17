@@ -55,7 +55,7 @@ const modifier: ActionHandler = (ctx, p) => {
   // d'une copie sur papier, qui fait foi (main propre, refus de signer : shared/rules/remise.ts).
   const canSal = !x.signSal && !remisePhysique(x) && ctx.user.role === 'collaborateur' && ctx.user.empId === e.id;
   if (p.section) {
-    const sections = [...ENT_TYPES[x.type].sections, ...(needsFinCarriere(ctx.d, e, x.type) ? [['fincarriere', '', 'sal'] as const] : [])];
+    const sections = [...ENT_TYPES[x.type].sections, ...(needsFinCarriere(ctx.d, e, x) ? [['fincarriere', '', 'sal'] as const] : [])];
     const sec = sections.find(s => s[0] === p.section);
     if (!sec) throw new ActionError('Section inconnue');
     const allowed = sec[2] === 'mgr' ? canMgr : canSal || canMgr;

@@ -103,7 +103,15 @@ export interface Referentiels {
 
 // — Collaborateurs —
 /** `convocLe` : date d'envoi de la dernière convocation à la session (e-mail avec fichier .ics). */
-export interface Certification { id: number; empId: number; f: string; obtenue: ISODate; sessionId: number | null; convoc: 'now' | 'later' | null; convocLe: ISODate | null }
+export interface Certification { id: number; empId: number; f: string; obtenue: ISODate; sessionId: number | null; convoc: 'now' | 'later' | null; convocLe: ISODate | null;
+  /**
+   * Correction d'une saisie erronée (shared/rules/corrections.ts) : dernière modification (`cert.modifier`) et annulation
+   * (`cert.annuler`), datées, signées et motivées. Une certification annulée reste en base mais hors de tous les calculs :
+   * elle n'est transmise qu'au service RH, dans `Employe.certsAnnulees`. Les motifs (texte libre) restent au service RH.
+   */
+  corrigeLe?: ISODate | null; corrigePar?: string | null; corrigeMotif?: string | null;
+  annuleLe?: ISODate | null; annulePar?: string | null; annuleMotif?: string | null;
+}
 /** Mesure prise sur un titre après un incident ou une restriction : suspension (réversible) ou retrait (définitif). */
 export type HabMesure = 'suspension' | 'retrait';
 export interface HabTitre {
@@ -244,6 +252,8 @@ export interface Employe {
   aptitude?: { ok: boolean; avis?: AvisMedical | null; restrictions?: Restriction[] };
   passeport: Passeport | null;
   certs: Certification[];
+  /** Certifications annulées (saisie erronée, `cert.annuler`) : service RH seulement (vide ailleurs, server/src/dataset.ts). */
+  certsAnnulees?: Certification[];
   habs: HabTitre[];
   visas: Visa[];
   vaccins: Vaccination[];
@@ -292,6 +302,12 @@ export interface PlanAction {
   effectifReel?: number | null;
   /** Action reportée : action de l'exercice clos dont elle reprend la ligne (`plan.cloturerExercice`). */
   reportDe?: number | null;
+  /**
+   * Correction (`plan.modifier`) et suppression (`plan.supprimer`, demande rouverte) d'une ligne saisie par erreur : datées,
+   * signées et motivées. Une ligne supprimée reste en base, hors de l'instantané et de tous les calculs (server/src/dataset.ts).
+   */
+  corrigeLe?: ISODate | null; corrigePar?: string | null; corrigeMotif?: string | null;
+  annuleLe?: ISODate | null; annulePar?: string | null; annuleMotif?: string | null;
 }
 /** Exercice du plan de formation clos (`plan.cloturerExercice`) : plan et enveloppes en lecture seule. */
 export interface ExerciceClos { exercice: number; le: ISODate; par: string }
@@ -459,9 +475,25 @@ export interface Entretien {
 /** Remise du compte rendu : en main propre, après un refus de signer, ou mis à disposition dans le portail (lien par e-mail). */
 export type ModeRemise = 'main_propre' | 'refus' | 'portail';
 /** Demande au service RH, émise par le collaborateur ou par son manager (`parId`). */
-export interface DemandeCollab { id: number; empId: number; type: DemandeType; f: string | null; h: string | null; libelle: string | null; label: string | null; sessionId: number | null; motif: string | null; date: ISODate; statut: DemandeStatut; reponse: string | null; parId: number | null; declaration: Declaration | null;
+export interface DemandeCollab { id: number; empId: number; type: DemandeType; f: string | null; h: string | null; libelle: string | null; label: string | null; sessionId: number | null; motif: string | null; date: ISODate;
+  /** `retiree` : retirée par son auteur tant qu'elle était en attente (`demande.annuler`). */
+  statut: DemandeStatut | 'retiree';
+  reponse: string | null; parId: number | null; declaration: Declaration | null;
   /** Demande refusée : motif donné par le service RH, montré au collaborateur. */
   motifRefus?: string | null;
+  /** Ce que l'acceptation a créé (`demande.accepter`), défait par la réouverture : identifiants seulement. */
+  suite?: SuiteDemande | null;
+  /** Dernière réouverture par le service RH (`demande.reouvrir`) : le motif (texte libre) reste au service RH. */
+  rouverteLe?: ISODate | null; rouvertePar?: string | null; rouverteMotif?: string | null;
+}
+/**
+ * Suite donnée à une demande acceptée : inscription à la session souhaitée (recyclage `certId` ou formation initiale
+ * `inscriptionId`, `depuis` : session quittée pour elle ; `cree` : inscription créée), ligne ajoutée au plan de formation
+ * (`planId`), ou titre d'habilitation en attente de délivrance (`habTitreId`, `cree` : titre créé par l'acceptation,
+ * sinon demande inscrite sur un titre retiré ou expiré). Vide : l'acceptation n'a rien créé (déjà inscrit, titre déjà en attente).
+ */
+export interface SuiteDemande {
+  sessionId?: number; certId?: number; inscriptionId?: number; depuis?: number | null; planId?: number; habTitreId?: number; cree?: boolean;
 }
 /**
  * Formalité déclarée par le collaborateur (demande « document ») : conservée dans la demande

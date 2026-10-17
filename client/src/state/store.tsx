@@ -58,7 +58,8 @@ const INITIAL_UI: UiState = {
 /** Dialogues ouverts depuis plusieurs écrans — rendus par <DialogHost />. */
 export type DialogState =
   | { type: 'plan'; empId: number; certId?: number; inscriptionId?: number }
-  | { type: 'cert'; empId: number }
+  /** `certId` : correction d'une certification saisie par erreur (`cert.modifier`). */
+  | { type: 'cert'; empId: number; certId?: number }
   | { type: 'session'; f?: string; planId?: number; places?: number; sessionId?: number }
   | { type: 'sessionDetail'; sessionId: number }
   | { type: 'cloture'; sessionId: number }
@@ -91,6 +92,8 @@ export type DialogState =
   | { type: 'ent'; entId: number }
   | { type: 'entRemise'; entId: number }
   | { type: 'planRealiser'; id: number }
+  /** Correction d'une ligne du plan de formation saisie par erreur (`plan.modifier`). */
+  | { type: 'planLigne'; id: number }
   | { type: 'exerciceCloture'; exercice: number }
   | { type: 'tripImport' }
   | { type: 'planImport'; exercice: number }

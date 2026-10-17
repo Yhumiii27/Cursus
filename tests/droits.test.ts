@@ -53,9 +53,11 @@ const H0 = [0, 0, 0, 0, 0, 0, 0], H7 = [7, 7, 7, 7, 7, 0, 0];
 const feuille = (statut: string, h = H0) => db.insert('feuilles', {
   empId: 2, week: WEEK, statut, comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-MAINT', tache: 'Maintenance interne', ks: false, h }],
 });
-const demande = (h: string) => db.insert<{ id: number }>('demandesCollab', {
-  empId: 2, type: 'habilitation', f: null, h, libelle: null, label: null, sessionId: null, motif: 'Chantier', date: '2026-10-06', statut: 'attente', reponse: null, parId: null,
+const demande = (h: string, o: { statut?: string; parId?: number | null } = {}) => db.insert<{ id: number }>('demandesCollab', {
+  empId: 2, type: 'habilitation', f: null, h, libelle: null, label: null, sessionId: null, motif: 'Chantier', date: '2026-10-06', statut: o.statut ?? 'attente', reponse: null, parId: o.parId ?? null,
 }).id;
+/** Ligne prévue du plan, sans session rattachée (FCO de la Logistique). */
+const lignePrevue = () => (db.sql.prepare(`SELECT id FROM plan_actions WHERE statut = 'prevu' AND f = 'fco'`).get() as { id: number }).id;
 const titre = (h: string) => db.sql.prepare('SELECT id FROM hab_titres WHERE emp_id = 2 AND h = ?').get(h) as { id: number };
 const cert = (f: string) => (db.sql.prepare('SELECT id FROM certifications WHERE emp_id = 2 AND f = ?').get(f) as { id: number }).id;
 /** Poste du référentiel créé depuis les fiches de démonstration. */
@@ -132,6 +134,9 @@ const MATRICE: Ligne[] = [
     return { empId: 2, sessionId: 2 };
   } },
   { action: 'cert.ajouter', droits: '                        O    O    -    -    -    -    O    -    -', p: () => ({ empId: 2, f: 'sst', date: '2026-10-01' }) },
+  // Corrections d'une saisie erronée : modification (service RH, référent HSE), suppression (administrateur RH), motif exigé.
+  { action: 'cert.modifier', droits: '                       O    O    -    -    -    -    O    -    -', p: () => ({ id: cert('sst'), date: '2025-05-05', motif: 'Date mal saisie' }) },
+  { action: 'cert.annuler', droits: '                        O    -    -    -    -    -    -    -    -', p: () => ({ id: cert('sst'), motif: 'Saisie sur la mauvaise fiche' }) },
   { action: 'session.creer', droits: '                       O    O    -    -    -    -    O    -    -', p: () => ({ f: 'sst', date: '2026-12-01', lieu: 'Site de Lyon', places: 8 }) },
   // Sessions : cycle de vie et clôture par le service RH (session 2 : SST du 18 novembre, à confirmer).
   { action: 'session.confirmer', droits: '                   O    O    -    -    -    -    O    -    -', p: () => ({ id: 2 }) },
@@ -160,6 +165,11 @@ const MATRICE: Ligne[] = [
   { action: 'medical.suivi', droits: '                       O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, suivi: 'vip_adapte' }) },
   { action: 'demande.accepter', droits: '                    O    O    -    -    -    -    O    -    -', p: () => ({ id: demande('aipr') }) },
   { action: 'demande.refuser', droits: '                     O    O    -    -    -    -    O    -    -', p: () => ({ id: demande('aipr') }) },
+  // Demande retirée par son auteur seul (Mehdi pour la sienne, Karim pour celle qu'il a faite pour Mehdi), tant qu'elle
+  // attend ; rouverte par le service RH ou le référent HSE.
+  { action: 'demande.annuler', variante: 'collaborateur', droits: '-    -    -    -    O    -    -    -    -', p: () => ({ id: demande('aipr') }) },
+  { action: 'demande.annuler', variante: 'manager', droits: '      -    -    O    -    -    -    -    -    -', p: () => ({ id: demande('aipr', { parId: 12 }) }) },
+  { action: 'demande.reouvrir', droits: '                    O    O    -    -    -    -    O    -    -', p: () => ({ id: demande('aipr', { statut: 'refusee' }), motif: 'Refus par erreur' }) },
   // Document déclaré (passeport, visa, vaccination) : service RH seulement.
   { action: 'demande.accepter', variante: 'document', droits: 'O    O    -    -    -    -    -    -    -', p: () => ({ id: documentDeclare() }) },
   { action: 'demande.refuser', variante: 'document', droits: ' O    O    -    -    -    -    -    -    -', p: () => ({ id: documentDeclare() }) },
@@ -224,6 +234,9 @@ const MATRICE: Ligne[] = [
   { action: 'plan.importer', variante: 'compléter', droits: 'O    O    -    -    -    -    -    -    -', p: () => ({ texte: SAMPLE_PLAN_CSV, exercice: 2027, mode: 'add' }) },
   { action: 'plan.importer', variante: 'remplacer', droits: 'O    -    -    -    -    -    -    -    -', p: () => ({ texte: SAMPLE_PLAN_CSV, exercice: 2026, mode: 'replace' }) },
   { action: 'budget.enveloppes', droits: '                   O    O    -    -    -    -    -    -    -', p: () => ({ exercice: 2027, enveloppes: { Maintenance: 5000 } }) },
+  // Ligne du plan saisie par erreur : correction (service RH), suppression (administrateur RH).
+  { action: 'plan.modifier', droits: '                       O    O    -    -    -    -    -    -    -', p: () => ({ id: lignePrevue(), periode: 'T3', motif: 'Trimestre erroné' }) },
+  { action: 'plan.supprimer', droits: '                      O    -    -    -    -    -    -    -    -', p: () => ({ id: lignePrevue(), motif: 'Doublon de l’import' }) },
   { action: 'plan.avancer', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ id: (db.sql.prepare(`SELECT id FROM plan_actions WHERE statut <> 'realise' LIMIT 1`).get() as { id: number }).id, coutReel: 1000 }) },
   // Clôture de l'exercice 2026 (administrateur RH), une fois passé, avec le report d'une action engagée sur 2027.
   { action: 'plan.cloturerExercice', droits: '               O    -    -    -    -    -    -    -    -', env: { CURSUS_TODAY: '2027-01-05' }, p: () => ({ exercice: 2026, reporter: [(db.sql.prepare(`SELECT id FROM plan_actions WHERE statut = 'engage' LIMIT 1`).get() as { id: number }).id] }) },

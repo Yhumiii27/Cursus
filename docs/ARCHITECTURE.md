@@ -634,6 +634,8 @@ aucun champ du paramètre n'est recopié.
 | `convocation.envoyer` | sessionId, empIds? (sans liste : toutes les convocations « à envoyer » ; avec : envoi ou renvoi) ; session à venir ; e-mail avec `.ics`, date d'envoi `convocLe` | RH, référent HSE ; manager direct pour les membres de son équipe |
 | `plan.desinscrire` | empId, sessionId (session à venir) : place libérée, recyclage de nouveau à planifier ou inscription initiale retirée, convocation reçue (même remise « à renvoyer ») annulée par e-mail | RH, référent HSE, manager direct |
 | `cert.ajouter` | empId, f, date | RH, référent HSE |
+| `cert.modifier` | id, f?, date? (pas future), motif (obligatoire, 500 caractères ; `corrigeMotif`, service RH seul) ; refusée si une habilitation délivrée s'appuie sur elle sans autre certification valide (la suspendre d'abord) ; nouvelle formation : session ouverte quittée (convocation annulée par e-mail), résultat de clôture détaché, inscription initiale à la nouvelle close ; une certification devenue remplacée libère sa place | RH, référent HSE (jamais la sienne) |
+| `cert.annuler` | id, motif (obligatoire) : `annuleLe`, `annulePar`, `annuleMotif` ; gardée en base, hors de tous les calculs (la précédente redevient en vigueur), place de session libérée, résultat de clôture détaché ; même refus que `cert.modifier` | administrateur RH (jamais la sienne) |
 | `session.creer` | f, date (premier jour, postérieur à aujourd’hui), fin? (dernier jour, la date par défaut ; 92 jours au plus après), jours? (dates entre les deux, premier et dernier compris, 20 au plus ; ouvrés par défaut), horaires? ([] : journées entières ; un seul {debut, fin, pause} pour tous les jours, ou un par jour), lieu, places (entier ≥ 1), planId? (action « prévue » de la même formation) | RH, référent HSE |
 | `session.confirmer` | id | RH, référent HSE |
 | `session.modifier` | id, date? (postérieure à aujourd’hui ; session passée, à clôturer : aussi une date passée ; seule, la plage est décalée d’autant), fin?, jours?, horaires? (comme `session.creer` ; nouveau dernier jour sans jours : jours ouvrés), lieu?, places? (≥ inscrits) | RH, référent HSE |
@@ -659,6 +661,8 @@ aucun champ du paramètre n'est recopié.
 | `medical.avis` | empId, date (passée), avis (`apte`/`restrictions`/`inapte`), restrictions [{texte, jusquau?}] (avis avec restrictions), prochaineVisite? (fixée par le médecin, après la visite, 5 ans au plus ; ignorée pour un avis d’inaptitude), examen? (examen médical d’aptitude du suivi renforcé), suspendre [h]?, lever [h]? | RH (suspensions « Restriction d’aptitude » ; levée des seules suspensions d’un avis précédent, jamais pour un avis d’inaptitude) |
 | `medical.suivi` | empId, suivi (`vip`/`vip_adapte`/`sir`, vide : VIP par défaut) | RH (un suivi renforcé déduit du référentiel prime) |
 | `demande.accepter` / `demande.refuser` | id ; refus : motif? (500 caractères, `motifRefus`, montré au collaborateur seul, même quand son manager a fait la demande) ; acceptation refusée quand la formation ou l'habilitation demandée a été archivée depuis (à refuser, ou à rétablir d'abord) | RH ; référent HSE pour une demande de formation ou d'habilitation (document déclaré : RH) |
+| `demande.annuler` | id : demande de formation ou d'habilitation en attente, passée « retirée » | son auteur : le collaborateur pour la sienne, le manager pour celle qu'il a faite pour un membre de son équipe |
+| `demande.reouvrir` | id, motif (obligatoire ; `rouverteMotif`, service RH seul) : demande de formation ou d'habilitation acceptée ou refusée, de nouveau « en attente » ; ce que l'acceptation a créé (`suite`) est défait : inscription à la session (convocation annulée par e-mail, session quittée retrouvée), ligne du plan prévue supprimée, titre en attente retiré ou demande effacée du titre ; refus si la session a commencé ou est clôturée, la ligne engagée, l'exercice clos, l'habilitation délivrée depuis | RH, référent HSE (jamais la sienne) |
 | `demande.formation` | f (ou `autre`), libelle, sessionId, motif, empId (manager) ; refusée si une demande identique attend (même formation, ou même intitulé hors catalogue), si le salarié est déjà inscrit à une session à venir, ou absent le jour de la session souhaitée | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `demande.habilitation` | h, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `voyage.creer` | empId, dest, depart, retour, motif ; refusé s'il chevauche un autre déplacement ou une absence en vigueur | RH |
@@ -671,6 +675,8 @@ aucun champ du paramètre n'est recopié.
 | `plan.importer` | texte, exercice, mode (`add`/`replace`) ; exercice clos refusé | RH ; `replace` (supprime les lignes prévues d'origine `import` ; celles issues d'une demande, d'un report ou sans origine sont conservées) : administrateur RH |
 | `budget.enveloppes` | exercice, enveloppes {équipe: montant} ; exercice clos refusé | RH |
 | `plan.avancer` | id, de? (statut affiché : déjà dépassé, rien n'est refait ; revenu à « prévue », refus), coutReel (vers « réalisé », exigé : euros, 0 accepté), effectifReel? ; exercice clos ou action reportée refusés | RH |
+| `plan.modifier` | id, f? (vide : hors catalogue), libelle?, equipe?, periode? (`T1`…`T4`), effectif? (1 à 1 000), cout? (0 à 1 000 000 €), motif (obligatoire) ; ligne prévue ou engagée d'un exercice ouvert ; une session ouverte rattachée fige la formation | RH |
+| `plan.supprimer` | id, motif (obligatoire) : ligne prévue ou engagée d'un exercice ouvert, sans session ouverte rattachée (l'annuler d'abord) ; gardée en base (`annuleLe`…), hors de l'instantané et des sommes | administrateur RH |
 | `plan.cloturerExercice` | exercice (passé et ouvert : jamais l'exercice en cours), reporter [id] (actions prévues ou engagées à reporter sur l'exercice suivant) | administrateur RH |
 | `temps.setCell` | empId, week, li, di (0 = lundi … 5 = samedi, 6 = dimanche), value ; une ligne de 5 valeurs est complétée à 7 | salarié, manager direct ou RH (feuille soumise : valideur uniquement) ; aucune heure un jour d’absence validée ou signalée, ni hors contrat, vider la cellule reste possible ; pas de feuille pour une semaine hors contrat ; samedi et dimanche saisissables, repos hebdomadaire signalé sans blocage |
 | `temps.derogationDominicale` | equipe, type (`aucune`/`feu_continu`/`suppleance`), reference (exigée hors `aucune`, 120 caractères ; journal : seulement « renseignée ») : clé `derogationsDominicales` de la table settings, suit l'équipe renommée et disparaît avec l'équipe supprimée | administrateur RH |
@@ -970,6 +976,41 @@ rédige celles que `entretien.modifier` accepte. Le journal nomme `naissanceLe` 
   renouvellement est accepté ne se redemande pas (`habEnCours`).
   Le motif est un texte libre visible du manager et du collaborateur, jamais transmis à Keystone.
   Une base existante reçoit les nouvelles colonnes au démarrage (schéma déclaratif de `server/src/db.ts`).
+
+## Corrections d'une saisie erronée
+
+Règles dans `shared/rules/corrections.ts`, actions dans `server/src/actions/corrections.ts`, interface :
+`components/Corrections.tsx` (fiche du collaborateur : « Corriger », « Supprimer » sur chaque certification, certifications
+supprimées dans l'historique, section « Demandes au service RH » avec « Rouvrir » et « Retirer la demande »),
+`dialogs/CertDialog.tsx` (correction, `certId`), `dialogs/PlanLigneDialog.tsx` (Plan & budget : « Corriger »,
+« Supprimer »), « Retirer la demande » au portail ; confirmations `state/confirmations-corrections.ts`.
+
+- **Rien n'est effacé** : une certification ou une ligne du plan supprimée garde `annuleLe`, `annulePar`, `annuleMotif` et sort
+  de l'instantané (`loadFull` : certifications hors de `certs`, de `avecInscrits`, des prérequis et du Go / No Go — gardées
+  dans `Employe.certsAnnulees` pour le service RH seul ; lignes hors de `plan`) ; `certEnVigueur` et `certsOf` les écartent
+  aussi, comme la reprise `libererPlacesRemplacees` de `server/src/migrate.ts`. Une correction garde `corrigeLe`,
+  `corrigePar`, `corrigeMotif` (dernière correction) ; le journal garde les valeurs avant et après.
+- **Motif obligatoire** (500 caractères) pour toute correction du service RH : texte libre retiré des instantanés du manager,
+  du collaborateur et des profils restreints (`sansCorrections`, `ligneSansMotif`, `demandeSansMotifRh` de
+  `server/src/dataset.ts`), jamais recopié au journal ; le salarié le retrouve dans la copie de ses données.
+- **Habilitations** (`habilitationsAppuyees`) : une correction ou une suppression qui ferait tomber le prérequis d'une
+  habilitation délivrée et valide (ni suspendue, ni retirée, ni expirée) est refusée, au dialogue comme au serveur ; une
+  autre certification valide de la même formation, revenue en vigueur, suffit. Le message propose de suspendre d'abord
+  l'habilitation (décision tracée, signalée à Keystone). Après la correction, les verdicts Keystone sont recalculés.
+- **Sessions** : la certification supprimée, ou corrigée vers une autre formation, quitte la session ouverte où elle est
+  inscrite (convocation reçue annulée par e-mail ; session commencée ou à clôturer : la clôturer d'abord) et le résultat de
+  clôture qui la désignait (`participations.certId`) ne la désigne plus. Une certification que la correction rend remplacée
+  libère sa place dans une session postérieure (règle de `cert.ajouter`).
+- **Plan** : seules les lignes prévues ou engagées d'un exercice ouvert se corrigent ou se suppriment ; une session ouverte
+  rattachée (`sessions.planId`) fige la formation et empêche la suppression (annuler d'abord la session, qui rend la ligne
+  « prévue »).
+- **Demandes** : l'auteur retire sa demande tant qu'elle attend (statut `retiree`) ; le service RH ou le référent HSE rouvre
+  une demande de formation ou d'habilitation acceptée ou refusée par erreur (jamais un document déclaré, déjà écrit au
+  dossier). `demande.accepter` enregistre ce qu'elle crée (`suite` : session et certification ou inscription, session
+  quittée, ligne du plan, titre d'habilitation), que la réouverture défait ; pour une demande acceptée avant, la suite est
+  retrouvée d'après la demande (`suiteAcceptation` : rattachement à la session souhaitée, titre, dernière ligne du plan issue
+  d'une demande pour la même formation et l'équipe du salarié).
+- **Base existante** : colonnes ajoutées au démarrage (schéma déclaratif), aucune migration nommée.
 
 ## Référentiels
 

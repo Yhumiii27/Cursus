@@ -49,7 +49,9 @@ export function loadSettings(db: Db): Settings {
 type EmpRow = Omit<Employe, 'passeport' | 'certs' | 'habs' | 'visas' | 'vaccins'> & { passeportNumero: string | null; passeportExpire: string | null };
 
 export function loadFull(db: Db, user: CurrentUser): Dataset {
-  const certs = db.all<Certification>('certifications');
+  // Certification annulée (saisie erronée, `cert.annuler`) : hors de tous les calculs, gardée à part pour le service RH.
+  const toutes = db.all<Certification>('certifications');
+  const certs = toutes.filter(c => !c.annuleLe), annulees = toutes.filter(c => c.annuleLe);
   const habs = db.all<HabTitre>('habTitres');
   const visas = db.all<Visa>('visas');
   const vaccins = db.all<Vaccination>('vaccinations');
@@ -62,6 +64,7 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     restrictions: e.restrictions ?? [],
     passeport: passeportNumero && passeportExpire ? { numero: passeportNumero, expire: passeportExpire } : null,
     certs: certs.filter(c => c.empId === e.id),
+    certsAnnulees: annulees.filter(c => c.empId === e.id),
     habs: habs.filter(h => h.empId === e.id),
     visas: visas.filter(v => v.empId === e.id),
     vaccins: vaccins.filter(v => v.empId === e.id),
@@ -95,7 +98,8 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     sessions: avecInscrits(db.all<Omit<Session, 'inscrits'>>('sessions').map(completerSession), certs, inscriptions, participations),
     inscriptions,
     participations,
-    plan: db.all<PlanAction>('planActions'),
+    // Ligne du plan supprimée (saisie erronée, `plan.supprimer`, demande rouverte) : hors de l'instantané et des calculs.
+    plan: db.all<PlanAction>('planActions').filter(l => !l.annuleLe),
     budgets,
     exercicesClos: db.all<ExerciceClos>('exercicesClos'),
     voyages: db.all<Voyage>('voyages'),
@@ -132,6 +136,15 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     effectifCse: effectifSite({ employes }, todayIso()),
   };
 }
+
+/**
+ * Corrections d'une saisie erronée (shared/rules/corrections.ts), hors du service RH : ni certification annulée, ni motif
+ * d'une correction (texte libre du service RH) ; la date et l'auteur restent. Motif d'une ligne du plan corrigée et d'une
+ * demande rouverte retiré de même. Le salarié retrouve tout dans la copie de ses données (`GET /api/mes-donnees`).
+ */
+const sansCorrections = (e: Employe): Employe => ({ ...e, certsAnnulees: [], certs: e.certs.map(c => (c.corrigeMotif ? { ...c, corrigeMotif: null } : c)) });
+const ligneSansMotif = (l: PlanAction): PlanAction => (l.corrigeMotif ? { ...l, corrigeMotif: null } : l);
+const demandeSansMotifRh = (r: DemandeCollab): DemandeCollab => (r.rouverteMotif ? { ...r, rouverteMotif: null } : r);
 
 /** Dérogations au repos dominical sans la référence de l'accord (texte libre) : hors du service RH, le type suffit. */
 const derogationsSansReference = (full: Dataset) => (full.derogationsDominicales ?? []).map(x => ({ ...x, reference: null }));
@@ -216,7 +229,7 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
   // seul (`autorisationVerdict`, « valide » aussi sans titre requis) : ni type, ni numéro, ni date. La période d'essai lui
   // est transmise : il en évalue l'issue avec le service RH. De la naissance d'un membre, l'année et l'indication « mineur »
   // du jour (`naissanceVueManager`), jamais la date complète.
-  const employes = full.employes.filter(e => ids.has(e.id)).map(e => isMgr && e.id !== user.empId
+  const employes = full.employes.filter(e => ids.has(e.id)).map(sansCorrections).map(e => isMgr && e.id !== user.empId
     ? {
       ...e, visite: null, avis: null, restrictions: [], aptitude: aptitudeVueManager(e, d.medInfo(e).ok, full.today), vaccins: [], matriculePaie: null,
       // Suivi médical (type, prochaine visite, examen d'aptitude) : jamais transmis au manager, qui ne voit que le verdict.
@@ -265,7 +278,7 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     // le contenu d'une déclaration et le motif d'un refus ne sont transmis qu'à l'intéressé (et au RH), même
     // quand le manager a fait la demande : la confirmation du refus l'annonce ainsi (client/src/state/confirmations.ts).
     demandesCollab: mine(full.demandesCollab).filter(r => !isMgr || r.empId === user.empId || r.type !== 'document')
-      .map(r => r.empId === user.empId ? r : { ...r, declaration: null, motifRefus: null }),
+      .map(r => r.empId === user.empId ? r : { ...r, declaration: null, motifRefus: null }).map(demandeSansMotifRh),
     // Demandes de visite médicale : l'intéressé seulement (jamais le manager).
     demandesVisite: full.demandesVisite.filter(x => x.empId === user.empId),
     inscriptions: mine(full.inscriptions),
@@ -320,7 +333,7 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     passeport: lecture ? e.passeport && { expire: e.passeport.expire } : null, visas: lecture ? e.visas : [],
     // Naissance : l'année et l'indication « mineur » du jour, comme pour le manager ; jamais la date complète.
     ...naissanceVueManager(e, full.today),
-    certs: formations ? e.certs : [], habs: formations ? e.habs : [],
+    certs: formations ? sansCorrections(e).certs : [], certsAnnulees: [], habs: formations ? e.habs : [],
     // Motif de sortie : paie (solde de tout compte) et lecture seule ; le référent HSE ne voit que la date, et l'indication
     // qu'elle est enregistrée (ses échéances de fin de contrat sont celles du service RH).
     motifSortie: paie ? e.motifSortie : null, finPrevue: paie ? e.finPrevue : null, ...(paie ? {} : { sortieEnregistree: !!e.motifSortie }),
@@ -353,7 +366,7 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     sessions: formations ? full.sessions : [],
     inscriptions: formations ? full.inscriptions : [],
     participations: formations ? full.participations : [],
-    plan: lecture ? full.plan : [],
+    plan: lecture ? full.plan.map(ligneSansMotif) : [],
     budgets: lecture ? full.budgets : {},
     exercicesClos: lecture ? full.exercicesClos : [],
     voyages,
@@ -371,7 +384,7 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     clotures: paie ? full.clotures.map(clotureNeutre) : [],
     entretiens: lecture ? full.entretiens.map(x => ({ ...avecFinCarriere(d, x), cr: {} })) : [],
     // Demandes de formation et d'habilitation ; les documents déclarés (passeport, visa, vaccination) restent au RH.
-    demandesCollab: formations ? full.demandesCollab.filter(r => r.type !== 'document').map(r => ({ ...r, declaration: null })) : [],
+    demandesCollab: formations ? full.demandesCollab.filter(r => r.type !== 'document').map(r => demandeSansMotifRh({ ...r, declaration: null })) : [],
     demandesVisite: [],
     lotsPaie: paie ? full.lotsPaie : [],
     formatFichierPaie: paie ? full.formatFichierPaie : null,

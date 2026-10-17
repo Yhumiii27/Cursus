@@ -38,6 +38,7 @@ import { RefPosteDialog } from './RefPosteDialog.tsx';
 import { RefFormationDialog } from './RefFormationDialog.tsx';
 import { RefHabilitationDialog } from './RefHabilitationDialog.tsx';
 import { PlanRealiserDialog } from './PlanRealiserDialog.tsx';
+import { PlanLigneDialog } from './PlanLigneDialog.tsx';
 import { RemiseDialog } from './RemiseDialog.tsx';
 import { ReportDialog } from './ReportDialog.tsx';
 import { ReqFormDialog } from './ReqFormDialog.tsx';
@@ -99,6 +100,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'ent': return <EntDialog {...d} />;
     case 'entRemise': return <RemiseDialog {...d} />;
     case 'planRealiser': return <PlanRealiserDialog {...d} />;
+    case 'planLigne': return <PlanLigneDialog {...d} />;
     case 'exerciceCloture': return <ExerciceClotureDialog {...d} />;
     case 'tripImport': return <TripImportDialog />;
     case 'planImport': return <PlanImportDialog {...d} />;

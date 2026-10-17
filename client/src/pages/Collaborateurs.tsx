@@ -20,6 +20,7 @@ import { ExigencesCellule, ExigencesFiche, ExigencesMotif } from '../components/
 import { SortieFiche } from '../components/Sortie.tsx';
 import { ContratFiche } from '../components/ContratFiche.tsx';
 import { MandatsFiche } from '../components/Delegation.tsx';
+import { ActionsCertification, CertsAnnulees, DemandesFiche } from '../components/Corrections.tsx';
 import { downloadCsv, matriculesImprimes, printDocument } from '../print.ts';
 import { csvAnnuaire } from '../listes-csv.ts';
 import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derived.ts';
@@ -357,6 +358,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
                     : <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'plan', empId: e.id, certId: c.id })}>Planifier un renouvellement</button>}
                 </div>
               )}
+              <ActionsCertification e={e} c={c} />
             </div>
           );
         })}
@@ -366,7 +368,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
       {/* Formations et habilitations exigées par le poste et l'équipe, obtenues ou manquantes. */}
       <ExigencesFiche e={e} membre={membre} parti={parti} />
 
-      {(anciennes.length > 0 || archivees.length > 0) && <>
+      {(anciennes.length > 0 || archivees.length > 0 || (e.certsAnnulees?.length ?? 0) > 0) && <>
         <SectionLabel>Historique des certifications</SectionLabel>
         <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
           {archivees.map(c => (
@@ -385,10 +387,14 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
                 <div className="sub">Obtenue le {fmt(c.obt)} · remplacée le {fmt(c.remplacee!)}{c.fm.archive ? ' · formation archivée' : ''}</div>
               </div>
               <Tag cls="tag-outline" style={{ flex: 'none' }}>Remplacée</Tag>
+              <ActionsCertification e={e} c={c} />
             </div>
           ))}
         </div>
+        <CertsAnnulees e={e} />
       </>}
+
+      <DemandesFiche e={e} membre={membre} />
 
       {inscriptions.length > 0 && <>
         <SectionLabel>Formations planifiées</SectionLabel>

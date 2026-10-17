@@ -179,10 +179,11 @@ const plusRecente = (a: Pick<Certification, 'id' | 'obtenue'>, b: Pick<Certifica
 /**
  * Certification en vigueur d'un collaborateur pour une formation : la plus récente. Un recyclage
  * enregistré remplace donc la précédente, qui reste au dossier comme historique. Seule la certification
- * en vigueur compte pour le statut, les échéances, les prérequis et le Go / No Go.
+ * en vigueur compte pour le statut, les échéances, les prérequis et le Go / No Go. Une certification annulée (saisie
+ * erronée, `cert.annuler`) ne compte jamais : l'instantané l'écarte déjà (server/src/dataset.ts), la règle aussi.
  */
 export function certEnVigueur<T extends Pick<Certification, 'id' | 'f' | 'obtenue'>>(certs: readonly T[], f: string): T | null {
-  return certs.filter(c => c.f === f).sort(plusRecente)[0] ?? null;
+  return certs.filter(c => c.f === f && !(c as Partial<Certification>).annuleLe).sort(plusRecente)[0] ?? null;
 }
 
 export class Domain {
@@ -334,13 +335,15 @@ export class Domain {
 
   /** Certifications d'un collaborateur : en vigueur (une par formation, dans l'ordre du dossier) et remplacées. */
   certsOf(e: Employe, horizon: number): { vigueur: CertInfo[]; anciennes: CertInfo[] } {
-    const vigueur = [...new Set(e.certs.map(c => c.f))].map(f => this.certInfo(certEnVigueur(e.certs, f)!, horizon));
-    const anciennes = e.certs
+    // Certifications annulées (saisie erronée) : ni en vigueur, ni dans l'historique, ni prérequis d'une habilitation.
+    const certs = e.certs.filter(c => !c.annuleLe);
+    const vigueur = [...new Set(certs.map(c => c.f))].map(f => this.certInfo(certEnVigueur(certs, f)!, horizon));
+    const anciennes = certs
       .filter(c => !vigueur.some(v => v.id === c.id))
       .sort(plusRecente)
       .map(c => {
         // Remplacée par la certification suivante de la même formation.
-        const suivante = e.certs.filter(x => x.f === c.f && plusRecente(x, c) < 0).sort(plusRecente).pop()!;
+        const suivante = certs.filter(x => x.f === c.f && plusRecente(x, c) < 0).sort(plusRecente).pop()!;
         return this.certInfo(c, horizon, parse(suivante.obtenue));
       });
     return { vigueur, anciennes };

@@ -229,6 +229,10 @@ export const REGLES: Record<string, Regle> = {
   // Formations
   'plan.inscrire': { champs: ['empId', 'certId', 'inscriptionId', 'sessionId', 'conv'] },
   'cert.ajouter': { champs: ['empId', 'f', 'date'] },
+  // Corrections d'une saisie erronée (actions/corrections.ts) : formation, date et session avant et après ; annulation :
+  // la certification annulée (formation, date) et sa date d'annulation. Jamais le motif (texte libre).
+  'cert.modifier': { champs: ['id'], cible: parId('certifications', ['f', 'obtenue', 'sessionId']) },
+  'cert.annuler': { champs: ['id'], extra: (_p, av) => ({ f: av?.f ?? null, obtenue: av?.obtenue ?? null }), cible: parId('certifications', ['annuleLe', 'sessionId']) },
   // Session sur plusieurs jours : dernier jour et jours, dates seules (comme session.modifier) ; pas les horaires.
   'session.creer': {
     champs: ['f', 'date', 'lieu', 'places', 'planId'],
@@ -251,6 +255,13 @@ export const REGLES: Record<string, Regle> = {
   },
   'plan.importer': { champs: ['exercice', 'mode'] },
   'plan.avancer': { champs: ['id'], cible: parId('planActions', ['statut', 'coutReel', 'effectifReel']) },
+  // Ligne du plan corrigée (avant et après ; de l'intitulé hors catalogue, seulement qu'il change) ou supprimée (exercice,
+  // formation, équipe, trimestre, statut et coût de la ligne retirée). Jamais le motif.
+  'plan.modifier': { champs: ['id'], cible: { ...parId('planActions', ['f', 'libelle', 'equipe', 'periode', 'effectif', 'cout']), masques: ['libelle'] } },
+  'plan.supprimer': {
+    champs: ['id'], cible: parId('planActions', ['annuleLe']),
+    extra: (_p, av) => (av ? { exercice: av.exercice, f: av.f, equipe: av.equipe, periode: av.periode, statut: av.statut, cout: av.cout } : {}),
+  },
   'budget.enveloppes': { champs: ['exercice', 'enveloppes'] },
   // Clôture d'un exercice : actions reportées (identifiants) sur l'exercice suivant.
   'plan.cloturerExercice': { champs: ['exercice', 'reporter'] },
@@ -306,6 +317,9 @@ export const REGLES: Record<string, Regle> = {
   'demande.habilitation': { champs: ['empId', 'h'], salaries: (p, x) => [p.empId ?? x.user.empId] },
   'demande.accepter': { champs: ['id'], cible: parId('demandesCollab', ['statut']) },
   'demande.refuser': { champs: ['id'], cible: parId('demandesCollab', ['statut']) },
+  // Retrait par l'auteur, réouverture par le service RH : statut avant et après (ni le motif, ni la réponse).
+  'demande.annuler': { champs: ['id'], cible: parId('demandesCollab', ['statut']) },
+  'demande.reouvrir': { champs: ['id'], cible: parId('demandesCollab', ['statut']) },
   // Déplacements : jamais le numéro de passeport ni une vaccination (donnée de santé) ; le motif n'est pas recopié.
   'voyage.creer': { champs: ['empId', 'dest', 'depart', 'retour'] },
   'voyage.detachement': { champs: ['id', 'detachementLe', 'informationLe'], cible: parId('voyages', ['detachementLe', 'informationLe']) },

@@ -6,6 +6,7 @@ import { budgetActions } from './budget.ts';
 import { cloturesActions } from './clotures.ts';
 import { comptesActions } from './comptes.ts';
 import { conformiteActions } from './conformite.ts';
+import { correctionsActions } from './corrections.ts';
 import { confidentialiteActions } from './confidentialite.ts';
 import type { ActionHandler } from './context.ts';
 import { convocationsActions } from './convocations.ts';
@@ -62,6 +63,7 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...activitesActions,
   ...delegationActions,
   ...reposDominicalActions,
+  ...correctionsActions,
 };
 
 /**

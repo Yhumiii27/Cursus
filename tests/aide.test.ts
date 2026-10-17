@@ -9,7 +9,8 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const { A_COMPLETER_PAIE, GUIDE_AIDE, libellesCites, partieParDefaut } = await import('../shared/aide.ts');
-const { ALLOWED_VIEWS, VUES_COMMUNES } = await import('../shared/constants.ts');
+const await_constants = await import('../shared/constants.ts');
+const { ALLOWED_VIEWS, VUES_COMMUNES } = await_constants;
 
 const ROOT = fileURLToPath(new URL('..', import.meta.url));
 const GUIDE = readFileSync(join(ROOT, 'docs/GUIDE-UTILISATEUR.md'), 'utf8');
@@ -86,6 +87,37 @@ test('groupe pilote : service RH, puis une équipe en horaires de journée, puis
   assert.match(etapes[1], /horaires de journée/);
   assert.match(etapes[2], /^Tout le site/);
   assert.match(GUIDE, /le service RH d'abord, puis une équipe pilote en horaires\s+de journée, puis tout le site/);
+});
+
+test('groupe pilote : comptes ouverts par un fichier réduit à l’équipe, libellé exact de la case, fiches modifiées signalées', () => {
+  // L'import écrit toutes les lignes du fichier et ne crée que des comptes Microsoft 365 (salariés avec une adresse) :
+  // l'export complet ouvrirait tout le site, et une fiche corrigée dans Cursus reprendrait les valeurs de Lucca.
+  const CASE = '« Créer les comptes Microsoft 365 à partir des adresses e-mail »';
+  const ecran = readFileSync(join(ROOT, 'client/src/pages/MiseEnService.tsx'), 'utf8');
+  assert.ok(ecran.includes(CASE.slice(2, -2)), 'libellé de la case changé : guide à mettre à jour');
+  const etape = GUIDE_AIDE.find(p => p.id === 'pilote')!.rubriques[0].etapes![1];
+  const md = GUIDE.slice(GUIDE.indexOf('2. **Équipe pilote'), GUIDE.indexOf('3. **Tout le site'));
+  for (const [nom, t] of [['page Aide', etape], ['guide', md.replace(/\s+/g, ' ')]] as const) {
+    assert.ok(t.includes(CASE), `${nom} : libellé complet de la case`);
+    assert.match(t, /réduit (à|aux lignes de) l[’']équipe pilote/, `${nom} : fichier réduit à l'équipe pilote`);
+    assert.match(t, /Comptes et accès/, `${nom} : comptes Cursus un par un`);
+    assert.match(t, /mise à jour/, `${nom} : lignes « mise à jour » de l'aperçu à relire`);
+    assert.doesNotMatch(t, /sans rien changer aux fiches/, nom);
+  }
+});
+
+test('partie paie : ni relance ni Paramètres attribués au profil paie (droits de PROFILS_RH et de la matrice)', () => {
+  const { PROFILS_RH } = await_constants;
+  assert.ok(!(PROFILS_RH.paie.vues as readonly string[]).includes('parametres'));
+  const paie = GUIDE_AIDE.find(p => p.id === 'paie')!;
+  const items = paie.rubriques.flatMap(r => [r.intro ?? '', ...(r.etapes ?? []), ...(r.points ?? [])]);
+  // Chaque renvoi aux Paramètres nomme l'administrateur RH, ou l'intro le dit pour toute la partie.
+  assert.match(paie.rubriques[0].intro!, /Paramètres : les réglages cités ici sont faits par l’administrateur RH/);
+  for (const t of items.filter(t => t.includes('Paramètres →'))) assert.match(t, /administrateur RH/, t);
+  assert.ok(!items.some(t => /\brelancez\b/i.test(t)), 'le profil paie ne relance pas (temps.relancer)');
+  assert.match(paie.rubriques[0].intro!, /^Écran « Feuilles de temps »/);
+  const md = GUIDE.slice(GUIDE.indexOf('## Gestionnaire de paie'), GUIDE.indexOf('### Procédure mensuelle'));
+  assert.match(md.replace(/\s+/g, ' '), /Il n'a pas accès aux Paramètres et ne relance ni ne valide les feuilles/);
 });
 
 test('semaine à 7 jours décrite : samedi et dimanche saisissables, comptés dans les heures supplémentaires', () => {

@@ -34,8 +34,10 @@ Sommaire : [Collaborateur](#collaborateur) · [Manager](#manager) · [Service RH
 ### Saisir sa semaine
 
 1. Menu « Mes heures ». La semaine en cours s'affiche ; les flèches changent de semaine, « Cette semaine » y revient.
-2. Une ligne par projet : « + Ajouter un projet… », ou « Proposer depuis Keystone » pour reprendre les tâches planifiées
-   (et les heures d'une session de formation à laquelle on est inscrit, sur la ligne INT-FORM).
+2. Une ligne par projet : « + Ajouter un projet… », ou « Proposer depuis Keystone » pour reprendre les tâches planifiées.
+   Si l'on est inscrit à une session de formation cette semaine-là, le bouton devient « Proposer les heures prévues »
+   (tâches Keystone et heures de formation, sur la ligne INT-FORM), ou « Proposer les heures de formation » sans tâche
+   Keystone.
 3. Les heures de chaque jour, en heures décimales (7,5 pour 7 h 30) : chaque cellule s'enregistre quand on la quitte. Sur
    téléphone et tablette, la feuille se saisit jour par jour ; la grille de la semaine reste sur PC.
 4. **Samedi et dimanche** sont grisés et repliés (« Sam. · Dim. ») : on les déplie pour y porter des heures en cas de
@@ -180,7 +182,10 @@ entretiens : un collègue ou son manager le fait.
 
 Profil « Gestionnaire de paie » (interne ou cabinet extérieur, compte externe) ou administrateur RH : écrans Feuilles de
 temps et Congés & absences, en lecture, et transmission à Sage Paie. Il ne voit ni les formations, ni les entretiens, ni
-les données de santé : seulement la catégorie d'une absence (santé, parentalité…), utile à la paie.
+les données de santé : seulement la catégorie d'une absence (santé, parentalité…), utile à la paie. Il n'a pas accès aux
+Paramètres et ne relance ni ne valide les feuilles : les réglages cités ci-dessous (matricules, date de reprise des
+absences, clôture, échéance des feuilles) sont faits par l'**administrateur RH**, à qui il les demande ; la relance et la
+validation reviennent aux managers et au service RH.
 
 Rien ne part automatiquement vers Sage : Cursus prépare un **lot** par période de paie et son **fichier d'import** (CSV),
 que la paie importe elle-même dans Sage. La procédure ci-dessous reprend celle de `docs/DEPLOIEMENT.md`, « Sage Paie »,
@@ -191,8 +196,8 @@ qui donne le détail technique (format, rubriques, migrations).
 Écran Feuilles de temps (espace RH, profil Paie), panneau « Transmission à Sage Paie » :
 
 1. **Avant la clôture** : « Suivi des feuilles de temps » montre qui n'a pas saisi, soumis ou corrigé sa feuille (feuille
-   attendue le lundi suivant à 12 h). « Relancer » envoie un e-mail au salarié et à son valideur ; managers et service RH
-   valident les feuilles soumises.
+   attendue le lundi suivant à 12 h). Le gestionnaire de paie le consulte ; il demande aux managers ou au service RH de
+   relancer (« Relancer » envoie un e-mail au salarié et à son valideur) et de valider les feuilles soumises.
 2. **« Générer le fichier »** sur la période de paie : le lot réunit les feuilles validées de la période (rappels des
    périodes closes compris), les absences validées, ventilées mois par mois (demi-journées comprises), et les soldes de
    sortie dont les rubriques sont actives. Son contenu est figé, ses feuilles et absences réservées : elles ne sont pas
@@ -213,6 +218,8 @@ En démonstration ou en recette sans Sage, le mode simulation remplace ces bouto
 « Marquer transmis » : rien ne part, et l'écran le dit.
 
 ### Calendrier du mois
+
+Les réglages de ce tableau se changent dans Paramètres, par l'administrateur RH.
 
 | Étape | Réglage par défaut | Où le changer |
 | --- | --- | --- |
@@ -255,9 +262,10 @@ d'un mois clos enregistrée en retard part entière, en rappel.
 
 - Chaque rubrique utilisée a son code Sage saisi et confirmé dans « Rubriques de paie » (ou est désactivée) : tant qu'il en
   manque, seule la simulation transmet et le refus liste les rubriques en cause.
-- Chaque salarié du lot a son matricule de paie (Paramètres → « Matricules de paie » liste ceux qui manquent).
-- « Absences transmises à partir du » (Paramètres → Absences et paie) porte la date de reprise : les absences antérieures,
-  déjà traitées par Lucca et Sage, ne partent jamais.
+- Chaque salarié du lot a son matricule de paie, saisi par le service RH sur la fiche (Paramètres → « Matricules de paie »,
+  administrateur RH, liste ceux qui manquent) ; le refus d'un lot nomme les salariés sans matricule.
+- « Absences transmises à partir du » (Paramètres → Absences et paie, administrateur RH) porte la date de reprise : les
+  absences antérieures, déjà traitées par Lucca et Sage, ne partent jamais.
 
 ## Groupe pilote
 
@@ -269,12 +277,22 @@ collaborateur (`docs/DEPLOIEMENT.md`, section Recette).
 
 1. **Service RH** : comptes du service RH et du gestionnaire de paie (Paramètres → Comptes et accès), référentiels, postes
    et exigences, reprise depuis Lucca (Paramètres → Mise en service), premiers essais sur des fiches réelles.
-2. **Équipe pilote en horaires de journée** : comptes de l'équipe et de son manager, ouverts en rejouant l'import des
-   salariés avec la case « Créer les comptes » cochée (sans rien changer aux fiches), ou un par un dans Comptes et accès.
+2. **Équipe pilote en horaires de journée** : comptes de l'équipe et de son manager seulement.
+   - L'import s'applique à **toutes les lignes du fichier** : rejouer l'import des salariés (Paramètres → Mise en
+     service) avec un fichier **réduit aux lignes de l'équipe pilote et de son manager**, extrait du même export Lucca,
+     et la case « Créer les comptes Microsoft 365 à partir des adresses e-mail » cochée. L'export complet ouvrirait un
+     compte à tous les salariés du site qui ont une adresse.
+   - La case ne crée que des comptes Microsoft 365, pour les salariés qui ont une adresse e-mail sur leur fiche. Les
+     ouvriers et intérimaires sans compte Microsoft reçoivent un compte Cursus, créé un par un dans Paramètres → Comptes
+     et accès (« Créer un compte »).
+   - Une fiche déjà à jour n'est pas modifiée. Une fiche corrigée dans Cursus depuis la reprise est en revanche
+     **réécrite** par la ligne du fichier, alors que Cursus fait foi : relire l'aperçu avant d'importer, où ces lignes
+     figurent en « mise à jour », et retirer du fichier (ou corriger) celles qui reprendraient d'anciennes valeurs.
    Un mois complet dans Cursus : saisie des semaines (week-end compris si l'équipe y travaille), absences, validations,
    lot de paie et import dans Sage, comparé à la paie tenue comme d'habitude.
 3. **Tout le site**, une fois le premier mois de l'équipe pilote importé dans Sage sans écart et ses remarques traitées :
-   même import rejoué, case cochée, pour les autres équipes.
+   même import rejoué, case cochée, avec un fichier réduit à un groupe d'équipes à la fois, aperçu relu de la même façon ;
+   comptes Cursus créés un par un pour ceux qui n'ont pas d'adresse Microsoft.
 
 ### Ce que vérifie le groupe pilote
 

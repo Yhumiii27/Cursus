@@ -33,7 +33,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
         titre: 'Saisir sa semaine',
         etapes: [
           'Menu « Mes heures ». La semaine affichée est la semaine en cours (« Cette semaine » y revient, les flèches changent de semaine).',
-          'Ajoutez une ligne par projet (« + Ajouter un projet… ») ou reprenez les tâches prévues (« Proposer depuis Keystone », ou les heures d’une formation à laquelle vous êtes inscrit).',
+          'Ajoutez une ligne par projet (« + Ajouter un projet… ») ou reprenez les tâches prévues (« Proposer depuis Keystone »). Inscrit à une session de formation cette semaine-là, le bouton devient « Proposer les heures prévues » (tâches et heures de formation), ou « Proposer les heures de formation » sans tâche Keystone.',
           'Tapez les heures de chaque jour, en heures décimales (7,5 pour 7 h 30) : chaque cellule s’enregistre seule quand vous la quittez. Sur téléphone, la saisie se fait jour par jour.',
           'Samedi et dimanche sont grisés et repliés (« Sam. · Dim. ») : dépliez-les pour un chantier, un déplacement ou un impératif. Ces heures comptent dans les heures supplémentaires de la semaine.',
           'En fin de semaine, « Soumettre au manager ». Au-delà de 10 h dans une journée ou de 48 h dans la semaine, indiquez le motif demandé avant de soumettre.',
@@ -151,9 +151,9 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
     rubriques: [
       {
         titre: 'Procédure mensuelle',
-        intro: 'Écran Temps de travail, panneau « Transmission à Sage Paie ». Rien ne part seul vers Sage : vous importez le fichier de chaque lot.',
+        intro: 'Écran « Feuilles de temps », panneau « Transmission à Sage Paie ». Rien ne part seul vers Sage : vous importez le fichier de chaque lot. Le profil paie n’a pas accès aux Paramètres : les réglages cités ici sont faits par l’administrateur RH, à qui vous les demandez.',
         etapes: [
-          'Avant la clôture : « Suivi des feuilles de temps » montre les feuilles manquantes ou à valider ; relancez et faites valider.',
+          'Avant la clôture : « Suivi des feuilles de temps » montre les feuilles manquantes ou à valider ; demandez aux managers ou au service RH de relancer (« Relancer ») et de valider.',
           '« Générer le fichier » sur la période de paie : le lot réunit les feuilles validées (rappels des périodes closes compris), les absences validées et les soldes de sortie dont les rubriques sont actives. Son contenu est figé.',
           '« Fichier » télécharge le fichier d’import (CSV). Son format se règle une fois par « Modifier le format », sur le modèle d’import de votre Sage.',
           'Importez le fichier dans Sage Paie et contrôlez les totaux.',
@@ -163,8 +163,8 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
       {
         titre: 'Calendrier du mois',
         points: [
-          'Feuille de la semaine attendue le lundi suivant à 12 h (Paramètres → Suivi des feuilles de temps).',
-          'Clôture des variables : le dernier jour du mois par défaut (Paramètres → Paie) ; une semaine à cheval sur deux mois va sur le mois de son dimanche. Une semaine d’une période close part en rappel sur la période suivante.',
+          'Feuille de la semaine attendue le lundi suivant à 12 h (Paramètres → Suivi des feuilles de temps, administrateur RH).',
+          'Clôture des variables : le dernier jour du mois par défaut (Paramètres → Paie), réglée par l’administrateur RH ; une semaine à cheval sur deux mois va sur le mois de son dimanche. Une semaine d’une période close part en rappel sur la période suivante.',
           `Date de génération du lot, date de l’import dans Sage et date de la paie : ${A_COMPLETER_PAIE}.`,
         ],
       },
@@ -180,7 +180,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
         titre: 'Avant le premier lot réel',
         points: [
           'Chaque rubrique utilisée a son code Sage saisi et confirmé dans « Rubriques de paie » (ou est désactivée) : tant qu’il en manque, la génération d’un lot réel est refusée en les nommant.',
-          'Chaque salarié a son matricule de paie (Paramètres → « Matricules de paie »).',
+          'Chaque salarié a son matricule de paie, saisi par le service RH sur la fiche (Paramètres → « Matricules de paie », administrateur RH) ; le refus du lot nomme les salariés sans matricule.',
           '« Variables de la période » exporte en CSV ce qui est parti et ce qui attend, pour le contrôle. Heures de nuit et frais de déplacement restent saisis dans Sage ; le lundi de Pentecôte travaillé (journée de solidarité) est repéré comme férié et traité par la paie.',
         ],
       },
@@ -194,8 +194,8 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
         titre: 'Trois étapes',
         etapes: [
           'Service RH : comptes du service RH et de la paie, référentiels, reprise depuis Lucca (Paramètres → Mise en service), premiers essais de saisie sur des fiches réelles.',
-          'Équipe pilote en horaires de journée : comptes ouverts pour l’équipe et son manager (import des salariés rejoué avec « Créer les comptes » coché, ou Paramètres → Comptes et accès). Un mois complet : saisie des semaines, absences, validation, lot de paie et import dans Sage.',
-          'Tout le site, une fois le premier mois de l’équipe pilote importé dans Sage sans écart et les remarques corrigées.',
+          'Équipe pilote en horaires de journée : comptes de l’équipe et de son manager seulement. L’import s’applique à toutes les lignes du fichier : rejouez l’import des salariés avec un fichier réduit à l’équipe pilote et à son manager, case « Créer les comptes Microsoft 365 à partir des adresses e-mail » cochée. Elle ne crée que des comptes Microsoft 365 (salariés avec une adresse) : les comptes Cursus des ouvriers et intérimaires se créent un par un (Paramètres → Comptes et accès). Une fiche corrigée dans Cursus depuis la reprise serait réécrite par le fichier : relisez les lignes « mise à jour » de l’aperçu avant d’importer. Puis un mois complet : saisie des semaines, absences, validation, lot de paie et import dans Sage.',
+          'Tout le site, une fois le premier mois de l’équipe pilote importé dans Sage sans écart et les remarques corrigées : même import, fichier réduit à un groupe d’équipes à la fois.',
         ],
       },
       {

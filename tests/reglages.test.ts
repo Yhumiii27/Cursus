@@ -37,6 +37,8 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     titreSejourAlerte: 120, titreSejourRelance: 60,
     // Récapitulatif des échéances (shared/rules/relances.ts) : actif, à 90, 30 et 7 jours puis échu, chaque jour.
     relancesActives: true, relancesPaliers: [90, 30, 7], relancesJour: 'quotidien',
+    // Santé (lot 5) : 24 mois pour tous, le plus prudent ; examen d'aptitude du suivi renforcé tous les 4 ans.
+    santeVipMois: 24, santeVipAdapteeMois: 24, santeSirIntermediaireMois: 24, santeSirAptitudeMois: 48,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

@@ -73,7 +73,7 @@ export function Postes() {
                     const n = titulaires(d.ds, p.id).length, ko = nonConformes(p.id);
                     return (
                       <tr key={p.id}>
-                        <td><Two main={p.nom} /></td>
+                        <td>{p.sir ? <Two main={p.nom} sub="Suivi individuel renforcé" /> : <Two main={p.nom} />}</td>
                         <td><ExigencesChips x={p} /></td>
                         <td>{n}</td>
                         <td>{ko ? <Tag cls="tag-accent">{ko}</Tag> : <span className="text-muted">—</span>}</td>

@@ -7,7 +7,7 @@
 // n'y figurent pas ; les feuilles de temps non soumises relèvent de la relance des feuilles (suivi des feuilles).
 // Jamais de donnée de santé dans un e-mail : une vaccination est une « formalité sanitaire », une visite médicale n'est
 // nommée que par son échéance, un avis d'inaptitude n'est pas relancé ; le manager ne reçoit ni l'une ni l'autre.
-import { ENT_TYPES, TYPES_CONTRAT } from '../constants.ts';
+import { ENT_TYPES, EXAMEN_REQUIS, TYPES_CONTRAT } from '../constants.ts';
 import { days, iso, parse } from '../dates.ts';
 import type { Domain, EmpX } from '../domain.ts';
 import type { ISODate, Settings } from '../types.ts';
@@ -72,6 +72,8 @@ export function relancesDues(d: Domain, emps: EmpX[], paliers: readonly number[]
     else if (x.kind === 'med') {
       // Avis d'inaptitude : rien à renouveler, suivi par le service RH ; visite jamais enregistrée : relancée comme échue.
       if (x.label === 'Avis d’inaptitude') continue;
+      // Examen d'aptitude du suivi renforcé jamais enregistré : relancé comme échu tant qu'il manque, sous une clé à part.
+      if (x.label === EXAMEN_REQUIS) { ajouter({ ...base, cle: `med:${x.emp.id}:examen`, categorie: 'visite', libelle: 'Examen médical d’aptitude à programmer', sante: true }, true); continue; }
       ajouter({ ...base, cle: `med:${x.emp.id}:${x.sansDate ? 'sans-date' : echeance}`, categorie: 'visite', libelle: x.sansDate ? 'Visite médicale non enregistrée' : 'Visite médicale', sante: true }, !!x.sansDate);
     } else if (x.kind === 'exigence') {
       // Exigence du poste ou de l'équipe jamais obtenue : sans date, relancée comme échue tant qu'elle manque.

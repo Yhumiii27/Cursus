@@ -3,7 +3,7 @@
 // Fonctions pures d'un instantané de données — utilisées par le client pour
 // l'affichage et par le serveur pour valider les actions et les intégrations.
 import {
-  AVIS_MEDICAL, CERT_LABEL, CLS, DOC_LABEL, GNG_CODE, HAB_CLS, HAB_LABEL, MED_LABEL, MED_VALIDITE, MISSION_LONGUE_JOURS, RANK, SECU_RULES, SESSION_PASSEE, STATUTS,
+  AVIS_MEDICAL, CERT_LABEL, CLS, DOC_LABEL, EXAMEN_REQUIS, GNG_CODE, HAB_CLS, HAB_LABEL, MED_LABEL, MISSION_LONGUE_JOURS, RANK, SECU_RULES, SESSION_PASSEE, STATUTS,
   TEMPS_TRAVAIL, TYPES_CONTRAT, VACCINS, VISA_RULES, secuDe, type CodeMotif, type HabKey, type HabMesureAction, type StatusKey,
 } from './constants.ts';
 import { addD, addMonths, days, isFerie, iso, parse, weekday } from './dates.ts';
@@ -16,6 +16,7 @@ import { identifiantKeystone } from './rules/matricules.ts';
 import { echeancesContrat, etatAutorisation, present, SITUATION_A_REGULARISER } from './rules/contrats.ts';
 import { voyageActif } from './rules/deplacements.ts';
 import { restrictionEnVigueur } from './rules/sante.ts';
+import { echeanceVisite, examenRequis, prochaineTexte, suiviDe, type ProchaineVisite, type SuiviInfo } from './rules/suivi-medical.ts';
 import type {
   AvisMedical, Certification, Chantier, Dataset, DemandeVisite, Destination, Employe, FormaliteManquante, Formation, HabTitre, HabType, ISODate,
   Restriction, Session, Statut, TempsTravail, TripStatus, TypeContrat, VaccinId, Voyage,
@@ -31,7 +32,7 @@ export interface CertInfo extends Certification {
   remplacee: Date | null;
 }
 /**
- * Aptitude médicale d'un collaborateur : valide (visite de moins de 24 mois, sans avis d'inaptitude), échéance,
+ * Aptitude médicale d'un collaborateur : valide (échéance de la visite non passée, sans avis d'inaptitude), échéance,
  * avis et restrictions de la dernière visite, demande de visite en cours.
  */
 export interface MedInfo {
@@ -45,6 +46,14 @@ export interface MedInfo {
   demande: DemandeVisite | null;
   /** Vue manager (ou profil restreint) : verdict seul, sans date de visite ni demande. */
   verdictSeul: boolean;
+  /**
+   * Suivi médical (shared/rules/suivi-medical.ts ; null : verdict seul) : type de suivi, visite attendue à l'échéance
+   * (date fixée par le médecin, périodique, intermédiaire ou examen d'aptitude), examen d'aptitude du suivi renforcé
+   * jamais enregistré (alerte, l'aptitude passe « à renouveler »).
+   */
+  suivi?: SuiviInfo | null;
+  prochaine?: ProchaineVisite | null;
+  examenRequis?: boolean;
 }
 export interface PrereqCheck { type: 'cert' | 'med'; f: string | null; certId: number | null; label: string; ok: boolean; due: boolean; exp: Date | null; text: string }
 export interface HabInfo extends HabTitre {
@@ -333,7 +342,8 @@ export class Domain {
   }
 
   /**
-   * Aptitude médicale : visite de moins de 24 mois, sans avis d'inaptitude. Un avis avec restrictions laisse
+   * Aptitude médicale : visite dont l'échéance n'est pas passée — date de la prochaine visite fixée par le médecin, sinon
+   * périodicité du type de suivi (shared/rules/suivi-medical.ts) —, sans avis d'inaptitude. Un avis avec restrictions laisse
    * l'aptitude valide : le service RH suspend les habilitations incompatibles (`medical.avis`).
    */
   medInfo(e: Employe): MedInfo {
@@ -347,20 +357,33 @@ export class Domain {
       return { ok: a.ok, exp: null, d: null, text, visite: null, avis, restrictions: a.restrictions ?? [], demande: null, verdictSeul: true };
     }
     const demande = this.demandeVisite(e.id), demandee = demande ? `visite demandée le ${fmt(parse(demande.le))}` : 'visite à programmer';
-    if (!e.visite) return { ok: false, exp: null, d: null, text: `Visite médicale non renseignée — ${demandee}`, visite: null, avis: null, restrictions: [], demande, verdictSeul: false };
-    const date = parse(e.visite), exp = addMonths(date, MED_VALIDITE), d = days(this.today, exp);
+    const suivi = suiviDe(this.ds, e), examen = examenRequis(suivi, e);
+    if (!e.visite) {
+      return { ok: false, exp: null, d: null, text: `Visite médicale non renseignée — ${demandee}`, visite: null, avis: null, restrictions: [], demande, verdictSeul: false, suivi, prochaine: null, examenRequis: examen };
+    }
+    const date = parse(e.visite), ech = echeanceVisite(e, date, suivi.type, this.ds.settings), exp = ech.exp, d = days(this.today, exp);
     // Visite saisie avant l'enregistrement des avis : apte.
     const avis = e.avis ?? 'apte', inapte = avis === 'inapte';
-    const suite = demande ? ` · ${demandee}` : '';
+    // Suivi renforcé sans examen d'aptitude : alerte jointe au texte, l'aptitude en cours reste valide.
+    const suite = `${examen && !inapte ? ` · ${EXAMEN_REQUIS.toLowerCase()} (suivi renforcé)` : ''}${demande ? ` · ${demandee}` : ''}`;
+    // Origine de l'échéance précisée hors du cas courant (VIP à la périodicité de Paramètres → Santé) : date fixée par le
+    // médecin, VIP adaptée, visite intermédiaire ou examen d'aptitude du suivi renforcé (sauf examen requis, déjà annoncé).
+    const quoi = (ech.prochaine === 'periodique' && suivi.type === 'vip') || examen ? '' : ` (${prochaineTexte(ech, suivi.type, this.ds.settings)})`;
     const text = inapte ? `Inapte — avis du médecin du travail du ${fmt(date)}${suite}`
-      : d >= 0 ? `Visite du ${fmt(date)} · ${avis === 'restrictions' ? 'apte avec restrictions, ' : ''}aptitude valide jusqu’au ${fmt(exp)}${suite}`
-      : `Aptitude échue le ${fmt(exp)} — ${demandee}`;
-    return { ok: d >= 0 && !inapte, exp, d, text, visite: date, avis, restrictions: avis === 'restrictions' ? e.restrictions ?? [] : [], demande, verdictSeul: false };
+      : d >= 0 ? `Visite du ${fmt(date)} · ${avis === 'restrictions' ? 'apte avec restrictions, ' : ''}aptitude valide jusqu’au ${fmt(exp)}${quoi}${suite}`
+      : `Aptitude échue le ${fmt(exp)}${quoi} — ${demandee}${examen ? ` · ${EXAMEN_REQUIS.toLowerCase()}` : ''}`;
+    return {
+      ok: d >= 0 && !inapte, exp, d, text, visite: date, avis, restrictions: avis === 'restrictions' ? e.restrictions ?? [] : [], demande, verdictSeul: false,
+      suivi, prochaine: ech.prochaine, examenRequis: examen,
+    };
   }
 
-  /** Statut de l'aptitude dans la conformité : non valide (inapte, échue, aucune visite), ou à renouveler sous l'horizon d'alerte. */
+  /**
+   * Statut de l'aptitude dans la conformité : non valide (inapte, échue, aucune visite), ou à renouveler sous l'horizon
+   * d'alerte ou quand l'examen d'aptitude du suivi renforcé manque.
+   */
   medKey(med: MedInfo, horizon: number): StatusKey {
-    return !med.ok ? 'exp' : med.d != null && med.d <= horizon ? 'due' : 'ok';
+    return !med.ok ? 'exp' : med.examenRequis || (med.d != null && med.d <= horizon) ? 'due' : 'ok';
   }
 
   habInfo(h: Pick<HabTitre, 'h'> & Partial<HabTitre>, rawCerts: CertInfo[], med: MedInfo, horizon: number): HabInfo {
@@ -634,8 +657,19 @@ export class Domain {
       // Aptitude médicale : visite périodique, visite jamais enregistrée (sans date, parmi les dépassées) ou avis
       // d'inaptitude (daté de la visite). Le verdict seul (vue manager) ne donne aucune échéance.
       const m = e.med;
+      if (!m.verdictSeul && m.ok && m.examenRequis) {
+        // Suivi renforcé sans examen d'aptitude : à programmer dès aujourd'hui, sans date, parmi les échéances proches ;
+        // l'échéance datée de l'aptitude suit (et ses relances par paliers).
+        ech.push({
+          kind: 'med', kindLabel: 'Visite médicale', label: EXAMEN_REQUIS, emp: e, exp: this.today, d: 0, key: 'due', statut: 'Examen requis', cls: CLS.due,
+          sansDate: true, sansDateTexte: { main: 'À programmer', sub: 'suivi individuel renforcé' },
+          planned: !!m.demande, plannedLabel: m.demande ? `Visite demandée le ${fmtShort(parse(m.demande.le))}` : '',
+          action: m.demande ? null : { label: 'Demander la visite', intent: { type: 'medical', empId: e.id } },
+        });
+      }
       if (!m.verdictSeul) {
-        const inapte = m.avis === 'inapte', sansDate = !m.exp, exp = inapte ? m.visite! : m.exp ?? this.today, key = this.medKey(m, horizon);
+        // Statut de la date seule : l'examen requis a son échéance ci-dessus.
+        const inapte = m.avis === 'inapte', sansDate = !m.exp, exp = inapte ? m.visite! : m.exp ?? this.today, key = this.medKey({ ...m, examenRequis: false }, horizon);
         ech.push({
           kind: 'med', kindLabel: 'Visite médicale', label: inapte ? 'Avis d’inaptitude' : sansDate ? 'Visite médicale non renseignée' : 'Aptitude médicale', emp: e,
           exp, d: days(this.today, exp), key, statut: inapte ? AVIS_MEDICAL.inapte.court : sansDate ? 'Non renseignée' : MED_LABEL[key], cls: CLS[key], sansDate,

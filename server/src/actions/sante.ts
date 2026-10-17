@@ -6,7 +6,8 @@ import { parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
 import { horsContratLe } from '../../../shared/rules/contrats.ts';
 import { controlerAvis, estMotifVisite, motifParDefaut, suspendueParAvis } from '../../../shared/rules/sante.ts';
-import type { DemandeVisite, Employe, HabTitre, HabType } from '../../../shared/types.ts';
+import { estSuiviMedical, SUIVIS_MEDICAUX } from '../../../shared/rules/suivi-medical.ts';
+import type { DemandeVisite, Employe, HabTitre, HabType, SuiviMedical } from '../../../shared/types.ts';
 import { transmettreDemandeVisite } from '../notifications.ts';
 import { signaler } from './conformite.ts';
 import { ActionError, getEmp, requireRh, type ActionHandler, type Ctx } from './context.ts';
@@ -79,7 +80,12 @@ const enregistrerAvis: ActionHandler = (ctx, p) => {
     if (!suspendueParAvis(t)) throw new ActionError(`${hm.nom} n’est pas suspendue à la suite d’un avis du médecin du travail : levez la suspension depuis la fiche`);
   }
 
-  ctx.db.update('employes', emp.id, { visite: a.date, avis: a.avis, restrictions: a.restrictions });
+  // Prochaine visite fixée par le médecin : celle de cet avis, ou aucune (périodicité du type de suivi). Examen médical
+  // d'aptitude du suivi renforcé : sa date, le dernier examen restant connu après une visite intermédiaire.
+  ctx.db.update('employes', emp.id, {
+    visite: a.date, avis: a.avis, restrictions: a.restrictions, prochaineVisite: a.prochaineVisite,
+    ...(a.examen ? { examenAptitude: a.date } : {}),
+  });
   // Suspension datée du jour de la décision, et non de la visite : le manager voit la date d'une mesure, jamais celle d'une visite.
   suspendre.forEach(({ t }) => ctx.db.update<HabTitre>('habTitres', t.id, {
     mesure: 'suspension', mesureDate: ctx.d.ti < t.delivree! ? t.delivree : ctx.d.ti, mesureMotif: MOTIF_RESTRICTION, mesurePar: ctx.user.nom,
@@ -97,8 +103,27 @@ const enregistrerAvis: ActionHandler = (ctx, p) => {
   return `Avis du médecin du travail enregistré — ${emp.nom} · ${AVIS_MEDICAL[a.avis].court}, visite du ${fmt(parse(a.date))}${suite}${keystone}`;
 };
 
+/**
+ * Type de suivi médical saisi sur la fiche (service RH) : VIP, VIP adaptée ou suivi individuel renforcé ; vide : VIP par
+ * défaut. Une habilitation ou un poste marqués « SIR » au référentiel placent le salarié en suivi renforcé quel que soit
+ * le type saisi (shared/rules/suivi-medical.ts). Donnée réservée au service RH et à l'intéressé : ni le manager, ni le
+ * journal ne la reçoivent.
+ */
+const suiviMedical: ActionHandler = (ctx, p) => {
+  requireRh(ctx);
+  const emp = getEmp(ctx, p.empId);
+  const recu: unknown = p.suivi == null || p.suivi === '' ? null : p.suivi;
+  if (recu !== null && !estSuiviMedical(recu)) throw new ActionError('Type de suivi inconnu : VIP, VIP adaptée ou suivi individuel renforcé');
+  const suivi = recu as SuiviMedical | null;
+  if ((emp.suivi ?? null) === suivi) return `Type de suivi médical inchangé — ${emp.nom}`;
+  ctx.db.update('employes', emp.id, { suivi });
+  const { keystone } = signaler(ctx, emp);
+  return `Type de suivi médical enregistré — ${emp.nom} · ${suivi ? SUIVIS_MEDICAUX[suivi].court : 'VIP par défaut'}${keystone}`;
+};
+
 export const santeActions: Record<string, ActionHandler> = {
   'medical.demander': demanderVisite,
   'medical.annuler': annulerVisite,
   'medical.avis': enregistrerAvis,
+  'medical.suivi': suiviMedical,
 };

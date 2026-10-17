@@ -5,6 +5,7 @@ import { AVIS_MEDICAL, MOTIF_RESTRICTION, MOTIFS_VISITE } from '../constants.ts'
 import { isValidDate, parse } from '../dates.ts';
 import { fmt } from '../format.ts';
 import type { AvisMedical, Employe, HabTitre, ISODate, MotifVisite, Restriction } from '../types.ts';
+import { erreurProchaineVisite } from './suivi-medical.ts';
 
 /** Longueur maximale d'une restriction recopiée, nombre maximal de restrictions par avis. */
 export const RESTRICTION_MAX = 300;
@@ -36,14 +37,20 @@ export function aptitudeVueManager(e: Employe, ok: boolean, today: ISODate): Non
 export const motifParDefaut = (e: Pick<Employe, 'visite'>): MotifVisite => e.visite ? 'periodique' : 'embauche';
 export const estMotifVisite = (m: unknown): m is MotifVisite => typeof m === 'string' && Object.hasOwn(MOTIFS_VISITE, m);
 
-export interface AvisSaisi { date: ISODate; avis: AvisMedical; restrictions: Restriction[] }
+/**
+ * `prochaineVisite` : date de la prochaine visite fixée par le médecin du travail (null : la périodicité du type de suivi) ;
+ * `examen` : la visite est un examen médical d'aptitude du suivi renforcé (shared/rules/suivi-medical.ts).
+ */
+export interface AvisSaisi { date: ISODate; avis: AvisMedical; restrictions: Restriction[]; prochaineVisite: ISODate | null; examen: boolean }
 
 /**
  * Contrôle d'un avis saisi, partagé par le dialogue et le serveur : date de visite passée, avis connu, restrictions
  * recopiées (une au moins pour un avis avec restrictions, lignes vides ignorées), terme éventuel postérieur à la visite.
  * Hors avis avec restrictions, les restrictions sont vidées.
  */
-export function controlerAvis(p: { date?: unknown; avis?: unknown; restrictions?: unknown }, today: ISODate): { avis: AvisSaisi; errors: string[] } {
+export function controlerAvis(
+  p: { date?: unknown; avis?: unknown; restrictions?: unknown; prochaineVisite?: unknown; examen?: unknown }, today: ISODate,
+): { avis: AvisSaisi; errors: string[] } {
   const errors: string[] = [];
   const date = typeof p.date === 'string' ? p.date : '';
   if (!isValidDate(date)) errors.push('Date de la visite invalide.');
@@ -67,5 +74,9 @@ export function controlerAvis(p: { date?: unknown; avis?: unknown; restrictions?
     if (!restrictions.length) errors.push('Recopiez au moins une restriction ou un aménagement de poste, tel qu’écrit sur l’avis.');
     if (restrictions.length > RESTRICTIONS_MAX) errors.push(`${RESTRICTIONS_MAX} restrictions au plus.`);
   }
-  return { avis: { date, avis: avis ?? 'apte', restrictions }, errors };
+  // Prochaine visite fixée par le médecin (facultative) : sans objet pour un avis d'inaptitude.
+  const prochaineVisite = avis !== 'inapte' && typeof p.prochaineVisite === 'string' && p.prochaineVisite ? p.prochaineVisite : null;
+  const erreurProchaine = erreurProchaineVisite(prochaineVisite, date);
+  if (erreurProchaine) errors.push(erreurProchaine);
+  return { avis: { date, avis: avis ?? 'apte', restrictions, prochaineVisite, examen: p.examen === true }, errors };
 }

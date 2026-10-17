@@ -78,6 +78,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'medical.demander': 'Visite médicale demandée',
   'medical.annuler': 'Demande de visite annulée',
   'medical.avis': 'Avis du médecin du travail',
+  'medical.suivi': 'Type de suivi médical',
   // Référentiels
   'referentiel.formation.enregistrer': 'Formation du catalogue créée ou modifiée',
   'referentiel.formation.archiver': 'Formation archivée ou rétablie',
@@ -279,6 +280,10 @@ export const CHAMP_LABEL: Record<string, string> = {
   annuleLe: 'Annulé le', annuleMotif: 'Motif de l’annulation',
   // Semaine à 7 jours (heures du dimanche), activités internes et mandats au CSE (heures de délégation).
   majorationDimanche: 'Majoration des heures du dimanche (%)', role: 'Mandat', credit: 'Crédit d’heures par mois',
+  // Suivi médical : périodicités (Paramètres → Santé), case « suivi individuel renforcé » des habilitations et des postes.
+  santeVipMois: 'Périodicité de la visite d’information et de prévention (mois)', santeVipAdapteeMois: 'Périodicité de la VIP adaptée (mois)',
+  santeSirIntermediaireMois: 'Suivi renforcé : visite intermédiaire (mois)', santeSirAptitudeMois: 'Suivi renforcé : examen d’aptitude (mois)',
+  sir: 'Suivi individuel renforcé',
 };
 
 const valeur = (v: unknown): string => {

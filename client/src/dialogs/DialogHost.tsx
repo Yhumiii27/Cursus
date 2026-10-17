@@ -51,6 +51,7 @@ import { TripDialog } from './TripDialog.tsx';
 import { TripImportDialog } from './TripImportDialog.tsx';
 import { TripModifierDialog } from './TripModifierDialog.tsx';
 import { AvisDialog } from './AvisDialog.tsx';
+import { SuiviDialog } from './SuiviDialog.tsx';
 import { VisiteDialog } from './VisiteDialog.tsx';
 
 export function DialogHost() {
@@ -78,6 +79,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'tripModifier': return <TripModifierDialog {...d} />;
     case 'visite': return <VisiteDialog {...d} />;
     case 'avis': return <AvisDialog {...d} />;
+    case 'suivi': return <SuiviDialog {...d} />;
     case 'reqForm': return <ReqFormDialog {...d} />;
     case 'reqHab': return <ReqHabDialog {...d} />;
     case 'employe': return <EmployeDialog {...d} />;

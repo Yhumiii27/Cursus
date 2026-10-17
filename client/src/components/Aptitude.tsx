@@ -6,6 +6,7 @@ import type { Domain, EmpX } from '../../../shared/domain.ts';
 import { equipeLabel, fmtIso } from '../../../shared/format.ts';
 import { matriculeAffiche } from '../../../shared/rules/matricules.ts';
 import { restrictionEnVigueur, restrictionTexte } from '../../../shared/rules/sante.ts';
+import { suiviTexte } from '../../../shared/rules/suivi-medical.ts';
 import type { DemandeVisite } from '../../../shared/types.ts';
 import { matriculesImprimes, printDocument } from '../print.ts';
 import { Tag } from './ui.tsx';
@@ -43,7 +44,7 @@ export function Aptitude({ e, d, horizon, actions }: { e: EmpX; d: Domain; horiz
     : !m.ok && !m.verdictSeul ? (m.visite ? 'Aptitude échue' : 'Aucune visite enregistrée')
     : !m.ok ? 'Aptitude non valide'
     : m.avis === 'restrictions' ? AVIS_MEDICAL.restrictions.court : 'Apte';
-  const statut = key === 'exp' ? (m.avis === 'inapte' || m.verdictSeul ? 'Non valide' : m.visite ? 'Échue' : 'Non renseignée') : key === 'due' ? 'À renouveler' : 'Valide';
+  const statut = key === 'exp' ? (m.avis === 'inapte' || m.verdictSeul ? 'Non valide' : m.visite ? 'Échue' : 'Non renseignée') : key === 'due' ? (m.ok && m.examenRequis ? 'Examen requis' : 'À renouveler') : 'Valide';
   // Verdict seul (manager) : ni date ni échéance à afficher.
   const detail = !m.verdictSeul ? m.text : m.ok || m.avis === 'inapte' ? 'Avis du médecin du travail' : 'Visite à programmer par le service RH';
   return (
@@ -52,6 +53,8 @@ export function Aptitude({ e, d, horizon, actions }: { e: EmpX; d: Domain; horiz
         <div>
           <div style={{ fontSize: 14 }}>{verdict}</div>
           <div className="text-muted sub">{detail}</div>
+          {/* Type de suivi : service RH et intéressé (jamais dans la vue manager, `suivi` null). */}
+          {m.suivi && <div className="text-muted sub">Type de suivi : {suiviTexte(m.suivi)}{m.examenRequis ? ' · examen médical d’aptitude à programmer' : ''}</div>}
         </div>
         <Tag cls={CLS[key]} style={{ flex: 'none' }}>{statut}</Tag>
       </div>

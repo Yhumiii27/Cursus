@@ -176,8 +176,9 @@ function Habilitations() {
                   <Chips items={[
                     ...h.prereqs.map(f => ({ key: f, label: d.fm(f)?.court ?? f, cls: actif(d.fm(f)) ? 'tag-neutral' : 'tag-outline' })),
                     ...(h.medical ? [{ key: 'med', label: 'Aptitude médicale', cls: 'tag-neutral' }] : []),
+                    ...(h.sir ? [{ key: 'sir', label: 'Suivi renforcé', cls: 'tag-neutral' }] : []),
                   ]} />
-                  {!h.prereqs.length && !h.medical && <span className="text-muted">Aucun</span>}
+                  {!h.prereqs.length && !h.medical && !h.sir && <span className="text-muted">Aucun</span>}
                 </td>
                 <td className="nowrap">{validiteLabel(h.validite)}</td>
                 <td>{h.signataire}</td>

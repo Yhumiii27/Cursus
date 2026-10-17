@@ -22,6 +22,7 @@ import { RelancesEcheances } from './RelancesEcheances.tsx';
 import { ReposHebdomadaire } from './ReposHebdomadaire.tsx';
 import { Rgpd } from './Rgpd.tsx';
 import { SagePaie } from './SagePaie.tsx';
+import { Sante } from './Sante.tsx';
 import { Suivi } from './Suivi.tsx';
 
 export interface SectionParametres {
@@ -52,6 +53,7 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'paie', place: 'droite', Section: ReglagesPaie },
   { id: 'feuilles', place: 'gauche', Section: FeuillesTemps },
   { id: 'repos', place: 'droite', Section: ReposHebdomadaire },
+  { id: 'sante', place: 'gauche', Section: Sante },
   { id: 'confidentialite', place: 'droite', Section: Rgpd },
   { id: 'messagerie', place: 'large', Section: Messagerie },
   { id: 'relances', place: 'large', Section: RelancesEcheances },

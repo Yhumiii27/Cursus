@@ -165,9 +165,12 @@ export function controlerExigences(
 
 export type ChampPoste = 'nom' | 'formations' | 'habilitations';
 
-/** Poste saisi, contrôlé : intitulé (unique parmi les postes en vigueur) et exigences ; `id` : poste modifié. */
+/**
+ * Poste saisi, contrôlé : intitulé (unique parmi les postes en vigueur) et exigences ; `id` : poste modifié. `sir` :
+ * poste à risques dont les titulaires relèvent du suivi individuel renforcé (shared/rules/suivi-medical.ts), décoché par défaut.
+ */
 export function controlerPoste(
-  s: Partial<Record<ChampPoste, unknown>>, ref: Pick<Dataset['referentiels'], 'postes' | 'formations' | 'habilitations'>, id: number | null = null,
+  s: Partial<Record<ChampPoste | 'sir', unknown>>, ref: Pick<Dataset['referentiels'], 'postes' | 'formations' | 'habilitations'>, id: number | null = null,
 ): { erreurs: Erreurs<ChampPoste>; poste: Omit<Poste, 'id'> | null } {
   const avant = id != null ? ref.postes.find(p => p.id === id) ?? null : null;
   const nom = texte(s.nom);
@@ -177,7 +180,7 @@ export function controlerPoste(
   else if (nom.length > 80) e.nom = '80 caractères au plus.';
   else if (ref.postes.some(p => p.id !== id && actif(p) && key(p.nom) === key(nom))) e.nom = 'Un poste du référentiel porte déjà cet intitulé.';
   if (Object.keys(e).length) return { erreurs: e, poste: null };
-  return { erreurs: e, poste: { nom, ...exigences, archive: avant?.archive ?? null } };
+  return { erreurs: e, poste: { nom, ...exigences, archive: avant?.archive ?? null, sir: s.sir === true || s.sir === 'true' } };
 }
 
 /** Poste en vigueur dont l'intitulé est celui saisi (casse, accents et ponctuation ignorés). */

@@ -20,6 +20,7 @@ shared/            Domaine partagé (aucune dépendance)
   confidentialite.ts Page Confidentialité : texte de l'information des salariés (art. 13), contrôle des coordonnées du
                    responsable et du DPO (descriptif complet du traitement : docs/RGPD.md)
   rules/           temps.ts, conges.ts, entretiens.ts, budget.ts, imports.ts, sante.ts (avis et visites médicales) ;
+                   suivi-medical.ts : type de suivi (VIP, VIP adaptée, SIR) et échéance de la prochaine visite ;
                    conflits.ts : doublons et conflits de dates ; referentiels.ts : formations, habilitations et destinations
                    (contrôles de saisie, archivage, effet d'une validité modifiée) ; matricules.ts : matricule de paie,
                    identifiant Keystone ; clotures.ts : clôture des périodes de congés (CP au 31 mai, RTT au 31 décembre) ;
@@ -654,7 +655,8 @@ aucun champ du paramètre n'est recopié.
 | `referentiel.charger` | referentiel (`formations`/`habilitations`/`destinations`) : référentiel type (celui de la démonstration) chargé dans un référentiel vide, archivés compris ; habilitations après les formations (prérequis présents et en vigueur) | RH, référent HSE (destinations : RH) |
 | `medical.demander` | empId, motif? (`periodique`/`embauche`/`reprise`/`employeur` ; par défaut embauche sans visite enregistrée, sinon périodique) ; e-mail au service de santé au travail | RH (une demande en cours par collaborateur) |
 | `medical.annuler` | id | RH (demande de visite en cours) |
-| `medical.avis` | empId, date (passée), avis (`apte`/`restrictions`/`inapte`), restrictions [{texte, jusquau?}] (avis avec restrictions), suspendre [h]?, lever [h]? | RH (suspensions « Restriction d’aptitude » ; levée des seules suspensions d’un avis précédent, jamais pour un avis d’inaptitude) |
+| `medical.avis` | empId, date (passée), avis (`apte`/`restrictions`/`inapte`), restrictions [{texte, jusquau?}] (avis avec restrictions), prochaineVisite? (fixée par le médecin, après la visite, 5 ans au plus ; ignorée pour un avis d’inaptitude), examen? (examen médical d’aptitude du suivi renforcé), suspendre [h]?, lever [h]? | RH (suspensions « Restriction d’aptitude » ; levée des seules suspensions d’un avis précédent, jamais pour un avis d’inaptitude) |
+| `medical.suivi` | empId, suivi (`vip`/`vip_adapte`/`sir`, vide : VIP par défaut) | RH (un suivi renforcé déduit du référentiel prime) |
 | `demande.accepter` / `demande.refuser` | id ; refus : motif? (500 caractères, `motifRefus`, montré au collaborateur seul, même quand son manager a fait la demande) ; acceptation refusée quand la formation ou l'habilitation demandée a été archivée depuis (à refuser, ou à rétablir d'abord) | RH ; référent HSE pour une demande de formation ou d'habilitation (document déclaré : RH) |
 | `demande.formation` | f (ou `autre`), libelle, sessionId, motif, empId (manager) ; refusée si une demande identique attend (même formation, ou même intitulé hors catalogue), si le salarié est déjà inscrit à une session à venir, ou absent le jour de la session souhaitée | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `demande.habilitation` | h, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
@@ -1038,10 +1040,28 @@ Table `postes` (intitulé, `formations` et `habilitations` exigées, `archive`),
 
 Règles dans `shared/rules/sante.ts` et `Domain.medInfo` (`shared/domain.ts`), actions dans `server/src/actions/sante.ts`.
 
-- **Aptitude** : valide 24 mois après la dernière visite (`MED_VALIDITE`), sauf avis d'inaptitude. Elle compte dans le statut
+- **Aptitude** : valide jusqu'à l'échéance de la prochaine visite (`Domain.medInfo`, `shared/rules/suivi-medical.ts`, voir
+  « Suivi médical » ci-dessous), sauf avis d'inaptitude. Elle compte dans le statut
   du collaborateur (`EmpX.worst`, même sans habilitation qui l'exige) et dans les échéances (type « Visite médicale » : échue,
   à renouveler sous l'horizon d'alerte, jamais enregistrée — sans date, parmi les dépassées —, avis d'inaptitude ; action
   « Demander la visite »). Une visite saisie avant l'enregistrement des avis (colonne `avis` vide) vaut avis apte.
+- **Suivi médical (t059)** : type de suivi de chaque salarié — suivi individuel renforcé (SIR) déduit d'une habilitation
+  détenue ou demandée (titre non retiré) ou du poste cochés « suivi individuel renforcé » au référentiel (`HabType.sir`,
+  `Poste.sir`, cases décochées par défaut, art. R4624-23), qui prime ; sinon le type saisi sur la fiche par le service RH
+  (`medical.suivi`, `Employe.suivi` : VIP, VIP adaptée, SIR) ; sinon VIP (`suiviDe`). Échéance (`echeanceVisite`) : la date
+  de la prochaine visite fixée par le médecin, saisie avec l'avis (`Employe.prochaineVisite`, remise à zéro par chaque avis
+  et par une visite reprise de Lucca), prime toujours ; sinon la périodicité de Paramètres → Santé (`santeVipMois`,
+  `santeVipAdapteeMois`, `santeSirIntermediaireMois`, `santeSirAptitudeMois` : 24, 24, 24 et 48 mois par défaut, bornés
+  aux maximums légaux R4624-16, R4624-17 et R4624-28). Suivi renforcé : la plus proche de la visite intermédiaire (dernière
+  visite + périodicité intermédiaire) et du renouvellement de l'examen d'aptitude (dernier examen, `Employe.examenAptitude`,
+  daté par un avis coché « examen médical d'aptitude », + périodicité de l'examen). Suivi renforcé sans examen enregistré :
+  `MedInfo.examenRequis`, l'aptitude en cours reste valide mais passe « à renouveler », avec l'échéance sans date
+  « Examen d’aptitude requis » (`EXAMEN_REQUIS`, à programmer, relancée comme échue, clé `med:<id>:examen`), en plus de
+  l'échéance datée de l'aptitude et de ses relances par paliers ; aucun motif Go / No Go. Dans le dialogue d'avis, la case
+  « examen médical d'aptitude » n'est cochée par défaut que si l'examen est attendu (`examenAttendu` : jamais enregistré, ou
+  renouvellement plus proche que la visite intermédiaire), pour qu'une visite intermédiaire ne redate pas l'examen. Le texte de l'aptitude précise l'origine de l'échéance hors du cas courant (VIP à la périodicité réglée).
+  Aucune migration nommée : les colonnes nouvelles (`TABLES`) sont vides sur une base existante, ce qui vaut VIP à
+  24 mois, l'échéance d'avant.
 - **Avis du médecin du travail** (`medical.avis`) : date de la visite, avis (apte, apte avec restrictions ou aménagements de
   poste, inapte) et restrictions recopiées telles qu'écrites, chacune jusqu'à une date ou sans terme (`Employe.avis`,
   `Employe.restrictions`, contrôlés par `controlerAvis`, partagé avec le dialogue). Dans la même écriture, le service RH
@@ -1057,7 +1077,10 @@ Règles dans `shared/rules/sante.ts` et `Domain.medInfo` (`shared/domain.ts`), a
   (visite et habilitations qui en dépendent, affichées comme planifiées) et sur les habilitations (`Domain.habAction`, qui
   ouvre la demande en cours : impression, annulation). La saisie d'une visite datée du jour de la demande ou après la
   clôt (`realisee`) ; le service RH peut l'annuler (`medical.annuler`).
-- **Confidentialité** : dates de visite, avis daté et demandes sont réservés au service RH et à l'intéressé. Le manager reçoit
+- **Confidentialité** : dates de visite, avis daté, demandes et suivi médical (type, prochaine visite, examen d'aptitude :
+  `suivi`, `prochaineVisite`, `examenAptitude` vidés par `server/src/dataset.ts` ; au journal, `medical.suivi` ne retient
+  que `empId`, et le message, qui nomme le type, est masqué aux lecteurs hors service RH (`ACTIONS_SANTE`) ; absents de la
+  demande de visite ; dans la fiche de l'export RGPD) sont réservés au service RH et à l'intéressé. Le manager reçoit
   `aptitude` (`aptitudeVueManager` : aptitude valide ou non, avis, restrictions en vigueur), aucune échéance datée ; Keystone,
   le seul code `APTITUDE`, selon l'état du jour, avec un libellé neutre en partage détaillé (voir Go / No Go).
 

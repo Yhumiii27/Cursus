@@ -315,6 +315,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
         <Aptitude e={e} d={d} horizon={horizon} actions={rh && !parti ? <>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'visite', empId: e.id })}>{e.med.demande ? 'Demande de visite' : 'Demander une visite'}</button>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'avis', empId: e.id })}>Avis du médecin du travail</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'suivi', empId: e.id })}>Type de suivi</button>
         </> : undefined} />
       </div>
 

@@ -1,6 +1,6 @@
 // Écran Référentiels : nouvelle habilitation, ou modification d'une habilitation (son code ne change plus) :
 // formations prérequises prises dans le catalogue, aptitude médicale exigée, validité, signataire proposé par défaut
-// à la délivrance. Une règle modifiée (validité, prérequis, aptitude) vaut aussi pour les titres déjà délivrés :
+// à la délivrance, suivi individuel renforcé de ses titulaires (case décochée par défaut). Une règle modifiée (validité, prérequis, aptitude) vaut aussi pour les titres déjà délivrés :
 // ceux qui deviennent non valides sont annoncés, et l'enregistrement se confirme.
 import { useMemo, useState } from 'react';
 import { plural, validiteLabel } from '../../../shared/format.ts';
@@ -22,6 +22,7 @@ export function RefHabilitationDialog({ id }: { id?: string | null }) {
   const [code, setCode] = useState('');
   const [prereqs, setPrereqs] = useState<string[]>(avant?.prereqs ?? []);
   const [medical, setMedical] = useState(avant?.medical ?? false);
+  const [sir, setSir] = useState(avant?.sir ?? false);
   const [validite, setValidite] = useState(avant ? String(avant.validite) : '');
   const [signataire, setSignataire] = useState(avant?.signataire ?? '');
   const [busy, setBusy] = useState(false);
@@ -35,7 +36,7 @@ export function RefHabilitationDialog({ id }: { id?: string | null }) {
   const propose = nom.trim() ? codeSuggere(nom, liste.map(h => h.id)) : '';
   const codeFinal = code.trim() || propose;
   // Prérequis dans l'ordre du catalogue, quel que soit l'ordre des cases cochées.
-  const champs = { nom, detail, prereqs: formations.map(f => f.id).filter(f => prereqs.includes(f)), medical, validite, signataire };
+  const champs = { nom, detail, prereqs: formations.map(f => f.id).filter(f => prereqs.includes(f)), medical, validite, signataire, sir };
   const { erreurs, habilitation } = controlerHabilitation({ ...champs, code: codeFinal }, liste, d.ds.referentiels.formations, avant?.id ?? null);
   const erreur = (k: ChampHabilitation, saisi: string) => (saisi.trim() ? erreurs[k] ?? null : v.erreur(erreurs[k]));
   const n = Number(validite);
@@ -103,6 +104,10 @@ export function RefHabilitationDialog({ id }: { id?: string | null }) {
         <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14 }}>
           <input type="checkbox" checked={medical} onChange={e => setMedical(e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
           Aptitude médicale exigée (visite d’aptitude en cours de validité)
+        </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14 }}>
+          <input type="checkbox" checked={sir} onChange={e => setSir(e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
+          Suivi individuel renforcé de ses titulaires (art. R4624-23 : autorisation de conduite, habilitation électrique…)
         </label>
         <div className="grid-2">
           <Field label="Validité (mois)" htmlFor="rhab-validite" requis erreur={erreur('validite', validite)}>

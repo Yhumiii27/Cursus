@@ -306,8 +306,11 @@ anticipation dans la limite des jours acquis à la date du congé · CP, RTT et 
 (après-midi du premier jour, matin du dernier ; une demi-journée de travail au plus ce jour-là) · RTT et jours de repos forfait
 calculés au prorata de l'entrée et de la fin du contrat, ceux de l'année suivante posables dès maintenant, CET (5 RTT/an,
 5e semaine de CP), reports de CP rattachés à une période et datés · clôture des congés proposée au 1er juin (CP : report
-ou perte décidés salarié par salarié, jamais d'office, report de 15 mois après une absence de santé, une maternité ou
-une paternité) et au 1er janvier (RTT non reportables) · compteurs repris de l'ancien outil datés (période de leur date
+ou perte décidés salarié par salarié, jamais d'office, report de 15 mois des jours acquis pendant une absence de santé, une
+maternité ou une paternité, ou qu'elle a empêché de prendre) et au 1er janvier (RTT non reportables) · acquisition des CP
+pendant les absences (loi du 22 avril 2024 : accident du travail et maladie professionnelle sans limite, maladie à 2 jours
+ouvrables par mois au minimum légal, réglable, congé parental et absences non payées au prorata) et information du
+salarié sur ses congés à son retour d'arrêt (tâche du service RH, e-mail, report de 15 mois à compter de l'information) · compteurs repris de l'ancien outil datés (période de leur date
 d'arrêté) · matricule de paie unique sur la fiche (réembauche confirmée par l'administrateur RH), identifiant envoyé à
 Keystone réglable (matricule Cursus par défaut) · doublons et conflits de dates (formation, absence, déplacement, entretien) signalés ou
 bloqués · absences hors congés

@@ -275,6 +275,10 @@ const MATRICE: Ligne[] = [
     db.update('soldesReprise', 2, { arreteLe: '2025-09-01' });
     return { type: 'RTT', periode: 2025 };
   } },
+  // Information au retour d'un arrêt (art. L3141-19-3) : service RH, jamais pour lui-même (arrêt de Mehdi terminé le 2 octobre).
+  { action: 'conges.informer', droits: '                     O    O    -    -    -    -    -    -    -', p: () => ({
+    id: db.insert<{ id: number }>('absences', { empId: 2, type: 'MALADIE', du: '2026-09-28', au: '2026-10-02', statut: 'validee', keystone: true, justificatif: true, justificatifLe: '2026-09-28' }).id,
+  }) },
   // Absences hors congés : le salarié ou son manager signale, le RH qualifie ou saisit ; annulation selon le statut.
   { action: 'absence.signaler', droits: '                    O    O    O    -    O    -    -    -    -', p: () => ({ empId: 2, du: '2026-12-15', au: '2026-12-15' }) },
   { action: 'absence.saisir', droits: '                      O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, nature: 'MARIAGE', du: '2026-12-15', au: '2026-12-16' }) },

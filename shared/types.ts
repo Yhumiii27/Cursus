@@ -397,7 +397,17 @@ export interface Absence {
    * sur un congé d'un seul jour.
    */
   debutDemi?: DemiJournee | null; finDemi?: DemiJournee | null;
+  /**
+   * Effet sur l'acquisition des CP d'une absence dont la nature médicale est masquée (« Absence ») : transmis au seul
+   * profil paie (shared/rules/acquisition-cp.ts), pour que ses soldes soient ceux du service RH. Absent : effet de la nature.
+   */
+  cpAcquisition?: CpAcquisition | null;
 }
+/**
+ * Effet d'une absence sur l'acquisition des congés payés (loi 2024-364, shared/rules/acquisition-cp.ts) : `assimile`, travail
+ * effectif ; `maladie`, 2 jours ouvrables par mois (art. L3141-5-1, réglage `cpMaladie`) ; `non`, acquisition réduite au prorata.
+ */
+export type CpAcquisition = 'assimile' | 'maladie' | 'non';
 /** Demi-journée d'un congé : matin ou après-midi. */
 export type DemiJournee = 'matin' | 'apres_midi';
 export interface CetMouvement { id: number; empId: number; type: 'CP' | 'RTT'; jours: number; date: ISODate; periode: string }
@@ -436,6 +446,16 @@ export interface ClotureConges {
   id: number; empId: number; type: 'CP' | 'RTT'; periode: number; solde: number;
   decision: 'reporter' | 'perdre' | 'solde_nul'; reportes: number; perdus: number; expire: ISODate | null; reportId: number | null;
   motif: 'report_legal' | 'report_en_cours' | null; le: ISODate; par: string;
+}
+/**
+ * Information du salarié sur ses congés payés à son retour d'un arrêt de maladie ou d'accident (art. L3141-19-3,
+ * `conges.informer`, shared/rules/information-retour.ts) : arrêt concerné (`absenceId`, ses dates), jour de l'information,
+ * jours communiqués (solde de la période en cours, `jours`, à prendre jusqu'au `limite` ; dont acquis pendant l'arrêt,
+ * `arret`) et échéance du report de 15 mois qui court à partir de cette information (`echeance`). Service RH et intéressé.
+ */
+export interface InformationCp {
+  id: number; empId: number; absenceId: number; du: ISODate; au: ISODate; le: ISODate;
+  jours: number; arret: number; limite: ISODate; echeance: ISODate; par: string;
 }
 
 // — Entretiens & demandes —
@@ -492,6 +512,11 @@ export interface Settings {
   politiqueReportCp: 'cas_par_cas' | 'proposer_report';
   /** RTT de l'année suivante posables à partir de ce jour de l'année (« MM-JJ ») ; vide : sans restriction. */
   rttAnneeSuivanteDes: string;
+  /**
+   * Acquisition des CP pendant un arrêt maladie (art. L3141-5-1) : minimum légal (2 jours ouvrables par mois, 24 par
+   * période) ou maladie assimilée à du travail effectif (accord ou CCN plus favorable confirmé).
+   */
+  cpMaladie: 'legal' | 'assimile';
   // Paie (client/src/pages/parametres/ReglagesPaie.tsx, shared/rules/paie.ts) : heures supplémentaires payées ou en repos
   // (référence de l'accord qui le prévoit), rattachement d'une semaine à cheval sur deux mois, jour de clôture (0 : dernier jour).
   heuresSupMode: ModeHeuresSup;
@@ -770,6 +795,8 @@ export interface Dataset {
   soldesReprise: SoldeReprise[];
   /** Clôtures des périodes de congés (CP au 31 mai, RTT au 31 décembre), une ligne par salarié et par période. */
   clotures: ClotureConges[];
+  /** Informations des salariés sur leurs congés à leur retour d'arrêt : service RH et intéressé (vide ailleurs). */
+  informationsCp?: InformationCp[];
   entretiens: Entretien[];
   demandesCollab: DemandeCollab[];
   demandesVisite: DemandeVisite[];

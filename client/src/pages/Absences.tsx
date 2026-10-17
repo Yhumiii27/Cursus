@@ -13,6 +13,7 @@ import { absenceKinds, cetInfo, cpInfo, recupInfo, reposForfait, rttInfo } from 
 import type { Absence, DemiJournee, Employe, NatureAbsence } from '../../../shared/types.ts';
 import { DownloadSimpleIcon } from '@phosphor-icons/react';
 import { CloturesConges } from '../components/CloturesConges.tsx';
+import { InformationsRetour } from '../components/InformationsRetour.tsx';
 import { Btn, Empty, Fine, Kpi, Kpis, Page, Panel, Tag, Two } from '../components/ui.tsx';
 import { csvAbsences, csvSoldes } from '../listes-csv.ts';
 import { downloadCsv } from '../print.ts';
@@ -155,6 +156,7 @@ export function Absences() {
       )}
 
       {espaceRh && <CloturesConges />}
+      <InformationsRetour />
 
       {aQualifier.length > 0 && (
         <Panel highlight title="Absences à qualifier" aside={`${plural(aQualifier.length, 'absence signalée', 'absences signalées')} · nature et justificatif à préciser`}>
@@ -284,6 +286,7 @@ export function Absences() {
           <Rtt39Field />
           <ul className="rules">
             <li>Congés payés : 25 jours ouvrés par an, acquis à raison de 2,08 j par mois du 1er juin au 31 mai, arrondis à l’entier supérieur.</li>
+            <li>Acquisition pendant les absences (loi du 22 avril 2024) : accident du travail ou de trajet, maladie professionnelle (sans limite de durée), maternité, paternité, adoption et événements familiaux comptent comme du travail effectif ; {data.settings.cpMaladie === 'assimile' ? 'arrêt maladie assimilé lui aussi à du travail effectif (accord ou CCN plus favorable, Paramètres → Congés et clôtures)' : 'arrêt maladie : 2 jours ouvrables par mois (1,67 j ouvré), 24 jours ouvrables (20 ouvrés) par période au plus'} ; une absence encore à qualifier compte comme une maladie. Congé parental, sans solde, absence injustifiée et enfant malade réduisent le mois au prorata, sauf s’il reste 4 semaines ou 24 jours ouvrables de travail.</li>
             <li>Chaque jour de congé est décompté sur la période dont les droits se prennent à sa date (un congé de mai à juin est réparti sur deux périodes). Période épuisée : prise par anticipation sur les jours en cours d’acquisition, dans la limite de ceux acquis à la date du congé, déduits de la période suivante au 1er juin.</li>
             <li>CCN Industries chimiques : pas de congés d’ancienneté ; +5 jours ouvrés à partir de 59 ans.</li>
             <li>Forfait annuel en jours : jours de repos calculés individuellement selon le nombre de jours du forfait (jours calendaires − week-ends − 25 CP − fériés ouvrés − jours du forfait) ; {reposForfait(Y, 218)} jours en {Y} pour un forfait de 218 jours.</li>
@@ -291,7 +294,8 @@ export function Absences() {
             <li>Forfait hebdomadaire en heures : heures supplémentaires incluses au forfait (au-delà de 35 h) majorées dans la rémunération ; heures effectuées au-delà du forfait payées avec majoration, ou remplacées par un repos compensateur quand un accord collectif le prévoit (Paramètres → Paie).</li>
             <li>Cadre dirigeant (art. L3111-2) : congés payés uniquement — ni RTT, ni repos compensateur.</li>
             <li>Temps partiel : même droit à congés ; le décompte des CP inclut les jours non travaillés de la période.</li>
-            <li>Clôture des congés payés, proposée à partir du 1er juin : aucun jour n’est perdu d’office, le service RH décide pour chaque salarié du report du solde (plafonné au solde, jusqu’au 31 mai suivant) ou de sa perte. Après une absence de santé, une maternité, une paternité ou une adoption dans la période, le solde est reporté de 15 mois. Un report accordé en cours de période est appliqué à la clôture.</li>
+            <li>Clôture des congés payés, proposée à partir du 1er juin : aucun jour n’est perdu d’office, le service RH décide pour chaque salarié du report du solde (plafonné au solde, jusqu’au 31 mai suivant) ou de sa perte. Les jours acquis pendant une absence de santé, une maternité, une paternité ou une adoption, et ceux qu’elle a empêché de prendre, sont reportés de 15 mois (à compter de l’information du salarié à son retour si elle est plus tardive), dans la limite du solde. Un report accordé en cours de période est appliqué à la clôture.</li>
+            <li>Retour d’un arrêt de maladie ou d’accident : dans le mois, le service RH informe le salarié de ses jours de congés et de la date limite pour les prendre (« Informations au retour à faire ») ; le report de 15 mois court à partir de cette information.</li>
             <li>RTT et jours de repos : non reportables, clôturés au 31 décembre (soldes non pris perdus, après le rappel du CET). Ceux de l’année suivante se posent dès maintenant sur son propre droit ; une demande à cheval sur deux années est refusée.</li>
             <li>Compteurs repris de l’ancien outil : décomptés sur la période de CP et l’année de RTT de leur date d’arrêté, jamais au-delà.</li>
             <li>Compte épargne-temps : jusqu’à 5 RTT par an (avant le 31 décembre) et 5 CP par période, uniquement ceux de la 5e semaine (au-delà de 20 jours ouvrés).</li>

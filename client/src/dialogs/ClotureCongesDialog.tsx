@@ -128,7 +128,8 @@ function ClotureCp({ A }: { A: number }) {
               </div>
               {l.impose && (
                 <NoteAccent>
-                  {MOTIF_CLOTURE_LABEL[l.impose]} : perte impossible pour {egal(l.legal, l.solde) ? 'tout le solde' : fJ(l.legal)}, reporté{l.legal > 1 ? 's' : ''} jusqu’au {fmtIso(l.expireLegal!)}.
+                  {MOTIF_CLOTURE_LABEL[l.impose]} : perte impossible pour {egal(l.legal, l.solde) ? 'tout le solde' : fJ(l.legal)}, reporté{l.legal > 1 ? 's' : ''} jusqu’au {fmtIso(l.expireLegal!)}
+                  {l.impose === 'report_legal' && ` (${[l.acquisArret > 0 ? `${fJ(l.acquisArret)} acquis pendant l’absence` : '', l.empeches > 0 ? `${fJ(l.empeches)} ouvrés d’absence pendant la période de prise` : ''].filter(Boolean).join(', ')})`}.
                 </NoteAccent>
               )}
               {c.decision === 'reporter' && (

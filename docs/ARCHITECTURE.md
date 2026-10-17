@@ -35,7 +35,9 @@ shared/            Domaine partagé (aucune dépendance)
                    semaine.ts (semaine à 7 jours : repos hebdomadaire et dominical, dérogations), activites.ts (activités
                    internes INT-… et ECOLE), delegation.ts (mandats au CSE, crédit R2314-1, compteur des heures de délégation),
                    repos-a-verifier.ts (feuilles soumises ou validées portant une alerte de repos, pour le service RH) ;
-                   demi-journees.ts : congés à la demi-journée (règle, poids, chevauchement, textes)
+                   demi-journees.ts : congés à la demi-journée (règle, poids, chevauchement, textes) ;
+                   acquisition-cp.ts : acquisition des CP mois par mois, absences comprises (loi 2024-364, mémorisée) ;
+                   information-retour.ts : information du salarié sur ses congés à son retour d'arrêt (art. L3141-19-3)
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   migrate.ts       Reprises des bases antérieures, rejouées à chaque démarrage (idempotentes)
@@ -698,6 +700,7 @@ aucun champ du paramètre n'est recopié.
 | `cet.placer` | empId, kind, jours, annee? (RTT de l'année précédente, tant que sa clôture n'est pas faite) | intéressé ou RH |
 | `report.accorder` | empId, jours, motif (échéance : 31 mai suivant, seul un report légal court au-delà) : jours de la période en cours reportés sur la suivante, dans la limite du solde non encore reporté, appliqués à la clôture | RH, jamais pour lui-même |
 | `conges.cloturer` | type (`CP`/`RTT`), periode (année de prise des CP, année des RTT), lignes? [{empId, decision `reporter`/`perdre`, jours? (report imposé compris)}] (CP) : période terminée ; une ligne déjà clôturée n'est jamais refaite, une ligne sans décision reste à clôturer, un salarié sans solde est clos d'emblée ; une ligne dont une demande de CP de la période est en attente n'est pas close (refus nommant la demande) ; perte refusée pour les jours d'un report imposé ; RTT : soldes perdus (non reportables), salarié dont une demande de RTT de l'année est en attente non clôturé | RH ; jamais sa propre ligne de CP |
+| `conges.informer` | id (arrêt de maladie ou d'accident terminé, dans `retoursAInformer`) : information du salarié sur ses congés à son retour (art. L3141-19-3) — e-mail sans la nature de l'arrêt, ligne `informationsCp` (jours communiqués, date limite, échéance du report), reports légaux qui couraient pendant l'arrêt prolongés jusqu'à 15 mois après l'information ; arrêt en cours, suivi d'un autre arrêt ou retour antérieur à la mise en service refusés ; information déjà donnée : rien n'est refait | RH, jamais pour lui-même |
 | `entretien.planifier` | empId, kind, date, nonTenu? ; un seul entretien planifié par type : une nouvelle date le reprogramme (passé avec un compte rendu commencé, seulement avec `nonTenu`, l'évaluateur confirmant qu'il n'a pas eu lieu) ; refusé un jour d'absence du salarié ; convocation par e-mail (`.ics`, même événement à la reprogrammation) | manager direct ou RH (jamais son propre entretien) |
 | `entretien.annuler` | id, confirmer? (exigé si le compte rendu est commencé : supprimé avec l'entretien) ; entretien planifié seulement (clos : 409), retiré ; date à venir : `.ics` d'annulation au salarié (même UID `entretien-<id>`) | évaluateur (manager direct) ou RH, jamais son propre entretien |
 | `entretien.modifier` | id, section?, value?, info? | évaluateur / salarié selon la section (un membre du RH n'évalue pas son propre entretien) |
@@ -705,7 +708,7 @@ aucun champ du paramètre n'est recopié.
 | `entretien.signer` | id | salarié |
 | `entretien.remettre` | id, mode (`main_propre`/`refus`/`portail`), date? (main propre, refus : de la clôture à aujourd'hui ; portail : le jour même, compte actif exigé, e-mail avec le seul lien vers Cursus) ; une remise sur papier est définitive, une mise à disposition se complète par une remise sur papier | évaluateur (manager direct) ou RH, jamais pour son propre entretien |
 | `entretien.telecharger` | id : premier téléchargement du compte rendu clos, daté (`telechargeLe`) | salarié, depuis son espace |
-| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
+| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, cpMaladie, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
 | `demo.reinitialiser` | — | administrateur RH, mode démonstration |
 | `compte.creer` | empId (ou nom, adresse : compte externe), type (`microsoft`/`local`), identifiant, profilRh | administrateur RH (mot de passe provisoire dans `result`, affiché une fois) |
 | `compte.profil` | id, profilRh (`aucun`/`rh_gestionnaire`/`rh_admin`/`referent_hse`/`paie`/`lecture_seule`) | administrateur RH (jamais le dernier administrateur actif ; un compte externe garde un profil) |
@@ -1353,14 +1356,45 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
   salarié présent au 31 mai (ni intérimaire, ni sorti : indemnité compensatrice), report (plafonné au solde, échéance
   au 31 mai suivant, report reçu sur la période suivante) ou perte décidés ligne par ligne, jamais d'office
   ni en bloc ; réglage `politiqueReportCp` : sans proposition (défaut) ou report du solde proposé. Report imposé (perte
-  refusée) : tout le solde, 15 mois (31 août A+2 : art. L3141-2 et L3141-19-1), après une absence de santé, une
-  maternité, une paternité, une adoption ou une absence encore à qualifier dans la période ; les seuls jours restants
+  refusée), lot 5 : jours liés à une absence protégée (santé, maternité, paternité, adoption, absence encore à qualifier)
+  — acquis pendant elle sur la période de référence (`acquisPendantArrets`) et jours ouvrés de la période de prise
+  qu'elle a empêché de prendre (`joursEmpeches`), au demi-jour supérieur, dans la limite du solde (`LigneClotureCp.acquisArret`,
+  `empeches`, `legal`) —, 15 mois après la fin de la période (31 août A+2 : art. L3141-2 et L3141-19-1), ou 15 mois après
+  l'information du salarié à son retour si elle tombe plus tard (`echeanceReportArret`) ; les seuls jours restants
   d'un report légal reçu qui court au-delà de la période, jusqu'à sa propre échéance (le reste du solde est au choix du
   service RH) ; motif réservé au service RH et à l'intéressé. Une ligne n'est pas close tant qu'une demande de CP de la
   période attend une décision ; une période close ne reçoit plus de congé (`checkAbsence`), et les jours qu'un refus ou
   une annulation lui rendent sont reportés sur la période suivante (`recrediterPeriodesCloses`, tracé). RTT : non reportables, soldes photographiés et perdus ; ceux
   de l'année close restent plaçables sur le CET (`cet.placer`, `annee`) jusqu'à la confirmation. Table `clotures` (une
   ligne par salarié et période, unique) : relancer est sans effet.
+- **Acquisition des congés payés pendant les absences** (lot 5, t041, `shared/rules/acquisition-cp.ts`, loi 2024-364) :
+  `droitsAcquis` (droits d'une période) et les jours acquis à une date (`acquisAu` : anticipation, période en cours
+  d'acquisition, reprise) sont calculés mois par mois (`acquisitionPeriode`). Un mois compte s'il est couvert à la mi-mois
+  par le contrat (comme avant) ; chaque absence validée ou signalée y joue selon `NatureDef.cpAcquisition` : `assimile`
+  (accident du travail ou de trajet, maladie professionnelle sans limite de durée, maternité, paternité, adoption,
+  événements familiaux : travail effectif), `maladie` (maladie, longue maladie, et absence à qualifier : 2 jours ouvrables
+  par mois, soit 5/3 de jour ouvré, 24 ouvrables, soit 20 ouvrés, par période au plus ; art. L3141-5-1) ou `non` (congé
+  parental, sans solde, absence injustifiée, enfant malade : prorata des jours du mois). Un mois qui garde 4 semaines ou 24
+  jours ouvrables de travail effectif compte en entier (équivalence, art. L3141-4) ; droits arrondis au jour supérieur.
+  Réglage `cpMaladie` (Paramètres → Congés et clôtures) : `legal` par défaut, `assimile` si un accord ou la CCN plus
+  favorable est confirmé (maladie comptée comme du travail effectif). Calcul mémorisé par instantané (`WeakMap` sur le
+  `Domain`, clé salarié, dates du contrat et période) : `imputer` le demande pour chaque demi-journée posée. Reprise depuis
+  Lucca : `reprise()` déduit les jours pris des droits calculés, absences comprises : le solde à la date d'arrêté reste
+  celui de Lucca même avec un arrêt saisi en 2026. Confidentialité : le manager, le référent HSE et la lecture seule
+  reçoivent une nature médicale comme « Absence », calculée comme une maladie (affichage approché, plus prudent pour un
+  accident du travail ; le serveur, qui contrôle les demandes, a la vraie nature) ; le profil paie reçoit en plus l'effet
+  de l'absence (`Absence.cpAcquisition`), pour que ses soldes et ses exports soient ceux du service RH.
+- **Information au retour d'un arrêt** (lot 5, t041, `shared/rules/information-retour.ts`, art. L3141-19-3) : à la fin
+  d'un arrêt de maladie ou d'accident (catégorie santé, validé ou signalé, terminé ; deux arrêts qui se suivent ne font
+  qu'un retour), tâche « Informations au retour à faire » de l'écran Congés & absences (`retoursAInformer` ; à faire dans
+  le mois qui suit la reprise, « en retard » au-delà ; salariés présents, hors intérim, retours dont le délai n'était pas
+  échu à la date d'arrêté des compteurs repris). « Informer » (`conges.informer`, sur confirmation) envoie au salarié le
+  nombre de jours dont il dispose sur la période en cours, la date limite pour les prendre, les jours acquis pendant
+  l'absence et l'échéance du report de 15 mois (`contenuInformation`, e-mail `conges.information` sans la nature de
+  l'arrêt), enregistre l'information (table `informationsCp`, une par arrêt : jours, date limite, échéance, auteur) et
+  prolonge jusqu'à 15 mois après l'information les reports légaux qui couraient pendant l'arrêt. Le salarié retrouve
+  l'information dans « Mes absences » ; ni son manager ni les profils restreints ne la reçoivent (elle désigne un arrêt de
+  santé) ; au journal, masquée à la lecture seule (`ACTIONS_SANTE`).
 - **Demi-journées** (`shared/rules/demi-journees.ts`, décision de l'entreprise) : CP, RTT ou jours de repos du forfait
   jours, récupération. Colonnes `debutDemi` et `finDemi` de l'absence (null : journée entière) : après-midi seul le
   premier jour, matin seul le dernier ; un congé d'un seul jour porte une seule demi-journée, matin ou après-midi
@@ -1537,7 +1571,8 @@ calendaires), le justificatif attendu, sa durée légale le cas échéant et l�
 Les durées sont les minimums du Code du travail : la CCN Industries chimiques peut être plus favorable, elles se
 modifient dans ce référentiel ; un dépassement n’est qu’un avertissement. Le décès d’un enfant de moins de 25 ans
 ouvre 7 jours ouvrés (art. L3142-4), auxquels s’ajoute le congé de deuil de 8 jours (`DEUIL_ENFANT`, art. L3142-1-1),
-saisi à part dans l’année qui suit le décès. L’effet sur les CP est indiqué pour mémoire : `cpDroit` ne l’applique pas (décision attendue).
+saisi à part dans l’année qui suit le décès. L’effet sur l’acquisition des CP (`cpAcquisition` : assimilé, maladie ou non, texte `cp`
+affiché au service RH) est appliqué mois par mois (« Acquisition des congés payés pendant les absences »).
 Règles : `shared/rules/absences.ts` (confidentialité, décompte, reprise, annulation, bornes du contrat) et
 `checkNature` (`shared/rules/conges.ts`).
 

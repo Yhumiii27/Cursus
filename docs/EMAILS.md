@@ -22,6 +22,7 @@ part, chaque e-mail est tracé dans le journal et visible dans Paramètres → E
 | Demande de congés à valider | Valideur : manager direct, sinon la boîte du service RH | Demande d'un salarié |
 | Décision sur une demande de congés, congés posés par le manager | Salarié | Validation, refus, pose |
 | Feuille de temps à valider | Valideur | Soumission |
+| Congés payés au retour d'une absence : jours dont il dispose, date limite, échéance du report de 15 mois (dates de l'absence, jamais sa nature) | Salarié | « Informer » par le service RH au retour d'un arrêt de maladie ou d'accident (art. L3141-19-3) |
 | Feuille de temps à corriger | Salarié | Renvoi par le valideur, ou absence annulée qui couvrait la semaine |
 | Compte rendu d'entretien à signer | Salarié | Clôture par l'évaluateur |
 | Compte rendu d'entretien mis à disposition (lien vers Cursus seulement, jamais le texte du compte rendu) | Salarié | Remise « mis à disposition dans le portail » par l'évaluateur ou le service RH ; toujours aussitôt |

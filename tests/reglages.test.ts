@@ -25,6 +25,8 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     horizonAlerte: 90, uniquementReglementaire: false, seuilBudget: 85, partageKeystone: 'minimal', rtt39: 23, vueInitiale: 'dashboard',
     // Lot 4, reprise : Keystone garde le matricule Cursus, clôture des CP au cas par cas, RTT de l'année suivante sans restriction.
     identifiantKeystone: 'cursus', politiqueReportCp: 'cas_par_cas', rttAnneeSuivanteDes: '',
+    // Acquisition des CP pendant un arrêt maladie (lot 5) : minimum légal de la loi 2024-364.
+    cpMaladie: 'legal',
     // Paie (lot 4) : heures supplémentaires payées, semaine à cheval sur le mois de son dimanche, clôture le dernier jour.
     heuresSupMode: 'paiement', heuresSupAccord: '', periodeRattachement: 'dimanche', clotureJour: 0,
     // Semaine à 7 jours (lot 5) : heures du dimanche sans majoration par défaut.

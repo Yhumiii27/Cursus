@@ -1,6 +1,6 @@
 // Libellés, classes de statut et règles fixes (droit du travail, formalités).
 import type {
-  AbsenceStatut, AbsenceType, CompteType, CurrentUser, Destination, EntretienType, NatureAbsence, ProfilRh, Role, SecuDetachement, Statut, TempsTravail,
+  AbsenceStatut, AbsenceType, CompteType, CpAcquisition, CurrentUser, Destination, EntretienType, NatureAbsence, ProfilRh, Role, SecuDetachement, Statut, TempsTravail,
   TypeContrat, VaccinId, ValidationMode, VisaKind,
 } from './types.ts';
 import type { AvisMedical, MotifVisite } from './types.ts';
@@ -63,12 +63,17 @@ export const estMotifReprise = (v: unknown): v is MotifReprise => MOTIFS_REPRISE
  * - `duree` : durée légale en jours selon `decompte` (par an si `parAn`), contrôlée par un simple avertissement.
  *   Minimum du Code du travail : la CCN Industries chimiques peut être plus favorable, à reporter ici.
  * - `reprise` : motif de l'entretien de parcours professionnel de reprise (art. L6315-1), inscrit sur la fiche à la fin de l'absence.
- * - `cp` : effet attendu sur l'acquisition des congés payés, pour mémoire — `cpDroit` (rules/conges.ts) ne l'applique pas.
+ * - `cp` : effet sur l'acquisition des congés payés, texte affiché au service RH ;
+ * - `cpAcquisition` : le même effet, appliqué par `droitsAcquis` (rules/acquisition-cp.ts, loi 2024-364) : `assimile`
+ *   (travail effectif : accident du travail ou de trajet, maladie professionnelle sans limite de durée, maternité,
+ *   paternité, adoption, événements familiaux), `maladie` (2 jours ouvrables par mois, 24 par période, réglage
+ *   `cpMaladie`) ou `non` (acquisition réduite au prorata : congé parental, sans solde, absence injustifiée, enfant malade).
  */
 export interface NatureDef {
   label: string; abrege: string; court: string; categorie: CategorieAbsence; medicale?: boolean;
   paie: PaieAbsence; decompte: 'ouvres' | 'calendaires'; justificatif: string | null;
   duree?: number; parAn?: boolean; dureeNote?: string; article?: string; reprise?: MotifReprise; cp: string;
+  cpAcquisition: CpAcquisition;
 }
 const CP_ASSIMILE = 'Assimilé à du travail effectif (art. L3141-5)';
 const CP_EVENEMENT = 'Assimilé à du travail effectif (art. L3142-2)';
@@ -80,99 +85,119 @@ export const NATURES_ABSENCE: Record<NatureAbsence, NatureDef> = {
   MALADIE: {
     label: 'Arrêt maladie', abrege: 'Maladie', court: 'arrêt maladie', categorie: 'sante', medicale: true, paie: 'indemnisee', decompte: 'calendaires',
     justificatif: 'Avis d’arrêt de travail (volet employeur), sous 48 h', article: 'Art. L1226-1 : maintien de salaire', cp: CP_MALADIE,
+    cpAcquisition: 'maladie',
   },
   ALD: {
     label: 'Arrêt longue maladie (ALD)', abrege: 'Longue maladie', court: 'arrêt longue maladie', categorie: 'sante', medicale: true, paie: 'indemnisee', decompte: 'calendaires',
     justificatif: 'Avis d’arrêt de travail au titre d’une affection de longue durée', article: 'Art. L324-1 du Code de la sécurité sociale',
     reprise: 'absence longue', cp: CP_MALADIE,
+    cpAcquisition: 'maladie',
   },
   AT: {
     label: 'Accident du travail', abrege: 'Accident', court: 'accident du travail', categorie: 'sante', medicale: true, paie: 'indemnisee', decompte: 'calendaires',
     justificatif: 'Certificat médical initial ; déclaration à la CPAM par l’employeur sous 48 h', article: 'Art. L411-1 du Code de la sécurité sociale', cp: CP_AT,
+    cpAcquisition: 'assimile',
   },
   TRAJET: {
     label: 'Accident de trajet', abrege: 'Accident', court: 'accident de trajet', categorie: 'sante', medicale: true, paie: 'indemnisee', decompte: 'calendaires',
     justificatif: 'Certificat médical initial ; déclaration à la CPAM par l’employeur sous 48 h', article: 'Art. L411-2 du Code de la sécurité sociale',
-    cp: 'Assimilé à l’accident du travail par la jurisprudence (art. L3141-5) — à confirmer',
+    cp: 'Assimilé à du travail effectif, comme l’accident du travail (art. L3141-5, jurisprudence)',
+    cpAcquisition: 'assimile',
   },
   MP: {
     label: 'Maladie professionnelle', abrege: 'Maladie pro.', court: 'maladie professionnelle', categorie: 'sante', medicale: true, paie: 'indemnisee', decompte: 'calendaires',
     justificatif: 'Certificat médical ; déclaration à la CPAM', article: 'Art. L461-1 du Code de la sécurité sociale', cp: CP_AT,
+    cpAcquisition: 'assimile',
   },
   // Parentalité.
   MATERNITE: {
     label: 'Congé de maternité', abrege: 'Maternité', court: 'congé de maternité', categorie: 'parentalite', paie: 'indemnisee', decompte: 'calendaires',
     duree: 112, dureeNote: '16 semaines (6 avant, 10 après la naissance) ; davantage à partir du 3e enfant ou pour des naissances multiples',
     justificatif: 'Certificat médical de grossesse (date présumée de l’accouchement)', article: 'Art. L1225-17', reprise: 'congé de maternité', cp: CP_ASSIMILE,
+    cpAcquisition: 'assimile',
   },
   PATERNITE: {
     label: 'Congé de paternité et d’accueil de l’enfant', abrege: 'Paternité', court: 'congé de paternité', categorie: 'parentalite', paie: 'indemnisee', decompte: 'calendaires',
     duree: 25, dureeNote: '25 jours (32 en cas de naissances multiples), à la suite des 3 jours de naissance',
     justificatif: 'Acte de naissance ; dates communiquées un mois avant', article: 'Art. L1225-35', cp: CP_ASSIMILE,
+    cpAcquisition: 'assimile',
   },
   ADOPTION: {
     label: 'Congé d’adoption', abrege: 'Adoption', court: 'congé d’adoption', categorie: 'parentalite', paie: 'indemnisee', decompte: 'calendaires',
     duree: 112, dureeNote: '16 semaines ; davantage selon le nombre d’enfants', justificatif: 'Attestation de placement en vue d’adoption',
     article: 'Art. L1225-37', reprise: 'congé d’adoption', cp: CP_ASSIMILE,
+    cpAcquisition: 'assimile',
   },
   PARENTAL: {
     label: 'Congé parental d’éducation', abrege: 'Congé parental', court: 'congé parental', categorie: 'parentalite', paie: 'non_payee', decompte: 'calendaires',
     dureeNote: '1 an au plus, renouvelable deux fois, jusqu’aux 3 ans de l’enfant', justificatif: 'Demande écrite du salarié (lettre recommandée ou remise en main propre)',
     article: 'Art. L1225-47 et L1225-50', reprise: 'congé parental d’éducation',
     cp: 'Pas d’acquisition pendant le congé ; les droits acquis avant sont conservés (art. L1225-54)',
+    cpAcquisition: 'non',
   },
   // Événements familiaux (art. L3142-4) : durées minimales du Code du travail, décomptées en jours ouvrés.
   MARIAGE: {
     label: 'Mariage ou Pacs', abrege: 'Mariage', court: 'congé pour mariage ou Pacs', categorie: 'famille', paie: 'maintenue', decompte: 'ouvres',
     duree: 4, justificatif: 'Acte de mariage ou attestation de Pacs', article: 'Art. L3142-4', cp: CP_EVENEMENT,
+    cpAcquisition: 'assimile',
   },
   MARIAGE_ENFANT: {
     label: 'Mariage d’un enfant', abrege: 'Mariage enfant', court: 'congé pour le mariage d’un enfant', categorie: 'famille', paie: 'maintenue', decompte: 'ouvres',
     duree: 1, justificatif: 'Acte de mariage', article: 'Art. L3142-4', cp: CP_EVENEMENT,
+    cpAcquisition: 'assimile',
   },
   NAISSANCE: {
     label: 'Naissance ou arrivée d’un enfant adopté', abrege: 'Naissance', court: 'congé de naissance', categorie: 'famille', paie: 'maintenue', decompte: 'ouvres',
     duree: 3, justificatif: 'Acte de naissance ou attestation de placement', article: 'Art. L3142-4', cp: CP_EVENEMENT,
+    cpAcquisition: 'assimile',
   },
   DECES_ENFANT: {
     label: 'Décès d’un enfant', abrege: 'Décès', court: 'congé pour décès d’un enfant', categorie: 'famille', paie: 'maintenue', decompte: 'ouvres',
     duree: 5, justificatif: 'Acte de décès', article: 'Art. L3142-4', cp: CP_EVENEMENT,
+    cpAcquisition: 'assimile',
   },
   // 7 jours ouvrés (art. L3142-4), auxquels s'ajoute le congé de deuil (DEUIL_ENFANT, art. L3142-1-1).
   DECES_ENFANT_JEUNE: {
     label: 'Décès d’un enfant de moins de 25 ans, ou lui-même parent', abrege: 'Décès', court: 'congé pour décès d’un enfant', categorie: 'famille', paie: 'maintenue', decompte: 'ouvres',
     duree: 7, dureeNote: 'aussi pour une personne de moins de 25 ans à charge effective et permanente ; s’y ajoute le congé de deuil',
     justificatif: 'Acte de décès', article: 'Art. L3142-4', cp: CP_EVENEMENT,
+    cpAcquisition: 'assimile',
   },
   // Congé de deuil, en plus du congé pour décès : à prendre dans l'année qui suit le décès, en une ou deux fois.
   DEUIL_ENFANT: {
     label: 'Congé de deuil (enfant de moins de 25 ans)', abrege: 'Deuil', court: 'congé de deuil', categorie: 'famille', paie: 'indemnisee', decompte: 'ouvres',
     duree: 8, dureeNote: 'dans l’année qui suit le décès, fractionnable en deux périodes ; indemnisé par la Sécurité sociale, complément employeur — modalités à vérifier par le service RH',
     justificatif: 'Acte de décès', article: 'Art. L3142-1-1', cp: 'Assimilé à du travail effectif (art. L3142-1-1)',
+    cpAcquisition: 'assimile',
   },
   DECES_PROCHE: {
     label: 'Décès du conjoint, d’un parent, beau-parent, frère ou sœur', abrege: 'Décès', court: 'congé pour décès d’un proche', categorie: 'famille', paie: 'maintenue', decompte: 'ouvres',
     duree: 3, dureeNote: 'conjoint, partenaire de Pacs ou concubin, père, mère, beau-père, belle-mère, frère, sœur',
     justificatif: 'Acte de décès', article: 'Art. L3142-4', cp: CP_EVENEMENT,
+    cpAcquisition: 'assimile',
   },
   // Santé d'un enfant : donnée de santé, nature confidentielle comme un arrêt (`medicale`).
   HANDICAP_ENFANT: {
     label: 'Annonce du handicap, d’une pathologie chronique ou d’un cancer d’un enfant', abrege: 'Annonce handicap', court: 'congé pour l’annonce du handicap d’un enfant',
     categorie: 'famille', medicale: true, paie: 'maintenue', decompte: 'ouvres', duree: 5, justificatif: 'Justificatif médical de l’annonce', article: 'Art. L3142-4', cp: CP_EVENEMENT,
+    cpAcquisition: 'assimile',
   },
   ENFANT_MALADE: {
     label: 'Enfant malade', abrege: 'Enfant malade', court: 'congé pour enfant malade', categorie: 'famille', medicale: true, paie: 'non_payee', decompte: 'ouvres',
     duree: 3, parAn: true, dureeNote: '5 jours si l’enfant a moins d’un an ou si le salarié assume la charge d’au moins trois enfants de moins de 16 ans',
     justificatif: 'Certificat médical concernant l’enfant', article: 'Art. L1225-61', cp: 'Non assimilé à du travail effectif, sauf disposition de la CCN',
+    cpAcquisition: 'non',
   },
   // Absences non payées.
   SANS_SOLDE: {
     label: 'Congé sans solde', abrege: 'Sans solde', court: 'congé sans solde', categorie: 'non_payee', paie: 'non_payee', decompte: 'calendaires',
     justificatif: 'Demande écrite du salarié et accord de l’employeur', cp: CP_NON,
+    cpAcquisition: 'non',
   },
   INJUSTIFIEE: {
     label: 'Absence injustifiée', abrege: 'Injustifiée', court: 'absence injustifiée', categorie: 'non_payee', paie: 'non_payee', decompte: 'ouvres',
     justificatif: null, cp: CP_NON,
+    cpAcquisition: 'non',
   },
 };
 
@@ -237,6 +262,7 @@ export const EMAIL_LABEL: Record<string, string> = {
   'releve.interim': 'Relevé d’heures des intérimaires', 'visite.demande': 'Demande de visite médicale', 'recapitulatif': 'Récapitulatif quotidien',
   'essai': 'E-mail d’essai', 'entretien.remise': 'Compte rendu d’entretien mis à disposition',
   'temps.relance': 'Relance des feuilles de temps en retard',
+  'conges.information': 'Congés payés au retour d’une absence',
   'echeances.recapitulatif': 'Récapitulatif des échéances',
 };
 export const CIBLE_LABEL = { keystone: 'Keystone', sage: 'Sage Paie', email: 'E-mail' } as const;

@@ -82,6 +82,14 @@ export function notifierDecisionConge(cx: Contexte, emp: Employe, a: Pick<Absenc
   return notifier(cx, emp.id, { type: 'absence.decision', objet, texte });
 }
 
+/**
+ * Information sur les congés payés au retour d'un arrêt (art. L3141-19-3, `conges.informer`) : au salarié, aussitôt ou
+ * dans son récapitulatif selon son réglage. Le texte ne nomme jamais la nature de l'arrêt (shared/rules/information-retour.ts).
+ */
+export function notifierInformationRetour(cx: Contexte, emp: Employe, texte: string) {
+  return notifier(cx, emp.id, { type: 'conges.information', objet: 'Vos congés payés à votre retour', texte });
+}
+
 /** Feuille de temps soumise : au valideur. */
 export function notifierFeuilleSoumise(cx: Contexte, emp: Employe, week: string, valideur: number) {
   const par = cx.user.role !== 'rh' && cx.user.empId === emp.id ? `${emp.nom} a soumis sa feuille de temps` : `La feuille de temps de ${emp.nom} a été soumise`;

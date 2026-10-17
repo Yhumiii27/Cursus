@@ -633,8 +633,12 @@ les compteurs sont arrêtés dans Lucca au 1er janvier 2027.
 - **Clôtures** : Cursus propose la clôture des RTT à partir du 1er janvier et celle des CP à partir du 1er juin
   (bandeau de l'écran Congés & absences), pour les périodes tenues par Cursus (postérieures à la date d'arrêté). Le
   service RH la confirme ; pour les CP, il décide salarié par salarié du report (plafonné au solde, jusqu'au 31 mai
-  suivant) ou de la perte du solde, jamais d'office ; après une absence de santé, une maternité, une paternité ou une
-  adoption dans la période, le solde est reporté de 15 mois. Un report légal reçu qui court au-delà du 31 mai (15 mois)
+  suivant) ou de la perte du solde, jamais d'office ; les jours acquis pendant une absence de santé, une maternité, une
+  paternité ou une adoption, et ceux qu'elle a empêché de prendre, sont reportés de 15 mois (à compter de l'information
+  du salarié à son retour si elle est plus tardive). Acquisition pendant un arrêt maladie : minimum légal par défaut
+  (Paramètres → Congés et clôtures), à passer à « comme du travail effectif » si la CCN ou un accord d'entreprise plus
+  favorable est confirmé avant la reprise. Les arrêts saisis pour 2026 réduisent les droits calculés, sans changer les
+  soldes repris de Lucca à la date d'arrêté. Un report légal reçu qui court au-delà du 31 mai (15 mois)
   est reporté de nouveau pour ses seuls jours restants, jusqu'à sa propre échéance, où il s'éteint ; le reste du solde
   est au choix du service RH. Une demande de CP de la période encore en attente est à décider avant la clôture de la
   ligne ; des jours rendus plus tard à une période close (refus, annulation) sont reportés sur la période suivante.

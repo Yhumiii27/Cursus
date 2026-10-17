@@ -4,6 +4,7 @@
 import { Domain } from '../../shared/domain.ts';
 import { addD, isoParis, isValidDate, mondayOf } from '../../shared/dates.ts';
 import { absenceVueManager, repriseMedicale } from '../../shared/rules/absences.ts';
+import { effetAcquisition } from '../../shared/rules/acquisition-cp.ts';
 import { aptitudeVueManager } from '../../shared/rules/sante.ts';
 import { naissanceVueManager } from '../../shared/rules/mineurs.ts';
 import { needsFinCarriere } from '../../shared/rules/entretiens.ts';
@@ -16,7 +17,7 @@ import { effectifSite } from '../../shared/rules/delegation.ts';
 import { reglagesParDefaut } from '../../shared/reglages.ts';
 import type { DemandeVisite, LotReprise } from '../../shared/types.ts';
 import type {
-  Absence, Certification, Inscription, CetMouvement, Chantier, ClotureConges, CurrentUser, Dataset, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
+  Absence, Certification, Inscription, CetMouvement, Chantier, ClotureConges, CurrentUser, InformationCp, Dataset, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
   DerogationDominicale, Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mandat, Mission, Participation, PlanAction, Poste, Projet, ReleveInterim,
   ReportCp, RubriquePaie, Session,
   Settings, SoldeReprise, TacheKeystone, Vaccination, Visa, Voyage,
@@ -108,6 +109,8 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     reports: db.all<ReportCp>('reports'),
     soldesReprise: db.all<SoldeReprise>('soldesReprise'),
     clotures: db.all<ClotureConges>('clotures'),
+    // Informations au retour d'un arrêt (art. L3141-19-3) : elles désignent un arrêt de santé, service RH et intéressé.
+    informationsCp: db.all<InformationCp>('informationsCp'),
     entretiens: db.all<Entretien>('entretiens'),
     demandesCollab: db.all<DemandeCollab>('demandesCollab'),
     demandesVisite: db.all<DemandeVisite>('demandesVisite'),
@@ -185,6 +188,15 @@ export function tachesProches(taches: TacheKeystone[], today: ISODate): TacheKey
  * les jours d'un report légal échu en cours de période (le serveur, qui contrôle les demandes, les retire).
  */
 const reportNeutre = (r: ReportCp): ReportCp => ({ ...r, motif: '', expire: finPeriodeCp(periodeReport(r).periode) });
+/**
+ * Absence vue par le profil paie : nature médicale masquée comme pour le manager, mais avec son effet sur l'acquisition
+ * des CP (`cpAcquisition` : assimilé, maladie ou non), pour que les soldes qu'il lit et exporte soient ceux du service RH.
+ * La paie connaît d'ailleurs le motif d'un arrêt (indemnités journalières, déclaration sociale nominative).
+ */
+const absencePaie = (a: Absence): Absence => {
+  const v = absenceVueManager(a);
+  return v === a ? a : { ...v, cpAcquisition: effetAcquisition(a) };
+};
 /** Ligne de clôture des congés vue de même : sans motif de report imposé, échéance d'un report au 31 mai suivant. */
 const clotureNeutre = (c: ClotureConges): ClotureConges => ({ ...c, motif: null, expire: c.expire ? finPeriodeCp(c.periode + 1) : null });
 /**
@@ -259,6 +271,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     // Clôture des congés : le motif d'un report imposé et son échéance laissent deviner une absence de santé, réservés à
     // l'intéressé (`clotureNeutre`).
     clotures: mine(full.clotures).map(c => isMgr && c.empId !== user.empId ? clotureNeutre(c) : c),
+    // Information au retour d'un arrêt : elle révèle un arrêt de santé, l'intéressé seul la reçoit (jamais son manager).
+    informationsCp: (full.informationsCp ?? []).filter(i => i.empId === user.empId),
     // Sections « fin de carrière » des entretiens d'un membre calculées ici : sa date de naissance n'est pas transmise.
     entretiens: mine(full.entretiens).map(x => isMgr && x.empId !== user.empId ? avecFinCarriere(d, x) : x),
     // Les documents déclarés (passeport, visas, vaccinations) des membres ne sont pas montrés au manager ;
@@ -363,12 +377,14 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     feuilles: paie ? full.feuilles : [],
     // Le référent HSE ne reçoit, sans leur nature, que les absences des ressources des chantiers : celles qui comptent au
     // Go / No Go.
-    absences: paie ? full.absences.map(absenceVueManager)
+    absences: paie ? full.absences.map(droits.includes('paie') ? absencePaie : absenceVueManager)
       : formations ? full.absences.filter(a => ressources.has(a.empId)).map(absenceVueManager) : [],
     cet: paie ? full.cet : [],
     reports: paie ? full.reports.map(reportNeutre) : [],
     soldesReprise: paie ? full.soldesReprise : [],
     clotures: paie ? full.clotures.map(clotureNeutre) : [],
+    // Informations au retour d'un arrêt de santé : service RH seulement.
+    informationsCp: [],
     entretiens: lecture ? full.entretiens.map(x => ({ ...avecFinCarriere(d, x), cr: {} })) : [],
     // Demandes de formation et d'habilitation ; les documents déclarés (passeport, visa, vaccination) restent au RH.
     demandesCollab: formations ? full.demandesCollab.filter(r => r.type !== 'document').map(r => ({ ...r, declaration: null })) : [],

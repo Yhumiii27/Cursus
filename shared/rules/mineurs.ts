@@ -112,6 +112,20 @@ export function controlesMineur(e: Naissance, week: ISODate | null | undefined, 
   return out;
 }
 
+/**
+ * Indication `mineur` d'une feuille dans une vue sans la date de naissance (server/src/dataset.ts) : mineur un jour au
+ * moins de la semaine. Sans elle, le manager ne connaîtrait que l'indication du jour : la semaine passée d'un salarié
+ * devenu majeur depuis n'aurait plus de contrôle chez lui, alors que le serveur exige le motif (soumission impossible).
+ * Une seule indication par semaine, pas le jour des 18 ans : la semaine où il les atteint, la vue applique les règles aux
+ * sept jours (motif demandé un peu plus tôt que par le serveur, jamais plus tard).
+ */
+export const mineurDeLaSemaine = (e: Naissance, week: ISODate): boolean =>
+  isValidDate(week) && joursSemaine(week).some(day => mineurAu(e, day));
+
+/** Naissance qui s'applique aux contrôles d'une feuille : l'indication de la semaine quand la vue n'a pas la date. */
+export const naissanceDeLaFeuille = (e: Naissance, sh: { mineur?: boolean } | null | undefined): Naissance =>
+  (!dateNaissance(e) && typeof sh?.mineur === 'boolean' ? { ...e, mineur: sh.mineur } : e);
+
 /** Équipe cochée « travail de nuit ou en continu » ; null ou absente : case pas encore renseignée par le service RH. */
 export const equipeDeNuit = (q: Pick<Equipe, 'nuit'> | null | undefined): boolean => q?.nuit === true;
 
@@ -147,20 +161,34 @@ export interface EtatMineur {
   aLAnnee: boolean;
   /** Déclaration de dérogation pour travaux réglementés : date, fin de validité, expirée (null : aucune). */
   derogation: { le: ISODate; fin: ISODate; expiree: boolean } | null;
+  /** La dérogation reste valable jusqu'aux 18 ans : pas d'échéance de renouvellement. */
+  derogationApresMajorite: boolean;
 }
 
 /** État d'un salarié de moins de 18 ans à la date `today` ; null s'il est majeur ou si sa naissance est inconnue. */
-export function etatMineur(e: Naissance & Partial<Pick<Employe, 'derogationTravauxLe'>>, today: ISODate): EtatMineur | null {
+export function etatMineur(e: Naissance & Partial<Pick<Employe, 'derogationTravauxLe' | 'derogationApresMajorite'>>, today: ISODate): EtatMineur | null {
   if (!mineurAu(e, today)) return null;
   // Vue sans la date (manager, profils restreints) : l'indication seule, aucun jour à en déduire.
   const vueSansDate = !dateNaissance(e) && typeof e.mineur === 'boolean';
   const exact = dateDesAns(e, MAJORITE);
   const majeurLe = exact ?? (vueSansDate ? null : `${e.naissance + MAJORITE}-01-01`);
   const fin = finDerogationTravaux(e);
-  return { majeurLe, aLAnnee: !exact && !!majeurLe, derogation: fin ? { le: e.derogationTravauxLe!, fin, expiree: fin <= today } : null };
+  return {
+    majeurLe, aLAnnee: !exact && !!majeurLe, derogation: fin ? { le: e.derogationTravauxLe!, fin, expiree: fin <= today } : null,
+    // Vue sans la date : l'indication du serveur ; sinon, comparaison au jour des 18 ans.
+    derogationApresMajorite: !!fin && (vueSansDate ? e.derogationApresMajorite === true : !!majeurLe && fin >= majeurLe),
+  };
 }
 
 const CLS_MINEUR = { ok: 'tag-neutral', due: 'tag-outline', exp: 'tag-accent' } as const;
+
+/**
+ * Intitulés (`kindLabel`) des deux échéances d'un salarié mineur. Les relances par e-mail (shared/rules/relances.ts) les
+ * reconnaissent par eux et les réservent au service RH : le jour des 18 ans donnerait la date de naissance complète, et la
+ * dérogation n'est pas transmise au manager.
+ */
+export const ECHEANCE_18_ANS = 'Salarié de moins de 18 ans';
+export const ECHEANCE_DEROGATION = 'Dérogation · travaux réglementés';
 
 /**
  * Échéances d'un salarié mineur (type `contrat` de Domain.echeances, après celles du contrat) :
@@ -180,16 +208,16 @@ export function echeancesMineur(d: Domain, e: EmpX, horizon: number): EchItem[] 
   if (m.majeurLe) {
     const key = days(d.today, parse(m.majeurLe)) <= horizon ? 'due' : 'ok';
     out.push(item({
-      kindLabel: 'Salarié de moins de 18 ans', label: `18 ans${m.aLAnnee ? ' (année de naissance seule)' : ''}`, le: m.majeurLe, key,
+      kindLabel: ECHEANCE_18_ANS, label: `18 ans${m.aLAnnee ? ' (année de naissance seule)' : ''}`, le: m.majeurLe, key,
       statut: 'Fin des règles des mineurs',
       action: m.aLAnnee ? { label: 'Saisir la date de naissance', intent: { type: 'openContrat', empId: e.id, quoi: 'fiche' } } : null,
     }));
   }
   const g = m.derogation;
-  if (g && !(m.majeurLe && g.fin >= m.majeurLe)) {
+  if (g && !m.derogationApresMajorite) {
     const n = days(d.today, parse(g.fin)), key = n <= 0 ? 'exp' : n <= horizon ? 'due' : 'ok';
     out.push(item({
-      kindLabel: 'Dérogation · travaux réglementés', label: `Déclarée le ${fmtIso(g.le)}`, le: g.fin, key,
+      kindLabel: ECHEANCE_DEROGATION, label: `Déclarée le ${fmtIso(g.le)}`, le: g.fin, key,
       statut: key === 'exp' ? 'Expirée — travaux réglementés interdits' : key === 'due' ? 'À renouveler' : 'En vigueur',
       action: { label: 'Mettre à jour', intent: { type: 'openContrat', empId: e.id, quoi: 'fiche' } },
     }));

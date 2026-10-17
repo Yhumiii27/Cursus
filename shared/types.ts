@@ -220,6 +220,11 @@ export interface Employe {
    * retirée de la vue du manager et de celle de la paie (server/src/dataset.ts).
    */
   derogationTravauxLe?: ISODate | null;
+  /**
+   * Vues qui reçoivent la dérogation sans la date de naissance (référent HSE, lecture seule) : sa validité court au-delà
+   * des 18 ans, calculé par le serveur (pas d'échéance de renouvellement, comme pour le service RH) ; sans la date.
+   */
+  derogationApresMajorite?: boolean;
   agence: string | null;
   /**
    * Matricule du dossier de paie (Sage), saisi ou repris par le service RH : 1 à 20 lettres et chiffres, unique (sauf
@@ -366,6 +371,12 @@ export interface FeuilleTemps {
    * supplémentaires : un changement du réglage ne recalcule pas une semaine validée. Null avant : le réglage s'applique.
    */
   majDimanche?: number | null;
+  /**
+   * Vues sans la date de naissance (manager, profils restreints) : salarié mineur un jour au moins de la semaine, calculé
+   * par le serveur (shared/rules/mineurs.ts), pour que la feuille d'une semaine passée garde ses contrôles après les 18 ans.
+   * Jamais enregistré.
+   */
+  mineur?: boolean;
 }
 /**
  * Dérogation au repos dominical d'une équipe (shared/rules/semaine.ts) : aucune (heures du dimanche signalées au RH), travail

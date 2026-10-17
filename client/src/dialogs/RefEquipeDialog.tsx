@@ -9,7 +9,7 @@ import { mineursDeLEquipe } from '../../../shared/rules/mineurs.ts';
 import type { Exigences } from '../../../shared/types.ts';
 import { Bloquant, CancelButton, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { ExigencesChoix } from '../components/ExigencesChoix.tsx';
-import { Btn, Fine, NoteAccent } from '../components/ui.tsx';
+import { Btn, Fine, NoteAccent, Seg } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -20,8 +20,9 @@ export function RefEquipeDialog({ nom }: { nom: string }) {
   const [equipe] = useState(() => ref.equipes.find(q => q.nom === nom) ?? null);
   const avant = equipe ? exigencesEquipe(equipe) : null;
   const [exigences, setExigences] = useState<Exigences>(() => avant ?? { formations: [], habilitations: [] });
-  // Décochée tant qu'elle n'est pas renseignée ; l'enregistrement la renseigne (le rappel de la fiche des mineurs cesse).
-  const [nuit, setNuit] = useState(equipe?.nuit === true);
+  // Choix explicite : tant que le service RH n'a répondu ni oui ni non, la case reste à renseigner et n'est pas envoyée
+  // (le serveur la laisse inchangée) ; enregistrer les seules exigences ne vaut pas déclaration « pas de travail de nuit ».
+  const [nuit, setNuit] = useState<'nr' | 'oui' | 'non'>(() => (equipe?.nuit == null ? 'nr' : equipe.nuit ? 'oui' : 'non'));
   const [busy, setBusy] = useState(false);
   const [confirmer, setConfirmer] = useState(false);
   const v = useVerification();
@@ -29,7 +30,7 @@ export function RefEquipeDialog({ nom }: { nom: string }) {
   const { erreurs } = controlerExigences(exigences, ref, avant);
   const membres = useMemo(() => d.ds.employes.filter(e => e.equipe === nom && present(e, d.ti)), [d, nom]);
   const mineurs = useMemo(() => mineursDeLEquipe(d.ds.employes, nom, d.ti), [d, nom]);
-  const errNuit = nuit && mineurs.length
+  const errNuit = nuit === 'oui' && mineurs.length
     ? `L’équipe compte un salarié de moins de 18 ans (${mineurs.map(e => e.nom).join(', ')}) : il ne peut pas travailler de nuit (art. L3163-2) — affectez-le d’abord à une autre équipe.`
     : null;
   const proposees = useMemo(() => exigencesProposees(d.ds, membres), [d, membres]);
@@ -47,7 +48,7 @@ export function RefEquipeDialog({ nom }: { nom: string }) {
     if (busy || !v.verifier(erreurs.formations, erreurs.habilitations, errNuit, !equipe)) return;
     if (!force && nouveaux.length) { setConfirmer(true); return; }
     setBusy(true);
-    const r = await run('referentiel.equipe.exigences', { nom, ...exigences, nuit });
+    const r = await run('referentiel.equipe.exigences', { nom, ...exigences, ...(nuit === 'nr' ? {} : { nuit: nuit === 'oui' }) });
     setBusy(false);
     if (r.ok) closeDialog();
     else setConfirmer(false);
@@ -78,13 +79,12 @@ export function RefEquipeDialog({ nom }: { nom: string }) {
         )}
         <Field label="Organisation du travail" erreur={v.erreur(errNuit)}>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
-            <label style={{ display: 'inline-flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14, cursor: 'pointer' }}>
-              <input type="checkbox" checked={nuit} onChange={ev => setNuit(ev.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
-              Travail de nuit ou en continu
-            </label>
+            <span style={{ fontSize: 14 }}>Travail de nuit ou en continu</span>
+            <Seg name="equipe-nuit" label="Travail de nuit ou en continu" value={nuit} onChange={setNuit} style={{ alignSelf: 'flex-start' }}
+              options={[...(equipe.nuit == null ? [['nr', 'À renseigner'] as ['nr', string]] : []), ['oui', 'Oui'], ['non', 'Non']]} />
             <span className="text-muted sub">
-              {equipe.nuit == null ? 'À renseigner : tant que la case ne l’est pas, la fiche des salariés de moins de 18 ans rappelle l’interdiction du travail de nuit. '
-                : ''}Une équipe cochée ne reçoit aucun salarié de moins de 18 ans (art. L3163-2).
+              {nuit === 'nr' ? 'Tant que la réponse n’est pas donnée, la fiche des salariés de moins de 18 ans rappelle l’interdiction du travail de nuit. '
+                : ''}Une équipe de nuit ou en continu ne reçoit aucun salarié de moins de 18 ans (art. L3163-2).
             </span>
           </div>
         </Field>

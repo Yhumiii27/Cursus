@@ -968,7 +968,8 @@ par jour et cessent d'elles-mêmes le jour des 18 ans (date complète), ou le 1e
   pause de 30 min (art. L3162-3) ne sont contrôlés.
 - **Nuit** (art. L3163-2) : case « travail de nuit ou en continu » de l'équipe (`Equipe.nuit`, colonne JSON pour garder
   `null`, case pas encore renseignée, distincte de « non » ; le schéma déclaratif l'ajoute, sans migration nommée),
-  saisie dans le dialogue des exigences communes (Référentiels → Postes) et envoyée avec elles
+  saisie dans le dialogue des exigences communes (Référentiels → Postes : « À renseigner », « Oui », « Non » ; envoyée
+  seulement sur une réponse, enregistrer les seules exigences la laisse à renseigner) et envoyée avec elles
   (`referentiel.equipe.exigences`, paramètre `nuit` ; server/src/actions/mineurs.ts), tracée avec sa valeur d'avant. Un
   mineur (aujourd'hui, ou à sa date d'entrée si elle est à venir) n'est pas affecté à une équipe cochée : `refusEquipeNuit`,
   dans `validerProfil` (option `mineurs` : fiche, client et serveur, import de reprise) et dans `equipe.affecter` ; une
@@ -979,10 +980,17 @@ par jour et cessent d'elles-mêmes le jour des 18 ans (date complète), ou le 1e
   postes tant que les postes à risques ne sont pas connus. Validité de 3 ans (`finDerogationTravaux`, art. R4153-41).
 - **Échéances** (`echeancesMineur`, appelée par `echeancesContrat`, type `contrat`) : « 18 ans », qui lève ces règles (à
   l'année : 1er janvier, avec l'action « Saisir la date de naissance »), et fin de la dérogation quand elle précède les
-  18 ans (à renouveler sous l'horizon d'alerte, expirée ensuite). Aucune dans une vue sans la date de naissance.
+  18 ans (à renouveler sous l'horizon d'alerte, expirée ensuite). Aucune dans une vue sans la date de naissance. Le
+  récapitulatif des échéances par e-mail les relance sous des clés propres (`mineur:18ans:…`, `derogation:…`) et au seul
+  service RH (`sante: true`, comme le titre de séjour) : le jour des 18 ans donnerait au manager la date de naissance.
 
 Confidentialité : le manager ne reçoit pas la dérogation (`derogationTravauxLe: null`) ; le référent HSE et la lecture
-seule la reçoivent, la paie non. La case de nuit d'une équipe n'est pas une donnée personnelle.
+seule la reçoivent, la paie non. Sans la date de naissance, ces deux vues reçoivent aussi `derogationApresMajorite`
+(validité au-delà des 18 ans, sans date) pour des échéances identiques à celles du service RH. Dans les vues sans la date
+(manager pour les membres de son équipe, paie, lecture seule), chaque feuille porte l'indication `mineur` de sa semaine
+(`mineurDeLaSemaine`, mineur un jour au moins), que `calcSheet` lit à la place de celle du jour (`naissanceDeLaFeuille`) :
+la semaine passée d'un salarié devenu majeur garde ses contrôles, et le manager le champ du motif que le serveur exige. La
+semaine des 18 ans, la vue applique les règles aux sept jours (motif demandé un peu plus tôt que par le serveur). La case de nuit d'une équipe n'est pas une donnée personnelle.
 
 ## Certifications et habilitations
 

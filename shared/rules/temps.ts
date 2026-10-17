@@ -9,7 +9,7 @@ import { lignesFormation } from './formations-temps.ts';
 import { matriculeAffiche } from './matricules.ts';
 import { modeHeuresSup, periodesSemaine, rubriquesPaie, traduireRubriques } from './paie.ts';
 import { alertesRepos, DIMANCHE, derogationDe, estWeekEnd, JOURS_FEUILLE } from './semaine.ts';
-import { controlesMineur } from './mineurs.ts';
+import { controlesMineur, naissanceDeLaFeuille } from './mineurs.ts';
 
 /** Régime de temps de travail en vigueur d'une fiche, à figer sur une feuille soumise. */
 export function contratFige(e: Employe): ContratFige {
@@ -64,7 +64,7 @@ export interface SheetCalc {
  * - forfait jours et cadre dirigeant : décompte en jours, pas d'heures supplémentaires ;
  * - forfait annuel en heures : pas de décompte hebdomadaire (cumul annuel, voir `cumulAnnuel`).
  */
-export function calcSheet(d: Domain, e: Employe, sh: (Pick<FeuilleTemps, 'lignes'> & Partial<Pick<FeuilleTemps, 'contrat' | 'heuresSup' | 'majDimanche' | 'week'>>) | null): SheetCalc {
+export function calcSheet(d: Domain, e: Employe, sh: (Pick<FeuilleTemps, 'lignes'> & Partial<Pick<FeuilleTemps, 'contrat' | 'heuresSup' | 'majDimanche' | 'week' | 'mineur'>>) | null): SheetCalc {
   const c = d.contratOf(employeDeLaFeuille(e, sh));
   // Une ligne de 5 valeurs (enregistrée avant la semaine à 7 jours) se lit avec un samedi et un dimanche vides.
   const perDay = Array.from({ length: JOURS_FEUILLE }, (_, i) => (sh ? sh.lignes : []).reduce((n, l) => n + num(l.h[i]), 0));
@@ -78,7 +78,7 @@ export function calcSheet(d: Domain, e: Employe, sh: (Pick<FeuilleTemps, 'lignes
     if (total > 48) depassements.push('Plus de 48 h dans la semaine (art. L3121-20)');
   }
   // Salarié de moins de 18 ans, les jours où il l'est : 8 h par jour, 35 h par semaine, deux jours de repos consécutifs.
-  const jeune = controlesMineur(e, sh?.week, perDay);
+  const jeune = controlesMineur(naissanceDeLaFeuille(e, sh), sh?.week, perDay);
   depassements.push(...jeune.depassements);
   // Repos hebdomadaire et dominical : alertes, sauf pour un cadre dirigeant (art. L3111-2).
   const repos = [...(c.dirigeant ? [] : alertesRepos(perDay, derogationDe(d.ds, e))), ...jeune.repos];

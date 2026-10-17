@@ -14,6 +14,8 @@ const { ActionError, makeCtx } = await import('../server/src/actions/context.ts'
 const { journaliserAction, preparerTrace } = await import('../server/src/journal.ts');
 const { Domain } = await import('../shared/domain.ts');
 const { calcSheet } = await import('../shared/rules/temps.ts');
+const { relancesDues } = await import('../shared/rules/relances.ts');
+const { recapitulatifEcheances } = await import('../server/src/relances.ts');
 const { PROFIL_VIDE, validerProfil } = await import('../shared/rules/profil.ts');
 const M = await import('../shared/rules/mineurs.ts');
 type User = NonNullable<ReturnType<typeof currentUser>>;
@@ -149,6 +151,7 @@ test('équipe de nuit ou en continu : case renseignée, cochée refusée avec un
 
 test('dérogation pour travaux réglementés : saisie sur la fiche, 3 ans, échéances et 18 ans', () => {
   const { db, run, refus, RH, user, creer, domain, journal } = fresh();
+  const echeancesVue = (u: User, empId: number) => { const v = new Domain(buildSnapshot(db, u)); return v.echeances(v.enrich(60, false), 60).filter(x => x.emp.id === empId); };
   // Inès Faure : née le 2 mars 2010, mineure jusqu'au 1er mars 2028.
   const id = creer({ nom: 'Inès Faure', email: 'ines.faure@entreprise.example', naissanceLe: '2010-03-02' });
   refus(RH, 'employe.modifier', { id, derogationTravauxLe: '2026-10-11' }, /ne peut pas être future/);
@@ -156,12 +159,14 @@ test('dérogation pour travaux réglementés : saisie sur la fiche, 3 ans, éch�
   run(RH, 'employe.modifier', { id, derogationTravauxLe: '2023-11-02' });
   assert.match(journal('employe.modifier'), /derogationTravauxLe/);
   const d = domain(), e = d.enrich(60, false).find(x => x.id === id)!;
-  assert.deepEqual(M.etatMineur(e, d.ti), { majeurLe: '2028-03-02', aLAnnee: false, derogation: { le: '2023-11-02', fin: '2026-11-02', expiree: false } });
+  assert.deepEqual(M.etatMineur(e, d.ti), { majeurLe: '2028-03-02', aLAnnee: false, derogation: { le: '2023-11-02', fin: '2026-11-02', expiree: false }, derogationApresMajorite: false });
   const ech = d.echeances([e], 60).filter(x => x.emp.id === id && x.kind === 'contrat');
   const derog = ech.find(x => x.kindLabel === 'Dérogation · travaux réglementés')!;
   assert.deepEqual([derog.key, derog.statut, derog.d], ['due', 'À renouveler', 23]);
   const majeur = ech.find(x => x.label === '18 ans')!;
   assert.deepEqual([majeur.key, majeur.statut], ['ok', 'Fin des règles des mineurs']);
+  // Référent HSE (sans la date de naissance) : la même échéance de dérogation que le service RH.
+  assert.ok(echeancesVue(user(23, 'rh'), id).some(x => x.kindLabel === M.ECHEANCE_DEROGATION && x.d === 23));
   // Le jour de l'échéance : expirée.
   process.env.CURSUS_TODAY = '2026-11-02';
   try {
@@ -175,6 +180,13 @@ test('dérogation pour travaux réglementés : saisie sur la fiche, 3 ans, éch�
   run(RH, 'employe.modifier', { id, derogationTravauxLe: '2026-01-15' });
   const d3 = domain();
   assert.ok(!d3.echeances(d3.enrich(60, false), 60).some(x => x.emp.id === id && x.kindLabel.startsWith('Dérogation')));
+  // Vues sans la date de naissance (référent HSE, lecture seule) : l'indication du serveur, sans échéance non plus.
+  for (const u of [user(23, 'rh'), user(11, 'rh')]) {
+    const v = buildSnapshot(db, u).employes.find(x => x.id === id)!;
+    assert.deepEqual([v.naissanceLe, v.derogationApresMajorite], [null, true]);
+    assert.ok(!echeancesVue(u, id).some(x => x.kindLabel === M.ECHEANCE_DEROGATION), 'comme pour le service RH');
+  }
+  assert.equal(buildSnapshot(db, user(12, 'manager')).employes.find(x => x.id === id)!.derogationApresMajorite, undefined, 'ni au manager');
   // Le jour des 18 ans : plus aucune échéance des mineurs.
   process.env.CURSUS_TODAY = '2028-03-02';
   try {
@@ -191,11 +203,11 @@ test('dérogation pour travaux réglementés : saisie sur la fiche, 3 ans, éch�
   assert.equal(vue(user(11, 'rh')).derogationTravauxLe, '2026-01-15');
   assert.equal(vue(user(7, 'rh')).derogationTravauxLe, null);
   // Vue sans la date : aucune échéance des 18 ans à en déduire.
-  assert.deepEqual(M.etatMineur({ naissance: 2010, naissanceLe: null, mineur: true }, '2026-10-10'), { majeurLe: null, aLAnnee: false, derogation: null });
+  assert.deepEqual(M.etatMineur({ naissance: 2010, naissanceLe: null, mineur: true }, '2026-10-10'), { majeurLe: null, aLAnnee: false, derogation: null, derogationApresMajorite: false });
 });
 
 test('année seule : 18 ans au 1er janvier, à compléter ; fiche contrôlée côté client comme côté serveur', () => {
-  assert.deepEqual(M.etatMineur({ naissance: 2009, naissanceLe: null }, '2026-10-10'), { majeurLe: '2027-01-01', aLAnnee: true, derogation: null });
+  assert.deepEqual(M.etatMineur({ naissance: 2009, naissanceLe: null }, '2026-10-10'), { majeurLe: '2027-01-01', aLAnnee: true, derogation: null, derogationApresMajorite: false });
   assert.equal(M.etatMineur({ naissance: 2009, naissanceLe: null }, '2027-01-01'), null);
   const fiche = { ...PROFIL_VIDE('Production', '2026-10-10'), nom: 'Léo Martin', poste: 'Apprenti', email: 'leo@entreprise.example', matriculePaie: 'N0001', naissanceLe: LEO.naissanceLe, entree: '2026-09-01' };
   const opts = { equipes: ['Production'], year: 2026, mineurs: { equipes: [{ nom: 'Production', nuit: true }], today: '2026-10-10' } };
@@ -205,4 +217,55 @@ test('année seule : 18 ans au 1er janvier, à compléter ; fiche contrôlée c�
   // Dérogation pour un majeur : sans objet, en avertissement.
   const majeur = { ...fiche, equipe: null, naissanceLe: '1990-01-01', derogationTravauxLe: '2026-01-01' };
   assert.match(validerProfil(majeur, opts).warnings.join(' '), /sans objet/);
+});
+
+test('feuille passée d’un salarié devenu majeur, vue du manager : contrôles de la semaine gardés, motif demandé', () => {
+  const { db, run, refus, user, creer, journal } = fresh();
+  const id = creer();
+  // 16 octobre 2026 : Léo a 18 ans depuis le 14 ; la semaine du 5 octobre, il était mineur tous les jours.
+  process.env.CURSUS_TODAY = '2026-10-16';
+  try {
+    const mgr = user(12, 'manager');
+    const base = { empId: id, week: SEMAINE_MINEUR };
+    run(mgr, 'temps.addLine', { ...base, projet: 'INT-MAINT' });
+    [9, 7, 7, 7, 7].forEach((value, di) => run(mgr, 'temps.setCell', { ...base, li: 0, di, value: String(value) }));
+    const vue = buildSnapshot(db, mgr);
+    const e = vue.employes.find(x => x.id === id)!;
+    const sh = vue.feuilles.find(f => f.empId === id && f.week === SEMAINE_MINEUR)!;
+    assert.deepEqual([e.naissanceLe, e.mineur, sh.mineur], [null, false, true], 'indication de la semaine, pas la date');
+    // Calcul de l'écran du manager : le dépassement est connu, le champ du motif s'affiche.
+    assert.equal(calcSheet(new Domain(vue), e, sh).depassementsMineur.length, 2);
+    refus(mgr, 'temps.submit', base, /Plus de 8 h sur une journée.*référence de la dérogation/);
+    run(mgr, 'temps.submit', { ...base, motif: 'Dérogation inspection n° 2026-118' });
+    assert.match(journal('temps.submit'), /"depassementMineur":\["jour_8h","semaine_35h"\]/);
+    // Semaine après les 18 ans : indication fausse, aucun contrôle des mineurs.
+    run(mgr, 'temps.addLine', { empId: id, week: SEMAINE_MAJEUR, projet: 'INT-MAINT' });
+    const sh2 = buildSnapshot(db, mgr).feuilles.find(f => f.empId === id && f.week === SEMAINE_MAJEUR)!;
+    assert.equal(sh2.mineur, false);
+    // Vue du service RH : la date complète, sans indication sur la feuille.
+    assert.equal(buildSnapshot(db, user(null, 'rh')).feuilles.find(f => f.empId === id && f.week === SEMAINE_MINEUR)!.mineur, undefined);
+  } finally {
+    process.env.CURSUS_TODAY = '2026-10-10';
+  }
+});
+
+test('relances par e-mail : 18 ans et dérogation au seul service RH, sous des clés propres', () => {
+  const { db, run, RH, creer, domain } = fresh();
+  run(RH, 'messagerie.regler', { rh: 'rh@entreprise.example' });
+  // Né le 3 novembre 2008 (18 ans dans 24 jours), dérogation déclarée le 1er novembre 2023 (fin dans 22 jours).
+  const id = creer({ naissanceLe: '2008-11-03', derogationTravauxLe: '2023-11-01' });
+  const d = domain();
+  const dues = relancesDues(d, d.enrich(60, false), [90, 30, 7]).filter(r => r.empId === id && r.categorie === 'contrat');
+  const cles = dues.map(r => r.cle).sort();
+  assert.ok(cles.includes(`mineur:18ans:${id}:2026-11-03`) && cles.includes(`derogation:${id}:2026-11-01`), cles.join(' '));
+  assert.ok(dues.filter(r => /^(mineur|derogation):/.test(r.cle)).every(r => r.sante), 'réservées au service RH');
+  db.tx(() => recapitulatifEcheances(db));
+  const envois = db.all<Record<string, any>>('envois').filter(x => x.type === 'echeances.recapitulatif');
+  const rh = envois.filter(x => x.contenu.a[0] === 'rh@entreprise.example').map(x => x.contenu.texte).join('\n');
+  assert.match(rh, /Léo Martin \(Maintenance\) — 18 ans : fin des règles des mineurs : échéance le/);
+  assert.match(rh, /Léo Martin \(Maintenance\) — Dérogation pour travaux réglementés à renouveler/);
+  // Manager de l'équipe Maintenance : ni le jour des 18 ans (date de naissance), ni la dérogation.
+  const autres = envois.filter(x => x.contenu.a[0] !== 'rh@entreprise.example');
+  assert.ok(autres.length > 0, 'récapitulatifs des managers envoyés');
+  for (const x of autres) assert.doesNotMatch(x.contenu.texte, /Léo Martin.*(18 ans|Dérogation|nov\. 2026)/);
 });

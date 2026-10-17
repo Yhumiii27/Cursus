@@ -14,6 +14,8 @@ Cursus envoie ses e-mails depuis une **boîte d'envoi dédiée** (par exemple `c
 l'API Microsoft Graph, avec un jeton d'application (flux « client credentials » : aucun compte utilisateur,
 aucun mot de passe de boîte aux lettres). Sans configuration, Cursus reste en **mode simulation** : rien ne
 part, chaque e-mail est tracé dans le journal et visible dans Paramètres → Envois, marqué « simulé ».
+Le profil en lecture seule y voit les destinataires et l'état des e-mails, mais pas l'objet ni le texte de ceux qui
+désignent une donnée de santé (congés au retour d'une absence, demande de visite médicale, récapitulatif qui en contient).
 
 ## Ce que Cursus envoie
 

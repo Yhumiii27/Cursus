@@ -700,7 +700,7 @@ aucun champ du paramètre n'est recopié.
 | `cet.placer` | empId, kind, jours, annee? (RTT de l'année précédente, tant que sa clôture n'est pas faite) | intéressé ou RH |
 | `report.accorder` | empId, jours, motif (échéance : 31 mai suivant, seul un report légal court au-delà) : jours de la période en cours reportés sur la suivante, dans la limite du solde non encore reporté, appliqués à la clôture | RH, jamais pour lui-même |
 | `conges.cloturer` | type (`CP`/`RTT`), periode (année de prise des CP, année des RTT), lignes? [{empId, decision `reporter`/`perdre`, jours? (report imposé compris)}] (CP) : période terminée ; une ligne déjà clôturée n'est jamais refaite, une ligne sans décision reste à clôturer, un salarié sans solde est clos d'emblée ; une ligne dont une demande de CP de la période est en attente n'est pas close (refus nommant la demande) ; perte refusée pour les jours d'un report imposé ; RTT : soldes perdus (non reportables), salarié dont une demande de RTT de l'année est en attente non clôturé | RH ; jamais sa propre ligne de CP |
-| `conges.informer` | id (arrêt de maladie ou d'accident terminé, dans `retoursAInformer`) : information du salarié sur ses congés à son retour (art. L3141-19-3) — e-mail sans la nature de l'arrêt, ligne `informationsCp` (jours communiqués, date limite, échéance du report), reports légaux qui couraient pendant l'arrêt prolongés jusqu'à 15 mois après l'information ; arrêt en cours, suivi d'un autre arrêt ou retour antérieur à la mise en service refusés ; information déjà donnée : rien n'est refait | RH, jamais pour lui-même |
+| `conges.informer` | id (arrêt de maladie ou d'accident terminé, dans `retoursAInformer`) : information du salarié sur ses congés à son retour (art. L3141-19-3) — e-mail sans la nature de l'arrêt, ligne `informationsCp` (jours communiqués, date limite, échéance du report), reports légaux qui couraient pendant la suite d'arrêts prolongés jusqu'à 15 mois après l'information ; arrêt en cours, suivi d'un autre arrêt ou retour antérieur à la mise en service refusés ; information déjà donnée pour la fin actuelle de l'arrêt : rien n'est refait (arrêt prolongé depuis : nouvelle information) | RH, jamais pour lui-même |
 | `entretien.planifier` | empId, kind, date, nonTenu? ; un seul entretien planifié par type : une nouvelle date le reprogramme (passé avec un compte rendu commencé, seulement avec `nonTenu`, l'évaluateur confirmant qu'il n'a pas eu lieu) ; refusé un jour d'absence du salarié ; convocation par e-mail (`.ics`, même événement à la reprogrammation) | manager direct ou RH (jamais son propre entretien) |
 | `entretien.annuler` | id, confirmer? (exigé si le compte rendu est commencé : supprimé avec l'entretien) ; entretien planifié seulement (clos : 409), retiré ; date à venir : `.ics` d'annulation au salarié (même UID `entretien-<id>`) | évaluateur (manager direct) ou RH, jamais son propre entretien |
 | `entretien.modifier` | id, section?, value?, info? | évaluateur / salarié selon la section (un membre du RH n'évalue pas son propre entretien) |
@@ -1362,7 +1362,8 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
   `empeches`, `legal`) —, 15 mois après la fin de la période (31 août A+2 : art. L3141-2 et L3141-19-1), ou 15 mois après
   l'information du salarié à son retour si elle tombe plus tard (`echeanceReportArret`) ; les seuls jours restants
   d'un report légal reçu qui court au-delà de la période, jusqu'à sa propre échéance (le reste du solde est au choix du
-  service RH) ; motif réservé au service RH et à l'intéressé. Une ligne n'est pas close tant qu'une demande de CP de la
+  service RH ; une ligne au report légal imposé propose toujours le report de tout le solde, même au cas par cas : aucun
+  jour n'est prérempli comme perdu) ; motif réservé au service RH et à l'intéressé. Une ligne n'est pas close tant qu'une demande de CP de la
   période attend une décision ; une période close ne reçoit plus de congé (`checkAbsence`), et les jours qu'un refus ou
   une annulation lui rendent sont reportés sur la période suivante (`recrediterPeriodesCloses`, tracé). RTT : non reportables, soldes photographiés et perdus ; ceux
   de l'année close restent plaçables sur le CET (`cet.placer`, `annee`) jusqu'à la confirmation. Table `clotures` (une
@@ -1382,19 +1383,27 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
   Lucca : `reprise()` déduit les jours pris des droits calculés, absences comprises : le solde à la date d'arrêté reste
   celui de Lucca même avec un arrêt saisi en 2026. Confidentialité : le manager, le référent HSE et la lecture seule
   reçoivent une nature médicale comme « Absence », calculée comme une maladie (affichage approché, plus prudent pour un
-  accident du travail ; le serveur, qui contrôle les demandes, a la vraie nature) ; le profil paie reçoit en plus l'effet
-  de l'absence (`Absence.cpAcquisition`), pour que ses soldes et ses exports soient ceux du service RH.
+  accident du travail ; le serveur, qui contrôle les demandes, a la vraie nature) ; le profil paie reçoit en plus les
+  jours acquis chaque mois, calculés par le serveur avec la vraie nature (`Dataset.acquisitionsCp`, `acquisitionsCalculees`,
+  par salarié et par période que traverse une absence masquée), que `acquisitionPeriode` reprend tels quels : ses soldes
+  et ses exports sont ceux du service RH, sans qu'aucun effet soit transmis absence par absence (il désignerait un
+  accident du travail ou un congé enfant malade).
 - **Information au retour d'un arrêt** (lot 5, t041, `shared/rules/information-retour.ts`, art. L3141-19-3) : à la fin
   d'un arrêt de maladie ou d'accident (catégorie santé, validé ou signalé, terminé ; deux arrêts qui se suivent ne font
-  qu'un retour), tâche « Informations au retour à faire » de l'écran Congés & absences (`retoursAInformer` ; à faire dans
+  qu'un retour, au dernier : `suiteArrets`, l'information porte sur toute la suite — dates, jours acquis, reports échus
+  depuis son premier jour), tâche « Informations au retour à faire » de l'écran Congés & absences (`retoursAInformer` ; à faire dans
   le mois qui suit la reprise, « en retard » au-delà ; salariés présents, hors intérim, retours dont le délai n'était pas
   échu à la date d'arrêté des compteurs repris). « Informer » (`conges.informer`, sur confirmation) envoie au salarié le
   nombre de jours dont il dispose sur la période en cours, la date limite pour les prendre, les jours acquis pendant
   l'absence et l'échéance du report de 15 mois (`contenuInformation`, e-mail `conges.information` sans la nature de
-  l'arrêt), enregistre l'information (table `informationsCp`, une par arrêt : jours, date limite, échéance, auteur) et
-  prolonge jusqu'à 15 mois après l'information les reports légaux qui couraient pendant l'arrêt. Le salarié retrouve
+  l'arrêt), enregistre l'information (table `informationsCp`, une par arrêt et par fin d'arrêt, unique sur `absenceId`
+  et `au` : un arrêt prolongé après l'information — `absence.prolonger` repousse sa fin — redevient à informer à son
+  nouveau terme ; jours, date limite, échéance, auteur) et prolonge jusqu'à 15 mois après l'information les reports
+  légaux qui couraient pendant la suite d'arrêts. Le salarié retrouve
   l'information dans « Mes absences » ; ni son manager ni les profils restreints ne la reçoivent (elle désigne un arrêt de
-  santé) ; au journal, masquée à la lecture seule (`ACTIONS_SANTE`).
+  santé) ; au journal, masquée à la lecture seule (`ACTIONS_SANTE`, e-mail simulé compris) ; dans Paramètres → Envois,
+  la lecture seule voit l'e-mail sans son objet ni son texte (`envoisPourLecteur`, server/src/envois-lecteur.ts : de même
+  pour la demande de visite et le récapitulatif quotidien qui contient l'une d'elles).
 - **Demi-journées** (`shared/rules/demi-journees.ts`, décision de l'entreprise) : CP, RTT ou jours de repos du forfait
   jours, récupération. Colonnes `debutDemi` et `finDemi` de l'absence (null : journée entière) : après-midi seul le
   premier jour, matin seul le dernier ; un congé d'un seul jour porte une seule demi-journée, matin ou après-midi
@@ -1632,7 +1641,7 @@ Règles : `shared/rules/absences.ts` (confidentialité, décompte, reprise, annu
   (clé stable entre tentatives), 10 s au plus ; 2xx → envoyé avec l'accusé, 4xx (hors 408 et 429) →
   échec, sinon nouvelle tentative de 1 min à 1 h, 10 au plus. Sans `KEYSTONE_URL`, statut « simulé » et
   message écrit dans le journal. Suivi, relance et classement des échecs : Paramètres → Envois
-  (`GET /api/envois`, RH) ; l'état de l'intégration ne compte que les échecs non classés.
+  (`GET /api/envois`, RH ; lecture seule sans le contenu des e-mails de santé, `envoisPourLecteur`) ; l'état de l'intégration ne compte que les échecs non classés.
 - **Verdicts Go / No Go** : `server/src/integrations/keystone-verdicts.ts` (`suivreVerdicts`) mémorise le
   dernier verdict transmis par chantier et ressource (table `verdictsKeystone`) et met en file
   `verdict.modifie` (codes de motif seulement) quand il change. Recalcul après chaque action, sauf les

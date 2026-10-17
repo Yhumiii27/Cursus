@@ -340,10 +340,11 @@ test('t072 clôture des CP : aucune perte d’office, report imposé après une 
   const lignes = lignesClotureCp(juin, 2026), ligne = (id: number) => lignes.find(l => l.e.id === id)!;
   assert.ok(!lignes.some(l => l.e.id === 15), 'intérimaire : congés gérés par l’agence');
   // Arrêt maladie (13, 3 j ouvrés), maternité (19, plus que son solde), absence à qualifier (20, 8 j ouvrés) dans la période
-  // de prise : les jours qu'ils ont empêché de prendre sont reportés 15 mois, dans la limite du solde (lot 5, t041).
+  // de prise : les jours qu'ils ont empêché de prendre sont reportés 15 mois, dans la limite du solde (lot 5, t041). La
+  // proposition reporte tout le solde : le reste n'est jamais prérempli comme perdu (aucune perte d'office).
   for (const [id, legal] of [[13, 3], [19, ligne(19).solde], [20, 8]]) {
     assert.equal(ligne(id).impose, 'report_legal', `salarié ${id}`);
-    assert.deepEqual([ligne(id).legal, ligne(id).expireLegal, ligne(id).proposition.decision, ligne(id).proposition.jours], [legal, '2028-08-31', 'reporter', legal]);
+    assert.deepEqual([ligne(id).legal, ligne(id).expireLegal, ligne(id).proposition.decision, ligne(id).proposition.jours], [legal, '2028-08-31', 'reporter', ligne(id).solde]);
   }
   assert.ok(ligne(13).solde > 3 && ligne(20).solde > 8, 'le reste du solde est au choix du service RH');
   assert.deepEqual([ligne(13).empeches, ligne(13).acquisArret], [3, 0]);

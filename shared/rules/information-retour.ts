@@ -6,7 +6,10 @@
 // (`echeanceReportArret` de rules/clotures.ts).
 // - Arrêts concernés : natures de la catégorie santé (maladie, longue maladie, accident du travail ou de trajet, maladie
 //   professionnelle), validées ou signalées, terminées ; une absence à qualifier l'est une fois qualifiée. Deux arrêts qui
-//   se suivent (prolongation enregistrée à part, accident puis maladie) ne font qu'un retour, au dernier.
+//   se suivent (prolongation enregistrée à part, accident puis maladie) ne font qu'un retour, au dernier : l'information
+//   porte sur toute la suite (`suiteArrets` : dates, jours acquis, reports échus pendant la suite).
+// - Une information vaut pour la fin de l'arrêt qu'elle a connue (`au` de `informationsCp`) : un arrêt prolongé après
+//   l'information (`absence.prolonger` repousse sa fin) redevient à informer à son nouveau terme.
 // - Salariés : congés tenus par Cursus (pas d'intérim), présents à la reprise, arrêts terminés depuis la date d'arrêté des
 //   compteurs repris de Lucca ou peu avant : retours dont le délai d'un mois n'était pas échu à cette date (les autres
 //   relevaient de l'ancien outil).
@@ -26,6 +29,9 @@ export const estArretSante = (t: string) => estNature(t) && NATURES_ABSENCE[t].c
 export interface RetourAInformer {
   /** Dernier arrêt de la suite d'arrêts, celui que l'information vise. */
   a: Absence;
+  /** Arrêts de la suite, du premier au dernier (`a`) ; `du` : premier jour de la suite. */
+  suite: Absence[];
+  du: ISODate;
   e: Employe;
   /** Jour de la reprise : premier jour ouvré après l'arrêt. */
   retour: ISODate;
@@ -40,17 +46,39 @@ const suiviDUnAutre = (d: Domain, a: Absence) => {
   return d.ds.absences.some(x => x.id !== a.id && x.empId === a.empId && absenceBloque(x) && estArretSante(x.type) && x.du <= reprise && x.au > a.au);
 };
 
+/**
+ * Suite d'arrêts qui se termine par `a` : arrêts du salarié qui le précèdent sans reprise entre deux (le suivant commence
+ * au plus tard le jour ouvré qui suit la fin du précédent), du premier au dernier.
+ */
+export function suiteArrets(d: Domain, a: Absence): Absence[] {
+  const arrets = d.ds.absences.filter(x => x.empId === a.empId && absenceBloque(x) && estArretSante(x.type) && x.au <= a.au);
+  const suite = [a];
+  let du = a.du;
+  for (;;) {
+    const avant = arrets.filter(x => !suite.includes(x) && x.du < du && lendemainOuvre(x.au) >= du);
+    if (!avant.length) break;
+    suite.push(...avant);
+    du = avant.map(x => x.du).sort()[0];
+  }
+  return suite.sort((x, y) => x.du.localeCompare(y.du));
+}
+
+/** Information déjà donnée pour l'arrêt `a` à sa fin actuelle (une prolongation postérieure la rend caduque). */
+export const informationDonnee = (d: Domain, a: Pick<Absence, 'id' | 'au'>) =>
+  (d.ds.informationsCp ?? []).find(i => i.absenceId === a.id && i.au === a.au) ?? null;
+
 /** Retours d'arrêt dont le salarié n'a pas encore été informé, le plus ancien d'abord. */
 export function retoursAInformer(d: Domain): RetourAInformer[] {
-  const faites = new Set((d.ds.informationsCp ?? []).map(i => i.absenceId));
+  const faites = new Set((d.ds.informationsCp ?? []).map(i => `${i.absenceId}|${i.au}`));
   const out: RetourAInformer[] = [];
   for (const a of d.ds.absences) {
-    if (!estArretSante(a.type) || !absenceBloque(a) || a.au >= d.ti || faites.has(a.id)) continue;
+    if (!estArretSante(a.type) || !absenceBloque(a) || a.au >= d.ti || faites.has(`${a.id}|${a.au}`)) continue;
     const e = d.emp(a.empId);
     if (!e || d.contratOf(e).interim) continue;
     const retour = lendemainOuvre(a.au), avant = echeanceInformationRetour(retour), arrete = d.ds.soldesReprise.find(s => s.empId === e.id)?.arreteLe;
     if ((e.fin && e.fin < retour) || (arrete && avant < arrete) || suiviDUnAutre(d, a)) continue;
-    out.push({ a, e, retour, avant, retard: d.ti > avant });
+    const suite = suiteArrets(d, a);
+    out.push({ a, suite, du: suite[0].du, e, retour, avant, retard: d.ti > avant });
   }
   return out.sort((x, y) => x.a.au.localeCompare(y.a.au) || x.e.nom.localeCompare(y.e.nom));
 }
@@ -64,21 +92,21 @@ export interface ContenuInformation {
   /** Jours de CP dont le salarié dispose sur cette période (solde, congés posés déduits), à prendre jusqu'au `limite`. */
   jours: number;
   limite: ISODate;
-  /** Jours acquis pendant l'arrêt, toutes périodes de référence comprises. */
+  /** Jours acquis pendant la suite d'arrêts, toutes périodes de référence comprises. */
   arret: number;
   /** Jours non pris du fait de l'arrêt : reportés jusqu'au `echeance` (15 mois après l'information, au plus tôt ceux de la période). */
   echeance: ISODate;
 }
 
-/** Ce que l'information du jour `le` communique au salarié pour l'arrêt `a`. */
-export function contenuInformation(d: Domain, e: Employe, a: Pick<Absence, 'id' | 'du' | 'au'>, le: ISODate): ContenuInformation {
+/** Ce que l'information du jour `le` communique au salarié pour la suite d'arrêts `suite` (un seul arrêt le plus souvent). */
+export function contenuInformation(d: Domain, e: Employe, suite: readonly Pick<Absence, 'id' | 'du' | 'au'>[], le: ISODate): ContenuInformation {
   const A = Math.max(anneeCp(le), reprise(d, e.id).periodeCp);
   const r2 = (n: number) => Math.round(n * 100) / 100;
   const echeance = [echeanceReportLegal(A), echeanceInformation(le)].sort().at(-1)!;
-  return { periode: A, jours: Math.max(0, r2(soldePeriode(d, e, A))), limite: finPeriodeCp(A), arret: r2(acquisPendantArret(d, e, a)), echeance };
+  return { periode: A, jours: Math.max(0, r2(soldePeriode(d, e, A))), limite: finPeriodeCp(A), arret: r2(suite.reduce((n, a) => n + acquisPendantArret(d, e, a), 0)), echeance };
 }
 
-/** Texte de l'information envoyée au salarié (e-mail) : jamais la nature de l'arrêt, seulement ses dates. */
+/** Texte de l'information envoyée au salarié (e-mail) : jamais la nature de l'arrêt, seulement les dates de la suite. */
 export function texteInformation(c: ContenuInformation, a: Pick<Absence, 'du' | 'au'>): string {
   return `À la suite de votre absence ${periodeTexte(a.du, a.au)}, voici l’état de vos congés payés (art. L3141-19-3 du Code du travail).\n`
     + `- Vous disposez de ${fJ(c.jours)} de congés payés sur la période ${periodeCp(c.periode)}, à prendre jusqu’au ${fmtIso(c.limite)}.\n`

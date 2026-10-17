@@ -397,17 +397,18 @@ export interface Absence {
    * sur un congé d'un seul jour.
    */
   debutDemi?: DemiJournee | null; finDemi?: DemiJournee | null;
-  /**
-   * Effet sur l'acquisition des CP d'une absence dont la nature médicale est masquée (« Absence ») : transmis au seul
-   * profil paie (shared/rules/acquisition-cp.ts), pour que ses soldes soient ceux du service RH. Absent : effet de la nature.
-   */
-  cpAcquisition?: CpAcquisition | null;
 }
 /**
  * Effet d'une absence sur l'acquisition des congés payés (loi 2024-364, shared/rules/acquisition-cp.ts) : `assimile`, travail
  * effectif ; `maladie`, 2 jours ouvrables par mois (art. L3141-5-1, réglage `cpMaladie`) ; `non`, acquisition réduite au prorata.
  */
 export type CpAcquisition = 'assimile' | 'maladie' | 'non';
+/**
+ * Jours de CP acquis chaque mois d'une période de référence (`periode` : année de prise), calculés par le serveur avec la
+ * vraie nature des absences (shared/rules/acquisition-cp.ts) : transmis au seul profil paie, qui reçoit les absences
+ * médicales sans leur nature, pour que ses soldes soient ceux du service RH sans qu'aucune absence soit désignée.
+ */
+export interface AcquisitionCpCalculee { empId: number; periode: number; mois: number[] }
 /** Demi-journée d'un congé : matin ou après-midi. */
 export type DemiJournee = 'matin' | 'apres_midi';
 export interface CetMouvement { id: number; empId: number; type: 'CP' | 'RTT'; jours: number; date: ISODate; periode: string }
@@ -797,6 +798,8 @@ export interface Dataset {
   clotures: ClotureConges[];
   /** Informations des salariés sur leurs congés à leur retour d'arrêt : service RH et intéressé (vide ailleurs). */
   informationsCp?: InformationCp[];
+  /** Acquisition des CP calculée par le serveur, par salarié et par période : profil paie seulement (absent ailleurs). */
+  acquisitionsCp?: AcquisitionCpCalculee[];
   entretiens: Entretien[];
   demandesCollab: DemandeCollab[];
   demandesVisite: DemandeVisite[];

@@ -57,6 +57,11 @@ function fresh() {
 /** Domaine de démonstration avec des absences ajoutées (sans contrôle) et des réglages modifiés. */
 const base = (() => { const db = new Db(':memory:'); seedDemo(db); return loadFull(db, ADMIN); })();
 let n = 9000;
+function le<T>(date: string, fn: () => T): T {
+  const avant = process.env.CURSUS_TODAY;
+  process.env.CURSUS_TODAY = date;
+  try { return fn(); } finally { process.env.CURSUS_TODAY = avant; }
+}
 function avec(absences: Partial<Absence>[], settings: Partial<Dataset['settings']> = {}, ds: Dataset = base, today = '2026-10-10') {
   const ajout = absences.map(a => ({ id: ++n, empId: 3, statut: 'validee', keystone: true, justificatif: true, ...a }) as Absence);
   return new Domain({ ...ds, today, absences: [...ds.absences, ...ajout], settings: { ...ds.settings, ...settings } });
@@ -71,7 +76,6 @@ test('t041 natures : effet sur l’acquisition de chacune (assimilé, maladie, n
   for (const t of ['AT', 'TRAJET', 'MP', 'MATERNITE', 'PATERNITE', 'ADOPTION', 'MARIAGE', 'NAISSANCE', 'DECES_PROCHE', 'DEUIL_ENFANT']) assert.ok(par('assimile').includes(t), t);
   assert.equal(effetAcquisition({ type: 'ABSENCE' }), 'maladie');
   assert.equal(effetAcquisition({ type: 'CP' }), null, 'un congé est du travail effectif');
-  assert.equal(effetAcquisition({ type: 'ABSENCE', cpAcquisition: 'assimile' }), 'assimile', 'absence masquée du profil paie');
 });
 
 test('t041 maladie de 3 mois : 2 jours ouvrables par mois d’arrêt au minimum légal, travail effectif si le réglage l’assimile', () => {
@@ -209,7 +213,7 @@ test('t041 information au retour : tâche du service RH, e-mail sans la nature, 
   refused(PAIE, 'conges.informer', { id: t.a.id }, /réservée au service RH/, 403);
   // Un report légal de Marion courait pendant l'arrêt : il court 15 mois à compter de l'information.
   const r = db.insert<{ id: number }>('reports', { empId: 13, jours: 2, motif: 'Clôture — report légal', par: 'Sandrine Vidal', date: '2026-06-02', sens: 'recu', periode: 2026, expire: '2027-08-31' });
-  const c = contenuInformation(domain(), domain().emp(13)!, t.a, '2026-10-10');
+  const c = contenuInformation(domain(), domain().emp(13)!, t.suite, '2026-10-10');
   const msg = run(ADMIN, 'conges.informer', { id: t.a.id });
   assert.match(msg, /^Information de Marion Petit sur ses congés \(absence du 5 oct\. au 7 oct\. 2026\) envoyée par e-mail — .* à prendre jusqu’au 31 mai 2027, report jusqu’au 31 août 2028 · 1 report légal prolongé jusqu’au 10 janv\. 2028$/);
   assert.equal(db.get<{ expire: string }>('reports', r.id)!.expire, '2028-01-10');
@@ -249,6 +253,46 @@ test('t041 information au retour : tâche du service RH, e-mail sans la nature, 
   assert.equal((pourLecteur(LECTURE, [ligne])[0] as { message: string }).message, 'Détail réservé au service RH');
 });
 
+test('t041 information puis prolongation de l’arrêt : le retour est de nouveau à informer, à son nouveau terme', () => {
+  const { db, run, domain } = fresh();
+  // Marion (13) : arrêt maladie du 5 au 7 octobre, informée le 10 ; l'arrêt est prolongé jusqu'au 20 octobre.
+  const t = retoursAInformer(domain()).find(r => r.e.id === 13)!;
+  run(ADMIN, 'conges.informer', { id: t.a.id });
+  run(ADMIN, 'absence.prolonger', { id: t.a.id, au: '2026-10-20' });
+  assert.ok(!retoursAInformer(domain()).some(r => r.a.id === t.a.id), 'arrêt de nouveau en cours');
+  const r = retoursAInformer(domain('2026-10-22')).find(x => x.a.id === t.a.id)!;
+  assert.deepEqual([r.a.au, r.du, r.retour, r.avant], ['2026-10-20', '2026-10-05', '2026-10-21', '2026-11-21']);
+  const msg = le('2026-10-22', () => run(ADMIN, 'conges.informer', { id: t.a.id }));
+  assert.match(msg, /^Information de Marion Petit sur ses congés \(absence du 5 oct\. au 20 oct\. 2026\) envoyée par e-mail/);
+  const infos = loadFull(db, ADMIN).informationsCp!.filter(i => i.absenceId === t.a.id).map(i => [i.le, i.au]);
+  assert.deepEqual(infos, [['2026-10-10', '2026-10-07'], ['2026-10-22', '2026-10-20']]);
+  // Relance sans effet ; le journal retient la dernière information.
+  assert.match(le('2026-10-22', () => run(ADMIN, 'conges.informer', { id: t.a.id })), /déjà donnée le 22 oct\. 2026/);
+  const j = db.sql.prepare(`SELECT payload FROM journal WHERE action = 'conges.informer' ORDER BY id DESC LIMIT 1`).get() as { payload: string };
+  assert.equal(JSON.parse(j.payload).le, '2026-10-22');
+});
+
+test('t041 information après des arrêts qui se suivent : dates, jours acquis et reports légaux de toute la suite', () => {
+  const { db, run, arret, domain } = fresh();
+  // Thomas (6) : accident du travail du 7 au 18 septembre, puis maladie du 21 septembre au 2 octobre ; un report légal
+  // expirait le 10 septembre, pendant le premier arrêt.
+  const a1 = arret(6, 'AT', '2026-09-07', '2026-09-18'), a2 = arret(6, 'MALADIE', '2026-09-21', '2026-10-02');
+  const rep = db.insert<{ id: number }>('reports', { empId: 6, jours: 1, motif: 'Clôture — report légal', par: 'Sandrine Vidal', date: '2025-06-02', sens: 'recu', periode: 2025, expire: '2026-09-10' });
+  const r = retoursAInformer(domain()).find(x => x.e.id === 6)!;
+  assert.deepEqual([r.a.id, r.suite.map(x => x.id), r.du], [a2.id, [a1.id, a2.id], '2026-09-07']);
+  const d = domain(), c = contenuInformation(d, d.emp(6)!, r.suite, '2026-10-10');
+  proche(c.arret, Math.round((acquisPendantArret(d, d.emp(6)!, a1) + acquisPendantArret(d, d.emp(6)!, a2)) * 100) / 100);
+  assert.ok(c.arret > acquisPendantArret(d, d.emp(6)!, a2), 'jours acquis pendant l’accident comptés');
+  const msg = run(ADMIN, 'conges.informer', { id: a2.id });
+  // Son report légal en cours (31 août 2027) et celui échu pendant l'accident : tous deux prolongés.
+  assert.match(msg, /\(absence du 7 sept\. au 2 oct\. 2026\).*2 reports légaux prolongés jusqu’au 10 janv\. 2028$/);
+  assert.equal(db.get<{ expire: string }>('reports', rep.id)!.expire, '2028-01-10');
+  const info = loadFull(db, ADMIN).informationsCp!.find(i => i.absenceId === a2.id)!;
+  assert.deepEqual([info.du, info.au, info.arret], ['2026-09-07', '2026-10-02', c.arret]);
+  const mail = db.all<{ type: string; contenu: { texte: string } }>('envois').filter(e => e.type === 'conges.information').at(-1)!;
+  assert.match(mail.contenu.texte, /À la suite de votre absence du 7 sept\. au 2 oct\. 2026/);
+});
+
 test('t041 échéance du report légal : 15 mois après l’information du salarié si elle est plus tardive', () => {
   const ds = { ...base, informationsCp: [{ id: 1, empId: 3, absenceId: 1, du: '2026-11-01', au: '2027-12-20', le: '2028-09-20', jours: 10, arret: 15, limite: '2029-05-31', echeance: '2029-12-20', par: 'RH' }] };
   const d = new Domain(ds);
@@ -258,16 +302,28 @@ test('t041 échéance du report légal : 15 mois après l’information du salar
   assert.equal(echeanceReportArret(d, 3, 2030), '2032-08-31', 'information antérieure à la période : sans effet');
 });
 
-test('t041 profil paie : absence masquée avec son effet sur l’acquisition, soldes identiques à ceux du service RH', () => {
+test('t041 profil paie : absence masquée sans son effet, acquisition calculée par le serveur, soldes identiques à ceux du service RH', () => {
   const { db, arret } = fresh();
-  // Accident du travail de Marion : la paie et le manager reçoivent « Absence ».
+  // Accident du travail de Marion, congé enfant malade de Sophie : la paie et le manager reçoivent « Absence ».
   arret(13, 'AT', '2026-06-01', '2026-09-30');
+  arret(3, 'ENFANT_MALADE', '2026-06-08', '2026-06-10');
   const rh = new Domain(buildSnapshot(db, ADMIN)), paie = new Domain(buildSnapshot(db, PAIE)), mgr = new Domain(buildSnapshot(db, SOPHIE));
   const a = (d: InstanceType<typeof Domain>) => d.ds.absences.find(x => x.empId === 13 && x.du === '2026-06-01')!;
-  assert.deepEqual([a(paie).type, a(paie).cpAcquisition], ['ABSENCE', 'assimile']);
-  assert.deepEqual([a(mgr).type, a(mgr).cpAcquisition], ['ABSENCE', undefined], 'le manager ne reçoit pas l’effet (il trahirait l’accident)');
+  assert.deepEqual([a(paie).type, a(mgr).type], ['ABSENCE', 'ABSENCE']);
+  // Aucun effet absence par absence : il trahirait l'accident (assimilé) ou l'enfant malade (non).
+  const snap = buildSnapshot(db, PAIE);
+  assert.ok(snap.absences.every(x => !('cpAcquisition' in x)));
+  assert.doesNotMatch(JSON.stringify(snap.absences), /"AT"|ENFANT_MALADE|assimile/);
+  // Jours acquis par mois et par période, calculés avec la vraie nature : la paie seule les reçoit.
+  const marion = snap.acquisitionsCp!.find(x => x.empId === 13 && x.periode === 2027)!;
+  assert.deepEqual(marion.mois, acquisitionPeriode(rh, rh.emp(13)!, 2027).mois);
+  assert.deepEqual(Object.keys(marion).sort(), ['empId', 'mois', 'periode']);
+  assert.equal(buildSnapshot(db, SOPHIE).acquisitionsCp, undefined);
+  assert.deepEqual(buildSnapshot(db, LECTURE).acquisitionsCp, []);
+  for (const id of [13, 3]) {
+    const enCours = (d: InstanceType<typeof Domain>) => cpInfo(d, d.emp(id)!)!.enCours;
+    assert.equal(enCours(paie), enCours(rh), `salarié ${id}`);
+  }
   const enCours = (d: InstanceType<typeof Domain>) => cpInfo(d, d.emp(13)!)!.enCours;
-  assert.equal(enCours(paie), enCours(rh));
   assert.ok(enCours(mgr) < enCours(rh), 'le manager calcule comme une maladie : affichage approché, plus prudent');
-  assert.doesNotMatch(JSON.stringify(buildSnapshot(db, PAIE).absences), /"AT"/);
 });

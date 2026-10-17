@@ -4,7 +4,7 @@
 import { Domain } from '../../shared/domain.ts';
 import { addD, isoParis, isValidDate, mondayOf } from '../../shared/dates.ts';
 import { absenceVueManager, repriseMedicale } from '../../shared/rules/absences.ts';
-import { effetAcquisition } from '../../shared/rules/acquisition-cp.ts';
+import { acquisitionsCalculees } from '../../shared/rules/acquisition-cp.ts';
 import { aptitudeVueManager } from '../../shared/rules/sante.ts';
 import { naissanceVueManager } from '../../shared/rules/mineurs.ts';
 import { needsFinCarriere } from '../../shared/rules/entretiens.ts';
@@ -188,15 +188,6 @@ export function tachesProches(taches: TacheKeystone[], today: ISODate): TacheKey
  * les jours d'un report légal échu en cours de période (le serveur, qui contrôle les demandes, les retire).
  */
 const reportNeutre = (r: ReportCp): ReportCp => ({ ...r, motif: '', expire: finPeriodeCp(periodeReport(r).periode) });
-/**
- * Absence vue par le profil paie : nature médicale masquée comme pour le manager, mais avec son effet sur l'acquisition
- * des CP (`cpAcquisition` : assimilé, maladie ou non), pour que les soldes qu'il lit et exporte soient ceux du service RH.
- * La paie connaît d'ailleurs le motif d'un arrêt (indemnités journalières, déclaration sociale nominative).
- */
-const absencePaie = (a: Absence): Absence => {
-  const v = absenceVueManager(a);
-  return v === a ? a : { ...v, cpAcquisition: effetAcquisition(a) };
-};
 /** Ligne de clôture des congés vue de même : sans motif de report imposé, échéance d'un report au 31 mai suivant. */
 const clotureNeutre = (c: ClotureConges): ClotureConges => ({ ...c, motif: null, expire: c.expire ? finPeriodeCp(c.periode + 1) : null });
 /**
@@ -377,7 +368,7 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     feuilles: paie ? full.feuilles : [],
     // Le référent HSE ne reçoit, sans leur nature, que les absences des ressources des chantiers : celles qui comptent au
     // Go / No Go.
-    absences: paie ? full.absences.map(droits.includes('paie') ? absencePaie : absenceVueManager)
+    absences: paie ? full.absences.map(absenceVueManager)
       : formations ? full.absences.filter(a => ressources.has(a.empId)).map(absenceVueManager) : [],
     cet: paie ? full.cet : [],
     reports: paie ? full.reports.map(reportNeutre) : [],
@@ -385,6 +376,9 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     clotures: paie ? full.clotures.map(clotureNeutre) : [],
     // Informations au retour d'un arrêt de santé : service RH seulement.
     informationsCp: [],
+    // Profil paie : jours de CP acquis chaque mois, calculés ici avec la vraie nature des absences masquées, pour que ses
+    // soldes et ses exports soient ceux du service RH ; aucune absence n'y est désignée (pas d'effet absence par absence).
+    acquisitionsCp: droits.includes('paie') ? acquisitionsCalculees(d) : [],
     entretiens: lecture ? full.entretiens.map(x => ({ ...avecFinCarriere(d, x), cr: {} })) : [],
     // Demandes de formation et d'habilitation ; les documents déclarés (passeport, visa, vaccination) restent au RH.
     demandesCollab: formations ? full.demandesCollab.filter(r => r.type !== 'document').map(r => ({ ...r, declaration: null })) : [],

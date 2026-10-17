@@ -263,6 +263,8 @@ export const EMAIL_LABEL: Record<string, string> = {
   'essai': 'E-mail d’essai', 'entretien.remise': 'Compte rendu d’entretien mis à disposition',
   'temps.relance': 'Relance des feuilles de temps en retard',
   'conges.information': 'Congés payés au retour d’une absence',
+  // E-mail réservé au service RH (donnée de santé), tel que la lecture seule le voit (server/src/envois-lecteur.ts).
+  reserve: 'Message réservé au service RH',
   'echeances.recapitulatif': 'Récapitulatif des échéances',
 };
 export const CIBLE_LABEL = { keystone: 'Keystone', sage: 'Sage Paie', email: 'E-mail' } as const;

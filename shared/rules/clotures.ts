@@ -119,7 +119,8 @@ export interface LigneClotureCp {
 
 /**
  * Lignes de la clôture des CP de la période `A` (année de prise : du 1er juin A au 31 mai A+1), dans l'ordre alphabétique.
- * La proposition dépend du réglage `politiqueReportCp` : sans proposition (au cas par cas, défaut) ou report du solde.
+ * La proposition dépend du réglage `politiqueReportCp` : sans proposition (au cas par cas, défaut) ou report du solde ;
+ * une ligne au report légal imposé propose toujours le report de tout le solde (le service RH peut en réduire la part libre).
  */
 export function lignesClotureCp(d: Domain, A: number): LigneClotureCp[] {
   const debut = `${A}-06-01`, fin = finPeriodeCp(A);
@@ -141,7 +142,9 @@ export function lignesClotureCp(d: Domain, A: number): LigneClotureCp[] {
     const libre = c2(solde - legal);
     const accordes = d.ds.reports.filter(r => r.empId === e.id && reportEnAttente(d, r, A + 1));
     const accorde = c2(accordes.reduce((n, r) => n + r.jours, 0));
-    const choisi = accorde > 0 ? Math.min(accorde, libre) : d.ds.settings.politiqueReportCp === 'proposer_report' ? libre : null;
+    // Report légal imposé : tout le solde est proposé au report, même au cas par cas — le reste n'est jamais présenté
+    // comme perdu sans que le service RH l'ait choisi (aucune perte d'office).
+    const choisi = impose === 'report_legal' ? libre : accorde > 0 ? Math.min(accorde, libre) : d.ds.settings.politiqueReportCp === 'proposer_report' ? libre : null;
     const proposition: LigneClotureCp['proposition'] = solde <= 0 ? { decision: null, jours: 0 }
       : choisi != null || legal > 0 ? { decision: 'reporter', jours: c2(legal + (choisi ?? 0)) }
       : { decision: null, jours: solde };

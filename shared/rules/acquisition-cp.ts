@@ -13,10 +13,12 @@
 // - Part acquise pendant un arrêt protégé (santé, maternité, paternité, adoption, absence à qualifier) : base du report
 //   de 15 mois à la clôture (rules/clotures.ts) et de l'information du salarié à son retour (rules/information-retour.ts).
 // Calcul mémorisé par instantané (`Domain`) : l'imputation des congés (`imputer`) le demande pour chaque jour posé.
+// Profil paie : il reçoit les absences médicales sans leur nature ; le serveur lui transmet les jours acquis chaque mois,
+// calculés avec la vraie nature (`acquisitionsCalculees`, `Dataset.acquisitionsCp`), que le calcul reprend tels quels.
 import type { Domain } from '../domain.ts';
 import { addD, addM, isFerie, weekday } from '../dates.ts';
-import type { Absence, AbsenceType, CpAcquisition, Employe, ISODate } from '../types.ts';
-import { absenceBloque, estConge, natureDef } from './absences.ts';
+import type { Absence, AbsenceType, AcquisitionCpCalculee, CpAcquisition, Employe, ISODate } from '../types.ts';
+import { absenceBloque, absenceVueManager, estConge, natureDef } from './absences.ts';
 
 /** Jours ouvrés acquis par mois de travail effectif (25 par an). */
 export const CP_PAR_MOIS = 25 / 12;
@@ -33,12 +35,12 @@ export const CP_MALADIE_PLAFOND = 20;
 export const ABSENCES_PROTEGEES: readonly AbsenceType[] = ['MALADIE', 'ALD', 'AT', 'TRAJET', 'MP', 'MATERNITE', 'PATERNITE', 'ADOPTION', 'ABSENCE'];
 
 /**
- * Effet d'une absence sur l'acquisition (null : congé, travail effectif). Absence masquée transmise au profil paie : son
- * effet (`cpAcquisition`). Une absence à qualifier, ou dont la nature médicale est masquée, compte comme une maladie.
+ * Effet d'une absence sur l'acquisition (null : congé, travail effectif). Une absence à qualifier, ou dont la nature
+ * médicale est masquée, compte comme une maladie.
  */
-export function effetAcquisition(a: Pick<Absence, 'type' | 'cpAcquisition'>): CpAcquisition | null {
+export function effetAcquisition(a: Pick<Absence, 'type'>): CpAcquisition | null {
   if (estConge(a.type)) return null;
-  return a.cpAcquisition ?? natureDef(a.type)?.cpAcquisition ?? 'maladie';
+  return natureDef(a.type)?.cpAcquisition ?? 'maladie';
 }
 
 /** Année de prise des CP acquis le jour `s` : le 1er juin A-1 au 31 mai A acquièrent les CP pris à partir du 1er juin A. */
@@ -64,8 +66,32 @@ export function acquisitionPeriode(d: Domain, e: Employe, A: number): Acquisitio
   // Fiche passée modifiée (date d'entrée ramenée à un changement de régime…) : clé sur ses dates.
   const cle = `${e.id}|${e.entree}|${e.fin ?? ''}|${A}`;
   let r = parDomaine.get(cle);
-  if (!r) parDomaine.set(cle, r = calculer(d, e, A));
+  if (!r) {
+    // Calcul du serveur (profil paie) : repris tel quel, sans détail par arrêt (le service RH seul en a l'usage).
+    const pre = d.ds.acquisitionsCp?.find(x => x.empId === e.id && x.periode === A);
+    parDomaine.set(cle, r = pre ? { mois: pre.mois, total: pre.mois.reduce((s, x) => s + x, 0), maladie: 0, arrets: new Map() } : calculer(d, e, A));
+  }
   return r;
+}
+
+/**
+ * Acquisition calculée par le serveur pour un lecteur qui reçoit les absences médicales sans leur nature (profil paie) :
+ * jours acquis chaque mois, par salarié, pour chaque période de référence que traverse une absence masquée. Elle ne
+ * désigne aucune absence ; `d` est l'instantané complet (vraies natures).
+ */
+export function acquisitionsCalculees(d: Domain): AcquisitionCpCalculee[] {
+  const vues = new Set<string>(), out: AcquisitionCpCalculee[] = [];
+  for (const a of d.ds.absences) {
+    if (absenceVueManager(a) === a || !absenceBloque(a)) continue;
+    const e = d.emp(a.empId);
+    if (!e) continue;
+    for (let A = periodeAcquisition(a.du); A <= periodeAcquisition(a.au); A++) {
+      if (vues.has(`${e.id}|${A}`)) continue;
+      vues.add(`${e.id}|${A}`);
+      out.push({ empId: e.id, periode: A, mois: acquisitionPeriode(d, e, A).mois });
+    }
+  }
+  return out;
 }
 
 function calculer(d: Domain, e: Employe, A: number): AcquisitionPeriode {

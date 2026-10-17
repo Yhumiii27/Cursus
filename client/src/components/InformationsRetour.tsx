@@ -17,10 +17,10 @@ import { Panel, Tag, Two } from './ui.tsx';
 
 /** Confirmation de l'information : ce qui sera communiqué au salarié, et ses effets. */
 export function confirmationInformation(d: Domain, r: RetourAInformer): Confirmation {
-  const c = contenuInformation(d, r.e, r.a, d.ti);
+  const c = contenuInformation(d, r.e, r.suite, d.ti);
   return {
     titre: 'Informer le salarié de ses congés',
-    question: `Informer ${r.e.nom} de ses congés payés à son retour (absence ${periodeTexte(r.a.du, r.a.au)}) ?`,
+    question: `Informer ${r.e.nom} de ses congés payés à son retour (absence ${periodeTexte(r.du, r.a.au)}) ?`,
     suites: [
       `${fJ(c.jours)} de congés payés sur la période ${periodeCp(c.periode)}, à prendre jusqu’au ${fmtIso(c.limite)} ; ${fJ(c.arret)} acquis pendant l’absence.`,
       `Les jours non pris du fait de l’absence sont reportés jusqu’au ${fmtIso(c.echeance)} : les reports légaux en cours courent 15 mois à compter d’aujourd’hui.`,
@@ -50,7 +50,7 @@ export function InformationsRetour() {
                 {aFaire.map(r => (
                   <tr key={r.a.id}>
                     <td><Two main={r.e.nom} sub={equipeLabel(r.e)} nowrap /></td>
-                    <td>{periodeTexte(r.a.du, r.a.au)}</td>
+                    <td>{periodeTexte(r.du, r.a.au)}</td>
                     <td className="nowrap">{fmtIso(r.retour)}</td>
                     <td className="nowrap">{fmtIso(r.avant)}{r.retard && <> <Tag cls="tag-accent">En retard</Tag></>}</td>
                     <td className="right">

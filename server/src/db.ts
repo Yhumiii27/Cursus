@@ -158,13 +158,14 @@ export const TABLES = {
     },
     unique: [['empId', 'type', 'periode']],
   },
-  // Informations des salariés sur leurs congés à leur retour d'arrêt (`conges.informer`, art. L3141-19-3) : une par arrêt.
+  // Informations des salariés sur leurs congés à leur retour d'arrêt (`conges.informer`, art. L3141-19-3) : une par arrêt
+  // et par fin d'arrêt (`au` : un arrêt prolongé après l'information en reçoit une autre à son nouveau terme).
   informationsCp: {
     pk: 'id', auto: true,
     cols: {
       id: 'int', empId: 'int', absenceId: 'int', du: 'text', au: 'text', le: 'text', jours: 'real', arret: 'real', limite: 'text', echeance: 'text', par: 'text',
     },
-    unique: [['absenceId']],
+    unique: [['absenceId', 'au']],
   },
   // `planifieLe` : jour de la planification (ou de la reprogrammation), borne de la date réelle saisie à la clôture.
   // `remise*` : remise du compte rendu au salarié (jour, mode, auteur) ; `telechargeLe` : son premier téléchargement.

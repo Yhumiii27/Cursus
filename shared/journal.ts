@@ -287,7 +287,7 @@ export const CHAMP_LABEL: Record<string, string> = {
   santeVipMois: 'Périodicité de la visite d’information et de prévention (mois)', santeVipAdapteeMois: 'Périodicité de la VIP adaptée (mois)',
   santeSirIntermediaireMois: 'Suivi renforcé : visite intermédiaire (mois)', santeSirAptitudeMois: 'Suivi renforcé : examen d’aptitude (mois)',
   sir: 'Suivi individuel renforcé',
-  // Décompte des heures (Paramètres → Paie) : fériés, heures complémentaires, moyenne sur 12 semaines, contingent.
+  // Paramètres → Décompte des heures : fériés, heures complémentaires, moyenne sur 12 semaines, contingent.
   feriesTravaillesAutorises: 'Saisie d’heures un jour férié', tauxMajorationFerie: 'Majoration des jours fériés hors 1er mai (%)',
   plafondHeuresComplementaires: 'Plafond des heures complémentaires', heuresComplementairesAccord: 'Accord sur les heures complémentaires',
   moyenne12SemainesMax: 'Moyenne maximale sur 12 semaines (h)', moyenne12SemainesAccord: 'Accord sur la moyenne de 12 semaines',

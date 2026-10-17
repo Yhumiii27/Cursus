@@ -31,7 +31,7 @@ import {
 import { formationsAProposer } from '../../../shared/rules/formations-temps.ts';
 import { MODES_HEURES_SUP } from '../../../shared/rules/paie.ts';
 import { feriesDeLaSemaine, MAJORATION_1ER_MAI, mentionFerie, plafondComplementaires } from '../../../shared/rules/majorations.ts';
-import { contingentAnnuel, contingentTexte, moyenne12Semaines, moyenneTexte, requalificationPartiel, requalificationTexte } from '../../../shared/rules/durees.ts';
+import { contingentsDeLaSemaine, contingentTexte, moyenne12Semaines, moyenneTexte, requalificationPartiel, requalificationTexte } from '../../../shared/rules/durees.ts';
 import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
 import { CloseButton, Fine, Page, Panel, stop, Tag, Two } from '../components/ui.tsx';
 import { Ouvrir } from '../components/Cliquable.tsx';
@@ -109,9 +109,11 @@ function recapOf(d: Domain, emp: Employe, calc: SheetCalc, week: ISODate, sh: Fe
     if (calc.ferie) annexes.push(['Dont heures un jour férié', fH(calc.ferie)], ...(calc.majFerie ? [[`Majoration des fériés (${calc.majFerie} %)`, fH(calc.ferie * calc.majFerie / 100)] as [string, string]] : []));
     if (cor) annexes.push(['Contrepartie obligatoire en repos', fH(cor)]);
   }
-  // Contingent annuel d'heures supplémentaires de l'année de la feuille (feuilles validées).
-  const k = c.forfait || c.dirigeant || c.annuel || c.partiel || c.interim ? null : contingentAnnuel(d, emp, Number(joursSemaine(week)[DIMANCHE].slice(0, 4)));
-  if (k) annexes.push([`Contingent ${k.annee} (heures sup validées)`, `${fH(k.cumul)} / ${fH(k.max)}`]);
+  // Contingent annuel d'heures supplémentaires de chaque année de la semaine (deux pour une semaine à cheval sur le
+  // 31 décembre ; feuilles validées).
+  if (!(c.forfait || c.dirigeant || c.annuel || c.partiel || c.interim)) {
+    for (const k of contingentsDeLaSemaine(d, emp, week)) annexes.push([`Contingent ${k.annee} (heures sup validées)`, `${fH(k.cumul)} / ${fH(k.max)}`]);
+  }
 
   if (c.forfait) return {
     rows: [['Jours travaillés', fJ(calc.jours)], ['Heures déclarées (répartition projets)', fH(calc.total)]],
@@ -139,7 +141,7 @@ function recapOf(d: Domain, emp: Employe, calc: SheetCalc, week: ISODate, sh: Fe
     };
   }
   if (c.partiel) {
-    // Plafond réglé : le dixième, ou le tiers avec la référence d'un accord (Paramètres → Paie).
+    // Plafond réglé : le dixième, ou le tiers avec la référence d'un accord (Paramètres → Décompte des heures).
     const p = plafondComplementaires(d.ds.settings);
     return {
       rows: [['Heures contractuelles', fH(Math.min(calc.total, c.base))], ['Complémentaires +10 %', fH(calc.hc10)], ['Complémentaires +25 %', fH(calc.hc25)], ...annexes],
@@ -318,9 +320,12 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const heuresWeekEnd = (h: readonly number[]) => num(h[SAMEDI]) + num(h[DIMANCHE]);
   const lignes = sh ? sh.lignes : [];
   // Cellule remplie un jour d'absence : signalée (à vider) ; elle reste modifiable pour être vidée, vide elle est verrouillée.
+  // De même pour un jour férié quand le réglage n'en permet plus la saisie : les heures déjà posées restent à retirer.
   const alerteDe = (li: number, di: number) => {
-    const a = days[di].a;
-    return a && num(lignes[li]?.h[di]) > 0 ? `${absenceCeJour(a)} : ${editable ? 'videz la cellule' : 'aucune heure ne devrait être saisie'}` : undefined;
+    const a = days[di].a, h = num(lignes[li]?.h[di]);
+    if (a && h > 0) return `${absenceCeJour(a)} : ${editable ? 'videz la cellule' : 'aucune heure ne devrait être saisie'}`;
+    if (feries[di] && ferieBloque && h > 0) return `Férié non saisissable : ${editable ? 'videz la cellule' : 'aucune heure ne devrait être saisie'}`;
+    return undefined;
   };
   const enregistrer = async (li: number, di: number, raw: string) => (await run('temps.setCell', { ...base, li, di, value: raw }, { silent: true })).ok;
   // La ligne visée accompagne l'indice : un second clic ne supprime pas la ligne venue à sa place.
@@ -343,11 +348,10 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const recap = recapOf(d, empF, calc, wk, sh);
   // Durées sur plusieurs semaines (feuilles validées, jusqu'à cette semaine) : alertes, sans blocage.
   const moyenne = moyenne12Semaines(d, emp, wk), requalification = requalificationPartiel(d, emp, wk);
-  const contingent = contingentAnnuel(d, emp, Number(wdays[DIMANCHE].slice(0, 4)));
   const alertesDurees = [
     moyenne?.depasse ? moyenneTexte(moyenne) : '',
     requalification?.depasse ? requalificationTexte(requalification) : '',
-    contingent?.etat ? contingentTexte(contingent) : '',
+    ...contingentsDeLaSemaine(d, emp, wk).map(k => (k.etat ? contingentTexte(k) : '')),
   ].filter(Boolean);
   const rowStyle = { display: 'flex', justifyContent: 'space-between', gap: 'var(--space-3)', fontSize: 13, padding: 'var(--space-2) 0', background: 'var(--rule-soft) no-repeat bottom / 100% 1px' } as const;
 

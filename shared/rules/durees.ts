@@ -159,6 +159,17 @@ export function contingentAnnuel(d: Domain, e: Employe, annee: number = d.year, 
   };
 }
 
+/** Années civiles d'une semaine : une, ou deux pour la semaine à cheval sur le 31 décembre (dans l'ordre). */
+export const anneesDeLaSemaine = (week: ISODate): number[] => [...new Set(joursSemaine(week).map(j => Number(j.slice(0, 4))))];
+
+/**
+ * Contingents des années que touche la semaine `week` (deux pour une semaine à cheval sur le 31 décembre), sans ceux qui
+ * ne s'appliquent pas (contingentAnnuel null).
+ */
+export function contingentsDeLaSemaine(d: Domain, e: Employe, week: ISODate, feuilles?: FeuilleTemps[]): Contingent[] {
+  return anneesDeLaSemaine(week).flatMap(annee => contingentAnnuel(d, e, annee, feuilles) ?? []);
+}
+
 /**
  * Contrepartie obligatoire en repos à figer sur la feuille `sh` à sa validation, par année qu'elle touche : COR de l'année
  * recalculée sur toutes les feuilles validées (celle-ci comprise, avec ce qui est figé à sa validation), moins la COR déjà
@@ -169,7 +180,7 @@ export function contingentAnnuel(d: Domain, e: Employe, annee: number = d.year, 
 export function corAValider(d: Domain, e: Employe, sh: FeuilleTemps): Record<string, number> | null {
   const autres = valideesDe(d, e.id).filter(x => x.id !== sh.id);
   const out: Record<string, number> = {};
-  for (const annee of new Set(joursSemaine(sh.week).map(j => Number(j.slice(0, 4))))) {
+  for (const annee of anneesDeLaSemaine(sh.week)) {
     const due = contingentAnnuel(d, e, annee, [...autres, sh])?.cor ?? 0;
     const figee = autres.reduce((n, x) => n + num(x.cor?.[annee]), 0);
     const v = arrondi(due - figee);
@@ -223,7 +234,7 @@ export function alertesDurees(d: Domain): AlerteDuree[] {
 
 /**
  * Message de validation : seuils franchis par la feuille validée (moyenne, requalification, contingent, comparés à
- * l'état sans elle) et contrepartie en repos créditée. Vide si rien.
+ * l'état sans elle, contingent de chaque année que touche la semaine) et contrepartie en repos créditée. Vide si rien.
  */
 export function alertesValidation(d: Domain, e: Employe, avant: FeuilleTemps[], apres: FeuilleTemps[], week: ISODate, cor: number): string[] {
   const out: string[] = [];
@@ -231,9 +242,10 @@ export function alertesValidation(d: Domain, e: Employe, avant: FeuilleTemps[], 
   if (m1?.depasse && !m0?.depasse) out.push(moyenneTexte(m1));
   const r0 = requalificationPartiel(d, e, week, avant), r1 = requalificationPartiel(d, e, week, apres);
   if (r1?.depasse && !r0?.depasse) out.push(requalificationTexte(r1));
-  const annee = Number(joursSemaine(week)[6].slice(0, 4));
-  const k0 = contingentAnnuel(d, e, annee, avant), k1 = contingentAnnuel(d, e, annee, apres);
-  if (k1?.etat && k1.etat !== k0?.etat) out.push(contingentTexte(k1));
+  for (const annee of anneesDeLaSemaine(week)) {
+    const k0 = contingentAnnuel(d, e, annee, avant), k1 = contingentAnnuel(d, e, annee, apres);
+    if (k1?.etat && k1.etat !== k0?.etat) out.push(contingentTexte(k1));
+  }
   if (cor) out.push(`${fH(Math.abs(cor))} de contrepartie obligatoire en repos ${cor > 0 ? 'créditées' : 'retirées'} au compteur de récupération`);
   return out;
 }

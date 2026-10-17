@@ -1,7 +1,8 @@
 // Suivi des feuilles de temps (t130) : relance des feuilles en retard (salarié et valideur, par e-mail ou dans leur
 // récapitulatif quotidien) et validation groupée des feuilles soumises, chacune avec les contrôles de temps.validate
 // (dépassement sans motif, demande d'absence en attente, heures un jour d'absence…) : les refus sont listés au lieu de
-// tout annuler. État des semaines : shared/rules/suivi-feuilles.ts.
+// tout annuler, et les seuils de durée franchis (moyenne, temps partiel, contingent, contrepartie en repos) repris au
+// message. État des semaines : shared/rules/suivi-feuilles.ts.
 import { isoWeek, isValidDate, mondayOf } from '../../../shared/dates.ts';
 import { plural } from '../../../shared/format.ts';
 import { etatSemaines, maintenantParis, semainesSuivies } from '../../../shared/rules/suivi-feuilles.ts';
@@ -9,7 +10,7 @@ import type { Employe } from '../../../shared/types.ts';
 import { loadFull } from '../dataset.ts';
 import { type FeuilleARelancer, notifierRelanceFeuilles, notifierRelanceValideur } from '../notifications.ts';
 import { ActionError, type ActionHandler, type Ctx, isRh, makeCtx } from './context.ts';
-import { tempsActions } from './temps.ts';
+import { validerFeuille } from './temps.ts';
 
 /** Service RH (gestionnaire ou administrateur) ou manager ; ni le collaborateur, ni un profil restreint de l'espace RH. */
 function exigerValideur(ctx: Ctx, quoi: string) {
@@ -56,6 +57,8 @@ const relancer: ActionHandler = (ctx, p) => {
 
 /** Feuilles validées en groupe au plus par appel. */
 const LOT_MAX = 200;
+/** Alertes de durée détaillées au message d'une validation groupée ; au-delà, elles sont comptées. */
+const ALERTES_MAX = 5;
 
 /**
  * `feuilles` : [{ empId, week }] soumises. Chacune passe par temps.validate dans son propre point de reprise
@@ -73,14 +76,16 @@ const validerLot: ActionHandler = (ctx, p) => {
   if (!demandees.length || demandees.length !== liste.length) throw new ActionError('Feuilles à valider invalides');
   if (demandees.length > LOT_MAX) throw new ActionError(`${LOT_MAX} feuilles au plus par validation groupée`);
   const validees: { empId: number; week: string }[] = [];
+  const alertes: { empId: number; week: string; texte: string }[] = [];
   const refus: { empId: number; week: string; raison: string; status: number }[] = [];
   for (const f of demandees) {
     ctx.db.sql.exec('SAVEPOINT validation_groupee');
     try {
       // Instantané relu pour chaque feuille : la précédente a pu changer un relevé ou une feuille voisine.
-      tempsActions['temps.validate'](makeCtx(ctx.db, ctx.user, loadFull(ctx.db, ctx.user)), f);
+      const v = validerFeuille(makeCtx(ctx.db, ctx.user, loadFull(ctx.db, ctx.user)), f);
       ctx.db.sql.exec('RELEASE validation_groupee');
       validees.push(f);
+      alertes.push(...v.alertes.map(texte => ({ ...f, texte })));
     } catch (err) {
       ctx.db.sql.exec('ROLLBACK TO validation_groupee');
       ctx.db.sql.exec('RELEASE validation_groupee');
@@ -94,8 +99,11 @@ const validerLot: ActionHandler = (ctx, p) => {
     if (refus.every(r => r.status === 403)) throw new ActionError(refus.length === 1 ? refus[0].raison : `Aucune feuille validée : ${refusTexte}`, 403);
     throw new ActionError(`Aucune feuille validée — ${plural(refus.length, 'refus', 'refus')} : ${refusTexte}`);
   }
+  // Seuils franchis, comme à la validation d'une seule feuille : les premiers en entier, le reste compté.
+  const alertesTexte = alertes.slice(0, ALERTES_MAX).map(a => ` · ${nom(a.empId)} S${isoWeek(a.week)} : ${a.texte}`).join('')
+    + (alertes.length > ALERTES_MAX ? ` · ${plural(alertes.length - ALERTES_MAX, 'autre alerte', 'autres alertes')} de durée, sur les feuilles validées` : '');
   return {
-    message: `${plural(validees.length, 'feuille validée', 'feuilles validées')}${refus.length ? ` · ${plural(refus.length, 'feuille non validée', 'feuilles non validées')}, à ouvrir une à une : ${refusTexte}` : ''}`,
+    message: `${plural(validees.length, 'feuille validée', 'feuilles validées')}${refus.length ? ` · ${plural(refus.length, 'feuille non validée', 'feuilles non validées')}, à ouvrir une à une : ${refusTexte}` : ''}${alertesTexte}`,
     result: { validees, refus: refus.map(({ empId, week }) => ({ empId, week })) },
   };
 };

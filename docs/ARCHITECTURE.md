@@ -683,7 +683,7 @@ aucun champ du paramètre n'est recopié.
 | `temps.validate` / `temps.reject` | empId, week, comment?, motif? | manager direct ou RH, jamais pour sa propre feuille (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence ; 24 h par jour au plus ; motif du dépassement exigé s'il manque, après une correction du valideur : celui du salarié n'est jamais remplacé ; majoration des fériés et contrepartie obligatoire en repos figées, `cor` au journal ; seuils de durée franchis rappelés dans le message) |
 | `temps.pushSage` | — ; simulation seulement : lot de toutes les feuilles en attente, aussitôt marqué transmis (référence « SIM-… », rien n'est envoyé, message qui le dit) ; en mode fichier, refus 503 sans rien marquer | administrateur RH, paie |
 | `temps.relancer` | empId? (sinon tout le périmètre) : feuilles des semaines suivies manquantes, en brouillon ou à corriger, échéance passée ; e-mail (ou récapitulatif) au salarié et à son valideur ; rien en retard : refus | manager direct (son équipe) ou RH |
-| `temps.validerLot` | feuilles [{empId, week}] (200 au plus) : chacune passe par `temps.validate` dans son point de reprise (SAVEPOINT) ; refus listés dans le message, les autres validées ; aucune validée : 403 si toutes l'étaient pour des droits, sinon 400 avec la liste | manager direct ou RH (comme `temps.validate`) |
+| `temps.validerLot` | feuilles [{empId, week}] (200 au plus) : chacune passe par `temps.validate` dans son point de reprise (SAVEPOINT) ; refus listés dans le message, les autres validées, avec les alertes de durée de chacune (5 au plus en entier) ; aucune validée : 403 si toutes l'étaient pour des droits, sinon 400 avec la liste | manager direct ou RH (comme `temps.validate`) |
 | `paie.lotGenerer` | periode (AAAA-MM) : lot des feuilles validées en attente dont la période de destination vient au plus tard (rappels compris), contenu figé, clé d'idempotence (UUID), feuilles réservées (`feuilles.lotId`), libellé de chaque code Sage figé (`contenu.libelles`) ; hors simulation, refus si un salarié n'a pas de matricule de paie (liste) ou 409 si une rubrique émise et exportée n'a pas de code Sage confirmé (liste) ; en simulation, avertissement | administrateur RH, paie (écran Temps) |
 | `paie.lotConfirmer` | id, reference? (code de 40 caractères au plus) : confirmation de l'import dans Sage, datée et signée, qui seule marque les feuilles transmises ; lot de fichier : fichier téléchargé au moins une fois (409 sinon) ; lot de simulation refusé hors simulation ; déjà confirmé : rien n'est refait ; annulé : 409 | administrateur RH, paie |
 | `paie.lotAnnuler` | id : avant la confirmation seulement (409 ensuite : lot correctif à venir) ; feuilles libérées | administrateur RH, paie |
@@ -1359,15 +1359,17 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
   15 dernières travaillées, avec le nouvel horaire proposé (art. L3123-13, seuils non réglables) ; contingent annuel
   (`contingentAnnuel` : heures supplémentaires de l'année civile, incluses à un forfait hebdomadaire comprises, sans celles
   remplacées par un repos ni l'intérim, semaine à cheval ventilée jour par jour, plus `SoldeReprise.heuresSupAnnee` reprises
-  de Lucca pour l'année de la date d'arrêté ; 220 h par défaut, art. D3121-24, alerte à `contingentAlerte` %, référence
+  de Lucca pour l'année de la date d'arrêté (la reprise signale les heures sup déjà validées dans Cursus avant l'arrêté,
+  comptées en plus) ; 220 h par défaut, art. D3121-24, alerte à `contingentAlerte` %, référence
   `contingentAccord` sinon rappel « valeur conventionnelle à vérifier »). Au-delà, contrepartie obligatoire en repos de
   100 % (plus de 20 salariés, art. L3121-38) : à chaque validation, `corAValider` fige sur la feuille (`FeuilleTemps.cor`,
   par année) la COR de l'année recalculée sur toutes les feuilles validées moins celle déjà figée sur les autres ; une
   validation hors de l'ordre chronologique, une feuille rouverte ou un contingent changé portent leur écart (négatif s'il
   le faut) sur la feuille validée, et le total de l'année reste juste. Créditée au compteur de récupération même en mode
   « payées » (`recupInfo`), émise dans COR_ACQUIS (dernière part d'une semaine ventilée). Écran Temps : alertes sur la
-  feuille, contingent au récapitulatif, encart « Durées du travail à surveiller » pour le service RH
-  (`components/AlertesDurees.tsx`) ; message de validation quand la feuille franchit un seuil ou crédite une COR.
+  feuille, contingent au récapitulatif (de chaque année pour une semaine à cheval sur le 31 décembre), encart « Durées du
+  travail à surveiller » pour le service RH (`components/AlertesDurees.tsx`) ; message de validation quand la feuille
+  franchit un seuil (le contingent de chacune de ses années) ou crédite une COR, repris aussi par `temps.validerLot`.
 - **Durées** : une journée compte 24 h au plus, toutes lignes de la feuille cumulées
  (saisie, proposition Keystone,
   soumission, validation). Au-delà des durées maximales (`SheetCalc.depassements`), la soumission exige un motif

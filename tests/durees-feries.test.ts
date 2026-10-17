@@ -20,7 +20,7 @@ const { appliquerReglages, ReglageInvalide } = await import('../shared/reglages.
 const { DEFAULT_SETTINGS } = await import('../server/src/dataset.ts');
 const { calcSheet, rubriquesEmises, rubriquesParPeriode, sageRubriques } = await import('../shared/rules/temps.ts');
 const { feriesDeLaSemaine, mentionFerie, plafondComplementaires } = await import('../shared/rules/majorations.ts');
-const { alertesDurees, contingentAnnuel, corAValider, heuresSupDansAnnee, moyenne12Semaines, requalificationPartiel } = await import('../shared/rules/durees.ts');
+const { alertesDurees, alertesValidation, contingentAnnuel, contingentsDeLaSemaine, corAValider, heuresSupDansAnnee, moyenne12Semaines, requalificationPartiel } = await import('../shared/rules/durees.ts');
 const { rubriquesAConfirmer, rubriquesPaie } = await import('../shared/rules/paie.ts');
 const { recupInfo } = await import('../shared/rules/conges.ts');
 const { analyserReprise } = await import('../shared/rules/reprise.ts');
@@ -282,4 +282,47 @@ test('reprise Lucca : heures sup déjà faites dans l’année, facultatives, co
   run(RH, 'reprise.importer', { type: 'soldes', texte, colonnes: ['matricule', 'heuresSup'], dateReprise: '2026-03-01', fichier: 'soldes.csv' });
   assert.equal(db.get<{ heuresSupAnnee: number }>('soldesReprise', 1)!.heuresSupAnnee, 12.5);
   assert.equal(contingentAnnuel(domain(), domain().emp(1)!, 2026)!.reprises, 12.5);
+});
+
+test('semaine à cheval sur deux années : contingent de chaque année signalé à la validation', () => {
+  const { domain } = fresh();
+  const d0 = domain(), e = d0.emp(1)!;
+  // 200 h sup validées en 2026 sur un contingent de 204 h (alerte), puis la semaine du 28 décembre 2026 : 10 h du lundi au
+  // jeudi 31 (5 h sup en 2026), 7 h le samedi 2 janvier (7 h sup en 2027).
+  const vingt = lundis('2026-09-28', 20).map(w => feuille(w, [9, 9, 9, 9, 9, 0, 0]));
+  const cheval = feuille('2026-12-28', [10, 10, 10, 10, 0, 7, 0]);
+  const d = avec(d0, vingt, { contingentHeuresSup: 204 });
+  assert.deepEqual(contingentsDeLaSemaine(d, e, cheval.week, [...vingt, cheval]).map(k => [k.annee, k.cumul, k.etat]), [[2026, 205, 'depasse'], [2027, 7, null]]);
+  const msg = alertesValidation(d, e, vingt, [...vingt, cheval], cheval.week, 0);
+  assert.equal(msg.length, 1);
+  assert.match(msg[0], /^Contingent 2026 : 205 h d’heures supplémentaires sur 204 h \(100 %\) — dépassé/);
+});
+
+test('validation groupée : les seuils de durée franchis sont repris au message', () => {
+  const { run, user, domain, RH } = fresh();
+  const CAMILLE = user(1, 'collaborateur'), HUGO = user(16, 'manager');
+  const cumul0 = contingentAnnuel(domain(), domain().emp(1)!, 2026)?.cumul ?? 0;
+  run(RH, 'parametres.maj', { contingentHeuresSup: Math.ceil(cumul0) + 6 });
+  const base = { empId: 1, week: '2026-11-23' };
+  run(CAMILLE, 'temps.addLine', { ...base, projet: 'INT-LOG' });
+  [0, 1, 2, 3, 4].forEach(di => run(CAMILLE, 'temps.setCell', { ...base, li: 0, di, value: '9' }));
+  run(CAMILLE, 'temps.submit', base);
+  const msg = run(HUGO, 'temps.validerLot', { feuilles: [base] });
+  const nom = domain().emp(1)!.nom;
+  assert.match(msg, new RegExp(`^1 feuille validée · ${nom} S48 : Contingent 2026 : .* — dépassé`));
+  assert.match(msg, new RegExp(`· ${nom} S48 : .*de contrepartie obligatoire en repos créditées au compteur de récupération`));
+});
+
+test('reprise Lucca : heures sup des feuilles validées avant la date d’arrêté signalées (comptées en plus)', () => {
+  const { domain } = fresh();
+  const d = avec(domain(), lundis('2026-09-28', 20).map(w => feuille(w, [9, 9, 9, 9, 9, 0, 0])));
+  const e = d.emp(1)!;
+  const texte = `Matricule;Heures sup de l’année (heures)\n${matriculeAffiche(e)};150\n`;
+  const o = { colonnes: ['matricule', 'heuresSup'] };
+  const juillet = analyserReprise(d, 'soldes', texte, { ...o, dateReprise: '2026-07-01' }).lignes[0];
+  assert.match(juillet.avertissements.join(' | '), /70 h d’heures supplémentaires 2026 validées dans Cursus avant le 1 juil\. 2026 : comptées au contingent en plus de celles reprises/);
+  // Sept semaines à 45 h, du 18 mai au 29 juin. Arrêté avant les feuilles validées, ou colonne absente : rien à signaler.
+  assert.doesNotMatch(analyserReprise(d, 'soldes', texte, { ...o, dateReprise: '2026-05-01' }).lignes[0].avertissements.join(), /heures supplémentaires/);
+  const sansColonne = `Matricule;CET (jours)\n${matriculeAffiche(e)};2\n`;
+  assert.doesNotMatch(analyserReprise(d, 'soldes', sansColonne, { colonnes: ['matricule', 'cet'], dateReprise: '2026-07-01' }).lignes[0].avertissements.join(), /heures supplémentaires/);
 });

@@ -18,6 +18,7 @@ import type { AvisMedical, Employe, Formation, HabType, ISODate, MotifSortie, St
 import { lireCsv } from './imports.ts';
 import { MOTIFS_SORTIE } from './contrats.ts';
 import { matriculesPris, normaliserMatricule } from './matricules.ts';
+import { heuresSupDansAnnee } from './durees.ts';
 import { adressesPrises } from './messagerie.ts';
 import { PROFIL_FIELDS, profilOf, validerProfil, type ProfilInput } from './profil.ts';
 import { echeanceVisite, suiviDe } from './suivi-medical.ts';
@@ -543,6 +544,14 @@ function analyserSolde(d: Domain, n: number, v: Valeurs, arreteLe: ISODate, soiM
   // Congés déjà saisis dans Cursus avant la date d'arrêté : comptés en plus du solde repris, qui les inclut sans doute.
   const avant = d.ds.absences.filter(a => a.empId === e.id && (a.type === 'CP' || a.type === 'RTT') && (a.statut === 'validee' || a.statut === 'demandee') && a.du < arreteLe);
   if (avant.length) l.avertissements.push(`${plural(avant.length, 'congé saisi', 'congés saisis')} dans Cursus avant le ${fmtIso(arreteLe)} : décompté en plus du solde repris`);
+  // De même pour les heures supplémentaires : celles des feuilles validées dans Cursus de l'année, avant la date d'arrêté
+  // (groupe pilote), comptent au contingent en plus de celles reprises, qui les incluent sans doute.
+  if (lu.heuresSup != null) {
+    const annee = Number(arreteLe.slice(0, 4));
+    const feuilles = d.ds.feuilles.filter(sh => sh.empId === e.id && sh.statut === 'validee' && sh.week < arreteLe);
+    const sup = feuilles.reduce((h, sh) => h + heuresSupDansAnnee(d, e, sh, annee), 0);
+    if (sup > 0) l.avertissements.push(`${nombreTexte(Math.round(sup * 100) / 100)} h d’heures supplémentaires ${annee} validées dans Cursus avant le ${fmtIso(arreteLe)} : comptées au contingent en plus de celles reprises`);
+  }
   const R = d.ds.soldesReprise.find(s => s.empId === e.id);
   const recupR = R ? R.recupAcquis - R.recupPris : 0;
   const deja = { cpN1: R?.cpSolde ?? null, cpN: R?.cpSoldeSuivant ?? null, rtt: R?.rttSolde ?? null, recup: recupR || null, cet: R?.cetSolde ?? null, heuresSup: R?.heuresSupAnnee ?? null };

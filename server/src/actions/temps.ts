@@ -184,7 +184,11 @@ function submitted(ctx: Ctx, p: Record<string, any>) {
   return { emp, sh };
 }
 
-const validate: ActionHandler = (ctx, p) => {
+/**
+ * Validation d'une feuille soumise (temps.validate, et chaque feuille de temps.validerLot) : message de confirmation et,
+ * à part, les seuils de durée franchis (`alertes`), repris par la validation groupée.
+ */
+export function validerFeuille(ctx: Ctx, p: Record<string, any>): { message: string; alertes: string[] } {
   const { emp, sh } = submitted(ctx, p);
   // Soumise sans heure parce que la semaine était couverte : l'absence a pu être annulée ou raccourcie depuis.
   const total = sh.lignes.reduce((n, l) => n + l.h.reduce((a, b) => a + num(b), 0), 0);
@@ -217,8 +221,13 @@ const validate: ActionHandler = (ctx, p) => {
   if (keystone) sendToKeystone(ctx.db, { type: 'heures.validees', matricule: identifiantKeystone(ctx.ds.settings.identifiantKeystone, emp), semaine: sh.week, projets });
   // Intérimaire : la dernière feuille validée d'une semaine révolue fait partir le relevé de son agence.
   const releve = emp.typeContrat === 'interim' && emp.agence ? relevesAutomatiques(ctx.db, { agence: emp.agence, semaine: sh.week }).length > 0 : false;
-  return `Semaine ${isoWeek(sh.week)} validée${keystone ? ' — heures des projets Keystone renvoyées à Keystone' : ''}${releve ? ` · relevé d’heures envoyé à l’agence ${emp.agence}` : ''}${alertes.map(a => ` · ${a}`).join('')}`;
-};
+  return {
+    message: `Semaine ${isoWeek(sh.week)} validée${keystone ? ' — heures des projets Keystone renvoyées à Keystone' : ''}${releve ? ` · relevé d’heures envoyé à l’agence ${emp.agence}` : ''}${alertes.map(a => ` · ${a}`).join('')}`,
+    alertes,
+  };
+}
+
+const validate: ActionHandler = (ctx, p) => validerFeuille(ctx, p).message;
 
 const reject: ActionHandler = (ctx, p) => {
   const { emp, sh } = submitted(ctx, p);

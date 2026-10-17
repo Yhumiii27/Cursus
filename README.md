@@ -37,7 +37,8 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
   (dernier jour et motif en liste fermée : ce qui était prévu après son départ est annulé, il quitte la conformité et les
   échéances et reste consultable avec le filtre « Sortis » de Collaborateurs ; son solde de congés, de RTT, de
   récupération et de CET à la date est montré avant la confirmation, photographié pour la paie, imprimable et exportable,
-  et part dans le lot de paie du mois une fois les rubriques de sortie confirmées) et l'écran « Référentiels »
+  et part dans le lot de paie du mois une fois les rubriques de sortie activées, code Sage confirmé pour un lot réel ;
+  sinon il se saisit dans Sage, et la confirmation du lot du mois le marque réglé hors fichier) et l'écran « Référentiels »
   (catalogue des formations, habilitations et destinations : création, modification, archivage, référentiel
   type à charger dans une base vide ; formations et habilitations aussi pour le référent HSE ; postes et formations ou
   habilitations exigées par poste et par équipe), et l'écran « Mise en

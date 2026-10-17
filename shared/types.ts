@@ -576,6 +576,16 @@ export interface EtatSortie {
  */
 export interface SoldeSortie {
   id: number; empId: number; date: ISODate; etat: EtatSortie; le: string; par: string; lotId: number | null; sage: boolean;
+  /**
+   * Réglé hors fichier : aucune rubrique de sortie active à la confirmation du lot de sa période (`lotId`, `sage` vrai),
+   * la paie l'a saisi dans Sage ; une rubrique activée ensuite ne le rattrape pas.
+   */
+  horsFichier?: boolean;
+  /**
+   * Remplacé : sortie annulée, ou modifiée à une autre date, après la transmission du solde ; gardé pour l'historique
+   * (l'écart se corrige dans Sage), il n'est plus le solde courant du salarié (un par salarié au plus).
+   */
+  remplaceLe?: string | null;
 }
 
 // — Entretiens & demandes —

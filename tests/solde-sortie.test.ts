@@ -19,7 +19,7 @@ const { REFERENCES } = await import('../server/src/integrite.ts');
 const { Domain } = await import('../shared/domain.ts');
 const S = await import('../shared/rules/solde-sortie.ts');
 const L = await import('../shared/rules/lots-paie.ts');
-const { cpInfo, rttInfo } = await import('../shared/rules/conges.ts');
+const { acquisAu, cpInfo, rttInfo } = await import('../shared/rules/conges.ts');
 const { rubriquesPaie } = await import('../shared/rules/paie.ts');
 const { RUBRIQUES_PAIE } = await import('../shared/constants.ts');
 const X = await import('../client/src/solde-sortie.ts');
@@ -48,10 +48,12 @@ function fresh() {
     assert.throws(() => run(u, name, p), (e: unknown) => e instanceof ActionError && e.status === status && (!re || re.test(e.message)), `${name} : refus ${status}`);
   const ADMIN = user(null, 'rh');
   const d = () => new Domain(loadFull(db, ADMIN));
-  const solde = (empId: number) => db.where<Solde>('soldesSortie', 'empId', empId)[0];
+  // Solde courant (non remplacé) ; `soldes` : tous ceux du salarié, historique compris.
+  const solde = (empId: number) => db.where<Solde>('soldesSortie', 'empId', empId).find(s => !s.remplaceLe)!;
+  const soldes = (empId: number) => db.where<Solde>('soldesSortie', 'empId', empId);
   const lots = () => db.all<Lot>('lotsPaie');
   const journal = (action: string) => db.all<Ligne>('journal').filter(l => l.action === action);
-  return { db, user, run, refus, d, solde, lots, journal, ADMIN, PAIE: user(7, 'rh'), GEST: user(14, 'rh'), LECTURE: user(11, 'rh') };
+  return { db, user, run, refus, d, solde, soldes, lots, journal, ADMIN, PAIE: user(7, 'rh'), GEST: user(14, 'rh'), LECTURE: user(11, 'rh') };
 }
 const inserer = (db: Db, a: Record<string, unknown>) => db.insert<{ id: number }>('absences', { keystone: false, justificatif: false, ...a }).id;
 
@@ -212,8 +214,98 @@ test('t128 lot de paie : rubriques de sortie désactivées par défaut, émises 
   const avant = solde(2);
   assert.match(run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' }), /solde de sortie déjà transmis à la paie \(lot n° \d+\) : gardé tel quel/);
   assert.deepEqual(solde(2), avant);
-  assert.match(run(ADMIN, 'employe.annulerSortie', { id: 2 }), /solde de sortie déjà transmis à la paie \(lot n° \d+\) : à corriger dans Sage$/);
-  assert.ok(solde(2), 'gardé pour l’historique');
+  assert.match(run(ADMIN, 'employe.annulerSortie', { id: 2 }), /solde de sortie déjà transmis à la paie \(lot n° \d+\) : gardé pour l’historique, à corriger dans Sage$/);
+  assert.equal(solde(2), undefined, 'plus de solde courant');
+  assert.ok(db.get<Solde>('soldesSortie', avant.id)!.remplaceLe, 'gardé pour l’historique, marqué remplacé');
+});
+
+test('t128 rubriques désactivées : le lot confirmé de la période règle le solde hors fichier, une rubrique activée ensuite ne le rattrape pas', () => {
+  const { run, d, solde, lots, ADMIN, PAIE } = fresh();
+  run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' });
+  // Un lot de septembre ne la réglerait pas : la sortie d'octobre n'est pas de sa période.
+  const table = rubriquesPaie(d().ds.rubriquesPaie);
+  assert.deepEqual(S.soldesHorsFichier(d(), '2026-09', table), []);
+  assert.deepEqual(S.soldesHorsFichier(d(), '2026-10', table).map(x => x.id), [solde(2).id]);
+  // Lot d'octobre généré puis confirmé sans rubrique de sortie active : la paie a saisi le solde dans Sage.
+  run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  const lot = lots().at(-1)!;
+  assert.equal(lot.contenu!.sorties, undefined);
+  run(PAIE, 'paie.lotConfirmer', { id: lot.id });
+  assert.deepEqual([solde(2).lotId, solde(2).sage, solde(2).horsFichier], [lot.id, true, true]);
+  assert.match(S.etatTransmission(solde(2), rubriquesPaie(d().ds.rubriquesPaie), d().ti), /^saisi dans Sage hors fichier \(lot n° \d+ de sa période/);
+  // Activation tardive des quatre rubriques : aucun solde ne repart, ni dans le prochain lot.
+  for (const [code, codeSage] of [['ICCP_J', '6100'], ['RTT_SOLDE', '6200'], ['RECUP_H', '6300'], ['CET_LIQ', '6400']]) run(PAIE, 'paie.rubrique', { code, codeSage, active: true, confirmer: true });
+  assert.deepEqual(S.elementsSorties(d(), '2026-12', rubriquesPaie(d().ds.rubriquesPaie)), []);
+  assert.deepEqual(S.soldesHorsFichier(d(), '2026-12', rubriquesPaie(d().ds.rubriquesPaie)), []);
+  // Même date de sortie (motif modifié) : gardé tel quel, sans repartir.
+  assert.match(run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'licenciement' }), /solde de sortie déjà saisi dans Sage hors fichier .* gardé tel quel/);
+  assert.deepEqual(S.elementsSorties(d(), '2026-12', rubriquesPaie(d().ds.rubriquesPaie)), []);
+});
+
+test('t128 rubriques actives : un solde photographié après la génération du lot attend le lot suivant, il n’est pas réglé hors fichier', () => {
+  const { db, run, solde, lots, ADMIN, PAIE } = fresh();
+  run(PAIE, 'paie.rubrique', { code: 'ICCP_J', codeSage: '6100', active: true, confirmer: true });
+  // Lot d'octobre généré avec au moins une feuille, avant la sortie.
+  db.insert('feuilles', { empId: 14, week: '2026-10-05', statut: 'validee', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-ADM', tache: 'Fonctions support', ks: false, h: [7, 7, 7, 7, 7, 0, 0] }], contrat: null });
+  run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  const lot = lots().at(-1)!;
+  run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' });
+  run(PAIE, 'paie.lotConfirmer', { id: lot.id });
+  assert.deepEqual([solde(2).lotId, solde(2).sage, solde(2).horsFichier], [null, false, false]);
+  assert.match(run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }), / · 1 solde de sortie/);
+});
+
+test('t128 transmission puis annulation de la sortie, puis nouvelle sortie : nouveau solde photographié, l’ancien gardé pour l’historique', () => {
+  const { run, d, solde, soldes, lots, ADMIN, PAIE } = fresh();
+  run(PAIE, 'paie.rubrique', { code: 'ICCP_J', codeSage: '6100', active: true, confirmer: true });
+  run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' });
+  run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  run(PAIE, 'paie.lotConfirmer', { id: lots().at(-1)!.id });
+  const ancien = solde(2);
+  assert.equal(ancien.sage, true);
+  run(ADMIN, 'employe.annulerSortie', { id: 2 });
+  // Vraie sortie plus tard : calculée et photographiée à la nouvelle date, en attente du lot de décembre.
+  const m = run(ADMIN, 'employe.sortie', { id: 2, date: '2026-12-31', motif: 'demission' });
+  assert.match(m, / · solde de sortie photographié : CP à indemniser/);
+  const nouveau = solde(2);
+  assert.notEqual(nouveau.id, ancien.id);
+  assert.deepEqual([nouveau.date, nouveau.lotId, nouveau.sage], ['2026-12-31', null, false]);
+  assert.deepEqual(nouveau.etat, S.etatSortie(d(), d().emp(2)!, '2026-12-31'));
+  assert.ok(nouveau.etat.cp!.acquis > ancien.etat.cp!.acquis, 'novembre et décembre acquis');
+  assert.equal(soldes(2).length, 2);
+  assert.equal(S.soldeCourant(d().ds.soldesSortie, 2)!.id, nouveau.id);
+  assert.deepEqual(S.elementsSorties(d(), '2026-12', rubriquesPaie(d().ds.rubriquesPaie)).map(x => [x.sortie, x.periode]), [[nouveau.id, '2026-12']]);
+
+  // Sortie déplacée après la transmission (sans annulation) : l'ancien solde est remplacé, à régulariser dans Sage.
+  run(PAIE, 'paie.lotGenerer', { periode: '2026-12' });
+  run(PAIE, 'paie.lotConfirmer', { id: lots().at(-1)!.id });
+  assert.match(run(ADMIN, 'employe.sortie', { id: 2, date: '2026-11-30', motif: 'demission' }), /solde de sortie au 31 déc\. 2026 transmis à la paie \(lot n° \d+\) remplacé : à régulariser dans Sage · solde de sortie photographié/);
+  assert.equal(solde(2).date, '2026-11-30');
+  assert.equal(soldes(2).filter(s => s.remplaceLe).length, 2);
+});
+
+test('t128 reprise Lucca : les jours de la période N pris par anticipation dans Lucca (« CP N ») se déduisent des CP en cours d’acquisition', () => {
+  const { db, d } = fresh();
+  if (db.get('soldesReprise', 2)) db.update('soldesReprise', 2, { arreteLe: '2026-10-01', cpSoldeSuivant: null });
+  else db.insert('soldesReprise', { empId: 2, cpPris: 0, rttPris: 0, recupAcquis: 0, recupPris: 0, arreteLe: '2026-10-01' });
+  const sans = S.etatSortie(d(), d().emp(2)!, '2026-10-31');
+  // 3 jours anticipés dans Lucca : solde N = acquis à l'arrêté moins 3.
+  db.update('soldesReprise', 2, { cpSoldeSuivant: acquisAu(d(), d().emp(2)!, 2027, '2026-10-01') - 3 });
+  const avec = S.etatSortie(d(), d().emp(2)!, '2026-10-31');
+  assert.equal(avec.cp!.acquis, sans.cp!.acquis);
+  assert.equal(Math.round((avec.cp!.anticipes - sans.cp!.anticipes) * 100) / 100, 3);
+  assert.equal(Math.round((sans.cp!.total - avec.cp!.total) * 100) / 100, 3);
+  assert.equal(avec.cp!.solde, sans.cp!.solde, 'période acquise inchangée');
+});
+
+test('t128 feuille non validée avant la sortie : signalée, sa récupération n’étant pas comptée', () => {
+  const { db, d } = fresh();
+  const avant = S.etatSortie(d(), d().emp(2)!, '2026-10-31');
+  assert.ok(!avant.avertissements.some(a => /non validée/.test(a)), JSON.stringify(avant.avertissements));
+  db.insert('feuilles', { empId: 2, week: '2026-10-26', statut: 'soumise', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-ADM', tache: 'Fonctions support', ks: false, h: [9, 9, 9, 9, 9, 0, 0] }], contrat: null });
+  const apres = S.etatSortie(d(), d().emp(2)!, '2026-10-31');
+  assert.ok(apres.avertissements.some(a => /^Feuille de temps de la semaine 44 non validée : récupération comptée sans elles/.test(a)), JSON.stringify(apres.avertissements));
+  assert.deepEqual(apres.recup, avant.recup);
 });
 
 test('t128 période : mois de la sortie, ou la période ouverte s’il est clos', () => {

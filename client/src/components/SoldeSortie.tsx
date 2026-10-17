@@ -4,7 +4,7 @@
 // les autres profils ne reçoivent pas les soldes photographiés (server/src/dataset.ts).
 import { DownloadSimpleIcon, PrinterIcon } from '@phosphor-icons/react';
 import { fmtIso } from '../../../shared/format.ts';
-import { etatSortie, lignesEtat, quantiteTexte, resumeEtat } from '../../../shared/rules/solde-sortie.ts';
+import { etatSortie, lignesEtat, quantiteTexte, resumeEtat, soldeCourant, transmisTexte } from '../../../shared/rules/solde-sortie.ts';
 import type { Employe, EtatSortie } from '../../../shared/types.ts';
 import { downloadCsv, matriculesImprimes, printDocument } from '../print.ts';
 import { csvSoldeSortie, sectionsSoldeSortie, sourceSolde, type SoldeAffiche } from '../solde-sortie.ts';
@@ -39,16 +39,31 @@ export function EtatSortieTableau({ etat }: { etat: EtatSortie }) {
 }
 
 /**
- * Section « Solde de sortie » de la fiche : photographie (ou calcul du jour pour une sortie enregistrée avant qu'elle
- * existe), points à voir, transmission, impression et export. Un calcul du jour différent de la photographie est signalé
- * au service RH tant que le solde n'est pas parti à la paie (une feuille ou une absence corrigée depuis).
+ * Section « Solde de sortie » de la fiche : photographie (ou, pour le service RH, calcul du jour pour une sortie
+ * enregistrée avant qu'elle existe), points à voir, transmission, impression et export ; soldes transmis puis remplacés
+ * (sortie annulée ou déplacée), rappelés. Un calcul du jour différent de la photographie est signalé au service RH tant
+ * que le solde n'est pas parti à la paie (une feuille ou une absence corrigée depuis). La paie et la lecture seule ne
+ * voient pas de calcul du jour : sans la nature des absences (ni, pour la lecture seule, l'acquisition calculée par le
+ * serveur), il pourrait différer de celui du service RH.
  */
 export function SoldeSortieFiche({ e }: { e: Employe }) {
   const d = useDomain();
   const { rh, paie, consultation } = useRole();
   const { notify } = useStore();
   if (!(rh || paie || consultation) || !e.motifSortie || !e.fin) return null;
-  const solde = d.ds.soldesSortie?.find(s => s.empId === e.id) ?? null;
+  const solde = soldeCourant(d.ds.soldesSortie, e.id);
+  const remplaces = (d.ds.soldesSortie ?? []).filter(s => s.empId === e.id && s.remplaceLe);
+  const historique = remplaces.length > 0 && (
+    <Fine>{remplaces.map(s => `Solde au ${fmtIso(s.date)} ${transmisTexte(s)}, remplacé le ${fmtIso(s.remplaceLe!.slice(0, 10))} (sortie annulée ou modifiée) : écart à régulariser dans Sage.`).join(' ')}</Fine>
+  );
+  if (!solde && !rh) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+        <div className="text-muted sub">Solde de sortie non photographié (sortie enregistrée avant cette version) : à demander au service RH.</div>
+        {historique}
+      </div>
+    );
+  }
   const x: SoldeAffiche = { etat: solde?.etat ?? etatSortie(d, e, e.fin), solde };
   // Comparaison au calcul du jour : service RH seulement (la paie ne reçoit pas la nature des absences).
   const aJour = rh && solde && solde.lotId == null ? resumeEtat(etatSortie(d, e, e.fin)) : null;
@@ -70,6 +85,7 @@ export function SoldeSortieFiche({ e }: { e: Employe }) {
         <Btn small icon={<PrinterIcon size={14} />} onClick={imprimer}>Imprimer l’état</Btn>
         <Btn small icon={<DownloadSimpleIcon size={14} />} onClick={exporter}>Exporter (CSV)</Btn>
       </div>
+      {historique}
       <Fine>Montant de l’indemnité calculé par Sage Paie (règle du dixième ou maintien de salaire) ; CET liquidé en entier ; un trop-pris de RTT est signalé, sans retenue automatique.</Fine>
     </div>
   );

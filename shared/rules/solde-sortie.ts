@@ -10,23 +10,26 @@
 //   postérieures annulées comme le fait la sortie. Demi-journées comprises (imputation des CP au demi-jour).
 // - Congés payés : solde de la période acquise (droits, reports non échus compris, moins jours pris et posés), et jours
 //   acquis sur la période en cours jusqu'au mois de la sortie (un mois compte si le salarié est sous contrat à la
-//   mi-mois, comme l'acquisition) moins les jours déjà pris par anticipation ; leur somme est l'indemnité compensatrice
+//   mi-mois, comme l'acquisition) moins les jours déjà pris par anticipation (congés imputés sur elle, jours pris sur
+//   la période N repris de Lucca — « CP N » —, placements CET) ; leur somme est l'indemnité compensatrice
 //   (ICCP_J). Une période précédente pas encore clôturée est signalée : la clôture (report ou perte) décide de son reste.
 // - RTT ou jours de repos : droit de l'année au prorata des mois sous contrat moins jours pris et posés ; un solde
 //   négatif est signalé comme trop-pris, sans retenue automatique (RTT_SOLDE n'emporte qu'un solde positif).
-// - Récupération en heures (RECUP_H) ; CET : solde, liquidé en entier par défaut (CET_LIQ ; l'accord sur le CET n'est
+// - Récupération en heures (RECUP_H), feuilles validées seulement (une feuille non validée est signalée) ; CET : solde, liquidé en entier par défaut (CET_LIQ ; l'accord sur le CET n'est
 //   pas encore connu).
 // - Lot de paie : un élément par rubrique de sortie active et quantité positive, sur la période du mois de la sortie
 //   (ou la période ouverte s'il est clos) ; rubriques désactivées par défaut : le solde de tout compte se saisit alors
-//   dans Sage. Un code Sage à confirmer bloque un lot réel (`rubriquesAConfirmer`).
+//   dans Sage, et la confirmation du lot de sa période le marque réglé hors fichier (`soldesHorsFichier`) : un solde
+//   n'émet qu'une fois, une rubrique activée ensuite ne le rattrape pas. Un code Sage à confirmer bloque un lot réel
+//   (`rubriquesAConfirmer`).
 import { RUBRIQUES_PAIE } from '../constants.ts';
-import { addM } from '../dates.ts';
+import { addM, isoWeek } from '../dates.ts';
 import { Domain } from '../domain.ts';
 import { fJ, fmtIso } from '../format.ts';
 import type { ElementSortiePaie, Employe, EtatSortie, ISODate, SoldeSortie } from '../types.ts';
 import { absenceActive, periodeTexte } from './absences.ts';
 import { concerneCp } from './clotures.ts';
-import { acquisAu, anneeCp, cetInfo, cpInfo, periodeCp, recupInfo, rttAnneeClose, rttInfo, soldePeriode } from './conges.ts';
+import { acquisAu, anneeCp, cetInfo, cpInfo, periodeCp, recupInfo, reprisSur, reprise, rttAnneeClose, rttInfo, soldePeriode } from './conges.ts';
 import { matriculeAffiche } from './matricules.ts';
 import { moisDe, periodeOuverte, type RubriqueVue } from './paie.ts';
 
@@ -69,7 +72,10 @@ export function etatSortie(d: Domain, e: Employe, date: ISODate): EtatSortie {
   if (ci) {
     // Mois de la sortie compris s'il compte (sous contrat à la mi-mois) : jours acquis jusqu'au premier jour du mois suivant.
     const acquis = r2(acquisAu(dS, eS, A + 1, addM(`${date.slice(0, 7)}-01`, 1)));
-    const solde = r2(ci.solde), anticipes = r2(ci.suivante), soldeEnCours = r2(acquis - anticipes);
+    // Déjà consommés sur la période en cours : congés imputés sur elle (anticipation), jours pris sur la période N repris
+    // de Lucca (« CP N » de la reprise) et placements CET de cette période, comme les déduit `soldePeriode`.
+    const cetSuivante = dS.ds.cet.filter(c => c.empId === e.id && c.type === 'CP' && Number(c.periode.slice(-4)) === A + 1).reduce((n, c) => n + c.jours, 0);
+    const solde = r2(ci.solde), anticipes = r2(ci.suivante + reprisSur(reprise(dS, e.id), A + 1) + cetSuivante), soldeEnCours = r2(acquis - anticipes);
     cp = { periode: A, droit: r2(ci.droit), pris: r2(ci.pris), poses: r2(ci.poses), solde, acquis, anticipes, soldeEnCours, total: r2(solde + soldeEnCours) };
     if (cp.total < 0) avertissements.push(`Congés payés pris au-delà des droits : ${fJ(-cp.total)}, à voir avec la paie (aucune retenue automatique).`);
     // Période précédente pas encore clôturée : son reste n'est pas dans le solde tant que la clôture n'a pas décidé.
@@ -92,6 +98,13 @@ export function etatSortie(d: Domain, e: Employe, date: ISODate): EtatSortie {
 
   const rc = recupInfo(dS, eS);
   const recup: EtatSortie['recup'] = rc ? { acquis: r2(rc.acq), pris: r2(rc.pris), poses: r2(rc.poses), solde: r2(rc.solde) } : null;
+  // Feuilles non validées jusqu'à la sortie : leur repos n'est pas crédité tant qu'elles ne le sont pas (`recupInfo`).
+  if (rc) {
+    const semaines = dS.ds.feuilles.filter(sh => sh.empId === e.id && sh.statut !== 'validee' && sh.week <= date).map(sh => sh.week).sort();
+    if (semaines.length) {
+      avertissements.push(`${semaines.length > 1 ? `Feuilles de temps des semaines ${semaines.map(isoWeek).join(', ')} non validées` : `Feuille de temps de la semaine ${isoWeek(semaines[0])} non validée`} : récupération comptée sans elles ; validez-les, puis modifiez la sortie pour photographier de nouveau le solde.`);
+    }
+  }
 
   const ct = cetInfo(dS, eS);
   // Compte vide (aucun placement, aucun solde repris) : pas de ligne.
@@ -161,7 +174,7 @@ export function periodeSortie(date: ISODate, today: ISODate, clotureJour = 0): s
 export function elementsSorties(d: Domain, jusqua: string, table: readonly Pick<RubriqueVue, 'code' | 'codeSage' | 'active'>[]): ElementSortiePaie[] {
   const out: ElementSortiePaie[] = [];
   for (const s of d.ds.soldesSortie ?? []) {
-    if (s.lotId != null || s.sage) continue;
+    if (s.lotId != null || s.sage || s.remplaceLe) continue;
     const e = d.emp(s.empId);
     if (!e || d.contratOf(e).interim) continue;
     const periode = periodeSortie(s.date, d.ti, d.ds.settings?.clotureJour ?? 0);
@@ -172,6 +185,18 @@ export function elementsSorties(d: Domain, jusqua: string, table: readonly Pick<
     }
   }
   return out.sort((a, b) => a.periode.localeCompare(b.periode) || a.empId - b.empId || RUBRIQUES_SORTIE.indexOf(a.rubrique as RubriqueSortie) - RUBRIQUES_SORTIE.indexOf(b.rubrique as RubriqueSortie));
+}
+
+/**
+ * Soldes réglés hors fichier à la confirmation d'un lot de la période `periode` : en attente, de période au plus tard
+ * celle du lot, avec des compteurs à solder dont aucune rubrique de sortie n'est active. La paie les a saisis dans Sage :
+ * marqués (`horsFichier`), ils ne partiront plus dans un lot. Un solde dont une rubrique est active mais photographié
+ * après la génération du lot reste en attente du suivant.
+ */
+export function soldesHorsFichier(d: Domain, periode: string, table: readonly Pick<RubriqueVue, 'code' | 'active'>[]): SoldeSortie[] {
+  return (d.ds.soldesSortie ?? []).filter(s => s.lotId == null && !s.sage && !s.remplaceLe
+    && periodeSortie(s.date, d.ti, d.ds.settings?.clotureJour ?? 0) <= periode
+    && quantitesSortie(s.etat).length > 0 && !quantitesSortie(s.etat).some(q => table.find(t => t.code === q.rubrique)?.active));
 }
 
 /** Soldes d'un lot (identifiant, salarié), une fois chacun. */
@@ -185,8 +210,8 @@ export const detailSortie = (x: Pick<ElementSortiePaie, 'date'>) => `Solde de so
  * Où en est la transmission d'un solde photographié : parti dans un lot (à confirmer ou transmis), en attente du lot de sa
  * période, ou à saisir dans Sage faute de rubrique de sortie active.
  */
-export function etatTransmission(s: Pick<SoldeSortie, 'date' | 'etat' | 'lotId' | 'sage'>, table: readonly Pick<RubriqueVue, 'code' | 'active'>[], today: ISODate, clotureJour = 0): string {
-  if (s.sage) return `transmis à la paie (lot n° ${s.lotId})`;
+export function etatTransmission(s: Pick<SoldeSortie, 'date' | 'etat' | 'lotId' | 'sage' | 'horsFichier'>, table: readonly Pick<RubriqueVue, 'code' | 'active'>[], today: ISODate, clotureJour = 0): string {
+  if (s.sage) return transmisTexte(s);
   if (s.lotId != null) return `dans le lot de paie n° ${s.lotId}, import à confirmer`;
   const q = quantitesSortie(s.etat);
   if (!q.length) return 'aucun compteur à transmettre';
@@ -195,6 +220,14 @@ export function etatTransmission(s: Pick<SoldeSortie, 'date' | 'etat' | 'lotId' 
   const reste = q.length - actives.length;
   return `en attente du lot de paie de ${periodeSortie(s.date, today, clotureJour)}${reste ? ` ; ${reste > 1 ? `${reste} compteurs` : '1 compteur'} à saisir dans Sage (rubrique désactivée)` : ''}`;
 }
+
+/** « transmis à la paie (lot n° 2) » ; « saisi dans Sage hors fichier (lot n° 2 de sa période, rubriques désactivées) ». */
+export const transmisTexte = (s: Pick<SoldeSortie, 'lotId' | 'horsFichier'>) =>
+  (s.horsFichier ? `saisi dans Sage hors fichier (lot n° ${s.lotId} de sa période, rubriques de sortie désactivées)` : `transmis à la paie (lot n° ${s.lotId})`);
+
+/** Solde courant d'un salarié : le dernier photographié qui n'a pas été remplacé (un au plus). */
+export const soldeCourant = (soldes: readonly SoldeSortie[] | undefined, empId: number) =>
+  (soldes ?? []).find(s => s.empId === empId && !s.remplaceLe) ?? null;
 
 /** Libellé d'une rubrique de sortie (RUBRIQUES_PAIE). */
 export const libelleSortie = (r: string) => RUBRIQUES_PAIE[r]?.label ?? r;

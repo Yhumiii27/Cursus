@@ -48,8 +48,11 @@ export function reprise(d: Domain, id: number) {
   return { ...r, cpPris, rttPris, cpPrisSuivant, periodeCp, anneeRtt };
 }
 
-/** Jours repris de l'ancien outil imputés sur la période `A` : période de la date d'arrêté, ou période suivante (« CP N »). */
-const reprisSur = (R: ReturnType<typeof reprise>, A: number) => (A === R.periodeCp ? R.cpPris : A === R.periodeCp + 1 ? R.cpPrisSuivant : 0);
+/**
+ * Jours repris de l'ancien outil imputés sur la période `A` : période de la date d'arrêté, ou période suivante (« CP N »).
+ * Exportée pour le solde de sortie (shared/rules/solde-sortie.ts).
+ */
+export const reprisSur = (R: ReturnType<typeof reprise>, A: number) => (A === R.periodeCp ? R.cpPris : A === R.periodeCp + 1 ? R.cpPrisSuivant : 0);
 
 /** Fin d'une période de congés payés (`A` : année de prise) : le 31 mai A+1, échéance des reports reçus sur elle. */
 export const finPeriodeCp = (A: number): ISODate => `${A + 1}-05-31`;

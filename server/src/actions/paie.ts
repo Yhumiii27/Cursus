@@ -9,7 +9,8 @@
 // régularisations de celles annulées ou raccourcies depuis leur transmission (server/src/absences-paie.ts) ; réservées
 // (`absences.lotId`), libérées et marquées transmises (`absences.sage`) comme les feuilles.
 // Soldes de sortie (t128) : le lot du mois de la sortie emporte le solde photographié, rubrique de sortie par rubrique
-// active (server/src/soldes-sortie.ts) ; réservé (`soldesSortie.lotId`), libéré et marqué transmis de même.
+// active (server/src/soldes-sortie.ts) ; réservé (`soldesSortie.lotId`), libéré et marqué transmis de même ; à la
+// confirmation, les soldes de la période sans rubrique active sont réglés hors fichier (saisis dans Sage).
 import { randomUUID } from 'node:crypto';
 import { RUBRIQUES_PAIE } from '../../../shared/constants.ts';
 import { plural } from '../../../shared/format.ts';
@@ -23,7 +24,7 @@ import type { Absence, ElementSortiePaie, FeuilleTemps, LotPaie, RubriquePaie, S
 import { absencesAEmettre, absencesDuContenu, departAuPremierLot, libererAbsences, traduireElements } from '../absences-paie.ts';
 import { pushToSage, SAGE_DOSSIER, SageIndisponible, sageMode } from '../integrations/sage.ts';
 import { lireFormatFichier, type LotEnregistre } from '../lots-paie.ts';
-import { libererSorties, sortiesAEmettre } from '../soldes-sortie.ts';
+import { libererSorties, marquerHorsFichier, sortiesAEmettre } from '../soldes-sortie.ts';
 import { ActionError, type ActionHandler, type Ctx, requirePaie, str } from './context.ts';
 
 /**
@@ -170,6 +171,8 @@ export function confirmerLot(ctx: Ctx, lot: LotEnregistre, reference: string | n
   ctx.db.sql.prepare('UPDATE feuilles SET sage = 1 WHERE lot_id = ?').run(lot.id);
   ctx.db.sql.prepare('UPDATE absences SET sage = 1 WHERE lot_id = ?').run(lot.id);
   ctx.db.sql.prepare('UPDATE soldes_sortie SET sage = 1 WHERE lot_id = ?').run(lot.id);
+  // Soldes de sortie de la période sans rubrique active : saisis dans Sage, ils ne partiront plus dans un lot.
+  marquerHorsFichier(ctx.db, ctx.d, lot);
 }
 
 const lotConfirmer: ActionHandler = (ctx, p) => {

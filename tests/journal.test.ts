@@ -563,8 +563,9 @@ test('serveur : journal consultable, filtré, paginé, exporté ; accès et expo
     assert.ok(cx.lignes.every(l => /^(connexion|deconnexion|motdepasse\.|espace\.|acces\.)/.test(l.action)) && cx.lignes.some(l => l.action === 'acces.refuse'));
     assert.equal((await journal('?action=famille:connexions')).total, cx.total);
     assert.ok(!(await journal('?vue=operations')).lignes.some(l => l.action === 'connexion'));
-    // Dates à l'heure locale ; toutes les lignes de ce scénario datent d'aujourd'hui.
-    const d = new Date(), jour = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+    // Dates à l'heure de Paris, comme le filtre du journal ; toutes les lignes de ce scénario datent d'aujourd'hui (le
+    // jour de Paris, qui peut différer de celui de la machine de test, en UTC, entre minuit et 2 h).
+    const jour = new Intl.DateTimeFormat('en-CA', { timeZone: 'Europe/Paris', year: 'numeric', month: '2-digit', day: '2-digit' }).format(new Date());
     assert.equal((await journal(`?du=${jour}&au=${jour}`)).total, tout.total);
     assert.equal((await journal('?au=2026-01-01')).total, 0);
     const p2 = await journal('?taille=2&page=2');

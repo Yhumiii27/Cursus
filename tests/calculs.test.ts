@@ -11,7 +11,7 @@ const { buildSnapshot, loadFull, todayIso } = await import('../server/src/datase
 const { ACTIONS } = await import('../server/src/actions/index.ts');
 const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
 const { Domain } = await import('../shared/domain.ts');
-const { horodatageParis, isoParis, isValidDate, toIso } = await import('../shared/dates.ts');
+const { debutJourParis, horodatageParis, isoParis, isValidDate, toIso } = await import('../shared/dates.ts');
 const { buildSagePayload, calcSheet, cumulAnnuel } = await import('../shared/rules/temps.ts');
 const { checkAbsence, cpInfo, rttDroit, reposForfait } = await import('../shared/rules/conges.ts');
 const { obligations } = await import('../shared/rules/entretiens.ts');
@@ -271,6 +271,11 @@ test('t083 date du jour et horodatage dans le fuseau Europe/Paris, quel que soit
     assert.equal(horodatageParis(new Date('2026-07-15T08:05:09Z')), '2026-07-15T10:05:09+02:00');
     assert.equal(horodatageParis(new Date('2026-03-29T00:30:00Z')), '2026-03-29T01:30:00+01:00');
     assert.equal(horodatageParis(new Date('2026-03-29T01:30:00Z')), '2026-03-29T03:30:00+02:00');
+    // Minuit à Paris (bornes des filtres du journal) : hiver, été, et les deux jours de changement d'heure.
+    assert.equal(debutJourParis('2026-01-15'), '2026-01-14T23:00:00.000Z');
+    assert.equal(debutJourParis('2026-07-15'), '2026-07-14T22:00:00.000Z');
+    assert.equal(debutJourParis('2026-03-29'), '2026-03-28T23:00:00.000Z');
+    assert.equal(debutJourParis('2026-10-25'), '2026-10-24T22:00:00.000Z');
     const avant = process.env.CURSUS_TODAY;
     delete process.env.CURSUS_TODAY;
     try { assert.equal(todayIso(new Date('2026-03-01T23:15:00Z')), '2026-03-02'); } finally { process.env.CURSUS_TODAY = avant; }

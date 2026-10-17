@@ -13,7 +13,7 @@
 //   et chaque consultation de l'archive sont tracés.
 import express, { type Request, type Response, type Router } from 'express';
 import { ESPACE_LABEL, NATURES_ABSENCE, TS_LABEL, VACCINS } from '../../shared/constants.ts';
-import { addD, isFerie, isValidDate } from '../../shared/dates.ts';
+import { addD, debutJourParis, isFerie, isValidDate } from '../../shared/dates.ts';
 import { Domain } from '../../shared/domain.ts';
 import { fmtIso, num, plural } from '../../shared/format.ts';
 import { erreurReference } from '../../shared/rules/lots-paie.ts';
@@ -835,7 +835,8 @@ export function lireFiltre(q: Record<string, unknown>): FiltreJournal {
 }
 
 /** Début d'une journée à l'heure locale du serveur, en ISO (les horodatages du journal sont en UTC). */
-const debutJour = (d: string) => new Date(`${d}T00:00:00`).toISOString();
+// Bornes des filtres par date : minuit à Paris, quel que soit le fuseau du serveur (shared/dates.ts).
+const debutJour = (d: string) => debutJourParis(d);
 const like = (s: string) => `%${s.replace(/[\\%_]/g, '\\$&')}%`;
 
 /** Le filtre « Action » désigne-t-il les appels de Keystone (code exact, ou leur famille) ? */

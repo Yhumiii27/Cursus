@@ -87,6 +87,20 @@ export function isoParis(d: Date = new Date()): ISODate {
   const p = partiesParis(d);
   return `${p.year}-${p.month}-${p.day}`;
 }
+/**
+ * Instant (ISO 8601, UTC) de minuit à Paris le jour `jour` : borne des filtres par date, juste quel que soit le fuseau de
+ * la machine (un serveur en UTC filtrait sinon de 1 h ou 2 h de travers).
+ */
+export function debutJourParis(jour: ISODate): string {
+  const [y, m, j] = jour.split('-').map(Number), cible = Date.UTC(y, m - 1, j);
+  let t = cible;
+  // Deux passes : l'écart avec Paris pris à l'instant trouvé, juste aussi les jours de changement d'heure.
+  for (let i = 0; i < 2; i++) {
+    const p = partiesParis(new Date(t));
+    t -= Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - cible;
+  }
+  return new Date(t).toISOString();
+}
 /** Horodatage ISO 8601 à l'heure de Paris, avec son décalage réel : « 2026-01-15T09:05:09+01:00 » l'hiver, « +02:00 » l'été. */
 export function horodatageParis(d: Date = new Date()): string {
   const p = partiesParis(d);

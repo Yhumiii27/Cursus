@@ -95,7 +95,7 @@ test('erreurs : action inconnue, adresse /api inconnue, JSON illisible, corps de
   assert.equal(inconnue.status, 404);
   assert.deepEqual(inconnue.json(), { error: 'Action inconnue : rien.du.tout' });
 
-  for (const [method, chemin] of [['GET', '/api/inconnu'], ['POST', '/api/inconnu'], ['GET', '/api/actions'], ['DELETE', '/api/data']] as const) {
+  for (const [method, chemin] of [['GET', '/api'], ['GET', '/api/inconnu'], ['POST', '/api/inconnu'], ['GET', '/api/actions'], ['DELETE', '/api/data']] as const) {
     const r = await appel(chemin, { method, headers: { cookie, 'content-type': 'application/json' } });
     assert.equal(r.status, 404, `${method} ${chemin}`);
     assert.match(String(r.headers['content-type']), /^application\/json/);
@@ -271,7 +271,7 @@ test('cache : /assets un an et immuable, index.html revalidé, fichier absent 40
     const encore = await appel(chemin, { headers: { 'if-none-match': String(page.headers.etag) } });
     assert.equal(encore.status, 304, chemin);
   }
-  for (const chemin of ['/api/session', '/api/health', '/api/inconnu']) assert.equal((await appel(chemin)).headers['cache-control'], 'no-store', chemin);
+  for (const chemin of ['/api', '/api/session', '/api/health', '/api/inconnu']) assert.equal((await appel(chemin)).headers['cache-control'], 'no-store', chemin);
 });
 
 // — Journal des requêtes —

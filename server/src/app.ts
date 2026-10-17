@@ -149,7 +149,7 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
     app.use('/assets', (_req, res) => { res.status(404).type('text/plain').send('Fichier introuvable'); });
     app.use(express.static(dist, { index: false, setHeaders: (res, chemin) => { if (chemin.endsWith('index.html')) res.setHeader('Cache-Control', CACHE_PAGE); } }));
     // `root` : seul le chemin relatif est contrôlé (un dossier parent caché comme .xxx/ ne bloque pas l'envoi).
-    app.get(/^(?!\/api\/).*/, (_req, res) => res.sendFile('index.html', { root: dist, cacheControl: false, headers: { 'Cache-Control': CACHE_PAGE } }));
+    app.get(/^(?!\/api(\/|$)).*/, (_req, res) => res.sendFile('index.html', { root: dist, cacheControl: false, headers: { 'Cache-Control': CACHE_PAGE } }));
   }
   // Adresse /api inconnue, puis toute erreur (corps illisible ou trop gros, erreur imprévue) : réponse JSON
   // (server/src/erreurs.ts). Rien ne doit être monté après.

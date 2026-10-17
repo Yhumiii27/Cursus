@@ -76,6 +76,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     p.currentDirectoryURL = URL(fileURLWithPath: projectDir)
     var env = ProcessInfo.processInfo.environment
     env["NODE_ENV"] = "production"
+    // Journal local lu par une personne (dialogue d’erreur, tailLog) : texte, pas JSON.
+    env["CURSUS_LOG_FORMAT"] = "texte"
     env["CURSUS_API_PORT"] = String(port)
     env["CURSUS_HOST"] = "127.0.0.1"
     env["CURSUS_INSECURE_COOKIE"] = "1"  // http://127.0.0.1 : cookie de session sans l'attribut Secure

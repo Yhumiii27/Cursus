@@ -19,6 +19,8 @@ shared/            Domaine partagé (aucune dépendance)
   reglages.ts      Réglages de Paramètres : table « champ → contrôle » (valeur par défaut, contrôle de chaque champ de Settings)
   confidentialite.ts Page Confidentialité : texte de l'information des salariés (art. 13), contrôle des coordonnées du
                    responsable et du DPO (descriptif complet du traitement : docs/RGPD.md)
+  aide.ts          Page Aide : guide court par rôle (GUIDE_AIDE), partie affichée d'abord selon l'espace ; version longue
+                   docs/GUIDE-UTILISATEUR.md, mêmes parties et libellés cités vérifiés à l'écran (tests/aide.test.ts)
   rules/           temps.ts, conges.ts, entretiens.ts, budget.ts, imports.ts, sante.ts (avis et visites médicales) ;
                    suivi-medical.ts : type de suivi (VIP, VIP adaptée, SIR) et échéance de la prochaine visite ;
                    visites-dues.ts : visites dues à un événement (embauche, reprise, mi-carrière, fin de carrière ou post-exposition) ;
@@ -868,6 +870,13 @@ Table `journal`, écrite par `server/src/journal.ts` (actions) et `journaliser` 
   `confidentialite` de la table `settings`, réglée par `confidentialite.regler` (Paramètres → Confidentialité,
   `pages/parametres/Rgpd.tsx`) et lue sans connexion par `GET /api/confidentialite` ; vides, la page renvoie au service
   RH. Descriptif du traitement pour le registre et l'AIPD : `docs/RGPD.md`, à tenir à jour avec la page.
+- **Aide** (t155) : page `pages/Aide.tsx`, seconde vue commune de `VUES_COMMUNES` (`aide`), ouverte sous le menu de chaque
+  espace et depuis l'écran de connexion, sans lire l'instantané. Texte : `GUIDE_AIDE` de `shared/aide.ts`, six parties
+  (collaborateur, manager, service RH, gestionnaire de paie, groupe pilote, à faire avant la mise en service) ; celle de
+  l'espace ouvert s'affiche d'abord (`partieParDefaut`). Version détaillée : `docs/GUIDE-UTILISATEUR.md`. Les deux se
+  tiennent ensemble : mêmes titres de parties, et chaque libellé cité entre « » doit exister dans `client/src` ou
+  `shared` (`tests/aide.test.ts`) : renommer un bouton oblige à mettre le guide à jour. Le calendrier de paie, inconnu,
+  reste « à compléter par le gestionnaire de paie » (`A_COMPLETER_PAIE`, mis en valeur à l'écran).
 
 ## Contrat et temps de travail
 

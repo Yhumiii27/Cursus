@@ -36,6 +36,7 @@ const PAGES: Record<View, ComponentType> = {
   miseEnService: aLaDemande(() => import('./pages/MiseEnService.tsx'), 'MiseEnService'),
   // Vue commune à tous les espaces, ouverte aussi sans connexion (depuis l'écran de connexion).
   confidentialite: aLaDemande(() => import('./pages/Confidentialite.tsx'), 'Confidentialite'),
+  aide: aLaDemande(() => import('./pages/Aide.tsx'), 'Aide'),
 };
 
 /** Tous les dialogues (dialogs/DialogHost.tsx et ce qu'il importe) : un seul fichier, préchargé avec les données. */
@@ -65,8 +66,9 @@ export function App() {
   // Mot de passe provisoire : à remplacer avant tout accès aux données.
   if (session?.compte?.changerMotDePasse && !session.user) return <Shell><MotDePasse /></Shell>;
   if (!session?.user) {
-    const Confidentialite = PAGES.confidentialite;
-    return <Shell>{view === 'confidentialite' ? <Suspense fallback={CHARGEMENT}><Confidentialite /></Suspense> : <Login />}</Shell>;
+    // Vues communes (Confidentialité, Aide) : lisibles avant la connexion.
+    const Commune = view === 'confidentialite' || view === 'aide' ? PAGES[view] : null;
+    return <Shell>{Commune ? <Suspense fallback={CHARGEMENT}><Commune /></Suspense> : <Login />}</Shell>;
   }
   if (!data) return <Shell><div className="loading">Chargement des données…</div></Shell>;
   const PageComponent = PAGES[view];

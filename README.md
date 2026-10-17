@@ -102,6 +102,10 @@ santé ; chaque export est tracé au journal. La page
 **Confidentialité**, ouverte depuis l'écran de connexion et depuis chaque espace, informe les salariés sur le
 traitement de leurs données ; le responsable du traitement et le DPO se règlent dans Paramètres → Confidentialité, et
 `docs/RGPD.md` décrit le traitement pour le registre et l'analyse d'impact de l'employeur.
+La page **Aide**, ouverte de même depuis chaque espace et depuis l'écran de connexion, donne un guide court par rôle
+(collaborateur, manager, service RH, gestionnaire de paie), l'ouverture progressive au groupe pilote et ce qui reste à
+fournir avant la mise en service ; sa version détaillée, avec la procédure mensuelle de paie, est
+`docs/GUIDE-UTILISATEUR.md`.
 
 ## Application de bureau (macOS)
 
@@ -389,7 +393,8 @@ DD-<n°>, demandeur gardé.
 Jours fériés et périodes de référence (CP, RTT, campagnes) calculés à partir de la date du jour, celle de Paris
 quel que soit le fuseau du serveur ; dates impossibles (« 31/02 ») refusées à la saisie et à l'import.
 
-Architecture et conventions : `docs/ARCHITECTURE.md`. Travail restant, priorisé : `docs/RESTE_A_FAIRE.md`.
+Architecture et conventions : `docs/ARCHITECTURE.md`. Travail restant, priorisé : `docs/RESTE_A_FAIRE.md`. Guide des
+utilisateurs, par rôle, avec la procédure mensuelle de paie et le groupe pilote : `docs/GUIDE-UTILISATEUR.md`.
 
 ## Mise en ligne (Docker, Coolify)
 

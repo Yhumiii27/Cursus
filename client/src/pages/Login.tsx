@@ -41,6 +41,7 @@ export function Login() {
     <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 'var(--space-4)', paddingTop: 'calc(var(--space-8) * 2)' }}>
       {demo && !cursus ? <DemoLogin onCursus={() => setCursus(true)} /> : <CursusLogin erreur={erreur} onDemo={demo ? () => setCursus(false) : undefined} />}
       <a className="fine" href="/confidentialite" onClick={e => { e.preventDefault(); go('confidentialite'); }}>Confidentialité : vos données dans Cursus</a>
+      <a className="fine" href="/aide" onClick={e => { e.preventDefault(); go('aide'); }}>Aide : se connecter et utiliser Cursus</a>
     </div>
   );
 }

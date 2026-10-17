@@ -657,7 +657,7 @@ aucun champ du paramètre n'est recopié.
 | `referentiel.charger` | referentiel (`formations`/`habilitations`/`destinations`) : référentiel type (celui de la démonstration) chargé dans un référentiel vide, archivés compris ; habilitations après les formations (prérequis présents et en vigueur) | RH, référent HSE (destinations : RH) |
 | `medical.demander` | empId, motif? (`periodique`/`embauche`/`reprise`/`employeur`/`mi_carriere`/`fin_carriere` ; par défaut celui de la visite due la plus proche, sinon embauche sans visite enregistrée, sinon périodique) ; e-mail au service de santé au travail | RH (une demande en cours par collaborateur) |
 | `medical.annuler` | id | RH (demande de visite en cours) |
-| `medical.avis` | empId, date (passée), avis (`apte`/`restrictions`/`inapte`), restrictions [{texte, jusquau?}] (avis avec restrictions), prochaineVisite? (fixée par le médecin, après la visite, 5 ans au plus ; ignorée pour un avis d’inaptitude), examen? (examen médical d’aptitude du suivi renforcé), suspendre [h]?, lever [h]? | RH (suspensions « Restriction d’aptitude » ; levée des seules suspensions d’un avis précédent, jamais pour un avis d’inaptitude) |
+| `medical.avis` | empId, date (passée), avis (`apte`/`restrictions`/`inapte`), motif? (motif de visite : clôt la demande en cours de ce motif quelle que soit sa date ; `mi_carriere`/`fin_carriere` sans demande : visite réalisée de ce motif enregistrée, qui clôt la visite due ; absent du journal), restrictions [{texte, jusquau?}] (avis avec restrictions), prochaineVisite? (fixée par le médecin, après la visite, 5 ans au plus ; ignorée pour un avis d’inaptitude), examen? (examen médical d’aptitude du suivi renforcé), suspendre [h]?, lever [h]? | RH (suspensions « Restriction d’aptitude » ; levée des seules suspensions d’un avis précédent, jamais pour un avis d’inaptitude) |
 | `medical.suivi` | empId, suivi (`vip`/`vip_adapte`/`sir`, vide : VIP par défaut), expose? (booléen, absent : inchangé : exposé à des risques particuliers, visite post-exposition à la sortie) ; journal : `empId` seul | RH (un suivi renforcé déduit du référentiel prime) |
 | `demande.accepter` / `demande.refuser` | id ; refus : motif? (500 caractères, `motifRefus`, montré au collaborateur seul, même quand son manager a fait la demande) ; acceptation refusée quand la formation ou l'habilitation demandée a été archivée depuis (à refuser, ou à rétablir d'abord) | RH ; référent HSE pour une demande de formation ou d'habilitation (document déclaré : RH) |
 | `demande.formation` | f (ou `autre`), libelle, sessionId, motif, empId (manager) ; refusée si une demande identique attend (même formation, ou même intitulé hors catalogue), si le salarié est déjà inscrit à une session à venir, ou absent le jour de la session souhaitée | collaborateur pour lui-même, manager pour un membre de son équipe |
@@ -1103,14 +1103,17 @@ Règles dans `shared/rules/sante.ts` et `Domain.medInfo` (`shared/domain.ts`), a
   années, et, sans aucune visite, elle remplace « Visite médicale non renseignée ». Reprise (art. R4624-31, seuils de la
   loi, non réglables) : après tout congé de maternité et toute maladie professionnelle, 30 jours d'accident du travail,
   60 jours de maladie, d'arrêt longue maladie ou d'accident de trajet ; absences validées seulement, arrêts jointifs
-  réunis (un type atteint son seuil sur toute la durée) ; le dernier arrêt qui l'ouvre, échéance au premier jour ouvré
+  réunis, les jours comptés par catégorie (maternité, maladie professionnelle, accident du travail, non professionnel :
+  5 jours d'AT prolongés par 25 jours de maladie n'ouvrent rien) ; le dernier arrêt qui l'ouvre, échéance au premier jour ouvré
   qui suit (`lendemainOuvre`), close par une visite postérieure à sa fin. Mi-carrière (art. L4624-2-2) : 31 décembre de
   l'année de l'âge réglé (Paramètres → Santé, `santeMiCarriereAge`, 45 ans par défaut, 40 à 55), à partir de 2022, suivie
   l'année même et la suivante ; fin de carrière ou post-exposition (art. L4624-2-1, R4624-28-1) : sortie enregistrée
   (sauf décès) d'un salarié en suivi renforcé ou exposé à des risques particuliers (case du poste, `Poste.expose`,
   Référentiels → Postes, ou de la fiche, `Employe.expose`, `medical.suivi`), échéance le dernier jour du contrat. Ces deux
-  dernières ne sont closes que par une demande de visite de leur motif réalisée (avis enregistré), une visite périodique
-  ne les remplaçant pas. Une demande en cours les affiche comme planifiées. Dialogue de sortie (`texteVisiteSortie`) :
+  dernières ne sont closes que par une visite de leur motif, datée de la visite : demande de ce motif close par l'avis
+  (`medical.avis` clôt la demande de son `motif` même faite après la visite), ou avis saisi avec ce motif sans demande
+  (convocation directe, visite passée avant la mise en service : ligne `realisee` de `demandesVisite`, datée de la
+  visite) ; une visite périodique ne les remplace pas. Une demande en cours les affiche comme planifiées. Dialogue de sortie (`texteVisiteSortie`) :
   visite à demander avant le départ, ou, sans case cochée, rappel « vérifier si une visite post-exposition est due » pour
   une habilitation cochée SIR ou ATEX détenue ou exigée par le poste ; jamais un blocage, rien au message ni au journal de
   `employe.sortie`. Limite : le travail de nuit (visite préalable, art. R4624-18) n'est pas connu de la fiche. Aucune
@@ -1133,7 +1136,9 @@ Règles dans `shared/rules/sante.ts` et `Domain.medInfo` (`shared/domain.ts`), a
 - **Confidentialité** : dates de visite, avis daté, demandes et suivi médical (type, prochaine visite, examen d'aptitude :
   `suivi`, `prochaineVisite`, `examenAptitude`, `expose` vidés par `server/src/dataset.ts` ; visites dues : le manager et les
   profils restreints ne reçoivent que `aptitude.aProgrammer`, « visite à programmer » sans motif ni date, calculé par le
-  serveur (`visiteAProgrammer` : visite due échue ou sous l'horizon d'alerte) ; au journal, `medical.suivi` ne retient
+  serveur (`visiteAProgrammer` : visite d'embauche, de mi-carrière ou de fin de carrière échue ou sous l'horizon d'alerte ;
+  jamais la visite de reprise, qui, rapprochée des dates d'absence et des seuils connus de l'art. R4624-31, trahirait une
+  maladie professionnelle ou une maternité : le service RH la suit seul, comme l'entretien de reprise) ; au journal, `medical.suivi` ne retient
   que `empId`, et le message, qui nomme le type, est masqué aux lecteurs hors service RH (`ACTIONS_SANTE`) ; absents de la
   demande de visite ; dans la fiche de l'export RGPD) sont réservés au service RH et à l'intéressé. Le manager reçoit
   `aptitude` (`aptitudeVueManager` : aptitude valide ou non, avis, restrictions en vigueur), aucune échéance datée ; Keystone,

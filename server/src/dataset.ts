@@ -221,7 +221,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     ? {
       ...e, visite: null, avis: null, restrictions: [], aptitude: aptitudeVueManager(e, d.medInfo(e).ok, full.today, visiteAProgrammer(d, e)), vaccins: [], matriculePaie: null,
       // Suivi médical (type, prochaine visite, examen d'aptitude, exposition) : jamais transmis au manager, qui ne voit que le
-      // verdict ; d'une visite due (embauche, reprise, mi-carrière, fin de carrière), « visite à programmer » seulement.
+      // verdict ; d'une visite due (embauche, mi-carrière, fin de carrière ; jamais la reprise, qui trahirait la nature de
+      // l'arrêt : `visiteAProgrammer`), « visite à programmer » seulement.
       suivi: null, prochaineVisite: null, examenAptitude: null, expose: null,
       passeport: e.passeport && { expire: e.passeport.expire }, motifSortie: null, finPrevue: null, sortieEnregistree: !!e.motifSortie,
       autorisationTravail: null, autorisationVerdict: verdictAutorisation(e, full.today), ...naissanceVueManager(e, full.today),

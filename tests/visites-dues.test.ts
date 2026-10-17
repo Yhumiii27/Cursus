@@ -125,6 +125,26 @@ test('reprise : seuils de l’art. R4624-31 (maternité, maladie professionnelle
   assert.deepEqual(dues(5), [['reprise', '2026-11-30']]);
 });
 
+test('reprise : arrêts jointifs de natures différentes, chaque catégorie comparée à son seul seuil', () => {
+  const { dues, arret } = fresh();
+  // 5 jours d'accident du travail prolongés par 25 jours de maladie : ni l'AT (moins de 30 jours) ni la maladie (moins
+  // de 60) n'imposent de visite, bien que l'arrêt réuni dure 30 jours.
+  arret(7, 'AT', '2026-08-01', '2026-08-05');
+  arret(7, 'MALADIE', '2026-08-06', '2026-08-30');
+  assert.deepEqual(dues(7), []);
+  // Deux accidents du travail jointifs autour d'une maladie : les jours d'AT se cumulent (12 + 20 = 32 jours).
+  const { dues: dues2, arret: arret2 } = fresh();
+  arret2(7, 'AT', '2026-07-01', '2026-07-12');
+  arret2(7, 'MALADIE', '2026-07-13', '2026-07-20');
+  arret2(7, 'AT', '2026-07-21', '2026-08-09');
+  assert.deepEqual(dues2(7), [['reprise', '2026-08-10']]);
+  // Maladie professionnelle, même d'un jour, dans un arrêt réuni : due.
+  const { dues: dues3, arret: arret3 } = fresh();
+  arret3(7, 'MALADIE', '2026-09-01', '2026-09-10');
+  arret3(7, 'MP', '2026-09-11', '2026-09-11');
+  assert.deepEqual(dues3(7), [['reprise', '2026-09-14']]);
+});
+
 test('mi-carrière : l’année des 45 ans (âge réglable), close par la visite demandée pour ce motif, pas par une visite périodique', () => {
   const { db, run, dues, echeances, regler, domain } = fresh();
   assert.deepEqual(dues(3), [['mi_carriere', '2026-12-31']]);
@@ -150,6 +170,27 @@ test('mi-carrière : l’année des 45 ans (âge réglable), close par la visite
   assert.deepEqual(echeances(3).filter(y => y.motifVisite).map(y => [y.planned, y.action]), [[true, null]]);
   run(RH, 'medical.avis', { empId: 3, date: '2026-10-10', avis: 'apte' });
   assert.deepEqual(dues(3), []);
+  // Visite déjà passée, saisie après coup : la demande faite ensuite se clôt à la date réelle de la visite avec le motif.
+  const { run: run2, dues: dues2, db: db2 } = fresh();
+  run2(RH, 'medical.demander', { empId: 3, motif: 'mi_carriere' });
+  run2(RH, 'medical.avis', { empId: 3, date: '2026-10-05', avis: 'apte' });
+  assert.equal(loadFull(db2, RH).demandesVisite.find(v => v.empId === 3)!.statut, 'demandee', 'sans motif, visite antérieure : en cours');
+  assert.match(String(run2(RH, 'medical.avis', { empId: 3, date: '2026-10-05', avis: 'apte', motif: 'mi_carriere' })), /demande de visite close/);
+  assert.deepEqual(loadFull(db2, RH).demandesVisite.filter(v => v.empId === 3).map(v => [v.statut, v.closeLe]), [['realisee', '2026-10-05']]);
+  assert.deepEqual(dues2(3), []);
+  assert.equal(loadFull(db2, RH).employes.find(e => e.id === 3)!.visite, '2026-10-05');
+  // Visite de mi-carrière sans aucune demande (convocation directe, ou avant la mise en service) : l'avis avec son motif
+  // l'enregistre comme réalisée, à sa date, et la clôt ; le journal n'en garde pas le motif.
+  const { run: run3, dues: dues3, db: db3 } = fresh();
+  run3(RH, 'medical.avis', { empId: 3, date: '2026-03-12', avis: 'apte', motif: 'mi_carriere' });
+  assert.deepEqual(loadFull(db3, RH).demandesVisite.filter(v => v.empId === 3).map(v => [v.motif, v.statut, v.le, v.closeLe]),
+    [['mi_carriere', 'realisee', '2026-03-12', '2026-03-12']]);
+  assert.deepEqual(dues3(3), []);
+  assert.equal(champsRetenus('medical.avis', { empId: 3, date: '2026-03-12', avis: 'apte', motif: 'mi_carriere' }).motif, undefined);
+  // Motif inconnu : refusé ; motif périodique sans demande : rien d'enregistré à part la visite.
+  assert.throws(() => run3(RH, 'medical.avis', { empId: 3, date: '2026-10-01', avis: 'apte', motif: 'cure' }), /Motif de visite inconnu/);
+  run3(RH, 'medical.avis', { empId: 7, date: '2026-10-01', avis: 'apte', motif: 'periodique' });
+  assert.equal(loadFull(db3, RH).demandesVisite.filter(v => v.empId === 7).length, 0);
   // Relances : clé par motif et par échéance, libellé neutre, donnée de santé (jamais au manager).
   const d = domain();
   const r = relancesDues(d, d.enrich(90, false), [90, 30, 7]).filter(y => y.empId === 23 && y.categorie === 'visite');
@@ -194,8 +235,27 @@ test('fin de carrière ou post-exposition : à la sortie d’un salarié en suiv
   assert.equal(loadFull(db, RH).referentiels.postes.find(p => p.id === 1)!.expose, false);
 });
 
+test('confidentialité : visite de reprise jamais signalée au manager ni au référent HSE, même après un arrêt court de maladie professionnelle', () => {
+  const { db, domain, arret } = fresh();
+  // Absence de 2 jours, vue « ABSENCE » par le manager : « visite à programmer » désignerait une maladie professionnelle.
+  arret(2, 'MP', '2026-10-05', '2026-10-06');
+  assert.deepEqual((domain().enrich(90, false).find(e => e.id === 2)!.med.dues ?? []).map(v => v.motif), ['reprise'], 'suivie par le service RH');
+  const full = loadFull(db, RH);
+  assert.equal(visiteAProgrammer(new Domain(full), full.employes.find(e => e.id === 2)!), false);
+  for (const user of [KARIM, HSE]) {
+    const vue = buildSnapshot(db, user), m = vue.employes.find(e => e.id === 2)!;
+    assert.deepEqual(m.aptitude, { ok: true, avis: 'apte', restrictions: [] }, user.nom);
+    assert.equal(new Domain(vue).enrich(90, false).find(e => e.id === 2)!.med.text, 'Aptitude médicale valide', user.nom);
+  }
+  // 40 jours d'arrêt (AT plutôt que maladie) : rien non plus.
+  arret(2, 'AT', '2026-08-01', '2026-09-09');
+  assert.equal(buildSnapshot(db, KARIM).employes.find(e => e.id === 2)!.aptitude!.aProgrammer, undefined);
+});
+
 test('confidentialité : le manager et le référent HSE ne reçoivent que « visite à programmer », jamais le motif, l’arrêt ni l’exposition', () => {
   const { db, run, domain, emp, arret } = fresh();
+  // Mehdi Benali : 45 ans en 2026 (mi-carrière), un arrêt de maladie professionnelle et la case « exposé ».
+  db.update('employes', 2, { naissance: 1981, naissanceLe: '1981-03-01' });
   arret(2, 'MP', '2026-09-14', '2026-09-16');
   run(RH, 'medical.suivi', { empId: 2, expose: true });
   const full = loadFull(db, RH);

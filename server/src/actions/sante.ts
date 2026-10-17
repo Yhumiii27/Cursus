@@ -66,12 +66,17 @@ function titres(ctx: Ctx, emp: Employe, v: unknown): { hm: HabType; t: HabTitre 
  * écriture, le service RH suspend les habilitations incompatibles (motif « Restriction d'aptitude », sans détail) et
  * lève les suspensions décidées à un avis précédent ; la visite clôt la demande en cours. Un avis d'inaptitude rend
  * d'office non valides les habilitations qui exigent l'aptitude (prérequis) et bloque la ressource sur les chantiers.
+ * `motif` (facultatif) : motif de la visite (mi-carrière, fin de carrière…), qui clôt la demande de ce motif quelle que
+ * soit sa date, ou, sans demande, s'enregistre comme visite réalisée de ce motif (convocation directe du service de santé
+ * au travail, visite antérieure à la mise en service) : la visite due qu'elle honore est close à sa vraie date.
  */
 const enregistrerAvis: ActionHandler = (ctx, p) => {
   requireRh(ctx);
   const emp = getEmp(ctx, p.empId);
   const { avis: a, errors } = controlerAvis(p, ctx.d.ti);
   if (errors.length) throw new ActionError(errors.join(' '));
+  const motif = p.motif == null || p.motif === '' ? null : p.motif;
+  if (motif !== null && !estMotifVisite(motif)) throw new ActionError('Motif de visite inconnu');
   const suspendre = titres(ctx, emp, p.suspendre), lever = titres(ctx, emp, p.lever);
   const deux = suspendre.find(x => lever.some(y => y.hm.id === x.hm.id));
   if (deux) throw new ActionError(`${deux.hm.nom} : suspendre ou lever la suspension, pas les deux`);
@@ -94,9 +99,15 @@ const enregistrerAvis: ActionHandler = (ctx, p) => {
     mesure: 'suspension', mesureDate: ctx.d.ti < t.delivree! ? t.delivree : ctx.d.ti, mesureMotif: MOTIF_RESTRICTION, mesurePar: ctx.user.nom,
   }));
   lever.forEach(({ t }) => ctx.db.update<HabTitre>('habTitres', t.id, { mesure: null, mesureDate: null, mesureMotif: null, mesurePar: null }));
-  // La visite clôt les demandes qu'elle honore (faites au plus tard le jour de la visite).
-  const closes = ctx.ds.demandesVisite.filter(x => x.empId === emp.id && x.statut === 'demandee' && x.le <= a.date);
+  // La visite clôt les demandes qu'elle honore : faites au plus tard le jour de la visite, ou de son motif quelle que soit
+  // leur date (demande faite après une visite déjà passée).
+  const closes = ctx.ds.demandesVisite.filter(x => x.empId === emp.id && x.statut === 'demandee' && (x.le <= a.date || x.motif === motif));
   closes.forEach(x => ctx.db.update<DemandeVisite>('demandesVisite', x.id, { statut: 'realisee', closeLe: a.date, closePar: ctx.user.nom }));
+  // Visite de mi-carrière ou de fin de carrière sans demande : enregistrée comme réalisée, datée de la visite, pour clore
+  // la visite due (shared/rules/visites-dues.ts) ; les autres motifs se closent par la date de la visite elle-même.
+  if ((motif === 'mi_carriere' || motif === 'fin_carriere') && !closes.some(x => x.motif === motif)) {
+    ctx.db.insert<DemandeVisite>('demandesVisite', { empId: emp.id, motif, le: a.date, par: ctx.user.nom, statut: 'realisee', closeLe: a.date, closePar: ctx.user.nom });
+  }
   const { keystone } = signaler(ctx, emp);
   const suite = [
     suspendre.length ? plural(suspendre.length, 'habilitation suspendue', 'habilitations suspendues') : '',

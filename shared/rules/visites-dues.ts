@@ -6,16 +6,18 @@
 //   précèdent l'embauche (2 ans en suivi renforcé) en dispense (art. R4624-15 et R4624-27), sauf avis d'inaptitude.
 // - Reprise (art. R4624-31) : après tout congé de maternité et toute absence pour maladie professionnelle, quelle qu'en
 //   soit la durée ; après 30 jours d'accident du travail ; après 60 jours de maladie ou d'accident non professionnel
-//   (accident de trajet compris). Seuils de la loi, non réglables. Arrêts validés et jointifs comptés ensemble.
+//   (accident de trajet compris). Seuils de la loi, non réglables. Arrêts validés et jointifs réunis, les jours comptés
+//   par catégorie : un accident du travail court prolongé par une maladie n'atteint ni l'un ni l'autre seuil.
 // - Mi-carrière (art. L4624-2-2) : l'année civile des 45 ans, ou de l'âge fixé par accord (Paramètres → Santé).
 // - Fin de carrière ou post-exposition (art. L4624-2-1, R4624-28-1) : sortie enregistrée d'un salarié en suivi renforcé
 //   ou exposé à des risques particuliers (case du poste ou de la fiche), avant son départ. Sans case cochée, la sortie
 //   d'un titulaire (ou d'un poste) d'une habilitation SIR ou ATEX ne donne qu'un rappel, jamais un blocage.
 // Chaque visite due est close par une visite réalisée après l'événement : visite enregistrée (embauche, reprise), ou
-// demande de visite de ce motif close par l'avis du médecin (mi-carrière, fin de carrière : une visite périodique ne les
-// remplace pas). Données de santé : le service RH et l'intéressé seulement ; le manager ne reçoit que « visite à
-// programmer » (`visiteAProgrammer`, server/src/dataset.ts), jamais le motif ni l'arrêt.
-import { addD, addMonths, days, iso, parse } from '../dates.ts';
+// visite de ce motif enregistrée avec l'avis du médecin, demandée ou non (mi-carrière, fin de carrière : une visite
+// périodique ne les remplace pas ; `demandeRealisee`, datée de la visite). Données de santé : le service RH et
+// l'intéressé seulement ; le manager ne reçoit que « visite à programmer » (`visiteAProgrammer`, server/src/dataset.ts)
+// pour l'embauche, la mi-carrière et la fin de carrière, jamais pour la reprise, qui trahirait la nature de l'arrêt.
+import { addD, addMonths, iso, parse } from '../dates.ts';
 import { fmtIso } from '../format.ts';
 import type { Absence, Dataset, Employe, HabType, ISODate, MotifVisite } from '../types.ts';
 import { lendemainOuvre } from './absences.ts';
@@ -55,29 +57,39 @@ const DISPENSE_SIR_MOIS = 24;
  */
 const EMBAUCHE_SUIVIE_MOIS = 24;
 
-/** Seuils de la visite de reprise (art. R4624-31), en jours d'absence : 0 = quelle que soit la durée. */
-const SEUILS_REPRISE: Partial<Record<Absence['type'], number>> = { MATERNITE: 0, MP: 0, AT: 30, MALADIE: 60, ALD: 60, TRAJET: 60 };
+/**
+ * Seuils de la visite de reprise (art. R4624-31), en jours d'absence par catégorie : maternité et maladie professionnelle
+ * quelle que soit la durée (0), accident du travail 30 jours, maladie ou accident non professionnel 60 jours.
+ */
+type CategorieReprise = 'maternite' | 'mp' | 'at' | 'non_pro';
+const CATEGORIE_REPRISE: Partial<Record<Absence['type'], CategorieReprise>> = { MATERNITE: 'maternite', MP: 'mp', AT: 'at', MALADIE: 'non_pro', ALD: 'non_pro', TRAJET: 'non_pro' };
+const SEUILS_REPRISE: Record<CategorieReprise, number> = { maternite: 0, mp: 0, at: 30, non_pro: 60 };
 
 type Contexte = { ds: Pick<Dataset, 'referentiels' | 'absences' | 'demandesVisite' | 'settings'>; ti: ISODate };
 type Fiche = Pick<Employe, 'id' | 'entree' | 'fin' | 'visite' | 'avis' | 'naissance' | 'habs' | 'posteId' | 'poste' | 'suivi'>
   & Partial<Pick<Employe, 'naissanceLe' | 'mineur' | 'motifSortie' | 'aptitude' | 'expose'>>;
 
-/** Arrêts validés jointifs (le suivant commence au plus tard le lendemain du précédent), réunis en une seule absence. */
-interface Arret { du: ISODate; au: ISODate; types: Set<Absence['type']>; jours: number }
+/**
+ * Arrêts validés jointifs (le suivant commence au plus tard le lendemain du précédent), réunis en une seule absence ;
+ * `jours` : jours calendaires de chaque catégorie (un jour couvert deux fois ne compte qu'une fois).
+ */
+interface Arret { du: ISODate; au: ISODate; jours: Map<CategorieReprise, Set<ISODate>> }
 function arrets(absences: readonly Pick<Absence, 'empId' | 'type' | 'du' | 'au' | 'statut'>[], empId: number): Arret[] {
   const out: Arret[] = [];
-  absences.filter(a => a.empId === empId && a.statut === 'validee' && SEUILS_REPRISE[a.type] !== undefined)
+  absences.filter(a => a.empId === empId && a.statut === 'validee' && CATEGORIE_REPRISE[a.type] && a.au >= a.du)
     .sort((a, b) => a.du.localeCompare(b.du))
     .forEach(a => {
-      const der = out.at(-1);
-      if (der && a.du <= addD(der.au, 1)) { if (a.au > der.au) der.au = a.au; der.types.add(a.type); } else out.push({ du: a.du, au: a.au, types: new Set([a.type]), jours: 0 });
+      let x = out.at(-1);
+      if (x && a.du <= addD(x.au, 1)) { if (a.au > x.au) x.au = a.au; } else out.push(x = { du: a.du, au: a.au, jours: new Map() });
+      const cat = CATEGORIE_REPRISE[a.type]!, set = x.jours.get(cat) ?? new Set<ISODate>();
+      for (let j = a.du; j <= a.au; j = addD(j, 1)) set.add(j);
+      x.jours.set(cat, set);
     });
-  out.forEach(x => { x.jours = days(parse(x.du), parse(x.au)) + 1; });
   return out;
 }
 
-/** L'arrêt ouvre une visite de reprise : un de ses types atteint son seuil (sur toute la durée de l'arrêt). */
-const repriseDue = (x: Arret) => [...x.types].some(t => x.jours >= SEUILS_REPRISE[t]!);
+/** L'arrêt ouvre une visite de reprise : une de ses catégories atteint son seuil, sur ses seuls jours. */
+const repriseDue = (x: Arret) => [...x.jours].some(([cat, j]) => j.size >= SEUILS_REPRISE[cat]);
 
 /** Habilitation qui signale un poste à risques particuliers : cochée « SIR » au référentiel, ou habilitation ATEX. */
 const habRisque = (h: HabType | undefined) => !!h && actif(h) && (!!h.sir || /atex/i.test(`${h.id} ${h.nom}`));
@@ -105,13 +117,17 @@ export function visiteDeSortie(ds: Pick<Dataset, 'referentiels'>, e: Fiche, moti
     : null;
 }
 
-/** Demande de visite de ce motif close par l'avis du médecin du travail à partir de `depuis`. */
+/**
+ * Visite de ce motif réalisée à partir de `depuis` : demande close par l'avis du médecin du travail, ou visite enregistrée
+ * avec ce motif sans demande préalable (`medical.avis`), datée de la visite (`closeLe`).
+ */
 const demandeRealisee = (d: Contexte, empId: number, motif: MotifVisite, depuis: ISODate) =>
   d.ds.demandesVisite.some(x => x.empId === empId && x.motif === motif && x.statut === 'realisee' && (x.closeLe ?? x.le) >= depuis);
 
 /**
- * Ce que la sortie (date, motif) appelle côté santé au travail, en clair pour le dialogue de sortie et le message de
- * `employe.sortie` : la visite de fin de carrière ou post-exposition à demander avant le départ, ou le rappel ; null sinon.
+ * Ce que la sortie (date, motif) appelle côté santé au travail, en clair pour le dialogue de sortie seulement (rien au
+ * message ni au journal de `employe.sortie`, qui ne doivent rien porter de médical) : la visite de fin de carrière ou
+ * post-exposition à demander avant le départ, ou le rappel ; null sinon.
  */
 export function texteVisiteSortie(d: Contexte, e: Fiche, date: ISODate, motif: Employe['motifSortie'] | ''): string | null {
   const v = visiteDeSortie(d.ds, e, motif || null);
@@ -177,10 +193,18 @@ export function visitesDues(d: Contexte, e: Fiche, suivi: SuiviInfo = suiviDe(d.
 }
 
 /**
- * « Visite à programmer » transmise au manager et aux profils restreints : une visite due échue ou sous l'horizon
- * d'alerte, sans motif ni date (calculée par le serveur sur l'instantané complet).
+ * Motifs signalés au manager et aux profils restreints : ceux qui ne révèlent rien de la santé (entrée, âge, sortie). La
+ * reprise en est exclue : ces lecteurs voient les dates de chaque absence, et, les seuils de l'art. R4624-31 étant connus,
+ * « visite à programmer » après un arrêt court désignerait une maladie professionnelle ou une maternité (comme
+ * `repriseMedicale` pour l'entretien de reprise) ; le service RH la suit seul.
+ */
+const MOTIFS_SIGNALES: readonly MotifVisiteDue[] = ['embauche', 'mi_carriere', 'fin_carriere'];
+
+/**
+ * « Visite à programmer » transmise au manager et aux profils restreints : une visite due d'un motif signalé
+ * (`MOTIFS_SIGNALES`), échue ou sous l'horizon d'alerte, sans motif ni date (calculée par le serveur sur l'instantané complet).
  */
 export function visiteAProgrammer(d: Contexte, e: Fiche): boolean {
   const limite = addD(d.ti, d.ds.settings.horizonAlerte ?? 90);
-  return visitesDues(d, e).some(v => v.le <= limite);
+  return visitesDues(d, e).some(v => MOTIFS_SIGNALES.includes(v.motif) && v.le <= limite);
 }

@@ -8,8 +8,11 @@ import { useRole } from '../../state/derived.ts';
 import { type SectionProps, useEnregistrerReglages } from './commun.ts';
 
 const mois = (valeurs: number[]): [number, string][] => valeurs.map(n => [n, `${n} mois`]);
-/** Âges proposés pour la visite de mi-carrière : 45 ans à défaut d'accord de branche (art. L4624-2-2). */
-const AGES_MI_CARRIERE: [number, string][] = [40, 42, 45, 47, 50].map(n => [n, `${n} ans`]);
+/**
+ * Âges proposés pour la visite de mi-carrière, tous ceux qu'accepte le réglage (`entier(40, 55)`, shared/reglages.ts) :
+ * 45 ans à défaut d'accord de branche (art. L4624-2-2), l'âge fixé par l'accord sinon.
+ */
+const AGES_MI_CARRIERE = Array.from({ length: 16 }, (_, i) => 40 + i);
 
 export function Sante({ s }: SectionProps) {
   const { admin, espaceRh } = useRole();
@@ -33,9 +36,11 @@ export function Sante({ s }: SectionProps) {
         <Seg name="param-sante-sir-aptitude" label="Examen d’aptitude du suivi renforcé" value={s.santeSirAptitudeMois} options={mois([24, 36, 48])} disabled={!admin}
           onChange={v => save({ santeSirAptitudeMois: v })} style={{ flexWrap: 'wrap' }} />
       </Field>
-      <Field label="Visite de mi-carrière">
-        <Seg name="param-sante-mi-carriere" label="Âge de la visite de mi-carrière" value={s.santeMiCarriereAge} options={AGES_MI_CARRIERE} disabled={!admin}
-          onChange={v => save({ santeMiCarriereAge: v })} style={{ flexWrap: 'wrap' }} />
+      <Field label="Visite de mi-carrière" htmlFor="param-sante-mi-carriere">
+        <select className="input" id="param-sante-mi-carriere" value={s.santeMiCarriereAge} disabled={!admin}
+          onChange={e => save({ santeMiCarriereAge: Number(e.target.value) })} style={{ maxWidth: 240 }}>
+          {AGES_MI_CARRIERE.map(n => <option key={n} value={n}>{n} ans{n === 45 ? ' (à défaut d’accord de branche)' : ''}</option>)}
+        </select>
       </Field>
       <Fine>
         La date de la prochaine visite fixée par le médecin du travail, saisie avec son avis, prime toujours. À défaut, la visite suit la

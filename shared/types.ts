@@ -254,6 +254,12 @@ export interface Personne { id: number; nom: string; equipe: string | null; post
 // — Formations & plan —
 export interface Session {
   id: number; formation: string; date: ISODate; lieu: string; places: number; statut: SessionStatut;
+  /**
+   * Session sur plusieurs jours (shared/rules/plage-session.ts) : `date` reste le premier jour, `fin` le dernier (égal à
+   * `date` pour une session d'une journée), `jours` les jours de la session entre les deux (ouvrés par défaut, premier et
+   * dernier compris), `horaires` aucun (journées entières), un seul (tous les jours) ou un par jour, dans l'ordre de `jours`.
+   */
+  fin: ISODate; jours: ISODate[]; horaires: HoraireSession[];
   /** Calculé au chargement (certifications rattachées, inscriptions, résultats de clôture), jamais stocké. */
   inscrits: number;
   /** Action du plan de formation à l'origine de la session. */
@@ -261,6 +267,8 @@ export interface Session {
   /** Clôture (évaluation à chaud) ou annulation (motif) : date et auteur. */
   bilan: SessionBilan | null;
 }
+/** Horaire d'un jour de session : début et fin (« HH:MM », heure de Paris), pause non comptée en minutes. */
+export interface HoraireSession { debut: string; fin: string; pause: number }
 export interface SessionBilan { le: ISODate; par: string; note: number | null; commentaire: string | null; motif: string | null }
 /**
  * Inscription à une session d'une formation que le collaborateur n'a encore jamais suivie (formation initiale).
@@ -517,6 +525,8 @@ export interface Settings {
   santeVipAdapteeMois: number;
   santeSirIntermediaireMois: number;
   santeSirAptitudeMois: number;
+  /** Formations (shared/rules/formations-temps.ts) : heures des sessions proposées dans la feuille de temps des inscrits. */
+  formationsTemps: boolean;
 }
 
 /**

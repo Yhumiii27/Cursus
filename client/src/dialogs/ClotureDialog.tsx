@@ -1,12 +1,14 @@
 // Clôture d'une session passée (service RH) : présence de chaque inscrit et, si la formation l'exige,
 // résultat de l'évaluation ; évaluation à chaud facultative. Présents (et reçus) : certification datée
-// du jour de la session ; absents ou échecs : à replanifier. Tout est enregistré en une fois.
+// du jour de la session (du dernier jour d'une session sur plusieurs jours) ; absents ou échecs : à replanifier.
+// Tout est enregistré en une fois.
 // L'action du plan rattachée, réalisée par cette clôture, reçoit son coût réel (prérempli du coût prévu).
 import { useMemo, useState } from 'react';
 import { VALIDATION_LABEL } from '../../../shared/constants.ts';
 import { sessionActive } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, fmtEur, plural } from '../../../shared/format.ts';
+import { finSession, plageCourte } from '../../../shared/rules/plage-session.ts';
 import { exigeEvaluation, inscritsDe } from '../../../shared/rules/sessions.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Empty, Fine, Seg, Tag } from '../components/ui.tsx';
@@ -33,10 +35,14 @@ export function ClotureDialog({ sessionId }: { sessionId: number }) {
   const v = useVerification();
   if (!s) return null;
   const fm = d.fm(s.formation);
-  if (!sessionActive(s) || s.date > d.ti) {
+  // Session sur plusieurs jours : clôturée à partir de son dernier jour.
+  const dernier = finSession(s);
+  if (!sessionActive(s) || dernier > d.ti) {
     return (
       <Dialog title="Clôturer la session" actions={<CancelButton label="Fermer" />}>
-        <p className="text-muted" style={{ margin: 0 }}>{sessionActive(s) ? 'La session n’a pas encore eu lieu.' : `Session ${s.statut.toLowerCase()}.`}</p>
+        <p className="text-muted" style={{ margin: 0 }}>
+          {!sessionActive(s) ? `Session ${s.statut.toLowerCase()}.` : s.date > d.ti ? 'La session n’a pas encore eu lieu.' : `La session dure jusqu’au ${fmt(parse(dernier))} : clôturez-la à partir de son dernier jour.`}
+        </p>
       </Dialog>
     );
   }
@@ -51,7 +57,7 @@ export function ClotureDialog({ sessionId }: { sessionId: number }) {
   const plan = s.planId ? d.ds.plan.find(l => l.id === s.planId && l.statut !== 'realise') : undefined;
   const realise = !!plan && plan.statut !== 'reporte' && !d.ds.sessions.some(x => x.id !== s.id && x.planId === s.planId && sessionActive(x));
   const coutErr = realise ? erreurCoutReel(coutReel) : null;
-  const quand = fmt(parse(s.date));
+  const quand = fmt(parse(dernier));
 
   const confirm = async () => {
     if (busy || !v.verifier(sansPresence.length, manquants.length, coutErr)) return;
@@ -73,7 +79,7 @@ export function ClotureDialog({ sessionId }: { sessionId: number }) {
       <SubmitButton busy={busy}>Clôturer la session</SubmitButton>
     </>}>
       <div className="grid-2">
-        <Field label="Session"><Static>{fm?.nom ?? s.formation}<div className="text-muted sub">{quand} · {s.lieu}</div></Static></Field>
+        <Field label="Session"><Static>{fm?.nom ?? s.formation}<div className="text-muted sub">{plageCourte(s)} · {s.lieu}</div></Static></Field>
         <Field label="Validation"><Static>{VALIDATION_LABEL[evaluation ? 'evaluation' : 'presence']}<div className="text-muted sub">{fm?.organisme}</div></Static></Field>
       </div>
 

@@ -46,6 +46,7 @@ server/src/
                    voyages.ts (référence DD-<n°> des déplacements importés sans référence, lot 5)
                    temps.ts (lignes des feuilles complétées à 7 jours, activités internes de base amorcées)
                    conges.ts (lot 5 : demi-journées hors de la règle ramenées à la journée entière)
+                   formations.ts (lot 5 : sessions existantes sur un jour, activité interne INT-FORM)
   seed.ts          Données de démonstration
   sauvegarde.ts    Copie à chaud (VACUUM INTO), rotation, restauration, verrou du serveur ;
                    scripts backup.ts et restore.ts (npm run backup / restore, voir docs/SAUVEGARDE.md)
@@ -633,11 +634,11 @@ aucun champ du paramètre n'est recopié.
 | `convocation.envoyer` | sessionId, empIds? (sans liste : toutes les convocations « à envoyer » ; avec : envoi ou renvoi) ; session à venir ; e-mail avec `.ics`, date d'envoi `convocLe` | RH, référent HSE ; manager direct pour les membres de son équipe |
 | `plan.desinscrire` | empId, sessionId (session à venir) : place libérée, recyclage de nouveau à planifier ou inscription initiale retirée, convocation reçue (même remise « à renvoyer ») annulée par e-mail | RH, référent HSE, manager direct |
 | `cert.ajouter` | empId, f, date | RH, référent HSE |
-| `session.creer` | f, date (postérieure à aujourd’hui), lieu, places (entier ≥ 1), planId? (action « prévue » de la même formation) | RH, référent HSE |
+| `session.creer` | f, date (premier jour, postérieur à aujourd’hui), fin? (dernier jour, la date par défaut ; 92 jours au plus après), jours? (dates entre les deux, premier et dernier compris, 20 au plus ; ouvrés par défaut), horaires? ([] : journées entières ; un seul {debut, fin, pause} pour tous les jours, ou un par jour), lieu, places (entier ≥ 1), planId? (action « prévue » de la même formation) | RH, référent HSE |
 | `session.confirmer` | id | RH, référent HSE |
-| `session.modifier` | id, date? (postérieure à aujourd’hui ; session passée, à clôturer : aussi une date passée), lieu?, places? (≥ inscrits) | RH, référent HSE |
+| `session.modifier` | id, date? (postérieure à aujourd’hui ; session passée, à clôturer : aussi une date passée ; seule, la plage est décalée d’autant), fin?, jours?, horaires? (comme `session.creer` ; nouveau dernier jour sans jours : jours ouvrés), lieu?, places? (≥ inscrits) | RH, référent HSE |
 | `session.annuler` | id, motif? | RH, référent HSE |
-| `session.cloturer` | id, participants [{empId, present, reussi?}], note? (1 à 5), commentaire?, coutReel? (de l'action du plan qu'elle réalise, service RH seulement ; coût prévu par défaut et pour le référent HSE) | RH, référent HSE |
+| `session.cloturer` | id (à partir du dernier jour de la session), participants [{empId, present, reussi?}], note? (1 à 5), commentaire?, coutReel? (de l'action du plan qu'elle réalise, service RH seulement ; coût prévu par défaut et pour le référent HSE) | RH, référent HSE |
 | `hab.delivrer` | empId, h, date, par, mode | RH, référent HSE |
 | `hab.suspendre` | empId, h, motif, date? (aujourd’hui par défaut) | RH, référent HSE ; manager pour un membre de son équipe (jamais lui-même) |
 | `hab.lever` | empId, h | RH, référent HSE |
@@ -704,7 +705,7 @@ aucun champ du paramètre n'est recopié.
 | `entretien.signer` | id | salarié |
 | `entretien.remettre` | id, mode (`main_propre`/`refus`/`portail`), date? (main propre, refus : de la clôture à aujourd'hui ; portail : le jour même, compte actif exigé, e-mail avec le seul lien vers Cursus) ; une remise sur papier est définitive, une mise à disposition se complète par une remise sur papier | évaluateur (manager direct) ou RH, jamais pour son propre entretien |
 | `entretien.telecharger` | id : premier téléchargement du compte rendu clos, daté (`telechargeLe`) | salarié, depuis son espace |
-| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
+| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
 | `demo.reinitialiser` | — | administrateur RH, mode démonstration |
 | `compte.creer` | empId (ou nom, adresse : compte externe), type (`microsoft`/`local`), identifiant, profilRh | administrateur RH (mot de passe provisoire dans `result`, affiché une fois) |
 | `compte.profil` | id, profilRh (`aucun`/`rh_gestionnaire`/`rh_admin`/`referent_hse`/`paie`/`lecture_seule`) | administrateur RH (jamais le dernier administrateur actif ; un compte externe garde un profil) |
@@ -1133,7 +1134,7 @@ Règles dans `shared/rules/sessions.ts` (inscrits nominatifs, contrôles, liste 
 - **Confirmer** : le RH transmet la liste nominative à l'organisme (affichage, export CSV : nom, poste,
   parcours, date de la certification à renouveler) ; l'organisme n'a pas encore d'adresse dans Cursus.
 - **Convocations** : « Envoyer maintenant » (`plan.inscrire`) ou « Envoyer la convocation » (`convocation.envoyer`,
-  unitaire ou groupé, pour les convocations « à envoyer ») : e-mail avec un fichier `.ics` (journée entière,
+  unitaire ou groupé, pour les convocations « à envoyer ») : e-mail avec un fichier `.ics` (journées entières, ou créneaux horaires : voir « Plusieurs jours »,
   `UID` stable par session et salarié : un renvoi met à jour l'événement), date d'envoi `convocLe` sur la
   certification ou l'inscription. Sans adresse e-mail, la convocation est notée envoyée, à remettre en main propre.
   Le `.ics` porte l'organisateur (boîte d'envoi, sinon celle du service RH) et, pour une session « à confirmer »,
@@ -1149,17 +1150,46 @@ Règles dans `shared/rules/sessions.ts` (inscrits nominatifs, contrôles, liste 
   libère la place de la certification remplacée (`placesRemplacees`). **Annuler** : les certifications rattachées redeviennent à planifier,
   les inscriptions en formation initiale restent attachées à la session annulée, à replanifier
   (`plan.inscrire` avec `inscriptionId`) ; l'action du plan engagée (sans autre session ouverte) redevient « prévue ».
-- **Clôture** (RH, à partir du jour de la session) : chaque formation du catalogue porte son mode de
+- **Clôture** (RH, à partir du jour de la session, du dernier jour pour une session de plusieurs jours) : chaque formation du catalogue porte son mode de
   validation (`Formation.validation` : `presence` ou `evaluation`). Pour chaque inscrit, présent / absent
   et, si l'évaluation est exigée, réussie / échouée, choisis explicitement (aucune valeur par défaut : la clôture
   est définitive). Présent (et reçu) : certification datée du jour de la
-  session, la certification renouvelée passe en historique ; absent ou échec : recyclage de nouveau à
+  session (de son dernier jour), la certification renouvelée passe en historique ; absent ou échec : recyclage de nouveau à
   planifier, formation initiale à replanifier. Un recyclage déjà saisi depuis (`cert.ajouter` daté du jour de la
   session ou après) n'appelle aucune décision. Les résultats sont conservés (table `participations`, restreinte
   au périmètre comme les inscriptions), l'action du plan rattachée passe « réalisée » si aucune autre session
   ouverte ne la porte, l'évaluation à chaud (note sur 5, commentaire) est facultative. Une seule transaction,
   tracée au journal. Le bilan (`Session.bilan` : évaluation à chaud, motif d'annulation, textes libres parfois
   nominatifs) n'est transmis qu'au service RH.
+- **Plusieurs jours** (t118, `shared/rules/plage-session.ts`) : `date` reste le premier jour (lu tel quel partout où
+  un seul jour suffit), `fin` le dernier, `jours` les jours de la session (ouvrés par défaut entre les deux, premier et
+  dernier compris, modifiables ; 20 au plus sur 92 jours), `horaires` aucun (journées entières), un seul pour tous les
+  jours ou un par jour (début, fin, pause en minutes). Contrôle commun au dialogue et au serveur (`controlePlage`,
+  appelé par `controleSession`). Seuls dépendent de la plage : les conflits (`conflitsSession` : chacun des jours, pas le
+  week-end entre deux ; `sessionChevauche` pour les autres engagements), le contrat (aucun jour après le dernier jour du
+  contrat), le `.ics` (journées entières jusqu'au dernier jour ; avec horaires, créneaux à l'heure de Paris : `RRULE`
+  quotidienne, `EXDATE` des jours sautés, `RECURRENCE-ID` d'un jour à un autre horaire, un seul UID), la clôture (à
+  partir du dernier jour ; certifications datées du dernier jour), l'état « passée » (`Domain.aCloturer`,
+  `sessionStatut`, `certInfo`, `etatInscription` : après le dernier jour) et l'affichage (`plageCourte`, `plageTexte`,
+  `sessionDu`, `joursTexte`). Une session commencée ne reçoit plus d'inscrit et ne perd plus les siens avant la clôture ;
+  du deuxième au dernier jour, ni « à venir » ni « à clôturer », elle est listée « en cours » (`Domain.enCours` : page
+  Formations ; tableau de bord le dernier jour, avec la clôture). Changer la plage d'une session pas encore finie
+  repasse les convocations envoyées « à envoyer » (renvoi possible jusqu'au dernier jour) et, avant le premier jour,
+  une session confirmée « à confirmer » ; changer les horaires repasse seulement les convocations. Le journal de
+  `session.creer` et de `session.modifier` garde les jours, pas les horaires.
+  Une session écrite sans plage (base ancienne, test) tient en un jour (`completerSession` au chargement ; migration
+  nommée `lot5-formations-plage-sessions`).
+- **Heures de formation dans la feuille de temps** (`shared/rules/formations-temps.ts`, une ligne dans `suggestLines`) :
+  « Proposer » propose une ligne interne `INT-FORM` / formation (`ks: false`, jamais envoyée à Keystone,
+  `ACTIVITE_FORMATION` de `shared/constants.ts`, amorcée dans les projets par `lot5-formations-activite-interne`) pour
+  chaque session de la semaine où le salarié est inscrit, ou présent après la clôture : heures de l'horaire du jour, pause
+  déduite (`HEURES_JOUR_MAX` au plus), sinon durée du catalogue (« 21 h », « 3 h 30 ») répartie sur les jours et
+  plafonnée à la journée de travail du salarié (`Domain.dayH` : 7 h à 35 h) ; zéro les jours fériés, d'absence, non
+  travaillés ou hors contrat. Les lignes déjà saisies sont gardées (`fusionProposition`) : seules les lignes Keystone
+  d'une proposition précédente (quand la semaine a des tâches Keystone) et la ligne `INT-FORM` de la même formation sont
+  remplacées ; un jour qui dépasserait 24 h, toutes lignes cumulées, voit ses heures de formation réduites d'autant (la
+  formation ne bloque jamais la proposition Keystone). Modifiables comme toute ligne proposée. Réglage `formationsTemps`
+  (Paramètres → Formations, actif par défaut).
 - **Base existante** : colonnes et table ajoutées au démarrage (schéma déclaratif) ; `server/src/migrate.ts`
   valide sur la présence les formations sans mode de validation, libère la place d'une certification remplacée
   dans toute session ouverte postérieure au recyclage, puis clôture une fois les sessions passées de l'ancienne

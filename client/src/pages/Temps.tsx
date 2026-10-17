@@ -25,6 +25,7 @@ import {
   heuresSurAbsenceMessage, heuresSurDemandes, joursAbsence,
   joursAbsenceTexte, natureAbsence, semaineCouverte, tachesDeLaSemaine, type SheetCalc,
 } from '../../../shared/rules/temps.ts';
+import { formationsAProposer } from '../../../shared/rules/formations-temps.ts';
 import { MODES_HEURES_SUP } from '../../../shared/rules/paie.ts';
 import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
 import { CloseButton, Fine, Page, Panel, stop, Tag, Two } from '../components/ui.tsx';
@@ -307,7 +308,9 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const used = new Set(lignes.map(l => l.projet));
   const projOptions = data.referentiels.projets.filter(p => !used.has(p.code) && p.statut !== 'archive');
   // Proposition Keystone : seulement si des heures sont planifiées cette semaine-là.
-  const canSuggest = editable && !correction && tachesDeLaSemaine(d, emp.id, wk).length > 0;
+  // Tâches Keystone de la semaine, ou heures des sessions de formation (ligne INT-FORM, shared/rules/formations-temps.ts).
+  const keystone = tachesDeLaSemaine(d, emp.id, wk).length > 0, formations = formationsAProposer(d, emp.id, wk);
+  const canSuggest = editable && !correction && (keystone || formations);
   const missions = data.missions.filter(m => m.empId === emp.id && m.du <= wdays[DIMANCHE] && m.au >= wdays[0]);
 
   const recap = recapOf(d, empF, calc, wk);
@@ -422,7 +425,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
               <option value="">+ Ajouter un projet…</option>
               {projOptions.map(p => <option key={p.code} value={p.code}>{p.code} · {p.nom}</option>)}
             </select>
-            {canSuggest && <button type="button" className="btn btn-secondary" disabled={occupe} onClick={agir(() => run('temps.suggest', base))}>Proposer depuis Keystone</button>}
+            {canSuggest && <button type="button" className="btn btn-secondary" disabled={occupe} onClick={agir(() => run('temps.suggest', base))}>{formations ? (keystone ? 'Proposer les heures prévues' : 'Proposer les heures de formation') : 'Proposer depuis Keystone'}</button>}
             {correction
               ? <span className="text-muted sub" style={{ marginLeft: 'auto' }}>Correction avant validation : la feuille reste soumise</span>
               : <button type="button" className="btn btn-primary" style={{ marginLeft: 'auto' }} disabled={!(calc.total > 0 || couverte) || surAbsence.length > 0 || motifManquant || occupe}

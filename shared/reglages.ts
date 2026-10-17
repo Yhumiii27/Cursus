@@ -119,6 +119,9 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   santeVipAdapteeMois: { defaut: 24, controle: entier(12, 36) },
   santeSirIntermediaireMois: { defaut: 24, controle: entier(12, 24) },
   santeSirAptitudeMois: { defaut: 48, controle: entier(12, 48) },
+  // — Formations (parametres/Formations.tsx, shared/rules/formations-temps.ts) : heures des sessions proposées dans la
+  //   feuille de temps des inscrits (ligne interne INT-FORM), par défaut —
+  formationsTemps: { defaut: true, controle: booleen },
 };
 
 /**

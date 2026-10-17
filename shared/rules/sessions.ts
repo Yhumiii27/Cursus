@@ -3,6 +3,7 @@
 import { iso, isValidDate, parse } from '../dates.ts';
 import { sessionActive, type Domain } from '../domain.ts';
 import { fmt, key } from '../format.ts';
+import { controlePlage, finSession } from './plage-session.ts';
 import type { Certification, Formation, Inscription, ISODate, Participation, Session } from '../types.ts';
 
 /** Formation validée sur évaluation réussie (catalogue) ; sinon la présence suffit. */
@@ -117,21 +118,22 @@ export type EtatInscription =
 export function etatInscription(d: Domain, i: Inscription): EtatInscription | null {
   const s = d.session(i.sessionId);
   if (!s) return null;
-  if (sessionActive(s)) return { etat: s.date < d.ti ? 'passee' : 'planifiee', s };
+  // Session sur plusieurs jours : passée après son dernier jour.
+  if (sessionActive(s)) return { etat: finSession(s) < d.ti ? 'passee' : 'planifiee', s };
   const quand = fmt(parse(s.date));
   if (s.statut === 'Annulée') return { etat: 'a_planifier', s, motif: `Session du ${quand} annulée` };
   const p = d.ds.participations.find(x => x.sessionId === s.id && x.empId === i.empId);
   return { etat: 'a_planifier', s, motif: p && !p.present ? `Absent à la session du ${quand}` : `Non obtenue à la session du ${quand}` };
 }
 
-/** Champs d'une session saisis à la création ou à la modification. */
-export interface SessionSaisie { date: unknown; lieu: unknown; places: unknown }
+/** Champs d'une session saisis à la création ou à la modification ; `fin`, `jours`, `horaires` : plage (plage-session.ts). */
+export interface SessionSaisie { date: unknown; lieu: unknown; places: unknown; fin?: unknown; jours?: unknown; horaires?: unknown }
 
 /** Session passée, pas encore clôturée : sa date peut encore être corrigée vers une autre date passée. */
 export const sessionPassee = (today: ISODate, dateActuelle: ISODate | undefined) => !!dateActuelle && dateActuelle < today;
 
 /**
- * Contrôle date, lieu et places ; renvoie le message d'erreur, sinon null. Une nouvelle date est
+ * Contrôle date (premier jour), plage, lieu et places ; renvoie le message d'erreur, sinon null. Une nouvelle date est
  * postérieure à aujourd'hui (une date inchangée reste admise) ; une session passée, à clôturer, se
  * redate au jour où elle a eu lieu (la clôture date les certifications de ce jour). Les places : un
  * entier au moins égal à 1 et au nombre d'inscrits.
@@ -142,6 +144,9 @@ export function controleSession(today: ISODate, v: SessionSaisie, opts: { dateAc
   const places = typeof v.places === 'number' ? v.places : typeof v.places === 'string' && v.places.trim() ? Number(v.places) : NaN;
   if (!isValidDate(date) || iso(parse(date)) !== date) return 'Date de la session requise';
   if (date !== opts.dateActuelle && date <= today && !sessionPassee(today, opts.dateActuelle)) return 'La date de la session doit être postérieure à aujourd’hui';
+  // Plusieurs jours : dernier jour, jours de la session et horaires (contrôle commun au dialogue).
+  const plage = controlePlage(date, v);
+  if ('message' in plage) return plage.message;
   if (!lieu) return 'Lieu requis';
   if (lieu.length > 200) return 'Lieu trop long (200 caractères au plus)';
   if (!Number.isInteger(places) || places < 1) return 'Nombre de places : un nombre entier, au moins 1';

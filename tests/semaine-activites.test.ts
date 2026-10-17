@@ -185,20 +185,20 @@ test('activités internes : amorcées par migration, créées, renommées, archi
   const GEST = user(14, 'rh'), LECTURE = user(11, 'rh');
   refuse(GEST, 'referentiel.activite.enregistrer', { code: 'K-2614', nom: 'X' }, /Code : « INT- »/);
   refuse(GEST, 'referentiel.activite.enregistrer', { code: 'int-log', nom: 'Doublon' }, /existe déjà/);
-  refuse(GEST, 'referentiel.activite.enregistrer', { code: 'INT-FORM', nom: ' ' }, /libellé/);
-  refuse(LECTURE, 'referentiel.activite.enregistrer', { code: 'INT-FORM', nom: 'Formation' }, /./, 403);
-  assert.match(String(run(GEST, 'referentiel.activite.enregistrer', { code: ' int-form ', nom: 'Formation  interne' })), /INT-FORM « Formation interne » créée/);
-  assert.deepEqual(derniere('referentiel.activite.enregistrer')!.payload, { code: 'INT-FORM', avant: { nom: null, statut: null }, apres: { nom: 'Formation interne', statut: 'actif' } });
-  run(GEST, 'referentiel.activite.enregistrer', { id: 'INT-FORM', nom: 'Formations internes', code: 'INT-AUTRE' });
-  assert.equal(codes().find(p => p.code === 'INT-FORM')!.nom, 'Formations internes');
+  refuse(GEST, 'referentiel.activite.enregistrer', { code: 'INT-ACCUEIL', nom: ' ' }, /libellé/);
+  refuse(LECTURE, 'referentiel.activite.enregistrer', { code: 'INT-ACCUEIL', nom: 'Formation' }, /./, 403);
+  assert.match(String(run(GEST, 'referentiel.activite.enregistrer', { code: ' int-accueil ', nom: 'Formation  interne' })), /INT-ACCUEIL « Formation interne » créée/);
+  assert.deepEqual(derniere('referentiel.activite.enregistrer')!.payload, { code: 'INT-ACCUEIL', avant: { nom: null, statut: null }, apres: { nom: 'Formation interne', statut: 'actif' } });
+  run(GEST, 'referentiel.activite.enregistrer', { id: 'INT-ACCUEIL', nom: 'Formations internes', code: 'INT-AUTRE' });
+  assert.equal(codes().find(p => p.code === 'INT-ACCUEIL')!.nom, 'Formations internes');
   refuse(GEST, 'referentiel.activite.enregistrer', { id: 'K-2614', nom: 'X' }, /introuvable/, 404);
   // Archivée : plus imputable (message propre aux activités), heures déjà saisies gardées ; rétablie d'un clic.
-  assert.match(String(run(GEST, 'referentiel.activite.archiver', { id: 'INT-FORM' })), /archivée/);
-  assert.equal(run(GEST, 'referentiel.activite.archiver', { id: 'INT-FORM' }), null, 'déjà archivée : rien n’est refait');
-  refuse(RH, 'temps.addLine', { empId: 1, week: '2026-11-02', projet: 'INT-FORM' }, /Activité interne archivée/);
-  run(GEST, 'referentiel.activite.archiver', { id: 'INT-FORM', archive: false });
-  assert.deepEqual(derniere('referentiel.activite.archiver')!.payload, { code: 'INT-FORM', retablir: true, avant: { statut: 'archive' }, apres: { statut: 'actif' } });
-  run(RH, 'temps.addLine', { empId: 1, week: '2026-11-02', projet: 'INT-FORM' });
+  assert.match(String(run(GEST, 'referentiel.activite.archiver', { id: 'INT-ACCUEIL' })), /archivée/);
+  assert.equal(run(GEST, 'referentiel.activite.archiver', { id: 'INT-ACCUEIL' }), null, 'déjà archivée : rien n’est refait');
+  refuse(RH, 'temps.addLine', { empId: 1, week: '2026-11-02', projet: 'INT-ACCUEIL' }, /Activité interne archivée/);
+  run(GEST, 'referentiel.activite.archiver', { id: 'INT-ACCUEIL', archive: false });
+  assert.deepEqual(derniere('referentiel.activite.archiver')!.payload, { code: 'INT-ACCUEIL', retablir: true, avant: { statut: 'archive' }, apres: { statut: 'actif' } });
+  run(RH, 'temps.addLine', { empId: 1, week: '2026-11-02', projet: 'INT-ACCUEIL' });
   // Contrôle partagé : un renommage garde le code.
   assert.deepEqual(controlerActivite({ code: 'INT-X', nom: 'Y' }, [], { code: 'ECOLE', nom: 'Z', statut: 'archive' }).activite, { code: 'ECOLE', nom: 'Y', statut: 'archive' });
   assert.match(controlerActivite({ code: '', nom: 'Y' }, [], null).erreurs.code!, /Indiquez le code/);

@@ -8,6 +8,7 @@ import { aptitudeVueManager } from '../../shared/rules/sante.ts';
 import { naissanceVueManager } from '../../shared/rules/mineurs.ts';
 import { needsFinCarriere } from '../../shared/rules/entretiens.ts';
 import { verdictAutorisation } from '../../shared/rules/contrats.ts';
+import { completerSession } from '../../shared/rules/plage-session.ts';
 import { avecInscrits } from '../../shared/rules/sessions.ts';
 import { finPeriodeCp, periodeReport } from '../../shared/rules/conges.ts';
 import { debutSaisieDe } from '../../shared/rules/suivi-feuilles.ts';
@@ -90,7 +91,8 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     annuaire: employes.map(e => ({ id: e.id, nom: e.nom, equipe: e.equipe, poste: e.poste })),
     employes,
     // Nombre d'inscrits calculé sur toutes les données, avant la restriction au périmètre.
-    sessions: avecInscrits(db.all<Omit<Session, 'inscrits'>>('sessions'), certs, inscriptions, participations),
+    // Session d'une base ancienne ou écrite sans plage : un seul jour (completerSession).
+    sessions: avecInscrits(db.all<Omit<Session, 'inscrits'>>('sessions').map(completerSession), certs, inscriptions, participations),
     inscriptions,
     participations,
     plan: db.all<PlanAction>('planActions'),

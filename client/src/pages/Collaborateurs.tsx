@@ -6,6 +6,7 @@ import type { ContratX, EmpX, HabInfo, Proposal } from '../../../shared/domain.t
 import type { Formation } from '../../../shared/types.ts';
 import { days, parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, fmtIso, fmtShort, matricule, norm, plural, rel } from '../../../shared/format.ts';
+import { sessionDu } from '../../../shared/rules/plage-session.ts';
 import { absenceKinds } from '../../../shared/rules/conges.ts';
 import { habSuivie } from '../../../shared/rules/referentiels.ts';
 import { MOTIFS_SORTIE, sorti } from '../../../shared/rules/contrats.ts';
@@ -332,18 +333,18 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
               <Bar variant="thin" pct={c.pct} color={c.key === 'ok' ? 'var(--color-accent-600)' : 'var(--color-accent-300)'} />
               {c.session && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-                  <NoteAccent icon>Session du {fmt(parse(c.session.date))} · {convocation(c.convoc, c.convocLe)}</NoteAccent>
+                  <NoteAccent icon>Session {sessionDu(c.session)} · {convocation(c.convoc, c.convocLe)}</NoteAccent>
                   {canPlan && (
                     <div className="actions-end">
                       <button type="button" className="btn btn-ghost btn-sm" onClick={() => convoquer(c.session!.id)}>{convocationEnvoyee(c) ? 'Renvoyer la convocation' : 'Envoyer la convocation'}</button>
-                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => desinscrire(c.session!.id, `${c.fm.court} du ${fmt(parse(c.session!.date))}`, convocationEnvoyee(c), true)}>Désinscrire</button>
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => desinscrire(c.session!.id, `${c.fm.court} ${sessionDu(c.session!)}`, convocationEnvoyee(c), true)}>Désinscrire</button>
                     </div>
                   )}
                 </div>
               )}
               {c.sessionPassee && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
-                  <NoteAccent>{SESSION_PASSEE} · session du {fmt(parse(c.sessionPassee.date))}</NoteAccent>
+                  <NoteAccent>{SESSION_PASSEE} · session {sessionDu(c.sessionPassee)}</NoteAccent>
                   {formations && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cloture', sessionId: c.sessionPassee!.id })}>Clôturer la session</button>}
                 </div>
               )}
@@ -400,7 +401,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
                   <div className="text-muted sub">
                     {x.etat === 'a_planifier'
                       ? `${x.motif} · formation initiale à replanifier`
-                      : `Session du ${fmt(parse(s.date))} · ${s.lieu}${fm?.organisme ? ` · ${fm.organisme}` : ''}${s.statut === 'À confirmer' ? ' · à confirmer' : ''}`}
+                      : `Session ${sessionDu(s)} · ${s.lieu}${fm?.organisme ? ` · ${fm.organisme}` : ''}${s.statut === 'À confirmer' ? ' · à confirmer' : ''}`}
                   </div>
                 </div>
                 {x.etat === 'passee' ? <Tag cls="tag-outline" style={{ flex: 'none' }}>Session passée</Tag>
@@ -412,7 +413,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
                   <span className="text-muted sub">{convocation(i.convoc, i.convocLe)}</span>
                   <div className="actions-end">
                     <button type="button" className="btn btn-ghost btn-sm" onClick={() => convoquer(s.id)}>{convocationEnvoyee(i) ? 'Renvoyer la convocation' : 'Envoyer la convocation'}</button>
-                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => desinscrire(s.id, `${fm?.court ?? s.formation} du ${fmt(parse(s.date))}`, convocationEnvoyee(i), false)}>Désinscrire</button>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => desinscrire(s.id, `${fm?.court ?? s.formation} ${sessionDu(s)}`, convocationEnvoyee(i), false)}>Désinscrire</button>
                   </div>
                 </div>
               )}

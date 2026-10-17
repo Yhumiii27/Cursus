@@ -11,6 +11,7 @@ import { type Domain, sessionActive } from '../../shared/domain.ts';
 import { equipeLabel, fmt, fmtIso, plural } from '../../shared/format.ts';
 import { matriculeAffiche } from '../../shared/rules/matricules.ts';
 import { demiTexte } from '../../shared/rules/demi-journees.ts';
+import { finSession, horaireDuJour, horaireTexte, joursSession, joursTexte, plageCourte, surPlusieursJours } from '../../shared/rules/plage-session.ts';
 import { convocationEnvoyee } from '../../shared/rules/sessions.ts';
 import type { Absence, Certification, CurrentUser, Dataset, DemandeCollab, DemandeVisite, Employe, Entretien, Messagerie, Session } from '../../shared/types.ts';
 import { configMail } from './config.ts';
@@ -177,6 +178,27 @@ function organisateur(cx: Contexte): EvenementAgenda['organisateur'] {
   return rh ? { nom: 'Service RH', adresse: rh } : null;
 }
 
+/**
+ * Dates de l'événement d'agenda d'une session : journées entières du premier au dernier jour, ou, avec des horaires,
+ * un créneau à l'heure de Paris pour chacun de ses jours.
+ */
+function datesSession(s: Session): Pick<EvenementAgenda, 'date' | 'fin' | 'creneaux'> {
+  const h = s.horaires ?? [];
+  if (!h.length) return { date: s.date, fin: finSession(s) };
+  return { date: s.date, creneaux: joursSession(s).map(jour => { const x = horaireDuJour(s, jour)!; return { jour, debut: x.debut, fin: x.fin }; }) };
+}
+
+/** Dates et horaires de la session, dans le corps de la convocation. */
+function datesTexte(s: Session): string[] {
+  const fin = finSession(s), n = joursSession(s).length;
+  if (fin === s.date) return [`Date : ${jourLong(s.date)}`, ...(s.horaires?.length ? [`Horaires : ${horaireTexte(s.horaires[0])}`] : [])];
+  return [
+    `Dates : ${periodeLongue(s.date, fin)} (${plural(n, 'jour', 'jours')})`,
+    ...(s.horaires?.length === 1 ? [`Horaires : ${horaireTexte(s.horaires[0])}, chaque jour`] : []),
+    `Jours : ${joursTexte({ ...s, horaires: s.horaires?.length === 1 ? [] : s.horaires }).join(' ; ')}`,
+  ];
+}
+
 /** Convocation à une session de formation. Renvoie faux si le salarié n'a pas d'adresse (convocation à remettre). */
 export function convoquerFormation(cx: Contexte, s: Session, emp: Pick<Employe, 'id' | 'nom'>, parcours: 'recyclage' | 'initiale'): boolean {
   const d = adresseSalarie(cx.db, emp.id, cx.ds.today);
@@ -185,14 +207,14 @@ export function convoquerFormation(cx: Contexte, s: Session, emp: Pick<Employe, 
   const nom = fm?.nom ?? s.formation;
   // Session « à confirmer » par l'organisme : événement provisoire dans l'agenda.
   const ics = calendrier({
-    uid: `formation-${s.id}-${emp.id}@${domaineAgenda()}`, date: s.date, titre: `Formation : ${nom}`, lieu: s.lieu,
+    uid: `formation-${s.id}-${emp.id}@${domaineAgenda()}`, ...datesSession(s), titre: `Formation : ${nom}`, lieu: s.lieu,
     description: [fm?.organisme && `Organisme : ${fm.organisme}`, fm?.duree && `Durée : ${fm.duree}`].filter(Boolean).join(' · '),
     provisoire: s.statut === 'À confirmer', organisateur: organisateur(cx),
   });
-  envoyerEmail(cx.db, 'convocation', courriel(messagerie(cx), d.adresse, `Convocation : ${nom} — ${fmt(parse(s.date))}`, [
+  envoyerEmail(cx.db, 'convocation', courriel(messagerie(cx), d.adresse, `Convocation : ${nom} — ${plageCourte(s)}`, [
     `Votre inscription à la formation « ${nom} »${parcours === 'recyclage' ? ' (recyclage)' : ''} est confirmée :`,
     '',
-    `Date : ${jourLong(s.date)}${s.statut === 'À confirmer' ? ' (date à confirmer par l’organisme)' : ''}`,
+    ...datesTexte(s).map((l, i) => (i === 0 && s.statut === 'À confirmer' ? `${l} (${surPlusieursJours(s) ? 'dates' : 'date'} à confirmer par l’organisme)` : l)),
     `Lieu : ${s.lieu}`,
     ...(fm?.organisme ? [`Organisme : ${fm.organisme}`] : []),
     ...(fm?.duree ? [`Durée : ${fm.duree}`] : []),
@@ -208,11 +230,11 @@ export function annulerConvocationFormation(cx: Contexte, s: Session, emp: Pick<
   const d = adresseSalarie(cx.db, emp.id, cx.ds.today);
   if (!d) return false;
   const nom = cx.ds.referentiels.formations.find(f => f.id === s.formation)?.nom ?? s.formation;
-  const ics = calendrier({ uid: `formation-${s.id}-${emp.id}@${domaineAgenda()}`, date: s.date, titre: `Formation : ${nom}`, lieu: s.lieu, annule: true, organisateur: organisateur(cx) });
+  const ics = calendrier({ uid: `formation-${s.id}-${emp.id}@${domaineAgenda()}`, ...datesSession(s), titre: `Formation : ${nom}`, lieu: s.lieu, annule: true, organisateur: organisateur(cx) });
   const texte = raison === 'annulation'
-    ? `La session de la formation « ${nom} » ${periodeLongue(s.date, s.date)} est annulée : votre convocation ne vaut plus. Le service RH vous inscrira à une prochaine session.`
-    : `Votre inscription à la session de la formation « ${nom} » ${periodeLongue(s.date, s.date)} est annulée : votre convocation ne vaut plus.`;
-  envoyerEmail(cx.db, 'convocation.annulee', courriel(messagerie(cx), d.adresse, `Annulation : ${nom} — ${fmt(parse(s.date))}`,
+    ? `La session de la formation « ${nom} » ${periodeLongue(s.date, finSession(s))} est annulée : votre convocation ne vaut plus. Le service RH vous inscrira à une prochaine session.`
+    : `Votre inscription à la session de la formation « ${nom} » ${periodeLongue(s.date, finSession(s))} est annulée : votre convocation ne vaut plus.`;
+  envoyerEmail(cx.db, 'convocation.annulee', courriel(messagerie(cx), d.adresse, `Annulation : ${nom} — ${plageCourte(s)}`,
     `${texte}\n\nOuvrez le fichier joint pour retirer l’événement de votre agenda, ou supprimez-le vous-même.`,
     { nom: emp.nom, pj: [pieceJointe(`annulation-${s.date}.ics`, 'text/calendar; charset=utf-8; method=CANCEL', ics)] }));
   return true;

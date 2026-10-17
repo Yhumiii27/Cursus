@@ -229,9 +229,17 @@ export const REGLES: Record<string, Regle> = {
   // Formations
   'plan.inscrire': { champs: ['empId', 'certId', 'inscriptionId', 'sessionId', 'conv'] },
   'cert.ajouter': { champs: ['empId', 'f', 'date'] },
-  'session.creer': { champs: ['f', 'date', 'lieu', 'places', 'planId'] },
+  // Session sur plusieurs jours : dernier jour et jours, dates seules (comme session.modifier) ; pas les horaires.
+  'session.creer': {
+    champs: ['f', 'date', 'lieu', 'places', 'planId'],
+    extra: p => ({
+      ...(typeof p.fin === 'string' && isValidDate(p.fin) ? { fin: p.fin } : {}),
+      ...(Array.isArray(p.jours) ? { jours: p.jours.filter(j => typeof j === 'string' && isValidDate(j)).slice(0, 31) } : {}),
+    }),
+  },
   'session.confirmer': { champs: ['id'], cible: parId('sessions', ['statut']), ...inscritsAvantApres },
-  'session.modifier': { champs: ['id'], cible: parId('sessions', ['date', 'lieu', 'places', 'statut']), ...inscritsAvantApres },
+  // Session sur plusieurs jours : ses jours (dates, premier et dernier compris), pas les horaires.
+  'session.modifier': { champs: ['id'], cible: parId('sessions', ['date', 'jours', 'lieu', 'places', 'statut']), ...inscritsAvantApres },
   'session.annuler': { champs: ['id'], cible: parId('sessions', ['statut']), ...inscritsAvantApres },
   // Résultats de chaque inscrit (présent, reçu) ; ni la note ni le commentaire de l'évaluation à chaud.
   'session.cloturer': {

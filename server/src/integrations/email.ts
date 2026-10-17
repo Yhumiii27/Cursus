@@ -142,13 +142,35 @@ function plier(ligne: string): string {
 }
 
 const icsDate = (d: ISODate) => d.replace(/-/g, '');
-const lendemain = (d: ISODate) => { const x = new Date(`${d}T12:00:00Z`); x.setUTCDate(x.getUTCDate() + 1); return x.toISOString().slice(0, 10); };
+const addJour = (d: ISODate, n: number) => { const x = new Date(`${d}T12:00:00Z`); x.setUTCDate(x.getUTCDate() + n); return x.toISOString().slice(0, 10); };
+const lendemain = (d: ISODate) => addJour(d, 1);
+
+/** Créneau horaire d'un jour, à l'heure de Paris (« HH:MM »). */
+export interface CreneauAgenda { jour: ISODate; debut: string; fin: string }
+
+/** Fuseau Europe/Paris (RFC 5545, VTIMEZONE exigé par les agendas pour un TZID) : heure d'été du dernier dimanche de mars au dernier dimanche d'octobre. */
+const FUSEAU_PARIS = [
+  'BEGIN:VTIMEZONE', 'TZID:Europe/Paris',
+  'BEGIN:DAYLIGHT', 'TZOFFSETFROM:+0100', 'TZOFFSETTO:+0200', 'TZNAME:CEST', 'DTSTART:19700329T020000', 'RRULE:FREQ=YEARLY;BYMONTH=3;BYDAY=-1SU', 'END:DAYLIGHT',
+  'BEGIN:STANDARD', 'TZOFFSETFROM:+0200', 'TZOFFSETTO:+0100', 'TZNAME:CET', 'DTSTART:19701025T030000', 'RRULE:FREQ=YEARLY;BYMONTH=10;BYDAY=-1SU', 'END:STANDARD',
+  'END:VTIMEZONE',
+];
+const icsHeure = (jour: ISODate, hm: string) => `${icsDate(jour)}T${hm.replace(':', '')}00`;
+const joursEntre = (du: ISODate, au: ISODate) => Math.round((Date.parse(`${au}T12:00:00Z`) - Date.parse(`${du}T12:00:00Z`)) / 864e5);
 
 export interface EvenementAgenda {
   /** Identifiant stable de l'événement : une convocation renvoyée met à jour l'événement déjà dans l'agenda. */
   uid: string;
-  /** Journée entière (les sessions et entretiens n'ont pas encore d'horaire). */
+  /** Premier jour ; sans créneau, journées entières jusqu'à `fin` (le même jour par défaut). */
   date: ISODate;
+  /** Dernier jour d'un événement en journées entières sur plusieurs jours (session de formation sans horaire). */
+  fin?: ISODate;
+  /**
+   * Créneaux horaires, un par jour, à l'heure de Paris (session de formation avec horaires) : un seul événement qui se
+   * répète chaque jour du premier au dernier créneau (RRULE), sans les jours sautés (EXDATE), un jour à l'horaire
+   * différent remplaçant son occurrence (RECURRENCE-ID) ; un seul UID, qu'une annulation retire en entier.
+   */
+  creneaux?: CreneauAgenda[];
   titre: string;
   lieu?: string | null;
   description?: string;
@@ -160,21 +182,52 @@ export interface EvenementAgenda {
   organisateur?: { nom: string; adresse: string } | null;
 }
 
-/** Fichier .ics d'un événement d'une journée, ou de son annulation. */
+/**
+ * Fichier .ics d'un événement, ou de son annulation : journées entières (une ou plusieurs, `fin`), ou créneaux horaires
+ * à l'heure de Paris (`creneaux`, fuseau joint).
+ */
 export function calendrier(ev: EvenementAgenda, maintenant = new Date()): string {
   const horodatage = maintenant.toISOString().replace(/[-:]/g, '').replace(/\.\d{3}/, '');
   // Numéro de version croissant d'un envoi à l'autre : le client d'agenda retient la dernière.
   const sequence = Math.floor((maintenant.getTime() - Date.UTC(2026, 0, 1)) / 1000);
-  const lignes = [
-    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Cursus//Convocations//FR', 'CALSCALE:GREGORIAN', `METHOD:${ev.annule ? 'CANCEL' : 'PUBLISH'}`,
-    'BEGIN:VEVENT', `UID:${ev.uid}`, `DTSTAMP:${horodatage}`, `SEQUENCE:${Math.max(0, sequence)}`,
-    `DTSTART;VALUE=DATE:${icsDate(ev.date)}`, `DTEND;VALUE=DATE:${icsDate(lendemain(ev.date))}`,
+  const creneaux = [...(ev.creneaux ?? [])].sort((a, b) => a.jour.localeCompare(b.jour));
+  const premier = creneaux[0];
+  const commun = [
+    `DTSTAMP:${horodatage}`, `SEQUENCE:${Math.max(0, sequence)}`,
     ...(ev.organisateur ? [`ORGANIZER;CN=${ev.organisateur.nom}:mailto:${ev.organisateur.adresse}`] : []),
     `SUMMARY:${ICS_TEXTE(ev.titre)}`,
     ...(ev.lieu ? [`LOCATION:${ICS_TEXTE(ev.lieu)}`] : []),
     ...(ev.description ? [`DESCRIPTION:${ICS_TEXTE(ev.description)}`] : []),
     `STATUS:${ev.annule ? 'CANCELLED' : ev.provisoire ? 'TENTATIVE' : 'CONFIRMED'}`, 'TRANSP:OPAQUE',
-    'END:VEVENT', 'END:VCALENDAR',
+  ];
+  let dates: string[];
+  const remplacements: string[] = [];
+  if (!premier) {
+    dates = [`DTSTART;VALUE=DATE:${icsDate(ev.date)}`, `DTEND;VALUE=DATE:${icsDate(lendemain(ev.fin && ev.fin > ev.date ? ev.fin : ev.date))}`];
+  } else {
+    const tz = (jour: ISODate, hm: string) => `;TZID=Europe/Paris:${icsHeure(jour, hm)}`;
+    dates = [`DTSTART${tz(premier.jour, premier.debut)}`, `DTEND${tz(premier.jour, premier.fin)}`];
+    const dernier = creneaux[creneaux.length - 1];
+    if (dernier.jour !== premier.jour) {
+      // Chaque jour du premier au dernier, moins ceux où la session n'a pas lieu (week-end, jour sauté).
+      const n = joursEntre(premier.jour, dernier.jour) + 1;
+      const tenus = new Set(creneaux.map(c => c.jour));
+      const sautes = Array.from({ length: n }, (_, i) => addJour(premier.jour, i)).filter(j => !tenus.has(j));
+      dates.push(`RRULE:FREQ=DAILY;COUNT=${n}`, ...(sautes.length ? [`EXDATE;TZID=Europe/Paris:${sautes.map(j => icsHeure(j, premier.debut)).join(',')}`] : []));
+      // Jour à un autre horaire : son occurrence est remplacée (même UID, RECURRENCE-ID à l'heure de la série).
+      if (!ev.annule) {
+        for (const c of creneaux.slice(1).filter(c => c.debut !== premier.debut || c.fin !== premier.fin)) {
+          remplacements.push('BEGIN:VEVENT', `UID:${ev.uid}`, `RECURRENCE-ID${tz(c.jour, premier.debut)}`, `DTSTART${tz(c.jour, c.debut)}`, `DTEND${tz(c.jour, c.fin)}`, ...commun, 'END:VEVENT');
+        }
+      }
+    }
+  }
+  const lignes = [
+    'BEGIN:VCALENDAR', 'VERSION:2.0', 'PRODID:-//Cursus//Convocations//FR', 'CALSCALE:GREGORIAN', `METHOD:${ev.annule ? 'CANCEL' : 'PUBLISH'}`,
+    ...(premier ? FUSEAU_PARIS : []),
+    'BEGIN:VEVENT', `UID:${ev.uid}`, ...dates, ...commun, 'END:VEVENT',
+    ...remplacements,
+    'END:VCALENDAR',
   ];
   return lignes.map(plier).join('\r\n') + '\r\n';
 }

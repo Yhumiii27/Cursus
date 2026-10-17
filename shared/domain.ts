@@ -17,6 +17,7 @@ import { echeancesContrat, etatAutorisation, present, SITUATION_A_REGULARISER } 
 import { voyageActif } from './rules/deplacements.ts';
 import { restrictionEnVigueur } from './rules/sante.ts';
 import { echeanceVisite, examenRequis, prochaineTexte, suiviDe, type ProchaineVisite, type SuiviInfo } from './rules/suivi-medical.ts';
+import { finSession } from './rules/plage-session.ts';
 import type {
   AvisMedical, Certification, Chantier, Dataset, DemandeVisite, Destination, Employe, FormaliteManquante, Formation, HabTitre, HabType, ISODate,
   Restriction, Session, Statut, TempsTravail, TripStatus, TypeContrat, VaccinId, Voyage,
@@ -292,16 +293,25 @@ export class Domain {
       .filter(s => sessionActive(s) && s.date >= this.ti && (!formIds || formIds.has(s.formation)))
       .sort((a, b) => a.date.localeCompare(b.date));
   }
-  /** Sessions passées qui attendent leur clôture, plus anciennes d'abord. */
+  /** Sessions passées (dernier jour compris) qui attendent leur clôture, plus anciennes d'abord. */
   aCloturer(formIds?: Set<string>): Session[] {
     return this.ds.sessions
-      .filter(s => sessionActive(s) && s.date < this.ti && (!formIds || formIds.has(s.formation)))
+      .filter(s => sessionActive(s) && finSession(s) < this.ti && (!formIds || formIds.has(s.formation)))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+  /**
+   * Sessions sur plusieurs jours commencées et pas encore finies (premier jour passé, dernier jour à venir ou aujourd'hui) :
+   * ni « à venir » (plus d'inscription), ni « à clôturer » (avant leur dernier jour). Listées à part, clôturables le dernier jour.
+   */
+  enCours(formIds?: Set<string>): Session[] {
+    return this.ds.sessions
+      .filter(s => sessionActive(s) && s.date < this.ti && finSession(s) >= this.ti && (!formIds || formIds.has(s.formation)))
       .sort((a, b) => a.date.localeCompare(b.date));
   }
   /** Statut affiché : passée à clôturer, complète, ou statut enregistré (à confirmer, confirmée, clôturée, annulée). */
   sessionStatut(s: Session): string {
     if (!sessionActive(s)) return s.statut;
-    return s.date < this.ti ? SESSION_PASSEE : s.inscrits >= s.places ? 'Complète' : s.statut;
+    return finSession(s) < this.ti ? SESSION_PASSEE : s.inscrits >= s.places ? 'Complète' : s.statut;
   }
   /** Formations suivies : catalogue en vigueur (les archivées ne sont plus proposées ni suivies), réglementaires seules au besoin. */
   forms(onlyReg: boolean): Formation[] {
@@ -316,9 +326,9 @@ export class Domain {
     const d = days(this.today, exp);
     const key: StatusKey = d < 0 ? 'exp' : d <= horizon ? 'due' : 'ok';
     const pct = Math.max(0, Math.min(100, Math.round(days(obt, this.today) / days(obt, exp) * 100)));
-    // Une session clôturée ou annulée ne planifie plus rien ; une session passée attend sa clôture.
+    // Une session clôturée ou annulée ne planifie plus rien ; une session passée (après son dernier jour) attend sa clôture.
     const s = this.session(c.sessionId), active = s && sessionActive(s) ? s : null;
-    const session = active && active.date >= this.ti ? active : null, sessionPassee = active && active.date < this.ti ? active : null;
+    const session = active && finSession(active) >= this.ti ? active : null, sessionPassee = active && finSession(active) < this.ti ? active : null;
     return { ...c, fm, obt, exp, d, key, pct, session, sessionPassee, remplacee };
   }
 
@@ -451,7 +461,7 @@ export class Domain {
     if (fc) {
       // Recyclage rattaché à une session passée : la clôture (présence, résultat) précède toute nouvelle inscription.
       const s = this.session(this.emp(empId)?.certs.find(c => c.id === fc.certId)?.sessionId ?? null);
-      if (s && sessionActive(s) && s.date < this.ti) return { label: 'Clôturer la session', intent: { type: 'openCloture', sessionId: s.id } };
+      if (s && sessionActive(s) && finSession(s) < this.ti) return { label: 'Clôturer la session', intent: { type: 'openCloture', sessionId: s.id } };
       return fc.certId != null
         ? { label: 'Planifier le recyclage', intent: { type: 'openPlan', empId, certId: fc.certId } }
         : { label: 'Inscrire à la formation', intent: { type: 'goFormation', f: fc.f! } };
@@ -762,7 +772,8 @@ export class Domain {
       const fm = this.fm(f), ci = certEnVigueur(e.rawCerts, f);
       if (!ci) return push('nogo', 'CERTIFICATION', 'Certification requise absente', `${fm.court} — non détenue`);
       // Seule une session à venir vaut recyclage planifié : une session passée non clôturée, non.
-      const recycl = !!ci.session && parse(ci.session.date) < start;
+      // Session sur plusieurs jours : la certification est datée de son dernier jour.
+      const recycl = !!ci.session && parse(finSession(ci.session)) < start;
       if (ci.exp < start) return push(recycl ? 'reserve' : 'nogo', 'CERTIFICATION', recycl ? 'Recyclage planifié avant le démarrage' : 'Certification requise non valide', `${fm.court} — expire le ${fmt(ci.exp)}${recycl ? ', recyclage le ' + fmt(parse(ci.session!.date)) : ''}`);
       if (ci.exp < end) push('reserve', 'CERTIFICATION', 'Certification expirant pendant le chantier', `${fm.court} — expire le ${fmt(ci.exp)}, en cours de chantier`);
     });

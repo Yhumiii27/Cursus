@@ -6,6 +6,7 @@ import { PLAN_LABEL, SESS_CLS, VALIDATION_LABEL } from '../../../shared/constant
 import { sessionActive } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, fmtShort, plural } from '../../../shared/format.ts';
+import { finSession, joursSession, joursTexte, plageCourte, sessionDu, surPlusieursJours } from '../../../shared/rules/plage-session.ts';
 import { convocationEnvoyee, exigeEvaluation, type Inscrit, inscritsDe, listeOrganisme, resultatsDe } from '../../../shared/rules/sessions.ts';
 import { CancelButton, Dialog, Field, Static, SubmitButton } from '../components/Dialog.tsx';
 import { Btn, Empty, Fine, NoteAccent, Tag, Two } from '../components/ui.tsx';
@@ -27,12 +28,14 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
   const fm = d.fm(s.formation);
   const statut = d.sessionStatut(s);
   const ouverte = sessionActive(s);
-  // Clôture possible le jour même ; confirmation tant que la session n'est pas passée.
-  const cloturable = ouverte && s.date <= d.ti;
+  // Clôture possible dès le dernier jour (le jour même pour une session d'une journée) ; confirmation tant que la session
+  // n'a pas commencé.
+  const dernier = finSession(s);
+  const cloturable = ouverte && dernier <= d.ti;
   const inscrits = ouverte ? inscritsDe(d, s) : [];
   const resultats = s.statut === 'Clôturée' ? resultatsDe(d, s) : [];
   const plan = s.planId ? d.ds.plan.find(l => l.id === s.planId) : undefined;
-  const titre = `${fm?.court ?? s.formation} — ${fmt(parse(s.date))}`;
+  const titre = `${fm?.court ?? s.formation} — ${plageCourte(s)}`;
 
   const exporter = () => {
     const l = listeOrganisme(d, s);
@@ -45,8 +48,9 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
     setBusy(false);
     if (r.ok) closeDialog();
   };
-  // Convocations : session à venir seulement (une session passée attend sa clôture). Le dialogue reste ouvert.
-  const aVenir = ouverte && s.date >= d.ti;
+  // Convocations : session à venir, ou en cours jusqu'à son dernier jour (renvoi après un changement des jours restants) ;
+  // une session passée attend sa clôture. Désinscription : session à venir seulement. Le dialogue reste ouvert.
+  const aVenir = ouverte && s.date >= d.ti, convocable = ouverte && dernier >= d.ti;
   const aEnvoyer = inscrits.filter(i => i.convoc !== 'now' && !i.dejaObtenue);
   // Annulation d'une session à venir : les convocations déjà envoyées (même « à renvoyer ») sont annulées par e-mail.
   const convoques = aVenir ? inscrits.filter(convocationEnvoyee).length : 0;
@@ -57,7 +61,7 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
   };
   const convoquer = (i?: Inscrit) => agir('convocation.envoyer', { sessionId: s.id, ...(i ? { empIds: [i.empId] } : {}) });
   // Confirmation (state/confirmations.ts), puis retour au détail de la session.
-  const desinscrire = (i: Inscrit) => openDialog({ type: 'confirmer', c: desinscription({ empId: i.empId, sessionId: s.id }, i.nom, `${fm?.court ?? s.formation} du ${fmt(parse(s.date))}`,
+  const desinscrire = (i: Inscrit) => openDialog({ type: 'confirmer', c: desinscription({ empId: i.empId, sessionId: s.id }, i.nom, `${fm?.court ?? s.formation} ${sessionDu(s)}`,
     { recyclage: i.parcours === 'recyclage', convoque: convocationEnvoyee(i), retour: { type: 'sessionDetail', sessionId: s.id } }) });
 
   if (annulation) {
@@ -66,7 +70,7 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
         <button type="button" className="btn btn-secondary" onClick={() => setAnnulation(false)}>Retour</button>
         <SubmitButton busy={busy}>Annuler la session</SubmitButton>
       </>}>
-        <Field label="Session"><Static>{fm?.nom ?? s.formation} · {fmt(parse(s.date))} · {s.lieu}</Static></Field>
+        <Field label="Session"><Static>{fm?.nom ?? s.formation} · {plageCourte(s)} · {s.lieu}</Static></Field>
         <Field label="Motif (facultatif)" htmlFor="sd-motif">
           <textarea className="input short" id="sd-motif" rows={2} maxLength={500} placeholder="Report par l’organisme, effectif insuffisant…" value={motif} onChange={e => setMotif(e.target.value)} />
         </Field>
@@ -92,16 +96,21 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
       <div className="grid-2">
         <Field label="Formation"><Static>{fm?.nom ?? s.formation}<div className="text-muted sub">{fm?.organisme} · {fm?.duree}</div></Static></Field>
         <Field label="Statut"><Static><Tag cls={SESS_CLS[statut]}>{statut}</Tag></Static></Field>
-        <Field label="Date et lieu"><Static>{fmt(parse(s.date))}<div className="text-muted sub">{s.lieu}</div></Static></Field>
+        <Field label={surPlusieursJours(s) ? 'Dates et lieu' : 'Date et lieu'}><Static>{plageCourte(s)}<div className="text-muted sub">{s.lieu}</div></Static></Field>
         <Field label="Places"><Static>{ouverte ? `${s.inscrits} / ${s.places}` : s.statut === 'Clôturée' ? plural(s.inscrits, 'inscrit', 'inscrits') : `${s.places} (annulée)`}<div className="text-muted sub">Validation : {VALIDATION_LABEL[exigeEvaluation(fm) ? 'evaluation' : 'presence'].toLowerCase()}</div></Static></Field>
       </div>
       {plan && <Fine>Action du plan {plan.exercice} · {plan.equipe} · {plan.periode} · {PLAN_LABEL[plan.statut].toLowerCase()}</Fine>}
+      {(surPlusieursJours(s) || s.horaires.length > 0) && (
+        <Field label={surPlusieursJours(s) ? `Jours de la session (${joursSession(s).length})` : 'Horaires'}>
+          <Static>{joursTexte(s).map(j => <div key={j}>{j}</div>)}</Static>
+        </Field>
+      )}
 
       {ouverte && <>
         <div className="panel-head center">
           <h3 className="section-label">Inscrits</h3>
           <div className="actions-end">
-            {formations && aVenir && aEnvoyer.length > 0 && (
+            {formations && convocable && aEnvoyer.length > 0 && (
               <Btn small variant="secondary" icon={<PaperPlaneTiltIcon size={14} />} disabled={busy} onClick={() => convoquer()}>Envoyer les convocations ({aEnvoyer.length})</Btn>
             )}
             <Btn small icon={<DownloadSimpleIcon size={14} />} onClick={exporter} disabled={!inscrits.length}>Exporter la liste (CSV)</Btn>
@@ -114,7 +123,7 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
         {inscrits.length > 0 ? (
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Collaborateur</th><th>Équipe</th><th>Parcours</th><th>Convocation</th>{formations && aVenir && <th></th>}</tr></thead>
+              <thead><tr><th>Collaborateur</th><th>Équipe</th><th>Parcours</th><th>Convocation</th>{formations && convocable && <th></th>}</tr></thead>
               <tbody>
                 {inscrits.map(i => (
                   <tr key={i.empId}>
@@ -128,11 +137,11 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
                       <Tag cls={i.convoc === 'now' ? 'tag-neutral' : 'tag-outline'}>{i.convoc === 'now' ? 'Envoyée' : i.convocLe ? 'À renvoyer' : 'À envoyer'}</Tag>
                       {i.convocLe && <div className="text-muted sub nowrap">{i.convoc === 'now' ? 'le' : 'envoyée le'} {fmtShort(parse(i.convocLe))}</div>}
                     </td>
-                    {formations && aVenir && (
+                    {formations && convocable && (
                       <td className="right">
                         <div className="actions-end">
                           {!i.dejaObtenue && <Btn small disabled={busy} onClick={() => convoquer(i)}>{convocationEnvoyee(i) ? 'Renvoyer' : 'Envoyer'}</Btn>}
-                          <Btn small disabled={busy} onClick={() => desinscrire(i)}>Désinscrire</Btn>
+                          {aVenir && <Btn small disabled={busy} onClick={() => desinscrire(i)}>Désinscrire</Btn>}
                         </div>
                       </td>
                     )}
@@ -145,7 +154,7 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
         {formations && s.statut === 'À confirmer' && !cloturable && (
           <Fine>Confirmez la session une fois la date validée par {fm?.organisme ?? 'l’organisme'}, et transmettez-lui cette liste (export CSV). Les convocations partent par e-mail aux inscrits, avec le fichier qui ajoute la session à leur agenda.</Fine>
         )}
-        {cloturable && <NoteAccent>{s.date < d.ti ? 'Session passée — à clôturer : présence, résultats et certifications.' : 'Session du jour : clôturez-la une fois terminée.'}</NoteAccent>}
+        {cloturable && <NoteAccent>{dernier < d.ti ? 'Session passée — à clôturer : présence, résultats et certifications.' : surPlusieursJours(s) ? 'Dernier jour de la session : clôturez-la une fois terminée.' : 'Session du jour : clôturez-la une fois terminée.'}</NoteAccent>}
       </>}
 
       {s.statut === 'Clôturée' && <>

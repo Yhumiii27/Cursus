@@ -5,6 +5,7 @@ import type { Domain } from '../domain.ts';
 import type { Absence, AbsenceType, ContratFige, DemiJournee, Employe, FeuilleTemps, ISODate, LigneTemps, ModeHeuresSupFige, SageMode, SagePush, TacheKeystone } from '../types.ts';
 import { absenceBloque, jourHorsContrat, natureDef, natureMedicale } from './absences.ts';
 import { DEMI_LABEL, heuresDemiJournee, moities } from './demi-journees.ts';
+import { lignesFormation } from './formations-temps.ts';
 import { matriculeAffiche } from './matricules.ts';
 import { modeHeuresSup, periodesSemaine, rubriquesPaie, traduireRubriques } from './paie.ts';
 import { alertesRepos, DIMANCHE, derogationDe, estWeekEnd, JOURS_FEUILLE } from './semaine.ts';
@@ -307,14 +308,16 @@ export function tachesDeLaSemaine(d: Domain, empId: number, w: ISODate): TacheKe
 
 /**
  * Lignes proposées à partir des tâches Keystone de la semaine : heures planifiées jour par jour
- * (fériés, absences, jours non travaillés et hors contrat à zéro).
+ * (fériés, absences, jours non travaillés et hors contrat à zéro), puis les heures des sessions de formation.
  */
 export function suggestLines(d: Domain, e: Employe, w: ISODate): LigneTemps[] {
   const wd = joursSemaine(w), off = d.contratOf(e).jourOff, abs = joursAbsence(d, e.id, w);
-  const lignes = tachesDeLaSemaine(d, e.id, w).map(t => ({
+  const lignes = [...tachesDeLaSemaine(d, e.id, w).map(t => ({
     projet: t.projet, tache: t.tache, ks: true,
     h: wd.map((day, i) => isFerie(day) || abs[i] || off.includes(i) || jourHorsContrat(e, day) ? 0 : num(t.heures[day])),
-  }));
+  })),
+  // Heures des sessions de formation (ligne interne INT-FORM, jamais envoyée à Keystone) : shared/rules/formations-temps.ts.
+  ...lignesFormation(d, e, w, abs, off)];
   return plafonnerDemiJournees(d, e, w, lignes);
 }
 

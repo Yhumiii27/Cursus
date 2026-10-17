@@ -277,6 +277,8 @@ export const CHAMP_LABEL: Record<string, string> = {
   coutReel: 'Coût réel', effectifReel: 'Effectif réel',
   // Récapitulatif des échéances (Paramètres → Messagerie) ; annulation d'un déplacement.
   relancesActives: 'Récapitulatif des échéances', relancesPaliers: 'Paliers de relance (jours)', relancesJour: 'Envoi du récapitulatif des échéances',
+  // Formations : heures des sessions dans les feuilles de temps (Paramètres → Formations) ; session sur plusieurs jours.
+  formationsTemps: 'Heures de formation proposées dans les feuilles de temps', jours: 'Jours de la session',
   annuleLe: 'Annulé le', annuleMotif: 'Motif de l’annulation',
   // Semaine à 7 jours (heures du dimanche), activités internes et mandats au CSE (heures de délégation).
   majorationDimanche: 'Majoration des heures du dimanche (%)', role: 'Mandat', credit: 'Crédit d’heures par mois',

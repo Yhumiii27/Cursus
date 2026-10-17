@@ -2,10 +2,11 @@
 // (service RH et référent HSE / formation).
 // Le nombre d'inscrits n'est jamais stocké : il suit les certifications et inscriptions rattachées.
 import { sessionActive } from '../../../shared/domain.ts';
-import { parse } from '../../../shared/dates.ts';
+import { days, isValidDate, parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
 import { refusArchive } from '../../../shared/rules/referentiels.ts';
 import { clotureDe, montantReel } from '../../../shared/rules/exercices.ts';
+import { controlePlage, decalerPlage, finSession, horaireTexte, type Plage, plageTexte, sessionDu } from '../../../shared/rules/plage-session.ts';
 import { controleSession, exigeEvaluation, inscritsDe, placesRemplacees } from '../../../shared/rules/sessions.ts';
 import type { Certification, Inscription, Participation, PlanAction, Session, SessionBilan } from '../../../shared/types.ts';
 import { annulerSiConvoque } from '../notifications.ts';
@@ -19,8 +20,14 @@ function sessionOf(ctx: Ctx, id: unknown, toutes = false): Session {
   return s;
 }
 
-const quand = (s: Pick<Session, 'date'>) => fmt(parse(s.date));
-const nomSession = (ctx: Ctx, s: Session) => `Session ${ctx.d.fm(s.formation)?.court ?? s.formation} du ${quand(s)}`;
+/** Plage contrôlée (controleSession l'a déjà acceptée) : dernier jour, jours, horaires. */
+function plageDe(date: string, v: { fin?: unknown; jours?: unknown; horaires?: unknown }): Plage {
+  const r = controlePlage(date, v);
+  if ('message' in r) throw new ActionError(r.message);
+  return r.plage;
+}
+
+const nomSession = (ctx: Ctx, s: Session) => `Session ${ctx.d.fm(s.formation)?.court ?? s.formation} ${sessionDu(s)}`;
 
 /** Une autre session ouverte rattachée à la même action du plan. */
 const autreSessionDuPlan = (ctx: Ctx, s: Session) => ctx.ds.sessions.some(x => x.id !== s.id && x.planId === s.planId && sessionActive(x));
@@ -34,8 +41,9 @@ const creer: ActionHandler = (ctx, p) => {
   const fm = ctx.d.fm(str(p.f));
   if (!fm) throw new ActionError('Formation inconnue');
   if (fm.archive) throw new ActionError(refusArchive(fm, 'Formation')!);
-  const err = controleSession(ctx.d.ti, { date: p.date, lieu: p.lieu, places: p.places });
+  const err = controleSession(ctx.d.ti, { date: p.date, lieu: p.lieu, places: p.places, fin: p.fin, jours: p.jours, horaires: p.horaires });
   if (err) throw new ActionError(err);
+  const plage = plageDe(p.date, p);
   let plan: PlanAction | undefined;
   if (p.planId != null && p.planId !== '') {
     plan = ctx.ds.plan.find(l => l.id === Number(p.planId));
@@ -45,9 +53,10 @@ const creer: ActionHandler = (ctx, p) => {
     if (clotureDe(ctx.ds, plan.exercice)) throw new ActionError(`Action du plan ${plan.exercice} : exercice clos, il ne se modifie plus`);
   }
   const places = Number(p.places), lieu = str(p.lieu);
-  const s = ctx.db.insert<Session>('sessions', { formation: fm.id, date: p.date, lieu, places, statut: 'À confirmer', planId: plan?.id ?? null, bilan: null });
+  const s = ctx.db.insert<Session>('sessions', { formation: fm.id, date: p.date, ...plage, lieu, places, statut: 'À confirmer', planId: plan?.id ?? null, bilan: null });
   if (plan) ctx.db.update<PlanAction>('planActions', plan.id, { statut: 'engage' });
-  return { message: `Session ${fm.court} créée pour le ${fmt(parse(p.date))} — ${plural(places, 'place', 'places')}${plan ? ' · action du plan engagée' : ''}`, result: { id: s.id } };
+  const pour = plage.fin === p.date ? `pour le ${fmt(parse(p.date))}` : plageTexte({ date: p.date, ...plage });
+  return { message: `Session ${fm.court} créée ${pour} — ${plural(places, 'place', 'places')}${plan ? ' · action du plan engagée' : ''}`, result: { id: s.id } };
 };
 
 /** Confirmation par l'organisme : la liste nominative lui est transmise (affichée et exportée par l'interface). */
@@ -62,21 +71,35 @@ const confirmer: ActionHandler = (ctx, p) => {
 };
 
 /**
- * Date, lieu, places. Une nouvelle date est postérieure à aujourd'hui, sauf pour une session passée, à clôturer,
- * qui se redate au jour où elle a eu lieu ; les places couvrent les inscrits. Une nouvelle date postérieure à
- * un recyclage déjà enregistré libère la place de la certification remplacée (même règle que `cert.ajouter`).
- * Pour une session à venir, un changement de date ou de lieu rend caduques les convocations envoyées (elles
- * repassent « à envoyer »), et une nouvelle date est à faire confirmer par l'organisme (« à confirmer »).
+ * Date (premier jour), plage (dernier jour, jours, horaires), lieu, places. Une nouvelle date est postérieure à
+ * aujourd'hui, sauf pour une session passée, à clôturer, qui se redate au jour où elle a eu lieu ; les places couvrent
+ * les inscrits. Une nouvelle date postérieure à un recyclage déjà enregistré libère la place de la certification
+ * remplacée (même règle que `cert.ajouter`). Pour une session à venir ou en cours, un changement de dates, d'horaires ou de lieu
+ * rend caduques les convocations envoyées (elles repassent « à envoyer »), et de nouvelles dates sont à faire confirmer
+ * par l'organisme (« à confirmer », pour une session pas encore commencée).
  */
 const modifier: ActionHandler = (ctx, p) => {
   requireFormations(ctx);
   const s = sessionOf(ctx, p.id);
-  const v = { date: p.date ?? s.date, lieu: p.lieu ?? s.lieu, places: p.places ?? s.places };
+  // Nouvelle date sans nouvelle plage (fin, jours) : la session garde sa forme, décalée d'autant.
+  const decalee = p.date !== undefined && p.date !== s.date && p.fin === undefined && p.jours === undefined && typeof p.date === 'string' && isValidDate(p.date)
+    ? decalerPlage(s, days(parse(s.date), parse(p.date))) : null;
+  const v = {
+    date: p.date ?? s.date, lieu: p.lieu ?? s.lieu, places: p.places ?? s.places,
+    // Nouveau dernier jour sans les jours : les jours ouvrés de la nouvelle période.
+    fin: p.fin ?? decalee?.fin ?? s.fin, jours: p.jours ?? decalee?.jours ?? (p.fin !== undefined && p.fin !== s.fin ? undefined : s.jours), horaires: p.horaires ?? s.horaires,
+  };
   const err = controleSession(ctx.d.ti, v, { dateActuelle: s.date, inscrits: s.inscrits });
   if (err) throw new ActionError(err);
   const date = String(v.date), lieu = str(v.lieu), places = Number(v.places);
+  const plage = plageDe(date, v);
+  // Plage changée (premier ou dernier jour, jours de la session) : comme une nouvelle date ; horaires changés : comme un
+  // nouveau lieu (convocations à renvoyer, sans nouvelle confirmation de l'organisme).
+  const nouvellePlage = date !== s.date || plage.fin !== finSession(s) || plage.jours.join() !== s.jours.join();
+  const nouveauxHoraires = JSON.stringify(plage.horaires) !== JSON.stringify(s.horaires);
   const changes = [
-    date !== s.date ? `date : ${fmt(parse(date))}` : '',
+    nouvellePlage ? (plage.fin === date ? `date : ${fmt(parse(date))}` : `dates : ${plageTexte({ date, ...plage })}`) : '',
+    nouveauxHoraires ? (plage.horaires.length ? `horaires : ${plage.horaires.length === 1 ? horaireTexte(plage.horaires[0]) : 'par jour'}` : 'sans horaire') : '',
     lieu !== s.lieu ? `lieu : ${lieu}` : '',
     places !== s.places ? plural(places, 'place', 'places') : '',
   ].filter(Boolean);
@@ -86,18 +109,19 @@ const modifier: ActionHandler = (ctx, p) => {
   const liberees = date !== s.date ? placesRemplacees(ctx.d, s.id, date) : [];
   const prevenus = liberees.filter(x => annulerSiConvoque(ctx, s, { id: x.empId, nom: ctx.d.personName(x.empId) }, x.c)).length;
   liberees.forEach(x => ctx.db.update<Certification>('certifications', x.c.id, { sessionId: null, convoc: null, convocLe: null }));
-  // Session passée corrigée après coup : plus de convocation ni de confirmation à demander.
-  const aVenir = date >= ctx.d.ti;
+  // Session passée corrigée après coup : plus de convocation ni de confirmation à demander. Session commencée, pas
+  // finie (jours restants) : convocations à renvoyer, sans nouvelle confirmation (`session.confirmer` la refuse).
+  const aVenir = date >= ctx.d.ti, pasFinie = plage.fin >= ctx.d.ti;
   let aRenvoyer = 0;
-  if (aVenir && (date !== s.date || lieu !== s.lieu)) {
+  if (pasFinie && (nouvellePlage || nouveauxHoraires || lieu !== s.lieu)) {
     for (const x of inscritsDe(ctx.d, s).filter(i => i.convoc === 'now' && !liberees.some(l => l.c.id === i.certId))) {
       if (x.certId) ctx.db.update<Certification>('certifications', x.certId, { convoc: 'later' });
       else ctx.db.update<Inscription>('inscriptions', x.inscriptionId!, { convoc: 'later' });
       aRenvoyer++;
     }
   }
-  const reconfirmer = aVenir && date !== s.date && s.statut === 'Confirmée';
-  ctx.db.update<Session>('sessions', s.id, { date, lieu, places, ...(reconfirmer ? { statut: 'À confirmer' as const } : {}) });
+  const reconfirmer = aVenir && nouvellePlage && s.statut === 'Confirmée';
+  ctx.db.update<Session>('sessions', s.id, { date, ...plage, lieu, places, ...(reconfirmer ? { statut: 'À confirmer' as const } : {}) });
   return [
     `${nomSession(ctx, s)} modifiée — ${changes.join(' · ')}`,
     liberees.length ? `recyclage déjà enregistré avant cette date, ${liberees.length > 1 ? 'places libérées' : 'place libérée'} : ${liberees.map(x => ctx.d.personName(x.empId)).join(', ')}` : '',
@@ -136,8 +160,8 @@ const annuler: ActionHandler = (ctx, p) => {
 interface Decision { empId: number; present: unknown; reussi?: unknown }
 
 /**
- * Clôture d'une session passée (ou du jour). Pour chaque inscrit : présent et, si la formation l'exige,
- * reçu à l'évaluation → certification datée du jour de la session ; absent ou échec → retour à planifier
+ * Clôture d'une session passée (ou de son dernier jour). Pour chaque inscrit : présent et, si la formation l'exige,
+ * reçu à l'évaluation → certification datée du dernier jour de la session ; absent ou échec → retour à planifier
  * (recyclage : certification détachée ; formation initiale : inscription à replanifier). Résultats
  * conservés (participations), action du plan réalisée, évaluation à chaud facultative.
  */
@@ -147,6 +171,9 @@ const cloturer: ActionHandler = (ctx, p) => {
   if (s.statut === 'Clôturée') throw new ActionError('Session déjà clôturée');
   if (s.statut === 'Annulée') throw new ActionError('Session annulée : rien à clôturer');
   if (s.date > ctx.d.ti) throw new ActionError('La session n’a pas encore eu lieu');
+  // Session sur plusieurs jours : clôturée à partir de son dernier jour, qui date les certifications.
+  const dernier = finSession(s);
+  if (dernier > ctx.d.ti) throw new ActionError(`La session dure jusqu’au ${fmt(parse(dernier))} : clôturez-la à partir de son dernier jour`);
   const fm = ctx.d.fm(s.formation);
   const evaluation = exigeEvaluation(fm);
   const note = p.note == null || p.note === '' ? null : Number(p.note);
@@ -174,8 +201,8 @@ const cloturer: ActionHandler = (ctx, p) => {
   for (const l of lignes) {
     let certId = l.i.dejaObtenue?.id ?? null;
     if (!l.i.dejaObtenue && l.ok) {
-      // Certification datée du jour de la session ; la certification renouvelée garde la session (historique).
-      certId = ctx.db.insert<Certification>('certifications', { empId: l.i.empId, f: s.formation, obtenue: s.date, sessionId: null, convoc: null }).id;
+      // Certification datée du dernier jour de la session ; la certification renouvelée garde la session (historique).
+      certId = ctx.db.insert<Certification>('certifications', { empId: l.i.empId, f: s.formation, obtenue: dernier, sessionId: null, convoc: null }).id;
       if (l.i.inscriptionId) ctx.db.remove('inscriptions', l.i.inscriptionId);
       obtenues++;
     } else if (!l.ok) {

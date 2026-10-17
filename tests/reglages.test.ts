@@ -39,6 +39,8 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     relancesActives: true, relancesPaliers: [90, 30, 7], relancesJour: 'quotidien',
     // Santé (lot 5) : 24 mois pour tous, le plus prudent ; examen d'aptitude du suivi renforcé tous les 4 ans.
     santeVipMois: 24, santeVipAdapteeMois: 24, santeSirIntermediaireMois: 24, santeSirAptitudeMois: 48,
+    // Formations (lot 5) : heures des sessions proposées dans les feuilles de temps (ligne interne INT-FORM).
+    formationsTemps: true,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

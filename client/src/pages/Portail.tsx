@@ -6,6 +6,7 @@ import {
 } from '../../../shared/constants.ts';
 import { isoWeek, parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, fmtShort, plural, rel } from '../../../shared/format.ts';
+import { sessionDu } from '../../../shared/rules/plage-session.ts';
 import { matriculeAffiche } from '../../../shared/rules/matricules.ts';
 import { aFaireCollaborateur } from '../../../shared/rules/a-faire.ts';
 import { declarationDetail, formaliteCle } from '../../../shared/rules/formalites.ts';
@@ -128,7 +129,7 @@ export function Portail() {
                   <div className="item-head">
                     <div>
                       <div style={{ fontSize: 14 }}>{fm.nom}</div>
-                      <div className="text-muted sub">{x.etat === 'a_planifier' ? x.motif : `Session du ${fmt(parse(s.date))} · ${s.lieu} · ${fm.organisme}`}</div>
+                      <div className="text-muted sub">{x.etat === 'a_planifier' ? x.motif : `Session ${sessionDu(s)} · ${s.lieu} · ${fm.organisme}`}</div>
                     </div>
                     {x.etat === 'planifiee'
                       ? <Tag cls={SESS_CLS[s.statut]} style={{ flex: 'none' }}>{s.statut}</Tag>
@@ -149,8 +150,8 @@ export function Portail() {
               const avail = upcoming.find(s => s.formation === c.f && s.inscrits < s.places);
               const pend = myReqs.some(r => r.type === 'formation' && r.f === c.f && r.statut === 'attente');
               const convocation = c.convoc === 'now' ? ` · convocation envoyée${c.convocLe ? ` le ${fmtShort(parse(c.convocLe))}` : ''}` : ' · convocation à venir';
-              const info = c.session ? `Inscrit à la session du ${fmt(parse(c.session.date))}${convocation}`
-                : c.sessionPassee ? `Session du ${fmt(parse(c.sessionPassee.date))} passée — présence et résultat en cours d’enregistrement par le service RH`
+              const info = c.session ? `Inscrit à la session ${sessionDu(c.session)}${convocation}`
+                : c.sessionPassee ? `Session ${sessionDu(c.sessionPassee)} passée — présence et résultat en cours d’enregistrement par le service RH`
                 : pend ? 'Demande de recyclage envoyée au service RH' : '';
               return (
                 <div key={c.id} className="list-row stack" style={rowStyle}>

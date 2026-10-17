@@ -4,21 +4,27 @@
 import { sessionActive } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
+import { finSession, sessionDu } from '../../../shared/rules/plage-session.ts';
 import { inscritsDe } from '../../../shared/rules/sessions.ts';
 import type { Certification, Inscription, Session } from '../../../shared/types.ts';
 import { annulerSiConvoque, convoquerFormation } from '../notifications.ts';
 import { ActionError, aDroit, getEmp, isManagerOf, type ActionHandler, type Ctx } from './context.ts';
 
 /** Session ouverte et à venir : seule une telle session reçoit des convocations ou perd des inscrits. */
-function sessionOuverte(ctx: Ctx, id: unknown): Session {
+function sessionOuverte(ctx: Ctx, id: unknown, enCours = false): Session {
   const s = ctx.d.session(Number(id));
   if (!s) throw new ActionError('Session introuvable', 404);
   if (!sessionActive(s)) throw new ActionError(`Session ${s.statut === 'Annulée' ? 'annulée' : 'clôturée'}`);
-  if (s.date < ctx.d.ti) throw new ActionError(`Session du ${fmt(parse(s.date))} passée : ${aDroit(ctx, 'formations') ? 'clôturez-la' : 'le service RH la clôture'} (présence, résultat)`);
+  // Session sur plusieurs jours commencée : plus de désinscription, elle se clôt à partir de son dernier jour ; les
+  // convocations (`enCours`) se renvoient encore jusqu'à ce jour-là, après un changement des jours restants.
+  if (s.date < ctx.d.ti && !(enCours && finSession(s) >= ctx.d.ti)) {
+    const etat = finSession(s) >= ctx.d.ti ? `en cours jusqu’au ${fmt(parse(finSession(s)))}` : 'passée';
+    throw new ActionError(`Session du ${fmt(parse(s.date))} ${etat} : ${aDroit(ctx, 'formations') ? 'clôturez-la' : 'le service RH la clôture'} (présence, résultat)`);
+  }
   return s;
 }
 
-const nomSession = (ctx: Ctx, s: Session) => `session ${ctx.d.fm(s.formation)?.court ?? s.formation} du ${fmt(parse(s.date))}`;
+const nomSession = (ctx: Ctx, s: Session) => `session ${ctx.d.fm(s.formation)?.court ?? s.formation} ${sessionDu(s)}`;
 
 /**
  * Envoi des convocations d'une session : celles des inscrits désignés (`empIds`, un renvoi est possible), sinon
@@ -26,7 +32,7 @@ const nomSession = (ctx: Ctx, s: Session) => `session ${ctx.d.fm(s.formation)?.c
  * e-mail est noté convoqué : sa convocation est à lui remettre en main propre.
  */
 const envoyer: ActionHandler = (ctx, p) => {
-  const s = sessionOuverte(ctx, p.sessionId);
+  const s = sessionOuverte(ctx, p.sessionId, true);
   const liste = Array.isArray(p.empIds) ? new Set(p.empIds.map(Number)) : null;
   // Un recyclage déjà enregistré depuis n'appelle plus de convocation.
   let inscrits = inscritsDe(ctx.d, s).filter(i => !i.dejaObtenue && (liste ? liste.has(i.empId) : i.convoc !== 'now'));

@@ -120,6 +120,12 @@ une adresse, si l'application n'est pas entièrement désignée (locataire, ID d
 variables `CURSUS_MAIL_*` ou `CURSUS_OIDC_*`), si le locataire n'est pas un GUID, ou si des variables
 `CURSUS_MAIL_*` sont définies sans `CURSUS_MAIL_FROM` (les e-mails resteraient simulés sans qu'on s'en aperçoive).
 
+**Variables dans Coolify** (installation en conteneur, README.md, « Mise en ligne ») : les mêmes variables se saisissent
+dans l'onglet « Environment Variables » de l'application, `CURSUS_MAIL_CLIENT_SECRET` cochée comme secrète (« Is
+Literal » aussi si la valeur contient un `$`), puis « Redeploy ». Un problème de configuration apparaît dans l'onglet
+« Logs » en ligne JSON de niveau `erreur`, et le conteneur s'arrête (déploiement en échec) ; un envoi en échec se suit
+dans Paramètres → Envois (« Suivi et incidents »).
+
 **Réseau** : la machine de Cursus doit joindre en HTTPS (443, sortant) `login.microsoftonline.com` et
 `graph.microsoft.com`.
 

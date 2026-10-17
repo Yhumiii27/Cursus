@@ -92,14 +92,15 @@ test('repos hebdomadaire et dominical : alertes sans blocage, dérogation de l�
 test('heures du dimanche en paie : HDIM, majoration MAJ_DIM figée à la validation, ventilation jour par jour', () => {
   const { db, run, domain, user, RH } = fresh();
   const d = domain(), e = d.emp(1)!;
-  assert.deepEqual(sageRubriques(d, e, feuille([7, 7, 7, 7, 7, 0, 4])), { HN: 35, HS25: 4, HDIM: 4 });
-  assert.deepEqual(sageRubriques(d, e, feuille([7, 7, 7, 7, 7, 0, 4], { majDimanche: 50 })), { HN: 35, HS25: 4, HDIM: 4, MAJ_DIM: 2 });
+  // Le dimanche 1er novembre 2026 est aussi la Toussaint : ses heures partent en plus dans FERIE_TRAV (shared/rules/majorations.ts).
+  assert.deepEqual(sageRubriques(d, e, feuille([7, 7, 7, 7, 7, 0, 4])), { HN: 35, HS25: 4, HDIM: 4, FERIE_TRAV: 4 });
+  assert.deepEqual(sageRubriques(d, e, feuille([7, 7, 7, 7, 7, 0, 4], { majDimanche: 50 })), { HN: 35, HS25: 4, HDIM: 4, MAJ_DIM: 2, FERIE_TRAV: 4 });
   // Forfait jours : décompte en jours, samedi compris ; forfait annuel : HN et HDIM.
   assert.deepEqual(sageRubriques(d, { ...e, temps: 'forfait_jours', statut: 'cadre', forfaitJours: 218 }, feuille([8, 8, 8, 8, 8, 8, 0])), { JTRAV: 6 });
-  assert.deepEqual(sageRubriques(d, { ...e, temps: 'forfait_heures_annuel', statut: 'cadre', forfaitHeures: 1607 }, feuille([7, 7, 7, 7, 7, 0, 3])), { HN: 38, HDIM: 3 });
+  assert.deepEqual(sageRubriques(d, { ...e, temps: 'forfait_heures_annuel', statut: 'cadre', forfaitHeures: 1607 }, feuille([7, 7, 7, 7, 7, 0, 3])), { HN: 38, HDIM: 3, FERIE_TRAV: 3 });
   // Semaine du 26 octobre ventilée jour par jour : le dimanche 1er novembre part en novembre, avec son rang.
   const parts = rubriquesParPeriode(new Domain({ ...d.ds, settings: { ...d.ds.settings, periodeRattachement: 'jour' } }), e, feuille([8, 8, 8, 8, 7, 2, 4]));
-  assert.deepEqual(parts.map(p => [p.periode, p.rubriques]), [['2026-10', { HN: 35, HS25: 6 }], ['2026-11', { HN: 0, HS25: 2, HS50: 2, HDIM: 4 }]]);
+  assert.deepEqual(parts.map(p => [p.periode, p.rubriques]), [['2026-10', { HN: 35, HS25: 6 }], ['2026-11', { HN: 0, HS25: 2, HS50: 2, HDIM: 4, FERIE_TRAV: 4 }]]);
 
   // Saisie : samedi et dimanche acceptés, au-delà refusé ; la majoration réglée est figée à la validation.
   const CAMILLE = user(1, 'collaborateur'), HUGO = user(16, 'manager');

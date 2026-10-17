@@ -55,7 +55,10 @@ export interface JourFeuille {
   label: string; long: string;
   /** Férié, absence, jour non travaillé, mission… ; « — » sinon. `hl` : à signaler (mission, heures à retirer). */
   note: string; hl: boolean;
-  /** Aucune heure ce jour-là (férié, absence, hors contrat) : un champ déjà rempli reste modifiable pour être vidé. */
+  /**
+   * Aucune heure ce jour-là (absence, hors contrat, férié quand le réglage l'interdit) : un champ déjà rempli reste modifiable
+   * pour être vidé. Un férié saisissable porte la mention « Férié travaillé ».
+   */
   locked: boolean;
   /** Samedi ou dimanche : grisé, normalement non travaillé, saisissable (chantier, déplacement, impératif). */
   weekend?: boolean;

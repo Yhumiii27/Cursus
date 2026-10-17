@@ -381,7 +381,7 @@ export const TEMPS_TRAVAIL: Record<TempsTravail, TempsDef> = {
   forfait_heures_hebdo: { label: 'Forfait hebdomadaire en heures', court: 'Forfait heures (semaine)', aide: 'Durée convenue au-delà de 35 h : les heures supplémentaires incluses sont majorées dans la rémunération ; heures supplémentaires au-delà du forfait.', article: 'Art. L3121-56' },
   forfait_heures_annuel: { label: 'Forfait annuel en heures', court: 'Forfait heures (année)', aide: 'Durée annuelle convenue (1 607 h pour un temps plein) : pas de décompte hebdomadaire, les heures au-delà du forfait sont régularisées en fin d’année.', article: 'Art. L3121-56' },
   forfait_jours: { label: 'Forfait annuel en jours', court: 'Forfait jours', aide: 'Décompte en jours travaillés (218 au plus), jours de repos calculés chaque année, entretien annuel obligatoire sur la charge de travail.', article: 'Art. L3121-58 et L3121-64' },
-  partiel: { label: 'Temps partiel', court: 'Temps partiel', aide: 'Durée hebdomadaire inférieure à 35 h ; heures complémentaires majorées de 10 % puis 25 %, dans la limite du tiers de la durée prévue.', article: 'Art. L3123-1' },
+  partiel: { label: 'Temps partiel', court: 'Temps partiel', aide: 'Durée hebdomadaire inférieure à 35 h ; heures complémentaires majorées de 10 % jusqu’au dixième de la durée prévue, puis de 25 % ; dans la limite du dixième, ou du tiers si un accord collectif le prévoit (Paramètres → Décompte des heures).', article: 'Art. L3123-1' },
   dirigeant: { label: 'Cadre dirigeant', court: 'Cadre dirigeant', aide: 'Non soumis à la réglementation de la durée du travail : ni heures supplémentaires, ni RTT, ni décompte en jours.', article: 'Art. L3111-2' },
 };
 
@@ -407,6 +407,13 @@ export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubriqu
   // pour la paie), et leur majoration si le réglage `majorationDimanche` en prévoit une (heures équivalentes).
   HDIM: { label: 'Heures travaillées le dimanche (comprises dans les heures ci-dessus)', unite: 'h' },
   MAJ_DIM: { label: 'Majoration des heures du dimanche (heures équivalentes)', unite: 'h' },
+  // Jours fériés travaillés (shared/rules/majorations.ts) : 1er mai majoré de 100 % (art. L3133-6, heures équivalentes) ;
+  // autres fériés en quantité, et leur majoration si le réglage `tauxMajorationFerie` en prévoit une.
+  MAJ_1MAI: { label: 'Majoration du 1er mai travaillé, 100 % (heures équivalentes)', unite: 'h' },
+  FERIE_TRAV: { label: 'Heures travaillées un jour férié, hors 1er mai (comprises dans les heures ci-dessus)', unite: 'h' },
+  MAJ_FERIE: { label: 'Majoration des heures d’un jour férié (heures équivalentes)', unite: 'h' },
+  // Contrepartie obligatoire en repos des heures supplémentaires au-delà du contingent annuel (shared/rules/durees.ts).
+  COR_ACQUIS: { label: 'Contrepartie obligatoire en repos acquise (au-delà du contingent)', unite: 'h' },
 };
 
 /** Sections d'un compte rendu : [clé, libellé, rédacteur] — 'mgr' évaluateur, 'sal' salarié. */

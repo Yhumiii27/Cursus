@@ -3,14 +3,14 @@
 // annulé avant elle). Partagé par les actions (server/src/actions/paie.ts), le téléchargement
 // (server/src/fichier-paie.ts) et l'écran Temps (client/src/components/LotsPaie.tsx).
 // Périmètre du fichier : heures validées de la semaine du lundi au dimanche (semaine à 7 jours, heures du dimanche aussi
-// en HDIM) ; absences, déplacements et nuit restent saisis dans Sage (PERIMETRE_FICHIER, repris par l'écran, la
-// confirmation et la procédure).
+// en HDIM, fériés en MAJ_1MAI et FERIE_TRAV, contrepartie en repos en COR_ACQUIS) ; absences, déplacements et nuit
+// restent saisis dans Sage (PERIMETRE_FICHIER, repris par l'écran, la confirmation et la procédure).
 import { encoderTexte } from '../encodage.ts';
 import type { ColonneFichierPaie, FeuilleTemps, FormatFichierPaie, ISODate, LotPaie, SagePush, Settings, StatutLotPaie } from '../types.ts';
 import { periodesSemaine, type RubriqueVue } from './paie.ts';
 
 /** Ce que le fichier contient, et ce qu'il ne contient pas (écran, confirmation, docs/DEPLOIEMENT.md). */
-export const PERIMETRE_FICHIER = 'Heures validées de la semaine, samedi et dimanche compris (heures du dimanche aussi en HDIM) : absences, déplacements et heures de nuit restent saisis dans Sage.';
+export const PERIMETRE_FICHIER = 'Heures validées de la semaine, samedi et dimanche compris (heures du dimanche aussi en HDIM, des jours fériés en MAJ_1MAI ou FERIE_TRAV ; contrepartie obligatoire en repos en COR_ACQUIS) : absences, déplacements et heures de nuit restent saisis dans Sage.';
 
 export const STATUTS_LOT: Record<StatutLotPaie, { label: string; cls: string }> = {
   genere: { label: 'Import à confirmer', cls: 'tag-accent' },

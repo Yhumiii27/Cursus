@@ -11,22 +11,27 @@
 // Semaine à 7 jours (shared/rules/semaine.ts) : samedi et dimanche grisés et repliés tant qu'ils sont vides, saisissables
 // pour un chantier, un déplacement ou un impératif ; repos hebdomadaire et dominical signalés en alerte, sans blocage,
 // et repris pour le service RH après validation (components/ReposAVerifier.tsx).
+// Jours fériés (shared/rules/majorations.ts) : saisissables si le réglage le permet, mention « Férié travaillé » et
+// majoration (1er mai : 100 %) au récapitulatif. Moyenne sur 12 semaines, temps partiel à requalifier et contingent annuel
+// (shared/rules/durees.ts) : alertes sur la feuille et, pour le service RH, dans un encart (components/AlertesDurees.tsx).
 import { useState, type MouseEvent } from 'react';
 import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
 import { ABS_ABREGE, TEMPS_TRAVAIL, TS_CLS, TS_LABEL } from '../../../shared/constants.ts';
 import type { Domain } from '../../../shared/domain.ts';
-import { addD, isFerie, isoWeek, isoWeekYear, joursSemaine, mondayOf, parse } from '../../../shared/dates.ts';
+import { addD, isoWeek, isoWeekYear, joursSemaine, mondayOf, parse } from '../../../shared/dates.ts';
 import { DIMANCHE, estWeekEnd, SAMEDI } from '../../../shared/rules/semaine.ts';
 import { cap, equipeLabel, fH, fJ, fmt, fmtShort, key, num, plural } from '../../../shared/format.ts';
 import { jourHorsContrat, semaineHorsContrat } from '../../../shared/rules/absences.ts';
 import { DEMI_LABEL } from '../../../shared/rules/demi-journees.ts';
 import {
-  absenceCeJour, calcSheet, cumulAnnuel, demandesAbsence, demiJoursAbsence, demiJourneeTexte, demandesEnAttenteMessage, employeDeLaFeuille, heuresSurAbsence,
+  absenceCeJour, calcSheet, corDeLaFeuille, cumulAnnuel, demandesAbsence, demiJoursAbsence, demiJourneeTexte, demandesEnAttenteMessage, employeDeLaFeuille, heuresSurAbsence,
   heuresSurAbsenceMessage, heuresSurDemandes, joursAbsence,
   joursAbsenceTexte, natureAbsence, semaineCouverte, tachesDeLaSemaine, type SheetCalc,
 } from '../../../shared/rules/temps.ts';
 import { formationsAProposer } from '../../../shared/rules/formations-temps.ts';
 import { MODES_HEURES_SUP } from '../../../shared/rules/paie.ts';
+import { feriesDeLaSemaine, MAJORATION_1ER_MAI, mentionFerie, plafondComplementaires } from '../../../shared/rules/majorations.ts';
+import { contingentAnnuel, contingentTexte, moyenne12Semaines, moyenneTexte, requalificationPartiel, requalificationTexte } from '../../../shared/rules/durees.ts';
 import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
 import { CloseButton, Fine, Page, Panel, stop, Tag, Two } from '../components/ui.tsx';
 import { Ouvrir } from '../components/Cliquable.tsx';
@@ -42,6 +47,7 @@ import { RelevesPanel } from './Releves.tsx';
 import { ChampHeures, SaisieJour, useVueJour } from './SaisieJour.tsx';
 import { CompteurDelegation } from '../components/Delegation.tsx';
 import { ReposAVerifier } from '../components/ReposAVerifier.tsx';
+import { AlertesDurees } from '../components/AlertesDurees.tsx';
 
 /** Année d'une feuille : celle de sa semaine ISO (son jeudi) ; le cumul annuel ventile une semaine à cheval jour par jour. */
 const anneeDe = (week: ISODate) => isoWeekYear(week);
@@ -78,9 +84,10 @@ interface Recap { rows: [string, string][]; mention?: string; alert?: string; ai
 
 /**
  * Récapitulatif paie de la semaine et texte explicatif, selon l'organisation du temps de la feuille.
- * `emp` est le collaborateur tel qu'il était la semaine de la feuille (`employeDeLaFeuille`).
+ * `emp` est le collaborateur tel qu'il était la semaine de la feuille (`employeDeLaFeuille`) ; `sh` : la feuille
+ * (contrepartie obligatoire en repos figée à sa validation).
  */
-function recapOf(d: Domain, emp: Employe, calc: SheetCalc, week: ISODate): Recap {
+function recapOf(d: Domain, emp: Employe, calc: SheetCalc, week: ISODate, sh: FeuilleTemps | null): Recap {
   const c = calc.c, tt = TEMPS_TRAVAIL[c.temps];
   const art = tt.article ? ` ${tt.article}.` : '';
   // Heures supplémentaires payées, ou remplacées par un repos (mode figé sur la feuille à sa validation) : la ligne du
@@ -90,9 +97,21 @@ function recapOf(d: Domain, emp: Employe, calc: SheetCalc, week: ISODate): Recap
   const recupAide = c.interim
     ? ' Intérim : heures supplémentaires relevées et réglées par l’agence.'
     : ` ${MODES_HEURES_SUP[calc.modeHS].aide}`;
-  // Heures du dimanche (comprises dans les autres) : rubrique HDIM, et majoration si le réglage en prévoit une.
-  const dimancheRows: [string, string][] = !calc.dimanche || c.forfait ? []
+  // Lignes ajoutées au décompte : heures du dimanche (comprises dans les autres) : rubrique HDIM, et majoration si le
+  // réglage en prévoit une.
+  const annexes: [string, string][] = !calc.dimanche || c.forfait ? []
     : [['Dont heures du dimanche', fH(calc.dimanche)], ...(calc.majDimanche ? [[`Majoration du dimanche (${calc.majDimanche} %)`, fH(calc.dimanche * calc.majDimanche / 100)] as [string, string]] : [])];
+  // Jours fériés travaillés (comprises dans les autres) : 1er mai majoré de 100 % (MAJ_1MAI), autres fériés en quantité
+  // (FERIE_TRAV) et leur majoration réglée (MAJ_FERIE). Contrepartie obligatoire en repos figée à la validation (COR_ACQUIS).
+  const cor = corDeLaFeuille(sh);
+  if (!c.forfait) {
+    if (calc.mai1) annexes.push(['Dont heures du 1er mai', fH(calc.mai1)], [`Majoration du 1er mai (${MAJORATION_1ER_MAI} %)`, fH(calc.mai1 * MAJORATION_1ER_MAI / 100)]);
+    if (calc.ferie) annexes.push(['Dont heures un jour férié', fH(calc.ferie)], ...(calc.majFerie ? [[`Majoration des fériés (${calc.majFerie} %)`, fH(calc.ferie * calc.majFerie / 100)] as [string, string]] : []));
+    if (cor) annexes.push(['Contrepartie obligatoire en repos', fH(cor)]);
+  }
+  // Contingent annuel d'heures supplémentaires de l'année de la feuille (feuilles validées).
+  const k = c.forfait || c.dirigeant || c.annuel || c.partiel || c.interim ? null : contingentAnnuel(d, emp, Number(joursSemaine(week)[DIMANCHE].slice(0, 4)));
+  if (k) annexes.push([`Contingent ${k.annee} (heures sup validées)`, `${fH(k.cumul)} / ${fH(k.max)}`]);
 
   if (c.forfait) return {
     rows: [['Jours travaillés', fJ(calc.jours)], ['Heures déclarées (répartition projets)', fH(calc.total)]],
@@ -108,7 +127,7 @@ function recapOf(d: Domain, emp: Employe, calc: SheetCalc, week: ISODate): Recap
     const cum = cumulAnnuel(d, emp, anneeDe(week));
     const rows: [string, string][] = [
       ['Heures de la semaine', fH(calc.total)],
-      ...dimancheRows,
+      ...annexes,
       [`Cumul annuel validé ${cum.annee}`, `${fH(cum.done)} / ${fH(cum.cible)}`],
     ];
     if (cum.cible !== c.heuresAnnuelles) rows.push([`Forfait ${cum.annee} au prorata de la présence`, `${fH(cum.cible)} sur ${fH(c.heuresAnnuelles)}`]);
@@ -119,19 +138,23 @@ function recapOf(d: Domain, emp: Employe, calc: SheetCalc, week: ISODate): Recap
       aide: tt.aide + art,
     };
   }
-  if (c.partiel) return {
-    rows: [['Heures contractuelles', fH(Math.min(calc.total, c.base))], ['Complémentaires +10 %', fH(calc.hc10)], ['Complémentaires +25 %', fH(calc.hc25)], ...dimancheRows],
-    aide: tt.aide + art,
-  };
+  if (c.partiel) {
+    // Plafond réglé : le dixième, ou le tiers avec la référence d'un accord (Paramètres → Paie).
+    const p = plafondComplementaires(d.ds.settings);
+    return {
+      rows: [['Heures contractuelles', fH(Math.min(calc.total, c.base))], ['Complémentaires +10 %', fH(calc.hc10)], ['Complémentaires +25 %', fH(calc.hc25)], ...annexes],
+      aide: `${tt.aide} Plafond en vigueur : le ${p.label} de la durée contractuelle, soit ${fH(c.base / p.diviseur)} cette semaine (${p.article}).${art}`,
+    };
+  }
   if (c.hebdo) {
     // Heures incluses au forfait : +25 % jusqu'à la 43e heure, +50 % au-delà (forfait supérieur à 43 h).
     const rows: [string, string][] = [['Heures normales (jusqu’à 35 h)', fH(calc.normal)], ['Incluses au forfait +25 %', fH(calc.incluses25)]];
     if ((c.seuil ?? 0) > 43 || calc.incluses50 > 0) rows.push(['Incluses au forfait +50 %', fH(calc.incluses50)]);
-    rows.push(['Supplémentaires +25 %', fH(calc.sup25)], ['Supplémentaires +50 %', fH(calc.sup50)], ...recupRows, ...dimancheRows);
+    rows.push(['Supplémentaires +25 %', fH(calc.sup25)], ['Supplémentaires +50 %', fH(calc.sup50)], ...recupRows, ...annexes);
     return { rows, aide: tt.aide + recupAide + art };
   }
   return {
-    rows: [['Heures normales', fH(calc.normal)], ['Supplémentaires +25 %', fH(calc.sup25)], ['Supplémentaires +50 %', fH(calc.sup50)], ...recupRows, ...dimancheRows],
+    rows: [['Heures normales', fH(calc.normal)], ['Supplémentaires +25 %', fH(calc.sup25)], ['Supplémentaires +50 %', fH(calc.sup50)], ...recupRows, ...annexes],
     aide: tt.aide + recupAide + art,
   };
 }
@@ -211,6 +234,8 @@ export function Temps() {
 
       {espaceRh && <ReposAVerifier />}
 
+      {espaceRh && <AlertesDurees />}
+
       {tsEmp && <AlerteAutorisation e={tsEmp} />}
       {tsEmp && <Sheet key={`${tsEmp.id}|${wk}`} emp={tsEmp} wk={wk} />}
 
@@ -273,13 +298,15 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const couverte = semaineCouverte(d, emp, wk, sh);
   // Soumise sans heure, la semaine n'est plus couverte (absence annulée ou raccourcie) : à renvoyer, pas à valider.
   const plusCouverte = st === 'soumise' && !(calc.total > 0) && !couverte;
+  // Jours fériés : saisissables si le réglage le permet (par défaut), mention « Férié travaillé » quand des heures y sont.
+  const feries = feriesDeLaSemaine(wk), ferieBloque = data.settings.feriesTravaillesAutorises === false;
   const days = wdays.map((day, i) => {
-    const a = absences[i], dem = demandeJours[i] ?? demandeDemis[i]?.absence, demDemi = demandeJours[i] ? null : demandeDemis[i]?.demi, off = c.jourOff.includes(i), fer = isFerie(day), hors = !!jourHorsContrat(emp, day);
+    const a = absences[i], dem = demandeJours[i] ?? demandeDemis[i]?.absence, demDemi = demandeJours[i] ? null : demandeDemis[i]?.demi, off = c.jourOff.includes(i), fer = feries[i], hors = !!jourHorsContrat(emp, day);
     const m = data.missions.find(x => x.empId === emp.id && x.du <= day && x.au >= day);
     return {
-      day, a, locked: fer || !!a || hors, hl: (!!m && !fer && !a) || [...surAbsence, ...enAttente].some(x => x.di === i),
+      day, a, locked: (!!fer && ferieBloque) || !!a || hors, hl: (!!m && !fer && !a) || (!!fer && calc.perDay[i] > 0) || [...surAbsence, ...enAttente].some(x => x.di === i),
       label: cap(parse(day).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })), long: jourLong(day), weekend: estWeekEnd(i),
-      note: fer ? 'Férié' : hors ? 'Hors contrat'
+      note: fer ? mentionFerie(fer, calc.perDay[i], calc.majFerie) : hors ? 'Hors contrat'
         : a ? `${ABS_ABREGE[a.type]}${a.statut === 'signalee' ? ' (signalée)' : ''}`
         : demis[i] ? `${ABS_ABREGE[demis[i].absence.type]} ${DEMI_LABEL[demis[i].demi]} · ${fH(demis[i].max)} max.`
         : dem ? `${cap(natureAbsence(dem.type))}${demDemi ? ` ${DEMI_LABEL[demDemi]}` : ''} demandé${dem.type === 'RECUP' ? 'e' : ''}` : off ? 'Non travaillé' : m ? `Mission ${m.projet}` : estWeekEnd(i) ? 'Week-end' : '—',
@@ -313,7 +340,15 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const canSuggest = editable && !correction && (keystone || formations);
   const missions = data.missions.filter(m => m.empId === emp.id && m.du <= wdays[DIMANCHE] && m.au >= wdays[0]);
 
-  const recap = recapOf(d, empF, calc, wk);
+  const recap = recapOf(d, empF, calc, wk, sh);
+  // Durées sur plusieurs semaines (feuilles validées, jusqu'à cette semaine) : alertes, sans blocage.
+  const moyenne = moyenne12Semaines(d, emp, wk), requalification = requalificationPartiel(d, emp, wk);
+  const contingent = contingentAnnuel(d, emp, Number(wdays[DIMANCHE].slice(0, 4)));
+  const alertesDurees = [
+    moyenne?.depasse ? moyenneTexte(moyenne) : '',
+    requalification?.depasse ? requalificationTexte(requalification) : '',
+    contingent?.etat ? contingentTexte(contingent) : '',
+  ].filter(Boolean);
   const rowStyle = { display: 'flex', justifyContent: 'space-between', gap: 'var(--space-3)', fontSize: 13, padding: 'var(--space-2) 0', background: 'var(--rule-soft) no-repeat bottom / 100% 1px' } as const;
 
   // Intérimaire : relevé hebdomadaire à l'agence (le service RH voit s'il a été transmis).
@@ -444,9 +479,9 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
         )}
         {enAttente.length > 0 && st !== 'validee' && <div className="note-accent">{demandesEnAttenteMessage(enAttente, canValidate)}</div>}
         {plusCouverte && <div className="note-accent">Aucune heure et la semaine n’est plus couverte par une absence : renvoyez la feuille pour saisie des heures.</div>}
-        {calc.warn.length > 0 && (
+        {calc.warn.length + alertesDurees.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
-            {calc.warn.map(w => <div key={w} className="note-accent">{w}</div>)}
+            {[...calc.warn, ...alertesDurees].map(w => <div key={w} className="note-accent">{w}</div>)}
           </div>
         )}
         {depasse && editable && !correction && (

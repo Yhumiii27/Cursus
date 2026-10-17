@@ -1,15 +1,17 @@
 // Feuilles de temps : saisie, soumission, validation, transmission à Sage Paie (lots de paie : actions/paie.ts).
-import { addD, isValidDate, isoWeek, joursSemaine, mondayOf } from '../../../shared/dates.ts';
+import { addD, isFerie, isValidDate, isoWeek, joursSemaine, mondayOf } from '../../../shared/dates.ts';
 import { fH, num, plural } from '../../../shared/format.ts';
 import { fusionProposition } from '../../../shared/rules/formations-temps.ts';
 import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
 import { jourHorsContrat, semaineHorsContrat } from '../../../shared/rules/absences.ts';
 import {
-  absenceCeJour, calcSheet, contratFige, demandesEnAttenteMessage, demiJourneeRefus, HEURES_JOUR_MAX, heuresSurAbsence,
+  absenceCeJour, calcSheet, contratFige, corDeLaFeuille, demandesEnAttenteMessage, demiJourneeRefus, HEURES_JOUR_MAX, heuresSurAbsence,
   heuresSurAbsenceMessage, heuresSurDemandes, joursAbsence, joursAuDela24, joursTexte, semaineCouverte, suggestLines,
 } from '../../../shared/rules/temps.ts';
 import { estActiviteInterne } from '../../../shared/rules/activites.ts';
 import { completerSemaine, JOURS_FEUILLE } from '../../../shared/rules/semaine.ts';
+import { ferieRefus } from '../../../shared/rules/majorations.ts';
+import { alertesValidation, corAValider } from '../../../shared/rules/durees.ts';
 import type { Employe, FeuilleTemps, LigneTemps } from '../../../shared/types.ts';
 import { heuresKeystone, sendToKeystone } from '../integrations/keystone.ts';
 import { notifierFeuilleRenvoyee, notifierFeuilleSoumise } from '../notifications.ts';
@@ -69,6 +71,8 @@ function saveLines(ctx: Ctx, sh: FeuilleTemps, lignes: LigneTemps[]) {
 /**
  * Saisie d'une cellule : `di` de 0 (lundi) à 6 (dimanche). Le samedi et le dimanche, grisés dans la feuille, se saisissent
  * comme les autres jours (chantier, déplacement, impératif) ; le repos hebdomadaire est signalé sur la feuille, sans blocage.
+ * Un jour férié se saisit si le réglage `feriesTravaillesAutorises` le permet (par défaut) : heures repérées et majorées
+ * (shared/rules/majorations.ts), saisie tracée au journal (`temps.ferie`, server/src/journal.ts).
  */
 const setCell: ActionHandler = (ctx, p) => {
   const { emp, sh } = editable(ctx, p);
@@ -80,6 +84,8 @@ const setCell: ActionHandler = (ctx, p) => {
   if (v > 0 && abs) throw new ActionError(`${absenceCeJour(abs)} : aucune heure ne peut être saisie`);
   const hors = v > 0 ? jourHorsContrat(emp, addD(sh.week, di)) : null;
   if (hors) throw new ActionError(`Hors contrat ce jour-là (${hors}) : aucune heure ne peut être saisie`);
+  const ferie = v > 0 && isFerie(addD(sh.week, di)) ? ferieRefus(ctx.ds.settings) : null;
+  if (ferie) throw new ActionError(ferie);
   // Ligne enregistrée avant la semaine à 7 jours (5 valeurs) : complétée d'un samedi et d'un dimanche vides.
   const lignes = sh.lignes.map((l, i) => i === li ? { ...l, h: completerSemaine(l.h).map((x, j) => j === di ? v : x) } : l);
   // Deux lignes de 20 h le même jour ne font pas une journée : 24 h au plus, toutes lignes cumulées (baisser une cellule
@@ -195,15 +201,23 @@ const validate: ActionHandler = (ctx, p) => {
   const projets = heuresKeystone(sh.lignes), keystone = Object.keys(projets).length > 0;
   // Mode des heures supplémentaires (payées ou en repos) figé à la validation, comme le régime à la soumission :
   // un changement ultérieur du réglage ne recalcule ni la paie ni le repos acquis de cette semaine. De même pour la
-  // majoration des heures du dimanche.
+  // majoration des heures du dimanche et des jours fériés.
   const heuresSup = sh.heuresSup ?? ctx.ds.settings.heuresSupMode;
   const majDimanche = sh.majDimanche ?? ctx.ds.settings.majorationDimanche;
-  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif, heuresSup, majDimanche });
+  const majFerie = sh.majFerie ?? ctx.ds.settings.tauxMajorationFerie;
+  // Contrepartie obligatoire en repos au-delà du contingent (shared/rules/durees.ts) : COR de l'année recalculée sur toutes
+  // les feuilles validées, moins celle déjà figée sur les autres ; l'écart est porté par cette feuille.
+  const validee: FeuilleTemps = { ...sh, statut: 'validee', contrat, heuresSup, majDimanche, majFerie };
+  const cor = corAValider(ctx.d, emp, validee);
+  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif, heuresSup, majDimanche, majFerie, cor });
+  // Seuils franchis par cette feuille (moyenne sur 12 semaines, temps partiel, contingent) : signalés, sans blocage.
+  const autres = ctx.ds.feuilles.filter(f => f.empId === emp.id && f.statut === 'validee' && f.id !== sh.id);
+  const alertes = alertesValidation(ctx.d, emp, autres, [...autres, { ...validee, cor }], sh.week, corDeLaFeuille({ cor }));
 
   if (keystone) sendToKeystone(ctx.db, { type: 'heures.validees', matricule: identifiantKeystone(ctx.ds.settings.identifiantKeystone, emp), semaine: sh.week, projets });
   // Intérimaire : la dernière feuille validée d'une semaine révolue fait partir le relevé de son agence.
   const releve = emp.typeContrat === 'interim' && emp.agence ? relevesAutomatiques(ctx.db, { agence: emp.agence, semaine: sh.week }).length > 0 : false;
-  return `Semaine ${isoWeek(sh.week)} validée${keystone ? ' — heures des projets Keystone renvoyées à Keystone' : ''}${releve ? ` · relevé d’heures envoyé à l’agence ${emp.agence}` : ''}`;
+  return `Semaine ${isoWeek(sh.week)} validée${keystone ? ' — heures des projets Keystone renvoyées à Keystone' : ''}${releve ? ` · relevé d’heures envoyé à l’agence ${emp.agence}` : ''}${alertes.map(a => ` · ${a}`).join('')}`;
 };
 
 const reject: ActionHandler = (ctx, p) => {

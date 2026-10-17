@@ -10,6 +10,7 @@ import { MessageriePanel } from '../Messagerie.tsx';
 import type { SectionProps } from './commun.ts';
 import { Conges } from './Conges.tsx';
 import { Contrats } from './Contrats.tsx';
+import { DecompteHeures } from './DecompteHeures.tsx';
 import { Demonstration } from './Demonstration.tsx';
 import { Entretiens } from './Entretiens.tsx';
 import { Envois } from './Envois.tsx';
@@ -52,6 +53,7 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'reprise', place: 'gauche', Section: Reprise },
   { id: 'contrats', place: 'gauche', Section: Contrats },
   { id: 'paie', place: 'droite', Section: ReglagesPaie },
+  { id: 'decompte', place: 'droite', Section: DecompteHeures },
   { id: 'feuilles', place: 'gauche', Section: FeuillesTemps },
   { id: 'repos', place: 'droite', Section: ReposHebdomadaire },
   { id: 'sante', place: 'gauche', Section: Sante },

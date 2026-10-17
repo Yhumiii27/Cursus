@@ -5,6 +5,7 @@ import { Domain } from '../../shared/domain.ts';
 import { addD, isoParis, isValidDate, mondayOf } from '../../shared/dates.ts';
 import { absenceVueManager, repriseMedicale } from '../../shared/rules/absences.ts';
 import { aptitudeVueManager } from '../../shared/rules/sante.ts';
+import { visiteAProgrammer } from '../../shared/rules/visites-dues.ts';
 import { naissanceVueManager } from '../../shared/rules/mineurs.ts';
 import { needsFinCarriere } from '../../shared/rules/entretiens.ts';
 import { verdictAutorisation } from '../../shared/rules/contrats.ts';
@@ -233,9 +234,11 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
   // du jour (`naissanceVueManager`), jamais la date complète.
   const employes = full.employes.filter(e => ids.has(e.id)).map(sansCorrections).map(e => isMgr && e.id !== user.empId
     ? {
-      ...e, visite: null, avis: null, restrictions: [], aptitude: aptitudeVueManager(e, d.medInfo(e).ok, full.today), vaccins: [], matriculePaie: null,
-      // Suivi médical (type, prochaine visite, examen d'aptitude) : jamais transmis au manager, qui ne voit que le verdict.
-      suivi: null, prochaineVisite: null, examenAptitude: null,
+      ...e, visite: null, avis: null, restrictions: [], aptitude: aptitudeVueManager(e, d.medInfo(e).ok, full.today, visiteAProgrammer(d, e)), vaccins: [], matriculePaie: null,
+      // Suivi médical (type, prochaine visite, examen d'aptitude, exposition) : jamais transmis au manager, qui ne voit que le
+      // verdict ; d'une visite due (embauche, mi-carrière, fin de carrière ; jamais la reprise, qui trahirait la nature de
+      // l'arrêt : `visiteAProgrammer`), « visite à programmer » seulement.
+      suivi: null, prochaineVisite: null, examenAptitude: null, expose: null,
       passeport: e.passeport && { expire: e.passeport.expire }, motifSortie: null, finPrevue: null, sortieEnregistree: !!e.motifSortie,
       autorisationTravail: null, autorisationVerdict: verdictAutorisation(e, full.today), ...naissanceVueManager(e, full.today),
       ...(repriseMedicale(e, full.absences) ? { repriseMotif: null, repriseDate: null } : { repriseMotif: e.repriseDate ? 'absence longue' : null }),
@@ -330,8 +333,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
   const d = new Domain(full);
   const employes = full.employes.map(e => ({
     ...e,
-    visite: null, avis: null, restrictions: [], aptitude: formations ? aptitudeVueManager(e, d.medInfo(e).ok, full.today) : undefined, vaccins: [],
-    suivi: null, prochaineVisite: null, examenAptitude: null,
+    visite: null, avis: null, restrictions: [], aptitude: formations ? aptitudeVueManager(e, d.medInfo(e).ok, full.today, visiteAProgrammer(d, e)) : undefined, vaccins: [],
+    suivi: null, prochaineVisite: null, examenAptitude: null, expose: null,
     passeport: lecture ? e.passeport && { expire: e.passeport.expire } : null, visas: lecture ? e.visas : [],
     // Naissance : l'année et l'indication « mineur » du jour, comme pour le manager ; jamais la date complète.
     ...naissanceVueManager(e, full.today),

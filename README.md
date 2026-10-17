@@ -311,7 +311,10 @@ Validité des certifications et seuil d'alerte (30–180 j) · prérequis des ha
 (formation + aptitude médicale : prochaine visite fixée par le médecin, sinon périodicité selon le type de suivi — VIP, VIP adaptée, suivi renforcé —, 24 mois par défaut) avec suspension automatique, suspension et
 retrait manuels (motif, date, auteur) · aptitude médicale dans le statut et les échéances, avis du médecin
 du travail (apte, restrictions datées, inapte) avec suspension des habilitations incompatibles, demandes de
-visite suivies jusqu'à la visite · seule la dernière certification compte après un
+visite suivies jusqu'à la visite · visites dues signalées d'elles-mêmes : embauche (3 mois, le jour même en suivi
+renforcé ou pour un mineur), reprise après une maternité, une maladie professionnelle, 30 jours d'accident du travail ou
+60 jours de maladie, mi-carrière (45 ans, réglable), fin de carrière ou post-exposition à la sortie ; le manager ne voit
+que « visite à programmer », jamais pour une reprise · seule la dernière certification compte après un
 recyclage, les précédentes restent en historique · formalités de
 voyage par destination (passeport, visas, vaccins, délais) et de détachement (certificat A1 ou de la
 convention bilatérale de sécurité sociale, information écrite au-delà de 4 semaines) · Go / No Go par

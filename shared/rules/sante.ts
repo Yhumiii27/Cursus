@@ -27,14 +27,23 @@ export const suspendueParAvis = (h: Pick<HabTitre, 'mesure' | 'mesureMotif'>) =>
 
 /**
  * Aptitude transmise au manager pour un membre de son équipe : verdict (aptitude valide ou non, avis) et
- * restrictions en vigueur recopiées telles qu'écrites, sans date de visite ni demande de visite.
+ * restrictions en vigueur recopiées telles qu'écrites, sans date de visite ni demande de visite. `aProgrammer` : une
+ * visite due à un événement (shared/rules/visites-dues.ts) est à programmer, sans son motif ni sa date.
  */
-export function aptitudeVueManager(e: Employe, ok: boolean, today: ISODate): NonNullable<Employe['aptitude']> {
-  return { ok, avis: e.visite ? e.avis ?? 'apte' : null, restrictions: restrictionsEnVigueur(e, today).map(r => ({ texte: r.texte, jusquau: r.jusquau })) };
+export function aptitudeVueManager(e: Employe, ok: boolean, today: ISODate, aProgrammer = false): NonNullable<Employe['aptitude']> {
+  return {
+    ok, avis: e.visite ? e.avis ?? 'apte' : null, restrictions: restrictionsEnVigueur(e, today).map(r => ({ texte: r.texte, jusquau: r.jusquau })),
+    ...(aProgrammer ? { aProgrammer: true } : {}),
+  };
 }
 
-/** Motif proposé pour une demande de visite : visite d'embauche si aucune visite n'est enregistrée, sinon renouvellement. */
-export const motifParDefaut = (e: Pick<Employe, 'visite'>): MotifVisite => e.visite ? 'periodique' : 'embauche';
+/**
+ * Motif proposé pour une demande de visite : celui de la visite due la plus proche (embauche, reprise, mi-carrière, fin de
+ * carrière : `visitesDues` de shared/rules/visites-dues.ts) ; sinon visite d'embauche si aucune visite n'est enregistrée,
+ * sinon renouvellement.
+ */
+export const motifParDefaut = (e: Pick<Employe, 'visite'>, dues: readonly { motif: MotifVisite }[] = []): MotifVisite =>
+  dues[0]?.motif ?? (e.visite ? 'periodique' : 'embauche');
 export const estMotifVisite = (m: unknown): m is MotifVisite => typeof m === 'string' && Object.hasOwn(MOTIFS_VISITE, m);
 
 /**

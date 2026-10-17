@@ -21,6 +21,7 @@ shared/            Domaine partagé (aucune dépendance)
                    responsable et du DPO (descriptif complet du traitement : docs/RGPD.md)
   rules/           temps.ts, conges.ts, entretiens.ts, budget.ts, imports.ts, sante.ts (avis et visites médicales) ;
                    suivi-medical.ts : type de suivi (VIP, VIP adaptée, SIR) et échéance de la prochaine visite ;
+                   visites-dues.ts : visites dues à un événement (embauche, reprise, mi-carrière, fin de carrière ou post-exposition) ;
                    conflits.ts : doublons et conflits de dates ; referentiels.ts : formations, habilitations et destinations
                    (contrôles de saisie, archivage, effet d'une validité modifiée) ; matricules.ts : matricule de paie,
                    identifiant Keystone ; clotures.ts : clôture des périodes de congés (CP au 31 mai, RTT au 31 décembre) ;
@@ -700,15 +701,15 @@ aucun champ du paramètre n'est recopié.
 | `referentiel.habilitation.archiver` | id, archive? ; rétablissement refusé tant qu'un prérequis est archivé (formation à rétablir d'abord) ; message : titres demandés et demandes restés en attente | RH, référent HSE |
 | `referentiel.destination.enregistrer` | code (pays ISO à deux lettres, pas FR) ou id, pays, visa (`VISA_RULES`), visaSub?, oblig [vaccins], rec [vaccins, sans le DTP], passMois (0 à 24), secu? (vide : selon le code pays) | RH |
 | `referentiel.destination.archiver` | id, archive? | RH |
-| `referentiel.poste.enregistrer` | id? (modification ; sans : création), nom (80 caractères, unique parmi les postes en vigueur), formations [codes], habilitations [codes] (en vigueur ; déjà exigés et archivés depuis : gardés) ; message : salariés qui deviennent non conformes (ligne du journal rattachée à eux), intitulé recopié sur les fiches des titulaires | RH |
+| `referentiel.poste.enregistrer` | id? (modification ; sans : création), nom (80 caractères, unique parmi les postes en vigueur), formations [codes], habilitations [codes] (en vigueur ; déjà exigés et archivés depuis : gardés), sir?, expose? (poste exposé à des risques particuliers) ; message : salariés qui deviennent non conformes (ligne du journal rattachée à eux), intitulé recopié sur les fiches des titulaires | RH |
 | `referentiel.poste.archiver` | id, archive? ; refusé tant qu'un salarié présent occupe le poste ; rétablissement refusé si un poste en vigueur porte le même intitulé | RH |
 | `referentiel.equipe.exigences` | nom (équipe), formations, habilitations (vides : aucune exigence commune) ; message comme pour un poste | RH |
 | `hab.demander` | empId, h : habilitation exigée jamais délivrée, titre « en attente » de délivrance (déjà demandée : rien n'est refait ; déjà délivrée ou archivée : refus) | RH, référent HSE |
 | `referentiel.charger` | referentiel (`formations`/`habilitations`/`destinations`) : référentiel type (celui de la démonstration) chargé dans un référentiel vide, archivés compris ; habilitations après les formations (prérequis présents et en vigueur) | RH, référent HSE (destinations : RH) |
-| `medical.demander` | empId, motif? (`periodique`/`embauche`/`reprise`/`employeur` ; par défaut embauche sans visite enregistrée, sinon périodique) ; e-mail au service de santé au travail | RH (une demande en cours par collaborateur) |
+| `medical.demander` | empId, motif? (`periodique`/`embauche`/`reprise`/`employeur`/`mi_carriere`/`fin_carriere` ; par défaut celui de la visite due la plus proche, sinon embauche sans visite enregistrée, sinon périodique) ; e-mail au service de santé au travail | RH (une demande en cours par collaborateur) |
 | `medical.annuler` | id | RH (demande de visite en cours) |
-| `medical.avis` | empId, date (passée), avis (`apte`/`restrictions`/`inapte`), restrictions [{texte, jusquau?}] (avis avec restrictions), prochaineVisite? (fixée par le médecin, après la visite, 5 ans au plus ; ignorée pour un avis d’inaptitude), examen? (examen médical d’aptitude du suivi renforcé), suspendre [h]?, lever [h]? | RH (suspensions « Restriction d’aptitude » ; levée des seules suspensions d’un avis précédent, jamais pour un avis d’inaptitude) |
-| `medical.suivi` | empId, suivi (`vip`/`vip_adapte`/`sir`, vide : VIP par défaut) | RH (un suivi renforcé déduit du référentiel prime) |
+| `medical.avis` | empId, date (passée), avis (`apte`/`restrictions`/`inapte`), motif? (motif de visite : clôt la demande en cours de ce motif quelle que soit sa date ; `mi_carriere`/`fin_carriere` sans demande : visite réalisée de ce motif enregistrée, qui clôt la visite due ; absent du journal), restrictions [{texte, jusquau?}] (avis avec restrictions), prochaineVisite? (fixée par le médecin, après la visite, 5 ans au plus ; ignorée pour un avis d’inaptitude), examen? (examen médical d’aptitude du suivi renforcé), suspendre [h]?, lever [h]? | RH (suspensions « Restriction d’aptitude » ; levée des seules suspensions d’un avis précédent, jamais pour un avis d’inaptitude) |
+| `medical.suivi` | empId, suivi (`vip`/`vip_adapte`/`sir`, vide : VIP par défaut), expose? (booléen, absent : inchangé : exposé à des risques particuliers, visite post-exposition à la sortie) ; journal : `empId` seul | RH (un suivi renforcé déduit du référentiel prime) |
 | `demande.accepter` / `demande.refuser` | id ; refus : motif? (500 caractères, `motifRefus`, montré au collaborateur seul, même quand son manager a fait la demande) ; acceptation refusée quand la formation ou l'habilitation demandée a été archivée depuis (à refuser, ou à rétablir d'abord) | RH ; référent HSE pour une demande de formation ou d'habilitation (document déclaré : RH) |
 | `demande.annuler` | id : demande de formation ou d'habilitation en attente, passée « retirée » | son auteur : le collaborateur pour la sienne, le manager pour celle qu'il a faite pour un membre de son équipe |
 | `demande.reouvrir` | id, motif (obligatoire ; `rouverteMotif`, service RH seul) : demande de formation ou d'habilitation acceptée ou refusée, de nouveau « en attente » ; ce que l'acceptation a créé (`suite`) est défait : inscription à la session (convocation annulée par e-mail, session quittée retrouvée si elle l'accueille encore : sinon recyclage à planifier, inscription initiale retirée), ligne du plan prévue supprimée, titre en attente retiré ou demande effacée du titre ; refus si la session a commencé ou est clôturée, la ligne engagée, l'exercice clos, l'habilitation délivrée depuis | RH, référent HSE (jamais la sienne) |
@@ -760,7 +761,7 @@ aucun champ du paramètre n'est recopié.
 | `entretien.signer` | id | salarié |
 | `entretien.remettre` | id, mode (`main_propre`/`refus`/`portail`), date? (main propre, refus : de la clôture à aujourd'hui ; portail : le jour même, compte actif exigé, e-mail avec le seul lien vers Cursus) ; une remise sur papier est définitive, une mise à disposition se complète par une remise sur papier | évaluateur (manager direct) ou RH, jamais pour son propre entretien |
 | `entretien.telecharger` | id : premier téléchargement du compte rendu clos, daté (`telechargeLe`) | salarié, depuis son espace |
-| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
+| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps, santeMiCarriereAge…), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
 | `demo.reinitialiser` | — | administrateur RH, mode démonstration |
 | `compte.creer` | empId (ou nom, adresse : compte externe), type (`microsoft`/`local`), identifiant, profilRh | administrateur RH (mot de passe provisoire dans `result`, affiché une fois) |
 | `compte.profil` | id, profilRh (`aucun`/`rh_gestionnaire`/`rh_admin`/`referent_hse`/`paie`/`lecture_seule`) | administrateur RH (jamais le dernier administrateur actif ; un compte externe garde un profil) |
@@ -1190,6 +1191,32 @@ Règles dans `shared/rules/sante.ts` et `Domain.medInfo` (`shared/domain.ts`), a
   renouvellement plus proche que la visite intermédiaire), pour qu'une visite intermédiaire ne redate pas l'examen. Le texte de l'aptitude précise l'origine de l'échéance hors du cas courant (VIP à la périodicité réglée).
   Aucune migration nommée : les colonnes nouvelles (`TABLES`) sont vides sur une base existante, ce qui vaut VIP à
   24 mois, l'échéance d'avant.
+- **Visites dues (t060)** : `visitesDues` (`shared/rules/visites-dues.ts`, `MedInfo.dues`), visites qu'un événement rend
+  obligatoires, datées, dans les échéances (type « Visite médicale », `EchItem.motifVisite` ; « À programmer » sous
+  l'horizon d'alerte, « Dépassée » ensuite), le récapitulatif (clé `med:<id>:<motif>:<échéance>`, libellé neutre
+  « Visite médicale à programmer ») et l'action « Demander la visite », qui propose leur motif (`motifParDefaut`, motifs
+  `mi_carriere` et `fin_carriere` ajoutés à `MOTIFS_VISITE`). Embauche (art. R4624-10) : 3 mois après l'entrée, le jour
+  de l'entrée en suivi renforcé (art. R4624-24) ou pour un mineur à l'entrée (art. R4624-18, `mineurAu`) ; close par une
+  visite enregistrée depuis l'entrée ; une visite des 5 ans qui la précèdent (2 ans en suivi renforcé, jamais pour un
+  mineur ni avec un avis d'inaptitude) en dispense (art. R4624-15 et R4624-27) ; suivie pour une entrée des 2 dernières
+  années, et, sans aucune visite, elle remplace « Visite médicale non renseignée ». Reprise (art. R4624-31, seuils de la
+  loi, non réglables) : après tout congé de maternité et toute maladie professionnelle, 30 jours d'accident du travail,
+  60 jours de maladie, d'arrêt longue maladie ou d'accident de trajet ; absences validées seulement, arrêts jointifs
+  réunis, les jours comptés par catégorie (maternité, maladie professionnelle, accident du travail, non professionnel :
+  5 jours d'AT prolongés par 25 jours de maladie n'ouvrent rien) ; le dernier arrêt qui l'ouvre, échéance au premier jour ouvré
+  qui suit (`lendemainOuvre`), close par une visite postérieure à sa fin. Mi-carrière (art. L4624-2-2) : 31 décembre de
+  l'année de l'âge réglé (Paramètres → Santé, `santeMiCarriereAge`, 45 ans par défaut, 40 à 55), à partir de 2022, suivie
+  l'année même et la suivante ; fin de carrière ou post-exposition (art. L4624-2-1, R4624-28-1) : sortie enregistrée
+  (sauf décès) d'un salarié en suivi renforcé ou exposé à des risques particuliers (case du poste, `Poste.expose`,
+  Référentiels → Postes, ou de la fiche, `Employe.expose`, `medical.suivi`), échéance le dernier jour du contrat. Ces deux
+  dernières ne sont closes que par une visite de leur motif, datée de la visite : demande de ce motif close par l'avis
+  (`medical.avis` clôt la demande de son `motif` même faite après la visite), ou avis saisi avec ce motif sans demande
+  (convocation directe, visite passée avant la mise en service : ligne `realisee` de `demandesVisite`, datée de la
+  visite) ; une visite périodique ne les remplace pas. Une demande en cours les affiche comme planifiées. Dialogue de sortie (`texteVisiteSortie`) :
+  visite à demander avant le départ, ou, sans case cochée, rappel « vérifier si une visite post-exposition est due » pour
+  une habilitation cochée SIR ou ATEX détenue ou exigée par le poste ; jamais un blocage, rien au message ni au journal de
+  `employe.sortie`. Limite : le travail de nuit (visite préalable, art. R4624-18) n'est pas connu de la fiche. Aucune
+  migration nommée (colonnes `expose` déclarées dans `TABLES`, motifs en texte).
 - **Avis du médecin du travail** (`medical.avis`) : date de la visite, avis (apte, apte avec restrictions ou aménagements de
   poste, inapte) et restrictions recopiées telles qu'écrites, chacune jusqu'à une date ou sans terme (`Employe.avis`,
   `Employe.restrictions`, contrôlés par `controlerAvis`, partagé avec le dialogue). Dans la même écriture, le service RH
@@ -1206,7 +1233,11 @@ Règles dans `shared/rules/sante.ts` et `Domain.medInfo` (`shared/domain.ts`), a
   ouvre la demande en cours : impression, annulation). La saisie d'une visite datée du jour de la demande ou après la
   clôt (`realisee`) ; le service RH peut l'annuler (`medical.annuler`).
 - **Confidentialité** : dates de visite, avis daté, demandes et suivi médical (type, prochaine visite, examen d'aptitude :
-  `suivi`, `prochaineVisite`, `examenAptitude` vidés par `server/src/dataset.ts` ; au journal, `medical.suivi` ne retient
+  `suivi`, `prochaineVisite`, `examenAptitude`, `expose` vidés par `server/src/dataset.ts` ; visites dues : le manager et les
+  profils restreints ne reçoivent que `aptitude.aProgrammer`, « visite à programmer » sans motif ni date, calculé par le
+  serveur (`visiteAProgrammer` : visite d'embauche, de mi-carrière ou de fin de carrière échue ou sous l'horizon d'alerte ;
+  jamais la visite de reprise, qui, rapprochée des dates d'absence et des seuils connus de l'art. R4624-31, trahirait une
+  maladie professionnelle ou une maternité : le service RH la suit seul, comme l'entretien de reprise) ; au journal, `medical.suivi` ne retient
   que `empId`, et le message, qui nomme le type, est masqué aux lecteurs hors service RH (`ACTIONS_SANTE`) ; absents de la
   demande de visite ; dans la fiche de l'export RGPD) sont réservés au service RH et à l'intéressé. Le manager reçoit
   `aptitude` (`aptitudeVueManager` : aptitude valide ou non, avis, restrictions en vigueur), aucune échéance datée ; Keystone,
@@ -1574,8 +1605,8 @@ e-mails, tous les quarts d'heure) : une fois par jour à partir de 7 h (réglage
 `settings`), le jour réglé, si le récapitulatif est actif (Paramètres → Messagerie · récapitulatif des échéances,
 `pages/parametres/RelancesEcheances.tsx` ; réglages `relancesActives`, `relancesPaliers`, `relancesJour`).
 
-- **Contenu** (`relancesDues`) : échéances du domaine (certifications, habilitations, visite médicale, passeport, visas,
-  vaccinations), déplacements au dossier incomplet (selon la date de départ), obligations d'entretien non planifiées ou
+- **Contenu** (`relancesDues`) : échéances du domaine (certifications, habilitations, visite médicale et visites dues à un
+  événement, passeport, visas, vaccinations), déplacements au dossier incomplet (selon la date de départ), obligations d'entretien non planifiées ou
   planifiées à une date dépassée, fins de contrat prévues sans sortie enregistrée. Écartés : salariés sortis, échéances
   déjà prises en charge (session planifiée, visite demandée), avis d'inaptitude, feuilles de temps (relance propre au suivi
   des feuilles). Une vaccination n'est qu'une « formalité sanitaire de voyage », une visite qu'une « visite médicale ».

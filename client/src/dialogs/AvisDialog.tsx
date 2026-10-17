@@ -2,13 +2,14 @@
 // restrictions recopiées telles qu'écrites et datées, habilitations incompatibles à suspendre, suspensions d'un
 // avis précédent à lever. La visite clôt la demande en cours ; le manager ne voit que le verdict et les restrictions.
 // Suivi médical (shared/rules/suivi-medical.ts) : date de la prochaine visite fixée par le médecin, qui prime sur la
-// périodicité, et examen médical d'aptitude du suivi individuel renforcé.
+// périodicité, et examen médical d'aptitude du suivi individuel renforcé. Motif de la visite (facultatif) : une visite de
+// mi-carrière ou de fin de carrière passée sans demande dans Cursus clôt la visite due à sa vraie date.
 import { useState } from 'react';
-import { HAB_CLS, HAB_LABEL } from '../../../shared/constants.ts';
+import { HAB_CLS, HAB_LABEL, MOTIFS_VISITE } from '../../../shared/constants.ts';
 import { fmtIso } from '../../../shared/format.ts';
 import { controlerAvis, RESTRICTION_MAX, RESTRICTIONS_MAX, suspendueParAvis } from '../../../shared/rules/sante.ts';
 import { examenAttendu, periodicite, SUIVIS_MEDICAUX } from '../../../shared/rules/suivi-medical.ts';
-import type { AvisMedical } from '../../../shared/types.ts';
+import type { AvisMedical, MotifVisite } from '../../../shared/types.ts';
 import { CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine, SectionLabel, Seg, Tag } from '../components/ui.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
@@ -27,6 +28,8 @@ export function AvisDialog({ empId }: { empId: number }) {
   const [avis, setAvisState] = useState<AvisMedical>('apte');
   const [lignes, setLignes] = useState<Ligne[]>([LIGNE_VIDE]);
   const [prochaine, setProchaine] = useState('');
+  // Motif : celui de la demande en cours, sinon non précisé.
+  const [motif, setMotif] = useState<MotifVisite | ''>(() => emp?.med.demande?.motif ?? '');
   // Suivi renforcé : cochée quand l'examen médical d'aptitude est attendu (jamais enregistré, renouvellement), décochée
   // pour une visite intermédiaire (examenAttendu).
   const [examen, setExamen] = useState(() => !!emp && examenAttendu(emp.med));
@@ -50,7 +53,9 @@ export function AvisDialog({ empId }: { empId: number }) {
   const demande = emp.med.demande;
   const infos = [
     ...(emp.visite && date && date < emp.visite ? [`Visite antérieure à la dernière enregistrée (${fmtIso(emp.visite)}) : cet avis la remplace.`] : []),
-    ...(demande ? [date >= demande.le ? `La demande de visite du ${fmtIso(demande.le)} sera close.` : `La demande de visite du ${fmtIso(demande.le)} reste en cours (visite antérieure).`] : []),
+    ...(demande ? [date >= demande.le || motif === demande.motif ? `La demande de visite du ${fmtIso(demande.le)} sera close.` : `La demande de visite du ${fmtIso(demande.le)} reste en cours (visite antérieure à la demande, d’un autre motif).`] : []),
+    // Mi-carrière, fin de carrière : closes par une visite de leur motif (les autres, par la date de la visite).
+    ...(emp.med.dues ?? []).filter(x => x.motif === motif && (motif === 'mi_carriere' || motif === 'fin_carriere')).map(x => `${x.label} : close par cette visite.`),
   ];
   // Erreurs affichées après la première tentative d'envoi ; les informations, en direct.
   const msgs = [...(v.tente ? errors : []).map(text => ({ text, bad: true })), ...infos.map(text => ({ text, bad: false }))];
@@ -59,7 +64,7 @@ export function AvisDialog({ empId }: { empId: number }) {
     if (busy || !v.verifier(...errors)) return;
     setBusy(true);
     const r = await run('medical.avis', {
-      empId, date, avis, restrictions: avis === 'restrictions' ? lignes : [],
+      empId, date, avis, motif: motif || null, restrictions: avis === 'restrictions' ? lignes : [],
       prochaineVisite: avis === 'inapte' ? null : prochaine || null, examen,
       suspendre: avis === 'apte' ? [] : suspendre, lever: avis === 'inapte' ? [] : lever,
     });
@@ -79,6 +84,12 @@ export function AvisDialog({ empId }: { empId: number }) {
         </Field>
       </div>
       <div className="boxed text-muted sub">Actuellement : {emp.med.text}</div>
+      <Field label="Motif de la visite (facultatif)" htmlFor="av-motif">
+        <select className="input" id="av-motif" value={motif} onChange={ev => setMotif(ev.target.value as MotifVisite | '')}>
+          <option value="">Non précisé</option>
+          {(Object.keys(MOTIFS_VISITE) as MotifVisite[]).map(k => <option key={k} value={k}>{MOTIFS_VISITE[k].label}</option>)}
+        </select>
+      </Field>
       <Field label="Avis">
         <Seg name="av-avis" label="Avis du médecin du travail" value={avis} onChange={setAvis} style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }}
           options={[['apte', 'Apte'], ['restrictions', 'Apte avec restrictions'], ['inapte', 'Inapte']]} />

@@ -18,9 +18,10 @@ import { voyageActif } from './rules/deplacements.ts';
 import { restrictionEnVigueur } from './rules/sante.ts';
 import { echeanceVisite, examenRequis, prochaineTexte, suiviDe, type ProchaineVisite, type SuiviInfo } from './rules/suivi-medical.ts';
 import { finSession } from './rules/plage-session.ts';
+import { visitesDues, type VisiteDue } from './rules/visites-dues.ts';
 import type {
   AvisMedical, Certification, Chantier, Dataset, DemandeVisite, Destination, Employe, FormaliteManquante, Formation, HabTitre, HabType, ISODate,
-  Restriction, Session, Statut, TempsTravail, TripStatus, TypeContrat, VaccinId, Voyage,
+  MotifVisite, Restriction, Session, Statut, TempsTravail, TripStatus, TypeContrat, VaccinId, Voyage,
 } from './types.ts';
 
 export interface CertInfo extends Certification {
@@ -55,6 +56,10 @@ export interface MedInfo {
   suivi?: SuiviInfo | null;
   prochaine?: ProchaineVisite | null;
   examenRequis?: boolean;
+  /** Visites dues à un événement, de la plus proche à la plus lointaine (shared/rules/visites-dues.ts ; verdict seul : aucune). */
+  dues?: VisiteDue[];
+  /** Verdict seul (manager, profils restreints) : une visite due est à programmer par le service RH, sans motif ni date. */
+  aProgrammer?: boolean;
 }
 export interface PrereqCheck { type: 'cert' | 'med'; f: string | null; certId: number | null; label: string; ok: boolean; due: boolean; exp: Date | null; text: string }
 export interface HabInfo extends HabTitre {
@@ -82,7 +87,8 @@ export type UiIntent =
   | { type: 'openHab'; empId: number; h: string; mode: 'deliver' | 'renew' | 'new' }
   | { type: 'openPlan'; empId: number; certId: number }
   | { type: 'goFormation'; f: string }
-  | { type: 'medical'; empId: number }
+  /** `motif` : celui de la visite due (embauche, reprise, mi-carrière, fin de carrière), proposé dans la demande. */
+  | { type: 'medical'; empId: number; motif?: MotifVisite }
   | { type: 'openFormalite'; empId: number; kind: FormaliteKind; dest?: string; v?: VaccinId }
   | { type: 'openCloture'; sessionId: number }
   /** Habilitation exigée jamais délivrée : titre demandé (`hab.demander`), « en attente » de délivrance. */
@@ -108,6 +114,8 @@ export interface EchItem {
   sansDate?: boolean;
   /** Texte de la colonne « Échéance » d'une échéance sans date autre qu'une visite (exigence manquante). */
   sansDateTexte?: { main: string; sub: string };
+  /** Visite due à un événement (shared/rules/visites-dues.ts) : son motif (relances, demande de visite). */
+  motifVisite?: MotifVisite;
 }
 
 export type GngStatus = 'go' | 'reserve' | 'nogo';
@@ -364,15 +372,17 @@ export class Domain {
       // Vue manager et profils restreints de l'espace RH : verdict et restrictions en vigueur, jamais la date de la
       // visite ni la demande.
       const a = e.aptitude, avis = a.avis ?? null;
-      const text = avis === 'inapte' ? 'Inapte — avis du médecin du travail'
+      // Visite due (embauche, reprise…) : « visite à programmer » seulement, sans motif ni date.
+      const text = (avis === 'inapte' ? 'Inapte — avis du médecin du travail'
         : !a.ok ? 'Aptitude médicale non valide — visite à programmer par le service RH'
-        : avis === 'restrictions' ? 'Apte avec restrictions — avis du médecin du travail' : 'Aptitude médicale valide';
-      return { ok: a.ok, exp: null, d: null, text, visite: null, avis, restrictions: a.restrictions ?? [], demande: null, verdictSeul: true };
+        : avis === 'restrictions' ? 'Apte avec restrictions — avis du médecin du travail' : 'Aptitude médicale valide')
+        + (a.ok && a.aProgrammer ? ' · visite à programmer par le service RH' : '');
+      return { ok: a.ok, exp: null, d: null, text, visite: null, avis, restrictions: a.restrictions ?? [], demande: null, verdictSeul: true, aProgrammer: !!a.aProgrammer };
     }
     const demande = this.demandeVisite(e.id), demandee = demande ? `visite demandée le ${fmt(parse(demande.le))}` : 'visite à programmer';
-    const suivi = suiviDe(this.ds, e), examen = examenRequis(suivi, e);
+    const suivi = suiviDe(this.ds, e), examen = examenRequis(suivi, e), dues = visitesDues(this, e, suivi);
     if (!e.visite) {
-      return { ok: false, exp: null, d: null, text: `Visite médicale non renseignée — ${demandee}`, visite: null, avis: null, restrictions: [], demande, verdictSeul: false, suivi, prochaine: null, examenRequis: examen };
+      return { ok: false, exp: null, d: null, text: `Visite médicale non renseignée — ${demandee}`, visite: null, avis: null, restrictions: [], demande, verdictSeul: false, suivi, prochaine: null, examenRequis: examen, dues };
     }
     const date = parse(e.visite), ech = echeanceVisite(e, date, suivi.type, this.ds.settings), exp = ech.exp, d = days(this.today, exp);
     // Visite saisie avant l'enregistrement des avis : apte.
@@ -387,7 +397,7 @@ export class Domain {
       : `Aptitude échue le ${fmt(exp)}${quoi} — ${demandee}${examen ? ` · ${EXAMEN_REQUIS.toLowerCase()}` : ''}`;
     return {
       ok: d >= 0 && !inapte, exp, d, text, visite: date, avis, restrictions: avis === 'restrictions' ? e.restrictions ?? [] : [], demande, verdictSeul: false,
-      suivi, prochaine: ech.prochaine, examenRequis: examen,
+      suivi, prochaine: ech.prochaine, examenRequis: examen, dues,
     };
   }
 
@@ -680,7 +690,19 @@ export class Domain {
           action: m.demande ? null : { label: 'Demander la visite', intent: { type: 'medical', empId: e.id } },
         });
       }
-      if (!m.verdictSeul) {
+      // Visites dues à un événement (embauche, reprise, mi-carrière, fin de carrière), datées : à programmer sous l'horizon
+      // d'alerte, dépassées ensuite ; « Demander la visite » sur leur motif.
+      (m.dues ?? []).forEach(v => {
+        const exp = parse(v.le), dv = days(this.today, exp), key: StatusKey = dv < 0 ? 'exp' : dv <= horizon ? 'due' : 'ok';
+        ech.push({
+          kind: 'med', kindLabel: 'Visite médicale', label: v.label, emp: e, exp, d: dv, key, statut: key === 'exp' ? 'Dépassée' : key === 'due' ? 'À programmer' : 'À venir',
+          cls: CLS[key], motifVisite: v.motif,
+          planned: !!m.demande, plannedLabel: m.demande ? `Visite demandée le ${fmtShort(parse(m.demande.le))}` : '',
+          action: m.demande ? null : { label: 'Demander la visite', intent: { type: 'medical', empId: e.id, motif: v.motif } },
+        });
+      });
+      // Aucune visite enregistrée d'un salarié embauché récemment : la visite d'embauche, datée, en tient lieu.
+      if (!m.verdictSeul && (m.visite || !m.dues?.some(v => v.motif === 'embauche'))) {
         // Statut de la date seule : l'examen requis a son échéance ci-dessus.
         const inapte = m.avis === 'inapte', sansDate = !m.exp, exp = inapte ? m.visite! : m.exp ?? this.today, key = this.medKey({ ...m, examenRequis: false }, horizon);
         ech.push({

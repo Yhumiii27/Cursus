@@ -262,6 +262,9 @@ export const MOTIFS_VISITE: Record<MotifVisite, { label: string; court: string; 
   embauche: { label: 'Visite d’embauche — information et prévention, ou examen d’aptitude', court: 'embauche', article: 'Art. R4624-10 et R4624-24' },
   reprise: { label: 'Visite de reprise — après un arrêt de travail ou un congé de maternité', court: 'reprise', article: 'Art. R4624-31' },
   employeur: { label: 'À la demande de l’employeur', court: 'à la demande de l’employeur', article: 'Art. R4624-34' },
+  // Visites dues à un événement (shared/rules/visites-dues.ts) : l'année des 45 ans, la sortie d'un salarié exposé.
+  mi_carriere: { label: 'Visite de mi-carrière — l’année des 45 ans, ou à l’âge fixé par accord de branche', court: 'mi-carrière', article: 'Art. L4624-2-2' },
+  fin_carriere: { label: 'Visite de fin de carrière ou post-exposition — suivi renforcé ou risques particuliers', court: 'fin de carrière ou post-exposition', article: 'Art. L4624-2-1 et R4624-28-1' },
 };
 /**
  * Motif inscrit sur une habilitation suspendue à la suite d'un avis du médecin du travail : visible du manager

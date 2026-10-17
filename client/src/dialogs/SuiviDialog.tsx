@@ -1,8 +1,10 @@
 // Type de suivi médical d'un collaborateur (service RH) : VIP, VIP adaptée (travail de nuit, handicap, invalidité) ou
 // suivi individuel renforcé, ou rien (VIP par défaut). Une habilitation ou un poste marqués « SIR » au référentiel placent
 // le salarié en suivi renforcé quel que soit le type saisi (shared/rules/suivi-medical.ts). Réservé au service RH et à
-// l'intéressé : le manager ne voit que le verdict d'aptitude.
+// l'intéressé : le manager ne voit que le verdict d'aptitude. Case « exposé à des risques particuliers » (ou celle du poste,
+// Référentiels) : visite post-exposition ou de fin de carrière proposée à la sortie (shared/rules/visites-dues.ts).
 import { useState } from 'react';
+import { posteDe } from '../../../shared/rules/exigences.ts';
 import { periodicite, SUIVIS_MEDICAUX } from '../../../shared/rules/suivi-medical.ts';
 import type { SuiviMedical } from '../../../shared/types.ts';
 import { CancelButton, Dialog, Field, Static, SubmitButton } from '../components/Dialog.tsx';
@@ -19,6 +21,7 @@ export function SuiviDialog({ empId }: { empId: number }) {
   const { run, closeDialog } = useStore();
   const emp = emps.find(e => e.id === empId);
   const [choix, setChoix] = useState<Choix>(() => emp?.suivi ?? '');
+  const [expose, setExpose] = useState(() => !!emp?.expose);
   const [busy, setBusy] = useState(false);
   if (!emp || !rh) return null;
   const suivi = emp.med.suivi;
@@ -30,7 +33,7 @@ export function SuiviDialog({ empId }: { empId: number }) {
   const enregistrer = async () => {
     if (busy) return;
     setBusy(true);
-    const r = await run('medical.suivi', { empId, suivi: choix || null });
+    const r = await run('medical.suivi', { empId, suivi: choix || null, expose });
     setBusy(false);
     if (r.ok) closeDialog();
   };
@@ -64,9 +67,14 @@ export function SuiviDialog({ empId }: { empId: number }) {
           ))}
         </div>
       </Field>
+      <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14 }}>
+        <input type="checkbox" checked={expose} onChange={e => setExpose(e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
+        Exposé à des risques particuliers (agents chimiques dangereux, CMR, ATEX…) : visite post-exposition à sa sortie (art. L4624-2-1)
+      </label>
+      {posteDe(d.ds, emp)?.expose && <Fine>Le poste {emp.poste} est coché « exposé à des risques particuliers » au référentiel : la visite est proposée à la sortie quelle que soit cette case.</Fine>}
       <Fine>
         La date de la prochaine visite fixée par le médecin du travail, saisie avec son avis, prime toujours sur ces périodicités
-        (Paramètres → Santé). Le manager ne voit ni le type de suivi ni la date de la prochaine visite.
+        (Paramètres → Santé). Le manager ne voit ni le type de suivi, ni l’exposition, ni la date de la prochaine visite.
       </Fine>
     </Dialog>
   );

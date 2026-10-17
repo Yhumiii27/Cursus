@@ -8,6 +8,7 @@ import { isoWeek } from '../../../shared/dates.ts';
 import { fmtIso } from '../../../shared/format.ts';
 import { periodeTexte } from '../../../shared/rules/absences.ts';
 import { controleSortie, finContrat, MOTIFS_SORTIE } from '../../../shared/rules/contrats.ts';
+import { texteVisiteSortie } from '../../../shared/rules/visites-dues.ts';
 import type { MotifSortie } from '../../../shared/types.ts';
 import { erreurDate } from '../components/controles.ts';
 import { CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
@@ -43,6 +44,8 @@ export function SortieDialog({ empId }: { empId: number }) {
     ...(c.feuilles.length ? [`Feuilles de temps vides des semaines ${c.feuilles.map(f => isoWeek(f.week)).join(', ')} : retirées`] : []),
   ];
   const passee = !dateErr && date < d.ti;
+  // Suivi renforcé ou exposition à des risques particuliers : visite de fin de carrière ou post-exposition, ou rappel.
+  const visite = c && !c.bloquants.length ? texteVisiteSortie(d, emp, date, motif) : null;
 
   const confirm = async () => {
     if (busy || !v.verifier(dateErr, motifErr, c?.bloquants.length)) return;
@@ -80,6 +83,7 @@ export function SortieDialog({ empId }: { empId: number }) {
         <Controles msgs={effets.map(text => ({ text, bad: false }))} />
       </>}
       {c?.avertissements.map(a => <NoteAccent key={a}>{a}</NoteAccent>)}
+      {visite && <NoteAccent>{visite}</NoteAccent>}
       <Fine>
         Passé cette date, {emp.nom} ne se connecte plus à Cursus, ne reçoit plus de notification et n’a plus ni feuille de temps ni
         absence ; {emp.nom} quitte la conformité, les échéances et les tableaux de bord, et reste consultable avec le filtre « Sortis »

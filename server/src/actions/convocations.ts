@@ -4,6 +4,7 @@
 import { sessionActive } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
+import { finSession, sessionDu } from '../../../shared/rules/plage-session.ts';
 import { inscritsDe } from '../../../shared/rules/sessions.ts';
 import type { Certification, Inscription, Session } from '../../../shared/types.ts';
 import { annulerSiConvoque, convoquerFormation } from '../notifications.ts';
@@ -14,11 +15,15 @@ function sessionOuverte(ctx: Ctx, id: unknown): Session {
   const s = ctx.d.session(Number(id));
   if (!s) throw new ActionError('Session introuvable', 404);
   if (!sessionActive(s)) throw new ActionError(`Session ${s.statut === 'Annulée' ? 'annulée' : 'clôturée'}`);
-  if (s.date < ctx.d.ti) throw new ActionError(`Session du ${fmt(parse(s.date))} passée : ${aDroit(ctx, 'formations') ? 'clôturez-la' : 'le service RH la clôture'} (présence, résultat)`);
+  // Session sur plusieurs jours commencée : plus de convocation ni de désinscription, elle se clôt après son dernier jour.
+  if (s.date < ctx.d.ti) {
+    const etat = finSession(s) >= ctx.d.ti ? `en cours jusqu’au ${fmt(parse(finSession(s)))}` : 'passée';
+    throw new ActionError(`Session du ${fmt(parse(s.date))} ${etat} : ${aDroit(ctx, 'formations') ? 'clôturez-la' : 'le service RH la clôture'} (présence, résultat)`);
+  }
   return s;
 }
 
-const nomSession = (ctx: Ctx, s: Session) => `session ${ctx.d.fm(s.formation)?.court ?? s.formation} du ${fmt(parse(s.date))}`;
+const nomSession = (ctx: Ctx, s: Session) => `session ${ctx.d.fm(s.formation)?.court ?? s.formation} ${sessionDu(s)}`;
 
 /**
  * Envoi des convocations d'une session : celles des inscrits désignés (`empIds`, un renvoi est possible), sinon

@@ -8,6 +8,7 @@ import { cap, equipeLabel, fmt, fmtShort, plural, rel } from '../../../shared/fo
 import { exigencesEquipe, nombreExigences } from '../../../shared/rules/exigences.ts';
 import { declarationDetail, retireeAuRefus, valeurActuelle } from '../../../shared/rules/formalites.ts';
 import type { DemandeCollab, Session } from '../../../shared/types.ts';
+import { joursSession, plageCourte, plageTexte, surPlusieursJours } from '../../../shared/rules/plage-session.ts';
 import { Bar, DateBlock, Kpi, Kpis, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
 import { Ouvrir } from '../components/Cliquable.tsx';
 import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derived.ts';
@@ -35,11 +36,15 @@ export function EchRow({ x, onOpen, onAct }: { x: EchItem; onOpen: () => void; o
   );
 }
 
-/** Ligne de session : date, formation, lieu, remplissage, statut (passée à clôturer, complète…). */
+/**
+ * Ligne de session : date (premier jour), plage (« 21 oct. → 23 oct. 2026 » sur plusieurs jours), formation, lieu,
+ * remplissage, statut (passée à clôturer, complète…).
+ */
 export function sessionView(d: Domain, s: Session, nom: string) {
   const full = s.inscrits >= s.places;
   const statut = d.sessionStatut(s);
-  return { full, statut, cls: SESS_CLS[statut], pct: Math.round(s.inscrits / s.places * 100), nom, date: parse(s.date) };
+  const jours = surPlusieursJours(s) ? ` · ${plural(joursSession(s).length, 'jour', 'jours')}` : '';
+  return { full, statut, cls: SESS_CLS[statut], pct: Math.round(s.inscrits / s.places * 100), nom, date: parse(s.date), plage: plageCourte(s), jours };
 }
 
 function reqLabel(r: DemandeCollab, fmNom: (id: string) => string, hmNom: (id: string) => string) {
@@ -128,7 +133,7 @@ export function Dashboard() {
                   {reqs.map(r => {
                     const e = d.emp(r.empId);
                     const s = d.session(r.sessionId);
-                    const detail = [r.motif, s ? `session souhaitée le ${fmt(parse(s.date))}${sessionActive(s) ? '' : ` (${s.statut.toLowerCase()})`}` : ''].filter(Boolean).join(' · ');
+                    const detail = [r.motif, s ? `session souhaitée ${plageTexte(s)}${sessionActive(s) ? '' : ` (${s.statut.toLowerCase()})`}` : ''].filter(Boolean).join(' · ');
                     const x = r.declaration;
                     // Formation ou habilitation archivée depuis la demande : elle ne s'accepte plus (refus du serveur).
                     const archivee = r.type === 'formation' ? !!(r.f && d.fm(r.f)?.archive) : r.type === 'habilitation' && !!(r.h && d.hm(r.h)?.archive);
@@ -201,7 +206,7 @@ export function Dashboard() {
                     <DateBlock date={parse(s.date)} />
                     <div className="grow">
                       <div className="ellipsis" style={{ fontSize: 14 }}><Ouvrir onOpen={() => openDialog({ type: 'sessionDetail', sessionId: s.id })}>{d.fm(s.formation).court}</Ouvrir></div>
-                      <div className="note-accent ellipsis">{SESSION_PASSEE} · {plural(s.inscrits, 'inscrit', 'inscrits')}</div>
+                      <div className="note-accent ellipsis">{SESSION_PASSEE} · {plural(s.inscrits, 'inscrit', 'inscrits')}{surPlusieursJours(s) ? ` · ${plageCourte(s)}` : ''}</div>
                     </div>
                     {formations && <button type="button" className="btn btn-ghost btn-sm" style={{ flex: 'none' }} onClick={stop(() => openDialog({ type: 'cloture', sessionId: s.id }))}>Clôturer</button>}
                   </div>
@@ -231,7 +236,7 @@ export function Dashboard() {
                     <DateBlock date={sv.date} />
                     <div className="grow">
                       <div className="ellipsis" style={{ fontSize: 14 }}><Ouvrir onOpen={() => openDialog({ type: 'sessionDetail', sessionId: s.id })}>{sv.nom}</Ouvrir></div>
-                      <div className="text-muted sub ellipsis">{s.lieu} · {s.inscrits}/{s.places} inscrits</div>
+                      <div className="text-muted sub ellipsis">{s.lieu} · {s.inscrits}/{s.places} inscrits{sv.jours}</div>
                     </div>
                     <Tag cls={sv.cls} style={{ flex: 'none' }}>{sv.statut}</Tag>
                   </div>

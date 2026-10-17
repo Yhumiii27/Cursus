@@ -41,8 +41,9 @@ fait l'action, ni à un salarié sans adresse ou dont la date de sortie est pass
 l'adresse en vigueur le jour de son envoi (fiche, ou boîte du service RH) ; les notifications d'une personne
 sortie ou sans adresse entre-temps sont closes sans envoi.
 
-**Agenda** : convocations et annulations portent un fichier `.ics` (journée entière, organisateur : la boîte
-d'envoi, identifiant stable par session et salarié). Le salarié ouvre celui de la convocation pour ajouter
+**Agenda** : convocations et annulations portent un fichier `.ics` (journées entières du premier au dernier jour de la
+session ; avec des horaires, un créneau à l'heure de Paris répété chaque jour de la session, jours sautés exclus, un jour
+à un autre horaire remplacé ; organisateur : la boîte d'envoi, identifiant stable par session et salarié). Le salarié ouvre celui de la convocation pour ajouter
 l'événement à son agenda, celui de l'annulation pour l'en retirer ; une convocation renvoyée le met à jour. Une session « à confirmer » par l'organisme y figure comme
 provisoire. Le comportement d'Outlook (ajout, mise à jour, retrait) est à vérifier à la mise en service (section 5).
 

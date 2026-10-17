@@ -35,6 +35,8 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     titreSejourAlerte: 120, titreSejourRelance: 60,
     // Récapitulatif des échéances (shared/rules/relances.ts) : actif, à 90, 30 et 7 jours puis échu, chaque jour.
     relancesActives: true, relancesPaliers: [90, 30, 7], relancesJour: 'quotidien',
+    // Formations (lot 5) : heures des sessions proposées dans les feuilles de temps (ligne interne INT-FORM).
+    formationsTemps: true,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

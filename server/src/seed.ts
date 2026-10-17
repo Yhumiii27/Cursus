@@ -5,11 +5,12 @@ import { addD, addM, isFerie, wDays, weekday } from '../../shared/dates.ts';
 import { matricule } from '../../shared/format.ts';
 import { identifiantSuggere, typeSuggere } from '../../shared/rules/comptes.ts';
 import { repriseDesAbsences } from '../../shared/rules/absences.ts';
+import { completerSession } from '../../shared/rules/plage-session.ts';
 import { cpDroit, rttDroit } from '../../shared/rules/conges.ts';
 import type {
   AutorisationTravail, AvisMedical, Dataset, Employe, EntretienType, Messagerie, ProfilRh, Restriction, Statut, TempsTravail, TypeContrat, VaccinId,
 } from '../../shared/types.ts';
-import { MOTIF_RESTRICTION } from '../../shared/constants.ts';
+import { ACTIVITE_FORMATION, MOTIF_RESTRICTION } from '../../shared/constants.ts';
 import type { Db } from './db.ts';
 import { DEFAULT_SETTINGS, loadFull } from './dataset.ts';
 import { contexte, enregistrerAffectation, enregistrerChantier, enregistrerProjet, enregistrerTache } from './integrations/keystone-entrant.ts';
@@ -66,6 +67,7 @@ const PROJETS: Record<string, string> = {
   'K-2631': 'Transfert de ligne de conditionnement', 'K-2633': 'Dépannage four tunnel',
   'INT-PROD': 'Production — lignes internes', 'INT-LOG': 'Logistique interne', 'INT-MAINT': 'Maintenance interne', 'INT-HSE': 'Qualité, hygiène, sécurité',
   'INT-QUA': 'Contrôle qualité', 'INT-ADM': 'Fonctions support', 'INT-COM': 'Commercial & avant-vente', 'ECOLE': 'Cours en CFA (alternance)',
+  [ACTIVITE_FORMATION.code]: ACTIVITE_FORMATION.nom,
 };
 
 /** Chantiers et exigences du Go / No Go ; le dépannage de Grenoble, terminé, est archivé. Les ressources viennent des affectations. */
@@ -184,18 +186,27 @@ const EXTRA: Record<number, Extra> = {
 
 // Le nombre d'inscrits découle des certifications et inscriptions rattachées (RECYCLAGES, INSCRIPTIONS).
 // `planId` : action du plan engagée pour la session (identifiants des lignes de PLAN, insérées dans l'ordre).
+// Sessions sur plusieurs jours (shared/rules/plage-session.ts) : CACES R489 de 21 h sur trois jours avec horaires, PRAP
+// de 14 h sur un vendredi et le lundi suivant, FCO de 35 h sur une semaine sans horaire (journées entières).
+const HORAIRE_JOUR = { debut: '08:30', fin: '16:30', pause: 60 };
 const SESSIONS = [
   { id: 1, formation: 'sst', date: '2026-10-14', lieu: 'Site de Lyon — salle B', places: 12, statut: 'Confirmée', planId: 7 },
   { id: 2, formation: 'sst', date: '2026-11-18', lieu: 'Site de Lyon — salle B', places: 12, statut: 'À confirmer' },
-  { id: 3, formation: 'caces489', date: '2026-10-21', lieu: 'AFTRAL Saint-Priest', places: 6, statut: 'Confirmée', planId: 8 },
+  {
+    id: 3, formation: 'caces489', date: '2026-10-21', fin: '2026-10-23', jours: ['2026-10-21', '2026-10-22', '2026-10-23'], horaires: [HORAIRE_JOUR],
+    lieu: 'AFTRAL Saint-Priest', places: 6, statut: 'Confirmée', planId: 8,
+  },
   { id: 4, formation: 'caces489', date: '2026-11-25', lieu: 'AFTRAL Saint-Priest', places: 6, statut: 'Confirmée' },
   { id: 5, formation: 'elec', date: '2026-10-27', lieu: 'Apave Vénissieux', places: 8, statut: 'Confirmée', planId: 9 },
   { id: 6, formation: 'epi', date: '2026-10-09', lieu: 'Site de Lyon — atelier', places: 15, statut: 'Confirmée' },
   { id: 7, formation: 'hauteur', date: '2026-11-04', lieu: 'Socotec Lyon', places: 8, statut: 'À confirmer' },
   { id: 8, formation: 'rgpd', date: '2026-11-12', lieu: 'Visioconférence', places: 30, statut: 'Confirmée', planId: 10 },
   { id: 9, formation: 'caces486', date: '2026-12-02', lieu: 'AFTRAL Saint-Priest', places: 6, statut: 'À confirmer' },
-  { id: 10, formation: 'prap', date: '2026-11-20', lieu: 'Site de Lyon — salle B', places: 10, statut: 'Confirmée' },
-  { id: 11, formation: 'fco', date: '2027-01-11', lieu: 'AFTRAL Saint-Priest', places: 12, statut: 'À confirmer' },
+  {
+    id: 10, formation: 'prap', date: '2026-11-20', fin: '2026-11-23', jours: ['2026-11-20', '2026-11-23'], horaires: [{ debut: '09:00', fin: '17:00', pause: 60 }],
+    lieu: 'Site de Lyon — salle B', places: 10, statut: 'Confirmée',
+  },
+  { id: 11, formation: 'fco', date: '2027-01-11', fin: '2027-01-15', lieu: 'AFTRAL Saint-Priest', places: 12, statut: 'À confirmer' },
   { id: 12, formation: 'epi', date: '2026-12-10', lieu: 'Site de Lyon — atelier', places: 15, statut: 'À confirmer' },
   { id: 13, formation: 'atex', date: '2026-11-16', lieu: 'Apave Vénissieux', places: 8, statut: 'Confirmée' },
 ];
@@ -395,7 +406,7 @@ export function seedDemo(db: Db) {
     HABILITATIONS.forEach(h => db.insert('habilitations', h));
     DESTS.forEach(d => db.insert('destinations', d));
     EQUIPES.forEach(([nom, managerId], ordre) => db.insert('equipes', { nom, managerId, ordre }));
-    SESSIONS.forEach(s => db.insert('sessions', s));
+    SESSIONS.forEach(s => db.insert('sessions', completerSession(s)));
     EMPLOYES.forEach(e => {
       const p = PROFILS[e.id], x = EXTRA[e.id] || {};
       db.insert('employes', {

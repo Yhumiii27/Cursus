@@ -56,8 +56,10 @@ test('champs : message sous le champ pour ce qui manque ou est mal saisi', () =>
 test('session de formation : une erreur sous chaque champ à la fois, vide à l’envoi, saisie incorrecte dès la saisie', () => {
   // Date et lieu vides : les deux champs sont signalés au même envoi (le contrôle partagé s'arrête au premier).
   const vide = erreursSession('2026-10-10', { date: '', lieu: '  ', places: '8' });
-  assert.deepEqual(vide.champs, { date: 'Indiquez la date de la session.', lieu: 'Indiquez le lieu.', places: null });
-  assert.deepEqual(vide.vides, { date: true, lieu: true, places: false }, 'champs vides : signalés à l’envoi seulement');
+  // Dernier jour, jours et horaires (session sur plusieurs jours, t118) : facultatifs, jamais « vides ».
+  const plage = { fin: null, jours: null, horaires: null }, plageVide = { fin: false, jours: false, horaires: false };
+  assert.deepEqual(vide.champs, { date: 'Indiquez la date de la session.', lieu: 'Indiquez le lieu.', places: null, ...plage });
+  assert.deepEqual(vide.vides, { date: true, lieu: true, places: false, ...plageVide }, 'champs vides : signalés à l’envoi seulement');
   assert.equal(vide.bloque, true);
   const tout = erreursSession('2026-10-10', { date: '', lieu: '', places: '' });
   assert.deepEqual(Object.keys(tout.champs).filter(k => tout.champs[k as 'date']), ['date', 'lieu', 'places']);
@@ -73,7 +75,12 @@ test('session de formation : une erreur sous chaque champ à la fois, vide à l�
   const places = erreursSession('2026-10-10', { date: '2026-11-05', lieu: 'Lyon', places: '3' }, { dateActuelle: '2026-11-05', inscrits: 5 });
   assert.equal(places.champs.places, 'Nombre de places inférieur au nombre d’inscrits (5).');
   const ok = erreursSession('2026-10-10', { date: '2026-11-05', lieu: 'Lyon', places: '8' });
-  assert.deepEqual([ok.champs, ok.bloque], [{ date: null, lieu: null, places: null }, false]);
+  assert.deepEqual([ok.champs, ok.bloque], [{ date: null, lieu: null, places: null, ...plage }, false]);
+  // Plage : l'erreur sous le champ qu'elle concerne (dernier jour, horaires), pas sous la date.
+  const fin = erreursSession('2026-10-10', { date: '2026-11-05', lieu: 'Lyon', places: '8', fin: '2026-11-04' });
+  assert.deepEqual([fin.champs.fin, fin.champs.date, fin.bloque], ['Le dernier jour de la session précède le premier.', null, true]);
+  const h = erreursSession('2026-10-10', { date: '2026-11-05', lieu: 'Lyon', places: '8', horaires: [{ debut: '17:00', fin: '09:00', pause: 0 }] });
+  assert.deepEqual([h.champs.horaires, h.champs.date, h.champs.places], ['Horaires de la session : la fin suit le début.', null, null]);
 });
 
 // — Confirmations —

@@ -7,7 +7,8 @@ import { useState } from 'react';
 import { sessionActive } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
-import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
+import { blocage, conflitsSession } from '../../../shared/rules/conflits.ts';
+import { finSession, joursSession, plageCourte, sessionDu, surPlusieursJours } from '../../../shared/rules/plage-session.ts';
 import { horsContratLe } from '../../../shared/rules/contrats.ts';
 import { Bloquant, CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Seg } from '../components/ui.tsx';
@@ -36,10 +37,10 @@ export function PlanDialog({ empId, certId, inscriptionId }: { empId: number; ce
     return (
       <Dialog title={insc ? 'Planifier la formation' : 'Planifier un renouvellement'} width={540} actions={<>
         <CancelButton label="Fermer" />
-        {formations && <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'cloture', sessionId: actuelle.id })}>Clôturer la session</button>}
+        {formations && finSession(actuelle) <= d.ti && <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'cloture', sessionId: actuelle.id })}>Clôturer la session</button>}
       </>}>
         <p className="text-muted" style={{ margin: 0 }}>
-          {emp.nom} est inscrit à la session {fm.court} du {fmt(parse(actuelle.date))}, passée : {formations ? 'clôturez-la d’abord' : 'le service RH la clôture d’abord'} (présence, résultat).
+          {emp.nom} est inscrit à la session {fm.court} {sessionDu(actuelle)}, {finSession(actuelle) < d.ti ? 'passée' : `en cours jusqu’au ${fmt(parse(finSession(actuelle)))}`} : {formations ? 'clôturez-la d’abord' : 'le service RH la clôture d’abord'} (présence, résultat).
         </p>
       </Dialog>
     );
@@ -48,10 +49,11 @@ export function PlanDialog({ empId, certId, inscriptionId }: { empId: number; ce
   // Seul le service RH crée des sessions : les autres transmettent une demande de formation.
   const demander = !formations && !ouvertes;
   const choisie = sessions.find(s => s.id === sessionId);
-  const conflits = choisie ? conflitsDates(d, empId, choisie.date, choisie.date, 'formation', { sessionId: actuelle?.id }) : [];
+  // Chacun des jours de la session (plusieurs jours : shared/rules/plage-session.ts).
+  const conflits = choisie ? conflitsSession(d, empId, choisie, { sessionId: actuelle?.id }) : [];
 
   // Session postérieure au départ (sortie enregistrée, fin de CDD…) : refusée, comme par le serveur.
-  const sessionErr = !sessionId ? 'Choisissez une session.' : choisie ? horsContratLe(emp, choisie.date) : null;
+  const sessionErr = !sessionId ? 'Choisissez une session.' : choisie ? horsContratLe(emp, finSession(choisie)) : null;
   const confirm = async () => {
     if (busy || !v.verifier(sessionErr, blocage(conflits))) return;
     setBusy(true);
@@ -82,7 +84,7 @@ export function PlanDialog({ empId, certId, inscriptionId }: { empId: number; ce
                 <input type="radio" name="session" checked={checked} disabled={full} onChange={() => setSessionId(s.id)} />
                 <span className="dot" />
                 <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 'var(--space-3)', flex: 1, minWidth: 0 }}>
-                  <div><div style={{ fontSize: 14 }}>{fmt(parse(s.date))}</div><div className="text-muted sub">{s.lieu} · {fm.organisme}</div></div>
+                  <div><div style={{ fontSize: 14 }}>{plageCourte(s)}</div><div className="text-muted sub">{s.lieu} · {fm.organisme}{surPlusieursJours(s) ? ` · ${plural(joursSession(s).length, 'jour', 'jours')}` : ''}</div></div>
                   <span className="text-muted sub nowrap">{full ? 'Complète' : plural(s.places - s.inscrits, 'place restante', 'places restantes')}</span>
                 </div>
               </label>

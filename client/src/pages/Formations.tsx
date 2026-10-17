@@ -14,6 +14,7 @@ import { Bar, Btn, Empty, Fine, Page, Panel, Seg, Tag, Two, stop } from '../comp
 import { CartePick, Ouvrir } from '../components/Cliquable.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore, type UiState } from '../state/store.tsx';
+import { plageCourte } from '../../../shared/rules/plage-session.ts';
 import { sessionView } from './Dashboard.tsx';
 
 const TYPES: Record<UiState['typeForm'], string | null> = { toutes: null, reg: 'Réglementaire', rec: 'Recommandée', int: 'Interne' };
@@ -123,7 +124,7 @@ export function Formations() {
                         <td><Two main={fmt(c.exp)} sub={rel(c.d)} nowrap subNowrap /></td>
                         <td><Tag cls={CLS[c.key]}>{CERT_LABEL[c.key]}</Tag></td>
                         <td>
-                          <Two nowrap main={s ? fmt(parse(s.date)) : 'Aucune session ouverte'}
+                          <Two nowrap main={s ? plageCourte(s) : 'Aucune session ouverte'}
                             sub={s ? `${s.lieu} · ${plural(s.places - s.inscrits, 'place restante', 'places restantes')}` : 'à demander au service RH'} />
                         </td>
                         <td className="right">
@@ -179,7 +180,7 @@ export function Formations() {
                   const fm = d.fm(s.formation);
                   return (
                     <tr key={s.id} className="clickable" onClick={() => openDetail(s)}>
-                      <td className="nowrap"><Ouvrir onOpen={() => openDetail(s)}>{fmt(parse(s.date))}</Ouvrir></td>
+                      <td className="nowrap"><Ouvrir onOpen={() => openDetail(s)}>{plageCourte(s)}</Ouvrir></td>
                       <td><Two main={fm.nom} sub={fm.organisme} /></td>
                       <td className="text-muted">{s.lieu}</td>
                       <td className="tnum nowrap">{plural(s.inscrits, 'inscrit', 'inscrits')}</td>
@@ -213,7 +214,7 @@ export function Formations() {
                 const team = manager ? enrolled(s) : [];
                 return (
                   <tr key={s.id} className={espaceRh ? 'clickable' : undefined} onClick={espaceRh ? () => openDetail(s) : undefined}>
-                    <td className="nowrap">{espaceRh ? <Ouvrir onOpen={() => openDetail(s)}>{fmt(sv.date)}</Ouvrir> : fmt(sv.date)}</td>
+                    <td className="nowrap">{espaceRh ? <Ouvrir onOpen={() => openDetail(s)}>{sv.plage}</Ouvrir> : sv.plage}</td>
                     <td><Two main={sv.nom} sub={fm.organisme} /></td>
                     <td className="text-muted">{s.lieu}</td>
                     <td>
@@ -246,7 +247,7 @@ export function Formations() {
                   const fm = d.fm(s.formation);
                   return (
                     <tr key={s.id} className="clickable" onClick={() => openDetail(s)}>
-                      <td className="nowrap"><Ouvrir onOpen={() => openDetail(s)}>{fmt(parse(s.date))}</Ouvrir></td>
+                      <td className="nowrap"><Ouvrir onOpen={() => openDetail(s)}>{plageCourte(s)}</Ouvrir></td>
                       <td><Two main={fm.nom} sub={fm.organisme} /></td>
                       <td className="text-muted">{s.lieu}</td>
                       <td className="tnum nowrap">{s.statut === 'Annulée' ? '—' : plural(s.inscrits, 'inscrit', 'inscrits')}</td>

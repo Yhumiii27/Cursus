@@ -207,7 +207,8 @@ export const REGLES: Record<string, Regle> = {
   'cert.ajouter': { champs: ['empId', 'f', 'date'] },
   'session.creer': { champs: ['f', 'date', 'lieu', 'places', 'planId'] },
   'session.confirmer': { champs: ['id'], cible: parId('sessions', ['statut']), ...inscritsAvantApres },
-  'session.modifier': { champs: ['id'], cible: parId('sessions', ['date', 'lieu', 'places', 'statut']), ...inscritsAvantApres },
+  // Session sur plusieurs jours : ses jours (dates, premier et dernier compris), pas les horaires.
+  'session.modifier': { champs: ['id'], cible: parId('sessions', ['date', 'jours', 'lieu', 'places', 'statut']), ...inscritsAvantApres },
   'session.annuler': { champs: ['id'], cible: parId('sessions', ['statut']), ...inscritsAvantApres },
   // Résultats de chaque inscrit (présent, reçu) ; ni la note ni le commentaire de l'évaluation à chaud.
   'session.cloturer': {

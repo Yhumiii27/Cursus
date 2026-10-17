@@ -14,6 +14,7 @@ import { Demonstration } from './Demonstration.tsx';
 import { Entretiens } from './Entretiens.tsx';
 import { Envois } from './Envois.tsx';
 import { FeuillesTemps } from './FeuillesTemps.tsx';
+import { Formations } from './Formations.tsx';
 import { Keystone } from './Keystone.tsx';
 import { MatriculesPaie } from './MatriculesPaie.tsx';
 import { ReglagesPaie } from './ReglagesPaie.tsx';
@@ -50,6 +51,7 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'contrats', place: 'gauche', Section: Contrats },
   { id: 'paie', place: 'droite', Section: ReglagesPaie },
   { id: 'feuilles', place: 'gauche', Section: FeuillesTemps },
+  { id: 'formations', place: 'droite', Section: Formations },
   { id: 'confidentialite', place: 'droite', Section: Rgpd },
   { id: 'messagerie', place: 'large', Section: Messagerie },
   { id: 'relances', place: 'large', Section: RelancesEcheances },

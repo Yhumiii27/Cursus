@@ -224,7 +224,7 @@ test('tâches planifiées : heures par jour, contrôles, proposition limitée à
   assert.deepEqual(lignes(1, '2026-11-09'), [['INT-LOG', 'Réception / expédition', [7, 7, 0, 7, 7]]]);
 
   // Rien de planifié : la proposition est refusée, la feuille n'est pas vidée.
-  assert.throws(() => run(RH, 'temps.suggest', { empId: 2, week: '2027-03-01' }), /Aucune tâche Keystone planifiée/);
+  assert.throws(() => run(RH, 'temps.suggest', { empId: 2, week: '2027-03-01' }), /Aucune tâche Keystone ni session de formation planifiée/);
   assert.equal(loadFull(db, RH).feuilles.some(f => f.empId === 2 && f.week === '2027-03-01'), false);
   run(RH, 'temps.suggest', { empId: 2, week: '2026-10-12' });
   assert.equal(loadFull(db, RH).feuilles.find(f => f.empId === 2 && f.week === '2026-10-12')!.lignes.length, 3);
@@ -288,17 +288,17 @@ test('instantané : création, archivage, suppression bornée par « depuis », 
   r = await call('PUT', '/v1/instantane', { depuis: '2026-10-10', chantiers: [chantier, { ...chantier, id: 'K-4000', nom: 'Nouveau chantier' }], affectations });
   assert.deepEqual(r.body.bilan.affectations, { crees: 0, modifies: 0, inchanges: 3, supprimes: 0 });
   // Sections projets et tâches : projets absents archivés (jamais supprimés), sauf les activités internes
-  // (INT-*, ECOLE) ; tâches absentes supprimées.
+  // (INT-*, dont INT-FORM des heures de formation, ECOLE) ; tâches absentes supprimées.
   r = await call('PUT', '/v1/instantane', {
     projets: [{ code: 'K-2614', nom: 'Rétrofit presse hydraulique' }],
     taches: [{ id: 'KT-18-1', projet: 'K-2614', tache: 'Rétrofit — circuit hydraulique', matricule: 'EMP-0018', debut: '2026-10-26', fin: '2026-10-27', heures: { '2026-10-26': 8, '2026-10-27': 8 } }],
   });
   assert.equal(r.body.bilan.projets.archives, 5);
   const internes = db.all<Corps>('projets').filter(p => ACTIVITES_INTERNES.test(p.code));
-  assert.deepEqual([internes.length, internes.every(p => p.statut === 'actif')], [8, true], 'activités internes toujours imputables');
+  assert.deepEqual([internes.length, internes.every(p => p.statut === 'actif')], [9, true], 'activités internes toujours imputables');
   assert.equal(r.body.bilan.taches.modifies, 1);
   assert.equal(db.count('taches'), 1);
-  assert.equal(db.count('projets'), 14);
+  assert.equal(db.count('projets'), 15);
 });
 
 test('demandes : contrôles 400, doublons 409, hors affectation, ancienne route, journal sans donnée personnelle', async () => {

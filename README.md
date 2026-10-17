@@ -246,6 +246,10 @@ relèvent au fil des tests ajoutés.
 - **Demandes de visite médicale** : enregistrées et suivies jusqu'à la saisie de la visite, envoyées par e-mail au service
   de prévention et de santé au travail (adresse de Paramètres → Messagerie) et imprimables, sans information médicale.
 - **Liste des inscrits d'une session pour l'organisme** : affichée et exportée en CSV à la confirmation, sans envoi d'e-mail.
+- **Sessions sur plusieurs jours** : premier et dernier jour, jours de la session (ouvrés par défaut) et horaires
+  facultatifs ; conflits, contrat, convocation (`.ics`) et clôture (certification datée du dernier jour) sur toute la
+  session ; heures prévues proposées dans la feuille de temps des inscrits (ligne interne INT-FORM, jamais envoyée à
+  Keystone ; Paramètres → Formations).
 
 ## Contrat et temps de travail
 

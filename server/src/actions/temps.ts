@@ -1,4 +1,5 @@
 // Feuilles de temps : saisie, soumission, validation, transmission à Sage Paie (lots de paie : actions/paie.ts).
+import { ACTIVITE_FORMATION } from '../../../shared/constants.ts';
 import { addD, isValidDate, isoWeek, mondayOf, wDays } from '../../../shared/dates.ts';
 import { fH, num, plural } from '../../../shared/format.ts';
 import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
@@ -116,10 +117,13 @@ const suggest: ActionHandler = (ctx, p) => {
   const { emp, week, sh } = editable(ctx, p);
   const l = suggestLines(ctx.d, emp, week);
   // Rien de planifié cette semaine : la feuille n'est pas vidée.
-  if (!l.length) throw new ActionError('Aucune tâche Keystone planifiée pour ce salarié cette semaine');
-  controleJournees(sh, l, 'Tâches Keystone de plus de 24 h');
+  if (!l.length) throw new ActionError('Aucune tâche Keystone ni session de formation planifiée pour ce salarié cette semaine');
+  controleJournees(sh, l, 'Tâches Keystone et formations de plus de 24 h');
   saveLines(ctx, sh, l);
-  return `Heures proposées depuis les tâches Keystone — ${plural(l.length, 'ligne', 'lignes')}, à ajuster si besoin`;
+  // Lignes de formation (INT-FORM) : heures prévues de la session, jamais envoyées à Keystone.
+  const formations = l.filter(x => x.projet === ACTIVITE_FORMATION.code).length;
+  const source = formations === l.length ? 'des sessions de formation' : formations ? 'des tâches Keystone et des sessions de formation' : 'des tâches Keystone';
+  return `Heures proposées depuis ${source} — ${plural(l.length, 'ligne', 'lignes')}, à ajuster si besoin`;
 };
 
 const submit: ActionHandler = (ctx, p) => {

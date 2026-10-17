@@ -110,6 +110,9 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   relancesActives: { defaut: true, controle: booleen },
   relancesPaliers: { defaut: [90, 30, 7], controle: paliersRelance },
   relancesJour: { defaut: 'quotidien', controle: choix(JOURS_RELANCE) },
+  // — Formations (parametres/Formations.tsx, shared/rules/formations-temps.ts) : heures des sessions proposées dans la
+  //   feuille de temps des inscrits (ligne interne INT-FORM), par défaut —
+  formationsTemps: { defaut: true, controle: booleen },
 };
 
 /**

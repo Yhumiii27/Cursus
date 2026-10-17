@@ -209,6 +209,11 @@ export type CodeMotif = typeof CODES_MOTIF[number];
  * jamais renvoyées à Keystone, qui ne reçoit que les heures passées sur ses projets.
  */
 export const ACTIVITES_INTERNES = /^(?:INT-|ECOLE$)/;
+/**
+ * Activité interne des heures de formation (shared/rules/formations-temps.ts) : ligne proposée dans la feuille de temps
+ * des inscrits à une session, jamais envoyée à Keystone (code INT-*). Amorcée dans les projets par une migration nommée.
+ */
+export const ACTIVITE_FORMATION = { code: 'INT-FORM', nom: 'Formation' } as const;
 // « Reporté » : action d'un exercice clos reprise sur l'exercice suivant (`plan.cloturerExercice`), hors des sommes.
 export const PLAN_CLS = { prevu: 'tag-outline', engage: 'tag-accent', realise: 'tag-neutral', reporte: 'tag-outline' } as const;
 export const PLAN_LABEL = { prevu: 'Prévu', engage: 'Engagé', realise: 'Réalisé', reporte: 'Reporté' } as const;

@@ -28,7 +28,7 @@ import { CODE_PAYS, CODE_TITRE, codeDestination, codeTitre, type ReferentielId }
 import { estTypeReprise } from '../../shared/rules/reprise.ts';
 import { CODE_ACTIVITE, normaliserCodeActivite } from '../../shared/rules/activites.ts';
 import { estTypeDerogation } from '../../shared/rules/semaine.ts';
-import type { ClotureConges, CurrentUser, FeuilleTemps, LigneTemps } from '../../shared/types.ts';
+import type { ClotureConges, CurrentUser, FeuilleTemps, InformationCp, LigneTemps } from '../../shared/types.ts';
 import type { ContactsConfidentialite } from '../../shared/confidentialite.ts';
 import { journaliser, type Compte } from './comptes.ts';
 import { lireConfidentialite } from './confidentialite.ts';
@@ -419,6 +419,16 @@ export const REGLES: Record<string, Regle> = {
   'absence.annuler': { champs: ['id'], cible: parId('absences', ['statut']), ...reportsRendus },
   'cet.placer': { champs: ['empId', 'kind', 'jours', 'annee'] },
   'report.accorder': { champs: ['empId', 'jours', 'expire'] },
+  // Information au retour d'un arrêt (art. L3141-19-3) : arrêt visé, jour, jours communiqués et échéances ; jamais le texte
+  // envoyé. Masquée à la lecture seule (elle désigne un arrêt de santé : ACTIONS_SANTE).
+  'conges.informer': {
+    champs: ['id'], cible: parId('absences', []),
+    bilan: (p, x) => {
+      // Dernière information de l'arrêt (un arrêt prolongé après l'information en reçoit une autre à son terme).
+      const i = x.db.where<InformationCp>('informationsCp', 'absenceId', Number(p.id)).sort((u, v) => v.id - u.id)[0];
+      return i ? { le: i.le, jours: i.jours, arret: i.arret, limite: i.limite, echeance: i.echeance } : {};
+    },
+  },
   // Clôture d'une période de congés : décision de chaque ligne enregistrée (report, perte, solde nul ; jours, échéance),
   // jamais le motif d'un report imposé (il laisse deviner une absence de santé).
   'conges.cloturer': {
@@ -895,7 +905,7 @@ export function exigerRh(db: Db, req: Request, res: Response, quoi: string, auto
 /** Actions dont le message ou le détail touche à la santé : absence (dates d'un arrêt), visite médicale, vaccination, document déclaré. */
 const ACTIONS_SANTE = new Set([
   'absence.saisir', 'absence.qualifier', 'absence.prolonger', 'absence.annuler', 'medical.demander', 'medical.annuler', 'medical.avis', 'medical.suivi',
-  'formalite.enregistrer', 'demande.accepter', 'email.visite.demande', 'reprise.visites',
+  'formalite.enregistrer', 'demande.accepter', 'email.visite.demande', 'reprise.visites', 'conges.informer', 'email.conges.information',
 ]);
 export const DETAIL_RESERVE = 'Détail réservé au service RH';
 

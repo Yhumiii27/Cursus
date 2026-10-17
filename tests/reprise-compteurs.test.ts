@@ -339,11 +339,15 @@ test('t072 clôture des CP : aucune perte d’office, report imposé après une 
   assert.deepEqual(cloturesAFaire(juin).map(x => [x.type, x.periode]), [['CP', 2026], ['RTT', 2026]]);
   const lignes = lignesClotureCp(juin, 2026), ligne = (id: number) => lignes.find(l => l.e.id === id)!;
   assert.ok(!lignes.some(l => l.e.id === 15), 'intérimaire : congés gérés par l’agence');
-  // Arrêt maladie (13), maternité (19), absence à qualifier (20) dans la période : perte impossible, tout le solde reporté 15 mois.
-  for (const id of [13, 19, 20]) {
+  // Arrêt maladie (13, 3 j ouvrés), maternité (19, plus que son solde), absence à qualifier (20, 8 j ouvrés) dans la période
+  // de prise : les jours qu'ils ont empêché de prendre sont reportés 15 mois, dans la limite du solde (lot 5, t041). La
+  // proposition reporte tout le solde : le reste n'est jamais prérempli comme perdu (aucune perte d'office).
+  for (const [id, legal] of [[13, 3], [19, ligne(19).solde], [20, 8]]) {
     assert.equal(ligne(id).impose, 'report_legal', `salarié ${id}`);
-    assert.deepEqual([ligne(id).legal, ligne(id).expireLegal, ligne(id).proposition.decision], [ligne(id).solde, '2028-08-31', 'reporter']);
+    assert.deepEqual([ligne(id).legal, ligne(id).expireLegal, ligne(id).proposition.decision, ligne(id).proposition.jours], [legal, '2028-08-31', 'reporter', ligne(id).solde]);
   }
+  assert.ok(ligne(13).solde > 3 && ligne(20).solde > 8, 'le reste du solde est au choix du service RH');
+  assert.deepEqual([ligne(13).empeches, ligne(13).acquisArret], [3, 0]);
   // Thomas (6) : seuls les 4 j de son report légal (jusqu'au 31 août 2027) sont imposés ; le reste est au choix du RH.
   assert.deepEqual([ligne(6).impose, ligne(6).legal, ligne(6).expireLegal], ['report_en_cours', 4, '2027-08-31']);
   assert.ok(ligne(6).solde > 4);
@@ -374,7 +378,9 @@ test('t072 clôture des CP : aucune perte d’office, report imposé après une 
   const apres = loadFull(db, ADMIN);
   const c = (id: number) => apres.clotures.find(x => x.empId === id && x.type === 'CP' && x.periode === 2026);
   assert.deepEqual([c(3)!.decision, c(3)!.perdus, c(3)!.reportes], ['perdre', ligne(3).solde, 0]);
-  assert.deepEqual([c(13)!.decision, c(13)!.motif, c(13)!.expire], ['reporter', 'report_legal', '2028-08-31']);
+  // Tout le solde de Marion reporté : 3 j de report légal jusqu'au 31 août 2028, le reste jusqu'au 31 mai 2028.
+  assert.deepEqual([c(13)!.decision, c(13)!.motif, c(13)!.expire], ['reporter', 'report_legal', '2028-05-31']);
+  assert.deepEqual(apres.reports.filter(r => r.empId === 13 && r.sens === 'recu').map(r => [r.jours, r.expire]).sort(), [[3, '2028-08-31'], [ligne(13).solde - 3, '2028-05-31']]);
   assert.equal(c(1), undefined, 'demande en attente : reste à clôturer');
   assert.equal(c(10), undefined, 'solde nul mais demande en attente : pas clos d’office');
   // Thomas : 4 j reportés jusqu'au 31 août 2027 (report légal), le reste perdu sur décision du RH.

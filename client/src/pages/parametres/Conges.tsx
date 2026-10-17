@@ -1,5 +1,6 @@
-// Paramètres → Congés et clôtures : proposition faite à la clôture des congés payés (administrateur RH), date à partir de
-// laquelle les RTT de l'année suivante se posent, et clôtures déjà faites (périodes de CP au 31 mai, RTT au 31 décembre).
+// Paramètres → Congés et clôtures : proposition faite à la clôture des congés payés (administrateur RH), acquisition des CP
+// pendant un arrêt maladie (minimum légal ou maladie assimilée), date à partir de laquelle les RTT de l'année suivante se
+// posent, et clôtures déjà faites (périodes de CP au 31 mai, RTT au 31 décembre).
 import { parse } from '../../../../shared/dates.ts';
 import { fJ, fmt, plural } from '../../../../shared/format.ts';
 import { RTT_ANNEE_SUIVANTE_DES } from '../../../../shared/reglages.ts';
@@ -38,7 +39,18 @@ export function Conges({ s }: SectionProps) {
       <Fine>
         Aucun jour n’est perdu d’office : à partir du 1er juin, le service RH choisit pour chaque salarié le report du solde (plafonné au solde,
         jusqu’au 31 mai suivant) ou sa perte. « Proposer le report » préremplit le report de tout le solde, à confirmer. Après une absence de santé,
-        une maternité, une paternité ou une adoption dans la période, la perte est impossible : report de 15 mois (art. L3141-19-1).
+        une maternité, une paternité ou une adoption, les jours acquis pendant l’absence et ceux qu’elle a empêché de prendre ne se perdent pas :
+        report de 15 mois (art. L3141-19-1), qui court à partir de l’information du salarié à son retour.
+      </Fine>
+      <Field label="Congés payés acquis pendant un arrêt maladie">
+        <Seg name="param-cp-maladie" label="Congés payés acquis pendant un arrêt maladie" value={s.cpMaladie} disabled={!admin}
+          options={[['legal', 'Minimum légal'], ['assimile', 'Comme du travail effectif']]} onChange={v => save({ cpMaladie: v })} />
+      </Field>
+      <Fine>
+        Minimum légal (loi du 22 avril 2024, art. L3141-5-1) : 2 jours ouvrables par mois d’arrêt, soit 1,67 jour ouvré, 24 jours ouvrables
+        (20 ouvrés) par période au plus. « Comme du travail effectif » seulement si un accord d’entreprise ou la CCN Industries chimiques le prévoit.
+        Accident du travail ou de trajet et maladie professionnelle comptent toujours comme du travail effectif, sans limite de durée ; une absence
+        encore à qualifier compte comme une maladie.
       </Fine>
       <Field label="RTT de l’année suivante posables à partir du" htmlFor="param-rtt-suivante">
         <select className="input" id="param-rtt-suivante" value={s.rttAnneeSuivanteDes} disabled={!admin} onChange={ev => save({ rttAnneeSuivanteDes: ev.target.value })}>

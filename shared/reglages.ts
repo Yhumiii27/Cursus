@@ -83,6 +83,9 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   // — Congés et clôtures (parametres/Conges.tsx) : aucune perte d'office, le RH décide ligne par ligne —
   politiqueReportCp: { defaut: 'cas_par_cas', controle: choix(['cas_par_cas', 'proposer_report']) },
   rttAnneeSuivanteDes: { defaut: '', controle: choix<string>(RTT_ANNEE_SUIVANTE_DES) },
+  // Acquisition pendant un arrêt maladie : minimum légal de la loi 2024-364 tant qu'un accord ou la CCN plus favorable
+  // n'est pas confirmé (shared/rules/acquisition-cp.ts).
+  cpMaladie: { defaut: 'legal', controle: choix(['legal', 'assimile']) },
   // — Paie (parametres/ReglagesPaie.tsx, shared/rules/paie.ts) : heures supplémentaires payées par défaut ; repos seulement
   // avec la référence de l'accord (COHERENCE) ; semaine à cheval sur le mois de son dimanche ; clôture le dernier jour (0) —
   heuresSupMode: { defaut: 'paiement', controle: choix(['paiement', 'repos']) },

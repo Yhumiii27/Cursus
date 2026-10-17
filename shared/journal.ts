@@ -145,6 +145,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'cet.placer': 'Placement sur le compte épargne-temps',
   'report.accorder': 'Report de congés payés',
   'conges.cloturer': 'Clôture d’une période de congés',
+  'conges.informer': 'Information sur les congés au retour d’un arrêt',
   // Entretiens
   'entretien.planifier': 'Entretien planifié',
   'entretien.annuler': 'Entretien annulé',
@@ -271,6 +272,7 @@ export const CHAMP_LABEL: Record<string, string> = {
   archive: 'Archivée le',
   matriculePaie: 'Matricule de paie', identifiantKeystone: 'Identifiant envoyé à Keystone', politiqueReportCp: 'Politique de report des CP',
   rttAnneeSuivanteDes: 'RTT de l’année suivante posables à partir du',
+  cpMaladie: 'Acquisition des CP pendant un arrêt maladie',
   heuresSupMode: 'Heures supplémentaires', heuresSupAccord: 'Accord sur le repos de remplacement', periodeRattachement: 'Semaine à cheval sur deux mois',
   clotureJour: 'Jour de clôture des variables de paie', codeSage: 'Code Sage', confirmeLe: 'Code Sage confirmé le',
   suiviSemaines: 'Semaines du suivi des feuilles de temps', feuilleLimiteJour: 'Feuille de temps attendue le (jour de la semaine suivante)',

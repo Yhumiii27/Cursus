@@ -7,12 +7,16 @@ import { fH, fJ, fmt, fmtShort, r1 } from '../format.ts';
 import type { Domain } from '../domain.ts';
 import type { AbsenceType, CongeType, Employe, ISODate, NatureAbsence, ReportCp } from '../types.ts';
 import { absenceActive, absenceBloque, borneContrat, joursDecomptes, natureDef, periodeTexte, uniteDecompte } from './absences.ts';
+import { acquisMois, joursAcquis } from './acquisition-cp.ts';
 import { conflitsDates } from './conflits.ts';
 import { chevauche, demiJournees, type DemiJournees } from './demi-journees.ts';
 import { modeHeuresSup } from './paie.ts';
 import { calcSheet, heuresSurAbsence, joursTexte, type AbsenceJour } from './temps.ts';
 
-/** Nombre de mois (sur `n` à partir de `start`) où le salarié était présent à mi-mois. */
+/**
+ * Nombre de mois (sur `n` à partir de `start`) où le salarié était présent à mi-mois (RTT ; pour les CP, les absences
+ * comptent aussi : `acquisitionPeriode` de rules/acquisition-cp.ts).
+ */
 export function monthsPresent(e: Employe, start: ISODate, n: number): number {
   let m = 0;
   for (let k = 0; k < n; k++) {
@@ -39,7 +43,7 @@ export function reprise(d: Domain, id: number) {
   let { cpPris, rttPris } = r, cpPrisSuivant = 0;
   const e = r.cpSolde != null || r.cpSoldeSuivant != null || r.rttSolde != null ? d.emp(id) : undefined;
   if (e && r.cpSolde != null) { const x = droitsAcquis(d, e, periodeCp); cpPris = x.acq + x.ageSupp - r.cpSolde; }
-  if (e && r.cpSoldeSuivant != null) cpPrisSuivant = acquisAu(e, periodeCp + 1, arrete) - r.cpSoldeSuivant;
+  if (e && r.cpSoldeSuivant != null) cpPrisSuivant = acquisAu(d, e, periodeCp + 1, arrete) - r.cpSoldeSuivant;
   if (e && r.rttSolde != null) rttPris = (rttDroit(d, e, anneeRtt) ?? 0) - r.rttSolde;
   return { ...r, cpPris, rttPris, cpPrisSuivant, periodeCp, anneeRtt };
 }
@@ -96,9 +100,13 @@ function reportsAu(recus: ReturnType<typeof recusSur>, A: number, jour: ISODate,
   return n;
 }
 
-/** Droits d'une période sans les reports reçus : jours acquis et supplément de la CCN (voir `cpDroit`). */
+/**
+ * Droits d'une période sans les reports reçus : jours acquis mois par mois, absences comprises (maladie, congé parental…,
+ * `joursAcquis` de rules/acquisition-cp.ts, mémorisé), et supplément de la CCN (voir `cpDroit`). La reprise depuis Lucca
+ * (`reprise`) en déduit les jours pris : le solde à la date d'arrêté reste celui de l'ancien outil.
+ */
 function droitsAcquis(d: Domain, e: Employe, A: number) {
-  return { acq: Math.ceil(25 / 12 * monthsPresent(e, `${A - 1}-06-01`, 12)), ageSupp: supplementAge(d, e, A) };
+  return { acq: joursAcquis(d, e, A), ageSupp: supplementAge(d, e, A) };
 }
 
 /**
@@ -142,10 +150,13 @@ function droitPeriode(d: Domain, e: Employe, A: number): number {
   return cpDroit(d, e, A).droit;
 }
 
-/** Jours acquis à la date `jour` sur la période `A`, en cours d'acquisition : 2,08 j par mois écoulé depuis le 1er juin A-1. */
-function acquisAu(e: Employe, A: number, jour: ISODate): number {
+/**
+ * Jours acquis à la date `jour` sur la période `A`, en cours d'acquisition : 2,08 j par mois écoulé depuis le 1er juin A-1,
+ * moins pour un mois d'arrêt maladie ou d'absence non assimilée (`acquisMois`).
+ */
+function acquisAu(d: Domain, e: Employe, A: number, jour: ISODate): number {
   const mois = (Number(jour.slice(0, 4)) - (A - 1)) * 12 + Number(jour.slice(5, 7)) - 6;
-  return 25 / 12 * monthsPresent(e, `${A - 1}-06-01`, Math.max(0, Math.min(12, mois)));
+  return acquisMois(d, e, A, mois);
 }
 
 /**
@@ -205,7 +216,7 @@ function imputer(d: Domain, e: Employe, nouveau?: { du: ISODate; au: ISODate } &
   const demi = (jour: ISODate, statut: JourCp['statut']): JourCp => {
     const A = anneeCp(jour), j = { jour, poids: 0.5, statut };
     if (place(A, droit(A, jour))) { ajoute(A, 0.5); return { ...j, periode: A, anticipe: false, horsDroit: false }; }
-    if (place(A + 1, acquisAu(e, A + 1, jour))) { ajoute(A + 1, 0.5); return { ...j, periode: A + 1, anticipe: true, horsDroit: false }; }
+    if (place(A + 1, acquisAu(d, e, A + 1, jour))) { ajoute(A + 1, 0.5); return { ...j, periode: A + 1, anticipe: true, horsDroit: false }; }
     ajoute(A, 0.5);
     return { ...j, periode: A, anticipe: false, horsDroit: true };
   };
@@ -246,7 +257,7 @@ export function cpInfo(d: Domain, e: Employe) {
   const suivante = joursCp(jours.filter(j => j.periode === A + 1)), anticipes = joursCp(jours.filter(j => j.periode === A + 1 && j.anticipe));
   return {
     ...base, cetCp, pris, poses, solde: base.droit - pris - poses, suivante, anticipes,
-    enCours: r1(25 / 12 * monthsPresent(e, P.prisStart, P.monthsElapsed)), periodes: P,
+    enCours: r1(acquisAu(d, e, A + 1, d.ti)), periodes: P,
   };
 }
 

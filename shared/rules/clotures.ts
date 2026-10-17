@@ -2,10 +2,13 @@
 // partir du 1er juin et du 1er janvier (bandeau de l'écran Congés & absences) ; le service RH la confirme
 // (`conges.cloturer`, server/src/actions/clotures.ts), tracée et sans effet si on la relance.
 // - CP : aucun jour n'est perdu d'office. Le solde restant de chaque salarié est photographié et le service RH choisit,
-//   ligne par ligne, le report (plafonné au solde, jusqu'au 31 mai suivant) ou la perte. Perte impossible après une
-//   absence de santé (maladie, longue maladie, accident du travail ou de trajet, maladie professionnelle), un congé de
-//   maternité, de paternité ou d'adoption, ou une absence encore à qualifier dans la période : tout le solde est reporté
-//   15 mois (art. L3141-2 et L3141-19-1 à -3), en attendant le calcul des reports légaux. Un report légal reçu qui court
+//   ligne par ligne, le report (plafonné au solde, jusqu'au 31 mai suivant) ou la perte. Report légal imposé (perte
+//   impossible) des jours liés à une absence protégée — santé (maladie, longue maladie, accident du travail ou de trajet,
+//   maladie professionnelle), maternité, paternité, adoption, absence encore à qualifier : jours acquis pendant ces
+//   absences sur la période de référence (`acquisPendantArrets`, rules/acquisition-cp.ts) et jours ouvrés de la période
+//   de prise qu'elles ont empêché de prendre (`joursEmpeches`), dans la limite du solde ; 15 mois après la fin de la
+//   période, ou 15 mois à compter de l'information du salarié à son retour si elle est plus tardive (art. L3141-2 et
+//   L3141-19-1 à -3, `echeanceReportArret`). Un report légal reçu qui court
 //   au-delà de la période (`estReportLegal`) est reporté de nouveau jusqu'à sa propre échéance, pour ses seuls jours
 //   restants ; le reste du solde est au choix du service RH. Les reports accordés en cours de période (`report.accorder`)
 //   préremplissent la ligne. Une ligne n'est pas close tant qu'une demande de CP de la période attend une décision.
@@ -16,20 +19,36 @@
 //   (`recrediterPeriodesCloses`, server/src/actions/clotures.ts), jamais perdus sans décision.
 // Première période proposée : celle de la date d'arrêté des compteurs repris (reprise depuis Lucca).
 import type { Domain } from '../domain.ts';
-import type { Absence, AbsenceType, ClotureConges, Employe, ISODate, ReportCp } from '../types.ts';
+import { addM } from '../dates.ts';
+import type { Absence, ClotureConges, Employe, ISODate, ReportCp } from '../types.ts';
+import { acquisPendantArrets, joursEmpeches } from './acquisition-cp.ts';
 import { anneeCp, finPeriodeCp, periodeCp, periodeReport, reportEnAttente, reprise, rttDroit, rttInfo, soldePeriode } from './conges.ts';
 
-/** Natures d'absence qui interdisent la perte des CP de la période : santé, maternité, paternité, adoption, absence à qualifier. */
-export const ABSENCES_PROTEGEES: readonly AbsenceType[] = ['MALADIE', 'ALD', 'AT', 'TRAJET', 'MP', 'MATERNITE', 'PATERNITE', 'ADOPTION', 'ABSENCE'];
+/** Natures d'absence qui protègent des CP de la perte : santé, maternité, paternité, adoption, absence à qualifier. */
+export { ABSENCES_PROTEGEES } from './acquisition-cp.ts';
 
 /** Motif d'un report imposé (réservé au service RH : il laisse deviner une absence de santé). */
 export const MOTIF_CLOTURE_LABEL: Record<NonNullable<ClotureConges['motif']>, string> = {
-  report_legal: 'Report de 15 mois : absence de santé, maternité, paternité ou adoption dans la période',
+  report_legal: 'Report de 15 mois : jours acquis pendant une absence de santé, de maternité, de paternité ou d’adoption, ou qu’elle a empêché de prendre',
   report_en_cours: 'Report légal reçu, encore en cours après la période',
 };
 
 /** Échéance du report de 15 mois des CP de la période `A` (art. L3141-19-1) : 15 mois après sa fin, le 31 août A+2. */
 export const echeanceReportLegal = (A: number): ISODate => `${A + 2}-08-31`;
+/** Fin du report de 15 mois qui court à partir de l'information du salarié à son retour (art. L3141-19-3). */
+export const echeanceInformation = (le: ISODate): ISODate => addM(le, 15);
+/**
+ * Échéance du report légal des CP de la période `A` pour un salarié : 15 mois après la fin de la période, ou 15 mois après
+ * sa dernière information au retour d'un arrêt (`informationsCp`, depuis le début de la période de référence) si elle
+ * tombe plus tard. Sans information encore donnée (arrêt en cours), la première : l'information la prolongera.
+ */
+export function echeanceReportArret(d: Domain, empId: number, A: number): ISODate {
+  const infos = (d.ds.informationsCp ?? []).filter(i => i.empId === empId && i.le >= `${A - 1}-06-01`).map(i => echeanceInformation(i.le));
+  return [echeanceReportLegal(A), ...infos].sort().at(-1)!;
+}
+
+/** Jours au demi-jour supérieur (report imposé : le plus favorable au salarié). */
+const demiSup = (n: number) => Math.ceil(n * 2 - 1e-9) / 2;
 /**
  * Échéance d'un report décidé par le service RH (report accordé, ou report à la clôture) des CP de la période `A` : le
  * 31 mai suivant, fin de la période qui le reçoit. Seul un report légal court au-delà.
@@ -76,9 +95,18 @@ export interface LigneClotureCp {
   attente: Absence[];
   /** Report imposé, perte impossible pour `legal` jours. */
   impose: ClotureConges['motif'];
-  /** Jours au report imposé (tout le solde après une absence de santé ; jours restants d'un report légal en cours). */
+  /**
+   * Jours protégés (absences de santé, maternité, paternité, adoption, absence à qualifier) : acquis pendant ces absences
+   * sur la période de référence (`acquisArret`) et jours ouvrés de la période de prise passés en absence (`empeches`).
+   */
+  acquisArret: number;
+  empeches: number;
+  /**
+   * Jours au report imposé : jours protégés (au demi-jour supérieur) et jours restants d'un report légal en cours, dans
+   * la limite du solde.
+   */
   legal: number;
-  /** Échéance du report imposé : 15 mois, ou celle du report légal en cours. */
+  /** Échéance du report imposé : 15 mois (après l'information du salarié si elle est plus tardive), ou celle du report légal en cours. */
   expireLegal: ISODate | null;
   /** Jours accordés en cours de période (`report.accorder`), appliqués par la clôture. */
   accorde: number;
@@ -91,7 +119,8 @@ export interface LigneClotureCp {
 
 /**
  * Lignes de la clôture des CP de la période `A` (année de prise : du 1er juin A au 31 mai A+1), dans l'ordre alphabétique.
- * La proposition dépend du réglage `politiqueReportCp` : sans proposition (au cas par cas, défaut) ou report du solde.
+ * La proposition dépend du réglage `politiqueReportCp` : sans proposition (au cas par cas, défaut) ou report du solde ;
+ * une ligne au report légal imposé propose toujours le report de tout le solde (le service RH peut en réduire la part libre).
  */
 export function lignesClotureCp(d: Domain, A: number): LigneClotureCp[] {
   const debut = `${A}-06-01`, fin = finPeriodeCp(A);
@@ -99,24 +128,27 @@ export function lignesClotureCp(d: Domain, A: number): LigneClotureCp[] {
     const deja = d.ds.clotures.find(c => c.empId === e.id && c.type === 'CP' && c.periode === A) ?? null;
     const solde = c2(soldePeriode(d, e, A));
     const attente = enAttente(d, e.id, 'CP', debut, fin);
-    const sante = d.ds.absences.some(a => a.empId === e.id && ABSENCES_PROTEGEES.includes(a.type) && (a.statut === 'validee' || a.statut === 'signalee')
-      && a.du <= fin && a.au >= debut);
+    // Jours protégés : acquis pendant les arrêts (période de référence), empêchés pendant la période de prise.
+    const acquisArret = c2(acquisPendantArrets(d, e, A)), empeches = joursEmpeches(d, e, A);
+    const protege = demiSup(acquisArret + empeches);
     // Reports légaux reçus sur la période qui courent au-delà : leurs jours suivent leur échéance, comptés dans le solde
     // restant en priorité (le plus favorable au salarié).
     const enCours = d.ds.reports.filter(r => r.empId === e.id && r.sens === 'recu').map(r => ({ r, ...periodeReport(r) }))
       .filter(x => x.periode === A && x.expire > fin);
     const joursEnCours = enCours.reduce((n, x) => n + x.r.jours, 0), expireEnCours = enCours.map(x => x.expire).sort().at(-1) ?? null;
-    const impose = solde <= 0 ? null : sante ? 'report_legal' as const : enCours.length ? 'report_en_cours' as const : null;
-    const legal = impose === 'report_legal' ? solde : impose ? c2(Math.min(solde, joursEnCours)) : 0;
-    const expireLegal = impose === 'report_legal' ? [echeanceReportLegal(A), expireEnCours ?? ''].sort().at(-1)! : impose ? expireEnCours : null;
+    const impose = solde <= 0 ? null : protege > 0 ? 'report_legal' as const : enCours.length ? 'report_en_cours' as const : null;
+    const legal = impose === 'report_legal' ? c2(Math.min(solde, protege + joursEnCours)) : impose ? c2(Math.min(solde, joursEnCours)) : 0;
+    const expireLegal = impose === 'report_legal' ? [echeanceReportArret(d, e.id, A), expireEnCours ?? ''].sort().at(-1)! : impose ? expireEnCours : null;
     const libre = c2(solde - legal);
     const accordes = d.ds.reports.filter(r => r.empId === e.id && reportEnAttente(d, r, A + 1));
     const accorde = c2(accordes.reduce((n, r) => n + r.jours, 0));
-    const choisi = accorde > 0 ? Math.min(accorde, libre) : d.ds.settings.politiqueReportCp === 'proposer_report' ? libre : null;
+    // Report légal imposé : tout le solde est proposé au report, même au cas par cas — le reste n'est jamais présenté
+    // comme perdu sans que le service RH l'ait choisi (aucune perte d'office).
+    const choisi = impose === 'report_legal' ? libre : accorde > 0 ? Math.min(accorde, libre) : d.ds.settings.politiqueReportCp === 'proposer_report' ? libre : null;
     const proposition: LigneClotureCp['proposition'] = solde <= 0 ? { decision: null, jours: 0 }
       : choisi != null || legal > 0 ? { decision: 'reporter', jours: c2(legal + (choisi ?? 0)) }
       : { decision: null, jours: solde };
-    return { e, solde, deja, attente, impose, legal, expireLegal, accorde, proposition };
+    return { e, solde, deja, attente, impose, acquisArret, empeches, legal, expireLegal, accorde, proposition };
   });
 }
 

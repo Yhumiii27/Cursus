@@ -4,6 +4,7 @@ import { activitesActions } from './activites.ts';
 import { annulationEntretienActions } from './annulation-entretien.ts';
 import { budgetActions } from './budget.ts';
 import { cloturesActions } from './clotures.ts';
+import { informationRetourActions } from './information-retour.ts';
 import { comptesActions } from './comptes.ts';
 import { conformiteActions } from './conformite.ts';
 import { correctionsActions } from './corrections.ts';
@@ -49,6 +50,7 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...santeActions,
   ...referentielsActions,
   ...cloturesActions,
+  ...informationRetourActions,
   ...sortiesActions,
   ...contratsActions,
   ...paieActions,

@@ -107,8 +107,10 @@ const importer: ActionHandler = (ctx, p) => {
   requireRh(ctx);
   const rows = parseTrips(ctx.d, str(p.texte)).filter(r => r.ok);
   if (!rows.length) throw new ActionError('Aucune demande valide à importer');
-  // Sans référence dans le fichier : `DD-<identifiant>` (comme le prototype), jamais une référence déjà prise.
+  // Sans référence dans le fichier : `DD-<identifiant>` (comme le prototype), jamais une référence déjà prise, ni en base
+  // ni par une autre ligne du même fichier (une ligne plus bas peut porter « DD-<prochain identifiant> »).
   const prises = new Set(ctx.ds.voyages.map(v => v.ref).filter((x): x is string => !!x));
+  rows.forEach(r => { if (r.ref) prises.add(r.ref); });
   rows.forEach(r => {
     const t = ctx.db.insert<Voyage>('voyages', {
       empId: r.emp!.id, dest: r.dest!.code, depart: r.depart!, retour: r.retour!, motif: r.motif, origine: 'formulaire', ref: r.ref || null, chantier: null,

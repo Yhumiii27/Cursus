@@ -15,13 +15,18 @@ const PRINT_JS = '/imprimer.js';
 
 /**
  * En-tête employeur des documents : la coordonnée « responsable du traitement » (raison sociale et adresse, Paramètres →
- * Confidentialité, lisible sans connexion), lue une fois par onglet ; vide ou illisible : « Cursus » seul.
+ * Confidentialité, lisible sans connexion), lue une fois par onglet ; vide ou illisible : « Cursus » seul. Une réponse vide
+ * ou une erreur n'est pas gardée : réglée ensuite par l'administrateur RH, la coordonnée vaut dès l'impression suivante.
+ * Elle est aussi relue après chaque réglage de la confidentialité (`oublierEnteteEmployeur`).
  */
 let employeur: Promise<string | null> | null = null;
 function enteteEmployeur(): Promise<string | null> {
-  employeur ??= api.confidentialite().then(c => c.responsable?.trim() || null, () => { employeur = null; return null; });
-  return employeur;
+  const lecture = employeur ??= api.confidentialite().then(c => c.responsable?.trim() || null, () => null);
+  lecture.then(v => { if (!v && employeur === lecture) employeur = null; });
+  return lecture;
 }
+/** Oublie l'en-tête lu : la prochaine impression relit la coordonnée (après un réglage de la confidentialité). */
+export function oublierEnteteEmployeur() { employeur = null; }
 /** Attente maximale de l'en-tête avant d'imprimer sans lui (serveur lent). */
 const ATTENTE_ENTETE_MS = 1500;
 

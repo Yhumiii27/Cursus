@@ -3,7 +3,8 @@
 // celle de l'ouverture) ; le serveur compare chacune à la valeur enregistrée et refuse tout l'enregistrement (412) si l'une
 // a changé entre-temps. Les champs liés partent ensemble (poste du référentiel et intitulé ; organisation du temps et ses
 // paramètres ; nature du contrat, fin et agence ; période d'essai ; visite et reprise) : leurs contrôles portent sur
-// l'ensemble. Les autres appelants (import, manager) n'envoient pas `avant` et ne sont pas contrôlés.
+// l'ensemble. Le serveur ne compare que les champs envoyés (une valeur d'origine pour un autre champ est refusée). Les
+// autres appelants (import, appel ancien) n'envoient pas `avant` et ne sont pas contrôlés.
 import type { ProfilInput } from './profil.ts';
 import { PROFIL_FIELDS } from './profil.ts';
 

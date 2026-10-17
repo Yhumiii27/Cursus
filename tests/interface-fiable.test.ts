@@ -43,7 +43,7 @@ function fresh() {
   };
   const refus = (u: User, name: string, p: Record<string, unknown>, status: number, re?: RegExp) => assert.throws(() => run(u, name, p),
     (e: unknown) => e instanceof ActionError && e.status === status && (!re || re.test(e.message)), `${name} : refus ${status} attendu`);
-  return { db, run, refus, RH: user(null, 'rh'), KARIM: user(12, 'manager'), MEHDI: user(2, 'collaborateur') };
+  return { db, run, refus, RH: user(null, 'rh'), ANTOINE: user(14, 'rh'), KARIM: user(12, 'manager'), MEHDI: user(2, 'collaborateur') };
 }
 
 // — t102 : révision de la base, réponses dans le désordre —
@@ -148,6 +148,43 @@ test('manager : modification limitée contrôlée de même ; sans `avant`, aucun
   assert.equal(new Domain(loadFull(db, RH)).emp(2)!.poste, 'Technicien confirmé');
 });
 
+test('manager : une valeur d’origine pour un champ non envoyé est refusée (400), quelle qu’elle soit ; jamais d’auteur nommé', () => {
+  const { db, run, refus, RH, KARIM } = fresh();
+  const vraie = profilOf(new Domain(loadFull(db, RH)).emp(2)!);
+  // Champs masqués au manager (visite médicale, motif de reprise, matricule de paie) : même refus pour la vraie valeur et
+  // pour une fausse, sans quoi la réponse dirait si la valeur devinée est la bonne.
+  for (const [k, faux] of [['visite', '1999-01-01'], ['repriseMotif', 'zz'], ['matriculePaie', '999999']] as const) {
+    for (const v of [vraie[k], faux]) refus(KARIM, 'employe.modifier', { id: 2, avant: { [k]: v } }, 400, /^Valeurs d’origine reçues pour des champs non envoyés/);
+    refus(KARIM, 'employe.modifier', { id: 2, poste: vraie.poste, avant: { poste: vraie.poste, [k]: faux } }, 400);
+  }
+  refus(KARIM, 'employe.modifier', { id: 2, poste: 'X', avant: 'texte' }, 400);
+  // Service RH : de même, seuls les champs envoyés sont comparés.
+  refus(RH, 'employe.modifier', { id: 2, nom: vraie.nom, avant: { nom: vraie.nom, email: 'faux@exemple.fr' } }, 400);
+  // Conflit réel sur un champ ouvert au manager : refus 412 sans le nom de l'auteur.
+  run(RH, 'employe.modifier', { id: 2, poste: 'Technicien de maintenance senior' });
+  refus(KARIM, 'employe.modifier', { id: 2, poste: 'Technicien confirmé', avant: { poste: vraie.poste } }, 412, /^Fiche modifiée entre-temps \(Poste\) : rien/);
+});
+
+test('auteur du refus 412 : la dernière action qui a écrit l’un des champs en conflit sur la fiche, sinon personne', () => {
+  const { db, run, refus, RH, ANTOINE } = fresh();
+  const emp = () => new Domain(loadFull(db, RH)).emp(2)!;
+  const auteur = (nom: string) => new RegExp(`^Fiche modifiée entre-temps par ${nom} \\(Adresse e-mail\\)`);
+  // Sandrine Vidal change l'adresse e-mail, puis Antoine renomme le poste dans le référentiel (fiches mises à jour sans
+  // être nommées au journal) : le conflit sur le poste n'est attribué à personne, et surtout pas à Sandrine Vidal.
+  run(RH, 'employe.modifier', { id: 2, email: 'mehdi.benali@exemple.fr' });
+  const ouverture = profilOf(emp());
+  run(ANTOINE, 'referentiel.poste.enregistrer', { id: ouverture.posteId, nom: 'Technicien de maintenance industrielle', formations: ['elec', 'sst'], habilitations: ['he'] });
+  assert.equal(emp().poste, 'Technicien de maintenance industrielle');
+  refus(RH, 'employe.modifier', { id: 2, poste: 'Technicien confirmé', posteId: null, avant: { poste: ouverture.poste, posteId: ouverture.posteId } },
+    412, /^Fiche modifiée entre-temps \(Poste\) : rien/);
+  // Antoine change ensuite l'adresse : un conflit sur l'adresse le nomme, lui.
+  run(ANTOINE, 'employe.modifier', { id: 2, email: 'm.benali@exemple.fr', avant: { email: 'mehdi.benali@exemple.fr' } });
+  refus(RH, 'employe.modifier', { id: 2, email: 'autre@exemple.fr', avant: { email: 'mehdi.benali@exemple.fr' } }, 412, auteur(ANTOINE.nom));
+  // Un avis médical plus récent, sans rapport avec l'adresse, ne change pas l'auteur nommé.
+  run(RH, 'medical.avis', { empId: 2, date: '2026-10-06', avis: 'apte', restrictions: [] });
+  refus(RH, 'employe.modifier', { id: 2, email: 'autre@exemple.fr', avant: { email: 'mehdi.benali@exemple.fr' } }, 412, auteur(ANTOINE.nom));
+});
+
 // — t105 : modification d'une équipe en une seule action —
 
 test('equipe.modifier : renommage et manager ensemble ; un refus n’enregistre rien', () => {
@@ -190,6 +227,10 @@ test('import sans référence : DD-<n°> sans doublon, demandeur reconnu ou gard
   run(RH, 'voyages.importer', { texte });
   const crees = loadFull(db, RH).voyages.filter(v => v.id > max);
   assert.deepEqual(crees.map(v => [v.ref, v.demandeur]), [[`DD-${max + 1}-2`, 'Nadia Kaci'], [`DD-${max + 2}`, 'Agence Voyages Sud']]);
+  // Une ligne sans référence suivie d'une ligne qui porte « DD-<prochain n°> » : la première ne prend pas cette référence.
+  run(RH, 'voyages.importer', { texte: 'reference;collaborateur;destination;depart;retour;motif\n'
+    + `;Mehdi Benali;Maroc;02/04/2027;05/04/2027;Visite client\nDD-${max + 3};Clara Roussel;Maroc;09/04/2027;12/04/2027;Visite client` });
+  assert.deepEqual(loadFull(db, RH).voyages.filter(v => v.id > max + 2).map(v => v.ref), [`DD-${max + 3}-2`, `DD-${max + 3}`]);
   const d = new Domain(loadFull(db, RH));
   assert.equal(d.originLabel(crees[0]), `Formulaire de demande DD-${max + 1}-2`);
   assert.equal(d.originLabel({ ...crees[0], ref: null }), 'Formulaire de demande', 'jamais « null »');
@@ -233,6 +274,9 @@ test('impression : jetons clairs pour Ctrl+P, A4 à 15 mm, cadre caché avec l�
   assert.match(print, /createElement\('iframe'\)/);
   assert.match(print, /window\.open\('', '_blank'\)/, 'nouvel onglet en secours');
   assert.match(print, /api\.confidentialite\(\)/, 'en-tête : responsable du traitement');
+  // Une réponse vide n'est pas gardée, et la coordonnée est relue après son réglage (même onglet, sans recharger).
+  assert.match(print, /if \(!v && employeur === lecture\) employeur = null/);
+  assert.match(source('pages/parametres/Rgpd.tsx'), /oublierEnteteEmployeur\(\)/);
   assert.doesNotMatch(print, /<style/, 'CSP : aucun style en ligne');
   for (const f of ['pages/Collaborateurs.tsx', 'dialogs/compteRendu.ts', 'components/Aptitude.tsx']) assert.match(source(f), /matriculesImprimes\(e\)/, f);
 });

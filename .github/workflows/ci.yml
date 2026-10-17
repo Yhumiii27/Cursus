@@ -45,6 +45,16 @@ jobs:
       - run: node --version
       - run: npm ci
       - run: npm run check
+      # Failles connues des dépendances (base de npm) : celles de production, installées sur le serveur, bloquent à
+      # partir de la gravité « high » (npm run audit, utilisable par toute forge) ; celles de développement (compilation
+      # et tests, absentes du serveur) sont seulement signalées. Mises à jour proposées par Dependabot (.github/dependabot.yml).
+      - name: Audit des dépendances de production
+        if: matrix.reference
+        run: npm run audit
+      - name: Audit de toutes les dépendances (information)
+        if: matrix.reference
+        continue-on-error: true
+        run: npm audit --audit-level=high
       # Interface compilée par la version de référence : téléchargeable pour l'instance de recette du groupe pilote.
       - name: Publier dist/
         if: matrix.reference

@@ -1,0 +1,59 @@
+# Surveillance des dépendances par Dependabot (GitHub) : une demande de mise à jour par semaine et par écosystème,
+# mises à jour mineures et correctifs regroupés en une seule demande ; une version majeure arrive seule, à examiner à
+# part. Chaque demande passe la vérification habituelle (npm run check, .github/workflows/ci.yml) avant d'être acceptée.
+# Les demandes sont traitées par le service informatique (README, « Vérification automatique »). Hors de GitHub
+# (GitLab, Azure DevOps), Renovate ou l'outil de la forge prend le relais ; npm run audit reste utilisable partout.
+version: 2
+updates:
+  # Paquets npm (package.json, package-lock.json) : production et développement.
+  - package-ecosystem: npm
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Europe/Paris
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: 'Dépendances'
+    groups:
+      mineures-et-correctifs:
+        update-types:
+          - minor
+          - patch
+    # @types/node suit Node 22, la version de production (.nvmrc) : pas de passage à une version majeure suivante.
+    ignore:
+      - dependency-name: '@types/node'
+        update-types:
+          - version-update:semver-major
+
+  # Actions de la vérification automatique (.github/workflows/ci.yml).
+  - package-ecosystem: github-actions
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Europe/Paris
+    commit-message:
+      prefix: 'CI'
+    groups:
+      actions:
+        update-types:
+          - minor
+          - patch
+
+  # Image de base du Dockerfile (node:22-slim) : correctifs de sécurité de Node et de Debian. Node reste en version 22.
+  - package-ecosystem: docker
+    directory: /
+    schedule:
+      interval: weekly
+      day: monday
+      time: '06:00'
+      timezone: Europe/Paris
+    commit-message:
+      prefix: 'Image Docker'
+    ignore:
+      - dependency-name: node
+        update-types:
+          - version-update:semver-major

@@ -1,18 +1,20 @@
 // Point de santé pour la supervision du service informatique et le HEALTHCHECK du conteneur : GET /api/health, sans
 // connexion ni limite de débit (monté avant les autres routes /api). Il interroge la base (SELECT 1, lecture de l'en-tête
-// du fichier par PRAGMA user_version) et répond 503 si elle ne répond pas. Réponse publique réduite à l'état : n'importe
-// qui sur Internet peut l'appeler. Version, mode et envois en échec ne sont donnés qu'à un appel local (sur la machine,
-// sans passer par le reverse proxy) ou porteur du jeton de supervision (CURSUS_SUPERVISION_TOKEN). Jamais de donnée
-// personnelle. Guide : docs/DEPLOIEMENT.md, « Exploitation courante ».
+// du fichier par PRAGMA user_version) et répond 503 si elle ne répond pas ; « degrade » (200) si elle contient des
+// références orphelines (server/src/integrite.ts). Réponse publique réduite à l'état : n'importe qui sur Internet peut
+// l'appeler. Version, mode, envois en échec et orphelins ne sont donnés qu'à un appel local (sur la machine, sans passer
+// par le reverse proxy) ou porteur du jeton de supervision (CURSUS_SUPERVISION_TOKEN). Jamais de donnée personnelle. Guide : docs/DEPLOIEMENT.md, « Exploitation courante ».
 import { timingSafeEqual } from 'node:crypto';
 import { Router, type Request } from 'express';
 import { VERSION } from './chemins.ts';
 import { BOUCLE_LOCALE, demoActive, type Env, enProduction } from './config.ts';
 import type { Db } from './db.ts';
+import { etatIntegrite } from './integrite.ts';
 import { EN_TETES_PROXY } from './securite.ts';
 
 export interface Sante {
-  statut: 'ok' | 'indisponible';
+  /** `degrade` : la base répond mais contient des références orphelines (détail : `orphelins`). */
+  statut: 'ok' | 'degrade' | 'indisponible';
   base: 'ok' | 'erreur';
   /** Détail (appel local ou jeton de supervision). */
   version?: string;
@@ -21,6 +23,9 @@ export interface Sante {
   envoisEnEchec?: number;
   /** Démarrage du serveur (ISO). */
   depuis?: string;
+  /** Références orphelines au dernier contrôle (au plus une heure), et leur nombre par référence (server/src/integrite.ts). */
+  orphelins?: number;
+  references?: Record<string, number>;
 }
 
 /** Adresse de la connexion sur la boucle locale (IPv4, IPv6, IPv4 notée en IPv6). */
@@ -44,28 +49,33 @@ export function appelSupervision(req: Request, env: Env = process.env): boolean 
   return bouclee(req.socket.remoteAddress) && !EN_TETES_PROXY.some(h => req.headers[h] !== undefined);
 }
 
-/** État de la base et, pour la supervision, du service. Base injoignable : `indisponible`. */
+/** État de la base et, pour la supervision, du service. Base injoignable : `indisponible` ; références orphelines : `degrade`. */
 export function etatSante(db: Db, detail: boolean, depuis: string, env: Env = process.env): Sante {
-  let base: Sante['base'] = 'ok', envoisEnEchec: number | undefined;
+  let base: Sante['base'] = 'ok', envoisEnEchec: number | undefined, integrite: ReturnType<typeof etatIntegrite> | undefined;
   try {
     db.sql.prepare('SELECT 1').get();
     db.sql.prepare('PRAGMA user_version').get(); // lit l'en-tête du fichier : la base est là et lisible
     if (detail) envoisEnEchec = Number((db.sql.prepare(`SELECT COUNT(*) AS n FROM envois WHERE statut = 'echec' AND classe IS NULL`).get() as { n: number }).n);
+    // Contrôle impossible (requête refusée) : l'état de la base suffit, le démarrage l'a déjà signalé s'il le faut.
+    try { integrite = etatIntegrite(db); } catch { /* sans détail d'intégrité */ }
   } catch {
     base = 'erreur';
   }
-  const etat: Sante = { statut: base === 'ok' ? 'ok' : 'indisponible', base };
+  const etat: Sante = { statut: base === 'erreur' ? 'indisponible' : integrite?.orphelins ? 'degrade' : 'ok', base };
   if (!detail) return etat;
-  return { ...etat, version: VERSION, mode: demoActive(env) ? 'demo' : enProduction(env) ? 'production' : 'developpement', envoisEnEchec, depuis };
+  return {
+    ...etat, version: VERSION, mode: demoActive(env) ? 'demo' : enProduction(env) ? 'production' : 'developpement', envoisEnEchec, depuis,
+    orphelins: integrite?.orphelins, references: integrite?.parReference,
+  };
 }
 
-/** Route GET /api/health (HEAD compris) : 200 si la base répond, 503 sinon ; jamais mise en cache. */
+/** Route GET /api/health (HEAD compris) : 200 si la base répond (orphelins compris : le service fonctionne), 503 sinon ; jamais mise en cache. */
 export function routeSante(db: Db, depuis = new Date().toISOString(), env: Env = process.env): Router {
   const r = Router();
   r.get('/api/health', (req, res) => {
     const etat = etatSante(db, appelSupervision(req, env), depuis, env);
     res.setHeader('Cache-Control', 'no-store');
-    res.status(etat.statut === 'ok' ? 200 : 503).json(etat);
+    res.status(etat.statut === 'indisponible' ? 503 : 200).json(etat);
   });
   return r;
 }

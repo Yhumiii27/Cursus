@@ -11,11 +11,11 @@ import {
   HouseIcon, KeyIcon, LockSimpleIcon, MagnifyingGlassIcon, MapPinIcon, PlusIcon, ShieldCheckIcon, SignOutIcon, UserIcon, UsersThreeIcon, WarningIcon, XIcon, type Icon,
 } from '@phosphor-icons/react';
 import { droitsRh, PROFILS_RH, vuesDe } from '../../../shared/constants.ts';
-import { Domain } from '../../../shared/domain.ts';
 import { aFaireCollaborateur } from '../../../shared/rules/a-faire.ts';
 import { obligations, perimetreEntretiens } from '../../../shared/rules/entretiens.ts';
 import type { Dataset, Role } from '../../../shared/types.ts';
 import { Avatar } from '../components/ui.tsx';
+import { domaineDe } from '../state/derived.ts';
 import { useStore, type Toast as StoreToast, type View } from '../state/store.tsx';
 import { ID_CONTENU, useNavigationAnnoncee } from './navigation.ts';
 import { Reconnexion } from './Reconnexion.tsx';
@@ -26,7 +26,7 @@ type NavGroup = [string, NavItem[]];
 
 function navGroups(data: Dataset | null, role: Role): NavGroup[] {
   if (!data) return [];
-  const d = new Domain(data);
+  const d = domaineDe(data);
   const me = data.user.empId;
   // Entretiens en retard de l'équipe : ceux du manager lui-même relèvent de son responsable (espace collaborateur).
   const late = obligations(d, perimetreEntretiens(data)).filter(o => o.kind === 'epp' && o.st === 'late').length;

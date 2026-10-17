@@ -1,11 +1,16 @@
-// npm run reset-demo : recharge les données de démonstration.
-// Efface toute la base : refusé hors mode démonstration (CURSUS_DEMO=1 npm run reset-demo).
+// npm run reset-demo -- --yes [--force] : recharge les données de démonstration.
+// Efface toute la base : refusé hors mode démonstration (CURSUS_DEMO=1) et en production (sauf l'application de
+// bureau), refusé si un serveur en service utilise la base (sauf --force), et confirmé par --yes ou, dans un terminal,
+// par le mot EFFACER (server/src/reinitialisation.ts). La base existante est copiée avant d'être effacée.
 import { existsSync } from 'node:fs';
-import { demoActive } from './config.ts';
+import { createInterface } from 'node:readline/promises';
 import { type Db, dbFile, openDb } from './db.ts';
 import { migrate } from './migrate.ts';
 import { appliquerMigrations, controlerPourOutil } from './migrations/cadre.ts';
-import { SauvegardeError, sauvegarderBase } from './sauvegarde.ts';
+import {
+  confirmationTapee, controlerMode, controlerServeur, lireOptions, MOT_CONFIRMATION, type OptionsReinitialisation, ReinitialisationRefusee,
+} from './reinitialisation.ts';
+import { SauvegardeError, sauvegarderBase, serveurActif } from './sauvegarde.ts';
 import { seedDemo } from './seed.ts';
 
 function refuser(err: unknown): never {
@@ -14,16 +19,36 @@ function refuser(err: unknown): never {
   process.exit(1);
 }
 
-if (!demoActive()) refuser('elle efface toute la base et n’est permise qu’en mode démonstration (CURSUS_DEMO=1 npm run reset-demo).');
-
-const existait = existsSync(dbFile());
-// Base mise à jour par une version plus récente de Cursus, ou pas encore par le serveur en service : refusée.
-let aMettreAJour = true;
+let options: OptionsReinitialisation;
 try {
-  aMettreAJour = controlerPourOutil(dbFile());
+  options = lireOptions(process.argv.slice(2));
+  controlerMode(process.env);
 } catch (err) {
   refuser(err);
 }
+
+const fichier = dbFile();
+const existait = existsSync(fichier);
+// Base mise à jour par une version plus récente de Cursus, ou pas encore par le serveur en service : refusée. Serveur en
+// service sur une base à jour : refusé sans --force.
+let aMettreAJour = true;
+try {
+  aMettreAJour = controlerPourOutil(fichier);
+  controlerServeur(serveurActif(fichier), options);
+} catch (err) {
+  refuser(err);
+}
+
+// Confirmation : --yes, ou le mot tapé dans un terminal ; sans terminal (script, tâche planifiée) et sans --yes, refus.
+if (!options.oui) {
+  if (!process.stdin.isTTY) refuser(new ReinitialisationRefusee(`elle efface toute la base ${fichier} : ajoutez --yes pour confirmer (npm run reset-demo -- --yes).`));
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
+  const reponse = await rl.question(`Toute la base ${fichier} va être effacée (une copie est faite avant). Tapez ${MOT_CONFIRMATION} pour confirmer : `);
+  rl.close();
+  if (!confirmationTapee(reponse)) refuser(new ReinitialisationRefusee('confirmation non donnée, rien n’a été effacé.'));
+}
+if (options.force && serveurActif(fichier)) console.error('Attention : le serveur Cursus en service utilise encore cette base. Redémarrez-le une fois la réinitialisation faite.');
+
 let db: Db;
 try {
   db = openDb();

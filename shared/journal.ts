@@ -196,6 +196,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'migration.lotsPaie': 'Reprise : feuilles déjà transmises réunies en un lot historique',
   'migration.coutReel': 'Reprise du coût réel des actions réalisées du plan',
   'migration.referencesDeplacements': 'Reprise : référence donnée aux déplacements importés sans référence',
+  // Contrôle d'intégrité du démarrage (server/src/integrite.ts) : références orphelines, nombres seulement.
+  'integrite.orphelins': 'Contrôle d’intégrité : références orphelines dans la base',
 };
 
 /** Libellé d'un code ; un e-mail simulé (`email.<nature>`, sans boîte d'envoi) est nommé par sa nature. */
@@ -231,7 +233,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.', 'conges.', 'migration.soldes'] },
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
   { id: 'reprise', label: 'Mise en service (reprise depuis Lucca)', prefixes: ['reprise.'] },
-  { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.', 'confidentialite.'] },
+  { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.', 'confidentialite.', 'integrite.'] },
   { id: 'connexions', label: 'Connexions et accès', prefixes: ACTIONS_CONNEXION },
   {
     id: 'integrations', label: 'Intégrations (Keystone, e-mails)',

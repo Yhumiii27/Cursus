@@ -48,7 +48,7 @@ function ecrire(ctx: Ctx, l: LigneReprise, o: { comptes: boolean }): { empId: nu
       // Même date d'arrêté : seuls les compteurs de la ligne changent (l'analyse a fusionné ceux déjà repris) ; la
       // récupération n'est réécrite que si le fichier la porte. Autre date d'arrêté : la ligne est remplacée.
       const R = ctx.db.get<SoldeReprise>('soldesReprise', l.empId!);
-      const soldes = { arreteLe: w.arreteLe, cpSolde: w.cpSolde, cpSoldeSuivant: w.cpSoldeSuivant, rttSolde: w.rttSolde, cetSolde: w.cetSolde };
+      const soldes = { arreteLe: w.arreteLe, cpSolde: w.cpSolde, cpSoldeSuivant: w.cpSoldeSuivant, rttSolde: w.rttSolde, cetSolde: w.cetSolde, heuresSupAnnee: w.heuresSupAnnee };
       const recup = (x: number) => ({ recupAcquis: Math.max(x, 0), recupPris: Math.max(-x, 0) });
       if (R && R.arreteLe === w.arreteLe) ctx.db.update('soldesReprise', l.empId!, { ...soldes, ...(w.recup != null ? recup(w.recup) : {}) });
       else {

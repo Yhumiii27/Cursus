@@ -13,7 +13,7 @@
 //   et chaque consultation de l'archive sont tracés.
 import express, { type Request, type Response, type Router } from 'express';
 import { ESPACE_LABEL, NATURES_ABSENCE, TS_LABEL, VACCINS } from '../../shared/constants.ts';
-import { addD, isValidDate } from '../../shared/dates.ts';
+import { addD, isFerie, isValidDate } from '../../shared/dates.ts';
 import { Domain } from '../../shared/domain.ts';
 import { fmtIso, num, plural } from '../../shared/format.ts';
 import { erreurReference } from '../../shared/rules/lots-paie.ts';
@@ -29,6 +29,7 @@ import { estTypeReprise } from '../../shared/rules/reprise.ts';
 import { CODE_ACTIVITE, normaliserCodeActivite } from '../../shared/rules/activites.ts';
 import { estTypeDerogation, JOURS_FEUILLE } from '../../shared/rules/semaine.ts';
 import { controlesMineur } from '../../shared/rules/mineurs.ts';
+import { corDeLaFeuille } from '../../shared/rules/temps.ts';
 import type { ClotureConges, CurrentUser, Employe, FeuilleTemps, InformationCp, LigneTemps } from '../../shared/types.ts';
 import type { ContactsConfidentialite } from '../../shared/confidentialite.ts';
 import { journaliser, type Compte } from './comptes.ts';
@@ -363,18 +364,20 @@ export const REGLES: Record<string, Regle> = {
   'keystone.refuser': { champs: ['id'], cible: parId('demandesKeystone', ['statut']) },
   // Feuilles de temps : la saisie du salarié n'est pas tracée cellule par cellule ; celle de son manager ou du
   // service RH l'est, quel que soit le statut de la feuille (temps.correction, action liée à la paie), avec
-  // l'ancienne et la nouvelle valeur ; soumission et validation portent le total d'heures de la feuille.
+  // l'ancienne et la nouvelle valeur ; soumission et validation portent le total d'heures de la feuille. Un jour férié,
+  // la saisie du salarié lui-même l'est aussi (`temps.ferie` : heures majorées, shared/rules/majorations.ts).
   'temps.setCell': {
-    champs: ['empId', 'week'], cible: FEUILLE, code: () => 'temps.correction',
-    tracer: (p, x) => parAutrui(p, x.user) && cellule(x.avant, p) !== cellule(x.apres, p),
+    champs: ['empId', 'week'], cible: FEUILLE, code: (p, x) => (parAutrui(p, x.user) ? 'temps.correction' : 'temps.ferie'),
+    tracer: (p, x) => (parAutrui(p, x.user) || celluleFeriee(p)) && cellule(x.avant, p) !== cellule(x.apres, p),
     changements: (p, x) => {
       const l = (x.apres?.lignes as LigneTemps[] | undefined)?.[Number(p.li)];
       if (!l) return null;
       const jour = addD(String(p.week), Number(p.di)), a = cellule(x.avant, p), b = cellule(x.apres, p), feuille = statutFeuille(x.avant);
       const etat = feuille === 'brouillon' ? 'en brouillon' : (TS_LABEL as Record<string, string>)[feuille]?.toLowerCase() ?? feuille;
+      const quoi = parAutrui(p, x.user) ? 'Correction d’heures' : 'Heures un jour férié';
       return {
-        avant: { heures: a }, apres: { heures: b }, extra: { projet: l.projet, jour, feuille },
-        message: `Correction d’heures — ${nomSalarie(x.db, p.empId)}, ${l.projet} le ${fmtIso(jour)} : ${heuresTexte(a)} → ${heuresTexte(b)} (feuille ${etat})`,
+        avant: { heures: a }, apres: { heures: b }, extra: { projet: l.projet, jour, feuille, ...(isFerie(jour) ? { ferie: true } : {}) },
+        message: `${quoi} — ${nomSalarie(x.db, p.empId)}, ${l.projet} le ${fmtIso(jour)}${isFerie(jour) && quoi !== 'Heures un jour férié' ? ' (férié)' : ''} : ${heuresTexte(a)} → ${heuresTexte(b)} (feuille ${etat})`,
       };
     },
   },
@@ -382,7 +385,8 @@ export const REGLES: Record<string, Regle> = {
   'temps.removeLine': { champs: ['empId', 'week'], extra: (p, av) => ({ projet: (av?.lignes as LigneTemps[] | undefined)?.[Number(p.li)]?.projet ?? null }), ...ligneTemps },
   'temps.suggest': { champs: ['empId', 'week'], ...ligneTemps },
   'temps.submit': { champs: ['empId', 'week'], ...statutEtTotal },
-  'temps.validate': { champs: ['empId', 'week'], ...statutEtTotal },
+  // Validation : en plus, la contrepartie obligatoire en repos figée sur la feuille (heures, shared/rules/durees.ts).
+  'temps.validate': { champs: ['empId', 'week'], cible: FEUILLE, bilan: (_p, x) => ({ heures: totalHeures(x.apres), ...(corDeLaFeuille(x.apres as FeuilleTemps | null) ? { cor: corDeLaFeuille(x.apres as FeuilleTemps | null) } : {}) }) },
   'temps.reject': { champs: ['empId', 'week'], cible: FEUILLE },
   // Suivi des feuilles : relance (salarié visé ou tout le périmètre ; semaines relancées, salarié par salarié) et
   // validation groupée (feuilles validées, nombre de refus ; le message nomme les refus).
@@ -468,7 +472,9 @@ export const REGLES: Record<string, Regle> = {
   'entretien.telecharger': { champs: ['id'], cible: parId('entretiens', ['telechargeLe']), tracer: (_p, x) => !x.avant?.telechargeLe && !!x.apres?.telechargeLe },
   // Administration
   // Réglages : anciennes et nouvelles valeurs, sauf la référence de l'accord des heures supplémentaires (texte libre).
-  'parametres.maj': { cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord'] } },
+  'parametres.maj': {
+    cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord'] },
+  },
   'demo.reinitialiser': {},
   'compte.creer': { champs: ['empId', 'type', 'identifiant', 'profilRh'] },
   'compte.profil': { champs: ['id', 'profilRh'], cible: parId('comptes', ['profilRh']) },
@@ -507,6 +513,8 @@ export const REGLES: Record<string, Regle> = {
 /** Participants d'une clôture (bornés : une session compte quelques dizaines d'inscrits). */
 const participants = (p: P): P[] => (Array.isArray(p.participants) ? p.participants.slice(0, 500) : []);
 
+/** Cellule saisie un jour férié (jour de la semaine `week`, `di` : 0 = lundi). */
+const celluleFeriee = (p: P) => isValidDate(String(p.week ?? '')) && isFerie(addD(String(p.week), Number(p.di) || 0));
 function cellule(f: Ligne | null, p: P): number {
   return num((f?.lignes as LigneTemps[] | undefined)?.[Number(p.li)]?.h?.[Number(p.di)]);
 }

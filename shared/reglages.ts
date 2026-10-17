@@ -127,6 +127,19 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   // — Formations (parametres/Formations.tsx, shared/rules/formations-temps.ts) : heures des sessions proposées dans la
   //   feuille de temps des inscrits (ligne interne INT-FORM), par défaut —
   formationsTemps: { defaut: true, controle: booleen },
+  // — Décompte des heures (parametres/DecompteHeures.tsx, shared/rules/majorations.ts et durees.ts) : saisie un jour férié
+  //   permise et tracée, fériés autres que le 1er mai sans majoration (le 1er mai : 100 %, fixé par la loi) ; heures
+  //   complémentaires au dixième (le tiers avec un accord) ; moyenne de 44 h sur 12 semaines (46 h avec un accord) ;
+  //   contingent de 220 h (supplétif, art. D3121-24), alerte à 90 % —
+  feriesTravaillesAutorises: { defaut: true, controle: booleen },
+  tauxMajorationFerie: { defaut: 0, controle: entier(0, 100, 5) },
+  plafondHeuresComplementaires: { defaut: 'dixieme', controle: choix(['dixieme', 'tiers']) },
+  heuresComplementairesAccord: { defaut: '', controle: texte(120, 'Référence de l’accord') },
+  moyenne12SemainesMax: { defaut: 44, controle: entier(44, 46) },
+  moyenne12SemainesAccord: { defaut: '', controle: texte(120, 'Référence de l’accord') },
+  contingentHeuresSup: { defaut: 220, controle: entier(0, 1000) },
+  contingentAlerte: { defaut: 90, controle: entier(50, 100, 5) },
+  contingentAccord: { defaut: '', controle: texte(120, 'Référence de l’accord ou de la convention') },
 };
 
 /**
@@ -144,6 +157,12 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
   s => (s.titreSejourRelance >= s.titreSejourAlerte ? 'Titres de séjour : la relance doit être plus proche de l’expiration que la première alerte' : null),
   // — Santé : la visite intermédiaire du suivi renforcé vient avant le renouvellement de l'examen d'aptitude —
   s => (s.santeSirIntermediaireMois > s.santeSirAptitudeMois ? 'Suivi individuel renforcé : la visite intermédiaire ne peut pas venir après l’examen d’aptitude' : null),
+  // — Décompte des heures : le tiers pour les heures complémentaires (art. L3123-20) et une moyenne de 46 h sur 12 semaines
+  // (art. L3121-23) supposent un accord collectif —
+  s => (s.plafondHeuresComplementaires === 'tiers' && !s.heuresComplementairesAccord
+    ? 'Heures complémentaires jusqu’au tiers de la durée contractuelle : indiquez la référence de l’accord collectif qui le prévoit (art. L3123-20)' : null),
+  s => (s.moyenne12SemainesMax > 44 && !s.moyenne12SemainesAccord
+    ? 'Moyenne au-delà de 44 h sur 12 semaines : indiquez la référence de l’accord collectif qui la porte jusqu’à 46 h (art. L3121-23)' : null),
 ];
 
 /** Vue non typée de la table, pour la parcourir (les contrôles reçoivent la valeur en vigueur du même champ). */

@@ -45,6 +45,10 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     santeMiCarriereAge: 45,
     // Formations (lot 5) : heures des sessions proposées dans les feuilles de temps (ligne interne INT-FORM).
     formationsTemps: true,
+    // Décompte des heures (lot 5) : saisie un jour férié permise, fériés hors 1er mai sans majoration, heures complémentaires au
+    // dixième, moyenne de 44 h sur 12 semaines, contingent de 220 h avec alerte à 90 %, sans référence d'accord.
+    feriesTravaillesAutorises: true, tauxMajorationFerie: 0, plafondHeuresComplementaires: 'dixieme', heuresComplementairesAccord: '',
+    moyenne12SemainesMax: 44, moyenne12SemainesAccord: '', contingentHeuresSup: 220, contingentAlerte: 90, contingentAccord: '',
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

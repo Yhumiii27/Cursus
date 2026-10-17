@@ -18,6 +18,7 @@ import type { AvisMedical, Employe, Formation, HabType, ISODate, MotifSortie, St
 import { lireCsv } from './imports.ts';
 import { MOTIFS_SORTIE } from './contrats.ts';
 import { matriculesPris, normaliserMatricule } from './matricules.ts';
+import { heuresSupDansAnnee } from './durees.ts';
 import { adressesPrises } from './messagerie.ts';
 import { PROFIL_FIELDS, profilOf, validerProfil, type ProfilInput } from './profil.ts';
 import { echeanceVisite, suiviDe } from './suivi-medical.ts';
@@ -71,7 +72,7 @@ export const REPRISES: Record<TypeReprise, { label: string; court: string; aide:
   },
   soldes: {
     label: 'Soldes de congés', court: 'soldes',
-    aide: 'Soldes arrêtés dans l’ancien outil à la date de reprise, repris tels quels : CP de la période en cours (N-1), CP acquis sur la période en cours d’acquisition (N), RTT ou jours de repos de l’année, récupération (heures), CET (jours). Une cellule vide : compteur non repris.',
+    aide: 'Soldes arrêtés dans l’ancien outil à la date de reprise, repris tels quels : CP de la période en cours (N-1), CP acquis sur la période en cours d’acquisition (N), RTT ou jours de repos de l’année, récupération (heures), CET (jours), et, facultatives, les heures supplémentaires déjà faites dans l’année de la date de reprise (contingent annuel : 0 pour une reprise au 1er janvier). Une cellule vide : compteur non repris.',
     champs: [
       MATRICULE, NOM, PRENOM,
       { id: 'cpN1', label: 'CP N-1', noms: ['cp n 1', 'solde cp n 1', 'conges payes n 1', 'cp periode precedente', 'cp acquis', 'solde cp acquis', 'cp a prendre'] },
@@ -79,12 +80,13 @@ export const REPRISES: Record<TypeReprise, { label: string; court: string; aide:
       { id: 'rtt', label: 'RTT', noms: ['rtt', 'solde rtt', 'jours de repos', 'jrtt', 'repos forfait', 'jours de repos forfait'] },
       { id: 'recup', label: 'Récupération (heures)', noms: ['recuperation heures', 'recuperation', 'recup', 'repos compensateur', 'heures de recuperation', 'rcr'] },
       { id: 'cet', label: 'CET (jours)', noms: ['cet jours', 'cet', 'compte epargne temps', 'solde cet', 'epargne temps'] },
+      { id: 'heuresSup', label: 'Heures sup de l’année (heures)', noms: ['heures sup de l annee heures', 'heures sup de l annee', 'heures supplementaires de l annee', 'heures supplementaires', 'heures sup', 'contingent', 'contingent utilise', 'cumul heures sup'] },
     ],
     requis: [],
     exemple: [
-      ['Matricule de paie', 'Prénom', 'Nom', 'CP N-1', 'CP N', 'RTT', 'Récupération (heures)', 'CET (jours)'],
-      ['A0123', 'Julie', 'Martin', '12,5', '14,58', '10', '7,5', '4'],
-      ['A0456', 'Marc', 'Petit', '3', '14,58', '', '', ''],
+      ['Matricule de paie', 'Prénom', 'Nom', 'CP N-1', 'CP N', 'RTT', 'Récupération (heures)', 'CET (jours)', 'Heures sup de l’année (heures)'],
+      ['A0123', 'Julie', 'Martin', '12,5', '14,58', '10', '7,5', '4', '0'],
+      ['A0456', 'Marc', 'Petit', '3', '14,58', '', '', '', ''],
     ],
   },
   certifications: {
@@ -169,7 +171,7 @@ export const ISSUE_LABEL: Record<IssueReprise, string> = { creation: 'Ajout', ma
 /** Écriture prévue pour une ligne retenue (serveur : actions/reprise.ts). */
 export type EcritureReprise =
   | { type: 'salaries'; profil: ProfilInput; equipeACreer: string | null; reutiliser: boolean }
-  | { type: 'soldes'; arreteLe: ISODate; cpSolde: number | null; cpSoldeSuivant: number | null; rttSolde: number | null; recup: number | null; cetSolde: number | null }
+  | { type: 'soldes'; arreteLe: ISODate; cpSolde: number | null; cpSoldeSuivant: number | null; rttSolde: number | null; recup: number | null; cetSolde: number | null; heuresSupAnnee: number | null }
   | { type: 'certifications'; f: string; date: ISODate }
   | { type: 'habilitations'; h: string; date: ISODate; par: string; titreId: number | null }
   | { type: 'visites'; date: ISODate; avis: AvisMedical };
@@ -344,7 +346,7 @@ export function analyserReprise(d: Domain, type: TypeReprise, texte: string, o: 
   });
   const manque = REPRISES[type].requis.filter(c => !colonnes.includes(c)).map(c => REPRISES[type].champs.find(x => x.id === c)!.label);
   if (type !== 'salaries' && !colonnes.includes('matricule') && !colonnes.includes('nom')) manque.unshift('Matricule de paie ou Nom');
-  if (type === 'soldes' && !['cpN1', 'cpN', 'rtt', 'recup', 'cet'].some(c => colonnes.includes(c))) manque.push('un solde au moins');
+  if (type === 'soldes' && !['cpN1', 'cpN', 'rtt', 'recup', 'cet', 'heuresSup'].some(c => colonnes.includes(c))) manque.push('un solde au moins');
   if (manque.length) return { ...vide, bloquant: `Colonne à rapprocher : ${manque.join(', ')}.` };
   const dateReprise = o.dateReprise ?? null;
   if (type === 'soldes' && !isValidDate(dateReprise)) return { ...vide, bloquant: 'Date de reprise des soldes invalide.' };
@@ -524,9 +526,9 @@ function analyserSolde(d: Domain, n: number, v: Valeurs, arreteLe: ISODate, soiM
   l.empId = e.id;
   // Pas de décision sur soi-même (comme report.accorder ou la clôture des congés).
   if (soiMeme != null && e.id === soiMeme) { l.erreurs.push('Vos propres soldes sont repris par un autre membre du service RH'); return conclure(l); }
-  const lu: Record<'cpN1' | 'cpN' | 'rtt' | 'recup' | 'cet', number | null> = { cpN1: null, cpN: null, rtt: null, recup: null, cet: null };
-  const bornes = { cpN1: [-60, 100], cpN: [-60, 100], rtt: [-30, 60], recup: [-500, 2000], cet: [0, 400] } as const;
-  const noms = { cpN1: 'CP N-1', cpN: 'CP N', rtt: 'RTT', recup: 'Récupération', cet: 'CET' };
+  const lu: Record<'cpN1' | 'cpN' | 'rtt' | 'recup' | 'cet' | 'heuresSup', number | null> = { cpN1: null, cpN: null, rtt: null, recup: null, cet: null, heuresSup: null };
+  const bornes = { cpN1: [-60, 100], cpN: [-60, 100], rtt: [-30, 60], recup: [-500, 2000], cet: [0, 400], heuresSup: [0, 1000] } as const;
+  const noms = { cpN1: 'CP N-1', cpN: 'CP N', rtt: 'RTT', recup: 'Récupération', cet: 'CET', heuresSup: 'Heures sup de l’année' };
   for (const k of Object.keys(lu) as (keyof typeof lu)[]) {
     const x = nombre(v[k]);
     if (x == null) continue;
@@ -539,20 +541,30 @@ function analyserSolde(d: Domain, n: number, v: Valeurs, arreteLe: ISODate, soiM
   if (c.interim) { l.avertissements.push('Intérimaire : congés suivis par son agence, rien n’est repris'); return conclure(l); }
   if (lu.rtt != null && !c.rtt && !c.forfait) { l.avertissements.push('Ni RTT ni jours de repos pour ce régime : RTT ignorés'); lu.rtt = null; }
   if (lu.recup != null && (c.forfait || c.partiel || c.dirigeant || c.annuel)) { l.avertissements.push('Pas de récupération pour ce régime : ignorée'); lu.recup = null; }
+  if (lu.heuresSup != null && (c.forfait || c.partiel || c.dirigeant || c.annuel)) { l.avertissements.push('Pas d’heures supplémentaires pour ce régime : ignorées'); lu.heuresSup = null; }
   if (Object.values(lu).every(x => x == null)) { l.avertissements.push('Aucun solde à reprendre'); return conclure(l); }
   // Congés déjà saisis dans Cursus avant la date d'arrêté : comptés en plus du solde repris, qui les inclut sans doute.
   const avant = d.ds.absences.filter(a => a.empId === e.id && (a.type === 'CP' || a.type === 'RTT') && (a.statut === 'validee' || a.statut === 'demandee') && a.du < arreteLe);
   if (avant.length) l.avertissements.push(`${plural(avant.length, 'congé saisi', 'congés saisis')} dans Cursus avant le ${fmtIso(arreteLe)} : décompté en plus du solde repris`);
+  // De même pour les heures supplémentaires : celles des feuilles validées dans Cursus de l'année, avant la date d'arrêté
+  // (groupe pilote), comptent au contingent en plus de celles reprises, qui les incluent sans doute.
+  if (lu.heuresSup != null) {
+    const annee = Number(arreteLe.slice(0, 4));
+    const feuilles = d.ds.feuilles.filter(sh => sh.empId === e.id && sh.statut === 'validee' && sh.week < arreteLe);
+    const sup = feuilles.reduce((h, sh) => h + heuresSupDansAnnee(d, e, sh, annee), 0);
+    if (sup > 0) l.avertissements.push(`${nombreTexte(Math.round(sup * 100) / 100)} h d’heures supplémentaires ${annee} validées dans Cursus avant le ${fmtIso(arreteLe)} : comptées au contingent en plus de celles reprises`);
+  }
   const R = d.ds.soldesReprise.find(s => s.empId === e.id);
   const recupR = R ? R.recupAcquis - R.recupPris : 0;
-  const deja = { cpN1: R?.cpSolde ?? null, cpN: R?.cpSoldeSuivant ?? null, rtt: R?.rttSolde ?? null, recup: recupR || null, cet: R?.cetSolde ?? null };
+  const deja = { cpN1: R?.cpSolde ?? null, cpN: R?.cpSoldeSuivant ?? null, rtt: R?.rttSolde ?? null, recup: recupR || null, cet: R?.cetSolde ?? null, heuresSup: R?.heuresSupAnnee ?? null };
   const repris = Object.values(deja).some(x => x != null);
   const fusion = !!R && R.arreteLe === arreteLe;
   // Compteurs après l'import : ceux du fichier, et à même date d'arrêté ceux déjà repris que le fichier ne porte pas.
-  const apres = fusion ? { cpN1: lu.cpN1 ?? deja.cpN1, cpN: lu.cpN ?? deja.cpN, rtt: lu.rtt ?? deja.rtt, recup: lu.recup ?? deja.recup, cet: lu.cet ?? deja.cet } : lu;
-  const ecriture = { type: 'soldes' as const, arreteLe, cpSolde: apres.cpN1, cpSoldeSuivant: apres.cpN, rttSolde: apres.rtt, recup: apres.recup, cetSolde: apres.cet };
+  const apres = fusion ? { cpN1: lu.cpN1 ?? deja.cpN1, cpN: lu.cpN ?? deja.cpN, rtt: lu.rtt ?? deja.rtt, recup: lu.recup ?? deja.recup, cet: lu.cet ?? deja.cet, heuresSup: lu.heuresSup ?? deja.heuresSup } : lu;
+  const ecriture = { type: 'soldes' as const, arreteLe, cpSolde: apres.cpN1, cpSoldeSuivant: apres.cpN, rttSolde: apres.rtt, recup: apres.recup, cetSolde: apres.cet, heuresSupAnnee: apres.heuresSup };
   l.detail = [`au ${fmtIso(arreteLe)}`, lu.cpN1 != null ? `CP N-1 ${nombreTexte(lu.cpN1)} j` : '', lu.cpN != null ? `CP N ${nombreTexte(lu.cpN)} j` : '',
-    lu.rtt != null ? `RTT ${nombreTexte(lu.rtt)} j` : '', lu.recup != null ? `récupération ${nombreTexte(lu.recup)} h` : '', lu.cet != null ? `CET ${nombreTexte(lu.cet)} j` : '']
+    lu.rtt != null ? `RTT ${nombreTexte(lu.rtt)} j` : '', lu.recup != null ? `récupération ${nombreTexte(lu.recup)} h` : '', lu.cet != null ? `CET ${nombreTexte(lu.cet)} j` : '',
+    lu.heuresSup != null ? `heures sup ${arreteLe.slice(0, 4)} ${nombreTexte(lu.heuresSup)} h` : '']
     .filter(Boolean).join(' · ');
   const gardes = (Object.keys(deja) as (keyof typeof deja)[]).filter(k => deja[k] != null && lu[k] == null).map(k => noms[k]);
   if (fusion && gardes.length) l.detail += ` · inchangés : ${gardes.join(', ')}`;

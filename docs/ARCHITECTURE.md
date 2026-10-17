@@ -39,6 +39,8 @@ shared/            Domaine partagé (aucune dépendance)
                    demi-journees.ts : congés à la demi-journée (règle, poids, chevauchement, textes) ;
                    acquisition-cp.ts : acquisition des CP mois par mois, absences comprises (loi 2024-364, mémorisée) ;
                    information-retour.ts : information du salarié sur ses congés à son retour d'arrêt (art. L3141-19-3)
+                   majorations.ts (jours fériés travaillés, plafond des heures complémentaires), durees.ts (moyenne sur
+                   12 semaines, requalification du temps partiel, contingent et contrepartie obligatoire en repos)
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   migrate.ts       Reprises des bases antérieures, rejouées à chaque démarrage (idempotentes)
@@ -730,16 +732,16 @@ aucun champ du paramètre n'est recopié.
 | `plan.modifier` | id, f? (vide : hors catalogue), libelle?, equipe?, periode? (`T1`…`T4`), effectif? (1 à 1 000), cout? (0 à 1 000 000 €), motif (obligatoire) ; ligne prévue ou engagée d'un exercice ouvert ; une session ouverte rattachée fige la formation | RH |
 | `plan.supprimer` | id, motif (obligatoire) : ligne prévue ou engagée d'un exercice ouvert, sans session ouverte rattachée (l'annuler d'abord) ; gardée en base (`annuleLe`…), hors de l'instantané et des sommes | administrateur RH |
 | `plan.cloturerExercice` | exercice (passé et ouvert : jamais l'exercice en cours), reporter [id] (actions prévues ou engagées à reporter sur l'exercice suivant) | administrateur RH |
-| `temps.setCell` | empId, week, li, di (0 = lundi … 5 = samedi, 6 = dimanche), value ; une ligne de 5 valeurs est complétée à 7 | salarié, manager direct ou RH (feuille soumise : valideur uniquement) ; aucune heure un jour d’absence validée ou signalée, ni hors contrat, vider la cellule reste possible ; pas de feuille pour une semaine hors contrat ; samedi et dimanche saisissables, repos hebdomadaire signalé sans blocage |
+| `temps.setCell` | empId, week, li, di (0 = lundi … 5 = samedi, 6 = dimanche), value ; une ligne de 5 valeurs est complétée à 7 | salarié, manager direct ou RH (feuille soumise : valideur uniquement) ; aucune heure un jour d’absence validée ou signalée, ni hors contrat, vider la cellule reste possible ; pas de feuille pour une semaine hors contrat ; samedi et dimanche saisissables, repos hebdomadaire signalé sans blocage ; jour férié saisissable si `feriesTravaillesAutorises` (par défaut), saisie tracée (`temps.ferie`, ou `temps.correction` par autrui) |
 | `temps.derogationDominicale` | equipe, type (`aucune`/`feu_continu`/`suppleance`), reference (exigée hors `aucune`, 120 caractères ; journal : seulement « renseignée ») : clé `derogationsDominicales` de la table settings, suit l'équipe renommée et disparaît avec l'équipe supprimée | administrateur RH |
 | `referentiel.activite.enregistrer` / `referentiel.activite.archiver` | code (création : `INT-` + 2 à 12 lettres ou chiffres, ou `ECOLE`, unique parmi tous les projets) ou id (le code), nom (80 caractères) / id, archive? (faux : rétablie) ; une activité archivée n'est plus imputable, les heures déjà saisies restent | RH |
 | `mandat.enregistrer` / `mandat.supprimer` | id? (modification), empId, role (`titulaire`/`suppleant`), du, au?, credit (0 à 200 h par mois, au quart d'heure ; deux mandats du même salarié ne se chevauchent pas) / id | RH (jamais son propre mandat) |
 | `temps.addLine` / `temps.removeLine` | empId, week, projet / li, projet?, tache?, lignes? (ligne visée : déjà supprimée, rien n'est refait ; feuille changée, refus) | idem |
 | `temps.suggest` / `temps.submit` | empId, week, motif? | idem (soumission : brouillon ou à corriger, sans heures un jour d’absence validée ; semaine entièrement couverte par une absence : sans heure ; 24 h par jour au plus, toutes lignes cumulées ; motif exigé au-delà de 10 h par jour ou 48 h par semaine, 13 h pour un forfait jours) |
-| `temps.validate` / `temps.reject` | empId, week, comment?, motif? | manager direct ou RH, jamais pour sa propre feuille (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence ; 24 h par jour au plus ; motif du dépassement exigé s'il manque, après une correction du valideur : celui du salarié n'est jamais remplacé) |
+| `temps.validate` / `temps.reject` | empId, week, comment?, motif? | manager direct ou RH, jamais pour sa propre feuille (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence ; 24 h par jour au plus ; motif du dépassement exigé s'il manque, après une correction du valideur : celui du salarié n'est jamais remplacé ; majoration des fériés et contrepartie obligatoire en repos figées, `cor` au journal ; seuils de durée franchis rappelés dans le message) |
 | `temps.pushSage` | — ; simulation seulement : lot de toutes les feuilles en attente, aussitôt marqué transmis (référence « SIM-… », rien n'est envoyé, message qui le dit) ; en mode fichier, refus 503 sans rien marquer | administrateur RH, paie |
 | `temps.relancer` | empId? (sinon tout le périmètre) : feuilles des semaines suivies manquantes, en brouillon ou à corriger, échéance passée ; e-mail (ou récapitulatif) au salarié et à son valideur ; rien en retard : refus | manager direct (son équipe) ou RH |
-| `temps.validerLot` | feuilles [{empId, week}] (200 au plus) : chacune passe par `temps.validate` dans son point de reprise (SAVEPOINT) ; refus listés dans le message, les autres validées ; aucune validée : 403 si toutes l'étaient pour des droits, sinon 400 avec la liste | manager direct ou RH (comme `temps.validate`) |
+| `temps.validerLot` | feuilles [{empId, week}] (200 au plus) : chacune passe par `temps.validate` dans son point de reprise (SAVEPOINT) ; refus listés dans le message, les autres validées, avec les alertes de durée de chacune (5 au plus en entier) ; aucune validée : 403 si toutes l'étaient pour des droits, sinon 400 avec la liste | manager direct ou RH (comme `temps.validate`) |
 | `paie.lotGenerer` | periode (AAAA-MM) : lot des feuilles validées en attente dont la période de destination vient au plus tard (rappels compris), contenu figé, clé d'idempotence (UUID), feuilles réservées (`feuilles.lotId`), libellé de chaque code Sage figé (`contenu.libelles`) ; hors simulation, refus si un salarié n'a pas de matricule de paie (liste) ou 409 si une rubrique émise et exportée n'a pas de code Sage confirmé (liste) ; en simulation, avertissement | administrateur RH, paie (écran Temps) |
 | `paie.lotConfirmer` | id, reference? (code de 40 caractères au plus) : confirmation de l'import dans Sage, datée et signée, qui seule marque les feuilles transmises ; lot de fichier : fichier téléchargé au moins une fois (409 sinon) ; lot de simulation refusé hors simulation ; déjà confirmé : rien n'est refait ; annulé : 409 | administrateur RH, paie |
 | `paie.lotAnnuler` | id : avant la confirmation seulement (409 ensuite : lot correctif à venir) ; feuilles libérées | administrateur RH, paie |
@@ -764,7 +766,7 @@ aucun champ du paramètre n'est recopié.
 | `entretien.signer` | id | salarié |
 | `entretien.remettre` | id, mode (`main_propre`/`refus`/`portail`), date? (main propre, refus : de la clôture à aujourd'hui ; portail : le jour même, compte actif exigé, e-mail avec le seul lien vers Cursus) ; une remise sur papier est définitive, une mise à disposition se complète par une remise sur papier | évaluateur (manager direct) ou RH, jamais pour son propre entretien |
 | `entretien.telecharger` | id : premier téléchargement du compte rendu clos, daté (`telechargeLe`) | salarié, depuis son espace |
-| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps, santeMiCarriereAge…, cpMaladie), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
+| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps, santeMiCarriereAge…, cpMaladie, feriesTravaillesAutorises, tauxMajorationFerie, plafondHeuresComplementaires, heuresComplementairesAccord, moyenne12SemainesMax, moyenne12SemainesAccord, contingentHeuresSup, contingentAlerte, contingentAccord), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
 | `demo.reinitialiser` | — | administrateur RH, mode démonstration |
 | `compte.creer` | empId (ou nom, adresse : compte externe), type (`microsoft`/`local`), identifiant, profilRh | administrateur RH (mot de passe provisoire dans `result`, affiché une fois) |
 | `compte.profil` | id, profilRh (`aucun`/`rh_gestionnaire`/`rh_admin`/`referent_hse`/`paie`/`lecture_seule`) | administrateur RH (jamais le dernier administrateur actif ; un compte externe garde un profil) |
@@ -802,7 +804,8 @@ Table `journal`, écrite par `server/src/journal.ts` (actions) et `journaliser` 
   week }`, nombre de déplacements importés, total d'heures d'une feuille soumise ou validée).
 - **Événements tracés** : actions ; saisie d'heures par le manager ou le service RH sur la feuille d'un autre,
   quel que soit son statut (soumise, renvoyée, brouillon : `temps.correction`, ancienne et nouvelle valeur,
-  statut de la feuille ; la saisie du salarié sur sa propre feuille ne l'est pas) ; rédaction
+  statut de la feuille ; la saisie du salarié sur sa propre feuille ne l'est pas, sauf un jour férié : `temps.ferie`,
+  mêmes valeurs, archive paie) ; rédaction
   d'un compte rendu d'entretien (section nommée, jamais son contenu, une ligne par compte et par demi-heure) ;
   connexions, refus, déconnexions, changements d'espace ; refus d'accès (403) d'une personne connectée
   (`acces.refuse`, motif borné à 200 caractères, rien n'est modifié ; tout message est borné à 2 000) ;
@@ -1513,6 +1516,36 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
   les profils restreints. L'effectif de référence (`Dataset.effectifCse`, un nombre) est calculé par le serveur sur toutes
   les fiches et transmis au RH et à l'élu : l'instantané de l'élu ne contient que lui, le compteur y serait faux. Un membre
   du RH ne saisit ni ne retire son propre mandat (`refuserSoiMeme`). Sans mandat, rien ne s'affiche.
+- **Jours fériés** (`shared/rules/majorations.ts`) : saisissables par défaut (réglage `feriesTravaillesAutorises`,
+  Paramètres → Décompte des heures ; désactivé, `temps.setCell` refuse une heure un jour férié), mention « Férié
+  travaillé » dans la feuille et ligne au journal (`temps.ferie`). Les heures restent du travail effectif (rang des heures
+  supplémentaires) et sont repérées à part (`SheetCalc.mai1`, `ferie`, d'après la semaine de la feuille) : 1er mai majoré
+  de 100 % fixé par la loi (art. L3133-6, MAJ_1MAI en heures équivalentes, non réglable) ; autres fériés en quantité
+  (FERIE_TRAV) et majorés en MAJ_FERIE seulement si `tauxMajorationFerie` le prévoit (0 % par défaut), taux figé à la
+  validation (`FeuilleTemps.majFerie`). Le lundi de Pentecôte travaillé au titre de la journée de solidarité est repéré
+  comme un férié : son exclusion des heures supplémentaires (art. L3133-8) reste à la paie. Forfait jours : JTRAV seul.
+- **Heures complémentaires** : au-delà du dixième de la durée contractuelle (art. L3123-28), ou du tiers avec la
+  référence d'un accord (`plafondHeuresComplementaires`, `heuresComplementairesAccord`, art. L3123-20 ; COHERENCE),
+  dépassement de `SheetCalc.depassements` : motif exigé à la soumission. Majoration inchangée : 10 % jusqu'au dixième,
+  25 % au-delà (art. L3123-29). Avenants de complément d'heures (art. L3123-22) non développés.
+- **Durées sur plusieurs semaines** (`shared/rules/durees.ts`, feuilles validées, alertes sans blocage) : moyenne des 12
+  dernières semaines travaillées (semaine sans feuille validée ou sans heure sautée, un an au plus) au-delà de 44 h
+  (art. L3121-22 ; `moyenne12SemainesMax` jusqu'à 46 h seulement avec la référence d'un accord, art. L3121-23), hors
+  forfaits et cadre dirigeant ; temps partiel dont l'horaire réel dépasse le contrat d'au moins 2 h 12 semaines sur les
+  15 dernières travaillées, avec le nouvel horaire proposé (art. L3123-13, seuils non réglables) ; contingent annuel
+  (`contingentAnnuel` : heures supplémentaires de l'année civile, incluses à un forfait hebdomadaire comprises, sans celles
+  remplacées par un repos ni l'intérim, semaine à cheval ventilée jour par jour, plus `SoldeReprise.heuresSupAnnee` reprises
+  de Lucca pour l'année de la date d'arrêté (la reprise signale les heures sup déjà validées dans Cursus avant l'arrêté,
+  comptées en plus) ; 220 h par défaut, art. D3121-24, alerte à `contingentAlerte` %, référence
+  `contingentAccord` sinon rappel « valeur conventionnelle à vérifier »). Au-delà, contrepartie obligatoire en repos de
+  100 % (plus de 20 salariés, art. L3121-38) : à chaque validation, `corAValider` fige sur la feuille (`FeuilleTemps.cor`,
+  par année) la COR de l'année recalculée sur toutes les feuilles validées moins celle déjà figée sur les autres ; une
+  validation hors de l'ordre chronologique, une feuille rouverte ou un contingent changé portent leur écart (négatif s'il
+  le faut) sur la feuille validée, et le total de l'année reste juste. Créditée au compteur de récupération même en mode
+  « payées » (`recupInfo`), émise dans COR_ACQUIS (dernière part d'une semaine ventilée). Écran Temps : alertes sur la
+  feuille, contingent au récapitulatif (de chaque année pour une semaine à cheval sur le 31 décembre), encart « Durées du
+  travail à surveiller » pour le service RH (`components/AlertesDurees.tsx`) ; message de validation quand la feuille
+  franchit un seuil (le contingent de chacune de ses années) ou crédite une COR, repris aussi par `temps.validerLot`.
 - **Durées** : une journée compte 24 h au plus, toutes lignes de la feuille cumulées
  (saisie, proposition Keystone,
   soumission, validation). Au-delà des durées maximales (`SheetCalc.depassements`), la soumission exige un motif

@@ -11,7 +11,7 @@ import { acquisMois, joursAcquis } from './acquisition-cp.ts';
 import { conflitsDates } from './conflits.ts';
 import { chevauche, demiJournees, type DemiJournees } from './demi-journees.ts';
 import { modeHeuresSup } from './paie.ts';
-import { calcSheet, heuresSurAbsence, joursTexte, type AbsenceJour } from './temps.ts';
+import { calcSheet, corDeLaFeuille, heuresSurAbsence, joursTexte, type AbsenceJour } from './temps.ts';
 
 /**
  * Nombre de mois (sur `n` à partir de `start`) où le salarié était présent à mi-mois (RTT ; pour les CP, les absences
@@ -318,13 +318,15 @@ export function rttAnneeClose(d: Domain, e: Employe, Y: number): boolean {
 /**
  * Repos compensateur de remplacement, en heures (horaires hebdomadaires avec heures supplémentaires) : seul le repos
  * réellement acquis est crédité, celui des feuilles validées en mode « repos » (ou d'avant le choix du mode,
- * `calcSheet`). Heures supplémentaires payées, sans aucun repos repris, acquis ni posé : pas de compteur (null).
+ * `calcSheet`), et la contrepartie obligatoire en repos figée sur les feuilles au-delà du contingent, même quand les
+ * heures supplémentaires sont payées (shared/rules/durees.ts). Heures supplémentaires payées, sans aucun repos repris,
+ * acquis ni posé : pas de compteur (null).
  */
 export function recupInfo(d: Domain, e: Employe) {
   const c = d.contratOf(e);
   if (c.forfait || c.partiel || c.interim || c.dirigeant || c.annuel) return null;
   const R = reprise(d, e.id), dh = d.dayH(e);
-  const acq = R.recupAcquis + d.ds.feuilles.filter(sh => sh.empId === e.id && sh.statut === 'validee').reduce((n, sh) => n + calcSheet(d, e, sh).recup, 0);
+  const acq = R.recupAcquis + d.ds.feuilles.filter(sh => sh.empId === e.id && sh.statut === 'validee').reduce((n, sh) => n + calcSheet(d, e, sh).recup + corDeLaFeuille(sh), 0);
   const absH = (st: string) => d.ds.absences
     .filter(a => a.empId === e.id && a.type === 'RECUP' && a.statut === st)
     .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'RECUP', a) * dh, 0);

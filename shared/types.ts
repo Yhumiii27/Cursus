@@ -415,6 +415,17 @@ export interface FeuilleTemps {
    * Jamais enregistré.
    */
   mineur?: boolean;
+  /**
+   * Majoration des heures d'un jour férié autre que le 1er mai (%, réglage `tauxMajorationFerie`) figée à la validation,
+   * comme celle du dimanche. Null avant : le réglage s'applique. Le 1er mai est toujours majoré de 100 % (art. L3133-6).
+   */
+  majFerie?: number | null;
+  /**
+   * Contrepartie obligatoire en repos (heures, par année civile : « 2026 » → heures) figée à la validation
+   * (shared/rules/durees.ts, `corAValider`) : COR de l'année recalculée sur toutes les feuilles validées, moins celle déjà
+   * figée sur les autres. Négative pour corriger une COR déjà créditée. Null : aucune.
+   */
+  cor?: Record<string, number> | null;
 }
 /**
  * Dérogation au repos dominical d'une équipe (shared/rules/semaine.ts) : aucune (heures du dimanche signalées au RH), travail
@@ -496,6 +507,11 @@ export interface SoldeReprise {
    * RTT de l'année, CET (jours). Null : non repris (compteur calculé depuis `cpPris`, `rttPris`).
    */
   cpSolde?: number | null; cpSoldeSuivant?: number | null; rttSolde?: number | null; cetSolde?: number | null;
+  /**
+   * Heures supplémentaires déjà faites dans l'année civile de la date d'arrêté, avant elle (contingent annuel,
+   * shared/rules/durees.ts) : 0 pour une reprise au 1er janvier. Null : non reprises.
+   */
+  heuresSupAnnee?: number | null;
 }
 /**
  * Clôture d'une période de congés pour un salarié (`conges.cloturer`) : photographie du solde restant et décision du
@@ -633,7 +649,22 @@ export interface Settings {
   santeMiCarriereAge: number;
   /** Formations (shared/rules/formations-temps.ts) : heures des sessions proposées dans la feuille de temps des inscrits. */
   formationsTemps: boolean;
+  // Décompte des heures (client/src/pages/parametres/DecompteHeures.tsx, shared/rules/majorations.ts et durees.ts) : saisie un
+  // jour férié et majoration des fériés autres que le 1er mai (%), plafond des heures complémentaires du temps partiel
+  // (le tiers avec la référence de l'accord), moyenne maximale sur 12 semaines (46 h avec la référence de l'accord),
+  // contingent annuel d'heures supplémentaires, seuil d'alerte (%) et référence de l'accord ou de la convention.
+  feriesTravaillesAutorises: boolean;
+  tauxMajorationFerie: number;
+  plafondHeuresComplementaires: PlafondComplementaires;
+  heuresComplementairesAccord: string;
+  moyenne12SemainesMax: number;
+  moyenne12SemainesAccord: string;
+  contingentHeuresSup: number;
+  contingentAlerte: number;
+  contingentAccord: string;
 }
+/** Plafond des heures complémentaires du temps partiel : le dixième (art. L3123-28) ou le tiers avec un accord (art. L3123-20). */
+export type PlafondComplementaires = 'dixieme' | 'tiers';
 
 /**
  * Personne connectée, dans l'espace actif. Dans l'espace RH, `empId` reste null : la personne agit

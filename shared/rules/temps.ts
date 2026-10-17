@@ -10,6 +10,7 @@ import { matriculeAffiche } from './matricules.ts';
 import { modeHeuresSup, periodesSemaine, rubriquesPaie, traduireRubriques } from './paie.ts';
 import { alertesRepos, DIMANCHE, derogationDe, estWeekEnd, JOURS_FEUILLE } from './semaine.ts';
 import { controlesMineur, naissanceDeLaFeuille } from './mineurs.ts';
+import { heuresFeriees, MAJORATION_1ER_MAI, plafondComplementaires } from './majorations.ts';
 
 /** Régime de temps de travail en vigueur d'une fiche, à figer sur une feuille soumise. */
 export function contratFige(e: Employe): ContratFige {
@@ -25,7 +26,8 @@ export interface SheetCalc {
   perDay: number[]; total: number; warn: string[];
   /**
    * Durées maximales dépassées (plus de 10 h sur une journée ou de 48 h dans la semaine ; plus de 13 h pour un forfait
-   * jours ; plus de 8 h ou de 35 h pour un salarié mineur) : sous-ensemble de `warn`. La soumission, et la validation,
+   * jours ; plus de 8 h ou de 35 h pour un salarié mineur) ou heures complémentaires au-delà du plafond (le dixième, le
+   * tiers avec un accord : shared/rules/majorations.ts) : sous-ensemble de `warn`. La soumission, et la validation,
    * exigent alors un motif (`motifDepassement`).
    */
   depassements: string[];
@@ -41,6 +43,12 @@ export interface SheetCalc {
   depassementsMineur: string[];
   /** Heures du dimanche (rubrique HDIM) et majoration en % (figée à la validation, sinon le réglage) : rubrique MAJ_DIM. */
   dimanche: number; majDimanche: number;
+  /**
+   * Heures travaillées le 1er mai (majorées de 100 % : rubrique MAJ_1MAI) et un autre jour férié (FERIE_TRAV, majorées de
+   * `majFerie` % : MAJ_FERIE), déjà comprises dans les précédentes (shared/rules/majorations.ts). Fériés repérés d'après la
+   * semaine de la feuille (`week`) : sans elle, aucun.
+   */
+  mai1: number; ferie: number; majFerie: number;
   /** Heures payées au taux normal (dans la limite de 35 h). */
   normal: number;
   /** Heures supplémentaires structurelles incluses dans un forfait hebdomadaire (total, dont +25 % et +50 %). */
@@ -60,11 +68,14 @@ export interface SheetCalc {
  * - 35 h, 39 h + RTT, forfait hebdomadaire : heures supplémentaires au-delà du seuil
  *   (+25 % de la 36e à la 43e heure, +50 % au-delà), payées ou remplacées par un repos compensateur équivalent selon
  *   le mode figé à la validation (`modeHS` ; « historique » : les deux, calcul d'avant le choix du mode) ;
- * - temps partiel : heures complémentaires (+10 % jusqu'au dixième de la durée, +25 % au-delà) ;
+ * - temps partiel : heures complémentaires (+10 % jusqu'au dixième de la durée, +25 % au-delà), au plus le dixième de la
+ *   durée (le tiers avec un accord) sans motif ;
  * - forfait jours et cadre dirigeant : décompte en jours, pas d'heures supplémentaires ;
  * - forfait annuel en heures : pas de décompte hebdomadaire (cumul annuel, voir `cumulAnnuel`).
+ * Heures d'un jour férié (1er mai compris) : du travail effectif, comptées dans la semaine, repérées à part pour leur
+ * majoration (`mai1`, `ferie`).
  */
-export function calcSheet(d: Domain, e: Employe, sh: (Pick<FeuilleTemps, 'lignes'> & Partial<Pick<FeuilleTemps, 'contrat' | 'heuresSup' | 'majDimanche' | 'week' | 'mineur'>>) | null): SheetCalc {
+export function calcSheet(d: Domain, e: Employe, sh: FeuilleCalcul | null): SheetCalc {
   const c = d.contratOf(employeDeLaFeuille(e, sh));
   // Une ligne de 5 valeurs (enregistrée avant la semaine à 7 jours) se lit avec un samedi et un dimanche vides.
   const perDay = Array.from({ length: JOURS_FEUILLE }, (_, i) => (sh ? sh.lignes : []).reduce((n, l) => n + num(l.h[i]), 0));
@@ -80,12 +91,19 @@ export function calcSheet(d: Domain, e: Employe, sh: (Pick<FeuilleTemps, 'lignes
   // Salarié de moins de 18 ans, les jours où il l'est : 8 h par jour, 35 h par semaine, deux jours de repos consécutifs.
   const jeune = controlesMineur(naissanceDeLaFeuille(e, sh), sh?.week, perDay);
   depassements.push(...jeune.depassements);
+  // Heures complémentaires au-delà du plafond (le dixième, le tiers avec un accord) : dépassement, motif exigé.
+  const plafond = plafondComplementaires(d.ds.settings);
+  if (c.partiel && total - c.base > c.base / plafond.diviseur + 1e-9) {
+    depassements.push(`Heures complémentaires au-delà du ${plafond.label} de la durée contractuelle (${fH(c.base / plafond.diviseur)} au plus, ${plafond.article})`);
+  }
   // Repos hebdomadaire et dominical : alertes, sauf pour un cadre dirigeant (art. L3111-2).
   const repos = [...(c.dirigeant ? [] : alertesRepos(perDay, derogationDe(d.ds, e))), ...jeune.repos];
   const warn = [...depassements, ...repos];
   const modeHS = modeHeuresSup(sh, d.ds.settings);
   const majDimanche = sh?.majDimanche ?? d.ds.settings?.majorationDimanche ?? 0;
-  const r: SheetCalc = { perDay, total, c, warn, depassements, repos, depassementsMineur: jeune.depassements, dimanche: perDay[DIMANCHE], majDimanche, normal: total, incluses: 0, incluses25: 0, incluses50: 0, sup25: 0, sup50: 0, hc10: 0, hc25: 0, recup: 0, jours: 0, modeHS };
+  const { mai1, ferie } = heuresFeriees(sh?.week, perDay);
+  const majFerie = sh?.majFerie ?? d.ds.settings?.tauxMajorationFerie ?? 0;
+  const r: SheetCalc = { perDay, total, c, warn, depassements, repos, depassementsMineur: jeune.depassements, dimanche: perDay[DIMANCHE], majDimanche, mai1, ferie, majFerie, normal: total, incluses: 0, incluses25: 0, incluses50: 0, sup25: 0, sup50: 0, hc10: 0, hc25: 0, recup: 0, jours: 0, modeHS };
   const jours = perDay.reduce((n, h) => n + (h === 0 ? 0 : h <= 4 ? 0.5 : 1), 0);
   if (c.forfait || c.dirigeant || c.annuel) r.jours = jours;
   else if (c.partiel) {
@@ -93,7 +111,6 @@ export function calcSheet(d: Domain, e: Employe, sh: (Pick<FeuilleTemps, 'lignes
     r.hc10 = Math.min(hc, c.base / 10);
     r.hc25 = hc - r.hc10;
     r.normal = total - hc;
-    if (hc > c.base / 3) warn.push('Heures complémentaires au-delà du tiers de la durée contractuelle');
     if (total >= 35) warn.push('Temps partiel porté à 35 h ou plus');
   } else {
     const seuil = c.seuil ?? 35;
@@ -113,6 +130,16 @@ export function calcSheet(d: Domain, e: Employe, sh: (Pick<FeuilleTemps, 'lignes
   }
   return r;
 }
+
+/**
+ * Feuille telle que la décompte `calcSheet` : lignes, et ce qui est figé à la soumission (régime) ou à la validation (mode
+ * des heures supplémentaires, majorations, contrepartie en repos) ; `week` repère les jours fériés.
+ */
+export type FeuilleCalcul = Pick<FeuilleTemps, 'lignes'> & Partial<Pick<FeuilleTemps, 'week' | 'contrat' | 'heuresSup' | 'majDimanche' | 'majFerie' | 'cor' | 'mineur'>>;
+
+/** Contrepartie obligatoire en repos figée sur une feuille, toutes années confondues (heures). */
+export const corDeLaFeuille = (sh: Pick<FeuilleTemps, 'cor'> | null | undefined): number =>
+  Object.values(sh?.cor ?? {}).reduce((n, h) => n + num(h), 0);
 
 /** Durée maximale d'une journée, toutes lignes de la feuille cumulées : au-delà, la saisie est refusée. */
 export const HEURES_JOUR_MAX = 24;
@@ -346,16 +373,24 @@ function plafonnerDemiJournees(d: Domain, e: Employe, w: ISODate, lignes: LigneT
  * le mode : payées (HS25, HS50), remplacées par un repos (RCR_ACQUIS seul) ou, feuille d'avant le choix du mode, les deux.
  * Les heures incluses à un forfait hebdomadaire (HSF25, HSF50) restent payées. Heures du dimanche, déjà comprises dans
  * les précédentes, en quantité (HDIM) pour la paie, et leur majoration si le réglage en prévoit une (MAJ_DIM, heures
- * équivalentes : 4 h à 50 % donnent 2 h) ; un forfait jours n'en a pas (décompte en jours).
+ * équivalentes : 4 h à 50 % donnent 2 h) ; un forfait jours n'en a pas (décompte en jours). Jours fériés de même
+ * (shared/rules/majorations.ts) : 1er mai majoré de 100 % (MAJ_1MAI, heures équivalentes), autres fériés en quantité
+ * (FERIE_TRAV) et leur majoration réglée (MAJ_FERIE). Contrepartie obligatoire en repos figée à la validation (COR_ACQUIS).
  */
-export function sageRubriques(d: Domain, e: Employe, sh: Pick<FeuilleTemps, 'lignes'> & Partial<Pick<FeuilleTemps, 'contrat' | 'heuresSup' | 'majDimanche'>>): Record<string, number> {
+export function sageRubriques(d: Domain, e: Employe, sh: FeuilleCalcul): Record<string, number> {
   const c = calcSheet(d, e, sh);
   if (c.c.forfait) return { JTRAV: c.jours };
-  const dimanche = {
+  const cor = corDeLaFeuille(sh);
+  // Quantités et majorations portées en plus des heures (dimanche, fériés) et contrepartie en repos.
+  const annexes = {
     ...(c.dimanche ? { HDIM: r1(c.dimanche) } : {}),
     ...(c.dimanche && c.majDimanche ? { MAJ_DIM: r1(c.dimanche * c.majDimanche / 100) } : {}),
+    ...(c.mai1 ? { MAJ_1MAI: r1(c.mai1 * MAJORATION_1ER_MAI / 100) } : {}),
+    ...(c.ferie ? { FERIE_TRAV: r1(c.ferie) } : {}),
+    ...(c.ferie && c.majFerie ? { MAJ_FERIE: r1(c.ferie * c.majFerie / 100) } : {}),
+    ...(cor ? { COR_ACQUIS: r1(cor) } : {}),
   };
-  if (c.c.annuel) return { HN: r1(c.total), ...dimanche };
+  if (c.c.annuel) return { HN: r1(c.total), ...annexes };
   const payees = c.modeHS !== 'repos' || c.c.interim;
   return {
     HN: r1(c.normal),
@@ -366,7 +401,7 @@ export function sageRubriques(d: Domain, e: Employe, sh: Pick<FeuilleTemps, 'lig
     ...(c.hc10 ? { HC10: r1(c.hc10) } : {}),
     ...(c.hc25 ? { HC25: r1(c.hc25) } : {}),
     ...(c.recup ? { RCR_ACQUIS: r1(c.recup) } : {}),
-    ...dimanche,
+    ...annexes,
   };
 }
 
@@ -378,15 +413,16 @@ export interface RubriquesPeriode { periode: string; origine: string | null; rub
  * Rubriques d'une feuille par période de paie (shared/rules/paie.ts) : une seule part, sauf une semaine à cheval sur deux
  * mois ventilée jour par jour. Chaque part reçoit le décompte cumulé jusqu'à son dernier jour, moins celui des parts
  * précédentes : les heures gardent leur rang dans la semaine (les heures supplémentaires sont les dernières) et les
- * parts s'additionnent exactement au décompte de la semaine.
+ * parts s'additionnent exactement au décompte de la semaine. La contrepartie obligatoire en repos, figée sur la feuille
+ * entière, va sur la dernière part, avec les heures supplémentaires qui la font naître.
  */
 export function rubriquesParPeriode(d: Domain, e: Employe, sh: FeuilleTemps): RubriquesPeriode[] {
   const parts = periodesSemaine(sh.week, d.ds.settings, d.ti);
   if (parts.length === 1) return [{ periode: parts[0].periode, origine: parts[0].origine, rubriques: sageRubriques(d, e, sh) }];
   let avant: Record<string, number> = {};
-  return parts.map(p => {
-    const dernier = Math.max(...p.jours);
-    const cumul = sageRubriques(d, e, { ...sh, lignes: sh.lignes.map(l => ({ ...l, h: l.h.map((v, i) => (i <= dernier ? v : 0)) })) });
+  return parts.map((p, n) => {
+    const dernier = Math.max(...p.jours), derniere = n === parts.length - 1;
+    const cumul = sageRubriques(d, e, { ...sh, cor: derniere ? sh.cor : null, lignes: sh.lignes.map(l => ({ ...l, h: l.h.map((v, i) => (i <= dernier ? v : 0)) })) });
     const rubriques = Object.fromEntries(Object.entries(cumul).map(([k, v]) => [k, r1(v - (avant[k] ?? 0))]));
     avant = cumul;
     return { periode: p.periode, origine: p.origine, rubriques };

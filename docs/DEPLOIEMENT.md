@@ -566,6 +566,18 @@ dimanche prennent leur rang dans les heures supplémentaires, celles du dimanche
 MAJ_DIM si Paramètres → Paie prévoit une majoration) ; ni absences, ni déplacements, ni heures de nuit, qui restent
 saisis dans Sage. Les rubriques HDIM et MAJ_DIM sont « à confirmer » comme les autres : la paie confirme leur code Sage
 ou les désactive avant le premier lot réel qui en porte. Intérimaires (relevé envoyé à l'agence) et cadres dirigeants exclus.
+Jours fériés travaillés (lot 5) : le 1er mai part en MAJ_1MAI (majoration de 100 %, heures équivalentes), les autres
+fériés en quantité FERIE_TRAV (et MAJ_FERIE si Paramètres → Décompte des heures prévoit une majoration) ; la
+contrepartie obligatoire en repos au-delà du contingent annuel part en COR_ACQUIS. Ces quatre rubriques sont « à
+confirmer » : la paie confirme leur code Sage ou les désactive. Le lundi de Pentecôte travaillé au titre de la journée
+de solidarité est repéré comme férié : la paie le traite (art. L3133-8).
+
+**Changement de comportement à la mise à jour (lot 5)** : les heures complémentaires du temps partiel sont plafonnées au
+dixième de la durée contractuelle (art. L3123-28) et non plus au tiers ; au-delà, la soumission de la feuille exige un
+motif. Le tiers se rétablit dans Paramètres → Décompte des heures, avec la référence de l'accord collectif qui le prévoit.
+Contingent annuel : 220 h par défaut, valeur légale à vérifier avec la convention ou l'accord (référence à saisir) ; à
+une mise en service hors du 1er janvier, les heures supplémentaires déjà faites dans l'année se reprennent avec les soldes
+(colonne « Heures sup de l'année »).
 
 Période de paie déduite de la semaine : une semaine à cheval sur deux mois va sur le mois de son dimanche, la clôture
 des variables tombe le dernier jour du mois et une semaine d'une période close part en rappel sur la période ouverte

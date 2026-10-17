@@ -21,7 +21,7 @@ export const CONSERVATION_ENVOIS_MOIS = 12;
  * manager ou le RH et transmissions à la paie (Sage).
  */
 export const ACTIONS_PAIE: readonly string[] = [
-  'temps.validate', 'temps.correction', 'temps.pushSage', 'absence.decider', 'absence.qualifier', 'absence.saisir', 'absence.prolonger', 'absence.annuler',
+  'temps.validate', 'temps.correction', 'temps.ferie', 'temps.pushSage', 'absence.decider', 'absence.qualifier', 'absence.saisir', 'absence.prolonger', 'absence.annuler',
   // Clôture des congés (report ou perte du solde de chaque salarié, à justifier en cas de litige) et datation des
   // compteurs repris de l'ancien système (période sur laquelle ils sont décomptés).
   'conges.cloturer', 'migration.soldes',
@@ -122,6 +122,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'temps.validate': 'Feuille de temps validée',
   'temps.reject': 'Feuille de temps renvoyée',
   'temps.correction': 'Correction d’heures par le manager ou le RH',
+  'temps.ferie': 'Heures saisies un jour férié',
   'temps.pushSage': 'Transmission à la paie',
   'paie.rubrique': 'Rubrique de paie Sage',
   'paie.lotGenerer': 'Lot de paie généré',
@@ -298,6 +299,12 @@ export const CHAMP_LABEL: Record<string, string> = {
   santeMiCarriereAge: 'Âge de la visite de mi-carrière',
   sir: 'Suivi individuel renforcé',
   expose: 'Exposé à des risques particuliers',
+  // Paramètres → Décompte des heures : fériés, heures complémentaires, moyenne sur 12 semaines, contingent.
+  feriesTravaillesAutorises: 'Saisie d’heures un jour férié', tauxMajorationFerie: 'Majoration des jours fériés hors 1er mai (%)',
+  plafondHeuresComplementaires: 'Plafond des heures complémentaires', heuresComplementairesAccord: 'Accord sur les heures complémentaires',
+  moyenne12SemainesMax: 'Moyenne maximale sur 12 semaines (h)', moyenne12SemainesAccord: 'Accord sur la moyenne de 12 semaines',
+  contingentHeuresSup: 'Contingent annuel d’heures supplémentaires (h)', contingentAlerte: 'Alerte du contingent (%)',
+  contingentAccord: 'Référence du contingent', ferie: 'Jour férié', cor: 'Contrepartie obligatoire en repos (h)',
 };
 
 const valeur = (v: unknown): string => {

@@ -122,6 +122,9 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   // — Formations (parametres/Formations.tsx, shared/rules/formations-temps.ts) : heures des sessions proposées dans la
   //   feuille de temps des inscrits (ligne interne INT-FORM), par défaut —
   formationsTemps: { defaut: true, controle: booleen },
+  // — Absences dans le fichier de paie (parametres/AbsencesPaie.tsx, shared/rules/absences-paie.ts) : activé par défaut
+  //   (réponse de l'entreprise du 17 octobre 2026) ; les rubriques d'absence restent à confirmer avant tout lot réel —
+  absencesFichierPaie: { defaut: true, controle: booleen },
 };
 
 /**

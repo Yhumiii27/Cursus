@@ -13,6 +13,7 @@ import { periodeDemiTexte } from '../../../shared/rules/demi-journees.ts';
 import { anneeCp, cetInfo, checkAbsence, checkNature, cpInfo, finPeriodeCp, heuresAvantAbsence, periodeCp, rttAnneeClose } from '../../../shared/rules/conges.ts';
 import { semaineCouverte } from '../../../shared/rules/temps.ts';
 import type { Absence, AbsenceType, CetMouvement, CongeType, Employe, FeuilleTemps, NatureAbsence, ReportCp } from '../../../shared/types.ts';
+import { suitePaie } from '../absences-paie.ts';
 import { absenceKeystone, sendToKeystone } from '../integrations/keystone.ts';
 import { recrediterPeriodesCloses } from './clotures.ts';
 import { notifierDecisionConge, notifierDemandeConge, notifierFeuilleRenvoyee } from '../notifications.ts';
@@ -184,7 +185,9 @@ const qualifier: ActionHandler = (ctx, p) => {
   if (!a.keystone || corrigee) keystone(ctx, 'absence.validee', { ...a, du, au });
   const justTexte = just.justificatif ? `justificatif reçu le ${fmt(parse(just.justificatifLe!))}` : 'justificatif attendu';
   const renvoi = corrigee ? renvoyerFeuilles(ctx, emp, a) : '';
-  return `Absence de ${emp.nom} qualifiée : ${NATURES_ABSENCE[nature].court} ${periodeTexte(du, au)}, ${justTexte}${renvoi}${majReprise(ctx, emp, a, nature)}`;
+  // Absence déjà partie à la paie (t028) : dates ou nature changées, l'écart part dans le prochain lot.
+  const paie = corrigee || nature !== a.type ? suitePaie(ctx.db, a) : '';
+  return `Absence de ${emp.nom} qualifiée : ${NATURES_ABSENCE[nature].court} ${periodeTexte(du, au)}, ${justTexte}${renvoi}${majReprise(ctx, emp, a, nature)}${paie}`;
 };
 
 /**
@@ -206,7 +209,7 @@ const prolonger: ActionHandler = (ctx, p) => {
   ctx.db.update<Absence>('absences', a.id, { au, statut, finInitiale: a.finInitiale ?? a.au, keystone: true });
   keystone(ctx, 'absence.validee', { ...a, au });
   const suite = statut === 'signalee' && a.statut === 'validee' ? ' — prolongation à qualifier par le service RH' : '';
-  return `Absence de ${emp.nom} prolongée jusqu’au ${fmt(parse(au))}${suite} · indisponibilité transmise à Keystone${majReprise(ctx, emp, a, a.type)}`;
+  return `Absence de ${emp.nom} prolongée jusqu’au ${fmt(parse(au))}${suite} · indisponibilité transmise à Keystone${majReprise(ctx, emp, a, a.type)}${isRh(ctx) ? suitePaie(ctx.db, a) : ''}`;
 };
 
 /**
@@ -238,7 +241,9 @@ const annuler: ActionHandler = (ctx, p) => {
   const renvoi = a.statut === 'demandee' ? '' : renvoyerFeuilles(ctx, emp, a);
   const reprise = majReprise(ctx, emp, a, a.type);
   if (a.statut === 'demandee') return `Demande de ${nature} ${periodeDemiTexte(a)} ${self ? 'retirée' : 'annulée'}${recredit}`;
-  return `Absence de ${emp.nom}${nature ? ` (${nature})` : ''} annulée${recredit}${a.keystone ? ' — Keystone prévenu' : ''}${feuilles}${renvoi}${reprise}`;
+  // Absence déjà partie à la paie (t028) : régularisation négative dans le prochain lot (service RH seulement).
+  const paie = isRh(ctx) ? suitePaie(ctx.db, a) : '';
+  return `Absence de ${emp.nom}${nature ? ` (${nature})` : ''} annulée${recredit}${a.keystone ? ' — Keystone prévenu' : ''}${feuilles}${renvoi}${reprise}${paie}`;
 };
 
 /** Nature dans un message : « congés payés », « RTT / repos », « arrêt maladie » ; rien pour une absence à qualifier. */

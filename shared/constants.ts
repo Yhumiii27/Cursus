@@ -407,6 +407,19 @@ export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubriqu
   // pour la paie), et leur majoration si le réglage `majorationDimanche` en prévoit une (heures équivalentes).
   HDIM: { label: 'Heures travaillées le dimanche (comprises dans les heures ci-dessus)', unite: 'h' },
   MAJ_DIM: { label: 'Majoration des heures du dimanche (heures équivalentes)', unite: 'h' },
+  // Absences validées (shared/rules/absences-paie.ts), réglage `absencesFichierPaie` : jours décomptés au demi-jour,
+  // ventilés par période de paie. Hors congés, une rubrique par rémunération et par catégorie de nature : le code révèle
+  // la catégorie (santé), d'où des lignes réservées au droit « paie ». Codes Sage à confirmer avant tout lot réel.
+  CP: { label: 'Congés payés pris (jours ouvrés)', unite: 'j' },
+  RTT: { label: 'RTT ou jours de repos du forfait jours pris (jours travaillés)', unite: 'j' },
+  RECUP: { label: 'Récupération prise (heures)', unite: 'h' },
+  ABS_NP: { label: 'Absence non payée (jours de la nature : calendaires ou ouvrés)', unite: 'j' },
+  ABS_IND_SANTE: { label: 'Absence indemnisée, santé : arrêts de travail (jours calendaires)', unite: 'j' },
+  ABS_MAINT_SANTE: { label: 'Absence à salaire maintenu, santé (jours de la nature)', unite: 'j' },
+  ABS_IND_PARENT: { label: 'Absence indemnisée, parentalité (jours calendaires)', unite: 'j' },
+  ABS_MAINT_PARENT: { label: 'Absence à salaire maintenu, parentalité (jours de la nature)', unite: 'j' },
+  ABS_IND_FAMILLE: { label: 'Absence indemnisée, événement familial (jours ouvrés)', unite: 'j' },
+  ABS_MAINT_FAMILLE: { label: 'Absence à salaire maintenu, événement familial (jours ouvrés)', unite: 'j' },
 };
 
 /** Sections d'un compte rendu : [clé, libellé, rédacteur] — 'mgr' évaluateur, 'sal' salarié. */

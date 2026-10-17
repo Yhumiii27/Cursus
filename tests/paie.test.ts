@@ -106,7 +106,7 @@ test('t019 transmission : mode fichier refusé sans rien marquer ; simulation an
   assert.equal(transmises(), avant, 'aucune feuille marquée transmise');
   assert.equal(lots(), avantLots, 'aucun lot enregistré');
   const msg = avecEnv({ SAGE_MODE: undefined }, () => run(PAIE, 'temps.pushSage', {}));
-  assert.match(String(msg), /^\d+ feuilles marquées transmises — simulation, rien n’est envoyé à Sage Paie · période octobre 2026$/);
+  assert.match(String(msg), /^\d+ feuilles marquées transmises — simulation, rien n’est envoyé à Sage Paie · période octobre 2026 · 5 absences$/);
   assert.deepEqual([dernierLot(db).mode, dernierLot(db).statut, dernierLot(db).reference], ['simulation', 'transmis', dernierLot(db).reference!.startsWith('SIM-') ? dernierLot(db).reference : 'SIM-…']);
   assert.ok(transmises() > avant);
 });
@@ -268,9 +268,10 @@ test('t022 hors simulation, une rubrique utilisée sans code confirmé bloque la
   const { db, run, refus, transmises, ADMIN, PAIE } = fresh();
   const avant = transmises();
   avecEnv({ SAGE_MODE: 'fichier' }, () => {
-    refus(PAIE, 'paie.lotGenerer', { periode: '2026-10' }, 409, /^Transmission impossible : code Sage à confirmer pour les rubriques HN \(Heures normales\), HSF25 \(.*\), HS25 \(.*\), JTRAV \(Jours travaillés, forfait jours\) \(écran Temps, « Rubriques de paie »\)$/);
-    // Rubriques non utilisées par les feuilles en attente (HS50, RCR_ACQUIS…) : sans effet ; désactivée : plus exigée.
-    for (const code of ['HN', 'HSF25', 'HS25']) run(ADMIN, 'paie.rubrique', { code, confirmer: true });
+    refus(PAIE, 'paie.lotGenerer', { periode: '2026-10' }, 409, /^Transmission impossible : code Sage à confirmer pour les rubriques HN \(Heures normales\), HSF25 \(.*\), HS25 \(.*\), JTRAV \(Jours travaillés, forfait jours\), CP \(.*\), RTT \(.*\), ABS_IND_SANTE \(.*\) \(écran Temps, « Rubriques de paie »\)$/);
+    // Rubriques non utilisées par les feuilles et absences en attente (HS50, RCR_ACQUIS…) : sans effet ; désactivée : plus
+    // exigée. Les absences validées d'octobre (t028) exigent aussi leurs rubriques.
+    for (const code of ['HN', 'HSF25', 'HS25', 'CP', 'RTT', 'ABS_IND_SANTE']) run(ADMIN, 'paie.rubrique', { code, confirmer: true });
     refus(PAIE, 'paie.lotGenerer', { periode: '2026-10' }, 409, /pour la rubrique JTRAV \(Jours travaillés, forfait jours\)/);
     run(ADMIN, 'paie.rubrique', { code: 'JTRAV', active: false });
     // Rubriques confirmées : le lot du fichier d'import se génère ; l'envoi direct reste refusé.
@@ -360,7 +361,7 @@ test('t025 transmission : une ligne par période, ventilation jour par jour exac
   assert.ok(c.suites!.some(x => x === 'Rappel : 1 feuille de septembre 2026, période close, part sur octobre 2026.'), c.suites!.join(' | '));
   assert.ok(c.suites!.some(x => /^Simulation : rien n’est envoyé à Sage Paie/.test(x)));
   assert.ok(c.suites!.some(x => /samedi et dimanche compris/.test(x)));
-  assert.match(String(run(PAIE, 'temps.pushSage', {})), /· période octobre 2026 · rappel de septembre 2026$/);
+  assert.match(String(run(PAIE, 'temps.pushSage', {})), /· période octobre 2026 · rappel de septembre 2026 · 5 absences$/);
   const push = dernierLot(db).contenu!;
   // Camille (1) : matricule de paie 004101.
   assert.deepEqual(push.lignes.filter(l => l.matricule === '004101').map(l => [l.semaine, l.periode, l.periode_origine ?? null]),

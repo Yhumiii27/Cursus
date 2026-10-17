@@ -175,7 +175,7 @@ test('t021 transmission à Sage (simulation) : matricule de paie, salarié sans 
     db.insert('feuilles', { empId, week: semaine, statut: 'validee', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-MAINT', tache: '', ks: false, h: [7, 7, 7, 7, 7] }], contrat: null });
   }
   const msg = message(run(ADMIN, 'temps.pushSage', {}));
-  assert.match(msg, /simulation, rien n’est envoyé à Sage Paie.* · 1 salarié sans matricule de paie \(Bastien Morel\), sous le matricule Cursus et refusés d’une transmission réelle$/);
+  assert.match(msg, /simulation, rien n’est envoyé à Sage Paie.* · 1 salarié sans matricule de paie \(Bastien Morel\), sous le matricule Cursus et refusés d’une transmission réelle · 5 absences$/);
   const lot = db.all<{ contenu: { lignes: { matricule: string; semaine: string }[] } }>('lotsPaie').at(-1)!;
   const lignes = lot.contenu.lignes.filter(l => l.semaine === '2026-S41');
   assert.deepEqual(lignes.map(l => l.matricule).sort(), ['004102', 'EMP-0024']);
@@ -270,7 +270,7 @@ test('t072 migration nommée : compteurs et reports d’une base existante daté
   assert.equal(aDater(), 26);
   assert.equal(SOLDES_DATES.necessaire!(db), true);
   // Lot 5 : sessions sur plusieurs jours (base neuve : exécutée, sans effet) ; INT-FORM déjà chargée par la démonstration.
-  assert.deepEqual(appliquerMigrations(db), ['lot4-exploitation-index-journal', 'lot4-exploitation-index-envois', 'lot4-exploitation-index-keystone', 'lot4-reprise-soldes-dates', 'lot4-paie-heures-sup', 'lot4-entretiens-cout-reel', 'lot4-referentiels-postes', 'lot4-paie-lots-historiques', 'lot5-paie-mode-api-retire', 'lot5-voyages-references', 'lot5-temps-semaine-7-jours', 'lot5-conges-demi-journees', 'lot5-formations-plage-sessions']);
+  assert.deepEqual(appliquerMigrations(db), ['lot4-exploitation-index-journal', 'lot4-exploitation-index-envois', 'lot4-exploitation-index-keystone', 'lot4-reprise-soldes-dates', 'lot4-paie-heures-sup', 'lot4-entretiens-cout-reel', 'lot4-referentiels-postes', 'lot4-paie-lots-historiques', 'lot5-paie-mode-api-retire', 'lot5-voyages-references', 'lot5-temps-semaine-7-jours', 'lot5-conges-demi-journees', 'lot5-formations-plage-sessions', 'lot5-paie-absences-anterieures']);
   const ds = loadFull(db, ADMIN);
   assert.ok(ds.soldesReprise.every(s => s.arreteLe === '2026-10-10'), 'date de mise en service de cette version');
   const recu = ds.reports.find(r => r.empId === 6)!, accorde = ds.reports.find(r => r.empId === 2)!;

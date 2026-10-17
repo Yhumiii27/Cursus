@@ -7,6 +7,7 @@
 // modifiée ailleurs) est refusé par le serveur et le dialogue reste ouvert avec le message.
 import { fH, plural } from '../../../shared/format.ts';
 import { PERIMETRE_FICHIER } from '../../../shared/rules/lots-paie.ts';
+import type { absencesDuLot } from '../../../shared/rules/absences-paie.ts';
 import { feuillesDeLaPeriode, type GroupePaie, periodeLabel } from '../../../shared/rules/paie.ts';
 import type { LotPaie, SageMode } from '../../../shared/types.ts';
 import type { DialogState, UiState } from './store.tsx';
@@ -108,7 +109,7 @@ export function suppressionLigne(payload: Record<string, unknown>, ligne: string
  * feuilles sont marquées transmises. `periodes` : feuilles par période de paie, dont les rappels d'une période close
  * (`feuillesParPeriode` de shared/rules/paie.ts), annoncés avant de confirmer.
  */
-export function transmissionSage(feuilles: number, salaries: number, periodes: GroupePaie[] = []): Confirmation {
+export function transmissionSage(feuilles: number, salaries: number, periodes: GroupePaie[] = [], perimetre = PERIMETRE_FICHIER, absences: AbsencesLot | null = null): Confirmation {
   const rappels = periodes.filter(p => p.origine);
   // Feuilles distinctes : une semaine ventilée jour par jour entre un rappel et la période ouverte n'y compte qu'une fois.
   const parPeriode = feuillesDeLaPeriode(periodes).map(p => `${periodeLabel(p.periode)} (${plural(p.feuilles, 'feuille', 'feuilles')})`);
@@ -119,7 +120,8 @@ export function transmissionSage(feuilles: number, salaries: number, periodes: G
       'Simulation : rien n’est envoyé à Sage Paie. Les feuilles sont seulement marquées transmises et ne seront plus proposées.',
       parPeriode.length ? `${parPeriode.length > 1 ? 'Périodes de paie' : 'Période de paie'} : ${parPeriode.join(', ')}.` : '',
       ...rappels.map(r => `Rappel : ${plural(r.feuilles, 'feuille', 'feuilles')} de ${periodeLabel(r.origine!)}, période close, ${r.feuilles > 1 ? 'partent' : 'part'} sur ${periodeLabel(r.periode)}.`),
-      PERIMETRE_FICHIER,
+      absencesSuite(absences),
+      perimetre,
     ].filter(Boolean),
     bouton: 'Marquer transmises',
     action: 'temps.pushSage',
@@ -131,19 +133,23 @@ export function transmissionSage(feuilles: number, salaries: number, periodes: G
  * Génération du lot de paie d'une période (components/LotsPaie.tsx) : feuilles réservées, transmises seulement à la
  * confirmation de l'import ; rappels de périodes closes, salariés sans matricule (simulation), périmètre du fichier.
  */
-export function generationLot(o: { periode: string; feuilles: number; salaries: number; rappels: GroupePaie[]; mode: SageMode; sansMatricule: string[] }): Confirmation {
+export function generationLot(o: {
+  periode: string; feuilles: number; salaries: number; rappels: GroupePaie[]; mode: SageMode; sansMatricule: string[]; perimetre?: string; absences?: AbsencesLot | null;
+}): Confirmation {
   const simulation = o.mode === 'simulation';
+  const absences = o.absences?.absences ? `, ${plural(o.absences.absences, 'absence', 'absences')}` : '';
   return {
     titre: simulation ? 'Générer le lot (simulation)' : 'Générer le fichier d’import',
-    question: `Générer le lot ${/^[aeiou]/.test(periodeLabel(o.periode)) ? 'd’' : 'de '}${periodeLabel(o.periode)} : ${plural(o.feuilles, 'feuille validée', 'feuilles validées')} (${plural(o.salaries, 'salarié', 'salariés')}) ?`,
+    question: `Générer le lot ${/^[aeiou]/.test(periodeLabel(o.periode)) ? 'd’' : 'de '}${periodeLabel(o.periode)} : ${plural(o.feuilles, 'feuille validée', 'feuilles validées')}${absences} (${plural(o.salaries, 'salarié', 'salariés')}) ?`,
     suites: [
       simulation
         ? 'Simulation : rien n’est envoyé à Sage Paie. Le fichier se télécharge pour essai ; les feuilles ne passent « transmises » qu’à la confirmation.'
         : 'Les feuilles sont réservées au lot. Téléchargez ensuite son fichier, importez-le dans Sage, puis confirmez l’import : lui seul les marque transmises.',
-      'Avant cette confirmation, le lot peut être annulé : ses feuilles redeviennent en attente.',
+      `Avant cette confirmation, le lot peut être annulé : ses feuilles${o.absences?.absences ? ' et ses absences' : ''} redeviennent en attente.`,
       ...o.rappels.map(r => `Rappel : ${plural(r.feuilles, 'feuille', 'feuilles')} de ${periodeLabel(r.origine!)}, période close, ${r.feuilles > 1 ? 'partent' : 'part'} sur ${periodeLabel(r.periode)}.`),
+      absencesSuite(o.absences ?? null),
       o.sansMatricule.length ? `Sans matricule de paie, sous leur matricule Cursus (simulation seulement) : ${o.sansMatricule.join(', ')}.` : '',
-      PERIMETRE_FICHIER,
+      o.perimetre ?? PERIMETRE_FICHIER,
     ].filter(Boolean),
     bouton: 'Générer le lot',
     action: 'paie.lotGenerer',
@@ -151,15 +157,25 @@ export function generationLot(o: { periode: string; feuilles: number; salaries: 
   };
 }
 
-/** Annulation d'un lot dont l'import n'est pas confirmé : ses feuilles sont libérées. */
-export function annulationLot(lot: Pick<LotPaie, 'id' | 'periode' | 'feuilles' | 'telechargements'>): Confirmation {
+/** Absences d'un lot (shared/rules/absences-paie.ts, `absencesDuLot`) annoncées avant de confirmer. */
+type AbsencesLot = Pick<ReturnType<typeof absencesDuLot>, 'absences' | 'regularisations' | 'rappels'>;
+function absencesSuite(a: AbsencesLot | null): string {
+  if (!a?.absences) return '';
+  return `Absences validées : ${plural(a.absences, 'absence', 'absences')}, en jours (récupération en heures), ventilées par mois`
+    + (a.regularisations ? `, dont ${plural(a.regularisations, 'régularisation', 'régularisations')} d’une absence annulée, raccourcie ou requalifiée après sa transmission (quantité négative)` : '')
+    + (a.rappels.length ? ` ; rappel de ${a.rappels.map(periodeLabel).join(', ')}, période close` : '') + '.';
+}
+
+/** Annulation d'un lot dont l'import n'est pas confirmé : ses feuilles (et ses absences) sont libérées. */
+export function annulationLot(lot: Pick<LotPaie, 'id' | 'periode' | 'feuilles' | 'telechargements' | 'absences'>): Confirmation {
   return {
     titre: 'Annuler le lot',
     question: `Annuler le lot n° ${lot.id} (${periodeLabel(lot.periode)}) ?`,
     suites: [
       lot.feuilles.length > 1
         ? `Ses ${lot.feuilles.length} feuilles redeviennent en attente et pourront partir dans un nouveau lot.`
-        : 'Sa feuille redevient en attente et pourra partir dans un nouveau lot.',
+        : lot.feuilles.length ? 'Sa feuille redevient en attente et pourra partir dans un nouveau lot.' : '',
+      lot.absences?.length ? `${plural(lot.absences.length, 'absence redevient', 'absences redeviennent')} en attente.` : '',
       lot.telechargements ? 'Son fichier a déjà été téléchargé : s’il a été importé dans Sage, supprimez-y cet import, sans quoi les heures seraient payées deux fois.' : '',
     ].filter(Boolean),
     bouton: 'Annuler le lot',

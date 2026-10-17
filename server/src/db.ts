@@ -109,6 +109,8 @@ export const TABLES = {
       id: 'int', cle: 'text', mode: 'text', statut: 'text', periode: 'text', periodes: 'json', rappels: 'json', creation: 'text', auteur: 'text',
       feuilles: 'json', resume: 'json', sansMatricule: 'json', contenu: 'json', telechargeLe: 'text', telechargePar: 'text', telechargements: 'int',
       confirmeLe: 'text', confirmePar: 'text', reference: 'text', annuleLe: 'text', annulePar: 'text', historique: 'bool',
+      // Absences du lot (identifiant, salarié ; lot 5, shared/rules/absences-paie.ts) : leurs quantités sont dans `contenu`.
+      absences: 'json',
     },
     unique: [['cle']],
   },
@@ -126,6 +128,8 @@ export const TABLES = {
       motifRefus: 'text',
       // Demi-journées du premier et du dernier jour (null : journée entière), shared/rules/demi-journees.ts.
       debutDemi: 'text', finDemi: 'text',
+      // Fichier d'import de la paie (shared/rules/absences-paie.ts) : lot qui la porte, jours transmis au moins une fois.
+      lotId: 'int', sage: 'bool',
     },
   },
   cet: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', type: 'text', jours: 'real', date: 'text', periode: 'text' } },

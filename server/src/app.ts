@@ -21,6 +21,7 @@ import { routesDonnees } from './donnees.ts';
 import { type Cible, CIBLES, etatEnvois, listerEnvois } from './envois.ts';
 import { apiInconnue, ERREUR_INTERNE, gestionnaireErreurs, LIMITE_CORPS, signalerErreur } from './erreurs.ts';
 import { routesFichierPaie } from './fichier-paie.ts';
+import { routesVariablesPaie } from './variables-paie.ts';
 import { journaliserAction, preparerTrace, routesJournal, tracerRefus } from './journal.ts';
 import { emailMode } from './integrations/email.ts';
 import { KEYSTONE_MODE } from './integrations/keystone.ts';
@@ -121,6 +122,8 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   app.use(routesDonnees(db));
   // Fichier d'import d'un lot de paie pour Sage (paie et administrateur RH, téléchargement tracé) : server/src/fichier-paie.ts.
   app.use(routesFichierPaie(db));
+  // Variables de paie d'une période, export CSV tracé (droit « paie ») : server/src/variables-paie.ts.
+  app.use(routesVariablesPaie(db));
 
   // File d'envoi des messages sortants (Paramètres → Envois) : état de l'intégration et derniers messages.
   // Service RH et lecture seule (droit `consultation`) ; ni le référent HSE, ni la paie.

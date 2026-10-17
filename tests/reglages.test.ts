@@ -41,6 +41,8 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     santeVipMois: 24, santeVipAdapteeMois: 24, santeSirIntermediaireMois: 24, santeSirAptitudeMois: 48,
     // Formations (lot 5) : heures des sessions proposées dans les feuilles de temps (ligne interne INT-FORM).
     formationsTemps: true,
+    // Paie (lot 5, t028) : absences validées dans le fichier d'import, réponse de l'entreprise du 17 octobre 2026.
+    absencesFichierPaie: true,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

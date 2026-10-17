@@ -76,7 +76,7 @@ certificat ou pièce scannée (seule la réception d'un justificatif est notée)
 | Destinataire | Données transmises | Contrat à prévoir |
 | --- | --- | --- |
 | Keystone (planification des chantiers de l'entreprise) | Matricule, verdict Go / No Go et codes de motif (libellé neutre en partage détaillé), heures validées par projet, période des absences validées (jamais leur nature), décisions sur les demandes de déplacement (`docs/API-KEYSTONE.md`) | Outil interne ou sous-traitant : à compléter par le DPO |
-| Sage Paie | Variables de paie par matricule et par semaine (heures normales, supplémentaires, jours travaillés) | Éditeur ou cabinet de paie : à compléter par le DPO |
+| Sage Paie | Variables de paie par matricule et par semaine (heures normales, supplémentaires, jours travaillés) ; absences validées par mois (lot 5, réglage activé par défaut), sous une rubrique qui en révèle la catégorie (santé, parentalité, famille, non payée), jamais la nature : fichier d'import et export des variables réservés au droit « paie » | Éditeur ou cabinet de paie : à compléter par le DPO |
 | Microsoft 365 (Entra ID, Graph) | Connexion des comptes Microsoft (identité) ; e-mails de Cursus (adresse, objet, texte sans donnée de santé), copie dans la boîte d'envoi (`docs/EMAILS.md`) | Contrat Microsoft de l'entreprise (art. 28), localisation UE à vérifier |
 | Agences d'intérim | Relevé hebdomadaire des heures validées de leurs intérimaires, jours d'absence sans leur nature | Contrat de mise à disposition |
 | Service de prévention et de santé au travail | Demande de visite : identité, poste, motif, habilitations qui exigent l'aptitude ; aucune information médicale | Convention d'adhésion |

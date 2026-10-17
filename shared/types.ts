@@ -397,6 +397,12 @@ export interface Absence {
    * sur un congé d'un seul jour.
    */
   debutDemi?: DemiJournee | null; finDemi?: DemiJournee | null;
+  /**
+   * Fichier d'import de la paie (shared/rules/absences-paie.ts) : `lotId`, lot de paie qui la porte (généré, en attente de
+   * confirmation, ou dernier lot transmis) ; `sage`, jours transmis à la paie au moins une fois (import confirmé). Transmis
+   * à la paie et au service RH seulement (server/src/dataset.ts).
+   */
+  lotId?: number | null; sage?: boolean;
 }
 /** Demi-journée d'un congé : matin ou après-midi. */
 export type DemiJournee = 'matin' | 'apres_midi';
@@ -527,6 +533,8 @@ export interface Settings {
   santeSirAptitudeMois: number;
   /** Formations (shared/rules/formations-temps.ts) : heures des sessions proposées dans la feuille de temps des inscrits. */
   formationsTemps: boolean;
+  /** Paie (shared/rules/absences-paie.ts) : absences validées dans le fichier d'import, avec les heures (activé par défaut). */
+  absencesFichierPaie: boolean;
 }
 
 /**
@@ -678,7 +686,25 @@ export interface SagePush {
   lignes: { matricule: string; semaine: string; periode?: string; periode_origine?: string; rubriques: Record<string, number> }[];
   /** Libellé de chaque code Sage du contenu, figé à la génération du lot (colonne facultative « libellé » du fichier). */
   libelles?: Record<string, string>;
+  /** Absences du lot, absence par absence, mois et rubrique (shared/rules/absences-paie.ts) ; absent avant le lot 5. */
+  absences?: ElementAbsencePaie[];
 }
+/**
+ * Quantité d'une absence dans un lot de paie : jours (heures pour la récupération) d'un mois `mois`, partis sur la période
+ * `periode` (rappel quand elle diffère, période close), sous la rubrique interne `rubrique` et son code Sage figé
+ * (`codeSage` null : rubrique désactivée, laissée à la saisie dans Sage). Négative : régularisation d'une absence annulée,
+ * raccourcie ou requalifiée après sa transmission. `du`, `au` : jours de l'absence dans ce mois.
+ */
+export interface ElementAbsencePaie {
+  absence: number; empId: number; matricule: string; mois: string; periode: string;
+  rubrique: string; codeSage: string | null; quantite: number; du: ISODate; au: ISODate;
+}
+/**
+ * Absences en attente du fichier de paie, par période de destination (calculées par le serveur, qui lit les lots) :
+ * nombre d'absences, salariés concernés, nombre de régularisations, mois clos repris en rappel, rubriques internes émises (vides hors
+ * droit « paie » et service RH : le code révèle la catégorie).
+ */
+export interface AbsencesPaieAttente { periode: string; absences: number; empIds: number[]; regularisations: number; rappels: string[]; rubriques: string[] }
 /** Rattachement d'une semaine à cheval sur deux mois : mois de son dimanche, de son vendredi, ou ventilation jour par jour. */
 export type RattachementPeriode = 'dimanche' | 'vendredi' | 'jour';
 /**
@@ -709,8 +735,13 @@ export interface LotPaie {
   creation: string; auteur: string;
   /** Feuilles du lot (gardées après une annulation, qui les libère). */
   feuilles: { empId: number; week: ISODate }[];
-  /** Totaux du contenu figé : lignes du fichier, salariés, quantité par code Sage. */
-  resume: { lignes: number; salaries: number; rubriques: Record<string, number> };
+  /** Absences du lot (identifiant, salarié), gardées après une annulation ; absent avant le lot 5. */
+  absences?: { id: number; empId: number }[];
+  /**
+   * Totaux du contenu figé : lignes du fichier, salariés, quantité par code Sage des heures ; `absences` : éléments
+   * d'absence, salariés et quantité par code Sage (codes retirés hors droit « paie » : server/src/dataset.ts).
+   */
+  resume: { lignes: number; salaries: number; rubriques: Record<string, number>; absences?: { elements: number; salaries: number; rubriques: Record<string, number> } };
   /** Salariés partis sous leur matricule Cursus, faute de matricule de paie (simulation seulement). */
   sansMatricule: number[];
   telechargeLe: string | null; telechargePar: string | null; telechargements: number;
@@ -785,6 +816,8 @@ export interface Dataset {
   formatFichierPaie: FormatFichierPaie | null;
   /** Correspondance des rubriques avec le plan de paie Sage : service RH, paie et lecture seule (vide ailleurs). */
   rubriquesPaie: RubriquePaie[];
+  /** Absences en attente du fichier de paie par période : service RH, paie et lecture seule (sans rubriques) ; vide ailleurs. */
+  absencesPaie?: AbsencesPaieAttente[];
   /** Adresses de la messagerie et relevés transmis aux agences d'intérim : service RH seulement (null et vide ailleurs). */
   messagerie: Messagerie | null;
   releves: ReleveInterim[];

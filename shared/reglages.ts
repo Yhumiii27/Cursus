@@ -51,6 +51,13 @@ export const jourDeLAnnee = (v: unknown): string => {
   throw new ReglageInvalide('Date invalide : un jour et un mois qui existent chaque année');
 };
 
+/** Date « AAAA-MM-JJ », ou vide (null). */
+export const dateOuVide = (libelle: string) => (v: unknown): string | null => {
+  if (v === null || v === '') return null;
+  if (typeof v === 'string' && isValidDate(v)) return v;
+  throw new ReglageInvalide(`${libelle} : date invalide`);
+};
+
 /**
  * Texte court sur une ligne (référence d'un accord…), espaces réduits ; au-delà de `max` caractères, refus. Transmis à
  * toute personne connectée : jamais de donnée personnelle. Le journal n'en garde que le fait qu'il soit renseigné
@@ -125,6 +132,8 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   // — Absences dans le fichier de paie (parametres/AbsencesPaie.tsx, shared/rules/absences-paie.ts) : activé par défaut
   //   (réponse de l'entreprise du 17 octobre 2026) ; les rubriques d'absence restent à confirmer avant tout lot réel —
   absencesFichierPaie: { defaut: true, controle: booleen },
+  //   Date de mise en service : jours d'absence d'avant jamais transmis (traités par Lucca et Sage), vide par défaut —
+  absencesPaieAPartirDu: { defaut: null, controle: dateOuVide('Absences transmises à partir du') },
 };
 
 /**

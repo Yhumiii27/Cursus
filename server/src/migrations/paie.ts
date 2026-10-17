@@ -8,7 +8,7 @@ import { matricule, plural } from '../../../shared/format.ts';
 import { recupInfo } from '../../../shared/rules/conges.ts';
 import { periodeOuverte, periodesSemaine } from '../../../shared/rules/paie.ts';
 import type { CurrentUser, Dataset, FeuilleTemps } from '../../../shared/types.ts';
-import { CLE_DEPUIS, lireDepuis } from '../absences-paie.ts';
+import { lireDepuis, poserDepart } from '../absences-paie.ts';
 import { journaliser } from '../comptes.ts';
 import { loadFull, loadSettings, todayIso } from '../dataset.ts';
 import type { Db } from '../db.ts';
@@ -143,9 +143,11 @@ const absencesValidees = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS 
 
 /**
  * Lot 5 (t028) : les absences validées partent dans le fichier d'import de la paie. Sur une base qui en porte déjà, la
- * paie a saisi celles des périodes passées dans Sage : Cursus ne transmet que les jours à partir du premier jour de la
- * période de paie ouverte (clé `absencesPaieDepuis`), sans quoi elles repartiraient toutes en rappel. Base neuve, ou
- * sans absence validée : rien à faire, tout part. Tracé au journal (date et nombre d'absences, jamais leur nature).
+ * paie a saisi celles des périodes passées dans Sage : Cursus ne transmet de ces absences que les jours à partir du
+ * premier jour de la période de paie ouverte (date de départ, `poserDepart`), sans quoi elles repartiraient toutes en
+ * rappel. Une absence enregistrée après la mise à jour part entière, en rappel pour un mois clos : la paie ne l'a pas
+ * saisie. Base neuve, ou sans absence validée : la date de départ est posée par le premier lot de paie (la date de mise
+ * en service se règle dans Paramètres → Absences et paie). Tracé au journal (date et nombre d'absences, jamais leur nature).
  */
 export const ABSENCES_ANTERIEURES: Migration = {
   nom: 'lot5-paie-absences-anterieures',
@@ -153,14 +155,7 @@ export const ABSENCES_ANTERIEURES: Migration = {
   necessaire: db => db.neuve || (absencesValidees(db) > 0 && lireDepuis(db) === null),
   executer: db => {
     if (!absencesValidees(db)) return;
-    const depuis = `${periodeOuverte(todayIso(), loadSettings(db).clotureJour)}-01`;
-    db.setSetting(CLE_DEPUIS, depuis);
-    const n = Number((db.sql.prepare(`SELECT COUNT(*) AS n FROM absences WHERE statut = 'validee' AND du < ?`).get(depuis) as { n: number }).n);
-    journaliser(db, {
-      actor: 'Cursus', role: null, action: 'migration.absencesPaie',
-      message: `Reprise : absences transmises à la paie à partir du ${depuis.split('-').reverse().join('/')} — ${plural(n, 'absence validée', 'absences validées')} avant cette date, déjà saisie${n > 1 ? 's' : ''} dans Sage, n’y partent pas`,
-      payload: { depuis, absences: n },
-    });
-    return `absences transmises à la paie à partir du ${depuis}`;
+    const r = poserDepart(db, `${periodeOuverte(todayIso(), loadSettings(db).clotureJour)}-01`, { actor: 'Cursus', role: null }, 'Reprise');
+    return `absences transmises à la paie à partir du ${r.depuis}`;
   },
 };

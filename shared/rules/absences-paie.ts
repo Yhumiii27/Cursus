@@ -15,7 +15,12 @@
 //   absence prolongée envoie ses nouveaux jours ; annulée, raccourcie ou requalifiée après sa transmission, une
 //   régularisation négative part dans le lot suivant (sans réglage « annule et remplace » pour l'instant). Une absence
 //   réservée par un lot en attente de confirmation attend sa confirmation ou son annulation ; une absence repassée
-//   « à qualifier » (prolongation signalée) attend sa qualification.
+//   « à qualifier » (prolongation signalée) attend sa qualification. Une régularisation reprend d'abord ce qui est parti en
+//   dernier, sous le code Sage de l'élément d'origine : ce qui était parti sous une rubrique désactivée (saisi à la main
+//   dans Sage) se régularise de même, sans code, jamais en négatif dans le fichier.
+// - Premier jour transmis (`DepartAbsences`) : date de mise en service (réglage `absencesPaieAPartirDu`, pour toutes les
+//   absences) et date de départ posée par Cursus (mise à jour d'une base existante, premier lot, réactivation du
+//   réglage), pour les seules absences déjà enregistrées à ce moment ; les jours d'avant restent à la saisie dans Sage.
 import { addD, parse, days } from '../dates.ts';
 import type { Domain } from '../domain.ts';
 import type { AbsencesPaieAttente, Absence, AbsenceType, ElementAbsencePaie, ISODate, Settings } from '../types.ts';
@@ -76,9 +81,28 @@ export function partsAbsence(d: Domain, a: Pick<Absence, 'empId' | 'type' | 'du'
 }
 
 /** Élément d'absence calculé, avant la traduction de sa rubrique en code Sage (faite à la génération du lot). */
-export type ElementCalcule = Omit<ElementAbsencePaie, 'codeSage'>;
-/** Ce qu'un lot non annulé a déjà emporté d'une absence. */
-export type ElementEmis = Pick<ElementAbsencePaie, 'absence' | 'mois' | 'rubrique' | 'quantite' | 'du' | 'au'>;
+/**
+ * `codeSage` présent : code imposé à une régularisation, celui de l'élément d'origine (null : parti sous une rubrique
+ * désactivée, à corriger à la main dans Sage) ; absent : traduit avec la table des rubriques.
+ */
+export type ElementCalcule = Omit<ElementAbsencePaie, 'codeSage'> & { codeSage?: string | null };
+/** Ce qu'un lot non annulé a déjà emporté d'une absence (code Sage figé ; absent : inconnu, traduit de nouveau). */
+export type ElementEmis = Pick<ElementAbsencePaie, 'absence' | 'mois' | 'rubrique' | 'quantite' | 'du' | 'au'> & { codeSage?: string | null };
+
+/**
+ * Premier jour transmis par Cursus : `aPartirDu`, date de mise en service (réglage de l'administrateur RH), vaut pour
+ * toutes les absences ; `depuis`, date de départ posée par Cursus (mise à jour d'une base existante, premier lot de paie,
+ * réactivation du réglage), ne vaut que pour les absences déjà enregistrées alors (identifiant au plus `jusqua`, toutes
+ * si null) : une absence d'un mois passé enregistrée ensuite part en rappel, la paie ne l'a pas saisie dans Sage.
+ */
+export interface DepartAbsences { aPartirDu: ISODate | null; depuis: ISODate | null; jusqua: number | null }
+
+/** Premier jour transmis d'une absence : la plus tardive des bornes qui la concernent ; null : tous ses jours. */
+export function premierJourTransmis(a: Pick<Absence, 'id'>, dep: DepartAbsences | null | undefined): ISODate | null {
+  if (!dep) return null;
+  const depuis = dep.depuis && (dep.jusqua == null || a.id <= dep.jusqua) ? dep.depuis : null;
+  return [dep.aPartirDu, depuis].filter((x): x is ISODate => !!x).sort().at(-1) ?? null;
+}
 
 export interface OptionsAbsencesPaie {
   /** Période du lot (AAAA-MM) : éléments dont la période de destination vient au plus tard. */
@@ -87,8 +111,8 @@ export interface OptionsAbsencesPaie {
   emis: readonly ElementEmis[];
   /** Absences réservées par un lot généré, en attente de la confirmation de son import. */
   reservees: ReadonlySet<number>;
-  /** Premier jour transmis par Cursus (base reprise : les jours d'avant ont été saisis dans Sage) ; null : tous. */
-  depuis: ISODate | null;
+  /** Premier jour transmis par Cursus (les jours d'avant sont saisis dans Sage) ; null : tous. */
+  depart: DepartAbsences | null;
 }
 
 /**
@@ -107,25 +131,56 @@ export function elementsAbsences(d: Domain, o: OptionsAbsencesPaie): ElementCalc
     if (o.reservees.has(a.id) || a.statut === 'demandee' || a.statut === 'signalee') continue;
     const e = d.emp(a.empId);
     if (!e || d.contratOf(e).interim) continue;
-    const due = a.statut === 'validee' && rubrique ? partsAbsence(d, a, o.jusqua, o.depuis) : [];
-    if (!due.length && !deja.length) continue;
-    // Clés « mois|rubrique » : ce qui est dû, et ce qui est parti (une requalification change la rubrique).
-    const cles = new Map<string, { mois: string; rubrique: string; du: ISODate; au: ISODate; due: number; emis: number }>();
-    for (const p of due) cles.set(`${p.mois}|${rubrique}`, { mois: p.mois, rubrique: rubrique!, du: p.du, au: p.au, due: p.quantite, emis: 0 });
-    for (const x of deja) {
+    // Jours d'avant le premier jour transmis : ni dus, ni régularisés (laissés à Sage).
+    const premier = premierJourTransmis(a, o.depart);
+    const parti = premier ? deja.filter(x => x.au >= premier) : deja;
+    const due = a.statut === 'validee' && rubrique ? partsAbsence(d, a, o.jusqua, premier) : [];
+    if (!due.length && !parti.length) continue;
+    // Clés « mois|rubrique » : ce qui est dû, et ce qui est parti (une requalification change la rubrique), avec la pile
+    // de ce qui est parti sous chaque code Sage, dans l'ordre des lots.
+    const cles = new Map<string, { mois: string; rubrique: string; du: ISODate; au: ISODate; due: number; emis: number; pile: Pile }>();
+    for (const p of due) cles.set(`${p.mois}|${rubrique}`, { mois: p.mois, rubrique: rubrique!, du: p.du, au: p.au, due: p.quantite, emis: 0, pile: [] });
+    for (const x of parti) {
       const k = `${x.mois}|${x.rubrique}`;
-      const c = cles.get(k) ?? { mois: x.mois, rubrique: x.rubrique, du: x.du, au: x.au, due: 0, emis: 0 };
+      const c = cles.get(k) ?? { mois: x.mois, rubrique: x.rubrique, du: x.du, au: x.au, due: 0, emis: 0, pile: [] };
       c.emis += x.quantite;
+      if (x.quantite > 0) c.pile.push({ codeSage: x.codeSage, quantite: x.quantite });
+      else retirer(c.pile, -x.quantite);
       cles.set(k, c);
     }
     for (const c of cles.values()) {
       const quantite = r2(c.due - c.emis);
       const periode = c.mois >= ouverte ? c.mois : ouverte;
       if (!quantite || periode > o.jusqua) continue;
-      out.push({ absence: a.id, empId: a.empId, matricule: matriculeAffiche(e), mois: c.mois, periode, rubrique: c.rubrique, quantite, du: c.du, au: c.au });
+      const base = { absence: a.id, empId: a.empId, matricule: matriculeAffiche(e), mois: c.mois, periode, rubrique: c.rubrique, du: c.du, au: c.au };
+      if (quantite > 0) out.push({ ...base, quantite });
+      // Régularisation : sous le code de ce qui est parti en dernier (null : saisi à la main dans Sage, corrigé de même).
+      else for (const r of retirer(c.pile, -quantite)) out.push({ ...base, quantite: -r.quantite, ...(r.codeSage !== undefined ? { codeSage: r.codeSage } : {}) });
     }
   }
   return out.sort((x, y) => x.periode.localeCompare(y.periode) || x.empId - y.empId || x.absence - y.absence || x.mois.localeCompare(y.mois));
+}
+
+/** Quantités parties sous chaque code Sage, dans l'ordre des lots (undefined : code inconnu, traduit de nouveau). */
+type Pile = { codeSage: string | null | undefined; quantite: number }[];
+
+/**
+ * Retire `q` de la pile en commençant par ce qui est parti en dernier ; renvoie ce qui est retiré, par code Sage (au-delà
+ * de la pile : code inconnu).
+ */
+function retirer(pile: Pile, q: number): Pile {
+  const out: Pile = [];
+  let reste = r2(q);
+  while (reste > 0 && pile.length) {
+    const haut = pile.at(-1)!, n = Math.min(haut.quantite, reste), prec = out.at(-1);
+    if (prec && prec.codeSage === haut.codeSage) prec.quantite = r2(prec.quantite + n);
+    else out.push({ codeSage: haut.codeSage, quantite: r2(n) });
+    haut.quantite = r2(haut.quantite - n);
+    reste = r2(reste - n);
+    if (haut.quantite <= 0) pile.pop();
+  }
+  if (reste > 0) out.push({ codeSage: undefined, quantite: reste });
+  return out;
 }
 
 /** Absences en attente par période de destination (écran Temps), rubriques internes émises comprises. */
@@ -136,19 +191,24 @@ export function absencesParPeriode(elements: readonly ElementCalcule[]): Absence
     return {
       periode,
       absences: new Set(l.map(x => x.absence)).size,
+      ids: [...new Set(l.map(x => x.absence))].sort((a, b) => a - b),
       empIds: [...new Set(l.map(x => x.empId))].sort((a, b) => a - b),
       regularisations: new Set(l.filter(x => x.quantite < 0).map(x => x.absence)).size,
+      idsRegularisations: [...new Set(l.filter(x => x.quantite < 0).map(x => x.absence))].sort((a, b) => a - b),
       rappels: [...new Set(l.filter(x => x.mois !== periode).map(x => x.mois))].sort(),
       rubriques: [...new Set(l.map(x => x.rubrique))].sort(),
     };
   });
 }
 
-/** Absences en attente d'un lot de la période `periode` : celles des périodes qui viennent au plus tard. */
+/**
+ * Absences en attente d'un lot de la période `periode` : celles des périodes qui viennent au plus tard, chacune une fois
+ * (une absence ventilée sur deux périodes de destination appartient aux deux groupes).
+ */
 export function absencesDuLot(groupes: readonly AbsencesPaieAttente[], periode: string) {
   const l = groupes.filter(g => g.periode <= periode);
   return {
-    absences: l.reduce((n, g) => n + g.absences, 0), regularisations: l.reduce((n, g) => n + g.regularisations, 0), empIds: [...new Set(l.flatMap(g => g.empIds))],
+    absences: new Set(l.flatMap(g => g.ids)).size, regularisations: new Set(l.flatMap(g => g.idsRegularisations)).size, empIds: [...new Set(l.flatMap(g => g.empIds))],
     rappels: [...new Set(l.flatMap(g => g.rappels))].sort(), rubriques: [...new Set(l.flatMap(g => g.rubriques))].sort(),
   };
 }

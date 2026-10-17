@@ -42,7 +42,7 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     // Formations (lot 5) : heures des sessions proposées dans les feuilles de temps (ligne interne INT-FORM).
     formationsTemps: true,
     // Paie (lot 5, t028) : absences validées dans le fichier d'import, réponse de l'entreprise du 17 octobre 2026.
-    absencesFichierPaie: true,
+    absencesFichierPaie: true, absencesPaieAPartirDu: null,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

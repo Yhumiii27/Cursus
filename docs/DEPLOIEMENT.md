@@ -576,13 +576,22 @@ CP en jours ouvrés, RTT ou jours de repos du forfait jours en jours, récupéra
 pour les arrêts et la parentalité, ouvrés pour les événements familiaux). Ces rubriques sont « à confirmer » : tant que
 la paie n'a pas confirmé leur code Sage (et l'unité attendue par son plan de paie), seul un lot de simulation se génère ;
 une rubrique désactivée laisse la nature à la saisie dans Sage (ses jours sont comptés comme partis et ne repartent pas
-à sa réactivation). Une absence annulée, raccourcie ou requalifiée après sa transmission part en régularisation négative
-dans le lot suivant ; une absence prolongée envoie ses nouveaux jours ; une absence d'un lot à confirmer attend sa
-confirmation ou son annulation. Décoché, le fichier se limite aux heures et la paie saisit les absences dans Sage (à la
-réactivation, les absences validées non transmises partent toutes, en rappel pour les mois clos).
-À la mise à jour vers cette version, une base qui porte déjà des absences validées ne transmet que les jours à partir
-du premier jour de la période de paie ouverte (migration `lot5-paie-absences-anterieures`, tracée au journal) : la paie
-a saisi les précédents dans Sage ; vérifier avec elle qu'elle n'a pas déjà saisi celles de la période ouverte.
+à sa réactivation ; leur régularisation reste à faire à la main, l'export des variables la liste « À saisir dans Sage »).
+Une absence annulée, raccourcie ou requalifiée après sa transmission part en régularisation négative dans le lot
+suivant, sous le code Sage de ce qui était parti ; une absence prolongée envoie ses nouveaux jours ; une absence d'un lot
+à confirmer attend sa confirmation ou son annulation. Décoché, le fichier se limite aux heures et la paie saisit les
+absences dans Sage ; coché de nouveau, les absences déjà enregistrées ne partent qu'à partir du premier jour de la
+période de paie ouverte (journal « Absences antérieures laissées à la saisie dans Sage »).
+
+Premier jour transmis : aucune absence ne part pour les jours d'avant la date de mise en service (Paramètres → Absences
+et paie, « Absences transmises à partir du », à renseigner à la reprise, voir « Procédure de reprise ») ; le service RH
+est prévenu quand une absence enregistrée, validée ou annulée a des jours avant cette date (à saisir ou corriger dans
+Sage). Sans cette date, le premier lot de paie d'une base neuve pose une date de départ au premier jour de la période
+ouverte pour les absences déjà enregistrées (message du lot, journal). À la mise à jour vers cette version, une base qui
+porte déjà des absences validées reçoit de même une date de départ au premier jour de la période de paie ouverte
+(migration `lot5-paie-absences-anterieures`, tracée au journal) : la paie a saisi les précédentes dans Sage ; vérifier
+avec elle qu'elle n'a pas déjà saisi celles de la période ouverte. Ces dates de départ ne valent que pour les absences
+déjà enregistrées : une absence d'un mois clos enregistrée ensuite (arrêt reçu en retard) part entière, en rappel.
 
 Contrôle : « Variables de la période » (écran Temps de travail, sous les lots) exporte en CSV, pour une période de paie,
 chaque ligne des lots générés ou transmis et ce qui attend encore un lot : matricule de paie, salarié, code Sage,
@@ -691,6 +700,8 @@ qu'avec `CURSUS_DEMO=1`). Après les référentiels, cinq imports CSV, dans cet 
    par compteur convient). Changer la date d'arrêté remplace tous les soldes du salarié : ceux absents du fichier ne
    sont plus repris (l'aperçu le signale). Les soldes d'un membre du service RH rattaché à sa fiche sont importés par
    un autre membre du service RH. Un congé déjà saisi dans Cursus avant la date d'arrêté est signalé (il serait décompté deux fois).
+   Renseigner la même date dans Paramètres → Absences et paie (« Absences transmises à partir du ») : les jours
+   d'absence d'avant, déjà traités par Lucca et Sage, ne partiront jamais dans le fichier d'import de la paie.
 4. **Certifications** (formation, date d'obtention).
 5. **Visites médicales** : date de la dernière visite et avis (apte, apte avec restrictions, inapte ; « non apte »
    vaut inapte). Une ligne sans avis n'est enregistrée « apte » qu'après avoir coché sa confirmation dans l'aperçu ;

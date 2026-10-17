@@ -7,7 +7,7 @@
 // d'import ; le détail ne nomme jamais la nature. Chaque export est tracé (`sage.variables`, archive paie de 3 ans,
 // salariés concernés), sans aucune quantité ni rubrique dans le journal.
 import express, { type Router } from 'express';
-import { droitsRh } from '../../shared/constants.ts';
+import { droitsRh, RUBRIQUES_PAIE } from '../../shared/constants.ts';
 import { texteCsv } from '../../shared/csv.ts';
 import { Domain } from '../../shared/domain.ts';
 import { plural } from '../../shared/format.ts';
@@ -31,12 +31,16 @@ export interface VariablePaie {
   matricule: string; salarie: string; rubrique: string; libelle: string; quantite: number; detail: string; lot: string; etat: string; empId: number | null;
 }
 
-export const ENTETE_VARIABLES = ['Matricule de paie', 'Salarié', 'Rubrique Sage', 'Libellé', 'Quantité', 'Détail', 'Lot', 'État'];
+/** Colonne « Rubrique Sage » d'un élément d'absence sans code Sage, qui ne part pas dans le fichier. */
+export const A_SAISIR = 'À saisir dans Sage';
+
+export const ENTETE_VARIABLES =['Matricule de paie', 'Salarié', 'Rubrique Sage', 'Libellé', 'Quantité', 'Détail', 'Lot', 'État'];
 
 /**
  * Variables de la période `periode` (AAAA-MM) : lignes des lots générés ou transmis (contenu figé), puis lignes en
  * attente d'un lot. Rappels d'une période close compris (ils partent sur la période ouverte), régularisations négatives
- * comprises ; rubriques désactivées absentes, comme du fichier.
+ * comprises ; absence sans code Sage (rubrique désactivée, régularisation de jours saisis à la main) : « À saisir dans
+ * Sage », absente du fichier.
  */
 export function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: string): VariablePaie[] {
   const d = new Domain(loadFull(db, user));
@@ -57,10 +61,14 @@ export function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: string)
       }
     }
     for (const x of contenu.absences ?? []) {
-      if (x.periode !== periode || !x.codeSage) continue;
+      if (x.periode !== periode) continue;
+      // Sans code Sage (rubrique désactivée, ou régularisation de jours saisis à la main) : absent du fichier, listé ici
+      // pour que la paie le saisisse ou le corrige dans Sage.
+      const code = x.codeSage ?? A_SAISIR;
       out.push({
-        matricule: x.matricule, salarie: d.emp(x.empId)?.nom ?? '', rubrique: x.codeSage, libelle: libelles[x.codeSage] ?? x.codeSage, quantite: x.quantite,
-        detail: detailElement(x, periodeLabel), lot, etat, empId: x.empId,
+        matricule: x.matricule, salarie: d.emp(x.empId)?.nom ?? '', rubrique: code, quantite: x.quantite, lot, etat, empId: x.empId,
+        libelle: x.codeSage ? libelles[x.codeSage] ?? x.codeSage : RUBRIQUES_PAIE[x.rubrique]?.label ?? x.rubrique,
+        detail: detailElement(x, periodeLabel),
       });
     }
   };

@@ -292,7 +292,7 @@ export const CHAMP_LABEL: Record<string, string> = {
   santeSirIntermediaireMois: 'Suivi renforcé : visite intermédiaire (mois)', santeSirAptitudeMois: 'Suivi renforcé : examen d’aptitude (mois)',
   sir: 'Suivi individuel renforcé',
   // Absences dans le fichier d'import de la paie (Paramètres → Absences et paie).
-  absencesFichierPaie: 'Absences dans le fichier d’import de la paie',
+  absencesFichierPaie: 'Absences dans le fichier d’import de la paie', absencesPaieAPartirDu: 'Absences transmises à la paie à partir du',
 };
 
 const valeur = (v: unknown): string => {

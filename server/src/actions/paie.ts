@@ -17,7 +17,7 @@ import { erreurCodeSage, periodeLabel, rubriquesAConfirmer, rubriquesPaie, rubri
 import { buildSagePayload, rubriquesEmises, sagePending } from '../../../shared/rules/temps.ts';
 import { absencesDansLeFichier, type ElementCalcule } from '../../../shared/rules/absences-paie.ts';
 import type { Absence, FeuilleTemps, LotPaie, RubriquePaie, SageMode } from '../../../shared/types.ts';
-import { absencesAEmettre, absencesDuContenu, libererAbsences, traduireElements } from '../absences-paie.ts';
+import { absencesAEmettre, absencesDuContenu, departAuPremierLot, libererAbsences, traduireElements } from '../absences-paie.ts';
 import { pushToSage, SAGE_DOSSIER, SageIndisponible, sageMode } from '../integrations/sage.ts';
 import { lireFormatFichier, type LotEnregistre } from '../lots-paie.ts';
 import { ActionError, type ActionHandler, type Ctx, requirePaie, str } from './context.ts';
@@ -119,6 +119,8 @@ const lotGenerer: ActionHandler = (ctx, p) => {
   const periode = str(p.periode);
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(periode)) throw new ActionError('Période de paie invalide');
   const sheets = feuillesDuLot(sagePending(ctx.d), periode, ctx.ds.settings, ctx.d.ti);
+  // Premier lot d'une base sans date de départ : les absences déjà enregistrées ne partent qu'à partir de la période ouverte.
+  const depart = departAuPremierLot(ctx.db, ctx.d, ctx.user);
   const absences = absencesAEmettre(ctx.db, ctx.d, periode);
   if (!sheets.length && !absences.length) {
     throw new ActionError(`Aucune feuille validée en attente pour ${periodeLabel(periode)}${absencesDansLeFichier(ctx.ds.settings) ? ', ni absence' : ''}`);
@@ -129,7 +131,7 @@ const lotGenerer: ActionHandler = (ctx, p) => {
   return {
     message: `Lot n° ${lot.id} généré — ${plural(sheets.length, 'feuille', 'feuilles')} (${plural(salaries, 'salarié', 'salariés')}), ${periodeLabel(periode)}`
       + (mode === 'simulation' ? ' · simulation : rien n’est envoyé à Sage Paie' : ' · téléchargez le fichier d’import, importez-le dans Sage, puis confirmez l’import')
-      + suitesLot(ctx, lot) + absencesTexte(absences),
+      + suitesLot(ctx, lot) + absencesTexte(absences) + depart,
     result: resultatLot(lot),
   };
 };
@@ -225,7 +227,8 @@ export function pushSageSimulation(ctx: Ctx) {
     }
   }
   const periode = sheets.map(sh => periodeDeLaFeuille(sh.week, ctx.ds.settings, ctx.d.ti)).sort().at(-1)!;
-  // Absences des mêmes périodes, au plus tard la dernière des feuilles.
+  // Absences des mêmes périodes, au plus tard la dernière des feuilles (premier lot : date de départ posée d'abord).
+  const depart = departAuPremierLot(ctx.db, ctx.d, ctx.user);
   const absences = absencesAEmettre(ctx.db, ctx.d, periode);
   const lot = creerLot(ctx, sheets, mode, periode, absences);
   const reference = pushToSage(lot.contenu!, 'simulation').reference;
@@ -233,7 +236,7 @@ export function pushSageSimulation(ctx: Ctx) {
   return {
     message: `${plural(sheets.length, 'feuille marquée transmise', 'feuilles marquées transmises')} — simulation, rien n’est envoyé à Sage Paie`
       + (lot.periodes.length ? ` · ${lot.periodes.length > 1 ? 'périodes' : 'période'} ${lot.periodes.map(periodeLabel).join(', ')}` : '')
-      + suitesLot(ctx, lot) + absencesTexte(absences),
+      + suitesLot(ctx, lot) + absencesTexte(absences) + depart,
     result: resultatLot(lot),
   };
 }

@@ -400,7 +400,8 @@ export interface Absence {
   /**
    * Fichier d'import de la paie (shared/rules/absences-paie.ts) : `lotId`, lot de paie qui la porte (généré, en attente de
    * confirmation, ou dernier lot transmis) ; `sage`, jours transmis à la paie au moins une fois (import confirmé). Transmis
-   * à la paie et au service RH seulement (server/src/dataset.ts).
+   * au service RH, à la paie et à la lecture seule ; ni au manager, ni au collaborateur, ni au référent HSE
+   * (server/src/dataset.ts).
    */
   lotId?: number | null; sage?: boolean;
 }
@@ -535,6 +536,11 @@ export interface Settings {
   formationsTemps: boolean;
   /** Paie (shared/rules/absences-paie.ts) : absences validées dans le fichier d'import, avec les heures (activé par défaut). */
   absencesFichierPaie: boolean;
+  /**
+   * Paie : date de mise en service, premier jour d'absence transmis dans le fichier, pour toutes les absences (les jours
+   * d'avant ont été traités par Lucca et Sage) ; null : seule vaut la date de départ posée par Cursus.
+   */
+  absencesPaieAPartirDu: ISODate | null;
 }
 
 /**
@@ -702,9 +708,12 @@ export interface ElementAbsencePaie {
 /**
  * Absences en attente du fichier de paie, par période de destination (calculées par le serveur, qui lit les lots) :
  * nombre d'absences, salariés concernés, nombre de régularisations, mois clos repris en rappel, rubriques internes émises (vides hors
- * droit « paie » et service RH : le code révèle la catégorie).
+ * droit « paie » et service RH : le code révèle la catégorie). `ids`, `idsRegularisations` : identifiants des absences,
+ * pour compter une fois une absence ventilée sur deux périodes de destination.
  */
-export interface AbsencesPaieAttente { periode: string; absences: number; empIds: number[]; regularisations: number; rappels: string[]; rubriques: string[] }
+export interface AbsencesPaieAttente {
+  periode: string; absences: number; ids: number[]; empIds: number[]; regularisations: number; idsRegularisations: number[]; rappels: string[]; rubriques: string[];
+}
 /** Rattachement d'une semaine à cheval sur deux mois : mois de son dimanche, de son vendredi, ou ventilation jour par jour. */
 export type RattachementPeriode = 'dimanche' | 'vendredi' | 'jour';
 /**

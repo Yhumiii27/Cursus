@@ -20,8 +20,8 @@ const { ActionError, makeCtx } = await import('../server/src/actions/context.ts'
 const { journaliserAction, preparerTrace } = await import('../server/src/journal.ts');
 const { openSession } = await import('../server/src/auth.ts');
 const { routesFichierPaie } = await import('../server/src/fichier-paie.ts');
-const { csvVariables, routesVariablesPaie, variablesDeLaPeriode } = await import('../server/src/variables-paie.ts');
-const { absencesAEmettre, CLE_DEPUIS, lireDepuis } = await import('../server/src/absences-paie.ts');
+const { A_SAISIR, csvVariables, routesVariablesPaie, variablesDeLaPeriode } = await import('../server/src/variables-paie.ts');
+const { absencesAEmettre, CLE_DEPUIS, CLE_JUSQUA, lireDepuis, poserDepart, traduireElements } = await import('../server/src/absences-paie.ts');
 const { ABSENCES_ANTERIEURES } = await import('../server/src/migrations/paie.ts');
 const { Domain } = await import('../shared/domain.ts');
 const A = await import('../shared/rules/absences-paie.ts');
@@ -33,7 +33,7 @@ type Db = InstanceType<typeof Db>;
 type User = NonNullable<ReturnType<typeof currentUser>>;
 type Element = import('../shared/types.ts').ElementAbsencePaie;
 type Lot = ReturnType<typeof loadFull>['lotsPaie'][number] & { contenu: import('../shared/types.ts').SagePush | null };
-type Ligne = { action: string; message: string | null; payload: Record<string, any>; salaries: number[]; paie: boolean };
+type Ligne = { action: string; actor: string; message: string | null; payload: Record<string, any>; salaries: number[]; paie: boolean };
 
 /** Jeu de démonstration ; `run` suit le chemin de POST /api/actions/:nom (trace au journal comprise). */
 function fresh(db: Db = new Db(':memory:'), semer = true) {
@@ -58,7 +58,7 @@ function fresh(db: Db = new Db(':memory:'), semer = true) {
   return { db, user, compteDe, run, refus, lots, journal, absence, d, ADMIN, PAIE: user(7, 'rh'), GEST: user(14, 'rh'), LECTURE: user(11, 'rh'), KARIM: user(12, 'manager') };
 }
 const inserer = (db: Db, a: Record<string, unknown>) => db.insert<{ id: number }>('absences', { keystone: true, ...a }).id;
-const sansEmis = { emis: [], reservees: new Set<number>(), depuis: null };
+const sansEmis = { emis: [], reservees: new Set<number>(), depart: null };
 
 // — Règles —
 
@@ -126,7 +126,7 @@ test('t028 écart avec les lots : déjà parti, réservé, prolongé, annulé ou
   assert.deepEqual(premier.map(x => [x.rubrique, x.quantite]), [['ABS_IND_SANTE', 6]]);
   const emis = premier;
   const avec = (o: Partial<Parameters<typeof A.elementsAbsences>[1]> = {}) =>
-    A.elementsAbsences(d(), { jusqua: '2026-11', emis, reservees: new Set(), depuis: null, ...o }).filter(x => x.absence === at).map(x => [x.mois, x.rubrique, x.quantite]);
+    A.elementsAbsences(d(), { jusqua: '2026-11', emis, reservees: new Set(), depart: null, ...o }).filter(x => x.absence === at).map(x => [x.mois, x.rubrique, x.quantite]);
   assert.deepEqual(avec(), [], 'déjà parti : rien de plus');
   // Prolongée : seuls les nouveaux jours partent.
   db.update('absences', at, { au: '2026-11-03' });
@@ -144,7 +144,7 @@ test('t028 écart avec les lots : déjà parti, réservé, prolongé, annulé ou
   assert.deepEqual(avec(), []);
   // Annulée : tout ce qui est parti est repris.
   db.update('absences', at, { statut: 'annulee' });
-  const reg = A.elementsAbsences(d(), { jusqua: '2026-11', emis, reservees: new Set(), depuis: null }).filter(x => x.absence === at);
+  const reg = A.elementsAbsences(d(), { jusqua: '2026-11', emis, reservees: new Set(), depart: null }).filter(x => x.absence === at);
   assert.deepEqual(reg.map(x => [x.periode, x.rubrique, x.quantite]), [['2026-10', 'ABS_IND_SANTE', -6]]);
   assert.match(A.detailElement(reg[0], p => p), /· régularisation \(absence annulée, raccourcie ou requalifiée après transmission\)$/);
   assert.equal(A.absencesParPeriode(reg)[0].regularisations, 1);
@@ -339,11 +339,14 @@ function migrationReprise(db: Db) {
   assert.equal(db.getSetting(CLE_DEPUIS, null), '2026-10-01');
   assert.equal(ABSENCES_ANTERIEURES.necessaire!(db), false, 'une seule fois');
   const m = journal('migration.absencesPaie').at(-1)!;
-  assert.deepEqual(m.payload, { depuis: '2026-10-01', absences: 1 });
+  assert.deepEqual(m.payload, { depuis: '2026-10-01', jusqua: avant, absences: 1 });
   assert.ok(m.paie && estActionPaie('migration.absencesPaie') && JOURNAL_LABEL['migration.absencesPaie']);
   assert.equal(familleAction('migration.absencesPaie')?.id, 'temps');
   // Le lot ne reprend plus septembre.
   assert.ok(!absencesAEmettre(db, d(), '2026-10').some(x => x.absence === avant));
+  // Absence d'un mois clos enregistrée après la mise à jour : jamais saisie dans Sage, elle part en rappel.
+  const apres = inserer(db, { empId: 2, type: 'CP', du: '2026-09-14', au: '2026-09-15', statut: 'validee' });
+  assert.deepEqual(absencesAEmettre(db, d(), '2026-10').filter(x => x.absence === apres).map(x => [x.mois, x.periode, x.quantite]), [['2026-09', '2026-10', 2]]);
   db.sql.close();
 }
 
@@ -405,4 +408,122 @@ test('t028 confirmations : absences, régularisations et rappels annoncés avant
   const a = C.annulationLot({ id: 4, periode: '2026-10', feuilles: [], telechargements: 0, absences: [{ id: 1, empId: 1 }] });
   assert.deepEqual(a.suites, ['1 absence redevient en attente.']);
   assert.ok(C.transmissionSage(2, 1, [], L.perimetreFichier(true), { absences: 1, regularisations: 0, rappels: [] }).suites!.some(x => x.startsWith('Absences validées : 1 absence')));
+});
+
+// — Premier jour transmis, comptes et codes des régularisations (relecture de t028) —
+
+test('t028 date de départ : seulement les absences déjà enregistrées ; une absence saisie ensuite part en rappel', () => {
+  // Base existante mise à jour le 10 octobre (date de départ au 1er octobre) : l'arrêt de septembre reçu ensuite n'est pas dans Sage.
+  const { db, run, d, journal, ADMIN } = fresh();
+  const ancienne = inserer(db, { empId: 1, type: 'CP', du: '2026-09-21', au: '2026-09-25', statut: 'validee' });
+  const S = { actor: 'Cursus', role: null };
+  poserDepart(db, '2026-10-01', S, 'Reprise');
+  assert.deepEqual([db.getSetting(CLE_DEPUIS, null), db.getSetting(CLE_JUSQUA, null)], ['2026-10-01', ancienne]);
+  assert.match(run(ADMIN, 'absence.saisir', { empId: 2, nature: 'MALADIE', du: '2026-09-07', au: '2026-09-08', justificatif: false }), /indisponibilité transmise à Keystone$/);
+  const tardive = Math.max(...d().ds.absences.map(a => a.id));
+  const el = absencesAEmettre(db, d(), '2026-10');
+  assert.ok(!el.some(x => x.absence === ancienne), 'déjà saisie dans Sage : ne part pas');
+  assert.deepEqual(el.filter(x => x.absence === tardive).map(x => [x.mois, x.periode, x.rubrique, x.quantite]), [['2026-09', '2026-10', 'ABS_IND_SANTE', 2]]);
+  // L'ancienne, annulée ensuite : le service RH est prévenu de corriger Sage, aucune régularisation ne part.
+  assert.match(run(ADMIN, 'absence.annuler', { id: ancienne }), /jours avant le 1 oct\. 2026 non transmis dans le fichier de paie : à saisir ou corriger dans Sage par la paie$/);
+  assert.ok(!absencesAEmettre(db, d(), '2026-10').some(x => x.absence === ancienne));
+  // Une date déjà posée plus tardive est gardée ; journal sans nature.
+  poserDepart(db, '2026-09-01', S, 'Essai');
+  assert.equal(lireDepuis(db), '2026-10-01');
+  assert.ok(!/MALADIE|"CP"|maladie/.test(JSON.stringify(journal('migration.absencesPaie'))));
+});
+
+test('t028 base neuve : date de mise en service réglée, et date de départ posée par le premier lot', () => {
+  const { db, run, refus, lots, d, journal, ADMIN, PAIE } = fresh();
+  assert.equal(d().ds.settings.absencesPaieAPartirDu, null, 'vide par défaut');
+  assert.equal(lireDepuis(db), null, 'base neuve : aucune date');
+  // La démonstration a des lots historiques : son premier lot ne pose rien. Une base de mise en service n'en a aucun.
+  assert.doesNotMatch(run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }), /à partir du/);
+  run(PAIE, 'paie.lotAnnuler', { id: lots().at(-1)!.id });
+  assert.equal(lireDepuis(db), null);
+  db.sql.exec('DELETE FROM lots_paie');
+  // Absence antérieure à la mise en service, enregistrée avant le premier lot : septembre ne part pas.
+  const avant = inserer(db, { empId: 1, type: 'CP', du: '2026-09-21', au: '2026-09-25', statut: 'validee' });
+  assert.ok(absencesAEmettre(db, d(), '2026-10').some(x => x.absence === avant && x.mois === '2026-09'), 'sans date : septembre en rappel');
+  assert.match(run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }), / · absences transmises à partir du 1 oct\. 2026 : les jours d’avant restent à saisir dans Sage$/);
+  assert.ok(!lots().at(-1)!.contenu!.absences!.some(x => x.absence === avant));
+  assert.equal(journal('migration.absencesPaie').at(-1)!.payload.depuis, '2026-10-01');
+  run(PAIE, 'paie.lotAnnuler', { id: lots().at(-1)!.id });
+  assert.doesNotMatch(run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }), /à partir du/, 'posée une fois');
+
+  // Date de mise en service : vaut pour toutes les absences, même enregistrées ensuite ; le service RH est prévenu.
+  refus(ADMIN, 'parametres.maj', { absencesPaieAPartirDu: '2026-13-01' }, 400, /^Absences transmises à partir du : date invalide$/);
+  run(ADMIN, 'parametres.maj', { absencesPaieAPartirDu: '2026-10-01' });
+  assert.equal(d().ds.settings.absencesPaieAPartirDu, '2026-10-01');
+  assert.match(run(ADMIN, 'absence.saisir', { empId: 3, nature: 'MALADIE', du: '2026-06-01', au: '2026-06-30', justificatif: false }),
+    / · jours avant le 1 oct\. 2026 non transmis dans le fichier de paie : à saisir ou corriger dans Sage par la paie$/);
+  const juin = Math.max(...d().ds.absences.map(a => a.id));
+  assert.ok(!absencesAEmettre(db, d(), '2026-10').some(x => x.absence === juin), 'antérieure à la mise en service : aucun rappel');
+  // À cheval sur la date : seuls les jours à partir de la mise en service partent.
+  const cheval = inserer(db, { empId: 4, type: 'AT', du: '2026-09-28', au: '2026-10-02', statut: 'validee' });
+  assert.deepEqual(absencesAEmettre(db, d(), '2026-10').filter(x => x.absence === cheval).map(x => [x.mois, x.quantite, x.du]), [['2026-10', 2, '2026-10-01']]);
+  run(ADMIN, 'parametres.maj', { absencesPaieAPartirDu: '' });
+  assert.equal(d().ds.settings.absencesPaieAPartirDu, null, 'vidée');
+  // Bornes : la plus tardive de celles qui concernent l'absence.
+  assert.equal(A.premierJourTransmis({ id: 3 }, { aPartirDu: '2027-01-01', depuis: '2026-10-01', jusqua: 5 }), '2027-01-01');
+  assert.equal(A.premierJourTransmis({ id: 6 }, { aPartirDu: null, depuis: '2026-10-01', jusqua: 5 }), null);
+  assert.equal(A.premierJourTransmis({ id: 5 }, { aPartirDu: null, depuis: '2026-10-01', jusqua: 5 }), '2026-10-01');
+  assert.equal(A.premierJourTransmis({ id: 99 }, { aPartirDu: null, depuis: '2026-10-01', jusqua: null }), '2026-10-01', 'borne inconnue : toutes');
+});
+
+test('t028 réglage réactivé : les absences saisies dans Sage pendant l’interruption ne repartent pas', () => {
+  const { db, run, d, journal, ADMIN } = fresh();
+  run(ADMIN, 'parametres.maj', { absencesFichierPaie: false });
+  const pendant = inserer(db, { empId: 1, type: 'CP', du: '2026-09-21', au: '2026-09-25', statut: 'validee' });
+  assert.equal(run(ADMIN, 'parametres.maj', { absencesFichierPaie: true }),
+    'Paramètres enregistrés · absences transmises à partir du 1 oct. 2026 : celles d’avant, saisies dans Sage pendant l’interruption, n’y repartent pas');
+  assert.equal(journal('migration.absencesPaie').at(-1)!.actor, ADMIN.nom);
+  assert.ok(!absencesAEmettre(db, d(), '2026-10').some(x => x.absence === pendant));
+  // Réglage enregistré sans changement : rien de plus.
+  assert.equal(run(ADMIN, 'parametres.maj', { absencesFichierPaie: true }), 'Paramètres enregistrés');
+});
+
+test('t028 absences d’un lot comptées une fois, même ventilées sur deux périodes de destination', () => {
+  const g = (periode: string, ids: number[], reg: number[] = []) => ({ periode, absences: ids.length, ids, empIds: [1], regularisations: reg.length, idsRegularisations: reg, rappels: [], rubriques: [] });
+  const l = A.absencesDuLot([g('2026-10', [7, 8], [8]), g('2026-11', [7, 9], [8])], '2026-11');
+  assert.deepEqual([l.absences, l.regularisations], [3, 1]);
+  assert.equal(A.absencesDuLot([g('2026-10', [7]), g('2026-11', [7])], '2026-11').absences, 1);
+});
+
+test('t028 régularisation sous le code de l’élément d’origine : jours saisis à la main corrigés de même', () => {
+  const { db, d } = fresh();
+  const at = inserer(db, { empId: 10, type: 'AT', du: '2026-10-01', au: '2026-10-08', statut: 'validee' });
+  const el = (quantite: number, codeSage?: string | null) => ({ absence: at, mois: '2026-10', rubrique: 'ABS_IND_SANTE', quantite, du: '2026-10-01', au: '2026-10-10', codeSage });
+  const reg = (emis: ReturnType<typeof el>[]) => A.elementsAbsences(d(), { jusqua: '2026-10', emis, reservees: new Set(), depart: null })
+    .filter(x => x.absence === at).map(x => [x.quantite, x.codeSage]);
+  // 10 jours partis sans code (rubrique désactivée), 8 dus : −2 sans code.
+  assert.deepEqual(reg([el(10, null)]), [[-2, null]]);
+  // 6 sans code puis 4 sous 5100 (rubrique réactivée) : ce qui est parti en dernier est repris d'abord.
+  assert.deepEqual(reg([el(6, null), el(4, '5100')]), [[-2, '5100']]);
+  db.update('absences', at, { au: '2026-10-03' });
+  assert.deepEqual(reg([el(6, null), el(4, '5100')]), [[-4, '5100'], [-3, null]]);
+  // Une régularisation déjà partie est déduite de la pile.
+  assert.deepEqual(reg([el(6, null), el(4, '5100'), el(-4, '5100')]), [[-3, null]]);
+  // Code d'origine inconnu : traduit avec la table du moment.
+  assert.deepEqual(reg([el(10)]), [[-7, undefined]]);
+  const t = traduireElements([{ absence: at, empId: 10, matricule: '004110', mois: '2026-10', periode: '2026-10', rubrique: 'ABS_IND_SANTE', quantite: -2, du: '2026-10-01', au: '2026-10-03', codeSage: null }],
+    [{ code: 'ABS_IND_SANTE', codeSage: '5100', active: true, confirme: true } as never]);
+  assert.equal(t[0].codeSage, null, 'code d’origine gardé');
+});
+
+test('t028 rubrique réactivée puis absence annulée : régularisation sans code, absente du fichier, listée « à saisir dans Sage »', () => {
+  const { db, run, lots, ADMIN, PAIE } = fresh();
+  run(ADMIN, 'paie.rubrique', { code: 'CP', active: false });
+  run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  const lot = lots().at(-1)!;
+  run(PAIE, 'paie.lotConfirmer', { id: lot.id });
+  const cp = lot.contenu!.absences!.find(x => x.rubrique === 'CP' && x.codeSage === null)!;
+  run(ADMIN, 'paie.rubrique', { code: 'CP', active: true });
+  run(ADMIN, 'absence.annuler', { id: cp.absence });
+  run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  const second = lots().at(-1)!;
+  assert.deepEqual(second.contenu!.absences!.filter(x => x.absence === cp.absence).map(x => [x.quantite, x.codeSage]), [[-cp.quantite, null]]);
+  assert.ok(!L.lignesFichier(second.contenu!).some(l => l.quantite < 0), 'jamais en négatif dans le fichier');
+  const lignes = variablesDeLaPeriode(db, PAIE, '2026-10').filter(l => l.rubrique === A_SAISIR);
+  assert.ok(lignes.some(l => l.quantite === -cp.quantite && /régularisation/.test(l.detail) && l.libelle === RUBRIQUES_PAIE.CP.label), JSON.stringify(lignes));
 });

@@ -710,7 +710,7 @@ aucun champ du paramètre n'est recopié.
 | `entretien.signer` | id | salarié |
 | `entretien.remettre` | id, mode (`main_propre`/`refus`/`portail`), date? (main propre, refus : de la clôture à aujourd'hui ; portail : le jour même, compte actif exigé, e-mail avec le seul lien vers Cursus) ; une remise sur papier est définitive, une mise à disposition se complète par une remise sur papier | évaluateur (manager direct) ou RH, jamais pour son propre entretien |
 | `entretien.telecharger` | id : premier téléchargement du compte rendu clos, daté (`telechargeLe`) | salarié, depuis son espace |
-| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps, absencesFichierPaie), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
+| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps, absencesFichierPaie, absencesPaieAPartirDu), silent? ; absencesFichierPaie réactivé : date de départ des absences posée au premier jour de la période ouverte (journal `migration.absencesPaie`) ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
 | `demo.reinitialiser` | — | administrateur RH, mode démonstration |
 | `compte.creer` | empId (ou nom, adresse : compte externe), type (`microsoft`/`local`), identifiant, profilRh | administrateur RH (mot de passe provisoire dans `result`, affiché une fois) |
 | `compte.profil` | id, profilRh (`aucun`/`rh_gestionnaire`/`rh_admin`/`referent_hse`/`paie`/`lecture_seule`) | administrateur RH (jamais le dernier administrateur actif ; un compte externe garde un profil) |
@@ -1663,9 +1663,18 @@ Règles : `shared/rules/absences.ts` (confidentialité, décompte, reprise, annu
     dernier lot transmis (`libererAbsences` à l'annulation), `absences.sage` marque les jours transmis au moins une fois
     (confirmation). Le fichier additionne heures et absences par salarié, période et code Sage (`lignesFichier`). Un lot
     peut ne porter que des absences (régularisation). Message du service RH quand une absence déjà partie change
-    (`suitePaie`). Date de départ `absencesPaieDepuis` (table settings) posée par la migration
-    `lot5-paie-absences-anterieures` sur une base qui portait déjà des absences validées : premier jour de la période
-    ouverte, les jours d'avant ayant été saisis dans Sage (journal `migration.absencesPaie`, date et nombre seulement).
+    (`suitePaie`). Une régularisation reprend d'abord ce qui est parti en dernier, sous son code Sage d'origine (pile par
+    mois et rubrique ; null : parti sous une rubrique désactivée, jamais en négatif dans le fichier, listé « À saisir dans
+    Sage » dans l'export des variables). Premier jour transmis (`premierJourTransmis`, `DepartAbsences`) : le plus tardif
+    de la date de mise en service (réglage `absencesPaieAPartirDu`, Paramètres → Absences et paie, pour toutes les
+    absences) et de la date de départ `absencesPaieDepuis` (table settings), qui ne vaut que pour les absences
+    d'identifiant au plus `absencesPaieJusqua` (enregistrées quand elle a été posée : une absence d'un mois clos
+    enregistrée ensuite part en rappel). Cursus pose la date de départ (`poserDepart`, premier jour de la période
+    ouverte, une date plus tardive déjà posée gardée) par la migration `lot5-paie-absences-anterieures` sur une base qui
+    portait déjà des absences validées, au premier lot de paie d'une base neuve (`departAuPremierLot`) et à la réactivation
+    du réglage `absencesFichierPaie` (`reactivationAbsences`, `parametres.maj`) ; journal `migration.absencesPaie` (date,
+    borne et nombre seulement). Jours d'avant : ni dus, ni régularisés ; le service RH est prévenu à l'enregistrement, la
+    validation, la qualification ou l'annulation (`joursAvantDepart`).
     Confidentialité : le code révèle la catégorie (santé) ; le contenu ne quitte le serveur que par le fichier et l'export
     (droit « paie ») ; l'instantané porte `absencesPaie` (absences en attente par période : nombre, salariés,
     régularisations, rappels, rubriques) au service RH, à la paie et à la lecture seule, rubriques et codes de

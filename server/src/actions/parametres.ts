@@ -2,6 +2,7 @@
 import { basename } from 'node:path';
 import { appliquerReglages, ReglageInvalide } from '../../../shared/reglages.ts';
 import type { Settings } from '../../../shared/types.ts';
+import { reactivationAbsences } from '../absences-paie.ts';
 import { DEMO } from '../auth.ts';
 import { loadSettings } from '../dataset.ts';
 import { sauvegarderBase, type Sauvegarde } from '../sauvegarde.ts';
@@ -12,14 +13,17 @@ import { ActionError, requireRhAdmin, type ActionHandler } from './context.ts';
 const maj: ActionHandler = (ctx, p) => {
   requireRhAdmin(ctx);
   let next: Settings;
+  const avant = loadSettings(ctx.db);
   try {
-    next = appliquerReglages(loadSettings(ctx.db), p);
+    next = appliquerReglages(avant, p);
   } catch (err) {
     if (err instanceof ReglageInvalide) throw new ActionError(err.message, 400);
     throw err;
   }
   ctx.db.setSetting('app', next);
-  return p.silent ? null : 'Paramètres enregistrés';
+  // Absences de nouveau dans le fichier de paie (t028) : celles saisies dans Sage entre-temps n'y repartent pas.
+  const absences = reactivationAbsences(ctx.db, avant, next, ctx.user, ctx.d.ti);
+  return p.silent && !absences ? null : `Paramètres enregistrés${absences}`;
 };
 
 const reinitialiser: ActionHandler = (ctx) => {

@@ -495,7 +495,7 @@ export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits:
   },
   paie: {
     label: 'Gestionnaire de paie', espace: 'Paie', droits: ['paie'],
-    aide: 'Temps, absences et soldes en lecture, transmission des variables de paie à Sage ; ni entretiens, ni formations, ni données de santé',
+    aide: 'Temps, absences et soldes en lecture, transmission des variables de paie à Sage ; ni entretiens, ni formations, ni données médicales détaillées : la catégorie d’une absence seulement (santé, parentalité…), pour la paie',
     vues: ['temps', 'absences'],
   },
   lecture_seule: {

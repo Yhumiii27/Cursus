@@ -170,6 +170,11 @@ test('t019 contrôle du format : encodage, dates, colonnes facultatives une fois
   assert.match(String(L.controlerFormat({ colonnes: ['matricule', 'periode', 'rubrique', 'quantite', 'libelle', 'libelle'] }, d)), /une colonne facultative une fois au plus/);
   assert.match(String(L.controlerFormat({ colonnes: ['matricule', 'periode', 'rubrique', 'libelle'] }, d)), /matricule, période, rubrique et quantité/);
   assert.match(String(L.controlerFormat({ colonnes: ['matricule', 'periode', 'rubrique', 'quantite', 'societe'] }, d)), /chacune une fois/);
+  // Requête forgée : une colonne qui n'est pas une chaîne (['dossier'] vaut « dossier » une fois convertie) est refusée,
+  // de même pour un séparateur : rien de tel n'est enregistré, le fichier reste téléchargeable.
+  assert.match(String(L.controlerFormat({ colonnes: ['matricule', 'periode', 'rubrique', 'quantite', ['dossier'], 'dossier'] }, d)), /^Colonnes : /);
+  assert.match(String(L.controlerFormat({ colonnes: ['matricule', 'periode', 'rubrique', ['quantite']] }, d)), /^Colonnes : /);
+  assert.match(String(L.controlerFormat({ separateur: [';'] }, d)), /Séparateur inconnu/);
   assert.deepEqual(L.controlerFormat({ encodage: 'windows-1252', colonnes: ['dossier', 'matricule', 'periode', 'rubrique', 'quantite'] }, d),
     { ...d, encodage: 'windows-1252', colonnes: ['dossier', 'matricule', 'periode', 'rubrique', 'quantite'] });
   // Format enregistré avant ces réglages : complété par les valeurs par défaut.

@@ -57,8 +57,11 @@ const ENTETE: Record<ColonneFichierPaie, string> = {
   matricule: 'matricule', periode: 'periode', rubrique: 'rubrique', quantite: 'quantite', dossier: 'dossier', libelle: 'libelle', debut: 'debut', fin: 'fin',
 };
 
-/** Choix parmi les clés d'une table (séparateur, période…) : la valeur reçue, ou null si elle n'en est pas une. */
-const choix = <K extends string>(table: Record<K, string>, v: unknown): K | null => (Object.hasOwn(table, String(v)) ? String(v) as K : null);
+/**
+ * Choix parmi les clés d'une table (séparateur, période, colonne…) : la valeur reçue, ou null si elle n'en est pas une.
+ * Seule une chaîne est admise : un tableau comme ['dossier'] vaut « dossier » une fois converti et passerait sinon.
+ */
+const choix = <K extends string>(table: Record<K, string>, v: unknown): K | null => (typeof v === 'string' && Object.hasOwn(table, v) ? v as K : null);
 
 /**
  * Format reçu (`paie.formatFichier`) contrôlé : chaque champ absent garde sa valeur ; les quatre colonnes obligatoires,

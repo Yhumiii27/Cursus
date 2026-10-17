@@ -183,7 +183,7 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
   const mine = <T extends { empId: number }>(list: T[]) => list.filter(x => ids.has(x.empId));
   const isMgr = user.role === 'manager';
   // Les managers voient le verdict d'aptitude, les restrictions de poste en vigueur et l'état des dossiers voyage,
-  // jamais les données de santé (date de visite, avis daté, demande de visite, vaccinations). Une reprise ouverte par
+  // jamais les données de santé (date de visite, avis daté, demande de visite, suivi médical, vaccinations). Une reprise ouverte par
   // un arrêt longue maladie leur est masquée : elle trahirait la nature de l'arrêt (l'entretien de reprise est suivi par le RH).
   // Du passeport d'un membre, seule la date d'expiration est transmise (l'écran n'affiche qu'elle) ; les visas restent montrés.
   // Le matricule de paie d'un membre ne lui sert à rien : il n'est pas transmis. De la sortie d'un membre, seule la date
@@ -194,6 +194,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
   const employes = full.employes.filter(e => ids.has(e.id)).map(e => isMgr && e.id !== user.empId
     ? {
       ...e, visite: null, avis: null, restrictions: [], aptitude: aptitudeVueManager(e, d.medInfo(e).ok, full.today), vaccins: [], matriculePaie: null,
+      // Suivi médical (type, prochaine visite, examen d'aptitude) : jamais transmis au manager, qui ne voit que le verdict.
+      suivi: null, prochaineVisite: null, examenAptitude: null,
       passeport: e.passeport && { expire: e.passeport.expire }, motifSortie: null, finPrevue: null, sortieEnregistree: !!e.motifSortie,
       autorisationTravail: null, autorisationVerdict: verdictAutorisation(e, full.today),
       ...(repriseMedicale(e, full.absences) ? { repriseMotif: null, repriseDate: null } : { repriseMotif: e.repriseDate ? 'absence longue' : null }),
@@ -258,7 +260,7 @@ const sansExigences = (r: Dataset['referentiels']): Pick<Dataset['referentiels']
 /**
  * Instantané d'un profil restreint de l'espace RH (sans le droit `rh`) : seulement ce que ses droits ouvrent,
  * jamais de donnée de santé détaillée. Pour tous, comme pour le manager : aptitude réduite au verdict (aptitude valide
- * ou non, avis) et aux restrictions de poste en vigueur, sans date ; ni visite, ni demande de visite, ni vaccinations ;
+ * ou non, avis) et aux restrictions de poste en vigueur, sans date ; ni visite, ni demande de visite, ni suivi médical, ni vaccinations ;
  * nature médicale des absences masquée et reprise d'un arrêt longue maladie retirée ; motif des reports de CP retiré
  * (texte libre), comme celui d'un report imposé à la clôture des congés, et échéances ramenées au 31 mai (celle d'un
  * report légal, 31 août, laisse deviner une absence de santé, de maternité ou de paternité : `reportNeutre`).
@@ -280,6 +282,7 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
   const employes = full.employes.map(e => ({
     ...e,
     visite: null, avis: null, restrictions: [], aptitude: formations ? aptitudeVueManager(e, d.medInfo(e).ok, full.today) : undefined, vaccins: [],
+    suivi: null, prochaineVisite: null, examenAptitude: null,
     passeport: lecture ? e.passeport && { expire: e.passeport.expire } : null, visas: lecture ? e.visas : [],
     certs: formations ? e.certs : [], habs: formations ? e.habs : [],
     // Motif de sortie : paie (solde de tout compte) et lecture seule ; le référent HSE ne voit que la date, et l'indication

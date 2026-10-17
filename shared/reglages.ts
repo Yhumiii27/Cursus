@@ -110,6 +110,13 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   relancesActives: { defaut: true, controle: booleen },
   relancesPaliers: { defaut: [90, 30, 7], controle: paliersRelance },
   relancesJour: { defaut: 'quotidien', controle: choix(JOURS_RELANCE) },
+  // — Santé (parametres/Sante.tsx, shared/rules/suivi-medical.ts) : 24 mois pour tous par défaut, le plus prudent, dans les
+  //   maximums légaux : VIP 5 ans (art. R4624-16), VIP adaptée 3 ans (art. R4624-17), SIR visite intermédiaire 2 ans et
+  //   examen d'aptitude 4 ans (art. R4624-28) —
+  santeVipMois: { defaut: 24, controle: entier(12, 60) },
+  santeVipAdapteeMois: { defaut: 24, controle: entier(12, 36) },
+  santeSirIntermediaireMois: { defaut: 24, controle: entier(12, 24) },
+  santeSirAptitudeMois: { defaut: 48, controle: entier(12, 48) },
 };
 
 /**
@@ -125,6 +132,8 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
   s => (s.campagneDebut > s.campagneFin ? 'Campagne d’entretiens : l’ouverture doit précéder la clôture, dans la même année' : null),
   // — Contrats : la relance d'un titre de séjour vient après la première alerte —
   s => (s.titreSejourRelance >= s.titreSejourAlerte ? 'Titres de séjour : la relance doit être plus proche de l’expiration que la première alerte' : null),
+  // — Santé : la visite intermédiaire du suivi renforcé vient avant le renouvellement de l'examen d'aptitude —
+  s => (s.santeSirIntermediaireMois > s.santeSirAptitudeMois ? 'Suivi individuel renforcé : la visite intermédiaire ne peut pas venir après l’examen d’aptitude' : null),
 ];
 
 /** Vue non typée de la table, pour la parcourir (les contrôles reçoivent la valeur en vigueur du même champ). */

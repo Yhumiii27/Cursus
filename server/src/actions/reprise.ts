@@ -70,7 +70,9 @@ function ecrire(ctx: Ctx, l: LigneReprise, o: { comptes: boolean }): { empId: nu
     case 'visites': {
       // Restrictions inconnues de l'ancien outil : mention provisoire, à remplacer par l'avis recopié sur la fiche.
       const restrictions = w.avis === 'restrictions' ? [{ texte: RESTRICTION_A_RECOPIER, jusquau: null }] : [];
-      ctx.db.update('employes', l.empId!, { visite: w.date, avis: w.avis, restrictions });
+      // Une autre visite : la prochaine visite fixée par le médecin à la précédente ne vaut plus (shared/rules/suivi-medical.ts).
+      const nouvelle = ctx.ds.employes.find(e => e.id === l.empId)?.visite !== w.date;
+      ctx.db.update('employes', l.empId!, { visite: w.date, avis: w.avis, restrictions, ...(nouvelle ? { prochaineVisite: null } : {}) });
       // La visite clôt les demandes qu'elle honore (faites au plus tard le jour de la visite), comme medical.avis.
       ctx.ds.demandesVisite.filter(x => x.empId === l.empId && x.statut === 'demandee' && x.le <= w.date)
         .forEach(x => ctx.db.update<DemandeVisite>('demandesVisite', x.id, { statut: 'realisee', closeLe: w.date, closePar: ctx.user.nom }));

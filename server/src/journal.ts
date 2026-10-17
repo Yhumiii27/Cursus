@@ -233,6 +233,8 @@ export const REGLES: Record<string, Regle> = {
   'medical.demander': { champs: ['empId'] },
   'medical.annuler': { champs: ['id'] },
   'medical.avis': { champs: ['empId', 'date', 'suspendre', 'lever'] },
+  // Type de suivi médical : l'identifiant seul (ni le type, ni la prochaine visite de l'avis, ni l'examen d'aptitude).
+  'medical.suivi': { champs: ['empId'] },
   // Référentiels (catalogue, aucune donnée personnelle) : code de l'élément, valeurs avant et après de chaque champ.
   // Une validité modifiée rattache la ligne aux salariés dont un titre change de statut (le message en nomme).
   'referentiel.formation.enregistrer': {
@@ -240,7 +242,7 @@ export const REGLES: Record<string, Regle> = {
   },
   'referentiel.formation.archiver': referentiel('formations', ['archive'], true),
   'referentiel.habilitation.enregistrer': {
-    ...referentiel('habilitations', ['nom', 'detail', 'prereqs', 'medical', 'validite', 'signataire']), salaries: (_p, x) => salariesTouches(x),
+    ...referentiel('habilitations', ['nom', 'detail', 'prereqs', 'medical', 'validite', 'signataire', 'sir']), salaries: (_p, x) => salariesTouches(x),
   },
   'referentiel.habilitation.archiver': referentiel('habilitations', ['archive'], true),
   'referentiel.destination.enregistrer': referentiel('destinations', ['pays', 'visa', 'visaSub', 'oblig', 'rec', 'passMois', 'secu']),
@@ -248,12 +250,12 @@ export const REGLES: Record<string, Regle> = {
   // Postes et exigences (aucune donnée personnelle) : identifiant du poste, intitulé et codes exigés avant et après ; la
   // ligne est rattachée aux salariés qui deviennent non conformes (le message en nomme).
   'referentiel.poste.enregistrer': {
-    extra: p => ({ id: Number(p.id) || null }), cible: parId('postes', ['nom', 'formations', 'habilitations']), salaries: (_p, x) => salariesTouches(x),
+    extra: p => ({ id: Number(p.id) || null }), cible: parId('postes', ['nom', 'formations', 'habilitations', 'sir']), salaries: (_p, x) => salariesTouches(x),
     // Création : le poste créé, lu après l'action.
     bilan: (p, x) => {
       if (Number(p.id)) return {};
       const cree = x.db.get<Ligne>('postes', Number((x.result as { id?: number } | null)?.id));
-      return cree ? { id: cree.id, apres: { nom: cree.nom, formations: cree.formations, habilitations: cree.habilitations } } : {};
+      return cree ? { id: cree.id, apres: { nom: cree.nom, formations: cree.formations, habilitations: cree.habilitations, ...(cree.sir ? { sir: true } : {}) } } : {};
     },
   },
   'referentiel.poste.archiver': { extra: p => ({ id: Number(p.id) || null, retablir: p.archive === false }), cible: parId('postes', ['archive']) },
@@ -824,7 +826,7 @@ export function exigerRh(db: Db, req: Request, res: Response, quoi: string, auto
 
 /** Actions dont le message ou le détail touche à la santé : absence (dates d'un arrêt), visite médicale, vaccination, document déclaré. */
 const ACTIONS_SANTE = new Set([
-  'absence.saisir', 'absence.qualifier', 'absence.prolonger', 'absence.annuler', 'medical.demander', 'medical.annuler', 'medical.avis',
+  'absence.saisir', 'absence.qualifier', 'absence.prolonger', 'absence.annuler', 'medical.demander', 'medical.annuler', 'medical.avis', 'medical.suivi',
   'formalite.enregistrer', 'demande.accepter', 'email.visite.demande', 'reprise.visites',
 ]);
 export const DETAIL_RESERVE = 'Détail réservé au service RH';

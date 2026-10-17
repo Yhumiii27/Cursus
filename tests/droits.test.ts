@@ -155,6 +155,8 @@ const MATRICE: Ligne[] = [
   { action: 'medical.avis', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({
     empId: 2, date: '2026-10-06', avis: 'restrictions', restrictions: [{ texte: 'Pas de travail en hauteur', jusquau: '2026-12-31' }], suspendre: ['hauteur'],
   }) },
+  // Type de suivi médical saisi sur la fiche (VIP, VIP adaptée, suivi renforcé) : service RH seulement.
+  { action: 'medical.suivi', droits: '                       O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, suivi: 'vip_adapte' }) },
   { action: 'demande.accepter', droits: '                    O    O    -    -    -    -    O    -    -', p: () => ({ id: demande('aipr') }) },
   { action: 'demande.refuser', droits: '                     O    O    -    -    -    -    O    -    -', p: () => ({ id: demande('aipr') }) },
   // Document déclaré (passeport, visa, vaccination) : service RH seulement.

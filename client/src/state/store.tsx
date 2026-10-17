@@ -69,6 +69,7 @@ export type DialogState =
   | { type: 'tripModifier'; id: number }
   | { type: 'visite'; empId: number }
   | { type: 'avis'; empId: number }
+  | { type: 'suivi'; empId: number }
   | { type: 'reqForm'; f?: string; sessionId?: number | null; empId?: number | null }
   | { type: 'reqHab'; empId?: number | null }
   | { type: 'employe'; empId?: number | null; equipe?: string | null }

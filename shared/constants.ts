@@ -239,7 +239,7 @@ export const MODE_NOTIFICATION_LABEL = { immediat: 'Aussitôt', quotidien: 'Réc
 /** Heure locale à partir de laquelle part le récapitulatif quotidien des notifications. */
 export const HEURE_RECAPITULATIF = 7;
 
-/** Validité de l'aptitude médicale, en mois. */
+/** Périodicité par défaut des visites médicales, en mois (aperçu de la reprise des visites ; échéance réelle : shared/rules/suivi-medical.ts). */
 export const MED_VALIDITE = 24;
 
 // — Santé au travail : avis du médecin du travail et demandes de visite (shared/rules/sante.ts) —
@@ -250,6 +250,8 @@ export const AVIS_MEDICAL: Record<AvisMedical, { label: string; court: string }>
 };
 /** Statut de l'échéance d'aptitude (Échéances, tableau de bord). */
 export const MED_LABEL: Record<StatusKey, string> = { ok: 'Valide', due: 'À renouveler', exp: 'Échue' };
+/** Échéance du suivi individuel renforcé sans examen médical d'aptitude enregistré (shared/rules/suivi-medical.ts). */
+export const EXAMEN_REQUIS = 'Examen d’aptitude requis';
 export const MOTIFS_VISITE: Record<MotifVisite, { label: string; court: string; article: string }> = {
   periodique: { label: 'Visite périodique — renouvellement de l’aptitude', court: 'renouvellement', article: 'Art. R4624-16 et R4624-28' },
   embauche: { label: 'Visite d’embauche — information et prévention, ou examen d’aptitude', court: 'embauche', article: 'Art. R4624-10 et R4624-24' },

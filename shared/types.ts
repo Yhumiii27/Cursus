@@ -57,7 +57,11 @@ export type SessionStatut = 'À confirmer' | 'Confirmée' | 'Clôturée' | 'Annu
 // Administrés depuis l'écran Référentiels (shared/rules/referentiels.ts). `archive` : date d'archivage (null : en
 // vigueur) ; un élément archivé n'est plus proposé dans les listes, mais reste reconnu (dossiers, journal, Keystone).
 export interface Formation { id: string; nom: string; court: string; type: FormationType; validite: number; duree: string; organisme: string; cout: number; validation: ValidationMode; archive?: ISODate | null }
-export interface HabType { id: string; nom: string; detail: string; prereqs: string[]; medical: boolean; validite: number; signataire: string; archive?: ISODate | null }
+export interface HabType {
+  id: string; nom: string; detail: string; prereqs: string[]; medical: boolean; validite: number; signataire: string; archive?: ISODate | null;
+  /** Titre qui place son titulaire en suivi individuel renforcé (art. R4624-23 II : autorisation de conduite, habilitation électrique…). */
+  sir?: boolean;
+}
 export interface Destination {
   code: string; pays: string; visa: VisaKind; visaSub: string; oblig: VaccinId[]; rec: VaccinId[]; passMois: number;
   /** Formalité de sécurité sociale du détachement ; null : déduite du code pays (`secuDe` de shared/constants.ts). */
@@ -70,7 +74,11 @@ export interface Destination {
  */
 export interface Exigences { formations: string[]; habilitations: string[] }
 /** Poste du référentiel (écran Référentiels) : intitulé et exigences ; archivé, il n'est plus proposé sur les fiches. */
-export interface Poste extends Exigences { id: number; nom: string; archive?: ISODate | null }
+export interface Poste extends Exigences {
+  id: number; nom: string; archive?: ISODate | null;
+  /** Poste à risques particuliers : ses titulaires relèvent du suivi individuel renforcé (art. R4624-23). */
+  sir?: boolean;
+}
 /** `exigences` : formations et habilitations exigées de tous ses membres (null : aucune). */
 export interface Equipe { nom: string; managerId: number | null; ordre: number; exigences?: Exigences | null }
 /** Projet ou chantier tenu dans Keystone : archivé, il reste en base (historique) sans plus être proposé ni évalué. */
@@ -110,6 +118,11 @@ export type AvisMedical = 'apte' | 'restrictions' | 'inapte';
  * jusqu'à une date (incluse) ou sans terme.
  */
 export interface Restriction { texte: string; jusquau: ISODate | null }
+/**
+ * Type de suivi de l'état de santé (shared/rules/suivi-medical.ts) : visite d'information et de prévention (VIP), VIP
+ * adaptée (travailleur de nuit ou handicapé, art. R4624-17 et R4624-20), suivi individuel renforcé (SIR, art. R4624-23).
+ */
+export type SuiviMedical = 'vip' | 'vip_adapte' | 'sir';
 /** Motif d'une demande de visite au service de prévention et de santé au travail. */
 export type MotifVisite = 'periodique' | 'embauche' | 'reprise' | 'employeur';
 /**
@@ -204,6 +217,15 @@ export interface Employe {
    */
   avis: AvisMedical | null;
   restrictions: Restriction[];
+  /**
+   * Suivi médical (shared/rules/suivi-medical.ts) — réservé au service RH et à l'intéressé, jamais transmis au manager :
+   * type saisi par le service RH (null : VIP, sauf suivi renforcé déduit des habilitations ou du poste), date de la
+   * prochaine visite fixée par le médecin du travail avec l'avis (elle prime sur la périodicité), date du dernier examen
+   * médical d'aptitude (suivi individuel renforcé).
+   */
+  suivi?: SuiviMedical | null;
+  prochaineVisite?: ISODate | null;
+  examenAptitude?: ISODate | null;
   /**
    * Remplace `visite` et `avis` dans les vues manager et des profils restreints de l'espace RH : seul le verdict est
    * transmis (aptitude valide ou non, avis), avec les restrictions en vigueur recopiées telles qu'écrites, sans date de visite.
@@ -439,6 +461,12 @@ export interface Settings {
   relancesActives: boolean;
   relancesPaliers: number[];
   relancesJour: 'quotidien' | 'lundi' | 'mardi' | 'mercredi' | 'jeudi' | 'vendredi';
+  // Santé (client/src/pages/parametres/Sante.tsx, shared/rules/suivi-medical.ts) : périodicité des visites en mois selon le
+  // type de suivi, quand le médecin du travail n'a pas fixé la date de la prochaine visite.
+  santeVipMois: number;
+  santeVipAdapteeMois: number;
+  santeSirIntermediaireMois: number;
+  santeSirAptitudeMois: number;
 }
 
 /**

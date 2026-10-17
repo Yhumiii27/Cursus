@@ -1,10 +1,13 @@
 // Avis du médecin du travail (service RH) : date de la visite, avis (apte, apte avec restrictions, inapte),
 // restrictions recopiées telles qu'écrites et datées, habilitations incompatibles à suspendre, suspensions d'un
 // avis précédent à lever. La visite clôt la demande en cours ; le manager ne voit que le verdict et les restrictions.
+// Suivi médical (shared/rules/suivi-medical.ts) : date de la prochaine visite fixée par le médecin, qui prime sur la
+// périodicité, et examen médical d'aptitude du suivi individuel renforcé.
 import { useState } from 'react';
 import { HAB_CLS, HAB_LABEL } from '../../../shared/constants.ts';
 import { fmtIso } from '../../../shared/format.ts';
 import { controlerAvis, RESTRICTION_MAX, RESTRICTIONS_MAX, suspendueParAvis } from '../../../shared/rules/sante.ts';
+import { periodicite, SUIVIS_MEDICAUX } from '../../../shared/rules/suivi-medical.ts';
 import type { AvisMedical } from '../../../shared/types.ts';
 import { CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine, SectionLabel, Seg, Tag } from '../components/ui.tsx';
@@ -23,6 +26,10 @@ export function AvisDialog({ empId }: { empId: number }) {
   const [date, setDate] = useState(d.ti);
   const [avis, setAvisState] = useState<AvisMedical>('apte');
   const [lignes, setLignes] = useState<Ligne[]>([LIGNE_VIDE]);
+  const [prochaine, setProchaine] = useState('');
+  // Suivi renforcé : la visite est d'ordinaire l'examen médical d'aptitude (embauche, renouvellement) ; à décocher pour une
+  // visite intermédiaire.
+  const [examen, setExamen] = useState(() => emp?.med.suivi?.type === 'sir');
   const [suspendre, setSuspendre] = useState<string[]>([]);
   // Avis apte : les suspensions décidées à un avis précédent sont levées par défaut.
   const [lever, setLever] = useState<string[]>(() => titres.filter(suspendueParAvis).map(h => h.h));
@@ -38,7 +45,8 @@ export function AvisDialog({ empId }: { empId: number }) {
   const setLigne = (i: number, patch: Partial<Ligne>) => setLignes(ls => ls.map((l, j) => j === i ? { ...l, ...patch } : l));
   const bascule = (liste: string[], set: (v: string[]) => void, h: string, on: boolean) => set(on ? [...liste, h] : liste.filter(x => x !== h));
 
-  const { errors } = controlerAvis({ date, avis, restrictions: lignes }, d.ti);
+  const { errors } = controlerAvis({ date, avis, restrictions: lignes, prochaineVisite: prochaine, examen }, d.ti);
+  const suivi = emp.med.suivi;
   const demande = emp.med.demande;
   const infos = [
     ...(emp.visite && date && date < emp.visite ? [`Visite antérieure à la dernière enregistrée (${fmtIso(emp.visite)}) : cet avis la remplace.`] : []),
@@ -52,6 +60,7 @@ export function AvisDialog({ empId }: { empId: number }) {
     setBusy(true);
     const r = await run('medical.avis', {
       empId, date, avis, restrictions: avis === 'restrictions' ? lignes : [],
+      prochaineVisite: avis === 'inapte' ? null : prochaine || null, examen,
       suspendre: avis === 'apte' ? [] : suspendre, lever: avis === 'inapte' ? [] : lever,
     });
     setBusy(false);
@@ -74,6 +83,27 @@ export function AvisDialog({ empId }: { empId: number }) {
         <Seg name="av-avis" label="Avis du médecin du travail" value={avis} onChange={setAvis} style={{ flexWrap: 'wrap', alignSelf: 'flex-start' }}
           options={[['apte', 'Apte'], ['restrictions', 'Apte avec restrictions'], ['inapte', 'Inapte']]} />
       </Field>
+
+      <div className="grid-2">
+        {avis !== 'inapte' && (
+          <Field label="Prochaine visite fixée par le médecin (facultatif)" htmlFor="av-prochaine">
+            <input className="input" id="av-prochaine" type="date" min={date || undefined} value={prochaine} onChange={ev => setProchaine(ev.target.value)} />
+          </Field>
+        )}
+        <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14, alignSelf: 'end', minHeight: 40 }}>
+          <input type="checkbox" checked={examen} onChange={ev => setExamen(ev.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
+          Examen médical d’aptitude (suivi individuel renforcé)
+        </label>
+      </div>
+      {suivi && (
+        <Fine>
+          Suivi : {SUIVIS_MEDICAUX[suivi.type].court}{suivi.deduit ? ` (${suivi.origines.join(', ')})` : ''}. Sans date fixée par le médecin, la prochaine
+          visite suit la périodicité de Paramètres → Santé
+          ({suivi.type === 'sir'
+            ? `visite intermédiaire à ${periodicite('sir', d.ds.settings)} mois, examen d’aptitude à ${d.ds.settings.santeSirAptitudeMois ?? 48} mois`
+            : `${periodicite(suivi.type, d.ds.settings)} mois`}).
+        </Fine>
+      )}
 
       {avis === 'restrictions' && <>
         <SectionLabel>Restrictions et aménagements de poste</SectionLabel>

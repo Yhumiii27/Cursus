@@ -267,7 +267,7 @@ salarié non conforme et le passe en « No Go » sur les chantiers (`docs/ARCHIT
 ## Règles métier implémentées
 
 Validité des certifications et seuil d'alerte (30–180 j) · prérequis des habilitations
-(formation + aptitude médicale de 24 mois) avec suspension automatique, suspension et
+(formation + aptitude médicale : prochaine visite fixée par le médecin, sinon périodicité selon le type de suivi — VIP, VIP adaptée, suivi renforcé —, 24 mois par défaut) avec suspension automatique, suspension et
 retrait manuels (motif, date, auteur) · aptitude médicale dans le statut et les échéances, avis du médecin
 du travail (apte, restrictions datées, inapte) avec suspension des habilitations incompatibles, demandes de
 visite suivies jusqu'à la visite · seule la dernière certification compte après un

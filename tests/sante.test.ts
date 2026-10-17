@@ -230,7 +230,7 @@ test('t062 : contrôles de l’avis et des habilitations désignées', () => {
   assert.throws(() => run(KARIM, 'medical.avis', { empId: 2, date: '2026-10-08', avis: 'apte' }), refus(/service RH/, 403));
   // Règle partagée avec le dialogue : lignes vides ignorées, espaces normalisés, sans terme → null ; hors restrictions, vidées.
   assert.deepEqual(controlerAvis({ date: '2026-10-01', avis: 'restrictions', restrictions: [{ texte: ' Pas  de conduite ', jusquau: '' }, { texte: ' ', jusquau: '' }] }, '2026-10-10'),
-    { avis: { date: '2026-10-01', avis: 'restrictions', restrictions: [{ texte: 'Pas de conduite', jusquau: null }] }, errors: [] });
+    { avis: { date: '2026-10-01', avis: 'restrictions', restrictions: [{ texte: 'Pas de conduite', jusquau: null }], prochaineVisite: null, examen: false }, errors: [] });
   assert.deepEqual(controlerAvis({ date: '2026-10-01', avis: 'apte', restrictions: [{ texte: 'x', jusquau: '' }] }, '2026-10-10').avis.restrictions, []);
 });
 

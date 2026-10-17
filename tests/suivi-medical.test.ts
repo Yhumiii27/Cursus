@@ -1,0 +1,223 @@
+// Suivi médical (t059) : type de suivi (VIP, VIP adaptée, suivi individuel renforcé déduit du référentiel ou saisi),
+// échéance de la prochaine visite — date fixée par le médecin du travail, sinon périodicité de Paramètres → Santé —,
+// alerte « examen d'aptitude requis » du suivi renforcé, et confidentialité : ni le manager, ni les profils restreints,
+// ni le journal ne reçoivent le type de suivi, la prochaine visite ou l'examen ; l'export RGPD les contient.
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
+process.env.CURSUS_TODAY = '2026-10-10';
+delete process.env.KEYSTONE_URL;
+delete process.env.KEYSTONE_TOKEN;
+
+const { Db } = await import('../server/src/db.ts');
+const { seedDemo } = await import('../server/src/seed.ts');
+const { buildSnapshot, DEFAULT_SETTINGS, loadFull } = await import('../server/src/dataset.ts');
+const { ACTIONS, changeVerdicts } = await import('../server/src/actions/index.ts');
+const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
+const { suivreVerdicts } = await import('../server/src/integrations/keystone-verdicts.ts');
+const { contexte, enregistrerAffectation, enregistrerChantier } = await import('../server/src/integrations/keystone-entrant.ts');
+const { champsRetenus } = await import('../server/src/journal.ts');
+const { donneesSalarie } = await import('../server/src/donnees.ts');
+const { Domain } = await import('../shared/domain.ts');
+const { EXAMEN_REQUIS } = await import('../shared/constants.ts');
+const { addMonths, parse } = await import('../shared/dates.ts');
+const { matricule } = await import('../shared/format.ts');
+const { appliquerReglages, ReglageInvalide } = await import('../shared/reglages.ts');
+const { relancesDues } = await import('../shared/rules/relances.ts');
+const { controlerAvis } = await import('../shared/rules/sante.ts');
+const { echeanceVisite, suiviDe } = await import('../shared/rules/suivi-medical.ts');
+type User = import('../shared/types.ts').CurrentUser;
+type Dataset = import('../shared/types.ts').Dataset;
+type Corps = Record<string, any>;
+
+const RH: User = { role: 'rh', empId: null, nom: 'Sandrine Vidal', intitule: 'Administrateur RH', profilRh: 'rh_admin' };
+const HSE: User = { role: 'rh', empId: null, nom: 'Sarah Cohen', intitule: 'Référente HSE', profilRh: 'referent_hse' };
+const LECTURE: User = { role: 'rh', empId: null, nom: 'Élodie Bernard', intitule: 'Lecture seule', profilRh: 'lecture_seule' };
+const KARIM: User = { role: 'manager', empId: 12, nom: 'Karim Haddad', intitule: 'Manager · Maintenance' };
+const MEHDI: User = { role: 'collaborateur', empId: 2, nom: 'Mehdi Benali', intitule: '' };
+
+// Mehdi Benali (2) : visite du 15 juin 2025, habilitation électrique (he) et travaux en hauteur délivrées.
+// Aïcha Diallo (7) : visite du 1er oct. 2025, aucune habilitation.
+function fresh() {
+  const db = new Db(':memory:');
+  seedDemo(db);
+  const run = (user: User, name: string, payload: Record<string, unknown>) => db.tx(() => {
+    const r = ACTIONS[name](makeCtx(db, user, loadFull(db, user)), payload);
+    if (changeVerdicts(name)) suivreVerdicts(db);
+    return typeof r === 'object' && r !== null ? r.message : r;
+  });
+  const domain = (ds: Dataset = loadFull(db, RH)) => new Domain(ds);
+  const emp = (id: number, ds?: Dataset) => domain(ds).enrich(90, false).find(e => e.id === id)!;
+  const echeance = (id: number) => { const d = domain(); return d.echeances(d.enrich(90, false), 90).find(x => x.kind === 'med' && x.emp.id === id); };
+  const regler = (p: Corps) => db.setSetting('app', { ...db.getSetting<Corps>('app', {}), ...p });
+  return { db, run, domain, emp, echeance, regler };
+}
+const refus = (re: RegExp, status = 400) => (e: unknown) => e instanceof ActionError && e.status === status && re.test(e.message);
+const jour = (d: Date | null) => d && `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+test('par défaut : 24 mois pour tous les types de suivi, comme avant (aucune échéance ne change)', () => {
+  const { db, emp, domain } = fresh();
+  assert.deepEqual([DEFAULT_SETTINGS.santeVipMois, DEFAULT_SETTINGS.santeVipAdapteeMois, DEFAULT_SETTINGS.santeSirIntermediaireMois, DEFAULT_SETTINGS.santeSirAptitudeMois], [24, 24, 24, 48]);
+  // Jeu de démonstration (aucune case SIR, aucun type saisi) : VIP, échéance à 24 mois de la visite pour chacun.
+  for (const e of domain().enrich(90, false).filter(x => x.visite)) {
+    assert.equal(e.med.suivi!.type, 'vip');
+    assert.equal(jour(e.med.exp), jour(addMonths(parse(e.visite!), 24)), e.nom);
+  }
+  // VIP adaptée et suivi renforcé saisis : toujours 24 mois (visite intermédiaire).
+  for (const suivi of ['vip_adapte', 'sir'] as const) {
+    db.update('employes', 7, { suivi });
+    assert.equal(jour(emp(7).med.exp), '2027-10-01', suivi);
+  }
+});
+
+test('périodicité tirée des réglages ; la prochaine visite fixée par le médecin prime toujours', () => {
+  const { db, emp, regler } = fresh();
+  regler({ santeVipMois: 48, santeVipAdapteeMois: 36 });
+  assert.equal(jour(emp(7).med.exp), '2029-10-01', 'VIP à 48 mois');
+  assert.equal(emp(7).med.text, 'Visite du 1 oct. 2025 · aptitude valide jusqu’au 1 oct. 2029');
+  db.update('employes', 7, { suivi: 'vip_adapte' });
+  assert.equal(jour(emp(7).med.exp), '2028-10-01', 'VIP adaptée à 36 mois');
+  assert.match(emp(7).med.text, /jusqu’au 1 oct\. 2028 \(périodicité VIP adaptée de 36 mois\)$/);
+  // Date fixée par le médecin : plus tôt ou plus tard que la périodicité, elle l'emporte.
+  db.update('employes', 7, { prochaineVisite: '2026-04-01' });
+  assert.equal(jour(emp(7).med.exp), '2026-04-01');
+  assert.equal(emp(7).med.ok, false, 'échue : visite fixée au 1er avril 2026 non faite');
+  assert.match(emp(7).med.text, /^Aptitude échue le 1 avr\. 2026 \(date fixée par le médecin du travail\)/);
+  db.update('employes', 7, { prochaineVisite: '2030-06-01' });
+  assert.equal(jour(emp(7).med.exp), '2030-06-01');
+});
+
+test('suivi renforcé déduit du référentiel (habilitation ou poste cochés SIR), prioritaire sur le type saisi', () => {
+  const { db, emp, domain } = fresh();
+  db.update('employes', 2, { suivi: 'vip_adapte' });
+  assert.equal(emp(2).med.suivi!.type, 'vip_adapte');
+  db.update('habilitations', 'he', { sir: true });
+  assert.deepEqual(emp(2).med.suivi, { type: 'sir', deduit: true, origines: ['Habilitation électrique'], saisi: 'vip_adapte' });
+  // Titre retiré, ou habilitation archivée : plus de suivi renforcé déduit.
+  const t = db.all<Corps>('habTitres').find(x => x.empId === 2 && x.h === 'he')!;
+  db.update('habTitres', t.id, { mesure: 'retrait' });
+  assert.equal(emp(2).med.suivi!.type, 'vip_adapte');
+  db.update('habTitres', t.id, { mesure: null });
+  db.update('habilitations', 'he', { archive: '2026-10-01' });
+  assert.equal(emp(2).med.suivi!.deduit, false);
+  // Poste coché « SIR » : tous ses titulaires.
+  const poste = db.insert<Corps>('postes', { nom: 'Électricien de maintenance', formations: [], habilitations: [], archive: null, sir: true });
+  db.update('employes', 7, { posteId: poste.id });
+  assert.deepEqual(suiviDe(domain().ds, emp(7)).origines, ['poste Électricien de maintenance']);
+});
+
+test('suivi renforcé : visite intermédiaire puis examen d’aptitude, alerte « examen d’aptitude requis » sans examen enregistré', () => {
+  const { db, emp, echeance, domain } = fresh();
+  db.update('employes', 7, { suivi: 'sir' });
+  // Aucun examen enregistré : l'aptitude reste valide mais passe « à renouveler », échéance à programmer.
+  assert.equal(emp(7).med.ok, true);
+  assert.equal(emp(7).med.examenRequis, true);
+  assert.equal(domain().medKey(emp(7).med, 90), 'due');
+  assert.match(emp(7).med.text, /examen d’aptitude requis \(suivi renforcé\)$/);
+  const x = echeance(7)!;
+  assert.deepEqual([x.label, x.statut, x.key, x.sansDate, x.d, x.action?.label], [EXAMEN_REQUIS, 'Examen requis', 'due', true, 0, 'Demander la visite']);
+  // Récapitulatif des échéances : relancé comme échu, sous une clé stable, jamais dans celui d'un manager (santé).
+  const d = domain(), r = relancesDues(d, d.enrich(90, false), [90, 30, 7]).find(y => y.cle === 'med:7:examen')!;
+  assert.deepEqual([r.palier, r.libelle, r.sante], ['echu', 'Examen médical d’aptitude à programmer', true]);
+
+  // Examen du 1er oct. 2025 : visite intermédiaire à 24 mois.
+  db.update('employes', 7, { examenAptitude: '2025-10-01' });
+  assert.deepEqual([emp(7).med.examenRequis, jour(emp(7).med.exp), emp(7).med.prochaine], [false, '2027-10-01', 'intermediaire']);
+  assert.equal(domain().medKey(emp(7).med, 90), 'ok');
+  // Visite intermédiaire faite le 1er oct. 2027 : l'examen d'aptitude revient 48 mois après le dernier examen.
+  assert.deepEqual(echeanceVisite({ examenAptitude: '2025-10-01' }, parse('2027-10-01'), 'sir', DEFAULT_SETTINGS),
+    { exp: parse('2029-10-01'), prochaine: 'aptitude' });
+  assert.deepEqual(echeanceVisite({ examenAptitude: '2025-10-01' }, parse('2027-10-01'), 'sir', { ...DEFAULT_SETTINGS, santeSirAptitudeMois: 36 }),
+    { exp: parse('2028-10-01'), prochaine: 'aptitude' });
+});
+
+test('avis du médecin : prochaine visite et examen d’aptitude enregistrés, contrôlés, remis à zéro par l’avis suivant', () => {
+  const { db, run, emp } = fresh();
+  const fiche = () => db.get<Corps>('employes', 7)!;
+  run(RH, 'medical.avis', { empId: 7, date: '2026-10-08', avis: 'apte', prochaineVisite: '2027-04-08', examen: true });
+  assert.deepEqual([fiche().visite, fiche().prochaineVisite, fiche().examenAptitude], ['2026-10-08', '2027-04-08', '2026-10-08']);
+  assert.equal(jour(emp(7).med.exp), '2027-04-08');
+  // Visite suivante sans date fixée ni examen : périodicité, dernier examen conservé.
+  run(RH, 'medical.avis', { empId: 7, date: '2026-10-09', avis: 'apte' });
+  assert.deepEqual([fiche().prochaineVisite, fiche().examenAptitude], [null, '2026-10-08']);
+  const avis = (p: Corps) => () => run(RH, 'medical.avis', { empId: 7, date: '2026-10-08', avis: 'apte', ...p });
+  assert.throws(avis({ prochaineVisite: '2026-10-08' }), refus(/doit suivre la visite/));
+  assert.throws(avis({ prochaineVisite: '2031-10-09' }), refus(/plus de 5 ans après la visite \(au plus tard le 8 oct\. 2031\)/));
+  assert.throws(avis({ prochaineVisite: '2027-02-30' }), refus(/prochaine visite invalide/));
+  // Avis d'inaptitude : aucune prochaine visite retenue.
+  assert.equal(controlerAvis({ date: '2026-10-08', avis: 'inapte', prochaineVisite: '2027-01-01' }, '2026-10-10').avis.prochaineVisite, null);
+});
+
+test('type de suivi saisi sur la fiche : service RH seul, liste fermée ; vide : VIP par défaut', () => {
+  const { db, run } = fresh();
+  assert.match(String(run(RH, 'medical.suivi', { empId: 7, suivi: 'vip_adapte' })), /Type de suivi médical enregistré — Aïcha Diallo · VIP adaptée/);
+  assert.equal(db.get<Corps>('employes', 7)!.suivi, 'vip_adapte');
+  assert.match(String(run(RH, 'medical.suivi', { empId: 7, suivi: 'vip_adapte' })), /inchangé/);
+  run(RH, 'medical.suivi', { empId: 7, suivi: '' });
+  assert.equal(db.get<Corps>('employes', 7)!.suivi, null);
+  assert.throws(() => run(RH, 'medical.suivi', { empId: 7, suivi: 'renforce' }), refus(/Type de suivi inconnu/));
+  assert.throws(() => run(KARIM, 'medical.suivi', { empId: 2, suivi: 'sir' }), refus(/service RH/, 403));
+  assert.throws(() => run(HSE, 'medical.suivi', { empId: 2, suivi: 'sir' }), refus(/service RH/, 403));
+});
+
+test('confidentialité : ni le manager ni les profils restreints ne reçoivent le suivi ; l’intéressé et l’export RGPD, oui ; le journal, jamais', () => {
+  const { db, run } = fresh();
+  run(RH, 'medical.suivi', { empId: 2, suivi: 'sir' });
+  run(RH, 'medical.avis', { empId: 2, date: '2026-10-08', avis: 'apte', prochaineVisite: '2028-10-08', examen: true });
+  const champs = (e: Corps) => [e.suivi ?? null, e.prochaineVisite ?? null, e.examenAptitude ?? null];
+  for (const u of [KARIM, HSE, LECTURE]) {
+    const m = buildSnapshot(db, u).employes.find(e => e.id === 2)!;
+    assert.deepEqual(champs(m), [null, null, null], u.nom);
+    assert.equal(m.aptitude?.ok ?? true, true, `${u.nom} : verdict seul`);
+    assert.equal(new Domain(buildSnapshot(db, u)).medInfo(m).suivi ?? null, null);
+  }
+  assert.deepEqual(champs(buildSnapshot(db, MEHDI).employes.find(e => e.id === 2)!), ['sir', '2028-10-08', '2026-10-08']);
+  assert.deepEqual(champs(buildSnapshot(db, RH).employes.find(e => e.id === 2)!), ['sir', '2028-10-08', '2026-10-08']);
+  // Droit d'accès (RGPD) : la fiche exportée contient le suivi médical.
+  assert.deepEqual(champs(donneesSalarie(db, 2, { journal: false, par: 'test' })!.sections.Fiche as Corps), ['sir', '2028-10-08', '2026-10-08']);
+  // Journal : identifiant seul pour le type de suivi ; ni prochaine visite ni examen pour l'avis.
+  assert.deepEqual(champsRetenus('medical.suivi', { empId: 2, suivi: 'sir' }), { empId: 2 });
+  assert.deepEqual(champsRetenus('medical.avis', { empId: 2, date: '2026-10-08', avis: 'apte', prochaineVisite: '2028-10-08', examen: true }), { empId: 2, date: '2026-10-08' });
+});
+
+test('Go / No Go : prochaine visite fixée par le médecin dépassée → réserve APTITUDE, verdict seul non valide', () => {
+  const { db, run, domain } = fresh();
+  db.tx(() => {
+    enregistrerChantier(contexte(db), 'K-S1', { nom: 'Inventaire', lieu: 'Lyon', pays: 'FR', debut: '2026-11-03', fin: '2026-11-05' });
+    enregistrerAffectation(contexte(db), 'AF-S1', { matricule: matricule(7), chantier: 'K-S1', du: '2026-11-03', au: '2026-11-05' });
+    suivreVerdicts(db);
+  });
+  const motifs = () => {
+    const d = domain();
+    return d.evaluateChantiers(d.enrich(90, false), d.tripsAll()).find(x => x.c.id === 'K-S1')!.res.find(r => r.e.id === 7)!.reasons.map(r => `${r.code}:${r.level}`);
+  };
+  assert.deepEqual(motifs(), []);
+  run(RH, 'medical.avis', { empId: 7, date: '2025-10-01', avis: 'apte', prochaineVisite: '2026-10-01' });
+  assert.deepEqual(motifs(), ['APTITUDE:reserve']);
+  assert.equal(buildSnapshot(db, HSE).employes.find(e => e.id === 7)!.aptitude!.ok, false, 'verdict seul : aptitude non valide');
+  // Suivi renforcé sans examen : alerte seulement, aucun motif Go / No Go (le verdict du manager reste valide).
+  run(RH, 'medical.avis', { empId: 7, date: '2026-10-01', avis: 'apte' });
+  run(RH, 'medical.suivi', { empId: 7, suivi: 'sir' });
+  assert.deepEqual(motifs(), []);
+});
+
+test('référentiels : case « suivi individuel renforcé » des habilitations et des postes, décochée par défaut, tracée', () => {
+  const { db, run } = fresh();
+  assert.ok(db.all<Corps>('habilitations').every(h => h.sir === false), 'référentiel type : aucune case cochée');
+  const hab = db.get<Corps>('habilitations', 'he')!;
+  run(RH, 'referentiel.habilitation.enregistrer', { id: 'he', nom: hab.nom, detail: hab.detail, prereqs: hab.prereqs, medical: true, validite: hab.validite, signataire: hab.signataire, sir: true });
+  assert.equal(db.get<Corps>('habilitations', 'he')!.sir, true);
+  run(RH, 'referentiel.poste.enregistrer', { nom: 'Opérateur de conditionnement', formations: [], habilitations: [], sir: true });
+  assert.equal(db.all<Corps>('postes').find(p => p.nom === 'Opérateur de conditionnement')!.sir, true);
+  run(RH, 'referentiel.poste.enregistrer', { nom: 'Agent de pesée', formations: [], habilitations: [] });
+  assert.equal(db.all<Corps>('postes').find(p => p.nom === 'Agent de pesée')!.sir, false);
+});
+
+test('réglages Santé : bornes légales, visite intermédiaire avant l’examen d’aptitude', () => {
+  const maj = (p: Corps) => appliquerReglages(DEFAULT_SETTINGS, p);
+  assert.equal(maj({ santeVipMois: 72 }).santeVipMois, 60, 'VIP : 5 ans au plus');
+  assert.equal(maj({ santeVipMois: 6 }).santeVipMois, 12);
+  assert.equal(maj({ santeVipAdapteeMois: 48 }).santeVipAdapteeMois, 36, 'VIP adaptée : 3 ans au plus');
+  assert.equal(maj({ santeSirIntermediaireMois: 36 }).santeSirIntermediaireMois, 24, 'visite intermédiaire : 2 ans au plus');
+  assert.equal(maj({ santeSirAptitudeMois: 60 }).santeSirAptitudeMois, 48, 'examen d’aptitude : 4 ans au plus');
+  assert.throws(() => maj({ santeSirIntermediaireMois: 24, santeSirAptitudeMois: 12 }), (e: unknown) => e instanceof ReglageInvalide && /visite intermédiaire/.test(e.message));
+});

@@ -8,7 +8,7 @@ import { cap, equipeLabel, fmt, fmtShort, plural, rel } from '../../../shared/fo
 import { exigencesEquipe, nombreExigences } from '../../../shared/rules/exigences.ts';
 import { declarationDetail, retireeAuRefus, valeurActuelle } from '../../../shared/rules/formalites.ts';
 import type { DemandeCollab, Session } from '../../../shared/types.ts';
-import { Bar, DateBlock, Kpi, Kpis, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
+import { Bar, DateBlock, Empty, Kpi, Kpis, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
 import { Ouvrir } from '../components/Cliquable.tsx';
 import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derived.ts';
 import { useAgir } from '../state/actions.ts';
@@ -182,14 +182,17 @@ export function Dashboard() {
 
         <Panel style={{ flex: '1 1 560px' }} title="Échéances prioritaires"
           aside={<a href="/echeances" className="link-more" onClick={e => { e.preventDefault(); go('echeances'); }}>Toutes les échéances →</a>}>
-          <table className="table">
-            <thead><tr><th>Collaborateur</th><th>Élément</th><th>Échéance</th><th>Statut</th><th></th></tr></thead>
-            <tbody>
-              {v.priority.map(x => (
-                <EchRow key={`${x.kind}-${x.emp.id}-${x.label}`} x={x} onOpen={() => openEmp(x.emp.id)} onAct={() => x.action && runIntent(x.action.intent)} />
-              ))}
-            </tbody>
-          </table>
+          {/* Liste vide (base neuve, tout à jour) : un message plutôt qu'un tableau sans ligne. */}
+          {v.priority.length === 0 ? <Empty pad="md">Aucune échéance dans les {horizon} jours.</Empty> : (
+            <table className="table">
+              <thead><tr><th>Collaborateur</th><th>Élément</th><th>Échéance</th><th>Statut</th><th></th></tr></thead>
+              <tbody>
+                {v.priority.map(x => (
+                  <EchRow key={`${x.kind}-${x.emp.id}-${x.label}`} x={x} onOpen={() => openEmp(x.emp.id)} onAct={() => x.action && runIntent(x.action.intent)} />
+                ))}
+              </tbody>
+            </table>
+          )}
         </Panel>
 
         <div className="col-stack" style={{ flex: '1 1 320px' }}>
@@ -211,6 +214,7 @@ export function Dashboard() {
           )}
 
           <Panel title="Conformité par équipe" style={{ gap: 'var(--space-4)' }}>
+            {v.teams.length === 0 && <Empty>Aucune équipe.</Empty>}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
               {v.teams.map(t => (
                 <div key={t.nom} style={{ display: 'grid', gridTemplateColumns: '124px minmax(0, 1fr) 48px', alignItems: 'center', gap: 'var(--space-3)', fontSize: 13 }}>
@@ -223,6 +227,7 @@ export function Dashboard() {
           </Panel>
 
           <Panel title="Prochaines sessions" aside={<a href="/formations" className="link-more" onClick={e => { e.preventDefault(); go('formations'); }}>Toutes →</a>}>
+            {upcoming.length === 0 && <Empty>Aucune session à venir.</Empty>}
             <div className="list">
               {upcoming.slice(0, 3).map(s => {
                 const sv = sessionView(d, s, d.fm(s.formation).court);
@@ -242,6 +247,7 @@ export function Dashboard() {
 
           {/* Dossiers de voyage (passeport, visas, vaccinations) : service RH seulement. */}
           {rh && <Panel title="Déplacements à préparer" aside={<a href="/voyages" className="link-more" onClick={e => { e.preventDefault(); go('voyages'); }}>Tous →</a>}>
+            {trips.length === 0 && <Empty>Aucun déplacement à préparer.</Empty>}
             <div className="list">
               {trips.slice(0, 3).map(t => (
                 <div key={t.id} className="list-row clickable" onClick={() => go('voyages', { tripSel: t.id })}>

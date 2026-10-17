@@ -273,6 +273,11 @@ export interface Voyage {
    * réservé au service RH). Annulé, le déplacement reste dans l'historique mais sort de tous les calculs.
    */
   annuleLe?: ISODate | null; annulePar?: string | null; annuleMotif?: string | null;
+  /**
+   * Demandeur d'un déplacement importé du formulaire (`voyages.importer`) : nom du salarié reconnu, sinon le nom tel que
+   * saisi (texte libre). Service RH seulement (null ailleurs : server/src/dataset.ts).
+   */
+  demandeur?: string | null;
 }
 /** Demande de déplacement reçue de Keystone (`ref` : référence externe unique), conservée après décision du RH. */
 export interface DemandeKeystone {
@@ -637,6 +642,11 @@ export interface FormatFichierPaie {
 /** Instantané des données visibles par l'utilisateur connecté. */
 export interface Dataset {
   today: ISODate;
+  /**
+   * Révision de la base au moment de l'instantané (croissante, server/src/db.ts) : un instantané de révision inférieure à
+   * celle de l'écran est ignoré (réponses arrivées dans le désordre : client/src/state/revision.ts). Aucune donnée personnelle.
+   */
+  revision: number;
   user: CurrentUser;
   settings: Settings;
   referentiels: Referentiels;

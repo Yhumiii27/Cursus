@@ -66,7 +66,9 @@ export const TABLES = {
     pk: 'id', auto: true,
     cols: { id: 'int', empId: 'int', dest: 'text', depart: 'text', retour: 'text', motif: 'text', origine: 'text', ref: 'text', chantier: 'text', detachementLe: 'text', informationLe: 'text',
       // Annulation (`voyage.annuler`) : le déplacement reste dans l'historique, hors de tous les calculs.
-      annuleLe: 'text', annulePar: 'text', annuleMotif: 'text' },
+      annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+      // Demandeur d'un déplacement importé du formulaire (nom du salarié reconnu, ou tel que saisi).
+      demandeur: 'text' },
   },
   // Références Keystone (`ref`) uniques : index créés au démarrage (server/src/integrations/keystone-entrant.ts).
   demandesKeystone: {
@@ -250,6 +252,15 @@ export class Db {
   /** Base sans aucune table de Cursus à l'ouverture, créée à l'instant : les migrations nommées s'y appliquent sans copie. */
   readonly neuve: boolean;
   private depth = 0;
+  /**
+   * Révision de la base, renvoyée dans chaque instantané (`Dataset.revision`) : augmentée à chaque transaction d'écriture
+   * validée (`tx`). Le client ignore un instantané de révision inférieure à celle qu'il affiche : la réponse d'une action
+   * traitée avant une autre, arrivée après elle, ne réaffiche pas un état ancien (client/src/state/revision.ts). Partie de
+   * l'heure (millisecondes) et jamais en deçà, elle croît aussi d'un démarrage à l'autre, restauration comprise, sans être
+   * écrite dans la base.
+   */
+  private rev = Date.now();
+  get revision(): number { return this.rev; }
 
   constructor(file: string) {
     if (file !== ':memory:') {
@@ -371,6 +382,7 @@ export class Db {
     try {
       const r = fn();
       this.sql.exec('COMMIT');
+      this.rev = Math.max(this.rev + 1, Date.now());
       return r;
     } catch (err) {
       this.sql.exec('ROLLBACK');

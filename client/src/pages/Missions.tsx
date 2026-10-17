@@ -80,7 +80,7 @@ export function Missions() {
           <span><span style={{ ...swatch, background: ferieBg('--color-neutral-700') }} />Férié</span>
         </div>
       }>
-        <div className="scroll-x">
+        {v.grid.length === 0 ? <Empty>Personne en mission ni absent sur les 4 semaines.</Empty> : <div className="scroll-x">
           <div style={{ minWidth: 720, display: 'flex', flexDirection: 'column', gap: 4 }}>
             <div style={{ display: 'grid', gridTemplateColumns: GRID_COLS, gap: 3, alignItems: 'end' }}>
               <span />
@@ -98,11 +98,11 @@ export function Missions() {
               </div>
             ))}
           </div>
-        </div>
+        </div>}
       </Panel>
 
       <Panel title="Missions en cours et à venir">
-        <div className="scroll-x">
+        {v.rows.length === 0 ? <Empty>Aucune mission en cours ou à venir.</Empty> : <div className="scroll-x">
           <table className="table">
             <thead><tr><th>Collaborateur</th><th>Projet Keystone</th><th>Lieu</th><th>Dates</th><th>Statut</th></tr></thead>
             <tbody>
@@ -117,7 +117,7 @@ export function Missions() {
               ))}
             </tbody>
           </table>
-        </div>
+        </div>}
       </Panel>
     </Page>
   );

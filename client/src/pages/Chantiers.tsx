@@ -21,8 +21,9 @@ export function Chantiers() {
   const sel = chant.find(x => x.c.id === ui.goSel) || chant[0] || null;
   // Écran étroit : le détail s'affiche sous les cartes ; choisir un chantier l'amène dans le champ de vision.
   const panneau = usePanneauVisible<HTMLElement>(ui.goSel && sel?.c.id === ui.goSel ? ui.goSel : null);
-  // Réponse de l'API v1 (GET /api/integrations/keystone/v1/chantiers/:id/go-no-go).
-  const payload = useMemo(() => sel ? JSON.stringify(d.verdictKeystone(sel, detail), null, 2) : '', [d, sel, detail]);
+  // Réponse de l'API v1 (GET /api/integrations/keystone/v1/chantiers/:id/go-no-go), horodatée comme elle à l'heure réelle
+  // (ISO UTC), recalculée à chaque affichage : jamais une heure fictive.
+  const payload = sel ? JSON.stringify(d.verdictKeystone(sel, detail, new Date().toISOString()), null, 2) : '';
   const gngCount = (st: GngStatus) => chant.filter(x => x.status === st).length;
   // Client et chef de projet sont facultatifs dans l'API Keystone : seuls ceux renseignés s'affichent.
   const entete = sel ? cap([sel.c.client && `client ${sel.c.client}`, sel.c.chef && `chef de projet ${sel.c.chef}`].filter(Boolean).join(' · ')) : '';
@@ -87,6 +88,7 @@ export function Chantiers() {
 
           <Panel style={{ flex: '1 1 360px' }} title="Réponse transmise à Keystone" aside={detail ? 'Codes et libellés des motifs' : 'Codes de motifs uniquement'}>
             <Pre>{payload}</Pre>
+            <Fine>Horodatage (« evalue_le », heure UTC) : celui du moment de la consultation, comme dans la réponse faite à Keystone.</Fine>
             <Fine>Identifiant : matricule uniquement. Réévalué à chaque consultation. Un changement de verdict d’une ressource (statut ou codes de motif, jamais de libellé) est poussé à Keystone après l’action qui le provoque, après une mise à jour reçue de Keystone et chaque jour (expirations) — suivi dans Paramètres → Envois. Niveau de détail réglable dans les paramètres.</Fine>
           </Panel>
         </div>

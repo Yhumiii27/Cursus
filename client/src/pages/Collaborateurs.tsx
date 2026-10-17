@@ -18,7 +18,7 @@ import { Aptitude } from '../components/Aptitude.tsx';
 import { ExigencesCellule, ExigencesFiche, ExigencesMotif } from '../components/Exigences.tsx';
 import { SortieFiche } from '../components/Sortie.tsx';
 import { ContratFiche } from '../components/ContratFiche.tsx';
-import { downloadCsv, printDocument } from '../print.ts';
+import { downloadCsv, matriculesImprimes, printDocument } from '../print.ts';
 import { csvAnnuaire } from '../listes-csv.ts';
 import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derived.ts';
 import { desinscription, retraitEquipe } from '../state/confirmations.ts';
@@ -285,7 +285,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
       ...(e.anciennes.length ? [{ title: 'Certifications remplacées', table: { head: ['Formation', 'Obtenue le', 'Expirait le', 'Remplacée le'], rows: e.anciennes.map(c => [c.fm.nom, fmt(c.obt), fmt(c.exp), fmt(c.remplacee!)]) } }] : []),
       // Le motif d'une suspension ou d'un retrait n'est pas imprimé : seuls l'état et sa date figurent au passeport.
       ...(e.habs.length ? [{ title: 'Habilitations', table: { head: ['Habilitation', 'Délivrée le', 'Par', 'Expire le', 'Statut'], rows: e.habs.map(h => [h.hm.nom, h.delivree ? fmt(parse(h.delivree)) : '—', h.par ?? '—', h.exp ? fmt(h.exp) : '—', HAB_LABEL[h.key] + (h.mesureLe ? ` le ${fmt(h.mesureLe)}` : '')]) } }] : []),
-    ], e.id);
+    ], e.id, matriculesImprimes(e));
     if (!ok) notify('Autorisez les fenêtres surgissantes pour imprimer le passeport formation', true);
   };
 

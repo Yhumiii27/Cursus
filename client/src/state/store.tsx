@@ -20,6 +20,7 @@ import { AppelsEnCours, cleAction } from './actions.ts';
 import type { Confirmation } from './confirmations.ts';
 import { demandeHabilitation } from './confirmations-referentiels.ts';
 import { effacerBrouillon, lireBrouillon, sauverBrouillon, type Champs } from './brouillon.ts';
+import { instantanePerime } from './revision.ts';
 
 export type View = (typeof ALLOWED_VIEWS)[Role][number] | (typeof VUES_COMMUNES)[number];
 
@@ -297,8 +298,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [reinitialiser, setSession, setData, notify]);
 
-  /** Instantané renvoyé par le serveur ; s'il est d'un autre espace, l'onglet suit la session. */
+  /**
+   * Instantané renvoyé par le serveur ; s'il est d'un autre espace, l'onglet suit la session. Plus ancien que celui
+   * affiché (réponse d'une action traitée avant une autre, arrivée après elle) : ignoré (state/revision.ts).
+   */
   const recevoir = useCallback((d: Dataset) => {
+    if (instantanePerime(d, dataRef.current)) return;
     const s = sessionRef.current;
     if (!s || d.user.role === s.role) { setData(d); return; }
     suivre();

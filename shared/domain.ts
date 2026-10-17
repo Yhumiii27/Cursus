@@ -594,7 +594,7 @@ export class Domain {
   }
 
   originLabel(t: Voyage): string {
-    return t.origine === 'keystone' ? `Initié par Keystone · chantier ${t.chantier}` : t.origine === 'formulaire' ? `Formulaire de demande ${t.ref}` : 'Créé dans Cursus';
+    return t.origine === 'keystone' ? `Initié par Keystone · chantier ${t.chantier}` : t.origine === 'formulaire' ? `Formulaire de demande${t.ref ? ` ${t.ref}` : ''}` : 'Créé dans Cursus';
   }
 
   // — Échéances —
@@ -780,9 +780,9 @@ export class Domain {
 
   /**
    * Ancienne réponse (route obsolète, sans /v1) : motifs en codes simples, ou en objets en mode détaillé.
-   * La réponse de l'API v1 est `verdictKeystone`.
+   * La réponse de l'API v1 est `verdictKeystone`. `evalueLe` : horodatage réel de la réponse (ISO UTC), sans valeur par défaut.
    */
-  keystonePayload(ch: ChantierEval, detail: boolean, evalueLe = `${this.ti}T07:00:00+02:00`) {
+  keystonePayload(ch: ChantierEval, detail: boolean, evalueLe: string) {
     return {
       chantier: ch.c.id, evalue_le: evalueLe, statut: GNG_CODE[ch.status],
       ressources: ch.res.map(r => ({
@@ -794,9 +794,10 @@ export class Domain {
 
   /**
    * Verdict de l'API Keystone v1 : matricules et codes de motif normalisés. Chaque motif est un objet
-   * (`code`, `niveau`) ; le libellé n'est ajouté qu'en mode détaillé, jamais une donnée de santé.
+   * (`code`, `niveau`) ; le libellé n'est ajouté qu'en mode détaillé, jamais une donnée de santé. `evalueLe` : horodatage
+   * réel de l'évaluation (ISO UTC, `new Date().toISOString()`), obligatoire : une heure fictive ne doit plus apparaître.
    */
-  verdictKeystone(ch: ChantierEval, detail: boolean, evalueLe = `${this.ti}T07:00:00+02:00`) {
+  verdictKeystone(ch: ChantierEval, detail: boolean, evalueLe: string) {
     return {
       chantier: ch.c.id, evalue_le: evalueLe, statut: GNG_CODE[ch.status],
       ressources: ch.res.map(r => ({

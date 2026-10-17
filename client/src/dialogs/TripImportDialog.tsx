@@ -61,7 +61,7 @@ export function TripImportDialog() {
           <Btn small onClick={() => { setTexte(SAMPLE_TRIPS_CSV); setFichier('export-demandes-deplacement.csv'); }}>Charger un exemple</Btn>
           {fichier && <span className="note-accent">Fichier chargé : {fichier}</span>}
         </div>
-        <span className="text-muted sub">Colonnes : référence ; collaborateur ; destination ; départ ; retour ; motif ; demandeur. Dates JJ/MM/AAAA ou AAAA-MM-JJ. Les références déjà importées sont ignorées.</span>
+        <span className="text-muted sub">Colonnes : référence ; collaborateur ; destination ; départ ; retour ; motif ; demandeur. Dates JJ/MM/AAAA ou AAAA-MM-JJ. Les références déjà importées sont ignorées ; sans référence, le déplacement reçoit « DD- » suivi de son numéro dans Cursus (DD-12, par exemple).</span>
       </Field>
       <Field label="Ou coller le contenu" htmlFor="ti-text" erreur={v.erreur(texteErr)}>
         <textarea className="input mono-input" id="ti-text" rows={4} value={texte} onChange={e => { setTexte(e.target.value); setFichier(''); }}
@@ -74,7 +74,7 @@ export function TripImportDialog() {
             <span className="text-muted sub">{plural(rows.length, 'demande', 'demandes')} · {ok} valides · {rows.length - ok} ignorées</span>
           </div>
           <table className="table" style={{ fontSize: 13 }}>
-            <thead><tr><th>Réf.</th><th>Collaborateur</th><th>Destination</th><th>Dates</th><th>Contrôle</th></tr></thead>
+            <thead><tr><th>Réf.</th><th>Collaborateur</th><th>Destination</th><th>Dates</th><th>Demandeur</th><th>Contrôle</th></tr></thead>
             <tbody>
               {rows.map(r => (
                 <tr key={r.n} style={r.ok ? undefined : { opacity: 0.55 }}>
@@ -82,6 +82,8 @@ export function TripImportDialog() {
                   <td className="nowrap">{r.nomLabel}</td>
                   <td>{r.destLabel}</td>
                   <td className="nowrap">{r.dates}</td>
+                  {/* Demandeur reconnu parmi les salariés, sinon gardé tel que saisi. */}
+                  <td>{r.demandeur ?? '—'}{r.demandeur && !r.demandeurConnu ? <span className="text-muted sub"> · hors annuaire</span> : null}</td>
                   {/* Motif du refus en clair (conflit de dates, doublon…) : il peut être long, il passe à la ligne. */}
                   <td>{r.ok ? <Tag cls={r.cls}>{r.ctrl}</Tag> : <span className="note-accent">{r.errs.join(' · ')}</span>}</td>
                 </tr>

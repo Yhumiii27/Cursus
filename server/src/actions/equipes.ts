@@ -6,6 +6,7 @@ import { contratFige } from '../../../shared/rules/temps.ts';
 import { matriculesPris } from '../../../shared/rules/matricules.ts';
 import { adressesPrises } from '../../../shared/rules/messagerie.ts';
 import { posteDe } from '../../../shared/rules/exigences.ts';
+import { champsEnConflit, messageConflit } from '../../../shared/rules/fiche-concurrente.ts';
 import { MANAGER_FIELDS, PROFIL_FIELDS, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
 import type { Employe, Equipe, FeuilleTemps } from '../../../shared/types.ts';
 import { rattacherPoste } from './referentiels.ts';
@@ -49,6 +50,16 @@ function checkManager(ctx: Ctx, id: unknown): Employe {
   return m;
 }
 
+/** Actions du journal qui modifient une fiche : la dernière nomme l'auteur d'une modification concurrente. */
+const ACTIONS_FICHE = ['employe.modifier', 'equipe.affecter', 'employe.sortie', 'employe.annulerSortie', 'employe.autorisationTravail', 'medical.avis'];
+
+/** Nom de la dernière personne qui a modifié la fiche, d'après le journal (null : aucune trace). */
+function dernierAuteurFiche(ctx: Ctx, empId: number): string | null {
+  const r = ctx.db.sql.prepare(`SELECT actor FROM journal WHERE action IN (${ACTIONS_FICHE.map(() => '?').join(', ')})
+    AND EXISTS (SELECT 1 FROM json_each(journal.salaries) WHERE value = ?) ORDER BY id DESC LIMIT 1`).get(...ACTIONS_FICHE, empId) as { actor: string | null } | undefined;
+  return r?.actor ?? null;
+}
+
 const REGIME: (keyof ProfilInput)[] = ['temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'statut', 'typeContrat'];
 
 /** Colonnes de la table employes pour une fiche validée. */
@@ -75,9 +86,15 @@ const modifier: ActionHandler = (ctx, p) => {
   else if (isManagerOf(ctx, emp)) fields = MANAGER_FIELDS;
   else throw new ActionError('Fiche réservée au service RH ou au manager du collaborateur', 403);
   // `confirmerRtt` : confirmation d'un changement de régime qui ferme le compteur de RTT de l'année (garde-fou ci-dessous).
-  const patch = Object.keys(p).filter(k => k !== 'id' && k !== 'reutiliserMatricule' && k !== 'confirmerRtt') as (keyof ProfilInput)[];
+  // `avant` : valeurs d'origine des champs envoyés (modification concurrente, ci-dessous).
+  const patch = Object.keys(p).filter(k => k !== 'id' && k !== 'reutiliserMatricule' && k !== 'confirmerRtt' && k !== 'avant') as (keyof ProfilInput)[];
   const refused = patch.filter(k => !fields.includes(k));
   if (refused.length) throw new ActionError(`Champs réservés au service RH : ${refused.join(', ')}`, 403);
+  // Modification concurrente : un champ dont la valeur d'origine (celle de l'ouverture du dialogue) n'est plus celle de la
+  // fiche a été modifié entre-temps par quelqu'un d'autre ; rien n'est enregistré (412, distinct du 409 du changement
+  // d'espace). Sans `avant` (import, ancien écran), aucun contrôle.
+  const conflit = champsEnConflit(p.avant, cur);
+  if (conflit.length) throw new ActionError(messageConflit(conflit, dernierAuteurFiche(ctx, emp.id)), 412);
   if (!isRh(ctx) && patch.includes('jourOff') && cur.temps !== 'partiel') throw new ActionError('Les jours non travaillés ne concernent que le temps partiel');
   const next = { ...cur } as Record<string, unknown>;
   patch.forEach(k => { next[k] = p[k]; });

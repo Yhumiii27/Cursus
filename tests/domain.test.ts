@@ -70,8 +70,11 @@ test('formalités de voyage', () => {
 test('Go / No Go Keystone', () => {
   const ch = d.evaluateChantiers(emps, d.tripsAll()).find(x => x.c.id === 'K-2614')!;
   assert.equal(ch.status, 'nogo');
-  const payload = d.keystonePayload(ch, false);
+  const payload = d.keystonePayload(ch, false, '2026-10-10T05:00:00.000Z');
   assert.equal(payload.statut, 'NO_GO');
+  // Horodatage réel transmis tel quel (paramètre obligatoire : plus d'heure fictive « 07:00+02:00 »).
+  assert.equal(payload.evalue_le, '2026-10-10T05:00:00.000Z');
+  assert.equal(d.verdictKeystone(ch, false, '2026-10-10T05:00:00.000Z').evalue_le, '2026-10-10T05:00:00.000Z');
   assert.ok(payload.ressources.every(r => /^EMP-\d{4}$/.test(r.matricule)));
   assert.ok(payload.ressources.every(r => r.motifs.every(m => typeof m === 'string')), 'codes de motif uniquement');
 });

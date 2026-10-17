@@ -7,6 +7,7 @@ import { INDEX_ENVOIS, INDEX_JOURNAL, INDEX_KEYSTONE } from './exploitation.ts';
 import { SOLDES_DATES } from './reprise.ts';
 import { HEURES_SUP, LOTS_HISTORIQUES } from './paie.ts';
 import { POSTES } from './referentiels.ts';
+import { REFERENCES_DEPLACEMENTS } from './voyages.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   INDEX_JOURNAL,
@@ -17,4 +18,5 @@ export const MIGRATIONS: readonly Migration[] = [
   COUT_REEL,
   POSTES,
   LOTS_HISTORIQUES,
+  REFERENCES_DEPLACEMENTS,
 ];

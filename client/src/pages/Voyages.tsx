@@ -230,6 +230,7 @@ function TripPanel({ panneau, t, onClose, onOpenEmp }: { panneau: RefObject<HTML
         <Tag cls={TRIP_CLS[r.status]}>{TRIP_LABEL[r.status]}</Tag>
         <span className="text-muted sub">{fmt(r.dep)} → {fmt(r.ret)} · départ {rel(r.toGo)}</span>
         <span className="note-accent">{d.originLabel(t)}</span>
+        {t.demandeur && <span className="text-muted sub">Demandé par {t.demandeur}</span>}
       </div>
       <div className="list">
         {r.items.map(i => (

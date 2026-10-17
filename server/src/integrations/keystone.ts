@@ -71,6 +71,8 @@ export function heuresKeystone(lignes: LigneTemps[]): Record<string, number> {
 /**
  * Absence validée ou annulée : période seulement, jamais sa nature (congé, maladie…), sans utilité pour la planification.
  * `identifiant` : celui du salarié selon le réglage « identifiant envoyé à Keystone » (shared/rules/matricules.ts).
+ * Demi-journée de congé au premier ou au dernier jour : la journée entière part comme indisponible (`du`, `au` inclus) ;
+ * le contrat de l'événement ne connaît pas la demi-journée (docs/API-KEYSTONE.md) et ne change pas.
  */
 export function absenceKeystone(type: 'absence.validee' | 'absence.annulee', a: Pick<Absence, 'id' | 'empId' | 'du' | 'au'>, identifiant = matricule(a.empId)): KeystoneEvent {
   return { type, absence: a.id, matricule: identifiant, du: a.du, au: a.au };

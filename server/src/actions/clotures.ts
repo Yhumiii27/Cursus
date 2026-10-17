@@ -9,7 +9,7 @@
 // (`recrediterPeriodesCloses`).
 import { Domain } from '../../../shared/domain.ts';
 import { fJ, fmtIso, plural } from '../../../shared/format.ts';
-import { periodeTexte } from '../../../shared/rules/absences.ts';
+import { periodeDemiTexte } from '../../../shared/rules/demi-journees.ts';
 import { echeanceReport, lignesClotureCp, lignesClotureRtt, type LigneClotureCp } from '../../../shared/rules/clotures.ts';
 import { anneeCp, finPeriodeCp, periodeCp, soldePeriode } from '../../../shared/rules/conges.ts';
 import type { Absence, ClotureConges, Employe, ReportCp } from '../../../shared/types.ts';
@@ -26,7 +26,7 @@ function decisions(p: Record<string, any>): Map<number, Decision> {
 }
 
 /** Demandes en attente nommées dans un message : « du 24 mai au 28 mai 2027, le 2 juin 2027 ». */
-export const demandesTexte = (attente: Pick<Absence, 'du' | 'au'>[]) => attente.map(a => periodeTexte(a.du, a.au)).join(', ');
+export const demandesTexte = (attente: Pick<Absence, 'du' | 'au' | 'debutDemi' | 'finDemi'>[]) => attente.map(periodeDemiTexte).join(', ');
 
 const egal = (a: number, b: number) => Math.abs(a - b) < 1e-9;
 

@@ -10,6 +10,7 @@ import { addD, addMonths, days, isFerie, iso, parse, weekday } from './dates.ts'
 import { cap, fmt, fmtShort } from './format.ts';
 import { absenceActive, absenceBloque, borneContrat, periodeTexte } from './rules/absences.ts';
 import { actifs, habSuivie } from './rules/referentiels.ts';
+import { poidsDuJour, type DemiJournees } from './rules/demi-journees.ts';
 import { echeanceExigence, exigencesManquantes, type ExigenceManquante } from './rules/exigences.ts';
 import { identifiantKeystone } from './rules/matricules.ts';
 import { echeancesContrat, etatAutorisation, present, SITUATION_A_REGULARISER } from './rules/contrats.ts';
@@ -251,22 +252,26 @@ export class Domain {
   /**
    * Jours décomptés : week-ends et fériés exclus. Hors CP, les jours non travaillés du temps partiel
    * sont exclus ; pour les CP, ils le sont aussi en tête de période (le décompte part du premier jour
-   * où le salarié aurait dû travailler), puis comptent comme jours ouvrés.
+   * où le salarié aurait dû travailler), puis comptent comme jours ouvrés. `demi` : demi-journées du premier et du
+   * dernier jour (CP, RTT, récupération), qui comptent 0,5 (shared/rules/demi-journees.ts).
    */
-  countDays(e: Employe, du: ISODate, au: ISODate, kind: string): number {
-    return this.countedDays(e, du, au, kind).length;
+  countDays(e: Employe, du: ISODate, au: ISODate, kind: string, demi?: DemiJournees): number {
+    return this.countedDays(e, du, au, kind, demi).reduce((n, j) => n + j.poids, 0);
   }
-  /** Les jours décomptés eux-mêmes (même règle que `countDays`), pour imputer chacun sur sa période (CP). */
-  countedDays(e: Employe, du: ISODate, au: ISODate, kind: string): ISODate[] {
-    const out: ISODate[] = [];
+  /**
+   * Les jours décomptés eux-mêmes (même règle que `countDays`), pondérés : 1 pour une journée, 0,5 pour la demi-journée
+   * du premier ou du dernier jour. Pour imputer chacun sur sa période (CP) ou compter les jours d'une période.
+   */
+  countedDays(e: Employe, du: ISODate, au: ISODate, kind: string, demi?: DemiJournees): { jour: ISODate; poids: number }[] {
+    const out: { jour: ISODate; poids: number }[] = [];
     let started = false;
-    const off = this.contratOf(e).jourOff;
+    const off = this.contratOf(e).jourOff, periode = { du, au, ...demi };
     for (let s = du; s <= au; s = addD(s, 1)) {
       const wd = weekday(s);
       if (wd > 4 || isFerie(s)) continue;
       if (off.includes(wd) && (kind !== 'CP' || !started)) continue;
       started = true;
-      out.push(s);
+      out.push({ jour: s, poids: poidsDuJour(periode, s) });
     }
     return out;
   }

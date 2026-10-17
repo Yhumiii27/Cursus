@@ -340,7 +340,7 @@ export const REGLES: Record<string, Regle> = {
   'paie.lotAnnuler': { champs: ['id'], cible: parId('lotsPaie', ['statut', 'annuleLe']), bilan: (_p, x) => lotRetenu(x), salaries: (_p, x) => salariesDuLot(x) },
   'paie.formatFichier': { cible: { table: 'settings', cle: () => 'formatFichierPaie', colonnes: ['value'], aplatir: true } },
   // Absences : la nature n'est jamais recopiée (son absence trahirait une nature médicale) ; dates et statut seulement.
-  'absence.demander': { champs: ['empId', 'kind', 'du', 'au'] },
+  'absence.demander': { champs: ['empId', 'kind', 'du', 'au', 'debutDemi', 'finDemi'] },
   'absence.decider': { champs: ['id', 'ok'], cible: parId('absences', ['statut']), ...reportsRendus },
   'absence.signaler': { champs: ['empId', 'du', 'au'] },
   'absence.saisir': { champs: ['empId', 'du', 'au', 'justificatif', 'justificatifLe'] },

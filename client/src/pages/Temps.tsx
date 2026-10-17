@@ -15,8 +15,9 @@ import type { Domain } from '../../../shared/domain.ts';
 import { addD, isFerie, isoWeek, isoWeekYear, mondayOf, parse, wDays } from '../../../shared/dates.ts';
 import { cap, equipeLabel, fH, fJ, fmt, fmtShort, key, num, plural } from '../../../shared/format.ts';
 import { jourHorsContrat, semaineHorsContrat } from '../../../shared/rules/absences.ts';
+import { DEMI_LABEL } from '../../../shared/rules/demi-journees.ts';
 import {
-  absenceCeJour, calcSheet, cumulAnnuel, demandesAbsence, demandesEnAttenteMessage, employeDeLaFeuille, heuresSurAbsence, heuresSurAbsenceMessage, joursAbsence,
+  absenceCeJour, calcSheet, cumulAnnuel, demandesAbsence, demiJoursAbsence, demandesEnAttenteMessage, employeDeLaFeuille, heuresSurAbsence, heuresSurAbsenceMessage, joursAbsence,
   joursAbsenceTexte, natureAbsence, semaineCouverte, tachesDeLaSemaine, type SheetCalc,
 } from '../../../shared/rules/temps.ts';
 import { MODES_HEURES_SUP } from '../../../shared/rules/paie.ts';
@@ -241,6 +242,8 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const base = { empId: emp.id, week: wk };
 
   const absences = joursAbsence(d, emp.id, wk);
+  // Demi-journée d'absence (CP, RTT, récupération) : le jour reste saisissable, une demi-journée de travail au plus.
+  const demis = demiJoursAbsence(d, emp.id, wk);
   // Heures restées sur un jour d'absence : à retirer avant soumission et validation.
   const surAbsence = sh ? heuresSurAbsence(d, sh) : [];
   // Demande d'absence en attente : saisie libre, mais à décider avant de valider une feuille qui porte des heures ces jours-là.
@@ -258,6 +261,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
       label: cap(parse(day).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })), long: jourLong(day),
       note: fer ? 'Férié' : hors ? 'Hors contrat'
         : a ? `${ABS_ABREGE[a.type]}${a.statut === 'signalee' ? ' (signalée)' : ''}`
+        : demis[i] ? `${ABS_ABREGE[demis[i].absence.type]} ${DEMI_LABEL[demis[i].demi]} · ${fH(demis[i].max)} max.`
         : dem ? `${cap(natureAbsence(dem.type))} demandé${dem.type === 'RECUP' ? 'e' : ''}` : off ? 'Non travaillé' : m ? `Mission ${m.projet}` : '—',
     };
   });

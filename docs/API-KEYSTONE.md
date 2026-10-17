@@ -529,6 +529,10 @@ RTT, maladie…) n'est jamais transmise : seule l'indisponibilité compte pour l
 | `matricule` | matricule | |
 | `du`, `au` | dates | premier et dernier jour d'absence, inclus |
 
+Un congé posé à la demi-journée (après-midi du premier jour, matin du dernier, ou une seule demi-journée) est transmis
+comme une indisponibilité de la journée entière : `du` et `au` restent les premier et dernier jours touchés, et
+l'événement n'a pas de champ demi-journée. Un tel champ ne sera ajouté que si Keystone le demande.
+
 ```json
 { "absence": 31, "matricule": "EMP-0018", "du": "2026-12-14", "au": "2026-12-18" }
 ```

@@ -4,8 +4,8 @@ import { fH, num, plural } from '../../../shared/format.ts';
 import { identifiantKeystone } from '../../../shared/rules/matricules.ts';
 import { jourHorsContrat, semaineHorsContrat } from '../../../shared/rules/absences.ts';
 import {
-  absenceCeJour, calcSheet, contratFige, demandesAbsence, demandesEnAttenteMessage, HEURES_JOUR_MAX, heuresSurAbsence, heuresSurAbsenceMessage,
-  joursAbsence, joursAuDela24, joursTexte, semaineCouverte, suggestLines,
+  absenceCeJour, calcSheet, contratFige, demandesAbsence, demandesEnAttenteMessage, demiJourneeRefus, HEURES_JOUR_MAX, heuresSurAbsence,
+  heuresSurAbsenceMessage, joursAbsence, joursAuDela24, joursTexte, semaineCouverte, suggestLines,
 } from '../../../shared/rules/temps.ts';
 import type { Employe, FeuilleTemps, LigneTemps } from '../../../shared/types.ts';
 import { heuresKeystone, sendToKeystone } from '../integrations/keystone.ts';
@@ -78,6 +78,9 @@ const setCell: ActionHandler = (ctx, p) => {
   // d'une journée déjà au-delà, saisie avant ce contrôle, reste possible).
   const jour = lignes.reduce((n, l) => n + num(l.h[di]), 0);
   if (jour > HEURES_JOUR_MAX && v > num(sh.lignes[li].h[di])) throw new ActionError(`Plus de 24 h ce jour-là (${fH(jour)} toutes lignes cumulées) : une journée compte 24 h au plus`);
+  // Demi-journée d'absence : au plus une demi-journée de travail ce jour-là (baisser une cellule reste possible).
+  const demi = v > num(sh.lignes[li].h[di]) ? demiJourneeRefus(ctx.d, sh, di, jour) : null;
+  if (demi) throw new ActionError(demi);
   saveLines(ctx, sh, lignes);
   return null;
 };

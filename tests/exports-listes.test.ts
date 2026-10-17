@@ -94,7 +94,7 @@ test('absences : jamais la nature d’une absence hors congés, quel que soit le
     const list = d.ds.absences.map(a => ({ a, e: d.emp(a.empId)! })).filter(x => x.e);
     const x = csvAbsences(d, list);
     assert.equal(x.fichier, 'absences-2026-10-10.csv');
-    assert.deepEqual(x.head, ['Collaborateur', 'Matricule', 'Équipe', 'Absence', 'Du', 'Au', 'Jours', 'Décompte', 'Statut']);
+    assert.deepEqual(x.head, ['Collaborateur', 'Matricule', 'Équipe', 'Absence', 'Du', 'Au', 'Jours', 'Décompte', 'Statut', 'Demi-journées']);
     const arret = x.rows.find(r => r[1] === 'EMP-0002' && r[4] === '12/10/2026');
     assert.ok(arret, u.role);
     assert.equal(arret[3], 'Absence');
@@ -119,7 +119,7 @@ test('absences : deux natures hors congés sur une même période donnent la mê
     const ligne = (m: string) => x.rows.find(r => r[1] === m && r[4] === '16/10/2026');
     const arret = ligne('EMP-0002');
     assert.ok(arret, u.role);
-    assert.deepEqual(arret.slice(3), ['Absence', '16/10/2026', '19/10/2026', '4', 'jours calendaires', 'Qualifiée']);
+    assert.deepEqual(arret.slice(3), ['Absence', '16/10/2026', '19/10/2026', '4', 'jours calendaires', 'Qualifiée', '']);
     // Le manager ne voit que son équipe : l'enfant malade de l'EMP-0003 n'y figure que pour le RH.
     const enfant = ligne('EMP-0003');
     if (u === RH) {

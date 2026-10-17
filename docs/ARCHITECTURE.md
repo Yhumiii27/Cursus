@@ -28,14 +28,16 @@ shared/            Domaine partagé (aucune dépendance)
                    campagne.ts (campagne d'entretiens annuels réglable), remise.ts (remise du compte rendu d'entretien),
                    exercices.ts (exercices du plan, clôture, coût réel) ; a-faire.ts : ce qui attend le collaborateur ;
                    reprise.ts : reprise depuis Lucca (imports de mise en service, colonnes reconnues, analyse ligne par ligne)
-                   deplacements.ts (déplacement modifié ou annulé), relances.ts (récapitulatif des échéances par paliers)
+                   deplacements.ts (déplacement modifié ou annulé), relances.ts (récapitulatif des échéances par paliers) ;
+                   demi-journees.ts : congés à la demi-journée (règle, poids, chevauchement, textes)
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   migrate.ts       Reprises des bases antérieures, rejouées à chaque démarrage (idempotentes)
   migrations/      Migrations nommées, exécutées une seule fois par base : cadre.ts (contrôle et exécution), liste.ts (ordre),
                    outils.ts (reconstruction d'une table, index), un fichier par chantier (voir « Cadre commun du lot 4 ») :
                    exploitation.ts (index), entretiens.ts (coût réel des actions déjà réalisées), referentiels.ts (postes
-                   créés depuis les intitulés des fiches), paie.ts (mode des heures supplémentaires, lot de paie historique)
+                   créés depuis les intitulés des fiches), paie.ts (mode des heures supplémentaires, lot de paie historique),
+                   conges.ts (lot 5 : demi-journées hors de la règle ramenées à la journée entière)
   seed.ts          Données de démonstration
   sauvegarde.ts    Copie à chaud (VACUUM INTO), rotation, restauration, verrou du serveur ;
                    scripts backup.ts et restore.ts (npm run backup / restore, voir docs/SAUVEGARDE.md)
@@ -619,7 +621,7 @@ aucun champ du paramètre n'est recopié.
 | `paie.formatFichier` | separateur? (`;`/`,`/`tab`), colonnes? (matricule, periode, rubrique, quantite, chacune une fois), formatPeriode? (`AAAA-MM`/`MM/AAAA`/`AAAAMM`/`MMAAAA`), decimale? (`,`/`.`, différente du séparateur), entete? : clé `formatFichierPaie` de la table settings | administrateur RH, paie |
 | `paie.rubrique` | code (RUBRIQUES_PAIE), codeSage?, active?, confirmer? (`true` : confirmé ce jour par la personne connectée ; `false` : confirmation retirée ; un code changé sans `true` repasse « à confirmer ») ; jamais deux unités sur un même code Sage | administrateur RH, paie (écran Temps) |
 | `releve.envoyer` | agence, semaine (lundi, pas à venir) : relevé des feuilles validées des intérimaires de l'agence, envoi ou renvoi (feuilles en attente nommées) | RH, paie |
-| `absence.demander` | empId, kind (`CP`/`RTT`/`RECUP`), du, au | intéressé ou RH (demande, refusée si ces jours portent des heures sur une feuille validée) ; manager direct (posée et validée, refusée si des heures sont saisies ces jours-là) |
+| `absence.demander` | empId, kind (`CP`/`RTT`/`RECUP`), du, au, debutDemi, finDemi (`matin`/`apres_midi`, facultatifs) | intéressé ou RH (demande, refusée si ces jours portent des heures sur une feuille validée) ; manager direct (posée et validée, refusée si des heures sont saisies ces jours-là) |
 | `absence.decider` | id, ok, motif? (refus : `motifRefus`, montré au salarié et à son manager ; jours rendus à une période de CP close : report reçu sur la suivante, `recrediterPeriodesCloses`) | manager direct ou RH, jamais pour sa propre demande (validation refusée si des heures sont saisies ces jours-là ; même décision déjà prise : rien n'est refait) |
 | `absence.signaler` | empId, du, au | intéressé, manager direct ou RH : absence imprévue « à qualifier », en vigueur aussitôt |
 | `absence.saisir` | empId, nature, du, au, justificatif, justificatifLe | RH (absence hors congés validée d’emblée), jamais pour lui-même |
@@ -1176,6 +1178,21 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
   une annulation lui rendent sont reportés sur la période suivante (`recrediterPeriodesCloses`, tracé). RTT : non reportables, soldes photographiés et perdus ; ceux
   de l'année close restent plaçables sur le CET (`cet.placer`, `annee`) jusqu'à la confirmation. Table `clotures` (une
   ligne par salarié et période, unique) : relancer est sans effet.
+- **Demi-journées** (`shared/rules/demi-journees.ts`, décision de l'entreprise) : CP, RTT ou jours de repos du forfait
+  jours, récupération. Colonnes `debutDemi` et `finDemi` de l'absence (null : journée entière) : après-midi seul le
+  premier jour, matin seul le dernier ; un congé d'un seul jour porte une seule demi-journée, matin ou après-midi
+  (`debutDemi`). Refusée sur une autre nature, ou sur un premier ou dernier jour non décompté (week-end, férié, jour non
+  travaillé). `countedDays` donne chaque jour décompté avec son poids (1, ou 0,5), `countDays` leur somme : soldes CP,
+  RTT et récupération (une demi-journée de récupération vaut la moitié de `dayH`), exports, annulation. `imputationCp`
+  impute par demi-journée : une journée se répartit entre la période en cours et l'anticipation (ou le hors droit) quand
+  il ne reste qu'une demi-journée ; la clôture rend les jours au demi-jour (`recrediterPeriodesCloses`). Deux
+  demi-journées opposées le même jour ne se chevauchent pas (`chevauche`, dans `checkAbsence` et `checkNature`). Feuille
+  de temps : le jour d'une seule demi-journée d'absence reste saisissable, une demi-journée de travail au plus
+  (`heuresDemiJournee` : la moitié de `dayH`, au moins 4 h), toutes lignes cumulées (`demiJoursAbsence`,
+  `heuresSurAbsence`, `temps.setCell`, proposition Keystone plafonnée) ; deux demi-journées opposées couvrent le jour
+  (`joursAbsence`). Keystone reçoit la journée entière (`absence.validee` inchangé). Migration
+  `lot5-conges-demi-journees` : colonnes ajoutées vides par le schéma (journées entières), valeurs hors de la règle
+  ramenées à la journée entière.
 - **RTT de l'année suivante** (`rttDemande`) : une demande de RTT est évaluée sur l'année de son premier jour, avec le
   droit et le solde de cette année (`rttInfo(d, e, Y)`), dès maintenant (réglage `rttAnneeSuivanteDes` : à partir d'un
   jour de l'année, vide par défaut) ; refusée à cheval sur deux années, sur une année close (`rttAnneeClose` : clôture

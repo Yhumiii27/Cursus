@@ -282,7 +282,8 @@ déduite de la semaine (mois du dimanche par défaut, clôture des variables, ra
 fichier d'import pour Sage, transmis seulement à la confirmation de l'import · suivi des feuilles de temps semaine par
 semaine (échéance le lundi suivant à 12 h, relance, validation groupée) · journée de 24 h au plus, motif exigé au-delà des durées maximales · CP 25 jours
 ouvrés (+5 j à 59 ans, CCN Chimie), chaque jour imputé sur sa période de référence, prise par
-anticipation dans la limite des jours acquis à la date du congé · RTT et jours de repos forfait
+anticipation dans la limite des jours acquis à la date du congé · CP, RTT et récupération posables à la demi-journée
+(après-midi du premier jour, matin du dernier ; une demi-journée de travail au plus ce jour-là) · RTT et jours de repos forfait
 calculés au prorata de l'entrée et de la fin du contrat, ceux de l'année suivante posables dès maintenant, CET (5 RTT/an,
 5e semaine de CP), reports de CP rattachés à une période et datés · clôture des congés proposée au 1er juin (CP : report
 ou perte décidés salarié par salarié, jamais d'office, report de 15 mois après une absence de santé, une maternité ou

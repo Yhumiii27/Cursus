@@ -9,7 +9,8 @@
 // Une journée compte 24 h au plus (toutes lignes cumulées) ; au-delà des durées maximales (10 h par jour, 48 h par
 // semaine), la soumission exige un motif, que le valideur lit (ou donne, s'il a lui-même corrigé la feuille).
 // Semaine à 7 jours (shared/rules/semaine.ts) : samedi et dimanche grisés et repliés tant qu'ils sont vides, saisissables
-// pour un chantier, un déplacement ou un impératif ; repos hebdomadaire et dominical signalés en alerte, sans blocage.
+// pour un chantier, un déplacement ou un impératif ; repos hebdomadaire et dominical signalés en alerte, sans blocage,
+// et repris pour le service RH après validation (components/ReposAVerifier.tsx).
 import { useState, type MouseEvent } from 'react';
 import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
 import { ABS_ABREGE, TEMPS_TRAVAIL, TS_CLS, TS_LABEL } from '../../../shared/constants.ts';
@@ -37,6 +38,7 @@ import { AlerteAutorisation } from '../components/ContratFiche.tsx';
 import { RelevesPanel } from './Releves.tsx';
 import { ChampHeures, SaisieJour, useVueJour } from './SaisieJour.tsx';
 import { CompteurDelegation } from '../components/Delegation.tsx';
+import { ReposAVerifier } from '../components/ReposAVerifier.tsx';
 
 /** Année d'une feuille : celle de sa semaine ISO (son jeudi) ; le cumul annuel ventile une semaine à cheval jour par jour. */
 const anneeDe = (week: ISODate) => isoWeekYear(week);
@@ -203,6 +205,8 @@ export function Temps() {
       )}
 
       {!collab && <SuiviFeuilles />}
+
+      {espaceRh && <ReposAVerifier />}
 
       {tsEmp && <AlerteAutorisation e={tsEmp} />}
       {tsEmp && <Sheet key={`${tsEmp.id}|${wk}`} emp={tsEmp} wk={wk} />}

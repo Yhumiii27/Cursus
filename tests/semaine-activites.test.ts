@@ -19,7 +19,7 @@ const { joursSemaine } = await import('../shared/dates.ts');
 const { calcSheet, joursAbsence, rubriquesParPeriode, sageRubriques, semaineCouverte } = await import('../shared/rules/temps.ts');
 const { alertesRepos, completerSemaine, derogationDe } = await import('../shared/rules/semaine.ts');
 const { controlerActivite } = await import('../shared/rules/activites.ts');
-const { compteurDelegation, controlerMandat, creditLegal, creditPropose, effectifSite, heuresDelegation, mandatDuMois } = await import('../shared/rules/delegation.ts');
+const { compteurDelegation, controlerMandat, creditLegal, creditPropose, effectifReference, effectifSite, heuresDelegation, mandatDuMois } = await import('../shared/rules/delegation.ts');
 const { PERIMETRE_FICHIER } = await import('../shared/rules/lots-paie.ts');
 const { jourParDefaut } = await import('../client/src/components/heures.ts');
 type User = NonNullable<ReturnType<typeof currentUser>>;
@@ -273,4 +273,82 @@ test('mandats : saisis par le RH, vus par le RH et l’élu seulement, tracés s
   assert.equal(run(GEST, 'mandat.supprimer', { id }), 'Mandat au CSE de Thomas Garnier retiré');
   assert.deepEqual(derniere('mandat.supprimer')!.salaries, [6]);
   assert.equal(db.count('mandats'), 1);
+});
+
+// — Corrections de la relecture —
+
+test('repos à vérifier : la feuille validée par le manager, une à une ou en groupe, reste signalée au service RH', async () => {
+  const { db, run, user, RH } = fresh();
+  const { reposAVerifier, nombreAvecRepos } = await import('../shared/rules/repos-a-verifier.ts');
+  const C = await import('../client/src/state/confirmations.ts');
+  const CAMILLE = user(1, 'collaborateur'), HUGO = user(16, 'manager');
+  const saisir = (week: string, h: number[]) => {
+    run(CAMILLE, 'temps.addLine', { empId: 1, week, projet: 'INT-LOG' });
+    h.forEach((v, di) => v && run(CAMILLE, 'temps.setCell', { empId: 1, week, li: 0, di, value: String(v) }));
+    run(CAMILLE, 'temps.submit', { empId: 1, week });
+  };
+  saisir('2026-09-14', [7, 7, 7, 7, 7, 0, 4]);
+  saisir('2026-09-07', [7, 7, 7, 7, 7, 0, 0]);
+  const rh = () => new Domain(buildSnapshot(db, RH));
+  // Soumise : déjà signalée ; la confirmation de la validation groupée compte la feuille concernée.
+  assert.deepEqual(reposAVerifier(rh()).map(r => [r.e.id, r.sh.week, r.sh.statut]), [[1, '2026-09-14', 'soumise']]);
+  const lot = [{ empId: 1, week: '2026-09-14' }, { empId: 1, week: '2026-09-07' }];
+  const n = nombreAvecRepos(new Domain(buildSnapshot(db, HUGO)), lot);
+  assert.equal(n, 1);
+  assert.match(C.validationGroupee(lot, 1, n).suites!.join(' '), /1 feuille porte une alerte de repos .* reste signalée au service RH/);
+  assert.ok(!C.validationGroupee(lot, 1).suites!.some(s => /repos/.test(s)));
+  // Validée en groupe par le manager : toujours visible du service RH, avec l'alerte du dimanche.
+  run(HUGO, 'temps.validerLot', { feuilles: lot });
+  const apres = reposAVerifier(rh());
+  assert.deepEqual(apres.map(r => [r.sh.week, r.sh.statut]), [['2026-09-14', 'validee']]);
+  assert.match(apres[0].alertes[0], /4 h le dimanche : repos dominical \(art\. L3132-3\)/);
+  // Hors de la fenêtre de 12 semaines : plus listée.
+  assert.deepEqual(reposAVerifier(rh(), '2026-12-14'), []);
+});
+
+test('compteur du suppléant : même limite pour l’élu et pour le service RH (effectif calculé par le serveur)', () => {
+  const { db, user, RH } = fresh();
+  db.sql.exec(`UPDATE mandats SET role = 'suppleant', credit = 0 WHERE emp_id = 8`);
+  const JULIEN = user(8, 'collaborateur'), SOPHIE = user(3, 'manager');
+  const vue = (u: User) => { const ds = buildSnapshot(db, u); return compteurDelegation(ds, 8, ds.today, effectifReference(ds, ds.today)); };
+  const rh = vue(RH)!, elu = vue(JULIEN)!;
+  const effectif = effectifSite(loadFull(db, RH), '2026-10-10');
+  assert.equal(buildSnapshot(db, JULIEN).effectifCse, effectif);
+  assert.equal(buildSnapshot(db, JULIEN).employes.length, 1, 'l’instantané de l’élu ne contient que lui');
+  assert.deepEqual(elu, rh);
+  const sept = elu.find(m => m.mois === '2026-09')!;
+  assert.deepEqual([sept.limite, sept.utilisees], [creditLegal(effectif)! * 1.5, 3]);
+  assert.ok(!sept.alertes.some(a => /une fois et demie/.test(a)));
+  // Sans mandat, ni le manager ni les profils restreints ne reçoivent l'effectif.
+  assert.equal(buildSnapshot(db, SOPHIE).effectifCse, null);
+  assert.equal(buildSnapshot(db, user(7, 'rh')).effectifCse, null, 'profil paie');
+  assert.equal(buildSnapshot(db, user(1, 'collaborateur')).effectifCse, null, 'collaborateur sans mandat');
+});
+
+test('relecture : mandat refusé sur soi-même, dérogation retirée avec l’équipe, archivage confirmé, export RGPD titré', async () => {
+  const { db, run, refuse, user, RH } = fresh();
+  const GEST = user(14, 'rh');
+  refuse(GEST, 'mandat.enregistrer', { empId: 14, role: 'titulaire', du: '2026-11-01', credit: 200 }, /Vous ne pouvez pas enregistrer votre propre mandat au CSE/, 403);
+  run(RH, 'mandat.enregistrer', { empId: 14, role: 'titulaire', du: '2026-11-01', credit: 21 });
+  const id = (db.sql.prepare('SELECT id FROM mandats WHERE emp_id = 14').get() as { id: number }).id;
+  refuse(GEST, 'mandat.supprimer', { id }, /retirer votre propre mandat/, 403);
+  refuse(GEST, 'mandat.enregistrer', { id, role: 'titulaire', du: '2026-11-01', credit: 200 }, /votre propre mandat/, 403);
+  // Équipe supprimée : sa dérogation part avec elle ; recréée sous le même nom, elle n'en hérite pas.
+  run(RH, 'equipe.creer', { nom: 'Week-end' });
+  run(RH, 'temps.derogationDominicale', { equipe: 'Week-end', type: 'suppleance', reference: 'Accord du 1er juin 2026' });
+  run(RH, 'equipe.supprimer', { nom: 'Week-end' });
+  assert.deepEqual(loadFull(db, RH).derogationsDominicales, []);
+  run(RH, 'equipe.creer', { nom: 'Week-end' });
+  assert.equal(derogationDe(loadFull(db, RH), { equipe: 'Week-end' }), null);
+  // Archivage d'une activité interne : confirmé (dialogue « confirmer »), le code de délégation nommé.
+  const R = await import('../client/src/state/confirmations-referentiels.ts');
+  const c = R.archivageActivite({ code: 'INT-DELEG', nom: 'Délégation CSE' });
+  assert.deepEqual([c.action, c.payload], ['referentiel.activite.archiver', { id: 'INT-DELEG' }]);
+  assert.match(c.suites!.join(' '), /heures de délégation/);
+  assert.ok(!R.archivageActivite({ code: 'INT-LOG', nom: 'Logistique' }).suites!.some(s => /délégation/.test(s)));
+  // Export des données du salarié : la section des mandats porte un titre en français.
+  const { donneesSalarie } = await import('../server/src/donnees.ts');
+  const sections = donneesSalarie(db, 8, { journal: false, par: 'test' })!.sections as Record<string, unknown[]>;
+  assert.equal(sections['Mandats au CSE'].length, 1);
+  assert.ok(!('mandats' in sections));
 });

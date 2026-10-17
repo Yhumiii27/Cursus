@@ -5,7 +5,7 @@
 // le manager ne voit que la ligne INT-DELEG de la feuille.
 import { parse } from '../../../shared/dates.ts';
 import { fH, fmtIso } from '../../../shared/format.ts';
-import { compteurDelegation, effectifSite, mandatsDe, ROLES_MANDAT } from '../../../shared/rules/delegation.ts';
+import { compteurDelegation, effectifReference, mandatsDe, ROLES_MANDAT } from '../../../shared/rules/delegation.ts';
 import { CODE_DELEGATION } from '../../../shared/rules/activites.ts';
 import type { Employe } from '../../../shared/types.ts';
 import { useDomain, useRole } from '../state/derived.ts';
@@ -17,22 +17,26 @@ const moisLabel = (m: string) => parse(`${m}-01`).toLocaleDateString('fr-FR', { 
 /** Mandats de la fiche : service RH (saisie, modification) ; l'élu les voit dans son compteur. */
 export function MandatsFiche({ e }: { e: Employe }) {
   const d = useDomain();
-  const { rh } = useRole();
+  const { rh, soi } = useRole();
   const { openDialog } = useStore();
   const mandats = mandatsDe(d.ds, e.id);
   if (!rh) return null;
+  // Sa propre fiche : un autre membre du service RH saisit le mandat (refusé par le serveur, refuserSoiMeme).
+  const modifiable = e.id !== soi;
   return (
     <div>
       <div className="text-muted sub">Mandat au CSE</div>
       {mandats.map(m => (
         <div key={m.id} style={{ fontSize: 14, display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
           {ROLES_MANDAT[m.role]} · {m.au ? `du ${fmtIso(m.du)} au ${fmtIso(m.au)}` : `depuis le ${fmtIso(m.du)}`} · {fH(m.credit)} par mois
-          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'mandat', empId: e.id, id: m.id })}>Modifier</button>
+          {modifiable && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'mandat', empId: e.id, id: m.id })}>Modifier</button>}
         </div>
       ))}
-      <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'mandat', empId: e.id })}>
-        {mandats.length ? 'Ajouter un mandat' : 'Enregistrer un mandat au CSE'}
-      </button>
+      {modifiable ? (
+        <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'mandat', empId: e.id })}>
+          {mandats.length ? 'Ajouter un mandat' : 'Enregistrer un mandat au CSE'}
+        </button>
+      ) : !mandats.length ? <div className="text-muted" style={{ fontSize: 13 }}>Aucun mandat : un autre membre du service RH saisit le vôtre.</div> : null}
     </div>
   );
 }
@@ -40,7 +44,7 @@ export function MandatsFiche({ e }: { e: Employe }) {
 /** Compteur des heures de délégation d'un élu (écran Temps) : service RH, ou l'élu lui-même. */
 export function CompteurDelegation({ emp }: { emp: Employe }) {
   const d = useDomain();
-  const lignes = compteurDelegation(d.ds, emp.id, d.ti, effectifSite(d.ds, d.ti));
+  const lignes = compteurDelegation(d.ds, emp.id, d.ti, effectifReference(d.ds, d.ti));
   if (!lignes?.length) return null;
   const alertes = lignes.flatMap(l => l.alertes.map(a => `${moisLabel(l.mois)} : ${a}`));
   return (

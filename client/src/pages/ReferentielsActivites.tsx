@@ -1,6 +1,6 @@
 // Écran Référentiels, onglet Activités internes : codes hors projet Keystone (INT-… et ECOLE, shared/rules/activites.ts)
 // imputables dans les feuilles de temps. Le service RH les crée, les renomme (dialogs/RefActiviteDialog.tsx), les archive
-// et les rétablit d'un clic ; la lecture seule consulte. Une activité archivée n'est plus proposée dans les feuilles, les
+// (après confirmation) et les rétablit d'un clic ; la lecture seule consulte. Une activité archivée n'est plus proposée dans les feuilles, les
 // heures déjà saisies restent. Les codes de base sont amorcés à l'installation (migration nommée).
 import { useState } from 'react';
 import { PlusIcon } from '@phosphor-icons/react';
@@ -8,6 +8,7 @@ import { plural } from '../../../shared/format.ts';
 import { activitesInternes, CODE_DELEGATION } from '../../../shared/rules/activites.ts';
 import { Btn, Empty, Fine, Panel, Tag, Two } from '../components/ui.tsx';
 import { useAgir } from '../state/actions.ts';
+import { archivageActivite } from '../state/confirmations-referentiels.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -53,7 +54,7 @@ export function Activites() {
                         <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'refActivite', code: a.code })}>Renommer</button>
                         {a.statut === 'archive'
                           ? <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={agir(() => run('referentiel.activite.archiver', { id: a.code, archive: false }))}>Rétablir</button>
-                          : <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={agir(() => run('referentiel.activite.archiver', { id: a.code }))}>Archiver</button>}
+                          : <button type="button" className="btn btn-ghost btn-sm" disabled={occupe} onClick={() => openDialog({ type: 'confirmer', c: archivageActivite(a) })}>Archiver</button>}
                       </div>
                     )}
                   </td>

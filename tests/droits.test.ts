@@ -254,6 +254,9 @@ const MATRICE: Ligne[] = [
   { action: 'referentiel.activite.archiver', droits: '      O    O    -    -    -    -    -    -    -', p: () => ({ id: 'INT-COM' }) },
   { action: 'mandat.enregistrer', droits: '                  O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, role: 'titulaire', du: '2026-11-01', credit: 21 }) },
   { action: 'mandat.supprimer', droits: '                    O    O    -    -    -    -    -    -    -', p: () => ({ id: db.insert<{ id: number }>('mandats', { empId: 2, role: 'suppleant', du: '2026-01-01', au: null, credit: 0 }).id }) },
+  // Un membre du RH élu ne saisit ni ne retire son propre mandat (crédit d'heures) : un autre membre du RH le fait.
+  { action: 'mandat.enregistrer', variante: 'mandat du gestionnaire RH', droits: 'O    -    -    -    -    -    -    -    -', p: () => ({ empId: 14, role: 'titulaire', du: '2026-11-01', credit: 21 }) },
+  { action: 'mandat.supprimer', variante: 'mandat du gestionnaire RH', droits: 'O    -    -    -    -    -    -    -    -', p: () => ({ id: db.insert<{ id: number }>('mandats', { empId: 14, role: 'suppleant', du: '2026-01-01', au: null, credit: 0 }).id }) },
   // Un membre du RH ne valide pas sa propre feuille : son valideur (ici le service RH) le fait.
   { action: 'temps.validate', variante: 'feuille du gestionnaire RH', droits: 'O    -    -    -    -    -    -    -    -', p: () => { feuilleAntoine(); return { empId: 14, week: WEEK }; } },
   // Relevé d'heures des intérimaires (Léa Girard, agence Proman Lyon) : service RH ou gestionnaire de paie.

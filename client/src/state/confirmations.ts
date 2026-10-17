@@ -168,13 +168,18 @@ export function annulationLot(lot: Pick<LotPaie, 'id' | 'periode' | 'feuilles' |
   };
 }
 
-/** Validation groupée des feuilles soumises (components/SuiviFeuilles.tsx) : contrôles feuille par feuille, refus listés. */
-export function validationGroupee(feuilles: { empId: number; week: string }[], salaries: number): Confirmation {
+/**
+ * Validation groupée des feuilles soumises (components/SuiviFeuilles.tsx) : contrôles feuille par feuille, refus listés ;
+ * `repos` : feuilles de la sélection qui portent une alerte de repos (shared/rules/repos-a-verifier.ts).
+ */
+export function validationGroupee(feuilles: { empId: number; week: string }[], salaries: number, repos = 0): Confirmation {
   return {
     titre: 'Valider les feuilles soumises',
     question: `Valider ${plural(feuilles.length, 'feuille soumise', 'feuilles soumises')} (${plural(salaries, 'salarié', 'salariés')}) ?`,
     suites: [
       'Chaque feuille passe les contrôles de la validation : dépassement sans motif, demande d’absence en attente, heures un jour d’absence. Une feuille refusée reste à valider et le message la nomme.',
+      // Repos hebdomadaire ou dominical (`repos` : feuilles qui portent l'alerte) : validées quand même, signalées au RH.
+      ...(repos ? [`${repos > 1 ? `${repos} feuilles portent` : '1 feuille porte'} une alerte de repos hebdomadaire ou dominical (7 jours travaillés, heures le dimanche) : validée${repos > 1 ? 's' : ''} quand même, elle${repos > 1 ? 's restent signalées' : ' reste signalée'} au service RH (Temps, « Repos hebdomadaire à vérifier »).`] : []),
       'Les heures des projets Keystone sont renvoyées à Keystone ; les feuilles validées partent ensuite à la paie.',
     ],
     bouton: feuilles.length > 1 ? `Valider les ${feuilles.length} feuilles` : 'Valider la feuille',

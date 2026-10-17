@@ -30,7 +30,8 @@ shared/            Domaine partagé (aucune dépendance)
                    reprise.ts : reprise depuis Lucca (imports de mise en service, colonnes reconnues, analyse ligne par ligne)
                    deplacements.ts (déplacement modifié ou annulé), relances.ts (récapitulatif des échéances par paliers) ;
                    semaine.ts (semaine à 7 jours : repos hebdomadaire et dominical, dérogations), activites.ts (activités
-                   internes INT-… et ECOLE), delegation.ts (mandats au CSE, crédit R2314-1, compteur des heures de délégation)
+                   internes INT-… et ECOLE), delegation.ts (mandats au CSE, crédit R2314-1, compteur des heures de délégation),
+                   repos-a-verifier.ts (feuilles soumises ou validées portant une alerte de repos, pour le service RH)
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   migrate.ts       Reprises des bases antérieures, rejouées à chaque démarrage (idempotentes)
@@ -611,9 +612,9 @@ aucun champ du paramètre n'est recopié.
 | `plan.avancer` | id, de? (statut affiché : déjà dépassé, rien n'est refait ; revenu à « prévue », refus), coutReel (vers « réalisé », exigé : euros, 0 accepté), effectifReel? ; exercice clos ou action reportée refusés | RH |
 | `plan.cloturerExercice` | exercice (passé et ouvert : jamais l'exercice en cours), reporter [id] (actions prévues ou engagées à reporter sur l'exercice suivant) | administrateur RH |
 | `temps.setCell` | empId, week, li, di (0 = lundi … 5 = samedi, 6 = dimanche), value ; une ligne de 5 valeurs est complétée à 7 | salarié, manager direct ou RH (feuille soumise : valideur uniquement) ; aucune heure un jour d’absence validée ou signalée, ni hors contrat, vider la cellule reste possible ; pas de feuille pour une semaine hors contrat ; samedi et dimanche saisissables, repos hebdomadaire signalé sans blocage |
-| `temps.derogationDominicale` | equipe, type (`aucune`/`feu_continu`/`suppleance`), reference (exigée hors `aucune`, 120 caractères ; journal : seulement « renseignée ») : clé `derogationsDominicales` de la table settings, suit l'équipe renommée | administrateur RH |
+| `temps.derogationDominicale` | equipe, type (`aucune`/`feu_continu`/`suppleance`), reference (exigée hors `aucune`, 120 caractères ; journal : seulement « renseignée ») : clé `derogationsDominicales` de la table settings, suit l'équipe renommée et disparaît avec l'équipe supprimée | administrateur RH |
 | `referentiel.activite.enregistrer` / `referentiel.activite.archiver` | code (création : `INT-` + 2 à 12 lettres ou chiffres, ou `ECOLE`, unique parmi tous les projets) ou id (le code), nom (80 caractères) / id, archive? (faux : rétablie) ; une activité archivée n'est plus imputable, les heures déjà saisies restent | RH |
-| `mandat.enregistrer` / `mandat.supprimer` | id? (modification), empId, role (`titulaire`/`suppleant`), du, au?, credit (0 à 200 h par mois, au quart d'heure ; deux mandats du même salarié ne se chevauchent pas) / id | RH |
+| `mandat.enregistrer` / `mandat.supprimer` | id? (modification), empId, role (`titulaire`/`suppleant`), du, au?, credit (0 à 200 h par mois, au quart d'heure ; deux mandats du même salarié ne se chevauchent pas) / id | RH (jamais son propre mandat) |
 | `temps.addLine` / `temps.removeLine` | empId, week, projet / li, projet?, tache?, lignes? (ligne visée : déjà supprimée, rien n'est refait ; feuille changée, refus) | idem |
 | `temps.suggest` / `temps.submit` | empId, week, motif? | idem (soumission : brouillon ou à corriger, sans heures un jour d’absence validée ; semaine entièrement couverte par une absence : sans heure ; 24 h par jour au plus, toutes lignes cumulées ; motif exigé au-delà de 10 h par jour ou 48 h par semaine, 13 h pour un forfait jours) |
 | `temps.validate` / `temps.reject` | empId, week, comment?, motif? | manager direct ou RH, jamais pour sa propre feuille (validation : sans heures un jour d’absence validée ; une demande d’absence en attente sur des jours qui portent des heures est décidée d’abord ; une feuille sans heure exige une semaine encore couverte par une absence ; 24 h par jour au plus ; motif du dépassement exigé s'il manque, après une correction du valideur : celui du salarié n'est jamais remplacé) |
@@ -1178,7 +1179,10 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
   travaillés (6 au plus, art. L3132-1, et repos de 35 h consécutives approché par une journée sans heure tant que les
   horaires ne sont pas saisis, art. L3132-2), heures le dimanche sans dérogation de l'équipe (art. L3132-3 ; dérogation
   réglée par l'administrateur RH dans Paramètres → Repos hebdomadaire : travail en continu, art. L3132-12 et R3132-5, ou
-  équipe de suppléance, art. L3132-16, avec sa référence) ; aucune pour un cadre dirigeant. Les lignes de 5 valeurs
+  équipe de suppléance, art. L3132-16, avec sa référence ; supprimée avec l'équipe) ; aucune pour un cadre dirigeant.
+  Le service RH les retrouve après la validation (`shared/rules/repos-a-verifier.ts`, `components/ReposAVerifier.tsx` :
+  « Repos hebdomadaire à vérifier » sous Temps, feuilles soumises ou validées des 12 dernières semaines) ; la
+  confirmation de la validation groupée compte les feuilles concernées. Les lignes de 5 valeurs
   sont lues avec un week-end vide et complétées une fois par base (migration `lot5-temps-semaine-7-jours`) ; rien n'est
   recalculé (le contenu des lots de paie est figé). Relevé des intérimaires et `heures.validees` comptent le week-end.
 - **Heures de délégation** (`shared/rules/delegation.ts`, `components/Delegation.tsx`, `dialogs/MandatDialog.tsx`, table
@@ -1188,7 +1192,9 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
   au crédit ; report sur 12 mois glissants et limite d'une fois et demie le crédit dans le mois (art. R2315-5 et
   R2315-6 ; pour un suppléant sans crédit propre, celui d'un titulaire). Alerte seulement (circonstances exceptionnelles,
   art. L2315-7). Instantané : service RH (tous), l'élu (les siens) ; ni le manager (il voit la ligne de la feuille), ni
-  les profils restreints. Sans mandat, rien ne s'affiche.
+  les profils restreints. L'effectif de référence (`Dataset.effectifCse`, un nombre) est calculé par le serveur sur toutes
+  les fiches et transmis au RH et à l'élu : l'instantané de l'élu ne contient que lui, le compteur y serait faux. Un membre
+  du RH ne saisit ni ne retire son propre mandat (`refuserSoiMeme`). Sans mandat, rien ne s'affiche.
 - **Durées** : une journée compte 24 h au plus, toutes lignes de la feuille cumulées
  (saisie, proposition Keystone,
   soumission, validation). Au-delà des durées maximales (`SheetCalc.depassements`), la soumission exige un motif

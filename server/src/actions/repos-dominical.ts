@@ -18,6 +18,12 @@ export function renommerDerogation(db: Db, avant: string, apres: string) {
   if (liste.some(x => x.equipe === avant)) db.setSetting(CLE, liste.map(x => (x.equipe === avant ? { ...x, equipe: apres } : x)));
 }
 
+/** Équipe supprimée (`equipe.supprimer`) : sa dérogation disparaît avec elle (une équipe recréée sous ce nom n'en hérite pas). */
+export function retirerDerogation(db: Db, nom: string) {
+  const liste = lire(db);
+  if (liste.some(x => x.equipe === nom)) db.setSetting(CLE, liste.filter(x => x.equipe !== nom));
+}
+
 /** equipe, type (`aucune` / `feu_continu` / `suppleance`), reference (exigée hors « aucune », 120 caractères au plus). */
 const regler: ActionHandler = (ctx, p) => {
   requireRhAdmin(ctx);

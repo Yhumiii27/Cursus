@@ -30,6 +30,11 @@ export function creditLegal(effectif: number): number | null {
 /** Effectif retenu pour proposer le crédit : salariés présents à la date, hors intérimaires (à vérifier par le service RH). */
 export const effectifSite = (ds: Pick<Dataset, 'employes'>, date: ISODate) =>
   ds.employes.filter(e => present(e, date) && !TYPES_CONTRAT[e.typeContrat]?.interim).length;
+/**
+ * Effectif de référence d'un instantané : celui que le serveur a calculé sur toutes les fiches (`effectifCse`), à défaut
+ * celui des fiches transmises (données complètes : serveur, tests). Jamais recompté dans l'instantané filtré de l'élu.
+ */
+export const effectifReference = (ds: Pick<Dataset, 'employes' | 'effectifCse'>, date: ISODate) => ds.effectifCse ?? effectifSite(ds, date);
 /** Crédit proposé à la saisie d'un mandat : celui du titulaire (art. R2314-1) ; un suppléant n'a pas de crédit propre. */
 export const creditPropose = (role: RoleMandat, effectif: number) => (role === 'titulaire' ? creditLegal(effectif) ?? 0 : 0);
 

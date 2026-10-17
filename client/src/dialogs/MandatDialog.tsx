@@ -4,7 +4,7 @@
 // avec le serveur (shared/rules/delegation.ts) ; un mandat saisi par erreur se retire après confirmation.
 import { useState } from 'react';
 import { fH } from '../../../shared/format.ts';
-import { controlerMandat, creditLegal, creditPropose, effectifSite, mandatsDe, ROLES_MANDAT } from '../../../shared/rules/delegation.ts';
+import { controlerMandat, creditLegal, creditPropose, effectifReference, mandatsDe, ROLES_MANDAT } from '../../../shared/rules/delegation.ts';
 import type { RoleMandat } from '../../../shared/types.ts';
 import { Bloquant, CancelButton, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Btn, Fine, Seg } from '../components/ui.tsx';
@@ -18,7 +18,7 @@ export function MandatDialog({ empId, id }: { empId: number; id?: number | null 
   const { run, closeDialog } = useStore();
   const e = d.emp(empId);
   const [avant] = useState(() => (id != null ? mandatsDe(d.ds, empId).find(m => m.id === id) ?? null : null));
-  const effectif = effectifSite(d.ds, d.ti);
+  const effectif = effectifReference(d.ds, d.ti);
   const [role, setRole] = useState<RoleMandat>(avant?.role ?? 'titulaire');
   const [du, setDu] = useState(avant?.du ?? '');
   const [au, setAu] = useState(avant?.au ?? '');

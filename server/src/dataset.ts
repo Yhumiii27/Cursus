@@ -9,6 +9,7 @@ import { verdictAutorisation } from '../../shared/rules/contrats.ts';
 import { avecInscrits } from '../../shared/rules/sessions.ts';
 import { finPeriodeCp, periodeReport } from '../../shared/rules/conges.ts';
 import { debutSaisieDe } from '../../shared/rules/suivi-feuilles.ts';
+import { effectifSite } from '../../shared/rules/delegation.ts';
 import { reglagesParDefaut } from '../../shared/reglages.ts';
 import type { DemandeVisite, LotReprise } from '../../shared/types.ts';
 import type {
@@ -121,6 +122,9 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     // Dérogations au repos dominical par équipe (shared/rules/semaine.ts) et mandats au CSE (shared/rules/delegation.ts).
     derogationsDominicales: db.getSetting<DerogationDominicale[]>('derogationsDominicales', []),
     mandats: db.all<Mandat>('mandats'),
+    // Effectif du site (un nombre) pour la limite de délégation d'un suppléant : calculé ici sur toutes les fiches, car
+    // l'instantané de l'élu ne contient que lui-même (ou son équipe).
+    effectifCse: effectifSite({ employes }, todayIso()),
   };
 }
 
@@ -256,6 +260,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     derogationsDominicales: derogationsSansReference(full),
     // Mandats au CSE : l'élu voit les siens (compteur des heures de délégation) ; le manager, rien de ceux de son équipe.
     mandats: (full.mandats ?? []).filter(m => m.empId === user.empId),
+    // Effectif du site, transmis à l'élu avec ses mandats (compteur identique à celui du service RH) ; rien sans mandat.
+    effectifCse: (full.mandats ?? []).some(m => m.empId === user.empId) ? full.effectifCse : null,
   };
 }
 
@@ -351,6 +357,7 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     derogationsDominicales: derogationsSansReference(full),
     // Compteur des heures de délégation : service RH et l'élu seulement.
     mandats: [],
+    effectifCse: null,
   };
 }
 

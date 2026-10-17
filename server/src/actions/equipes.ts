@@ -9,7 +9,7 @@ import { posteDe } from '../../../shared/rules/exigences.ts';
 import { MANAGER_FIELDS, PROFIL_FIELDS, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
 import type { Employe, Equipe, FeuilleTemps } from '../../../shared/types.ts';
 import { rattacherPoste } from './referentiels.ts';
-import { renommerDerogation } from './repos-dominical.ts';
+import { renommerDerogation, retirerDerogation } from './repos-dominical.ts';
 import { ActionError, getEmp, isManagerOf, isRh, isRhAdmin, requireRh, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
 function equipesNoms(ctx: Ctx) { return ctx.ds.referentiels.equipes.map(q => q.nom); }
@@ -184,6 +184,7 @@ const supprimer: ActionHandler = (ctx, p) => {
   membres.forEach(e => ctx.db.update('employes', e.id, { equipe: null }));
   ctx.db.sql.prepare('DELETE FROM budgets WHERE equipe = ?').run(q.nom);
   ctx.db.remove('equipes', q.nom);
+  retirerDerogation(ctx.db, q.nom);
   return `Équipe ${q.nom} supprimée${membres.length ? ` · ${plural(membres.length, 'salarié sorti détaché', 'salariés sortis détachés')} de l’équipe` : ''}`;
 };
 

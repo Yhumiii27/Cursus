@@ -704,6 +704,11 @@ export interface Dataset {
   derogationsDominicales?: DerogationDominicale[];
   /** Mandats au CSE : service RH (tous) et l'élu (les siens) ; vide ailleurs (le manager ne voit que la ligne de la feuille). */
   mandats?: Mandat[];
+  /**
+   * Effectif du site retenu pour les heures de délégation (shared/rules/delegation.ts, `effectifSite` calculé par le serveur
+   * sur toutes les fiches) : service RH, et l'élu avec ses mandats ; null ailleurs. Un nombre, aucune liste nominative.
+   */
+  effectifCse?: number | null;
 }
 
 /**

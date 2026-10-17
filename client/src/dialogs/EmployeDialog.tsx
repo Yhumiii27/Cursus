@@ -176,6 +176,8 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
     equipes: d.equipes, year: d.year, encadre: emp ? d.teamsOf(emp.id) : [], adressesPrises: adressesPrises(d.ds.employes, emp?.id),
     matricules: { pris: matriculesPris(d.ds.employes, d.ti, emp?.id), actuel: initial.matriculePaie, reutiliser: confirme },
     contrat: { finPrevue: emp?.finPrevue ?? null, sortieEnregistree: emp?.sortieEnregistree },
+    // Date déjà enregistrée : requise (l'année seule ne la remplace pas). Manager : vue sans la date, que le serveur contrôle.
+    naissance: { enregistree: !creation && !!initial.naissanceLe, masquee: limited },
   });
   // Matricule d'un salarié sorti, pas encore confirmé : l'administrateur RH confirme à l'envoi ; pour le gestionnaire RH,
   // l'erreur sous le champ le renvoie à l'administrateur.

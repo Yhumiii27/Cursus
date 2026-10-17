@@ -32,6 +32,7 @@ function check(ctx: Ctx, p: ProfilInput, empId?: number, reutiliser = false) {
   const v = validerProfil(p, {
     equipes: equipesNoms(ctx), year: ctx.d.year, encadre: empId ? ctx.d.teamsOf(empId) : [], adressesPrises: adressesPrises(ctx.ds.employes, empId),
     matricules: { pris: matriculesPris(ctx.ds.employes, ctx.d.ti, empId), actuel, reutiliser }, contrat: { finPrevue: emp?.finPrevue ?? null },
+    naissance: { enregistree: !!emp?.naissanceLe },
   });
   if (!v.ok) throw new ActionError(v.errors.join(' '));
   if (reutiliser && v.matriculeAConfirmer) requireRhAdmin(ctx);

@@ -131,6 +131,12 @@ export function validerProfil(raw: ProfilInput, opts: {
    * motif). La période d'essai se compare à la fin prévue, jamais à la date de sortie.
    */
   contrat?: Partial<Pick<Employe, 'finPrevue' | 'sortieEnregistree'>>;
+  /**
+   * Date de naissance de la fiche enregistrée : `enregistree`, une date complète est déjà connue (elle se corrige, ne
+   * s'efface pas : la fiche ne revient pas à l'année seule) ; `masquee`, vue sans la date (manager), qui ne contrôle pas
+   * l'année : le serveur, qui a la date, contrôle la naissance.
+   */
+  naissance?: { enregistree?: boolean; masquee?: boolean };
 }) {
   const p = normaliserProfil(raw);
   const errors: string[] = [], warnings: string[] = [];
@@ -167,10 +173,10 @@ export function validerProfil(raw: ProfilInput, opts: {
   if (p.tempsDepuis && !isValidDate(p.tempsDepuis)) errors.push('Date d’effet du régime de temps invalide.');
   // Date de naissance : au moins 14 ans à l'entrée (travaux légers pendant les vacances scolaires, art. L4153-3) ; sans
   // elle, l'année seule, contrôlée comme avant la date complète.
-  if (p.naissanceLe) {
+  if (opts.naissance?.masquee) { /* contrôlée par le serveur */ } else if (p.naissanceLe) {
     if (!isValidDate(p.naissanceLe) || p.naissanceLe < '1940-01-01') errors.push('Date de naissance invalide.');
     else if (isValidDate(p.entree) && ageAu(p, p.entree) < AGE_MINIMUM) errors.push(`Date de naissance : moins de ${AGE_MINIMUM} ans à la date d’entrée.`);
-  } else if (Number.isNaN(p.naissance)) errors.push('Date de naissance requise.');
+  } else if (Number.isNaN(p.naissance) || opts.naissance?.enregistree) errors.push('Date de naissance requise.');
   else if (!(p.naissance >= 1940 && p.naissance <= opts.year - AGE_MINIMUM)) errors.push('Année de naissance invalide.');
   const errEmail = controleAdresse(p.email, 'Adresse e-mail professionnelle');
   if (errEmail) errors.push(`${errEmail}.`);

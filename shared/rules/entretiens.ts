@@ -79,9 +79,12 @@ export function obligations(d: Domain, scopeIds: number[]): Obligation[] {
 /**
  * Sections supplémentaires « fin de carrière » à partir de 58 ans, âge atteint à la date de l'entretien (`ageAu` : âge
  * exact avec la date de naissance, âge atteint dans l'année avec l'année seule). Vues sans la date de naissance : la
- * réponse du serveur (`finCarriere`), pour que l'évaluateur voie les mêmes sections que le serveur accepte.
+ * réponse du serveur (`finCarriere`), pour que l'évaluateur voie les mêmes sections que le serveur accepte. Section déjà
+ * rédigée : gardée, même si l'entretien a été reprogrammé avant l'anniversaire ou la date de naissance complétée depuis
+ * (le texte saisi, voire signé, ne disparaît ni de l'écran ni du compte rendu imprimé).
  */
-export function needsFinCarriere(_d: Domain, e: Employe, x: Pick<Entretien, 'type' | 'date' | 'finCarriere'>): boolean {
+export function needsFinCarriere(_d: Domain, e: Employe, x: Pick<Entretien, 'type' | 'date' | 'finCarriere'> & { cr?: Record<string, string> }): boolean {
+  if (typeof x.cr?.fincarriere === 'string' && x.cr.fincarriere.trim()) return true;
   if (!['epp', 'reprise'].includes(x.type)) return false;
   return typeof x.finCarriere === 'boolean' ? x.finCarriere : ageAu(e, x.date) >= 58;
 }

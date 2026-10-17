@@ -36,14 +36,14 @@ export function ageAu(e: Naissance, date: ISODate): number {
 }
 
 /**
- * Salarié mineur à la date `date`. Vue sans la date de naissance (manager, profils restreints) : l'indication du jour
- * transmise par le serveur. Année seule : mineur jusqu'à la fin de l'année civile de ses 18 ans, faute de savoir quand
- * il les atteint (les règles des mineurs protègent ; la date complète, saisie sur la fiche, les lève au bon jour).
+ * Salarié mineur à la date `date` : moins de 18 ans selon `ageAu`, seule règle d'âge (les règles des mineurs ne lisent
+ * que cette fonction, jamais `ageAu(e, date) < 18` à part). Vue sans la date de naissance (manager, profils restreints) :
+ * l'indication du jour transmise par le serveur. Année seule : règle à l'année, comme `ageAu` (majeur dès le 1er janvier
+ * de l'année de ses 18 ans) ; la date complète, saisie sur la fiche, donne le bon jour.
  */
 export function mineurAu(e: Naissance, date: ISODate): boolean {
-  if (dateNaissance(e)) return ageAu(e, date) < MAJORITE;
-  if (typeof e.mineur === 'boolean') return e.mineur;
-  return Number.isFinite(e.naissance) && Number(date.slice(0, 4)) - e.naissance <= MAJORITE;
+  if (!dateNaissance(e) && typeof e.mineur === 'boolean') return e.mineur;
+  return Number.isFinite(e.naissance) && ageAu(e, date) < MAJORITE;
 }
 
 /**

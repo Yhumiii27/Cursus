@@ -862,12 +862,15 @@ d'une fiche antérieure. Règles dans `shared/rules/mineurs.ts` :
 - `ageAu(e, date)` : âge révolu avec la date (atteint le jour anniversaire, le 28 février pour un 29 février d'une année
   non bissextile, comme `addMonths`) ; avec l'année seule, âge atteint dans l'année civile (règle d'avant). `dateDesAns`
   donne le jour où un âge est atteint (18 ans : échéance de l'étape 2) ;
-- `mineurAu(e, date)` : moins de 18 ans ; année seule : mineur jusqu'à la fin de l'année civile de ses 18 ans (les règles
-  des mineurs protègent, la date complète les lève au bon jour) ;
+- `mineurAu(e, date)` : moins de 18 ans selon `ageAu`, donc règle à l'année avec l'année seule (majeur dès le 1er janvier
+  de l'année de ses 18 ans) ; les règles des mineurs (étape 2) ne lisent que `mineurAu`, pour une seule réponse par fiche ;
 - sections « fin de carrière » (`needsFinCarriere`, shared/rules/entretiens.ts) : 58 ans atteints **à la date de
-  l'entretien** ; le supplément de 5 jours de congés à 59 ans (`supplementAge`) reste à l'année civile (choix retenu) ;
+  l'entretien**, ou section déjà rédigée (un entretien reprogrammé, une date de naissance complétée ne retirent pas un
+  texte saisi, voire signé, de l'écran ni du compte rendu imprimé) ; le supplément de 5 jours de congés à 59 ans (`supplementAge`) reste à l'année civile (choix retenu) ;
 - saisie (fiche) : date requise pour une nouvelle fiche, au moins 14 ans à la date d'entrée (`AGE_MINIMUM`, art.
-  L4153-3) ; une fiche qui n'a que l'année s'enregistre sans date, l'année reste contrôlée comme avant ;
+  L4153-3) ; une fiche qui n'a que l'année s'enregistre sans date, l'année reste contrôlée comme avant ; une date déjà
+  enregistrée se corrige mais ne s'efface pas (`naissance.enregistree` de `validerProfil`, client et serveur) ; le
+  dialogue du manager, sans la date, ne contrôle pas la naissance (`naissance.masquee`), que le serveur contrôle ;
 - reprise depuis Lucca (`naissanceDe`, shared/rules/reprise.ts) : une date complète est gardée telle quelle ; une année
   seule ne remplace la date d'une fiche que si elle la contredit.
 

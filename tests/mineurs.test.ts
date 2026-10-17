@@ -64,13 +64,19 @@ test('âge exact : atteint le jour anniversaire, la veille encore l’âge d’a
   assert.equal(ageAu(c, '2027-01-01'), 58);
 });
 
-test('année seule : âge atteint dans l’année civile, mineur jusqu’à la fin de l’année de ses 18 ans', () => {
+test('année seule : âge atteint dans l’année civile, même règle pour l’âge et la mention « mineur »', () => {
   const e = { naissance: 2008, naissanceLe: null };
   assert.equal(ageAu(e, '2026-01-01'), 18);
   assert.equal(ageAu(e, '2025-12-31'), 17);
   assert.equal(dateDesAns(e, 18), null);
-  assert.equal(mineurAu(e, '2026-12-31'), true, 'règle protectrice faute de date');
-  assert.equal(mineurAu(e, '2027-01-01'), false);
+  // Une seule règle : `mineurAu` et `ageAu` ne se contredisent ni le 31 décembre, ni le 1er janvier.
+  for (const [date, mineur] of [['2025-12-31', true], ['2026-01-01', false], ['2026-10-10', false], ['2026-12-31', false]] as const) {
+    assert.equal(mineurAu(e, date), mineur, date);
+    assert.equal(mineurAu(e, date), ageAu(e, date) < MAJORITE, date);
+  }
+  // Date complète : idem, au jour anniversaire.
+  const d = { naissance: 2008, naissanceLe: '2008-12-31' };
+  for (const date of ['2026-01-01', '2026-12-30', '2026-12-31']) assert.equal(mineurAu(d, date), ageAu(d, date) < MAJORITE, date);
   // Date invalide : traitée comme inconnue ; vue sans la date : indication du serveur.
   assert.equal(ageAu({ naissance: 1990, naissanceLe: '1990-02-31' }, '2026-10-10'), 36);
   assert.equal(mineurAu({ naissance: 2008, naissanceLe: null, mineur: false }, '2026-10-10'), false);
@@ -95,6 +101,14 @@ test('fiche : la date donne l’année, au moins 14 ans à l’entrée, date req
   // Fiche antérieure : l'année seule reste contrôlée comme avant.
   assert.deepEqual(validerProfil({ ...fiche, naissanceLe: null, naissance: 1985 }, opts).errors, []);
   assert.deepEqual(validerProfil({ ...fiche, naissanceLe: null, naissance: 2013 }, opts).errors, ['Année de naissance invalide.']);
+  // Date déjà enregistrée : l'année seule ne la remplace pas (champ vidé par erreur).
+  assert.deepEqual(validerProfil({ ...fiche, naissanceLe: null, naissance: 1985 }, { ...opts, naissance: { enregistree: true } }).errors, ['Date de naissance requise.']);
+  assert.deepEqual(validerProfil({ ...fiche, naissanceLe: '1985-11-03' }, { ...opts, naissance: { enregistree: true } }).errors, []);
+  // Vue du manager, sans la date : la naissance n'est pas contrôlée sur l'année (14 ans atteints à l'entrée, contrôlés
+  // par le serveur, alors que l'année seule le refuserait).
+  const jeune = { ...fiche, naissanceLe: null, naissance: 2013, entree: '2027-07-01' };
+  assert.deepEqual(validerProfil(jeune, opts).errors, ['Année de naissance invalide.']);
+  assert.deepEqual(validerProfil(jeune, { ...opts, naissance: { masquee: true } }).errors, []);
 });
 
 test('serveur : date enregistrée avec son année, nommée au journal sans sa valeur', () => {
@@ -107,6 +121,9 @@ test('serveur : date enregistrée avec son année, nommée au journal sans sa va
   assert.doesNotMatch(j.payload, /1986/);
   assert.throws(() => run(RH, 'employe.modifier', { id: 2, naissanceLe: '2016-01-01' }),
     (x: unknown) => x instanceof ActionError && /moins de 14 ans à la date d’entrée/.test(x.message));
+  // Date enregistrée : vidée, elle est refusée (la fiche ne revient pas à l'année seule).
+  assert.throws(() => run(RH, 'employe.modifier', { id: 2, naissanceLe: null, naissance: 1986 }), /Date de naissance requise/);
+  assert.equal(loadFull(db, RH).employes.find(x => x.id === 2)!.naissanceLe, '1986-03-09');
   // Création : la date de naissance suffit, l'année en est tirée.
   const r = run(RH, 'employe.creer', {
     nom: 'Léo Martin', poste: 'Apprenti électromécanicien', equipe: 'Maintenance', statut: 'ouvrier', typeContrat: 'alternance', temps: '35h', jourOff: [],
@@ -181,6 +198,14 @@ test('fin de carrière : 58 ans à la date de l’entretien, même réponse pour
   assert.throws(() => run(MGR, 'entretien.modifier', { id: veille.id, section: 'fincarriere', value: 'Aménagement souhaité' }), /Section inconnue/);
   // Service RH : aucun précalcul, la date est connue.
   assert.equal(buildSnapshot(db, RH).entretiens.find(x => x.id === jour.id)!.finCarriere, undefined);
+  // Entretien reprogrammé avant l'anniversaire, section déjà rédigée : elle reste (écran, impression, serveur).
+  run(MGR, 'entretien.planifier', { empId: 2, kind: 'reprise', date: '2026-12-10' });
+  const reprog = loadFull(db, RH).entretiens.find(x => x.id === jour.id)!;
+  assert.equal(reprog.date, '2026-12-10');
+  assert.equal(needsFinCarriere(d, mehdi, reprog), true, 'texte rédigé gardé');
+  assert.equal(needsFinCarriere(d, mehdi, { ...reprog, cr: {} }), false, 'sans texte : la veille des 58 ans');
+  assert.equal(buildSnapshot(db, MGR).entretiens.find(x => x.id === jour.id)!.finCarriere, true);
+  run(MGR, 'entretien.modifier', { id: jour.id, section: 'fincarriere', value: 'Aménagement précisé' });
 });
 
 test('reprise depuis Lucca : date complète gardée, année seule sans effacer une date de la même année', () => {

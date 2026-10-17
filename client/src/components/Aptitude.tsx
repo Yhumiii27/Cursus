@@ -20,7 +20,7 @@ export function imprimerDemandeVisite(d: Domain, e: EmpX, x: DemandeVisite): boo
   return printDocument('Demande de visite médicale', 'À l’attention du service de prévention et de santé au travail', [
     {
       title: 'Salarié',
-      rows: [['Nom', e.nom], ['Matricule', matriculeAffiche(e)], ['Année de naissance', String(e.naissance)], ['Poste', e.poste], ['Équipe', equipeLabel(e)],
+      rows: [['Nom', e.nom], ['Matricule', matriculeAffiche(e)], e.naissanceLe ? ['Date de naissance', fmtIso(e.naissanceLe)] : ['Année de naissance', String(e.naissance)], ['Poste', e.poste], ['Équipe', equipeLabel(e)],
         ['Contrat', d.contratOf(e).libelle], ['Date d’entrée', fmtIso(e.entree)]],
     },
     {

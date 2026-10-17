@@ -37,6 +37,9 @@ export const TABLES = {
       // Période d'essai écrite au contrat (fin, fin après renouvellement) et titre de séjour valant autorisation de travail
       // ({ type, numero, expire, demandeLe, verifieLe } ; null : non requise), le numéro réservé au service RH (server/src/dataset.ts).
       essaiFin: 'text', essaiRenouveleJusquau: 'text', autorisationTravail: 'json',
+      // Date de naissance complète (âge exact, salariés mineurs : shared/rules/mineurs.ts) ; `naissance` en garde l'année,
+      // seule connue des fiches antérieures. Service RH et intéressé seulement (server/src/dataset.ts).
+      naissanceLe: 'text',
     },
   },
   // Demandes de visite médicale du service RH, closes par la saisie de la visite (server/src/actions/sante.ts).

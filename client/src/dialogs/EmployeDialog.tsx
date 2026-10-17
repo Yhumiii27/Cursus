@@ -23,7 +23,9 @@ import { useStore } from '../state/store.tsx';
 
 /** État du formulaire : les nombres et dates restent des chaînes pendant la saisie. */
 interface Form {
-  nom: string; poste: string; equipe: string; naissance: string;
+  nom: string; poste: string; equipe: string;
+  /** Date de naissance saisie ; `naissance` : année de la fiche, gardée tant que la date reste inconnue (fiche antérieure). */
+  naissanceLe: string; naissance: string;
   /** Poste du référentiel choisi (identifiant), `''` : aucun, NOUVEAU_POSTE : intitulé saisi, poste créé à l'enregistrement. */
   posteId: string;
   statut: Statut; typeContrat: TypeContrat; entree: string; fin: string; agence: string; email: string; matriculePaie: string;
@@ -46,7 +48,7 @@ const toNum = (s: string) => {
 
 function toForm(p: ProfilInput, today: string): Form {
   return {
-    nom: p.nom, poste: p.poste, posteId: p.posteId != null ? String(p.posteId) : '', equipe: p.equipe ?? '', naissance: numStr(p.naissance),
+    nom: p.nom, poste: p.poste, posteId: p.posteId != null ? String(p.posteId) : '', equipe: p.equipe ?? '', naissanceLe: p.naissanceLe ?? '', naissance: numStr(p.naissance),
     statut: p.statut, typeContrat: p.typeContrat, entree: p.entree, fin: p.fin ?? '', agence: p.agence ?? '', email: p.email ?? '', matriculePaie: p.matriculePaie ?? '',
     temps: p.temps, heures: numStr(p.heures),
     forfaitHeures: numStr(p.forfaitHeures ?? (p.temps === 'forfait_heures_annuel' ? 1607 : null)),
@@ -63,7 +65,7 @@ function toInput(f: Form, tempsDepuis: string | null): ProfilInput {
   return {
     nom: f.nom, poste: f.poste, posteId: posteIdSaisi(f.posteId), equipe: f.equipe || null, statut: f.statut, typeContrat: f.typeContrat, temps: f.temps,
     heures: toNum(f.heures), forfaitHeures: toNum(f.forfaitHeures), forfaitJours: toNum(f.forfaitJours), jourOff: f.jourOff, tempsDepuis,
-    entree: f.entree, fin: f.fin || null, naissance: toNum(f.naissance) ?? Number.NaN, agence: f.agence || null, matriculePaie: f.matriculePaie || null, email: f.email || null,
+    entree: f.entree, fin: f.fin || null, naissanceLe: f.naissanceLe || null, naissance: toNum(f.naissance) ?? Number.NaN, agence: f.agence || null, matriculePaie: f.matriculePaie || null, email: f.email || null,
     visite: f.visite || null, repriseMotif: f.repriseMotif || null, repriseDate: f.repriseDate || null,
     essaiFin: f.essaiFin || null, essaiRenouveleJusquau: f.essaiRenouvele || null,
   };
@@ -79,7 +81,7 @@ const same = (a: ProfilInput, b: ProfilInput) => PROFIL_FIELDS.every(k => JSON.s
  * s'affiche sous ce champ. Un message non reconnu reste dans la liste sous le formulaire.
  */
 const CHAMP_ERREUR: [RegExp, keyof Form][] = [
-  [/^Nom requis/, 'nom'], [/^Poste requis/, 'poste'], [/^Équipe inconnue/, 'equipe'], [/^Année de naissance/, 'naissance'],
+  [/^Nom requis/, 'nom'], [/^Poste requis/, 'poste'], [/^Équipe inconnue/, 'equipe'], [/naissance/, 'naissanceLe'],
   [/^Date d’entrée/, 'entree'], [/renouvellement de l’essai/i, 'essaiRenouvele'], [/période d’essai/, 'essaiFin'], [/date de fin/i, 'fin'], [/^Agence d’intérim/, 'agence'], [/^Manager de l’équipe/, 'typeContrat'],
   [/^Un intérimaire ne peut|cadre dirigeant/, 'temps'], [/date d’effet/i, 'effet'],
   [/^Temps partiel|^Forfait hebdomadaire/, 'heures'], [/^Forfait annuel en heures/, 'forfaitHeures'], [/^Forfait jours/, 'forfaitJours'],
@@ -127,6 +129,8 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   // Fiche de référence : celle de l'ouverture du dialogue.
   const [initial] = useState<ProfilInput>(() => emp ? profilOf(emp) : PROFIL_VIDE(equipe0 && d.equipes.includes(equipe0) ? equipe0 : null, d.ti));
   const [f, setF] = useState<Form>(() => ({ ...toForm(initial, d.ti), naissance: creation ? '' : numStr(initial.naissance) }));
+  // Fiche qui n'a que l'année de naissance (antérieure à la date complète) : l'année est gardée tant que la date manque.
+  const anneeSeule = !creation && !initial.naissanceLe && Number.isFinite(initial.naissance) ? initial.naissance : null;
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   // Réembauche : réutilisation du matricule de paie d'un salarié sorti, confirmée par l'administrateur RH (matricule confirmé).
@@ -317,8 +321,12 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
           </select>
           <span className="text-muted sub">Manager valideur : {d.mgrName(valideur)}</span>
         </Field>
-        <Field label="Année de naissance" htmlFor="emp-naiss" requis erreur={err('naissance')}>
-          <input className="input" id="emp-naiss" type="text" inputMode="numeric" placeholder="1990" value={f.naissance} onChange={ev => set('naissance', ev.target.value)} />
+        <Field label="Date de naissance" htmlFor="emp-naiss" requis={anneeSeule == null} erreur={err('naissanceLe')}>
+          <input className="input" id="emp-naiss" type="date" min="1940-01-01" max={d.ti} value={f.naissanceLe} onChange={ev => set('naissanceLe', ev.target.value)} />
+          <span className="text-muted sub">
+            {anneeSeule != null && !f.naissanceLe ? `Année connue : ${anneeSeule} ; la date complète donne l’âge exact (salariés mineurs, fin de carrière)`
+              : 'Âge exact : règles des salariés mineurs, entretiens de fin de carrière'}
+          </span>
         </Field>
         <Field label="Adresse e-mail professionnelle" htmlFor="emp-email">
           <input className="input" id="emp-email" type="email" autoComplete="off" placeholder="prenom.nom@entreprise.fr" value={f.email} onChange={ev => set('email', ev.target.value)} />

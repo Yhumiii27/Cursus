@@ -852,6 +852,31 @@ change (organisation du temps, durée, forfait, jours non travaillés, statut ou
   confirme (`confirmerRtt`, confirmation dans le dialogue de la fiche, refus 400 sinon) et le solde affiché juste avant est
   gardé au journal pour la paie, sous le code `employe.rtt` (archive paie) avec `soldeRtt` (droit, pris, posés, solde).
 
+### Date de naissance et âge
+
+Lot 5, chantier E (salariés mineurs), étape 1. `naissanceLe` (colonne `naissance_le`, déclarée dans `TABLES` : le schéma
+déclaratif l'ajoute aux bases existantes, sans migration nommée, aucune donnée n'étant à reprendre) porte la date
+complète ; `naissance` en reste l'année, dérivée de la date par `normaliserProfil` quand elle est saisie, seule connue
+d'une fiche antérieure. Règles dans `shared/rules/mineurs.ts` :
+
+- `ageAu(e, date)` : âge révolu avec la date (atteint le jour anniversaire, le 28 février pour un 29 février d'une année
+  non bissextile, comme `addMonths`) ; avec l'année seule, âge atteint dans l'année civile (règle d'avant). `dateDesAns`
+  donne le jour où un âge est atteint (18 ans : échéance de l'étape 2) ;
+- `mineurAu(e, date)` : moins de 18 ans ; année seule : mineur jusqu'à la fin de l'année civile de ses 18 ans (les règles
+  des mineurs protègent, la date complète les lève au bon jour) ;
+- sections « fin de carrière » (`needsFinCarriere`, shared/rules/entretiens.ts) : 58 ans atteints **à la date de
+  l'entretien** ; le supplément de 5 jours de congés à 59 ans (`supplementAge`) reste à l'année civile (choix retenu) ;
+- saisie (fiche) : date requise pour une nouvelle fiche, au moins 14 ans à la date d'entrée (`AGE_MINIMUM`, art.
+  L4153-3) ; une fiche qui n'a que l'année s'enregistre sans date, l'année reste contrôlée comme avant ;
+- reprise depuis Lucca (`naissanceDe`, shared/rules/reprise.ts) : une date complète est gardée telle quelle ; une année
+  seule ne remplace la date d'une fiche que si elle la contredit.
+
+Confidentialité (`server/src/dataset.ts`, `naissanceVueManager`) : le manager (membres de son équipe) et les profils
+restreints de l'espace RH reçoivent `naissanceLe: null`, l'année (règle à l'année des congés, transmise comme avant) et
+`mineur` au jour de l'instantané ; pas d'âge exact, qui à côté de l'année trahirait le jour anniversaire. Les sections de
+fin de carrière de leurs entretiens sont calculées par le serveur (`finCarriere` de l'entretien), pour que l'évaluateur
+rédige celles que `entretien.modifier` accepte. Le journal nomme `naissanceLe` parmi les champs modifiés, sans sa valeur.
+
 ## Certifications et habilitations
 
 - **Certification en vigueur** : pour chaque collaborateur et chaque formation, seule la plus récente

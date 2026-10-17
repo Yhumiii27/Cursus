@@ -5,6 +5,8 @@ import { Domain } from '../../shared/domain.ts';
 import { addD, isoParis, isValidDate, mondayOf } from '../../shared/dates.ts';
 import { absenceVueManager, repriseMedicale } from '../../shared/rules/absences.ts';
 import { aptitudeVueManager } from '../../shared/rules/sante.ts';
+import { naissanceVueManager } from '../../shared/rules/mineurs.ts';
+import { needsFinCarriere } from '../../shared/rules/entretiens.ts';
 import { verdictAutorisation } from '../../shared/rules/contrats.ts';
 import { avecInscrits } from '../../shared/rules/sessions.ts';
 import { finPeriodeCp, periodeReport } from '../../shared/rules/conges.ts';
@@ -171,6 +173,14 @@ export function tachesProches(taches: TacheKeystone[], today: ISODate): TacheKey
 const reportNeutre = (r: ReportCp): ReportCp => ({ ...r, motif: '', expire: finPeriodeCp(periodeReport(r).periode) });
 /** Ligne de clôture des congés vue de même : sans motif de report imposé, échéance d'un report au 31 mai suivant. */
 const clotureNeutre = (c: ClotureConges): ClotureConges => ({ ...c, motif: null, expire: c.expire ? finPeriodeCp(c.periode + 1) : null });
+/**
+ * Entretien vu sans la date de naissance du salarié (manager, profils restreints) : sections « fin de carrière » calculées
+ * ici sur l'âge exact (`finCarriere`), pour que l'évaluateur rédige celles que le serveur accepte.
+ */
+const avecFinCarriere = (d: Domain, x: Entretien): Entretien => {
+  const e = d.emp(x.empId);
+  return e ? { ...x, finCarriere: needsFinCarriere(d, e, x) } : x;
+};
 
 export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
   const full = loadFull(db, user);
@@ -190,12 +200,13 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
   // (fin du contrat) et l'indication qu'elle est enregistrée (`sortieEnregistree`, pour que ses échéances soient celles du
   // service RH) : ni le motif (démission, licenciement…), ni la fin prévue. Du titre de séjour d'un membre, le verdict
   // seul (`autorisationVerdict`, « valide » aussi sans titre requis) : ni type, ni numéro, ni date. La période d'essai lui
-  // est transmise : il en évalue l'issue avec le service RH.
+  // est transmise : il en évalue l'issue avec le service RH. De la naissance d'un membre, l'année et l'indication « mineur »
+  // du jour (`naissanceVueManager`), jamais la date complète.
   const employes = full.employes.filter(e => ids.has(e.id)).map(e => isMgr && e.id !== user.empId
     ? {
       ...e, visite: null, avis: null, restrictions: [], aptitude: aptitudeVueManager(e, d.medInfo(e).ok, full.today), vaccins: [], matriculePaie: null,
       passeport: e.passeport && { expire: e.passeport.expire }, motifSortie: null, finPrevue: null, sortieEnregistree: !!e.motifSortie,
-      autorisationTravail: null, autorisationVerdict: verdictAutorisation(e, full.today),
+      autorisationTravail: null, autorisationVerdict: verdictAutorisation(e, full.today), ...naissanceVueManager(e, full.today),
       ...(repriseMedicale(e, full.absences) ? { repriseMotif: null, repriseDate: null } : { repriseMotif: e.repriseDate ? 'absence longue' : null }),
     }
     : e);
@@ -230,7 +241,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     // Clôture des congés : le motif d'un report imposé et son échéance laissent deviner une absence de santé, réservés à
     // l'intéressé (`clotureNeutre`).
     clotures: mine(full.clotures).map(c => isMgr && c.empId !== user.empId ? clotureNeutre(c) : c),
-    entretiens: mine(full.entretiens),
+    // Sections « fin de carrière » des entretiens d'un membre calculées ici : sa date de naissance n'est pas transmise.
+    entretiens: mine(full.entretiens).map(x => isMgr && x.empId !== user.empId ? avecFinCarriere(d, x) : x),
     // Les documents déclarés (passeport, visas, vaccinations) des membres ne sont pas montrés au manager ;
     // le contenu d'une déclaration et le motif d'un refus ne sont transmis qu'à l'intéressé (et au RH), même
     // quand le manager a fait la demande : la confirmation du refus l'annonce ainsi (client/src/state/confirmations.ts).
@@ -261,7 +273,8 @@ const sansExigences = (r: Dataset['referentiels']): Pick<Dataset['referentiels']
  * ou non, avis) et aux restrictions de poste en vigueur, sans date ; ni visite, ni demande de visite, ni vaccinations ;
  * nature médicale des absences masquée et reprise d'un arrêt longue maladie retirée ; motif des reports de CP retiré
  * (texte libre), comme celui d'un report imposé à la clôture des congés, et échéances ramenées au 31 mai (celle d'un
- * report légal, 31 août, laisse deviner une absence de santé, de maternité ou de paternité : `reportNeutre`).
+ * report légal, 31 août, laisse deviner une absence de santé, de maternité ou de paternité : `reportNeutre`) ; de la
+ * naissance, l'année et l'indication « mineur » seulement (`naissanceVueManager`), sans la date complète.
  * - `formations` (référent HSE) : sessions et résultats, certifications et habilitations, demandes de formation et
  *   d'habilitation, chantiers avec l'état précalculé des déplacements et les absences de leurs ressources (sans nature)
  *   pour les verdicts Go / No Go ; ni passeport, ni visas (dossiers de voyage réservés au service RH) ;
@@ -281,6 +294,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     ...e,
     visite: null, avis: null, restrictions: [], aptitude: formations ? aptitudeVueManager(e, d.medInfo(e).ok, full.today) : undefined, vaccins: [],
     passeport: lecture ? e.passeport && { expire: e.passeport.expire } : null, visas: lecture ? e.visas : [],
+    // Naissance : l'année et l'indication « mineur » du jour, comme pour le manager ; jamais la date complète.
+    ...naissanceVueManager(e, full.today),
     certs: formations ? e.certs : [], habs: formations ? e.habs : [],
     // Motif de sortie : paie (solde de tout compte) et lecture seule ; le référent HSE ne voit que la date, et l'indication
     // qu'elle est enregistrée (ses échéances de fin de contrat sont celles du service RH).
@@ -329,7 +344,7 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     reports: paie ? full.reports.map(reportNeutre) : [],
     soldesReprise: paie ? full.soldesReprise : [],
     clotures: paie ? full.clotures.map(clotureNeutre) : [],
-    entretiens: lecture ? full.entretiens.map(x => ({ ...x, cr: {} })) : [],
+    entretiens: lecture ? full.entretiens.map(x => ({ ...avecFinCarriere(d, x), cr: {} })) : [],
     // Demandes de formation et d'habilitation ; les documents déclarés (passeport, visa, vaccination) restent au RH.
     demandesCollab: formations ? full.demandesCollab.filter(r => r.type !== 'document').map(r => ({ ...r, declaration: null })) : [],
     demandesVisite: [],

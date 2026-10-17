@@ -274,11 +274,12 @@ const avisDe = (s: string): AvisMedical | null => {
   if (/\bapte\b/.test(k)) return 'apte';
   return null;
 };
-const naissanceDe = (s: string): number | null => {
+/** Naissance d'une cellule : date complète (JJ/MM/AAAA ou AAAA-MM-JJ), gardée telle quelle, ou année seule. */
+const naissanceDe = (s: string): { le: ISODate | null; annee: number } | null => {
   const v = s.trim();
-  if (/^\d{4}$/.test(v)) return Number(v);
+  if (/^\d{4}$/.test(v)) return { le: null, annee: Number(v) };
   const iso = toIso(v);
-  return iso ? Number(iso.slice(0, 4)) : null;
+  return iso ? { le: iso, annee: Number(iso.slice(0, 4)) } : null;
 };
 /** Date d'une cellule : JJ/MM/AAAA ou AAAA-MM-JJ ; vide : null ; illisible : ''. */
 const dateDe = (s: string | undefined): ISODate | null | '' => (!s?.trim() ? null : toIso(s) ?? '');
@@ -409,7 +410,7 @@ function analyserSalaries(d: Domain, entetes: string[], lignes: { n: number; v: 
     }
     const base: ProfilInput = e ? profilOf(e) : {
       nom, poste: '', equipe: null, statut: 'ouvrier', typeContrat: 'cdi', temps: '35h', heures: null, forfaitHeures: null, forfaitJours: null, jourOff: [],
-      tempsDepuis: null, entree: entree!, fin: null, motifSortie: null, naissance: NaN, agence: null, matriculePaie: null, email: null, visite: null,
+      tempsDepuis: null, entree: entree!, fin: null, motifSortie: null, naissance: NaN, naissanceLe: null, agence: null, matriculePaie: null, email: null, visite: null,
       repriseMotif: null, repriseDate: null,
     };
     const p: ProfilInput = { ...base, nom, entree: entree! };
@@ -434,7 +435,11 @@ function analyserSalaries(d: Domain, entetes: string[], lignes: { n: number; v: 
     lire('heures', nombre, 'Heures par semaine', x => { p.heures = x; });
     lire('forfaitJours', nombre, 'Forfait jours', x => { p.forfaitJours = x; });
     lire('forfaitHeures', nombre, 'Forfait annuel en heures', x => { p.forfaitHeures = x; });
-    lire('naissance', naissanceDe, 'Naissance', x => { p.naissance = x; });
+    // Date complète gardée ; une année seule ne remplace la date de la fiche que si elle la contredit.
+    lire('naissance', naissanceDe, 'Naissance', x => {
+      if (x.le || Number(p.naissanceLe?.slice(0, 4)) !== x.annee) p.naissanceLe = x.le;
+      p.naissance = x.annee;
+    });
     if (!e && Number.isNaN(p.naissance)) l.erreurs.push('Année de naissance manquante');
     const fin = dateDe(v.fin);
     if (fin === '') l.erreurs.push(`Date de fin illisible : « ${v.fin} »`);

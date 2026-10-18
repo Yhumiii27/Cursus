@@ -213,11 +213,14 @@ test('couverture : transmise par le serveur, par équipe encadrée pour le manag
   // Manager de la Maintenance : son équipe seule ; collaborateur : rien.
   assert.deepEqual(buildSnapshot(db, user(12, 'manager')).couverture!.map(x => x.equipe), ['Maintenance']);
   assert.deepEqual(buildSnapshot(db, user(2, 'collaborateur')).couverture, []);
-  // Référent HSE : toutes les équipes, l'absent sans son nom ; lecture seule : avec ; paie : rien, ni les seuils.
-  const hse = buildSnapshot(db, user(23, 'rh')).couverture!.find(x => x.equipe === 'Maintenance')!;
-  assert.deepEqual(hse.manque!.causes, [{ type: 'absence', empId: null, nom: null, le: null }]);
-  assert.equal(C.causesTexte(hse.manque!.causes), 'un membre (absent)');
-  assert.equal(buildSnapshot(db, user(11, 'rh')).couverture!.find(x => x.equipe === 'Maintenance')!.manque!.causes[0].nom, 'Mehdi Benali');
+  // Référent HSE : toutes les équipes, sans l'absence hors chantiers (il ne la reçoit pas : par élimination parmi les
+  // titulaires, le manque daté lui désignerait l'absent et ses dates) ; lecture seule : avec ; paie : rien, ni les seuils.
+  const vueHse = buildSnapshot(db, user(23, 'rh'));
+  assert.deepEqual(vueHse.absences.filter(a => a.empId === 2), []);
+  const hse = vueHse.couverture!.find(x => x.equipe === 'Maintenance')!;
+  assert.deepEqual([hse.compte, hse.manque, hse.sansAbsences], [4, null, true]);
+  const lect = buildSnapshot(db, user(11, 'rh')).couverture!.find(x => x.equipe === 'Maintenance')!;
+  assert.deepEqual([lect.manque!.causes[0].nom, lect.sansAbsences], ['Mehdi Benali', undefined]);
   const paie = buildSnapshot(db, user(7, 'rh'));
   assert.deepEqual(paie.couverture, []);
   assert.ok(paie.referentiels.equipes.every(q => !q.couverture));
@@ -237,6 +240,82 @@ test('couverture : relancée au récapitulatif du service RH, du manager de l’
   assert.ok(avec.includes('rh@entreprise.example'));
   const karim = db.get<Ligne>('employes', 12)!.email;
   assert.ok(!avec.includes(karim));
+});
+
+test('couverture : seuil 1 et titulaire unique absent hors chantier — rien pour le référent HSE, ni à l’écran ni par e-mail', () => {
+  const { db, run, RH, user } = fresh();
+  // Maintenance : 1 SST au minimum, Mehdi Benali seul titulaire en vigueur ; absence hors chantier du 20 au 22 octobre.
+  db.update('equipes', 'Maintenance', { couverture: [{ formation: 'sst', min: 1 }] });
+  const maintenance = new Set(db.all<Ligne>('employes').filter(x => x.equipe === 'Maintenance' && x.id !== 2).map(x => x.id));
+  db.sql.prepare(`DELETE FROM certifications WHERE f = 'sst' AND emp_id IN (${[...maintenance].join(',')})`).run();
+  db.insert('absences', { empId: 2, type: 'MALADIE', du: '2026-10-20', au: '2026-10-22', statut: 'validee', keystone: false, signaleLe: null, signalePar: null, signaleParInteresse: false, justificatif: false, justificatifLe: null, finInitiale: null, annuleeLe: null, annuleePar: null });
+  const rh = buildSnapshot(db, RH).couverture!.find(x => x.equipe === 'Maintenance')!;
+  assert.deepEqual([rh.compte, rh.manque!.le, rh.manque!.jusquau, rh.manque!.causes.map(c => c.nom)], [1, '2026-10-20', '2026-10-22', ['Mehdi Benali']]);
+  const hse = buildSnapshot(db, user(23, 'rh')).couverture!.find(x => x.equipe === 'Maintenance')!;
+  assert.deepEqual([hse.compte, hse.manque], [1, null]);
+  // Récapitulatif : le service RH reçoit l'alerte de la Maintenance, la référente HSE (Sarah Cohen) non.
+  run(RH, 'messagerie.regler', { rh: 'rh@entreprise.example' });
+  db.tx(() => recapitulatifEcheances(db));
+  const hseAdresse = db.get<Ligne>('employes', 23)!.email;
+  const textes = db.all<Ligne>('envois').filter(x => x.type === 'echeances.recapitulatif').map(e => [e.contenu.a[0], e.contenu.texte as string]);
+  const alertes = textes.filter(([, t]) => t.includes('Équipe Maintenance')).map(([a]) => a);
+  assert.ok(alertes.includes('rh@entreprise.example'));
+  assert.ok(!alertes.includes(hseAdresse));
+  // Absence d'une ressource de chantier (qu'il reçoit déjà) : le manque figure dans sa vue.
+  const chantier = db.all<Ligne>('chantiers').find(c => c.statut !== 'archive')!;
+  db.update('chantiers', chantier.id, { ressources: [...chantier.ressources, 2] });
+  assert.equal(buildSnapshot(db, user(23, 'rh')).couverture!.find(x => x.equipe === 'Maintenance')!.manque!.le, '2026-10-20');
+});
+
+test('couverture : manque déjà en cours relancé une fois, comme échu, sous la date de son début', () => {
+  const { db, run, RH } = fresh();
+  run(RH, 'messagerie.regler', { rh: 'rh@entreprise.example' });
+  // Production : 6 SST au minimum pour 5 titulaires (titulaires trop peu nombreux, sans date) ; Maintenance : un des
+  // 4 titulaires sort le 5 octobre (manque depuis le 6), seuil 4.
+  db.update('equipes', 'Production', { couverture: [{ formation: 'sst', min: 6 }] });
+  db.update('equipes', 'Maintenance', { couverture: [{ formation: 'sst', min: 4 }] });
+  const d0 = new Domain(loadFull(db, RH));
+  const etats = C.etatsCouverture(d0.ds, 90);
+  assert.equal(C.debutManque(etats.find(x => x.equipe === 'Production')!, d0.ti), null);
+  const r0 = relancesDues(d0, d0.enrich(90, false), [90, 30, 7]).filter(x => x.categorie === 'couverture');
+  assert.deepEqual(r0.map(x => [x.cle, x.palier]), [['couverture:Production:sst:en-cours', 'echu']]);
+  const textes = () => db.all<Ligne>('envois').filter(x => x.type === 'echeances.recapitulatif' && x.contenu.a[0] === 'rh@entreprise.example').map(x => x.contenu.texte as string);
+  const avant = process.env.CURSUS_TODAY;
+  try {
+    for (const jour of ['2026-10-10', '2026-10-11']) {
+      process.env.CURSUS_TODAY = jour;
+      db.tx(() => recapitulatifEcheances(db));
+    }
+    assert.equal(db.all<Ligne>('relances').filter(x => x.cle === 'couverture:Production:sst:en-cours').length, 1);
+    assert.equal(textes().filter(t => t.includes('Équipe Production')).length, 1, 'une seule alerte au service RH sur les deux jours');
+    assert.match(textes()[0], /Échéances dépassées :[^]*Équipe Production — Couverture SST : 5 sur 6 minimum : en cours/);
+    // Le 12 : un titulaire de moins (4 comptés), cause nouvelle ; manque relancé une fois de plus, depuis son début.
+    process.env.CURSUS_TODAY = '2026-10-12';
+    db.tx(() => recapitulatifEcheances(db));
+  } finally { process.env.CURSUS_TODAY = avant; }
+  assert.match(textes().at(-1)!, /Échéances dépassées :\n• Équipe Production — Couverture SST : 4 sur 6 minimum : depuis le 12 oct\. 2026/);
+  assert.equal(textes().filter(t => t.includes('Équipe Production')).length, 2);
+  // Manque daté par une sortie : début le lendemain, même clé d'un jour à l'autre.
+  const etat = { equipe: 'Maintenance', formation: 'sst', min: 4, compte: 3, manque: { le: '2026-10-10', compte: 3, jusquau: null, causes: [{ type: 'sortie' as const, empId: 2, nom: 'Mehdi Benali', le: '2026-10-05' }] } };
+  assert.equal(C.debutManque(etat, '2026-10-10'), '2026-10-06');
+  assert.equal(C.debutManque({ ...etat, manque: { ...etat.manque, le: '2026-10-11' } }, '2026-10-11'), '2026-10-06');
+  assert.equal(C.debutManque({ ...etat, manque: { ...etat.manque, le: '2026-11-02' } }, '2026-10-10'), '2026-11-02', 'à venir : sa date');
+});
+
+test('couverture : un seuil enregistré que l’effectif ne permet plus d’atteindre ne bloque pas les exigences', () => {
+  const { db, run, RH } = fresh();
+  const ref = loadFull(db, RH).referentiels;
+  // Ligne inchangée au-delà de l'effectif : acceptée ; nouvelle ou relevée : refusée.
+  assert.equal(C.controlerCouverture([{ formation: 'sst', min: 4 }], ref, 3, [{ formation: 'sst', min: 4 }]).erreur, null);
+  assert.match(C.controlerCouverture([{ formation: 'sst', min: 5 }], ref, 3, [{ formation: 'sst', min: 4 }]).erreur!, /de 1 à 3 \(3 membres présents\)/);
+  assert.match(C.controlerCouverture([{ formation: 'sst', min: 4 }], ref, 3).erreur!, /de 1 à 3/);
+  // Maintenance à 5 SST au minimum, puis deux membres sortis : les exigences s'enregistrent, seuil gardé, alerte maintenue.
+  run(RH, 'referentiel.equipe.exigences', { nom: 'Maintenance', formations: [], habilitations: [], couverture: [{ formation: 'sst', min: 5 }] });
+  const membres = db.all<Ligne>('employes').filter(e => e.equipe === 'Maintenance' && e.id !== 12).slice(0, 2);
+  for (const e of membres) db.update('employes', e.id, { fin: '2026-10-01' });
+  run(RH, 'referentiel.equipe.exigences', { nom: 'Maintenance', formations: ['epi'], habilitations: [], couverture: [{ formation: 'sst', min: 5 }] });
+  assert.deepEqual(db.get<Ligne>('equipes', 'Maintenance')!.couverture, [{ formation: 'sst', min: 5 }]);
+  assert.ok(C.etatsCouverture(loadFull(db, RH), 90).find(x => x.equipe === 'Maintenance')!.manque);
 });
 
 // — t069 : entretien de parcours après la visite de mi-carrière —

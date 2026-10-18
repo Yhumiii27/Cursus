@@ -36,8 +36,10 @@ export function RefEquipeDialog({ nom }: { nom: string }) {
   const { erreurs } = controlerExigences(exigences, ref, avant);
   const membres = useMemo(() => d.ds.employes.filter(e => e.equipe === nom && present(e, d.ti)), [d, nom]);
   const saisie = couverture.map(l => ({ formation: l.formation, min: l.min.trim() === '' ? NaN : Number(l.min) }));
-  const errCouverture = controlerCouverture(saisie, ref, membres.length, couvertureAvant).erreur;
   const couvertureChangee = JSON.stringify(saisie) !== JSON.stringify(couvertureAvant);
+  // Couverture inchangée : pas envoyée, donc pas contrôlée (le serveur la laisse telle quelle) ; un seuil que l'effectif ne
+  // permet plus d'atteindre ne bloque pas l'enregistrement des exigences, son alerte reste affichée.
+  const errCouverture = couvertureChangee ? controlerCouverture(saisie, ref, membres.length, couvertureAvant).erreur : null;
   // Formations proposées : catalogue en vigueur, et celles déjà suivies archivées depuis (gardées, sans effet).
   const formationsCouverture = ref.formations.filter(f => actif(f) || couvertureAvant.some(l => l.formation === f.id));
   const sst = ref.formations.find(f => f.id === COUVERTURE_PROPOSEE.formation && actif(f));

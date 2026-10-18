@@ -13,8 +13,10 @@
 //   compte qu'une fois la certification enregistrée.
 // - Affichage : tableau de bord (service RH, référent HSE, lecture seule), Équipes & managers, Échéances, équipe du
 //   manager (ses équipes, jamais la nature d'une absence) et récapitulatif des échéances (shared/rules/relances.ts).
-//   Calculé par le serveur sur l'instantané complet (`Dataset.couverture`, server/src/dataset.ts) : le référent HSE ne
-//   reçoit pas toutes les absences ; il ne reçoit pas non plus le nom d'un membre absent.
+//   Calculé par le serveur (`Dataset.couverture`, server/src/dataset.ts) : sur l'instantané complet pour le service RH,
+//   la lecture seule et le manager ; pour le référent HSE, avec les seules absences qu'il reçoit (ressources des
+//   chantiers) : un manque daté par une autre absence lui donnerait, par élimination parmi les titulaires qu'il connaît,
+//   le nom et les dates de l'absent (`sansAbsences`, couverture à vérifier avec le service RH).
 import { addD, addMonths, iso, parse } from '../dates.ts';
 import { fmtIso, plural } from '../format.ts';
 import type { CauseCouverture, Dataset, Employe, Equipe, EtatCouverture, ISODate, LigneCouverture } from '../types.ts';
@@ -45,7 +47,7 @@ export function lignesCouverture(v: unknown): LigneCouverture[] | null {
 /**
  * Couverture saisie, contrôlée (dialogue de l'équipe et `referentiel.equipe.exigences`) : formation du catalogue en vigueur
  * (déjà suivie et archivée depuis : gardée, sans effet), une ligne par formation, minimum entier de 1 à l'effectif présent
- * de l'équipe (1 au moins, pour une équipe encore vide). `erreur` : premier refus, ou null.
+ * de l'équipe (1 au moins, pour une équipe encore vide ; une ligne inchangée n'y est pas tenue). `erreur` : premier refus, ou null.
  */
 export function controlerCouverture(v: unknown, ref: Pick<Dataset['referentiels'], 'formations'>, effectif: number, avant: readonly LigneCouverture[] = []):
   { erreur: string | null; lignes: LigneCouverture[] } {
@@ -59,7 +61,10 @@ export function controlerCouverture(v: unknown, ref: Pick<Dataset['referentiels'
     if (!formation) return { erreur: 'Couverture minimale : choisissez la formation de chaque ligne.', lignes: [] };
     if (!f || (!actif(f) && !avant.some(a => a.formation === formation))) return { erreur: `Couverture minimale : formation inconnue ou archivée (${formation}).`, lignes: [] };
     if (lignes.some(l => l.formation === formation)) return { erreur: `Couverture minimale : ${f.court} figure deux fois.`, lignes: [] };
-    if (!Number.isInteger(min) || min < 1 || min > max) {
+    // Plafond de l'effectif présent pour une ligne nouvelle ou modifiée seulement : une ligne déjà enregistrée que l'effectif
+    // ne permet plus d'atteindre (sorties) reste valable, son alerte « titulaires trop peu nombreux » est celle à signaler.
+    const inchangee = avant.some(a => a.formation === formation && a.min === min);
+    if (!Number.isInteger(min) || min < 1 || (min > max && !inchangee)) {
       return { erreur: `Couverture minimale ${f.court} : un nombre entier de 1 à ${max} (${plural(effectif, 'membre présent', 'membres présents')}).`, lignes: [] };
     }
     lignes.push({ formation, min });
@@ -123,6 +128,19 @@ export function etatsCouverture(ds: Source, horizon: number, equipes?: readonly 
     }
   }
   return out;
+}
+
+/**
+ * Premier jour d'un manque, stable d'un jour à l'autre (clé de sa relance) : à venir, sa date ; déjà là (`manque.le` vaut
+ * alors aujourd'hui, la recherche partant du jour), le plus tardif des débuts de ses causes (lendemain de l'expiration ou
+ * de la sortie, premier jour de l'absence) ; null : aucune cause datée (titulaires trop peu nombreux, ou date retirée).
+ */
+export function debutManque(x: EtatCouverture, ti: ISODate): ISODate | null {
+  const m = x.manque;
+  if (!m) return null;
+  if (m.le > ti) return m.le;
+  const debuts = m.causes.filter(c => c.le).map(c => (c.type === 'absence' ? c.le! : addD(c.le!, 1))).sort();
+  return debuts.at(-1) ?? null;
 }
 
 /** Manque daté d'aujourd'hui (ou déjà là) : « Sous le minimum » ; à venir : « À anticiper ». */

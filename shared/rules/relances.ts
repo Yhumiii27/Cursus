@@ -10,11 +10,11 @@
 import { ENT_TYPES, EXAMEN_REQUIS, TYPES_CONTRAT } from '../constants.ts';
 import { days, iso, parse } from '../dates.ts';
 import type { Domain, EmpX } from '../domain.ts';
-import type { ISODate, Settings } from '../types.ts';
+import type { EtatCouverture, ISODate, Settings } from '../types.ts';
 import { present } from './contrats.ts';
 import { obligations } from './entretiens.ts';
 import { ECHEANCE_18_ANS, ECHEANCE_DEROGATION } from './mineurs.ts';
-import { etatsCouverture } from './couverture.ts';
+import { debutManque, etatsCouverture } from './couverture.ts';
 
 /** Paliers proposés (jours avant l'échéance) ; « échu » s'y ajoute toujours. */
 export const PALIERS_POSSIBLES = [90, 60, 30, 15, 7] as const;
@@ -60,6 +60,8 @@ export interface Relance {
    * relancée au service RH, au manager de l'équipe et au référent HSE.
    */
   equipe?: string;
+  /** Couverture calculée pour le référent HSE, sans les absences hors chantiers (clé `hse:couverture:…`) : à lui seul. */
+  hse?: boolean;
 }
 
 /**
@@ -124,20 +126,35 @@ export function relancesDues(d: Domain, emps: EmpX[], paliers: readonly number[]
   }
   // Couverture minimale des équipes (SST, EPI incendie…) : relancée à l'approche du premier jour sous le minimum, sans nom
   // ni nature d'absence.
-  for (const c of etatsCouverture(d.ds, Math.max(...paliers, 90))) {
-    if (!c.manque) continue;
-    const court = d.fm(c.formation)?.court ?? c.formation;
-    ajouter({
-      cle: `couverture:${c.equipe}:${c.formation}:${c.manque.le}`, empId: 0, equipe: c.equipe, echeance: c.manque.le, categorie: 'couverture', sante: false,
-      libelle: `Couverture ${court} : ${c.manque.compte} sur ${c.min} minimum`,
-    });
-  }
+  out.push(...relancesCouverture(d, etatsCouverture(d.ds, Math.max(...paliers, 90)), paliers));
   // Fins de contrat prévues (CDD, mission, alternance), tant qu'aucune sortie n'est enregistrée.
   for (const e of presents) {
     if (!e.fin || e.motifSortie) continue;
     ajouter({ cle: `contrat:${e.id}:${e.fin}`, empId: e.id, echeance: e.fin, categorie: 'contrat', libelle: `Fin de contrat (${TYPES_CONTRAT[d.contratOf(e).typeContrat].label})`, sante: false });
   }
   return out.sort((a, b) => a.echeance.localeCompare(b.echeance) || a.empId - b.empId);
+}
+
+/**
+ * Relances de couverture minimale (`etats` : shared/rules/couverture.ts ; `prefixe` : clés à part, pour le référent HSE
+ * dont la couverture est calculée sans les absences hors chantiers). Un manque à venir est relancé par paliers sous la
+ * clé de sa date ; déjà là, comme échu, sous la date de son début (`debutManque`, stable d'un jour à l'autre : il n'est
+ * relancé qu'une fois), ou « en-cours » sans cause datée.
+ */
+export function relancesCouverture(d: Domain, etats: readonly EtatCouverture[], paliers: readonly number[], prefixe = ''): Relance[] {
+  const out: Relance[] = [];
+  for (const c of etats) {
+    if (!c.manque) continue;
+    const court = d.fm(c.formation)?.court ?? c.formation;
+    const echu = c.manque.le <= d.ti, debut = debutManque(c, d.ti), echeance = debut ?? d.ti;
+    const jours = days(d.today, parse(echeance)), palier = echu ? 'echu' : palierDe(jours, paliers);
+    if (!palier) continue;
+    out.push({
+      cle: `${prefixe}couverture:${c.equipe}:${c.formation}:${debut ?? 'en-cours'}`, empId: 0, equipe: c.equipe, echeance, jours, palier,
+      categorie: 'couverture', sante: false, libelle: `Couverture ${court} : ${c.manque.compte} sur ${c.min} minimum`, ...(prefixe ? { hse: true } : {}),
+    });
+  }
+  return out;
 }
 
 /** Catégories du récapitulatif du référent HSE : formations et habilitations. */

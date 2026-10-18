@@ -110,6 +110,11 @@ export interface EtatCouverture {
    * l'horizon (null : au-delà) et causes ; null : minimum tenu sur tout l'horizon.
    */
   manque: { le: ISODate; compte: number; jusquau: ISODate | null; causes: CauseCouverture[] } | null;
+  /**
+   * Calculée sans les absences hors chantiers (vue du référent HSE, qui ne les reçoit pas) : un manque dû à une absence
+   * n'y figure pas, la couverture est à vérifier avec le service RH.
+   */
+  sansAbsences?: boolean;
 }
 /** `exigences` : formations et habilitations exigées de tous ses membres (null : aucune). */
 export interface Equipe {

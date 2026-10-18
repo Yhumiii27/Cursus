@@ -19,7 +19,7 @@ import { effectifSite } from '../../shared/rules/delegation.ts';
 import { reglagesParDefaut } from '../../shared/reglages.ts';
 import { etatsCouverture } from '../../shared/rules/couverture.ts';
 import { entretienMiCarriere } from '../../shared/rules/entretien-mi-carriere.ts';
-import type { DemandeVisite, LotReprise } from '../../shared/types.ts';
+import type { DemandeVisite, EtatCouverture, LotReprise } from '../../shared/types.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Chantier, ClotureConges, CurrentUser, InformationCp, Dataset, SoldeSortie, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
   DerogationDominicale, Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mandat, Mission, Participation, PlanAction, Poste, Projet, ReleveInterim,
@@ -364,6 +364,19 @@ function feuilleSansNaissance(d: Domain, sh: FeuilleTemps): FeuilleTemps {
  *   que les alertes et les échéances soient celles du service RH ; titre de séjour sans son numéro.
  * Hors lecture seule, le titre de séjour se réduit au verdict (`autorisationVerdict`), comme pour le manager.
  */
+/**
+ * Absences transmises au référent HSE : celles des ressources des chantiers non archivés, qui comptent au Go / No Go. Aussi
+ * la base de sa couverture minimale (`couvertureVueHse`), à l'écran comme dans son récapitulatif (server/src/relances.ts).
+ */
+export function absencesRessources(full: Dataset): Dataset['absences'] {
+  const ressources = new Set(full.referentiels.chantiers.filter(c => c.statut !== 'archive').flatMap(c => c.ressources));
+  return full.absences.filter(a => ressources.has(a.empId));
+}
+
+/** Couverture minimale vue du référent HSE : sans les absences hors chantiers, marquée `sansAbsences`. */
+export const couvertureVueHse = (full: Dataset): EtatCouverture[] =>
+  etatsCouverture({ ...full, absences: absencesRessources(full) }, full.settings.horizonAlerte).map(x => ({ ...x, sansAbsences: true }));
+
 function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
   const lecture = droits.includes('consultation');
   const formations = lecture || droits.includes('formations');
@@ -394,7 +407,6 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     // Entretien de parcours après la visite de mi-carrière (lecture seule, qui voit les entretiens) : l'échéance seule.
     entretienMiCarriere: lecture ? entretienMiCarriere(full, e)?.due ?? null : null,
   }));
-  const ressources = new Set(full.referentiels.chantiers.filter(c => c.statut !== 'archive').flatMap(c => c.ressources));
   // Déplacements : l'état du dossier et les formalités manquantes sont calculés ici, avec les pièces du dossier,
   // pour que le verdict Go / No Go soit exact sans les transmettre.
   // Ni motif d'annulation, ni demandeur d'un déplacement importé (textes du service RH).
@@ -427,7 +439,7 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     // Le référent HSE ne reçoit, sans leur nature, que les absences des ressources des chantiers : celles qui comptent au
     // Go / No Go.
     absences: paie ? full.absences.map(absenceVueManager)
-      : formations ? full.absences.filter(a => ressources.has(a.empId)).map(absenceVueManager).map(absenceSansPaie) : [],
+      : formations ? absencesRessources(full).map(absenceVueManager).map(absenceSansPaie) : [],
     cet: paie ? full.cet : [],
     reports: paie ? full.reports.map(reportNeutre) : [],
     soldesReprise: paie ? full.soldesReprise : [],
@@ -455,11 +467,10 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     // Compteur des heures de délégation : service RH et l'élu seulement.
     mandats: [],
     effectifCse: null,
-    // Couverture minimale des équipes : référent HSE et lecture seule ; le référent HSE, qui ne reçoit pas les absences
-    // hors des chantiers, sans le nom d'un membre absent.
-    couverture: !formations ? [] : etatsCouverture(full, full.settings.horizonAlerte).map(x => (lecture || !x.manque ? x : {
-      ...x, manque: { ...x.manque, causes: x.manque.causes.map(c => (c.type === 'absence' ? { ...c, empId: null, nom: null, le: null } : c)) },
-    })),
+    // Couverture minimale des équipes : référent HSE et lecture seule. Le référent HSE, qui ne reçoit pas les absences hors
+    // des chantiers, l'a calculée avec les seules absences qu'il reçoit : un manque daté par une autre absence lui
+    // désignerait l'absent et ses dates, par élimination parmi les titulaires dont il voit les certifications.
+    couverture: !formations ? [] : lecture ? etatsCouverture(full, full.settings.horizonAlerte) : couvertureVueHse(full),
   };
 }
 

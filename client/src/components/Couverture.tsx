@@ -1,7 +1,7 @@
 // Couverture minimale des équipes en SST et équipiers incendie (t067, shared/rules/couverture.ts) : alertes du tableau de
 // bord (service RH, référent HSE, lecture seule), de l'équipe du manager, des Échéances et d'Équipes & managers ; cellule
-// de l'onglet Postes des Référentiels. L'état vient du serveur (`Dataset.couverture`, calculé sur l'instantané complet,
-// le référent HSE ne recevant pas toutes les absences) ; à défaut, il est calculé ici.
+// de l'onglet Postes des Référentiels. L'état vient du serveur (`Dataset.couverture`, calculé sur l'instantané complet ;
+// pour le référent HSE, sans les absences hors chantiers qu'il ne reçoit pas : `sansAbsences`) ; à défaut, il est calculé ici.
 import { useMemo, type CSSProperties } from 'react';
 import { parse } from '../../../shared/dates.ts';
 import { fmtShort, plural } from '../../../shared/format.ts';
@@ -79,8 +79,15 @@ export function CouverturePanel({ equipes, style }: { equipes?: readonly string[
         Membres présents, sans absence en cours, titulaires d’une certification valide, chaque jour jusqu’à l’horizon d’alerte. Un
         recyclage planifié ne compte qu’une fois la certification enregistrée. Seuils : Référentiels → Postes, exigences communes de l’équipe.
       </Fine>
+      <SansAbsences liste={liste} />
     </Panel>
   );
+}
+
+/** Vue du référent HSE (`sansAbsences`) : les absences hors chantiers, qu'il ne reçoit pas, ne sont pas comptées. */
+function SansAbsences({ liste }: { liste: readonly EtatCouverture[] }) {
+  if (!liste.some(x => x.sansAbsences)) return null;
+  return <Fine>Absences hors chantiers non prises en compte : couverture à vérifier avec le service RH.</Fine>;
 }
 
 /** Couverture d'une équipe (Équipes & managers) : chaque seuil, tenu ou non. */
@@ -96,6 +103,7 @@ export function CouvertureEquipe({ equipe }: { equipe: string }) {
           <Tag cls="tag-neutral" style={{ flex: 'none' }}>Couverture tenue</Tag>
         </div>
       ))}
+      <SansAbsences liste={liste} />
     </div>
   );
 }

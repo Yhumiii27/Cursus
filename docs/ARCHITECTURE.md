@@ -1287,12 +1287,17 @@ Table `postes` (intitulé, `formations` et `habilitations` exigées, `archive`),
   successives). `etatsCouverture` compte chaque jour, d'aujourd'hui à l'horizon d'alerte, les membres entrés, pas sortis,
   sans absence validée ou signalée, titulaires d'une certification valide ; premier jour sous le minimum (`manque` : date,
   nombre, dernier jour du manque, causes : expiration, sortie, absence, titulaires trop peu nombreux). Calculé par le
-  serveur (`Dataset.couverture`, `server/src/dataset.ts`) : service RH, lecture seule et référent HSE (sans le nom d'un
-  membre absent : il ne reçoit pas les absences hors chantiers) toutes les équipes ; manager, ses équipes ; collaborateur
-  et paie, rien (paie : seuils retirés). Affichage : `components/Couverture.tsx` (tableau de bord, Équipes & managers,
+  serveur (`Dataset.couverture`, `server/src/dataset.ts`) : service RH, lecture seule et référent HSE toutes les équipes ;
+  manager, ses équipes ; collaborateur et paie, rien (paie : seuils retirés). Le référent HSE, qui ne reçoit que les
+  absences des ressources des chantiers, a sa couverture calculée avec celles-là seules (`couvertureVueHse`,
+  `sansAbsences`, « couverture à vérifier avec le service RH ») : un manque daté par une autre absence lui désignerait,
+  par élimination parmi les titulaires dont il voit les certifications, l'absent et ses dates. Un seuil déjà enregistré
+  que l'effectif présent ne permet plus d'atteindre reste valable (pas de plafond pour une ligne inchangée). Affichage : `components/Couverture.tsx` (tableau de bord, Équipes & managers,
   Échéances filtre « Couverture », équipe du manager, cellule de Référentiels → Postes). Récapitulatif : relance
-  `couverture` (clé `couverture:<équipe>:<formation>:<date>`, `empId` 0, `equipe`), au service RH, au manager de
-  l'équipe et au référent HSE. Hors de `Domain.echeances`, dont chaque ligne désigne un salarié.
+  `couverture` (`relancesCouverture`, clé `couverture:<équipe>:<formation>:<date>`, `empId` 0, `equipe`) : manque à
+  venir relancé par paliers sous sa date ; déjà là, comme échu sous la date de son début (`debutManque` : lendemain de
+  l'expiration ou de la sortie, premier jour de l'absence ; `en-cours` sans cause datée), stable d'un jour à l'autre ; au
+  service RH et au manager de l'équipe ; au référent HSE, la couverture de sa vue, sous des clés `hse:couverture:…`. Hors de `Domain.echeances`, dont chaque ligne désigne un salarié.
 - **Entretien de mi-carrière (t069, `shared/rules/entretien-mi-carriere.ts`)** : une visite `mi_carriere` réalisée rend
   dû un entretien de parcours (`epp`, libellé « Entretien de parcours de mi-carrière ») `entretienMiCarriereMois` après
   elle (2 par défaut, 1 à 12, Paramètres → Entretien de mi-carrière, bandeau « délai à confirmer juridiquement »,

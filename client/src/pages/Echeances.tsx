@@ -58,13 +58,14 @@ export function Echeances() {
       actions={<>
         <Seg name="echType" label="Type d’échéance" value={ui.echType} onChange={x => setUi({ echType: x })}
           options={[['tous', 'Tout'], ['cert', 'Certifications'], ['hab', 'Habilitations'], ['med', 'Visites médicales'], ['exigence', 'Exigences'], ['trip', 'Voyages'], ['contrat', 'Contrats'], ['couverture', 'Couverture']]} />
-        <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exportCsv}>Exporter (CSV)</Btn>
+        {/* Filtre « Couverture » : le panneau par équipe seul ; ni export ni graphique, qui portent sur les échéances des salariés. */}
+        {ui.echType !== 'couverture' && <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exportCsv}>Exporter (CSV)</Btn>}
       </>}
     >
       {/* Couverture minimale des équipes (SST, EPI incendie) : par équipe, à part des échéances de chaque salarié. */}
       {(ui.echType === 'tous' || ui.echType === 'couverture') && <CouverturePanel />}
 
-      <Panel title="Renouvellements par mois" style={{ gap: 'var(--space-4)' }}>
+      {ui.echType !== 'couverture' && <Panel title="Renouvellements par mois" style={{ gap: 'var(--space-4)' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 8, alignItems: 'end', height: 156 }}>
           {v.months.map((m, i) => (
             <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', gap: 6, height: '100%' }}>
@@ -78,7 +79,7 @@ export function Echeances() {
             </div>
           ))}
         </div>
-      </Panel>
+      </Panel>}
 
       <Panel style={{ gap: 'var(--space-2)' }}>
         {v.groups.map(g => (

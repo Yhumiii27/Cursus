@@ -9,7 +9,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 process.env.CURSUS_TODAY = '2026-10-10';
 
-const { Db } = await import('../server/src/db.ts');
+const { SqliteDb: Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -21,23 +21,23 @@ const R = await import('../shared/rules/reprise.ts');
 const { ageAu, dateDesAns, MAJORITE, mineurAu, naissanceVueManager } = await import('../shared/rules/mineurs.ts');
 const { needsFinCarriere } = await import('../shared/rules/entretiens.ts');
 const { PROFIL_VIDE, validerProfil } = await import('../shared/rules/profil.ts');
-type User = NonNullable<ReturnType<typeof currentUser>>;
+type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 
 // Comptes de démonstration : Sandrine Vidal (administratrice RH), Aïcha Diallo (7, paie), Élodie Bernard (11, lecture
 // seule) ; Karim Haddad (12) encadre Mehdi Benali (2).
-function fresh() {
+async function fresh() {
   const db = new Db(':memory:');
-  seedDemo(db);
+  await seedDemo(db);
   const compteId = (empId: number | null) => (db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
     .get(...(empId ? [empId] : [])) as { id: number }).id;
-  const user = (empId: number | null, role: User['role']) => currentUser(db, { compteId: compteId(empId), role, methode: 'demo' })!;
-  const run = (u: User, name: string, payload: Record<string, unknown>) => db.tx(() => {
-    const t = preparerTrace(db, name, payload);
-    const r = ACTIONS[name](makeCtx(db, u, loadFull(db, u)), payload);
-    journaliserAction(db, t, { user: u, compte: db.get('comptes', u.compteId)!, message: typeof r === 'string' ? r : null, result: null });
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: compteId(empId), role, methode: 'demo' }))!;
+  const run = async (u: User, name: string, payload: Record<string, unknown>) => await db.tx(async () => {
+    const t = await preparerTrace(db, name, payload);
+    const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), payload);
+    await journaliserAction(db, t, { user: u, compte: (await db.get('comptes', u.compteId))!, message: typeof r === 'string' ? r : null, result: null });
     return r;
   });
-  return { db, user, run, RH: user(null, 'rh') };
+  return { db, user, run, RH: await user(null, 'rh') };
 }
 
 test('âge exact : atteint le jour anniversaire, la veille encore l’âge d’avant', () => {
@@ -111,128 +111,128 @@ test('fiche : la date donne l’année, au moins 14 ans à l’entrée, date req
   assert.deepEqual(validerProfil(jeune, { ...opts, naissance: { masquee: true } }).errors, []);
 });
 
-test('serveur : date enregistrée avec son année, nommée au journal sans sa valeur', () => {
-  const { db, run, RH } = fresh();
-  run(RH, 'employe.modifier', { id: 2, naissanceLe: '1986-03-09' });
-  const e = loadFull(db, RH).employes.find(x => x.id === 2)!;
+test('serveur : date enregistrée avec son année, nommée au journal sans sa valeur', async () => {
+  const { db, run, RH } = await fresh();
+  await run(RH, 'employe.modifier', { id: 2, naissanceLe: '1986-03-09' });
+  const e = (await loadFull(db, RH)).employes.find(x => x.id === 2)!;
   assert.deepEqual([e.naissanceLe, e.naissance], ['1986-03-09', 1986]);
   const j = db.sql.prepare(`SELECT payload FROM journal WHERE action = 'employe.modifier' ORDER BY id DESC LIMIT 1`).get() as { payload: string };
   assert.deepEqual(JSON.parse(j.payload).champsModifies, ['naissanceLe']);
   assert.doesNotMatch(j.payload, /1986/);
-  assert.throws(() => run(RH, 'employe.modifier', { id: 2, naissanceLe: '2016-01-01' }),
+  await assert.rejects(async () => await run(RH, 'employe.modifier', { id: 2, naissanceLe: '2016-01-01' }),
     (x: unknown) => x instanceof ActionError && /moins de 14 ans à la date d’entrée/.test(x.message));
   // Date enregistrée : vidée, elle est refusée (la fiche ne revient pas à l'année seule).
-  assert.throws(() => run(RH, 'employe.modifier', { id: 2, naissanceLe: null, naissance: 1986 }), /Date de naissance requise/);
-  assert.equal(loadFull(db, RH).employes.find(x => x.id === 2)!.naissanceLe, '1986-03-09');
+  await assert.rejects(async () => await run(RH, 'employe.modifier', { id: 2, naissanceLe: null, naissance: 1986 }), /Date de naissance requise/);
+  assert.equal((await loadFull(db, RH)).employes.find(x => x.id === 2)!.naissanceLe, '1986-03-09');
   // Création : la date de naissance suffit, l'année en est tirée.
-  const r = run(RH, 'employe.creer', {
+  const r = await run(RH, 'employe.creer', {
     nom: 'Léo Martin', poste: 'Apprenti électromécanicien', equipe: 'Maintenance', statut: 'ouvrier', typeContrat: 'alternance', temps: '35h', jourOff: [],
     entree: '2026-09-01', fin: '2028-08-31', naissanceLe: '2010-05-04', email: 'leo.martin@entreprise.example',
   }) as { result: { id: number } };
-  const leo = loadFull(db, RH).employes.find(x => x.id === r.result.id)!;
+  const leo = (await loadFull(db, RH)).employes.find(x => x.id === r.result.id)!;
   assert.deepEqual([leo.naissanceLe, leo.naissance], ['2010-05-04', 2010]);
   assert.equal(mineurAu(leo, '2026-10-10'), true);
 });
 
-test('démonstration : dates complètes, de l’année de chaque profil', () => {
-  const { db, RH } = fresh();
-  const employes = loadFull(db, RH).employes;
+test('démonstration : dates complètes, de l’année de chaque profil', async () => {
+  const { db, RH } = await fresh();
+  const employes = (await loadFull(db, RH)).employes;
   assert.ok(employes.every(e => e.naissanceLe && Number(e.naissanceLe.slice(0, 4)) === e.naissance));
 });
 
-test('manager et profils restreints : ni la date ni l’âge exact, l’année et l’indication « mineur »', () => {
-  const { db, run, user, RH } = fresh();
+test('manager et profils restreints : ni la date ni l’âge exact, l’année et l’indication « mineur »', async () => {
+  const { db, run, user, RH } = await fresh();
   // Apprenti de l'équipe Maintenance (Karim Haddad), 18 ans demain.
-  const { result: { id } } = run(RH, 'employe.creer', {
+  const { result: { id } } = await run(RH, 'employe.creer', {
     nom: 'Léo Martin', poste: 'Apprenti électromécanicien', equipe: 'Maintenance', statut: 'ouvrier', typeContrat: 'alternance', temps: '35h', jourOff: [],
     entree: '2026-09-01', fin: '2028-08-31', naissanceLe: '2008-10-11', email: 'leo.martin@entreprise.example',
   }) as { result: { id: number } };
-  const MGR = user(12, 'manager');
-  const vue = buildSnapshot(db, MGR);
+  const MGR = await user(12, 'manager');
+  const vue = await buildSnapshot(db, MGR);
   const leo = vue.employes.find(e => e.id === id)!;
   assert.deepEqual([leo.naissanceLe, leo.naissance, leo.mineur], [null, 2008, true]);
   assert.deepEqual([vue.employes.find(e => e.id === 2)!.naissanceLe, vue.employes.find(e => e.id === 2)!.mineur], [null, false]);
   // Sa propre fiche : complète.
   assert.equal(vue.employes.find(e => e.id === 12)!.naissanceLe, '1967-08-19');
   // L'intéressé voit sa date.
-  assert.equal(buildSnapshot(db, user(2, 'collaborateur')).employes.find(e => e.id === 2)!.naissanceLe, '1985-11-02');
+  assert.equal((await buildSnapshot(db, await user(2, 'collaborateur'))).employes.find(e => e.id === 2)!.naissanceLe, '1985-11-02');
   // Paie, lecture seule : année et indication, jamais la date.
   for (const empId of [7, 11]) {
-    const v = buildSnapshot(db, user(empId, 'rh'));
+    const v = await buildSnapshot(db, await user(empId, 'rh'));
     assert.ok(v.employes.every(e => e.naissanceLe === null && typeof e.mineur === 'boolean'), `profil du salarié ${empId}`);
     assert.deepEqual([v.employes.find(e => e.id === 1)!.mineur, v.employes.find(e => e.id === id)!.mineur], [false, true]);
   }
   // Le lendemain de ses 18 ans, l'indication tombe.
   process.env.CURSUS_TODAY = '2026-10-11';
   try {
-    assert.equal(buildSnapshot(db, MGR).employes.find(e => e.id === id)!.mineur, false);
+    assert.equal((await buildSnapshot(db, MGR)).employes.find(e => e.id === id)!.mineur, false);
   } finally {
     process.env.CURSUS_TODAY = '2026-10-10';
   }
   // Service RH : la date complète.
-  assert.equal(buildSnapshot(db, RH).employes.find(e => e.id === id)!.naissanceLe, '2008-10-11');
+  assert.equal((await buildSnapshot(db, RH)).employes.find(e => e.id === id)!.naissanceLe, '2008-10-11');
 });
 
-test('fin de carrière : 58 ans à la date de l’entretien, même réponse pour l’évaluateur sans la date de naissance', () => {
-  const { db, run, user, RH } = fresh();
-  run(RH, 'employe.modifier', { id: 2, naissanceLe: '1968-12-15' });
-  const veille = db.insert<any>('entretiens', { empId: 2, type: 'epp', date: '2026-12-14', statut: 'planifie', cr: {}, info: false, signSal: null, signMgr: null, planifieLe: '2026-10-10' });
-  const jour = db.insert<any>('entretiens', { empId: 2, type: 'reprise', date: '2026-12-15', statut: 'planifie', cr: {}, info: false, signSal: null, signMgr: null, planifieLe: '2026-10-10' });
-  const d = new Domain(loadFull(db, RH));
-  const mehdi = d.emp(2)!;
+test('fin de carrière : 58 ans à la date de l’entretien, même réponse pour l’évaluateur sans la date de naissance', async () => {
+  const { db, run, user, RH } = await fresh();
+  await run(RH, 'employe.modifier', { id: 2, naissanceLe: '1968-12-15' });
+  const veille = await db.insert<any>('entretiens', { empId: 2, type: 'epp', date: '2026-12-14', statut: 'planifie', cr: {}, info: false, signSal: null, signMgr: null, planifieLe: '2026-10-10' });
+  const jour = await db.insert<any>('entretiens', { empId: 2, type: 'reprise', date: '2026-12-15', statut: 'planifie', cr: {}, info: false, signSal: null, signMgr: null, planifieLe: '2026-10-10' });
+  const d = new Domain(await loadFull(db, RH));
+  const mehdi = (await d.emp(2))!;
   assert.equal(needsFinCarriere(d, mehdi, veille), false, 'la veille des 58 ans');
   assert.equal(needsFinCarriere(d, mehdi, jour), true, 'le jour des 58 ans');
   assert.equal(needsFinCarriere(d, mehdi, { ...jour, type: 'annuel' }), false, 'entretien annuel : sans objet');
   // Année seule : règle à l'année, à l'année de l'entretien.
   assert.equal(needsFinCarriere(d, { ...mehdi, naissanceLe: null }, veille), true);
   // Évaluateur (manager) : la réponse du serveur, sans la date.
-  const MGR = user(12, 'manager');
-  const vue = buildSnapshot(db, MGR);
+  const MGR = await user(12, 'manager');
+  const vue = await buildSnapshot(db, MGR);
   const dm = new Domain(vue);
   const fc = (id: number) => vue.entretiens.find(x => x.id === id)!;
   assert.deepEqual([fc(veille.id).finCarriere, fc(jour.id).finCarriere], [false, true]);
-  assert.equal(needsFinCarriere(dm, dm.emp(2)!, fc(veille.id)), false);
-  assert.equal(needsFinCarriere(dm, dm.emp(2)!, fc(jour.id)), true);
+  assert.equal(needsFinCarriere(dm, (await dm.emp(2))!, fc(veille.id)), false);
+  assert.equal(needsFinCarriere(dm, (await dm.emp(2))!, fc(jour.id)), true);
   // Le serveur accepte la section le jour des 58 ans, la refuse la veille.
-  run(MGR, 'entretien.modifier', { id: jour.id, section: 'fincarriere', value: 'Aménagement souhaité' });
-  assert.throws(() => run(MGR, 'entretien.modifier', { id: veille.id, section: 'fincarriere', value: 'Aménagement souhaité' }), /Section inconnue/);
+  await run(MGR, 'entretien.modifier', { id: jour.id, section: 'fincarriere', value: 'Aménagement souhaité' });
+  await assert.rejects(async () => await run(MGR, 'entretien.modifier', { id: veille.id, section: 'fincarriere', value: 'Aménagement souhaité' }), /Section inconnue/);
   // Service RH : aucun précalcul, la date est connue.
-  assert.equal(buildSnapshot(db, RH).entretiens.find(x => x.id === jour.id)!.finCarriere, undefined);
+  assert.equal((await buildSnapshot(db, RH)).entretiens.find(x => x.id === jour.id)!.finCarriere, undefined);
   // Entretien reprogrammé avant l'anniversaire, section déjà rédigée : elle reste (écran, impression, serveur).
-  run(MGR, 'entretien.planifier', { empId: 2, kind: 'reprise', date: '2026-12-10' });
-  const reprog = loadFull(db, RH).entretiens.find(x => x.id === jour.id)!;
+  await run(MGR, 'entretien.planifier', { empId: 2, kind: 'reprise', date: '2026-12-10' });
+  const reprog = (await loadFull(db, RH)).entretiens.find(x => x.id === jour.id)!;
   assert.equal(reprog.date, '2026-12-10');
   assert.equal(needsFinCarriere(d, mehdi, reprog), true, 'texte rédigé gardé');
   assert.equal(needsFinCarriere(d, mehdi, { ...reprog, cr: {} }), false, 'sans texte : la veille des 58 ans');
-  assert.equal(buildSnapshot(db, MGR).entretiens.find(x => x.id === jour.id)!.finCarriere, true);
-  run(MGR, 'entretien.modifier', { id: jour.id, section: 'fincarriere', value: 'Aménagement précisé' });
+  assert.equal((await buildSnapshot(db, MGR)).entretiens.find(x => x.id === jour.id)!.finCarriere, true);
+  await run(MGR, 'entretien.modifier', { id: jour.id, section: 'fincarriere', value: 'Aménagement précisé' });
 });
 
-test('reprise depuis Lucca : date complète gardée, année seule sans effacer une date de la même année', () => {
+test('reprise depuis Lucca : date complète gardée, année seule sans effacer une date de la même année', async () => {
   const db = new Db(':memory:');
-  db.insert('comptes', { empId: null, nom: 'Responsable RH', adresse: 'rh@exemple.fr', identifiant: 'rh@exemple.fr', type: 'microsoft', oid: null, profilRh: 'rh_admin', actif: true, motDePasse: null, changerMotDePasse: false, echecs: 0, blocageFin: null, creation: '2026-10-01T08:00:00Z', creePar: null, derniereConnexion: null });
+  await db.insert('comptes', { empId: null, nom: 'Responsable RH', adresse: 'rh@exemple.fr', identifiant: 'rh@exemple.fr', type: 'microsoft', oid: null, profilRh: 'rh_admin', actif: true, motDePasse: null, changerMotDePasse: false, echecs: 0, blocageFin: null, creation: '2026-10-01T08:00:00Z', creePar: null, derniereConnexion: null });
   const ADMIN = { role: 'rh', empId: null, nom: 'Responsable RH', intitule: '', profilRh: 'rh_admin', compteId: 1 } as unknown as User;
-  const importer = (texte: string) => {
+  const importer = async (texte: string) => {
     const colonnes = R.reconnaitreColonnes('salaries', lireCsv(texte).lignes[0]);
-    const apercu = R.analyserReprise(new Domain(loadFull(db, ADMIN)), 'salaries', texte, { colonnes } as any);
-    db.tx(() => ACTIONS['reprise.importer'](makeCtx(db, ADMIN, loadFull(db, ADMIN)), { type: 'salaries', texte, colonnes }));
+    const apercu = R.analyserReprise(new Domain(await loadFull(db, ADMIN)), 'salaries', texte, { colonnes } as any);
+    await db.tx(async () => await ACTIONS['reprise.importer'](makeCtx(db, ADMIN, await loadFull(db, ADMIN)), { type: 'salaries', texte, colonnes }));
     return apercu;
   };
-  const emp = (nom: string) => loadFull(db, ADMIN).employes.find(e => e.nom === nom)!;
+  const emp = async (nom: string) => (await loadFull(db, ADMIN)).employes.find(e => e.nom === nom)!;
   const entete = 'Matricule;Prénom;Nom;Poste;Équipe;Date d’entrée;Date de naissance';
-  importer([entete, 'A0123;Julie;Martin;Technicienne;Maintenance;01/09/2015;12/04/1988', 'A0456;Marc;Petit;Opérateur;Production;05/01/2026;1997'].join('\n'));
-  assert.deepEqual([emp('Julie Martin').naissanceLe, emp('Julie Martin').naissance], ['1988-04-12', 1988]);
-  assert.deepEqual([emp('Marc Petit').naissanceLe, emp('Marc Petit').naissance], [null, 1997]);
+  await importer([entete, 'A0123;Julie;Martin;Technicienne;Maintenance;01/09/2015;12/04/1988', 'A0456;Marc;Petit;Opérateur;Production;05/01/2026;1997'].join('\n'));
+  assert.deepEqual([(await emp('Julie Martin')).naissanceLe, (await emp('Julie Martin')).naissance], ['1988-04-12', 1988]);
+  assert.deepEqual([(await emp('Marc Petit')).naissanceLe, (await emp('Marc Petit')).naissance], [null, 1997]);
   // Second fichier : l'année seule de Julie (la même) ne retire pas sa date ; la date de Marc complète sa fiche.
-  const a = importer([entete, 'A0123;Julie;Martin;Technicienne;Maintenance;01/09/2015;1988', 'A0456;Marc;Petit;Opérateur;Production;05/01/2026;1997-07-14'].join('\n'));
+  const a = await importer([entete, 'A0123;Julie;Martin;Technicienne;Maintenance;01/09/2015;1988', 'A0456;Marc;Petit;Opérateur;Production;05/01/2026;1997-07-14'].join('\n'));
   assert.deepEqual(a.lignes.map(l => l.issue), ['ignoree', 'maj']);
-  assert.deepEqual([emp('Julie Martin').naissanceLe, emp('Marc Petit').naissanceLe, emp('Marc Petit').naissance], ['1988-04-12', '1997-07-14', 1997]);
+  assert.deepEqual([(await emp('Julie Martin')).naissanceLe, (await emp('Marc Petit')).naissanceLe, (await emp('Marc Petit')).naissance], ['1988-04-12', '1997-07-14', 1997]);
   // Une année qui contredit la date : l'année du fichier l'emporte, la date est retirée.
-  importer([entete, 'A0123;Julie;Martin;Technicienne;Maintenance;01/09/2015;1989'].join('\n'));
-  assert.deepEqual([emp('Julie Martin').naissanceLe, emp('Julie Martin').naissance], [null, 1989]);
+  await importer([entete, 'A0123;Julie;Martin;Technicienne;Maintenance;01/09/2015;1989'].join('\n'));
+  assert.deepEqual([(await emp('Julie Martin')).naissanceLe, (await emp('Julie Martin')).naissance], [null, 1989]);
 });
 
-test('base existante : colonne de la date ajoutée à l’ouverture, fiches gardées à l’année', () => {
+test('base existante : colonne de la date ajoutée à l’ouverture, fiches gardées à l’année', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'cursus-'));
   const file = join(dir, 'ancienne.db');
   try {
@@ -241,7 +241,7 @@ test('base existante : colonne de la date ajoutée à l’ouverture, fiches gard
     old.exec(`INSERT INTO employes (nom, equipe, poste, statut, type_contrat, temps, jour_off, entree, naissance) VALUES ('A', 'Production', 'Opérateur', 'ouvrier', 'cdi', '35h', '[]', '2020-01-01', 1968)`);
     old.close();
     const db = new Db(file);
-    const [a] = db.all<{ naissance: number; naissanceLe: string | null }>('employes');
+    const [a] = await db.all<{ naissance: number; naissanceLe: string | null }>('employes');
     assert.deepEqual([a.naissance, a.naissanceLe], [1968, null]);
     assert.equal(ageAu(a, '2026-01-01'), 58, 'règle à l’année, comme avant');
     db.sql.close();

@@ -64,13 +64,13 @@ export interface Contexte {
   destinations: Map<string, string>;
 }
 
-export function contexte(db: Db): Contexte {
+export async function contexte(db: Db): Promise<Contexte> {
   return {
     db,
-    ...correspondance(db),
-    habilitations: new Set(db.all<{ id: string }>('habilitations').map(h => h.id)),
-    formations: new Set(db.all<{ id: string }>('formations').map(f => f.id)),
-    destinations: new Map(db.all<Destination>('destinations').map(d => [d.code, d.pays])),
+    ...await correspondance(db),
+    habilitations: new Set((await db.all<{ id: string }>('habilitations')).map(h => h.id)),
+    formations: new Set((await db.all<{ id: string }>('formations')).map(f => f.id)),
+    destinations: new Map((await db.all<Destination>('destinations')).map(d => [d.code, d.pays])),
   };
 }
 
@@ -78,9 +78,9 @@ export function contexte(db: Db): Contexte {
  * Correspondance matricule ↔ salarié, dans les deux sens, selon le réglage « identifiant envoyé à Keystone ». Deux fiches
  * portent le même matricule de paie après une réembauche confirmée : le salarié présent (le plus récent) l'emporte.
  */
-export function correspondance(db: Db): Pick<Contexte, 'salaries' | 'matricule'> {
-  const mode = loadSettings(db).identifiantKeystone, ti = todayIso();
-  const fiches = db.all<{ id: number; fin: ISODate | null; entree: ISODate; matriculePaie: string | null }>('employes')
+export async function correspondance(db: Db): Promise<Pick<Contexte, 'salaries' | 'matricule'>> {
+  const mode = (await loadSettings(db)).identifiantKeystone, ti = todayIso();
+  const fiches = (await db.all<{ id: number; fin: ISODate | null; entree: ISODate; matriculePaie: string | null }>('employes'))
     .sort((a, b) => Number(!sortiLe(a, ti)) - Number(!sortiLe(b, ti)) || a.entree.localeCompare(b.entree));
   const parId = new Map(fiches.map(e => [e.id, e]));
   return {
@@ -178,23 +178,23 @@ const egal = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b)
 export interface ProjetApi { code: string; nom: string; statut: StatutKeystone }
 const projetApi = (p: Projet): ProjetApi => ({ code: p.code, nom: p.nom, statut: p.statut ?? 'actif' });
 
-function ecrireProjet(cx: Contexte, code: string | undefined, body: unknown, err: Erreurs, prefixe = ''): Ecriture<ProjetApi> | null {
+async function ecrireProjet(cx: Contexte, code: string | undefined, body: unknown, err: Erreurs, prefixe = ''): Promise<Ecriture<ProjetApi> | null> {
   const l = lecture(body, err, prefixe);
   if (!l) return null;
   const n = err.liste.length;
   const id = l.identifiant('code', code);
   const val = { nom: l.texte('nom'), statut: l.statut('statut') };
   if (err.liste.length > n) return null;
-  const ex = cx.db.get<Projet>('projets', id);
-  if (!ex) return { resultat: 'cree', objet: projetApi(cx.db.insert<Projet>('projets', { code: id, ...val })) };
+  const ex = await cx.db.get<Projet>('projets', id);
+  if (!ex) return { resultat: 'cree', objet: projetApi(await cx.db.insert<Projet>('projets', { code: id, ...val })) };
   if (ex.nom === val.nom && (ex.statut ?? 'actif') === val.statut) return { resultat: 'inchange', objet: projetApi(ex) };
-  return { resultat: 'modifie', objet: projetApi(cx.db.update<Projet>('projets', id, val)) };
+  return { resultat: 'modifie', objet: projetApi(await cx.db.update<Projet>('projets', id, val)) };
 }
 
 /** Crée ou met à jour un projet (code Keystone) : les heures s'y imputent dans les feuilles de temps. */
-export function enregistrerProjet(cx: Contexte, code: string | undefined, body: unknown): Ecriture<ProjetApi> {
+export async function enregistrerProjet(cx: Contexte, code: string | undefined, body: unknown): Promise<Ecriture<ProjetApi>> {
   const err = new Erreurs();
-  const r = ecrireProjet(cx, code, body, err);
+  const r = await ecrireProjet(cx, code, body, err);
   err.verifier();
   return r!;
 }
@@ -222,18 +222,18 @@ function lieuMission(cx: Contexte, c: Pick<Chantier, 'lieu' | 'pays'>) {
  * Une affectation hors de ces dates (repérage, préparation) reste une mission sans entrer dans le Go / No Go,
  * évalué sur les dates du chantier.
  */
-export function recalculerRessources(db: Db, chantierId: string) {
-  const c = db.get<Chantier>('chantiers', chantierId);
+export async function recalculerRessources(db: Db, chantierId: string) {
+  const c = await db.get<Chantier>('chantiers', chantierId);
   if (!c) return;
-  const ids = db.where<Mission>('missions', 'projet', chantierId)
+  const ids = (await db.where<Mission>('missions', 'projet', chantierId))
     .filter(m => m.du <= c.fin && m.au >= c.debut)
     .sort((a, b) => a.du.localeCompare(b.du) || a.id - b.id)
     .map(m => m.empId);
   const ressources = [...new Set(ids)];
-  if (!egal(ressources, c.ressources)) db.update<Chantier>('chantiers', chantierId, { ressources });
+  if (!egal(ressources, c.ressources)) await db.update<Chantier>('chantiers', chantierId, { ressources });
 }
 
-function ecrireChantier(cx: Contexte, id: string | undefined, body: unknown, err: Erreurs, prefixe = ''): Ecriture<ChantierApi> | null {
+async function ecrireChantier(cx: Contexte, id: string | undefined, body: unknown, err: Erreurs, prefixe = ''): Promise<Ecriture<ChantierApi> | null> {
   const l = lecture(body, err, prefixe);
   if (!l) return null;
   const n = err.liste.length;
@@ -247,32 +247,32 @@ function ecrireChantier(cx: Contexte, id: string | undefined, body: unknown, err
     statut: l.statut('statut'),
   };
   if (err.liste.length > n) return null;
-  const ex = cx.db.get<Chantier>('chantiers', cid);
+  const ex = await cx.db.get<Chantier>('chantiers', cid);
   let resultat: Resultat = 'modifie';
   if (!ex) {
-    cx.db.insert<Chantier>('chantiers', { id: cid, ...val, ressources: [] });
+    await cx.db.insert<Chantier>('chantiers', { id: cid, ...val, ressources: [] });
     resultat = 'cree';
   } else if ((Object.keys(val) as (keyof typeof val)[]).every(k => egal(val[k], k === 'statut' ? ex.statut ?? 'actif' : ex[k]))) {
     resultat = 'inchange';
   } else {
-    cx.db.update<Chantier>('chantiers', cid, val);
+    await cx.db.update<Chantier>('chantiers', cid, val);
     // Les missions du chantier suivent son lieu ; ses ressources, ses dates.
     if (ex.lieu !== val.lieu || ex.pays !== val.pays) {
       const m = lieuMission(cx, val);
-      cx.db.sql.prepare('UPDATE missions SET lieu = ?, type = ? WHERE projet = ?').run(m.lieu, m.type, cid);
+      await cx.db.run('UPDATE missions SET lieu = ?, type = ? WHERE projet = ?', [m.lieu, m.type, cid]);
     }
   }
-  if (resultat !== 'inchange') recalculerRessources(cx.db, cid);
-  return { resultat, objet: chantierApi(cx, cx.db.get<Chantier>('chantiers', cid)!) };
+  if (resultat !== 'inchange') await recalculerRessources(cx.db, cid);
+  return { resultat, objet: chantierApi(cx, (await cx.db.get<Chantier>('chantiers', cid))!) };
 }
 
 /**
  * Crée ou met à jour un chantier (identifiant Keystone) : exigences du Go / No Go (habilitations, certifications),
  * dates, statut. Archivé, il n'est plus évalué ; ses missions restent en historique.
  */
-export function enregistrerChantier(cx: Contexte, id: string | undefined, body: unknown): Ecriture<ChantierApi> {
+export async function enregistrerChantier(cx: Contexte, id: string | undefined, body: unknown): Promise<Ecriture<ChantierApi>> {
   const err = new Erreurs();
-  const r = ecrireChantier(cx, id, body, err);
+  const r = await ecrireChantier(cx, id, body, err);
   err.verifier();
   return r!;
 }
@@ -281,60 +281,60 @@ export function enregistrerChantier(cx: Contexte, id: string | undefined, body: 
 
 export interface AffectationApi { id: string; matricule: string; chantier: string; du: ISODate; au: ISODate; ressource: boolean }
 
-function affectationApi(cx: Contexte, m: Mission): AffectationApi {
-  const c = cx.db.get<Chantier>('chantiers', m.projet);
+async function affectationApi(cx: Contexte, m: Mission): Promise<AffectationApi> {
+  const c = await cx.db.get<Chantier>('chantiers', m.projet);
   return { id: m.ref!, matricule: cx.matricule(m.empId), chantier: m.projet, du: m.du, au: m.au, ressource: !!c && m.du <= c.fin && m.au >= c.debut };
 }
 
-const missionKeystone = (db: Db, ref: string) => db.where<Mission>('missions', 'ref', ref)[0];
+const missionKeystone = async (db: Db, ref: string) => (await db.where<Mission>('missions', 'ref', ref))[0];
 
-function ecrireAffectation(cx: Contexte, id: string | undefined, body: unknown, err: Erreurs, prefixe = ''): Ecriture<AffectationApi> | null {
+async function ecrireAffectation(cx: Contexte, id: string | undefined, body: unknown, err: Erreurs, prefixe = ''): Promise<Ecriture<AffectationApi> | null> {
   const l = lecture(body, err, prefixe);
   if (!l) return null;
   const n = err.liste.length;
   const ref = l.identifiant('id', id);
   const empId = l.salarie(cx, 'matricule');
   const chantierId = l.texte('chantier', 64);
-  const c = chantierId ? cx.db.get<Chantier>('chantiers', chantierId) : undefined;
+  const c = chantierId ? await cx.db.get<Chantier>('chantiers', chantierId) : undefined;
   if (chantierId && !c) l.faute('chantier', 'Chantier inconnu : transmettez-le d’abord (PUT /chantiers/{id})');
   const [du, au] = l.periode('du', 'au');
   if (err.liste.length > n || !c || empId == null) return null;
   const val = { empId, projet: c.id, du, au, ...lieuMission(cx, c), ref };
-  const ex = missionKeystone(cx.db, ref);
+  const ex = await missionKeystone(cx.db, ref);
   if (!ex) {
-    const m = cx.db.insert<Mission>('missions', val);
-    recalculerRessources(cx.db, c.id);
-    return { resultat: 'cree', objet: affectationApi(cx, m) };
+    const m = await cx.db.insert<Mission>('missions', val);
+    await recalculerRessources(cx.db, c.id);
+    return { resultat: 'cree', objet: await affectationApi(cx, m) };
   }
   if (ex.empId === val.empId && ex.projet === val.projet && ex.du === du && ex.au === au && ex.lieu === val.lieu && ex.type === val.type) {
-    return { resultat: 'inchange', objet: affectationApi(cx, ex) };
+    return { resultat: 'inchange', objet: await affectationApi(cx, ex) };
   }
-  const m = cx.db.update<Mission>('missions', ex.id, val);
-  recalculerRessources(cx.db, c.id);
-  if (ex.projet !== c.id) recalculerRessources(cx.db, ex.projet);
-  return { resultat: 'modifie', objet: affectationApi(cx, m) };
+  const m = await cx.db.update<Mission>('missions', ex.id, val);
+  await recalculerRessources(cx.db, c.id);
+  if (ex.projet !== c.id) await recalculerRessources(cx.db, ex.projet);
+  return { resultat: 'modifie', objet: await affectationApi(cx, m) };
 }
 
 /** Crée ou met à jour une affectation : mission du salarié et, si elle chevauche les dates du chantier, ressource du Go / No Go. */
-export function enregistrerAffectation(cx: Contexte, id: string | undefined, body: unknown): Ecriture<AffectationApi> {
+export async function enregistrerAffectation(cx: Contexte, id: string | undefined, body: unknown): Promise<Ecriture<AffectationApi>> {
   const err = new Erreurs();
-  const r = ecrireAffectation(cx, id, body, err);
+  const r = await ecrireAffectation(cx, id, body, err);
   err.verifier();
   return r!;
 }
 
-export function supprimerAffectation(db: Db, ref: string) {
-  const m = missionKeystone(db, ref);
+export async function supprimerAffectation(db: Db, ref: string) {
+  const m = await missionKeystone(db, ref);
   if (!m) throw new ErreurKeystone(404, 'AFFECTATION_INCONNUE', 'Affectation inconnue (déjà supprimée ou jamais reçue)');
-  db.remove('missions', m.id);
-  recalculerRessources(db, m.projet);
+  await db.remove('missions', m.id);
+  await recalculerRessources(db, m.projet);
 }
 
 // — Tâches planifiées —
 
 export interface TacheApi { id: string; projet: string; tache: string; matricule: string; debut: ISODate; fin: ISODate; heures: Record<ISODate, number> }
 const tacheApi = (cx: Contexte, t: TacheKeystone): TacheApi => ({ id: t.ref!, projet: t.projet, tache: t.tache, matricule: cx.matricule(t.empId), debut: t.debut, fin: t.fin, heures: t.heures });
-const tacheKeystone = (db: Db, ref: string) => db.where<TacheKeystone>('taches', 'ref', ref)[0];
+const tacheKeystone = async (db: Db, ref: string) => (await db.where<TacheKeystone>('taches', 'ref', ref))[0];
 
 /** Heures planifiées par date : { "AAAA-MM-JJ": heures }, entre les dates de la tâche ; les jours à 0 sont omis. */
 function lireHeures(l: Lecture, debut: ISODate, fin: ISODate): Record<ISODate, number> {
@@ -352,39 +352,39 @@ function lireHeures(l: Lecture, debut: ISODate, fin: ISODate): Record<ISODate, n
   return out;
 }
 
-function ecrireTache(cx: Contexte, id: string | undefined, body: unknown, err: Erreurs, prefixe = ''): Ecriture<TacheApi> | null {
+async function ecrireTache(cx: Contexte, id: string | undefined, body: unknown, err: Erreurs, prefixe = ''): Promise<Ecriture<TacheApi> | null> {
   const l = lecture(body, err, prefixe);
   if (!l) return null;
   const n = err.liste.length;
   const ref = l.identifiant('id', id);
   const projet = l.texte('projet', 64);
-  if (projet && !cx.db.get<Projet>('projets', projet)) l.faute('projet', 'Projet inconnu : transmettez-le d’abord (PUT /projets/{code})');
+  if (projet && !await cx.db.get<Projet>('projets', projet)) l.faute('projet', 'Projet inconnu : transmettez-le d’abord (PUT /projets/{code})');
   const tache = l.texte('tache', 160);
   const empId = l.salarie(cx, 'matricule');
   const [debut, fin] = l.periode('debut', 'fin');
   const heures = lireHeures(l, debut, fin);
   if (err.liste.length > n || empId == null) return null;
   const val = { ref, empId, projet, tache, debut, fin, heures };
-  const ex = tacheKeystone(cx.db, ref);
-  if (!ex) return { resultat: 'cree', objet: tacheApi(cx, cx.db.insert<TacheKeystone>('taches', val)) };
+  const ex = await tacheKeystone(cx.db, ref);
+  if (!ex) return { resultat: 'cree', objet: tacheApi(cx, await cx.db.insert<TacheKeystone>('taches', val)) };
   if (ex.empId === empId && ex.projet === projet && ex.tache === tache && ex.debut === debut && ex.fin === fin && egal(ex.heures, heures)) {
     return { resultat: 'inchange', objet: tacheApi(cx, ex) };
   }
-  return { resultat: 'modifie', objet: tacheApi(cx, cx.db.update<TacheKeystone>('taches', ex.id, val)) };
+  return { resultat: 'modifie', objet: tacheApi(cx, await cx.db.update<TacheKeystone>('taches', ex.id, val)) };
 }
 
 /** Crée ou met à jour une tâche planifiée : proposée dans la feuille de temps des semaines où des heures sont prévues. */
-export function enregistrerTache(cx: Contexte, id: string | undefined, body: unknown): Ecriture<TacheApi> {
+export async function enregistrerTache(cx: Contexte, id: string | undefined, body: unknown): Promise<Ecriture<TacheApi>> {
   const err = new Erreurs();
-  const r = ecrireTache(cx, id, body, err);
+  const r = await ecrireTache(cx, id, body, err);
   err.verifier();
   return r!;
 }
 
-export function supprimerTache(db: Db, ref: string) {
-  const t = tacheKeystone(db, ref);
+export async function supprimerTache(db: Db, ref: string) {
+  const t = await tacheKeystone(db, ref);
   if (!t) throw new ErreurKeystone(404, 'TACHE_INCONNUE', 'Tâche inconnue (déjà supprimée ou jamais reçue)');
-  db.remove('taches', t.id);
+  await db.remove('taches', t.id);
 }
 
 // — Synchronisation complète (instantané) —
@@ -399,7 +399,7 @@ export type Bilan = Partial<Record<'projets' | 'chantiers' | 'affectations' | 't
  * ou une tâche absente est supprimée — seulement si elle se termine à partir de `depuis`, quand cette date est fournie.
  * Une section omise n'est pas touchée. Les missions sans identifiant Keystone (bases antérieures) restent.
  */
-export function synchroniser(cx: Contexte, body: unknown): Bilan {
+export async function synchroniser(cx: Contexte, body: unknown): Promise<Bilan> {
   const err = new Erreurs();
   if (!estObjet(body)) { err.add('corps', 'Objet JSON attendu'); err.verifier(); }
   const o = body as Entree;
@@ -421,58 +421,58 @@ export function synchroniser(cx: Contexte, body: unknown): Bilan {
   const bilan: Bilan = {};
   const db = cx.db;
   /** Applique une section : identifiants uniques, puis écriture objet par objet (les erreurs s'accumulent). */
-  const section = <T>(nom: typeof SECTIONS[number], cle: 'id' | 'code', ecrire: (cx: Contexte, id: undefined, item: unknown, err: Erreurs, prefixe: string) => Ecriture<T> | null) => {
+  const section = async <T>(nom: typeof SECTIONS[number], cle: 'id' | 'code', ecrire: (cx: Contexte, id: undefined, item: unknown, err: Erreurs, prefixe: string) => Promise<Ecriture<T> | null>) => {
     const items = listes[nom];
     if (!items) return null;
     const b: BilanSection = { crees: 0, modifies: 0, inchanges: 0 };
     const vus = new Set<string>();
-    items.forEach((item, i) => {
+    for (const [i, item] of items.entries()) {
       const id = estObjet(item) ? item[cle] : undefined;
-      if (typeof id === 'string' && vus.has(id)) { err.add(`${nom}[${i}].${cle}`, 'Identifiant en double dans l’instantané'); return; }
+      if (typeof id === 'string' && vus.has(id)) { err.add(`${nom}[${i}].${cle}`, 'Identifiant en double dans l’instantané'); continue; }
       if (typeof id === 'string') vus.add(id);
-      const r = ecrire(cx, undefined, item, err, `${nom}[${i}]`);
+      const r = await ecrire(cx, undefined, item, err, `${nom}[${i}]`);
       if (r) b[r.resultat === 'cree' ? 'crees' : r.resultat === 'modifie' ? 'modifies' : 'inchanges']++;
-    });
+    }
     bilan[nom] = b;
     return { b, vus };
   };
 
-  const projets = section('projets', 'code', ecrireProjet);
+  const projets = await section('projets', 'code', ecrireProjet);
   if (projets) {
     projets.b.archives = 0;
     // Activités internes (INT-*) et cours en CFA (ECOLE) : imputables, mais pas des projets Keystone ;
     // un instantané qui les omet ne les archive pas (PUT /projets/{code} avec « archive » pour en clore une).
-    for (const p of db.all<Projet>('projets')) {
+    for (const p of await db.all<Projet>('projets')) {
       if (p.statut === 'archive' || projets.vus.has(p.code) || ACTIVITES_INTERNES.test(p.code)) continue;
-      db.update<Projet>('projets', p.code, { statut: 'archive' });
+      await db.update<Projet>('projets', p.code, { statut: 'archive' });
       projets.b.archives++;
     }
   }
-  const chantiers = section('chantiers', 'id', ecrireChantier);
+  const chantiers = await section('chantiers', 'id', ecrireChantier);
   if (chantiers) {
     chantiers.b.archives = 0;
-    for (const c of db.all<Chantier>('chantiers')) {
-      if (c.statut !== 'archive' && !chantiers.vus.has(c.id)) { db.update<Chantier>('chantiers', c.id, { statut: 'archive' }); chantiers.b.archives++; }
+    for (const c of await db.all<Chantier>('chantiers')) {
+      if (c.statut !== 'archive' && !chantiers.vus.has(c.id)) { await db.update<Chantier>('chantiers', c.id, { statut: 'archive' }); chantiers.b.archives++; }
     }
   }
-  const affectations = section('affectations', 'id', ecrireAffectation);
+  const affectations = await section('affectations', 'id', ecrireAffectation);
   if (affectations) {
     affectations.b.supprimes = 0;
     const touches = new Set<string>();
-    for (const m of db.all<Mission>('missions')) {
+    for (const m of await db.all<Mission>('missions')) {
       if (!m.ref || affectations.vus.has(m.ref) || (depuis && m.au < depuis)) continue;
-      db.remove('missions', m.id);
+      await db.remove('missions', m.id);
       touches.add(m.projet);
       affectations.b.supprimes++;
     }
-    touches.forEach(id => recalculerRessources(db, id));
+    for (const id of touches) await recalculerRessources(db, id);
   }
-  const taches = section('taches', 'id', ecrireTache);
+  const taches = await section('taches', 'id', ecrireTache);
   if (taches) {
     taches.b.supprimes = 0;
-    for (const t of db.all<TacheKeystone>('taches')) {
+    for (const t of await db.all<TacheKeystone>('taches')) {
       if (!t.ref || taches.vus.has(t.ref) || (depuis && t.fin < depuis)) continue;
-      db.remove('taches', t.id);
+      await db.remove('taches', t.id);
       taches.b.supprimes++;
     }
   }
@@ -510,9 +510,9 @@ type DemandeContenu = Pick<DemandeKeystone, 'empId' | 'chantier' | 'dest' | 'dep
  * destination du pays du chantier, salarié présent dans les effectifs et affecté au chantier sur ces dates
  * (affectation Keystone), déplacement non terminé.
  */
-export function controlesDemande(cx: Contexte, x: DemandeContenu, today: ISODate): ErreurChamp[] {
+export async function controlesDemande(cx: Contexte, x: DemandeContenu, today: ISODate): Promise<ErreurChamp[]> {
   const out: ErreurChamp[] = [];
-  const c = cx.db.get<Chantier>('chantiers', x.chantier);
+  const c = await cx.db.get<Chantier>('chantiers', x.chantier);
   if (!c) out.push({ champ: 'chantier', message: 'Chantier inconnu' });
   else if (c.statut === 'archive') out.push({ champ: 'chantier', message: 'Chantier archivé dans Keystone' });
   if (!cx.destinations.has(x.dest)) out.push({ champ: 'destination', message: 'Destination hors du référentiel de Cursus (voir GET /referentiels)' });
@@ -520,7 +520,7 @@ export function controlesDemande(cx: Contexte, x: DemandeContenu, today: ISODate
   if (x.retour < today) out.push({ champ: 'retour', message: 'Déplacement déjà terminé' });
   const fin = [...cx.salaries.values()].find(s => s.id === x.empId)?.fin;
   if (fin && fin < x.depart) out.push({ champ: 'matricule', message: 'Salarié sorti des effectifs avant le départ' });
-  const affecte = cx.db.where<Mission>('missions', 'empId', x.empId).some(m => m.projet === x.chantier && m.du <= x.retour && m.au >= x.depart);
+  const affecte = (await cx.db.where<Mission>('missions', 'empId', x.empId)).some(m => m.projet === x.chantier && m.du <= x.retour && m.au >= x.depart);
   if (c && !affecte) out.push({ champ: 'matricule', message: 'Salarié non affecté au chantier sur ces dates (affectation Keystone requise)' });
   return out;
 }
@@ -530,30 +530,30 @@ export function controlesDemande(cx: Contexte, x: DemandeContenu, today: ISODate
  * de la même référence, ou d'une demande identique encore en attente, reçoit 409 avec la demande existante.
  * `referenceRequise` : vrai pour l'API v1 ; l'ancienne route l'accepte facultative.
  */
-export function recevoirDemande(cx: Contexte, body: unknown, today: ISODate, referenceRequise: boolean): DemandeKeystone {
+export async function recevoirDemande(cx: Contexte, body: unknown, today: ISODate, referenceRequise: boolean): Promise<DemandeKeystone> {
   const err = new Erreurs();
   const l = lecture(body, err, '');
   if (!l) throw new ErreurKeystone(400, 'VALIDATION', 'Données invalides : corps', err.liste);
   const ref = referenceRequise || l.o.reference != null ? l.identifiant('reference') : null;
   if (ref) {
-    const ex = cx.db.where<DemandeKeystone>('demandesKeystone', 'ref', ref)[0];
+    const ex = (await cx.db.where<DemandeKeystone>('demandesKeystone', 'ref', ref))[0];
     if (ex) throw new ErreurKeystone(409, 'DEMANDE_EN_DOUBLE', 'Demande déjà reçue sous cette référence', [], { demande: demandeApi(ex, cx.matricule) });
   }
   const empId = l.salarie(cx, 'matricule');
   const chantier = l.texte('chantier', 64);
-  const c = chantier ? cx.db.get<Chantier>('chantiers', chantier) : undefined;
+  const c = chantier ? await cx.db.get<Chantier>('chantiers', chantier) : undefined;
   if (chantier && !c) l.faute('chantier', 'Chantier inconnu');
   // Destination : le pays du chantier par défaut.
   const dest = l.o.destination == null ? c?.pays ?? '' : l.texte('destination', 8);
   const [depart, retour] = l.periode('depart', 'retour');
   err.verifier();
   const x: DemandeContenu = { empId: empId!, chantier, dest, depart, retour };
-  controlesDemande(cx, x, today).forEach(e => err.add(e.champ, e.message));
+  (await controlesDemande(cx, x, today)).forEach(e => err.add(e.champ, e.message));
   err.verifier();
-  const doublon = cx.db.where<DemandeKeystone>('demandesKeystone', 'empId', x.empId)
+  const doublon = (await cx.db.where<DemandeKeystone>('demandesKeystone', 'empId', x.empId))
     .find(d => d.statut === 'attente' && d.chantier === x.chantier && d.depart === x.depart && d.retour === x.retour);
   if (doublon) throw new ErreurKeystone(409, 'DEMANDE_EN_DOUBLE', 'Demande identique déjà en attente de validation RH', [], { demande: demandeApi(doublon, cx.matricule) });
-  return cx.db.insert<DemandeKeystone>('demandesKeystone', { ...x, recue: today, ref, statut: 'attente', decidee: null, decideur: null, voyageId: null });
+  return await cx.db.insert<DemandeKeystone>('demandesKeystone', { ...x, recue: today, ref, statut: 'attente', decidee: null, decideur: null, voyageId: null });
 }
 
 /**
@@ -561,10 +561,10 @@ export function recevoirDemande(cx: Contexte, body: unknown, today: ISODate, ref
  * (affectation retirée, chantier archivé, départ du salarié…). Un déplacement déjà créé (et non annulé) pour ce chantier
  * sur ces dates est aussi refusé. Renvoie les motifs de refus (liste vide : acceptable).
  */
-export function motifsRefusAcceptation(db: Db, dm: DemandeKeystone, today: ISODate): string[] {
-  const motifs = controlesDemande(contexte(db), dm, today).map(e => e.message);
-  if (!db.where<{ id: number }>('employes', 'id', dm.empId).length) motifs.unshift('Salarié inconnu');
-  const deja = db.where<Voyage>('voyages', 'empId', dm.empId).some(v => !v.annuleLe && v.chantier === dm.chantier && v.depart <= dm.retour && v.retour >= dm.depart);
+export async function motifsRefusAcceptation(db: Db, dm: DemandeKeystone, today: ISODate): Promise<string[]> {
+  const motifs = (await controlesDemande(await contexte(db), dm, today)).map(e => e.message);
+  if (!(await db.where<{ id: number }>('employes', 'id', dm.empId)).length) motifs.unshift('Salarié inconnu');
+  const deja = (await db.where<Voyage>('voyages', 'empId', dm.empId)).some(v => !v.annuleLe && v.chantier === dm.chantier && v.depart <= dm.retour && v.retour >= dm.depart);
   if (deja) motifs.push('Un déplacement existe déjà pour ce chantier sur ces dates');
   return motifs;
 }
@@ -575,15 +575,15 @@ export function motifsRefusAcceptation(db: Db, dm: DemandeKeystone, today: ISODa
  * Base existante : statuts par défaut des données antérieures à l'API, retrait des tâches sans dates
  * (anciennes données de démonstration recopiées chaque semaine).
  */
-export function migrerKeystone(db: Db, avant: () => void = () => {}) {
-  const q = (sql: string) => Number((db.sql.prepare(sql).get() as { n: number }).n);
-  const aReprendre = q(`SELECT (SELECT COUNT(*) FROM projets WHERE statut IS NULL) + (SELECT COUNT(*) FROM chantiers WHERE statut IS NULL)
+export async function migrerKeystone(db: Db, avant: () => void = () => {}) {
+  const q = async (sql: string) => Number((await db.one(sql) as { n: number }).n);
+  const aReprendre = await q(`SELECT (SELECT COUNT(*) FROM projets WHERE statut IS NULL) + (SELECT COUNT(*) FROM chantiers WHERE statut IS NULL)
     + (SELECT COUNT(*) FROM demandes_keystone WHERE statut IS NULL) + (SELECT COUNT(*) FROM taches WHERE debut IS NULL) AS n`);
   if (aReprendre) {
     avant();
-    const sansDates = q('SELECT COUNT(*) AS n FROM taches WHERE debut IS NULL');
-    db.tx(() => {
-      db.sql.exec(`UPDATE projets SET statut = 'actif' WHERE statut IS NULL;
+    const sansDates = await q('SELECT COUNT(*) AS n FROM taches WHERE debut IS NULL');
+    await db.tx(async () => {
+      await db.exec(`UPDATE projets SET statut = 'actif' WHERE statut IS NULL;
         UPDATE chantiers SET statut = 'actif' WHERE statut IS NULL;
         UPDATE demandes_keystone SET statut = 'attente' WHERE statut IS NULL;
         DELETE FROM taches WHERE debut IS NULL;`);

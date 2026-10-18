@@ -28,7 +28,7 @@ function sheetOf(ctx: Ctx, empId: number, week: string): FeuilleTemps | undefine
  * Saisie autorisée : le salarié, son manager ou le service RH, tant que la feuille n'est pas validée.
  * Une feuille soumise ne peut être corrigée que par son valideur (manager direct ou RH, jamais pour lui-même), avant validation.
  */
-function editable(ctx: Ctx, p: Record<string, any>): { emp: Employe; week: string; sh: FeuilleTemps } {
+async function editable(ctx: Ctx, p: Record<string, any>): Promise<{ emp: Employe; week: string; sh: FeuilleTemps }> {
   const emp = getEmp(ctx, p.empId);
   const week = String(p.week);
   if (!isValidDate(week) || mondayOf(week) !== week) throw new ActionError('Semaine invalide');
@@ -39,7 +39,7 @@ function editable(ctx: Ctx, p: Record<string, any>): { emp: Employe; week: strin
   let sh = sheetOf(ctx, emp.id, week);
   const correction = !!sh && sh.statut === 'soumise' && isValidatorOf(ctx, emp);
   if (sh && !['brouillon', 'rejetee'].includes(sh.statut) && !correction) throw new ActionError('Feuille déjà soumise ou validée');
-  if (!sh) sh = ctx.db.insert<FeuilleTemps>('feuilles', { empId: emp.id, week, statut: 'brouillon', comment: null, sage: false, keystone: false, lignes: [] });
+  if (!sh) sh = await ctx.db.insert<FeuilleTemps>('feuilles', { empId: emp.id, week, statut: 'brouillon', comment: null, sage: false, keystone: false, lignes: [] });
   return { emp, week, sh };
 }
 
@@ -67,9 +67,9 @@ function motifDepassement(ctx: Ctx, emp: Employe, sh: FeuilleTemps, p: Record<st
   return motif;
 }
 
-function saveLines(ctx: Ctx, sh: FeuilleTemps, lignes: LigneTemps[]) {
+async function saveLines(ctx: Ctx, sh: FeuilleTemps, lignes: LigneTemps[]) {
   // Une feuille corrigée par son valideur reste « soumise » ; une feuille renvoyée reste « à corriger ».
-  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { lignes, statut: sh.statut === 'rejetee' || sh.statut === 'soumise' ? sh.statut : 'brouillon' });
+  await ctx.db.update<FeuilleTemps>('feuilles', sh.id, { lignes, statut: sh.statut === 'rejetee' || sh.statut === 'soumise' ? sh.statut : 'brouillon' });
 }
 
 /**
@@ -78,8 +78,8 @@ function saveLines(ctx: Ctx, sh: FeuilleTemps, lignes: LigneTemps[]) {
  * Un jour férié se saisit si le réglage `feriesTravaillesAutorises` le permet (par défaut) : heures repérées et majorées
  * (shared/rules/majorations.ts), saisie tracée au journal (`temps.ferie`, server/src/journal.ts).
  */
-const setCell: ActionHandler = (ctx, p) => {
-  const { emp, sh } = editable(ctx, p);
+const setCell: ActionHandler = async (ctx, p) => {
+  const { emp, sh } = await editable(ctx, p);
   const li = Number(p.li), di = Number(p.di);
   if (!sh.lignes[li] || !(Number.isInteger(di) && di >= 0 && di < JOURS_FEUILLE)) throw new ActionError('Cellule invalide');
   const v = Math.round(Math.max(0, Math.min(24, num(String(p.value ?? '').replace(/[^\d.,]/g, '')))) * 100) / 100;
@@ -99,12 +99,12 @@ const setCell: ActionHandler = (ctx, p) => {
   // Demi-journée d'absence : au plus une demi-journée de travail ce jour-là (baisser une cellule reste possible).
   const demi = v > num(sh.lignes[li].h[di]) ? demiJourneeRefus(ctx.d, sh, di, jour) : null;
   if (demi) throw new ActionError(demi);
-  saveLines(ctx, sh, lignes);
+  await saveLines(ctx, sh, lignes);
   return null;
 };
 
-const addLine: ActionHandler = (ctx, p) => {
-  const { sh } = editable(ctx, p);
+const addLine: ActionHandler = async (ctx, p) => {
+  const { sh } = await editable(ctx, p);
   const projet = str(p.projet);
   // Projets transmis par Keystone (server/src/integrations/keystone-entrant.ts) ; un projet archivé n'est plus proposé.
   const pr = ctx.ds.referentiels.projets.find(x => x.code === projet);
@@ -112,7 +112,7 @@ const addLine: ActionHandler = (ctx, p) => {
   if (pr.statut === 'archive') {
     throw new ActionError(estActiviteInterne(pr.code) ? 'Activité interne archivée (écran Référentiels) : aucune heure ne peut plus y être imputée' : 'Projet clos dans Keystone : aucune heure ne peut plus y être imputée');
   }
-  saveLines(ctx, sh, [...sh.lignes, { projet, tache: pr.nom, ks: false, h: completerSemaine([]) }]);
+  await saveLines(ctx, sh, [...sh.lignes, { projet, tache: pr.nom, ks: false, h: completerSemaine([]) }]);
   return null;
 };
 
@@ -121,8 +121,8 @@ const addLine: ActionHandler = (ctx, p) => {
  * supprimée (double clic, autre onglet) : rien n'est refait ; feuille changée entre-temps : refus, plutôt que
  * de supprimer la ligne voisine venue prendre sa place.
  */
-const removeLine: ActionHandler = (ctx, p) => {
-  const { sh } = editable(ctx, p);
+const removeLine: ActionHandler = async (ctx, p) => {
+  const { sh } = await editable(ctx, p);
   const li = Number(p.li);
   if (p.projet !== undefined) {
     const visee = (l: LigneTemps) => l.projet === p.projet && (p.tache === undefined || l.tache === p.tache);
@@ -131,7 +131,7 @@ const removeLine: ActionHandler = (ctx, p) => {
       throw new ActionError('La feuille a changé entre-temps : vérifiez la ligne à supprimer, puis réessayez');
     }
   }
-  saveLines(ctx, sh, sh.lignes.filter((_, i) => i !== li));
+  await saveLines(ctx, sh, sh.lignes.filter((_, i) => i !== li));
   return null;
 };
 
@@ -140,8 +140,8 @@ const removeLine: ActionHandler = (ctx, p) => {
  * sont gardées (shared/rules/formations-temps.ts, fusionProposition) : seules les lignes Keystone d'une proposition
  * précédente et la ligne INT-FORM de la même formation sont remplacées.
  */
-const suggest: ActionHandler = (ctx, p) => {
-  const { emp, week, sh } = editable(ctx, p);
+const suggest: ActionHandler = async (ctx, p) => {
+  const { emp, week, sh } = await editable(ctx, p);
   const l = suggestLines(ctx.d, emp, week);
   // Rien de planifié cette semaine : la feuille n'est pas vidée.
   if (!l.length) throw new ActionError('Aucune tâche Keystone ni session de formation planifiée pour ce salarié cette semaine');
@@ -150,7 +150,7 @@ const suggest: ActionHandler = (ctx, p) => {
   controleJournees(sh, f.lignes, 'Tâches Keystone et lignes déjà saisies : plus de 24 h');
   const ajoutees = f.lignes.length - f.conservees;
   if (!ajoutees) throw new ActionError('Aucune heure de formation à proposer : les jours de la session comptent déjà 24 h, toutes lignes cumulées');
-  saveLines(ctx, sh, f.lignes);
+  await saveLines(ctx, sh, f.lignes);
   // Lignes de formation (INT-FORM) : heures prévues de la session, jamais envoyées à Keystone.
   const formations = ajoutees - l.filter(x => x.ks).length;
   const source = formations === ajoutees ? 'des sessions de formation' : formations ? 'des tâches Keystone et des sessions de formation' : 'des tâches Keystone';
@@ -161,8 +161,8 @@ const suggest: ActionHandler = (ctx, p) => {
   ].filter(Boolean).join(' · ');
 };
 
-const submit: ActionHandler = (ctx, p) => {
-  const { emp, sh } = editable(ctx, p);
+const submit: ActionHandler = async (ctx, p) => {
+  const { emp, sh } = await editable(ctx, p);
   if (sh.statut === 'soumise') throw new ActionError('Feuille déjà soumise');
   const total = sh.lignes.reduce((n, l) => n + l.h.reduce((a, b) => a + num(b), 0), 0);
   // Semaine d'arrêt, de congés… : aucun jour travaillé attendu, la feuille se soumet sans heure.
@@ -177,8 +177,8 @@ const submit: ActionHandler = (ctx, p) => {
   // Renvoyée au salarié par une réouverture (t131) : le commentaire, motif du service RH, disparaît ; un retour suivant
   // vient du valideur.
   const reouverture = sh.reouverture?.renvoyee ? { reouverture: { ...sh.reouverture, renvoyee: false } } : {};
-  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'soumise', comment: null, contrat, motifDepassement: motif, ...reouverture });
-  notifierFeuilleSoumise(ctx, emp, sh.week, ctx.d.mgrOf(emp));
+  await ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'soumise', comment: null, contrat, motifDepassement: motif, ...reouverture });
+  await notifierFeuilleSoumise(ctx, emp, sh.week, ctx.d.mgrOf(emp));
   return `Feuille de temps soumise ${ctx.d.mgrDest(ctx.d.mgrOf(emp))}${couverte ? ' — semaine d’absence, sans heure' : ''}`;
 };
 
@@ -195,7 +195,7 @@ function submitted(ctx: Ctx, p: Record<string, any>) {
  * Validation d'une feuille soumise (temps.validate, et chaque feuille de temps.validerLot) : message de confirmation et,
  * à part, les seuils de durée franchis (`alertes`), repris par la validation groupée.
  */
-export function validerFeuille(ctx: Ctx, p: Record<string, any>): { message: string; alertes: string[] } {
+export async function validerFeuille(ctx: Ctx, p: Record<string, any>): Promise<{ message: string; alertes: string[] }> {
   const { emp, sh } = submitted(ctx, p);
   // Soumise sans heure parce que la semaine était couverte : l'absence a pu être annulée ou raccourcie depuis.
   const total = sh.lignes.reduce((n, l) => n + l.h.reduce((a, b) => a + num(b), 0), 0);
@@ -221,14 +221,14 @@ export function validerFeuille(ctx: Ctx, p: Record<string, any>): { message: str
   // les feuilles validées, moins celle déjà figée sur les autres ; l'écart est porté par cette feuille.
   const validee: FeuilleTemps = { ...sh, statut: 'validee', contrat, heuresSup, majDimanche, majFerie };
   const cor = corAValider(ctx.d, emp, validee);
-  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif, heuresSup, majDimanche, majFerie, cor });
+  await ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif, heuresSup, majDimanche, majFerie, cor });
   // Seuils franchis par cette feuille (moyenne sur 12 semaines, temps partiel, contingent) : signalés, sans blocage.
   const autres = ctx.ds.feuilles.filter(f => f.empId === emp.id && f.statut === 'validee' && f.id !== sh.id);
   const alertes = alertesValidation(ctx.d, emp, autres, [...autres, { ...validee, cor }], sh.week, corDeLaFeuille({ cor }));
 
-  if (keystone) sendToKeystone(ctx.db, { type: 'heures.validees', matricule: identifiantKeystone(ctx.ds.settings.identifiantKeystone, emp), semaine: sh.week, projets });
+  if (keystone) await sendToKeystone(ctx.db, { type: 'heures.validees', matricule: identifiantKeystone(ctx.ds.settings.identifiantKeystone, emp), semaine: sh.week, projets });
   // Intérimaire : la dernière feuille validée d'une semaine révolue fait partir le relevé de son agence.
-  const releve = emp.typeContrat === 'interim' && emp.agence ? relevesAutomatiques(ctx.db, { agence: emp.agence, semaine: sh.week }).length > 0 : false;
+  const releve = emp.typeContrat === 'interim' && emp.agence ? (await relevesAutomatiques(ctx.db, { agence: emp.agence, semaine: sh.week })).length > 0 : false;
   return {
     message: `Semaine ${isoWeek(sh.week)} validée${keystone ? ' — heures des projets Keystone renvoyées à Keystone' : ''}${releve ? ` · relevé d’heures envoyé à l’agence ${emp.agence}` : ''}`
       + `${aRegulariser({ ...sh, statut: 'validee' }) ? ' · feuille déjà transmise à la paie : l’écart partira dans le prochain lot (lot correctif)' : ''}${alertes.map(a => ` · ${a}`).join('')}`,
@@ -236,12 +236,12 @@ export function validerFeuille(ctx: Ctx, p: Record<string, any>): { message: str
   };
 }
 
-const validate: ActionHandler = (ctx, p) => validerFeuille(ctx, p).message;
+const validate: ActionHandler = async (ctx, p) => (await validerFeuille(ctx, p)).message;
 
-const reject: ActionHandler = (ctx, p) => {
+const reject: ActionHandler = async (ctx, p) => {
   const { emp, sh } = submitted(ctx, p);
-  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'rejetee', comment: str(p.comment) || 'Merci de vérifier la répartition par projet' });
-  notifierFeuilleRenvoyee(ctx, emp, sh.week);
+  await ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'rejetee', comment: str(p.comment) || 'Merci de vérifier la répartition par projet' });
+  await notifierFeuilleRenvoyee(ctx, emp, sh.week);
   return 'Feuille renvoyée pour correction';
 };
 
@@ -251,7 +251,7 @@ const reject: ActionHandler = (ctx, p) => {
  * lot de chaque période passe par le fichier d'import et la confirmation de l'import (paie.lotGenerer, paie.lotConfirmer) ;
  * mode API : aucun contrat d'API. Les deux sont refusés (503) sans rien marquer ni inventer d'accusé.
  */
-const pushSage: ActionHandler = ctx => pushSageSimulation(ctx);
+const pushSage: ActionHandler = async ctx => await pushSageSimulation(ctx);
 
 export const tempsActions: Record<string, ActionHandler> = {
   'temps.setCell': setCell,

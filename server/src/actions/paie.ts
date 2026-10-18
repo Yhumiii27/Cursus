@@ -37,7 +37,7 @@ import { ActionError, type ActionHandler, type Ctx, requirePaie, str } from './c
  * changé sans `confirmer` repasse « à confirmer ». Deux rubriques d'unités différentes (heures, jours) ne partagent
  * jamais un code Sage.
  */
-const rubrique: ActionHandler = (ctx, p) => {
+const rubrique: ActionHandler = async (ctx, p) => {
   requirePaie(ctx);
   const code = str(p.code);
   if (!Object.hasOwn(RUBRIQUES_PAIE, code)) throw new ActionError('Rubrique de paie inconnue', 404);
@@ -57,8 +57,8 @@ const rubrique: ActionHandler = (ctx, p) => {
     modifieLe: new Date().toISOString(), modifiePar: ctx.user.nom,
   };
   if (codeSage === r.codeSage && active === r.active && ligne.confirmeLe === r.confirmeLe && ligne.confirmePar === r.confirmePar) return `Rubrique ${code} inchangée`;
-  if (ctx.db.get('rubriquesPaie', code)) ctx.db.update('rubriquesPaie', code, ligne);
-  else ctx.db.insert('rubriquesPaie', ligne);
+  if (await ctx.db.get('rubriquesPaie', code)) await ctx.db.update('rubriquesPaie', code, ligne);
+  else await ctx.db.insert('rubriquesPaie', ligne);
   const etat = !active ? 'désactivée, non exportée' : ligne.confirmeLe ? 'confirmé' : 'à confirmer';
   return `Rubrique ${code} : code Sage ${codeSage} (${etat})`;
 };
@@ -74,7 +74,7 @@ const nomsSans = (ctx: Ctx, ids: number[]) => ids.map(id => ctx.d.emp(id)?.nom ?
  * rubrique émise et exportée un code Sage confirmé (409, liste des rubriques). Le libellé de chaque code Sage est figé
  * avec le contenu (colonne facultative du fichier), comme le code Sage de chaque absence.
  */
-export function creerLot(ctx: Ctx, sheets: FeuilleTemps[], mode: SageMode, periode: string, absences: ElementCalcule[] = [], sorties: ElementSortiePaie[] = []): LotEnregistre {
+export async function creerLot(ctx: Ctx, sheets: FeuilleTemps[], mode: SageMode, periode: string, absences: ElementCalcule[] = [], sorties: ElementSortiePaie[] = []): Promise<LotEnregistre> {
   const sans = sansMatriculePaie(ctx.ds.employes, ctx.d.ti, [...sheets.map(sh => sh.empId), ...absences.map(x => x.empId), ...sorties.map(x => x.empId)]).map(e => e.id);
   if (sans.length && mode !== 'simulation') {
     throw new ActionError(`Transmission refusée : ${plural(sans.length, 'salarié sans matricule de paie', 'salariés sans matricule de paie')} (${nomsSans(ctx, sans).join(', ')}). Saisissez-le sur la fiche, puis générez de nouveau le lot.`);
@@ -86,7 +86,7 @@ export function creerLot(ctx: Ctx, sheets: FeuilleTemps[], mode: SageMode, perio
     }
   }
   // Feuilles rouvertes après leur transmission : écart, ou « annule et remplace » selon le format du fichier.
-  const payload = buildSagePayload(ctx.d, sheets, SAGE_DOSSIER, new Date(), mode, optionsRegularisation(ctx.db, ctx.d));
+  const payload = buildSagePayload(ctx.d, sheets, SAGE_DOSSIER, new Date(), mode, await optionsRegularisation(ctx.db, ctx.d));
   const correctifs = sheets.filter(aRegulariser).map(sh => ({ empId: sh.empId, week: sh.week }));
   const elements = traduireElements(absences, ctx.ds.rubriquesPaie);
   const avecAbsences = elements.length || sorties.length ? {
@@ -94,7 +94,7 @@ export function creerLot(ctx: Ctx, sheets: FeuilleTemps[], mode: SageMode, perio
     periodes: [...new Set([...(payload.periodes ?? []), ...elements.map(x => x.periode), ...sorties.map(x => x.periode)])].sort(),
   } : payload;
   const contenu = { ...avecAbsences, libelles: libellesSage(avecAbsences, rubriquesPaie(ctx.ds.rubriquesPaie)) };
-  const lot = ctx.db.insert<LotEnregistre>('lotsPaie', {
+  const lot = await ctx.db.insert<LotEnregistre>('lotsPaie', {
     cle: randomUUID(), mode, statut: 'genere', periode, periodes: contenu.periodes ?? [],
     // Semaines et mois d'absence de périodes déjà closes : partis en rappel sur la période ouverte.
     rappels: [...new Set([...contenu.lignes.flatMap(l => (l.periode_origine ? [l.periode_origine] : [])), ...elements.filter(x => x.mois !== x.periode).map(x => x.mois)])].sort(),
@@ -104,9 +104,9 @@ export function creerLot(ctx: Ctx, sheets: FeuilleTemps[], mode: SageMode, perio
     telechargeLe: null, telechargePar: null, telechargements: 0, confirmeLe: null, confirmePar: null, reference: null, annuleLe: null, annulePar: null, historique: false,
     type: correctifs.length ? 'correctif' : 'normal', correctifs,
   });
-  sheets.forEach(sh => ctx.db.update<FeuilleTemps>('feuilles', sh.id, { lotId: lot.id }));
-  absencesDuContenu(elements).forEach(a => ctx.db.update<Absence>('absences', a.id, { lotId: lot.id }));
-  sortiesDuContenu(sorties).forEach(x => ctx.db.update('soldesSortie', x.id, { lotId: lot.id }));
+  for (const sh of sheets) await ctx.db.update<FeuilleTemps>('feuilles', sh.id, { lotId: lot.id });
+  for (const a of absencesDuContenu(elements)) await ctx.db.update<Absence>('absences', a.id, { lotId: lot.id });
+  for (const x of sortiesDuContenu(sorties)) await ctx.db.update('soldesSortie', x.id, { lotId: lot.id });
   return lot;
 }
 
@@ -141,24 +141,24 @@ function suitesLot(ctx: Ctx, lot: Pick<LotPaie, 'rappels' | 'sansMatricule' | 'c
  * Génère le lot de la période de paie `periode` (AAAA-MM) : feuilles validées en attente dont la période de destination
  * vient au plus tard (rappels compris). Simulation ou fichier d'import ; le fichier se télécharge ensuite.
  */
-const lotGenerer: ActionHandler = (ctx, p) => {
+const lotGenerer: ActionHandler = async (ctx, p) => {
   requirePaie(ctx);
   const periode = str(p.periode);
   if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(periode)) throw new ActionError('Période de paie invalide');
   // « Annule et remplace » : le lot correctif ne porte que les régularisations (le reste attend le lot suivant).
-  const selection = selectionRemplace(ctx.db, feuillesDuLot(sagePending(ctx.d), periode, ctx.ds.settings, ctx.d.ti));
+  const selection = await selectionRemplace(ctx.db, feuillesDuLot(sagePending(ctx.d), periode, ctx.ds.settings, ctx.d.ti));
   if (typeof selection === 'string') throw new ActionError(selection, 409);
   const { sheets, enAttente } = selection;
-  const seul = sheets.some(aRegulariser) && modeRegularisation(lireFormatFichier(ctx.db)) === 'remplace';
+  const seul = sheets.some(aRegulariser) && modeRegularisation(await lireFormatFichier(ctx.db)) === 'remplace';
   // Premier lot d'une base sans date de départ : les absences déjà enregistrées ne partent qu'à partir de la période ouverte.
-  const depart = seul ? '' : departAuPremierLot(ctx.db, ctx.d, ctx.user);
-  const absences = seul ? [] : absencesAEmettre(ctx.db, ctx.d, periode);
-  const sorties = seul ? [] : sortiesAEmettre(ctx.db, ctx.d, periode);
+  const depart = seul ? '' : await departAuPremierLot(ctx.db, ctx.d, ctx.user);
+  const absences = seul ? [] : await absencesAEmettre(ctx.db, ctx.d, periode);
+  const sorties = seul ? [] : await sortiesAEmettre(ctx.db, ctx.d, periode);
   if (!sheets.length && !absences.length && !sorties.length) {
     throw new ActionError(`Aucune feuille validée en attente pour ${periodeLabel(periode)}${absencesDansLeFichier(ctx.ds.settings) ? ', ni absence' : ''}`);
   }
   const mode = sageMode();
-  const lot = creerLot(ctx, sheets, mode, periode, absences, sorties);
+  const lot = await creerLot(ctx, sheets, mode, periode, absences, sorties);
   const salaries = new Set([...sheets.map(sh => sh.empId), ...absences.map(x => x.empId), ...sorties.map(x => x.empId)]).size;
   return {
     message: `Lot n° ${lot.id} généré — ${plural(sheets.length, 'feuille', 'feuilles')} (${plural(salaries, 'salarié', 'salariés')}), ${periodeLabel(periode)}`
@@ -170,8 +170,8 @@ const lotGenerer: ActionHandler = (ctx, p) => {
 };
 
 /** Lot désigné par `id`, avec son contenu. */
-function lotDe(ctx: Ctx, id: unknown): LotEnregistre {
-  const lot = ctx.db.get<LotEnregistre>('lotsPaie', Number(id));
+async function lotDe(ctx: Ctx, id: unknown): Promise<LotEnregistre> {
+  const lot = await ctx.db.get<LotEnregistre>('lotsPaie', Number(id));
   if (!lot) throw new ActionError('Lot de paie introuvable', 404);
   return lot;
 }
@@ -181,23 +181,23 @@ function lotDe(ctx: Ctx, id: unknown): LotEnregistre {
  * si Sage en donne une. Elle seule marque les feuilles transmises. Lot de fichier : son fichier doit avoir été
  * téléchargé. Lot de simulation : refusé hors simulation (il n'a rien envoyé). Déjà confirmé : rien n'est refait.
  */
-export function confirmerLot(ctx: Ctx, lot: LotEnregistre, reference: string | null) {
-  ctx.db.update<LotEnregistre>('lotsPaie', lot.id, { statut: 'transmis', confirmeLe: new Date().toISOString(), confirmePar: ctx.user.nom, reference });
-  ctx.db.sql.prepare('UPDATE feuilles SET sage = 1 WHERE lot_id = ?').run(lot.id);
-  ctx.db.sql.prepare('UPDATE absences SET sage = 1 WHERE lot_id = ?').run(lot.id);
-  ctx.db.sql.prepare('UPDATE soldes_sortie SET sage = 1 WHERE lot_id = ?').run(lot.id);
+export async function confirmerLot(ctx: Ctx, lot: LotEnregistre, reference: string | null) {
+  await ctx.db.update<LotEnregistre>('lotsPaie', lot.id, { statut: 'transmis', confirmeLe: new Date().toISOString(), confirmePar: ctx.user.nom, reference });
+  await ctx.db.run('UPDATE feuilles SET sage = 1 WHERE lot_id = ?', [lot.id]);
+  await ctx.db.run('UPDATE absences SET sage = 1 WHERE lot_id = ?', [lot.id]);
+  await ctx.db.run('UPDATE soldes_sortie SET sage = 1 WHERE lot_id = ?', [lot.id]);
   // Soldes de sortie de la période sans rubrique active : saisis dans Sage, ils ne partiront plus dans un lot.
-  marquerHorsFichier(ctx.db, ctx.d, lot);
+  await marquerHorsFichier(ctx.db, ctx.d, lot);
 }
 
-const lotConfirmer: ActionHandler = (ctx, p) => {
+const lotConfirmer: ActionHandler = async (ctx, p) => {
   // Référence contrôlée avant tout, droits compris (elle est recopiée au journal, refus 403 compris : un code, jamais
   // un texte libre).
   const reference = str(p.reference);
   const erreur = erreurReference(reference);
   if (erreur) throw new ActionError(erreur);
   requirePaie(ctx);
-  const lot = lotDe(ctx, p.id);
+  const lot = await lotDe(ctx, p.id);
   if (lot.statut === 'transmis') return { message: `Lot n° ${lot.id} : import déjà confirmé`, result: resultatLot(lot) };
   if (lot.statut === 'annule') throw new ActionError(`Lot n° ${lot.id} annulé : générez un nouveau lot`, 409);
   const mode = sageMode();
@@ -208,7 +208,7 @@ const lotConfirmer: ActionHandler = (ctx, p) => {
     throw new ActionError(`Lot n° ${lot.id} : téléchargez d’abord son fichier d’import et importez-le dans Sage, puis confirmez l’import`, 409);
   }
   const accuse = reference || (lot.mode === 'simulation' ? pushToSage(lot.contenu ?? { lignes: [] }, 'simulation').reference : null);
-  confirmerLot(ctx, lot, accuse);
+  await confirmerLot(ctx, lot, accuse);
   return {
     message: `Lot n° ${lot.id} : ${lot.mode === 'simulation' ? 'marqué transmis (simulation, rien n’est envoyé à Sage Paie)' : 'import dans Sage confirmé'} — ${plural(lot.feuilles.length, 'feuille marquée transmise', 'feuilles marquées transmises')}${lot.absences?.length ? ` · ${plural(lot.absences.length, 'absence', 'absences')}` : ''}${accuse ? ` · référence ${accuse}` : ''}`,
     result: resultatLot(lot),
@@ -216,17 +216,17 @@ const lotConfirmer: ActionHandler = (ctx, p) => {
 };
 
 /** Annulation d'un lot dont l'import n'est pas confirmé : ses feuilles sont libérées, de nouveau en attente. */
-const lotAnnuler: ActionHandler = (ctx, p) => {
+const lotAnnuler: ActionHandler = async (ctx, p) => {
   requirePaie(ctx);
-  const lot = lotDe(ctx, p.id);
+  const lot = await lotDe(ctx, p.id);
   if (lot.statut === 'annule') return { message: `Lot n° ${lot.id} déjà annulé`, result: resultatLot(lot) };
   if (lot.statut === 'transmis') {
     throw new ActionError(`Lot n° ${lot.id} : import confirmé dans Sage, il ne s’annule plus. Pour corriger une feuille, l’administrateur RH la rouvre avec un motif : revalidée, seul son écart part dans le lot suivant (lot correctif).`, 409);
   }
-  ctx.db.update<LotEnregistre>('lotsPaie', lot.id, { statut: 'annule', annuleLe: new Date().toISOString(), annulePar: ctx.user.nom });
-  ctx.db.sql.prepare('UPDATE feuilles SET lot_id = NULL WHERE lot_id = ? AND sage = 0').run(lot.id);
-  libererAbsences(ctx.db, lot);
-  libererSorties(ctx.db, lot);
+  await ctx.db.update<LotEnregistre>('lotsPaie', lot.id, { statut: 'annule', annuleLe: new Date().toISOString(), annulePar: ctx.user.nom });
+  await ctx.db.run('UPDATE feuilles SET lot_id = NULL WHERE lot_id = ? AND sage = 0', [lot.id]);
+  await libererAbsences(ctx.db, lot);
+  await libererSorties(ctx.db, lot);
   return {
     message: `Lot n° ${lot.id} annulé — ${plural(lot.feuilles.length, 'feuille libérée', 'feuilles libérées')}${lot.absences?.length ? ` et ${plural(lot.absences.length, 'absence libérée', 'absences libérées')}` : ''}${lot.sorties?.length ? ` et ${plural(lot.sorties.length, 'solde de sortie libéré', 'soldes de sortie libérés')}` : ''}, de nouveau en attente${lot.telechargements ? ' · si son fichier a été importé dans Sage, supprimez-y cet import' : ''}`,
     result: resultatLot(lot),
@@ -237,11 +237,11 @@ const lotAnnuler: ActionHandler = (ctx, p) => {
  * Format du fichier d'import (séparateur, colonnes et leur ordre, période, dates, décimale, en-tête, encodage), ajusté
  * à l'import de Sage.
  */
-const formatFichier: ActionHandler = (ctx, p) => {
+const formatFichier: ActionHandler = async (ctx, p) => {
   requirePaie(ctx);
-  const f = controlerFormat(p, lireFormatFichier(ctx.db));
+  const f = controlerFormat(p, await lireFormatFichier(ctx.db));
   if (typeof f === 'string') throw new ActionError(f);
-  ctx.db.setSetting('formatFichierPaie', f);
+  await ctx.db.setSetting('formatFichierPaie', f);
   return 'Format du fichier d’import enregistré : il s’applique aux prochains téléchargements';
 };
 
@@ -250,7 +250,7 @@ const formatFichier: ActionHandler = (ctx, p) => {
  * (référence « SIM-… »), rien n'est envoyé. Mode fichier : refus 503, le lot passe par le fichier et la confirmation de
  * l'import (paie.lotGenerer, puis paie.lotConfirmer).
  */
-export function pushSageSimulation(ctx: Ctx) {
+export async function pushSageSimulation(ctx: Ctx) {
   requirePaie(ctx);
   const sheets = sagePending(ctx.d);
   if (!sheets.length) throw new ActionError('Aucune feuille validée en attente de transmission');
@@ -265,12 +265,12 @@ export function pushSageSimulation(ctx: Ctx) {
   }
   const periode = sheets.map(sh => periodeDeLaFeuille(sh.week, ctx.ds.settings, ctx.d.ti)).sort().at(-1)!;
   // Absences des mêmes périodes, au plus tard la dernière des feuilles (premier lot : date de départ posée d'abord).
-  const depart = departAuPremierLot(ctx.db, ctx.d, ctx.user);
-  const absences = absencesAEmettre(ctx.db, ctx.d, periode);
-  const sorties = sortiesAEmettre(ctx.db, ctx.d, periode);
-  const lot = creerLot(ctx, sheets, mode, periode, absences, sorties);
+  const depart = await departAuPremierLot(ctx.db, ctx.d, ctx.user);
+  const absences = await absencesAEmettre(ctx.db, ctx.d, periode);
+  const sorties = await sortiesAEmettre(ctx.db, ctx.d, periode);
+  const lot = await creerLot(ctx, sheets, mode, periode, absences, sorties);
   const reference = pushToSage(lot.contenu!, 'simulation').reference;
-  confirmerLot(ctx, lot, reference);
+  await confirmerLot(ctx, lot, reference);
   return {
     message: `${plural(sheets.length, 'feuille marquée transmise', 'feuilles marquées transmises')} — simulation, rien n’est envoyé à Sage Paie`
       + (lot.periodes.length ? ` · ${lot.periodes.length > 1 ? 'périodes' : 'période'} ${lot.periodes.map(periodeLabel).join(', ')}` : '')

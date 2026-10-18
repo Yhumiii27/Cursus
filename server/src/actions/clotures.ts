@@ -35,7 +35,7 @@ const egal = (a: number, b: number) => Math.abs(a - b) < 1e-9;
  * de Cursus. Les jours d'un report imposé suivent leur échéance (15 mois, ou celle du report légal en cours) ; le reste
  * reporté court jusqu'au 31 mai suivant.
  */
-function decider(ctx: Ctx, A: number, l: LigneClotureCp, x: Decision): Ligne {
+async function decider(ctx: Ctx, A: number, l: LigneClotureCp, x: Decision): Promise<Ligne> {
   const nom = l.e.nom, base = { empId: l.e.id, type: 'CP' as const, periode: A, solde: l.solde, le: ctx.d.ti, par: ctx.user.nom, motif: l.impose };
   refuserSoiMeme(ctx, l.e, 'Vous ne pouvez pas décider du report de vos propres congés');
   if (l.attente.length) {
@@ -53,20 +53,20 @@ function decider(ctx: Ctx, A: number, l: LigneClotureCp, x: Decision): Ligne {
     throw new ActionError(`${nom} : nombre de jours à reporter invalide (${fJ(l.solde)} au plus, par demi-journée)`);
   }
   if (j < l.legal - 1e-9) throw new ActionError(`${nom} : ${fJ(l.legal)} au moins sont à reporter (report légal), jusqu’au ${fmtIso(l.expireLegal!)}`);
-  const recu = (jours: number, expire: string, motif: string) => ctx.db.insert<ReportCp>('reports', {
+  const recu = async (jours: number, expire: string, motif: string) => await ctx.db.insert<ReportCp>('reports', {
     empId: l.e.id, jours, motif, par: ctx.user.nom, date: ctx.d.ti, sens: 'recu', periode: A + 1, expire,
   });
   // Reports reçus sur la période suivante : ils comptent dans ses droits jusqu'à leur échéance (shared/rules/conges.ts).
-  const legal = l.legal > 0 ? recu(l.legal, l.expireLegal!, `Clôture de la période ${periodeCp(A)} — report légal`) : null;
+  const legal = l.legal > 0 ? await recu(l.legal, l.expireLegal!, `Clôture de la période ${periodeCp(A)} — report légal`) : null;
   const libre = Math.round((j - l.legal) * 100) / 100;
-  const choisi = libre > 0 ? recu(libre, echeanceReport(A), `Clôture de la période ${periodeCp(A)}`) : null;
+  const choisi = libre > 0 ? await recu(libre, echeanceReport(A), `Clôture de la période ${periodeCp(A)}`) : null;
   return {
     ...base, decision: 'reporter', reportes: j, perdus: Math.round((l.solde - j) * 100) / 100,
     expire: choisi ? echeanceReport(A) : l.expireLegal, reportId: (choisi ?? legal)!.id,
   };
 }
 
-function cloturerCp(ctx: Ctx, A: number, p: Record<string, any>): string {
+async function cloturerCp(ctx: Ctx, A: number, p: Record<string, any>): Promise<string> {
   if (A >= anneeCp(ctx.d.ti)) throw new ActionError(`La période ${periodeCp(A)} se termine le ${fmtIso(finPeriodeCp(A))} : sa clôture est proposée à partir du lendemain`);
   const lignes = lignesClotureCp(ctx.d, A), voulues = decisions(p);
   const inconnus = [...voulues.keys()].filter(id => !lignes.some(l => l.e.id === id));
@@ -78,9 +78,9 @@ function cloturerCp(ctx: Ctx, A: number, p: Record<string, any>): string {
     // Demande de CP en attente : rien n'est clos, même à solde nul (un refus rendrait des jours à la période).
     const ligne: Ligne | null = l.solde <= 0 && !l.attente.length
       ? { empId: l.e.id, type: 'CP', periode: A, solde: l.solde, decision: 'solde_nul', reportes: 0, perdus: 0, expire: null, reportId: null, motif: null, le: ctx.d.ti, par: ctx.user.nom }
-      : x ? decider(ctx, A, l, x) : null;
+      : x ? await decider(ctx, A, l, x) : null;
     if (!ligne) continue;
-    ctx.db.insert('clotures', ligne);
+    await ctx.db.insert('clotures', ligne);
     n[ligne.decision]++;
   }
   const faites = n.reporter + n.perdre + n.solde_nul;
@@ -98,10 +98,10 @@ function cloturerCp(ctx: Ctx, A: number, p: Record<string, any>): string {
  * ouverte (report reçu, jusqu'à sa fin, ou jusqu'à l'échéance du report imposé de la ligne), tracé au journal par l'action
  * (`bilan`). Aucun jour ne disparaît sans décision. Texte pour le message, vide si rien n'est rendu.
  */
-export function recrediterPeriodesCloses(ctx: Ctx, emp: Employe, avant: Domain): string {
+export async function recrediterPeriodesCloses(ctx: Ctx, emp: Employe, avant: Domain): Promise<string> {
   const closes = ctx.ds.clotures.filter(c => c.empId === emp.id && c.type === 'CP');
   if (!closes.length) return '';
-  const apres = new Domain({ ...ctx.ds, absences: ctx.db.all<Absence>('absences') });
+  const apres = new Domain({ ...ctx.ds, absences: await ctx.db.all<Absence>('absences') });
   const textes: string[] = [];
   for (const c of closes.sort((a, b) => a.periode - b.periode)) {
     const jours = Math.round((soldePeriode(apres, emp, c.periode) - soldePeriode(avant, emp, c.periode)) * 100) / 100;
@@ -110,7 +110,7 @@ export function recrediterPeriodesCloses(ctx: Ctx, emp: Employe, avant: Domain):
     let P = c.periode + 1;
     while (closes.some(x => x.periode === P)) P++;
     const expire = c.motif && c.expire && c.expire > finPeriodeCp(P) ? c.expire : finPeriodeCp(P);
-    ctx.db.insert<ReportCp>('reports', {
+    await ctx.db.insert<ReportCp>('reports', {
       empId: emp.id, jours, motif: `Jours rendus après la clôture de la période ${periodeCp(c.periode)}`, par: ctx.user.nom, date: ctx.d.ti,
       sens: 'recu', periode: P, expire,
     });
@@ -119,7 +119,7 @@ export function recrediterPeriodesCloses(ctx: Ctx, emp: Employe, avant: Domain):
   return textes.join(', ');
 }
 
-function cloturerRtt(ctx: Ctx, Y: number): string {
+async function cloturerRtt(ctx: Ctx, Y: number): Promise<string> {
   if (Y >= ctx.d.year) throw new ActionError(`Les RTT ${Y} se clôturent à partir du 1er janvier ${Y + 1}`);
   // Demande de RTT de l'année en attente : le salarié n'est pas clôturé (un refus rendrait des jours à l'année close).
   const ouvertes = lignesClotureRtt(ctx.d, Y).filter(l => !l.deja), lignes = ouvertes.filter(l => !l.attente.length);
@@ -129,7 +129,7 @@ function cloturerRtt(ctx: Ctx, Y: number): string {
   let perdus = 0;
   for (const l of lignes) {
     const solde = l.solde;
-    ctx.db.insert('clotures', {
+    await ctx.db.insert('clotures', {
       empId: l.e.id, type: 'RTT', periode: Y, solde, decision: solde > 0 ? 'perdre' : 'solde_nul', reportes: 0, perdus: Math.max(0, solde),
       expire: null, reportId: null, motif: null, le: ctx.d.ti, par: ctx.user.nom,
     });
@@ -140,12 +140,12 @@ function cloturerRtt(ctx: Ctx, Y: number): string {
 }
 
 /** Clôture d'une période : `type` CP (`periode` : année de prise, close au 31 mai suivant) ou RTT (`periode` : année). */
-const cloturer: ActionHandler = (ctx, p) => {
+const cloturer: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const A = Number(p.periode);
   if (!Number.isInteger(A) || A < 2000 || A > 2200) throw new ActionError('Période à clôturer invalide');
-  if (p.type === 'CP') return cloturerCp(ctx, A, p);
-  if (p.type === 'RTT') return cloturerRtt(ctx, A);
+  if (p.type === 'CP') return await cloturerCp(ctx, A, p);
+  if (p.type === 'RTT') return await cloturerRtt(ctx, A);
   throw new ActionError('Type de congés à clôturer inconnu (CP ou RTT)');
 };
 

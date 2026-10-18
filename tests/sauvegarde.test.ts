@@ -13,7 +13,7 @@ process.env.CURSUS_DEMO = '1';
 delete process.env.CURSUS_BACKUP_DIR; // copies à côté de chaque base de test
 delete process.env.CURSUS_BACKUP_KEEP;
 
-const { Db } = await import('../server/src/db.ts');
+const { SqliteDb: Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { migrate } = await import('../server/src/migrate.ts');
 const { loadFull } = await import('../server/src/dataset.ts');
@@ -30,7 +30,7 @@ async function avecBase(fn: (ctx: { dir: string; file: string; backups: string; 
   const dir = mkdtempSync(join(tmpdir(), 'cursus-sauvegarde-'));
   const file = join(dir, 'cursus.db');
   const db = new Db(file);
-  seedDemo(db);
+  await seedDemo(db);
   try {
     await fn({ dir, file, backups: join(dir, 'backups'), db });
   } finally {
@@ -47,8 +47,8 @@ function lire<T>(file: string, sql: string): T {
 const nomEmp1 = (file: string) => lire<{ nom: string }>(file, 'SELECT nom FROM employes WHERE id = 1').nom;
 const jour = (n: number) => new Date(Date.UTC(2026, 9, 1 + n, 2, 15));
 
-test('sauvegarde : copie vérifiée qui contient les données, y compris celles encore dans le journal WAL', () => avecBase(({ file, backups, db }) => {
-  db.update('employes', 1, { nom: 'Nom modifié' }); // base ouverte : la modification est dans le -wal
+test('sauvegarde : copie vérifiée qui contient les données, y compris celles encore dans le journal WAL', async () => await avecBase(async ({ file, backups, db }) => {
+  await db.update('employes', 1, { nom: 'Nom modifié' }); // base ouverte : la modification est dans le -wal
   assert.ok(statSync(file + '-wal').size > 0);
   const s = sauvegarder(file);
   assert.ok(s.fichier.startsWith(backups), 'dossier par défaut : backups/ à côté de la base');
@@ -62,7 +62,7 @@ test('sauvegarde : copie vérifiée qui contient les données, y compris celles 
   assert.ok(!existsSync(join(backups, 'absente.db')), 'aucune base vide créée');
 }));
 
-test('rotation : seules les N copies les plus récentes de chaque type sont conservées', () => avecBase(({ file, backups }) => {
+test('rotation : seules les N copies les plus récentes de chaque type sont conservées', async () => await avecBase(({ file, backups }) => {
   const reinit = sauvegarder(file, { motif: 'avant-reinitialisation', date: jour(0), keep: 3 });
   writeFileSync(join(backups, 'notes.txt'), 'fichier de l’exploitant');
   writeFileSync(join(backups, 'autre-2026-09-01T021500Z.db'), 'copie d’une autre base');
@@ -82,10 +82,10 @@ test('rotation : seules les N copies les plus récentes de chaque type sont cons
   assert.notEqual(a.fichier, b.fichier);
 }));
 
-test('restauration : la base retrouve l’état sauvegardé, l’état remplacé est conservé', () => avecBase(({ file, backups, db }) => {
+test('restauration : la base retrouve l’état sauvegardé, l’état remplacé est conservé', async () => await avecBase(async ({ file, backups, db }) => {
   const copie = sauvegarder(file);
-  db.update('employes', 1, { nom: 'Après la sauvegarde' });
-  db.remove('employes', 24);
+  await db.update('employes', 1, { nom: 'Après la sauvegarde' });
+  await db.remove('employes', 24);
   db.sql.close();
   // Journaux d'une ancienne session : ils ne doivent pas être rejoués sur la base restaurée.
   writeFileSync(file + '-wal', 'ancien journal');
@@ -97,17 +97,17 @@ test('restauration : la base retrouve l’état sauvegardé, l’état remplacé
   assert.equal(nomEmp1(r.avant), 'Après la sauvegarde', 'la base remplacée est sauvegardée d’abord');
   const db2 = new Db(file);
   try {
-    assert.equal(db2.get<{ nom: string }>('employes', 1)!.nom, nomEmp1(copie.fichier));
-    assert.equal(db2.count('employes'), 24);
-    assert.equal(db2.count('journal'), lire<{ n: number }>(copie.fichier, 'SELECT COUNT(*) AS n FROM journal').n);
+    assert.equal((await db2.get<{ nom: string }>('employes', 1))!.nom, nomEmp1(copie.fichier));
+    assert.equal(await db2.count('employes'), 24);
+    assert.equal(await db2.count('journal'), lire<{ n: number }>(copie.fichier, 'SELECT COUNT(*) AS n FROM journal').n);
   } finally {
     db2.sql.close();
   }
   assert.ok(!listerSauvegardes(backups).some(c => c.motif === 'avant-migration'), 'base restaurée à jour : pas de migration');
 }));
 
-test('restauration refusée si le fichier n’est pas une base Cursus valide', () => avecBase(({ dir, file, backups, db }) => {
-  db.update('employes', 1, { nom: 'Base en place' });
+test('restauration refusée si le fichier n’est pas une base Cursus valide', async () => await avecBase(async ({ dir, file, backups, db }) => {
+  await db.update('employes', 1, { nom: 'Base en place' });
   const texte = join(dir, 'texte.db'), vide = join(dir, 'vide.db'), autre = join(dir, 'autre.db');
   writeFileSync(texte, 'ceci n’est pas une base de données');
   writeFileSync(vide, '');
@@ -123,7 +123,7 @@ test('restauration refusée si le fichier n’est pas une base Cursus valide', (
   assert.equal(listerSauvegardes(backups).length, 0, 'aucune copie « avant-restauration » inutile');
 }));
 
-test('restauration sur une base actuelle illisible : refusée, puis avec --force après copie brute de ses fichiers', () => avecBase(({ dir, file, backups, db }) => {
+test('restauration sur une base actuelle illisible : refusée, puis avec --force après copie brute de ses fichiers', async () => await avecBase(({ dir, file, backups, db }) => {
   const copie = sauvegarder(file);
   db.sql.close();
   // Vrai journal -wal, pris sur une autre base ouverte : rejoué, il écraserait des pages de la base restaurée.
@@ -151,7 +151,7 @@ test('restauration sur une base actuelle illisible : refusée, puis avec --force
   assert.equal(lire<{ integrity_check: string }>(file, 'PRAGMA integrity_check').integrity_check, 'ok');
 }));
 
-test('restauration refusée tant que le serveur utilise la base, sauf --force ; verrou périmé ignoré', () => avecBase(({ file, db }) => {
+test('restauration refusée tant que le serveur utilise la base, sauf --force ; verrou périmé ignoré', async () => await avecBase(({ file, db }) => {
   const copie = sauvegarder(file);
   db.sql.close();
   const verrou = fichierVerrou(file);
@@ -168,7 +168,7 @@ test('restauration refusée tant que le serveur utilise la base, sauf --force ; 
   assert.ok(restaurer(copie.fichier, file).avant);
 }));
 
-test('verrou sous Linux : identifiant de démarrage et instant de lancement, indépendants de l’horloge', { skip: !existsSync('/proc/sys/kernel/random/boot_id') }, () => avecBase(({ file }) => {
+test('verrou sous Linux : identifiant de démarrage et instant de lancement, indépendants de l’horloge', { skip: !existsSync('/proc/sys/kernel/random/boot_id') }, async () => await avecBase(({ file }) => {
   const verrou = fichierVerrou(file);
   const boot = readFileSync('/proc/sys/kernel/random/boot_id', 'utf8').trim();
   const poser = (v: object) => writeFileSync(verrou, JSON.stringify({ pid: process.pid, ...v }));
@@ -181,35 +181,35 @@ test('verrou sous Linux : identifiant de démarrage et instant de lancement, ind
   assert.equal(serveurActif(file), null, 'numéro de processus réattribué');
 }));
 
-test('sauvegarde automatique avant la réinitialisation de la démo', () => avecBase(({ file, backups, db }) => {
-  db.update('employes', 1, { nom: 'Saisie avant réinitialisation' });
-  const msg = db.tx(() => ACTIONS['demo.reinitialiser'](makeCtx(db, RH, loadFull(db, RH)), {}));
+test('sauvegarde automatique avant la réinitialisation de la démo', async () => await avecBase(async ({ file, backups, db }) => {
+  await db.update('employes', 1, { nom: 'Saisie avant réinitialisation' });
+  const msg = await db.tx(async () => await ACTIONS['demo.reinitialiser'](makeCtx(db, RH, await loadFull(db, RH)), {}));
   assert.match(String(msg), /sauvegarde cursus-.*-avant-reinitialisation\.db/);
   const copies = listerSauvegardes(backups).filter(c => c.motif === 'avant-reinitialisation');
   assert.equal(copies.length, 1);
   assert.equal(nomEmp1(copies[0].fichier), 'Saisie avant réinitialisation', 'état d’avant la réinitialisation');
-  assert.notEqual(db.get<{ nom: string }>('employes', 1)!.nom, 'Saisie avant réinitialisation', 'données de démo rechargées');
-  assert.equal(nomEmp1(file), db.get<{ nom: string }>('employes', 1)!.nom);
+  assert.notEqual((await db.get<{ nom: string }>('employes', 1))!.nom, 'Saisie avant réinitialisation', 'données de démo rechargées');
+  assert.equal(nomEmp1(file), (await db.get<{ nom: string }>('employes', 1))!.nom);
 }));
 
-test('réinitialisation de la démo annulée si la sauvegarde préalable échoue', t => avecBase(({ dir, file, backups, db }) => {
+test('réinitialisation de la démo annulée si la sauvegarde préalable échoue', async t => await avecBase(async ({ dir, file, backups, db }) => {
   t.mock.method(console, 'error', () => {}); // l'action journalise l'erreur d'origine
-  db.update('employes', 1, { nom: 'Saisie à conserver' });
+  await db.update('employes', 1, { nom: 'Saisie à conserver' });
   writeFileSync(join(dir, 'fichier'), '');
   process.env.CURSUS_BACKUP_DIR = join(dir, 'fichier', 'backups'); // sous un fichier : dossier impossible à créer
   try {
-    assert.throws(() => db.tx(() => ACTIONS['demo.reinitialiser'](makeCtx(db, RH, loadFull(db, RH)), {})),
+    await assert.rejects(async () => await db.tx(async () => await ACTIONS['demo.reinitialiser'](makeCtx(db, RH, await loadFull(db, RH)), {})),
       (e: unknown) => e instanceof ActionError && e.status === 500 && /réinitialisation annulée/.test(e.message));
   } finally {
     delete process.env.CURSUS_BACKUP_DIR;
   }
   assert.equal(nomEmp1(file), 'Saisie à conserver', 'rien n’est effacé sans copie');
-  assert.equal(db.count('employes'), 24);
+  assert.equal(await db.count('employes'), 24);
   assert.ok(!existsSync(backups));
 }));
 
-test('npm run reset-demo : copie d’une base existante, aucune pour une base neuve, rien d’effacé si la copie échoue', () => avecBase(({ dir, file, backups, db }) => {
-  db.update('employes', 1, { nom: 'Saisie avant reset' });
+test('npm run reset-demo : copie d’une base existante, aucune pour une base neuve, rien d’effacé si la copie échoue', async () => await avecBase(async ({ dir, file, backups, db }) => {
+  await db.update('employes', 1, { nom: 'Saisie avant reset' });
   db.sql.close();
   const reset = (env: Record<string, string>) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/reset.ts', '--yes'],
     { cwd: RACINE, encoding: 'utf8', env: { ...process.env, ...env } });
@@ -254,12 +254,12 @@ test('npm run reset-demo : garde-fous (mode, production, serveur en service, con
 
   await avecBase(async ({ file, backups, db }) => {
     const { appliquerMigrations } = await import('../server/src/migrations/cadre.ts');
-    appliquerMigrations(db); // base à jour, comme celle d'un serveur en service
-    db.update('employes', 1, { nom: 'Saisie à garder' });
+    await appliquerMigrations(db); // base à jour, comme celle d'un serveur en service
+    await db.update('employes', 1, { nom: 'Saisie à garder' });
     db.sql.close();
     const reset = (env: Record<string, string>, ...args: string[]) => spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/reset.ts', ...args],
       { cwd: RACINE, encoding: 'utf8', env: { ...process.env, CURSUS_DB: file, ...env } });
-    const intacte = (r: ReturnType<typeof reset>, re: RegExp) => {
+    const intacte = (r: Awaited<ReturnType<typeof reset>>, re: RegExp) => {
       assert.equal(r.status, 1, r.stdout + r.stderr);
       assert.match(r.stderr, re);
       assert.equal(nomEmp1(file), 'Saisie à garder', 'rien n’est effacé');
@@ -281,13 +281,13 @@ test('npm run reset-demo : garde-fous (mode, production, serveur en service, con
   });
 });
 
-test('base derrière un lien symbolique : la cible est restaurée, le lien conservé, toutes les copies au même endroit', { skip: process.platform === 'win32' }, () => {
+test('base derrière un lien symbolique : la cible est restaurée, le lien conservé, toutes les copies au même endroit', { skip: process.platform === 'win32' }, async () => {
   const dir = realpathSync(mkdtempSync(join(tmpdir(), 'cursus-lien-')));
   const reelle = join(dir, 'vol', 'cursus.db'), lien = join(dir, 'lib', 'cursus.db');
   mkdirSync(join(dir, 'lib'));
   const db = new Db(reelle);
   try {
-    seedDemo(db);
+    await seedDemo(db);
     symlinkSync(reelle, lien);
     const manuelle = sauvegarder(lien); // npm run backup avec CURSUS_DB=lib/cursus.db
     const auto = sauvegarderBase(db, 'avant-reinitialisation')!; // copie automatique : chemin résolu par SQLite
@@ -295,7 +295,7 @@ test('base derrière un lien symbolique : la cible est restaurée, le lien conse
     assert.equal(dirname(auto.fichier), dirname(manuelle.fichier));
     assert.equal(dossierSauvegardes(lien), dirname(manuelle.fichier), 'copies listées par npm run restore');
     assert.equal(listerSauvegardes(dirname(manuelle.fichier)).filter(c => c.base === 'cursus').length, 2);
-    db.update('employes', 1, { nom: 'Après la copie' });
+    await db.update('employes', 1, { nom: 'Après la copie' });
     db.sql.close();
     const r = restaurer(manuelle.fichier, lien);
     assert.ok(lstatSync(lien).isSymbolicLink(), 'lien conservé');
@@ -308,7 +308,7 @@ test('base derrière un lien symbolique : la cible est restaurée, le lien conse
   }
 });
 
-test('copie provisoire d’une sauvegarde interrompue : supprimée après une heure', () => avecBase(({ file, backups }) => {
+test('copie provisoire d’une sauvegarde interrompue : supprimée après une heure', async () => await avecBase(({ file, backups }) => {
   const premiere = sauvegarder(file);
   const nom = (n: string) => join(backups, n);
   for (const n of ['cursus-2026-10-01T021500Z.db.partiel', 'cursus-2026-10-02T021500Z.db.partiel', 'autre-2026-10-01T021500Z.db.partiel']) writeFileSync(nom(n), 'copie interrompue');
@@ -322,14 +322,14 @@ test('copie provisoire d’une sauvegarde interrompue : supprimée après une he
   assert.ok(existsSync(premiere.fichier));
 }));
 
-test('sauvegarde automatique avant une migration qui modifie la base, et seulement dans ce cas', () => {
+test('sauvegarde automatique avant une migration qui modifie la base, et seulement dans ce cas', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'cursus-migration-'));
   const backups = join(dir, 'backups');
   const avantMigration = () => listerSauvegardes(backups).filter(c => c.motif === 'avant-migration');
   try {
     // Base neuve : rien à sauvegarder.
     const neuve = new Db(join(dir, 'neuve.db'));
-    migrate(neuve);
+    await migrate(neuve);
     neuve.sql.close();
     assert.equal(avantMigration().length, 0);
 
@@ -341,7 +341,7 @@ test('sauvegarde automatique avant une migration qui modifie la base, et seuleme
     old.exec(`INSERT INTO employes (nom, equipe, poste, contrat, jour_off, entree, naissance) VALUES ('A', 'Production', 'Opérateur', '39h', '[]', '2020-01-01', 1990)`);
     old.close();
     const db = new Db(file);
-    migrate(db);
+    await migrate(db);
     db.sql.close();
     const copies = avantMigration();
     assert.equal(copies.length, 1);
@@ -352,18 +352,18 @@ test('sauvegarde automatique avant une migration qui modifie la base, et seuleme
 
     // Base à jour : aucune nouvelle copie.
     const db2 = new Db(file);
-    migrate(db2);
+    await migrate(db2);
     db2.sql.close();
     assert.equal(avantMigration().length, 1);
 
     // Migration des données seule (feuilles à figer) : copie aussi.
     const db3 = new Db(join(dir, 'feuilles.db'));
-    seedDemo(db3);
+    await seedDemo(db3);
     db3.sql.exec(`UPDATE feuilles SET contrat = NULL WHERE statut = 'validee'`);
     db3.sql.close();
     const db4 = new Db(join(dir, 'feuilles.db'));
     assert.equal(listerSauvegardes(backups).filter(c => c.base === 'feuilles').length, 0, 'schéma à jour');
-    migrate(db4);
+    await migrate(db4);
     db4.sql.close();
     assert.equal(listerSauvegardes(backups).filter(c => c.base === 'feuilles' && c.motif === 'avant-migration').length, 1);
   } finally {
@@ -371,7 +371,7 @@ test('sauvegarde automatique avant une migration qui modifie la base, et seuleme
   }
 });
 
-test('npm run backup / restore : compte rendu et code de sortie pour la supervision', () => avecBase(({ dir, file, backups, db }) => {
+test('npm run backup / restore : compte rendu et code de sortie pour la supervision', async () => await avecBase(({ dir, file, backups, db }) => {
   db.sql.close();
   const cli = (script: string, args: string[], env: Record<string, string>) => spawnSync(process.execPath,
     ['--disable-warning=ExperimentalWarning', `server/src/${script}`, ...args], { cwd: RACINE, encoding: 'utf8', env: { ...process.env, ...env } });

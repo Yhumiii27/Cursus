@@ -185,7 +185,7 @@ function purgerPartiels(dir: string, source: string): string[] {
  */
 export function sauvegarder(base: string, opts: OptionsSauvegarde = {}): Sauvegarde {
   const t0 = Date.now();
-  // Chemin réel : derrière un lien symbolique, mêmes noms de copies que db.sql.location() (copies automatiques).
+  // Chemin réel : derrière un lien symbolique, mêmes noms de copies que db.emplacement (copies automatiques).
   const source = cheminReel(base);
   // Sans ce contrôle, SQLite créerait une base vide à la place de celle attendue.
   if (!existsSync(source)) throw new SauvegardeError(`Base introuvable : ${source}`);
@@ -224,7 +224,7 @@ export function sauvegarder(base: string, opts: OptionsSauvegarde = {}): Sauvega
 
 /** Sauvegarde de la base ouverte par `db` (null pour une base en mémoire, sans fichier). */
 export function sauvegarderBase(db: Db, motif: Motif): Sauvegarde | null {
-  const file = db.sql.location();
+  const file = db.emplacement;
   return file ? sauvegarder(file, { motif }) : null;
 }
 

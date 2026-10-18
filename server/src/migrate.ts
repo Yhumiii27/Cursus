@@ -37,21 +37,21 @@ function statutDuPoste(poste: string, contrat: string): string {
   return 'ouvrier';
 }
 
-export function migrate(db: Db) {
+export async function migrate(db: Db) {
   // Une base réellement modifiée est d'abord copiée (une seule copie pour toutes les étapes).
   const avant = () => { sauvegarderAvantMigration(db); };
-  convertirContrats(db, avant);
-  figerFeuilles(db, avant);
-  libererPlacesRemplacees(db, avant);
-  reprendreDeclarations(db, avant);
-  migrerKeystone(db, avant);
-  validationParDefaut(db, avant);
-  reprendreSessions(db, avant);
-  motifsDeReprise(db, avant);
-  reprendreAdressesDesComptes(db, avant);
-  reprendreDetachements(db, avant);
+  await convertirContrats(db, avant);
+  await figerFeuilles(db, avant);
+  await libererPlacesRemplacees(db, avant);
+  await reprendreDeclarations(db, avant);
+  await migrerKeystone(db, avant);
+  await validationParDefaut(db, avant);
+  await reprendreSessions(db, avant);
+  await motifsDeReprise(db, avant);
+  await reprendreAdressesDesComptes(db, avant);
+  await reprendreDetachements(db, avant);
   // Fiches écrites sans poste du référentiel (import, reprise des salariés) : rattachées au poste de même intitulé.
-  rattacherFiches(db, avant);
+  await rattacherFiches(db, avant);
 }
 
 /**
@@ -83,13 +83,13 @@ export function motifRepriseDuTexte(texte: string): MotifReprise {
 }
 
 /** Fiches dont le motif de reprise n'est pas dans la liste fermée (bases antérieures) : motif converti. */
-export function motifsDeReprise(db: Db, avant = () => {}) {
-  const rows = (db.sql.prepare('SELECT id, reprise_motif AS motif FROM employes WHERE reprise_motif IS NOT NULL').all() as { id: number; motif: string }[])
+export async function motifsDeReprise(db: Db, avant = () => {}) {
+  const rows = (await db.query('SELECT id, reprise_motif AS motif FROM employes WHERE reprise_motif IS NOT NULL') as { id: number; motif: string }[])
     .filter(r => !estMotifReprise(r.motif));
   if (!rows.length) return;
   avant();
-  db.tx(() => {
-    for (const r of rows) db.sql.prepare('UPDATE employes SET reprise_motif = ? WHERE id = ?').run(motifRepriseDuTexte(r.motif), r.id);
+  await db.tx(async () => {
+    for (const r of rows) await db.run('UPDATE employes SET reprise_motif = ? WHERE id = ?', [motifRepriseDuTexte(r.motif), r.id]);
   });
   console.log(`Migration : ${plural(rows.length, 'motif de reprise ramené', 'motifs de reprise ramenés')} à la liste fermée (aucun texte libre conservé).`);
 }
@@ -105,10 +105,10 @@ export const REPRISE_DETACHEMENT = 'repriseDetachement';
  * déplacement parti ensuite sans formalité reste bloquant. Ceux à venir sont à compléter par le service RH (réserve
  * jusqu'au départ ; docs/DEPLOIEMENT.md, « Mise à jour »).
  */
-export function reprendreDetachements(db: Db, avant = () => {}) {
-  if (db.getSetting<string | null>(REPRISE_DETACHEMENT, null)) return;
+export async function reprendreDetachements(db: Db, avant = () => {}) {
+  if (await db.getSetting<string | null>(REPRISE_DETACHEMENT, null)) return;
   const ti = todayIso();
-  const repris = db.all<Voyage>('voyages')
+  const repris = (await db.all<Voyage>('voyages'))
     .filter(v => v.depart <= ti && v.retour >= ti)
     .map(v => {
       const longue = days(parse(v.depart), parse(v.retour)) + 1 > MISSION_LONGUE_JOURS;
@@ -120,17 +120,17 @@ export function reprendreDetachements(db: Db, avant = () => {}) {
     .filter(x => Object.keys(x.maj).length);
   if (repris.length) {
     avant();
-    db.tx(() => {
-      repris.forEach(({ v, maj }) => db.update<Voyage>('voyages', v.id, maj));
+    await db.tx(async () => {
+      for (const { v, maj } of repris) await db.update<Voyage>('voyages', v.id, maj);
       const message = `Reprise : formalités de détachement réputées faites au départ pour ${plural(repris.length, 'déplacement en cours', 'déplacements en cours')} à la mise à jour`;
-      journaliser(db, {
+      await journaliser(db, {
         actor: 'Cursus', role: null, action: 'migration.detachement', message,
         payload: { voyages: repris.map(({ v }) => ({ id: v.id, matricule: matricule(v.empId), dest: v.dest, depart: v.depart, retour: v.retour })) },
       });
     });
     console.log(`Migration : formalités de détachement reprises pour ${plural(repris.length, 'déplacement en cours', 'déplacements en cours')}.`);
   }
-  db.setSetting(REPRISE_DETACHEMENT, ti);
+  await db.setSetting(REPRISE_DETACHEMENT, ti);
 }
 
 /** Auteur de la clôture des sessions reprises d'une base antérieure au cycle de vie des sessions. */
@@ -143,28 +143,28 @@ const REPRISE: CurrentUser = { role: 'rh', empId: null, nom: 'Cursus', intitule:
  * résultat reste à clôturer. Une seule fois par session : l'ancienne colonne est ensuite vidée. Après
  * `libererPlacesRemplacees` : une place tenue par une certification remplacée avant la session n'est pas un inscrit.
  */
-export function reprendreSessions(db: Db, avant = () => {}) {
-  if (!db.columns('sessions').includes('inscrits')) return;
-  const anciennes = new Set((db.sql.prepare('SELECT id FROM sessions WHERE inscrits IS NOT NULL').all() as { id: number }[]).map(r => r.id));
+export async function reprendreSessions(db: Db, avant = () => {}) {
+  if (!(await db.columns('sessions')).includes('inscrits')) return;
+  const anciennes = new Set((await db.query('SELECT id FROM sessions WHERE inscrits IS NOT NULL') as { id: number }[]).map(r => r.id));
   if (!anciennes.size) return;
   avant();
-  const d = new Domain(loadFull(db, REPRISE));
+  const d = new Domain(await loadFull(db, REPRISE));
   let n = 0;
-  db.tx(() => {
+  await db.tx(async () => {
     for (const s of d.aCloturer().filter(x => anciennes.has(x.id))) {
       const inscrits = inscritsDe(d, s);
       if (inscrits.some(i => !i.dejaObtenue)) continue;
       for (const i of inscrits) {
-        db.insert<Participation>('participations', { sessionId: s.id, empId: i.empId, parcours: i.parcours, present: true, reussi: null, certId: i.dejaObtenue!.id });
+        await db.insert<Participation>('participations', { sessionId: s.id, empId: i.empId, parcours: i.parcours, present: true, reussi: null, certId: i.dejaObtenue!.id });
       }
       const bilan: SessionBilan = {
         le: d.ti, par: REPRISE.nom, note: null, motif: null,
         commentaire: 'Session antérieure au suivi des clôtures, sans inscrit à décider : clôturée à la mise à jour de Cursus.',
       };
-      db.update<Session>('sessions', s.id, { statut: 'Clôturée', bilan });
+      await db.update<Session>('sessions', s.id, { statut: 'Clôturée', bilan });
       n++;
     }
-    db.sql.prepare('UPDATE sessions SET inscrits = NULL').run();
+    await db.run('UPDATE sessions SET inscrits = NULL');
   });
   if (n) console.log(`Migration : ${plural(n, 'session passée clôturée', 'sessions passées clôturées')} (aucun inscrit à décider).`);
 }
@@ -173,11 +173,11 @@ export function reprendreSessions(db: Db, avant = () => {}) {
  * Formations d'une base antérieure au mode de validation : la présence suffit, jusqu'à ce que le
  * service RH exige une évaluation réussie dans le catalogue.
  */
-export function validationParDefaut(db: Db, avant = () => {}) {
-  const n = Number((db.sql.prepare('SELECT COUNT(*) AS n FROM formations WHERE validation IS NULL').get() as { n: number }).n);
+export async function validationParDefaut(db: Db, avant = () => {}) {
+  const n = Number((await db.one('SELECT COUNT(*) AS n FROM formations WHERE validation IS NULL') as { n: number }).n);
   if (!n) return;
   avant();
-  db.sql.prepare(`UPDATE formations SET validation = 'presence' WHERE validation IS NULL`).run();
+  await db.run(`UPDATE formations SET validation = 'presence' WHERE validation IS NULL`);
   console.log(`Migration : mode de validation « présence » appliqué à ${plural(n, 'formation', 'formations')} du catalogue.`);
 }
 
@@ -190,25 +190,25 @@ export function validationParDefaut(db: Db, avant = () => {}) {
  * saisie, et deux demandes portant la même pièce se contrediraient (l'une la retire, l'autre la confirme).
  * Les plus anciennes restent sans contenu, à contrôler dans le dossier comme avant.
  */
-export function reprendreDeclarations(db: Db, avant = () => {}) {
+export async function reprendreDeclarations(db: Db, avant = () => {}) {
   // Demande la plus récente de chaque document, tous statuts confondus : une fois celle-ci traitée,
   // les plus anciennes ne reprennent rien aux démarrages suivants.
   const derniere = new Map<string, { r: DemandeCollab; doc: DocVise }>();
-  const docs = db.all<DemandeCollab>('demandesCollab').filter(r => r.type === 'document')
+  const docs = (await db.all<DemandeCollab>('demandesCollab')).filter(r => r.type === 'document')
     .sort((a, b) => a.date.localeCompare(b.date) || a.id - b.id);
   for (const r of docs) {
-    const doc = r.declaration ?? documentDuLibelle(db, r.label ?? '');
+    const doc = r.declaration ?? await documentDuLibelle(db, r.label ?? '');
     if (doc) derniere.set(`${r.empId}:${formaliteCle(doc)}`, { r, doc });
   }
   const rows = [...derniere.values()].filter(({ r }) => r.statut === 'attente' && !r.declaration);
   if (!rows.length) return;
   avant();
   let n = 0;
-  db.tx(() => {
+  await db.tx(async () => {
     for (const { r, doc } of rows) {
-      const x = declarationDuDossier(db, r.empId, doc);
+      const x = await declarationDuDossier(db, r.empId, doc);
       if (!x) continue; // document absent : le RH contrôle dans le dossier, comme avant
-      db.update<DemandeCollab>('demandesCollab', r.id, { declaration: { ...x, dejaAuDossier: true } });
+      await db.update<DemandeCollab>('demandesCollab', r.id, { declaration: { ...x, dejaAuDossier: true } });
       n++;
     }
   });
@@ -219,11 +219,11 @@ export function reprendreDeclarations(db: Db, avant = () => {}) {
 type DocVise = { kind: 'passeport' } | { kind: 'visa'; dest: string } | { kind: 'vaccin'; v: VaccinId };
 
 /** Document visé par le libellé d'une ancienne demande (« Passeport mis à jour », « Visa Inde déclaré »…). */
-function documentDuLibelle(db: Db, label: string): DocVise | null {
+async function documentDuLibelle(db: Db, label: string): Promise<DocVise | null> {
   if (label === 'Passeport mis à jour') return { kind: 'passeport' };
   const visa = /^Visa (.+) déclaré$/.exec(label);
   if (visa) {
-    const dest = db.all<Destination>('destinations').find(x => x.pays === visa[1]);
+    const dest = (await db.all<Destination>('destinations')).find(x => x.pays === visa[1]);
     return dest ? { kind: 'visa', dest: dest.code } : null;
   }
   const vac = /^Vaccination (.+) déclarée$/.exec(label);
@@ -232,16 +232,16 @@ function documentDuLibelle(db: Db, label: string): DocVise | null {
 }
 
 /** Formalité enregistrée dans le dossier pour ce document. */
-function declarationDuDossier(db: Db, empId: number, doc: DocVise): Declaration | null {
+async function declarationDuDossier(db: Db, empId: number, doc: DocVise): Promise<Declaration | null> {
   if (doc.kind === 'passeport') {
-    const e = db.get<{ passeportNumero: string | null; passeportExpire: string | null }>('employes', empId);
+    const e = await db.get<{ passeportNumero: string | null; passeportExpire: string | null }>('employes', empId);
     return e?.passeportNumero && e.passeportExpire ? { kind: 'passeport', numero: e.passeportNumero, expire: e.passeportExpire } : null;
   }
   if (doc.kind === 'visa') {
-    const v = db.where<Visa>('visas', 'empId', empId).filter(x => x.dest === doc.dest).at(-1);
+    const v = (await db.where<Visa>('visas', 'empId', empId)).filter(x => x.dest === doc.dest).at(-1);
     return v ? { kind: 'visa', dest: v.dest, type: v.type, obtenu: v.obtenu, expire: v.expire } : null;
   }
-  const r = db.where<Vaccination>('vaccinations', 'empId', empId).filter(x => x.v === doc.v).at(-1);
+  const r = (await db.where<Vaccination>('vaccinations', 'empId', empId)).filter(x => x.v === doc.v).at(-1);
   return r ? { kind: 'vaccin', v: doc.v, date: r.date } : null;
 }
 
@@ -249,29 +249,28 @@ function declarationDuDossier(db: Db, empId: number, doc: DocVise): Declaration 
  * Les feuilles soumises ou validées avant le gel du régime reçoivent le régime actuel de la fiche.
  * `avant` est appelé juste avant d'écrire (sauvegarde au démarrage ; rien au chargement de la démo).
  */
-export function figerFeuilles(db: Db, avant = () => {}) {
-  const rows = db.sql.prepare(`SELECT f.id, e.statut, e.type_contrat, e.temps, e.heures, e.forfait_heures, e.forfait_jours, e.jour_off
-    FROM feuilles f JOIN employes e ON e.id = f.emp_id WHERE f.contrat IS NULL AND f.statut IN ('soumise', 'validee') AND e.temps IS NOT NULL`).all() as Record<string, unknown>[];
+export async function figerFeuilles(db: Db, avant = () => {}) {
+  const rows = await db.query(`SELECT f.id, e.statut, e.type_contrat, e.temps, e.heures, e.forfait_heures, e.forfait_jours, e.jour_off
+    FROM feuilles f JOIN employes e ON e.id = f.emp_id WHERE f.contrat IS NULL AND f.statut IN ('soumise', 'validee') AND e.temps IS NOT NULL`) as Record<string, unknown>[];
   if (!rows.length) return;
   avant();
-  db.tx(() => {
+  await db.tx(async () => {
     for (const r of rows) {
       const contrat = { statut: r.statut, typeContrat: r.type_contrat, temps: r.temps, heures: r.heures, forfaitHeures: r.forfait_heures, forfaitJours: r.forfait_jours, jourOff: JSON.parse(String(r.jour_off ?? '[]')) };
-      db.sql.prepare('UPDATE feuilles SET contrat = ? WHERE id = ?').run(JSON.stringify(contrat), r.id as number);
+      await db.run('UPDATE feuilles SET contrat = ? WHERE id = ?', [JSON.stringify(contrat), r.id as number]);
     }
   });
 }
 
-function convertirContrats(db: Db, avant: () => void) {
-  if (!db.columns('employes').includes('contrat')) return;
-  const rows = db.sql.prepare('SELECT id, contrat, poste FROM employes WHERE temps IS NULL AND contrat IS NOT NULL').all() as { id: number; contrat: string; poste: string }[];
+async function convertirContrats(db: Db, avant: () => void) {
+  if (!(await db.columns('employes')).includes('contrat')) return;
+  const rows = await db.query('SELECT id, contrat, poste FROM employes WHERE temps IS NULL AND contrat IS NOT NULL') as { id: number; contrat: string; poste: string }[];
   if (!rows.length) return;
   avant();
-  db.tx(() => {
+  await db.tx(async () => {
     for (const r of rows) {
       const m = ANCIEN_CONTRAT[r.contrat] ?? ANCIEN_CONTRAT['35h'];
-      db.sql.prepare('UPDATE employes SET type_contrat = ?, temps = ?, statut = ?, forfait_jours = ? WHERE id = ?')
-        .run(m.typeContrat, m.temps, m.cadre ? 'cadre' : statutDuPoste(r.poste, r.contrat), m.temps === 'forfait_jours' ? 218 : null, r.id);
+      await db.run('UPDATE employes SET type_contrat = ?, temps = ?, statut = ?, forfait_jours = ? WHERE id = ?', [m.typeContrat, m.temps, m.cadre ? 'cadre' : statutDuPoste(r.poste, r.contrat), m.temps === 'forfait_jours' ? 218 : null, r.id]);
     }
   });
   console.log(`Migration : ${rows.length} fiches converties au nouveau modèle de contrat.`);
@@ -284,15 +283,15 @@ function convertirContrats(db: Db, avant: () => void) {
  * présence que rien n'atteste. Le nombre d'inscrits, calculé au chargement, suit (l'ancienne colonne
  * `inscrits` n'est plus lue).
  */
-export function libererPlacesRemplacees(db: Db, avant = () => {}) {
-  const rows = db.sql.prepare(`SELECT c.id FROM certifications c JOIN sessions s ON s.id = c.session_id
+export async function libererPlacesRemplacees(db: Db, avant = () => {}) {
+  const rows = await db.query(`SELECT c.id FROM certifications c JOIN sessions s ON s.id = c.session_id
     WHERE (s.statut IS NULL OR s.statut NOT IN ('Clôturée', 'Annulée')) AND EXISTS (SELECT 1 FROM certifications n WHERE n.emp_id = c.emp_id AND n.f = c.f
       AND (n.obtenue > c.obtenue OR (n.obtenue = c.obtenue AND n.id > c.id)) AND n.obtenue < s.date
-      AND n.annule_le IS NULL)`).all() as { id: number }[];
+      AND n.annule_le IS NULL)`) as { id: number }[];
   if (!rows.length) return;
   avant();
-  db.tx(() => {
-    for (const r of rows) db.sql.prepare('UPDATE certifications SET session_id = NULL, convoc = NULL WHERE id = ?').run(r.id);
+  await db.tx(async () => {
+    for (const r of rows) await db.run('UPDATE certifications SET session_id = NULL, convoc = NULL WHERE id = ?', [r.id]);
   });
   console.log(`Migration : ${plural(rows.length, 'place de session libérée', 'places de session libérées')} (certifications remplacées par un recyclage).`);
 }

@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 process.env.CURSUS_TODAY = '2026-10-10';
 
-const { Db } = await import('../server/src/db.ts');
+const { SqliteDb: Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { migrate } = await import('../server/src/migrate.ts');
 const { buildSnapshot, loadFull } = await import('../server/src/dataset.ts');
@@ -25,169 +25,169 @@ const collab = (empId: number): User => ({ role: 'collaborateur', empId, nom: `#
 const MEHDI = 2, KARIM = 12;
 
 function outils(db: Db) {
-  const run = (user: User, name: string, payload: Record<string, unknown>) => db.tx(() => ACTIONS[name](makeCtx(db, user, loadFull(db, user)), payload));
-  const domain = () => new Domain(loadFull(db, RH));
-  const emp = (id: number) => domain().emp(id)!;
-  const docs = (id = MEHDI) => domain().ds.demandesCollab.filter(r => r.empId === id && r.type === 'document');
-  const enAttente = (id = MEHDI) => docs(id).filter(r => r.statut === 'attente');
+  const run = async (user: User, name: string, payload: Record<string, unknown>) => await db.tx(async () => await ACTIONS[name](makeCtx(db, user, await loadFull(db, user)), payload));
+  const domain = async () => new Domain(await loadFull(db, RH));
+  const emp = async (id: number) => (await domain()).emp(id)!;
+  const docs = async (id = MEHDI) => (await domain()).ds.demandesCollab.filter(r => r.empId === id && r.type === 'document');
+  const enAttente = async (id = MEHDI) => (await docs(id)).filter(r => r.statut === 'attente');
   return { db, run, domain, emp, docs, enAttente };
 }
-function fresh() {
+async function fresh() {
   const db = new Db(':memory:');
-  seedDemo(db);
+  await seedDemo(db);
   return outils(db);
 }
 const FAUX = { empId: MEHDI, kind: 'passeport', numero: 'FAUX123', expire: '2036-01-15' };
 // Séjour en Inde : 6 mois de validité exigés après l'entrée, le passeport actuel ne suffit pas.
 const INDE = { dest: 'IN', depart: '2026-11-16', retour: '2026-11-20' };
-const passeportOk = (d: InstanceType<typeof Domain>) => d.readiness(d.emp(MEHDI)!, INDE).items.find(i => i.k === 'passeport')!.ok;
+const passeportOk = async (d: InstanceType<typeof Domain>) => d.readiness((await d.emp(MEHDI))!, INDE).items.find(i => i.k === 'passeport')!.ok;
 
-test('déclaration du collaborateur : dossier inchangé, demande en attente avec le détail', () => {
-  const { db, run, emp, enAttente, domain } = fresh();
-  const avant = emp(MEHDI);
-  const msg = run(collab(MEHDI), 'formalite.enregistrer', FAUX);
+test('déclaration du collaborateur : dossier inchangé, demande en attente avec le détail', async () => {
+  const { db, run, emp, enAttente, domain } = await fresh();
+  const avant = await emp(MEHDI);
+  const msg = await run(collab(MEHDI), 'formalite.enregistrer', FAUX);
   assert.match(String(msg), /après validation/);
   assert.doesNotMatch(String(msg), /FAUX123/);
-  const apres = emp(MEHDI);
+  const apres = await emp(MEHDI);
   assert.deepEqual(apres.passeport, { numero: '20AB···91', expire: '2026-12-02' });
-  assert.ok(!passeportOk(domain()), 'la déclaration ne compte pas dans la préparation du voyage');
-  run(collab(MEHDI), 'formalite.enregistrer', { empId: MEHDI, kind: 'vaccin', v: 'typhoide', date: '2026-10-01' });
-  run(collab(MEHDI), 'formalite.enregistrer', { empId: MEHDI, kind: 'visa', dest: 'IN', obtenu: '2026-10-08', expire: '2027-10-07' });
-  assert.deepEqual(emp(MEHDI).vaccins, avant.vaccins);
-  assert.deepEqual(emp(MEHDI).visas, avant.visas);
-  const dem = enAttente();
+  assert.ok(!await passeportOk(await domain()), 'la déclaration ne compte pas dans la préparation du voyage');
+  await run(collab(MEHDI), 'formalite.enregistrer', { empId: MEHDI, kind: 'vaccin', v: 'typhoide', date: '2026-10-01' });
+  await run(collab(MEHDI), 'formalite.enregistrer', { empId: MEHDI, kind: 'visa', dest: 'IN', obtenu: '2026-10-08', expire: '2027-10-07' });
+  assert.deepEqual((await emp(MEHDI)).vaccins, avant.vaccins);
+  assert.deepEqual((await emp(MEHDI)).visas, avant.visas);
+  const dem = await enAttente();
   assert.equal(dem.length, 3);
   assert.deepEqual(dem.map(r => r.label), ['Passeport mis à jour', 'Vaccination Typhoïde déclarée', 'Visa Inde déclaré']);
   assert.deepEqual(dem[0].declaration, { kind: 'passeport', numero: 'FAUX123', expire: '2036-01-15' });
   assert.deepEqual(dem[2].declaration, { kind: 'visa', dest: 'IN', type: 'e-Visa d’affaires', obtenu: '2026-10-08', expire: '2027-10-07' });
   // Le collaborateur retrouve ses déclarations, avec leur contenu, dans son portail.
-  const s = buildSnapshot(db, collab(MEHDI));
+  const s = await buildSnapshot(db, collab(MEHDI));
   assert.deepEqual(s.demandesCollab.filter(r => r.type === 'document').map(r => r.declaration?.kind), ['passeport', 'vaccin', 'visa']);
   assert.deepEqual(s.employes[0].passeport, avant.passeport);
 });
 
-test('validation RH : la déclaration est revalidée puis appliquée', () => {
-  const { run, emp, enAttente, domain } = fresh();
-  run(collab(MEHDI), 'formalite.enregistrer', FAUX);
-  run(collab(MEHDI), 'formalite.enregistrer', { empId: MEHDI, kind: 'vaccin', v: 'typhoide', date: '2026-10-01' });
-  const [pass, vac] = enAttente();
-  const msg = run(RH, 'demande.accepter', { id: pass.id });
+test('validation RH : la déclaration est revalidée puis appliquée', async () => {
+  const { run, emp, enAttente, domain } = await fresh();
+  await run(collab(MEHDI), 'formalite.enregistrer', FAUX);
+  await run(collab(MEHDI), 'formalite.enregistrer', { empId: MEHDI, kind: 'vaccin', v: 'typhoide', date: '2026-10-01' });
+  const [pass, vac] = await enAttente();
+  const msg = await run(RH, 'demande.accepter', { id: pass.id });
   assert.match(String(msg), /Passeport de Mehdi Benali enregistré/);
-  assert.deepEqual(emp(MEHDI).passeport, { numero: 'FAUX123', expire: '2036-01-15' });
-  assert.ok(passeportOk(domain()));
-  run(RH, 'demande.accepter', { id: vac.id });
-  assert.ok(emp(MEHDI).vaccins.some(v => v.v === 'typhoide' && v.date === '2026-10-01'));
-  const r = domain().ds.demandesCollab.find(x => x.id === pass.id)!;
+  assert.deepEqual((await emp(MEHDI)).passeport, { numero: 'FAUX123', expire: '2036-01-15' });
+  assert.ok(await passeportOk(await domain()));
+  await run(RH, 'demande.accepter', { id: vac.id });
+  assert.ok((await emp(MEHDI)).vaccins.some(v => v.v === 'typhoide' && v.date === '2026-10-01'));
+  const r = (await domain()).ds.demandesCollab.find(x => x.id === pass.id)!;
   assert.equal(r.statut, 'acceptee');
   assert.match(r.reponse!, /enregistrée dans votre dossier/);
-  assert.throws(() => run(RH, 'demande.accepter', { id: pass.id }), /déjà traitée/);
+  await assert.rejects(async () => await run(RH, 'demande.accepter', { id: pass.id }), /déjà traitée/);
 });
 
-test('refus RH : rien n’est appliqué, l’ancienne valeur reste intacte', () => {
-  const { run, emp, enAttente, domain } = fresh();
-  run(collab(MEHDI), 'formalite.enregistrer', FAUX);
-  run(collab(MEHDI), 'formalite.enregistrer', { empId: MEHDI, kind: 'vaccin', v: 'dtp', date: '2026-10-01' });
-  for (const r of enAttente()) run(RH, 'demande.refuser', { id: r.id });
-  const e = emp(MEHDI);
+test('refus RH : rien n’est appliqué, l’ancienne valeur reste intacte', async () => {
+  const { run, emp, enAttente, domain } = await fresh();
+  await run(collab(MEHDI), 'formalite.enregistrer', FAUX);
+  await run(collab(MEHDI), 'formalite.enregistrer', { empId: MEHDI, kind: 'vaccin', v: 'dtp', date: '2026-10-01' });
+  for (const r of await enAttente()) await run(RH, 'demande.refuser', { id: r.id });
+  const e = await emp(MEHDI);
   assert.deepEqual(e.passeport, { numero: '20AB···91', expire: '2026-12-02' });
   assert.deepEqual(e.vaccins.find(v => v.v === 'dtp')!.date, '2016-09-10');
-  assert.ok(!passeportOk(domain()));
-  const refusees = domain().ds.demandesCollab.filter(r => r.empId === MEHDI && r.type === 'document' && r.statut === 'refusee');
+  assert.ok(!await passeportOk(await domain()));
+  const refusees = (await domain()).ds.demandesCollab.filter(r => r.empId === MEHDI && r.type === 'document' && r.statut === 'refusee');
   assert.equal(refusees.length, 2);
   assert.match(refusees[0].reponse!, /dossier n’a pas été modifié/);
-  assert.ok(!JSON.stringify(domain().ds.employes).includes('FAUX123'), 'le passeport refusé n’est nulle part dans les dossiers');
+  assert.ok(!JSON.stringify((await domain()).ds.employes).includes('FAUX123'), 'le passeport refusé n’est nulle part dans les dossiers');
 });
 
-test('saisie directe du RH : appliquée immédiatement, sans demande', () => {
-  const { run, emp, docs } = fresh();
-  const msg = run(RH, 'formalite.enregistrer', { ...FAUX, numero: '26AB00001' });
+test('saisie directe du RH : appliquée immédiatement, sans demande', async () => {
+  const { run, emp, docs } = await fresh();
+  const msg = await run(RH, 'formalite.enregistrer', { ...FAUX, numero: '26AB00001' });
   assert.match(String(msg), /enregistré — valide jusqu’au/);
-  assert.deepEqual(emp(MEHDI).passeport, { numero: '26AB00001', expire: '2036-01-15' });
-  run(RH, 'formalite.enregistrer', { empId: MEHDI, kind: 'visa', dest: 'IN', expire: '2027-10-07' });
-  assert.equal(emp(MEHDI).visas.find(v => v.dest === 'IN')!.type, 'e-Visa d’affaires');
-  assert.equal(docs().length, 0);
+  assert.deepEqual((await emp(MEHDI)).passeport, { numero: '26AB00001', expire: '2036-01-15' });
+  await run(RH, 'formalite.enregistrer', { empId: MEHDI, kind: 'visa', dest: 'IN', expire: '2027-10-07' });
+  assert.equal((await emp(MEHDI)).visas.find(v => v.dest === 'IN')!.type, 'e-Visa d’affaires');
+  assert.equal((await docs()).length, 0);
 });
 
-test('manager : ni la déclaration ni son contenu dans les données reçues', () => {
-  const { db, run } = fresh();
-  run(collab(MEHDI), 'formalite.enregistrer', FAUX);
-  run(collab(MEHDI), 'formalite.enregistrer', { empId: MEHDI, kind: 'vaccin', v: 'fj', date: '2026-09-03' });
-  const s = buildSnapshot(db, mgr(KARIM));
+test('manager : ni la déclaration ni son contenu dans les données reçues', async () => {
+  const { db, run } = await fresh();
+  await run(collab(MEHDI), 'formalite.enregistrer', FAUX);
+  await run(collab(MEHDI), 'formalite.enregistrer', { empId: MEHDI, kind: 'vaccin', v: 'fj', date: '2026-09-03' });
+  const s = await buildSnapshot(db, mgr(KARIM));
   assert.ok(s.employes.some(e => e.id === MEHDI), 'Mehdi fait partie de l’équipe');
   assert.ok(!s.demandesCollab.some(r => r.type === 'document' && r.empId !== KARIM));
   assert.ok(s.demandesCollab.every(r => r.empId === KARIM || r.declaration === null));
   const json = JSON.stringify(s);
   assert.ok(!json.includes('FAUX123') && !json.includes('2026-09-03'));
   // L'intéressé et le RH voient le détail.
-  const mine = buildSnapshot(db, collab(MEHDI)).demandesCollab.filter(r => r.type === 'document');
+  const mine = (await buildSnapshot(db, collab(MEHDI))).demandesCollab.filter(r => r.type === 'document');
   assert.equal(mine.length, 2);
   assert.equal(mine[0].declaration?.kind === 'passeport' && mine[0].declaration.numero, 'FAUX123');
-  assert.ok(JSON.stringify(buildSnapshot(db, RH)).includes('FAUX123'));
+  assert.ok(JSON.stringify(await buildSnapshot(db, RH)).includes('FAUX123'));
   // Un collègue de la même équipe ne voit rien.
-  assert.ok(!JSON.stringify(buildSnapshot(db, collab(6))).includes('FAUX123'));
+  assert.ok(!JSON.stringify(await buildSnapshot(db, collab(6))).includes('FAUX123'));
 });
 
-test('nouvelle déclaration du même document : remplace celle en attente', () => {
-  const { run, enAttente, emp } = fresh();
-  run(collab(MEHDI), 'formalite.enregistrer', FAUX);
-  const premiere = enAttente()[0];
-  run(collab(MEHDI), 'formalite.enregistrer', { empId: MEHDI, kind: 'visa', dest: 'IN', expire: '2027-10-07' });
-  const msg = run(collab(MEHDI), 'formalite.enregistrer', { ...FAUX, numero: '26XY45678' });
+test('nouvelle déclaration du même document : remplace celle en attente', async () => {
+  const { run, enAttente, emp } = await fresh();
+  await run(collab(MEHDI), 'formalite.enregistrer', FAUX);
+  const premiere = (await enAttente())[0];
+  await run(collab(MEHDI), 'formalite.enregistrer', { empId: MEHDI, kind: 'visa', dest: 'IN', expire: '2027-10-07' });
+  const msg = await run(collab(MEHDI), 'formalite.enregistrer', { ...FAUX, numero: '26XY45678' });
   assert.match(String(msg), /remplace la précédente/);
-  const dem = enAttente();
+  const dem = await enAttente();
   assert.equal(dem.length, 2, 'un passeport et un visa en attente');
   const pass = dem.find(r => r.declaration?.kind === 'passeport')!;
   assert.equal(pass.declaration?.kind === 'passeport' && pass.declaration.numero, '26XY45678');
   // Le RH ne peut plus valider la déclaration remplacée, qu'il n'a peut-être pas revue.
-  assert.throws(() => run(RH, 'demande.accepter', { id: premiere.id }), /introuvable/);
-  run(RH, 'demande.accepter', { id: pass.id });
-  assert.equal(emp(MEHDI).passeport?.numero, '26XY45678');
+  await assert.rejects(async () => await run(RH, 'demande.accepter', { id: premiere.id }), /introuvable/);
+  await run(RH, 'demande.accepter', { id: pass.id });
+  assert.equal((await emp(MEHDI)).passeport?.numero, '26XY45678');
 });
 
-test('déclaration devenue invalide : validation refusée, dossier intact', () => {
-  const { db, run, enAttente, emp } = fresh();
-  run(collab(MEHDI), 'formalite.enregistrer', { empId: MEHDI, kind: 'visa', dest: 'IN', expire: '2027-10-07' });
-  const r = enAttente()[0];
-  db.update('demandesCollab', r.id, { declaration: { ...r.declaration, dest: 'ZZ' } }); // destination retirée du référentiel
-  assert.throws(() => run(RH, 'demande.accepter', { id: r.id }), (e: unknown) => e instanceof ActionError && /Déclaration invalide/.test(e.message));
-  assert.ok(!emp(MEHDI).visas.some(v => v.dest === 'IN' || v.dest === 'ZZ'));
-  assert.equal(enAttente()[0].statut, 'attente');
+test('déclaration devenue invalide : validation refusée, dossier intact', async () => {
+  const { db, run, enAttente, emp } = await fresh();
+  await run(collab(MEHDI), 'formalite.enregistrer', { empId: MEHDI, kind: 'visa', dest: 'IN', expire: '2027-10-07' });
+  const r = (await enAttente())[0];
+  await db.update('demandesCollab', r.id, { declaration: { ...r.declaration, dest: 'ZZ' } }); // destination retirée du référentiel
+  await assert.rejects(async () => await run(RH, 'demande.accepter', { id: r.id }), (e: unknown) => e instanceof ActionError && /Déclaration invalide/.test(e.message));
+  assert.ok(!(await emp(MEHDI)).visas.some(v => v.dest === 'IN' || v.dest === 'ZZ'));
+  assert.equal((await enAttente())[0].statut, 'attente');
 });
 
-test('saisies incomplètes et droits inchangés', () => {
-  const { run } = fresh();
-  assert.throws(() => run(collab(MEHDI), 'formalite.enregistrer', { empId: MEHDI, kind: 'passeport', numero: ' ', expire: '2030-01-01' }), /Numéro/);
-  assert.throws(() => run(collab(MEHDI), 'formalite.enregistrer', { empId: MEHDI, kind: 'vaccin', v: '__proto__', date: '2026-01-01' }), /Vaccin/);
-  assert.throws(() => run(collab(MEHDI), 'formalite.enregistrer', { ...FAUX, empId: 6 }), (e: unknown) => e instanceof ActionError && e.status === 403);
-  assert.throws(() => run(mgr(KARIM), 'formalite.enregistrer', FAUX), (e: unknown) => e instanceof ActionError && e.status === 403);
-  assert.throws(() => run(collab(MEHDI), 'demande.accepter', { id: 1 }), (e: unknown) => e instanceof ActionError && e.status === 403);
+test('saisies incomplètes et droits inchangés', async () => {
+  const { run } = await fresh();
+  await assert.rejects(async () => await run(collab(MEHDI), 'formalite.enregistrer', { empId: MEHDI, kind: 'passeport', numero: ' ', expire: '2030-01-01' }), /Numéro/);
+  await assert.rejects(async () => await run(collab(MEHDI), 'formalite.enregistrer', { empId: MEHDI, kind: 'vaccin', v: '__proto__', date: '2026-01-01' }), /Vaccin/);
+  await assert.rejects(async () => await run(collab(MEHDI), 'formalite.enregistrer', { ...FAUX, empId: 6 }), (e: unknown) => e instanceof ActionError && e.status === 403);
+  await assert.rejects(async () => await run(mgr(KARIM), 'formalite.enregistrer', FAUX), (e: unknown) => e instanceof ActionError && e.status === 403);
+  await assert.rejects(async () => await run(collab(MEHDI), 'demande.accepter', { id: 1 }), (e: unknown) => e instanceof ActionError && e.status === 403);
 });
 
 // Ancienne base : pas de colonne `declaration`, formalités déjà écrites dans le dossier.
 type Ancienne = [empId: number, label: string, statut?: string, date?: string, reponse?: string];
-function ancienneBase(dir: string, nom: string, demandes: Ancienne[]) {
+async function ancienneBase(dir: string, nom: string, demandes: Ancienne[]) {
   const file = join(dir, `${nom}.db`);
   const old = new Db(file);
-  seedDemo(old);
+  await seedDemo(old);
   old.sql.exec('DELETE FROM demandes_collab WHERE type = \'document\'');
   old.sql.exec('ALTER TABLE demandes_collab DROP COLUMN declaration');
   const ins = old.sql.prepare('INSERT INTO demandes_collab (emp_id, type, label, date, statut, reponse) VALUES (?, \'document\', ?, ?, ?, ?)');
   for (const [empId, label, statut = 'attente', date = '2026-10-01', reponse = null] of demandes) ins.run(empId, label, date, statut, reponse);
   old.sql.close();
   const db = new Db(file); // démarrage : la colonne est ajoutée
-  migrate(db);
+  await migrate(db);
   const o = outils(db);
   // Demandes « document » portant ce libellé, de la plus ancienne à la plus récente.
-  const par = (label: string, id = MEHDI) => o.docs(id).filter(r => r.label === label);
+  const par = async (label: string, id = MEHDI) => (await o.docs(id)).filter(r => r.label === label);
   return { ...o, par };
 }
-function dansDossierTemporaire(fn: (dir: string) => void) {
+async function dansDossierTemporaire(fn: (dir: string) => void | Promise<void>) {
   const dir = mkdtempSync(join(tmpdir(), 'cursus-documents-'));
-  try { fn(dir); } finally { rmSync(dir, { recursive: true, force: true }); }
+  try { await fn(dir); } finally { rmSync(dir, { recursive: true, force: true }); }
 }
 
-test('migration : demandes en attente d’une ancienne base reprises du dossier', () => dansDossierTemporaire(dir => {
-  const { db, run, emp, par } = ancienneBase(dir, 'ancienne', [
+test('migration : demandes en attente d’une ancienne base reprises du dossier', async () => await dansDossierTemporaire(async dir => {
+  const { db, run, emp, par } = await ancienneBase(dir, 'ancienne', [
     [MEHDI, 'Passeport mis à jour'],
     [MEHDI, 'Vaccination Hépatite A déclarée'],
     [9, 'Visa États-Unis déclaré'],
@@ -195,93 +195,93 @@ test('migration : demandes en attente d’une ancienne base reprises du dossier'
     [MEHDI, 'Visa Inde déclaré', 'refusee', '2026-10-01', 'Refusée par le service RH'],
     [MEHDI, 'Document inconnu'],
   ]);
-  migrate(db); // sans effet la seconde fois
-  const un = (label: string, id = MEHDI) => par(label, id)[0];
-  assert.deepEqual(un('Passeport mis à jour').declaration, { kind: 'passeport', numero: '20AB···91', expire: '2026-12-02', dejaAuDossier: true });
-  assert.deepEqual(un('Vaccination Hépatite A déclarée').declaration, { kind: 'vaccin', v: 'hepA', date: '2022-03-11', dejaAuDossier: true });
-  assert.deepEqual(un('Visa États-Unis déclaré', 9).declaration, { kind: 'visa', dest: 'US', type: 'ESTA', obtenu: '2024-11-03', expire: '2026-11-02', dejaAuDossier: true });
+  await migrate(db); // sans effet la seconde fois
+  const un = async (label: string, id = MEHDI) => (await par(label, id))[0];
+  assert.deepEqual((await un('Passeport mis à jour')).declaration, { kind: 'passeport', numero: '20AB···91', expire: '2026-12-02', dejaAuDossier: true });
+  assert.deepEqual((await un('Vaccination Hépatite A déclarée')).declaration, { kind: 'vaccin', v: 'hepA', date: '2022-03-11', dejaAuDossier: true });
+  assert.deepEqual((await un('Visa États-Unis déclaré', 9)).declaration, { kind: 'visa', dest: 'US', type: 'ESTA', obtenu: '2024-11-03', expire: '2026-11-02', dejaAuDossier: true });
   // Les demandes déjà traitées et les libellés inconnus restent tels quels.
-  assert.equal(un('Vaccination DTP déclarée').declaration, null);
-  assert.equal(un('Visa Inde déclaré').statut, 'refusee');
-  assert.equal(un('Visa Inde déclaré').declaration, null);
-  assert.equal(un('Document inconnu').declaration, null);
+  assert.equal((await un('Vaccination DTP déclarée')).declaration, null);
+  assert.equal((await un('Visa Inde déclaré')).statut, 'refusee');
+  assert.equal((await un('Visa Inde déclaré')).declaration, null);
+  assert.equal((await un('Document inconnu')).declaration, null);
 
   // Une nouvelle déclaration ne remplace pas une ancienne demande déjà au dossier.
-  run(collab(MEHDI), 'formalite.enregistrer', FAUX);
-  assert.ok(un('Passeport mis à jour').declaration?.dejaAuDossier);
+  await run(collab(MEHDI), 'formalite.enregistrer', FAUX);
+  assert.ok((await un('Passeport mis à jour')).declaration?.dejaAuDossier);
   // Refus d'une ancienne déclaration : elle est retirée du dossier.
-  run(RH, 'demande.refuser', { id: un('Passeport mis à jour').id });
-  assert.equal(emp(MEHDI).passeport, null);
+  await run(RH, 'demande.refuser', { id: (await un('Passeport mis à jour')).id });
+  assert.equal((await emp(MEHDI)).passeport, null);
   // Validation d'une ancienne déclaration : le dossier n'est pas réécrit.
-  run(RH, 'demande.accepter', { id: un('Vaccination Hépatite A déclarée').id });
-  assert.ok(emp(MEHDI).vaccins.some(v => v.v === 'hepA' && v.date === '2022-03-11'));
+  await run(RH, 'demande.accepter', { id: (await un('Vaccination Hépatite A déclarée')).id });
+  assert.ok((await emp(MEHDI)).vaccins.some(v => v.v === 'hepA' && v.date === '2022-03-11'));
   // Libellé inconnu : contrôle dans le dossier, comme avant.
-  run(RH, 'demande.accepter', { id: un('Document inconnu').id });
-  assert.equal(un('Document inconnu').statut, 'acceptee');
+  await run(RH, 'demande.accepter', { id: (await un('Document inconnu')).id });
+  assert.equal((await un('Document inconnu')).statut, 'acceptee');
   db.sql.close();
 }));
 
-test('migration : deux demandes pour le même document, seule la plus récente reprend le contenu', () => dansDossierTemporaire(dir => {
+test('migration : deux demandes pour le même document, seule la plus récente reprend le contenu', async () => await dansDossierTemporaire(async dir => {
   // Faute de frappe corrigée : deux « Passeport mis à jour » en attente, le dossier ne garde que la dernière saisie.
   const doublon: Ancienne[] = [[MEHDI, 'Passeport mis à jour', 'attente', '2026-10-01'], [MEHDI, 'Passeport mis à jour', 'attente', '2026-10-02']];
-  const a = ancienneBase(dir, 'doublon-a', doublon);
-  const [ancienne, recente] = a.par('Passeport mis à jour');
+  const a = await ancienneBase(dir, 'doublon-a', doublon);
+  const [ancienne, recente] = await a.par('Passeport mis à jour');
   assert.equal(ancienne.declaration, null, 'la plus ancienne reste à contrôler dans le dossier');
   assert.deepEqual(recente.declaration, { kind: 'passeport', numero: '20AB···91', expire: '2026-12-02', dejaAuDossier: true });
   // Refuser la plus ancienne ne retire rien ; valider la plus récente confirme le passeport.
-  assert.doesNotMatch(String(a.run(RH, 'demande.refuser', { id: ancienne.id })), /retiré/);
-  assert.deepEqual(a.emp(MEHDI).passeport, { numero: '20AB···91', expire: '2026-12-02' });
-  assert.match(a.par('Passeport mis à jour')[0].reponse!, /dossier n’a pas été modifié/);
-  a.run(RH, 'demande.accepter', { id: recente.id });
-  assert.deepEqual(a.emp(MEHDI).passeport, { numero: '20AB···91', expire: '2026-12-02' });
-  assert.deepEqual(a.par('Passeport mis à jour').map(r => r.statut), ['refusee', 'acceptee']);
+  assert.doesNotMatch(String(await a.run(RH, 'demande.refuser', { id: ancienne.id })), /retiré/);
+  assert.deepEqual((await a.emp(MEHDI)).passeport, { numero: '20AB···91', expire: '2026-12-02' });
+  assert.match((await a.par('Passeport mis à jour'))[0].reponse!, /dossier n’a pas été modifié/);
+  await a.run(RH, 'demande.accepter', { id: recente.id });
+  assert.deepEqual((await a.emp(MEHDI)).passeport, { numero: '20AB···91', expire: '2026-12-02' });
+  assert.deepEqual((await a.par('Passeport mis à jour')).map(r => r.statut), ['refusee', 'acceptee']);
   a.db.sql.close();
 
   // Démarrage suivant : une fois la plus récente traitée, la plus ancienne ne reprend rien.
-  const b = ancienneBase(dir, 'doublon-b', doublon);
-  b.run(RH, 'demande.accepter', { id: b.par('Passeport mis à jour')[1].id });
-  migrate(b.db);
-  assert.equal(b.par('Passeport mis à jour')[0].declaration, null);
-  b.run(RH, 'demande.refuser', { id: b.par('Passeport mis à jour')[0].id });
-  assert.deepEqual(b.emp(MEHDI).passeport, { numero: '20AB···91', expire: '2026-12-02' });
+  const b = await ancienneBase(dir, 'doublon-b', doublon);
+  await b.run(RH, 'demande.accepter', { id: (await b.par('Passeport mis à jour'))[1].id });
+  await migrate(b.db);
+  assert.equal((await b.par('Passeport mis à jour'))[0].declaration, null);
+  await b.run(RH, 'demande.refuser', { id: (await b.par('Passeport mis à jour'))[0].id });
+  assert.deepEqual((await b.emp(MEHDI)).passeport, { numero: '20AB···91', expire: '2026-12-02' });
   b.db.sql.close();
 }));
 
-test('migration : pièce validée par une autre demande, le refus de l’ancienne ne la retire pas', () => dansDossierTemporaire(dir => {
-  const { db, run, emp, par, domain } = ancienneBase(dir, 'validee', [[MEHDI, 'Vaccination Hépatite A déclarée']]);
-  const [ancienne] = par('Vaccination Hépatite A déclarée');
-  assert.ok(retireeAuRefus(domain(), emp(MEHDI), ancienne));
+test('migration : pièce validée par une autre demande, le refus de l’ancienne ne la retire pas', async () => await dansDossierTemporaire(async dir => {
+  const { db, run, emp, par, domain } = await ancienneBase(dir, 'validee', [[MEHDI, 'Vaccination Hépatite A déclarée']]);
+  const [ancienne] = await par('Vaccination Hépatite A déclarée');
+  assert.ok(retireeAuRefus(await domain(), await emp(MEHDI), ancienne));
   // Le collaborateur redéclare la même injection : nouvelle demande, que le RH valide.
-  run(collab(MEHDI), 'formalite.enregistrer', { empId: MEHDI, kind: 'vaccin', v: 'hepA', date: '2022-03-11' });
-  const nouvelle = par('Vaccination Hépatite A déclarée')[1];
+  await run(collab(MEHDI), 'formalite.enregistrer', { empId: MEHDI, kind: 'vaccin', v: 'hepA', date: '2022-03-11' });
+  const nouvelle = (await par('Vaccination Hépatite A déclarée'))[1];
   assert.ok(nouvelle && !nouvelle.declaration?.dejaAuDossier);
-  assert.match(String(run(RH, 'demande.accepter', { id: nouvelle.id })), /déclaration validée/);
+  assert.match(String(await run(RH, 'demande.accepter', { id: nouvelle.id })), /déclaration validée/);
   // Le tableau de bord n'annonce plus de retrait, et le refus de l'ancienne laisse la pièce validée.
-  assert.ok(!retireeAuRefus(domain(), emp(MEHDI), ancienne));
-  assert.doesNotMatch(String(run(RH, 'demande.refuser', { id: ancienne.id })), /retiré/);
-  assert.ok(emp(MEHDI).vaccins.some(v => v.v === 'hepA' && v.date === '2022-03-11'));
-  assert.match(par('Vaccination Hépatite A déclarée')[0].reponse!, /dossier n’a pas été modifié/);
+  assert.ok(!retireeAuRefus(await domain(), await emp(MEHDI), ancienne));
+  assert.doesNotMatch(String(await run(RH, 'demande.refuser', { id: ancienne.id })), /retiré/);
+  assert.ok((await emp(MEHDI)).vaccins.some(v => v.v === 'hepA' && v.date === '2022-03-11'));
+  assert.match((await par('Vaccination Hépatite A déclarée'))[0].reponse!, /dossier n’a pas été modifié/);
   db.sql.close();
 }));
 
-test('migration : pièce reprise qui a changé depuis, traitée comme une déclaration ordinaire', () => dansDossierTemporaire(dir => {
-  const { db, run, emp, par, domain } = ancienneBase(dir, 'changee', [[MEHDI, 'Passeport mis à jour'], [MEHDI, 'Vaccination Hépatite A déclarée']]);
-  const [pass] = par('Passeport mis à jour'), [hepA] = par('Vaccination Hépatite A déclarée');
+test('migration : pièce reprise qui a changé depuis, traitée comme une déclaration ordinaire', async () => await dansDossierTemporaire(async dir => {
+  const { db, run, emp, par, domain } = await ancienneBase(dir, 'changee', [[MEHDI, 'Passeport mis à jour'], [MEHDI, 'Vaccination Hépatite A déclarée']]);
+  const [pass] = await par('Passeport mis à jour'), [hepA] = await par('Vaccination Hépatite A déclarée');
   // Nouveau passeport déclaré puis validé ; vaccination ressaisie par le RH.
-  run(collab(MEHDI), 'formalite.enregistrer', { ...FAUX, numero: '26XY45678' });
-  run(RH, 'demande.accepter', { id: par('Passeport mis à jour')[1].id });
-  run(RH, 'formalite.enregistrer', { empId: MEHDI, kind: 'vaccin', v: 'hepA', date: '2026-09-01' });
-  const e = emp(MEHDI);
+  await run(collab(MEHDI), 'formalite.enregistrer', { ...FAUX, numero: '26XY45678' });
+  await run(RH, 'demande.accepter', { id: (await par('Passeport mis à jour'))[1].id });
+  await run(RH, 'formalite.enregistrer', { empId: MEHDI, kind: 'vaccin', v: 'hepA', date: '2026-09-01' });
+  const e = await emp(MEHDI);
   assert.ok(!estAuDossier(e, pass.declaration!) && !estAuDossier(e, hepA.declaration!));
   // Le tableau de bord montre la valeur actuelle au lieu d'annoncer un retrait.
-  assert.ok(!retireeAuRefus(domain(), e, pass) && !retireeAuRefus(domain(), e, hepA));
-  assert.match(valeurActuelle(domain(), e, pass.declaration!), /^n° 26XY45678 · expire le /);
+  assert.ok(!retireeAuRefus(await domain(), e, pass) && !retireeAuRefus(await domain(), e, hepA));
+  assert.match(valeurActuelle(await domain(), e, pass.declaration!), /^n° 26XY45678 · expire le /);
   // Refus : le passeport validé depuis reste en place.
-  assert.doesNotMatch(String(run(RH, 'demande.refuser', { id: pass.id })), /retiré/);
-  assert.equal(emp(MEHDI).passeport?.numero, '26XY45678');
+  assert.doesNotMatch(String(await run(RH, 'demande.refuser', { id: pass.id })), /retiré/);
+  assert.equal((await emp(MEHDI)).passeport?.numero, '26XY45678');
   // Validation : la pièce déclarée est réécrite, comme pour une déclaration ordinaire.
-  run(RH, 'demande.accepter', { id: hepA.id });
-  assert.deepEqual(emp(MEHDI).vaccins.filter(v => v.v === 'hepA').map(v => v.date), ['2022-03-11']);
-  assert.match(par('Vaccination Hépatite A déclarée')[0].reponse!, /enregistrée dans votre dossier/);
+  await run(RH, 'demande.accepter', { id: hepA.id });
+  assert.deepEqual((await emp(MEHDI)).vaccins.filter(v => v.v === 'hepA').map(v => v.date), ['2022-03-11']);
+  assert.match((await par('Vaccination Hépatite A déclarée'))[0].reponse!, /enregistrée dans votre dossier/);
   db.sql.close();
 }));

@@ -27,7 +27,7 @@ const pause = (ms: number) => new Promise(ok => setTimeout(ok, ms));
 
 /**
  * Arrêt du serveur, installé dès le verrou de la base posé : un signal reçu pendant le démarrage (migrations) attend la
- * fin des étapes synchrones, puis arrête proprement ce qui a été lancé. Les étapes s'inscrivent au fil du démarrage :
+ * fin des étapes de démarrage (`demarrer`), puis arrête proprement ce qui a été lancé. Les étapes s'inscrivent au fil du démarrage :
  * base (`base`), tâches de fond (`tache` : fonction d'arrêt), traitements à laisser finir (`attendre`), serveur HTTP
  * (`ecouter`). Le verrou est retiré en dernier, base fermée : npm run restore ne voit jamais une base encore ouverte.
  */
@@ -37,6 +37,7 @@ export class Arret {
   private readonly taches: (() => void)[] = [];
   private readonly enCours: (() => boolean)[] = [];
   private demande = false;
+  private demarrage: Promise<void> = Promise.resolve();
   private readonly retirerVerrou: () => void;
   private readonly delai: number;
 
@@ -47,6 +48,15 @@ export class Arret {
   }
 
   base(db: Db) { this.db = db; }
+  /**
+   * Démarrage en cours (migrations, chargement de la démonstration… désormais asynchrones) : un signal reçu entre-temps
+   * attend sa fin, comme il attendait la fin des étapes synchrones d'avant. Renvoie la fonction qui le déclare terminé.
+   */
+  demarrer(): () => void {
+    let fin!: () => void;
+    this.demarrage = new Promise<void>(ok => { fin = ok; });
+    return fin;
+  }
   /** Tâche de fond (minuteur) : sa fonction d'arrêt est appelée dès le signal. */
   tache(arreter: () => void) { this.taches.push(arreter); }
   /** Traitement asynchrone (envoi à Keystone, e-mail) : attendu jusqu'au délai, pour que son issue soit enregistrée. */
@@ -69,14 +79,16 @@ export class Arret {
   /** Démarrage impossible : base fermée, verrou retiré, code de sortie 1 (le message est la cause, pour journalctl). */
   echec(message: string): never {
     log.erreur(`Démarrage impossible : ${message}`);
-    this.fermerBase();
+    // Rien n'est en cours sur la base à ce moment (étape de démarrage refusée) : elle est fermée aussitôt.
+    void this.fermerBase();
     this.retirerVerrou();
     process.exit(1);
   }
 
-  private fermerBase() {
+  /** Ferme la base : aussitôt si rien n'est en cours, sinon après la transaction en cours (server/src/db.ts). */
+  private async fermerBase() {
     try {
-      if (this.db?.sql.isOpen) this.db.sql.close();
+      await this.db?.fermer();
     } catch (err) {
       log.erreur(`Fermeture de la base : ${err instanceof Error ? err.message : err}`);
     }
@@ -92,6 +104,7 @@ export class Arret {
     this.demande = true;
     const limite = Date.now() + this.delai;
     log.info(`Arrêt demandé (${sig}) : fin des requêtes en cours, ${this.delai / 1000} s au plus.`);
+    await this.demarrage;
     for (const t of this.taches) {
       try { t(); } catch { /* minuteur déjà arrêté */ }
     }
@@ -110,7 +123,7 @@ export class Arret {
     // Envoi en cours (Keystone, e-mail) : son issue est enregistrée avant la fermeture de la base, sinon il repart au
     // prochain démarrage avec la même clé d'idempotence.
     while (this.enCours.some(f => f()) && Date.now() < limite) await pause(50);
-    this.fermerBase();
+    await this.fermerBase();
     this.retirerVerrou();
     log.info('Cursus arrêté.');
     process.exit(0);

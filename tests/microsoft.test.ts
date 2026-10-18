@@ -17,7 +17,7 @@ import { fileURLToPath } from 'node:url';
 process.env.CURSUS_TODAY = '2026-10-10';
 
 const { problemesConfig } = await import('../server/src/config.ts');
-const { Db } = await import('../server/src/db.ts');
+const { SqliteDb: Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { ERREURS_MICROSOFT } = await import('../shared/constants.ts');
 
@@ -160,7 +160,7 @@ test('connexion Microsoft 365 (OpenID Connect, faux fournisseur local)', async t
   const f = await fauxFournisseur();
   const file = join(dir, 'microsoft.db');
   const db = new Db(file);
-  seedDemo(db);
+  await seedDemo(db);
   const port = await freePort();
   // L'adresse publique est celle de ce serveur de test (http admis hors production, avec un avertissement).
   const publicUrl = `http://127.0.0.1:${port}`;
@@ -354,24 +354,24 @@ test('connexion Microsoft 365 (OpenID Connect, faux fournisseur local)', async t
 
     // Compte désactivé : refus, journalisé à son nom ; l'oid n'est pas rattaché.
     const s = await allerRetour({ oid: 'oid-collab', upn: collab.identifiant });
-    db.update('comptes', collab.id, { actif: false });
+    await db.update('comptes', collab.id, { actif: false });
     refuse(await allerRetour({ oid: 'oid-collab', upn: collab.identifiant }), 'ferme', 'compte désactivé');
     j = derniere('connexion.refusee');
     assert.match(j.message, /Compte désactivé/);
     assert.equal(j.identifiant, collab.identifiant);
     assert.equal((await srv.call('/api/data', { cookie: s.session })).status, 401, 'sessions fermées');
-    db.update('comptes', collab.id, { actif: true });
+    await db.update('comptes', collab.id, { actif: true });
     // Salarié sorti.
     const empId = (db.sql.prepare('SELECT emp_id AS e FROM comptes WHERE id = ?').get(collab.id) as { e: number }).e;
-    db.update('employes', empId, { fin: '2026-10-09' });
+    await db.update('employes', empId, { fin: '2026-10-09' });
     refuse(await allerRetour({ oid: 'oid-collab', upn: collab.identifiant }), 'ferme', 'salarié sorti');
     assert.match(derniere('connexion.refusee').message, /date de sortie/);
-    db.update('employes', empId, { fin: null });
+    await db.update('employes', empId, { fin: null });
     // Premier rattachement refusé (compte désactivé) : l'oid n'est pas enregistré.
-    db.update('comptes', sandrine.id, { actif: false });
+    await db.update('comptes', sandrine.id, { actif: false });
     refuse(await allerRetour({ oid: 'oid-sandrine', upn: sandrine.identifiant }), 'ferme', 'désactivé, jamais connecté');
     assert.equal(compte('emp_id IS NULL').oid, null);
-    db.update('comptes', sandrine.id, { actif: true });
+    await db.update('comptes', sandrine.id, { actif: true });
   });
 
   await t.test('rotation des clés : un kid inconnu fait relire les clés publiées', async () => {
@@ -462,7 +462,7 @@ test('retour avec une erreur, par un visiteur anonyme : motif reconnu seulement,
   const f = await fauxFournisseur();
   const file = join(dir, 'refus.db');
   const db = new Db(file);
-  seedDemo(db);
+  await seedDemo(db);
   const port = await freePort();
   const publicUrl = `http://127.0.0.1:${port}`;
   f.redirection = `${publicUrl}/api/auth/microsoft/retour`;
@@ -473,7 +473,7 @@ test('retour avec une erreur, par un visiteur anonyme : motif reconnu seulement,
     const aller = await srv.call('/api/auth/microsoft');
     const state = new URL(aller.location!).searchParams.get('state')!;
     const q = new URLSearchParams({ state, error, ...(description ? { error_description: description } : {}) });
-    return srv.call(`/api/auth/microsoft/retour?${q}`, { cookie: valeur(cookieDe(aller.r, 'cursus_oidc')) });
+    return await srv.call(`/api/auth/microsoft/retour?${q}`, { cookie: valeur(cookieDe(aller.r, 'cursus_oidc')) });
   }
   const r = await retour('Faux motif : appelez le 06 00 00 00 00', 'AADSTS50105: texte libre');
   assert.equal(r.location, '/?connexion=refus');

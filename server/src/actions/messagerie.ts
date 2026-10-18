@@ -28,9 +28,9 @@ function adresse(v: unknown, libelle: string): string | null {
 }
 
 /** Adresses du service RH (et réglage de ses notifications), du service de santé au travail, des agences d'intérim. */
-const regler: ActionHandler = (ctx, p) => {
+const regler: ActionHandler = async (ctx, p) => {
   requireRhAdmin(ctx);
-  const next: Messagerie = { ...lireMessagerie(ctx.db) };
+  const next: Messagerie = { ...await lireMessagerie(ctx.db) };
   if (p.rh !== undefined) next.rh = adresse(p.rh, 'Adresse du service RH');
   if (p.rhMode !== undefined) next.rhMode = mode(p.rhMode);
   if (p.santeTravail !== undefined) next.santeTravail = adresse(p.santeTravail, 'Adresse du service de santé au travail');
@@ -47,17 +47,17 @@ const regler: ActionHandler = (ctx, p) => {
     }
     next.agences = agences;
   }
-  ctx.db.setSetting('messagerie', next);
+  await ctx.db.setSetting('messagerie', next);
   return 'Adresses de la messagerie enregistrées';
 };
 
 /** E-mail d'essai (mise en service par le service informatique) : suivi dans Paramètres → Envois. */
-const essai: ActionHandler = (ctx, p) => {
+const essai: ActionHandler = async (ctx, p) => {
   requireRhAdmin(ctx);
   const a = adresse(p.adresse, 'Adresse');
   if (!a) throw new ActionError('Adresse du destinataire requise');
   const cfg = configMail();
-  envoyerEmail(ctx.db, 'essai', courriel(lireMessagerie(ctx.db), a, 'Cursus — e-mail d’essai',
+  await envoyerEmail(ctx.db, 'essai', courriel(await lireMessagerie(ctx.db), a, 'Cursus — e-mail d’essai',
     `Cet e-mail d’essai a été demandé par ${ctx.user.nom} depuis Cursus (Paramètres → Messagerie) le ${fmt(parse(ctx.d.ti))}. `
     + `Sa réception confirme que Cursus peut envoyer des e-mails${cfg ? ` depuis ${cfg.from}` : ''}.`));
   return cfg
@@ -66,26 +66,26 @@ const essai: ActionHandler = (ctx, p) => {
 };
 
 /** Récapitulatifs des notifications en attente, envoyés sans attendre l'heure du récapitulatif quotidien. */
-const recapituler: ActionHandler = (ctx) => {
+const recapituler: ActionHandler = async (ctx) => {
   requireRh(ctx);
-  if (!recapitulatifEnAttente(ctx.db)) throw new ActionError('Aucune notification en attente du récapitulatif');
-  const n = envoyerRecapitulatifs(ctx.db);
+  if (!await recapitulatifEnAttente(ctx.db)) throw new ActionError('Aucune notification en attente du récapitulatif');
+  const n = await envoyerRecapitulatifs(ctx.db);
   if (!n) return 'Aucun récapitulatif envoyé — destinataires sans adresse e-mail ou sortis de l’entreprise : notifications closes';
   return `${plural(n, 'récapitulatif envoyé', 'récapitulatifs envoyés')} — notifications en attente transmises`;
 };
 
 /** Notifications d'étapes d'un salarié : aussitôt, ou récapitulatif quotidien. La personne elle-même, ou le service RH. */
-const reglerNotifications: ActionHandler = (ctx, p) => {
+const reglerNotifications: ActionHandler = async (ctx, p) => {
   const emp = getEmp(ctx, p.empId ?? ctx.user.empId);
   if (!isRh(ctx) && !isSelf(ctx, emp.id)) throw new ActionError('Réglage réservé à la personne elle-même ou au service RH', 403);
   const m = mode(p.mode);
-  ctx.db.update('employes', emp.id, { notifications: m });
+  await ctx.db.update('employes', emp.id, { notifications: m });
   const quoi = isSelf(ctx, emp.id) ? 'Vos notifications par e-mail' : `Notifications par e-mail de ${emp.nom}`;
   return `${quoi} : ${MODE_NOTIFICATION_LABEL[m].toLowerCase()}${emp.email ? '' : ' · aucune adresse e-mail sur la fiche'}`;
 };
 
 /** Relevé d'heures d'une agence pour une semaine : envoi (feuilles encore en attente comprises) ou renvoi. */
-const envoyerReleveAction: ActionHandler = (ctx, p) => {
+const envoyerReleveAction: ActionHandler = async (ctx, p) => {
   // Relevé d'heures des intérimaires : service RH ou gestionnaire de paie.
   if (!aDroit(ctx, 'rh') && !aDroit(ctx, 'paie')) throw new ActionError('Relevés réservés au service RH et au gestionnaire de paie', 403);
   const agence = str(p.agence), semaine = str(p.semaine);
@@ -93,7 +93,7 @@ const envoyerReleveAction: ActionHandler = (ctx, p) => {
   if (!isValidDate(semaine) || mondayOf(semaine) !== semaine) throw new ActionError('Semaine invalide');
   if (semaine > mondayOf(ctx.d.ti)) throw new ActionError('Semaine à venir : aucun relevé à envoyer');
   const deja = ctx.ds.releves.some(r => key(r.agence) === key(agence) && r.semaine === semaine);
-  const x = envoyerReleve(ctx.db, ctx.d, agence, semaine, ctx.user.nom, lireMessagerie(ctx.db));
+  const x = await envoyerReleve(ctx.db, ctx.d, agence, semaine, ctx.user.nom, await lireMessagerie(ctx.db));
   if (typeof x === 'string') throw new ActionError(x);
   const attente = x.r.enAttente.length ? ` · feuille non validée : ${x.r.enAttente.map(e => e.nom).join(', ')}` : '';
   return `Relevé de la semaine ${isoWeek(semaine)} ${deja ? 'renvoyé' : 'envoyé'} à ${agence} (${x.releve.adresse}) — `

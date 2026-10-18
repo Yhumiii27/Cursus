@@ -13,7 +13,7 @@ const texte = (r: unknown): string => (typeof r === 'string' ? r : r && typeof r
  * `nom` (équipe), `nouveau?` (nouveau nom ; absent ou identique : inchangé), `managerId?` (null : aucun manager ; absent :
  * inchangé). Renommage d'abord, puis désignation du manager sur l'équipe renommée, relue après le renommage.
  */
-const modifier: ActionHandler = (ctx, p) => {
+const modifier: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const q = ctx.ds.referentiels.equipes.find(x => x.nom === p.nom);
   if (!q) throw new ActionError('Équipe introuvable', 404);
@@ -22,11 +22,11 @@ const modifier: ActionHandler = (ctx, p) => {
   const renomme = nouveau !== q.nom, changeManager = managerId !== (q.managerId ?? null);
   if (!renomme && !changeManager) return 'Aucune modification à enregistrer';
   const messages: string[] = [];
-  if (renomme) messages.push(texte(equipesActions['equipe.renommer'](ctx, { nom: q.nom, nouveau })));
+  if (renomme) messages.push(texte(await equipesActions['equipe.renommer'](ctx, { nom: q.nom, nouveau })));
   if (changeManager) {
     // L'instantané de l'action précède le renommage : relu pour trouver l'équipe sous son nouveau nom.
-    const apres = renomme ? makeCtx(ctx.db, ctx.user, loadFull(ctx.db, ctx.user)) : ctx;
-    messages.push(texte(equipesActions['equipe.manager'](apres, { nom: nouveau, managerId })));
+    const apres = renomme ? makeCtx(ctx.db, ctx.user, await loadFull(ctx.db, ctx.user)) : ctx;
+    messages.push(texte(await equipesActions['equipe.manager'](apres, { nom: nouveau, managerId })));
   }
   return messages.filter(Boolean).join(' — ');
 };

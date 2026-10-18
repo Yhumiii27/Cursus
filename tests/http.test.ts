@@ -15,7 +15,7 @@ import express from 'express';
 process.env.CURSUS_TODAY = '2026-10-10';
 process.env.CURSUS_DEMO = '1';
 
-const { Db } = await import('../server/src/db.ts');
+const { SqliteDb: Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { migrate } = await import('../server/src/migrate.ts');
 const { appliquerMigrations } = await import('../server/src/migrations/cadre.ts');
@@ -36,9 +36,9 @@ writeFileSync(join(dist, 'assets', 'index-ABCD1234.js'), SCRIPT);
 writeFileSync(join(dist, 'assets', 'inter-latin-400.woff2'), Buffer.alloc(4096, 7));
 
 const db = new Db(join(dir, 'cursus.db'));
-migrate(db);
-appliquerMigrations(db);
-seedDemo(db);
+await migrate(db);
+await appliquerMigrations(db);
+await seedDemo(db);
 // Panne imprévue d'une action (erreur qui n'est pas un refus) : visible du seul journal du serveur.
 ACTIONS['essai.panne'] = () => { throw new Error('panne simulée : base 42 introuvable'); };
 

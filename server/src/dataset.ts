@@ -44,24 +44,32 @@ export function todayIso(maintenant = new Date()): string {
   return isValidDate(env) ? env : isoParis(maintenant);
 }
 
-export function loadSettings(db: Db): Settings {
+export async function loadSettings(db: Db): Promise<Settings> {
   // `rhNom` et `rhIntitule` (anciennes bases) désignaient le RH unique : l'identité vient désormais du compte connecté.
-  const { rhNom: _n, rhIntitule: _i, ...app } = db.getSetting<Partial<Settings> & { rhNom?: string; rhIntitule?: string }>('app', {});
+  const { rhNom: _n, rhIntitule: _i, ...app } = await db.getSetting<Partial<Settings> & { rhNom?: string; rhIntitule?: string }>('app', {});
   return { ...DEFAULT_SETTINGS, ...app };
 }
 
 type EmpRow = Omit<Employe, 'passeport' | 'certs' | 'habs' | 'visas' | 'vaccins'> & { passeportNumero: string | null; passeportExpire: string | null };
 
-export function loadFull(db: Db, user: CurrentUser): Dataset {
+/**
+ * Données complètes vues par `user`, lues sur un même état de la base (`lecture` : aucune transaction d'une autre
+ * requête ne s'intercale entre les lectures des tables, comme avec l'accès synchrone d'avant).
+ */
+export async function loadFull(db: Db, user: CurrentUser): Promise<Dataset> {
+  return await db.lecture(async () => await lireTout(db, user));
+}
+
+async function lireTout(db: Db, user: CurrentUser): Promise<Dataset> {
   // Certification annulée (saisie erronée, `cert.annuler`) : hors de tous les calculs, gardée à part pour le service RH.
-  const toutes = db.all<Certification>('certifications');
+  const toutes = await db.all<Certification>('certifications');
   const certs = toutes.filter(c => !c.annuleLe), annulees = toutes.filter(c => c.annuleLe);
-  const habs = db.all<HabTitre>('habTitres');
-  const visas = db.all<Visa>('visas');
-  const vaccins = db.all<Vaccination>('vaccinations');
-  const inscriptions = db.all<Inscription>('inscriptions');
-  const participations = db.all<Participation>('participations');
-  const employes: Employe[] = db.all<EmpRow>('employes').map(({ passeportNumero, passeportExpire, ...e }) => ({
+  const habs = await db.all<HabTitre>('habTitres');
+  const visas = await db.all<Visa>('visas');
+  const vaccins = await db.all<Vaccination>('vaccinations');
+  const inscriptions = await db.all<Inscription>('inscriptions');
+  const participations = await db.all<Participation>('participations');
+  const employes: Employe[] = (await db.all<EmpRow>('employes')).map(({ passeportNumero, passeportExpire, ...e }) => ({
     ...e,
     jourOff: e.jourOff ?? [],
     notifications: e.notifications === 'quotidien' ? 'quotidien' : 'immediat',
@@ -73,78 +81,78 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     visas: visas.filter(v => v.empId === e.id),
     vaccins: vaccins.filter(v => v.empId === e.id),
   }));
-  const feuilles = db.all<FeuilleTemps>('feuilles');
+  const feuilles = await db.all<FeuilleTemps>('feuilles');
   const budgets: Dataset['budgets'] = {};
-  db.all<{ exercice: number; equipe: string; montant: number }>('budgets').forEach(b => {
+  (await db.all<{ exercice: number; equipe: string; montant: number }>('budgets')).forEach(b => {
     (budgets[String(b.exercice)] ||= {})[b.equipe] = b.montant;
   });
   const ds: Dataset = {
     today: todayIso(),
     revision: db.revision,
     user,
-    settings: loadSettings(db),
+    settings: await loadSettings(db),
     // Formations, habilitations et destinations, archivées comprises (`archive`, date d'archivage) : transmises à tous les
     // espaces, qui en ont besoin pour nommer les titres et écarter les archivées des listes ; aucune donnée personnelle.
     referentiels: {
-      formations: db.all<Formation>('formations', 'rowid'),
-      habilitations: db.all<HabType>('habilitations', 'rowid'),
-      destinations: db.all<Destination>('destinations', 'rowid'),
+      formations: await db.all<Formation>('formations', 'rowid'),
+      habilitations: await db.all<HabType>('habilitations', 'rowid'),
+      destinations: await db.all<Destination>('destinations', 'rowid'),
       // Postes et exigences (shared/rules/exigences.ts) : aucune donnée personnelle, comme les équipes.
-      postes: db.all<Poste>('postes', 'nom'),
-      equipes: db.all<Equipe>('equipes', 'ordre'),
-      projets: db.all<Projet>('projets', 'rowid'),
-      chantiers: db.all<Chantier>('chantiers', 'debut'),
+      postes: await db.all<Poste>('postes', 'nom'),
+      equipes: await db.all<Equipe>('equipes', 'ordre'),
+      projets: await db.all<Projet>('projets', 'rowid'),
+      chantiers: await db.all<Chantier>('chantiers', 'debut'),
     },
     annuaire: employes.map(e => ({ id: e.id, nom: e.nom, equipe: e.equipe, poste: e.poste })),
     employes,
     // Nombre d'inscrits calculé sur toutes les données, avant la restriction au périmètre.
     // Session d'une base ancienne ou écrite sans plage : un seul jour (completerSession).
-    sessions: avecInscrits(db.all<Omit<Session, 'inscrits'>>('sessions').map(completerSession), certs, inscriptions, participations),
+    sessions: avecInscrits((await db.all<Omit<Session, 'inscrits'>>('sessions')).map(completerSession), certs, inscriptions, participations),
     inscriptions,
     participations,
     // Ligne du plan supprimée (saisie erronée, `plan.supprimer`, demande rouverte) : hors de l'instantané et des calculs.
-    plan: db.all<PlanAction>('planActions').filter(l => !l.annuleLe),
+    plan: (await db.all<PlanAction>('planActions')).filter(l => !l.annuleLe),
     budgets,
-    exercicesClos: db.all<ExerciceClos>('exercicesClos'),
-    voyages: db.all<Voyage>('voyages'),
-    demandesKeystone: db.all<DemandeKeystone>('demandesKeystone'),
-    missions: db.all<Mission>('missions'),
-    taches: db.all<TacheKeystone>('taches'),
+    exercicesClos: await db.all<ExerciceClos>('exercicesClos'),
+    voyages: await db.all<Voyage>('voyages'),
+    demandesKeystone: await db.all<DemandeKeystone>('demandesKeystone'),
+    missions: await db.all<Mission>('missions'),
+    taches: await db.all<TacheKeystone>('taches'),
     feuilles,
-    absences: db.all<Absence>('absences'),
-    cet: db.all<CetMouvement>('cet'),
-    reports: db.all<ReportCp>('reports'),
-    soldesReprise: db.all<SoldeReprise>('soldesReprise'),
-    clotures: db.all<ClotureConges>('clotures'),
+    absences: await db.all<Absence>('absences'),
+    cet: await db.all<CetMouvement>('cet'),
+    reports: await db.all<ReportCp>('reports'),
+    soldesReprise: await db.all<SoldeReprise>('soldesReprise'),
+    clotures: await db.all<ClotureConges>('clotures'),
     // Informations au retour d'un arrêt (art. L3141-19-3) : elles désignent un arrêt de santé, service RH et intéressé.
-    informationsCp: db.all<InformationCp>('informationsCp'),
+    informationsCp: await db.all<InformationCp>('informationsCp'),
     // Soldes de sortie photographiés (t128) : compteurs du solde de tout compte, service RH, paie et lecture seule.
-    soldesSortie: db.all<SoldeSortie>('soldesSortie'),
-    entretiens: db.all<Entretien>('entretiens'),
-    demandesCollab: db.all<DemandeCollab>('demandesCollab'),
-    demandesVisite: db.all<DemandeVisite>('demandesVisite'),
+    soldesSortie: await db.all<SoldeSortie>('soldesSortie'),
+    entretiens: await db.all<Entretien>('entretiens'),
+    demandesCollab: await db.all<DemandeCollab>('demandesCollab'),
+    demandesVisite: await db.all<DemandeVisite>('demandesVisite'),
     // Début de la saisie des feuilles, sur toutes les feuilles : transmis tel quel à tous les espaces (une date).
     debutSaisieFeuilles: debutSaisieDe(feuilles),
     // Lots de paie, sans leur contenu figé (lu par le téléchargement du fichier : server/src/fichier-paie.ts), et format
     // du fichier d'import réglé par la paie (shared/rules/lots-paie.ts).
-    lotsPaie: lireLots(db),
-    formatFichierPaie: lireFormatFichier(db),
+    lotsPaie: await lireLots(db),
+    formatFichierPaie: await lireFormatFichier(db),
     // Correspondance des rubriques avec le plan de paie Sage (lignes modifiées ; les autres : shared/rules/paie.ts).
-    rubriquesPaie: db.all<RubriquePaie>('rubriquesPaie'),
+    rubriquesPaie: await db.all<RubriquePaie>('rubriquesPaie'),
     // Messagerie (Paramètres → Messagerie) et relevés transmis aux agences d'intérim, avec le statut de leur e-mail.
-    messagerie: lireMessagerie(db),
-    releves: db.all<Omit<ReleveInterim, 'envoi'>>('releves').map(r => ({ ...r, envoi: r.envoiId ? db.get<Envoi>('envois', r.envoiId)?.statut ?? null : null })),
+    messagerie: await lireMessagerie(db),
+    releves: await Promise.all((await db.all<Omit<ReleveInterim, 'envoi'>>('releves')).map(async r => ({ ...r, envoi: r.envoiId ? (await db.get<Envoi>('envois', r.envoiId))?.statut ?? null : null }))),
     // Lots importés à la mise en service (écran Mise en service) : compte rendu nominatif, service RH seulement.
-    reprises: db.all<LotReprise>('reprises').reverse(),
+    reprises: (await db.all<LotReprise>('reprises')).reverse(),
     // Dérogations au repos dominical par équipe (shared/rules/semaine.ts) et mandats au CSE (shared/rules/delegation.ts).
-    derogationsDominicales: db.getSetting<DerogationDominicale[]>('derogationsDominicales', []),
-    mandats: db.all<Mandat>('mandats'),
+    derogationsDominicales: await db.getSetting<DerogationDominicale[]>('derogationsDominicales', []),
+    mandats: await db.all<Mandat>('mandats'),
     // Effectif du site (un nombre) pour la limite de délégation d'un suppléant : calculé ici sur toutes les fiches, car
     // l'instantané de l'élu ne contient que lui-même (ou son équipe).
     effectifCse: effectifSite({ employes }, todayIso()),
   };
   // Absences en attente du fichier de paie par période (server/src/absences-paie.ts) : lit le contenu figé des lots.
-  return { ...ds, absencesPaie: resumeAbsencesPaie(db, user, ds) };
+  return { ...ds, absencesPaie: await resumeAbsencesPaie(db, user, ds) };
 }
 
 /**
@@ -165,15 +173,15 @@ const derogationsSansReference = (full: Dataset) => (full.derogationsDominicales
  * Personne connectée dans l'espace actif de la session : le compte doit pouvoir se connecter et ouvrir
  * cet espace. Dans l'espace RH, la personne agit pour le service (`empId` null) mais signe de son nom.
  */
-export function currentUser(db: Db, s: SessionInfo | null): CurrentUser | null {
-  const c = compteValide(db, s?.compteId);
-  if (!s || !c || !espacesDuCompte(db, c).includes(s.role)) return null;
+export async function currentUser(db: Db, s: SessionInfo | null): Promise<CurrentUser | null> {
+  const c = await compteValide(db, s?.compteId);
+  if (!s || !c || !(await espacesDuCompte(db, c)).includes(s.role)) return null;
   const compte = { compteId: c.id, profilRh: c.profilRh, salarieId: c.empId };
-  if (s.role === 'rh') return { role: 'rh', empId: null, nom: nomDuCompte(db, c), intitule: PROFILS_RH[c.profilRh].label, ...compte };
+  if (s.role === 'rh') return { role: 'rh', empId: null, nom: await nomDuCompte(db, c), intitule: PROFILS_RH[c.profilRh].label, ...compte };
   const empId = c.empId!;
-  const e = db.get<EmpRow>('employes', empId)!;
+  const e = (await db.get<EmpRow>('employes', empId))!;
   if (s.role === 'manager') {
-    const teams = db.where<Equipe>('equipes', 'managerId', empId).map(q => q.nom);
+    const teams = (await db.where<Equipe>('equipes', 'managerId', empId)).map(q => q.nom);
     return { role: s.role, empId, nom: e.nom, intitule: `Manager · ${teams.join(', ')}`, ...compte };
   }
   return { role: s.role, empId, nom: e.nom, intitule: e.poste, ...compte };
@@ -221,8 +229,8 @@ const avecFinCarriere = (d: Domain, x: Entretien): Entretien => {
   return e ? { ...x, finCarriere: needsFinCarriere(d, e, x) } : x;
 };
 
-export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
-  const full = loadFull(db, user);
+export async function buildSnapshot(db: Db, user: CurrentUser): Promise<Dataset> {
+  const full = await loadFull(db, user);
   if (user.role === 'rh') {
     const droits = droitsRh(user);
     // Sans droit « paie » (gestionnaire RH), ni les rubriques d'absence en attente ni celles des lots : le code révèle la catégorie.

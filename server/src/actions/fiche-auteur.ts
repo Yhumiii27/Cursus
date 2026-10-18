@@ -48,13 +48,13 @@ const PROFONDEUR = 200;
  * Nom de la personne qui a modifié en dernier l'un des `champs` de la fiche, d'après le journal ; null quand le journal
  * ne permet pas de le dire avec certitude.
  */
-export function dernierAuteurFiche(ctx: Ctx, empId: number, champs: readonly Champ[]): string | null {
+export async function dernierAuteurFiche(ctx: Ctx, empId: number, champs: readonly Champ[]): Promise<string | null> {
   const nominatives = Object.keys(ECRIT_LA_FICHE), globales = Object.keys(ECRIT_DES_FICHES);
   const marques = (n: number) => Array(n).fill('?').join(', ');
-  const lignes = ctx.db.sql.prepare(`SELECT actor, action, payload FROM journal
+  const lignes = await ctx.db.query(`SELECT actor, action, payload FROM journal
     WHERE (action IN (${marques(nominatives.length)}) AND EXISTS (SELECT 1 FROM json_each(journal.salaries) WHERE value = ?))
        OR action IN (${marques(globales.length)})
-    ORDER BY id DESC LIMIT ${PROFONDEUR}`).all(...nominatives, empId, ...globales) as { actor: string | null; action: string; payload: string | null }[];
+    ORDER BY id DESC LIMIT ${PROFONDEUR}`, [...nominatives, empId, ...globales]) as { actor: string | null; action: string; payload: string | null }[];
   for (const l of lignes) {
     let payload: Payload = null;
     try { payload = l.payload ? JSON.parse(l.payload) as Payload : null; } catch { payload = null; }

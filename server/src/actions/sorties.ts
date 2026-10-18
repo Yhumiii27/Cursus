@@ -22,17 +22,18 @@ import { ActionError, getEmp, refuserSoiMeme, requireRh, requireRhAdmin, str, ty
  * Sortie d'un membre de l'espace RH (service RH, référent HSE, paie, lecture seule) : elle ferme son compte, ce que seul
  * l'administrateur RH décide (Comptes et accès) ; un gestionnaire RH ne la saisit ni ne l'annule.
  */
-function compteRh(ctx: Ctx, emp: Employe) {
-  if (ctx.db.where<Compte>('comptes', 'empId', emp.id).some(c => ouvreEspaceRh(c.profilRh))) requireRhAdmin(ctx);
+async function compteRh(ctx: Ctx, emp: Employe) {
+  if ((await ctx.db.where<Compte>('comptes', 'empId', emp.id)).some(c => ouvreEspaceRh(c.profilRh))) requireRhAdmin(ctx);
 }
 
 /**
  * Cursus garde un administrateur RH en mesure de se connecter : la sortie d'un administrateur attend qu'un autre reste
  * en place au-delà de la date (`adminsDurables` : une autre sortie déjà enregistrée à cette date ou avant ne compte pas).
  */
-function dernierAdministrateur(ctx: Ctx, emp: Employe, date: string) {
-  const comptes = ctx.db.where<Compte>('comptes', 'empId', emp.id);
-  if (comptes.some(c => c.profilRh === 'rh_admin' && !refusDuCompte(ctx.db, c) && !adminsDurables(ctx.db, c.id, date))) {
+async function dernierAdministrateur(ctx: Ctx, emp: Employe, date: string) {
+  const comptes = await ctx.db.where<Compte>('comptes', 'empId', emp.id);
+  for (const c of comptes) {
+    if (c.profilRh !== 'rh_admin' || await refusDuCompte(ctx.db, c) || await adminsDurables(ctx.db, c.id, date)) continue;
     throw new ActionError(`${emp.nom} est le dernier administrateur RH actif après le ${fmtIso(date)} : Cursus doit en garder un, désignez-en un autre d’abord (Comptes et accès)`);
   }
 }
@@ -43,41 +44,41 @@ function dernierAdministrateur(ctx: Ctx, emp: Employe, date: string) {
  * (`controleSortie`). La fin prévue au contrat (CDD, mission, alternance) est gardée pour une annulation. L'état des
  * compteurs à la date est photographié (solde de sortie), sauf s'il est déjà parti à la paie.
  */
-const sortie: ActionHandler = (ctx, p) => {
+const sortie: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const emp = getEmp(ctx, p.id);
   refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas enregistrer votre propre sortie');
-  compteRh(ctx, emp);
+  await compteRh(ctx, emp);
   const date = str(p.date), motif = str(p.motif);
   if (!date) throw new ActionError('Date de sortie requise');
   if (!estMotifSortie(motif)) throw new ActionError('Motif de sortie à choisir dans la liste');
   const c = controleSortie(ctx.d, emp, date);
   if (c.bloquants.length) throw new ActionError(c.bloquants.join(' '));
-  dernierAdministrateur(ctx, emp, date);
-  controlerSoldeSortie(ctx.db, emp);
+  await dernierAdministrateur(ctx, emp, date);
+  await controlerSoldeSortie(ctx.db, emp);
   // Photographie calculée sur l'état d'avant la sortie (elle annule d'elle-même les absences postérieures).
-  const solde = photographierSortie(ctx, emp, date);
+  const solde = await photographierSortie(ctx, emp, date);
 
-  ctx.db.update<Employe>('employes', emp.id, { fin: date, motifSortie: motif, finPrevue: finContrat(emp) });
+  await ctx.db.update<Employe>('employes', emp.id, { fin: date, motifSortie: motif, finPrevue: finContrat(emp) });
   // Fiche mise à jour d'abord : les convocations d'un salarié déjà parti ne lui sont plus envoyées (adresse close).
-  c.absences.forEach(a => {
-    ctx.db.update<Absence>('absences', a.id, { statut: 'annulee', annuleeLe: ctx.d.ti, annuleePar: ctx.user.nom, keystone: false });
-    if (a.keystone) sendToKeystone(ctx.db, absenceKeystone('absence.annulee', a));
-  });
+  for (const a of c.absences) {
+    await ctx.db.update<Absence>('absences', a.id, { statut: 'annulee', annuleeLe: ctx.d.ti, annuleePar: ctx.user.nom, keystone: false });
+    if (a.keystone) await sendToKeystone(ctx.db, absenceKeystone('absence.annulee', a));
+  }
   let annulees = 0;
-  c.certs.forEach(x => {
-    ctx.db.update<Certification>('certifications', x.id, { sessionId: null, convoc: null, convocLe: null });
-    if (annulerSiConvoque(ctx, ctx.d.session(x.sessionId), emp, x)) annulees++;
-  });
-  c.inscriptions.forEach(i => {
-    ctx.db.remove('inscriptions', i.id);
-    if (annulerSiConvoque(ctx, ctx.d.session(i.sessionId), emp, i)) annulees++;
-  });
-  c.entretiens.forEach(x => ctx.db.remove('entretiens', x.id));
-  c.visites.forEach(x => ctx.db.update<DemandeVisite>('demandesVisite', x.id, { statut: 'annulee', closeLe: ctx.d.ti, closePar: ctx.user.nom }));
-  c.feuilles.forEach(f => ctx.db.remove('feuilles', f.id));
+  for (const x of c.certs) {
+    await ctx.db.update<Certification>('certifications', x.id, { sessionId: null, convoc: null, convocLe: null });
+    if (await annulerSiConvoque(ctx, ctx.d.session(x.sessionId), emp, x)) annulees++;
+  }
+  for (const i of c.inscriptions) {
+    await ctx.db.remove('inscriptions', i.id);
+    if (await annulerSiConvoque(ctx, ctx.d.session(i.sessionId), emp, i)) annulees++;
+  }
+  for (const x of c.entretiens) await ctx.db.remove('entretiens', x.id);
+  for (const x of c.visites) await ctx.db.update<DemandeVisite>('demandesVisite', x.id, { statut: 'annulee', closeLe: ctx.d.ti, closePar: ctx.user.nom });
+  for (const f of c.feuilles) await ctx.db.remove('feuilles', f.id);
   // Sortie déjà passée : les sessions ouvertes sont fermées ; sinon, elles ne valent plus dès le lendemain (comptes.ts).
-  const fermees = date < ctx.d.ti ? revokeSessionsOf(ctx.db, emp.id) : 0;
+  const fermees = date < ctx.d.ti ? await revokeSessionsOf(ctx.db, emp.id) : 0;
 
   const effets = effetsSortie(c);
   if (annulees) effets.push(annulees > 1 ? `${annulees} annulations de convocation envoyées par e-mail` : 'annulation de convocation envoyée par e-mail');
@@ -100,12 +101,12 @@ const sortie: ActionHandler = (ctx, p) => {
  * Annule une sortie saisie par erreur : la fin prévue au contrat est rétablie (aucune pour un CDI). Ce que la sortie a
  * annulé (absences, inscriptions, entretiens, demandes de visite) n'est pas rétabli : le message le rappelle.
  */
-const annulerSortie: ActionHandler = (ctx, p) => {
+const annulerSortie: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const emp = getEmp(ctx, p.id);
   refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas annuler votre propre sortie');
-  compteRh(ctx, emp);
-  controlerSoldeSortie(ctx.db, emp);
+  await compteRh(ctx, emp);
+  await controlerSoldeSortie(ctx.db, emp);
   if (!emp.motifSortie) {
     throw new ActionError(emp.fin ? 'Aucune sortie enregistrée : la fin prévue du contrat se modifie dans la fiche' : 'Aucune sortie enregistrée pour ce salarié');
   }
@@ -113,9 +114,9 @@ const annulerSortie: ActionHandler = (ctx, p) => {
   // la fin prévue d'un CDD, d'une mission ou d'une alternance. Un CDI n'en a aucune, même devenu CDI depuis la sortie
   // (la fin du CDD gardée ne vaut plus).
   const fin = emp.typeContrat === 'cdi' ? null : emp.finPrevue ?? emp.fin;
-  ctx.db.update<Employe>('employes', emp.id, { fin, motifSortie: null, finPrevue: null });
+  await ctx.db.update<Employe>('employes', emp.id, { fin, motifSortie: null, finPrevue: null });
   return `Sortie de ${emp.nom} annulée — ${fin ? `fin de contrat prévue le ${fmtIso(fin)}` : 'contrat sans date de fin'}`
-    + ' · les absences, inscriptions, entretiens et demandes de visite annulés par la sortie ne sont pas rétablis' + retirerSoldeSortie(ctx.db, emp);
+    + ' · les absences, inscriptions, entretiens et demandes de visite annulés par la sortie ne sont pas rétablis' + await retirerSoldeSortie(ctx.db, emp);
 };
 
 export const sortiesActions: Record<string, ActionHandler> = {

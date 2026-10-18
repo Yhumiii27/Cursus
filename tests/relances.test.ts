@@ -7,7 +7,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 process.env.CURSUS_PUBLIC_URL = 'https://cursus.example.fr';
 for (const k of ['CURSUS_MAIL_FROM', 'CURSUS_MAIL_TENANT', 'CURSUS_MAIL_CLIENT_ID', 'CURSUS_MAIL_CLIENT_SECRET', 'CURSUS_OIDC_TENANT', 'CURSUS_OIDC_CLIENT_ID', 'CURSUS_OIDC_CLIENT_SECRET']) delete process.env[k];
 
-const { Db } = await import('../server/src/db.ts');
+const { SqliteDb: Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -19,32 +19,32 @@ const { jourDEnvoi, palierDe, paliersRelance, relancesDues } = await import('../
 const { appliquerReglages, reglagesParDefaut } = await import('../shared/reglages.ts');
 const { VACCINS } = await import('../shared/constants.ts');
 const { equipeLabel } = await import('../shared/format.ts');
-type User = NonNullable<ReturnType<typeof currentUser>>;
+type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type Ligne = Record<string, any>;
 
 const RH_MAIL = 'rh@entreprise.example';
 
-function fresh() {
+async function fresh() {
   const db = new Db(':memory:');
-  seedDemo(db);
+  await seedDemo(db);
   const compteDe = (empId: number | null) => db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
     .get(...(empId ? [empId] : [])) as { id: number };
-  const RH = currentUser(db, { compteId: compteDe(null).id, role: 'rh', methode: 'demo' })!;
-  const run = (u: User, name: string, p: Record<string, unknown> = {}) => db.tx(() => ACTIONS[name](makeCtx(db, u, loadFull(db, u)), p));
-  run(RH, 'messagerie.regler', { rh: RH_MAIL });
+  const RH = (await currentUser(db, { compteId: compteDe(null).id, role: 'rh', methode: 'demo' }))!;
+  const run = async (u: User, name: string, p: Record<string, unknown> = {}) => await db.tx(async () => await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p));
+  await run(RH, 'messagerie.regler', { rh: RH_MAIL });
   /** Récapitulatifs mis en file, par adresse : texte de l'e-mail. */
-  const recaps = () => {
+  const recaps = async () => {
     const out: Record<string, string[]> = {};
-    for (const e of db.all<Ligne>('envois').filter(x => x.type === 'echeances.recapitulatif')) (out[e.contenu.a[0]] ??= []).push(e.contenu.texte);
+    for (const e of (await db.all<Ligne>('envois')).filter(x => x.type === 'echeances.recapitulatif')) (out[e.contenu.a[0]] ??= []).push(e.contenu.texte);
     return out;
   };
-  return { db, run, RH, recaps, passer: () => db.tx(() => recapitulatifEcheances(db)) };
+  return { db, run, RH, recaps, passer: async () => await db.tx(async () => await recapitulatifEcheances(db)) };
 }
 /** Exécute `f` à une autre date du jour. */
-function le<T>(jour: string, f: () => T): T {
+async function le<T>(jour: string, f: () => T | Promise<T>): Promise<T> {
   const avant = process.env.CURSUS_TODAY;
   process.env.CURSUS_TODAY = jour;
-  try { return f(); } finally { process.env.CURSUS_TODAY = avant; }
+  try { return await f(); } finally { process.env.CURSUS_TODAY = avant; }
 }
 
 test('paliers : 90, 30 et 7 jours puis échu ; réglage contrôlé ; jour d’envoi', () => {
@@ -66,11 +66,11 @@ test('paliers : 90, 30 et 7 jours puis échu ; réglage contrôlé ; jour d’en
   assert.ok(!jourDEnvoi({ relancesJour: 'lundi' }, 5));
 });
 
-test('récapitulatif : RH tout le périmètre, manager son équipe sans santé, référent HSE formations et habilitations', () => {
-  const { db, recaps, passer } = fresh();
-  const n = passer();
+test('récapitulatif : RH tout le périmètre, manager son équipe sans santé, référent HSE formations et habilitations', async () => {
+  const { db, recaps, passer } = await fresh();
+  const n = await passer();
   assert.ok(n.relances > 0 && n.emails >= 4);
-  const r = recaps();
+  const r = await recaps();
   const rh = r[RH_MAIL][0];
   // Service RH : titres, visites, formalités, entretiens, déplacements au dossier incomplet.
   for (const attendu of ['Certification réglementaire CACES R486', 'Visite médicale', 'Formalité sanitaire de voyage', 'Entretien de parcours professionnel', 'Déplacement Inde']) {
@@ -94,51 +94,51 @@ test('récapitulatif : RH tout le périmètre, manager son équipe sans santé, 
   assert.match(hse, /Antoine Leroy \(Administration\) — Certification réglementaire EPI incendie/);
   assert.ok(!/(Logistique|Production|Maintenance|Administration|Commercial)\) — (Entretien|État des lieux|Visite|Déplacement|Passeport|Fin de contrat)/.test(hse));
   // Une seule fois par palier : le passage suivant n'envoie rien.
-  assert.deepEqual(passer(), { emails: 0, relances: 0 });
-  assert.equal(db.all('relances').length, n.relances);
+  assert.deepEqual(await passer(), { emails: 0, relances: 0 });
+  assert.equal((await db.all('relances')).length, n.relances);
 });
 
-test('récapitulatif : boîte du service RH non renseignée, rien n’est noté ; les échéances partent après son réglage', () => {
-  const { db, run, RH, recaps, passer } = fresh();
-  run(RH, 'messagerie.regler', { rh: '' });
+test('récapitulatif : boîte du service RH non renseignée, rien n’est noté ; les échéances partent après son réglage', async () => {
+  const { db, run, RH, recaps, passer } = await fresh();
+  await run(RH, 'messagerie.regler', { rh: '' });
   // Mise en service sans adresse RH : ni e-mail (managers compris), ni relance notée.
-  assert.deepEqual(passer(), { emails: 0, relances: 0 });
-  assert.equal(db.all('relances').length, 0);
-  assert.equal(Object.keys(recaps()).length, 0);
+  assert.deepEqual(await passer(), { emails: 0, relances: 0 });
+  assert.equal((await db.all('relances')).length, 0);
+  assert.equal(Object.keys(await recaps()).length, 0);
   // Boîte réglée quelques jours plus tard : les échéances dépassées lui parviennent, visites médicales comprises.
-  run(RH, 'messagerie.regler', { rh: RH_MAIL });
-  le('2026-10-13', () => assert.ok(passer().relances > 0));
-  assert.match(recaps()[RH_MAIL][0], /Échéances dépassées :\n• /);
-  assert.ok(recaps()[RH_MAIL][0].includes('Visite médicale'));
+  await run(RH, 'messagerie.regler', { rh: RH_MAIL });
+  await le('2026-10-13', async () => assert.ok((await passer()).relances > 0));
+  assert.match((await recaps())[RH_MAIL][0], /Échéances dépassées :\n• /);
+  assert.ok((await recaps())[RH_MAIL][0].includes('Visite médicale'));
 });
 
-test('récapitulatif : un nouveau palier franchi repart, une fois ; fin de contrat ; salarié sorti absent', () => {
-  const { recaps, passer } = fresh();
-  passer();
-  const avant = Object.values(recaps()).flat().length;
+test('récapitulatif : un nouveau palier franchi repart, une fois ; fin de contrat ; salarié sorti absent', async () => {
+  const { recaps, passer } = await fresh();
+  await passer();
+  const avant = Object.values(await recaps()).flat().length;
   // Julien Moreau, ATEX le 2 novembre : relancé sous 30 jours le 10 octobre, puis sous 7 jours le 27.
-  le('2026-10-27', () => {
-    passer();
-    const nouveaux = recaps()[RH_MAIL].slice(1).join('\n');
+  await le('2026-10-27', async () => {
+    await passer();
+    const nouveaux = (await recaps())[RH_MAIL].slice(1).join('\n');
     assert.match(nouveaux, /Sous 7 jours :\n(• .*\n)*• Julien Moreau \(Production\) — Certification réglementaire ATEX : échéance le 2 nov\. 2026/);
-    assert.deepEqual(passer(), { emails: 0, relances: 0 });
+    assert.deepEqual(await passer(), { emails: 0, relances: 0 });
   });
   // CDD de l'employé 4 jusqu'au 29 janvier 2027 : relancé à 90 jours.
-  le('2026-11-01', () => {
-    passer();
-    assert.match(recaps()[RH_MAIL].at(-1)!, /Fin de contrat \(CDD\) : échéance le 29 janv\. 2027/);
+  await le('2026-11-01', async () => {
+    await passer();
+    assert.match((await recaps())[RH_MAIL].at(-1)!, /Fin de contrat \(CDD\) : échéance le 29 janv\. 2027/);
   });
-  assert.ok(Object.values(recaps()).flat().length > avant);
+  assert.ok(Object.values(await recaps()).flat().length > avant);
   // Salarié sorti : plus aucune relance.
-  const db2 = fresh();
-  db2.db.update('employes', 6, { fin: '2026-10-05' });
-  db2.passer();
-  assert.ok(!Object.values(db2.recaps()).flat().some(t => t.includes('Thomas Garnier')));
+  const db2 = await fresh();
+  await db2.db.update('employes', 6, { fin: '2026-10-05' });
+  await db2.passer();
+  assert.ok(!Object.values(await db2.recaps()).flat().some(t => t.includes('Thomas Garnier')));
 });
 
-test('relance déjà prise en charge (session planifiée) ou entretien planifié à venir : non relancés', () => {
-  const { db } = fresh();
-  const d = new Domain(loadFull(db, currentUser(db, { compteId: 1, role: 'rh', methode: 'demo' })!));
+test('relance déjà prise en charge (session planifiée) ou entretien planifié à venir : non relancés', async () => {
+  const { db } = await fresh();
+  const d = new Domain(await loadFull(db, (await currentUser(db, { compteId: 1, role: 'rh', methode: 'demo' }))!));
   const dues = relancesDues(d, d.enrich(90, false), [90, 30, 7]);
   // Entretien annuel de Mehdi planifié le 20 octobre : rien à relancer pour lui côté entretiens.
   assert.ok(!dues.some(r => r.empId === 2 && r.categorie === 'entretien' && r.cle.includes(':annuel:')));
@@ -148,46 +148,46 @@ test('relance déjà prise en charge (session planifiée) ou entretien planifié
   assert.ok(!dues.some(r => planifiees.some(p => r.cle.includes(p))));
 });
 
-test('entretien annuel planifié à une date dépassée, jamais clos : relancé comme échu', () => {
-  const { db, recaps, passer } = fresh();
+test('entretien annuel planifié à une date dépassée, jamais clos : relancé comme échu', async () => {
+  const { db, recaps, passer } = await fresh();
   const x = db.sql.prepare(`SELECT id, emp_id AS empId, date FROM entretiens WHERE type = 'annuel' AND statut = 'planifie' ORDER BY date`).get() as { id: number; empId: number; date: string };
   // Le lendemain de la date prévue, sans clôture ni reprogrammation.
   const lendemain = new Date(Date.parse(x.date) + 86400000).toISOString().slice(0, 10);
-  le(lendemain, () => {
-    const d = new Domain(loadFull(db, currentUser(db, { compteId: 1, role: 'rh', methode: 'demo' })!));
+  await le(lendemain, async () => {
+    const d = new Domain(await loadFull(db, (await currentUser(db, { compteId: 1, role: 'rh', methode: 'demo' }))!));
     const r = relancesDues(d, d.enrich(90, false), [90, 30, 7]).find(y => y.cle === `entretien:${x.empId}:annuel:${x.date}`);
     assert.ok(r, 'relance de l’entretien annuel dépassé');
     assert.equal(r!.palier, 'echu');
     assert.match(r!.libelle, /planifié, date dépassée/);
-    passer();
-    assert.ok(recaps()[RH_MAIL][0].includes(`${d.emp(x.empId)!.nom} (${equipeLabel(d.emp(x.empId)!)}) — ${r!.libelle}`));
+    await passer();
+    assert.ok((await recaps())[RH_MAIL][0].includes(`${d.emp(x.empId)!.nom} (${equipeLabel(d.emp(x.empId)!)}) — ${r!.libelle}`));
   });
 });
 
-test('tâche de fond : à partir de 7 h, une fois par jour, le jour réglé, désactivable', () => {
-  const { db, run, RH, recaps } = fresh();
-  assert.equal(db.tx(() => relancerEcheances(db, 6)), null, 'avant 7 h');
-  run(RH, 'parametres.maj', { relancesActives: false });
-  assert.equal(db.tx(() => relancerEcheances(db, 7)), null, 'désactivé');
-  assert.equal(Object.keys(recaps()).length, 0);
-  run(RH, 'parametres.maj', { relancesActives: true, relancesJour: 'lundi' });
+test('tâche de fond : à partir de 7 h, une fois par jour, le jour réglé, désactivable', async () => {
+  const { db, run, RH, recaps } = await fresh();
+  assert.equal(await db.tx(async () => await relancerEcheances(db, 6)), null, 'avant 7 h');
+  await run(RH, 'parametres.maj', { relancesActives: false });
+  assert.equal(await db.tx(async () => await relancerEcheances(db, 7)), null, 'désactivé');
+  assert.equal(Object.keys(await recaps()).length, 0);
+  await run(RH, 'parametres.maj', { relancesActives: true, relancesJour: 'lundi' });
   // Samedi 10 octobre : déjà passé aujourd'hui ; lundi 12 : envoi.
-  le('2026-10-11', () => assert.equal(db.tx(() => relancerEcheances(db, 8)), null, 'dimanche'));
-  le('2026-10-12', () => {
-    assert.ok(db.tx(() => relancerEcheances(db, 8))!.emails > 0);
-    assert.equal(db.tx(() => relancerEcheances(db, 9)), null, 'une fois par jour');
+  await le('2026-10-11', async () => assert.equal(await db.tx(async () => await relancerEcheances(db, 8)), null, 'dimanche'));
+  await le('2026-10-12', async () => {
+    assert.ok((await db.tx(async () => await relancerEcheances(db, 8)))!.emails > 0);
+    assert.equal(await db.tx(async () => await relancerEcheances(db, 9)), null, 'une fois par jour');
   });
   // Lancée par la tâche des e-mails (tous les quarts d'heure), le lendemain, en mode quotidien.
-  run(RH, 'parametres.maj', { relancesJour: 'quotidien' });
-  le('2026-10-13', () => tachesEmails(db, 7));
-  assert.equal(db.getSetting('relancesEcheancesLe', null), '2026-10-13');
+  await run(RH, 'parametres.maj', { relancesJour: 'quotidien' });
+  await le('2026-10-13', async () => await tachesEmails(db, 7));
+  assert.equal(await db.getSetting('relancesEcheancesLe', null), '2026-10-13');
 });
 
-test('exigences manquantes et échéances du contrat : relancées au service RH ; titre de séjour jamais au manager', () => {
-  const { db, RH } = fresh();
+test('exigences manquantes et échéances du contrat : relancées au service RH ; titre de séjour jamais au manager', async () => {
+  const { db, RH } = await fresh();
   // Le 15 novembre, le titre de séjour de la démonstration (expire le 29 janvier 2027) est sous 90 jours.
-  const dues = le('2026-11-15', () => {
-    const full = loadFull(db, RH), d = new Domain(full);
+  const dues = await le('2026-11-15', async () => {
+    const full = await loadFull(db, RH), d = new Domain(full);
     return relancesDues(d, d.enrich(full.settings.horizonAlerte, full.settings.uniquementReglementaire), [90, 30, 7]);
   });
   // Exigences de la démonstration (Lucas Martin, cariste sans CACES) : relancées comme échues, en formation ou habilitation.

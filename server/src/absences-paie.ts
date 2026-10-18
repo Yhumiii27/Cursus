@@ -23,14 +23,14 @@ import type { LotEnregistre } from './lots-paie.ts';
 export const CLE_DEPUIS = 'absencesPaieDepuis';
 /** Clé de la table settings : plus grand identifiant d'absence enregistré quand la date de départ a été posée. */
 export const CLE_JUSQUA = 'absencesPaieJusqua';
-export const lireDepuis = (db: Db): ISODate | null => db.getSetting<ISODate | null>(CLE_DEPUIS, null);
+export const lireDepuis = async (db: Db): Promise<ISODate | null> => await db.getSetting<ISODate | null>(CLE_DEPUIS, null);
 
 /**
  * Premier jour transmis (shared/rules/absences-paie.ts, `DepartAbsences`) : date de mise en service réglée, et date de
  * départ posée par Cursus pour les absences enregistrées jusque-là (identifiant absent, posé avant cette borne : toutes).
  */
-export const lireDepart = (db: Db, s: Partial<Pick<Settings, 'absencesPaieAPartirDu'>> | undefined): DepartAbsences => ({
-  aPartirDu: s?.absencesPaieAPartirDu ?? null, depuis: lireDepuis(db), jusqua: db.getSetting<number | null>(CLE_JUSQUA, null),
+export const lireDepart = async (db: Db, s: Partial<Pick<Settings, 'absencesPaieAPartirDu'>> | undefined): Promise<DepartAbsences> => ({
+  aPartirDu: s?.absencesPaieAPartirDu ?? null, depuis: await lireDepuis(db), jusqua: await db.getSetting<number | null>(CLE_JUSQUA, null),
 });
 
 /**
@@ -39,13 +39,13 @@ export const lireDepart = (db: Db, s: Partial<Pick<Settings, 'absencesPaieAParti
  * tardive est gardée. Tracé au journal (`migration.absencesPaie` : date, nombre d'absences concernées, jamais leur
  * nature). Renvoie la date retenue et le nombre d'absences validées qui commencent avant elle.
  */
-export function poserDepart(db: Db, depuis: ISODate, auteur: { actor: string; role: string | null }, raison: string) {
-  const date = [lireDepuis(db), depuis].filter((x): x is ISODate => !!x).sort().at(-1)!;
-  const max = Number((db.sql.prepare('SELECT MAX(id) AS m FROM absences').get() as { m: number | null }).m ?? 0);
-  db.setSetting(CLE_DEPUIS, date);
-  db.setSetting(CLE_JUSQUA, max);
-  const n = Number((db.sql.prepare(`SELECT COUNT(*) AS n FROM absences WHERE statut = 'validee' AND du < ?`).get(date) as { n: number }).n);
-  journaliser(db, {
+export async function poserDepart(db: Db, depuis: ISODate, auteur: { actor: string; role: string | null }, raison: string) {
+  const date = [await lireDepuis(db), depuis].filter((x): x is ISODate => !!x).sort().at(-1)!;
+  const max = Number((await db.one('SELECT MAX(id) AS m FROM absences') as { m: number | null }).m ?? 0);
+  await db.setSetting(CLE_DEPUIS, date);
+  await db.setSetting(CLE_JUSQUA, max);
+  const n = Number((await db.one(`SELECT COUNT(*) AS n FROM absences WHERE statut = 'validee' AND du < ?`, [date]) as { n: number }).n);
+  await journaliser(db, {
     ...auteur, action: 'migration.absencesPaie',
     message: `${raison} : absences transmises à la paie à partir du ${fmtIso(date)} — ${plural(n, 'absence validée', 'absences validées')} avant cette date, déjà saisie${n > 1 ? 's' : ''} dans Sage, n’y partent pas ; une absence enregistrée ensuite part entière`,
     payload: { depuis: date, jusqua: max, absences: n },
@@ -60,9 +60,9 @@ export function poserDepart(db: Db, depuis: ISODate, auteur: { actor: string; ro
  * base existante mise à jour, que la migration lot5-paie-absences-anterieures a traitée) n'est pas concernée. Rien si les
  * absences restent à Sage. Renvoie la suite du message du lot.
  */
-export function departAuPremierLot(db: Db, d: Domain, user: CurrentUser): string {
-  if (!absencesDansLeFichier(d.ds.settings) || lireDepuis(db) !== null || db.all('lotsPaie').length) return '';
-  const r = poserDepart(db, `${periodeOuverte(d.ti, d.ds.settings.clotureJour)}-01`, { actor: user.nom, role: user.role }, 'Premier lot de paie');
+export async function departAuPremierLot(db: Db, d: Domain, user: CurrentUser): Promise<string> {
+  if (!absencesDansLeFichier(d.ds.settings) || await lireDepuis(db) !== null || (await db.all('lotsPaie')).length) return '';
+  const r = await poserDepart(db, `${periodeOuverte(d.ti, d.ds.settings.clotureJour)}-01`, { actor: user.nom, role: user.role }, 'Premier lot de paie');
   return ` · absences transmises à partir du ${fmtIso(r.depuis)} : les jours d’avant restent à saisir dans Sage`;
 }
 
@@ -70,16 +70,16 @@ export function departAuPremierLot(db: Db, d: Domain, user: CurrentUser): string
  * Message du service RH quand une absence validée (enregistrée, validée, qualifiée, annulée) a des jours avant son
  * premier jour transmis : ils ne partent pas dans le fichier, la paie les saisit ou les corrige dans Sage. Vide sinon.
  */
-export function joursAvantDepart(db: Db, s: Settings, a: Pick<Absence, 'id' | 'type' | 'du'>): string {
+export async function joursAvantDepart(db: Db, s: Settings, a: Pick<Absence, 'id' | 'type' | 'du'>): Promise<string> {
   if (!absencesDansLeFichier(s) || !rubriqueAbsence(a.type)) return '';
-  const premier = premierJourTransmis(a, lireDepart(db, s));
+  const premier = premierJourTransmis(a, await lireDepart(db, s));
   return premier && a.du < premier ? ` · jours avant le ${fmtIso(premier)} non transmis dans le fichier de paie : à saisir ou corriger dans Sage par la paie` : '';
 }
 
 /** Éléments d'absence des lots non annulés, et absences réservées par un lot généré en attente de confirmation. */
-export function emisEtReservees(db: Db): { emis: ElementEmis[]; reservees: Set<number> } {
+export async function emisEtReservees(db: Db): Promise<{ emis: ElementEmis[]; reservees: Set<number> }> {
   const emis: ElementEmis[] = [], reservees = new Set<number>();
-  for (const lot of db.all<LotEnregistre>('lotsPaie')) {
+  for (const lot of await db.all<LotEnregistre>('lotsPaie')) {
     if (lot.statut === 'annule' || !lot.contenu?.absences?.length) continue;
     emis.push(...lot.contenu.absences);
     if (lot.statut === 'genere') lot.contenu.absences.forEach(x => reservees.add(x.absence));
@@ -88,9 +88,9 @@ export function emisEtReservees(db: Db): { emis: ElementEmis[]; reservees: Set<n
 }
 
 /** Éléments d'absence d'un lot de la période `jusqua` (aucun si le réglage les laisse à Sage). */
-export function absencesAEmettre(db: Db, d: Domain, jusqua: string): ElementCalcule[] {
+export async function absencesAEmettre(db: Db, d: Domain, jusqua: string): Promise<ElementCalcule[]> {
   if (!absencesDansLeFichier(d.ds.settings)) return [];
-  return elementsAbsences(d, { jusqua, ...emisEtReservees(db), depart: lireDepart(db, d.ds.settings) });
+  return elementsAbsences(d, { jusqua, ...await emisEtReservees(db), depart: await lireDepart(db, d.ds.settings) });
 }
 
 /**
@@ -111,9 +111,9 @@ export function traduireElements(elements: readonly ElementCalcule[], stockees: 
  * la date de départ passe au premier jour de la période ouverte, pour les absences déjà enregistrées. Renvoie la suite
  * du message de parametres.maj.
  */
-export function reactivationAbsences(db: Db, avant: Settings, apres: Settings, user: CurrentUser, ti: ISODate): string {
+export async function reactivationAbsences(db: Db, avant: Settings, apres: Settings, user: CurrentUser, ti: ISODate): Promise<string> {
   if (absencesDansLeFichier(avant) || !absencesDansLeFichier(apres)) return '';
-  const r = poserDepart(db, `${periodeOuverte(ti, apres.clotureJour)}-01`, { actor: user.nom, role: user.role }, 'Absences de nouveau dans le fichier de paie');
+  const r = await poserDepart(db, `${periodeOuverte(ti, apres.clotureJour)}-01`, { actor: user.nom, role: user.role }, 'Absences de nouveau dans le fichier de paie');
   return ` · absences transmises à partir du ${fmtIso(r.depuis)} : celles d’avant, saisies dans Sage pendant l’interruption, n’y repartent pas`;
 }
 
@@ -125,13 +125,13 @@ export const absencesDuContenu = (elements: readonly Pick<ElementAbsencePaie, 'a
  * Lot annulé : ses absences ne lui sont plus rattachées ; chacune reprend le dernier lot transmis qui l'a emportée, ou
  * aucun. Ce qu'il portait redevient en attente (écart recalculé au prochain lot).
  */
-export function libererAbsences(db: Db, lot: Pick<LotPaie, 'id'> & { absences?: { id: number }[] }) {
-  const transmis = db.all<LotEnregistre>('lotsPaie').filter(l => l.statut === 'transmis' && l.id !== lot.id).sort((a, b) => b.id - a.id);
+export async function libererAbsences(db: Db, lot: Pick<LotPaie, 'id'> & { absences?: { id: number }[] }) {
+  const transmis = (await db.all<LotEnregistre>('lotsPaie')).filter(l => l.statut === 'transmis' && l.id !== lot.id).sort((a, b) => b.id - a.id);
   for (const { id } of lot.absences ?? []) {
-    const a = db.get<Absence>('absences', id);
+    const a = await db.get<Absence>('absences', id);
     if (!a || a.lotId !== lot.id) continue;
     const dernier = transmis.find(l => l.contenu?.absences?.some(x => x.absence === id));
-    db.update<Absence>('absences', id, { lotId: dernier?.id ?? null });
+    await db.update<Absence>('absences', id, { lotId: dernier?.id ?? null });
   }
 }
 
@@ -140,13 +140,13 @@ export function libererAbsences(db: Db, lot: Pick<LotPaie, 'id'> & { absences?: 
  * ouverte, ou jusqu'à la dernière période des feuilles en attente si elle vient après. Calculées pour les profils qui
  * voient les lots (service RH, paie, lecture seule) ; rien pour les autres.
  */
-export function resumeAbsencesPaie(db: Db, user: CurrentUser, ds: Dataset): AbsencesPaieAttente[] {
+export async function resumeAbsencesPaie(db: Db, user: CurrentUser, ds: Dataset): Promise<AbsencesPaieAttente[]> {
   const droits = droitsRh(user);
   if (!droits.includes('rh') && !droits.includes('paie') && !droits.includes('consultation')) return [];
   if (!absencesDansLeFichier(ds.settings)) return [];
   const d = new Domain(ds);
   const jusqua = [periodeOuverte(d.ti, ds.settings.clotureJour), ...sagePending(d).map(sh => periodeDeLaFeuille(sh.week, ds.settings, d.ti))].sort().at(-1)!;
-  return absencesParPeriode(absencesAEmettre(db, d, jusqua));
+  return absencesParPeriode(await absencesAEmettre(db, d, jusqua));
 }
 
 /** Instantané d'un lecteur sans droit « paie » : ni les rubriques d'absence en attente, ni les codes des absences d'un lot. */
@@ -165,8 +165,8 @@ export const absenceSansPaie = <T extends Absence>(a: T): T => (a.lotId != null 
  * l'écart partira dans le prochain lot (régularisation, nouveaux jours) ; comprise dans un lot à confirmer, celui-ci peut
  * être annulé puis généré de nouveau. Vide pour une absence jamais partie.
  */
-export function suitePaie(db: Db, a: Pick<Absence, 'lotId' | 'sage'>): string {
-  const lot = a.lotId ? db.get<LotPaie>('lotsPaie', a.lotId) : undefined;
+export async function suitePaie(db: Db, a: Pick<Absence, 'lotId' | 'sage'>): Promise<string> {
+  const lot = a.lotId ? await db.get<LotPaie>('lotsPaie', a.lotId) : undefined;
   if (lot?.statut === 'genere') return ` · comprise dans le lot de paie n° ${lot.id}, import à confirmer : annulez-le puis générez-le de nouveau pour en tenir compte, sinon l’écart partira dans le lot suivant`;
   return a.sage ? ' · déjà transmise à la paie : l’écart partira dans le prochain lot de paie (régularisation)' : '';
 }

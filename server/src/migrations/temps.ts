@@ -9,7 +9,7 @@ import type { Migration } from './cadre.ts';
 
 /** Feuilles dont une ligne a moins de 7 valeurs (enregistrées avant la semaine à 7 jours). */
 const A_COMPLETER = `FROM feuilles WHERE EXISTS (SELECT 1 FROM json_each(feuilles.lignes) AS l WHERE json_array_length(l.value, '$.h') < ${JOURS_FEUILLE})`;
-const aCompleter = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS n ${A_COMPLETER}`).get() as { n: number }).n);
+const aCompleter = async (db: Db) => Number((await db.one(`SELECT COUNT(*) AS n ${A_COMPLETER}`) as { n: number }).n);
 
 /**
  * Chaque ligne de feuille de temps reçoit un samedi et un dimanche vides (7 valeurs, du lundi au dimanche). Aucun calcul
@@ -18,11 +18,11 @@ const aCompleter = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS n ${A_
  */
 export const SEMAINE_7_JOURS: Migration = {
   nom: 'lot5-temps-semaine-7-jours',
-  necessaire: db => db.neuve || aCompleter(db) > 0,
-  executer: db => {
-    const n = aCompleter(db);
+  necessaire: async db => db.neuve || await aCompleter(db) > 0,
+  executer: async db => {
+    const n = await aCompleter(db);
     if (!n) return;
-    db.sql.exec(`UPDATE feuilles SET lignes = (
+    await db.exec(`UPDATE feuilles SET lignes = (
       SELECT json_group_array(json_set(l.value, '$.h', (
         SELECT json_group_array(COALESCE(json_extract(l.value, '$.h[' || j.value || ']'), 0))
         FROM json_each('[0,1,2,3,4,5,6]') AS j
@@ -38,18 +38,26 @@ export const SEMAINE_7_JOURS: Migration = {
  * par Keystone, créées par le service RH, archivées) ne sont pas touchées. Aussi appelée par le jeu de démonstration
  * (server/src/seed.ts), qu'une réinitialisation recharge sans rejouer les migrations. Renvoie les codes ajoutés.
  */
-export function amorcerActivites(db: Db): string[] {
-  const existe = db.sql.prepare('SELECT 1 FROM projets WHERE code = ?');
-  const ajouter = db.sql.prepare(`INSERT INTO projets (code, nom, statut) VALUES (?, ?, 'actif')`);
-  return ACTIVITES_DE_BASE.filter(a => !existe.get(a.code)).map(a => { ajouter.run(a.code, a.nom); return a.code; });
+export async function amorcerActivites(db: Db): Promise<string[]> {
+  const ajoutees: string[] = [];
+  for (const a of ACTIVITES_DE_BASE) {
+    if (await db.one('SELECT 1 FROM projets WHERE code = ?', [a.code])) continue;
+    await db.run(`INSERT INTO projets (code, nom, statut) VALUES (?, ?, 'actif')`, [a.code, a.nom]);
+    ajoutees.push(a.code);
+  }
+  return ajoutees;
 }
-const manquantes = (db: Db) => ACTIVITES_DE_BASE.filter(a => !db.sql.prepare('SELECT 1 FROM projets WHERE code = ?').get(a.code)).length;
+const manquantes = async (db: Db) => {
+  let n = 0;
+  for (const a of ACTIVITES_DE_BASE) if (!await db.one('SELECT 1 FROM projets WHERE code = ?', [a.code])) n++;
+  return n;
+};
 
 export const ACTIVITES_INTERNES: Migration = {
   nom: 'lot5-temps-activites-internes',
-  necessaire: db => manquantes(db) > 0,
-  executer: db => {
-    const codes = amorcerActivites(db);
+  necessaire: async db => await manquantes(db) > 0,
+  executer: async db => {
+    const codes = await amorcerActivites(db);
     return codes.length ? `${plural(codes.length, 'activité interne ajoutée', 'activités internes ajoutées')} (${codes.join(', ')})` : undefined;
   },
 };

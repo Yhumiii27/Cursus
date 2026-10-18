@@ -175,7 +175,11 @@ test('envoi : désactivé par défaut, puis contrôle du contenu, de la taille e
   assert.equal((await envoyer({ ...mehdi, 'x-cursus-espace': 'rh' }, PDF, 'application/pdf')).status, 409);
   const html = await envoyer(mehdi, Buffer.from('<html><script>alert(1)</script></html>'), 'application/pdf');
   assert.equal(html.status, 415, 'page HTML renommée en .pdf');
-  assert.equal((await envoyer(mehdi, PNG, 'application/pdf')).status, 415, 'type déclaré différent du contenu');
+  // Type déclaré différent du contenu (photo JPEG nommée .png) : le type reconnu sur le contenu est gardé.
+  const renomme = await envoyer(mehdi, JPEG, 'image/png', 'avis.png');
+  assert.equal(renomme.status, 201, renomme.corps.toString());
+  assert.deepEqual([renomme.json().type, renomme.json().nom, ligne(renomme.json().id).type], ['image/jpeg', 'avis.jpg', 'image/jpeg']);
+  db.remove('pieces', renomme.json().id);
   assert.equal((await envoyer(mehdi, Buffer.alloc(0), 'application/pdf')).status, 400);
   const texte = await envoyer(mehdi, Buffer.from('bonjour'), 'text/plain');
   assert.equal(texte.status, 403, 'texte brut : refus CSRF');
@@ -292,6 +296,64 @@ test('justificatif d’absence : joint au signalement par l’intéressé, vu de
   assert.match((await action(mehdi, 'piece.joindre', { jetons: Array.from({ length: 11 }, (_, i) => `j${i}`), objet: 'absence', objetId: absence.id })).json().error, /^10 pièces au plus/);
   const jointe = await action(mehdi, 'piece.joindre', { jeton: j2, objet: 'absence', objetId: absence.id });
   assert.equal(jointe.json().message, 'Justificatif d’absence — 1 pièce jointe');
+});
+
+test('justificatif joint après la qualification : la réception reste au RH, qui le voit « à vérifier », comme le salarié', async () => {
+  regler('local');
+  const mehdi = await connexion(2, 'collaborateur'), gest = await connexion(14, 'rh'), karim = await connexion(12, 'manager');
+  const sig = await action(mehdi, 'absence.signaler', { empId: 2, du: '2026-11-16', au: '2026-11-17' });
+  assert.equal(sig.status, 200, sig.corps.toString());
+  const absence = db.sql.prepare(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2026-11-16'`).get() as { id: number };
+  // Qualifiée sans justificatif : elle sort des absences à qualifier.
+  assert.equal((await action(gest, 'absence.qualifier', { id: absence.id, nature: 'MALADIE', justificatif: false })).status, 200);
+  const etat = async (s: Session) => {
+    const ds = await donnees(s);
+    return regles.justificatifAVerifier(ds.absences.find((a: { id: number }) => a.id === absence.id), ds.pieces);
+  };
+  assert.equal(await etat(gest), false, 'aucune pièce : justificatif attendu');
+  // Deux jours plus tard, Mehdi envoie son avis d'arrêt par « Justificatif » (piece.joindre).
+  const { jeton } = (await envoyer(mehdi, PDF, 'application/pdf')).json();
+  const r = await action(mehdi, 'piece.joindre', { jetons: [jeton], objet: 'absence', objetId: absence.id });
+  assert.equal(r.status, 200, r.corps.toString());
+  assert.equal(r.json().message, 'Justificatif d’absence — 1 pièce jointe, à vérifier par le service RH');
+  assert.equal(db.get<{ justificatif: boolean }>('absences', absence.id)!.justificatif, false, 'réception décidée par le service RH');
+  assert.equal(await etat(gest), true, 'visible du service RH : « justificatif joint, à vérifier »');
+  assert.equal(await etat(mehdi), true, 'et du salarié');
+  assert.equal(await etat(karim), false, 'jamais du manager (aucune pièce de santé transmise)');
+  // Le service RH l'ouvre et inscrit la réception : plus rien à vérifier.
+  assert.equal((await action(gest, 'absence.qualifier', { id: absence.id, nature: 'MALADIE', justificatif: true, justificatifLe: '2026-10-10' })).status, 200);
+  assert.equal(await etat(gest), false);
+  assert.equal(regles.justificatifAVerifier({ id: 1, statut: 'annulee', justificatif: false }, [{ objet: 'absence', objetId: 1, retireeLe: null }] as never[]), false, 'absence annulée');
+});
+
+test('retrait sur son propre dossier refusé ; 10 pièces en vigueur au plus par objet', async () => {
+  regler('local');
+  const gest = await connexion(14, 'rh'), mehdi = await connexion(2, 'collaborateur');
+  // Antoine Leroy (gestionnaire RH, salarié n° 14) ne retire pas le justificatif de sa propre absence.
+  const sienne = db.insert<{ id: number }>('absences', { empId: 14, type: 'ABSENCE', du: '2026-12-02', au: '2026-12-02', statut: 'signalee', keystone: true, justificatif: false });
+  const p = db.insert<{ id: number }>('pieces', { empId: 14, objet: 'absence', objetId: sienne.id, nom: 'a.pdf', type: 'application/pdf', taille: 1, fichier: 'd'.repeat(32), deposeLe: '2026-10-01T08:00:00.000Z', deposePar: 'x' });
+  const refus = await action(gest, 'piece.retirer', { id: p.id, motif: 'test' });
+  assert.equal(refus.status, 403);
+  assert.match(refus.json().error, /^Vous ne pouvez pas retirer une pièce de votre propre dossier : la décision revient /);
+  assert.equal(ligne(p.id).retireeLe, null);
+  assert.equal(ligne(p.id).fichier, 'd'.repeat(32), 'fichier gardé');
+  db.remove('pieces', p.id);
+  db.remove('absences', sienne.id);
+  // Plafond par objet : le dépôt ne se remplit pas de pièces jointes en boucle à la même absence.
+  const a = db.insert<{ id: number }>('absences', { empId: 2, type: 'ABSENCE', du: '2026-12-03', au: '2026-12-03', statut: 'signalee', keystone: true, justificatif: false });
+  const ids = Array.from({ length: regles.MAX_PIECES_PAR_OBJET - 1 }, (_, i) => db.insert<{ id: number }>('pieces', {
+    empId: 2, objet: 'absence', objetId: a.id, nom: 'a.pdf', type: 'application/pdf', taille: 1, fichier: String(i).padStart(32, 'f'), deposeLe: '2026-10-01T08:00:00.000Z', deposePar: 'x',
+  }).id);
+  const deux = [(await envoyer(mehdi, PDF, 'application/pdf')).json().jeton, (await envoyer(mehdi, PNG, 'image/png')).json().jeton];
+  const trop = await action(mehdi, 'piece.joindre', { jetons: deux, objet: 'absence', objetId: a.id });
+  assert.equal(trop.status, 400);
+  assert.equal(trop.json().error, '10 pièces au plus par objet (9 déjà jointes) : retirez d’abord celles qui ne servent plus');
+  assert.equal((await action(mehdi, 'piece.joindre', { jetons: [deux[0]], objet: 'absence', objetId: a.id })).status, 200, 'la dixième passe');
+  // Une pièce retirée ne compte plus.
+  db.update('pieces', ids[0], { retireeLe: '2026-10-02T08:00:00.000Z', retireePar: 'x', retireeMotif: 'x' });
+  assert.equal((await action(mehdi, 'piece.joindre', { jetons: [deux[1]], objet: 'absence', objetId: a.id })).status, 200);
+  db.sql.prepare('DELETE FROM pieces WHERE objet = ? AND objet_id = ?').run('absence', a.id);
+  db.remove('absences', a.id);
 });
 
 test('certification et titre d’habilitation : RH et référent HSE, le manager de l’équipe les voit, ni la paie ni la lecture seule', async () => {

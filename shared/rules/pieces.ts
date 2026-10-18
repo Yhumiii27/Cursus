@@ -6,7 +6,7 @@
 // - Droits : le service RH voit tout ; le référent HSE / formation, les certifications et les habilitations ; le salarié,
 //   ses propres pièces ; le manager, les certifications et habilitations de son équipe, jamais un justificatif d'absence
 //   (santé) ni un document déclaré (passeport, visa, vaccin) ; la paie et la lecture seule, aucune.
-import type { CurrentUser, ObjetPiece, Piece, StockagePieces, TypePiece } from '../types.ts';
+import type { Absence, CurrentUser, ObjetPiece, Piece, StockagePieces, TypePiece } from '../types.ts';
 import { droitsRh } from '../constants.ts';
 
 /** Taille maximale d'une pièce : 10 Mo (une attestation scannée, une photo de carte CACES). */
@@ -15,6 +15,11 @@ export const TAILLE_MAX_PIECE = 10 * 1024 * 1024;
 export const DELAI_PIECE_EN_ATTENTE_MS = 24 * 3600_000;
 /** Pièces en attente au plus par compte : l'envoi n'ouvre pas un stockage illimité. */
 export const MAX_PIECES_EN_ATTENTE = 20;
+/**
+ * Pièces en vigueur au plus par objet (une absence, une certification…) : une fois jointes, les pièces ne comptent plus
+ * parmi celles en attente, et rien d'autre ne borne le volume que chacun dépose sur le disque des données.
+ */
+export const MAX_PIECES_PAR_OBJET = 10;
 /** Longueur au plus du nom de fichier gardé. */
 export const NOM_PIECE_MAX = 120;
 
@@ -84,6 +89,13 @@ export function nomPiece(nom: unknown, type: TypePiece): string {
 /** Pièces en vigueur (non retirées) jointes à un objet. */
 export const piecesDe = (pieces: readonly Piece[] | undefined, objet: ObjetPiece, objetId: number | null | undefined) =>
   objetId == null ? [] : (pieces ?? []).filter(p => p.objet === objet && p.objetId === objetId && !p.retireeLe);
+
+/**
+ * Justificatif d'absence joint (par l'intéressé, souvent après la qualification) sans que le service RH en ait encore
+ * inscrit la réception : c'est lui qui la décide, après avoir ouvert la pièce (« Justificatif reçu » dans la qualification).
+ */
+export const justificatifAVerifier = (a: Pick<Absence, 'id' | 'statut' | 'justificatif'>, pieces: readonly Piece[] | undefined) =>
+  !a.justificatif && a.statut !== 'annulee' && a.statut !== 'refusee' && piecesDe(pieces, 'absence', a.id).length > 0;
 
 /** Le stockage reçoit-il de nouvelles pièces ? (Désactivé : non ; GED : pas avant que son adaptateur existe.) */
 export const depotOuvert = (s: StockagePieces | undefined) => s === 'local';

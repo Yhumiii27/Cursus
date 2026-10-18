@@ -8,10 +8,10 @@ import type { Domain } from '../../../shared/domain.ts';
 import { cpPeriods, parse } from '../../../shared/dates.ts';
 import { cap, equipeLabel, fH, fJ, fmt, fmtIso, fmtShort, plural } from '../../../shared/format.ts';
 import { absenceActive, droitAnnulation, estConge, joursDecomptes, natureDef, prolongeable, statutAbsence, uniteDecompte } from '../../../shared/rules/absences.ts';
-import { depotOuvert, piecesDe } from '../../../shared/rules/pieces.ts';
+import { depotOuvert, justificatifAVerifier, piecesDe } from '../../../shared/rules/pieces.ts';
 import { DEMI_LABEL, periodeDemiTexte } from '../../../shared/rules/demi-journees.ts';
 import { absenceKinds, cetInfo, cpInfo, recupInfo, reposForfait, rttInfo } from '../../../shared/rules/conges.ts';
-import type { Absence, DemiJournee, Employe, NatureAbsence } from '../../../shared/types.ts';
+import type { Absence, DemiJournee, Employe, NatureAbsence, Piece } from '../../../shared/types.ts';
 import { DownloadSimpleIcon } from '@phosphor-icons/react';
 import { CloturesConges } from '../components/CloturesConges.tsx';
 import { InformationsRetour } from '../components/InformationsRetour.tsx';
@@ -69,11 +69,17 @@ const PAIE_COURT: Record<PaieAbsence, string> = { maintenue: 'payée', indemnise
 const demi = (x: DemiJournee | null | undefined) => x ? ` ${DEMI_LABEL[x]}` : '';
 const dates = (a: Absence) => a.du === a.au ? `${fmt(parse(a.du))}${demi(a.debutDemi)}` : `${fmtShort(parse(a.du))}${demi(a.debutDemi)} → ${fmt(parse(a.au))}${demi(a.finDemi)}`;
 
-/** Précisions d'une absence : rémunération et justificatif (hors congés), signalement, prolongation, annulation. */
-function details(a: Absence): string[] {
+/**
+ * Précisions d'une absence : rémunération et justificatif (hors congés), signalement, prolongation, annulation. Pièce
+ * jointe dont le service RH n'a pas encore inscrit la réception : « à vérifier », pour lui comme pour le salarié.
+ */
+function details(a: Absence, pieces: Piece[] | undefined): string[] {
   const n = natureDef(a.type);
+  const joint = justificatifAVerifier(a, pieces);
   return [
-    n ? `${cap(PAIE_COURT[n.paie])} · ${a.justificatif && a.justificatifLe ? `justificatif reçu le ${fmtIso(a.justificatifLe)}` : n.justificatif ? 'justificatif attendu' : 'sans justificatif'}` : '',
+    n ? `${cap(PAIE_COURT[n.paie])} · ${a.justificatif && a.justificatifLe ? `justificatif reçu le ${fmtIso(a.justificatifLe)}` : joint ? 'justificatif joint, à vérifier par le service RH' : n.justificatif ? 'justificatif attendu' : 'sans justificatif'}` : '',
+    // Absence encore à qualifier : le panneau « Absences à qualifier » le dit déjà au service RH ; ici, au salarié.
+    !n && joint ? 'Justificatif joint, à vérifier par le service RH' : '',
     a.statut === 'signalee'
       ? `Signalée${a.signaleLe ? ` le ${fmtIso(a.signaleLe)}` : ''}${a.signalePar ? ` par ${a.signalePar}` : ''} · ${a.type === 'ABSENCE' ? 'nature à préciser par le service RH' : 'prolongation à qualifier'}`
       : '',
@@ -247,7 +253,7 @@ export function Absences() {
                       <td><Two main={e.nom} sub={equipeLabel(e)} nowrap /></td>
                       <td>
                         <div>{ABS_LABEL[a.type]} · {dates(a)}</div>
-                        {details(a).map(t => <div key={t} className="text-muted sub">{t}</div>)}
+                        {details(a, data.pieces).map(t => <div key={t} className="text-muted sub">{t}</div>)}
                         {m && absenceActive(a) && <div className="note-accent">Chevauche la mission {m.projet} · {m.lieu}</div>}
                       </td>
                       <td className="nowrap"><Num main={fJ(joursDecomptes(d, e, a))} sub={uniteDecompte(a.type)} /></td>
@@ -264,9 +270,10 @@ export function Absences() {
                                 mgr && mgr !== me ? d.personName(mgr) : null) })}>Refuser</button>
                             <button type="button" className="btn btn-secondary btn-sm" disabled={occupe} onClick={agir(() => run('absence.decider', { id: a.id, ok: true }))}>Valider</button>
                           </>}
+                          {/* Justificatif joint dont la réception n'est pas inscrite : « Vérifier » (ouvrir la pièce, la dire reçue). */}
                           {rh && e.id !== soi && prolongeable(a) && (
-                            <button type="button" className={`btn btn-sm ${a.statut === 'signalee' ? 'btn-secondary' : 'btn-ghost'}`} onClick={() => openDialog({ type: 'absNature', id: a.id })}>
-                              {a.statut === 'signalee' ? 'Qualifier' : 'Modifier'}
+                            <button type="button" className={`btn btn-sm ${a.statut === 'signalee' || justificatifAVerifier(a, data.pieces) ? 'btn-secondary' : 'btn-ghost'}`} onClick={() => openDialog({ type: 'absNature', id: a.id })}>
+                              {a.statut === 'signalee' ? 'Qualifier' : justificatifAVerifier(a, data.pieces) ? 'Vérifier' : 'Modifier'}
                             </button>
                           )}
                           {canProlong && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'absProlonger', id: a.id })}>Prolonger</button>}

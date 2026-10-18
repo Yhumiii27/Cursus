@@ -4,15 +4,16 @@
 //                  référent HSE / formation), un document déclaré (l'intéressé tant qu'il attend, ou le service RH), un
 //                  déplacement (service RH)
 //   piece.retirer  id, motif : description gardée, fichier effacé après la validation ; service RH, référent HSE pour
-//                  les certifications et habilitations
+//                  les certifications et habilitations, jamais sur son propre dossier
+// Au plus 10 pièces en vigueur par objet (MAX_PIECES_PAR_OBJET).
 // Les actions qui créent ou décident un objet (absence.saisir, absence.qualifier, absence.signaler, cert.ajouter,
 // hab.delivrer, formalite.enregistrer) joignent leurs pièces par `joindrePieces`, dans leur transaction.
 import { estConge } from '../../../shared/rules/absences.ts';
-import { depotOuvert, estObjetPiece, OBJETS_PIECE } from '../../../shared/rules/pieces.ts';
+import { depotOuvert, estObjetPiece, MAX_PIECES_PAR_OBJET, OBJETS_PIECE } from '../../../shared/rules/pieces.ts';
 import { plural } from '../../../shared/format.ts';
 import type { Absence, Certification, DemandeCollab, HabTitre, ObjetPiece, Voyage } from '../../../shared/types.ts';
 import { nettoyerBientot, type PieceEnregistree } from '../pieces.ts';
-import { ActionError, aDroit, type ActionHandler, type Ctx, isRh, isSelf, requireFormations, requireRh, str } from './context.ts';
+import { ActionError, aDroit, type ActionHandler, type Ctx, estSoiMeme, getEmp, isRh, isSelf, refuserSoiMeme, requireFormations, requireRh, str } from './context.ts';
 
 /** Jetons reçus : une chaîne ou une liste de chaînes (au plus 10 pièces par objet et par envoi). */
 function jetonsDe(v: unknown): string[] {
@@ -29,6 +30,12 @@ export function joindrePieces(ctx: Ctx, jetons: unknown, objet: ObjetPiece, obje
   const liste = jetonsDe(jetons);
   if (!liste.length) return '';
   if (!depotOuvert(ctx.ds.settings.piecesStockage)) throw new ActionError('Pièces justificatives désactivées : l’administrateur RH les active dans Paramètres', 409);
+  // Pièces en vigueur bornées par objet : le dépôt (volume des données, avec la base et les sauvegardes) ne se remplit
+  // pas de pièces jointes en boucle au même objet.
+  const deja = Number((ctx.db.sql.prepare('SELECT COUNT(*) AS n FROM pieces WHERE objet = ? AND objet_id = ? AND retiree_le IS NULL').get(objet, objetId) as { n: number }).n);
+  if (deja + liste.length > MAX_PIECES_PAR_OBJET) {
+    throw new ActionError(`${MAX_PIECES_PAR_OBJET} pièces au plus par objet (${plural(deja, 'déjà jointe', 'déjà jointes')}) : retirez d’abord celles qui ne servent plus`);
+  }
   for (const j of liste) {
     const p = ctx.db.sql.prepare('SELECT id FROM pieces WHERE jeton = ?').get(j) as { id: number } | undefined;
     const piece = p ? ctx.db.get<PieceEnregistree>('pieces', p.id) : undefined;
@@ -93,7 +100,10 @@ const joindre: ActionHandler = (ctx, p) => {
   const empId = objetVise(ctx, objet, id);
   const suite = joindrePieces(ctx, p.jetons ?? p.jeton, objet, id, empId);
   if (!suite) throw new ActionError('Aucune pièce à joindre');
-  return { message: `${OBJETS_PIECE[objet].label}${suite.replace(' · ', ' — ')}`, result: { empId } };
+  // Justificatif envoyé par l'intéressé : la réception reste une décision du service RH, qui voit la pièce « à vérifier »
+  // dans la liste des absences (shared/rules/pieces.ts, `justificatifAVerifier`).
+  const aVerifier = objet === 'absence' && !isRh(ctx) && !ctx.db.get<Absence>('absences', id)?.justificatif;
+  return { message: `${OBJETS_PIECE[objet].label}${suite.replace(' · ', ' — ')}${aVerifier ? ', à vérifier par le service RH' : ''}`, result: { empId } };
 };
 
 /** Longueur au plus du motif d'un retrait (gardé avec la pièce, jamais recopié au journal). */
@@ -106,6 +116,9 @@ const retirer: ActionHandler = (ctx, p) => {
   if (!(isRh(ctx) || (titre && aDroit(ctx, 'formations')))) {
     throw new ActionError(titre ? 'Retrait réservé au service RH et au référent HSE / formation' : 'Retrait réservé au service RH', 403);
   }
+  // Retirer une pièce de son propre dossier (justificatif de son absence, attestation de sa certification) : jamais,
+  // comme la qualification de sa propre absence ou la suppression de sa propre certification.
+  if (piece.empId != null && estSoiMeme(ctx, piece.empId)) refuserSoiMeme(ctx, getEmp(ctx, piece.empId), 'Vous ne pouvez pas retirer une pièce de votre propre dossier');
   if (piece.retireeLe) return 'Pièce déjà retirée';
   const motif = str(p.motif);
   if (!motif) throw new ActionError('Indiquez le motif du retrait');

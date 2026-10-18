@@ -4,10 +4,11 @@
 // (pour mémoire) et date de reprise inscrite sur la fiche après une absence longue (`repriseAInscrire`, comme le serveur).
 import { useState } from 'react';
 import { CATEGORIES_ABSENCE, NATURES_ABSENCE, PAIE_ABSENCE, type CategorieAbsence } from '../../../shared/constants.ts';
-import { isValidDate } from '../../../shared/dates.ts';
+import { isoParis, isValidDate } from '../../../shared/dates.ts';
 import { fJ, fmtIso } from '../../../shared/format.ts';
 import { estNature, periodeTexte, repriseAInscrire, uniteDecompte } from '../../../shared/rules/absences.ts';
 import { checkNature } from '../../../shared/rules/conges.ts';
+import { piecesDe } from '../../../shared/rules/pieces.ts';
 import type { NatureAbsence } from '../../../shared/types.ts';
 import { erreursPeriode } from '../components/controles.ts';
 import { CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
@@ -29,8 +30,12 @@ export function AbsNatureDialog({ empId, id }: { empId?: number | null; id?: num
   const [nature, setNature] = useState<NatureAbsence | ''>(a && estNature(a.type) ? a.type : '');
   const [du, setDu] = useState(a?.du ?? '');
   const [au, setAu] = useState(a?.au ?? '');
-  const [just, setJust] = useState(a?.justificatif ?? false);
-  const [justLe, setJustLe] = useState(a?.justificatifLe ?? d.ti);
+  // Pièces déjà jointes (souvent envoyées par l'intéressé) : « Justificatif reçu » coché d'emblée, reçu le jour du premier
+  // envoi ; le service RH les ouvre avant de valider, et décoche si la pièce ne convient pas.
+  const jointes = a ? piecesDe(d.ds.pieces, 'absence', a.id) : [];
+  const [just, setJust] = useState(a?.justificatif || jointes.length > 0);
+  const premierEnvoi = jointes.map(p => isoParis(new Date(p.deposeLe))).sort()[0];
+  const [justLe, setJustLe] = useState(a?.justificatifLe ?? (premierEnvoi && premierEnvoi < d.ti ? premierEnvoi : d.ti));
   const [busy, setBusy] = useState(false);
   const v = useVerification();
   // Justificatif joint (pièce justificative, components/PieceJointe.tsx) : coche « Justificatif reçu » aujourd'hui.

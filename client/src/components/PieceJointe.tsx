@@ -83,7 +83,7 @@ function LignePiece({ p, retirable }: { p: Piece; retirable: boolean }) {
       titre: 'Retirer la pièce justificative', question: `Retirer « ${p.nom} » du dossier ?`,
       suites: ['Le fichier est effacé ; sa description (date, auteur) reste dans le dossier.', 'Les sauvegardes en gardent la copie jusqu’à leur rotation.'],
       bouton: 'Retirer la pièce', action: 'piece.retirer', payload: { id: p.id },
-      motif: { label: 'Motif du retrait', requis: true, aide: 'Gardé avec la pièce, lu par le service RH seulement.', placeholder: 'Document illisible, mauvais salarié…' },
+      motif: { label: 'Motif du retrait', requis: true, aide: 'Gardé avec la pièce : lu par le service RH, et par le salarié dans l’export de ses données.', placeholder: 'Document illisible, mauvais salarié…' },
       ensuite: dialog ? { retour: dialog } : undefined,
     },
   });

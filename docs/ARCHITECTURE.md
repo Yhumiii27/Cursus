@@ -809,8 +809,8 @@ aucun champ du paramètre n'est recopié.
 | `messagerie.recapituler` | — : récapitulatifs des notifications en attente envoyés sans attendre 7 h | RH |
 | `notification.regler` | empId? (soi par défaut), mode (`immediat`/`quotidien`) | la personne elle-même, ou RH |
 | `confidentialite.regler` | responsable?, dpo? (texte, 300 caractères au plus ; vide : effacé, la page renvoie au service RH) ; journal : nom des champs dont la valeur change, jamais leur texte | administrateur RH |
-| `piece.joindre` | jetons (ou jeton) : pièces envoyées par `POST /api/pieces` par le même compte, encore en attente ; objet (`absence`/`certification`/`habTitre`/`declaration`/`voyage`), objetId ; fonction désactivée : 409. Les mêmes jetons se passent en `pieces` à `absence.saisir`, `absence.qualifier`, `absence.signaler` (intéressé ou RH), `cert.ajouter`, `hab.delivrer` et `formalite.enregistrer` (déclaration du collaborateur ; celle qu'elle remplace lui laisse ses pièces) | absence (hors congés, ni annulée ni refusée) : intéressé, RH ; certification, titre d'habilitation : RH, référent HSE ; document déclaré : intéressé tant qu'il attend, RH ; déplacement : RH ; jamais le manager |
-| `piece.retirer` | id, motif (obligatoire, 500 caractères ; gardé avec la pièce, masqué au journal) : description gardée, fichier effacé après la validation de l'action ; le refus d'un document déclaré retire aussi ses pièces | RH ; référent HSE pour une certification ou un titre d'habilitation |
+| `piece.joindre` | jetons (ou jeton) : pièces envoyées par `POST /api/pieces` par le même compte, encore en attente ; objet (`absence`/`certification`/`habTitre`/`declaration`/`voyage`), objetId ; 10 pièces en vigueur au plus par objet ; fonction désactivée : 409. Les mêmes jetons se passent en `pieces` à `absence.saisir`, `absence.qualifier`, `absence.signaler` (intéressé ou RH), `cert.ajouter`, `hab.delivrer` et `formalite.enregistrer` (déclaration du collaborateur ; celle qu'elle remplace lui laisse ses pièces) | absence (hors congés, ni annulée ni refusée) : intéressé, RH ; certification, titre d'habilitation : RH, référent HSE ; document déclaré : intéressé tant qu'il attend, RH ; déplacement : RH ; jamais le manager |
+| `piece.retirer` | id, motif (obligatoire, 500 caractères ; gardé avec la pièce, lu par le service RH et par le salarié dans l'export de ses données, masqué au journal) : description gardée, fichier effacé après la validation de l'action ; le refus d'un document déclaré retire aussi ses pièces | RH ; référent HSE pour une certification ou un titre d'habilitation ; jamais sur son propre dossier |
 | `reprise.importer` | type (`salaries`/`soldes`/`certifications`/`visites`/`habilitations`), texte (CSV), colonnes (champ de chaque colonne), dateReprise (soldes), equipes (rapprochement), confirmations (lignes cochées : réembauche sur un matricule, visite sans avis), comptes (comptes Microsoft 365, y compris pour une fiche déjà à jour), fichier ; analyse de `shared/rules/reprise.ts`, seules les lignes retenues par l'aperçu sont écrites ; ses propres soldes refusés (fiche rattachée au compte) ; lot conservé (table `reprises`) ; journal `reprise.<type>` | administrateur RH |
 
 ## Journal des actions
@@ -1466,8 +1466,9 @@ après avis du DPO. Le choix « GED » (espace documentaire développé avec Cod
 (`server/src/integrations/ged.ts`, même contrat `DepotPieces` que le dossier local) n'est pas écrit ; désactiver la
 fonction n'efface rien et laisse les pièces jointes consultables.
 
-- **Fichiers** (`shared/rules/pieces.ts`) : PDF, JPEG ou PNG reconnus sur leurs premiers octets et identiques au type
-  déclaré, 10 Mo au plus (`express.raw`, 413 au-delà), nom d'origine nettoyé (sans chemin ni guillemet, extension du type
+- **Fichiers** (`shared/rules/pieces.ts`) : PDF, JPEG ou PNG reconnus sur leurs premiers octets ; seul le type reconnu
+  est gardé et servi (une photo JPEG nommée .png est acceptée comme JPEG ; le type déclaré ne sert qu'à recevoir le
+  corps brut), 10 Mo au plus (`express.raw`, 413 au-delà), nom d'origine nettoyé (sans chemin ni guillemet, extension du type
   reconnu). Stockage local (`DepotLocal` de `server/src/pieces.ts`) : `dossierPieces` de `chemins.ts`, `pieces/` à côté
   de la base ou `CURSUS_PIECES_DIR` (dossier en 700, fichiers en 600 dès leur création), nom aléatoire de 32 caractères
   hexadécimaux, écrit sous un nom provisoire puis renommé, empreinte SHA-256 en base. Table `pieces` : salarié, objet et
@@ -1488,12 +1489,16 @@ fonction n'efface rien et laisse les pièces jointes consultables.
   `piecesVisibles`) ne transmet que la description, jamais le nom stocké ni le jeton ; l'empreinte et les pièces retirées
   au service RH seulement.
 - **Écrans** : champ « fichier » (`ChoixPiece`) dans la saisie et la qualification d'une absence (« Justificatif reçu »
-  coché au choix d'un fichier), le signalement par l'intéressé, l'ajout d'une certification, la délivrance d'une
+  coché au choix d'un fichier, et dès l'ouverture quand une pièce est déjà jointe), le signalement par l'intéressé, l'ajout d'une certification, la délivrance d'une
   habilitation et la déclaration d'un document ; pièces déjà jointes listées (`PiecesJointes` : ouvrir, télécharger,
   aperçu d'une image, retirer avec motif) dans ces dialogues ; « Justificatif » sur ses absences en cours
   (`dialogs/PieceDialog.tsx`, `piece.joindre`) ; liens sur les déclarations à valider du tableau de bord ; section
   « Pièces justificatives » de la fiche (`components/PiecesFiche.tsx` : attestations et titres, « Joindre » pour une
-  certification reprise de Lucca). Rien ne s'affiche tant que la fonction est désactivée.
+  certification reprise de Lucca). Justificatif joint à une absence dont la réception n'est pas inscrite
+  (`justificatifAVerifier`, souvent envoyé par l'intéressé après la qualification) : « justificatif joint, à vérifier par
+  le service RH » dans la liste des absences, pour le service RH comme pour le salarié, et « Vérifier » pour le service RH ;
+  la réception reste une décision du service RH, après avoir ouvert la pièce. Rien ne s'affiche tant que la fonction est
+  désactivée.
 - **Journal** : `piece.deposer` (type, taille), `piece.consulter` (une ligne par compte et par pièce pendant
   15 minutes), `piece.joindre`, `piece.retirer` (motif masqué) et le nombre de pièces jointes par une autre action
   (`pieces`) ; jamais le nom du fichier ni un jeton. Famille « Pièces justificatives » ; message et détail masqués à la

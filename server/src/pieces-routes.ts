@@ -60,9 +60,11 @@ export function routesPieces(db: Db): Router {
     if (!depotOuvert(stockagePieces(db))) return res.status(409).json({ error: PIECES_DESACTIVEES });
     const octets = Buffer.isBuffer(req.body) ? req.body : null;
     if (!octets) return res.status(415).json({ error: 'Format refusé : PDF, JPEG ou PNG seulement.' });
-    // Type reconnu sur le contenu, et identique au type déclaré : une page HTML renommée en .pdf est refusée.
+    // Type reconnu sur le contenu, seul gardé (c'est lui qui est servi ensuite) : une page HTML renommée en .pdf est
+    // refusée ; une photo JPEG nommée .png (export d'un téléphone, d'une messagerie) est acceptée comme JPEG. Le type
+    // déclaré par le navigateur ne sert qu'à recevoir le corps brut (PDF, JPEG ou PNG).
     const type = typeDuContenu(octets);
-    const erreur = erreurPiece({ type: type && type === req.get('content-type')?.split(';')[0].trim().toLowerCase() ? type : null, taille: octets.length });
+    const erreur = erreurPiece({ type, taille: octets.length });
     if (erreur || !type) return res.status(octets.length ? 415 : 400).json({ error: erreur ?? 'Format refusé' });
     const enAttente = Number((db.sql.prepare('SELECT COUNT(*) AS n FROM pieces WHERE objet IS NULL AND depose_compte_id = ?').get(id.compte.id) as { n: number }).n);
     if (enAttente >= MAX_PIECES_EN_ATTENTE) return res.status(429).json({ error: `${MAX_PIECES_EN_ATTENTE} pièces envoyées attendent déjà d’être jointes : enregistrez ou abandonnez d’abord vos saisies.` });

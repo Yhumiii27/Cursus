@@ -94,6 +94,7 @@ server/src/
 client/src/
   state/store.tsx  Session, données, navigation, filtres d'écran (ui), dialogue ouvert, notifications, reconnexion
   state/brouillon.ts Brouillon gardé dans l'onglet pendant une reconnexion Microsoft (page, filtres, dialogue, champs)
+  state/url.ts     Sélection et filtres de chaque vue dans l'adresse de la page (paramètres en français, valeurs contrôlées)
   state/actions.ts Actions identiques jamais envoyées deux fois à la fois, garde des boutons (useAgir : double clic)
   state/revision.ts Instantané plus ancien que celui affiché ignoré (révision de la base : réponses dans le désordre)
   state/enregistrement.ts Enregistrement au fil de la saisie (sections du compte rendu d'entretien), arrêté par l'abandon
@@ -524,6 +525,22 @@ un dossier hors du dépôt (`CURSUS_CAS_PAIE`, chemin absolu). Format et règles
   des variables Nocturne (`var(--color-*)`, `var(--space-*)`…), jamais de valeurs en dur.
 - Les filtres et sélections persistants entre écrans vivent dans `ui` (`useStore().ui`,
   `setUi`) ; l'état local d'un formulaire vit dans le composant.
+- Adresse de la page (t154, `state/url.ts`) : chaque vue déclare dans `PARAMS_URL` les champs de `ui` qu'elle y met, sous
+  un nom français (`/collaborateurs?fiche=12&statut=a-renouveler`, `/temps?salarie=12&semaine=2027-01-04`,
+  `/formations?formation=sst`, `/habilitations?filtre=en-attente`, `/voyages?voyage=4`, `/echeances?type=contrats`,
+  `/referentiels?onglet=postes`, `/budget?exercice=2027&statut=engage`, `/chantiers?chantier=…`). Jamais de texte libre
+  (la recherche reste en mémoire) ni d'autre donnée personnelle qu'un identifiant numérique. L'adresse est lue au
+  chargement (F5, lien partagé), à la connexion et sur Précédent ; une valeur invalide, ou un identifiant absent du jeu de
+  données du rôle, est ignorée sans message. Aucun dialogue ne s'ouvre depuis l'adresse. L'ouverture d'une fiche ajoute une
+  entrée à l'historique (Précédent la referme) ; un filtre remplace l'entrée courante. La reconnexion et la connexion
+  Microsoft reviennent à la page avec ses paramètres (200 caractères au plus, `pageDeRetour`). « Copier le lien »
+  (`components/CopierLien.tsx`) sur la fiche et la feuille de temps. Un nouveau filtre partageable s'ajoute à `PARAMS_URL`.
+- Dialogue ouvert depuis un autre : `<Dialog fermer={…}>` y revient au lieu de se fermer (Annuler, Échap, fond). « Créer
+  une session » depuis « Planifier » (t107) passe le dialogue d'origine (`retour`) ; la session créée y est présélectionnée
+  (`dialogs/retour-session.ts`).
+- Grille lisible sans la couleur (t148, `pages/PlanningMissions.tsx`) : vrai tableau (`caption`, en-têtes `scope`), date
+  complète en texte masqué, lettre dans chaque case, résumé par ligne ; cases en boutons à focus itinérant (flèches,
+  Début, Fin), détail du jour dans une zone `aria-live` au focus ou au toucher.
 - Ouvrir un dialogue : `openDialog({ type: 'plan', … })` (types dans `state/store.tsx`).
   Un dialogue garde ses champs en `useState`, appelle `run(...)` et se ferme si `r.ok`.
   Dialogue de saisie : `onSubmit` sur `<Dialog>`, `<SubmitButton busy={busy}>`, `Field` avec `requis` et

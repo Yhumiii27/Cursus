@@ -2,6 +2,8 @@
 // Date postérieure à aujourd'hui (une session passée, à clôturer, se redate au jour où elle a eu lieu), nombre
 // entier de places (au moins le nombre d'inscrits) : contrôlés aussi par le serveur. Une session peut durer plusieurs
 // jours (t118) : dernier jour, jours de la session (ouvrés par défaut) et horaires facultatifs, communs ou par jour.
+// Créée depuis « Planifier » (`retour`, t107) : la formation est celle à planifier, et la création comme l'annulation
+// ramènent au dialogue de planification, la nouvelle session présélectionnée (retour-session.ts).
 import { useState } from 'react';
 import { PLAN_LABEL } from '../../../shared/constants.ts';
 import { addD, isValidDate, weekday } from '../../../shared/dates.ts';
@@ -15,7 +17,8 @@ import { CancelButton, Dialog, Field, Static, SubmitButton, useVerification } fr
 import { ReferentielVide } from '../components/ReferentielVide.tsx';
 import { Fine } from '../components/ui.tsx';
 import { useEnriched } from '../state/derived.ts';
-import { useStore } from '../state/store.tsx';
+import { useStore, type DialogePlan } from '../state/store.tsx';
+import { apresCreation } from './retour-session.ts';
 
 /** Horaires saisis : aucun (journées entières), les mêmes chaque jour, ou un par jour. */
 type ModeHoraires = 'aucun' | 'commun' | 'jour';
@@ -49,13 +52,13 @@ function ChampsHoraire({ id, h, onChange, legende }: { id: string; h: HoraireSai
   );
 }
 
-export function SessionDialog({ f: f0, planId, places: places0, sessionId }: { f?: string; planId?: number; places?: number; sessionId?: number }) {
+export function SessionDialog({ f: f0, planId, places: places0, sessionId, retour }: { f?: string; planId?: number; places?: number; sessionId?: number; retour?: DialogePlan }) {
   const { d, emps, forms } = useEnriched();
   const { run, closeDialog, go, openDialog } = useStore();
   const s = sessionId != null ? d.session(sessionId) : null;
   const plan = planId != null ? d.ds.plan.find(l => l.id === planId) : undefined;
-  // En modification, la formation est celle de la session ; depuis le plan, celle de l'action.
-  const fixe = s?.formation ?? plan?.f ?? null;
+  // En modification, la formation est celle de la session ; depuis le plan, celle de l'action ; depuis « Planifier », celle à planifier.
+  const fixe = s?.formation ?? plan?.f ?? (retour && f0 ? f0 : null);
   const [f, setF] = useState(fixe ?? (f0 && forms.some(x => x.id === f0) ? f0 : forms[0]?.id ?? ''));
   const [date, setDate] = useState(s?.date ?? '');
   const [fin, setFin] = useState(s && finSession(s) !== s.date ? finSession(s) : '');
@@ -116,6 +119,7 @@ export function SessionDialog({ f: f0, planId, places: places0, sessionId }: { f
     setBusy(false);
     if (!r.ok) return;
     if (s) openDialog({ type: 'sessionDetail', sessionId: s.id });
+    else if (retour) openDialog(apresCreation(retour, r.result));
     else {
       closeDialog();
       if (planId) go('budget');
@@ -124,8 +128,8 @@ export function SessionDialog({ f: f0, planId, places: places0, sessionId }: { f
   };
 
   return (
-    <Dialog title={s ? 'Modifier la session' : 'Nouvelle session'} width={600} onSubmit={confirm} actions={<>
-      <CancelButton />
+    <Dialog title={s ? 'Modifier la session' : 'Nouvelle session'} width={600} onSubmit={confirm} fermer={retour ? () => openDialog(retour) : undefined} actions={<>
+      <CancelButton label={retour ? 'Revenir à la planification' : undefined} />
       <SubmitButton busy={busy}>{s ? 'Enregistrer' : 'Créer la session'}</SubmitButton>
     </>}>
       {fixe

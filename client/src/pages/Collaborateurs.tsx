@@ -29,6 +29,7 @@ import { desinscription, retraitEquipe } from '../state/confirmations.ts';
 import { useStore } from '../state/store.tsx';
 import { HistoriqueFiche } from './Journal.tsx';
 import { EchRow } from './Dashboard.tsx';
+import { CopierLien } from '../components/CopierLien.tsx';
 
 /** Valeur du filtre d'équipe pour les collaborateurs sans équipe (« À affecter »). */
 const SANS_EQUIPE = '';
@@ -310,6 +311,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
         <span className="text-muted sub">
           {plural(e.certs.length, 'certification', 'certifications')} · {parti ? `sorti le ${fmtIso(e.fin!)} : plus d’échéance suivie` : e.next ? 'prochaine échéance le ' + fmt(e.next.exp) : 'aucune échéance'}
         </span>
+        <CopierLien />
       </div>
       {!parti && <ExigencesMotif e={e} />}
       {/* Manager : verdict et restrictions en vigueur seulement ; demandes de visite et avis : service RH. */}

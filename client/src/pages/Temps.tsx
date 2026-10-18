@@ -52,6 +52,7 @@ import { ChampHeures, SaisieJour, useVueJour } from './SaisieJour.tsx';
 import { CompteurDelegation } from '../components/Delegation.tsx';
 import { ReposAVerifier } from '../components/ReposAVerifier.tsx';
 import { AlertesDurees } from '../components/AlertesDurees.tsx';
+import { CopierLien } from '../components/CopierLien.tsx';
 
 /** Année d'une feuille : celle de sa semaine ISO (son jeudi) ; le cumul annuel ventile une semaine à cheval jour par jour. */
 const anneeDe = (week: ISODate) => isoWeekYear(week);
@@ -202,6 +203,8 @@ export function Temps() {
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => setUi({ weekStart: mondayOf(data.today) })}>Cette semaine</button>
           <button type="button" className="btn btn-ghost btn-icon plain" aria-label="Semaine suivante" title="Semaine suivante" onClick={() => setUi({ weekStart: addD(wk, 7) })}><CaretRightIcon size={14} /></button>
         </div>
+        {/* Lien de la feuille affichée : salarié (sauf l'espace collaborateur, toujours sa propre feuille) et semaine. */}
+        <CopierLien chemin={`/temps?${collab || tsId == null ? '' : `salarie=${tsId}&`}semaine=${wk}`} />
       </>}
     >
       {!collab && queue.length > 0 && (

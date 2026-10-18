@@ -125,6 +125,9 @@ Les feuilles validées partent à la paie avec le lot du mois : le manager n'a r
 ### Planning et équipe
 
 - « Missions » : qui est en mission aujourd'hui, et le « Planning des 4 prochaines semaines » (missions, absences, fériés).
+  Chaque case porte une lettre (M mission, A absence validée ou signalée, D absence demandée, F férié) ; la toucher ou la
+  sélectionner au clavier (flèches) affiche le détail du jour sous le planning ; le total de chaque personne est en bout
+  de ligne.
 - « Équipe » : conformité de chacun (formations, habilitations, aptitude réduite au verdict et aux restrictions en
   vigueur, sans date de visite). « Ajouter un membre » reprend un salarié « à affecter » ; une mutation directe passe par
   le service RH.
@@ -144,6 +147,9 @@ entretiens : un collègue ou son manager le fait.
   (avec sa date d'effet), poste, équipe, matricule de paie, adresse e-mail. Si deux personnes modifient la même fiche en
   même temps, la seconde est refusée en nommant les champs changés, sans perdre sa saisie.
 - « Équipes & managers » : créer, renommer ou supprimer une équipe, désigner son manager, affecter les salariés.
+- Liens : l'adresse de la page garde la fiche ouverte, la feuille de temps (salarié et semaine) et les filtres ; F5 ne
+  les perd plus et Précédent referme la fiche. « Copier le lien » (fiche, feuille de temps) donne un lien à partager : la
+  personne qui l'ouvre ne voit que ce que son rôle lui ouvre.
 - Comptes : Paramètres → Comptes et accès (administrateur RH), « Créer un compte », profil, « Mot de passe » pour un
   nouveau mot de passe provisoire.
 - Départ : « Enregistrer une sortie » sur la fiche (dernier jour, motif en liste fermée). Le solde de congés, RTT,
@@ -154,6 +160,8 @@ entretiens : un collègue ou son manager le fait.
 
 - « Nouvelle session » (service RH et référent HSE) : formation, premier et dernier jour, lieu, places ; inscriptions,
   convocations, puis « Clôturer » : présences, résultats, certifications datées du dernier jour, absents à replanifier.
+  Depuis « Planifier », sans session ouverte, « Créer une session » ramène ensuite à l'inscription, la nouvelle session
+  déjà cochée.
 - « Plan & budget » : enveloppes par équipe, « Importer un plan », coût réel saisi à la clôture d'une action.
 - « Référentiels » : formations, habilitations, destinations, postes et leurs exigences ; un élément inutile s'archive.
 - Fiche du collaborateur : « Avis du médecin du travail », « Demander une visite » ; les visites dues (embauche, reprise,

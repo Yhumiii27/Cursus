@@ -9,6 +9,8 @@
 // Les données sont relues au retour sur l'onglet, toutes les 2 minutes et après une action refusée : un
 // manager qui garde l'écran ouvert voit arriver les demandes de son équipe. Une lecture partie avant une
 // action n'écrase jamais les données renvoyées par celle-ci.
+// Sélection et filtres de l'écran sont aussi dans l'adresse de la page (state/url.ts) : lus au chargement, à la
+// connexion et sur Précédent ; écrits à chaque changement (nouvelle entrée de l'historique pour l'ouverture d'une fiche).
 import { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState, type ReactNode } from 'react';
 import { VUES_COMMUNES, vuesDe, type ALLOWED_VIEWS, type HabMesureAction } from '../../../shared/constants.ts';
 import { mondayOf } from '../../../shared/dates.ts';
@@ -21,6 +23,7 @@ import type { Confirmation } from './confirmations.ts';
 import { demandeHabilitation } from './confirmations-referentiels.ts';
 import { effacerBrouillon, lireBrouillon, sauverBrouillon, type Champs } from './brouillon.ts';
 import { instantanePerime } from './revision.ts';
+import { adresse, ecrireUrl, lireUrl, ouvreUneFiche, pageDeRetourClient } from './url.ts';
 
 export type View = (typeof ALLOWED_VIEWS)[Role][number] | (typeof VUES_COMMUNES)[number];
 
@@ -57,10 +60,15 @@ const INITIAL_UI: UiState = {
 
 /** Dialogues ouverts depuis plusieurs écrans — rendus par <DialogHost />. */
 export type DialogState =
-  | { type: 'plan'; empId: number; certId?: number; inscriptionId?: number }
+  /** `sessionId` : session présélectionnée (retour de « Créer une session », t107). */
+  | { type: 'plan'; empId: number; certId?: number; inscriptionId?: number; sessionId?: number }
   /** `certId` : correction d'une certification saisie par erreur (`cert.modifier`). */
   | { type: 'cert'; empId: number; certId?: number }
-  | { type: 'session'; f?: string; planId?: number; places?: number; sessionId?: number }
+  /**
+   * `retour` : dialogue « Planifier » d'où la session est créée ; il se rouvre ensuite, la nouvelle session
+   * présélectionnée (t107). Un objet simple : il se conserve dans le brouillon de la reconnexion (brouillon.ts).
+   */
+  | { type: 'session'; f?: string; planId?: number; places?: number; sessionId?: number; retour?: DialogePlan }
   | { type: 'sessionDetail'; sessionId: number }
   | { type: 'cloture'; sessionId: number }
   | { type: 'hab'; empId?: number | null; h?: string | null; mode: 'new' | 'deliver' | 'renew' }
@@ -120,6 +128,9 @@ export type DialogState =
   | { type: 'rouvrirFeuille'; empId: number; week: ISODate }
   /** Refus ou action irréversible à confirmer (state/confirmations.ts). */
   | { type: 'confirmer'; c: Confirmation };
+
+/** Dialogue « Planifier » : rouvert après la création d'une session (t107). */
+export type DialogePlan = { type: 'plan'; empId: number; certId?: number; inscriptionId?: number };
 
 /** Notification : un succès s'efface seul, une erreur reste jusqu'à sa fermeture ou au message suivant. */
 export interface Toast { id: number; text: string; error?: boolean }
@@ -377,6 +388,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const charger = useCallback(async () => {
     setLoading(true);
     setErreurChargement(null);
+    // Adresse d'arrivée, relevée avant que la synchronisation de l'URL ne la réécrive.
+    const depart = { vue: pathView(), search: location.search };
     try {
       let s = await api.session();
       const b = s.user && s.compte ? lireBrouillon() : null;
@@ -396,6 +409,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         }
       }
       await applySession(s);
+      // Lien partagé ou F5 : sélection et filtres repris de l'adresse, contrôlés sur les données reçues (state/url.ts).
+      const d = dataRef.current;
+      if (d) setUiState(u => ({ ...u, ...lireUrl(depart.vue, depart.search, d) }));
     } catch (err) {
       setErreurChargement((err as Error).message);
     } finally {
@@ -409,7 +425,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!lance.current) { lance.current = true; charger(); }
   }, [charger]);
   useEffect(() => {
-    const onPop = () => setRawView(pathView());
+    // Précédent, Suivant : la vue et, pour elle, la sélection et les filtres de l'adresse.
+    const onPop = () => {
+      const v = pathView(), d = dataRef.current;
+      setRawView(v);
+      if (d) setUiState(u => ({ ...u, ...lireUrl(v, location.search, d) }));
+    };
     addEventListener('popstate', onPop);
     return () => removeEventListener('popstate', onPop);
   }, []);
@@ -417,10 +438,18 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const role: Role = session?.role ?? 'rh';
   const view = allowedView(role, rawView, role === 'rh' ? data?.settings.vueInitiale : undefined, (data ?? session)?.user?.profilRh);
 
-  // Synchronise l'URL avec la vue effectivement affichée.
+  // Synchronise l'URL avec la vue effectivement affichée, sa sélection et ses filtres (state/url.ts) : l'ouverture d'une
+  // fiche dans la même vue ajoute une entrée à l'historique, tout autre changement remplace l'entrée courante (go a déjà
+  // ajouté celle d'un changement de vue).
+  const ecrit = useRef<{ view: View; ui: UiState } | null>(null);
   useEffect(() => {
-    if (session?.user && pathView() !== view) history.replaceState(null, '', `/${view}`);
-  }, [view, session?.user]);
+    if (!session?.user) { ecrit.current = null; return; }
+    const cible = adresse(view, ui), avant = ecrit.current;
+    ecrit.current = { view, ui };
+    if (location.pathname + location.search === cible) return;
+    if (avant && avant.view === view && ouvreUneFiche(view, avant.ui, ui)) history.pushState(null, '', cible);
+    else history.replaceState(null, '', cible);
+  }, [view, ui, session?.user]);
 
   const setUi = useCallback((patch: Partial<UiState>) => setUiState(u => ({ ...u, ...patch })), []);
 
@@ -505,6 +534,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       reinitialiser();
       setSession(s);
       setData(d);
+      // Lien ouvert avant la connexion : la page, la sélection et les filtres de l'adresse (pas une page commune).
+      const v = pathView();
+      if (d && !(VUES_COMMUNES as readonly string[]).includes(v)) {
+        setRawView(v);
+        setUiState(u => ({ ...u, ...lireUrl(v, location.search, d) }));
+      }
       return null;
     } catch (err) {
       return (err as Error).message;
@@ -527,6 +562,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       const s = await api.logout();
       effacerBrouillon();
       if (s.deconnexion) { location.assign(s.deconnexion); return; }
+      // La personne suivante ne reprend pas la page ni la fiche de celle qui part.
+      history.replaceState(null, '', '/');
       reinitialiser();
       await applySession(s);
     } catch (err) {
@@ -593,7 +630,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!rc) return lienMicrosoft();
     // La redirection quitte la page : le brouillon (page, filtres, dialogue et ses champs) reste dans l'onglet.
     sauverBrouillon({ compteId: rc.compte.id, role: rc.role, view, ui, dialog });
-    return lienMicrosoft({ retour: `/${view}`, identifiant: rc.compte.identifiant });
+    return lienMicrosoft({ retour: pageDeRetourClient(`/${view}`, ecrireUrl(view, ui)), identifiant: rc.compte.identifiant });
   }, [view, ui, dialog]);
 
   const abandonnerReconnexion = useCallback(async () => {

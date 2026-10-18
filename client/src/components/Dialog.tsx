@@ -4,7 +4,8 @@
 // fond (une sélection de texte relâchée hors de la carte ne ferme rien), et après confirmation si la saisie
 // a changé. Un dialogue qui enregistre au fil de la saisie (`enregistrer`) le fait avant de se fermer, et
 // « Fermer sans enregistrer » après un échec l'arrête (`abandonner`) ; un dialogue qui montre une information une
-// seule fois (`fermerParBouton`) ne se ferme que par son bouton.
+// seule fois (`fermerParBouton`) ne se ferme que par son bouton. Un dialogue ouvert depuis un autre (`fermer`) y revient
+// au lieu de se fermer (création d'une session depuis « Planifier », t107).
 // Focus (components/focus.ts) : focus initial dans le dialogue, Tab bouclé sur ses éléments, focus rendu au
 // bouton d'origine à la fermeture ; le titre nomme le dialogue (aria-labelledby).
 // Formulaire : le dialogue est un <form> ; Entrée dans un champ active le bouton `type="submit"` (SubmitButton).
@@ -32,7 +33,7 @@ export interface ConfirmationEnLigne {
   annuler: () => void;
 }
 
-export function Dialog({ title, width, tall, children, actions, enregistrer, abandonner, fermerParBouton, onSubmit, confirmation, decrit }: {
+export function Dialog({ title, width, tall, children, actions, enregistrer, abandonner, fermerParBouton, onSubmit, confirmation, decrit, fermer }: {
   title: ReactNode; width?: number; tall?: boolean; children: ReactNode; actions: ReactNode;
   /** Enregistrement au fil de la saisie : appelé avant la fermeture ; faux (échec) : confirmation demandée. */
   enregistrer?: () => Promise<boolean>;
@@ -46,8 +47,11 @@ export function Dialog({ title, width, tall, children, actions, enregistrer, aba
   confirmation?: ConfirmationEnLigne | null;
   /** Identifiant du texte qui décrit le dialogue (aria-describedby) : question d'une confirmation. */
   decrit?: string;
+  /** Fermeture sans enregistrer (fond, Échap, « Annuler ») : retour au dialogue d'origine plutôt que fermeture. */
+  fermer?: () => void;
 }) {
-  const { closeDialog, reconnexion, dialog, prendreChamps } = useStore();
+  const { closeDialog: fermerDialogue, reconnexion, dialog, prendreChamps } = useStore();
+  const closeDialog = fermer ?? fermerDialogue;
   const ref = useRef<HTMLFormElement>(null);
   const titreId = useId();
   // Valeurs des champs à l'ouverture, et saisie de la personne depuis (un champ rempli par le dialogue lui-même ne compte pas).

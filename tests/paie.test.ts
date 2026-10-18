@@ -1,4 +1,4 @@
-// Paie (lot 4, chantier 4, étape 1) : plus aucune feuille marquée transmise sans envoi (SAGE_MODE, mode API refusé,
+// Paie (lot 4, chantier 4, étape 1) : plus aucune feuille marquée transmise sans envoi (SAGE_MODE, « api » inconnu,
 // SAGE_URL refusée en production, textes du mode réel), heures supplémentaires payées ou remplacées par un repos
 // (mode figé à la validation, reprise des feuilles validées), correspondance des rubriques avec le plan de paie Sage
 // (table, confirmation, blocage des modes réels), période de paie déduite de la semaine (rattachement, clôture, rappel).
@@ -73,40 +73,40 @@ test('t019 SAGE_MODE : simulation hors production, fichier d’import en product
   assert.equal(sageMode({ SAGE_URL: 'https://sage.example' }), 'simulation', 'SAGE_URL seule ne fait plus croire à un envoi');
   assert.equal(sageMode({ NODE_ENV: 'production' }), 'fichier', 'mode de production par défaut');
   assert.equal(sageMode({ NODE_ENV: 'production', CURSUS_DEMO: '1' }), 'simulation', 'application de bureau en démonstration');
-  assert.equal(sageMode({ SAGE_MODE: 'api' }), 'api');
+  // « api » n'est plus un mode (fichier, pas d'API) : valeur inconnue, mode par défaut (et refus au démarrage en production).
+  assert.equal(sageMode({ SAGE_MODE: 'api' }), 'simulation');
+  assert.equal(sageMode({ SAGE_MODE: 'api', NODE_ENV: 'production' }), 'fichier');
   assert.equal(sageMode({ SAGE_MODE: 'fichier' }), 'fichier');
   assert.equal(sageMode({ SAGE_MODE: 'n’importe quoi', NODE_ENV: 'production' }), 'fichier');
-  // Plus aucun accusé fictif : le mode API et le mode fichier (le fichier passe par la paie) refusent l'envoi direct.
+  // Plus aucun accusé fictif : le mode fichier (le fichier passe par la paie) refuse l'envoi direct.
   const p = { endpoint: '', dossier: 'X', envoye_le: '', periodes: ['2026-10'], lignes: [] };
-  assert.throws(() => pushToSage(p, 'api'), (e: unknown) => e instanceof SageIndisponible && /aucun contrat d’API/.test(e.message));
   assert.throws(() => pushToSage(p, 'fichier'), (e: unknown) => e instanceof SageIndisponible && /Générez le lot de la période/.test(e.message));
   assert.match(pushToSage(p, 'simulation').reference, /^SIM-2026-10-0$/);
 });
 
-test('t019 configuration : mode API, SAGE_URL et simulation refusés en production, signalés ailleurs', () => {
+test('t019 configuration : SAGE_MODE=api (inconnu), SAGE_URL et simulation refusés en production, signalés ailleurs', () => {
   const base = { CURSUS_SECRET: 'x'.repeat(40), KEYSTONE_API_KEY: 'cle-de-production-assez-longue' };
   const sage = (env: Record<string, string>) => problemesConfig({ ...base, ...env }).filter(p => /SAGE/.test(p));
   assert.deepEqual(sage({ NODE_ENV: 'production' }), [], 'fichier d’import par défaut : rien à signaler');
   assert.deepEqual(sage({ NODE_ENV: 'production', SAGE_MODE: 'fichier', SAGE_DOSSIER: 'CHIMIE' }), []);
-  assert.match(sage({ NODE_ENV: 'production', SAGE_URL: 'https://sage.example/api' }).join(), /SAGE_URL est définie alors qu’aucun connecteur API/);
-  assert.match(sage({ NODE_ENV: 'production', SAGE_MODE: 'api' }).join(), /SAGE_MODE=api : l’envoi à Sage Paie par API n’existe pas/);
+  assert.match(sage({ NODE_ENV: 'production', SAGE_URL: 'https://sage.example/api' }).join(), /SAGE_URL est définie alors qu’aucun envoi à Sage Paie par API n’est prévu/);
+  assert.match(sage({ NODE_ENV: 'production', SAGE_MODE: 'api' }).join(), /SAGE_MODE vaut « api » : indiquez fichier[^]*Aucun envoi à Sage Paie par API n’est prévu/);
   assert.match(sage({ NODE_ENV: 'production', SAGE_MODE: 'simulation' }).join(), /marquées transmises à la paie sans que rien ne parte/);
   assert.match(sage({ SAGE_MODE: 'csv' }).join(), /SAGE_MODE vaut « csv »/);
   assert.deepEqual(sage({ SAGE_MODE: 'simulation' }), [], 'simulation hors production');
   assert.deepEqual(sage({ NODE_ENV: 'production', CURSUS_DEMO: '1', CURSUS_HOST: '127.0.0.1', SAGE_MODE: 'simulation' }), [], 'application de bureau');
 });
 
-test('t019 transmission : mode API et mode fichier refusés sans rien marquer ; simulation annoncée comme telle', () => {
+test('t019 transmission : mode fichier refusé sans rien marquer ; simulation annoncée comme telle', () => {
   const { db, run, refus, transmises, ADMIN, PAIE } = fresh();
   const avant = transmises(), lots = () => db.count('lotsPaie'), avantLots = lots();
   // Toutes les rubriques confirmées : seul le mode bloque.
   for (const code of Object.keys(RUBRIQUES_PAIE)) run(ADMIN, 'paie.rubrique', { code, confirmer: true });
-  avecEnv({ SAGE_MODE: 'api' }, () => refus(PAIE, 'temps.pushSage', {}, 503, /par API impossible : aucun contrat d’API/));
   avecEnv({ SAGE_MODE: 'fichier' }, () => refus(PAIE, 'temps.pushSage', {}, 503, /rien n’est envoyé directement à Sage Paie/));
   assert.equal(transmises(), avant, 'aucune feuille marquée transmise');
   assert.equal(lots(), avantLots, 'aucun lot enregistré');
   const msg = avecEnv({ SAGE_MODE: undefined }, () => run(PAIE, 'temps.pushSage', {}));
-  assert.match(String(msg), /^\d+ feuilles marquées transmises — simulation, rien n’est envoyé à Sage Paie · période octobre 2026$/);
+  assert.match(String(msg), /^\d+ feuilles marquées transmises — simulation, rien n’est envoyé à Sage Paie · période octobre 2026 · 5 absences$/);
   assert.deepEqual([dernierLot(db).mode, dernierLot(db).statut, dernierLot(db).reference], ['simulation', 'transmis', dernierLot(db).reference!.startsWith('SIM-') ? dernierLot(db).reference : 'SIM-…']);
   assert.ok(transmises() > avant);
 });
@@ -223,7 +223,9 @@ test('t022 rubriques : pré-remplies au code interne, à confirmer ; saisie, con
   const { db, run, refus, domain, ADMIN, PAIE, GEST } = fresh();
   const table = rubriquesPaie(domain().ds.rubriquesPaie);
   assert.deepEqual(table.map(r => r.code), Object.keys(RUBRIQUES_PAIE), 'tous les codes émis, HSF25 et HSF50 compris');
-  assert.ok(table.every(r => r.codeSage === r.code && r.active && !r.confirmee));
+  // Rubriques de sortie (t128) désactivées par défaut : le solde de tout compte reste saisi dans Sage.
+  assert.ok(table.every(r => r.codeSage === r.code && r.active === !RUBRIQUES_PAIE[r.code].inactiveParDefaut && !r.confirmee));
+  assert.deepEqual(table.filter(r => !r.active).map(r => r.code), ['ICCP_J', 'RTT_SOLDE', 'RECUP_H', 'CET_LIQ']);
   refus(GEST, 'paie.rubrique', { code: 'HN', confirmer: true }, 403);
   refus(PAIE, 'paie.rubrique', { code: 'XX', codeSage: '1' }, 404);
   refus(PAIE, 'paie.rubrique', { code: 'HN', codeSage: 'code avec espaces' }, 400, /20 caractères au plus/);
@@ -268,9 +270,10 @@ test('t022 hors simulation, une rubrique utilisée sans code confirmé bloque la
   const { db, run, refus, transmises, ADMIN, PAIE } = fresh();
   const avant = transmises();
   avecEnv({ SAGE_MODE: 'fichier' }, () => {
-    refus(PAIE, 'paie.lotGenerer', { periode: '2026-10' }, 409, /^Transmission impossible : code Sage à confirmer pour les rubriques HN \(Heures normales\), HSF25 \(.*\), HS25 \(.*\), JTRAV \(Jours travaillés, forfait jours\) \(écran Temps, « Rubriques de paie »\)$/);
-    // Rubriques non utilisées par les feuilles en attente (HS50, RCR_ACQUIS…) : sans effet ; désactivée : plus exigée.
-    for (const code of ['HN', 'HSF25', 'HS25']) run(ADMIN, 'paie.rubrique', { code, confirmer: true });
+    refus(PAIE, 'paie.lotGenerer', { periode: '2026-10' }, 409, /^Transmission impossible : code Sage à confirmer pour les rubriques HN \(Heures normales\), HSF25 \(.*\), HS25 \(.*\), JTRAV \(Jours travaillés, forfait jours\), CP \(.*\), RTT \(.*\), ABS_IND_SANTE \(.*\) \(écran Temps, « Rubriques de paie »\)$/);
+    // Rubriques non utilisées par les feuilles et absences en attente (HS50, RCR_ACQUIS…) : sans effet ; désactivée : plus
+    // exigée. Les absences validées d'octobre (t028) exigent aussi leurs rubriques.
+    for (const code of ['HN', 'HSF25', 'HS25', 'CP', 'RTT', 'ABS_IND_SANTE']) run(ADMIN, 'paie.rubrique', { code, confirmer: true });
     refus(PAIE, 'paie.lotGenerer', { periode: '2026-10' }, 409, /pour la rubrique JTRAV \(Jours travaillés, forfait jours\)/);
     run(ADMIN, 'paie.rubrique', { code: 'JTRAV', active: false });
     // Rubriques confirmées : le lot du fichier d'import se génère ; l'envoi direct reste refusé.
@@ -301,20 +304,21 @@ test('t022 données : correspondance transmise au service RH, à la paie et à l
 // — t025 : période de paie —
 
 test('t025 rattachement d’une semaine à cheval : mois du dimanche par défaut, du vendredi, ou jour par jour', () => {
-  const tout = [0, 1, 2, 3, 4];
+  const tout = [0, 1, 2, 3, 4, 5, 6];
   // Semaine du 28 septembre 2026 : lundi à mercredi en septembre, jeudi à dimanche en octobre.
   assert.deepEqual(partsSemaine('2026-09-28'), [{ periode: '2026-10', jours: tout }]);
   assert.deepEqual(partsSemaine('2026-09-28', 'vendredi'), [{ periode: '2026-10', jours: tout }]);
-  assert.deepEqual(partsSemaine('2026-09-28', 'jour'), [{ periode: '2026-09', jours: [0, 1, 2] }, { periode: '2026-10', jours: [3, 4] }]);
-  // Le 31 octobre 2026 est un samedi : la semaine du 26 va en novembre (dimanche 1er), en octobre avec le vendredi.
+  assert.deepEqual(partsSemaine('2026-09-28', 'jour'), [{ periode: '2026-09', jours: [0, 1, 2] }, { periode: '2026-10', jours: [3, 4, 5, 6] }]);
+  // Le 31 octobre 2026 est un samedi : la semaine du 26 va en novembre (dimanche 1er), en octobre avec le vendredi ;
+  // jour par jour, le dimanche 1er novembre part seul en novembre.
   assert.deepEqual(partsSemaine('2026-10-26'), [{ periode: '2026-11', jours: tout }]);
   assert.deepEqual(partsSemaine('2026-10-26', 'vendredi'), [{ periode: '2026-10', jours: tout }]);
-  assert.deepEqual(partsSemaine('2026-10-26', 'jour'), [{ periode: '2026-10', jours: tout }]);
+  assert.deepEqual(partsSemaine('2026-10-26', 'jour'), [{ periode: '2026-10', jours: [0, 1, 2, 3, 4, 5] }, { periode: '2026-11', jours: [6] }]);
   // À cheval sur deux années.
   assert.deepEqual(partsSemaine('2026-12-28'), [{ periode: '2027-01', jours: tout }]);
   assert.deepEqual(partsSemaine('2026-12-28', 'vendredi'), [{ periode: '2027-01', jours: tout }]);
-  assert.deepEqual(partsSemaine('2026-12-28', 'jour'), [{ periode: '2026-12', jours: [0, 1, 2, 3] }, { periode: '2027-01', jours: [4] }]);
-  assert.deepEqual(partsSemaine('2025-12-29', 'jour'), [{ periode: '2025-12', jours: [0, 1, 2] }, { periode: '2026-01', jours: [3, 4] }]);
+  assert.deepEqual(partsSemaine('2026-12-28', 'jour'), [{ periode: '2026-12', jours: [0, 1, 2, 3] }, { periode: '2027-01', jours: [4, 5, 6] }]);
+  assert.deepEqual(partsSemaine('2025-12-29', 'jour'), [{ periode: '2025-12', jours: [0, 1, 2] }, { periode: '2026-01', jours: [3, 4, 5, 6] }]);
 });
 
 test('t025 clôture et rappel : une semaine d’une période close part sur la période ouverte', () => {
@@ -327,9 +331,9 @@ test('t025 clôture et rappel : une semaine d’une période close part sur la p
   assert.equal(periodeOuverte('2026-12-28', 20), '2027-01');
   const s = { periodeRattachement: 'dimanche' as const, clotureJour: 0 };
   // Semaine du 21 septembre transmise le 10 octobre : septembre est clos, rappel sur octobre.
-  assert.deepEqual(periodesSemaine('2026-09-21', s, '2026-10-10'), [{ periode: '2026-10', origine: '2026-09', jours: [0, 1, 2, 3, 4] }]);
-  assert.deepEqual(periodesSemaine('2026-09-28', s, '2026-10-10'), [{ periode: '2026-10', origine: null, jours: [0, 1, 2, 3, 4] }]);
-  assert.deepEqual(periodesSemaine('2026-10-26', s, '2026-10-30'), [{ periode: '2026-11', origine: null, jours: [0, 1, 2, 3, 4] }], 'période à venir : ouverte');
+  assert.deepEqual(periodesSemaine('2026-09-21', s, '2026-10-10'), [{ periode: '2026-10', origine: '2026-09', jours: [0, 1, 2, 3, 4, 5, 6] }]);
+  assert.deepEqual(periodesSemaine('2026-09-28', s, '2026-10-10'), [{ periode: '2026-10', origine: null, jours: [0, 1, 2, 3, 4, 5, 6] }]);
+  assert.deepEqual(periodesSemaine('2026-10-26', s, '2026-10-30'), [{ periode: '2026-11', origine: null, jours: [0, 1, 2, 3, 4, 5, 6] }], 'période à venir : ouverte');
   assert.deepEqual(periodesSemaine('2026-09-28', { ...s, periodeRattachement: 'jour' }, '2026-10-10').map(p => [p.periode, p.origine]), [['2026-10', '2026-09'], ['2026-10', null]]);
   assert.deepEqual(feuillesParPeriode([{ empId: 1, week: '2026-09-21' }, { empId: 2, week: '2026-09-21' }, { empId: 1, week: '2026-09-28' }], s, '2026-10-10'), [
     { periode: '2026-10', origine: null, feuilles: 1, salaries: 1, semaines: ['1|2026-09-28'] },
@@ -358,8 +362,8 @@ test('t025 transmission : une ligne par période, ventilation jour par jour exac
   assert.match(c.question, /Marquer transmises à Sage Paie 2 feuilles validées \(1 salarié\)/);
   assert.ok(c.suites!.some(x => x === 'Rappel : 1 feuille de septembre 2026, période close, part sur octobre 2026.'), c.suites!.join(' | '));
   assert.ok(c.suites!.some(x => /^Simulation : rien n’est envoyé à Sage Paie/.test(x)));
-  assert.ok(c.suites!.some(x => /lundi au vendredi seulement/.test(x)));
-  assert.match(String(run(PAIE, 'temps.pushSage', {})), /· période octobre 2026 · rappel de septembre 2026$/);
+  assert.ok(c.suites!.some(x => /samedi et dimanche compris/.test(x)));
+  assert.match(String(run(PAIE, 'temps.pushSage', {})), /· période octobre 2026 · rappel de septembre 2026 · 5 absences$/);
   const push = dernierLot(db).contenu!;
   // Camille (1) : matricule de paie 004101.
   assert.deepEqual(push.lignes.filter(l => l.matricule === '004101').map(l => [l.semaine, l.periode, l.periode_origine ?? null]),

@@ -100,7 +100,7 @@ export function AbsNatureDialog({ empId, id }: { empId?: number | null; id?: num
             {def.article ? ` (${def.article})` : ''}
           </div>
           <div className="text-muted">Justificatif : {def.justificatif ?? 'aucun'}</div>
-          <div className="text-muted">Congés payés, pour mémoire : {def.cp}</div>
+          <div className="text-muted">Acquisition des congés payés : {def.cp}</div>
           {def.medicale && <div className="note-accent">Donnée de santé : le manager et Keystone ne voient qu’une absence, sans sa nature.</div>}
         </div>
       )}

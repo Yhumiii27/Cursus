@@ -25,8 +25,12 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     horizonAlerte: 90, uniquementReglementaire: false, seuilBudget: 85, partageKeystone: 'minimal', rtt39: 23, vueInitiale: 'dashboard',
     // Lot 4, reprise : Keystone garde le matricule Cursus, clôture des CP au cas par cas, RTT de l'année suivante sans restriction.
     identifiantKeystone: 'cursus', politiqueReportCp: 'cas_par_cas', rttAnneeSuivanteDes: '',
+    // Acquisition des CP pendant un arrêt maladie (lot 5) : minimum légal de la loi 2024-364.
+    cpMaladie: 'legal',
     // Paie (lot 4) : heures supplémentaires payées, semaine à cheval sur le mois de son dimanche, clôture le dernier jour.
     heuresSupMode: 'paiement', heuresSupAccord: '', periodeRattachement: 'dimanche', clotureJour: 0,
+    // Semaine à 7 jours (lot 5) : heures du dimanche sans majoration par défaut.
+    majorationDimanche: 0,
     // Suivi des feuilles de temps (lot 4) : 5 semaines affichées, feuille attendue le lundi suivant à 12 h.
     suiviSemaines: 5, feuilleLimiteJour: 1, feuilleLimiteHeure: 12,
     // Campagne d'entretiens : le fonctionnement d'avant le réglage (shared/rules/campagne.ts).
@@ -35,6 +39,18 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     titreSejourAlerte: 120, titreSejourRelance: 60,
     // Récapitulatif des échéances (shared/rules/relances.ts) : actif, à 90, 30 et 7 jours puis échu, chaque jour.
     relancesActives: true, relancesPaliers: [90, 30, 7], relancesJour: 'quotidien',
+    // Santé (lot 5) : 24 mois pour tous, le plus prudent ; examen d'aptitude du suivi renforcé tous les 4 ans.
+    santeVipMois: 24, santeVipAdapteeMois: 24, santeSirIntermediaireMois: 24, santeSirAptitudeMois: 48,
+    // Visite de mi-carrière l'année des 45 ans, à défaut d'accord de branche (art. L4624-2-2).
+    santeMiCarriereAge: 45,
+    // Formations (lot 5) : heures des sessions proposées dans les feuilles de temps (ligne interne INT-FORM).
+    formationsTemps: true,
+    // Décompte des heures (lot 5) : saisie un jour férié permise, fériés hors 1er mai sans majoration, heures complémentaires au
+    // dixième, moyenne de 44 h sur 12 semaines, contingent de 220 h avec alerte à 90 %, sans référence d'accord.
+    feriesTravaillesAutorises: true, tauxMajorationFerie: 0, plafondHeuresComplementaires: 'dixieme', heuresComplementairesAccord: '',
+    moyenne12SemainesMax: 44, moyenne12SemainesAccord: '', contingentHeuresSup: 220, contingentAlerte: 90, contingentAccord: '',
+    // Paie (lot 5, t028) : absences validées dans le fichier d'import, réponse de l'entreprise du 17 octobre 2026.
+    absencesFichierPaie: true, absencesPaieAPartirDu: null,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

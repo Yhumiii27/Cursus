@@ -179,7 +179,7 @@ test('base mise à jour par une version plus récente : refusée avant toute éc
   const cli = outil(env, 'comptes-cli.ts', 'admin', 'rh@exemple.fr');
   assert.equal(cli.status, 1);
   assert.match(cli.stderr, /Commande impossible : la base a été mise à jour par une version plus récente/);
-  const reset = outil({ ...env, CURSUS_DEMO: '1' }, 'reset.ts');
+  const reset = outil({ ...env, CURSUS_DEMO: '1' }, 'reset.ts', '--yes');
   assert.equal(reset.status, 1, reset.stdout + reset.stderr);
   assert.match(reset.stderr, /Réinitialisation refusée : la base a été mise à jour par une version plus récente[\s\S]*restaurer la copie avant-migration/);
   assert.deepEqual(enregistreesDans(file), [MIGRATIONS[0].nom, 'lot9-futur-colonne-renommee']);
@@ -263,7 +263,7 @@ test('npm run reset-demo et npm run comptes : base mise à jour avant d’y écr
   // d'un processus vivant, celui des tests. Les outils refusent, sans rien écrire.
   writeFileSync(fichierVerrou(file), JSON.stringify({ pid: process.pid, depuis: new Date().toISOString() }));
   const env = { CURSUS_DB: file, CURSUS_DEMO: '1' };
-  for (const [script, ...args] of [['reset.ts'], ['comptes-cli.ts', 'admin', 'rh@exemple.fr']]) {
+  for (const [script, ...args] of [['reset.ts', '--yes'], ['comptes-cli.ts', 'admin', 'rh@exemple.fr']]) {
     const r = outil(env, script, ...args);
     assert.equal(r.status, 1, r.stdout + r.stderr);
     assert.match(r.stderr, new RegExp(`le serveur Cursus en service \\(processus ${process.pid}\\) n’a pas encore mis la base à jour pour cette version `
@@ -275,7 +275,7 @@ test('npm run reset-demo et npm run comptes : base mise à jour avant d’y écr
 
   // Service arrêté : reset-demo met la base à jour comme le serveur au démarrage (copie, migrations nommées), puis la
   // recharge. Le premier démarrage n'a plus aucune migration à faire sur les données de démonstration.
-  const r = outil(env, 'reset.ts');
+  const r = outil(env, 'reset.ts', '--yes');
   assert.equal(r.status, 0, r.stderr);
   assert.match(r.stdout, /Sauvegarde avant migration[\s\S]*Migration lot4-exploitation-index-envois faite[\s\S]*avant-reinitialisation[\s\S]*Données de démonstration rechargées/);
   assert.equal(copies(dir).length, 1);

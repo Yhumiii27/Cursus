@@ -126,7 +126,7 @@ test('suspension par le RH : titre non valide et No Go, puis levée', () => {
   run(RH, 'parametres.maj', { partageKeystone: 'detaille' });
   const d2 = new Domain(loadFull(db, RH));
   const ch = d2.evaluateChantiers(d2.enrich(90, false), d2.tripsAll()).find(x => x.c.id === 'K-2614')!;
-  assert.doesNotMatch(JSON.stringify(d2.keystonePayload(ch, true)), /armoire/);
+  assert.doesNotMatch(JSON.stringify(d2.keystonePayload(ch, true, '2026-10-10T05:00:00.000Z')), /armoire/);
   const ev = keystone();
   assert.deepEqual(ev.map(e => e.payload.chantier).sort(), ['K-2611', 'K-2614'], 'un événement par chantier concerné');
   assert.ok(ev.every(e => e.payload.ressource?.matricule === 'EMP-0018' && e.payload.ressource.statut === 'NO_GO' && e.payload.ressource.motifs.some(m => m.code === 'HABILITATION_SUSPENDUE' && m.niveau === 'NO_GO')));

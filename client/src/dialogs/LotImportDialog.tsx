@@ -23,7 +23,7 @@ export function LotImportDialog({ id }: { id: number }) {
   const simulation = lot.mode === 'simulation';
   const erreurAtteste = !simulation && !atteste ? 'Confirmez que l’import est fait dans Sage et ses totaux contrôlés.' : null;
   const erreurRef = erreurReference(reference);
-  const salaries = new Set(lot.feuilles.map(f => f.empId)).size;
+  const salaries = new Set([...lot.feuilles.map(f => f.empId), ...(lot.absences ?? []).map(a => a.empId)]).size;
 
   const confirmer = async () => {
     if (busy || !v.verifier(erreurAtteste, erreurRef)) return;
@@ -40,10 +40,15 @@ export function LotImportDialog({ id }: { id: number }) {
     </>}>
       <Field label="Lot">
         <Static>
-          Lot n° {lot.id} · {periodeLabel(lot.periode)} · {plural(lot.feuilles.length, 'feuille', 'feuilles')} ({plural(salaries, 'salarié', 'salariés')}) · {plural(lot.resume.lignes, 'ligne', 'lignes')}
+          Lot n° {lot.id} · {periodeLabel(lot.periode)} · {plural(lot.feuilles.length, 'feuille', 'feuilles')}{lot.absences?.length ? `, ${plural(lot.absences.length, 'absence', 'absences')}` : ''} ({plural(salaries, 'salarié', 'salariés')}) · {plural(lot.resume.lignes, 'ligne', 'lignes')}
         </Static>
       </Field>
-      {lot.resume.lignes > 0 && <Fine>Totaux du fichier : {totauxTexte(lot.resume)}.</Fine>}
+      {lot.resume.lignes > 0 && (
+        <Fine>
+          Totaux du fichier : {totauxTexte(lot.resume) || 'aucune heure'}
+          {lot.resume.absences && totauxTexte({ ...lot.resume, rubriques: lot.resume.absences.rubriques }) ? ` · absences : ${totauxTexte({ ...lot.resume, rubriques: lot.resume.absences.rubriques })}` : ''}.
+        </Fine>
+      )}
       {lot.telechargeLe && <Fine>Fichier téléchargé le {fmtIso(lot.telechargeLe.slice(0, 10))} par {lot.telechargePar}{lot.telechargements > 1 ? ` (${lot.telechargements} téléchargements)` : ''}.</Fine>}
       {simulation ? (
         <Fine muted={false}>Simulation : rien n’est envoyé à Sage Paie. Les feuilles du lot sont seulement marquées transmises et ne seront plus proposées.</Fine>
@@ -61,7 +66,8 @@ export function LotImportDialog({ id }: { id: number }) {
       </Field>
       <Fine>
         La confirmation est datée et porte votre nom ; elle seule marque les feuilles du lot transmises à la paie. Ensuite, le lot ne
-        s’annule plus : une correction se fait dans Sage, en attendant le lot correctif.
+        s’annule plus : pour corriger une feuille, l’administrateur RH la rouvre avec un motif ; revalidée, seul son écart part dans
+        le lot suivant (lot correctif).
       </Fine>
     </Dialog>
   );

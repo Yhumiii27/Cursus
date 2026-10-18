@@ -1,6 +1,7 @@
-// Saisie des heures sur téléphone et tablette : la grille de la semaine (projet × 5 jours) demande environ 620 px et
+// Saisie des heures sur téléphone et tablette : la grille de la semaine (projet × 7 jours) demande environ 620 px et
 // des cibles minuscules au doigt. Sous 600 px de large, ou sur écran tactile (VUE_JOUR de components/heures.ts), la
-// feuille s'affiche jour par jour : un sélecteur de cinq jours avec le total de chacun, une ligne par projet avec un
+// feuille s'affiche jour par jour : un sélecteur des sept jours (samedi et dimanche grisés, normalement non travaillés
+// mais saisissables) avec le total de chacun, une ligne par projet avec un
 // champ d'heures assez grand, le total du jour et de la semaine. Même feuille, mêmes règles et même action
 // (`temps.setCell`) que la grille, que le PC garde ; « Ajouter un projet » et la soumission restent sous la vue
 // (pages/Temps.tsx). Le jour s'ouvre sur aujourd'hui ; celui choisi est mémorisé (`ui.tsJour`) d'une semaine à l'autre.
@@ -54,8 +55,13 @@ export interface JourFeuille {
   label: string; long: string;
   /** Férié, absence, jour non travaillé, mission… ; « — » sinon. `hl` : à signaler (mission, heures à retirer). */
   note: string; hl: boolean;
-  /** Aucune heure ce jour-là (férié, absence, hors contrat) : un champ déjà rempli reste modifiable pour être vidé. */
+  /**
+   * Aucune heure ce jour-là (absence, hors contrat, férié quand le réglage l'interdit) : un champ déjà rempli reste modifiable
+   * pour être vidé. Un férié saisissable porte la mention « Férié travaillé ».
+   */
   locked: boolean;
+  /** Samedi ou dimanche : grisé, normalement non travaillé, saisissable (chantier, déplacement, impératif). */
+  weekend?: boolean;
 }
 
 export function SaisieJour({ wk, days, lignes, perDay, total, editable, occupe, projet, alerteDe, enregistrer, supprimer }: {
@@ -68,15 +74,16 @@ export function SaisieJour({ wk, days, lignes, perDay, total, editable, occupe, 
   supprimer: (li: number, ev: MouseEvent) => void;
 }) {
   const { ui, setUi, data } = useStore();
-  const jour = Math.min(4, Math.max(0, ui.tsJour ?? jourParDefaut(days.map(x => x.day), data?.today ?? '')));
+  const jour = Math.min(days.length - 1, Math.max(0, ui.tsJour ?? jourParDefaut(days.map(x => x.day), data?.today ?? '', perDay)));
   const x = days[jour];
   const titre = `ts-jour-${wk}`;
 
   return (
     <div className="saisie-jour">
-      <div className="jours-semaine" role="group" aria-label="Jour affiché">
+      <div className={`jours-semaine${days.length > 5 ? ' sept' : ''}`} role="group" aria-label="Jour affiché">
         {days.map((j, i) => (
-          <button key={j.day} type="button" className="jour-btn" aria-pressed={i === jour} onClick={() => setUi({ tsJour: i })}>
+          <button key={j.day} type="button" className={`jour-btn${j.weekend ? ' weekend' : ''}`} aria-pressed={i === jour} onClick={() => setUi({ tsJour: i })}>
+
             <span>{j.label}</span>
             <span className={`jour-total tnum${j.hl ? ' signale' : ''}`}>{perDay[i] ? fH(perDay[i]) : '—'}</span>
           </button>

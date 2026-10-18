@@ -6,11 +6,14 @@ import {
 } from '../../../shared/constants.ts';
 import { isoWeek, parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, fmtShort, plural, rel } from '../../../shared/format.ts';
+import { sessionDu } from '../../../shared/rules/plage-session.ts';
 import { matriculeAffiche } from '../../../shared/rules/matricules.ts';
 import { aFaireCollaborateur } from '../../../shared/rules/a-faire.ts';
 import { declarationDetail, formaliteCle } from '../../../shared/rules/formalites.ts';
 import { etatInscription } from '../../../shared/rules/sessions.ts';
+import { auteurDemande, demandeRetirable } from '../../../shared/rules/corrections.ts';
 import type { ModeNotification } from '../../../shared/types.ts';
+import { retraitDemande } from '../state/confirmations-corrections.ts';
 import { Bar, Btn, Chips, Empty, Fine, Kpi, Kpis, NoteAccent, Page, Panel, Seg, Tag } from '../components/ui.tsx';
 import { Aptitude } from '../components/Aptitude.tsx';
 import { ExigencesPortail } from '../components/Exigences.tsx';
@@ -128,7 +131,7 @@ export function Portail() {
                   <div className="item-head">
                     <div>
                       <div style={{ fontSize: 14 }}>{fm.nom}</div>
-                      <div className="text-muted sub">{x.etat === 'a_planifier' ? x.motif : `Session du ${fmt(parse(s.date))} · ${s.lieu} · ${fm.organisme}`}</div>
+                      <div className="text-muted sub">{x.etat === 'a_planifier' ? x.motif : `Session ${sessionDu(s)} · ${s.lieu} · ${fm.organisme}`}</div>
                     </div>
                     {x.etat === 'planifiee'
                       ? <Tag cls={SESS_CLS[s.statut]} style={{ flex: 'none' }}>{s.statut}</Tag>
@@ -149,8 +152,8 @@ export function Portail() {
               const avail = upcoming.find(s => s.formation === c.f && s.inscrits < s.places);
               const pend = myReqs.some(r => r.type === 'formation' && r.f === c.f && r.statut === 'attente');
               const convocation = c.convoc === 'now' ? ` · convocation envoyée${c.convocLe ? ` le ${fmtShort(parse(c.convocLe))}` : ''}` : ' · convocation à venir';
-              const info = c.session ? `Inscrit à la session du ${fmt(parse(c.session.date))}${convocation}`
-                : c.sessionPassee ? `Session du ${fmt(parse(c.sessionPassee.date))} passée — présence et résultat en cours d’enregistrement par le service RH`
+              const info = c.session ? `Inscrit à la session ${sessionDu(c.session)}${convocation}`
+                : c.sessionPassee ? `Session ${sessionDu(c.sessionPassee)} passée — présence et résultat en cours d’enregistrement par le service RH`
                 : pend ? 'Demande de recyclage envoyée au service RH' : '';
               return (
                 <div key={c.id} className="list-row stack" style={rowStyle}>
@@ -253,6 +256,12 @@ export function Portail() {
                 {r.declaration && <div className="sub">Déclaré : {declarationDetail(r.declaration)}</div>}
                 <div className="sub text-n400">{r.reponse || (r.type === 'document' ? 'En attente de validation RH' : 'En cours de traitement par le service RH')}</div>
                 {r.statut === 'refusee' && r.motifRefus && <div className="sub">Motif du refus : {r.motifRefus}</div>}
+                {/* Demande en attente, faite par soi-même : retirée tant que le service RH ne l'a pas traitée. */}
+                {demandeRetirable(r) && auteurDemande(r) === me.id && (
+                  <div className="actions-end">
+                    <Btn small onClick={() => openDialog({ type: 'confirmer', c: retraitDemande(r, reqLabel(r, id => d.fm(id).nom, id => d.hm(id).nom)) })}>Retirer la demande</Btn>
+                  </div>
+                )}
               </div>
             ))}
             {reqs.length === 0 && <p className="text-muted" style={{ fontSize: 13, margin: 0 }}>Aucune demande envoyée.</p>}

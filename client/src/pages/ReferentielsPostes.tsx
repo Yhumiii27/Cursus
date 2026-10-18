@@ -73,7 +73,7 @@ export function Postes() {
                     const n = titulaires(d.ds, p.id).length, ko = nonConformes(p.id);
                     return (
                       <tr key={p.id}>
-                        <td><Two main={p.nom} /></td>
+                        <td>{p.sir || p.expose ? <Two main={p.nom} sub={[p.sir ? 'Suivi individuel renforcé' : '', p.expose ? 'Exposé à des risques particuliers' : ''].filter(Boolean).join(' · ')} /> : <Two main={p.nom} />}</td>
                         <td><ExigencesChips x={p} /></td>
                         <td>{n}</td>
                         <td>{ko ? <Tag cls="tag-accent">{ko}</Tag> : <span className="text-muted">—</span>}</td>
@@ -105,7 +105,7 @@ export function Postes() {
     <Panel title="Exigences communes par équipe" aside="Pour tous les membres, quel que soit leur poste">
       <div className="scroll-x">
         <table className="table">
-          <thead><tr><th>Équipe</th><th>Exigences</th><th>Membres</th><th>Exigences manquantes</th>{peut && <th></th>}</tr></thead>
+          <thead><tr><th>Équipe</th><th>Exigences</th><th>Nuit ou continu</th><th>Membres</th><th>Exigences manquantes</th>{peut && <th></th>}</tr></thead>
           <tbody>
             {d.equipes.map(nom => {
               const q = d.ds.referentiels.equipes.find(x => x.nom === nom)!;
@@ -114,6 +114,8 @@ export function Postes() {
                 <tr key={nom}>
                   <td>{nom}</td>
                   <td><ExigencesChips x={exigencesEquipe(q)} /></td>
+                  {/* Travail de nuit ou en continu : aucun salarié de moins de 18 ans (shared/rules/mineurs.ts). */}
+                  <td>{q.nuit == null ? <span className="text-muted">À renseigner</span> : q.nuit ? 'Oui' : 'Non'}</td>
                   <td>{membres.length}</td>
                   <td>{ko ? <Tag cls="tag-accent">{ko}</Tag> : <span className="text-muted">—</span>}</td>
                   {peut && <td className="right"><Btn small onClick={() => openDialog({ type: 'refEquipe', nom })}>Modifier</Btn></td>}

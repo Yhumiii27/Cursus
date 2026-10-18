@@ -116,3 +116,37 @@ test('information art. 13 du RGPD avant la saisie d’une vaccination : élémen
   assert.match(conservation, /rien n’est encore effacé automatiquement/);
   assert.match(conservation, /déclarations successives et le journal des actions gardent les précédentes/);
 });
+
+test('envois lus par la lecture seule : l’information au retour d’un arrêt et le récapitulatif qui la contient sont neutralisés', async () => {
+  const { db, user, run, RH } = fresh();
+  const { listerEnvois } = await import('../server/src/envois.ts');
+  const { envoisPourLecteur } = await import('../server/src/envois-lecteur.ts');
+  const { envoyerRecapitulatifs } = await import('../server/src/notifications.ts');
+  const { pourLecteur } = await import('../server/src/journal.ts');
+  // Marion Petit (13) : arrêt maladie du 5 au 7 octobre (démonstration), informée de ses congés à son retour.
+  const arret = (db.sql.prepare(`SELECT id FROM absences WHERE emp_id = 13 AND type = 'MALADIE' AND du = '2026-10-05'`).get() as { id: number }).id;
+  run(RH, 'conges.informer', { id: arret });
+  // Puis une information gardée pour son récapitulatif quotidien, envoyé.
+  db.insert('notifications', {
+    empId: 13, adresse: 'marion.petit@entreprise.example', type: 'conges.information', objet: 'Vos congés payés à votre retour',
+    texte: 'À la suite de votre absence du 5 oct. au 7 oct. 2026', creation: new Date().toISOString(), envoiId: null,
+  });
+  assert.equal(envoyerRecapitulatifs(db), 1);
+  const envois = listerEnvois(db, { cible: 'email' });
+  const info = envois.find(e => e.type === 'conges.information')!, recap = envois.find(e => e.type === 'recapitulatif')!;
+  // Service RH : contenu complet.
+  assert.deepEqual(envoisPourLecteur(db, RH, envois), envois);
+  // Lecture seule : destinataire et état gardés ; objet, texte et type neutralisés.
+  const lu = envoisPourLecteur(db, user(11, 'rh'), envois);
+  const l = (id: number) => lu.find(e => e.id === id)!;
+  assert.equal(l(info.id).type, 'reserve');
+  assert.deepEqual([l(info.id).contenu.objet, l(info.id).contenu.texte, l(info.id).contenu.a], ['Détail réservé au service RH', 'Détail réservé au service RH', info.contenu.a]);
+  assert.equal(l(info.id).statut, info.statut);
+  assert.deepEqual([l(recap.id).type, l(recap.id).contenu.texte], ['recapitulatif', 'Détail réservé au service RH']);
+  assert.doesNotMatch(JSON.stringify(lu), /L3141-19-3|à votre retour|votre absence/);
+  // Les autres e-mails restent lisibles.
+  assert.ok(lu.filter(e => e.id !== info.id && e.id !== recap.id).every(e => envois.includes(e)));
+  // Journal de l'e-mail simulé (objet de l'information) : masqué de même.
+  const ligne = { action: 'email.conges.information', message: 'E-mail « Vos congés payés à votre retour »', details: {} } as never;
+  assert.equal((pourLecteur(user(11, 'rh'), [ligne])[0] as { message: string }).message, 'Détail réservé au service RH');
+});

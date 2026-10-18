@@ -2,12 +2,23 @@
 import { useMemo } from 'react';
 import { droitsRh } from '../../../shared/constants.ts';
 import { Domain, type EmpX, type TripX, type UiIntent } from '../../../shared/domain.ts';
-import type { Formation, Session } from '../../../shared/types.ts';
+import type { Dataset, Formation, Session } from '../../../shared/types.ts';
 import { useData, useStore } from './store.tsx';
 
+/**
+ * Domaine d'un instantané, un seul par instantané reçu, partagé par tous les composants et la coque (layout/Shell.tsx) :
+ * ses calculs mémorisés (conformité, congés…) ne sont faits qu'une fois. Un nouvel instantané en crée un nouveau ;
+ * l'ancien est libéré avec lui.
+ */
+const domaines = new WeakMap<Dataset, Domain>();
+export function domaineDe(data: Dataset): Domain {
+  let d = domaines.get(data);
+  if (!d) { d = new Domain(data); domaines.set(data, d); }
+  return d;
+}
+
 export function useDomain(): Domain {
-  const data = useData();
-  return useMemo(() => new Domain(data), [data]);
+  return domaineDe(useData());
 }
 
 export interface Enriched {

@@ -21,7 +21,7 @@ export const CONSERVATION_ENVOIS_MOIS = 12;
  * manager ou le RH et transmissions à la paie (Sage).
  */
 export const ACTIONS_PAIE: readonly string[] = [
-  'temps.validate', 'temps.correction', 'temps.pushSage', 'absence.decider', 'absence.qualifier', 'absence.saisir', 'absence.prolonger', 'absence.annuler',
+  'temps.validate', 'temps.correction', 'temps.ferie', 'temps.pushSage', 'absence.decider', 'absence.qualifier', 'absence.saisir', 'absence.prolonger', 'absence.annuler',
   // Clôture des congés (report ou perte du solde de chaque salarié, à justifier en cas de litige) et datation des
   // compteurs repris de l'ancien système (période sur laquelle ils sont décomptés).
   'conges.cloturer', 'migration.soldes',
@@ -34,6 +34,12 @@ export const ACTIONS_PAIE: readonly string[] = [
   // Lots de paie (génération, confirmation de l'import, annulation, format du fichier, reprise des transmissions d'avant
   // les lots) et validation groupée des feuilles ; le téléchargement du fichier est tracé sous `sage.fichier`.
   'paie.lotGenerer', 'paie.lotConfirmer', 'paie.lotAnnuler', 'paie.formatFichier', 'migration.lotsPaie', 'temps.validerLot',
+  // Absences dans le fichier de paie : date à partir de laquelle Cursus les transmet (base reprise, lot 5) ; l'export
+  // des variables de la période est tracé sous `sage.variables`.
+  'migration.absencesPaie',
+  // Réouverture d'une feuille validée, parfois déjà transmise (régularisation dans un lot correctif, t131), et reprise
+  // des rubriques par feuille des lots d'avant le lot 5.
+  'temps.rouvrir', 'migration.rubriquesFeuilles',
 ];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
@@ -53,12 +59,15 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'employe.autorisationTravail': 'Titre de séjour (autorisation de travail)',
   'equipe.creer': 'Création d’une équipe',
   'equipe.renommer': 'Équipe renommée',
+  'equipe.modifier': 'Équipe modifiée (nom, manager)',
   'equipe.supprimer': 'Suppression d’une équipe',
   'equipe.manager': 'Manager d’une équipe',
   'equipe.affecter': 'Affectation à une équipe',
   // Formations
   'plan.inscrire': 'Inscription à une session',
   'cert.ajouter': 'Certification enregistrée',
+  'cert.modifier': 'Certification corrigée',
+  'cert.annuler': 'Certification supprimée (saisie erronée)',
   'session.creer': 'Création d’une session',
   'session.confirmer': 'Session confirmée',
   'session.modifier': 'Session modifiée',
@@ -66,6 +75,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'session.cloturer': 'Session clôturée',
   'plan.importer': 'Import du plan de formation',
   'plan.avancer': 'Avancement du plan de formation',
+  'plan.modifier': 'Ligne du plan de formation corrigée',
+  'plan.supprimer': 'Ligne du plan de formation supprimée (saisie erronée)',
   'plan.cloturerExercice': 'Clôture d’un exercice du plan de formation',
   'budget.enveloppes': 'Enveloppes budgétaires',
   // Habilitations
@@ -77,6 +88,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'medical.demander': 'Visite médicale demandée',
   'medical.annuler': 'Demande de visite annulée',
   'medical.avis': 'Avis du médecin du travail',
+  'medical.suivi': 'Type de suivi médical',
   // Référentiels
   'referentiel.formation.enregistrer': 'Formation du catalogue créée ou modifiée',
   'referentiel.formation.archiver': 'Formation archivée ou rétablie',
@@ -88,12 +100,16 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'referentiel.poste.enregistrer': 'Poste créé ou modifié',
   'referentiel.poste.archiver': 'Poste archivé ou rétabli',
   'referentiel.equipe.exigences': 'Exigences communes d’une équipe',
+  'referentiel.activite.enregistrer': 'Activité interne créée ou renommée',
+  'referentiel.activite.archiver': 'Activité interne archivée ou rétablie',
   'migration.postes': 'Reprise : postes créés depuis les fiches',
   // Demandes des collaborateurs
   'demande.formation': 'Demande de formation',
   'demande.habilitation': 'Demande d’habilitation',
   'demande.accepter': 'Demande acceptée',
   'demande.refuser': 'Demande refusée',
+  'demande.annuler': 'Demande retirée par son auteur',
+  'demande.reouvrir': 'Demande rouverte',
   // Déplacements
   'voyage.creer': 'Déplacement créé',
   'voyage.detachement': 'Formalités de détachement',
@@ -111,7 +127,9 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'temps.submit': 'Feuille de temps soumise',
   'temps.validate': 'Feuille de temps validée',
   'temps.reject': 'Feuille de temps renvoyée',
+  'temps.rouvrir': 'Feuille de temps validée rouverte',
   'temps.correction': 'Correction d’heures par le manager ou le RH',
+  'temps.ferie': 'Heures saisies un jour férié',
   'temps.pushSage': 'Transmission à la paie',
   'paie.rubrique': 'Rubrique de paie Sage',
   'paie.lotGenerer': 'Lot de paie généré',
@@ -119,8 +137,13 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'paie.lotAnnuler': 'Lot de paie annulé',
   'paie.formatFichier': 'Format du fichier d’import Sage',
   'sage.fichier': 'Fichier d’import Sage téléchargé',
+  'sage.variables': 'Variables de paie de la période exportées',
+  'migration.absencesPaie': 'Absences antérieures laissées à la saisie dans Sage',
   'temps.relancer': 'Relance des feuilles de temps',
   'temps.validerLot': 'Validation groupée des feuilles de temps',
+  'temps.derogationDominicale': 'Dérogation au repos dominical d’une équipe',
+  'mandat.enregistrer': 'Mandat au CSE enregistré ou modifié',
+  'mandat.supprimer': 'Mandat au CSE retiré',
   // Absences et congés
   'absence.demander': 'Demande d’absence',
   'absence.decider': 'Décision sur une absence',
@@ -132,6 +155,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'cet.placer': 'Placement sur le compte épargne-temps',
   'report.accorder': 'Report de congés payés',
   'conges.cloturer': 'Clôture d’une période de congés',
+  'conges.informer': 'Information sur les congés au retour d’un arrêt',
   // Entretiens
   'entretien.planifier': 'Entretien planifié',
   'entretien.annuler': 'Entretien annulé',
@@ -182,13 +206,16 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'keystone.verdict.modifie': 'Message à Keystone : verdict Go / No Go modifié (simulation)',
   'keystone.deplacement.modifie': 'Message à Keystone : déplacement modifié (simulation)',
   'keystone.deplacement.annule': 'Message à Keystone : déplacement annulé (simulation)',
-  'sage.echec': 'Envoi à Sage Paie en échec',
   // Mise à jour de la base
   'migration.detachement': 'Reprise des formalités de détachement',
   'migration.soldes': 'Datation des compteurs repris et des reports de CP',
   'migration.heuresSup': 'Reprise : mode des heures supplémentaires figé sur les feuilles validées',
   'migration.lotsPaie': 'Reprise : feuilles déjà transmises réunies en un lot historique',
+  'migration.rubriquesFeuilles': 'Reprise : rubriques transmises de chaque feuille des lots de paie',
   'migration.coutReel': 'Reprise du coût réel des actions réalisées du plan',
+  'migration.referencesDeplacements': 'Reprise : référence donnée aux déplacements importés sans référence',
+  // Contrôle d'intégrité du démarrage (server/src/integrite.ts) : références orphelines, nombres seulement.
+  'integrite.orphelins': 'Contrôle d’intégrité : références orphelines dans la base',
 };
 
 /** Libellé d'un code ; un e-mail simulé (`email.<nature>`, sans boîte d'envoi) est nommé par sa nature. */
@@ -217,14 +244,14 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.'] },
   { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'migration.coutReel'] },
   { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.'] },
-  { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes)', prefixes: ['referentiel.', 'migration.postes'] },
+  { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
-  { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement'] },
-  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'migration.heuresSup', 'migration.lotsPaie'] },
+  { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement', 'migration.referencesDeplacements'] },
+  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'mandat.', 'migration.heuresSup', 'migration.lotsPaie', 'migration.absencesPaie', 'migration.rubriquesFeuilles'] },
   { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.', 'conges.', 'migration.soldes'] },
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
   { id: 'reprise', label: 'Mise en service (reprise depuis Lucca)', prefixes: ['reprise.'] },
-  { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.', 'confidentialite.'] },
+  { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.', 'confidentialite.', 'integrite.'] },
   { id: 'connexions', label: 'Connexions et accès', prefixes: ACTIONS_CONNEXION },
   {
     id: 'integrations', label: 'Intégrations (Keystone, e-mails)',
@@ -256,6 +283,7 @@ export const CHAMP_LABEL: Record<string, string> = {
   archive: 'Archivée le',
   matriculePaie: 'Matricule de paie', identifiantKeystone: 'Identifiant envoyé à Keystone', politiqueReportCp: 'Politique de report des CP',
   rttAnneeSuivanteDes: 'RTT de l’année suivante posables à partir du',
+  cpMaladie: 'Acquisition des CP pendant un arrêt maladie',
   heuresSupMode: 'Heures supplémentaires', heuresSupAccord: 'Accord sur le repos de remplacement', periodeRattachement: 'Semaine à cheval sur deux mois',
   clotureJour: 'Jour de clôture des variables de paie', codeSage: 'Code Sage', confirmeLe: 'Code Sage confirmé le',
   suiviSemaines: 'Semaines du suivi des feuilles de temps', feuilleLimiteJour: 'Feuille de temps attendue le (jour de la semaine suivante)',
@@ -270,7 +298,25 @@ export const CHAMP_LABEL: Record<string, string> = {
   coutReel: 'Coût réel', effectifReel: 'Effectif réel',
   // Récapitulatif des échéances (Paramètres → Messagerie) ; annulation d'un déplacement.
   relancesActives: 'Récapitulatif des échéances', relancesPaliers: 'Paliers de relance (jours)', relancesJour: 'Envoi du récapitulatif des échéances',
+  // Formations : heures des sessions dans les feuilles de temps (Paramètres → Formations) ; session sur plusieurs jours.
+  formationsTemps: 'Heures de formation proposées dans les feuilles de temps', jours: 'Jours de la session',
   annuleLe: 'Annulé le', annuleMotif: 'Motif de l’annulation',
+  // Semaine à 7 jours (heures du dimanche), activités internes et mandats au CSE (heures de délégation).
+  majorationDimanche: 'Majoration des heures du dimanche (%)', role: 'Mandat', credit: 'Crédit d’heures par mois',
+  // Suivi médical : périodicités (Paramètres → Santé), case « suivi individuel renforcé » des habilitations et des postes.
+  santeVipMois: 'Périodicité de la visite d’information et de prévention (mois)', santeVipAdapteeMois: 'Périodicité de la VIP adaptée (mois)',
+  santeSirIntermediaireMois: 'Suivi renforcé : visite intermédiaire (mois)', santeSirAptitudeMois: 'Suivi renforcé : examen d’aptitude (mois)',
+  santeMiCarriereAge: 'Âge de la visite de mi-carrière',
+  sir: 'Suivi individuel renforcé',
+  expose: 'Exposé à des risques particuliers',
+  // Paramètres → Décompte des heures : fériés, heures complémentaires, moyenne sur 12 semaines, contingent.
+  feriesTravaillesAutorises: 'Saisie d’heures un jour férié', tauxMajorationFerie: 'Majoration des jours fériés hors 1er mai (%)',
+  plafondHeuresComplementaires: 'Plafond des heures complémentaires', heuresComplementairesAccord: 'Accord sur les heures complémentaires',
+  moyenne12SemainesMax: 'Moyenne maximale sur 12 semaines (h)', moyenne12SemainesAccord: 'Accord sur la moyenne de 12 semaines',
+  contingentHeuresSup: 'Contingent annuel d’heures supplémentaires (h)', contingentAlerte: 'Alerte du contingent (%)',
+  contingentAccord: 'Référence du contingent', ferie: 'Jour férié', cor: 'Contrepartie obligatoire en repos (h)',
+  // Absences dans le fichier d'import de la paie (Paramètres → Absences et paie).
+  absencesFichierPaie: 'Absences dans le fichier d’import de la paie', absencesPaieAPartirDu: 'Absences transmises à la paie à partir du',
 };
 
 const valeur = (v: unknown): string => {

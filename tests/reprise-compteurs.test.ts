@@ -175,7 +175,7 @@ test('t021 transmission à Sage (simulation) : matricule de paie, salarié sans 
     db.insert('feuilles', { empId, week: semaine, statut: 'validee', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-MAINT', tache: '', ks: false, h: [7, 7, 7, 7, 7] }], contrat: null });
   }
   const msg = message(run(ADMIN, 'temps.pushSage', {}));
-  assert.match(msg, /simulation, rien n’est envoyé à Sage Paie.* · 1 salarié sans matricule de paie \(Bastien Morel\), sous le matricule Cursus et refusés d’une transmission réelle$/);
+  assert.match(msg, /simulation, rien n’est envoyé à Sage Paie.* · 1 salarié sans matricule de paie \(Bastien Morel\), sous le matricule Cursus et refusés d’une transmission réelle · 5 absences$/);
   const lot = db.all<{ contenu: { lignes: { matricule: string; semaine: string }[] } }>('lotsPaie').at(-1)!;
   const lignes = lot.contenu.lignes.filter(l => l.semaine === '2026-S41');
   assert.deepEqual(lignes.map(l => l.matricule).sort(), ['004102', 'EMP-0024']);
@@ -207,8 +207,8 @@ test('t021 Keystone : matricule Cursus par défaut ; réglage « matricule de pa
   // Verdict Go / No Go : ressources désignées par le matricule de paie.
   const dp = domain();
   const ch = dp.evaluateChantiers(dp.enrich(90, false), dp.tripsAll()).find(x => x.c.id === 'K-2614')!;
-  assert.ok(dp.verdictKeystone(ch, false).ressources.some(r => r.matricule === '004102'));
-  assert.ok(dp.verdictKeystone(ch, false).ressources.every(r => !/^EMP-0002$/.test(r.matricule)));
+  assert.ok(dp.verdictKeystone(ch, false, '2026-10-10T05:00:00.000Z').ressources.some(r => r.matricule === '004102'));
+  assert.ok(dp.verdictKeystone(ch, false, '2026-10-10T05:00:00.000Z').ressources.every(r => !/^EMP-0002$/.test(r.matricule)));
 });
 
 test('t021 réembauche : deux fiches au même matricule de paie, Keystone désigne la fiche présente', () => {
@@ -269,7 +269,8 @@ test('t072 migration nommée : compteurs et reports d’une base existante daté
   const aDater = () => (db.sql.prepare('SELECT (SELECT COUNT(*) FROM soldes_reprise WHERE arrete_le IS NULL) + (SELECT COUNT(*) FROM reports WHERE periode IS NULL) AS n').get() as { n: number }).n;
   assert.equal(aDater(), 26);
   assert.equal(SOLDES_DATES.necessaire!(db), true);
-  assert.deepEqual(appliquerMigrations(db), ['lot4-exploitation-index-journal', 'lot4-exploitation-index-envois', 'lot4-exploitation-index-keystone', 'lot4-reprise-soldes-dates', 'lot4-paie-heures-sup', 'lot4-entretiens-cout-reel', 'lot4-referentiels-postes', 'lot4-paie-lots-historiques']);
+  // Lot 5 : sessions sur plusieurs jours (base neuve : exécutée, sans effet) ; INT-FORM déjà chargée par la démonstration.
+  assert.deepEqual(appliquerMigrations(db), ['lot4-exploitation-index-journal', 'lot4-exploitation-index-envois', 'lot4-exploitation-index-keystone', 'lot4-reprise-soldes-dates', 'lot4-paie-heures-sup', 'lot4-entretiens-cout-reel', 'lot4-referentiels-postes', 'lot4-paie-lots-historiques', 'lot5-paie-mode-api-retire', 'lot5-voyages-references', 'lot5-temps-semaine-7-jours', 'lot5-conges-demi-journees', 'lot5-formations-plage-sessions', 'lot5-exploitation-index-salaries', 'lot5-paie-absences-anterieures', 'lot5-paie-rubriques-par-feuille']);
   const ds = loadFull(db, ADMIN);
   assert.ok(ds.soldesReprise.every(s => s.arreteLe === '2026-10-10'), 'date de mise en service de cette version');
   const recu = ds.reports.find(r => r.empId === 6)!, accorde = ds.reports.find(r => r.empId === 2)!;
@@ -338,11 +339,15 @@ test('t072 clôture des CP : aucune perte d’office, report imposé après une 
   assert.deepEqual(cloturesAFaire(juin).map(x => [x.type, x.periode]), [['CP', 2026], ['RTT', 2026]]);
   const lignes = lignesClotureCp(juin, 2026), ligne = (id: number) => lignes.find(l => l.e.id === id)!;
   assert.ok(!lignes.some(l => l.e.id === 15), 'intérimaire : congés gérés par l’agence');
-  // Arrêt maladie (13), maternité (19), absence à qualifier (20) dans la période : perte impossible, tout le solde reporté 15 mois.
-  for (const id of [13, 19, 20]) {
+  // Arrêt maladie (13, 3 j ouvrés), maternité (19, plus que son solde), absence à qualifier (20, 8 j ouvrés) dans la période
+  // de prise : les jours qu'ils ont empêché de prendre sont reportés 15 mois, dans la limite du solde (lot 5, t041). La
+  // proposition reporte tout le solde : le reste n'est jamais prérempli comme perdu (aucune perte d'office).
+  for (const [id, legal] of [[13, 3], [19, ligne(19).solde], [20, 8]]) {
     assert.equal(ligne(id).impose, 'report_legal', `salarié ${id}`);
-    assert.deepEqual([ligne(id).legal, ligne(id).expireLegal, ligne(id).proposition.decision], [ligne(id).solde, '2028-08-31', 'reporter']);
+    assert.deepEqual([ligne(id).legal, ligne(id).expireLegal, ligne(id).proposition.decision, ligne(id).proposition.jours], [legal, '2028-08-31', 'reporter', ligne(id).solde]);
   }
+  assert.ok(ligne(13).solde > 3 && ligne(20).solde > 8, 'le reste du solde est au choix du service RH');
+  assert.deepEqual([ligne(13).empeches, ligne(13).acquisArret], [3, 0]);
   // Thomas (6) : seuls les 4 j de son report légal (jusqu'au 31 août 2027) sont imposés ; le reste est au choix du RH.
   assert.deepEqual([ligne(6).impose, ligne(6).legal, ligne(6).expireLegal], ['report_en_cours', 4, '2027-08-31']);
   assert.ok(ligne(6).solde > 4);
@@ -373,7 +378,9 @@ test('t072 clôture des CP : aucune perte d’office, report imposé après une 
   const apres = loadFull(db, ADMIN);
   const c = (id: number) => apres.clotures.find(x => x.empId === id && x.type === 'CP' && x.periode === 2026);
   assert.deepEqual([c(3)!.decision, c(3)!.perdus, c(3)!.reportes], ['perdre', ligne(3).solde, 0]);
-  assert.deepEqual([c(13)!.decision, c(13)!.motif, c(13)!.expire], ['reporter', 'report_legal', '2028-08-31']);
+  // Tout le solde de Marion reporté : 3 j de report légal jusqu'au 31 août 2028, le reste jusqu'au 31 mai 2028.
+  assert.deepEqual([c(13)!.decision, c(13)!.motif, c(13)!.expire], ['reporter', 'report_legal', '2028-05-31']);
+  assert.deepEqual(apres.reports.filter(r => r.empId === 13 && r.sens === 'recu').map(r => [r.jours, r.expire]).sort(), [[3, '2028-08-31'], [ligne(13).solde - 3, '2028-05-31']]);
   assert.equal(c(1), undefined, 'demande en attente : reste à clôturer');
   assert.equal(c(10), undefined, 'solde nul mais demande en attente : pas clos d’office');
   // Thomas : 4 j reportés jusqu'au 31 août 2027 (report légal), le reste perdu sur décision du RH.

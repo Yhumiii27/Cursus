@@ -8,7 +8,8 @@ import { cap, equipeLabel, fmt, fmtShort, plural, rel } from '../../../shared/fo
 import { exigencesEquipe, nombreExigences } from '../../../shared/rules/exigences.ts';
 import { declarationDetail, retireeAuRefus, valeurActuelle } from '../../../shared/rules/formalites.ts';
 import type { DemandeCollab, Session } from '../../../shared/types.ts';
-import { Bar, DateBlock, Kpi, Kpis, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
+import { finSession, joursSession, plageCourte, plageTexte, surPlusieursJours } from '../../../shared/rules/plage-session.ts';
+import { Bar, DateBlock, Empty, Kpi, Kpis, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
 import { Ouvrir } from '../components/Cliquable.tsx';
 import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derived.ts';
 import { useAgir } from '../state/actions.ts';
@@ -35,11 +36,15 @@ export function EchRow({ x, onOpen, onAct }: { x: EchItem; onOpen: () => void; o
   );
 }
 
-/** Ligne de session : date, formation, lieu, remplissage, statut (passée à clôturer, complète…). */
+/**
+ * Ligne de session : date (premier jour), plage (« 21 oct. → 23 oct. 2026 » sur plusieurs jours), formation, lieu,
+ * remplissage, statut (passée à clôturer, complète…).
+ */
 export function sessionView(d: Domain, s: Session, nom: string) {
   const full = s.inscrits >= s.places;
   const statut = d.sessionStatut(s);
-  return { full, statut, cls: SESS_CLS[statut], pct: Math.round(s.inscrits / s.places * 100), nom, date: parse(s.date) };
+  const jours = surPlusieursJours(s) ? ` · ${plural(joursSession(s).length, 'jour', 'jours')}` : '';
+  return { full, statut, cls: SESS_CLS[statut], pct: Math.round(s.inscrits / s.places * 100), nom, date: parse(s.date), plage: plageCourte(s), jours };
 }
 
 function reqLabel(r: DemandeCollab, fmNom: (id: string) => string, hmNom: (id: string) => string) {
@@ -58,7 +63,9 @@ export function Dashboard() {
   const permis = useIntentPermis();
   const { occupe, agir } = useAgir();
   const data = d.ds;
-  const aCloturer = d.aCloturer();
+  // Sessions passées, puis sessions sur plusieurs jours à leur dernier jour (clôturables dès ce jour-là).
+  const dernierJour = d.enCours().filter(s => finSession(s) === d.ti);
+  const aCloturer = [...d.aCloturer(), ...dernierJour];
 
   const v = useMemo(() => {
     const ech = d.echeances(emps, horizon);
@@ -128,7 +135,7 @@ export function Dashboard() {
                   {reqs.map(r => {
                     const e = d.emp(r.empId);
                     const s = d.session(r.sessionId);
-                    const detail = [r.motif, s ? `session souhaitée le ${fmt(parse(s.date))}${sessionActive(s) ? '' : ` (${s.statut.toLowerCase()})`}` : ''].filter(Boolean).join(' · ');
+                    const detail = [r.motif, s ? `session souhaitée ${plageTexte(s)}${sessionActive(s) ? '' : ` (${s.statut.toLowerCase()})`}` : ''].filter(Boolean).join(' · ');
                     const x = r.declaration;
                     // Formation ou habilitation archivée depuis la demande : elle ne s'accepte plus (refus du serveur).
                     const archivee = r.type === 'formation' ? !!(r.f && d.fm(r.f)?.archive) : r.type === 'habilitation' && !!(r.h && d.hm(r.h)?.archive);
@@ -182,14 +189,17 @@ export function Dashboard() {
 
         <Panel style={{ flex: '1 1 560px' }} title="Échéances prioritaires"
           aside={<a href="/echeances" className="link-more" onClick={e => { e.preventDefault(); go('echeances'); }}>Toutes les échéances →</a>}>
-          <table className="table">
-            <thead><tr><th>Collaborateur</th><th>Élément</th><th>Échéance</th><th>Statut</th><th></th></tr></thead>
-            <tbody>
-              {v.priority.map(x => (
-                <EchRow key={`${x.kind}-${x.emp.id}-${x.label}`} x={x} onOpen={() => openEmp(x.emp.id)} onAct={() => x.action && runIntent(x.action.intent)} />
-              ))}
-            </tbody>
-          </table>
+          {/* Liste vide (base neuve, tout à jour) : un message plutôt qu'un tableau sans ligne. */}
+          {v.priority.length === 0 ? <Empty pad="md">Aucune échéance dans les {horizon} jours.</Empty> : (
+            <table className="table">
+              <thead><tr><th>Collaborateur</th><th>Élément</th><th>Échéance</th><th>Statut</th><th></th></tr></thead>
+              <tbody>
+                {v.priority.map(x => (
+                  <EchRow key={`${x.kind}-${x.emp.id}-${x.label}`} x={x} onOpen={() => openEmp(x.emp.id)} onAct={() => x.action && runIntent(x.action.intent)} />
+                ))}
+              </tbody>
+            </table>
+          )}
         </Panel>
 
         <div className="col-stack" style={{ flex: '1 1 320px' }}>
@@ -201,7 +211,7 @@ export function Dashboard() {
                     <DateBlock date={parse(s.date)} />
                     <div className="grow">
                       <div className="ellipsis" style={{ fontSize: 14 }}><Ouvrir onOpen={() => openDialog({ type: 'sessionDetail', sessionId: s.id })}>{d.fm(s.formation).court}</Ouvrir></div>
-                      <div className="note-accent ellipsis">{SESSION_PASSEE} · {plural(s.inscrits, 'inscrit', 'inscrits')}</div>
+                      <div className="note-accent ellipsis">{dernierJour.includes(s) ? 'Dernier jour' : SESSION_PASSEE} · {plural(s.inscrits, 'inscrit', 'inscrits')}{surPlusieursJours(s) ? ` · ${plageCourte(s)}` : ''}</div>
                     </div>
                     {formations && <button type="button" className="btn btn-ghost btn-sm" style={{ flex: 'none' }} onClick={stop(() => openDialog({ type: 'cloture', sessionId: s.id }))}>Clôturer</button>}
                   </div>
@@ -211,6 +221,7 @@ export function Dashboard() {
           )}
 
           <Panel title="Conformité par équipe" style={{ gap: 'var(--space-4)' }}>
+            {v.teams.length === 0 && <Empty>Aucune équipe.</Empty>}
             <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
               {v.teams.map(t => (
                 <div key={t.nom} style={{ display: 'grid', gridTemplateColumns: '124px minmax(0, 1fr) 48px', alignItems: 'center', gap: 'var(--space-3)', fontSize: 13 }}>
@@ -223,6 +234,7 @@ export function Dashboard() {
           </Panel>
 
           <Panel title="Prochaines sessions" aside={<a href="/formations" className="link-more" onClick={e => { e.preventDefault(); go('formations'); }}>Toutes →</a>}>
+            {upcoming.length === 0 && <Empty>Aucune session à venir.</Empty>}
             <div className="list">
               {upcoming.slice(0, 3).map(s => {
                 const sv = sessionView(d, s, d.fm(s.formation).court);
@@ -231,7 +243,7 @@ export function Dashboard() {
                     <DateBlock date={sv.date} />
                     <div className="grow">
                       <div className="ellipsis" style={{ fontSize: 14 }}><Ouvrir onOpen={() => openDialog({ type: 'sessionDetail', sessionId: s.id })}>{sv.nom}</Ouvrir></div>
-                      <div className="text-muted sub ellipsis">{s.lieu} · {s.inscrits}/{s.places} inscrits</div>
+                      <div className="text-muted sub ellipsis">{s.lieu} · {s.inscrits}/{s.places} inscrits{sv.jours}</div>
                     </div>
                     <Tag cls={sv.cls} style={{ flex: 'none' }}>{sv.statut}</Tag>
                   </div>
@@ -242,6 +254,7 @@ export function Dashboard() {
 
           {/* Dossiers de voyage (passeport, visas, vaccinations) : service RH seulement. */}
           {rh && <Panel title="Déplacements à préparer" aside={<a href="/voyages" className="link-more" onClick={e => { e.preventDefault(); go('voyages'); }}>Tous →</a>}>
+            {trips.length === 0 && <Empty>Aucun déplacement à préparer.</Empty>}
             <div className="list">
               {trips.slice(0, 3).map(t => (
                 <div key={t.id} className="list-row clickable" onClick={() => go('voyages', { tripSel: t.id })}>

@@ -55,22 +55,27 @@ function fresh() {
   return { db, run, domain, emp, echeance, verdict, motifs, chantier, envoyes, demandes, titre };
 }
 const refus = (re: RegExp, status = 400) => (e: unknown) => e instanceof ActionError && e.status === status && re.test(e.message);
+const jour = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 // — t056 : échéance d'aptitude médicale —
 
 test('t056 : l’aptitude médicale a son échéance (type Visite médicale), avec action, et compte dans le statut', () => {
   const { db, domain, emp, echeance } = fresh();
   const d = domain(), ech = d.echeances(d.enrich(90, false), 90).filter(x => x.kind === 'med');
-  assert.equal(ech.length, 24, 'une échéance d’aptitude par collaborateur');
+  // Une échéance d'aptitude par collaborateur, celle de Bastien Morel (aucune visite) remplacée par sa visite d'embauche ;
+  // visites dues à un événement en plus (shared/rules/visites-dues.ts, tests/visites-dues.test.ts).
+  assert.equal(ech.filter(x => !x.motifVisite).length, 23);
+  assert.deepEqual(ech.filter(x => x.motifVisite).map(x => [x.emp.id, x.motifVisite]), [[3, 'mi_carriere'], [19, 'reprise'], [23, 'mi_carriere'], [24, 'embauche']]);
 
   // Thomas Garnier : visite du 20 août 2024, aptitude échue le 20 août 2026.
   const thomas = echeance(6)!;
   assert.deepEqual([thomas.kindLabel, thomas.label, thomas.statut, thomas.key, thomas.exp.getTime(), thomas.d], ['Visite médicale', 'Aptitude médicale', 'Échue', 'exp', new Date(2026, 7, 20).getTime(), -51]);
   assert.deepEqual(thomas.action, { label: 'Demander la visite', intent: { type: 'medical', empId: 6 } });
-  // Bastien Morel : aucune visite enregistrée, visite d'embauche déjà demandée (jeu de démonstration).
+  // Bastien Morel : aucune visite enregistrée, entré le 1er sept. 2025 : visite d'embauche dépassée depuis le 1er déc. 2025,
+  // déjà demandée (jeu de démonstration).
   const bastien = echeance(24)!;
-  assert.deepEqual([bastien.label, bastien.statut, bastien.key, bastien.sansDate, bastien.planned, bastien.plannedLabel, bastien.action],
-    ['Visite médicale non renseignée', 'Non renseignée', 'exp', true, true, 'Visite demandée le 5 oct.', null]);
+  assert.deepEqual([bastien.label, bastien.statut, bastien.key, !!bastien.sansDate, jour(bastien.exp), bastien.planned, bastien.plannedLabel, bastien.action],
+    ['Visite d’embauche', 'Dépassée', 'exp', false, '2025-12-01', true, 'Visite demandée le 5 oct.', null]);
   assert.equal(emp(24).worst, 'exp', 'collaborateur sans visite : non conforme');
 
   // Fatou Ndiaye n'a aucune habilitation : son aptitude compte quand même dans le statut.
@@ -111,8 +116,8 @@ test('Go / No Go : aptitude non valide aujourd’hui → réserve APTITUDE ; Key
   assert.deepEqual(motifs('K-M1', 7), ['APTITUDE:reserve'], 'une seule réserve pour le retard et les restrictions');
   assert.equal(verdict('K-M1', 7).reasons[0].detailed, 'Visite médicale périodique en retard · Restrictions d’aptitude en vigueur : affectation à vérifier avec le service RH');
   const d = domain(), ch = d.evaluateChantiers(d.enrich(90, false), d.tripsAll()).find(x => x.c.id === 'K-M1')!;
-  assert.deepEqual(d.verdictKeystone(ch, true).ressources[0].motifs, [{ code: 'APTITUDE', niveau: 'GO_RESERVE', libelle: 'Aptitude médicale à vérifier avec le service RH' }]);
-  assert.deepEqual(d.keystonePayload(ch, true).ressources[0].motifs, [{ code: 'APTITUDE', libelle: 'Aptitude médicale à vérifier avec le service RH' }]);
+  assert.deepEqual(d.verdictKeystone(ch, true, '2026-10-10T05:00:00.000Z').ressources[0].motifs, [{ code: 'APTITUDE', niveau: 'GO_RESERVE', libelle: 'Aptitude médicale à vérifier avec le service RH' }]);
+  assert.deepEqual(d.keystonePayload(ch, true, '2026-10-10T05:00:00.000Z').ressources[0].motifs, [{ code: 'APTITUDE', libelle: 'Aptitude médicale à vérifier avec le service RH' }]);
 });
 
 test('Go / No Go : le motif APTITUDE ne dépend pas des dates de présence — une sonde de Keystone n’apprend ni visite ni fin de restriction', () => {
@@ -123,7 +128,7 @@ test('Go / No Go : le motif APTITUDE ne dépend pas des dates de présence — u
     const id = `K-SONDE-${++n}`;
     chantier(id, { nom: 'Sonde', lieu: 'Lyon', pays: 'FR', debut: jour, fin: jour }, [[empId, jour, jour]]);
     const d = domain(), ch = d.evaluateChantiers(d.enrich(90, false), d.tripsAll()).find(x => x.c.id === id)!;
-    return JSON.stringify(d.verdictKeystone(ch, true).ressources[0].motifs);
+    return JSON.stringify(d.verdictKeystone(ch, true, '2026-10-10T05:00:00.000Z').ressources[0].motifs);
   };
   // Mehdi Benali : visite du 15 juin 2025, aptitude jusqu'au 15 juin 2027. Avant et après l'échéance : mêmes motifs.
   assert.equal(sonde(2, '2027-06-14'), sonde(2, '2027-06-16'));
@@ -180,7 +185,7 @@ test('t062 : avis avec restrictions — restrictions datées, habilitation incom
   // rapporté aux dates de présence) ; le titre reste suspendu.
   assert.deepEqual(motifs('K-R2', 2), ['APTITUDE:reserve', 'HABILITATION_SUSPENDUE:nogo']);
   const d = domain(), ch = d.evaluateChantiers(d.enrich(90, false), d.tripsAll()).find(x => x.c.id === 'K-R1')!;
-  const detaille = JSON.stringify(d.verdictKeystone(ch, true));
+  const detaille = JSON.stringify(d.verdictKeystone(ch, true, '2026-10-10T05:00:00.000Z'));
   for (const x of ['charges', '15 kg', 'hauteur', 'estriction', '2026-10-08', '8 oct.', '31 déc.']) assert.ok(!detaille.includes(x), `rien de l’avis dans le verdict : ${x}`);
   assert.deepEqual(envoyes().filter(v => v.chantier === 'K-R1').at(-1)!.ressource.motifs, [{ code: 'APTITUDE', niveau: 'GO_RESERVE' }]);
 
@@ -230,7 +235,7 @@ test('t062 : contrôles de l’avis et des habilitations désignées', () => {
   assert.throws(() => run(KARIM, 'medical.avis', { empId: 2, date: '2026-10-08', avis: 'apte' }), refus(/service RH/, 403));
   // Règle partagée avec le dialogue : lignes vides ignorées, espaces normalisés, sans terme → null ; hors restrictions, vidées.
   assert.deepEqual(controlerAvis({ date: '2026-10-01', avis: 'restrictions', restrictions: [{ texte: ' Pas  de conduite ', jusquau: '' }, { texte: ' ', jusquau: '' }] }, '2026-10-10'),
-    { avis: { date: '2026-10-01', avis: 'restrictions', restrictions: [{ texte: 'Pas de conduite', jusquau: null }] }, errors: [] });
+    { avis: { date: '2026-10-01', avis: 'restrictions', restrictions: [{ texte: 'Pas de conduite', jusquau: null }], prochaineVisite: null, examen: false }, errors: [] });
   assert.deepEqual(controlerAvis({ date: '2026-10-01', avis: 'apte', restrictions: [{ texte: 'x', jusquau: '' }] }, '2026-10-10').avis.restrictions, []);
 });
 

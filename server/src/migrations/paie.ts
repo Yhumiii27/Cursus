@@ -1,12 +1,18 @@
 // Migrations nommées du chantier « paie » (lot 4) : mode des heures supplémentaires figé sur les feuilles validées ;
-// feuilles déjà transmises réunies en un lot de paie historique.
+// feuilles déjà transmises réunies en un lot de paie historique. Lot 5 : ancien mode « api » des lots retiré ; absences
+// des périodes passées laissées à la saisie dans Sage (premier jour transmis par le fichier d'import) ; rubriques
+// transmises de chaque feuille reprises dans le contenu des lots (réouverture d'une feuille transmise, t131).
 import { randomUUID } from 'node:crypto';
 import { isoParis } from '../../../shared/dates.ts';
 import { Domain } from '../../../shared/domain.ts';
 import { matricule, plural } from '../../../shared/format.ts';
+import { matriculeAffiche } from '../../../shared/rules/matricules.ts';
 import { recupInfo } from '../../../shared/rules/conges.ts';
-import { periodesSemaine } from '../../../shared/rules/paie.ts';
+import { periodeOuverte, periodesSemaine } from '../../../shared/rules/paie.ts';
 import type { CurrentUser, Dataset, FeuilleTemps } from '../../../shared/types.ts';
+import { lireDepuis, poserDepart } from '../absences-paie.ts';
+import type { LotEnregistre } from '../lots-paie.ts';
+import { rubriquesFeuillesDuLot } from '../regularisation-paie.ts';
 import { journaliser } from '../comptes.ts';
 import { loadFull, loadSettings, todayIso } from '../dataset.ts';
 import type { Db } from '../db.ts';
@@ -69,7 +75,7 @@ const transmisesSansLot = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS
  * Feuilles transmises sans lot réunies en un lot « historique », transmis, au contenu inconnu (avant les lots, seule la
  * dernière transmission était gardée, réglage `lastSagePush`, écrasé à chaque fois) : elles ne repartent jamais, et
  * l'historique des lots les montre. Mode de la dernière transmission connue (la simulation, seul mode qui marquait des
- * feuilles avant le lot 4), daté de celle-ci à défaut de mieux (`date` : date imposée). Renvoie le lot créé, ou null.
+ * feuilles avant le lot 4 ; l'ancien mode « api » devient « fichier », mode réel), daté de celle-ci à défaut de mieux (`date` : date imposée). Renvoie le lot créé, ou null.
  * Appelée aussi par le jeu de démonstration (server/src/seed.ts), dont les plus anciennes feuilles sont déjà transmises.
  */
 export function lotHistorique(db: Db, auteur = 'Cursus', date?: string): { id: number; feuilles: { empId: number; week: string }[] } | null {
@@ -87,7 +93,7 @@ export function lotHistorique(db: Db, auteur = 'Cursus', date?: string): { id: n
   const periodes = [...new Set([...parts.map(x => x.periode), ...annoncees])].sort();
   const rappels = [...new Set(parts.flatMap(x => (x.origine ? [x.origine] : [])))].sort();
   const lot = db.insert<{ id: number }>('lotsPaie', {
-    cle: randomUUID(), mode: dernier?.mode === 'api' || dernier?.mode === 'fichier' ? dernier.mode : 'simulation', statut: 'transmis',
+    cle: randomUUID(), mode: dernier?.mode === 'api' || dernier?.mode === 'fichier' ? 'fichier' : 'simulation', statut: 'transmis',
     periode: periodes.at(-1), periodes, rappels, creation: quand, auteur, feuilles,
     resume: { lignes: 0, salaries: new Set(feuilles.map(f => f.empId)).size, rubriques: {} }, sansMatricule: [], contenu: null,
     telechargeLe: null, telechargePar: null, telechargements: 0, confirmeLe: quand, confirmePar: auteur, reference: null,
@@ -115,5 +121,81 @@ export const LOTS_HISTORIQUES: Migration = {
       payload: { lot: lot.id, feuilles: lot.feuilles }, salaries: lot.feuilles.map(f => f.empId),
     });
     return `${plural(lot.feuilles.length, 'feuille transmise', 'feuilles transmises')} : lot historique n° ${lot.id}`;
+  },
+};
+
+/** Lots de paie enregistrés dans l'ancien mode « api » (lot historique repris d'une transmission sous SAGE_URL). */
+const lotsModeApi = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS n FROM lots_paie WHERE mode = 'api'`).get() as { n: number }).n);
+
+/**
+ * Lot 5 : le mode « api » disparaît (la paie importe le fichier dans Sage, décision du 15 octobre 2026). Un lot
+ * historique repris d'une transmission faite sous l'ancienne bascule SAGE_URL portait ce mode : il passe en « fichier »,
+ * mode réel (ni l'un ni l'autre n'a jamais rien envoyé tout seul ; le lot reste transmis, sans contenu).
+ */
+export const MODE_API_RETIRE: Migration = {
+  nom: 'lot5-paie-mode-api-retire',
+  // Base neuve : exécutée, sans effet ; base existante sans lot en mode « api » : notée faite.
+  necessaire: db => db.neuve || lotsModeApi(db) > 0,
+  executer: db => {
+    const n = Number(db.sql.prepare(`UPDATE lots_paie SET mode = 'fichier' WHERE mode = 'api'`).run().changes);
+    if (n) return `${plural(n, 'lot de paie', 'lots de paie')} de l’ancien mode « api » en mode fichier d’import`;
+  },
+};
+
+/** Absences validées d'une base existante : jusqu'au lot 5, la paie les saisissait elle-même dans Sage. */
+const absencesValidees = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS n FROM absences WHERE statut = 'validee'`).get() as { n: number }).n);
+
+/**
+ * Lot 5 (t028) : les absences validées partent dans le fichier d'import de la paie. Sur une base qui en porte déjà, la
+ * paie a saisi celles des périodes passées dans Sage : Cursus ne transmet de ces absences que les jours à partir du
+ * premier jour de la période de paie ouverte (date de départ, `poserDepart`), sans quoi elles repartiraient toutes en
+ * rappel. Une absence enregistrée après la mise à jour part entière, en rappel pour un mois clos : la paie ne l'a pas
+ * saisie. Base neuve, ou sans absence validée : la date de départ est posée par le premier lot de paie (la date de mise
+ * en service se règle dans Paramètres → Absences et paie). Tracé au journal (date et nombre d'absences, jamais leur nature).
+ */
+export const ABSENCES_ANTERIEURES: Migration = {
+  nom: 'lot5-paie-absences-anterieures',
+  // Base neuve : exécutée, sans effet (aucune absence) ; base existante sans absence validée, ou date déjà posée : notée faite.
+  necessaire: db => db.neuve || (absencesValidees(db) > 0 && lireDepuis(db) === null),
+  executer: db => {
+    if (!absencesValidees(db)) return;
+    const r = poserDepart(db, `${periodeOuverte(todayIso(), loadSettings(db).clotureJour)}-01`, { actor: 'Cursus', role: null }, 'Reprise');
+    return `absences transmises à la paie à partir du ${r.depuis}`;
+  },
+};
+
+/** Lots au contenu figé d'avant les rubriques par feuille (lot 5, t131). */
+const sansRubriquesFeuilles = `FROM lots_paie WHERE contenu IS NOT NULL AND contenu <> 'null' AND json_extract(contenu, '$.rubriquesFeuilles') IS NULL`;
+const lotsAReprendre = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS n ${sansRubriquesFeuilles}`).get() as { n: number }).n);
+
+/**
+ * Lot 5 (t131) : le contenu d'un lot garde les rubriques de chaque feuille (codes Sage, par période d'origine), ce que la
+ * réouverture d'une feuille transmise reprend pour n'envoyer que l'écart. Les lots d'avant ne gardaient que les lignes,
+ * par matricule et semaine : elles sont rapprochées des feuilles du lot avec le matricule de paie actuel de chaque
+ * salarié, au plus près de la transmission (un matricule changé ensuite ne permettrait plus de les retrouver). Une
+ * feuille dont le salarié n'a aucune ligne dans le lot n'est pas reprise : sa réouverture la recalculera. Lots
+ * historiques (sans contenu) inchangés. Tracé au journal (`migration.rubriquesFeuilles` : lots et nombre de feuilles).
+ */
+export const RUBRIQUES_PAR_FEUILLE: Migration = {
+  nom: 'lot5-paie-rubriques-par-feuille',
+  // Base neuve : exécutée, sans effet ; base existante sans lot à reprendre : notée faite.
+  necessaire: db => db.neuve || lotsAReprendre(db) > 0,
+  executer: db => {
+    if (!lotsAReprendre(db)) return;
+    const employes = new Map(db.all<{ id: number; matriculePaie: string | null }>('employes').map(e => [e.id, matriculeAffiche(e)]));
+    const ids = (db.sql.prepare(`SELECT id ${sansRubriquesFeuilles}`).all() as { id: number }[]).map(r => r.id);
+    let feuilles = 0;
+    for (const id of ids) {
+      const lot = db.get<LotEnregistre>('lotsPaie', id)!;
+      const rubriquesFeuilles = rubriquesFeuillesDuLot(lot, empId => employes.get(empId) ?? null);
+      feuilles += rubriquesFeuilles.length;
+      db.update<LotEnregistre>('lotsPaie', id, { contenu: { ...lot.contenu!, rubriquesFeuilles } });
+    }
+    journaliser(db, {
+      actor: 'Cursus', role: null, action: 'migration.rubriquesFeuilles',
+      message: `Reprise : rubriques transmises de ${plural(feuilles, 'feuille', 'feuilles')} gardées dans ${plural(ids.length, 'lot de paie', 'lots de paie')}, pour leur éventuelle réouverture`,
+      payload: { lots: ids, feuilles },
+    });
+    return `${plural(ids.length, 'lot de paie', 'lots de paie')} : rubriques de ${plural(feuilles, 'feuille', 'feuilles')} reprises`;
   },
 };

@@ -2,7 +2,8 @@
 // HSE / formation tiennent les formations et les habilitations, le service RH les destinations ; la lecture seule
 // consulte. Création, modification (dialogues Ref*Dialog), archivage au lieu de la suppression (confirmé, rétabli d'un
 // clic), référentiel type à charger dans un référentiel vide, à vérifier ensuite. Règles : shared/rules/referentiels.ts.
-// Onglet Postes (formations et habilitations exigées par poste et par équipe) : pages/ReferentielsPostes.tsx.
+// Onglet Postes (formations et habilitations exigées par poste et par équipe) : pages/ReferentielsPostes.tsx ; onglet
+// Activités internes (codes INT-… et ECOLE des feuilles de temps) : pages/ReferentielsActivites.tsx.
 import { useState, type ReactNode } from 'react';
 import { PlusIcon } from '@phosphor-icons/react';
 import { SECU_RULES, VALIDATION_LABEL, VISA_RULES, secuDe } from '../../../shared/constants.ts';
@@ -16,8 +17,11 @@ import { archivageDestination, archivageFormation, archivageHabilitation, charge
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { Postes } from './ReferentielsPostes.tsx';
+import { Activites } from './ReferentielsActivites.tsx';
 
-const ONGLETS: [ReferentielId | 'postes', string][] = [['formations', 'Formations'], ['habilitations', 'Habilitations'], ['postes', 'Postes'], ['destinations', 'Destinations']];
+const ONGLETS: [ReferentielId | 'postes' | 'activites', string][] = [
+  ['formations', 'Formations'], ['habilitations', 'Habilitations'], ['postes', 'Postes'], ['destinations', 'Destinations'], ['activites', 'Activités internes'],
+];
 
 /** État d'un élément : en vigueur, ou archivé (date). */
 const Etat = ({ archive }: { archive?: ISODate | null }) => (archive
@@ -41,6 +45,7 @@ export function Referentiels() {
       {ui.refOnglet === 'habilitations' && <Habilitations />}
       {ui.refOnglet === 'postes' && <Postes />}
       {ui.refOnglet === 'destinations' && <Destinations />}
+      {ui.refOnglet === 'activites' && <Activites />}
     </Page>
   );
 }
@@ -171,8 +176,9 @@ function Habilitations() {
                   <Chips items={[
                     ...h.prereqs.map(f => ({ key: f, label: d.fm(f)?.court ?? f, cls: actif(d.fm(f)) ? 'tag-neutral' : 'tag-outline' })),
                     ...(h.medical ? [{ key: 'med', label: 'Aptitude médicale', cls: 'tag-neutral' }] : []),
+                    ...(h.sir ? [{ key: 'sir', label: 'Suivi renforcé', cls: 'tag-neutral' }] : []),
                   ]} />
-                  {!h.prereqs.length && !h.medical && <span className="text-muted">Aucun</span>}
+                  {!h.prereqs.length && !h.medical && !h.sir && <span className="text-muted">Aucun</span>}
                 </td>
                 <td className="nowrap">{validiteLabel(h.validite)}</td>
                 <td>{h.signataire}</td>

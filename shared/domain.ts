@@ -3,21 +3,25 @@
 // Fonctions pures d'un instantané de données — utilisées par le client pour
 // l'affichage et par le serveur pour valider les actions et les intégrations.
 import {
-  AVIS_MEDICAL, CERT_LABEL, CLS, DOC_LABEL, GNG_CODE, HAB_CLS, HAB_LABEL, MED_LABEL, MED_VALIDITE, MISSION_LONGUE_JOURS, RANK, SECU_RULES, SESSION_PASSEE, STATUTS,
+  AVIS_MEDICAL, CERT_LABEL, CLS, DOC_LABEL, EXAMEN_REQUIS, GNG_CODE, HAB_CLS, HAB_LABEL, MED_LABEL, MISSION_LONGUE_JOURS, RANK, SECU_RULES, SESSION_PASSEE, STATUTS,
   TEMPS_TRAVAIL, TYPES_CONTRAT, VACCINS, VISA_RULES, secuDe, type CodeMotif, type HabKey, type HabMesureAction, type StatusKey,
 } from './constants.ts';
 import { addD, addMonths, days, isFerie, iso, parse, weekday } from './dates.ts';
 import { cap, fmt, fmtShort } from './format.ts';
 import { absenceActive, absenceBloque, borneContrat, periodeTexte } from './rules/absences.ts';
 import { actifs, habSuivie } from './rules/referentiels.ts';
+import { poidsDuJour, type DemiJournees } from './rules/demi-journees.ts';
 import { echeanceExigence, exigencesManquantes, type ExigenceManquante } from './rules/exigences.ts';
 import { identifiantKeystone } from './rules/matricules.ts';
 import { echeancesContrat, etatAutorisation, present, SITUATION_A_REGULARISER } from './rules/contrats.ts';
 import { voyageActif } from './rules/deplacements.ts';
 import { restrictionEnVigueur } from './rules/sante.ts';
+import { echeanceVisite, examenRequis, prochaineTexte, suiviDe, type ProchaineVisite, type SuiviInfo } from './rules/suivi-medical.ts';
+import { finSession } from './rules/plage-session.ts';
+import { visitesDues, type VisiteDue } from './rules/visites-dues.ts';
 import type {
   AvisMedical, Certification, Chantier, Dataset, DemandeVisite, Destination, Employe, FormaliteManquante, Formation, HabTitre, HabType, ISODate,
-  Restriction, Session, Statut, TempsTravail, TripStatus, TypeContrat, VaccinId, Voyage,
+  MotifVisite, Restriction, Session, Statut, TempsTravail, TripStatus, TypeContrat, VaccinId, Voyage,
 } from './types.ts';
 
 export interface CertInfo extends Certification {
@@ -30,7 +34,7 @@ export interface CertInfo extends Certification {
   remplacee: Date | null;
 }
 /**
- * Aptitude médicale d'un collaborateur : valide (visite de moins de 24 mois, sans avis d'inaptitude), échéance,
+ * Aptitude médicale d'un collaborateur : valide (échéance de la visite non passée, sans avis d'inaptitude), échéance,
  * avis et restrictions de la dernière visite, demande de visite en cours.
  */
 export interface MedInfo {
@@ -44,6 +48,18 @@ export interface MedInfo {
   demande: DemandeVisite | null;
   /** Vue manager (ou profil restreint) : verdict seul, sans date de visite ni demande. */
   verdictSeul: boolean;
+  /**
+   * Suivi médical (shared/rules/suivi-medical.ts ; null : verdict seul) : type de suivi, visite attendue à l'échéance
+   * (date fixée par le médecin, périodique, intermédiaire ou examen d'aptitude), examen d'aptitude du suivi renforcé
+   * jamais enregistré (alerte, l'aptitude passe « à renouveler »).
+   */
+  suivi?: SuiviInfo | null;
+  prochaine?: ProchaineVisite | null;
+  examenRequis?: boolean;
+  /** Visites dues à un événement, de la plus proche à la plus lointaine (shared/rules/visites-dues.ts ; verdict seul : aucune). */
+  dues?: VisiteDue[];
+  /** Verdict seul (manager, profils restreints) : une visite due est à programmer par le service RH, sans motif ni date. */
+  aProgrammer?: boolean;
 }
 export interface PrereqCheck { type: 'cert' | 'med'; f: string | null; certId: number | null; label: string; ok: boolean; due: boolean; exp: Date | null; text: string }
 export interface HabInfo extends HabTitre {
@@ -71,7 +87,8 @@ export type UiIntent =
   | { type: 'openHab'; empId: number; h: string; mode: 'deliver' | 'renew' | 'new' }
   | { type: 'openPlan'; empId: number; certId: number }
   | { type: 'goFormation'; f: string }
-  | { type: 'medical'; empId: number }
+  /** `motif` : celui de la visite due (embauche, reprise, mi-carrière, fin de carrière), proposé dans la demande. */
+  | { type: 'medical'; empId: number; motif?: MotifVisite }
   | { type: 'openFormalite'; empId: number; kind: FormaliteKind; dest?: string; v?: VaccinId }
   | { type: 'openCloture'; sessionId: number }
   /** Habilitation exigée jamais délivrée : titre demandé (`hab.demander`), « en attente » de délivrance. */
@@ -97,6 +114,8 @@ export interface EchItem {
   sansDate?: boolean;
   /** Texte de la colonne « Échéance » d'une échéance sans date autre qu'une visite (exigence manquante). */
   sansDateTexte?: { main: string; sub: string };
+  /** Visite due à un événement (shared/rules/visites-dues.ts) : son motif (relances, demande de visite). */
+  motifVisite?: MotifVisite;
 }
 
 export type GngStatus = 'go' | 'reserve' | 'nogo';
@@ -168,10 +187,11 @@ const plusRecente = (a: Pick<Certification, 'id' | 'obtenue'>, b: Pick<Certifica
 /**
  * Certification en vigueur d'un collaborateur pour une formation : la plus récente. Un recyclage
  * enregistré remplace donc la précédente, qui reste au dossier comme historique. Seule la certification
- * en vigueur compte pour le statut, les échéances, les prérequis et le Go / No Go.
+ * en vigueur compte pour le statut, les échéances, les prérequis et le Go / No Go. Une certification annulée (saisie
+ * erronée, `cert.annuler`) ne compte jamais : l'instantané l'écarte déjà (server/src/dataset.ts), la règle aussi.
  */
 export function certEnVigueur<T extends Pick<Certification, 'id' | 'f' | 'obtenue'>>(certs: readonly T[], f: string): T | null {
-  return certs.filter(c => c.f === f).sort(plusRecente)[0] ?? null;
+  return certs.filter(c => c.f === f && !(c as Partial<Certification>).annuleLe).sort(plusRecente)[0] ?? null;
 }
 
 export class Domain {
@@ -251,22 +271,26 @@ export class Domain {
   /**
    * Jours décomptés : week-ends et fériés exclus. Hors CP, les jours non travaillés du temps partiel
    * sont exclus ; pour les CP, ils le sont aussi en tête de période (le décompte part du premier jour
-   * où le salarié aurait dû travailler), puis comptent comme jours ouvrés.
+   * où le salarié aurait dû travailler), puis comptent comme jours ouvrés. `demi` : demi-journées du premier et du
+   * dernier jour (CP, RTT, récupération), qui comptent 0,5 (shared/rules/demi-journees.ts).
    */
-  countDays(e: Employe, du: ISODate, au: ISODate, kind: string): number {
-    return this.countedDays(e, du, au, kind).length;
+  countDays(e: Employe, du: ISODate, au: ISODate, kind: string, demi?: DemiJournees): number {
+    return this.countedDays(e, du, au, kind, demi).reduce((n, j) => n + j.poids, 0);
   }
-  /** Les jours décomptés eux-mêmes (même règle que `countDays`), pour imputer chacun sur sa période (CP). */
-  countedDays(e: Employe, du: ISODate, au: ISODate, kind: string): ISODate[] {
-    const out: ISODate[] = [];
+  /**
+   * Les jours décomptés eux-mêmes (même règle que `countDays`), pondérés : 1 pour une journée, 0,5 pour la demi-journée
+   * du premier ou du dernier jour. Pour imputer chacun sur sa période (CP) ou compter les jours d'une période.
+   */
+  countedDays(e: Employe, du: ISODate, au: ISODate, kind: string, demi?: DemiJournees): { jour: ISODate; poids: number }[] {
+    const out: { jour: ISODate; poids: number }[] = [];
     let started = false;
-    const off = this.contratOf(e).jourOff;
+    const off = this.contratOf(e).jourOff, periode = { du, au, ...demi };
     for (let s = du; s <= au; s = addD(s, 1)) {
       const wd = weekday(s);
       if (wd > 4 || isFerie(s)) continue;
       if (off.includes(wd) && (kind !== 'CP' || !started)) continue;
       started = true;
-      out.push(s);
+      out.push({ jour: s, poids: poidsDuJour(periode, s) });
     }
     return out;
   }
@@ -278,16 +302,25 @@ export class Domain {
       .filter(s => sessionActive(s) && s.date >= this.ti && (!formIds || formIds.has(s.formation)))
       .sort((a, b) => a.date.localeCompare(b.date));
   }
-  /** Sessions passées qui attendent leur clôture, plus anciennes d'abord. */
+  /** Sessions passées (dernier jour compris) qui attendent leur clôture, plus anciennes d'abord. */
   aCloturer(formIds?: Set<string>): Session[] {
     return this.ds.sessions
-      .filter(s => sessionActive(s) && s.date < this.ti && (!formIds || formIds.has(s.formation)))
+      .filter(s => sessionActive(s) && finSession(s) < this.ti && (!formIds || formIds.has(s.formation)))
+      .sort((a, b) => a.date.localeCompare(b.date));
+  }
+  /**
+   * Sessions sur plusieurs jours commencées et pas encore finies (premier jour passé, dernier jour à venir ou aujourd'hui) :
+   * ni « à venir » (plus d'inscription), ni « à clôturer » (avant leur dernier jour). Listées à part, clôturables le dernier jour.
+   */
+  enCours(formIds?: Set<string>): Session[] {
+    return this.ds.sessions
+      .filter(s => sessionActive(s) && s.date < this.ti && finSession(s) >= this.ti && (!formIds || formIds.has(s.formation)))
       .sort((a, b) => a.date.localeCompare(b.date));
   }
   /** Statut affiché : passée à clôturer, complète, ou statut enregistré (à confirmer, confirmée, clôturée, annulée). */
   sessionStatut(s: Session): string {
     if (!sessionActive(s)) return s.statut;
-    return s.date < this.ti ? SESSION_PASSEE : s.inscrits >= s.places ? 'Complète' : s.statut;
+    return finSession(s) < this.ti ? SESSION_PASSEE : s.inscrits >= s.places ? 'Complète' : s.statut;
   }
   /** Formations suivies : catalogue en vigueur (les archivées ne sont plus proposées ni suivies), réglementaires seules au besoin. */
   forms(onlyReg: boolean): Formation[] {
@@ -302,21 +335,23 @@ export class Domain {
     const d = days(this.today, exp);
     const key: StatusKey = d < 0 ? 'exp' : d <= horizon ? 'due' : 'ok';
     const pct = Math.max(0, Math.min(100, Math.round(days(obt, this.today) / days(obt, exp) * 100)));
-    // Une session clôturée ou annulée ne planifie plus rien ; une session passée attend sa clôture.
+    // Une session clôturée ou annulée ne planifie plus rien ; une session passée (après son dernier jour) attend sa clôture.
     const s = this.session(c.sessionId), active = s && sessionActive(s) ? s : null;
-    const session = active && active.date >= this.ti ? active : null, sessionPassee = active && active.date < this.ti ? active : null;
+    const session = active && finSession(active) >= this.ti ? active : null, sessionPassee = active && finSession(active) < this.ti ? active : null;
     return { ...c, fm, obt, exp, d, key, pct, session, sessionPassee, remplacee };
   }
 
   /** Certifications d'un collaborateur : en vigueur (une par formation, dans l'ordre du dossier) et remplacées. */
   certsOf(e: Employe, horizon: number): { vigueur: CertInfo[]; anciennes: CertInfo[] } {
-    const vigueur = [...new Set(e.certs.map(c => c.f))].map(f => this.certInfo(certEnVigueur(e.certs, f)!, horizon));
-    const anciennes = e.certs
+    // Certifications annulées (saisie erronée) : ni en vigueur, ni dans l'historique, ni prérequis d'une habilitation.
+    const certs = e.certs.filter(c => !c.annuleLe);
+    const vigueur = [...new Set(certs.map(c => c.f))].map(f => this.certInfo(certEnVigueur(certs, f)!, horizon));
+    const anciennes = certs
       .filter(c => !vigueur.some(v => v.id === c.id))
       .sort(plusRecente)
       .map(c => {
         // Remplacée par la certification suivante de la même formation.
-        const suivante = e.certs.filter(x => x.f === c.f && plusRecente(x, c) < 0).sort(plusRecente).pop()!;
+        const suivante = certs.filter(x => x.f === c.f && plusRecente(x, c) < 0).sort(plusRecente).pop()!;
         return this.certInfo(c, horizon, parse(suivante.obtenue));
       });
     return { vigueur, anciennes };
@@ -328,7 +363,8 @@ export class Domain {
   }
 
   /**
-   * Aptitude médicale : visite de moins de 24 mois, sans avis d'inaptitude. Un avis avec restrictions laisse
+   * Aptitude médicale : visite dont l'échéance n'est pas passée — date de la prochaine visite fixée par le médecin, sinon
+   * périodicité du type de suivi (shared/rules/suivi-medical.ts) —, sans avis d'inaptitude. Un avis avec restrictions laisse
    * l'aptitude valide : le service RH suspend les habilitations incompatibles (`medical.avis`).
    */
   medInfo(e: Employe): MedInfo {
@@ -336,26 +372,41 @@ export class Domain {
       // Vue manager et profils restreints de l'espace RH : verdict et restrictions en vigueur, jamais la date de la
       // visite ni la demande.
       const a = e.aptitude, avis = a.avis ?? null;
-      const text = avis === 'inapte' ? 'Inapte — avis du médecin du travail'
+      // Visite due (embauche, reprise…) : « visite à programmer » seulement, sans motif ni date.
+      const text = (avis === 'inapte' ? 'Inapte — avis du médecin du travail'
         : !a.ok ? 'Aptitude médicale non valide — visite à programmer par le service RH'
-        : avis === 'restrictions' ? 'Apte avec restrictions — avis du médecin du travail' : 'Aptitude médicale valide';
-      return { ok: a.ok, exp: null, d: null, text, visite: null, avis, restrictions: a.restrictions ?? [], demande: null, verdictSeul: true };
+        : avis === 'restrictions' ? 'Apte avec restrictions — avis du médecin du travail' : 'Aptitude médicale valide')
+        + (a.ok && a.aProgrammer ? ' · visite à programmer par le service RH' : '');
+      return { ok: a.ok, exp: null, d: null, text, visite: null, avis, restrictions: a.restrictions ?? [], demande: null, verdictSeul: true, aProgrammer: !!a.aProgrammer };
     }
     const demande = this.demandeVisite(e.id), demandee = demande ? `visite demandée le ${fmt(parse(demande.le))}` : 'visite à programmer';
-    if (!e.visite) return { ok: false, exp: null, d: null, text: `Visite médicale non renseignée — ${demandee}`, visite: null, avis: null, restrictions: [], demande, verdictSeul: false };
-    const date = parse(e.visite), exp = addMonths(date, MED_VALIDITE), d = days(this.today, exp);
+    const suivi = suiviDe(this.ds, e), examen = examenRequis(suivi, e), dues = visitesDues(this, e, suivi);
+    if (!e.visite) {
+      return { ok: false, exp: null, d: null, text: `Visite médicale non renseignée — ${demandee}`, visite: null, avis: null, restrictions: [], demande, verdictSeul: false, suivi, prochaine: null, examenRequis: examen, dues };
+    }
+    const date = parse(e.visite), ech = echeanceVisite(e, date, suivi.type, this.ds.settings), exp = ech.exp, d = days(this.today, exp);
     // Visite saisie avant l'enregistrement des avis : apte.
     const avis = e.avis ?? 'apte', inapte = avis === 'inapte';
-    const suite = demande ? ` · ${demandee}` : '';
+    // Suivi renforcé sans examen d'aptitude : alerte jointe au texte, l'aptitude en cours reste valide.
+    const suite = `${examen && !inapte ? ` · ${EXAMEN_REQUIS.toLowerCase()} (suivi renforcé)` : ''}${demande ? ` · ${demandee}` : ''}`;
+    // Origine de l'échéance précisée hors du cas courant (VIP à la périodicité de Paramètres → Santé) : date fixée par le
+    // médecin, VIP adaptée, visite intermédiaire ou examen d'aptitude du suivi renforcé (sauf examen requis, déjà annoncé).
+    const quoi = (ech.prochaine === 'periodique' && suivi.type === 'vip') || examen ? '' : ` (${prochaineTexte(ech, suivi.type, this.ds.settings)})`;
     const text = inapte ? `Inapte — avis du médecin du travail du ${fmt(date)}${suite}`
-      : d >= 0 ? `Visite du ${fmt(date)} · ${avis === 'restrictions' ? 'apte avec restrictions, ' : ''}aptitude valide jusqu’au ${fmt(exp)}${suite}`
-      : `Aptitude échue le ${fmt(exp)} — ${demandee}`;
-    return { ok: d >= 0 && !inapte, exp, d, text, visite: date, avis, restrictions: avis === 'restrictions' ? e.restrictions ?? [] : [], demande, verdictSeul: false };
+      : d >= 0 ? `Visite du ${fmt(date)} · ${avis === 'restrictions' ? 'apte avec restrictions, ' : ''}aptitude valide jusqu’au ${fmt(exp)}${quoi}${suite}`
+      : `Aptitude échue le ${fmt(exp)}${quoi} — ${demandee}${examen ? ` · ${EXAMEN_REQUIS.toLowerCase()}` : ''}`;
+    return {
+      ok: d >= 0 && !inapte, exp, d, text, visite: date, avis, restrictions: avis === 'restrictions' ? e.restrictions ?? [] : [], demande, verdictSeul: false,
+      suivi, prochaine: ech.prochaine, examenRequis: examen, dues,
+    };
   }
 
-  /** Statut de l'aptitude dans la conformité : non valide (inapte, échue, aucune visite), ou à renouveler sous l'horizon d'alerte. */
+  /**
+   * Statut de l'aptitude dans la conformité : non valide (inapte, échue, aucune visite), ou à renouveler sous l'horizon
+   * d'alerte ou quand l'examen d'aptitude du suivi renforcé manque.
+   */
   medKey(med: MedInfo, horizon: number): StatusKey {
-    return !med.ok ? 'exp' : med.d != null && med.d <= horizon ? 'due' : 'ok';
+    return !med.ok ? 'exp' : med.examenRequis || (med.d != null && med.d <= horizon) ? 'due' : 'ok';
   }
 
   habInfo(h: Pick<HabTitre, 'h'> & Partial<HabTitre>, rawCerts: CertInfo[], med: MedInfo, horizon: number): HabInfo {
@@ -423,7 +474,7 @@ export class Domain {
     if (fc) {
       // Recyclage rattaché à une session passée : la clôture (présence, résultat) précède toute nouvelle inscription.
       const s = this.session(this.emp(empId)?.certs.find(c => c.id === fc.certId)?.sessionId ?? null);
-      if (s && sessionActive(s) && s.date < this.ti) return { label: 'Clôturer la session', intent: { type: 'openCloture', sessionId: s.id } };
+      if (s && sessionActive(s) && finSession(s) < this.ti) return { label: 'Clôturer la session', intent: { type: 'openCloture', sessionId: s.id } };
       return fc.certId != null
         ? { label: 'Planifier le recyclage', intent: { type: 'openPlan', empId, certId: fc.certId } }
         : { label: 'Inscrire à la formation', intent: { type: 'goFormation', f: fc.f! } };
@@ -594,7 +645,7 @@ export class Domain {
   }
 
   originLabel(t: Voyage): string {
-    return t.origine === 'keystone' ? `Initié par Keystone · chantier ${t.chantier}` : t.origine === 'formulaire' ? `Formulaire de demande ${t.ref}` : 'Créé dans Cursus';
+    return t.origine === 'keystone' ? `Initié par Keystone · chantier ${t.chantier}` : t.origine === 'formulaire' ? `Formulaire de demande${t.ref ? ` ${t.ref}` : ''}` : 'Créé dans Cursus';
   }
 
   // — Échéances —
@@ -629,8 +680,31 @@ export class Domain {
       // Aptitude médicale : visite périodique, visite jamais enregistrée (sans date, parmi les dépassées) ou avis
       // d'inaptitude (daté de la visite). Le verdict seul (vue manager) ne donne aucune échéance.
       const m = e.med;
-      if (!m.verdictSeul) {
-        const inapte = m.avis === 'inapte', sansDate = !m.exp, exp = inapte ? m.visite! : m.exp ?? this.today, key = this.medKey(m, horizon);
+      if (!m.verdictSeul && m.ok && m.examenRequis) {
+        // Suivi renforcé sans examen d'aptitude : à programmer dès aujourd'hui, sans date, parmi les échéances proches ;
+        // l'échéance datée de l'aptitude suit (et ses relances par paliers).
+        ech.push({
+          kind: 'med', kindLabel: 'Visite médicale', label: EXAMEN_REQUIS, emp: e, exp: this.today, d: 0, key: 'due', statut: 'Examen requis', cls: CLS.due,
+          sansDate: true, sansDateTexte: { main: 'À programmer', sub: 'suivi individuel renforcé' },
+          planned: !!m.demande, plannedLabel: m.demande ? `Visite demandée le ${fmtShort(parse(m.demande.le))}` : '',
+          action: m.demande ? null : { label: 'Demander la visite', intent: { type: 'medical', empId: e.id } },
+        });
+      }
+      // Visites dues à un événement (embauche, reprise, mi-carrière, fin de carrière), datées : à programmer sous l'horizon
+      // d'alerte, dépassées ensuite ; « Demander la visite » sur leur motif.
+      (m.dues ?? []).forEach(v => {
+        const exp = parse(v.le), dv = days(this.today, exp), key: StatusKey = dv < 0 ? 'exp' : dv <= horizon ? 'due' : 'ok';
+        ech.push({
+          kind: 'med', kindLabel: 'Visite médicale', label: v.label, emp: e, exp, d: dv, key, statut: key === 'exp' ? 'Dépassée' : key === 'due' ? 'À programmer' : 'À venir',
+          cls: CLS[key], motifVisite: v.motif,
+          planned: !!m.demande, plannedLabel: m.demande ? `Visite demandée le ${fmtShort(parse(m.demande.le))}` : '',
+          action: m.demande ? null : { label: 'Demander la visite', intent: { type: 'medical', empId: e.id, motif: v.motif } },
+        });
+      });
+      // Aucune visite enregistrée d'un salarié embauché récemment : la visite d'embauche, datée, en tient lieu.
+      if (!m.verdictSeul && (m.visite || !m.dues?.some(v => v.motif === 'embauche'))) {
+        // Statut de la date seule : l'examen requis a son échéance ci-dessus.
+        const inapte = m.avis === 'inapte', sansDate = !m.exp, exp = inapte ? m.visite! : m.exp ?? this.today, key = this.medKey({ ...m, examenRequis: false }, horizon);
         ech.push({
           kind: 'med', kindLabel: 'Visite médicale', label: inapte ? 'Avis d’inaptitude' : sansDate ? 'Visite médicale non renseignée' : 'Aptitude médicale', emp: e,
           exp, d: days(this.today, exp), key, statut: inapte ? AVIS_MEDICAL.inapte.court : sansDate ? 'Non renseignée' : MED_LABEL[key], cls: CLS[key], sansDate,
@@ -723,7 +797,8 @@ export class Domain {
       const fm = this.fm(f), ci = certEnVigueur(e.rawCerts, f);
       if (!ci) return push('nogo', 'CERTIFICATION', 'Certification requise absente', `${fm.court} — non détenue`);
       // Seule une session à venir vaut recyclage planifié : une session passée non clôturée, non.
-      const recycl = !!ci.session && parse(ci.session.date) < start;
+      // Session sur plusieurs jours : la certification est datée de son dernier jour.
+      const recycl = !!ci.session && parse(finSession(ci.session)) < start;
       if (ci.exp < start) return push(recycl ? 'reserve' : 'nogo', 'CERTIFICATION', recycl ? 'Recyclage planifié avant le démarrage' : 'Certification requise non valide', `${fm.court} — expire le ${fmt(ci.exp)}${recycl ? ', recyclage le ' + fmt(parse(ci.session!.date)) : ''}`);
       if (ci.exp < end) push('reserve', 'CERTIFICATION', 'Certification expirant pendant le chantier', `${fm.court} — expire le ${fmt(ci.exp)}, en cours de chantier`);
     });
@@ -780,9 +855,9 @@ export class Domain {
 
   /**
    * Ancienne réponse (route obsolète, sans /v1) : motifs en codes simples, ou en objets en mode détaillé.
-   * La réponse de l'API v1 est `verdictKeystone`.
+   * La réponse de l'API v1 est `verdictKeystone`. `evalueLe` : horodatage réel de la réponse (ISO UTC), sans valeur par défaut.
    */
-  keystonePayload(ch: ChantierEval, detail: boolean, evalueLe = `${this.ti}T07:00:00+02:00`) {
+  keystonePayload(ch: ChantierEval, detail: boolean, evalueLe: string) {
     return {
       chantier: ch.c.id, evalue_le: evalueLe, statut: GNG_CODE[ch.status],
       ressources: ch.res.map(r => ({
@@ -794,9 +869,10 @@ export class Domain {
 
   /**
    * Verdict de l'API Keystone v1 : matricules et codes de motif normalisés. Chaque motif est un objet
-   * (`code`, `niveau`) ; le libellé n'est ajouté qu'en mode détaillé, jamais une donnée de santé.
+   * (`code`, `niveau`) ; le libellé n'est ajouté qu'en mode détaillé, jamais une donnée de santé. `evalueLe` : horodatage
+   * réel de l'évaluation (ISO UTC, `new Date().toISOString()`), obligatoire : une heure fictive ne doit plus apparaître.
    */
-  verdictKeystone(ch: ChantierEval, detail: boolean, evalueLe = `${this.ti}T07:00:00+02:00`) {
+  verdictKeystone(ch: ChantierEval, detail: boolean, evalueLe: string) {
     return {
       chantier: ch.c.id, evalue_le: evalueLe, statut: GNG_CODE[ch.status],
       ressources: ch.res.map(r => ({

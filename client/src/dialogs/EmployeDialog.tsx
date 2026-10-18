@@ -4,7 +4,7 @@
 // peut aussi en saisir un nouveau, ajouté au référentiel sans exigence.
 // Matricule de paie : unique ; reprendre celui d'un salarié sorti (réembauche) se confirme, par l'administrateur RH, qui
 // seul change ou retire un matricule déjà enregistré.
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import { isValidDate } from '../../../shared/dates.ts';
 import { AVIS_MEDICAL, MODE_NOTIFICATION_LABEL, MOTIFS_REPRISE, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../../../shared/constants.ts';
 import { cap, equipeLabel, fmtIso, plural } from '../../../shared/format.ts';
@@ -12,18 +12,24 @@ import { reposForfait } from '../../../shared/rules/conges.ts';
 import { matriculesPris, normaliserMatricule } from '../../../shared/rules/matricules.ts';
 import { essaiMaximum, limitePrevenance, rttPerdus, SEMAINES_FIGEES, soldeRttTexte, sortieTexte } from '../../../shared/rules/contrats.ts';
 import { adressesPrises } from '../../../shared/rules/messagerie.ts';
-import { JOURS_SEMAINE, PROFIL_FIELDS, PROFIL_VIDE, normaliserProfil, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
+import { JOURS_SEMAINE, MANAGER_FIELDS, PROFIL_FIELDS, PROFIL_VIDE, normaliserProfil, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
+import { champsAEnvoyer, champsDifferents, champsEnConflit, LIBELLE_CHAMP_FICHE } from '../../../shared/rules/fiche-concurrente.ts';
 import { contratFige } from '../../../shared/rules/temps.ts';
+import { equipeDeNuit, finDerogationTravaux, mineurAu } from '../../../shared/rules/mineurs.ts';
 import type { Statut, TempsTravail, TypeContrat } from '../../../shared/types.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
-import { Fine, NoteAccent, SectionLabel, Seg } from '../components/ui.tsx';
+import { Btn, Fine, NoteAccent, SectionLabel, Seg } from '../components/ui.tsx';
 import { NOUVEAU_POSTE, PosteChoix, PosteLibelle } from '../components/PosteChoix.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
 /** État du formulaire : les nombres et dates restent des chaînes pendant la saisie. */
 interface Form {
-  nom: string; poste: string; equipe: string; naissance: string;
+  nom: string; poste: string; equipe: string;
+  /** Date de naissance saisie ; `naissance` : année de la fiche, gardée tant que la date reste inconnue (fiche antérieure). */
+  naissanceLe: string; naissance: string;
+  /** Salarié mineur : date de la déclaration de dérogation pour travaux réglementés (shared/rules/mineurs.ts). */
+  derogationTravaux: string;
   /** Poste du référentiel choisi (identifiant), `''` : aucun, NOUVEAU_POSTE : intitulé saisi, poste créé à l'enregistrement. */
   posteId: string;
   statut: Statut; typeContrat: TypeContrat; entree: string; fin: string; agence: string; email: string; matriculePaie: string;
@@ -46,7 +52,8 @@ const toNum = (s: string) => {
 
 function toForm(p: ProfilInput, today: string): Form {
   return {
-    nom: p.nom, poste: p.poste, posteId: p.posteId != null ? String(p.posteId) : '', equipe: p.equipe ?? '', naissance: numStr(p.naissance),
+    nom: p.nom, poste: p.poste, posteId: p.posteId != null ? String(p.posteId) : '', equipe: p.equipe ?? '', naissanceLe: p.naissanceLe ?? '', naissance: numStr(p.naissance),
+    derogationTravaux: p.derogationTravauxLe ?? '',
     statut: p.statut, typeContrat: p.typeContrat, entree: p.entree, fin: p.fin ?? '', agence: p.agence ?? '', email: p.email ?? '', matriculePaie: p.matriculePaie ?? '',
     temps: p.temps, heures: numStr(p.heures),
     forfaitHeures: numStr(p.forfaitHeures ?? (p.temps === 'forfait_heures_annuel' ? 1607 : null)),
@@ -63,10 +70,31 @@ function toInput(f: Form, tempsDepuis: string | null): ProfilInput {
   return {
     nom: f.nom, poste: f.poste, posteId: posteIdSaisi(f.posteId), equipe: f.equipe || null, statut: f.statut, typeContrat: f.typeContrat, temps: f.temps,
     heures: toNum(f.heures), forfaitHeures: toNum(f.forfaitHeures), forfaitJours: toNum(f.forfaitJours), jourOff: f.jourOff, tempsDepuis,
-    entree: f.entree, fin: f.fin || null, naissance: toNum(f.naissance) ?? Number.NaN, agence: f.agence || null, matriculePaie: f.matriculePaie || null, email: f.email || null,
+    entree: f.entree, fin: f.fin || null, naissanceLe: f.naissanceLe || null, naissance: toNum(f.naissance) ?? Number.NaN,
+    derogationTravauxLe: f.derogationTravaux || null, agence: f.agence || null, matriculePaie: f.matriculePaie || null, email: f.email || null,
     visite: f.visite || null, repriseMotif: f.repriseMotif || null, repriseDate: f.repriseDate || null,
     essaiFin: f.essaiFin || null, essaiRenouveleJusquau: f.essaiRenouvele || null,
   };
+}
+
+/** Champ de la fiche saisi par chaque champ du formulaire (la date d'effet n'en a pas : elle reste celle saisie). */
+const CHAMP_DU_FORM: Partial<Record<keyof Form, keyof ProfilInput>> = { essaiRenouvele: 'essaiRenouveleJusquau', derogationTravaux: 'derogationTravauxLe' };
+
+/**
+ * Fiche reprise à jour après une modification concurrente : les champs modifiés entre-temps (et ceux de leur groupe)
+ * prennent la valeur enregistrée, les autres saisies de la personne sont gardées.
+ */
+function reprendreAJour(f: Form, initial: ProfilInput, actuelle: ProfilInput, today: string): Form {
+  const avant = toForm(initial, today), apres = toForm(actuelle, today);
+  const repris = champsDifferents(initial, actuelle);
+  const out = { ...apres, effet: f.effet };
+  for (const k of Object.keys(f) as (keyof Form)[]) {
+    if (k === 'effet') continue;
+    const champ = CHAMP_DU_FORM[k] ?? (k as keyof ProfilInput);
+    const saisi = JSON.stringify(f[k]) !== JSON.stringify(avant[k]);
+    if (saisi && !repris.has(champ)) (out as Record<string, unknown>)[k] = f[k];
+  }
+  return out;
 }
 
 /** Poste du référentiel saisi : identifiant, ou aucun (intitulé seul, nouveau poste). */
@@ -79,7 +107,7 @@ const same = (a: ProfilInput, b: ProfilInput) => PROFIL_FIELDS.every(k => JSON.s
  * s'affiche sous ce champ. Un message non reconnu reste dans la liste sous le formulaire.
  */
 const CHAMP_ERREUR: [RegExp, keyof Form][] = [
-  [/^Nom requis/, 'nom'], [/^Poste requis/, 'poste'], [/^Équipe inconnue/, 'equipe'], [/^Année de naissance/, 'naissance'],
+  [/^Nom requis/, 'nom'], [/^Poste requis/, 'poste'], [/^Équipe inconnue|travail de nuit ou en continu/, 'equipe'], [/dérogation pour travaux réglementés/i, 'derogationTravaux'], [/naissance/, 'naissanceLe'],
   [/^Date d’entrée/, 'entree'], [/renouvellement de l’essai/i, 'essaiRenouvele'], [/période d’essai/, 'essaiFin'], [/date de fin/i, 'fin'], [/^Agence d’intérim/, 'agence'], [/^Manager de l’équipe/, 'typeContrat'],
   [/^Un intérimaire ne peut|cadre dirigeant/, 'temps'], [/date d’effet/i, 'effet'],
   [/^Temps partiel|^Forfait hebdomadaire/, 'heures'], [/^Forfait annuel en heures/, 'forfaitHeures'], [/^Forfait jours/, 'forfaitJours'],
@@ -124,9 +152,15 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   /** Manager direct d'un membre de son équipe : modification limitée. */
   const limited = !rh && manager && !!emp && emp.id !== me && d.mgrOf(emp) === me;
 
-  // Fiche de référence : celle de l'ouverture du dialogue.
-  const [initial] = useState<ProfilInput>(() => emp ? profilOf(emp) : PROFIL_VIDE(equipe0 && d.equipes.includes(equipe0) ? equipe0 : null, d.ti));
+  // Fiche de référence : celle de l'ouverture du dialogue (reprise à jour après une modification concurrente).
+  const [initial, setInitial] = useState<ProfilInput>(() => emp ? profilOf(emp) : PROFIL_VIDE(equipe0 && d.equipes.includes(equipe0) ? equipe0 : null, d.ti));
+  /** Champs envoyés avec leur valeur d'origine lors d'un enregistrement refusé pour modification concurrente (412). */
+  const [concurrent, setConcurrent] = useState<Partial<ProfilInput> | null>(null);
+  const conflitRef = useRef<HTMLDivElement>(null);
+  useEffect(() => { if (concurrent) conflitRef.current?.focus(); }, [concurrent]);
   const [f, setF] = useState<Form>(() => ({ ...toForm(initial, d.ti), naissance: creation ? '' : numStr(initial.naissance) }));
+  // Fiche qui n'a que l'année de naissance (antérieure à la date complète) : l'année est gardée tant que la date manque.
+  const anneeSeule = !creation && !initial.naissanceLe && Number.isFinite(initial.naissance) ? initial.naissance : null;
   const [touched, setTouched] = useState(false);
   const [busy, setBusy] = useState(false);
   // Réembauche : réutilisation du matricule de paie d'un salarié sorti, confirmée par l'administrateur RH (matricule confirmé).
@@ -172,6 +206,10 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
     equipes: d.equipes, year: d.year, encadre: emp ? d.teamsOf(emp.id) : [], adressesPrises: adressesPrises(d.ds.employes, emp?.id),
     matricules: { pris: matriculesPris(d.ds.employes, d.ti, emp?.id), actuel: initial.matriculePaie, reutiliser: confirme },
     contrat: { finPrevue: emp?.finPrevue ?? null, sortieEnregistree: emp?.sortieEnregistree },
+    // Date déjà enregistrée : requise (l'année seule ne la remplace pas). Manager : vue sans la date, que le serveur contrôle.
+    naissance: { enregistree: !creation && !!initial.naissanceLe, masquee: limited },
+    // Salarié mineur : pas d'équipe de nuit ou en continu, dérogation pour travaux réglementés datée au plus d'aujourd'hui.
+    mineurs: { equipes: d.ds.referentiels.equipes, today: d.ti },
   });
   // Matricule d'un salarié sorti, pas encore confirmé : l'administrateur RH confirme à l'envoi ; pour le gestionnaire RH,
   // l'erreur sous le champ le renvoie à l'administrateur.
@@ -197,6 +235,8 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   const { champs: errChamp, autres } = repartir(errors);
   const err = (k: keyof Form) => showErrors ? errChamp[k] ?? null : null;
   const partielEmp = !!emp && d.contratOf(emp).partiel;
+  // Salarié de moins de 18 ans d'après la saisie, aujourd'hui ou à son entrée : dérogation pour travaux réglementés proposée.
+  const mineurSaisi = mineurAu(v.profil, d.ti) || (isValidDate(v.profil.entree) && v.profil.entree > d.ti && mineurAu(v.profil, v.profil.entree));
 
   const save = async (confirmeRtt = false) => {
     if (busy || !verif.verifier(!ok)) return;
@@ -211,12 +251,15 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
     if (perte && !confirmeRtt) { setConfirmer(false); setConfRtt(true); return; }
     setBusy(true);
     let payload: Record<string, unknown>;
-    if (limited) payload = { id: emp!.id, poste: v.profil.poste, ...(partielEmp ? { jourOff: v.profil.jourOff } : {}) };
-    else {
-      payload = creation ? {} : { id: emp!.id };
-      PROFIL_FIELDS.forEach(k => { payload[k] = v.profil[k]; });
+    // Modification : seuls les champs modifiés partent (avec les champs qui leur sont liés), accompagnés de leur valeur
+    // d'origine (`avant`) ; le serveur refuse si l'un d'eux a changé entre-temps (shared/rules/fiche-concurrente.ts).
+    const champs = creation ? PROFIL_FIELDS : champsAEnvoyer(ref0, v.profil, limited ? MANAGER_FIELDS.filter(k => k === 'poste' || partielEmp) : PROFIL_FIELDS)
       // La date d'effet ne concerne qu'un changement d'organisation du temps : sinon le serveur garde la date en vigueur.
-      if (!creation && !nouveauRegime) delete payload.tempsDepuis;
+      .filter(k => creation || nouveauRegime || k !== 'tempsDepuis');
+    payload = creation ? {} : { id: emp!.id };
+    champs.forEach(k => { payload[k] = v.profil[k]; });
+    if (!creation) payload.avant = Object.fromEntries(champs.map(k => [k, initial[k] ?? null]));
+    if (!limited) {
       if (reutiliserMatricule) payload.reutiliserMatricule = true;
       if (perte) payload.confirmerRtt = true;
     }
@@ -224,12 +267,35 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
     setBusy(false);
     setConfirmer(false);
     setConfRtt(false);
+    // Fiche modifiée entre-temps par quelqu'un d'autre : rien n'est enregistré, le dialogue reste ouvert et les données
+    // sont relues (store.tsx) ; les champs en conflit s'affichent, la fiche à jour se reprend sans perdre les autres saisies.
+    if (r.status === 412 && !creation) { setConcurrent((payload.avant as Partial<ProfilInput> | undefined) ?? {}); return; }
     if (!r.ok) return;
     closeDialog();
     const id = (r.result as { id?: number } | undefined)?.id;
     if (creation && id) setUi({ selectedId: id });
   };
 
+  // Modification concurrente refusée (412) : champs modifiés entre-temps, lus dans la fiche relue après le refus.
+  const enConflit = concurrent && emp ? champsEnConflit(concurrent, profilOf(emp)) : [];
+  const reprendre = () => {
+    if (!emp) return;
+    const actuelle = profilOf(emp);
+    setF(s => reprendreAJour(s, initial, actuelle, d.ti));
+    setInitial(actuelle);
+    setConcurrent(null);
+  };
+  // En tête du dialogue, et ciblé dès le refus (le bouton « Enregistrer » est en bas d'un long formulaire).
+  const conflitBloc = concurrent && <div ref={conflitRef} tabIndex={-1} style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+    <Bloquant>
+      Fiche modifiée entre-temps par une autre personne{enConflit.length ? ` (${enConflit.map(k => LIBELLE_CHAMP_FICHE[k]).join(', ')})` : ''} : rien
+      n’a été enregistré.
+    </Bloquant>
+    <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
+      <Btn small onClick={reprendre}>Reprendre la fiche à jour</Btn>
+      <Fine>Les champs modifiés entre-temps prennent leur valeur enregistrée ; vos autres saisies sont gardées. Vérifiez, puis enregistrez de nouveau.</Fine>
+    </div>
+  </div>;
   // Erreurs sans champ (statut, nature du contrat…) : sous le formulaire, ciblées à l'envoi.
   const messages = <>
     {showErrors && autres.map(m => <Bloquant key={m}>{m}</Bloquant>)}
@@ -249,6 +315,7 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
     const finTxt = emp.fin ? ` · jusqu’au ${fmtIso(emp.fin)}` : '';
     return (
       <Dialog title={`Modifier la fiche — ${emp.nom}`} width={640} tall onSubmit={save} actions={actions}>
+        {conflitBloc}
         <div className="grid-2">
           <PosteLibelle emp={emp} poste={f.poste} erreur={err('poste')} onChange={v => set('poste', v)} />
           <Field label="Équipe"><Static pad>{equipeLabel(emp)}</Static></Field>
@@ -304,6 +371,7 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
         texte: `Le nouveau régime n’ouvre ni RTT ni jours de repos : le compteur de ${emp!.nom} (${soldeRttTexte(perte)}) ne sera plus suivi dans Cursus. Ce solde est gardé au journal pour la paie.`,
         bouton: 'Confirmer le changement', occupe: busy, confirmer: () => save(true), annuler: () => setConfRtt(false),
       } : null}>
+      {conflitBloc}
       <SectionLabel>Identité</SectionLabel>
       <div className="grid-2">
         <Field label="Nom" htmlFor="emp-nom" requis erreur={err('nom')}>
@@ -313,13 +381,28 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
         <Field label="Équipe" htmlFor="emp-equipe" erreur={err('equipe')}>
           <select className="input" id="emp-equipe" value={f.equipe} onChange={ev => set('equipe', ev.target.value)}>
             <option value="">À affecter</option>
-            {d.equipes.map(nom => <option key={nom} value={nom}>{nom}</option>)}
+            {d.equipes.map(nom => <option key={nom} value={nom}>{nom}{equipeDeNuit(d.ds.referentiels.equipes.find(q => q.nom === nom)) ? ' · nuit ou continu' : ''}</option>)}
           </select>
           <span className="text-muted sub">Manager valideur : {d.mgrName(valideur)}</span>
         </Field>
-        <Field label="Année de naissance" htmlFor="emp-naiss" requis erreur={err('naissance')}>
-          <input className="input" id="emp-naiss" type="text" inputMode="numeric" placeholder="1990" value={f.naissance} onChange={ev => set('naissance', ev.target.value)} />
+        <Field label="Date de naissance" htmlFor="emp-naiss" requis={anneeSeule == null} erreur={err('naissanceLe')}>
+          <input className="input" id="emp-naiss" type="date" min="1940-01-01" max={d.ti} value={f.naissanceLe} onChange={ev => set('naissanceLe', ev.target.value)} />
+          <span className="text-muted sub">
+            {anneeSeule != null && !f.naissanceLe ? `Année connue : ${anneeSeule} ; la date complète donne l’âge exact (salariés mineurs, fin de carrière)`
+              : 'Âge exact : règles des salariés mineurs, entretiens de fin de carrière'}
+          </span>
         </Field>
+        {/* Salarié mineur (ou dérogation déjà saisie) : déclaration de dérogation pour travaux réglementés, valable 3 ans. */}
+        {!limited && (mineurSaisi || !!initial.derogationTravauxLe) && (
+          <Field label={<>Dérogation pour travaux réglementés <span className="who">· facultatif</span></>} htmlFor="emp-derog" erreur={err('derogationTravaux')}>
+            <input className="input" id="emp-derog" type="date" max={d.ti} value={f.derogationTravaux} onChange={ev => set('derogationTravaux', ev.target.value)} />
+            <span className="text-muted sub">
+              {isValidDate(f.derogationTravaux)
+                ? `Déclarée à l’inspection du travail le ${fmtIso(f.derogationTravaux)} : à renouveler avant le ${fmtIso(finDerogationTravaux({ derogationTravauxLe: f.derogationTravaux })!)} (3 ans, art. R4153-41)`
+                : 'Date de la déclaration à l’inspection du travail (art. R4153-40) ; sans elle, aucun travail réglementé avant 18 ans'}
+            </span>
+          </Field>
+        )}
         <Field label="Adresse e-mail professionnelle" htmlFor="emp-email">
           <input className="input" id="emp-email" type="email" autoComplete="off" placeholder="prenom.nom@entreprise.fr" value={f.email} onChange={ev => set('email', ev.target.value)} />
           <span className="text-muted sub">Notifications et convocations ; à défaut, celle du compte Microsoft 365 est reprise à sa création</span>

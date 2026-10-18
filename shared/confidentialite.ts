@@ -55,13 +55,13 @@ export const INFO_CONFIDENTIALITE: readonly RubriqueConfidentialite[] = [
   {
     id: 'donnees', titre: 'Quelles données',
     points: [
-      ['Identité et contrat', 'nom, poste, équipe, manager, statut, contrat et organisation du temps, dates d’entrée et de fin, année de naissance (congés supplémentaires de la convention collective), adresse e-mail professionnelle, agence d’intérim.'],
+      ['Identité et contrat', 'nom, poste, équipe, manager, statut, contrat et organisation du temps, dates d’entrée et de fin, date de naissance (congés supplémentaires de la convention collective, entretiens de fin de carrière, règles des salariés de moins de 18 ans ; votre manager n’en voit que l’année et, le cas échéant, l’indication « mineur »), avant 18 ans la date de la dérogation pour travaux réglementés déclarée à l’inspection du travail, adresse e-mail professionnelle, agence d’intérim.'],
       ['Compétences', 'formations suivies, certifications, habilitations et leurs mesures (suspension, retrait).'],
       ['Santé (données sensibles)', 'date de la dernière visite médicale, avis d’aptitude et restrictions de poste ; vaccins et dates d’injection pour les déplacements. Jamais de diagnostic : seule la nature des absences pour raison de santé (arrêt, accident du travail) est connue du service RH.'],
       ['Temps et absences', 'heures par jour et par projet, motifs de dépassement, congés, absences et soldes.'],
       ['Entretiens', 'comptes rendus rédigés par votre évaluateur et par vous, signatures.'],
       ['Déplacements', 'destinations et dates, numéro et validité du passeport, visas, formalités de détachement.'],
-      ['Connexion', 'identifiant, profil, dates de connexion et adresse IP, journal des actions effectuées.'],
+      ['Connexion', 'identifiant, profil, dates de connexion et adresse IP, journal des actions effectuées ; journaux techniques du serveur (numéro de compte, adresse consultée, heure et résultat de chaque requête, jamais son contenu).'],
     ],
   },
   {
@@ -87,6 +87,7 @@ export const INFO_CONFIDENTIALITE: readonly RubriqueConfidentialite[] = [
     id: 'durees', titre: 'Combien de temps',
     points: [
       ['Journal des actions', `${ans(CONSERVATION_JOURNAL_MOIS)} ; les actions liées à la paie sont ensuite archivées, hors de l’écran, jusqu’à ${ans(CONSERVATION_ARCHIVE_PAIE_MOIS)}.`],
+      ['Journaux techniques du serveur', 'un an au plus, consultés seulement par le service informatique.'],
       ['Messages envoyés par Cursus', `${ans(CONSERVATION_ENVOIS_MOIS)} dans la file d’envoi.`],
       ['Dossier du salarié', `pendant le contrat, puis ${A_COMPLETER} (bulletins et éléments de paie, temps de travail, entretiens, formations).`],
       ['Données de santé et vaccinations', `${A_COMPLETER} ; rien n’est encore effacé automatiquement.`],

@@ -1,11 +1,12 @@
 // Confirmations de l'écran Référentiels (dialogue « confirmer », comme celles de state/confirmations.ts) : archivage
-// d'une formation, d'une habilitation, d'une destination ou d'un poste, chargement du référentiel type, demande d'une
+// d'une formation, d'une habilitation, d'une destination, d'un poste ou d'une activité interne, chargement du référentiel type, demande d'une
 // habilitation exigée. Données seulement.
 // L'archivage se défait (« Rétablir », sans confirmation) ; la confirmation annonce ce qu'il change, dont les demandes des
 // collaborateurs encore en attente : sur un élément archivé, elles ne s'acceptent plus (à refuser, ou à rétablir d'abord).
 import { plural } from '../../../shared/format.ts';
+import { CODE_DELEGATION } from '../../../shared/rules/activites.ts';
 import type { ReferentielId } from '../../../shared/rules/referentiels.ts';
-import type { Destination, Formation, HabType, Poste } from '../../../shared/types.ts';
+import type { Destination, Formation, HabType, Poste, Projet } from '../../../shared/types.ts';
 import type { Confirmation } from './confirmations.ts';
 
 /** Demandes des collaborateurs en attente sur l'élément (`quoi` : « la formation »…) : elles ne s'acceptent plus une fois archivé. */
@@ -111,6 +112,22 @@ export function archivagePoste(p: Pick<Poste, 'id' | 'nom'>): Confirmation {
     bouton: 'Archiver',
     action: 'referentiel.poste.archiver',
     payload: { id: p.id },
+  };
+}
+
+/** Archivage d'une activité interne (onglet Activités internes) : plus imputable dans les feuilles de temps. */
+export function archivageActivite(a: Pick<Projet, 'code' | 'nom'>): Confirmation {
+  return {
+    titre: 'Archiver l’activité',
+    question: `Archiver l’activité ${a.code} « ${a.nom} » ?`,
+    suites: [
+      'Elle n’est plus proposée dans les feuilles de temps : aucune nouvelle ligne ne s’y impute. Les heures déjà saisies restent sur les feuilles.',
+      ...(a.code === CODE_DELEGATION ? ['C’est le code des heures de délégation : les élus au CSE ne pourront plus en déclarer tant qu’elle n’est pas rétablie.'] : []),
+      'Elle se rétablit à tout moment.',
+    ],
+    bouton: 'Archiver',
+    action: 'referentiel.activite.archiver',
+    payload: { id: a.code },
   };
 }
 

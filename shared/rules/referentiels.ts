@@ -154,7 +154,7 @@ export function controlerFormation(s: SaisieFormation, existantes: readonly Form
   };
 }
 
-export type ChampHabilitation = 'code' | 'nom' | 'detail' | 'prereqs' | 'medical' | 'validite' | 'signataire';
+export type ChampHabilitation = 'code' | 'nom' | 'detail' | 'prereqs' | 'medical' | 'validite' | 'signataire' | 'sir';
 export type SaisieHabilitation = Partial<Record<ChampHabilitation, Saisie>>;
 
 /**
@@ -182,7 +182,14 @@ export function controlerHabilitation(
   const validite = validiteMois(e, s.validite);
   texteRequis(e, 'signataire', signataire, 80, 'Indiquez le signataire proposé par défaut (employeur).');
   if (Object.keys(e).length) return { erreurs: e, habilitation: null };
-  return { erreurs: e, habilitation: { id: code, nom, detail, prereqs, medical: s.medical === true || s.medical === 'true', validite, signataire, archive: avant?.archive ?? null } };
+  return {
+    erreurs: e,
+    habilitation: {
+      id: code, nom, detail, prereqs, medical: s.medical === true || s.medical === 'true', validite, signataire, archive: avant?.archive ?? null,
+      // Suivi individuel renforcé de ses titulaires (shared/rules/suivi-medical.ts) : décoché par défaut.
+      sir: s.sir === true || s.sir === 'true',
+    },
+  };
 }
 
 export type ChampDestination = 'code' | 'pays' | 'visa' | 'visaSub' | 'oblig' | 'rec' | 'passMois' | 'secu';

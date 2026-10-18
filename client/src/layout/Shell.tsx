@@ -8,14 +8,14 @@
 import { useMemo, useRef, type ReactNode } from 'react';
 import {
   AirplaneIcon, BellIcon, BookOpenIcon, BooksIcon, BriefcaseIcon, CalendarBlankIcon, ChartBarIcon, ChatIcon, CheckIcon, ClockIcon, GearSixIcon,
-  HouseIcon, KeyIcon, LockSimpleIcon, MagnifyingGlassIcon, MapPinIcon, PlusIcon, ShieldCheckIcon, SignOutIcon, UserIcon, UsersThreeIcon, WarningIcon, XIcon, type Icon,
+  HouseIcon, KeyIcon, LifebuoyIcon, LockSimpleIcon, MagnifyingGlassIcon, MapPinIcon, PlusIcon, ShieldCheckIcon, SignOutIcon, UserIcon, UsersThreeIcon, WarningIcon, XIcon, type Icon,
 } from '@phosphor-icons/react';
 import { droitsRh, PROFILS_RH, vuesDe } from '../../../shared/constants.ts';
-import { Domain } from '../../../shared/domain.ts';
 import { aFaireCollaborateur } from '../../../shared/rules/a-faire.ts';
 import { obligations, perimetreEntretiens } from '../../../shared/rules/entretiens.ts';
 import type { Dataset, Role } from '../../../shared/types.ts';
 import { Avatar } from '../components/ui.tsx';
+import { domaineDe } from '../state/derived.ts';
 import { useStore, type Toast as StoreToast, type View } from '../state/store.tsx';
 import { ID_CONTENU, useNavigationAnnoncee } from './navigation.ts';
 import { Reconnexion } from './Reconnexion.tsx';
@@ -26,7 +26,7 @@ type NavGroup = [string, NavItem[]];
 
 function navGroups(data: Dataset | null, role: Role): NavGroup[] {
   if (!data) return [];
-  const d = new Domain(data);
+  const d = domaineDe(data);
   const me = data.user.empId;
   // Entretiens en retard de l'équipe : ceux du manager lui-même relèvent de son responsable (espace collaborateur).
   const late = obligations(d, perimetreEntretiens(data)).filter(o => o.kind === 'epp' && o.st === 'late').length;
@@ -73,6 +73,7 @@ const VUES: [Role, string][] = [['rh', 'RH'], ['manager', 'Manager'], ['collabor
 /** Groupe et libellé de la page affichée : fil d'Ariane de l'en-tête et titre de l'onglet. */
 function pageAffichee(groups: NavGroup[], view: View, connecte: boolean): [string, string] {
   if (view === 'confidentialite') return ['Cursus', 'Confidentialité'];
+  if (view === 'aide') return ['Cursus', 'Aide'];
   // Hors du menu : ouverte depuis Paramètres.
   if (view === 'miseEnService') return ['Administration', 'Mise en service'];
   const g = groups.find(([, items]) => items.some(i => i.view === view));
@@ -147,6 +148,12 @@ function Sidebar({ groups, tiroir }: { groups: NavGroup[]; tiroir: Tiroir }) {
               onClick={e => { e.preventDefault(); tiroir.fermer(); go('confidentialite'); }}>
               <LockSimpleIcon size={16} />
               <span>Confidentialité</span>
+            </a>
+            {/* Guide par rôle (shared/aide.ts), ouvert aussi depuis l'écran de connexion. */}
+            <a href="/aide" className="nav-item" aria-current={view === 'aide' ? 'page' : undefined}
+              onClick={e => { e.preventDefault(); tiroir.fermer(); go('aide'); }}>
+              <LifebuoyIcon size={16} />
+              <span>Aide</span>
             </a>
           </div>
         )}
@@ -240,7 +247,7 @@ export function Shell({ children }: { children: ReactNode }) {
   // Page affichée (null pendant le chargement) : titre de l'onglet, focus sur son titre quand elle change.
   const connecte = !!session?.user;
   const enCours = loading || (connecte && !data);
-  useNavigationAnnoncee(enCours ? null : connecte ? `${role}/${view}` : view === 'confidentialite' ? view : 'connexion',
+  useNavigationAnnoncee(enCours ? null : connecte ? `${role}/${view}` : view === 'confidentialite' || view === 'aide' ? view : 'connexion',
     enCours ? null : pageAffichee(groups, view, connecte)[1]);
   const allerAuContenu = (e: React.MouseEvent) => { e.preventDefault(); document.getElementById(ID_CONTENU)?.focus(); };
   return (

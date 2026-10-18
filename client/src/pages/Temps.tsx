@@ -8,18 +8,33 @@
 // Une demande d'absence en attente sur des jours qui portent des heures est décidée avant la validation de la feuille.
 // Une journée compte 24 h au plus (toutes lignes cumulées) ; au-delà des durées maximales (10 h par jour, 48 h par
 // semaine), la soumission exige un motif, que le valideur lit (ou donne, s'il a lui-même corrigé la feuille).
+// Semaine à 7 jours (shared/rules/semaine.ts) : samedi et dimanche grisés et repliés tant qu'ils sont vides, saisissables
+// pour un chantier, un déplacement ou un impératif ; repos hebdomadaire et dominical signalés en alerte, sans blocage,
+// et repris pour le service RH après validation (components/ReposAVerifier.tsx).
+// Jours fériés (shared/rules/majorations.ts) : saisissables si le réglage le permet, mention « Férié travaillé » et
+// majoration (1er mai : 100 %) au récapitulatif. Moyenne sur 12 semaines, temps partiel à requalifier et contingent annuel
+// (shared/rules/durees.ts) : alertes sur la feuille et, pour le service RH, dans un encart (components/AlertesDurees.tsx).
+// Réouverture d'une feuille validée (t131) : administrateur RH, motif obligatoire (dialogs/RouvrirFeuilleDialog.tsx) ;
+// déjà transmise, seul son écart part à la revalidation (lot correctif, shared/rules/regularisation.ts).
 import { useState, type MouseEvent } from 'react';
 import { CaretLeftIcon, CaretRightIcon } from '@phosphor-icons/react';
 import { ABS_ABREGE, TEMPS_TRAVAIL, TS_CLS, TS_LABEL } from '../../../shared/constants.ts';
 import type { Domain } from '../../../shared/domain.ts';
-import { addD, isFerie, isoWeek, isoWeekYear, mondayOf, parse, wDays } from '../../../shared/dates.ts';
+import { addD, isoWeek, isoWeekYear, joursSemaine, mondayOf, parse } from '../../../shared/dates.ts';
+import { DIMANCHE, estWeekEnd, SAMEDI } from '../../../shared/rules/semaine.ts';
 import { cap, equipeLabel, fH, fJ, fmt, fmtShort, key, num, plural } from '../../../shared/format.ts';
 import { jourHorsContrat, semaineHorsContrat } from '../../../shared/rules/absences.ts';
+import { DEMI_LABEL } from '../../../shared/rules/demi-journees.ts';
 import {
-  absenceCeJour, calcSheet, cumulAnnuel, demandesAbsence, demandesEnAttenteMessage, employeDeLaFeuille, heuresSurAbsence, heuresSurAbsenceMessage, joursAbsence,
+  absenceCeJour, calcSheet, corDeLaFeuille, cumulAnnuel, demandesAbsence, demiJoursAbsence, demiJourneeTexte, demandesEnAttenteMessage, employeDeLaFeuille, heuresSurAbsence,
+  heuresSurAbsenceMessage, heuresSurDemandes, joursAbsence,
   joursAbsenceTexte, natureAbsence, semaineCouverte, tachesDeLaSemaine, type SheetCalc,
 } from '../../../shared/rules/temps.ts';
+import { formationsAProposer } from '../../../shared/rules/formations-temps.ts';
 import { MODES_HEURES_SUP } from '../../../shared/rules/paie.ts';
+import { aRegulariser, mentionReouverture } from '../../../shared/rules/regularisation.ts';
+import { feriesDeLaSemaine, MAJORATION_1ER_MAI, mentionFerie, plafondComplementaires } from '../../../shared/rules/majorations.ts';
+import { contingentsDeLaSemaine, contingentTexte, moyenne12Semaines, moyenneTexte, requalificationPartiel, requalificationTexte } from '../../../shared/rules/durees.ts';
 import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
 import { CloseButton, Fine, Page, Panel, stop, Tag, Two } from '../components/ui.tsx';
 import { Ouvrir } from '../components/Cliquable.tsx';
@@ -31,8 +46,12 @@ import { suppressionLigne } from '../state/confirmations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { AlerteAutorisation } from '../components/ContratFiche.tsx';
+import { MINEUR_JOUR_MAX } from '../../../shared/rules/mineurs.ts';
 import { RelevesPanel } from './Releves.tsx';
 import { ChampHeures, SaisieJour, useVueJour } from './SaisieJour.tsx';
+import { CompteurDelegation } from '../components/Delegation.tsx';
+import { ReposAVerifier } from '../components/ReposAVerifier.tsx';
+import { AlertesDurees } from '../components/AlertesDurees.tsx';
 
 /** Année d'une feuille : celle de sa semaine ISO (son jeudi) ; le cumul annuel ventile une semaine à cheval jour par jour. */
 const anneeDe = (week: ISODate) => isoWeekYear(week);
@@ -43,8 +62,10 @@ const anneeDe = (week: ISODate) => isoWeekYear(week);
  * `motifManquant` : durées maximales dépassées sans motif (feuille corrigée par le valideur) ; il se donne en ouvrant la feuille.
  */
 function queueTotal(d: Domain, e: Employe, sh: FeuilleTemps): { main: string; sub: string; aRenvoyer?: boolean; motifManquant?: boolean } {
-  const t = totalFile(d, e, sh);
-  return calcSheet(d, e, sh).depassements.length && !sh.motifDepassement ? { ...t, sub: `${t.sub} · motif du dépassement à indiquer`, motifManquant: true } : t;
+  const t = totalFile(d, e, sh), c = calcSheet(d, e, sh);
+  // Repos hebdomadaire ou dominical : signalé au valideur, sans empêcher la validation.
+  const repos = c.repos.length ? { ...t, sub: `${t.sub} · repos hebdomadaire à vérifier` } : t;
+  return c.depassements.length && !sh.motifDepassement ? { ...repos, sub: `${repos.sub} · motif du dépassement à indiquer`, motifManquant: true } : repos;
 }
 function totalFile(d: Domain, e: Employe, sh: FeuilleTemps): { main: string; sub: string; aRenvoyer?: boolean } {
   const c = calcSheet(d, e, sh), k = c.c;
@@ -67,9 +88,10 @@ interface Recap { rows: [string, string][]; mention?: string; alert?: string; ai
 
 /**
  * Récapitulatif paie de la semaine et texte explicatif, selon l'organisation du temps de la feuille.
- * `emp` est le collaborateur tel qu'il était la semaine de la feuille (`employeDeLaFeuille`).
+ * `emp` est le collaborateur tel qu'il était la semaine de la feuille (`employeDeLaFeuille`) ; `sh` : la feuille
+ * (contrepartie obligatoire en repos figée à sa validation).
  */
-function recapOf(d: Domain, emp: Employe, calc: SheetCalc, week: ISODate): Recap {
+function recapOf(d: Domain, emp: Employe, calc: SheetCalc, week: ISODate, sh: FeuilleTemps | null): Recap {
   const c = calc.c, tt = TEMPS_TRAVAIL[c.temps];
   const art = tt.article ? ` ${tt.article}.` : '';
   // Heures supplémentaires payées, ou remplacées par un repos (mode figé sur la feuille à sa validation) : la ligne du
@@ -79,6 +101,23 @@ function recapOf(d: Domain, emp: Employe, calc: SheetCalc, week: ISODate): Recap
   const recupAide = c.interim
     ? ' Intérim : heures supplémentaires relevées et réglées par l’agence.'
     : ` ${MODES_HEURES_SUP[calc.modeHS].aide}`;
+  // Lignes ajoutées au décompte : heures du dimanche (comprises dans les autres) : rubrique HDIM, et majoration si le
+  // réglage en prévoit une.
+  const annexes: [string, string][] = !calc.dimanche || c.forfait ? []
+    : [['Dont heures du dimanche', fH(calc.dimanche)], ...(calc.majDimanche ? [[`Majoration du dimanche (${calc.majDimanche} %)`, fH(calc.dimanche * calc.majDimanche / 100)] as [string, string]] : [])];
+  // Jours fériés travaillés (comprises dans les autres) : 1er mai majoré de 100 % (MAJ_1MAI), autres fériés en quantité
+  // (FERIE_TRAV) et leur majoration réglée (MAJ_FERIE). Contrepartie obligatoire en repos figée à la validation (COR_ACQUIS).
+  const cor = corDeLaFeuille(sh);
+  if (!c.forfait) {
+    if (calc.mai1) annexes.push(['Dont heures du 1er mai', fH(calc.mai1)], [`Majoration du 1er mai (${MAJORATION_1ER_MAI} %)`, fH(calc.mai1 * MAJORATION_1ER_MAI / 100)]);
+    if (calc.ferie) annexes.push(['Dont heures un jour férié', fH(calc.ferie)], ...(calc.majFerie ? [[`Majoration des fériés (${calc.majFerie} %)`, fH(calc.ferie * calc.majFerie / 100)] as [string, string]] : []));
+    if (cor) annexes.push(['Contrepartie obligatoire en repos', fH(cor)]);
+  }
+  // Contingent annuel d'heures supplémentaires de chaque année de la semaine (deux pour une semaine à cheval sur le
+  // 31 décembre ; feuilles validées).
+  if (!(c.forfait || c.dirigeant || c.annuel || c.partiel || c.interim)) {
+    for (const k of contingentsDeLaSemaine(d, emp, week)) annexes.push([`Contingent ${k.annee} (heures sup validées)`, `${fH(k.cumul)} / ${fH(k.max)}`]);
+  }
 
   if (c.forfait) return {
     rows: [['Jours travaillés', fJ(calc.jours)], ['Heures déclarées (répartition projets)', fH(calc.total)]],
@@ -94,6 +133,7 @@ function recapOf(d: Domain, emp: Employe, calc: SheetCalc, week: ISODate): Recap
     const cum = cumulAnnuel(d, emp, anneeDe(week));
     const rows: [string, string][] = [
       ['Heures de la semaine', fH(calc.total)],
+      ...annexes,
       [`Cumul annuel validé ${cum.annee}`, `${fH(cum.done)} / ${fH(cum.cible)}`],
     ];
     if (cum.cible !== c.heuresAnnuelles) rows.push([`Forfait ${cum.annee} au prorata de la présence`, `${fH(cum.cible)} sur ${fH(c.heuresAnnuelles)}`]);
@@ -104,19 +144,23 @@ function recapOf(d: Domain, emp: Employe, calc: SheetCalc, week: ISODate): Recap
       aide: tt.aide + art,
     };
   }
-  if (c.partiel) return {
-    rows: [['Heures contractuelles', fH(Math.min(calc.total, c.base))], ['Complémentaires +10 %', fH(calc.hc10)], ['Complémentaires +25 %', fH(calc.hc25)]],
-    aide: tt.aide + art,
-  };
+  if (c.partiel) {
+    // Plafond réglé : le dixième, ou le tiers avec la référence d'un accord (Paramètres → Décompte des heures).
+    const p = plafondComplementaires(d.ds.settings);
+    return {
+      rows: [['Heures contractuelles', fH(Math.min(calc.total, c.base))], ['Complémentaires +10 %', fH(calc.hc10)], ['Complémentaires +25 %', fH(calc.hc25)], ...annexes],
+      aide: `${tt.aide} Plafond en vigueur : le ${p.label} de la durée contractuelle, soit ${fH(c.base / p.diviseur)} cette semaine (${p.article}).${art}`,
+    };
+  }
   if (c.hebdo) {
     // Heures incluses au forfait : +25 % jusqu'à la 43e heure, +50 % au-delà (forfait supérieur à 43 h).
     const rows: [string, string][] = [['Heures normales (jusqu’à 35 h)', fH(calc.normal)], ['Incluses au forfait +25 %', fH(calc.incluses25)]];
     if ((c.seuil ?? 0) > 43 || calc.incluses50 > 0) rows.push(['Incluses au forfait +50 %', fH(calc.incluses50)]);
-    rows.push(['Supplémentaires +25 %', fH(calc.sup25)], ['Supplémentaires +50 %', fH(calc.sup50)], ...recupRows);
+    rows.push(['Supplémentaires +25 %', fH(calc.sup25)], ['Supplémentaires +50 %', fH(calc.sup50)], ...recupRows, ...annexes);
     return { rows, aide: tt.aide + recupAide + art };
   }
   return {
-    rows: [['Heures normales', fH(calc.normal)], ['Supplémentaires +25 %', fH(calc.sup25)], ['Supplémentaires +50 %', fH(calc.sup50)], ...recupRows],
+    rows: [['Heures normales', fH(calc.normal)], ['Supplémentaires +25 %', fH(calc.sup25)], ['Supplémentaires +50 %', fH(calc.sup50)], ...recupRows, ...annexes],
     aide: tt.aide + recupAide + art,
   };
 }
@@ -130,7 +174,7 @@ export function Temps() {
   const { ui, setUi, run } = useStore();
   const { occupe, agir } = useAgir();
   const wk = ui.weekStart ?? mondayOf(data.today);
-  const wdays = wDays(wk);
+  const wdays = joursSemaine(wk);
 
   const inScope = (id: number | null): id is number => id != null && data.employes.some(e => e.id === id);
   const tsId = collab ? me : manager ? (inScope(ui.tsEmp) ? ui.tsEmp : me) : (inScope(ui.tsEmp) ? ui.tsEmp : data.employes[0]?.id ?? null);
@@ -145,7 +189,7 @@ export function Temps() {
 
   return (
     <Page
-      kicker={`Semaine ${isoWeek(wk)} · ${fmtShort(parse(wdays[0]))} → ${fmt(parse(wdays[4]))}`}
+      kicker={`Semaine ${isoWeek(wk)} · ${fmtShort(parse(wdays[0]))} → ${fmt(parse(wdays[DIMANCHE]))}`}
       title="Temps de travail"
       actions={<>
         {!collab && (
@@ -194,8 +238,14 @@ export function Temps() {
 
       {!collab && <SuiviFeuilles />}
 
+      {espaceRh && <ReposAVerifier />}
+
+      {espaceRh && <AlertesDurees />}
+
       {tsEmp && <AlerteAutorisation e={tsEmp} />}
       {tsEmp && <Sheet key={`${tsEmp.id}|${wk}`} emp={tsEmp} wk={wk} />}
+
+      {tsEmp && <CompteurDelegation emp={tsEmp} />}
 
       {espaceRh && <LotsPaie />}
 
@@ -208,14 +258,14 @@ export function Temps() {
 function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const d = useDomain();
   const data = d.ds;
-  const { rh, manager, me, soi } = useRole();
+  const { rh, admin, manager, me, soi } = useRole();
   const { run, openDialog } = useStore();
   const { occupe, agir } = useAgir();
   const [comment, setComment] = useState('');
   // Téléphone, tablette : la feuille se saisit jour par jour (pages/SaisieJour.tsx) ; le PC garde la grille de la semaine.
   const vueJour = useVueJour();
 
-  const wdays = wDays(wk);
+  const wdays = joursSemaine(wk);
   const sh = data.feuilles.find(f => f.empId === emp.id && f.week === wk) ?? null;
   // Motif d'un dépassement des durées maximales : repris de la feuille (renvoyée pour correction, ou soumise).
   const [motif, setMotif] = useState(sh?.motifDepassement ?? '');
@@ -241,31 +291,45 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const base = { empId: emp.id, week: wk };
 
   const absences = joursAbsence(d, emp.id, wk);
+  // Demi-journée d'absence (CP, RTT, récupération) : le jour reste saisissable, une demi-journée de travail au plus.
+  const demis = demiJoursAbsence(d, emp.id, wk);
   // Heures restées sur un jour d'absence : à retirer avant soumission et validation.
   const surAbsence = sh ? heuresSurAbsence(d, sh) : [];
   // Demande d'absence en attente : saisie libre, mais à décider avant de valider une feuille qui porte des heures ces jours-là.
-  const demandes = demandesAbsence(d), demandeJours = joursAbsence(d, emp.id, wk, demandes);
-  const enAttente = sh ? heuresSurAbsence(d, sh, demandes) : [];
+  // Demande d'une demi-journée : notée comme telle ; heures en attente calculées avec les absences en vigueur, comme à la
+  // décision (une demi-journée demandée à côté d'une demi-journée validée fait un jour entier).
+  const demandes = demandesAbsence(d), demandeJours = joursAbsence(d, emp.id, wk, demandes), demandeDemis = demiJoursAbsence(d, emp.id, wk, demandes);
+  const enAttente = sh ? heuresSurDemandes(d, sh) : [];
   // Semaine d'arrêt, de congés… : aucune heure attendue, la feuille se soumet sans heure.
   const couverte = semaineCouverte(d, emp, wk, sh);
   // Soumise sans heure, la semaine n'est plus couverte (absence annulée ou raccourcie) : à renvoyer, pas à valider.
   const plusCouverte = st === 'soumise' && !(calc.total > 0) && !couverte;
+  // Jours fériés : saisissables si le réglage le permet (par défaut), mention « Férié travaillé » quand des heures y sont.
+  const feries = feriesDeLaSemaine(wk), ferieBloque = data.settings.feriesTravaillesAutorises === false;
   const days = wdays.map((day, i) => {
-    const a = absences[i], dem = demandeJours[i], off = c.jourOff.includes(i), fer = isFerie(day), hors = !!jourHorsContrat(emp, day);
+    const a = absences[i], dem = demandeJours[i] ?? demandeDemis[i]?.absence, demDemi = demandeJours[i] ? null : demandeDemis[i]?.demi, off = c.jourOff.includes(i), fer = feries[i], hors = !!jourHorsContrat(emp, day);
     const m = data.missions.find(x => x.empId === emp.id && x.du <= day && x.au >= day);
     return {
-      day, a, locked: fer || !!a || hors, hl: (!!m && !fer && !a) || [...surAbsence, ...enAttente].some(x => x.di === i),
-      label: cap(parse(day).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })), long: jourLong(day),
-      note: fer ? 'Férié' : hors ? 'Hors contrat'
+      day, a, locked: (!!fer && ferieBloque) || !!a || hors, hl: (!!m && !fer && !a) || (!!fer && calc.perDay[i] > 0) || [...surAbsence, ...enAttente].some(x => x.di === i),
+      label: cap(parse(day).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric' })), long: jourLong(day), weekend: estWeekEnd(i),
+      note: fer ? mentionFerie(fer, calc.perDay[i], calc.majFerie) : hors ? 'Hors contrat'
         : a ? `${ABS_ABREGE[a.type]}${a.statut === 'signalee' ? ' (signalée)' : ''}`
-        : dem ? `${cap(natureAbsence(dem.type))} demandé${dem.type === 'RECUP' ? 'e' : ''}` : off ? 'Non travaillé' : m ? `Mission ${m.projet}` : '—',
+        : demis[i] ? `${ABS_ABREGE[demis[i].absence.type]} ${DEMI_LABEL[demis[i].demi]} · ${fH(demis[i].max)} max.`
+        : dem ? `${cap(natureAbsence(dem.type))}${demDemi ? ` ${DEMI_LABEL[demDemi]}` : ''} demandé${dem.type === 'RECUP' ? 'e' : ''}` : off ? 'Non travaillé' : m ? `Mission ${m.projet}` : estWeekEnd(i) ? 'Week-end' : '—',
     };
   });
+  // Samedi et dimanche : repliés en une colonne tant qu'ils sont vides (grille de la semaine) ; dépliés pour y saisir.
+  const [voirWeekEnd, setVoirWeekEnd] = useState(calc.perDay[SAMEDI] + calc.perDay[DIMANCHE] > 0);
+  const colonnes = days.map((_, i) => i).filter(i => voirWeekEnd || !estWeekEnd(i));
+  const heuresWeekEnd = (h: readonly number[]) => num(h[SAMEDI]) + num(h[DIMANCHE]);
   const lignes = sh ? sh.lignes : [];
   // Cellule remplie un jour d'absence : signalée (à vider) ; elle reste modifiable pour être vidée, vide elle est verrouillée.
+  // De même pour un jour férié quand le réglage n'en permet plus la saisie : les heures déjà posées restent à retirer.
   const alerteDe = (li: number, di: number) => {
-    const a = days[di].a;
-    return a && num(lignes[li]?.h[di]) > 0 ? `${absenceCeJour(a)} : ${editable ? 'videz la cellule' : 'aucune heure ne devrait être saisie'}` : undefined;
+    const a = days[di].a, h = num(lignes[li]?.h[di]);
+    if (a && h > 0) return `${absenceCeJour(a)} : ${editable ? 'videz la cellule' : 'aucune heure ne devrait être saisie'}`;
+    if (feries[di] && ferieBloque && h > 0) return `Férié non saisissable : ${editable ? 'videz la cellule' : 'aucune heure ne devrait être saisie'}`;
+    return undefined;
   };
   const enregistrer = async (li: number, di: number, raw: string) => (await run('temps.setCell', { ...base, li, di, value: raw }, { silent: true })).ok;
   // La ligne visée accompagne l'indice : un second clic ne supprime pas la ligne venue à sa place.
@@ -280,10 +344,19 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const used = new Set(lignes.map(l => l.projet));
   const projOptions = data.referentiels.projets.filter(p => !used.has(p.code) && p.statut !== 'archive');
   // Proposition Keystone : seulement si des heures sont planifiées cette semaine-là.
-  const canSuggest = editable && !correction && tachesDeLaSemaine(d, emp.id, wk).length > 0;
-  const missions = data.missions.filter(m => m.empId === emp.id && m.du <= wdays[4] && m.au >= wdays[0]);
+  // Tâches Keystone de la semaine, ou heures des sessions de formation (ligne INT-FORM, shared/rules/formations-temps.ts).
+  const keystone = tachesDeLaSemaine(d, emp.id, wk).length > 0, formations = formationsAProposer(d, emp.id, wk);
+  const canSuggest = editable && !correction && (keystone || formations);
+  const missions = data.missions.filter(m => m.empId === emp.id && m.du <= wdays[DIMANCHE] && m.au >= wdays[0]);
 
-  const recap = recapOf(d, empF, calc, wk);
+  const recap = recapOf(d, empF, calc, wk, sh);
+  // Durées sur plusieurs semaines (feuilles validées, jusqu'à cette semaine) : alertes, sans blocage.
+  const moyenne = moyenne12Semaines(d, emp, wk), requalification = requalificationPartiel(d, emp, wk);
+  const alertesDurees = [
+    moyenne?.depasse ? moyenneTexte(moyenne) : '',
+    requalification?.depasse ? requalificationTexte(requalification) : '',
+    ...contingentsDeLaSemaine(d, emp, wk).map(k => (k.etat ? contingentTexte(k) : '')),
+  ].filter(Boolean);
   const rowStyle = { display: 'flex', justifyContent: 'space-between', gap: 'var(--space-3)', fontSize: 13, padding: 'var(--space-2) 0', background: 'var(--rule-soft) no-repeat bottom / 100% 1px' } as const;
 
   // Intérimaire : relevé hebdomadaire à l'agence (le service RH voit s'il a été transmis).
@@ -291,6 +364,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const paie = sh?.sage ? ' · transmise à Sage Paie' : sh?.lotId ? ` · dans le lot de paie n° ${sh.lotId}, import dans Sage à confirmer`
     : c.interim ? (releve ? ` · relevé transmis à l’agence le ${fmtShort(new Date(releve.creation))}` : ' · relevé hebdomadaire à l’agence d’intérim')
     : c.dirigeant ? ' · non transmise à la paie (cadre dirigeant, art. L3111-2)'
+    : sh && aRegulariser(sh) ? ' · écart à transmettre à Sage Paie (régularisation, lot correctif)'
     : ' · en attente de transmission à Sage Paie';
   const flow = st === 'validee'
     ? `Validée${sh!.keystone ? ' · heures par projet renvoyées à Keystone' : ''}${paie}`
@@ -305,6 +379,8 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const motifSoumis = sh?.motifDepassement ?? '';
   const motifManquant = depasse && !motif.trim();
   const motifValideur = canValidate && depasse && !motifSoumis;
+  // Salarié mineur au-delà de 8 h par jour ou de 35 h par semaine : motif, ou référence de la dérogation de l'inspection.
+  const motifLibelle = calc.depassementsMineur.length ? 'Motif du dépassement ou référence de la dérogation de l’inspection du travail' : 'Motif du dépassement';
 
   return (
     <div className="row-wrap">
@@ -321,7 +397,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
             ))}
           </div>
         )}
-        {sh?.comment && st === 'rejetee' && <div style={{ fontSize: 13, color: 'var(--color-accent-300)' }}>Retour du manager : {sh.comment}</div>}
+        {sh?.comment && st === 'rejetee' && <div style={{ fontSize: 13, color: 'var(--color-accent-300)' }}>{sh.reouverture?.renvoyee ? 'Feuille rouverte par le service RH' : 'Retour du manager'} : {sh.comment}</div>}
 
         {vueJour ? (
           <SaisieJour wk={wk} days={days} lignes={lignes} perDay={calc.perDay} total={calc.total} editable={editable} occupe={occupe}
@@ -331,12 +407,19 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
           <table className="table" style={{ fontSize: 13 }}>
             <thead><tr>
               <th>Projet · tâche</th>
-              {days.map(x => (
-                <th key={x.day} className="center nowrap">
+              {colonnes.map(i => { const x = days[i]; return (
+                <th key={x.day} className={`center nowrap${x.weekend ? ' col-weekend' : ''}`}>
                   <div>{x.label}</div>
                   <div style={{ fontSize: 11, fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: x.hl ? 'var(--color-accent-300)' : 'var(--color-neutral-500)' }}>{x.note}</div>
+                  {i === DIMANCHE && <button type="button" className="btn btn-ghost btn-sm weekend-bascule" aria-expanded onClick={() => setVoirWeekEnd(false)}>Replier</button>}
                 </th>
-              ))}
+              ); })}
+              {!voirWeekEnd && (
+                <th className="center nowrap col-weekend">
+                  <button type="button" className="btn btn-ghost btn-sm weekend-bascule" aria-expanded={false} onClick={() => setVoirWeekEnd(true)}>Sam. · Dim.</button>
+                  <div style={{ fontSize: 11, fontWeight: 400, textTransform: 'none', letterSpacing: 0, color: 'var(--color-neutral-500)' }}>Week-end</div>
+                </th>
+              )}
               <th className="right">Total</th><th></th>
             </tr></thead>
             <tbody>
@@ -346,27 +429,31 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
                     <div><span style={{ color: 'var(--color-accent-300)' }}>{l.projet}</span> · {d.projet(l.projet)}</div>
                     <div className="text-muted sub">{l.tache}</div>
                   </td>
-                  {l.h.map((v, di) => {
+                  {colonnes.map(di => {
                     // Chaque cellule est nommée (projet, tâche, jour) ; l'alerte d'absence lui est reliée pour un lecteur d'écran.
+                    // Une ligne enregistrée avant la semaine à 7 jours n'a que 5 valeurs : samedi et dimanche vides.
                     const alerte = alerteDe(li, di), alerteId = `ts-alerte-${li}-${di}`;
                     return (
-                      <td key={di} className="center">
-                        <ChampHeures value={num(v)} disabled={!editable || (days[di].locked && !alerte)} label={nomChamp(l, days[di].long)}
+                      <td key={di} className={`center${days[di].weekend ? ' col-weekend' : ''}`}>
+                        <ChampHeures value={num(l.h[di])} disabled={!editable || (days[di].locked && !alerte)} label={nomChamp(l, days[di].long)}
                           alerte={alerte} alerteId={alerteId} onCommit={raw => enregistrer(li, di, raw)}
                           style={{ width: 56, textAlign: 'right', padding: '0 var(--space-3)' }} />
                         {alerte && <span id={alerteId} className="sr-only">{alerte}</span>}
                       </td>
                     );
                   })}
+                  {!voirWeekEnd && <td className="center col-weekend tnum nowrap">{heuresWeekEnd(l.h) ? fH(heuresWeekEnd(l.h)) : '—'}</td>}
                   <td className="right nowrap tnum">{fH(l.h.reduce((n, v) => n + num(v), 0))}</td>
                   <td className="right">{editable && <CloseButton size={28} label={`Supprimer la ligne ${l.projet}`} disabled={occupe} onClick={ev => supprimer(li, ev)} />}</td>
                 </tr>
               ))}
               <tr>
                 <td style={{ fontWeight: 500 }}>Total jour</td>
-                {calc.perDay.map((h, i) => (
-                  <td key={i} className="center"><span className="tnum nowrap" style={{ color: h > 10 ? 'var(--color-accent-300)' : 'inherit' }}>{h ? fH(h) : '—'}</span></td>
-                ))}
+                {colonnes.map(i => { const h = calc.perDay[i]; return (
+                  <td key={i} className={`center${estWeekEnd(i) ? ' col-weekend' : ''}`}><span className="tnum nowrap" style={{ color: h > 10 || (calc.depassementsMineur.length > 0 && h > MINEUR_JOUR_MAX) ? 'var(--color-accent-300)' : 'inherit' }}>{h ? fH(h) : '—'}</span></td>
+                ); })}
+                {!voirWeekEnd && <td className="center col-weekend tnum nowrap">{heuresWeekEnd(calc.perDay) ? fH(heuresWeekEnd(calc.perDay)) : '—'}</td>}
+
                 <td className="right nowrap tnum" style={{ fontWeight: 500 }}>{fH(calc.total)}</td><td></td>
               </tr>
             </tbody>
@@ -384,7 +471,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
               <option value="">+ Ajouter un projet…</option>
               {projOptions.map(p => <option key={p.code} value={p.code}>{p.code} · {p.nom}</option>)}
             </select>
-            {canSuggest && <button type="button" className="btn btn-secondary" disabled={occupe} onClick={agir(() => run('temps.suggest', base))}>Proposer depuis Keystone</button>}
+            {canSuggest && <button type="button" className="btn btn-secondary" disabled={occupe} onClick={agir(() => run('temps.suggest', base))}>{formations ? (keystone ? 'Proposer les heures prévues' : 'Proposer les heures de formation') : 'Proposer depuis Keystone'}</button>}
             {correction
               ? <span className="text-muted sub" style={{ marginLeft: 'auto' }}>Correction avant validation : la feuille reste soumise</span>
               : <button type="button" className="btn btn-primary" style={{ marginLeft: 'auto' }} disabled={!(calc.total > 0 || couverte) || surAbsence.length > 0 || motifManquant || occupe}
@@ -395,24 +482,34 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
           <div className="note-accent">
             {editable
               ? heuresSurAbsenceMessage(surAbsence, correction ? 'ou renvoyez la feuille avant de la valider' : 'avant de soumettre la feuille')
-              : `Absence ${joursAbsenceTexte(surAbsence)} : des heures y sont saisies${st === 'validee' ? ' — feuille validée, non modifiée rétroactivement' : ''}`}
+              : `${[
+                surAbsence.some(x => !x.demi) ? `Absence ${joursAbsenceTexte(surAbsence.filter(x => !x.demi))} : des heures y sont saisies` : '',
+                surAbsence.some(x => x.demi) ? `${demiJourneeTexte(surAbsence.filter(x => x.demi))} : plus d’une demi-journée de travail saisie` : '',
+              ].filter(Boolean).join(' ; ')}${st === 'validee' ? ' — feuille validée, non modifiée rétroactivement' : ''}`}
           </div>
         )}
         {enAttente.length > 0 && st !== 'validee' && <div className="note-accent">{demandesEnAttenteMessage(enAttente, canValidate)}</div>}
         {plusCouverte && <div className="note-accent">Aucune heure et la semaine n’est plus couverte par une absence : renvoyez la feuille pour saisie des heures.</div>}
-        {calc.warn.length > 0 && (
+        {calc.warn.length + alertesDurees.length > 0 && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
-            {calc.warn.map(w => <div key={w} className="note-accent">{w}</div>)}
+            {[...calc.warn, ...alertesDurees].map(w => <div key={w} className="note-accent">{w}</div>)}
           </div>
         )}
         {depasse && editable && !correction && (
           <div className="field">
-            <label htmlFor="ts-motif">Motif du dépassement (obligatoire pour soumettre)</label>
+            <label htmlFor="ts-motif">{motifLibelle} (obligatoire pour soumettre)</label>
             <textarea className="input short" id="ts-motif" rows={2} placeholder="Panne, intervention urgente, inventaire…" value={motif} onChange={ev => setMotif(ev.target.value)} style={{ resize: 'vertical' }} />
           </div>
         )}
         {motifSoumis && (st === 'soumise' || st === 'validee') && <Fine>Motif du dépassement : {motifSoumis}</Fine>}
         <Fine>{flow}</Fine>
+        {/* Réouverture (t131) : administrateur RH, jamais sa propre feuille ; une feuille transmise se régularise par écart. */}
+        {sh?.reouverture && <Fine>{mentionReouverture(sh, iso => fmtShort(new Date(iso)))}{sh.reouverture.motif ? ` — motif : ${sh.reouverture.motif}` : ''}</Fine>}
+        {st === 'validee' && admin && emp.id !== soi && (
+          <div className="actions-end">
+            <button type="button" className="btn btn-secondary btn-sm" onClick={() => openDialog({ type: 'rouvrirFeuille', empId: emp.id, week: wk })}>Rouvrir la feuille</button>
+          </div>
+        )}
       </Panel>
 
       <aside className="card elev-sm panel" style={{ flex: '0 1 320px', minWidth: 280 }}>
@@ -429,7 +526,7 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
         {canValidate && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)', paddingTop: 'var(--space-2)' }}>
             {motifValideur && (
-              <textarea className="input short" rows={2} aria-label="Motif du dépassement" placeholder="Motif du dépassement (obligatoire pour valider)" value={motif} onChange={ev => setMotif(ev.target.value)} style={{ resize: 'vertical' }} />
+              <textarea className="input short" rows={2} aria-label={motifLibelle} placeholder={`${motifLibelle} (obligatoire pour valider)`} value={motif} onChange={ev => setMotif(ev.target.value)} style={{ resize: 'vertical' }} />
             )}
             <textarea className="input short" rows={2} aria-label="Commentaire" placeholder="Commentaire en cas de renvoi (facultatif)" value={comment} onChange={ev => setComment(ev.target.value)} style={{ resize: 'vertical' }} />
             <div style={{ display: 'flex', gap: 'var(--space-2)', justifyContent: 'flex-end' }}>

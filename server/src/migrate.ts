@@ -287,7 +287,8 @@ function convertirContrats(db: Db, avant: () => void) {
 export function libererPlacesRemplacees(db: Db, avant = () => {}) {
   const rows = db.sql.prepare(`SELECT c.id FROM certifications c JOIN sessions s ON s.id = c.session_id
     WHERE (s.statut IS NULL OR s.statut NOT IN ('Clôturée', 'Annulée')) AND EXISTS (SELECT 1 FROM certifications n WHERE n.emp_id = c.emp_id AND n.f = c.f
-      AND (n.obtenue > c.obtenue OR (n.obtenue = c.obtenue AND n.id > c.id)) AND n.obtenue < s.date)`).all() as { id: number }[];
+      AND (n.obtenue > c.obtenue OR (n.obtenue = c.obtenue AND n.id > c.id)) AND n.obtenue < s.date
+      AND n.annule_le IS NULL)`).all() as { id: number }[];
   if (!rows.length) return;
   avant();
   db.tx(() => {

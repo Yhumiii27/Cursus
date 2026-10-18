@@ -7,12 +7,13 @@
 // n'y figurent pas ; les feuilles de temps non soumises relèvent de la relance des feuilles (suivi des feuilles).
 // Jamais de donnée de santé dans un e-mail : une vaccination est une « formalité sanitaire », une visite médicale n'est
 // nommée que par son échéance, un avis d'inaptitude n'est pas relancé ; le manager ne reçoit ni l'une ni l'autre.
-import { ENT_TYPES, TYPES_CONTRAT } from '../constants.ts';
+import { ENT_TYPES, EXAMEN_REQUIS, TYPES_CONTRAT } from '../constants.ts';
 import { days, iso, parse } from '../dates.ts';
 import type { Domain, EmpX } from '../domain.ts';
 import type { ISODate, Settings } from '../types.ts';
 import { present } from './contrats.ts';
 import { obligations } from './entretiens.ts';
+import { ECHEANCE_18_ANS, ECHEANCE_DEROGATION } from './mineurs.ts';
 
 /** Paliers proposés (jours avant l'échéance) ; « échu » s'y ajoute toujours. */
 export const PALIERS_POSSIBLES = [90, 60, 30, 15, 7] as const;
@@ -48,7 +49,10 @@ export type CategorieRelance = 'formation' | 'habilitation' | 'visite' | 'formal
 /** Objet relancé : clé stable (avec la date de l'échéance : un renouvellement repart de zéro), salarié, libellé neutre. */
 export interface Relance {
   cle: string; empId: number; categorie: CategorieRelance; libelle: string; echeance: ISODate; jours: number; palier: string;
-  /** Donnée de santé, même neutralisée (visite médicale, vaccination) : jamais dans le récapitulatif d'un manager. */
+  /**
+   * Donnée de santé, même neutralisée (visite médicale, vaccination), ou réservée au service RH (titre de séjour, échéances
+   * d'un salarié mineur) : jamais dans le récapitulatif d'un manager.
+   */
   sante: boolean;
 }
 
@@ -72,6 +76,11 @@ export function relancesDues(d: Domain, emps: EmpX[], paliers: readonly number[]
     else if (x.kind === 'med') {
       // Avis d'inaptitude : rien à renouveler, suivi par le service RH ; visite jamais enregistrée : relancée comme échue.
       if (x.label === 'Avis d’inaptitude') continue;
+      // Examen d'aptitude du suivi renforcé jamais enregistré : relancé comme échu tant qu'il manque, sous une clé à part.
+      if (x.label === EXAMEN_REQUIS) { ajouter({ ...base, cle: `med:${x.emp.id}:examen`, categorie: 'visite', libelle: 'Examen médical d’aptitude à programmer', sante: true }, true); continue; }
+      // Visite due à un événement (embauche, reprise, mi-carrière, fin de carrière : shared/rules/visites-dues.ts), relancée
+      // par paliers sous une clé par motif ; l'e-mail ne la nomme pas (une visite de reprise trahirait un arrêt).
+      if (x.motifVisite) { ajouter({ ...base, cle: `med:${x.emp.id}:${x.motifVisite}:${echeance}`, categorie: 'visite', libelle: 'Visite médicale à programmer', sante: true }); continue; }
       ajouter({ ...base, cle: `med:${x.emp.id}:${x.sansDate ? 'sans-date' : echeance}`, categorie: 'visite', libelle: x.sansDate ? 'Visite médicale non enregistrée' : 'Visite médicale', sante: true }, !!x.sansDate);
     } else if (x.kind === 'exigence') {
       // Exigence du poste ou de l'équipe jamais obtenue : sans date, relancée comme échue tant qu'elle manque.
@@ -81,6 +90,11 @@ export function relancesDues(d: Domain, emps: EmpX[], paliers: readonly number[]
       // Fin de contrat : relancée plus bas, même sans échéance affichée. Titre de séjour : réservé au service RH, comme une
       // donnée de santé (jamais dans le récapitulatif d'un manager), sans le type de titre.
       if (x.kindLabel === 'Fin de contrat') continue;
+      // Salarié mineur (shared/rules/mineurs.ts) : 18 ans et fin de la dérogation pour travaux réglementés, sous des clés à
+      // part (jamais celle d'une fin d'essai à la même date). Réservées au service RH comme le titre de séjour : le jour des
+      // 18 ans donnerait au manager la date de naissance complète, et la dérogation ne lui est pas transmise.
+      if (x.kindLabel === ECHEANCE_18_ANS) { ajouter({ ...base, cle: `mineur:18ans:${x.emp.id}:${echeance}`, categorie: 'contrat', libelle: '18 ans : fin des règles des mineurs', sante: true }); continue; }
+      if (x.kindLabel === ECHEANCE_DEROGATION) { ajouter({ ...base, cle: `derogation:${x.emp.id}:${echeance}`, categorie: 'contrat', libelle: 'Dérogation pour travaux réglementés à renouveler', sante: true }); continue; }
       const titre = x.kindLabel === 'Titre de séjour';
       ajouter({ ...base, cle: `${titre ? 'titre' : 'essai'}:${x.emp.id}:${echeance}`, categorie: 'contrat', libelle: titre ? 'Titre de séjour' : x.label, sante: titre });
     } else if (x.kindLabel === 'Vaccination') {

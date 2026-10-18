@@ -1,20 +1,30 @@
 // Lots de paie : feuilles validées d'une période de paie réunies en un lot au contenu figé, fichier d'import pour Sage
-// tiré de ce contenu (format réglé par la paie), cycle du lot (généré → transmis à la confirmation de l'import, ou
+// tiré de ce contenu (format réglé par la paie : colonnes facultatives, encodage UTF-8 ou Windows-1252), cycle du lot (généré → transmis à la confirmation de l'import, ou
 // annulé avant elle). Partagé par les actions (server/src/actions/paie.ts), le téléchargement
 // (server/src/fichier-paie.ts) et l'écran Temps (client/src/components/LotsPaie.tsx).
-// Périmètre du fichier : heures validées du lundi au vendredi seulement ; absences, déplacements, samedi, dimanche et
-// nuit restent saisis dans Sage (PERIMETRE_FICHIER, repris par l'écran, la confirmation et la procédure).
+// Périmètre du fichier : heures validées de la semaine du lundi au dimanche (semaine à 7 jours, heures du dimanche aussi
+// en HDIM, fériés en MAJ_1MAI et FERIE_TRAV, contrepartie en repos en COR_ACQUIS) et, réglage `absencesFichierPaie`
+// actif (par défaut), absences validées ventilées par mois (shared/rules/absences-paie.ts), soldes de sortie des rubriques
+// de sortie actives (shared/rules/solde-sortie.ts) ; déplacements et nuit restent
+// saisis dans Sage (`perimetreFichier`, repris par l'écran, la confirmation et la procédure).
+import { encoderTexte } from '../encodage.ts';
 import type { ColonneFichierPaie, FeuilleTemps, FormatFichierPaie, ISODate, LotPaie, SagePush, Settings, StatutLotPaie } from '../types.ts';
-import { periodesSemaine } from './paie.ts';
+import { PERIMETRE_FICHIER_ABSENCES, resumeAbsences } from './absences-paie.ts';
+import { periodesSemaine, type RubriqueVue } from './paie.ts';
 
-/** Ce que le fichier contient, et ce qu'il ne contient pas (écran, confirmation, docs/DEPLOIEMENT.md). */
-export const PERIMETRE_FICHIER = 'Heures validées du lundi au vendredi seulement : absences, déplacements et heures du samedi, du dimanche ou de nuit restent saisis dans Sage.';
+/** Ce que le fichier contient, et ce qu'il ne contient pas, absences laissées à Sage (écran, confirmation, docs/DEPLOIEMENT.md). */
+export const PERIMETRE_FICHIER = 'Heures validées de la semaine, samedi et dimanche compris (heures du dimanche aussi en HDIM, des jours fériés en MAJ_1MAI ou FERIE_TRAV ; contrepartie obligatoire en repos en COR_ACQUIS) : absences, déplacements et heures de nuit restent saisis dans Sage.';
+/** Périmètre selon le réglage `absencesFichierPaie` (absences validées comprises, ou laissées à la saisie dans Sage). */
+export const perimetreFichier = (absences: boolean) => (absences ? PERIMETRE_FICHIER_ABSENCES : PERIMETRE_FICHIER);
 
 export const STATUTS_LOT: Record<StatutLotPaie, { label: string; cls: string }> = {
   genere: { label: 'Import à confirmer', cls: 'tag-accent' },
   transmis: { label: 'Transmis', cls: 'tag-neutral' },
   annule: { label: 'Annulé', cls: 'tag-outline' },
 };
+
+/** Lot correctif (t131) : il régularise au moins une feuille rouverte après sa transmission. */
+export const estCorrectif = (l: Pick<LotPaie, 'type'>) => l.type === 'correctif';
 
 /** Lot qui réserve ses feuilles : généré ou transmis (un lot annulé les a libérées). */
 export const lotActif = (l: Pick<LotPaie, 'statut'>) => l.statut !== 'annule';
@@ -34,39 +44,62 @@ export function feuillesDuLot<T extends Pick<FeuilleTemps, 'week'>>(sheets: read
 
 // — Fichier d'import —
 
-export const FORMAT_FICHIER_DEFAUT: FormatFichierPaie = { separateur: ';', colonnes: ['matricule', 'periode', 'rubrique', 'quantite'], formatPeriode: 'AAAA-MM', decimale: ',', entete: true };
+export const FORMAT_FICHIER_DEFAUT: FormatFichierPaie = {
+  separateur: ';', colonnes: ['matricule', 'periode', 'rubrique', 'quantite'], formatPeriode: 'AAAA-MM', decimale: ',', entete: true,
+  encodage: 'utf-8', formatDate: 'JJ/MM/AAAA', negatifs: true,
+};
 
 export const SEPARATEURS: Record<FormatFichierPaie['separateur'], string> = { ';': 'Point-virgule ( ; )', ',': 'Virgule ( , )', tab: 'Tabulation' };
 export const FORMATS_PERIODE: Record<FormatFichierPaie['formatPeriode'], string> = { 'AAAA-MM': '2026-10', 'MM/AAAA': '10/2026', AAAAMM: '202610', MMAAAA: '102026' };
 export const DECIMALES: Record<FormatFichierPaie['decimale'], string> = { ',': 'Virgule (7,5)', '.': 'Point (7.5)' };
-export const COLONNES_FICHIER: Record<ColonneFichierPaie, string> = { matricule: 'Matricule de paie', periode: 'Période', rubrique: 'Code rubrique Sage', quantite: 'Quantité' };
+export const ENCODAGES: Record<FormatFichierPaie['encodage'], string> = { 'utf-8': 'UTF-8 (sans BOM)', 'windows-1252': 'Windows-1252 (ANSI)' };
+export const FORMATS_DATE: Record<FormatFichierPaie['formatDate'], string> = { 'JJ/MM/AAAA': '01/10/2026', 'AAAA-MM-JJ': '2026-10-01', JJMMAAAA: '01102026' };
+export const COLONNES_FICHIER: Record<ColonneFichierPaie, string> = {
+  matricule: 'Matricule de paie', periode: 'Période', rubrique: 'Code rubrique Sage', quantite: 'Quantité',
+  dossier: 'Code dossier', libelle: 'Libellé de la rubrique', debut: 'Début de période', fin: 'Fin de période',
+};
+/** Colonnes toujours présentes, chacune une fois ; les autres sont facultatives, absentes par défaut. */
+export const COLONNES_OBLIGATOIRES: readonly ColonneFichierPaie[] = ['matricule', 'periode', 'rubrique', 'quantite'];
+export const COLONNES_FACULTATIVES = (Object.keys(COLONNES_FICHIER) as ColonneFichierPaie[]).filter(c => !COLONNES_OBLIGATOIRES.includes(c));
 /** Nom des colonnes dans la ligne d'en-tête : sans accent, lisible par tout outil d'import. */
-const ENTETE: Record<ColonneFichierPaie, string> = { matricule: 'matricule', periode: 'periode', rubrique: 'rubrique', quantite: 'quantite' };
-
-const COLONNES = Object.keys(COLONNES_FICHIER) as ColonneFichierPaie[];
+const ENTETE: Record<ColonneFichierPaie, string> = {
+  matricule: 'matricule', periode: 'periode', rubrique: 'rubrique', quantite: 'quantite', dossier: 'dossier', libelle: 'libelle', debut: 'debut', fin: 'fin',
+};
 
 /**
- * Format reçu (`paie.formatFichier`) contrôlé : chaque champ absent garde sa valeur ; les quatre colonnes, chacune une
- * fois ; le séparateur décimal différent du séparateur de colonnes. Message d'erreur en français, sinon le format.
+ * Choix parmi les clés d'une table (séparateur, période, colonne…) : la valeur reçue, ou null si elle n'en est pas une.
+ * Seule une chaîne est admise : un tableau comme ['dossier'] vaut « dossier » une fois converti et passerait sinon.
+ */
+const choix = <K extends string>(table: Record<K, string>, v: unknown): K | null => (typeof v === 'string' && Object.hasOwn(table, v) ? v as K : null);
+
+/**
+ * Format reçu (`paie.formatFichier`) contrôlé : chaque champ absent garde sa valeur ; les quatre colonnes obligatoires,
+ * chacune une fois, les facultatives une fois au plus ; le séparateur décimal différent du séparateur de colonnes.
+ * Message d'erreur en français, sinon le format.
  */
 export function controlerFormat(p: Record<string, unknown>, actuel: FormatFichierPaie): FormatFichierPaie | string {
-  const f: FormatFichierPaie = { ...actuel };
-  if (p.separateur !== undefined) {
-    if (!Object.hasOwn(SEPARATEURS, String(p.separateur))) return 'Séparateur inconnu : point-virgule, virgule ou tabulation';
-    f.separateur = p.separateur as FormatFichierPaie['separateur'];
-  }
-  if (p.formatPeriode !== undefined) {
-    if (!Object.hasOwn(FORMATS_PERIODE, String(p.formatPeriode))) return 'Format de période inconnu';
-    f.formatPeriode = p.formatPeriode as FormatFichierPaie['formatPeriode'];
-  }
-  if (p.decimale !== undefined) {
-    if (!Object.hasOwn(DECIMALES, String(p.decimale))) return 'Séparateur décimal inconnu : virgule ou point';
-    f.decimale = p.decimale as FormatFichierPaie['decimale'];
+  const f: FormatFichierPaie = { ...FORMAT_FICHIER_DEFAUT, ...actuel };
+  const champs: [keyof FormatFichierPaie, Record<string, string>, string][] = [
+    ['separateur', SEPARATEURS, 'Séparateur inconnu : point-virgule, virgule ou tabulation'],
+    ['formatPeriode', FORMATS_PERIODE, 'Format de période inconnu'],
+    ['decimale', DECIMALES, 'Séparateur décimal inconnu : virgule ou point'],
+    ['encodage', ENCODAGES, 'Encodage inconnu : UTF-8 ou Windows-1252'],
+    ['formatDate', FORMATS_DATE, 'Format de date inconnu'],
+  ];
+  for (const [k, table, erreur] of champs) {
+    if (p[k] === undefined) continue;
+    const v = choix(table, p[k]);
+    if (v === null) return erreur;
+    Object.assign(f, { [k]: v });
   }
   if (p.entete !== undefined) f.entete = !!p.entete;
+  // Quantités négatives acceptées par l'import (régularisation par écart) ; sinon « annule et remplace » (t131).
+  if (p.negatifs !== undefined) f.negatifs = !!p.negatifs;
   if (p.colonnes !== undefined) {
     const c = p.colonnes;
-    if (!Array.isArray(c) || c.length !== COLONNES.length || COLONNES.some(x => !c.includes(x))) return 'Ordre des colonnes : matricule, période, rubrique et quantité, chacune une fois';
+    if (!Array.isArray(c) || c.some(x => choix(COLONNES_FICHIER, x) === null) || new Set(c).size !== c.length || COLONNES_OBLIGATOIRES.some(x => !c.includes(x))) {
+      return 'Colonnes : matricule, période, rubrique et quantité, chacune une fois ; une colonne facultative une fois au plus';
+    }
     f.colonnes = c as ColonneFichierPaie[];
   }
   if (f.separateur === f.decimale) return 'Le séparateur décimal doit différer du séparateur de colonnes';
@@ -79,53 +112,114 @@ export function periodeFichier(p: string, f: FormatFichierPaie['formatPeriode'])
   return f === 'MM/AAAA' ? `${m}/${a}` : f === 'AAAAMM' ? `${a}${m}` : f === 'MMAAAA' ? `${m}${a}` : p;
 }
 
+/** Date AAAA-MM-JJ dans le format du fichier. */
+export function dateFichier(iso: ISODate, f: FormatFichierPaie['formatDate']): string {
+  const [a, m, j] = iso.split('-');
+  return f === 'JJ/MM/AAAA' ? `${j}/${m}/${a}` : f === 'JJMMAAAA' ? `${j}${m}${a}` : iso;
+}
+
+/** Premier et dernier jour d'une période de paie AAAA-MM (mois civil). */
+export function bornesPeriode(p: string): { debut: ISODate; fin: ISODate } {
+  const [a, m] = p.split('-').map(Number);
+  const jours = new Date(Date.UTC(a, m, 0)).getUTCDate();
+  return { debut: `${p}-01`, fin: `${p}-${String(jours).padStart(2, '0')}` };
+}
+
 /** Quantités du fichier au centième (quart d'heure : 0,25) ; les totaux du lot, contrôlés dans Sage, de même. */
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
 export interface LigneFichier { matricule: string; periode: string; rubrique: string; quantite: number }
 
+/** Contenu lu par le fichier : lignes des feuilles et, depuis le lot 5, éléments d'absence et soldes de sortie. */
+type ContenuFichier = Pick<SagePush, 'lignes'> & Partial<Pick<SagePush, 'absences' | 'sorties'>>;
+
+/**
+ * Quantités du contenu par matricule, période et code Sage : heures des feuilles, puis absences et soldes de sortie.
+ * `garder` : ligne « annule et remplace » d'une feuille rouverte (t131), dont une quantité nulle remplace celle déjà partie.
+ */
+function quantites(contenu: ContenuFichier): { matricule: string; periode: string; rubrique: string; q: number; garder?: boolean }[] {
+  return [
+    ...contenu.lignes.flatMap(l => Object.entries(l.rubriques).map(([rubrique, q]) => ({ matricule: l.matricule, periode: l.periode ?? '', rubrique, q, ...(l.remplace ? { garder: true } : {}) }))),
+    ...(contenu.absences ?? []).flatMap(x => (x.codeSage ? [{ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite }] : [])),
+    ...(contenu.sorties ?? []).map(x => ({ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite })),
+  ];
+}
+
 /**
  * Lignes du fichier : une par salarié, période et rubrique, quantités additionnées sur la période (rappel d'une période
- * close compris, puisqu'il part sur la période ouverte), triées par matricule, période et rubrique ; quantité nulle omise.
+ * close compris, puisqu'il part sur la période ouverte ; absences et leurs régularisations négatives comprises, écarts
+ * d'une feuille rouverte aussi), triées par matricule, période et rubrique ; quantité nulle omise, sauf en « annule et
+ * remplace » (elle remplace la quantité déjà partie).
  */
-export function lignesFichier(contenu: Pick<SagePush, 'lignes'>): LigneFichier[] {
-  const somme = new Map<string, LigneFichier>();
-  for (const l of contenu.lignes) {
-    for (const [rubrique, q] of Object.entries(l.rubriques)) {
-      const periode = l.periode ?? '';
-      const cle = `${l.matricule}|${periode}|${rubrique}`;
-      const x = somme.get(cle) ?? { matricule: l.matricule, periode, rubrique, quantite: 0 };
-      x.quantite = r2(x.quantite + q);
-      somme.set(cle, x);
-    }
+export function lignesFichier(contenu: ContenuFichier): LigneFichier[] {
+  const somme = new Map<string, LigneFichier>(), gardees = new Set<string>();
+  for (const { matricule, periode, rubrique, q, garder } of quantites(contenu)) {
+    const cle = `${matricule}|${periode}|${rubrique}`;
+    const x = somme.get(cle) ?? { matricule, periode, rubrique, quantite: 0 };
+    x.quantite = r2(x.quantite + q);
+    somme.set(cle, x);
+    if (garder) gardees.add(cle);
   }
-  return [...somme.values()].filter(x => x.quantite !== 0)
+  return [...somme.entries()].filter(([cle, x]) => x.quantite !== 0 || gardees.has(cle)).map(([, x]) => x)
     .sort((a, b) => a.matricule.localeCompare(b.matricule) || a.periode.localeCompare(b.periode) || a.rubrique.localeCompare(b.rubrique));
 }
 
 /**
- * Texte du fichier d'import : colonnes dans l'ordre réglé, séparateur, période et décimale au format choisi, en-tête
- * facultatif, lignes séparées par CRLF. Contenu fait de matricules, codes et nombres (contrôlés à la saisie) : ni BOM, ni
- * apostrophe devant un tiret, que l'import de Sage lirait.
+ * Libellé de chaque code Sage employé par un contenu : libellés des rubriques internes actives portées sur ce code
+ * (« + » entre deux rubriques additionnées), à défaut le code lui-même. Figé dans le contenu à la génération du lot.
  */
-export function fichierLot(contenu: Pick<SagePush, 'lignes'>, f: FormatFichierPaie = FORMAT_FICHIER_DEFAUT): string {
+export function libellesSage(contenu: ContenuFichier, table: readonly Pick<RubriqueVue, 'codeSage' | 'active' | 'label'>[]): Record<string, string> {
+  const codes = [...new Set(quantites(contenu).map(x => x.rubrique))].sort();
+  return Object.fromEntries(codes.map(c => [c, table.filter(r => r.active && r.codeSage === c).map(r => r.label).join(' + ') || c]));
+}
+
+/**
+ * Texte du fichier d'import : colonnes dans l'ordre réglé (facultatives comprises : dossier du contenu, libellé figé,
+ * bornes de la période), séparateur, période, dates et décimale au format choisi, en-tête facultatif, lignes séparées par
+ * CRLF. Ni BOM, ni apostrophe devant un tiret, que l'import de Sage lirait. `libelles` : ceux figés dans le contenu, ou
+ * ceux de la table en vigueur pour un lot d'avant cette colonne. L'encodage s'applique ensuite (octetsFichierLot).
+ */
+export function fichierLot(
+  contenu: ContenuFichier & Partial<Pick<SagePush, 'dossier' | 'libelles'>>, f: FormatFichierPaie = FORMAT_FICHIER_DEFAUT, libelles = contenu.libelles ?? {},
+): string {
   const sep = f.separateur === 'tab' ? '\t' : f.separateur;
   const cellule = (s: string) => (s.includes(sep) || /["\r\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s);
-  const valeur = (l: LigneFichier, c: ColonneFichierPaie) => c === 'periode' ? periodeFichier(l.periode, f.formatPeriode)
-    : c === 'quantite' ? String(l.quantite).replace('.', f.decimale) : l[c];
+  const valeur = (l: LigneFichier, c: ColonneFichierPaie): string => {
+    switch (c) {
+      case 'periode': return periodeFichier(l.periode, f.formatPeriode);
+      case 'quantite': return String(l.quantite).replace('.', f.decimale);
+      case 'dossier': return contenu.dossier ?? '';
+      case 'libelle': return libelles[l.rubrique] ?? l.rubrique;
+      case 'debut': case 'fin': return l.periode ? dateFichier(bornesPeriode(l.periode)[c], f.formatDate ?? 'JJ/MM/AAAA') : '';
+      default: return l[c];
+    }
+  };
   const rows = lignesFichier(contenu).map(l => f.colonnes.map(c => cellule(valeur(l, c))).join(sep));
   return [...(f.entete ? [f.colonnes.map(c => ENTETE[c]).join(sep)] : []), ...rows].join('\r\n') + '\r\n';
 }
+
+/** Octets du fichier d'import, dans l'encodage réglé : UTF-8 sans BOM par défaut, ou Windows-1252. */
+export const octetsFichierLot = (texte: string, f: Partial<Pick<FormatFichierPaie, 'encodage'>> = FORMAT_FICHIER_DEFAUT) => encoderTexte(texte, f.encodage ?? 'utf-8');
+
+/** Type du fichier téléchargé, avec son jeu de caractères. */
+export const typeFichierLot = (f: Partial<Pick<FormatFichierPaie, 'encodage'>> = FORMAT_FICHIER_DEFAUT) => `text/csv; charset=${f.encodage ?? 'utf-8'}`;
 
 /** « sage-paie-2026-10-lot-12.csv » (`.txt` avec la tabulation). */
 export const nomFichierLot = (l: Pick<LotPaie, 'id' | 'periode'>, f: FormatFichierPaie = FORMAT_FICHIER_DEFAUT) =>
   `sage-paie-${l.periode}-lot-${l.id}.${f.separateur === 'tab' ? 'txt' : 'csv'}`;
 
-/** Totaux d'un contenu : lignes du fichier, salariés (matricules), quantité par code Sage. */
-export function resumeContenu(contenu: Pick<SagePush, 'lignes'>): LotPaie['resume'] {
-  const lignes = lignesFichier(contenu), rubriques: Record<string, number> = {};
-  for (const l of lignes) rubriques[l.rubrique] = r2((rubriques[l.rubrique] ?? 0) + l.quantite);
-  return { lignes: lignes.length, salaries: new Set(lignes.map(l => l.matricule)).size, rubriques };
+/**
+ * Totaux d'un contenu : lignes du fichier, salariés (matricules), quantité par code Sage des heures ; absences à part
+ * (éléments, salariés, quantité par code Sage), pour qu'un lecteur sans droit « paie » n'en reçoive pas les codes.
+ */
+export function resumeContenu(contenu: ContenuFichier): LotPaie['resume'] {
+  const lignes = lignesFichier(contenu), heures = lignesFichier({ lignes: contenu.lignes }), rubriques: Record<string, number> = {};
+  for (const l of heures) rubriques[l.rubrique] = r2((rubriques[l.rubrique] ?? 0) + l.quantite);
+  return {
+    lignes: lignes.length, salaries: new Set(lignes.map(l => l.matricule)).size, rubriques,
+    ...(contenu.absences?.length ? { absences: resumeAbsences(contenu.absences) } : {}),
+    ...(contenu.sorties?.length ? { sorties: { elements: contenu.sorties.length, salaries: new Set(contenu.sorties.map(x => x.empId)).size } } : {}),
+  };
 }
 
 /** « HN 1 225 · HS25 12,5 » : totaux d'un lot. */

@@ -159,6 +159,8 @@ sudo nano /etc/cursus/cursus.env
 | `CURSUS_SECRET` | 64 caractères aléatoires, propres à cette installation. La changer déconnecte tout le monde |
 | `KEYSTONE_API_KEY` | clé aléatoire transmise à Keystone par un canal sûr. Sans elle, les routes Keystone répondent 503 |
 | `CURSUS_SUPERVISION_TOKEN` | facultative : jeton aléatoire (32 caractères au moins, `openssl rand -hex 32`) de l'outil de supervision, qui obtient alors le détail du point de santé à travers le proxy (« Exploitation courante ») |
+| `CURSUS_LOG_FORMAT` | à laisser vide : `json` en production, une ligne JSON par message et par requête, lue telle quelle par l'agrégateur du service informatique ; `texte` pour lire le journal à l'œil (« Exploitation courante ») |
+| `CURSUS_COMPRESSION` | à laisser vide (`1`) : Cursus compresse lui-même ses réponses (brotli, gzip) ; `0` si le proxy compresse déjà et qu'on préfère lui laisser ce travail |
 | `CURSUS_OIDC_TENANT`, `CURSUS_OIDC_CLIENT_ID`, `CURSUS_OIDC_CLIENT_SECRET` | connexion Microsoft 365 : ID de l'annuaire (GUID), ID d'application et secret client relevés dans Entra (`docs/CONNEXION-MICROSOFT.md`). Noter la date d'expiration du secret |
 | `CURSUS_PUBLIC_URL` | `https://cursus.example.fr` : adresse publique, sans chemin. URI de redirection à inscrire dans Entra : `https://cursus.example.fr/api/auth/microsoft/retour` |
 | `CURSUS_OIDC_AUTORITE` | **jamais** : réservée aux tests automatiques, Cursus refuse de démarrer avec elle |
@@ -329,6 +331,10 @@ cursus.example.fr {
 }
 ```
 
+Compression : Cursus compresse déjà ses réponses (brotli, sinon gzip : `CURSUS_COMPRESSION`, active par défaut) et
+Caddy laisse telles quelles les réponses déjà compressées ; `encode zstd gzip` ne sert alors qu'aux pages d'erreur du
+proxy. Pour confier toute la compression à Caddy (zstd en plus), poser `CURSUS_COMPRESSION=0`.
+
 Caddy n'a pas de limitation de débit sans module complémentaire : Cursus limite lui-même le débit
 (« Protections de l'API » ci-dessous), résume les appels refusés faute de clé (une ligne de journal par
 minute), et la restriction d'adresse suffit à écarter Internet de l'API Keystone.
@@ -449,7 +455,7 @@ sudo docker run -d --name cursus --restart on-failure --stop-timeout 20 \
   --env-file /etc/cursus/cursus.env -e CURSUS_DB=/data/cursus.db -e CURSUS_HOST=0.0.0.0 \
   -e CURSUS_API_PORT=3000 -e CURSUS_TRUST_PROXY=loopback,uniquelocal \
   -v cursus-donnees:/data -p 127.0.0.1:3210:3000 cursus:0.1.0
-sudo docker logs cursus                                          # mêmes messages que journalctl
+sudo docker logs cursus                                          # mêmes messages que journalctl, en JSON
 sudo docker inspect --format '{{.State.Health.Status}}' cursus  # healthy
 ```
 
@@ -521,39 +527,121 @@ Les variables de paie (heures des feuilles validées) passent par Sage Paie selo
 | --- | --- | --- |
 | `fichier` | production (valeur par défaut avec `NODE_ENV=production`) | lot de paie par période, fichier d'import téléchargé par la paie, import confirmé dans Sage, qui seul marque les feuilles transmises (procédure ci-dessous) ; rien ne part automatiquement |
 | `simulation` | démonstration, développement, application de bureau | rien n'est envoyé ; les feuilles sont marquées transmises, en un clic ou par un lot dont le fichier se télécharge pour essai, et l'écran, la confirmation et le message le disent. Refusé en production hors application de bureau |
-| `api` | aucun | refusé : Sage n'a fourni aucun contrat d'API. Cursus refuse de démarrer en production ; ailleurs, la génération d'un lot et la transmission répondent 503 sans rien marquer |
 
-`SAGE_URL` (ancienne bascule vers un envoi qui n'existait pas) est refusée en production. Avant toute transmission
+Pas d'envoi automatique à Sage Paie (décision du 15 octobre 2026) : la paie importe elle-même le fichier de chaque lot.
+`SAGE_MODE=api` n'existe plus et Cursus refuse de démarrer en production avec cette valeur (ailleurs, il la signale et
+reste en simulation). `SAGE_URL` (ancienne bascule vers un envoi qui n'existait pas) est refusée en production. Avant toute transmission
 réelle, le gestionnaire de paie ou l'administrateur RH saisit et confirme le code de chaque rubrique dans le plan de
 paie Sage (écran Temps de travail, « Rubriques de paie ») : tant qu'une rubrique utilisée n'est pas confirmée, seule la
 simulation transmet, et le refus liste les rubriques manquantes. Une rubrique dont la paie ne se sert pas (heures
 normales des salariés mensualisés) peut être désactivée. Chaque salarié du lot doit avoir son matricule de paie
 (Paramètres → Matricules de paie) : sinon le lot est refusé, avec la liste des salariés concernés.
 
-Procédure mensuelle du gestionnaire de paie (ou de l'administrateur RH), écran Temps de travail :
+Procédure mensuelle du gestionnaire de paie (ou de l'administrateur RH), écran Temps de travail (reprise pour les
+utilisateurs, avec le calendrier du mois et les corrections, dans `docs/GUIDE-UTILISATEUR.md`, « Gestionnaire de paie »,
+et dans la page Aide de l'application) :
 
 1. Avant la clôture, le tableau « Suivi des feuilles de temps » montre qui n'a pas saisi, soumis ou corrigé sa feuille
    (feuille attendue le lundi suivant à 12 h, réglable dans Paramètres → Suivi des feuilles de temps) : relance en un
    clic (e-mail au salarié et à son valideur) ; managers et service RH valident les feuilles soumises, une à une ou en
    groupe (une feuille refusée par un contrôle reste à valider et le message la nomme).
 2. « Générer le fichier » sur la période de paie : le lot réunit les feuilles validées de la période (rappels de périodes
-   closes compris), son contenu est figé et ses feuilles réservées. Elles ne sont pas encore transmises.
+   closes compris) et les absences validées (voir « Absences » ci-dessous), son contenu est figé, ses feuilles et ses
+   absences réservées. Elles ne sont pas encore transmises.
 3. « Fichier » télécharge le fichier d'import (CSV : une ligne par salarié, période et rubrique, quantités additionnées
-   sur la période). Son format (séparateur, ordre des colonnes, format de la période, décimale, en-tête) se règle par
-   « Modifier le format », sur le modèle d'import de votre Sage, sans changer le contenu du lot. Chaque téléchargement
-   est tracé dans le journal (archive paie).
+   sur la période). Son format (séparateur, ordre des colonnes, format de la période, décimale, en-tête, encodage) se
+   règle par « Modifier le format », sur le modèle d'import de votre Sage, sans changer le contenu du lot : encodage
+   UTF-8 sans BOM par défaut, ou Windows-1252 (ANSI) si Sage affiche mal les accents ; colonnes facultatives, absentes
+   par défaut, à cocher si le modèle les attend : code dossier (`SAGE_DOSSIER`), libellé de la rubrique, début et fin
+   de la période (format de date au choix). Chaque téléchargement est tracé dans le journal (archive paie).
 4. Importer le fichier dans Sage Paie et contrôler les totaux (rappelés dans la confirmation).
 5. « Confirmer l'import » : confirmation datée et signée, avec la référence de l'import si Sage en donne une. Elle seule
-   marque les feuilles transmises ; le lot ne s'annule plus ensuite (une correction se fait dans Sage, en attendant le
-   lot correctif). Si l'import échoue ou si le lot est faux, « Annuler » avant la confirmation libère ses feuilles,
+   marque les feuilles transmises ; le lot ne s'annule plus ensuite (une correction passe par la réouverture de la
+   feuille, voir « Correction après transmission »). Si l'import échoue ou si le lot est faux, « Annuler » avant la confirmation libère ses feuilles,
    qui pourront partir dans un nouveau lot (si le fichier a déjà été importé, supprimer cet import dans Sage).
+
+Correction après transmission (lot 5, t131 ; réponse de l'entreprise du 17 octobre 2026) : seul l'administrateur RH
+rouvre une feuille validée (« Rouvrir la feuille », écran Temps de travail), avec un motif obligatoire (500 caractères au
+plus), gardé sur la feuille ; le journal trace la réouverture (archive paie), sans le texte du motif. La feuille repasse
+« soumise » (le valideur la corrige) ou « à corriger » (renvoyée au salarié). Une feuille d'un lot à confirmer ne se
+rouvre qu'après l'annulation du lot ; celle d'un intérimaire dont le relevé est parti à l'agence ne se rouvre pas (la
+correction se règle avec l'agence). Déjà transmise, la feuille garde ce que la paie a reçu ; revalidée, elle revient en
+attente « à régulariser » et le lot suivant, marqué « Correctif », n'emporte que l'écart, positif ou négatif, sur la
+période ouverte (rappel de la période d'origine si elle est close). Si l'import de votre Sage refuse les quantités
+négatives, décochez « Quantités négatives acceptées » dans « Modifier le format » : la correction part alors en
+« annule et remplace », rubriques complètes du salarié pour la période d'origine (quantité nulle comprise, heures des
+autres semaines déjà transmises comprises, même rouvertes), à importer en mode remplacement. Ce lot correctif part
+alors seul : les feuilles ordinaires et les absences, des quantités à ajouter, attendent le lot suivant, à générer après
+la confirmation de son import et à importer comme d'habitude ; un lot correctif ne se génère pas tant qu'un autre lot
+attend la confirmation de son import, et aucun autre lot tant que le sien l'attend. Keystone reçoit les heures corrigées de la semaine (un projet retiré à 0, voir docs/API-KEYSTONE.md) :
+**prévenir l'équipe Keystone de ce changement de `heures.validees` avant la mise en service.** Récupération et
+contrepartie en repos sont recalculées à la revalidation. À la mise à jour, les lots déjà générés reçoivent les rubriques
+de chacune de leurs feuilles, rapprochées de leurs lignes (migration `lot5-paie-rubriques-par-feuille`, tracée au journal).
 
 L'historique des lots (période, auteur, état, accusé) reste dans l'écran Temps de travail. À la mise à jour vers cette
 version, les feuilles déjà transmises sont réunies en un lot « historique », sans fichier (migration
 `lot4-paie-lots-historiques`, tracée au journal).
 
-Périmètre : heures validées du lundi au vendredi seulement ; ni absences, ni déplacements, ni heures du samedi, du
-dimanche ou de nuit, qui restent saisis dans Sage. Intérimaires (relevé envoyé à l'agence) et cadres dirigeants exclus.
+Périmètre : heures validées de la semaine du lundi au dimanche (semaine à 7 jours, lot 5 : les heures du samedi et du
+dimanche prennent leur rang dans les heures supplémentaires, celles du dimanche partent aussi en quantité HDIM, et en
+MAJ_DIM si Paramètres → Paie prévoit une majoration) ; ni déplacements, ni heures de nuit, qui restent saisis dans Sage.
+Les rubriques HDIM et MAJ_DIM sont « à confirmer » comme les autres : la paie confirme leur code Sage ou les désactive
+avant le premier lot réel qui en porte. Intérimaires (relevé envoyé à l'agence) et cadres dirigeants exclus.
+Jours fériés travaillés (lot 5) : le 1er mai part en MAJ_1MAI (majoration de 100 %, heures équivalentes), les autres
+fériés en quantité FERIE_TRAV (et MAJ_FERIE si Paramètres → Décompte des heures prévoit une majoration) ; la
+contrepartie obligatoire en repos au-delà du contingent annuel part en COR_ACQUIS. Ces quatre rubriques sont « à
+confirmer » : la paie confirme leur code Sage ou les désactive. Le lundi de Pentecôte travaillé au titre de la journée
+de solidarité est repéré comme férié : la paie le traite (art. L3133-8).
+
+**Changement de comportement à la mise à jour (lot 5)** : les heures complémentaires du temps partiel sont plafonnées au
+dixième de la durée contractuelle (art. L3123-28) et non plus au tiers ; au-delà, la soumission de la feuille exige un
+motif. Le tiers se rétablit dans Paramètres → Décompte des heures, avec la référence de l'accord collectif qui le prévoit.
+Contingent annuel : 220 h par défaut, valeur légale à vérifier avec la convention ou l'accord (référence à saisir) ; à
+une mise en service hors du 1er janvier, les heures supplémentaires déjà faites dans l'année se reprennent avec les soldes
+(colonne « Heures sup de l'année »).
+
+Absences (lot 5, t028 ; Paramètres → Absences et paie, activé par défaut, réponse de l'entreprise du 17 octobre 2026) :
+le lot emporte aussi les absences validées, ventilées mois par mois (un mois clos part en rappel sur la période ouverte) :
+CP en jours ouvrés, RTT ou jours de repos du forfait jours en jours, récupération en heures (demi-journées comprises :
+0,5 jour) ; hors congés, une rubrique par rémunération et par catégorie (`ABS_NP` non payée, `ABS_IND_SANTE`,
+`ABS_IND_PARENT`, `ABS_IND_FAMILLE` indemnisées, `ABS_MAINT_…` à salaire maintenu), en jours de la nature (calendaires
+pour les arrêts et la parentalité, ouvrés pour les événements familiaux). Ces rubriques sont « à confirmer » : tant que
+la paie n'a pas confirmé leur code Sage (et l'unité attendue par son plan de paie), seul un lot de simulation se génère ;
+une rubrique désactivée laisse la nature à la saisie dans Sage (ses jours sont comptés comme partis et ne repartent pas
+à sa réactivation ; leur régularisation reste à faire à la main, l'export des variables la liste « À saisir dans Sage »).
+Une absence annulée, raccourcie ou requalifiée après sa transmission part en régularisation négative dans le lot
+suivant, sous le code Sage de ce qui était parti ; une absence prolongée envoie ses nouveaux jours ; une absence d'un lot
+à confirmer attend sa confirmation ou son annulation. Décoché, le fichier se limite aux heures et la paie saisit les
+absences dans Sage ; coché de nouveau, les absences déjà enregistrées ne partent qu'à partir du premier jour de la
+période de paie ouverte (journal « Absences antérieures laissées à la saisie dans Sage »).
+
+Premier jour transmis : aucune absence ne part pour les jours d'avant la date de mise en service (Paramètres → Absences
+et paie, « Absences transmises à partir du », à renseigner à la reprise, voir « Procédure de reprise ») ; le service RH
+est prévenu quand une absence enregistrée, validée ou annulée a des jours avant cette date (à saisir ou corriger dans
+Sage). Sans cette date, le premier lot de paie d'une base neuve pose une date de départ au premier jour de la période
+ouverte pour les absences déjà enregistrées (message du lot, journal). À la mise à jour vers cette version, une base qui
+porte déjà des absences validées reçoit de même une date de départ au premier jour de la période de paie ouverte
+(migration `lot5-paie-absences-anterieures`, tracée au journal) : la paie a saisi les précédentes dans Sage ; vérifier
+avec elle qu'elle n'a pas déjà saisi celles de la période ouverte. Ces dates de départ ne valent que pour les absences
+déjà enregistrées : une absence d'un mois clos enregistrée ensuite (arrêt reçu en retard) part entière, en rappel.
+
+Solde de sortie (lot 5, t128) : à l'enregistrement d'une sortie, Cursus photographie l'état des compteurs au dernier
+jour du contrat (CP à indemniser : solde de la période acquise et jours acquis sur la période en cours ; RTT au prorata ;
+récupération en heures ; CET, liquidé en entier), affiché avant la confirmation, imprimable et exportable depuis la
+fiche. Ses rubriques `ICCP_J`, `RTT_SOLDE`, `RECUP_H` et `CET_LIQ` sont désactivées par défaut : le solde de tout compte
+reste saisi dans Sage à partir de l'état imprimé. Quand la paie a donné leurs codes, elle les saisit, les active et les
+confirme (« Rubriques de paie ») : le lot du mois de la sortie emporte alors le solde, en jours et en heures, et Sage
+calcule le montant (dixième ou maintien). Un solde qu'aucune rubrique active n'emporte est marqué « saisi dans Sage
+hors fichier » à la confirmation du lot de sa période : activer les rubriques plus tard ne le renvoie pas. Une sortie
+annulée ou déplacée après la transmission de son solde garde l'ancien solde pour l'historique (à régulariser dans Sage)
+et en photographie un nouveau. Un trop-pris de RTT est signalé, jamais retenu par Cursus.
+
+Contrôle : « Variables de la période » (écran Temps de travail, sous les lots) exporte en CSV, pour une période de paie,
+chaque ligne des lots générés ou transmis et ce qui attend encore un lot : matricule de paie, salarié, code Sage,
+libellé, quantité, détail (semaine, ou absence et ses dates, rappel, régularisation ; jamais la nature). Le code d'une
+absence en révèle la catégorie : export réservé à l'administrateur RH et au gestionnaire de paie, tracé au journal
+(`sage.variables`, archive paie).
+
 Période de paie déduite de la semaine : une semaine à cheval sur deux mois va sur le mois de son dimanche, la clôture
 des variables tombe le dernier jour du mois et une semaine d'une période close part en rappel sur la période ouverte
 (Paramètres → Paie : mois du vendredi ou ventilation jour par jour, autre jour de clôture). Heures supplémentaires payées
@@ -590,9 +678,12 @@ précède chaque mise en production.
 
 - La nouvelle version y est installée d'abord. Le groupe pilote vérifie, chacun dans son espace :
   connexion et déconnexion, tableau de bord, fiches collaborateurs, temps, absences, formations,
-  impression du passeport formation, consultation sur téléphone.
+  impression du passeport formation (en-tête de l'employeur : Paramètres → Confidentialité, « responsable du traitement »),
+  consultation sur téléphone.
 - Le service informatique consigne la version, la date et l'accord des trois pilotes avant de
   passer en production.
+- Ouverture progressive aux utilisateurs (service RH, puis une équipe en horaires de journée, puis tout le site) et
+  vérifications du groupe pilote : `docs/GUIDE-UTILISATEUR.md`, « Groupe pilote » (page Aide de l'application).
 
 ## Mise en service : reprise depuis Lucca
 
@@ -619,8 +710,12 @@ les compteurs sont arrêtés dans Lucca au 1er janvier 2027.
 - **Clôtures** : Cursus propose la clôture des RTT à partir du 1er janvier et celle des CP à partir du 1er juin
   (bandeau de l'écran Congés & absences), pour les périodes tenues par Cursus (postérieures à la date d'arrêté). Le
   service RH la confirme ; pour les CP, il décide salarié par salarié du report (plafonné au solde, jusqu'au 31 mai
-  suivant) ou de la perte du solde, jamais d'office ; après une absence de santé, une maternité, une paternité ou une
-  adoption dans la période, le solde est reporté de 15 mois. Un report légal reçu qui court au-delà du 31 mai (15 mois)
+  suivant) ou de la perte du solde, jamais d'office ; les jours acquis pendant une absence de santé, une maternité, une
+  paternité ou une adoption, et ceux qu'elle a empêché de prendre, sont reportés de 15 mois (à compter de l'information
+  du salarié à son retour si elle est plus tardive). Acquisition pendant un arrêt maladie : minimum légal par défaut
+  (Paramètres → Congés et clôtures), à passer à « comme du travail effectif » si la CCN ou un accord d'entreprise plus
+  favorable est confirmé avant la reprise. Les arrêts saisis pour 2026 réduisent les droits calculés, sans changer les
+  soldes repris de Lucca à la date d'arrêté. Un report légal reçu qui court au-delà du 31 mai (15 mois)
   est reporté de nouveau pour ses seuls jours restants, jusqu'à sa propre échéance, où il s'éteint ; le reste du solde
   est au choix du service RH. Une demande de CP de la période encore en attente est à décider avant la clôture de la
   ligne ; des jours rendus plus tard à une période close (refus, annulation) sont reportés sur la période suivante.
@@ -654,6 +749,8 @@ qu'avec `CURSUS_DEMO=1`). Après les référentiels, cinq imports CSV, dans cet 
    par compteur convient). Changer la date d'arrêté remplace tous les soldes du salarié : ceux absents du fichier ne
    sont plus repris (l'aperçu le signale). Les soldes d'un membre du service RH rattaché à sa fiche sont importés par
    un autre membre du service RH. Un congé déjà saisi dans Cursus avant la date d'arrêté est signalé (il serait décompté deux fois).
+   Renseigner la même date dans Paramètres → Absences et paie (« Absences transmises à partir du ») : les jours
+   d'absence d'avant, déjà traités par Lucca et Sage, ne partiront jamais dans le fichier d'import de la paie.
 4. **Certifications** (formation, date d'obtention).
 5. **Visites médicales** : date de la dernière visite et avis (apte, apte avec restrictions, inapte ; « non apte »
    vaut inapte). Une ligne sans avis n'est enregistrée « apte » qu'après avoir coché sa confirmation dans l'aperçu ;
@@ -734,10 +831,56 @@ entrées, sorties et compteurs ne se tiennent plus dans Lucca.
   le conteneur, voir « Variante : conteneur Docker ») ou avec le jeton de supervision
   (`curl -s -H "Authorization: Bearer $JETON" https://cursus.example.fr/api/health`, `CURSUS_SUPERVISION_TOKEN`), il
   ajoute la version, le mode (`production` attendu ; `demo` serait une erreur de configuration), le nombre d'envois en
-  échec non classés (à faire traiter par le service RH dans Paramètres → Envois) et l'heure du démarrage. Il ne compte
+  échec non classés (à faire traiter par le service RH dans Paramètres → Envois), l'heure du démarrage et les
+  références orphelines (`orphelins`, `references` : voir « Intégrité de la base » ci-dessous). Il ne compte
   pas dans la limite de débit. Compléter par le journal du service (`journalctl -u cursus`) et du proxy, l'espace
   disque de `/var/lib/cursus` et la fraîcheur des sauvegardes (`docs/SAUVEGARDE.md`, section 6). L'application de
   bureau (macOS) garde sa propre sonde, `/api/session`.
+- Intégrité de la base (`server/src/integrite.ts`) : au démarrage, Cursus compte les lignes qui désignent un salarié,
+  une session, une formation, une habilitation, un poste, une équipe ou un lot de paie absents de leur table
+  (« références orphelines » : reprise de données incomplète, modification faite hors de Cursus). S'il en trouve, il
+  l'écrit dans son journal (niveau `avertissement`, nombre par référence) et dans le journal des actions
+  (`integrite.orphelins`, Paramètres → Journal des actions, famille « Administration »), sans bloquer le démarrage ;
+  le point de santé répond alors 200 `{"statut":"degrade","base":"ok"}`, sans aucun nombre en public, et donne le détail
+  au poste local ou au jeton (`"orphelins": 2, "references": {"feuilles.emp_id → employes": 2}`). Le contrôle est
+  refait au plus une fois par heure. À examiner avec l'éditeur avant toute correction (restaurer une sauvegarde ou
+  compléter la reprise) : Cursus ne supprime rien de lui-même. Aucune clé étrangère n'est encore imposée par la base ;
+  elles le seront une fois la base de reprise du 1er janvier 2027 vérifiée sans orphelin.
+- Journaux du serveur (`server/src/logs.ts`) : une ligne par message de démarrage, d'arrêt ou d'incident, et une ligne
+  par requête : heure, méthode, chemin sans ses paramètres, statut, durée en millisecondes et numéro du compte connecté.
+  Jamais le contenu d'une requête ni ses paramètres, qui portent des données personnelles ; la sonde de santé réussie
+  (toutes les 30 s) n'est pas écrite. En production, chaque ligne est un objet JSON (`CURSUS_LOG_FORMAT=json` par
+  défaut) : `heure`, `niveau` (`info`, `avertissement`, `erreur`), `message`, et pour une requête `type: "requete"`,
+  `methode`, `chemin`, `statut`, `duree_ms`, `compte`. Exemple :
+  `{"heure":"2027-01-04T07:42:10.512Z","niveau":"info","message":"GET /api/data → 200 · 38 ms · compte 12","type":"requete","methode":"GET","chemin":"/api/data","statut":200,"duree_ms":38,"compte":12}`.
+  Lecture : `journalctl -u cursus` (service systemd), `docker logs cursus` ou l'onglet « Logs » de l'application dans
+  Coolify ; l'agrégateur du service informatique (Loki, Graylog, Elastic…) les collecte depuis Docker ou journald sans
+  réglage de format. Filtrer les erreurs : `docker logs cursus 2>&1 | jq -c 'select(.niveau == "erreur")'`. À
+  surveiller : les lignes de niveau `erreur` (une erreur interne ne renvoie que « Erreur interne » au navigateur, sa
+  pile d'appels est dans le journal), une montée des statuts `429` (limite de débit) ou `5xx`. Rotation : journald
+  pour systemd ; pour Docker, borner la taille (`--log-opt max-size=10m --log-opt max-file=5`, ou le réglage équivalent
+  de l'hébergeur). Ces journaux lient un compte à ses heures de connexion : les conserver un an au plus (durée
+  recommandée par la CNIL pour les journaux techniques : six mois à un an), accès réservé au service informatique.
+- Erreurs de l'API : toujours une réponse JSON `{"error": "…"}`, jamais une page HTML ni une pile d'appels :
+  `404` pour une adresse `/api` inconnue ou une action inconnue, `400` pour un corps JSON illisible, `413` au-delà de
+  2 Mo, `500` « Erreur interne » pour une erreur imprévue (détail dans le journal du serveur).
+- Compression et cache (`server/src/compression.ts`, `server/src/app.ts`) : Cursus compresse en brotli, sinon en gzip,
+  le JavaScript, les styles et le JSON de plus de 1 Ko. L'interface est découpée par écran (`client/src/App.tsx`) :
+  la première ouverture charge la coque, React et les icônes (environ 450 Ko, 140 Ko compressés) puis l'écran
+  affiché ; les autres écrans et les dialogues suivent à la demande, et React et les icônes, qui changent rarement,
+  restent en cache d'une version à l'autre. Les fichiers de `/assets`, dont le nom change à chaque version, sont gardés un an par le navigateur
+  (`Cache-Control: public, max-age=31536000, immutable`) ; `index.html` est revalidé à chaque ouverture (`no-cache`),
+  pour qu'une mise à jour soit vue aussitôt ; l'API n'est jamais mise en cache (`no-store`). Vérification :
+  `curl -sI -H 'Accept-Encoding: br' https://cursus.example.fr/assets/<fichier .js de dist/assets> | grep -iE 'content-encoding|cache-control'`.
+- Performances (`npm run mesure`, base temporaire de 100 salariés sur 3 ans : 15 000 feuilles, 4 300 absences) :
+  instantané complet du service RH d'environ 7 Mo en JSON (une centaine à quelques centaines de Ko compressés), 1 Mo
+  pour un manager, 100 Ko pour un collaborateur ; `/api/data` en 0,25 s, saisie d'une cellule d'heures en 0,4 à 0,5 s
+  (la base est relue avant l'action et l'instantané renvoyé après). Suffisant pour l'effectif prévu ; si ces durées
+  doublent (plus de salariés, d'années), le chargement par périmètre est l'étape suivante (`docs/ARCHITECTURE.md`).
+- Dépendances : Dependabot (`.github/dependabot.yml`) propose chaque lundi les mises à jour des paquets npm, des
+  actions de la vérification automatique et de l'image `node:22-slim` (mineures et correctifs regroupés). Le service
+  informatique examine et accepte ces demandes une fois la vérification passée ; `npm run audit` (failles connues des
+  dépendances de production, bloquant à partir de « high ») s'exécute aussi sur la machine, avant une mise à jour.
 - Certificat : renouvelé automatiquement (Caddy ou minuteur certbot) ; vérifier l'échéance une fois
   par trimestre.
 - Changer la clé Keystone : nouvelle valeur dans `/etc/cursus/cursus.env`, `systemctl restart

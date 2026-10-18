@@ -25,22 +25,26 @@ import { FormatFichierDialog } from './FormatFichierDialog.tsx';
 import { HabDialog } from './HabDialog.tsx';
 import { HabMesureDialog } from './HabMesureDialog.tsx';
 import { LotImportDialog } from './LotImportDialog.tsx';
+import { MandatDialog } from './MandatDialog.tsx';
 import { MembreDialog } from './MembreDialog.tsx';
 import { MotDePasseDialog } from './MotDePasseDialog.tsx';
 import { MotDePasseProvisoireDialog } from './MotDePasseProvisoireDialog.tsx';
 import { PlanDialog } from './PlanDialog.tsx';
 import { PlanImportDialog } from './PlanImportDialog.tsx';
+import { RefActiviteDialog } from './RefActiviteDialog.tsx';
 import { RefDestinationDialog } from './RefDestinationDialog.tsx';
 import { RefEquipeDialog } from './RefEquipeDialog.tsx';
 import { RefPosteDialog } from './RefPosteDialog.tsx';
 import { RefFormationDialog } from './RefFormationDialog.tsx';
 import { RefHabilitationDialog } from './RefHabilitationDialog.tsx';
 import { PlanRealiserDialog } from './PlanRealiserDialog.tsx';
+import { PlanLigneDialog } from './PlanLigneDialog.tsx';
 import { RemiseDialog } from './RemiseDialog.tsx';
 import { ReportDialog } from './ReportDialog.tsx';
 import { ReqFormDialog } from './ReqFormDialog.tsx';
 import { ReqHabDialog } from './ReqHabDialog.tsx';
 import { RubriqueDialog } from './RubriqueDialog.tsx';
+import { RouvrirFeuilleDialog } from './RouvrirFeuilleDialog.tsx';
 import { SessionDetailDialog } from './SessionDetailDialog.tsx';
 import { SessionDialog } from './SessionDialog.tsx';
 import { SortieDialog } from './SortieDialog.tsx';
@@ -49,6 +53,7 @@ import { TripDialog } from './TripDialog.tsx';
 import { TripImportDialog } from './TripImportDialog.tsx';
 import { TripModifierDialog } from './TripModifierDialog.tsx';
 import { AvisDialog } from './AvisDialog.tsx';
+import { SuiviDialog } from './SuiviDialog.tsx';
 import { VisiteDialog } from './VisiteDialog.tsx';
 
 export function DialogHost() {
@@ -76,6 +81,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'tripModifier': return <TripModifierDialog {...d} />;
     case 'visite': return <VisiteDialog {...d} />;
     case 'avis': return <AvisDialog {...d} />;
+    case 'suivi': return <SuiviDialog {...d} />;
     case 'reqForm': return <ReqFormDialog {...d} />;
     case 'reqHab': return <ReqHabDialog {...d} />;
     case 'employe': return <EmployeDialog {...d} />;
@@ -95,6 +101,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'ent': return <EntDialog {...d} />;
     case 'entRemise': return <RemiseDialog {...d} />;
     case 'planRealiser': return <PlanRealiserDialog {...d} />;
+    case 'planLigne': return <PlanLigneDialog {...d} />;
     case 'exerciceCloture': return <ExerciceClotureDialog {...d} />;
     case 'tripImport': return <TripImportDialog />;
     case 'planImport': return <PlanImportDialog {...d} />;
@@ -107,9 +114,12 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'refDestination': return <RefDestinationDialog {...d} />;
     case 'refPoste': return <RefPosteDialog {...d} />;
     case 'refEquipe': return <RefEquipeDialog {...d} />;
+    case 'refActivite': return <RefActiviteDialog {...d} />;
+    case 'mandat': return <MandatDialog {...d} />;
     case 'rubrique': return <RubriqueDialog {...d} />;
     case 'lotImport': return <LotImportDialog {...d} />;
     case 'formatFichier': return <FormatFichierDialog />;
+    case 'rouvrirFeuille': return <RouvrirFeuilleDialog {...d} />;
     case 'confirmer': return <ConfirmerDialog c={d.c} />;
   }
 }

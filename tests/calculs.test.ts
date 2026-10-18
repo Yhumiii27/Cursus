@@ -11,7 +11,7 @@ const { buildSnapshot, loadFull, todayIso } = await import('../server/src/datase
 const { ACTIONS } = await import('../server/src/actions/index.ts');
 const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
 const { Domain } = await import('../shared/domain.ts');
-const { horodatageParis, isoParis, isValidDate, toIso } = await import('../shared/dates.ts');
+const { debutJourParis, horodatageParis, isoParis, isValidDate, toIso } = await import('../shared/dates.ts');
 const { buildSagePayload, calcSheet, cumulAnnuel } = await import('../shared/rules/temps.ts');
 const { checkAbsence, cpInfo, rttDroit, reposForfait } = await import('../shared/rules/conges.ts');
 const { obligations } = await import('../shared/rules/entretiens.ts');
@@ -81,7 +81,7 @@ test('t077 journée de plus de 24 h refusée, motif exigé au-delà de 10 h par 
   run(collab(1), 'temps.setCell', { ...base, li: 1, di: 0, value: '4' });
   [1, 2, 3, 4].forEach(di => run(collab(1), 'temps.setCell', { ...base, li: 0, di, value: '7' }));
   const sh = () => domain().ds.feuilles.find(f => f.empId === 1 && f.week === w)!;
-  assert.deepEqual(calcSheet(domain(), domain().emp(1)!, sh()).perDay, [24, 7, 7, 7, 7]);
+  assert.deepEqual(calcSheet(domain(), domain().emp(1)!, sh()).perDay, [24, 7, 7, 7, 7, 0, 0]);
   refused(collab(1), 'temps.submit', base, /motif/i);
   run(collab(1), 'temps.submit', { ...base, motif: 'Panne de la ligne 2, intervention de nuit' });
   assert.equal(sh().statut, 'soumise');
@@ -271,6 +271,11 @@ test('t083 date du jour et horodatage dans le fuseau Europe/Paris, quel que soit
     assert.equal(horodatageParis(new Date('2026-07-15T08:05:09Z')), '2026-07-15T10:05:09+02:00');
     assert.equal(horodatageParis(new Date('2026-03-29T00:30:00Z')), '2026-03-29T01:30:00+01:00');
     assert.equal(horodatageParis(new Date('2026-03-29T01:30:00Z')), '2026-03-29T03:30:00+02:00');
+    // Minuit à Paris (bornes des filtres du journal) : hiver, été, et les deux jours de changement d'heure.
+    assert.equal(debutJourParis('2026-01-15'), '2026-01-14T23:00:00.000Z');
+    assert.equal(debutJourParis('2026-07-15'), '2026-07-14T22:00:00.000Z');
+    assert.equal(debutJourParis('2026-03-29'), '2026-03-28T23:00:00.000Z');
+    assert.equal(debutJourParis('2026-10-25'), '2026-10-24T22:00:00.000Z');
     const avant = process.env.CURSUS_TODAY;
     delete process.env.CURSUS_TODAY;
     try { assert.equal(todayIso(new Date('2026-03-01T23:15:00Z')), '2026-03-02'); } finally { process.env.CURSUS_TODAY = avant; }

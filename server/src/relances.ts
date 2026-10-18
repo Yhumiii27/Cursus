@@ -2,7 +2,8 @@
 // une fois par jour à partir de 7 h, ou un jour de la semaine (Paramètres → Messagerie, réglages `relances*`). Destinataires :
 // - la boîte du service RH : tout le périmètre ;
 // - chaque manager (adresse de sa fiche) : les membres de son équipe, sans lui-même, sans visite médicale ni vaccination
-//   (verdict seul, comme son instantané) ni entretien de reprise (il trahirait un arrêt long) ;
+//   (verdict seul, comme son instantané) ni entretien de reprise (il trahirait un arrêt long), ni titre de séjour, ni
+//   échéance d'un salarié mineur (18 ans, dérogation pour travaux réglementés : `sante` de la relance) ;
 // - chaque référent HSE (compte actif) : formations et habilitations.
 // Seuls les paliers franchis depuis le dernier envoi partent (table `relances`, clé de l'objet et palier) : un objet n'est
 // relancé qu'une fois par palier. Tant que la boîte du service RH, destinataire de tout le périmètre, n'est pas renseignée,

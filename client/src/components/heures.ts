@@ -18,11 +18,15 @@ export const jourLong = (day: ISODate) => parse(day).toLocaleDateString('fr-FR',
 export const VUE_JOUR = '(max-width: 600px), (pointer: coarse)';
 
 /**
- * Jour ouvert par défaut dans la vue « un jour » (0 : lundi … 4 : vendredi) : aujourd'hui dans la semaine affichée, le
- * vendredi un samedi ou un dimanche ; le lundi d'une autre semaine.
+ * Jour ouvert par défaut dans la vue « un jour » (0 : lundi … 6 : dimanche) : aujourd'hui dans la semaine affichée ; un
+ * samedi ou un dimanche, le vendredi si aucune heure n'est saisie ce jour-là (le week-end n'est normalement pas
+ * travaillé : on y complète surtout la semaine), le jour même sinon ; le lundi d'une autre semaine.
  */
-export function jourParDefaut(wdays: readonly ISODate[], today: ISODate): number {
+export function jourParDefaut(wdays: readonly ISODate[], today: ISODate, perDay: readonly number[] = []): number {
   const i = wdays.indexOf(today);
-  if (i >= 0) return i;
-  return today > wdays[4] && today <= addD(wdays[0], 6) ? 4 : 0;
+  if (i >= 0 && i < 5) return i;
+  const weekEnd = today > wdays[0] && today <= addD(wdays[0], 6);
+  if (!weekEnd) return 0;
+  const j = i >= 0 ? i : today === addD(wdays[0], 5) ? 5 : 6;
+  return perDay[j] > 0 ? j : 4;
 }

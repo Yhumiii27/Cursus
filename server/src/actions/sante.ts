@@ -6,7 +6,9 @@ import { parse } from '../../../shared/dates.ts';
 import { fmt, plural } from '../../../shared/format.ts';
 import { horsContratLe } from '../../../shared/rules/contrats.ts';
 import { controlerAvis, estMotifVisite, motifParDefaut, suspendueParAvis } from '../../../shared/rules/sante.ts';
-import type { DemandeVisite, Employe, HabTitre, HabType } from '../../../shared/types.ts';
+import { estSuiviMedical, SUIVIS_MEDICAUX } from '../../../shared/rules/suivi-medical.ts';
+import { visitesDues } from '../../../shared/rules/visites-dues.ts';
+import type { DemandeVisite, Employe, HabTitre, HabType, SuiviMedical } from '../../../shared/types.ts';
 import { transmettreDemandeVisite } from '../notifications.ts';
 import { signaler } from './conformite.ts';
 import { ActionError, getEmp, requireRh, type ActionHandler, type Ctx } from './context.ts';
@@ -25,7 +27,9 @@ const demanderVisite: ActionHandler = (ctx, p) => {
   if (hors) throw new ActionError(hors);
   const encours = ctx.d.demandeVisite(emp.id);
   if (encours) throw new ActionError(`Visite déjà demandée le ${fmt(parse(encours.le))} pour ${emp.nom}`);
-  const motif = p.motif == null || p.motif === '' ? motifParDefaut(emp) : p.motif;
+  // Sans motif : celui de la visite due la plus proche (embauche, reprise, mi-carrière, fin de carrière), sinon embauche
+  // ou renouvellement.
+  const motif = p.motif == null || p.motif === '' ? motifParDefaut(emp, visitesDues(ctx.d, emp)) : p.motif;
   if (!estMotifVisite(motif)) throw new ActionError('Motif de visite inconnu');
   const x = ctx.db.insert<DemandeVisite>('demandesVisite', { empId: emp.id, motif, le: ctx.d.ti, par: ctx.user.nom, statut: 'demandee', closeLe: null, closePar: null });
   const envoyee = transmettreDemandeVisite(ctx, emp, x);
@@ -62,12 +66,17 @@ function titres(ctx: Ctx, emp: Employe, v: unknown): { hm: HabType; t: HabTitre 
  * écriture, le service RH suspend les habilitations incompatibles (motif « Restriction d'aptitude », sans détail) et
  * lève les suspensions décidées à un avis précédent ; la visite clôt la demande en cours. Un avis d'inaptitude rend
  * d'office non valides les habilitations qui exigent l'aptitude (prérequis) et bloque la ressource sur les chantiers.
+ * `motif` (facultatif) : motif de la visite (mi-carrière, fin de carrière…), qui clôt la demande de ce motif quelle que
+ * soit sa date, ou, sans demande, s'enregistre comme visite réalisée de ce motif (convocation directe du service de santé
+ * au travail, visite antérieure à la mise en service) : la visite due qu'elle honore est close à sa vraie date.
  */
 const enregistrerAvis: ActionHandler = (ctx, p) => {
   requireRh(ctx);
   const emp = getEmp(ctx, p.empId);
   const { avis: a, errors } = controlerAvis(p, ctx.d.ti);
   if (errors.length) throw new ActionError(errors.join(' '));
+  const motif = p.motif == null || p.motif === '' ? null : p.motif;
+  if (motif !== null && !estMotifVisite(motif)) throw new ActionError('Motif de visite inconnu');
   const suspendre = titres(ctx, emp, p.suspendre), lever = titres(ctx, emp, p.lever);
   const deux = suspendre.find(x => lever.some(y => y.hm.id === x.hm.id));
   if (deux) throw new ActionError(`${deux.hm.nom} : suspendre ou lever la suspension, pas les deux`);
@@ -79,15 +88,26 @@ const enregistrerAvis: ActionHandler = (ctx, p) => {
     if (!suspendueParAvis(t)) throw new ActionError(`${hm.nom} n’est pas suspendue à la suite d’un avis du médecin du travail : levez la suspension depuis la fiche`);
   }
 
-  ctx.db.update('employes', emp.id, { visite: a.date, avis: a.avis, restrictions: a.restrictions });
+  // Prochaine visite fixée par le médecin : celle de cet avis, ou aucune (périodicité du type de suivi). Examen médical
+  // d'aptitude du suivi renforcé : sa date, le dernier examen restant connu après une visite intermédiaire.
+  ctx.db.update('employes', emp.id, {
+    visite: a.date, avis: a.avis, restrictions: a.restrictions, prochaineVisite: a.prochaineVisite,
+    ...(a.examen ? { examenAptitude: a.date } : {}),
+  });
   // Suspension datée du jour de la décision, et non de la visite : le manager voit la date d'une mesure, jamais celle d'une visite.
   suspendre.forEach(({ t }) => ctx.db.update<HabTitre>('habTitres', t.id, {
     mesure: 'suspension', mesureDate: ctx.d.ti < t.delivree! ? t.delivree : ctx.d.ti, mesureMotif: MOTIF_RESTRICTION, mesurePar: ctx.user.nom,
   }));
   lever.forEach(({ t }) => ctx.db.update<HabTitre>('habTitres', t.id, { mesure: null, mesureDate: null, mesureMotif: null, mesurePar: null }));
-  // La visite clôt les demandes qu'elle honore (faites au plus tard le jour de la visite).
-  const closes = ctx.ds.demandesVisite.filter(x => x.empId === emp.id && x.statut === 'demandee' && x.le <= a.date);
+  // La visite clôt les demandes qu'elle honore : faites au plus tard le jour de la visite, ou de son motif quelle que soit
+  // leur date (demande faite après une visite déjà passée).
+  const closes = ctx.ds.demandesVisite.filter(x => x.empId === emp.id && x.statut === 'demandee' && (x.le <= a.date || x.motif === motif));
   closes.forEach(x => ctx.db.update<DemandeVisite>('demandesVisite', x.id, { statut: 'realisee', closeLe: a.date, closePar: ctx.user.nom }));
+  // Visite de mi-carrière ou de fin de carrière sans demande : enregistrée comme réalisée, datée de la visite, pour clore
+  // la visite due (shared/rules/visites-dues.ts) ; les autres motifs se closent par la date de la visite elle-même.
+  if ((motif === 'mi_carriere' || motif === 'fin_carriere') && !closes.some(x => x.motif === motif)) {
+    ctx.db.insert<DemandeVisite>('demandesVisite', { empId: emp.id, motif, le: a.date, par: ctx.user.nom, statut: 'realisee', closeLe: a.date, closePar: ctx.user.nom });
+  }
   const { keystone } = signaler(ctx, emp);
   const suite = [
     suspendre.length ? plural(suspendre.length, 'habilitation suspendue', 'habilitations suspendues') : '',
@@ -97,8 +117,30 @@ const enregistrerAvis: ActionHandler = (ctx, p) => {
   return `Avis du médecin du travail enregistré — ${emp.nom} · ${AVIS_MEDICAL[a.avis].court}, visite du ${fmt(parse(a.date))}${suite}${keystone}`;
 };
 
+/**
+ * Type de suivi médical saisi sur la fiche (service RH) : VIP, VIP adaptée ou suivi individuel renforcé ; vide : VIP par
+ * défaut. Une habilitation ou un poste marqués « SIR » au référentiel placent le salarié en suivi renforcé quel que soit
+ * le type saisi (shared/rules/suivi-medical.ts). `expose` (facultatif ; absent : inchangé) : salarié exposé à des risques
+ * particuliers, visite post-exposition ou de fin de carrière à sa sortie (shared/rules/visites-dues.ts). Données réservées
+ * au service RH et à l'intéressé : ni le manager, ni le journal ne les reçoivent.
+ */
+const suiviMedical: ActionHandler = (ctx, p) => {
+  requireRh(ctx);
+  const emp = getEmp(ctx, p.empId);
+  const recu: unknown = p.suivi == null || p.suivi === '' ? null : p.suivi;
+  if (recu !== null && !estSuiviMedical(recu)) throw new ActionError('Type de suivi inconnu : VIP, VIP adaptée ou suivi individuel renforcé');
+  if (p.expose !== undefined && typeof p.expose !== 'boolean') throw new ActionError('Exposition à des risques particuliers : oui ou non');
+  const suivi = recu as SuiviMedical | null;
+  const expose = p.expose === undefined ? !!emp.expose : p.expose as boolean;
+  if ((emp.suivi ?? null) === suivi && !!emp.expose === expose) return `Type de suivi médical inchangé — ${emp.nom}`;
+  ctx.db.update('employes', emp.id, { suivi, expose });
+  const { keystone } = signaler(ctx, emp);
+  return `Type de suivi médical enregistré — ${emp.nom} · ${suivi ? SUIVIS_MEDICAUX[suivi].court : 'VIP par défaut'}${expose ? ' · exposé à des risques particuliers' : ''}${keystone}`;
+};
+
 export const santeActions: Record<string, ActionHandler> = {
   'medical.demander': demanderVisite,
   'medical.annuler': annulerVisite,
   'medical.avis': enregistrerAvis,
+  'medical.suivi': suiviMedical,
 };

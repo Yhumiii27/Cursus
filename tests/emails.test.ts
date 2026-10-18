@@ -349,7 +349,7 @@ test('t033 : chaque étape notifie son destinataire, aussitôt ou dans le récap
   run(MEHDI, 'temps.submit', { empId: 2, week: '2026-10-05' });
   const [soumise] = mails('temps.soumise');
   assert.deepEqual([soumise.m.a, soumise.m.objet], [[KARIM_MAIL], 'Feuille de temps à valider — Mehdi Benali, semaine 41']);
-  assert.match(soumise.m.texte, /Mehdi Benali a soumis sa feuille de temps pour la semaine 41 \(du lundi 5 octobre au vendredi 9 octobre 2026\)/);
+  assert.match(soumise.m.texte, /Mehdi Benali a soumis sa feuille de temps pour la semaine 41 \(du lundi 5 octobre au dimanche 11 octobre 2026\)/);
   // Le valideur qui soumet lui-même la feuille d'un membre ne se notifie pas.
   run(KARIM, 'temps.reject', { empId: 2, week: '2026-10-05' });
   run(KARIM, 'temps.submit', { empId: 2, week: '2026-10-05' });
@@ -395,8 +395,8 @@ test('t033 : chaque étape notifie son destinataire, aussitôt ou dans le récap
   run(KARIM, 'temps.reject', { empId: 2, week: '2026-10-05' });
   assert.equal(mails().length, m);
   assert.deepEqual(Object.keys(EMAIL_LABEL).filter(k => !mails().some(x => x.type === k)).sort(),
-    ['convocation', 'convocation.annulee', 'echeances.recapitulatif', 'entretien.remise', 'essai', 'releve.interim', 'temps.relance', 'visite.demande'],
-    'les autres types sont couverts par les tests suivants (visite.demande : tests/sante.test.ts ; entretien.remise : tests/entretiens-plan.test.ts ; temps.relance : tests/suivi-feuilles.test.ts ; echeances.recapitulatif : tests/relances.test.ts)');
+    ['conges.information', 'convocation', 'convocation.annulee', 'echeances.recapitulatif', 'entretien.remise', 'essai', 'releve.interim', 'reserve', 'temps.relance', 'visite.demande'],
+    'les autres types sont couverts par les tests suivants (visite.demande : tests/sante.test.ts ; entretien.remise : tests/entretiens-plan.test.ts ; temps.relance : tests/suivi-feuilles.test.ts ; echeances.recapitulatif : tests/relances.test.ts ; conges.information : tests/acquisition-cp.test.ts ; reserve, type affiché à la lecture seule : tests/donnees-sante.test.ts)');
 });
 
 test('t033 : récapitulatif quotidien à partir de 7 h, une fois par jour même après un redémarrage, à l’adresse en vigueur', () => {
@@ -615,12 +615,12 @@ test('t030 : relevé hebdomadaire des heures des intérimaires, par agence, auto
   const { db, run, forbidden, mails, domain } = fresh();
   // Léa Girard, intérimaire (Proman Lyon) : semaine 39 validée, semaine 40 soumise, semaine 41 non saisie.
   const r39 = releveAgence(domain(), 'proman LYON', '2026-09-21');
-  assert.deepEqual(r39.lignes.map(l => [l.nom, l.total, l.jours.length, l.absences]), [['Léa Girard', r39.heures, 5, 0]]);
+  assert.deepEqual(r39.lignes.map(l => [l.nom, l.total, l.jours.length, l.absences]), [['Léa Girard', r39.heures, 7, 0]]);
   assert.ok(r39.heures > 0);
   assert.deepEqual(releveAgence(domain(), 'Proman Lyon', '2026-09-28').enAttente.map(x => x.nom), ['Léa Girard']);
   const csv = releveCsv(r39);
   assert.equal(csv.fichier, 'releve-heures-proman-lyon-2026-09-21.csv');
-  assert.deepEqual(csv.rows[0].slice(0, 6), ['proman LYON', '2026-S39', '2026-09-21', '2026-09-25', 'Léa Girard', 'Opératrice']);
+  assert.deepEqual(csv.rows[0].slice(0, 6), ['proman LYON', '2026-S39', '2026-09-21', '2026-09-27', 'Léa Girard', 'Opératrice']);
   assert.ok(csvTexte(csv.head, csv.rows).startsWith('﻿Agence;Semaine;Du;Au;Intérimaire;Poste;Lundi'));
 
   // Aucun envoi automatique tant qu'une feuille de la semaine attend sa validation ; la semaine 39 précède
@@ -632,9 +632,9 @@ test('t030 : relevé hebdomadaire des heures des intérimaires, par agence, auto
   const [e] = mails('releve.interim');
   assert.deepEqual(e.m.a, ['releves.lyon@agence-interim.example']);
   assert.equal(e.m.objet, 'Relevé d’heures des intérimaires — Proman Lyon — semaine 40');
-  assert.match(e.m.texte, /^Bonjour,\n\nVeuillez trouver ci-joint le relevé des heures validées de vos intérimaires pour la semaine 40 \(du lundi 28 septembre au vendredi 2 octobre 2026\) :\n\n• Léa Girard \(Opératrice\) : \d+(,\d+)? h, dont/);
+  assert.match(e.m.texte, /^Bonjour,\n\nVeuillez trouver ci-joint le relevé des heures validées de vos intérimaires pour la semaine 40 \(du lundi 28 septembre au dimanche 4 octobre 2026\) :\n\n• Léa Girard \(Opératrice\) : \d+(,\d+)? h, dont/);
   assert.equal(e.m.pj![0].nom, 'releve-heures-proman-lyon-2026-09-28.csv');
-  assert.match(texteDe(e.m.pj![0].base64), /^﻿Agence;Semaine;.*\r\nProman Lyon;2026-S40;2026-09-28;2026-10-02;Léa Girard;Opératrice;/);
+  assert.match(texteDe(e.m.pj![0].base64), /^﻿Agence;Semaine;.*\r\nProman Lyon;2026-S40;2026-09-28;2026-10-04;Léa Girard;Opératrice;/);
   const transmis = () => loadFull(db, RH).releves;
   assert.deepEqual(transmis().map(x => [x.agence, x.semaine, x.par, x.interimaires, x.envoi]), [['Proman Lyon', '2026-09-28', 'Cursus', 1, 'simule']]);
   assert.deepEqual(db.tx(() => relevesAutomatiques(db)), [], 'déjà transmis : pas de second envoi automatique');
@@ -676,9 +676,9 @@ test('t030 : heures au quart d’heure, validation tardive, relevé incomplet co
     const [e] = mails('releve.interim');
     assert.match(e.m.texte, /• Léa Girard \(Opératrice\) : 38,75 h, dont 35 h normales, 3,75 h majorées\n\nTotal : 38,75 h · 1 intérimaire\./);
     const ligne = texteDe(e.m.pj![0].base64).split('\r\n')[1].split(';');
-    assert.deepEqual(ligne.slice(6, 12), ['7,75', '7,75', '7,75', '7,75', '7,75', '38,75']);
-    assert.equal(ligne[13], '0', 'pas de majoration à 10 % (temps plein)');
-    assert.equal(ligne[14], '3,75');
+    assert.deepEqual(ligne.slice(6, 14), ['7,75', '7,75', '7,75', '7,75', '7,75', '0', '0', '38,75']);
+    assert.equal(ligne[15], '0', 'pas de majoration à 10 % (temps plein)');
+    assert.equal(ligne[16], '3,75');
   }
   // Au-delà de cinq semaines, le service RH envoie le relevé lui-même.
   {

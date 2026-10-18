@@ -47,6 +47,13 @@ export function mondayOf(s: ISODate): ISODate {
 export function wDays(w: ISODate): ISODate[] {
   return [0, 1, 2, 3, 4].map(i => addD(w, i));
 }
+/**
+ * Les sept jours d'une semaine civile commençant le lundi `w`, samedi et dimanche compris : jours de la feuille de temps
+ * (0 = lundi … 5 = samedi, 6 = dimanche ; shared/rules/semaine.ts). `wDays` garde les cinq jours ouvrés (congés, contrats).
+ */
+export function joursSemaine(w: ISODate): ISODate[] {
+  return [0, 1, 2, 3, 4, 5, 6].map(i => addD(w, i));
+}
 /** Année de la semaine ISO de `s` : celle de son jeudi (la semaine du lundi 29 décembre 2025 est la semaine 1 de 2026). */
 export function isoWeekYear(s: ISODate): number {
   return Number(addD(mondayOf(s), 3).slice(0, 4));
@@ -79,6 +86,20 @@ function partiesParis(d: Date): Record<string, string> {
 export function isoParis(d: Date = new Date()): ISODate {
   const p = partiesParis(d);
   return `${p.year}-${p.month}-${p.day}`;
+}
+/**
+ * Instant (ISO 8601, UTC) de minuit à Paris le jour `jour` : borne des filtres par date, juste quel que soit le fuseau de
+ * la machine (un serveur en UTC filtrait sinon de 1 h ou 2 h de travers).
+ */
+export function debutJourParis(jour: ISODate): string {
+  const [y, m, j] = jour.split('-').map(Number), cible = Date.UTC(y, m - 1, j);
+  let t = cible;
+  // Deux passes : l'écart avec Paris pris à l'instant trouvé, juste aussi les jours de changement d'heure.
+  for (let i = 0; i < 2; i++) {
+    const p = partiesParis(new Date(t));
+    t -= Date.UTC(+p.year, +p.month - 1, +p.day, +p.hour, +p.minute, +p.second) - cible;
+  }
+  return new Date(t).toISOString();
 }
 /** Horodatage ISO 8601 à l'heure de Paris, avec son décalage réel : « 2026-01-15T09:05:09+01:00 » l'hiver, « +02:00 » l'été. */
 export function horodatageParis(d: Date = new Date()): string {

@@ -13,12 +13,13 @@ import { useEnriched, useRole } from '../state/derived.ts';
 import { annulationVisite } from '../state/confirmations.ts';
 import { useStore } from '../state/store.tsx';
 
-export function VisiteDialog({ empId }: { empId: number }) {
+/** `motif` : celui de la visite due d'où vient la demande (échéance) ; sinon celui de la visite due la plus proche. */
+export function VisiteDialog({ empId, motif: propose }: { empId: number; motif?: MotifVisite }) {
   const { d, emps } = useEnriched();
   const { rh } = useRole();
   const { run, openDialog, notify } = useStore();
   const emp = emps.find(e => e.id === empId);
-  const [motif, setMotif] = useState<MotifVisite>(() => emp ? motifParDefaut(emp) : 'periodique');
+  const [motif, setMotif] = useState<MotifVisite>(() => propose ?? (emp ? motifParDefaut(emp, emp.med.dues) : 'periodique'));
   const [busy, setBusy] = useState(false);
   if (!emp || !rh) return null;
   const demande = emp.med.demande;
@@ -71,6 +72,14 @@ export function VisiteDialog({ empId }: { empId: number }) {
         <Field label="Aptitude médicale"><Static>{emp.med.ok ? 'Valide' : 'Non valide'}</Static></Field>
       </div>
       <div className="boxed text-muted sub">{emp.med.text}</div>
+      {/* Visites dues à un événement : le motif proposé est celui de l'échéance d'où vient la demande, ou la plus proche. */}
+      {!!emp.med.dues?.length && (
+        <Field label="Visites dues">
+          <ul className="rules">
+            {emp.med.dues.map(x => <li key={x.motif}>{x.label} — {x.le < d.ti ? 'dépassée depuis le' : 'au plus tard le'} {fmtIso(x.le)} : {x.detail}</li>)}
+          </ul>
+        </Field>
+      )}
       <Field label="Motif de la visite">
         <div role="radiogroup" aria-label="Motif de la visite" style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
           {(Object.keys(MOTIFS_VISITE) as MotifVisite[]).map(k => (

@@ -10,7 +10,7 @@ import type { FeuilleTemps, ISODate, ModeHeuresSupFige, RattachementPeriode, Rub
 
 // — Modes —
 
-/** Transmission à Sage Paie (variable SAGE_MODE, server/src/integrations/sage.ts). */
+/** Transmission à Sage Paie (variable SAGE_MODE, server/src/integrations/sage.ts) : pas d'envoi par API. */
 export const MODES_SAGE: Record<SageMode, { label: string; aide: string }> = {
   simulation: {
     label: 'Simulation',
@@ -19,10 +19,6 @@ export const MODES_SAGE: Record<SageMode, { label: string; aide: string }> = {
   fichier: {
     label: 'Fichier d’import',
     aide: 'Mode de production : la paie génère le lot de chaque période de paie, télécharge son fichier d’import et l’importe dans Sage, puis confirme l’import, qui seul marque les feuilles transmises. Avant cette confirmation, le lot peut être annulé.',
-  },
-  api: {
-    label: 'API',
-    aide: 'Envoi direct à Sage Paie : aucun contrat d’API n’a été fourni par Sage, aucune transmission n’est possible dans ce mode.',
   },
 };
 
@@ -50,7 +46,7 @@ export const RATTACHEMENTS: Record<RattachementPeriode, { label: string; aide: s
   },
   vendredi: {
     label: 'Mois du vendredi',
-    aide: 'La semaine va sur le mois de son vendredi, dernier jour de la semaine de travail.',
+    aide: 'La semaine, samedi et dimanche compris, va sur le mois de son vendredi, dernier jour de la semaine de travail.',
   },
   jour: {
     label: 'Ventilation jour par jour',
@@ -74,12 +70,14 @@ const dernierJour = (p: string) => addD(`${suivante(p)}-01`, -1);
 
 /**
  * Parts d'une semaine (lundi `week`) par période de rattachement, dans l'ordre : jours de la feuille (0 = lundi …
- * 4 = vendredi) et période. Une seule part, sauf pour une semaine à cheval sur deux mois ventilée jour par jour.
+ * 6 = dimanche, le week-end compris) et période. Une seule part, sauf pour une semaine à cheval sur deux mois ventilée
+ * jour par jour : un samedi 31 octobre va en octobre, le dimanche 1er novembre en novembre.
  */
 export function partsSemaine(week: ISODate, rattachement: RattachementPeriode = 'dimanche'): { periode: string; jours: number[] }[] {
-  if (rattachement !== 'jour') return [{ periode: moisDe(addD(week, rattachement === 'vendredi' ? 4 : 6)), jours: [0, 1, 2, 3, 4] }];
+  if (rattachement !== 'jour') return [{ periode: moisDe(addD(week, rattachement === 'vendredi' ? 4 : 6)), jours: [0, 1, 2, 3, 4, 5, 6] }];
   const parts: { periode: string; jours: number[] }[] = [];
-  for (let i = 0; i < 5; i++) {
+  for (let i = 0; i < 7; i++) {
+
     const periode = moisDe(addD(week, i)), der = parts.at(-1);
     if (der?.periode === periode) der.jours.push(i);
     else parts.push({ periode, jours: [i] });
@@ -154,11 +152,12 @@ export interface RubriqueVue extends RubriquePaie { label: string; unite: UniteR
 
 /**
  * Table des rubriques : chaque code de RUBRIQUES_PAIE, avec sa correspondance enregistrée ou, à défaut, un code Sage égal
- * au code interne, active et à confirmer. Un code retiré de la liste n'est plus lu.
+ * au code interne, active (désactivée pour une rubrique `inactiveParDefaut`) et à confirmer. Un code retiré de la liste n'est plus lu.
  */
 export function rubriquesPaie(stockees: readonly RubriquePaie[] = []): RubriqueVue[] {
   return Object.entries(RUBRIQUES_PAIE).map(([code, def]) => {
-    const r = stockees.find(x => x.code === code) ?? { code, codeSage: code, active: true, confirmeLe: null, confirmePar: null };
+    // Rubriques de sortie : désactivées tant que la paie ne les a pas activées (`inactiveParDefaut`).
+    const r = stockees.find(x => x.code === code) ?? { code, codeSage: code, active: !def.inactiveParDefaut, confirmeLe: null, confirmePar: null };
     return { ...r, label: def.label, unite: def.unite, confirmee: !!r.confirmeLe };
   });
 }

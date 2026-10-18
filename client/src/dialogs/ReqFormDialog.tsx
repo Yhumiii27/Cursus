@@ -3,9 +3,9 @@
 // Doublons (demande identique en attente, inscription à venir) et conflits de dates de la session souhaitée contrôlés en direct.
 import { useMemo, useState } from 'react';
 import { certEnVigueur, sessionActive, type EmpX } from '../../../shared/domain.ts';
-import { parse } from '../../../shared/dates.ts';
 import { fmt, key, plural } from '../../../shared/format.ts';
-import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
+import { blocage, conflitsSession } from '../../../shared/rules/conflits.ts';
+import { plageCourte, sessionDu } from '../../../shared/rules/plage-session.ts';
 import { Bloquant, CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { erreurTexte } from '../components/controles.ts';
 import { Fine } from '../components/ui.tsx';
@@ -88,14 +88,14 @@ export function ReqFormDialog({ f: f0, sessionId: s0, empId }: { f?: string; ses
   const enCours = !!sujet && d.ds.demandesCollab.some(r => r.empId === sujet.id && r.type === 'formation' && r.statut === 'attente'
     && (isAutre ? !r.f && !!libelle.trim() && key(r.libelle) === key(libelle) : r.f === f));
   const choisie = session ? d.session(Number(session)) : null;
-  const conflits = sujet && choisie ? conflitsDates(d, sujet.id, choisie.date, choisie.date, 'formation') : [];
+  const conflits = sujet && choisie ? conflitsSession(d, sujet.id, choisie) : [];
   const bloque = (c.pourMembre && !e) || enCours || !!inscrit || !!blocage(conflits);
   const existant = soi
-    ? (enCours ? 'Une demande pour cette formation est déjà en cours.' : inscrit ? `Vous êtes déjà inscrit à la session du ${fmt(parse(inscrit.date))}.` : null)
+    ? (enCours ? 'Une demande pour cette formation est déjà en cours.' : inscrit ? `Vous êtes déjà inscrit à la session ${sessionDu(inscrit)}.` : null)
     : !e ? null
     : enCours ? `Une demande pour cette formation est déjà en cours pour ${e.nom}.`
     : isAutre ? null
-    : inscrit ? `${e.nom} est déjà inscrit à la session du ${fmt(parse(inscrit.date))}.`
+    : inscrit ? `${e.nom} est déjà inscrit à la session ${sessionDu(inscrit)}.`
     : !last ? `${e.nom} n’a pas encore suivi cette formation.`
     : last.key === 'ok' ? `${e.nom} détient cette certification, valide jusqu’au ${fmt(last.exp)}.`
     : last.key === 'due' ? `Certification de ${e.nom} à renouveler : elle expire le ${fmt(last.exp)}.`
@@ -142,7 +142,7 @@ export function ReqFormDialog({ f: f0, sessionId: s0, empId }: { f?: string; ses
           <select className="input" id="rf-s" value={session} onChange={ev => setSession(ev.target.value)}>
             <option value="">Pas de préférence</option>
             {sessions.map(s => (
-              <option key={s.id} value={String(s.id)}>{`${fmt(parse(s.date))} · ${s.lieu} · ${plural(s.places - s.inscrits, 'place', 'places')}`}</option>
+              <option key={s.id} value={String(s.id)}>{`${plageCourte(s)} · ${s.lieu} · ${plural(s.places - s.inscrits, 'place', 'places')}`}</option>
             ))}
           </select>
         </Field>

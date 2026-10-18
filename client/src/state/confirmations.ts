@@ -7,8 +7,9 @@
 // modifiée ailleurs) est refusé par le serveur et le dialogue reste ouvert avec le message.
 import { fH, plural } from '../../../shared/format.ts';
 import { PERIMETRE_FICHIER } from '../../../shared/rules/lots-paie.ts';
+import type { absencesDuLot } from '../../../shared/rules/absences-paie.ts';
 import { feuillesDeLaPeriode, type GroupePaie, periodeLabel } from '../../../shared/rules/paie.ts';
-import type { LotPaie, SageMode } from '../../../shared/types.ts';
+import type { LotPaie, ModeRegularisation, SageMode } from '../../../shared/types.ts';
 import type { DialogState, UiState } from './store.tsx';
 
 /** Longueur maximale d'un motif (contrôlée aussi par le serveur). */
@@ -108,7 +109,7 @@ export function suppressionLigne(payload: Record<string, unknown>, ligne: string
  * feuilles sont marquées transmises. `periodes` : feuilles par période de paie, dont les rappels d'une période close
  * (`feuillesParPeriode` de shared/rules/paie.ts), annoncés avant de confirmer.
  */
-export function transmissionSage(feuilles: number, salaries: number, periodes: GroupePaie[] = []): Confirmation {
+export function transmissionSage(feuilles: number, salaries: number, periodes: GroupePaie[] = [], perimetre = PERIMETRE_FICHIER, absences: AbsencesLot | null = null): Confirmation {
   const rappels = periodes.filter(p => p.origine);
   // Feuilles distinctes : une semaine ventilée jour par jour entre un rappel et la période ouverte n'y compte qu'une fois.
   const parPeriode = feuillesDeLaPeriode(periodes).map(p => `${periodeLabel(p.periode)} (${plural(p.feuilles, 'feuille', 'feuilles')})`);
@@ -119,7 +120,8 @@ export function transmissionSage(feuilles: number, salaries: number, periodes: G
       'Simulation : rien n’est envoyé à Sage Paie. Les feuilles sont seulement marquées transmises et ne seront plus proposées.',
       parPeriode.length ? `${parPeriode.length > 1 ? 'Périodes de paie' : 'Période de paie'} : ${parPeriode.join(', ')}.` : '',
       ...rappels.map(r => `Rappel : ${plural(r.feuilles, 'feuille', 'feuilles')} de ${periodeLabel(r.origine!)}, période close, ${r.feuilles > 1 ? 'partent' : 'part'} sur ${periodeLabel(r.periode)}.`),
-      'Heures validées du lundi au vendredi seulement : absences, déplacements et heures du samedi, du dimanche ou de nuit restent saisis dans Sage.',
+      absencesSuite(absences),
+      perimetre,
     ].filter(Boolean),
     bouton: 'Marquer transmises',
     action: 'temps.pushSage',
@@ -131,19 +133,34 @@ export function transmissionSage(feuilles: number, salaries: number, periodes: G
  * Génération du lot de paie d'une période (components/LotsPaie.tsx) : feuilles réservées, transmises seulement à la
  * confirmation de l'import ; rappels de périodes closes, salariés sans matricule (simulation), périmètre du fichier.
  */
-export function generationLot(o: { periode: string; feuilles: number; salaries: number; rappels: GroupePaie[]; mode: SageMode; sansMatricule: string[] }): Confirmation {
+export function generationLot(o: {
+  periode: string; feuilles: number; salaries: number; rappels: GroupePaie[]; mode: SageMode; sansMatricule: string[]; perimetre?: string; absences?: AbsencesLot | null;
+  /** Feuilles rouvertes après leur transmission, régularisées par ce lot (lot correctif, t131) ; mode du format du fichier. */
+  correctifs?: number; regularisation?: ModeRegularisation;
+  /** « Annule et remplace » : feuilles ordinaires laissées au lot suivant (le lot correctif part seul). */
+  enAttente?: number;
+  /** Soldes de sortie emportés (t128, rubriques de sortie actives). */
+  sorties?: number;
+}): Confirmation {
   const simulation = o.mode === 'simulation';
+  const absences = o.absences?.absences ? `, ${plural(o.absences.absences, 'absence', 'absences')}` : '';
+  const sorties = o.sorties ? `, ${plural(o.sorties, 'solde de sortie', 'soldes de sortie')}` : '';
   return {
     titre: simulation ? 'Générer le lot (simulation)' : 'Générer le fichier d’import',
-    question: `Générer le lot ${/^[aeiou]/.test(periodeLabel(o.periode)) ? 'd’' : 'de '}${periodeLabel(o.periode)} : ${plural(o.feuilles, 'feuille validée', 'feuilles validées')} (${plural(o.salaries, 'salarié', 'salariés')}) ?`,
+    question: `Générer le lot ${/^[aeiou]/.test(periodeLabel(o.periode)) ? 'd’' : 'de '}${periodeLabel(o.periode)} : ${plural(o.feuilles, 'feuille validée', 'feuilles validées')}${absences}${sorties} (${plural(o.salaries, 'salarié', 'salariés')}) ?`,
     suites: [
       simulation
         ? 'Simulation : rien n’est envoyé à Sage Paie. Le fichier se télécharge pour essai ; les feuilles ne passent « transmises » qu’à la confirmation.'
         : 'Les feuilles sont réservées au lot. Téléchargez ensuite son fichier, importez-le dans Sage, puis confirmez l’import : lui seul les marque transmises.',
-      'Avant cette confirmation, le lot peut être annulé : ses feuilles redeviennent en attente.',
+      `Avant cette confirmation, le lot peut être annulé : ses feuilles${o.absences?.absences ? ' et ses absences' : ''} redeviennent en attente.`,
       ...o.rappels.map(r => `Rappel : ${plural(r.feuilles, 'feuille', 'feuilles')} de ${periodeLabel(r.origine!)}, période close, ${r.feuilles > 1 ? 'partent' : 'part'} sur ${periodeLabel(r.periode)}.`),
+      o.correctifs ? `Lot correctif : ${plural(o.correctifs, 'feuille rouverte', 'feuilles rouvertes')} après transmission — ${o.regularisation === 'remplace'
+        ? `rubriques complètes du salarié pour la période d’origine (annule et remplace). Ce lot part seul, à importer en mode remplacement ; ${o.enAttente ? `${plural(o.enAttente, 'autre feuille', 'autres feuilles')} en attente et les absences partiront` : 'les feuilles ordinaires et les absences partiront'} dans le lot suivant, à générer après la confirmation de cet import et à importer comme d’habitude.`
+        : 'seul l’écart avec ce qui est déjà parti, positif ou négatif, en rappel si la période d’origine est close.'}` : '',
+      absencesSuite(o.absences ?? null),
+      o.sorties ? 'Soldes de sortie : compteurs photographiés à la sortie (congés payés à indemniser, RTT, récupération, CET), en jours et en heures ; Sage calcule le montant de l’indemnité.' : '',
       o.sansMatricule.length ? `Sans matricule de paie, sous leur matricule Cursus (simulation seulement) : ${o.sansMatricule.join(', ')}.` : '',
-      PERIMETRE_FICHIER,
+      o.perimetre ?? PERIMETRE_FICHIER,
     ].filter(Boolean),
     bouton: 'Générer le lot',
     action: 'paie.lotGenerer',
@@ -151,15 +168,25 @@ export function generationLot(o: { periode: string; feuilles: number; salaries: 
   };
 }
 
-/** Annulation d'un lot dont l'import n'est pas confirmé : ses feuilles sont libérées. */
-export function annulationLot(lot: Pick<LotPaie, 'id' | 'periode' | 'feuilles' | 'telechargements'>): Confirmation {
+/** Absences d'un lot (shared/rules/absences-paie.ts, `absencesDuLot`) annoncées avant de confirmer. */
+type AbsencesLot = Pick<ReturnType<typeof absencesDuLot>, 'absences' | 'regularisations' | 'rappels'>;
+function absencesSuite(a: AbsencesLot | null): string {
+  if (!a?.absences) return '';
+  return `Absences validées : ${plural(a.absences, 'absence', 'absences')}, en jours (récupération en heures), ventilées par mois`
+    + (a.regularisations ? `, dont ${plural(a.regularisations, 'régularisation', 'régularisations')} d’une absence annulée, raccourcie ou requalifiée après sa transmission (quantité négative)` : '')
+    + (a.rappels.length ? ` ; rappel de ${a.rappels.map(periodeLabel).join(', ')}, période close` : '') + '.';
+}
+
+/** Annulation d'un lot dont l'import n'est pas confirmé : ses feuilles (et ses absences) sont libérées. */
+export function annulationLot(lot: Pick<LotPaie, 'id' | 'periode' | 'feuilles' | 'telechargements' | 'absences'>): Confirmation {
   return {
     titre: 'Annuler le lot',
     question: `Annuler le lot n° ${lot.id} (${periodeLabel(lot.periode)}) ?`,
     suites: [
       lot.feuilles.length > 1
         ? `Ses ${lot.feuilles.length} feuilles redeviennent en attente et pourront partir dans un nouveau lot.`
-        : 'Sa feuille redevient en attente et pourra partir dans un nouveau lot.',
+        : lot.feuilles.length ? 'Sa feuille redevient en attente et pourra partir dans un nouveau lot.' : '',
+      lot.absences?.length ? `${plural(lot.absences.length, 'absence redevient', 'absences redeviennent')} en attente.` : '',
       lot.telechargements ? 'Son fichier a déjà été téléchargé : s’il a été importé dans Sage, supprimez-y cet import, sans quoi les heures seraient payées deux fois.' : '',
     ].filter(Boolean),
     bouton: 'Annuler le lot',
@@ -168,13 +195,18 @@ export function annulationLot(lot: Pick<LotPaie, 'id' | 'periode' | 'feuilles' |
   };
 }
 
-/** Validation groupée des feuilles soumises (components/SuiviFeuilles.tsx) : contrôles feuille par feuille, refus listés. */
-export function validationGroupee(feuilles: { empId: number; week: string }[], salaries: number): Confirmation {
+/**
+ * Validation groupée des feuilles soumises (components/SuiviFeuilles.tsx) : contrôles feuille par feuille, refus listés ;
+ * `repos` : feuilles de la sélection qui portent une alerte de repos (shared/rules/repos-a-verifier.ts).
+ */
+export function validationGroupee(feuilles: { empId: number; week: string }[], salaries: number, repos = 0): Confirmation {
   return {
     titre: 'Valider les feuilles soumises',
     question: `Valider ${plural(feuilles.length, 'feuille soumise', 'feuilles soumises')} (${plural(salaries, 'salarié', 'salariés')}) ?`,
     suites: [
       'Chaque feuille passe les contrôles de la validation : dépassement sans motif, demande d’absence en attente, heures un jour d’absence. Une feuille refusée reste à valider et le message la nomme.',
+      // Repos hebdomadaire ou dominical (`repos` : feuilles qui portent l'alerte) : validées quand même, signalées au RH.
+      ...(repos ? [`${repos > 1 ? `${repos} feuilles portent` : '1 feuille porte'} une alerte de repos hebdomadaire ou dominical (7 jours travaillés, heures le dimanche) : validée${repos > 1 ? 's' : ''} quand même, elle${repos > 1 ? 's restent signalées' : ' reste signalée'} au service RH (Temps, « Repos hebdomadaire à vérifier »).`] : []),
       'Les heures des projets Keystone sont renvoyées à Keystone ; les feuilles validées partent ensuite à la paie.',
     ],
     bouton: feuilles.length > 1 ? `Valider les ${feuilles.length} feuilles` : 'Valider la feuille',

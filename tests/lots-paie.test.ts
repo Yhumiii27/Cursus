@@ -91,7 +91,7 @@ test('t019 fichier d’import : une ligne par salarié, période et rubrique, fo
     { matricule: '004102', periode: '2026-10', rubrique: 'HS25', quantite: 3.5 },
   ]);
   assert.equal(L.fichierLot(contenu), 'matricule;periode;rubrique;quantite\r\n004101;2026-10;HN;35\r\n004102;2026-10;HN;56\r\n004102;2026-10;HS25;3,5\r\n');
-  const f = { separateur: 'tab', colonnes: ['rubrique', 'matricule', 'quantite', 'periode'], formatPeriode: 'MM/AAAA', decimale: '.', entete: false } as const;
+  const f = { ...L.FORMAT_FICHIER_DEFAUT, separateur: 'tab', colonnes: ['rubrique', 'matricule', 'quantite', 'periode'], formatPeriode: 'MM/AAAA', decimale: '.', entete: false } as const;
   assert.equal(L.fichierLot(contenu, { ...f, colonnes: [...f.colonnes] }).split('\r\n')[2], 'HS25\t004102\t3.5\t10/2026');
   assert.equal(L.periodeFichier('2026-10', 'AAAAMM'), '202610');
   assert.equal(L.periodeFichier('2026-10', 'MMAAAA'), '102026');
@@ -143,7 +143,7 @@ test('t029 lot de fichier : généré, feuilles réservées, fichier tracé, imp
     refus(PAIE, 'paie.lotGenerer', { periode: '2026-13' }, 400, /Période de paie invalide/);
     refus(PAIE, 'paie.lotGenerer', { periode: '2026-09' }, 400, /Aucune feuille validée en attente pour septembre 2026/);
     assert.match(String(run(PAIE, 'paie.lotGenerer', { periode: '2026-10' })),
-      new RegExp(`^Lot n° \\d+ généré — ${enAttente} feuilles \\(\\d+ salariés\\), octobre 2026 · téléchargez le fichier d’import, importez-le dans Sage, puis confirmez l’import$`));
+      new RegExp(`^Lot n° \\d+ généré — ${enAttente} feuilles \\(\\d+ salariés\\), octobre 2026 · téléchargez le fichier d’import, importez-le dans Sage, puis confirmez l’import · 5 absences$`));
     const lot = lots().at(-1)!;
     assert.deepEqual([lot.mode, lot.statut, lot.periode, lot.feuilles.length, lot.telechargements], ['fichier', 'genere', '2026-10', enAttente, 0]);
     assert.match(lot.cle, /^[0-9a-f-]{36}$/, 'clé d’idempotence');
@@ -210,7 +210,7 @@ test('t029 lot de fichier : généré, feuilles réservées, fichier tracé, imp
       assert.ok(!JSON.stringify(journal('acces.refuse')).includes('Mme Martin'));
       assert.deepEqual(champsRetenus('paie.lotConfirmer', { id: lot.id, reference: libre }), { id: lot.id }, 'règle du journal : texte libre écarté');
       assert.match(String(run(PAIE, 'paie.lotConfirmer', { id: lot.id, reference: 'IMP-2026-10' })),
-        new RegExp(`^Lot n° ${lot.id} : import dans Sage confirmé — ${enAttente} feuilles marquées transmises · référence IMP-2026-10$`));
+        new RegExp(`^Lot n° ${lot.id} : import dans Sage confirmé — ${enAttente} feuilles marquées transmises · 5 absences · référence IMP-2026-10$`));
       const confirme = lots().at(-1)!;
       assert.deepEqual([confirme.statut, confirme.confirmePar, confirme.reference], ['transmis', 'Aïcha Diallo', 'IMP-2026-10']);
       assert.equal(transmises(), avant + enAttente);
@@ -231,7 +231,7 @@ test('t029 lot de fichier : généré, feuilles réservées, fichier tracé, imp
   for (const a of ['paie.lotGenerer', 'paie.lotConfirmer', 'paie.lotAnnuler', 'paie.formatFichier', 'sage.fichier', 'migration.lotsPaie', 'temps.relancer', 'temps.validerLot']) assert.ok(JOURNAL_LABEL[a], a);
 });
 
-test('t029 contrôles d’un lot réel : matricule de paie et codes Sage confirmés, mode API refusé', () => {
+test('t029 contrôles d’un lot réel : matricule de paie et codes Sage confirmés', () => {
   const { db, run, refus, lots, ADMIN, PAIE } = fresh();
   db.insert('feuilles', { empId: 24, week: '2026-10-05', statut: 'validee', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-MAINT', tache: '', ks: false, h: [7, 7, 7, 7, 7] }], contrat: null });
   avecEnv({ SAGE_MODE: 'fichier' }, () => {
@@ -239,7 +239,6 @@ test('t029 contrôles d’un lot réel : matricule de paie et codes Sage confirm
     run(ADMIN, 'employe.modifier', { id: 24, matriculePaie: '004124' });
     refus(PAIE, 'paie.lotGenerer', { periode: '2026-10' }, 409, /^Transmission impossible : code Sage à confirmer pour les rubriques HN/);
   });
-  avecEnv({ SAGE_MODE: 'api' }, () => refus(PAIE, 'paie.lotGenerer', { periode: '2026-10' }, 503, /aucun contrat d’API/));
   assert.equal(lots().filter(l => !l.historique).length, 0, 'aucun lot créé');
 });
 
@@ -254,7 +253,7 @@ test('t029 simulation, annulation : feuilles libérées, fichier d’un lot annu
   avecEnv({ SAGE_MODE: 'fichier' }, () => refus(PAIE, 'paie.lotConfirmer', { id: lot.id }, 409, /généré en simulation : rien n’a été envoyé/));
   // Annulation : feuilles libérées, de nouveau en attente ; le fichier d'un lot annulé ne se télécharge plus.
   refus(KARIM, 'paie.lotAnnuler', { id: lot.id }, 403);
-  assert.match(String(run(PAIE, 'paie.lotAnnuler', { id: lot.id })), new RegExp(`^Lot n° ${lot.id} annulé — ${n} feuilles libérées, de nouveau en attente$`));
+  assert.match(String(run(PAIE, 'paie.lotAnnuler', { id: lot.id })), new RegExp(`^Lot n° ${lot.id} annulé — ${n} feuilles libérées et 5 absences libérées, de nouveau en attente$`));
   assert.equal(enAttente(), n);
   assert.deepEqual([lots().at(-1)!.statut, lots().at(-1)!.annulePar], ['annule', 'Aïcha Diallo']);
   assert.equal(lots().at(-1)!.feuilles.length, n, 'feuilles gardées sur le lot annulé');

@@ -1,6 +1,6 @@
 // Libellés, classes de statut et règles fixes (droit du travail, formalités).
 import type {
-  AbsenceStatut, AbsenceType, CompteType, CurrentUser, Destination, EntretienType, NatureAbsence, ProfilRh, Role, SecuDetachement, Statut, TempsTravail,
+  AbsenceStatut, AbsenceType, CompteType, CpAcquisition, CurrentUser, Destination, EntretienType, NatureAbsence, ProfilRh, Role, SecuDetachement, Statut, TempsTravail,
   TypeContrat, VaccinId, ValidationMode, VisaKind,
 } from './types.ts';
 import type { AvisMedical, MotifVisite } from './types.ts';
@@ -63,12 +63,17 @@ export const estMotifReprise = (v: unknown): v is MotifReprise => MOTIFS_REPRISE
  * - `duree` : durée légale en jours selon `decompte` (par an si `parAn`), contrôlée par un simple avertissement.
  *   Minimum du Code du travail : la CCN Industries chimiques peut être plus favorable, à reporter ici.
  * - `reprise` : motif de l'entretien de parcours professionnel de reprise (art. L6315-1), inscrit sur la fiche à la fin de l'absence.
- * - `cp` : effet attendu sur l'acquisition des congés payés, pour mémoire — `cpDroit` (rules/conges.ts) ne l'applique pas.
+ * - `cp` : effet sur l'acquisition des congés payés, texte affiché au service RH ;
+ * - `cpAcquisition` : le même effet, appliqué par `droitsAcquis` (rules/acquisition-cp.ts, loi 2024-364) : `assimile`
+ *   (travail effectif : accident du travail ou de trajet, maladie professionnelle sans limite de durée, maternité,
+ *   paternité, adoption, événements familiaux), `maladie` (2 jours ouvrables par mois, 24 par période, réglage
+ *   `cpMaladie`) ou `non` (acquisition réduite au prorata : congé parental, sans solde, absence injustifiée, enfant malade).
  */
 export interface NatureDef {
   label: string; abrege: string; court: string; categorie: CategorieAbsence; medicale?: boolean;
   paie: PaieAbsence; decompte: 'ouvres' | 'calendaires'; justificatif: string | null;
   duree?: number; parAn?: boolean; dureeNote?: string; article?: string; reprise?: MotifReprise; cp: string;
+  cpAcquisition: CpAcquisition;
 }
 const CP_ASSIMILE = 'Assimilé à du travail effectif (art. L3141-5)';
 const CP_EVENEMENT = 'Assimilé à du travail effectif (art. L3142-2)';
@@ -80,99 +85,119 @@ export const NATURES_ABSENCE: Record<NatureAbsence, NatureDef> = {
   MALADIE: {
     label: 'Arrêt maladie', abrege: 'Maladie', court: 'arrêt maladie', categorie: 'sante', medicale: true, paie: 'indemnisee', decompte: 'calendaires',
     justificatif: 'Avis d’arrêt de travail (volet employeur), sous 48 h', article: 'Art. L1226-1 : maintien de salaire', cp: CP_MALADIE,
+    cpAcquisition: 'maladie',
   },
   ALD: {
     label: 'Arrêt longue maladie (ALD)', abrege: 'Longue maladie', court: 'arrêt longue maladie', categorie: 'sante', medicale: true, paie: 'indemnisee', decompte: 'calendaires',
     justificatif: 'Avis d’arrêt de travail au titre d’une affection de longue durée', article: 'Art. L324-1 du Code de la sécurité sociale',
     reprise: 'absence longue', cp: CP_MALADIE,
+    cpAcquisition: 'maladie',
   },
   AT: {
     label: 'Accident du travail', abrege: 'Accident', court: 'accident du travail', categorie: 'sante', medicale: true, paie: 'indemnisee', decompte: 'calendaires',
     justificatif: 'Certificat médical initial ; déclaration à la CPAM par l’employeur sous 48 h', article: 'Art. L411-1 du Code de la sécurité sociale', cp: CP_AT,
+    cpAcquisition: 'assimile',
   },
   TRAJET: {
     label: 'Accident de trajet', abrege: 'Accident', court: 'accident de trajet', categorie: 'sante', medicale: true, paie: 'indemnisee', decompte: 'calendaires',
     justificatif: 'Certificat médical initial ; déclaration à la CPAM par l’employeur sous 48 h', article: 'Art. L411-2 du Code de la sécurité sociale',
-    cp: 'Assimilé à l’accident du travail par la jurisprudence (art. L3141-5) — à confirmer',
+    cp: 'Assimilé à du travail effectif, comme l’accident du travail (art. L3141-5, jurisprudence)',
+    cpAcquisition: 'assimile',
   },
   MP: {
     label: 'Maladie professionnelle', abrege: 'Maladie pro.', court: 'maladie professionnelle', categorie: 'sante', medicale: true, paie: 'indemnisee', decompte: 'calendaires',
     justificatif: 'Certificat médical ; déclaration à la CPAM', article: 'Art. L461-1 du Code de la sécurité sociale', cp: CP_AT,
+    cpAcquisition: 'assimile',
   },
   // Parentalité.
   MATERNITE: {
     label: 'Congé de maternité', abrege: 'Maternité', court: 'congé de maternité', categorie: 'parentalite', paie: 'indemnisee', decompte: 'calendaires',
     duree: 112, dureeNote: '16 semaines (6 avant, 10 après la naissance) ; davantage à partir du 3e enfant ou pour des naissances multiples',
     justificatif: 'Certificat médical de grossesse (date présumée de l’accouchement)', article: 'Art. L1225-17', reprise: 'congé de maternité', cp: CP_ASSIMILE,
+    cpAcquisition: 'assimile',
   },
   PATERNITE: {
     label: 'Congé de paternité et d’accueil de l’enfant', abrege: 'Paternité', court: 'congé de paternité', categorie: 'parentalite', paie: 'indemnisee', decompte: 'calendaires',
     duree: 25, dureeNote: '25 jours (32 en cas de naissances multiples), à la suite des 3 jours de naissance',
     justificatif: 'Acte de naissance ; dates communiquées un mois avant', article: 'Art. L1225-35', cp: CP_ASSIMILE,
+    cpAcquisition: 'assimile',
   },
   ADOPTION: {
     label: 'Congé d’adoption', abrege: 'Adoption', court: 'congé d’adoption', categorie: 'parentalite', paie: 'indemnisee', decompte: 'calendaires',
     duree: 112, dureeNote: '16 semaines ; davantage selon le nombre d’enfants', justificatif: 'Attestation de placement en vue d’adoption',
     article: 'Art. L1225-37', reprise: 'congé d’adoption', cp: CP_ASSIMILE,
+    cpAcquisition: 'assimile',
   },
   PARENTAL: {
     label: 'Congé parental d’éducation', abrege: 'Congé parental', court: 'congé parental', categorie: 'parentalite', paie: 'non_payee', decompte: 'calendaires',
     dureeNote: '1 an au plus, renouvelable deux fois, jusqu’aux 3 ans de l’enfant', justificatif: 'Demande écrite du salarié (lettre recommandée ou remise en main propre)',
     article: 'Art. L1225-47 et L1225-50', reprise: 'congé parental d’éducation',
     cp: 'Pas d’acquisition pendant le congé ; les droits acquis avant sont conservés (art. L1225-54)',
+    cpAcquisition: 'non',
   },
   // Événements familiaux (art. L3142-4) : durées minimales du Code du travail, décomptées en jours ouvrés.
   MARIAGE: {
     label: 'Mariage ou Pacs', abrege: 'Mariage', court: 'congé pour mariage ou Pacs', categorie: 'famille', paie: 'maintenue', decompte: 'ouvres',
     duree: 4, justificatif: 'Acte de mariage ou attestation de Pacs', article: 'Art. L3142-4', cp: CP_EVENEMENT,
+    cpAcquisition: 'assimile',
   },
   MARIAGE_ENFANT: {
     label: 'Mariage d’un enfant', abrege: 'Mariage enfant', court: 'congé pour le mariage d’un enfant', categorie: 'famille', paie: 'maintenue', decompte: 'ouvres',
     duree: 1, justificatif: 'Acte de mariage', article: 'Art. L3142-4', cp: CP_EVENEMENT,
+    cpAcquisition: 'assimile',
   },
   NAISSANCE: {
     label: 'Naissance ou arrivée d’un enfant adopté', abrege: 'Naissance', court: 'congé de naissance', categorie: 'famille', paie: 'maintenue', decompte: 'ouvres',
     duree: 3, justificatif: 'Acte de naissance ou attestation de placement', article: 'Art. L3142-4', cp: CP_EVENEMENT,
+    cpAcquisition: 'assimile',
   },
   DECES_ENFANT: {
     label: 'Décès d’un enfant', abrege: 'Décès', court: 'congé pour décès d’un enfant', categorie: 'famille', paie: 'maintenue', decompte: 'ouvres',
     duree: 5, justificatif: 'Acte de décès', article: 'Art. L3142-4', cp: CP_EVENEMENT,
+    cpAcquisition: 'assimile',
   },
   // 7 jours ouvrés (art. L3142-4), auxquels s'ajoute le congé de deuil (DEUIL_ENFANT, art. L3142-1-1).
   DECES_ENFANT_JEUNE: {
     label: 'Décès d’un enfant de moins de 25 ans, ou lui-même parent', abrege: 'Décès', court: 'congé pour décès d’un enfant', categorie: 'famille', paie: 'maintenue', decompte: 'ouvres',
     duree: 7, dureeNote: 'aussi pour une personne de moins de 25 ans à charge effective et permanente ; s’y ajoute le congé de deuil',
     justificatif: 'Acte de décès', article: 'Art. L3142-4', cp: CP_EVENEMENT,
+    cpAcquisition: 'assimile',
   },
   // Congé de deuil, en plus du congé pour décès : à prendre dans l'année qui suit le décès, en une ou deux fois.
   DEUIL_ENFANT: {
     label: 'Congé de deuil (enfant de moins de 25 ans)', abrege: 'Deuil', court: 'congé de deuil', categorie: 'famille', paie: 'indemnisee', decompte: 'ouvres',
     duree: 8, dureeNote: 'dans l’année qui suit le décès, fractionnable en deux périodes ; indemnisé par la Sécurité sociale, complément employeur — modalités à vérifier par le service RH',
     justificatif: 'Acte de décès', article: 'Art. L3142-1-1', cp: 'Assimilé à du travail effectif (art. L3142-1-1)',
+    cpAcquisition: 'assimile',
   },
   DECES_PROCHE: {
     label: 'Décès du conjoint, d’un parent, beau-parent, frère ou sœur', abrege: 'Décès', court: 'congé pour décès d’un proche', categorie: 'famille', paie: 'maintenue', decompte: 'ouvres',
     duree: 3, dureeNote: 'conjoint, partenaire de Pacs ou concubin, père, mère, beau-père, belle-mère, frère, sœur',
     justificatif: 'Acte de décès', article: 'Art. L3142-4', cp: CP_EVENEMENT,
+    cpAcquisition: 'assimile',
   },
   // Santé d'un enfant : donnée de santé, nature confidentielle comme un arrêt (`medicale`).
   HANDICAP_ENFANT: {
     label: 'Annonce du handicap, d’une pathologie chronique ou d’un cancer d’un enfant', abrege: 'Annonce handicap', court: 'congé pour l’annonce du handicap d’un enfant',
     categorie: 'famille', medicale: true, paie: 'maintenue', decompte: 'ouvres', duree: 5, justificatif: 'Justificatif médical de l’annonce', article: 'Art. L3142-4', cp: CP_EVENEMENT,
+    cpAcquisition: 'assimile',
   },
   ENFANT_MALADE: {
     label: 'Enfant malade', abrege: 'Enfant malade', court: 'congé pour enfant malade', categorie: 'famille', medicale: true, paie: 'non_payee', decompte: 'ouvres',
     duree: 3, parAn: true, dureeNote: '5 jours si l’enfant a moins d’un an ou si le salarié assume la charge d’au moins trois enfants de moins de 16 ans',
     justificatif: 'Certificat médical concernant l’enfant', article: 'Art. L1225-61', cp: 'Non assimilé à du travail effectif, sauf disposition de la CCN',
+    cpAcquisition: 'non',
   },
   // Absences non payées.
   SANS_SOLDE: {
     label: 'Congé sans solde', abrege: 'Sans solde', court: 'congé sans solde', categorie: 'non_payee', paie: 'non_payee', decompte: 'calendaires',
     justificatif: 'Demande écrite du salarié et accord de l’employeur', cp: CP_NON,
+    cpAcquisition: 'non',
   },
   INJUSTIFIEE: {
     label: 'Absence injustifiée', abrege: 'Injustifiée', court: 'absence injustifiée', categorie: 'non_payee', paie: 'non_payee', decompte: 'ouvres',
     justificatif: null, cp: CP_NON,
+    cpAcquisition: 'non',
   },
 };
 
@@ -209,11 +234,16 @@ export type CodeMotif = typeof CODES_MOTIF[number];
  * jamais renvoyées à Keystone, qui ne reçoit que les heures passées sur ses projets.
  */
 export const ACTIVITES_INTERNES = /^(?:INT-|ECOLE$)/;
+/**
+ * Activité interne des heures de formation (shared/rules/formations-temps.ts) : ligne proposée dans la feuille de temps
+ * des inscrits à une session, jamais envoyée à Keystone (code INT-*). Amorcée dans les projets par une migration nommée.
+ */
+export const ACTIVITE_FORMATION = { code: 'INT-FORM', nom: 'Formation' } as const;
 // « Reporté » : action d'un exercice clos reprise sur l'exercice suivant (`plan.cloturerExercice`), hors des sommes.
 export const PLAN_CLS = { prevu: 'tag-outline', engage: 'tag-accent', realise: 'tag-neutral', reporte: 'tag-outline' } as const;
 export const PLAN_LABEL = { prevu: 'Prévu', engage: 'Engagé', realise: 'Réalisé', reporte: 'Reporté' } as const;
-export const REQ_CLS = { attente: 'tag-outline', acceptee: 'tag-neutral', refusee: 'tag-accent' } as const;
-export const REQ_LABEL = { attente: 'En attente', acceptee: 'Acceptée', refusee: 'Refusée' } as const;
+export const REQ_CLS = { attente: 'tag-outline', acceptee: 'tag-neutral', refusee: 'tag-accent', retiree: 'tag-outline' } as const;
+export const REQ_LABEL = { attente: 'En attente', acceptee: 'Acceptée', refusee: 'Refusée', retiree: 'Retirée' } as const;
 /** File d'envoi des messages sortants (Paramètres → Envois). */
 export const ENVOI_CLS = { a_envoyer: 'tag-outline', envoye: 'tag-neutral', echec: 'tag-accent', simule: 'tag-outline' } as const;
 export const ENVOI_LABEL = { a_envoyer: 'À envoyer', envoye: 'Envoyé', echec: 'En échec', simule: 'Simulé' } as const;
@@ -232,6 +262,9 @@ export const EMAIL_LABEL: Record<string, string> = {
   'releve.interim': 'Relevé d’heures des intérimaires', 'visite.demande': 'Demande de visite médicale', 'recapitulatif': 'Récapitulatif quotidien',
   'essai': 'E-mail d’essai', 'entretien.remise': 'Compte rendu d’entretien mis à disposition',
   'temps.relance': 'Relance des feuilles de temps en retard',
+  'conges.information': 'Congés payés au retour d’une absence',
+  // E-mail réservé au service RH (donnée de santé), tel que la lecture seule le voit (server/src/envois-lecteur.ts).
+  reserve: 'Message réservé au service RH',
   'echeances.recapitulatif': 'Récapitulatif des échéances',
 };
 export const CIBLE_LABEL = { keystone: 'Keystone', sage: 'Sage Paie', email: 'E-mail' } as const;
@@ -239,7 +272,7 @@ export const MODE_NOTIFICATION_LABEL = { immediat: 'Aussitôt', quotidien: 'Réc
 /** Heure locale à partir de laquelle part le récapitulatif quotidien des notifications. */
 export const HEURE_RECAPITULATIF = 7;
 
-/** Validité de l'aptitude médicale, en mois. */
+/** Périodicité par défaut des visites médicales, en mois (aperçu de la reprise des visites ; échéance réelle : shared/rules/suivi-medical.ts). */
 export const MED_VALIDITE = 24;
 
 // — Santé au travail : avis du médecin du travail et demandes de visite (shared/rules/sante.ts) —
@@ -250,11 +283,16 @@ export const AVIS_MEDICAL: Record<AvisMedical, { label: string; court: string }>
 };
 /** Statut de l'échéance d'aptitude (Échéances, tableau de bord). */
 export const MED_LABEL: Record<StatusKey, string> = { ok: 'Valide', due: 'À renouveler', exp: 'Échue' };
+/** Échéance du suivi individuel renforcé sans examen médical d'aptitude enregistré (shared/rules/suivi-medical.ts). */
+export const EXAMEN_REQUIS = 'Examen d’aptitude requis';
 export const MOTIFS_VISITE: Record<MotifVisite, { label: string; court: string; article: string }> = {
   periodique: { label: 'Visite périodique — renouvellement de l’aptitude', court: 'renouvellement', article: 'Art. R4624-16 et R4624-28' },
   embauche: { label: 'Visite d’embauche — information et prévention, ou examen d’aptitude', court: 'embauche', article: 'Art. R4624-10 et R4624-24' },
   reprise: { label: 'Visite de reprise — après un arrêt de travail ou un congé de maternité', court: 'reprise', article: 'Art. R4624-31' },
   employeur: { label: 'À la demande de l’employeur', court: 'à la demande de l’employeur', article: 'Art. R4624-34' },
+  // Visites dues à un événement (shared/rules/visites-dues.ts) : l'année des 45 ans, la sortie d'un salarié exposé.
+  mi_carriere: { label: 'Visite de mi-carrière — l’année des 45 ans, ou à l’âge fixé par accord de branche', court: 'mi-carrière', article: 'Art. L4624-2-2' },
+  fin_carriere: { label: 'Visite de fin de carrière ou post-exposition — suivi renforcé ou risques particuliers', court: 'fin de carrière ou post-exposition', article: 'Art. L4624-2-1 et R4624-28-1' },
 };
 /**
  * Motif inscrit sur une habilitation suspendue à la suite d'un avis du médecin du travail : visible du manager
@@ -374,7 +412,7 @@ export const TEMPS_TRAVAIL: Record<TempsTravail, TempsDef> = {
   forfait_heures_hebdo: { label: 'Forfait hebdomadaire en heures', court: 'Forfait heures (semaine)', aide: 'Durée convenue au-delà de 35 h : les heures supplémentaires incluses sont majorées dans la rémunération ; heures supplémentaires au-delà du forfait.', article: 'Art. L3121-56' },
   forfait_heures_annuel: { label: 'Forfait annuel en heures', court: 'Forfait heures (année)', aide: 'Durée annuelle convenue (1 607 h pour un temps plein) : pas de décompte hebdomadaire, les heures au-delà du forfait sont régularisées en fin d’année.', article: 'Art. L3121-56' },
   forfait_jours: { label: 'Forfait annuel en jours', court: 'Forfait jours', aide: 'Décompte en jours travaillés (218 au plus), jours de repos calculés chaque année, entretien annuel obligatoire sur la charge de travail.', article: 'Art. L3121-58 et L3121-64' },
-  partiel: { label: 'Temps partiel', court: 'Temps partiel', aide: 'Durée hebdomadaire inférieure à 35 h ; heures complémentaires majorées de 10 % puis 25 %, dans la limite du tiers de la durée prévue.', article: 'Art. L3123-1' },
+  partiel: { label: 'Temps partiel', court: 'Temps partiel', aide: 'Durée hebdomadaire inférieure à 35 h ; heures complémentaires majorées de 10 % jusqu’au dixième de la durée prévue, puis de 25 % ; dans la limite du dixième, ou du tiers si un accord collectif le prévoit (Paramètres → Décompte des heures).', article: 'Art. L3123-1' },
   dirigeant: { label: 'Cadre dirigeant', court: 'Cadre dirigeant', aide: 'Non soumis à la réglementation de la durée du travail : ni heures supplémentaires, ni RTT, ni décompte en jours.', article: 'Art. L3111-2' },
 };
 
@@ -386,7 +424,7 @@ export type UniteRubrique = 'h' | 'j' | 'nombre';
  * code se fait correspondre un code du plan de paie Sage, confirmé par l'administrateur RH ou la paie (table
  * `rubriquesPaie`). Y ajouter les futurs codes : absences, déplacements, contrepartie en repos, régularisations.
  */
-export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubrique }> = {
+export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubrique; inactiveParDefaut?: boolean }> = {
   HN: { label: 'Heures normales', unite: 'h' },
   HSF25: { label: 'Heures supplémentaires incluses au forfait hebdomadaire, majorées à 25 %', unite: 'h' },
   HSF50: { label: 'Heures supplémentaires incluses au forfait hebdomadaire, majorées à 50 %', unite: 'h' },
@@ -396,6 +434,37 @@ export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubriqu
   HC25: { label: 'Heures complémentaires de temps partiel, majorées à 25 %', unite: 'h' },
   RCR_ACQUIS: { label: 'Repos compensateur de remplacement acquis, majoration incluse', unite: 'h' },
   JTRAV: { label: 'Jours travaillés, forfait jours', unite: 'j' },
+  // Semaine à 7 jours (shared/rules/semaine.ts) : heures du dimanche, déjà comprises dans les heures ci-dessus (information
+  // pour la paie), et leur majoration si le réglage `majorationDimanche` en prévoit une (heures équivalentes).
+  HDIM: { label: 'Heures travaillées le dimanche (comprises dans les heures ci-dessus)', unite: 'h' },
+  MAJ_DIM: { label: 'Majoration des heures du dimanche (heures équivalentes)', unite: 'h' },
+  // Jours fériés travaillés (shared/rules/majorations.ts) : 1er mai majoré de 100 % (art. L3133-6, heures équivalentes) ;
+  // autres fériés en quantité, et leur majoration si le réglage `tauxMajorationFerie` en prévoit une.
+  MAJ_1MAI: { label: 'Majoration du 1er mai travaillé, 100 % (heures équivalentes)', unite: 'h' },
+  FERIE_TRAV: { label: 'Heures travaillées un jour férié, hors 1er mai (comprises dans les heures ci-dessus)', unite: 'h' },
+  MAJ_FERIE: { label: 'Majoration des heures d’un jour férié (heures équivalentes)', unite: 'h' },
+  // Contrepartie obligatoire en repos des heures supplémentaires au-delà du contingent annuel (shared/rules/durees.ts).
+  COR_ACQUIS: { label: 'Contrepartie obligatoire en repos acquise (au-delà du contingent)', unite: 'h' },
+  // Absences validées (shared/rules/absences-paie.ts), réglage `absencesFichierPaie` : jours décomptés au demi-jour,
+  // ventilés par période de paie. Hors congés, une rubrique par rémunération et par catégorie de nature : le code révèle
+  // la catégorie (santé), d'où des lignes réservées au droit « paie ». Codes Sage à confirmer avant tout lot réel.
+  CP: { label: 'Congés payés pris (jours ouvrés)', unite: 'j' },
+  RTT: { label: 'RTT ou jours de repos du forfait jours pris (jours travaillés)', unite: 'j' },
+  RECUP: { label: 'Récupération prise (heures)', unite: 'h' },
+  ABS_NP: { label: 'Absence non payée (jours de la nature : calendaires ou ouvrés)', unite: 'j' },
+  ABS_IND_SANTE: { label: 'Absence indemnisée, santé : arrêts de travail (jours calendaires)', unite: 'j' },
+  ABS_MAINT_SANTE: { label: 'Absence à salaire maintenu, santé (jours de la nature)', unite: 'j' },
+  ABS_IND_PARENT: { label: 'Absence indemnisée, parentalité (jours calendaires)', unite: 'j' },
+  ABS_MAINT_PARENT: { label: 'Absence à salaire maintenu, parentalité (jours de la nature)', unite: 'j' },
+  ABS_IND_FAMILLE: { label: 'Absence indemnisée, événement familial (jours ouvrés)', unite: 'j' },
+  ABS_MAINT_FAMILLE: { label: 'Absence à salaire maintenu, événement familial (jours ouvrés)', unite: 'j' },
+  // Solde de sortie (shared/rules/solde-sortie.ts, t128) : compteurs à la date de sortie, dans le lot du mois de la sortie.
+  // Désactivées par défaut (solde de tout compte saisi dans Sage) tant que la paie n'a pas donné ses codes ; le montant de
+  // l'indemnité reste calculé par Sage (règle du dixième ou maintien de salaire).
+  ICCP_J: { label: 'Congés payés à indemniser à la sortie, indemnité compensatrice (jours ouvrés)', unite: 'j', inactiveParDefaut: true },
+  RTT_SOLDE: { label: 'RTT ou jours de repos restants à la sortie (jours)', unite: 'j', inactiveParDefaut: true },
+  RECUP_H: { label: 'Repos compensateur restant à la sortie (heures)', unite: 'h', inactiveParDefaut: true },
+  CET_LIQ: { label: 'Compte épargne-temps liquidé à la sortie (jours)', unite: 'j', inactiveParDefaut: true },
 };
 
 /** Sections d'un compte rendu : [clé, libellé, rédacteur] — 'mgr' évaluateur, 'sal' salarié. */
@@ -437,8 +506,11 @@ export const ALLOWED_VIEWS = {
   manager: ['collaborateurs', 'formations', 'temps', 'absences', 'entretiens', 'missions'],
   collaborateur: ['portail', 'temps', 'absences', 'entretiens'],
 } as const;
-/** Vues ouvertes dans tous les espaces et sans connexion : information sur les données personnelles (shared/confidentialite.ts). */
-export const VUES_COMMUNES = ['confidentialite'] as const;
+/**
+ * Vues ouvertes dans tous les espaces et sans connexion : information sur les données personnelles (shared/confidentialite.ts)
+ * et aide par rôle (shared/aide.ts).
+ */
+export const VUES_COMMUNES = ['confidentialite', 'aide'] as const;
 
 // — Comptes et droits —
 /**
@@ -471,7 +543,7 @@ export const PROFILS_RH: Record<ProfilRh, { label: string; aide: string; droits:
   },
   paie: {
     label: 'Gestionnaire de paie', espace: 'Paie', droits: ['paie'],
-    aide: 'Temps, absences et soldes en lecture, transmission des variables de paie à Sage ; ni entretiens, ni formations, ni données de santé',
+    aide: 'Temps, absences et soldes en lecture, transmission des variables de paie à Sage ; ni entretiens, ni formations, ni données médicales détaillées : la catégorie d’une absence seulement (santé, parentalité…), pour la paie',
     vues: ['temps', 'absences'],
   },
   lecture_seule: {

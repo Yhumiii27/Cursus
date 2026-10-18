@@ -14,6 +14,8 @@ Cursus envoie ses e-mails depuis une **boîte d'envoi dédiée** (par exemple `c
 l'API Microsoft Graph, avec un jeton d'application (flux « client credentials » : aucun compte utilisateur,
 aucun mot de passe de boîte aux lettres). Sans configuration, Cursus reste en **mode simulation** : rien ne
 part, chaque e-mail est tracé dans le journal et visible dans Paramètres → Envois, marqué « simulé ».
+Le profil en lecture seule y voit les destinataires et l'état des e-mails, mais pas l'objet ni le texte de ceux qui
+désignent une donnée de santé (congés au retour d'une absence, demande de visite médicale, récapitulatif qui en contient).
 
 ## Ce que Cursus envoie
 
@@ -22,13 +24,14 @@ part, chaque e-mail est tracé dans le journal et visible dans Paramètres → E
 | Demande de congés à valider | Valideur : manager direct, sinon la boîte du service RH | Demande d'un salarié |
 | Décision sur une demande de congés, congés posés par le manager | Salarié | Validation, refus, pose |
 | Feuille de temps à valider | Valideur | Soumission |
+| Congés payés au retour d'une absence : jours dont il dispose, date limite, échéance du report de 15 mois (dates de l'absence, jamais sa nature) | Salarié | « Informer » par le service RH au retour d'un arrêt de maladie ou d'accident (art. L3141-19-3) |
 | Feuille de temps à corriger | Salarié | Renvoi par le valideur, ou absence annulée qui couvrait la semaine |
 | Compte rendu d'entretien à signer | Salarié | Clôture par l'évaluateur |
 | Compte rendu d'entretien mis à disposition (lien vers Cursus seulement, jamais le texte du compte rendu) | Salarié | Remise « mis à disposition dans le portail » par l'évaluateur ou le service RH ; toujours aussitôt |
 | Réponse à une demande au service RH | Salarié, et le manager qui l'a faite pour lui | Acceptation ou refus |
 | Convocation à une formation, à un entretien (fichier `.ics` joint) | Salarié | Inscription avec « Envoyer maintenant », « Envoyer la convocation », planification d'un entretien |
 | Annulation d'une convocation (`.ics` d'annulation) | Salarié qui a reçu la convocation, même remise « à renvoyer » par un changement de date ou de lieu | Désinscription, changement de session, recyclage enregistré avant la session, session annulée ; entretien planifié annulé (`entretien.annuler`, date à venir) |
-| Récapitulatif des échéances : titres, visites médicales (échéance seule), formalités de voyage (une vaccination n'est qu'une « formalité sanitaire »), déplacements au dossier incomplet, entretiens, fins de contrat ; jamais d'avis d'aptitude | Boîte du service RH (tout le périmètre) ; chaque manager (son équipe, sans visite ni vaccination ni entretien de reprise) ; chaque référent HSE (formations et habilitations) | Chaque jour à partir de 7 h (ou un jour de la semaine), seulement les paliers franchis depuis la dernière relance (90, 30, 7 jours, échu par défaut) ; désactivable dans Paramètres → Messagerie |
+| Récapitulatif des échéances : titres, visites médicales (échéance seule), formalités de voyage (une vaccination n'est qu'une « formalité sanitaire »), déplacements au dossier incomplet, entretiens, fins de contrat ; jamais d'avis d'aptitude | Boîte du service RH (tout le périmètre) ; chaque manager (son équipe, sans visite ni vaccination ni entretien de reprise, ni titre de séjour, ni 18 ans ou dérogation d'un salarié mineur) ; chaque référent HSE (formations et habilitations) | Chaque jour à partir de 7 h (ou un jour de la semaine), seulement les paliers franchis depuis la dernière relance (90, 30, 7 jours, échu par défaut) ; désactivable dans Paramètres → Messagerie |
 | Demande de visite médicale (contenu de la demande imprimable : salarié, poste, motif, habilitations qui exigent l'aptitude ; aucune information médicale) | Service de prévention et de santé au travail (Paramètres → Messagerie) | Demande de visite enregistrée par le service RH ; sans adresse, la demande est à imprimer |
 | Relevé d'heures des intérimaires (CSV joint) | Agence d'intérim | Chaque semaine, dès que toutes les feuilles de ses intérimaires sont validées, même avec retard (jusqu'à cinq semaines) ; relevé complet après un relevé envoyé incomplet par le service RH ; renvoi par le service RH |
 | Récapitulatif quotidien | Personne qui l'a choisi | Chaque jour à partir de 7 h |
@@ -41,8 +44,9 @@ fait l'action, ni à un salarié sans adresse ou dont la date de sortie est pass
 l'adresse en vigueur le jour de son envoi (fiche, ou boîte du service RH) ; les notifications d'une personne
 sortie ou sans adresse entre-temps sont closes sans envoi.
 
-**Agenda** : convocations et annulations portent un fichier `.ics` (journée entière, organisateur : la boîte
-d'envoi, identifiant stable par session et salarié). Le salarié ouvre celui de la convocation pour ajouter
+**Agenda** : convocations et annulations portent un fichier `.ics` (journées entières du premier au dernier jour de la
+session ; avec des horaires, un créneau à l'heure de Paris répété chaque jour de la session, jours sautés exclus, un jour
+à un autre horaire remplacé ; organisateur : la boîte d'envoi, identifiant stable par session et salarié). Le salarié ouvre celui de la convocation pour ajouter
 l'événement à son agenda, celui de l'annulation pour l'en retirer ; une convocation renvoyée le met à jour. Une session « à confirmer » par l'organisme y figure comme
 provisoire. Le comportement d'Outlook (ajout, mise à jour, retrait) est à vérifier à la mise en service (section 5).
 
@@ -119,6 +123,12 @@ Au démarrage, en production, Cursus refuse de démarrer et liste le problème s
 une adresse, si l'application n'est pas entièrement désignée (locataire, ID d'application, secret, par les
 variables `CURSUS_MAIL_*` ou `CURSUS_OIDC_*`), si le locataire n'est pas un GUID, ou si des variables
 `CURSUS_MAIL_*` sont définies sans `CURSUS_MAIL_FROM` (les e-mails resteraient simulés sans qu'on s'en aperçoive).
+
+**Variables dans Coolify** (installation en conteneur, README.md, « Mise en ligne ») : les mêmes variables se saisissent
+dans l'onglet « Environment Variables » de l'application, `CURSUS_MAIL_CLIENT_SECRET` cochée comme secrète (« Is
+Literal » aussi si la valeur contient un `$`), puis « Redeploy ». Un problème de configuration apparaît dans l'onglet
+« Logs » en ligne JSON de niveau `erreur`, et le conteneur s'arrête (déploiement en échec) ; un envoi en échec se suit
+dans Paramètres → Envois (« Suivi et incidents »).
 
 **Réseau** : la machine de Cursus doit joindre en HTTPS (443, sortant) `login.microsoftonline.com` et
 `graph.microsoft.com`.

@@ -44,16 +44,16 @@ test('saisie refusée un jour de CP validé, cellule vidée acceptée', () => {
   run(MEHDI, 'temps.setCell', cell(0, 1, ''));
   run(MEHDI, 'temps.setCell', cell(1, 1, '0'));
   run(MEHDI, 'temps.setCell', cell(0, 0, '7,5'));
-  assert.deepEqual(sheet().lignes[0].h, [7.5, 0, 8, 0, 0]);
+  assert.deepEqual(sheet().lignes[0].h, [7.5, 0, 8, 0, 0, 0, 0]);
 });
 
 test('proposition Keystone : aucune heure un jour d’absence validée', () => {
   const { run, domain } = fresh();
   // Nicolas Perrin (22) : RTT validé le vendredi 9 octobre.
-  assert.deepEqual(joursAbsence(domain(), 22, '2026-10-05').map(a => a?.type ?? null), [null, null, null, null, 'RTT']);
+  assert.deepEqual(joursAbsence(domain(), 22, '2026-10-05').map(a => a?.type ?? null), [null, null, null, null, 'RTT', null, null]);
   run(RH, 'temps.suggest', { empId: 22, week: '2026-10-05' });
   const sh = domain().ds.feuilles.find(f => f.empId === 22 && f.week === '2026-10-05')!;
-  assert.deepEqual(sh.lignes.map(l => l.h), [[8, 8, 8, 8, 0]]);
+  assert.deepEqual(sh.lignes.map(l => l.h), [[8, 8, 8, 8, 0, 0, 0]]);
   run(RH, 'temps.submit', { empId: 22, week: '2026-10-05' });
 });
 
@@ -108,7 +108,7 @@ test('validation d’une absence refusée quand des heures sont saisies ces jour
   run(KARIM, 'temps.setCell', cell(0, 2, ''));
   run(KARIM, 'absence.decider', { id: a.id, ok: true });
   assert.equal(domain().ds.absences.find(x => x.id === a.id)!.statut, 'validee');
-  assert.deepEqual(sheet().lignes[0].h, [8, 0, 0, 0, 0]);
+  assert.deepEqual(sheet().lignes[0].h, [8, 0, 0, 0, 0, 0, 0]);
 });
 
 test('absence sur une feuille soumise ou validée : marche à suivre, feuille validée jamais modifiée', () => {
@@ -150,7 +150,7 @@ test('demande d’absence en attente sur des heures : décidée avant la validat
   run(KARIM, 'temps.validate', { empId: 2, week });
   assert.equal(domain().ds.absences.find(x => x.id === a.id)!.statut, 'validee');
   assert.equal(sheet().statut, 'validee');
-  assert.deepEqual(sheet().lignes[1].h, [0, 0, 0, 8, 0]);
+  assert.deepEqual(sheet().lignes[1].h, [0, 0, 0, 8, 0, 0, 0]);
 });
 
 test('demande d’absence en attente : refusée, ou sans heure ces jours-là, la feuille se valide', () => {

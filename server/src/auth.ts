@@ -12,6 +12,7 @@ import type { Role } from '../../shared/types.ts';
 import { compteValide, espacesDuCompte } from './comptes.ts';
 import { demoActive } from './config.ts';
 import type { Db } from './db.ts';
+import { noterCompte } from './logs.ts';
 
 /** Mode d'ouverture : mot de passe d'un compte local, connexion libre de démonstration, Microsoft 365 (OpenID Connect). */
 export type Methode = 'local' | 'demo' | 'microsoft';
@@ -104,6 +105,7 @@ export function readSession(db: Db, req: Request): SessionInfo | null {
     }
   }
   if (!row.activite || Date.parse(now) - Date.parse(row.activite) > ACTIVITE_MS) db.update('connexions', id, { activite: now });
+  noterCompte(req, row.compteId); // compte inscrit sur la ligne de la requête (server/src/logs.ts)
   return { id, compteId: row.compteId, role, methode: row.methode ?? 'local', demoComptes: row.demoComptes ?? {}, expiration: row.expiration };
 }
 

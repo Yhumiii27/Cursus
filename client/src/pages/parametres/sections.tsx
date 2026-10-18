@@ -8,19 +8,24 @@ import { ComptesPanel } from '../Comptes.tsx';
 import { JournalPanel } from '../Journal.tsx';
 import { MessageriePanel } from '../Messagerie.tsx';
 import type { SectionProps } from './commun.ts';
+import { AbsencesPaie } from './AbsencesPaie.tsx';
 import { Conges } from './Conges.tsx';
 import { Contrats } from './Contrats.tsx';
+import { DecompteHeures } from './DecompteHeures.tsx';
 import { Demonstration } from './Demonstration.tsx';
 import { Entretiens } from './Entretiens.tsx';
 import { Envois } from './Envois.tsx';
 import { FeuillesTemps } from './FeuillesTemps.tsx';
+import { Formations } from './Formations.tsx';
 import { Keystone } from './Keystone.tsx';
 import { MatriculesPaie } from './MatriculesPaie.tsx';
 import { ReglagesPaie } from './ReglagesPaie.tsx';
 import { Reprise } from './Reprise.tsx';
 import { RelancesEcheances } from './RelancesEcheances.tsx';
+import { ReposHebdomadaire } from './ReposHebdomadaire.tsx';
 import { Rgpd } from './Rgpd.tsx';
 import { SagePaie } from './SagePaie.tsx';
+import { Sante } from './Sante.tsx';
 import { Suivi } from './Suivi.tsx';
 
 export interface SectionParametres {
@@ -49,7 +54,12 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'reprise', place: 'gauche', Section: Reprise },
   { id: 'contrats', place: 'gauche', Section: Contrats },
   { id: 'paie', place: 'droite', Section: ReglagesPaie },
+  { id: 'decompte', place: 'droite', Section: DecompteHeures },
+  { id: 'absences-paie', place: 'droite', Section: AbsencesPaie },
   { id: 'feuilles', place: 'gauche', Section: FeuillesTemps },
+  { id: 'repos', place: 'droite', Section: ReposHebdomadaire },
+  { id: 'sante', place: 'gauche', Section: Sante },
+  { id: 'formations', place: 'droite', Section: Formations },
   { id: 'confidentialite', place: 'droite', Section: Rgpd },
   { id: 'messagerie', place: 'large', Section: Messagerie },
   { id: 'relances', place: 'large', Section: RelancesEcheances },

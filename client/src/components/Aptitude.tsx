@@ -6,8 +6,10 @@ import type { Domain, EmpX } from '../../../shared/domain.ts';
 import { equipeLabel, fmtIso } from '../../../shared/format.ts';
 import { matriculeAffiche } from '../../../shared/rules/matricules.ts';
 import { restrictionEnVigueur, restrictionTexte } from '../../../shared/rules/sante.ts';
+import { suiviTexte } from '../../../shared/rules/suivi-medical.ts';
+import { exposeDe } from '../../../shared/rules/visites-dues.ts';
 import type { DemandeVisite } from '../../../shared/types.ts';
-import { printDocument } from '../print.ts';
+import { matriculesImprimes, printDocument } from '../print.ts';
 import { Tag } from './ui.tsx';
 
 /**
@@ -20,7 +22,7 @@ export function imprimerDemandeVisite(d: Domain, e: EmpX, x: DemandeVisite): boo
   return printDocument('Demande de visite médicale', 'À l’attention du service de prévention et de santé au travail', [
     {
       title: 'Salarié',
-      rows: [['Nom', e.nom], ['Matricule', matriculeAffiche(e)], ['Année de naissance', String(e.naissance)], ['Poste', e.poste], ['Équipe', equipeLabel(e)],
+      rows: [['Nom', e.nom], ['Matricule', matriculeAffiche(e)], e.naissanceLe ? ['Date de naissance', fmtIso(e.naissanceLe)] : ['Année de naissance', String(e.naissance)], ['Poste', e.poste], ['Équipe', equipeLabel(e)],
         ['Contrat', d.contratOf(e).libelle], ['Date d’entrée', fmtIso(e.entree)]],
     },
     {
@@ -30,7 +32,7 @@ export function imprimerDemandeVisite(d: Domain, e: EmpX, x: DemandeVisite): boo
     },
     ...(habs.length ? [{ title: 'Habilitations du poste qui exigent l’aptitude médicale', table: { head: ['Habilitation', 'Détail'], rows: habs.map(h => [h.hm.nom, h.hm.detail]) } }] : []),
     { title: 'Suite donnée', text: 'Merci de convoquer le salarié et d’adresser l’avis d’aptitude au service RH, qui l’enregistre dans Cursus. Cette demande ne contient aucune information médicale.' },
-  ]);
+  ], e.id, `${e.nom} · ${matriculesImprimes(e)}`);
 }
 
 /**
@@ -43,15 +45,20 @@ export function Aptitude({ e, d, horizon, actions }: { e: EmpX; d: Domain; horiz
     : !m.ok && !m.verdictSeul ? (m.visite ? 'Aptitude échue' : 'Aucune visite enregistrée')
     : !m.ok ? 'Aptitude non valide'
     : m.avis === 'restrictions' ? AVIS_MEDICAL.restrictions.court : 'Apte';
-  const statut = key === 'exp' ? (m.avis === 'inapte' || m.verdictSeul ? 'Non valide' : m.visite ? 'Échue' : 'Non renseignée') : key === 'due' ? 'À renouveler' : 'Valide';
+  const statut = key === 'exp' ? (m.avis === 'inapte' || m.verdictSeul ? 'Non valide' : m.visite ? 'Échue' : 'Non renseignée') : key === 'due' ? (m.ok && m.examenRequis ? 'Examen requis' : 'À renouveler') : 'Valide';
   // Verdict seul (manager) : ni date ni échéance à afficher.
-  const detail = !m.verdictSeul ? m.text : m.ok || m.avis === 'inapte' ? 'Avis du médecin du travail' : 'Visite à programmer par le service RH';
+  // Visite due à un événement (vue manager) : « visite à programmer », sans motif ni date.
+  const detail = !m.verdictSeul ? m.text : m.ok || m.avis === 'inapte' ? `Avis du médecin du travail${m.aProgrammer ? ' · visite à programmer par le service RH' : ''}` : 'Visite à programmer par le service RH';
   return (
     <div className="list-row stack">
       <div className="item-head">
         <div>
           <div style={{ fontSize: 14 }}>{verdict}</div>
           <div className="text-muted sub">{detail}</div>
+          {/* Type de suivi : service RH et intéressé (jamais dans la vue manager, `suivi` null). */}
+          {m.suivi && <div className="text-muted sub">Type de suivi : {suiviTexte(m.suivi)}{m.examenRequis ? ' · examen médical d’aptitude à programmer' : ''}{exposeDe(d.ds, e) ? ' · exposé à des risques particuliers' : ''}</div>}
+          {/* Visites dues à un événement (embauche, reprise, mi-carrière, fin de carrière) : service RH et intéressé. */}
+          {m.dues?.map(v => <div key={v.motif} className="text-muted sub">{v.label} : {v.le < d.ti ? 'dépassée depuis le' : 'au plus tard le'} {fmtIso(v.le)} — {v.detail}</div>)}
         </div>
         <Tag cls={CLS[key]} style={{ flex: 'none' }}>{statut}</Tag>
       </div>

@@ -1,15 +1,16 @@
 // Jeu de données de démonstration (repris du prototype Claude Design) :
 // 24 collaborateurs d'un site industriel lyonnais, CCN Industries chimiques.
 import { Domain } from '../../shared/domain.ts';
-import { addD, addM, isFerie, wDays, weekday } from '../../shared/dates.ts';
+import { addD, addM, isFerie, joursSemaine, weekday } from '../../shared/dates.ts';
 import { matricule } from '../../shared/format.ts';
 import { identifiantSuggere, typeSuggere } from '../../shared/rules/comptes.ts';
 import { repriseDesAbsences } from '../../shared/rules/absences.ts';
+import { completerSession } from '../../shared/rules/plage-session.ts';
 import { cpDroit, rttDroit } from '../../shared/rules/conges.ts';
 import type {
   AutorisationTravail, AvisMedical, Dataset, Employe, EntretienType, Messagerie, ProfilRh, Restriction, Statut, TempsTravail, TypeContrat, VaccinId,
 } from '../../shared/types.ts';
-import { MOTIF_RESTRICTION } from '../../shared/constants.ts';
+import { ACTIVITE_FORMATION, MOTIF_RESTRICTION } from '../../shared/constants.ts';
 import type { Db } from './db.ts';
 import { DEFAULT_SETTINGS, loadFull } from './dataset.ts';
 import { contexte, enregistrerAffectation, enregistrerChantier, enregistrerProjet, enregistrerTache } from './integrations/keystone-entrant.ts';
@@ -17,6 +18,7 @@ import { suivreVerdicts } from './integrations/keystone-verdicts.ts';
 import { figerFeuilles } from './migrate.ts';
 import { postesDepuisFiches } from './migrations/referentiels.ts';
 import { lotHistorique } from './migrations/paie.ts';
+import { amorcerActivites } from './migrations/temps.ts';
 
 // Mode de validation : évaluation réussie pour les habilitations électriques, CACES, SST, ATEX, AIPR et PRAP ;
 // la présence suffit pour les sensibilisations et formations d'information.
@@ -66,6 +68,7 @@ const PROJETS: Record<string, string> = {
   'K-2631': 'Transfert de ligne de conditionnement', 'K-2633': 'Dépannage four tunnel',
   'INT-PROD': 'Production — lignes internes', 'INT-LOG': 'Logistique interne', 'INT-MAINT': 'Maintenance interne', 'INT-HSE': 'Qualité, hygiène, sécurité',
   'INT-QUA': 'Contrôle qualité', 'INT-ADM': 'Fonctions support', 'INT-COM': 'Commercial & avant-vente', 'ECOLE': 'Cours en CFA (alternance)',
+  [ACTIVITE_FORMATION.code]: ACTIVITE_FORMATION.nom,
 };
 
 /** Chantiers et exigences du Go / No Go ; le dépannage de Grenoble, terminé, est archivé. Les ressources viennent des affectations. */
@@ -122,6 +125,12 @@ const PROFILS: Record<number, Profil> = {
   22: cdi('ouvrier', '39h_rtt', '2008-02-04', 1978),
   23: cdi('cadre', 'forfait_jours', '2016-01-04', 1980, { forfaitJours: 218 }),
   24: { statut: 'ouvrier', typeContrat: 'alternance', temps: '35h', entree: '2025-09-01', fin: '2027-08-31', naissance: 2006 },
+};
+
+/** Jour et mois de naissance (date complète : shared/rules/mineurs.ts), l'année étant celle du profil. */
+const NE_LE: Record<number, string> = {
+  1: '04-17', 2: '11-02', 3: '07-23', 4: '02-09', 5: '05-30', 6: '09-12', 7: '12-05', 8: '03-21', 9: '06-14', 10: '10-28', 11: '01-07', 12: '08-19',
+  13: '04-03', 14: '12-24', 15: '07-01', 16: '02-27', 17: '09-30', 18: '05-11', 19: '11-16', 20: '03-08', 21: '06-25', 22: '10-04', 23: '01-29', 24: '08-02',
 };
 
 type C = { f: string; obtenue: string; session?: number; convoc?: 'now' };
@@ -184,18 +193,27 @@ const EXTRA: Record<number, Extra> = {
 
 // Le nombre d'inscrits découle des certifications et inscriptions rattachées (RECYCLAGES, INSCRIPTIONS).
 // `planId` : action du plan engagée pour la session (identifiants des lignes de PLAN, insérées dans l'ordre).
+// Sessions sur plusieurs jours (shared/rules/plage-session.ts) : CACES R489 de 21 h sur trois jours avec horaires, PRAP
+// de 14 h sur un vendredi et le lundi suivant, FCO de 35 h sur une semaine sans horaire (journées entières).
+const HORAIRE_JOUR = { debut: '08:30', fin: '16:30', pause: 60 };
 const SESSIONS = [
   { id: 1, formation: 'sst', date: '2026-10-14', lieu: 'Site de Lyon — salle B', places: 12, statut: 'Confirmée', planId: 7 },
   { id: 2, formation: 'sst', date: '2026-11-18', lieu: 'Site de Lyon — salle B', places: 12, statut: 'À confirmer' },
-  { id: 3, formation: 'caces489', date: '2026-10-21', lieu: 'AFTRAL Saint-Priest', places: 6, statut: 'Confirmée', planId: 8 },
+  {
+    id: 3, formation: 'caces489', date: '2026-10-21', fin: '2026-10-23', jours: ['2026-10-21', '2026-10-22', '2026-10-23'], horaires: [HORAIRE_JOUR],
+    lieu: 'AFTRAL Saint-Priest', places: 6, statut: 'Confirmée', planId: 8,
+  },
   { id: 4, formation: 'caces489', date: '2026-11-25', lieu: 'AFTRAL Saint-Priest', places: 6, statut: 'Confirmée' },
   { id: 5, formation: 'elec', date: '2026-10-27', lieu: 'Apave Vénissieux', places: 8, statut: 'Confirmée', planId: 9 },
   { id: 6, formation: 'epi', date: '2026-10-09', lieu: 'Site de Lyon — atelier', places: 15, statut: 'Confirmée' },
   { id: 7, formation: 'hauteur', date: '2026-11-04', lieu: 'Socotec Lyon', places: 8, statut: 'À confirmer' },
   { id: 8, formation: 'rgpd', date: '2026-11-12', lieu: 'Visioconférence', places: 30, statut: 'Confirmée', planId: 10 },
   { id: 9, formation: 'caces486', date: '2026-12-02', lieu: 'AFTRAL Saint-Priest', places: 6, statut: 'À confirmer' },
-  { id: 10, formation: 'prap', date: '2026-11-20', lieu: 'Site de Lyon — salle B', places: 10, statut: 'Confirmée' },
-  { id: 11, formation: 'fco', date: '2027-01-11', lieu: 'AFTRAL Saint-Priest', places: 12, statut: 'À confirmer' },
+  {
+    id: 10, formation: 'prap', date: '2026-11-20', fin: '2026-11-23', jours: ['2026-11-20', '2026-11-23'], horaires: [{ debut: '09:00', fin: '17:00', pause: 60 }],
+    lieu: 'Site de Lyon — salle B', places: 10, statut: 'Confirmée',
+  },
+  { id: 11, formation: 'fco', date: '2027-01-11', fin: '2027-01-15', lieu: 'AFTRAL Saint-Priest', places: 12, statut: 'À confirmer' },
   { id: 12, formation: 'epi', date: '2026-12-10', lieu: 'Site de Lyon — atelier', places: 15, statut: 'À confirmer' },
   { id: 13, formation: 'atex', date: '2026-11-16', lieu: 'Apave Vénissieux', places: 8, statut: 'Confirmée' },
 ];
@@ -333,14 +351,19 @@ const PLAN = [
 function feuilles(taches: ReturnType<typeof planning>) {
   const out: { empId: number; week: string; statut: string; sage: boolean; keystone: boolean; lignes: unknown[]; heuresSup?: string | null }[] = [];
   Object.keys(TACHES).map(Number).forEach(id => ['2026-09-21', '2026-09-28'].forEach((week, wi) => {
-    const lignes = taches.filter(t => t.empId === id).map(t => ({ projet: t.projet, tache: t.tache, ks: true, h: wDays(week).map(s => t.heures[s] ?? 0) }))
+    const lignes = taches.filter(t => t.empId === id).map(t => ({ projet: t.projet, tache: t.tache, ks: true, h: joursSemaine(week).map(s => t.heures[s] ?? 0) }))
       .filter(l => l.h.some(v => v > 0))
       .map(l => ({ ...l, h: l.h.map((v, i) => v + ((id === 22 || id === 18) && wi === 1 && i < 2 && v ? 2 : 0)) }));
+    // Élu au CSE (mandat de démonstration) : 3 h de délégation le mercredi de la semaine 40, prises sur la production.
+    if (id === 8 && wi === 1) {
+      lignes[0].h[2] -= 3;
+      lignes.push({ projet: 'INT-DELEG', tache: 'Réunion du CSE', ks: false, h: [0, 0, 3, 0, 0, 0, 0] });
+    }
     const statut = wi === 1 && id % 3 === 0 ? 'soumise' : 'validee';
     // Heures supplémentaires payées, mode figé à la validation (comme temps.validate).
     out.push({ empId: id, week, lignes, statut, sage: wi === 0 && id !== 15, keystone: wi === 0, heuresSup: statut === 'validee' ? 'paiement' : null });
   }));
-  out.push({ empId: 1, week: '2026-10-05', lignes: [{ projet: 'INT-LOG', tache: 'Réception / expédition', ks: true, h: [7, 7.5, 0, 0, 0] }], statut: 'brouillon', sage: false, keystone: false });
+  out.push({ empId: 1, week: '2026-10-05', lignes: [{ projet: 'INT-LOG', tache: 'Réception / expédition', ks: true, h: [7, 7.5, 0, 0, 0, 0, 0] }], statut: 'brouillon', sage: false, keystone: false });
   return out;
 }
 
@@ -395,13 +418,13 @@ export function seedDemo(db: Db) {
     HABILITATIONS.forEach(h => db.insert('habilitations', h));
     DESTS.forEach(d => db.insert('destinations', d));
     EQUIPES.forEach(([nom, managerId], ordre) => db.insert('equipes', { nom, managerId, ordre }));
-    SESSIONS.forEach(s => db.insert('sessions', s));
+    SESSIONS.forEach(s => db.insert('sessions', completerSession(s)));
     EMPLOYES.forEach(e => {
       const p = PROFILS[e.id], x = EXTRA[e.id] || {};
       db.insert('employes', {
         id: e.id, nom: e.nom, equipe: e.equipe, poste: e.poste, statut: p.statut, typeContrat: p.typeContrat, temps: p.temps,
         heures: p.heures ?? null, forfaitHeures: p.forfaitHeures ?? null, forfaitJours: p.forfaitJours ?? null, jourOff: p.jourOff ?? [],
-        entree: p.entree, fin: p.fin ?? null, naissance: p.naissance, agence: p.agence ?? null, matriculePaie: matriculePaieDemo(e.id, p.typeContrat),
+        entree: p.entree, fin: p.fin ?? null, naissance: p.naissance, naissanceLe: `${p.naissance}-${NE_LE[e.id]}`, agence: p.agence ?? null, matriculePaie: matriculePaieDemo(e.id, p.typeContrat),
         // Chacun a une adresse professionnelle (décision de l'entreprise) ; Karim Haddad reçoit un récapitulatif quotidien.
         email: identifiantSuggere(e.nom, 'microsoft', DOMAINE_DEMO), notifications: e.id === 12 ? 'quotidien' : 'immediat',
         repriseMotif: p.reprise?.motif ?? null, repriseDate: p.reprise?.date ?? null, visite: x.visite ?? null,
@@ -428,6 +451,11 @@ export function seedDemo(db: Db) {
     // Keystone : mêmes contrôles et mêmes tables que l'API entrante (server/src/integrations/keystone-entrant.ts).
     const cx = contexte(db), taches = planning();
     Object.entries(PROJETS).forEach(([code, nom]) => enregistrerProjet(cx, code, { nom }));
+    // Activités internes de base (dont la délégation du CSE) : comme la migration d'une base neuve, rejouée à la réinitialisation.
+    amorcerActivites(db);
+    // Mandat au CSE de Julien Moreau : titulaire, crédit de la table R2314-1 pour une centaine de salariés.
+    db.insert('mandats', { empId: 8, role: 'titulaire', du: '2025-11-01', au: null, credit: 21 });
+
     CHANTIERS.forEach(({ id, ...c }) => enregistrerChantier(cx, id, c));
     AFFECTATIONS.forEach(({ id, empId, ...a }) => enregistrerAffectation(cx, id, { matricule: matricule(empId), ...a }));
     taches.forEach(({ id, empId, ...t }) => enregistrerTache(cx, id, { matricule: matricule(empId), ...t }));
@@ -460,7 +488,7 @@ export function seedDemo(db: Db) {
       const rtt = rd == null ? 0 : Math.min(h.rtt, Math.max(0, rd - 3));
       // Les demandes de récupération en attente doivent rester couvertes par le compteur acquis.
       const recupDemandee = ds.absences.filter(a => a.empId === e.id && a.type === 'RECUP' && a.statut === 'demandee')
-        .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'RECUP') * d.dayH(e), 0);
+        .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'RECUP', a) * d.dayH(e), 0);
       db.insert('soldesReprise', { empId: e.id, cpPris: cp, rttPris: rtt, recupAcquis: Math.max(h.recA, h.recP + recupDemandee), recupPris: h.recP, arreteLe: arrete });
       // Reprise après une absence longue (maternité…), inscrite comme à la saisie par le RH.
       const r = repriseDesAbsences(ds.absences, e.id);

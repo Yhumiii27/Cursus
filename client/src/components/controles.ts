@@ -2,6 +2,7 @@
 // le champ concerné (components/Dialog.tsx, Field `erreur`). Les règles métier restent dans shared/ : ces
 // contrôles ne disent que ce qui manque ou ce qui est mal saisi. Messages en phrases, terminés par un point.
 import { isValidDate } from '../../../shared/dates.ts';
+import { type ChampPlage, controlePlage } from '../../../shared/rules/plage-session.ts';
 import { controleSession } from '../../../shared/rules/sessions.ts';
 import type { ISODate } from '../../../shared/types.ts';
 
@@ -28,25 +29,30 @@ export function erreurEntier(v: string, min: number, vide: string): string | nul
   return Number.isInteger(n) && n >= min ? null : `Nombre entier, au moins ${min}.`;
 }
 
-/** Champs d'une session de formation (dialogs/SessionDialog.tsx). */
-export type ChampSession = 'date' | 'lieu' | 'places';
+/** Champs d'une session de formation (dialogs/SessionDialog.tsx) ; `fin`, `jours`, `horaires` : plage (plage-session.ts). */
+export type ChampSession = 'date' | 'lieu' | 'places' | ChampPlage;
 
 /**
  * Erreurs d'une session de formation, une sous chaque champ, tous les champs à la fois : ce qui manque ou est mal
- * saisi, sinon la règle du contrôle partagé avec le serveur (date passée, places en nombre inférieur aux inscrits),
- * qui s'arrête à sa première erreur. `vides` : champs laissés vides, signalés à l'envoi seulement ; une saisie
- * incorrecte l'est dès la saisie, comme dans les autres dialogues.
+ * saisi, puis le contrôle partagé avec le serveur (`controleSession`) sous le champ qu'il concerne. Le dernier jour, les
+ * jours et les horaires (session sur plusieurs jours) sont contrôlés par `controlePlage`, comme sur le serveur.
  */
-export function erreursSession(today: ISODate, v: { date: string; lieu: string; places: string }, opts: { dateActuelle?: ISODate; inscrits?: number } = {}) {
+export function erreursSession(
+  today: ISODate, v: { date: string; lieu: string; places: string; fin?: string; jours?: ISODate[]; horaires?: unknown[] }, opts: { dateActuelle?: ISODate; inscrits?: number } = {},
+) {
   const champs: Record<ChampSession, string | null> = {
     date: erreurDate(v.date, 'Indiquez la date de la session.'),
     lieu: erreurTexte(v.lieu, 'Indiquez le lieu.'),
     places: erreurEntier(v.places, 1, 'Indiquez le nombre de places.'),
+    fin: null, jours: null, horaires: null,
   };
+  const plage = isValidDate(v.date) ? controlePlage(v.date, v) : null;
+  if (plage && 'champ' in plage) champs[plage.champ] = `${plage.message}.`;
   const err = controleSession(today, v, opts);
-  const champ: ChampSession | null = !err ? null : /date/i.test(err) ? 'date' : /^Lieu/.test(err) ? 'lieu' : 'places';
+  const champ: ChampSession | null = !err || (plage && 'champ' in plage && plage.message === err) ? null
+    : /date/i.test(err) ? 'date' : /^Lieu/.test(err) ? 'lieu' : 'places';
   if (err && champ && !champs[champ]) champs[champ] = `${err}.`;
-  const vides: Record<ChampSession, boolean> = { date: !v.date, lieu: !v.lieu.trim(), places: !v.places.trim() };
+  const vides: Record<ChampSession, boolean> = { date: !v.date, lieu: !v.lieu.trim(), places: !v.places.trim(), fin: false, jours: false, horaires: false };
   return { champs, vides, bloque: !!err || Object.values(champs).some(Boolean) };
 }
 

@@ -5,6 +5,7 @@
 import { useCallback, useEffect, useState } from 'react';
 import { CONTACTS_VIDES, controleContact, type ContactsConfidentialite } from '../../../../shared/confidentialite.ts';
 import { api } from '../../api.ts';
+import { oublierEnteteEmployeur } from '../../print.ts';
 import { Field } from '../../components/Dialog.tsx';
 import { Btn, Fine, Panel } from '../../components/ui.tsx';
 import { useRole } from '../../state/derived.ts';
@@ -32,7 +33,10 @@ export function Rgpd(_: SectionProps) {
     setBusy(true);
     const r = await run('confidentialite.regler', { responsable: f.responsable, dpo: f.dpo });
     setBusy(false);
-    if (r.ok) await charger();
+    if (!r.ok) return;
+    // Le responsable du traitement sert d'en-tête aux documents imprimés : relu à la prochaine impression.
+    oublierEnteteEmployeur();
+    await charger();
   };
 
   return (

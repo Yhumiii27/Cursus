@@ -51,6 +51,13 @@ export const jourDeLAnnee = (v: unknown): string => {
   throw new ReglageInvalide('Date invalide : un jour et un mois qui existent chaque année');
 };
 
+/** Date « AAAA-MM-JJ », ou vide (null). */
+export const dateOuVide = (libelle: string) => (v: unknown): string | null => {
+  if (v === null || v === '') return null;
+  if (typeof v === 'string' && isValidDate(v)) return v;
+  throw new ReglageInvalide(`${libelle} : date invalide`);
+};
+
 /**
  * Texte court sur une ligne (référence d'un accord…), espaces réduits ; au-delà de `max` caractères, refus. Transmis à
  * toute personne connectée : jamais de donnée personnelle. Le journal n'en garde que le fait qu'il soit renseigné
@@ -83,12 +90,17 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   // — Congés et clôtures (parametres/Conges.tsx) : aucune perte d'office, le RH décide ligne par ligne —
   politiqueReportCp: { defaut: 'cas_par_cas', controle: choix(['cas_par_cas', 'proposer_report']) },
   rttAnneeSuivanteDes: { defaut: '', controle: choix<string>(RTT_ANNEE_SUIVANTE_DES) },
+  // Acquisition pendant un arrêt maladie : minimum légal de la loi 2024-364 tant qu'un accord ou la CCN plus favorable
+  // n'est pas confirmé (shared/rules/acquisition-cp.ts).
+  cpMaladie: { defaut: 'legal', controle: choix(['legal', 'assimile']) },
   // — Paie (parametres/ReglagesPaie.tsx, shared/rules/paie.ts) : heures supplémentaires payées par défaut ; repos seulement
   // avec la référence de l'accord (COHERENCE) ; semaine à cheval sur le mois de son dimanche ; clôture le dernier jour (0) —
   heuresSupMode: { defaut: 'paiement', controle: choix(['paiement', 'repos']) },
   heuresSupAccord: { defaut: '', controle: texte(120, 'Référence de l’accord') },
   periodeRattachement: { defaut: 'dimanche', controle: choix(['dimanche', 'vendredi', 'jour']) },
   clotureJour: { defaut: 0, controle: entier(0, 28) },
+  // Heures du dimanche : aucune majoration légale (hors accord ou dérogation qui la prévoit) ; quantité HDIM toujours émise.
+  majorationDimanche: { defaut: 0, controle: entier(0, 100, 5) },
   // — Suivi des feuilles de temps (parametres/FeuillesTemps.tsx, shared/rules/suivi-feuilles.ts) : 5 semaines affichées ;
   //   feuille attendue le lundi suivant à 12 h —
   suiviSemaines: { defaut: 5, controle: entier(2, 12) },
@@ -110,6 +122,36 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   relancesActives: { defaut: true, controle: booleen },
   relancesPaliers: { defaut: [90, 30, 7], controle: paliersRelance },
   relancesJour: { defaut: 'quotidien', controle: choix(JOURS_RELANCE) },
+  // — Santé (parametres/Sante.tsx, shared/rules/suivi-medical.ts) : 24 mois pour tous par défaut, le plus prudent, dans les
+  //   maximums légaux : VIP 5 ans (art. R4624-16), VIP adaptée 3 ans (art. R4624-17), SIR visite intermédiaire 2 ans et
+  //   examen d'aptitude 4 ans (art. R4624-28) —
+  santeVipMois: { defaut: 24, controle: entier(12, 60) },
+  santeVipAdapteeMois: { defaut: 24, controle: entier(12, 36) },
+  santeSirIntermediaireMois: { defaut: 24, controle: entier(12, 24) },
+  santeSirAptitudeMois: { defaut: 48, controle: entier(12, 48) },
+  // Visite de mi-carrière (shared/rules/visites-dues.ts) : l'année des 45 ans à défaut d'accord de branche (art. L4624-2-2).
+  santeMiCarriereAge: { defaut: 45, controle: entier(40, 55) },
+  // — Formations (parametres/Formations.tsx, shared/rules/formations-temps.ts) : heures des sessions proposées dans la
+  //   feuille de temps des inscrits (ligne interne INT-FORM), par défaut —
+  formationsTemps: { defaut: true, controle: booleen },
+  // — Décompte des heures (parametres/DecompteHeures.tsx, shared/rules/majorations.ts et durees.ts) : saisie un jour férié
+  //   permise et tracée, fériés autres que le 1er mai sans majoration (le 1er mai : 100 %, fixé par la loi) ; heures
+  //   complémentaires au dixième (le tiers avec un accord) ; moyenne de 44 h sur 12 semaines (46 h avec un accord) ;
+  //   contingent de 220 h (supplétif, art. D3121-24), alerte à 90 % —
+  feriesTravaillesAutorises: { defaut: true, controle: booleen },
+  tauxMajorationFerie: { defaut: 0, controle: entier(0, 100, 5) },
+  plafondHeuresComplementaires: { defaut: 'dixieme', controle: choix(['dixieme', 'tiers']) },
+  heuresComplementairesAccord: { defaut: '', controle: texte(120, 'Référence de l’accord') },
+  moyenne12SemainesMax: { defaut: 44, controle: entier(44, 46) },
+  moyenne12SemainesAccord: { defaut: '', controle: texte(120, 'Référence de l’accord') },
+  contingentHeuresSup: { defaut: 220, controle: entier(0, 1000) },
+  contingentAlerte: { defaut: 90, controle: entier(50, 100, 5) },
+  contingentAccord: { defaut: '', controle: texte(120, 'Référence de l’accord ou de la convention') },
+  // — Absences dans le fichier de paie (parametres/AbsencesPaie.tsx, shared/rules/absences-paie.ts) : activé par défaut
+  //   (réponse de l'entreprise du 17 octobre 2026) ; les rubriques d'absence restent à confirmer avant tout lot réel —
+  absencesFichierPaie: { defaut: true, controle: booleen },
+  //   Date de mise en service : jours d'absence d'avant jamais transmis (traités par Lucca et Sage), vide par défaut —
+  absencesPaieAPartirDu: { defaut: null, controle: dateOuVide('Absences transmises à partir du') },
 };
 
 /**
@@ -125,6 +167,14 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
   s => (s.campagneDebut > s.campagneFin ? 'Campagne d’entretiens : l’ouverture doit précéder la clôture, dans la même année' : null),
   // — Contrats : la relance d'un titre de séjour vient après la première alerte —
   s => (s.titreSejourRelance >= s.titreSejourAlerte ? 'Titres de séjour : la relance doit être plus proche de l’expiration que la première alerte' : null),
+  // — Santé : la visite intermédiaire du suivi renforcé vient avant le renouvellement de l'examen d'aptitude —
+  s => (s.santeSirIntermediaireMois > s.santeSirAptitudeMois ? 'Suivi individuel renforcé : la visite intermédiaire ne peut pas venir après l’examen d’aptitude' : null),
+  // — Décompte des heures : le tiers pour les heures complémentaires (art. L3123-20) et une moyenne de 46 h sur 12 semaines
+  // (art. L3121-23) supposent un accord collectif —
+  s => (s.plafondHeuresComplementaires === 'tiers' && !s.heuresComplementairesAccord
+    ? 'Heures complémentaires jusqu’au tiers de la durée contractuelle : indiquez la référence de l’accord collectif qui le prévoit (art. L3123-20)' : null),
+  s => (s.moyenne12SemainesMax > 44 && !s.moyenne12SemainesAccord
+    ? 'Moyenne au-delà de 44 h sur 12 semaines : indiquez la référence de l’accord collectif qui la porte jusqu’à 46 h (art. L3121-23)' : null),
 ];
 
 /** Vue non typée de la table, pour la parcourir (les contrôles reçoivent la valeur en vigueur du même champ). */

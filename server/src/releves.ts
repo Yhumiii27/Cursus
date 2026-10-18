@@ -35,7 +35,7 @@ function texteReleve(r: Releve, precedent: Pick<ReleveInterim, 'creation' | 'enA
   const remplace = precedent?.enAttente && !r.enAttente.length;
   const leur = r.enAttente.length > 1 ? 'leur' : 'sa';
   return [
-    `Veuillez trouver ci-joint le relevé des heures validées de vos intérimaires pour la semaine ${isoWeek(r.semaine)} (${periodeLongue(r.semaine, addD(r.semaine, 4))}) :`,
+    `Veuillez trouver ci-joint le relevé des heures validées de vos intérimaires pour la semaine ${isoWeek(r.semaine)} (${periodeLongue(r.semaine, addD(r.semaine, 6))}) :`,
     '',
     ...r.lignes.map(l => `• ${l.nom} (${l.poste}) : ${heuresTexte(l.total)} h, dont ${heuresTexte(l.normal)} h normales`
       + `${l.maj10 + l.maj25 + l.maj50 > 0 ? `, ${heuresTexte(l.maj10 + l.maj25 + l.maj50)} h majorées` : ''}${l.absences ? ` · ${plural(l.absences, 'jour d’absence', 'jours d’absence')}` : ''}`),

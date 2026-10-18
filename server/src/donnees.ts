@@ -26,6 +26,8 @@ const TITRES: Partial<Record<TableName, string>> = {
   feuilles: 'Feuilles de temps', absences: 'Absences et congés', cet: 'Compte épargne-temps', reports: 'Reports de congés payés',
   soldesReprise: 'Compteurs repris de l’ancien outil', entretiens: 'Entretiens professionnels', demandesCollab: 'Demandes et déclarations',
   comptes: 'Compte de connexion', verdictsKeystone: 'Verdicts Go / No Go transmis à Keystone', clotures: 'Clôtures des périodes de congés',
+  mandats: 'Mandats au CSE', informationsCp: 'Informations sur les congés au retour d’un arrêt',
+  soldesSortie: 'Solde des compteurs à la sortie',
 };
 /** Colonnes jamais exportées : empreinte du mot de passe (secret). */
 const RETIREES: Partial<Record<TableName, string[]>> = { comptes: ['motDePasse'] };

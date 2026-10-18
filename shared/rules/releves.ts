@@ -12,12 +12,12 @@ import { calcSheet, joursAbsence } from './temps.ts';
 
 export interface LigneReleve {
   empId: number; nom: string; poste: string;
-  /** Heures du lundi au vendredi. */
+  /** Heures du lundi au dimanche (semaine à 7 jours). */
   jours: number[];
   total: number; normal: number;
   /** Heures majorées : complémentaires à 10 % (temps partiel), à 25 % (supplémentaires ou complémentaires), supplémentaires à 50 %. */
   maj10: number; maj25: number; maj50: number;
-  /** Jours d'absence de la semaine (congés, absence signalée ou qualifiée), sans leur nature. */
+  /** Jours d'absence de la semaine, du lundi au vendredi (congés, absence signalée ou qualifiée), sans leur nature. */
   absences: number;
 }
 
@@ -47,7 +47,7 @@ export function releveAgence(d: Domain, agence: string, semaine: ISODate): Relev
     const c = calcSheet(d, e, sh);
     lignes.push({
       empId: e.id, nom: e.nom, poste: e.poste, jours: c.perDay.map(h2), total: h2(c.total), normal: h2(c.normal),
-      maj10: h2(c.hc10), maj25: h2(c.sup25 + c.hc25), maj50: h2(c.sup50), absences: joursAbsence(d, e.id, semaine).filter(Boolean).length,
+      maj10: h2(c.hc10), maj25: h2(c.sup25 + c.hc25), maj50: h2(c.sup50), absences: joursAbsence(d, e.id, semaine).slice(0, 5).filter(Boolean).length,
     });
   }
   return { agence, semaine, lignes, enAttente, heures: h2(lignes.reduce((n, l) => n + l.total, 0)) };
@@ -77,10 +77,11 @@ export const heuresTexte = (n: number) => String(h2(n)).replace('.', ',');
 
 /** Relevé au format CSV (une ligne par intérimaire dont la feuille est validée) : nom du fichier, en-tête, lignes. */
 export function releveCsv(r: Releve) {
-  const head = ['Agence', 'Semaine', 'Du', 'Au', 'Intérimaire', 'Poste', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Total (h)',
+  const head = ['Agence', 'Semaine', 'Du', 'Au', 'Intérimaire', 'Poste', 'Lundi', 'Mardi', 'Mercredi', 'Jeudi', 'Vendredi', 'Samedi', 'Dimanche', 'Total (h)',
     'Heures normales', 'Majorées 10 %', 'Majorées 25 %', 'Majorées 50 %', 'Jours d’absence'];
   const semaine = `${r.semaine.slice(0, 4)}-S${String(isoWeek(r.semaine)).padStart(2, '0')}`;
-  const rows = r.lignes.map(l => [r.agence, semaine, r.semaine, addD(r.semaine, 4), l.nom, l.poste, ...l.jours.map(heuresTexte), heuresTexte(l.total),
+  const rows = r.lignes.map(l => [r.agence, semaine, r.semaine, addD(r.semaine, 6), l.nom, l.poste, ...l.jours.map(heuresTexte), heuresTexte(l.total),
+
     heuresTexte(l.normal), heuresTexte(l.maj10), heuresTexte(l.maj25), heuresTexte(l.maj50), String(l.absences)]);
   return { fichier: `releve-heures-${key(r.agence).replace(/ /g, '-') || 'agence'}-${r.semaine}.csv`, head, rows };
 }

@@ -168,7 +168,7 @@ test('titre de séjour : contrôles, alertes réglables, non conforme et No Go C
   assert.deepEqual([m.level, m.minimal, m.detailed, m.transmis], ['nogo', SITUATION_A_REGULARISER, 'Autorisation de travail expirée le 1 oct. 2026', SITUATION_A_REGULARISER]);
   // Keystone : code CONTRAT, et en partage détaillé le seul libellé générique, jamais le titre de séjour.
   const ch = d.evaluateChantiers(d.enrich(90, false), d.tripsAll()).find(x => x.c.id === 'K-TS')!;
-  const detail = JSON.stringify([d.verdictKeystone(ch, true), d.keystonePayload(ch, true)]);
+  const detail = JSON.stringify([d.verdictKeystone(ch, true, '2026-10-10T05:00:00.000Z'), d.keystonePayload(ch, true, '2026-10-10T05:00:00.000Z')]);
   assert.ok(detail.includes(SITUATION_A_REGULARISER) && !/séjour|autorisation de travail|AB1234567/i.test(detail), detail);
   const envoi = db.all<{ type: string; contenu: Record<string, any> }>('envois').filter(e => e.type === 'verdict.modifie').at(-1)!.contenu;
   assert.deepEqual(envoi.ressource.motifs, [{ code: 'CONTRAT', niveau: 'NO_GO' }]);

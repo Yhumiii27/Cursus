@@ -18,6 +18,7 @@ import {
 import { key } from '../../../shared/format.ts';
 import type { Destination, Equipe, Formation, HabTitre, HabType, Poste } from '../../../shared/types.ts';
 import { DESTS, FORMATIONS, HABILITATIONS } from '../seed.ts';
+import { enregistrerNuitEquipe } from './mineurs.ts';
 import { ActionError, getEmp, isRh, type ActionHandler, type ActionOutput, type Ctx, requireFormations, requireRh, str } from './context.ts';
 
 /** Élément visé par une modification ou un archivage (`id` : son code), introuvable : 404. */
@@ -263,7 +264,7 @@ const archiverPoste: ActionHandler = (ctx, p) => {
   return `Poste « ${x.nom} » archivé — plus proposé sur les fiches`;
 };
 
-/** Exigences communes à tous les membres d'une équipe, quel que soit leur poste. */
+/** Exigences communes à tous les membres d'une équipe, quel que soit leur poste ; case « travail de nuit ou en continu » (`nuit`). */
 const exigencesEquipeAction: ActionHandler = (ctx, p) => {
   requireRh(ctx);
   const q = ctx.ds.referentiels.equipes.find(x => x.nom === p.nom);
@@ -273,7 +274,9 @@ const exigencesEquipeAction: ActionHandler = (ctx, p) => {
   const valeur = exigences.formations.length || exigences.habilitations.length ? exigences : null;
   const effet = effetExigences(ctx.ds, { equipes: ctx.ds.referentiels.equipes.map(x => (x.nom === q.nom ? { ...x, exigences: valeur } : x)) });
   ctx.db.update<Equipe>('equipes', q.nom, { exigences: valeur });
-  return exigencesModifiees(`Exigences communes de l’équipe ${q.nom} enregistrées`, effet);
+  // Case « travail de nuit ou en continu » (salariés mineurs exclus) : ./mineurs.ts.
+  const nuit = enregistrerNuitEquipe(ctx, q, p.nuit);
+  return exigencesModifiees(`Exigences communes de l’équipe ${q.nom} enregistrées${nuit}`, effet);
 };
 
 /**

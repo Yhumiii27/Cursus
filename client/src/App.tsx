@@ -1,43 +1,56 @@
 // Aiguillage des écrans selon la vue courante et l'espace (RH, manager, collaborateur).
 // Une erreur de rendu de la page n'emporte ni la barre latérale ni le dialogue ouvert (ErreurRendu).
-import type { ReactElement } from 'react';
-import { ErreurPage, ErreurRendu } from './components/ErreurRendu.tsx';
-import { DialogHost } from './dialogs/DialogHost.tsx';
+// Chaque page, et l'ensemble des dialogues, est un fichier à part chargé à la demande (React.lazy) : le premier
+// affichage ne télécharge que la coque, la connexion et la page ouverte ; les dialogues sont préchargés dès que les
+// données arrivent, pour qu'un premier dialogue s'ouvre sans attente. Un fichier introuvable (version remplacée
+// pendant que l'onglet était ouvert) tombe dans ErreurRendu, qui propose de recharger la page.
+import { type ComponentType, lazy, Suspense, useEffect } from 'react';
+import { ErreurDialogue, ErreurPage, ErreurRendu } from './components/ErreurRendu.tsx';
 import { Shell } from './layout/Shell.tsx';
-import { Absences } from './pages/Absences.tsx';
-import { Budget } from './pages/Budget.tsx';
-import { Chantiers } from './pages/Chantiers.tsx';
-import { Collaborateurs } from './pages/Collaborateurs.tsx';
-import { Confidentialite } from './pages/Confidentialite.tsx';
-import { Dashboard } from './pages/Dashboard.tsx';
-import { Echeances } from './pages/Echeances.tsx';
-import { Entretiens } from './pages/Entretiens.tsx';
-import { Equipes } from './pages/Equipes.tsx';
-import { Formations } from './pages/Formations.tsx';
-import { Habilitations } from './pages/Habilitations.tsx';
 import { Login } from './pages/Login.tsx';
-import { MiseEnService } from './pages/MiseEnService.tsx';
-import { Missions } from './pages/Missions.tsx';
 import { MotDePasse } from './pages/MotDePasse.tsx';
-import { Parametres } from './pages/Parametres.tsx';
-import { Portail } from './pages/Portail.tsx';
-import { Referentiels } from './pages/Referentiels.tsx';
-import { Temps } from './pages/Temps.tsx';
-import { Voyages } from './pages/Voyages.tsx';
 import { useStore, type View } from './state/store.tsx';
 
-const PAGES: Record<View, () => ReactElement> = {
-  dashboard: Dashboard, collaborateurs: Collaborateurs, equipes: Equipes, formations: Formations, habilitations: Habilitations, voyages: Voyages,
-  chantiers: Chantiers, echeances: Echeances, budget: Budget, temps: Temps, absences: Absences, entretiens: Entretiens,
-  missions: Missions, parametres: Parametres, portail: Portail, referentiels: Referentiels, miseEnService: MiseEnService,
+/** Composant exporté par son nom (`export function Temps`), chargé à la première utilisation. */
+function aLaDemande<M>(charger: () => Promise<M>, nom: keyof M): ComponentType {
+  return lazy(() => charger().then(m => ({ default: m[nom] as ComponentType })));
+}
+
+const PAGES: Record<View, ComponentType> = {
+  dashboard: aLaDemande(() => import('./pages/Dashboard.tsx'), 'Dashboard'),
+  collaborateurs: aLaDemande(() => import('./pages/Collaborateurs.tsx'), 'Collaborateurs'),
+  equipes: aLaDemande(() => import('./pages/Equipes.tsx'), 'Equipes'),
+  formations: aLaDemande(() => import('./pages/Formations.tsx'), 'Formations'),
+  habilitations: aLaDemande(() => import('./pages/Habilitations.tsx'), 'Habilitations'),
+  voyages: aLaDemande(() => import('./pages/Voyages.tsx'), 'Voyages'),
+  chantiers: aLaDemande(() => import('./pages/Chantiers.tsx'), 'Chantiers'),
+  echeances: aLaDemande(() => import('./pages/Echeances.tsx'), 'Echeances'),
+  budget: aLaDemande(() => import('./pages/Budget.tsx'), 'Budget'),
+  temps: aLaDemande(() => import('./pages/Temps.tsx'), 'Temps'),
+  absences: aLaDemande(() => import('./pages/Absences.tsx'), 'Absences'),
+  entretiens: aLaDemande(() => import('./pages/Entretiens.tsx'), 'Entretiens'),
+  missions: aLaDemande(() => import('./pages/Missions.tsx'), 'Missions'),
+  parametres: aLaDemande(() => import('./pages/Parametres.tsx'), 'Parametres'),
+  portail: aLaDemande(() => import('./pages/Portail.tsx'), 'Portail'),
+  referentiels: aLaDemande(() => import('./pages/Referentiels.tsx'), 'Referentiels'),
+  miseEnService: aLaDemande(() => import('./pages/MiseEnService.tsx'), 'MiseEnService'),
   // Vue commune à tous les espaces, ouverte aussi sans connexion (depuis l'écran de connexion).
-  confidentialite: Confidentialite,
+  confidentialite: aLaDemande(() => import('./pages/Confidentialite.tsx'), 'Confidentialite'),
+  aide: aLaDemande(() => import('./pages/Aide.tsx'), 'Aide'),
 };
 
+/** Tous les dialogues (dialogs/DialogHost.tsx et ce qu'il importe) : un seul fichier, préchargé avec les données. */
+const chargerDialogues = () => import('./dialogs/DialogHost.tsx');
+const DialogHost = aLaDemande(chargerDialogues, 'DialogHost');
+
+const CHARGEMENT = <div className="loading">Chargement…</div>;
+
 export function App() {
-  const { session, data, loading, view, erreurChargement, recharger } = useStore();
+  const { session, data, loading, view, erreurChargement, recharger, dialog } = useStore();
   const role = session?.role;
-  if (loading) return <Shell><div className="loading">Chargement…</div></Shell>;
+  const avecDonnees = !!data;
+  useEffect(() => { if (avecDonnees) void chargerDialogues().catch(() => { /* réessayé à l'ouverture d'un dialogue */ }); }, [avecDonnees]);
+  if (loading) return <Shell>{CHARGEMENT}</Shell>;
   if (erreurChargement) {
     return (
       <Shell>
@@ -52,16 +65,30 @@ export function App() {
   }
   // Mot de passe provisoire : à remplacer avant tout accès aux données.
   if (session?.compte?.changerMotDePasse && !session.user) return <Shell><MotDePasse /></Shell>;
-  if (!session?.user) return <Shell>{view === 'confidentialite' ? <Confidentialite /> : <Login />}</Shell>;
+  if (!session?.user) {
+    // Vues communes (Confidentialité, Aide) : lisibles avant la connexion.
+    const Commune = view === 'confidentialite' || view === 'aide' ? PAGES[view] : null;
+    return <Shell>{Commune ? <Suspense fallback={CHARGEMENT}><Commune /></Suspense> : <Login />}</Shell>;
+  }
   if (!data) return <Shell><div className="loading">Chargement des données…</div></Shell>;
   const PageComponent = PAGES[view];
   // Session expirée : la reconnexion se pose par-dessus (Shell), la page et le dialogue restent montés.
   return (
     <Shell>
       <ErreurRendu cle={`${role}/${view}`} repli={(erreur, reessayer) => <ErreurPage erreur={erreur} reessayer={reessayer} />}>
-        <PageComponent key={view} />
+        <Suspense fallback={CHARGEMENT}>
+          <PageComponent key={view} />
+        </Suspense>
       </ErreurRendu>
-      <DialogHost />
+      {/* Monté avec un dialogue ouvert seulement. Fichier des dialogues pas encore arrivé : rien à la place (il l'est
+          d'ordinaire avant le premier clic) ; introuvable : message à la place du dialogue, effacé à sa fermeture. */}
+      {dialog && (
+        <ErreurRendu cle={dialog} repli={(erreur, reessayer) => <ErreurDialogue erreur={erreur} reessayer={reessayer} />}>
+          <Suspense fallback={null}>
+            <DialogHost />
+          </Suspense>
+        </ErreurRendu>
+      )}
     </Shell>
   );
 }

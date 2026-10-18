@@ -14,12 +14,13 @@ import { VUES_COMMUNES, vuesDe, type ALLOWED_VIEWS, type HabMesureAction } from 
 import { mondayOf } from '../../../shared/dates.ts';
 import type { FormaliteKind, UiIntent } from '../../../shared/domain.ts';
 import type { ReferentielId } from '../../../shared/rules/referentiels.ts';
-import type { CompteSession, Dataset, EntretienType, ISODate, PlanStatut, ProfilRh, Role, VaccinId } from '../../../shared/types.ts';
+import type { CompteSession, Dataset, EntretienType, ISODate, MotifVisite, PlanStatut, ProfilRh, Role, VaccinId } from '../../../shared/types.ts';
 import { api, lienMicrosoft, surSessionExpiree, type ActionResponse, type ApiError, type SessionState } from '../api.ts';
 import { AppelsEnCours, cleAction } from './actions.ts';
 import type { Confirmation } from './confirmations.ts';
 import { demandeHabilitation } from './confirmations-referentiels.ts';
 import { effacerBrouillon, lireBrouillon, sauverBrouillon, type Champs } from './brouillon.ts';
+import { instantanePerime } from './revision.ts';
 
 export type View = (typeof ALLOWED_VIEWS)[Role][number] | (typeof VUES_COMMUNES)[number];
 
@@ -42,8 +43,8 @@ export interface UiState {
   weekStart: ISODate | null;
   tsEmp: number | null;
   /** Onglet de l'écran Référentiels. */
-  refOnglet: ReferentielId | 'postes';
-  /** Saisie des heures jour par jour (téléphone, tablette) : jour affiché, du lundi (0) au vendredi (4) ; null : le jour courant. */
+  refOnglet: ReferentielId | 'postes' | 'activites';
+  /** Saisie des heures jour par jour (téléphone, tablette) : jour affiché, du lundi (0) au dimanche (6) ; null : le jour courant. */
   tsJour: number | null;
 }
 
@@ -57,7 +58,8 @@ const INITIAL_UI: UiState = {
 /** Dialogues ouverts depuis plusieurs écrans — rendus par <DialogHost />. */
 export type DialogState =
   | { type: 'plan'; empId: number; certId?: number; inscriptionId?: number }
-  | { type: 'cert'; empId: number }
+  /** `certId` : correction d'une certification saisie par erreur (`cert.modifier`). */
+  | { type: 'cert'; empId: number; certId?: number }
   | { type: 'session'; f?: string; planId?: number; places?: number; sessionId?: number }
   | { type: 'sessionDetail'; sessionId: number }
   | { type: 'cloture'; sessionId: number }
@@ -67,8 +69,9 @@ export type DialogState =
   | { type: 'fo'; empId?: number | null; kind?: FormaliteKind; dest?: string; v?: VaccinId }
   | { type: 'detachement'; id: number }
   | { type: 'tripModifier'; id: number }
-  | { type: 'visite'; empId: number }
+  | { type: 'visite'; empId: number; motif?: MotifVisite }
   | { type: 'avis'; empId: number }
+  | { type: 'suivi'; empId: number }
   | { type: 'reqForm'; f?: string; sessionId?: number | null; empId?: number | null }
   | { type: 'reqHab'; empId?: number | null }
   | { type: 'employe'; empId?: number | null; equipe?: string | null }
@@ -89,6 +92,8 @@ export type DialogState =
   | { type: 'ent'; entId: number }
   | { type: 'entRemise'; entId: number }
   | { type: 'planRealiser'; id: number }
+  /** Correction d'une ligne du plan de formation saisie par erreur (`plan.modifier`). */
+  | { type: 'planLigne'; id: number }
   | { type: 'exerciceCloture'; exercice: number }
   | { type: 'tripImport' }
   | { type: 'planImport'; exercice: number }
@@ -103,11 +108,16 @@ export type DialogState =
   /** Onglet Postes : poste (création sans identifiant) et exigences communes d'une équipe (shared/rules/exigences.ts). */
   | { type: 'refPoste'; id?: number | null }
   | { type: 'refEquipe'; nom: string }
+  /** Onglet Activités internes (création sans code, renommage) ; mandat au CSE d'un salarié (fiche, service RH). */
+  | { type: 'refActivite'; code?: string | null }
+  | { type: 'mandat'; empId: number; id?: number | null }
   /** Correspondance d'une rubrique de paie avec le plan de paie Sage (écran Temps, components/RubriquesPaie.tsx). */
   | { type: 'rubrique'; code: string }
   /** Lots de paie (écran Temps, components/LotsPaie.tsx) : confirmation de l'import dans Sage, format du fichier d'import. */
   | { type: 'lotImport'; id: number }
   | { type: 'formatFichier' }
+  /** Réouverture d'une feuille validée (administrateur RH, t131). */
+  | { type: 'rouvrirFeuille'; empId: number; week: ISODate }
   /** Refus ou action irréversible à confirmer (state/confirmations.ts). */
   | { type: 'confirmer'; c: Confirmation };
 
@@ -297,8 +307,12 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     }
   }, [reinitialiser, setSession, setData, notify]);
 
-  /** Instantané renvoyé par le serveur ; s'il est d'un autre espace, l'onglet suit la session. */
+  /**
+   * Instantané renvoyé par le serveur ; s'il est d'un autre espace, l'onglet suit la session. Plus ancien que celui
+   * affiché (réponse d'une action traitée avant une autre, arrivée après elle) : ignoré (state/revision.ts).
+   */
   const recevoir = useCallback((d: Dataset) => {
+    if (instantanePerime(d, dataRef.current)) return;
     const s = sessionRef.current;
     if (!s || d.user.role === s.role) { setData(d); return; }
     suivre();
@@ -450,7 +464,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
       case 'openPlan': setDialog({ type: 'plan', empId: intent.empId, certId: intent.certId }); break;
       case 'goFormation': go('formations', { formationFilter: intent.f }); break;
       // Demande de visite : motif choisi, puis demande imprimable pour le service de santé au travail.
-      case 'medical': setDialog({ type: 'visite', empId: intent.empId }); break;
+      case 'medical': setDialog({ type: 'visite', empId: intent.empId, motif: intent.motif }); break;
       case 'openFormalite': setDialog({ type: 'fo', empId: intent.empId, kind: intent.kind, dest: intent.dest, v: intent.v }); break;
       case 'openCloture': setDialog({ type: 'cloture', sessionId: intent.sessionId }); break;
       // Habilitation exigée jamais délivrée : titre demandé, « en attente » de délivrance, qui ne se retire pas (confirmé).

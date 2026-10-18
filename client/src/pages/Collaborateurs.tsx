@@ -6,6 +6,7 @@ import type { ContratX, EmpX, HabInfo, Proposal } from '../../../shared/domain.t
 import type { Formation } from '../../../shared/types.ts';
 import { days, parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, fmtIso, fmtShort, matricule, norm, plural, rel } from '../../../shared/format.ts';
+import { sessionDu } from '../../../shared/rules/plage-session.ts';
 import { absenceKinds } from '../../../shared/rules/conges.ts';
 import { habSuivie } from '../../../shared/rules/referentiels.ts';
 import { MOTIFS_SORTIE, sorti } from '../../../shared/rules/contrats.ts';
@@ -18,7 +19,10 @@ import { Aptitude } from '../components/Aptitude.tsx';
 import { ExigencesCellule, ExigencesFiche, ExigencesMotif } from '../components/Exigences.tsx';
 import { SortieFiche } from '../components/Sortie.tsx';
 import { ContratFiche } from '../components/ContratFiche.tsx';
-import { downloadCsv, printDocument } from '../print.ts';
+import { MineurFiche } from '../components/Mineur.tsx';
+import { MandatsFiche } from '../components/Delegation.tsx';
+import { ActionsCertification, CertsAnnulees, DemandesFiche } from '../components/Corrections.tsx';
+import { downloadCsv, matriculesImprimes, printDocument } from '../print.ts';
 import { csvAnnuaire } from '../listes-csv.ts';
 import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derived.ts';
 import { desinscription, retraitEquipe } from '../state/confirmations.ts';
@@ -285,7 +289,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
       ...(e.anciennes.length ? [{ title: 'Certifications remplacées', table: { head: ['Formation', 'Obtenue le', 'Expirait le', 'Remplacée le'], rows: e.anciennes.map(c => [c.fm.nom, fmt(c.obt), fmt(c.exp), fmt(c.remplacee!)]) } }] : []),
       // Le motif d'une suspension ou d'un retrait n'est pas imprimé : seuls l'état et sa date figurent au passeport.
       ...(e.habs.length ? [{ title: 'Habilitations', table: { head: ['Habilitation', 'Délivrée le', 'Par', 'Expire le', 'Statut'], rows: e.habs.map(h => [h.hm.nom, h.delivree ? fmt(parse(h.delivree)) : '—', h.par ?? '—', h.exp ? fmt(h.exp) : '—', HAB_LABEL[h.key] + (h.mesureLe ? ` le ${fmt(h.mesureLe)}` : '')]) } }] : []),
-    ], e.id);
+    ], e.id, matriculesImprimes(e));
     if (!ok) notify('Autorisez les fenêtres surgissantes pour imprimer le passeport formation', true);
   };
 
@@ -314,6 +318,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
         <Aptitude e={e} d={d} horizon={horizon} actions={rh && !parti ? <>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'visite', empId: e.id })}>{e.med.demande ? 'Demande de visite' : 'Demander une visite'}</button>
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'avis', empId: e.id })}>Avis du médecin du travail</button>
+          <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'suivi', empId: e.id })}>Type de suivi</button>
         </> : undefined} />
       </div>
 
@@ -330,18 +335,18 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
               <Bar variant="thin" pct={c.pct} color={c.key === 'ok' ? 'var(--color-accent-600)' : 'var(--color-accent-300)'} />
               {c.session && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
-                  <NoteAccent icon>Session du {fmt(parse(c.session.date))} · {convocation(c.convoc, c.convocLe)}</NoteAccent>
+                  <NoteAccent icon>Session {sessionDu(c.session)} · {convocation(c.convoc, c.convocLe)}</NoteAccent>
                   {canPlan && (
                     <div className="actions-end">
                       <button type="button" className="btn btn-ghost btn-sm" onClick={() => convoquer(c.session!.id)}>{convocationEnvoyee(c) ? 'Renvoyer la convocation' : 'Envoyer la convocation'}</button>
-                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => desinscrire(c.session!.id, `${c.fm.court} du ${fmt(parse(c.session!.date))}`, convocationEnvoyee(c), true)}>Désinscrire</button>
+                      <button type="button" className="btn btn-ghost btn-sm" onClick={() => desinscrire(c.session!.id, `${c.fm.court} ${sessionDu(c.session!)}`, convocationEnvoyee(c), true)}>Désinscrire</button>
                     </div>
                   )}
                 </div>
               )}
               {c.sessionPassee && (
                 <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)' }}>
-                  <NoteAccent>{SESSION_PASSEE} · session du {fmt(parse(c.sessionPassee.date))}</NoteAccent>
+                  <NoteAccent>{SESSION_PASSEE} · session {sessionDu(c.sessionPassee)}</NoteAccent>
                   {formations && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cloture', sessionId: c.sessionPassee!.id })}>Clôturer la session</button>}
                 </div>
               )}
@@ -354,6 +359,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
                     : <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'plan', empId: e.id, certId: c.id })}>Planifier un renouvellement</button>}
                 </div>
               )}
+              <ActionsCertification e={e} c={c} />
             </div>
           );
         })}
@@ -363,7 +369,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
       {/* Formations et habilitations exigées par le poste et l'équipe, obtenues ou manquantes. */}
       <ExigencesFiche e={e} membre={membre} parti={parti} />
 
-      {(anciennes.length > 0 || archivees.length > 0) && <>
+      {(anciennes.length > 0 || archivees.length > 0 || (e.certsAnnulees?.length ?? 0) > 0) && <>
         <SectionLabel>Historique des certifications</SectionLabel>
         <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
           {archivees.map(c => (
@@ -382,10 +388,14 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
                 <div className="sub">Obtenue le {fmt(c.obt)} · remplacée le {fmt(c.remplacee!)}{c.fm.archive ? ' · formation archivée' : ''}</div>
               </div>
               <Tag cls="tag-outline" style={{ flex: 'none' }}>Remplacée</Tag>
+              <ActionsCertification e={e} c={c} />
             </div>
           ))}
         </div>
+        <CertsAnnulees e={e} />
       </>}
+
+      <DemandesFiche e={e} membre={membre} />
 
       {inscriptions.length > 0 && <>
         <SectionLabel>Formations planifiées</SectionLabel>
@@ -398,7 +408,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
                   <div className="text-muted sub">
                     {x.etat === 'a_planifier'
                       ? `${x.motif} · formation initiale à replanifier`
-                      : `Session du ${fmt(parse(s.date))} · ${s.lieu}${fm?.organisme ? ` · ${fm.organisme}` : ''}${s.statut === 'À confirmer' ? ' · à confirmer' : ''}`}
+                      : `Session ${sessionDu(s)} · ${s.lieu}${fm?.organisme ? ` · ${fm.organisme}` : ''}${s.statut === 'À confirmer' ? ' · à confirmer' : ''}`}
                   </div>
                 </div>
                 {x.etat === 'passee' ? <Tag cls="tag-outline" style={{ flex: 'none' }}>Session passée</Tag>
@@ -410,7 +420,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
                   <span className="text-muted sub">{convocation(i.convoc, i.convocLe)}</span>
                   <div className="actions-end">
                     <button type="button" className="btn btn-ghost btn-sm" onClick={() => convoquer(s.id)}>{convocationEnvoyee(i) ? 'Renvoyer la convocation' : 'Envoyer la convocation'}</button>
-                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => desinscrire(s.id, `${fm?.court ?? s.formation} du ${fmt(parse(s.date))}`, convocationEnvoyee(i), false)}>Désinscrire</button>
+                    <button type="button" className="btn btn-ghost btn-sm" onClick={() => desinscrire(s.id, `${fm?.court ?? s.formation} ${sessionDu(s)}`, convocationEnvoyee(i), false)}>Désinscrire</button>
                   </div>
                 </div>
               )}
@@ -499,6 +509,8 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
         )}
         <SortieFiche e={e} />
         <ContratFiche e={e} />
+        <MineurFiche e={e} />
+        <MandatsFiche e={e} />
         <Info label="Manager valideur">{d.mgrName(valideur)}</Info>
         {rh && e.repriseDate && <Info label="Reprise après absence longue">{`${e.repriseMotif ?? 'Motif non renseigné'} · le ${fmtIso(e.repriseDate)}`}</Info>}
       </div>

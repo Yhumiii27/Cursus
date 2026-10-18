@@ -11,14 +11,17 @@ interface TableDef { pk: string; auto?: boolean; cols: Record<string, ColType>; 
 
 export const TABLES = {
   // Référentiels administrés par le service RH (server/src/actions/referentiels.ts) : `archive`, date d'archivage (null :
-  // en vigueur) ; on archive au lieu de supprimer.
+  // en vigueur) ; on archive au lieu de supprimer. `sir` : habilitation ou poste qui place en suivi individuel renforcé.
   formations: { pk: 'id', cols: { id: 'text', nom: 'text', court: 'text', type: 'text', validite: 'int', duree: 'text', organisme: 'text', cout: 'real', validation: 'text', archive: 'text' } },
-  habilitations: { pk: 'id', cols: { id: 'text', nom: 'text', detail: 'text', prereqs: 'json', medical: 'bool', validite: 'int', signataire: 'text', archive: 'text' } },
+  habilitations: { pk: 'id', cols: { id: 'text', nom: 'text', detail: 'text', prereqs: 'json', medical: 'bool', validite: 'int', signataire: 'text', archive: 'text', sir: 'bool' } },
   // `secu` : formalité de sécurité sociale du détachement (null : déduite du code pays, shared/constants.ts).
   destinations: { pk: 'code', cols: { code: 'text', pays: 'text', visa: 'text', visaSub: 'text', oblig: 'json', rec: 'json', passMois: 'int', secu: 'text', archive: 'text' } },
   // Postes et formations ou habilitations exigées (shared/rules/exigences.ts) ; `exigences` d'une équipe : communes à ses membres.
-  postes: { pk: 'id', auto: true, cols: { id: 'int', nom: 'text', formations: 'json', habilitations: 'json', archive: 'text' } },
-  equipes: { pk: 'nom', cols: { nom: 'text', managerId: 'int', ordre: 'int', exigences: 'json' } },
+  // `expose` : poste exposé à des risques particuliers (visite post-exposition à la sortie, shared/rules/visites-dues.ts).
+  postes: { pk: 'id', auto: true, cols: { id: 'int', nom: 'text', formations: 'json', habilitations: 'json', archive: 'text', sir: 'bool', expose: 'bool' } },
+  // `nuit` : travail de nuit ou en continu (salariés mineurs exclus, shared/rules/mineurs.ts) ; JSON pour garder null,
+  // case pas encore renseignée, distincte de « non ».
+  equipes: { pk: 'nom', cols: { nom: 'text', managerId: 'int', ordre: 'int', exigences: 'json', nuit: 'json' } },
   projets: { pk: 'code', cols: { code: 'text', nom: 'text', statut: 'text' } },
   chantiers: { pk: 'id', cols: { id: 'text', nom: 'text', client: 'text', lieu: 'text', pays: 'text', debut: 'text', fin: 'text', chef: 'text', habs: 'json', certs: 'json', ressources: 'json', statut: 'text' } },
   employes: {
@@ -30,6 +33,10 @@ export const TABLES = {
       email: 'text', notifications: 'text', // adresse professionnelle et réglage des notifications (server/src/notifications.ts)
       // Avis du médecin du travail à la dernière visite et restrictions datées (`medical.avis`) : données de santé.
       avis: 'text', restrictions: 'json',
+      // Suivi médical (shared/rules/suivi-medical.ts) : type saisi, prochaine visite fixée par le médecin, dernier examen d'aptitude.
+      suivi: 'text', prochaineVisite: 'text', examenAptitude: 'text',
+      // Salarié exposé à des risques particuliers (`medical.suivi`) : visite post-exposition à la sortie (visites-dues.ts).
+      expose: 'bool',
       // Matricule du dossier de paie (Sage) : unique, contrôlé par le serveur (une réembauche confirmée le réutilise).
       matriculePaie: 'text',
       // Sortie enregistrée par le service RH (`employe.sortie`) : motif, et fin prévue au contrat rétablie si elle est annulée.
@@ -37,16 +44,31 @@ export const TABLES = {
       // Période d'essai écrite au contrat (fin, fin après renouvellement) et titre de séjour valant autorisation de travail
       // ({ type, numero, expire, demandeLe, verifieLe } ; null : non requise), le numéro réservé au service RH (server/src/dataset.ts).
       essaiFin: 'text', essaiRenouveleJusquau: 'text', autorisationTravail: 'json',
+      // Date de naissance complète (âge exact, salariés mineurs : shared/rules/mineurs.ts) ; `naissance` en garde l'année,
+      // seule connue des fiches antérieures. Service RH et intéressé seulement (server/src/dataset.ts).
+      naissanceLe: 'text',
+      // Dérogation pour travaux réglementés d'un salarié mineur : date de la déclaration (shared/rules/mineurs.ts).
+      derogationTravauxLe: 'text',
     },
   },
   // Demandes de visite médicale du service RH, closes par la saisie de la visite (server/src/actions/sante.ts).
   demandesVisite: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', motif: 'text', le: 'text', par: 'text', statut: 'text', closeLe: 'text', closePar: 'text' } },
-  certifications: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', f: 'text', obtenue: 'text', sessionId: 'int', convoc: 'text', convocLe: 'text' } },
+  // `corrige…`, `annule…` : correction et annulation d'une saisie erronée (actions/corrections.ts) ; annulée, hors des calculs.
+  certifications: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', f: 'text', obtenue: 'text', sessionId: 'int', convoc: 'text', convocLe: 'text',
+      corrigeLe: 'text', corrigePar: 'text', corrigeMotif: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+      // Inscriptions en formation initiale closes par la certification, rendues à son annulation (actions/inscriptions-closes.ts).
+      inscriptionsCloses: 'json',
+    },
+  },
   habTitres: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', h: 'text', delivree: 'text', par: 'text', demande: 'text', mesure: 'text', mesureDate: 'text', mesureMotif: 'text', mesurePar: 'text' } },
   visas: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', dest: 'text', type: 'text', obtenu: 'text', expire: 'text' } },
   vaccinations: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', v: 'text', date: 'text' } },
   // Le nombre d'inscrits n'est pas stocké : il est calculé au chargement (server/src/dataset.ts).
-  sessions: { pk: 'id', auto: true, cols: { id: 'int', formation: 'text', date: 'text', lieu: 'text', places: 'int', statut: 'text', planId: 'int', bilan: 'json' } },
+  // `fin`, `jours`, `horaires` : session sur plusieurs jours (shared/rules/plage-session.ts ; migrations/formations.ts).
+  sessions: { pk: 'id', auto: true, cols: { id: 'int', formation: 'text', date: 'text', lieu: 'text', places: 'int', statut: 'text', planId: 'int', bilan: 'json', fin: 'text', jours: 'json', horaires: 'json' } },
   inscriptions: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', sessionId: 'int', convoc: 'text', date: 'text', convocLe: 'text' }, unique: [['empId', 'sessionId']] },
   // `reussi` peut rester indéterminé (null) : stocké en JSON pour garder true / false / null.
   participations: { pk: 'id', auto: true, cols: { id: 'int', sessionId: 'int', empId: 'int', parcours: 'text', present: 'bool', reussi: 'json', certId: 'int' }, unique: [['sessionId', 'empId']] },
@@ -56,6 +78,8 @@ export const TABLES = {
     cols: {
       id: 'int', exercice: 'int', f: 'text', libelle: 'text', equipe: 'text', periode: 'text', effectif: 'int', cout: 'real', statut: 'text', origine: 'text',
       coutReel: 'real', effectifReel: 'int', reportDe: 'int',
+      // Correction et suppression d'une ligne saisie par erreur (actions/corrections.ts) ; supprimée, hors des calculs.
+      corrigeLe: 'text', corrigePar: 'text', corrigeMotif: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
     },
   },
   budgets: { pk: 'id', auto: true, cols: { id: 'int', exercice: 'int', equipe: 'text', montant: 'real' }, unique: [['exercice', 'equipe']] },
@@ -66,7 +90,9 @@ export const TABLES = {
     pk: 'id', auto: true,
     cols: { id: 'int', empId: 'int', dest: 'text', depart: 'text', retour: 'text', motif: 'text', origine: 'text', ref: 'text', chantier: 'text', detachementLe: 'text', informationLe: 'text',
       // Annulation (`voyage.annuler`) : le déplacement reste dans l'historique, hors de tous les calculs.
-      annuleLe: 'text', annulePar: 'text', annuleMotif: 'text' },
+      annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+      // Demandeur d'un déplacement importé du formulaire (nom du salarié reconnu, ou tel que saisi).
+      demandeur: 'text' },
   },
   // Références Keystone (`ref`) uniques : index créés au démarrage (server/src/integrations/keystone-entrant.ts).
   demandesKeystone: {
@@ -79,11 +105,23 @@ export const TABLES = {
   taches: { pk: 'id', auto: true, cols: { id: 'int', ref: 'text', empId: 'int', projet: 'text', tache: 'text', debut: 'text', fin: 'text', heures: 'json' } },
   // `motifDepassement` : motif d'un dépassement des durées maximales de travail (server/src/actions/temps.ts).
   // `heuresSup` : mode des heures supplémentaires figé à la validation (payées, en repos ; historique : migrations/paie.ts).
+  // `lignes` : heures du lundi au dimanche, 7 valeurs par ligne (5 avant la semaine à 7 jours : migrations/temps.ts) ;
+  // `majDimanche` : majoration des heures du dimanche (%) figée à la validation ; `majFerie` : celle des fériés autres que
+  // le 1er mai ; `cor` : contrepartie obligatoire en repos figée à la validation, par année (shared/rules/durees.ts).
+  // `reouverture` : dernière réouverture d'une feuille validée, rubriques déjà transmises comprises (t131,
+  // shared/rules/regularisation.ts).
   feuilles: {
     pk: 'id', auto: true,
-    cols: { id: 'int', empId: 'int', week: 'text', statut: 'text', comment: 'text', sage: 'bool', keystone: 'bool', lignes: 'json', contrat: 'json', motifDepassement: 'text', heuresSup: 'text', lotId: 'int' },
+    cols: {
+      id: 'int', empId: 'int', week: 'text', statut: 'text', comment: 'text', sage: 'bool', keystone: 'bool', lignes: 'json', contrat: 'json', motifDepassement: 'text', heuresSup: 'text', lotId: 'int',
+      majDimanche: 'int', majFerie: 'int', cor: 'json', reouverture: 'json',
+    },
     unique: [['empId', 'week']],
   },
+  // Mandats des élus au CSE (server/src/actions/delegation.ts, shared/rules/delegation.ts) : titulaire ou suppléant, dates,
+  // crédit d'heures de délégation par mois ; saisis par le service RH.
+  mandats: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', role: 'text', du: 'text', au: 'text', credit: 'real' } },
+
   // Lots de paie (server/src/actions/paie.ts, shared/rules/lots-paie.ts) : contenu figé à la génération (`contenu`, lignes
   // de SagePush), feuilles du lot, téléchargements du fichier d'import, confirmation de l'import (accusé) ou annulation.
   lotsPaie: {
@@ -92,8 +130,22 @@ export const TABLES = {
       id: 'int', cle: 'text', mode: 'text', statut: 'text', periode: 'text', periodes: 'json', rappels: 'json', creation: 'text', auteur: 'text',
       feuilles: 'json', resume: 'json', sansMatricule: 'json', contenu: 'json', telechargeLe: 'text', telechargePar: 'text', telechargements: 'int',
       confirmeLe: 'text', confirmePar: 'text', reference: 'text', annuleLe: 'text', annulePar: 'text', historique: 'bool',
+      // Absences du lot (identifiant, salarié ; lot 5, shared/rules/absences-paie.ts) : leurs quantités sont dans `contenu`.
+      absences: 'json',
+      // Lot correctif (t131) : feuilles rouvertes régularisées ; `type` null : lot ordinaire.
+      type: 'text', correctifs: 'json',
+      // Soldes de sortie du lot (identifiant, salarié ; t128, shared/rules/solde-sortie.ts) : quantités dans `contenu`.
+      sorties: 'json',
     },
     unique: [['cle']],
+  },
+  // Soldes de sortie photographiés à l'enregistrement de la sortie (t128, server/src/soldes-sortie.ts) : état des compteurs
+  // à la date de sortie ; lot de paie qui l'emporte (`lotId`) et import confirmé (`sage`), ou réglé hors fichier faute de
+  // rubrique active (`horsFichier`). Un solde courant par salarié ; un solde transmis dont la sortie est annulée ou
+  // déplacée reste pour l'historique (`remplaceLe`), d'où l'absence de contrainte d'unicité sur le salarié.
+  soldesSortie: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', empId: 'int', date: 'text', etat: 'json', le: 'text', par: 'text', lotId: 'int', sage: 'bool', horsFichier: 'bool', remplaceLe: 'text' },
   },
   // Correspondance des rubriques de paie avec le plan de paie Sage (server/src/actions/paie.ts) : une ligne par rubrique
   // modifiée ; sans ligne, code Sage égal au code interne, à confirmer (shared/rules/paie.ts).
@@ -107,18 +159,23 @@ export const TABLES = {
       signaleParInteresse: 'bool',
       // Motif d'une demande refusée, montré au salarié et à son manager.
       motifRefus: 'text',
+      // Demi-journées du premier et du dernier jour (null : journée entière), shared/rules/demi-journees.ts.
+      debutDemi: 'text', finDemi: 'text',
+      // Fichier d'import de la paie (shared/rules/absences-paie.ts) : lot qui la porte, jours transmis au moins une fois.
+      lotId: 'int', sage: 'bool',
     },
   },
   cet: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', type: 'text', jours: 'real', date: 'text', periode: 'text' } },
   // `periode` : année de prise de la période dont les droits reçoivent les jours ; `expire` : échéance (shared/rules/conges.ts).
   reports: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', jours: 'real', motif: 'text', par: 'text', date: 'text', sens: 'text', periode: 'int', expire: 'text' } },
   // `arreteLe` : date d'arrêté des compteurs repris, qui fixe la période CP et l'année RTT sur lesquelles ils comptent.
-  // `cpSolde`, `cpSoldeSuivant`, `rttSolde`, `cetSolde` : soldes d'ouverture importés à la mise en service (actions/reprise.ts).
+  // `cpSolde`, `cpSoldeSuivant`, `rttSolde`, `cetSolde` : soldes d'ouverture importés à la mise en service (actions/reprise.ts) ;
+  // `heuresSupAnnee` : heures supplémentaires déjà faites dans l'année de l'arrêté (contingent annuel).
   soldesReprise: {
     pk: 'empId',
     cols: {
       empId: 'int', cpPris: 'real', rttPris: 'real', recupAcquis: 'real', recupPris: 'real', arreteLe: 'text',
-      cpSolde: 'real', cpSoldeSuivant: 'real', rttSolde: 'real', cetSolde: 'real',
+      cpSolde: 'real', cpSoldeSuivant: 'real', rttSolde: 'real', cetSolde: 'real', heuresSupAnnee: 'real',
     },
   },
   // Lots importés depuis l'écran Mise en service (`reprise.importer`) : type, date de reprise, colonnes rapprochées,
@@ -139,6 +196,15 @@ export const TABLES = {
     },
     unique: [['empId', 'type', 'periode']],
   },
+  // Informations des salariés sur leurs congés à leur retour d'arrêt (`conges.informer`, art. L3141-19-3) : une par arrêt
+  // et par fin d'arrêt (`au` : un arrêt prolongé après l'information en reçoit une autre à son nouveau terme).
+  informationsCp: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', absenceId: 'int', du: 'text', au: 'text', le: 'text', jours: 'real', arret: 'real', limite: 'text', echeance: 'text', par: 'text',
+    },
+    unique: [['absenceId', 'au']],
+  },
   // `planifieLe` : jour de la planification (ou de la reprogrammation), borne de la date réelle saisie à la clôture.
   // `remise*` : remise du compte rendu au salarié (jour, mode, auteur) ; `telechargeLe` : son premier téléchargement.
   entretiens: {
@@ -151,7 +217,11 @@ export const TABLES = {
   demandesCollab: {
     pk: 'id', auto: true,
     // `motifRefus` : motif d'un refus par le service RH, montré au collaborateur seul (server/src/dataset.ts).
-    cols: { id: 'int', empId: 'int', type: 'text', f: 'text', h: 'text', libelle: 'text', label: 'text', sessionId: 'int', motif: 'text', date: 'text', statut: 'text', reponse: 'text', parId: 'int', declaration: 'json', motifRefus: 'text' },
+    // `suite` : ce que l'acceptation a créé ; `rouverte…` : réouverture par le service RH (actions/corrections.ts).
+    cols: {
+      id: 'int', empId: 'int', type: 'text', f: 'text', h: 'text', libelle: 'text', label: 'text', sessionId: 'int', motif: 'text', date: 'text', statut: 'text', reponse: 'text', parId: 'int', declaration: 'json', motifRefus: 'text',
+      suite: 'json', rouverteLe: 'text', rouvertePar: 'text', rouverteMotif: 'text',
+    },
   },
   settings: { pk: 'key', cols: { key: 'text', value: 'json' } },
   // `actor` : nom de la personne connectée ; `compteId` et `identifiant` : son compte (server/src/comptes.ts).
@@ -250,6 +320,15 @@ export class Db {
   /** Base sans aucune table de Cursus à l'ouverture, créée à l'instant : les migrations nommées s'y appliquent sans copie. */
   readonly neuve: boolean;
   private depth = 0;
+  /**
+   * Révision de la base, renvoyée dans chaque instantané (`Dataset.revision`) : augmentée à chaque transaction d'écriture
+   * validée (`tx`). Le client ignore un instantané de révision inférieure à celle qu'il affiche : la réponse d'une action
+   * traitée avant une autre, arrivée après elle, ne réaffiche pas un état ancien (client/src/state/revision.ts). Partie de
+   * l'heure (millisecondes) et jamais en deçà, elle croît aussi d'un démarrage à l'autre, restauration comprise, sans être
+   * écrite dans la base.
+   */
+  private rev = Date.now();
+  get revision(): number { return this.rev; }
 
   constructor(file: string) {
     if (file !== ':memory:') {
@@ -371,6 +450,7 @@ export class Db {
     try {
       const r = fn();
       this.sql.exec('COMMIT');
+      this.rev = Math.max(this.rev + 1, Date.now());
       return r;
     } catch (err) {
       this.sql.exec('ROLLBACK');

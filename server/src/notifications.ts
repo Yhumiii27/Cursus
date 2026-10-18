@@ -10,6 +10,8 @@ import { addD, isoWeek, parse } from '../../shared/dates.ts';
 import { type Domain, sessionActive } from '../../shared/domain.ts';
 import { equipeLabel, fmt, fmtIso, plural } from '../../shared/format.ts';
 import { matriculeAffiche } from '../../shared/rules/matricules.ts';
+import { demiTexte } from '../../shared/rules/demi-journees.ts';
+import { finSession, horaireDuJour, horaireTexte, joursSession, joursTexte, plageCourte, surPlusieursJours } from '../../shared/rules/plage-session.ts';
 import { convocationEnvoyee } from '../../shared/rules/sessions.ts';
 import type { Absence, Certification, CurrentUser, Dataset, DemandeCollab, DemandeVisite, Employe, Entretien, Messagerie, Session } from '../../shared/types.ts';
 import { configMail } from './config.ts';
@@ -54,27 +56,38 @@ const CONGE: Record<string, { objet: string; texte: string }> = {
 };
 /** Seuls les congés (CP, RTT, récupération) font l'objet d'une demande : toute autre nature reste « absence ». */
 const conge = (t: string) => (Object.hasOwn(CONGE, t) ? CONGE[t] : { objet: 'absence', texte: 'une absence' });
-const semaineTexte = (week: string) => `semaine ${isoWeek(week)} (${periodeLongue(week, addD(week, 4))})`;
+const semaineTexte = (week: string) => `semaine ${isoWeek(week)} (${periodeLongue(week, addD(week, 6))})`;
 
 // — Étapes de validation —
 
 /** Demande de congés : au valideur (manager direct, sinon le service RH). */
-export function notifierDemandeConge(cx: Contexte, emp: Employe, a: Pick<Absence, 'type' | 'du' | 'au'>, valideur: number) {
+/** Demi-journées d'un congé dans un e-mail : « (après-midi le premier jour) », vide pour des journées entières. */
+const demiCourriel = (a: Pick<Absence, 'du' | 'au' | 'debutDemi' | 'finDemi'>) => { const t = demiTexte(a); return t ? ` (${t})` : ''; };
+
+export function notifierDemandeConge(cx: Contexte, emp: Employe, a: Pick<Absence, 'type' | 'du' | 'au' | 'debutDemi' | 'finDemi'>, valideur: number) {
   const c = conge(a.type);
   return notifier(cx, valideur, {
     type: 'absence.demande', objet: `Demande de ${c.objet} à valider — ${emp.nom}`,
-    texte: `${emp.nom} demande ${c.texte} ${periodeLongue(a.du, a.au)}. La demande attend votre décision (Congés & absences).`,
+    texte: `${emp.nom} demande ${c.texte} ${periodeLongue(a.du, a.au)}${demiCourriel(a)}. La demande attend votre décision (Congés & absences).`,
   });
 }
 
 /** Décision sur une demande de congés, ou congés posés et validés par le manager : au salarié. */
-export function notifierDecisionConge(cx: Contexte, emp: Employe, a: Pick<Absence, 'type' | 'du' | 'au'>, ok: boolean, posee = false) {
+export function notifierDecisionConge(cx: Contexte, emp: Employe, a: Pick<Absence, 'type' | 'du' | 'au' | 'debutDemi' | 'finDemi'>, ok: boolean, posee = false) {
   const c = conge(a.type);
   const objet = posee ? `Congés posés pour vous : ${c.objet}` : `Demande de ${c.objet} ${ok ? 'validée' : 'refusée'}`;
   const texte = posee
-    ? `${auteur(cx.user)} a posé et validé pour vous ${c.texte} ${periodeLongue(a.du, a.au)}.`
-    : `Votre demande de ${c.objet} ${periodeLongue(a.du, a.au)} a été ${ok ? 'validée' : 'refusée'} par ${auteur(cx.user)}.`;
+    ? `${auteur(cx.user)} a posé et validé pour vous ${c.texte} ${periodeLongue(a.du, a.au)}${demiCourriel(a)}.`
+    : `Votre demande de ${c.objet} ${periodeLongue(a.du, a.au)}${demiCourriel(a)} a été ${ok ? 'validée' : 'refusée'} par ${auteur(cx.user)}.`;
   return notifier(cx, emp.id, { type: 'absence.decision', objet, texte });
+}
+
+/**
+ * Information sur les congés payés au retour d'un arrêt (art. L3141-19-3, `conges.informer`) : au salarié, aussitôt ou
+ * dans son récapitulatif selon son réglage. Le texte ne nomme jamais la nature de l'arrêt (shared/rules/information-retour.ts).
+ */
+export function notifierInformationRetour(cx: Contexte, emp: Employe, texte: string) {
+  return notifier(cx, emp.id, { type: 'conges.information', objet: 'Vos congés payés à votre retour', texte });
 }
 
 /** Feuille de temps soumise : au valideur. */
@@ -173,6 +186,27 @@ function organisateur(cx: Contexte): EvenementAgenda['organisateur'] {
   return rh ? { nom: 'Service RH', adresse: rh } : null;
 }
 
+/**
+ * Dates de l'événement d'agenda d'une session : journées entières du premier au dernier jour, ou, avec des horaires,
+ * un créneau à l'heure de Paris pour chacun de ses jours.
+ */
+function datesSession(s: Session): Pick<EvenementAgenda, 'date' | 'fin' | 'creneaux'> {
+  const h = s.horaires ?? [];
+  if (!h.length) return { date: s.date, fin: finSession(s) };
+  return { date: s.date, creneaux: joursSession(s).map(jour => { const x = horaireDuJour(s, jour)!; return { jour, debut: x.debut, fin: x.fin }; }) };
+}
+
+/** Dates et horaires de la session, dans le corps de la convocation. */
+function datesTexte(s: Session): string[] {
+  const fin = finSession(s), n = joursSession(s).length;
+  if (fin === s.date) return [`Date : ${jourLong(s.date)}`, ...(s.horaires?.length ? [`Horaires : ${horaireTexte(s.horaires[0])}`] : [])];
+  return [
+    `Dates : ${periodeLongue(s.date, fin)} (${plural(n, 'jour', 'jours')})`,
+    ...(s.horaires?.length === 1 ? [`Horaires : ${horaireTexte(s.horaires[0])}, chaque jour`] : []),
+    `Jours : ${joursTexte({ ...s, horaires: s.horaires?.length === 1 ? [] : s.horaires }).join(' ; ')}`,
+  ];
+}
+
 /** Convocation à une session de formation. Renvoie faux si le salarié n'a pas d'adresse (convocation à remettre). */
 export function convoquerFormation(cx: Contexte, s: Session, emp: Pick<Employe, 'id' | 'nom'>, parcours: 'recyclage' | 'initiale'): boolean {
   const d = adresseSalarie(cx.db, emp.id, cx.ds.today);
@@ -181,14 +215,14 @@ export function convoquerFormation(cx: Contexte, s: Session, emp: Pick<Employe, 
   const nom = fm?.nom ?? s.formation;
   // Session « à confirmer » par l'organisme : événement provisoire dans l'agenda.
   const ics = calendrier({
-    uid: `formation-${s.id}-${emp.id}@${domaineAgenda()}`, date: s.date, titre: `Formation : ${nom}`, lieu: s.lieu,
+    uid: `formation-${s.id}-${emp.id}@${domaineAgenda()}`, ...datesSession(s), titre: `Formation : ${nom}`, lieu: s.lieu,
     description: [fm?.organisme && `Organisme : ${fm.organisme}`, fm?.duree && `Durée : ${fm.duree}`].filter(Boolean).join(' · '),
     provisoire: s.statut === 'À confirmer', organisateur: organisateur(cx),
   });
-  envoyerEmail(cx.db, 'convocation', courriel(messagerie(cx), d.adresse, `Convocation : ${nom} — ${fmt(parse(s.date))}`, [
+  envoyerEmail(cx.db, 'convocation', courriel(messagerie(cx), d.adresse, `Convocation : ${nom} — ${plageCourte(s)}`, [
     `Votre inscription à la formation « ${nom} »${parcours === 'recyclage' ? ' (recyclage)' : ''} est confirmée :`,
     '',
-    `Date : ${jourLong(s.date)}${s.statut === 'À confirmer' ? ' (date à confirmer par l’organisme)' : ''}`,
+    ...datesTexte(s).map((l, i) => (i === 0 && s.statut === 'À confirmer' ? `${l} (${surPlusieursJours(s) ? 'dates' : 'date'} à confirmer par l’organisme)` : l)),
     `Lieu : ${s.lieu}`,
     ...(fm?.organisme ? [`Organisme : ${fm.organisme}`] : []),
     ...(fm?.duree ? [`Durée : ${fm.duree}`] : []),
@@ -204,11 +238,11 @@ export function annulerConvocationFormation(cx: Contexte, s: Session, emp: Pick<
   const d = adresseSalarie(cx.db, emp.id, cx.ds.today);
   if (!d) return false;
   const nom = cx.ds.referentiels.formations.find(f => f.id === s.formation)?.nom ?? s.formation;
-  const ics = calendrier({ uid: `formation-${s.id}-${emp.id}@${domaineAgenda()}`, date: s.date, titre: `Formation : ${nom}`, lieu: s.lieu, annule: true, organisateur: organisateur(cx) });
+  const ics = calendrier({ uid: `formation-${s.id}-${emp.id}@${domaineAgenda()}`, ...datesSession(s), titre: `Formation : ${nom}`, lieu: s.lieu, annule: true, organisateur: organisateur(cx) });
   const texte = raison === 'annulation'
-    ? `La session de la formation « ${nom} » ${periodeLongue(s.date, s.date)} est annulée : votre convocation ne vaut plus. Le service RH vous inscrira à une prochaine session.`
-    : `Votre inscription à la session de la formation « ${nom} » ${periodeLongue(s.date, s.date)} est annulée : votre convocation ne vaut plus.`;
-  envoyerEmail(cx.db, 'convocation.annulee', courriel(messagerie(cx), d.adresse, `Annulation : ${nom} — ${fmt(parse(s.date))}`,
+    ? `La session de la formation « ${nom} » ${periodeLongue(s.date, finSession(s))} est annulée : votre convocation ne vaut plus. Le service RH vous inscrira à une prochaine session.`
+    : `Votre inscription à la session de la formation « ${nom} » ${periodeLongue(s.date, finSession(s))} est annulée : votre convocation ne vaut plus.`;
+  envoyerEmail(cx.db, 'convocation.annulee', courriel(messagerie(cx), d.adresse, `Annulation : ${nom} — ${plageCourte(s)}`,
     `${texte}\n\nOuvrez le fichier joint pour retirer l’événement de votre agenda, ou supprimez-le vous-même.`,
     { nom: emp.nom, pj: [pieceJointe(`annulation-${s.date}.ics`, 'text/calendar; charset=utf-8; method=CANCEL', ics)] }));
   return true;
@@ -271,7 +305,7 @@ export function transmettreDemandeVisite(cx: Contexte & { d: Domain }, emp: Empl
   envoyerEmail(cx.db, 'visite.demande', courriel(m, m.santeTravail, `Demande de visite médicale — ${emp.nom}`, [
     'Le service RH vous demande de convoquer le salarié ci-dessous à une visite médicale.',
     '',
-    `Salarié : ${emp.nom} (matricule ${matriculeAffiche(emp)}), né en ${emp.naissance}`,
+    `Salarié : ${emp.nom} (matricule ${matriculeAffiche(emp)}), ${emp.naissanceLe ? `né le ${fmtIso(emp.naissanceLe)}` : `né en ${emp.naissance}`}`,
     `Poste : ${emp.poste} — équipe ${equipeLabel(emp)}`,
     `Contrat : ${cx.d.contratOf(emp).libelle}, depuis le ${fmtIso(emp.entree)}`,
     '',

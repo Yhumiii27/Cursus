@@ -2,7 +2,7 @@
 
 Audit du 10 octobre 2026 (branche `main-n9x7ps`). Chaque point a été relevé dans le code puis contre-vérifié par une seconde lecture qui a écarté ce qui était déjà fait ou inexact. Les preuves renvoient aux fichiers et lignes à cette date.
 
-**179 tâches** (108 faites au 16 octobre 2026 ; suivi à jour : https://claude.ai/artifact/8Dn4CRz3fcHgew8RzbNGEc) : 26 bloquantes pour une mise en production, 98 importantes, 55 souhaitables.
+**179 tâches** (139 faites au 18 octobre 2026 ; suivi à jour : https://claude.ai/artifact/8Dn4CRz3fcHgew8RzbNGEc) : 26 bloquantes pour une mise en production, 98 importantes, 55 souhaitables.
 
 Légende — priorité : 🔴 **Bloquant** (empêche un usage réel : sécurité, données faussées, obligation légale) · 🟠 **Important** (attendu par les utilisateurs) · 🟢 **Souhaitable** (confort). Effort : **S** moins d’une journée · **M** 1 à 3 jours · **L** plus de 3 jours.
 
@@ -142,7 +142,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Contrôler et tracer les demandes Keystone entrantes** — 🟠 Important · M
   La route accepte des dates impossibles, un retour avant le départ, des doublons et un salarié non affecté au chantier, sans rien journaliser ; les demandes traitées sont supprimées. Ajouter ces contrôles (400/409), une référence externe unique, le journal des appels et la conservation des décisions.
   <br><sub>Preuves : server/src/index.ts:147-157 · server/src/db.ts:34 (pas de référence externe) · server/src/actions/voyages.ts:66-78 (acceptation sans revalidation), :75 et :85 (suppression)</sub>
-- [ ] **Transmettre à la paie les absences validées et proposer un export CSV** — 🟠 Important · M
+- [x] **Transmettre à la paie les absences validées et proposer un export CSV** — 🟠 Important · M
   Les CP, RTT et récupérations validés ne partent que vers Keystone ; la paie ne peut ni calculer l'indemnité de congés ni l'indemnité de fin de contrat. Ajouter les rubriques d'absence et le solde à la sortie au lot Sage, un indicateur de transmission et un export CSV des variables par période.
   <br><sub>Preuves : shared/rules/temps.ts:102-140 (heures uniquement) · server/src/db.ts:38 (pas d'indicateur sage sur absences) · server/src/actions/absences.ts:21, :34 · shared/rules/conges.ts:141</sub>
 - [x] **Tracer chaque transmission Sage en lot identifié et rejouable** — 🟠 Important · M
@@ -178,16 +178,16 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Ajouter les absences hors congés (maladie, AT/MP, maternité, événements familiaux…)** — 🔴 Bloquant · L
   Seuls CP, RTT et récupération existent : un arrêt maladie ne peut pas être saisi, la feuille reste vide, Keystone planifie la personne et la reprise se saisit à la main. Créer ces types (effet sur les soldes, les CP, la paie, Keystone, justificatif) et en déduire la date de reprise.
   <br><sub>Preuves : shared/types.ts:15 (CP \| RTT \| RECUP) · shared/constants.ts:17 · server/src/actions/temps.ts:71 (feuille sans heure refusée) · shared/rules/entretiens.ts:31-33</sub>
-- [ ] **Repérer et majorer les heures travaillées un jour férié** — 🟠 Important · S
+- [x] **Repérer et majorer les heures travaillées un jour férié** — 🟠 Important · S
   L'interface verrouille les jours fériés et le serveur les compterait comme des heures normales ; le 1er mai travaillé doit être payé double. Permettre la saisie avec une rubrique dédiée (1er mai, autres fériés selon la CCN) contrôlée côté serveur.
   <br><sub>Preuves : client/src/pages/Temps.tsx:240, :305 · shared/rules/temps.ts:35-73 (calcSheet sans isFerie) · sageRubriques semaine du 27/04/2026 → {HN:35}</sub>
-- [ ] **Contrôler les moyennes sur 12 semaines (44 h, requalification temps partiel)** — 🟠 Important · S
+- [x] **Contrôler les moyennes sur 12 semaines (44 h, requalification temps partiel)** — 🟠 Important · S
   Seules les limites hebdomadaires sont contrôlées. Calculer sur les feuilles validées la moyenne glissante de 44 h sur 12 semaines et le dépassement de 2 h par semaine d'un temps partiel (12 semaines), avec alerte au RH.
   <br><sub>Preuves : shared/rules/temps.ts:44-45 et :50-56 · shared/rules/profil.ts:126 · grep L3123-13 → aucun résultat</sub>
-- [ ] **Calculer l'acquisition des CP pendant les arrêts (loi 2024-364)** — 🟠 Important · M
+- [x] **Calculer l'acquisition des CP pendant les arrêts (loi 2024-364)** — 🟠 Important · M
   Un mois compte en entier dès que le contrat court, même en arrêt. Appliquer 2 jours ouvrables par mois en maladie (plafond 24), l'assimilation complète AT/MP, le report de 15 mois et l'information du salarié au retour.
   <br><sub>Preuves : shared/rules/conges.ts:12-19, :28 · grep L3141-5 → aucun résultat</sub>
-- [ ] **Suivre le contingent annuel d'heures supplémentaires** — 🟠 Important · M
+- [x] **Suivre le contingent annuel d'heures supplémentaires** — 🟠 Important · M
   Les heures supplémentaires ne sont pas cumulées sur l'année. Cumuler par année civile les heures non remplacées par du repos, alerter à l'approche du contingent paramétrable (220 h par défaut) et créditer puis transmettre la contrepartie obligatoire en repos.
   <br><sub>Preuves : shared/rules/temps.ts:57-71 · shared/types.ts:117-126 · grep contingent → aucun résultat</sub>
 - [ ] **Forfait jours : cumul annuel et renonciation à des jours de repos** — 🟠 Important · M
@@ -196,13 +196,13 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Forfait annuel en heures : calculer la régularisation de fin d'année** — 🟠 Important · M
   L'écran signale des « heures à régulariser » mais rien ne les calcule ni ne les transmet. Ajouter une clôture annuelle produisant les rubriques Sage (heures au-delà du forfait, heures complémentaires).
   <br><sub>Preuves : shared/rules/temps.ts:105 · client/src/pages/Temps.tsx:95</sub>
-- [ ] **Stocker la date de naissance complète et appliquer les règles d'âge** — 🟠 Important · M
+- [x] **Stocker la date de naissance complète et appliquer les règles d'âge** — 🟠 Important · M
   Seule l'année est saisie : +5 CP à 59 ans et sections fin de carrière à 58 ans tombent jusqu'à un an trop tôt ou trop tard, et aucune règle mineurs n'existe. Passer à une date de naissance, puis appliquer aux moins de 18 ans les limites de durée, l'interdiction de nuit, les repos et la dérogation travaux réglementés.
   <br><sub>Preuves : shared/types.ts:71 · shared/rules/conges.ts:29 · shared/rules/entretiens.ts:56-57 · shared/rules/profil.ts:109 (14 ans accepté)</sub>
 - [ ] **Contrôler le congé principal et créditer les jours de fractionnement** — 🟠 Important · M
   Ni la limite de 24 jours ouvrables d'affilée, ni les 12 jours continus entre mai et octobre, ni les jours de fractionnement ne sont gérés. Ajouter ces contrôles et le crédit automatique au 31 octobre.
   <br><sub>Preuves : shared/rules/conges.ts:122-145 · shared/rules/conges.ts:26-33 · grep fraction\|L3141 → aucun résultat</sub>
-- [ ] **Ajouter samedi et dimanche à la feuille de temps et contrôler le repos hebdomadaire** — 🟠 Important · L
+- [x] **Ajouter samedi et dimanche à la feuille de temps et contrôler le repos hebdomadaire** — 🟠 Important · L
   La feuille ne compte que 5 jours : les heures du week-end (arrêts techniques, travail posté) ne peuvent pas être déclarées. Passer à 7 jours et contrôler 6 jours maximum, 35 h de repos consécutif et le repos dominical.
   <br><sub>Preuves : shared/rules/temps.ts:37 · shared/dates.ts:36 · server/src/actions/temps.ts:37 (di < 5)</sub>
 - [ ] **Saisir horaires ou postes pour contrôler repos, pause et travail de nuit** — 🟠 Important · L
@@ -211,7 +211,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Gérer les astreintes** — 🟠 Important · L
   Aucune notion d'astreinte n'existe alors qu'elle est courante en maintenance. Ajouter le planning communiqué 15 jours avant, la saisie des interventions comme travail effectif, la compensation transmise à Sage et le récapitulatif mensuel.
   <br><sub>Preuves : grep astreinte → aucun résultat · shared/types.ts:100-105</sub>
-- [ ] **Temps partiel : plafond d'heures complémentaires paramétrable et avenants** — 🟢 Souhaitable · M
+- [x] **Temps partiel : plafond d'heures complémentaires paramétrable et avenants** — 🟢 Souhaitable · M
   Le code suppose un plafond au tiers, valable seulement avec accord ; sinon c'est le dixième. Paramétrer le plafond et gérer les avenants de complément d'heures.
   <br><sub>Preuves : shared/rules/temps.ts:52-55 · shared/constants.ts:77 · grep avenant → aucun résultat</sub>
 - [ ] **Paramétrer la journée de solidarité et les jours fériés chômés** — 🟢 Souhaitable · M
@@ -241,10 +241,10 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Go / No Go : refuser une ressource dont le contrat finit avant le chantier** — 🟠 Important · S
   Le verdict ignore la fin d'un CDD, d'une mission d'intérim ou d'une alternance, que seul Cursus connaît. Ajouter un motif CONTRAT (et facultativement ABSENCE pour les congés validés).
   <br><sub>Preuves : shared/domain.ts:383-411 · server/src/actions/absences.ts:21, :34</sub>
-- [ ] **Moduler la périodicité des visites selon le type de suivi (VIP, SIR)** — 🟠 Important · M
+- [x] **Moduler la périodicité des visites selon le type de suivi (VIP, SIR)** — 🟠 Important · M
   Toutes les aptitudes durent 24 mois, d'où de fausses alertes et l'impossibilité de saisir une périodicité fixée par le médecin. Ajouter le type de suivi (déduit des habilitations ou saisi) et calculer l'échéance en conséquence.
   <br><sub>Preuves : shared/constants.ts:31 · shared/domain.ts:201 · server/src/seed.ts:26-28</sub>
-- [ ] **Générer les visites d'embauche, de reprise, de mi-carrière et de fin de carrière** — 🟠 Important · M
+- [x] **Générer les visites d'embauche, de reprise, de mi-carrière et de fin de carrière** — 🟠 Important · M
   Aucune visite n'est déclenchée par un événement. Créer automatiquement ces échéances selon le Code du travail (dont la visite post-exposition, importante sur un site chimique).
   <br><sub>Preuves : shared/domain.ts:197-199 · shared/rules/entretiens.ts:31 · grep mi-carri\|post-exposition → aucun résultat</sub>
 - [ ] **Identifier les postes à risques et exiger la formation renforcée des CDD et intérimaires** — 🟠 Important · M
@@ -334,10 +334,10 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Contrôler doublons et conflits de dates (formation, absence, déplacement, entretien)** — 🟠 Important · M
   On peut créer deux demandes de formation identiques, deux entretiens planifiés, deux déplacements qui se chevauchent, ou inscrire un salarié en formation pendant ses congés. Ajouter un contrôle commun (avertissement ou blocage) affiché dans les dialogues.
   <br><sub>Preuves : server/src/actions/conformite.ts:7-24, :136-151 · server/src/actions/entretiens.ts:15-23 · server/src/actions/voyages.ts:10-20 · shared/rules/conges.ts:128-129</sub>
-- [ ] **Afficher l'horodatage réel dans « Réponse transmise à Keystone »** — 🟢 Souhaitable · S
+- [x] **Afficher l'horodatage réel dans « Réponse transmise à Keystone »** — 🟢 Souhaitable · S
   Le panneau affiche une heure fictive (07:00+02:00) différente de la réponse réelle. Utiliser le même horodatage que l'endpoint.
   <br><sub>Preuves : shared/domain.ts:425 · client/src/pages/Chantiers.tsx:19 · server/src/index.ts:143</sub>
-- [ ] **Générer une référence pour les déplacements importés sans référence** — 🟢 Souhaitable · S
+- [x] **Générer une référence pour les déplacements importés sans référence** — 🟢 Souhaitable · S
   L'origine affichée devient « Formulaire de demande null » et la colonne demandeur est ignorée. Générer DD-<id> comme le prototype et conserver le demandeur.
   <br><sub>Preuves : server/src/actions/voyages.ts:61 · shared/domain.ts:357 · shared/rules/imports.ts:67-70 · design/prototype-suivi-formations.dc.html:2574</sub>
 - [x] **Marquer « en attente » une habilitation expirée dont la demande est acceptée** — 🟢 Souhaitable · S
@@ -376,7 +376,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Gérer l'expiration de session sans perdre la saisie** — 🟠 Important · M
   À l'expiration (12 h), l'écran bascule sur la connexion, démonte le dialogue ouvert et le rouvre vide après reconnexion. Afficher une reconnexion par-dessus l'écran qui rejoue l'action, ou au minimum conserver le brouillon.
   <br><sub>Preuves : client/src/state/store.tsx:168, :191-200 · client/src/api.ts:23, :38-39 · client/src/App.tsx:32</sub>
-- [ ] **Ignorer les réponses obsolètes dans run()** — 🟢 Souhaitable · S
+- [x] **Ignorer les réponses obsolètes dans run()** — 🟢 Souhaitable · S
   Une réponse ancienne arrivée après une plus récente peut vider une cellule d'heures enregistrée. N'appliquer que la réponse de la dernière requête ou sérialiser les actions.
   <br><sub>Preuves : client/src/state/store.tsx:161-164 · client/src/dialogs/EntDialog.tsx:29, :46</sub>
 - [x] **Fiabiliser le changement d'espace et la déconnexion** — 🟢 Souhaitable · S
@@ -385,16 +385,16 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Traiter les propres entretiens du manager dans l'espace manager** — 🟢 Souhaitable · S
   Ses entretiens apparaissent et comptent dans le badge « en retard », mais il ne peut ni rédiger ni signer. Les masquer avec renvoi vers l'espace collaborateur ou aligner les droits sur « soi-même ».
   <br><sub>Preuves : server/src/dataset.ts:102 · client/src/dialogs/EntDialog.tsx:36, :62 · server/src/actions/entretiens.ts:30, :55</sub>
-- [ ] **Rendre atomique la modification d'une équipe** — 🟢 Souhaitable · S
+- [x] **Rendre atomique la modification d'une équipe** — 🟢 Souhaitable · S
   Renommage puis changement de manager sont deux appels : si le second échoue, la saisie est perdue. Créer une action unique ou garder le dialogue ouvert.
   <br><sub>Preuves : client/src/dialogs/EquipeDialog.tsx:57-69 · server/src/actions/equipes.ts:91, :104</sub>
-- [ ] **Ajouter les messages de liste vide au tableau de bord et aux missions** — 🟢 Souhaitable · S
+- [x] **Ajouter les messages de liste vide au tableau de bord et aux missions** — 🟢 Souhaitable · S
   Sur une base vide, le tableau de bord n'affiche que des cadres vides. Ajouter « Aucune échéance », « Aucune session », etc.
   <br><sub>Preuves : client/src/pages/Dashboard.tsx:127-128, :150, :168 · client/src/pages/Missions.tsx:107-108</sub>
 - [ ] **Revenir au dialogue d'origine après « Créer une session »** — 🟢 Souhaitable · S
   Après création, le RH est renvoyé vers Formations et doit retrouver le collaborateur pour l'inscrire. Rouvrir le dialogue de planification avec la session présélectionnée.
   <br><sub>Preuves : client/src/dialogs/PlanDialog.tsx:40 · client/src/dialogs/SessionDialog.tsx:27-28 · client/src/dialogs/ReqFormDialog.tsx:106</sub>
-- [ ] **Détecter les modifications concurrentes d'une fiche** — 🟢 Souhaitable · M
+- [x] **Détecter les modifications concurrentes d'une fiche** — 🟢 Souhaitable · M
   Deux personnes qui modifient la même fiche s'écrasent sans avertissement. N'envoyer que les champs modifiés avec une version vérifiée par le serveur.
   <br><sub>Preuves : client/src/dialogs/EmployeDialog.tsx:84, :132 · server/src/actions/equipes.ts:53</sub>
 
@@ -427,10 +427,10 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Clôturer l'exercice du plan de formation et consulter les années passées** — 🟠 Important · M
   Après le 1er janvier, le plan de l'année écoulée n'est plus consultable et les enveloppes doivent être ressaisies. Proposer tous les exercices, une clôture avec report des actions engagées et la copie des enveloppes.
   <br><sub>Preuves : client/src/pages/Budget.tsx:26 · server/src/actions/budget.ts:21-34</sub>
-- [ ] **Gérer des sessions sur plusieurs jours avec horaires** — 🟠 Important · M
+- [x] **Gérer des sessions sur plusieurs jours avec horaires** — 🟠 Important · M
   Une session n'a qu'une date alors que certaines formations durent 21 à 35 h. Ajouter début, fin, jours et horaires, et préremplir la feuille de temps.
   <br><sub>Preuves : shared/types.ts:89 · client/src/dialogs/SessionDialog.tsx:42 · server/src/seed.ts:11-19</sub>
-- [ ] **Corriger ou supprimer une saisie erronée (certification, action du plan, demande)** — 🟠 Important · L
+- [x] **Corriger ou supprimer une saisie erronée (certification, action du plan, demande)** — 🟠 Important · L
   Une certification saisie avec une mauvaise date ou formation reste en base et peut lever un prérequis d'habilitation ; plan et demandes ne sont pas non plus modifiables. Ajouter modification et suppression tracées (RH), avec libération des places de session.
   <br><sub>Preuves : server/src/actions/conformite.ts:26-36 · client/src/dialogs/CertDialog.tsx:22, :39 · server/src/actions/budget.ts:46-50 · grep remove('certifications' → aucun résultat</sub>
 - [ ] **Gérer une liste d'attente pour les sessions complètes** — 🟢 Souhaitable · M
@@ -460,19 +460,19 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Utiliser et liquider les jours épargnés sur le CET** — 🟠 Important · M
   Le CET ne fait que se remplir. Ajouter un congé pris sur le CET, la monétisation et la liquidation à la sortie.
   <br><sub>Preuves : shared/types.ts:15, :106 · server/src/actions/absences.ts:38-48</sub>
-- [ ] **Calculer l'état des compteurs à la date de sortie** — 🟠 Important · M
+- [x] **Calculer l'état des compteurs à la date de sortie** — 🟠 Important · M
   À la sortie, seule une phrase annonce l'indemnité compensatrice. Calculer CP restants et en cours, RTT au prorata, repos et CET, puis les éditer et les transmettre à la paie.
   <br><sub>Preuves : shared/rules/conges.ts:141, :46, :85-96</sub>
-- [ ] **Permettre les demi-journées de congé, RTT ou récupération** — 🟠 Important · M
+- [x] **Permettre les demi-journées de congé, RTT ou récupération** — 🟠 Important · M
   Une absence se compte en journées entières. Ajouter matin / après-midi sur le premier et le dernier jour.
   <br><sub>Preuves : shared/types.ts:105 · shared/domain.ts:162-173</sub>
 - [x] **Suivre les feuilles de temps par semaine et valider en groupe** — 🟠 Important · M
   Rien ne montre qui n'a pas saisi ou doit corriger avant l'envoi à Sage. Ajouter un tableau semaine × collaborateur, la relance et la validation groupée.
   <br><sub>Preuves : client/src/pages/Temps.tsx:129-132, :141-143 · server/src/actions/temps.ts:85-92</sub>
-- [ ] **Rouvrir une feuille validée et transmettre une régularisation** — 🟠 Important · M
+- [x] **Rouvrir une feuille validée et transmettre une régularisation** — 🟠 Important · M
   Une erreur découverte après validation ou envoi ne peut pas être corrigée. Ajouter une réouverture RH motivée et l'envoi d'un correctif à Sage et Keystone.
   <br><sub>Preuves : server/src/actions/temps.ts:24-25, :112-121</sub>
-- [ ] **Administrer les codes d'imputation internes et suivre les heures de délégation** — 🟠 Important · M
+- [x] **Administrer les codes d'imputation internes et suivre les heures de délégation** — 🟠 Important · M
   Les codes hors projet (INT-*, ECOLE) sont figés par la démo et les heures de délégation CSE ne sont pas suivies. Permettre au RH de gérer ces codes et ajouter un compteur mensuel de délégation.
   <br><sub>Preuves : server/src/seed.ts:47-52 · server/src/actions/temps.ts:45-51</sub>
 - [ ] **Stocker les pièces justificatives** — 🟠 Important · L
@@ -538,13 +538,13 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Faire une vraie recherche globale de collaborateurs** — 🟢 Souhaitable · M
   La recherche est réservée au RH, ignore le matricule et redirige dès la première lettre ; les listes déroulantes n'affichent que le nom. Ajouter des suggestions qui ouvrent la fiche, réutilisées dans les dialogues.
   <br><sub>Preuves : client/src/layout/Shell.tsx:114, :119 · client/src/pages/Collaborateurs.tsx:59</sub>
-- [ ] **Rendre l'impression fiable et lisible** — 🟢 Souhaitable · M
+- [x] **Rendre l'impression fiable et lisible** — 🟢 Souhaitable · M
   Ctrl+P donne un texte quasi blanc, l'impression échoue si les fenêtres surgissantes sont bloquées et les documents n'ont pas d'en-tête d'entreprise. Redéfinir les couleurs d'impression, imprimer via iframe, ajouter format A4, raison sociale et matricule.
   <br><sub>Preuves : client/src/styles/app.css:192-196 · client/src/print.ts:9-10, :32 · shared/types.ts:117-126</sub>
 - [ ] **Refléter la sélection et les filtres dans l'adresse de la page** — 🟢 Souhaitable · M
   On ne peut pas partager le lien d'une fiche ou d'une feuille et F5 perd la sélection. Encoder fiche, semaine et filtres dans l'URL.
   <br><sub>Preuves : client/src/state/store.tsx:98, :139, :154-159</sub>
-- [ ] **Rédiger un guide utilisateur par rôle** — 🟢 Souhaitable · M
+- [x] **Rédiger un guide utilisateur par rôle** — 🟢 Souhaitable · M
   Seule une documentation technique existe. Rédiger un guide court pour RH, manager et collaborateur et la procédure mensuelle de transmission à Sage.
   <br><sub>Preuves : ls docs → ARCHITECTURE.md uniquement</sub>
 
@@ -553,7 +553,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Créer une CI GitHub Actions et figer la version de Node** — 🟠 Important · S
   Typecheck et tests (41, tous verts) ne tournent qu'à la main. Ajouter un workflow (npm ci, typecheck, test, build) sur Node 22 figé par .nvmrc et aligner @types/node sur Node 22.
   <br><sub>Preuves : ls .github → absent · package.json:7-8 (node >=22.18) et :30 (@types/node ^24) · npm test → 41 pass ; tsc --noEmit → 0</sub>
-- [ ] **Extraire createApp et tester la couche HTTP** — 🟠 Important · M
+- [x] **Extraire createApp et tester la couche HTTP** — 🟠 Important · M
   index.ts démarre le serveur dès l'import : aucune route, ni l'authentification, ni l'API Keystone n'est testée. Extraire l'application puis tester 401/403/404/501, cookies altérés, clé Keystone et données manager.
   <br><sub>Preuves : server/src/index.ts:18, :169 · couverture auth.ts 44 %, index.ts absent · grep /api/\|fetch( tests → aucun résultat</sub>
 - [x] **Ajouter un test « matrice des droits » par action et rôle** — 🟠 Important · M
@@ -565,7 +565,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Couvrir par des tests les actions et règles non testées** — 🟠 Important · L
   Entretiens, budget et paramètres sont à 0 % de fonctions couvertes ; voyages, demandes, CET, reports, rejet de feuille, annulation de transaction et échéances ne sont pas testés. Ajouter ces tests métier.
   <br><sub>Preuves : couverture entretiens.ts, budget.ts, parametres.ts à 0 % des fonctions · voyages.ts 22 % des fonctions · server/src/actions/temps.ts:55-57, :95-97 · shared/domain.ts:361-380 (echeances non testée)</sub>
-- [ ] **Activer Dependabot et npm audit** — 🟢 Souhaitable · S
+- [x] **Activer Dependabot et npm audit** — 🟢 Souhaitable · S
   Rien ne surveille les dépendances. Ajouter dependabot.yml et une étape npm audit dans la CI.
   <br><sub>Preuves : git grep dependabot\|renovate → aucun résultat · npm outdated → express 5.2.1 / 5.3.0</sub>
 - [x] **Ajouter un script check et un seuil de couverture** — 🟢 Souhaitable · S
@@ -586,7 +586,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Mettre en place sauvegarde, rotation et restauration testée** — 🔴 Bloquant · M
   Toutes les données RH tiennent dans un fichier SQLite sans aucune sauvegarde. Ajouter npm run backup (VACUUM INTO) planifié avec rotation, une sauvegarde avant migration et réinitialisation, et un script de restauration testé.
   <br><sub>Preuves : grep backup\|VACUUM → aucun résultat · server/src/db.ts:79 (WAL) · server/src/seed.ts:291 (clearAll)</sub>
-- [ ] **Protéger npm run reset-demo contre l'effacement d'une base réelle** — 🟠 Important · S
+- [x] **Protéger npm run reset-demo contre l'effacement d'une base réelle** — 🟠 Important · S
   La commande vide toutes les tables sans vérifier le mode, sans confirmation ni sauvegarde. Refuser hors démo, exiger --yes et sauvegarder avant.
   <br><sub>Preuves : server/src/reset.ts:5-6 · server/src/seed.ts:291 · package.json:17</sub>
 - [x] **Résoudre les chemins de l'interface et de la base depuis le code** — 🟠 Important · S
@@ -598,22 +598,22 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Versionner les migrations de schéma** — 🟠 Important · M
   Le schéma est recréé à chaque démarrage sans numéro de version : impossible de renommer une colonne ou d'ajouter une contrainte. Créer des migrations numérotées exécutées une fois, avec user_version.
   <br><sub>Preuves : server/src/db.ts:83-97 · server/src/migrate.ts:24-27 · PRAGMA user_version → 0</sub>
-- [ ] **Charger les données par périmètre et ne renvoyer que ce qui change** — 🟠 Important · L
+- [x] **Charger les données par périmètre et ne renvoyer que ce qui change** — 🟠 Important · L
   Chaque action relit deux fois toute la base et renvoie tout l'instantané (26 Mo et ~1 s bloquante pour 500 salariés sur 3 ans), y compris pour chaque cellule d'heures. Filtrer en SQL par périmètre et période, ajouter des index, renvoyer seulement l'entité modifiée et partager un Domain unique côté client.
   <br><sub>Preuves : server/src/index.ts:107, :115 · server/src/dataset.ts:31-80, :107-145 · client/src/state/store.tsx:164 · mesure : 504 salariés → instantané RH 26,1 Mo en ~1 s</sub>
-- [ ] **Structurer les logs et répondre en JSON aux erreurs** — 🟢 Souhaitable · S
+- [x] **Structurer les logs et répondre en JSON aux erreurs** — 🟢 Souhaitable · S
   Quelques console.log sans contexte, et un JSON invalide ou une route /api inconnue renvoient une page HTML avec la pile d'appels. Ajouter des logs JSON (requête, durée, statut) et un gestionnaire d'erreurs JSON final.
   <br><sub>Preuves : server/src/index.ts:118 · server/src/index.ts:27, :162 (aucun middleware d'erreur) · curl POST '{bad' /api/login → 400 text/html</sub>
 - [x] **Ajouter un point de santé /api/health** — 🟢 Souhaitable · S
   /health renvoie la page d'accueil et /api/health n'existe pas. Créer une route qui vérifie la base et indique version et mode.
   <br><sub>Preuves : curl /api/health → 404 · desktop/CursusApp.swift:116-123</sub>
-- [ ] **Activer la compression et un cache long sur les fichiers statiques** — 🟢 Souhaitable · S
+- [x] **Activer la compression et un cache long sur les fichiers statiques** — 🟢 Souhaitable · S
   Le bundle de 531 Ko et les données JSON partent sans compression et sont revalidés à chaque visite. Compresser et mettre un cache immuable sur /assets.
   <br><sub>Preuves : server/src/index.ts:162 · curl -I /assets/index-*.js → max-age=0, sans Content-Encoding</sub>
 - [x] **Gérer l'arrêt propre et le délai d'attente SQLite** — 🟢 Souhaitable · S
   Le serveur ignore SIGTERM et aucun busy_timeout n'est fixé. Ajouter l'arrêt propre (fermeture HTTP et base) et PRAGMA busy_timeout.
   <br><sub>Preuves : grep SIGTERM server → aucun résultat · server/src/db.ts:79</sub>
-- [ ] **Découper le bundle client par écran** — 🟢 Souhaitable · S
+- [x] **Découper le bundle client par écran** — 🟢 Souhaitable · S
   Toute l'interface tient dans un fichier, et le seuil d'alerte de Vite a été relevé. Charger pages et dialogues à la demande et séparer React.
   <br><sub>Preuves : client/src/App.tsx:5-20 · vite.config.ts:15</sub>
 - [ ] **Retirer du dépôt les deux archives zip de la maquette** — 🟢 Souhaitable · S

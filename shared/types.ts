@@ -57,7 +57,11 @@ export type SessionStatut = 'À confirmer' | 'Confirmée' | 'Clôturée' | 'Annu
 // Administrés depuis l'écran Référentiels (shared/rules/referentiels.ts). `archive` : date d'archivage (null : en
 // vigueur) ; un élément archivé n'est plus proposé dans les listes, mais reste reconnu (dossiers, journal, Keystone).
 export interface Formation { id: string; nom: string; court: string; type: FormationType; validite: number; duree: string; organisme: string; cout: number; validation: ValidationMode; archive?: ISODate | null }
-export interface HabType { id: string; nom: string; detail: string; prereqs: string[]; medical: boolean; validite: number; signataire: string; archive?: ISODate | null }
+export interface HabType {
+  id: string; nom: string; detail: string; prereqs: string[]; medical: boolean; validite: number; signataire: string; archive?: ISODate | null;
+  /** Titre qui place son titulaire en suivi individuel renforcé (art. R4624-23 II : autorisation de conduite, habilitation électrique…). */
+  sir?: boolean;
+}
 export interface Destination {
   code: string; pays: string; visa: VisaKind; visaSub: string; oblig: VaccinId[]; rec: VaccinId[]; passMois: number;
   /** Formalité de sécurité sociale du détachement ; null : déduite du code pays (`secuDe` de shared/constants.ts). */
@@ -70,9 +74,25 @@ export interface Destination {
  */
 export interface Exigences { formations: string[]; habilitations: string[] }
 /** Poste du référentiel (écran Référentiels) : intitulé et exigences ; archivé, il n'est plus proposé sur les fiches. */
-export interface Poste extends Exigences { id: number; nom: string; archive?: ISODate | null }
+export interface Poste extends Exigences {
+  id: number; nom: string; archive?: ISODate | null;
+  /** Poste à risques particuliers : ses titulaires relèvent du suivi individuel renforcé (art. R4624-23). */
+  sir?: boolean;
+  /**
+   * Poste exposé à des risques particuliers (agents chimiques dangereux, CMR, ATEX…) : visite post-exposition ou de fin de
+   * carrière de ses titulaires à leur sortie (art. L4624-2-1, shared/rules/visites-dues.ts).
+   */
+  expose?: boolean;
+}
 /** `exigences` : formations et habilitations exigées de tous ses membres (null : aucune). */
-export interface Equipe { nom: string; managerId: number | null; ordre: number; exigences?: Exigences | null }
+export interface Equipe {
+  nom: string; managerId: number | null; ordre: number; exigences?: Exigences | null;
+  /**
+   * Travail de nuit ou en continu (Référentiels → Postes, exigences communes de l'équipe) : aucun salarié de moins de
+   * 18 ans n'y est affecté (art. L3163-2, shared/rules/mineurs.ts). null : case pas encore renseignée (décochée).
+   */
+  nuit?: boolean | null;
+}
 /** Projet ou chantier tenu dans Keystone : archivé, il reste en base (historique) sans plus être proposé ni évalué. */
 export type StatutKeystone = 'actif' | 'archive';
 export interface Projet { code: string; nom: string; statut: StatutKeystone }
@@ -95,7 +115,20 @@ export interface Referentiels {
 
 // — Collaborateurs —
 /** `convocLe` : date d'envoi de la dernière convocation à la session (e-mail avec fichier .ics). */
-export interface Certification { id: number; empId: number; f: string; obtenue: ISODate; sessionId: number | null; convoc: 'now' | 'later' | null; convocLe: ISODate | null }
+export interface Certification { id: number; empId: number; f: string; obtenue: ISODate; sessionId: number | null; convoc: 'now' | 'later' | null; convocLe: ISODate | null;
+  /**
+   * Correction d'une saisie erronée (shared/rules/corrections.ts) : dernière modification (`cert.modifier`) et annulation
+   * (`cert.annuler`), datées, signées et motivées. Une certification annulée reste en base mais hors de tous les calculs :
+   * elle n'est transmise qu'au service RH, dans `Employe.certsAnnulees`. Les motifs (texte libre) restent au service RH.
+   */
+  corrigeLe?: ISODate | null; corrigePar?: string | null; corrigeMotif?: string | null;
+  annuleLe?: ISODate | null; annulePar?: string | null; annuleMotif?: string | null;
+  /**
+   * Inscriptions en formation initiale closes par la certification (`cert.ajouter`), telles qu'elles étaient : rendues si
+   * elle est annulée ou change de formation (server/src/actions/inscriptions-closes.ts). Service RH seulement.
+   */
+  inscriptionsCloses?: Inscription[] | null;
+}
 /** Mesure prise sur un titre après un incident ou une restriction : suspension (réversible) ou retrait (définitif). */
 export type HabMesure = 'suspension' | 'retrait';
 export interface HabTitre {
@@ -110,8 +143,16 @@ export type AvisMedical = 'apte' | 'restrictions' | 'inapte';
  * jusqu'à une date (incluse) ou sans terme.
  */
 export interface Restriction { texte: string; jusquau: ISODate | null }
-/** Motif d'une demande de visite au service de prévention et de santé au travail. */
-export type MotifVisite = 'periodique' | 'embauche' | 'reprise' | 'employeur';
+/**
+ * Type de suivi de l'état de santé (shared/rules/suivi-medical.ts) : visite d'information et de prévention (VIP), VIP
+ * adaptée (travailleur de nuit ou handicapé, art. R4624-17 et R4624-20), suivi individuel renforcé (SIR, art. R4624-23).
+ */
+export type SuiviMedical = 'vip' | 'vip_adapte' | 'sir';
+/**
+ * Motif d'une demande de visite au service de prévention et de santé au travail ; mi-carrière (art. L4624-2-2) et fin de
+ * carrière ou post-exposition (art. L4624-2-1) : visites dues à un événement (shared/rules/visites-dues.ts).
+ */
+export type MotifVisite = 'periodique' | 'embauche' | 'reprise' | 'employeur' | 'mi_carriere' | 'fin_carriere';
 /**
  * Demande de visite médicale du service RH : en cours (`demandee`) jusqu'à la saisie de la visite (`realisee`,
  * datée du jour de la visite) ou son annulation. Réservée au service RH et à l'intéressé.
@@ -182,7 +223,29 @@ export interface Employe {
    * quand aucune autorisation n'est requise), sans type, numéro ni date.
    */
   autorisationVerdict?: 'valide' | 'expiree';
+  /**
+   * Année de naissance : celle de `naissanceLe` quand la date est connue (le serveur la dérive), sinon la seule connue
+   * (fiche antérieure à la date complète). Règle à l'année du supplément de congés de la CCN (shared/rules/conges.ts).
+   */
   naissance: number;
+  /**
+   * Date de naissance complète (âge exact : shared/rules/mineurs.ts) ; null : inconnue, la règle à l'année s'applique.
+   * Service RH et intéressé seulement : retirée des vues du manager et des profils restreints (server/src/dataset.ts).
+   */
+  naissanceLe?: ISODate | null;
+  /** Remplace `naissanceLe` dans les vues du manager et des profils restreints : salarié mineur au jour de l'instantané. */
+  mineur?: boolean;
+  /**
+   * Salarié de moins de 18 ans affecté à des travaux réglementés : date de la déclaration de dérogation à l'inspection du
+   * travail (art. R4153-40 et suivants), valable 3 ans (shared/rules/mineurs.ts) ; null : aucune. Saisie par le service RH ;
+   * retirée de la vue du manager et de celle de la paie (server/src/dataset.ts).
+   */
+  derogationTravauxLe?: ISODate | null;
+  /**
+   * Vues qui reçoivent la dérogation sans la date de naissance (référent HSE, lecture seule) : sa validité court au-delà
+   * des 18 ans, calculé par le serveur (pas d'échéance de renouvellement, comme pour le service RH) ; sans la date.
+   */
+  derogationApresMajorite?: boolean;
   agence: string | null;
   /**
    * Matricule du dossier de paie (Sage), saisi ou repris par le service RH : 1 à 20 lettres et chiffres, unique (sauf
@@ -205,12 +268,32 @@ export interface Employe {
   avis: AvisMedical | null;
   restrictions: Restriction[];
   /**
+   * Suivi médical (shared/rules/suivi-medical.ts) — réservé au service RH et à l'intéressé, jamais transmis au manager :
+   * type saisi par le service RH (null : VIP, sauf suivi renforcé déduit des habilitations ou du poste), date de la
+   * prochaine visite fixée par le médecin du travail avec l'avis (elle prime sur la périodicité), date du dernier examen
+   * médical d'aptitude (suivi individuel renforcé).
+   */
+  suivi?: SuiviMedical | null;
+  prochaineVisite?: ISODate | null;
+  examenAptitude?: ISODate | null;
+  /**
+   * Salarié exposé à des risques particuliers, coché par le service RH avec le type de suivi (`medical.suivi`) : visite
+   * post-exposition ou de fin de carrière à sa sortie (shared/rules/visites-dues.ts). Service RH et intéressé seulement.
+   */
+  expose?: boolean | null;
+  /**
    * Remplace `visite` et `avis` dans les vues manager et des profils restreints de l'espace RH : seul le verdict est
    * transmis (aptitude valide ou non, avis), avec les restrictions en vigueur recopiées telles qu'écrites, sans date de visite.
    */
-  aptitude?: { ok: boolean; avis?: AvisMedical | null; restrictions?: Restriction[] };
+  aptitude?: {
+    ok: boolean; avis?: AvisMedical | null; restrictions?: Restriction[];
+    /** Visite due à un événement, échue ou sous l'horizon d'alerte (shared/rules/visites-dues.ts) : ni motif, ni date. */
+    aProgrammer?: boolean;
+  };
   passeport: Passeport | null;
   certs: Certification[];
+  /** Certifications annulées (saisie erronée, `cert.annuler`) : service RH seulement (vide ailleurs, server/src/dataset.ts). */
+  certsAnnulees?: Certification[];
   habs: HabTitre[];
   visas: Visa[];
   vaccins: Vaccination[];
@@ -221,6 +304,12 @@ export interface Personne { id: number; nom: string; equipe: string | null; post
 // — Formations & plan —
 export interface Session {
   id: number; formation: string; date: ISODate; lieu: string; places: number; statut: SessionStatut;
+  /**
+   * Session sur plusieurs jours (shared/rules/plage-session.ts) : `date` reste le premier jour, `fin` le dernier (égal à
+   * `date` pour une session d'une journée), `jours` les jours de la session entre les deux (ouvrés par défaut, premier et
+   * dernier compris), `horaires` aucun (journées entières), un seul (tous les jours) ou un par jour, dans l'ordre de `jours`.
+   */
+  fin: ISODate; jours: ISODate[]; horaires: HoraireSession[];
   /** Calculé au chargement (certifications rattachées, inscriptions, résultats de clôture), jamais stocké. */
   inscrits: number;
   /** Action du plan de formation à l'origine de la session. */
@@ -228,6 +317,8 @@ export interface Session {
   /** Clôture (évaluation à chaud) ou annulation (motif) : date et auteur. */
   bilan: SessionBilan | null;
 }
+/** Horaire d'un jour de session : début et fin (« HH:MM », heure de Paris), pause non comptée en minutes. */
+export interface HoraireSession { debut: string; fin: string; pause: number }
 export interface SessionBilan { le: ISODate; par: string; note: number | null; commentaire: string | null; motif: string | null }
 /**
  * Inscription à une session d'une formation que le collaborateur n'a encore jamais suivie (formation initiale).
@@ -251,6 +342,12 @@ export interface PlanAction {
   effectifReel?: number | null;
   /** Action reportée : action de l'exercice clos dont elle reprend la ligne (`plan.cloturerExercice`). */
   reportDe?: number | null;
+  /**
+   * Correction (`plan.modifier`) et suppression (`plan.supprimer`, demande rouverte) d'une ligne saisie par erreur : datées,
+   * signées et motivées. Une ligne supprimée reste en base, hors de l'instantané et de tous les calculs (server/src/dataset.ts).
+   */
+  corrigeLe?: ISODate | null; corrigePar?: string | null; corrigeMotif?: string | null;
+  annuleLe?: ISODate | null; annulePar?: string | null; annuleMotif?: string | null;
 }
 /** Exercice du plan de formation clos (`plan.cloturerExercice`) : plan et enveloppes en lecture seule. */
 export interface ExerciceClos { exercice: number; le: ISODate; par: string }
@@ -273,6 +370,11 @@ export interface Voyage {
    * réservé au service RH). Annulé, le déplacement reste dans l'historique mais sort de tous les calculs.
    */
   annuleLe?: ISODate | null; annulePar?: string | null; annuleMotif?: string | null;
+  /**
+   * Demandeur d'un déplacement importé du formulaire (`voyages.importer`) : nom du salarié reconnu, sinon le nom tel que
+   * saisi (texte libre). Service RH seulement (null ailleurs : server/src/dataset.ts).
+   */
+  demandeur?: string | null;
 }
 /** Demande de déplacement reçue de Keystone (`ref` : référence externe unique), conservée après décision du RH. */
 export interface DemandeKeystone {
@@ -302,7 +404,73 @@ export interface FeuilleTemps {
   heuresSup?: ModeHeuresSupFige | null;
   /** Lot de paie (`lotsPaie`) qui porte la feuille : généré ou transmis ; null une fois le lot annulé (feuille libérée). */
   lotId?: number | null;
+  /**
+   * Majoration des heures du dimanche (%, réglage `majorationDimanche`) figée à la validation, comme le mode des heures
+   * supplémentaires : un changement du réglage ne recalcule pas une semaine validée. Null avant : le réglage s'applique.
+   */
+  majDimanche?: number | null;
+  /**
+   * Vues sans la date de naissance (manager, profils restreints) : salarié mineur un jour au moins de la semaine, calculé
+   * par le serveur (shared/rules/mineurs.ts), pour que la feuille d'une semaine passée garde ses contrôles après les 18 ans.
+   * Jamais enregistré.
+   */
+  mineur?: boolean;
+  /**
+   * Majoration des heures d'un jour férié autre que le 1er mai (%, réglage `tauxMajorationFerie`) figée à la validation,
+   * comme celle du dimanche. Null avant : le réglage s'applique. Le 1er mai est toujours majoré de 100 % (art. L3133-6).
+   */
+  majFerie?: number | null;
+  /**
+   * Contrepartie obligatoire en repos (heures, par année civile : « 2026 » → heures) figée à la validation
+   * (shared/rules/durees.ts, `corAValider`) : COR de l'année recalculée sur toutes les feuilles validées, moins celle déjà
+   * figée sur les autres. Négative pour corriger une COR déjà créditée. Null : aucune.
+   */
+  cor?: Record<string, number> | null;
+  /**
+   * Dernière réouverture de la feuille validée par l'administrateur RH (t131, shared/rules/regularisation.ts) ; null ou
+   * absente : jamais rouverte. Vues du manager et du collaborateur : sans le motif, les rubriques ni les heures Keystone.
+   */
+  reouverture?: ReouvertureFeuille | null;
 }
+/**
+ * Réouverture d'une feuille validée (action `temps.rouvrir`, administrateur RH seul, motif obligatoire) : ce qui était
+ * déjà parti, gardé pour n'envoyer à la revalidation que la différence.
+ */
+export interface ReouvertureFeuille {
+  /** Instant (ISO), auteur et motif (500 caractères au plus) de la réouverture. */
+  le: string; par: string; motif: string;
+  /**
+   * Renvoyée au salarié pour correction (« à corriger », le motif en commentaire), sinon corrigée par son valideur
+   * (« soumise ») ; repasse à faux à la nouvelle soumission (un retour suivant vient du valideur).
+   */
+  renvoyee: boolean;
+  /** Feuille déjà transmise à la paie à sa réouverture (une fois au moins) ; `lot` : dernier lot transmis qui la portait. */
+  transmise: boolean; lot: number | null;
+  /**
+   * Rubriques déjà transmises à la paie, en codes Sage, par période d'origine (AAAA-MM → code → quantité) : l'écart
+   * avec celles de la feuille revalidée part dans le lot suivant (lot « correctif »). Null : rien de transmis.
+   */
+  rubriques: Record<string, Record<string, number>> | null;
+  /** D'où viennent `rubriques` : contenu figé du lot, lignes du lot rapprochées par matricule, ou recalcul de la feuille. */
+  source?: 'lot' | 'lignes' | 'recalcul' | null;
+  /** Heures par projet déjà renvoyées à Keystone ; un projet retiré y est renvoyé à 0. Null : aucun événement parti. */
+  keystone: Record<string, number> | null;
+  /** Réouvertures précédentes (instant, auteur, motif), de la plus ancienne à la plus récente. */
+  precedentes?: { le: string; par: string; motif: string }[];
+}
+/**
+ * Dérogation au repos dominical d'une équipe (shared/rules/semaine.ts) : aucune (heures du dimanche signalées au RH), travail
+ * en continu (art. L3132-12, R3132-5) ou équipe de suppléance (art. L3132-16), avec la référence de l'accord ou de la
+ * décision ; réglée par l'administrateur RH (Paramètres → Repos hebdomadaire, `temps.derogationDominicale`).
+ */
+export type TypeDerogationDominicale = 'aucune' | 'feu_continu' | 'suppleance';
+export interface DerogationDominicale { equipe: string; type: TypeDerogationDominicale; reference: string | null; le: ISODate; par: string }
+/**
+ * Mandat d'élu au CSE (shared/rules/delegation.ts) : titulaire ou suppléant, dates, crédit d'heures de délégation par mois
+ * (proposé d'après l'art. R2314-1, modifiable). Saisi par le service RH sur la fiche ; vu par le RH et l'élu seulement.
+ */
+export type RoleMandat = 'titulaire' | 'suppleant';
+export interface Mandat { id: number; empId: number; role: RoleMandat; du: ISODate; au: ISODate | null; credit: number }
 /**
  * Heures supplémentaires payées avec majoration, ou remplacées par un repos compensateur (accord collectif, art. L3121-33 ;
  * à défaut de délégué syndical, sans opposition du CSE, art. L3121-37).
@@ -326,7 +494,34 @@ export interface Absence {
   annuleeLe: ISODate | null; annuleePar: string | null;
   /** Demande refusée : motif donné par le valideur, montré au salarié. */
   motifRefus?: string | null;
+  /**
+   * Demi-journées (CP, RTT ou repos du forfait jours, récupération ; shared/rules/demi-journees.ts) : null, journée
+   * entière. `debutDemi` : seule demi-journée prise le premier jour (après-midi pour un congé de plusieurs jours, matin
+   * ou après-midi pour un congé d'un seul jour) ; `finDemi` : seule demi-journée prise le dernier jour (matin), jamais
+   * sur un congé d'un seul jour.
+   */
+  debutDemi?: DemiJournee | null; finDemi?: DemiJournee | null;
+  /**
+   * Fichier d'import de la paie (shared/rules/absences-paie.ts) : `lotId`, lot de paie qui la porte (généré, en attente de
+   * confirmation, ou dernier lot transmis) ; `sage`, jours transmis à la paie au moins une fois (import confirmé). Transmis
+   * au service RH, à la paie et à la lecture seule ; ni au manager, ni au collaborateur, ni au référent HSE
+   * (server/src/dataset.ts).
+   */
+  lotId?: number | null; sage?: boolean;
 }
+/**
+ * Effet d'une absence sur l'acquisition des congés payés (loi 2024-364, shared/rules/acquisition-cp.ts) : `assimile`, travail
+ * effectif ; `maladie`, 2 jours ouvrables par mois (art. L3141-5-1, réglage `cpMaladie`) ; `non`, acquisition réduite au prorata.
+ */
+export type CpAcquisition = 'assimile' | 'maladie' | 'non';
+/**
+ * Jours de CP acquis chaque mois d'une période de référence (`periode` : année de prise), calculés par le serveur avec la
+ * vraie nature des absences (shared/rules/acquisition-cp.ts) : transmis au seul profil paie, qui reçoit les absences
+ * médicales sans leur nature, pour que ses soldes soient ceux du service RH sans qu'aucune absence soit désignée.
+ */
+export interface AcquisitionCpCalculee { empId: number; periode: number; mois: number[] }
+/** Demi-journée d'un congé : matin ou après-midi. */
+export type DemiJournee = 'matin' | 'apres_midi';
 export interface CetMouvement { id: number; empId: number; type: 'CP' | 'RTT'; jours: number; date: ISODate; periode: string }
 /**
  * Report de congés payés. `recu` : jours ajoutés aux droits de la période `periode` (année de prise, `anneeCp` de
@@ -350,6 +545,11 @@ export interface SoldeReprise {
    * RTT de l'année, CET (jours). Null : non repris (compteur calculé depuis `cpPris`, `rttPris`).
    */
   cpSolde?: number | null; cpSoldeSuivant?: number | null; rttSolde?: number | null; cetSolde?: number | null;
+  /**
+   * Heures supplémentaires déjà faites dans l'année civile de la date d'arrêté, avant elle (contingent annuel,
+   * shared/rules/durees.ts) : 0 pour une reprise au 1er janvier. Null : non reprises.
+   */
+  heuresSupAnnee?: number | null;
 }
 /**
  * Clôture d'une période de congés pour un salarié (`conges.cloturer`) : photographie du solde restant et décision du
@@ -364,6 +564,60 @@ export interface ClotureConges {
   decision: 'reporter' | 'perdre' | 'solde_nul'; reportes: number; perdus: number; expire: ISODate | null; reportId: number | null;
   motif: 'report_legal' | 'report_en_cours' | null; le: ISODate; par: string;
 }
+/**
+ * Information du salarié sur ses congés payés à son retour d'un arrêt de maladie ou d'accident (art. L3141-19-3,
+ * `conges.informer`, shared/rules/information-retour.ts) : arrêt concerné (`absenceId`, ses dates), jour de l'information,
+ * jours communiqués (solde de la période en cours, `jours`, à prendre jusqu'au `limite` ; dont acquis pendant l'arrêt,
+ * `arret`) et échéance du report de 15 mois qui court à partir de cette information (`echeance`). Service RH et intéressé.
+ */
+export interface InformationCp {
+  id: number; empId: number; absenceId: number; du: ISODate; au: ISODate; le: ISODate;
+  jours: number; arret: number; limite: ISODate; echeance: ISODate; par: string;
+}
+
+/**
+ * État des compteurs d'un salarié à sa date de sortie (t128, shared/rules/solde-sortie.ts), en jours (récupération en
+ * heures), à transmettre à la paie pour le solde de tout compte ; le montant de l'indemnité reste calculé par Sage.
+ * - `cp` : période acquise `periode` (année de prise : droit, reports non échus compris, jours pris et posés, solde) et
+ *   période en cours d'acquisition `periode` + 1 (jours acquis jusqu'au mois de la sortie, jours déjà pris par
+ *   anticipation, solde) ; `total` : jours à indemniser (indemnité compensatrice, rubrique ICCP_J) ;
+ * - `rtt` : droit de l'année au prorata, pris et posés, solde ; `tropPris` : jours pris au-delà du droit, signalés, sans
+ *   retenue automatique ;
+ * - `recup` : repos compensateur, en heures ; `cet` : jours du compte épargne-temps (placements et solde repris), liquidés
+ *   en entier par défaut (aucun accord sur le CET connu).
+ * Null : compteur qui ne concerne pas le contrat (intérim, 35 h sans RTT, heures supplémentaires payées…).
+ */
+export interface EtatSortie {
+  date: ISODate;
+  cp: {
+    periode: number; droit: number; pris: number; poses: number; solde: number;
+    acquis: number; anticipes: number; soldeEnCours: number; total: number;
+  } | null;
+  rtt: { annee: number; label: string; droit: number; pris: number; poses: number; solde: number; tropPris: number } | null;
+  recup: { acquis: number; pris: number; poses: number; solde: number } | null;
+  cet: { cp: number; rtt: number; repris: number; total: number } | null;
+  /** Points à voir avant de transmettre (période précédente non clôturée, demandes en attente…). */
+  avertissements: string[];
+}
+/**
+ * Solde de sortie photographié à l'enregistrement de la sortie (`employe.sortie`, table `soldesSortie`) : une correction
+ * ultérieure d'une feuille ou d'une absence ne change pas ce qui a été transmis. Refait à chaque modification de la sortie
+ * tant qu'il n'est pas parti à la paie ; `lotId` : lot de paie qui l'emporte (rubriques de sortie actives), `sage` :
+ * import de ce lot confirmé. Service RH, paie et lecture seule (vide ailleurs).
+ */
+export interface SoldeSortie {
+  id: number; empId: number; date: ISODate; etat: EtatSortie; le: string; par: string; lotId: number | null; sage: boolean;
+  /**
+   * Réglé hors fichier : aucune rubrique de sortie active à la confirmation du lot de sa période (`lotId`, `sage` vrai),
+   * la paie l'a saisi dans Sage ; une rubrique activée ensuite ne le rattrape pas.
+   */
+  horsFichier?: boolean;
+  /**
+   * Remplacé : sortie annulée, ou modifiée à une autre date, après la transmission du solde ; gardé pour l'historique
+   * (l'écart se corrige dans Sage), il n'est plus le solde courant du salarié (un par salarié au plus).
+   */
+  remplaceLe?: string | null;
+}
 
 // — Entretiens & demandes —
 /**
@@ -377,13 +631,34 @@ export interface Entretien {
    * `telechargeLe` : premier téléchargement par le salarié lui-même, depuis son espace.
    */
   remiseLe?: ISODate | null; remiseMode?: ModeRemise | null; remisePar?: string | null; telechargeLe?: ISODate | null;
+  /**
+   * Vues sans la date de naissance (manager, profils restreints) : sections « fin de carrière » dues ou non, calculées par
+   * le serveur sur l'âge exact à la date de l'entretien (`needsFinCarriere`, shared/rules/entretiens.ts).
+   */
+  finCarriere?: boolean;
 }
 /** Remise du compte rendu : en main propre, après un refus de signer, ou mis à disposition dans le portail (lien par e-mail). */
 export type ModeRemise = 'main_propre' | 'refus' | 'portail';
 /** Demande au service RH, émise par le collaborateur ou par son manager (`parId`). */
-export interface DemandeCollab { id: number; empId: number; type: DemandeType; f: string | null; h: string | null; libelle: string | null; label: string | null; sessionId: number | null; motif: string | null; date: ISODate; statut: DemandeStatut; reponse: string | null; parId: number | null; declaration: Declaration | null;
+export interface DemandeCollab { id: number; empId: number; type: DemandeType; f: string | null; h: string | null; libelle: string | null; label: string | null; sessionId: number | null; motif: string | null; date: ISODate;
+  /** `retiree` : retirée par son auteur tant qu'elle était en attente (`demande.annuler`). */
+  statut: DemandeStatut | 'retiree';
+  reponse: string | null; parId: number | null; declaration: Declaration | null;
   /** Demande refusée : motif donné par le service RH, montré au collaborateur. */
   motifRefus?: string | null;
+  /** Ce que l'acceptation a créé (`demande.accepter`), défait par la réouverture : identifiants seulement. */
+  suite?: SuiteDemande | null;
+  /** Dernière réouverture par le service RH (`demande.reouvrir`) : le motif (texte libre) reste au service RH. */
+  rouverteLe?: ISODate | null; rouvertePar?: string | null; rouverteMotif?: string | null;
+}
+/**
+ * Suite donnée à une demande acceptée : inscription à la session souhaitée (recyclage `certId` ou formation initiale
+ * `inscriptionId`, `depuis` : session quittée pour elle ; `cree` : inscription créée), ligne ajoutée au plan de formation
+ * (`planId`), ou titre d'habilitation en attente de délivrance (`habTitreId`, `cree` : titre créé par l'acceptation,
+ * sinon demande inscrite sur un titre retiré ou expiré). Vide : l'acceptation n'a rien créé (déjà inscrit, titre déjà en attente).
+ */
+export interface SuiteDemande {
+  sessionId?: number; certId?: number; inscriptionId?: number; depuis?: number | null; planId?: number; habTitreId?: number; cree?: boolean;
 }
 /**
  * Formalité déclarée par le collaborateur (demande « document ») : conservée dans la demande
@@ -414,6 +689,11 @@ export interface Settings {
   politiqueReportCp: 'cas_par_cas' | 'proposer_report';
   /** RTT de l'année suivante posables à partir de ce jour de l'année (« MM-JJ ») ; vide : sans restriction. */
   rttAnneeSuivanteDes: string;
+  /**
+   * Acquisition des CP pendant un arrêt maladie (art. L3141-5-1) : minimum légal (2 jours ouvrables par mois, 24 par
+   * période) ou maladie assimilée à du travail effectif (accord ou CCN plus favorable confirmé).
+   */
+  cpMaladie: 'legal' | 'assimile';
   // Paie (client/src/pages/parametres/ReglagesPaie.tsx, shared/rules/paie.ts) : heures supplémentaires payées ou en repos
   // (référence de l'accord qui le prévoit), rattachement d'une semaine à cheval sur deux mois, jour de clôture (0 : dernier jour).
   heuresSupMode: ModeHeuresSup;
@@ -439,7 +719,41 @@ export interface Settings {
   relancesActives: boolean;
   relancesPaliers: number[];
   relancesJour: 'quotidien' | 'lundi' | 'mardi' | 'mercredi' | 'jeudi' | 'vendredi';
+  /** Majoration des heures du dimanche, en % (0 par défaut, aucune majoration légale hors accord) : rubrique MAJ_DIM. */
+  majorationDimanche: number;
+  // Santé (client/src/pages/parametres/Sante.tsx, shared/rules/suivi-medical.ts) : périodicité des visites en mois selon le
+  // type de suivi, quand le médecin du travail n'a pas fixé la date de la prochaine visite.
+  santeVipMois: number;
+  santeVipAdapteeMois: number;
+  santeSirIntermediaireMois: number;
+  santeSirAptitudeMois: number;
+  /** Âge de la visite de mi-carrière (art. L4624-2-2 : 45 ans à défaut d'accord de branche ; shared/rules/visites-dues.ts). */
+  santeMiCarriereAge: number;
+  /** Formations (shared/rules/formations-temps.ts) : heures des sessions proposées dans la feuille de temps des inscrits. */
+  formationsTemps: boolean;
+  // Décompte des heures (client/src/pages/parametres/DecompteHeures.tsx, shared/rules/majorations.ts et durees.ts) : saisie un
+  // jour férié et majoration des fériés autres que le 1er mai (%), plafond des heures complémentaires du temps partiel
+  // (le tiers avec la référence de l'accord), moyenne maximale sur 12 semaines (46 h avec la référence de l'accord),
+  // contingent annuel d'heures supplémentaires, seuil d'alerte (%) et référence de l'accord ou de la convention.
+  feriesTravaillesAutorises: boolean;
+  tauxMajorationFerie: number;
+  plafondHeuresComplementaires: PlafondComplementaires;
+  heuresComplementairesAccord: string;
+  moyenne12SemainesMax: number;
+  moyenne12SemainesAccord: string;
+  contingentHeuresSup: number;
+  contingentAlerte: number;
+  contingentAccord: string;
+  /** Paie (shared/rules/absences-paie.ts) : absences validées dans le fichier d'import, avec les heures (activé par défaut). */
+  absencesFichierPaie: boolean;
+  /**
+   * Paie : date de mise en service, premier jour d'absence transmis dans le fichier, pour toutes les absences (les jours
+   * d'avant ont été traités par Lucca et Sage) ; null : seule vaut la date de départ posée par Cursus.
+   */
+  absencesPaieAPartirDu: ISODate | null;
 }
+/** Plafond des heures complémentaires du temps partiel : le dixième (art. L3123-28) ou le tiers avec un accord (art. L3123-20). */
+export type PlafondComplementaires = 'dixieme' | 'tiers';
 
 /**
  * Personne connectée, dans l'espace actif. Dans l'espace RH, `empId` reste null : la personne agit
@@ -501,8 +815,11 @@ export interface CompteSession {
 }
 
 // — Messages sortants (file d'envoi : server/src/envois.ts) —
-/** Destinataires des messages sortants : Keystone, la messagerie (e-mails) ; Sage Paie n'est pas encore branché sur la file. */
-export type CibleEnvoi = 'keystone' | 'sage' | 'email';
+/**
+ * Destinataires des messages sortants : Keystone, la messagerie (e-mails). Sage Paie n'y figure pas : ses variables
+ * passent par le fichier d'import que la paie importe elle-même (décision du 15 octobre 2026, aucun envoi automatique).
+ */
+export type CibleEnvoi = 'keystone' | 'email';
 /** `simule` : aucune adresse configurée, le message n'est que tracé dans le journal. */
 export type StatutEnvoi = 'a_envoyer' | 'envoye' | 'echec' | 'simule';
 export interface Envoi {
@@ -570,16 +887,69 @@ export interface ReleveInterim {
   enAttente: number;
 }
 
-/** Transmission à Sage Paie : simulation (rien ne part), fichier d'import (mode de production), API (pas encore de contrat). */
-export type SageMode = 'simulation' | 'fichier' | 'api';
+/**
+ * Transmission à Sage Paie : simulation (rien ne part) ou fichier d'import (mode de production). Pas d'envoi par API :
+ * la paie importe le fichier dans Sage (décision du 15 octobre 2026).
+ */
+export type SageMode = 'simulation' | 'fichier';
 /**
  * Variables de paie d'une transmission : une ligne par feuille et par période de paie (une semaine ventilée jour par jour
  * peut en donner deux), rubriques traduites en codes Sage (shared/rules/paie.ts). `periode_origine` : période naturelle
  * déjà close, la ligne part en rappel sur la période ouverte. `periode_paie` : ancien format (période unique du lot).
  */
 export interface SagePush {
-  endpoint: string; dossier: string; mode?: SageMode; envoye_le: string; periodes?: string[]; periode_paie?: string;
-  lignes: { matricule: string; semaine: string; periode?: string; periode_origine?: string; rubriques: Record<string, number> }[];
+  /** Ancien format : adresse d'un envoi par API qui n'a jamais existé (contenus figés avant le lot 5). */
+  endpoint?: string;
+  dossier: string; mode?: SageMode; envoye_le: string; periodes?: string[]; periode_paie?: string;
+  lignes: {
+    matricule: string; semaine: string; periode?: string; periode_origine?: string; rubriques: Record<string, number>;
+    /**
+     * Régularisation d'une feuille rouverte (t131) : écart avec ce qui est déjà parti ; `remplace` : rubriques complètes
+     * du salarié pour la période d'origine (« annule et remplace », quantités négatives refusées par l'import), une
+     * quantité nulle y est gardée.
+     */
+    correctif?: boolean; remplace?: boolean;
+  }[];
+  /**
+   * Rubriques de chaque feuille du lot (codes Sage, par période d'origine), figées à la génération : ce qui est parti pour
+   * elle, que la réouverture garde (`ReouvertureFeuille.rubriques`). Absent avant le lot 5 (repris par la migration
+   * lot5-paie-rubriques-par-feuille quand les lignes le permettent).
+   */
+  rubriquesFeuilles?: RubriquesFeuille[];
+  /** Lot correctif : régularisation par écart (quantités négatives acceptées) ou en « annule et remplace ». */
+  regularisation?: ModeRegularisation;
+  /** Libellé de chaque code Sage du contenu, figé à la génération du lot (colonne facultative « libellé » du fichier). */
+  libelles?: Record<string, string>;
+  /** Absences du lot, absence par absence, mois et rubrique (shared/rules/absences-paie.ts) ; absent avant le lot 5. */
+  absences?: ElementAbsencePaie[];
+  /** Soldes de sortie du lot, salarié par salarié et rubrique (shared/rules/solde-sortie.ts) ; absent avant t128. */
+  sorties?: ElementSortiePaie[];
+}
+/**
+ * Quantité d'un solde de sortie dans un lot de paie : rubrique interne de sortie (ICCP_J, RTT_SOLDE, RECUP_H, CET_LIQ) et
+ * son code Sage figé, partie sur la période `periode` (mois de la sortie, ou période ouverte s'il est clos).
+ */
+export interface ElementSortiePaie {
+  sortie: number; empId: number; matricule: string; periode: string; rubrique: string; codeSage: string; quantite: number; date: ISODate;
+}
+/**
+ * Quantité d'une absence dans un lot de paie : jours (heures pour la récupération) d'un mois `mois`, partis sur la période
+ * `periode` (rappel quand elle diffère, période close), sous la rubrique interne `rubrique` et son code Sage figé
+ * (`codeSage` null : rubrique désactivée, laissée à la saisie dans Sage). Négative : régularisation d'une absence annulée,
+ * raccourcie ou requalifiée après sa transmission. `du`, `au` : jours de l'absence dans ce mois.
+ */
+export interface ElementAbsencePaie {
+  absence: number; empId: number; matricule: string; mois: string; periode: string;
+  rubrique: string; codeSage: string | null; quantite: number; du: ISODate; au: ISODate;
+}
+/**
+ * Absences en attente du fichier de paie, par période de destination (calculées par le serveur, qui lit les lots) :
+ * nombre d'absences, salariés concernés, nombre de régularisations, mois clos repris en rappel, rubriques internes émises (vides hors
+ * droit « paie » et service RH : le code révèle la catégorie). `ids`, `idsRegularisations` : identifiants des absences,
+ * pour compter une fois une absence ventilée sur deux périodes de destination.
+ */
+export interface AbsencesPaieAttente {
+  periode: string; absences: number; ids: number[]; empIds: number[]; regularisations: number; idsRegularisations: number[]; rappels: string[]; rubriques: string[];
 }
 /** Rattachement d'une semaine à cheval sur deux mois : mois de son dimanche, de son vendredi, ou ventilation jour par jour. */
 export type RattachementPeriode = 'dimanche' | 'vendredi' | 'jour';
@@ -599,12 +969,17 @@ export interface RubriquePaie {
  * Lot de paie (shared/rules/lots-paie.ts, server/src/actions/paie.ts) : feuilles validées d'une période, contenu figé à la
  * génération. Généré : fichier d'import prêt, feuilles réservées ; transmis : import dans Sage confirmé par la paie
  * (date, auteur, référence) ou simulation ; annulé : feuilles libérées, possible seulement avant la confirmation.
- * L'envoi par API (statuts « à envoyer », « échec ») arrivera avec le connecteur Sage.
  */
 export type StatutLotPaie = 'genere' | 'transmis' | 'annule';
+/** Lot ordinaire, ou correctif : il porte la régularisation d'au moins une feuille rouverte après sa transmission. */
+export type TypeLotPaie = 'normal' | 'correctif';
+/** Régularisation d'une feuille transmise : écart sur la période ouverte, ou rubriques complètes de la période d'origine. */
+export type ModeRegularisation = 'ecart' | 'remplace';
+/** Rubriques d'une feuille (codes Sage), par période d'origine (AAAA-MM). */
+export interface RubriquesFeuille { empId: number; week: ISODate; periodes: Record<string, Record<string, number>> }
 export interface LotPaie {
   id: number;
-  /** Clé d'idempotence (UUID) : identique à chaque téléchargement, puis à chaque envoi quand l'API existera. */
+  /** Clé d'idempotence (UUID) : identique à chaque téléchargement du fichier. */
   cle: string;
   mode: SageMode; statut: StatutLotPaie;
   /** Période de paie choisie (AAAA-MM) ; `periodes` : celles des lignes ; `rappels` : périodes closes reprises. */
@@ -612,8 +987,15 @@ export interface LotPaie {
   creation: string; auteur: string;
   /** Feuilles du lot (gardées après une annulation, qui les libère). */
   feuilles: { empId: number; week: ISODate }[];
-  /** Totaux du contenu figé : lignes du fichier, salariés, quantité par code Sage. */
-  resume: { lignes: number; salaries: number; rubriques: Record<string, number> };
+  /** Absences du lot (identifiant, salarié), gardées après une annulation ; absent avant le lot 5. */
+  absences?: { id: number; empId: number }[];
+  /** Soldes de sortie du lot (identifiant du solde, salarié), gardés après une annulation ; absent avant t128. */
+  sorties?: { id: number; empId: number }[];
+  /**
+   * Totaux du contenu figé : lignes du fichier, salariés, quantité par code Sage des heures ; `absences` : éléments
+   * d'absence, salariés et quantité par code Sage (codes retirés hors droit « paie » : server/src/dataset.ts).
+   */
+  resume: { lignes: number; salaries: number; rubriques: Record<string, number>; absences?: { elements: number; salaries: number; rubriques: Record<string, number> }; sorties?: { elements: number; salaries: number } };
   /** Salariés partis sous leur matricule Cursus, faute de matricule de paie (simulation seulement). */
   sansMatricule: number[];
   telechargeLe: string | null; telechargePar: string | null; telechargements: number;
@@ -622,9 +1004,16 @@ export interface LotPaie {
   annuleLe: string | null; annulePar: string | null;
   /** Lot repris des transmissions d'avant les lots (migration lot4-paie-lots-historiques) : contenu inconnu. */
   historique: boolean;
+  /** « correctif » : régularisation de feuilles rouvertes (`correctifs`) ; absent avant le lot 5 : lot ordinaire. */
+  type?: TypeLotPaie;
+  correctifs?: { empId: number; week: ISODate }[];
 }
-/** Colonnes du fichier d'import Sage, dans l'ordre réglé par la paie. */
-export type ColonneFichierPaie = 'matricule' | 'periode' | 'rubrique' | 'quantite';
+/**
+ * Colonnes du fichier d'import Sage, dans l'ordre réglé par la paie : matricule, période, rubrique et quantité toujours ;
+ * facultatives, absentes par défaut : code du dossier de paie (SAGE_DOSSIER), libellé de la rubrique, premier et dernier
+ * jour de la période.
+ */
+export type ColonneFichierPaie = 'matricule' | 'periode' | 'rubrique' | 'quantite' | 'dossier' | 'libelle' | 'debut' | 'fin';
 /** Format du fichier d'import (action `paie.formatFichier`, écran Temps) : ajusté par la paie à l'import de son Sage. */
 export interface FormatFichierPaie {
   separateur: ';' | ',' | 'tab';
@@ -632,11 +1021,26 @@ export interface FormatFichierPaie {
   formatPeriode: 'AAAA-MM' | 'MM/AAAA' | 'AAAAMM' | 'MMAAAA';
   decimale: ',' | '.';
   entete: boolean;
+  /** UTF-8 sans BOM par défaut ; Windows-1252 (« ANSI »), souvent attendu par l'import de Sage. */
+  encodage: 'utf-8' | 'windows-1252';
+  /** Dates des colonnes « début » et « fin » de période. */
+  formatDate: 'JJ/MM/AAAA' | 'AAAA-MM-JJ' | 'JJMMAAAA';
+  /**
+   * Quantités négatives acceptées par l'import (oui par défaut) : la correction d'une feuille déjà transmise part en
+   * écart, positif ou négatif ; sinon en « annule et remplace » (rubriques complètes de la période d'origine). Lu à la
+   * génération du lot.
+   */
+  negatifs?: boolean;
 }
 
 /** Instantané des données visibles par l'utilisateur connecté. */
 export interface Dataset {
   today: ISODate;
+  /**
+   * Révision de la base au moment de l'instantané (croissante, server/src/db.ts) : un instantané de révision inférieure à
+   * celle de l'écran est ignoré (réponses arrivées dans le désordre : client/src/state/revision.ts). Aucune donnée personnelle.
+   */
+  revision: number;
   user: CurrentUser;
   settings: Settings;
   referentiels: Referentiels;
@@ -660,6 +1064,12 @@ export interface Dataset {
   soldesReprise: SoldeReprise[];
   /** Clôtures des périodes de congés (CP au 31 mai, RTT au 31 décembre), une ligne par salarié et par période. */
   clotures: ClotureConges[];
+  /** Informations des salariés sur leurs congés à leur retour d'arrêt : service RH et intéressé (vide ailleurs). */
+  informationsCp?: InformationCp[];
+  /** Acquisition des CP calculée par le serveur, par salarié et par période : profil paie seulement (absent ailleurs). */
+  acquisitionsCp?: AcquisitionCpCalculee[];
+  /** Soldes de sortie photographiés (t128) : service RH, paie et lecture seule (absent ou vide ailleurs). */
+  soldesSortie?: SoldeSortie[];
   entretiens: Entretien[];
   demandesCollab: DemandeCollab[];
   demandesVisite: DemandeVisite[];
@@ -675,11 +1085,22 @@ export interface Dataset {
   formatFichierPaie: FormatFichierPaie | null;
   /** Correspondance des rubriques avec le plan de paie Sage : service RH, paie et lecture seule (vide ailleurs). */
   rubriquesPaie: RubriquePaie[];
+  /** Absences en attente du fichier de paie par période : service RH, paie et lecture seule (sans rubriques) ; vide ailleurs. */
+  absencesPaie?: AbsencesPaieAttente[];
   /** Adresses de la messagerie et relevés transmis aux agences d'intérim : service RH seulement (null et vide ailleurs). */
   messagerie: Messagerie | null;
   releves: ReleveInterim[];
   /** Lots importés à la mise en service (reprise depuis Lucca) : service RH seulement (vide ailleurs). */
   reprises: LotReprise[];
+  /** Dérogations au repos dominical par équipe : la référence de l'accord n'est transmise qu'au service RH. */
+  derogationsDominicales?: DerogationDominicale[];
+  /** Mandats au CSE : service RH (tous) et l'élu (les siens) ; vide ailleurs (le manager ne voit que la ligne de la feuille). */
+  mandats?: Mandat[];
+  /**
+   * Effectif du site retenu pour les heures de délégation (shared/rules/delegation.ts, `effectifSite` calculé par le serveur
+   * sur toutes les fiches) : service RH, et l'élu avec ses mandats ; null ailleurs. Un nombre, aucune liste nominative.
+   */
+  effectifCse?: number | null;
 }
 
 /**

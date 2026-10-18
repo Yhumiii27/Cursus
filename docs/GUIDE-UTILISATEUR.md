@@ -49,7 +49,7 @@ Sommaire : [Collaborateur](#collaborateur) · [Manager](#manager) · [Service RH
    **Horaire du jour** (ligne « Horaire du jour », au-dessus des projets ; sous le titre du jour sur téléphone) : l'horaire
    de poste de chaque jour (journée, matin, après-midi, nuit…), proposé en italique d'après l'équipe dès que des heures sont
    saisies ; le salarié, son manager ou le service RH le changent jour par jour, « — » pour aucun. Facultatif ; figé à la
-   soumission.
+   soumission avec ses heures (une feuille renvoyée le propose de nouveau d'après les jours travaillés).
 6. « Soumettre au manager » (ou « Soumettre au service RH » sans manager). Au-delà de 10 h dans une journée ou de 48 h dans
    la semaine, un motif est demandé avant la soumission ; il est lu par le valideur.
 7. La feuille est attendue **le lundi suivant à 12 h** ; passé ce délai, le manager ou le service RH relance
@@ -329,7 +329,7 @@ questions encore ouvertes).
   par défaut) : à confirmer avec la convention et les accords.
 - **Journée de solidarité et fériés chômés** de chaque année à partir de 2027 (Paramètres, « Jours fériés et journée de
   solidarité ») : lundi de Pentecôte chômé et tous les fériés chômés par défaut ; la modalité retenue après avis du CSE
-  (Pentecôte ou autre férié travaillé, fractionnée ou sur un RTT) se règle année par année, sans effet sur les années
+  (Pentecôte ou autre férié de semaine travaillé, fractionnée ou sur un RTT) se règle année par année, sans effet sur les années
   passées. Une année déjà engagée (absences transmises à la paie, congés clôturés) ne se modifie qu'avec un motif.
 
 ### Organisation et reprise

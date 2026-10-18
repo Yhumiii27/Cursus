@@ -26,7 +26,7 @@ export function useHorairesFeuille(emp: Employe, wk: ISODate, sh: FeuilleTemps |
   const { run } = useStore();
   const ref = d.ds.referentiels;
   const enVigueur = horairesEnVigueur(ref);
-  if (!enVigueur.length && !sh?.horaires?.some(Boolean)) return null;
+  if (!enVigueur.length && !sh?.horaires?.some(Boolean) && !sh?.horairesFiges?.some(Boolean)) return null;
   const jours = horairesDeLaFeuille(ref, emp.equipe, sh, perDay);
   const archives = [...new Set(jours.map(j => j.code).filter((c): c is string => !!c && !enVigueur.some(h => h.code === c)))];
   const options = [
@@ -74,9 +74,12 @@ export function LigneHoraires({ h, colonnes, weekEndReplie, long }: { h: Horaire
   );
 }
 
-/** Rappel sous la grille : plage de chaque horaire porté par la feuille (« J · 8 h – 16 h, pause 60 min »). */
+/**
+ * Rappel sous la grille : plage de chaque horaire porté par la feuille (« J · 8 h – 16 h, pause 60 min »), avec les heures
+ * retenues, celles figées à la soumission pour une feuille soumise (un code peut alors avoir deux plages dans la semaine).
+ */
 export function LegendeHoraires({ h }: { h: HorairesFeuille }) {
-  const codes = [...new Set(h.jours.map(j => j.code).filter(Boolean))];
-  if (!codes.length) return null;
-  return <Fine>Horaires : {h.options.filter(o => codes.includes(o.code)).map(o => o.texte).join(' ; ')}.</Fine>;
+  const textes = [...new Set(h.jours.map(j => (j.horaire ? horaireTexte(j.horaire) : '')).filter(Boolean))];
+  if (!textes.length) return null;
+  return <Fine>Horaires : {textes.join(' ; ')}.</Fine>;
 }

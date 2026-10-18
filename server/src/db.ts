@@ -120,6 +120,8 @@ export const TABLES = {
       majDimanche: 'int', majFerie: 'int', cor: 'json', reouverture: 'json',
       // Horaire de poste de chaque jour (codes du référentiel `horaires`, 7 valeurs ; figé à la soumission, lot 6).
       horaires: 'json',
+      // Horaires retenus (code, début, fin, pause), figés à la soumission et à la validation (lot 6).
+      horairesFiges: 'json',
     },
     unique: [['empId', 'week']],
   },

@@ -104,6 +104,8 @@ export interface Equipe {
  * finit le lendemain : poste de nuit), pause en minutes. Archivé, il n'est plus proposé ; les feuilles qui le portent le gardent.
  */
 export interface Horaire { code: string; nom: string; debut: string; fin: string; pause: number; archive?: ISODate | null }
+/** Horaire figé sur une feuille de temps : code, début, fin et pause au moment de la soumission ou de la validation. */
+export type HoraireFige = Pick<Horaire, 'code' | 'debut' | 'fin' | 'pause'>;
 /** Projet ou chantier tenu dans Keystone : archivé, il reste en base (historique) sans plus être proposé ni évalué. */
 export type StatutKeystone = 'actif' | 'archive';
 export interface Projet { code: string; nom: string; statut: StatutKeystone }
@@ -448,9 +450,17 @@ export interface FeuilleTemps {
    * Horaire de poste de chaque jour, du lundi au dimanche (code du référentiel `horaires`, shared/rules/horaires.ts) :
    * choisi par le salarié, son manager ou le service RH, au niveau de la feuille (les heures restent saisies par projet).
    * null : pas encore choisi, l'horaire par défaut de l'équipe est proposé un jour qui porte des heures ; « » : aucun
-   * horaire. Figé à la soumission (chaque jour reçoit son horaire, ou « ») ; absent : feuille d'avant les horaires.
+   * horaire. Seuls les choix explicites y sont inscrits : l'horaire proposé ne l'est jamais (voir `horairesFiges`).
    */
   horaires?: (string | null)[] | null;
+  /**
+   * Horaires retenus, figés à la soumission puis à la validation (`horairesAFiger`, shared/rules/horaires.ts) : pour
+   * chaque jour, code, début, fin et pause tels qu'ils étaient alors (une modification ultérieure de l'horaire au
+   * référentiel ne change pas le sens d'une feuille passée), null pour un jour sans horaire. Absent : feuille soumise
+   * d'avant les horaires (aucun contrôle rétroactif). Une feuille renvoyée l'ignore pour l'affichage et le refige à la
+   * soumission suivante, en gardant les heures d'un code inchangé.
+   */
+  horairesFiges?: (HoraireFige | null)[] | null;
 }
 /**
  * Réouverture d'une feuille validée (action `temps.rouvrir`, administrateur RH seul, motif obligatoire) : ce qui était

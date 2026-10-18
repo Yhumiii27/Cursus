@@ -7,7 +7,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { feriesLegaux, parse } from '../../../../shared/dates.ts';
 import { fmtIso, fmtShort, plural } from '../../../../shared/format.ts';
 import {
-  absencesRecalculees, anneeEngagee, anneesReglables, estEngagee, feriesDeLAnnee, FERIES_LABEL, memeReglage, MODALITES_SOLIDARITE, MOTIF_FERIES_MAX,
+  absencesRecalculees, anneeEngagee, anneesReglables, controlerFeries, estEngagee, feriesDeLAnnee, ferieDuWeekEnd, FERIES_LABEL, memeReglage, MODALITES_SOLIDARITE, MOTIF_FERIES_MAX,
   reglageAnnee, SOLIDARITE_PAIE,
 } from '../../../../shared/rules/feries.ts';
 import type { CodeFerie, ModaliteSolidarite } from '../../../../shared/types.ts';
@@ -39,7 +39,8 @@ export function Feries(_: SectionProps) {
   }, [cle]);
 
   const saisi = { solidarite, solidariteFerie: solidarite === 'autre_ferie' ? (ferie || null) : null, nonChomes };
-  const erreurFerie = solidarite === 'autre_ferie' && !ferie ? 'Choisissez le jour férié travaillé au titre de la journée de solidarité.' : null;
+  // Contrôle partagé avec l'action : férié manquant, ou qui tombe un samedi ou un dimanche de l'année.
+  const erreurFerie = solidarite === 'autre_ferie' ? controlerFeries({ annee, ...saisi }, d.ti).erreurs.solidariteFerie ?? null : null;
   const modifie = !memeReglage(enVigueur, saisi);
   const engagee = anneeEngagee(d.ds, annee);
   const cleSaisie = JSON.stringify(saisi);
@@ -70,10 +71,14 @@ export function Feries(_: SectionProps) {
         </select>
       </Field>
       {solidarite === 'autre_ferie' && (
-        <Field label="Jour férié travaillé" htmlFor="feries-ferie" requis erreur={tente && erreurFerie}>
+        <Field label="Jour férié travaillé" htmlFor="feries-ferie" requis erreur={(tente || !!ferie) && erreurFerie}>
           <select className="input" id="feries-ferie" value={ferie} disabled={!admin} onChange={e => setFerie(e.target.value as CodeFerie)} style={{ maxWidth: 360 }}>
             <option value="">Choisir…</option>
-            {legaux.filter(f => f.code !== '1er_mai' && f.code !== 'pentecote').map(f => <option key={f.code} value={f.code}>{FERIES_LABEL[f.code]} — {fmtIso(f.jour)}</option>)}
+            {/* Férié du week-end : grisé, il ne ferait travailler aucun jour ouvré. */}
+            {legaux.filter(f => f.code !== '1er_mai' && f.code !== 'pentecote').map(f => {
+              const we = ferieDuWeekEnd(annee, f.code);
+              return <option key={f.code} value={f.code} disabled={!!we && f.code !== ferie}>{FERIES_LABEL[f.code]} — {fmtIso(f.jour)}{we ? ` (${we})` : ''}</option>;
+            })}
           </select>
         </Field>
       )}

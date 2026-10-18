@@ -11,7 +11,7 @@ import {
 import { estActiviteInterne } from '../../../shared/rules/activites.ts';
 import { completerSemaine, JOURS_FEUILLE } from '../../../shared/rules/semaine.ts';
 import { ferieRefus } from '../../../shared/rules/majorations.ts';
-import { horairesASoumettre } from '../../../shared/rules/horaires.ts';
+import { horairesAFiger } from '../../../shared/rules/horaires.ts';
 import { alertesValidation, corAValider } from '../../../shared/rules/durees.ts';
 import { aRegulariser, projetsRevalidation } from '../../../shared/rules/regularisation.ts';
 import type { Employe, FeuilleTemps, LigneTemps } from '../../../shared/types.ts';
@@ -178,8 +178,8 @@ const submit: ActionHandler = (ctx, p) => {
   // Renvoyée au salarié par une réouverture (t131) : le commentaire, motif du service RH, disparaît ; un retour suivant
   // vient du valideur.
   const reouverture = sh.reouverture?.renvoyee ? { reouverture: { ...sh.reouverture, renvoyee: false } } : {};
-  // Horaires de poste du jour (shared/rules/horaires.ts) : ceux affichés, figés à la soumission.
-  const horaires = horairesASoumettre(ctx.ds.referentiels, emp.equipe, sh, calcSheet(ctx.d, emp, { ...sh, contrat }).perDay);
+  // Horaires de poste du jour (shared/rules/horaires.ts) : ceux affichés, figés à la soumission (les choix restent à part).
+  const horaires = horairesAFiger(ctx.ds.referentiels, emp.equipe, sh, calcSheet(ctx.d, emp, { ...sh, contrat }).perDay);
   ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'soumise', comment: null, contrat, motifDepassement: motif, ...reouverture, ...horaires });
   notifierFeuilleSoumise(ctx, emp, sh.week, ctx.d.mgrOf(emp));
   return `Feuille de temps soumise ${ctx.d.mgrDest(ctx.d.mgrOf(emp))}${couverte ? ' — semaine d’absence, sans heure' : ''}`;
@@ -224,7 +224,9 @@ export function validerFeuille(ctx: Ctx, p: Record<string, any>): { message: str
   // les feuilles validées, moins celle déjà figée sur les autres ; l'écart est porté par cette feuille.
   const validee: FeuilleTemps = { ...sh, statut: 'validee', contrat, heuresSup, majDimanche, majFerie };
   const cor = corAValider(ctx.d, emp, validee);
-  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif, heuresSup, majDimanche, majFerie, cor });
+  // Horaires de poste refigés après une éventuelle correction du valideur (heures d'un code déjà figé inchangées).
+  const horaires = horairesAFiger(ctx.ds.referentiels, emp.equipe, sh, calcSheet(ctx.d, emp, { ...sh, contrat }).perDay);
+  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif, heuresSup, majDimanche, majFerie, cor, ...horaires });
   // Seuils franchis par cette feuille (moyenne sur 12 semaines, temps partiel, contingent) : signalés, sans blocage.
   const autres = ctx.ds.feuilles.filter(f => f.empId === emp.id && f.statut === 'validee' && f.id !== sh.id);
   const alertes = alertesValidation(ctx.d, emp, autres, [...autres, { ...validee, cor }], sh.week, corDeLaFeuille({ cor }));

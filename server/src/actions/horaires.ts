@@ -3,7 +3,8 @@
 // l'équipe, `referentiel.equipe.exigences`) et horaire du jour sur la feuille de temps (`temps.horaire` : le salarié,
 // son manager ou le service RH, aux mêmes conditions que la saisie des heures). Création (code choisi, jamais modifié),
 // modification, archivage (plus proposé ; les feuilles qui le portent le gardent) et rétablissement, tracés au journal
-// avec les valeurs avant et après. L'horaire est figé sur la feuille à sa soumission (`horairesASoumettre`, server/src/actions/temps.ts).
+// avec les valeurs avant et après. L'horaire, avec ses heures, est figé sur la feuille à sa soumission et à sa validation
+// (`horairesAFiger`, server/src/actions/temps.ts) : modifier un horaire ne change pas le sens des feuilles déjà soumises.
 import { controlerHoraire, equipesDeLHoraire, horaireDe, horaireTexte, normaliserCodeHoraire } from '../../../shared/rules/horaires.ts';
 import { JOURS_FEUILLE } from '../../../shared/rules/semaine.ts';
 import type { Equipe, FeuilleTemps, Horaire } from '../../../shared/types.ts';
@@ -28,8 +29,10 @@ const enregistrer: ActionHandler = (ctx, p) => {
     return `Horaire ${horaireTexte(h)} créé : proposé dans les feuilles de temps`;
   }
   ctx.db.update<Horaire>('horaires', h.code, { nom: h.nom, debut: h.debut, fin: h.fin, pause: h.pause });
-  // Les feuilles déjà soumises gardent le code, dont les heures sont lues dans le référentiel au moment des contrôles.
-  return `Horaire ${horaireTexte(h)} enregistré`;
+  // Les feuilles déjà soumises ou validées gardent les heures figées avec le code (`FeuilleTemps.horairesFiges`) : les
+  // contrôles d'une semaine passée ne changent pas après coup.
+  const heures = avant.debut !== h.debut || avant.fin !== h.fin || avant.pause !== h.pause;
+  return `Horaire ${horaireTexte(h)} enregistré${heures ? ' : les feuilles déjà soumises gardent les heures d’avant' : ''}`;
 };
 
 /** Archivage (`archive` vrai, par défaut) ou rétablissement (`archive: false`) ; refusé tant qu'une équipe le propose. */

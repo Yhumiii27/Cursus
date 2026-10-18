@@ -74,7 +74,7 @@ export function RefHoraireDialog({ code }: { code?: string | null }) {
         {!horaire && d0 && f0 && d0 !== f0 && <Fine>Une fin antérieure au début finit le lendemain (poste de nuit).</Fine>}
         <Fine>
           Le code désigne l’horaire sur les feuilles de temps et ne change plus. Pause de 0 à {PAUSE_MAX} minutes. Une feuille soumise garde l’horaire
-          choisi ; les contrôles du repos et de la pause s’appuieront sur ses heures.
+          retenu avec ses heures du moment : modifier les heures ne change que les feuilles encore en saisie et les suivantes.
         </Fine>
       </>}
     </Dialog>

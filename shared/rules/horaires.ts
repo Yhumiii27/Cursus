@@ -4,12 +4,14 @@
 // projet), sur ordinateur comme sur téléphone. Keystone ne transmet que des heures par jour : l'horaire vient de Cursus.
 // - Facultatif : sans horaire, la feuille se tient comme avant. Un jour non choisi qui porte des heures reçoit l'horaire par
 //   défaut de l'équipe (proposé, modifiable par le salarié, son manager ou le service RH) ; « Aucun » se choisit aussi.
-// - Figé à la soumission (`horairesAFiger`) : chaque jour garde l'horaire affiché, ou aucun ; changer ensuite l'horaire de
-//   l'équipe ne touche aucune feuille soumise, et une feuille d'avant les horaires n'en reçoit jamais (aucun contrôle
-//   rétroactif). Les contrôles du repos de 11 h, de la pause et des heures de nuit s'appuient sur eux (étape 2).
+// - Choix et horaires figés sont séparés : `FeuilleTemps.horaires` ne porte que les choix explicites, `horairesFiges` ce
+//   qui est retenu à la soumission puis à la validation (`horairesAFiger`) : code, début, fin et pause de chaque jour.
+//   Changer ensuite l'horaire de l'équipe, ou les heures d'un horaire au référentiel, ne touche aucune feuille soumise ;
+//   une feuille renvoyée repart des choix et de l'équipe ; une feuille d'avant les horaires n'en reçoit jamais (aucun
+//   contrôle rétroactif). Les contrôles du repos de 11 h, de la pause et des heures de nuit s'appuieront sur eux (étape 2).
 // - Exemples amorcés à l'installation, modifiables et archivables (migration `lot6-horaires-exemples`) : J, M, AM, N.
 // Contrôles partagés par le dialogue (client/src/dialogs/RefHoraireDialog.tsx) et l'action.
-import type { Equipe, FeuilleTemps, Horaire, Referentiels } from '../types.ts';
+import type { Equipe, FeuilleTemps, Horaire, HoraireFige, Referentiels } from '../types.ts';
 import { JOURS_FEUILLE } from './semaine.ts';
 
 /** Horaires d'exemple (journée, matin, après-midi, nuit), à adapter à l'organisation du site. */
@@ -46,7 +48,7 @@ export const finitLeLendemain = (h: Pick<Horaire, 'debut' | 'fin'>) => minutes(h
 const heureTexte = (hhmm: string) => `${Number(hhmm.slice(0, 2))} h${hhmm.slice(3) === '00' ? '' : ` ${hhmm.slice(3)}`}`;
 export const plageTexte = (h: Pick<Horaire, 'debut' | 'fin'>) => `${heureTexte(h.debut)} – ${heureTexte(h.fin)}${finitLeLendemain(h) ? ' (lendemain)' : ''}`;
 /** « J · 8 h – 16 h, pause 60 min » */
-export const horaireTexte = (h: Horaire) => `${h.code} · ${plageTexte(h)}${h.pause ? `, pause ${h.pause} min` : ''}`;
+export const horaireTexte = (h: HoraireFige) => `${h.code} · ${plageTexte(h)}${h.pause ? `, pause ${h.pause} min` : ''}`;
 
 export interface ErreursHoraire { code?: string; nom?: string; debut?: string; fin?: string; pause?: string }
 
@@ -91,7 +93,7 @@ export function horaireEquipe(r: Pick<Referentiels, 'horaires' | 'equipes'>, equ
 /** Équipes dont l'horaire par défaut est `code` (archivage refusé tant qu'il y en a). */
 export const equipesDeLHoraire = (equipes: readonly Equipe[], code: string) => equipes.filter(q => q.horaire === code).map(q => q.nom);
 
-/** Feuille encore en saisie (pas soumise) : seul cas où l'horaire de l'équipe est proposé à la place d'un jour non choisi. */
+/** Feuille encore en saisie (pas soumise) : l'horaire de l'équipe est proposé à la place d'un jour non choisi. */
 const enSaisie = (sh: Pick<FeuilleTemps, 'statut'> | null) => !sh || sh.statut === 'brouillon' || sh.statut === 'rejetee';
 
 export interface HoraireDuJour {
@@ -99,27 +101,56 @@ export interface HoraireDuJour {
   code: string | null;
   /** Proposé par l'équipe (jour non choisi qui porte des heures), et non choisi sur la feuille. */
   propose: boolean;
+  /**
+   * Heures retenues : celles figées sur la feuille quand le code y est figé, sinon celles du référentiel ; null : aucun
+   * horaire. Les contrôles du repos, de la pause et de la nuit (étape 2) les liront.
+   */
+  horaire: HoraireFige | null;
 }
+const figer = (h: HoraireFige): HoraireFige => ({ code: h.code, debut: h.debut, fin: h.fin, pause: h.pause });
+
 /**
- * Horaire de chaque jour de la feuille (0 = lundi … 6 = dimanche) : celui choisi (« » : aucun) ; sinon, tant que la feuille
- * est en saisie, l'horaire par défaut de l'équipe les jours qui portent des heures (`perDay`). Une feuille soumise ou
- * validée sans horaire (d'avant les horaires) n'en a aucun.
+ * Horaire de chaque jour de la feuille (0 = lundi … 6 = dimanche) :
+ * - feuille validée et figée : les horaires figés, tels quels ;
+ * - sinon le choix explicite du jour (« » : aucun) ; à défaut, un jour qui porte des heures (`perDay`) garde l'horaire
+ *   figé à la soumission tant que la feuille est soumise, et reçoit sinon l'horaire par défaut de l'équipe, proposé (en
+ *   saisie, ou jour complété par le valideur après une soumission avec les horaires) ; un jour sans heure n'en a aucun.
+ * Une feuille renvoyée repart ainsi des choix et de l'équipe : un jour qui a perdu ses heures perd l'horaire proposé, un
+ * jour qui en a reçu se le voit proposer. Une feuille soumise ou validée d'avant les horaires (`horairesFiges` absent)
+ * ne reçoit aucune proposition (aucun contrôle rétroactif).
  */
-export function horairesDeLaFeuille(r: Pick<Referentiels, 'horaires' | 'equipes'>, equipe: string | null | undefined, sh: Pick<FeuilleTemps, 'statut' | 'horaires'> | null, perDay: readonly number[]): HoraireDuJour[] {
-  const defaut = enSaisie(sh) ? horaireEquipe(r, equipe)?.code ?? null : null;
+export function horairesDeLaFeuille(r: Pick<Referentiels, 'horaires' | 'equipes'>, equipe: string | null | undefined,
+  sh: Pick<FeuilleTemps, 'statut' | 'horaires' | 'horairesFiges'> | null, perDay: readonly number[]): HoraireDuJour[] {
+  const figes = sh?.horairesFiges ?? null, saisie = enSaisie(sh);
+  if (sh?.statut === 'validee' && figes) {
+    return Array.from({ length: JOURS_FEUILLE }, (_, i) => ({ code: figes[i]?.code ?? null, propose: false, horaire: figes[i] ?? null }));
+  }
+  const defaut = saisie || (sh?.statut === 'soumise' && figes) ? horaireEquipe(r, equipe)?.code ?? null : null;
   return Array.from({ length: JOURS_FEUILLE }, (_, i) => {
+    const f = figes?.[i] ?? null;
+    // Heures d'un code déjà figé ce jour-là : celles d'alors ; sinon celles du référentiel.
+    const jour = (code: string | null, propose: boolean): HoraireDuJour => {
+      const h = code ? (f?.code === code ? f : horaireDe(r, code)) : null;
+      return { code, propose, horaire: h ? figer(h) : null };
+    };
     const choisi = sh?.horaires?.[i];
-    if (choisi != null) return { code: choisi || null, propose: false };
-    return defaut && perDay[i] > 0 ? { code: defaut, propose: true } : { code: null, propose: false };
+    if (choisi != null) return jour(choisi || null, false);
+    if (!(perDay[i] > 0)) return jour(null, false);
+    if (!saisie && f) return jour(f.code, false);
+    return defaut ? jour(defaut, true) : jour(null, false);
   });
 }
-/** Horaires figés à la soumission : ceux affichés, « » pour un jour sans horaire. */
-export const horairesAFiger = (jours: readonly HoraireDuJour[]): string[] => jours.map(j => j.code ?? '');
+
 /**
- * Horaires à enregistrer sur la feuille à sa soumission (`temps.submit`) : ceux affichés, l'horaire de l'équipe compris
- * pour les jours non choisis qui portent des heures. Rien quand aucun jour n'en a ni n'en avait (feuille sans horaire).
+ * Horaires à figer sur la feuille (`horairesFiges`) à sa soumission (`temps.submit`) et à sa validation (`temps.validate`,
+ * après une éventuelle correction du valideur) : ceux affichés, l'horaire de l'équipe compris pour les jours non choisis
+ * qui portent des heures, avec leurs heures du moment (celles déjà figées pour un code inchangé). Les choix (`horaires`)
+ * ne sont pas touchés. Rien quand la feuille n'a ni n'avait aucun horaire et que le référentiel n'en propose aucun, ou
+ * pour une feuille soumise d'avant les horaires sans choix.
  */
-export function horairesASoumettre(r: Pick<Referentiels, 'horaires' | 'equipes'>, equipe: string | null | undefined, sh: Pick<FeuilleTemps, 'statut' | 'horaires'>, perDay: readonly number[]): { horaires?: string[] } {
+export function horairesAFiger(r: Pick<Referentiels, 'horaires' | 'equipes'>, equipe: string | null | undefined,
+  sh: Pick<FeuilleTemps, 'statut' | 'horaires' | 'horairesFiges'>, perDay: readonly number[]): { horairesFiges?: (HoraireFige | null)[] } {
   const jours = horairesDeLaFeuille(r, equipe, sh, perDay);
-  return jours.some(j => j.code) || sh.horaires ? { horaires: horairesAFiger(jours) } : {};
+  const utile = jours.some(j => j.code) || !!sh.horairesFiges || (enSaisie(sh) && horairesEnVigueur(r).length > 0);
+  return utile ? { horairesFiges: jours.map(j => j.horaire) } : {};
 }

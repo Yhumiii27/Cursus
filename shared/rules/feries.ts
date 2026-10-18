@@ -11,7 +11,7 @@
 // - Aucun effet rétroactif : réglable à partir de 2027 (mise en service) et jamais pour une année passée. Une année déjà
 //   engagée (absences transmises à la paie, congés clôturés) ne se modifie qu'avec un motif, et la liste des absences
 //   dont le décompte change est donnée avant l'enregistrement et dans le message.
-import { ANNEE_FERIES_MIN, avecCalendrier, feriesLegaux } from '../dates.ts';
+import { ANNEE_FERIES_MIN, avecCalendrier, feriesLegaux, weekday } from '../dates.ts';
 import type { Domain } from '../domain.ts';
 import type { Absence, CalendrierFeries, CodeFerie, Dataset, FeriesAnnee, ISODate, ModaliteSolidarite } from '../types.ts';
 
@@ -60,10 +60,21 @@ export function reglageAnnee(c: CalendrierFeries | null | undefined, annee: numb
   return c?.[String(annee)] ?? { solidarite: 'pentecote_chomee', solidariteFerie: null, nonChomes: [] };
 }
 
+/**
+ * Férié qui tombe un samedi ou un dimanche de l'année (« samedi », « dimanche ») ; null en semaine. Retenu comme journée
+ * de solidarité, il ne changerait aucun jour ouvré : la journée ne serait travaillée nulle part.
+ */
+export function ferieDuWeekEnd(annee: number, code: CodeFerie): 'samedi' | 'dimanche' | null {
+  const f = feriesLegaux(annee).find(x => x.code === code);
+  const j = f ? weekday(f.jour) : -1;
+  return j === 5 ? 'samedi' : j === 6 ? 'dimanche' : null;
+}
+
 export interface ErreursFeries { annee?: string; solidarite?: string; solidariteFerie?: string; nonChomes?: string }
 /**
  * Contrôle d'un réglage (dialogue et action) : année réglable, modalité connue, férié de solidarité choisi pour « autre
- * férié » (ni le 1er mai, ni le lundi de Pentecôte, qui a sa modalité), fériés non chômés connus (le 1er mai écarté, de
+ * férié » (ni le 1er mai, ni le lundi de Pentecôte, qui a sa modalité, ni un férié qui tombe un samedi ou un dimanche
+ * cette année-là), fériés non chômés connus (le 1er mai écarté, de
  * même que le férié de solidarité, déjà travaillé). Renvoie le réglage normalisé, sans auteur.
  */
 export function controlerFeries(p: { annee?: unknown; solidarite?: unknown; solidariteFerie?: unknown; nonChomes?: unknown }, today: ISODate):
@@ -83,6 +94,10 @@ export function controlerFeries(p: { annee?: unknown; solidarite?: unknown; soli
     if (!estCodeFerie(ferie)) erreurs.solidariteFerie = 'Choisissez le jour férié travaillé au titre de la journée de solidarité.';
     else if (ferie === '1er_mai') erreurs.solidariteFerie = 'Le 1er mai est toujours chômé (art. L3133-4) : choisissez un autre jour férié.';
     else if (ferie === 'pentecote') erreurs.solidariteFerie = 'Lundi de Pentecôte : choisissez la modalité « Lundi de Pentecôte travaillé ».';
+    else if (!erreurs.annee) {
+      const we = ferieDuWeekEnd(annee, ferie);
+      if (we) erreurs.solidariteFerie = `${FERIES_LABEL[ferie]} tombe un ${we} en ${annee} : choisissez un férié de semaine, sans quoi la journée de solidarité n’est travaillée nulle part.`;
+    }
   }
   const liste = Array.isArray(p.nonChomes) ? p.nonChomes : p.nonChomes == null ? [] : null;
   if (!liste || liste.some(c => !estCodeFerie(c))) erreurs.nonChomes = 'Fériés non chômés : liste de fériés inconnue.';

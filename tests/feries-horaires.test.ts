@@ -19,8 +19,9 @@ const { Domain } = await import('../shared/domain.ts');
 const { configurerFeries, estJourneeSolidarite, feriesOf, isFerie, journeeSolidarite } = await import('../shared/dates.ts');
 const { anneesReglables, controlerFeries, feriesDeLAnnee } = await import('../shared/rules/feries.ts');
 const { reposForfait } = await import('../shared/rules/conges.ts');
+const { calcSheet } = await import('../shared/rules/temps.ts');
 const { feriesDeLaSemaine } = await import('../shared/rules/majorations.ts');
-const { controlerHoraire, dureeHoraire, finitLeLendemain, horairesASoumettre, horairesDeLaFeuille, normaliserHeure, plageTexte } = await import('../shared/rules/horaires.ts');
+const { controlerHoraire, dureeHoraire, finitLeLendemain, horairesAFiger, horairesDeLaFeuille, normaliserHeure, plageTexte } = await import('../shared/rules/horaires.ts');
 type User = NonNullable<ReturnType<typeof currentUser>>;
 type Dataset = ReturnType<typeof loadFull>;
 type Absence = Dataset['absences'][number];
@@ -100,6 +101,10 @@ test('contrôle du réglage : année réglable (2027 au plus tôt, jamais passé
   assert.match(controlerFeries({ annee: 2027, solidarite: 'autre_ferie', solidariteFerie: '1er_mai' }, today).erreurs.solidariteFerie!, /toujours chômé/);
   assert.match(controlerFeries({ annee: 2027, solidarite: 'autre_ferie', solidariteFerie: 'pentecote' }, today).erreurs.solidariteFerie!, /Lundi de Pentecôte travaillé/);
   assert.match(controlerFeries({ annee: 2027, solidarite: 'autre_ferie' }, today).erreurs.solidariteFerie!, /Choisissez/);
+  // Férié qui tombe un samedi ou un dimanche de l'année : il ne ferait travailler aucun jour ouvré.
+  assert.match(controlerFeries({ annee: 2027, solidarite: 'autre_ferie', solidariteFerie: 'noel' }, today).erreurs.solidariteFerie!, /Noël tombe un samedi en 2027 : choisissez un férié de semaine/);
+  assert.match(controlerFeries({ annee: 2027, solidarite: 'autre_ferie', solidariteFerie: '15_aout' }, today).erreurs.solidariteFerie!, /tombe un dimanche en 2027/);
+  assert.deepEqual(controlerFeries({ annee: 2028, solidarite: 'autre_ferie', solidariteFerie: 'noel' }, today).reglage, { solidarite: 'autre_ferie', solidariteFerie: 'noel', nonChomes: [] }, 'Noël 2028 : un lundi');
   assert.match(controlerFeries({ annee: 2027, solidarite: 'pentecote_chomee', nonChomes: ['1er_mai'] }, today).erreurs.nonChomes!, /1er mai/);
   assert.match(controlerFeries({ annee: 2027, solidarite: 'pentecote_chomee', nonChomes: ['paques', 'x'] }, today).erreurs.nonChomes!, /inconnue/);
   assert.ok(controlerFeries({ annee: 2027, solidarite: 'x' }, today).erreurs.solidarite);
@@ -158,16 +163,28 @@ test('horaire de poste : heures normalisées, poste de nuit qui finit le lendema
 });
 
 test('horaire du jour : proposé par l’équipe les jours qui portent des heures, tant que la feuille est en saisie', () => {
-  const r = { horaires: [{ code: 'J', nom: 'Journée', debut: '08:00', fin: '16:00', pause: 60 }], equipes: [{ nom: 'Maintenance', managerId: 12, ordre: 0, horaire: 'J' }] };
+  const J = { code: 'J', debut: '08:00', fin: '16:00', pause: 60 };
+  const r = { horaires: [{ ...J, nom: 'Journée' }], equipes: [{ nom: 'Maintenance', managerId: 12, ordre: 0, horaire: 'J' }] };
   const perDay = [7, 7, 0, 0, 0, 0, 0];
   const brouillon = { statut: 'brouillon' as const, horaires: ['', null, null, null, 'J', null, null] };
   assert.deepEqual(horairesDeLaFeuille(r, 'Maintenance', brouillon, perDay).map(j => [j.code, j.propose]),
     [[null, false], ['J', true], [null, false], [null, false], ['J', false], [null, false], [null, false]]);
-  assert.deepEqual(horairesASoumettre(r, 'Maintenance', brouillon, perDay), { horaires: ['', 'J', '', '', 'J', '', ''] });
-  // Feuille soumise d'avant les horaires : aucun, jamais proposé après coup (aucun contrôle rétroactif).
+  // Figés à la soumission avec leurs heures ; un jour sans heure ni choix n'en a aucun.
+  assert.deepEqual(horairesAFiger(r, 'Maintenance', brouillon, perDay), { horairesFiges: [null, J, null, null, J, null, null] });
+  // Feuille soumise d'avant les horaires : aucun, jamais proposé après coup (aucun contrôle rétroactif), rien à figer.
   assert.ok(horairesDeLaFeuille(r, 'Maintenance', { statut: 'soumise', horaires: undefined }, perDay).every(j => j.code === null));
-  // Équipe sans horaire et feuille sans choix : rien n'est enregistré à la soumission.
-  assert.deepEqual(horairesASoumettre(r, 'Logistique', { statut: 'brouillon', horaires: null }, perDay), {});
+  assert.deepEqual(horairesAFiger(r, 'Maintenance', { statut: 'soumise', horaires: undefined }, perDay), {});
+  // Équipe sans horaire, feuille sans choix et référentiel sans horaire en vigueur : rien n'est enregistré à la soumission.
+  assert.deepEqual(horairesAFiger({ ...r, horaires: [] }, 'Logistique', { statut: 'brouillon', horaires: null }, perDay), {});
+  // Feuille soumise, puis horaire J modifié au référentiel : les heures figées restent celles de la soumission.
+  const soumise = { statut: 'soumise' as const, horaires: null, horairesFiges: [J, null, null, null, null, null, null] };
+  const r2 = { ...r, horaires: [{ ...J, nom: 'Journée', debut: '07:00', fin: '15:00' }] };
+  assert.deepEqual(horairesDeLaFeuille(r2, 'Maintenance', soumise, [7, 0, 0, 0, 0, 0, 0]).map(j => j.horaire), [J, null, null, null, null, null, null]);
+  // Le valideur y ajoute des heures le mardi : l'horaire de l'équipe y est proposé, avec les heures du référentiel.
+  assert.deepEqual(horairesDeLaFeuille(r2, 'Maintenance', soumise, [7, 7, 0, 0, 0, 0, 0]).slice(0, 2).map(j => [j.code, j.propose, j.horaire?.debut]),
+    [['J', false, '08:00'], ['J', true, '07:00']]);
+  // Validée : les horaires figés, tels quels, quelles que soient les heures.
+  assert.deepEqual(horairesDeLaFeuille(r2, null, { ...soumise, statut: 'validee' }, [0, 0, 0, 0, 0, 0, 0]).map(j => j.code), ['J', null, null, null, null, null, null]);
 });
 
 test('horaires : référentiel, horaire par défaut de l’équipe, choix du jour, figé à la soumission, journal', () => {
@@ -207,7 +224,10 @@ test('horaires : référentiel, horaire par défaut de l’équipe, choix du jou
   const sh = () => db.all<Feuille>('feuilles').find(f => f.empId === 2 && f.week === week)!;
   assert.deepEqual(sh().horaires, [null, 'N', '', null, null, null, null]);
   run(MEHDI, 'temps.submit', base);
-  assert.deepEqual(sh().horaires, ['J', 'N', '', '', '', '', ''], 'figé à la soumission : l’horaire de l’équipe le lundi');
+  assert.deepEqual(sh().horaires, [null, 'N', '', null, null, null, null], 'les choix ne sont pas touchés par la soumission');
+  const codes = () => sh().horairesFiges!.map(h => h?.code ?? null);
+  assert.deepEqual(codes(), ['J', 'N', null, null, null, null, null], 'figé à la soumission : l’horaire de l’équipe le lundi');
+  assert.deepEqual(sh().horairesFiges![1], { code: 'N', debut: '21:00', fin: '05:00', pause: 30 });
   // Changer ensuite l'horaire de l'équipe ne touche pas la feuille soumise.
   run(GEST, 'referentiel.equipe.exigences', { nom: 'Maintenance', formations: [], habilitations: [], horaire: '' });
   assert.equal(ref().equipes.find(q => q.nom === 'Maintenance')!.horaire, null);
@@ -220,6 +240,39 @@ test('horaires : référentiel, horaire par défaut de l’équipe, choix du jou
   // Les horaires et l'horaire de l'équipe sont transmis au manager et au collaborateur (aucune donnée personnelle).
   assert.deepEqual(buildSnapshot(db, MEHDI).referentiels.horaires!.map(h => h.code), ['J', 'M', 'AM', 'N', 'S']);
   assert.equal(buildSnapshot(db, KARIM).feuilles.find(f => f.empId === 2 && f.week === week)!.horaires![1], 'N');
+  assert.equal(buildSnapshot(db, MEHDI).feuilles.find(f => f.empId === 2 && f.week === week)!.horairesFiges![1]!.code, 'N');
+  // Heures de N modifiées au référentiel après la soumission : la feuille garde celles d'alors, jusqu'à sa validation.
+  assert.match(String(run(GEST, 'referentiel.horaire.enregistrer', { id: 'N', nom: 'Équipe de nuit', debut: '22', fin: '6', pause: 30 })), /gardent les heures d’avant/);
+  run(KARIM, 'temps.validate', base);
+  assert.equal(sh().statut, 'validee');
+  assert.deepEqual(codes(), ['M', 'N', null, null, null, null, null], 'refigé à la validation, avec le choix du valideur');
+  assert.deepEqual(sh().horairesFiges![1], { code: 'N', debut: '21:00', fin: '05:00', pause: 30 }, 'heures du code déjà figé inchangées');
+  assert.equal(sh().horairesFiges![0]!.debut, '05:00');
+});
+
+test('horaire du jour : une feuille renvoyée repart des choix et de l’équipe, puis se refige à la soumission suivante', () => {
+  const { db, run, user } = fresh();
+  const KARIM = user(12, 'manager'), MEHDI = user(2, 'collaborateur');
+  const week = '2026-10-19', base = { empId: 2, week };
+  const sh = () => db.all<Feuille>('feuilles').find(f => f.empId === 2 && f.week === week)!;
+  const codes = () => sh().horairesFiges!.map(h => h?.code ?? null);
+  const affiches = () => {
+    const d = new Domain(loadFull(db, MEHDI));
+    return horairesDeLaFeuille(d.ds.referentiels, 'Maintenance', sh(), calcSheet(d, d.emp(2)!, sh()).perDay).map(j => [j.code, j.propose]);
+  };
+  // Mehdi (Maintenance, horaire J) : 7 h le lundi, soumise ; Karim la renvoie.
+  run(MEHDI, 'temps.addLine', { ...base, projet: 'INT-MAINT' });
+  run(MEHDI, 'temps.setCell', { ...base, li: 0, di: 0, value: '7' });
+  run(MEHDI, 'temps.submit', base);
+  assert.deepEqual(codes(), ['J', null, null, null, null, null, null]);
+  run(KARIM, 'temps.reject', { ...base, comment: 'Le mercredi, pas le lundi' });
+  // Heures déplacées du lundi au mercredi : le lundi perd l'horaire proposé, le mercredi le reçoit.
+  run(MEHDI, 'temps.setCell', { ...base, li: 0, di: 0, value: '' });
+  run(MEHDI, 'temps.setCell', { ...base, li: 0, di: 2, value: '7' });
+  assert.deepEqual(affiches().slice(0, 3), [[null, false], [null, false], ['J', true]]);
+  run(MEHDI, 'temps.submit', base);
+  assert.deepEqual(codes(), [null, null, 'J', null, null, null, null], 'figé le jour travaillé, et lui seul');
+  assert.equal(sh().horaires ?? null, null, 'aucun choix inscrit');
 });
 
 test('migration lot6-horaires-exemples : exemples amorcés une fois, sans toucher aux horaires existants', () => {
@@ -235,5 +288,5 @@ test('migration lot6-horaires-exemples : exemples amorcés une fois, sans touche
   assert.equal(db.get<{ debut: string }>('horaires', 'J')!.debut, '07:30');
   assert.equal(HORAIRES_EXEMPLES_MIGRATION.necessaire!(db), false);
   // Feuilles existantes : aucune ne reçoit d'horaire (aucun contrôle rétroactif).
-  assert.equal(Number((db.sql.prepare('SELECT COUNT(*) AS n FROM feuilles WHERE horaires IS NOT NULL').get() as { n: number }).n), 0);
+  assert.equal(Number((db.sql.prepare('SELECT COUNT(*) AS n FROM feuilles WHERE horaires IS NOT NULL OR horaires_figes IS NOT NULL').get() as { n: number }).n), 0);
 });

@@ -9,6 +9,7 @@ import {
   heuresSurAbsenceMessage, heuresSurDemandes, joursAbsence, joursAuDela24, joursTexte, semaineCouverte, suggestLines,
 } from '../../../shared/rules/temps.ts';
 import { estActiviteInterne } from '../../../shared/rules/activites.ts';
+import { regimeAFiger } from '../../../shared/rules/historique-contrat.ts';
 import { completerSemaine, JOURS_FEUILLE } from '../../../shared/rules/semaine.ts';
 import { ferieRefus } from '../../../shared/rules/majorations.ts';
 import { alertesValidation, corAValider } from '../../../shared/rules/durees.ts';
@@ -39,7 +40,9 @@ function editable(ctx: Ctx, p: Record<string, any>): { emp: Employe; week: strin
   let sh = sheetOf(ctx, emp.id, week);
   const correction = !!sh && sh.statut === 'soumise' && isValidatorOf(ctx, emp);
   if (sh && !['brouillon', 'rejetee'].includes(sh.statut) && !correction) throw new ActionError('Feuille déjà soumise ou validée');
-  if (!sh) sh = ctx.db.insert<FeuilleTemps>('feuilles', { empId: emp.id, week, statut: 'brouillon', comment: null, sage: false, keystone: false, lignes: [] });
+  // Feuille créée : figée sur le régime de sa semaine quand l'historique des contrats le dit autre que celui de la fiche
+  // (semaine antérieure à un changement, postérieure à un avenant programmé : shared/rules/historique-contrat.ts).
+  if (!sh) sh = ctx.db.insert<FeuilleTemps>('feuilles', { empId: emp.id, week, statut: 'brouillon', comment: null, sage: false, keystone: false, lignes: [], contrat: regimeAFiger(ctx.ds, emp, week) });
   return { emp, week, sh };
 }
 

@@ -16,6 +16,7 @@ import { adminsDurables, type Compte, refusDuCompte } from '../comptes.ts';
 import { absenceKeystone, sendToKeystone } from '../integrations/keystone.ts';
 import { annulerSiConvoque } from '../notifications.ts';
 import { controlerSoldeSortie, photographierSortie, retirerSoldeSortie } from '../soldes-sortie.ts';
+import { amorcer, cloreHistorique, rouvrirHistorique } from '../avenants.ts';
 import { ActionError, getEmp, refuserSoiMeme, requireRh, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
 /**
@@ -58,6 +59,9 @@ const sortie: ActionHandler = (ctx, p) => {
   // Photographie calculée sur l'état d'avant la sortie (elle annule d'elle-même les absences postérieures).
   const solde = photographierSortie(ctx, emp, date);
 
+  // Historique des contrats (t074) : la date clôt la dernière ligne, les avenants programmés après elle sont annulés.
+  amorcer(ctx.db, emp.id, ctx.d.ti);
+  const avenants = cloreHistorique(ctx.db, emp.id, date, ctx.d.ti);
   ctx.db.update<Employe>('employes', emp.id, { fin: date, motifSortie: motif, finPrevue: finContrat(emp) });
   // Fiche mise à jour d'abord : les convocations d'un salarié déjà parti ne lui sont plus envoyées (adresse close).
   c.absences.forEach(a => {
@@ -82,6 +86,7 @@ const sortie: ActionHandler = (ctx, p) => {
   const effets = effetsSortie(c);
   if (annulees) effets.push(annulees > 1 ? `${annulees} annulations de convocation envoyées par e-mail` : 'annulation de convocation envoyée par e-mail');
   if (fermees) effets.push('sessions de connexion fermées');
+  if (avenants) effets.push(avenants > 1 ? `${avenants} avenants programmés annulés` : 'avenant programmé annulé');
   effets.push(solde.texte);
   const acces = date >= ctx.d.ti ? ` · accès à Cursus jusqu’au ${fmtIso(date)} inclus` : '';
   return {
@@ -114,6 +119,7 @@ const annulerSortie: ActionHandler = (ctx, p) => {
   // (la fin du CDD gardée ne vaut plus).
   const fin = emp.typeContrat === 'cdi' ? null : emp.finPrevue ?? emp.fin;
   ctx.db.update<Employe>('employes', emp.id, { fin, motifSortie: null, finPrevue: null });
+  rouvrirHistorique(ctx.db, emp.id);
   return `Sortie de ${emp.nom} annulée — ${fin ? `fin de contrat prévue le ${fmtIso(fin)}` : 'contrat sans date de fin'}`
     + ' · les absences, inscriptions, entretiens et demandes de visite annulés par la sortie ne sont pas rétablis' + retirerSoldeSortie(ctx.db, emp);
 };

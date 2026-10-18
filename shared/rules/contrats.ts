@@ -17,7 +17,8 @@ import type {
   TypeTitreSejour,
 } from '../types.ts';
 import { absenceActive, periodeTexte, semaineHorsContrat } from './absences.ts';
-import { rttDroit, rttInfo } from './conges.ts';
+import { rttDroitSelon, rttInfo } from './conges.ts';
+import { regimeFiche, segmentsContrat, type SegmentContrat } from './historique-contrat.ts';
 import { voyageActif } from './deplacements.ts';
 import { echeancesMineur } from './mineurs.ts';
 
@@ -152,7 +153,7 @@ export function effetsSortie(c: Pick<ControleSortie, 'absences' | 'certs' | 'ins
   ].filter(Boolean);
 }
 
-// — Garde-fou d'un changement de régime de temps (avant l'historique daté des contrats) —
+// — Garde-fou d'un changement de régime de temps (conservé avec l'historique des contrats, shared/rules/historique-contrat.ts) —
 
 /** Semaines qui précèdent la date d'effet d'un changement de régime, figées sur l'ancien régime. */
 export const SEMAINES_FIGEES = 8;
@@ -176,13 +177,20 @@ export function semainesAFiger(e: Employe, effet: ISODate, feuilles: readonly Pi
 export interface SoldeRtt { annee: number; label: string; droit: number; pris: number; poses: number; solde: number }
 
 /**
- * RTT de l'année pris ou posés que le nouveau régime n'ouvre plus (39 h + RTT vers 35 h, passage en intérim…) : le
- * compteur disparaîtrait de Cursus sans bruit. Le changement exige alors la confirmation du service RH, et le solde
- * affiché juste avant est gardé au journal pour la paie. null si rien n'est perdu.
+ * RTT de l'année pris ou posés que le nouveau régime n'ouvre plus, même au prorata des mois passés sous l'ancien
+ * (historique des contrats : un passage de 39 h à 35 h au 1er octobre garde 9/12 des RTT de l'année) : changement au
+ * tout début de l'année, passage en intérim. Le compteur disparaîtrait de Cursus sans bruit : le changement exige alors
+ * la confirmation du service RH, et le solde affiché juste avant est gardé au journal pour la paie. `effet` : date
+ * d'effet du changement (aujourd'hui par défaut). null si rien n'est perdu.
  */
-export function rttPerdus(d: Domain, avant: Employe, apres: Employe): SoldeRtt | null {
+export function rttPerdus(d: Domain, avant: Employe, apres: Employe, effet: ISODate = d.ti): SoldeRtt | null {
   const r = rttInfo(d, avant);
-  if (!r || r.pris + r.poses <= 0 || rttDroit(d, apres) != null) return null;
+  if (!r || r.pris + r.poses <= 0) return null;
+  const segs: SegmentContrat[] = [
+    ...segmentsContrat(d, avant).filter(x => x.du < effet && !x.programme),
+    { du: effet, regime: regimeFiche(apres), ligne: null, programme: false },
+  ];
+  if (rttDroitSelon(d, apres, d.year, segs) != null) return null;
   return { annee: d.year, label: r.label, droit: r.droit, pris: r.pris, poses: r.poses, solde: r.solde };
 }
 

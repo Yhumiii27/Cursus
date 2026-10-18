@@ -110,6 +110,14 @@ const MATRICE: Ligne[] = [
   } },
   // Titre de séjour valant autorisation de travail (numéro au registre unique du personnel) : service RH.
   { action: 'employe.autorisationTravail', droits: '         O    O    -    -    -    -    -    -    -', p: () => ({ id: 2, requise: true, type: 'salarie', numero: 'AB1234567', expire: '2027-06-30', verifieLe: '2016-08-26' }) },
+  // Historique des contrats (t074, t053) : renouvellement du CDD de Lucas Martin (4), annulation d'un avenant programmé : service RH.
+  { action: 'employe.renouvelerCdd', droits: '              O    O    -    -    -    -    -    -    -', p: () => ({ id: 4, jusquau: '2027-07-30', signeLe: '2026-10-06', reference: 'Avenant n° 2' }) },
+  { action: 'employe.annulerAvenant', droits: '             O    O    -    -    -    -    -    -    -', p: () => ({
+    id: db.insert<{ id: number }>('contratsHistorique', {
+      empId: 2, effet: '2027-01-01', nature: 'avenant', regime: { statut: 'technicien', typeContrat: 'cdi', temps: '35h', heures: null, forfaitHeures: null, forfaitJours: null, jourOff: [] },
+      le: '2026-10-07', par: 'Sandrine Vidal', parId: null, applique: false,
+    }).id,
+  }) },
   { action: 'equipe.creer', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Méthodes' }) },
   { action: 'equipe.renommer', droits: '                     O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Commercial', nouveau: 'Ventes' }) },
   { action: 'equipe.manager', droits: '                      O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Commercial', managerId: 19 }) },

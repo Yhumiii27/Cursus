@@ -11,6 +11,7 @@ import { POSTES } from './referentiels.ts';
 import { REFERENCES_DEPLACEMENTS } from './voyages.ts';
 import { ACTIVITES_INTERNES, SEMAINE_7_JOURS } from './temps.ts';
 import { ACTIVITE_FORMATION_PROJET, PLAGE_SESSIONS } from './formations.ts';
+import { CONTRATS_HISTORIQUE } from './lot6-contrats.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   INDEX_JOURNAL,
@@ -31,4 +32,5 @@ export const MIGRATIONS: readonly Migration[] = [
   INDEX_SALARIES,
   ABSENCES_ANTERIEURES,
   RUBRIQUES_PAR_FEUILLE,
+  CONTRATS_HISTORIQUE,
 ];

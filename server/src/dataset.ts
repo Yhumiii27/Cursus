@@ -17,7 +17,7 @@ import { debutSaisieDe } from '../../shared/rules/suivi-feuilles.ts';
 import { reouvertureNeutre } from '../../shared/rules/regularisation.ts';
 import { effectifSite } from '../../shared/rules/delegation.ts';
 import { reglagesParDefaut } from '../../shared/reglages.ts';
-import type { DemandeVisite, LotReprise } from '../../shared/types.ts';
+import type { ContratHistorique, DemandeVisite, LotReprise } from '../../shared/types.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Chantier, ClotureConges, CurrentUser, InformationCp, Dataset, SoldeSortie, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
   DerogationDominicale, Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mandat, Mission, Participation, PlanAction, Poste, Projet, ReleveInterim,
@@ -120,6 +120,8 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     informationsCp: db.all<InformationCp>('informationsCp'),
     // Soldes de sortie photographiés (t128) : compteurs du solde de tout compte, service RH, paie et lecture seule.
     soldesSortie: db.all<SoldeSortie>('soldesSortie'),
+    // Historique des contrats (t074) : régimes successifs, renouvellements des CDD, avenants programmés.
+    contratsHistorique: db.all<ContratHistorique>('contratsHistorique'),
     entretiens: db.all<Entretien>('entretiens'),
     demandesCollab: db.all<DemandeCollab>('demandesCollab'),
     demandesVisite: db.all<DemandeVisite>('demandesVisite'),
@@ -157,6 +159,12 @@ const sansCorrections = (e: Employe): Employe => ({
 });
 const ligneSansMotif = (l: PlanAction): PlanAction => (l.corrigeMotif ? { ...l, corrigeMotif: null } : l);
 const demandeSansMotifRh = (r: DemandeCollab): DemandeCollab => (r.rouverteMotif ? { ...r, rouverteMotif: null } : r);
+
+/**
+ * Ligne de l'historique des contrats hors du service RH, de la paie et de la lecture seule : ni la référence de l'avenant
+ * (texte libre du service RH), ni son auteur ; les dates et les régimes suffisent aux calculs (RTT, feuilles de temps).
+ */
+const ligneContratNeutre = (l: ContratHistorique): ContratHistorique => ({ ...l, reference: null, par: null, parId: null });
 
 /** Dérogations au repos dominical sans la référence de l'accord (texte libre) : hors du service RH, le type suffit. */
 const derogationsSansReference = (full: Dataset) => (full.derogationsDominicales ?? []).map(x => ({ ...x, reference: null }));
@@ -250,6 +258,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
       // l'arrêt : `visiteAProgrammer`), « visite à programmer » seulement.
       suivi: null, prochaineVisite: null, examenAptitude: null, expose: null,
       passeport: e.passeport && { expire: e.passeport.expire }, motifSortie: null, finPrevue: null, sortieEnregistree: !!e.motifSortie,
+      // Motif de recours d'un CDD et terme initial : dossier du service RH (le motif nomme parfois l'absence d'un collègue).
+      motifRecours: null, cddFinInitiale: null,
       autorisationTravail: null, autorisationVerdict: verdictAutorisation(e, full.today), ...naissanceVueManager(e, full.today),
       // Dérogation pour travaux réglementés d'un mineur : dossier du service RH ; le manager a l'indication « mineur ».
       derogationTravauxLe: null,
@@ -297,6 +307,9 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     informationsCp: (full.informationsCp ?? []).filter(i => i.empId === user.empId),
     // Solde de sortie : solde de tout compte, l'affaire du service RH et de la paie (ni le manager, ni l'intéressé).
     soldesSortie: [],
+    // Historique des contrats : lignes du périmètre (régimes de son équipe pour le manager, les siennes pour le salarié),
+    // sans référence ni auteur, pour des RTT et des feuilles calculés comme par le serveur.
+    contratsHistorique: mine(full.contratsHistorique ?? []).map(ligneContratNeutre),
     // Sections « fin de carrière » des entretiens d'un membre calculées ici : sa date de naissance n'est pas transmise.
     entretiens: mine(full.entretiens).map(x => isMgr && x.empId !== user.empId ? avecFinCarriere(d, x) : x),
     // Les documents déclarés (passeport, visas, vaccinations) des membres ne sont pas montrés au manager ;
@@ -375,6 +388,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     // qu'elle est enregistrée (ses échéances de fin de contrat sont celles du service RH).
     motifSortie: paie ? e.motifSortie : null, finPrevue: paie ? e.finPrevue : null, ...(paie ? {} : { sortieEnregistree: !!e.motifSortie }),
     essaiFin: paie ? e.essaiFin ?? null : null, essaiRenouveleJusquau: paie ? e.essaiRenouveleJusquau ?? null : null,
+    // CDD : motif de recours et terme initial, avec le contrat (paie, lecture seule) ; pas le référent HSE.
+    motifRecours: paie ? e.motifRecours ?? null : null, cddFinInitiale: paie ? e.cddFinInitiale ?? null : null,
     // Titre de séjour : la lecture seule le voit sans numéro (échéances du service RH) ; les autres, le verdict seul.
     ...(lecture
       ? { autorisationTravail: e.autorisationTravail ? { ...e.autorisationTravail, numero: null } : null }
@@ -423,6 +438,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     informationsCp: [],
     // Solde de sortie : paie (solde de tout compte) et lecture seule ; pas le référent HSE.
     soldesSortie: paie ? full.soldesSortie : [],
+    // Historique des contrats : paie et lecture seule (régimes, renouvellements des CDD) ; pas le référent HSE.
+    contratsHistorique: paie ? full.contratsHistorique : [],
     // Profil paie : jours de CP acquis chaque mois, calculés ici avec la vraie nature des absences masquées, pour que ses
     // soldes et ses exports soient ceux du service RH ; aucune absence n'y est désignée (pas d'effet absence par absence).
     acquisitionsCp: droits.includes('paie') ? acquisitionsCalculees(d) : [],

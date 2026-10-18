@@ -149,6 +149,13 @@ entretiens : un collègue ou son manager le fait.
 - Départ : « Enregistrer une sortie » sur la fiche (dernier jour, motif en liste fermée). Le solde de congés, RTT,
   récupération et CET à la date s'affiche avant la confirmation ; « Imprimer l'état » et « Exporter (CSV) » le donnent à la
   paie. Ce qui était prévu après le départ est annulé ; la fiche reste consultable (filtre « Sortis »).
+- Changement d'organisation du temps : il s'inscrit dans l'« Historique du contrat » de la fiche ; les RTT de l'année sont
+  comptés au prorata de chaque régime. Une date d'effet future programme un avenant, appliqué à la fiche à sa date
+  (« Annuler l’avenant » tant qu'il ne l'est pas).
+- CDD : « Motif de recours » dans la fiche (rappelé tant qu'il manque), « Renouveler le CDD » pour prolonger le contrat
+  (nouveau terme, date de signature de l'avenant). Durée maximale, nombre de renouvellements et délai de carence avant un
+  nouveau contrat sur le même poste sont signalés, sans rien bloquer ; un accord de branche se règle dans Paramètres →
+  Contrats.
 
 ### Formations et habilitations
 
@@ -325,6 +332,8 @@ questions encore ouvertes).
 
 - **Postes et exigences** : formations et habilitations exigées par poste et par équipe (« Référentiels »), case « travail
   de nuit ou en continu » des équipes (Référentiels → Postes).
+- **CDD** : motif de recours des CDD en cours, à renseigner sur chaque fiche ; durée maximale et renouvellements de la CCN
+  des industries chimiques à vérifier (Paramètres → Contrats, référence de l'accord de branche s'il déroge à la loi).
 - **Référentiels** et leurs codes, convenus avec l'équipe Keystone ; prévenir Keystone du changement des heures validées
   (une semaine rouverte et corrigée renvoie ses heures, un projet retiré à 0).
 - **Reprise Lucca** : export des salariés (sorties comprises) et des soldes arrêtés au 1er janvier 2027, certifications,

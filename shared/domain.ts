@@ -18,6 +18,7 @@ import { voyageActif } from './rules/deplacements.ts';
 import { restrictionEnVigueur } from './rules/sante.ts';
 import { echeanceVisite, examenRequis, prochaineTexte, suiviDe, type ProchaineVisite, type SuiviInfo } from './rules/suivi-medical.ts';
 import { finSession } from './rules/plage-session.ts';
+import { employeAu } from './rules/historique-contrat.ts';
 import { visitesDues, type VisiteDue } from './rules/visites-dues.ts';
 import type {
   AvisMedical, Certification, Chantier, Dataset, DemandeVisite, Destination, Employe, FormaliteManquante, Formation, HabTitre, HabType, ISODate,
@@ -284,7 +285,9 @@ export class Domain {
   countedDays(e: Employe, du: ISODate, au: ISODate, kind: string, demi?: DemiJournees): { jour: ISODate; poids: number }[] {
     const out: { jour: ISODate; poids: number }[] = [];
     let started = false;
-    const off = this.contratOf(e).jourOff, periode = { du, au, ...demi };
+    // Jours non travaillés du temps partiel en vigueur au premier jour (historique des contrats : un passage à temps
+    // partiel ne change pas le décompte d'une absence antérieure).
+    const off = this.contratOf(employeAu(this, e, du)).jourOff, periode = { du, au, ...demi };
     for (let s = du; s <= au; s = addD(s, 1)) {
       const wd = weekday(s);
       if (wd > 4 || isFerie(s)) continue;

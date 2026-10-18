@@ -32,6 +32,7 @@ import { MotDePasseProvisoireDialog } from './MotDePasseProvisoireDialog.tsx';
 import { PlanDialog } from './PlanDialog.tsx';
 import { PlanImportDialog } from './PlanImportDialog.tsx';
 import { RefActiviteDialog } from './RefActiviteDialog.tsx';
+import { RenouvelerCddDialog } from './RenouvelerCddDialog.tsx';
 import { RefDestinationDialog } from './RefDestinationDialog.tsx';
 import { RefEquipeDialog } from './RefEquipeDialog.tsx';
 import { RefPosteDialog } from './RefPosteDialog.tsx';
@@ -87,6 +88,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'employe': return <EmployeDialog {...d} />;
     case 'sortie': return <SortieDialog {...d} />;
     case 'autorisation': return <AutorisationDialog {...d} />;
+    case 'renouvelerCdd': return <RenouvelerCddDialog {...d} />;
     case 'membre': return <MembreDialog {...d} />;
     case 'equipe': return <EquipeDialog {...d} />;
     case 'abs': return <AbsDialog {...d} />;

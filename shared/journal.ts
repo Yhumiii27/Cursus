@@ -40,6 +40,8 @@ export const ACTIONS_PAIE: readonly string[] = [
   // Réouverture d'une feuille validée, parfois déjà transmise (régularisation dans un lot correctif, t131), et reprise
   // des rubriques par feuille des lots d'avant le lot 5.
   'temps.rouvrir', 'migration.rubriquesFeuilles',
+  // Renouvellement d'un CDD (terme du contrat, indemnité de fin de contrat) ; avenant programmé appliqué à sa date.
+  'employe.renouvelerCdd', 'employe.avenantApplique',
 ];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
@@ -57,6 +59,10 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'employe.sortie': 'Sortie d’un salarié',
   'employe.annulerSortie': 'Sortie annulée',
   'employe.autorisationTravail': 'Titre de séjour (autorisation de travail)',
+  'employe.renouvelerCdd': 'Renouvellement d’un CDD',
+  'employe.annulerAvenant': 'Avenant programmé annulé',
+  'employe.avenantApplique': 'Avenant appliqué à sa date d’effet',
+  'migration.contratsHistorique': 'Reprise : historique des contrats amorcé depuis les fiches',
   'equipe.creer': 'Création d’une équipe',
   'equipe.renommer': 'Équipe renommée',
   'equipe.modifier': 'Équipe modifiée (nom, manager)',
@@ -241,7 +247,7 @@ export const dossierComplet = (u: Pick<CurrentUser, 'role' | 'profilRh'>) => dro
 
 /** Familles du filtre « Action » : codes commençant par l'un des préfixes (ou égaux à l'un d'eux). */
 export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly string[] }[] = [
-  { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.'] },
+  { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.', 'migration.contratsHistorique'] },
   { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'migration.coutReel'] },
   { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.'] },
   { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes'] },
@@ -271,7 +277,9 @@ export const CHAMP_LABEL: Record<string, string> = {
   tempsDepuis: 'Date d’effet', entree: 'Date d’entrée', fin: 'Fin de contrat', motifSortie: 'Motif de sortie',
   essaiFin: 'Fin de la période d’essai', essaiRenouveleJusquau: 'Essai renouvelé jusqu’au', expire: 'Expiration', demandeLe: 'Authentification demandée le', verifieLe: 'Vérifié en préfecture le',
   numero: 'Numéro', requise: 'Autorisation de travail requise', titreSejourAlerte: 'Alerte avant l’expiration d’un titre de séjour (jours)',
-  titreSejourRelance: 'Relance avant l’expiration d’un titre de séjour (jours)', agence: 'Agence', managerId: 'Manager', profilRh: 'Profil RH',
+  titreSejourRelance: 'Relance avant l’expiration d’un titre de séjour (jours)',
+  cddRenouvellementsMax: 'Renouvellements admis d’un CDD', cddDureeMaxMois: 'Durée maximale d’un CDD (mois)', cddAccordBranche: 'Accord de branche sur les CDD',
+  motifRecours: 'Motif de recours', cddFinInitiale: 'Terme initial du CDD', jusquau: 'Renouvelé jusqu’au', signeLe: 'Avenant signé le', effet: 'Date d’effet', agence: 'Agence', managerId: 'Manager', profilRh: 'Profil RH',
   actif: 'Actif', date: 'Date', lieu: 'Lieu', places: 'Places', du: 'Du', au: 'Au', type: 'Type', justificatif: 'Justificatif reçu',
   signMgr: 'Signature de l’évaluateur', signSal: 'Signature du salarié', horizonAlerte: 'Seuil d’alerte', seuilBudget: 'Seuil budgétaire',
   rtt39: 'Jours de RTT (39 h)', uniquementReglementaire: 'Formations réglementaires seules', partageKeystone: 'Partage des motifs avec Keystone',

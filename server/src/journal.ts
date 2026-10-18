@@ -114,7 +114,7 @@ const referentielRecu = (p: P): ReferentielId | null => (['formations', 'habilit
 const nombreReferentiel = (db: Db, p: P) => { const r = referentielRecu(p); return r ? db.count(r) : 0; };
 const FICHE = [
   'nom', 'poste', 'posteId', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis', 'entree', 'fin',
-  'motifSortie', 'essaiFin', 'essaiRenouveleJusquau', 'agence', 'matriculePaie', 'derogationTravauxLe',
+  'motifSortie', 'essaiFin', 'essaiRenouveleJusquau', 'agence', 'matriculePaie', 'derogationTravauxLe', 'motifRecours', 'cddFinInitiale',
 ];
 /**
  * Solde de RTT de l'année affiché avant un changement de régime qui n'en ouvre plus (garde-fou de `employe.modifier`) :
@@ -204,7 +204,7 @@ export const REGLES: Record<string, Regle> = {
   // Fiches et équipes
   // Réembauche : réutilisation d'un matricule de paie confirmée par l'administrateur RH (`reutiliserMatricule`).
   'employe.creer': {
-    champs: ['equipe', 'poste', 'statut', 'typeContrat', 'temps', 'entree', 'fin', 'motifSortie', 'essaiFin', 'essaiRenouveleJusquau', 'matriculePaie', 'reutiliserMatricule'], salaries: (_p, x) => [(x.result as { id?: number } | null)?.id],
+    champs: ['equipe', 'poste', 'statut', 'typeContrat', 'temps', 'entree', 'fin', 'motifSortie', 'essaiFin', 'essaiRenouveleJusquau', 'matriculePaie', 'reutiliserMatricule', 'motifRecours', 'cddFinInitiale'], salaries: (_p, x) => [(x.result as { id?: number } | null)?.id],
     // Poste du référentiel retenu (choisi, rattaché d'après l'intitulé ou créé) : lu sur la fiche créée.
     bilan: (_p, x) => ({ posteId: x.db.get<{ posteId: number | null }>('employes', Number((x.result as { id?: number } | null)?.id))?.posteId ?? null }),
   },
@@ -214,7 +214,24 @@ export const REGLES: Record<string, Regle> = {
     champs: ['id', 'reutiliserMatricule'], extra: p => ({ champsModifies: Object.keys(p).filter(k => k !== 'id' && k !== 'confirmerRtt' && k !== 'reutiliserMatricule' && k !== 'avant' && /^[A-Za-z]{1,40}$/.test(k)).slice(0, 30) }),
     cible: parId('employes', FICHE), salaries: p => [p.id],
     code: (_p, x) => (soldeRttGarde(x) ? 'employe.rtt' : ''),
-    bilan: (_p, x) => { const s = soldeRttGarde(x); return s ? { soldeRtt: { annee: s.annee, droit: s.droit, pris: s.pris, poses: s.poses, solde: s.solde } } : {}; },
+    // Avenant programmé à une date future (t074) : identifiant de la ligne de l'historique des contrats et sa date d'effet.
+    bilan: (_p, x) => {
+      const s = soldeRttGarde(x), a = (x.result as { avenant?: { id: number; effet: string } } | null)?.avenant;
+      return { ...(s ? { soldeRtt: { annee: s.annee, droit: s.droit, pris: s.pris, poses: s.poses, solde: s.solde } } : {}), ...(a ? { avenant: { id: a.id, effet: a.effet } } : {}) };
+    },
+  },
+  // Renouvellement d'un CDD (t053) : nouveau terme, date de signature, fin et terme initial avant et après, nombre de
+  // renouvellements ; la référence de l'avenant (texte du service RH) n'est jamais recopiée, seulement le fait qu'elle soit donnée.
+  'employe.renouvelerCdd': {
+    champs: ['id'], salaries: p => [p.id],
+    extra: p => ({ jusquau: isValidDate(p.jusquau) ? p.jusquau : null, signeLe: isValidDate(p.signeLe) ? p.signeLe : null, ...(typeof p.reference === 'string' && p.reference.trim() ? { reference: MENTION_TEXTE } : {}) }),
+    cible: parId('employes', ['fin', 'cddFinInitiale']),
+    bilan: (_p, x) => { const r = x.result as { ligne?: number; renouvellements?: number } | null; return { ligne: r?.ligne ?? null, renouvellements: r?.renouvellements ?? null }; },
+  },
+  // Annulation d'un avenant programmé : la ligne de l'historique, son salarié et sa date d'effet.
+  'employe.annulerAvenant': {
+    champs: ['id'], salaries: (_p, x) => [(x.result as { empId?: number } | null)?.empId],
+    bilan: (_p, x) => ({ effet: (x.result as { effet?: string } | null)?.effet ?? null }),
   },
   // Sortie : date et motif (code de la liste fermée), nombre d'éléments annulés, identifiant du solde de sortie photographié
   // (ses quantités sont dans le message) ; jamais le détail d'une absence.
@@ -499,7 +516,7 @@ export const REGLES: Record<string, Regle> = {
   // Administration
   // Réglages : anciennes et nouvelles valeurs, sauf la référence de l'accord des heures supplémentaires (texte libre).
   'parametres.maj': {
-    cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord'] },
+    cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord', 'cddAccordBranche'] },
   },
   'demo.reinitialiser': {},
   'compte.creer': { champs: ['empId', 'type', 'identifiant', 'profilRh'] },

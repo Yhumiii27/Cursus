@@ -299,9 +299,13 @@ Chaque fiche distingue le **statut** (catégories de la CCN Industries chimiques
 technicien / agent de maîtrise, ingénieur / cadre), la **nature du contrat** (CDI, CDD, intérim,
 alternance) et l'**organisation du temps** : horaire collectif 35 h, 39 h avec RTT, forfait
 hebdomadaire en heures, forfait annuel en heures, forfait annuel en jours, temps partiel, cadre
-dirigeant. Un changement d'organisation du temps prend effet à une date choisie : les semaines
-antérieures gardent l'ancien régime (figé sur chaque feuille soumise) et les RTT / jours de repos
-sont proratisés.
+dirigeant. Un changement d'organisation du temps prend effet à une date choisie et s'inscrit dans
+l'**historique du contrat** : les semaines antérieures gardent l'ancien régime (y compris une feuille
+créée plus tard pour une semaine ancienne), les RTT / jours de repos de l'année sont comptés au prorata
+de chaque régime, et une date future programme un avenant appliqué à sa date. Pour un **CDD**, la fiche
+porte le motif de recours et le terme initial ; « Renouveler le CDD » inscrit chaque renouvellement, et
+Cursus avertit d'une durée maximale ou d'un nombre de renouvellements dépassés et d'un délai de carence
+non écoulé, sans rien bloquer (Paramètres → Contrats pour un accord de branche).
 
 La fiche porte aussi la **période d'essai** écrite au contrat (aucune durée proposée : Cursus avertit au-delà du maximum
 légal) et, pour un salarié étranger, le **titre de séjour** valant autorisation de travail (type, numéro réservé au

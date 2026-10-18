@@ -18,6 +18,7 @@ import { EntretienMiCarriere } from './EntretienMiCarriere.tsx';
 import { Envois } from './Envois.tsx';
 import { FeuillesTemps } from './FeuillesTemps.tsx';
 import { Formations } from './Formations.tsx';
+import { Hierarchie } from './Hierarchie.tsx';
 import { Keystone } from './Keystone.tsx';
 import { MatriculesPaie } from './MatriculesPaie.tsx';
 import { Pieces } from './Pieces.tsx';
@@ -67,6 +68,7 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'postes-risques', place: 'droite', Section: PostesRisques },
   { id: 'confidentialite', place: 'droite', Section: Rgpd },
   { id: 'pieces', place: 'droite', Section: Pieces },
+  { id: 'hierarchie', place: 'gauche', Section: Hierarchie },
   { id: 'messagerie', place: 'large', Section: Messagerie },
   { id: 'relances', place: 'large', Section: RelancesEcheances },
   { id: 'envois', place: 'large', Section: Envois },

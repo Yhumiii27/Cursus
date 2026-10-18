@@ -22,13 +22,18 @@ const modifier: ActionHandler = (ctx, p) => {
   const renomme = nouveau !== q.nom, changeManager = managerId !== (q.managerId ?? null);
   if (!renomme && !changeManager) return 'Aucune modification à enregistrer';
   const messages: string[] = [];
+  let result: unknown;
   if (renomme) messages.push(texte(equipesActions['equipe.renommer'](ctx, { nom: q.nom, nouveau })));
   if (changeManager) {
     // L'instantané de l'action précède le renommage : relu pour trouver l'équipe sous son nouveau nom.
     const apres = renomme ? makeCtx(ctx.db, ctx.user, loadFull(ctx.db, ctx.user)) : ctx;
-    messages.push(texte(equipesActions['equipe.manager'](apres, { nom: nouveau, managerId })));
+    const r = equipesActions['equipe.manager'](apres, { nom: nouveau, managerId });
+    messages.push(texte(r));
+    // Éléments en attente des managers d'équipes rattachées, redirigés (t136) : gardés pour le journal.
+    if (r && typeof r === 'object' && 'result' in r) result = r.result;
   }
-  return messages.filter(Boolean).join(' — ');
+  const message = messages.filter(Boolean).join(' — ');
+  return result ? { message, result } : message;
 };
 
 export const equipeModifierActions: Record<string, ActionHandler> = {

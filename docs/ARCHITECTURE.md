@@ -38,6 +38,7 @@ shared/            Domaine partagé (aucune dépendance)
                    semaine.ts (semaine à 7 jours : repos hebdomadaire et dominical, dérogations), activites.ts (activités
                    internes INT-… et ECOLE), delegation.ts (mandats au CSE, crédit R2314-1, compteur des heures de délégation),
                    repos-a-verifier.ts (feuilles soumises ou validées portant une alerte de repos, pour le service RH) ;
+                   hierarchie.ts (équipe parente, valideur N+1 du manager, équipes descendantes de la consultation N+2) ;
                    demi-journees.ts : congés à la demi-journée (règle, poids, chevauchement, textes) ;
                    acquisition-cp.ts : acquisition des CP mois par mois, absences comprises (loi 2024-364, mémorisée) ;
                    information-retour.ts : information du salarié sur ses congés à son retour d'arrêt (art. L3141-19-3)
@@ -133,7 +134,8 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
 ## Flux de données
 
 1. `GET /api/data` renvoie l'instantané `Dataset` **déjà restreint au périmètre**
-   de l'utilisateur : un manager ne reçoit que son équipe, sans données de santé
+   de l'utilisateur : un manager ne reçoit que son équipe (et, consultation N+2 activée, les équipes rattachées en
+   lecture seule : « Hiérarchie des managers »), sans données de santé
    (`visite`, `avis` et `restrictions` remplacés par `aptitude` : verdict et restrictions en
    vigueur, sans date ; ni demandes de visite ni vaccinations ; état des dossiers
    voyage précalculé dans `voyage.dossierStatut`), et du passeport de ses membres la seule date
@@ -716,6 +718,7 @@ aucun champ du paramètre n'est recopié.
 | `equipe.supprimer` | nom | administrateur RH |
 | `equipe.manager` | nom, managerId (null = aucun) | RH |
 | `equipe.modifier` | nom, nouveau? (absent : inchangé), managerId? (null = aucun ; absent : inchangé) : renommage puis manager dans une seule transaction, avec les contrôles de `equipe.renommer` et `equipe.manager` ; un refus n'enregistre rien (dialogue de l'équipe) | RH |
+| `equipe.parente` | nom, parente (nom d'une autre équipe ; null ou vide : aucune) : contrôles de `shared/rules/hierarchie.ts` (équipe existante, ni elle-même ni une équipe qui lui est rattachée, 4 niveaux au plus), refus si deux salariés devenaient chacun le valideur de l'autre ; demandes de congés, feuilles soumises et entretiens planifiés dont le valideur change listés dans le message, nouveau valideur prévenu (e-mail `hierarchie.redirection`), journal : identifiants, ancien et nouveau valideur ; renommer l'équipe parente met à jour ses équipes rattachées, la supprimer est refusé tant qu'une équipe y est rattachée | RH |
 | `equipe.affecter` | empId, equipe (null = à affecter) | RH ; manager : ajout à une équipe qu'il encadre d'un salarié « à affecter » (libéré par son manager) ou d'un membre d'une autre de ses équipes, retrait d'un membre — jamais le membre d'une autre équipe : sa mutation relève du RH ; jamais un salarié mineur dans une équipe de nuit ou en continu |
 | `plan.inscrire` | empId, certId (recyclage) ou inscriptionId (formation initiale à replanifier), sessionId, conv (`now`/`later`) ; refusé depuis une session passée non clôturée, et si le salarié est absent ou inscrit à une autre session ce jour-là ; convocation reçue pour l'ancienne session à venir annulée par e-mail | RH, référent HSE, manager direct |
 | `convocation.envoyer` | sessionId, empIds? (sans liste : toutes les convocations « à envoyer » ; avec : envoi ou renvoi) ; session à venir ; e-mail avec `.ics`, date d'envoi `convocLe` | RH, référent HSE ; manager direct pour les membres de son équipe |
@@ -811,7 +814,7 @@ aucun champ du paramètre n'est recopié.
 | `entretien.signer` | id | salarié |
 | `entretien.remettre` | id, mode (`main_propre`/`refus`/`portail`), date? (main propre, refus : de la clôture à aujourd'hui ; portail : le jour même, compte actif exigé, e-mail avec le seul lien vers Cursus) ; une remise sur papier est définitive, une mise à disposition se complète par une remise sur papier | évaluateur (manager direct) ou RH, jamais pour son propre entretien |
 | `entretien.telecharger` | id : premier téléchargement du compte rendu clos, daté (`telechargeLe`) | salarié, depuis son espace |
-| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps, santeMiCarriereAge…, cpMaladie, feriesTravaillesAutorises, tauxMajorationFerie, plafondHeuresComplementaires, heuresComplementairesAccord, moyenne12SemainesMax, moyenne12SemainesAccord, contingentHeuresSup, contingentAlerte, contingentAccord, absencesFichierPaie, absencesPaieAPartirDu, piecesStockage, formationRenforceeCode, entretienMiCarriereActif, entretienMiCarriereMois), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
+| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps, santeMiCarriereAge…, cpMaladie, feriesTravaillesAutorises, tauxMajorationFerie, plafondHeuresComplementaires, heuresComplementairesAccord, moyenne12SemainesMax, moyenne12SemainesAccord, contingentHeuresSup, contingentAlerte, contingentAccord, absencesFichierPaie, absencesPaieAPartirDu, piecesStockage, formationRenforceeCode, entretienMiCarriereActif, entretienMiCarriereMois, consultationN2), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
 | `demo.reinitialiser` | — | administrateur RH, mode démonstration |
 | `compte.creer` | empId (ou nom, adresse : compte externe), type (`microsoft`/`local`), identifiant, profilRh | administrateur RH (mot de passe provisoire dans `result`, affiché une fois) |
 | `compte.profil` | id, profilRh (`aucun`/`rh_gestionnaire`/`rh_admin`/`referent_hse`/`paie`/`lecture_seule`) | administrateur RH (jamais le dernier administrateur actif ; un compte externe garde un profil) |
@@ -903,6 +906,36 @@ Table `journal`, écrite par `server/src/journal.ts` (actions) et `journaliser` 
   tiennent ensemble : mêmes titres de parties, et chaque libellé cité entre « » doit exister dans `client/src` ou
   `shared` (`tests/aide.test.ts`) : renommer un bouton oblige à mettre le guide à jour. Le calendrier de paie, inconnu,
   reste « à compléter par le gestionnaire de paie » (`A_COMPLETER_PAIE`, mis en valeur à l'écran).
+
+## Hiérarchie des managers (t136)
+
+Décision de l'entreprise : un manager dépend de son propre responsable « pour tout » (absences, feuilles de temps,
+entretiens). Une équipe peut désigner une **équipe parente** (`Equipe.parente`, colonne `parente` de `equipes`, action
+`equipe.parente`, écran Équipes & managers). Règles : `shared/rules/hierarchie.ts`.
+
+- **Valideur** (`Domain.mgrOf`, `valideurHierarchique`) : le manager de l'équipe du salarié ; pour le manager membre de
+  son équipe, le premier manager d'une équipe parente qui n'est pas lui (N+1), sinon le service RH (0). Une équipe sans
+  manager reste validée par le service RH. Tous les contrôles qui passent par `mgrOf` (`isValidatorOf`, `isManagerOf`,
+  `canAccess`, notifications, relances, écrans) suivent donc la hiérarchie sans autre changement.
+- **Contrôles** : pas de boucle, `PROFONDEUR_MAX` (4) niveaux, pas de validation croisée nouvelle (`croiseeNouvelle`,
+  qui compare `validationsCroisees` avant et après). Ce dernier refus vaut pour toute action qui change un valideur une
+  fois la hiérarchie en place : `equipe.parente`, `equipe.manager` (et `equipe.modifier`), `equipe.affecter` et
+  `employe.modifier` quand l'équipe change (`refuserCroisee`, server/src/actions/hierarchie.ts).
+  Sans équipe parente (défaut, migration `lot6-hierarchie-equipes` qui retire seulement les rattachements impossibles),
+  rien ne change.
+- **Redirection** : à l'enregistrement, `elementsRediriges` compare les valideurs avant et après pour les demandes de
+  congés (`demandee`), les feuilles soumises et les entretiens planifiés ; message, e-mail au nouveau valideur
+  (`hierarchie.redirection`) et journal (`redirections` : type, identifiant, ancien et nouveau valideur). Le changement
+  du manager d'une équipe parente (`equipe.manager`, `equipe.modifier`) redirige de même les éléments des managers des
+  équipes rattachées (ceux des membres de l'équipe passent au nouveau manager comme auparavant, annoncés par la
+  confirmation) ; la confirmation les liste avant l'enregistrement.
+- **Consultation N+2** (réglage `consultationN2`, Paramètres → Hiérarchie des managers, désactivé par défaut) :
+  `lectureSeuleIds` (server/src/dataset.ts) ajoute au périmètre du manager les membres des équipes descendantes de celles
+  qu'il encadre (`equipesDescendantes`), transmis dans `Dataset.lectureSeule`. Mêmes filtres que pour l'équipe directe,
+  aptitude réduite à `ok` et `aProgrammer` (ni avis, ni restrictions), ni entretiens ni demandes au service RH ; aucune
+  action (le valideur reste le N+1). À l'écran : mention « Lecture seule » (Collaborateurs, Temps, Congés & absences),
+  filtre par sous-équipe dans Collaborateurs ; hors des entretiens du manager (`perimetreEntretiens`).
+- `equipes.parente` est déclarée dans `REFERENCES` (server/src/integrite.ts).
 
 ## Contrat et temps de travail
 

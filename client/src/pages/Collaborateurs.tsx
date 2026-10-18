@@ -12,6 +12,7 @@ import { habSuivie } from '../../../shared/rules/referentiels.ts';
 import { MOTIFS_SORTIE, sorti } from '../../../shared/rules/contrats.ts';
 import { convocationEnvoyee, etatInscription } from '../../../shared/rules/sessions.ts';
 import { JOURS_SEMAINE } from '../../../shared/rules/profil.ts';
+import { equipesDescendantes } from '../../../shared/rules/hierarchie.ts';
 import { usePanneauVisible } from '../components/panneau.ts';
 import { Avatar, Bar, Btn, Chips, CloseButton, Empty, Fine, NoteAccent, Page, Panel, SectionLabel, Seg, Tag, Two } from '../components/ui.tsx';
 import { Ouvrir } from '../components/Cliquable.tsx';
@@ -21,6 +22,7 @@ import { SortieFiche } from '../components/Sortie.tsx';
 import { ContratFiche } from '../components/ContratFiche.tsx';
 import { MineurFiche } from '../components/Mineur.tsx';
 import { MandatsFiche } from '../components/Delegation.tsx';
+import { LectureSeule, useLectureSeule } from '../components/Hierarchie.tsx';
 import { ActionsCertification, CertsAnnulees, DemandesFiche } from '../components/Corrections.tsx';
 import { downloadCsv, matriculesImprimes, printDocument } from '../print.ts';
 import { csvAnnuaire } from '../listes-csv.ts';
@@ -68,12 +70,17 @@ export function Collaborateurs() {
 
   const myTeams = useMemo(() => manager ? d.teamsOf(me) : [], [d, manager, me]);
   const team = useMemo(() => manager ? emps.filter(e => e.id !== me && d.mgrOf(e) === me) : emps, [emps, manager, me, d]);
+  // Consultation N+2 (t136) : membres des équipes rattachées, en lecture seule, listés après l'équipe directe et filtrables
+  // par sous-équipe ; ils ne comptent ni dans le résumé ni dans les échéances de contrat du manager.
+  const lecture = useLectureSeule();
+  const sousEquipes = useMemo(() => manager && lecture.size ? equipesDescendantes(d.ds.referentiels.equipes, myTeams) : [], [d, manager, lecture, myTeams]);
+  const vus = useMemo(() => lecture.size ? [...team, ...emps.filter(e => lecture.has(e.id))] : team, [team, emps, lecture]);
   // Filtre « Sortis » : les salariés dont la date de sortie est passée, que `emps` ne compte plus (Domain.enrich).
   const sortis = ui.statut === 'sortis';
-  const liste = useMemo(() => !sortis ? team : d.enrich(horizon, onlyReg, { sortis: true })
-    .filter(e => sorti(e, d.ti) && (!manager || (e.id !== me && d.mgrOf(e) === me))), [sortis, team, d, horizon, onlyReg, manager, me]);
-  const teamOptions = espaceRh ? d.equipes : myTeams;
-  const multi = espaceRh || myTeams.length > 1;
+  const liste = useMemo(() => !sortis ? vus : d.enrich(horizon, onlyReg, { sortis: true })
+    .filter(e => sorti(e, d.ti) && (!manager || (e.id !== me && (d.mgrOf(e) === me || lecture.has(e.id))))), [sortis, vus, d, horizon, onlyReg, manager, me, lecture]);
+  const teamOptions = espaceRh ? d.equipes : [...myTeams, ...sousEquipes];
+  const multi = espaceRh || teamOptions.length > 1;
   // Un filtre devenu sans objet (équipe renommée, hors périmètre) revient à « Toutes ».
   const filtre = multi && (ui.equipe === SANS_EQUIPE ? espaceRh : teamOptions.includes(ui.equipe)) ? ui.equipe : 'Toutes';
   const aAffecter = espaceRh ? emps.filter(e => !e.equipe).length : 0;
@@ -114,7 +121,7 @@ export function Collaborateurs() {
       {multi && (
         <select className="input" aria-label="Équipe" value={filtre} onChange={e => setUi({ equipe: e.target.value })} style={{ width: 'auto', minWidth: 190 }}>
           <option value="Toutes">{espaceRh ? 'Toutes les équipes' : 'Toutes mes équipes'}</option>
-          {teamOptions.map(nom => <option key={nom} value={nom}>{nom}</option>)}
+          {teamOptions.map(nom => <option key={nom} value={nom}>{nom}{sousEquipes.includes(nom) ? ' (lecture seule)' : ''}</option>)}
           {espaceRh && <option value={SANS_EQUIPE}>{aAffecter ? `À affecter (${aAffecter})` : 'À affecter'}</option>}
         </select>
       )}
@@ -123,7 +130,7 @@ export function Collaborateurs() {
       <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exporter}>Exporter (CSV)</Btn>
       {rh && <Btn variant="primary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'employe', equipe: cible })}>Nouveau collaborateur</Btn>}
       {manager && myTeams.length > 0 && (
-        <Btn variant="primary" icon={<UserPlusIcon size={14} />} onClick={() => openDialog({ type: 'membre', equipe: cible ?? myTeams[0] })}>Ajouter un membre</Btn>
+        <Btn variant="primary" icon={<UserPlusIcon size={14} />} onClick={() => openDialog({ type: 'membre', equipe: cible && myTeams.includes(cible) ? cible : myTeams[0] })}>Ajouter un membre</Btn>
       )}
     </>}>
       {contrats.length > 0 && (
@@ -153,7 +160,7 @@ export function Collaborateurs() {
                         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
                           <Avatar nom={e.nom} />
                           <div>
-                            <div className="nowrap"><Ouvrir pressed={ui.selectedId === e.id} onOpen={() => setUi({ selectedId: ui.selectedId === e.id ? null : e.id })}>{e.nom}</Ouvrir></div>
+                            <div className="nowrap"><Ouvrir pressed={ui.selectedId === e.id} onOpen={() => setUi({ selectedId: ui.selectedId === e.id ? null : e.id })}>{e.nom}</Ouvrir>{lecture.has(e.id) && <> <LectureSeule d={d} empId={e.id} /></>}</div>
                             <div className="text-muted sub">{e.poste}</div>
                             <div className="text-muted sub-11">{contratCourt(d.contratOf(e))}</div>
                           </div>
@@ -214,6 +221,8 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
   const parti = sorti(e, d.ti);
   /** Manager direct consultant un membre de son équipe (jamais sa propre fiche). */
   const membre = manager && e.id !== me && d.mgrOf(e) === me && !parti;
+  /** Consultation N+2 (t136) : fiche consultée, décisions au manager direct. */
+  const lectureSeule = useLectureSeule().has(e.id);
   const canPlan = (formations || membre) && !parti;
   /**
    * Certifications remplacées par un recyclage (historique), selon le filtre « réglementaires uniquement » ; celles
@@ -310,11 +319,13 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
       <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
         {parti ? <Tag cls="tag-outline">Sorti</Tag> : <Tag cls={CLS[e.worst]}>{EMP_LABEL[e.worst]}</Tag>}
         {!e.equipe && <Tag cls="tag-outline">À affecter</Tag>}
+        {lectureSeule && <LectureSeule d={d} empId={e.id} />}
         <span className="text-muted sub">
           {plural(e.certs.length, 'certification', 'certifications')} · {parti ? `sorti le ${fmtIso(e.fin!)} : plus d’échéance suivie` : e.next ? 'prochaine échéance le ' + fmt(e.next.exp) : 'aucune échéance'}
         </span>
       </div>
       {!parti && <ExigencesMotif e={e} />}
+      {lectureSeule && <Fine>Consultation en lecture seule (équipe rattachée) : les absences, les heures, les formations et les entretiens de {e.nom} relèvent de {d.mgrName(valideur)}.</Fine>}
       {/* Manager : verdict et restrictions en vigueur seulement ; demandes de visite et avis : service RH. */}
       <SectionLabel>Aptitude médicale</SectionLabel>
       <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>

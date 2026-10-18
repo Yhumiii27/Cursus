@@ -240,8 +240,11 @@ export function retraitEquipe(empId: number, nom: string, equipe: string, ui?: P
   };
 }
 
-/** Changement du manager d'une équipe (null : aucun, validations par le service RH). */
-export function changementManager(equipe: string, ancien: string | null, nouveau: { id: number; nom: string } | null): Confirmation {
+/**
+ * Changement du manager d'une équipe (null : aucun, validations par le service RH). `rattaches` : éléments en attente des
+ * managers des équipes rattachées qui changent aussi de valideur (hiérarchie, t136), décrits pour l'écran.
+ */
+export function changementManager(equipe: string, ancien: string | null, nouveau: { id: number; nom: string } | null, rattaches: string[] = []): Confirmation {
   return {
     titre: 'Changer le manager',
     question: nouveau ? `Désigner ${nouveau.nom} manager de l’équipe ${equipe} ?` : `Retirer le manager de l’équipe ${equipe} ?`,
@@ -250,10 +253,33 @@ export function changementManager(equipe: string, ancien: string | null, nouveau
         ? `${nouveau.nom} valide désormais les heures, les absences et les entretiens de l’équipe${ancien ? `, à la place de ${ancien}` : ''}.`
         : `Les heures, les absences et les entretiens de l’équipe sont validés par le service RH${ancien ? `, à la place de ${ancien}` : ''}.`,
       'Les demandes en attente passent au nouveau valideur.',
-    ],
+      rattaches.length
+        ? `Managers des équipes rattachées : ${plural(rattaches.length, 'élément en attente change', 'éléments en attente changent')} aussi de valideur, qui en est prévenu par e-mail : ${rattaches.join(' ; ')}.`
+        : '',
+    ].filter(Boolean),
     bouton: nouveau ? 'Désigner le manager' : 'Retirer le manager',
     action: 'equipe.manager',
     payload: { nom: equipe, managerId: nouveau?.id ?? null },
+  };
+}
+
+/**
+ * Équipe parente (t136) : `valideur` : nouveau valideur du manager de l'équipe (nom, ou « le service RH ») ; `redirigees` :
+ * éléments en attente qui changent de valideur (shared/rules/hierarchie.ts, `elementsRediriges`), décrits pour l'écran.
+ */
+export function rattachementEquipe(equipe: string, parente: string | null, valideur: string | null, redirigees: string[]): Confirmation {
+  return {
+    titre: parente ? 'Rattacher l’équipe' : 'Retirer l’équipe parente',
+    question: parente ? `Rattacher l’équipe ${equipe} à l’équipe ${parente} ?` : `Retirer l’équipe parente de l’équipe ${equipe} ?`,
+    suites: [
+      valideur ? `Les absences, les feuilles de temps et les entretiens du manager de l’équipe seront validés par ${valideur}.` : '',
+      redirigees.length
+        ? `${plural(redirigees.length, 'élément en attente change', 'éléments en attente changent')} de valideur, qui en est prévenu par e-mail : ${redirigees.join(' ; ')}.`
+        : 'Aucun élément en attente ne change de valideur.',
+    ].filter(Boolean),
+    bouton: parente ? 'Rattacher' : 'Retirer le rattachement',
+    action: 'equipe.parente',
+    payload: { nom: equipe, parente },
   };
 }
 

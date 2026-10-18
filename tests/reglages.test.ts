@@ -55,6 +55,8 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     piecesStockage: 'desactive',
     // Sécurité au poste (lot 6) : formation renforcée non désignée ; entretien de mi-carrière 2 mois après la visite.
     formationRenforceeCode: '', entretienMiCarriereActif: true, entretienMiCarriereMois: 2,
+    // Hiérarchie (t136) : consultation N+2 désactivée par défaut.
+    consultationN2: false,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

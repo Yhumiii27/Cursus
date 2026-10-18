@@ -18,6 +18,7 @@ import { envoisActions } from './envois.ts';
 import { equipesActions } from './equipes.ts';
 import { equipeModifierActions } from './equipe-modifier.ts';
 import { exercicesActions } from './exercices.ts';
+import { hierarchieActions } from './hierarchie.ts';
 import { messagerieActions } from './messagerie.ts';
 import { paieActions } from './paie.ts';
 import { parametresActions } from './parametres.ts';
@@ -45,6 +46,7 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...absencesActions,
   ...entretiensActions,
   ...equipesActions,
+  ...hierarchieActions,
   ...parametresActions,
   ...comptesActions,
   ...envoisActions,

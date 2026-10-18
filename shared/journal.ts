@@ -63,6 +63,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'equipe.supprimer': 'Suppression d’une équipe',
   'equipe.manager': 'Manager d’une équipe',
   'equipe.affecter': 'Affectation à une équipe',
+  'equipe.parente': 'Équipe parente (hiérarchie des managers)',
   // Formations
   'plan.inscrire': 'Inscription à une session',
   'cert.ajouter': 'Certification enregistrée',
@@ -330,6 +331,8 @@ export const CHAMP_LABEL: Record<string, string> = {
   risquesL4154: 'Poste à risques particuliers (art. L4154-2)', formationRenforceeCode: 'Formation renforcée à la sécurité',
   couverture: 'Couverture minimale', couvertureAvant: 'Couverture minimale avant',
   entretienMiCarriereActif: 'Entretien de parcours après la visite de mi-carrière', entretienMiCarriereMois: 'Délai de l’entretien de mi-carrière (mois)',
+  // Hiérarchie des managers (Paramètres → Hiérarchie, équipe parente).
+  consultationN2: 'Consultation N+2 des équipes rattachées', parente: 'Équipe parente',
 };
 
 const valeur = (v: unknown): string => {

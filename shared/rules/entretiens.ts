@@ -148,9 +148,11 @@ export function debutCloture(d: Domain, x: Entretien): { min: ISODate; raison: s
 /**
  * Salariés dont les entretiens se suivent dans l'espace affiché : dans l'espace manager, son équipe sans lui-même — ses
  * propres entretiens relèvent de son responsable, et il les prépare et les signe dans son espace collaborateur ; ailleurs,
- * tout l'instantané (le RH, l'intéressé).
+ * tout l'instantané (le RH, l'intéressé). Les salariés consultés en lecture seule (consultation N+2, t136) n'en font pas
+ * partie : leurs entretiens relèvent de leur manager direct et ne sont pas transmis.
  */
-export function perimetreEntretiens(ds: Pick<Dataset, 'user' | 'employes'>): number[] {
+export function perimetreEntretiens(ds: Pick<Dataset, 'user' | 'employes' | 'lectureSeule'>): number[] {
   const moi = ds.user.role === 'manager' ? ds.user.empId : null;
-  return ds.employes.filter(e => e.id !== moi).map(e => e.id);
+  const lecture = new Set(ds.lectureSeule ?? []);
+  return ds.employes.filter(e => e.id !== moi && !lecture.has(e.id)).map(e => e.id);
 }

@@ -16,6 +16,7 @@ import { finPeriodeCp, periodeReport } from '../../shared/rules/conges.ts';
 import { debutSaisieDe } from '../../shared/rules/suivi-feuilles.ts';
 import { reouvertureNeutre } from '../../shared/rules/regularisation.ts';
 import { effectifSite } from '../../shared/rules/delegation.ts';
+import { equipesDescendantes } from '../../shared/rules/hierarchie.ts';
 import { reglagesParDefaut } from '../../shared/reglages.ts';
 import { etatsCouverture } from '../../shared/rules/couverture.ts';
 import { entretienMiCarriere } from '../../shared/rules/entretien-mi-carriere.ts';
@@ -184,13 +185,25 @@ export function currentUser(db: Db, s: SessionInfo | null): CurrentUser | null {
   return { role: s.role, empId, nom: e.nom, intitule: e.poste, ...compte };
 }
 
-/** Identifiants des collaborateurs visibles par l'utilisateur. */
+/** Membres directs de l'équipe d'un manager : ceux dont il est le valideur (`Domain.mgrOf`, N+1 compris). */
+const equipeDirecte = (d: Domain, empId: number) => d.ds.employes.filter(e => d.mgrOf(e) === empId).map(e => e.id);
+
+/**
+ * Consultation N+2 (t136, réglage `consultationN2`, désactivé par défaut) : membres des équipes rattachées, directement ou
+ * non, à celles que le manager encadre, hors de son équipe directe. Il les consulte en lecture seule : les décisions restent
+ * à leur valideur (`isValidatorOf`, server/src/actions/context.ts).
+ */
+export function lectureSeuleIds(d: Domain, user: CurrentUser): number[] {
+  if (user.role !== 'manager' || !user.empId || !d.ds.settings.consultationN2) return [];
+  const sous = new Set(equipesDescendantes(d.ds.referentiels.equipes, d.teamsOf(user.empId)));
+  const directs = new Set([user.empId, ...equipeDirecte(d, user.empId)]);
+  return d.ds.employes.filter(e => !!e.equipe && sous.has(e.equipe) && !directs.has(e.id)).map(e => e.id);
+}
+
+/** Identifiants des collaborateurs visibles par l'utilisateur (manager : consultation N+2 comprise, `lectureSeuleIds`). */
 export function scopeIds(d: Domain, user: CurrentUser): number[] {
   if (user.role === 'rh') return d.ds.employes.map(e => e.id);
-  if (user.role === 'manager') {
-    const team = d.ds.employes.filter(e => d.mgrOf(e) === user.empId).map(e => e.id);
-    return [user.empId!, ...team];
-  }
+  if (user.role === 'manager') return [user.empId!, ...equipeDirecte(d, user.empId!), ...lectureSeuleIds(d, user)];
   return [user.empId!];
 }
 
@@ -240,6 +253,10 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
   const ids = new Set(scopeIds(d, user));
   const mine = <T extends { empId: number }>(list: T[]) => list.filter(x => ids.has(x.empId));
   const isMgr = user.role === 'manager';
+  // Consultation N+2 (t136) : mêmes filtres que pour l'équipe directe, aptitude réduite au verdict (ni avis, ni
+  // restrictions), ni entretiens ni demandes au service RH (affaires du valideur direct).
+  const lecture = new Set(lectureSeuleIds(d, user));
+  const direct = <T extends { empId: number }>(list: T[]) => list.filter(x => !lecture.has(x.empId));
   // Les managers voient le verdict d'aptitude, les restrictions de poste en vigueur et l'état des dossiers voyage,
   // jamais les données de santé (date de visite, avis daté, demande de visite, suivi médical, vaccinations). Une reprise ouverte par
   // un arrêt longue maladie leur est masquée : elle trahirait la nature de l'arrêt (l'entretien de reprise est suivi par le RH).
@@ -265,7 +282,7 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
       entretienMiCarriere: entretienMiCarriere(full, e)?.due ?? null,
       ...(repriseMedicale(e, full.absences) ? { repriseMotif: null, repriseDate: null } : { repriseMotif: e.repriseDate ? 'absence longue' : null }),
     }
-    : e);
+    : e).map(e => (lecture.has(e.id) && e.aptitude ? { ...e, aptitude: { ok: e.aptitude.ok, aProgrammer: e.aptitude.aProgrammer } } : e));
   // Motif d'une annulation (texte libre du service RH) et demandeur d'un déplacement importé (nom saisi dans le
   // formulaire) : jamais transmis hors du service RH.
   const voyages = mine(full.voyages).map(v => (v.annuleMotif || v.demandeur ? { ...v, annuleMotif: null, demandeur: null } : v)).map(v => {
@@ -308,11 +325,11 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     // Solde de sortie : solde de tout compte, l'affaire du service RH et de la paie (ni le manager, ni l'intéressé).
     soldesSortie: [],
     // Sections « fin de carrière » des entretiens d'un membre calculées ici : sa date de naissance n'est pas transmise.
-    entretiens: mine(full.entretiens).map(x => isMgr && x.empId !== user.empId ? avecFinCarriere(d, x) : x),
+    entretiens: direct(mine(full.entretiens)).map(x => isMgr && x.empId !== user.empId ? avecFinCarriere(d, x) : x),
     // Les documents déclarés (passeport, visas, vaccinations) des membres ne sont pas montrés au manager ;
     // le contenu d'une déclaration et le motif d'un refus ne sont transmis qu'à l'intéressé (et au RH), même
     // quand le manager a fait la demande : la confirmation du refus l'annonce ainsi (client/src/state/confirmations.ts).
-    demandesCollab: mine(full.demandesCollab).filter(r => !isMgr || r.empId === user.empId || r.type !== 'document')
+    demandesCollab: direct(mine(full.demandesCollab)).filter(r => !isMgr || r.empId === user.empId || r.type !== 'document')
       .map(r => r.empId === user.empId ? r : { ...r, declaration: null, motifRefus: null }).map(demandeSansMotifRh),
     // Demandes de visite médicale : l'intéressé seulement (jamais le manager).
     demandesVisite: full.demandesVisite.filter(x => x.empId === user.empId),
@@ -336,6 +353,7 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     // Couverture minimale : celle des équipes que le manager encadre (ses membres, absences sans leur nature) ; rien pour
     // le collaborateur.
     couverture: isMgr ? etatsCouverture(full, full.settings.horizonAlerte, d.teamsOf(user.empId)) : [],
+    lectureSeule: [...lecture],
   };
 }
 

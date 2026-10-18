@@ -179,6 +179,9 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   //   après la visite par défaut, lecture la plus prudente du texte, à confirmer juridiquement —
   entretienMiCarriereActif: { defaut: true, controle: booleen },
   entretienMiCarriereMois: { defaut: 2, controle: entier(1, 12) },
+  // — Hiérarchie des managers (parametres/Hierarchie.tsx, t136) : consultation N+2 en lecture seule, désactivée par défaut
+  //   (réponse de l'entreprise du 18 octobre 2026) —
+  consultationN2: { defaut: false, controle: booleen },
 };
 
 /**

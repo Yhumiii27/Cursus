@@ -126,6 +126,11 @@ export interface Equipe {
   nuit?: boolean | null;
   /** Couverture minimale (SST, EPI incendie…) ; null ou vide : aucun seuil, la règle est inactive (shared/rules/couverture.ts). */
   couverture?: LigneCouverture[] | null;
+  /**
+   * Équipe parente (t136, shared/rules/hierarchie.ts) : son manager est le responsable (N+1) du manager de cette équipe,
+   * qui lui soumet ses absences, ses feuilles et ses entretiens. null : aucune (validations du manager par le service RH).
+   */
+  parente?: string | null;
 }
 /** Projet ou chantier tenu dans Keystone : archivé, il reste en base (historique) sans plus être proposé ni évalué. */
 export type StatutKeystone = 'actif' | 'archive';
@@ -808,6 +813,8 @@ export interface Settings {
    */
   entretienMiCarriereActif: boolean;
   entretienMiCarriereMois: number;
+  /** Hiérarchie (t136) : membres des équipes descendantes consultables par le manager, en lecture seule (désactivé par défaut). */
+  consultationN2: boolean;
 }
 /** Plafond des heures complémentaires du temps partiel : le dixième (art. L3123-28) ou le tiers avec un accord (art. L3123-20). */
 export type PlafondComplementaires = 'dixieme' | 'tiers';
@@ -1170,6 +1177,11 @@ export interface Dataset {
    * absent), les équipes encadrées pour le manager ; rien ailleurs. Absente : calcul sur l'instantané (tests, outils).
    */
   couverture?: EtatCouverture[];
+  /**
+   * Consultation N+2 (t136, réglage `consultationN2`) : salariés des équipes descendantes transmis au manager en lecture
+   * seule, avec les filtres de sa vue et sans aptitude détaillée ; ni entretiens, ni demandes. Absent ou vide ailleurs.
+   */
+  lectureSeule?: number[];
 }
 
 /**

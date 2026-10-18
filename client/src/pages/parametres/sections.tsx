@@ -12,6 +12,7 @@ import { AbsencesPaie } from './AbsencesPaie.tsx';
 import { Conges } from './Conges.tsx';
 import { Contrats } from './Contrats.tsx';
 import { DecompteHeures } from './DecompteHeures.tsx';
+import { DeplacementsPaie } from './DeplacementsPaie.tsx';
 import { Demonstration } from './Demonstration.tsx';
 import { Entretiens } from './Entretiens.tsx';
 import { EntretienMiCarriere } from './EntretienMiCarriere.tsx';
@@ -61,6 +62,7 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'paie', place: 'droite', Section: ReglagesPaie },
   { id: 'decompte', place: 'droite', Section: DecompteHeures },
   { id: 'absences-paie', place: 'droite', Section: AbsencesPaie },
+  { id: 'deplacements-paie', place: 'droite', Section: DeplacementsPaie },
   { id: 'feuilles', place: 'gauche', Section: FeuillesTemps },
   { id: 'repos', place: 'droite', Section: ReposHebdomadaire },
   { id: 'sante', place: 'gauche', Section: Sante },

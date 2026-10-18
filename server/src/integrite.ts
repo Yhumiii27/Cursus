@@ -47,6 +47,9 @@ export const REFERENCES: readonly Reference[] = [
   // Pièces justificatives (server/src/pieces.ts) : compte qui l'a envoyée, et objet auquel elle est jointe.
   ref('pieces', 'depose_compte_id', 'comptes'),
   ...(Object.entries(TABLE_OBJET) as [ObjetPiece, TableName][]).map(([o, t]) => ref('pieces', 'objet_id', snake(t), 'id', `t.objet = '${o}'`)),
+  // Éléments de déplacement des lots de paie (t031) : salarié et lot.
+  ref('deplacements_paie', 'emp_id', 'employes'),
+  ref('deplacements_paie', 'lot_id', 'lots_paie'),
 ];
 
 export interface Integrite {

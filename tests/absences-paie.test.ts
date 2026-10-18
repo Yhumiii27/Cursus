@@ -169,6 +169,8 @@ test('t028 fichier : absences ventilées, régularisation négative, rubrique d�
   assert.deepEqual(L.resumeContenu(contenu), {
     lignes: 3, salaries: 2, rubriques: { HN: 35 },
     absences: { elements: 4, salaries: 2, rubriques: { CP: 3, 5100: -2 } },
+    // Lot 6 : l'absence sous une rubrique désactivée, absente du fichier, est listée « à saisir dans Sage ».
+    aSaisir: [{ famille: 'absences', empId: 2, periode: '2026-10', rubrique: 'ABS_NP', quantite: 1, detail: 'Absence n° 3, le 07/10/2026' }],
   });
   assert.deepEqual(Object.keys(L.libellesSage(contenu, [])), ['5100', 'CP', 'HN']);
 });
@@ -188,7 +190,7 @@ test('t028 lot de fichier : absences réservées, libérées à l’annulation, 
     refus(PAIE, 'paie.lotGenerer', { periode: '2026-10' }, 409, /pour la rubrique ABS_IND_SANTE \(Absence indemnisée, santé/);
     run(ADMIN, 'paie.rubrique', { code: 'ABS_IND_SANTE', codeSage: '5100', confirmer: true });
 
-    assert.match(run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }), / · 5 absences$/);
+    assert.match(run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }), / · 5 absences · 3 séjours \(déplacements\)/);
     const lot = lots().at(-1)!;
     assert.deepEqual(lot.absences!.map(a => a.id).sort(), oct.map(a => a.id).sort());
     assert.ok(oct.every(a => absence(a.id).lotId === lot.id && !absence(a.id).sage), 'réservées, pas transmises');
@@ -277,7 +279,7 @@ test('t028 réglage désactivé : le fichier se limite aux heures ; rubrique dé
 
 test('t028 simulation en un clic : feuilles et absences dans le même lot transmis', () => {
   const { run, lots, absence, PAIE } = fresh();
-  assert.match(run(PAIE, 'temps.pushSage', {}), / · 5 absences$/);
+  assert.match(run(PAIE, 'temps.pushSage', {}), / · 5 absences · 3 séjours \(déplacements\)/);
   const lot = lots().at(-1)!;
   assert.equal(lot.statut, 'transmis');
   assert.ok(lot.absences!.every(a => absence(a.id).sage));
@@ -445,7 +447,7 @@ test('t028 base neuve : date de mise en service réglée, et date de départ pos
   // Absence antérieure à la mise en service, enregistrée avant le premier lot : septembre ne part pas.
   const avant = inserer(db, { empId: 1, type: 'CP', du: '2026-09-21', au: '2026-09-25', statut: 'validee' });
   assert.ok(absencesAEmettre(db, d(), '2026-10').some(x => x.absence === avant && x.mois === '2026-09'), 'sans date : septembre en rappel');
-  assert.match(run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }), / · absences transmises à partir du 1 oct\. 2026 : les jours d’avant restent à saisir dans Sage$/);
+  assert.match(run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }), / · absences transmises à partir du 1 oct\. 2026 : les jours d’avant restent à saisir dans Sage · déplacements transmis à partir du 1 oct\. 2026$/);
   assert.ok(!lots().at(-1)!.contenu!.absences!.some(x => x.absence === avant));
   assert.equal(journal('migration.absencesPaie').at(-1)!.payload.depuis, '2026-10-01');
   run(PAIE, 'paie.lotAnnuler', { id: lots().at(-1)!.id });

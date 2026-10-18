@@ -30,6 +30,7 @@ const TITRES: Partial<Record<TableName, string>> = {
   mandats: 'Mandats au CSE', informationsCp: 'Informations sur les congés au retour d’un arrêt',
   soldesSortie: 'Solde des compteurs à la sortie',
   pieces: 'Pièces justificatives',
+  deplacementsPaie: 'Déplacements transmis à la paie (jours, nuits, trajets)',
 };
 /**
  * Colonnes jamais exportées : empreinte du mot de passe (secret) ; nom stocké et jeton d'envoi d'une pièce justificative

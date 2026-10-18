@@ -245,6 +245,10 @@ const MATRICE: Ligne[] = [
   { action: 'voyage.detachement', droits: '                  O    O    -    -    -    -    -    -    -', p: () => ({ id: voyage(), detachementLe: '2026-10-06' }) },
   // Modification et annulation d'un déplacement : service RH (Keystone prévenu pour un déplacement venu de Keystone).
   { action: 'voyage.modifier', droits: '                 O    O    -    -    -    -    -    -    -', p: () => ({ id: voyage(), depart: '2026-11-03', retour: '2026-11-06' }) },
+  // Déplacements dans la paie (t031) : qualification « grand déplacement » d'un chantier en France, service RH.
+  { action: 'chantier.grandDeplacement', droits: '       O    O    -    -    -    -    -    -    -', p: () => ({ id: 'K-2620', grandDeplacement: true }) },
+  // Contact d'urgence (t068) : le salarié pour lui-même (portail) ou le service RH ; ni le manager, ni les profils restreints.
+  { action: 'employe.contactUrgence', droits: '          O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, nom: 'Nadia Benali (sœur)', telephone: '06 12 34 56 78' }) },
   { action: 'voyage.annuler', droits: '                  O    O    -    -    -    -    -    -    -', p: () => ({ id: voyage(), motif: 'Chantier reporté' }) },
   { action: 'formalite.enregistrer', droits: '               O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, kind: 'passeport', numero: '21XY12345', expire: '2032-01-01' }) },
   { action: 'voyages.importer', droits: '                    O    O    -    -    -    -    -    -    -', p: () => ({ texte: SAMPLE_TRIPS_CSV }) },

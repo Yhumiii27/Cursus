@@ -35,6 +35,7 @@ import { lireFormatFichier, lireLots } from './lots-paie.ts';
 import { absenceSansPaie, resumeAbsencesPaie, sansCodesAbsences } from './absences-paie.ts';
 import { lireMessagerie } from './messagerie.ts';
 import { lirePieces, piecesVisibles } from './pieces.ts';
+import { resumeDeplacementsPaie } from './deplacements-paie.ts';
 
 /** Réglages par défaut : colonne `defaut` de la table des réglages (shared/reglages.ts). */
 export const DEFAULT_SETTINGS: Settings = reglagesParDefaut();
@@ -150,7 +151,8 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     pieces: lirePieces(db),
   };
   // Absences en attente du fichier de paie par période (server/src/absences-paie.ts) : lit le contenu figé des lots.
-  return { ...ds, absencesPaie: resumeAbsencesPaie(db, user, ds) };
+  // Déplacements en attente du fichier de paie (t031, server/src/deplacements-paie.ts) : lit la table des éléments émis.
+  return { ...ds, absencesPaie: resumeAbsencesPaie(db, user, ds), deplacementsPaie: resumeDeplacementsPaie(db, user, ds) };
 }
 
 /**
@@ -163,6 +165,13 @@ const sansCorrections = (e: Employe): Employe => ({
 });
 const ligneSansMotif = (l: PlanAction): PlanAction => (l.corrigeMotif ? { ...l, corrigeMotif: null } : l);
 const demandeSansMotifRh = (r: DemandeCollab): DemandeCollab => (r.rouverteMotif ? { ...r, rouverteMotif: null } : r);
+
+/**
+ * Coordonnées sur place d'un déplacement (hébergement, contact local : textes libres du service RH, t068) et contact
+ * d'urgence d'une fiche (service RH et intéressé) : retirés hors du service RH.
+ */
+const voyageSansCoordonnees = (v: Voyage): Voyage => (v.hebergement || v.contactSurPlace ? { ...v, hebergement: null, contactSurPlace: null } : v);
+const sansContactUrgence = (e: Employe): Employe => (e.urgenceNom || e.urgenceTel ? { ...e, urgenceNom: null, urgenceTel: null } : e);
 
 /** Dérogations au repos dominical sans la référence de l'accord (texte libre) : hors du service RH, le type suffit. */
 const derogationsSansReference = (full: Dataset) => (full.derogationsDominicales ?? []).map(x => ({ ...x, reference: null }));
@@ -280,12 +289,14 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
       derogationTravauxLe: null,
       // Entretien de parcours après la visite de mi-carrière : l'échéance seule, jamais la date de la visite.
       entretienMiCarriere: entretienMiCarriere(full, e)?.due ?? null,
+      // Contact d'urgence (t068) : service RH et intéressé, jamais le manager.
+      urgenceNom: null, urgenceTel: null,
       ...(repriseMedicale(e, full.absences) ? { repriseMotif: null, repriseDate: null } : { repriseMotif: e.repriseDate ? 'absence longue' : null }),
     }
     : e).map(e => (lecture.has(e.id) && e.aptitude ? { ...e, aptitude: { ok: e.aptitude.ok, aProgrammer: e.aptitude.aProgrammer } } : e));
   // Motif d'une annulation (texte libre du service RH) et demandeur d'un déplacement importé (nom saisi dans le
   // formulaire) : jamais transmis hors du service RH.
-  const voyages = mine(full.voyages).map(v => (v.annuleMotif || v.demandeur ? { ...v, annuleMotif: null, demandeur: null } : v)).map(v => {
+  const voyages = mine(full.voyages).map(v => (v.annuleMotif || v.demandeur ? { ...v, annuleMotif: null, demandeur: null } : v)).map(voyageSansCoordonnees).map(v => {
     if (!isMgr || v.empId === user.empId) return v;
     const emp = d.emp(v.empId);
     return emp ? { ...v, dossierStatut: d.readiness(emp, v).status } : v;
@@ -337,6 +348,7 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     participations: mine(full.participations),
     lotsPaie: [],
     absencesPaie: [],
+    deplacementsPaie: null,
     formatFichierPaie: null,
     rubriquesPaie: [],
     messagerie: null,
@@ -406,7 +418,7 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
   const formations = lecture || droits.includes('formations');
   const paie = lecture || droits.includes('paie');
   const d = new Domain(full);
-  const employes = full.employes.map(e => ({
+  const employes = full.employes.map(sansContactUrgence).map(e => ({
     ...e,
     visite: null, avis: null, restrictions: [], aptitude: formations ? aptitudeVueManager(e, d.medInfo(e).ok, full.today, visiteAProgrammer(d, e)) : undefined, vaccins: [],
     suivi: null, prochaineVisite: null, examenAptitude: null, expose: null,
@@ -434,7 +446,7 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
   // Déplacements : l'état du dossier et les formalités manquantes sont calculés ici, avec les pièces du dossier,
   // pour que le verdict Go / No Go soit exact sans les transmettre.
   // Ni motif d'annulation, ni demandeur d'un déplacement importé (textes du service RH).
-  const voyages = !formations ? [] : full.voyages.map(v => (v.annuleMotif || v.demandeur ? { ...v, annuleMotif: null, demandeur: null } : v)).map(v => {
+  const voyages = !formations ? [] : full.voyages.map(v => (v.annuleMotif || v.demandeur ? { ...v, annuleMotif: null, demandeur: null } : v)).map(voyageSansCoordonnees).map(v => {
     const emp = d.emp(v.empId);
     if (!emp || !d.destOf(v.dest)) return v;
     const r = d.readiness(emp, v);
@@ -482,6 +494,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     lotsPaie: paie ? full.lotsPaie : [],
     // Absences en attente du fichier de paie : la lecture seule les compte, sans les rubriques (catégorie de la nature).
     absencesPaie: paie ? full.absencesPaie : [],
+    // Déplacements en attente du fichier de paie (t031) : paie et lecture seule ; pas le référent HSE.
+    deplacementsPaie: paie ? full.deplacementsPaie : null,
     ...(paie && !droits.includes('paie') ? sansCodesAbsences(full) : {}),
     formatFichierPaie: paie ? full.formatFichierPaie : null,
     rubriquesPaie: paie ? full.rubriquesPaie : [],

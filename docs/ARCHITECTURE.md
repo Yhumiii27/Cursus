@@ -49,6 +49,9 @@ shared/            Domaine partagé (aucune dépendance)
                    pieces.ts : pièces justificatives (types reconnus sur le contenu, 10 Mo, nom gardé, droits de consultation)
                    formation-renforcee.ts (postes à risques particuliers, art. L4154-2), couverture.ts (couverture minimale des
                    équipes en SST et équipiers incendie), entretien-mi-carriere.ts (entretien de parcours après la visite) : lot 6
+                   deplacements-paie.ts (lot 6) : jours et nuits de grand déplacement, jours à l'étranger, trajets (séjours, écart)
+                   elements-lot.ts (lot 6) : éléments d'un lot « à saisir dans Sage » (rubrique désactivée, réglage décoché)
+                   vigilance.ts (lot 6) : vigilance France Diplomatie, rappel avant un départ, coordonnées, contact d'urgence
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   migrate.ts       Reprises des bases antérieures, rejouées à chaque démarrage (idempotentes)
@@ -63,6 +66,7 @@ server/src/
                    formations.ts (lot 5 : sessions existantes sur un jour, activité interne INT-FORM)
                    paie.ts, lot 5 : absences des périodes passées laissées à Sage (premier jour transmis par le fichier)
                    lot6-pieces.ts (lot 6 : index des pièces justificatives par salarié et par objet)
+                   lot6-paie.ts (lot 6) : déplacements des périodes passées laissés à Sage (date de départ)
   seed.ts          Données de démonstration
   sauvegarde.ts    Copie à chaud (VACUUM INTO), rotation, restauration, verrou du serveur ;
                    scripts backup.ts et restore.ts (npm run backup / restore, voir docs/SAUVEGARDE.md)
@@ -86,6 +90,9 @@ server/src/
                    d'import d'un lot (GET /api/paie/lots/:id/fichier, tracé) ; absences-paie.ts : absences d'un lot (éléments
                    déjà émis, réservation, libération, résumé de l'instantané) ; variables-paie.ts : export CSV des variables
                    d'une période (GET /api/paie/variables/:periode, tracé)
+  elements-lot.ts  Registre des éléments de lot (lot 6) : familles réservées, transmises et libérées par le lot (soldes de
+                   sortie : soldes-sortie.ts ; déplacements : deplacements-paie.ts) ; vigilance.ts : alerte d'une destination
+                   passée à l'orange ou au rouge
   donnees.ts       Données personnelles d'un salarié (droit d'accès) : export RH et téléchargement par l'intéressé
   pieces.ts        Pièces justificatives : dépôt (local ou GED), description transmise, nettoyage, contrôle d'intégrité ;
                    pieces-routes.ts (envoi et consultation) ; pieces-sauvegarde.ts (fichiers emportés par les sauvegardes)
@@ -759,7 +766,7 @@ aucun champ du paramètre n'est recopié.
 | `referentiel.formation.archiver` | id, archive? (faux : rétablie) ; refusé tant qu'une habilitation en vigueur l'exige en prérequis ou qu'une session est ouverte ; message : demandes des collaborateurs restées en attente | RH, référent HSE |
 | `referentiel.habilitation.enregistrer` | code ou id, nom, detail?, prereqs (formations du catalogue en vigueur ; une habilitation archivée garde ceux déjà inscrits, archivés depuis), medical, validite, signataire (proposé à la délivrance) ; message : titres devenus échus, ligne du journal rattachée à leurs titulaires | RH, référent HSE |
 | `referentiel.habilitation.archiver` | id, archive? ; rétablissement refusé tant qu'un prérequis est archivé (formation à rétablir d'abord) ; message : titres demandés et demandes restés en attente | RH, référent HSE |
-| `referentiel.destination.enregistrer` | code (pays ISO à deux lettres, pas FR) ou id, pays, visa (`VISA_RULES`), visaSub?, oblig [vaccins], rec [vaccins, sans le DTP], passMois (0 à 24), secu? (vide : selon le code pays) | RH |
+| `referentiel.destination.enregistrer` | code (pays ISO à deux lettres, pas FR) ou id, pays, visa (`VISA_RULES`), visaSub?, oblig [vaccins], rec [vaccins, sans le DTP], passMois (0 à 24), secu? (vide : selon le code pays), vigilance? (`vert`/`jaune`/`orange`/`rouge`, vide : non renseignée ; absente avec vigilanceLe : inchangée), vigilanceLe? (exigée avec une couleur, pas à venir) ; passage à l'orange ou au rouge : déplacements prévus dans le message et au journal, managers et boîte du service RH notifiés (t068) | RH |
 | `referentiel.destination.archiver` | id, archive? | RH |
 | `referentiel.poste.enregistrer` | id? (modification ; sans : création), nom (80 caractères, unique parmi les postes en vigueur), formations [codes], habilitations [codes] (en vigueur ; déjà exigés et archivés depuis : gardés), sir?, expose? (poste exposé à des risques particuliers), risquesL4154? (liste des postes à risques particuliers, formation renforcée) ; message : salariés qui deviennent non conformes (ligne du journal rattachée à eux), intitulé recopié sur les fiches des titulaires | RH |
 | `referentiel.poste.archiver` | id, archive? ; refusé tant qu'un salarié présent occupe le poste ; rétablissement refusé si un poste en vigueur porte le même intitulé | RH |
@@ -777,8 +784,10 @@ aucun champ du paramètre n'est recopié.
 | `demande.habilitation` | h, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `voyage.creer` | empId, dest, depart, retour, motif ; refusé s'il chevauche un autre déplacement ou une absence en vigueur | RH |
 | `voyage.detachement` | id, detachementLe?, informationLe? (date passée ; vide : saisie effacée) ; déplacement annulé refusé | RH (certificat de sécurité sociale du détachement, information écrite d’une mission de plus de 4 semaines) |
-| `voyage.modifier` | id, dest?, depart, retour, motif? (non transmis : inchangés) ; contrôles de `voyage.creer`, le déplacement lui-même exclu des conflits ; formalités de détachement devenues caduques effacées (`formalitesCaduques`) ; venu de Keystone : dates seules (destination et motif du chantier), `deplacement.modifie` mis en file ; annulé ou terminé : 409 | RH |
+| `voyage.modifier` | id, dest?, depart, retour, motif? (non transmis : inchangés) ; contrôles de `voyage.creer`, le déplacement lui-même exclu des conflits (contrôlés seulement si les dates changent) ; formalités de détachement devenues caduques effacées (`formalitesCaduques`) ; venu de Keystone : dates seules (destination et motif du chantier), `deplacement.modifie` mis en file ; hebergement?, contactSurPlace? (200 caractères), arianeLe? (date passée) : coordonnées sur place (t068), seules ou avec les dates, Keystone non prévenu ; annulé ou terminé : 409 | RH |
 | `voyage.annuler` | id, motif (obligatoire pour un déplacement venu de Keystone, 500 caractères ; gardé dans Cursus, `annuleMotif`, jamais transmis à Keystone ; remis au salarié dans la copie de ses données) : `annuleLe`, `annulePar` ; déplacement gardé dans l'historique, hors de tous les calculs ; venu de Keystone : `deplacement.annule` mis en file ; déjà annulé ou terminé : 409 | RH |
+| `chantier.grandDeplacement` | id (chantier Keystone en France), grandDeplacement (vrai, faux, null : à qualifier) : qualification de toutes ses missions pour la paie (t031) ; chantier à l'étranger refusé ; journal : code du chantier, avant et après, salariés de ses missions (archive paie) | RH |
+| `employe.contactUrgence` | empId, nom, telephone (les deux, ou aucun : retiré ; téléphone : chiffres, espaces, points, tirets, « + ») : contact d'urgence de la fiche (t068), service RH et intéressé seulement ; journal : salarié, champs masqués | le salarié pour lui-même (portail), RH |
 | `formalite.enregistrer` | empId, kind (`passeport`/`visa`/`vaccin`), numero, expire, dest, visaType, obtenu, v, date | RH (écrit dans le dossier), ou le collaborateur pour lui-même (déclaration en attente, voir ci-dessous) |
 | `voyages.importer` | texte (CSV) ; ligne sans référence : `DD-<n° du déplacement>` (suffixe si déjà prise) ; demandeur : nom du salarié reconnu, sinon tel que saisi (service RH seulement) | RH |
 | `keystone.accepter` / `keystone.refuser` | id ; refus : motif? (conservé dans Cursus, demande et message du journal, jamais transmis à Keystone) | RH (demande en attente ; l'acceptation revalide affectation, chantier actif, destination, effectifs et l'absence de déplacement déjà créé, et est refusée si le salarié est déjà en déplacement ou absent ces jours-là ; la demande reste en base avec statut, date et décideur) |
@@ -834,7 +843,7 @@ aucun champ du paramètre n'est recopié.
 | `entretien.signer` | id | salarié |
 | `entretien.remettre` | id, mode (`main_propre`/`refus`/`portail`), date? (main propre, refus : de la clôture à aujourd'hui ; portail : le jour même, compte actif exigé, e-mail avec le seul lien vers Cursus) ; une remise sur papier est définitive, une mise à disposition se complète par une remise sur papier | évaluateur (manager direct) ou RH, jamais pour son propre entretien |
 | `entretien.telecharger` | id : premier téléchargement du compte rendu clos, daté (`telechargeLe`) | salarié, depuis son espace |
-| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps, santeMiCarriereAge…, cpMaladie, feriesTravaillesAutorises, tauxMajorationFerie, plafondHeuresComplementaires, heuresComplementairesAccord, moyenne12SemainesMax, moyenne12SemainesAccord, contingentHeuresSup, contingentAlerte, contingentAccord, absencesFichierPaie, absencesPaieAPartirDu, piecesStockage, formationRenforceeCode, entretienMiCarriereActif, entretienMiCarriereMois, consultationN2), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
+| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps, santeMiCarriereAge…, cpMaladie, feriesTravaillesAutorises, tauxMajorationFerie, plafondHeuresComplementaires, heuresComplementairesAccord, moyenne12SemainesMax, moyenne12SemainesAccord, contingentHeuresSup, contingentAlerte, contingentAccord, absencesFichierPaie, absencesPaieAPartirDu, piecesStockage, formationRenforceeCode, entretienMiCarriereActif, entretienMiCarriereMois, consultationN2, deplacementsFichierPaie, deplacementsPaieAPartirDu, vigilanceRappelJours), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
 | `demo.reinitialiser` | — | administrateur RH, mode démonstration |
 | `compte.creer` | empId (ou nom, adresse : compte externe), type (`microsoft`/`local`), identifiant, profilRh | administrateur RH (mot de passe provisoire dans `result`, affiché une fois) |
 | `compte.profil` | id, profilRh (`aucun`/`rh_gestionnaire`/`rh_admin`/`referent_hse`/`paie`/`lecture_seule`) | administrateur RH (jamais le dernier administrateur actif ; un compte externe garde un profil) |
@@ -1908,6 +1917,49 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
   pastille du menu et le récapitulatif des échéances ; la liste et le compte
   rendu le signalent (« Date dépassée » : à clore s'il a eu lieu, sinon à reprogrammer ou à annuler).
 
+## Déplacements dans la paie et registre des éléments de lot (lot 6, chantier 2)
+
+- **Registre** (`server/src/elements-lot.ts`) : `FAMILLES`, une entrée par famille d'éléments qu'un lot emporte en plus des
+  feuilles et des absences (`cle` du contenu figé et colonne du lot, `aEmettre`, `aSaisir`, `reserver`, `confirmer`,
+  `liberer`, `avant`). `creerLot`, `paie.lotGenerer`, `temps.pushSage`, `paie.lotConfirmer`, `paie.lotAnnuler`, l'export des
+  variables et le journal (salariés du lot, `sage.fichier`) les parcourent. Soldes de sortie (`FAMILLE_SORTIES`) : même
+  comportement qu'au lot 5. Une famille nouvelle (heures de nuit, monétisation du CET) : un objet dans le fichier de son
+  chantier, une ligne dans `FAMILLES`, une clé dans `SagePush` et `LotPaie`, une colonne json de `lotsPaie`.
+- **À saisir dans Sage** (`shared/rules/elements-lot.ts`, règle commune) : un élément calculé dont la rubrique est
+  désactivée (ou la famille laissée à Sage par un réglage) ne disparaît pas sans bruit : `resume.aSaisir` du lot (absences et
+  déplacements sans code Sage, `contenu.aSaisir` des familles qui ne gardent pas leurs éléments inactifs : soldes de sortie),
+  nominatif, affiché sur l'écran Temps (lots à confirmer et dernier lot transmis) et dans l'export des variables
+  (« À saisir dans Sage »). Hors droit « paie », la rubrique d'une absence y est vidée (`sansCodesAbsences`).
+- **Déplacements** (t031, `shared/rules/deplacements-paie.ts`, `server/src/deplacements-paie.ts`) : séjours = déplacements à
+  l'étranger en vigueur (pays de la destination, jamais FR) et missions des chantiers en France qualifiés « grand
+  déplacement » par le service RH (`chantiers.grandDeplacement`, `chantier.grandDeplacement`, écran Missions ; proposé pour
+  tout chantier en France, retenu seulement une fois choisi) ; les missions d'un salarié qui se chevauchent ou se suivent
+  forment un seul séjour (identifiant de la première ; chaque jour compté une fois). Par séjour et par mois : jours calendaires hors absences
+  validées ou signalées et hors jours après la sortie (`GD_JOUR` ou `ETR_JOUR`), nuits = jours − 1 (`GD_NUIT`), trajets
+  aller et retour (`TRAJET`) ; un mois clos part en rappel. Écart avec la table `deplacementsPaie` (lignes émises par les
+  lots non annulés, supprimées à l'annulation, `sage` à la confirmation), par séjour, salarié, mois, rubrique et pays :
+  une affectation réaffectée par Keystone se régularise chez l'ancien salarié et part chez le nouveau ; un séjour annulé, raccourci ou déqualifié se
+  régularise en négatif sous le code d'origine ; un séjour réservé par un lot à confirmer attend. Intérimaires exclus.
+  Rubriques désactivées par défaut et réglage `deplacementsFichierPaie` décoché par défaut (réponse du 18 octobre 2026) :
+  l'élément part alors dans le lot sans code Sage (hors fichier, « à saisir dans Sage ») et ne repart pas une fois le lot
+  confirmé — d'où aucune date de départ à poser quand le réglage est coché. Premier jour transmis : réglage
+  `deplacementsPaieAPartirDu` et clé `deplacementsPaieDepuis` (migration `lot6-paie-deplacements-depart` d'une base qui a
+  des séjours ou des lots, premier lot d'une base neuve ; journal `migration.deplacementsPaie`). Instantané : `deplacementsPaie`
+  (éléments en attente par salarié, période, rubrique et pays ; chantiers à qualifier) pour le service RH, la paie et la
+  lecture seule. Le fichier n'a pas de colonne de pays : `ETR_JOUR` s'additionne par salarié et période (une rubrique par
+  pays ou par zone reste à décider avec la paie).
+- **Vigilance, coordonnées, contact d'urgence** (t068, `shared/rules/vigilance.ts`, `server/src/vigilance.ts`) :
+  `destinations.vigilance` (vert, jaune, orange, rouge ; null : non renseignée) et `vigilanceLe` (exigé avec une couleur,
+  pas à venir), saisis dans `RefDestinationDialog`. Passage à l'orange ou au rouge : déplacements à venir ou en cours
+  listés dans le message, salariés au journal, notification `voyage.vigilance` au manager de chaque voyageur et à la boîte
+  du service RH avec la liste entière (exception assumée à « jamais la personne qui agit » : la boîte est partagée par les
+  collègues qui suivent les déplacements ; `notifier(…, boitePartagee)`). Zone rouge : réserve `DEPLACEMENT` du Go / No Go (« Destination
+  formellement déconseillée »), API Keystone inchangée. Rappel sur le dossier voyage tant que la vérification manque ou
+  date de plus de `vigilanceRappelJours` (30). `voyages.hebergement`, `contactSurPlace` (textes, retirés hors du service
+  RH, masqués au journal) et `arianeLe`, modifiables par `voyage.modifier` (Keystone compris, sans le prévenir).
+  `employes.urgenceNom`, `urgenceTel` : retirés des vues du manager et des profils restreints, compris dans la fiche de la
+  copie des données, mentionnés dans la page Confidentialité.
+
 ## Déplacements modifiés ou annulés
 
 *Déplacements importés du formulaire de demande* (`voyages.importer`, `parseTrips` de `shared/rules/imports.ts`) : une
@@ -1922,7 +1974,8 @@ Règles dans `shared/rules/deplacements.ts`, actions dans `server/src/actions/de
 `state/confirmations-annulations.ts`).
 
 - **Modification** (`voyage.modifier`) : dates, destination et motif, avec les contrôles de la création (destination du
-  référentiel en vigueur ou déjà celle du déplacement, conflits de dates en excluant le déplacement lui-même). Un
+  référentiel en vigueur ou déjà celle du déplacement, conflits de dates en excluant le déplacement lui-même, contrôlés seulement si les dates changent : les coordonnées sur
+  place s'enregistrent malgré une absence signalée pendant le déplacement). Un
   déplacement venu de Keystone ne change que de dates (destination et motif sont ceux du chantier). Les formalités de
   détachement devenues caduques sont effacées (`formalitesCaduques`), et le dossier redevient incomplet : le certificat de
   sécurité sociale si le pays change ou si la période déborde de celle d'origine, l'information écrite d'une mission longue

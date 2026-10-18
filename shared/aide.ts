@@ -55,6 +55,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           'Accueil : vos certifications et habilitations, avec leur échéance. « Demander une formation » ou « Demander le recyclage » envoie la demande au service RH ; « Demander une habilitation » de même.',
           'Les convocations aux sessions arrivent par e-mail, avec un fichier pour l’agenda.',
           '« Mes documents de voyage » : passeport, visa, vaccinations. Ils n’entrent dans votre dossier qu’après validation par le service RH ; les vaccinations ne sont vues que par lui.',
+          '« Mon contact d’urgence » : la personne à prévenir et son téléphone, facultatifs (« Renseigner »). Seul le service RH les voit, jamais votre manager.',
         ],
       },
       {
@@ -147,6 +148,14 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           'Seul l’administrateur RH rouvre une feuille validée (« Rouvrir la feuille », motif obligatoire) : déjà transmise, seul l’écart part à la paie dans un lot « Correctif ».',
         ],
       },
+      {
+        titre: 'Déplacements et vigilance',
+        points: [
+          'Écran « Missions », « Grand déplacement des chantiers en France » : qualifiez chaque chantier (« Grand déplacement » ou « Pas de grand déplacement ») ; seuls les chantiers retenus donnent à la paie jours, nuits et trajets de leurs missions. Les déplacements à l’étranger donnent leurs jours par pays sans qualification.',
+          'Référentiels, destinations : « Vigilance (France Diplomatie) » et le jour de la vérification, à tenir à jour à la main. Passer un pays à l’orange ou au rouge prévient les managers des voyageurs et la boîte du service RH ; une zone rouge met une réserve au Go / No Go.',
+          '« Modifier le déplacement » : « Hébergement », « Contact sur place » et « Inscrit sur Ariane le ». Le dossier voyage rappelle de vérifier la vigilance avant le départ quand elle date de plus de 30 jours (réglable).',
+        ],
+      },
     ],
   },
   {
@@ -185,7 +194,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
         points: [
           'Chaque rubrique utilisée a son code Sage saisi et confirmé dans « Rubriques de paie » (ou est désactivée) : tant qu’il en manque, la génération d’un lot réel est refusée en les nommant.',
           'Chaque salarié a son matricule de paie, saisi par le service RH sur la fiche (Paramètres → « Matricules de paie », administrateur RH) ; le refus du lot nomme les salariés sans matricule.',
-          '« Variables de la période » exporte en CSV ce qui est parti et ce qui attend, pour le contrôle. Heures de nuit et frais de déplacement restent saisis dans Sage ; le lundi de Pentecôte travaillé (journée de solidarité) est repéré comme férié et traité par la paie.',
+          '« Variables de la période » exporte en CSV ce qui est parti et ce qui attend, pour le contrôle. Heures de nuit restent saisies dans Sage ; les déplacements (jours et nuits de grand déplacement, jours à l’étranger, trajets) sont calculés et listés « À saisir dans Sage » dans le résumé du lot et l’export tant que l’administrateur RH n’a pas coché « Transmettre les déplacements dans le fichier d’import de la paie », après confirmation de vos codes ; le lundi de Pentecôte travaillé (journée de solidarité) est repéré comme férié et traité par la paie.',
         ],
       },
     ],
@@ -220,7 +229,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
       {
         titre: 'Paie',
         points: [
-          'Codes Sage de chaque rubrique (heures, absences, fériés, dimanche, contrepartie en repos, soldes de sortie), à saisir et confirmer par le gestionnaire de paie.',
+          'Codes Sage de chaque rubrique (heures, absences, fériés, dimanche, contrepartie en repos, soldes de sortie, déplacements : une rubrique par pays ou par zone pour l’étranger, à décider), à saisir et confirmer par le gestionnaire de paie.',
           `Calendrier de paie et traitement d’une correction arrivée après l’import : ${A_COMPLETER_PAIE}.`,
           'Matricules de paie de tous les salariés ; format du fichier ajusté au modèle d’import de Sage.',
         ],

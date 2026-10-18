@@ -57,6 +57,9 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     formationRenforceeCode: '', entretienMiCarriereActif: true, entretienMiCarriereMois: 2,
     // Hiérarchie (t136) : consultation N+2 désactivée par défaut.
     consultationN2: false,
+    // Lot 6 (t031, t068) : déplacements hors du fichier tant que la paie n'a pas confirmé ses codes (réponse du 18 octobre
+    // 2026) ; vigilance des pays à vérifier de nouveau au-delà de 30 jours.
+    deplacementsFichierPaie: false, deplacementsPaieAPartirDu: null, vigilanceRappelJours: 30,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

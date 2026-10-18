@@ -21,6 +21,8 @@ import { DESTS, FORMATIONS, HABILITATIONS } from '../seed.ts';
 import { enregistrerNuitEquipe } from './mineurs.ts';
 import { enregistrerCouvertureEquipe } from './couverture.ts';
 import { ActionError, getEmp, isRh, type ActionHandler, type ActionOutput, type Ctx, requireFormations, requireRh, str } from './context.ts';
+import { devientDeconseillee } from '../../../shared/rules/vigilance.ts';
+import { alerterVigilance } from '../vigilance.ts';
 
 /** Élément visé par une modification ou un archivage (`id` : son code), introuvable : 404. */
 function trouver<T>(liste: readonly T[], cle: (x: T) => string, id: string, nature: string): T {
@@ -150,16 +152,21 @@ const enregistrerDestination: ActionHandler = (ctx, p) => {
   requireRh(ctx);
   const liste = ctx.ds.referentiels.destinations;
   const avant = p.id != null && p.id !== '' ? trouver(liste, d => d.code, codeDestination(p.id), 'Destination') : null;
-  const { erreurs, destination: d } = controlerDestination(p, liste, avant?.code ?? null);
+  const { erreurs, destination: d } = controlerDestination(p, liste, avant?.code ?? null, ctx.d.ti);
   if (!d) refuser(erreurs);
+  // Vigilance passée à l'orange ou au rouge (t068) : déplacements prévus signalés, service RH et managers prévenus.
+  const alerte = devientDeconseillee(avant?.vigilance, d.vigilance) ? alerterVigilance(ctx, d) : null;
   if (!avant) {
     ctx.db.insert<Destination>('destinations', d);
-    return `Destination « ${d.pays} » ajoutée au référentiel`;
+    return { message: `Destination « ${d.pays} » ajoutée au référentiel${alerte?.texte ?? ''}`, result: { salaries: alerte?.salaries ?? [] } };
   }
   ctx.db.update<Destination>('destinations', d.code, d);
   // Les dossiers voyage sont recalculés à l'affichage : les déplacements prévus suivent la nouvelle règle.
   const prevus = ctx.ds.voyages.filter(v => v.dest === d.code && v.retour >= ctx.d.ti && !v.annuleLe).length;
-  return `Destination « ${d.pays} » modifiée${prevus ? ` · ${plural(prevus, 'déplacement prévu suit', 'déplacements prévus suivent')} la nouvelle règle` : ''}`;
+  return {
+    message: `Destination « ${d.pays} » modifiée${alerte ? alerte.texte : prevus ? ` · ${plural(prevus, 'déplacement prévu suit', 'déplacements prévus suivent')} la nouvelle règle` : ''}`,
+    result: { salaries: alerte?.salaries ?? [] },
+  };
 };
 
 /** Archivage ou rétablissement : les déplacements déjà créés vers cette destination gardent leur dossier. */

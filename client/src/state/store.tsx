@@ -129,6 +129,8 @@ export type DialogState =
   | { type: 'rouvrirFeuille'; empId: number; week: ISODate }
   /** Pièce justificative à joindre à un objet déjà enregistré (dialogs/PieceDialog.tsx, t133). */
   | { type: 'piece'; objet: ObjetPiece; objetId: number; empId: number; libelle?: string }
+  /** Contact d'urgence d'un salarié (t068) : depuis son portail, ou par le service RH depuis la fiche. */
+  | { type: 'contactUrgence'; empId: number }
   /** Refus ou action irréversible à confirmer (state/confirmations.ts). */
   | { type: 'confirmer'; c: Confirmation };
 

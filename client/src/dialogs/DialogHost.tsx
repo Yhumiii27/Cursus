@@ -15,6 +15,7 @@ import { ClotureDialog } from './ClotureDialog.tsx';
 import { CompteDialog } from './CompteDialog.tsx';
 import { DetachementDialog } from './DetachementDialog.tsx';
 import { ConfirmerDialog } from './ConfirmerDialog.tsx';
+import { ContactUrgenceDialog } from './ContactUrgenceDialog.tsx';
 import { EntDialog } from './EntDialog.tsx';
 import { EmployeDialog } from './EmployeDialog.tsx';
 import { EntPlanDialog } from './EntPlanDialog.tsx';
@@ -122,6 +123,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'formatFichier': return <FormatFichierDialog />;
     case 'rouvrirFeuille': return <RouvrirFeuilleDialog {...d} />;
     case 'piece': return <PieceDialog {...d} />;
+    case 'contactUrgence': return <ContactUrgenceDialog {...d} />;
     case 'confirmer': return <ConfirmerDialog c={d.c} />;
   }
 }

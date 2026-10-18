@@ -177,6 +177,7 @@ const inscritsAvantApres: Partial<Regle> = { etat: (db, p) => inscrits(db, p.id)
  */
 const lotDuResultat = (x: Contexte) => x.result as {
   lot?: number; feuilles?: { empId: number; week: string }[]; absences?: { id: number; empId: number }[]; sorties?: { id: number; empId: number }[];
+  deplacements?: { source?: string; id: number; empId: number }[];
   correctifs?: { empId: number; week: string }[];
 } | null | undefined;
 const lotRetenu = (x: Contexte) => {
@@ -185,10 +186,13 @@ const lotRetenu = (x: Contexte) => {
     lot: r?.lot ?? null, feuilles: r?.feuilles ?? [], ...(r?.absences?.length ? { absences: r.absences.map(a => a.id) } : {}),
     ...(r?.correctifs?.length ? { correctifs: r.correctifs } : {}),
     ...(r?.sorties?.length ? { sorties: r.sorties.map(s => s.id) } : {}),
+    // Séjours du lot (t031) : identifiants seuls (mission ou déplacement), jamais les quantités ni le pays.
+    ...(r?.deplacements?.length ? { deplacements: r.deplacements.map(s => `${s.source}:${s.id}`) } : {}),
   };
 };
 const salariesDuLot = (x: Contexte) => [...new Set([
   ...(lotDuResultat(x)?.feuilles ?? []).map(f => f.empId), ...(lotDuResultat(x)?.absences ?? []).map(a => a.empId), ...(lotDuResultat(x)?.sorties ?? []).map(a => a.empId),
+  ...(lotDuResultat(x)?.deplacements ?? []).map(a => a.empId),
 ])];
 /** Feuilles transmises à la paie : validées et non transmises avant l'action, marquées transmises après. */
 const transmises = (x: Contexte) => (x.etat as number[]).map(id => x.db.get<FeuilleTemps>('feuilles', id)).filter((f): f is FeuilleTemps => !!f?.sage);
@@ -343,7 +347,11 @@ export const REGLES: Record<string, Regle> = {
     ...referentiel('habilitations', ['nom', 'detail', 'prereqs', 'medical', 'validite', 'signataire', 'sir']), salaries: (_p, x) => salariesTouches(x),
   },
   'referentiel.habilitation.archiver': referentiel('habilitations', ['archive'], true),
-  'referentiel.destination.enregistrer': referentiel('destinations', ['pays', 'visa', 'visaSub', 'oblig', 'rec', 'passMois', 'secu']),
+  // Vigilance (t068) : couleur et jour de vérification ; voyageurs vers un pays passé à l'orange ou au rouge, au journal.
+  'referentiel.destination.enregistrer': {
+    ...referentiel('destinations', ['pays', 'visa', 'visaSub', 'oblig', 'rec', 'passMois', 'secu', 'vigilance', 'vigilanceLe']),
+    salaries: (_p, x) => (x.result as { salaries?: number[] } | null)?.salaries ?? [],
+  },
   'referentiel.destination.archiver': referentiel('destinations', ['archive'], true),
   // Postes et exigences (aucune donnée personnelle) : identifiant du poste, intitulé et codes exigés avant et après ; la
   // ligne est rattachée aux salariés qui deviennent non conformes (le message en nomme).
@@ -395,7 +403,22 @@ export const REGLES: Record<string, Regle> = {
   'voyage.detachement': { champs: ['id', 'detachementLe', 'informationLe'], cible: parId('voyages', ['detachementLe', 'informationLe']) },
   // Modification : destination et dates avant et après (le motif, texte libre, n'est pas recopié) ; annulation : sa date,
   // et seulement le fait qu'un motif soit renseigné.
-  'voyage.modifier': { champs: ['id'], cible: parId('voyages', ['dest', 'depart', 'retour', 'detachementLe', 'informationLe']) },
+  // Coordonnées sur place (t068) : date d'inscription sur Ariane ; hébergement et contact local, textes libres, masqués.
+  'voyage.modifier': {
+    champs: ['id'],
+    cible: { ...parId('voyages', ['dest', 'depart', 'retour', 'detachementLe', 'informationLe', 'arianeLe', 'hebergement', 'contactSurPlace']), masques: ['hebergement', 'contactSurPlace'] },
+  },
+  // Contact d'urgence (t068) : le salarié seul, jamais le nom ni le téléphone (seul le fait qu'ils soient renseignés).
+  'employe.contactUrgence': {
+    champs: ['empId'], salaries: p => [p.empId],
+    cible: { table: 'employes', cle: p => Number(p.empId) || null, colonnes: ['urgenceNom', 'urgenceTel'], masques: ['urgenceNom', 'urgenceTel'] },
+  },
+  // Grand déplacement d'un chantier (t031) : code du chantier, qualification avant et après ; salariés de ses missions.
+  'chantier.grandDeplacement': {
+    extra: p => ({ chantier: typeof p.id === 'string' && /^[A-Za-z0-9_.-]{1,64}$/.test(p.id) ? p.id : null }),
+    cible: { table: 'chantiers', cle: p => (typeof p.id === 'string' ? p.id : null), colonnes: ['grandDeplacement'] },
+    salaries: (_p, x) => (x.result as { salaries?: number[] } | null)?.salaries ?? [],
+  },
   'voyage.annuler': { champs: ['id'], cible: { ...parId('voyages', ['annuleLe', 'annuleMotif']), masques: ['annuleMotif'] } },
   // Pièces justificatives (server/src/actions/pieces.ts) : objet et identifiants, nombre de pièces ; jamais le nom du fichier
   // (il peut nommer une donnée de santé), ni les jetons, ni le motif d'un retrait.

@@ -182,6 +182,13 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   // — Hiérarchie des managers (parametres/Hierarchie.tsx, t136) : consultation N+2 en lecture seule, désactivée par défaut
   //   (réponse de l'entreprise du 18 octobre 2026) —
   consultationN2: { defaut: false, controle: booleen },
+  // — Déplacements dans le fichier de paie (parametres/DeplacementsPaie.tsx, shared/rules/deplacements-paie.ts, t031) :
+  //   désactivé par défaut (réponse de l'entreprise du 18 octobre 2026) tant que la paie n'a pas confirmé ses codes ; les
+  //   quantités restent calculées, à saisir dans Sage. Date de mise en service : jours d'avant jamais transmis —
+  deplacementsFichierPaie: { defaut: false, controle: booleen },
+  deplacementsPaieAPartirDu: { defaut: null, controle: dateOuVide('Déplacements transmis à partir du') },
+  //   Vigilance des pays (shared/rules/vigilance.ts, t068) : rappel avant un départ si la vérification a plus de N jours —
+  vigilanceRappelJours: { defaut: 30, controle: entier(7, 180) },
 };
 
 /**

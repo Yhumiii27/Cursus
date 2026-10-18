@@ -13,6 +13,7 @@ import { SECU_RULES, VACCINS, VISA_RULES } from '../constants.ts';
 import { Domain, type EmpX } from '../domain.ts';
 import { key } from '../format.ts';
 import type { Dataset, Destination, Formation, FormationType, HabType, ISODate, SecuDetachement, VaccinId, ValidationMode, VisaKind } from '../types.ts';
+import { controlerVigilance } from './vigilance.ts';
 
 export type ReferentielId = 'formations' | 'habilitations' | 'destinations';
 
@@ -192,14 +193,14 @@ export function controlerHabilitation(
   };
 }
 
-export type ChampDestination = 'code' | 'pays' | 'visa' | 'visaSub' | 'oblig' | 'rec' | 'passMois' | 'secu';
+export type ChampDestination = 'code' | 'pays' | 'visa' | 'visaSub' | 'oblig' | 'rec' | 'passMois' | 'secu' | 'vigilance' | 'vigilanceLe';
 export type SaisieDestination = Partial<Record<ChampDestination, Saisie>>;
 
 const vaccins = (v: Saisie): string[] => (Array.isArray(v) ? [...new Set(v.map(x => String(x)))] : []);
 const estVaccin = (v: string): v is VaccinId => Object.hasOwn(VACCINS, v);
 
 /** Destination saisie, contrôlée. Le DTP, toujours recommandé, ne se déclare pas ; un vaccin est obligatoire ou recommandé. */
-export function controlerDestination(s: SaisieDestination, existantes: readonly Destination[], code0: string | null = null): { erreurs: Erreurs<ChampDestination>; destination: Destination | null } {
+export function controlerDestination(s: SaisieDestination, existantes: readonly Destination[], code0: string | null = null, today: ISODate = '9999-12-31'): { erreurs: Erreurs<ChampDestination>; destination: Destination | null } {
   const e: Erreurs<ChampDestination> = {};
   const avant = code0 ? existantes.find(d => d.code === code0) ?? null : null;
   const code = avant ? avant.code : codeDestination(s.code);
@@ -223,12 +224,16 @@ export function controlerDestination(s: SaisieDestination, existantes: readonly 
   // Sécurité sociale : vide, déduite du code pays (secuDe).
   const secu = texte(s.secu);
   if (secu && !Object.hasOwn(SECU_RULES, secu)) e.secu = 'Formalité de sécurité sociale inconnue.';
+  // Vigilance France Diplomatie (t068, shared/rules/vigilance.ts) : non transmise (appel ancien), celle déjà enregistrée.
+  const garder = s.vigilance === undefined && s.vigilanceLe === undefined;
+  const vg = garder ? { erreurs: {}, vigilance: avant?.vigilance ?? null, vigilanceLe: avant?.vigilanceLe ?? null } : controlerVigilance(s.vigilance, s.vigilanceLe, today);
+  Object.assign(e, vg.erreurs);
   if (Object.keys(e).length) return { erreurs: e, destination: null };
   return {
     erreurs: e,
     destination: {
       code, pays, visa, visaSub, oblig: oblig as VaccinId[], rec: rec as VaccinId[], passMois, secu: (secu || null) as SecuDetachement | null,
-      archive: avant?.archive ?? null,
+      archive: avant?.archive ?? null, vigilance: vg.vigilance, vigilanceLe: vg.vigilanceLe,
     },
   };
 }

@@ -57,7 +57,8 @@ function coordonnees(ctx: Ctx, t: Voyage, p: Record<string, unknown>): Partial<P
 
 /**
  * Dates, destination et motif d'un déplacement : mêmes contrôles qu'à la création (destination du référentiel en vigueur,
- * sauf celle qu'il a déjà, chevauchement d'un autre déplacement ou d'une absence en vigueur), le déplacement lui-même exclu.
+ * sauf celle qu'il a déjà, chevauchement d'un autre déplacement ou d'une absence en vigueur quand les dates changent), le
+ * déplacement lui-même exclu.
  */
 const modifier: ActionHandler = (ctx, p) => {
   requireRh(ctx);
@@ -73,8 +74,12 @@ const modifier: ActionHandler = (ctx, p) => {
   if (!dest) throw new ActionError('Destination hors référentiel');
   if (dest.archive && dest.code !== t.dest) throw new ActionError(refusArchive(dest, 'Destination')!);
   const { depart, retour } = champs;
-  const conflit = blocage(conflitsDates(ctx.d, emp.id, depart, retour, 'voyage', { voyageId: t.id }));
-  if (conflit) throw new ActionError(conflit);
+  // Chevauchements contrôlés seulement si les dates changent : les coordonnées sur place s'enregistrent même quand une
+  // absence est signalée pendant le déplacement (arrêt à l'étranger), là où elles servent le plus.
+  if (depart !== t.depart || retour !== t.retour) {
+    const conflit = blocage(conflitsDates(ctx.d, emp.id, depart, retour, 'voyage', { voyageId: t.id }));
+    if (conflit) throw new ActionError(conflit);
+  }
   const surPlace = coordonnees(ctx, t, p);
   const memeDeplacement = dest.code === t.dest && depart === t.depart && retour === t.retour && champs.motif === t.motif;
   if (memeDeplacement && !Object.keys(surPlace).length) throw new ActionError('Aucune modification à enregistrer');

@@ -3,9 +3,14 @@
 // jours d'absence exclus, ventilation par mois et rappel, écart avec ce que les lots ont emporté (régularisation d'un
 // déplacement annulé), réglage désactivé par défaut (éléments « à saisir dans Sage », listés dans le résumé du lot et
 // l'export, jamais renvoyés), réglage activé (fichier d'import, codes à confirmer), premier jour transmis, migration
-// d'une base existante, instantanés de chaque profil ; soldes de sortie migrés dans le registre et listés à saisir.
+// d'une base existante (avec des lots même sans séjour), missions qui se chevauchent ou se suivent (un séjour), affectation
+// réaffectée (régularisation chez l'ancien salarié), instantanés de chaque profil ; soldes de sortie migrés dans le
+// registre et listés à saisir.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { mkdtempSync, rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 process.env.CURSUS_TODAY = '2026-10-10';
 
 const { Db } = await import('../server/src/db.ts');
@@ -117,6 +122,42 @@ test('t031 séjours : déplacements à l’étranger en vigueur, missions des se
   assert.ok(!deplacementsAEmettre(db, d(), '2026-10').some(x => x.empId === 3));
 });
 
+test('t031 missions qui se chevauchent ou se suivent : un seul séjour par salarié, chaque jour compté une fois', () => {
+  const { db, run, d, ADMIN } = fresh();
+  run(ADMIN, 'chantier.grandDeplacement', { id: 'K-2620', grandDeplacement: true });
+  const mehdi = () => deplacementsAEmettre(db, d(), '2026-10').filter(x => x.empId === 2).map(x => [x.rubrique, x.quantite]);
+  assert.deepEqual(mehdi(), [['GD_JOUR', 2], ['GD_NUIT', 1], ['TRAJET', 2]]);
+  const m = d().ds.missions.find(x => x.empId === 2 && x.projet === 'K-2620')!;
+  // Seconde affectation aux mêmes dates : rien de plus (pas 4 jours et 2 nuits pour 2 jours calendaires).
+  db.insert('missions', { empId: 2, projet: 'K-2620', lieu: m.lieu, du: m.du, au: m.au, type: m.type, ref: null });
+  assert.deepEqual(mehdi(), [['GD_JOUR', 2], ['GD_NUIT', 1], ['TRAJET', 2]]);
+  // Changement de chantier le dernier jour (fin le 9, suite du 9 au 12) : un séjour de 5 jours, 4 nuits, aller et retour.
+  db.insert('missions', { empId: 2, projet: 'K-2620', lieu: m.lieu, du: m.au, au: '2026-10-12', type: m.type, ref: null });
+  assert.deepEqual(mehdi(), [['GD_JOUR', 5], ['GD_NUIT', 4], ['TRAJET', 2]]);
+  // Mission qui suit le lendemain (affectations découpées) : même séjour, sous l'identifiant de la première mission.
+  db.insert('missions', { empId: 2, projet: 'K-2620', lieu: m.lieu, du: '2026-10-13', au: '2026-10-13', type: m.type, ref: null });
+  assert.deepEqual(mehdi(), [['GD_JOUR', 6], ['GD_NUIT', 5], ['TRAJET', 2]]);
+  assert.ok(deplacementsAEmettre(db, d(), '2026-10').filter(x => x.empId === 2).every(x => x.source === 'mission' && x.sourceId === m.id));
+  // Après un jour d'écart : un autre séjour, avec ses trajets.
+  db.insert('missions', { empId: 2, projet: 'K-2620', lieu: m.lieu, du: '2026-10-15', au: '2026-10-16', type: m.type, ref: null });
+  assert.deepEqual(mehdi().filter(([r]) => r === 'TRAJET').map(([, q]) => q), [2, 2]);
+});
+
+test('t031 affectation réaffectée par Keystone après transmission : régularisée chez l’ancien salarié, émise chez le nouveau', () => {
+  const { db, run, d, lots, ADMIN, PAIE } = fresh();
+  run(ADMIN, 'chantier.grandDeplacement', { id: 'K-2620', grandDeplacement: true });
+  run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  run(PAIE, 'paie.lotConfirmer', { id: lots().at(-1)!.id });
+  assert.deepEqual(deplacementsAEmettre(db, d(), '2026-10'), []);
+  // Mission de Mehdi Benali (8 et 9 octobre) renvoyée par Keystone pour un autre salarié.
+  const m = d().ds.missions.find(x => x.empId === 2 && x.projet === 'K-2620')!;
+  db.update('missions', m.id, { empId: 5 });
+  const reg = deplacementsAEmettre(db, d(), '2026-10');
+  assert.deepEqual(reg.filter(x => x.empId === 2).map(x => [x.rubrique, x.quantite, x.sourceId]), [['GD_JOUR', -2, m.id], ['GD_NUIT', -1, m.id], ['TRAJET', -2, m.id]]);
+  assert.deepEqual(reg.filter(x => x.empId === 5).map(x => [x.rubrique, x.quantite, x.sourceId]), [['GD_JOUR', 2, m.id], ['GD_NUIT', 1, m.id], ['TRAJET', 2, m.id]]);
+  assert.equal(reg.length, 6);
+});
+
 // — Cycle d'un lot —
 
 test('t031 réglage désactivé (défaut) : éléments sans code Sage, « à saisir dans Sage » dans le résumé et l’export, jamais renvoyés', () => {
@@ -217,6 +258,22 @@ test('t031 premier jour transmis : réglage de mise en service, date posée par 
   assert.equal(db.getSetting(CLE_DEPUIS_DEPLACEMENTS, null), '2026-10-01');
   assert.deepEqual(appliquerMigrations(db), [], 'une seule fois');
   assert.ok(MIGRATIONS.at(-1) === DEPLACEMENTS_DEPART || MIGRATIONS.includes(DEPLACEMENTS_DEPART));
+  // Base existante qui a déjà des lots mais aucun séjour (Keystone pas encore branché) : la date est posée aussi, faute
+  // de quoi les affectations passées reçues ensuite partiraient en rappel (le premier lot ne la pose plus).
+  const dir = mkdtempSync(join(tmpdir(), 'cursus-deplacements-'));
+  try {
+    const avant = new Db(join(dir, 'base.db'));
+    appliquerMigrations(avant);
+    avant.insert('lotsPaie', { periode: '2026-09', statut: 'transmis' });
+    avant.sql.prepare('DELETE FROM migrations WHERE nom = ?').run(DEPLACEMENTS_DEPART.nom);
+    avant.sql.close();
+    const existante = new Db(join(dir, 'base.db'));
+    assert.equal(existante.neuve, false);
+    assert.equal(DEPLACEMENTS_DEPART.necessaire!(existante), true);
+    assert.ok(appliquerMigrations(existante).includes(DEPLACEMENTS_DEPART.nom));
+    assert.equal(existante.getSetting(CLE_DEPUIS_DEPLACEMENTS, null), '2026-10-01');
+    existante.sql.close();
+  } finally { rmSync(dir, { recursive: true, force: true }); }
   const neuve = new Db(':memory:');
   appliquerMigrations(neuve);
   assert.equal(neuve.getSetting(CLE_DEPUIS_DEPLACEMENTS, null), null, 'base neuve : la date vient du premier lot');

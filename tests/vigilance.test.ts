@@ -1,6 +1,6 @@
 // Vigilance des pays, coordonnées sur place et contact d'urgence (lot 6, chantier 2, étape 1 : t068) : couleur de France
 // Diplomatie et jour de sa vérification sur la destination (contrôles, journal), alerte d'un passage à l'orange ou au rouge
-// (message, salariés au journal, e-mails au service RH et au manager), réserve DEPLACEMENT du Go / No Go en zone rouge,
+// (message, salariés au journal, e-mails à la boîte du service RH et au manager), réserve DEPLACEMENT du Go / No Go en zone rouge,
 // rappel de vérification avant un départ ; hébergement, contact local et inscription sur Ariane du déplacement (Keystone
 // non prévenu, textes réservés au service RH) ; contact d'urgence de la fiche (portail, service RH seul, export RGPD).
 import { test } from 'node:test';
@@ -70,27 +70,31 @@ test('t068 vigilance : couleur et jour de la vérification contrôlés ; non ren
   assert.equal(controlerDestination({ ...MAROC, vigilance: '', vigilanceLe: '' }, avec, 'MA', '2026-10-10').destination!.vigilance, null);
 });
 
-test('t068 passage à l’orange ou au rouge : déplacements prévus signalés, e-mails au service RH et au manager, journal ; zone rouge en réserve', () => {
+test('t068 passage à l’orange ou au rouge : déplacements prévus signalés, e-mails à la boîte du service RH et au manager du voyageur, journal ; zone rouge en réserve', () => {
   const { run, refus, d, journal, mails, ADMIN } = fresh();
   refus(ADMIN, 'referentiel.destination.enregistrer', { ...MAROC, vigilance: 'rouge' }, 400, /jour de la vérification/);
   // Jaune : aucune alerte.
   run(ADMIN, 'referentiel.destination.enregistrer', { ...MAROC, vigilance: 'jaune', vigilanceLe: '2026-10-09' });
   assert.equal(mails('voyage.vigilance').length, 0);
-  // Orange : le déplacement de Romain Chevalier (chantier de Tanger) est listé ; son manager est prévenu (le service RH, auteur
-  // de la modification, a la liste dans le message et au journal : Cursus ne notifie pas la personne qui agit).
+  // Orange : le déplacement de Romain Chevalier (chantier de Tanger) est listé ; son manager est prévenu, et la boîte du
+  // service RH aussi bien que l'auteur en fasse partie (boîte partagée : les collègues qui suivent les déplacements).
   const voyageur = d().ds.voyages.find(v => v.dest === 'MA' && !v.annuleLe)!;
   const nom = d().personName(voyageur.empId);
   const msg = run(ADMIN, 'referentiel.destination.enregistrer', { ...MAROC, vigilance: 'orange', vigilanceLe: '2026-10-10' });
   assert.match(msg, new RegExp(`^Destination « Maroc » modifiée · vigilance orange \\(France Diplomatie : déconseillé sauf raison impérative\\) : 1 déplacement prévu vers ce pays \\(${nom} du`));
   const e = mails('voyage.vigilance');
-  assert.deepEqual(e.map(x => [x.a, x.objet]), [[['karim.haddad@entreprise.example'], 'Vigilance orange — Maroc : 1 déplacement de votre équipe']]);
+  assert.deepEqual(e.map(x => [x.a, x.objet]), [
+    [['rh@entreprise.example'], 'Vigilance orange — Maroc : 1 déplacement prévu'],
+    [['karim.haddad@entreprise.example'], 'Vigilance orange — Maroc : 1 déplacement de votre équipe'],
+  ]);
+  assert.match(msg, /service RH et managers prévenus/);
   assert.ok(e.every(x => x.texte.includes(nom)));
   const j = journal('referentiel.destination.enregistrer').at(-1)!;
   assert.deepEqual([j.payload.avant.vigilance, j.payload.apres.vigilance, j.payload.apres.vigilanceLe], ['jaune', 'orange', '2026-10-10']);
   assert.deepEqual(j.salaries, [voyageur.empId]);
   // Toujours orange : pas de nouvelle alerte. Rouge : nouvelle alerte, et réserve DEPLACEMENT au Go / No Go.
   run(ADMIN, 'referentiel.destination.enregistrer', { ...MAROC, vigilance: 'orange', vigilanceLe: '2026-10-10' });
-  assert.equal(mails('voyage.vigilance').length, 1);
+  assert.equal(mails('voyage.vigilance').length, 2);
   const avantRouge = d();
   const statut = (dm: InstanceType<typeof Domain>) => {
     const c = dm.chantier('K-2614')!;
@@ -99,7 +103,7 @@ test('t068 passage à l’orange ou au rouge : déplacements prévus signalés, 
   };
   assert.deepEqual(statut(avantRouge), []);
   assert.match(run(ADMIN, 'referentiel.destination.enregistrer', { ...MAROC, vigilance: 'rouge', vigilanceLe: '2026-10-10' }), /vigilance rouge/);
-  assert.equal(mails('voyage.vigilance').length, 2);
+  assert.equal(mails('voyage.vigilance').length, 4);
   assert.deepEqual(statut(d()), ['Destination formellement déconseillée']);
 });
 
@@ -140,6 +144,19 @@ test('t068 coordonnées sur place : hébergement, contact et Ariane modifiables,
   if (vue) assert.deepEqual([vue.hebergement, vue.contactSurPlace], [null, null]);
 });
 
+test('t068 coordonnées sur place enregistrées malgré une absence signalée pendant le déplacement ; un changement de dates reste contrôlé', () => {
+  const { run, refus, d, ADMIN } = fresh();
+  const t = d().ds.voyages.find(v => v.empId === 18 && v.dest === 'MA')!;
+  // Arrêt signalé à Tanger, du 29 au 30 octobre.
+  run(ADMIN, 'absence.signaler', { empId: 18, type: 'AM', du: '2026-10-29', au: '2026-10-30' });
+  assert.match(run(ADMIN, 'voyage.modifier', { id: t.id, hebergement: 'Hôtel Tanger' }), /coordonnées sur place enregistrées/);
+  // Dates transmises inchangées (dialogue « Modifier le déplacement ») : enregistré aussi.
+  assert.match(run(ADMIN, 'voyage.modifier', { id: t.id, depart: t.depart, retour: t.retour, dest: t.dest, contactSurPlace: 'Accueil chantier' }), /coordonnées sur place enregistrées/);
+  assert.equal(d().ds.voyages.find(v => v.id === t.id)!.hebergement, 'Hôtel Tanger');
+  // Dates changées : le chevauchement de l'absence est refusé, comme avant.
+  refus(ADMIN, 'voyage.modifier', { id: t.id, depart: t.depart, retour: '2026-11-07' }, 400, /absent/);
+});
+
 test('t068 contact d’urgence : saisi depuis le portail, vu du service RH et de l’intéressé seulement, journal sans le texte, export RGPD', () => {
   const { db, run, refus, journal, ADMIN, PAIE, LECTURE, KARIM, MEHDI, THOMAS } = fresh();
   refus(MEHDI, 'employe.contactUrgence', { empId: 2, nom: 'Nadia Benali (sœur)', telephone: 'abc' }, 400, /Téléphone/);
@@ -156,7 +173,8 @@ test('t068 contact d’urgence : saisi depuis le portail, vu du service RH et de
   assert.ok(!JSON.stringify(j).includes('Nadia') && !JSON.stringify(j).includes('06 12'));
   // Copie des données : dans la fiche ; page Confidentialité : mentionné.
   assert.equal((donneesSalarie(db, 2, { journal: false, par: 'essai' })!.sections.Fiche as Record<string, unknown>).urgenceNom, 'Nadia Benali (sœur)');
-  assert.ok(INFO_CONFIDENTIALITE.some(r => r.points.some(([t]) => t === 'Contact d’urgence')));
+  // Saisi par l'intéressé ou par le service RH (fiche) : la notice le dit (docs/RGPD.md).
+  assert.ok(INFO_CONFIDENTIALITE.some(r => r.points.some(([t, x]) => t === 'Contact d’urgence' && x.includes('par le service RH'))));
   // Retiré : les deux champs vides.
   assert.equal(run(ADMIN, 'employe.contactUrgence', { empId: 2, nom: '', telephone: '' }), 'Contact d’urgence de Mehdi Benali retiré');
   assert.equal(fiche(ADMIN)!.urgenceNom, null);

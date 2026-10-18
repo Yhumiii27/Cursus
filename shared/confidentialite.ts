@@ -61,7 +61,7 @@ export const INFO_CONFIDENTIALITE: readonly RubriqueConfidentialite[] = [
       ['Temps et absences', 'heures par jour et par projet, motifs de dépassement, congés, absences et soldes.'],
       ['Entretiens', 'comptes rendus rédigés par votre évaluateur et par vous, signatures.'],
       ['Déplacements', 'destinations et dates, numéro et validité du passeport, visas, formalités de détachement ; coordonnées sur place (hébergement, contact local) et date d’inscription sur Ariane, tenues par le service RH ; jours de grand déplacement, jours à l’étranger et trajets transmis à la paie.'],
-      ['Contact d’urgence', 'nom et téléphone de la personne à prévenir, si vous les indiquez depuis votre espace (facultatif) : vus du service RH seulement, jamais de votre manager ; à retirer quand vous le souhaitez.'],
+      ['Contact d’urgence', 'nom et téléphone de la personne à prévenir, indiqués par vous depuis votre espace ou par le service RH à votre demande (facultatif) : vus du service RH seulement, jamais de votre manager ; à retirer quand vous le souhaitez.'],
       ['Connexion', 'identifiant, profil, dates de connexion et adresse IP, journal des actions effectuées ; journaux techniques du serveur (numéro de compte, adresse consultée, heure et résultat de chaque requête, jamais son contenu).'],
     ],
   },

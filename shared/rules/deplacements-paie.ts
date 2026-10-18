@@ -8,13 +8,17 @@
 //   Keystone) sur un chantier en France qualifié « grand déplacement » par le service RH (`Chantier.grandDeplacement`).
 //   Le critère URSSAF (distance, temps de trajet) ne se calcule pas sans adresses : la qualification est saisie, proposée
 //   pour un chantier en France (Keystone ne transmet que des chantiers chez les clients, hors du site). Une mission à
-//   l'étranger ne compte pas : son déplacement porte les jours (pas de double compte).
+//   l'étranger ne compte pas : son déplacement porte les jours (pas de double compte). Les missions d'un même salarié
+//   qui se chevauchent ou se suivent (changement de chantier le même jour ou le lendemain, affectations découpées par
+//   Keystone) forment un seul séjour : chaque jour compte une fois, nuits et trajets sur le séjour entier. Il porte
+//   l'identifiant de sa première mission. Deux déplacements à l'étranger ne se chevauchent pas (`conflitsDates`).
 // - Quantités : jours calendaires du séjour (week-end compris), sauf les jours d'absence validée ou signalée et ceux
 //   après la sortie ; nuits de grand déplacement = jours − 1 par séjour (pas de nuit après le dernier jour compté) ;
 //   2 trajets par séjour (aller le premier jour, retour le dernier), aucun si tous ses jours sont des absences.
 // - Ventilation : jour par jour, chaque jour sur son mois ; un mois clos part en rappel sur la période ouverte, comme les
 //   absences (shared/rules/absences-paie.ts). Écart : ce qui est dû moins ce que les lots non annulés ont emporté (table
-//   `deplacementsPaie`), séjour par séjour, mois, rubrique et pays ; un séjour annulé ou raccourci après sa transmission
+//   `deplacementsPaie`), séjour par séjour, salarié, mois, rubrique et pays (une affectation réaffectée par Keystone à un
+//   autre salarié se régularise chez le premier et part chez le second) ; un séjour annulé ou raccourci après sa transmission
 //   part en régularisation négative. Un séjour réservé par un lot à confirmer attend sa confirmation ou son annulation.
 // - Premier jour transmis : date de mise en service (réglage `deplacementsPaieAPartirDu`) et date de départ posée par
 //   Cursus (migration lot6-paie-deplacements-depart d'une base existante, premier lot d'une base neuve).
@@ -23,7 +27,7 @@
 //   le résumé du lot et l'export des variables, et compté comme émis à la confirmation (il ne repart pas ensuite).
 import { addD, days, parse } from '../dates.ts';
 import type { Domain } from '../domain.ts';
-import type { Chantier, ElementDeplacementPaie, ISODate, Settings } from '../types.ts';
+import type { Chantier, ElementDeplacementPaie, ISODate, Mission, Settings } from '../types.ts';
 import { voyageActif } from './deplacements.ts';
 import { matriculeAffiche } from './matricules.ts';
 import { moisDe, periodeOuverte, type RubriqueVue } from './paie.ts';
@@ -45,14 +49,20 @@ export const aQualifier = (c: Pick<Chantier, 'pays' | 'grandDeplacement'>) => c.
 /** Quantités au centième, comme le fichier. */
 const r2 = (n: number) => Math.round(n * 100) / 100;
 
-/** Séjour donnant des éléments de paie : déplacement à l'étranger, ou mission sur un chantier en grand déplacement. */
-export interface SejourPaie { source: 'voyage' | 'mission'; id: number; empId: number; du: ISODate; au: ISODate; pays: string }
+/**
+ * Séjour donnant des éléments de paie : déplacement à l'étranger, ou missions sur des chantiers en grand déplacement
+ * (`id` : la première ; `ids` : toutes, quand des missions qui se chevauchent ou se suivent sont réunies).
+ */
+export interface SejourPaie { source: 'voyage' | 'mission'; id: number; ids?: number[]; empId: number; du: ISODate; au: ISODate; pays: string }
 
 /** Clé d'un séjour (« voyage:12 »), pour la réservation par un lot. */
 export const cleSejour = (x: Pick<ElementDeplacementPaie, 'source' | 'sourceId'> | Pick<SejourPaie, 'source' | 'id'>) =>
   `${x.source}:${'sourceId' in x ? x.sourceId : x.id}`;
 
-/** Séjours de l'instantané : déplacements à l'étranger en vigueur, missions des chantiers en grand déplacement. */
+/**
+ * Séjours de l'instantané : déplacements à l'étranger en vigueur, missions des chantiers en grand déplacement, réunies par
+ * salarié quand elles se chevauchent ou se suivent (dans l'ordre de leur début, puis de leur identifiant).
+ */
 export function sejoursPaie(d: Domain): SejourPaie[] {
   const out: SejourPaie[] = [];
   for (const v of d.ds.voyages) {
@@ -62,10 +72,23 @@ export function sejoursPaie(d: Domain): SejourPaie[] {
     if (v.dest === 'FR' || (dest && dest.code === 'FR')) continue;
     out.push({ source: 'voyage', id: v.id, empId: v.empId, du: v.depart, au: v.retour, pays: v.dest });
   }
+  const parSalarie = new Map<number, Mission[]>();
   for (const m of d.ds.missions) {
     const c = d.chantier(m.projet);
-    if (!c || !grandDeplacement(c)) continue;
-    out.push({ source: 'mission', id: m.id, empId: m.empId, du: m.du, au: m.au, pays: 'FR' });
+    if (!c || !grandDeplacement(c) || m.au < m.du) continue;
+    parSalarie.set(m.empId, [...(parSalarie.get(m.empId) ?? []), m]);
+  }
+  for (const [empId, missions] of parSalarie) {
+    let cours: SejourPaie | null = null;
+    for (const m of [...missions].sort((a, b) => a.du.localeCompare(b.du) || a.id - b.id)) {
+      if (cours && m.du <= addD(cours.au, 1)) {
+        if (m.au > cours.au) cours.au = m.au;
+        cours.ids!.push(m.id);
+        continue;
+      }
+      cours = { source: 'mission', id: m.id, ids: [m.id], empId, du: m.du, au: m.au, pays: 'FR' };
+      out.push(cours);
+    }
   }
   return out;
 }
@@ -130,14 +153,15 @@ export interface OptionsDeplacementsPaie {
 }
 
 /**
- * Éléments de déplacement d'un lot : pour chaque séjour, mois, rubrique et pays, l'écart entre ce qui est dû et ce que
+ * Éléments de déplacement d'un lot : pour chaque séjour, salarié, mois, rubrique et pays, l'écart entre ce qui est dû et ce que
  * les lots ont emporté ; écart nul omis. Un séjour qui n'est plus dû (annulé, chantier déqualifié) se régularise en
  * négatif, sous le code Sage du dernier élément parti (null : il avait été saisi à la main dans Sage). Intérimaires
  * exclus (payés par leur agence) ; séjour réservé par un lot à confirmer : rien.
  */
 export function elementsDeplacements(d: Domain, o: OptionsDeplacementsPaie): ElementDeplacementPaie[] {
   const ouverte = periodeOuverte(d.ti, d.ds.settings?.clotureJour ?? 0);
-  const cle = (x: { source: string; sourceId: number; mois: string; rubrique: string; pays: string }) => `${x.source}:${x.sourceId}|${x.mois}|${x.rubrique}|${x.pays}`;
+  // Le salarié fait partie de la clé : une affectation réaffectée par Keystone se régularise chez l'ancien titulaire.
+  const cle = (x: { source: string; sourceId: number; empId: number; mois: string; rubrique: string; pays: string }) => `${x.source}:${x.sourceId}|${x.empId}|${x.mois}|${x.rubrique}|${x.pays}`;
   const emis = new Map<string, { q: number; dernier: DeplacementEmis }>();
   for (const x of o.emis) {
     const k = cle(x), deja = emis.get(k);
@@ -145,7 +169,8 @@ export function elementsDeplacements(d: Domain, o: OptionsDeplacementsPaie): Ele
   }
   const dus = new Map<string, { source: 'voyage' | 'mission'; sourceId: number; empId: number; mois: string; rubrique: string; pays: string; q: number; du: ISODate; au: ISODate }>();
   for (const s of sejoursPaie(d)) {
-    if (o.reserves.has(cleSejour(s))) continue;
+    // Séjour réservé par un lot à confirmer, par l'une de ses missions s'il en réunit plusieurs : il attend.
+    if ((s.ids ?? [s.id]).some(id => o.reserves.has(cleSejour({ source: s.source, id })))) continue;
     const e = d.emp(s.empId);
     if (!e || d.contratOf(e).interim) continue;
     for (const p of partsSejour(d, s, o.jusqua, o.depuis)) {

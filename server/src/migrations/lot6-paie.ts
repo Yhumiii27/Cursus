@@ -11,19 +11,24 @@ import type { Migration } from './cadre.ts';
 /** Séjours d'une base existante : déplacements en vigueur et missions (affectations Keystone). */
 const sejours = (db: Db) => Number((db.sql.prepare(`SELECT (SELECT COUNT(*) FROM voyages WHERE annule_le IS NULL) + (SELECT COUNT(*) FROM missions) AS n`).get() as { n: number }).n);
 
+/** Lots de paie déjà générés (annulés compris : la base a servi à la paie). */
+const lots = (db: Db) => Number((db.sql.prepare('SELECT COUNT(*) AS n FROM lots_paie').get() as { n: number }).n);
+
 /**
  * Lot 6 (t031) : les déplacements partent dans le lot de paie (fichier d'import ou liste « à saisir dans Sage »). Sur une
- * base qui porte déjà des déplacements ou des missions, la paie a traité dans Sage ceux des périodes passées : Cursus ne
- * transmet que les jours à partir du premier jour de la période de paie ouverte (date de départ), sans quoi ils
- * repartiraient tous en rappel. Base neuve : la date est posée par le premier lot de paie (la date de mise en service se
+ * base qui porte déjà des déplacements, des missions ou des lots de paie, la paie a traité dans Sage ceux des périodes
+ * passées : Cursus ne transmet que les jours à partir du premier jour de la période de paie ouverte (date de départ),
+ * sans quoi ils repartiraient tous en rappel. Base neuve : la date est posée par le premier lot de paie (la date de mise en service se
  * règle dans Paramètres → Déplacements et paie). Tracé au journal (`migration.deplacementsPaie` : date, nombre de séjours).
  */
 export const DEPLACEMENTS_DEPART: Migration = {
   nom: 'lot6-paie-deplacements-depart',
-  // Base neuve : exécutée, sans effet ; base existante sans séjour, ou date déjà posée : notée faite.
-  necessaire: db => db.neuve || (sejours(db) > 0 && db.getSetting(CLE_DEPUIS_DEPLACEMENTS, null) === null),
+  // Base neuve : exécutée, sans effet ; base existante sans séjour ni lot de paie, ou date déjà posée : notée faite. Une
+  // base qui a déjà des lots sans aucun séjour (Keystone pas encore branché) reçoit aussi la date : les affectations
+  // passées reçues ensuite ne repartent pas en rappel (le premier lot ne la pose plus, la base ayant des lots).
+  necessaire: db => db.neuve || ((sejours(db) > 0 || lots(db) > 0) && db.getSetting(CLE_DEPUIS_DEPLACEMENTS, null) === null),
   executer: db => {
-    if (!sejours(db)) return;
+    if (!sejours(db) && !lots(db)) return;
     const date = poserDepartDeplacements(db, `${periodeOuverte(todayIso(), loadSettings(db).clotureJour)}-01`, { actor: 'Cursus', role: null }, 'Reprise');
     return `déplacements transmis à la paie à partir du ${date}`;
   },

@@ -148,7 +148,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
         titre: 'Déplacements et vigilance',
         points: [
           'Écran « Missions », « Grand déplacement des chantiers en France » : qualifiez chaque chantier (« Grand déplacement » ou « Pas de grand déplacement ») ; seuls les chantiers retenus donnent à la paie jours, nuits et trajets de leurs missions. Les déplacements à l’étranger donnent leurs jours par pays sans qualification.',
-          'Référentiels, destinations : « Vigilance (France Diplomatie) » et le jour de la vérification, à tenir à jour à la main. Passer un pays à l’orange ou au rouge prévient les managers des voyageurs ; une zone rouge met une réserve au Go / No Go.',
+          'Référentiels, destinations : « Vigilance (France Diplomatie) » et le jour de la vérification, à tenir à jour à la main. Passer un pays à l’orange ou au rouge prévient les managers des voyageurs et la boîte du service RH ; une zone rouge met une réserve au Go / No Go.',
           '« Modifier le déplacement » : « Hébergement », « Contact sur place » et « Inscrit sur Ariane le ». Le dossier voyage rappelle de vérifier la vigilance avant le départ quand elle date de plus de 30 jours (réglable).',
         ],
       },

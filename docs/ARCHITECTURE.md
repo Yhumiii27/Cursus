@@ -719,7 +719,7 @@ aucun champ du paramètre n'est recopié.
 | `referentiel.formation.archiver` | id, archive? (faux : rétablie) ; refusé tant qu'une habilitation en vigueur l'exige en prérequis ou qu'une session est ouverte ; message : demandes des collaborateurs restées en attente | RH, référent HSE |
 | `referentiel.habilitation.enregistrer` | code ou id, nom, detail?, prereqs (formations du catalogue en vigueur ; une habilitation archivée garde ceux déjà inscrits, archivés depuis), medical, validite, signataire (proposé à la délivrance) ; message : titres devenus échus, ligne du journal rattachée à leurs titulaires | RH, référent HSE |
 | `referentiel.habilitation.archiver` | id, archive? ; rétablissement refusé tant qu'un prérequis est archivé (formation à rétablir d'abord) ; message : titres demandés et demandes restés en attente | RH, référent HSE |
-| `referentiel.destination.enregistrer` | code (pays ISO à deux lettres, pas FR) ou id, pays, visa (`VISA_RULES`), visaSub?, oblig [vaccins], rec [vaccins, sans le DTP], passMois (0 à 24), secu? (vide : selon le code pays), vigilance? (`vert`/`jaune`/`orange`/`rouge`, vide : non renseignée ; absente avec vigilanceLe : inchangée), vigilanceLe? (exigée avec une couleur, pas à venir) ; passage à l'orange ou au rouge : déplacements prévus dans le message et au journal, managers notifiés (t068) | RH |
+| `referentiel.destination.enregistrer` | code (pays ISO à deux lettres, pas FR) ou id, pays, visa (`VISA_RULES`), visaSub?, oblig [vaccins], rec [vaccins, sans le DTP], passMois (0 à 24), secu? (vide : selon le code pays), vigilance? (`vert`/`jaune`/`orange`/`rouge`, vide : non renseignée ; absente avec vigilanceLe : inchangée), vigilanceLe? (exigée avec une couleur, pas à venir) ; passage à l'orange ou au rouge : déplacements prévus dans le message et au journal, managers et boîte du service RH notifiés (t068) | RH |
 | `referentiel.destination.archiver` | id, archive? | RH |
 | `referentiel.poste.enregistrer` | id? (modification ; sans : création), nom (80 caractères, unique parmi les postes en vigueur), formations [codes], habilitations [codes] (en vigueur ; déjà exigés et archivés depuis : gardés), sir?, expose? (poste exposé à des risques particuliers) ; message : salariés qui deviennent non conformes (ligne du journal rattachée à eux), intitulé recopié sur les fiches des titulaires | RH |
 | `referentiel.poste.archiver` | id, archive? ; refusé tant qu'un salarié présent occupe le poste ; rétablissement refusé si un poste en vigueur porte le même intitulé | RH |
@@ -737,7 +737,7 @@ aucun champ du paramètre n'est recopié.
 | `demande.habilitation` | h, motif, empId (manager) | collaborateur pour lui-même, manager pour un membre de son équipe |
 | `voyage.creer` | empId, dest, depart, retour, motif ; refusé s'il chevauche un autre déplacement ou une absence en vigueur | RH |
 | `voyage.detachement` | id, detachementLe?, informationLe? (date passée ; vide : saisie effacée) ; déplacement annulé refusé | RH (certificat de sécurité sociale du détachement, information écrite d’une mission de plus de 4 semaines) |
-| `voyage.modifier` | id, dest?, depart, retour, motif? (non transmis : inchangés) ; contrôles de `voyage.creer`, le déplacement lui-même exclu des conflits ; formalités de détachement devenues caduques effacées (`formalitesCaduques`) ; venu de Keystone : dates seules (destination et motif du chantier), `deplacement.modifie` mis en file ; hebergement?, contactSurPlace? (200 caractères), arianeLe? (date passée) : coordonnées sur place (t068), seules ou avec les dates, Keystone non prévenu ; annulé ou terminé : 409 | RH |
+| `voyage.modifier` | id, dest?, depart, retour, motif? (non transmis : inchangés) ; contrôles de `voyage.creer`, le déplacement lui-même exclu des conflits (contrôlés seulement si les dates changent) ; formalités de détachement devenues caduques effacées (`formalitesCaduques`) ; venu de Keystone : dates seules (destination et motif du chantier), `deplacement.modifie` mis en file ; hebergement?, contactSurPlace? (200 caractères), arianeLe? (date passée) : coordonnées sur place (t068), seules ou avec les dates, Keystone non prévenu ; annulé ou terminé : 409 | RH |
 | `voyage.annuler` | id, motif (obligatoire pour un déplacement venu de Keystone, 500 caractères ; gardé dans Cursus, `annuleMotif`, jamais transmis à Keystone ; remis au salarié dans la copie de ses données) : `annuleLe`, `annulePar` ; déplacement gardé dans l'historique, hors de tous les calculs ; venu de Keystone : `deplacement.annule` mis en file ; déjà annulé ou terminé : 409 | RH |
 | `chantier.grandDeplacement` | id (chantier Keystone en France), grandDeplacement (vrai, faux, null : à qualifier) : qualification de toutes ses missions pour la paie (t031) ; chantier à l'étranger refusé ; journal : code du chantier, avant et après, salariés de ses missions (archive paie) | RH |
 | `employe.contactUrgence` | empId, nom, telephone (les deux, ou aucun : retiré ; téléphone : chiffres, espaces, points, tirets, « + ») : contact d'urgence de la fiche (t068), service RH et intéressé seulement ; journal : salarié, champs masqués | le salarié pour lui-même (portail), RH |
@@ -1760,24 +1760,27 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
 - **Déplacements** (t031, `shared/rules/deplacements-paie.ts`, `server/src/deplacements-paie.ts`) : séjours = déplacements à
   l'étranger en vigueur (pays de la destination, jamais FR) et missions des chantiers en France qualifiés « grand
   déplacement » par le service RH (`chantiers.grandDeplacement`, `chantier.grandDeplacement`, écran Missions ; proposé pour
-  tout chantier en France, retenu seulement une fois choisi). Par séjour et par mois : jours calendaires hors absences
+  tout chantier en France, retenu seulement une fois choisi) ; les missions d'un salarié qui se chevauchent ou se suivent
+  forment un seul séjour (identifiant de la première ; chaque jour compté une fois). Par séjour et par mois : jours calendaires hors absences
   validées ou signalées et hors jours après la sortie (`GD_JOUR` ou `ETR_JOUR`), nuits = jours − 1 (`GD_NUIT`), trajets
   aller et retour (`TRAJET`) ; un mois clos part en rappel. Écart avec la table `deplacementsPaie` (lignes émises par les
-  lots non annulés, supprimées à l'annulation, `sage` à la confirmation) : un séjour annulé, raccourci ou déqualifié se
+  lots non annulés, supprimées à l'annulation, `sage` à la confirmation), par séjour, salarié, mois, rubrique et pays :
+  une affectation réaffectée par Keystone se régularise chez l'ancien salarié et part chez le nouveau ; un séjour annulé, raccourci ou déqualifié se
   régularise en négatif sous le code d'origine ; un séjour réservé par un lot à confirmer attend. Intérimaires exclus.
   Rubriques désactivées par défaut et réglage `deplacementsFichierPaie` décoché par défaut (réponse du 18 octobre 2026) :
   l'élément part alors dans le lot sans code Sage (hors fichier, « à saisir dans Sage ») et ne repart pas une fois le lot
   confirmé — d'où aucune date de départ à poser quand le réglage est coché. Premier jour transmis : réglage
   `deplacementsPaieAPartirDu` et clé `deplacementsPaieDepuis` (migration `lot6-paie-deplacements-depart` d'une base qui a
-  des séjours, premier lot d'une base neuve ; journal `migration.deplacementsPaie`). Instantané : `deplacementsPaie`
+  des séjours ou des lots, premier lot d'une base neuve ; journal `migration.deplacementsPaie`). Instantané : `deplacementsPaie`
   (éléments en attente par salarié, période, rubrique et pays ; chantiers à qualifier) pour le service RH, la paie et la
   lecture seule. Le fichier n'a pas de colonne de pays : `ETR_JOUR` s'additionne par salarié et période (une rubrique par
   pays ou par zone reste à décider avec la paie).
 - **Vigilance, coordonnées, contact d'urgence** (t068, `shared/rules/vigilance.ts`, `server/src/vigilance.ts`) :
   `destinations.vigilance` (vert, jaune, orange, rouge ; null : non renseignée) et `vigilanceLe` (exigé avec une couleur,
   pas à venir), saisis dans `RefDestinationDialog`. Passage à l'orange ou au rouge : déplacements à venir ou en cours
-  listés dans le message, salariés au journal, notification `voyage.vigilance` au manager de chaque voyageur (le service
-  RH, auteur, n'est pas notifié de sa propre action). Zone rouge : réserve `DEPLACEMENT` du Go / No Go (« Destination
+  listés dans le message, salariés au journal, notification `voyage.vigilance` au manager de chaque voyageur et à la boîte
+  du service RH avec la liste entière (exception assumée à « jamais la personne qui agit » : la boîte est partagée par les
+  collègues qui suivent les déplacements ; `notifier(…, boitePartagee)`). Zone rouge : réserve `DEPLACEMENT` du Go / No Go (« Destination
   formellement déconseillée »), API Keystone inchangée. Rappel sur le dossier voyage tant que la vérification manque ou
   date de plus de `vigilanceRappelJours` (30). `voyages.hebergement`, `contactSurPlace` (textes, retirés hors du service
   RH, masqués au journal) et `arianeLe`, modifiables par `voyage.modifier` (Keystone compris, sans le prévenir).
@@ -1798,7 +1801,8 @@ Règles dans `shared/rules/deplacements.ts`, actions dans `server/src/actions/de
 `state/confirmations-annulations.ts`).
 
 - **Modification** (`voyage.modifier`) : dates, destination et motif, avec les contrôles de la création (destination du
-  référentiel en vigueur ou déjà celle du déplacement, conflits de dates en excluant le déplacement lui-même). Un
+  référentiel en vigueur ou déjà celle du déplacement, conflits de dates en excluant le déplacement lui-même, contrôlés seulement si les dates changent : les coordonnées sur
+  place s'enregistrent malgré une absence signalée pendant le déplacement). Un
   déplacement venu de Keystone ne change que de dates (destination et motif sont ceux du chantier). Les formalités de
   détachement devenues caduques sont effacées (`formalitesCaduques`), et le dossier redevient incomplet : le certificat de
   sécurité sociale si le pays change ou si la période déborde de celle d'origine, l'information écrite d'une mission longue

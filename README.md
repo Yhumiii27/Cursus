@@ -348,7 +348,9 @@ remplace » sans quantité négative), Keystone mis à jour · suivi des feuille
 semaine (échéance le lundi suivant à 12 h, relance, validation groupée) · journée de 24 h au plus, motif exigé au-delà des durées maximales ·
 semaine à 7 jours (samedi et dimanche grisés mais saisissables, repos hebdomadaire et dominical signalés, dérogation par équipe,
 heures du dimanche HDIM et majoration réglable) · jours fériés saisissables et repérés (1er mai majoré de 100 %, autres
-fériés en quantité, majoration réglable) · heures complémentaires au dixième de la durée (au tiers avec un accord), motif
+fériés en quantité, majoration réglable) · journée de solidarité et fériés chômés réglés année par année à partir de 2027,
+sans effet rétroactif · horaires de poste (référentiel, horaire par défaut de l'équipe, horaire du jour sur la feuille,
+figé à la soumission) · heures complémentaires au dixième de la durée (au tiers avec un accord), motif
 au-delà · moyenne sur 12 semaines (44 h), temps partiel à requalifier, contingent annuel d'heures supplémentaires (220 h,
 alerte à 90 %) et contrepartie obligatoire en repos créditée et transmise à la paie · activités internes tenues par le service RH, heures de délégation du CSE
 (mandats, crédit R2314-1, compteur mensuel avec report sur 12 mois) · CP 25 jours

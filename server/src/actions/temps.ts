@@ -11,6 +11,7 @@ import {
 import { estActiviteInterne } from '../../../shared/rules/activites.ts';
 import { completerSemaine, JOURS_FEUILLE } from '../../../shared/rules/semaine.ts';
 import { ferieRefus } from '../../../shared/rules/majorations.ts';
+import { horairesASoumettre } from '../../../shared/rules/horaires.ts';
 import { alertesValidation, corAValider } from '../../../shared/rules/durees.ts';
 import { aRegulariser, projetsRevalidation } from '../../../shared/rules/regularisation.ts';
 import type { Employe, FeuilleTemps, LigneTemps } from '../../../shared/types.ts';
@@ -28,7 +29,7 @@ function sheetOf(ctx: Ctx, empId: number, week: string): FeuilleTemps | undefine
  * Saisie autorisée : le salarié, son manager ou le service RH, tant que la feuille n'est pas validée.
  * Une feuille soumise ne peut être corrigée que par son valideur (manager direct ou RH, jamais pour lui-même), avant validation.
  */
-function editable(ctx: Ctx, p: Record<string, any>): { emp: Employe; week: string; sh: FeuilleTemps } {
+export function editable(ctx: Ctx, p: Record<string, any>): { emp: Employe; week: string; sh: FeuilleTemps } {
   const emp = getEmp(ctx, p.empId);
   const week = String(p.week);
   if (!isValidDate(week) || mondayOf(week) !== week) throw new ActionError('Semaine invalide');
@@ -177,7 +178,9 @@ const submit: ActionHandler = (ctx, p) => {
   // Renvoyée au salarié par une réouverture (t131) : le commentaire, motif du service RH, disparaît ; un retour suivant
   // vient du valideur.
   const reouverture = sh.reouverture?.renvoyee ? { reouverture: { ...sh.reouverture, renvoyee: false } } : {};
-  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'soumise', comment: null, contrat, motifDepassement: motif, ...reouverture });
+  // Horaires de poste du jour (shared/rules/horaires.ts) : ceux affichés, figés à la soumission.
+  const horaires = horairesASoumettre(ctx.ds.referentiels, emp.equipe, sh, calcSheet(ctx.d, emp, { ...sh, contrat }).perDay);
+  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'soumise', comment: null, contrat, motifDepassement: motif, ...reouverture, ...horaires });
   notifierFeuilleSoumise(ctx, emp, sh.week, ctx.d.mgrOf(emp));
   return `Feuille de temps soumise ${ctx.d.mgrDest(ctx.d.mgrOf(emp))}${couverte ? ' — semaine d’absence, sans heure' : ''}`;
 };

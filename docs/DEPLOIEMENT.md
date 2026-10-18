@@ -590,8 +590,9 @@ avant le premier lot réel qui en porte. Intérimaires (relevé envoyé à l'age
 Jours fériés travaillés (lot 5) : le 1er mai part en MAJ_1MAI (majoration de 100 %, heures équivalentes), les autres
 fériés en quantité FERIE_TRAV (et MAJ_FERIE si Paramètres → Décompte des heures prévoit une majoration) ; la
 contrepartie obligatoire en repos au-delà du contingent annuel part en COR_ACQUIS. Ces quatre rubriques sont « à
-confirmer » : la paie confirme leur code Sage ou les désactive. Le lundi de Pentecôte travaillé au titre de la journée
-de solidarité est repéré comme férié : la paie le traite (art. L3133-8).
+confirmer » : la paie confirme leur code Sage ou les désactive. La journée de solidarité et les fériés chômés se règlent
+par année (Paramètres → Jours fériés et journée de solidarité, lundi de Pentecôte chômé par défaut) : un jour ainsi
+travaillé n'est plus férié, ni FERIE_TRAV ni majoration (art. L3133-8).
 
 **Changement de comportement à la mise à jour (lot 5)** : les heures complémentaires du temps partiel sont plafonnées au
 dixième de la durée contractuelle (art. L3123-28) et non plus au tiers ; au-delà, la soumission de la feuille exige un

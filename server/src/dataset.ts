@@ -2,7 +2,7 @@
 // périmètre de l'utilisateur connecté (RH : tout ; profils restreints de l'espace RH :
 // ce que leurs droits ouvrent ; manager : son équipe ; collaborateur : ses propres données).
 import { Domain } from '../../shared/domain.ts';
-import { addD, isoParis, isValidDate, mondayOf } from '../../shared/dates.ts';
+import { addD, configurerFeries, isoParis, isValidDate, mondayOf } from '../../shared/dates.ts';
 import { absenceVueManager, repriseMedicale } from '../../shared/rules/absences.ts';
 import { acquisitionsCalculees } from '../../shared/rules/acquisition-cp.ts';
 import { aptitudeVueManager } from '../../shared/rules/sante.ts';
@@ -20,7 +20,7 @@ import { reglagesParDefaut } from '../../shared/reglages.ts';
 import type { DemandeVisite, LotReprise } from '../../shared/types.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Chantier, ClotureConges, CurrentUser, InformationCp, Dataset, SoldeSortie, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
-  DerogationDominicale, Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, ISODate, Mandat, Mission, Participation, PlanAction, Poste, Projet, ReleveInterim,
+  CalendrierFeries, DerogationDominicale, Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, Horaire, ISODate, Mandat, Mission, Participation, PlanAction, Poste, Projet, ReleveInterim,
   ReportCp, RubriquePaie, Session,
   Settings, SoldeReprise, TacheKeystone, Vaccination, Visa, Voyage,
 } from '../../shared/types.ts';
@@ -75,6 +75,9 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
   }));
   const feuilles = db.all<FeuilleTemps>('feuilles');
   const budgets: Dataset['budgets'] = {};
+  // Jours fériés réglés par année (shared/rules/feries.ts) : posés avant tout calcul de l'instantané (isFerie).
+  const calendrierFeries = db.getSetting<CalendrierFeries>('calendrierFeries', {});
+  configurerFeries(calendrierFeries);
   db.all<{ exercice: number; equipe: string; montant: number }>('budgets').forEach(b => {
     (budgets[String(b.exercice)] ||= {})[b.equipe] = b.montant;
   });
@@ -92,6 +95,9 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
       // Postes et exigences (shared/rules/exigences.ts) : aucune donnée personnelle, comme les équipes.
       postes: db.all<Poste>('postes', 'nom'),
       equipes: db.all<Equipe>('equipes', 'ordre'),
+      // Horaires de poste (shared/rules/horaires.ts), archivés compris : codes et heures, aucune donnée personnelle,
+      // transmis tels quels à tous les espaces (feuilles de temps), comme l'horaire par défaut de chaque équipe.
+      horaires: db.all<Horaire>('horaires', 'rowid'),
       projets: db.all<Projet>('projets', 'rowid'),
       chantiers: db.all<Chantier>('chantiers', 'debut'),
     },
@@ -138,6 +144,7 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     reprises: db.all<LotReprise>('reprises').reverse(),
     // Dérogations au repos dominical par équipe (shared/rules/semaine.ts) et mandats au CSE (shared/rules/delegation.ts).
     derogationsDominicales: db.getSetting<DerogationDominicale[]>('derogationsDominicales', []),
+    calendrierFeries,
     mandats: db.all<Mandat>('mandats'),
     // Effectif du site (un nombre) pour la limite de délégation d'un suppléant : calculé ici sur toutes les fiches, car
     // l'instantané de l'élu ne contient que lui-même (ou son équipe).
@@ -160,6 +167,9 @@ const demandeSansMotifRh = (r: DemandeCollab): DemandeCollab => (r.rouverteMotif
 
 /** Dérogations au repos dominical sans la référence de l'accord (texte libre) : hors du service RH, le type suffit. */
 const derogationsSansReference = (full: Dataset) => (full.derogationsDominicales ?? []).map(x => ({ ...x, reference: null }));
+/** Jours fériés réglés par année sans le motif d'une modification (texte libre du service RH) : le réglage suffit aux calculs. */
+const feriesSansMotif = (full: Dataset): CalendrierFeries =>
+  Object.fromEntries(Object.entries(full.calendrierFeries ?? {}).map(([annee, r]) => [annee, { ...r, motif: null }]));
 
 /**
  * Personne connectée dans l'espace actif de la session : le compte doit pouvoir se connecter et ouvrir
@@ -316,6 +326,7 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     releves: [],
     reprises: [],
     derogationsDominicales: derogationsSansReference(full),
+    calendrierFeries: feriesSansMotif(full),
     // Mandats au CSE : l'élu voit les siens (compteur des heures de délégation) ; le manager, rien de ceux de son équipe.
     mandats: (full.mandats ?? []).filter(m => m.empId === user.empId),
     // Effectif du site, transmis à l'élu avec ses mandats (compteur identique à celui du service RH) ; rien sans mandat.
@@ -439,6 +450,7 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     // Comptes rendus de la reprise depuis Lucca (noms, motifs de refus) : service RH seulement.
     reprises: [],
     derogationsDominicales: derogationsSansReference(full),
+    calendrierFeries: feriesSansMotif(full),
     // Compteur des heures de délégation : service RH et l'élu seulement.
     mandats: [],
     effectifCse: null,

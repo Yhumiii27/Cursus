@@ -1,5 +1,5 @@
 // Manipulation des dates ISO « AAAA-MM-JJ » en heure locale.
-import type { ISODate } from './types.ts';
+import type { CalendrierFeries, CodeFerie, ISODate } from './types.ts';
 
 export function parse(s: ISODate): Date {
   const [y, m, d] = s.split('-').map(Number);
@@ -118,20 +118,76 @@ function easter(y: number): Date {
   const month = Math.floor((h + l - 7 * m + 114) / 31), day = ((h + l - 7 * m + 114) % 31) + 1;
   return new Date(y, month - 1, day);
 }
+/** Fériés légaux de l'année (art. L3133-1), dans l'ordre du calendrier, chacun avec son code. */
+export function feriesLegaux(year: number): { code: CodeFerie; jour: ISODate }[] {
+  const p = easter(year);
+  const rel = (n: number) => { const d = new Date(p.getTime()); d.setDate(d.getDate() + n); return iso(d); };
+  return [
+    { code: 'jour_an', jour: `${year}-01-01` }, { code: 'paques', jour: rel(1) }, { code: '1er_mai', jour: `${year}-05-01` },
+    { code: '8_mai', jour: `${year}-05-08` }, { code: 'ascension', jour: rel(39) }, { code: 'pentecote', jour: rel(50) },
+    { code: '14_juillet', jour: `${year}-07-14` }, { code: '15_aout', jour: `${year}-08-15` }, { code: 'toussaint', jour: `${year}-11-01` },
+    { code: '11_novembre', jour: `${year}-11-11` }, { code: 'noel', jour: `${year}-12-25` },
+  ];
+}
+
+// — Calendrier de l'établissement (t051, shared/rules/feries.ts) —
+// Réglage par année civile, à partir de 2027 (mise en service) : journée de solidarité et fériés non chômés. C'est un
+// état du module, posé par `configurerFeries` au chargement de l'instantané (server/src/dataset.ts) et par le
+// constructeur de Domain, des deux côtés : `isFerie` garde sa signature, et la vingtaine d'appels (congés, heures
+// proposées, forfait jours, majorations, préavis…) suit le réglage sans changer. Une année antérieure n'est jamais touchée.
+/** Première année réglable : la mise en service ; les années d'avant gardent le calendrier légal (aucun effet rétroactif). */
+export const ANNEE_FERIES_MIN = 2027;
+let calendrier: CalendrierFeries = {};
+let cleCalendrier = '{}';
 const feriesCache = new Map<number, Set<ISODate>>();
+const solidariteCache = new Map<number, ISODate | null>();
+
+/** Pose le calendrier de l'établissement (absent : calendrier légal) ; les caches ne sont vidés que s'il change. */
+export function configurerFeries(c: CalendrierFeries | null | undefined): void {
+  const cle = JSON.stringify(c ?? {});
+  if (cle === cleCalendrier) return;
+  calendrier = c ?? {};
+  cleCalendrier = cle;
+  feriesCache.clear();
+  solidariteCache.clear();
+}
+/** `fn` calculé avec le calendrier `c` (effet d'un réglage avant de l'enregistrer), puis le calendrier en vigueur rétabli. */
+export function avecCalendrier<T>(c: CalendrierFeries, fn: () => T): T {
+  const avant = calendrier;
+  configurerFeries(c);
+  try { return fn(); } finally { configurerFeries(avant); }
+}
+/** Réglage retenu pour l'année : aucun avant 2027. */
+const reglageDe = (year: number) => (year >= ANNEE_FERIES_MIN ? calendrier[String(year)] ?? null : null);
+
+/**
+ * Journée de solidarité travaillée de l'année : un férié légal (lundi de Pentecôte ou autre, jamais le 1er mai) qui n'est
+ * plus chômé ; null quand elle est chômée, fractionnée, prise sur un RTT ou non réglée.
+ */
+export function journeeSolidarite(year: number): ISODate | null {
+  if (!solidariteCache.has(year)) {
+    const r = reglageDe(year);
+    const code = r?.solidarite === 'pentecote_travaillee' ? 'pentecote' : r?.solidarite === 'autre_ferie' ? r.solidariteFerie : null;
+    solidariteCache.set(year, code && code !== '1er_mai' ? feriesLegaux(year).find(f => f.code === code)?.jour ?? null : null);
+  }
+  return solidariteCache.get(year) ?? null;
+}
+export const estJourneeSolidarite = (s: ISODate) => journeeSolidarite(Number(s.slice(0, 4))) === s;
+
+/**
+ * Fériés chômés de l'année : les fériés légaux, sauf la journée de solidarité travaillée et les fériés réglés non chômés ;
+ * le 1er mai l'est toujours (art. L3133-4).
+ */
 export function feriesOf(year: number): Set<ISODate> {
   let set = feriesCache.get(year);
   if (!set) {
-    const p = easter(year);
-    const rel = (n: number) => { const d = new Date(p.getTime()); d.setDate(d.getDate() + n); return iso(d); };
-    set = new Set([
-      `${year}-01-01`, rel(1), `${year}-05-01`, `${year}-05-08`, rel(39), rel(50),
-      `${year}-07-14`, `${year}-08-15`, `${year}-11-01`, `${year}-11-11`, `${year}-12-25`,
-    ]);
+    const r = reglageDe(year), solidarite = journeeSolidarite(year);
+    set = new Set(feriesLegaux(year).filter(f => f.code === '1er_mai' || (f.jour !== solidarite && !r?.nonChomes?.includes(f.code))).map(f => f.jour));
     feriesCache.set(year, set);
   }
   return set;
 }
+/** Jour férié chômé de l'établissement : un férié travaillé comme un jour ordinaire (solidarité, non chômé) n'en est plus un. */
 export function isFerie(s: ISODate): boolean {
   return feriesOf(Number(s.slice(0, 4))).has(s);
 }

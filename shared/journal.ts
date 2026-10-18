@@ -40,6 +40,8 @@ export const ACTIONS_PAIE: readonly string[] = [
   // Réouverture d'une feuille validée, parfois déjà transmise (régularisation dans un lot correctif, t131), et reprise
   // des rubriques par feuille des lots d'avant le lot 5.
   'temps.rouvrir', 'migration.rubriquesFeuilles',
+  // Jours fériés d'une année (journée de solidarité, fériés non chômés) : ils changent le décompte des congés de l'année.
+  'parametres.feries',
 ];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
@@ -102,6 +104,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'referentiel.equipe.exigences': 'Exigences communes d’une équipe',
   'referentiel.activite.enregistrer': 'Activité interne créée ou renommée',
   'referentiel.activite.archiver': 'Activité interne archivée ou rétablie',
+  'referentiel.horaire.enregistrer': 'Horaire de poste créé ou modifié',
+  'referentiel.horaire.archiver': 'Horaire de poste archivé ou rétabli',
   'migration.postes': 'Reprise : postes créés depuis les fiches',
   // Demandes des collaborateurs
   'demande.formation': 'Demande de formation',
@@ -121,6 +125,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'keystone.refuser': 'Demande de Keystone refusée',
   // Temps et paie
   'temps.setCell': 'Saisie d’heures',
+  'temps.horaire': 'Horaire du jour choisi par autrui',
   'temps.addLine': 'Ligne ajoutée à une feuille de temps',
   'temps.removeLine': 'Ligne retirée d’une feuille de temps',
   'temps.suggest': 'Heures proposées depuis Keystone',
@@ -166,6 +171,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'entretien.telecharger': 'Compte rendu d’entretien téléchargé par le salarié',
   // Administration
   'parametres.maj': 'Paramètres modifiés',
+  'parametres.feries': 'Jours fériés et journée de solidarité d’une année',
   'demo.reinitialiser': 'Démonstration réinitialisée',
   'compte.creer': 'Compte créé',
   'compte.profil': 'Profil RH modifié',
@@ -281,6 +287,9 @@ export const CHAMP_LABEL: Record<string, string> = {
   prereqs: 'Prérequis', medical: 'Aptitude médicale exigée', signataire: 'Signataire', pays: 'Pays', visa: 'Entrée', visaSub: 'Précision sur l’entrée',
   oblig: 'Vaccins obligatoires', rec: 'Vaccins recommandés', passMois: 'Validité du passeport après l’entrée (mois)', secu: 'Sécurité sociale',
   archive: 'Archivée le',
+  // Horaires de poste et jours fériés (lot 6)
+  debut: 'Début', finHoraire: 'Fin', pause: 'Pause (minutes)', horaire: 'Horaire', solidarite: 'Journée de solidarité', solidariteFerie: 'Férié de la journée de solidarité',
+  nonChomes: 'Fériés non chômés',
   matriculePaie: 'Matricule de paie', identifiantKeystone: 'Identifiant envoyé à Keystone', politiqueReportCp: 'Politique de report des CP',
   rttAnneeSuivanteDes: 'RTT de l’année suivante posables à partir du',
   cpMaladie: 'Acquisition des CP pendant un arrêt maladie',

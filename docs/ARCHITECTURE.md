@@ -45,6 +45,8 @@ shared/            Domaine partagé (aucune dépendance)
                    12 semaines, requalification du temps partiel, contingent et contrepartie obligatoire en repos)
                    absences-paie.ts : absences dans le fichier d'import de la paie (rubriques, ventilation, écart, régularisation)
                    solde-sortie.ts : état des compteurs à la date de sortie (CP, RTT, récupération, CET) et rubriques de sortie
+                   feries.ts (lot 6) : jours fériés et journée de solidarité réglés par année (calendrier : dates.ts) ;
+                   horaires.ts (lot 6) : horaires de poste, horaire par défaut d'une équipe, horaire du jour d'une feuille
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   migrate.ts       Reprises des bases antérieures, rejouées à chaque démarrage (idempotentes)
@@ -58,6 +60,7 @@ server/src/
                    conges.ts (lot 5 : demi-journées hors de la règle ramenées à la journée entière)
                    formations.ts (lot 5 : sessions existantes sur un jour, activité interne INT-FORM)
                    paie.ts, lot 5 : absences des périodes passées laissées à Sage (premier jour transmis par le fichier)
+                   lot6-horaires.ts (lot 6 : horaires de poste d'exemple amorcés)
   seed.ts          Données de démonstration
   sauvegarde.ts    Copie à chaud (VACUUM INTO), rotation, restauration, verrou du serveur ;
                    scripts backup.ts et restore.ts (npm run backup / restore, voir docs/SAUVEGARDE.md)
@@ -716,7 +719,8 @@ aucun champ du paramètre n'est recopié.
 | `referentiel.destination.archiver` | id, archive? | RH |
 | `referentiel.poste.enregistrer` | id? (modification ; sans : création), nom (80 caractères, unique parmi les postes en vigueur), formations [codes], habilitations [codes] (en vigueur ; déjà exigés et archivés depuis : gardés), sir?, expose? (poste exposé à des risques particuliers) ; message : salariés qui deviennent non conformes (ligne du journal rattachée à eux), intitulé recopié sur les fiches des titulaires | RH |
 | `referentiel.poste.archiver` | id, archive? ; refusé tant qu'un salarié présent occupe le poste ; rétablissement refusé si un poste en vigueur porte le même intitulé | RH |
-| `referentiel.equipe.exigences` | nom (équipe), formations, habilitations (vides : aucune exigence commune), nuit? (travail de nuit ou en continu : refusé si l'équipe compte un salarié mineur) ; message comme pour un poste | RH |
+| `referentiel.equipe.exigences` | nom (équipe), formations, habilitations (vides : aucune exigence commune), nuit? (travail de nuit ou en continu : refusé si l'équipe compte un salarié mineur), horaire? (code de l'horaire de poste proposé par défaut, « » ou null : aucun ; absent : inchangé ; archivé : refus) ; message comme pour un poste | RH |
+| `referentiel.horaire.enregistrer` / `referentiel.horaire.archiver` | code (création : 1 à 6 lettres ou chiffres commençant par une lettre, unique, archivés compris) ou id (le code), nom (60 caractères), debut, fin (« HH:MM », « 8 h »… ; fin avant le début : le lendemain), pause (minutes, 0 à 240, plus courte que l'horaire) / id, archive? (faux : rétabli) ; archivage refusé tant qu'une équipe le propose par défaut ; les feuilles qui le portent le gardent | RH |
 | `hab.demander` | empId, h : habilitation exigée jamais délivrée, titre « en attente » de délivrance (déjà demandée : rien n'est refait ; déjà délivrée ou archivée : refus) | RH, référent HSE |
 | `referentiel.charger` | referentiel (`formations`/`habilitations`/`destinations`) : référentiel type (celui de la démonstration) chargé dans un référentiel vide, archivés compris ; habilitations après les formations (prérequis présents et en vigueur) | RH, référent HSE (destinations : RH) |
 | `medical.demander` | empId, motif? (`periodique`/`embauche`/`reprise`/`employeur`/`mi_carriere`/`fin_carriere` ; par défaut celui de la visite due la plus proche, sinon embauche sans visite enregistrée, sinon périodique) ; e-mail au service de santé au travail | RH (une demande en cours par collaborateur) |
@@ -743,6 +747,7 @@ aucun champ du paramètre n'est recopié.
 | `plan.cloturerExercice` | exercice (passé et ouvert : jamais l'exercice en cours), reporter [id] (actions prévues ou engagées à reporter sur l'exercice suivant) | administrateur RH |
 | `temps.setCell` | empId, week, li, di (0 = lundi … 5 = samedi, 6 = dimanche), value ; une ligne de 5 valeurs est complétée à 7 | salarié, manager direct ou RH (feuille soumise : valideur uniquement) ; aucune heure un jour d’absence validée ou signalée, ni hors contrat, vider la cellule reste possible ; pas de feuille pour une semaine hors contrat ; samedi et dimanche saisissables, repos hebdomadaire signalé sans blocage ; jour férié saisissable si `feriesTravaillesAutorises` (par défaut), saisie tracée (`temps.ferie`, ou `temps.correction` par autrui) |
 | `temps.derogationDominicale` | equipe, type (`aucune`/`feu_continu`/`suppleance`), reference (exigée hors `aucune`, 120 caractères ; journal : seulement « renseignée ») : clé `derogationsDominicales` de la table settings, suit l'équipe renommée et disparaît avec l'équipe supprimée | administrateur RH |
+| `temps.horaire` | empId, week, di (0 = lundi … 6 = dimanche), code (« » : aucun horaire ; un horaire archivé ne se choisit plus) : horaire de poste du jour, au niveau de la feuille ; figé à la soumission (`horairesASoumettre` : les jours non choisis qui portent des heures reçoivent l'horaire de l'équipe) ; tracé quand il est choisi par autrui | comme `temps.setCell` (salarié, manager direct ou RH ; feuille soumise : valideur) |
 | `referentiel.activite.enregistrer` / `referentiel.activite.archiver` | code (création : `INT-` + 2 à 12 lettres ou chiffres, ou `ECOLE`, unique parmi tous les projets) ou id (le code), nom (80 caractères) / id, archive? (faux : rétablie) ; une activité archivée n'est plus imputable, les heures déjà saisies restent | RH |
 | `mandat.enregistrer` / `mandat.supprimer` | id? (modification), empId, role (`titulaire`/`suppleant`), du, au?, credit (0 à 200 h par mois, au quart d'heure ; deux mandats du même salarié ne se chevauchent pas) / id | RH (jamais son propre mandat) |
 | `temps.addLine` / `temps.removeLine` | empId, week, projet / li, projet?, tache?, lignes? (ligne visée : déjà supprimée, rien n'est refait ; feuille changée, refus) | idem |
@@ -788,6 +793,7 @@ aucun champ du paramètre n'est recopié.
 | `entretien.remettre` | id, mode (`main_propre`/`refus`/`portail`), date? (main propre, refus : de la clôture à aujourd'hui ; portail : le jour même, compte actif exigé, e-mail avec le seul lien vers Cursus) ; une remise sur papier est définitive, une mise à disposition se complète par une remise sur papier | évaluateur (manager direct) ou RH, jamais pour son propre entretien |
 | `entretien.telecharger` | id : premier téléchargement du compte rendu clos, daté (`telechargeLe`) | salarié, depuis son espace |
 | `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps, santeMiCarriereAge…, cpMaladie, feriesTravaillesAutorises, tauxMajorationFerie, plafondHeuresComplementaires, heuresComplementairesAccord, moyenne12SemainesMax, moyenne12SemainesAccord, contingentHeuresSup, contingentAlerte, contingentAccord, absencesFichierPaie, absencesPaieAPartirDu), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
+| `parametres.feries` | annee (de l'année en cours, 2027 au plus tôt, à deux ans après), solidarite (`pentecote_chomee`/`pentecote_travaillee`/`autre_ferie`/`hors_calendrier`), solidariteFerie? (`autre_ferie` : ni le 1er mai ni le lundi de Pentecôte), nonChomes [codes des fériés, jamais `1er_mai`], motif? (exigé, 409 sinon, pour une année engagée : absences de l'année transmises à la paie ou dans un lot, congés clôturés sur une période qui la couvre ; 500 caractères, service RH seulement, jamais au journal) : clé `calendrierFeries` de la table settings ; message : absences dont le décompte change (salariés rattachés à la ligne du journal) ; même réglage : rien n'est refait | administrateur RH |
 | `demo.reinitialiser` | — | administrateur RH, mode démonstration |
 | `compte.creer` | empId (ou nom, adresse : compte externe), type (`microsoft`/`local`), identifiant, profilRh | administrateur RH (mot de passe provisoire dans `result`, affiché une fois) |
 | `compte.profil` | id, profilRh (`aucun`/`rh_gestionnaire`/`rh_admin`/`referent_hse`/`paie`/`lecture_seule`) | administrateur RH (jamais le dernier administrateur actif ; un compte externe garde un profil) |
@@ -1572,8 +1578,40 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
   supplémentaires) et sont repérées à part (`SheetCalc.mai1`, `ferie`, d'après la semaine de la feuille) : 1er mai majoré
   de 100 % fixé par la loi (art. L3133-6, MAJ_1MAI en heures équivalentes, non réglable) ; autres fériés en quantité
   (FERIE_TRAV) et majorés en MAJ_FERIE seulement si `tauxMajorationFerie` le prévoit (0 % par défaut), taux figé à la
-  validation (`FeuilleTemps.majFerie`). Le lundi de Pentecôte travaillé au titre de la journée de solidarité est repéré
-  comme un férié : son exclusion des heures supplémentaires (art. L3133-8) reste à la paie. Forfait jours : JTRAV seul.
+  validation (`FeuilleTemps.majFerie`). La journée de solidarité travaillée et les fériés non chômés, réglés
+  par année (« Jours fériés et journée de solidarité », ci-dessous), ne sont plus fériés : ni FERIE_TRAV ni majoration
+  (art. L3133-8 : ses 7 h ne sont pas payées à un mensualisé, la paie le sait). Forfait jours : JTRAV seul.
+- **Jours fériés et journée de solidarité** (t051, `shared/rules/feries.ts`, calendrier dans `shared/dates.ts`) : réglés par
+  année civile par l'administrateur RH (Paramètres → Jours fériés et journée de solidarité, `parametres.feries`, clé
+  `calendrierFeries` de la table settings, `Dataset.calendrierFeries`, sans le motif hors du service RH). Par défaut, et
+  pour toute année sans réglage : lundi de Pentecôte chômé, tous les fériés chômés. Journée de solidarité : lundi de
+  Pentecôte travaillé, autre férié travaillé (jamais le 1er mai), ou hors calendrier (fractionnée, sur un RTT : aucun effet).
+  Fériés non chômés : une case par férié, le 1er mai toujours chômé (art. L3133-4). Un férié travaillé ainsi n'est plus
+  férié : `isFerie` (signature inchangée) lit un état du module posé par `configurerFeries`, appelé par `loadFull` et par le
+  constructeur de `Domain` (serveur et navigateur), caches vidés seulement quand le réglage change ; la vingtaine d'appels
+  (décompte des congés, heures proposées, repos du forfait jours, acquisition des CP, majorations, préavis, sessions,
+  journal) suivent sans changer. Jour de solidarité travaillé : décompté en congé, heures proposées, ni FERIE_TRAV ni
+  majoration, mention « Journée de solidarité » sur la feuille ; ses 7 h ne sont pas payées à un mensualisé (art.
+  L3133-8, au prorata pour un temps partiel) : simple mention, aucune rubrique. **Aucun effet rétroactif** : réglable à
+  partir de 2027 (`ANNEE_FERIES_MIN`, mise en service) et jamais pour une année passée ; une ligne d'une année antérieure
+  est ignorée par le calendrier ; le réglage d'une année ne change que les décomptes de cette année
+  (`tests/feries-horaires.test.ts` : régler 2027 ne modifie aucun décompte de 2026). Une année engagée exige un motif ;
+  l'écran et le message nomment les absences recalculées (`absencesRecalculees`, calcul fait avec le calendrier du
+  réglage puis celui en vigueur rétabli : `avecCalendrier`) ; une absence déjà transmise se régularise au lot suivant
+  (écart de `shared/rules/absences-paie.ts`), une clôture de congés n'est pas refaite. Repos du forfait jours
+  (`reposForfait`, inchangé) : il suit `isFerie`, un férié de semaine travaillé ouvre un jour de plus à répartir.
+- **Horaires de poste** (t048, étape 1 ; `shared/rules/horaires.ts`) : référentiel « Horaires » (table `horaires` : code
+  choisi une fois pour toutes, libellé, début, fin « HH:MM », pause en minutes ; fin avant le début : le lendemain),
+  distinct des postes et de leurs exigences, tenu par le service RH (Référentiels → Horaires, `server/src/actions/horaires.ts`),
+  archivé plutôt que supprimé. Exemples amorcés par la migration `lot6-horaires-exemples` (J 8 h – 16 h, M 5 h – 13 h,
+  AM 13 h – 21 h, N 21 h – 5 h), modifiables. Horaire par défaut d'une équipe (`Equipe.horaire`, dialogue des exigences de
+  l'équipe). Horaire du jour sur la feuille, au niveau de la feuille (`FeuilleTemps.horaires`, 7 valeurs : null non choisi,
+  « » aucun, ou un code) : ligne « Horaire du jour » de la grille, sélecteur sous le titre du jour sur téléphone
+  (`client/src/components/HorairesFeuille.tsx`) ; un jour non choisi qui porte des heures affiche l'horaire de l'équipe,
+  en italique, tant que la feuille est en saisie ; tout est figé à la soumission. Facultatif : sans horaire, la feuille se
+  tient comme avant ; une feuille d'avant les horaires n'en reçoit jamais (aucun contrôle rétroactif). Keystone ne transmet
+  que des heures par jour. Données transmises à tous les espaces (aucune donnée personnelle). Les contrôles du repos de
+  11 h, de la pause et des heures de nuit (étape 2) s'appuieront sur ces horaires.
 - **Heures complémentaires** : au-delà du dixième de la durée contractuelle (art. L3123-28), ou du tiers avec la
   référence d'un accord (`plafondHeuresComplementaires`, `heuresComplementairesAccord`, art. L3123-20 ; COHERENCE),
   dépassement de `SheetCalc.depassements` : motif exigé à la soumission. Majoration inchangée : 10 % jusqu'au dixième,

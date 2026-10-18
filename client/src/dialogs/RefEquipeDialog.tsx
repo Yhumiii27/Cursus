@@ -1,11 +1,13 @@
 // Écran Référentiels, onglet Postes : formations et habilitations exigées de tous les membres d'une équipe, quel que soit
 // leur poste (shared/rules/exigences.ts). Même proposition et même annonce que pour un poste (dialogs/RefPosteDialog.tsx).
 // Case « travail de nuit ou en continu » : aucun salarié de moins de 18 ans dans une équipe cochée (shared/rules/mineurs.ts).
+// Horaire de poste par défaut (lot 6, shared/rules/horaires.ts) : proposé sur les feuilles de temps de ses membres.
 import { useMemo, useState } from 'react';
 import { present } from '../../../shared/rules/contrats.ts';
 import { controlerExigences, effetExigences, effetTexte, exigencesEquipe, exigencesProposees, nombreExigences } from '../../../shared/rules/exigences.ts';
 import { plural } from '../../../shared/format.ts';
 import { mineursDeLEquipe } from '../../../shared/rules/mineurs.ts';
+import { horaireDe, horairesEnVigueur, horaireTexte } from '../../../shared/rules/horaires.ts';
 import type { Exigences } from '../../../shared/types.ts';
 import { Bloquant, CancelButton, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { ExigencesChoix } from '../components/ExigencesChoix.tsx';
@@ -23,6 +25,9 @@ export function RefEquipeDialog({ nom }: { nom: string }) {
   // Choix explicite : tant que le service RH n'a répondu ni oui ni non, la case reste à renseigner et n'est pas envoyée
   // (le serveur la laisse inchangée) ; enregistrer les seules exigences ne vaut pas déclaration « pas de travail de nuit ».
   const [nuit, setNuit] = useState<'nr' | 'oui' | 'non'>(() => (equipe?.nuit == null ? 'nr' : equipe.nuit ? 'oui' : 'non'));
+  // Horaire par défaut : « » pour aucun ; un horaire archivé depuis reste affiché tant qu'il n'est pas changé.
+  const [horaire, setHoraire] = useState(equipe?.horaire ?? '');
+  const horaires = horairesEnVigueur(ref), horaireArchive = horaireDe(ref, equipe?.horaire);
   const [busy, setBusy] = useState(false);
   const [confirmer, setConfirmer] = useState(false);
   const v = useVerification();
@@ -48,7 +53,9 @@ export function RefEquipeDialog({ nom }: { nom: string }) {
     if (busy || !v.verifier(erreurs.formations, erreurs.habilitations, errNuit, !equipe)) return;
     if (!force && nouveaux.length) { setConfirmer(true); return; }
     setBusy(true);
-    const r = await run('referentiel.equipe.exigences', { nom, ...exigences, ...(nuit === 'nr' ? {} : { nuit: nuit === 'oui' }) });
+    const r = await run('referentiel.equipe.exigences', {
+      nom, ...exigences, ...(nuit === 'nr' ? {} : { nuit: nuit === 'oui' }), ...(horaire !== (equipe?.horaire ?? '') ? { horaire } : {}),
+    });
     setBusy(false);
     if (r.ok) closeDialog();
     else setConfirmer(false);
@@ -85,6 +92,19 @@ export function RefEquipeDialog({ nom }: { nom: string }) {
             <span className="text-muted sub">
               {nuit === 'nr' ? 'Tant que la réponse n’est pas donnée, la fiche des salariés de moins de 18 ans rappelle l’interdiction du travail de nuit. '
                 : ''}Une équipe de nuit ou en continu ne reçoit aucun salarié de moins de 18 ans (art. L3163-2).
+            </span>
+          </div>
+        </Field>
+        <Field label="Horaire de poste par défaut" htmlFor="equipe-horaire">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+            <select className="input" id="equipe-horaire" value={horaire} onChange={e => setHoraire(e.target.value)} style={{ maxWidth: 360 }}>
+              <option value="">Aucun horaire</option>
+              {horaireArchive?.archive && <option value={horaireArchive.code}>{horaireTexte(horaireArchive)} (archivé)</option>}
+              {horaires.map(h => <option key={h.code} value={h.code}>{horaireTexte(h)} — {h.nom}</option>)}
+            </select>
+            <span className="text-muted sub">
+              Proposé chaque jour où des heures sont saisies sur les feuilles de temps des membres, qui peuvent le changer jour par jour (Référentiels →
+              Horaires). Facultatif : sans horaire, la feuille se tient comme avant.
             </span>
           </div>
         </Field>

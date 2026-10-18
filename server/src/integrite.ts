@@ -37,6 +37,8 @@ export const REFERENCES: readonly Reference[] = [
   ref('soldes_sortie', 'lot_id', 'lots_paie'),
   ref('informations_cp', 'absence_id', 'absences'),
   ref('demandes_keystone', 'voyage_id', 'voyages'),
+  // Horaire de poste par défaut d'une équipe (lot 6) ; ceux des feuilles (JSON, archivés gardés) ne sont jamais supprimés.
+  ref('equipes', 'horaire', 'horaires', 'code'),
 ];
 
 export interface Integrite {

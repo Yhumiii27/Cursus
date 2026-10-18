@@ -33,6 +33,8 @@ import { suiviFeuillesActions } from './suivi-feuilles.ts';
 import { contratsActions } from './contrats.ts';
 import { tempsActions } from './temps.ts';
 import { voyagesActions } from './voyages.ts';
+import { feriesActions } from './feries.ts';
+import { horairesActions } from './horaires.ts';
 
 export const ACTIONS: Record<string, ActionHandler> = {
   ...conformiteActions,
@@ -68,6 +70,8 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...delegationActions,
   ...reposDominicalActions,
   ...correctionsActions,
+  ...feriesActions,
+  ...horairesActions,
 };
 
 /**

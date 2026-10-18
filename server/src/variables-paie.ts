@@ -6,6 +6,9 @@
 // Le code de rubrique d'une absence révèle sa catégorie (santé…) : export réservé au droit « paie », comme le fichier
 // d'import ; le détail ne nomme jamais la nature. Chaque export est tracé (`sage.variables`, archive paie de 3 ans,
 // salariés concernés), sans aucune quantité ni rubrique dans le journal.
+// Lot 6 : déplacements (t031, pays et dates en détail) et éléments laissés à Sage faute de rubrique active (soldes de
+// sortie, déplacements, absences : « À saisir dans Sage »), lus dans le contenu figé et calculés par le registre des
+// éléments de lot (server/src/elements-lot.ts) pour ce qui attend encore un lot.
 import express, { type Router } from 'express';
 import { droitsRh, RUBRIQUES_PAIE } from '../../shared/constants.ts';
 import { texteCsv } from '../../shared/csv.ts';
@@ -13,6 +16,8 @@ import { Domain } from '../../shared/domain.ts';
 import { plural } from '../../shared/format.ts';
 import { detailElement } from '../../shared/rules/absences-paie.ts';
 import { detailSortie } from '../../shared/rules/solde-sortie.ts';
+import { detailDeplacement } from '../../shared/rules/deplacements-paie.ts';
+import { A_SAISIR_SAGE } from '../../shared/rules/elements-lot.ts';
 import { feuillesDuLot, libellesSage, STATUTS_LOT } from '../../shared/rules/lots-paie.ts';
 import { matriculeAffiche } from '../../shared/rules/matricules.ts';
 import { periodeLabel, rubriquesPaie } from '../../shared/rules/paie.ts';
@@ -27,7 +32,7 @@ import type { Db } from './db.ts';
 import { SAGE_DOSSIER, sageMode } from './integrations/sage.ts';
 import { fichierJoint, tracerRefus } from './journal.ts';
 import type { LotEnregistre } from './lots-paie.ts';
-import { sortiesAEmettre } from './soldes-sortie.ts';
+import { contenuDesFamilles, elementsDesFamilles } from './elements-lot.ts';
 
 /** Ligne de l'export : `empId` sert au journal (salariés concernés), il n'est pas écrit dans le fichier. */
 export interface VariablePaie {
@@ -35,7 +40,7 @@ export interface VariablePaie {
 }
 
 /** Colonne « Rubrique Sage » d'un élément d'absence sans code Sage, qui ne part pas dans le fichier. */
-export const A_SAISIR = 'À saisir dans Sage';
+export const A_SAISIR = A_SAISIR_SAGE;
 
 export const ENTETE_VARIABLES =['Matricule de paie', 'Salarié', 'Rubrique Sage', 'Libellé', 'Quantité', 'Détail', 'Lot', 'État'];
 
@@ -50,7 +55,8 @@ export function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: string)
   const nomPar = new Map(d.ds.employes.map(e => [matriculeAffiche(e), { nom: e.nom, id: e.id }]));
   const table = rubriquesPaie(db.all<RubriquePaie>('rubriquesPaie'));
   const out: VariablePaie[] = [];
-  const ajouter = (contenu: Pick<SagePush, 'lignes' | 'absences' | 'sorties' | 'libelles'>, lot: string, etat: string) => {
+  const paysLabel = (code: string) => d.destOf(code)?.pays ?? code;
+  const ajouter = (contenu: Pick<SagePush, 'lignes' | 'absences' | 'sorties' | 'deplacements' | 'aSaisir' | 'libelles'>, lot: string, etat: string) => {
     const libelles = contenu.libelles ?? libellesSage(contenu, table);
     for (const l of contenu.lignes) {
       if ((l.periode ?? '') !== periode) continue;
@@ -83,6 +89,24 @@ export function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: string)
         libelle: libelles[x.codeSage] ?? x.codeSage, detail: detailSortie(x),
       });
     }
+    // Déplacements (t031) : sans code Sage (rubrique désactivée, réglage décoché), absents du fichier, à saisir dans Sage.
+    for (const x of contenu.deplacements ?? []) {
+      if (x.periode !== periode) continue;
+      out.push({
+        matricule: x.matricule, salarie: d.emp(x.empId)?.nom ?? '', rubrique: x.codeSage ?? A_SAISIR, quantite: x.quantite, lot, etat, empId: x.empId,
+        libelle: x.codeSage ? libelles[x.codeSage] ?? x.codeSage : RUBRIQUES_PAIE[x.rubrique]?.label ?? x.rubrique,
+        detail: detailDeplacement(x, paysLabel, periodeLabel),
+      });
+    }
+    // Autres éléments laissés à Sage (soldes de sortie sous une rubrique désactivée) : listés pour la saisie à la main.
+    for (const x of contenu.aSaisir ?? []) {
+      if (x.periode !== periode) continue;
+      const e = d.emp(x.empId);
+      out.push({
+        matricule: e ? matriculeAffiche(e) : '', salarie: e?.nom ?? '', rubrique: A_SAISIR, quantite: x.quantite, lot, etat, empId: x.empId,
+        libelle: RUBRIQUES_PAIE[x.rubrique]?.label ?? x.rubrique, detail: x.detail,
+      });
+    }
   };
   for (const lot of db.all<LotEnregistre>('lotsPaie')) {
     if (lot.statut !== 'annule' && lot.contenu) ajouter(lot.contenu, `n° ${lot.id}`, STATUTS_LOT[lot.statut].label);
@@ -90,8 +114,11 @@ export function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: string)
   // En attente : ce que le lot de la période emporterait aujourd'hui.
   const sheets = feuillesDuLot(sagePending(d), periode, d.ds.settings, d.ti);
   const absences: ElementAbsencePaie[] = traduireElements(absencesAEmettre(db, d, periode), d.ds.rubriquesPaie);
-  const sorties = sortiesAEmettre(db, d, periode);
-  if (sheets.length || absences.length || sorties.length) ajouter({ ...buildSagePayload(d, sheets, SAGE_DOSSIER, new Date(), sageMode(), optionsRegularisation(db, d)), absences, sorties }, '', 'En attente d’un lot');
+  const familles = elementsDesFamilles(db, d, periode);
+  const deFamilles = contenuDesFamilles(familles);
+  if (sheets.length || absences.length || Object.keys(deFamilles).length) {
+    ajouter({ ...buildSagePayload(d, sheets, SAGE_DOSSIER, new Date(), sageMode(), optionsRegularisation(db, d)), absences, ...deFamilles }, '', 'En attente d’un lot');
+  }
   return out.sort((a, b) => a.matricule.localeCompare(b.matricule) || a.rubrique.localeCompare(b.rubrique) || a.detail.localeCompare(b.detail));
 }
 

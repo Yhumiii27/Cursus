@@ -28,6 +28,7 @@ const TITRES: Partial<Record<TableName, string>> = {
   comptes: 'Compte de connexion', verdictsKeystone: 'Verdicts Go / No Go transmis à Keystone', clotures: 'Clôtures des périodes de congés',
   mandats: 'Mandats au CSE', informationsCp: 'Informations sur les congés au retour d’un arrêt',
   soldesSortie: 'Solde des compteurs à la sortie',
+  deplacementsPaie: 'Déplacements transmis à la paie (jours, nuits, trajets)',
 };
 /** Colonnes jamais exportées : empreinte du mot de passe (secret). */
 const RETIREES: Partial<Record<TableName, string[]>> = { comptes: ['motDePasse'] };

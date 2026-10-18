@@ -67,7 +67,15 @@ export interface Destination {
   /** Formalité de sécurité sociale du détachement ; null : déduite du code pays (`secuDe` de shared/constants.ts). */
   secu: SecuDetachement | null;
   archive?: ISODate | null;
+  /**
+   * Vigilance de France Diplomatie pour le pays (t068, shared/rules/vigilance.ts), saisie par le service RH : vert,
+   * jaune, orange ou rouge ; null : non renseignée. `vigilanceLe` : jour de la dernière vérification sur le site.
+   */
+  vigilance?: Vigilance | null;
+  vigilanceLe?: ISODate | null;
 }
+/** Couleurs de la carte des conseils aux voyageurs de France Diplomatie (vert : vigilance normale … rouge : formellement déconseillé). */
+export type Vigilance = 'vert' | 'jaune' | 'orange' | 'rouge';
 /**
  * Formations et habilitations exigées (codes du catalogue) : d'un poste, ou communes à toute une équipe quel que soit le
  * poste (shared/rules/exigences.ts). Une exigence manquante rend le salarié « Non conforme ».
@@ -100,7 +108,15 @@ export interface Projet { code: string; nom: string; statut: StatutKeystone }
  * Chantier transmis par Keystone (identifiant Keystone). `ressources` : salariés dont une affectation
  * chevauche les dates du chantier, recalculés par le serveur (server/src/integrations/keystone-entrant.ts).
  */
-export interface Chantier { id: string; nom: string; client: string; lieu: string; pays: string; debut: ISODate; fin: ISODate; chef: string; habs: string[]; certs: string[]; ressources: number[]; statut: StatutKeystone }
+export interface Chantier {
+  id: string; nom: string; client: string; lieu: string; pays: string; debut: ISODate; fin: ISODate; chef: string; habs: string[]; certs: string[]; ressources: number[]; statut: StatutKeystone;
+  /**
+   * Grand déplacement (t031, shared/rules/deplacements-paie.ts) : qualification saisie par le service RH dans Cursus
+   * (jamais transmise par Keystone) ; null : pas encore qualifié (proposé pour un chantier en France). Seul un chantier
+   * qualifié donne des jours et nuits de grand déplacement à la paie.
+   */
+  grandDeplacement?: boolean | null;
+}
 
 export interface Referentiels {
   formations: Formation[];
@@ -259,6 +275,13 @@ export interface Employe {
   notifications: ModeNotification;
   repriseMotif: string | null;
   repriseDate: ISODate | null;
+  /**
+   * Personne à prévenir en cas d'urgence (t068) : nom (lien compris, texte libre) et téléphone, saisis par le salarié
+   * depuis son portail (`employe.contactUrgence`) ou par le service RH. Service RH et intéressé seulement : retirés des
+   * vues du manager et des profils restreints (server/src/dataset.ts).
+   */
+  urgenceNom?: string | null;
+  urgenceTel?: string | null;
   /** Date de la dernière visite d'aptitude — réservée au service RH. */
   visite: ISODate | null;
   /**
@@ -375,6 +398,11 @@ export interface Voyage {
    * saisi (texte libre). Service RH seulement (null ailleurs : server/src/dataset.ts).
    */
   demandeur?: string | null;
+  /**
+   * Coordonnées sur place (t068) : hébergement et contact local (textes libres du service RH, retirés hors du service RH),
+   * date d'inscription du voyageur sur Ariane (France Diplomatie). Modifiables par `voyage.modifier`, Keystone compris.
+   */
+  hebergement?: string | null; contactSurPlace?: string | null; arianeLe?: ISODate | null;
 }
 /** Demande de déplacement reçue de Keystone (`ref` : référence externe unique), conservée après décision du RH. */
 export interface DemandeKeystone {
@@ -751,6 +779,15 @@ export interface Settings {
    * d'avant ont été traités par Lucca et Sage) ; null : seule vaut la date de départ posée par Cursus.
    */
   absencesPaieAPartirDu: ISODate | null;
+  /**
+   * Paie (t031, shared/rules/deplacements-paie.ts) : jours et nuits de grand déplacement, jours à l'étranger et trajets dans
+   * le fichier d'import (désactivé tant que la paie n'a pas confirmé ses codes : quantités calculées, à saisir dans Sage),
+   * et premier jour transmis (date de mise en service ; null : seule vaut la date de départ posée par Cursus).
+   */
+  deplacementsFichierPaie: boolean;
+  deplacementsPaieAPartirDu: ISODate | null;
+  /** Rappel de vérifier la vigilance d'un pays (France Diplomatie) avant un départ : vérification de plus de N jours (t068). */
+  vigilanceRappelJours: number;
 }
 /** Plafond des heures complémentaires du temps partiel : le dixième (art. L3123-28) ou le tiers avec un accord (art. L3123-20). */
 export type PlafondComplementaires = 'dixieme' | 'tiers';
@@ -924,6 +961,40 @@ export interface SagePush {
   absences?: ElementAbsencePaie[];
   /** Soldes de sortie du lot, salarié par salarié et rubrique (shared/rules/solde-sortie.ts) ; absent avant t128. */
   sorties?: ElementSortiePaie[];
+  /** Déplacements du lot (t031, shared/rules/deplacements-paie.ts), `codeSage` null : à saisir dans Sage ; absent avant le lot 6. */
+  deplacements?: ElementDeplacementPaie[];
+  /**
+   * Éléments calculés que le lot n'emporte pas, faute de rubrique active (soldes de sortie) : listés « à saisir dans Sage »
+   * dans le résumé du lot et l'export des variables (server/src/elements-lot.ts). Les absences et déplacements sans code
+   * Sage y sont ajoutés par le résumé (shared/rules/elements-lot.ts).
+   */
+  aSaisir?: ElementASaisir[];
+}
+/**
+ * Quantité d'un déplacement dans un lot de paie (t031) : jours ou nuits de grand déplacement en France (GD_JOUR, GD_NUIT),
+ * jours à l'étranger (ETR_JOUR, pays en détail), trajets aller ou retour (TRAJET), d'un séjour (`source` : mission sur un
+ * chantier qualifié, ou déplacement à l'étranger) et d'un mois `mois`, partie sur la période `periode` (rappel quand
+ * elle diffère). `codeSage` null : rubrique désactivée ou réglage « déplacements dans le fichier » décoché, à saisir
+ * dans Sage. Négative : régularisation d'un séjour annulé ou raccourci après sa transmission.
+ */
+export interface ElementDeplacementPaie {
+  source: 'voyage' | 'mission'; sourceId: number; empId: number; matricule: string; mois: string; periode: string;
+  rubrique: string; codeSage: string | null; quantite: number; pays: string; du: ISODate; au: ISODate;
+}
+/**
+ * Élément calculé que la paie saisit à la main dans Sage (rubrique désactivée ou à confirmer, réglage décoché) : famille,
+ * salarié, période, rubrique interne (vide hors droit « paie » pour une absence : le code révèle la catégorie), quantité
+ * et détail (jamais la nature d'une absence).
+ */
+export interface ElementASaisir { famille: 'absences' | 'sorties' | 'deplacements' | (string & {}); empId: number; periode: string; rubrique: string; quantite: number; detail: string }
+/**
+ * Déplacements en attente du fichier de paie (calculés par le serveur, qui voit missions et déplacements) : un élément
+ * par salarié, période, rubrique et pays, `aSaisir` faute de rubrique active ou de réglage ; chantiers en France pas encore
+ * qualifiés qui ont des missions. Service RH, paie et lecture seule.
+ */
+export interface DeplacementsPaieAttente {
+  elements: { empId: number; periode: string; rubrique: string; pays: string; quantite: number; aSaisir: boolean; rappel: boolean }[];
+  aQualifier: { chantier: string; nom: string; missions: number }[];
 }
 /**
  * Quantité d'un solde de sortie dans un lot de paie : rubrique interne de sortie (ICCP_J, RTT_SOLDE, RECUP_H, CET_LIQ) et
@@ -991,11 +1062,19 @@ export interface LotPaie {
   absences?: { id: number; empId: number }[];
   /** Soldes de sortie du lot (identifiant du solde, salarié), gardés après une annulation ; absent avant t128. */
   sorties?: { id: number; empId: number }[];
+  /** Séjours du lot (source, identifiant, salarié), gardés après une annulation ; absent avant le lot 6 (t031). */
+  deplacements?: { source: 'voyage' | 'mission'; id: number; empId: number }[];
   /**
    * Totaux du contenu figé : lignes du fichier, salariés, quantité par code Sage des heures ; `absences` : éléments
    * d'absence, salariés et quantité par code Sage (codes retirés hors droit « paie » : server/src/dataset.ts).
    */
-  resume: { lignes: number; salaries: number; rubriques: Record<string, number>; absences?: { elements: number; salaries: number; rubriques: Record<string, number> }; sorties?: { elements: number; salaries: number } };
+  resume: {
+    lignes: number; salaries: number; rubriques: Record<string, number>; absences?: { elements: number; salaries: number; rubriques: Record<string, number> }; sorties?: { elements: number; salaries: number };
+    /** Déplacements (t031) : éléments et salariés. */
+    deplacements?: { elements: number; salaries: number };
+    /** Éléments à saisir à la main dans Sage, nominatifs (shared/rules/elements-lot.ts) ; absent : aucun. */
+    aSaisir?: ElementASaisir[];
+  };
   /** Salariés partis sous leur matricule Cursus, faute de matricule de paie (simulation seulement). */
   sansMatricule: number[];
   telechargeLe: string | null; telechargePar: string | null; telechargements: number;
@@ -1087,6 +1166,8 @@ export interface Dataset {
   rubriquesPaie: RubriquePaie[];
   /** Absences en attente du fichier de paie par période : service RH, paie et lecture seule (sans rubriques) ; vide ailleurs. */
   absencesPaie?: AbsencesPaieAttente[];
+  /** Déplacements en attente du fichier de paie (t031) : service RH, paie et lecture seule ; absent ailleurs. */
+  deplacementsPaie?: DeplacementsPaieAttente | null;
   /** Adresses de la messagerie et relevés transmis aux agences d'intérim : service RH seulement (null et vide ailleurs). */
   messagerie: Messagerie | null;
   releves: ReleveInterim[];

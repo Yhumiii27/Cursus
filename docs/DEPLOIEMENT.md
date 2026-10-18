@@ -751,6 +751,9 @@ qu'avec `CURSUS_DEMO=1`). Après les référentiels, cinq imports CSV, dans cet 
    un autre membre du service RH. Un congé déjà saisi dans Cursus avant la date d'arrêté est signalé (il serait décompté deux fois).
    Renseigner la même date dans Paramètres → Absences et paie (« Absences transmises à partir du ») : les jours
    d'absence d'avant, déjà traités par Lucca et Sage, ne partiront jamais dans le fichier d'import de la paie.
+   De même dans Paramètres → Déplacements et paie (« Déplacements transmis à partir du ») pour les jours de déplacement.
+   La case « Transmettre les déplacements dans le fichier d’import de la paie » reste décochée tant que la paie n'a pas
+   confirmé ses codes (GD_JOUR, GD_NUIT, ETR_JOUR, TRAJET) : d'ici là, chaque lot les liste « à saisir dans Sage ».
 4. **Certifications** (formation, date d'obtention).
 5. **Visites médicales** : date de la dernière visite et avis (apte, apte avec restrictions, inapte ; « non apte »
    vaut inapte). Une ligne sans avis n'est enregistrée « apte » qu'après avoir coché sa confirmation dans l'aperçu ;

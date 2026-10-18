@@ -15,6 +15,7 @@ import { auteurDemande, demandeRetirable } from '../../../shared/rules/correctio
 import type { ModeNotification } from '../../../shared/types.ts';
 import { retraitDemande } from '../state/confirmations-corrections.ts';
 import { Bar, Btn, Chips, Empty, Fine, Kpi, Kpis, NoteAccent, Page, Panel, Seg, Tag } from '../components/ui.tsx';
+import { ContactUrgencePanel } from '../components/ContactUrgence.tsx';
 import { Aptitude } from '../components/Aptitude.tsx';
 import { ExigencesPortail } from '../components/Exigences.tsx';
 import { useEnriched, useRole, useTrips } from '../state/derived.ts';
@@ -276,6 +277,8 @@ export function Portail() {
             </div>
             <Fine>Le journal des actions qui vous concernent vous est remis sur demande par le service RH.</Fine>
           </Panel>
+
+          <ContactUrgencePanel empId={me.id} />
 
           <Panel title="Mes notifications par e-mail" style={{ gap: 'var(--space-3)' }}>
             <div style={{ fontSize: 14, overflowWrap: 'anywhere' }}>{me.email ?? 'Aucune adresse e-mail sur votre fiche'}</div>

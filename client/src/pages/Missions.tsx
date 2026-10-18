@@ -1,5 +1,6 @@
 // Missions & déplacements (source Keystone) : présents en mission, planning sur
-// 4 semaines (missions, absences, fériés) et missions en cours ou à venir.
+// 4 semaines (missions, absences, fériés) et missions en cours ou à venir ; pour le service RH, qualification « grand
+// déplacement » des chantiers en France (t031, components/GrandDeplacement.tsx).
 import { useMemo, type CSSProperties } from 'react';
 import { ABS_LABEL, TRIP_LABEL } from '../../../shared/constants.ts';
 import { addD, isFerie, mondayOf, parse, weekday } from '../../../shared/dates.ts';
@@ -8,6 +9,7 @@ import { absenceActive, absenceBloque, statutAbsence } from '../../../shared/rul
 import type { ISODate } from '../../../shared/types.ts';
 import { Empty, Page, Panel, Tag, Two } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
+import { GrandDeplacementChantiers } from '../components/GrandDeplacement.tsx';
 
 const GRID_COLS = '160px repeat(20, minmax(0, 1fr))';
 const swatch: CSSProperties = { width: 12, height: 12, borderRadius: 3 };
@@ -100,6 +102,8 @@ export function Missions() {
           </div>
         </div>}
       </Panel>
+
+      <GrandDeplacementChantiers />
 
       <Panel title="Missions en cours et à venir">
         {v.rows.length === 0 ? <Empty>Aucune mission en cours ou à venir.</Empty> : <div className="scroll-x">

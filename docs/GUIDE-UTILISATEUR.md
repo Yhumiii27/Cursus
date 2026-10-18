@@ -73,6 +73,8 @@ pas dans Cursus : la paie les traite dans Sage.
 - Les convocations aux sessions et aux entretiens arrivent par e-mail, avec un fichier pour l'agenda.
 - « Mes documents de voyage » : passeport, visa, vaccination. Ils n'entrent dans le dossier qu'après validation par le
   service RH ; les vaccinations sont des données de santé que lui seul voit.
+- « Mon contact d’urgence » : la personne à prévenir (et son lien) et son téléphone, facultatifs, saisis par « Renseigner ».
+  Seul le service RH les voit, jamais votre manager ; videz les deux champs pour les retirer.
 
 ### Entretiens et portail
 
@@ -178,6 +180,23 @@ entretiens : un collègue ou son manager le fait.
 - Seul l'administrateur RH rouvre une feuille validée : « Rouvrir la feuille », motif obligatoire (voir Correction après l'envoi,
   ci-dessous).
 
+### Déplacements et vigilance
+
+- Écran « Missions », panneau « Grand déplacement des chantiers en France » : chaque chantier en France se qualifie
+  « Grand déplacement » ou « Pas de grand déplacement ». Cursus le propose pour tout chantier en France (Keystone ne
+  transmet que des chantiers chez les clients), mais ne retient que votre choix : le critère de l'URSSAF (distance, temps de
+  trajet) se vérifie hors de Cursus. Un chantier retenu donne à la paie, pour chaque mission, ses jours calendaires, ses
+  nuits (jours − 1) et deux trajets ; un déplacement à l'étranger donne ses jours par pays et ses deux trajets, sans
+  qualification. Jours d'absence exclus ; un déplacement annulé après sa transmission se régularise au lot suivant.
+- Référentiels, destinations : « Vigilance (France Diplomatie) » (vert, jaune, orange, rouge) et « Vérifiée le », à tenir
+  à jour à la main (France Diplomatie n'a pas d'API). Passer un pays à l'orange ou au rouge liste les déplacements prévus,
+  prévient les managers des voyageurs ; une zone rouge met une réserve au Go / No Go (code DEPLACEMENT).
+  Le dossier voyage rappelle de vérifier la vigilance tant qu'elle manque ou date de plus de 30 jours (Paramètres →
+  Déplacements et paie).
+- « Modifier le déplacement » : « Hébergement », « Contact sur place » et « Inscrit sur Ariane le », propres à Cursus et
+  réservés au service RH. Le contact d'urgence est sur la fiche du salarié (« Contact d’urgence »), qu'il saisit depuis son
+  espace.
+
 ## Gestionnaire de paie
 
 Profil « Gestionnaire de paie » (interne ou cabinet extérieur, compte externe) ou administrateur RH : écrans Feuilles de
@@ -242,7 +261,12 @@ d'un mois clos enregistrée en retard part entière, en rappel.
   par rémunération et catégorie (Paramètres → Absences et paie, activé par défaut).
 - Soldes de sortie (CP, RTT, récupération, CET) quand leurs rubriques sont activées ; sinon ils se saisissent dans Sage à
   partir de l'état imprimé.
-- **Hors fichier, à saisir dans Sage** : heures de nuit, frais de déplacement ; intérimaires (relevé envoyé à leur agence)
+- Déplacements (jours et nuits de grand déplacement en GD_JOUR et GD_NUIT, jours à l'étranger en ETR_JOUR avec le pays en
+  détail de l'export, trajets en TRAJET) quand « Transmettre les déplacements dans le fichier d’import de la paie » est coché
+  (Paramètres → Déplacements et paie, décoché par défaut) et leurs rubriques activées. Sinon, ils partent dans le lot sans
+  code Sage : listés « À saisir dans Sage », nominativement, dans le résumé du lot (écran Temps) et l'export des variables,
+  comme tout élément dont la rubrique est désactivée (absence, solde de sortie) ; confirmé, le lot ne les renvoie plus.
+- **Hors fichier, à saisir dans Sage** : heures de nuit ; intérimaires (relevé envoyé à leur agence)
   et cadres dirigeants exclus. Le lundi de Pentecôte travaillé au titre de la journée de solidarité est repéré comme
   férié : la paie le traite (art. L3133-8).
 
@@ -265,7 +289,8 @@ d'un mois clos enregistrée en retard part entière, en rappel.
 - Chaque salarié du lot a son matricule de paie, saisi par le service RH sur la fiche (Paramètres → « Matricules de paie »,
   administrateur RH, liste ceux qui manquent) ; le refus d'un lot nomme les salariés sans matricule.
 - « Absences transmises à partir du » (Paramètres → Absences et paie, administrateur RH) porte la date de reprise : les
-  absences antérieures, déjà traitées par Lucca et Sage, ne partent jamais.
+  absences antérieures, déjà traitées par Lucca et Sage, ne partent jamais. « Déplacements transmis à partir du »
+  (Paramètres → Déplacements et paie) de même pour les déplacements.
 
 ## Groupe pilote
 
@@ -312,7 +337,7 @@ questions encore ouvertes).
 ### Paie
 
 - **Codes Sage** de chaque rubrique (heures normales et supplémentaires, dimanche, fériés, contrepartie en repos,
-  absences, soldes de sortie), et l'unité attendue par le plan de paie : saisis et confirmés par le gestionnaire de paie
+  absences, soldes de sortie, déplacements : une rubrique par pays ou par zone pour l'étranger, à décider), et l'unité attendue par le plan de paie : saisis et confirmés par le gestionnaire de paie
   dans « Rubriques de paie ».
 - **Calendrier de paie** (dates de génération du lot, d'import et de paie) et traitement d'une correction arrivée après
   l'import : *à compléter par le gestionnaire de paie*, dans ce guide et dans la page Aide (`shared/aide.ts`).

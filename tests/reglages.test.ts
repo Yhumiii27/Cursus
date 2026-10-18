@@ -51,6 +51,9 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     moyenne12SemainesMax: 44, moyenne12SemainesAccord: '', contingentHeuresSup: 220, contingentAlerte: 90, contingentAccord: '',
     // Paie (lot 5, t028) : absences validées dans le fichier d'import, réponse de l'entreprise du 17 octobre 2026.
     absencesFichierPaie: true, absencesPaieAPartirDu: null,
+    // Lot 6 (t031, t068) : déplacements hors du fichier tant que la paie n'a pas confirmé ses codes (réponse du 18 octobre
+    // 2026) ; vigilance des pays à vérifier de nouveau au-delà de 30 jours.
+    deplacementsFichierPaie: false, deplacementsPaieAPartirDu: null, vigilanceRappelJours: 30,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

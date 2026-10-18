@@ -15,7 +15,9 @@ export const TABLES = {
   formations: { pk: 'id', cols: { id: 'text', nom: 'text', court: 'text', type: 'text', validite: 'int', duree: 'text', organisme: 'text', cout: 'real', validation: 'text', archive: 'text' } },
   habilitations: { pk: 'id', cols: { id: 'text', nom: 'text', detail: 'text', prereqs: 'json', medical: 'bool', validite: 'int', signataire: 'text', archive: 'text', sir: 'bool' } },
   // `secu` : formalité de sécurité sociale du détachement (null : déduite du code pays, shared/constants.ts).
-  destinations: { pk: 'code', cols: { code: 'text', pays: 'text', visa: 'text', visaSub: 'text', oblig: 'json', rec: 'json', passMois: 'int', secu: 'text', archive: 'text' } },
+  destinations: { pk: 'code', cols: { code: 'text', pays: 'text', visa: 'text', visaSub: 'text', oblig: 'json', rec: 'json', passMois: 'int', secu: 'text', archive: 'text',
+    // Vigilance France Diplomatie et jour de sa vérification (t068, shared/rules/vigilance.ts) : saisies par le service RH.
+    vigilance: 'text', vigilanceLe: 'text' } },
   // Postes et formations ou habilitations exigées (shared/rules/exigences.ts) ; `exigences` d'une équipe : communes à ses membres.
   // `expose` : poste exposé à des risques particuliers (visite post-exposition à la sortie, shared/rules/visites-dues.ts).
   postes: { pk: 'id', auto: true, cols: { id: 'int', nom: 'text', formations: 'json', habilitations: 'json', archive: 'text', sir: 'bool', expose: 'bool' } },
@@ -23,7 +25,9 @@ export const TABLES = {
   // case pas encore renseignée, distincte de « non ».
   equipes: { pk: 'nom', cols: { nom: 'text', managerId: 'int', ordre: 'int', exigences: 'json', nuit: 'json' } },
   projets: { pk: 'code', cols: { code: 'text', nom: 'text', statut: 'text' } },
-  chantiers: { pk: 'id', cols: { id: 'text', nom: 'text', client: 'text', lieu: 'text', pays: 'text', debut: 'text', fin: 'text', chef: 'text', habs: 'json', certs: 'json', ressources: 'json', statut: 'text' } },
+  chantiers: { pk: 'id', cols: { id: 'text', nom: 'text', client: 'text', lieu: 'text', pays: 'text', debut: 'text', fin: 'text', chef: 'text', habs: 'json', certs: 'json', ressources: 'json', statut: 'text',
+    // Grand déplacement (t031) : qualification du service RH, jamais écrite par Keystone ; JSON pour garder null (à qualifier).
+    grandDeplacement: 'json' } },
   employes: {
     pk: 'id', auto: true,
     cols: {
@@ -49,6 +53,8 @@ export const TABLES = {
       naissanceLe: 'text',
       // Dérogation pour travaux réglementés d'un salarié mineur : date de la déclaration (shared/rules/mineurs.ts).
       derogationTravauxLe: 'text',
+      // Personne à prévenir en cas d'urgence (t068) : saisie par le salarié ou le service RH, réservée au service RH et à lui.
+      urgenceNom: 'text', urgenceTel: 'text',
     },
   },
   // Demandes de visite médicale du service RH, closes par la saisie de la visite (server/src/actions/sante.ts).
@@ -92,7 +98,9 @@ export const TABLES = {
       // Annulation (`voyage.annuler`) : le déplacement reste dans l'historique, hors de tous les calculs.
       annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
       // Demandeur d'un déplacement importé du formulaire (nom du salarié reconnu, ou tel que saisi).
-      demandeur: 'text' },
+      demandeur: 'text',
+      // Coordonnées sur place (t068) : hébergement, contact local (textes du service RH), inscription sur Ariane.
+      hebergement: 'text', contactSurPlace: 'text', arianeLe: 'text' },
   },
   // Références Keystone (`ref`) uniques : index créés au démarrage (server/src/integrations/keystone-entrant.ts).
   demandesKeystone: {
@@ -136,8 +144,21 @@ export const TABLES = {
       type: 'text', correctifs: 'json',
       // Soldes de sortie du lot (identifiant, salarié ; t128, shared/rules/solde-sortie.ts) : quantités dans `contenu`.
       sorties: 'json',
+      // Séjours du lot (source, identifiant, salarié ; t031, shared/rules/deplacements-paie.ts) : quantités dans `contenu`.
+      deplacements: 'json',
     },
     unique: [['cle']],
+  },
+  // Éléments de déplacement émis par les lots de paie (t031, server/src/deplacements-paie.ts) : une ligne par séjour
+  // (`source` : voyage ou mission, `sourceId`), mois, rubrique et pays, avec le lot qui l'emporte (`lotId`) et l'import
+  // confirmé (`sage`) ; `codeSage` null : à saisir dans Sage. Supprimées à l'annulation du lot ; l'écart du lot suivant
+  // se calcule sur elles.
+  deplacementsPaie: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', source: 'text', sourceId: 'int', mois: 'text', periode: 'text', rubrique: 'text', pays: 'text', quantite: 'real',
+      du: 'text', au: 'text', codeSage: 'text', lotId: 'int', sage: 'bool',
+    },
   },
   // Soldes de sortie photographiés à l'enregistrement de la sortie (t128, server/src/soldes-sortie.ts) : état des compteurs
   // à la date de sortie ; lot de paie qui l'emporte (`lotId`) et import confirmé (`sage`), ou réglé hors fichier faute de

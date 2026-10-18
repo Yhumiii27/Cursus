@@ -143,7 +143,7 @@ test('t029 lot de fichier : généré, feuilles réservées, fichier tracé, imp
     refus(PAIE, 'paie.lotGenerer', { periode: '2026-13' }, 400, /Période de paie invalide/);
     refus(PAIE, 'paie.lotGenerer', { periode: '2026-09' }, 400, /Aucune feuille validée en attente pour septembre 2026/);
     assert.match(String(run(PAIE, 'paie.lotGenerer', { periode: '2026-10' })),
-      new RegExp(`^Lot n° \\d+ généré — ${enAttente} feuilles \\(\\d+ salariés\\), octobre 2026 · téléchargez le fichier d’import, importez-le dans Sage, puis confirmez l’import · 5 absences$`));
+      new RegExp(`^Lot n° \\d+ généré — ${enAttente} feuilles \\(\\d+ salariés\\), octobre 2026 · téléchargez le fichier d’import, importez-le dans Sage, puis confirmez l’import · 5 absences · 3 séjours \\(déplacements\\) · \\d+ éléments à saisir dans Sage \\(rubrique désactivée ou réglage décoché : voir le résumé du lot\\)$`));
     const lot = lots().at(-1)!;
     assert.deepEqual([lot.mode, lot.statut, lot.periode, lot.feuilles.length, lot.telechargements], ['fichier', 'genere', '2026-10', enAttente, 0]);
     assert.match(lot.cle, /^[0-9a-f-]{36}$/, 'clé d’idempotence');
@@ -187,7 +187,8 @@ test('t029 lot de fichier : généré, feuilles réservées, fichier tracé, imp
       assert.equal(t.length, 2);
       assert.match(t[0].message!, new RegExp(`^Fichier d’import Sage du lot n° ${lot.id} téléchargé — octobre 2026, \\d+ lignes$`));
       assert.deepEqual([t[0].payload.lot, t[0].payload.cle, t[0].paie], [lot.id, lot.cle, true]);
-      assert.deepEqual(t[0].salaries.sort(), [...new Set(lot.feuilles.map(x => x.empId))].sort());
+      // Salariés du lot : feuilles, absences et, depuis le lot 6, séjours (déplacements à saisir dans Sage).
+      assert.deepEqual(t[0].salaries.sort(), [...new Set([...lot.feuilles, ...lot.absences ?? [], ...lot.deplacements ?? []].map(x => x.empId))].sort());
       assert.equal(journal('acces.refuse').at(-1)!.message, 'Fichier d’import Sage — réservé à l’administrateur RH et au gestionnaire de paie');
       assert.equal(lots().at(-1)!.telechargements, 2);
 
@@ -253,7 +254,7 @@ test('t029 simulation, annulation : feuilles libérées, fichier d’un lot annu
   avecEnv({ SAGE_MODE: 'fichier' }, () => refus(PAIE, 'paie.lotConfirmer', { id: lot.id }, 409, /généré en simulation : rien n’a été envoyé/));
   // Annulation : feuilles libérées, de nouveau en attente ; le fichier d'un lot annulé ne se télécharge plus.
   refus(KARIM, 'paie.lotAnnuler', { id: lot.id }, 403);
-  assert.match(String(run(PAIE, 'paie.lotAnnuler', { id: lot.id })), new RegExp(`^Lot n° ${lot.id} annulé — ${n} feuilles libérées et 5 absences libérées, de nouveau en attente$`));
+  assert.match(String(run(PAIE, 'paie.lotAnnuler', { id: lot.id })), new RegExp(`^Lot n° ${lot.id} annulé — ${n} feuilles libérées et 5 absences libérées et 3 séjours \\(déplacements\\) libérés, de nouveau en attente$`));
   assert.equal(enAttente(), n);
   assert.deepEqual([lots().at(-1)!.statut, lots().at(-1)!.annulePar], ['annule', 'Aïcha Diallo']);
   assert.equal(lots().at(-1)!.feuilles.length, n, 'feuilles gardées sur le lot annulé');

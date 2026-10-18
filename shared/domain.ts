@@ -15,6 +15,7 @@ import { echeanceExigence, exigencesManquantes, type ExigenceManquante } from '.
 import { identifiantKeystone } from './rules/matricules.ts';
 import { echeancesContrat, etatAutorisation, present, SITUATION_A_REGULARISER } from './rules/contrats.ts';
 import { voyageActif } from './rules/deplacements.ts';
+import { zoneRouge } from './rules/vigilance.ts';
 import { restrictionEnVigueur } from './rules/sante.ts';
 import { echeanceVisite, examenRequis, prochaineTexte, suiviDe, type ProchaineVisite, type SuiviInfo } from './rules/suivi-medical.ts';
 import { finSession } from './rules/plage-session.ts';
@@ -831,6 +832,10 @@ export class Domain {
         else if (detachement.length) {
           push('reserve', 'DETACHEMENT', 'Formalités de détachement à faire avant le départ', `Détachement à préparer${detachement.some(i => i.late) ? ' d’urgence' : ''} : ${liste(detachement)}`);
         }
+        // Destination en zone rouge de France Diplomatie (t068, shared/rules/vigilance.ts) : réserve sous le code existant
+        // DEPLACEMENT, l'API Keystone ne change pas.
+        const rouges = [...new Set(retenus.filter(t => zoneRouge(this.destOf(t.dest))).map(t => this.destOf(t.dest)!.pays))];
+        if (rouges.length) push('reserve', 'DEPLACEMENT', 'Destination formellement déconseillée', `Zone rouge (France Diplomatie) : ${rouges.join(', ')}`);
       }
     }
     return { status: reasons.some(r => r.level === 'nogo') ? 'nogo' : reasons.length ? 'reserve' : 'go', reasons };

@@ -118,6 +118,8 @@ export type DialogState =
   | { type: 'formatFichier' }
   /** Réouverture d'une feuille validée (administrateur RH, t131). */
   | { type: 'rouvrirFeuille'; empId: number; week: ISODate }
+  /** Contact d'urgence d'un salarié (t068) : depuis son portail, ou par le service RH depuis la fiche. */
+  | { type: 'contactUrgence'; empId: number }
   /** Refus ou action irréversible à confirmer (state/confirmations.ts). */
   | { type: 'confirmer'; c: Confirmation };
 

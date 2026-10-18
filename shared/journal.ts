@@ -40,6 +40,9 @@ export const ACTIONS_PAIE: readonly string[] = [
   // Réouverture d'une feuille validée, parfois déjà transmise (régularisation dans un lot correctif, t131), et reprise
   // des rubriques par feuille des lots d'avant le lot 5.
   'temps.rouvrir', 'migration.rubriquesFeuilles',
+  // Déplacements dans le fichier de paie (t031) : qualification « grand déplacement » d'un chantier, date de départ posée
+  // pour les séjours déjà traités par la paie.
+  'chantier.grandDeplacement', 'migration.deplacementsPaie',
 ];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
@@ -119,6 +122,9 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'voyages.importer': 'Import de déplacements',
   'keystone.accepter': 'Demande de Keystone acceptée',
   'keystone.refuser': 'Demande de Keystone refusée',
+  'chantier.grandDeplacement': 'Grand déplacement d’un chantier qualifié',
+  'migration.deplacementsPaie': 'Déplacements antérieurs laissés à la saisie dans Sage',
+  'employe.contactUrgence': 'Contact d’urgence enregistré',
   // Temps et paie
   'temps.setCell': 'Saisie d’heures',
   'temps.addLine': 'Ligne ajoutée à une feuille de temps',
@@ -246,7 +252,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.'] },
   { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
-  { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement', 'migration.referencesDeplacements'] },
+  { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement', 'migration.referencesDeplacements', 'chantier.', 'migration.deplacementsPaie'] },
   { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'mandat.', 'migration.heuresSup', 'migration.lotsPaie', 'migration.absencesPaie', 'migration.rubriquesFeuilles'] },
   { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.', 'conges.', 'migration.soldes'] },
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
@@ -280,7 +286,8 @@ export const CHAMP_LABEL: Record<string, string> = {
   court: 'Nom court', validite: 'Validité (mois)', duree: 'Durée', organisme: 'Organisme', cout: 'Coût', validation: 'Validation', detail: 'Précision',
   prereqs: 'Prérequis', medical: 'Aptitude médicale exigée', signataire: 'Signataire', pays: 'Pays', visa: 'Entrée', visaSub: 'Précision sur l’entrée',
   oblig: 'Vaccins obligatoires', rec: 'Vaccins recommandés', passMois: 'Validité du passeport après l’entrée (mois)', secu: 'Sécurité sociale',
-  archive: 'Archivée le',
+  archive: 'Archivée le', vigilance: 'Vigilance (France Diplomatie)', vigilanceLe: 'Vigilance vérifiée le',
+  grandDeplacement: 'Grand déplacement', hebergement: 'Hébergement', contactSurPlace: 'Contact sur place', arianeLe: 'Inscription sur Ariane le',
   matriculePaie: 'Matricule de paie', identifiantKeystone: 'Identifiant envoyé à Keystone', politiqueReportCp: 'Politique de report des CP',
   rttAnneeSuivanteDes: 'RTT de l’année suivante posables à partir du',
   cpMaladie: 'Acquisition des CP pendant un arrêt maladie',
@@ -317,6 +324,8 @@ export const CHAMP_LABEL: Record<string, string> = {
   contingentAccord: 'Référence du contingent', ferie: 'Jour férié', cor: 'Contrepartie obligatoire en repos (h)',
   // Absences dans le fichier d'import de la paie (Paramètres → Absences et paie).
   absencesFichierPaie: 'Absences dans le fichier d’import de la paie', absencesPaieAPartirDu: 'Absences transmises à la paie à partir du',
+  deplacementsFichierPaie: 'Déplacements dans le fichier d’import de la paie', deplacementsPaieAPartirDu: 'Déplacements transmis à la paie à partir du',
+  vigilanceRappelJours: 'Rappel de vérification de la vigilance (jours)',
 };
 
 const valeur = (v: unknown): string => {

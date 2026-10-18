@@ -37,6 +37,9 @@ export const REFERENCES: readonly Reference[] = [
   ref('soldes_sortie', 'lot_id', 'lots_paie'),
   ref('informations_cp', 'absence_id', 'absences'),
   ref('demandes_keystone', 'voyage_id', 'voyages'),
+  // Éléments de déplacement des lots de paie (t031) : salarié et lot.
+  ref('deplacements_paie', 'emp_id', 'employes'),
+  ref('deplacements_paie', 'lot_id', 'lots_paie'),
 ];
 
 export interface Integrite {

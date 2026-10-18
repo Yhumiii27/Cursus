@@ -141,6 +141,8 @@ export function generationLot(o: {
   enAttente?: number;
   /** Soldes de sortie emportés (t128, rubriques de sortie actives). */
   sorties?: number;
+  /** Déplacements du lot (t031) : salariés, et éléments à saisir dans Sage (rubrique désactivée, réglage décoché). */
+  deplacements?: { salaries: number; aSaisir: number };
 }): Confirmation {
   const simulation = o.mode === 'simulation';
   const absences = o.absences?.absences ? `, ${plural(o.absences.absences, 'absence', 'absences')}` : '';
@@ -158,6 +160,7 @@ export function generationLot(o: {
         ? `rubriques complètes du salarié pour la période d’origine (annule et remplace). Ce lot part seul, à importer en mode remplacement ; ${o.enAttente ? `${plural(o.enAttente, 'autre feuille', 'autres feuilles')} en attente et les absences partiront` : 'les feuilles ordinaires et les absences partiront'} dans le lot suivant, à générer après la confirmation de cet import et à importer comme d’habitude.`
         : 'seul l’écart avec ce qui est déjà parti, positif ou négatif, en rappel si la période d’origine est close.'}` : '',
       absencesSuite(o.absences ?? null),
+      o.deplacements ? `Déplacements : jours et nuits de grand déplacement, jours à l’étranger et trajets de ${plural(o.deplacements.salaries, 'salarié', 'salariés')}${o.deplacements.aSaisir ? ` ; ${plural(o.deplacements.aSaisir, 'élément part', 'éléments partent')} sans code Sage, à saisir dans Sage (liste dans le résumé du lot)` : ''}.` : '',
       o.sorties ? 'Soldes de sortie : compteurs photographiés à la sortie (congés payés à indemniser, RTT, récupération, CET), en jours et en heures ; Sage calcule le montant de l’indemnité.' : '',
       o.sansMatricule.length ? `Sans matricule de paie, sous leur matricule Cursus (simulation seulement) : ${o.sansMatricule.join(', ')}.` : '',
       o.perimetre ?? PERIMETRE_FICHIER,

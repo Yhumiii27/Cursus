@@ -128,6 +128,25 @@ test('connexion Microsoft : la page de retour garde les paramètres, dans la lim
   assert.match(store, /lienMicrosoft\(\{ retour: pageDeRetourClient\(`\/\$\{view\}`, ecrireUrl\(view, ui\)\)/);
   assert.equal(store.match(/lireUrl\(/g)?.length, 3, 'chargement, Précédent, connexion');
   assert.ok(!/openDialog\([^)]*location/.test(store) && !/setDialog\([^)]*lireUrl/.test(store), 'aucun dialogue ouvert depuis l’adresse');
+  // Sortie de session : l'adresse revient à « / » avant la déconnexion Microsoft et sur « Changer de compte »,
+  // sinon connect() rouvrirait la fiche et les filtres de la personne précédente.
+  const corps = (nom: string) => store.slice(store.indexOf(`const ${nom} = useCallback`), store.indexOf('}, [', store.indexOf(`const ${nom} = useCallback`)));
+  const logout = corps('logout');
+  assert.ok(logout.indexOf("history.replaceState(null, '', '/')") >= 0 && logout.indexOf("history.replaceState(null, '', '/')") < logout.indexOf('location.assign(s.deconnexion)'),
+    'déconnexion : adresse remise à « / » avant la redirection Microsoft');
+  const abandon = corps('abandonnerReconnexion');
+  assert.ok(abandon.indexOf("history.replaceState(null, '', '/')") >= 0 && abandon.indexOf("history.replaceState(null, '', '/')") < abandon.indexOf('reinitialiser()'),
+    '« Changer de compte » : adresse remise à « / »');
+});
+
+test('adresse : les valeurs par défaut de PARAMS_URL sont celles de INITIAL_UI (store.tsx)', () => {
+  const store = readFileSync(new URL('../client/src/state/store.tsx', import.meta.url), 'utf8');
+  const litteral = /const INITIAL_UI: UiState = (\{[\s\S]*?\n\});/.exec(store)?.[1];
+  assert.ok(litteral, 'INITIAL_UI trouvé dans store.tsx');
+  const initial = new Function(`return (${litteral});`)() as UiState;
+  assert.deepEqual(initial, UI, 'la constante UI de ce test recopie INITIAL_UI');
+  for (const [v, params] of Object.entries(PARAMS_URL))
+    for (const p of params ?? []) assert.equal(p.defaut, initial[p.cle], `${v}.${p.nom} : défaut identique à INITIAL_UI.${p.cle}`);
 });
 
 // — t107 : Planifier → Créer une session → inscription —
@@ -192,4 +211,9 @@ test('t148 : chaque case a un texte complet et une lettre, chaque ligne un résu
   const grille = readFileSync(new URL('../client/src/pages/PlanningMissions.tsx', import.meta.url), 'utf8');
   for (const m of ['<table', '<caption', 'scope="col"', 'scope="row"', 'aria-live="polite"', 'tabIndex={l === li && i === co ? 0 : -1}', 'onFocus=', 'ArrowDown', 'jourComplet(s)'])
     assert.ok(grille.includes(m), m);
+  // Au clavier, le libellé de la case est lu au focus : la zone aria-live n'est remplie qu'au toucher ou au clic.
+  assert.match(grille, /onFocus=\{\(\) => montrer\(l, i\)\}/);
+  assert.match(grille, /onClick=\{\(\) => toucher\(l, i\)\}/);
+  assert.ok(!grille.slice(grille.indexOf('const montrer'), grille.indexOf('const toucher')).includes('setAnnonce'), 'le focus n’annonce rien');
+  assert.match(grille, /<p className="sr-only" aria-live="polite">\{annonce\}<\/p>/);
 });

@@ -533,14 +533,17 @@ un dossier hors du dépôt (`CURSUS_CAS_PAIE`, chemin absolu). Format et règles
   chargement (F5, lien partagé), à la connexion et sur Précédent ; une valeur invalide, ou un identifiant absent du jeu de
   données du rôle, est ignorée sans message. Aucun dialogue ne s'ouvre depuis l'adresse. L'ouverture d'une fiche ajoute une
   entrée à l'historique (Précédent la referme) ; un filtre remplace l'entrée courante. La reconnexion et la connexion
-  Microsoft reviennent à la page avec ses paramètres (200 caractères au plus, `pageDeRetour`). « Copier le lien »
+  Microsoft reviennent à la page avec ses paramètres (200 caractères au plus, `pageDeRetour`). La déconnexion (Microsoft
+  comprise) et « Changer de compte » remettent l'adresse à « / » : la personne suivante ne reprend pas l'écran de la
+  précédente. Les valeurs par défaut de `PARAMS_URL` sont celles de `INITIAL_UI` (contrôlé par le test). « Copier le lien »
   (`components/CopierLien.tsx`) sur la fiche et la feuille de temps. Un nouveau filtre partageable s'ajoute à `PARAMS_URL`.
 - Dialogue ouvert depuis un autre : `<Dialog fermer={…}>` y revient au lieu de se fermer (Annuler, Échap, fond). « Créer
   une session » depuis « Planifier » (t107) passe le dialogue d'origine (`retour`) ; la session créée y est présélectionnée
   (`dialogs/retour-session.ts`).
 - Grille lisible sans la couleur (t148, `pages/PlanningMissions.tsx`) : vrai tableau (`caption`, en-têtes `scope`), date
   complète en texte masqué, lettre dans chaque case, résumé par ligne ; cases en boutons à focus itinérant (flèches,
-  Début, Fin), détail du jour dans une zone `aria-live` au focus ou au toucher.
+  Début, Fin), détail du jour affiché sous la grille au focus ou au toucher, annoncé (zone `aria-live`) au toucher ou au
+  clic seulement : au clavier, le libellé de la case suffit.
 - Ouvrir un dialogue : `openDialog({ type: 'plan', … })` (types dans `state/store.tsx`).
   Un dialogue garde ses champs en `useState`, appelle `run(...)` et se ferme si `r.ok`.
   Dialogue de saisie : `onSubmit` sur `<Dialog>`, `<SubmitButton busy={busy}>`, `Field` avec `requis` et

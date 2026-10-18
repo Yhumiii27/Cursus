@@ -561,9 +561,10 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     try {
       const s = await api.logout();
       effacerBrouillon();
-      if (s.deconnexion) { location.assign(s.deconnexion); return; }
-      // La personne suivante ne reprend pas la page ni la fiche de celle qui part.
+      // La personne suivante ne reprend pas la page ni la fiche de celle qui part, y compris après la déconnexion
+      // Microsoft (Précédent ne rouvre pas la fiche) : connect() relit l'adresse.
       history.replaceState(null, '', '/');
+      if (s.deconnexion) { location.assign(s.deconnexion); return; }
       reinitialiser();
       await applySession(s);
     } catch (err) {
@@ -603,6 +604,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
         // Mot de passe à remplacer (réinitialisé entre-temps) : rien n'est rejoué, l'écran du mot de passe s'affiche.
         for (const a of attentes.current.splice(0)) a.abandonner();
         setReconnexion(null);
+        // Autre compte : il ne reprend pas l'écran (fiche, filtres) de la personne précédente.
+        if (s.compte && s.compte.id !== rc.compte.id) history.replaceState(null, '', '/');
         reinitialiser();
         await applySession(s);
         return null;
@@ -637,6 +640,8 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     for (const a of attentes.current.splice(0)) a.abandonner();
     setReconnexion(null);
     effacerBrouillon();
+    // « Changer de compte » : la personne suivante ne reprend pas l'écran de la session expirée (connect() relit l'adresse).
+    history.replaceState(null, '', '/');
     reinitialiser();
     try {
       await applySession(await api.session());

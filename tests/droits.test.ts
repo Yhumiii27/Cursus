@@ -266,6 +266,8 @@ const MATRICE: Ligne[] = [
   { action: 'plan.cloturerExercice', droits: '               O    -    -    -    -    -    -    -    -', env: { CURSUS_TODAY: '2027-01-05' }, p: () => ({ exercice: 2026, reporter: [(db.sql.prepare(`SELECT id FROM plan_actions WHERE statut = 'engage' LIMIT 1`).get() as { id: number }).id] }) },
   // Feuilles de temps : saisie par le salarié, son manager ou le RH ; validation par le manager ou le RH ; paie : administrateur RH.
   { action: 'temps.setCell', droits: '                       O    O    O    -    O    -    -    -    -', p: () => { feuille('brouillon'); return { empId: 2, week: WEEK, li: 0, di: 0, value: '7' }; } },
+  // Horaire du jour (lot 6) : mêmes droits que la saisie des heures.
+  { action: 'temps.horaire', droits: '                       O    O    O    -    O    -    -    -    -', p: () => { feuille('brouillon'); return { empId: 2, week: WEEK, di: 0, code: 'J' }; } },
   { action: 'temps.addLine', droits: '                       O    O    O    -    O    -    -    -    -', p: () => ({ empId: 2, week: WEEK, projet: 'INT-MAINT' }) },
   { action: 'temps.removeLine', droits: '                    O    O    O    -    O    -    -    -    -', p: () => { feuille('brouillon'); return { empId: 2, week: WEEK, li: 0 }; } },
   { action: 'temps.suggest', droits: '                       O    O    O    -    O    -    -    -    -', p: () => ({ empId: 2, week: WEEK }) },
@@ -294,6 +296,11 @@ const MATRICE: Ligne[] = [
   // Activités internes (écran Référentiels) et mandats au CSE (fiche) : service RH.
   { action: 'referentiel.activite.enregistrer', droits: '    O    O    -    -    -    -    -    -    -', p: () => ({ code: 'INT-ACCUEIL', nom: 'Accueil des visiteurs' }) },
   { action: 'referentiel.activite.archiver', droits: '      O    O    -    -    -    -    -    -    -', p: () => ({ id: 'INT-COM' }) },
+  // Horaires de poste (lot 6) : service RH ; la lecture seule consulte.
+  { action: 'referentiel.horaire.enregistrer', droits: '     O    O    -    -    -    -    -    -    -', p: () => ({ code: 'S', nom: 'Samedi matin', debut: '06:00', fin: '12:00', pause: 0 }) },
+  { action: 'referentiel.horaire.archiver', droits: '       O    O    -    -    -    -    -    -    -', p: () => ({ id: 'AM' }) },
+  // Jours fériés et journée de solidarité d'une année (lot 6) : administrateur RH.
+  { action: 'parametres.feries', droits: '                  O    -    -    -    -    -    -    -    -', p: () => ({ annee: 2027, solidarite: 'pentecote_travaillee', nonChomes: [] }) },
   { action: 'mandat.enregistrer', droits: '                  O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, role: 'titulaire', du: '2026-11-01', credit: 21 }) },
   { action: 'mandat.supprimer', droits: '                    O    O    -    -    -    -    -    -    -', p: () => ({ id: db.insert<{ id: number }>('mandats', { empId: 2, role: 'suppleant', du: '2026-01-01', au: null, credit: 0 }).id }) },
   // Un membre du RH élu ne saisit ni ne retire son propre mandat (crédit d'heures) : un autre membre du RH le fait.

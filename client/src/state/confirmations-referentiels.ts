@@ -1,12 +1,12 @@
 // Confirmations de l'écran Référentiels (dialogue « confirmer », comme celles de state/confirmations.ts) : archivage
-// d'une formation, d'une habilitation, d'une destination, d'un poste ou d'une activité interne, chargement du référentiel type, demande d'une
+// d'une formation, d'une habilitation, d'une destination, d'un poste, d'une activité interne ou d'un horaire, chargement du référentiel type, demande d'une
 // habilitation exigée. Données seulement.
 // L'archivage se défait (« Rétablir », sans confirmation) ; la confirmation annonce ce qu'il change, dont les demandes des
 // collaborateurs encore en attente : sur un élément archivé, elles ne s'acceptent plus (à refuser, ou à rétablir d'abord).
 import { plural } from '../../../shared/format.ts';
 import { CODE_DELEGATION } from '../../../shared/rules/activites.ts';
 import type { ReferentielId } from '../../../shared/rules/referentiels.ts';
-import type { Destination, Formation, HabType, Poste, Projet } from '../../../shared/types.ts';
+import type { Destination, Formation, HabType, Horaire, Poste, Projet } from '../../../shared/types.ts';
 import type { Confirmation } from './confirmations.ts';
 
 /** Demandes des collaborateurs en attente sur l'élément (`quoi` : « la formation »…) : elles ne s'acceptent plus une fois archivé. */
@@ -146,5 +146,20 @@ export function demandeHabilitation(x: { empId: number; h: string; nom: string; 
     bouton: 'Demander l’habilitation',
     action: 'hab.demander',
     payload: { empId: x.empId, h: x.h },
+  };
+}
+
+/** Archivage d'un horaire de poste (lot 6, shared/rules/horaires.ts) : plus proposé, les feuilles qui le portent le gardent. */
+export function archivageHoraire(h: Pick<Horaire, 'code' | 'nom'>): Confirmation {
+  return {
+    titre: 'Archiver l’horaire',
+    question: `Archiver l’horaire ${h.code} « ${h.nom} » ?`,
+    suites: [
+      'Il n’est plus proposé dans les feuilles de temps ni comme horaire par défaut d’une équipe.',
+      'Les feuilles qui le portent déjà le gardent. Il se rétablit à tout moment.',
+    ],
+    bouton: 'Archiver',
+    action: 'referentiel.horaire.archiver',
+    payload: { id: h.code },
   };
 }

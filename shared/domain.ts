@@ -6,7 +6,7 @@ import {
   AVIS_MEDICAL, CERT_LABEL, CLS, DOC_LABEL, EXAMEN_REQUIS, GNG_CODE, HAB_CLS, HAB_LABEL, MED_LABEL, MISSION_LONGUE_JOURS, RANK, SECU_RULES, SESSION_PASSEE, STATUTS,
   TEMPS_TRAVAIL, TYPES_CONTRAT, VACCINS, VISA_RULES, secuDe, type CodeMotif, type HabKey, type HabMesureAction, type StatusKey,
 } from './constants.ts';
-import { addD, addMonths, days, isFerie, iso, parse, weekday } from './dates.ts';
+import { addD, addMonths, configurerFeries, days, isFerie, iso, parse, weekday } from './dates.ts';
 import { cap, fmt, fmtShort } from './format.ts';
 import { absenceActive, absenceBloque, borneContrat, periodeTexte } from './rules/absences.ts';
 import { actifs, habSuivie } from './rules/referentiels.ts';
@@ -206,6 +206,8 @@ export class Domain {
     this.ds = ds;
     this.ti = ds.today;
     this.today = parse(ds.today);
+    // Jours fériés de l'établissement réglés par année (shared/rules/feries.ts) : suivis par `isFerie`, état de module.
+    configurerFeries(ds.calendrierFeries);
   }
 
   get year() { return this.today.getFullYear(); }

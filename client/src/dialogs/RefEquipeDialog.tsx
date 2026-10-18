@@ -2,6 +2,7 @@
 // leur poste (shared/rules/exigences.ts). Même proposition et même annonce que pour un poste (dialogs/RefPosteDialog.tsx).
 // Case « travail de nuit ou en continu » : aucun salarié de moins de 18 ans dans une équipe cochée (shared/rules/mineurs.ts).
 // Couverture minimale (SST, EPI incendie…) : aucun seuil par défaut, « 1 SST au minimum » proposé (shared/rules/couverture.ts).
+// Horaire de poste par défaut (lot 6, shared/rules/horaires.ts) : proposé sur les feuilles de temps de ses membres.
 import { useMemo, useState } from 'react';
 import { present } from '../../../shared/rules/contrats.ts';
 import { controlerExigences, effetExigences, effetTexte, exigencesEquipe, exigencesProposees, nombreExigences } from '../../../shared/rules/exigences.ts';
@@ -9,6 +10,7 @@ import { plural } from '../../../shared/format.ts';
 import { mineursDeLEquipe } from '../../../shared/rules/mineurs.ts';
 import { controlerCouverture, COUVERTURE_LIGNES_MAX, COUVERTURE_PROPOSEE, couvertureEquipe, RECOMMANDATION_INRS } from '../../../shared/rules/couverture.ts';
 import { actif } from '../../../shared/rules/referentiels.ts';
+import { horaireDe, horairesEnVigueur, horaireTexte } from '../../../shared/rules/horaires.ts';
 import type { Exigences } from '../../../shared/types.ts';
 import { Bloquant, CancelButton, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { ExigencesChoix } from '../components/ExigencesChoix.tsx';
@@ -29,6 +31,9 @@ export function RefEquipeDialog({ nom }: { nom: string }) {
   // Couverture minimale : lignes { formation, minimum } en cours de saisie (minimum gardé en texte pendant la frappe).
   const couvertureAvant = couvertureEquipe(equipe);
   const [couverture, setCouverture] = useState(() => couvertureAvant.map(l => ({ formation: l.formation, min: String(l.min) })));
+  // Horaire par défaut : « » pour aucun ; un horaire archivé depuis reste affiché tant qu'il n'est pas changé.
+  const [horaire, setHoraire] = useState(equipe?.horaire ?? '');
+  const horaires = horairesEnVigueur(ref), horaireArchive = horaireDe(ref, equipe?.horaire);
   const [busy, setBusy] = useState(false);
   const [confirmer, setConfirmer] = useState(false);
   const v = useVerification();
@@ -63,7 +68,10 @@ export function RefEquipeDialog({ nom }: { nom: string }) {
     if (busy || !v.verifier(erreurs.formations, erreurs.habilitations, errNuit, errCouverture, !equipe)) return;
     if (!force && nouveaux.length) { setConfirmer(true); return; }
     setBusy(true);
-    const r = await run('referentiel.equipe.exigences', { nom, ...exigences, ...(nuit === 'nr' ? {} : { nuit: nuit === 'oui' }), ...(couvertureChangee ? { couverture: saisie } : {}) });
+    const r = await run('referentiel.equipe.exigences', {
+      nom, ...exigences, ...(nuit === 'nr' ? {} : { nuit: nuit === 'oui' }), ...(couvertureChangee ? { couverture: saisie } : {}),
+      ...(horaire !== (equipe?.horaire ?? '') ? { horaire } : {}),
+    });
     setBusy(false);
     if (r.ok) closeDialog();
     else setConfirmer(false);
@@ -124,6 +132,19 @@ export function RefEquipeDialog({ nom }: { nom: string }) {
             <span className="text-muted sub">
               {couverture.length ? 'Chaque jour, au moins ce nombre de membres présents, sans absence en cours, titulaires d’une certification valide ; sinon une alerte datée. '
                 : 'Aucun seuil : pas de suivi de la couverture pour cette équipe. '}{RECOMMANDATION_INRS} Équipes successives (2x8, 3x8, continu) : une équipe par quart.
+            </span>
+          </div>
+        </Field>
+        <Field label="Horaire de poste par défaut" htmlFor="equipe-horaire">
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-1)' }}>
+            <select className="input" id="equipe-horaire" value={horaire} onChange={e => setHoraire(e.target.value)} style={{ maxWidth: 360 }}>
+              <option value="">Aucun horaire</option>
+              {horaireArchive?.archive && <option value={horaireArchive.code}>{horaireTexte(horaireArchive)} (archivé)</option>}
+              {horaires.map(h => <option key={h.code} value={h.code}>{horaireTexte(h)} — {h.nom}</option>)}
+            </select>
+            <span className="text-muted sub">
+              Proposé chaque jour où des heures sont saisies sur les feuilles de temps des membres, qui peuvent le changer jour par jour (Référentiels →
+              Horaires). Facultatif : sans horaire, la feuille se tient comme avant.
             </span>
           </div>
         </Field>

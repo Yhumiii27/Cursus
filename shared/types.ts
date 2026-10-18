@@ -139,7 +139,20 @@ export interface Equipe {
    * qui lui soumet ses absences, ses feuilles et ses entretiens. null : aucune (validations du manager par le service RH).
    */
   parente?: string | null;
+  /**
+   * Horaire de poste proposé par défaut sur les feuilles de temps de ses membres (code du référentiel `horaires`,
+   * shared/rules/horaires.ts) ; null ou absent : aucun, la feuille se tient sans horaire.
+   */
+  horaire?: string | null;
 }
+/**
+ * Horaire de poste du référentiel (écran Référentiels → Horaires, shared/rules/horaires.ts), distinct des postes et de
+ * leurs exigences : code (choisi une fois pour toutes), libellé, début et fin (« HH:MM » ; une fin antérieure au début
+ * finit le lendemain : poste de nuit), pause en minutes. Archivé, il n'est plus proposé ; les feuilles qui le portent le gardent.
+ */
+export interface Horaire { code: string; nom: string; debut: string; fin: string; pause: number; archive?: ISODate | null }
+/** Horaire figé sur une feuille de temps : code, début, fin et pause au moment de la soumission ou de la validation. */
+export type HoraireFige = Pick<Horaire, 'code' | 'debut' | 'fin' | 'pause'>;
 /** Projet ou chantier tenu dans Keystone : archivé, il reste en base (historique) sans plus être proposé ni évalué. */
 export type StatutKeystone = 'actif' | 'archive';
 export interface Projet { code: string; nom: string; statut: StatutKeystone }
@@ -164,6 +177,8 @@ export interface Referentiels {
   /** Postes et leurs exigences (shared/rules/exigences.ts), archivés compris. */
   postes: Poste[];
   equipes: Equipe[];
+  /** Horaires de poste (shared/rules/horaires.ts), archivés compris ; absent : aucun (jeu de données d'avant le lot 6). */
+  horaires?: Horaire[];
   projets: Projet[];
   chantiers: Chantier[];
 }
@@ -504,6 +519,21 @@ export interface FeuilleTemps {
    * absente : jamais rouverte. Vues du manager et du collaborateur : sans le motif, les rubriques ni les heures Keystone.
    */
   reouverture?: ReouvertureFeuille | null;
+  /**
+   * Horaire de poste de chaque jour, du lundi au dimanche (code du référentiel `horaires`, shared/rules/horaires.ts) :
+   * choisi par le salarié, son manager ou le service RH, au niveau de la feuille (les heures restent saisies par projet).
+   * null : pas encore choisi, l'horaire par défaut de l'équipe est proposé un jour qui porte des heures ; « » : aucun
+   * horaire. Seuls les choix explicites y sont inscrits : l'horaire proposé ne l'est jamais (voir `horairesFiges`).
+   */
+  horaires?: (string | null)[] | null;
+  /**
+   * Horaires retenus, figés à la soumission puis à la validation (`horairesAFiger`, shared/rules/horaires.ts) : pour
+   * chaque jour, code, début, fin et pause tels qu'ils étaient alors (une modification ultérieure de l'horaire au
+   * référentiel ne change pas le sens d'une feuille passée), null pour un jour sans horaire. Absent : feuille soumise
+   * d'avant les horaires (aucun contrôle rétroactif). Une feuille renvoyée l'ignore pour l'affichage et le refige à la
+   * soumission suivante, en gardant les heures d'un code inchangé.
+   */
+  horairesFiges?: (HoraireFige | null)[] | null;
 }
 /**
  * Réouverture d'une feuille validée (action `temps.rouvrir`, administrateur RH seul, motif obligatoire) : ce qui était
@@ -538,6 +568,25 @@ export interface ReouvertureFeuille {
  */
 export type TypeDerogationDominicale = 'aucune' | 'feu_continu' | 'suppleance';
 export interface DerogationDominicale { equipe: string; type: TypeDerogationDominicale; reference: string | null; le: ISODate; par: string }
+/**
+ * Jours fériés de l'établissement, réglés par année civile (shared/rules/feries.ts, Paramètres → Jours fériés,
+ * `parametres.feries`) : modalité de la journée de solidarité (art. L3133-7 et L3133-11) et fériés non chômés. Sans
+ * réglage pour une année : lundi de Pentecôte et tous les fériés chômés.
+ */
+export type ModaliteSolidarite = 'pentecote_chomee' | 'pentecote_travaillee' | 'autre_ferie' | 'hors_calendrier';
+/** Fériés légaux (art. L3133-1), désignés par un code stable d'une année à l'autre. */
+export type CodeFerie = 'jour_an' | 'paques' | '1er_mai' | '8_mai' | 'ascension' | 'pentecote' | '14_juillet' | '15_aout' | 'toussaint' | '11_novembre' | 'noel';
+export interface FeriesAnnee {
+  solidarite: ModaliteSolidarite;
+  /** `autre_ferie` : le férié travaillé au titre de la journée de solidarité (jamais le 1er mai) ; null sinon. */
+  solidariteFerie: CodeFerie | null;
+  /** Fériés travaillés comme des jours ordinaires (non chômés) ; jamais le 1er mai, toujours chômé (art. L3133-4). */
+  nonChomes: CodeFerie[];
+  /** Instant et auteur du réglage ; `motif` (texte libre) : modification d'une année déjà engagée, service RH seulement. */
+  le: string; par: string; motif?: string | null;
+}
+/** Réglage des fériés par année civile (« 2027 » → réglage) ; une année sans ligne garde le calendrier légal complet. */
+export type CalendrierFeries = Record<string, FeriesAnnee>;
 /**
  * Mandat d'élu au CSE (shared/rules/delegation.ts) : titulaire ou suppléant, dates, crédit d'heures de délégation par mois
  * (proposé d'après l'art. R2314-1, modifiable). Saisi par le service RH sur la fiche ; vu par le RH et l'élu seulement.
@@ -1239,6 +1288,11 @@ export interface Dataset {
   reprises: LotReprise[];
   /** Dérogations au repos dominical par équipe : la référence de l'accord n'est transmise qu'au service RH. */
   derogationsDominicales?: DerogationDominicale[];
+  /**
+   * Jours fériés réglés par année (shared/rules/feries.ts) : transmis à tous les espaces, qui en ont besoin pour décompter
+   * les congés et les heures ; le motif d'une modification n'est transmis qu'au service RH. Absent : calendrier légal.
+   */
+  calendrierFeries?: CalendrierFeries;
   /** Mandats au CSE : service RH (tous) et l'élu (les siens) ; vide ailleurs (le manager ne voit que la ligne de la feuille). */
   mandats?: Mandat[];
   /**

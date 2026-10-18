@@ -26,7 +26,10 @@ export const TABLES = {
   // case pas encore renseignée, distincte de « non ».
   // `couverture` : minimum de membres formés (SST, EPI incendie…), shared/rules/couverture.ts ; null : aucun seuil.
   // `parente` : équipe parente (hiérarchie des managers, shared/rules/hierarchie.ts).
-  equipes: { pk: 'nom', cols: { nom: 'text', managerId: 'int', ordre: 'int', exigences: 'json', nuit: 'json', couverture: 'json', parente: 'text' } },
+  equipes: { pk: 'nom', cols: { nom: 'text', managerId: 'int', ordre: 'int', exigences: 'json', nuit: 'json', couverture: 'json', parente: 'text', horaire: 'text' } },
+  // Horaires de poste (shared/rules/horaires.ts, server/src/actions/horaires.ts) : code choisi une fois pour toutes,
+  // début et fin « HH:MM » (fin avant le début : le lendemain), pause en minutes ; `horaire` d'une équipe : proposé par défaut.
+  horaires: { pk: 'code', cols: { code: 'text', nom: 'text', debut: 'text', fin: 'text', pause: 'int', archive: 'text' } },
   projets: { pk: 'code', cols: { code: 'text', nom: 'text', statut: 'text' } },
   chantiers: { pk: 'id', cols: { id: 'text', nom: 'text', client: 'text', lieu: 'text', pays: 'text', debut: 'text', fin: 'text', chef: 'text', habs: 'json', certs: 'json', ressources: 'json', statut: 'text',
     // Grand déplacement (t031) : qualification du service RH, jamais écrite par Keystone ; JSON pour garder null (à qualifier).
@@ -126,6 +129,10 @@ export const TABLES = {
     cols: {
       id: 'int', empId: 'int', week: 'text', statut: 'text', comment: 'text', sage: 'bool', keystone: 'bool', lignes: 'json', contrat: 'json', motifDepassement: 'text', heuresSup: 'text', lotId: 'int',
       majDimanche: 'int', majFerie: 'int', cor: 'json', reouverture: 'json',
+      // Horaire de poste de chaque jour (codes du référentiel `horaires`, 7 valeurs ; figé à la soumission, lot 6).
+      horaires: 'json',
+      // Horaires retenus (code, début, fin, pause), figés à la soumission et à la validation (lot 6).
+      horairesFiges: 'json',
     },
     unique: [['empId', 'week']],
   },

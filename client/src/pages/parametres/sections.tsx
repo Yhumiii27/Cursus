@@ -17,6 +17,7 @@ import { Demonstration } from './Demonstration.tsx';
 import { Entretiens } from './Entretiens.tsx';
 import { EntretienMiCarriere } from './EntretienMiCarriere.tsx';
 import { Envois } from './Envois.tsx';
+import { Feries } from './Feries.tsx';
 import { FeuillesTemps } from './FeuillesTemps.tsx';
 import { Formations } from './Formations.tsx';
 import { Hierarchie } from './Hierarchie.tsx';
@@ -61,6 +62,7 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'contrats', place: 'gauche', Section: Contrats },
   { id: 'paie', place: 'droite', Section: ReglagesPaie },
   { id: 'decompte', place: 'droite', Section: DecompteHeures },
+  { id: 'feries', place: 'droite', Section: Feries },
   { id: 'absences-paie', place: 'droite', Section: AbsencesPaie },
   { id: 'deplacements-paie', place: 'droite', Section: DeplacementsPaie },
   { id: 'feuilles', place: 'gauche', Section: FeuillesTemps },

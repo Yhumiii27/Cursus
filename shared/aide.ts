@@ -35,6 +35,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           'Menu « Mes heures ». La semaine affichée est la semaine en cours (« Cette semaine » y revient, les flèches changent de semaine).',
           'Ajoutez une ligne par projet (« + Ajouter un projet… ») ou reprenez les tâches prévues (« Proposer depuis Keystone »). Inscrit à une session de formation cette semaine-là, le bouton devient « Proposer les heures prévues » (tâches et heures de formation), ou « Proposer les heures de formation » sans tâche Keystone.',
           'Tapez les heures de chaque jour, en heures décimales (7,5 pour 7 h 30) : chaque cellule s’enregistre seule quand vous la quittez. Sur téléphone, la saisie se fait jour par jour.',
+          'Ligne « Horaire du jour » : l’horaire de poste de chaque jour (journée, matin, après-midi, nuit…), proposé en italique d’après votre équipe dès que des heures sont saisies ; changez-le si besoin, ou choisissez « — » pour aucun. Il est facultatif et se fige à la soumission.',
           'Samedi et dimanche sont grisés et repliés (« Sam. · Dim. ») : dépliez-les pour un chantier, un déplacement ou un impératif. Ces heures comptent dans les heures supplémentaires de la semaine.',
           'En fin de semaine, « Soumettre au manager ». Au-delà de 10 h dans une journée ou de 48 h dans la semaine, indiquez le motif demandé avant de soumettre.',
           'La feuille est attendue le lundi suivant à 12 h. Une feuille renvoyée par votre manager revient « à corriger » avec son commentaire : corrigez-la puis soumettez-la de nouveau.',
@@ -127,7 +128,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
         points: [
           '« Nouvelle session » (service RH et référent HSE) : formation, dates, lieu, places ; inscriptions, convocations, puis « Clôturer » (présences, résultats, certifications datées du dernier jour).',
           '« Plan & budget » : enveloppes par équipe, « Importer un plan », coût réel à la clôture d’une action.',
-          'Référentiels : formations, habilitations, destinations, postes et leurs exigences ; un élément inutile s’archive.',
+          'Référentiels : formations, habilitations, destinations, postes et leurs exigences, horaires de poste (« Horaires » : J, M, AM, N d’exemple, horaire par défaut de chaque équipe dans son dialogue d’exigences) ; un élément inutile s’archive.',
           'Postes à risques particuliers : case « Liste des postes à risques particuliers (art. L4154-2) » du poste, formation renforcée désignée dans Paramètres ; un CDD, un intérimaire ou un alternant qui ne l’a pas suivie depuis son entrée est « Non conforme » et en No Go. « Imprimer la liste des postes à risques » la tient à disposition de l’inspection et du CSE.',
           'Couverture minimale des équipes (SST, EPI incendie) : seuils saisis avec les exigences de l’équipe, aucun par défaut ; alerte datée au tableau de bord, dans « Équipes & managers » et « Échéances ».',
           'Entretien de mi-carrière : après la visite de mi-carrière enregistrée, l’entretien de parcours est dû dans le délai de Paramètres → Entretien de mi-carrière (2 mois par défaut, à confirmer juridiquement).',
@@ -194,7 +195,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
         points: [
           'Chaque rubrique utilisée a son code Sage saisi et confirmé dans « Rubriques de paie » (ou est désactivée) : tant qu’il en manque, la génération d’un lot réel est refusée en les nommant.',
           'Chaque salarié a son matricule de paie, saisi par le service RH sur la fiche (Paramètres → « Matricules de paie », administrateur RH) ; le refus du lot nomme les salariés sans matricule.',
-          '« Variables de la période » exporte en CSV ce qui est parti et ce qui attend, pour le contrôle. Heures de nuit restent saisies dans Sage ; les déplacements (jours et nuits de grand déplacement, jours à l’étranger, trajets) sont calculés et listés « À saisir dans Sage » dans le résumé du lot et l’export tant que l’administrateur RH n’a pas coché « Transmettre les déplacements dans le fichier d’import de la paie », après confirmation de vos codes ; le lundi de Pentecôte travaillé (journée de solidarité) est repéré comme férié et traité par la paie.',
+          '« Variables de la période » exporte en CSV ce qui est parti et ce qui attend, pour le contrôle. Heures de nuit restent saisies dans Sage ; les déplacements (jours et nuits de grand déplacement, jours à l’étranger, trajets) sont calculés et listés « À saisir dans Sage » dans le résumé du lot et l’export tant que l’administrateur RH n’a pas coché « Transmettre les déplacements dans le fichier d’import de la paie », après confirmation de vos codes. Journée de solidarité et fériés chômés : Paramètres, « Jours fériés et journée de solidarité », année par année (lundi de Pentecôte chômé par défaut) ; un jour ainsi travaillé n’est plus férié, et la journée de solidarité n’est pas payée à un mensualisé (art. L3133-8).',
         ],
       },
     ],

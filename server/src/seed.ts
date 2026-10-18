@@ -19,6 +19,7 @@ import { figerFeuilles } from './migrate.ts';
 import { postesDepuisFiches } from './migrations/referentiels.ts';
 import { lotHistorique } from './migrations/paie.ts';
 import { amorcerActivites } from './migrations/temps.ts';
+import { amorcerHoraires } from './migrations/lot6-horaires.ts';
 
 // Mode de validation : évaluation réussie pour les habilitations électriques, CACES, SST, ATEX, AIPR et PRAP ;
 // la présence suffit pour les sensibilisations et formations d'information.
@@ -455,6 +456,10 @@ export function seedDemo(db: Db) {
     Object.entries(PROJETS).forEach(([code, nom]) => enregistrerProjet(cx, code, { nom }));
     // Activités internes de base (dont la délégation du CSE) : comme la migration d'une base neuve, rejouée à la réinitialisation.
     amorcerActivites(db);
+    // Horaires de poste d'exemple (comme la migration d'une base neuve) ; horaire de journée proposé à la Maintenance et à
+    // l'Administration, équipe du matin à la Production (2x8 : l'après-midi se choisit sur la feuille).
+    amorcerHoraires(db);
+    for (const [nom, horaire] of [['Maintenance', 'J'], ['Administration', 'J'], ['Production', 'M']]) db.update('equipes', nom, { horaire });
     // Mandat au CSE de Julien Moreau : titulaire, crédit de la table R2314-1 pour une centaine de salariés.
     db.insert('mandats', { empId: 8, role: 'titulaire', du: '2025-11-01', au: null, credit: 21 });
 

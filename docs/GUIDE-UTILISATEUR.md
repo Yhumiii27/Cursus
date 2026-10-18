@@ -44,7 +44,12 @@ Sommaire : [Collaborateur](#collaborateur) · [Manager](#manager) · [Service RH
    chantier, de déplacement ou d'impératif. Ces heures prennent leur rang dans les heures supplémentaires de la semaine
    (semaine du lundi au dimanche), et celles du dimanche sont transmises à part à la paie. Un repos hebdomadaire manquant
    est signalé, sans blocage.
-5. Jours fériés : saisissables, repérés « Férié travaillé » (le 1er mai est majoré de 100 %).
+5. Jours fériés : saisissables, repérés « Férié travaillé » (le 1er mai est majoré de 100 %). La journée de solidarité,
+   quand elle est travaillée, est un jour ordinaire repéré « Journée de solidarité ».
+   **Horaire du jour** (ligne « Horaire du jour », au-dessus des projets ; sous le titre du jour sur téléphone) : l'horaire
+   de poste de chaque jour (journée, matin, après-midi, nuit…), proposé en italique d'après l'équipe dès que des heures sont
+   saisies ; le salarié, son manager ou le service RH le changent jour par jour, « — » pour aucun. Facultatif ; figé à la
+   soumission avec ses heures (une feuille renvoyée le propose de nouveau d'après les jours travaillés).
 6. « Soumettre au manager » (ou « Soumettre au service RH » sans manager). Au-delà de 10 h dans une journée ou de 48 h dans
    la semaine, un motif est demandé avant la soumission ; il est lu par le valideur.
 7. La feuille est attendue **le lundi suivant à 12 h** ; passé ce délai, le manager ou le service RH relance
@@ -177,7 +182,9 @@ entretiens : un collègue ou son manager le fait.
   Depuis « Planifier », sans session ouverte, « Créer une session » ramène ensuite à l'inscription, la nouvelle session
   déjà cochée.
 - « Plan & budget » : enveloppes par équipe, « Importer un plan », coût réel saisi à la clôture d'une action.
-- « Référentiels » : formations, habilitations, destinations, postes et leurs exigences ; un élément inutile s'archive.
+- « Référentiels » : formations, habilitations, destinations, postes et leurs exigences, horaires de poste (onglet
+  « Horaires » : J, M, AM, N d'exemple, modifiables ; horaire par défaut d'une équipe dans le dialogue de ses exigences) ;
+  un élément inutile s'archive.
 - Postes à risques particuliers : case « Liste des postes à risques particuliers (art. L4154-2) » du poste (Référentiels →
   Postes ; les postes en suivi renforcé, exposés ou qui exigent une habilitation SIR ou ATEX sont signalés « à examiner »,
   jamais cochés d'office) et formation renforcée désignée dans Paramètres → Postes à risques particuliers. Un CDD, un
@@ -306,8 +313,8 @@ d'un mois clos enregistrée en retard part entière, en rappel.
   code Sage : listés « À saisir dans Sage », nominativement, dans le résumé du lot (écran Temps) et l'export des variables,
   comme tout élément dont la rubrique est désactivée (absence, solde de sortie) ; confirmé, le lot ne les renvoie plus.
 - **Hors fichier, à saisir dans Sage** : heures de nuit ; intérimaires (relevé envoyé à leur agence)
-  et cadres dirigeants exclus. Le lundi de Pentecôte travaillé au titre de la journée de solidarité est repéré comme
-  férié : la paie le traite (art. L3133-8).
+  et cadres dirigeants exclus. La journée de solidarité et les fériés chômés se règlent année par année
+  (Paramètres, « Jours fériés et journée de solidarité ») : un jour ainsi travaillé n'est plus férié (art. L3133-8).
 
 ### Correction après l'envoi
 
@@ -382,13 +389,18 @@ questions encore ouvertes).
   l'import : *à compléter par le gestionnaire de paie*, dans ce guide et dans la page Aide (`shared/aide.ts`).
 - **Matricules de paie** de tous les salariés ; format du fichier ajusté au modèle d'import de Sage (« Modifier le
   format »).
-- Majoration des fériés (0 % par défaut, hors 1er mai), traitement de la journée de solidarité, acquisition des congés
-  pendant un arrêt maladie (minimum légal par défaut) : à confirmer avec la convention et les accords.
+- Majoration des fériés (0 % par défaut, hors 1er mai), acquisition des congés pendant un arrêt maladie (minimum légal
+  par défaut) : à confirmer avec la convention et les accords.
+- **Journée de solidarité et fériés chômés** de chaque année à partir de 2027 (Paramètres, « Jours fériés et journée de
+  solidarité ») : lundi de Pentecôte chômé et tous les fériés chômés par défaut ; la modalité retenue après avis du CSE
+  (Pentecôte ou autre férié de semaine travaillé, fractionnée ou sur un RTT) se règle année par année, sans effet sur les années
+  passées. Une année déjà engagée (absences transmises à la paie, congés clôturés) ne se modifie qu'avec un motif.
 
 ### Organisation et reprise
 
 - **Postes et exigences** : formations et habilitations exigées par poste et par équipe (« Référentiels »), case « travail
-  de nuit ou en continu » des équipes (Référentiels → Postes).
+  de nuit ou en continu » des équipes (Référentiels → Postes) et horaire de poste par défaut de chaque équipe (facultatif ;
+  horaires d'exemple à adapter dans Référentiels → Horaires).
 - **Sécurité au poste** : liste des postes à risques particuliers (avis du médecin du travail et du CSE) et formation
   renforcée à désigner ; seuils de secouristes et d'équipiers incendie par équipe (une équipe par quart) ; délai de
   l'entretien de mi-carrière à confirmer juridiquement.

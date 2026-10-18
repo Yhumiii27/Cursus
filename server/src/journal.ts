@@ -28,11 +28,13 @@ import {
 import { CODE_PAYS, CODE_TITRE, codeDestination, codeTitre, type ReferentielId } from '../../shared/rules/referentiels.ts';
 import { estTypeReprise } from '../../shared/rules/reprise.ts';
 import { CODE_ACTIVITE, normaliserCodeActivite } from '../../shared/rules/activites.ts';
+import { CODE_HORAIRE, normaliserCodeHoraire } from '../../shared/rules/horaires.ts';
+import { reglageAnnee } from '../../shared/rules/feries.ts';
 import { estTypeDerogation, JOURS_FEUILLE } from '../../shared/rules/semaine.ts';
 import { controlesMineur } from '../../shared/rules/mineurs.ts';
 import { lignesCouverture } from '../../shared/rules/couverture.ts';
 import { corDeLaFeuille } from '../../shared/rules/temps.ts';
-import type { ClotureConges, CurrentUser, Employe, FeuilleTemps, InformationCp, LigneTemps } from '../../shared/types.ts';
+import type { CalendrierFeries, ClotureConges, CurrentUser, Employe, FeuilleTemps, InformationCp, LigneTemps } from '../../shared/types.ts';
 import type { ContactsConfidentialite } from '../../shared/confidentialite.ts';
 import { journaliser, type Compte } from './comptes.ts';
 import { lireConfidentialite } from './confidentialite.ts';
@@ -115,6 +117,18 @@ function referentiel(table: ReferentielId, colonnes: readonly string[], archiver
 const codeActivite = (p: P) => {
   const c = normaliserCodeActivite(p.id != null && p.id !== '' ? p.id : p.code);
   return CODE_ACTIVITE.test(c) ? c : null;
+};
+/** Horaire de poste visé (`id` : modification, archivage ; `code` : création, choix du jour), recopié seulement si c'est un code. */
+const codeHoraire = (p: P, champ: 'id' | 'code' = 'id') => {
+  const c = normaliserCodeHoraire(champ === 'id' && p.id != null && p.id !== '' ? p.id : p.code);
+  return CODE_HORAIRE.test(c) ? c : null;
+};
+/** Horaire du jour d'une feuille (lu avant et après `temps.horaire`) : code, « aucun » ou non choisi (null). */
+const horaireDuJour = (f: Ligne | null, p: P) => ((f?.horaires ?? []) as (string | null)[])[Number(p.di)] ?? null;
+/** Réglage des fériés d'une année, sans auteur ni motif (texte libre) : modalité, férié de solidarité, fériés non chômés. */
+const feriesDeLAnnee = (db: Db, annee: unknown) => {
+  const { solidarite, solidariteFerie, nonChomes } = reglageAnnee(db.getSetting<CalendrierFeries>('calendrierFeries', {}), Number(annee));
+  return { solidarite, solidariteFerie, nonChomes };
 };
 /** Salariés dont un titre change de statut avec la règle modifiée (résultat de l'action). */
 const salariesTouches = (x: Contexte) => (x.result as { salaries?: unknown[] } | null | undefined)?.salaries ?? [];
@@ -371,12 +385,26 @@ export const REGLES: Record<string, Regle> = {
     extra: (p, avant) => ({
       ...(typeof p.nuit === 'boolean' ? { nuit: p.nuit, nuitAvant: avant?.nuit ?? null } : {}),
       ...(Array.isArray(p.couverture) ? { couverture: lignesCouverture(p.couverture), couvertureAvant: lignesCouverture(avant?.couverture) ?? [] } : {}),
+      // Horaire de poste par défaut (lot 6) : code recopié seulement s'il en a la forme ; null : aucun.
+      ...(p.horaire !== undefined ? { horaire: p.horaire ? codeHoraire({ code: p.horaire }, 'code') : null, horaireAvant: avant?.horaire ?? null } : {}),
     }),
     champs: ['nom'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['exigences'], aplatir: true }, salaries: (_p, x) => salariesTouches(x),
   },
   // Activités internes (codes INT-… et ECOLE, aucune donnée personnelle) : code, libellé et statut avant et après.
   'referentiel.activite.enregistrer': { extra: p => ({ code: codeActivite(p) }), cible: { table: 'projets', cle: codeActivite, colonnes: ['nom', 'statut'] } },
   'referentiel.activite.archiver': { extra: p => ({ code: codeActivite(p), retablir: p.archive === false }), cible: { table: 'projets', cle: codeActivite, colonnes: ['statut'] } },
+  // Horaires de poste (lot 6, aucune donnée personnelle) : code, libellé, heures et pause, archivage, avant et après.
+  // La fin d'un horaire est tracée sous `finHoraire` (`fin` désigne la fin du contrat dans les libellés du journal).
+  'referentiel.horaire.enregistrer': {
+    extra: p => ({ code: codeHoraire(p) }), cible: { table: 'horaires', cle: p => codeHoraire(p), colonnes: ['nom', 'debut', 'fin', 'pause'] },
+    changements: (_p, x) => {
+      const vue = (h: Ligne | null) => (h ? { nom: h.nom, debut: h.debut, finHoraire: h.fin, pause: h.pause } : {});
+      const avant: Ligne = vue(x.avant), apres: Ligne = vue(x.apres);
+      const cles = Object.keys(apres).filter(k => avant[k] !== apres[k]);
+      return { avant: Object.fromEntries(cles.map(k => [k, avant[k] ?? null])), apres: Object.fromEntries(cles.map(k => [k, apres[k]])) };
+    },
+  },
+  'referentiel.horaire.archiver': { extra: p => ({ code: codeHoraire(p), retablir: p.archive === false }), cible: { table: 'horaires', cle: p => codeHoraire(p), colonnes: ['archive'] } },
   // Référentiel type : nombre d'éléments ajoutés.
   'referentiel.charger': {
     extra: p => ({ referentiel: referentielRecu(p) }), etat: (db, p) => nombreReferentiel(db, p), bilan: (p, x) => ({ ajoutes: nombreReferentiel(x.db, p) - Number(x.etat) }),
@@ -460,6 +488,15 @@ export const REGLES: Record<string, Regle> = {
     },
   },
   'temps.addLine': { champs: ['empId', 'week', 'projet'], ...ligneTemps },
+  // Horaire du jour (lot 6) : tracé quand il est choisi par autrui (manager, service RH), comme une correction d'heures ;
+  // le choix du salarié sur sa propre feuille ne l'est pas. Code avant et après, jour et statut de la feuille.
+  'temps.horaire': {
+    champs: ['empId', 'week'], cible: FEUILLE, tracer: (p, x) => parAutrui(p, x.user) && horaireDuJour(x.avant, p) !== horaireDuJour(x.apres, p),
+    changements: (p, x) => ({
+      avant: { horaire: horaireDuJour(x.avant, p) }, apres: { horaire: horaireDuJour(x.apres, p) },
+      extra: { jour: isValidDate(String(p.week ?? '')) ? addD(String(p.week), Number(p.di) || 0) : null, feuille: statutFeuille(x.avant) },
+    }),
+  },
   'temps.removeLine': { champs: ['empId', 'week'], extra: (p, av) => ({ projet: (av?.lignes as LigneTemps[] | undefined)?.[Number(p.li)]?.projet ?? null }), ...ligneTemps },
   'temps.suggest': { champs: ['empId', 'week'], ...ligneTemps },
   'temps.submit': { champs: ['empId', 'week'], ...statutEtTotal },
@@ -559,6 +596,14 @@ export const REGLES: Record<string, Regle> = {
   // Réglages : anciennes et nouvelles valeurs, sauf la référence de l'accord des heures supplémentaires (texte libre).
   'parametres.maj': {
     cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord'] },
+  },
+  // Jours fériés d'une année (lot 6) : année, réglage avant et après ; le motif d'une année engagée (texte libre) n'est
+  // jamais recopié, seulement le fait qu'il soit renseigné. Salariés dont une absence est recalculée (résultat).
+  'parametres.feries': {
+    extra: p => ({ annee: Number.isInteger(Number(p.annee)) ? Number(p.annee) : null, ...(typeof p.motif === 'string' && p.motif.trim() ? { motif: MENTION_TEXTE } : {}) }),
+    etat: (db, p) => feriesDeLAnnee(db, p.annee),
+    changements: (p, x) => ({ avant: x.etat as Ligne, apres: feriesDeLAnnee(x.db, p.annee) }),
+    salaries: (_p, x) => salariesTouches(x),
   },
   'demo.reinitialiser': {},
   'compte.creer': { champs: ['empId', 'type', 'identifiant', 'profilRh'] },

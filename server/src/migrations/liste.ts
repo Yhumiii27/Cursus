@@ -14,6 +14,7 @@ import { ACTIVITE_FORMATION_PROJET, PLAGE_SESSIONS } from './formations.ts';
 import { INDEX_PIECES } from './lot6-pieces.ts';
 import { HIERARCHIE_EQUIPES } from './lot6-hierarchie.ts';
 import { DEPLACEMENTS_DEPART } from './lot6-paie.ts';
+import { HORAIRES_EXEMPLES_MIGRATION } from './lot6-horaires.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   INDEX_JOURNAL,
@@ -37,4 +38,5 @@ export const MIGRATIONS: readonly Migration[] = [
   INDEX_PIECES,
   HIERARCHIE_EQUIPES,
   DEPLACEMENTS_DEPART,
+  HORAIRES_EXEMPLES_MIGRATION,
 ];

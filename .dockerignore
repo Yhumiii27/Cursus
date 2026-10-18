@@ -16,6 +16,7 @@ data
 .github
 .claude
 *.zip
+**/*.zip
 *.app
 *.log
 desktop

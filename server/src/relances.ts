@@ -8,7 +8,8 @@
 // Seuls les paliers franchis depuis le dernier envoi partent (table `relances`, clé de l'objet et palier) : un objet n'est
 // relancé qu'une fois par palier. Tant que la boîte du service RH, destinataire de tout le périmètre, n'est pas renseignée,
 // le passage n'envoie ni ne note rien : les paliers franchis partiront au premier passage qui suit son réglage. Règles et contenu :
-// shared/rules/relances.ts ; jamais de donnée de santé ni de texte libre dans l'e-mail (docs/EMAILS.md).
+// shared/rules/relances.ts ; jamais de donnée de santé ni de texte libre dans l'e-mail (docs/EMAILS.md). La boîte du
+// service RH reçoit aussi, sous « Exploitation », l'échéance du secret client Entra (server/src/secret-microsoft.ts).
 import { HEURE_RECAPITULATIF } from '../../shared/constants.ts';
 import { addD, weekday } from '../../shared/dates.ts';
 import { Domain } from '../../shared/domain.ts';
@@ -20,6 +21,7 @@ import { loadFull, todayIso } from './dataset.ts';
 import type { Db } from './db.ts';
 import { envoyerEmail } from './integrations/email.ts';
 import { adresseSalarie, courriel, lireMessagerie } from './messagerie.ts';
+import { relanceSecret } from './secret-microsoft.ts';
 
 /** Lecture du périmètre complet, comme le service RH. */
 const SUIVI: CurrentUser = { role: 'rh', empId: null, nom: 'Cursus', intitule: 'Relance des échéances' };
@@ -31,8 +33,11 @@ const CONSERVATION_JOURS = 400;
 
 interface Destinataire { adresse: string; nom: string | null; relances: Relance[] }
 
-/** Texte du récapitulatif : par palier, de l'échéance dépassée à la plus lointaine, une ligne par objet. */
-function texteRecapitulatif(d: Domain, relances: Relance[]): string {
+/**
+ * Texte du récapitulatif : par palier, de l'échéance dépassée à la plus lointaine, une ligne par objet ; puis les lignes
+ * d'exploitation (secret client Entra), pour la seule boîte du service RH.
+ */
+function texteRecapitulatif(d: Domain, relances: Relance[], exploitation: string[] = []): string {
   const ordre = ['echu', ...[...new Set(relances.map(r => r.palier).filter(p => p !== 'echu'))].sort((a, b) => Number(a) - Number(b))];
   const blocs = ordre.filter(p => relances.some(r => r.palier === p)).map(p => [
     `${titrePalier(p)} :`,
@@ -41,12 +46,16 @@ function texteRecapitulatif(d: Domain, relances: Relance[]): string {
       return `• ${e.nom} (${equipeLabel(e)}) — ${r.libelle} : ${r.jours < 0 ? 'dépassée depuis le' : 'échéance le'} ${fmtIso(r.echeance)}`;
     }),
   ].join('\n'));
+  if (exploitation.length) blocs.push(['Exploitation :', ...exploitation].join('\n'));
   return [
     'Voici les échéances qui viennent d’atteindre un palier de relance :',
     '',
     blocs.join('\n\n'),
     '',
-    'Chacune n’est rappelée qu’une fois par palier. Le détail et la suite à donner sont dans Cursus (Échéances, Entretiens, Voyages).',
+    // Lignes d'exploitation seules : rien à voir dans Cursus, la marche à suivre est dans le guide.
+    relances.length || !exploitation.length
+      ? 'Chacune n’est rappelée qu’une fois par palier. Le détail et la suite à donner sont dans Cursus (Échéances, Entretiens, Voyages).'
+      : 'Chacune n’est rappelée qu’une fois par palier. La marche à suivre est dans le guide docs/CONNEXION-MICROSOFT.md, section 3.',
   ].join('\n');
 }
 
@@ -86,18 +95,25 @@ export function recapitulatifEcheances(db: Db): { emails: number; relances: numb
   const dues = relancesDues(d, d.enrich(full.settings.horizonAlerte, full.settings.uniquementReglementaire), full.settings.relancesPaliers);
   const deja = new Set((db.sql.prepare('SELECT cle, palier FROM relances').all() as { cle: string; palier: string }[]).map(r => `${r.cle}|${r.palier}`));
   const nouvelles = dues.filter(r => !deja.has(`${r.cle}|${r.palier}`));
+  // Secret client Entra : une ligne pour la boîte du service RH, une fois par palier et par date d'expiration.
+  const secret = relanceSecret(today);
+  const exploitation = secret && !deja.has(`${secret.cle}|${secret.palier}`) ? [secret] : [];
   let emails = 0;
-  if (nouvelles.length) {
-    const m = lireMessagerie(db);
-    for (const x of destinataires(db, d, nouvelles, today)) {
-      const liste = nouvelles.filter(r => x.relances.includes(r));
-      const e = envoyerEmail(db, 'echeances.recapitulatif', courriel(m, x.adresse, `Cursus — échéances à traiter : ${plural(liste.length, 'nouvelle relance', 'nouvelles relances')}`, texteRecapitulatif(d, liste), { nom: x.nom }));
+  if (nouvelles.length || exploitation.length) {
+    const m = lireMessagerie(db), rh = m.rh!.toLowerCase();
+    const liste = destinataires(db, d, nouvelles, today);
+    if (exploitation.length && !liste.some(x => x.adresse.toLowerCase() === rh)) liste.push({ adresse: m.rh!, nom: null, relances: [] });
+    for (const x of liste) {
+      const siennes = nouvelles.filter(r => x.relances.includes(r));
+      const lignes = x.adresse.toLowerCase() === rh ? exploitation.map(r => r.texte) : [];
+      const n = siennes.length + lignes.length;
+      const e = envoyerEmail(db, 'echeances.recapitulatif', courriel(m, x.adresse, `Cursus — échéances à traiter : ${plural(n, 'nouvelle relance', 'nouvelles relances')}`, texteRecapitulatif(d, siennes, lignes), { nom: x.nom }));
       if (e) emails++;
     }
-    nouvelles.forEach(r => db.insert('relances', { cle: r.cle, palier: r.palier, le: today }));
+    [...nouvelles, ...exploitation].forEach(r => db.insert('relances', { cle: r.cle, palier: r.palier, le: today }));
   }
   db.sql.prepare('DELETE FROM relances WHERE le < ?').run(addD(today, -CONSERVATION_JOURS));
-  return { emails, relances: nouvelles.length };
+  return { emails, relances: nouvelles.length + exploitation.length };
 }
 
 /**

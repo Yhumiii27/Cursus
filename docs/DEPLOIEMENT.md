@@ -163,6 +163,7 @@ sudo nano /etc/cursus/cursus.env
 | `CURSUS_COMPRESSION` | à laisser vide (`1`) : Cursus compresse lui-même ses réponses (brotli, gzip) ; `0` si le proxy compresse déjà et qu'on préfère lui laisser ce travail |
 | `CURSUS_OIDC_TENANT`, `CURSUS_OIDC_CLIENT_ID`, `CURSUS_OIDC_CLIENT_SECRET` | connexion Microsoft 365 : ID de l'annuaire (GUID), ID d'application et secret client relevés dans Entra (`docs/CONNEXION-MICROSOFT.md`). Noter la date d'expiration du secret |
 | `CURSUS_PUBLIC_URL` | `https://cursus.example.fr` : adresse publique, sans chemin. URI de redirection à inscrire dans Entra : `https://cursus.example.fr/api/auth/microsoft/retour` |
+| `CURSUS_OIDC_SECRET_EXPIRE` | facultative, conseillée : date d'expiration du secret client (`AAAA-MM-JJ`) ; 30 jours avant, le point de santé passe en `degrade` et le récapitulatif des échéances le signale au service RH (`docs/CONNEXION-MICROSOFT.md`, section 3) ; démarrage refusé si ce n'est pas une date ou sans `CURSUS_OIDC_CLIENT_SECRET` |
 | `CURSUS_OIDC_AUTORITE` | **jamais** : réservée aux tests automatiques, Cursus refuse de démarrer avec elle |
 | `CURSUS_MAIL_FROM` | boîte d'envoi des e-mails (`cursus@entreprise.fr`) ; sans elle, les e-mails sont simulés (`docs/EMAILS.md`) |
 | `CURSUS_MAIL_TENANT`, `CURSUS_MAIL_CLIENT_ID`, `CURSUS_MAIL_CLIENT_SECRET` | application Entra autorisée à envoyer (`Mail.Send`, restreinte à la boîte d'envoi) ; par défaut celle de la connexion Microsoft. Noter la date d'expiration du secret |
@@ -842,7 +843,9 @@ entrées, sorties et compteurs ne se tiennent plus dans Lucca.
   l'écrit dans son journal (niveau `avertissement`, nombre par référence) et dans le journal des actions
   (`integrite.orphelins`, Paramètres → Journal des actions, famille « Administration »), sans bloquer le démarrage ;
   le point de santé répond alors 200 `{"statut":"degrade","base":"ok"}`, sans aucun nombre en public, et donne le détail
-  au poste local ou au jeton (`"orphelins": 2, "references": {"feuilles.emp_id → employes": 2}`). Le contrôle est
+  au poste local ou au jeton (`"orphelins": 2, "references": {"feuilles.emp_id → employes": 2}`). `degrade` signale
+  aussi un secret client Entra qui expire dans 30 jours ou moins (`CURSUS_OIDC_SECRET_EXPIRE`), détail
+  `"secretMicrosoft": {"expireLe": "2027-03-31", "jours": 21}` : le renouveler (`docs/CONNEXION-MICROSOFT.md`, section 3). Le contrôle est
   refait au plus une fois par heure. À examiner avec l'éditeur avant toute correction (restaurer une sauvegarde ou
   compléter la reprise) : Cursus ne supprime rien de lui-même. Aucune clé étrangère n'est encore imposée par la base ;
   elles le seront une fois la base de reprise du 1er janvier 2027 vérifiée sans orphelin.

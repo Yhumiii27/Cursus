@@ -1,3 +1,11 @@
+> **Note de Cursus.** Ce fichier est le README de l'archive de la maquette, rangée à côté :
+> `design/maquette-handoff.zip` (seul exemplaire gardé dans le dépôt ; les fichiers « Outil RH gestion formations*.zip »
+> de la racine en étaient des doublons et ont été retirés). Le dossier `design/` en reprend déjà le prototype principal
+> (`prototype-suivi-formations.dc.html`, « Suivi formations.dc.html » de l'archive) et le guide du design system
+> (`nocturne-readme.md`). Seuls se trouvent dans l'archive : `Cursus.html`, `Deck.dc.html`, `assets/photo.jpg`, les
+> scripts `*.js` et la feuille `_ds/…/styles.css` (reprise dans `client/src/styles/nocturne.css`). Les chemins cités
+> ci-dessous (`outil-rh-gestion-formations/…`) sont ceux de l'archive : `unzip design/maquette-handoff.zip -d /tmp/maquette`.
+
 # CODING AGENTS: READ THIS FIRST
 
 This is a **handoff bundle** from Claude Design (claude.ai/design).

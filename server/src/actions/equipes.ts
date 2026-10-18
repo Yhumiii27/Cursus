@@ -174,7 +174,8 @@ const renommer: ActionHandler = (ctx, p) => {
   if (!nouveau) throw new ActionError('Nouveau nom requis');
   if (nouveau === q.nom) return null;
   if (ctx.ds.referentiels.equipes.some(x => x.nom !== q.nom && key(x.nom) === key(nouveau))) throw new ActionError('Une équipe porte déjà ce nom');
-  for (const [table, col] of [['equipes', 'nom'], ['employes', 'equipe'], ['budgets', 'equipe'], ['plan_actions', 'equipe']]) {
+  // Équipes rattachées (`parente`, t136) : elles suivent le nouveau nom.
+  for (const [table, col] of [['equipes', 'nom'], ['equipes', 'parente'], ['employes', 'equipe'], ['budgets', 'equipe'], ['plan_actions', 'equipe']]) {
     ctx.db.sql.prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`).run(nouveau, q.nom);
   }
   renommerDerogation(ctx.db, q.nom, nouveau);
@@ -201,6 +202,9 @@ const supprimer: ActionHandler = (ctx, p) => {
   const membres = ctx.ds.employes.filter(e => e.equipe === q.nom), n = membres.filter(e => !sorti(e, ctx.d.ti)).length;
   if (n) throw new ActionError(`L’équipe compte encore ${n} collaborateur${n > 1 ? 's' : ''} : affectez-les d’abord à une autre équipe`);
   if (ctx.ds.plan.some(l => l.equipe === q.nom)) throw new ActionError('Des actions du plan de formation sont rattachées à cette équipe');
+  // Hiérarchie (t136) : les équipes rattachées changeraient de valideur sans que personne le décide.
+  const filles = ctx.ds.referentiels.equipes.filter(x => x.parente === q.nom).map(x => x.nom);
+  if (filles.length) throw new ActionError(`${plural(filles.length, 'Une équipe est rattachée', 'Des équipes sont rattachées')} à ${q.nom} (${filles.join(', ')}) : changez d’abord leur équipe parente`);
   membres.forEach(e => ctx.db.update('employes', e.id, { equipe: null }));
   ctx.db.sql.prepare('DELETE FROM budgets WHERE equipe = ?').run(q.nom);
   ctx.db.remove('equipes', q.nom);

@@ -51,6 +51,8 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     moyenne12SemainesMax: 44, moyenne12SemainesAccord: '', contingentHeuresSup: 220, contingentAlerte: 90, contingentAccord: '',
     // Paie (lot 5, t028) : absences validées dans le fichier d'import, réponse de l'entreprise du 17 octobre 2026.
     absencesFichierPaie: true, absencesPaieAPartirDu: null,
+    // Hiérarchie (t136) : consultation N+2 désactivée par défaut.
+    consultationN2: false,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

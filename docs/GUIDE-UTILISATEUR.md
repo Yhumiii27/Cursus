@@ -128,6 +128,10 @@ Les feuilles validées partent à la paie avec le lot du mois : le manager n'a r
 - « Équipe » : conformité de chacun (formations, habilitations, aptitude réduite au verdict et aux restrictions en
   vigueur, sans date de visite). « Ajouter un membre » reprend un salarié « à affecter » ; une mutation directe passe par
   le service RH.
+- Équipes rattachées : quand le service RH rattache l'équipe d'un chef d'équipe à la vôtre (« Équipe parente »), ce chef
+  d'équipe vous soumet ses absences, ses feuilles et ses entretiens. Si l'administrateur RH a activé la consultation N+2,
+  les membres de son équipe s'affichent aussi, marqués « Lecture seule » : vous consultez leur fiche, leurs absences et
+  leurs feuilles, sans donnée médicale ni entretien ; les décisions restent à leur manager direct.
 - « Formations » : renouvellements à prévoir. « Planifier » inscrit le collaborateur à une session ouverte ; sans session,
   « Demander au RH ».
 
@@ -144,6 +148,9 @@ entretiens : un collègue ou son manager le fait.
   (avec sa date d'effet), poste, équipe, matricule de paie, adresse e-mail. Si deux personnes modifient la même fiche en
   même temps, la seconde est refusée en nommant les champs changés, sans perdre sa saisie.
 - « Équipes & managers » : créer, renommer ou supprimer une équipe, désigner son manager, affecter les salariés.
+  « Équipe parente » rattache une équipe à une autre (4 niveaux au plus) : le manager de l'équipe, s'il en est membre,
+  est alors validé par le manager de l'équipe parente et non plus par le service RH. La confirmation liste les demandes
+  en attente qui changent de valideur ; le nouveau valideur en est prévenu par e-mail.
 - Comptes : Paramètres → Comptes et accès (administrateur RH), « Créer un compte », profil, « Mot de passe » pour un
   nouveau mot de passe provisoire.
 - Départ : « Enregistrer une sortie » sur la fiche (dernier jour, motif en liste fermée). Le solde de congés, RTT,

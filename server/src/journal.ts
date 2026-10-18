@@ -259,6 +259,16 @@ export const REGLES: Record<string, Regle> = {
   },
   'equipe.manager': { champs: ['nom', 'managerId'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['managerId'] }, salaries: (p, x) => [p.managerId, x.avant?.managerId] },
   'equipe.affecter': { champs: ['empId', 'equipe'], cible: { table: 'employes', cle: p => Number(p.empId) || null, colonnes: ['equipe'] } },
+  // Équipe parente (t136) : avant et après, et éléments en attente redirigés (type, identifiant, ancien et nouveau valideur,
+  // 0 pour le service RH) ; salariés concernés : ceux des éléments redirigés.
+  'equipe.parente': {
+    champs: ['nom', 'parente'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['parente'] },
+    bilan: (_p, x) => {
+      const r = (x.result as { redirections?: Ligne[] } | null)?.redirections ?? [];
+      return r.length ? { redirections: r.map(e => ({ kind: e.kind, id: e.id, avant: e.avant, apres: e.apres })) } : {};
+    },
+    salaries: (_p, x) => ((x.result as { redirections?: { empId: number }[] } | null)?.redirections ?? []).map(e => e.empId),
+  },
   // Formations
   'plan.inscrire': { champs: ['empId', 'certId', 'inscriptionId', 'sessionId', 'conv'] },
   'cert.ajouter': { champs: ['empId', 'f', 'date'] },

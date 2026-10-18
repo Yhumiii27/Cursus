@@ -63,6 +63,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'equipe.supprimer': 'Suppression d’une équipe',
   'equipe.manager': 'Manager d’une équipe',
   'equipe.affecter': 'Affectation à une équipe',
+  'equipe.parente': 'Équipe parente (hiérarchie des managers)',
   // Formations
   'plan.inscrire': 'Inscription à une session',
   'cert.ajouter': 'Certification enregistrée',
@@ -317,6 +318,8 @@ export const CHAMP_LABEL: Record<string, string> = {
   contingentAccord: 'Référence du contingent', ferie: 'Jour férié', cor: 'Contrepartie obligatoire en repos (h)',
   // Absences dans le fichier d'import de la paie (Paramètres → Absences et paie).
   absencesFichierPaie: 'Absences dans le fichier d’import de la paie', absencesPaieAPartirDu: 'Absences transmises à la paie à partir du',
+  // Hiérarchie des managers (Paramètres → Hiérarchie, équipe parente).
+  consultationN2: 'Consultation N+2 des équipes rattachées', parente: 'Équipe parente',
 };
 
 const valeur = (v: unknown): string => {

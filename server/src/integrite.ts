@@ -32,6 +32,7 @@ export const REFERENCES: readonly Reference[] = [
   ref('employes', 'poste_id', 'postes'),
   ref('employes', 'equipe', 'equipes', 'nom'),
   ref('equipes', 'manager_id', 'employes'),
+  ref('equipes', 'parente', 'equipes', 'nom'),
   ref('feuilles', 'lot_id', 'lots_paie'),
   ref('absences', 'lot_id', 'lots_paie'),
   ref('soldes_sortie', 'lot_id', 'lots_paie'),

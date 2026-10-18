@@ -152,6 +152,9 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   absencesFichierPaie: { defaut: true, controle: booleen },
   //   Date de mise en service : jours d'absence d'avant jamais transmis (traités par Lucca et Sage), vide par défaut —
   absencesPaieAPartirDu: { defaut: null, controle: dateOuVide('Absences transmises à partir du') },
+  // — Hiérarchie des managers (parametres/Hierarchie.tsx, t136) : consultation N+2 en lecture seule, désactivée par défaut
+  //   (réponse de l'entreprise du 18 octobre 2026) —
+  consultationN2: { defaut: false, controle: booleen },
 };
 
 /**

@@ -19,6 +19,7 @@ import { restrictionEnVigueur } from './rules/sante.ts';
 import { echeanceVisite, examenRequis, prochaineTexte, suiviDe, type ProchaineVisite, type SuiviInfo } from './rules/suivi-medical.ts';
 import { finSession } from './rules/plage-session.ts';
 import { visitesDues, type VisiteDue } from './rules/visites-dues.ts';
+import { valideurHierarchique } from './rules/hierarchie.ts';
 import type {
   AvisMedical, Certification, Chantier, Dataset, DemandeVisite, Destination, Employe, FormaliteManquante, Formation, HabTitre, HabType, ISODate,
   MotifVisite, Restriction, Session, Statut, TempsTravail, TripStatus, TypeContrat, VaccinId, Voyage,
@@ -218,11 +219,12 @@ export class Domain {
   session(id: number | null): Session | null { return id == null ? null : this.ds.sessions.find(s => s.id === id) ?? null; }
   get equipes(): string[] { return [...this.ds.referentiels.equipes].sort((a, b) => a.ordre - b.ordre).map(e => e.nom); }
 
-  /** Manager valideur d'un collaborateur (0 = le service RH). */
+  /**
+   * Manager valideur d'un collaborateur (0 = le service RH). Pour le manager membre de son équipe : le manager de l'équipe
+   * parente (N+1, t136), sinon le service RH (shared/rules/hierarchie.ts).
+   */
   mgrOf(e: { id: number; equipe: string | null }): number {
-    if (!e.equipe) return 0;
-    const m = this.ds.referentiels.equipes.find(q => q.nom === e.equipe)?.managerId;
-    return m && m !== e.id ? m : 0;
+    return valideurHierarchique(this.ds.referentiels.equipes, e);
   }
   /** Valideur désigné par `mgrOf` : le manager, ou le service RH (plusieurs personnes, aucune n'est nommée). */
   mgrName(id: number): string { return id ? this.personName(id) : 'le service RH'; }

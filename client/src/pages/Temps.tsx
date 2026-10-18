@@ -50,6 +50,7 @@ import { MINEUR_JOUR_MAX } from '../../../shared/rules/mineurs.ts';
 import { RelevesPanel } from './Releves.tsx';
 import { ChampHeures, SaisieJour, useVueJour } from './SaisieJour.tsx';
 import { CompteurDelegation } from '../components/Delegation.tsx';
+import { useLectureSeule } from '../components/Hierarchie.tsx';
 import { ReposAVerifier } from '../components/ReposAVerifier.tsx';
 import { AlertesDurees } from '../components/AlertesDurees.tsx';
 
@@ -180,6 +181,8 @@ export function Temps() {
   const tsId = collab ? me : manager ? (inScope(ui.tsEmp) ? ui.tsEmp : me) : (inScope(ui.tsEmp) ? ui.tsEmp : data.employes[0]?.id ?? null);
   const tsEmp = tsId != null ? d.emp(tsId) : undefined;
   const options = [...data.employes].sort((a, b) => a.nom.localeCompare(b.nom));
+  // Consultation N+2 (t136) : feuilles des équipes rattachées consultées, jamais saisies ni validées.
+  const lecture = useLectureSeule();
 
   const queue = data.feuilles
     .filter(sh => sh.statut === 'soumise')
@@ -194,7 +197,7 @@ export function Temps() {
       actions={<>
         {!collab && (
           <select className="input" aria-label="Collaborateur" value={String(tsId ?? '')} onChange={ev => setUi({ tsEmp: Number(ev.target.value) })} style={{ width: 'auto', minWidth: 200 }}>
-            {options.map(e => <option key={e.id} value={e.id}>{e.nom}</option>)}
+            {options.map(e => <option key={e.id} value={e.id}>{e.nom}{lecture.has(e.id) ? ' (lecture seule)' : ''}</option>)}
           </select>
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
@@ -242,6 +245,7 @@ export function Temps() {
 
       {espaceRh && <AlertesDurees />}
 
+      {tsEmp && lecture.has(tsEmp.id) && <Fine>Consultation en lecture seule (équipe rattachée) : la feuille de {tsEmp.nom} est saisie par lui et validée par {d.mgrName(d.mgrOf(tsEmp))}.</Fine>}
       {tsEmp && <AlerteAutorisation e={tsEmp} />}
       {tsEmp && <Sheet key={`${tsEmp.id}|${wk}`} emp={tsEmp} wk={wk} />}
 

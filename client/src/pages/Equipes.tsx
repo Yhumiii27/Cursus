@@ -9,6 +9,7 @@ import type { Employe, Equipe } from '../../../shared/types.ts';
 import { usePanneauVisible } from '../components/panneau.ts';
 import { Avatar, Btn, Empty, Fine, Page, Panel, Tag, Two } from '../components/ui.tsx';
 import { CartePick } from '../components/Cliquable.tsx';
+import { ParenteEquipe } from '../components/Hierarchie.tsx';
 import { changementManager, retraitEquipe, suppressionEquipe, type Confirmation } from '../state/confirmations.ts';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -98,6 +99,7 @@ export function Equipes() {
               <CartePick key={t.q.ordre} selected={selected} onSelect={select}>
                 <div className="card-kicker">{plural(t.members.length, 'membre', 'membres')}</div>
                 <div className="card-title">{t.q.nom}</div>
+                {t.q.parente && <div className="text-muted sub-11">Rattachée à {t.q.parente}</div>}
                 {t.mgrNom ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minWidth: 0 }}>
                     <Avatar nom={t.mgrNom} size={24} />
@@ -196,7 +198,8 @@ function TeamPanel({ panneau, t, candidates }: { panneau: Ref<HTMLElement>; t: T
   };
 
   const mgrNotes = [
-    'Le manager valide les heures, les absences et les entretiens de l’équipe. S’il en est membre, ses propres validations reviennent au service RH.',
+    // Hiérarchie (t136) : le manager membre de l'équipe est validé par son responsable (équipe parente), sinon par le RH.
+    `Le manager valide les heures, les absences et les entretiens de l’équipe. S’il en est membre, ses propres validations reviennent ${t.q.parente ? `au manager de l’équipe parente (${t.q.parente})` : 'au service RH, ou au manager d’une équipe parente'}.`,
     t.mgrNom && !mgrIsMember ? `${t.mgrNom} n’est pas membre de l’équipe (${equipeLabel({ equipe: t.mgrEquipe ?? null })}).` : '',
     t.mgrNom && t.autres.length ? `${t.mgrNom} encadre aussi ${t.autres.join(', ')}.` : '',
   ].filter(Boolean).join(' ');
@@ -207,7 +210,7 @@ function TeamPanel({ panneau, t, candidates }: { panneau: Ref<HTMLElement>; t: T
         <div style={{ minWidth: 0 }}>
           <h2 id="equipe-detail">{nom}</h2>
           <div className="text-muted sub">
-            {plural(n, 'membre', 'membres')}{t.pct != null ? ` · ${t.pct} % conformes` : ''} · validations : {t.mgrNom ?? 'service RH'}
+            {plural(n, 'membre', 'membres')}{t.pct != null ? ` · ${t.pct} % conformes` : ''} · validations : {t.mgrNom ?? 'service RH'}{t.q.parente ? ` · rattachée à ${t.q.parente}` : ''}
           </div>
         </div>
         {rh && (
@@ -238,6 +241,7 @@ function TeamPanel({ panneau, t, candidates }: { panneau: Ref<HTMLElement>; t: T
             )}
           </select>
         </div>
+        <ParenteEquipe q={t.q} />
         <Fine>{mgrNotes}</Fine>
       </div>
 

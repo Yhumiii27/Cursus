@@ -92,6 +92,11 @@ export interface Equipe {
    * 18 ans n'y est affecté (art. L3163-2, shared/rules/mineurs.ts). null : case pas encore renseignée (décochée).
    */
   nuit?: boolean | null;
+  /**
+   * Équipe parente (t136, shared/rules/hierarchie.ts) : son manager est le responsable (N+1) du manager de cette équipe,
+   * qui lui soumet ses absences, ses feuilles et ses entretiens. null : aucune (validations du manager par le service RH).
+   */
+  parente?: string | null;
 }
 /** Projet ou chantier tenu dans Keystone : archivé, il reste en base (historique) sans plus être proposé ni évalué. */
 export type StatutKeystone = 'actif' | 'archive';
@@ -751,6 +756,8 @@ export interface Settings {
    * d'avant ont été traités par Lucca et Sage) ; null : seule vaut la date de départ posée par Cursus.
    */
   absencesPaieAPartirDu: ISODate | null;
+  /** Hiérarchie (t136) : membres des équipes descendantes consultables par le manager, en lecture seule (désactivé par défaut). */
+  consultationN2: boolean;
 }
 /** Plafond des heures complémentaires du temps partiel : le dixième (art. L3123-28) ou le tiers avec un accord (art. L3123-20). */
 export type PlafondComplementaires = 'dixieme' | 'tiers';
@@ -1101,6 +1108,11 @@ export interface Dataset {
    * sur toutes les fiches) : service RH, et l'élu avec ses mandats ; null ailleurs. Un nombre, aucune liste nominative.
    */
   effectifCse?: number | null;
+  /**
+   * Consultation N+2 (t136, réglage `consultationN2`) : salariés des équipes descendantes transmis au manager en lecture
+   * seule, avec les filtres de sa vue et sans aptitude détaillée ; ni entretiens, ni demandes. Absent ou vide ailleurs.
+   */
+  lectureSeule?: number[];
 }
 
 /**

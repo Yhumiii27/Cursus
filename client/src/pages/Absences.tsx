@@ -14,6 +14,7 @@ import type { Absence, DemiJournee, Employe, NatureAbsence } from '../../../shar
 import { DownloadSimpleIcon } from '@phosphor-icons/react';
 import { CloturesConges } from '../components/CloturesConges.tsx';
 import { InformationsRetour } from '../components/InformationsRetour.tsx';
+import { LectureSeule, useLectureSeule } from '../components/Hierarchie.tsx';
 import { Btn, Empty, Fine, Kpi, Kpis, Page, Panel, Tag, Two } from '../components/ui.tsx';
 import { csvAbsences, csvSoldes } from '../listes-csv.ts';
 import { downloadCsv } from '../print.ts';
@@ -95,6 +96,8 @@ export function Absences() {
   const Y = d.year;
 
   const rows = data.employes.map(e => soldeRow(d, e)).sort((a, b) => a.e.nom.localeCompare(b.e.nom));
+  // Consultation N+2 (t136) : soldes des équipes rattachées consultés, sans action.
+  const lecture = useLectureSeule();
   const mine = collab ? rows.find(r => r.e.id === me) : undefined;
   // « Poser une absence » pour soi-même : masqué quand aucun type n'est ouvert (intérim).
   const canPoseMe = !espaceRh && !!rows.find(r => r.e.id === me)?.poser;
@@ -194,7 +197,7 @@ export function Absences() {
                   const canPose = r.poser && (rh || r.e.id === me || (manager && d.mgrOf(r.e) === me));
                   return (
                     <tr key={r.e.id}>
-                      <td><Two main={r.e.nom} sub={r.contrat} nowrap /></td>
+                      <td><Two main={lecture.has(r.e.id) ? <>{r.e.nom} <LectureSeule d={d} empId={r.e.id} /></> : r.e.nom} sub={r.contrat} nowrap /></td>
                       <td><Num main={r.cp} sub={r.cpSub} /></td>
                       <td><Num main={r.cpN} sub={r.cpNSub} /></td>
                       <td><Num main={r.rtt} sub={r.rttSub} /></td>

@@ -52,7 +52,10 @@ function texteRecapitulatif(d: Domain, relances: Relance[], exploitation: string
     '',
     blocs.join('\n\n'),
     '',
-    'Chacune n’est rappelée qu’une fois par palier. Le détail et la suite à donner sont dans Cursus (Échéances, Entretiens, Voyages).',
+    // Lignes d'exploitation seules : rien à voir dans Cursus, la marche à suivre est dans le guide.
+    relances.length || !exploitation.length
+      ? 'Chacune n’est rappelée qu’une fois par palier. Le détail et la suite à donner sont dans Cursus (Échéances, Entretiens, Voyages).'
+      : 'Chacune n’est rappelée qu’une fois par palier. La marche à suivre est dans le guide docs/CONNEXION-MICROSOFT.md, section 3.',
   ].join('\n');
 }
 

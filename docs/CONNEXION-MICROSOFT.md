@@ -77,7 +77,11 @@ de Cursus indique alors `AADSTS7000222`) et, si l'envoi des e-mails utilise la m
   `secretMicrosoft: { expireLe, jours }`. Une sonde de supervision qui alerte sur `degrade` prévient donc le service
   informatique ;
 - le récapitulatif des échéances (Paramètres → Messagerie, relances actives) ajoute à l'e-mail de la boîte du service RH
-  une ligne « Exploitation » à 30 jours, à 7 jours, puis une fois expiré : une fois chacune.
+  une ligne « Exploitation » à 30 jours, à 7 jours, puis une fois expiré : une fois chacune. Elle ne cite l'envoi des
+  e-mails que s'il passe par ce secret. Dans ce cas (configuration par défaut), la ligne « expiré » ne peut pas partir :
+  le secret expiré fait échouer l'envoi (refus du service de jetons). Elle ne parvient que si l'envoi utilise une
+  autre application ou reste simulé (visible dans Paramètres → Envois) ; sinon, seuls `/api/health` et l'échec
+  affiché dans Paramètres → Envois signalent l'expiration. Les lignes à 30 et à 7 jours partent normalement.
 
 Sans `CURSUS_OIDC_SECRET_EXPIRE`, rien n'est surveillé : seul le rappel du calendrier prévient. Si l'envoi des e-mails
 utilise une application distincte (`CURSUS_MAIL_CLIENT_SECRET`), la date de son secret n'est pas surveillée : la noter
@@ -141,8 +145,8 @@ journalctl -u cursus -n 20
 Le journal affiche la même ligne « Connexion Microsoft 365 active ».
 
 En production, Cursus refuse de démarrer si une partie seulement des quatre variables est définie,
-si le locataire n'est pas un GUID, si `CURSUS_PUBLIC_URL` n'est pas en https ou si `CURSUS_OIDC_SECRET_EXPIRE` n'est
-pas une date. Sans aucune des quatre, seuls les comptes Cursus fonctionnent (pas de bouton Microsoft).
+si le locataire n'est pas un GUID, si `CURSUS_PUBLIC_URL` n'est pas en https, si `CURSUS_OIDC_SECRET_EXPIRE` n'est
+pas une date ou si elle est posée sans `CURSUS_OIDC_CLIENT_SECRET`. Sans aucune des quatre, seuls les comptes Cursus fonctionnent (pas de bouton Microsoft).
 `CURSUS_OIDC_AUTORITE` est réservée aux tests automatiques (faux fournisseur local) : jamais sur un serveur, Cursus
 refuse alors de démarrer.
 

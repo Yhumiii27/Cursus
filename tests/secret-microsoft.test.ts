@@ -12,7 +12,7 @@ const { currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
 const { makeCtx } = await import('../server/src/actions/context.ts');
 const { expirationSecretOidc, problemesConfig } = await import('../server/src/config.ts');
-const { ALERTE_SECRET_JOURS, echeanceSecret, relanceSecret } = await import('../server/src/secret-microsoft.ts');
+const { ALERTE_SECRET_JOURS, echeanceSecret, envoiParSecretOidc, relanceSecret } = await import('../server/src/secret-microsoft.ts');
 const { etatSante } = await import('../server/src/supervision.ts');
 const { recapitulatifEcheances } = await import('../server/src/relances.ts');
 type Ligne = Record<string, any>;
@@ -106,10 +106,32 @@ test('récapitulatif : ligne « Exploitation » à la seule boîte du service RH
   assert.equal(seul.objet, 'Cursus — échéances à traiter : 1 nouvelle relance');
   assert.deepEqual(seul.texte.split('\n').filter(l => l.startsWith('•')).length, 1, 'la ligne du secret seule');
   assert.match(seul.texte, /Exploitation :\n• Secret client/);
+  assert.match(seul.texte, /La marche à suivre est dans le guide docs\/CONNEXION-MICROSOFT\.md, section 3\.\n/, 'seule : renvoi au guide');
+  assert.doesNotMatch(seul.texte, /Échéances, Entretiens, Voyages/);
+  assert.match(rh1[0].texte, /dans Cursus \(Échéances, Entretiens, Voyages\)\.\n/, 'avec les échéances : écrans de Cursus');
 
   // Nouveau secret posé (autre date) : rien tant qu'il est loin ; sans la variable, plus aucune ligne.
   const n = recaps().length;
   le('2026-10-26', () => avecExpiration('2027-10-26', passer));
   le('2026-10-26', () => avecExpiration(null, passer));
   assert.ok(recaps().slice(n).every(e => !/Exploitation/.test(e.texte)));
+});
+
+test('ligne du secret : l’envoi des e-mails n’est cité que s’il passe par ce secret ; expiré, elle le dit', () => {
+  const date = { CURSUS_OIDC_SECRET_EXPIRE: '2026-11-01' };
+  const MAIL = { CURSUS_MAIL_FROM: 'cursus@entreprise.example' };
+  const DISTINCTE = { CURSUS_MAIL_TENANT: OIDC.CURSUS_OIDC_TENANT, CURSUS_MAIL_CLIENT_ID: 'envoi', CURSUS_MAIL_CLIENT_SECRET: 'autre' };
+  assert.equal(envoiParSecretOidc(OIDC), false, 'e-mails simulés');
+  assert.equal(envoiParSecretOidc({ ...OIDC, ...MAIL }), true, 'variables CURSUS_OIDC_* reprises');
+  assert.equal(envoiParSecretOidc({ ...OIDC, ...MAIL, CURSUS_MAIL_CLIENT_SECRET: 'secret' }), true, 'même secret');
+  assert.equal(envoiParSecretOidc({ ...OIDC, ...MAIL, ...DISTINCTE }), false, 'application d’envoi distincte');
+  const texte = (env: Record<string, string>, jour = '2026-10-10') => relanceSecret(jour, { ...env, ...date })!.texte;
+  assert.match(texte({ ...OIDC, ...MAIL }), /\(connexion Microsoft 365, envoi des e-mails\) : il expire/);
+  for (const env of [OIDC, { ...OIDC, ...MAIL, ...DISTINCTE }]) {
+    assert.match(texte(env), /\(connexion Microsoft 365\) : il expire/);
+    assert.doesNotMatch(texte(env), /envoi des e-mails/);
+  }
+  // Expiré et servant à l'envoi : l'e-mail ne parvient que si un nouveau secret est en place sans sa date.
+  assert.match(texte({ ...OIDC, ...MAIL }, '2026-11-02'), /a expiré le 1 nov\. 2026\. Si ce message vous parvient, un nouveau secret est en place/);
+  assert.match(texte(OIDC, '2026-11-02'), /a expiré le 1 nov\. 2026\. Le service informatique en crée un nouveau/);
 });

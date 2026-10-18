@@ -424,7 +424,9 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
   `server/src/secret-microsoft.ts`, t184) : `degrade` aussi, et `secretMicrosoft: { expireLe, jours }` dans le détail ;
   le récapitulatif des échéances (`server/src/relances.ts`) en donne une ligne « Exploitation » à la seule boîte du
   service RH, une fois par palier (30 jours, 7 jours, expiré ; clé `exploitation:secret-oidc:<date>` de la table
-  `relances`).
+  `relances`). Elle ne cite l'envoi des e-mails que s'il passe par ce secret (`envoiParSecretOidc`) ; dans ce cas, la
+  ligne « expiré » échoue avec l'envoi, et seuls le point de santé et Paramètres → Envois signalent l'expiration.
+  Seule, elle renvoie au guide au lieu des écrans de Cursus.
 - **Intégrité** (`server/src/integrite.ts`, t179 étape 1) : `REFERENCES` liste les colonnes qui désignent une autre
   table (tous les `emp_id`, `session_id`, formation, habilitation, destination, poste, équipe, manager, lot de paie,
   déplacement Keystone, certification d'une participation) ; `controlerOrphelins` compte, par référence, les valeurs

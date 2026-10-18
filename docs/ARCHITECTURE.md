@@ -45,6 +45,7 @@ shared/            Domaine partagé (aucune dépendance)
                    12 semaines, requalification du temps partiel, contingent et contrepartie obligatoire en repos)
                    absences-paie.ts : absences dans le fichier d'import de la paie (rubriques, ventilation, écart, régularisation)
                    solde-sortie.ts : état des compteurs à la date de sortie (CP, RTT, récupération, CET) et rubriques de sortie
+                   pieces.ts : pièces justificatives (types reconnus sur le contenu, 10 Mo, nom gardé, droits de consultation)
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   migrate.ts       Reprises des bases antérieures, rejouées à chaque démarrage (idempotentes)
@@ -58,6 +59,7 @@ server/src/
                    conges.ts (lot 5 : demi-journées hors de la règle ramenées à la journée entière)
                    formations.ts (lot 5 : sessions existantes sur un jour, activité interne INT-FORM)
                    paie.ts, lot 5 : absences des périodes passées laissées à Sage (premier jour transmis par le fichier)
+                   lot6-pieces.ts (lot 6 : index des pièces justificatives par salarié et par objet)
   seed.ts          Données de démonstration
   sauvegarde.ts    Copie à chaud (VACUUM INTO), rotation, restauration, verrou du serveur ;
                    scripts backup.ts et restore.ts (npm run backup / restore, voir docs/SAUVEGARDE.md)
@@ -82,12 +84,15 @@ server/src/
                    déjà émis, réservation, libération, résumé de l'instantané) ; variables-paie.ts : export CSV des variables
                    d'une période (GET /api/paie/variables/:periode, tracé)
   donnees.ts       Données personnelles d'un salarié (droit d'accès) : export RH et téléchargement par l'intéressé
+  pieces.ts        Pièces justificatives : dépôt (local ou GED), description transmise, nettoyage, contrôle d'intégrité ;
+                   pieces-routes.ts (envoi et consultation) ; pieces-sauvegarde.ts (fichiers emportés par les sauvegardes)
   confidentialite.ts Coordonnées de la page Confidentialité : GET /api/confidentialite, lisible sans connexion
   messagerie.ts    Adresses (fiche, service RH, santé au travail, agences), forme commune des e-mails
   notifications.ts Notifications d'étapes (aussitôt ou récapitulatif quotidien), convocations .ics, tâches planifiées
   releves.ts       Relevés d'heures hebdomadaires des intérimaires envoyés à leur agence
   relances.ts      Récapitulatif des échéances par paliers (RH, managers, référent HSE), relances notées (table relances)
-  integrations/    Adaptateurs Keystone, Sage Paie et e-mails (email.ts : Microsoft Graph, .ics ; simulation par défaut) ; API Keystone entrante :
+  integrations/    Adaptateurs Keystone, Sage Paie et e-mails (email.ts : Microsoft Graph, .ics ; simulation par défaut) ;
+                   ged.ts : espace documentaire de l'entreprise (squelette, refusé tant que son interface est inconnue) ; API Keystone entrante :
                    keystone-entrant.ts (contrôles, écritures, instantané) et keystone-routes.ts (routes /v1) ;
                    keystone-verdicts.ts (verdicts Go / No Go transmis, changements signalés)
   index.ts         Démarrage (dans l'ordre : configuration, droits, verrou, migrations, tâches) et routes HTTP
@@ -371,7 +376,8 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
   n'est exécuté) si `Sec-Fetch-Site` désigne un autre site (sous-domaine voisin compris), si `Origin` n'est pas Cursus
   (nom et port de la requête, `req.host`, qui suit `X-Forwarded-Host` du reverse proxy de confiance, ou
   `CURSUS_PUBLIC_URL` ; « null » refusé) ou si son corps n'est pas du JSON (un formulaire ou un `fetch` d'une autre
-  origine ne peut envoyer que du texte sans autorisation CORS, que Cursus n'accorde jamais). Une requête sans corps
+  origine ne peut envoyer que du texte sans autorisation CORS, que Cursus n'accorde jamais). Seule exception :
+  `POST /api/pieces` reçoit un PDF, un JPEG ou un PNG brut, types qui exigent eux aussi une autorisation CORS. Une requête sans corps
   (déconnexion) passe ; un client sans navigateur n'envoie ni `Origin` ni `Sec-Fetch-Site`. L'API Keystone (clé, sans
   cookie) est montée avant ; la connexion Microsoft ne fait que des GET. En développement, le proxy de Vite garde le nom
   d'hôte de la page (`changeOrigin: false`), comme le reverse proxy de production.
@@ -429,7 +435,9 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
   pour la santé, refait au plus une fois par heure (`VALIDITE_CONTROLE`). Aucune clé étrangère ni suppression : les
   contraintes strictes (`REFERENCES` dans `colonnesSql`, migration qui reconstruit les tables) viendront quand la base
   de reprise du 1er janvier 2027 aura été vérifiée sans orphelin. Toute colonne `emp_id` ajoutée au schéma doit y
-  figurer (`tests/integrite.test.ts` le vérifie).
+  figurer (`tests/integrite.test.ts` le vérifie). Une référence polymorphe porte sa condition (`si` : l'objet d'une
+  pièce justificative désigne la table de son type) ; les fichiers des pièces absents du dossier ou d'une autre taille
+  que celle de l'envoi s'ajoutent au compte (`controlerPieces` de `server/src/pieces.ts`).
 - **Performances** (t171, version courte) : `npm run mesure` (`scripts/mesure-instantane.ts`) construit une base
   temporaire de 100 salariés sur 3 ans (15 000 feuilles validées, 4 300 absences, journal) et mesure l'instantané et
   les actions. Mesure du 17 octobre 2026 : instantané RH 7,1 Mo en JSON (100 à 170 Ko compressés sur ce jeu très
@@ -787,7 +795,7 @@ aucun champ du paramètre n'est recopié.
 | `entretien.signer` | id | salarié |
 | `entretien.remettre` | id, mode (`main_propre`/`refus`/`portail`), date? (main propre, refus : de la clôture à aujourd'hui ; portail : le jour même, compte actif exigé, e-mail avec le seul lien vers Cursus) ; une remise sur papier est définitive, une mise à disposition se complète par une remise sur papier | évaluateur (manager direct) ou RH, jamais pour son propre entretien |
 | `entretien.telecharger` | id : premier téléchargement du compte rendu clos, daté (`telechargeLe`) | salarié, depuis son espace |
-| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps, santeMiCarriereAge…, cpMaladie, feriesTravaillesAutorises, tauxMajorationFerie, plafondHeuresComplementaires, heuresComplementairesAccord, moyenne12SemainesMax, moyenne12SemainesAccord, contingentHeuresSup, contingentAlerte, contingentAccord, absencesFichierPaie, absencesPaieAPartirDu), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
+| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps, santeMiCarriereAge…, cpMaladie, feriesTravaillesAutorises, tauxMajorationFerie, plafondHeuresComplementaires, heuresComplementairesAccord, moyenne12SemainesMax, moyenne12SemainesAccord, contingentHeuresSup, contingentAlerte, contingentAccord, absencesFichierPaie, absencesPaieAPartirDu, piecesStockage), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
 | `demo.reinitialiser` | — | administrateur RH, mode démonstration |
 | `compte.creer` | empId (ou nom, adresse : compte externe), type (`microsoft`/`local`), identifiant, profilRh | administrateur RH (mot de passe provisoire dans `result`, affiché une fois) |
 | `compte.profil` | id, profilRh (`aucun`/`rh_gestionnaire`/`rh_admin`/`referent_hse`/`paie`/`lecture_seule`) | administrateur RH (jamais le dernier administrateur actif ; un compte externe garde un profil) |
@@ -801,6 +809,8 @@ aucun champ du paramètre n'est recopié.
 | `messagerie.recapituler` | — : récapitulatifs des notifications en attente envoyés sans attendre 7 h | RH |
 | `notification.regler` | empId? (soi par défaut), mode (`immediat`/`quotidien`) | la personne elle-même, ou RH |
 | `confidentialite.regler` | responsable?, dpo? (texte, 300 caractères au plus ; vide : effacé, la page renvoie au service RH) ; journal : nom des champs dont la valeur change, jamais leur texte | administrateur RH |
+| `piece.joindre` | jetons (ou jeton) : pièces envoyées par `POST /api/pieces` par le même compte, encore en attente ; objet (`absence`/`certification`/`habTitre`/`declaration`/`voyage`), objetId ; fonction désactivée : 409. Les mêmes jetons se passent en `pieces` à `absence.saisir`, `absence.qualifier`, `absence.signaler` (intéressé ou RH), `cert.ajouter`, `hab.delivrer` et `formalite.enregistrer` (déclaration du collaborateur ; celle qu'elle remplace lui laisse ses pièces) | absence (hors congés, ni annulée ni refusée) : intéressé, RH ; certification, titre d'habilitation : RH, référent HSE ; document déclaré : intéressé tant qu'il attend, RH ; déplacement : RH ; jamais le manager |
+| `piece.retirer` | id, motif (obligatoire, 500 caractères ; gardé avec la pièce, masqué au journal) : description gardée, fichier effacé après la validation de l'action ; le refus d'un document déclaré retire aussi ses pièces | RH ; référent HSE pour une certification ou un titre d'habilitation |
 | `reprise.importer` | type (`salaries`/`soldes`/`certifications`/`visites`/`habilitations`), texte (CSV), colonnes (champ de chaque colonne), dateReprise (soldes), equipes (rapprochement), confirmations (lignes cochées : réembauche sur un matricule, visite sans avis), comptes (comptes Microsoft 365, y compris pour une fiche déjà à jour), fichier ; analyse de `shared/rules/reprise.ts`, seules les lignes retenues par l'aperçu sont écrites ; ses propres soldes refusés (fiche rattachée au compte) ; lot conservé (table `reprises`) ; journal `reprise.<type>` | administrateur RH |
 
 ## Journal des actions
@@ -860,7 +870,7 @@ Table `journal`, écrite par `server/src/journal.ts` (actions) et `journaliser` 
   bouton « Exporter ses données » de la fiche) renvoie un fichier JSON lisible : fiche, chaque table du schéma qui
   porte `empId` (une table ajoutée plus tard l'est aussi), compte (sans empreinte du mot de passe), sessions
   de connexion (sans leur identifiant), équipes encadrées, messages envoyés à Keystone à son matricule, et
-  le journal des actions le concernant (archive comprise). `GET /api/mes-donnees` : le salarié connecté
+  le journal des actions le concernant (archive comprise), et le contenu de ses pièces justificatives en base64. `GET /api/mes-donnees` : le salarié connecté
   (espace collaborateur ou manager) télécharge les siennes depuis le portail, sans le journal, que le RH
   remet sur demande. Chaque export est tracé (`salarie.export`, `donnees.export`).
 - **Information des salariés** (art. 13 du RGPD) : page Confidentialité (`pages/Confidentialite.tsx`, vue commune
@@ -1447,6 +1457,53 @@ seul service RH (droit `rh`) et à l'intéressé ; ni le manager, ni les profils
 sanitaire ») ne voient le vaccin. Avant toute saisie, le dialogue affiche l'information de la personne (art. 13 du
 RGPD, `INFO_VACCINATIONS` de `shared/constants.ts`, texte à faire valider par le DPO, qui fixe la durée de
 conservation : aucune purge n'est encore appliquée, et les déclarations acceptées gardent les injections antérieures).
+
+## Pièces justificatives (t133, lot 6 étape 1)
+
+Décision de l'entreprise du 18 octobre 2026 : fonction livrée **désactivée** (réglage `piecesStockage`, Paramètres →
+Pièces justificatives, `pages/parametres/Pieces.tsx`) ; l'administrateur RH l'active (« Dossier des données de Cursus »)
+après avis du DPO. Le choix « GED » (espace documentaire développé avec Codex) est refusé tant que son adaptateur
+(`server/src/integrations/ged.ts`, même contrat `DepotPieces` que le dossier local) n'est pas écrit ; désactiver la
+fonction n'efface rien et laisse les pièces jointes consultables.
+
+- **Fichiers** (`shared/rules/pieces.ts`) : PDF, JPEG ou PNG reconnus sur leurs premiers octets et identiques au type
+  déclaré, 10 Mo au plus (`express.raw`, 413 au-delà), nom d'origine nettoyé (sans chemin ni guillemet, extension du type
+  reconnu). Stockage local (`DepotLocal` de `server/src/pieces.ts`) : `dossierPieces` de `chemins.ts`, `pieces/` à côté
+  de la base ou `CURSUS_PIECES_DIR` (dossier en 700, fichiers en 600 dès leur création), nom aléatoire de 32 caractères
+  hexadécimaux, écrit sous un nom provisoire puis renommé, empreinte SHA-256 en base. Table `pieces` : salarié, objet et
+  identifiant, nom, type, taille, empreinte, nom stocké, envoi (date, auteur, compte), `conserverJusquau` (null : la
+  durée de l'objet, appliquée par la conservation du chantier 7 étape 2), retrait (date, auteur, motif) ; index de la
+  migration `lot6-pieces-index`.
+- **Envoi en deux temps** (`server/src/pieces-routes.ts`) : `POST /api/pieces` (toute personne connectée, fonction
+  active, 20 pièces en attente au plus par compte) enregistre une pièce sans objet et renvoie un **jeton** aléatoire ;
+  l'action du dialogue la joint dans sa transaction (`joindrePieces` de `server/src/actions/pieces.ts`), après ses propres
+  contrôles de droits. Seul le compte qui a envoyé la pièce peut la joindre (même refus pour un jeton inconnu, déjà
+  utilisé ou d'un autre compte) ; le dialogue réutilise le jeton d'un fichier déjà envoyé si l'action est refusée puis
+  reprise (`usePieceJointe` de `client/src/components/PieceJointe.tsx`). Une pièce jamais jointe est effacée au bout de 24 h.
+- **Consultation** : `GET /api/pieces/:id` (`?telecharger=1` : en pièce jointe), mêmes règles que l'instantané
+  (`voitPiece`) : service RH, tout ; référent HSE, certifications et titres d'habilitation ; salarié, les siennes ;
+  manager, certifications et titres de son équipe, jamais un justificatif d'absence ni un document déclaré ; paie et
+  lecture seule, rien. Hors de portée : 404 (rien ne dit que la pièce existe) et refus tracé ; retirée : 410 ; empreinte
+  différente : 409 ; `Content-Security-Policy: default-src 'none'` (aucun script), `no-store`. L'instantané (`Dataset.pieces`,
+  `piecesVisibles`) ne transmet que la description, jamais le nom stocké ni le jeton ; l'empreinte et les pièces retirées
+  au service RH seulement.
+- **Écrans** : champ « fichier » (`ChoixPiece`) dans la saisie et la qualification d'une absence (« Justificatif reçu »
+  coché au choix d'un fichier), le signalement par l'intéressé, l'ajout d'une certification, la délivrance d'une
+  habilitation et la déclaration d'un document ; pièces déjà jointes listées (`PiecesJointes` : ouvrir, télécharger,
+  aperçu d'une image, retirer avec motif) dans ces dialogues ; « Justificatif » sur ses absences en cours
+  (`dialogs/PieceDialog.tsx`, `piece.joindre`) ; liens sur les déclarations à valider du tableau de bord ; section
+  « Pièces justificatives » de la fiche (`components/PiecesFiche.tsx` : attestations et titres, « Joindre » pour une
+  certification reprise de Lucca). Rien ne s'affiche tant que la fonction est désactivée.
+- **Journal** : `piece.deposer` (type, taille), `piece.consulter` (une ligne par compte et par pièce pendant
+  15 minutes), `piece.joindre`, `piece.retirer` (motif masqué) et le nombre de pièces jointes par une autre action
+  (`pieces`) ; jamais le nom du fichier ni un jeton. Famille « Pièces justificatives » ; message et détail masqués à la
+  lecture seule (`ACTIONS_SANTE`).
+- **Retrait et nettoyage** : un fichier n'est jamais effacé dans la transaction d'une action (elle peut être annulée) :
+  la pièce est marquée retirée, puis `nettoyerPieces` efface son fichier (aussitôt après la validation, et chaque heure
+  avec les pièces en attente de plus de 24 h et les fichiers que plus aucune pièce ne désigne depuis 24 h).
+- **Sauvegarde, restauration, intégrité, export** : voir `docs/SAUVEGARDE.md` (dossier `pieces-<base>/` des copies,
+  remise en place à la restauration), « Exploitation » (contrôle d'intégrité) et « Journal des actions » (l'export des
+  données d'un salarié joint le contenu de ses pièces en base64, sans nom stocké ni jeton).
 
 ## Données Keystone
 

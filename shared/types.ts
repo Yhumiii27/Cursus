@@ -751,6 +751,12 @@ export interface Settings {
    * d'avant ont été traités par Lucca et Sage) ; null : seule vaut la date de départ posée par Cursus.
    */
   absencesPaieAPartirDu: ISODate | null;
+  /**
+   * Pièces justificatives (shared/rules/pieces.ts, server/src/pieces.ts) : désactivé par défaut (réponse de l'entreprise du
+   * 18 octobre 2026) ; « local » : fichiers dans le dossier des données, sauvegardés avec la base ; « ged » : espace
+   * documentaire de l'entreprise, par un adaptateur à écrire quand son interface sera connue.
+   */
+  piecesStockage: StockagePieces;
 }
 /** Plafond des heures complémentaires du temps partiel : le dixième (art. L3123-28) ou le tiers avec un accord (art. L3123-20). */
 export type PlafondComplementaires = 'dixieme' | 'tiers';
@@ -1101,6 +1107,12 @@ export interface Dataset {
    * sur toutes les fiches) : service RH, et l'élu avec ses mandats ; null ailleurs. Un nombre, aucune liste nominative.
    */
   effectifCse?: number | null;
+  /**
+   * Pièces justificatives jointes (description, jamais le contenu, lu par GET /api/pieces/:id) : service RH (toutes),
+   * référent HSE (certifications et habilitations), manager (certifications et habilitations de son équipe), salarié (les
+   * siennes) ; aucune pour la paie et la lecture seule (server/src/pieces.ts, `piecesVisibles`).
+   */
+  pieces?: Piece[];
 }
 
 /**
@@ -1116,3 +1128,33 @@ export interface LotReprise {
 }
 
 export interface ActionResult { message: string | null; data: Dataset; result?: unknown }
+
+// — Pièces justificatives (t133, shared/rules/pieces.ts) —
+/** Stockage des pièces justificatives (réglage `piecesStockage`). */
+export type StockagePieces = 'desactive' | 'local' | 'ged';
+/** Objet auquel une pièce est jointe : absence, certification, titre d'habilitation, document déclaré, déplacement. */
+export type ObjetPiece = 'absence' | 'certification' | 'habTitre' | 'declaration' | 'voyage';
+/** Type de fichier accepté (contrôlé sur le contenu, pas seulement sur l'extension). */
+export type TypePiece = 'application/pdf' | 'image/jpeg' | 'image/png';
+/**
+ * Pièce justificative jointe à un objet du dossier d'un salarié. Le fichier est stocké sous un nom aléatoire (`fichier`,
+ * jamais transmis au navigateur) avec son empreinte SHA-256 ; `nom` est celui du fichier envoyé (il peut nommer une
+ * donnée de santé : jamais recopié au journal). Une pièce retirée garde sa description, son fichier est effacé.
+ */
+export interface Piece {
+  id: number;
+  empId: number;
+  objet: ObjetPiece;
+  objetId: number;
+  nom: string;
+  type: TypePiece;
+  taille: number;
+  /** Empreinte SHA-256 du contenu (hexadécimal) : service RH seulement. */
+  empreinte?: string | null;
+  deposeLe: string;
+  deposePar: string;
+  /** Fin de conservation ; null : celle de l'objet qu'elle justifie (durées de conservation, chantier 7 étape 2). */
+  conserverJusquau: ISODate | null;
+  retireeLe: string | null;
+  retireePar: string | null;
+}

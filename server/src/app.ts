@@ -23,6 +23,7 @@ import { envoisPourLecteur } from './envois-lecteur.ts';
 import { apiInconnue, ERREUR_INTERNE, gestionnaireErreurs, LIMITE_CORPS, signalerErreur } from './erreurs.ts';
 import { routesFichierPaie } from './fichier-paie.ts';
 import { routesVariablesPaie } from './variables-paie.ts';
+import { routesPieces } from './pieces-routes.ts';
 import { journaliserAction, preparerTrace, routesJournal, tracerRefus } from './journal.ts';
 import { emailMode } from './integrations/email.ts';
 import { KEYSTONE_MODE } from './integrations/keystone.ts';
@@ -125,6 +126,9 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   app.use(routesFichierPaie(db));
   // Variables de paie d'une période, export CSV tracé (droit « paie ») : server/src/variables-paie.ts.
   app.use(routesVariablesPaie(db));
+  // Pièces justificatives : envoi (corps brut, 10 Mo au plus) et consultation contrôlée par les droits, tracées :
+  // server/src/pieces-routes.ts.
+  app.use(routesPieces(db));
 
   // File d'envoi des messages sortants (Paramètres → Envois) : état de l'intégration et derniers messages.
   // Service RH et lecture seule (droit `consultation`) ; ni le référent HSE, ni la paie. La lecture seule ne lit pas le

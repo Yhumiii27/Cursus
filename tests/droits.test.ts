@@ -95,7 +95,25 @@ const envoiEnEchec = () => db.insert<{ id: number }>('envois', {
   cible: 'keystone', type: 'heures.validees', cle: 'essai-droits', contenu: {}, statut: 'echec', tentatives: 1, prochaine: null,
   erreur: 'HTTP 400', accuse: null, creation: '2026-10-07T08:00:00.000Z', tentative: '2026-10-07T08:00:00.000Z', envoi: null, classe: null,
 }).id;
-interface Ligne { action: string; variante?: string; droits: string; p: () => Record<string, unknown>; env?: Record<string, string> }
+/**
+ * Pièce justificative envoyée par le compte de la personne qui agit (le jeton ne vaut que pour lui), stockage local
+ * activé pour l'essai ; renvoie son jeton.
+ */
+const pieceEnvoyee = (u: User) => {
+  db.setSetting('app', { ...db.getSetting<Record<string, unknown>>('app', {}), piecesStockage: 'local' });
+  db.insert('pieces', {
+    jeton: `essai-${u.compteId}`, nom: 'attestation.pdf', type: 'application/pdf', taille: 5, empreinte: 'e', fichier: 'a'.repeat(32),
+    deposeLe: '2026-10-07T08:00:00.000Z', deposePar: u.nom, deposeCompteId: u.compteId,
+  });
+  return `essai-${u.compteId}`;
+};
+/** Pièce déjà jointe à un objet du dossier de Mehdi. */
+const pieceJointe = (objet: string, objetId: number) => db.insert<{ id: number }>('pieces', {
+  empId: 2, objet, objetId, nom: 'piece.pdf', type: 'application/pdf', taille: 5, empreinte: 'e', fichier: 'b'.repeat(32),
+  deposeLe: '2026-10-07T08:00:00.000Z', deposePar: 'Essai', deposeCompteId: null,
+}).id;
+// `p` reçoit la personne qui agit (pièce justificative envoyée par son compte) ; les autres lignes l'ignorent.
+interface Ligne { action: string; variante?: string; droits: string; p: (u: User) => Record<string, unknown>; env?: Record<string, string> }
 
 //                                                        admin gest mgr autM coll autC  hse paie lect
 const MATRICE: Ligne[] = [
@@ -354,6 +372,15 @@ const MATRICE: Ligne[] = [
   // Envois sortants (Paramètres → Envois) : le service RH suit, relance (intégration configurée) ou classe un échec.
   { action: 'envoi.relancer', droits: '                      O    O    -    -    -    -    -    -    -', p: () => ({ id: envoiEnEchec() }), env: { KEYSTONE_URL: 'http://keystone.essai', KEYSTONE_TOKEN: 'jeton' } },
   { action: 'envoi.classer', droits: '                       O    O    -    -    -    -    -    -    -', p: () => ({ id: envoiEnEchec() }) },
+  // Pièces justificatives (t133) : attestation et titre signé, service RH et référent HSE ; justificatif d'absence et document
+  // déclaré, l'intéressé et le service RH, jamais le manager (santé, passeport) ; déplacement, service RH.
+  { action: 'piece.joindre', variante: 'certification', droits: '  O    O    -    -    -    -    O    -    -', p: u => ({ jetons: [pieceEnvoyee(u)], objet: 'certification', objetId: cert('sst') }) },
+  { action: 'piece.joindre', variante: 'titre d’habilitation', droits: 'O    O    -    -    -    -    O    -    -', p: u => ({ jeton: pieceEnvoyee(u), objet: 'habTitre', objetId: titre('hauteur').id }) },
+  { action: 'piece.joindre', variante: 'absence', droits: '        O    O    -    -    O    -    -    -    -', p: u => ({ jetons: [pieceEnvoyee(u)], objet: 'absence', objetId: absence('signalee', 'ABSENCE') }) },
+  { action: 'piece.joindre', variante: 'document déclaré', droits: 'O    O    -    -    O    -    -    -    -', p: u => ({ jetons: [pieceEnvoyee(u)], objet: 'declaration', objetId: documentDeclare() }) },
+  { action: 'piece.joindre', variante: 'déplacement', droits: '    O    O    -    -    -    -    -    -    -', p: u => ({ jetons: [pieceEnvoyee(u)], objet: 'voyage', objetId: voyage() }) },
+  { action: 'piece.retirer', variante: 'certification', droits: '  O    O    -    -    -    -    O    -    -', p: () => ({ id: pieceJointe('certification', cert('sst')), motif: 'Mauvais document' }) },
+  { action: 'piece.retirer', variante: 'absence', droits: '        O    O    -    -    -    -    -    -    -', p: () => ({ id: pieceJointe('absence', absence('signalee', 'ABSENCE')), motif: 'Mauvais document' }) },
 ];
 
 const ANNULER = Symbol('annuler');
@@ -364,7 +391,7 @@ function essai(user: User, l: Ligne): string {
   Object.assign(process.env, l.env ?? {});
   try {
     db.tx(() => {
-      const payload = l.p();
+      const payload = l.p(user);
       try {
         ACTIONS[l.action](makeCtx(db, user, loadFull(db, user)), payload);
         issue = 'O';

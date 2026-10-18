@@ -19,6 +19,7 @@ import { FeuillesTemps } from './FeuillesTemps.tsx';
 import { Formations } from './Formations.tsx';
 import { Keystone } from './Keystone.tsx';
 import { MatriculesPaie } from './MatriculesPaie.tsx';
+import { Pieces } from './Pieces.tsx';
 import { ReglagesPaie } from './ReglagesPaie.tsx';
 import { Reprise } from './Reprise.tsx';
 import { RelancesEcheances } from './RelancesEcheances.tsx';
@@ -61,6 +62,7 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'sante', place: 'gauche', Section: Sante },
   { id: 'formations', place: 'droite', Section: Formations },
   { id: 'confidentialite', place: 'droite', Section: Rgpd },
+  { id: 'pieces', place: 'droite', Section: Pieces },
   { id: 'messagerie', place: 'large', Section: Messagerie },
   { id: 'relances', place: 'large', Section: RelancesEcheances },
   { id: 'envois', place: 'large', Section: Envois },

@@ -281,6 +281,17 @@ export const TABLES = {
   // Relances des échéances (server/src/relances.ts) : palier franchi par objet (titre, visite, entretien, fin de contrat…),
   // noté une fois envoyé pour qu'il ne reparte pas ; `cle` porte la date d'échéance (un renouvellement repart de zéro).
   relances: { pk: 'id', auto: true, cols: { id: 'int', cle: 'text', palier: 'text', le: 'text' }, unique: [['cle', 'palier']] },
+  // Pièces justificatives (t133, server/src/pieces.ts) : fichier stocké sous un nom aléatoire (`fichier`) avec son empreinte
+  // SHA-256 ; `jeton` : preuve de l'envoi, exigée pour joindre une pièce encore en attente (objet null) à un objet ;
+  // `deposeCompteId` : compte qui l'a envoyée. Retirée : description gardée, fichier effacé.
+  pieces: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', jeton: 'text', empId: 'int', objet: 'text', objetId: 'int', nom: 'text', type: 'text', taille: 'int', empreinte: 'text', fichier: 'text',
+      deposeLe: 'text', deposePar: 'text', deposeCompteId: 'int', conserverJusquau: 'text', retireeLe: 'text', retireePar: 'text', retireeMotif: 'text',
+    },
+    unique: [['jeton'], ['fichier']],
+  },
 } satisfies Record<string, TableDef>;
 
 export type TableName = keyof typeof TABLES;

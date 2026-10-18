@@ -31,6 +31,7 @@ import { compteValide, espacesDuCompte, nomDuCompte } from './comptes.ts';
 import { lireFormatFichier, lireLots } from './lots-paie.ts';
 import { absenceSansPaie, resumeAbsencesPaie, sansCodesAbsences } from './absences-paie.ts';
 import { lireMessagerie } from './messagerie.ts';
+import { lirePieces, piecesVisibles } from './pieces.ts';
 
 /** Réglages par défaut : colonne `defaut` de la table des réglages (shared/reglages.ts). */
 export const DEFAULT_SETTINGS: Settings = reglagesParDefaut();
@@ -142,6 +143,8 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     // Effectif du site (un nombre) pour la limite de délégation d'un suppléant : calculé ici sur toutes les fiches, car
     // l'instantané de l'élu ne contient que lui-même (ou son équipe).
     effectifCse: effectifSite({ employes }, todayIso()),
+    // Pièces justificatives jointes (server/src/pieces.ts) : description seule, ni nom stocké ni jeton.
+    pieces: lirePieces(db),
   };
   // Absences en attente du fichier de paie par période (server/src/absences-paie.ts) : lit le contenu figé des lots.
   return { ...ds, absencesPaie: resumeAbsencesPaie(db, user, ds) };
@@ -320,6 +323,9 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     mandats: (full.mandats ?? []).filter(m => m.empId === user.empId),
     // Effectif du site, transmis à l'élu avec ses mandats (compteur identique à celui du service RH) ; rien sans mandat.
     effectifCse: (full.mandats ?? []).some(m => m.empId === user.empId) ? full.effectifCse : null,
+    // Pièces justificatives : les siennes ; pour le manager, les certifications et habilitations de son équipe, jamais un
+    // justificatif d'absence ni un document déclaré (shared/rules/pieces.ts, `voitPiece`).
+    pieces: piecesVisibles(full.pieces, user, ids),
   };
 }
 
@@ -442,6 +448,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     // Compteur des heures de délégation : service RH et l'élu seulement.
     mandats: [],
     effectifCse: null,
+    // Pièces justificatives : certifications et habilitations pour le référent HSE ; rien pour la paie et la lecture seule.
+    pieces: piecesVisibles(full.pieces, full.user),
   };
 }
 

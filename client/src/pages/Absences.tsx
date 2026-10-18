@@ -8,6 +8,7 @@ import type { Domain } from '../../../shared/domain.ts';
 import { cpPeriods, parse } from '../../../shared/dates.ts';
 import { cap, equipeLabel, fH, fJ, fmt, fmtIso, fmtShort, plural } from '../../../shared/format.ts';
 import { absenceActive, droitAnnulation, estConge, joursDecomptes, natureDef, prolongeable, statutAbsence, uniteDecompte } from '../../../shared/rules/absences.ts';
+import { depotOuvert, piecesDe } from '../../../shared/rules/pieces.ts';
 import { DEMI_LABEL, periodeDemiTexte } from '../../../shared/rules/demi-journees.ts';
 import { absenceKinds, cetInfo, cpInfo, recupInfo, reposForfait, rttInfo } from '../../../shared/rules/conges.ts';
 import type { Absence, DemiJournee, Employe, NatureAbsence } from '../../../shared/types.ts';
@@ -172,7 +173,11 @@ export function Absences() {
                       {a.finInitiale && <div className="text-muted sub">Prolongée · fin initiale le {fmtIso(a.finInitiale)}</div>}
                     </td>
                     <td><Num main={fJ(joursDecomptes(d, e, a))} sub={uniteDecompte(a.type)} /></td>
-                    <td><Two main={a.signaleLe ? fmtIso(a.signaleLe) : '—'} sub={a.signalePar ?? ''} /></td>
+                    <td>
+                      <Two main={a.signaleLe ? fmtIso(a.signaleLe) : '—'} sub={a.signalePar ?? ''} />
+                      {/* Justificatif envoyé par l'intéressé (pièce justificative) : à ouvrir dans « Qualifier ». */}
+                      {piecesDe(data.pieces, 'absence', a.id).length > 0 && <div className="text-muted sub">Justificatif joint</div>}
+                    </td>
                     <td className="right">
                       <button type="button" className="btn btn-secondary btn-sm" onClick={() => openDialog({ type: 'absNature', id: a.id })}>Qualifier</button>
                     </td>
@@ -265,6 +270,10 @@ export function Absences() {
                             </button>
                           )}
                           {canProlong && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'absProlonger', id: a.id })}>Prolonger</button>}
+                          {/* Son justificatif (avis d'arrêt…), envoyé après le signalement : pièce justificative. */}
+                          {e.id === soi && depotOuvert(data.settings.piecesStockage) && prolongeable(a) && (
+                            <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'piece', objet: 'absence', objetId: a.id, empId: e.id, libelle: `${ABS_LABEL[a.type]} · ${dates(a)}` })}>Justificatif</button>
+                          )}
                           {annulation.ok && (
                             <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'absAnnuler', id: a.id })}>
                               {a.statut === 'demandee' && annulation.libelle.startsWith('Retirer') ? 'Retirer' : 'Annuler'}

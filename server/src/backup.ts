@@ -18,6 +18,11 @@ try {
   console.log(`  Intégrité vérifiée · durée ${fmtDuree(s.duree)}`);
   console.log(`  Rotation : ${s.conservees} copie${pl(s.conservees)} conservée${pl(s.conservees)} (${keep ? `${keep} au plus` : 'sans limite'})${n ? `, ${n} supprimée${pl(n)}` : ''}`);
   s.supprimees.forEach(f => console.log(`    − ${f}`));
+  if (s.pieces) {
+    const p = s.pieces;
+    console.log(`  Pièces justificatives : ${p.designees} désignée${pl(p.designees)} par la copie, ${p.copiees} nouvelle${pl(p.copiees)} copiée${pl(p.copiees)}${p.retirees ? `, ${p.retirees} retirée${pl(p.retirees)} (plus désignée${pl(p.retirees)} par aucune copie)` : ''}`);
+    if (p.manquantes) console.error(`  Attention : ${p.manquantes} fichier${pl(p.manquantes)} de pièce${pl(p.manquantes)} absent${pl(p.manquantes)} du dossier des pièces (contrôle d’intégrité, docs/SAUVEGARDE.md).`);
+  }
   const fs = statfsSync(dirname(s.fichier));
   console.log(`  Espace libre : ${fmtTaille(fs.bavail * fs.bsize)}`);
 } catch (err) {

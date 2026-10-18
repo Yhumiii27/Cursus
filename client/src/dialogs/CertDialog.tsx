@@ -7,6 +7,7 @@ import { fmt, validiteLabel } from '../../../shared/format.ts';
 import { certsApres, habilitationsAppuyees, MOTIF_CORRECTION_MAX, refusAppui } from '../../../shared/rules/corrections.ts';
 import { erreurDate } from '../components/controles.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
+import { ChoixPiece, PiecesJointes, usePieceJointe } from '../components/PieceJointe.tsx';
 import { Fine } from '../components/ui.tsx';
 import { AIDE_MOTIF_CORRECTION } from '../state/confirmations-corrections.ts';
 import { useEnriched } from '../state/derived.ts';
@@ -22,6 +23,8 @@ export function CertDialog({ empId, certId }: { empId: number; certId?: number }
   const [motif, setMotif] = useState('');
   const [busy, setBusy] = useState(false);
   const v = useVerification();
+  // Attestation de formation jointe à l'ajout (pièce justificative, components/PieceJointe.tsx).
+  const piece = usePieceJointe();
   if (!emp || (certId != null && !actuelle)) return null;
   // Correction : la formation actuelle reste proposée, même archivée ou hors du filtre « réglementaires uniquement ».
   const choix = actuelle && !forms.some(o => o.id === actuelle.f) ? [d.fm(actuelle.f), ...forms] : forms;
@@ -35,12 +38,14 @@ export function CertDialog({ empId, certId }: { empId: number; certId?: number }
   const appui = actuelle && fm && valid && !inchange ? refusAppui(habilitationsAppuyees(d, emp, certsApres(emp.certs, actuelle.id, { f, obtenue: date })), 'modifier') : null;
 
   const confirm = async () => {
-    if (busy || !v.verifier(fErr, dateErr, motifErr, appui)) return;
+    if (busy || !v.verifier(fErr, dateErr, motifErr, appui, !actuelle && piece.erreur)) return;
     if (inchange) { closeDialog(); return; }
     setBusy(true);
+    const pieces = actuelle ? [] : await piece.envoyer();
+    if (!pieces) { setBusy(false); return; }
     const r = actuelle
       ? await run('cert.modifier', { id: actuelle.id, f, date, motif: motif.trim() })
-      : await run('cert.ajouter', { empId, f, date });
+      : await run('cert.ajouter', { empId, f, date, ...(pieces.length ? { pieces } : {}) });
     setBusy(false);
     if (r.ok) closeDialog();
   };
@@ -60,7 +65,9 @@ export function CertDialog({ empId, certId }: { empId: number; certId?: number }
         <Field label="Date d’obtention" htmlFor="cert-date" requis erreur={v.erreur(dateErr)}><input className="input" id="cert-date" type="date" value={date} onChange={e => setDate(e.target.value)} /></Field>
         <Field label="Validité"><Static pad>{fm ? `${validiteLabel(fm.validite)}${valid ? ' · expire le ' + fmt(addMonths(parse(date), fm.validite)) : ''}` : '—'}</Static></Field>
       </div>
+      {!actuelle && <ChoixPiece piece={piece} id="cert-piece" label="Attestation de formation (facultatif)" />}
       {actuelle && <>
+        <PiecesJointes objet="certification" objetId={actuelle.id} label="Attestations jointes" />
         <Field label="Motif de la correction" htmlFor="cert-motif" requis erreur={v.erreur(motifErr)}>
           <textarea className="input mid" id="cert-motif" rows={2} maxLength={MOTIF_CORRECTION_MAX} placeholder="Date de l’attestation mal recopiée, formation confondue…"
             value={motif} onChange={e => setMotif(e.target.value)} />

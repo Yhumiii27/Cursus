@@ -52,11 +52,14 @@ réserve ou un refus est vérifié par le service RH.
 | Entretiens | Date, type, comptes rendus rédigés par l'évaluateur et le salarié, signatures | `entretiens` |
 | Déplacements | Destination, dates, motif, numéro et date d'expiration du passeport, visas, dates des formalités de détachement, demandes reçues de Keystone | `employes` (passeport), `visas`, `voyages`, `demandesKeystone`, `missions`, `taches` |
 | Demandes au service RH | Formation, habilitation, documents déclarés par le salarié avant validation | `demandesCollab` |
+| Pièces justificatives (lot 6, désactivées par défaut ; activées par l'administrateur RH après avis du DPO) | Fichiers PDF, JPEG ou PNG joints au dossier : attestations de formation et cartes (CACES…), titres d'habilitation signés, justificatifs d'absence (avis d'arrêt de travail : **donnée de santé**), copies des documents déclarés (passeport, visa, carnet de vaccination : **donnée de santé**) ; nom du fichier envoyé, type, taille, empreinte SHA-256, date et auteur de l'envoi, retrait (date, auteur, motif) | `pieces` (description) ; fichiers dans `pieces/` à côté de la base, sous un nom aléatoire |
 | Connexion et traçabilité | Identifiant, type de compte, profil, empreinte du mot de passe (scrypt), dernières connexions, sessions (12 h), adresse IP des connexions et refus, journal des actions (liste blanche : identifiants, codes, dates, statuts — jamais de texte libre ni de donnée de santé) ; journaux techniques du serveur (numéro de compte, méthode, chemin sans paramètres, statut, heure et durée de chaque requête, jamais leur contenu) | `comptes`, `connexions`, `journal` ; journaux du serveur hors de la base (`server/src/logs.ts`) |
 | Messages sortants | E-mails (destinataire, objet, texte sans donnée de santé ni texte libre saisi), événements envoyés à Keystone, relevés d'heures des intérimaires | `envois`, `notifications`, `releves` |
 
-Ne sont **jamais** enregistrés : diagnostic, numéro de sécurité sociale, adresse personnelle, coordonnées bancaires,
-certificat ou pièce scannée (seule la réception d'un justificatif est notée).
+Ne sont **jamais** enregistrés : diagnostic, numéro de sécurité sociale, adresse personnelle, coordonnées bancaires.
+Pièces scannées : seulement si le dépôt des pièces justificatives est activé (ligne ci-dessus) ; sinon, seule la
+réception d'un justificatif est notée. Un avis d'arrêt de travail joint ne doit être que le volet employeur, sans
+motif médical.
 
 ## 4. Destinataires
 
@@ -69,6 +72,7 @@ certificat ou pièce scannée (seule la réception d'un justificatif est notée)
 | Manager | Son équipe seulement, sans donnée de santé : avis d'aptitude et restrictions en vigueur (jamais la date de la visite ni les vaccins), « visite à programmer » sans son motif (embauche, mi-carrière, fin de carrière ; jamais la visite de reprise, qui trahirait la nature d'un arrêt), absence sans sa nature médicale, du passeport la seule date d'expiration, du titre de séjour le seul verdict (valide ou à régulariser) |
 | Référent HSE / formation | Formations, sessions, certifications, habilitations, demandes de formation et d'habilitation ; aptitude réduite comme pour le manager ; chantiers et demandes Keystone, déplacements avec l'état précalculé du dossier (sans passeport ni visas) et absences des ressources des chantiers, dates seules sans leur nature, pour le Go / No Go ; ni temps, ni soldes, ni entretiens |
 | Gestionnaire de paie (interne ou cabinet) | Temps, absences et soldes, transmission à la paie ; catégorie de chaque absence (santé, parentalité, famille, non payée) par salarié et par mois, avec ses dates, dans le fichier d’import et l’export des variables de la période (donnée de santé au sens de l’art. 9 pour la catégorie « santé »), jamais la nature médicale ; jours de CP acquis chaque mois, calculés par le serveur avec la vraie nature des absences (aucun effet absence par absence) ; ni formations, ni entretiens, ni déplacements, ni informations au retour d'un arrêt |
+| Pièces justificatives (lot 6) | Service RH : toutes ; référent HSE / formation : attestations et titres d'habilitation ; salarié : les siennes ; manager : attestations et titres de son équipe, jamais un justificatif d'absence ni un document déclaré ; paie et consultation : aucune. Chaque envoi, consultation (une ligne par compte et par pièce et par quart d'heure) et retrait est tracé, sans le nom du fichier (`server/src/pieces-routes.ts`) |
 | Consultation (direction, DPO, auditeur) | Tout l'espace RH en lecture, sans donnée de santé détaillée, sans dossier de voyage ni contenu des comptes rendus d'entretien ; titre de séjour sans son numéro ; journal des actions avec les messages touchant à la santé masqués ; envois sortants sans l'objet ni le texte des e-mails qui désignent une donnée de santé (information au retour d'un arrêt, demande de visite, récapitulatif qui en contient) |
 
 ### Hors de Cursus (sous-traitants et destinataires externes)
@@ -98,6 +102,7 @@ Aucun transfert hors de l'Union européenne n'est prévu par Cursus ; à vérifi
 | Données de santé (visites, avis, restrictions, vaccinations) | à compléter par le DPO | **Aucune purge** ; les déclarations successives gardent les injections antérieures |
 | Passeport, visas | Validité du document, puis à compléter par le DPO | Aucune purge |
 | Titre de séjour (type, numéro, expiration, demande d'authentification et réponse) | Registre unique du personnel : 5 ans après le départ ; à confirmer par le DPO | Aucune purge |
+| Pièces justificatives | Celle de l'objet qu'elles justifient (dossier du salarié, données de santé, passeport) : à compléter par le DPO ; une pièce retirée par le service RH ou jointe à une déclaration refusée est effacée aussitôt (sa description reste), une pièce envoyée mais jamais jointe au bout de 24 h | Retrait et refus appliqués ; durée par objet à appliquer avec les durées du dossier (chantier 7, étape 2) |
 | Sauvegardes | 14 copies locales ; copies distantes selon le calendrier de `docs/SAUVEGARDE.md` (à valider avec le DPO) | Une donnée effacée subsiste dans les copies jusqu'à leur expiration |
 
 Tant que les durées « à compléter » ne sont pas fixées et appliquées, l'information des salariés indique que rien

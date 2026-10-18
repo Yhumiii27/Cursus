@@ -14,7 +14,7 @@ import { VUES_COMMUNES, vuesDe, type ALLOWED_VIEWS, type HabMesureAction } from 
 import { mondayOf } from '../../../shared/dates.ts';
 import type { FormaliteKind, UiIntent } from '../../../shared/domain.ts';
 import type { ReferentielId } from '../../../shared/rules/referentiels.ts';
-import type { CompteSession, Dataset, EntretienType, ISODate, MotifVisite, PlanStatut, ProfilRh, Role, VaccinId } from '../../../shared/types.ts';
+import type { CompteSession, Dataset, EntretienType, ISODate, MotifVisite, ObjetPiece, PlanStatut, ProfilRh, Role, VaccinId } from '../../../shared/types.ts';
 import { api, lienMicrosoft, surSessionExpiree, type ActionResponse, type ApiError, type SessionState } from '../api.ts';
 import { AppelsEnCours, cleAction } from './actions.ts';
 import type { Confirmation } from './confirmations.ts';
@@ -118,6 +118,8 @@ export type DialogState =
   | { type: 'formatFichier' }
   /** Réouverture d'une feuille validée (administrateur RH, t131). */
   | { type: 'rouvrirFeuille'; empId: number; week: ISODate }
+  /** Pièce justificative à joindre à un objet déjà enregistré (dialogs/PieceDialog.tsx, t133). */
+  | { type: 'piece'; objet: ObjetPiece; objetId: number; empId: number; libelle?: string }
   /** Refus ou action irréversible à confirmer (state/confirmations.ts). */
   | { type: 'confirmer'; c: Confirmation };
 

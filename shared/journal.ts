@@ -216,6 +216,11 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'migration.referencesDeplacements': 'Reprise : référence donnée aux déplacements importés sans référence',
   // Contrôle d'intégrité du démarrage (server/src/integrite.ts) : références orphelines, nombres seulement.
   'integrite.orphelins': 'Contrôle d’intégrité : références orphelines dans la base',
+  // Pièces justificatives (server/src/pieces.ts) : identifiants, objet, type et taille ; jamais le nom du fichier.
+  'piece.deposer': 'Pièce justificative envoyée',
+  'piece.joindre': 'Pièce justificative jointe',
+  'piece.retirer': 'Pièce justificative retirée',
+  'piece.consulter': 'Pièce justificative consultée',
 };
 
 /** Libellé d'un code ; un e-mail simulé (`email.<nature>`, sans boîte d'envoi) est nommé par sa nature. */
@@ -251,6 +256,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.', 'conges.', 'migration.soldes'] },
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
   { id: 'reprise', label: 'Mise en service (reprise depuis Lucca)', prefixes: ['reprise.'] },
+  { id: 'pieces', label: 'Pièces justificatives', prefixes: ['piece.'] },
   { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.', 'confidentialite.', 'integrite.'] },
   { id: 'connexions', label: 'Connexions et accès', prefixes: ACTIONS_CONNEXION },
   {
@@ -317,6 +323,8 @@ export const CHAMP_LABEL: Record<string, string> = {
   contingentAccord: 'Référence du contingent', ferie: 'Jour férié', cor: 'Contrepartie obligatoire en repos (h)',
   // Absences dans le fichier d'import de la paie (Paramètres → Absences et paie).
   absencesFichierPaie: 'Absences dans le fichier d’import de la paie', absencesPaieAPartirDu: 'Absences transmises à la paie à partir du',
+  // Pièces justificatives (Paramètres → Pièces justificatives).
+  piecesStockage: 'Stockage des pièces justificatives',
 };
 
 const valeur = (v: unknown): string => {

@@ -144,6 +144,35 @@ async function telecharger(url: string): Promise<void> {
   setTimeout(() => URL.revokeObjectURL(href), 1000);
 }
 
+/** Pièce justificative envoyée, en attente d'être jointe par l'action du dialogue (`jeton`, server/src/pieces-routes.ts). */
+export interface PieceEnvoyee { id: number; jeton: string; nom: string; type: string; taille: number }
+
+/**
+ * Envoie un fichier comme pièce justificative (corps brut, type du fichier, nom d'origine encodé dans un en-tête) ; lève
+ * une erreur au message de Cursus (format refusé, trop volumineux, fonction désactivée).
+ */
+async function envoyerPiece(fichier: File, espace?: Role): Promise<PieceEnvoyee> {
+  let res: Response;
+  try {
+    res = await fetch('/api/pieces', {
+      method: 'POST', credentials: 'same-origin', body: fichier,
+      headers: { 'content-type': fichier.type, 'x-nom-fichier': encodeURIComponent(fichier.name), ...(espace ? { 'x-cursus-espace': espace } : {}) },
+      signal: AbortSignal.timeout(DELAI_ACTION_MS),
+    });
+  } catch (err) {
+    throw Object.assign(new Error(delaiDepasse(err) ? MSG_DELAI_ACTION : MSG_RESEAU), { status: 0 });
+  }
+  const json = await res.json().catch(() => ({})) as Partial<PieceEnvoyee> & { error?: string };
+  if (!res.ok) {
+    if (res.status === 401) auRefus?.();
+    throw Object.assign(new Error(json.error || (res.status === 413 ? 'Fichier trop volumineux : 10 Mo au plus.' : messageHttp(res.status))), { status: res.status });
+  }
+  return json as PieceEnvoyee;
+}
+
+/** Adresse du contenu d'une pièce justificative (affichage par le navigateur, ou téléchargement). */
+export const lienPiece = (id: number, telecharger = false) => `/api/pieces/${id}${telecharger ? '?telecharger=1' : ''}`;
+
 /** Adresse de la connexion Microsoft 365 : page de retour, identifiant proposé, choix d'un autre compte. */
 export function lienMicrosoft(o: { retour?: string; identifiant?: string; choix?: boolean } = {}): string {
   const p = new URLSearchParams();
@@ -184,6 +213,8 @@ export const api = {
   signalerExport: (x: { nature: 'csv' | 'impression'; titre: string; lignes?: number; empId?: number }) => {
     fetch('/api/exports', { method: 'POST', credentials: 'same-origin', headers: { 'content-type': 'application/json' }, body: JSON.stringify(x) }).catch(() => {});
   },
+  /** Pièce justificative envoyée seule, à joindre ensuite par une action (jeton). */
+  envoyerPiece,
   comptes: () => request<CompteVue[]>('GET', '/api/comptes'),
   /** Page Confidentialité : coordonnées du responsable du traitement et du DPO, lisibles sans connexion. */
   confidentialite: () => request<ContactsConfidentialite>('GET', '/api/confidentialite'),

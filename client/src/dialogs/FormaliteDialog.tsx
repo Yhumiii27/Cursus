@@ -8,6 +8,7 @@ import { formaliteCle } from '../../../shared/rules/formalites.ts';
 import { actif } from '../../../shared/rules/referentiels.ts';
 import type { VaccinId } from '../../../shared/types.ts';
 import { CancelButton, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
+import { ChoixPiece, usePieceJointe } from '../components/PieceJointe.tsx';
 import { SectionLabel, Seg } from '../components/ui.tsx';
 import { erreurDate, erreurTexte } from '../components/controles.ts';
 import { useDomain, useRole } from '../state/derived.ts';
@@ -51,6 +52,8 @@ export function FormaliteDialog({ empId: empId0, kind: kind0, dest: dest0, v: v0
   const [date, setDate] = useState('');
   const [busy, setBusy] = useState(false);
   const verif = useVerification();
+  // Copie du document jointe à la déclaration du collaborateur (pièce justificative), lue par le service RH avant validation.
+  const piece = usePieceJointe();
 
   const setDest = (code: string) => { setDestState(code); setVisaType(ruleLabel(code)); };
   const vm = VACCINS[v];
@@ -68,9 +71,11 @@ export function FormaliteDialog({ empId: empId0, kind: kind0, dest: dest0, v: v0
     && r.declaration && !r.declaration.dejaAuDossier && formaliteCle(r.declaration) === cle);
 
   const confirm = async () => {
-    if (busy || !verif.verifier(...Object.values(erreurs))) return;
+    if (busy || !verif.verifier(...Object.values(erreurs), collab && piece.erreur)) return;
     setBusy(true);
-    const r = await run('formalite.enregistrer', { empId, kind, numero, expire, dest, visaType, obtenu, v, date });
+    const pieces = collab ? await piece.envoyer() : [];
+    if (!pieces) { setBusy(false); return; }
+    const r = await run('formalite.enregistrer', { empId, kind, numero, expire, dest, visaType, obtenu, v, date, ...(pieces.length ? { pieces } : {}) });
     setBusy(false);
     if (r.ok) closeDialog();
   };
@@ -117,6 +122,8 @@ export function FormaliteDialog({ empId: empId0, kind: kind0, dest: dest0, v: v0
         </div>
         <p className="text-muted fine">{vacHint}</p>
       </>}
+      {collab && <ChoixPiece piece={piece} id="fo-piece" label={kind === 'vaccin' ? 'Copie du carnet de vaccination (facultatif)' : 'Copie du document (facultatif)'}
+        aide="Lue par le service RH seulement, avant de valider." />}
       {collab && (
         <p className="text-muted fine">
           {dejaDeclare

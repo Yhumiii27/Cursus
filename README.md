@@ -332,7 +332,10 @@ du travail (apte, restrictions datées, inapte) avec suspension des habilitation
 visite suivies jusqu'à la visite · visites dues signalées d'elles-mêmes : embauche (3 mois, le jour même en suivi
 renforcé ou pour un mineur), reprise après une maternité, une maladie professionnelle, 30 jours d'accident du travail ou
 60 jours de maladie, mi-carrière (45 ans, réglable), fin de carrière ou post-exposition à la sortie ; le manager ne voit
-que « visite à programmer », jamais pour une reprise · seule la dernière certification compte après un
+que « visite à programmer », jamais pour une reprise · entretien de parcours dû 2 mois (réglable, à confirmer
+juridiquement) après la visite de mi-carrière · postes à risques particuliers (art. L4154-2) : formation renforcée des
+CDD, intérimaires et alternants depuis leur entrée (Non conforme, No Go), liste imprimable · couverture minimale des
+équipes en SST et équipiers incendie, alerte datée (expiration, sortie, absence) · seule la dernière certification compte après un
 recyclage, les précédentes restent en historique · formalités de
 voyage par destination (passeport, visas, vaccins, délais) et de détachement (certificat A1 ou de la
 convention bilatérale de sécurité sociale, information écrite au-delà de 4 semaines) · Go / No Go par

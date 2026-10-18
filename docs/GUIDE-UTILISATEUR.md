@@ -130,6 +130,9 @@ Les feuilles validées partent à la paie avec le lot du mois : le manager n'a r
   le service RH.
 - « Formations » : renouvellements à prévoir. « Planifier » inscrit le collaborateur à une session ouverte ; sans session,
   « Demander au RH ».
+- « Couverture minimale des équipes » (écran Équipe) : jour où votre équipe n'aura plus assez de secouristes ou
+  d'équipiers incendie présents et formés, et pourquoi (certification qui expire, départ, absence, sans sa nature).
+- « Entretiens » : un entretien de mi-carrière peut apparaître, « à planifier avant le » une date donnée par le service RH.
 
 ## Service RH
 
@@ -156,6 +159,20 @@ entretiens : un collègue ou son manager le fait.
   convocations, puis « Clôturer » : présences, résultats, certifications datées du dernier jour, absents à replanifier.
 - « Plan & budget » : enveloppes par équipe, « Importer un plan », coût réel saisi à la clôture d'une action.
 - « Référentiels » : formations, habilitations, destinations, postes et leurs exigences ; un élément inutile s'archive.
+- Postes à risques particuliers : case « Liste des postes à risques particuliers (art. L4154-2) » du poste (Référentiels →
+  Postes ; les postes en suivi renforcé, exposés ou qui exigent une habilitation SIR ou ATEX sont signalés « à examiner »,
+  jamais cochés d'office) et formation renforcée désignée dans Paramètres → Postes à risques particuliers. Un CDD, un
+  intérimaire ou un alternant affecté à un tel poste sans cette formation suivie depuis son entrée est « Non conforme »,
+  avec « Inscrire à la formation », et en No Go sur les chantiers. « Imprimer la liste des postes à risques » donne la
+  liste à tenir à disposition de l'inspection du travail et du CSE.
+- Couverture minimale des équipes : avec les exigences communes de l'équipe (Référentiels → Postes, « Modifier »), un
+  minimum de titulaires par formation (proposition : 1 SST au minimum ; l'INRS recommande 10 à 15 % de l'effectif). Aucun
+  seuil par défaut. L'alerte datée (« Sous le minimum », « À anticiper ») s'affiche au tableau de bord, dans « Équipes &
+  managers », dans « Échéances » (filtre « Couverture ») et au récapitulatif des échéances. En équipes successives, créer
+  une équipe par quart.
+- Entretien de mi-carrière : une visite de mi-carrière enregistrée rend l'entretien de parcours dû dans le délai réglé
+  (Paramètres → Entretien de mi-carrière, 2 mois par défaut, à confirmer juridiquement) ; un entretien de parcours réalisé
+  depuis la visite le remplit.
 - Fiche du collaborateur : « Avis du médecin du travail », « Demander une visite » ; les visites dues (embauche, reprise,
   mi-carrière) sont signalées dans « Échéances ».
 
@@ -325,6 +342,9 @@ questions encore ouvertes).
 
 - **Postes et exigences** : formations et habilitations exigées par poste et par équipe (« Référentiels »), case « travail
   de nuit ou en continu » des équipes (Référentiels → Postes).
+- **Sécurité au poste** : liste des postes à risques particuliers (avis du médecin du travail et du CSE) et formation
+  renforcée à désigner ; seuils de secouristes et d'équipiers incendie par équipe (une équipe par quart) ; délai de
+  l'entretien de mi-carrière à confirmer juridiquement.
 - **Référentiels** et leurs codes, convenus avec l'équipe Keystone ; prévenir Keystone du changement des heures validées
   (une semaine rouverte et corrigée renvoie ses heures, un projet retiré à 0).
 - **Reprise Lucca** : export des salariés (sorties comprises) et des soldes arrêtés au 1er janvier 2027, certifications,

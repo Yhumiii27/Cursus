@@ -317,6 +317,11 @@ export const CHAMP_LABEL: Record<string, string> = {
   contingentAccord: 'Référence du contingent', ferie: 'Jour férié', cor: 'Contrepartie obligatoire en repos (h)',
   // Absences dans le fichier d'import de la paie (Paramètres → Absences et paie).
   absencesFichierPaie: 'Absences dans le fichier d’import de la paie', absencesPaieAPartirDu: 'Absences transmises à la paie à partir du',
+  // Sécurité au poste (lot 6) : postes à risques particuliers et formation renforcée (art. L4154-2), couverture minimale des
+  // équipes, entretien de parcours après la visite de mi-carrière.
+  risquesL4154: 'Poste à risques particuliers (art. L4154-2)', formationRenforceeCode: 'Formation renforcée à la sécurité',
+  couverture: 'Couverture minimale', couvertureAvant: 'Couverture minimale avant',
+  entretienMiCarriereActif: 'Entretien de parcours après la visite de mi-carrière', entretienMiCarriereMois: 'Délai de l’entretien de mi-carrière (mois)',
 };
 
 const valeur = (v: unknown): string => {

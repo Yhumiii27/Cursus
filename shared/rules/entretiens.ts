@@ -8,9 +8,14 @@ import { campagne, concerneParCampagne } from './campagne.ts';
 import type { Conflit } from './conflits.ts';
 import { present } from './contrats.ts';
 import { ageAu } from './mineurs.ts';
+import { ENTRETIEN_MI_CARRIERE, entretienMiCarriere } from './entretien-mi-carriere.ts';
 
 export type ObligStatus = 'late' | 'soon' | 'planifie' | 'todo' | 'ok';
-export interface Obligation { id: number; e: Employe; kind: EntretienType; due: ISODate; detail: string; pl?: Entretien; st: ObligStatus; risk?: boolean }
+export interface Obligation {
+  id: number; e: Employe; kind: EntretienType; due: ISODate; detail: string; pl?: Entretien; st: ObligStatus; risk?: boolean;
+  /** Intitulé propre (entretien de parcours de mi-carrière) ; absent : celui du type (ENT_TYPES). */
+  libelle?: string;
+}
 
 export const ENT_ST: Record<ObligStatus, [string, string]> = {
   late: ['En retard', 'tag-accent'], soon: ['À échéance', 'tag-outline'], planifie: ['Planifié', 'tag-neutral'], todo: ['À planifier', 'tag-outline'], ok: ['À jour', 'tag-neutral'],
@@ -44,8 +49,16 @@ export function obligations(d: Domain, scopeIds: number[]): Obligation[] {
       out.push({ id, e, kind, due, detail, pl, st: pl ? (pl.date < Ti ? 'late' : 'planifie') : due < Ti ? 'late' : due <= in90 ? 'soon' : 'ok', ...(extra || {}) });
     };
     const lastE = done(['epp', 'reprise'])[0];
-    push('epp', lastE ? addM(lastE.date, 48) : addM(e.entree, 12),
-      lastE ? `Dernier le ${fmt(parse(lastE.date))} · périodicité 4 ans` : `Embauche le ${fmt(parse(e.entree))} — premier entretien dans l’année`);
+    const periodique = lastE ? addM(lastE.date, 48) : addM(e.entree, 12);
+    // Après la visite de mi-carrière (shared/rules/entretien-mi-carriere.ts) : l'entretien de parcours avancé à son
+    // échéance, sans mention de la visite hors du service RH et de l'intéressé (`visite` null).
+    const mi = entretienMiCarriere(d.ds, e);
+    if (mi && mi.due < periodique) {
+      push('epp', mi.due, `${mi.visite ? `Visite de mi-carrière du ${fmt(parse(mi.visite))} — ` : ''}entretien de mi-carrière à planifier avant le ${fmt(parse(mi.due))}`, { libelle: ENTRETIEN_MI_CARRIERE });
+    } else {
+      push('epp', periodique,
+        lastE ? `Dernier le ${fmt(parse(lastE.date))} · périodicité 4 ans` : `Embauche le ${fmt(parse(e.entree))} — premier entretien dans l’année`);
+    }
     if (e.repriseDate && !(lastE && lastE.date >= e.repriseDate)) {
       push('reprise', e.repriseDate, `Retour ${de(e.repriseMotif ?? 'congé')} le ${fmt(parse(e.repriseDate))} — à proposer systématiquement`);
     }

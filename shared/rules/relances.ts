@@ -14,6 +14,7 @@ import type { ISODate, Settings } from '../types.ts';
 import { present } from './contrats.ts';
 import { obligations } from './entretiens.ts';
 import { ECHEANCE_18_ANS, ECHEANCE_DEROGATION } from './mineurs.ts';
+import { etatsCouverture } from './couverture.ts';
 
 /** Paliers proposés (jours avant l'échéance) ; « échu » s'y ajoute toujours. */
 export const PALIERS_POSSIBLES = [90, 60, 30, 15, 7] as const;
@@ -44,7 +45,7 @@ export function palierDe(jours: number, paliers: readonly number[]): string | nu
 /** Intitulé d'un palier dans le récapitulatif. */
 export const titrePalier = (palier: string) => (palier === 'echu' ? 'Échéances dépassées' : `Sous ${palier} jours`);
 
-export type CategorieRelance = 'formation' | 'habilitation' | 'visite' | 'formalite' | 'sanitaire' | 'deplacement' | 'entretien' | 'contrat';
+export type CategorieRelance = 'formation' | 'habilitation' | 'visite' | 'formalite' | 'sanitaire' | 'deplacement' | 'entretien' | 'contrat' | 'couverture';
 
 /** Objet relancé : clé stable (avec la date de l'échéance : un renouvellement repart de zéro), salarié, libellé neutre. */
 export interface Relance {
@@ -54,6 +55,11 @@ export interface Relance {
    * d'un salarié mineur) : jamais dans le récapitulatif d'un manager.
    */
   sante: boolean;
+  /**
+   * Couverture minimale d'une équipe (shared/rules/couverture.ts) : l'équipe, et `empId` 0 (aucun salarié désigné) ;
+   * relancée au service RH, au manager de l'équipe et au référent HSE.
+   */
+  equipe?: string;
 }
 
 /**
@@ -113,7 +119,17 @@ export function relancesDues(d: Domain, emps: EmpX[], paliers: readonly number[]
     const echeance = o.pl && o.st === 'late' ? o.pl.date : o.due;
     ajouter({
       cle: `entretien:${o.id}:${o.kind}:${echeance}`, empId: o.id, echeance, categorie: 'entretien', sante: false,
-      libelle: o.pl ? `${ENT_TYPES[o.kind].nom} planifié, date dépassée` : ENT_TYPES[o.kind].nom,
+      libelle: o.pl ? `${o.libelle ?? ENT_TYPES[o.kind].nom} planifié, date dépassée` : o.libelle ?? ENT_TYPES[o.kind].nom,
+    });
+  }
+  // Couverture minimale des équipes (SST, EPI incendie…) : relancée à l'approche du premier jour sous le minimum, sans nom
+  // ni nature d'absence.
+  for (const c of etatsCouverture(d.ds, Math.max(...paliers, 90))) {
+    if (!c.manque) continue;
+    const court = d.fm(c.formation)?.court ?? c.formation;
+    ajouter({
+      cle: `couverture:${c.equipe}:${c.formation}:${c.manque.le}`, empId: 0, equipe: c.equipe, echeance: c.manque.le, categorie: 'couverture', sante: false,
+      libelle: `Couverture ${court} : ${c.manque.compte} sur ${c.min} minimum`,
     });
   }
   // Fins de contrat prévues (CDD, mission, alternance), tant qu'aucune sortie n'est enregistrée.
@@ -125,4 +141,4 @@ export function relancesDues(d: Domain, emps: EmpX[], paliers: readonly number[]
 }
 
 /** Catégories du récapitulatif du référent HSE : formations et habilitations. */
-export const CATEGORIES_HSE: readonly CategorieRelance[] = ['formation', 'habilitation'];
+export const CATEGORIES_HSE: readonly CategorieRelance[] = ['formation', 'habilitation', 'couverture'];

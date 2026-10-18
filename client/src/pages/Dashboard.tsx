@@ -15,6 +15,7 @@ import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derive
 import { useAgir } from '../state/actions.ts';
 import { refusDemande } from '../state/confirmations.ts';
 import { useStore } from '../state/store.tsx';
+import { CouverturePanel } from '../components/Couverture.tsx';
 
 /** Ligne d'échéance (tableau de bord, page Échéances). */
 export function EchRow({ x, onOpen, onAct }: { x: EchItem; onOpen: () => void; onAct: () => unknown }) {
@@ -186,6 +187,9 @@ export function Dashboard() {
             </div>
           </Panel>
         )}
+
+        {/* Couverture minimale des équipes en SST et équipiers incendie (shared/rules/couverture.ts). */}
+        <CouverturePanel style={{ flex: '1 1 100%' }} />
 
         <Panel style={{ flex: '1 1 560px' }} title="Échéances prioritaires"
           aside={<a href="/echeances" className="link-more" onClick={e => { e.preventDefault(); go('echeances'); }}>Toutes les échéances →</a>}>

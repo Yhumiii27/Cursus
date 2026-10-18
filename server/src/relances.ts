@@ -37,6 +37,8 @@ function texteRecapitulatif(d: Domain, relances: Relance[]): string {
   const blocs = ordre.filter(p => relances.some(r => r.palier === p)).map(p => [
     `${titrePalier(p)} :`,
     ...relances.filter(r => r.palier === p).map(r => {
+      // Couverture minimale d'une équipe : aucun salarié désigné.
+      if (r.equipe) return `• Équipe ${r.equipe} — ${r.libelle} : ${r.jours < 0 ? 'depuis le' : 'à partir du'} ${fmtIso(r.echeance)}`;
       const e = d.emp(r.empId)!;
       return `• ${e.nom} (${equipeLabel(e)}) — ${r.libelle} : ${r.jours < 0 ? 'dépassée depuis le' : 'échéance le'} ${fmtIso(r.echeance)}`;
     }),
@@ -64,8 +66,8 @@ function destinataires(db: Db, d: Domain, relances: Relance[], today: string): D
   const managers = new Set(d.ds.referentiels.equipes.map(q => q.managerId).filter((m): m is number => !!m));
   for (const m of managers) {
     const a = adresseSalarie(db, m, today);
-    ajouter(a?.adresse, a?.nom ?? null, relances.filter(r => !r.sante && r.empId !== m && d.mgrOf(d.emp(r.empId) as Employe) === m
-      && !(r.categorie === 'entretien' && r.cle.split(':')[2] === 'reprise')));
+    ajouter(a?.adresse, a?.nom ?? null, relances.filter(r => (r.equipe ? d.teamsOf(m).includes(r.equipe) : !r.sante && r.empId !== m && d.mgrOf(d.emp(r.empId) as Employe) === m
+      && !(r.categorie === 'entretien' && r.cle.split(':')[2] === 'reprise'))));
   }
   // Référents HSE : formations et habilitations de tous.
   for (const c of db.where<Compte>('comptes', 'profilRh', 'referent_hse').filter(x => x.actif)) {

@@ -17,6 +17,8 @@ import { debutSaisieDe } from '../../shared/rules/suivi-feuilles.ts';
 import { reouvertureNeutre } from '../../shared/rules/regularisation.ts';
 import { effectifSite } from '../../shared/rules/delegation.ts';
 import { reglagesParDefaut } from '../../shared/reglages.ts';
+import { etatsCouverture } from '../../shared/rules/couverture.ts';
+import { entretienMiCarriere } from '../../shared/rules/entretien-mi-carriere.ts';
 import type { DemandeVisite, LotReprise } from '../../shared/types.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Chantier, ClotureConges, CurrentUser, InformationCp, Dataset, SoldeSortie, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
@@ -226,7 +228,10 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
   if (user.role === 'rh') {
     const droits = droitsRh(user);
     // Sans droit « paie » (gestionnaire RH), ni les rubriques d'absence en attente ni celles des lots : le code révèle la catégorie.
-    return droits.includes('rh') ? { ...full, taches: tachesProches(full.taches, full.today), ...(droits.includes('paie') ? {} : sansCodesAbsences(full)) } : vueProfil(full, droits);
+    // Couverture minimale des équipes (t067), calculée ici sur l'instantané complet : toutes les équipes.
+    return droits.includes('rh')
+      ? { ...full, taches: tachesProches(full.taches, full.today), ...(droits.includes('paie') ? {} : sansCodesAbsences(full)), couverture: etatsCouverture(full, full.settings.horizonAlerte) }
+      : vueProfil(full, droits);
   }
   const d = new Domain(full);
   const ids = new Set(scopeIds(d, user));
@@ -253,6 +258,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
       autorisationTravail: null, autorisationVerdict: verdictAutorisation(e, full.today), ...naissanceVueManager(e, full.today),
       // Dérogation pour travaux réglementés d'un mineur : dossier du service RH ; le manager a l'indication « mineur ».
       derogationTravauxLe: null,
+      // Entretien de parcours après la visite de mi-carrière : l'échéance seule, jamais la date de la visite.
+      entretienMiCarriere: entretienMiCarriere(full, e)?.due ?? null,
       ...(repriseMedicale(e, full.absences) ? { repriseMotif: null, repriseDate: null } : { repriseMotif: e.repriseDate ? 'absence longue' : null }),
     }
     : e);
@@ -320,13 +327,17 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     mandats: (full.mandats ?? []).filter(m => m.empId === user.empId),
     // Effectif du site, transmis à l'élu avec ses mandats (compteur identique à celui du service RH) ; rien sans mandat.
     effectifCse: (full.mandats ?? []).some(m => m.empId === user.empId) ? full.effectifCse : null,
+    // Couverture minimale : celle des équipes que le manager encadre (ses membres, absences sans leur nature) ; rien pour
+    // le collaborateur.
+    couverture: isMgr ? etatsCouverture(full, full.settings.horizonAlerte, d.teamsOf(user.empId)) : [],
   };
 }
 
 /** Référentiels des postes et des équipes vidés de leurs exigences (profil qui ne reçoit pas les titres). */
 const sansExigences = (r: Dataset['referentiels']): Pick<Dataset['referentiels'], 'postes' | 'equipes'> => ({
-  postes: r.postes.map(p => ({ ...p, formations: [], habilitations: [] })),
-  equipes: r.equipes.map(q => ({ ...q, exigences: null })),
+  // Poste à risques particuliers (formation renforcée exigée) et couverture minimale : sans les titres, de même.
+  postes: r.postes.map(p => ({ ...p, formations: [], habilitations: [], risquesL4154: false })),
+  equipes: r.equipes.map(q => ({ ...q, exigences: null, couverture: null })),
 });
 
 /** Feuille d'une vue sans la date de naissance : indication « mineur » de la semaine (contrôles des mineurs). */
@@ -380,6 +391,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
       ? { autorisationTravail: e.autorisationTravail ? { ...e.autorisationTravail, numero: null } : null }
       : { autorisationTravail: null, autorisationVerdict: verdictAutorisation(e, full.today) }),
     ...(lecture && !repriseMedicale(e, full.absences) ? { repriseMotif: e.repriseDate ? 'absence longue' : null } : { repriseMotif: null, repriseDate: null }),
+    // Entretien de parcours après la visite de mi-carrière (lecture seule, qui voit les entretiens) : l'échéance seule.
+    entretienMiCarriere: lecture ? entretienMiCarriere(full, e)?.due ?? null : null,
   }));
   const ressources = new Set(full.referentiels.chantiers.filter(c => c.statut !== 'archive').flatMap(c => c.ressources));
   // Déplacements : l'état du dossier et les formalités manquantes sont calculés ici, avec les pièces du dossier,
@@ -442,6 +455,11 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     // Compteur des heures de délégation : service RH et l'élu seulement.
     mandats: [],
     effectifCse: null,
+    // Couverture minimale des équipes : référent HSE et lecture seule ; le référent HSE, qui ne reçoit pas les absences
+    // hors des chantiers, sans le nom d'un membre absent.
+    couverture: !formations ? [] : etatsCouverture(full, full.settings.horizonAlerte).map(x => (lecture || !x.manque ? x : {
+      ...x, manque: { ...x.manque, causes: x.manque.causes.map(c => (c.type === 'absence' ? { ...c, empId: null, nom: null, le: null } : c)) },
+    })),
   };
 }
 

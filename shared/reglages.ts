@@ -70,6 +70,16 @@ export const texte = (max: number, libelle: string) => (v: unknown): string => {
 };
 
 /**
+ * Code d'une formation du catalogue (minuscules, chiffres, « - », « _ »), ou vide. Le réglage ne lit pas le catalogue :
+ * un code inconnu ou archivé ne vaut rien et l'écran l'annonce (shared/rules/formation-renforcee.ts).
+ */
+export const codeFormation = (libelle: string) => (v: unknown): string => {
+  const t = typeof v === 'string' ? v.trim().toLowerCase() : '';
+  if (t && !/^[a-z0-9_-]{1,40}$/.test(t)) throw new ReglageInvalide(`${libelle} : code de formation invalide`);
+  return t;
+};
+
+/**
  * Table des réglages, groupée par section de Paramètres (client/src/pages/parametres/) : un champ de Settings sans sa
  * ligne ici est une erreur de compilation. Chaque valeur enregistrée est tracée dans le journal (anciennes et nouvelles
  * valeurs) : codes, nombres, dates et cases à cocher seulement, jamais de texte libre.
@@ -152,6 +162,13 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   absencesFichierPaie: { defaut: true, controle: booleen },
   //   Date de mise en service : jours d'absence d'avant jamais transmis (traités par Lucca et Sage), vide par défaut —
   absencesPaieAPartirDu: { defaut: null, controle: dateOuVide('Absences transmises à partir du') },
+  // — Postes à risques particuliers (parametres/PostesRisques.tsx, shared/rules/formation-renforcee.ts) : formation
+  //   renforcée à la sécurité non désignée par défaut (aucune exigence, avertissement à l'écran) —
+  formationRenforceeCode: { defaut: '', controle: codeFormation('Formation renforcée à la sécurité') },
+  // — Entretien de mi-carrière (parametres/EntretienMiCarriere.tsx, shared/rules/entretien-mi-carriere.ts) : actif, 2 mois
+  //   après la visite par défaut, lecture la plus prudente du texte, à confirmer juridiquement —
+  entretienMiCarriereActif: { defaut: true, controle: booleen },
+  entretienMiCarriereMois: { defaut: 2, controle: entier(1, 12) },
 };
 
 /**

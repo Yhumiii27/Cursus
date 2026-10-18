@@ -106,7 +106,7 @@ export function Entretiens() {
                     <tr key={key}>
                       <td><Two main={o.e.nom} sub={equipeLabel(o.e)} nowrap /></td>
                       <td>
-                        <Two main={ENT_TYPES[o.kind].nom} sub={o.detail} />
+                        <Two main={o.libelle ?? ENT_TYPES[o.kind].nom} sub={o.detail} />
                         {o.risk && <div className="note-accent">{RISK_TEXT}</div>}
                       </td>
                       <td><Two main={due} sub={relLabel} nowrap subNowrap /></td>

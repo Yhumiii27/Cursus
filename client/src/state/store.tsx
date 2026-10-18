@@ -36,7 +36,8 @@ export interface UiState {
   habFilter: 'tous' | 'due' | 'ko' | 'pending';
   habType: string | null;
   tripSel: number | null;
-  echType: 'tous' | 'cert' | 'hab' | 'trip' | 'med' | 'exigence' | 'contrat';
+  /** `couverture` : couverture minimale des équipes (components/Couverture.tsx), à part des échéances par salarié. */
+  echType: 'tous' | 'cert' | 'hab' | 'trip' | 'med' | 'exigence' | 'contrat' | 'couverture';
   goSel: string | null;
   exercice: number | null;
   planFilter: 'tous' | PlanStatut;

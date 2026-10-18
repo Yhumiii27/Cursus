@@ -9,6 +9,7 @@ import { downloadCsv } from '../print.ts';
 import { useEnriched, useIntentPermis } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { EchRow } from './Dashboard.tsx';
+import { CouverturePanel } from '../components/Couverture.tsx';
 
 const dmy = (d: Date) => d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
@@ -56,10 +57,13 @@ export function Echeances() {
       title="Échéances"
       actions={<>
         <Seg name="echType" label="Type d’échéance" value={ui.echType} onChange={x => setUi({ echType: x })}
-          options={[['tous', 'Tout'], ['cert', 'Certifications'], ['hab', 'Habilitations'], ['med', 'Visites médicales'], ['exigence', 'Exigences'], ['trip', 'Voyages'], ['contrat', 'Contrats']]} />
+          options={[['tous', 'Tout'], ['cert', 'Certifications'], ['hab', 'Habilitations'], ['med', 'Visites médicales'], ['exigence', 'Exigences'], ['trip', 'Voyages'], ['contrat', 'Contrats'], ['couverture', 'Couverture']]} />
         <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exportCsv}>Exporter (CSV)</Btn>
       </>}
     >
+      {/* Couverture minimale des équipes (SST, EPI incendie) : par équipe, à part des échéances de chaque salarié. */}
+      {(ui.echType === 'tous' || ui.echType === 'couverture') && <CouverturePanel />}
+
       <Panel title="Renouvellements par mois" style={{ gap: 'var(--space-4)' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 8, alignItems: 'end', height: 156 }}>
           {v.months.map((m, i) => (
@@ -96,7 +100,7 @@ export function Echeances() {
             </div>
           </div>
         ))}
-        {v.groups.length === 0 && <Empty pad="sm">Aucune échéance sur les 12 prochains mois.</Empty>}
+        {v.groups.length === 0 && <Empty pad="sm">{ui.echType === 'couverture' ? 'Couverture minimale des équipes : les seuils non tenus figurent ci-dessus (Référentiels → Postes pour les saisir).' : 'Aucune échéance sur les 12 prochains mois.'}</Empty>}
       </Panel>
     </Page>
   );

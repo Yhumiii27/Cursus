@@ -30,6 +30,7 @@ import { useStore } from '../state/store.tsx';
 import { HistoriqueFiche } from './Journal.tsx';
 import { EchRow } from './Dashboard.tsx';
 import { PiecesFiche } from '../components/PiecesFiche.tsx';
+import { CouverturePanel } from '../components/Couverture.tsx';
 
 /** Valeur du filtre d'équipe pour les collaborateurs sans équipe (« À affecter »). */
 const SANS_EQUIPE = '';
@@ -137,6 +138,7 @@ export function Collaborateurs() {
           <Fine>Fin d’essai : date limite pour notifier une rupture dans le délai de prévenance (art. L1221-25) ; décision à prendre avec le service RH.</Fine>
         </Panel>
       )}
+      {manager && <CouverturePanel equipes={myTeams} />}
       <div className="row-wrap">
         <section style={{ flex: '1 1 420px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
           <div className="scroll-x">

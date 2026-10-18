@@ -103,6 +103,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           '« Missions » : qui est en mission aujourd’hui et le « Planning des 4 prochaines semaines » (missions, absences, fériés).',
           '« Équipe » : conformité de chacun (formations, habilitations, aptitude réduite au verdict et aux restrictions). « Ajouter un membre » reprend un salarié « à affecter » ; une mutation directe passe par le service RH.',
           '« Formations » : renouvellements à prévoir. « Planifier » inscrit le collaborateur à une session ouverte ; sans session, « Demander au RH ».',
+          '« Couverture minimale des équipes » (écran Équipe) : jour où votre équipe n’aura plus assez de secouristes ou d’équipiers incendie présents et formés, et pourquoi.',
         ],
       },
     ],
@@ -126,6 +127,9 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           '« Nouvelle session » (service RH et référent HSE) : formation, dates, lieu, places ; inscriptions, convocations, puis « Clôturer » (présences, résultats, certifications datées du dernier jour).',
           '« Plan & budget » : enveloppes par équipe, « Importer un plan », coût réel à la clôture d’une action.',
           'Référentiels : formations, habilitations, destinations, postes et leurs exigences ; un élément inutile s’archive.',
+          'Postes à risques particuliers : case « Liste des postes à risques particuliers (art. L4154-2) » du poste, formation renforcée désignée dans Paramètres ; un CDD, un intérimaire ou un alternant qui ne l’a pas suivie depuis son entrée est « Non conforme » et en No Go. « Imprimer la liste des postes à risques » la tient à disposition de l’inspection et du CSE.',
+          'Couverture minimale des équipes (SST, EPI incendie) : seuils saisis avec les exigences de l’équipe, aucun par défaut ; alerte datée au tableau de bord, dans « Équipes & managers » et « Échéances ».',
+          'Entretien de mi-carrière : après la visite de mi-carrière enregistrée, l’entretien de parcours est dû dans le délai de Paramètres → Entretien de mi-carrière (2 mois par défaut, à confirmer juridiquement).',
         ],
       },
       {
@@ -225,6 +229,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
         titre: 'Organisation et reprise',
         points: [
           'Postes et formations ou habilitations exigées par poste et par équipe ; référentiels et leurs codes, convenus avec l’équipe Keystone.',
+          'Liste des postes à risques particuliers (avis du médecin du travail et du CSE) et formation renforcée à désigner ; seuils de secouristes et d’équipiers incendie par équipe (une équipe par quart en 2x8, 3x8 ou continu) ; délai de l’entretien de mi-carrière à confirmer juridiquement.',
           'Export Lucca des salariés et des soldes arrêtés au 1er janvier 2027 ; même date dans Paramètres → Absences et paie (« Absences transmises à partir du »).',
           'Prévenir l’équipe Keystone du changement des heures validées (semaine rouverte et corrigée).',
         ],

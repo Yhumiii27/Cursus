@@ -46,6 +46,8 @@ shared/            Domaine partagé (aucune dépendance)
                    absences-paie.ts : absences dans le fichier d'import de la paie (rubriques, ventilation, écart, régularisation)
                    solde-sortie.ts : état des compteurs à la date de sortie (CP, RTT, récupération, CET) et rubriques de sortie
                    pieces.ts : pièces justificatives (types reconnus sur le contenu, 10 Mo, nom gardé, droits de consultation)
+                   formation-renforcee.ts (postes à risques particuliers, art. L4154-2), couverture.ts (couverture minimale des
+                   équipes en SST et équipiers incendie), entretien-mi-carriere.ts (entretien de parcours après la visite) : lot 6
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   migrate.ts       Reprises des bases antérieures, rejouées à chaque démarrage (idempotentes)
@@ -736,9 +738,9 @@ aucun champ du paramètre n'est recopié.
 | `referentiel.habilitation.archiver` | id, archive? ; rétablissement refusé tant qu'un prérequis est archivé (formation à rétablir d'abord) ; message : titres demandés et demandes restés en attente | RH, référent HSE |
 | `referentiel.destination.enregistrer` | code (pays ISO à deux lettres, pas FR) ou id, pays, visa (`VISA_RULES`), visaSub?, oblig [vaccins], rec [vaccins, sans le DTP], passMois (0 à 24), secu? (vide : selon le code pays) | RH |
 | `referentiel.destination.archiver` | id, archive? | RH |
-| `referentiel.poste.enregistrer` | id? (modification ; sans : création), nom (80 caractères, unique parmi les postes en vigueur), formations [codes], habilitations [codes] (en vigueur ; déjà exigés et archivés depuis : gardés), sir?, expose? (poste exposé à des risques particuliers) ; message : salariés qui deviennent non conformes (ligne du journal rattachée à eux), intitulé recopié sur les fiches des titulaires | RH |
+| `referentiel.poste.enregistrer` | id? (modification ; sans : création), nom (80 caractères, unique parmi les postes en vigueur), formations [codes], habilitations [codes] (en vigueur ; déjà exigés et archivés depuis : gardés), sir?, expose? (poste exposé à des risques particuliers), risquesL4154? (liste des postes à risques particuliers, formation renforcée) ; message : salariés qui deviennent non conformes (ligne du journal rattachée à eux), intitulé recopié sur les fiches des titulaires | RH |
 | `referentiel.poste.archiver` | id, archive? ; refusé tant qu'un salarié présent occupe le poste ; rétablissement refusé si un poste en vigueur porte le même intitulé | RH |
-| `referentiel.equipe.exigences` | nom (équipe), formations, habilitations (vides : aucune exigence commune), nuit? (travail de nuit ou en continu : refusé si l'équipe compte un salarié mineur) ; message comme pour un poste | RH |
+| `referentiel.equipe.exigences` | nom (équipe), formations, habilitations (vides : aucune exigence commune), nuit? (travail de nuit ou en continu : refusé si l'équipe compte un salarié mineur), couverture? ([{ formation, min }] : formation du catalogue en vigueur, une fois chacune, minimum entier de 1 à l'effectif présent ; [] : retirée ; absente : inchangée ; journal : codes et nombres avant et après) ; message comme pour un poste | RH |
 | `hab.demander` | empId, h : habilitation exigée jamais délivrée, titre « en attente » de délivrance (déjà demandée : rien n'est refait ; déjà délivrée ou archivée : refus) | RH, référent HSE |
 | `referentiel.charger` | referentiel (`formations`/`habilitations`/`destinations`) : référentiel type (celui de la démonstration) chargé dans un référentiel vide, archivés compris ; habilitations après les formations (prérequis présents et en vigueur) | RH, référent HSE (destinations : RH) |
 | `medical.demander` | empId, motif? (`periodique`/`embauche`/`reprise`/`employeur`/`mi_carriere`/`fin_carriere` ; par défaut celui de la visite due la plus proche, sinon embauche sans visite enregistrée, sinon périodique) ; e-mail au service de santé au travail | RH (une demande en cours par collaborateur) |
@@ -809,7 +811,7 @@ aucun champ du paramètre n'est recopié.
 | `entretien.signer` | id | salarié |
 | `entretien.remettre` | id, mode (`main_propre`/`refus`/`portail`), date? (main propre, refus : de la clôture à aujourd'hui ; portail : le jour même, compte actif exigé, e-mail avec le seul lien vers Cursus) ; une remise sur papier est définitive, une mise à disposition se complète par une remise sur papier | évaluateur (manager direct) ou RH, jamais pour son propre entretien |
 | `entretien.telecharger` | id : premier téléchargement du compte rendu clos, daté (`telechargeLe`) | salarié, depuis son espace |
-| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps, santeMiCarriereAge…, cpMaladie, feriesTravaillesAutorises, tauxMajorationFerie, plafondHeuresComplementaires, heuresComplementairesAccord, moyenne12SemainesMax, moyenne12SemainesAccord, contingentHeuresSup, contingentAlerte, contingentAccord, absencesFichierPaie, absencesPaieAPartirDu, piecesStockage), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
+| `parametres.maj` | champs de la table `REGLAGES` (`shared/reglages.ts`, chacun passé par son contrôle : horizonAlerte, seuilBudget, rtt39, uniquementReglementaire, partageKeystone, identifiantKeystone, politiqueReportCp, rttAnneeSuivanteDes, heuresSupMode, heuresSupAccord, periodeRattachement, clotureJour, majorationDimanche, campagneDebut, campagneFin, campagneAncienneteMois, campagneExclus, campagnePreavisJours, relancesActives, relancesPaliers, relancesJour, formationsTemps, santeMiCarriereAge…, cpMaladie, feriesTravaillesAutorises, tauxMajorationFerie, plafondHeuresComplementaires, heuresComplementairesAccord, moyenne12SemainesMax, moyenne12SemainesAccord, contingentHeuresSup, contingentAlerte, contingentAccord, absencesFichierPaie, absencesPaieAPartirDu, piecesStockage, formationRenforceeCode, entretienMiCarriereActif, entretienMiCarriereMois), silent? ; saisie refusée par un contrôle ou par `COHERENCE` (repos sans référence d'accord, campagne dont l'ouverture suit la clôture) : 400, rien n'est enregistré | administrateur RH |
 | `demo.reinitialiser` | — | administrateur RH, mode démonstration |
 | `compte.creer` | empId (ou nom, adresse : compte externe), type (`microsoft`/`local`), identifiant, profilRh | administrateur RH (mot de passe provisoire dans `result`, affiché une fois) |
 | `compte.profil` | id, profilRh (`aucun`/`rh_gestionnaire`/`rh_admin`/`referent_hse`/`paie`/`lecture_seule`) | administrateur RH (jamais le dernier administrateur actif ; un compte externe garde un profil) |
@@ -1288,6 +1290,48 @@ Table `postes` (intitulé, `formations` et `habilitations` exigées, `archive`),
   filtre « Exigences » des Échéances, indicateur « Exigences manquantes » du tableau de bord (celui des expirées n'en
   compte ni les échéances ni les salariés), motif et demandes de l'espace collaborateur (`ExigencesPortail`).
 
+### Sécurité au poste (lot 6, chantier 4, étape 1)
+
+- **Postes à risques particuliers et formation renforcée (t061, `shared/rules/formation-renforcee.ts`)** : case
+  `Poste.risquesL4154` (« Liste des postes à risques particuliers (art. L4154-2) », colonne `risques_l4154` de `postes`,
+  décochée par défaut), distincte de `sir` et `expose` ; les postes en suivi renforcé, exposés ou qui exigent une
+  habilitation SIR ou ATEX sont signalés « à examiner » (`raisonsDExaminer`), jamais cochés d'office. Formation exigée :
+  réglage `formationRenforceeCode` (Paramètres → Postes à risques particuliers, `pages/parametres/PostesRisques.tsx`), vide
+  par défaut : aucune exigence et l'avertissement `avertissementRenforcee` (Paramètres, Référentiels, dialogue du poste).
+  `exigencesDe` ajoute pour un CDD, un intérimaire ou un alternant (`CONTRATS_RENFORCEE`) titulaire d'un poste coché
+  l'exigence `renforcee` d'origine « contrat … sur poste à risques », satisfaite seulement par une certification obtenue
+  depuis l'entrée (`depuis`), même hors du filtre « réglementaires uniquement » : « Non conforme », échéance
+  « Formation renforcée non suivie », action « Inscrire à la formation », récapitulatif. Go / No Go : `motifRenforcee`,
+  No Go sous le code `CERTIFICATION` (contrat de l'API v1 inchangé), réserve si une session est planifiée avant le
+  démarrage. Liste imprimable (`client/src/postes-risques.ts`, « Imprimer la liste des postes à risques », sans nom de
+  salarié). Profil paie : case retirée avec les exigences (`sansExigences`).
+- **Couverture minimale des équipes (t067, `shared/rules/couverture.ts`)** : `Equipe.couverture` ([{ formation, min }],
+  colonne JSON de `equipes`), saisie avec les exigences de l'équipe (`RefEquipeDialog`, `server/src/actions/couverture.ts`),
+  aucun seuil par défaut (« Proposer 1 SST au minimum », recommandation INRS en aide ; une équipe par quart en équipes
+  successives). `etatsCouverture` compte chaque jour, d'aujourd'hui à l'horizon d'alerte, les membres entrés, pas sortis,
+  sans absence validée ou signalée, titulaires d'une certification valide ; premier jour sous le minimum (`manque` : date,
+  nombre, dernier jour du manque, causes : expiration, sortie, absence, titulaires trop peu nombreux). Calculé par le
+  serveur (`Dataset.couverture`, `server/src/dataset.ts`) : service RH, lecture seule et référent HSE toutes les équipes ;
+  manager, ses équipes ; collaborateur et paie, rien (paie : seuils retirés). Le référent HSE, qui ne reçoit que les
+  absences des ressources des chantiers, a sa couverture calculée avec celles-là seules (`couvertureVueHse`,
+  `sansAbsences`, « couverture à vérifier avec le service RH ») : un manque daté par une autre absence lui désignerait,
+  par élimination parmi les titulaires dont il voit les certifications, l'absent et ses dates. Un seuil déjà enregistré
+  que l'effectif présent ne permet plus d'atteindre reste valable (pas de plafond pour une ligne inchangée). Affichage : `components/Couverture.tsx` (tableau de bord, Équipes & managers,
+  Échéances filtre « Couverture », équipe du manager, cellule de Référentiels → Postes). Récapitulatif : relance
+  `couverture` (`relancesCouverture`, clé `couverture:<équipe>:<formation>:<date>`, `empId` 0, `equipe`) : manque à
+  venir relancé par paliers sous sa date ; déjà là, comme échu sous la date de son début (`debutManque` : lendemain de
+  l'expiration ou de la sortie, premier jour de l'absence ; `en-cours` sans cause datée), stable d'un jour à l'autre ; au
+  service RH et au manager de l'équipe ; au référent HSE, la couverture de sa vue, sous des clés `hse:couverture:…`. Hors de `Domain.echeances`, dont chaque ligne désigne un salarié.
+- **Entretien de mi-carrière (t069, `shared/rules/entretien-mi-carriere.ts`)** : une visite `mi_carriere` réalisée rend
+  dû un entretien de parcours (`epp`, libellé « Entretien de parcours de mi-carrière ») `entretienMiCarriereMois` après
+  elle (2 par défaut, 1 à 12, Paramètres → Entretien de mi-carrière, bandeau « délai à confirmer juridiquement »,
+  `entretienMiCarriereActif`) ; plus proche que l'échéance périodique, il l'avance dans `obligations()` ; un entretien de
+  parcours réalisé depuis la visite le remplit. Manager et lecture seule : `Employe.entretienMiCarriere`, échéance seule
+  calculée par le serveur, sans la visite ; ailleurs (service RH, intéressé) calculé sur l'instantané.
+- **Aucune migration nommée** : colonnes nouvelles déclarées dans `TABLES` (vides : décoché, aucun seuil), réglages par
+  défaut de `REGLAGES` ; aucune action nouvelle (paramètres ajoutés à `referentiel.poste.enregistrer` et
+  `referentiel.equipe.exigences`, journal complété). Démonstration : 4 SST au minimum en Production.
+
 ## Santé au travail
 
 Règles dans `shared/rules/sante.ts` et `Domain.medInfo` (`shared/domain.ts`), actions dans `server/src/actions/sante.ts`.
@@ -1571,7 +1615,7 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
   aptitude non valide (visite périodique en retard, aucune visite) ou restrictions en vigueur aujourd'hui : une seule
   réserve (affectation à vérifier avec le service RH), qu'une habilitation exigée dépende de l'aptitude ou non. L'écran
   Chantiers en donne la cause au service RH ; Keystone, en partage détaillé, un libellé neutre (`GngReason.transmis`).
-- **Titres** : habilitations et certifications exigées, valides sur les dates du chantier.
+- **Titres** : habilitations et certifications exigées, valides sur les dates du chantier. Formation renforcée à la sécurité d'un CDD, d'un intérimaire ou d'un alternant sur un poste à risques particuliers, non suivie depuis son entrée : No Go `CERTIFICATION`, réserve si une session est planifiée avant le démarrage (« Sécurité au poste »).
 - **Hors de France** : un déplacement rattaché au chantier, ou vers son pays pendant la présence (un voyage des mois
   plus tôt ne compte pas : `DEPLACEMENT`, à créer ou demande en attente). Chaque période de présence doit tenir dans
   un déplacement (départ au plus tard le premier jour, retour au plus tôt le dernier), sinon réserve
@@ -1852,7 +1896,8 @@ e-mails, tous les quarts d'heure) : une fois par jour à partir de 7 h (réglage
 
 - **Contenu** (`relancesDues`) : échéances du domaine (certifications, habilitations, visite médicale et visites dues à un
   événement, passeport, visas, vaccinations), déplacements au dossier incomplet (selon la date de départ), obligations d'entretien non planifiées ou
-  planifiées à une date dépassée, fins de contrat prévues sans sortie enregistrée. Écartés : salariés sortis, échéances
+  planifiées à une date dépassée (entretien de mi-carrière compris), fins de contrat prévues sans sortie enregistrée, couverture minimale des équipes
+  (premier jour sous le minimum, sans nom : service RH, manager de l'équipe, référent HSE). Écartés : salariés sortis, échéances
   déjà prises en charge (session planifiée, visite demandée), avis d'inaptitude, feuilles de temps (relance propre au suivi
   des feuilles). Une vaccination n'est qu'une « formalité sanitaire de voyage », une visite qu'une « visite médicale ».
 - **Paliers** : 90, 30 et 7 jours avant l'échéance par défaut (90, 60, 30, 15, 7 au choix, un au moins), puis l'échéance

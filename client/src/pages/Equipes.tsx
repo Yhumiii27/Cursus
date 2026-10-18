@@ -12,6 +12,7 @@ import { CartePick } from '../components/Cliquable.tsx';
 import { changementManager, retraitEquipe, suppressionEquipe, type Confirmation } from '../state/confirmations.ts';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { CouvertureEquipe } from '../components/Couverture.tsx';
 
 /** Contrat en deux lignes : « CDI · Cadre » et « Forfait jours · 218 j ». */
 export function contratResume(d: Domain, e: Employe) {
@@ -275,6 +276,8 @@ function TeamPanel({ panneau, t, candidates }: { panneau: Ref<HTMLElement>; t: T
           </tbody>
         </table>
       </div>
+      {/* Couverture minimale en SST et équipiers incendie (seuils : Référentiels → Postes). */}
+      <CouvertureEquipe equipe={nom} />
       {n === 0 && <Empty pad="sm">Aucun membre. Ajoutez des collaborateurs à l’équipe ou supprimez-la si elle n’a plus lieu d’être.</Empty>}
       {n === 0 && deleteBlock && <Fine>Suppression impossible : {deleteBlock.charAt(0).toLowerCase() + deleteBlock.slice(1)}</Fine>}
     </Panel>

@@ -1,11 +1,14 @@
 // Écran Référentiels, onglet Postes : formations et habilitations exigées de tous les membres d'une équipe, quel que soit
 // leur poste (shared/rules/exigences.ts). Même proposition et même annonce que pour un poste (dialogs/RefPosteDialog.tsx).
 // Case « travail de nuit ou en continu » : aucun salarié de moins de 18 ans dans une équipe cochée (shared/rules/mineurs.ts).
+// Couverture minimale (SST, EPI incendie…) : aucun seuil par défaut, « 1 SST au minimum » proposé (shared/rules/couverture.ts).
 import { useMemo, useState } from 'react';
 import { present } from '../../../shared/rules/contrats.ts';
 import { controlerExigences, effetExigences, effetTexte, exigencesEquipe, exigencesProposees, nombreExigences } from '../../../shared/rules/exigences.ts';
 import { plural } from '../../../shared/format.ts';
 import { mineursDeLEquipe } from '../../../shared/rules/mineurs.ts';
+import { controlerCouverture, COUVERTURE_LIGNES_MAX, COUVERTURE_PROPOSEE, couvertureEquipe, RECOMMANDATION_INRS } from '../../../shared/rules/couverture.ts';
+import { actif } from '../../../shared/rules/referentiels.ts';
 import type { Exigences } from '../../../shared/types.ts';
 import { Bloquant, CancelButton, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { ExigencesChoix } from '../components/ExigencesChoix.tsx';
@@ -23,12 +26,24 @@ export function RefEquipeDialog({ nom }: { nom: string }) {
   // Choix explicite : tant que le service RH n'a répondu ni oui ni non, la case reste à renseigner et n'est pas envoyée
   // (le serveur la laisse inchangée) ; enregistrer les seules exigences ne vaut pas déclaration « pas de travail de nuit ».
   const [nuit, setNuit] = useState<'nr' | 'oui' | 'non'>(() => (equipe?.nuit == null ? 'nr' : equipe.nuit ? 'oui' : 'non'));
+  // Couverture minimale : lignes { formation, minimum } en cours de saisie (minimum gardé en texte pendant la frappe).
+  const couvertureAvant = couvertureEquipe(equipe);
+  const [couverture, setCouverture] = useState(() => couvertureAvant.map(l => ({ formation: l.formation, min: String(l.min) })));
   const [busy, setBusy] = useState(false);
   const [confirmer, setConfirmer] = useState(false);
   const v = useVerification();
 
   const { erreurs } = controlerExigences(exigences, ref, avant);
   const membres = useMemo(() => d.ds.employes.filter(e => e.equipe === nom && present(e, d.ti)), [d, nom]);
+  const saisie = couverture.map(l => ({ formation: l.formation, min: l.min.trim() === '' ? NaN : Number(l.min) }));
+  const couvertureChangee = JSON.stringify(saisie) !== JSON.stringify(couvertureAvant);
+  // Couverture inchangée : pas envoyée, donc pas contrôlée (le serveur la laisse telle quelle) ; un seuil que l'effectif ne
+  // permet plus d'atteindre ne bloque pas l'enregistrement des exigences, son alerte reste affichée.
+  const errCouverture = couvertureChangee ? controlerCouverture(saisie, ref, membres.length, couvertureAvant).erreur : null;
+  // Formations proposées : catalogue en vigueur, et celles déjà suivies archivées depuis (gardées, sans effet).
+  const formationsCouverture = ref.formations.filter(f => actif(f) || couvertureAvant.some(l => l.formation === f.id));
+  const sst = ref.formations.find(f => f.id === COUVERTURE_PROPOSEE.formation && actif(f));
+  const ligne = (i: number, x: Partial<{ formation: string; min: string }>) => setCouverture(c => c.map((l, j) => (j === i ? { ...l, ...x } : l)));
   const mineurs = useMemo(() => mineursDeLEquipe(d.ds.employes, nom, d.ti), [d, nom]);
   const errNuit = nuit === 'oui' && mineurs.length
     ? `L’équipe compte un salarié de moins de 18 ans (${mineurs.map(e => e.nom).join(', ')}) : il ne peut pas travailler de nuit (art. L3163-2) — affectez-le d’abord à une autre équipe.`
@@ -45,10 +60,10 @@ export function RefEquipeDialog({ nom }: { nom: string }) {
   const aReprendre = [...proposees.formations.filter(f => !deja('formations', f)), ...proposees.habilitations.filter(h => !deja('habilitations', h))].length;
 
   const envoyer = async (force = false) => {
-    if (busy || !v.verifier(erreurs.formations, erreurs.habilitations, errNuit, !equipe)) return;
+    if (busy || !v.verifier(erreurs.formations, erreurs.habilitations, errNuit, errCouverture, !equipe)) return;
     if (!force && nouveaux.length) { setConfirmer(true); return; }
     setBusy(true);
-    const r = await run('referentiel.equipe.exigences', { nom, ...exigences, ...(nuit === 'nr' ? {} : { nuit: nuit === 'oui' }) });
+    const r = await run('referentiel.equipe.exigences', { nom, ...exigences, ...(nuit === 'nr' ? {} : { nuit: nuit === 'oui' }), ...(couvertureChangee ? { couverture: saisie } : {}) });
     setBusy(false);
     if (r.ok) closeDialog();
     else setConfirmer(false);
@@ -85,6 +100,30 @@ export function RefEquipeDialog({ nom }: { nom: string }) {
             <span className="text-muted sub">
               {nuit === 'nr' ? 'Tant que la réponse n’est pas donnée, la fiche des salariés de moins de 18 ans rappelle l’interdiction du travail de nuit. '
                 : ''}Une équipe de nuit ou en continu ne reçoit aucun salarié de moins de 18 ans (art. L3163-2).
+            </span>
+          </div>
+        </Field>
+        <Field label="Couverture minimale (secouristes, équipiers incendie)" erreur={v.erreur(errCouverture)}>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-2)' }}>
+            {couverture.map((l, i) => (
+              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+                <select className="input" aria-label={`Formation du seuil ${i + 1}`} value={l.formation} onChange={e => ligne(i, { formation: e.target.value })} style={{ flex: '1 1 220px' }}>
+                  <option value="">Formation…</option>
+                  {formationsCouverture.map(f => <option key={f.id} value={f.id}>{f.court}{actif(f) ? '' : ' (archivée)'}</option>)}
+                </select>
+                <input className="input" type="number" min={1} max={Math.max(1, membres.length)} step={1} inputMode="numeric" aria-label={`Minimum du seuil ${i + 1}`}
+                  value={l.min} onChange={e => ligne(i, { min: e.target.value })} style={{ width: 96 }} />
+                <span className="text-muted sub">au minimum</span>
+                <Btn small onClick={() => setCouverture(c => c.filter((_, j) => j !== i))}>Retirer</Btn>
+              </div>
+            ))}
+            <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+              {couverture.length === 0 && sst && <Btn small onClick={() => setCouverture([{ formation: sst.id, min: String(COUVERTURE_PROPOSEE.min) }])}>Proposer 1 {sst.court} au minimum</Btn>}
+              {couverture.length < COUVERTURE_LIGNES_MAX && <Btn small onClick={() => setCouverture(c => [...c, { formation: '', min: '1' }])}>Ajouter un seuil</Btn>}
+            </div>
+            <span className="text-muted sub">
+              {couverture.length ? 'Chaque jour, au moins ce nombre de membres présents, sans absence en cours, titulaires d’une certification valide ; sinon une alerte datée. '
+                : 'Aucun seuil : pas de suivi de la couverture pour cette équipe. '}{RECOMMANDATION_INRS} Équipes successives (2x8, 3x8, continu) : une équipe par quart.
             </span>
           </div>
         </Field>

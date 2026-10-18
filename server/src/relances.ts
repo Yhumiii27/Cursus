@@ -4,7 +4,8 @@
 // - chaque manager (adresse de sa fiche) : les membres de son équipe, sans lui-même, sans visite médicale ni vaccination
 //   (verdict seul, comme son instantané) ni entretien de reprise (il trahirait un arrêt long), ni titre de séjour, ni
 //   échéance d'un salarié mineur (18 ans, dérogation pour travaux réglementés : `sante` de la relance) ;
-// - chaque référent HSE (compte actif) : formations et habilitations.
+// - chaque référent HSE (compte actif) : formations et habilitations, et la couverture minimale des équipes calculée
+//   comme à son écran, sans les absences hors chantiers (`couvertureVueHse`), sous des clés à part (`hse:couverture:…`).
 // Seuls les paliers franchis depuis le dernier envoi partent (table `relances`, clé de l'objet et palier) : un objet n'est
 // relancé qu'une fois par palier. Tant que la boîte du service RH, destinataire de tout le périmètre, n'est pas renseignée,
 // le passage n'envoie ni ne note rien : les paliers franchis partiront au premier passage qui suit son réglage. Règles et contenu :
@@ -14,10 +15,10 @@ import { HEURE_RECAPITULATIF } from '../../shared/constants.ts';
 import { addD, weekday } from '../../shared/dates.ts';
 import { Domain } from '../../shared/domain.ts';
 import { equipeLabel, fmtIso, plural } from '../../shared/format.ts';
-import { CATEGORIES_HSE, jourDEnvoi, relancesDues, titrePalier, type Relance } from '../../shared/rules/relances.ts';
+import { CATEGORIES_HSE, jourDEnvoi, relancesCouverture, relancesDues, titrePalier, type Relance } from '../../shared/rules/relances.ts';
 import type { CurrentUser, Employe } from '../../shared/types.ts';
 import type { Compte } from './comptes.ts';
-import { loadFull, todayIso } from './dataset.ts';
+import { couvertureVueHse, loadFull, todayIso } from './dataset.ts';
 import type { Db } from './db.ts';
 import { envoyerEmail } from './integrations/email.ts';
 import { adresseSalarie, courriel, lireMessagerie } from './messagerie.ts';
@@ -42,6 +43,9 @@ function texteRecapitulatif(d: Domain, relances: Relance[], exploitation: string
   const blocs = ordre.filter(p => relances.some(r => r.palier === p)).map(p => [
     `${titrePalier(p)} :`,
     ...relances.filter(r => r.palier === p).map(r => {
+      // Couverture minimale d'une équipe : aucun salarié désigné.
+      // Manque déjà là : depuis son début (ou « en cours », sans cause datée) ; à venir : à partir de sa date.
+      if (r.equipe) return `• Équipe ${r.equipe} — ${r.libelle} : ${r.cle.endsWith(':en-cours') ? 'en cours' : `${r.palier === 'echu' ? 'depuis le' : 'à partir du'} ${fmtIso(r.echeance)}`}`;
       const e = d.emp(r.empId)!;
       return `• ${e.nom} (${equipeLabel(e)}) — ${r.libelle} : ${r.jours < 0 ? 'dépassée depuis le' : 'échéance le'} ${fmtIso(r.echeance)}`;
     }),
@@ -65,21 +69,24 @@ function destinataires(db: Db, d: Domain, relances: Relance[], today: string): D
   const ajouter = (adresse: string | null | undefined, nom: string | null, liste: Relance[]) => {
     if (!adresse || !liste.length) return;
     const k = adresse.toLowerCase(), x = out.get(k);
-    if (x) x.relances = [...new Set([...x.relances, ...liste])];
+    // Même adresse pour le service RH et un référent HSE : la couverture sous sa clé commune suffit.
+    if (x) x.relances = [...new Set([...x.relances, ...liste])].filter((r, _, t) => !r.hse || !t.some(y => !y.hse && `hse:${y.cle}` === r.cle));
     else out.set(k, { adresse, nom, relances: liste });
   };
-  ajouter(lireMessagerie(db).rh, null, relances);
+  // Couverture calculée pour le référent HSE : à lui seul.
+  const communes = relances.filter(r => !r.hse);
+  ajouter(lireMessagerie(db).rh, null, communes);
   // Managers : équipes encadrées par un salarié présent, chacun pour ses membres (lui-même relève de son responsable).
   const managers = new Set(d.ds.referentiels.equipes.map(q => q.managerId).filter((m): m is number => !!m));
   for (const m of managers) {
     const a = adresseSalarie(db, m, today);
-    ajouter(a?.adresse, a?.nom ?? null, relances.filter(r => !r.sante && r.empId !== m && d.mgrOf(d.emp(r.empId) as Employe) === m
-      && !(r.categorie === 'entretien' && r.cle.split(':')[2] === 'reprise')));
+    ajouter(a?.adresse, a?.nom ?? null, communes.filter(r => (r.equipe ? d.teamsOf(m).includes(r.equipe) : !r.sante && r.empId !== m && d.mgrOf(d.emp(r.empId) as Employe) === m
+      && !(r.categorie === 'entretien' && r.cle.split(':')[2] === 'reprise'))));
   }
-  // Référents HSE : formations et habilitations de tous.
+  // Référents HSE : formations et habilitations de tous, couverture sans les absences hors chantiers.
   for (const c of db.where<Compte>('comptes', 'profilRh', 'referent_hse').filter(x => x.actif)) {
     const a = c.empId ? adresseSalarie(db, c.empId, today) : c.adresse ? { adresse: c.adresse, nom: c.nom } : null;
-    ajouter(a?.adresse, a?.nom ?? null, relances.filter(r => CATEGORIES_HSE.includes(r.categorie)));
+    ajouter(a?.adresse, a?.nom ?? null, relances.filter(r => CATEGORIES_HSE.includes(r.categorie) && (r.categorie !== 'couverture' || r.hse)));
   }
   return [...out.values()];
 }
@@ -92,7 +99,12 @@ export function recapitulatifEcheances(db: Db): { emails: number; relances: numb
   // Boîte du service RH non renseignée (mise en service…) : rien n'est noté, rien ne se perd.
   if (!lireMessagerie(db).rh) return { emails: 0, relances: 0 };
   const full = loadFull(db, SUIVI), d = new Domain(full), today = full.today;
-  const dues = relancesDues(d, d.enrich(full.settings.horizonAlerte, full.settings.uniquementReglementaire), full.settings.relancesPaliers);
+  const paliers = full.settings.relancesPaliers;
+  const dues = [
+    ...relancesDues(d, d.enrich(full.settings.horizonAlerte, full.settings.uniquementReglementaire), paliers),
+    // Couverture du référent HSE, calculée sans les absences hors chantiers qu'il ne reçoit pas (server/src/dataset.ts).
+    ...relancesCouverture(d, couvertureVueHse({ ...full, settings: { ...full.settings, horizonAlerte: Math.max(...paliers, 90) } }), paliers, 'hse:'),
+  ];
   const deja = new Set((db.sql.prepare('SELECT cle, palier FROM relances').all() as { cle: string; palier: string }[]).map(r => `${r.cle}|${r.palier}`));
   const nouvelles = dues.filter(r => !deja.has(`${r.cle}|${r.palier}`));
   // Secret client Entra : une ligne pour la boîte du service RH, une fois par palier et par date d'expiration.

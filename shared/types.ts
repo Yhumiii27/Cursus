@@ -83,6 +83,38 @@ export interface Poste extends Exigences {
    * carrière de ses titulaires à leur sortie (art. L4624-2-1, shared/rules/visites-dues.ts).
    */
   expose?: boolean;
+  /**
+   * Poste de la liste des postes à risques particuliers pour la santé ou la sécurité (art. L4154-2), distincte du suivi
+   * renforcé (`sir`) et de l'exposition (`expose`) : un CDD, un intérimaire ou un alternant qui l'occupe doit avoir suivi
+   * la formation renforcée à la sécurité depuis son entrée (shared/rules/formation-renforcee.ts). Décoché par défaut.
+   */
+  risquesL4154?: boolean;
+}
+/**
+ * Couverture minimale d'une équipe (t067, shared/rules/couverture.ts) : au moins `min` membres présents, non absents et
+ * titulaires d'une certification valide de `formation` (SST, EPI incendie…), chaque jour.
+ */
+export interface LigneCouverture { formation: string; min: number }
+/** Membre qui manque à la couverture le jour où elle tombe sous le minimum, et pourquoi ; `insuffisant` : trop peu de titulaires. */
+export interface CauseCouverture { type: 'expiration' | 'sortie' | 'absence' | 'insuffisant'; empId: number | null; nom: string | null; le: ISODate | null }
+/**
+ * Couverture d'une ligne d'équipe, calculée par le serveur sur l'instantané complet (`Dataset.couverture`) : titulaires
+ * comptés aujourd'hui et, s'il y en a un sous l'horizon d'alerte, le premier jour où le minimum n'est plus atteint.
+ */
+export interface EtatCouverture {
+  equipe: string; formation: string; min: number;
+  /** Membres comptés aujourd'hui (présents, non absents, certification valide). */
+  compte: number;
+  /**
+   * Premier jour sous le minimum (aujourd'hui compris), titulaires comptés ce jour-là, dernier jour du manque dans
+   * l'horizon (null : au-delà) et causes ; null : minimum tenu sur tout l'horizon.
+   */
+  manque: { le: ISODate; compte: number; jusquau: ISODate | null; causes: CauseCouverture[] } | null;
+  /**
+   * Calculée sans les absences hors chantiers (vue du référent HSE, qui ne les reçoit pas) : un manque dû à une absence
+   * n'y figure pas, la couverture est à vérifier avec le service RH.
+   */
+  sansAbsences?: boolean;
 }
 /** `exigences` : formations et habilitations exigées de tous ses membres (null : aucune). */
 export interface Equipe {
@@ -92,6 +124,8 @@ export interface Equipe {
    * 18 ans n'y est affecté (art. L3163-2, shared/rules/mineurs.ts). null : case pas encore renseignée (décochée).
    */
   nuit?: boolean | null;
+  /** Couverture minimale (SST, EPI incendie…) ; null ou vide : aucun seuil, la règle est inactive (shared/rules/couverture.ts). */
+  couverture?: LigneCouverture[] | null;
 }
 /** Projet ou chantier tenu dans Keystone : archivé, il reste en base (historique) sans plus être proposé ni évalué. */
 export type StatutKeystone = 'actif' | 'archive';
@@ -281,6 +315,12 @@ export interface Employe {
    * post-exposition ou de fin de carrière à sa sortie (shared/rules/visites-dues.ts). Service RH et intéressé seulement.
    */
   expose?: boolean | null;
+  /**
+   * Vues sans les visites médicales (manager, lecture seule) : échéance de l'entretien de parcours qui suit la visite de
+   * mi-carrière, calculée par le serveur (shared/rules/entretien-mi-carriere.ts), sans la date de la visite ; null : aucun.
+   * Absent : calculé sur l'instantané (service RH, intéressé). Jamais enregistré.
+   */
+  entretienMiCarriere?: ISODate | null;
   /**
    * Remplace `visite` et `avis` dans les vues manager et des profils restreints de l'espace RH : seul le verdict est
    * transmis (aptitude valide ou non, avis), avec les restrictions en vigueur recopiées telles qu'écrites, sans date de visite.
@@ -757,6 +797,17 @@ export interface Settings {
    * documentaire de l'entreprise, par un adaptateur à écrire quand son interface sera connue.
    */
   piecesStockage: StockagePieces;
+  /**
+   * Formation renforcée à la sécurité des CDD, intérimaires et alternants affectés à un poste à risques particuliers
+   * (art. L4154-2) : code du catalogue ; vide par défaut (aucune exigence, avertissement dans Paramètres).
+   */
+  formationRenforceeCode: string;
+  /**
+   * Entretien de parcours après la visite de mi-carrière (shared/rules/entretien-mi-carriere.ts) : suivi actif, et délai
+   * en mois après la visite (2 par défaut, à confirmer juridiquement).
+   */
+  entretienMiCarriereActif: boolean;
+  entretienMiCarriereMois: number;
 }
 /** Plafond des heures complémentaires du temps partiel : le dixième (art. L3123-28) ou le tiers avec un accord (art. L3123-20). */
 export type PlafondComplementaires = 'dixieme' | 'tiers';
@@ -1113,6 +1164,12 @@ export interface Dataset {
    * siennes) ; aucune pour la paie et la lecture seule (server/src/pieces.ts, `piecesVisibles`).
    */
   pieces?: Piece[];
+  /**
+   * Couverture minimale des équipes (t067), calculée par le serveur sur l'instantané complet (server/src/dataset.ts) :
+   * toutes les équipes pour le service RH, le référent HSE et la lecture seule (le référent HSE sans le nom d'un membre
+   * absent), les équipes encadrées pour le manager ; rien ailleurs. Absente : calcul sur l'instantané (tests, outils).
+   */
+  couverture?: EtatCouverture[];
 }
 
 /**

@@ -19,6 +19,7 @@ import { key } from '../../../shared/format.ts';
 import type { Destination, Equipe, Formation, HabTitre, HabType, Poste } from '../../../shared/types.ts';
 import { DESTS, FORMATIONS, HABILITATIONS } from '../seed.ts';
 import { enregistrerNuitEquipe } from './mineurs.ts';
+import { enregistrerCouvertureEquipe } from './couverture.ts';
 import { ActionError, getEmp, isRh, type ActionHandler, type ActionOutput, type Ctx, requireFormations, requireRh, str } from './context.ts';
 
 /** Élément visé par une modification ou un archivage (`id` : son code), introuvable : 404. */
@@ -276,7 +277,9 @@ const exigencesEquipeAction: ActionHandler = (ctx, p) => {
   ctx.db.update<Equipe>('equipes', q.nom, { exigences: valeur });
   // Case « travail de nuit ou en continu » (salariés mineurs exclus) : ./mineurs.ts.
   const nuit = enregistrerNuitEquipe(ctx, q, p.nuit);
-  return exigencesModifiees(`Exigences communes de l’équipe ${q.nom} enregistrées${nuit}`, effet);
+  // Couverture minimale (SST, EPI incendie…) : ./couverture.ts.
+  const couverture = enregistrerCouvertureEquipe(ctx, q, p.couverture);
+  return exigencesModifiees(`Exigences communes de l’équipe ${q.nom} enregistrées${nuit}${couverture}`, effet);
 };
 
 /**

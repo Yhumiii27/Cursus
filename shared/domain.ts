@@ -12,6 +12,7 @@ import { absenceActive, absenceBloque, borneContrat, periodeTexte } from './rule
 import { actifs, habSuivie } from './rules/referentiels.ts';
 import { poidsDuJour, type DemiJournees } from './rules/demi-journees.ts';
 import { echeanceExigence, exigencesManquantes, type ExigenceManquante } from './rules/exigences.ts';
+import { motifRenforcee } from './rules/formation-renforcee.ts';
 import { identifiantKeystone } from './rules/matricules.ts';
 import { echeancesContrat, etatAutorisation, present, SITUATION_A_REGULARISER } from './rules/contrats.ts';
 import { voyageActif } from './rules/deplacements.ts';
@@ -802,6 +803,9 @@ export class Domain {
       if (ci.exp < start) return push(recycl ? 'reserve' : 'nogo', 'CERTIFICATION', recycl ? 'Recyclage planifié avant le démarrage' : 'Certification requise non valide', `${fm.court} — expire le ${fmt(ci.exp)}${recycl ? ', recyclage le ' + fmt(parse(ci.session!.date)) : ''}`);
       if (ci.exp < end) push('reserve', 'CERTIFICATION', 'Certification expirant pendant le chantier', `${fm.court} — expire le ${fmt(ci.exp)}, en cours de chantier`);
     });
+    // Formation renforcée à la sécurité manquante (CDD, intérim, alternance sur un poste à risques particuliers, art.
+    // L4154-2) : No Go, réserve si une session est planifiée avant le démarrage ; code CERTIFICATION, API v1 inchangée.
+    motifRenforcee(this.ds, e, c).forEach(r => push(r.level, 'CERTIFICATION', r.minimal, r.detailed));
     // Présence finie (chantier en cours, ressource rentrée) : plus de déplacement à exiger.
     if (c.pays !== 'FR' && sejours.length) {
       // Déplacements retenus : rattachés au chantier, ou vers son pays pendant la présence (un voyage des mois plus tôt ne vaut pas).

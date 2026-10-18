@@ -405,6 +405,8 @@ const EXIGENCES_DEMO: Record<string, { formations: string[]; habilitations: stri
 function exigencesDemo(db: Db) {
   for (const [nom, x] of Object.entries(EXIGENCES_DEMO)) db.sql.prepare('UPDATE postes SET formations = ?, habilitations = ? WHERE nom = ?').run(JSON.stringify(x.formations), JSON.stringify(x.habilitations), nom);
   db.update('equipes', 'Logistique', { exigences: { formations: ['sst'], habilitations: [] } });
+  // Couverture minimale (t067) : 4 SST en Production, où deux certifications arrivent à échéance sous l'horizon d'alerte.
+  db.update('equipes', 'Production', { couverture: [{ formation: 'sst', min: 4 }] });
 }
 
 export function seedDemo(db: Db) {

@@ -53,6 +53,8 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     absencesFichierPaie: true, absencesPaieAPartirDu: null,
     // Pièces justificatives (lot 6, t133) : désactivées tant que l'administrateur RH ne les active pas (18 octobre 2026).
     piecesStockage: 'desactive',
+    // Sécurité au poste (lot 6) : formation renforcée non désignée ; entretien de mi-carrière 2 mois après la visite.
+    formationRenforceeCode: '', entretienMiCarriereActif: true, entretienMiCarriereMois: 2,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

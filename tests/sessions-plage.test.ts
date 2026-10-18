@@ -8,7 +8,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 process.env.CURSUS_PUBLIC_URL = 'https://cursus.example.fr';
 for (const k of ['CURSUS_MAIL_FROM', 'CURSUS_MAIL_TENANT', 'CURSUS_MAIL_CLIENT_ID', 'CURSUS_MAIL_CLIENT_SECRET']) delete process.env[k];
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase, PG, sqlite, SQLITE_SEUL } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -43,7 +43,7 @@ async function le<T>(date: string, fn: () => T | Promise<T>): Promise<T> {
 }
 
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const run = async (user: User, name: string, payload: Record<string, unknown>) => await db.tx(async () => await ACTIONS[name](makeCtx(db, user, await loadFull(db, user)), payload));
   const refused = async (user: User, name: string, payload: Record<string, unknown>, motif: RegExp) =>
@@ -334,7 +334,7 @@ test('« Proposer » : les lignes saisies sont gardées ; une session d’un jou
   assert.match(String(await run(RH, 'temps.suggest', { empId: 6, week: '2026-10-26' })), /depuis des tâches Keystone et des sessions de formation/);
 
   // Julien Moreau (8), sans tâche Keystone : INT-PROD saisi à la main, puis « Proposer » pour le PRAP du lundi 23 novembre.
-  db.sql.exec('DELETE FROM taches');
+  await db.exec('DELETE FROM taches');
   await run(RH, 'temps.addLine', { empId: 8, week: '2026-11-23', projet: 'INT-PROD' });
   for (let di = 0; di < 5; di++) await run(RH, 'temps.setCell', { empId: 8, week: '2026-11-23', li: 0, di, value: '7' });
   const r = await run(RH, 'temps.suggest', { empId: 8, week: '2026-11-23' });
@@ -370,23 +370,23 @@ test('réglage « Formations » : préremplissage désactivé, rien n’est prop
 
 // — Migration —
 
-test('migration nommée : sessions d’une base existante sur un jour, activité INT-FORM ajoutée une fois', async () => {
-  const db = new Db(':memory:');
+test('migration nommée : sessions d’une base existante sur un jour, activité INT-FORM ajoutée une fois', { skip: PG && SQLITE_SEUL }, async () => {
+  const db = await nouvelleBase();
   await seedDemo(db);
   // Base d'avant le lot 5 : sessions sans plage, sans INT-FORM.
-  db.sql.exec(`UPDATE sessions SET fin = NULL, jours = NULL, horaires = NULL; DELETE FROM projets WHERE code = 'INT-FORM'`);
-  assert.equal(await PLAGE_SESSIONS.necessaire!(db), true);
-  assert.equal(await ACTIVITE_FORMATION_PROJET.necessaire!(db), true);
-  assert.equal(await PLAGE_SESSIONS.executer(db), '13 sessions sur un jour');
-  await ACTIVITE_FORMATION_PROJET.executer(db);
-  await ACTIVITE_FORMATION_PROJET.executer(db);
-  const lignes = db.sql.prepare('SELECT date, fin, jours, horaires FROM sessions WHERE id = 3').get() as Record<string, string>;
+  await db.exec(`UPDATE sessions SET fin = NULL, jours = NULL, horaires = NULL; DELETE FROM projets WHERE code = 'INT-FORM'`);
+  assert.equal(await PLAGE_SESSIONS.necessaire!(sqlite(db)), true);
+  assert.equal(await ACTIVITE_FORMATION_PROJET.necessaire!(sqlite(db)), true);
+  assert.equal(await PLAGE_SESSIONS.executer(sqlite(db)), '13 sessions sur un jour');
+  await ACTIVITE_FORMATION_PROJET.executer(sqlite(db));
+  await ACTIVITE_FORMATION_PROJET.executer(sqlite(db));
+  const lignes = (await db.one('SELECT date, fin, jours, horaires FROM sessions WHERE id = 3')) as Record<string, string>;
   assert.deepEqual({ ...lignes }, { date: '2026-10-21', fin: '2026-10-21', jours: '["2026-10-21"]', horaires: '[]' });
-  assert.equal((db.sql.prepare(`SELECT COUNT(*) AS n FROM projets WHERE code = 'INT-FORM'`).get() as { n: number }).n, 1);
-  assert.equal((db.sql.prepare('SELECT COUNT(*) AS n FROM sessions WHERE fin IS NULL').get() as { n: number }).n, 0);
-  assert.equal(await ACTIVITE_FORMATION_PROJET.necessaire!(db), false);
+  assert.equal(((await db.one(`SELECT COUNT(*) AS n FROM projets WHERE code = 'INT-FORM'`)) as { n: number }).n, 1);
+  assert.equal(((await db.one('SELECT COUNT(*) AS n FROM sessions WHERE fin IS NULL')) as { n: number }).n, 0);
+  assert.equal(await ACTIVITE_FORMATION_PROJET.necessaire!(sqlite(db)), false);
   // Liste complète : déjà faites, rien de plus ; la base est lue comme avant (une journée par session).
-  await appliquerMigrations(db);
-  assert.deepEqual(await appliquerMigrations(db), []);
+  await appliquerMigrations(sqlite(db));
+  assert.deepEqual(await appliquerMigrations(sqlite(db)), []);
   assert.equal(new Domain(await loadFull(db, RH)).session(3)!.fin, '2026-10-21');
 });

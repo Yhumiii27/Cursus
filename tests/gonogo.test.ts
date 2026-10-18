@@ -10,7 +10,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 delete process.env.KEYSTONE_URL;
 delete process.env.KEYSTONE_TOKEN;
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS, changeVerdicts } = await import('../server/src/actions/index.ts');
@@ -31,7 +31,7 @@ const KARIM: User = { role: 'manager', empId: 12, nom: 'Karim Haddad', intitule:
 
 /** Base de démonstration ; les actions passent par le même enchaînement que POST /api/actions/:nom (suivi des verdicts compris). */
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const run = async (user: User, name: string, payload: Record<string, unknown>) => await db.tx(async () => {
     const r = await ACTIONS[name](makeCtx(db, user, await loadFull(db, user)), payload);
@@ -335,7 +335,7 @@ test('t065 : mise à jour d’une base antérieure — déplacements déjà part
   const { db, motifs, voyages } = await fresh();
   // Base antérieure au suivi du détachement (aucune formalité saisie), mise à jour le 1er novembre : Romain Chevalier est
   // à Tanger depuis le 27 octobre, Karim Haddad part pour Abidjan le 9 novembre.
-  db.sql.exec('UPDATE voyages SET detachement_le = NULL, information_le = NULL');
+  await db.exec('UPDATE voyages SET detachement_le = NULL, information_le = NULL');
   const jour = process.env.CURSUS_TODAY;
   process.env.CURSUS_TODAY = '2026-11-01';
   try {
@@ -351,7 +351,7 @@ test('t065 : mise à jour d’une base antérieure — déplacements déjà part
     assert.deepEqual(j[0].payload.voyages.map((v: Corps) => [v.matricule, v.dest, v.depart]), [['EMP-0018', 'MA', '2026-10-27']]);
     assert.equal(await db.getSetting(REPRISE_DETACHEMENT, null), '2026-11-01');
     // Une seule fois : un déplacement parti ensuite sans formalité reste bloquant.
-    db.sql.exec(`UPDATE voyages SET detachement_le = NULL WHERE dest = 'MA'`);
+    await db.exec(`UPDATE voyages SET detachement_le = NULL WHERE dest = 'MA'`);
     await migrate(db);
     assert.ok((await motifs('K-2614', 18)).includes('DETACHEMENT:nogo'));
   } finally {

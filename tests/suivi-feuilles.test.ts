@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -18,11 +18,10 @@ type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type Ligne = { action: string; message: string | null; payload: Record<string, any>; salaries: number[]; paie: boolean };
 
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
-  const compteDe = (empId: number | null) => (db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number }).id;
-  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: compteDe(empId), role, methode: 'demo' }))!;
+  const compteDe = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)), role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
     const t = await preparerTrace(db, name, p);
     const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
@@ -35,11 +34,11 @@ async function fresh() {
   const ADMIN = await user(null, 'rh');
   const domain = async () => new Domain(await loadFull(db, ADMIN));
   const feuille = async (empId: number, week: string, statut: string, h = [7, 7, 7, 7, 7]) => {
-    db.sql.prepare('DELETE FROM feuilles WHERE emp_id = ? AND week = ?').run(empId, week);
+    (await db.run('DELETE FROM feuilles WHERE emp_id = ? AND week = ?', [empId, week]));
     return await db.insert<{ id: number }>('feuilles', { empId, week, statut, comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-MAINT', tache: 'Maintenance interne', ks: false, h }], contrat: null });
   };
   const journal = async (action: string) => (await db.all<Ligne>('journal')).filter(l => l.action === action);
-  const statut = (empId: number, week: string) => (db.sql.prepare('SELECT statut FROM feuilles WHERE emp_id = ? AND week = ?').get(empId, week) as { statut: string } | undefined)?.statut;
+  const statut = async (empId: number, week: string) => ((await db.one('SELECT statut FROM feuilles WHERE emp_id = ? AND week = ?', [empId, week])) as { statut: string } | undefined)?.statut;
   return { db, user, run, refus, domain, feuille, journal, statut, ADMIN, PAIE: await user(7, 'rh'), KARIM: await user(12, 'manager'), HUGO: await user(16, 'manager'), MEHDI: await user(2, 'collaborateur') };
 }
 
@@ -68,7 +67,7 @@ test('t130 tableau semaine × collaborateur : états, retards, exclusions et com
   // 40 jamais saisie ; Bastien : semaine 41 en congés ; Camille (Logistique) entrée le 1er octobre.
   await feuille(2, '2026-09-28', 'rejetee');
   await feuille(18, '2026-10-05', 'brouillon');
-  db.sql.exec(`DELETE FROM feuilles WHERE emp_id = 18 AND week = '2026-09-28'`);
+  await db.exec(`DELETE FROM feuilles WHERE emp_id = 18 AND week = '2026-09-28'`);
   await db.insert('absences', { empId: 24, type: 'CP', du: '2026-10-05', au: '2026-10-09', statut: 'validee', keystone: false, justificatif: false });
   const semaines = S.semainesSuivies('2026-10-10', 5);
   const lignes = S.etatSemaines(await domain(), [2, 6, 18, 24], semaines, m);
@@ -88,7 +87,7 @@ test('t130 tableau semaine × collaborateur : états, retards, exclusions et com
   await db.update('employes', 1, { entree: '2026-10-01' });
   assert.deepEqual(S.etatSemaines(await domain(), [1], ['2026-09-21', '2026-09-28'], m)[0].cellules.map(c => c.etat), [null, 'validee']);
   // Aucune feuille dans Cursus : rien n'est attendu ; collaborateur inconnu ignoré.
-  db.sql.exec('DELETE FROM feuilles');
+  await db.exec('DELETE FROM feuilles');
   assert.equal(S.debutSaisie(await domain()), null);
   assert.deepEqual(S.etatSemaines(await domain(), [2, 999], ['2026-10-05'], m).map(l => l.cellules[0].etat), [null]);
 });
@@ -99,7 +98,7 @@ test('t130 vue du manager : début de la saisie calculé sur toutes les feuilles
   const equipe = [2, 6, 18, 24];
   const semaines = S.semainesSuivies('2026-10-10', 5);
   // L'équipe de Karim n'a encore rien saisi dans Cursus (mise en service « tout en même temps ») ; les autres équipes, si.
-  db.sql.exec(`DELETE FROM feuilles WHERE emp_id IN (${[...equipe, 12].join(', ')})`);
+  await db.exec(`DELETE FROM feuilles WHERE emp_id IN (${[...equipe, 12].join(', ')})`);
   const serveur = S.compteursSuivi(S.etatSemaines(new Domain(await loadFull(db, KARIM)), equipe, semaines, m));
   const vue = await buildSnapshot(db, KARIM);
   assert.ok(vue.feuilles.every(f => equipe.includes(f.empId) || f.empId === 12), 'instantané du manager réduit à son équipe');
@@ -163,7 +162,7 @@ test('t130 validation groupée : contrôles feuille par feuille, refus listés s
   // Karim : Mehdi validée ; Thomas (plus de 10 h un jour, sans motif) et Sophie (hors de son équipe) refusées, listées.
   const msg = String(await run(KARIM, 'temps.validerLot', { feuilles: [{ empId: 2, week: W }, { empId: 6, week: W }, { empId: 3, week: W }] }));
   assert.match(msg, /^1 feuille validée · 2 feuilles non validées, à ouvrir une à une : Thomas Garnier S41 \(Plus de 10 h sur une journée .*motif du dépassement.*\) ; Sophie Lemaire S41 \(Validation réservée au manager du salarié ou au service RH\)$/);
-  assert.deepEqual([statut(2, W), statut(6, W), statut(3, W)], ['validee', 'soumise', 'soumise'], 'un refus n’annule pas les autres');
+  assert.deepEqual([(await statut(2, W)), (await statut(6, W)), (await statut(3, W))], ['validee', 'soumise', 'soumise'], 'un refus n’annule pas les autres');
   const j = (await journal('temps.validerLot')).at(-1)!;
   assert.deepEqual([j.payload.validees, j.payload.refus, j.salaries, j.paie], [[{ empId: 2, week: W }], 2, [2], true]);
   assert.ok(estActionPaie('temps.validerLot'));

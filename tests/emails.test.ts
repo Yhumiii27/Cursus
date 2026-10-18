@@ -17,6 +17,7 @@ process.env.CURSUS_PUBLIC_URL = 'https://cursus.example.fr';
 for (const k of ['CURSUS_MAIL_FROM', 'CURSUS_MAIL_TENANT', 'CURSUS_MAIL_CLIENT_ID', 'CURSUS_MAIL_CLIENT_SECRET', 'CURSUS_OIDC_TENANT', 'CURSUS_OIDC_CLIENT_ID', 'CURSUS_OIDC_CLIENT_SECRET']) delete process.env[k];
 
 const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS, changeVerdicts } = await import('../server/src/actions/index.ts');
@@ -54,7 +55,7 @@ after(() => fermer.forEach(f => f()));
 
 /** Base de démonstration ; les actions passent par le même enchaînement que POST /api/actions/:nom. */
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const run = async (user: User, name: string, payload: Record<string, unknown> = {}) => await db.tx(async () => {
     const r = await ACTIONS[name](makeCtx(db, user, await loadFull(db, user)), payload);
@@ -274,14 +275,14 @@ test('t032 : adresse professionnelle sur la fiche — saisie par le RH, unique, 
   assert.match(r.message, /adresse e-mail reprise sur la fiche/);
   assert.equal((await domain()).emp(id)!.email, 'leon.petitjean@entreprise.example');
   // Base antérieure : reprise une seule fois des adresses des comptes Microsoft.
-  db.sql.exec(`UPDATE employes SET email = NULL WHERE id IN (2, 12, 1)`);
-  db.sql.exec(`DELETE FROM settings WHERE key = 'adressesComptesReprises'`);
+  await db.exec(`UPDATE employes SET email = NULL WHERE id IN (2, 12, 1)`);
+  await db.exec(`DELETE FROM settings WHERE key = 'adressesComptesReprises'`);
   let copies = 0;
   await reprendreAdressesDesComptes(db, () => { copies++; });
   assert.equal(copies, 1, 'copie de sécurité avant la reprise');
   assert.deepEqual([(await domain()).emp(2)!.email, (await domain()).emp(12)!.email], [MEHDI_MAIL, KARIM_MAIL]);
   assert.equal((await domain()).emp(1)!.email, null, 'compte Cursus (cariste) : pas d’adresse à reprendre');
-  db.sql.exec(`UPDATE employes SET email = NULL WHERE id = 2`);
+  await db.exec(`UPDATE employes SET email = NULL WHERE id = 2`);
   await reprendreAdressesDesComptes(db, () => { copies++; });
   assert.equal((await domain()).emp(2)!.email, null, 'une seule fois : une adresse effacée depuis n’est pas remise');
 });
@@ -292,7 +293,7 @@ test('t032 : npm run comptes rattaché à une fiche (--salarie) reprend l’adre
   try {
     const db = new Db(fichier);
     await seedDemo(db);
-    db.sql.exec(`DELETE FROM comptes WHERE emp_id = 2; UPDATE employes SET email = NULL WHERE id = 2`);
+    await db.exec(`DELETE FROM comptes WHERE emp_id = 2; UPDATE employes SET email = NULL WHERE id = 2`);
     db.sql.close();
     const r = spawnSync(process.execPath, ['--disable-warning=ExperimentalWarning', 'server/src/comptes-cli.ts', 'admin', 'Mehdi.Benali@entreprise.example', '--salarie', '2'],
       { cwd: ROOT, encoding: 'utf8', env: { PATH: process.env.PATH ?? '', CURSUS_DB: fichier, CURSUS_TODAY: '2026-10-10' } });
@@ -333,7 +334,7 @@ test('t033 : chaque étape notifie son destinataire, aussitôt ou dans le récap
 
   // Karim passe aux notifications immédiates (espace collaborateur ou manager : son propre réglage).
   assert.match(String(await run(KARIM_COLLAB, 'notification.regler', { mode: 'immediat' })), /Vos notifications par e-mail : aussitôt/);
-  const decision = db.sql.prepare(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2026-12-07'`).get() as { id: number };
+  const decision = (await db.one(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2026-12-07'`)) as { id: number };
   await run(KARIM, 'absence.decider', { id: decision.id, ok: true });
   const [d] = await mails('absence.decision');
   assert.deepEqual(d.m.a, [MEHDI_MAIL]);
@@ -376,7 +377,7 @@ test('t033 : chaque étape notifie son destinataire, aussitôt ou dans le récap
   const ics = texteDe(conv.m.pj![0].base64);
   assert.match(ics, /DTSTART;VALUE=DATE:20261116/);
   assert.match(ics, /UID:entretien-\d+@cursus\.example\.fr/);
-  const ent = db.sql.prepare(`SELECT id FROM entretiens WHERE emp_id = 2 AND date = '2026-11-16'`).get() as { id: number };
+  const ent = (await db.one(`SELECT id FROM entretiens WHERE emp_id = 2 AND date = '2026-11-16'`)) as { id: number };
   // Prévu le 16 novembre, tenu dès aujourd'hui : la clôture porte la date à laquelle il a eu lieu.
   await run(KARIM, 'entretien.clore', { id: ent.id, date: '2026-10-10' });
   assert.equal((await mails('entretien.clos')).at(-1)!.m.objet, 'Compte rendu d’entretien à signer');
@@ -412,7 +413,7 @@ test('t033 : récapitulatif quotidien à partir de 7 h, une fois par jour même 
     await run(MEHDI, 'absence.demander', { empId: 2, kind: 'CP', du: '2026-12-07', au: '2026-12-08' });
     await run(RH, 'employe.modifier', { id: 12, email: 'k.haddad@entreprise.example' });
     // La semaine 40 de Léa Girard est validée : son relevé part avec le premier passage des tâches de fond.
-    db.sql.exec(`UPDATE feuilles SET statut = 'validee' WHERE emp_id = 15 AND week = '2026-09-28'`);
+    await db.exec(`UPDATE feuilles SET statut = 'validee' WHERE emp_id = 15 AND week = '2026-09-28'`);
     assert.deepEqual(await tachesEmails(db, 6), { releves: 1, recapitulatifs: null }, 'avant 7 h : pas de récapitulatif');
     assert.equal(await recapitulatifEnAttente(db), 1);
     assert.deepEqual(await tachesEmails(db, 7), { releves: 0, recapitulatifs: 1 });
@@ -452,12 +453,12 @@ test('t033 : ni donnée de santé, ni motif d’absence, ni numéro de passeport
   const { db, run, mails, enAttente } = await fresh();
   // Absence signalée puis qualifiée en arrêt maladie : aucune notification.
   await run(KARIM, 'absence.signaler', { empId: 2, du: '2026-12-15', au: '2026-12-16' });
-  const signalee = db.sql.prepare(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2026-12-15'`).get() as { id: number };
+  const signalee = (await db.one(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2026-12-15'`)) as { id: number };
   await run(RH, 'absence.qualifier', { id: signalee.id, nature: 'MALADIE' });
   assert.equal((await mails()).length + (await enAttente()).length, 0);
   // Arrêt annulé : la feuille soumise sans heure est renvoyée à Marion Petit, sans nommer l'absence.
   await db.insert('feuilles', { empId: 13, week: '2026-10-05', statut: 'soumise', comment: null, sage: false, keystone: false, lignes: [] });
-  const arret = db.sql.prepare(`SELECT id FROM absences WHERE emp_id = 13 AND type = 'MALADIE'`).get() as { id: number };
+  const arret = (await db.one(`SELECT id FROM absences WHERE emp_id = 13 AND type = 'MALADIE'`)) as { id: number };
   assert.match(String(await run(RH, 'absence.annuler', { id: arret.id })), /renvoyée pour saisie/);
   const [renvoi] = await mails('temps.renvoyee');
   assert.deepEqual([renvoi.m.a, renvoi.m.objet], [['marion.petit@entreprise.example'], 'Feuille de temps de la semaine 41 à corriger']);

@@ -12,6 +12,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 
 const express = (await import('express')).default;
 const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -28,17 +29,17 @@ const L = await import('../shared/rules/lots-paie.ts');
 const { estActionPaie, familleAction, JOURNAL_LABEL } = await import('../shared/journal.ts');
 const { RUBRIQUES_PAIE } = await import('../shared/constants.ts');
 const C = await import('../client/src/state/confirmations.ts');
-type Db = InstanceType<typeof Db>;
+type Db = import('../server/src/db.ts').Db;
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type Lot = Awaited<ReturnType<typeof lireLots>>[number] & { contenu: { lignes: { matricule: string; semaine: string; periode?: string; periode_origine?: string; rubriques: Record<string, number> }[] } | null };
 type Ligne = { action: string; message: string | null; payload: Record<string, any>; salaries: number[]; paie: boolean };
 
 /** Jeu de démonstration ; `run` suit le chemin de POST /api/actions/:nom (trace au journal comprise). */
-async function fresh(db: Db = new Db(':memory:')) {
+async function fresh(base?: Db) {
+  const db = base ?? await nouvelleBase();
   await seedDemo(db);
-  const compteDe = (empId: number | null) => (db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number }).id;
-  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: compteDe(empId), role, methode: 'demo' }))!;
+  const compteDe = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)), role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
     const t = await preparerTrace(db, name, p);
     const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
@@ -50,7 +51,7 @@ async function fresh(db: Db = new Db(':memory:')) {
     await assert.rejects(async () => await run(u, name, p), (e: unknown) => e instanceof ActionError && e.status === status && (!re || re.test(e.message)), `${name} : refus ${status}`);
   const lots = async () => await db.all<Lot>('lotsPaie');
   const journal = async (action: string) => (await db.all<Ligne>('journal')).filter(l => l.action === action);
-  const transmises = () => Number((db.sql.prepare('SELECT COUNT(*) AS n FROM feuilles WHERE sage = 1').get() as { n: number }).n);
+  const transmises = async () => Number(((await db.one('SELECT COUNT(*) AS n FROM feuilles WHERE sage = TRUE')) as { n: number }).n);
   return { db, user, compteDe, run, refus, lots, journal, transmises, ADMIN: await user(null, 'rh'), PAIE: await user(7, 'rh'), GEST: await user(14, 'rh'), KARIM: await user(12, 'manager') };
 }
 async function avecEnv<T>(env: Record<string, string | undefined>, fn: () => T | Promise<T>): Promise<T> {
@@ -136,7 +137,7 @@ test('t029 choix des feuilles : période de destination, au plus tard celle du l
 test('t029 lot de fichier : généré, feuilles réservées, fichier tracé, import confirmé qui seul les marque transmises', async () => {
   const { db, run, refus, lots, journal, transmises, compteDe, ADMIN, PAIE, GEST } = await fresh();
   for (const code of Object.keys(RUBRIQUES_PAIE)) await run(ADMIN, 'paie.rubrique', { code, confirmer: true });
-  const avant = transmises(), enAttente = sagePending(new Domain(await loadFull(db, ADMIN))).length;
+  const avant = (await transmises()), enAttente = sagePending(new Domain(await loadFull(db, ADMIN))).length;
   assert.ok(enAttente > 0);
   await avecEnv({ SAGE_MODE: 'fichier' }, async () => {
     await refus(GEST, 'paie.lotGenerer', { periode: '2026-10' }, 403);
@@ -149,7 +150,7 @@ test('t029 lot de fichier : généré, feuilles réservées, fichier tracé, imp
     assert.match(lot.cle, /^[0-9a-f-]{36}$/, 'clé d’idempotence');
     assert.ok(lot.contenu!.lignes.length > 0 && lot.resume.lignes === L.lignesFichier(lot.contenu!).length);
     // Feuilles réservées, pas transmises : plus en attente, jamais dans un second lot.
-    assert.equal(transmises(), avant);
+    assert.equal((await transmises()), avant);
     assert.equal(sagePending(new Domain(await loadFull(db, ADMIN))).length, 0);
     assert.ok((await loadFull(db, ADMIN)).feuilles.filter(f => f.lotId === lot.id).length === enAttente);
     await refus(PAIE, 'paie.lotGenerer', { periode: '2026-10' }, 400, /Aucune feuille/);
@@ -161,9 +162,9 @@ test('t029 lot de fichier : généré, feuilles réservées, fichier tracé, imp
     const srv = await serveurFichier(db);
     try {
       assert.equal((await srv.fichier(lot.id)).status, 401);
-      const gest = await srv.fichier(lot.id, await srv.session(compteDe(14)));
+      const gest = await srv.fichier(lot.id, await srv.session((await compteDe(14))));
       assert.equal(gest.status, 403, 'gestionnaire RH : pas de droit « paie »');
-      const paie = await srv.session(compteDe(7));
+      const paie = await srv.session((await compteDe(7)));
       assert.equal((await srv.fichier(999, paie)).status, 404);
       const r = await srv.fichier(lot.id, paie);
       assert.equal(r.status, 200);
@@ -213,7 +214,7 @@ test('t029 lot de fichier : généré, feuilles réservées, fichier tracé, imp
         new RegExp(`^Lot n° ${lot.id} : import dans Sage confirmé — ${enAttente} feuilles marquées transmises · 5 absences · référence IMP-2026-10$`));
       const confirme = (await lots()).at(-1)!;
       assert.deepEqual([confirme.statut, confirme.confirmePar, confirme.reference], ['transmis', 'Aïcha Diallo', 'IMP-2026-10']);
-      assert.equal(transmises(), avant + enAttente);
+      assert.equal((await transmises()), avant + enAttente);
       const j = (await journal('paie.lotConfirmer')).at(-1)!;
       assert.deepEqual([j.payload.id, j.payload.reference, j.payload.avant.statut, j.payload.apres.statut, j.paie], [lot.id, 'IMP-2026-10', 'genere', 'transmis', true]);
       assert.equal(j.payload.feuilles.length, enAttente);
@@ -245,7 +246,7 @@ test('t029 contrôles d’un lot réel : matricule de paie et codes Sage confirm
 test('t029 simulation, annulation : feuilles libérées, fichier d’un lot annulé refusé, lot de simulation jamais confirmé en réel', async () => {
   const { db, run, refus, lots, journal, transmises, compteDe, ADMIN, PAIE, KARIM } = await fresh();
   await db.insert('feuilles', { empId: 24, week: '2026-10-05', statut: 'validee', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-MAINT', tache: '', ks: false, h: [7, 7, 7, 7, 7] }], contrat: null });
-  const avant = transmises(), enAttente = async () => sagePending(new Domain(await loadFull(db, ADMIN))).length, n = await enAttente();
+  const avant = (await transmises()), enAttente = async () => sagePending(new Domain(await loadFull(db, ADMIN))).length, n = await enAttente();
   // Simulation : salarié sans matricule et codes à confirmer acceptés, avec un avertissement.
   assert.match(String(await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' })), /· simulation : rien n’est envoyé à Sage Paie · 1 salarié sans matricule de paie \(Bastien Morel\)/);
   const lot = (await lots()).at(-1)!;
@@ -263,7 +264,7 @@ test('t029 simulation, annulation : feuilles libérées, fichier d’un lot annu
   assert.deepEqual([a.payload.avant.statut, a.payload.apres.statut, a.paie], ['genere', 'annule', true]);
   const srv = await serveurFichier(db);
   try {
-    const paie = await srv.session(compteDe(7));
+    const paie = await srv.session((await compteDe(7)));
     assert.equal((await srv.fichier(lot.id, paie)).status, 409);
     // Nouveau lot, fichier téléchargé, puis annulé : la confirmation rappelle de supprimer l'import dans Sage.
     await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
@@ -280,7 +281,7 @@ test('t029 simulation, annulation : feuilles libérées, fichier d’un lot annu
   await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
   const troisieme = (await lots()).at(-1)!;
   assert.match(String(await run(PAIE, 'paie.lotConfirmer', { id: troisieme.id })), /marqué transmis \(simulation, rien n’est envoyé à Sage Paie\) — .* · référence SIM-2026-10-\d+$/);
-  assert.equal(transmises(), avant + n);
+  assert.equal((await transmises()), avant + n);
   // Instantanés : lots sans contenu pour le service RH, la paie et la lecture seule ; rien pour le manager ni le collaborateur.
   const vus = (await buildSnapshot(db, PAIE)).lotsPaie;
   assert.ok(vus.length >= 4 && vus.every(l => !('contenu' in l)) && vus[0].id === troisieme.id, 'du plus récent au plus ancien');
@@ -311,10 +312,10 @@ test('t029 migration : feuilles déjà transmises réunies en un lot historique,
     await appliquerMigrations(db);
     await seedDemo(db);
     // Base d'avant les lots : feuilles transmises sans lot, dernière transmission gardée dans un réglage.
-    db.sql.exec(`UPDATE feuilles SET lot_id = NULL; DELETE FROM lots_paie; DELETE FROM migrations WHERE nom = 'lot4-paie-lots-historiques'`);
+    await db.exec(`UPDATE feuilles SET lot_id = NULL; DELETE FROM lots_paie; DELETE FROM migrations WHERE nom = 'lot4-paie-lots-historiques'`);
     // Envoi du 2 octobre (septembre clos) de la semaine du 21 septembre : rappel de septembre sur la paie d'octobre.
     await db.setSetting('lastSagePush', { mode: 'simulation', envoye_le: '2026-10-02T17:02:00+02:00', lignes: [], periodes: ['2026-10'] });
-    const transmises = Number((db.sql.prepare('SELECT COUNT(*) AS n FROM feuilles WHERE sage = 1').get() as { n: number }).n);
+    const transmises = Number(((await db.one('SELECT COUNT(*) AS n FROM feuilles WHERE sage = TRUE')) as { n: number }).n);
     assert.ok(transmises > 0);
     db.sql.close();
     const ancienne = new Db(file);
@@ -324,7 +325,7 @@ test('t029 migration : feuilles déjà transmises réunies en un lot historique,
     assert.deepEqual([lot.statut, lot.historique, lot.mode, lot.feuilles.length, lot.creation], ['transmis', true, 'simulation', transmises, '2026-10-02T15:02:00.000Z']);
     // Période selon la règle de rattachement au jour de l'envoi (et non le mois du lundi de la semaine).
     assert.deepEqual([lot.periode, lot.periodes, lot.rappels], ['2026-10', ['2026-10'], ['2026-09']]);
-    assert.equal(Number((ancienne.sql.prepare('SELECT COUNT(*) AS n FROM feuilles WHERE sage = 1 AND lot_id IS NULL').get() as { n: number }).n), 0);
+    assert.equal(Number(((await ancienne.one('SELECT COUNT(*) AS n FROM feuilles WHERE sage = TRUE AND lot_id IS NULL')) as { n: number }).n), 0);
     const j = (await ancienne.all<Ligne>('journal')).filter(l => l.action === 'migration.lotsPaie');
     assert.equal(j.length, 1);
     assert.equal(j[0].message, `Reprise : ${transmises} feuilles déjà transmises à la paie réunies dans le lot historique n° ${lot.id}`);

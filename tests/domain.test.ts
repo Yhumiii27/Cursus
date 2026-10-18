@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-07';
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { loadFull } = await import('../server/src/dataset.ts');
 const { Domain } = await import('../shared/domain.ts');
@@ -13,7 +13,7 @@ const { checkAbsence, cpInfo, reposForfait, rttInfo } = await import('../shared/
 const { obligations } = await import('../shared/rules/entretiens.ts');
 const { parsePlan, SAMPLE_PLAN_CSV } = await import('../shared/rules/imports.ts');
 
-const db = new Db(':memory:');
+const db = await nouvelleBase();
 await seedDemo(db);
 const ds = await loadFull(db, { role: 'rh', empId: null, nom: 'Test', intitule: '' });
 const d = new Domain(ds);

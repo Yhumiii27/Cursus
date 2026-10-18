@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -18,14 +18,13 @@ const { lireCsv, parsePlan, SAMPLE_PLAN_CSV } = await import('../shared/rules/im
 const R = await import('../shared/rules/reprise.ts');
 const { cetInfo, cpInfo, recupInfo, rttInfo, soldePeriode } = await import('../shared/rules/conges.ts');
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
-type Db = InstanceType<typeof Db>;
 interface Ligne { action: string; message: string | null; payload: Record<string, any>; salaries: number[] | null }
 
 const ADMIN = { role: 'rh', empId: null, nom: 'Responsable RH', intitule: '', profilRh: 'rh_admin', compteId: 1 } as unknown as User;
 
 /** Base de production vide, référentiels types chargés ; `run` suit le chemin de POST /api/actions/:nom (trace comprise). */
 async function base() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await db.insert('comptes', { empId: null, nom: 'Responsable RH', adresse: 'rh@exemple.fr', identifiant: 'rh@exemple.fr', type: 'microsoft', oid: null, profilRh: 'rh_admin', actif: true, motDePasse: null, changerMotDePasse: false, echecs: 0, blocageFin: null, creation: '2026-10-01T08:00:00Z', creePar: null, derniereConnexion: null });
   const run = async (name: string, p: Record<string, unknown>, u: User = ADMIN) => await db.tx(async () => {
     const t = await preparerTrace(db, name, p);
@@ -250,10 +249,10 @@ test('journal et confidentialité : code par import, ni fichier ni noms au journ
 });
 
 test('lots de reprise : absents des instantanés du manager, du collaborateur et des profils restreints', async () => {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
-  const compte = (empId: number | null) => (db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL').get(...(empId ? [empId] : [])) as { id: number }).id;
-  const u = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: compte(empId), role, methode: 'demo' }))!;
+  const compte = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
+  const u = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compte(empId)), role, methode: 'demo' }))!;
   const RH = await u(null, 'rh');
   await db.tx(async () => await ACTIONS['reprise.importer'](makeCtx(db, RH, await loadFull(db, RH)), { type: 'soldes', texte: 'Nom;CP N-1\nMehdi Benali;10', colonnes: ['nom', 'cpN1'], dateReprise: '2026-10-01' }));
   assert.equal((await buildSnapshot(db, RH)).reprises.length, 1);

@@ -15,6 +15,7 @@ import type { Request, Response } from 'express';
 
 const { problemesConfig } = await import('../server/src/config.ts');
 const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { openSession, purgeSessions, readSession, revokeSessionsOf } = await import('../server/src/auth.ts');
 
@@ -186,7 +187,7 @@ test('démonstration (CURSUS_DEMO=1) : clé Keystone, sessions et en-têtes', as
   await t.test('session expirée → 401', async () => {
     const c = cookieOf(await srv.call('/api/session'))!;
     assert.equal((await srv.call('/api/data', { cookie: c })).status, 200);
-    db.sql.prepare('UPDATE connexions SET expiration = ? WHERE id = ?').run(new Date(Date.now() - 1000).toISOString(), idOf(c));
+    (await db.run('UPDATE connexions SET expiration = ? WHERE id = ?', [new Date(Date.now() - 1000).toISOString(), idOf(c)]));
     assert.equal((await srv.call('/api/data', { cookie: c })).status, 401);
   });
 
@@ -211,11 +212,11 @@ test('démonstration (CURSUS_DEMO=1) : clé Keystone, sessions et en-têtes', as
     const c = cookieOf(r)!;
     assert.equal((await r.json()).user.empId, 2);
     assert.equal((await srv.call('/api/data', { cookie: c })).status, 200);
-    db.sql.prepare('UPDATE employes SET fin = ? WHERE id = ?').run('2026-10-09', 2);
+    (await db.run('UPDATE employes SET fin = ? WHERE id = ?', ['2026-10-09', 2]));
     assert.equal((await srv.call('/api/data', { cookie: c })).status, 401);
     assert.ok((await db.get<{ revocation: string | null }>('connexions', idOf(c)))!.revocation);
     assert.equal((await srv.call('/api/login', { method: 'POST', body: { role: 'collaborateur', compteId, password: 'x' } })).status, 403, 'nouvelle connexion refusée');
-    db.sql.prepare('UPDATE employes SET fin = NULL WHERE id = ?').run(2);
+    (await db.run('UPDATE employes SET fin = NULL WHERE id = ?', [2]));
     assert.equal((await srv.call('/api/data', { cookie: c })).status, 401, 'la révocation est définitive');
   });
 
@@ -308,7 +309,7 @@ test('production : écoute sur la boucle locale, HSTS derrière le proxy HTTPS',
 });
 
 test('sessions : révocation de toutes les sessions d’un salarié et purge des sessions expirées', async () => {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const res = { setHeader() {} } as unknown as Response;
   const req = (id: string) => ({ headers: { cookie: `cursus_session=${id}` } }) as unknown as Request;

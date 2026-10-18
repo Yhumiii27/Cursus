@@ -12,7 +12,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 delete process.env.KEYSTONE_URL;
 delete process.env.KEYSTONE_TOKEN;
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS, changeVerdicts } = await import('../server/src/actions/index.ts');
@@ -42,11 +42,10 @@ async function le<T>(date: string, fn: () => T | Promise<T>): Promise<T> {
 
 /** Jeu de démonstration ; `run` suit le chemin de POST /api/actions/:nom (journal, puis verdicts transmis à Keystone). */
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
-  const compteDe = (empId: number | null) => db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number };
-  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: compteDe(empId).id, role, methode: 'demo' }))!;
+  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
     const t = await preparerTrace(db, name, p);
     const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
@@ -157,7 +156,7 @@ test('sortie : contrôles, annulations (Keystone prévenu, convocation annulée)
     const r = d.evaluateChantiers(d.enrich(90, false), d.tripsAll()).find(x => x.c.id === 'K-SO')!.res.find(x => x.e.id === 2)!;
     assert.deepEqual([r.status, r.reasons.map(x => x.code)], ['nogo', ['CONTRAT']]);
     // Connexion refusée passé la date (déjà en place pour les CDD : vaut désormais pour un CDI).
-    const c = db.sql.prepare('SELECT * FROM comptes WHERE emp_id = 2').get() as Record<string, unknown>;
+    const c = (await db.one('SELECT * FROM comptes WHERE emp_id = 2')) as Record<string, unknown>;
     assert.match((await refusDuCompte(db, (await db.get<Compte>('comptes', Number(c.id)))!))!, /date de sortie de ce salarié est passée/);
     // Plus de visite à demander passé la date.
     await refus(RH, 'medical.demander', { empId: 2 }, /dernier jour du contrat de Mehdi Benali/);
@@ -168,7 +167,7 @@ test('sortie : une date passée ferme les sessions ; motif réservé au RH, à l
   const { db, user, run, refus, RH, compteDe } = await fresh();
   const maintenant = new Date();
   await db.insert('connexions', {
-    id: 'session-essai', compteId: compteDe(6).id, role: 'collaborateur', methode: 'demo', demoComptes: {},
+    id: 'session-essai', compteId: (await compteDe(6)).id, role: 'collaborateur', methode: 'demo', demoComptes: {},
     creation: maintenant.toISOString(), expiration: new Date(maintenant.getTime() + 3600_000).toISOString(), activite: maintenant.toISOString(),
   });
   await run(RH, 'medical.demander', { empId: 6 });
@@ -234,18 +233,18 @@ test('sortie d’un membre de l’espace RH : réservée à l’administrateur, 
   const gestionnaire = await user(14, 'rh');
   // Le gestionnaire RH saisit la sortie d'un salarié, pas celle d'un membre de l'espace RH (comptes : administrateur seul).
   await refus(gestionnaire, 'employe.sortie', { id: 7, date: '2026-10-31', motif: 'demission' }, /administrateur RH/, 403);
-  await db.update('comptes', compteDe(1).id, { profilRh: 'rh_admin' });
+  await db.update('comptes', (await compteDe(1)).id, { profilRh: 'rh_admin' });
   await refus(gestionnaire, 'employe.sortie', { id: 1, date: '2026-10-09', motif: 'autre' }, /administrateur RH/, 403);
   await run(gestionnaire, 'employe.sortie', { id: 6, date: '2026-10-31', motif: 'demission' });
   // Deux administrateurs salariés en CDI, le compte non rattaché désactivé : une sortie à venir ne compte pas.
-  await db.update('comptes', compteDe(2).id, { profilRh: 'rh_admin' });
-  await db.update('comptes', compteDe(null).id, { actif: false });
+  await db.update('comptes', (await compteDe(2)).id, { profilRh: 'rh_admin' });
+  await db.update('comptes', (await compteDe(null)).id, { actif: false });
   await run(RH, 'employe.sortie', { id: 1, date: '2026-10-31', motif: 'demission' });
   await refus(RH, 'employe.sortie', { id: 2, date: '2026-10-31', motif: 'demission' }, /dernier administrateur RH actif après le 31 oct\. 2026/);
   await refus(RH, 'employe.sortie', { id: 2, date: '2026-11-15', motif: 'demission' }, /dernier administrateur RH actif/);
   // Ni désactivation ni changement de profil du seul administrateur sans date de sortie.
-  await refus(RH, 'compte.activer', { id: compteDe(2).id, actif: false }, /au moins un administrateur RH actif, sans date de sortie/);
-  await refus(RH, 'compte.profil', { id: compteDe(2).id, profilRh: 'rh_gestionnaire' }, /au moins un administrateur RH actif/);
+  await refus(RH, 'compte.activer', { id: (await compteDe(2)).id, actif: false }, /au moins un administrateur RH actif, sans date de sortie/);
+  await refus(RH, 'compte.profil', { id: (await compteDe(2)).id, profilRh: 'rh_gestionnaire' }, /au moins un administrateur RH actif/);
   // Annulée, la première sortie rend la seconde possible.
   await run(RH, 'employe.annulerSortie', { id: 1 });
   await run(RH, 'employe.sortie', { id: 2, date: '2026-10-31', motif: 'demission' });

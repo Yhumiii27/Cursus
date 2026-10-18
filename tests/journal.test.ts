@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 process.env.CURSUS_TODAY = '2026-10-10';
 
 const { SqliteDb: Db, TABLES } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -31,7 +32,7 @@ const { donneesSalarie, TABLES_SALARIE } = await import('../server/src/donnees.t
 const { changementsTexte, dossierComplet, familleAction, JOURNAL_LABEL, lecteurJournal, libelleAction } = await import('../shared/journal.ts');
 const { PROFILS_RH } = await import('../shared/constants.ts');
 const { SAMPLE_TRIPS_CSV } = await import('../shared/rules/imports.ts');
-type Db = InstanceType<typeof Db>;
+type Db = import('../server/src/db.ts').Db;
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 interface Ligne {
   id: number; at: string; actor: string; role: string | null; action: string; message: string | null; payload: Record<string, any>;
@@ -50,11 +51,10 @@ const NATURE = new RegExp(MENTION_NATURE.replace(/[[\]]/g, '\\$&'));
 
 /** Jeu de démonstration ; `run` suit le chemin de POST /api/actions/:nom (état lu avant l'action, trace après). */
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
-  const compteDe = (empId: number | null) => db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number };
-  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: compteDe(empId).id, role, methode: 'demo' }))!;
+  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
     const ctx = makeCtx(db, u, await loadFull(db, u));
     const t = await preparerTrace(db, name, p);
@@ -65,7 +65,7 @@ async function fresh() {
   });
   const lignes = async () => await db.all<Ligne>('journal');
   const derniere = async (action: string) => (await lignes()).findLast(j => j.action === action);
-  const id = (sql: string, ...a: (string | number)[]) => (db.sql.prepare(sql).get(...a) as { id: number }).id;
+  const id = async (sql: string, ...a: (string | number)[]) => ((await db.one(sql, [...a])) as { id: number }).id;
   return { db, user, run, lignes, derniere, id, RH: await user(null, 'rh'), KARIM: await user(12, 'manager'), MEHDI: await user(2, 'collaborateur') };
 }
 
@@ -79,10 +79,10 @@ test('liste blanche : ni numéro de passeport, ni vaccin, ni CSV importé, ni mo
   assert.deepEqual(vaccin.salaries, [2]);
   assert.match(vaccin.message!, /^Vaccination \[donnée de santé\] enregistrée — Mehdi Benali$/);
   await run(MEHDI, 'formalite.enregistrer', { empId: 2, kind: 'vaccin', v: 'hepA', date: '2026-09-15' });
-  const dernierVoyage = db.sql.prepare('SELECT MAX(id) AS n FROM voyages').get() as { n: number };
+  const dernierVoyage = (await db.one('SELECT MAX(id) AS n FROM voyages')) as { n: number };
   await run(RH, 'voyages.importer', { texte: SAMPLE_TRIPS_CSV.replace('Audit fournisseur', 'Chantier secret 12345') });
   // Import : nombre de déplacements créés et leurs salariés (historique de leur fiche), jamais le CSV.
-  const crees = (db.sql.prepare('SELECT emp_id AS e FROM voyages WHERE id > ? ORDER BY id').all(dernierVoyage.n) as { e: number }[]).map(r => r.e);
+  const crees = ((await db.query('SELECT emp_id AS e FROM voyages WHERE id > ? ORDER BY id', [dernierVoyage.n])) as { e: number }[]).map(r => r.e);
   assert.ok(crees.length > 0);
   assert.deepEqual((await derniere('voyages.importer'))!.payload, { deplacements: crees.length });
   assert.deepEqual((await derniere('voyages.importer'))!.salaries, [...new Set(crees)]);
@@ -115,13 +115,13 @@ test('absences : jamais de nature, ni dans le contenu ni dans le message', async
   assert.equal(sansDates(naissance), sansDates(enfant));
   assert.equal(sansDates(naissance), sansDates(s.message!));
   assert.match(naissance, NATURE);
-  await run(RH, 'absence.annuler', { id: id(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2026-11-16'`) });
+  await run(RH, 'absence.annuler', { id: (await id(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2026-11-16'`)) });
   assert.match((await derniere('absence.annuler'))!.message!, /^Absence de Mehdi Benali \(\[nature d’absence\]\) annulée/);
   const texte = JSON.stringify(await lignes());
   assert.ok(!/naissance|enfant malade/i.test(texte) && !SANTE.test(texte), 'aucune nature, ni marqueur de santé');
   // Signalée par le manager, qualifiée ensuite en accident du travail par le RH : dates et statut, jamais la nature.
   await run(KARIM, 'absence.signaler', { empId: 2, du: '2026-12-21', au: '2026-12-22' });
-  const a = id(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2026-12-21'`);
+  const a = (await id(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2026-12-21'`));
   await run(RH, 'absence.qualifier', { id: a, nature: 'AT', du: '2026-12-21', au: '2026-12-23', justificatif: true, justificatifLe: '2026-10-09' });
   const q = (await derniere('absence.qualifier'))!;
   assert.deepEqual([q.payload.avant, q.payload.apres], [{ au: '2026-12-22', statut: 'signalee', justificatif: false }, { au: '2026-12-23', statut: 'validee', justificatif: true }]);
@@ -137,13 +137,13 @@ test('absences : jamais de nature, ni dans le contenu ni dans le message', async
 test('archive paie : une absence saisie, prolongée puis annulée y figure en entier', async () => {
   const { db, run, lignes, id, RH } = await fresh();
   await run(RH, 'absence.saisir', { empId: 2, nature: 'MALADIE', du: '2026-12-14', au: '2026-12-16', justificatif: true, justificatifLe: '2026-10-09' });
-  const a = id(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2026-12-14'`);
+  const a = (await id(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2026-12-14'`));
   await run(RH, 'absence.prolonger', { id: a, au: '2026-12-23' });
   await run(RH, 'absence.annuler', { id: a });
   const absences = async () => (await lignes()).filter(l => l.action.startsWith('absence.'));
   assert.deepEqual((await absences()).map(l => [l.action, l.paie]), [['absence.saisir', true], ['absence.prolonger', true], ['absence.annuler', true]]);
   // Une ligne écrite avant que l'action ne soit « liée à la paie » est marquée au démarrage.
-  db.sql.prepare(`UPDATE journal SET paie = 0 WHERE action = 'absence.annuler'`).run();
+  (await db.run(`UPDATE journal SET paie = FALSE WHERE action = 'absence.annuler'`));
   assert.equal(await marquerPaie(db), 1);
   await appliquerConservation(db, new Date(Date.now() + 400 * 86_400_000));
   const archive = (await lireJournal(db, { vue: 'archive', du: null, au: null, auteur: null, action: null, salarie: 2 })).lignes;
@@ -220,10 +220,10 @@ test('feuilles de temps : renvoi, saisie, soumission et validation par le manage
 
 test('transmission à la paie : feuilles transmises et salariés concernés (archive, historique, export de ses données)', async () => {
   const { db, run, derniere, RH } = await fresh();
-  const avant = (db.sql.prepare(`SELECT id FROM feuilles WHERE statut = 'validee' AND sage = 0 ORDER BY id`).all() as { id: number }[]).map(f => f.id);
+  const avant = ((await db.query(`SELECT id FROM feuilles WHERE statut = 'validee' AND sage = FALSE ORDER BY id`)) as { id: number }[]).map(f => f.id);
   const r = await run(RH, 'temps.pushSage', {});
   // Celles qui viennent d'être transmises (les feuilles transmises auparavant n'y figurent pas ; intérim et dirigeants non plus).
-  const transmises = (db.sql.prepare(`SELECT emp_id AS empId, week FROM feuilles WHERE sage = 1 AND id IN (${avant.join(', ')}) ORDER BY id`).all() as { empId: number; week: string }[]);
+  const transmises = ((await db.query(`SELECT emp_id AS "empId", week FROM feuilles WHERE sage = TRUE AND id IN (${avant.join(', ')}) ORDER BY id`)) as { empId: number; week: string }[]);
   assert.ok(transmises.length > 0 && transmises.length <= avant.length);
   assert.match(String(r.message), new RegExp(`^${transmises.length} feuilles marquées transmises — simulation, rien n’est envoyé à Sage Paie`));
   const l = (await derniere('temps.pushSage'))!;
@@ -237,7 +237,7 @@ test('transmission à la paie : feuilles transmises et salariés concernés (arc
 
 test('compte rendu d’entretien : section nommée sans son contenu, une ligne par compte et par demi-heure', async () => {
   const { run, lignes, id, KARIM, MEHDI } = await fresh();
-  const e = id(`SELECT id FROM entretiens WHERE emp_id = 2 AND statut = 'planifie'`);
+  const e = (await id(`SELECT id FROM entretiens WHERE emp_id = 2 AND statut = 'planifie'`));
   await run(KARIM, 'entretien.modifier', { id: e, section: 'bilan', value: 'Texte confidentiel du bilan' });
   await run(KARIM, 'entretien.modifier', { id: e, section: 'objectifs', value: 'Objectifs personnels' });
   await run(KARIM, 'entretien.modifier', { id: e, section: 'bilan', value: 'Texte confidentiel corrigé' });
@@ -251,7 +251,7 @@ test('compte rendu d’entretien : section nommée sans son contenu, une ligne p
 test('salariés concernés : décision sur une absence, clôture d’une session', async () => {
   const { db, run, derniere, id, RH, KARIM, MEHDI } = await fresh();
   await run(MEHDI, 'absence.demander', { empId: 2, kind: 'CP', du: '2026-12-07', au: '2026-12-08' });
-  await run(KARIM, 'absence.decider', { id: id(`SELECT id FROM absences WHERE emp_id = 2 AND statut = 'demandee'`), ok: true });
+  await run(KARIM, 'absence.decider', { id: (await id(`SELECT id FROM absences WHERE emp_id = 2 AND statut = 'demandee'`)), ok: true });
   const d = (await derniere('absence.decider'))!;
   assert.deepEqual([d.salaries, d.paie, d.payload.apres], [[2], true, { statut: 'validee' }]);
   const s = (await db.insert<{ id: number }>('sessions', { formation: 'sst', date: '2026-10-01', lieu: 'Site de Lyon', places: 8, statut: 'Confirmée', planId: null, bilan: null })).id;
@@ -264,12 +264,12 @@ test('salariés concernés : décision sur une absence, clôture d’une session
 
 test('annulation d’une session : les recyclages rattachés, détachés par l’annulation, restent concernés', async () => {
   const { db, run, derniere, RH } = await fresh();
-  const s = (db.sql.prepare(`SELECT id FROM sessions WHERE id IN (SELECT session_id FROM certifications) AND id IN (SELECT session_id FROM inscriptions) AND statut = 'Confirmée' ORDER BY id LIMIT 1`).get() as { id: number }).id;
-  const recyclages = (db.sql.prepare('SELECT emp_id AS e FROM certifications WHERE session_id = ?').all(s) as { e: number }[]).map(r => r.e);
-  const inscriptions = (db.sql.prepare('SELECT emp_id AS e FROM inscriptions WHERE session_id = ?').all(s) as { e: number }[]).map(r => r.e);
+  const s = ((await db.one(`SELECT id FROM sessions WHERE id IN (SELECT session_id FROM certifications) AND id IN (SELECT session_id FROM inscriptions) AND statut = 'Confirmée' ORDER BY id LIMIT 1`)) as { id: number }).id;
+  const recyclages = ((await db.query('SELECT emp_id AS e FROM certifications WHERE session_id = ?', [s])) as { e: number }[]).map(r => r.e);
+  const inscriptions = ((await db.query('SELECT emp_id AS e FROM inscriptions WHERE session_id = ?', [s])) as { e: number }[]).map(r => r.e);
   assert.ok(recyclages.length && inscriptions.length);
   await run(RH, 'session.annuler', { id: s });
-  assert.equal((db.sql.prepare('SELECT COUNT(*) AS n FROM certifications WHERE session_id = ?').get(s) as { n: number }).n, 0, 'recyclages détachés');
+  assert.equal(((await db.one('SELECT COUNT(*) AS n FROM certifications WHERE session_id = ?', [s])) as { n: number }).n, 0, 'recyclages détachés');
   assert.deepEqual([...(await derniere('session.annuler'))!.salaries!].sort((a, b) => a - b), [...new Set([...recyclages, ...inscriptions])].sort((a, b) => a - b));
 });
 

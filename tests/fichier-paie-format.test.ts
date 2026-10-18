@@ -12,6 +12,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 
 const express = (await import('express')).default;
 const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -31,16 +32,16 @@ const { MODES_SAGE } = await import('../shared/rules/paie.ts');
 const { JOURNAL_LABEL } = await import('../shared/journal.ts');
 const { RUBRIQUES_PAIE } = await import('../shared/constants.ts');
 const L = await import('../shared/rules/lots-paie.ts');
-type Db = InstanceType<typeof Db>;
+type Db = import('../server/src/db.ts').Db;
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type Format = Parameters<typeof L.fichierLot>[1] & object;
 
 /** Jeu de démonstration ; `run` suit le chemin de POST /api/actions/:nom (trace au journal comprise). */
-async function fresh(db: Db = new Db(':memory:')) {
+async function fresh(base?: Db) {
+  const db = base ?? await nouvelleBase();
   await seedDemo(db);
-  const compteDe = (empId: number | null) => (db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number }).id;
-  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: compteDe(empId), role, methode: 'demo' }))!;
+  const compteDe = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)), role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
     const t = await preparerTrace(db, name, p);
     const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
@@ -99,8 +100,8 @@ test('t019 migration : un lot de l’ancien mode « api » passe en mode fichier
     assert.equal(await MODE_API_RETIRE.necessaire!(ancienne), false, 'base existante sans lot en mode « api » : notée faite');
     // Lot historique repris d'une transmission sous l'ancienne bascule SAGE_URL.
     const [lot] = await ancienne.all<{ id: number }>('lotsPaie');
-    ancienne.sql.prepare(`UPDATE lots_paie SET mode = 'api' WHERE id = ?`).run(lot.id);
-    ancienne.sql.exec(`DELETE FROM migrations WHERE nom = 'lot5-paie-mode-api-retire'`);
+    (await ancienne.run(`UPDATE lots_paie SET mode = 'api' WHERE id = ?`, [lot.id]));
+    await ancienne.exec(`DELETE FROM migrations WHERE nom = 'lot5-paie-mode-api-retire'`);
     assert.equal(await MODE_API_RETIRE.necessaire!(ancienne), true);
     assert.deepEqual(await appliquerMigrations(ancienne), ['lot5-paie-mode-api-retire']);
     assert.equal((await ancienne.get<{ mode: string }>('lotsPaie', lot.id))!.mode, 'fichier');
@@ -206,7 +207,7 @@ test('t019 fichier téléchargé en Windows-1252 avec libellés figés à la gé
   await new Promise(r => srv.once('listening', r));
   try {
     const base = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
-    const cookie = (await fetch(`${base}/essai/session/${compteDe(7)}`)).headers.get('set-cookie')!.split(';')[0];
+    const cookie = (await fetch(`${base}/essai/session/${(await compteDe(7))}`)).headers.get('set-cookie')!.split(';')[0];
     const telecharger = async () => {
       const r = await fetch(`${base}/api/paie/lots/${lot.id}/fichier`, { headers: { cookie } });
       assert.equal(r.status, 200);

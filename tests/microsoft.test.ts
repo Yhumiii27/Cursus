@@ -18,6 +18,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 
 const { problemesConfig } = await import('../server/src/config.ts');
 const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { json } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { ERREURS_MICROSOFT } = await import('../shared/constants.ts');
 
@@ -168,15 +169,15 @@ test('connexion Microsoft 365 (OpenID Connect, faux fournisseur local)', async t
   const OIDC = { CURSUS_OIDC_TENANT: TENANT.toUpperCase(), CURSUS_OIDC_CLIENT_ID: CLIENT, CURSUS_OIDC_CLIENT_SECRET: SECRET, CURSUS_PUBLIC_URL: publicUrl, CURSUS_OIDC_AUTORITE: f.base };
   const srv = await cursus(file, { ...OIDC, CURSUS_SECRET: CLE_COOKIES }, port);
 
-  const compte = (where: string) => db.sql.prepare(`SELECT id, identifiant, type, oid, emp_id AS empId FROM comptes WHERE ${where}`).get() as { id: number; identifiant: string; type: string; oid: string | null; empId: number | null };
-  const journal = () => db.sql.prepare('SELECT actor, role, action, message, identifiant, payload FROM journal ORDER BY id').all() as
+  const compte = async (where: string) => (await db.one(`SELECT id, identifiant, type, oid, emp_id AS "empId" FROM comptes WHERE ${where}`)) as { id: number; identifiant: string; type: string; oid: string | null; empId: number | null };
+  const journal = async () => (await db.query('SELECT actor, role, action, message, identifiant, payload FROM journal ORDER BY id')) as
     { actor: string; role: string | null; action: string; message: string; identifiant: string | null; payload: string }[];
-  const karim = compte('emp_id = 12');
-  const antoine = compte('emp_id = 14');
-  const sandrine = compte('emp_id IS NULL');
+  const karim = (await compte('emp_id = 12'));
+  const antoine = (await compte('emp_id = 14'));
+  const sandrine = (await compte('emp_id IS NULL'));
   // Un collaborateur sans équipe à encadrer ni profil RH, doté d'un compte Microsoft 365.
-  const collab = db.sql.prepare(`SELECT c.id, c.identifiant FROM comptes c WHERE c.type = 'microsoft' AND c.emp_id IS NOT NULL AND c.profil_rh = 'aucun'
-    AND c.emp_id NOT IN (SELECT manager_id FROM equipes WHERE manager_id IS NOT NULL) ORDER BY c.id`).get() as { id: number; identifiant: string };
+  const collab = (await db.one(`SELECT c.id, c.identifiant FROM comptes c WHERE c.type = 'microsoft' AND c.emp_id IS NOT NULL AND c.profil_rh = 'aucun'
+    AND c.emp_id NOT IN (SELECT manager_id FROM equipes WHERE manager_id IS NOT NULL) ORDER BY c.id`)) as { id: number; identifiant: string };
   assert.equal(karim.type, 'microsoft');
 
   interface Option {
@@ -210,7 +211,7 @@ test('connexion Microsoft 365 (OpenID Connect, faux fournisseur local)', async t
     assert.equal(r.location, `/?connexion=${code}`, label);
     assert.equal(r.session, null, `${label} : aucune session ouverte`);
   };
-  const derniere = (action: string) => journal().findLast(j => j.action === action)!;
+  const derniere = async (action: string) => (await journal()).findLast(j => j.action === action)!;
 
   await t.test('aller : code d’autorisation avec PKCE (S256), state et nonce ; cookie d’état court, HttpOnly, SameSite=Lax', async () => {
     const s = await srv.call('/api/session');
@@ -240,18 +241,18 @@ test('connexion Microsoft 365 (OpenID Connect, faux fournisseur local)', async t
     assert.equal(r.location, '/temps');
     assert.ok(r.session, 'session ouverte');
     assert.ok(cookieDe(r.r, 'cursus_oidc')!.includes('Max-Age=0'), 'cookie d’état effacé');
-    assert.equal(compte('emp_id = 12').oid, 'oid-karim', 'oid enregistré à la première connexion');
+    assert.equal((await compte('emp_id = 12')).oid, 'oid-karim', 'oid enregistré à la première connexion');
     const s = await srv.call('/api/session', { cookie: r.session });
     assert.deepEqual([s.json.user.nom, s.json.user.role, s.json.methode, s.json.compte.identifiant], ['Karim Haddad', 'manager', 'microsoft', karim.identifiant]);
     assert.equal((await srv.call('/api/data', { cookie: r.session })).status, 200);
-    const j = derniere('connexion');
+    const j = (await derniere('connexion'));
     assert.deepEqual([j.actor, j.role, j.identifiant], ['Karim Haddad', 'manager', karim.identifiant]);
     assert.match(j.message, /première connexion, compte rattaché/);
     // Connexions suivantes : retrouvé par son oid, même si l'adresse de connexion a changé chez Microsoft.
     const r2 = await allerRetour({ oid: 'oid-karim', upn: 'k.haddad@entreprise.example' });
     assert.equal(r2.location, '/');
     assert.equal((await srv.call('/api/session', { cookie: r2.session })).json.user.nom, 'Karim Haddad');
-    assert.equal(derniere('connexion').message, 'Connexion Microsoft 365');
+    assert.equal((await derniere('connexion')).message, 'Connexion Microsoft 365');
   });
 
   await t.test('espace initial : RH pour un profil RH, sinon collaborateur', async () => {
@@ -288,7 +289,7 @@ test('connexion Microsoft 365 (OpenID Connect, faux fournisseur local)', async t
     for (const [label, o, re] of cas) {
       const r = await allerRetour(id, o);
       refuse(r, 'jeton', label);
-      const j = derniere('connexion.refusee');
+      const j = (await derniere('connexion.refusee'));
       assert.match(j.message, re, label);
       assert.equal(j.actor, 'Microsoft 365', label);
     }
@@ -328,7 +329,7 @@ test('connexion Microsoft 365 (OpenID Connect, faux fournisseur local)', async t
     const p = new URL(aller.location!).searchParams;
     const r = await srv.call(`/api/auth/microsoft/retour?code=${ok.code}&state=${p.get('state')}`, { cookie: valeur(cookieDe(aller.r, 'cursus_oidc')) });
     refuse(r, 'jeton', 'code déjà utilisé');
-    assert.match(derniere('connexion.refusee').message, /Échange du code refusé par Microsoft \(HTTP 400, invalid_grant\) — AADSTS70008/);
+    assert.match((await derniere('connexion.refusee')).message, /Échange du code refusé par Microsoft \(HTTP 400, invalid_grant\) — AADSTS70008/);
   });
 
   await t.test('Microsoft refuse la connexion (error=access_denied) : message, journal', async () => {
@@ -336,41 +337,41 @@ test('connexion Microsoft 365 (OpenID Connect, faux fournisseur local)', async t
     const p = new URL(aller.location!).searchParams;
     const r = await srv.call(`/api/auth/microsoft/retour?error=access_denied&error_description=AADSTS50105&state=${p.get('state')}`, { cookie: valeur(cookieDe(aller.r, 'cursus_oidc')) });
     refuse(r, 'refus', 'access_denied');
-    assert.match(derniere('connexion.refusee').message, /refusée par Microsoft \(access_denied, AADSTS50105\)/);
+    assert.match((await derniere('connexion.refusee')).message, /refusée par Microsoft \(access_denied, AADSTS50105\)/);
   });
 
   await t.test('compte inconnu, désactivé, salarié sorti : accès non autorisé, journalisé', async () => {
     const inconnu = await allerRetour({ oid: 'oid-inconnu', upn: 'Paul.Durand@entreprise.example', name: 'Paul Durand' });
     refuse(inconnu, 'acces', 'compte inconnu');
-    let j = derniere('connexion.refusee');
+    let j = (await derniere('connexion.refusee'));
     assert.deepEqual([j.actor, j.identifiant], ['Paul Durand', null]);
     assert.match(j.message, /aucun compte Cursus pour paul\.durand@entreprise\.example/);
-    assert.equal(JSON.parse(j.payload).oid, 'oid-inconnu');
+    assert.equal(json(j.payload).oid, 'oid-inconnu');
     const e = ERREURS_MICROSOFT.acces;
     assert.equal(`${e.titre} : ${e.texte}`, 'Accès non autorisé : demandez l’ouverture d’un compte au service RH.', 'message affiché par l’écran de connexion');
     // Un compte Cursus (local) ne s'ouvre jamais par Microsoft, même avec la même adresse.
-    const local = compte(`type = 'local' AND emp_id IS NOT NULL`);
+    const local = (await compte(`type = 'local' AND emp_id IS NOT NULL`));
     refuse(await allerRetour({ oid: 'oid-local', upn: local.identifiant }), 'acces', 'compte local');
 
     // Compte désactivé : refus, journalisé à son nom ; l'oid n'est pas rattaché.
     const s = await allerRetour({ oid: 'oid-collab', upn: collab.identifiant });
     await db.update('comptes', collab.id, { actif: false });
     refuse(await allerRetour({ oid: 'oid-collab', upn: collab.identifiant }), 'ferme', 'compte désactivé');
-    j = derniere('connexion.refusee');
+    j = (await derniere('connexion.refusee'));
     assert.match(j.message, /Compte désactivé/);
     assert.equal(j.identifiant, collab.identifiant);
     assert.equal((await srv.call('/api/data', { cookie: s.session })).status, 401, 'sessions fermées');
     await db.update('comptes', collab.id, { actif: true });
     // Salarié sorti.
-    const empId = (db.sql.prepare('SELECT emp_id AS e FROM comptes WHERE id = ?').get(collab.id) as { e: number }).e;
+    const empId = ((await db.one('SELECT emp_id AS e FROM comptes WHERE id = ?', [collab.id])) as { e: number }).e;
     await db.update('employes', empId, { fin: '2026-10-09' });
     refuse(await allerRetour({ oid: 'oid-collab', upn: collab.identifiant }), 'ferme', 'salarié sorti');
-    assert.match(derniere('connexion.refusee').message, /date de sortie/);
+    assert.match((await derniere('connexion.refusee')).message, /date de sortie/);
     await db.update('employes', empId, { fin: null });
     // Premier rattachement refusé (compte désactivé) : l'oid n'est pas enregistré.
     await db.update('comptes', sandrine.id, { actif: false });
     refuse(await allerRetour({ oid: 'oid-sandrine', upn: sandrine.identifiant }), 'ferme', 'désactivé, jamais connecté');
-    assert.equal(compte('emp_id IS NULL').oid, null);
+    assert.equal((await compte('emp_id IS NULL')).oid, null);
     await db.update('comptes', sandrine.id, { actif: true });
   });
 
@@ -384,23 +385,23 @@ test('connexion Microsoft 365 (OpenID Connect, faux fournisseur local)', async t
     await allerRetour({ oid: 'oid-collab', upn: collab.identifiant }, { cle: nouvelle });
     assert.equal(f.lecturesJwks, avant + 1, 'puis gardées en cache');
     refuse(await allerRetour({ oid: 'oid-collab', upn: collab.identifiant }, { cle: nouvelleCle('cle-3') }), 'jeton', 'kid inconnu même après relecture');
-    assert.match(derniere('connexion.refusee').message, /Clé de signature inconnue : cle-3/);
+    assert.match((await derniere('connexion.refusee')).message, /Clé de signature inconnue : cle-3/);
   });
 
   await t.test('identité Microsoft recréée : refus, puis rattachement retiré par l’administrateur RH', async () => {
     refuse(await allerRetour({ oid: 'oid-karim-bis', upn: karim.identifiant }), 'acces', 'même adresse, autre oid');
-    assert.match(derniere('connexion.refusee').message, /déjà rattaché à une autre identité Microsoft/);
+    assert.match((await derniere('connexion.refusee')).message, /déjà rattaché à une autre identité Microsoft/);
     const admin = await allerRetour({ oid: 'oid-sandrine', upn: sandrine.identifiant });
     assert.equal((await srv.call('/api/session', { cookie: admin.session })).json.user.profilRh, 'rh_admin');
     const delier = await srv.call('/api/actions/compte.reinitialiser', { cookie: admin.session, body: { id: karim.id } });
     assert.equal(delier.status, 200, JSON.stringify(delier.json));
     assert.match(delier.json.message, /Rattachement Microsoft retiré pour Karim Haddad/);
-    assert.equal(compte('emp_id = 12').oid, null);
+    assert.equal((await compte('emp_id = 12')).oid, null);
     const vue = (await srv.call('/api/comptes', { cookie: admin.session })).json as { id: number; rattache: boolean }[];
     assert.deepEqual([vue.find(c => c.id === karim.id)!.rattache, vue.find(c => c.id === sandrine.id)!.rattache], [false, true]);
     const r = await allerRetour({ oid: 'oid-karim-bis', upn: karim.identifiant });
     assert.ok(r.session);
-    assert.equal(compte('emp_id = 12').oid, 'oid-karim-bis');
+    assert.equal((await compte('emp_id = 12')).oid, 'oid-karim-bis');
     const moi = await srv.call('/api/actions/compte.reinitialiser', { cookie: admin.session, body: { id: sandrine.id } });
     assert.equal(moi.status, 403);
   });
@@ -424,10 +425,10 @@ test('connexion Microsoft 365 (OpenID Connect, faux fournisseur local)', async t
     assert.equal(u.searchParams.get('post_logout_redirect_uri'), f.redirection);
     assert.equal((await srv.call('/api/data', { cookie: r.session })).status, 401);
     // Retour de Microsoft après la déconnexion (sans code ni state) : écran de connexion, rien de journalisé.
-    const n = journal().length;
+    const n = (await journal()).length;
     const retour = await srv.call('/api/auth/microsoft/retour');
     assert.deepEqual([retour.status, retour.location, retour.session], [302, '/', null]);
-    assert.equal(journal().length, n);
+    assert.equal((await journal()).length, n);
   });
 
   await t.test('recours du service informatique (npm run comptes) : rattachement Microsoft de l’administrateur retiré', async () => {
@@ -437,14 +438,14 @@ test('connexion Microsoft 365 (OpenID Connect, faux fournisseur local)', async t
       { cwd: ROOT, encoding: 'utf8', env: { PATH: process.env.PATH ?? '', CURSUS_DB: file, CURSUS_TODAY: '2026-10-10' } });
     assert.equal(r.status, 0, r.stderr);
     assert.match(r.stdout, /Accès administrateur RH rétabli/);
-    assert.equal(compte('emp_id IS NULL').oid, null);
+    assert.equal((await compte('emp_id IS NULL')).oid, null);
     assert.equal((await srv.call('/api/data', { cookie: s.session })).status, 401, 'sessions fermées');
     const nouvelle = await allerRetour({ oid: 'oid-sandrine-bis', upn: sandrine.identifiant });
     assert.ok(nouvelle.session, 'nouvelle identité rattachée');
   });
 
-  await t.test('journal : jamais de secret, de code ni de jeton', () => {
-    const tout = JSON.stringify(journal());
+  await t.test('journal : jamais de secret, de code ni de jeton', async () => {
+    const tout = JSON.stringify((await journal()));
     assert.ok(!tout.includes(SECRET));
     assert.ok(!/eyJ[\w-]+\.eyJ/.test(tout), 'aucun jeton');
   });
@@ -467,7 +468,7 @@ test('retour avec une erreur, par un visiteur anonyme : motif reconnu seulement,
   const publicUrl = `http://127.0.0.1:${port}`;
   f.redirection = `${publicUrl}/api/auth/microsoft/retour`;
   const srv = await cursus(file, { CURSUS_OIDC_TENANT: TENANT, CURSUS_OIDC_CLIENT_ID: CLIENT, CURSUS_OIDC_CLIENT_SECRET: SECRET, CURSUS_PUBLIC_URL: publicUrl, CURSUS_OIDC_AUTORITE: f.base }, port);
-  const refus = () => (db.sql.prepare(`SELECT message FROM journal WHERE action = 'connexion.refusee' ORDER BY id`).all() as { message: string }[]).map(j => j.message);
+  const refus = async () => ((await db.query(`SELECT message FROM journal WHERE action = 'connexion.refusee' ORDER BY id`)) as { message: string }[]).map(j => j.message);
   /** N'importe qui obtient un état valable, puis revient avec l'erreur de son choix. */
   async function retour(error: string, description?: string) {
     const aller = await srv.call('/api/auth/microsoft');
@@ -477,11 +478,11 @@ test('retour avec une erreur, par un visiteur anonyme : motif reconnu seulement,
   }
   const r = await retour('Faux motif : appelez le 06 00 00 00 00', 'AADSTS50105: texte libre');
   assert.equal(r.location, '/?connexion=refus');
-  assert.equal(refus().at(-1), 'Microsoft 365 : connexion refusée par Microsoft (motif inconnu, AADSTS50105)', 'texte reçu jamais recopié');
+  assert.equal((await refus()).at(-1), 'Microsoft 365 : connexion refusée par Microsoft (motif inconnu, AADSTS50105)', 'texte reçu jamais recopié');
   await retour('consent_required');
-  assert.equal(refus().at(-1), 'Microsoft 365 : connexion refusée par Microsoft (consent_required)');
+  assert.equal((await refus()).at(-1), 'Microsoft 365 : connexion refusée par Microsoft (consent_required)');
   for (let i = 0; i < 40; i++) assert.equal((await retour(`Faux motif ${i}`)).location, '/?connexion=refus');
-  const lignes = refus();
+  const lignes = (await refus());
   assert.equal(lignes.length, 31, '30 refus journalisés, puis une ligne qui signale la suite');
   assert.match(lignes.at(-1)!, /30 refus en moins de 15 minutes depuis cette adresse — les suivants ne sont plus journalisés/);
   assert.ok(!lignes.some(m => m.includes('Faux motif') || m.includes('06 00')));

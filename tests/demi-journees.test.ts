@@ -6,7 +6,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase, PG, sqlite, SQLITE_SEUL, json } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -32,7 +32,7 @@ const MEHDI: User = { role: 'collaborateur', empId: 2, nom: 'Mehdi Benali', inti
 const week = '2026-10-12';
 
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   // Chemin de POST /api/actions/:nom : état lu avant l'action, trace au journal après.
   const run = async (user: User, name: string, payload: Record<string, unknown>) => await db.tx(async () => {
@@ -143,7 +143,9 @@ test('demande de congé : contrôles, demi-journée sur un jour non travaillé, 
 test('imputation des CP au demi-jour : journée répartie entre deux périodes, anticipation, hors droit', async () => {
   const { db, domain, emp } = await fresh();
   // Sophie Lemaire (3), sans absence : 0,5 j restant sur la période en cours, rien d'acquis en plus sur la suivante au 10 octobre.
-  db.sql.prepare(`INSERT OR REPLACE INTO soldes_reprise (emp_id, cp_pris, rtt_pris, recup_acquis, recup_pris, arrete_le, cp_solde, cp_solde_suivant) VALUES (3, 0, 0, 0, 0, '2026-10-10', 0.5, 0)`).run();
+  (await db.run(`INSERT INTO soldes_reprise (emp_id, cp_pris, rtt_pris, recup_acquis, recup_pris, arrete_le, cp_solde, cp_solde_suivant) VALUES (3, 0, 0, 0, 0, '2026-10-10', 0.5, 0)
+    ON CONFLICT (emp_id) DO UPDATE SET cp_pris = excluded.cp_pris, rtt_pris = excluded.rtt_pris, recup_acquis = excluded.recup_acquis, recup_pris = excluded.recup_pris,
+      arrete_le = excluded.arrete_le, cp_solde = excluded.cp_solde, cp_solde_suivant = excluded.cp_solde_suivant`));
   const d = await domain(), sophie = await emp(3);
   assert.equal(cpInfo(d, sophie)!.solde, 0.5);
   // Le matin du 12 octobre : sur la période en cours.
@@ -175,8 +177,8 @@ test('pose par l’action : demi-journées enregistrées, tracées, transmises �
   const a = (await domain()).ds.absences.find(x => x.empId === 2 && x.du === '2026-11-09')!;
   assert.deepEqual([a.debutDemi, a.finDemi, a.statut], ['apres_midi', 'matin', 'demandee']);
   // Journal : codes seulement.
-  const j = db.sql.prepare(`SELECT payload FROM journal WHERE action = 'absence.demander' ORDER BY id DESC LIMIT 1`).get() as { payload: string };
-  assert.deepEqual(JSON.parse(j.payload), { empId: 2, kind: 'CP', du: '2026-11-09', au: '2026-11-13', debutDemi: 'apres_midi', finDemi: 'matin' });
+  const j = (await db.one(`SELECT payload FROM journal WHERE action = 'absence.demander' ORDER BY id DESC LIMIT 1`)) as { payload: string };
+  assert.deepEqual(json(j.payload), { empId: 2, kind: 'CP', du: '2026-11-09', au: '2026-11-13', debutDemi: 'apres_midi', finDemi: 'matin' });
   // Demi-journée inconnue (texte libre) : demande refusée, rien de la chaîne reçue au journal.
   await refused(MEHDI, 'absence.demander', { empId: 2, kind: 'CP', du: '2026-12-07', au: '2026-12-08', debutDemi: 'suivi médical', finDemi: { note: 'x' } }, /Demi-journée inconnue/);
   assert.ok(!JSON.stringify(await db.all('journal')).includes('suivi médical'), 'texte libre absent du journal');
@@ -295,8 +297,8 @@ test('clôture des CP : jours rendus au demi-jour après la clôture', async () 
   assert.match(msg, /4,5 j de CP rendus : 4,5 j de la période close 2025-2026 reportés sur 2026-2027/);
 });
 
-test('migration lot5-conges-demi-journees : demi-journées hors de la règle ramenées à la journée entière', async () => {
-  const db = new Db(':memory:');
+test('migration lot5-conges-demi-journees : demi-journées hors de la règle ramenées à la journée entière', { skip: PG && SQLITE_SEUL }, async () => {
+  const db = await nouvelleBase();
   const ligne = async (type: string, du: string, au: string, debutDemi: string | null, finDemi: string | null) =>
     (await db.insert<{ id: number }>('absences', { empId: 2, type, du, au, statut: 'validee', keystone: true, debutDemi, finDemi })).id;
   const ok = await ligne('CP', '2026-11-09', '2026-11-13', 'apres_midi', 'matin');
@@ -305,14 +307,14 @@ test('migration lot5-conges-demi-journees : demi-journées hors de la règle ram
   const inconnue = await ligne('CP', '2026-11-19', '2026-11-20', 'soir', 'matin');
   const finSeule = await ligne('RECUP', '2026-11-23', '2026-11-23', null, 'matin');
   const inversees = await ligne('CP', '2026-11-24', '2026-11-25', 'matin', 'apres_midi');
-  assert.deepEqual(await appliquerMigrations(db, [DEMI_JOURNEES]), ['lot5-conges-demi-journees']);
+  assert.deepEqual(await appliquerMigrations(sqlite(db), [DEMI_JOURNEES]), ['lot5-conges-demi-journees']);
   const demi = async (id: number) => { const a = (await db.get<{ debutDemi: string | null; finDemi: string | null }>('absences', id))!; return [a.debutDemi, a.finDemi]; };
   assert.deepEqual(await Promise.all([ok, unJour, nature, inconnue, finSeule, inversees].map(demi)),
     [['apres_midi', 'matin'], ['matin', null], [null, null], [null, 'matin'], [null, null], [null, null]]);
-  assert.deepEqual(await appliquerMigrations(db, [DEMI_JOURNEES]), [], 'une seule fois');
+  assert.deepEqual(await appliquerMigrations(sqlite(db), [DEMI_JOURNEES]), [], 'une seule fois');
   assert.ok(MIGRATIONS.includes(DEMI_JOURNEES), 'dans la liste des migrations');
   // Base existante sans demi-journée : seulement notée faite.
-  const existante = new Db(':memory:');
+  const existante = await nouvelleBase();
   await seedDemo(existante);
-  assert.equal(await DEMI_JOURNEES.necessaire!(Object.assign(Object.create(existante) as typeof existante, { neuve: false })), false);
+  assert.equal(await DEMI_JOURNEES.necessaire!(Object.assign(Object.create(sqlite(existante)) as ReturnType<typeof sqlite>, { neuve: false })), false);
 });

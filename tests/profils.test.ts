@@ -12,7 +12,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 process.env.CURSUS_TODAY = '2026-10-10';
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase, bool } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -22,7 +22,6 @@ const { Domain } = await import('../shared/domain.ts');
 const { droitsRh, PROFILS_RH, vuesDe } = await import('../shared/constants.ts');
 const { absenceVueManager, natureMedicale } = await import('../shared/rules/absences.ts');
 const { PROFIL_VIDE } = await import('../shared/rules/profil.ts');
-type Db = InstanceType<typeof Db>;
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type Dataset = Awaited<ReturnType<typeof buildSnapshot>>;
 type Compte = Parameters<typeof espacesDuCompte>[1];
@@ -38,10 +37,9 @@ after(() => {
 // Comptes de démonstration : Sandrine Vidal (administratrice RH, externe), Antoine Leroy (14, gestionnaire RH),
 // Sarah Cohen (23, référente HSE), Aïcha Diallo (7, paie), Élodie Bernard (11, lecture seule).
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
-  const compte = async (empId: number | null) => (await db.get<Compte>('comptes', (db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number }).id))!;
+  const compte = async (empId: number | null) => (await db.get<Compte>('comptes', ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id))!;
   const user = async (empId: number | null, role: User['role']) => {
     const u = await currentUser(db, { compteId: (await compte(empId)).id, role, methode: 'demo' });
     assert.ok(u, `compte ${empId} dans l’espace ${role}`);
@@ -197,7 +195,7 @@ test('membre du RH salarié : il ne décide pas de ses propres absences, feuille
   assert.equal(d0.mgrOf(d0.emp(14)!), 0);
   const antoineCollab = await user(14, 'collaborateur');
   await run(antoineCollab, 'absence.demander', { empId: 14, kind: 'CP', du: '2026-12-07', au: '2026-12-08' });
-  const id = (db.sql.prepare(`SELECT id FROM absences WHERE emp_id = 14 AND du = '2026-12-07'`).get() as { id: number }).id;
+  const id = ((await db.one(`SELECT id FROM absences WHERE emp_id = 14 AND du = '2026-12-07'`)) as { id: number }).id;
   await assert.rejects(async () => await run(ANTOINE, 'absence.decider', { id, ok: true }),
     refus(/^Vous ne pouvez pas décider de votre propre demande d’absence : la décision revient à un autre membre du service RH$/));
   await assert.rejects(async () => await run(ANTOINE, 'absence.decider', { id, ok: false }), refus(/propre demande/), 'ni la refuser');
@@ -205,12 +203,12 @@ test('membre du RH salarié : il ne décide pas de ses propres absences, feuille
   // Absences hors congés : ni saisie validée d'emblée, ni qualification de son propre signalement, ni report.
   await assert.rejects(async () => await run(ANTOINE, 'absence.saisir', { empId: 14, nature: 'MARIAGE', du: '2026-12-21', au: '2026-12-22' }), refus(/pour vous-même/));
   await run(ANTOINE, 'absence.signaler', { empId: 14, du: '2026-12-28', au: '2026-12-28' });
-  const sig = db.sql.prepare(`SELECT id, signale_par_interesse AS interesse FROM absences WHERE emp_id = 14 AND du = '2026-12-28'`).get() as { id: number; interesse: number };
-  assert.equal(sig.interesse, 1, 'signalée par l’intéressé, même depuis l’espace RH');
+  const sig = (await db.one(`SELECT id, signale_par_interesse AS interesse FROM absences WHERE emp_id = 14 AND du = '2026-12-28'`)) as { id: number; interesse: number };
+  assert.equal(bool(sig.interesse), true, 'signalée par l’intéressé, même depuis l’espace RH');
   await assert.rejects(async () => await run(ANTOINE, 'absence.qualifier', { id: sig.id, nature: 'MALADIE' }), refus(/qualifier votre propre absence/));
   await run(ADMIN, 'absence.qualifier', { id: sig.id, nature: 'MALADIE' });
   await run(ANTOINE, 'absence.prolonger', { id: sig.id, au: '2026-12-29' });
-  assert.equal((db.sql.prepare('SELECT statut FROM absences WHERE id = ?').get(sig.id) as { statut: string }).statut, 'signalee', 'prolongée comme intéressé : à requalifier');
+  assert.equal(((await db.one('SELECT statut FROM absences WHERE id = ?', [sig.id])) as { statut: string }).statut, 'signalee', 'prolongée comme intéressé : à requalifier');
   await assert.rejects(async () => await run(ANTOINE, 'absence.annuler', { id }), (e: unknown) => e instanceof ActionError && e.status === 403, 'congé validé : annulation par un autre');
   await assert.rejects(async () => await run(ANTOINE, 'report.accorder', { empId: 14, jours: 1, motif: 'Surcharge' }), refus(/report de congés/));
   // Feuille de temps : ni validée, ni renvoyée, ni corrigée après soumission par lui-même.
@@ -225,18 +223,18 @@ test('membre du RH salarié : il ne décide pas de ses propres absences, feuille
   // Entretiens : jamais l'évaluateur de son propre entretien.
   await assert.rejects(async () => await run(ANTOINE, 'entretien.planifier', { empId: 14, kind: 'annuel', date: '2026-11-20' }), refus(/planifier votre propre entretien/));
   await run(ADMIN, 'entretien.planifier', { empId: 14, kind: 'annuel', date: '2026-11-20' });
-  const ent = (db.sql.prepare(`SELECT id FROM entretiens WHERE emp_id = 14 AND date = '2026-11-20'`).get() as { id: number }).id;
+  const ent = ((await db.one(`SELECT id FROM entretiens WHERE emp_id = 14 AND date = '2026-11-20'`)) as { id: number }).id;
   await assert.rejects(async () => await run(ANTOINE, 'entretien.modifier', { id: ent, section: 'bilan', value: 'Très bonne année' }), refus(/votre propre entretien/));
   await assert.rejects(async () => await run(ANTOINE, 'entretien.clore', { id: ent }), refus(/clore votre propre entretien/));
   await run(ADMIN, 'entretien.clore', { id: ent, date: '2026-10-10' });
   // Pour les autres salariés, rien ne change.
   await run(await user(2, 'collaborateur'), 'absence.demander', { empId: 2, kind: 'CP', du: '2026-12-21', au: '2026-12-21' });
-  const mehdi = (db.sql.prepare(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2026-12-21'`).get() as { id: number }).id;
+  const mehdi = ((await db.one(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2026-12-21'`)) as { id: number }).id;
   assert.match(msg(await run(ANTOINE, 'absence.decider', { id: mehdi, ok: true })), /validée/);
   // Membre du RH qui a un manager : le refus le nomme.
-  db.sql.prepare(`UPDATE comptes SET profil_rh = 'rh_gestionnaire' WHERE emp_id = 2`).run();
+  (await db.run(`UPDATE comptes SET profil_rh = 'rh_gestionnaire' WHERE emp_id = 2`));
   await run(await user(2, 'collaborateur'), 'absence.demander', { empId: 2, kind: 'CP', du: '2026-12-22', au: '2026-12-22' });
-  const propre = (db.sql.prepare(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2026-12-22'`).get() as { id: number }).id;
+  const propre = ((await db.one(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2026-12-22'`)) as { id: number }).id;
   await assert.rejects(async () => await run(await user(2, 'rh'), 'absence.decider', { id: propre, ok: true }), refus(/revient à votre manager \(Karim Haddad\) ou à un autre membre du service RH/));
   assert.match(msg(await run(await user(12, 'manager'), 'absence.decider', { id: propre, ok: true })), /validée/);
 });
@@ -254,7 +252,7 @@ test('administrateur RH externe rattaché ensuite à sa fiche : il ne décide pl
   assert.equal(admin.salarieId, fiche);
   // Sa demande de congés : la décision revient à son manager ou à un autre membre du service RH.
   await run(await user(fiche, 'collaborateur'), 'absence.demander', { empId: fiche, kind: 'CP', du: '2026-12-07', au: '2026-12-11' });
-  const id = (db.sql.prepare(`SELECT id FROM absences WHERE emp_id = ? AND du = '2026-12-07'`).get(fiche) as { id: number }).id;
+  const id = ((await db.one(`SELECT id FROM absences WHERE emp_id = ? AND du = '2026-12-07'`, [fiche])) as { id: number }).id;
   await assert.rejects(async () => await run(admin, 'absence.decider', { id, ok: true }), refus(/propre demande d’absence : la décision revient à votre manager \(Antoine Leroy\)/));
   assert.match(msg(await run(ANTOINE, 'absence.decider', { id, ok: true })), /validée/);
   // Un compte déjà rattaché ne change pas de fiche ; une fiche qui a déjà son compte n'en reçoit pas un second.
@@ -276,7 +274,7 @@ test('comptes et accès : le profil se choisit à la création et se modifie', a
   assert.deepEqual(droitsRh((await currentUser(db, { compteId: c.id, role: 'rh', methode: 'local' }))!), ['consultation']);
   await assert.rejects(async () => await run(ADMIN, 'compte.profil', { id: c.id, profilRh: 'aucun' }), /compte externe/);
   // Salarié : référent HSE puis plus d'accès RH.
-  const ines = (db.sql.prepare('SELECT id FROM comptes WHERE emp_id = 5').get() as { id: number }).id;
+  const ines = ((await db.one('SELECT id FROM comptes WHERE emp_id = 5')) as { id: number }).id;
   await run(ADMIN, 'compte.profil', { id: ines, profilRh: 'referent_hse' });
   assert.deepEqual(await espacesDuCompte(db, (await db.get<Compte>('comptes', ines))!), ['rh', 'collaborateur']);
   await run(ADMIN, 'compte.profil', { id: ines, profilRh: 'aucun' });

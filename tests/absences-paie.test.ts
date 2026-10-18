@@ -13,6 +13,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 
 const express = (await import('express')).default;
 const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase, PG, sqlite, SQLITE_SEUL, horsContraintes } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -29,18 +30,18 @@ const L = await import('../shared/rules/lots-paie.ts');
 const { NATURES_ABSENCE, RUBRIQUES_PAIE } = await import('../shared/constants.ts');
 const { estActionPaie, familleAction, JOURNAL_LABEL } = await import('../shared/journal.ts');
 const C = await import('../client/src/state/confirmations.ts');
-type Db = InstanceType<typeof Db>;
+type Db = import('../server/src/db.ts').Db;
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type Element = import('../shared/types.ts').ElementAbsencePaie;
 type Lot = Awaited<ReturnType<typeof loadFull>>['lotsPaie'][number] & { contenu: import('../shared/types.ts').SagePush | null };
 type Ligne = { action: string; actor: string; message: string | null; payload: Record<string, any>; salaries: number[]; paie: boolean };
 
 /** Jeu de démonstration ; `run` suit le chemin de POST /api/actions/:nom (trace au journal comprise). */
-async function fresh(db: Db = new Db(':memory:'), semer = true) {
+async function fresh(base?: Db, semer = true) {
+  const db = base ?? await nouvelleBase();
   if (semer) await seedDemo(db);
-  const compteDe = (empId: number | null) => (db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number }).id;
-  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: compteDe(empId), role, methode: 'demo' }))!;
+  const compteDe = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)), role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
     const t = await preparerTrace(db, name, p);
     const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
@@ -213,7 +214,7 @@ test('t028 lot de fichier : absences réservées, libérées à l’annulation, 
     await new Promise(r => srv.once('listening', r));
     try {
       const base = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
-      const cookie = (await fetch(`${base}/essai/session/${compteDe(7)}`)).headers.get('set-cookie')!.split(';')[0];
+      const cookie = (await fetch(`${base}/essai/session/${(await compteDe(7))}`)).headers.get('set-cookie')!.split(';')[0];
       const texte = await (await fetch(`${base}/api/paie/lots/${lot.id}/fichier`, { headers: { cookie } })).text();
       assert.match(texte, /\r\n004113;2026-10;5100;3\r\n/);
       assert.match(texte, /\r\n004108;2026-10;CP;5\r\n/);
@@ -311,7 +312,7 @@ test('t028 instantanés : absences en attente et codes réservés à la paie ; r
 
 // — Migration —
 
-test('t028 migration lot5-paie-absences-anterieures : jours des périodes passées laissés à Sage, une fois, tracé', async () => {
+test('t028 migration lot5-paie-absences-anterieures : jours des périodes passées laissés à Sage, une fois, tracé', { skip: PG && SQLITE_SEUL }, async () => {
   // Base reprise (fichier rouvert : plus neuve), dont les absences validées n'ont jamais eu de date de départ.
   const dir = mkdtempSync(join(tmpdir(), 'cursus-absences-paie-'));
   try {
@@ -330,15 +331,15 @@ async function migrationReprise(db: Db) {
   const avant = await inserer(db, { empId: 1, type: 'CP', du: '2026-09-21', au: '2026-09-25', statut: 'validee' });
   // La date n'est pas posée ; une base neuve n'en a pas besoin (rien à reprendre).
   assert.equal(await lireDepuis(db), null);
-  assert.equal(await ABSENCES_ANTERIEURES.necessaire!(db), true);
-  const neuve = new Db(':memory:');
-  assert.equal(await ABSENCES_ANTERIEURES.necessaire!(neuve), true);
-  assert.equal(await ABSENCES_ANTERIEURES.executer(neuve), undefined, 'base neuve : sans effet');
+  assert.equal(await ABSENCES_ANTERIEURES.necessaire!(sqlite(db)), true);
+  const neuve = await nouvelleBase();
+  assert.equal(await ABSENCES_ANTERIEURES.necessaire!(sqlite(neuve)), true);
+  assert.equal(await ABSENCES_ANTERIEURES.executer(sqlite(neuve)), undefined, 'base neuve : sans effet');
   assert.equal(await lireDepuis(neuve), null);
   assert.ok(A.elementsAbsences(await d(), { jusqua: '2026-10', ...sansEmis }).some(x => x.absence === avant), 'sans la date : septembre en rappel');
-  assert.match(String(await ABSENCES_ANTERIEURES.executer(db)), /à partir du 2026-10-01/);
+  assert.match(String(await ABSENCES_ANTERIEURES.executer(sqlite(db))), /à partir du 2026-10-01/);
   assert.equal(await db.getSetting(CLE_DEPUIS, null), '2026-10-01');
-  assert.equal(await ABSENCES_ANTERIEURES.necessaire!(db), false, 'une seule fois');
+  assert.equal(await ABSENCES_ANTERIEURES.necessaire!(sqlite(db)), false, 'une seule fois');
   const m = (await journal('migration.absencesPaie')).at(-1)!;
   assert.deepEqual(m.payload, { depuis: '2026-10-01', jusqua: avant, absences: 1 });
   assert.ok(m.paie && estActionPaie('migration.absencesPaie') && JOURNAL_LABEL['migration.absencesPaie']);
@@ -348,7 +349,7 @@ async function migrationReprise(db: Db) {
   // Absence d'un mois clos enregistrée après la mise à jour : jamais saisie dans Sage, elle part en rappel.
   const apres = await inserer(db, { empId: 2, type: 'CP', du: '2026-09-14', au: '2026-09-15', statut: 'validee' });
   assert.deepEqual((await absencesAEmettre(db, await d(), '2026-10')).filter(x => x.absence === apres).map(x => [x.mois, x.periode, x.quantite]), [['2026-09', '2026-10', 2]]);
-  db.sql.close();
+  await db.fermer();
 }
 
 // — Export des variables de la période —
@@ -377,9 +378,9 @@ test('t028 variables de la période : lots et attente, droit « paie », tracé 
     const session = async (compte: number) => (await fetch(`${base}/essai/session/${compte}`)).headers.get('set-cookie')!.split(';')[0];
     const get = (p: string, cookie?: string) => fetch(`${base}/api/paie/variables/${p}`, { headers: cookie ? { cookie } : {} });
     assert.equal((await get('2026-10')).status, 401);
-    assert.equal((await get('2026-10', await session(compteDe(14)))).status, 403, 'gestionnaire RH : pas de droit « paie »');
+    assert.equal((await get('2026-10', await session((await compteDe(14))))).status, 403, 'gestionnaire RH : pas de droit « paie »');
     assert.equal((await journal('acces.refuse')).at(-1)!.message, 'Variables de paie de la période — réservé à l’administrateur RH et au gestionnaire de paie');
-    const paie = await session(compteDe(7));
+    const paie = await session((await compteDe(7)));
     assert.equal((await get('2026-13', paie)).status, 400);
     const r = await get('2026-10', paie);
     assert.equal(r.status, 200);
@@ -442,7 +443,8 @@ test('t028 base neuve : date de mise en service réglée, et date de départ pos
   assert.doesNotMatch(await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }), /à partir du/);
   await run(PAIE, 'paie.lotAnnuler', { id: (await lots()).at(-1)!.id });
   assert.equal(await lireDepuis(db), null);
-  db.sql.exec('DELETE FROM lots_paie');
+  // Lots retirés, feuilles et absences gardant leur numéro (sur PostgreSQL, hors clés étrangères).
+  await horsContraintes(db, async () => { await db.exec('DELETE FROM lots_paie'); });
   // Absence antérieure à la mise en service, enregistrée avant le premier lot : septembre ne part pas.
   const avant = await inserer(db, { empId: 1, type: 'CP', du: '2026-09-21', au: '2026-09-25', statut: 'validee' });
   assert.ok((await absencesAEmettre(db, await d(), '2026-10')).some(x => x.absence === avant && x.mois === '2026-09'), 'sans date : septembre en rappel');

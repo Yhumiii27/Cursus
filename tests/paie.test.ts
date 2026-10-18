@@ -10,6 +10,7 @@ import { join } from 'node:path';
 process.env.CURSUS_TODAY = '2026-10-10';
 
 const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase, PG, sqlite, SQLITE_SEUL } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull, loadSettings } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -35,11 +36,10 @@ type Feuille = Dataset['feuilles'][number];
 
 /** Jeu de démonstration ; `run` suit le chemin de POST /api/actions/:nom (trace au journal comprise). */
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
-  const compteDe = (empId: number | null) => db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number };
-  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: compteDe(empId).id, role, methode: 'demo' }))!;
+  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
     const t = await preparerTrace(db, name, p);
     const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
@@ -50,7 +50,7 @@ async function fresh() {
   const refus = async (u: User, name: string, p: Record<string, unknown>, status: number, re?: RegExp) =>
     await assert.rejects(async () => await run(u, name, p), (e: unknown) => e instanceof ActionError && e.status === status && (!re || re.test(e.message)), `${name} : refus ${status}`);
   const domain = async () => new Domain(await loadFull(db, await user(null, 'rh')));
-  const transmises = () => Number((db.sql.prepare('SELECT COUNT(*) AS n FROM feuilles WHERE sage = 1').get() as { n: number }).n);
+  const transmises = async () => Number(((await db.one('SELECT COUNT(*) AS n FROM feuilles WHERE sage = TRUE')) as { n: number }).n);
   return { db, user, run, refus, domain, transmises, ADMIN: await user(null, 'rh'), PAIE: await user(7, 'rh'), GEST: await user(14, 'rh'), KARIM: await user(12, 'manager') };
 }
 /** Exécute `fn` avec des variables d'environnement, remises ensuite dans leur état d'origine. */
@@ -62,7 +62,7 @@ async function avecEnv<T>(env: Record<string, string | undefined>, fn: () => T |
   }
 }
 /** Dernier lot de paie enregistré, avec son contenu figé. */
-const dernierLot = async (db: InstanceType<typeof Db>) => (await db.all<Dataset['lotsPaie'][number] & { contenu: Awaited<ReturnType<typeof buildSagePayload>> | null }>('lotsPaie')).at(-1)!;
+const dernierLot = async (db: import('../server/src/db.ts').Db) => (await db.all<Dataset['lotsPaie'][number] & { contenu: Awaited<ReturnType<typeof buildSagePayload>> | null }>('lotsPaie')).at(-1)!;
 const feuille = (empId: number, week: string, h: number[], extra: Partial<Feuille> = {}): Feuille =>
   ({ id: 9000, empId, week, statut: 'validee', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-PROD', tache: '', ks: false, h }], contrat: null, ...extra });
 
@@ -99,16 +99,16 @@ test('t019 configuration : SAGE_MODE=api (inconnu), SAGE_URL et simulation refus
 
 test('t019 transmission : mode fichier refusé sans rien marquer ; simulation annoncée comme telle', async () => {
   const { db, run, refus, transmises, ADMIN, PAIE } = await fresh();
-  const avant = transmises(), lots = async () => await db.count('lotsPaie'), avantLots = await lots();
+  const avant = (await transmises()), lots = async () => await db.count('lotsPaie'), avantLots = await lots();
   // Toutes les rubriques confirmées : seul le mode bloque.
   for (const code of Object.keys(RUBRIQUES_PAIE)) await run(ADMIN, 'paie.rubrique', { code, confirmer: true });
   await avecEnv({ SAGE_MODE: 'fichier' }, async () => await refus(PAIE, 'temps.pushSage', {}, 503, /rien n’est envoyé directement à Sage Paie/));
-  assert.equal(transmises(), avant, 'aucune feuille marquée transmise');
+  assert.equal((await transmises()), avant, 'aucune feuille marquée transmise');
   assert.equal(await lots(), avantLots, 'aucun lot enregistré');
   const msg = await avecEnv({ SAGE_MODE: undefined }, async () => await run(PAIE, 'temps.pushSage', {}));
   assert.match(String(msg), /^\d+ feuilles marquées transmises — simulation, rien n’est envoyé à Sage Paie · période octobre 2026 · 5 absences$/);
   assert.deepEqual([(await dernierLot(db)).mode, (await dernierLot(db)).statut, (await dernierLot(db)).reference], ['simulation', 'transmis', (await dernierLot(db)).reference!.startsWith('SIM-') ? (await dernierLot(db)).reference : 'SIM-…']);
-  assert.ok(transmises() > avant);
+  assert.ok((await transmises()) > avant);
 });
 
 // — t037 : heures supplémentaires payées ou remplacées par un repos —
@@ -158,19 +158,19 @@ test('t037 mode figé à la validation ; repos seulement avec la référence de 
   assert.equal(acquisRepos, 3.5 + 8, 'reprise + repos de la semaine');
 });
 
-test('t037 reprise : feuilles transmises au calcul d’origine, les autres au mode réglé, soldes devenus négatifs au journal', async () => {
+test('t037 reprise : feuilles transmises au calcul d’origine, les autres au mode réglé, soldes devenus négatifs au journal', { skip: PG && SQLITE_SEUL }, async () => {
   const { db, domain } = await fresh();
   // Base d'avant le lot 4 : Camille (35 h, aucun repos repris) a deux semaines de 40 h validées, l'une transmise, et
   // a pris un jour de récupération (7 h) sur les 12,5 h que l'ancien calcul lui créditait.
-  db.sql.exec(`UPDATE feuilles SET heures_sup = NULL`);
-  db.sql.exec(`UPDATE soldes_reprise SET recup_acquis = 0, recup_pris = 0 WHERE emp_id = 1`);
+  await db.exec(`UPDATE feuilles SET heures_sup = NULL`);
+  await db.exec(`UPDATE soldes_reprise SET recup_acquis = 0, recup_pris = 0 WHERE emp_id = 1`);
   const ligne = [{ projet: 'INT-LOG', tache: 'Réception', ks: false, h: [8, 8, 8, 8, 8] }];
   const t1 = await db.insert<Feuille>('feuilles', { empId: 1, week: '2026-08-31', statut: 'validee', comment: null, sage: true, keystone: false, contrat: null, lignes: ligne });
   const t2 = await db.insert<Feuille>('feuilles', { empId: 1, week: '2026-09-07', statut: 'validee', comment: null, sage: false, keystone: false, contrat: null, lignes: ligne });
   await db.insert('absences', { empId: 1, type: 'RECUP', du: '2026-09-15', au: '2026-09-15', statut: 'validee', keystone: false });
-  const aFiger = Number((db.sql.prepare(`SELECT COUNT(*) AS n FROM feuilles WHERE statut = 'validee' AND heures_sup IS NULL`).get() as { n: number }).n);
-  assert.ok(await HEURES_SUP.necessaire!(db));
-  const compteRendu = await db.tx(async () => await HEURES_SUP.executer(db));
+  const aFiger = Number(((await db.one(`SELECT COUNT(*) AS n FROM feuilles WHERE statut = 'validee' AND heures_sup IS NULL`)) as { n: number }).n);
+  assert.ok(await HEURES_SUP.necessaire!(sqlite(db)));
+  const compteRendu = await db.tx(async () => await HEURES_SUP.executer(sqlite(db)));
   assert.match(String(compteRendu), /mode des heures supplémentaires figé, 1 solde de récupération négatif \(journal\)/);
   const mode = async (id: number) => (await db.get<Feuille>('feuilles', id))!.heuresSup;
   assert.equal(await mode(t1.id), 'historique', 'déjà transmise : ce qui est parti reste exact');
@@ -184,7 +184,7 @@ test('t037 reprise : feuilles transmises au calcul d’origine, les autres au mo
   assert.deepEqual(j.payload.soldesNegatifs, [{ empId: 1, avant: 5.5, apres: -0.75, matricule: 'EMP-0001' }]);
   assert.ok(j.paie, 'action liée à la paie : archive de 3 ans');
   // Rien à refaire (la base de ce test, en mémoire, reste « neuve » pour le cadre : la migration s'y exécute sans effet).
-  assert.equal(await db.tx(async () => await HEURES_SUP.executer(db)), undefined);
+  assert.equal(await db.tx(async () => await HEURES_SUP.executer(sqlite(db))), undefined);
   assert.equal((await db.all('journal')).filter(x => (x as { action: string }).action === 'migration.heuresSup').length, 1);
 });
 
@@ -200,12 +200,12 @@ test('t037 reprise au démarrage : base d’avant le lot 4 reprise une fois, apr
     // Base d'avant le lot 4 : jeu de démonstration sans mode figé, aucune migration nommée enregistrée.
     const ancienne = new Db(file);
     await seedDemo(ancienne);
-    ancienne.sql.exec(`UPDATE feuilles SET heures_sup = NULL`);
-    const validees = Number((ancienne.sql.prepare(`SELECT COUNT(*) AS n FROM feuilles WHERE statut = 'validee'`).get() as { n: number }).n);
+    await ancienne.exec(`UPDATE feuilles SET heures_sup = NULL`);
+    const validees = Number(((await ancienne.one(`SELECT COUNT(*) AS n FROM feuilles WHERE statut = 'validee'`)) as { n: number }).n);
     ancienne.sql.close();
     const db = new Db(file);
     assert.ok((await appliquerMigrations(db)).includes(HEURES_SUP.nom));
-    const modes = db.sql.prepare(`SELECT sage, heures_sup AS mode, COUNT(*) AS n FROM feuilles WHERE statut = 'validee' GROUP BY sage, heures_sup ORDER BY sage`).all()
+    const modes = (await db.query(`SELECT sage, heures_sup AS mode, COUNT(*) AS n FROM feuilles WHERE statut = 'validee' GROUP BY sage, heures_sup ORDER BY sage`))
       .map(r => ({ ...r }));
     assert.deepEqual(modes.map(r => [r.sage, r.mode]), [[0, 'paiement'], [1, 'historique']]);
     assert.equal(modes.reduce((n, r) => n + Number(r.n), 0), validees);
@@ -268,7 +268,7 @@ test('t022 rubriques : pré-remplies au code interne, à confirmer ; saisie, con
 
 test('t022 hors simulation, une rubrique utilisée sans code confirmé bloque la transmission, avec la liste', async () => {
   const { db, run, refus, transmises, ADMIN, PAIE } = await fresh();
-  const avant = transmises();
+  const avant = (await transmises());
   await avecEnv({ SAGE_MODE: 'fichier' }, async () => {
     await refus(PAIE, 'paie.lotGenerer', { periode: '2026-10' }, 409, /^Transmission impossible : code Sage à confirmer pour les rubriques HN \(Heures normales\), HSF25 \(.*\), HS25 \(.*\), JTRAV \(Jours travaillés, forfait jours\), CP \(.*\), RTT \(.*\), ABS_IND_SANTE \(.*\) \(écran Temps, « Rubriques de paie »\)$/);
     // Rubriques non utilisées par les feuilles et absences en attente (HS50, RCR_ACQUIS…) : sans effet ; désactivée : plus
@@ -280,7 +280,7 @@ test('t022 hors simulation, une rubrique utilisée sans code confirmé bloque la
     assert.match(String(await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' })), /^Lot n° \d+ généré — .* · téléchargez le fichier d’import/);
     await refus(PAIE, 'temps.pushSage', {}, 400, /Aucune feuille validée en attente/);
   });
-  assert.equal(transmises(), avant, 'lot généré : rien n’est transmis avant la confirmation de l’import');
+  assert.equal((await transmises()), avant, 'lot généré : rien n’est transmis avant la confirmation de l’import');
   await run(PAIE, 'paie.lotAnnuler', { id: (await dernierLot(db)).id });
   // Simulation : les codes à confirmer ne bloquent pas, mais les rubriques désactivées ne partent pas.
   await run(PAIE, 'temps.pushSage', {});
@@ -355,7 +355,7 @@ test('t025 transmission : une ligne par période, ventilation jour par jour exac
   assert.deepEqual(p.periodes, ['2026-10']);
   assert.deepEqual(p.lignes.map(l => [l.semaine, l.periode, l.periode_origine ?? null]), [['2026-S40', '2026-10', '2026-09'], ['2026-S40', '2026-10', null]]);
   // Semaine du 21 septembre validée, pas encore transmise : rappel annoncé dans le message et la confirmation.
-  db.sql.exec(`UPDATE feuilles SET sage = 0, lot_id = NULL WHERE emp_id = 1 AND week = '2026-09-21'`);
+  await db.exec(`UPDATE feuilles SET sage = FALSE, lot_id = NULL WHERE emp_id = 1 AND week = '2026-09-21'`);
   await run(ADMIN, 'parametres.maj', { clotureJour: 0, periodeRattachement: 'dimanche' });
   const groupes = feuillesParPeriode((await domain()).ds.feuilles.filter(f => f.statut === 'validee' && !f.sage && f.empId === 1), (await domain()).ds.settings, '2026-10-10');
   const c = C.transmissionSage(2, 1, groupes);

@@ -7,6 +7,7 @@ import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
 
 const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase, PG, sqlite, SQLITE_SEUL, json } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -25,11 +26,10 @@ type Dataset = Awaited<ReturnType<typeof buildSnapshot>>;
 
 /** Jeu de démonstration ; `run` suit le chemin de POST /api/actions/:nom (transaction, trace au journal, instantané). */
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
-  const compteDe = (empId: number | null) => db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number };
-  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: compteDe(empId).id, role, methode: 'demo' }))!;
+  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => {
     const o = await db.tx(async () => {
       const ctx = makeCtx(db, u, await loadFull(db, u));
@@ -133,8 +133,8 @@ test('fiche modifiée entre-temps : refus 412 qui nomme les champs et leur auteu
   await run(RH, 'employe.modifier', { id: 2, nom: 'Mehdi Benali-Martin', avant: { nom: ouverture.nom } });
   assert.deepEqual([(await emp()).nom, (await emp()).email], ['Mehdi Benali-Martin', 'mehdi.benali@exemple.fr']);
   // Les valeurs d'origine ne sont jamais recopiées au journal (seulement le nom des champs modifiés).
-  const j = db.sql.prepare(`SELECT payload FROM journal WHERE action = 'employe.modifier' ORDER BY id DESC LIMIT 1`).get() as { payload: string };
-  const payload = JSON.parse(j.payload);
+  const j = (await db.one(`SELECT payload FROM journal WHERE action = 'employe.modifier' ORDER BY id DESC LIMIT 1`)) as { payload: string };
+  const payload = json(j.payload);
   assert.deepEqual(payload.champsModifies, ['nom']);
   assert.ok(!('avant' in payload) || !JSON.stringify(payload.avant).includes(ouverture.email ?? '§'), j.payload);
 });
@@ -199,10 +199,10 @@ test('equipe.modifier : renommage et manager ensemble ; un refus n’enregistre 
   assert.match(String(r.message), /^Équipe Commercial renommée en Ventes — .+ devient manager de l’équipe Ventes$/);
   assert.equal((await equipe('Ventes'))!.managerId, 19);
   assert.ok((await loadFull(db, RH)).employes.filter(e => e.equipe === 'Ventes').length > 0, 'membres suivis');
-  const j = db.sql.prepare(`SELECT payload, salaries FROM journal WHERE action = 'equipe.modifier'`).get() as { payload: string; salaries: string };
-  assert.deepEqual(JSON.parse(j.payload).avant, { nom: 'Commercial', managerId: avant.managerId ?? null });
-  assert.deepEqual(JSON.parse(j.payload).apres, { nom: 'Ventes', managerId: 19 });
-  assert.ok(JSON.parse(j.salaries).includes(19));
+  const j = (await db.one(`SELECT payload, salaries FROM journal WHERE action = 'equipe.modifier'`)) as { payload: string; salaries: string };
+  assert.deepEqual(json(j.payload).avant, { nom: 'Commercial', managerId: avant.managerId ?? null });
+  assert.deepEqual(json(j.payload).apres, { nom: 'Ventes', managerId: 19 });
+  assert.ok(json(j.salaries).includes(19));
   // Un seul des deux, ou rien.
   assert.match(String((await run(RH, 'equipe.modifier', { nom: 'Ventes', managerId: null })).message), /n’a plus de manager/);
   assert.match(String((await run(RH, 'equipe.modifier', { nom: 'Ventes', nouveau: 'Commercial' })).message), /renommée en Commercial$/);
@@ -221,9 +221,9 @@ test('import sans référence : DD-<n°> sans doublon, demandeur reconnu ou gard
     + ';Clara Roussel;Maroc;09/03/2027;12/03/2027;Visite client;Agence Voyages Sud';
   const lignes = parseTrips(new Domain(await loadFull(db, RH)), texte);
   assert.deepEqual(lignes.map(r => [r.ok, r.demandeur, r.demandeurConnu]), [[true, 'Nadia Kaci', true], [true, 'Agence Voyages Sud', false]]);
-  const max = Number((db.sql.prepare('SELECT MAX(id) AS n FROM voyages').get() as { n: number }).n);
+  const max = Number(((await db.one('SELECT MAX(id) AS n FROM voyages')) as { n: number }).n);
   // Une référence « DD-<n°> » déjà prise par un import précédent : la suivante reçoit un suffixe.
-  db.sql.prepare(`UPDATE voyages SET ref = ? WHERE id = ?`).run(`DD-${max + 1}`, max);
+  (await db.run(`UPDATE voyages SET ref = ? WHERE id = ?`, [`DD-${max + 1}`, max]));
   await run(RH, 'voyages.importer', { texte });
   const crees = (await loadFull(db, RH)).voyages.filter(v => v.id > max);
   assert.deepEqual(crees.map(v => [v.ref, v.demandeur]), [[`DD-${max + 1}-2`, 'Nadia Kaci'], [`DD-${max + 2}`, 'Agence Voyages Sud']]);
@@ -239,18 +239,18 @@ test('import sans référence : DD-<n°> sans doublon, demandeur reconnu ou gard
   assert.equal(mien.demandeur, null);
 });
 
-test('migration : référence DD-<n°> donnée une fois aux déplacements importés sans référence, tracée', async () => {
+test('migration : référence DD-<n°> donnée une fois aux déplacements importés sans référence, tracée', { skip: PG && SQLITE_SEUL }, async () => {
   const { db } = await fresh();
-  const max = Number((db.sql.prepare('SELECT MAX(id) AS n FROM voyages').get() as { n: number }).n);
-  db.sql.prepare(`UPDATE voyages SET ref = NULL WHERE id = ?`).run(max);
-  db.sql.prepare(`UPDATE voyages SET origine = 'formulaire' WHERE id = ?`).run(max);
-  assert.equal(await REFERENCES_DEPLACEMENTS.necessaire!(db), true);
-  assert.ok((await appliquerMigrations(db)).includes('lot5-voyages-references'));
+  const max = Number(((await db.one('SELECT MAX(id) AS n FROM voyages')) as { n: number }).n);
+  (await db.run(`UPDATE voyages SET ref = NULL WHERE id = ?`, [max]));
+  (await db.run(`UPDATE voyages SET origine = 'formulaire' WHERE id = ?`, [max]));
+  assert.equal(await REFERENCES_DEPLACEMENTS.necessaire!(sqlite(db)), true);
+  assert.ok((await appliquerMigrations(sqlite(db))).includes('lot5-voyages-references'));
   assert.equal(((await db.get<{ ref: string }>('voyages', max)))!.ref, `DD-${max}`);
-  const j = db.sql.prepare(`SELECT payload FROM journal WHERE action = 'migration.referencesDeplacements'`).get() as { payload: string };
-  assert.deepEqual(JSON.parse(j.payload), { deplacements: 1 });
-  assert.deepEqual(await appliquerMigrations(db), [], 'une seule fois');
-  assert.equal((db.sql.prepare(`SELECT COUNT(*) AS n FROM voyages WHERE origine = 'formulaire' AND ref IS NULL`).get() as { n: number }).n, 0);
+  const j = (await db.one(`SELECT payload FROM journal WHERE action = 'migration.referencesDeplacements'`)) as { payload: string };
+  assert.deepEqual(json(j.payload), { deplacements: 1 });
+  assert.deepEqual(await appliquerMigrations(sqlite(db)), [], 'une seule fois');
+  assert.equal(((await db.one(`SELECT COUNT(*) AS n FROM voyages WHERE origine = 'formulaire' AND ref IS NULL`)) as { n: number }).n, 0);
 });
 
 // — t106 et t153 : listes vides et impression (contrôles du code de l'interface, sans rendu) —

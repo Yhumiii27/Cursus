@@ -8,6 +8,7 @@ import { join } from 'node:path';
 process.env.CURSUS_TODAY = '2026-10-10';
 
 const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { migrate } = await import('../server/src/migrate.ts');
 const { buildSnapshot, loadFull } = await import('../server/src/dataset.ts');
@@ -16,7 +17,7 @@ const { ActionError, makeCtx } = await import('../server/src/actions/context.ts'
 const { Domain } = await import('../shared/domain.ts');
 const { estAuDossier, retireeAuRefus, valeurActuelle } = await import('../shared/rules/formalites.ts');
 type User = Parameters<typeof buildSnapshot>[1];
-type Db = InstanceType<typeof Db>;
+type Db = import('../server/src/db.ts').Db;
 
 const RH: User = { role: 'rh', empId: null, nom: 'Sandrine Vidal', intitule: '' };
 const mgr = (empId: number): User => ({ role: 'manager', empId, nom: `#${empId}`, intitule: '' });
@@ -33,7 +34,7 @@ function outils(db: Db) {
   return { db, run, domain, emp, docs, enAttente };
 }
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   return outils(db);
 }
@@ -169,8 +170,8 @@ async function ancienneBase(dir: string, nom: string, demandes: Ancienne[]) {
   const file = join(dir, `${nom}.db`);
   const old = new Db(file);
   await seedDemo(old);
-  old.sql.exec('DELETE FROM demandes_collab WHERE type = \'document\'');
-  old.sql.exec('ALTER TABLE demandes_collab DROP COLUMN declaration');
+  await old.exec('DELETE FROM demandes_collab WHERE type = \'document\'');
+  await old.exec('ALTER TABLE demandes_collab DROP COLUMN declaration');
   const ins = old.sql.prepare('INSERT INTO demandes_collab (emp_id, type, label, date, statut, reponse) VALUES (?, \'document\', ?, ?, ?, ?)');
   for (const [empId, label, statut = 'attente', date = '2026-10-01', reponse = null] of demandes) ins.run(empId, label, date, statut, reponse);
   old.sql.close();
@@ -218,7 +219,7 @@ test('migration : demandes en attente d’une ancienne base reprises du dossier'
   // Libellé inconnu : contrôle dans le dossier, comme avant.
   await run(RH, 'demande.accepter', { id: (await un('Document inconnu')).id });
   assert.equal((await un('Document inconnu')).statut, 'acceptee');
-  db.sql.close();
+  await db.fermer();
 }));
 
 test('migration : deux demandes pour le même document, seule la plus récente reprend le contenu', async () => await dansDossierTemporaire(async dir => {
@@ -235,7 +236,7 @@ test('migration : deux demandes pour le même document, seule la plus récente r
   await a.run(RH, 'demande.accepter', { id: recente.id });
   assert.deepEqual((await a.emp(MEHDI)).passeport, { numero: '20AB···91', expire: '2026-12-02' });
   assert.deepEqual((await a.par('Passeport mis à jour')).map(r => r.statut), ['refusee', 'acceptee']);
-  a.db.sql.close();
+  await a.db.fermer();
 
   // Démarrage suivant : une fois la plus récente traitée, la plus ancienne ne reprend rien.
   const b = await ancienneBase(dir, 'doublon-b', doublon);
@@ -244,7 +245,7 @@ test('migration : deux demandes pour le même document, seule la plus récente r
   assert.equal((await b.par('Passeport mis à jour'))[0].declaration, null);
   await b.run(RH, 'demande.refuser', { id: (await b.par('Passeport mis à jour'))[0].id });
   assert.deepEqual((await b.emp(MEHDI)).passeport, { numero: '20AB···91', expire: '2026-12-02' });
-  b.db.sql.close();
+  await b.db.fermer();
 }));
 
 test('migration : pièce validée par une autre demande, le refus de l’ancienne ne la retire pas', async () => await dansDossierTemporaire(async dir => {
@@ -261,7 +262,7 @@ test('migration : pièce validée par une autre demande, le refus de l’ancienn
   assert.doesNotMatch(String(await run(RH, 'demande.refuser', { id: ancienne.id })), /retiré/);
   assert.ok((await emp(MEHDI)).vaccins.some(v => v.v === 'hepA' && v.date === '2022-03-11'));
   assert.match((await par('Vaccination Hépatite A déclarée'))[0].reponse!, /dossier n’a pas été modifié/);
-  db.sql.close();
+  await db.fermer();
 }));
 
 test('migration : pièce reprise qui a changé depuis, traitée comme une déclaration ordinaire', async () => await dansDossierTemporaire(async dir => {
@@ -283,5 +284,5 @@ test('migration : pièce reprise qui a changé depuis, traitée comme une décla
   await run(RH, 'demande.accepter', { id: hepA.id });
   assert.deepEqual((await emp(MEHDI)).vaccins.filter(v => v.v === 'hepA').map(v => v.date), ['2022-03-11']);
   assert.match((await par('Vaccination Hépatite A déclarée'))[0].reponse!, /enregistrée dans votre dossier/);
-  db.sql.close();
+  await db.fermer();
 }));

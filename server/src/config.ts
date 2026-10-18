@@ -131,6 +131,27 @@ function problemesOidc(env: Env): string[] {
   return out;
 }
 
+/**
+ * Date d'expiration du secret client de l'application Entra (CURSUS_OIDC_SECRET_EXPIRE, AAAA-MM-JJ, relevée dans
+ * « Certificats & secrets ») : facultative ; null si elle est absente ou n'est pas une date. Cursus prévient 30 jours
+ * avant (server/src/secret-microsoft.ts) : point de santé « degrade » et ligne du récapitulatif des échéances.
+ */
+export function expirationSecretOidc(env: Env = process.env): string | null {
+  const v = (env.CURSUS_OIDC_SECRET_EXPIRE ?? '').trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(v)) return null;
+  const d = new Date(`${v}T00:00:00Z`);
+  return !Number.isNaN(d.getTime()) && d.toISOString().slice(0, 10) === v ? v : null;
+}
+
+/** CURSUS_OIDC_SECRET_EXPIRE illisible (l'alerte ne partirait jamais), ou posée sans secret client à surveiller. */
+function problemesExpirationSecret(env: Env): string[] {
+  const v = (env.CURSUS_OIDC_SECRET_EXPIRE ?? '').trim();
+  if (!v) return [];
+  if (!expirationSecretOidc(env)) return [`CURSUS_OIDC_SECRET_EXPIRE doit être la date d’expiration du secret client, au format AAAA-MM-JJ (« ${v} » reçu) : sans elle, Cursus ne peut pas prévenir avant l’expiration.`];
+  if (!(env.CURSUS_OIDC_CLIENT_SECRET ?? '').trim()) return ['CURSUS_OIDC_SECRET_EXPIRE est définie sans CURSUS_OIDC_CLIENT_SECRET : aucun secret client à surveiller. Retirez-la, ou complétez la connexion Microsoft 365.'];
+  return [];
+}
+
 // — Envoi des e-mails par Microsoft Graph (server/src/integrations/email.ts, docs/EMAILS.md) —
 
 /** API Microsoft Graph ; les tests la remplacent par un faux service local (option de `transportEmail`). */
@@ -226,6 +247,7 @@ export function problemesConfig(env: Env = process.env): string[] {
   if (demo && !local) out.push(`Le mode démonstration (CURSUS_DEMO=1) ouvre l’espace RH sans mot de passe : il n’est admis que sur la boucle locale posée explicitement (CURSUS_HOST=127.0.0.1, application de bureau), jamais derrière le reverse proxy ; écoute actuelle : ${hote}.`);
   if (env.CURSUS_INSECURE_COOKIE === '1' && !local) out.push('CURSUS_INSECURE_COOKIE=1 retire l’attribut Secure du cookie de session : réservé à l’application de bureau (démonstration sur la boucle locale).');
   out.push(...problemesOidc(env));
+  out.push(...problemesExpirationSecret(env));
   out.push(...problemesMail(env));
   out.push(...problemesSage(env));
   out.push(...problemesExploitation(env));

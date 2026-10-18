@@ -6,7 +6,8 @@ un verdict **Go / No Go** par chantier pour Keystone et la transmission des vari
 de paie à **Sage Paie**.
 
 Construit à partir de la maquette Claude Design « Outil RH gestion formations »
-(design system Nocturne) — voir `design/`.
+(design system Nocturne) — voir `design/` : prototype de référence, guide du design system et archive complète de
+la maquette (`design/maquette-handoff.zip`, seul exemplaire gardé dans le dépôt).
 
 ## Démarrer
 
@@ -179,6 +180,7 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `SAGE_DOSSIER` | Dossier de paie inscrit dans les variables transmises (`CURSUS-CHIMIE` par défaut), et dans la colonne facultative « code dossier » du fichier d'import. `SAGE_URL` ne sert plus : refusée en production |
 | `CURSUS_OIDC_TENANT`, `CURSUS_OIDC_CLIENT_ID`, `CURSUS_OIDC_CLIENT_SECRET` | Connexion Microsoft 365 : ID de l'annuaire (GUID), ID d'application et secret client de l'inscription dans Entra (`docs/CONNEXION-MICROSOFT.md`). Les quatre variables avec `CURSUS_PUBLIC_URL`, ou aucune |
 | `CURSUS_PUBLIC_URL` | Adresse publique de Cursus, en https (`https://cursus.example.fr`) : Microsoft renvoie à `${CURSUS_PUBLIC_URL}/api/auth/microsoft/retour` |
+| `CURSUS_OIDC_SECRET_EXPIRE` | Facultative : date d'expiration du secret client Entra (`AAAA-MM-JJ`). 30 jours avant, `/api/health` passe en `degrade` et le récapitulatif des échéances prévient la boîte du service RH (`docs/CONNEXION-MICROSOFT.md`, section 3) |
 | `CURSUS_OIDC_AUTORITE` | Remplace `https://login.microsoftonline.com` : réservée aux tests automatiques (faux fournisseur local). Refusée en production |
 | `CURSUS_MAIL_FROM` | Boîte d'envoi dédiée des e-mails (`cursus@entreprise.fr`), envoyés par Microsoft Graph. Sans elle : simulation (e-mails tracés dans le journal et visibles dans Paramètres → Envois, rien ne part). Mise en service : `docs/EMAILS.md` |
 | `CURSUS_MAIL_TENANT`, `CURSUS_MAIL_CLIENT_ID`, `CURSUS_MAIL_CLIENT_SECRET` | Application Entra autorisée à envoyer (`Mail.Send`, restreinte à la boîte d'envoi) ; par défaut celle de la connexion Microsoft (`CURSUS_OIDC_*`) |
@@ -214,8 +216,9 @@ périodique : `docs/SAUVEGARDE.md`.
   base accessible à d'autres comptes signalés en clair (code de sortie 1 quand le démarrage est impossible).
 - **Arrêt** (SIGTERM, Ctrl+C) : requêtes en cours terminées (10 s au plus), base fermée, verrou retiré.
 - **Santé** : `GET /api/health`, sans connexion : `{"statut":"ok","base":"ok"}` (503 si la base ne répond pas ;
-  `"degrade"` si elle contient des références orphelines, comptées au démarrage et inscrites au journal, détail réservé
-  au poste local et au jeton de supervision).
+  `"degrade"` si elle contient des références orphelines, comptées au démarrage et inscrites au journal, ou si le secret
+  client Entra expire dans 30 jours ou moins (`CURSUS_OIDC_SECRET_EXPIRE`), détail réservé au poste local et au jeton de
+  supervision).
 - **Journaux** : une ligne par requête (heure, méthode, chemin sans paramètres, statut, durée, compte), en JSON en
   production ; erreurs de l'API toujours en JSON (`404`, `400`, `413`, `500` « Erreur interne » sans pile d'appels).
 - **Performances** : réponses compressées par Cursus (brotli, gzip), interface découpée par écran et chargée à la

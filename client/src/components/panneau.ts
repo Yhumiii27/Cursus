@@ -11,6 +11,24 @@ export const ECRAN_ETROIT = '(max-width: 900px)';
 const media = (q: string) => typeof matchMedia === 'function' && matchMedia(q).matches;
 
 /**
+ * Effet d'un changement de sélection `cle` sur le panneau `el` : sur écran étroit, défilement vers le panneau et focus
+ * à la sélection, retour à la position gardée dans `position` à la fermeture ; rien sur grand écran. Logique de
+ * `usePanneauVisible`, testée sous Node (tests/client-modules.test.ts).
+ */
+export function placerPanneau(el: HTMLElement | null, cle: string | number | null | undefined, position: { current: number | null }): void {
+  if (!media(ECRAN_ETROIT)) { position.current = null; return; }
+  if (cle == null) {
+    if (position.current != null) window.scrollTo({ top: position.current });
+    position.current = null;
+    return;
+  }
+  if (!el) return;
+  position.current ??= window.scrollY;
+  el.scrollIntoView({ block: 'start', behavior: media('(prefers-reduced-motion: reduce)') ? 'auto' : 'smooth' });
+  el.focus({ preventScroll: true });
+}
+
+/**
  * Panneau de détail de l'élément sélectionné `cle` (null : aucun) : la référence se pose sur le panneau, qui
  * porte tabIndex={-1} et un nom (aria-labelledby). Une sélection présente à l'affichage de la page (fiche
  * ouverte depuis le tableau de bord) amène aussi le panneau dans le champ de vision.
@@ -19,18 +37,6 @@ export function usePanneauVisible<T extends HTMLElement>(cle: string | number | 
   const ref = useRef<T>(null);
   // Défilement de la page avant la première sélection : rétabli à la fermeture du panneau.
   const position = useRef<number | null>(null);
-  useEffect(() => {
-    if (!media(ECRAN_ETROIT)) { position.current = null; return; }
-    if (cle == null) {
-      if (position.current != null) window.scrollTo({ top: position.current });
-      position.current = null;
-      return;
-    }
-    const el = ref.current;
-    if (!el) return;
-    position.current ??= window.scrollY;
-    el.scrollIntoView({ block: 'start', behavior: media('(prefers-reduced-motion: reduce)') ? 'auto' : 'smooth' });
-    el.focus({ preventScroll: true });
-  }, [cle]);
+  useEffect(() => placerPanneau(ref.current, cle, position), [cle]);
   return ref;
 }

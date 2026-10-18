@@ -115,7 +115,8 @@ client/src/
   pages/           Un fichier par écran ; pages/parametres/ : une section de l'écran Paramètres par fichier (sections.tsx)
   dialogs/         Un fichier par dialogue, rendus par DialogHost
   styles/          nocturne.css (design system, ne pas modifier) et app.css (mise en page)
-design/            Prototype Claude Design de référence et guide du design system Nocturne
+design/            Prototype Claude Design de référence, guide du design system Nocturne et archive complète de la
+                   maquette (maquette-handoff.zip, seule archive suivie : *.zip est ignoré ailleurs)
 deploy/            Fichiers d'installation prêts à copier (unités systemd, Caddyfile, copie externe), identiques à la doc
 Dockerfile         Image facultative (hébergeur à conteneurs) ; .dockerignore
 scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Windows compris)
@@ -419,7 +420,11 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
   `Authorization: Bearer` égal à `CURSUS_SUPERVISION_TOKEN` : en plus `version`, `mode` (`production`, `demo`,
   `developpement`), `envoisEnEchec` (non classés, toutes cibles), `depuis`, `orphelins` et `references`. Base qui répond
   mais contient des références orphelines : 200 `{statut: 'degrade', base: 'ok'}`, sans nombre en public. Jamais de
-  donnée personnelle.
+  donnée personnelle. Secret client Entra qui expire dans 30 jours ou moins (`CURSUS_OIDC_SECRET_EXPIRE`, date seule,
+  `server/src/secret-microsoft.ts`, t184) : `degrade` aussi, et `secretMicrosoft: { expireLe, jours }` dans le détail ;
+  le récapitulatif des échéances (`server/src/relances.ts`) en donne une ligne « Exploitation » à la seule boîte du
+  service RH, une fois par palier (30 jours, 7 jours, expiré ; clé `exploitation:secret-oidc:<date>` de la table
+  `relances`).
 - **Intégrité** (`server/src/integrite.ts`, t179 étape 1) : `REFERENCES` liste les colonnes qui désignent une autre
   table (tous les `emp_id`, `session_id`, formation, habilitation, destination, poste, équipe, manager, lot de paie,
   déplacement Keystone, certification d'une participation) ; `controlerOrphelins` compte, par référence, les valeurs
@@ -499,6 +504,13 @@ que le client n'a pas de tests de rendu) et échoue sous les seuils écrits dans
 fixés juste sous la mesure du jour : les relever quand des tests s'ajoutent, jamais les baisser pour faire passer un
 ajout non testé. Les serveurs lancés par les tests avec l'environnement du test sont mesurés aussi. Un contrôle de
 style (lint) s'ajoutera à `check` quand il existera. `@types/node` suit Node 22.
+
+Modules du client sous `node --test` (t159, étape 1) : les modules sans JSX s'importent directement depuis `tests/`
+(Node n'enlève que les types). `tests/outils/client-node.ts`, importé en premier, fait le reste sans dépendance :
+`state/store.tsx` remplacé par le magasin factice `tests/outils/store-factice.ts` (`poserMagasin` : instantané, `ui`,
+`run` espionné), `*.css?url` remplacé par son chemin, et `rendreHook` rend un hook par `react-dom/server` (sans DOM :
+les effets ne s'exécutent pas, leur logique sort dans une fonction testée directement, comme `suivreMedia` de
+`components/media.ts` et `placerPanneau` de `components/panneau.ts`). Exemple : `tests/client-modules.test.ts`.
 
 Dépendances (t161) : `npm run audit` (`npm audit --omit=dev --audit-level=high`) est une étape de la CI, bloquante,
 après `check` ; l'audit de toutes les dépendances y est seulement informatif (`continue-on-error`). Il reste hors de

@@ -27,10 +27,15 @@ const TITRES: Partial<Record<TableName, string>> = {
   soldesReprise: 'Compteurs repris de l’ancien outil', entretiens: 'Entretiens professionnels', demandesCollab: 'Demandes et déclarations',
   comptes: 'Compte de connexion', verdictsKeystone: 'Verdicts Go / No Go transmis à Keystone', clotures: 'Clôtures des périodes de congés',
   mandats: 'Mandats au CSE', informationsCp: 'Informations sur les congés au retour d’un arrêt',
-  soldesSortie: 'Solde des compteurs à la sortie',
+  soldesSortie: 'Solde des compteurs à la sortie', contratsHistorique: 'Historique du contrat',
 };
 /** Colonnes jamais exportées : empreinte du mot de passe (secret). */
 const RETIREES: Partial<Record<TableName, string[]>> = { comptes: ['motDePasse'] };
+/**
+ * Colonnes retirées de l'export remis au salarié lui-même (sans journal) : elles nomment d'autres personnes, comme le
+ * journal qu'il ne reçoit pas — auteur d'une ligne de l'historique des contrats, que son portail ne lui montre pas.
+ */
+const RETIREES_SALARIE: Partial<Record<TableName, string[]>> = { contratsHistorique: ['par', 'parId'] };
 
 /** Tables du schéma qui portent la colonne `empId` (la fiche elle-même est la section « Fiche »). */
 export const TABLES_SALARIE = (Object.entries(TABLES) as [TableName, { cols: Record<string, string> }][])
@@ -43,7 +48,10 @@ export function donneesSalarie(db: Db, empId: number, o: { journal: boolean; par
   const e = db.get<Ligne>('employes', empId);
   if (!e) return null;
   const sections: Record<string, unknown> = { Fiche: e };
-  for (const t of TABLES_SALARIE) sections[TITRES[t] ?? t] = db.where<Ligne>(t, 'empId', empId).map(r => sans(r, RETIREES[t]));
+  for (const t of TABLES_SALARIE) {
+    const retirees = [...(RETIREES[t] ?? []), ...(o.journal ? [] : RETIREES_SALARIE[t] ?? [])];
+    sections[TITRES[t] ?? t] = db.where<Ligne>(t, 'empId', empId).map(r => sans(r, retirees));
+  }
   const comptes = db.where<Compte>('comptes', 'empId', empId).map(c => c.id);
   const dans = comptes.map(() => '?').join(', ');
   // Sessions de connexion : dates, espace, mode ; l'identifiant (secret du cookie) n'est jamais exporté.

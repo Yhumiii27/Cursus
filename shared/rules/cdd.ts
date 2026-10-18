@@ -56,11 +56,14 @@ export function dureeMaxCdd(motif: MotifRecours, s: ReglagesCdd): { mois: number
   return { mois: m.dureeMois, texte: `${m.dureeMois} mois pour ce motif, art. L1242-8-1` };
 }
 
-/** Renouvellements admis : réglage d'un accord de branche, sinon la loi (un seul pour un CDD senior). */
+/**
+ * Renouvellements admis : réglage d'un accord de branche, sinon la loi. Le CDD senior en a toujours un seul : fixé par
+ * décret (art. D1242-2), il échappe à la branche, comme sa durée maximale (`dureeMaxCdd`).
+ */
 export function renouvellementsMax(motif: MotifRecours | null, s: ReglagesCdd): { n: number; texte: string } {
+  if (motif === 'senior') return { n: MOTIFS_RECOURS.senior.renouvellements, texte: 'art. D1242-2' };
   if (s.cddRenouvellementsMax !== CDD_RENOUVELLEMENTS_LEGAL) return { n: s.cddRenouvellementsMax, texte: source(s, 'art. L1243-13') };
-  const n = motif ? MOTIFS_RECOURS[motif].renouvellements : CDD_RENOUVELLEMENTS_LEGAL;
-  return { n, texte: motif === 'senior' ? 'art. D1242-7' : 'art. L1243-13-1' };
+  return { n: motif ? MOTIFS_RECOURS[motif].renouvellements : CDD_RENOUVELLEMENTS_LEGAL, texte: 'art. L1243-13-1' };
 }
 
 /** Dernier jour d'un contrat de `mois` mois commencé le `entree`. */

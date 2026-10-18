@@ -689,7 +689,7 @@ aucun champ du paramètre n'est recopié.
 | Action | Paramètres | Droits |
 | --- | --- | --- |
 | `employe.creer` | fiche complète (`ProfilInput` de `shared/rules/profil.ts`, matricule de paie compris : unique), reutiliserMatricule? (réembauche : matricule d'un salarié sorti) | RH ; réutiliser un matricule : administrateur RH |
-| `employe.modifier` | id + champs de la fiche (l'écran n'envoie que ceux modifiés), avant? (valeur à l'ouverture de chaque champ envoyé, et d'eux seuls, sinon 400 : un champ changé entre-temps fait tout refuser, 412, rien n'est enregistré ; auteur nommé au service RH seul ; jamais recopié au journal), reutiliserMatricule?, `confirmerRtt` (changement de régime qui ne laisse aucun RTT acquis dans l'année), tempsDepuis futur (avenant programmé, organisation du temps seulement, un seul à la fois : historique des contrats), motifRecours, cddFinInitiale (CDD) ; ni le motif ni la date d'une sortie enregistrée | RH : tous ; manager : `poste` (intitulé précisé ; le poste du référentiel, `posteId`, reste au RH), `jourOff` (temps partiel) des membres de son équipe ; changer ou retirer un matricule de paie déjà enregistré, réutiliser celui d'un salarié sorti : administrateur RH |
+| `employe.modifier` | id + champs de la fiche (l'écran n'envoie que ceux modifiés), avant? (valeur à l'ouverture de chaque champ envoyé, et d'eux seuls, sinon 400 : un champ changé entre-temps fait tout refuser, 412, rien n'est enregistré ; auteur nommé au service RH seul ; jamais recopié au journal), reutiliserMatricule?, `confirmerRtt` (changement de régime qui ne laisse aucun RTT acquis dans l'année ou rend le solde négatif), tempsDepuis futur (avenant programmé, organisation du temps seulement, un seul à la fois : historique des contrats), motifRecours, cddFinInitiale (CDD) ; ni le motif ni la date d'une sortie enregistrée | RH : tous ; manager : `poste` (intitulé précisé ; le poste du référentiel, `posteId`, reste au RH), `jourOff` (temps partiel) des membres de son équipe ; changer ou retirer un matricule de paie déjà enregistré, réutiliser celui d'un salarié sorti : administrateur RH |
 | `employe.sortie` | id, date (dernier jour du contrat), motif (`MOTIFS_SORTIE`) ; refusée tant que le salarié encadre une équipe, qu'une feuille porte des heures après la date, qu'une absence est à cheval sur elle, au-delà de la fin prévue du contrat ou quand aucun autre administrateur RH ne reste en place après la date ; une sortie enregistrée se modifie par la même action ; solde des compteurs à la date photographié (`soldesSortie`), refait à la modification sauf s'il est déjà transmis (même date ; à une autre date, l'ancien est remplacé et un nouveau photographié) ; 409 tant que ce solde est dans un lot de paie à confirmer | RH (jamais pour lui-même) ; administrateur RH seul pour un salarié dont le compte ouvre l'espace RH |
 | `employe.autorisationTravail` | id, requise (faux : ressortissant français, de l'UE, de l'EEE ou de la Suisse, titre effacé), type (`TYPES_TITRE_SEJOUR`), numero, expire (sauf résident permanent), demandeLe (envoi de la demande d'authentification) et verifieLe (réponse de la préfecture), jamais futures ; avertissements sans blocage (titre expiré, demande d'authentification non tracée ou tardive) ; journal : codes et dates validés seulement ; refusée pour un salarié sorti | RH (jamais pour lui-même) |
 | `employe.renouvelerCdd` | id, jusquau (nouveau terme, après la fin actuelle), signeLe? (signature de l'avenant, aujourd'hui par défaut, jamais future), reference? (60 caractères ; gardée dans l'historique, jamais au journal) : ligne `renouvellement` de l'historique des contrats, fin du contrat repoussée, terme initial gardé (`cddFinInitiale`) ; durée maximale et renouvellements admis signalés sans blocage ; CDD en cours seulement, sans sortie enregistrée | RH (jamais pour lui-même) |
@@ -869,7 +869,8 @@ Table `journal`, écrite par `server/src/journal.ts` (actions) et `journaliser` 
   de connexion (sans leur identifiant), équipes encadrées, messages envoyés à Keystone à son matricule, et
   le journal des actions le concernant (archive comprise). `GET /api/mes-donnees` : le salarié connecté
   (espace collaborateur ou manager) télécharge les siennes depuis le portail, sans le journal, que le RH
-  remet sur demande. Chaque export est tracé (`salarie.export`, `donnees.export`).
+  remet sur demande, ni l'auteur des lignes de l'historique du contrat (`par`, `parId` : d'autres personnes, comme le
+  journal ; `RETIREES_SALARIE`). Chaque export est tracé (`salarie.export`, `donnees.export`).
 - **Information des salariés** (art. 13 du RGPD) : page Confidentialité (`pages/Confidentialite.tsx`, vue commune
   `confidentialite` de `VUES_COMMUNES`, ouverte dans tous les espaces et sans connexion depuis l'écran de connexion),
   texte `INFO_CONFIDENTIALITE` de `shared/confidentialite.ts` (modèle à faire valider par le DPO, mentions « à compléter
@@ -1036,8 +1037,10 @@ Table `contratsHistorique` (`server/src/db.ts`), règles dans `shared/rules/hist
   du contrat fixé par la ligne (`jusquau`), date de signature et référence de l'avenant, jour, nom et fiche de l'auteur
   (`par`, `parId`, dans `REFERENCES` de `server/src/integrite.ts`), `applique` (faux : avenant programmé), `annuleLe`, `fin`
   (sortie). Écrites par `employe.creer` (embauche), `employe.modifier` (avenant à chaque changement de régime ; date
-  d'entrée corrigée suivie par l'embauche), `employe.renouvelerCdd`, `employe.sortie` (date de la dernière ligne, avenants
-  programmés après elle annulés) et `employe.annulerSortie` (date retirée). Une fiche sans ligne (antérieure, importée) est
+  d'entrée corrigée suivie par l'embauche), `employe.renouvelerCdd`, `employe.sortie` (date de la dernière ligne qui a pris
+  effet ; avenants programmés et renouvellements d'un CDD qui devaient commencer après elle annulés : une sortie anticipée
+  ne laisse compter aucun renouvellement sans effet ; une sortie modifiée rend effet à ceux d'avant sa nouvelle date) et
+  `employe.annulerSortie` (date retirée, renouvellements annulés par la sortie rétablis avec la fin prévue). Une fiche sans ligne (antérieure, importée) est
   d'abord amorcée comme par la migration.
 - **Régime à une date** (`segmentsContrat`, `regimeAu`) : lignes appliquées, la dernière prenant le régime de la fiche, qui
   fait foi pour le régime en cours (une fiche changée hors de l'historique, par un import, l'emporte ; un `tempsDepuis`
@@ -1061,9 +1064,12 @@ Table `contratsHistorique` (`server/src/db.ts`), règles dans `shared/rules/hist
 - **Garde-fou conservé** : à un changement daté du jour ou passé, les feuilles antérieures sans régime figé reçoivent
   l'ancien (comme avant) et chaque semaine sous contrat des 8 précédentes (`SEMAINES_FIGEES`, `semainesAFiger`) encore sans
   feuille en reçoit une, brouillon et vide, figée sur l'ancien régime. RTT de l'année pris ou posés que le nouveau régime
-  n'ouvre plus même au prorata (`rttPerdus` : changement au tout début de l'année, passage en intérim) : le service RH
-  confirme (`confirmerRtt`, refus 400 sinon) et le solde affiché juste avant est gardé au journal pour la paie, sous le code
-  `employe.rtt` (archive paie) avec `soldeRtt` (droit, pris, posés, solde).
+  ne couvre plus même au prorata (`rttPerdus` : aucun droit dans l'année, au tout début de l'année ou en intérim ; jours
+  pris et posés au-delà du nouveau droit au prorata, solde négatif) : le service RH confirme (`confirmerRtt`, refus 400
+  sinon) et le solde affiché juste avant est gardé au journal pour la paie, sous le code `employe.rtt` (archive paie) avec
+  `soldeRtt` (droit, pris, posés, solde, date d'effet, nouveau droit au prorata, RTT posés ou validés après la date
+  d'effet, cités dans la confirmation pour être revus). Des RTT posés après la date d'effet et couverts par le droit au
+  prorata ne demandent rien : acquis sous l'ancien régime, ils se prennent ensuite.
 - **Migration** `lot6-contrats-historique` (`server/src/migrations/lot6-contrats.ts`, `historiqueDepuisFiches`, aussi pour
   le jeu de démonstration) : embauche à l'entrée au régime de la fiche (terme prévu d'un contrat à durée déterminée) ;
   fiche dont le régime a changé après l'entrée : régimes figés des feuilles antérieures au changement (hors ceux égaux au
@@ -1076,8 +1082,9 @@ Table `contratsHistorique` (`server/src/db.ts`), règles dans `shared/rules/hist
 - **Réembauche** : nouvelle fiche qui réutilise le matricule de paie (confirmation de l'administrateur RH, comportement
   inchangé) ; la section de la fiche nomme les fiches précédentes du même matricule, avec un lien (service RH, paie,
   lecture seule).
-- **Visibilité** : service RH, paie et lecture seule (tout) ; manager (son équipe) et intéressé sans la référence ni
-  l'auteur ; référent HSE : rien (`server/src/dataset.ts`).
+- **Visibilité** : service RH, paie et lecture seule (tout) ; intéressé sans la référence ni l'auteur ; manager, pour les
+  membres de son équipe, les régimes seuls (embauche et avenants, sans terme `jusquau`, ni date de signature, ni ligne de
+  renouvellement : le terme initial et la fin prévue lui sont masqués) ; référent HSE : rien (`server/src/dataset.ts`).
 
 ### CDD : motif de recours, renouvellements, carence (t053)
 
@@ -1096,7 +1103,8 @@ fiche (`components/ContratFiche.tsx`), réglages de Paramètres → Contrats.
   l'emploi. Un CDD de remplacement ou d'attente peut être à terme imprécis (art. L1242-7) : rappelé dans l'avertissement.
   **Renouvellements** : 2 (art. L1243-13-1), un seul pour un CDD senior. Réglages `cddRenouvellementsMax` (2),
   `cddDureeMaxMois` (0 : selon le motif) et `cddAccordBranche` (référence exigée dès qu'une valeur diffère de la loi,
-  `COHERENCE` ; masquée au journal) : la branche peut y déroger (art. L1242-8 et L1243-13), à vérifier pour la CCN.
+  `COHERENCE` ; masquée au journal) : la branche peut y déroger (art. L1242-8 et L1243-13), à vérifier pour la CCN ; pas
+  pour le CDD senior, dont la durée et l'unique renouvellement sont fixés par décret (art. D1242-2).
 - **Renouvellement** : ligne `renouvellement` de l'historique (effet au lendemain de l'ancien terme, nouveau terme, date de
   signature, référence), fin de la fiche repoussée, terme initial gardé ; contrat dont le terme est passé : refus (la
   relation poursuivie en a fait un CDI, art. L1243-11, ou un nouveau contrat est une nouvelle fiche). Une fin repoussée

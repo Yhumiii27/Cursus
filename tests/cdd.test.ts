@@ -54,7 +54,7 @@ test('t053 durée maximale et renouvellements selon le motif (loi), avertissemen
   // 9 mois en attente d'un salarié recruté en CDI (terme imprécis possible, rappelé) ; 36 mois et un seul renouvellement pour un CDD senior.
   assert.match(controleCdd(cdd({ motifRecours: 'attente_cdi', fin: '2026-10-05' }), { renouvellements: 0, reglages: LOI }).warnings[0], /9 mois pour ce motif.*terme imprécis/);
   assert.deepEqual(dureeMaxCdd('senior', LOI), { mois: 36, texte: '36 mois pour ce motif, art. L1242-8-1' });
-  assert.match(controleCdd(cdd({ motifRecours: 'senior' }), { renouvellements: 2, reglages: LOI }).warnings[0], /^2 renouvellements pour 1 admis \(art\. D1242-7\)/);
+  assert.match(controleCdd(cdd({ motifRecours: 'senior' }), { renouvellements: 2, reglages: LOI }).warnings[0], /^2 renouvellements pour 1 admis \(art\. D1242-2\)/);
   assert.match(controleCdd(cdd(), { renouvellements: 3, reglages: LOI }).warnings[0], /^3 renouvellements pour 2 admis \(art\. L1243-13-1\) : le contrat peut être requalifié/);
   // Emploi saisonnier ou d'usage : aucune durée maximale légale.
   assert.equal(dureeMaxCdd('saisonnier_usage', LOI), null);
@@ -76,6 +76,9 @@ test('t053 accord de branche : durée et renouvellements réglés, référence e
   const accord = { cddRenouvellementsMax: 3, cddDureeMaxMois: 24, cddAccordBranche: 'Accord de branche du 1er mars 2026' };
   assert.deepEqual(dureeMaxCdd('accroissement', accord), { mois: 24, texte: '24 mois, accord de branche : Accord de branche du 1er mars 2026' });
   assert.deepEqual(renouvellementsMax('accroissement', accord), { n: 3, texte: 'accord de branche : Accord de branche du 1er mars 2026' });
+  // CDD senior : un seul renouvellement, fixé par décret, quel que soit l'accord (comme sa durée de 36 mois).
+  assert.deepEqual(renouvellementsMax('senior', accord), { n: 1, texte: 'art. D1242-2' });
+  assert.deepEqual(dureeMaxCdd('senior', accord)?.mois, 36);
   assert.deepEqual(controleCdd(cdd({ fin: '2027-07-05' }), { renouvellements: 3, reglages: accord }).warnings, []);
   // Une valeur autre que celle de la loi sans la référence de l'accord : refusée, rien n'est enregistré.
   assert.throws(() => appliquerReglages(DEFAULT_SETTINGS, { cddRenouvellementsMax: 3 }), (e: unknown) => e instanceof ReglageInvalide && /accord de branche étendu/.test(e.message));

@@ -173,25 +173,54 @@ export function semainesAFiger(e: Employe, effet: ISODate, feuilles: readonly Pi
   return out;
 }
 
-/** Solde de RTT (ou de jours de repos) affiché avant un changement de régime, gardé au journal pour la paie. */
-export interface SoldeRtt { annee: number; label: string; droit: number; pris: number; poses: number; solde: number }
+/**
+ * Solde de RTT (ou de jours de repos) affiché avant un changement de régime, gardé au journal pour la paie. `nouveauDroit` :
+ * droit de l'année au prorata des régimes après le changement (null : plus aucun) ; `apresEffet` : jours de RTT posés ou
+ * validés à partir de la date d'effet `effet`, sous un régime qui n'en ouvre plus.
+ */
+export interface SoldeRtt {
+  annee: number; label: string; droit: number; pris: number; poses: number; solde: number;
+  effet: ISODate; nouveauDroit: number | null; apresEffet: number;
+}
 
 /**
- * RTT de l'année pris ou posés que le nouveau régime n'ouvre plus, même au prorata des mois passés sous l'ancien
- * (historique des contrats : un passage de 39 h à 35 h au 1er octobre garde 9/12 des RTT de l'année) : changement au
- * tout début de l'année, passage en intérim. Le compteur disparaîtrait de Cursus sans bruit : le changement exige alors
- * la confirmation du service RH, et le solde affiché juste avant est gardé au journal pour la paie. `effet` : date
+ * RTT de l'année pris ou posés que le nouveau régime ne couvre plus, même au prorata des mois passés sous l'ancien
+ * (historique des contrats : un passage de 39 h à 35 h au 1er octobre garde 9/12 des RTT de l'année). Deux cas : le
+ * nouveau régime ne laisse aucun droit dans l'année (changement au tout début de l'année, passage en intérim) ; les jours
+ * pris ou posés dépassent le nouveau droit au prorata (le solde deviendrait négatif). Le changement exige alors la
+ * confirmation du service RH, et le solde affiché juste avant est gardé au journal pour la paie, avec le nouveau droit et
+ * les RTT posés ou validés après la date d'effet (à revoir avec le salarié). Des RTT posés après la date d'effet et
+ * couverts par le droit au prorata ne demandent rien : acquis sous l'ancien régime, ils se prennent ensuite. `effet` : date
  * d'effet du changement (aujourd'hui par défaut). null si rien n'est perdu.
  */
 export function rttPerdus(d: Domain, avant: Employe, apres: Employe, effet: ISODate = d.ti): SoldeRtt | null {
   const r = rttInfo(d, avant);
-  if (!r || r.pris + r.poses <= 0) return null;
+  if (!r) return null;
   const segs: SegmentContrat[] = [
     ...segmentsContrat(d, avant).filter(x => x.du < effet && !x.programme),
     { du: effet, regime: regimeFiche(apres), ligne: null, programme: false },
   ];
-  if (rttDroitSelon(d, apres, d.year, segs) != null) return null;
-  return { annee: d.year, label: r.label, droit: r.droit, pris: r.pris, poses: r.poses, solde: r.solde };
+  const nouveauDroit = rttDroitSelon(d, apres, d.year, segs), consommes = r.pris + r.poses;
+  if (consommes <= 0 || (nouveauDroit != null && nouveauDroit >= consommes)) return null;
+  // RTT posés ou validés à compter de la date d'effet, quand le nouveau régime n'ouvre ni RTT ni jours de repos.
+  const c = d.contratOf(apres);
+  const apresEffet = c.interim || (!c.rtt && !c.forfait) ? d.ds.absences
+    .filter(a => a.empId === avant.id && a.type === 'RTT' && (a.statut === 'demandee' || a.statut === 'validee') && a.au >= effet)
+    .reduce((n, a) => n + (a.du >= effet ? d.countDays(avant, a.du, a.au, 'RTT', a) : d.countDays(avant, effet, a.au, 'RTT')), 0) : 0;
+  return { annee: d.year, label: r.label, droit: r.droit, pris: r.pris, poses: r.poses, solde: r.solde, effet, nouveauDroit, apresEffet };
+}
+
+/**
+ * Raison de la confirmation d'un changement de régime (`rttPerdus`), pour le dialogue de la fiche et le refus du serveur :
+ * « Le nouveau régime n'ouvre ni RTT ni jours de repos : le compteur de … ne sera plus suivi dans Cursus », ou « Avec le
+ * nouveau régime, le droit RTT 2026 de … n'est plus que de 12 j au prorata (…) : solde de -5 j ».
+ */
+export function rttPerdusTexte(s: SoldeRtt, nom: string): string {
+  const raison = s.nouveauDroit == null
+    ? `Le nouveau régime n’ouvre ni RTT ni jours de repos : le compteur de ${nom} (${soldeRttTexte(s)}) ne sera plus suivi dans Cursus`
+    : `Avec le nouveau régime, le droit ${s.label} ${s.annee} de ${nom} n’est plus que de ${fJ(s.nouveauDroit)} au prorata des mois passés sous l’ancien (${soldeRttTexte(s)}) : solde de ${fJ(s.nouveauDroit - s.pris - s.poses)}`;
+  const apres = s.apresEffet > 0 ? `, et ${fJ(s.apresEffet)} de RTT ${s.apresEffet > 1 ? 'restent posés ou validés' : 'reste posé ou validé'} à partir du ${fmtIso(s.effet)}, sous ce régime : à annuler ou à revoir` : '';
+  return raison + apres;
 }
 
 /** « RTT 2026 : 16 j pris, 1 j posé, solde 5 j ». */

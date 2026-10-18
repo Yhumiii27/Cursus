@@ -59,9 +59,10 @@ const sortie: ActionHandler = (ctx, p) => {
   // Photographie calculée sur l'état d'avant la sortie (elle annule d'elle-même les absences postérieures).
   const solde = photographierSortie(ctx, emp, date);
 
-  // Historique des contrats (t074) : la date clôt la dernière ligne, les avenants programmés après elle sont annulés.
+  // Historique des contrats (t074) : la date clôt la dernière ligne, les avenants programmés et les renouvellements prévus
+  // après elle sont annulés.
   amorcer(ctx.db, emp.id, ctx.d.ti);
-  const avenants = cloreHistorique(ctx.db, emp.id, date, ctx.d.ti);
+  const { avenants, renouvellements } = cloreHistorique(ctx.db, emp.id, date, ctx.d.ti);
   ctx.db.update<Employe>('employes', emp.id, { fin: date, motifSortie: motif, finPrevue: finContrat(emp) });
   // Fiche mise à jour d'abord : les convocations d'un salarié déjà parti ne lui sont plus envoyées (adresse close).
   c.absences.forEach(a => {
@@ -87,6 +88,7 @@ const sortie: ActionHandler = (ctx, p) => {
   if (annulees) effets.push(annulees > 1 ? `${annulees} annulations de convocation envoyées par e-mail` : 'annulation de convocation envoyée par e-mail');
   if (fermees) effets.push('sessions de connexion fermées');
   if (avenants) effets.push(avenants > 1 ? `${avenants} avenants programmés annulés` : 'avenant programmé annulé');
+  if (renouvellements) effets.push(renouvellements > 1 ? `${renouvellements} renouvellements du CDD sans effet annulés` : 'renouvellement du CDD sans effet annulé');
   effets.push(solde.texte);
   const acces = date >= ctx.d.ti ? ` · accès à Cursus jusqu’au ${fmtIso(date)} inclus` : '';
   return {

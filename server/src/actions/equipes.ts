@@ -1,7 +1,7 @@
 // Fiches collaborateurs (contrat, statut, temps de travail), équipes et managers.
 import { isValidDate } from '../../../shared/dates.ts';
 import { fmtIso, key, plural } from '../../../shared/format.ts';
-import { rttPerdus, semainesAFiger, soldeRttTexte, sorti } from '../../../shared/rules/contrats.ts';
+import { rttPerdus, rttPerdusTexte, semainesAFiger, soldeRttTexte, sorti } from '../../../shared/rules/contrats.ts';
 import { contratFige } from '../../../shared/rules/temps.ts';
 import { matriculesPris } from '../../../shared/rules/matricules.ts';
 import { adressesPrises } from '../../../shared/rules/messagerie.ts';
@@ -157,11 +157,12 @@ const modifier: ActionHandler = (ctx, p) => {
       throw new ActionError('Un avenant à date future ne porte que sur l’organisation du temps : enregistrez séparément, le jour même, le changement de statut ou de nature du contrat');
     }
     if (futur && emp.fin && effet > emp.fin) throw new ActionError(`Date d’effet postérieure à la fin du contrat (${fmtIso(emp.fin)})`);
-    // RTT de l'année pris ou posés que le nouveau régime n'ouvre plus, même au prorata des mois passés sous l'ancien : le
-    // compteur disparaîtrait sans bruit ; le service RH confirme, et le solde affiché avant est gardé au journal.
+    // RTT de l'année pris ou posés que le nouveau régime ne couvre plus, même au prorata des mois passés sous l'ancien
+    // (aucun droit, solde négatif, RTT posés après la date d'effet) : le service RH confirme, et le solde affiché avant est
+    // gardé au journal avec le nouveau droit.
     soldeRtt = rttPerdus(ctx.d, emp, { ...emp, ...v.profil, tempsDepuis: regimeTemps ? effet : emp.tempsDepuis }, effet);
     if (soldeRtt && p.confirmerRtt !== true) {
-      throw new ActionError(`Le nouveau régime n’ouvre ni RTT ni jours de repos : le compteur de ${emp.nom} (${soldeRttTexte(soldeRtt)}) ne sera plus suivi dans Cursus. Confirmez le changement : ce solde sera gardé au journal pour la paie`);
+      throw new ActionError(`${rttPerdusTexte(soldeRtt, emp.nom)}. Confirmez le changement : ce solde sera gardé au journal pour la paie`);
     }
     amorcer(ctx.db, emp.id, ctx.d.ti);
     const ligne = inscrireLigne(ctx.db, { empId: emp.id, effet, nature: 'avenant', regime: contratFige({ ...emp, ...v.profil }), applique: !futur }, auteur(ctx), ctx.d.ti);

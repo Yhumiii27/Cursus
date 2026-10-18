@@ -117,8 +117,9 @@ const FICHE = [
   'motifSortie', 'essaiFin', 'essaiRenouveleJusquau', 'agence', 'matriculePaie', 'derogationTravauxLe', 'motifRecours', 'cddFinInitiale',
 ];
 /**
- * Solde de RTT de l'année affiché avant un changement de régime qui n'en ouvre plus (garde-fou de `employe.modifier`) :
- * gardé au journal pour la paie, sous un code de l'archive paie (`employe.rtt`).
+ * Solde de RTT de l'année affiché avant un changement de régime qui ne le couvre plus (garde-fou de `employe.modifier`) :
+ * gardé au journal pour la paie, avec le nouveau droit au prorata et les jours posés après la date d'effet, sous un code
+ * de l'archive paie (`employe.rtt`).
  */
 const soldeRttGarde = (x: Contexte) => (x.result as { soldeRtt?: Ligne } | null)?.soldeRtt ?? null;
 const FEUILLE: Cible = {
@@ -217,7 +218,7 @@ export const REGLES: Record<string, Regle> = {
     // Avenant programmé à une date future (t074) : identifiant de la ligne de l'historique des contrats et sa date d'effet.
     bilan: (_p, x) => {
       const s = soldeRttGarde(x), a = (x.result as { avenant?: { id: number; effet: string } } | null)?.avenant;
-      return { ...(s ? { soldeRtt: { annee: s.annee, droit: s.droit, pris: s.pris, poses: s.poses, solde: s.solde } } : {}), ...(a ? { avenant: { id: a.id, effet: a.effet } } : {}) };
+      return { ...(s ? { soldeRtt: { annee: s.annee, droit: s.droit, pris: s.pris, poses: s.poses, solde: s.solde, effet: s.effet, nouveauDroit: s.nouveauDroit, apresEffet: s.apresEffet } } : {}), ...(a ? { avenant: { id: a.id, effet: a.effet } } : {}) };
     },
   },
   // Renouvellement d'un CDD (t053) : nouveau terme, date de signature, fin et terme initial avant et après, nombre de

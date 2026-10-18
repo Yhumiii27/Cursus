@@ -165,6 +165,12 @@ const demandeSansMotifRh = (r: DemandeCollab): DemandeCollab => (r.rouverteMotif
  * (texte libre du service RH), ni son auteur ; les dates et les régimes suffisent aux calculs (RTT, feuilles de temps).
  */
 const ligneContratNeutre = (l: ContratHistorique): ContratHistorique => ({ ...l, reference: null, par: null, parId: null });
+/**
+ * Ligne de l'historique d'un membre de l'équipe, pour son manager : en plus, ni les termes (`jusquau` : terme initial du CDD
+ * sur l'embauche, terme de chaque renouvellement), ni la date de signature d'un avenant, masqués comme le terme initial et
+ * la fin prévue de la fiche. Les renouvellements, qui ne changent pas le régime, ne lui sont pas transmis.
+ */
+const ligneContratEquipe = (l: ContratHistorique): ContratHistorique => ({ ...ligneContratNeutre(l), jusquau: null, signeLe: null });
 
 /** Dérogations au repos dominical sans la référence de l'accord (texte libre) : hors du service RH, le type suffit. */
 const derogationsSansReference = (full: Dataset) => (full.derogationsDominicales ?? []).map(x => ({ ...x, reference: null }));
@@ -309,7 +315,10 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     soldesSortie: [],
     // Historique des contrats : lignes du périmètre (régimes de son équipe pour le manager, les siennes pour le salarié),
     // sans référence ni auteur, pour des RTT et des feuilles calculés comme par le serveur.
-    contratsHistorique: mine(full.contratsHistorique ?? []).map(ligneContratNeutre),
+    // Manager : pour les membres de son équipe, les régimes seuls (embauche et avenants, sans terme ni signature).
+    contratsHistorique: mine(full.contratsHistorique ?? [])
+      .filter(l => !(isMgr && l.empId !== user.empId && l.nature === 'renouvellement'))
+      .map(l => (isMgr && l.empId !== user.empId ? ligneContratEquipe(l) : ligneContratNeutre(l))),
     // Sections « fin de carrière » des entretiens d'un membre calculées ici : sa date de naissance n'est pas transmise.
     entretiens: mine(full.entretiens).map(x => isMgr && x.empId !== user.empId ? avecFinCarriere(d, x) : x),
     // Les documents déclarés (passeport, visas, vaccinations) des membres ne sont pas montrés au manager ;

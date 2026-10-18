@@ -59,22 +59,31 @@ export function refigerBrouillons(db: Db, empId: number): number {
 export const champsAvenant = (r: ContratFige) => ({ temps: r.temps, heures: r.heures, forfaitHeures: r.forfaitHeures, forfaitJours: r.forfaitJours, jourOff: r.jourOff });
 
 /**
- * Sortie enregistrée (`employe.sortie`) : sa date clôt la dernière ligne en vigueur, et les avenants programmés après elle
- * sont annulés (sans objet). Renvoie le nombre d'avenants annulés.
+ * Sortie enregistrée (`employe.sortie`) : sa date clôt la dernière ligne qui a pris effet, les avenants programmés après
+ * elle sont annulés (sans objet), comme les renouvellements d'un CDD qui devaient commencer après elle (sortie anticipée :
+ * ils ne sont plus comptés). Renvoie le nombre d'avenants et de renouvellements annulés.
  */
-export function cloreHistorique(db: Db, empId: number, date: ISODate, le: ISODate): number {
-  const lignes = lignesDe(db, empId).filter(l => !l.annuleLe);
-  const programmes = lignes.filter(l => !l.applique && l.effet > date);
-  programmes.forEach(l => db.update('contratsHistorique', l.id, { annuleLe: le }));
-  const derniere = lignes.filter(l => l.applique || l.effet <= date).sort((a, b) => a.effet.localeCompare(b.effet) || a.id - b.id).at(-1);
+export function cloreHistorique(db: Db, empId: number, date: ISODate, le: ISODate): { avenants: number; renouvellements: number } {
+  // Un renouvellement n'est annulé que par une sortie : à la modification d'une sortie, ceux d'avant la nouvelle date
+  // reprennent effet.
+  const lignes = lignesDe(db, empId).filter(l => !l.annuleLe || l.nature === 'renouvellement');
+  const apres = lignes.filter(l => l.effet > date && !l.annuleLe);
+  const programmes = apres.filter(l => !l.applique), renouvellements = apres.filter(l => l.nature === 'renouvellement');
+  [...programmes, ...renouvellements].forEach(l => db.update('contratsHistorique', l.id, { annuleLe: le }));
+  lignes.filter(l => l.annuleLe && l.effet <= date).forEach(l => db.update('contratsHistorique', l.id, { annuleLe: null }));
+  const derniere = lignes.filter(l => l.effet <= date).sort((a, b) => a.effet.localeCompare(b.effet) || a.id - b.id).at(-1);
   lignes.filter(l => l.fin && l.id !== derniere?.id).forEach(l => db.update('contratsHistorique', l.id, { fin: null }));
   if (derniere) db.update('contratsHistorique', derniere.id, { fin: date });
-  return programmes.length;
+  return { avenants: programmes.length, renouvellements: renouvellements.length };
 }
 
-/** Sortie annulée : plus aucune ligne close (les avenants annulés par la sortie le restent). */
+/**
+ * Sortie annulée : plus aucune ligne close ; les renouvellements annulés par la sortie (seule à en annuler) reprennent
+ * effet avec la fin prévue rétablie. Les avenants annulés par la sortie le restent.
+ */
 export function rouvrirHistorique(db: Db, empId: number) {
-  lignesDe(db, empId).filter(l => l.fin).forEach(l => db.update('contratsHistorique', l.id, { fin: null }));
+  lignesDe(db, empId).filter(l => l.fin || (l.nature === 'renouvellement' && l.annuleLe))
+    .forEach(l => db.update('contratsHistorique', l.id, { fin: null, ...(l.nature === 'renouvellement' ? { annuleLe: null } : {}) }));
 }
 
 /**

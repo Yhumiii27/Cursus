@@ -10,7 +10,7 @@ import { AVIS_MEDICAL, MODE_NOTIFICATION_LABEL, MOTIFS_REPRISE, STATUTS, TEMPS_T
 import { cap, equipeLabel, fmtIso, plural } from '../../../shared/format.ts';
 import { reposForfait } from '../../../shared/rules/conges.ts';
 import { matriculesPris, normaliserMatricule } from '../../../shared/rules/matricules.ts';
-import { essaiMaximum, limitePrevenance, rttPerdus, SEMAINES_FIGEES, soldeRttTexte, sortieTexte } from '../../../shared/rules/contrats.ts';
+import { essaiMaximum, limitePrevenance, rttPerdus, rttPerdusTexte, SEMAINES_FIGEES, sortieTexte } from '../../../shared/rules/contrats.ts';
 import { carences, carenceTexte, dureeMaxCdd, estMotifRecours, MOTIFS_RECOURS } from '../../../shared/rules/cdd.ts';
 import { avenantProgramme, renouvellementsDe } from '../../../shared/rules/historique-contrat.ts';
 import { adressesPrises } from '../../../shared/rules/messagerie.ts';
@@ -385,7 +385,7 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
         texte: `Réembauche : reprendre le matricule de paie ${v.profil.matriculePaie} de ${aConfirmer.nom}, sorti le ${fmtIso(aConfirmer.sortiLe!)} ? Les deux fiches porteront ce matricule ; Sage et Keystone ne reçoivent que la fiche présente.`,
         bouton: 'Réutiliser le matricule', occupe: busy, confirmer: () => { setReutiliser(v.profil.matriculePaie); void envoyer(true, false); }, annuler: () => setConfirmer(false),
       } : confRtt && perte ? {
-        texte: `Le nouveau régime n’ouvre ni RTT ni jours de repos : le compteur de ${emp!.nom} (${soldeRttTexte(perte)}) ne sera plus suivi dans Cursus. Ce solde est gardé au journal pour la paie.`,
+        texte: `${rttPerdusTexte(perte, emp!.nom)}. Ce solde est gardé au journal pour la paie.`,
         bouton: 'Confirmer le changement', occupe: busy, confirmer: () => save(true), annuler: () => setConfRtt(false),
       } : null}>
       {conflitBloc}

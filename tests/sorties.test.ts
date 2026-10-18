@@ -282,11 +282,12 @@ test('t074 : un changement de régime qui ne laisse aucun RTT acquis se confirme
   const { run, refus, RH, domain, derniere } = fresh();
   const rtt = rttInfo(domain(), domain().emp(2)!)!;
   // Passage au 35 h dès janvier : aucun mois de l'année sous le 39 h, le compteur disparaîtrait.
-  refus(RH, 'employe.modifier', { id: 2, temps: '35h', tempsDepuis: '2026-01-05' }, /Confirmez le changement : ce solde sera gardé au journal pour la paie/);
+  // Le RTT posé le 2 novembre, sous le 35 h, est cité pour être revu.
+  refus(RH, 'employe.modifier', { id: 2, temps: '35h', tempsDepuis: '2026-01-05' }, /n’ouvre ni RTT ni jours de repos.*et 1 j de RTT reste posé ou validé à partir du 5 janv\. 2026.*Confirmez le changement : ce solde sera gardé au journal pour la paie/);
   const o = run(RH, 'employe.modifier', { id: 2, temps: '35h', tempsDepuis: '2026-01-05', confirmerRtt: true }) as { message: string };
   assert.match(o.message, /solde RTT 2026 : .* gardé au journal pour la paie$/);
   const j = derniere('employe.rtt')!;
-  assert.deepEqual(j.payload.soldeRtt, { annee: 2026, droit: rtt.droit, pris: rtt.pris, poses: rtt.poses, solde: rtt.solde });
+  assert.deepEqual(j.payload.soldeRtt, { annee: 2026, droit: rtt.droit, pris: rtt.pris, poses: rtt.poses, solde: rtt.solde, effet: '2026-01-05', nouveauDroit: null, apresEffet: 1 });
   assert.ok(j.paie, 'archive paie');
   assert.deepEqual(j.payload.champsModifies, ['temps', 'tempsDepuis']);
   assert.equal(rttInfo(domain(), domain().emp(2)!), null);

@@ -1,8 +1,9 @@
 // Section « Historique du contrat » de la fiche (Collaborateurs, t074) : embauche, avenants (organisation du temps, statut,
 // nature du contrat) et renouvellements d'un CDD, du plus récent au plus ancien, avec l'avenant programmé à une date
 // future (annulable par le service RH tant qu'il n'est pas appliqué). Réembauche : fiches précédentes du même matricule
-// de paie, en lien d'information (service RH, paie, lecture seule). Le manager et le salarié voient les lignes sans
-// référence ni auteur (server/src/dataset.ts) ; le référent HSE ne les reçoit pas.
+// de paie, en lien d'information (service RH, paie, lecture seule). Le salarié voit ses lignes sans référence ni auteur ;
+// le manager, les régimes de son équipe seuls, sans terme, signature ni renouvellement (server/src/dataset.ts) ; le
+// référent HSE ne les reçoit pas.
 import { fmtIso } from '../../../shared/format.ts';
 import { TYPES_CONTRAT } from '../../../shared/constants.ts';
 import { sorti } from '../../../shared/rules/contrats.ts';

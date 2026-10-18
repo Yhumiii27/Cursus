@@ -18,10 +18,11 @@ const { journaliserAction, preparerTrace } = await import('../server/src/journal
 const { appliquerAvenants } = await import('../server/src/avenants.ts');
 const { CONTRATS_HISTORIQUE, historiqueDepuisFiches } = await import('../server/src/migrations/lot6-contrats.ts');
 const { controlerOrphelins } = await import('../server/src/integrite.ts');
+const { donneesSalarie } = await import('../server/src/donnees.ts');
 const { Domain } = await import('../shared/domain.ts');
 const { calcSheet, cumulAnnuel } = await import('../shared/rules/temps.ts');
 const { cpInfo, recupInfo, rttDroit, rttInfo } = await import('../shared/rules/conges.ts');
-const { regimeAu, regimeFiche, segmentsContrat } = await import('../shared/rules/historique-contrat.ts');
+const { regimeAu, regimeFiche, renouvellementsDe, segmentsContrat } = await import('../shared/rules/historique-contrat.ts');
 type User = NonNullable<ReturnType<typeof currentUser>>;
 type Compte = import('../server/src/comptes.ts').Compte;
 type Ligne = import('../shared/types.ts').ContratHistorique;
@@ -126,6 +127,28 @@ test('t074 : 39 h → 35 h en cours d’année, RTT au prorata ; feuille créée
   assert.equal(db.all<{ empId: number; week: string; contrat: unknown }>('feuilles').find(f => f.empId === 2 && f.week === '2026-10-12')!.contrat, null);
 });
 
+test('t074 : 39 h → 35 h au 1er juillet, jours pris au-delà du droit au prorata : confirmation et solde au journal', () => {
+  const { db, run, refus, RH, domain } = fresh();
+  // Mehdi Benali : 23 j de droit au 39 h, 16 pris et 1 posé (le 2 novembre). Au 35 h dès le 1er juillet, le droit au
+  // prorata de janvier à juin n'est plus que de 12 j : le solde deviendrait négatif sans que la paie le sache.
+  const avant = rttInfo(domain(), domain().emp(2)!)!;
+  assert.deepEqual([avant.droit, avant.pris + avant.poses], [23, 17]);
+  refus(RH, 'employe.modifier', { id: 2, temps: '35h', tempsDepuis: '2026-07-01' },
+    /n’est plus que de 12 j au prorata .*solde de -5 j, et 1 j de RTT reste posé ou validé à partir du 1 juil\. 2026.*Confirmez le changement/);
+  assert.equal(db.get<Employe>('employes', 2)!.temps, '39h_rtt', 'rien n’est enregistré sans confirmation');
+  const o = run(RH, 'employe.modifier', { id: 2, temps: '35h', tempsDepuis: '2026-07-01', confirmerRtt: true });
+  assert.match(o.message!, /solde RTT 2026 : .* gardé au journal pour la paie/);
+  const j = db.all<{ action: string; paie: boolean; payload: Record<string, unknown> }>('journal').findLast(x => x.action === 'employe.rtt')!;
+  assert.ok(j.paie, 'archive paie');
+  assert.deepEqual(j.payload.soldeRtt, { annee: 2026, droit: 23, pris: avant.pris, poses: avant.poses, solde: avant.solde, effet: '2026-07-01', nouveauDroit: 12, apresEffet: 1 });
+  const r = rttInfo(domain(), domain().emp(2)!)!;
+  assert.deepEqual([r.droit, r.solde], [12, -5]);
+  // Au 5 octobre, les 17 j de droit au prorata couvrent les 17 j pris ou posés : rien à confirmer, même avec le RTT du
+  // 2 novembre posé après la date d'effet (acquis sous l'ancien régime).
+  const { run: run2, RH: RH2 } = fresh();
+  assert.equal(run2(RH2, 'employe.modifier', { id: 2, temps: '35h', tempsDepuis: '2026-10-05' }).result, undefined);
+});
+
 test('t074 : avenant à date future programmé, appliqué à sa date, un seul à la fois, annulable', () => {
   const { db, run, refus, RH, domain, lignes } = fresh();
   // Camille Roux (35 h) passe au 39 h + RTT le 2 novembre : la fiche ne change pas avant.
@@ -183,6 +206,29 @@ test('t074 : une sortie clôt l’historique et annule l’avenant programmé ap
   assert.equal(lignes(1)[0].fin, null);
 });
 
+test('t053 : une sortie anticipée annule les renouvellements qui devaient commencer après elle ; annulée, ils reprennent', () => {
+  const { db, run, RH, lignes } = fresh();
+  // Lucas Martin : CDD au 29 janvier 2027 (déjà renouvelé une fois), renouvelé jusqu'au 30 juillet puis au 30 septembre 2027.
+  run(RH, 'employe.renouvelerCdd', { id: 4, jusquau: '2027-07-30' });
+  run(RH, 'employe.renouvelerCdd', { id: 4, jusquau: '2027-09-30' });
+  const enVigueur = () => lignes(4).filter(l => !l.annuleLe).map(l => [l.nature, l.effet, l.fin]);
+  const nRen = () => renouvellementsDe({ contratsHistorique: db.all<Ligne>('contratsHistorique') }, 4).length;
+  assert.equal(nRen(), 3);
+  // Sortie au 20 octobre 2026 : les renouvellements du 30 janvier et du 31 juillet 2027 n'ont jamais pris effet.
+  const o = run(RH, 'employe.sortie', { id: 4, date: '2026-10-20', motif: 'licenciement' });
+  assert.match(o.message!, /2 renouvellements du CDD sans effet annulés/);
+  assert.deepEqual(enVigueur(), [['embauche', '2026-02-02', null], ['renouvellement', '2026-08-01', '2026-10-20']]);
+  assert.equal(nRen(), 1);
+  // Sortie déplacée au 15 février 2027 : le renouvellement du 30 janvier reprend effet, la fin passe sur lui.
+  run(RH, 'employe.sortie', { id: 4, date: '2027-02-15', motif: 'licenciement' });
+  assert.deepEqual(enVigueur(), [['embauche', '2026-02-02', null], ['renouvellement', '2026-08-01', null], ['renouvellement', '2027-01-30', '2027-02-15']]);
+  // Sortie annulée : fin prévue rétablie, les trois renouvellements à nouveau en vigueur, aucune ligne close.
+  run(RH, 'employe.annulerSortie', { id: 4 });
+  assert.equal(db.get<Employe>('employes', 4)!.fin, '2027-09-30');
+  assert.equal(nRen(), 3);
+  assert.ok(lignes(4).every(l => !l.fin && !l.annuleLe));
+});
+
 test('t074 : jours non travaillés d’un temps partiel lus à la date de l’absence', () => {
   const { run, RH, domain } = fresh();
   // Marion (temps partiel, mercredi non travaillé) ne travaille plus le vendredi à partir du 12 octobre.
@@ -207,9 +253,17 @@ test('t074 : historique transmis selon le profil (référence et auteur au servi
   assert.ok(lignes4(vue(7, 'rh')).some(l => l.reference === 'Avenant n° 2'));
   assert.ok(lignes4(vue(11, 'rh')).some(l => l.reference === 'Avenant n° 2'));
   assert.deepEqual(vue(23, 'rh').contratsHistorique, []);
-  // Manager de la Logistique : les lignes de son équipe, sans référence ni auteur ; ni le motif de recours, ni le terme initial.
+  // Manager de la Logistique : les régimes de son équipe, sans référence ni auteur ; ni le motif de recours, ni le terme
+  // initial, ni aucun terme ou signature des lignes, ni les renouvellements (le terme initial et la fin prévue se liraient).
   const mgr = vue(16, 'manager');
-  assert.ok(lignes4(mgr).length >= 3 && lignes4(mgr).every(l => l.reference === null && l.par === null && l.parId === null));
+  assert.deepEqual(lignes4(mgr).map(l => [l.nature, l.effet, l.regime?.typeContrat]), [['embauche', '2026-02-02', 'cdd']]);
+  assert.ok(lignes4(mgr).every(l => l.reference === null && l.par === null && l.parId === null && l.jusquau === null && l.signeLe === null));
+  // Sortie anticipée : la date de sortie (celle de la fiche) seule, ni la fin prévue, ni les renouvellements.
+  run(RH, 'employe.sortie', { id: 4, date: '2026-10-20', motif: 'licenciement' });
+  const mgr2 = vue(16, 'manager');
+  assert.deepEqual(lignes4(mgr2).map(l => [l.nature, l.jusquau, l.signeLe]), [['embauche', null, null]]);
+  assert.deepEqual([mgr2.employes.find(e => e.id === 4)!.fin, mgr2.employes.find(e => e.id === 4)!.finPrevue], ['2026-10-20', null]);
+  run(RH, 'employe.annulerSortie', { id: 4 });
   const lucas = mgr.employes.find(e => e.id === 4)!;
   assert.deepEqual([lucas.motifRecours, lucas.cddFinInitiale], [null, null]);
   assert.ok(!(mgr.contratsHistorique ?? []).some(l => l.empId === 2), 'hors de son équipe');
@@ -220,4 +274,18 @@ test('t074 : historique transmis selon le profil (référence et auteur au servi
   // Référent HSE : ni motif ni terme initial.
   const hse = vue(23, 'rh').employes.find(e => e.id === 4)!;
   assert.deepEqual([hse.motifRecours, hse.cddFinInitiale], [null, null]);
+});
+
+test('t074 : export RGPD, historique du contrat sous son titre ; sans auteur dans l’export remis au salarié', () => {
+  const { db, run, RH } = fresh();
+  run(RH, 'employe.renouvelerCdd', { id: 4, jusquau: '2027-03-31', reference: 'Avenant n° 2' });
+  type Section = Record<string, unknown>[];
+  const rh = donneesSalarie(db, 4, { journal: true, par: 'Sandrine Vidal' })!.sections as unknown as Record<string, Section>;
+  assert.ok(!('contratsHistorique' in rh));
+  assert.ok(rh['Historique du contrat'].some(l => l.reference === 'Avenant n° 2' && l.par === 'Sandrine Vidal'));
+  // /api/mes-donnees : ni le nom ni la fiche de l'auteur (le portail ne les montre pas) ; ses lignes et références restent.
+  const soi = donneesSalarie(db, 4, { journal: false, par: 'Lucas Martin' })!.sections as unknown as Record<string, Section>;
+  assert.ok(soi['Historique du contrat'].length >= 3);
+  assert.ok(soi['Historique du contrat'].every(l => !('par' in l) && !('parId' in l)));
+  assert.ok(soi['Historique du contrat'].some(l => l.reference === 'Avenant n° 2'));
 });

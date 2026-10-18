@@ -86,6 +86,8 @@ export type DialogState =
   | { type: 'employe'; empId?: number | null; equipe?: string | null }
   | { type: 'sortie'; empId: number }
   | { type: 'autorisation'; empId: number }
+  /** Renouvellement d'un CDD (historique des contrats, t053). */
+  | { type: 'renouvelerCdd'; empId: number }
   | { type: 'membre'; equipe?: string | null }
   | { type: 'equipe'; nom?: string | null }
   | { type: 'abs'; empId: number }

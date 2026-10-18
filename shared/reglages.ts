@@ -133,6 +133,11 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   //   de renouvellement en préfecture) puis relance à 2 mois —
   titreSejourAlerte: { defaut: 120, controle: entier(30, 180, 15) },
   titreSejourRelance: { defaut: 60, controle: entier(15, 120, 15) },
+  //   CDD (shared/rules/cdd.ts) : règles supplétives de la loi par défaut, 2 renouvellements (art. L1243-13-1) et durée
+  //   maximale selon le motif (0, art. L1242-8-1) ; un accord de branche peut y déroger (sa référence est alors exigée) —
+  cddRenouvellementsMax: { defaut: 2, controle: entier(0, 6) },
+  cddDureeMaxMois: { defaut: 0, controle: entier(0, 60) },
+  cddAccordBranche: { defaut: '', controle: texte(120, 'Référence de l’accord de branche') },
   // — Récapitulatif des échéances (parametres/RelancesEcheances.tsx, shared/rules/relances.ts) : actif, à 90, 30 et 7 jours
   //   puis échu, chaque jour à 7 h —
   relancesActives: { defaut: true, controle: booleen },
@@ -204,6 +209,10 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
   s => (s.campagneDebut > s.campagneFin ? 'Campagne d’entretiens : l’ouverture doit précéder la clôture, dans la même année' : null),
   // — Contrats : la relance d'un titre de séjour vient après la première alerte —
   s => (s.titreSejourRelance >= s.titreSejourAlerte ? 'Titres de séjour : la relance doit être plus proche de l’expiration que la première alerte' : null),
+  // — Contrats : une durée ou un nombre de renouvellements des CDD autres que ceux de la loi suppose un accord de branche
+  // étendu (art. L1242-8 et L1243-13) —
+  s => ((s.cddRenouvellementsMax !== 2 || s.cddDureeMaxMois > 0) && !s.cddAccordBranche
+    ? 'CDD : une durée maximale ou un nombre de renouvellements autres que ceux de la loi supposent un accord de branche étendu (art. L1242-8 et L1243-13) : indiquez sa référence' : null),
   // — Santé : la visite intermédiaire du suivi renforcé vient avant le renouvellement de l'examen d'aptitude —
   s => (s.santeSirIntermediaireMois > s.santeSirAptitudeMois ? 'Suivi individuel renforcé : la visite intermédiaire ne peut pas venir après l’examen d’aptitude' : null),
   // — Décompte des heures : le tiers pour les heures complémentaires (art. L3123-20) et une moyenne de 46 h sur 12 semaines

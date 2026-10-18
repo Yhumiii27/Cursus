@@ -20,6 +20,7 @@ import { Aptitude } from '../components/Aptitude.tsx';
 import { ExigencesCellule, ExigencesFiche, ExigencesMotif } from '../components/Exigences.tsx';
 import { SortieFiche } from '../components/Sortie.tsx';
 import { ContratFiche } from '../components/ContratFiche.tsx';
+import { HistoriqueContrat } from '../components/HistoriqueContrat.tsx';
 import { MineurFiche } from '../components/Mineur.tsx';
 import { MandatsFiche } from '../components/Delegation.tsx';
 import { LectureSeule, useLectureSeule } from '../components/Hierarchie.tsx';
@@ -528,6 +529,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
         )}
         <SortieFiche e={e} />
         <ContratFiche e={e} />
+        <HistoriqueContrat e={e} />
         <MineurFiche e={e} />
         <MandatsFiche e={e} />
         <ContactUrgenceFiche empId={e.id} />

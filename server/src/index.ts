@@ -8,10 +8,12 @@ import { DEMO, purgeSessions } from './auth.ts';
 import { dossierInterface, VERSION } from './chemins.ts';
 import { adminsActifs } from './comptes.ts';
 import { enProduction, hoteEcoute, portEcoute, verifierConfig } from './config.ts';
+import { todayIso } from './dataset.ts';
 import { dbFile, openDb } from './db.ts';
 import { demarrerEnvois, envoiEnCours } from './envois.ts';
 import { controlerIntegrite } from './integrite.ts';
 import { demarrerJournal } from './journal.ts';
+import { appliquerAvenants } from './avenants.ts';
 import { log, redirigerConsole } from './logs.ts';
 import { migrate } from './migrate.ts';
 import { demarrerPieces } from './pieces.ts';
@@ -89,6 +91,11 @@ demarrerJournal(db);
 // Pièces justificatives : pièces en attente de plus de 24 h et fichiers des pièces retirées effacés, au démarrage puis
 // toutes les heures (server/src/pieces.ts).
 arret.tache(demarrerPieces(db));
+// Avenants programmés (historique des contrats) appliqués à la fiche à leur date d'effet : au démarrage puis toutes les heures.
+appliquerAvenants(db, todayIso());
+const avenants = setInterval(() => appliquerAvenants(db, todayIso()), 3600_000);
+avenants.unref();
+arret.tache(() => clearInterval(avenants));
 
 // Routes, protections, compression, cache des fichiers et interface compilée : server/src/app.ts.
 // dist/ du projet, quel que soit le dossier de lancement (CURSUS_DIST la remplace : server/src/chemins.ts).

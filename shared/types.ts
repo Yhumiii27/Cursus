@@ -17,6 +17,12 @@ export type Statut = 'ouvrier' | 'technicien' | 'cadre';
 export type TypeContrat = 'cdi' | 'cdd' | 'interim' | 'alternance';
 /** Motif de sortie de l'entreprise (liste fermée, sans texte libre : MOTIFS_SORTIE de shared/rules/contrats.ts). */
 export type MotifSortie = 'demission' | 'rupture_conventionnelle' | 'licenciement' | 'fin_cdd' | 'fin_periode_essai' | 'retraite' | 'deces' | 'fin_mission' | 'autre';
+/** Motif de recours au CDD ou à l'intérim (art. L1242-2, L1242-3, L1251-6), liste fermée MOTIFS_RECOURS de shared/rules/cdd.ts. */
+export type MotifRecours =
+  | 'remplacement' | 'remplacement_suppression' | 'attente_cdi' | 'accroissement' | 'travaux_urgents' | 'saisonnier_usage' | 'export'
+  | 'senior' | 'politique_emploi';
+/** Nature d'une ligne de l'historique des contrats : embauche, avenant (changement de régime), renouvellement d'un CDD. */
+export type NatureLigneContrat = 'embauche' | 'avenant' | 'renouvellement';
 /** Titre de séjour valant autorisation de travail (liste fermée, TYPES_TITRE_SEJOUR de shared/rules/contrats.ts). */
 export type TypeTitreSejour = 'salarie' | 'travailleur_temporaire' | 'pluriannuelle' | 'talent' | 'vie_privee' | 'etudiant' | 'resident' | 'resident_permanent' | 'recepisse' | 'apt' | 'autre';
 /**
@@ -284,6 +290,13 @@ export interface Employe {
   essaiFin?: ISODate | null;
   essaiRenouveleJusquau?: ISODate | null;
   /**
+   * CDD et intérim (t053, shared/rules/cdd.ts) : motif de recours (facultatif pour l'intérim et sur une fiche antérieure,
+   * rappelé tant qu'il manque) et terme initial du CDD, avant ses renouvellements (lignes `renouvellement` de l'historique
+   * des contrats). Service RH, paie, lecture seule et intéressé (server/src/dataset.ts).
+   */
+  motifRecours?: MotifRecours | null;
+  cddFinInitiale?: ISODate | null;
+  /**
    * Titre de séjour valant autorisation de travail ; null : non requise (ressortissant français, de l'UE, de l'EEE ou de la
    * Suisse). Service RH (numéro compris), lecture seule (sans numéro) et intéressé ; enregistré par `employe.autorisationTravail`.
    */
@@ -480,6 +493,22 @@ export interface TacheKeystone { id: number; ref: string | null; empId: number; 
 export interface LigneTemps { projet: string; tache: string; ks: boolean; h: number[] }
 /** Régime de temps de travail figé sur une feuille soumise : un changement de contrat ultérieur ne la recalcule pas. */
 export type ContratFige = Pick<Employe, 'statut' | 'typeContrat' | 'temps' | 'heures' | 'forfaitHeures' | 'forfaitJours' | 'jourOff'>;
+/**
+ * Ligne de l'historique des contrats (t074, shared/rules/historique-contrat.ts) : régime en vigueur à compter de `effet`,
+ * jusqu'à la ligne suivante. `regime` null : régime antérieur inconnu (historique amorcé depuis une fiche qui ne le disait
+ * pas, migration lot6-contrats-historique) ; les calculs gardent alors leur comportement d'avant l'historique.
+ * `jusquau` : terme du contrat fixé par la ligne (CDD : terme initial à l'embauche, nouveau terme au renouvellement).
+ * `applique` faux : avenant programmé à une date future, appliqué à la fiche à sa date (server/src/avenants.ts) ;
+ * `annuleLe` : avenant programmé annulé, ou devenu sans objet par une sortie. `fin` : dernier jour du contrat enregistré
+ * par la sortie. `reference` : référence de l'avenant (texte court du service RH, jamais recopié au journal).
+ */
+export interface ContratHistorique {
+  id: number; empId: number; effet: ISODate; nature: NatureLigneContrat; regime: ContratFige | null;
+  jusquau: ISODate | null; signeLe: ISODate | null; reference: string | null;
+  /** Enregistrement : jour, nom de l'auteur et sa fiche (null : Cursus, ou compte sans fiche). */
+  le: ISODate; par: string | null; parId: number | null;
+  applique: boolean; annuleLe: ISODate | null; fin: ISODate | null;
+}
 export interface FeuilleTemps {
   id: number; empId: number; week: ISODate; statut: FeuilleStatut; comment: string | null; sage: boolean; keystone: boolean; lignes: LigneTemps[]; contrat: ContratFige | null;
   /** Motif d'un dépassement des durées maximales (10 h par jour, 48 h par semaine), exigé à la soumission ou à la validation. */
@@ -837,6 +866,14 @@ export interface Settings {
   /** Titres de séjour (client/src/pages/parametres/Contrats.tsx) : première alerte et relance, en jours avant l'expiration. */
   titreSejourAlerte: number;
   titreSejourRelance: number;
+  /**
+   * CDD (client/src/pages/parametres/Contrats.tsx, shared/rules/cdd.ts) : nombre de renouvellements admis (2, art.
+   * L1243-13), durée maximale renouvellements compris en mois (0 : durées légales selon le motif, art. L1242-8-1), et
+   * référence de l'accord de branche qui y déroge (exigée dès qu'une valeur diffère de la loi).
+   */
+  cddRenouvellementsMax: number;
+  cddDureeMaxMois: number;
+  cddAccordBranche: string;
   /** Récapitulatif des échéances (shared/rules/relances.ts) : envoi actif, paliers en jours avant l'échéance, jour d'envoi. */
   relancesActives: boolean;
   relancesPaliers: number[];
@@ -1262,6 +1299,11 @@ export interface Dataset {
   acquisitionsCp?: AcquisitionCpCalculee[];
   /** Soldes de sortie photographiés (t128) : service RH, paie et lecture seule (absent ou vide ailleurs). */
   soldesSortie?: SoldeSortie[];
+  /**
+   * Historique des contrats (t074) : service RH, paie et lecture seule (tous) ; manager (son équipe) et intéressé sans la
+   * référence ni l'auteur ; absent ailleurs (server/src/dataset.ts). Absent ou vide : régime de la fiche seul.
+   */
+  contratsHistorique?: ContratHistorique[];
   entretiens: Entretien[];
   demandesCollab: DemandeCollab[];
   demandesVisite: DemandeVisite[];

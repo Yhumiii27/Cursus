@@ -61,6 +61,20 @@ export const TABLES = {
       derogationTravauxLe: 'text',
       // Personne à prévenir en cas d'urgence (t068) : saisie par le salarié ou le service RH, réservée au service RH et à lui.
       urgenceNom: 'text', urgenceTel: 'text',
+      // CDD et intérim (t053, shared/rules/cdd.ts) : motif de recours et terme initial du CDD ; ses renouvellements sont
+      // des lignes de l'historique des contrats.
+      motifRecours: 'text', cddFinInitiale: 'text',
+    },
+  },
+  // Historique des contrats (t074, shared/rules/historique-contrat.ts) : régime en vigueur à compter de chaque date d'effet
+  // (embauche, avenant, renouvellement d'un CDD) ; `applique` faux : avenant programmé, appliqué à la fiche à sa date
+  // (server/src/avenants.ts) ; `parId` : fiche de l'auteur (server/src/integrite.ts) ; amorcé depuis les fiches par la
+  // migration lot6-contrats-historique.
+  contratsHistorique: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', effet: 'text', nature: 'text', regime: 'json', jusquau: 'text', signeLe: 'text', reference: 'text',
+      le: 'text', par: 'text', parId: 'int', applique: 'bool', annuleLe: 'text', fin: 'text',
     },
   },
   // Demandes de visite médicale du service RH, closes par la saisie de la visite (server/src/actions/sante.ts).

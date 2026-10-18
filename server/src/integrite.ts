@@ -28,7 +28,9 @@ const ref = (table: string, colonne: string, cible: string, cle = 'id', si?: str
 export const REFERENCES: readonly Reference[] = [
   ...['demandes_visite', 'certifications', 'hab_titres', 'visas', 'vaccinations', 'inscriptions', 'participations', 'voyages', 'demandes_keystone',
     'missions', 'taches', 'feuilles', 'mandats', 'absences', 'cet', 'reports', 'soldes_reprise', 'clotures', 'entretiens', 'demandes_collab', 'comptes',
-    'notifications', 'verdicts_keystone', 'informations_cp', 'soldes_sortie', 'pieces'].map(t => ref(t, 'emp_id', 'employes')),
+    'notifications', 'verdicts_keystone', 'informations_cp', 'soldes_sortie', 'pieces', 'contrats_historique'].map(t => ref(t, 'emp_id', 'employes')),
+  // Auteur d'une ligne de l'historique des contrats (fiche du compte qui l'a enregistrée, t074).
+  ref('contrats_historique', 'par_id', 'employes'),
   ...['certifications', 'inscriptions', 'participations', 'demandes_collab'].map(t => ref(t, 'session_id', 'sessions')),
   ref('participations', 'cert_id', 'certifications'),
   ref('certifications', 'f', 'formations'),

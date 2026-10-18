@@ -2,6 +2,7 @@
 import { absencesActions } from './absences.ts';
 import { activitesActions } from './activites.ts';
 import { annulationEntretienActions } from './annulation-entretien.ts';
+import { avenantsActions } from './avenants.ts';
 import { budgetActions } from './budget.ts';
 import { cloturesActions } from './clotures.ts';
 import { informationRetourActions } from './information-retour.ts';
@@ -62,6 +63,7 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...informationRetourActions,
   ...sortiesActions,
   ...contratsActions,
+  ...avenantsActions,
   ...paieActions,
   ...remiseActions,
   ...exercicesActions,

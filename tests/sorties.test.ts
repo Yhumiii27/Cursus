@@ -251,22 +251,19 @@ test('sortie d’un membre de l’espace RH : réservée à l’administrateur, 
   run(RH, 'employe.sortie', { id: 2, date: '2026-10-31', motif: 'demission' });
 });
 
-test('t074 : un changement de régime fige les 8 semaines précédentes et garde au journal le solde de RTT perdu', () => {
-  const { db, run, refus, RH, domain, derniere } = fresh();
+test('t074 : un changement de régime fige les 8 semaines précédentes, garde les RTT acquis au prorata', () => {
+  const { db, run, RH, domain } = fresh();
   const d0 = domain(), mehdi = d0.emp(2)!;
   const rtt = rttInfo(d0, mehdi)!;
   assert.ok(rtt.pris > 0, 'RTT de l’année déjà pris');
-  // 39 h + RTT → 35 h au 5 octobre : le compteur de RTT disparaîtrait, le RH confirme.
-  refus(RH, 'employe.modifier', { id: 2, temps: '35h', tempsDepuis: '2026-10-05' }, /Confirmez le changement : ce solde sera gardé au journal pour la paie/);
   const semaines = semainesAFiger(mehdi, '2026-10-05', d0.ds.feuilles);
   // Huit semaines du 10 août au 28 septembre, sauf celles qui ont déjà une feuille (21 et 28 septembre, validées).
   assert.deepEqual(semaines, ['2026-08-10', '2026-08-17', '2026-08-24', '2026-08-31', '2026-09-07', '2026-09-14']);
-  const o = run(RH, 'employe.modifier', { id: 2, temps: '35h', tempsDepuis: '2026-10-05', confirmerRtt: true }) as { message: string };
-  assert.match(o.message, /6 semaines sans feuille figées sur l’ancien régime · solde RTT 2026 : .* gardé au journal pour la paie$/);
-  const j = derniere('employe.rtt')!;
-  assert.deepEqual(j.payload.soldeRtt, { annee: 2026, droit: rtt.droit, pris: rtt.pris, poses: rtt.poses, solde: rtt.solde });
-  assert.ok(j.paie, 'archive paie');
-  assert.deepEqual(j.payload.champsModifies, ['temps', 'tempsDepuis']);
+  // 39 h + RTT → 35 h au 5 octobre : les RTT de janvier à septembre restent acquis (historique des contrats), sans confirmation.
+  const o = run(RH, 'employe.modifier', { id: 2, temps: '35h', tempsDepuis: '2026-10-05' }) as { message: string };
+  assert.match(o.message, /6 semaines sans feuille figées sur l’ancien régime$/);
+  const apres = rttInfo(domain(), domain().emp(2)!)!;
+  assert.deepEqual([apres.label, apres.droit, apres.pris], ['RTT', Math.round(23 * 9 / 12), rtt.pris]);
   // La feuille du 7 septembre, saisie après le changement, reste au régime de 39 h : 39 heures, aucune heure supplémentaire.
   const fige = db.all<{ empId: number; week: string; statut: string; contrat: { temps: string } | null; lignes: unknown[] }>('feuilles').find(f => f.empId === 2 && f.week === '2026-09-07')!;
   assert.deepEqual([fige.statut, fige.contrat?.temps, fige.lignes], ['brouillon', '39h_rtt', []]);
@@ -275,8 +272,23 @@ test('t074 : un changement de régime fige les 8 semaines précédentes et garde
   const d1 = domain(), sh = d1.ds.feuilles.find(f => f.empId === 2 && f.week === '2026-09-07')!;
   const c = calcSheet(d1, d1.emp(2)!, sh);
   assert.deepEqual([c.c.temps, c.total, c.sup25], ['39h_rtt', 39, 0]);
-  // Sans RTT perdu (35 h → 39 h + RTT), aucune confirmation ; les semaines déjà couvertes ne reçoivent rien de plus.
+  // Retour au 39 h + RTT : aucune confirmation ; les semaines déjà couvertes ne reçoivent rien de plus.
   const n = db.all('feuilles').length;
   run(RH, 'employe.modifier', { id: 2, temps: '39h_rtt', tempsDepuis: '2026-10-05' });
   assert.equal(db.all('feuilles').length, n, 'semaines déjà pourvues d’une feuille');
+});
+
+test('t074 : un changement de régime qui ne laisse aucun RTT acquis se confirme, le solde est gardé au journal', () => {
+  const { run, refus, RH, domain, derniere } = fresh();
+  const rtt = rttInfo(domain(), domain().emp(2)!)!;
+  // Passage au 35 h dès janvier : aucun mois de l'année sous le 39 h, le compteur disparaîtrait.
+  // Le RTT posé le 2 novembre, sous le 35 h, est cité pour être revu.
+  refus(RH, 'employe.modifier', { id: 2, temps: '35h', tempsDepuis: '2026-01-05' }, /n’ouvre ni RTT ni jours de repos.*et 1 j de RTT reste posé ou validé à partir du 5 janv\. 2026.*Confirmez le changement : ce solde sera gardé au journal pour la paie/);
+  const o = run(RH, 'employe.modifier', { id: 2, temps: '35h', tempsDepuis: '2026-01-05', confirmerRtt: true }) as { message: string };
+  assert.match(o.message, /solde RTT 2026 : .* gardé au journal pour la paie$/);
+  const j = derniere('employe.rtt')!;
+  assert.deepEqual(j.payload.soldeRtt, { annee: 2026, droit: rtt.droit, pris: rtt.pris, poses: rtt.poses, solde: rtt.solde, effet: '2026-01-05', nouveauDroit: null, apresEffet: 1 });
+  assert.ok(j.paie, 'archive paie');
+  assert.deepEqual(j.payload.champsModifies, ['temps', 'tempsDepuis']);
+  assert.equal(rttInfo(domain(), domain().emp(2)!), null);
 });

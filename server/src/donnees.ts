@@ -28,7 +28,7 @@ const TITRES: Partial<Record<TableName, string>> = {
   soldesReprise: 'Compteurs repris de l’ancien outil', entretiens: 'Entretiens professionnels', demandesCollab: 'Demandes et déclarations',
   comptes: 'Compte de connexion', verdictsKeystone: 'Verdicts Go / No Go transmis à Keystone', clotures: 'Clôtures des périodes de congés',
   mandats: 'Mandats au CSE', informationsCp: 'Informations sur les congés au retour d’un arrêt',
-  soldesSortie: 'Solde des compteurs à la sortie',
+  soldesSortie: 'Solde des compteurs à la sortie', contratsHistorique: 'Historique du contrat',
   pieces: 'Pièces justificatives',
   deplacementsPaie: 'Déplacements transmis à la paie (jours, nuits, trajets)',
 };
@@ -37,6 +37,11 @@ const TITRES: Partial<Record<TableName, string>> = {
  * (repères internes), dont le contenu est joint à part (`contenu`, base64).
  */
 const RETIREES: Partial<Record<TableName, string[]>> = { comptes: ['motDePasse'], pieces: ['fichier', 'jeton', 'deposeCompteId'] };
+/**
+ * Colonnes retirées de l'export remis au salarié lui-même (sans journal) : elles nomment d'autres personnes, comme le
+ * journal qu'il ne reçoit pas — auteur d'une ligne de l'historique des contrats, que son portail ne lui montre pas.
+ */
+const RETIREES_SALARIE: Partial<Record<TableName, string[]>> = { contratsHistorique: ['par', 'parId'] };
 
 /** Tables du schéma qui portent la colonne `empId` (la fiche elle-même est la section « Fiche »). */
 export const TABLES_SALARIE = (Object.entries(TABLES) as [TableName, { cols: Record<string, string> }][])
@@ -49,7 +54,10 @@ export function donneesSalarie(db: Db, empId: number, o: { journal: boolean; par
   const e = db.get<Ligne>('employes', empId);
   if (!e) return null;
   const sections: Record<string, unknown> = { Fiche: e };
-  for (const t of TABLES_SALARIE) sections[TITRES[t] ?? t] = db.where<Ligne>(t, 'empId', empId).map(r => sans(r, RETIREES[t]));
+  for (const t of TABLES_SALARIE) {
+    const retirees = [...(RETIREES[t] ?? []), ...(o.journal ? [] : RETIREES_SALARIE[t] ?? [])];
+    sections[TITRES[t] ?? t] = db.where<Ligne>(t, 'empId', empId).map(r => sans(r, retirees));
+  }
   // Pièces justificatives en vigueur : leur contenu est joint (copie du document), en base64 (server/src/pieces.ts).
   sections[TITRES.pieces!] = db.where<Ligne>('pieces', 'empId', empId).map(r => {
     const octets = !r.retireeLe && typeof r.fichier === 'string' ? contenuLocal(db, r.fichier) : null;

@@ -5,7 +5,7 @@
 import { isValidDate } from './dates.ts';
 import { CONTRATS_EXCLUABLES, PREAVIS_TOUTE_ANNEE } from './rules/campagne.ts';
 import { JOURS_RELANCE, paliersRelance } from './rules/relances.ts';
-import type { Settings } from './types.ts';
+import type { Settings, StockagePieces } from './types.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
 export const RTT_ANNEE_SUIVANTE_DES = ['', '09-01', '10-01', '11-01', '12-01'] as const;
@@ -67,6 +67,12 @@ export const texte = (max: number, libelle: string) => (v: unknown): string => {
   const t = typeof v === 'string' ? v.replace(/\s+/g, ' ').trim() : '';
   if (t.length > max) throw new ReglageInvalide(`${libelle} : ${max} caractères au plus`);
   return t;
+};
+
+/** Stockage des pièces justificatives : désactivé ou dossier local ; la GED n'est pas encore raccordée. */
+const stockagePieces = (v: unknown, actuelle: StockagePieces): StockagePieces => {
+  if (v === 'ged') throw new ReglageInvalide('Espace documentaire (GED) pas encore raccordé à Cursus : son interface n’est pas connue. Choisissez le dossier des données de Cursus.');
+  return choix<StockagePieces>(['desactive', 'local'])(v, actuelle);
 };
 
 /**
@@ -152,6 +158,10 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   absencesFichierPaie: { defaut: true, controle: booleen },
   //   Date de mise en service : jours d'absence d'avant jamais transmis (traités par Lucca et Sage), vide par défaut —
   absencesPaieAPartirDu: { defaut: null, controle: dateOuVide('Absences transmises à partir du') },
+  // — Pièces justificatives (parametres/Pieces.tsx, shared/rules/pieces.ts) : désactivées par défaut (réponse de l'entreprise
+  //   du 18 octobre 2026), activées par l'administrateur RH après avis du DPO ; la GED attend son adaptateur
+  //   (server/src/integrations/ged.ts), son choix est refusé d'ici là —
+  piecesStockage: { defaut: 'desactive', controle: stockagePieces },
 };
 
 /**

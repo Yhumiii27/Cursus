@@ -14,6 +14,7 @@ import { suivreVerdicts } from '../integrations/keystone-verdicts.ts';
 import { annulerSiConvoque, convoquerFormation, notifierDecisionDemande } from '../notifications.ts';
 import { ActionError, type ActionHandler, aDroit, type Ctx, enriched, getEmp, isManagerOf, requireFormations, requireRh, str } from './context.ts';
 import { clore } from './inscriptions-closes.ts';
+import { joindrePieces, retirerPiecesDe } from './pieces.ts';
 import { appliquerFormalite, retirerFormalite } from './voyages.ts';
 
 /**
@@ -84,6 +85,8 @@ const ajouterCert: ActionHandler = (ctx, p) => {
   // elle est annulée (saisie sur la mauvaise fiche, actions/inscriptions-closes.ts).
   const closes = clore(ctx, emp, fm.id);
   const cert = ctx.db.insert<Certification>('certifications', { empId: emp.id, f: fm.id, obtenue: p.date, sessionId: null, convoc: null, inscriptionsCloses: closes.length ? closes : null });
+  // Attestation jointe (pièce justificative, actions/pieces.ts).
+  const pieces = joindrePieces(ctx, p.pieces, 'certification', cert.id, emp.id);
   // Recyclage enregistré : une session ouverte, postérieure à l'obtention, n'a plus d'objet pour la certification
   // remplacée (qui ne se planifie plus) ; sa place est libérée. Une session antérieure ou du jour même garde
   // l'inscrit : c'est elle qui a produit le recyclage, sa clôture le constatera.
@@ -92,9 +95,9 @@ const ajouterCert: ActionHandler = (ctx, p) => {
     // La convocation reçue pour cette session, si elle est à venir, est annulée par e-mail.
     const annulee = annulerSiConvoque(ctx, sess, emp, avant!);
     ctx.db.update<Certification>('certifications', avant!.id, { sessionId: null, convoc: null, convocLe: null });
-    return `${fm.court} ajoutée au dossier de ${emp.nom} · inscription à la session du ${fmt(parse(sess.date))} annulée${annulee ? ' · annulation envoyée par e-mail' : ''}`;
+    return `${fm.court} ajoutée au dossier de ${emp.nom}${pieces} · inscription à la session du ${fmt(parse(sess.date))} annulée${annulee ? ' · annulation envoyée par e-mail' : ''}`;
   }
-  return `${fm.court} ajoutée au dossier de ${emp.nom}`;
+  return `${fm.court} ajoutée au dossier de ${emp.nom}${pieces}`;
 };
 
 const delivrerHab: ActionHandler = (ctx, p) => {
@@ -116,10 +119,12 @@ const delivrerHab: ActionHandler = (ctx, p) => {
   if (!info.prereqOk) throw new ActionError(`Délivrance impossible — ${info.failing.map(c => c.label).join(', ')}`);
   const entry = { delivree: p.date, par, demande: null, mesure: null, mesureDate: null, mesureMotif: null, mesurePar: null };
   if (existing) ctx.db.update<HabTitre>('habTitres', existing.id, entry);
-  else ctx.db.insert<HabTitre>('habTitres', { empId: emp.id, h: hm.id, ...entry });
+  const titreId = existing ? existing.id : ctx.db.insert<HabTitre>('habTitres', { empId: emp.id, h: hm.id, ...entry }).id;
+  // Titre signé joint (pièce justificative, actions/pieces.ts).
+  const pieces = joindrePieces(ctx, p.pieces, 'habTitre', titreId, emp.id);
   // Après un retrait ou une expiration, Keystone a reçu le No Go : il reçoit aussi le verdict rétabli.
   const { keystone } = signaler(ctx, emp);
-  return `${hm.nom} ${p.mode === 'renew' ? 'renouvelée' : 'délivrée'} — ${emp.nom} · valide jusqu’au ${fmt(addMonths(parse(p.date), hm.validite))}${keystone}`;
+  return `${hm.nom} ${p.mode === 'renew' ? 'renouvelée' : 'délivrée'} — ${emp.nom} · valide jusqu’au ${fmt(addMonths(parse(p.date), hm.validite))}${pieces}${keystone}`;
 };
 
 /**
@@ -238,8 +243,10 @@ const refuserDemande: ActionHandler = (ctx, p) => {
   const defaut = r.type !== 'document' ? 'Refusée par le service RH'
     : retire ? 'Refusée par le service RH — document retiré de votre dossier' : 'Refusée par le service RH — votre dossier n’a pas été modifié';
   ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'refusee', reponse: str(p.reponse) || defaut, motifRefus: motif || null });
+  // Document refusé : ses pièces (copie de passeport, carnet de vaccination) n'ont plus lieu d'être gardées (actions/pieces.ts).
+  const pieces = r.type === 'document' ? retirerPiecesDe(ctx, 'declaration', r.id, 'Déclaration refusée') : 0;
   notifierDecisionDemande(ctx, emp, r, false);
-  return `Demande refusée — ${emp.nom} notifié${retire ? ' · document retiré du dossier' : ''}`;
+  return `Demande refusée — ${emp.nom} notifié${retire ? ' · document retiré du dossier' : ''}${pieces ? ` · ${plural(pieces, 'pièce jointe effacée', 'pièces jointes effacées')}` : ''}`;
 };
 
 /** Demandeur d'une demande au RH : le collaborateur lui-même, ou son manager pour un membre de l'équipe. */

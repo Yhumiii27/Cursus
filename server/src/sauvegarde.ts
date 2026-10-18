@@ -7,6 +7,7 @@ import { chmodSync, copyFileSync, existsSync, mkdirSync, readdirSync, readFileSy
 import { uptime } from 'node:os';
 import { basename, dirname, join, resolve } from 'node:path';
 import type { Db } from './db.ts';
+import { type BilanPiecesSauvegarde, type BilanRestaurationPieces, copierPieces, dossierMiroir, elaguerPieces, restaurerPieces } from './pieces-sauvegarde.ts';
 
 export class SauvegardeError extends Error {}
 
@@ -141,6 +142,8 @@ export function rotation(dir: string, base: string, motif: string | null, keep: 
 
 export interface Sauvegarde extends Verification {
   fichier: string;
+  /** Pièces justificatives emportées avec la copie (server/src/pieces-sauvegarde.ts) ; null sans pièce. */
+  pieces: BilanPiecesSauvegarde | null;
   /** Copies de ce type présentes après la rotation. */
   conservees: number;
   supprimees: string[];
@@ -199,6 +202,7 @@ export function sauvegarder(base: string, opts: OptionsSauvegarde = {}): Sauvega
   const fichier = nomLibre(dir, source, opts.date ?? new Date(), opts.motif);
   const partiel = fichier + '.partiel';
   let verification: Verification;
+  let pieces: BilanPiecesSauvegarde | null = null;
   try {
     // Fichier vide créé d'abord en 600 (VACUUM INTO l'accepte) : données de santé et de paie, jamais
     // lisibles par un autre compte, même pendant la copie ou si elle est interrompue.
@@ -212,6 +216,8 @@ export function sauvegarder(base: string, opts: OptionsSauvegarde = {}): Sauvega
       sql.close();
     }
     verification = verifier(partiel, { cursus: false }); // copie fidèle, même d'une base très ancienne
+    // Pièces justificatives qu'elle désigne, copiées avant que la copie n'apparaisse sous son nom définitif.
+    pieces = copierPieces(partiel, source, dossierMiroir(dir, prefixe(source)));
     renameSync(partiel, fichier);
   } catch (e) {
     rmSync(partiel, { force: true });
@@ -219,7 +225,10 @@ export function sauvegarder(base: string, opts: OptionsSauvegarde = {}): Sauvega
   }
   const supprimees = [...rotation(dir, source, opts.motif ?? null, keep, fichier), ...purgerPartiels(dir, source)];
   const conservees = listerSauvegardes(dir).filter(c => c.base === prefixe(source) && c.motif === (opts.motif ?? null)).length;
-  return { ...verification, fichier, conservees, supprimees, duree: Date.now() - t0 };
+  // Fichiers de pièces que plus aucune copie conservée de cette base (tous motifs) ne désigne : retirés.
+  const retirees = elaguerPieces(dossierMiroir(dir, prefixe(source)), listerSauvegardes(dir).filter(c => c.base === prefixe(source)).map(c => c.fichier));
+  if (pieces) pieces.retirees = retirees;
+  return { ...verification, fichier, pieces, conservees, supprimees, duree: Date.now() - t0 };
 }
 
 /** Sauvegarde de la base ouverte par `db` (null pour une base en mémoire, sans fichier). */
@@ -341,6 +350,8 @@ export interface Restauration {
   brut: string | null;
   /** Serveur encore actif, restauration forcée. */
   serveur: Verrou | null;
+  /** Pièces justificatives remises dans leur dossier (server/src/pieces-sauvegarde.ts) ; null sans pièce. */
+  pieces: BilanRestaurationPieces | null;
 }
 
 /**
@@ -389,5 +400,9 @@ export function restaurer(fichier: string, base: string, opts: { force?: boolean
   } finally {
     for (const ext of ['', '-wal', '-shm']) rmSync(provisoire + ext, { force: true });
   }
-  return { verification, avant, brut, serveur };
+  // Pièces justificatives qu'elle désigne et qui manquent : prises à côté du fichier restauré (copie rapatriée de la copie
+  // externe), sinon dans le dossier des sauvegardes de la base.
+  const nomCopie = NOM.exec(basename(source))?.[1] ?? prefixe(source);
+  const pieces = restaurerPieces(cible, [dossierMiroir(dirname(source), nomCopie), dossierMiroir(dir, prefixe(cible))]);
+  return { verification, avant, brut, serveur, pieces };
 }

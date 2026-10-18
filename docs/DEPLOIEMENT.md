@@ -156,6 +156,7 @@ sudo nano /etc/cursus/cursus.env
 | `CURSUS_HOST` | à laisser vide : 127.0.0.1 par défaut en production |
 | `CURSUS_TRUST_PROXY` | à laisser vide (`loopback`) quand le proxy est sur la même machine ; sinon, son adresse |
 | `CURSUS_DB` | `/var/lib/cursus/cursus.db` (chemin absolu ; un chemin relatif partirait du dossier de lancement) |
+| `CURSUS_PIECES_DIR` | à laisser vide : pièces justificatives dans `/var/lib/cursus/pieces` (à côté de la base, même disque chiffré, sauvegardées avec elle) ; ne les activer qu'après l'avis du DPO (Paramètres → Pièces justificatives) |
 | `CURSUS_SECRET` | 64 caractères aléatoires, propres à cette installation. La changer déconnecte tout le monde |
 | `KEYSTONE_API_KEY` | clé aléatoire transmise à Keystone par un canal sûr. Sans elle, les routes Keystone répondent 503 |
 | `CURSUS_SUPERVISION_TOKEN` | facultative : jeton aléatoire (32 caractères au moins, `openssl rand -hex 32`) de l'outil de supervision, qui obtient alors le détail du point de santé à travers le proxy (« Exploitation courante ») |
@@ -468,6 +469,9 @@ sudo docker inspect --format '{{.State.Health.Status}}' cursus  # healthy
 - `--stop-timeout 20` : `docker stop` envoie SIGTERM ; Cursus finit les requêtes en cours (10 s au plus) et ferme la
   base avant que Docker ne coupe le conteneur.
 - Le volume reçoit le chiffrement du disque de la machine (« Protection des données sur le disque »).
+- Pièces justificatives, une fois activées par l'administrateur RH : dans le même volume (`/data/pieces`), rendu au
+  compte `cursus` comme le reste ; aucun volume supplémentaire à déclarer dans Coolify (laisser `CURSUS_PIECES_DIR`
+  vide : un dossier hors de `/data` ne serait ni persistant ni rendu au compte du service).
 - Point de santé : un `curl` lancé sur la machine vers `127.0.0.1:3210` entre dans le conteneur par le pont Docker,
   pas par sa boucle locale ; il n'obtient que la réponse publique `{"statut":"ok","base":"ok"}`. Le détail (version,
   mode, envois en échec) s'obtient dans le conteneur, comme la sonde `HEALTHCHECK` :
@@ -849,6 +853,12 @@ entrées, sorties et compteurs ne se tiennent plus dans Lucca.
   refait au plus une fois par heure. À examiner avec l'éditeur avant toute correction (restaurer une sauvegarde ou
   compléter la reprise) : Cursus ne supprime rien de lui-même. Aucune clé étrangère n'est encore imposée par la base ;
   elles le seront une fois la base de reprise du 1er janvier 2027 vérifiée sans orphelin.
+  Pièces justificatives (lot 6) : le même contrôle compte les pièces dont le fichier manque dans le dossier des pièces
+  ou n'a plus la taille de l'envoi (`pieces.fichier → dossier des pièces (absent)`), et celles dont l'objet (absence,
+  certification…) a disparu ; l'empreinte SHA-256 est vérifiée à chaque ouverture d'une pièce (409 « fichier altéré »).
+  Pièce absente : la restaurer depuis les sauvegardes (`docs/SAUVEGARDE.md`, section 7). Toutes les heures, Cursus
+  efface les pièces envoyées et jamais jointes depuis 24 h, les fichiers des pièces retirées et les fichiers que plus
+  aucune pièce ne désigne depuis 24 h (bilan dans son journal).
 - Journaux du serveur (`server/src/logs.ts`) : une ligne par message de démarrage, d'arrêt ou d'incident, et une ligne
   par requête : heure, méthode, chemin sans ses paramètres, statut, durée en millisecondes et numéro du compte connecté.
   Jamais le contenu d'une requête ni ses paramètres, qui portent des données personnelles ; la sonde de santé réussie

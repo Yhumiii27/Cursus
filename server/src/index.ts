@@ -14,6 +14,7 @@ import { controlerIntegrite } from './integrite.ts';
 import { demarrerJournal } from './journal.ts';
 import { log, redirigerConsole } from './logs.ts';
 import { migrate } from './migrate.ts';
+import { demarrerPieces } from './pieces.ts';
 import { appliquerMigrations, controlerMigrations } from './migrations/cadre.ts';
 import { transportEmail } from './integrations/email.ts';
 import { transportKeystone } from './integrations/keystone.ts';
@@ -85,6 +86,9 @@ purge.unref();
 arret.tache(() => clearInterval(purge));
 // Journal : anciennes lignes expurgées une fois, durées de conservation appliquées au démarrage puis toutes les heures.
 demarrerJournal(db);
+// Pièces justificatives : pièces en attente de plus de 24 h et fichiers des pièces retirées effacés, au démarrage puis
+// toutes les heures (server/src/pieces.ts).
+arret.tache(demarrerPieces(db));
 
 // Routes, protections, compression, cache des fichiers et interface compilée : server/src/app.ts.
 // dist/ du projet, quel que soit le dossier de lancement (CURSUS_DIST la remplace : server/src/chemins.ts).

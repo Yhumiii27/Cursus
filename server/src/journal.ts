@@ -20,6 +20,7 @@ import { erreurReference } from '../../shared/rules/lots-paie.ts';
 import { matriculeAffiche } from '../../shared/rules/matricules.ts';
 import { estTypeTitre } from '../../shared/rules/contrats.ts';
 import { estDemi } from '../../shared/rules/demi-journees.ts';
+import { estObjetPiece } from '../../shared/rules/pieces.ts';
 import {
   ACTION_APPEL_KEYSTONE, ACTIONS_CONNEXION, ACTIONS_PAIE, changementsTexte, CONSERVATION_ARCHIVE_PAIE_MOIS, CONSERVATION_ENVOIS_MOIS,
   CONSERVATION_JOURNAL_MOIS, dossierComplet, estActionPaie, familleAction, FAMILLES_JOURNAL, JOURNAL_LABEL, lecteurJournal, libelleAction,
@@ -371,6 +372,16 @@ export const REGLES: Record<string, Regle> = {
   // et seulement le fait qu'un motif soit renseigné.
   'voyage.modifier': { champs: ['id'], cible: parId('voyages', ['dest', 'depart', 'retour', 'detachementLe', 'informationLe']) },
   'voyage.annuler': { champs: ['id'], cible: { ...parId('voyages', ['annuleLe', 'annuleMotif']), masques: ['annuleMotif'] } },
+  // Pièces justificatives (server/src/actions/pieces.ts) : objet et identifiants, nombre de pièces ; jamais le nom du fichier
+  // (il peut nommer une donnée de santé), ni les jetons, ni le motif d'un retrait.
+  'piece.joindre': {
+    extra: p => ({ objet: estObjetPiece(p.objet) ? p.objet : null, objetId: Number(p.objetId) || null, pieces: (Array.isArray(p.jetons) ? p.jetons.length : 0) || (p.jeton ? 1 : 0) }),
+    salaries: (_p, x) => [(x.result as { empId?: number } | null)?.empId],
+  },
+  'piece.retirer': {
+    champs: ['id'], extra: (_p, av) => ({ objet: av?.objet ?? null, objetId: av?.objetId ?? null }),
+    cible: { table: 'pieces', cle: p => Number(p.id) || null, colonnes: ['retireeLe', 'retireeMotif'], masques: ['retireeMotif'] },
+  },
   'formalite.enregistrer': {
     champs: p => p.kind === 'passeport' ? ['empId', 'kind', 'expire'] : p.kind === 'visa' ? ['empId', 'kind', 'dest', 'visaType', 'obtenu', 'expire'] : ['empId', 'kind'],
   },
@@ -575,6 +586,9 @@ export function champsRetenus(action: string, p: P, avant: Ligne | null = null):
   const noms = typeof r.champs === 'function' ? r.champs(p) : r.champs ?? [];
   const out: Ligne = {};
   for (const k of noms) if (p[k] !== undefined && p[k] !== '') out[k] = propre(p[k]);
+  // Pièces justificatives jointes par l'action (server/src/actions/pieces.ts) : leur nombre, jamais leurs jetons.
+  const pieces = Array.isArray(p.pieces) ? p.pieces.length : typeof p.pieces === 'string' && p.pieces ? 1 : 0;
+  if (pieces) out.pieces = pieces;
   return sansNature({ ...out, ...(r.extra?.(p, avant) ?? {}) });
 }
 
@@ -956,6 +970,8 @@ export function exigerRh(db: Db, req: Request, res: Response, quoi: string, auto
 const ACTIONS_SANTE = new Set([
   'absence.saisir', 'absence.qualifier', 'absence.prolonger', 'absence.annuler', 'medical.demander', 'medical.annuler', 'medical.avis', 'medical.suivi',
   'formalite.enregistrer', 'demande.accepter', 'email.visite.demande', 'reprise.visites', 'conges.informer', 'email.conges.information',
+  // Pièces justificatives : un justificatif d'absence ou un carnet de vaccination désigne une donnée de santé.
+  'piece.deposer', 'piece.joindre', 'piece.retirer', 'piece.consulter',
 ]);
 export const DETAIL_RESERVE = 'Détail réservé au service RH';
 

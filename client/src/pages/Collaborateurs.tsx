@@ -29,6 +29,7 @@ import { desinscription, retraitEquipe } from '../state/confirmations.ts';
 import { useStore } from '../state/store.tsx';
 import { HistoriqueFiche } from './Journal.tsx';
 import { EchRow } from './Dashboard.tsx';
+import { PiecesFiche } from '../components/PiecesFiche.tsx';
 
 /** Valeur du filtre d'équipe pour les collaborateurs sans équipe (« À affecter »). */
 const SANS_EQUIPE = '';
@@ -472,6 +473,8 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
           })}
         </div>
       </>}
+
+      <PiecesFiche empId={e.id} parti={parti} />
 
       {/* Dossier voyage (passeport, visas, vaccinations) : service RH ; pour le manager, sans les vaccinations. */}
       {hasTravel && (rh || manager) && <>

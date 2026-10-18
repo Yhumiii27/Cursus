@@ -169,6 +169,11 @@ entretiens : un collègue ou son manager le fait.
   adoption) sont automatiques. Première clôture des CP après la reprise : le 1er juin 2027.
 - Retour d'arrêt : la tâche d'information du salarié sur ses congés apparaît dans « Congés & absences ».
 - « Reporter » et « Épargner » (compte épargne-temps) depuis le tableau des soldes.
+- **Pièces justificatives** (désactivées tant que l'administrateur RH ne les a pas activées dans Paramètres, après avis
+  du DPO) : « Joindre le justificatif » dans la saisie et la qualification d'une absence, « Justificatifs reçus » pour
+  ouvrir celui que le salarié a envoyé avec son signalement ou depuis « Justificatif » ; sur la fiche, « Pièces
+  justificatives » et « Joindre » pour l'attestation d'une certification ou le titre signé d'une habilitation. Le
+  manager ne voit jamais un justificatif d'absence ni la copie d'un document déclaré.
 
 ### Temps de travail
 

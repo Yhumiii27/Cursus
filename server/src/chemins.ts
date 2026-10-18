@@ -2,7 +2,7 @@
 // dossier (unité systemd sans WorkingDirectory, conteneur, application de bureau), le serveur sert la même interface et
 // ouvre la même base, au lieu de servir l'API seule et de créer en silence une base vide.
 import { readFileSync } from 'node:fs';
-import { join, resolve } from 'node:path';
+import { dirname, join, resolve } from 'node:path';
 import type { Env } from './config.ts';
 
 /** Racine du projet : server/src/ → ../.. */
@@ -22,6 +22,14 @@ export function dossierInterface(env: Env = process.env): string {
  */
 export function fichierBase(env: Env = process.env): string {
   return env.CURSUS_DB ? resolve(env.CURSUS_DB) : join(RACINE, 'data', 'cursus.db');
+}
+
+/**
+ * Dossier des pièces justificatives en stockage local (server/src/pieces.ts) : CURSUS_PIECES_DIR, sinon `pieces/` à côté
+ * de la base (`base` : chemin réel du fichier), soit /data/pieces dans l'image Docker, dans le même volume que la base.
+ */
+export function dossierPieces(base: string, env: Env = process.env): string {
+  return env.CURSUS_PIECES_DIR ? resolve(env.CURSUS_PIECES_DIR) : join(dirname(base), 'pieces');
 }
 
 /** Version de Cursus (package.json), donnée par le point de santé et au démarrage. */

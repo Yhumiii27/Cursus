@@ -170,6 +170,7 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `CURSUS_COMPRESSION` | `1` par défaut : Cursus compresse ses réponses (brotli, sinon gzip) ; `0` si le proxy compresse déjà |
 | `CURSUS_BACKUP_DIR` | Dossier des sauvegardes (`backups/` à côté de la base par défaut) |
 | `CURSUS_BACKUP_KEEP` | Sauvegardes conservées par type (14 par défaut, `0` pour tout garder) |
+| `CURSUS_PIECES_DIR` | Dossier des pièces justificatives en stockage local (`pieces/` à côté de la base par défaut : `/data/pieces` dans l'image Docker). Réservé au compte du serveur (`700`, fichiers en `600`) |
 | `CURSUS_TODAY` | Fige la date du jour (AAAA-MM-JJ), utile pour la démonstration — les données de démo sont datées d'octobre 2026. Refusée en production |
 | `CURSUS_DEMO` | `1` pour activer le mode démonstration (connexion libre, sélecteur de vue, réinitialisation, données fictives dans une base vide). Inactif par défaut ; en production, admis seulement pour l'application de bureau (`CURSUS_HOST=127.0.0.1` explicite), jamais derrière le reverse proxy |
 | `CURSUS_SECRET` | Clé de signature des sessions, 32 caractères au moins (`openssl rand -hex 32`). Obligatoire en production ; ailleurs, générée et stockée en base, puis retirée de la base au premier démarrage avec la variable |
@@ -203,6 +204,10 @@ vérifie la sauvegarde, refuse de s'exécuter si le serveur tourne (sauf `--forc
 actuelle puis la remplace. Le serveur signale qu'il utilise la base par un verrou (`<base>.pid`) et
 refuse de démarrer si un autre serveur l'utilise déjà, ou si une version plus récente de Cursus a migré la base
 (migrations nommées, `server/src/migrations/` : restaurer alors la copie avant-migration).
+
+Pièces justificatives (lot 6, désactivées par défaut) : une fois activées par l'administrateur RH, leurs fichiers
+sont dans `pieces/` à côté de la base ; chaque sauvegarde copie ceux que sa base désigne dans `backups/pieces-<base>/`,
+et la restauration les remet en place (`docs/SAUVEGARDE.md`, section 1).
 
 Planification (timer systemd), copie chiffrée hors de la machine, restauration pas à pas et test
 périodique : `docs/SAUVEGARDE.md`.
@@ -407,7 +412,7 @@ Le `Dockerfile` à la racine construit l'interface et lance le serveur en produc
 | Réglage | Valeur |
 | --- | --- |
 | Port interne | `3000` |
-| Volume persistant | `/data` : base SQLite `cursus.db` et ses sauvegardes (`/data/backups`) |
+| Volume persistant | `/data` : base SQLite `cursus.db`, ses sauvegardes (`/data/backups`) et, une fois activées, les pièces justificatives (`/data/pieces`) |
 | Adresse | en `https://` : le cookie de session est marqué `Secure` en production |
 | Variables obligatoires | `CURSUS_SECRET` et `KEYSTONE_API_KEY` ; les autres selon les intégrations (tableau ci-dessus) |
 | Journaux | onglet « Logs » de l'application : une ligne JSON par message et par requête (`CURSUS_LOG_FORMAT=json` par défaut en production), que l'agrégateur du service informatique collecte sans réglage |

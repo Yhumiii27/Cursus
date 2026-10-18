@@ -45,6 +45,7 @@ import { ReqFormDialog } from './ReqFormDialog.tsx';
 import { ReqHabDialog } from './ReqHabDialog.tsx';
 import { RubriqueDialog } from './RubriqueDialog.tsx';
 import { RouvrirFeuilleDialog } from './RouvrirFeuilleDialog.tsx';
+import { PieceDialog } from './PieceDialog.tsx';
 import { SessionDetailDialog } from './SessionDetailDialog.tsx';
 import { SessionDialog } from './SessionDialog.tsx';
 import { SortieDialog } from './SortieDialog.tsx';
@@ -120,6 +121,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'lotImport': return <LotImportDialog {...d} />;
     case 'formatFichier': return <FormatFichierDialog />;
     case 'rouvrirFeuille': return <RouvrirFeuilleDialog {...d} />;
+    case 'piece': return <PieceDialog {...d} />;
     case 'confirmer': return <ConfirmerDialog c={d.c} />;
   }
 }

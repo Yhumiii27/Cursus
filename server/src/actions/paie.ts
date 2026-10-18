@@ -183,9 +183,9 @@ async function lotDe(ctx: Ctx, id: unknown): Promise<LotEnregistre> {
  */
 export async function confirmerLot(ctx: Ctx, lot: LotEnregistre, reference: string | null) {
   await ctx.db.update<LotEnregistre>('lotsPaie', lot.id, { statut: 'transmis', confirmeLe: new Date().toISOString(), confirmePar: ctx.user.nom, reference });
-  await ctx.db.run('UPDATE feuilles SET sage = 1 WHERE lot_id = ?', [lot.id]);
-  await ctx.db.run('UPDATE absences SET sage = 1 WHERE lot_id = ?', [lot.id]);
-  await ctx.db.run('UPDATE soldes_sortie SET sage = 1 WHERE lot_id = ?', [lot.id]);
+  await ctx.db.run('UPDATE feuilles SET sage = TRUE WHERE lot_id = ?', [lot.id]);
+  await ctx.db.run('UPDATE absences SET sage = TRUE WHERE lot_id = ?', [lot.id]);
+  await ctx.db.run('UPDATE soldes_sortie SET sage = TRUE WHERE lot_id = ?', [lot.id]);
   // Soldes de sortie de la période sans rubrique active : saisis dans Sage, ils ne partiront plus dans un lot.
   await marquerHorsFichier(ctx.db, ctx.d, lot);
 }
@@ -224,7 +224,7 @@ const lotAnnuler: ActionHandler = async (ctx, p) => {
     throw new ActionError(`Lot n° ${lot.id} : import confirmé dans Sage, il ne s’annule plus. Pour corriger une feuille, l’administrateur RH la rouvre avec un motif : revalidée, seul son écart part dans le lot suivant (lot correctif).`, 409);
   }
   await ctx.db.update<LotEnregistre>('lotsPaie', lot.id, { statut: 'annule', annuleLe: new Date().toISOString(), annulePar: ctx.user.nom });
-  await ctx.db.run('UPDATE feuilles SET lot_id = NULL WHERE lot_id = ? AND sage = 0', [lot.id]);
+  await ctx.db.run('UPDATE feuilles SET lot_id = NULL WHERE lot_id = ? AND sage = FALSE', [lot.id]);
   await libererAbsences(ctx.db, lot);
   await libererSorties(ctx.db, lot);
   return {

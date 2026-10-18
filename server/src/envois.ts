@@ -236,6 +236,6 @@ export async function purgerEnvois(db: Db, avant: string): Promise<number> {
 /** Derniers messages (les plus récents d'abord), filtrés par statut et par cible. */
 export async function listerEnvois(db: Db, filtre: { statut?: unknown; cible?: Cible } = {}, limite = 100): Promise<Envoi[]> {
   const statut = STATUTS_ENVOI.includes(filtre.statut as StatutEnvoi) ? filtre.statut as StatutEnvoi : null;
-  const ids = await db.query(`SELECT id FROM envois WHERE (? IS NULL OR statut = ?) AND (? IS NULL OR cible = ?) ORDER BY id DESC LIMIT ?`, [statut, statut, filtre.cible ?? null, filtre.cible ?? null, limite]) as { id: number }[];
+  const ids = await db.query(`SELECT id FROM envois WHERE (CAST(? AS TEXT) IS NULL OR statut = ?) AND (CAST(? AS TEXT) IS NULL OR cible = ?) ORDER BY id DESC LIMIT ?`, [statut, statut, filtre.cible ?? null, filtre.cible ?? null, limite]) as { id: number }[];
   return Promise.all(ids.map(async r => (await db.get<Envoi>('envois', r.id))!));
 }

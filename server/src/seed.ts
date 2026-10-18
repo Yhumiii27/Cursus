@@ -499,6 +499,8 @@ export async function seedDemo(db: Db) {
     // Verdicts Go / No Go de départ, mémorisés sans envoi : en mode API, réputés connus de Keystone, seuls leurs
     // changements lui seront envoyés ; en simulation, ils repartiront tous au passage en mode API.
     await suivreVerdicts(db, { initial: true });
+    // PostgreSQL : séquences placées au-delà des identifiants fixés par le jeu (salariés, sessions) ; sans effet en SQLite.
+    await db.resyncIds();
   });
 }
 

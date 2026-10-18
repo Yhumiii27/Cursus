@@ -51,7 +51,7 @@ export const HEURES_SUP: Migration = {
     // Soldes d'avant : chaque feuille validée encore sans mode avec le calcul d'origine (payée et en repos).
     const ancien = await loadFull(db, CURSUS);
     const avant = soldesRecup({ ...ancien, feuilles: ancien.feuilles.map((f): FeuilleTemps => (f.statut === 'validee' && !f.heuresSup ? { ...f, heuresSup: 'historique' } : f)) });
-    const historique = Number((await db.run(`UPDATE feuilles SET heures_sup = 'historique' WHERE ${aFiger} AND sage = 1`)).changes);
+    const historique = Number((await db.run(`UPDATE feuilles SET heures_sup = 'historique' WHERE ${aFiger} AND sage = TRUE`)).changes);
     const reglees = Number((await db.run(`UPDATE feuilles SET heures_sup = ? WHERE ${aFiger}`, [mode])).changes);
     const apres = soldesRecup(await loadFull(db, CURSUS));
     const negatifs = [...apres].filter(([id, solde]) => solde < 0 && (avant.get(id) ?? 0) >= 0).map(([id, solde]) => ({ empId: id, avant: avant.get(id) ?? 0, apres: solde }));
@@ -67,7 +67,7 @@ export const HEURES_SUP: Migration = {
   },
 };
 
-const sansLot = `statut = 'validee' AND sage = 1 AND lot_id IS NULL`;
+const sansLot = `statut = 'validee' AND sage = TRUE AND lot_id IS NULL`;
 /** Feuilles transmises à la paie avant les lots (simple case `sage`), sans lot. */
 const transmisesSansLot = async (db: Db) => Number((await db.one(`SELECT COUNT(*) AS n FROM feuilles WHERE ${sansLot}`) as { n: number }).n);
 
@@ -79,7 +79,7 @@ const transmisesSansLot = async (db: Db) => Number((await db.one(`SELECT COUNT(*
  * Appelée aussi par le jeu de démonstration (server/src/seed.ts), dont les plus anciennes feuilles sont déjà transmises.
  */
 export async function lotHistorique(db: Db, auteur = 'Cursus', date?: string): Promise<{ id: number; feuilles: { empId: number; week: string }[] } | null> {
-  const feuilles = await db.query(`SELECT emp_id AS empId, week FROM feuilles WHERE ${sansLot} ORDER BY week, emp_id`) as { empId: number; week: string }[];
+  const feuilles = await db.query(`SELECT emp_id AS "empId", week FROM feuilles WHERE ${sansLot} ORDER BY week, emp_id`) as { empId: number; week: string }[];
   if (!feuilles.length) return null;
   const dernier = await db.getSetting<{ mode?: string; envoye_le?: string; periodes?: unknown } | null>('lastSagePush', null);
   const envoi = new Date(date ?? dernier?.envoye_le ?? Number.NaN);

@@ -1,5 +1,6 @@
-// Accès aux données : schéma déclaratif, requêtes génériques asynchrones, adaptateur SQLite (module node:sqlite).
-// Les champs sont en camelCase côté code et en snake_case dans la base.
+// Accès aux données : schéma déclaratif, requêtes génériques asynchrones, adaptateur SQLite (module node:sqlite) et choix
+// du moteur (openDb) ; l'adaptateur PostgreSQL est dans server/src/db-pg.ts. Les champs sont en camelCase côté code et
+// en snake_case dans la base.
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, writeFileSync } from 'node:fs';
@@ -7,8 +8,8 @@ import { dirname, resolve } from 'node:path';
 import { fichierBase } from './chemins.ts';
 import { sauvegarderAvantMigration } from './sauvegarde.ts';
 
-type ColType = 'text' | 'int' | 'real' | 'bool' | 'json';
-interface TableDef { pk: string; auto?: boolean; cols: Record<string, ColType>; unique?: string[][] }
+export type ColType = 'text' | 'int' | 'real' | 'bool' | 'json';
+export interface TableDef { pk: string; auto?: boolean; cols: Record<string, ColType>; unique?: string[][] }
 
 export const TABLES = {
   // Référentiels administrés par le service RH (server/src/actions/referentiels.ts) : `archive`, date d'archivage (null :
@@ -301,23 +302,34 @@ export function colonnesSql(name: TableName): string {
   return cols.join(', ');
 }
 
-function toDb(t: ColType, v: unknown): SqlValeur {
+/** Valeur écrite dans une colonne de type `t` (SQLite : booléen en 0 / 1, JSON en texte). */
+export function toDb(t: ColType, v: unknown): SqlValeur {
   if (v === undefined || v === null) return null;
   if (t === 'bool') return v ? 1 : 0;
   if (t === 'json') return JSON.stringify(v);
   if (t === 'int' || t === 'real') return Number(v);
   return String(v);
 }
-function fromDb(t: ColType, v: unknown): unknown {
+function fromDb(t: ColType, v: unknown, jsonDecode: boolean): unknown {
   if (v === null || v === undefined) return t === 'bool' ? false : null;
   if (t === 'bool') return !!v;
-  if (t === 'json') return JSON.parse(String(v));
+  if (t === 'json') return jsonDecode ? JSON.parse(String(v)) : v;
   if (t === 'int' || t === 'real') return Number(v);
   return v;
 }
 
+/**
+ * Valeur d'une colonne JSON lue par une requête brute : texte à décoder en SQLite, valeur déjà décodée par le pilote de
+ * PostgreSQL (colonnes `json`). Les deux moteurs rendent ainsi la même valeur, sauf pour une colonne dont la valeur
+ * JSON est une chaîne (réglages) : la lire par les méthodes génériques (`get`, `getSetting`), qui connaissent le moteur.
+ */
+export function jsonLu(v: unknown): unknown {
+  if (v === null || v === undefined) return null;
+  return typeof v === 'string' ? JSON.parse(v) : v;
+}
+
 /** Valeur passée en paramètre d'une requête SQL brute (`query`, `one`, `run`). */
-export type SqlValeur = string | number | bigint | null | Uint8Array;
+export type SqlValeur = string | number | bigint | boolean | null | Uint8Array;
 /** Issue d'une écriture SQL brute (`run`) : lignes touchées, identifiant de la dernière insertion. */
 export interface Ecriture { changes: number; lastInsertRowid: number }
 
@@ -334,6 +346,8 @@ export interface Ecriture { changes: number; lastInsertRowid: number }
  * touchent.
  */
 export abstract class Db {
+  /** Moteur de la base : SQLite (fichier local, repli) ou PostgreSQL (serveur commun, DATABASE_URL). */
+  abstract readonly moteur: 'sqlite' | 'pg';
   /** Base sans aucune table de Cursus à l'ouverture, créée à l'instant : les migrations nommées s'y appliquent sans copie. */
   abstract readonly neuve: boolean;
   /**
@@ -378,6 +392,20 @@ export abstract class Db {
   /** Ferme la base (arrêt du serveur, fin d'un outil en ligne de commande). */
   abstract fermer(): Promise<void>;
 
+  /** Recale les compteurs d'identifiants après des insertions à identifiant fixé (PostgreSQL ; rien à faire en SQLite). */
+  async resyncIds(): Promise<void> {}
+
+  // — Fragments SQL propres au moteur (le reste du SQL brut est commun aux deux : paramètres `?`, TRUE / FALSE,
+  //   IS DISTINCT FROM, COALESCE, CAST) —
+  /** Condition « la colonne JSON `colonne` (tableau d'entiers) contient l'entier passé en paramètre » (un `?`). */
+  contientEntier(colonne: string): string {
+    return this.moteur === 'pg' ? `(${colonne})::jsonb @> jsonb_build_array(CAST(? AS integer))` : `EXISTS (SELECT 1 FROM json_each(${colonne}) WHERE value = ?)`;
+  }
+  /** Comparaison de texte insensible à la casse, comme le LIKE de SQLite : ILIKE en PostgreSQL. */
+  get like(): string { return this.moteur === 'pg' ? 'ILIKE' : 'LIKE'; }
+  /** Texte d'une colonne JSON, pour une recherche par LIKE (en PostgreSQL, `json` garde le texte écrit). */
+  jsonTexte(colonne: string): string { return this.moteur === 'pg' ? `(${colonne})::text` : colonne; }
+
   /** Première ligne brute d'une requête SQL, ou undefined. */
   async one<T = Row>(sql: string, params: readonly SqlValeur[] = []): Promise<T | undefined> {
     return (await this.query<T>(sql, params))[0];
@@ -385,9 +413,12 @@ export abstract class Db {
 
   protected def(table: TableName): TableDef { return TABLES[table] as TableDef; }
 
+  /** Valeur écrite dans une colonne (paramètres des méthodes génériques) ; l'adaptateur PostgreSQL la redéfinit. */
+  protected versBase(t: ColType, v: unknown): SqlValeur { return toDb(t, v); }
+
   protected decode<T>(table: TableName, r: Row): T {
-    const def = this.def(table), o: Row = {};
-    for (const [c, t] of Object.entries(def.cols)) o[c] = fromDb(t, r[snake(c)]);
+    const def = this.def(table), o: Row = {}, texte = this.moteur === 'sqlite';
+    for (const [c, t] of Object.entries(def.cols)) o[c] = fromDb(t, r[snake(c)], texte);
     return o as T;
   }
 
@@ -399,13 +430,13 @@ export abstract class Db {
 
   async where<T>(table: TableName, field: string, value: unknown): Promise<T[]> {
     const def = this.def(table);
-    return (await this.query(`SELECT * FROM ${snake(table)} WHERE ${snake(field)} = ? ORDER BY ${snake(def.pk)}`, [toDb(def.cols[field], value)]))
+    return (await this.query(`SELECT * FROM ${snake(table)} WHERE ${snake(field)} = ? ORDER BY ${snake(def.pk)}`, [this.versBase(def.cols[field], value)]))
       .map(r => this.decode<T>(table, r));
   }
 
   async get<T>(table: TableName, id: unknown): Promise<T | undefined> {
     const def = this.def(table);
-    const r = await this.one(`SELECT * FROM ${snake(table)} WHERE ${snake(def.pk)} = ?`, [toDb(def.cols[def.pk], id)]);
+    const r = await this.one(`SELECT * FROM ${snake(table)} WHERE ${snake(def.pk)} = ?`, [this.versBase(def.cols[def.pk], id)]);
     return r ? this.decode<T>(table, r) : undefined;
   }
 
@@ -414,7 +445,7 @@ export abstract class Db {
     const o = obj as Row;
     const cols = Object.keys(def.cols).filter(c => o[c] !== undefined && !(c === def.pk && def.auto && o[c] == null));
     const res = await this.run(`INSERT INTO ${snake(table)} (${cols.map(snake).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
-      cols.map(c => toDb(def.cols[c], o[c])));
+      cols.map(c => this.versBase(def.cols[c], o[c])));
     const id = def.auto && o[def.pk] == null ? res.lastInsertRowid : o[def.pk];
     return (await this.get<T>(table, id))!;
   }
@@ -425,14 +456,14 @@ export abstract class Db {
     const cols = Object.keys(p).filter(c => c !== def.pk && c in def.cols);
     if (cols.length) {
       await this.run(`UPDATE ${snake(table)} SET ${cols.map(c => `${snake(c)} = ?`).join(', ')} WHERE ${snake(def.pk)} = ?`,
-        [...cols.map(c => toDb(def.cols[c], p[c])), toDb(def.cols[def.pk], id)]);
+        [...cols.map(c => this.versBase(def.cols[c], p[c])), this.versBase(def.cols[def.pk], id)]);
     }
     return (await this.get<T>(table, id))!;
   }
 
   async remove(table: TableName, id: unknown): Promise<void> {
     const def = this.def(table);
-    await this.run(`DELETE FROM ${snake(table)} WHERE ${snake(def.pk)} = ?`, [toDb(def.cols[def.pk], id)]);
+    await this.run(`DELETE FROM ${snake(table)} WHERE ${snake(def.pk)} = ?`, [this.versBase(def.cols[def.pk], id)]);
   }
 
   async count(table: TableName): Promise<number> {
@@ -460,7 +491,7 @@ export abstract class Db {
  * `db.exclusif`, pour ne pas bloquer les autres requêtes pendant l'attente.
  */
 export function enSerie<A extends unknown[], R>(db: Db, fn: (...a: A) => Promise<R> | R): (...a: A) => Promise<R> {
-  return (...a: A) => db.exclusif(() => fn(...a));
+  return async (...a: A) => await db.exclusif(() => fn(...a));
 }
 
 /**
@@ -501,6 +532,7 @@ interface Portee { active: boolean; tx: boolean }
  * busy_timeout). PostgreSQL (8.b) remplacera la file par un verrou consultatif pris en tête de chaque transaction.
  */
 export class SqliteDb extends Db {
+  readonly moteur = 'sqlite' as const;
   /** Connexion node:sqlite : réservée au schéma, aux reprises et migrations nommées et à l'exploitation du fichier. */
   readonly sql: DatabaseSync;
   readonly neuve: boolean;
@@ -577,12 +609,12 @@ export class SqliteDb extends Db {
   }
 
   query<T = Row>(sql: string, params: readonly SqlValeur[] = []): Promise<T[]> {
-    return this.aSonTour(() => this.sql.prepare(sql).all(...params) as T[]);
+    return this.aSonTour(() => this.sql.prepare(sql).all(...sqliteParams(params)) as T[]);
   }
 
   run(sql: string, params: readonly SqlValeur[] = []): Promise<Ecriture> {
     return this.aSonTour(() => {
-      const r = this.sql.prepare(sql).run(...params);
+      const r = this.sql.prepare(sql).run(...sqliteParams(params));
       return { changes: Number(r.changes), lastInsertRowid: Number(r.lastInsertRowid) };
     });
   }
@@ -642,10 +674,35 @@ export class SqliteDb extends Db {
   }
 }
 
+/** Paramètres pour node:sqlite, qui n'accepte pas les booléens : 1 / 0, comme les colonnes `bool`. */
+const sqliteParams = (params: readonly SqlValeur[]) => params.map(v => (typeof v === 'boolean' ? (v ? 1 : 0) : v)) as (string | number | bigint | null | Uint8Array)[];
+
 /** Fichier de la base, en chemin absolu : CURSUS_DB, sinon data/cursus.db du projet (server/src/chemins.ts). */
 export const dbFile = () => fichierBase();
 
-/** Ouvre la base (SQLite : schéma créé ou complété à l'ouverture). */
-export async function openDb(file = dbFile()): Promise<SqliteDb> {
+/**
+ * Adresse du serveur PostgreSQL commun (DATABASE_URL), ou null : Cursus travaille alors sur le fichier SQLite de repli.
+ * Une valeur vide (ou faite d'espaces) vaut absence, comme pour Keystone, Codex et Vigie : l'application de bureau la
+ * force à vide pour neutraliser une variable exportée dans la session du poste.
+ */
+export function urlPostgres(env: Record<string, string | undefined> = process.env): string | null {
+  const url = env.DATABASE_URL?.trim();
+  return url ? url : null;
+}
+
+/**
+ * Ouvre la base. Avec DATABASE_URL : serveur PostgreSQL commun (server/src/db-pg.ts : pool `pg`, schéma cursus,
+ * migrations de server/migrations-pg/ appliquées, schéma contrôlé). Sinon : fichier SQLite `file` (schéma créé ou
+ * complété à l'ouverture).
+ */
+export async function openDb(file = dbFile(), env: Record<string, string | undefined> = process.env): Promise<Db> {
+  const url = urlPostgres(env);
+  if (url) {
+    const { ouvrirPostgres } = await import('./db-pg.ts');
+    return await ouvrirPostgres(url, { env });
+  }
   return new SqliteDb(file);
 }
+
+/** Ouvre le fichier SQLite `file`, quel que soit DATABASE_URL (outils propres au fichier : sauvegarde, reprise). */
+export const openSqlite = async (file = dbFile()): Promise<SqliteDb> => new SqliteDb(file);

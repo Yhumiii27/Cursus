@@ -11,10 +11,10 @@ import { normaliserIdentifiant } from '../../shared/rules/comptes.ts';
 import { ActionError } from './actions/context.ts';
 import { revokeSessionsDuCompte } from './auth.ts';
 import { attribuerProvisoire, compteParIdentifiant, creerCompte, journaliser, nomDuCompte, rattacherCompte, refusDuCompte, type Compte } from './comptes.ts';
-import { dbFile, openDb } from './db.ts';
+import { dbFile, openDb, urlPostgres } from './db.ts';
+import { mettreAJourBase } from './demarrage.ts';
 import { adresseDuCompte } from './messagerie.ts';
-import { migrate } from './migrate.ts';
-import { appliquerMigrations, controlerPourOutil } from './migrations/cadre.ts';
+import { controlerPourOutil } from './migrations/cadre.ts';
 
 const USAGE = `Usage : npm run comptes -- admin <identifiant> [--local] [--nom "Prénom Nom"] [--adresse <e-mail>] [--salarie <n°>]
   <identifiant>  adresse Microsoft 365 de la personne, ou identifiant d'un compte Cursus avec --local
@@ -46,20 +46,26 @@ const AUTEUR = 'Ligne de commande (npm run comptes)';
 const empId = typeof options.salarie === 'string' ? Number(options.salarie.replace(/\D/g, '')) : null;
 if (options.salarie !== undefined && !empId) arreter('Numéro de salarié invalide (--salarie 12 ou --salarie EMP-0012).');
 
-// Base mise à jour par une version plus récente de Cursus, ou pas encore par le serveur en service : refusée.
+// Fichier SQLite : base mise à jour par une version plus récente de Cursus, ou pas encore par le serveur en service :
+// refusée. Serveur PostgreSQL (DATABASE_URL) : openDb applique les migrations et contrôle le schéma, sous verrou.
+const serveurPg = urlPostgres();
 let aMettreAJour = true;
 try {
-  aMettreAJour = controlerPourOutil(dbFile());
+  if (!serveurPg) aMettreAJour = controlerPourOutil(dbFile());
 } catch (err) {
   arreter(`Commande impossible : ${err instanceof Error ? err.message : err}`);
 }
-const db = await openDb();
+let db: Awaited<ReturnType<typeof openDb>>;
+try {
+  db = await openDb();
+} catch (err) {
+  arreter(`Commande impossible : ${err instanceof Error ? err.message : err}`);
+}
 // Service arrêté : base mise à jour comme au démarrage du serveur (reprises, migrations nommées) avant d'y écrire ;
 // le compte n'est jamais écrit dans une colonne qu'une migration reprendrait ensuite.
 if (aMettreAJour) {
   try {
-    await migrate(db);
-    await appliquerMigrations(db);
+    await mettreAJourBase(db);
   } catch (err) {
     await db.fermer();
     arreter(`Commande impossible : ${err instanceof Error ? err.message : err}`);
@@ -106,7 +112,7 @@ try {
   } else if (compte.type === 'microsoft') {
     console.log('Compte Microsoft 365 : connexion par « Se connecter avec Microsoft », rattachée à la première connexion (docs/CONNEXION-MICROSOFT.md).');
   }
-  console.log(`Base : ${dbFile()}`);
+  console.log(serveurPg ? 'Base : serveur PostgreSQL (DATABASE_URL), schéma cursus' : `Base : ${dbFile()}`);
 } catch (err) {
   arreter(err instanceof ActionError ? `${existant ? 'Accès non rétabli' : 'Compte non créé'} : ${err.message}.` : `Erreur : ${err instanceof Error ? err.message : err}`);
 } finally {

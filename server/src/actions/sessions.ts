@@ -222,7 +222,7 @@ const cloturer: ActionHandler = async (ctx, p) => {
   if (realise) {
     const coutReel = !isRh(ctx) || p.coutReel === undefined || p.coutReel === null || p.coutReel === '' ? plan!.cout : montantReel(p.coutReel);
     if (coutReel === null) throw new ActionError('Coût réel de l’action du plan : montant en euros, 0 ou plus');
-    const presents = Number((await ctx.db.one('SELECT COUNT(*) AS n FROM participations p JOIN sessions s ON s.id = p.session_id WHERE s.plan_id = ? AND p.present = 1', [plan!.id]) as { n: number }).n);
+    const presents = Number((await ctx.db.one('SELECT COUNT(*) AS n FROM participations p JOIN sessions s ON s.id = p.session_id WHERE s.plan_id = ? AND p.present = TRUE', [plan!.id]) as { n: number }).n);
     await ctx.db.update<PlanAction>('planActions', plan!.id, { statut: 'realise', coutReel, effectifReel: presents });
   }
   const bilan: SessionBilan = { le: ctx.d.ti, par: ctx.user.nom, note, commentaire, motif: null };

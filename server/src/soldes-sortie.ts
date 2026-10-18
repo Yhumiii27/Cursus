@@ -86,5 +86,5 @@ export async function marquerHorsFichier(db: Db, d: Domain, lot: Pick<LotPaie, '
 
 /** Lot annulé : ses soldes de sortie redeviennent en attente. */
 export async function libererSorties(db: Db, lot: Pick<LotPaie, 'id'>) {
-  await db.run('UPDATE soldes_sortie SET lot_id = NULL WHERE lot_id = ? AND sage = 0', [lot.id]);
+  await db.run('UPDATE soldes_sortie SET lot_id = NULL WHERE lot_id = ? AND sage = FALSE', [lot.id]);
 }

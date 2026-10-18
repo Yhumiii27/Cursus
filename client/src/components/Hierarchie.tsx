@@ -33,6 +33,16 @@ function decrire(d: Domain, x: ElementRedirige): string {
 }
 
 /**
+ * Changement du manager d'une équipe : éléments en attente des managers des équipes rattachées qui passent au nouveau
+ * manager (ceux des membres de l'équipe, annoncés à part, n'y figurent pas), comme le fait le serveur (`equipe.manager`).
+ */
+export function redirectionsManager(d: Domain, nom: string, managerId: number | null): string[] {
+  const equipes = d.ds.referentiels.equipes;
+  const apres = equipes.map(x => (x.nom === nom ? { ...x, managerId } : x));
+  return elementsRediriges(d.ds, equipes, apres).filter(x => d.emp(x.empId)?.equipe !== nom).map(x => decrire(d, x));
+}
+
+/**
  * Équipe parente d'une équipe : liste des équipes qui peuvent l'accueillir (ni elle-même, ni une équipe qui lui est
  * rattachée, ni une hiérarchie au-delà de la profondeur maximale), choix confirmé avec les éléments redirigés.
  */

@@ -891,12 +891,18 @@ entretiens). Une équipe peut désigner une **équipe parente** (`Equipe.parente
   son équipe, le premier manager d'une équipe parente qui n'est pas lui (N+1), sinon le service RH (0). Une équipe sans
   manager reste validée par le service RH. Tous les contrôles qui passent par `mgrOf` (`isValidatorOf`, `isManagerOf`,
   `canAccess`, notifications, relances, écrans) suivent donc la hiérarchie sans autre changement.
-- **Contrôles** : pas de boucle, `PROFONDEUR_MAX` (4) niveaux, pas de validation croisée nouvelle (`validationsCroisees`).
+- **Contrôles** : pas de boucle, `PROFONDEUR_MAX` (4) niveaux, pas de validation croisée nouvelle (`croiseeNouvelle`,
+  qui compare `validationsCroisees` avant et après). Ce dernier refus vaut pour toute action qui change un valideur une
+  fois la hiérarchie en place : `equipe.parente`, `equipe.manager` (et `equipe.modifier`), `equipe.affecter` et
+  `employe.modifier` quand l'équipe change (`refuserCroisee`, server/src/actions/hierarchie.ts).
   Sans équipe parente (défaut, migration `lot6-hierarchie-equipes` qui retire seulement les rattachements impossibles),
   rien ne change.
 - **Redirection** : à l'enregistrement, `elementsRediriges` compare les valideurs avant et après pour les demandes de
   congés (`demandee`), les feuilles soumises et les entretiens planifiés ; message, e-mail au nouveau valideur
-  (`hierarchie.redirection`) et journal (`redirections` : type, identifiant, ancien et nouveau valideur).
+  (`hierarchie.redirection`) et journal (`redirections` : type, identifiant, ancien et nouveau valideur). Le changement
+  du manager d'une équipe parente (`equipe.manager`, `equipe.modifier`) redirige de même les éléments des managers des
+  équipes rattachées (ceux des membres de l'équipe passent au nouveau manager comme auparavant, annoncés par la
+  confirmation) ; la confirmation les liste avant l'enregistrement.
 - **Consultation N+2** (réglage `consultationN2`, Paramètres → Hiérarchie des managers, désactivé par défaut) :
   `lectureSeuleIds` (server/src/dataset.ts) ajoute au périmètre du manager les membres des équipes descendantes de celles
   qu'il encadre (`equipesDescendantes`), transmis dans `Dataset.lectureSeule`. Mêmes filtres que pour l'équipe directe,

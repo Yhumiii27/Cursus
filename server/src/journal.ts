@@ -89,6 +89,13 @@ interface Regle {
 }
 
 const parId = (table: TableName, colonnes: readonly string[]): Cible => ({ table, cle: p => Number(p.id) || null, colonnes });
+/** Hiérarchie (t136) : éléments en attente redirigés (`result.redirections`) : type, identifiant, ancien et nouveau valideur (0 : service RH). */
+const redirigesDe = (result: unknown): Ligne[] => (result as { redirections?: Ligne[] } | null)?.redirections ?? [];
+const bilanRedirections = (result: unknown): Ligne => {
+  const r = redirigesDe(result);
+  return r.length ? { redirections: r.map(e => ({ kind: e.kind, id: e.id, avant: e.avant, apres: e.apres })) } : {};
+};
+const salariesRediriges = (result: unknown): unknown[] => redirigesDe(result).map(e => e.empId);
 /**
  * Élément d'un référentiel, désigné par `id` (modification, archivage) ou `code` (création) et normalisé comme l'action :
  * son code, recopié seulement s'il en a la forme (jamais un texte libre), et ses colonnes avant et après. `archiver` :
@@ -255,19 +262,22 @@ export const REGLES: Record<string, Regle> = {
       }
       return Object.keys(avant).length ? { avant, apres: nouv } : null;
     },
-    salaries: (p, x) => [p.managerId, x.avant?.managerId],
+    bilan: (_p, x) => bilanRedirections(x.result),
+    salaries: (p, x) => [p.managerId, x.avant?.managerId, ...salariesRediriges(x.result)],
   },
-  'equipe.manager': { champs: ['nom', 'managerId'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['managerId'] }, salaries: (p, x) => [p.managerId, x.avant?.managerId] },
+  // Hiérarchie (t136) : éléments en attente des managers d'équipes rattachées, redirigés vers le nouveau manager.
+  'equipe.manager': {
+    champs: ['nom', 'managerId'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['managerId'] },
+    bilan: (_p, x) => bilanRedirections(x.result),
+    salaries: (p, x) => [p.managerId, x.avant?.managerId, ...salariesRediriges(x.result)],
+  },
   'equipe.affecter': { champs: ['empId', 'equipe'], cible: { table: 'employes', cle: p => Number(p.empId) || null, colonnes: ['equipe'] } },
   // Équipe parente (t136) : avant et après, et éléments en attente redirigés (type, identifiant, ancien et nouveau valideur,
   // 0 pour le service RH) ; salariés concernés : ceux des éléments redirigés.
   'equipe.parente': {
     champs: ['nom', 'parente'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['parente'] },
-    bilan: (_p, x) => {
-      const r = (x.result as { redirections?: Ligne[] } | null)?.redirections ?? [];
-      return r.length ? { redirections: r.map(e => ({ kind: e.kind, id: e.id, avant: e.avant, apres: e.apres })) } : {};
-    },
-    salaries: (_p, x) => ((x.result as { redirections?: { empId: number }[] } | null)?.redirections ?? []).map(e => e.empId),
+    bilan: (_p, x) => bilanRedirections(x.result),
+    salaries: (_p, x) => salariesRediriges(x.result),
   },
   // Formations
   'plan.inscrire': { champs: ['empId', 'certId', 'inscriptionId', 'sessionId', 'conv'] },

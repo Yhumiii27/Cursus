@@ -203,3 +203,48 @@ test('migration lot6-hierarchie-equipes : rattachements impossibles retirés, sa
   const neuve = new Db(':memory:');
   assert.ok(appliquerMigrations(neuve).includes('lot6-hierarchie-equipes'));
 });
+
+test('hiérarchie en place : changement de manager, affectation et fiche refusés s’ils créent une validation croisée', () => {
+  const { run, refus, domain } = fresh();
+  run(RH, 'equipe.parente', { nom: 'Maintenance', parente: 'Production' });
+  // Mehdi Benali (membre de la Maintenance) manager de la Production : Karim Haddad le validerait, et lui Karim Haddad.
+  refus(RH, 'equipe.manager', { nom: 'Production', managerId: 2 }, 400, /Mehdi Benali et Karim Haddad deviendraient chacun le valideur de l’autre/);
+  refus(RH, 'equipe.modifier', { nom: 'Production', managerId: 2 }, 400, /deviendraient chacun le valideur de l’autre/);
+  // Fiche de Sophie Lemaire rangée dans la Maintenance : Karim Haddad la validerait, et elle Karim Haddad.
+  refus(RH, 'equipe.affecter', { empId: 3, equipe: 'Maintenance' }, 400, /Sophie Lemaire et Karim Haddad deviendraient chacun le valideur de l’autre/);
+  refus(RH, 'employe.modifier', { id: 3, equipe: 'Maintenance' }, 400, /Sophie Lemaire et Karim Haddad deviendraient chacun le valideur de l’autre/);
+  const d = domain();
+  assert.equal(d.emp(3)!.equipe, 'Production', 'rien n’a été enregistré');
+  assert.equal(d.ds.referentiels.equipes.find(q => q.nom === 'Production')!.managerId, 3);
+  // Sans équipe parente, ces mêmes modifications restent permises (aucune validation croisée).
+  const autre = fresh();
+  assert.ok(autre.run(RH, 'equipe.affecter', { empId: 3, equipe: 'Maintenance' }));
+  assert.ok(autre.run(RH, 'equipe.manager', { nom: 'Production', managerId: 2 }));
+});
+
+test('hiérarchie en place : le nouveau manager d’une équipe parente reçoit les éléments en attente des managers rattachés', () => {
+  const { db, run, domain } = fresh();
+  run(RH, 'equipe.parente', { nom: 'Maintenance', parente: 'Production' });
+  const sh = db.insert<{ id: number }>('feuilles', { empId: 12, week: WEEK, statut: 'soumise', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-MAINT', tache: '', ks: false, h: [7, 7, 7, 7, 7, 0, 0] }] }).id;
+  const avis = () => [...db.all<{ type: string }>('envois'), ...db.all<{ type: string }>('notifications')].filter(e => e.type === 'hierarchie.redirection').length;
+  const n0 = avis();
+  // Marion Petit (13), membre de la Production, en devient manager : la feuille de Karim Haddad lui revient.
+  type R = { message: string; result?: { redirections: { kind: string; id: number; empId: number; avant: number; apres: number }[] } };
+  const r = run(RH, 'equipe.manager', { nom: 'Production', managerId: 13 }) as R;
+  assert.equal(domain().mgrOf(domain().emp(12)!), 13);
+  assert.match(r.message, /^Marion Petit devient manager de l’équipe Production · \d+ éléments? en attente redirigés? vers Marion Petit \(message envoyé au nouveau valideur\) :/);
+  assert.ok(r.result!.redirections.some(x => x.kind === 'feuille' && x.id === sh && x.avant === 3 && x.apres === 13));
+  assert.ok(r.result!.redirections.every(x => x.empId === 12), 'membres de la Production : comme avant, sans avis');
+  assert.equal(avis(), n0 + 1, 'nouveau valideur prévenu');
+  const j = db.all<{ action: string; payload: Record<string, unknown>; salaries: number[] }>('journal').findLast(l => l.action === 'equipe.manager')!;
+  assert.ok((j.payload.redirections as { id: number }[]).some(x => x.id === sh));
+  assert.ok(j.salaries.includes(12));
+  // Par la modification de l'équipe (dialogue) : même redirection, gardée au journal.
+  const r2 = run(RH, 'equipe.modifier', { nom: 'Production', managerId: 3 }) as R;
+  assert.ok(r2.result?.redirections.length);
+  assert.ok(db.all<{ action: string; payload: Record<string, unknown> }>('journal').findLast(l => l.action === 'equipe.modifier')!.payload.redirections);
+  // Équipe sans équipe rattachée : rien de nouveau (ni avis, ni redirection au résultat).
+  const r3 = run(RH, 'equipe.manager', { nom: 'Logistique', managerId: 1 }) as R;
+  assert.equal(typeof r3.message, 'string');
+  assert.equal(r3.result, undefined);
+});

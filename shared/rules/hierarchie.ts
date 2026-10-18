@@ -108,3 +108,19 @@ export function elementsRediriges(
   }
   return out;
 }
+
+/**
+ * Validation croisée créée par une modification (équipe parente, manager d'une équipe, affectation d'un salarié) : la
+ * première paire de salariés qui deviendraient chacun le valideur de l'autre, absente avant la modification ; null sinon.
+ * Une paire déjà présente avant n'est pas reprochée à la modification, qui ne l'a pas créée.
+ */
+export function croiseeNouvelle(
+  avant: { equipes: readonly EquipeH[]; employes: readonly Pick<Employe, 'id' | 'equipe'>[] },
+  apres: { equipes: readonly EquipeH[]; employes: readonly Pick<Employe, 'id' | 'equipe'>[] },
+): [number, number] | null {
+  const deja = new Set(validationsCroisees(avant.equipes, avant.employes));
+  const c = validationsCroisees(apres.equipes, apres.employes).find(x => !deja.has(x));
+  if (!c) return null;
+  const [a, b] = c.split('-').map(Number);
+  return [a, b];
+}

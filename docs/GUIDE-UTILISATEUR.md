@@ -150,7 +150,9 @@ entretiens : un collègue ou son manager le fait.
 - « Équipes & managers » : créer, renommer ou supprimer une équipe, désigner son manager, affecter les salariés.
   « Équipe parente » rattache une équipe à une autre (4 niveaux au plus) : le manager de l'équipe, s'il en est membre,
   est alors validé par le manager de l'équipe parente et non plus par le service RH. La confirmation liste les demandes
-  en attente qui changent de valideur ; le nouveau valideur en est prévenu par e-mail.
+  en attente qui changent de valideur ; le nouveau valideur en est prévenu par e-mail. Il en va de même quand vous
+  changez le manager d'une équipe parente. Une modification qui ferait de deux salariés chacun le valideur de l'autre
+  (rattachement, manager, affectation) est refusée en les nommant.
 - Comptes : Paramètres → Comptes et accès (administrateur RH), « Créer un compte », profil, « Mot de passe » pour un
   nouveau mot de passe provisoire.
 - Départ : « Enregistrer une sortie » sur la fiche (dernier jour, motif en liste fermée). Le solde de congés, RTT,

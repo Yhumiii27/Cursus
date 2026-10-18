@@ -10,7 +10,9 @@ import { refusEquipeNuit } from '../../../shared/rules/mineurs.ts';
 import { champsEnConflit, messageConflit } from '../../../shared/rules/fiche-concurrente.ts';
 import { MANAGER_FIELDS, PROFIL_FIELDS, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
 import type { Employe, Equipe, FeuilleTemps } from '../../../shared/types.ts';
+import { elementsRediriges } from '../../../shared/rules/hierarchie.ts';
 import { dernierAuteurFiche } from './fiche-auteur.ts';
+import { prevenir, redirectionsResultat, refuserCroisee, suiteRedirection } from './hierarchie.ts';
 import { rattacherPoste } from './referentiels.ts';
 import { renommerDerogation, retirerDerogation } from './repos-dominical.ts';
 import { ActionError, getEmp, isManagerOf, isRh, isRhAdmin, requireRh, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
@@ -148,6 +150,10 @@ const modifier: ActionHandler = (ctx, p) => {
       empId: emp.id, week, statut: 'brouillon', comment: null, sage: false, keystone: false, lignes: [], contrat: contratFige(emp),
     }));
   } else row.tempsDepuis = emp.tempsDepuis;
+  // Changement d'équipe : mêmes contrôles de hiérarchie que l'affectation (t136).
+  if ((v.profil.equipe ?? null) !== (emp.equipe ?? null)) {
+    refuserCroisee(ctx, { employes: ctx.ds.employes.map(e => (e.id === emp.id ? { ...e, equipe: v.profil.equipe ?? null } : e)) });
+  }
   ctx.db.update('employes', emp.id, row);
   const suite = [
     figees.length ? `${plural(figees.length, 'semaine sans feuille figée', 'semaines sans feuille figées')} sur l’ancien régime` : '',
@@ -185,13 +191,19 @@ const renommer: ActionHandler = (ctx, p) => {
 const designer: ActionHandler = (ctx, p) => {
   requireRh(ctx);
   const q = getEquipe(ctx, p.nom);
-  if (!p.managerId) {
-    ctx.db.update('equipes', q.nom, { managerId: null });
-    return `L’équipe ${q.nom} n’a plus de manager — validations assurées par le service RH`;
-  }
-  const m = checkManager(ctx, p.managerId);
-  ctx.db.update('equipes', q.nom, { managerId: m.id });
-  return `${m.nom} devient manager de l’équipe ${q.nom}`;
+  const m = p.managerId ? checkManager(ctx, p.managerId) : null;
+  // Hiérarchie (t136) : le manager d'une équipe parente valide aussi les managers des équipes rattachées. Pas de
+  // validation croisée nouvelle ; leurs éléments en attente sont redirigés, comme à l'enregistrement d'une équipe
+  // parente (actions/hierarchie.ts). Ceux des membres de l'équipe passent au nouveau manager, comme auparavant.
+  const equipes = ctx.ds.referentiels.equipes;
+  const apres: Equipe[] = equipes.map(x => (x.nom === q.nom ? { ...x, managerId: m?.id ?? null } : x));
+  refuserCroisee(ctx, { equipes: apres });
+  const elements = elementsRediriges(ctx.ds, equipes, apres).filter(x => ctx.d.emp(x.empId)?.equipe !== q.nom);
+  ctx.db.update('equipes', q.nom, { managerId: m?.id ?? null });
+  const message = m ? `${m.nom} devient manager de l’équipe ${q.nom}` : `L’équipe ${q.nom} n’a plus de manager — validations assurées par le service RH`;
+  if (!elements.length) return message;
+  prevenir(ctx, q.nom, m ? `${m.nom} devient manager de l’équipe ${q.nom}, dont relèvent les managers des équipes rattachées` : `L’équipe ${q.nom} n’a plus de manager`, elements);
+  return { message: message + suiteRedirection(ctx, elements), result: { redirections: redirectionsResultat(elements) } };
 };
 
 /** Suppression d'une équipe vide : administrateur RH. */
@@ -242,6 +254,8 @@ const affecter: ActionHandler = (ctx, p) => {
   // Salarié de moins de 18 ans : jamais dans une équipe de nuit ou en continu (art. L3163-2), quel que soit l'auteur.
   const nuit = refusEquipeNuit(emp, ctx.ds.referentiels.equipes.find(q => q.nom === cible), ctx.d.ti);
   if (nuit) throw new ActionError(nuit);
+  // Hiérarchie (t136) : pas de validation croisée nouvelle (un manager rangé dans l'équipe de son N-1).
+  refuserCroisee(ctx, { employes: ctx.ds.employes.map(e => (e.id === emp.id ? { ...e, equipe: cible } : e)) });
   ctx.db.update('employes', emp.id, { equipe: cible });
   if (!cible) return `${emp.nom} retiré de l’équipe ${avant} — à affecter par le service RH`;
   return `${emp.nom} rejoint l’équipe ${cible}${avant ? ` (auparavant ${avant})` : ''}`;

@@ -9,7 +9,7 @@ import type { Employe, Equipe } from '../../../shared/types.ts';
 import { usePanneauVisible } from '../components/panneau.ts';
 import { Avatar, Btn, Empty, Fine, Page, Panel, Tag, Two } from '../components/ui.tsx';
 import { CartePick } from '../components/Cliquable.tsx';
-import { ParenteEquipe } from '../components/Hierarchie.tsx';
+import { ParenteEquipe, redirectionsManager } from '../components/Hierarchie.tsx';
 import { changementManager, retraitEquipe, suppressionEquipe, type Confirmation } from '../state/confirmations.ts';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -194,7 +194,7 @@ function TeamPanel({ panneau, t, candidates }: { panneau: Ref<HTMLElement>; t: T
     const id = val ? Number(val) : null;
     if (id === mgrId) return;
     const nouveau = id != null ? candidates.find(e => e.id === id) ?? d.emp(id) : undefined;
-    confirmer(changementManager(nom, t.mgrNom, nouveau ? { id: nouveau.id, nom: nouveau.nom } : null));
+    confirmer(changementManager(nom, t.mgrNom, nouveau ? { id: nouveau.id, nom: nouveau.nom } : null, redirectionsManager(d, nom, id)));
   };
 
   const mgrNotes = [

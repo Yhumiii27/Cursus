@@ -312,7 +312,9 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
   que rien ne parte) ; puis, base accessible à d'autres comptes (« Exploitation »).
   Le mode démonstration ne s'active qu'avec `CURSUS_DEMO=1` ; en production (application de bureau),
   `demoPosteLocal` (`server/src/securite.ts`) refuse en plus (403) toute requête relayée par un proxy
-  ou adressée à un autre nom que la boucle locale.
+  ou adressée à un autre nom que la boucle locale, sauf instance de démonstration publiée explicitement
+  (`CURSUS_DEMO_PUBLIQUE=1`, `demoPublique` de `server/src/config.ts` : données fictives, accès restreint en amont,
+  avertissement à chaque démarrage).
 - **Comptes** (`server/src/comptes.ts`, table `comptes`) : un compte par personne — un salarié (`empId`)
   ou une personne externe (nom et adresse, espace RH seulement). Identifiant unique en minuscules
   (l'adresse de connexion Microsoft 365 pour un compte Microsoft ; `oid` renseigné à la première connexion
@@ -477,7 +479,7 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
   périmètre en SQL dans `loadFull` et renvoi partiel de l'instantané (entité modifiée seule, action par action), à
   reprendre si la mesure dépasse la seconde.
 - **Réinitialisation de la démonstration** (`server/src/reset.ts`, garde-fous dans `server/src/reinitialisation.ts`) :
-  refusée hors `CURSUS_DEMO=1`, avec `NODE_ENV=production` sauf l'application de bureau (`demoSurBoucleLocale`), sur
+  refusée hors `CURSUS_DEMO=1`, avec `NODE_ENV=production` sauf l'application de bureau (`demoSurBoucleLocale`) et l'instance publiée (`demoPublique`), sur
   une base qu'un serveur en service n'a pas encore mise à jour (`controlerPourOutil`), sur une base qu'un serveur
   utilise (verrou, `serveurActif`) sauf `--force` ; confirmation par `--yes` ou par le mot `EFFACER` tapé dans un
   terminal (sans terminal ni `--yes` : refus). Base existante copiée (« avant-reinitialisation ») avant l'effacement.

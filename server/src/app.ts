@@ -11,7 +11,7 @@ import { ActionError, makeCtx } from './actions/context.ts';
 import { DEMO } from './auth.ts';
 import { dossierInterface } from './chemins.ts';
 import { compression } from './compression.ts';
-import { compressionActive, configMail, enProduction, trustProxy } from './config.ts';
+import { compressionActive, configMail, demoPublique, enProduction, trustProxy } from './config.ts';
 import { espaceChange, identite, routesConnexion } from './connexion.ts';
 import { routesConfidentialite } from './confidentialite.ts';
 import { buildSnapshot, loadFull } from './dataset.ts';
@@ -60,7 +60,8 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   if (options.compression ?? compressionActive()) app.use(compression());
   app.use(securityHeaders(production));
   // Démonstration en production (application de bureau) : requêtes de ce poste uniquement, jamais via le proxy.
-  if (DEMO && production) app.use(demoPosteLocal());
+  // Démonstration en production : poste local seulement, sauf instance publiée explicitement (CURSUS_DEMO_PUBLIQUE=1).
+  if (DEMO && production && !demoPublique()) app.use(demoPosteLocal());
   // Point de santé de la supervision (état de la base ; détail en local ou avec le jeton) : sans connexion, avant le
   // limiteur de débit et les autres routes /api (server/src/supervision.ts).
   app.use(routeSante(db));

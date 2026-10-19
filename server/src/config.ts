@@ -30,6 +30,16 @@ export function demoSurBoucleLocale(env: Env = process.env): boolean {
   return demoActive(env) && BOUCLE_LOCALE.includes(env.CURSUS_HOST || env.HOST || '');
 }
 
+/**
+ * Démonstration publiée derrière le reverse proxy (hébergeur à conteneurs, Coolify), autorisée explicitement par
+ * CURSUS_DEMO_PUBLIQUE=1 : instance de démonstration aux données fictives seulement, dont l'accès est restreint en amont
+ * (authentification du proxy, liens diffusés à quelques personnes). Jamais sur une base de production : l'espace RH
+ * s'y ouvre sans mot de passe.
+ */
+export function demoPublique(env: Env = process.env): boolean {
+  return demoActive(env) && env.CURSUS_DEMO_PUBLIQUE === '1';
+}
+
 export function portEcoute(env: Env = process.env): number {
   return Number(env.CURSUS_API_PORT || env.PORT || 3210);
 }
@@ -244,7 +254,8 @@ export function problemesConfig(env: Env = process.env): string[] {
   const jeton = env.CURSUS_SUPERVISION_TOKEN?.trim();
   if (jeton && jeton.length < 32) out.push(`CURSUS_SUPERVISION_TOKEN est trop courte (${jeton.length} caractères) : 32 au minimum (openssl rand -hex 32).`);
   if (env.CURSUS_TODAY) out.push(`CURSUS_TODAY est définie (${env.CURSUS_TODAY}) : elle fige la date du jour et reste réservée à la démonstration et aux tests.`);
-  if (demo && !local) out.push(`Le mode démonstration (CURSUS_DEMO=1) ouvre l’espace RH sans mot de passe : il n’est admis que sur la boucle locale posée explicitement (CURSUS_HOST=127.0.0.1, application de bureau), jamais derrière le reverse proxy ; écoute actuelle : ${hote}.`);
+  if (demo && !local && !demoPublique(env)) out.push(`Le mode démonstration (CURSUS_DEMO=1) ouvre l’espace RH sans mot de passe : il n’est admis que sur la boucle locale posée explicitement (CURSUS_HOST=127.0.0.1, application de bureau), ou derrière le reverse proxy avec CURSUS_DEMO_PUBLIQUE=1 (instance de démonstration aux données fictives, accès restreint en amont) ; écoute actuelle : ${hote}.`);
+  if (env.CURSUS_DEMO_PUBLIQUE === '1' && !demo) out.push('CURSUS_DEMO_PUBLIQUE=1 est définie sans CURSUS_DEMO=1 : elle n’a d’effet qu’en démonstration. Retirez-la.');
   if (env.CURSUS_INSECURE_COOKIE === '1' && !local) out.push('CURSUS_INSECURE_COOKIE=1 retire l’attribut Secure du cookie de session : réservé à l’application de bureau (démonstration sur la boucle locale).');
   out.push(...problemesOidc(env));
   out.push(...problemesExpirationSecret(env));

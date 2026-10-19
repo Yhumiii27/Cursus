@@ -173,7 +173,8 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `CURSUS_BACKUP_KEEP` | Sauvegardes conservées par type (14 par défaut, `0` pour tout garder) |
 | `CURSUS_PIECES_DIR` | Dossier des pièces justificatives en stockage local (`pieces/` à côté de la base par défaut : `/data/pieces` dans l'image Docker). Réservé au compte du serveur (`700`, fichiers en `600`) |
 | `CURSUS_TODAY` | Fige la date du jour (AAAA-MM-JJ), utile pour la démonstration — les données de démo sont datées d'octobre 2026. Refusée en production |
-| `CURSUS_DEMO` | `1` pour activer le mode démonstration (connexion libre, sélecteur de vue, réinitialisation, données fictives dans une base vide). Inactif par défaut ; en production, admis seulement pour l'application de bureau (`CURSUS_HOST=127.0.0.1` explicite), jamais derrière le reverse proxy |
+| `CURSUS_DEMO` | `1` pour activer le mode démonstration (connexion libre, sélecteur de vue, réinitialisation, données fictives dans une base vide). Inactif par défaut ; en production, admis seulement pour l'application de bureau (`CURSUS_HOST=127.0.0.1` explicite), ou derrière le reverse proxy avec `CURSUS_DEMO_PUBLIQUE=1` |
+| `CURSUS_DEMO_PUBLIQUE` | `1` : instance de démonstration publiée derrière le proxy (Coolify), données fictives seulement, accès restreint en amont (« Mise en ligne » ci-dessous). Sans effet hors démonstration |
 | `CURSUS_SECRET` | Clé de signature des sessions, 32 caractères au moins (`openssl rand -hex 32`). Obligatoire en production ; ailleurs, générée et stockée en base, puis retirée de la base au premier démarrage avec la variable |
 | `CURSUS_INSECURE_COOKIE` | `1` : cookie sans l'attribut `Secure`, pour l'application de bureau en http://127.0.0.1 uniquement. Refusée en production hors application de bureau |
 | `KEYSTONE_API_KEY` | Clé attendue des appels entrants de Keystone (en-tête `X-Api-Key`). Obligatoire en production ; sans elle, les routes Keystone répondent 503. La clé `demo-keystone` n'est acceptée qu'en mode démonstration, quand la variable est vide |
@@ -435,6 +436,13 @@ réseau Docker (`CURSUS_TRUST_PROXY=loopback,uniquelocal`), où se trouve le pro
 le HTTPS et l'adresse réelle des utilisateurs. Le mode démonstration est refusé derrière ce proxy : la connexion passe
 par les comptes nominatifs (premier administrateur créé avec `npm run comptes` dans le conteneur, `docs/DEPLOIEMENT.md`),
 puis par Microsoft 365 une fois configuré (`docs/CONNEXION-MICROSOFT.md`).
+
+**Instance de démonstration en ligne.** Pour montrer Cursus avant la mise en service, `CURSUS_DEMO=1` avec
+`CURSUS_DEMO_PUBLIQUE=1` admet la démonstration derrière le proxy : 24 salariés fictifs chargés dans une base vide, espace RH
+ouvert sans mot de passe à qui atteint l'adresse, avertissement à chaque démarrage. L'accès se restreint en amont
+(authentification HTTP de Coolify, liens diffusés à quelques personnes) ; `CURSUS_SECRET` et `KEYSTONE_API_KEY` restent
+exigées. Jamais avec de vraies données : au passage en production, retirer les deux variables et repartir d'une base vide
+(nouveau volume, ou fichier `/data/cursus.db` supprimé, conteneur arrêté), puis créer le premier administrateur.
 
 **Déclaration du schéma à Matrix.** Au démarrage, une fois les migrations faites, Cursus lit le schéma réel de sa base
 (tables, colonnes, clés, unicités) et l'envoie à Matrix, le catalogue des bases de Keystone, Codex, Cursus et Vigie

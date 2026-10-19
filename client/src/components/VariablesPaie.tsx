@@ -43,7 +43,9 @@ export function VariablesPaie({ periodes }: { periodes: string[] }) {
       </div>
       <Fine>
         Matricule de paie, salarié, code Sage, libellé, quantité et détail (semaine, ou absence et ses dates, rappel d’une période close,
-        régularisation) : lignes des lots générés ou transmis de la période, puis ce qui attend encore un lot. La nature d’une absence n’y figure
+        régularisation ; déplacement avec son pays et ses dates) : lignes des lots générés ou transmis de la période, puis ce qui attend encore un
+        lot. Un élément sans rubrique active (déplacements tant que leur réglage est décoché, solde de sortie, absence) y figure « À saisir dans
+        Sage » : absent du fichier, la paie le saisit à la main. La nature d’une absence n’y figure
         jamais ; sa rubrique en dit la catégorie, d’où un export réservé à la paie. Chaque export est tracé dans le journal.
       </Fine>
     </>

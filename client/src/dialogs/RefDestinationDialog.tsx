@@ -2,11 +2,14 @@
 // plus) : formalité d'entrée, vaccins obligatoires ou recommandés, validité du passeport exigée après l'entrée,
 // formalité de sécurité sociale du détachement. Les règles de visa et les vaccins restent ceux de Cursus
 // (shared/constants.ts). Les dossiers voyage sont recalculés à l'affichage : les déplacements prévus suivent la règle.
+// Vigilance de France Diplomatie (t068, shared/rules/vigilance.ts) : couleur et jour de la vérification, saisis à la main
+// (pas d'API) ; passer à l'orange ou au rouge prévient les managers des voyageurs.
 import { useState } from 'react';
 import { SECU_RULES, VACCINS, VISA_RULES, secuDe } from '../../../shared/constants.ts';
 import { plural } from '../../../shared/format.ts';
 import { controlerDestination, PASSEPORT_MOIS_MAX, VACCIN_TOUJOURS_RECOMMANDE, type ChampDestination } from '../../../shared/rules/referentiels.ts';
-import type { SecuDetachement, VaccinId, VisaKind } from '../../../shared/types.ts';
+import { devientDeconseillee, VIGILANCES, voyagesVers } from '../../../shared/rules/vigilance.ts';
+import type { SecuDetachement, VaccinId, Vigilance, VisaKind } from '../../../shared/types.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
@@ -30,16 +33,20 @@ export function RefDestinationDialog({ code: code0 }: { code?: string | null }) 
   ])));
   const [passMois, setPassMois] = useState(avant ? String(avant.passMois) : '');
   const [secu, setSecu] = useState<string>(avant?.secu ?? '');
+  const [vigilance, setVigilance] = useState<string>(avant?.vigilance ?? '');
+  const [vigilanceLe, setVigilanceLe] = useState(avant?.vigilanceLe ?? '');
   const [busy, setBusy] = useState(false);
   const v = useVerification();
   const disparue = !!code0 && !avant;
 
   const codePays = avant?.code ?? code.trim().toUpperCase();
   const champs = {
-    pays, visa, visaSub, passMois, secu,
+    pays, visa, visaSub, passMois, secu, vigilance, vigilanceLe,
     oblig: CHOIX_VACCINS.filter(x => vaccins[x] === 'oblig'), rec: CHOIX_VACCINS.filter(x => vaccins[x] === 'rec'),
   };
-  const { erreurs, destination } = controlerDestination({ ...champs, code: codePays }, liste, avant?.code ?? null);
+  const { erreurs, destination } = controlerDestination({ ...champs, code: codePays }, liste, avant?.code ?? null, d.ti);
+  // Passage à l'orange ou au rouge : déplacements prévus vers ce pays, signalés avant d'enregistrer.
+  const alerte = devientDeconseillee(avant?.vigilance, (vigilance || null) as Vigilance | null) ? voyagesVers(d.ds.voyages, codePays, d.ti).length : null;
   const erreur = (k: ChampDestination, saisi: string) => (saisi.trim() ? erreurs[k] ?? null : v.erreur(erreurs[k]));
   // Sécurité sociale déduite du code pays, tant qu'aucune n'est choisie.
   const deduite = SECU_RULES[secuDe({ code: codePays, secu: null })].label;
@@ -108,6 +115,23 @@ export function RefDestinationDialog({ code: code0 }: { code?: string | null }) 
             </select>
           </Field>
         </div>
+        <div className="grid-2">
+          <Field label="Vigilance (France Diplomatie)" htmlFor="rd-vigilance" erreur={v.erreur(erreurs.vigilance)}>
+            <select className="input" id="rd-vigilance" value={vigilance} onChange={e => setVigilance(e.target.value)}>
+              <option value="">Non renseignée</option>
+              {(Object.keys(VIGILANCES) as Vigilance[]).map(k => <option key={k} value={k}>{`${k.charAt(0).toUpperCase()}${k.slice(1)} — ${VIGILANCES[k].label}`}</option>)}
+            </select>
+          </Field>
+          <Field label="Vérifiée le" htmlFor="rd-vigilance-le" erreur={vigilanceLe ? erreurs.vigilanceLe ?? null : v.erreur(erreurs.vigilanceLe)}>
+            <input className="input" id="rd-vigilance-le" type="date" max={d.ti} value={vigilanceLe} onChange={e => setVigilanceLe(e.target.value)} />
+          </Field>
+        </div>
+        {alerte != null && (
+          <Fine>
+            {alerte ? `${plural(alerte, 'déplacement à venir ou en cours', 'déplacements à venir ou en cours')} vers ce pays : les managers des voyageurs seront prévenus à l’enregistrement.` : 'Aucun déplacement prévu vers ce pays.'}
+            {vigilance === 'rouge' ? ' Zone rouge : le Go / No Go des chantiers concernés prend une réserve.' : ''}
+          </Fine>
+        )}
         {destination && <p className="text-muted fine">{d.destSummary(destination)}</p>}
         <Fine>
           Données indicatives à vérifier sur France Diplomatie, auprès d’un centre de vaccinations internationales et, pour la sécurité sociale, sur cleiss.fr.

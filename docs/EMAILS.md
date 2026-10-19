@@ -109,8 +109,6 @@ limitée à la boîte d'envoi.
 
 ## 4. Variables d'environnement
 
-Dans `/etc/cursus/cursus.env` (modèle : `.env.example`), puis `sudo systemctl restart cursus`.
-
 | Variable | Valeur |
 | --- | --- |
 | `CURSUS_MAIL_FROM` | Adresse de la boîte d'envoi (`cursus@entreprise.fr`). Sans elle : simulation |
@@ -119,16 +117,25 @@ Dans `/etc/cursus/cursus.env` (modèle : `.env.example`), puis `sudo systemctl r
 | `CURSUS_MAIL_CLIENT_SECRET` | Valeur du secret client ; par défaut `CURSUS_OIDC_CLIENT_SECRET`. Noter sa date d'expiration |
 | `CURSUS_PUBLIC_URL` | Adresse publique de Cursus (`https://cursus.example.fr`) : lien en pied de chaque e-mail, identifiant des événements `.ics`. Elle fait partie de la configuration de la connexion Microsoft (les quatre variables, ou aucune) |
 
+**Dans Coolify** (installation principale, en conteneur : README.md, « Mise en ligne ») : les variables se saisissent
+dans l'onglet « Environment Variables » de l'application, `CURSUS_MAIL_CLIENT_SECRET` cochée comme secrète (« Is
+Literal » aussi si la valeur contient un `$`), puis « Redeploy » : le conteneur est recréé avec elles, sans changer de
+code. Un problème de configuration apparaît dans l'onglet « Logs » en ligne JSON de niveau `erreur`, et le conteneur
+s'arrête (déploiement en échec) ; un envoi en échec se suit dans Paramètres → Envois (« Suivi et incidents »).
+
+**Installation systemd** (alternative, `docs/DEPLOIEMENT.md`) : les mêmes variables dans `/etc/cursus/cursus.env`
+(modèle : `.env.example`), puis `sudo systemctl restart cursus` ; les problèmes se lisent dans `journalctl -u cursus`.
+
 Au démarrage, en production, Cursus refuse de démarrer et liste le problème si `CURSUS_MAIL_FROM` n'est pas
 une adresse, si l'application n'est pas entièrement désignée (locataire, ID d'application, secret, par les
 variables `CURSUS_MAIL_*` ou `CURSUS_OIDC_*`), si le locataire n'est pas un GUID, ou si des variables
 `CURSUS_MAIL_*` sont définies sans `CURSUS_MAIL_FROM` (les e-mails resteraient simulés sans qu'on s'en aperçoive).
 
-**Variables dans Coolify** (installation en conteneur, README.md, « Mise en ligne ») : les mêmes variables se saisissent
-dans l'onglet « Environment Variables » de l'application, `CURSUS_MAIL_CLIENT_SECRET` cochée comme secrète (« Is
-Literal » aussi si la valeur contient un `$`), puis « Redeploy ». Un problème de configuration apparaît dans l'onglet
-« Logs » en ligne JSON de niveau `erreur`, et le conteneur s'arrête (déploiement en échec) ; un envoi en échec se suit
-dans Paramètres → Envois (« Suivi et incidents »).
+**Expiration du secret** : quand l'envoi utilise l'application de la connexion Microsoft (cas par défaut), la date posée
+dans `CURSUS_OIDC_SECRET_EXPIRE` fait prévenir 30 jours avant (point de santé `degrade`, ligne du récapitulatif des
+échéances : `docs/CONNEXION-MICROSOFT.md`, section 3). Un secret propre à l'envoi (`CURSUS_MAIL_CLIENT_SECRET`) n'est
+pas surveillé : noter sa date au calendrier d'exploitation. Un secret expiré fait échouer chaque envoi (refus du
+service de jetons, échec définitif, visible dans Paramètres → Envois).
 
 **Réseau** : la machine de Cursus doit joindre en HTTPS (443, sortant) `login.microsoftonline.com` et
 `graph.microsoft.com`.

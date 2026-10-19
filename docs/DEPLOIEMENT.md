@@ -156,6 +156,7 @@ sudo nano /etc/cursus/cursus.env
 | `CURSUS_HOST` | à laisser vide : 127.0.0.1 par défaut en production |
 | `CURSUS_TRUST_PROXY` | à laisser vide (`loopback`) quand le proxy est sur la même machine ; sinon, son adresse |
 | `CURSUS_DB` | `/var/lib/cursus/cursus.db` (chemin absolu ; un chemin relatif partirait du dossier de lancement) |
+| `CURSUS_PIECES_DIR` | à laisser vide : pièces justificatives dans `/var/lib/cursus/pieces` (à côté de la base, même disque chiffré, sauvegardées avec elle) ; ne les activer qu'après l'avis du DPO (Paramètres → Pièces justificatives) |
 | `CURSUS_SECRET` | 64 caractères aléatoires, propres à cette installation. La changer déconnecte tout le monde |
 | `KEYSTONE_API_KEY` | clé aléatoire transmise à Keystone par un canal sûr. Sans elle, les routes Keystone répondent 503 |
 | `CURSUS_SUPERVISION_TOKEN` | facultative : jeton aléatoire (32 caractères au moins, `openssl rand -hex 32`) de l'outil de supervision, qui obtient alors le détail du point de santé à travers le proxy (« Exploitation courante ») |
@@ -163,12 +164,13 @@ sudo nano /etc/cursus/cursus.env
 | `CURSUS_COMPRESSION` | à laisser vide (`1`) : Cursus compresse lui-même ses réponses (brotli, gzip) ; `0` si le proxy compresse déjà et qu'on préfère lui laisser ce travail |
 | `CURSUS_OIDC_TENANT`, `CURSUS_OIDC_CLIENT_ID`, `CURSUS_OIDC_CLIENT_SECRET` | connexion Microsoft 365 : ID de l'annuaire (GUID), ID d'application et secret client relevés dans Entra (`docs/CONNEXION-MICROSOFT.md`). Noter la date d'expiration du secret |
 | `CURSUS_PUBLIC_URL` | `https://cursus.example.fr` : adresse publique, sans chemin. URI de redirection à inscrire dans Entra : `https://cursus.example.fr/api/auth/microsoft/retour` |
+| `CURSUS_OIDC_SECRET_EXPIRE` | facultative, conseillée : date d'expiration du secret client (`AAAA-MM-JJ`) ; 30 jours avant, le point de santé passe en `degrade` et le récapitulatif des échéances le signale au service RH (`docs/CONNEXION-MICROSOFT.md`, section 3) ; démarrage refusé si ce n'est pas une date ou sans `CURSUS_OIDC_CLIENT_SECRET` |
 | `CURSUS_OIDC_AUTORITE` | **jamais** : réservée aux tests automatiques, Cursus refuse de démarrer avec elle |
 | `CURSUS_MAIL_FROM` | boîte d'envoi des e-mails (`cursus@entreprise.fr`) ; sans elle, les e-mails sont simulés (`docs/EMAILS.md`) |
 | `CURSUS_MAIL_TENANT`, `CURSUS_MAIL_CLIENT_ID`, `CURSUS_MAIL_CLIENT_SECRET` | application Entra autorisée à envoyer (`Mail.Send`, restreinte à la boîte d'envoi) ; par défaut celle de la connexion Microsoft. Noter la date d'expiration du secret |
 | `KEYSTONE_URL`, `KEYSTONE_TOKEN` | envois à Keystone : adresse de base de Keystone sur le réseau interne (`http://keystone.interne:8080`) et jeton convenu avec lui. Cursus refuse de démarrer avec l'adresse sans le jeton, ou avec des identifiants dans l'adresse. Sans adresse, les messages ne sont que tracés dans le journal |
 | `SAGE_MODE`, `SAGE_DOSSIER` | transmission à Sage Paie : à laisser vide (fichier d'import, mode de production) ; dossier de paie (`CURSUS-CHIMIE` par défaut). **Jamais** `SAGE_MODE=api` ni `SAGE_MODE=simulation`, **jamais** `SAGE_URL` : Cursus refuse de démarrer avec eux (voir « Sage Paie ») |
-| `CURSUS_DEMO`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE` | **jamais** sur ce serveur. La démonstration ouvre l'espace RH sans mot de passe : Cursus refuse de démarrer avec elle, et refuserait de toute façon (403) chaque requête relayée par le proxy |
+| `CURSUS_DEMO`, `CURSUS_DEMO_PUBLIQUE`, `CURSUS_TODAY`, `CURSUS_INSECURE_COOKIE` | **jamais** sur ce serveur (une instance de démonstration en ligne, séparée et aux données fictives : README.md, « Mise en ligne »). La démonstration ouvre l'espace RH sans mot de passe : Cursus refuse de démarrer avec elle, et refuserait de toute façon (403) chaque requête relayée par le proxy |
 
 Au démarrage, Cursus contrôle cette configuration. S'il manque une valeur obligatoire ou si un
 réglage est dangereux, il refuse de démarrer, liste chaque problème dans le journal
@@ -467,6 +469,9 @@ sudo docker inspect --format '{{.State.Health.Status}}' cursus  # healthy
 - `--stop-timeout 20` : `docker stop` envoie SIGTERM ; Cursus finit les requêtes en cours (10 s au plus) et ferme la
   base avant que Docker ne coupe le conteneur.
 - Le volume reçoit le chiffrement du disque de la machine (« Protection des données sur le disque »).
+- Pièces justificatives, une fois activées par l'administrateur RH : dans le même volume (`/data/pieces`), rendu au
+  compte `cursus` comme le reste ; aucun volume supplémentaire à déclarer dans Coolify (laisser `CURSUS_PIECES_DIR`
+  vide : un dossier hors de `/data` ne serait ni persistant ni rendu au compte du service).
 - Point de santé : un `curl` lancé sur la machine vers `127.0.0.1:3210` entre dans le conteneur par le pont Docker,
   pas par sa boucle locale ; il n'obtient que la réponse publique `{"statut":"ok","base":"ok"}`. Le détail (version,
   mode, envois en échec) s'obtient dans le conteneur, comme la sonde `HEALTHCHECK` :
@@ -590,8 +595,9 @@ avant le premier lot réel qui en porte. Intérimaires (relevé envoyé à l'age
 Jours fériés travaillés (lot 5) : le 1er mai part en MAJ_1MAI (majoration de 100 %, heures équivalentes), les autres
 fériés en quantité FERIE_TRAV (et MAJ_FERIE si Paramètres → Décompte des heures prévoit une majoration) ; la
 contrepartie obligatoire en repos au-delà du contingent annuel part en COR_ACQUIS. Ces quatre rubriques sont « à
-confirmer » : la paie confirme leur code Sage ou les désactive. Le lundi de Pentecôte travaillé au titre de la journée
-de solidarité est repéré comme férié : la paie le traite (art. L3133-8).
+confirmer » : la paie confirme leur code Sage ou les désactive. La journée de solidarité et les fériés chômés se règlent
+par année (Paramètres → Jours fériés et journée de solidarité, lundi de Pentecôte chômé par défaut) : un jour ainsi
+travaillé n'est plus férié, ni FERIE_TRAV ni majoration (art. L3133-8).
 
 **Changement de comportement à la mise à jour (lot 5)** : les heures complémentaires du temps partiel sont plafonnées au
 dixième de la durée contractuelle (art. L3123-28) et non plus au tiers ; au-delà, la soumission de la feuille exige un
@@ -751,6 +757,9 @@ qu'avec `CURSUS_DEMO=1`). Après les référentiels, cinq imports CSV, dans cet 
    un autre membre du service RH. Un congé déjà saisi dans Cursus avant la date d'arrêté est signalé (il serait décompté deux fois).
    Renseigner la même date dans Paramètres → Absences et paie (« Absences transmises à partir du ») : les jours
    d'absence d'avant, déjà traités par Lucca et Sage, ne partiront jamais dans le fichier d'import de la paie.
+   De même dans Paramètres → Déplacements et paie (« Déplacements transmis à partir du ») pour les jours de déplacement.
+   La case « Transmettre les déplacements dans le fichier d’import de la paie » reste décochée tant que la paie n'a pas
+   confirmé ses codes (GD_JOUR, GD_NUIT, ETR_JOUR, TRAJET) : d'ici là, chaque lot les liste « à saisir dans Sage ».
 4. **Certifications** (formation, date d'obtention).
 5. **Visites médicales** : date de la dernière visite et avis (apte, apte avec restrictions, inapte ; « non apte »
    vaut inapte). Une ligne sans avis n'est enregistrée « apte » qu'après avoir coché sa confirmation dans l'aperçu ;
@@ -842,10 +851,18 @@ entrées, sorties et compteurs ne se tiennent plus dans Lucca.
   l'écrit dans son journal (niveau `avertissement`, nombre par référence) et dans le journal des actions
   (`integrite.orphelins`, Paramètres → Journal des actions, famille « Administration »), sans bloquer le démarrage ;
   le point de santé répond alors 200 `{"statut":"degrade","base":"ok"}`, sans aucun nombre en public, et donne le détail
-  au poste local ou au jeton (`"orphelins": 2, "references": {"feuilles.emp_id → employes": 2}`). Le contrôle est
+  au poste local ou au jeton (`"orphelins": 2, "references": {"feuilles.emp_id → employes": 2}`). `degrade` signale
+  aussi un secret client Entra qui expire dans 30 jours ou moins (`CURSUS_OIDC_SECRET_EXPIRE`), détail
+  `"secretMicrosoft": {"expireLe": "2027-03-31", "jours": 21}` : le renouveler (`docs/CONNEXION-MICROSOFT.md`, section 3). Le contrôle est
   refait au plus une fois par heure. À examiner avec l'éditeur avant toute correction (restaurer une sauvegarde ou
   compléter la reprise) : Cursus ne supprime rien de lui-même. Aucune clé étrangère n'est encore imposée par la base ;
   elles le seront une fois la base de reprise du 1er janvier 2027 vérifiée sans orphelin.
+  Pièces justificatives (lot 6) : le même contrôle compte les pièces dont le fichier manque dans le dossier des pièces
+  ou n'a plus la taille de l'envoi (`pieces.fichier → dossier des pièces (absent)`), et celles dont l'objet (absence,
+  certification…) a disparu ; l'empreinte SHA-256 est vérifiée à chaque ouverture d'une pièce (409 « fichier altéré »).
+  Pièce absente : la restaurer depuis les sauvegardes (`docs/SAUVEGARDE.md`, section 7). Toutes les heures, Cursus
+  efface les pièces envoyées et jamais jointes depuis 24 h, les fichiers des pièces retirées et les fichiers que plus
+  aucune pièce ne désigne depuis 24 h (bilan dans son journal).
 - Journaux du serveur (`server/src/logs.ts`) : une ligne par message de démarrage, d'arrêt ou d'incident, et une ligne
   par requête : heure, méthode, chemin sans ses paramètres, statut, durée en millisecondes et numéro du compte connecté.
   Jamais le contenu d'une requête ni ses paramètres, qui portent des données personnelles ; la sonde de santé réussie

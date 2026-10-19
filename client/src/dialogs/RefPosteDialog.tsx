@@ -5,6 +5,7 @@
 import { useMemo, useState } from 'react';
 import { plural } from '../../../shared/format.ts';
 import { controlerPoste, effetExigences, effetTexte, exigencesProposees, nombreExigences, titulaires } from '../../../shared/rules/exigences.ts';
+import { ARTICLE_L4154, avertissementRenforcee, raisonsDExaminer } from '../../../shared/rules/formation-renforcee.ts';
 import type { Exigences } from '../../../shared/types.ts';
 import { Bloquant, CancelButton, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { ExigencesChoix } from '../components/ExigencesChoix.tsx';
@@ -27,12 +28,17 @@ export function RefPosteDialog({ id }: { id?: number | null }) {
   const [sir, setSir] = useState(avant?.sir ?? false);
   // Poste exposé à des risques particuliers : visite post-exposition de ses titulaires à leur sortie (décoché par défaut).
   const [expose, setExpose] = useState(avant?.expose ?? false);
+  // Poste de la liste des postes à risques particuliers (art. L4154-2) : formation renforcée des CDD, intérimaires et
+  // alternants (shared/rules/formation-renforcee.ts). Décoché par défaut, jamais coché d'office : seulement proposé.
+  const [risques, setRisques] = useState(avant?.risquesL4154 ?? false);
   const [busy, setBusy] = useState(false);
   const [confirmer, setConfirmer] = useState(false);
   const v = useVerification();
   const disparu = id != null && !avant;
 
-  const { erreurs, poste } = controlerPoste({ nom, ...exigences, sir, expose }, ref, avant?.id ?? null);
+  const { erreurs, poste } = controlerPoste({ nom, ...exigences, sir, expose, risquesL4154: risques }, ref, avant?.id ?? null);
+  const aExaminer = raisonsDExaminer(ref, { ...exigences, sir, expose, risquesL4154: risques });
+  const renforcee = risques ? avertissementRenforcee(d.ds) : null;
   const membres = useMemo(() => (avant ? titulaires(d.ds, avant.id) : []), [d, avant]);
   const proposees = useMemo(() => exigencesProposees(d.ds, membres), [d, membres]);
   // Salariés à qui il manquera une exigence de plus : calculé quand les exigences changent.
@@ -48,7 +54,7 @@ export function RefPosteDialog({ id }: { id?: number | null }) {
     if (busy || !v.verifier(erreurs.nom, erreurs.formations, erreurs.habilitations, disparu)) return;
     if (!force && nouveaux.length) { setConfirmer(true); return; }
     setBusy(true);
-    const p = { nom: nom.trim(), ...exigences, sir, expose };
+    const p = { nom: nom.trim(), ...exigences, sir, expose, risquesL4154: risques };
     const r = await run('referentiel.poste.enregistrer', avant ? { id: avant.id, ...p } : p);
     setBusy(false);
     if (r.ok) closeDialog();
@@ -78,6 +84,12 @@ export function RefPosteDialog({ id }: { id?: number | null }) {
           <input type="checkbox" checked={expose} onChange={e => setExpose(e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
           Poste exposé à des risques particuliers (agents chimiques dangereux, CMR, ATEX…) : visite post-exposition à la sortie (art. L4624-2-1)
         </label>
+        <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14 }}>
+          <input type="checkbox" checked={risques} onChange={e => setRisques(e.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />
+          Liste des postes à risques particuliers ({ARTICLE_L4154}) : formation renforcée à la sécurité des CDD, intérimaires et alternants
+        </label>
+        {aExaminer.length > 0 && <Fine>À examiner pour la liste des postes à risques particuliers ({aExaminer.join(' · ')}) : à cocher après avis du médecin du travail et du CSE.</Fine>}
+        {renforcee && <NoteAccent>{renforcee} Désignez-la dans Paramètres → Postes à risques particuliers.</NoteAccent>}
         {avant && nombreExigences(proposees) > 0 && !inclus(proposees, exigences) && (
           <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 'var(--space-3)', flexWrap: 'wrap' }}>
             <Fine>

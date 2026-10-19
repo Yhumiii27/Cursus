@@ -12,6 +12,8 @@ import { actifs } from '../../../shared/rules/referentiels.ts';
 import { usePanneauVisible } from '../components/panneau.ts';
 import { Btn, Chips, CloseButton, Empty, Fine, Page, Panel, Tag, Two, stop } from '../components/ui.tsx';
 import { Ouvrir } from '../components/Cliquable.tsx';
+import { VoyageVigilance } from '../components/VoyageVigilance.tsx';
+import { VIGILANCES } from '../../../shared/rules/vigilance.ts';
 import { useAgir } from '../state/actions.ts';
 import { refusKeystone } from '../state/confirmations.ts';
 import { annulationVoyage } from '../state/confirmations-annulations.ts';
@@ -187,7 +189,7 @@ export function Voyages() {
       <Panel title="Référentiel destinations" aside={<Btn small onClick={() => go('referentiels', { refOnglet: 'destinations' })}>Modifier les destinations</Btn>}>
         <div className="scroll-x">
           <table className="table">
-            <thead><tr><th>Pays</th><th>Entrée</th><th>Sécurité sociale</th><th>Vaccin obligatoire</th><th>Vaccins recommandés</th><th>Passeport</th></tr></thead>
+            <thead><tr><th>Pays</th><th>Entrée</th><th>Sécurité sociale</th><th>Vaccin obligatoire</th><th>Vaccins recommandés</th><th>Passeport</th><th>Vigilance</th></tr></thead>
             <tbody>
               {actifs(data.referentiels.destinations).map(x => {
                 const rule = VISA_RULES[x.visa], secu = SECU_RULES[secuDe(x)];
@@ -199,6 +201,8 @@ export function Voyages() {
                     <td>{x.oblig.length ? d.vaccinNames(x.oblig) : '—'}</td>
                     <td className="text-muted">{d.vaccinNames([...x.rec, 'dtp'])}</td>
                     <td className="text-muted">{x.passMois ? `${x.passMois} mois après l’entrée` : 'Valide pendant le séjour'}</td>
+                    {/* Vigilance France Diplomatie (t068) : couleur et jour de la dernière vérification. */}
+                    <td><Two nowrap main={x.vigilance ? <Tag cls={VIGILANCES[x.vigilance].cls}>{x.vigilance}</Tag> : 'Non renseignée'} sub={x.vigilanceLe ? `vérifiée le ${fmtShort(parse(x.vigilanceLe))}` : undefined} /></td>
                   </tr>
                 );
               })}
@@ -252,6 +256,7 @@ function TripPanel({ panneau, t, onClose, onOpenEmp }: { panneau: RefObject<HTML
           </div>
         ))}
       </div>
+      <VoyageVigilance t={t} />
       <Fine>{d.destSummary(r.dest)} Exigences tenues à jour par le service RH — à vérifier sur France Diplomatie avant le départ.</Fine>
       <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap', alignItems: 'center' }}>
         <Btn onClick={onOpenEmp}>Fiche collaborateur →</Btn>

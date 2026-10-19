@@ -17,8 +17,10 @@ import { contexte, enregistrerAffectation, enregistrerChantier, enregistrerProje
 import { suivreVerdicts } from './integrations/keystone-verdicts.ts';
 import { figerFeuilles } from './migrate.ts';
 import { postesDepuisFiches } from './migrations/referentiels.ts';
+import { historiqueDepuisFiches } from './migrations/lot6-contrats.ts';
 import { lotHistorique } from './migrations/paie.ts';
 import { amorcerActivites } from './migrations/temps.ts';
+import { amorcerHoraires } from './migrations/lot6-horaires.ts';
 
 // Mode de validation : évaluation réussie pour les habilitations électriques, CACES, SST, ATEX, AIPR et PRAP ;
 // la présence suffit pour les sensibilisations et formations d'information.
@@ -402,9 +404,23 @@ const EXIGENCES_DEMO: Record<string, { formations: string[]; habilitations: stri
   'Technicien de maintenance': { formations: ['elec'], habilitations: ['he'] },
   'Apprenti électromécanicien': { formations: ['elec'], habilitations: ['he'] },
 };
+/** CDD de démonstration : terme initial, renouvellement signé avant lui (avenant n° 1), nouveau terme de la fiche. */
+const CDD_DEMO = { initial: '2026-07-31', signeLe: '2026-07-15', reference: 'Avenant n° 1' };
+function renouvellementDemo(db: Db) {
+  for (const id of Object.keys(PROFILS).map(Number).filter(id => PROFILS[id].typeContrat === 'cdd')) {
+    const embauche = db.where<{ regime: unknown }>('contratsHistorique', 'empId', id)[0];
+    db.insert('contratsHistorique', {
+      empId: id, effet: '2026-08-01', nature: 'renouvellement', regime: embauche?.regime ?? null, jusquau: PROFILS[id].fin, signeLe: CDD_DEMO.signeLe, reference: CDD_DEMO.reference,
+      le: CDD_DEMO.signeLe, par: RH_DEMO, parId: null, applique: true, annuleLe: null, fin: null,
+    });
+  }
+}
+
 function exigencesDemo(db: Db) {
   for (const [nom, x] of Object.entries(EXIGENCES_DEMO)) db.sql.prepare('UPDATE postes SET formations = ?, habilitations = ? WHERE nom = ?').run(JSON.stringify(x.formations), JSON.stringify(x.habilitations), nom);
   db.update('equipes', 'Logistique', { exigences: { formations: ['sst'], habilitations: [] } });
+  // Couverture minimale (t067) : 4 SST en Production, où deux certifications arrivent à échéance sous l'horizon d'alerte.
+  db.update('equipes', 'Production', { couverture: [{ formation: 'sst', min: 4 }] });
 }
 
 export function seedDemo(db: Db) {
@@ -431,6 +447,8 @@ export function seedDemo(db: Db) {
         avis: x.avis ?? null, restrictions: x.restrictions ?? [],
         passeportNumero: x.passeport?.numero ?? null, passeportExpire: x.passeport?.expire ?? null,
         autorisationTravail: TITRES_DEMO[e.id] ?? null,
+        // CDD de Lucas Martin : accroissement temporaire d'activité, terme initial fin juillet, renouvelé une fois (ci-dessous).
+        ...(p.typeContrat === 'cdd' ? { motifRecours: 'accroissement', cddFinInitiale: CDD_DEMO.initial } : {}),
       });
       [...e.certs, ...(x.certsPlus || [])].forEach(c => db.insert('certifications', { empId: e.id, f: c.f, obtenue: c.obtenue, sessionId: c.session ?? null, convoc: c.convoc ?? null, convocLe: c.convoc ? CONVOQUES_LE : null }));
       (x.habs || []).forEach(h => db.insert('habTitres', {
@@ -443,6 +461,9 @@ export function seedDemo(db: Db) {
     // Postes du référentiel d'après les intitulés des fiches (comme la reprise d'une base existante), puis exigences.
     postesDepuisFiches(db);
     exigencesDemo(db);
+    // Historique des contrats amorcé depuis les fiches (comme la migration d'une base existante), puis renouvellement du CDD.
+    historiqueDepuisFiches(db);
+    renouvellementDemo(db);
     RECYCLAGES.forEach(([empId, f, sessionId]) => {
       const c = db.where<{ id: number; f: string }>('certifications', 'empId', empId).find(x => x.f === f)!;
       db.update('certifications', c.id, { sessionId, convoc: 'now', convocLe: CONVOQUES_LE });
@@ -453,6 +474,10 @@ export function seedDemo(db: Db) {
     Object.entries(PROJETS).forEach(([code, nom]) => enregistrerProjet(cx, code, { nom }));
     // Activités internes de base (dont la délégation du CSE) : comme la migration d'une base neuve, rejouée à la réinitialisation.
     amorcerActivites(db);
+    // Horaires de poste d'exemple (comme la migration d'une base neuve) ; horaire de journée proposé à la Maintenance et à
+    // l'Administration, équipe du matin à la Production (2x8 : l'après-midi se choisit sur la feuille).
+    amorcerHoraires(db);
+    for (const [nom, horaire] of [['Maintenance', 'J'], ['Administration', 'J'], ['Production', 'M']]) db.update('equipes', nom, { horaire });
     // Mandat au CSE de Julien Moreau : titulaire, crédit de la table R2314-1 pour une centaine de salariés.
     db.insert('mandats', { empId: 8, role: 'titulaire', du: '2025-11-01', au: null, credit: 21 });
 

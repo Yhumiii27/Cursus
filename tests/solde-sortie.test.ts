@@ -183,7 +183,7 @@ test('t128 lot de paie : rubriques de sortie désactivées par défaut, émises 
   }
 
   // Simulation : le lot emporte le solde, réservé ; fichier avec ses lignes.
-  assert.match(run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }), / · 1 solde de sortie$/);
+  assert.match(run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }), / · 1 solde de sortie · 3 séjours \(déplacements\) · \d+ éléments à saisir dans Sage \(rubrique désactivée ou réglage décoché : voir le résumé du lot\)$/);
   const lot = lots().at(-1)!;
   assert.deepEqual(lot.sorties, [{ id: s.id, empId: 2 }]);
   assert.deepEqual(lot.resume.sorties, { elements: 2, salaries: 1 });

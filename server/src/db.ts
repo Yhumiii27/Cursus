@@ -15,15 +15,25 @@ export const TABLES = {
   formations: { pk: 'id', cols: { id: 'text', nom: 'text', court: 'text', type: 'text', validite: 'int', duree: 'text', organisme: 'text', cout: 'real', validation: 'text', archive: 'text' } },
   habilitations: { pk: 'id', cols: { id: 'text', nom: 'text', detail: 'text', prereqs: 'json', medical: 'bool', validite: 'int', signataire: 'text', archive: 'text', sir: 'bool' } },
   // `secu` : formalité de sécurité sociale du détachement (null : déduite du code pays, shared/constants.ts).
-  destinations: { pk: 'code', cols: { code: 'text', pays: 'text', visa: 'text', visaSub: 'text', oblig: 'json', rec: 'json', passMois: 'int', secu: 'text', archive: 'text' } },
+  destinations: { pk: 'code', cols: { code: 'text', pays: 'text', visa: 'text', visaSub: 'text', oblig: 'json', rec: 'json', passMois: 'int', secu: 'text', archive: 'text',
+    // Vigilance France Diplomatie et jour de sa vérification (t068, shared/rules/vigilance.ts) : saisies par le service RH.
+    vigilance: 'text', vigilanceLe: 'text' } },
   // Postes et formations ou habilitations exigées (shared/rules/exigences.ts) ; `exigences` d'une équipe : communes à ses membres.
   // `expose` : poste exposé à des risques particuliers (visite post-exposition à la sortie, shared/rules/visites-dues.ts).
-  postes: { pk: 'id', auto: true, cols: { id: 'int', nom: 'text', formations: 'json', habilitations: 'json', archive: 'text', sir: 'bool', expose: 'bool' } },
+  // `risquesL4154` : poste de la liste des postes à risques particuliers (formation renforcée, shared/rules/formation-renforcee.ts).
+  postes: { pk: 'id', auto: true, cols: { id: 'int', nom: 'text', formations: 'json', habilitations: 'json', archive: 'text', sir: 'bool', expose: 'bool', risquesL4154: 'bool' } },
   // `nuit` : travail de nuit ou en continu (salariés mineurs exclus, shared/rules/mineurs.ts) ; JSON pour garder null,
   // case pas encore renseignée, distincte de « non ».
-  equipes: { pk: 'nom', cols: { nom: 'text', managerId: 'int', ordre: 'int', exigences: 'json', nuit: 'json' } },
+  // `couverture` : minimum de membres formés (SST, EPI incendie…), shared/rules/couverture.ts ; null : aucun seuil.
+  // `parente` : équipe parente (hiérarchie des managers, shared/rules/hierarchie.ts).
+  equipes: { pk: 'nom', cols: { nom: 'text', managerId: 'int', ordre: 'int', exigences: 'json', nuit: 'json', couverture: 'json', parente: 'text', horaire: 'text' } },
+  // Horaires de poste (shared/rules/horaires.ts, server/src/actions/horaires.ts) : code choisi une fois pour toutes,
+  // début et fin « HH:MM » (fin avant le début : le lendemain), pause en minutes ; `horaire` d'une équipe : proposé par défaut.
+  horaires: { pk: 'code', cols: { code: 'text', nom: 'text', debut: 'text', fin: 'text', pause: 'int', archive: 'text' } },
   projets: { pk: 'code', cols: { code: 'text', nom: 'text', statut: 'text' } },
-  chantiers: { pk: 'id', cols: { id: 'text', nom: 'text', client: 'text', lieu: 'text', pays: 'text', debut: 'text', fin: 'text', chef: 'text', habs: 'json', certs: 'json', ressources: 'json', statut: 'text' } },
+  chantiers: { pk: 'id', cols: { id: 'text', nom: 'text', client: 'text', lieu: 'text', pays: 'text', debut: 'text', fin: 'text', chef: 'text', habs: 'json', certs: 'json', ressources: 'json', statut: 'text',
+    // Grand déplacement (t031) : qualification du service RH, jamais écrite par Keystone ; JSON pour garder null (à qualifier).
+    grandDeplacement: 'json' } },
   employes: {
     pk: 'id', auto: true,
     cols: {
@@ -49,6 +59,22 @@ export const TABLES = {
       naissanceLe: 'text',
       // Dérogation pour travaux réglementés d'un salarié mineur : date de la déclaration (shared/rules/mineurs.ts).
       derogationTravauxLe: 'text',
+      // Personne à prévenir en cas d'urgence (t068) : saisie par le salarié ou le service RH, réservée au service RH et à lui.
+      urgenceNom: 'text', urgenceTel: 'text',
+      // CDD et intérim (t053, shared/rules/cdd.ts) : motif de recours et terme initial du CDD ; ses renouvellements sont
+      // des lignes de l'historique des contrats.
+      motifRecours: 'text', cddFinInitiale: 'text',
+    },
+  },
+  // Historique des contrats (t074, shared/rules/historique-contrat.ts) : régime en vigueur à compter de chaque date d'effet
+  // (embauche, avenant, renouvellement d'un CDD) ; `applique` faux : avenant programmé, appliqué à la fiche à sa date
+  // (server/src/avenants.ts) ; `parId` : fiche de l'auteur (server/src/integrite.ts) ; amorcé depuis les fiches par la
+  // migration lot6-contrats-historique.
+  contratsHistorique: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', effet: 'text', nature: 'text', regime: 'json', jusquau: 'text', signeLe: 'text', reference: 'text',
+      le: 'text', par: 'text', parId: 'int', applique: 'bool', annuleLe: 'text', fin: 'text',
     },
   },
   // Demandes de visite médicale du service RH, closes par la saisie de la visite (server/src/actions/sante.ts).
@@ -92,7 +118,9 @@ export const TABLES = {
       // Annulation (`voyage.annuler`) : le déplacement reste dans l'historique, hors de tous les calculs.
       annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
       // Demandeur d'un déplacement importé du formulaire (nom du salarié reconnu, ou tel que saisi).
-      demandeur: 'text' },
+      demandeur: 'text',
+      // Coordonnées sur place (t068) : hébergement, contact local (textes du service RH), inscription sur Ariane.
+      hebergement: 'text', contactSurPlace: 'text', arianeLe: 'text' },
   },
   // Références Keystone (`ref`) uniques : index créés au démarrage (server/src/integrations/keystone-entrant.ts).
   demandesKeystone: {
@@ -115,6 +143,10 @@ export const TABLES = {
     cols: {
       id: 'int', empId: 'int', week: 'text', statut: 'text', comment: 'text', sage: 'bool', keystone: 'bool', lignes: 'json', contrat: 'json', motifDepassement: 'text', heuresSup: 'text', lotId: 'int',
       majDimanche: 'int', majFerie: 'int', cor: 'json', reouverture: 'json',
+      // Horaire de poste de chaque jour (codes du référentiel `horaires`, 7 valeurs ; figé à la soumission, lot 6).
+      horaires: 'json',
+      // Horaires retenus (code, début, fin, pause), figés à la soumission et à la validation (lot 6).
+      horairesFiges: 'json',
     },
     unique: [['empId', 'week']],
   },
@@ -136,8 +168,21 @@ export const TABLES = {
       type: 'text', correctifs: 'json',
       // Soldes de sortie du lot (identifiant, salarié ; t128, shared/rules/solde-sortie.ts) : quantités dans `contenu`.
       sorties: 'json',
+      // Séjours du lot (source, identifiant, salarié ; t031, shared/rules/deplacements-paie.ts) : quantités dans `contenu`.
+      deplacements: 'json',
     },
     unique: [['cle']],
+  },
+  // Éléments de déplacement émis par les lots de paie (t031, server/src/deplacements-paie.ts) : une ligne par séjour
+  // (`source` : voyage ou mission, `sourceId`), mois, rubrique et pays, avec le lot qui l'emporte (`lotId`) et l'import
+  // confirmé (`sage`) ; `codeSage` null : à saisir dans Sage. Supprimées à l'annulation du lot ; l'écart du lot suivant
+  // se calcule sur elles.
+  deplacementsPaie: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', source: 'text', sourceId: 'int', mois: 'text', periode: 'text', rubrique: 'text', pays: 'text', quantite: 'real',
+      du: 'text', au: 'text', codeSage: 'text', lotId: 'int', sage: 'bool',
+    },
   },
   // Soldes de sortie photographiés à l'enregistrement de la sortie (t128, server/src/soldes-sortie.ts) : état des compteurs
   // à la date de sortie ; lot de paie qui l'emporte (`lotId`) et import confirmé (`sage`), ou réglé hors fichier faute de
@@ -281,6 +326,17 @@ export const TABLES = {
   // Relances des échéances (server/src/relances.ts) : palier franchi par objet (titre, visite, entretien, fin de contrat…),
   // noté une fois envoyé pour qu'il ne reparte pas ; `cle` porte la date d'échéance (un renouvellement repart de zéro).
   relances: { pk: 'id', auto: true, cols: { id: 'int', cle: 'text', palier: 'text', le: 'text' }, unique: [['cle', 'palier']] },
+  // Pièces justificatives (t133, server/src/pieces.ts) : fichier stocké sous un nom aléatoire (`fichier`) avec son empreinte
+  // SHA-256 ; `jeton` : preuve de l'envoi, exigée pour joindre une pièce encore en attente (objet null) à un objet ;
+  // `deposeCompteId` : compte qui l'a envoyée. Retirée : description gardée, fichier effacé.
+  pieces: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', jeton: 'text', empId: 'int', objet: 'text', objetId: 'int', nom: 'text', type: 'text', taille: 'int', empreinte: 'text', fichier: 'text',
+      deposeLe: 'text', deposePar: 'text', deposeCompteId: 'int', conserverJusquau: 'text', retireeLe: 'text', retireePar: 'text', retireeMotif: 'text',
+    },
+    unique: [['jeton'], ['fichier']],
+  },
 } satisfies Record<string, TableDef>;
 
 export type TableName = keyof typeof TABLES;

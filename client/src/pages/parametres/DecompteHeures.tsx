@@ -89,7 +89,8 @@ export function DecompteHeures({ s }: SectionProps) {
       <Fine>
         Le 1er mai travaillé est payé double : majoration de {MAJORATION_1ER_MAI} % fixée par la loi (art. L3133-6, rubrique MAJ_1MAI). Les autres fériés n’ont
         pas de majoration légale : leurs heures partent en quantité (FERIE_TRAV), et une majoration prévue par la convention ou un accord ajoute MAJ_FERIE,
-        figée sur chaque feuille à sa validation. Le lundi de Pentecôte travaillé au titre de la journée de solidarité est repéré comme un férié : la paie le traite.
+        figée sur chaque feuille à sa validation. Journée de solidarité et fériés non chômés : section « Jours fériés et journée de solidarité »,
+        année par année ; un jour ainsi travaillé n’est plus férié (ni FERIE_TRAV, ni majoration).
       </Fine>
 
       <Field label="Heures complémentaires du temps partiel">

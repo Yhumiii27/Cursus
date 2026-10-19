@@ -11,7 +11,7 @@ import { ActionError, makeCtx } from './actions/context.ts';
 import { DEMO } from './auth.ts';
 import { dossierInterface } from './chemins.ts';
 import { compression } from './compression.ts';
-import { compressionActive, configMail, enProduction, trustProxy } from './config.ts';
+import { compressionActive, configMail, demoPublique, enProduction, trustProxy } from './config.ts';
 import { espaceChange, identite, routesConnexion } from './connexion.ts';
 import { routesConfidentialite } from './confidentialite.ts';
 import { buildSnapshot, loadFull } from './dataset.ts';
@@ -23,6 +23,7 @@ import { envoisPourLecteur } from './envois-lecteur.ts';
 import { apiInconnue, ERREUR_INTERNE, gestionnaireErreurs, LIMITE_CORPS, signalerErreur } from './erreurs.ts';
 import { routesFichierPaie } from './fichier-paie.ts';
 import { routesVariablesPaie } from './variables-paie.ts';
+import { routesPieces } from './pieces-routes.ts';
 import { journaliserAction, preparerTrace, routesJournal, tracerRefus } from './journal.ts';
 import { emailMode } from './integrations/email.ts';
 import { KEYSTONE_MODE } from './integrations/keystone.ts';
@@ -59,7 +60,8 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   if (options.compression ?? compressionActive()) app.use(compression());
   app.use(securityHeaders(production));
   // Démonstration en production (application de bureau) : requêtes de ce poste uniquement, jamais via le proxy.
-  if (DEMO && production) app.use(demoPosteLocal());
+  // Démonstration en production : poste local seulement, sauf instance publiée explicitement (CURSUS_DEMO_PUBLIQUE=1).
+  if (DEMO && production && !demoPublique()) app.use(demoPosteLocal());
   // Point de santé de la supervision (état de la base ; détail en local ou avec le jeton) : sans connexion, avant le
   // limiteur de débit et les autres routes /api (server/src/supervision.ts).
   app.use(routeSante(db));
@@ -125,6 +127,9 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   app.use(routesFichierPaie(db));
   // Variables de paie d'une période, export CSV tracé (droit « paie ») : server/src/variables-paie.ts.
   app.use(routesVariablesPaie(db));
+  // Pièces justificatives : envoi (corps brut, 10 Mo au plus) et consultation contrôlée par les droits, tracées :
+  // server/src/pieces-routes.ts.
+  app.use(routesPieces(db));
 
   // File d'envoi des messages sortants (Paramètres → Envois) : état de l'intégration et derniers messages.
   // Service RH et lecture seule (droit `consultation`) ; ni le référent HSE, ni la paie. La lecture seule ne lit pas le

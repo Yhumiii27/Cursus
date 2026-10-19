@@ -8,6 +8,7 @@
 import { useEffect, useMemo, useState, type FormEvent } from 'react';
 import { BLOCAGE_MINUTES, ECHECS_MAX, ERREURS_MICROSOFT, type ErreurMicrosoft } from '../../../shared/constants.ts';
 import { lienMicrosoft, type LoginOption } from '../api.ts';
+import { pageDeRetourClient } from '../state/url.ts';
 import { useStore } from '../state/store.tsx';
 
 const TEXTS = {
@@ -62,7 +63,7 @@ function MicrosoftLogin({ erreur }: { erreur: ErreurMicrosoft | null }) {
   const choix = erreur === 'acces' || erreur === 'ferme';
   return (
     <>
-      <a className="btn btn-primary btn-block btn-microsoft" href={lienMicrosoft({ retour: location.pathname, choix })}>
+      <a className="btn btn-primary btn-block btn-microsoft" href={lienMicrosoft({ retour: pageDeRetourClient(location.pathname, location.search), choix })}>
         <LogoMicrosoft />{choix ? 'Se connecter avec un autre compte Microsoft' : 'Se connecter avec Microsoft'}
       </a>
       <p className="text-muted fine">Salariés dotés d’un compte Microsoft 365 de l’entreprise (adresse professionnelle).</p>

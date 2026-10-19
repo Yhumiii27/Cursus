@@ -95,7 +95,25 @@ const envoiEnEchec = () => db.insert<{ id: number }>('envois', {
   cible: 'keystone', type: 'heures.validees', cle: 'essai-droits', contenu: {}, statut: 'echec', tentatives: 1, prochaine: null,
   erreur: 'HTTP 400', accuse: null, creation: '2026-10-07T08:00:00.000Z', tentative: '2026-10-07T08:00:00.000Z', envoi: null, classe: null,
 }).id;
-interface Ligne { action: string; variante?: string; droits: string; p: () => Record<string, unknown>; env?: Record<string, string> }
+/**
+ * Pièce justificative envoyée par le compte de la personne qui agit (le jeton ne vaut que pour lui), stockage local
+ * activé pour l'essai ; renvoie son jeton.
+ */
+const pieceEnvoyee = (u: User) => {
+  db.setSetting('app', { ...db.getSetting<Record<string, unknown>>('app', {}), piecesStockage: 'local' });
+  db.insert('pieces', {
+    jeton: `essai-${u.compteId}`, nom: 'attestation.pdf', type: 'application/pdf', taille: 5, empreinte: 'e', fichier: 'a'.repeat(32),
+    deposeLe: '2026-10-07T08:00:00.000Z', deposePar: u.nom, deposeCompteId: u.compteId,
+  });
+  return `essai-${u.compteId}`;
+};
+/** Pièce déjà jointe à un objet du dossier de Mehdi. */
+const pieceJointe = (objet: string, objetId: number) => db.insert<{ id: number }>('pieces', {
+  empId: 2, objet, objetId, nom: 'piece.pdf', type: 'application/pdf', taille: 5, empreinte: 'e', fichier: 'b'.repeat(32),
+  deposeLe: '2026-10-07T08:00:00.000Z', deposePar: 'Essai', deposeCompteId: null,
+}).id;
+// `p` reçoit la personne qui agit (pièce justificative envoyée par son compte) ; les autres lignes l'ignorent.
+interface Ligne { action: string; variante?: string; droits: string; p: (u: User) => Record<string, unknown>; env?: Record<string, string> }
 
 //                                                        admin gest mgr autM coll autC  hse paie lect
 const MATRICE: Ligne[] = [
@@ -110,11 +128,21 @@ const MATRICE: Ligne[] = [
   } },
   // Titre de séjour valant autorisation de travail (numéro au registre unique du personnel) : service RH.
   { action: 'employe.autorisationTravail', droits: '         O    O    -    -    -    -    -    -    -', p: () => ({ id: 2, requise: true, type: 'salarie', numero: 'AB1234567', expire: '2027-06-30', verifieLe: '2016-08-26' }) },
+  // Historique des contrats (t074, t053) : renouvellement du CDD de Lucas Martin (4), annulation d'un avenant programmé : service RH.
+  { action: 'employe.renouvelerCdd', droits: '              O    O    -    -    -    -    -    -    -', p: () => ({ id: 4, jusquau: '2027-07-30', signeLe: '2026-10-06', reference: 'Avenant n° 2' }) },
+  { action: 'employe.annulerAvenant', droits: '             O    O    -    -    -    -    -    -    -', p: () => ({
+    id: db.insert<{ id: number }>('contratsHistorique', {
+      empId: 2, effet: '2027-01-01', nature: 'avenant', regime: { statut: 'technicien', typeContrat: 'cdi', temps: '35h', heures: null, forfaitHeures: null, forfaitJours: null, jourOff: [] },
+      le: '2026-10-07', par: 'Sandrine Vidal', parId: null, applique: false,
+    }).id,
+  }) },
   { action: 'equipe.creer', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Méthodes' }) },
   { action: 'equipe.renommer', droits: '                     O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Commercial', nouveau: 'Ventes' }) },
   { action: 'equipe.manager', droits: '                      O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Commercial', managerId: 19 }) },
   { action: 'equipe.modifier', droits: '                     O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Commercial', nouveau: 'Ventes', managerId: 19 }) },
   { action: 'equipe.supprimer', droits: '                    O    -    -    -    -    -    -    -    -', p: () => { db.insert('equipes', { nom: 'Vide', managerId: null, ordre: 99 }); return { nom: 'Vide' }; } },
+  // Équipe parente (t136) : le manager de la Maintenance aura pour valideur celui de la Production.
+  { action: 'equipe.parente', droits: '                     O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Maintenance', parente: 'Production' }) },
   { action: 'equipe.affecter', variante: 'retrait', droits: 'O    O    O    -    -    -    -    -    -', p: () => ({ empId: 2, equipe: null }) },
   // Le manager n'accueille qu'un salarié « à affecter » (libéré par son manager) ; une mutation directe relève du RH.
   { action: 'equipe.affecter', variante: 'salarié à affecter', droits: 'O    O    O    -    -    -    -    -    -', p: () => {
@@ -225,6 +253,10 @@ const MATRICE: Ligne[] = [
   { action: 'voyage.detachement', droits: '                  O    O    -    -    -    -    -    -    -', p: () => ({ id: voyage(), detachementLe: '2026-10-06' }) },
   // Modification et annulation d'un déplacement : service RH (Keystone prévenu pour un déplacement venu de Keystone).
   { action: 'voyage.modifier', droits: '                 O    O    -    -    -    -    -    -    -', p: () => ({ id: voyage(), depart: '2026-11-03', retour: '2026-11-06' }) },
+  // Déplacements dans la paie (t031) : qualification « grand déplacement » d'un chantier en France, service RH.
+  { action: 'chantier.grandDeplacement', droits: '       O    O    -    -    -    -    -    -    -', p: () => ({ id: 'K-2620', grandDeplacement: true }) },
+  // Contact d'urgence (t068) : le salarié pour lui-même (portail) ou le service RH ; ni le manager, ni les profils restreints.
+  { action: 'employe.contactUrgence', droits: '          O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, nom: 'Nadia Benali (sœur)', telephone: '06 12 34 56 78' }) },
   { action: 'voyage.annuler', droits: '                  O    O    -    -    -    -    -    -    -', p: () => ({ id: voyage(), motif: 'Chantier reporté' }) },
   { action: 'formalite.enregistrer', droits: '               O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, kind: 'passeport', numero: '21XY12345', expire: '2032-01-01' }) },
   { action: 'voyages.importer', droits: '                    O    O    -    -    -    -    -    -    -', p: () => ({ texte: SAMPLE_TRIPS_CSV }) },
@@ -242,6 +274,8 @@ const MATRICE: Ligne[] = [
   { action: 'plan.cloturerExercice', droits: '               O    -    -    -    -    -    -    -    -', env: { CURSUS_TODAY: '2027-01-05' }, p: () => ({ exercice: 2026, reporter: [(db.sql.prepare(`SELECT id FROM plan_actions WHERE statut = 'engage' LIMIT 1`).get() as { id: number }).id] }) },
   // Feuilles de temps : saisie par le salarié, son manager ou le RH ; validation par le manager ou le RH ; paie : administrateur RH.
   { action: 'temps.setCell', droits: '                       O    O    O    -    O    -    -    -    -', p: () => { feuille('brouillon'); return { empId: 2, week: WEEK, li: 0, di: 0, value: '7' }; } },
+  // Horaire du jour (lot 6) : mêmes droits que la saisie des heures.
+  { action: 'temps.horaire', droits: '                       O    O    O    -    O    -    -    -    -', p: () => { feuille('brouillon'); return { empId: 2, week: WEEK, di: 0, code: 'J' }; } },
   { action: 'temps.addLine', droits: '                       O    O    O    -    O    -    -    -    -', p: () => ({ empId: 2, week: WEEK, projet: 'INT-MAINT' }) },
   { action: 'temps.removeLine', droits: '                    O    O    O    -    O    -    -    -    -', p: () => { feuille('brouillon'); return { empId: 2, week: WEEK, li: 0 }; } },
   { action: 'temps.suggest', droits: '                       O    O    O    -    O    -    -    -    -', p: () => ({ empId: 2, week: WEEK }) },
@@ -270,6 +304,11 @@ const MATRICE: Ligne[] = [
   // Activités internes (écran Référentiels) et mandats au CSE (fiche) : service RH.
   { action: 'referentiel.activite.enregistrer', droits: '    O    O    -    -    -    -    -    -    -', p: () => ({ code: 'INT-ACCUEIL', nom: 'Accueil des visiteurs' }) },
   { action: 'referentiel.activite.archiver', droits: '      O    O    -    -    -    -    -    -    -', p: () => ({ id: 'INT-COM' }) },
+  // Horaires de poste (lot 6) : service RH ; la lecture seule consulte.
+  { action: 'referentiel.horaire.enregistrer', droits: '     O    O    -    -    -    -    -    -    -', p: () => ({ code: 'S', nom: 'Samedi matin', debut: '06:00', fin: '12:00', pause: 0 }) },
+  { action: 'referentiel.horaire.archiver', droits: '       O    O    -    -    -    -    -    -    -', p: () => ({ id: 'AM' }) },
+  // Jours fériés et journée de solidarité d'une année (lot 6) : administrateur RH.
+  { action: 'parametres.feries', droits: '                  O    -    -    -    -    -    -    -    -', p: () => ({ annee: 2027, solidarite: 'pentecote_travaillee', nonChomes: [] }) },
   { action: 'mandat.enregistrer', droits: '                  O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, role: 'titulaire', du: '2026-11-01', credit: 21 }) },
   { action: 'mandat.supprimer', droits: '                    O    O    -    -    -    -    -    -    -', p: () => ({ id: db.insert<{ id: number }>('mandats', { empId: 2, role: 'suppleant', du: '2026-01-01', au: null, credit: 0 }).id }) },
   // Un membre du RH élu ne saisit ni ne retire son propre mandat (crédit d'heures) : un autre membre du RH le fait.
@@ -354,6 +393,15 @@ const MATRICE: Ligne[] = [
   // Envois sortants (Paramètres → Envois) : le service RH suit, relance (intégration configurée) ou classe un échec.
   { action: 'envoi.relancer', droits: '                      O    O    -    -    -    -    -    -    -', p: () => ({ id: envoiEnEchec() }), env: { KEYSTONE_URL: 'http://keystone.essai', KEYSTONE_TOKEN: 'jeton' } },
   { action: 'envoi.classer', droits: '                       O    O    -    -    -    -    -    -    -', p: () => ({ id: envoiEnEchec() }) },
+  // Pièces justificatives (t133) : attestation et titre signé, service RH et référent HSE ; justificatif d'absence et document
+  // déclaré, l'intéressé et le service RH, jamais le manager (santé, passeport) ; déplacement, service RH.
+  { action: 'piece.joindre', variante: 'certification', droits: '  O    O    -    -    -    -    O    -    -', p: u => ({ jetons: [pieceEnvoyee(u)], objet: 'certification', objetId: cert('sst') }) },
+  { action: 'piece.joindre', variante: 'titre d’habilitation', droits: 'O    O    -    -    -    -    O    -    -', p: u => ({ jeton: pieceEnvoyee(u), objet: 'habTitre', objetId: titre('hauteur').id }) },
+  { action: 'piece.joindre', variante: 'absence', droits: '        O    O    -    -    O    -    -    -    -', p: u => ({ jetons: [pieceEnvoyee(u)], objet: 'absence', objetId: absence('signalee', 'ABSENCE') }) },
+  { action: 'piece.joindre', variante: 'document déclaré', droits: 'O    O    -    -    O    -    -    -    -', p: u => ({ jetons: [pieceEnvoyee(u)], objet: 'declaration', objetId: documentDeclare() }) },
+  { action: 'piece.joindre', variante: 'déplacement', droits: '    O    O    -    -    -    -    -    -    -', p: u => ({ jetons: [pieceEnvoyee(u)], objet: 'voyage', objetId: voyage() }) },
+  { action: 'piece.retirer', variante: 'certification', droits: '  O    O    -    -    -    -    O    -    -', p: () => ({ id: pieceJointe('certification', cert('sst')), motif: 'Mauvais document' }) },
+  { action: 'piece.retirer', variante: 'absence', droits: '        O    O    -    -    -    -    -    -    -', p: () => ({ id: pieceJointe('absence', absence('signalee', 'ABSENCE')), motif: 'Mauvais document' }) },
 ];
 
 const ANNULER = Symbol('annuler');
@@ -364,7 +412,7 @@ function essai(user: User, l: Ligne): string {
   Object.assign(process.env, l.env ?? {});
   try {
     db.tx(() => {
-      const payload = l.p();
+      const payload = l.p(user);
       try {
         ACTIONS[l.action](makeCtx(db, user, loadFull(db, user)), payload);
         issue = 'O';

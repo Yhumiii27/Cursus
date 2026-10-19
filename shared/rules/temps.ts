@@ -12,14 +12,19 @@ import { alertesRepos, DIMANCHE, derogationDe, estWeekEnd, JOURS_FEUILLE } from 
 import { controlesMineur, naissanceDeLaFeuille } from './mineurs.ts';
 import { aRegulariser, lignesRegularisation, rubriquesDeLaFeuille, type OptionsRegularisation } from './regularisation.ts';
 import { heuresFeriees, MAJORATION_1ER_MAI, plafondComplementaires } from './majorations.ts';
+import { employeAu, memeRegime, regimeFiche, segmentsContrat } from './historique-contrat.ts';
 
 /** Régime de temps de travail en vigueur d'une fiche, à figer sur une feuille soumise. */
 export function contratFige(e: Employe): ContratFige {
-  return { statut: e.statut, typeContrat: e.typeContrat, temps: e.temps, heures: e.heures, forfaitHeures: e.forfaitHeures, forfaitJours: e.forfaitJours, jourOff: [...(e.jourOff ?? [])] };
+  return regimeFiche(e);
 }
-/** Le collaborateur tel qu'il était la semaine de la feuille (régime figé s'il existe). */
-export function employeDeLaFeuille(e: Employe, sh: { contrat?: ContratFige | null } | null): Employe {
-  return sh?.contrat ? { ...e, ...sh.contrat } : e;
+/**
+ * Le collaborateur tel qu'il était la semaine de la feuille : régime figé s'il existe ; sinon, avec l'historique des
+ * contrats (`d`), celui en vigueur le lundi de la semaine (shared/rules/historique-contrat.ts) ; à défaut, la fiche.
+ */
+export function employeDeLaFeuille(e: Employe, sh: { contrat?: ContratFige | null; week?: ISODate } | null, d?: Pick<Domain, 'ds'>): Employe {
+  if (sh?.contrat) return { ...e, ...sh.contrat };
+  return d && sh?.week ? employeAu(d, e, sh.week) : e;
 }
 
 export interface SheetCalc {
@@ -77,7 +82,7 @@ export interface SheetCalc {
  * majoration (`mai1`, `ferie`).
  */
 export function calcSheet(d: Domain, e: Employe, sh: FeuilleCalcul | null): SheetCalc {
-  const c = d.contratOf(employeDeLaFeuille(e, sh));
+  const c = d.contratOf(employeDeLaFeuille(e, sh, d));
   // Une ligne de 5 valeurs (enregistrée avant la semaine à 7 jours) se lit avec un samedi et un dimanche vides.
   const perDay = Array.from({ length: JOURS_FEUILLE }, (_, i) => (sh ? sh.lignes : []).reduce((n, l) => n + num(l.h[i]), 0));
   const total = perDay.reduce((a, b) => a + b, 0);
@@ -167,7 +172,18 @@ export function cumulAnnuel(d: Domain, e: Employe, year = d.year) {
   const debut = Math.max(start, parse(e.entree).getTime());
   const fin = e.fin ? Math.min(end, parse(e.fin).getTime() + 864e5) : end;
   const presence = Math.max(0, fin - debut) / (end - start);
-  const cible = Math.round(c.heuresAnnuelles * presence);
+  // Historique des contrats (t074) : cible au prorata des périodes de l'année sous un forfait annuel, chacune avec sa durée
+  // (une période de régime inconnu, antérieure à l'historique, compte avec celui de la fiche, comme avant). Un seul
+  // régime connu sur l'année : la cible de la fiche, inchangée.
+  const fiche = regimeFiche(e);
+  const segs = segmentsContrat(d, e).filter((s, i, l) => s.du <= `${year}-12-31` && (l[i + 1]?.du ?? '9999-12-31') > `${year}-01-01`);
+  const cible = segs.every(s => !s.regime || memeRegime(s.regime, fiche))
+    ? Math.round(c.heuresAnnuelles * presence)
+    : Math.round(segs.reduce((n, s, i) => {
+      const du = Math.max(debut, parse(s.du).getTime()), au = Math.min(fin, segs[i + 1] ? parse(segs[i + 1].du).getTime() : end);
+      const k = d.contratOf(s.regime ? { ...e, ...s.regime } : e);
+      return n + (k.annuel && au > du ? k.heuresAnnuelles * (au - du) / (end - start) : 0);
+    }, 0));
   const ecoule = fin > debut ? Math.min(1, Math.max(0, (d.today.getTime() - debut) / (fin - debut))) : 1;
   return { done, cible, prorata: cible * ecoule, depasse: done > cible, annee: year };
 }
@@ -309,7 +325,7 @@ export function demiJourneeTexte(list: { day: ISODate; absence: AbsenceJour; dem
  * congés…). La feuille se soumet alors sans heure.
  */
 export function semaineCouverte(d: Domain, e: Employe, w: ISODate, sh: { contrat?: ContratFige | null } | null = null): boolean {
-  const off = d.contratOf(employeDeLaFeuille(e, sh)).jourOff, abs = joursAbsence(d, e.id, w);
+  const off = d.contratOf(employeDeLaFeuille(e, { contrat: sh?.contrat, week: w }, d)).jourOff, abs = joursAbsence(d, e.id, w);
   return abs.some((a, i) => !!a && !estWeekEnd(i))
     && joursSemaine(w).every((day, i) => estWeekEnd(i) || !!abs[i] || isFerie(day) || off.includes(i) || !!jourHorsContrat(e, day));
 }
@@ -439,7 +455,7 @@ export function sagePending(d: Domain): FeuilleTemps[] {
   return d.ds.feuilles.filter(sh => {
     const e = d.emp(sh.empId);
     if (!e || sh.statut !== 'validee' || sh.sage || sh.lotId) return false;
-    const c = d.contratOf(employeDeLaFeuille(e, sh));
+    const c = d.contratOf(employeDeLaFeuille(e, sh, d));
     return !c.interim && !c.dirigeant;
   });
 }

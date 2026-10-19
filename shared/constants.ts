@@ -263,9 +263,12 @@ export const EMAIL_LABEL: Record<string, string> = {
   'essai': 'E-mail d’essai', 'entretien.remise': 'Compte rendu d’entretien mis à disposition',
   'temps.relance': 'Relance des feuilles de temps en retard',
   'conges.information': 'Congés payés au retour d’une absence',
+  'hierarchie.redirection': 'Demandes en attente redirigées (équipe parente)',
   // E-mail réservé au service RH (donnée de santé), tel que la lecture seule le voit (server/src/envois-lecteur.ts).
   reserve: 'Message réservé au service RH',
   'echeances.recapitulatif': 'Récapitulatif des échéances',
+  // Destination passée à l'orange ou au rouge (t068, server/src/vigilance.ts) : aux managers des voyageurs (le service RH a la liste dans le message de l'action).
+  'voyage.vigilance': 'Vigilance d’un pays de destination relevée',
 };
 export const CIBLE_LABEL = { keystone: 'Keystone', sage: 'Sage Paie', email: 'E-mail' } as const;
 export const MODE_NOTIFICATION_LABEL = { immediat: 'Aussitôt', quotidien: 'Récapitulatif quotidien' } as const;
@@ -465,6 +468,13 @@ export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubriqu
   RTT_SOLDE: { label: 'RTT ou jours de repos restants à la sortie (jours)', unite: 'j', inactiveParDefaut: true },
   RECUP_H: { label: 'Repos compensateur restant à la sortie (heures)', unite: 'h', inactiveParDefaut: true },
   CET_LIQ: { label: 'Compte épargne-temps liquidé à la sortie (jours)', unite: 'j', inactiveParDefaut: true },
+  // Déplacements (shared/rules/deplacements-paie.ts, t031) : quantités seules, le barème des indemnités reste dans Sage.
+  // Désactivées par défaut, comme le réglage `deplacementsFichierPaie`, tant que la paie n'a pas confirmé ses codes (une
+  // rubrique par pays ou par zone pour l'étranger : à décider avec elle ; le pays part en détail dans l'export).
+  GD_JOUR: { label: 'Jours de grand déplacement en France (jours calendaires)', unite: 'j', inactiveParDefaut: true },
+  GD_NUIT: { label: 'Nuits de grand déplacement en France', unite: 'nombre', inactiveParDefaut: true },
+  ETR_JOUR: { label: 'Jours de mission à l’étranger (jours calendaires, pays en détail)', unite: 'j', inactiveParDefaut: true },
+  TRAJET: { label: 'Trajets aller ou retour d’un déplacement (forfait par trajet, art. L3121-4)', unite: 'nombre', inactiveParDefaut: true },
 };
 
 /** Sections d'un compte rendu : [clé, libellé, rédacteur] — 'mgr' évaluateur, 'sal' salarié. */

@@ -37,6 +37,8 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     campagneDebut: '10-01', campagneFin: '12-15', campagneAncienneteMois: 0, campagneExclus: [], campagnePreavisJours: 365,
     // Contrats : titres de séjour alertés à 4 mois, puis relancés à 2 mois.
     titreSejourAlerte: 120, titreSejourRelance: 60,
+    // CDD (lot 6) : règles supplétives de la loi, 2 renouvellements, durée maximale selon le motif, sans accord de branche.
+    cddRenouvellementsMax: 2, cddDureeMaxMois: 0, cddAccordBranche: '',
     // Récapitulatif des échéances (shared/rules/relances.ts) : actif, à 90, 30 et 7 jours puis échu, chaque jour.
     relancesActives: true, relancesPaliers: [90, 30, 7], relancesJour: 'quotidien',
     // Santé (lot 5) : 24 mois pour tous, le plus prudent ; examen d'aptitude du suivi renforcé tous les 4 ans.
@@ -51,6 +53,15 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     moyenne12SemainesMax: 44, moyenne12SemainesAccord: '', contingentHeuresSup: 220, contingentAlerte: 90, contingentAccord: '',
     // Paie (lot 5, t028) : absences validées dans le fichier d'import, réponse de l'entreprise du 17 octobre 2026.
     absencesFichierPaie: true, absencesPaieAPartirDu: null,
+    // Pièces justificatives (lot 6, t133) : désactivées tant que l'administrateur RH ne les active pas (18 octobre 2026).
+    piecesStockage: 'desactive',
+    // Sécurité au poste (lot 6) : formation renforcée non désignée ; entretien de mi-carrière 2 mois après la visite.
+    formationRenforceeCode: '', entretienMiCarriereActif: true, entretienMiCarriereMois: 2,
+    // Hiérarchie (t136) : consultation N+2 désactivée par défaut.
+    consultationN2: false,
+    // Lot 6 (t031, t068) : déplacements hors du fichier tant que la paie n'a pas confirmé ses codes (réponse du 18 octobre
+    // 2026) ; vigilance des pays à vérifier de nouveau au-delà de 30 jours.
+    deplacementsFichierPaie: false, deplacementsPaieAPartirDu: null, vigilanceRappelJours: 30,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

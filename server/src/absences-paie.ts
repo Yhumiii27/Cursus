@@ -152,7 +152,9 @@ export function resumeAbsencesPaie(db: Db, user: CurrentUser, ds: Dataset): Abse
 /** Instantané d'un lecteur sans droit « paie » : ni les rubriques d'absence en attente, ni les codes des absences d'un lot. */
 export function sansCodesAbsences(ds: Pick<Dataset, 'lotsPaie' | 'absencesPaie'>): Pick<Dataset, 'lotsPaie' | 'absencesPaie'> {
   return {
-    lotsPaie: ds.lotsPaie.map(l => (l.resume.absences ? { ...l, resume: { ...l.resume, absences: { ...l.resume.absences, rubriques: {} } } } : l)),
+    lotsPaie: ds.lotsPaie.map(l => (l.resume.absences ? { ...l, resume: { ...l.resume, absences: { ...l.resume.absences, rubriques: {} } } } : l))
+      // Liste « à saisir dans Sage » (lot 6) : la rubrique d'une absence en dit la catégorie, elle est retirée.
+      .map(l => (l.resume.aSaisir?.some(x => x.famille === 'absences') ? { ...l, resume: { ...l.resume, aSaisir: l.resume.aSaisir.map(x => (x.famille === 'absences' ? { ...x, rubrique: '' } : x)) } } : l)),
     absencesPaie: (ds.absencesPaie ?? []).map(g => ({ ...g, rubriques: [] })),
   };
 }

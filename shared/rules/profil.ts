@@ -3,7 +3,8 @@
 import { estMotifReprise, STATUTS, TEMPS_TRAVAIL, TYPES_CONTRAT } from '../constants.ts';
 import { isValidDate } from '../dates.ts';
 import { r1 } from '../format.ts';
-import type { Employe, Equipe, MotifSortie, Statut, TempsTravail, TypeContrat } from '../types.ts';
+import type { Employe, Equipe, MotifRecours, MotifSortie, Settings, Statut, TempsTravail, TypeContrat } from '../types.ts';
+import { controleCdd } from './cdd.ts';
 import { controleMatriculePaie, normaliserMatricule, type TitulaireMatricule, unicite } from './matricules.ts';
 import { controleEssai, estMotifSortie } from './contrats.ts';
 import { controleAdresse, normaliserAdresse } from './messagerie.ts';
@@ -40,6 +41,12 @@ export interface ProfilInput {
   /** Période d'essai écrite au contrat : dernier jour, et dernier jour après renouvellement (aucune valeur proposée). */
   essaiFin?: string | null;
   essaiRenouveleJusquau?: string | null;
+  /**
+   * CDD et intérim (shared/rules/cdd.ts) : motif de recours (liste fermée MOTIFS_RECOURS, facultatif pour l'intérim) et
+   * terme initial du CDD, avant ses renouvellements (`employe.renouvelerCdd`) ; vidés pour un autre contrat.
+   */
+  motifRecours?: MotifRecours | null;
+  cddFinInitiale?: string | null;
   /** Année de naissance : dérivée de `naissanceLe` quand la date est saisie (`normaliserProfil`), seule connue sinon. */
   naissance: number;
   /** Date de naissance complète (shared/rules/mineurs.ts) ; null : inconnue, la fiche garde son année. */
@@ -58,7 +65,7 @@ export interface ProfilInput {
 
 export const PROFIL_FIELDS: (keyof ProfilInput)[] = [
   'nom', 'poste', 'posteId', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis',
-  'entree', 'fin', 'motifSortie', 'essaiFin', 'essaiRenouveleJusquau', 'naissance', 'naissanceLe', 'derogationTravauxLe', 'agence', 'matriculePaie', 'email', 'visite', 'repriseMotif', 'repriseDate',
+  'entree', 'fin', 'motifSortie', 'essaiFin', 'essaiRenouveleJusquau', 'motifRecours', 'cddFinInitiale', 'naissance', 'naissanceLe', 'derogationTravauxLe', 'agence', 'matriculePaie', 'email', 'visite', 'repriseMotif', 'repriseDate',
 ];
 
 /**
@@ -77,7 +84,7 @@ export function profilOf(e: Employe): ProfilInput {
 
 export const PROFIL_VIDE = (equipe: string | null, today: string): ProfilInput => ({
   nom: '', poste: '', posteId: null, equipe, statut: 'ouvrier', typeContrat: 'cdi', temps: '35h', heures: null, forfaitHeures: null, forfaitJours: null,
-  jourOff: [], tempsDepuis: null, entree: today, fin: null, motifSortie: null, essaiFin: null, essaiRenouveleJusquau: null, naissance: Number(today.slice(0, 4)) - 30, naissanceLe: null, derogationTravauxLe: null, agence: null, matriculePaie: null, email: null, visite: null, repriseMotif: null, repriseDate: null,
+  jourOff: [], tempsDepuis: null, entree: today, fin: null, motifSortie: null, essaiFin: null, essaiRenouveleJusquau: null, motifRecours: null, cddFinInitiale: null, naissance: Number(today.slice(0, 4)) - 30, naissanceLe: null, derogationTravauxLe: null, agence: null, matriculePaie: null, email: null, visite: null, repriseMotif: null, repriseDate: null,
 });
 
 /**
@@ -106,6 +113,8 @@ export function normaliserProfil(p: ProfilInput): ProfilInput {
     motifSortie: s(p.motifSortie) as MotifSortie | null,
     essaiFin: s(p.essaiFin),
     essaiRenouveleJusquau: s(p.essaiRenouveleJusquau),
+    motifRecours: p.typeContrat === 'cdd' || p.typeContrat === 'interim' ? s(p.motifRecours) as MotifRecours | null : null,
+    cddFinInitiale: p.typeContrat === 'cdd' ? s(p.cddFinInitiale) : null,
     // L'année suit la date complète quand elle est saisie : les deux ne peuvent pas se contredire.
     naissanceLe: s(p.naissanceLe),
     naissance: isValidDate(s(p.naissanceLe)) ? Number(s(p.naissanceLe)!.slice(0, 4)) : Number(p.naissance),
@@ -145,6 +154,12 @@ export function validerProfil(raw: ProfilInput, opts: {
    * (affectation refusée), date du jour (dérogation pour travaux réglementés non datée du futur). Absent : non contrôlées.
    */
   mineurs?: { equipes: readonly Pick<Equipe, 'nom' | 'nuit'>[]; today: string };
+  /**
+   * CDD (shared/rules/cdd.ts) : renouvellements enregistrés dans l'historique, fin enregistrée sur la fiche (une fin
+   * repoussée sans renouvellement est signalée) et réglages de la section Contrats. Absent : seuls le motif et le terme
+   * initial sont contrôlés, aux réglages de la loi.
+   */
+  cdd?: { renouvellements: number; finEnregistree?: string | null; reglages: Pick<Settings, 'cddRenouvellementsMax' | 'cddDureeMaxMois' | 'cddAccordBranche'> };
 }) {
   const p = normaliserProfil(raw);
   const errors: string[] = [], warnings: string[] = [];
@@ -172,6 +187,13 @@ export function validerProfil(raw: ProfilInput, opts: {
     errors.push(...essai.errors);
     warnings.push(...essai.warnings);
   }
+  // CDD : motif de recours, durée maximale et renouvellements (avertissements, shared/rules/cdd.ts).
+  const cdd = controleCdd(p, {
+    renouvellements: opts.cdd?.renouvellements ?? 0, finEnregistree: opts.cdd?.finEnregistree ?? null, sortie: !!p.motifSortie || !!opts.contrat?.sortieEnregistree,
+    reglages: opts.cdd?.reglages ?? { cddRenouvellementsMax: 2, cddDureeMaxMois: 0, cddAccordBranche: '' },
+  });
+  errors.push(...cdd.errors);
+  warnings.push(...cdd.warnings);
   if (p.typeContrat === 'interim' && !p.agence) errors.push('Agence d’intérim requise.');
   if (p.typeContrat === 'interim' && opts.encadre?.length) errors.push(`Manager de l’équipe ${opts.encadre.join(', ')} : désignez d’abord un autre manager (Équipes & managers) avant de passer la fiche en intérim.`);
   if (p.typeContrat === 'interim' && ['forfait_jours', 'forfait_heures_annuel', 'forfait_heures_hebdo', 'dirigeant'].includes(p.temps)) {

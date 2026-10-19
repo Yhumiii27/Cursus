@@ -7,13 +7,19 @@
 // (server/src/supervision.ts). Jamais de donnée personnelle : des noms de tables et de colonnes, des nombres.
 import { plural } from '../../shared/format.ts';
 import { journaliser } from './comptes.ts';
-import type { Db } from './db.ts';
+import type { ObjetPiece } from '../../shared/types.ts';
+import { snake, type Db, type TableName } from './db.ts';
+import { controlerPieces, TABLE_OBJET } from './pieces.ts';
 import { log } from './logs.ts';
 
 /** Référence contrôlée : colonne (snake_case) d'une table qui désigne la clé d'une autre table. */
-interface Reference { table: string; colonne: string; cible: string; cle: string }
+interface Reference {
+  table: string; colonne: string; cible: string; cle: string;
+  /** Lignes concernées seulement (référence polymorphe : la pièce justificative désigne la table de son objet). */
+  si?: string;
+}
 
-const ref = (table: string, colonne: string, cible: string, cle = 'id'): Reference => ({ table, colonne, cible, cle });
+const ref = (table: string, colonne: string, cible: string, cle = 'id', si?: string): Reference => ({ table, colonne, cible, cle, ...(si ? { si } : {}) });
 
 /**
  * Références contrôlées. Salariés, sessions, référentiels, postes et lots ne sont jamais supprimés (archivés, annulés) :
@@ -22,7 +28,9 @@ const ref = (table: string, colonne: string, cible: string, cle = 'id'): Referen
 export const REFERENCES: readonly Reference[] = [
   ...['demandes_visite', 'certifications', 'hab_titres', 'visas', 'vaccinations', 'inscriptions', 'participations', 'voyages', 'demandes_keystone',
     'missions', 'taches', 'feuilles', 'mandats', 'absences', 'cet', 'reports', 'soldes_reprise', 'clotures', 'entretiens', 'demandes_collab', 'comptes',
-    'notifications', 'verdicts_keystone', 'informations_cp', 'soldes_sortie'].map(t => ref(t, 'emp_id', 'employes')),
+    'notifications', 'verdicts_keystone', 'informations_cp', 'soldes_sortie', 'pieces', 'contrats_historique'].map(t => ref(t, 'emp_id', 'employes')),
+  // Auteur d'une ligne de l'historique des contrats (fiche du compte qui l'a enregistrée, t074).
+  ref('contrats_historique', 'par_id', 'employes'),
   ...['certifications', 'inscriptions', 'participations', 'demandes_collab'].map(t => ref(t, 'session_id', 'sessions')),
   ref('participations', 'cert_id', 'certifications'),
   ref('certifications', 'f', 'formations'),
@@ -32,11 +40,20 @@ export const REFERENCES: readonly Reference[] = [
   ref('employes', 'poste_id', 'postes'),
   ref('employes', 'equipe', 'equipes', 'nom'),
   ref('equipes', 'manager_id', 'employes'),
+  ref('equipes', 'parente', 'equipes', 'nom'),
   ref('feuilles', 'lot_id', 'lots_paie'),
   ref('absences', 'lot_id', 'lots_paie'),
   ref('soldes_sortie', 'lot_id', 'lots_paie'),
   ref('informations_cp', 'absence_id', 'absences'),
   ref('demandes_keystone', 'voyage_id', 'voyages'),
+  // Pièces justificatives (server/src/pieces.ts) : compte qui l'a envoyée, et objet auquel elle est jointe.
+  ref('pieces', 'depose_compte_id', 'comptes'),
+  ...(Object.entries(TABLE_OBJET) as [ObjetPiece, TableName][]).map(([o, t]) => ref('pieces', 'objet_id', snake(t), 'id', `t.objet = '${o}'`)),
+  // Éléments de déplacement des lots de paie (t031) : salarié et lot.
+  ref('deplacements_paie', 'emp_id', 'employes'),
+  ref('deplacements_paie', 'lot_id', 'lots_paie'),
+  // Horaire de poste par défaut d'une équipe (lot 6) ; ceux des feuilles (JSON, archivés gardés) ne sont jamais supprimés.
+  ref('equipes', 'horaire', 'horaires', 'code'),
 ];
 
 export interface Integrite {
@@ -54,9 +71,13 @@ export function controlerOrphelins(db: Db, references: readonly Reference[] = RE
   let orphelins = 0;
   for (const r of references) {
     // Valeur 0 : « aucun » dans quelques colonnes anciennes (identifiants SQLite à partir de 1), jamais une référence.
-    const n = Number((db.sql.prepare(`SELECT COUNT(*) AS n FROM ${r.table} t WHERE t.${r.colonne} IS NOT NULL AND t.${r.colonne} <> 0 AND t.${r.colonne} <> ''
+    const n = Number((db.sql.prepare(`SELECT COUNT(*) AS n FROM ${r.table} t WHERE t.${r.colonne} IS NOT NULL AND t.${r.colonne} <> 0 AND t.${r.colonne} <> ''${r.si ? ` AND ${r.si}` : ''}
       AND NOT EXISTS (SELECT 1 FROM ${r.cible} c WHERE c.${r.cle} = t.${r.colonne})`).get() as { n: number }).n);
     if (n) { parReference[`${r.table}.${r.colonne} → ${r.cible}`] = n; orphelins += n; }
+  }
+  // Fichiers des pièces justificatives absents du dossier, ou d'une autre taille que celle de l'envoi (server/src/pieces.ts).
+  if (references === REFERENCES) {
+    for (const [k, n] of Object.entries(controlerPieces(db))) { parReference[k] = n; orphelins += n; }
   }
   return { orphelins, parReference, le: new Date().toISOString() };
 }

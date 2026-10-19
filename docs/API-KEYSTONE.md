@@ -318,7 +318,7 @@ curl -s -H "X-Api-Key: $CLE" "$CURSUS/chantiers/K-2614/go-no-go"
 | `HABILITATION` | habilitation exigée absente, en attente de délivrance, non valide au démarrage, ou expirant pendant le chantier (réserve) |
 | `HABILITATION_SUSPENDUE` | habilitation exigée suspendue par l'employeur |
 | `HABILITATION_RETIREE` | habilitation exigée retirée par l'employeur |
-| `CERTIFICATION` | certification exigée absente ou expirée (réserve si un recyclage est planifié avant le démarrage, ou si elle expire pendant le chantier) |
+| `CERTIFICATION` | certification exigée absente ou expirée (réserve si un recyclage est planifié avant le démarrage, ou si elle expire pendant le chantier) ; aussi la formation renforcée à la sécurité d’un CDD, d’un intérimaire ou d’un alternant sur un poste à risques particuliers (art. L4154-2), non suivie depuis son entrée (réserve si une session est planifiée avant le démarrage) |
 | `DEPLACEMENT` | chantier hors de France sans déplacement validé (demande en attente ou déplacement à créer) |
 | `FORMALITES_VOYAGE` | passeport, visa ou vaccination à régulariser (réserve), ou hors délai (No Go) |
 | `CONTRAT` | contrat (CDD, mission d'intérim, alternance) qui se termine avant la fin de la présence, ou qui commence après son début (No Go) ; ou sortie de l'entreprise enregistrée, CDI compris (le salarié reste évalué sur les chantiers où il est affecté) ; ou situation contractuelle à régulariser au jour de l'évaluation (No Go ; libellé du partage détaillé : « Situation contractuelle à régulariser », sans autre précision) |

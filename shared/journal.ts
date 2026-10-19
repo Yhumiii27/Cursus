@@ -40,6 +40,13 @@ export const ACTIONS_PAIE: readonly string[] = [
   // Réouverture d'une feuille validée, parfois déjà transmise (régularisation dans un lot correctif, t131), et reprise
   // des rubriques par feuille des lots d'avant le lot 5.
   'temps.rouvrir', 'migration.rubriquesFeuilles',
+  // Déplacements dans le fichier de paie (t031) : qualification « grand déplacement » d'un chantier, date de départ posée
+  // pour les séjours déjà traités par la paie.
+  'chantier.grandDeplacement', 'migration.deplacementsPaie',
+  // Jours fériés d'une année (journée de solidarité, fériés non chômés) : ils changent le décompte des congés de l'année.
+  'parametres.feries',
+  // Renouvellement d'un CDD (terme du contrat, indemnité de fin de contrat) ; avenant programmé appliqué à sa date.
+  'employe.renouvelerCdd', 'employe.avenantApplique',
 ];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
@@ -57,12 +64,17 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'employe.sortie': 'Sortie d’un salarié',
   'employe.annulerSortie': 'Sortie annulée',
   'employe.autorisationTravail': 'Titre de séjour (autorisation de travail)',
+  'employe.renouvelerCdd': 'Renouvellement d’un CDD',
+  'employe.annulerAvenant': 'Avenant programmé annulé',
+  'employe.avenantApplique': 'Avenant appliqué à sa date d’effet',
+  'migration.contratsHistorique': 'Reprise : historique des contrats amorcé depuis les fiches',
   'equipe.creer': 'Création d’une équipe',
   'equipe.renommer': 'Équipe renommée',
   'equipe.modifier': 'Équipe modifiée (nom, manager)',
   'equipe.supprimer': 'Suppression d’une équipe',
   'equipe.manager': 'Manager d’une équipe',
   'equipe.affecter': 'Affectation à une équipe',
+  'equipe.parente': 'Équipe parente (hiérarchie des managers)',
   // Formations
   'plan.inscrire': 'Inscription à une session',
   'cert.ajouter': 'Certification enregistrée',
@@ -102,6 +114,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'referentiel.equipe.exigences': 'Exigences communes d’une équipe',
   'referentiel.activite.enregistrer': 'Activité interne créée ou renommée',
   'referentiel.activite.archiver': 'Activité interne archivée ou rétablie',
+  'referentiel.horaire.enregistrer': 'Horaire de poste créé ou modifié',
+  'referentiel.horaire.archiver': 'Horaire de poste archivé ou rétabli',
   'migration.postes': 'Reprise : postes créés depuis les fiches',
   // Demandes des collaborateurs
   'demande.formation': 'Demande de formation',
@@ -119,8 +133,12 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'voyages.importer': 'Import de déplacements',
   'keystone.accepter': 'Demande de Keystone acceptée',
   'keystone.refuser': 'Demande de Keystone refusée',
+  'chantier.grandDeplacement': 'Grand déplacement d’un chantier qualifié',
+  'migration.deplacementsPaie': 'Déplacements antérieurs laissés à la saisie dans Sage',
+  'employe.contactUrgence': 'Contact d’urgence enregistré',
   // Temps et paie
   'temps.setCell': 'Saisie d’heures',
+  'temps.horaire': 'Horaire du jour choisi par autrui',
   'temps.addLine': 'Ligne ajoutée à une feuille de temps',
   'temps.removeLine': 'Ligne retirée d’une feuille de temps',
   'temps.suggest': 'Heures proposées depuis Keystone',
@@ -166,6 +184,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'entretien.telecharger': 'Compte rendu d’entretien téléchargé par le salarié',
   // Administration
   'parametres.maj': 'Paramètres modifiés',
+  'parametres.feries': 'Jours fériés et journée de solidarité d’une année',
   'demo.reinitialiser': 'Démonstration réinitialisée',
   'compte.creer': 'Compte créé',
   'compte.profil': 'Profil RH modifié',
@@ -216,6 +235,11 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'migration.referencesDeplacements': 'Reprise : référence donnée aux déplacements importés sans référence',
   // Contrôle d'intégrité du démarrage (server/src/integrite.ts) : références orphelines, nombres seulement.
   'integrite.orphelins': 'Contrôle d’intégrité : références orphelines dans la base',
+  // Pièces justificatives (server/src/pieces.ts) : identifiants, objet, type et taille ; jamais le nom du fichier.
+  'piece.deposer': 'Pièce justificative envoyée',
+  'piece.joindre': 'Pièce justificative jointe',
+  'piece.retirer': 'Pièce justificative retirée',
+  'piece.consulter': 'Pièce justificative consultée',
 };
 
 /** Libellé d'un code ; un e-mail simulé (`email.<nature>`, sans boîte d'envoi) est nommé par sa nature. */
@@ -241,16 +265,17 @@ export const dossierComplet = (u: Pick<CurrentUser, 'role' | 'profilRh'>) => dro
 
 /** Familles du filtre « Action » : codes commençant par l'un des préfixes (ou égaux à l'un d'eux). */
 export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly string[] }[] = [
-  { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.'] },
+  { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.', 'migration.contratsHistorique'] },
   { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'migration.coutReel'] },
   { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.'] },
   { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
-  { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement', 'migration.referencesDeplacements'] },
+  { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement', 'migration.referencesDeplacements', 'chantier.', 'migration.deplacementsPaie'] },
   { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'mandat.', 'migration.heuresSup', 'migration.lotsPaie', 'migration.absencesPaie', 'migration.rubriquesFeuilles'] },
   { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.', 'conges.', 'migration.soldes'] },
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
   { id: 'reprise', label: 'Mise en service (reprise depuis Lucca)', prefixes: ['reprise.'] },
+  { id: 'pieces', label: 'Pièces justificatives', prefixes: ['piece.'] },
   { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.', 'confidentialite.', 'integrite.'] },
   { id: 'connexions', label: 'Connexions et accès', prefixes: ACTIONS_CONNEXION },
   {
@@ -271,7 +296,9 @@ export const CHAMP_LABEL: Record<string, string> = {
   tempsDepuis: 'Date d’effet', entree: 'Date d’entrée', fin: 'Fin de contrat', motifSortie: 'Motif de sortie',
   essaiFin: 'Fin de la période d’essai', essaiRenouveleJusquau: 'Essai renouvelé jusqu’au', expire: 'Expiration', demandeLe: 'Authentification demandée le', verifieLe: 'Vérifié en préfecture le',
   numero: 'Numéro', requise: 'Autorisation de travail requise', titreSejourAlerte: 'Alerte avant l’expiration d’un titre de séjour (jours)',
-  titreSejourRelance: 'Relance avant l’expiration d’un titre de séjour (jours)', agence: 'Agence', managerId: 'Manager', profilRh: 'Profil RH',
+  titreSejourRelance: 'Relance avant l’expiration d’un titre de séjour (jours)',
+  cddRenouvellementsMax: 'Renouvellements admis d’un CDD', cddDureeMaxMois: 'Durée maximale d’un CDD (mois)', cddAccordBranche: 'Accord de branche sur les CDD',
+  motifRecours: 'Motif de recours', cddFinInitiale: 'Terme initial du CDD', jusquau: 'Renouvelé jusqu’au', signeLe: 'Avenant signé le', effet: 'Date d’effet', agence: 'Agence', managerId: 'Manager', profilRh: 'Profil RH',
   actif: 'Actif', date: 'Date', lieu: 'Lieu', places: 'Places', du: 'Du', au: 'Au', type: 'Type', justificatif: 'Justificatif reçu',
   signMgr: 'Signature de l’évaluateur', signSal: 'Signature du salarié', horizonAlerte: 'Seuil d’alerte', seuilBudget: 'Seuil budgétaire',
   rtt39: 'Jours de RTT (39 h)', uniquementReglementaire: 'Formations réglementaires seules', partageKeystone: 'Partage des motifs avec Keystone',
@@ -280,7 +307,11 @@ export const CHAMP_LABEL: Record<string, string> = {
   court: 'Nom court', validite: 'Validité (mois)', duree: 'Durée', organisme: 'Organisme', cout: 'Coût', validation: 'Validation', detail: 'Précision',
   prereqs: 'Prérequis', medical: 'Aptitude médicale exigée', signataire: 'Signataire', pays: 'Pays', visa: 'Entrée', visaSub: 'Précision sur l’entrée',
   oblig: 'Vaccins obligatoires', rec: 'Vaccins recommandés', passMois: 'Validité du passeport après l’entrée (mois)', secu: 'Sécurité sociale',
-  archive: 'Archivée le',
+  archive: 'Archivée le', vigilance: 'Vigilance (France Diplomatie)', vigilanceLe: 'Vigilance vérifiée le',
+  grandDeplacement: 'Grand déplacement', hebergement: 'Hébergement', contactSurPlace: 'Contact sur place', arianeLe: 'Inscription sur Ariane le',
+  // Horaires de poste et jours fériés (lot 6)
+  debut: 'Début', finHoraire: 'Fin', pause: 'Pause (minutes)', horaire: 'Horaire', solidarite: 'Journée de solidarité', solidariteFerie: 'Férié de la journée de solidarité',
+  nonChomes: 'Fériés non chômés',
   matriculePaie: 'Matricule de paie', identifiantKeystone: 'Identifiant envoyé à Keystone', politiqueReportCp: 'Politique de report des CP',
   rttAnneeSuivanteDes: 'RTT de l’année suivante posables à partir du',
   cpMaladie: 'Acquisition des CP pendant un arrêt maladie',
@@ -317,6 +348,17 @@ export const CHAMP_LABEL: Record<string, string> = {
   contingentAccord: 'Référence du contingent', ferie: 'Jour férié', cor: 'Contrepartie obligatoire en repos (h)',
   // Absences dans le fichier d'import de la paie (Paramètres → Absences et paie).
   absencesFichierPaie: 'Absences dans le fichier d’import de la paie', absencesPaieAPartirDu: 'Absences transmises à la paie à partir du',
+  // Pièces justificatives (Paramètres → Pièces justificatives).
+  piecesStockage: 'Stockage des pièces justificatives',
+  // Sécurité au poste (lot 6) : postes à risques particuliers et formation renforcée (art. L4154-2), couverture minimale des
+  // équipes, entretien de parcours après la visite de mi-carrière.
+  risquesL4154: 'Poste à risques particuliers (art. L4154-2)', formationRenforceeCode: 'Formation renforcée à la sécurité',
+  couverture: 'Couverture minimale', couvertureAvant: 'Couverture minimale avant',
+  entretienMiCarriereActif: 'Entretien de parcours après la visite de mi-carrière', entretienMiCarriereMois: 'Délai de l’entretien de mi-carrière (mois)',
+  // Hiérarchie des managers (Paramètres → Hiérarchie, équipe parente).
+  consultationN2: 'Consultation N+2 des équipes rattachées', parente: 'Équipe parente',
+  deplacementsFichierPaie: 'Déplacements dans le fichier d’import de la paie', deplacementsPaieAPartirDu: 'Déplacements transmis à la paie à partir du',
+  vigilanceRappelJours: 'Rappel de vérification de la vigilance (jours)',
 };
 
 const valeur = (v: unknown): string => {

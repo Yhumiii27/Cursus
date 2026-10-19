@@ -90,10 +90,11 @@ test('#10 #30 changement de régime : historique figé, RTT au prorata', () => {
   const d0 = domain();
   const nico = d0.emp(22)!;
   const recupAvant = recupInfo(d0, nico)!.acq;
-  // RTT de l'année déjà pris, que le 35 h n'ouvre pas : le changement se confirme (garde-fou, tests/sorties.test.ts).
-  assert.throws(() => run(RH, 'employe.modifier', { id: 22, temps: '35h' }), /Confirmez le changement/);
-  run(RH, 'employe.modifier', { id: 22, temps: '35h', confirmerRtt: true });
+  // Historique des contrats (t074) : les RTT acquis sous le 39 h sont gardés au prorata (janvier à septembre), sans
+  // confirmation ; le garde-fou ne joue plus que si rien n'est acquis (tests/sorties.test.ts).
+  run(RH, 'employe.modifier', { id: 22, temps: '35h' });
   const d1 = domain();
+  assert.equal(rttInfo(d1, d1.emp(22)!)!.droit, Math.round(23 * 9 / 12), 'RTT de janvier à septembre gardés');
   assert.equal(recupInfo(d1, d1.emp(22)!)!.acq, recupAvant, 'semaines validées recalculées avec leur régime');
   assert.equal(d1.emp(22)!.tempsDepuis, '2026-10-07');
   run(RH, 'employe.modifier', { id: 1, temps: '39h_rtt', tempsDepuis: '2026-10-01' });

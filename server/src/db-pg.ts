@@ -73,6 +73,18 @@ interface PorteePg {
   /** Une transaction `tx` est ouverte sur la connexion (la portée elle-même, ou une transaction ouverte dans `exclusif`). */
   tx: boolean;
   active: boolean;
+  /**
+   * Requêtes de la portée l'une après l'autre sur sa connexion (des appels parallèles, Promise.all, y sont admis comme
+   * en SQLite) : pg 8 met en file d'office mais le déconseille, pg 9 le refusera.
+   */
+  file: Promise<unknown>;
+}
+
+/** Requête `fn` passée à son tour sur la connexion de la portée `p`. */
+function enFile<T>(p: PorteePg, fn: () => Promise<T>): Promise<T> {
+  const r = p.file.then(fn, fn);
+  p.file = r.catch(() => {});
+  return r;
 }
 
 export interface OptionsPg {
@@ -138,7 +150,7 @@ export class PgDb extends Db {
     const texte = params.length ? versDollar(sql) : sql;
     const valeurs = params.length ? [...params] : undefined;
     const p = this.enCours();
-    return p ? await p.client.query(texte, valeurs) : await this.pool.query(texte, valeurs);
+    return p ? await enFile(p, () => p.client.query(texte, valeurs)) : await this.pool.query(texte, valeurs);
   }
 
   async query<T = Row>(sql: string, params: readonly SqlValeur[] = []): Promise<T[]> {
@@ -226,16 +238,23 @@ export class PgDb extends Db {
     }
   }
 
-  /** Transaction sur `client` (BEGIN fait) : validée si `fn` réussit, annulée sinon ; la révision monte à la validation. */
-  private async transaction<T>(client: pg.PoolClient, fn: () => Promise<T>): Promise<T> {
+  /**
+   * Transaction sur `client` (BEGIN fait) : validée si `fn` réussit, annulée sinon ; la révision monte à la validation.
+   * `p` : portée dont la file porte les requêtes (transaction ouverte dans `exclusif`).
+   */
+  private async transaction<T>(client: pg.PoolClient, fn: () => Promise<T>, p?: PorteePg): Promise<T> {
+    const q = async (sql: string) => {
+      if (p) return await enFile(p, () => client.query(sql));
+      return await client.query(sql);
+    };
     let r: T;
     try {
       r = await fn();
     } catch (err) {
-      await client.query('ROLLBACK');
+      await q('ROLLBACK');
       throw err;
     }
-    await client.query('COMMIT');
+    await q('COMMIT');
     this.rev = Math.max(this.rev + 1, Date.now());
     return r;
   }
@@ -262,10 +281,10 @@ export class PgDb extends Db {
     if (p) {
       // Dans `exclusif` : vraie transaction sur la connexion qui détient déjà le verrou, validée à sa fin (avant la
       // réponse de la route), comme la transaction SQLite ouverte dans une suite exclusive.
-      await p.client.query('BEGIN');
+      await enFile(p, () => p.client.query('BEGIN'));
       p.tx = true;
       try {
-        return await this.transaction(p.client, async () => await fn());
+        return await this.transaction(p.client, async () => await fn(), p);
       } finally {
         p.tx = false;
       }
@@ -273,7 +292,7 @@ export class PgDb extends Db {
     return await this.avecConnexion(async client => {
       await client.query('BEGIN');
       await client.query('SELECT pg_advisory_xact_lock(hashtext($1))', [this.cleEcritures]);
-      const q: PorteePg = { client, mode: 'tx', tx: true, active: true };
+      const q: PorteePg = { client, mode: 'tx', tx: true, active: true, file: Promise.resolve() };
       return await this.transaction(client, async () => await this.dans(q, fn));
     });
   }
@@ -282,7 +301,7 @@ export class PgDb extends Db {
     if (this.enCours()) return await fn();
     return await this.avecConnexion(async client => {
       await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
-      const q: PorteePg = { client, mode: 'lecture', tx: true, active: true };
+      const q: PorteePg = { client, mode: 'lecture', tx: true, active: true, file: Promise.resolve() };
       const r = await this.dans(q, fn);
       await client.query('COMMIT');
       return r;
@@ -299,7 +318,7 @@ export class PgDb extends Db {
     return await this.avecConnexion(async client => {
       await client.query('SELECT pg_advisory_lock(hashtext($1))', [this.cleEcritures]);
       try {
-        return await this.dans({ client, mode: 'exclusif', tx: false, active: true }, fn);
+        return await this.dans({ client, mode: 'exclusif', tx: false, active: true, file: Promise.resolve() }, fn);
       } finally {
         await client.query('SELECT pg_advisory_unlock(hashtext($1))', [this.cleEcritures]);
       }

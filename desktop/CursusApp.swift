@@ -86,6 +86,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate, 
     env["CURSUS_SECRET"] = sessionSecret()
     env["KEYSTONE_API_KEY"] = "demo-keystone"  // clé de démonstration, joignable depuis ce Mac uniquement
     env.removeValue(forKey: "CURSUS_TODAY")    // refusée en production : date réelle
+    // Base SQLite locale, jamais le serveur PostgreSQL commun : une valeur vide neutralise un DATABASE_URL exporté dans
+    // la session du poste (Cursus traite le vide comme une absence, server/src/db.ts).
+    env["DATABASE_URL"] = ""
     env["PATH"] = (nodePath as NSString).deletingLastPathComponent + ":/usr/bin:/bin:/usr/sbin:/sbin"
     p.environment = env
     if let h = logHandle { p.standardOutput = h; p.standardError = h }

@@ -61,11 +61,11 @@ test('orphelins : aucun dans la démonstration ; comptés par référence, journ
     assert.equal(lignes.length, 0);
     assert.equal(await db.count('journal'), 0);
     // Reprise faite hors de Cursus : feuilles d'un salarié absent, titre d'une formation inconnue, équipe disparue.
-    db.sql.exec(`INSERT INTO feuilles (emp_id, week, statut, lignes) VALUES (999, '2026-09-07', 'validee', '[]'), (999, '2026-09-14', 'validee', '[]')`);
-    db.sql.exec(`INSERT INTO certifications (emp_id, f, obtenue) VALUES (1, 'FORMATION-INCONNUE', '2026-01-01')`);
-    db.sql.exec(`UPDATE employes SET equipe = 'Équipe disparue' WHERE id = 2`);
+    await db.exec(`INSERT INTO feuilles (emp_id, week, statut, lignes) VALUES (999, '2026-09-07', 'validee', '[]'), (999, '2026-09-14', 'validee', '[]')`);
+    await db.exec(`INSERT INTO certifications (emp_id, f, obtenue) VALUES (1, 'FORMATION-INCONNUE', '2026-01-01')`);
+    await db.exec(`UPDATE employes SET equipe = 'Équipe disparue' WHERE id = 2`);
     // Valeurs « aucun » : jamais des orphelins.
-    db.sql.exec(`UPDATE employes SET poste_id = 0 WHERE id = 3`);
+    await db.exec(`UPDATE employes SET poste_id = 0 WHERE id = 3`);
     const r = await controlerIntegrite(db);
     assert.equal(r.orphelins, 4);
     assert.deepEqual(r.parReference, {
@@ -93,7 +93,7 @@ test('point de santé : « degrade » en public sans aucun nombre, détail pour 
   const db = await base();
   assert.deepEqual(await etatSante(db, false, 'x'), { statut: 'ok', base: 'ok' });
   assert.equal((await etatSante(db, true, 'x')).orphelins, 0);
-  db.sql.exec(`INSERT INTO absences (emp_id, type, du, au, statut) VALUES (777, 'CP', '2026-08-03', '2026-08-07', 'validee')`);
+  await db.exec(`INSERT INTO absences (emp_id, type, du, au, statut) VALUES (777, 'CP', '2026-08-03', '2026-08-07', 'validee')`);
   // Dernier contrôle encore valable : l'orphelin n'apparaît qu'au contrôle suivant.
   assert.equal((await etatSante(db, false, 'x')).statut, 'ok');
   const plusTard = Date.now() + VALIDITE_CONTROLE + 1000;
@@ -142,7 +142,7 @@ test('index sur le salarié : créés par la migration nommée, sans effet sur u
   for (const t of ['absences', 'certifications', 'hab_titres', 'taches', 'missions', 'voyages', 'entretiens', 'notifications']) assert.ok(indexExiste(db, `${t}_emp`), t);
   assert.deepEqual(await appliquerMigrations(db), [], 'une seule fois');
   // Requête par salarié servie par l'index.
-  const plan = db.sql.prepare('EXPLAIN QUERY PLAN SELECT * FROM absences WHERE emp_id = ?').all(1) as { detail: string }[];
+  const plan = (await db.query('EXPLAIN QUERY PLAN SELECT * FROM absences WHERE emp_id = ?', [1])) as { detail: string }[];
   assert.ok(plan.some(p => /USING INDEX absences_emp/.test(p.detail)), JSON.stringify(plan));
   // Base qui a déjà les index (créés à la main par le service informatique) : seulement notée faite.
   const deja = new Db(':memory:');

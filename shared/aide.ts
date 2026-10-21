@@ -35,6 +35,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           'Menu « Mes heures ». La semaine affichée est la semaine en cours (« Cette semaine » y revient, les flèches changent de semaine).',
           'Ajoutez une ligne par projet (« + Ajouter un projet… ») ou reprenez les tâches prévues (« Proposer depuis Keystone »). Inscrit à une session de formation cette semaine-là, le bouton devient « Proposer les heures prévues » (tâches et heures de formation), ou « Proposer les heures de formation » sans tâche Keystone.',
           'Tapez les heures de chaque jour, en heures décimales (7,5 pour 7 h 30) : chaque cellule s’enregistre seule quand vous la quittez. Sur téléphone, la saisie se fait jour par jour.',
+          'Ligne « Horaire du jour » : l’horaire de poste de chaque jour (journée, matin, après-midi, nuit…), proposé en italique d’après votre équipe dès que des heures sont saisies ; changez-le si besoin, ou choisissez « — » pour aucun. Il est facultatif et se fige à la soumission.',
           'Samedi et dimanche sont grisés et repliés (« Sam. · Dim. ») : dépliez-les pour un chantier, un déplacement ou un impératif. Ces heures comptent dans les heures supplémentaires de la semaine.',
           'En fin de semaine, « Soumettre au manager ». Au-delà de 10 h dans une journée ou de 48 h dans la semaine, indiquez le motif demandé avant de soumettre.',
           'La feuille est attendue le lundi suivant à 12 h. Une feuille renvoyée par votre manager revient « à corriger » avec son commentaire : corrigez-la puis soumettez-la de nouveau.',
@@ -55,6 +56,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           'Accueil : vos certifications et habilitations, avec leur échéance. « Demander une formation » ou « Demander le recyclage » envoie la demande au service RH ; « Demander une habilitation » de même.',
           'Les convocations aux sessions arrivent par e-mail, avec un fichier pour l’agenda.',
           '« Mes documents de voyage » : passeport, visa, vaccinations. Ils n’entrent dans votre dossier qu’après validation par le service RH ; les vaccinations ne sont vues que par lui.',
+          '« Mon contact d’urgence » : la personne à prévenir et son téléphone, facultatifs (« Renseigner »). Seul le service RH les voit, jamais votre manager.',
         ],
       },
       {
@@ -103,6 +105,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           '« Missions » : qui est en mission aujourd’hui et le « Planning des 4 prochaines semaines » (missions, absences, fériés).',
           '« Équipe » : conformité de chacun (formations, habilitations, aptitude réduite au verdict et aux restrictions). « Ajouter un membre » reprend un salarié « à affecter » ; une mutation directe passe par le service RH.',
           '« Formations » : renouvellements à prévoir. « Planifier » inscrit le collaborateur à une session ouverte ; sans session, « Demander au RH ».',
+          '« Couverture minimale des équipes » (écran Équipe) : jour où votre équipe n’aura plus assez de secouristes ou d’équipiers incendie présents et formés, et pourquoi.',
         ],
       },
     ],
@@ -125,7 +128,10 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
         points: [
           '« Nouvelle session » (service RH et référent HSE) : formation, dates, lieu, places ; inscriptions, convocations, puis « Clôturer » (présences, résultats, certifications datées du dernier jour).',
           '« Plan & budget » : enveloppes par équipe, « Importer un plan », coût réel à la clôture d’une action.',
-          'Référentiels : formations, habilitations, destinations, postes et leurs exigences ; un élément inutile s’archive.',
+          'Référentiels : formations, habilitations, destinations, postes et leurs exigences, horaires de poste (« Horaires » : J, M, AM, N d’exemple, horaire par défaut de chaque équipe dans son dialogue d’exigences) ; un élément inutile s’archive.',
+          'Postes à risques particuliers : case « Liste des postes à risques particuliers (art. L4154-2) » du poste, formation renforcée désignée dans Paramètres ; un CDD, un intérimaire ou un alternant qui ne l’a pas suivie depuis son entrée est « Non conforme » et en No Go. « Imprimer la liste des postes à risques » la tient à disposition de l’inspection et du CSE.',
+          'Couverture minimale des équipes (SST, EPI incendie) : seuils saisis avec les exigences de l’équipe, aucun par défaut ; alerte datée au tableau de bord, dans « Équipes & managers » et « Échéances ».',
+          'Entretien de mi-carrière : après la visite de mi-carrière enregistrée, l’entretien de parcours est dû dans le délai de Paramètres → Entretien de mi-carrière (2 mois par défaut, à confirmer juridiquement).',
         ],
       },
       {
@@ -141,6 +147,14 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
         points: [
           'Le service RH valide les feuilles d’un salarié sans manager et suit tout le site dans « Suivi des feuilles de temps ».',
           'Seul l’administrateur RH rouvre une feuille validée (« Rouvrir la feuille », motif obligatoire) : déjà transmise, seul l’écart part à la paie dans un lot « Correctif ».',
+        ],
+      },
+      {
+        titre: 'Déplacements et vigilance',
+        points: [
+          'Écran « Missions », « Grand déplacement des chantiers en France » : qualifiez chaque chantier (« Grand déplacement » ou « Pas de grand déplacement ») ; seuls les chantiers retenus donnent à la paie jours, nuits et trajets de leurs missions. Les déplacements à l’étranger donnent leurs jours par pays sans qualification.',
+          'Référentiels, destinations : « Vigilance (France Diplomatie) » et le jour de la vérification, à tenir à jour à la main. Passer un pays à l’orange ou au rouge prévient les managers des voyageurs et la boîte du service RH ; une zone rouge met une réserve au Go / No Go.',
+          '« Modifier le déplacement » : « Hébergement », « Contact sur place » et « Inscrit sur Ariane le ». Le dossier voyage rappelle de vérifier la vigilance avant le départ quand elle date de plus de 30 jours (réglable).',
         ],
       },
     ],
@@ -181,7 +195,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
         points: [
           'Chaque rubrique utilisée a son code Sage saisi et confirmé dans « Rubriques de paie » (ou est désactivée) : tant qu’il en manque, la génération d’un lot réel est refusée en les nommant.',
           'Chaque salarié a son matricule de paie, saisi par le service RH sur la fiche (Paramètres → « Matricules de paie », administrateur RH) ; le refus du lot nomme les salariés sans matricule.',
-          '« Variables de la période » exporte en CSV ce qui est parti et ce qui attend, pour le contrôle. Heures de nuit et frais de déplacement restent saisis dans Sage ; le lundi de Pentecôte travaillé (journée de solidarité) est repéré comme férié et traité par la paie.',
+          '« Variables de la période » exporte en CSV ce qui est parti et ce qui attend, pour le contrôle. Heures de nuit restent saisies dans Sage ; les déplacements (jours et nuits de grand déplacement, jours à l’étranger, trajets) sont calculés et listés « À saisir dans Sage » dans le résumé du lot et l’export tant que l’administrateur RH n’a pas coché « Transmettre les déplacements dans le fichier d’import de la paie », après confirmation de vos codes. Journée de solidarité et fériés chômés : Paramètres, « Jours fériés et journée de solidarité », année par année (lundi de Pentecôte chômé par défaut) ; un jour ainsi travaillé n’est plus férié, et la journée de solidarité n’est pas payée à un mensualisé (art. L3133-8).',
         ],
       },
     ],
@@ -216,7 +230,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
       {
         titre: 'Paie',
         points: [
-          'Codes Sage de chaque rubrique (heures, absences, fériés, dimanche, contrepartie en repos, soldes de sortie), à saisir et confirmer par le gestionnaire de paie.',
+          'Codes Sage de chaque rubrique (heures, absences, fériés, dimanche, contrepartie en repos, soldes de sortie, déplacements : une rubrique par pays ou par zone pour l’étranger, à décider), à saisir et confirmer par le gestionnaire de paie.',
           `Calendrier de paie et traitement d’une correction arrivée après l’import : ${A_COMPLETER_PAIE}.`,
           'Matricules de paie de tous les salariés ; format du fichier ajusté au modèle d’import de Sage.',
         ],
@@ -225,6 +239,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
         titre: 'Organisation et reprise',
         points: [
           'Postes et formations ou habilitations exigées par poste et par équipe ; référentiels et leurs codes, convenus avec l’équipe Keystone.',
+          'Liste des postes à risques particuliers (avis du médecin du travail et du CSE) et formation renforcée à désigner ; seuils de secouristes et d’équipiers incendie par équipe (une équipe par quart en 2x8, 3x8 ou continu) ; délai de l’entretien de mi-carrière à confirmer juridiquement.',
           'Export Lucca des salariés et des soldes arrêtés au 1er janvier 2027 ; même date dans Paramètres → Absences et paie (« Absences transmises à partir du »).',
           'Prévenir l’équipe Keystone du changement des heures validées (semaine rouverte et corrigée).',
         ],

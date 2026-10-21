@@ -5,6 +5,7 @@ import { fmt, validiteLabel } from '../../../shared/format.ts';
 import { actif } from '../../../shared/rules/referentiels.ts';
 import { erreurDate, erreurTexte } from '../components/controles.ts';
 import { Bloquant, CancelButton, CheckList, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
+import { ChoixPiece, PiecesJointes, usePieceJointe } from '../components/PieceJointe.tsx';
 import { ReferentielVide } from '../components/ReferentielVide.tsx';
 import { useEnriched } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -20,6 +21,8 @@ export function HabDialog({ empId: empId0, h: h0, mode }: { empId?: number | nul
   const [par, setPar] = useState<string>(d.hm(h0 ?? habs[0]?.id ?? '')?.signataire ?? '');
   const [busy, setBusy] = useState(false);
   const v = useVerification();
+  // Titre d'habilitation signé joint à la délivrance (pièce justificative, components/PieceJointe.tsx).
+  const piece = usePieceJointe();
   const emp = emps.find(e => e.id === empId) ?? emps[0];
   const hm = d.hm(h);
   if (!habs.length) return <ReferentielVide titre="Délivrer une habilitation" onglet="habilitations" texte="Aucune habilitation au référentiel." />;
@@ -52,9 +55,11 @@ export function HabDialog({ empId: empId0, h: h0, mode }: { empId?: number | nul
   };
 
   const confirm = async () => {
-    if (busy || !v.verifier(blocage, dateErr, parErr)) return;
+    if (busy || !v.verifier(blocage, dateErr, parErr, piece.erreur)) return;
     setBusy(true);
-    const r = await run('hab.delivrer', { empId: emp.id, h, date, par: par.trim(), mode });
+    const pieces = await piece.envoyer();
+    if (!pieces) { setBusy(false); return; }
+    const r = await run('hab.delivrer', { empId: emp.id, h, date, par: par.trim(), mode, ...(pieces.length ? { pieces } : {}) });
     setBusy(false);
     if (r.ok) closeDialog();
   };
@@ -83,6 +88,8 @@ export function HabDialog({ empId: empId0, h: h0, mode }: { empId?: number | nul
         </Field>
         <Field label="Signataire (employeur)" htmlFor="hab-par" requis erreur={v.erreur(parErr)}><input className="input" id="hab-par" type="text" value={par} onChange={e => setPar(e.target.value)} /></Field>
       </div>
+      <PiecesJointes objet="habTitre" objetId={emp.habs.find(x => x.h === h)?.id} label="Titres signés déjà joints" />
+      <ChoixPiece piece={piece} id="hab-piece" label="Titre d’habilitation signé (facultatif)" />
       {blocage ? <Bloquant>{blocage}</Bloquant> : <p className="text-muted fine">{hint}</p>}
     </Dialog>
   );

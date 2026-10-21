@@ -34,9 +34,8 @@ type Ligne = Record<string, any>;
 async function fresh() {
   const db = new Db(':memory:');
   await seedDemo(db);
-  const compteDe = (empId: number | null) => db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number };
-  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: compteDe(empId).id, role, methode: 'demo' }))!;
+  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown> = {}) => await db.tx(async () => {
     const t = await preparerTrace(db, name, p);
     const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
@@ -52,10 +51,10 @@ async function fresh() {
   return { db, run, refus, domain, journal, user, RH: await RH(), KARIM: await user(12, 'manager'), MEHDI: await user(2, 'collaborateur') };
 }
 const entretien = async (db: Db, id: number) => (await db.get<Ligne>('entretiens', id))!;
-const entretienDe = (db: Db, empId: number, statut: string) => (db.sql.prepare('SELECT id FROM entretiens WHERE emp_id = ? AND statut = ? ORDER BY id DESC').get(empId, statut) as { id: number }).id;
+const entretienDe = async (db: Db, empId: number, statut: string) => ((await db.one('SELECT id FROM entretiens WHERE emp_id = ? AND statut = ? ORDER BY id DESC', [empId, statut])) as { id: number }).id;
 /** Entretien annuel de Mehdi (planifié le 20 octobre), clos par Karim : à signer, puis à remettre. */
 async function clos(x: Awaited<ReturnType<typeof fresh>>) {
-  const id = entretienDe(x.db, 2, 'planifie');
+  const id = await entretienDe(x.db, 2, 'planifie');
   await x.run(x.KARIM, 'entretien.modifier', { id, section: 'bilan', value: 'Année chargée, objectifs tenus' });
   await x.run(x.KARIM, 'entretien.clore', { id, date: '2026-10-08' });
   return id;
@@ -104,7 +103,7 @@ test('refus de signer : enregistré par le RH, refusé sur un compte rendu déj�
   await y.run(y.MEHDI, 'entretien.signer', { id: id2 });
   await y.refus(y.RH, 'entretien.remettre', { id: id2, mode: 'refus' }, /signé par le salarié le 10 oct\. 2026 : aucun refus/);
   // Planifié, pas encore clos : rien à remettre.
-  await y.refus(y.RH, 'entretien.remettre', { id: entretienDe(y.db, 1, 'planifie'), mode: 'main_propre' }, /à clore d’abord/);
+  await y.refus(y.RH, 'entretien.remettre', { id: await entretienDe(y.db, 1, 'planifie'), mode: 'main_propre' }, /à clore d’abord/);
 });
 
 test('mise à disposition dans le portail : e-mail avec le seul lien vers Cursus, premier téléchargement daté', async () => {
@@ -146,7 +145,7 @@ test('mise à disposition refusée sans compte actif : remise en main propre', a
   const x = await fresh();
   const { db, refus, run, KARIM } = x;
   const id = await clos(x);
-  db.sql.prepare('UPDATE comptes SET actif = 0 WHERE emp_id = 2').run();
+  (await db.run('UPDATE comptes SET actif = 0 WHERE emp_id = 2'));
   await refus(KARIM, 'entretien.remettre', { id, mode: 'portail' }, /Mehdi Benali n’a pas de compte Cursus actif : remettez-lui le compte rendu en main propre/);
   assert.match(String(await run(KARIM, 'entretien.remettre', { id, mode: 'main_propre' })), /remis en main propre/);
   // Sans adresse e-mail : mis à disposition, le salarié est à prévenir.
@@ -309,7 +308,7 @@ test('migration nommée : coût réel des actions déjà réalisées repris du c
     await appliquerMigrations(db);
     await seedDemo(db);
     // Base d'avant la mise à jour : coût réel vide, migration pas encore enregistrée.
-    db.sql.exec(`UPDATE plan_actions SET cout_reel = NULL, effectif_reel = NULL; DELETE FROM migrations WHERE nom = 'lot4-entretiens-cout-reel'`);
+    await db.exec(`UPDATE plan_actions SET cout_reel = NULL, effectif_reel = NULL; DELETE FROM migrations WHERE nom = 'lot4-entretiens-cout-reel'`);
     db.sql.close();
     const ancienne = new Db(file);
     assert.deepEqual(await appliquerMigrations(ancienne), ['lot4-entretiens-cout-reel']);

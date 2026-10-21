@@ -10,13 +10,15 @@ import { AVIS_MEDICAL, MODE_NOTIFICATION_LABEL, MOTIFS_REPRISE, STATUTS, TEMPS_T
 import { cap, equipeLabel, fmtIso, plural } from '../../../shared/format.ts';
 import { reposForfait } from '../../../shared/rules/conges.ts';
 import { matriculesPris, normaliserMatricule } from '../../../shared/rules/matricules.ts';
-import { essaiMaximum, limitePrevenance, rttPerdus, SEMAINES_FIGEES, soldeRttTexte, sortieTexte } from '../../../shared/rules/contrats.ts';
+import { essaiMaximum, limitePrevenance, rttPerdus, rttPerdusTexte, SEMAINES_FIGEES, sortieTexte } from '../../../shared/rules/contrats.ts';
+import { carences, carenceTexte, dureeMaxCdd, estMotifRecours, MOTIFS_RECOURS } from '../../../shared/rules/cdd.ts';
+import { avenantProgramme, renouvellementsDe } from '../../../shared/rules/historique-contrat.ts';
 import { adressesPrises } from '../../../shared/rules/messagerie.ts';
 import { JOURS_SEMAINE, MANAGER_FIELDS, PROFIL_FIELDS, PROFIL_VIDE, normaliserProfil, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
 import { champsAEnvoyer, champsDifferents, champsEnConflit, LIBELLE_CHAMP_FICHE } from '../../../shared/rules/fiche-concurrente.ts';
 import { contratFige } from '../../../shared/rules/temps.ts';
 import { equipeDeNuit, finDerogationTravaux, mineurAu } from '../../../shared/rules/mineurs.ts';
-import type { Statut, TempsTravail, TypeContrat } from '../../../shared/types.ts';
+import type { MotifRecours, Statut, TempsTravail, TypeContrat } from '../../../shared/types.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Btn, Fine, NoteAccent, SectionLabel, Seg } from '../components/ui.tsx';
 import { NOUVEAU_POSTE, PosteChoix, PosteLibelle } from '../components/PosteChoix.tsx';
@@ -37,8 +39,10 @@ interface Form {
   visite: string; repriseMotif: string; repriseDate: string;
   /** Période d'essai écrite au contrat : dernier jour, et dernier jour après renouvellement (aucune valeur proposée). */
   essaiFin: string; essaiRenouvele: string;
-  /** Date d'effet d'un changement d'organisation du temps (défaut : aujourd'hui). */
+  /** Date d'effet d'un changement d'organisation du temps (défaut : aujourd'hui ; future : avenant programmé). */
   effet: string;
+  /** CDD et intérim : motif de recours (liste fermée) ; CDD : terme initial, avant ses renouvellements. */
+  motifRecours: string; cddFinInitiale: string;
 }
 
 /** Paramètres de l'organisation du temps : leur modification prend effet à une date choisie (`tempsDepuis`). */
@@ -62,6 +66,7 @@ function toForm(p: ProfilInput, today: string): Form {
     visite: p.visite ?? '', repriseMotif: p.repriseMotif ?? '', repriseDate: p.repriseDate ?? '',
     essaiFin: p.essaiFin ?? '', essaiRenouvele: p.essaiRenouveleJusquau ?? '',
     effet: today,
+    motifRecours: p.motifRecours ?? '', cddFinInitiale: p.cddFinInitiale ?? '',
   };
 }
 
@@ -74,6 +79,7 @@ function toInput(f: Form, tempsDepuis: string | null): ProfilInput {
     derogationTravauxLe: f.derogationTravaux || null, agence: f.agence || null, matriculePaie: f.matriculePaie || null, email: f.email || null,
     visite: f.visite || null, repriseMotif: f.repriseMotif || null, repriseDate: f.repriseDate || null,
     essaiFin: f.essaiFin || null, essaiRenouveleJusquau: f.essaiRenouvele || null,
+    motifRecours: (f.motifRecours || null) as ProfilInput['motifRecours'], cddFinInitiale: f.cddFinInitiale || null,
   };
 }
 
@@ -108,7 +114,7 @@ const same = (a: ProfilInput, b: ProfilInput) => PROFIL_FIELDS.every(k => JSON.s
  */
 const CHAMP_ERREUR: [RegExp, keyof Form][] = [
   [/^Nom requis/, 'nom'], [/^Poste requis/, 'poste'], [/^Équipe inconnue|travail de nuit ou en continu/, 'equipe'], [/dérogation pour travaux réglementés/i, 'derogationTravaux'], [/naissance/, 'naissanceLe'],
-  [/^Date d’entrée/, 'entree'], [/renouvellement de l’essai/i, 'essaiRenouvele'], [/période d’essai/, 'essaiFin'], [/date de fin/i, 'fin'], [/^Agence d’intérim/, 'agence'], [/^Manager de l’équipe/, 'typeContrat'],
+  [/^Motif de recours/, 'motifRecours'], [/terme initial/i, 'cddFinInitiale'], [/^Date d’entrée/, 'entree'], [/renouvellement de l’essai/i, 'essaiRenouvele'], [/période d’essai/, 'essaiFin'], [/date de fin/i, 'fin'], [/^Agence d’intérim/, 'agence'], [/^Manager de l’équipe/, 'typeContrat'],
   [/^Un intérimaire ne peut|cadre dirigeant/, 'temps'], [/date d’effet/i, 'effet'],
   [/^Temps partiel|^Forfait hebdomadaire/, 'heures'], [/^Forfait annuel en heures/, 'forfaitHeures'], [/^Forfait jours/, 'forfaitJours'],
   [/^Au moins un jour travaillé|^Répartition impossible/, 'jourOff'],
@@ -210,25 +216,35 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
     naissance: { enregistree: !creation && !!initial.naissanceLe, masquee: limited },
     // Salarié mineur : pas d'équipe de nuit ou en continu, dérogation pour travaux réglementés datée au plus d'aujourd'hui.
     mineurs: { equipes: d.ds.referentiels.equipes, today: d.ti },
+    // CDD : renouvellements de l'historique des contrats, fin enregistrée (une fin repoussée sans renouvellement est signalée).
+    cdd: { renouvellements: emp ? renouvellementsDe(d, emp.id).length : 0, finEnregistree: emp && !initial.motifSortie ? emp.fin : null, reglages: d.ds.settings },
   });
   // Matricule d'un salarié sorti, pas encore confirmé : l'administrateur RH confirme à l'envoi ; pour le gestionnaire RH,
   // l'erreur sous le champ le renvoie à l'administrateur.
   const aConfirmer = !limited && !confirme ? v.matriculeAConfirmer : null;
+  // Date d'effet future : avenant programmé (historique des contrats), appliqué à la fiche à sa date ; il ne porte que sur
+  // l'organisation du temps, et un seul à la fois.
+  const programme = emp ? avenantProgramme(d, emp.id) : null;
+  const futur = nouveauRegime && isValidDate(f.effet) && f.effet > d.ti;
   const errEffet = !nouveauRegime ? null
     : !f.effet ? 'Date d’effet du nouveau régime de temps requise.'
     : !isValidDate(f.effet) ? null
     : isValidDate(f.entree) && f.effet < f.entree ? 'La date d’effet du nouveau régime précède la date d’entrée.'
-    : f.effet > d.ti ? 'Date d’effet future : enregistrez le changement d’organisation du temps le jour de sa prise d’effet.'
+    : futur && (f.statut !== initial.statut || f.typeContrat !== initial.typeContrat) ? 'Un avenant à date future ne porte que sur l’organisation du temps : enregistrez séparément, le jour même, le changement de statut ou de nature du contrat.'
+    : futur && emp?.fin && f.effet > emp.fin ? `Date d’effet postérieure à la fin du contrat (${fmtIso(emp.fin)}).`
     : null;
   // Matricule de paie déjà enregistré : changé ou retiré par l'administrateur RH seul (contrôlé aussi par le serveur).
   const errMatricule = !admin && !limited && initial.matriculePaie && v.profil.matriculePaie !== initial.matriculePaie
     ? `Matricule de paie déjà enregistré (${initial.matriculePaie}) : seul l’administrateur RH le change ou le retire.` : null;
-  const errors = [...v.errors.filter(m => !(aConfirmer && admin && /^Matricule de paie de /.test(m))), ...(errEffet ? [errEffet] : []), ...(errMatricule ? [errMatricule] : [])];
-  const ok = errors.length === 0;
-  // Garde-fou (en attendant l'historique des contrats) : RTT ou jours de repos de l'année pris ou posés que le nouveau régime
-  // n'ouvre plus. Le serveur exige la confirmation ; le solde affiché est gardé au journal pour la paie.
   const changeRegime = !creation && !limited && !!emp && JSON.stringify(contratFige(emp)) !== JSON.stringify(contratFige({ ...emp, ...v.profil }));
-  const perte = changeRegime && ok ? rttPerdus(d, emp!, { ...emp!, ...v.profil, tempsDepuis: nouveauRegime ? f.effet : emp!.tempsDepuis }) : null;
+  const errProgramme = changeRegime && programme ? `Un avenant est déjà programmé au ${fmtIso(programme.effet)} : annulez-le d’abord (fiche, « Historique du contrat ») avant un autre changement de régime.` : null;
+  const errors = [...v.errors.filter(m => !(aConfirmer && admin && /^Matricule de paie de /.test(m))), ...(errEffet ? [errEffet] : []), ...(errMatricule ? [errMatricule] : []), ...(errProgramme ? [errProgramme] : [])];
+  const ok = errors.length === 0;
+  // RTT ou jours de repos de l'année pris ou posés que le nouveau régime n'ouvre plus, même au prorata des mois passés sous
+  // l'ancien (historique des contrats). Le serveur exige la confirmation ; le solde affiché est gardé au journal pour la paie.
+  const perte = changeRegime && ok ? rttPerdus(d, emp!, { ...emp!, ...v.profil, tempsDepuis: nouveauRegime ? f.effet : emp!.tempsDepuis }, nouveauRegime ? f.effet : d.ti) : null;
+  // Délai de carence avant un CDD ou une mission (art. L1244-3) : contrat antérieur sur le même poste ou du même titulaire.
+  const carence = creation && ok ? carences(d.ds.employes, { ...v.profil, id: null }) : [];
   const dirty = creation || !same(v.profil, ref0);
   // Erreurs affichées en direct en modification, dès la première saisie en création, et après un envoi bloqué.
   const showErrors = !creation || touched || verif.tente;
@@ -300,6 +316,7 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
   const messages = <>
     {showErrors && autres.map(m => <Bloquant key={m}>{m}</Bloquant>)}
     {!limited && v.warnings.map(w => <NoteAccent key={w}>{w}</NoteAccent>)}
+    {carence.map(c => <NoteAccent key={c.empId}>{carenceTexte(c)}</NoteAccent>)}
   </>;
   const actions = <>
     {showErrors && !ok && (
@@ -368,7 +385,7 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
         texte: `Réembauche : reprendre le matricule de paie ${v.profil.matriculePaie} de ${aConfirmer.nom}, sorti le ${fmtIso(aConfirmer.sortiLe!)} ? Les deux fiches porteront ce matricule ; Sage et Keystone ne reçoivent que la fiche présente.`,
         bouton: 'Réutiliser le matricule', occupe: busy, confirmer: () => { setReutiliser(v.profil.matriculePaie); void envoyer(true, false); }, annuler: () => setConfirmer(false),
       } : confRtt && perte ? {
-        texte: `Le nouveau régime n’ouvre ni RTT ni jours de repos : le compteur de ${emp!.nom} (${soldeRttTexte(perte)}) ne sera plus suivi dans Cursus. Ce solde est gardé au journal pour la paie.`,
+        texte: `${rttPerdusTexte(perte, emp!.nom)}. Ce solde est gardé au journal pour la paie.`,
         bouton: 'Confirmer le changement', occupe: busy, confirmer: () => save(true), annuler: () => setConfRtt(false),
       } : null}>
       {conflitBloc}
@@ -444,6 +461,25 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
             <input className="input" id="emp-agence" type="text" value={f.agence} onChange={ev => set('agence', ev.target.value)} />
           </Field>
         )}
+        {/* CDD et intérim : motif de recours écrit au contrat (art. L1242-12, L1251-16), rappelé tant qu'il manque. */}
+        {(f.typeContrat === 'cdd' || tc.interim) && (
+          <Field label={<>Motif de recours{tc.interim ? <span className="who"> · facultatif</span> : null}</>} htmlFor="emp-motif-recours" erreur={err('motifRecours')}>
+            <select className="input" id="emp-motif-recours" value={f.motifRecours} onChange={ev => set('motifRecours', ev.target.value)}>
+              <option value="">{tc.interim ? 'Non renseigné' : 'À renseigner'}</option>
+              {(Object.keys(MOTIFS_RECOURS) as MotifRecours[]).map(k => <option key={k} value={k}>{MOTIFS_RECOURS[k].label}</option>)}
+            </select>
+            {estMotifRecours(f.motifRecours) && (() => {
+              const m = f.motifRecours as MotifRecours, max = dureeMaxCdd(m, d.ds.settings);
+              return <span className="text-muted sub">{MOTIFS_RECOURS[m].article}{f.typeContrat === 'cdd' ? ` · ${max ? `durée maximale ${max.texte}` : 'aucune durée maximale légale'}` : ''}</span>;
+            })()}
+          </Field>
+        )}
+        {f.typeContrat === 'cdd' && !creation && (
+          <Field label="Terme initial du CDD" htmlFor="emp-terme-initial" erreur={err('cddFinInitiale')}>
+            <input className="input" id="emp-terme-initial" type="date" min={f.entree || undefined} value={f.cddFinInitiale} onChange={ev => set('cddFinInitiale', ev.target.value)} />
+            <span className="text-muted sub">Avant les renouvellements (bouton « Renouveler le CDD » de la fiche) ; vide : la fin actuelle</span>
+          </Field>
+        )}
       </div>
 
       <SectionLabel>Période d’essai</SectionLabel>
@@ -490,15 +526,22 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
         )}
         {nouveauRegime && (
           <Field label="Date d’effet" htmlFor="emp-effet" requis erreur={err('effet')}>
-            <input className="input" id="emp-effet" type="date" min={f.entree || undefined} max={d.ti} value={f.effet} onChange={ev => set('effet', ev.target.value)} />
+            <input className="input" id="emp-effet" type="date" min={f.entree || undefined} value={f.effet} onChange={ev => set('effet', ev.target.value)} />
           </Field>
         )}
       </div>
-      {nouveauRegime && (
+      {nouveauRegime && futur && (
+        <Fine>
+          Avenant programmé : la fiche garde son organisation du temps ({regimeActuel}) jusqu’au {fmtIso(f.effet)}, date à laquelle le nouveau régime
+          s’applique de lui-même ; les feuilles des semaines suivantes sont calculées avec lui. L’avenant s’annule tant qu’il n’est pas appliqué (fiche,
+          « Historique du contrat »).
+        </Fine>
+      )}
+      {nouveauRegime && !futur && (
         <Fine>
           Les semaines antérieures {isValidDate(f.effet) ? `au ${fmtIso(f.effet)}` : 'à la date d’effet'} restent calculées avec l’ancien régime ({regimeActuel}) :
           celles des {SEMAINES_FIGEES} dernières qui n’ont pas encore de feuille de temps en reçoivent une, vide, figée sur ce régime.
-          Les RTT et jours de repos sont proratisés à partir de cette date.
+          Le changement s’inscrit dans l’historique du contrat : les RTT et jours de repos de l’année sont comptés au prorata de chaque régime.
         </Fine>
       )}
       {f.temps === 'partiel' && (

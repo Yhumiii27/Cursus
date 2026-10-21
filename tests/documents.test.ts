@@ -169,8 +169,8 @@ async function ancienneBase(dir: string, nom: string, demandes: Ancienne[]) {
   const file = join(dir, `${nom}.db`);
   const old = new Db(file);
   await seedDemo(old);
-  old.sql.exec('DELETE FROM demandes_collab WHERE type = \'document\'');
-  old.sql.exec('ALTER TABLE demandes_collab DROP COLUMN declaration');
+  await old.exec('DELETE FROM demandes_collab WHERE type = \'document\'');
+  await old.exec('ALTER TABLE demandes_collab DROP COLUMN declaration');
   const ins = old.sql.prepare('INSERT INTO demandes_collab (emp_id, type, label, date, statut, reponse) VALUES (?, \'document\', ?, ?, ?, ?)');
   for (const [empId, label, statut = 'attente', date = '2026-10-01', reponse = null] of demandes) ins.run(empId, label, date, statut, reponse);
   old.sql.close();

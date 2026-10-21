@@ -16,6 +16,7 @@ import type { Absence, AbsenceType, CetMouvement, CongeType, Employe, FeuilleTem
 import { joursAvantDepart, suitePaie } from '../absences-paie.ts';
 import { absenceKeystone, sendToKeystone } from '../integrations/keystone.ts';
 import { recrediterPeriodesCloses } from './clotures.ts';
+import { joindrePieces } from './pieces.ts';
 import { notifierDecisionConge, notifierDemandeConge, notifierFeuilleRenvoyee } from '../notifications.ts';
 import {
   ActionError, type ActionHandler, type Ctx, estSoiMeme, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, refuserSoiMeme, requireRh, str,
@@ -154,7 +155,10 @@ const signaler: ActionHandler = async (ctx, p) => {
     empId: emp.id, type: 'ABSENCE', du, au, statut: 'signalee', keystone: true, signaleLe: ctx.d.ti, signalePar: ctx.user.nom, signaleParInteresse: interesse, justificatif: false,
   });
   await keystone(ctx, 'absence.validee', a);
-  return `Absence de ${emp.nom} signalée ${periodeTexte(du, au)} — nature à préciser par le service RH${interesse ? ', à qui transmettre le justificatif' : ''} · indisponibilité transmise à Keystone`;
+  // Justificatif joint par l'intéressé ou le service RH, jamais par le manager (donnée de santé) : actions/pieces.ts.
+  if (p.pieces != null && !(isRh(ctx) || interesse)) throw new ActionError('Justificatif réservé à l’intéressé et au service RH', 403);
+  const pieces = await joindrePieces(ctx, p.pieces, 'absence', a.id, emp.id);
+  return `Absence de ${emp.nom} signalée ${periodeTexte(du, au)} — nature à préciser par le service RH${interesse && !pieces ? ', à qui transmettre le justificatif' : ''} · indisponibilité transmise à Keystone${pieces}`;
 };
 
 /** Saisie directe par le RH d'une absence hors congés, prévisible (maternité, congé parental, événement familial…) ou non. */
@@ -167,7 +171,8 @@ const saisir: ActionHandler = async (ctx, p) => {
   const just = justificatifDe(ctx, p);
   const a = await ctx.db.insert<Absence>('absences', { empId: emp.id, type: nature, du, au, statut: 'validee', keystone: true, ...just });
   await keystone(ctx, 'absence.validee', a);
-  return `Absence de ${emp.nom} enregistrée ${periodeTexte(du, au)} : ${NATURES_ABSENCE[nature].court} — indisponibilité transmise à Keystone${await majReprise(ctx, emp, null, nature)}${await joursAvantDepart(ctx.db, ctx.ds.settings, a)}`;
+  const pieces = await joindrePieces(ctx, p.pieces, 'absence', a.id, emp.id);
+  return `Absence de ${emp.nom} enregistrée ${periodeTexte(du, au)} : ${NATURES_ABSENCE[nature].court} — indisponibilité transmise à Keystone${pieces}${await majReprise(ctx, emp, null, nature)}${await joursAvantDepart(ctx.db, ctx.ds.settings, a)}`;
 };
 
 /** Qualification par le RH d'une absence signalée, ou correction d'une absence qualifiée : nature, justificatif, dates. */
@@ -189,7 +194,8 @@ const qualifier: ActionHandler = async (ctx, p) => {
   const renvoi = corrigee ? await renvoyerFeuilles(ctx, emp, a) : '';
   // Absence déjà partie à la paie (t028) : dates ou nature changées, l'écart part dans le prochain lot.
   const paie = (corrigee || nature !== a.type ? await suitePaie(ctx.db, a) : '') + await joursAvantDepart(ctx.db, ctx.ds.settings, { ...a, type: nature, du });
-  return `Absence de ${emp.nom} qualifiée : ${NATURES_ABSENCE[nature].court} ${periodeTexte(du, au)}, ${justTexte}${renvoi}${await majReprise(ctx, emp, a, nature)}${paie}`;
+  const pieces = await joindrePieces(ctx, p.pieces, 'absence', a.id, emp.id);
+  return `Absence de ${emp.nom} qualifiée : ${NATURES_ABSENCE[nature].court} ${periodeTexte(du, au)}, ${justTexte}${pieces}${renvoi}${await majReprise(ctx, emp, a, nature)}${paie}`;
 };
 
 /**

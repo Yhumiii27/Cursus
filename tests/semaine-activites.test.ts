@@ -29,9 +29,8 @@ type Feuille = Dataset['feuilles'][number];
 async function fresh() {
   const db = new Db(':memory:');
   await seedDemo(db);
-  const compteDe = (empId: number | null) => db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number };
-  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: compteDe(empId).id, role, methode: 'demo' }))!;
+  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
     const t = await preparerTrace(db, name, p);
     const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
@@ -126,7 +125,7 @@ test('ligne enregistrée avant la semaine à 7 jours : saisie du dimanche, migra
   await run(RH, 'temps.setCell', { empId: 1, week: '2026-11-09', li: 0, di: 6, value: '2' });
   assert.deepEqual((await db.get<Feuille>('feuilles', id))!.lignes[0].h, [7, 7, 0, 7, 7, 0, 2]);
   // Migration : seules les lignes de 5 valeurs sont complétées ; sans effet ensuite.
-  db.sql.exec(`UPDATE feuilles SET lignes = '[{"projet":"INT-LOG","tache":"t","ks":true,"h":[1,2,3,4,5]}]' WHERE id = ${id}`);
+  await db.exec(`UPDATE feuilles SET lignes = '[{"projet":"INT-LOG","tache":"t","ks":true,"h":[1,2,3,4,5]}]' WHERE id = ${id}`);
   assert.equal(await SEMAINE_7_JOURS.necessaire!(db), true);
   assert.match(String(await SEMAINE_7_JOURS.executer(db)), /^1 feuille de temps complétée à 7 jours$/);
   assert.deepEqual((await db.get<Feuille>('feuilles', id))!.lignes, [{ projet: 'INT-LOG', tache: 't', ks: true, h: [1, 2, 3, 4, 5, 0, 0] }]);
@@ -175,8 +174,8 @@ test('activités internes : amorcées par migration, créées, renommées, archi
   const codes = async () => (await db.all<{ code: string; nom: string; statut: string }>('projets')).filter(p => /^(INT-|ECOLE)/.test(p.code));
   assert.ok((await codes()).some(p => p.code === 'INT-DELEG'), 'délégation amorcée par le jeu de démonstration');
   // Base sans activités (production, Keystone muet) : la migration les amorce une fois, sans toucher aux existantes.
-  db.sql.exec(`DELETE FROM projets WHERE code LIKE 'INT-%' AND code <> 'INT-LOG'`);
-  db.sql.exec(`UPDATE projets SET nom = 'Logistique (Keystone)' WHERE code = 'INT-LOG'`);
+  await db.exec(`DELETE FROM projets WHERE code LIKE 'INT-%' AND code <> 'INT-LOG'`);
+  await db.exec(`UPDATE projets SET nom = 'Logistique (Keystone)' WHERE code = 'INT-LOG'`);
   assert.equal(await ACTIVITES_INTERNES.necessaire!(db), true);
   assert.equal(await ACTIVITES_INTERNES.executer(db), '6 activités internes ajoutées (INT-PROD, INT-MAINT, INT-HSE, INT-QUA, INT-ADM, INT-DELEG)');
   assert.equal(await ACTIVITES_INTERNES.necessaire!(db), false);
@@ -264,7 +263,7 @@ test('mandats : saisis par le RH, vus par le RH et l’élu seulement, tracés s
   await refuse(GEST, 'mandat.enregistrer', { id: 999, role: 'titulaire', du: '2026-01-01', credit: 21 }, /Mandat introuvable/, 404);
   const m = String(await run(GEST, 'mandat.enregistrer', { empId: 6, role: 'suppleant', du: '2026-01-05', au: '2029-12-31', credit: 0 }));
   assert.equal(m, 'Élu suppléant au CSE — Thomas Garnier, du 5 janv. 2026 au 31 déc. 2029, crédit de 0 h par mois enregistré');
-  const id = (db.sql.prepare('SELECT id FROM mandats WHERE emp_id = 6').get() as { id: number }).id;
+  const id = ((await db.one('SELECT id FROM mandats WHERE emp_id = 6')) as { id: number }).id;
   assert.deepEqual((await derniere('mandat.enregistrer'))!.salaries, [6]);
   await run(GEST, 'mandat.enregistrer', { id, role: 'titulaire', du: '2026-01-05', credit: 18 });
   const j = (await derniere('mandat.enregistrer'))!;
@@ -309,7 +308,7 @@ test('repos à vérifier : la feuille validée par le manager, une à une ou en 
 
 test('compteur du suppléant : même limite pour l’élu et pour le service RH (effectif calculé par le serveur)', async () => {
   const { db, user, RH } = await fresh();
-  db.sql.exec(`UPDATE mandats SET role = 'suppleant', credit = 0 WHERE emp_id = 8`);
+  await db.exec(`UPDATE mandats SET role = 'suppleant', credit = 0 WHERE emp_id = 8`);
   const JULIEN = await user(8, 'collaborateur'), SOPHIE = await user(3, 'manager');
   const vue = async (u: User) => { const ds = await buildSnapshot(db, u); return compteurDelegation(ds, 8, ds.today, effectifReference(ds, ds.today)); };
   const rh = (await vue(RH))!, elu = (await vue(JULIEN))!;
@@ -331,7 +330,7 @@ test('relecture : mandat refusé sur soi-même, dérogation retirée avec l’é
   const GEST = await user(14, 'rh');
   await refuse(GEST, 'mandat.enregistrer', { empId: 14, role: 'titulaire', du: '2026-11-01', credit: 200 }, /Vous ne pouvez pas enregistrer votre propre mandat au CSE/, 403);
   await run(RH, 'mandat.enregistrer', { empId: 14, role: 'titulaire', du: '2026-11-01', credit: 21 });
-  const id = (db.sql.prepare('SELECT id FROM mandats WHERE emp_id = 14').get() as { id: number }).id;
+  const id = ((await db.one('SELECT id FROM mandats WHERE emp_id = 14')) as { id: number }).id;
   await refuse(GEST, 'mandat.supprimer', { id }, /retirer votre propre mandat/, 403);
   await refuse(GEST, 'mandat.enregistrer', { id, role: 'titulaire', du: '2026-11-01', credit: 200 }, /votre propre mandat/, 403);
   // Équipe supprimée : sa dérogation part avec elle ; recréée sous le même nom, elle n'en hérite pas.

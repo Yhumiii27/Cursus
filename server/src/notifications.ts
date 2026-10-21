@@ -34,10 +34,11 @@ const messagerie = async (cx: Contexte): Promise<Messagerie> => cx.ds.messagerie
 
 /**
  * Notifie un salarié (`dest` : son identifiant) ou le service RH (`dest` = 0) : e-mail aussitôt, ou notification
- * gardée pour le récapitulatif quotidien. Renvoie le mode retenu, ou null si rien n'est envoyé.
+ * gardée pour le récapitulatif quotidien. Renvoie le mode retenu, ou null si rien n'est envoyé. `boitePartagee` : la
+ * boîte du service RH est prévenue même quand l'auteur est du service RH (alerte à partager avec ses collègues).
  */
-export async function notifier(cx: Contexte, dest: number, n: Notification): Promise<'immediat' | 'quotidien' | null> {
-  if (soiMeme(cx.user, dest)) return null;
+export async function notifier(cx: Contexte, dest: number, n: Notification, boitePartagee = false): Promise<'immediat' | 'quotidien' | null> {
+  if (soiMeme(cx.user, dest) && !(boitePartagee && dest === 0)) return null;
   const m = await messagerie(cx);
   const d = dest === 0 ? (m.rh ? { nom: null, adresse: m.rh, mode: m.rhMode } : null) : await adresseSalarie(cx.db, dest, cx.ds.today);
   if (!d) return null;

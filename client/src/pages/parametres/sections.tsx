@@ -12,13 +12,19 @@ import { AbsencesPaie } from './AbsencesPaie.tsx';
 import { Conges } from './Conges.tsx';
 import { Contrats } from './Contrats.tsx';
 import { DecompteHeures } from './DecompteHeures.tsx';
+import { DeplacementsPaie } from './DeplacementsPaie.tsx';
 import { Demonstration } from './Demonstration.tsx';
 import { Entretiens } from './Entretiens.tsx';
+import { EntretienMiCarriere } from './EntretienMiCarriere.tsx';
 import { Envois } from './Envois.tsx';
+import { Feries } from './Feries.tsx';
 import { FeuillesTemps } from './FeuillesTemps.tsx';
 import { Formations } from './Formations.tsx';
+import { Hierarchie } from './Hierarchie.tsx';
 import { Keystone } from './Keystone.tsx';
 import { MatriculesPaie } from './MatriculesPaie.tsx';
+import { Pieces } from './Pieces.tsx';
+import { PostesRisques } from './PostesRisques.tsx';
 import { ReglagesPaie } from './ReglagesPaie.tsx';
 import { Reprise } from './Reprise.tsx';
 import { RelancesEcheances } from './RelancesEcheances.tsx';
@@ -46,6 +52,7 @@ const Journal = () => <JournalPanel />;
 export const SECTIONS: readonly SectionParametres[] = [
   { id: 'suivi', place: 'gauche', Section: Suivi },
   { id: 'entretiens', place: 'gauche', Section: Entretiens },
+  { id: 'entretien-mi-carriere', place: 'gauche', Section: EntretienMiCarriere },
   { id: 'demonstration', place: 'gauche', Section: Demonstration },
   { id: 'keystone', place: 'droite', Section: Keystone },
   { id: 'sage', place: 'droite', Section: SagePaie },
@@ -55,12 +62,17 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'contrats', place: 'gauche', Section: Contrats },
   { id: 'paie', place: 'droite', Section: ReglagesPaie },
   { id: 'decompte', place: 'droite', Section: DecompteHeures },
+  { id: 'feries', place: 'droite', Section: Feries },
   { id: 'absences-paie', place: 'droite', Section: AbsencesPaie },
+  { id: 'deplacements-paie', place: 'droite', Section: DeplacementsPaie },
   { id: 'feuilles', place: 'gauche', Section: FeuillesTemps },
   { id: 'repos', place: 'droite', Section: ReposHebdomadaire },
   { id: 'sante', place: 'gauche', Section: Sante },
   { id: 'formations', place: 'droite', Section: Formations },
+  { id: 'postes-risques', place: 'droite', Section: PostesRisques },
   { id: 'confidentialite', place: 'droite', Section: Rgpd },
+  { id: 'pieces', place: 'droite', Section: Pieces },
+  { id: 'hierarchie', place: 'gauche', Section: Hierarchie },
   { id: 'messagerie', place: 'large', Section: Messagerie },
   { id: 'relances', place: 'large', Section: RelancesEcheances },
   { id: 'envois', place: 'large', Section: Envois },

@@ -1,19 +1,25 @@
 // Point de santé pour la supervision du service informatique et le HEALTHCHECK du conteneur : GET /api/health, sans
 // connexion ni limite de débit (monté avant les autres routes /api). Il interroge la base (SELECT 1, lecture de l'en-tête
 // du fichier par PRAGMA user_version) et répond 503 si elle ne répond pas ; « degrade » (200) si elle contient des
-// références orphelines (server/src/integrite.ts). Réponse publique réduite à l'état : n'importe qui sur Internet peut
+// références orphelines (server/src/integrite.ts), ou si le secret client Entra expire dans 30 jours ou moins
+// (CURSUS_OIDC_SECRET_EXPIRE, server/src/secret-microsoft.ts). Réponse publique réduite à l'état : n'importe qui sur Internet peut
 // l'appeler. Version, mode, envois en échec et orphelins ne sont donnés qu'à un appel local (sur la machine, sans passer
-// par le reverse proxy) ou porteur du jeton de supervision (CURSUS_SUPERVISION_TOKEN). Jamais de donnée personnelle. Guide : docs/DEPLOIEMENT.md, « Exploitation courante ».
+// par le reverse proxy) ou porteur du jeton de supervision (CURSUS_SUPERVISION_TOKEN), comme l'échéance du secret. Jamais de donnée personnelle. Guide : docs/DEPLOIEMENT.md, « Exploitation courante ».
 import { timingSafeEqual } from 'node:crypto';
 import { Router, type Request, type Response } from 'express';
 import { VERSION } from './chemins.ts';
 import { BOUCLE_LOCALE, demoActive, type Env, enProduction } from './config.ts';
 import { type Db, enSerie } from './db.ts';
+import { todayIso } from './dataset.ts';
 import { etatIntegrite } from './integrite.ts';
+import { echeanceSecret } from './secret-microsoft.ts';
 import { EN_TETES_PROXY } from './securite.ts';
 
 export interface Sante {
-  /** `degrade` : la base répond mais contient des références orphelines (détail : `orphelins`). */
+  /**
+   * `degrade` : la base répond mais contient des références orphelines (détail : `orphelins`), ou le secret client Entra
+   * expire dans 30 jours ou moins (détail : `secretMicrosoft`).
+   */
   statut: 'ok' | 'degrade' | 'indisponible';
   base: 'ok' | 'erreur';
   /** Détail (appel local ou jeton de supervision). */
@@ -26,6 +32,8 @@ export interface Sante {
   /** Références orphelines au dernier contrôle (au plus une heure), et leur nombre par référence (server/src/integrite.ts). */
   orphelins?: number;
   references?: Record<string, number>;
+  /** Expiration du secret client Entra (CURSUS_OIDC_SECRET_EXPIRE) et jours restants, si la date est posée. */
+  secretMicrosoft?: { expireLe: string; jours: number };
 }
 
 /** Adresse de la connexion sur la boucle locale (IPv4, IPv6, IPv4 notée en IPv6). */
@@ -49,7 +57,10 @@ export function appelSupervision(req: Request, env: Env = process.env): boolean 
   return bouclee(req.socket.remoteAddress) && !EN_TETES_PROXY.some(h => req.headers[h] !== undefined);
 }
 
-/** État de la base et, pour la supervision, du service. Base injoignable : `indisponible` ; références orphelines : `degrade`. */
+/**
+ * État de la base et, pour la supervision, du service. Base injoignable : `indisponible` ; références orphelines ou secret
+ * client Entra qui expire dans 30 jours : `degrade`.
+ */
 export async function etatSante(db: Db, detail: boolean, depuis: string, env: Env = process.env): Promise<Sante> {
   let base: Sante['base'] = 'ok', envoisEnEchec: number | undefined, integrite: Awaited<ReturnType<typeof etatIntegrite>> | undefined;
   try {
@@ -61,11 +72,13 @@ export async function etatSante(db: Db, detail: boolean, depuis: string, env: En
   } catch {
     base = 'erreur';
   }
-  const etat: Sante = { statut: base === 'erreur' ? 'indisponible' : integrite?.orphelins ? 'degrade' : 'ok', base };
+  const secret = echeanceSecret(todayIso(), env);
+  const etat: Sante = { statut: base === 'erreur' ? 'indisponible' : integrite?.orphelins || secret?.alerte ? 'degrade' : 'ok', base };
   if (!detail) return etat;
   return {
     ...etat, version: VERSION, mode: demoActive(env) ? 'demo' : enProduction(env) ? 'production' : 'developpement', envoisEnEchec, depuis,
     orphelins: integrite?.orphelins, references: integrite?.parReference,
+    ...(secret ? { secretMicrosoft: { expireLe: secret.expireLe, jours: secret.jours } } : {}),
   };
 }
 

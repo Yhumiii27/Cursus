@@ -1,11 +1,13 @@
-// Section Contrat de la fiche (Collaborateurs) : période d'essai écrite au contrat (fin, renouvellement, dernier jour pour
+// Section Contrat de la fiche (Collaborateurs) : CDD (motif de recours, terme initial, renouvellements, t053), période d'essai écrite au contrat (fin, renouvellement, dernier jour pour
 // notifier une rupture dans le délai de prévenance) et titre de séjour valant autorisation de travail. Le service RH voit
 // le titre en entier et l'enregistre ; la lecture seule le voit sans numéro ; le manager, le référent HSE et la paie ne
 // reçoivent qu'un verdict (server/src/dataset.ts), affiché seulement quand il est à régulariser.
 import type { ReactNode } from 'react';
 import { days, parse } from '../../../shared/dates.ts';
 import { fmtIso, rel } from '../../../shared/format.ts';
-import { etatAutorisation, finEssai, limitePrevenance, sorti, TYPES_TITRE_SEJOUR } from '../../../shared/rules/contrats.ts';
+import { etatAutorisation, finEssai, limitePrevenance, sortieEnregistree, sorti, TYPES_TITRE_SEJOUR } from '../../../shared/rules/contrats.ts';
+import { controleCdd, estMotifRecours, MOTIFS_RECOURS } from '../../../shared/rules/cdd.ts';
+import { renouvellementsDe } from '../../../shared/rules/historique-contrat.ts';
 import type { Employe } from '../../../shared/types.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -24,7 +26,7 @@ function Ligne({ label, children, sub }: { label: string; children: ReactNode; s
 
 export function ContratFiche({ e }: { e: Employe }) {
   const d = useDomain();
-  const { rh } = useRole();
+  const { rh, paie, consultation, soi } = useRole();
   const { openDialog } = useStore();
   const parti = sorti(e, d.ti);
   const s = d.ds.settings;
@@ -56,13 +58,37 @@ export function ContratFiche({ e }: { e: Employe }) {
     );
   } else if (rh) titre = <Ligne label="Titre de séjour">Aucune autorisation de travail requise</Ligne>;
 
-  if (!essai && !titre && !(rh && !parti)) return null;
+  // CDD (t053) : motif de recours, terme initial et renouvellements ; durée maximale et renouvellements admis rappelés
+  // (service RH, paie, lecture seule, intéressé : le manager ne reçoit pas le motif). Motif rappelé tant qu'il manque.
+  const dossier = rh || paie || consultation;
+  const cdd = e.typeContrat === 'cdd' && (dossier || e.id === soi) ? (() => {
+    const ren = renouvellementsDe(d, e.id), sortie = sortieEnregistree(e);
+    const motif = estMotifRecours(e.motifRecours) ? MOTIFS_RECOURS[e.motifRecours] : null;
+    const alertes = dossier && !parti ? controleCdd(e, { renouvellements: ren.length, reglages: s, sortie }).warnings : [];
+    return (
+      <>
+        <Ligne label="CDD" sub={[
+          motif?.article ?? '',
+          e.cddFinInitiale ? `terme initial le ${fmtIso(e.cddFinInitiale)}` : '',
+          ren.length ? `renouvelé ${ren.length === 1 ? 'une fois' : `${ren.length} fois`} (dernier avenant${ren.at(-1)!.signeLe ? ` signé le ${fmtIso(ren.at(-1)!.signeLe!)}` : ''})` : 'aucun renouvellement',
+        ].filter(Boolean).join(' · ')}>
+          {motif ? motif.label : <Tag cls="tag-outline">Motif de recours à renseigner</Tag>}
+        </Ligne>
+        {alertes.filter(w => !/^Motif de recours/.test(w)).map(w => <NoteAccent key={w}>{w}</NoteAccent>)}
+      </>
+    );
+  })() : null;
+  const renouvelable = rh && !parti && e.typeContrat === 'cdd' && !!e.fin && !sortieEnregistree(e);
+
+  if (!essai && !titre && !cdd && !(rh && !parti)) return null;
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
+      {cdd}
       {essai}
       {titre}
       {rh && !parti && (
         <div style={{ display: 'flex', gap: 'var(--space-2)', flexWrap: 'wrap' }}>
+          {renouvelable && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'renouvelerCdd', empId: e.id })}>Renouveler le CDD</button>}
           <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'autorisation', empId: e.id })}>Titre de séjour</button>
         </div>
       )}

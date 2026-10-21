@@ -9,9 +9,11 @@ import type { Employe, Equipe } from '../../../shared/types.ts';
 import { usePanneauVisible } from '../components/panneau.ts';
 import { Avatar, Btn, Empty, Fine, Page, Panel, Tag, Two } from '../components/ui.tsx';
 import { CartePick } from '../components/Cliquable.tsx';
+import { ParenteEquipe, redirectionsManager } from '../components/Hierarchie.tsx';
 import { changementManager, retraitEquipe, suppressionEquipe, type Confirmation } from '../state/confirmations.ts';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { CouvertureEquipe } from '../components/Couverture.tsx';
 
 /** Contrat en deux lignes : « CDI · Cadre » et « Forfait jours · 218 j ». */
 export function contratResume(d: Domain, e: Employe) {
@@ -98,6 +100,7 @@ export function Equipes() {
               <CartePick key={t.q.ordre} selected={selected} onSelect={select}>
                 <div className="card-kicker">{plural(t.members.length, 'membre', 'membres')}</div>
                 <div className="card-title">{t.q.nom}</div>
+                {t.q.parente && <div className="text-muted sub-11">Rattachée à {t.q.parente}</div>}
                 {t.mgrNom ? (
                   <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', minWidth: 0 }}>
                     <Avatar nom={t.mgrNom} size={24} />
@@ -192,11 +195,12 @@ function TeamPanel({ panneau, t, candidates }: { panneau: Ref<HTMLElement>; t: T
     const id = val ? Number(val) : null;
     if (id === mgrId) return;
     const nouveau = id != null ? candidates.find(e => e.id === id) ?? d.emp(id) : undefined;
-    confirmer(changementManager(nom, t.mgrNom, nouveau ? { id: nouveau.id, nom: nouveau.nom } : null));
+    confirmer(changementManager(nom, t.mgrNom, nouveau ? { id: nouveau.id, nom: nouveau.nom } : null, redirectionsManager(d, nom, id)));
   };
 
   const mgrNotes = [
-    'Le manager valide les heures, les absences et les entretiens de l’équipe. S’il en est membre, ses propres validations reviennent au service RH.',
+    // Hiérarchie (t136) : le manager membre de l'équipe est validé par son responsable (équipe parente), sinon par le RH.
+    `Le manager valide les heures, les absences et les entretiens de l’équipe. S’il en est membre, ses propres validations reviennent ${t.q.parente ? `au manager de l’équipe parente (${t.q.parente})` : 'au service RH, ou au manager d’une équipe parente'}.`,
     t.mgrNom && !mgrIsMember ? `${t.mgrNom} n’est pas membre de l’équipe (${equipeLabel({ equipe: t.mgrEquipe ?? null })}).` : '',
     t.mgrNom && t.autres.length ? `${t.mgrNom} encadre aussi ${t.autres.join(', ')}.` : '',
   ].filter(Boolean).join(' ');
@@ -207,7 +211,7 @@ function TeamPanel({ panneau, t, candidates }: { panneau: Ref<HTMLElement>; t: T
         <div style={{ minWidth: 0 }}>
           <h2 id="equipe-detail">{nom}</h2>
           <div className="text-muted sub">
-            {plural(n, 'membre', 'membres')}{t.pct != null ? ` · ${t.pct} % conformes` : ''} · validations : {t.mgrNom ?? 'service RH'}
+            {plural(n, 'membre', 'membres')}{t.pct != null ? ` · ${t.pct} % conformes` : ''} · validations : {t.mgrNom ?? 'service RH'}{t.q.parente ? ` · rattachée à ${t.q.parente}` : ''}
           </div>
         </div>
         {rh && (
@@ -238,6 +242,7 @@ function TeamPanel({ panneau, t, candidates }: { panneau: Ref<HTMLElement>; t: T
             )}
           </select>
         </div>
+        <ParenteEquipe q={t.q} />
         <Fine>{mgrNotes}</Fine>
       </div>
 
@@ -275,6 +280,8 @@ function TeamPanel({ panneau, t, candidates }: { panneau: Ref<HTMLElement>; t: T
           </tbody>
         </table>
       </div>
+      {/* Couverture minimale en SST et équipiers incendie (seuils : Référentiels → Postes). */}
+      <CouvertureEquipe equipe={nom} />
       {n === 0 && <Empty pad="sm">Aucun membre. Ajoutez des collaborateurs à l’équipe ou supprimez-la si elle n’a plus lieu d’être.</Empty>}
       {n === 0 && deleteBlock && <Fine>Suppression impossible : {deleteBlock.charAt(0).toLowerCase() + deleteBlock.slice(1)}</Fine>}
     </Panel>

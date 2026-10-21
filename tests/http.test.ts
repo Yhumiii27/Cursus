@@ -182,7 +182,7 @@ test('protections : sans session 401, cookie altéré 401, Origin étrangère 40
 
   // Karim Haddad, manager de la Maintenance : seuls les salariés de son équipe ; action réservée au service RH : 403.
   const rh = (await appel('/api/data', { headers: { cookie } })).json() as { employes: unknown[] };
-  const karim = db.sql.prepare('SELECT id FROM comptes WHERE emp_id = 12').get() as { id: number };
+  const karim = (await db.one('SELECT id FROM comptes WHERE emp_id = 12')) as { id: number };
   const connexion = await appel('/api/login', json({ role: 'manager', compteId: karim.id, password: 'x' }, { cookie }));
   assert.equal(connexion.status, 200);
   const mgrCookie = String(connexion.headers['set-cookie']).match(/cursus_session=[^;]*/)![0];

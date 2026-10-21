@@ -44,9 +44,8 @@ async function le<T>(date: string, fn: () => T | Promise<T>): Promise<T> {
 async function fresh() {
   const db = new Db(':memory:');
   await seedDemo(db);
-  const compteDe = (empId: number | null) => db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number };
-  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: compteDe(empId).id, role, methode: 'demo' }))!;
+  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
     const t = await preparerTrace(db, name, p);
     const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
@@ -157,7 +156,7 @@ test('sortie : contrôles, annulations (Keystone prévenu, convocation annulée)
     const r = d.evaluateChantiers(d.enrich(90, false), d.tripsAll()).find(x => x.c.id === 'K-SO')!.res.find(x => x.e.id === 2)!;
     assert.deepEqual([r.status, r.reasons.map(x => x.code)], ['nogo', ['CONTRAT']]);
     // Connexion refusée passé la date (déjà en place pour les CDD : vaut désormais pour un CDI).
-    const c = db.sql.prepare('SELECT * FROM comptes WHERE emp_id = 2').get() as Record<string, unknown>;
+    const c = (await db.one('SELECT * FROM comptes WHERE emp_id = 2')) as Record<string, unknown>;
     assert.match((await refusDuCompte(db, (await db.get<Compte>('comptes', Number(c.id)))!))!, /date de sortie de ce salarié est passée/);
     // Plus de visite à demander passé la date.
     await refus(RH, 'medical.demander', { empId: 2 }, /dernier jour du contrat de Mehdi Benali/);
@@ -168,7 +167,7 @@ test('sortie : une date passée ferme les sessions ; motif réservé au RH, à l
   const { db, user, run, refus, RH, compteDe } = await fresh();
   const maintenant = new Date();
   await db.insert('connexions', {
-    id: 'session-essai', compteId: compteDe(6).id, role: 'collaborateur', methode: 'demo', demoComptes: {},
+    id: 'session-essai', compteId: (await compteDe(6)).id, role: 'collaborateur', methode: 'demo', demoComptes: {},
     creation: maintenant.toISOString(), expiration: new Date(maintenant.getTime() + 3600_000).toISOString(), activite: maintenant.toISOString(),
   });
   await run(RH, 'medical.demander', { empId: 6 });
@@ -234,39 +233,36 @@ test('sortie d’un membre de l’espace RH : réservée à l’administrateur, 
   const gestionnaire = await user(14, 'rh');
   // Le gestionnaire RH saisit la sortie d'un salarié, pas celle d'un membre de l'espace RH (comptes : administrateur seul).
   await refus(gestionnaire, 'employe.sortie', { id: 7, date: '2026-10-31', motif: 'demission' }, /administrateur RH/, 403);
-  await db.update('comptes', compteDe(1).id, { profilRh: 'rh_admin' });
+  await db.update('comptes', (await compteDe(1)).id, { profilRh: 'rh_admin' });
   await refus(gestionnaire, 'employe.sortie', { id: 1, date: '2026-10-09', motif: 'autre' }, /administrateur RH/, 403);
   await run(gestionnaire, 'employe.sortie', { id: 6, date: '2026-10-31', motif: 'demission' });
   // Deux administrateurs salariés en CDI, le compte non rattaché désactivé : une sortie à venir ne compte pas.
-  await db.update('comptes', compteDe(2).id, { profilRh: 'rh_admin' });
-  await db.update('comptes', compteDe(null).id, { actif: false });
+  await db.update('comptes', (await compteDe(2)).id, { profilRh: 'rh_admin' });
+  await db.update('comptes', (await compteDe(null)).id, { actif: false });
   await run(RH, 'employe.sortie', { id: 1, date: '2026-10-31', motif: 'demission' });
   await refus(RH, 'employe.sortie', { id: 2, date: '2026-10-31', motif: 'demission' }, /dernier administrateur RH actif après le 31 oct\. 2026/);
   await refus(RH, 'employe.sortie', { id: 2, date: '2026-11-15', motif: 'demission' }, /dernier administrateur RH actif/);
   // Ni désactivation ni changement de profil du seul administrateur sans date de sortie.
-  await refus(RH, 'compte.activer', { id: compteDe(2).id, actif: false }, /au moins un administrateur RH actif, sans date de sortie/);
-  await refus(RH, 'compte.profil', { id: compteDe(2).id, profilRh: 'rh_gestionnaire' }, /au moins un administrateur RH actif/);
+  await refus(RH, 'compte.activer', { id: (await compteDe(2)).id, actif: false }, /au moins un administrateur RH actif, sans date de sortie/);
+  await refus(RH, 'compte.profil', { id: (await compteDe(2)).id, profilRh: 'rh_gestionnaire' }, /au moins un administrateur RH actif/);
   // Annulée, la première sortie rend la seconde possible.
   await run(RH, 'employe.annulerSortie', { id: 1 });
   await run(RH, 'employe.sortie', { id: 2, date: '2026-10-31', motif: 'demission' });
 });
 
-test('t074 : un changement de régime fige les 8 semaines précédentes et garde au journal le solde de RTT perdu', async () => {
-  const { db, run, refus, RH, domain, derniere } = await fresh();
+test('t074 : un changement de régime fige les 8 semaines précédentes, garde les RTT acquis au prorata', async () => {
+  const { db, run, RH, domain } = await fresh();
   const d0 = await domain(), mehdi = d0.emp(2)!;
   const rtt = rttInfo(d0, mehdi)!;
   assert.ok(rtt.pris > 0, 'RTT de l’année déjà pris');
-  // 39 h + RTT → 35 h au 5 octobre : le compteur de RTT disparaîtrait, le RH confirme.
-  await refus(RH, 'employe.modifier', { id: 2, temps: '35h', tempsDepuis: '2026-10-05' }, /Confirmez le changement : ce solde sera gardé au journal pour la paie/);
   const semaines = semainesAFiger(mehdi, '2026-10-05', d0.ds.feuilles);
   // Huit semaines du 10 août au 28 septembre, sauf celles qui ont déjà une feuille (21 et 28 septembre, validées).
   assert.deepEqual(semaines, ['2026-08-10', '2026-08-17', '2026-08-24', '2026-08-31', '2026-09-07', '2026-09-14']);
-  const o = await run(RH, 'employe.modifier', { id: 2, temps: '35h', tempsDepuis: '2026-10-05', confirmerRtt: true }) as { message: string };
-  assert.match(o.message, /6 semaines sans feuille figées sur l’ancien régime · solde RTT 2026 : .* gardé au journal pour la paie$/);
-  const j = (await derniere('employe.rtt'))!;
-  assert.deepEqual(j.payload.soldeRtt, { annee: 2026, droit: rtt.droit, pris: rtt.pris, poses: rtt.poses, solde: rtt.solde });
-  assert.ok(j.paie, 'archive paie');
-  assert.deepEqual(j.payload.champsModifies, ['temps', 'tempsDepuis']);
+  // 39 h + RTT → 35 h au 5 octobre : les RTT de janvier à septembre restent acquis (historique des contrats), sans confirmation.
+  const o = (await run(RH, 'employe.modifier', { id: 2, temps: '35h', tempsDepuis: '2026-10-05' })) as { message: string };
+  assert.match(o.message, /6 semaines sans feuille figées sur l’ancien régime$/);
+  const apres = rttInfo(await domain(), (await domain()).emp(2)!)!;
+  assert.deepEqual([apres.label, apres.droit, apres.pris], ['RTT', Math.round(23 * 9 / 12), rtt.pris]);
   // La feuille du 7 septembre, saisie après le changement, reste au régime de 39 h : 39 heures, aucune heure supplémentaire.
   const fige = (await db.all<{ empId: number; week: string; statut: string; contrat: { temps: string } | null; lignes: unknown[] }>('feuilles')).find(f => f.empId === 2 && f.week === '2026-09-07')!;
   assert.deepEqual([fige.statut, fige.contrat?.temps, fige.lignes], ['brouillon', '39h_rtt', []]);
@@ -275,8 +271,23 @@ test('t074 : un changement de régime fige les 8 semaines précédentes et garde
   const d1 = await domain(), sh = d1.ds.feuilles.find(f => f.empId === 2 && f.week === '2026-09-07')!;
   const c = calcSheet(d1, d1.emp(2)!, sh);
   assert.deepEqual([c.c.temps, c.total, c.sup25], ['39h_rtt', 39, 0]);
-  // Sans RTT perdu (35 h → 39 h + RTT), aucune confirmation ; les semaines déjà couvertes ne reçoivent rien de plus.
+  // Retour au 39 h + RTT : aucune confirmation ; les semaines déjà couvertes ne reçoivent rien de plus.
   const n = (await db.all('feuilles')).length;
   await run(RH, 'employe.modifier', { id: 2, temps: '39h_rtt', tempsDepuis: '2026-10-05' });
   assert.equal((await db.all('feuilles')).length, n, 'semaines déjà pourvues d’une feuille');
+});
+
+test('t074 : un changement de régime qui ne laisse aucun RTT acquis se confirme, le solde est gardé au journal', async () => {
+  const { run, refus, RH, domain, derniere } = await fresh();
+  const rtt = rttInfo(await domain(), (await domain()).emp(2)!)!;
+  // Passage au 35 h dès janvier : aucun mois de l'année sous le 39 h, le compteur disparaîtrait.
+  // Le RTT posé le 2 novembre, sous le 35 h, est cité pour être revu.
+  await refus(RH, 'employe.modifier', { id: 2, temps: '35h', tempsDepuis: '2026-01-05' }, /n’ouvre ni RTT ni jours de repos.*et 1 j de RTT reste posé ou validé à partir du 5 janv\. 2026.*Confirmez le changement : ce solde sera gardé au journal pour la paie/);
+  const o = (await run(RH, 'employe.modifier', { id: 2, temps: '35h', tempsDepuis: '2026-01-05', confirmerRtt: true })) as { message: string };
+  assert.match(o.message, /solde RTT 2026 : .* gardé au journal pour la paie$/);
+  const j = (await derniere('employe.rtt'))!;
+  assert.deepEqual(j.payload.soldeRtt, { annee: 2026, droit: rtt.droit, pris: rtt.pris, poses: rtt.poses, solde: rtt.solde, effet: '2026-01-05', nouveauDroit: null, apresEffet: 1 });
+  assert.ok(j.paie, 'archive paie');
+  assert.deepEqual(j.payload.champsModifies, ['temps', 'tempsDepuis']);
+  assert.equal(rttInfo(await domain(), (await domain()).emp(2)!), null);
 });

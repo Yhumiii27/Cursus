@@ -4,8 +4,9 @@
 // - Autres jours fériés : aucune majoration légale ; heures repérées et émises en quantité (FERIE_TRAV) pour que la paie
 //   les voie, majorées seulement si le réglage `tauxMajorationFerie` le prévoit (convention ou accord : MAJ_FERIE), taux
 //   figé sur la feuille à sa validation. La saisie un jour férié est permise par défaut (`feriesTravaillesAutorises`),
-//   avec la mention « Férié travaillé » et une ligne au journal (`temps.ferie`). Le lundi de Pentecôte travaillé au titre
-//   de la journée de solidarité est repéré comme les autres fériés : son traitement (art. L3133-8) reste à la paie.
+//   avec la mention « Férié travaillé » et une ligne au journal (`temps.ferie`). La journée de solidarité travaillée et
+//   les fériés réglés non chômés (shared/rules/feries.ts, par année) ne sont plus fériés (`isFerie`) : ni mention, ni
+//   FERIE_TRAV, ni majoration ; un lundi de Pentecôte resté chômé et travaillé quand même est un férié travaillé.
 //   Les heures d'un férié restent du travail effectif : elles comptent dans le rang des heures supplémentaires.
 // - Heures complémentaires : au plus le dixième de la durée contractuelle (art. L3123-28), le tiers seulement avec la
 //   référence d'un accord collectif (art. L3123-20) ; au-delà, dépassement qui exige un motif à la soumission.

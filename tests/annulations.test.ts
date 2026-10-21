@@ -27,9 +27,8 @@ type Ligne = Record<string, any>;
 async function fresh() {
   const db = new Db(':memory:');
   await seedDemo(db);
-  const compteDe = (empId: number | null) => db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number };
-  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: compteDe(empId).id, role, methode: 'demo' }))!;
+  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown> = {}) => await db.tx(async () => {
     const t = await preparerTrace(db, name, p);
     const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
@@ -168,7 +167,7 @@ test('voyage.annuler : un déplacement Keystone annulé ne bloque plus l’accep
 
 test('entretien.annuler : évaluateur ou RH, .ics d’annulation au salarié, obligation de nouveau à planifier', async () => {
   const { db, run, refus, journal, envois, RH, KARIM, MEHDI } = await fresh();
-  const id = (db.sql.prepare(`SELECT id FROM entretiens WHERE emp_id = 2 AND statut = 'planifie'`).get() as { id: number }).id;
+  const id = ((await db.one(`SELECT id FROM entretiens WHERE emp_id = 2 AND statut = 'planifie'`)) as { id: number }).id;
   const x = (await db.get<Ligne>('entretiens', id))!;
   await refus(MEHDI, 'entretien.annuler', { id }, /réservée à l’évaluateur/, 403);
   assert.match(await run(KARIM, 'entretien.annuler', { id }), /annulé — Mehdi Benali · annulation envoyée au salarié/);
@@ -189,13 +188,13 @@ test('entretien.annuler : évaluateur ou RH, .ics d’annulation au salarié, ob
 test('entretien.annuler : compte rendu commencé, sur confirmation seulement ; entretien clos, jamais', async () => {
   const { db, run, refus, KARIM, RH } = await fresh();
   await run(KARIM, 'entretien.planifier', { empId: 2, kind: 'epp', date: '2026-11-16' });
-  const id = (db.sql.prepare(`SELECT id FROM entretiens WHERE emp_id = 2 AND type = 'epp' AND statut = 'planifie'`).get() as { id: number }).id;
+  const id = ((await db.one(`SELECT id FROM entretiens WHERE emp_id = 2 AND type = 'epp' AND statut = 'planifie'`)) as { id: number }).id;
   await run(KARIM, 'entretien.modifier', { id, section: 'competences', value: 'Premiers échanges' });
   await refus(KARIM, 'entretien.annuler', { id }, /compte rendu commencé/, 409);
   await run(RH, 'entretien.annuler', { id, confirmer: true });
   assert.equal(await db.get('entretiens', id), undefined);
   // Entretien clos : ni annulation, ni reprise du compte rendu.
-  const annuel = (db.sql.prepare(`SELECT id FROM entretiens WHERE emp_id = 2 AND statut = 'planifie'`).get() as { id: number }).id;
+  const annuel = ((await db.one(`SELECT id FROM entretiens WHERE emp_id = 2 AND statut = 'planifie'`)) as { id: number }).id;
   await run(KARIM, 'entretien.clore', { id: annuel, date: '2026-10-08' });
   await refus(KARIM, 'entretien.annuler', { id: annuel, confirmer: true }, /déjà clos/, 409);
 });
@@ -220,7 +219,7 @@ test('obligations : entretien annuel de l’année planifié à une date dépass
   const annuel = async () => obligations(await domain(), [2]).find(o => o.kind === 'annuel');
   const x = (await db.all<Ligne>('entretiens')).find(y => y.empId === 2 && y.type === 'annuel' && y.statut === 'planifie')!;
   assert.equal(await annuel(), undefined, 'planifié à venir : rien à traiter');
-  db.sql.exec(`UPDATE entretiens SET date = '2026-10-05' WHERE id = ${x.id}`);
+  await db.exec(`UPDATE entretiens SET date = '2026-10-05' WHERE id = ${x.id}`);
   const o = (await annuel())!;
   assert.equal(o.st, 'late');
   assert.equal(o.pl!.id, x.id);
@@ -235,7 +234,7 @@ test('obligations : un entretien planifié à une date dépassée est en retard,
   const epp = async () => obligations(await domain(), [2]).find(o => o.kind === 'epp')!;
   assert.equal((await epp()).st, 'planifie');
   assert.deepEqual(statutObligation(await epp()), ['Planifié', 'tag-neutral']);
-  db.sql.exec(`UPDATE entretiens SET date = '2026-10-01' WHERE emp_id = 2 AND type = 'epp' AND statut = 'planifie'`);
+  await db.exec(`UPDATE entretiens SET date = '2026-10-01' WHERE emp_id = 2 AND type = 'epp' AND statut = 'planifie'`);
   assert.equal((await epp()).st, 'late');
   assert.deepEqual(statutObligation(await epp()), ['Planifié, date dépassée', 'tag-accent']);
   // Annulé : l'obligation n'est plus planifiée.

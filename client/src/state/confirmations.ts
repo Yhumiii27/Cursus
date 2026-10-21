@@ -141,6 +141,8 @@ export function generationLot(o: {
   enAttente?: number;
   /** Soldes de sortie emportés (t128, rubriques de sortie actives). */
   sorties?: number;
+  /** Déplacements du lot (t031) : salariés, et éléments à saisir dans Sage (rubrique désactivée, réglage décoché). */
+  deplacements?: { salaries: number; aSaisir: number };
 }): Confirmation {
   const simulation = o.mode === 'simulation';
   const absences = o.absences?.absences ? `, ${plural(o.absences.absences, 'absence', 'absences')}` : '';
@@ -158,6 +160,7 @@ export function generationLot(o: {
         ? `rubriques complètes du salarié pour la période d’origine (annule et remplace). Ce lot part seul, à importer en mode remplacement ; ${o.enAttente ? `${plural(o.enAttente, 'autre feuille', 'autres feuilles')} en attente et les absences partiront` : 'les feuilles ordinaires et les absences partiront'} dans le lot suivant, à générer après la confirmation de cet import et à importer comme d’habitude.`
         : 'seul l’écart avec ce qui est déjà parti, positif ou négatif, en rappel si la période d’origine est close.'}` : '',
       absencesSuite(o.absences ?? null),
+      o.deplacements ? `Déplacements : jours et nuits de grand déplacement, jours à l’étranger et trajets de ${plural(o.deplacements.salaries, 'salarié', 'salariés')}${o.deplacements.aSaisir ? ` ; ${plural(o.deplacements.aSaisir, 'élément part', 'éléments partent')} sans code Sage, à saisir dans Sage (liste dans le résumé du lot)` : ''}.` : '',
       o.sorties ? 'Soldes de sortie : compteurs photographiés à la sortie (congés payés à indemniser, RTT, récupération, CET), en jours et en heures ; Sage calcule le montant de l’indemnité.' : '',
       o.sansMatricule.length ? `Sans matricule de paie, sous leur matricule Cursus (simulation seulement) : ${o.sansMatricule.join(', ')}.` : '',
       o.perimetre ?? PERIMETRE_FICHIER,
@@ -240,8 +243,11 @@ export function retraitEquipe(empId: number, nom: string, equipe: string, ui?: P
   };
 }
 
-/** Changement du manager d'une équipe (null : aucun, validations par le service RH). */
-export function changementManager(equipe: string, ancien: string | null, nouveau: { id: number; nom: string } | null): Confirmation {
+/**
+ * Changement du manager d'une équipe (null : aucun, validations par le service RH). `rattaches` : éléments en attente des
+ * managers des équipes rattachées qui changent aussi de valideur (hiérarchie, t136), décrits pour l'écran.
+ */
+export function changementManager(equipe: string, ancien: string | null, nouveau: { id: number; nom: string } | null, rattaches: string[] = []): Confirmation {
   return {
     titre: 'Changer le manager',
     question: nouveau ? `Désigner ${nouveau.nom} manager de l’équipe ${equipe} ?` : `Retirer le manager de l’équipe ${equipe} ?`,
@@ -250,10 +256,33 @@ export function changementManager(equipe: string, ancien: string | null, nouveau
         ? `${nouveau.nom} valide désormais les heures, les absences et les entretiens de l’équipe${ancien ? `, à la place de ${ancien}` : ''}.`
         : `Les heures, les absences et les entretiens de l’équipe sont validés par le service RH${ancien ? `, à la place de ${ancien}` : ''}.`,
       'Les demandes en attente passent au nouveau valideur.',
-    ],
+      rattaches.length
+        ? `Managers des équipes rattachées : ${plural(rattaches.length, 'élément en attente change', 'éléments en attente changent')} aussi de valideur, qui en est prévenu par e-mail : ${rattaches.join(' ; ')}.`
+        : '',
+    ].filter(Boolean),
     bouton: nouveau ? 'Désigner le manager' : 'Retirer le manager',
     action: 'equipe.manager',
     payload: { nom: equipe, managerId: nouveau?.id ?? null },
+  };
+}
+
+/**
+ * Équipe parente (t136) : `valideur` : nouveau valideur du manager de l'équipe (nom, ou « le service RH ») ; `redirigees` :
+ * éléments en attente qui changent de valideur (shared/rules/hierarchie.ts, `elementsRediriges`), décrits pour l'écran.
+ */
+export function rattachementEquipe(equipe: string, parente: string | null, valideur: string | null, redirigees: string[]): Confirmation {
+  return {
+    titre: parente ? 'Rattacher l’équipe' : 'Retirer l’équipe parente',
+    question: parente ? `Rattacher l’équipe ${equipe} à l’équipe ${parente} ?` : `Retirer l’équipe parente de l’équipe ${equipe} ?`,
+    suites: [
+      valideur ? `Les absences, les feuilles de temps et les entretiens du manager de l’équipe seront validés par ${valideur}.` : '',
+      redirigees.length
+        ? `${plural(redirigees.length, 'élément en attente change', 'éléments en attente changent')} de valideur, qui en est prévenu par e-mail : ${redirigees.join(' ; ')}.`
+        : 'Aucun élément en attente ne change de valideur.',
+    ].filter(Boolean),
+    bouton: parente ? 'Rattacher' : 'Retirer le rattachement',
+    action: 'equipe.parente',
+    payload: { nom: equipe, parente },
   };
 }
 

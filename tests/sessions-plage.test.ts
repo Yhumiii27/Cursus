@@ -334,7 +334,7 @@ test('« Proposer » : les lignes saisies sont gardées ; une session d’un jou
   assert.match(String(await run(RH, 'temps.suggest', { empId: 6, week: '2026-10-26' })), /depuis des tâches Keystone et des sessions de formation/);
 
   // Julien Moreau (8), sans tâche Keystone : INT-PROD saisi à la main, puis « Proposer » pour le PRAP du lundi 23 novembre.
-  db.sql.exec('DELETE FROM taches');
+  await db.exec('DELETE FROM taches');
   await run(RH, 'temps.addLine', { empId: 8, week: '2026-11-23', projet: 'INT-PROD' });
   for (let di = 0; di < 5; di++) await run(RH, 'temps.setCell', { empId: 8, week: '2026-11-23', li: 0, di, value: '7' });
   const r = await run(RH, 'temps.suggest', { empId: 8, week: '2026-11-23' });
@@ -374,16 +374,16 @@ test('migration nommée : sessions d’une base existante sur un jour, activité
   const db = new Db(':memory:');
   await seedDemo(db);
   // Base d'avant le lot 5 : sessions sans plage, sans INT-FORM.
-  db.sql.exec(`UPDATE sessions SET fin = NULL, jours = NULL, horaires = NULL; DELETE FROM projets WHERE code = 'INT-FORM'`);
+  await db.exec(`UPDATE sessions SET fin = NULL, jours = NULL, horaires = NULL; DELETE FROM projets WHERE code = 'INT-FORM'`);
   assert.equal(await PLAGE_SESSIONS.necessaire!(db), true);
   assert.equal(await ACTIVITE_FORMATION_PROJET.necessaire!(db), true);
   assert.equal(await PLAGE_SESSIONS.executer(db), '13 sessions sur un jour');
   await ACTIVITE_FORMATION_PROJET.executer(db);
   await ACTIVITE_FORMATION_PROJET.executer(db);
-  const lignes = db.sql.prepare('SELECT date, fin, jours, horaires FROM sessions WHERE id = 3').get() as Record<string, string>;
+  const lignes = (await db.one('SELECT date, fin, jours, horaires FROM sessions WHERE id = 3')) as Record<string, string>;
   assert.deepEqual({ ...lignes }, { date: '2026-10-21', fin: '2026-10-21', jours: '["2026-10-21"]', horaires: '[]' });
-  assert.equal((db.sql.prepare(`SELECT COUNT(*) AS n FROM projets WHERE code = 'INT-FORM'`).get() as { n: number }).n, 1);
-  assert.equal((db.sql.prepare('SELECT COUNT(*) AS n FROM sessions WHERE fin IS NULL').get() as { n: number }).n, 0);
+  assert.equal(((await db.one(`SELECT COUNT(*) AS n FROM projets WHERE code = 'INT-FORM'`)) as { n: number }).n, 1);
+  assert.equal(((await db.one('SELECT COUNT(*) AS n FROM sessions WHERE fin IS NULL')) as { n: number }).n, 0);
   assert.equal(await ACTIVITE_FORMATION_PROJET.necessaire!(db), false);
   // Liste complète : déjà faites, rien de plus ; la base est lue comme avant (une journée par session).
   await appliquerMigrations(db);

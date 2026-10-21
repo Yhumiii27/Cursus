@@ -27,9 +27,8 @@ const RH_MAIL = 'rh@entreprise.example';
 async function fresh() {
   const db = new Db(':memory:');
   await seedDemo(db);
-  const compteDe = (empId: number | null) => db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number };
-  const RH = (await currentUser(db, { compteId: compteDe(null).id, role: 'rh', methode: 'demo' }))!;
+  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
+  const RH = (await currentUser(db, { compteId: (await compteDe(null)).id, role: 'rh', methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown> = {}) => await db.tx(async () => await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p));
   await run(RH, 'messagerie.regler', { rh: RH_MAIL });
   /** Récapitulatifs mis en file, par adresse : texte de l'e-mail. */
@@ -150,7 +149,7 @@ test('relance déjà prise en charge (session planifiée) ou entretien planifié
 
 test('entretien annuel planifié à une date dépassée, jamais clos : relancé comme échu', async () => {
   const { db, recaps, passer } = await fresh();
-  const x = db.sql.prepare(`SELECT id, emp_id AS empId, date FROM entretiens WHERE type = 'annuel' AND statut = 'planifie' ORDER BY date`).get() as { id: number; empId: number; date: string };
+  const x = (await db.one(`SELECT id, emp_id AS empId, date FROM entretiens WHERE type = 'annuel' AND statut = 'planifie' ORDER BY date`)) as { id: number; empId: number; date: string };
   // Le lendemain de la date prévue, sans clôture ni reprogrammation.
   const lendemain = new Date(Date.parse(x.date) + 86400000).toISOString().slice(0, 10);
   await le(lendemain, async () => {

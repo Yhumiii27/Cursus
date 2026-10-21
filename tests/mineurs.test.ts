@@ -28,9 +28,8 @@ type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 async function fresh() {
   const db = new Db(':memory:');
   await seedDemo(db);
-  const compteId = (empId: number | null) => (db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number }).id;
-  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: compteId(empId), role, methode: 'demo' }))!;
+  const compteId = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compteId(empId), role, methode: 'demo' }))!;
   const run = async (u: User, name: string, payload: Record<string, unknown>) => await db.tx(async () => {
     const t = await preparerTrace(db, name, payload);
     const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), payload);
@@ -116,7 +115,7 @@ test('serveur : date enregistrée avec son année, nommée au journal sans sa va
   await run(RH, 'employe.modifier', { id: 2, naissanceLe: '1986-03-09' });
   const e = (await loadFull(db, RH)).employes.find(x => x.id === 2)!;
   assert.deepEqual([e.naissanceLe, e.naissance], ['1986-03-09', 1986]);
-  const j = db.sql.prepare(`SELECT payload FROM journal WHERE action = 'employe.modifier' ORDER BY id DESC LIMIT 1`).get() as { payload: string };
+  const j = (await db.one(`SELECT payload FROM journal WHERE action = 'employe.modifier' ORDER BY id DESC LIMIT 1`)) as { payload: string };
   assert.deepEqual(JSON.parse(j.payload).champsModifies, ['naissanceLe']);
   assert.doesNotMatch(j.payload, /1986/);
   await assert.rejects(async () => await run(RH, 'employe.modifier', { id: 2, naissanceLe: '2016-01-01' }),

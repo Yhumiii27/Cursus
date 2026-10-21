@@ -7,12 +7,14 @@
 // (pages/Temps.tsx). Le jour s'ouvre sur aujourd'hui ; celui choisi est mémorisé (`ui.tsJour`) d'une semaine à l'autre.
 // Chaque champ d'heures est nommé « <projet> · <tâche> — <jour> » ; l'alerte « heures un jour d'absence » lui est reliée
 // (aria-describedby). Le champ (ChampHeures) sert aussi à la grille de la semaine.
+// Horaire de poste du jour (lot 6, components/HorairesFeuille.tsx) : sélecteur sous le titre du jour.
 import { useState, type CSSProperties, type KeyboardEvent, type MouseEvent } from 'react';
 import { cap, fH, num } from '../../../shared/format.ts';
 import type { ISODate, LigneTemps } from '../../../shared/types.ts';
 import { cellText, cellValue, jourParDefaut, nomChamp, VUE_JOUR } from '../components/heures.ts';
 import { useMedia } from '../components/media.ts';
 import { CloseButton } from '../components/ui.tsx';
+import { ChoixHoraire, type HorairesFeuille } from '../components/HorairesFeuille.tsx';
 import { useStore } from '../state/store.tsx';
 
 /**
@@ -64,7 +66,7 @@ export interface JourFeuille {
   weekend?: boolean;
 }
 
-export function SaisieJour({ wk, days, lignes, perDay, total, editable, occupe, projet, alerteDe, enregistrer, supprimer }: {
+export function SaisieJour({ wk, days, lignes, perDay, total, editable, occupe, projet, alerteDe, enregistrer, supprimer, horaires }: {
   wk: ISODate; days: JourFeuille[]; lignes: LigneTemps[]; perDay: number[]; total: number; editable: boolean; occupe: boolean;
   /** Libellé d'un projet (Keystone ou activité interne). */
   projet: (code: string) => string;
@@ -72,6 +74,8 @@ export function SaisieJour({ wk, days, lignes, perDay, total, editable, occupe, 
   alerteDe: (li: number, di: number) => string | undefined;
   enregistrer: (li: number, di: number, raw: string) => Promise<boolean>;
   supprimer: (li: number, ev: MouseEvent) => void;
+  /** Horaire de poste de chaque jour (null : aucun à montrer). */
+  horaires?: HorairesFeuille | null;
 }) {
   const { ui, setUi, data } = useStore();
   const jour = Math.min(days.length - 1, Math.max(0, ui.tsJour ?? jourParDefaut(days.map(x => x.day), data?.today ?? '', perDay)));
@@ -95,6 +99,15 @@ export function SaisieJour({ wk, days, lignes, perDay, total, editable, occupe, 
           <h3 id={titre}>{cap(x.long)}</h3>
           {x.note !== '—' && <span className={x.hl ? 'note-accent' : 'text-muted sub'}>{x.note}</span>}
         </div>
+        {horaires && (
+          <div className="jour-ligne">
+            <div className="grow">
+              <div>Horaire du jour</div>
+              <div className="text-muted sub">{horaires.jours[jour].propose ? 'Proposé par l’équipe : à confirmer ou à changer' : 'Facultatif'}</div>
+            </div>
+            <ChoixHoraire key={jour} h={horaires} di={jour} label={`Horaire — ${x.long}`} style={{ width: 96 }} />
+          </div>
+        )}
         {lignes.map((l, li) => {
           const alerte = alerteDe(li, jour), alerteId = `ts-jour-alerte-${li}`;
           return (

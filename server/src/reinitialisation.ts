@@ -2,7 +2,7 @@
 // refus hors mode démonstration et en production (sauf l'application de bureau, démonstration sur la boucle locale),
 // refus si un serveur en service utilise la base (sauf --force), confirmation exigée (--yes, ou le mot EFFACER tapé dans
 // un terminal). Contrôles sans effet, testés sans lancer la commande (tests/sauvegarde.test.ts).
-import { demoActive, demoSurBoucleLocale, type Env, enProduction } from './config.ts';
+import { demoActive, demoPublique, demoSurBoucleLocale, type Env, enProduction } from './config.ts';
 import type { Verrou } from './sauvegarde.ts';
 
 /** Mot à taper pour confirmer dans un terminal, faute de --yes. */
@@ -27,12 +27,13 @@ export function lireOptions(args: readonly string[]): OptionsReinitialisation {
 
 /**
  * Contrôle fait avant tout accès à la base : mode démonstration exigé ; production refusée, sauf l'application de bureau
- * (démonstration sur la boucle locale posée explicitement, `demoSurBoucleLocale`).
+ * (démonstration sur la boucle locale posée explicitement, `demoSurBoucleLocale`) et l'instance de démonstration publiée
+ * (`demoPublique`, données fictives).
  */
 export function controlerMode(env: Env) {
   if (!demoActive(env)) throw new ReinitialisationRefusee('elle efface toute la base et n’est permise qu’en mode démonstration (CURSUS_DEMO=1 npm run reset-demo -- --yes).');
-  if (enProduction(env) && !demoSurBoucleLocale(env)) {
-    throw new ReinitialisationRefusee('NODE_ENV=production : une base de production ne se réinitialise pas (seule l’application de bureau, démonstration sur 127.0.0.1, le permet).');
+  if (enProduction(env) && !demoSurBoucleLocale(env) && !demoPublique(env)) {
+    throw new ReinitialisationRefusee('NODE_ENV=production : une base de production ne se réinitialise pas (seules l’application de bureau, démonstration sur 127.0.0.1, et l’instance de démonstration publiée, CURSUS_DEMO_PUBLIQUE=1, le permettent).');
   }
 }
 

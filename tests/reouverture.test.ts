@@ -32,9 +32,8 @@ type Lot = Dataset['lotsPaie'][number] & { contenu: { lignes: { matricule: strin
 async function fresh() {
   const db = new Db(':memory:');
   await seedDemo(db);
-  const compteDe = (empId: number | null) => db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number };
-  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: compteDe(empId).id, role, methode: 'demo' }))!;
+  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
     const t = await preparerTrace(db, name, p);
     const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
@@ -128,7 +127,7 @@ test('t131 feuille transmise rouverte : rubriques gardées, écart à la revalid
   const r = (await sheet(2, S39)).reouverture!;
   assert.deepEqual([r.source, r.lot, r.rubriques, r.keystone, r.precedentes?.map(x => x.motif)], ['lot', lot.id, { '2026-09': { HN: 39, HS25: 2 } }, {}, [MOTIF]]);
   // Journal : action de paie, sans le texte du motif.
-  const j = db.sql.prepare(`SELECT payload, message FROM journal WHERE action = 'temps.rouvrir' ORDER BY id DESC`).get() as { payload: string; message: string };
+  const j = (await db.one(`SELECT payload, message FROM journal WHERE action = 'temps.rouvrir' ORDER BY id DESC`)) as { payload: string; message: string };
   assert.ok(estActionPaie('temps.rouvrir') && JOURNAL_LABEL['temps.rouvrir']);
   assert.doesNotMatch(j.payload + j.message, /Deuxième correction/);
   assert.match(j.payload, /"motif":"\[texte renseigné\]"/);
@@ -204,14 +203,14 @@ test('t131 migration lot5-paie-rubriques-par-feuille : rubriques des feuilles re
   await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
   const lot = await dernierLot(), attendu = lot.contenu!.rubriquesFeuilles!;
   // Lot d'avant le lot 5 : contenu sans les rubriques par feuille.
-  db.sql.prepare(`UPDATE lots_paie SET contenu = json_remove(contenu, '$.rubriquesFeuilles') WHERE id = ?`).run(lot.id);
+  (await db.run(`UPDATE lots_paie SET contenu = json_remove(contenu, '$.rubriquesFeuilles') WHERE id = ?`, [lot.id]));
   assert.match(String(await RUBRIQUES_PAR_FEUILLE.executer(db)), /^1 lot de paie : rubriques de \d+ feuilles reprises$/);
   const repris = (await dernierLot()).contenu!.rubriquesFeuilles!;
   // Feuilles sans aucune heure transmise exceptées (le salarié n'a pas de ligne : rien à rapprocher), identiques.
   assert.ok(repris.length > 0);
   for (const r of repris) assert.deepEqual(r, attendu.find(x => x.empId === r.empId && x.week === r.week));
   assert.equal(await RUBRIQUES_PAR_FEUILLE.executer(db), undefined, 'plus rien à reprendre');
-  assert.ok(db.sql.prepare(`SELECT 1 FROM journal WHERE action = 'migration.rubriquesFeuilles'`).get());
+  assert.ok((await db.one(`SELECT 1 FROM journal WHERE action = 'migration.rubriquesFeuilles'`)));
 });
 
 // Semaine 41 (5 octobre) : rattachée à octobre, comme la semaine 40 de Mehdi.

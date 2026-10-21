@@ -12,6 +12,7 @@ import { conflitsDates } from './conflits.ts';
 import { chevauche, demiJournees, type DemiJournees } from './demi-journees.ts';
 import { modeHeuresSup } from './paie.ts';
 import { calcSheet, corDeLaFeuille, heuresSurAbsence, joursTexte, type AbsenceJour } from './temps.ts';
+import { regimeDans, segmentsContrat, type SegmentContrat } from './historique-contrat.ts';
 
 /**
  * Nombre de mois (sur `n` à partir de `start`) où le salarié était présent à mi-mois (RTT ; pour les CP, les absences
@@ -279,18 +280,38 @@ export function reposForfait(year: number, joursForfait = 218): number {
 
 /**
  * RTT (39 h) ou jours de repos (forfait jours) de l'année `Y` (par défaut l'année en cours) : droit annuel, acquis au
- * 1er janvier, au prorata des mois de l'année passés sous le régime actuel — de l'entrée ou du passage au régime
- * (`tempsDepuis`) jusqu'à la fin du contrat (CDD, alternance). Un mois compte si le salarié y est présent, sous ce
- * régime, à la mi-mois (`monthsPresent`, comme l'acquisition des CP) : un CDD de janvier à mars reçoit 3/12 du droit
- * annuel, un contrat d'une semaine à cheval sur deux mois aucun jour. Année suivante : même réglage des RTT (39 h), ou
- * jours de repos du forfait de cette année (`reposForfait`). Intérim : aucun droit dans Cursus.
+ * 1er janvier, au prorata des mois de l'année passés sous chaque régime qui en ouvre (historique des contrats,
+ * shared/rules/historique-contrat.ts) — sans historique, de l'entrée ou du passage au régime actuel (`tempsDepuis`)
+ * jusqu'à la fin du contrat (CDD, alternance). Un mois compte si le salarié y est présent à la mi-mois, sous un régime
+ * connu qui ouvre des RTT ou des jours de repos (`monthsPresent`, comme l'acquisition des CP) : un CDD de janvier à mars
+ * reçoit 3/12 du droit annuel, un contrat d'une semaine à cheval sur deux mois aucun jour, un passage de 39 h à 35 h au
+ * 1er octobre garde 9/12 des RTT de l'année. Chaque mois vaut le douzième du droit de son régime : réglage des RTT (39 h),
+ * ou jours de repos du forfait de l'année (`reposForfait`). Intérim : aucun droit dans Cursus. null : aucun régime de
+ * l'année n'en ouvre.
  */
 export function rttDroit(d: Domain, e: Employe, Y = d.year): number | null {
+  return rttDroitSelon(d, e, Y, segmentsContrat(d, e));
+}
+
+/**
+ * Droit de `rttDroit` selon des périodes de régime données : celles de l'historique, ou celles qu'aurait un changement de
+ * régime envisagé (`rttPerdus` de shared/rules/contrats.ts).
+ */
+export function rttDroitSelon(d: Domain, e: Employe, Y: number, segs: readonly SegmentContrat[]): number | null {
   const c = d.contratOf(e);
-  if (c.interim || (!c.rtt && !c.forfait)) return null;
-  const depuis = [e.entree, e.tempsDepuis ?? ''].sort().at(-1)!;
-  const mois = monthsPresent({ ...e, entree: depuis }, `${Y}-01-01`, 12);
-  return Math.round((c.forfait ? reposForfait(Y, c.joursForfait) : Number(d.ds.settings.rtt39) || 0) * mois / 12);
+  if (c.interim) return null;
+  let ouvert = c.rtt || c.forfait, total = 0;
+  for (let k = 0; k < 12; k++) {
+    const mid = addD(addM(`${Y}-01-01`, k), 14);
+    if (!(e.entree <= mid && (!e.fin || e.fin >= mid))) continue;
+    const r = regimeDans(segs, mid);
+    if (!r) continue;
+    const x = d.contratOf({ ...e, ...r });
+    if (x.interim || (!x.rtt && !x.forfait)) continue;
+    ouvert = true;
+    total += x.forfait ? reposForfait(Y, x.joursForfait) : Number(d.ds.settings.rtt39) || 0;
+  }
+  return ouvert ? Math.round(total / 12) : null;
 }
 
 /**
@@ -306,7 +327,10 @@ export function rttInfo(d: Domain, e: Employe, Y = d.year) {
     .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'RTT', a), 0);
   const cetRtt = d.ds.cet.filter(x => x.empId === e.id && x.type === 'RTT' && x.periode === String(Y)).reduce((n, x) => n + x.jours, 0);
   const pris = (R.anneeRtt === Y ? R.rttPris : 0) + absD('validee') + cetRtt, poses = absD('demandee');
-  return { annee: Y, cetRtt, droit, pris, poses, solde: droit - pris - poses, label: c.forfait ? 'Jours de repos (forfait)' : 'RTT' };
+  // Régime actuel sans RTT ni repos (passage à 35 h en cours d'année) : libellé du dernier régime de l'année qui en ouvrait.
+  const forfait = c.rtt || c.forfait ? c.forfait : segmentsContrat(d, e).filter(s => s.regime && s.du <= `${Y}-12-31`)
+    .map(s => d.contratOf({ ...e, ...s.regime! })).filter(x => x.rtt || x.forfait).at(-1)?.forfait ?? false;
+  return { annee: Y, cetRtt, droit, pris, poses, solde: droit - pris - poses, label: forfait ? 'Jours de repos (forfait)' : 'RTT' };
 }
 
 /**

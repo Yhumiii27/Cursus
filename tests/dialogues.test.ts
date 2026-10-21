@@ -139,7 +139,7 @@ async function fresh() {
 
 test('refus d’une absence : motif conservé et montré au salarié comme à son manager', async () => {
   const { db, run } = await fresh();
-  const a = db.sql.prepare(`SELECT id FROM absences WHERE emp_id = 2 AND statut = 'demandee'`).get() as { id: number };
+  const a = (await db.one(`SELECT id FROM absences WHERE emp_id = 2 AND statut = 'demandee'`)) as { id: number };
   await assert.rejects(async () => await run(KARIM, 'absence.decider', { id: a.id, ok: false, motif: 'x'.repeat(501) }), /Motif trop long/);
   assert.match(String(await run(KARIM, 'absence.decider', { id: a.id, ok: false, motif: '  Période de forte activité ' })), /refusée · motif communiqué au salarié/);
   const vue = async (u: User) => (await buildSnapshot(db, u)).absences.find(x => x.id === a.id);
@@ -147,7 +147,7 @@ test('refus d’une absence : motif conservé et montré au salarié comme à so
   assert.equal((await vue(KARIM))?.motifRefus, 'Période de forte activité');
   assert.equal((await vue(MEHDI))?.statut, 'refusee');
   // Validation : aucun motif de refus.
-  const b = db.sql.prepare(`SELECT id FROM absences WHERE emp_id = 1 AND statut = 'demandee'`).get() as { id: number } | undefined;
+  const b = (await db.one(`SELECT id FROM absences WHERE emp_id = 1 AND statut = 'demandee'`)) as { id: number } | undefined;
   if (b) {
     await run(RH, 'absence.decider', { id: b.id, ok: true, motif: 'ignoré' });
     assert.equal((await loadFull(db, RH)).absences.find(x => x.id === b.id)?.motifRefus ?? null, null);
@@ -189,7 +189,7 @@ test('refus d’une demande Keystone : motif conservé dans Cursus, absent du me
   // Le message de l'action, inscrit au journal (lu par le service RH), porte le motif.
   assert.match(String(await run(RH, 'keystone.refuser', { id: dm.id, motif: 'Visa impossible à obtenir à temps' })), / · motif : Visa impossible à obtenir à temps$/);
   assert.equal((await loadFull(db, RH)).demandesKeystone.find(x => x.id === dm.id)?.motifRefus, 'Visa impossible à obtenir à temps');
-  const envois = db.sql.prepare(`SELECT contenu FROM envois WHERE type = 'demande.decision'`).all() as { contenu: string }[];
+  const envois = (await db.query(`SELECT contenu FROM envois WHERE type = 'demande.decision'`)) as { contenu: string }[];
   assert.ok(envois.length > 0);
   assert.ok(envois.every(e => !e.contenu.includes('Visa impossible')), 'texte libre jamais transmis');
   assert.deepEqual((await buildSnapshot(db, KARIM)).demandesKeystone, [], 'réservé au service RH');

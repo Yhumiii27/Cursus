@@ -29,9 +29,8 @@ interface Ligne { action: string; message: string | null; payload: Record<string
 async function fresh() {
   const db = new Db(':memory:');
   await seedDemo(db);
-  const compteDe = (empId: number | null) => db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number };
-  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: compteDe(empId).id, role, methode: 'demo' }))!;
+  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
     const t = await preparerTrace(db, name, p);
     const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
@@ -67,11 +66,11 @@ test('démonstration : un poste par intitulé des fiches, exigences déclarées 
 test('sans exigence déclarée, le statut ne change pas ; une exigence jamais obtenue rend non conforme (t055)', async () => {
   const { db, emp, ech, poste } = await fresh();
   // Référentiel sans exigence (comme en production à la mise en service).
-  db.sql.exec(`UPDATE postes SET formations = '[]', habilitations = '[]'; UPDATE equipes SET exigences = NULL`);
+  await db.exec(`UPDATE postes SET formations = '[]', habilitations = '[]'; UPDATE equipes SET exigences = NULL`);
   const sansExigence = new Map(await Promise.all([1, 2, 4, 16, 24].map(async id => [id, (await emp(id)).worst] as const)));
   for (const id of sansExigence.keys()) assert.equal((await emp(id)).manquants.length, 0);
   // Cariste sans CACES : Camille Roux perd sa certification CACES R489 et son autorisation de conduite.
-  db.sql.exec(`DELETE FROM certifications WHERE emp_id = 1 AND f = 'caces489'; DELETE FROM hab_titres WHERE emp_id = 1`);
+  await db.exec(`DELETE FROM certifications WHERE emp_id = 1 AND f = 'caces489'; DELETE FROM hab_titres WHERE emp_id = 1`);
   assert.equal((await emp(1)).manquants.length, 0, 'aucune exigence : rien ne manque');
   const avant1 = (await emp(1)).worst;
   await db.update('postes', (await poste('Cariste')).id, { formations: ['caces489'], habilitations: ['ac489'] });
@@ -92,7 +91,7 @@ test('exigence remplie par un titre échu : suivie par sa propre échéance, pas
   const { db, emp, poste } = await fresh();
   // Lucas Martin, préparateur : CACES R489 obtenu en 2021 (60 mois), habilitation détenue.
   await db.update('postes', (await poste('Préparateur de commandes')).id, { formations: ['caces489'], habilitations: ['ac489'] });
-  db.sql.exec(`UPDATE certifications SET obtenue = '2020-01-15' WHERE emp_id = 4 AND f = 'caces489'`);
+  await db.exec(`UPDATE certifications SET obtenue = '2020-01-15' WHERE emp_id = 4 AND f = 'caces489'`);
   const lucas = await emp(4);
   assert.deepEqual(lucas.manquants.map(m => m.id), ['sst'], 'seul le SST de l’équipe manque');
   assert.equal(lucas.certs.find(c => c.f === 'caces489')!.key, 'exp');
@@ -242,7 +241,7 @@ test('manager : précise l’intitulé du poste sans en changer ; le poste et se
   // Camille Roux (Logistique, cariste) : le CACES exigé du poste ne s'évite pas en changeant de poste.
   const hugo = await user(16, 'manager');
   await run(RH, 'employe.modifier', { id: 1, posteId: (await poste('Cariste')).id });
-  db.sql.exec(`DELETE FROM certifications WHERE emp_id = 1 AND f = 'caces489'`);
+  await db.exec(`DELETE FROM certifications WHERE emp_id = 1 AND f = 'caces489'`);
   assert.ok((await emp(1)).manquants.some(m => m.id === 'caces489'));
   const autre = (await poste('Préparateur de commandes')).id;
   await refuse(hugo, 'employe.modifier', { id: 1, posteId: autre, poste: 'Préparateur de commandes' }, /réservés au service RH : posteId/, 403);
@@ -254,7 +253,7 @@ test('manager : précise l’intitulé du poste sans en changer ; le poste et se
   assert.deepEqual([(await emp(1)).poste, (await emp(1)).posteId], ['Cariste confirmée', (await poste('Cariste')).id]);
   // Fiche hors référentiel (écrite sans poste) : intitulé renvoyé tel quel avec les jours non travaillés, sans refus.
   const sophie = await user(3, 'manager');
-  db.sql.exec(`UPDATE employes SET poste = 'Régleuse', poste_id = NULL WHERE id = 13`);
+  await db.exec(`UPDATE employes SET poste = 'Régleuse', poste_id = NULL WHERE id = 13`);
   await run(sophie, 'employe.modifier', { id: 13, poste: 'Régleuse', jourOff: [2] });
   assert.deepEqual([(await emp(13)).jourOff, (await emp(13)).posteId], [[2], null]);
   await refuse(sophie, 'employe.modifier', { id: 13, poste: 'Poste inventé' }, /Poste inconnu : le service RH l’ajoute d’abord/);
@@ -349,7 +348,7 @@ test('migration nommée : un poste par intitulé déjà saisi, variantes réunie
     assert.equal(await db.count('postes'), 0, 'sans effet');
     await seedDemo(db);
     // Base d'avant la mise à jour : aucun poste, fiches non rattachées, migration pas encore enregistrée ; une variante.
-    db.sql.exec(`DELETE FROM postes; UPDATE employes SET poste_id = NULL; UPDATE employes SET poste = 'opératrice ' WHERE id = 15;
+    await db.exec(`DELETE FROM postes; UPDATE employes SET poste_id = NULL; UPDATE employes SET poste = 'opératrice ' WHERE id = 15;
       DELETE FROM migrations WHERE nom = 'lot4-referentiels-postes'`);
     const n = new Set((await db.all<{ poste: string }>('employes')).map(e => e.poste.trim().toLowerCase())).size;
     db.sql.close();
@@ -377,7 +376,7 @@ test('migration nommée : un poste par intitulé déjà saisi, variantes réunie
 test('migration : à égalité de variantes, le poste ne prend pas la forme tout en capitales', async () => {
   const db = new Db(':memory:');
   await seedDemo(db);
-  db.sql.exec(`DELETE FROM postes; UPDATE employes SET poste_id = NULL; UPDATE employes SET poste = 'CARISTE' WHERE id = 1`);
+  await db.exec(`DELETE FROM postes; UPDATE employes SET poste_id = NULL; UPDATE employes SET poste = 'CARISTE' WHERE id = 1`);
   await postesDepuisFiches(db);
   const p = (await db.all<{ id: number; nom: string }>('postes')).find(x => x.nom.toLowerCase() === 'cariste')!;
   assert.equal(p.nom, 'Cariste');

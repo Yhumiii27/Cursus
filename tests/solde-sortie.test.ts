@@ -34,9 +34,8 @@ type Ligne = { action: string; message: string | null; payload: Record<string, a
 async function fresh() {
   const db = new Db(':memory:');
   await seedDemo(db);
-  const compteDe = (empId: number | null) => (db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number }).id;
-  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: compteDe(empId), role, methode: 'demo' }))!;
+  const compteDe = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compteDe(empId), role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
     const t = await preparerTrace(db, name, p);
     const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
@@ -183,7 +182,7 @@ test('t128 lot de paie : rubriques de sortie désactivées par défaut, émises 
   }
 
   // Simulation : le lot emporte le solde, réservé ; fichier avec ses lignes.
-  assert.match(await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }), / · 1 solde de sortie$/);
+  assert.match(await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }), / · 1 solde de sortie · 3 séjours \(déplacements\) · \d+ éléments à saisir dans Sage \(rubrique désactivée ou réglage décoché : voir le résumé du lot\)$/);
   const lot = (await lots()).at(-1)!;
   assert.deepEqual(lot.sorties, [{ id: s.id, empId: 2 }]);
   assert.deepEqual(lot.resume.sorties, { elements: 2, salaries: 1 });

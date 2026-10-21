@@ -245,6 +245,8 @@ test('npm run reset-demo : garde-fous (mode, production, serveur en service, con
   assert.throws(() => controlerMode({ CURSUS_DEMO: '1', NODE_ENV: 'production' }), refus(/NODE_ENV=production : une base de production ne se réinitialise pas/));
   // Application de bureau : démonstration en production sur la boucle locale posée explicitement.
   assert.doesNotThrow(() => controlerMode({ CURSUS_DEMO: '1', NODE_ENV: 'production', CURSUS_HOST: '127.0.0.1' }));
+  // Instance de démonstration publiée derrière le proxy (Coolify), données fictives.
+  assert.doesNotThrow(() => controlerMode({ CURSUS_DEMO: '1', NODE_ENV: 'production', CURSUS_DEMO_PUBLIQUE: '1' }));
   assert.doesNotThrow(() => controlerMode({ CURSUS_DEMO: '1' }));
   assert.throws(() => controlerServeur({ pid: 4321 }, { force: false }), refus(/le serveur Cursus \(processus 4321\) utilise cette base[\s\S]*--force/));
   assert.doesNotThrow(() => controlerServeur({ pid: 4321 }, { force: true }));

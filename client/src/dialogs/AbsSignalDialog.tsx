@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { checkNature } from '../../../shared/rules/conges.ts';
 import { erreursPeriode } from '../components/controles.ts';
 import { CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
+import { ChoixPiece, usePieceJointe } from '../components/PieceJointe.tsx';
 import { Fine } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -21,15 +22,20 @@ export function AbsSignalDialog({ empId }: { empId?: number | null }) {
   const [busy, setBusy] = useState(false);
   const v = useVerification();
   const emp = sel != null ? d.emp(sel) : undefined;
+  // Justificatif joint par l'intéressé ou le service RH, jamais par le manager pour un membre (donnée de santé).
+  const piece = usePieceJointe();
+  const joindre = piece.actif && (rh || sel === me);
   const chk = emp ? checkNature(d, emp, 'ABSENCE', du, au, { quand: 'avant de signaler l’absence' }) : null;
   const empErr = !emp ? 'Choisissez le collaborateur absent.' : null;
   const periode = erreursPeriode(du, au, { du: 'Indiquez le premier jour d’absence.', au: 'Indiquez le dernier jour prévu.' });
 
   const pickDu = (x: string) => { setDu(x); if (!au || au < x) setAu(x); };
   const confirm = async () => {
-    if (busy || !v.verifier(empErr, periode.du, periode.au, chk?.cant)) return;
+    if (busy || !v.verifier(empErr, periode.du, periode.au, chk?.cant, joindre && piece.erreur)) return;
     setBusy(true);
-    const r = await run('absence.signaler', { empId: sel, du, au });
+    const pieces = joindre ? await piece.envoyer() : [];
+    if (!pieces) { setBusy(false); return; }
+    const r = await run('absence.signaler', { empId: sel, du, au, ...(pieces.length ? { pieces } : {}) });
     setBusy(false);
     if (r.ok) closeDialog();
   };
@@ -53,12 +59,13 @@ export function AbsSignalDialog({ empId }: { empId?: number | null }) {
         <Field label="Jusqu’au (inclus, prévu)" htmlFor="as-au" requis erreur={v.erreur(periode.au)}><input className="input" id="as-au" type="date" value={au} min={du || undefined} onChange={ev => setAu(ev.target.value)} /></Field>
       </div>
       {chk && <Controles msgs={chk.msgs} />}
+      {joindre && <ChoixPiece piece={piece} id="as-piece" label="Justificatif (facultatif)" aide="Visible du service RH et de l’intéressé seulement, jamais du manager." />}
       <Fine>
         L’absence compte dès son signalement : aucune heure ne peut être saisie ces jours-là et Keystone reçoit l’indisponibilité.
         Le service RH précise ensuite sa nature (arrêt de travail, accident, événement familial…) ; un arrêt de travail ou la santé d’un enfant n’est communiqué ni au manager ni à Keystone.
         Si l’absence dure plus longtemps, prolongez-la depuis la liste.
       </Fine>
-      {sel === me && !rh && <Fine muted={false}>Transmettez votre justificatif (avis d’arrêt de travail…) au service RH sous 48 heures.</Fine>}
+      {sel === me && !rh && !piece.fichier && <Fine muted={false}>Transmettez votre justificatif (avis d’arrêt de travail…) au service RH sous 48 heures{piece.actif ? ', ici ou plus tard depuis la liste de vos absences' : ''}.</Fine>}
     </Dialog>
   );
 }

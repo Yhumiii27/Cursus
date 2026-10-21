@@ -1,10 +1,13 @@
 // Modification d'un déplacement par le service RH (`voyage.modifier`) : dates, destination et motif, avec les contrôles
 // de la création (conflits de dates contrôlés en direct, le déplacement lui-même exclu). Un déplacement venu de Keystone
 // garde la destination et le motif de son chantier : seules ses dates changent, et Keystone en est prévenu.
+// Coordonnées sur place (t068) : hébergement, contact local et inscription sur Ariane, propres à Cursus (Keystone compris,
+// sans le prévenir) ; textes du service RH, jamais montrés au manager ni au voyageur dans Cursus.
 import { useState } from 'react';
 import { blocage, conflitsDates } from '../../../shared/rules/conflits.ts';
 import { formalitesCaduques } from '../../../shared/rules/deplacements.ts';
 import { actifs } from '../../../shared/rules/referentiels.ts';
+import { COORDONNEES_MAX, texteCoordonnees } from '../../../shared/rules/vigilance.ts';
 import { CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { erreursPeriode, erreurTexte } from '../components/controles.ts';
 import { Fine } from '../components/ui.tsx';
@@ -19,6 +22,9 @@ export function TripModifierDialog({ id }: { id: number }) {
   const [depart, setDepart] = useState(t?.depart ?? '');
   const [retour, setRetour] = useState(t?.retour ?? '');
   const [motif, setMotif] = useState(t?.motif ?? '');
+  const [hebergement, setHebergement] = useState(t?.hebergement ?? '');
+  const [contact, setContact] = useState(t?.contactSurPlace ?? '');
+  const [ariane, setAriane] = useState(t?.arianeLe ?? '');
   const [busy, setBusy] = useState(false);
   const v = useVerification();
   const emp = t ? d.emp(t.empId) : undefined;
@@ -32,7 +38,11 @@ export function TripModifierDialog({ id }: { id: number }) {
   const motifErr = keystone ? null : erreurTexte(motif, 'Indiquez le motif du déplacement.');
   const destErr = destDef ? null : 'Choisissez la destination.';
   const conflits = !dates.du && !dates.au ? conflitsDates(d, emp.id, depart, retour, 'voyage', { voyageId: t.id }) : [];
-  const inchange = dest === t.dest && depart === t.depart && retour === t.retour && motif.trim() === t.motif;
+  const coordErr = (x: string, label: string) => { const r = texteCoordonnees(x, label); return 'erreur' in r ? r.erreur : null; };
+  const hebErr = coordErr(hebergement, 'Hébergement'), contactErr = coordErr(contact, 'Contact sur place');
+  const arianeErr = ariane && ariane > d.ti ? 'Aujourd’hui au plus tard.' : null;
+  const coordChange = hebergement.trim() !== (t.hebergement ?? '') || contact.trim() !== (t.contactSurPlace ?? '') || ariane !== (t.arianeLe ?? '');
+  const inchange = dest === t.dest && depart === t.depart && retour === t.retour && motif.trim() === t.motif && !coordChange;
   // Formalités de détachement que la modification rend caduques (autre pays, période élargie, autre durée).
   const caduques = !dates.du && !dates.au ? formalitesCaduques(t, { dest, depart, retour }) : {};
   const aRefaire = [
@@ -41,11 +51,12 @@ export function TripModifierDialog({ id }: { id: number }) {
   ].filter(Boolean);
 
   const confirm = async () => {
-    if (busy || !v.verifier(destErr, dates.du, dates.au, motifErr, blocage(conflits))) return;
+    if (busy || !v.verifier(destErr, dates.du, dates.au, motifErr, blocage(conflits), hebErr, contactErr, arianeErr)) return;
     // Rien de changé : rien à enregistrer.
     if (inchange) { closeDialog(); return; }
     setBusy(true);
-    const r = await run('voyage.modifier', keystone ? { id, depart, retour } : { id, dest, depart, retour, motif });
+    const coord = coordChange ? { hebergement, contactSurPlace: contact, arianeLe: ariane } : {};
+    const r = await run('voyage.modifier', keystone ? { id, depart, retour, ...coord } : { id, dest, depart, retour, motif, ...coord });
     setBusy(false);
     if (r.ok) closeDialog();
   };
@@ -78,6 +89,17 @@ export function TripModifierDialog({ id }: { id: number }) {
       {keystone
         ? <Field label="Motif"><Static>{t.motif}</Static></Field>
         : <Field label="Motif" htmlFor="tm-motif" requis erreur={v.erreur(motifErr)}><input className="input" id="tm-motif" type="text" value={motif} onChange={e => setMotif(e.target.value)} /></Field>}
+      <Field label="Hébergement" htmlFor="tm-heb" erreur={hebErr}>
+        <input className="input" id="tm-heb" type="text" maxLength={COORDONNEES_MAX} value={hebergement} placeholder="Hôtel, adresse, téléphone" onChange={e => setHebergement(e.target.value)} />
+      </Field>
+      <div className="grid-2">
+        <Field label="Contact sur place" htmlFor="tm-contact" erreur={contactErr}>
+          <input className="input" id="tm-contact" type="text" maxLength={COORDONNEES_MAX} value={contact} placeholder="Nom, téléphone" onChange={e => setContact(e.target.value)} />
+        </Field>
+        <Field label="Inscrit sur Ariane le" htmlFor="tm-ariane" erreur={arianeErr}>
+          <input className="input" id="tm-ariane" type="date" max={d.ti} value={ariane} onChange={e => setAriane(e.target.value)} />
+        </Field>
+      </div>
       {keystone && <Fine>Déplacement venu de Keystone (chantier {t.chantier}) : destination et motif sont ceux du chantier. Keystone est prévenu des nouvelles dates.</Fine>}
       <p className="text-muted fine">{destDef ? d.destSummary(destDef) : ''}</p>
     </Dialog>

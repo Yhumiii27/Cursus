@@ -15,6 +15,7 @@ import { ClotureDialog } from './ClotureDialog.tsx';
 import { CompteDialog } from './CompteDialog.tsx';
 import { DetachementDialog } from './DetachementDialog.tsx';
 import { ConfirmerDialog } from './ConfirmerDialog.tsx';
+import { ContactUrgenceDialog } from './ContactUrgenceDialog.tsx';
 import { EntDialog } from './EntDialog.tsx';
 import { EmployeDialog } from './EmployeDialog.tsx';
 import { EntPlanDialog } from './EntPlanDialog.tsx';
@@ -32,6 +33,8 @@ import { MotDePasseProvisoireDialog } from './MotDePasseProvisoireDialog.tsx';
 import { PlanDialog } from './PlanDialog.tsx';
 import { PlanImportDialog } from './PlanImportDialog.tsx';
 import { RefActiviteDialog } from './RefActiviteDialog.tsx';
+import { RefHoraireDialog } from './RefHoraireDialog.tsx';
+import { RenouvelerCddDialog } from './RenouvelerCddDialog.tsx';
 import { RefDestinationDialog } from './RefDestinationDialog.tsx';
 import { RefEquipeDialog } from './RefEquipeDialog.tsx';
 import { RefPosteDialog } from './RefPosteDialog.tsx';
@@ -45,6 +48,7 @@ import { ReqFormDialog } from './ReqFormDialog.tsx';
 import { ReqHabDialog } from './ReqHabDialog.tsx';
 import { RubriqueDialog } from './RubriqueDialog.tsx';
 import { RouvrirFeuilleDialog } from './RouvrirFeuilleDialog.tsx';
+import { PieceDialog } from './PieceDialog.tsx';
 import { SessionDetailDialog } from './SessionDetailDialog.tsx';
 import { SessionDialog } from './SessionDialog.tsx';
 import { SortieDialog } from './SortieDialog.tsx';
@@ -87,6 +91,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'employe': return <EmployeDialog {...d} />;
     case 'sortie': return <SortieDialog {...d} />;
     case 'autorisation': return <AutorisationDialog {...d} />;
+    case 'renouvelerCdd': return <RenouvelerCddDialog {...d} />;
     case 'membre': return <MembreDialog {...d} />;
     case 'equipe': return <EquipeDialog {...d} />;
     case 'abs': return <AbsDialog {...d} />;
@@ -115,11 +120,14 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'refPoste': return <RefPosteDialog {...d} />;
     case 'refEquipe': return <RefEquipeDialog {...d} />;
     case 'refActivite': return <RefActiviteDialog {...d} />;
+    case 'refHoraire': return <RefHoraireDialog {...d} />;
     case 'mandat': return <MandatDialog {...d} />;
     case 'rubrique': return <RubriqueDialog {...d} />;
     case 'lotImport': return <LotImportDialog {...d} />;
     case 'formatFichier': return <FormatFichierDialog />;
     case 'rouvrirFeuille': return <RouvrirFeuilleDialog {...d} />;
+    case 'piece': return <PieceDialog {...d} />;
+    case 'contactUrgence': return <ContactUrgenceDialog {...d} />;
     case 'confirmer': return <ConfirmerDialog c={d.c} />;
   }
 }

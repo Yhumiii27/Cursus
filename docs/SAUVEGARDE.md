@@ -24,10 +24,21 @@ compte système `cursus`, service `cursus.service`, variables dans `/etc/cursus/
 | Élément | Emplacement | Sauvegarde |
 | --- | --- | --- |
 | Base Cursus : fiches, contrats, formations, habilitations, visites médicales, vaccinations, passeports et visas, feuilles de temps, absences, compteurs, entretiens, plan de formation, journal des actions, paramètres | `CURSUS_DB` (et ses fichiers `-wal` / `-shm`) | `npm run backup` |
+| Pièces justificatives (lot 6, si l'administrateur RH les a activées) : attestations, titres d'habilitation signés, justificatifs d'absence, copies de documents déclarés | `pieces/` à côté de la base (`CURSUS_PIECES_DIR`), un fichier par pièce sous un nom aléatoire, empreinte SHA-256 en base | avec la base, voir ci-dessous |
 | Clé de signature des sessions | dans la base si `CURSUS_SECRET` n'est pas défini (retirée de la base au démarrage dès qu'elle l'est ; les copies antérieures la gardent) | avec la base |
 | Configuration : `CURSUS_SECRET`, `KEYSTONE_API_KEY`, adresses Keystone et Sage | fichier d'environnement du service | **non** : à conserver dans le coffre-fort de mots de passe du service informatique |
 | Code de l'application | dépôt Git, version déployée | **non** : redéployable ; noter la version (commit) en service |
 | Journaux du serveur | journald | **non** |
+
+**Pièces justificatives** (`server/src/pieces-sauvegarde.ts`) : chaque copie de la base emporte les fichiers qu'elle
+désigne. Un fichier de pièce ne change jamais une fois écrit : il est copié une seule fois dans `pieces-<base>/` du dossier
+des copies (`backups/pieces-cursus/`, en `700`, fichiers en `600`), avant que la copie de la base n'apparaisse sous son nom
+définitif ; après la rotation, un fichier que plus aucune copie conservée ne désigne en est retiré. Ce dossier part avec
+les copies dans la copie externe (section 5 : restic sauvegarde tout le dossier des copies). `npm run backup` affiche le
+nombre de pièces désignées et copiées, et signale (sans échouer) un fichier absent du dossier des pièces. La
+restauration (section 7) remet dans le dossier des pièces les fichiers que désigne la copie restaurée et qui y manquent,
+pris à côté du fichier restauré (copie rapatriée de la copie externe avec son dossier `pieces-cursus/`), sinon dans le
+dossier des copies. Les pièces confiées plus tard à l'espace documentaire de l'entreprise (GED) sont sauvegardées par lui.
 
 **Les copies sont aussi sensibles que la base** : elles contiennent des données de santé et de paie
 (catégories particulières au sens de l'article 9 du RGPD). En conséquence :
@@ -337,7 +348,9 @@ du service et avec ses variables d'environnement. Les commandes ci-dessous appel
    ```
 
    La commande vérifie l'intégrité du fichier et qu'il s'agit d'une base Cursus, copie la base actuelle
-   (`…-avant-restauration.db`), remplace la base et supprime ses fichiers `-wal` / `-shm`.
+   (`…-avant-restauration.db`), remplace la base et supprime ses fichiers `-wal` / `-shm`. Elle remet ensuite en place
+   les pièces justificatives que désigne la copie (section 1) ; « Attention : … introuvable » nomme le nombre de
+   fichiers absents des sauvegardes : rapatrier aussi le dossier `pieces-cursus/` de la copie externe, puis relancer.
 4. **Lire le compte rendu** : nombre de collaborateurs et date de la dernière action du journal doivent
    correspondre à l'état attendu.
 5. **Redémarrer** : `sudo systemctl start cursus cursus-sauvegarde.timer`, puis ouvrir Cursus et

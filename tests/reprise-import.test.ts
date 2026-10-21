@@ -252,8 +252,8 @@ test('journal et confidentialité : code par import, ni fichier ni noms au journ
 test('lots de reprise : absents des instantanés du manager, du collaborateur et des profils restreints', async () => {
   const db = new Db(':memory:');
   await seedDemo(db);
-  const compte = (empId: number | null) => (db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL').get(...(empId ? [empId] : [])) as { id: number }).id;
-  const u = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: compte(empId), role, methode: 'demo' }))!;
+  const compte = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
+  const u = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compte(empId), role, methode: 'demo' }))!;
   const RH = await u(null, 'rh');
   await db.tx(async () => await ACTIONS['reprise.importer'](makeCtx(db, RH, await loadFull(db, RH)), { type: 'soldes', texte: 'Nom;CP N-1\nMehdi Benali;10', colonnes: ['nom', 'cpN1'], dateReprise: '2026-10-01' }));
   assert.equal((await buildSnapshot(db, RH)).reprises.length, 1);

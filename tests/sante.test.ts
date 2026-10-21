@@ -108,7 +108,7 @@ test('Go / No Go : aptitude non valide aujourd’hui → réserve APTITUDE ; Key
   await db.update('employes', 7, { visite: '2024-10-20' });
   assert.deepEqual(await motifs('K-M1', 7), []);
   // Aucune visite enregistrée : réserve.
-  db.sql.prepare('UPDATE employes SET visite = NULL WHERE id = 7').run();
+  (await db.run('UPDATE employes SET visite = NULL WHERE id = 7'));
   assert.equal((await verdict('K-M1', 7)).reasons[0].detailed, 'Aucune visite médicale enregistrée : affectation à vérifier avec le service RH');
 
   // Partage détaillé : un seul libellé neutre, quelle que soit la cause (retard, restrictions ou les deux), sans date.
@@ -245,7 +245,7 @@ test('t062 : la fiche ne change plus la date de visite (avis du médecin du trav
   // Fiche complète renvoyée telle quelle (visite inchangée) : acceptée.
   assert.equal(await run(RH, 'employe.modifier', { id: 2, poste: 'Technicien de maintenance confirmé', visite: '2025-06-15' }), 'Fiche de Mehdi Benali mise à jour');
   // Visite saisie avant l'enregistrement des avis (colonnes vides) : apte, sans restriction.
-  db.sql.prepare('UPDATE employes SET avis = NULL, restrictions = NULL WHERE id = 3').run();
+  (await db.run('UPDATE employes SET avis = NULL, restrictions = NULL WHERE id = 3'));
   const sophie = await emp(3);
   assert.deepEqual([sophie.restrictions, sophie.med.avis, sophie.med.ok, sophie.med.text], [[], 'apte', true, 'Visite du 12 sept. 2025 · aptitude valide jusqu’au 12 sept. 2027']);
 });

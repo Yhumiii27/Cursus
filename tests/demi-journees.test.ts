@@ -143,7 +143,7 @@ test('demande de congé : contrôles, demi-journée sur un jour non travaillé, 
 test('imputation des CP au demi-jour : journée répartie entre deux périodes, anticipation, hors droit', async () => {
   const { db, domain, emp } = await fresh();
   // Sophie Lemaire (3), sans absence : 0,5 j restant sur la période en cours, rien d'acquis en plus sur la suivante au 10 octobre.
-  db.sql.prepare(`INSERT OR REPLACE INTO soldes_reprise (emp_id, cp_pris, rtt_pris, recup_acquis, recup_pris, arrete_le, cp_solde, cp_solde_suivant) VALUES (3, 0, 0, 0, 0, '2026-10-10', 0.5, 0)`).run();
+  (await db.run(`INSERT OR REPLACE INTO soldes_reprise (emp_id, cp_pris, rtt_pris, recup_acquis, recup_pris, arrete_le, cp_solde, cp_solde_suivant) VALUES (3, 0, 0, 0, 0, '2026-10-10', 0.5, 0)`));
   const d = await domain(), sophie = await emp(3);
   assert.equal(cpInfo(d, sophie)!.solde, 0.5);
   // Le matin du 12 octobre : sur la période en cours.
@@ -175,7 +175,7 @@ test('pose par l’action : demi-journées enregistrées, tracées, transmises �
   const a = (await domain()).ds.absences.find(x => x.empId === 2 && x.du === '2026-11-09')!;
   assert.deepEqual([a.debutDemi, a.finDemi, a.statut], ['apres_midi', 'matin', 'demandee']);
   // Journal : codes seulement.
-  const j = db.sql.prepare(`SELECT payload FROM journal WHERE action = 'absence.demander' ORDER BY id DESC LIMIT 1`).get() as { payload: string };
+  const j = (await db.one(`SELECT payload FROM journal WHERE action = 'absence.demander' ORDER BY id DESC LIMIT 1`)) as { payload: string };
   assert.deepEqual(JSON.parse(j.payload), { empId: 2, kind: 'CP', du: '2026-11-09', au: '2026-11-13', debutDemi: 'apres_midi', finDemi: 'matin' });
   // Demi-journée inconnue (texte libre) : demande refusée, rien de la chaîne reçue au journal.
   await refused(MEHDI, 'absence.demander', { empId: 2, kind: 'CP', du: '2026-12-07', au: '2026-12-08', debutDemi: 'suivi médical', finDemi: { note: 'x' } }, /Demi-journée inconnue/);

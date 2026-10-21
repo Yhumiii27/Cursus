@@ -442,7 +442,7 @@ test('base existante : statuts repris, tâches sans dates retirées, index d’u
   await db.insert('chantiers', { id: 'K-1', nom: 'x', client: '', lieu: 'Lyon', pays: 'FR', debut: '2026-10-01', fin: '2026-10-02', chef: '', habs: [], certs: [], ressources: [] });
   await db.insert('projets', { code: 'K-1', nom: 'x' });
   await db.insert('demandesKeystone', { empId: 1, chantier: 'K-1', dest: 'MA', depart: '2026-11-01', retour: '2026-11-02', recue: '2026-10-01' });
-  db.sql.prepare('INSERT INTO taches (emp_id, projet, tache, heures) VALUES (1, ?, ?, ?)').run('K-1', 'Ancienne tâche', '[7,7,7,7,7]');
+  (await db.run('INSERT INTO taches (emp_id, projet, tache, heures) VALUES (1, ?, ?, ?)', ['K-1', 'Ancienne tâche', '[7,7,7,7,7]']));
   let sauvegardes = 0;
   await migrerKeystone(db, () => { sauvegardes++; });
   assert.equal(sauvegardes, 1);

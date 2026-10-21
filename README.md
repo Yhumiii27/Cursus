@@ -6,7 +6,8 @@ un verdict **Go / No Go** par chantier pour Keystone et la transmission des vari
 de paie à **Sage Paie**.
 
 Construit à partir de la maquette Claude Design « Outil RH gestion formations »
-(design system Nocturne) — voir `design/`.
+(design system Nocturne) — voir `design/` : prototype de référence, guide du design system et archive complète de
+la maquette (`design/maquette-handoff.zip`, seul exemplaire gardé dans le dépôt).
 
 ## Démarrer
 
@@ -33,7 +34,8 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
 
 - **RH** : tout l'outil, dont la création et la modification des fiches
   (statut, contrat, organisation du temps), l'écran « Équipes & managers » (créer, renommer,
-  supprimer une équipe, désigner son manager, affecter les collaborateurs), la **sortie** d'un salarié, CDI compris
+  supprimer une équipe, désigner son manager, affecter les collaborateurs, rattacher une équipe à une équipe parente :
+  le manager de l'équipe est alors validé par son responsable, consultation N+2 en lecture seule réglable), la **sortie** d'un salarié, CDI compris
   (dernier jour et motif en liste fermée : ce qui était prévu après son départ est annulé, il quitte la conformité et les
   échéances et reste consultable avec le filtre « Sortis » de Collaborateurs ; son solde de congés, de RTT, de
   récupération et de CET à la date est montré avant la confirmation, photographié pour la paie, imprimable et exportable,
@@ -169,8 +171,10 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `CURSUS_COMPRESSION` | `1` par défaut : Cursus compresse ses réponses (brotli, sinon gzip) ; `0` si le proxy compresse déjà |
 | `CURSUS_BACKUP_DIR` | Dossier des sauvegardes (`backups/` à côté de la base par défaut) |
 | `CURSUS_BACKUP_KEEP` | Sauvegardes conservées par type (14 par défaut, `0` pour tout garder) |
+| `CURSUS_PIECES_DIR` | Dossier des pièces justificatives en stockage local (`pieces/` à côté de la base par défaut : `/data/pieces` dans l'image Docker). Réservé au compte du serveur (`700`, fichiers en `600`) |
 | `CURSUS_TODAY` | Fige la date du jour (AAAA-MM-JJ), utile pour la démonstration — les données de démo sont datées d'octobre 2026. Refusée en production |
-| `CURSUS_DEMO` | `1` pour activer le mode démonstration (connexion libre, sélecteur de vue, réinitialisation, données fictives dans une base vide). Inactif par défaut ; en production, admis seulement pour l'application de bureau (`CURSUS_HOST=127.0.0.1` explicite), jamais derrière le reverse proxy |
+| `CURSUS_DEMO` | `1` pour activer le mode démonstration (connexion libre, sélecteur de vue, réinitialisation, données fictives dans une base vide). Inactif par défaut ; en production, admis seulement pour l'application de bureau (`CURSUS_HOST=127.0.0.1` explicite), ou derrière le reverse proxy avec `CURSUS_DEMO_PUBLIQUE=1` |
+| `CURSUS_DEMO_PUBLIQUE` | `1` : instance de démonstration publiée derrière le proxy (Coolify), données fictives seulement, accès restreint en amont (« Mise en ligne » ci-dessous). Sans effet hors démonstration |
 | `CURSUS_SECRET` | Clé de signature des sessions, 32 caractères au moins (`openssl rand -hex 32`). Obligatoire en production ; ailleurs, générée et stockée en base, puis retirée de la base au premier démarrage avec la variable |
 | `CURSUS_INSECURE_COOKIE` | `1` : cookie sans l'attribut `Secure`, pour l'application de bureau en http://127.0.0.1 uniquement. Refusée en production hors application de bureau |
 | `KEYSTONE_API_KEY` | Clé attendue des appels entrants de Keystone (en-tête `X-Api-Key`). Obligatoire en production ; sans elle, les routes Keystone répondent 503. La clé `demo-keystone` n'est acceptée qu'en mode démonstration, quand la variable est vide |
@@ -179,6 +183,7 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `SAGE_DOSSIER` | Dossier de paie inscrit dans les variables transmises (`CURSUS-CHIMIE` par défaut), et dans la colonne facultative « code dossier » du fichier d'import. `SAGE_URL` ne sert plus : refusée en production |
 | `CURSUS_OIDC_TENANT`, `CURSUS_OIDC_CLIENT_ID`, `CURSUS_OIDC_CLIENT_SECRET` | Connexion Microsoft 365 : ID de l'annuaire (GUID), ID d'application et secret client de l'inscription dans Entra (`docs/CONNEXION-MICROSOFT.md`). Les quatre variables avec `CURSUS_PUBLIC_URL`, ou aucune |
 | `CURSUS_PUBLIC_URL` | Adresse publique de Cursus, en https (`https://cursus.example.fr`) : Microsoft renvoie à `${CURSUS_PUBLIC_URL}/api/auth/microsoft/retour` |
+| `CURSUS_OIDC_SECRET_EXPIRE` | Facultative : date d'expiration du secret client Entra (`AAAA-MM-JJ`). 30 jours avant, `/api/health` passe en `degrade` et le récapitulatif des échéances prévient la boîte du service RH (`docs/CONNEXION-MICROSOFT.md`, section 3). Démarrage refusé si ce n'est pas une date ou sans `CURSUS_OIDC_CLIENT_SECRET` |
 | `CURSUS_OIDC_AUTORITE` | Remplace `https://login.microsoftonline.com` : réservée aux tests automatiques (faux fournisseur local). Refusée en production |
 | `CURSUS_MAIL_FROM` | Boîte d'envoi dédiée des e-mails (`cursus@entreprise.fr`), envoyés par Microsoft Graph. Sans elle : simulation (e-mails tracés dans le journal et visibles dans Paramètres → Envois, rien ne part). Mise en service : `docs/EMAILS.md` |
 | `CURSUS_MAIL_TENANT`, `CURSUS_MAIL_CLIENT_ID`, `CURSUS_MAIL_CLIENT_SECRET` | Application Entra autorisée à envoyer (`Mail.Send`, restreinte à la boîte d'envoi) ; par défaut celle de la connexion Microsoft (`CURSUS_OIDC_*`) |
@@ -202,6 +207,10 @@ actuelle puis la remplace. Le serveur signale qu'il utilise la base par un verro
 refuse de démarrer si un autre serveur l'utilise déjà, ou si une version plus récente de Cursus a migré la base
 (migrations nommées, `server/src/migrations/` : restaurer alors la copie avant-migration).
 
+Pièces justificatives (lot 6, désactivées par défaut) : une fois activées par l'administrateur RH, leurs fichiers
+sont dans `pieces/` à côté de la base ; chaque sauvegarde copie ceux que sa base désigne dans `backups/pieces-<base>/`,
+et la restauration les remet en place (`docs/SAUVEGARDE.md`, section 1).
+
 Planification (timer systemd), copie chiffrée hors de la machine, restauration pas à pas et test
 périodique : `docs/SAUVEGARDE.md`.
 
@@ -214,8 +223,9 @@ périodique : `docs/SAUVEGARDE.md`.
   base accessible à d'autres comptes signalés en clair (code de sortie 1 quand le démarrage est impossible).
 - **Arrêt** (SIGTERM, Ctrl+C) : requêtes en cours terminées (10 s au plus), base fermée, verrou retiré.
 - **Santé** : `GET /api/health`, sans connexion : `{"statut":"ok","base":"ok"}` (503 si la base ne répond pas ;
-  `"degrade"` si elle contient des références orphelines, comptées au démarrage et inscrites au journal, détail réservé
-  au poste local et au jeton de supervision).
+  `"degrade"` si elle contient des références orphelines, comptées au démarrage et inscrites au journal, ou si le secret
+  client Entra expire dans 30 jours ou moins (`CURSUS_OIDC_SECRET_EXPIRE`), détail réservé au poste local et au jeton de
+  supervision).
 - **Journaux** : une ligne par requête (heure, méthode, chemin sans paramètres, statut, durée, compte), en JSON en
   production ; erreurs de l'API toujours en JSON (`404`, `400`, `413`, `500` « Erreur interne » sans pile d'appels).
 - **Performances** : réponses compressées par Cursus (brotli, gzip), interface découpée par écran et chargée à la
@@ -299,9 +309,13 @@ Chaque fiche distingue le **statut** (catégories de la CCN Industries chimiques
 technicien / agent de maîtrise, ingénieur / cadre), la **nature du contrat** (CDI, CDD, intérim,
 alternance) et l'**organisation du temps** : horaire collectif 35 h, 39 h avec RTT, forfait
 hebdomadaire en heures, forfait annuel en heures, forfait annuel en jours, temps partiel, cadre
-dirigeant. Un changement d'organisation du temps prend effet à une date choisie : les semaines
-antérieures gardent l'ancien régime (figé sur chaque feuille soumise) et les RTT / jours de repos
-sont proratisés.
+dirigeant. Un changement d'organisation du temps prend effet à une date choisie et s'inscrit dans
+l'**historique du contrat** : les semaines antérieures gardent l'ancien régime (y compris une feuille
+créée plus tard pour une semaine ancienne), les RTT / jours de repos de l'année sont comptés au prorata
+de chaque régime, et une date future programme un avenant appliqué à sa date. Pour un **CDD**, la fiche
+porte le motif de recours et le terme initial ; « Renouveler le CDD » inscrit chaque renouvellement, et
+Cursus avertit d'une durée maximale ou d'un nombre de renouvellements dépassés et d'un délai de carence
+non écoulé, sans rien bloquer (Paramètres → Contrats pour un accord de branche).
 
 La fiche porte aussi la **période d'essai** écrite au contrat (aucune durée proposée : Cursus avertit au-delà du maximum
 légal) et, pour un salarié étranger, le **titre de séjour** valant autorisation de travail (type, numéro réservé au
@@ -332,7 +346,10 @@ du travail (apte, restrictions datées, inapte) avec suspension des habilitation
 visite suivies jusqu'à la visite · visites dues signalées d'elles-mêmes : embauche (3 mois, le jour même en suivi
 renforcé ou pour un mineur), reprise après une maternité, une maladie professionnelle, 30 jours d'accident du travail ou
 60 jours de maladie, mi-carrière (45 ans, réglable), fin de carrière ou post-exposition à la sortie ; le manager ne voit
-que « visite à programmer », jamais pour une reprise · seule la dernière certification compte après un
+que « visite à programmer », jamais pour une reprise · entretien de parcours dû 2 mois (réglable, à confirmer
+juridiquement) après la visite de mi-carrière · postes à risques particuliers (art. L4154-2) : formation renforcée des
+CDD, intérimaires et alternants depuis leur entrée (Non conforme, No Go), liste imprimable · couverture minimale des
+équipes en SST et équipiers incendie, alerte datée (expiration, sortie, absence) · seule la dernière certification compte après un
 recyclage, les précédentes restent en historique · formalités de
 voyage par destination (passeport, visas, vaccins, délais) et de détachement (certificat A1 ou de la
 convention bilatérale de sécurité sociale, information écrite au-delà de 4 semaines) · Go / No Go par
@@ -348,7 +365,9 @@ remplace » sans quantité négative), Keystone mis à jour · suivi des feuille
 semaine (échéance le lundi suivant à 12 h, relance, validation groupée) · journée de 24 h au plus, motif exigé au-delà des durées maximales ·
 semaine à 7 jours (samedi et dimanche grisés mais saisissables, repos hebdomadaire et dominical signalés, dérogation par équipe,
 heures du dimanche HDIM et majoration réglable) · jours fériés saisissables et repérés (1er mai majoré de 100 %, autres
-fériés en quantité, majoration réglable) · heures complémentaires au dixième de la durée (au tiers avec un accord), motif
+fériés en quantité, majoration réglable) · journée de solidarité et fériés chômés réglés année par année à partir de 2027,
+sans effet rétroactif · horaires de poste (référentiel, horaire par défaut de l'équipe, horaire du jour sur la feuille,
+figé à la soumission) · heures complémentaires au dixième de la durée (au tiers avec un accord), motif
 au-delà · moyenne sur 12 semaines (44 h), temps partiel à requalifier, contingent annuel d'heures supplémentaires (220 h,
 alerte à 90 %) et contrepartie obligatoire en repos créditée et transmise à la paie · activités internes tenues par le service RH, heures de délégation du CSE
 (mandats, crédit R2314-1, compteur mensuel avec report sur 12 mois) · CP 25 jours
@@ -404,7 +423,7 @@ Le `Dockerfile` à la racine construit l'interface et lance le serveur en produc
 | Réglage | Valeur |
 | --- | --- |
 | Port interne | `3000` |
-| Volume persistant | `/data` : base SQLite `cursus.db` et ses sauvegardes (`/data/backups`) |
+| Volume persistant | `/data` : base SQLite `cursus.db`, ses sauvegardes (`/data/backups`) et, une fois activées, les pièces justificatives (`/data/pieces`) |
 | Adresse | en `https://` : le cookie de session est marqué `Secure` en production |
 | Variables obligatoires | `CURSUS_SECRET` et `KEYSTONE_API_KEY` ; les autres selon les intégrations (tableau ci-dessus) |
 | Journaux | onglet « Logs » de l'application : une ligne JSON par message et par requête (`CURSUS_LOG_FORMAT=json` par défaut en production), que l'agrégateur du service informatique collecte sans réglage |
@@ -417,6 +436,13 @@ réseau Docker (`CURSUS_TRUST_PROXY=loopback,uniquelocal`), où se trouve le pro
 le HTTPS et l'adresse réelle des utilisateurs. Le mode démonstration est refusé derrière ce proxy : la connexion passe
 par les comptes nominatifs (premier administrateur créé avec `npm run comptes` dans le conteneur, `docs/DEPLOIEMENT.md`),
 puis par Microsoft 365 une fois configuré (`docs/CONNEXION-MICROSOFT.md`).
+
+**Instance de démonstration en ligne.** Pour montrer Cursus avant la mise en service, `CURSUS_DEMO=1` avec
+`CURSUS_DEMO_PUBLIQUE=1` admet la démonstration derrière le proxy : 24 salariés fictifs chargés dans une base vide, espace RH
+ouvert sans mot de passe à qui atteint l'adresse, avertissement à chaque démarrage. L'accès se restreint en amont
+(authentification HTTP de Coolify, liens diffusés à quelques personnes) ; `CURSUS_SECRET` et `KEYSTONE_API_KEY` restent
+exigées. Jamais avec de vraies données : au passage en production, retirer les deux variables et repartir d'une base vide
+(nouveau volume, ou fichier `/data/cursus.db` supprimé, conteneur arrêté), puis créer le premier administrateur.
 
 **Déclaration du schéma à Matrix.** Au démarrage, une fois les migrations faites, Cursus lit le schéma réel de sa base
 (tables, colonnes, clés, unicités) et l'envoie à Matrix, le catalogue des bases de Keystone, Codex, Cursus et Vigie

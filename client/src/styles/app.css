@@ -359,6 +359,24 @@ html.tiroir-ouvert { overflow: hidden; }
 .aide-liste { margin: 0; padding-left: var(--space-6); display: flex; flex-direction: column; gap: var(--space-2); font-size: 14px; }
 .aide-liste li { padding-left: var(--space-1); }
 
+/* — Planning des missions (pages/PlanningMissions.tsx, t148) : tableau, lettre dans chaque case, détail au focus — */
+/* Lettres sombres sur la mission (accent 500, 5,9:1) et l'absence (neutre 500, 6,1:1) ; texte clair sur le férié hachuré. */
+.planning { width: 100%; min-width: 900px; table-layout: fixed; border-collapse: separate; border-spacing: 3px; }
+.planning col.planning-nom { width: 160px; }
+.planning col.planning-resume { width: 200px; }
+.planning th { font-weight: 400; text-align: left; }
+.planning-jour { font-size: 11px; color: var(--color-neutral-400); text-align: center !important; }
+.planning-jour > span[aria-hidden] { display: grid; }
+.planning-jour.aujourdhui { color: var(--color-accent); }
+.planning-qui { font-size: 13px; }
+.planning td { padding: 0; }
+.planning-marque { font-weight: 600; color: var(--color-bg); }
+.planning-marque.demande, .planning-marque.ferie { color: var(--color-text); }
+.planning-case { display: block; width: 100%; height: 22px; padding: 0; border: 0; border-radius: 3px; background: none; font: inherit; font-size: 11px; font-weight: 600; line-height: 22px; text-align: center; cursor: pointer; }
+.planning-case:focus-visible { outline: 2px solid var(--color-accent-300); outline-offset: 1px; }
+.planning-total { padding-left: var(--space-2) !important; color: var(--text-70); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.planning-detail { margin: var(--space-2) 0 0; color: var(--text-70); min-height: 1.5em; }
+
 /* — Impression (passeport formation, comptes rendus) — */
 /* Cadre caché où s'écrivent les documents imprimés (client/src/print.ts) : sans taille ni bordure, hors de la page. */
 .cadre-impression { position: fixed; right: 0; bottom: 0; width: 0; height: 0; border: 0; }

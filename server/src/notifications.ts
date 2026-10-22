@@ -30,6 +30,8 @@ export interface Notification {
   type: string; objet: string; texte: string;
   /** Pièces jointes d'un envoi aussitôt (.ics d'un congé validé) ; le récapitulatif quotidien n'en porte pas. */
   pj?: Courriel['pj'];
+  /** Fin du texte propre à l'envoi aussitôt (elle annonce la pièce jointe), absente du récapitulatif quotidien. */
+  texteImmediat?: string;
 }
 
 /** Le destinataire est-il la personne qui agit ? (0 : le service RH, comme `Domain.mgrOf`.) */
@@ -51,7 +53,7 @@ export function notifier(cx: Contexte, dest: number, n: Notification, boiteParta
     cx.db.insert('notifications', { empId: dest || null, adresse: d.adresse, type: n.type, objet: n.objet, texte: n.texte, creation: new Date().toISOString(), envoiId: null });
     return 'quotidien';
   }
-  envoyerEmail(cx.db, n.type, courriel(m, d.adresse, n.objet, n.texte, { nom: d.nom, pj: n.pj }));
+  envoyerEmail(cx.db, n.type, courriel(m, d.adresse, n.objet, n.texte + (n.texteImmediat ?? ''), { nom: d.nom, pj: n.pj }));
   return 'immediat';
 }
 
@@ -85,12 +87,11 @@ export function notifierDecisionConge(cx: Contexte, emp: Employe, a: Pick<Absenc
   // Congé validé (t036) : l'événement de l'agenda est joint (journées entières, UID stable de l'absence) ; une annulation
   // ultérieure l'en retire (`annulerAgendaConge`).
   const ics = ok && a.id != null;
-  const texte = (posee
+  const texte = posee
     ? `${auteur(cx.user)} a posé et validé pour vous ${c.texte} ${periodeLongue(a.du, a.au)}${demiCourriel(a)}.`
-    : `Votre demande de ${c.objet} ${periodeLongue(a.du, a.au)}${demiCourriel(a)} a été ${ok ? 'validée' : 'refusée'} par ${auteur(cx.user)}.`)
-    + (ics ? '\n\nOuvrez le fichier joint pour ajouter ces jours à votre agenda.' : '');
+    : `Votre demande de ${c.objet} ${periodeLongue(a.du, a.au)}${demiCourriel(a)} a été ${ok ? 'validée' : 'refusée'} par ${auteur(cx.user)}.`;
   const pj = ics ? [pieceJointe(`conges-${a.du}.ics`, 'text/calendar; charset=utf-8; method=PUBLISH', icsConge({ ...a, id: a.id! }, { organisateur: organisateur(cx) }))] : undefined;
-  return notifier(cx, emp.id, { type: 'absence.decision', objet, texte, pj });
+  return notifier(cx, emp.id, { type: 'absence.decision', objet, texte, pj, texteImmediat: ics ? '\n\nOuvrez le fichier joint pour ajouter ces jours à votre agenda.' : undefined });
 }
 
 /**

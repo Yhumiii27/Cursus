@@ -111,7 +111,7 @@ export const INFO_CONFIDENTIALITE: readonly RubriqueConfidentialite[] = [
     points: [
       ['Accès et copie', 'depuis l’accueil de votre espace (« Télécharger mes données ») ; le journal des actions qui vous concernent vous est remis par le service RH.'],
       ['Rectification', 'demandez au service RH de corriger une information inexacte ; vos documents de voyage se déclarent depuis votre espace.'],
-      ['Effacement, limitation, opposition', 'auprès du service RH ou du DPO, dans les limites des obligations légales de l’employeur (paie, temps de travail, santé au travail) ; après votre départ, le service RH peut anonymiser votre dossier avant l’échéance.'],
+      ['Effacement, limitation, opposition', 'auprès du service RH ou du DPO, dans les limites des obligations légales de l’employeur (paie, temps de travail, santé au travail) ; après votre départ, le service RH efface aussitôt ce qu’aucune obligation n’impose de garder (passeport, entretiens…) ; votre identité et votre titre de séjour (registre unique du personnel, 5 ans après le départ) restent jusqu’à leur échéance.'],
       ['Réclamation', 'auprès de la CNIL (cnil.fr), si vous estimez que vos droits ne sont pas respectés.'],
     ],
   },

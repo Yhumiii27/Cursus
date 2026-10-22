@@ -42,7 +42,12 @@ const RETIREES: Partial<Record<TableName, string[]>> = { comptes: ['motDePasse']
  * Colonnes retirées de l'export remis au salarié lui-même (sans journal) : elles nomment d'autres personnes, comme le
  * journal qu'il ne reçoit pas — auteur d'une ligne de l'historique des contrats, que son portail ne lui montre pas.
  */
-const RETIREES_SALARIE: Partial<Record<TableName, string[]>> = { contratsHistorique: ['par', 'parId'] };
+const RETIREES_SALARIE: Partial<Record<TableName, string[]>> = {
+  contratsHistorique: ['par', 'parId'],
+  // Administrateur RH qui a révoqué les abonnements à l'agenda, ou confirmé un effacement, et son motif (texte libre).
+  jetonsAgenda: ['revoquePar'],
+  effacements: ['par', 'motif'],
+};
 
 /** Tables du schéma qui portent la colonne `empId` (la fiche elle-même est la section « Fiche »). */
 export const TABLES_SALARIE = (Object.entries(TABLES) as [TableName, { cols: Record<string, string> }][])

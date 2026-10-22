@@ -30,7 +30,7 @@ function Reglages({ s }: { s: Settings }) {
   useEffect(() => { setActif(s.conservationActive); setDecision(s.conservationDecisionDpo); setDurees(dureesDe(s)); setTente(false); }, [s]);
   const erreurDecision = actif && !decision.trim() ? 'Indiquez la référence de la décision du DPO qui fixe ces durées.' : null;
   const trop = CATEGORIES.filter(c => c !== 'dossier' && durees[c] > durees.dossier);
-  const erreurDurees = durees.dossier < DOSSIER_MIN_ANS ? `Le dossier se garde ${DOSSIER_MIN_ANS} ans au moins après la sortie (prescription des salaires, archive paie du journal).`
+  const erreurDurees = durees.dossier < DOSSIER_MIN_ANS ? `Le dossier se garde ${DOSSIER_MIN_ANS} ans au moins après la sortie : l’identité et le titre de séjour figurent au registre unique du personnel (art. R1221-26).`
     : trop.length ? 'Aucune catégorie au-delà du dossier : son anonymisation efface tout.' : null;
   const modifie = actif !== s.conservationActive || decision.trim() !== s.conservationDecisionDpo || CATEGORIES.some(c => durees[c] !== dureesDe(s)[c]);
   const enregistrer = async () => {
@@ -142,11 +142,13 @@ export function Conservation({ s }: SectionProps) {
             {sortis.map(e => <option key={e.id} value={e.id}>{e.nom} — sorti le {fmtIso(e.fin!)}</option>)}
           </select>
         </Field>
-        <Btn disabled={!demandeur} onClick={() => openDialog({ type: 'anonymiser', ids: [Number(demandeur)], avantEcheance: true })}>Anonymiser ce dossier…</Btn>
+        <Btn disabled={!demandeur} onClick={() => openDialog({ type: 'anonymiser', ids: [Number(demandeur)], avantEcheance: true })}>Examiner la demande…</Btn>
       </div>
       <Fine>
-        Une demande d’effacement (art. 17 du RGPD) s’examine avec le DPO : l’employeur garde ce que la loi lui impose (paie, temps de travail, santé
-        au travail). Le dossier d’un salarié en poste ne s’efface pas ; celui d’un salarié sorti s’anonymise en entier, même avant l’échéance.
+        Une demande d’effacement (art. 17 du RGPD) s’examine avec le DPO. Le dossier d’un salarié en poste ne s’efface pas. Pour un salarié sorti,
+        Cursus efface aussitôt ce qui ne relève d’aucune obligation légale (passeport et visas, entretiens, motifs et demandes des formations) et
+        garde jusqu’à leur échéance l’identité et le titre de séjour (registre unique du personnel, 5 ans après le départ, art. R1221-26), la
+        santé au travail et le temps de travail (art. 17-3-b du RGPD) ; le dialogue liste ce qui reste et jusqu’à quand.
       </Fine>
     </Panel>
   );

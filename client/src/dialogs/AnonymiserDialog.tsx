@@ -1,11 +1,12 @@
 // Effacement des données échues d'un ou plusieurs salariés sortis, ou anonymisation de leur dossier (t016, administrateur
 // RH, Paramètres → Conservation des dossiers) : « Cursus propose, le RH confirme ». Le dialogue liste, pour chaque dossier,
 // ce qui sera effacé ; un motif est exigé (gardé avec la trace de l'effacement, jamais au journal). `avantEcheance` : droit
-// à l'effacement exercé par un salarié sorti avant l'échéance, dossier anonymisé en entier. Irréversible : les sauvegardes
-// gardent les données jusqu'à leur rotation.
+// à l'effacement exercé par un salarié sorti avant l'échéance : seules les catégories sans obligation légale en cours sont
+// effacées, le dialogue liste ce qui reste et jusqu'à quand (art. 17-3-b du RGPD). Irréversible : les sauvegardes gardent
+// les données jusqu'à leur rotation.
 import { useState } from 'react';
 import { fmtIso, plural } from '../../../shared/format.ts';
-import { CATEGORIES_CONSERVATION, CATEGORIES } from '../../../shared/rules/conservation.ts';
+import { CATEGORIES_CONSERVATION, categoriesDroitEffacement } from '../../../shared/rules/conservation.ts';
 import type { CategorieConservation } from '../../../shared/types.ts';
 import { CancelButton, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine, NoteAccent, Tag } from '../components/ui.tsx';
@@ -26,8 +27,10 @@ export function AnonymiserDialog({ ids, avantEcheance = false }: { ids: number[]
   const echus = new Map((d.ds.conservation ?? []).map(x => [x.empId, x]));
   const dossiers = ids.map(id => {
     const e = d.emp(id);
-    const categories: CategorieConservation[] = avantEcheance ? CATEGORIES : echus.get(id)?.categories ?? [];
-    return { id, nom: e?.nom ?? `n° ${id}`, fin: e?.fin ?? null, categories, anonymise: avantEcheance || categories.includes('dossier') };
+    // Droit à l'effacement : le serveur écarte en plus les catégories sans donnée.
+    const droit = avantEcheance && e ? categoriesDroitEffacement(e, d.ds.settings, d.ti) : null;
+    const categories: CategorieConservation[] = droit ? droit.categories : echus.get(id)?.categories ?? [];
+    return { id, nom: e?.nom ?? `n° ${id}`, fin: e?.fin ?? null, categories, anonymise: categories.includes('dossier'), gardees: droit?.gardees ?? [] };
   });
   const anonymises = dossiers.filter(x => x.anonymise).length;
   const erreur = !motif.trim() ? 'Indiquez le motif : décision du DPO, demande du salarié…' : null;
@@ -66,6 +69,18 @@ export function AnonymiserDialog({ ids, avantEcheance = false }: { ids: number[]
                 </li>
               ))}
             </ul>
+            {x.gardees.length > 0 && (
+              <>
+                <div className="text-muted sub" style={{ marginTop: 'var(--space-2)' }}>Gardé jusqu’à l’échéance, la loi l’imposant :</div>
+                <ul style={{ margin: 'var(--space-1) 0 0', paddingLeft: 'var(--space-5)' }}>
+                  {x.gardees.map(g => (
+                    <li key={g.categorie} className="text-muted sub">
+                      <strong>{CATEGORIES_CONSERVATION[g.categorie].label}</strong>, jusqu’au {fmtIso(g.jusquAu)} : {CATEGORIES_CONSERVATION[g.categorie].obligation}
+                    </li>
+                  ))}
+                </ul>
+              </>
+            )}
           </li>
         ))}
       </ul>
@@ -77,8 +92,8 @@ export function AnonymiserDialog({ ids, avantEcheance = false }: { ids: number[]
       </Field>
       {avantEcheance && (
         <Fine>
-          Avant l’échéance, l’effacement reste limité par les obligations de l’employeur (paie, temps de travail, santé au travail) :
-          à décider avec le DPO. Les heures, absences, coûts de formation et lots de paie restent, sans nom.
+          Avant l’échéance, l’employeur peut refuser d’effacer ce que la loi lui impose de garder (art. 17-3-b du RGPD) : Cursus efface aussitôt
+          ce qui ne relève d’aucune obligation et garde le reste jusqu’à son échéance, où le dossier vous sera proposé. À examiner avec le DPO.
         </Fine>
       )}
     </Dialog>

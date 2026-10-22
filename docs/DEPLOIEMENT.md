@@ -41,6 +41,10 @@ facultatif est fourni pour un hébergeur qui imposerait des conteneurs (« Varia
   sortie, santé 5 ans, passeport et visas à la sortie…) ; tant que la référence de sa décision n'y est pas saisie, Cursus
   ne propose ni n'efface rien. Ensuite, chaque effacement est confirmé par l'administrateur RH. L'abonnement à l'agenda
   personnel (Paramètres → Agenda, désactivé par défaut) passe par `/api/agenda/…`, déjà relayé avec le reste de `/api`.
+  L'adresse contient le jeton secret qui suffit à lire l'agenda : Cursus le masque dans ses propres journaux
+  (`/api/agenda/…`), mais les journaux d'accès du reverse proxy (Traefik de Coolify, Caddy) écrivent l'adresse
+  complète. Les y masquer, ou en restreindre la lecture comme celle de la base ; un jeton vu dans ces journaux se
+  révoque (Portail du salarié, ou « Révoquer tous les abonnements » dans Paramètres → Agenda).
   Il complète `docs/RGPD.md` (registre des traitements, analyse d'impact) et valide la page Confidentialité, que
   chaque salarié ouvre depuis l'écran de connexion ; l'administrateur RH y renseigne le responsable du traitement et
   le contact du DPO (Paramètres → Confidentialité), sans quoi elle renvoie au service RH.

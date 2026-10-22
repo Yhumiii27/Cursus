@@ -4,8 +4,9 @@
 // - efface, sur la confirmation de l'administrateur RH (`employe.anonymiser`), les données échues d'une catégorie, puis, à
 //   l'échéance du dossier, anonymise la fiche en cascade (`effacerDossier`) : chaque colonne qui désigne un salarié
 //   (REFERENCES de server/src/integrite.ts, et non le seul nom `empId`) a son traitement (TRAITEMENTS), vérifié par
-//   tests/conservation.test.ts ; le nom, l'adresse et les identifiants de connexion sont ensuite retirés de toutes les
-//   colonnes de texte de la base (journal, file d'envoi, comptes rendus de reprise…) ;
+//   tests/conservation.test.ts ; le nom et les adresses sont ensuite retirés des colonnes de texte de la base (journal,
+//   file d'envoi, comptes rendus de reprise…), occurrence délimitée par occurrence délimitée, sans jamais toucher à la
+//   fiche ni au compte d'un autre salarié (réembauche, homonyme) ;
 // - signale chaque jour au service RH les dossiers échus (`verifierConservation`), sans rien effacer de lui-même.
 // Les sauvegardes gardent les données effacées jusqu'à leur rotation (docs/SAUVEGARDE.md).
 import { fmtIso, plural } from '../../shared/format.ts';
@@ -63,6 +64,7 @@ export const TRAITEMENTS: Record<string, Traitement> = {
   'comptes.emp_id': { mode: 'compte' },
   'pieces.emp_id': { mode: 'pieces' },
   'contrats_historique.par_id': { mode: 'auteur' },
+  'demandes_collab.par_id': { mode: 'auteur' },
   'equipes.manager_id': { mode: 'detachee' },
 };
 
@@ -126,6 +128,8 @@ function etapes(cat: CategorieConservation, cx: Cx, empId: number): Etape[] {
       { table: 'equipes', ou: 'manager_id = ?', vider: ['manager_id'] },
       // Compte de connexion fermé : sessions supprimées, identité retirée (l'identifiant unique devient « anonyme-<n°> »).
       { table: 'connexions', ou: 'compte_id IN (SELECT id FROM comptes WHERE emp_id = ?)', supprimer: true },
+      // Identifiant de connexion noté au journal : celui du compte fermé (un identifiant local n'est pas balayé, ci-dessous).
+      { table: 'journal', ou: `compte_id IN (SELECT id FROM comptes WHERE emp_id = ?) AND identifiant IS NOT NULL AND identifiant NOT LIKE 'anonyme-%'`, sql: { identifiant: `'anonyme-' || compte_id` } },
       {
         table: 'comptes', ou: `emp_id = ? AND identifiant NOT LIKE 'anonyme-%'`, vider: ['nom', 'adresse', 'oid', 'mot_de_passe', 'blocage_fin'],
         poser: { actif: 0, changer_mot_de_passe: 0 }, sql: { identifiant: `'anonyme-' || id` },
@@ -166,21 +170,17 @@ export function aEffacer(db: Db, empId: number, cat: CategorieConservation): num
   return etapes(cat, cxNeutre(''), empId).reduce((n, e) => n + compter(db, e, empId), 0);
 }
 
-/** Catégories déjà effacées d'un salarié (effacements confirmés). */
-export function categoriesEffacees(db: Db, empId: number): Set<CategorieConservation> {
-  return new Set(db.where<{ categories: CategorieConservation[] }>('effacements', 'empId', empId).flatMap(r => r.categories ?? []));
-}
-
 /**
  * Dossiers proposés à l'effacement : salariés sortis, non anonymisés, dont une catégorie qui a encore des données est
- * échue, ou dont le dossier est échu. Vide tant que la fonction n'est pas activée avec la décision du DPO.
+ * échue (une catégorie déjà effacée revient si des données y ont été saisies depuis), ou dont le dossier est échu. Vide
+ * tant que la fonction n'est pas activée avec la décision du DPO.
  */
 export function dossiersEchus(db: Db, s: Settings = loadSettings(db), ti: ISODate = todayIso()): DossierEchu[] {
   if (!conservationActive(s)) return [];
   const sortis = db.sql.prepare('SELECT id, fin FROM employes WHERE fin IS NOT NULL AND fin < ? AND anonymise_le IS NULL ORDER BY fin, id').all(ti) as { id: number; fin: string }[];
   const out: DossierEchu[] = [];
   for (const e of sortis) {
-    const r = categoriesEchues(e, s, ti, categoriesEffacees(db, e.id), c => aEffacer(db, e.id, c) > 0);
+    const r = categoriesEchues(e, s, ti, c => aEffacer(db, e.id, c) > 0);
     if (!r) continue;
     const elements = r.categories.reduce((n, c) => n + aEffacer(db, e.id, c), 0);
     out.push({ empId: e.id, fin: e.fin, categories: r.categories, dossier: r.dossier, elements });
@@ -188,32 +188,65 @@ export function dossiersEchus(db: Db, s: Settings = loadSettings(db), ti: ISODat
   return out;
 }
 
-/** Termes d'identité retirés des textes de la base (4 caractères au moins, pour ne rien toucher d'autre). */
+// — Retrait de l'identité des textes de la base —
+
+/**
+ * Termes d'identité retirés des textes : nom et adresses e-mail de la fiche et des comptes. L'identifiant de connexion
+ * n'est retenu que s'il est une adresse complète : un identifiant local (« marc », « paie ») est souvent un mot courant.
+ * Un terme sans espace ni « @ » (nom d'un seul mot) doit avoir 8 caractères au moins, les autres 4.
+ */
 function identite(db: Db, empId: number): string[] {
   const e = db.get<Employe>('employes', empId);
   const comptes = db.sql.prepare('SELECT nom, adresse, identifiant FROM comptes WHERE emp_id = ?').all(empId) as { nom: string | null; adresse: string | null; identifiant: string | null }[];
-  return [...new Set([e?.nom, e?.email, ...comptes.flatMap(c => [c.nom, c.adresse, c.identifiant])]
-    .filter((t): t is string => typeof t === 'string' && t.trim().length >= 4).map(t => t.trim()))]
+  return [...new Set([e?.nom, e?.email, ...comptes.flatMap(c => [c.nom, c.adresse, c.identifiant?.includes('@') ? c.identifiant : null])]
+    .filter((t): t is string => typeof t === 'string').map(t => t.trim())
+    .filter(t => t.length >= (/[\s@]/.test(t) ? 4 : 8)))]
     .filter(t => !t.startsWith('anonyme-') && !t.startsWith('Salarié anonymisé'))
     .sort((a, b) => b.length - a.length);
 }
 
 /**
- * Balayage : chaque terme est remplacé par le nom neutre dans toutes les colonnes de texte et JSON du schéma (journal des
- * actions et son auteur, file d'envoi, notifications, comptes rendus de reprise, auteurs nommés dans d'autres dossiers…).
- * Renvoie le nombre de valeurs modifiées.
+ * Hors balayage : la fiche et les comptes des autres salariés (seules les lignes du salarié visé sont balayées : une
+ * réembauche ou un homonyme garde son nom et son adresse), les réglages de l'application (codes, boîtes partagées) et le
+ * nom de l'action au journal (code).
  */
-export function retirerIdentite(db: Db, termes: readonly string[], neutre: string): number {
+const LIGNES_DU_SALARIE: Partial<Record<string, string>> = { employes: 'id', comptes: 'emp_id' };
+const TABLES_EXCLUES = new Set(['settings']);
+const COLONNES_EXCLUES = new Set(['journal.action']);
+
+const echapper = (t: string) => t.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+/**
+ * Occurrence délimitée d'un terme, sans tenir compte de la casse : ni précédée ni suivie d'une lettre, d'un chiffre, de
+ * « _ », « - », « @ » ou « . » (un point final de phrase, suivi d'une espace ou de la fin, reste un séparateur).
+ * « Jean Martin » ne touche ni « Jean Martineau » ni « jean.martin@… ».
+ */
+export const motifTerme = (t: string) => new RegExp(`(?<![\\p{L}\\p{N}_@.-])${echapper(t)}(?![\\p{L}\\p{N}_@-]|\\.[\\p{L}\\p{N}])`, 'giu');
+
+/**
+ * Balayage : chaque occurrence délimitée d'un terme est remplacée par le nom neutre dans les colonnes de texte et JSON du
+ * schéma (journal des actions et son auteur, file d'envoi, notifications, comptes rendus de reprise, auteurs nommés dans
+ * d'autres dossiers, motif de la trace de l'effacement…). Les lignes candidates sont repérées en SQL, le remplacement
+ * borné est fait ici. Renvoie le nombre de valeurs modifiées.
+ */
+export function retirerIdentite(db: Db, empId: number, termes: readonly string[], neutre: string): number {
+  if (!termes.length) return 0;
   let n = 0;
   for (const [table, def] of Object.entries(TABLES) as [string, { cols: Record<string, string> }][]) {
+    const t = snake(table);
+    if (TABLES_EXCLUES.has(t)) continue;
+    const borne = LIGNES_DU_SALARIE[t];
     for (const [col, type] of Object.entries(def.cols)) {
-      if (type !== 'text' && type !== 'json') continue;
       const c = snake(col);
-      for (const t of termes) {
-        // JSON : le terme tel qu'il est écrit dans une chaîne JSON (guillemets et barres obliques échappés).
-        for (const x of new Set([t, ...(type === 'json' ? [JSON.stringify(t).slice(1, -1)] : [])])) {
-          n += Number(db.sql.prepare(`UPDATE ${snake(table)} SET ${c} = REPLACE(${c}, ?, ?) WHERE instr(${c}, ?) > 0`).run(x, neutre, x).changes);
-        }
+      if ((type !== 'text' && type !== 'json') || COLONNES_EXCLUES.has(`${t}.${c}`)) continue;
+      // JSON : le terme aussi tel qu'il est écrit dans une chaîne JSON (guillemets et barres obliques échappés).
+      const formes = [...new Set(termes.flatMap(x => [x, ...(type === 'json' ? [JSON.stringify(x).slice(1, -1)] : [])]))].sort((a, b) => b.length - a.length);
+      const lignes = db.sql.prepare(`SELECT rowid AS r, ${c} AS v FROM ${t} WHERE (${formes.map(() => `instr(lower(${c}), lower(?)) > 0`).join(' OR ')})${borne ? ` AND ${borne} = ?` : ''}`)
+        .all(...formes, ...(borne ? [empId] : [])) as { r: number; v: string }[];
+      for (const l of lignes) {
+        const v = formes.reduce((x, f) => x.replace(motifTerme(f), neutre), l.v);
+        if (v === l.v) continue;
+        db.sql.prepare(`UPDATE ${t} SET ${c} = ? WHERE rowid = ?`).run(v, l.r);
+        n++;
       }
     }
   }
@@ -221,19 +254,19 @@ export function retirerIdentite(db: Db, termes: readonly string[], neutre: strin
 }
 
 /**
- * Efface les catégories données (partielles, et le dossier : anonymisation complète, qui emporte toutes les catégories
- * restantes) et trace l'effacement (table `effacements`). Dans la transaction de l'action ; les fichiers des pièces sont
- * effacés après sa validation. Renvoie le nombre d'éléments effacés.
+ * Efface les catégories données (partielles, et le dossier : anonymisation complète, qui reprend les étapes de toutes
+ * les catégories, idempotentes, y compris celles déjà effacées où des données sont revenues) et trace l'effacement
+ * (table `effacements`, écrite avant le balayage : un motif qui nomme le salarié ne garde pas son nom). Dans la
+ * transaction de l'action ; les fichiers des pièces sont effacés après sa validation. Renvoie le nombre d'éléments effacés.
  */
 export function effacer(db: Db, empId: number, categories: readonly CategorieConservation[], cx: Cx, o: { motif: string; avantEcheance: boolean }): number {
   const dossier = categories.includes('dossier');
-  const deja = categoriesEffacees(db, empId);
-  const liste = dossier ? [...CATEGORIES.filter(c => c !== 'dossier' && !deja.has(c)), 'dossier' as const] : categories.filter(c => c !== 'dossier');
+  const liste = dossier ? [...CATEGORIES.filter(c => c !== 'dossier'), 'dossier' as const] : categories.filter(c => c !== 'dossier');
   const termes = dossier ? identite(db, empId) : [];
   let elements = 0;
   for (const c of liste) for (const e of etapes(c, cx, empId)) elements += appliquer(db, e, empId);
-  if (dossier) retirerIdentite(db, termes, nomAnonyme(empId));
   db.insert('effacements', { empId, categories: liste, le: cx.le, par: cx.par, motif: o.motif, avantEcheance: o.avantEcheance, elements });
+  if (dossier) retirerIdentite(db, empId, termes, nomAnonyme(empId));
   nettoyerBientot(db);
   return elements;
 }

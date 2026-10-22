@@ -24,6 +24,8 @@ const { LimiteurDebit } = await import('../server/src/debit.ts');
 const { appliquerReglages, ReglageInvalide } = await import('../shared/reglages.ts');
 const { DEFAULT_SETTINGS } = await import('../server/src/dataset.ts');
 const { familleAction, JOURNAL_LABEL } = await import('../shared/journal.ts');
+const { cheminJournal, reglerJournaux } = await import('../server/src/logs.ts');
+const { donneesSalarie } = await import('../server/src/donnees.ts');
 type Db = InstanceType<typeof Db>;
 type User = NonNullable<ReturnType<typeof currentUser>>;
 
@@ -189,4 +191,54 @@ test('flux : fuseau de Paris une seule fois, créneaux d’une session ; débit 
   assert.equal(l.prendre('x'), 0);
   assert.ok(l.prendre('x') > 0);
   assert.equal(agenda.DEBIT_AGENDA.jeton.capacite, 10);
+});
+
+test('récapitulatif quotidien : la décision d’un congé validé n’annonce pas de fichier joint', () => {
+  const mehdi = personne(2, 'collaborateur'), karim = personne(12, 'manager');
+  db.sql.prepare(`UPDATE employes SET notifications = 'quotidien' WHERE id = 2`).run();
+  try {
+    agir(mehdi, 'absence.demander', { empId: 2, kind: 'CP', du: '2027-02-15', au: '2027-02-16' });
+    const id = (db.sql.prepare(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2027-02-15'`).get() as { id: number }).id;
+    agir(karim, 'absence.decider', { id, ok: true });
+    const n = db.sql.prepare(`SELECT texte FROM notifications WHERE emp_id = 2 AND type = 'absence.decision' ORDER BY id DESC`).get() as { texte: string };
+    assert.match(n.texte, /a été validée/);
+    assert.doesNotMatch(n.texte, /fichier joint/);
+  } finally {
+    db.sql.prepare('UPDATE employes SET notifications = NULL WHERE id = 2').run();
+  }
+});
+
+test('journaux du serveur : le jeton du flux est masqué dans le chemin de chaque requête', async () => {
+  reglages({ agendaFluxActif: true });
+  const jeton: string = agir(personne(2, 'collaborateur'), 'agenda.creerJeton', {}).result.jeton;
+  const lignes: string[] = [];
+  const retablir = reglerJournaux({ format: 'texte', sortie: l => { lignes.push(l); } });
+  const app = createApp(db, { production: false, journalRequetes: true, dist: join(dir, 'sans-interface') });
+  const s2 = await new Promise<Server>(ok => { const s = app.listen(0, '127.0.0.1', () => ok(s)); });
+  try {
+    const p2 = (s2.address() as AddressInfo).port;
+    const statut = await new Promise<number>((ok, ko) => {
+      request({ host: '127.0.0.1', port: p2, path: `/api/agenda/${jeton}.ics` }, r => { r.resume(); r.on('end', () => ok(r.statusCode!)); }).on('error', ko).end();
+    });
+    assert.equal(statut, 200);
+    await new Promise(r => setImmediate(r));
+  } finally {
+    await new Promise(ok => s2.close(ok));
+    retablir();
+  }
+  assert.ok(lignes.some(l => l.startsWith('GET /api/agenda/… → 200')), lignes.join('\n'));
+  assert.ok(!lignes.join('\n').includes(jeton), 'jeton absent des journaux');
+  assert.equal(cheminJournal(`/API/Agenda/${jeton}.ics?x=1`), '/API/Agenda/…');
+});
+
+test('export des données remis au salarié : ni l’auteur d’une révocation ni celui d’un effacement, ni son motif', () => {
+  reglages({ agendaFluxActif: true });
+  agir(personne(2, 'collaborateur'), 'agenda.creerJeton', {});
+  agir(personne(null, 'rh'), 'agenda.revoquerTout', {});
+  db.insert('effacements', { empId: 2, categories: ['passeport'], le: '2026-10-10T08:00:00.000Z', par: 'Sandrine Vidal', motif: 'Décision du DPO', avantEcheance: false, elements: 2 });
+  const salarie = JSON.stringify(donneesSalarie(db, 2, { journal: false, par: 'Mehdi Benali' }));
+  assert.doesNotMatch(salarie, /revoquePar|Décision du DPO|Sandrine Vidal/);
+  const rh = JSON.stringify(donneesSalarie(db, 2, { journal: true, par: 'Sandrine Vidal' }));
+  assert.match(rh, /revoquePar/);
+  assert.match(rh, /Décision du DPO/);
 });

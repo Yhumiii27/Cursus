@@ -35,6 +35,9 @@ const { appliquerReglages, ReglageInvalide } = await import('../shared/reglages.
 const { DEFAULT_SETTINGS } = await import('../server/src/dataset.ts');
 const { refusCsrf } = await import('../server/src/securite.ts');
 const { reglerJournaux } = await import('../server/src/logs.ts');
+// Journaux du serveur muets : le nettoyage des pièces (setImmediate) écrirait sur la sortie standard, que le lanceur de
+// tests lit.
+reglerJournaux({ sortie: () => {} });
 type Db = InstanceType<typeof Db>;
 type User = NonNullable<ReturnType<typeof currentUser>>;
 

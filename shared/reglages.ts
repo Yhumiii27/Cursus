@@ -240,12 +240,12 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
   s => (s.moyenne12SemainesMax > 44 && !s.moyenne12SemainesAccord
     ? 'Moyenne au-delà de 44 h sur 12 semaines : indiquez la référence de l’accord collectif qui la porte jusqu’à 46 h (art. L3121-23)' : null),
   // — Conservation des dossiers : aucune proposition sans la décision du DPO (réponse de l'entreprise du 18 octobre 2026) ;
-  // le dossier au moins 3 ans (archive paie du journal, prescription des salaires) et jamais avant une autre catégorie,
+  // le dossier au moins 5 ans (registre unique du personnel, art. R1221-26) et jamais avant une autre catégorie,
   // car son anonymisation efface tout —
   s => (s.conservationActive && !s.conservationDecisionDpo
     ? 'Conservation des dossiers : indiquez la référence de la décision du DPO qui fixe ces durées avant d’activer les propositions' : null),
   s => (s.conservationDossierAns < DOSSIER_MIN_ANS
-    ? `Conservation des dossiers : ${DOSSIER_MIN_ANS} ans au moins pour le dossier (prescription des salaires, archive paie du journal)` : null),
+    ? `Conservation des dossiers : ${DOSSIER_MIN_ANS} ans au moins pour le dossier : l’identité et le titre de séjour figurent au registre unique du personnel, gardé 5 ans après le départ (art. R1221-26)` : null),
   s => {
     const plus = CATEGORIES.filter(c => c !== 'dossier' && s[CATEGORIES_CONSERVATION[c].reglage] > s.conservationDossierAns);
     return plus.length ? `Conservation des dossiers : ${categoriesTexte(plus)} au-delà de la durée du dossier, dont l’anonymisation efface tout` : null;

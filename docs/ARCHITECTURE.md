@@ -880,7 +880,7 @@ aucun champ du paramètre n'est recopié.
 | `confidentialite.regler` | responsable?, dpo? (texte, 300 caractères au plus ; vide : effacé, la page renvoie au service RH) ; journal : nom des champs dont la valeur change, jamais leur texte | administrateur RH |
 | `piece.joindre` | jetons (ou jeton) : pièces envoyées par `POST /api/pieces` par le même compte, encore en attente ; objet (`absence`/`certification`/`habTitre`/`declaration`/`voyage`), objetId ; 10 pièces en vigueur au plus par objet ; fonction désactivée : 409. Les mêmes jetons se passent en `pieces` à `absence.saisir`, `absence.qualifier`, `absence.signaler` (intéressé ou RH), `cert.ajouter`, `hab.delivrer` et `formalite.enregistrer` (déclaration du collaborateur ; celle qu'elle remplace lui laisse ses pièces) | absence (hors congés, ni annulée ni refusée) : intéressé, RH ; certification, titre d'habilitation : RH, référent HSE ; document déclaré : intéressé tant qu'il attend, RH ; déplacement : RH ; jamais le manager |
 | `piece.retirer` | id, motif (obligatoire, 500 caractères ; gardé avec la pièce, lu par le service RH et par le salarié dans l'export de ses données, masqué au journal) : description gardée, fichier effacé après la validation de l'action ; le refus d'un document déclaré retire aussi ses pièces | RH ; référent HSE pour une certification ou un titre d'habilitation ; jamais sur son propre dossier |
-| `employe.anonymiser` | ids (1 à 100), motif (obligatoire, 500 caractères ; gardé dans la table `effacements`, jamais au journal), avantEcheance? (droit à l'effacement : un seul salarié, sorti, dossier anonymisé en entier, même fonction désactivée) ; sans `avantEcheance`, fonction activée avec la décision du DPO (409 sinon) et dossiers proposés seulement (409 sinon) : catégories échues effacées, fiche anonymisée à l'échéance du dossier ; 409 tant qu'un solde de sortie est dans un lot à confirmer ; message et journal sans nom | administrateur RH (jamais son propre dossier) |
+| `employe.anonymiser` | ids (1 à 100), motif (obligatoire, 500 caractères ; gardé dans la table `effacements`, jamais au journal), avantEcheance? (droit à l'effacement : un seul salarié, sorti, même fonction désactivée ; catégories sans obligation légale ou échues effacées, identité, titre de séjour, santé et temps gardés jusqu'à leur échéance, 409 si rien à effacer) ; sans `avantEcheance`, fonction activée avec la décision du DPO (409 sinon) et dossiers proposés seulement (409 sinon) : catégories échues effacées, fiche anonymisée à l'échéance du dossier ; 409 tant qu'un solde de sortie est dans un lot à confirmer ; message et journal sans nom | administrateur RH (jamais son propre dossier) |
 | `agenda.creerJeton` / `agenda.revoquerJeton` | — : nouveau jeton (le précédent révoqué), renvoyé une seule fois dans `result`, jamais au journal ; flux désactivé : 409 / révocation de son abonnement | le salarié pour lui-même, depuis l'espace collaborateur ou manager |
 | `agenda.revoquerTout` | — : tous les abonnements révoqués | administrateur RH |
 | `reprise.importer` | type (`salaries`/`soldes`/`certifications`/`visites`/`habilitations`), texte (CSV), colonnes (champ de chaque colonne), dateReprise (soldes), equipes (rapprochement), confirmations (lignes cochées : réembauche sur un matricule, visite sans avis), comptes (comptes Microsoft 365, y compris pour une fiche déjà à jour), fichier ; analyse de `shared/rules/reprise.ts`, seules les lignes retenues par l'aperçu sont écrites ; ses propres soldes refusés (fiche rattachée au compte) ; lot conservé (table `reprises`) ; journal `reprise.<type>` | administrateur RH |
@@ -1745,25 +1745,33 @@ Paramètres → Conservation des dossiers (`pages/parametres/Conservation.tsx`, 
 - **Réglages** (section « Conservation des dossiers » de `REGLAGES`) : `conservationActive` (« Proposer les dossiers échus »,
   décochée), `conservationDecisionDpo` (texte masqué au journal), une durée en années par catégorie
   (`conservation…Ans`, 0 à 10, 0 : dès le lendemain du dernier jour). `COHERENCE` : activation sans décision du DPO
-  refusée ; dossier 3 ans au moins (archive paie du journal, prescription des salaires) ; aucune catégorie au-delà du
-  dossier (son anonymisation efface tout).
+  refusée ; dossier 5 ans au moins (registre unique du personnel, art. R1221-26 : identité et titre de séjour) ; aucune
+  catégorie au-delà du dossier (son anonymisation efface tout).
 - **Dossiers échus** (`dossiersEchus`) : salarié sorti (`sorti`), non anonymisé, dont une catégorie échue
-  (`echeanceConservation` : lendemain du dernier jour + durée) a encore des données (`aEffacer`), ou dont le dossier est
-  échu. Transmis dans `Dataset.conservation` à l'administrateur RH seulement ; vide tant que la fonction est inactive.
+  (`echeanceConservation` : lendemain du dernier jour + durée) a encore des données (`aEffacer` : une catégorie déjà
+  effacée revient si des données y ont été saisies depuis), ou dont le dossier est échu. Transmis dans `Dataset.conservation` à l'administrateur RH seulement ; vide tant que la fonction est inactive.
 - **Effacement par catégorie** (étapes de `etapes`) : passeport et visas (fiche, visas, déclarations et leurs pièces) ;
   santé (visites, avis, restrictions, suivi, demandes de visite, vaccinations, déclarations) ; titre de séjour ; entretiens
   (lignes et comptes rendus) ; temps (commentaires et motifs des feuilles, absences, reports, clôtures ; justificatifs
   d'absence) ; formations (motifs de correction et de mesure, demandes, attestations et titres joints). La paie n'a pas
   d'effacement propre : lots et soldes de sortie restent, sans nom, après l'anonymisation.
-- **Anonymisation** (échéance du dossier, ou droit à l'effacement) : toutes les catégories restantes, puis la cascade
+- **Droit à l'effacement** (`avantEcheance`, `categoriesDroitEffacement`) : salarié sorti seulement ; sont effacées
+  les catégories sans obligation légale (passeport et visas, entretiens, formations) et celles déjà échues ; l'identité
+  (registre unique, 5 ans), le titre de séjour, la santé et le temps restent jusqu'à leur échéance (`obligation` de chaque
+  catégorie, art. 17-3-b du RGPD), listés dans le dialogue et le message ; dossier échu : anonymisation complète.
+- **Anonymisation** (échéance du dossier) : les étapes de toutes les catégories (idempotentes, même déjà effacées), puis la cascade
   fondée sur `REFERENCES` (`server/src/integrite.ts`) et non sur le seul nom `empId` : chaque colonne qui désigne un
   salarié a son traitement dans `TRAITEMENTS` (lignes supprimées, textes vidés, ligne gardée, compte fermé, pièces
   retirées, auteur gardé, référence détachée) ; `tests/conservation.test.ts` échoue si une référence n'en a pas — à
   rejouer après chaque fusion (délégations, historique des contrats…). Fiche : « Salarié anonymisé n° X » (nom, adresse
   e-mail, date de naissance complète, matricule de paie, contact d'urgence retirés ; `anonymiseLe`), compte désactivé,
-  identifiant `anonyme-<n°>`, sessions supprimées. Puis le nom, l'adresse et les identifiants de connexion sont remplacés
-  dans toutes les colonnes de texte et JSON du schéma (`retirerIdentite` : journal et son auteur, file d'envoi,
-  notifications, comptes rendus de reprise, auteurs nommés dans d'autres dossiers), quelle que soit la durée du journal.
+  identifiant `anonyme-<n°>` (au journal aussi), sessions supprimées. La trace `effacements` est écrite, puis le nom et
+  les adresses e-mail (l'identifiant de connexion seulement s'il est une adresse ; un terme d'un seul mot : 8 caractères
+  au moins) sont remplacés dans les colonnes de texte et JSON du schéma (`retirerIdentite` : journal et son auteur, file
+  d'envoi, notifications, comptes rendus de reprise, auteurs nommés dans d'autres dossiers, motif de l'effacement),
+  quelle que soit la durée du journal. Seules les occurrences délimitées sont remplacées (`motifTerme` : ni lettre,
+  chiffre, « . », « _ », « - » ni « @ » autour) ; la fiche et les comptes d'un autre salarié (réembauche, homonyme), les
+  réglages et le nom des actions du journal ne sont jamais touchés.
   Heures par projet, absences, certifications, coûts de formation, lots de paie et soldes de sortie restent, sans nom.
   Trace : table `effacements` (catégories, date, auteur, motif, nombre d'éléments, `avantEcheance`), gardée.
 - **Signalement** (`verifierConservation`, au démarrage puis toutes les heures, un passage par jour) : nouveaux dossiers

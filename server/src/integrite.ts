@@ -33,6 +33,8 @@ export const REFERENCES: readonly Reference[] = [
     'effacements', 'jetons_agenda'].map(t => ref(t, 'emp_id', 'employes')),
   // Auteur d'une ligne de l'historique des contrats (fiche du compte qui l'a enregistrée, t074).
   ref('contrats_historique', 'par_id', 'employes'),
+  // Manager qui a demandé une formation ou une habilitation pour un membre de son équipe (server/src/actions/conformite.ts).
+  ref('demandes_collab', 'par_id', 'employes'),
   ...['certifications', 'inscriptions', 'participations', 'demandes_collab'].map(t => ref(t, 'session_id', 'sessions')),
   ref('participations', 'cert_id', 'certifications'),
   ref('certifications', 'f', 'formations'),

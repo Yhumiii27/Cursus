@@ -25,7 +25,7 @@ const { controlerFormation, controlerHabilitation } = await import('../shared/ru
 const { csvPlan } = await import('../client/src/listes-csv.ts');
 const { csvFormationsSuivies, csvIndicateurs } = await import('../client/src/formations-csv.ts');
 const { sectionsPasseport } = await import('../client/src/passeport.ts');
-const { sectionsTitre } = await import('../client/src/titre-habilitation.ts');
+const { sectionsTitre, titreImprimable } = await import('../client/src/titre-habilitation.ts');
 type User = NonNullable<ReturnType<typeof currentUser>>;
 type Ligne = Record<string, any>;
 
@@ -138,6 +138,15 @@ test('demande hors catalogue acceptée : à clore, close par l’action du plan 
   const j = journal('plan.avancer').at(-1)!;
   assert.deepEqual(j.payload.beneficiaires, [2, 6]);
   assert.deepEqual([...j.salaries].sort(), [2, 6]);
+  // Même clôture depuis un second onglet : « déjà réalisé », rien d'écrit ; le journal ne nomme aucun bénéficiaire.
+  assert.match(run(RH, 'plan.avancer', { id: ligne.id, de: 'engage', coutReel: 300, beneficiaires: [2, 6], du: '2026-10-05' }), /déjà réalisé/);
+  const j2 = journal('plan.avancer').at(-1)!;
+  assert.notEqual(j2.id, j.id);
+  assert.equal(j2.payload.beneficiaires, undefined);
+  assert.deepEqual(j2.salaries ?? [], []);
+  assert.equal(S.suiviesEnVigueur(domain().ds).filter(x => x.planActionId === ligne.id).length, 2);
+  // Demande close par l'action réalisée : elle ne se rouvre plus (la formation suivie resterait rattachée à un refus).
+  refuse(RH, 'demande.reouvrir', { id: r.id, motif: 'Acceptée par erreur' }, /Formation suivie du 5 oct\. 2026 enregistrée pour cette demande/);
   // Saisie directe d'une demande déjà close : refus.
   refuse(RH, 'formationSuivie.enregistrer', { empId: 2, demandeId: r.id, du: '2026-10-05' }, /déjà enregistrée/);
 });
@@ -148,9 +157,14 @@ test('demande hors catalogue close par une saisie directe ; action réalisée pa
   const r = domain().ds.demandesCollab.find(x => x.libelle === 'Soudure TIG')!;
   run(RH, 'demande.accepter', { id: r.id });
   refuse(RH, 'formationSuivie.enregistrer', { empId: 6, demandeId: r.id, du: '2026-10-01' }, /introuvable pour ce collaborateur/);
-  run(user(23, 'rh'), 'formationSuivie.enregistrer', { empId: 2, demandeId: r.id, du: '2026-10-01', au: '2026-10-02' });
+  // Ligne du plan créée par l'acceptation, encore prévue : signalée, à clore dans Plan & budget.
+  assert.match(run(user(23, 'rh'), 'formationSuivie.enregistrer', { empId: 2, demandeId: r.id, du: '2026-10-01', au: '2026-10-02' }), /ligne du plan 2026 à passer « réalisée » dans Plan & budget$/);
   const x = S.suiviesEnVigueur(domain().ds, 2).find(s => s.demandeId === r.id)!;
   assert.deepEqual([x.libelle, x.origine, x.planActionId, x.auteurId], ['Soudure TIG', 'demande', domain().ds.demandesCollab.find(d => d.id === r.id)!.suite!.planId, 23]);
+  // Réouverture refusée tant que la formation suivie est en vigueur ; après sa suppression (saisie erronée), possible.
+  refuse(RH, 'demande.reouvrir', { id: r.id, motif: 'Acceptée par erreur' }, /Formation suivie du 1 oct\. 2026 enregistrée pour cette demande/);
+  run(RH, 'formationSuivie.annuler', { id: x.id, motif: 'Saisie sur la mauvaise demande' });
+  assert.match(run(RH, 'demande.reouvrir', { id: r.id, motif: 'Acceptée par erreur' }), /rouverte/);
   // Ligne réalisée par une session clôturée (SST de la Production) : ses participants ont leur certification.
   const l = db.insert<Ligne>('planActions', { exercice: 2026, f: 'sst', libelle: null, equipe: 'Maintenance', periode: 'T4', effectif: 2, cout: 360, statut: 'engage', origine: null });
   db.insert('sessions', { formation: 'sst', date: '2026-10-01', fin: '2026-10-01', jours: ['2026-10-01'], horaires: [], lieu: 'Site', places: 4, statut: 'Clôturée', planId: l.id, bilan: null });
@@ -240,7 +254,8 @@ test('migration : délivrances en vigueur amorcées une fois, tracées, sans orp
 
 test('durée en heures : lue dans le texte quand elle y est seule, contrôlée, extraite par la migration', () => {
   const { db, run, RH, domain } = fresh();
-  assert.deepEqual(['21 h', '7 h (MAC)', '3,5 heures', '14h', '2 jours', '', '7 h + 7 h', '7 h ou 14 h', '5000 h'].map(H.dureeHeuresDe), [21, 7, 3.5, 14, null, null, 7, null, null]);
+  assert.deepEqual(['21 h', '7 h (MAC)', '3,5 heures', '14h', '2 jours', '', '7 h + 7 h', '7 h ou 14 h', '5000 h', '2 x 7 h', '7 h par jour sur 3 jours', '21 h (3 jours)'].map(H.dureeHeuresDe),
+    [21, 7, 3.5, 14, null, null, null, null, null, null, null, null], 'jamais une durée unitaire répétée prise pour le total');
   const ref = domain().ds.referentiels.formations;
   const sst = ref.find(f => f.id === 'sst')!;
   assert.equal(sst.dureeHeures, 7, 'jeu de démonstration');
@@ -296,4 +311,48 @@ test('indicateurs du plan par exercice : stagiaires, heures par catégorie, équ
   assert.deepEqual(p.head.slice(-2), ['Catégorie', 'Durée (h)']);
   assert.ok(p.rows.some(r => r[1] === 'Sauveteur secouriste du travail (SST)' && r[9] === 'Réglementaire' && r[10] === '7'));
   assert.ok(db.count('formationsSuivies') >= 3);
+});
+
+// — Constats de relecture (lot 6, chantier 4, étape 2) —
+
+test('titre d’habilitation : seul un titre en vigueur s’imprime ; aptitude et prérequis tels qu’à la délivrance', () => {
+  const { run, RH, domain, emp } = fresh();
+  const hab = (h: string) => emp(2).habs.find(x => x.h === h)!;
+  // Mehdi Benali : travaux en hauteur valides ; habilitation électrique échue le 1er octobre 2026.
+  assert.equal(titreImprimable(hab('hauteur')), true);
+  assert.equal(hab('he').key, 'exp');
+  assert.equal(titreImprimable(hab('he')), false, 'titre échu');
+  run(RH, 'hab.suspendre', { empId: 2, h: 'hauteur', motif: 'Vertiges signalés', date: '2026-10-06' });
+  assert.equal(titreImprimable(hab('hauteur')), false, 'titre suspendu');
+  run(RH, 'hab.retirer', { empId: 2, h: 'hauteur', motif: 'Manquement grave aux règles', date: '2026-10-07' });
+  assert.equal(hab('hauteur').key, 'retiree');
+  assert.equal(titreImprimable(hab('hauteur')), false, 'titre retiré : pas de bouton « Imprimer le titre »');
+  // Prérequis non satisfait (statut « Suspendue » sans mesure) : pas d'impression.
+  assert.equal(titreImprimable({ ...hab('hauteur'), mesure: null, key: 'susp', prereqOk: false }), false);
+  // Aptitude non valable : jamais « vérifiée » ; prérequis : certification valide à la date de délivrance seulement.
+  const d = domain();
+  const mehdi = emp(2, d);
+  const inapte = JSON.stringify(sectionsTitre({ ...mehdi, med: { ...mehdi.med, ok: false } }, d.hm('he'), { delivree: '2026-10-05', par: 'Karim Haddad' }));
+  assert.match(inapte, /Aptitude médicale","non vérifiée/);
+  assert.match(JSON.stringify(sectionsTitre(mehdi, d.hm('he'), { delivree: '2023-10-01', par: 'Karim Haddad' })), /obtenue le 14 sept\. 2023/);
+  assert.match(JSON.stringify(sectionsTitre(mehdi, d.hm('he'), { delivree: '2023-09-01', par: 'Karim Haddad' })), /aucune certification valide à cette date/, 'obtenue après la délivrance');
+});
+
+test('action du plan d’une formation du catalogue réalisée sans session, puis certification : comptée une seule fois', () => {
+  const { db, run, RH, user, domain, emp } = fresh();
+  const l = db.insert<Ligne>('planActions', { exercice: 2026, f: 'prap', libelle: null, equipe: 'Maintenance', periode: 'T3', effectif: 1, cout: 400, statut: 'engage', origine: null });
+  run(RH, 'plan.avancer', { id: l.id, de: 'engage', coutReel: 400, beneficiaires: [2], du: '2026-09-01', au: '2026-09-02' });
+  const prap = (d = domain()) => H.realisationsDe(d, 2026).filter(r => r.empId === 2 && r.intitule === d.fm('prap').nom);
+  assert.deepEqual(prap().map(r => [r.source, r.heures]), [['suivie', 14]], 'avant la certification : la formation suivie');
+  run(RH, 'cert.ajouter', { empId: 2, f: 'prap', date: '2026-09-02' });
+  assert.deepEqual(prap().map(r => [r.source, r.heures]), [['certification', 14]], 'une ligne, 14 h');
+  const x = S.suiviesEnVigueur(domain().ds, 2).find(s => s.planActionId === l.id)!;
+  assert.equal(S.suivieCertifiee(domain().emp(2), x), true);
+  // Passeport : la PRAP figure parmi les certifications, pas une seconde fois parmi les formations suivies.
+  const d = domain(user(2, 'collaborateur'));
+  const sections = sectionsPasseport(d, emp(2, d));
+  assert.ok(sections.find(s => s.title === 'Certifications')!.table!.rows.some(r => r[0] === d.fm('prap').nom));
+  assert.ok(!sections.find(s => s.title === 'Formations suivies')!.table!.rows.some(r => r[0] === d.fm('prap').nom));
+  // Certification d'une autre période (hors du premier jour au dernier, plus 7 jours) : les deux comptent.
+  assert.equal(S.suivieCertifiee({ certs: [{ f: 'prap', obtenue: '2026-09-10' }] } as never, x), false);
 });

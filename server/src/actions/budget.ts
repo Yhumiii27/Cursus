@@ -83,7 +83,12 @@ const avancer: ActionHandler = (ctx, p) => {
   const beneficiaires = controlerBeneficiaires(ctx, l, p);
   ctx.db.update<PlanAction>('planActions', l.id, { statut: 'realise', coutReel: cout, effectifReel: effectif });
   const ecart = cout - l.cout;
-  return `${nom} · réalisé (${fmtEur(cout)}${ecart ? `, ${ecart > 0 ? '+' : '−'}${fmtEur(Math.abs(ecart))} par rapport au prévu` : ''})${beneficiaires?.() ?? ''}`;
+  const b = beneficiaires?.() ?? { texte: '', empIds: [] };
+  // Bénéficiaires réellement enregistrés, lus par la règle du journal (server/src/journal.ts).
+  return {
+    message: `${nom} · réalisé (${fmtEur(cout)}${ecart ? `, ${ecart > 0 ? '+' : '−'}${fmtEur(Math.abs(ecart))} par rapport au prévu` : ''})${b.texte}`,
+    result: { beneficiaires: b.empIds },
+  };
 };
 
 export const budgetActions: Record<string, ActionHandler> = {

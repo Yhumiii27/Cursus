@@ -8,7 +8,7 @@ import { STATUTS } from '../constants.ts';
 import type { Domain } from '../domain.ts';
 import type { Formation, FormationType, ISODate, Session, Statut } from '../types.ts';
 import { coutRetenu } from './exercices.ts';
-import { heuresSuivie, intituleSuivie, suiviesEnVigueur } from './formations-suivies.ts';
+import { heuresSuivie, intituleSuivie, suiviesHorsCertifications } from './formations-suivies.ts';
 import { heuresHoraire, horaireDuJour, joursSession } from './plage-session.ts';
 
 /** Durée maximale saisie (heures) : au-delà, une faute de frappe. */
@@ -19,13 +19,14 @@ export const dureeValide = (n: number) => Number.isFinite(n) && n >= 0.25 && n <
 
 /**
  * Nombre d'heures lu dans une durée en texte : « 21 h », « 7 h (MAC) », « 3,5 heures », « 14h » ; null sinon (« 2 jours »,
- * vide, plusieurs durées différentes). Jamais d'estimation : une durée en jours reste à compléter.
+ * vide). Une seule durée en heures, sans multiplication, addition ni nombre de jours : « 7 h + 7 h », « 2 x 7 h » ou
+ * « 7 h par jour sur 3 jours » donnent null. Jamais d'estimation : la durée reste à compléter (« durée inconnue »).
  */
 export function dureeHeuresDe(texte: string | null | undefined): number | null {
   const t = (texte ?? '').toLowerCase();
   const trouves = [...t.matchAll(/(\d+(?:[.,]\d+)?)\s*(?:h(?![a-z])|heures?\b)/g)].map(m => Number(m[1].replace(',', '.')));
-  const distincts = [...new Set(trouves)];
-  return distincts.length === 1 && dureeValide(distincts[0]) ? distincts[0] : null;
+  if (trouves.length !== 1 || /[+×*]|\d\s*x\s*\d|\bx\b|\bpar\b|\bjours?\b|\bj\b|\bdemi/.test(t)) return null;
+  return dureeValide(trouves[0]) ? trouves[0] : null;
 }
 
 /** Heures d'une session pour un participant présent : horaires de chaque jour, sinon la durée du catalogue, sinon null. */
@@ -70,7 +71,8 @@ export interface IndicateursFormation {
 /**
  * Formations réalisées pendant l'année civile `exercice` : participations présentes aux sessions clôturées (horaires ou
  * durée du catalogue), certifications enregistrées sans session (saisie, reprise) et formations suivies (hors catalogue,
- * plan, saisie). Une certification produite par une session n'est comptée qu'une fois, par sa participation.
+ * plan, saisie). Une certification produite par une session n'est comptée qu'une fois, par sa participation ; une
+ * formation suivie du catalogue dont la certification est enregistrée, une fois, par cette certification.
  */
 export function realisationsDe(d: Domain, exercice: number): Realisation[] {
   const debut = `${exercice}-01-01`, fin = `${exercice}-12-31`;
@@ -96,7 +98,7 @@ export function realisationsDe(d: Domain, exercice: number): Realisation[] {
       out.push({ empId: e.id, nom: e.nom, equipe: e.equipe ?? 'À affecter', statut: e.statut, categorie: fm?.type ?? 'Hors catalogue', intitule: fm?.nom ?? c.f, date: c.obtenue, heures: fm?.dureeHeures ?? null, source: 'certification' });
     }
   }
-  for (const x of suiviesEnVigueur(d.ds)) {
+  for (const x of suiviesHorsCertifications(d)) {
     const qui = pour(x.empId);
     if (!qui || !dans(x.du)) continue;
     const fm = x.f ? d.fm(x.f) : null;

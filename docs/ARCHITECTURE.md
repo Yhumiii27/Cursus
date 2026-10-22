@@ -1507,8 +1507,14 @@ Table `postes` (intitulé, `formations` et `habilitations` exigées, `archive`),
   annulation motivées comme les certifications). Une formation hors catalogue est « non obligatoire » par défaut, case
   modifiable. Sources : saisie directe (fiche, service RH et référent HSE), bénéficiaires d'une action du plan réalisée
   (`plan.avancer`, `PlanRealiserDialog`, membres de l'équipe cochés, demandeur coché d'office), demande hors catalogue
-  acceptée à clore (« Enregistrer la formation suivie », `demandesAClore`). `origine: 'session'` est réservée : une session
-  du catalogue produit des certifications. Bilan à 8 ans (`obligations()`, `formationNonObligatoireDepuis`) : une
+  acceptée à clore (« Enregistrer la formation suivie », `demandesAClore` ; la ligne du plan créée par l'acceptation, encore
+  prévue ou engagée, est signalée « à passer réalisée »). `origine: 'session'` est réservée : une session du catalogue
+  produit des certifications. Une action du plan d'une formation du catalogue réalisée sans session crée des formations
+  suivies ; la certification se saisit en plus (conformité) et, obtenue du premier jour au dernier plus 7 jours, représente
+  seule la formation au passeport et dans les indicateurs (`suivieCertifiee`, `suiviesHorsCertifications` : pas de double
+  compte). Une demande dont la formation suivie est enregistrée ne se rouvre plus (`demande.reouvrir`, 400) : supprimer
+  d'abord la formation suivie saisie par erreur. Journal de `plan.avancer` : bénéficiaires réellement enregistrés
+  (`result.beneficiaires`), jamais ceux seulement envoyés. Bilan à 8 ans (`obligations()`, `formationNonObligatoireDepuis`) : une
   certification non « Réglementaire » ou une formation suivie non obligatoire terminée depuis 8 ans évite le risque
   d'abondement correctif (art. L6323-13). Vues (`server/src/dataset.ts`) : service RH tout (annulées comprises) ; référent
   HSE, lecture seule, manager (son équipe) et intéressé : en vigueur, sans motif ni auteur ; paie : rien. Fiche
@@ -1527,16 +1533,18 @@ Table `postes` (intitulé, `formations` et `habilitations` exigées, `archive`),
 - **Titre d'habilitation imprimé (`client/src/titre-habilitation.ts`)** : modèle au référentiel (`HabType.modele` :
   `electrique` NF C18-510, `conduite` art. R4323-56 / R489 / R486, `generique` par défaut ; démonstration : électrique et
   autorisations de conduite), choisi dans `RefHabilitationDialog`. Titulaire (nom, fonction, équipe), intitulé, précision
-  (symboles et domaine de tension, catégories), délivrance et validité, prérequis vérifiés (certifications) et aptitude
-  médicale « vérifiée » (jamais l'avis ni les restrictions), mentions du modèle, signatures de l'employeur (`par`) et du
-  titulaire. Imprimé depuis la fiche (« Imprimer le titre », service RH et référent HSE) ou aussitôt après la délivrance
-  (`HabDialog`, case cochée par défaut) ; impression tracée (`POST /api/exports`). Modèles à faire valider par le référent HSE.
+  (symboles et domaine de tension, catégories), délivrance et validité, prérequis vérifiés (certification valide à la date
+  de délivrance) et aptitude médicale « vérifiée » si la visite est en cours de validité (jamais l'avis ni les
+  restrictions), mentions du modèle, signatures de l'employeur (`par`) et du titulaire. Imprimé depuis la fiche (« Imprimer
+  le titre », service RH et référent HSE ; seulement un titre en vigueur, `titreImprimable` : jamais retiré, suspendu, échu
+  ou aux prérequis manquants) ou aussitôt après la délivrance (`HabDialog`, case cochée par défaut) ; impression tracée (`POST /api/exports`). Modèles à faire valider par le référent HSE.
 - **Passeport formation (`client/src/passeport.ts`)** : sections communes à la fiche et au portail (« Imprimer mon passeport
   formation ») : certifications en vigueur et remplacées, habilitations, habilitations antérieures, formations suivies ;
   impression tracée au journal, rattachée au salarié (le collaborateur sur son propre périmètre).
 - **Durée en heures et indicateurs (t122, `shared/rules/heures-formation.ts`)** : `Formation.dureeHeures` (colonne
   `duree_heures`), facultative, extraite du texte de la durée quand il en donne une seule (migration
-  `lot6-securite-duree-heures`, `dureeHeuresDe` : « 21 h », « 7 h (MAC) » ; « 2 jours » reste vide), saisie dans
+  `lot6-securite-duree-heures`, `dureeHeuresDe` : « 21 h », « 7 h (MAC) » ; « 2 jours », « 7 h + 7 h », « 2 x 7 h » ou
+  « 7 h par jour sur 3 jours » restent vides, jamais d'estimation), saisie dans
   `RefFormationDialog`. Heures d'une participation présente : horaires de la session (`heuresSession`), sinon la durée du
   catalogue ; formation suivie : sa durée, sinon celle du catalogue ; sans l'une ni l'autre, « durée inconnue », signalée.
   `indicateursFormation(d, exercice)` (année civile) : participations présentes aux sessions clôturées, certifications sans

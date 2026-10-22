@@ -5,7 +5,7 @@
 // comptent pour l'état des lieux du bilan à 8 ans (art. L6315-1, shared/rules/entretiens.ts), avec les certifications
 // non réglementaires. Correction et annulation motivées comme les certifications (shared/rules/corrections.ts).
 // Contrôles communs au dialogue et au serveur (server/src/actions/formations-suivies.ts).
-import { isValidDate } from '../dates.ts';
+import { addD, isValidDate } from '../dates.ts';
 import type { Domain } from '../domain.ts';
 import type { Dataset, DemandeCollab, Employe, Formation, FormationSuivie, ISODate, OrigineFormationSuivie } from '../types.ts';
 import { dureeValide } from './heures-formation.ts';
@@ -21,6 +21,24 @@ export const ORGANISME_SUIVIE_MAX = 80;
 /** Formations suivies en vigueur (non annulées). */
 export const suiviesEnVigueur = (ds: Pick<Dataset, 'formationsSuivies'>, empId?: number): FormationSuivie[] =>
   (ds.formationsSuivies ?? []).filter(x => !x.annuleLe && (empId == null || x.empId === empId));
+
+/** Jours après le dernier jour d'une formation suivie pendant lesquels sa certification peut être datée. */
+export const DELAI_CERTIFICATION_SUIVIE = 7;
+
+/**
+ * Formation suivie du catalogue dont le salarié a la certification (même code, obtenue du premier jour au dernier, plus
+ * 7 jours) : action du plan réalisée sans session, puis certification saisie par le service RH. La certification la
+ * représente au passeport et dans les indicateurs, pour ne pas compter deux fois la même formation.
+ */
+export function suivieCertifiee(e: Pick<Employe, 'certs'> | null | undefined, x: Pick<FormationSuivie, 'f' | 'du' | 'au'>): boolean {
+  if (!x.f || !e) return false;
+  const fin = addD(x.au, DELAI_CERTIFICATION_SUIVIE);
+  return e.certs.some(c => c.f === x.f && !c.annuleLe && c.obtenue >= x.du && c.obtenue <= fin);
+}
+
+/** Formations suivies comptées à part (passeport, indicateurs) : en vigueur, hors celles que représente une certification. */
+export const suiviesHorsCertifications = (d: Domain, empId?: number): FormationSuivie[] =>
+  suiviesEnVigueur(d.ds, empId).filter(x => !suivieCertifiee(d.emp(x.empId), x));
 
 /** Intitulé affiché : celui du catalogue, sinon celui saisi. */
 export const intituleSuivie = (d: Domain, x: Pick<FormationSuivie, 'f' | 'libelle'>): string => (x.f && d.fm(x.f)?.nom) || x.libelle || x.f || '—';

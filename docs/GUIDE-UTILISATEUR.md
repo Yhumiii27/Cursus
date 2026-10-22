@@ -214,9 +214,11 @@ entretiens : un collègue ou son manager le fait.
   catalogue ou hors catalogue, avec ses dates, sa durée en heures et son organisme. Hors catalogue, elle est « non
   obligatoire » par défaut (case modifiable) et compte alors pour l'état des lieux du bilan à 8 ans. Une demande hors
   catalogue acceptée apparaît « À clore » : « Enregistrer la formation suivie » une fois faite. À la clôture d'une action
-  du plan, cocher ses bénéficiaires parmi l'équipe (le demandeur est coché d'office). Les historiques tenus ailleurs ne
+  du plan, cocher ses bénéficiaires parmi l'équipe (le demandeur est coché d'office) ; pour une formation du catalogue,
+  enregistrer aussi la certification de chacun, qui la remplace alors au passeport et dans les indicateurs. Les historiques tenus ailleurs ne
   sont pas repris : saisie manuelle.
-- Titre d'habilitation : « Imprimer le titre » sur la fiche, ou case cochée à la délivrance. Modèle choisi au référentiel
+- Titre d'habilitation : « Imprimer le titre » sur la fiche (titre en vigueur seulement : ni retiré, ni suspendu, ni
+  expiré), ou case cochée à la délivrance. Modèle choisi au référentiel
   (« Modèle du titre imprimé » : électrique NF C18-510, autorisation de conduite R4323-56, générique) ; titulaire,
   précision (symboles, catégories), validité, prérequis et aptitude médicale vérifiés (jamais l'avis), signatures de
   l'employeur et du titulaire. Modèles à faire valider par le référent HSE avant la mise en service. Un renouvellement

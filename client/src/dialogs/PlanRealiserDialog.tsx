@@ -105,6 +105,7 @@ export function PlanRealiserDialog({ id }: { id: number }) {
         {montant !== null && ecart ? `Écart au prévu : ${ecart > 0 ? '+' : '−'}${fmtEur(Math.abs(ecart))}. ` : ''}
         L’action passe « Réalisée » : son coût réel compte dans le réalisé de l’enveloppe {l.equipe}.
         {parSession ? ' Ses participants ont leur certification par la clôture de la session.' : candidats.length ? ' Les bénéficiaires cochés reçoivent la formation dans leurs formations suivies (passeport, bilan à 8 ans, indicateurs).' : ''}
+        {!parSession && fm && choisis.length > 0 ? ' Formation du catalogue : enregistrez aussi la certification de chacun depuis sa fiche, c’est elle qui compte pour la conformité ; elle représente alors la formation au passeport et dans les indicateurs, sans double compte.' : ''}
       </Fine>
     </Dialog>
   );

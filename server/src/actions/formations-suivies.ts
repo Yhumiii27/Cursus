@@ -54,7 +54,10 @@ const enregistrer: ActionHandler = (ctx, p) => {
   if (horsEntreprise(emp, v)) throw new ActionError(`${emp.nom} n’était pas dans l’entreprise à ces dates`);
   const planActionId = demandeId ? ctx.ds.demandesCollab.find(x => x.id === demandeId)?.suite?.planId ?? null : null;
   const x = ctx.db.insert<FormationSuivie>('formationsSuivies', { empId: emp.id, ...v, origine, planActionId, demandeId, ...enregistre(ctx) });
-  return { message: `${intituleSuivie(ctx.d, v)} — ${emp.nom} · formation suivie du ${fmt(parse(v.du))} enregistrée${v.obligatoire ? '' : ' (non obligatoire)'}`, result: { id: x.id } };
+  // Ligne du plan créée par l'acceptation, pas encore réalisée : signalée, à clore dans Plan & budget (coût réel).
+  const ligne = planActionId ? ctx.ds.plan.find(l => l.id === planActionId && (l.statut === 'prevu' || l.statut === 'engage')) : null;
+  const suite = ligne ? ` · ligne du plan ${ligne.exercice} à passer « réalisée » dans Plan & budget` : '';
+  return { message: `${intituleSuivie(ctx.d, v)} — ${emp.nom} · formation suivie du ${fmt(parse(v.du))} enregistrée${v.obligatoire ? '' : ' (non obligatoire)'}${suite}`, result: { id: x.id } };
 };
 
 /** Correction d'une formation suivie saisie avec une erreur (service RH, référent HSE ; jamais la sienne), motif obligatoire. */
@@ -93,9 +96,10 @@ const annuler: ActionHandler = (ctx, p) => {
  * Bénéficiaires d'une action du plan clôturée « réalisée » (`plan.avancer`) : une formation suivie par salarié choisi,
  * membre présent de l'équipe de la ligne (ou demandeur d'une demande acceptée qui l'a créée), du `du` au `au` (pas à
  * venir). Une ligne réalisée par une session clôturée a déjà ses certifications : refus. Le demandeur d'une demande hors
- * catalogue rattachée à la ligne voit sa demande close. Contrôlé avant toute écriture ; renvoie le texte du message.
+ * catalogue rattachée à la ligne voit sa demande close. Contrôlé avant toute écriture ; l'écriture renvoie le texte du
+ * message et les salariés dont une formation suivie a réellement été enregistrée (journal : `result.beneficiaires`).
  */
-export function controlerBeneficiaires(ctx: Ctx, l: PlanAction, p: Record<string, any>): (() => string) | null {
+export function controlerBeneficiaires(ctx: Ctx, l: PlanAction, p: Record<string, any>): (() => { texte: string; empIds: number[] }) | null {
   if (p.beneficiaires == null) return null;
   if (!Array.isArray(p.beneficiaires)) throw new ActionError('Bénéficiaires : liste de collaborateurs attendue');
   const ids = [...new Set(p.beneficiaires.map(Number))];
@@ -118,7 +122,10 @@ export function controlerBeneficiaires(ctx: Ctx, l: PlanAction, p: Record<string
     nouveaux.forEach(e => ctx.db.insert<FormationSuivie>('formationsSuivies', {
       empId: e.id, ...v, origine: 'plan', planActionId: l.id, demandeId: demandes.find(r => r.empId === e.id)?.id ?? null, ...enregistre(ctx),
     }));
-    return nouveaux.length ? ` · ${plural(nouveaux.length, 'formation suivie enregistrée', 'formations suivies enregistrées')}` : '';
+    return {
+      texte: nouveaux.length ? ` · ${plural(nouveaux.length, 'formation suivie enregistrée', 'formations suivies enregistrées')}` : '',
+      empIds: nouveaux.map(e => e.id),
+    };
   };
 }
 

@@ -6,7 +6,7 @@ import { CERT_LABEL, HAB_LABEL } from '../../shared/constants.ts';
 import { parse } from '../../shared/dates.ts';
 import type { Domain, EmpX } from '../../shared/domain.ts';
 import { equipeLabel, fH, fmt } from '../../shared/format.ts';
-import { heuresSuivie, intituleSuivie, ORIGINE_SUIVIE_LABEL, suiviesEnVigueur } from '../../shared/rules/formations-suivies.ts';
+import { heuresSuivie, intituleSuivie, ORIGINE_SUIVIE_LABEL, suiviesHorsCertifications } from '../../shared/rules/formations-suivies.ts';
 import type { HabDelivrance } from '../../shared/types.ts';
 import { matriculesImprimes, printDocument, type PrintSection } from './print.ts';
 
@@ -25,7 +25,8 @@ export const mesureFigee = (x: Pick<HabDelivrance, 'mesure' | 'mesureDate'>) =>
 /** Sections du passeport formation d'un salarié. */
 export function sectionsPasseport(d: Domain, e: EmpX): PrintSection[] {
   const anterieures = delivrancesAnterieures(d, e.id);
-  const suivies = suiviesEnVigueur(d.ds, e.id).sort((a, b) => b.du.localeCompare(a.du));
+  // Une formation suivie du catalogue dont la certification est enregistrée figure une fois, parmi les certifications.
+  const suivies = suiviesHorsCertifications(d, e.id).sort((a, b) => b.du.localeCompare(a.du));
   return [
     { title: 'Certifications', table: { head: ['Formation', 'Obtenue le', 'Expire le', 'Statut'], rows: e.rawCerts.map(c => [c.fm.nom, fmt(c.obt), fmt(c.exp), CERT_LABEL[c.key]]) } },
     ...(e.anciennes.length ? [{ title: 'Certifications remplacées', table: { head: ['Formation', 'Obtenue le', 'Expirait le', 'Remplacée le'], rows: e.anciennes.map(c => [c.fm.nom, fmt(c.obt), fmt(c.exp), fmt(c.remplacee!)]) } }] : []),

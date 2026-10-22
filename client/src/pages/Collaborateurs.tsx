@@ -38,6 +38,7 @@ import { CouverturePanel } from '../components/Couverture.tsx';
 import { CopierLien } from '../components/CopierLien.tsx';
 import { FormationsSuiviesFiche, HabilitationsAnterieures, ImprimerTitre } from '../components/FormationsSuivies.tsx';
 import { imprimerPasseport } from '../passeport.ts';
+import { titreImprimable } from '../titre-habilitation.ts';
 
 /** Valeur du filtre d'équipe pour les collaborateurs sans équipe (« À affecter »). */
 const SANS_EQUIPE = '';
@@ -473,7 +474,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
                   <Tag cls={HAB_CLS[h.key]} style={{ flex: 'none' }}>{HAB_LABEL[h.key]}</Tag>
                 </div>
                 {h.note && <NoteAccent>{h.note}</NoteAccent>}
-                {(a || redelivrer || mesures.length > 0 || (formations && h.delivree)) && (
+                {(a || redelivrer || mesures.length > 0 || (formations && titreImprimable(h))) && (
                   <div className="actions-end">
                     {a && <button type="button" className="btn btn-ghost btn-sm" onClick={() => runProposal(a)}>{a.label}</button>}
                     <ImprimerTitre e={e} h={h} />

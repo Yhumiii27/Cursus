@@ -8,14 +8,14 @@ import { PrinterIcon } from '@phosphor-icons/react';
 import { parse } from '../../../shared/dates.ts';
 import type { EmpX, HabInfo } from '../../../shared/domain.ts';
 import { fH, fmt } from '../../../shared/format.ts';
-import { demandesAClore, heuresSuivie, intituleSuivie, ORIGINE_SUIVIE_LABEL, suiviesEnVigueur } from '../../../shared/rules/formations-suivies.ts';
+import { demandesAClore, heuresSuivie, intituleSuivie, ORIGINE_SUIVIE_LABEL, suivieCertifiee, suiviesEnVigueur, suiviesHorsCertifications } from '../../../shared/rules/formations-suivies.ts';
 import type { FormationSuivie } from '../../../shared/types.ts';
 import { delivrancesAnterieures, mesureFigee } from '../passeport.ts';
 import { AIDE_MOTIF_CORRECTION } from '../state/confirmations-corrections.ts';
 import type { Confirmation } from '../state/confirmations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
-import { imprimerTitre, titreDocument } from '../titre-habilitation.ts';
+import { imprimerTitre, titreDocument, titreImprimable } from '../titre-habilitation.ts';
 import { Empty, Panel, SectionLabel, Tag } from './ui.tsx';
 
 const date = (j: string) => fmt(parse(j));
@@ -41,13 +41,15 @@ function LigneSuivie({ x, actions }: { x: FormationSuivie; actions?: ReactNode }
   const d = useDomain();
   const h = heuresSuivie(d, x);
   const dates = x.au !== x.du ? `du ${date(x.du)} au ${date(x.au)}` : `le ${date(x.du)}`;
+  // Certification enregistrée pour la même formation : c'est elle qui compte (passeport, indicateurs).
+  const certifiee = suivieCertifiee(d.emp(x.empId), x);
   return (
     <div className="list-row stack">
       <div className="item-head">
         <div>
           <div style={{ fontSize: 14 }}>{intituleSuivie(d, x)}</div>
           <div className="text-muted sub">
-            Suivie {dates} · {h == null ? 'durée inconnue' : fH(h)}{x.organisme ? ` · ${x.organisme}` : ''} · {ORIGINE_SUIVIE_LABEL[x.origine]}
+            Suivie {dates} · {h == null ? 'durée inconnue' : fH(h)}{x.organisme ? ` · ${x.organisme}` : ''} · {ORIGINE_SUIVIE_LABEL[x.origine]}{certifiee ? ' · certification enregistrée' : ''}
           </div>
         </div>
         <Tag cls={x.obligatoire ? 'tag-neutral' : 'tag-outline'} style={{ flex: 'none' }}>{x.obligatoire ? 'Obligatoire' : 'Non obligatoire'}</Tag>
@@ -124,11 +126,11 @@ export function HabilitationsAnterieures({ e }: { e: EmpX }) {
   </>;
 }
 
-/** Bouton « Imprimer le titre » d'une habilitation délivrée : service RH et référent HSE. */
+/** Bouton « Imprimer le titre » d'une habilitation en vigueur (titreImprimable) : service RH et référent HSE. */
 export function ImprimerTitre({ e, h }: { e: EmpX; h: HabInfo }) {
   const { formations } = useRole();
   const { notify } = useStore();
-  if (!formations || !h.delivree || !h.par) return null;
+  if (!formations || !titreImprimable(h)) return null;
   const imprimer = () => {
     if (!imprimerTitre(e, h.hm, { delivree: h.delivree!, par: h.par! })) notify('Autorisez les fenêtres surgissantes pour imprimer le titre', true);
   };
@@ -142,7 +144,7 @@ export function ImprimerTitre({ e, h }: { e: EmpX; h: HabInfo }) {
 /** Portail : formations suivies du salarié (lecture). */
 export function FormationsSuiviesPortail({ empId }: { empId: number }) {
   const d = useDomain();
-  const liste = suiviesEnVigueur(d.ds, empId).sort((a, b) => b.du.localeCompare(a.du) || b.id - a.id);
+  const liste = suiviesHorsCertifications(d, empId).sort((a, b) => b.du.localeCompare(a.du) || b.id - a.id);
   if (!liste.length) return null;
   return (
     <Panel title="Mes formations suivies" aside="hors certifications" style={{ gap: 'var(--space-2)' }}>

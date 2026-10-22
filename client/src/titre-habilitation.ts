@@ -3,8 +3,9 @@
 // électrique (norme NF C18-510, modèle de titre de son annexe), autorisation de conduite (art. R4323-56 du code du
 // travail ; recommandations R489, R486) et générique. Modèles à faire valider par le référent HSE avant la mise en service
 // (aide). L'aptitude médicale figure comme vérifiée, jamais l'avis ni les restrictions. Impression tracée au journal.
+// Seul un titre en vigueur s'imprime (titreImprimable) : jamais un titre retiré, suspendu, échu ou aux prérequis manquants.
 import { addMonths, iso, parse } from '../../shared/dates.ts';
-import type { EmpX } from '../../shared/domain.ts';
+import type { CertInfo, EmpX, HabInfo } from '../../shared/domain.ts';
 import { equipeLabel, fmt } from '../../shared/format.ts';
 import type { HabType, ISODate, ModeleTitre } from '../../shared/types.ts';
 import { matriculesImprimes, printDocument, type PrintSection } from './print.ts';
@@ -22,6 +23,24 @@ export const MODELE_TITRE_COURT: Record<ModeleTitre, string> = { generique: 'mod
 export interface DelivranceImprimee { delivree: ISODate; par: string }
 
 const date = (j: ISODate) => fmt(parse(j));
+
+/**
+ * Titre délivré qu'on peut imprimer à signer : signataire connu, valide ou à renouveler (ni retiré, ni suspendu, ni échu)
+ * et prérequis satisfaits (certifications et aptitude médicale). Sinon, le document attesterait une habilitation que le
+ * salarié n'a plus.
+ */
+export const titreImprimable = (h: Pick<HabInfo, 'delivree' | 'par' | 'key' | 'prereqOk' | 'mesure'>): boolean =>
+  !!h.delivree && !!h.par && (h.key === 'ok' || h.key === 'due') && h.prereqOk && !h.mesure;
+
+/**
+ * Certification qui satisfaisait un prérequis à la délivrance : obtenue au plus tard ce jour-là et valide ce jour-là, en
+ * vigueur ou remplacée depuis (la plus récente) ; une certification obtenue après la délivrance n'a pas été vérifiée.
+ */
+function certALaDelivrance(e: EmpX, f: string, delivree: ISODate): CertInfo | null {
+  const jour = parse(delivree);
+  return [...e.rawCerts, ...e.anciennes].filter(c => c.f === f && c.obt <= jour && c.exp >= jour)
+    .sort((a, b) => b.obt.getTime() - a.obt.getTime() || b.id - a.id)[0] ?? null;
+}
 const LIGNE = '……………………………………………';
 
 /** Mentions propres au modèle. */
@@ -73,10 +92,10 @@ function mentions(modele: ModeleTitre, hm: HabType): PrintSection[] {
 export function sectionsTitre(e: EmpX, hm: HabType, t: DelivranceImprimee): PrintSection[] {
   const modele = hm.modele ?? 'generique';
   const expire = iso(addMonths(parse(t.delivree), hm.validite));
-  // Prérequis du référentiel : la certification en vigueur du salarié (obtention, échéance), telle que vue à l'impression.
+  // Prérequis du référentiel : la certification valide à la date de délivrance (obtention, échéance).
   const prereqs = hm.prereqs.map(f => {
-    const c = e.rawCerts.find(x => x.f === f);
-    return [c?.fm.nom ?? f, c ? `obtenue le ${fmt(c.obt)}, valide jusqu’au ${fmt(c.exp)}` : 'non enregistrée dans Cursus'] as [string, string];
+    const c = certALaDelivrance(e, f, t.delivree);
+    return [c?.fm.nom ?? e.rawCerts.find(x => x.f === f)?.fm.nom ?? f, c ? `obtenue le ${fmt(c.obt)}, valide jusqu’au ${fmt(c.exp)}` : 'aucune certification valide à cette date dans Cursus'] as [string, string];
   });
   return [
     { title: 'Titulaire', rows: [['Nom', e.nom], ['Fonction', e.poste || '—'], ['Équipe', equipeLabel(e)]] },
@@ -85,7 +104,8 @@ export function sectionsTitre(e: EmpX, hm: HabType, t: DelivranceImprimee): Prin
       title: 'Prérequis vérifiés à la délivrance',
       rows: [
         ...prereqs,
-        ...(hm.medical ? [['Aptitude médicale', 'vérifiée (visite d’aptitude en cours de validité)'] as [string, string]] : []),
+        // Vérifiée seulement si la visite d'aptitude est en cours de validité ; jamais l'avis ni les restrictions.
+        ...(hm.medical ? [['Aptitude médicale', e.med.ok ? 'vérifiée (visite d’aptitude en cours de validité)' : 'non vérifiée : aucune visite d’aptitude en cours de validité'] as [string, string]] : []),
         ...(!prereqs.length && !hm.medical ? [['Prérequis', 'aucun au référentiel'] as [string, string]] : []),
       ],
     },

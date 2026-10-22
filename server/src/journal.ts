@@ -92,6 +92,9 @@ interface Regle {
   regrouper?: number;
 }
 
+/** Bénéficiaires enregistrés par `plan.avancer` (t116), lus dans son résultat. */
+const beneficiairesDe = (result: unknown): number[] =>
+  ((result as { beneficiaires?: unknown[] } | null)?.beneficiaires ?? []).map(Number).filter(Number.isInteger);
 const parId = (table: TableName, colonnes: readonly string[]): Cible => ({ table, cle: p => Number(p.id) || null, colonnes });
 /** Hiérarchie (t136) : éléments en attente redirigés (`result.redirections`) : type, identifiant, ancien et nouveau valideur (0 : service RH). */
 const redirigesDe = (result: unknown): Ligne[] => (result as { redirections?: Ligne[] } | null)?.redirections ?? [];
@@ -345,11 +348,12 @@ export const REGLES: Record<string, Regle> = {
     salaries: p => participants(p).map((x: P) => x?.empId),
   },
   'plan.importer': { champs: ['exercice', 'mode'] },
-  // Bénéficiaires d'une action réalisée (t116) : identifiants des salariés dont une formation suivie est enregistrée.
+  // Bénéficiaires d'une action réalisée (t116) : identifiants des salariés dont une formation suivie a réellement été
+  // enregistrée (`result`), jamais ceux seulement envoyés (déjà réalisée, passage à « engagé », ligne déjà enregistrée).
   'plan.avancer': {
     champs: ['id'], cible: parId('planActions', ['statut', 'coutReel', 'effectifReel']),
-    extra: p => (Array.isArray(p.beneficiaires) ? { beneficiaires: p.beneficiaires.map(Number).filter(Number.isInteger) } : {}),
-    salaries: p => (Array.isArray(p.beneficiaires) ? p.beneficiaires : []),
+    bilan: (_p, x) => (beneficiairesDe(x.result).length ? { beneficiaires: beneficiairesDe(x.result) } : {}),
+    salaries: (_p, x) => beneficiairesDe(x.result),
   },
   // Formations suivies (t116) : codes, dates, durée, case « obligatoire », demande ou ligne du plan ; jamais l'intitulé hors
   // catalogue ni l'organisme (texte libre : seulement qu'ils changent), ni le motif d'une correction ou d'une annulation.

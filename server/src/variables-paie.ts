@@ -9,7 +9,7 @@
 // Lot 6 : déplacements (t031, pays et dates en détail) et éléments laissés à Sage faute de rubrique active (soldes de
 // sortie, déplacements, absences : « À saisir dans Sage »), lus dans le contenu figé et calculés par le registre des
 // éléments de lot (server/src/elements-lot.ts) pour ce qui attend encore un lot.
-import express, { type Router } from 'express';
+import express, { type Request, type Response, type Router } from 'express';
 import { droitsRh, RUBRIQUES_PAIE } from '../../shared/constants.ts';
 import { texteCsv } from '../../shared/csv.ts';
 import { Domain } from '../../shared/domain.ts';
@@ -29,7 +29,7 @@ import { optionsRegularisation } from './regularisation-paie.ts';
 import { journaliser } from './comptes.ts';
 import { identite } from './connexion.ts';
 import { loadFull } from './dataset.ts';
-import type { Db } from './db.ts';
+import { type Db, enSerie } from './db.ts';
 import { SAGE_DOSSIER, sageMode } from './integrations/sage.ts';
 import { fichierJoint, tracerRefus } from './journal.ts';
 import type { LotEnregistre } from './lots-paie.ts';
@@ -51,10 +51,10 @@ export const ENTETE_VARIABLES =['Matricule de paie', 'Salarié', 'Rubrique Sage'
  * comprises ; absence sans code Sage (rubrique désactivée, régularisation de jours saisis à la main) : « À saisir dans
  * Sage », absente du fichier.
  */
-export function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: string): VariablePaie[] {
-  const d = new Domain(loadFull(db, user));
+export async function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: string): Promise<VariablePaie[]> {
+  const d = new Domain(await loadFull(db, user));
   const nomPar = new Map(d.ds.employes.map(e => [matriculeAffiche(e), { nom: e.nom, id: e.id }]));
-  const table = rubriquesPaie(db.all<RubriquePaie>('rubriquesPaie'));
+  const table = rubriquesPaie(await db.all<RubriquePaie>('rubriquesPaie'));
   const out: VariablePaie[] = [];
   const paysLabel = (code: string) => d.destOf(code)?.pays ?? code;
   const ajouter = (contenu: Pick<SagePush, 'lignes' | 'absences' | 'sorties' | 'deplacements' | 'rachats' | 'aSaisir' | 'libelles'>, lot: string, etat: string) => {
@@ -118,16 +118,16 @@ export function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: string)
       });
     }
   };
-  for (const lot of db.all<LotEnregistre>('lotsPaie')) {
+  for (const lot of await db.all<LotEnregistre>('lotsPaie')) {
     if (lot.statut !== 'annule' && lot.contenu) ajouter(lot.contenu, `n° ${lot.id}`, STATUTS_LOT[lot.statut].label);
   }
   // En attente : ce que le lot de la période emporterait aujourd'hui.
   const sheets = feuillesDuLot(sagePending(d), periode, d.ds.settings, d.ti);
-  const absences: ElementAbsencePaie[] = traduireElements(absencesAEmettre(db, d, periode), d.ds.rubriquesPaie);
-  const familles = elementsDesFamilles(db, d, periode);
+  const absences: ElementAbsencePaie[] = traduireElements(await absencesAEmettre(db, d, periode), d.ds.rubriquesPaie);
+  const familles = await elementsDesFamilles(db, d, periode);
   const deFamilles = contenuDesFamilles(familles);
   if (sheets.length || absences.length || Object.keys(deFamilles).length) {
-    const payload = buildSagePayload(d, sheets, SAGE_DOSSIER, new Date(), sageMode(), optionsRegularisation(db, d));
+    const payload = buildSagePayload(d, sheets, SAGE_DOSSIER, new Date(), sageMode(), await optionsRegularisation(db, d));
     // Heures de nuit des feuilles sous une rubrique désactivée, puis éléments des familles : à saisir dans Sage.
     const aSaisir = [...(payload.aSaisir ?? []), ...(deFamilles.aSaisir ?? [])];
     ajouter({ ...payload, absences, ...deFamilles, ...(aSaisir.length ? { aSaisir } : {}) }, '', 'En attente d’un lot');
@@ -142,24 +142,24 @@ export const csvVariables = (lignes: readonly VariablePaie[]) =>
 export function routesVariablesPaie(db: Db): Router {
   const r = express.Router();
 
-  r.get('/api/paie/variables/:periode', (req, res) => {
-    const id = identite(db, req);
+  r.get('/api/paie/variables/:periode', enSerie(db, async (req: Request, res: Response) => {
+    const id = await identite(db, req);
     if (!id) return res.status(401).json({ error: 'Connexion requise' });
     if (!droitsRh(id.user).includes('paie')) {
-      tracerRefus(db, id, 'Variables de paie de la période', 'réservé à l’administrateur RH et au gestionnaire de paie');
+      await tracerRefus(db, id, 'Variables de paie de la période', 'réservé à l’administrateur RH et au gestionnaire de paie');
       return res.status(403).json({ error: 'Variables de paie réservées à l’administrateur RH et au gestionnaire de paie' });
     }
     const periode = String(req.params.periode);
     if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(periode)) return res.status(400).json({ error: 'Période de paie invalide' });
-    const lignes = variablesDeLaPeriode(db, id.user, periode);
-    journaliser(db, {
+    const lignes = await variablesDeLaPeriode(db, id.user, periode);
+    await journaliser(db, {
       actor: id.user.nom, role: id.user.role, action: 'sage.variables', compte: id.compte,
       salaries: [...new Set(lignes.flatMap(l => (l.empId != null ? [l.empId] : [])))],
       message: `Variables de paie ${/^[aeiou]/.test(periodeLabel(periode)) ? 'd’' : 'de '}${periodeLabel(periode)} exportées — ${plural(lignes.length, 'ligne', 'lignes')}`,
       payload: { periode, lignes: lignes.length },
     });
     fichierJoint(res, 'text/csv; charset=utf-8', `variables-paie-${periode}.csv`, csvVariables(lignes));
-  });
+  }));
 
   return r;
 }

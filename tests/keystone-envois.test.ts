@@ -18,7 +18,7 @@ process.env.KEYSTONE_API_KEY = 'cle-keystone-de-test';
 delete process.env.KEYSTONE_URL;
 delete process.env.KEYSTONE_TOKEN;
 
-const { Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS, changeVerdicts } = await import('../server/src/actions/index.ts');
@@ -80,17 +80,17 @@ async function fauxKeystone() {
 }
 
 /** Base de démonstration ; les actions passent par le même enchaînement que POST /api/actions/:nom. */
-function fresh() {
-  const db = new Db(':memory:');
-  seedDemo(db);
-  const run = (user: User, name: string, payload: Record<string, unknown>) => db.tx(() => {
-    const r = ACTIONS[name](makeCtx(db, user, loadFull(db, user)), payload);
-    if (changeVerdicts(name)) suivreVerdicts(db);
+async function fresh() {
+  const db = await nouvelleBase();
+  await seedDemo(db);
+  const run = async (user: User, name: string, payload: Record<string, unknown>) => await db.tx(async () => {
+    const r = await ACTIONS[name](makeCtx(db, user, await loadFull(db, user)), payload);
+    if (changeVerdicts(name)) await suivreVerdicts(db);
     return r;
   });
   // Messages Keystone seulement : les e-mails (notifications, convocations) ont leur propre cible.
-  const envois = (type?: string) => db.all<Envoi>('envois').filter(e => e.cible === 'keystone' && (!type || e.type === type));
-  const demande = (ref: string) => loadFull(db, RH).demandesKeystone.find(x => x.ref === ref)!;
+  const envois = async (type?: string) => (await db.all<Envoi>('envois')).filter(e => e.cible === 'keystone' && (!type || e.type === type));
+  const demande = async (ref: string) => (await loadFull(db, RH)).demandesKeystone.find(x => x.ref === ref)!;
   return { db, run, envois, demande };
 }
 
@@ -110,12 +110,12 @@ const dans = (ms: number) => () => new Date(Date.now() + ms);
 test('succès : message reçu avec le jeton et la clé d’idempotence, accusé enregistré', async () => {
   const ks = await fauxKeystone();
   const t = modeApi(ks.url);
-  const { db, run, envois, demande } = fresh();
-  run(RH, 'keystone.refuser', { id: demande('DK-2026-0398').id });
-  const [e] = envois('demande.decision');
+  const { db, run, envois, demande } = await fresh();
+  await run(RH, 'keystone.refuser', { id: (await demande('DK-2026-0398')).id });
+  const [e] = await envois('demande.decision');
   assert.deepEqual([e.statut, e.tentatives, e.cible], ['a_envoyer', 0, 'keystone']);
   assert.match(e.cle, /^[0-9a-f-]{36}$/);
-  assert.equal(db.all<Corps>('journal').filter(j => j.action === 'keystone.demande.decision').length, 0, 'rien dans le journal en mode API');
+  assert.equal((await db.all<Corps>('journal')).filter(j => j.action === 'keystone.demande.decision').length, 0, 'rien dans le journal en mode API');
 
   assert.equal(await traiterFile(db, 'keystone', t), 1);
   assert.equal(ks.recus.length, 1);
@@ -126,122 +126,122 @@ test('succès : message reçu avec le jeton et la clé d’idempotence, accusé 
   assert.match(String(r.headers['content-type']), /^application\/json/);
   assert.deepEqual(r.body, {
     id: e.cle, type: 'demande.decision', emis_le: e.creation,
-    donnees: { demande: demande('DK-2026-0398').id, reference: 'DK-2026-0398', matricule: 'EMP-0006', chantier: 'K-2614', decision: 'refusee', date: '2026-10-10' },
+    donnees: { demande: (await demande('DK-2026-0398')).id, reference: 'DK-2026-0398', matricule: 'EMP-0006', chantier: 'K-2614', decision: 'refusee', date: '2026-10-10' },
   });
-  const apres = db.get<Envoi>('envois', e.id)!;
+  const apres = (await db.get<Envoi>('envois', e.id))!;
   assert.deepEqual([apres.statut, apres.tentatives, apres.accuse, apres.prochaine], ['envoye', 1, 'KS-ACK-1', null]);
   assert.ok(apres.envoi && apres.tentative);
-  const etat = etatEnvois(db, 'keystone');
+  const etat = await etatEnvois(db, 'keystone');
   assert.equal(etat.dernierSucces, apres.envoi);
   assert.deepEqual([etat.nombres.envoye, etat.nombres.a_envoyer, etat.enReprise], [1, 0, null]);
   assert.equal(await traiterFile(db, 'keystone', t), 0, 'rien de plus à envoyer');
   // Accusé absent : le statut HTTP en tient lieu.
   ks.reponses.push(repondre(200));
-  sendToKeystone(db, { type: 'absence.validee', absence: 1, matricule: 'EMP-0002', du: '2026-12-07', au: '2026-12-08' });
+  await sendToKeystone(db, { type: 'absence.validee', absence: 1, matricule: 'EMP-0002', du: '2026-12-07', au: '2026-12-08' });
   await traiterFile(db, 'keystone', t);
-  assert.equal(envois('absence.validee')[0].accuse, 'HTTP 200');
+  assert.equal((await envois('absence.validee'))[0].accuse, 'HTTP 200');
 });
 
 test('erreur 500 puis 503 puis succès : nouvelles tentatives avec la même clé, attente croissante', async () => {
   const ks = await fauxKeystone();
   const t = modeApi(ks.url);
-  const { db, envois } = fresh();
+  const { db, envois } = await fresh();
   assert.deepEqual([1, 2, 3, 4, 5, 6, 7, 8, 9].map(n => attente(n) / MINUTE), [1, 2, 4, 8, 16, 32, 60, 60, 60], '1 min à 1 h');
-  const e = sendToKeystone(db, { type: 'heures.validees', matricule: 'EMP-0018', semaine: '2026-10-05', projets: { 'K-2614': 39 } });
+  const e = await sendToKeystone(db, { type: 'heures.validees', matricule: 'EMP-0018', semaine: '2026-10-05', projets: { 'K-2614': 39 } });
   ks.reponses.push(repondre(500, { error: 'Base indisponible', code: 'ERREUR_INTERNE' }), repondre(503, {}));
 
   const t0 = Date.now();
   await traiterFile(db, 'keystone', t);
-  let x = db.get<Envoi>('envois', e.id)!;
+  let x = (await db.get<Envoi>('envois', e.id))!;
   assert.deepEqual([x.statut, x.tentatives, x.erreur], ['a_envoyer', 1, 'HTTP 500 · ERREUR_INTERNE — Base indisponible']);
   const attendu1 = Date.parse(x.prochaine!) - t0;
   assert.ok(attendu1 >= MINUTE && attendu1 < MINUTE + 5000, `1 min (${attendu1} ms)`);
-  assert.deepEqual(etatEnvois(db, 'keystone').enReprise, { id: e.id, type: 'heures.validees', tentatives: 1, prochaine: x.prochaine, erreur: x.erreur });
+  assert.deepEqual((await etatEnvois(db, 'keystone')).enReprise, { id: e.id, type: 'heures.validees', tentatives: 1, prochaine: x.prochaine, erreur: x.erreur });
   assert.equal(await traiterFile(db, 'keystone', t), 0, 'pas avant la date prévue');
 
   await traiterFile(db, 'keystone', t, dans(MINUTE + 1000));
-  x = db.get<Envoi>('envois', e.id)!;
+  x = (await db.get<Envoi>('envois', e.id))!;
   assert.deepEqual([x.statut, x.tentatives, x.erreur], ['a_envoyer', 2, 'HTTP 503']);
   const attendu2 = Date.parse(x.prochaine!) - (Date.now() + MINUTE + 1000);
   assert.ok(attendu2 > 2 * MINUTE - 5000 && attendu2 <= 2 * MINUTE, `2 min (${attendu2} ms)`);
 
   await traiterFile(db, 'keystone', t, dans(4 * MINUTE));
-  x = db.get<Envoi>('envois', e.id)!;
+  x = (await db.get<Envoi>('envois', e.id))!;
   assert.deepEqual([x.statut, x.tentatives, x.accuse], ['envoye', 3, 'KS-ACK-3']);
   assert.equal(x.erreur, 'HTTP 503', 'dernière erreur conservée après la réussite');
   assert.equal(ks.recus.length, 3);
   assert.deepEqual(new Set(ks.recus.map(r => r.headers['idempotency-key'])), new Set([e.cle]), 'clé stable entre les tentatives');
   assert.deepEqual(new Set(ks.recus.map(r => JSON.stringify(r.body))).size, 1, 'contenu identique à chaque tentative');
-  assert.equal(envois().length, 1);
+  assert.equal((await envois()).length, 1);
 });
 
 test('erreur 400 : échec définitif, les messages suivants partent, relance par le RH', async () => {
   const ks = await fauxKeystone();
   const t = modeApi(ks.url);
-  const { db, run, envois } = fresh();
-  const a = sendToKeystone(db, { type: 'absence.validee', absence: 7, matricule: 'EMP-0002', du: '2026-12-07', au: '2026-12-08' });
-  const b = sendToKeystone(db, { type: 'absence.annulee', absence: 7, matricule: 'EMP-0002', du: '2026-12-07', au: '2026-12-08' });
+  const { db, run, envois } = await fresh();
+  const a = await sendToKeystone(db, { type: 'absence.validee', absence: 7, matricule: 'EMP-0002', du: '2026-12-07', au: '2026-12-08' });
+  const b = await sendToKeystone(db, { type: 'absence.annulee', absence: 7, matricule: 'EMP-0002', du: '2026-12-07', au: '2026-12-08' });
   ks.reponses.push(repondre(400, { error: 'Matricule inconnu', code: 'VALIDATION' }));
   assert.equal(await traiterFile(db, 'keystone', t), 2);
-  const ea = db.get<Envoi>('envois', a.id)!;
+  const ea = (await db.get<Envoi>('envois', a.id))!;
   assert.deepEqual([ea.statut, ea.tentatives, ea.erreur, ea.prochaine], ['echec', 1, 'HTTP 400 · VALIDATION — Matricule inconnu', null]);
-  assert.equal(db.get<Envoi>('envois', b.id)!.statut, 'envoye', 'un échec définitif ne retient pas la file');
-  const j = db.all<Corps>('journal').filter(x => x.action === 'keystone.echec');
+  assert.equal((await db.get<Envoi>('envois', b.id))!.statut, 'envoye', 'un échec définitif ne retient pas la file');
+  const j = (await db.all<Corps>('journal')).filter(x => x.action === 'keystone.echec');
   assert.equal(j.length, 1);
   assert.match(j[0].message, /^Envoi absence\.validee en échec après 1 tentative — HTTP 400 · VALIDATION/);
-  assert.deepEqual(listerEnvois(db, { statut: 'echec' }).map(x => x.id), [a.id]);
-  assert.deepEqual(listerEnvois(db).map(x => x.id), [b.id, a.id], 'les plus récents d’abord');
+  assert.deepEqual((await listerEnvois(db, { statut: 'echec' })).map(x => x.id), [a.id]);
+  assert.deepEqual((await listerEnvois(db)).map(x => x.id), [b.id, a.id], 'les plus récents d’abord');
 
   // Classement : l'échec examiné par le RH reste dans la liste mais ne compte plus dans l'état de l'intégration.
-  assert.deepEqual([etatEnvois(db, 'keystone').nombres.echec, etatEnvois(db, 'keystone').echecsEnCours], [1, 1]);
-  assert.throws(() => run(KARIM, 'envoi.classer', { id: a.id }), (e: unknown) => e instanceof ActionError && e.status === 403);
-  assert.throws(() => run(RH, 'envoi.classer', { id: b.id }), /Seul un envoi en échec peut être classé/);
-  assert.match(String(run(RH, 'envoi.classer', { id: a.id })), /classé — il ne compte plus parmi les échecs en cours/);
-  assert.throws(() => run(RH, 'envoi.classer', { id: a.id }), /Envoi déjà classé/);
-  assert.ok(db.get<Envoi>('envois', a.id)!.classe);
-  assert.deepEqual([etatEnvois(db, 'keystone').nombres.echec, etatEnvois(db, 'keystone').echecsEnCours], [1, 0]);
-  assert.deepEqual(listerEnvois(db, { statut: 'echec' }).map(x => x.id), [a.id], 'toujours listé');
+  assert.deepEqual([(await etatEnvois(db, 'keystone')).nombres.echec, (await etatEnvois(db, 'keystone')).echecsEnCours], [1, 1]);
+  await assert.rejects(async () => await run(KARIM, 'envoi.classer', { id: a.id }), (e: unknown) => e instanceof ActionError && e.status === 403);
+  await assert.rejects(async () => await run(RH, 'envoi.classer', { id: b.id }), /Seul un envoi en échec peut être classé/);
+  assert.match(String(await run(RH, 'envoi.classer', { id: a.id })), /classé — il ne compte plus parmi les échecs en cours/);
+  await assert.rejects(async () => await run(RH, 'envoi.classer', { id: a.id }), /Envoi déjà classé/);
+  assert.ok((await db.get<Envoi>('envois', a.id))!.classe);
+  assert.deepEqual([(await etatEnvois(db, 'keystone')).nombres.echec, (await etatEnvois(db, 'keystone')).echecsEnCours], [1, 0]);
+  assert.deepEqual((await listerEnvois(db, { statut: 'echec' })).map(x => x.id), [a.id], 'toujours listé');
 
   // Relance : réservée au RH, pour un envoi en échec ; même clé, nouvelle série de tentatives.
-  assert.throws(() => run(KARIM, 'envoi.relancer', { id: a.id }), (e: unknown) => e instanceof ActionError && e.status === 403);
-  assert.throws(() => run(RH, 'envoi.relancer', { id: b.id }), /Seul un envoi en échec peut être relancé/);
-  assert.throws(() => run(RH, 'envoi.relancer', { id: 999 }), /Envoi introuvable/);
-  assert.match(String(run(RH, 'envoi.relancer', { id: a.id })), /Envoi absence\.validee relancé vers Keystone/);
-  assert.deepEqual([db.get<Envoi>('envois', a.id)!.statut, db.get<Envoi>('envois', a.id)!.tentatives, db.get<Envoi>('envois', a.id)!.classe], ['a_envoyer', 0, null], 'relancé : plus classé');
+  await assert.rejects(async () => await run(KARIM, 'envoi.relancer', { id: a.id }), (e: unknown) => e instanceof ActionError && e.status === 403);
+  await assert.rejects(async () => await run(RH, 'envoi.relancer', { id: b.id }), /Seul un envoi en échec peut être relancé/);
+  await assert.rejects(async () => await run(RH, 'envoi.relancer', { id: 999 }), /Envoi introuvable/);
+  assert.match(String(await run(RH, 'envoi.relancer', { id: a.id })), /Envoi absence\.validee relancé vers Keystone/);
+  assert.deepEqual([(await db.get<Envoi>('envois', a.id))!.statut, (await db.get<Envoi>('envois', a.id))!.tentatives, (await db.get<Envoi>('envois', a.id))!.classe], ['a_envoyer', 0, null], 'relancé : plus classé');
   await traiterFile(db, 'keystone', t);
-  assert.equal(db.get<Envoi>('envois', a.id)!.statut, 'envoye');
+  assert.equal((await db.get<Envoi>('envois', a.id))!.statut, 'envoye');
   assert.deepEqual(ks.recus.filter(r => r.body.donnees.absence === 7 && r.body.type === 'absence.validee').map(r => r.headers['idempotency-key']), [a.cle, a.cle]);
   // En simulation, aucune relance possible.
-  db.update('envois', a.id, { statut: 'echec' });
+  await db.update('envois', a.id, { statut: 'echec' });
   modeSimulation();
-  assert.throws(() => run(RH, 'envoi.relancer', { id: a.id }), /non configuré : relance impossible/);
-  assert.equal(envois().length, 2);
+  await assert.rejects(async () => await run(RH, 'envoi.relancer', { id: a.id }), /non configuré : relance impossible/);
+  assert.equal((await envois()).length, 2);
 
   // 408 et 429 sont temporaires ; Retry-After allonge l'attente, dans la limite d'une heure. Une redirection est définitive.
   const t2 = modeApi(ks.url);
-  const c = sendToKeystone(db, { type: 'absence.validee', absence: 8, matricule: 'EMP-0002', du: '2026-12-09', au: '2026-12-09' });
+  const c = await sendToKeystone(db, { type: 'absence.validee', absence: 8, matricule: 'EMP-0002', du: '2026-12-09', au: '2026-12-09' });
   ks.reponses.push(repondre(429, { error: 'Trop de requêtes' }, { 'retry-after': '600' }));
   const t0 = Date.now();
   await traiterFile(db, 'keystone', t2);
-  const ec = db.get<Envoi>('envois', c.id)!;
+  const ec = (await db.get<Envoi>('envois', c.id))!;
   assert.equal(ec.statut, 'a_envoyer');
   assert.ok(Math.abs(Date.parse(ec.prochaine!) - t0 - 10 * MINUTE) < 5000, '10 min demandées par Keystone');
   ks.reponses.push(repondre(408), repondre(301, undefined, { location: 'https://ailleurs.example/' }));
   await traiterFile(db, 'keystone', t2, dans(11 * MINUTE));
-  assert.deepEqual([db.get<Envoi>('envois', c.id)!.statut, db.get<Envoi>('envois', c.id)!.tentatives], ['a_envoyer', 2]);
+  assert.deepEqual([(await db.get<Envoi>('envois', c.id))!.statut, (await db.get<Envoi>('envois', c.id))!.tentatives], ['a_envoyer', 2]);
   await traiterFile(db, 'keystone', t2, dans(20 * MINUTE));
-  assert.equal(db.get<Envoi>('envois', c.id)!.statut, 'echec');
-  assert.match(db.get<Envoi>('envois', c.id)!.erreur!, /HTTP 301 · redirection non suivie/);
+  assert.equal((await db.get<Envoi>('envois', c.id))!.statut, 'echec');
+  assert.match((await db.get<Envoi>('envois', c.id))!.erreur!, /HTTP 301 · redirection non suivie/);
 });
 
 test('délai dépassé ou Keystone injoignable : nouvelle tentative, puis échec après 10 tentatives', async () => {
   const ks = await fauxKeystone();
   const t = modeApi(ks.url, 150);
-  const { db } = fresh();
-  const e = sendToKeystone(db, { type: 'absence.validee', absence: 1, matricule: 'EMP-0002', du: '2026-12-07', au: '2026-12-08' });
+  const { db } = await fresh();
+  const e = await sendToKeystone(db, { type: 'absence.validee', absence: 1, matricule: 'EMP-0002', du: '2026-12-07', au: '2026-12-08' });
   ks.reponses.push(() => { /* aucune réponse */ });
   await traiterFile(db, 'keystone', t);
-  let x = db.get<Envoi>('envois', e.id)!;
+  let x = (await db.get<Envoi>('envois', e.id))!;
   assert.deepEqual([x.statut, x.tentatives, x.erreur], ['a_envoyer', 1, 'Délai dépassé : aucune réponse en 0.15 s']);
 
   // Adresse sans serveur : erreur réseau, même traitement ; la dixième tentative met le message en échec.
@@ -249,18 +249,18 @@ test('délai dépassé ou Keystone injoignable : nouvelle tentative, puis échec
   const ferme = { ...t, url: `http://127.0.0.1:${libre}/api/cursus/v1/evenements` };
   for (let n = 2; n <= TENTATIVES_MAX; n++) {
     await traiterFile(db, 'keystone', ferme, dans(n * 2 * 3600_000));
-    x = db.get<Envoi>('envois', e.id)!;
+    x = (await db.get<Envoi>('envois', e.id))!;
     assert.equal(x.tentatives, n);
     assert.match(x.erreur!, /^Erreur réseau : ECONNREFUSED/);
     assert.equal(x.statut, n < TENTATIVES_MAX ? 'a_envoyer' : 'echec', `tentative ${n}`);
   }
   assert.equal(x.prochaine, null);
-  assert.match(db.all<Corps>('journal').find(j => j.action === 'keystone.echec')!.message, /après 10 tentatives — Erreur réseau/);
+  assert.match((await db.all<Corps>('journal')).find(j => j.action === 'keystone.echec')!.message, /après 10 tentatives — Erreur réseau/);
 
   // Adresse avec identifiants (refusée en production) : fetch la recopie dans son erreur, Cursus jamais.
-  const e2 = sendToKeystone(db, { type: 'absence.validee', absence: 2, matricule: 'EMP-0002', du: '2026-12-07', au: '2026-12-08' });
+  const e2 = await sendToKeystone(db, { type: 'absence.validee', absence: 2, matricule: 'EMP-0002', du: '2026-12-07', au: '2026-12-08' });
   await traiterFile(db, 'keystone', { ...t, url: `http://svc:S3cret@127.0.0.1:${libre}/api/cursus/v1/evenements` });
-  const x2 = db.get<Envoi>('envois', e2.id)!;
+  const x2 = (await db.get<Envoi>('envois', e2.id))!;
   assert.match(x2.erreur!, /^Erreur réseau : .*<adresse>/);
   assert.ok(!x2.erreur!.includes('S3cret'));
 });
@@ -268,104 +268,105 @@ test('délai dépassé ou Keystone injoignable : nouvelle tentative, puis échec
 test('un seul envoi à la fois par cible, dans l’ordre d’émission ; un message en attente retient les suivants', async () => {
   const ks = await fauxKeystone();
   const t = modeApi(ks.url);
-  const { db } = fresh();
-  const ids = [1, 2, 3].map(n => sendToKeystone(db, { type: 'absence.validee', absence: n, matricule: 'EMP-0002', du: '2026-12-07', au: '2026-12-08' }).id);
+  const { db } = await fresh();
+  const ids: number[] = [];
+  for (const n of [1, 2, 3]) ids.push((await sendToKeystone(db, { type: 'absence.validee', absence: n, matricule: 'EMP-0002', du: '2026-12-07', au: '2026-12-08' })).id);
   ks.delai = 40;
   const [n1, n2] = await Promise.all([traiterFile(db, 'keystone', t), traiterFile(db, 'keystone', t)]);
   assert.deepEqual([n1, n2], [3, 0], 'le second traitement ne fait rien pendant le premier');
   assert.equal(ks.maxSimultanes, 1);
   assert.deepEqual(ks.recus.map(r => r.body.donnees.absence), [1, 2, 3]);
-  assert.ok(ids.every(id => db.get<Envoi>('envois', id)!.statut === 'envoye'));
+  for (const id of ids) assert.equal((await db.get<Envoi>('envois', id))!.statut, 'envoye');
 
   // Le message en tête attend sa nouvelle tentative : les suivants ne passent pas devant.
   ks.delai = 0;
-  const a = sendToKeystone(db, { type: 'absence.validee', absence: 4, matricule: 'EMP-0002', du: '2026-12-07', au: '2026-12-08' });
-  const b = sendToKeystone(db, { type: 'absence.annulee', absence: 4, matricule: 'EMP-0002', du: '2026-12-07', au: '2026-12-08' });
+  const a = await sendToKeystone(db, { type: 'absence.validee', absence: 4, matricule: 'EMP-0002', du: '2026-12-07', au: '2026-12-08' });
+  const b = await sendToKeystone(db, { type: 'absence.annulee', absence: 4, matricule: 'EMP-0002', du: '2026-12-07', au: '2026-12-08' });
   ks.reponses.push(repondre(502));
   assert.equal(await traiterFile(db, 'keystone', t), 1);
-  assert.equal(db.get<Envoi>('envois', b.id)!.statut, 'a_envoyer');
+  assert.equal((await db.get<Envoi>('envois', b.id))!.statut, 'a_envoyer');
   assert.equal(ks.recus.length, 4);
   await traiterFile(db, 'keystone', t, dans(2 * MINUTE));
   assert.deepEqual(ks.recus.slice(4).map(r => r.body.type), ['absence.validee', 'absence.annulee']);
-  assert.ok([a.id, b.id].every(id => db.get<Envoi>('envois', id)!.statut === 'envoye'));
+  for (const id of [a.id, b.id]) assert.equal((await db.get<Envoi>('envois', id))!.statut, 'envoye');
 });
 
-test('rien en file si l’action échoue', () => {
+test('rien en file si l’action échoue', async () => {
   modeSimulation();
-  const { db, run, envois, demande } = fresh();
-  assert.throws(() => db.tx(() => {
-    sendToKeystone(db, { type: 'absence.validee', absence: 1, matricule: 'EMP-0002', du: '2026-12-07', au: '2026-12-08' });
+  const { db, run, envois, demande } = await fresh();
+  await assert.rejects(async () => await db.tx(async () => {
+    await sendToKeystone(db, { type: 'absence.validee', absence: 1, matricule: 'EMP-0002', du: '2026-12-07', au: '2026-12-08' });
     throw new Error('écriture refusée');
   }), /écriture refusée/);
-  assert.equal(envois().length, 0, 'message annulé avec la transaction');
-  assert.equal(db.all<Corps>('journal').length, 0);
+  assert.equal((await envois()).length, 0, 'message annulé avec la transaction');
+  assert.equal((await db.all<Corps>('journal')).length, 0);
   // Actions refusées : ni message, ni verdict mémorisé.
-  run(RH, 'keystone.refuser', { id: demande('DK-2026-0398').id });
-  assert.equal(envois('demande.decision').length, 1);
-  assert.throws(() => run(RH, 'keystone.refuser', { id: demande('DK-2026-0398').id }), /déjà refusée/);
-  assert.throws(() => run(KARIM, 'temps.validate', { empId: 3, week: '2026-09-28' }), (e: unknown) => e instanceof ActionError && e.status === 403);
-  assert.equal(envois().length, 1);
+  await run(RH, 'keystone.refuser', { id: (await demande('DK-2026-0398')).id });
+  assert.equal((await envois('demande.decision')).length, 1);
+  await assert.rejects(async () => await run(RH, 'keystone.refuser', { id: (await demande('DK-2026-0398')).id }), /déjà refusée/);
+  await assert.rejects(async () => await run(KARIM, 'temps.validate', { empId: 3, week: '2026-09-28' }), (e: unknown) => e instanceof ActionError && e.status === 403);
+  assert.equal((await envois()).length, 1);
 });
 
-test('heures validées : seules les heures des projets Keystone partent, sans activité interne ni ECOLE', () => {
+test('heures validées : seules les heures des projets Keystone partent, sans activité interne ni ECOLE', async () => {
   modeSimulation();
   assert.deepEqual(heuresKeystone([
     { projet: 'K-2614', tache: 'a', ks: true, h: [3, 3, 3, 3, 3.5] }, { projet: 'INT-MAINT', tache: 'b', ks: true, h: [2, 2, 2, 2, 2] },
     { projet: 'ECOLE', tache: 'c', ks: true, h: [0, 0, 0, 7, 7] }, { projet: 'K-2611', tache: 'd', ks: false, h: [0, 0, 0, 0, 0] },
     { projet: 'K-2614', tache: 'e', ks: false, h: [0.1, 0.2, 0, 0, 0] },
   ]), { 'K-2614': 15.8 });
-  const { db, run, envois } = fresh();
+  const { db, run, envois } = await fresh();
   // Karim Haddad : deux chantiers et de la maintenance interne.
-  assert.match(String(run(RH, 'temps.validate', { empId: 12, week: '2026-09-28' })), /validée — heures des projets Keystone renvoyées à Keystone/);
-  const [e] = envois('heures.validees');
+  assert.match(String(await run(RH, 'temps.validate', { empId: 12, week: '2026-09-28' })), /validée — heures des projets Keystone renvoyées à Keystone/);
+  const [e] = await envois('heures.validees');
   assert.deepEqual(e.contenu, { matricule: 'EMP-0012', semaine: '2026-09-28', projets: { 'K-2614': 15, 'K-2611': 15 } });
   assert.equal(e.statut, 'simule');
   // Alternance : maintenance interne et cours au CFA, rien pour Keystone.
-  const msg = run(RH, 'temps.validate', { empId: 24, week: '2026-09-28' });
+  const msg = await run(RH, 'temps.validate', { empId: 24, week: '2026-09-28' });
   assert.doesNotMatch(String(msg), /Keystone/);
-  assert.equal(envois('heures.validees').length, 1);
-  const f = loadFull(db, RH).feuilles.find(x => x.empId === 24 && x.week === '2026-09-28')!;
+  assert.equal((await envois('heures.validees')).length, 1);
+  const f = (await loadFull(db, RH)).feuilles.find(x => x.empId === 24 && x.week === '2026-09-28')!;
   assert.deepEqual([f.statut, f.keystone], ['validee', false]);
-  const j = db.all<Corps>('journal').filter(x => x.action === 'keystone.heures.validees');
+  const j = (await db.all<Corps>('journal')).filter(x => x.action === 'keystone.heures.validees');
   assert.equal(j.length, 1);
   assert.ok(!JSON.stringify(j).includes('INT-'));
 });
 
 test('verdict Go / No Go : un changement est mis en file une seule fois, codes de motif seulement', async () => {
   modeSimulation();
-  const { db, run, envois, demande } = fresh();
-  const verdicts = () => envois('verdict.modifie').map(e => e.contenu as Corps);
-  assert.equal(db.count('verdictsKeystone'), 12, 'verdicts de départ mémorisés par le jeu de démonstration');
-  assert.deepEqual(suivreVerdicts(db), [], 'rien n’a changé');
-  run(RH, 'parametres.maj', { partageKeystone: 'detaille' });
-  assert.equal(verdicts().length, 0);
+  const { db, run, envois, demande } = await fresh();
+  const verdicts = async () => (await envois('verdict.modifie')).map(e => e.contenu as Corps);
+  assert.equal(await db.count('verdictsKeystone'), 12, 'verdicts de départ mémorisés par le jeu de démonstration');
+  assert.deepEqual(await suivreVerdicts(db), [], 'rien n’a changé');
+  await run(RH, 'parametres.maj', { partageKeystone: 'detaille' });
+  assert.equal((await verdicts()).length, 0);
 
   // Action : le déplacement créé à l'acceptation lève la réserve « déplacement » de Romain Chevalier à Abidjan.
-  run(RH, 'keystone.accepter', { id: demande('DK-2026-0412').id });
-  assert.equal(verdicts().length, 1);
-  const [v] = verdicts();
+  await run(RH, 'keystone.accepter', { id: (await demande('DK-2026-0412')).id });
+  assert.equal((await verdicts()).length, 1);
+  const [v] = await verdicts();
   assert.equal(v.chantier, 'K-2611');
   assert.deepEqual([v.ressource.matricule, v.ressource.precedent], ['EMP-0018', 'GO_RESERVE']);
   assert.ok(v.ressource.motifs.every((m: Corps) => Object.keys(m).join() === 'code,niveau'), 'jamais de libellé, même en partage détaillé');
   assert.ok(!v.ressource.motifs.some((m: Corps) => m.code === 'DEPLACEMENT'));
-  assert.deepEqual(suivreVerdicts(db), [], 'signalé une seule fois');
-  run(RH, 'parametres.maj', { horizonAlerte: 120 });
-  assert.equal(verdicts().length, 1);
+  assert.deepEqual(await suivreVerdicts(db), [], 'signalé une seule fois');
+  await run(RH, 'parametres.maj', { horizonAlerte: 120 });
+  assert.equal((await verdicts()).length, 1);
 });
 
-test('verdict Go / No Go : recalcul quotidien, une expiration signalée une fois, chantiers terminés plus suivis', () => {
+test('verdict Go / No Go : recalcul quotidien, une expiration signalée une fois, chantiers terminés plus suivis', async () => {
   modeSimulation();
-  const { db, envois } = fresh();
-  const verdicts = () => envois('verdict.modifie').map(e => e.contenu as Corps);
+  const { db, envois } = await fresh();
+  const verdicts = async () => (await envois('verdict.modifie')).map(e => e.contenu as Corps);
   // Un mois plus tard, les formalités de Tema sont hors délai ; Rétrofit et Feyzin sont terminés.
   process.env.CURSUS_TODAY = '2026-11-10';
   try {
-    const signales = suivreVerdicts(db);
+    const signales = await suivreVerdicts(db);
     assert.deepEqual(signales, [{ chantier: 'K-2625', empId: 23 }]);
-    const tema = verdicts().at(-1)!;
+    const tema = (await verdicts()).at(-1)!;
     assert.deepEqual([tema.statut, tema.ressource.statut, tema.ressource.precedent, tema.ressource.motifs], ['NO_GO', 'NO_GO', 'GO_RESERVE', [{ code: 'FORMALITES_VOYAGE', niveau: 'NO_GO' }]]);
-    assert.deepEqual(suivreVerdicts(db), []);
-    assert.ok(!db.all<Corps>('verdictsKeystone').some(x => ['K-2614', 'K-2620'].includes(x.chantier)), 'chantiers terminés retirés du suivi');
+    assert.deepEqual(await suivreVerdicts(db), []);
+    assert.ok(!(await db.all<Corps>('verdictsKeystone')).some(x => ['K-2614', 'K-2620'].includes(x.chantier)), 'chantiers terminés retirés du suivi');
   } finally {
     process.env.CURSUS_TODAY = '2026-10-10';
   }
@@ -374,38 +375,38 @@ test('verdict Go / No Go : recalcul quotidien, une expiration signalée une fois
 test('verdicts : mémorisés en simulation, tous renvoyés comme premiers verdicts au passage en mode API', async () => {
   const ks = await fauxKeystone();
   modeSimulation();
-  const { db, envois } = fresh();
-  const verdicts = () => envois('verdict.modifie');
-  assert.equal(db.getSetting(MODE_VERDICTS, null), 'simulation');
+  const { db, envois } = await fresh();
+  const verdicts = async () => await envois('verdict.modifie');
+  assert.equal(await db.getSetting(MODE_VERDICTS, null), 'simulation');
   // En production sans KEYSTONE_URL : Keystone crée un chantier qui exige l'ATEX et y affecte Romain Chevalier (No Go).
-  db.tx(() => {
-    enregistrerChantier(contexte(db), 'K-NEW', { nom: 'Arrêt ATEX', lieu: 'Feyzin', pays: 'FR', debut: '2026-11-16', fin: '2026-11-20', habilitations: ['atex'] });
-    enregistrerAffectation(contexte(db), 'AF-NEW', { matricule: 'EMP-0018', chantier: 'K-NEW', du: '2026-11-16', au: '2026-11-20' });
-    suivreVerdicts(db);
+  await db.tx(async () => {
+    await enregistrerChantier(await contexte(db), 'K-NEW', { nom: 'Arrêt ATEX', lieu: 'Feyzin', pays: 'FR', debut: '2026-11-16', fin: '2026-11-20', habilitations: ['atex'] });
+    await enregistrerAffectation(await contexte(db), 'AF-NEW', { matricule: 'EMP-0018', chantier: 'K-NEW', du: '2026-11-16', au: '2026-11-20' });
+    await suivreVerdicts(db);
   });
-  assert.deepEqual(verdicts().map(e => [e.statut, (e.contenu as Corps).chantier]), [['simule', 'K-NEW']]);
-  const suivis = db.count('verdictsKeystone');
+  assert.deepEqual((await verdicts()).map(e => [e.statut, (e.contenu as Corps).chantier]), [['simule', 'K-NEW']]);
+  const suivis = await db.count('verdictsKeystone');
   assert.equal(suivis, 13);
 
   // KEYSTONE_URL définie (redémarrage) : rien n'a été transmis, chaque ressource suivie part avec un premier verdict.
   const t = modeApi(ks.url);
   try {
-    const signales = db.tx(() => suivreVerdicts(db));
+    const signales = await db.tx(async () => await suivreVerdicts(db));
     assert.equal(signales.length, suivis);
-    const partis = verdicts().filter(e => e.statut === 'a_envoyer').map(e => e.contenu as Corps);
+    const partis = (await verdicts()).filter(e => e.statut === 'a_envoyer').map(e => e.contenu as Corps);
     assert.equal(partis.length, suivis);
     assert.ok(partis.every(v => v.ressource.precedent === null), 'premiers verdicts');
     const neuf = partis.find(v => v.chantier === 'K-NEW')!;
     assert.deepEqual([neuf.ressource.matricule, neuf.ressource.statut, neuf.ressource.motifs], ['EMP-0018', 'NO_GO', [{ code: 'HABILITATION', niveau: 'NO_GO' }]]);
-    assert.equal(db.getSetting(MODE_VERDICTS, null), 'api');
-    assert.deepEqual(suivreVerdicts(db), [], 'une seule fois');
+    assert.equal(await db.getSetting(MODE_VERDICTS, null), 'api');
+    assert.deepEqual(await suivreVerdicts(db), [], 'une seule fois');
     assert.equal(await traiterFile(db, 'keystone', t), suivis);
     assert.equal(ks.recus.length, suivis);
     // Retour en simulation puis en mode API : les changements simulés entre-temps n'ont pas été reçus, tout repart.
     modeSimulation();
-    assert.deepEqual(suivreVerdicts(db), []);
+    assert.deepEqual(await suivreVerdicts(db), []);
     modeApi(ks.url);
-    assert.equal(suivreVerdicts(db).length, suivis);
+    assert.equal((await suivreVerdicts(db)).length, suivis);
   } finally {
     modeSimulation();
   }
@@ -413,7 +414,7 @@ test('verdicts : mémorisés en simulation, tous renvoyés comme premiers verdic
 
 test('écriture de Keystone : nouvelle ressource signalée (premier verdict), retirée sans message', async () => {
   modeSimulation();
-  const { db, envois } = fresh();
+  const { db, envois } = await fresh();
   const app = express();
   app.use('/api/integrations/keystone', keystoneRoutes(db));
   const srv = app.listen(0, '127.0.0.1');
@@ -423,50 +424,50 @@ test('écriture de Keystone : nouvelle ressource signalée (premier verdict), re
   const call = (method: string, path: string, body?: unknown) => fetch(base + path, {
     method, headers: { 'x-api-key': 'cle-keystone-de-test', ...(body ? { 'content-type': 'application/json' } : {}) }, body: body ? JSON.stringify(body) : undefined,
   });
-  const verdicts = () => envois('verdict.modifie').map(e => e.contenu as Corps);
+  const verdicts = async () => (await envois('verdict.modifie')).map(e => e.contenu as Corps);
   // Mehdi Benali (EMP-0002), venu en repérage avant le chantier de Feyzin, y est affecté : premier verdict.
-  assert.equal(verdicts().length, 0);
+  assert.equal((await verdicts()).length, 0);
   assert.equal((await call('PUT', '/affectations/AF-T-2', { matricule: 'EMP-0002', chantier: 'K-2620', du: '2026-10-19', au: '2026-10-23' })).status, 201);
-  assert.equal(verdicts().length, 1);
-  const [v] = verdicts();
+  assert.equal((await verdicts()).length, 1);
+  const [v] = await verdicts();
   assert.deepEqual([v.chantier, v.ressource.matricule, v.ressource.precedent], ['K-2620', 'EMP-0002', null]);
   // Envoi identique : rien de nouveau ; retrait : plus suivi, sans message.
   await call('PUT', '/affectations/AF-T-2', { matricule: 'EMP-0002', chantier: 'K-2620', du: '2026-10-19', au: '2026-10-23' });
-  assert.equal(verdicts().length, 1);
+  assert.equal((await verdicts()).length, 1);
   assert.equal((await call('DELETE', '/affectations/AF-T-2')).status, 200);
-  assert.equal(verdicts().length, 1);
-  assert.ok(!db.all<Corps>('verdictsKeystone').some(x => x.empId === 2 && x.chantier === 'K-2620'));
-  const n = verdicts().length;
+  assert.equal((await verdicts()).length, 1);
+  assert.ok(!(await db.all<Corps>('verdictsKeystone')).some(x => x.empId === 2 && x.chantier === 'K-2620'));
+  const n = (await verdicts()).length;
   // Exigence ajoutée par Keystone : les ressources concernées sont signalées dans la même transaction.
   const r = await call('PUT', '/chantiers/K-2625', { nom: 'Audit HSE usine', client: 'Tema Packaging', lieu: 'Tema', pays: 'GH', debut: '2026-12-01', fin: '2026-12-05', chef: 'Sarah Cohen', habilitations: ['atex'], certifications: ['sst'] });
   assert.equal(r.status, 200);
-  assert.ok(verdicts().slice(n).some(x => x.chantier === 'K-2625'));
+  assert.ok((await verdicts()).slice(n).some(x => x.chantier === 'K-2625'));
   // Écriture refusée : rien n'est mis en file.
-  const avant = envois().length;
+  const avant = (await envois()).length;
   assert.equal((await call('PUT', '/chantiers/K-2625', { nom: 'x' })).status, 400);
-  assert.equal(envois().length, avant);
+  assert.equal((await envois()).length, avant);
 });
 
 test('simulation : statut « simulé » immédiat, message tracé dans le journal, rien n’est envoyé', async () => {
   const ks = await fauxKeystone();
   modeSimulation();
   assert.equal(transportKeystone(), null);
-  const { db, run, envois, demande } = fresh();
-  run(KARIM, 'absence.demander', { empId: 18, kind: 'CP', du: '2026-12-14', au: '2026-12-15' });
-  const [e] = envois('absence.validee');
+  const { db, run, envois, demande } = await fresh();
+  await run(KARIM, 'absence.demander', { empId: 18, kind: 'CP', du: '2026-12-14', au: '2026-12-15' });
+  const [e] = await envois('absence.validee');
   assert.deepEqual([e.statut, e.tentatives, e.prochaine], ['simule', 0, null]);
-  const a = loadFull(db, RH).absences.find(x => x.empId === 18 && x.du === '2026-12-14')!;
+  const a = (await loadFull(db, RH)).absences.find(x => x.empId === 18 && x.du === '2026-12-14')!;
   assert.deepEqual(e.contenu, { absence: a.id, matricule: 'EMP-0018', du: '2026-12-14', au: '2026-12-15' }, 'jamais la nature de l’absence');
-  const j = db.all<Corps>('journal').filter(x => x.action === 'keystone.absence.validee');
+  const j = (await db.all<Corps>('journal')).filter(x => x.action === 'keystone.absence.validee');
   assert.deepEqual(j.map(x => [x.actor, x.role, x.message]), [['Cursus', 'integration', 'Message Keystone (simulation)']]);
   assert.equal(j[0].payload.type, 'absence.validee');
-  run(RH, 'keystone.refuser', { id: demande('DK-2026-0398').id });
-  const arreter = demarrerEnvois(db, { keystone: transportKeystone() }, 10);
+  await run(RH, 'keystone.refuser', { id: (await demande('DK-2026-0398')).id });
+  const arreter = await demarrerEnvois(db, { keystone: transportKeystone() }, 10);
   await new Promise(res => setTimeout(res, 50));
   arreter();
   assert.equal(ks.recus.length, 0);
-  assert.ok(envois().every(x => x.statut === 'simule'));
-  assert.deepEqual(etatEnvois(db, 'keystone').nombres, { a_envoyer: 0, envoye: 0, echec: 0, simule: 2 });
+  assert.ok((await envois()).every(x => x.statut === 'simule'));
+  assert.deepEqual((await etatEnvois(db, 'keystone')).nombres, { a_envoyer: 0, envoye: 0, echec: 0, simule: 2 });
 });
 
 test('configuration : en production, KEYSTONE_URL exige KEYSTONE_TOKEN et une adresse http(s)', () => {
@@ -488,24 +489,24 @@ test('configuration : en production, KEYSTONE_URL exige KEYSTONE_TOKEN et une ad
   assert.deepEqual(transportKeystone({ KEYSTONE_URL: 'http://ks:8080' })!.entetes({} as Envoi), {}, 'sans jeton (hors production) : pas d’en-tête Authorization');
 });
 
-test('contrat OpenAPI : chaque événement émis a la forme décrite par le webhook « evenement »', () => {
+test('contrat OpenAPI : chaque événement émis a la forme décrite par le webhook « evenement »', async () => {
   modeSimulation();
   const spec = JSON.parse(readFileSync(join(ROOT, 'docs/keystone-openapi.json'), 'utf8'));
   const sch = spec.components.schemas;
   assert.equal(spec.webhooks.evenement.post.requestBody.content['application/json'].schema.$ref, '#/components/schemas/Evenement');
   const mapping: Record<string, string> = sch.Evenement.discriminator.mapping;
   assert.deepEqual(Object.keys(mapping).sort(), Object.keys(EVENEMENT_LABEL).sort(), 'types déclarés = types affichés');
-  const { db, run, envois, demande } = fresh();
-  run(RH, 'keystone.accepter', { id: demande('DK-2026-0412').id }); // décision et verdict modifié
+  const { db, run, envois, demande } = await fresh();
+  await run(RH, 'keystone.accepter', { id: (await demande('DK-2026-0412')).id }); // décision et verdict modifié
   // Déplacement venu de Keystone : nouvelles dates, puis annulation.
-  const t = loadFull(db, RH).voyages.find(v => v.ref === 'DK-2026-0412')!;
-  run(RH, 'voyage.modifier', { id: t.id, depart: t.depart, retour: addD(t.retour, -1) });
-  run(RH, 'voyage.annuler', { id: t.id, motif: 'Chantier reporté' });
-  run(RH, 'temps.validate', { empId: 12, week: '2026-09-28' });
-  run(KARIM, 'absence.demander', { empId: 18, kind: 'RTT', du: '2026-12-14', au: '2026-12-14' });
-  const a = loadFull(db, RH).absences.find(x => x.empId === 18 && x.du === '2026-12-14')!;
-  sendToKeystone(db, { type: 'absence.annulee', absence: a.id, matricule: 'EMP-0018', du: a.du, au: a.au });
-  const emis = envois();
+  const t = (await loadFull(db, RH)).voyages.find(v => v.ref === 'DK-2026-0412')!;
+  await run(RH, 'voyage.modifier', { id: t.id, depart: t.depart, retour: addD(t.retour, -1) });
+  await run(RH, 'voyage.annuler', { id: t.id, motif: 'Chantier reporté' });
+  await run(RH, 'temps.validate', { empId: 12, week: '2026-09-28' });
+  await run(KARIM, 'absence.demander', { empId: 18, kind: 'RTT', du: '2026-12-14', au: '2026-12-14' });
+  const a = (await loadFull(db, RH)).absences.find(x => x.empId === 18 && x.du === '2026-12-14')!;
+  await sendToKeystone(db, { type: 'absence.annulee', absence: a.id, matricule: 'EMP-0018', du: a.du, au: a.au });
+  const emis = await envois();
   assert.deepEqual([...new Set(emis.map(e => e.type))].sort(), Object.keys(EVENEMENT_LABEL).sort(), 'un événement de chaque type');
   for (const e of emis) {
     const donnees = sch[mapping[e.type].split('/').at(-1)!].allOf[1].properties.donnees;

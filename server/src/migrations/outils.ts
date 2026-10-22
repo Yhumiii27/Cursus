@@ -1,5 +1,5 @@
 // Outils des migrations nommées (server/src/migrations/cadre.ts) : index présents, reconstruction d'une table.
-import { colonnesSql, type Db, snake, TABLES, type TableName } from '../db.ts';
+import { colonnesSql, type SqliteDb as Db, snake, TABLES, type TableName } from '../db.ts';
 
 /** Ligne telle qu'en base : noms de colonnes en snake_case, JSON en texte, booléens en 0 / 1. */
 export type LigneSql = Record<string, unknown>;
@@ -8,7 +8,7 @@ export type LigneSql = Record<string, unknown>;
 export const indexExiste = (db: Db, nom: string) => !!db.sql.prepare(`SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = ?`).get(nom);
 
 /** Vrai si la table a cette colonne physique (nom en camelCase ou snake_case). */
-export const colonneExiste = (db: Db, table: TableName, colonne: string) => db.columns(table).includes(snake(colonne));
+export const colonneExiste = async (db: Db, table: TableName, colonne: string) => (await db.columns(table)).includes(snake(colonne));
 
 export interface Reconstruction {
   /**
@@ -34,10 +34,10 @@ export interface Reconstruction {
  * viole une nouvelle contrainte fait échouer la migration, et toute la reconstruction est annulée. À appeler dans
  * `executer` d'une migration (transaction ouverte). Renvoie le nombre de lignes recopiées.
  */
-export function reconstruireTable(db: Db, table: TableName, opts: Reconstruction = {}): number {
+export async function reconstruireTable(db: Db, table: TableName, opts: Reconstruction = {}): Promise<number> {
   if (!db.sql.isTransaction) throw new Error(`Reconstruction de ${table} hors transaction : à faire dans une migration nommée`);
   const nom = snake(table), provisoire = `${nom}__reconstruction`;
-  const anciennes = new Set(db.columns(table));
+  const anciennes = new Set(await db.columns(table));
   if (!anciennes.size) throw new Error(`Table ${nom} absente : rien à reconstruire`);
   // Index créés par Cursus (les index des contraintes UNIQUE, sans `sql`, suivent la définition de la table).
   const index = db.sql.prepare(`SELECT sql FROM sqlite_master WHERE type = 'index' AND tbl_name = ? AND sql IS NOT NULL`).all(nom) as { sql: string }[];

@@ -11,14 +11,14 @@ import type { Db } from './db.ts';
 import { lienCursus } from './integrations/email.ts';
 
 /** Réglage `messagerie` (Paramètres → Messagerie), complété des valeurs par défaut. */
-export function lireMessagerie(db: Db): Messagerie {
-  const m = db.getSetting<Partial<Messagerie>>('messagerie', {});
+export async function lireMessagerie(db: Db): Promise<Messagerie> {
+  const m = await db.getSetting<Partial<Messagerie>>('messagerie', {});
   return { ...MESSAGERIE_VIDE, ...m, agences: Array.isArray(m.agences) ? m.agences : [] };
 }
 
 /** Salarié destinataire : adresse de sa fiche et réglage de ses notifications ; aucun s'il a quitté l'entreprise. */
-export function adresseSalarie(db: Db, empId: number, today: string): { nom: string; adresse: string; mode: ModeNotification } | null {
-  const e = db.get<{ nom: string; email: string | null; notifications: ModeNotification | null; fin: string | null }>('employes', empId);
+export async function adresseSalarie(db: Db, empId: number, today: string): Promise<{ nom: string; adresse: string; mode: ModeNotification } | null> {
+  const e = await db.get<{ nom: string; email: string | null; notifications: ModeNotification | null; fin: string | null }>('employes', empId);
   if (!e?.email || (e.fin && e.fin < today)) return null;
   return { nom: e.nom, adresse: e.email, mode: e.notifications === 'quotidien' ? 'quotidien' : 'immediat' };
 }
@@ -56,13 +56,13 @@ export function periodeLongue(du: string, au: string): string {
  * Adresse du compte Microsoft 365 d'un salarié (identifiant de connexion) reprise sur sa fiche quand elle
  * n'en a pas : c'est son adresse professionnelle. Rien si elle est déjà attribuée à un autre salarié.
  */
-export function adresseDuCompte(db: Db, c: Pick<Compte, 'empId' | 'type' | 'identifiant'>): string | null {
+export async function adresseDuCompte(db: Db, c: Pick<Compte, 'empId' | 'type' | 'identifiant'>): Promise<string | null> {
   if (!c.empId || c.type !== 'microsoft') return null;
-  const e = db.get<{ email: string | null }>('employes', c.empId);
+  const e = await db.get<{ email: string | null }>('employes', c.empId);
   const a = normaliserAdresse(c.identifiant);
   if (!e || e.email || !a || !adresseValide(a)) return null;
-  if (db.where('employes', 'email', a).length) return null;
-  db.update('employes', c.empId, { email: a });
+  if ((await db.where('employes', 'email', a)).length) return null;
+  await db.update('employes', c.empId, { email: a });
   return a;
 }
 
@@ -73,15 +73,15 @@ const REPRISE = 'adressesComptesReprises';
  * Base antérieure aux adresses e-mail : chaque salarié sans adresse qui a un compte Microsoft 365 reçoit
  * l'adresse de ce compte. Une seule fois ; ensuite, la création d'un compte Microsoft la reprend (compte.creer).
  */
-export function reprendreAdressesDesComptes(db: Db, avant = () => {}) {
-  if (db.getSetting<boolean>(REPRISE, false)) return;
-  const comptes = db.sql.prepare(`SELECT c.emp_id AS empId, c.identifiant FROM comptes c JOIN employes e ON e.id = c.emp_id
-    WHERE c.type = 'microsoft' AND e.email IS NULL ORDER BY c.id`).all() as { empId: number; identifiant: string }[];
+export async function reprendreAdressesDesComptes(db: Db, avant = () => {}) {
+  if (await db.getSetting<boolean>(REPRISE, false)) return;
+  const comptes = await db.query(`SELECT c.emp_id AS "empId", c.identifiant FROM comptes c JOIN employes e ON e.id = c.emp_id
+    WHERE c.type = 'microsoft' AND e.email IS NULL ORDER BY c.id`) as { empId: number; identifiant: string }[];
   if (comptes.length) avant();
   let n = 0;
-  db.tx(() => {
-    for (const c of comptes) if (adresseDuCompte(db, { ...c, type: 'microsoft' })) n++;
-    db.setSetting(REPRISE, true);
+  await db.tx(async () => {
+    for (const c of comptes) if (await adresseDuCompte(db, { ...c, type: 'microsoft' })) n++;
+    await db.setSetting(REPRISE, true);
   });
   if (n) console.log(`Migration : ${n} adresse${n > 1 ? 's' : ''} e-mail reprise${n > 1 ? 's' : ''} des comptes Microsoft 365.`);
 }

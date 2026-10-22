@@ -13,9 +13,10 @@ import { join } from 'node:path';
 process.env.CURSUS_TODAY = '2026-10-10';
 process.env.CURSUS_DEMO = '1';
 
-const { Db } = await import('../server/src/db.ts');
+const { nouvelleBase, PG, sqlite, SQLITE_SEUL, horsContraintes } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { appliquerMigrations } = await import('../server/src/migrations/cadre.ts');
+const { mettreAJourBase } = await import('../server/src/demarrage.ts');
 const { MIGRATIONS } = await import('../server/src/migrations/liste.ts');
 const { INDEX_SALARIES } = await import('../server/src/migrations/exploitation.ts');
 const { indexExiste } = await import('../server/src/migrations/outils.ts');
@@ -26,10 +27,10 @@ const { reglerJournaux } = await import('../server/src/logs.ts');
 const { familleAction, JOURNAL_LABEL } = await import('../shared/journal.ts');
 const { TABLES, snake } = await import('../server/src/db.ts');
 
-function base() {
-  const db = new Db(':memory:');
-  appliquerMigrations(db);
-  seedDemo(db);
+async function base() {
+  const db = await nouvelleBase();
+  await mettreAJourBase(db);
+  await seedDemo(db);
   return db;
 }
 
@@ -49,24 +50,28 @@ test('références contrôlées : tables et colonnes du schéma', () => {
   }
 });
 
-test('orphelins : aucun dans la démonstration ; comptés par référence, journal et journaux du serveur', () => {
-  const db = base();
-  assert.deepEqual(controlerOrphelins(db).parReference, {});
-  assert.equal(controlerOrphelins(db).orphelins, 0);
+test('orphelins : aucun dans la démonstration ; comptés par référence, journal et journaux du serveur', async () => {
+  const db = await base();
+  assert.deepEqual((await controlerOrphelins(db)).parReference, {});
+  assert.equal((await controlerOrphelins(db)).orphelins, 0);
   const lignes: string[] = [];
   const retablir = reglerJournaux({ format: 'json', sortie: ligne => { lignes.push(ligne); } });
   try {
     // Base saine : rien d'écrit.
-    assert.equal(controlerIntegrite(db).orphelins, 0);
+    assert.equal((await controlerIntegrite(db)).orphelins, 0);
     assert.equal(lignes.length, 0);
-    assert.equal(db.count('journal'), 0);
+    assert.equal(await db.count('journal'), 0);
     // Reprise faite hors de Cursus : feuilles d'un salarié absent, titre d'une formation inconnue, équipe disparue.
-    db.sql.exec(`INSERT INTO feuilles (emp_id, week, statut, lignes) VALUES (999, '2026-09-07', 'validee', '[]'), (999, '2026-09-14', 'validee', '[]')`);
-    db.sql.exec(`INSERT INTO certifications (emp_id, f, obtenue) VALUES (1, 'FORMATION-INCONNUE', '2026-01-01')`);
-    db.sql.exec(`UPDATE employes SET equipe = 'Équipe disparue' WHERE id = 2`);
-    // Valeurs « aucun » : jamais des orphelins.
-    db.sql.exec(`UPDATE employes SET poste_id = 0 WHERE id = 3`);
-    const r = controlerIntegrite(db);
+    // Sur PostgreSQL, les clés étrangères les refusent : elles ne passent qu'en contournant les contrôles.
+    if (PG) await assert.rejects(db.exec(`INSERT INTO feuilles (emp_id, week, statut, lignes) VALUES (999, '2026-09-07', 'validee', '[]')`), /feuilles_emp_id_employes_id_fk/);
+    await horsContraintes(db, async () => {
+      await db.exec(`INSERT INTO feuilles (emp_id, week, statut, lignes) VALUES (999, '2026-09-07', 'validee', '[]'), (999, '2026-09-14', 'validee', '[]')`);
+      await db.exec(`INSERT INTO certifications (emp_id, f, obtenue) VALUES (1, 'FORMATION-INCONNUE', '2026-01-01')`);
+      await db.exec(`UPDATE employes SET equipe = 'Équipe disparue' WHERE id = 2`);
+      // Valeurs « aucun » : jamais des orphelins.
+      await db.exec(`UPDATE employes SET poste_id = 0 WHERE id = 3`);
+    });
+    const r = await controlerIntegrite(db);
     assert.equal(r.orphelins, 4);
     assert.deepEqual(r.parReference, {
       'feuilles.emp_id → employes': 2, 'certifications.f → formations': 1, 'employes.equipe → equipes': 1,
@@ -76,7 +81,7 @@ test('orphelins : aucun dans la démonstration ; comptés par référence, journ
     assert.equal(l.niveau, 'avertissement');
     assert.equal(l.orphelins, 4);
     assert.match(l.message, /Intégrité de la base : 4 références orphelines \(feuilles\.emp_id → employes : 2, /);
-    const j = db.all<{ action: string; actor: string; message: string; payload: Record<string, unknown>; salaries: number[] }>('journal').at(-1)!;
+    const j = (await db.all<{ action: string; actor: string; message: string; payload: Record<string, unknown>; salaries: number[] }>('journal')).at(-1)!;
     assert.equal(j.action, 'integrite.orphelins');
     assert.equal(j.actor, 'Cursus');
     assert.equal(j.message, 'Contrôle d’intégrité au démarrage : 4 références orphelines');
@@ -90,16 +95,16 @@ test('orphelins : aucun dans la démonstration ; comptés par référence, journ
 });
 
 test('point de santé : « degrade » en public sans aucun nombre, détail pour la supervision, contrôle refait au plus une fois par heure', async () => {
-  const db = base();
-  assert.deepEqual(etatSante(db, false, 'x'), { statut: 'ok', base: 'ok' });
-  assert.equal(etatSante(db, true, 'x').orphelins, 0);
-  db.sql.exec(`INSERT INTO absences (emp_id, type, du, au, statut) VALUES (777, 'CP', '2026-08-03', '2026-08-07', 'validee')`);
+  const db = await base();
+  assert.deepEqual(await etatSante(db, false, 'x'), { statut: 'ok', base: 'ok' });
+  assert.equal((await etatSante(db, true, 'x')).orphelins, 0);
+  await horsContraintes(db, async () => { await db.exec(`INSERT INTO absences (emp_id, type, du, au, statut) VALUES (777, 'CP', '2026-08-03', '2026-08-07', 'validee')`); });
   // Dernier contrôle encore valable : l'orphelin n'apparaît qu'au contrôle suivant.
-  assert.equal(etatSante(db, false, 'x').statut, 'ok');
+  assert.equal((await etatSante(db, false, 'x')).statut, 'ok');
   const plusTard = Date.now() + VALIDITE_CONTROLE + 1000;
-  assert.equal(etatIntegrite(db, plusTard).orphelins, 1);
-  assert.deepEqual(etatSante(db, false, 'x'), { statut: 'degrade', base: 'ok' });
-  const detail = etatSante(db, true, 'x');
+  assert.equal((await etatIntegrite(db, plusTard)).orphelins, 1);
+  assert.deepEqual(await etatSante(db, false, 'x'), { statut: 'degrade', base: 'ok' });
+  const detail = await etatSante(db, true, 'x');
   assert.equal(detail.statut, 'degrade');
   assert.equal(detail.orphelins, 1);
   assert.deepEqual(detail.references, { 'absences.emp_id → employes': 1 });
@@ -132,21 +137,21 @@ test('point de santé : « degrade » en public sans aucun nombre, détail pour 
   }
 });
 
-test('index sur le salarié : créés par la migration nommée, sans effet sur une base qui les a déjà', () => {
-  const db = new Db(':memory:');
+test('index sur le salarié : créés par la migration nommée, sans effet sur une base qui les a déjà', { skip: PG && SQLITE_SEUL }, async () => {
+  const db = await nouvelleBase();
   const avant = MIGRATIONS.slice(0, MIGRATIONS.indexOf(INDEX_SALARIES));
-  appliquerMigrations(db, avant);
-  assert.ok(!indexExiste(db, 'absences_emp'));
+  await appliquerMigrations(sqlite(db), avant);
+  assert.ok(!indexExiste(sqlite(db), 'absences_emp'));
   // Les migrations nommées plus récentes passent aussi sur cette base neuve.
-  assert.ok(appliquerMigrations(db).includes(INDEX_SALARIES.nom));
-  for (const t of ['absences', 'certifications', 'hab_titres', 'taches', 'missions', 'voyages', 'entretiens', 'notifications']) assert.ok(indexExiste(db, `${t}_emp`), t);
-  assert.deepEqual(appliquerMigrations(db), [], 'une seule fois');
+  assert.ok((await appliquerMigrations(sqlite(db))).includes(INDEX_SALARIES.nom));
+  for (const t of ['absences', 'certifications', 'hab_titres', 'taches', 'missions', 'voyages', 'entretiens', 'notifications']) assert.ok(indexExiste(sqlite(db), `${t}_emp`), t);
+  assert.deepEqual(await appliquerMigrations(sqlite(db)), [], 'une seule fois');
   // Requête par salarié servie par l'index.
-  const plan = db.sql.prepare('EXPLAIN QUERY PLAN SELECT * FROM absences WHERE emp_id = ?').all(1) as { detail: string }[];
+  const plan = (await db.query('EXPLAIN QUERY PLAN SELECT * FROM absences WHERE emp_id = ?', [1])) as { detail: string }[];
   assert.ok(plan.some(p => /USING INDEX absences_emp/.test(p.detail)), JSON.stringify(plan));
   // Base qui a déjà les index (créés à la main par le service informatique) : seulement notée faite.
-  const deja = new Db(':memory:');
-  appliquerMigrations(deja, avant);
-  INDEX_SALARIES.executer(deja);
-  assert.equal(INDEX_SALARIES.necessaire!(deja), false);
+  const deja = await nouvelleBase();
+  await appliquerMigrations(sqlite(deja), avant);
+  await INDEX_SALARIES.executer(sqlite(deja));
+  assert.equal(await INDEX_SALARIES.necessaire!(sqlite(deja)), false);
 });

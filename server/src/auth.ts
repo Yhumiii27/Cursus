@@ -44,15 +44,18 @@ export const SESSION_HEURES = 12;
 /** Intervalle minimal entre deux mises à jour de la dernière activité. */
 const ACTIVITE_MS = 60_000;
 
-function secret(db: Db): string {
+async function secret(db: Db): Promise<string> {
   if (process.env.CURSUS_SECRET) return process.env.CURSUS_SECRET;
-  let s = db.getSetting<string | null>('secret', null);
-  if (!s) { s = randomBytes(32).toString('hex'); db.setSetting('secret', s); }
-  return s;
+  // Lue puis créée d'un seul tenant : deux premières requêtes simultanées ne génèrent pas chacune leur clé.
+  return db.exclusif(async () => {
+    let s = await db.getSetting<string | null>('secret', null);
+    if (!s) { s = randomBytes(32).toString('hex'); await db.setSetting('secret', s); }
+    return s;
+  });
 }
 
 /** Signature HMAC d'une valeur de cookie (session, et état de l'aller-retour Microsoft dans microsoft.ts). */
-export const sign = (db: Db, payload: string) => createHmac('sha256', secret(db)).update(payload).digest('base64url');
+export const sign = async (db: Db, payload: string) => createHmac('sha256', await secret(db)).update(payload).digest('base64url');
 
 export function parseCookies(req: Request): Record<string, string> {
   const out: Record<string, string> = {};
@@ -66,12 +69,12 @@ export function parseCookies(req: Request): Record<string, string> {
 }
 
 /** Identifiant de session lu dans le cookie, si sa signature est valide. */
-function cookieId(db: Db, req: Request): string | null {
+async function cookieId(db: Db, req: Request): Promise<string | null> {
   const raw = parseCookies(req)[COOKIE];
   if (!raw) return null;
   const [id, mac] = raw.split('.');
   if (!id || !mac) return null;
-  const expected = Buffer.from(sign(db, id)), given = Buffer.from(mac);
+  const expected = Buffer.from(await sign(db, id)), given = Buffer.from(mac);
   return expected.length === given.length && timingSafeEqual(expected, given) ? id : null;
 }
 
@@ -81,10 +84,10 @@ function cookieId(db: Db, req: Request): string | null {
  * si seul l'espace actif a disparu (profil RH retiré, équipe confiée à un autre), elle passe au premier
  * espace restant du compte.
  */
-export function readSession(db: Db, req: Request): SessionInfo | null {
-  const id = cookieId(db, req);
+export async function readSession(db: Db, req: Request): Promise<SessionInfo | null> {
+  const id = await cookieId(db, req);
   if (!id) return null;
-  const row = db.get<ConnexionRow>('connexions', id);
+  const row = await db.get<ConnexionRow>('connexions', id);
   const now = new Date().toISOString();
   if (!row || row.revocation || row.expiration <= now) return null;
   if (!ROLES.includes(row.role)) return null;
@@ -93,18 +96,18 @@ export function readSession(db: Db, req: Request): SessionInfo | null {
     // Sans compte : démonstration seulement (espace choisi, compte pas encore désigné).
     if (!DEMO) return null;
   } else {
-    const c = compteValide(db, row.compteId);
+    const c = await compteValide(db, row.compteId);
     if (!c) {
-      db.update('connexions', id, { revocation: now });
+      await db.update('connexions', id, { revocation: now });
       return null;
     }
-    const espaces = espacesDuCompte(db, c);
+    const espaces = await espacesDuCompte(db, c);
     if (!espaces.includes(role)) {
       role = espaces[0];
-      db.update('connexions', id, { role });
+      await db.update('connexions', id, { role });
     }
   }
-  if (!row.activite || Date.parse(now) - Date.parse(row.activite) > ACTIVITE_MS) db.update('connexions', id, { activite: now });
+  if (!row.activite || Date.parse(now) - Date.parse(row.activite) > ACTIVITE_MS) await db.update('connexions', id, { activite: now });
   noterCompte(req, row.compteId); // compte inscrit sur la ligne de la requête (server/src/logs.ts)
   return { id, compteId: row.compteId, role, methode: row.methode ?? 'local', demoComptes: row.demoComptes ?? {}, expiration: row.expiration };
 }
@@ -113,9 +116,9 @@ export function readSession(db: Db, req: Request): SessionInfo | null {
  * Compte de la session portée par la requête (cookie signé, session ni révoquée ni expirée), sans autre contrôle ni
  * écriture : sert à limiter le débit par compte (server/src/debit.ts) avant que la route ne lise la session.
  */
-export function compteDeLaRequete(db: Db, req: Request): number | null {
-  const id = cookieId(db, req);
-  const row = id ? db.get<ConnexionRow>('connexions', id) : null;
+export async function compteDeLaRequete(db: Db, req: Request): Promise<number | null> {
+  const id = await cookieId(db, req);
+  const row = id ? await db.get<ConnexionRow>('connexions', id) : null;
   return row && !row.revocation && row.expiration > new Date().toISOString() ? row.compteId : null;
 }
 
@@ -134,45 +137,43 @@ export function clearSessionCookie(res: Response) {
  * Ouvre une nouvelle session (nouvel identifiant) et pose le cookie. `expiration` permet
  * de reprendre l'échéance d'une session remplacée sans la prolonger.
  */
-export function openSession(db: Db, res: Response, s: SessionInfo, expiration?: string): SessionInfo {
+export async function openSession(db: Db, res: Response, s: SessionInfo, expiration?: string): Promise<SessionInfo> {
   const now = new Date();
   const fin = expiration ?? new Date(now.getTime() + SESSION_HEURES * 3600_000).toISOString();
   const id = randomBytes(32).toString('base64url');
-  db.insert('connexions', {
+  await db.insert('connexions', {
     id, compteId: s.compteId, role: s.role, methode: s.methode, demoComptes: s.demoComptes ?? {},
     creation: now.toISOString(), expiration: fin, activite: now.toISOString(),
   });
-  setCookie(res, `${id}.${sign(db, id)}`, Math.max(0, Math.floor((Date.parse(fin) - now.getTime()) / 1000)));
+  setCookie(res, `${id}.${await sign(db, id)}`, Math.max(0, Math.floor((Date.parse(fin) - now.getTime()) / 1000)));
   return { ...s, id, expiration: fin };
 }
 
 /** Met à jour une session ouverte (changement d'espace) sans changer son identifiant ni son échéance. */
-export function updateSession(db: Db, s: SessionInfo): SessionInfo {
-  if (s.id) db.update('connexions', s.id, { compteId: s.compteId, role: s.role, methode: s.methode, demoComptes: s.demoComptes ?? {} });
+export async function updateSession(db: Db, s: SessionInfo): Promise<SessionInfo> {
+  if (s.id) await db.update('connexions', s.id, { compteId: s.compteId, role: s.role, methode: s.methode, demoComptes: s.demoComptes ?? {} });
   return s;
 }
 
-export function revokeSession(db: Db, id: string) {
-  db.sql.prepare('UPDATE connexions SET revocation = ? WHERE id = ? AND revocation IS NULL').run(new Date().toISOString(), id);
+export async function revokeSession(db: Db, id: string) {
+  await db.run('UPDATE connexions SET revocation = ? WHERE id = ? AND revocation IS NULL', [new Date().toISOString(), id]);
 }
 
 /** Révoque toutes les sessions ouvertes d'un compte, sauf éventuellement `sauf`. Renvoie leur nombre. */
-export function revokeSessionsDuCompte(db: Db, compteId: number, sauf?: string): number {
-  const r = db.sql.prepare('UPDATE connexions SET revocation = ? WHERE compte_id = ? AND id IS NOT ? AND revocation IS NULL')
-    .run(new Date().toISOString(), compteId, sauf ?? null);
+export async function revokeSessionsDuCompte(db: Db, compteId: number, sauf?: string): Promise<number> {
+  const r = await db.run('UPDATE connexions SET revocation = ? WHERE compte_id = ? AND id IS DISTINCT FROM ? AND revocation IS NULL', [new Date().toISOString(), compteId, sauf ?? null]);
   return Number(r.changes);
 }
 
 /** Révoque toutes les sessions ouvertes d'un salarié (sortie de l'entreprise, compte compromis). Renvoie leur nombre. */
-export function revokeSessionsOf(db: Db, empId: number): number {
-  const r = db.sql.prepare('UPDATE connexions SET revocation = ? WHERE compte_id IN (SELECT id FROM comptes WHERE emp_id = ?) AND revocation IS NULL')
-    .run(new Date().toISOString(), empId);
+export async function revokeSessionsOf(db: Db, empId: number): Promise<number> {
+  const r = await db.run('UPDATE connexions SET revocation = ? WHERE compte_id IN (SELECT id FROM comptes WHERE emp_id = ?) AND revocation IS NULL', [new Date().toISOString(), empId]);
   return Number(r.changes);
 }
 
 /** Supprime les sessions expirées (révoquées ou non). Renvoie leur nombre. */
-export function purgeSessions(db: Db): number {
-  return Number(db.sql.prepare('DELETE FROM connexions WHERE expiration <= ?').run(new Date().toISOString()).changes);
+export async function purgeSessions(db: Db): Promise<number> {
+  return Number((await db.run('DELETE FROM connexions WHERE expiration <= ?', [new Date().toISOString()])).changes);
 }
 
 /**

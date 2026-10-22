@@ -4,8 +4,13 @@
 // Image Docker : volume rendu au compte du service, droits root abandonnés (avant tout autre import).
 import './conteneur.ts';
 import { resolve } from 'node:path';
-import { dbFile } from './db.ts';
+import { dbFile, urlPostgres } from './db.ts';
 import { dossierSauvegardes, fmtDateHeure, fmtTaille, listerSauvegardes, restaurer, SauvegardeError } from './sauvegarde.ts';
+
+if (urlPostgres()) {
+  console.error('Restauration refusée : la base est sur le serveur PostgreSQL commun (DATABASE_URL) : la restauration se fait sur le serveur (pg_restore du schéma cursus, docs/DEPLOIEMENT.md). npm run restore ne remplace que le fichier SQLite de repli : DATABASE_URL= npm run restore -- <fichier>.');
+  process.exit(1);
+}
 
 const args = process.argv.slice(2);
 const force = args.includes('--force');

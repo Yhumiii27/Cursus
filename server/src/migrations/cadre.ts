@@ -9,7 +9,7 @@ import { existsSync } from 'node:fs';
 import { basename, join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 import { plural } from '../../../shared/format.ts';
-import type { Db } from '../db.ts';
+import type { SqliteDb } from '../db.ts';
 import { dossierSauvegardes, fmtDateHeure, sauvegarderAvantMigration, serveurActif } from '../sauvegarde.ts';
 import { MIGRATIONS } from './liste.ts';
 
@@ -20,12 +20,12 @@ export interface Migration {
    * Vrai si la base a besoin de la migration (anciennes valeurs à reprendre, index absent…). Faux : elle est seulement
    * notée faite, sans être exécutée (base neuve, ou déjà dans l'état visé). Absent : toujours vrai.
    */
-  necessaire?: (db: Db) => boolean;
+  necessaire?: (db: SqliteDb) => boolean | Promise<boolean>;
   /**
    * Modifie la base, dans la transaction de la migration : une erreur annule tout ce qu'elle a fait et arrête le
    * démarrage. Peut renvoyer un court compte rendu, affiché au démarrage (« 12 lots repris »).
    */
-  executer: (db: Db) => string | void;
+  executer: (db: SqliteDb) => string | void | Promise<string | void>;
 }
 
 /** Démarrage refusé : base trop récente, ou migration interrompue (message en français, pour le service informatique). */
@@ -152,7 +152,7 @@ export function controlerPourOutil(fichier: string, liste: readonly Migration[] 
  * précédentes restent faites) et lève une MigrationError : le serveur refuse de démarrer, et la retentera au démarrage
  * suivant. Renvoie les noms des migrations exécutées.
  */
-export function appliquerMigrations(db: Db, liste: readonly Migration[] = MIGRATIONS): string[] {
+export async function appliquerMigrations(db: SqliteDb, liste: readonly Migration[] = MIGRATIONS): Promise<string[]> {
   verifierListe(liste);
   const enregistrees = lireMigrations(db.sql);
   const inconnues = inconnuesDe(enregistrees, liste);
@@ -170,11 +170,11 @@ export function appliquerMigrations(db: Db, liste: readonly Migration[] = MIGRAT
   const executees: string[] = [];
   let notees = 0;
   for (const m of aFaire) {
-    const utile = m.necessaire ? m.necessaire(db) : true;
+    const utile = m.necessaire ? await m.necessaire(db) : true;
     let compteRendu: string | void;
     try {
-      compteRendu = db.tx(() => {
-        const r = utile ? m.executer(db) : undefined;
+      compteRendu = await db.tx(async () => {
+        const r = utile ? await m.executer(db) : undefined;
         noter.run(m.nom, new Date().toISOString(), utile ? 1 : 0, copie);
         return r;
       });

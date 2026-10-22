@@ -15,20 +15,19 @@ import type { Migration } from './cadre.ts';
 
 /** Titres délivrés sans aucune ligne de délivrance. */
 const SANS_DELIVRANCE = 'FROM hab_titres t WHERE t.delivree IS NOT NULL AND NOT EXISTS (SELECT 1 FROM hab_delivrances d WHERE d.titre_id = t.id)';
-const sansDelivrance = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS n ${SANS_DELIVRANCE}`).get() as { n: number }).n);
+const sansDelivrance = async (db: Db) => Number(((await db.one(`SELECT COUNT(*) AS n ${SANS_DELIVRANCE}`)) as { n: number }).n);
 
 /**
  * Délivrance en vigueur de chaque titre délivré qui n'en a pas : date, signataire, échéance calculée avec la validité
  * actuelle de l'habilitation (fin de mois comprise, `addMonths`). Idempotente ; renvoie le nombre de lignes écrites.
  */
-export function delivrancesDepuisTitres(db: Db, le: ISODate = todayIso()): number {
-  const titres = db.sql.prepare(`SELECT t.id, t.emp_id, t.h, t.delivree, t.par, h.validite ${SANS_DELIVRANCE.replace('FROM hab_titres t', 'FROM hab_titres t LEFT JOIN habilitations h ON h.id = t.h')} ORDER BY t.id`)
-    .all() as { id: number; emp_id: number; h: string; delivree: string; par: string | null; validite: number | null }[];
-  const inserer = db.sql.prepare(`INSERT INTO hab_delivrances (emp_id, h, titre_id, delivree, par, expire, remplacee_le, mesure, mesure_date, le, auteur, auteur_id)
-    VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, NULL, NULL)`);
+export async function delivrancesDepuisTitres(db: Db, le: ISODate = todayIso()): Promise<number> {
+  const titres = await db.query<{ id: number; emp_id: number; h: string; delivree: string; par: string | null; validite: number | null }>(
+    `SELECT t.id, t.emp_id, t.h, t.delivree, t.par, h.validite ${SANS_DELIVRANCE.replace('FROM hab_titres t', 'FROM hab_titres t LEFT JOIN habilitations h ON h.id = t.h')} ORDER BY t.id`);
   for (const t of titres) {
     const expire = t.validite ? iso(addMonths(parse(t.delivree), t.validite)) : null;
-    inserer.run(t.emp_id, t.h, t.id, t.delivree, t.par, expire, le);
+    await db.run(`INSERT INTO hab_delivrances (emp_id, h, titre_id, delivree, par, expire, remplacee_le, mesure, mesure_date, le, auteur, auteur_id)
+    VALUES (?, ?, ?, ?, ?, ?, NULL, NULL, NULL, ?, NULL, NULL)`, [t.emp_id, t.h, t.id, t.delivree, t.par, expire, le]);
   }
   return titres.length;
 }
@@ -37,12 +36,12 @@ export function delivrancesDepuisTitres(db: Db, le: ISODate = todayIso()): numbe
 export const HAB_DELIVRANCES: Migration = {
   nom: 'lot6-securite-hab-delivrances',
   // Base neuve : exécutée, sans effet ; base existante : seulement s'il reste des titres délivrés sans délivrance.
-  necessaire: db => db.neuve || sansDelivrance(db) > 0,
-  executer: db => {
-    const n = delivrancesDepuisTitres(db);
+  necessaire: async db => db.neuve || await sansDelivrance(db) > 0,
+  executer: async db => {
+    const n = await delivrancesDepuisTitres(db);
     if (!n) return;
     const texte = plural(n, 'délivrance en vigueur inscrite', 'délivrances en vigueur inscrites');
-    journaliser(db, {
+    await journaliser(db, {
       actor: 'Cursus', role: null, action: 'migration.habDelivrances',
       message: `Reprise : historique des habilitations amorcé (${texte})`, payload: { delivrances: n },
     });
@@ -51,8 +50,8 @@ export const HAB_DELIVRANCES: Migration = {
 };
 
 /** Formations du catalogue dont la durée en heures se lit dans le texte de la durée, sans encore de durée en heures. */
-function dureesAExtraire(db: Db): { id: string; heures: number }[] {
-  const lignes = db.sql.prepare(`SELECT id, duree FROM formations WHERE duree_heures IS NULL AND duree IS NOT NULL AND duree <> ''`).all() as { id: string; duree: string }[];
+async function dureesAExtraire(db: Db): Promise<{ id: string; heures: number }[]> {
+  const lignes = await db.query<{ id: string; duree: string }>(`SELECT id, duree FROM formations WHERE duree_heures IS NULL AND duree IS NOT NULL AND duree <> ''`);
   return lignes.flatMap(l => {
     const heures = dureeHeuresDe(l.duree);
     return heures == null ? [] : [{ id: l.id, heures }];
@@ -62,11 +61,10 @@ function dureesAExtraire(db: Db): { id: string; heures: number }[] {
 /** Durée en heures du catalogue extraite du texte (t122) ; les autres restent vides, « durée inconnue ». */
 export const DUREE_HEURES: Migration = {
   nom: 'lot6-securite-duree-heures',
-  necessaire: db => db.neuve || dureesAExtraire(db).length > 0,
-  executer: db => {
-    const a = dureesAExtraire(db);
-    const maj = db.sql.prepare('UPDATE formations SET duree_heures = ? WHERE id = ?');
-    a.forEach(x => maj.run(x.heures, x.id));
+  necessaire: async db => db.neuve || (await dureesAExtraire(db)).length > 0,
+  executer: async db => {
+    const a = await dureesAExtraire(db);
+    for (const x of a) await db.run('UPDATE formations SET duree_heures = ? WHERE id = ?', [x.heures, x.id]);
     return a.length ? plural(a.length, 'durée en heures extraite', 'durées en heures extraites') : undefined;
   },
 };

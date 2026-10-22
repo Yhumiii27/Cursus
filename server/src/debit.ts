@@ -87,12 +87,12 @@ export function tropDeRequetes(req: Request, res: Response, attente: number, quo
 export function limiterDebit(db: Db, limites = {
   ip: new LimiteurDebit(DEBIT.ip), compte: new LimiteurDebit(DEBIT.compte), microsoft: new LimiteurDebit(DEBIT.microsoft),
 }) {
-  return (req: Request, res: Response, next: NextFunction) => {
+  return async (req: Request, res: Response, next: NextFunction) => {
     const ip = req.ip ?? req.socket.remoteAddress ?? '';
     let attente = limites.ip.prendre(ip);
     if (!attente && req.path.startsWith('/auth/microsoft')) attente = limites.microsoft.prendre(ip);
     if (!attente) {
-      const compte = compteDeLaRequete(db, req);
+      const compte = await compteDeLaRequete(db, req);
       if (compte != null) attente = limites.compte.prendre(String(compte));
     }
     if (!attente) return next();

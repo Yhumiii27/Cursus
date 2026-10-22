@@ -28,12 +28,12 @@ export const MODE_VERDICTS = 'verdictsKeystoneMode';
  * Verdicts mémorisés en simulation (ou par une base antérieure à ce réglage) : jamais reçus par Keystone.
  * En mode API, ils sont oubliés, et chaque ressource suivie repart avec un premier verdict (`precedent: null`).
  */
-function oublierVerdictsSimules(db: Db) {
+async function oublierVerdictsSimules(db: Db) {
   const mode = keystoneSortant() ? 'api' : 'simulation';
-  const avant = db.getSetting<string | null>(MODE_VERDICTS, null);
+  const avant = await db.getSetting<string | null>(MODE_VERDICTS, null);
   if (mode === avant) return;
-  if (mode === 'api') db.sql.exec('DELETE FROM verdicts_keystone'); // réglage absent : base antérieure, verdicts jamais envoyés
-  db.setSetting(MODE_VERDICTS, mode);
+  if (mode === 'api') await db.exec('DELETE FROM verdicts_keystone'); // réglage absent : base antérieure, verdicts jamais envoyés
+  await db.setSetting(MODE_VERDICTS, mode);
 }
 
 /**
@@ -41,11 +41,11 @@ function oublierVerdictsSimules(db: Db) {
  * transmis, et met en file un événement pour chacun qui a changé, premier verdict compris. `initial` :
  * mémorise sans rien envoyer (jeu de démonstration). Renvoie les verdicts signalés.
  */
-export function suivreVerdicts(db: Db, { initial = false } = {}): { chantier: string; empId: number }[] {
-  oublierVerdictsSimules(db);
-  const full = loadFull(db, SUIVI);
+export async function suivreVerdicts(db: Db, { initial = false } = {}): Promise<{ chantier: string; empId: number }[]> {
+  await oublierVerdictsSimules(db);
+  const full = await loadFull(db, SUIVI);
   const d = new Domain(full);
-  const transmis = new Map(db.all<VerdictTransmis>('verdictsKeystone').map(v => [`${v.chantier}|${v.empId}`, v]));
+  const transmis = new Map((await db.all<VerdictTransmis>('verdictsKeystone')).map(v => [`${v.chantier}|${v.empId}`, v]));
   const suivis = new Set<number>(), signales: { chantier: string; empId: number }[] = [];
   const date = new Date().toISOString();
   for (const x of d.evaluateChantiers(d.enrich(full.settings.horizonAlerte, false), d.tripsAll())) {
@@ -55,10 +55,10 @@ export function suivreVerdicts(db: Db, { initial = false } = {}): { chantier: st
       const avant = transmis.get(`${x.c.id}|${r.e.id}`);
       if (avant) suivis.add(avant.id);
       if (avant && empreinte(avant.statut, avant.motifs) === empreinte(statut, motifs)) continue;
-      if (avant) db.update('verdictsKeystone', avant.id, { statut, motifs, date });
-      else db.insert('verdictsKeystone', { chantier: x.c.id, empId: r.e.id, statut, motifs, date });
+      if (avant) await db.update('verdictsKeystone', avant.id, { statut, motifs, date });
+      else await db.insert('verdictsKeystone', { chantier: x.c.id, empId: r.e.id, statut, motifs, date });
       if (initial) continue;
-      sendToKeystone(db, {
+      await sendToKeystone(db, {
         type: 'verdict.modifie', chantier: x.c.id, statut: GNG_CODE[x.status],
         ressource: { matricule: identifiantKeystone(full.settings.identifiantKeystone, r.e), statut, motifs, precedent: avant?.statut ?? null },
       });
@@ -66,23 +66,23 @@ export function suivreVerdicts(db: Db, { initial = false } = {}): { chantier: st
     }
   }
   // Ressource retirée, chantier archivé ou terminé : plus suivi ; s'il revient, son verdict repart comme un premier verdict.
-  transmis.forEach(v => { if (!suivis.has(v.id)) db.remove('verdictsKeystone', v.id); });
+  for (const v of transmis.values()) { if (!suivis.has(v.id)) await db.remove('verdictsKeystone', v.id); }
   return signales;
 }
 
 /** Recalcul au démarrage, puis à chaque changement de date (contrôlé toutes les heures) : expirations, chantiers terminés. */
-export function suivreVerdictsChaqueJour(db: Db) {
+export async function suivreVerdictsChaqueJour(db: Db) {
   let jour = '';
-  const relever = () => {
+  const relever = async () => {
     const ti = todayIso();
     if (ti === jour) return;
     try {
-      db.tx(() => suivreVerdicts(db));
+      await db.tx(async () => await suivreVerdicts(db));
       jour = ti;
     } catch (err) {
       console.error('Suivi des verdicts Go / No Go :', err);
     }
   };
-  relever();
+  await relever();
   setInterval(relever, 3600_000).unref();
 }

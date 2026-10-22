@@ -17,7 +17,7 @@ function entretien(ctx: Ctx, id: unknown) {
   return { x, e: getEmp(ctx, x.empId) };
 }
 
-const planifier: ActionHandler = (ctx, p) => {
+const planifier: ActionHandler = async (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
   refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas planifier votre propre entretien');
   if (!isValidatorOf(ctx, emp, 'entretiens')) throw new ActionError('Planification réservée au manager ou au service RH', 403);
@@ -35,19 +35,19 @@ const planifier: ActionHandler = (ctx, p) => {
   if (conflit) throw new ActionError(conflit);
   // Convocation par e-mail, avec le fichier .ics (même événement d'agenda : une reprogrammation le déplace) ; sans adresse,
   // elle est à remettre au salarié.
-  const convocation = (x: Pick<Entretien, 'id' | 'type' | 'date'>) => convoquerEntretien(ctx, emp, x)
+  const convocation = async (x: Pick<Entretien, 'id' | 'type' | 'date'>) => await convoquerEntretien(ctx, emp, x)
     ? `convocation envoyée à ${emp.nom}` : `convocation à remettre à ${emp.nom} (aucune adresse e-mail)`;
   // `planifieLe` : la date réelle saisie à la clôture n'est pas antérieure à la planification (`debutCloture`).
   if (prevu) {
-    ctx.db.update<Entretien>('entretiens', prevu.id, { date: p.date, planifieLe: ctx.d.ti });
-    return `${ENT_TYPES[kind].nom} reprogrammé le ${fmt(parse(p.date))} (prévu le ${fmt(parse(prevu.date))}${prevu.date < ctx.d.ti ? ', non tenu' : ''}) — ${convocation({ ...prevu, date: p.date })}`;
+    await ctx.db.update<Entretien>('entretiens', prevu.id, { date: p.date, planifieLe: ctx.d.ti });
+    return `${ENT_TYPES[kind].nom} reprogrammé le ${fmt(parse(p.date))} (prévu le ${fmt(parse(prevu.date))}${prevu.date < ctx.d.ti ? ', non tenu' : ''}) — ${await convocation({ ...prevu, date: p.date })}`;
   }
-  const x = ctx.db.insert<Entretien>('entretiens', { empId: emp.id, type: kind, date: p.date, statut: 'planifie', cr: {}, info: false, signSal: null, signMgr: null, planifieLe: ctx.d.ti });
-  return `${ENT_TYPES[kind].nom} planifié le ${fmt(parse(p.date))} — ${convocation(x)}`;
+  const x = await ctx.db.insert<Entretien>('entretiens', { empId: emp.id, type: kind, date: p.date, statut: 'planifie', cr: {}, info: false, signSal: null, signMgr: null, planifieLe: ctx.d.ti });
+  return `${ENT_TYPES[kind].nom} planifié le ${fmt(parse(p.date))} — ${await convocation(x)}`;
 };
 
 /** Modification d'une section du compte rendu ou de la case « information remise ». */
-const modifier: ActionHandler = (ctx, p) => {
+const modifier: ActionHandler = async (ctx, p) => {
   const { x, e } = entretien(ctx, p.id);
   refuserSoiMeme(ctx, e, 'Vous ne pouvez pas rédiger, comme évaluateur, votre propre entretien');
   const canMgr = x.statut === 'planifie' && isValidatorOf(ctx, e, 'entretiens');
@@ -60,11 +60,11 @@ const modifier: ActionHandler = (ctx, p) => {
     if (!sec) throw new ActionError('Section inconnue');
     const allowed = sec[2] === 'mgr' ? canMgr : canSal || canMgr;
     if (!allowed) throw new ActionError('Section non modifiable', 403);
-    ctx.db.update<Entretien>('entretiens', x.id, { cr: { ...x.cr, [p.section]: String(p.value ?? '') } });
+    await ctx.db.update<Entretien>('entretiens', x.id, { cr: { ...x.cr, [p.section]: String(p.value ?? '') } });
   }
   if (typeof p.info === 'boolean') {
     if (!canMgr) throw new ActionError('Réservé à l’évaluateur', 403);
-    ctx.db.update<Entretien>('entretiens', x.id, { info: p.info });
+    await ctx.db.update<Entretien>('entretiens', x.id, { info: p.info });
   }
   return null;
 };
@@ -75,7 +75,7 @@ const modifier: ActionHandler = (ctx, p) => {
  * clôt pas sur sa date prévue, ni un entretien sur une date ancienne : l'un et l'autre fausseraient l'échéance suivante
  * (tous les 4 ans) et l'état des lieux à 8 ans.
  */
-const clore: ActionHandler = (ctx, p) => {
+const clore: ActionHandler = async (ctx, p) => {
   const { x, e } = entretien(ctx, p.id);
   refuserSoiMeme(ctx, e, 'Vous ne pouvez pas clore votre propre entretien');
   if (x.statut !== 'planifie' || !isValidatorOf(ctx, e, 'entretiens')) throw new ActionError('Clôture réservée à l’évaluateur', 403);
@@ -88,15 +88,15 @@ const clore: ActionHandler = (ctx, p) => {
   }
   const debut = debutCloture(ctx.d, x);
   if (date < debut.min) throw new ActionError(`Date de l’entretien : le ${fmt(parse(debut.min))} au plus tôt (${debut.raison})`);
-  ctx.db.update<Entretien>('entretiens', x.id, { statut: 'realise', date, signMgr: ctx.d.ti });
-  notifierEntretienClos(ctx, e, { ...x, date });
+  await ctx.db.update<Entretien>('entretiens', x.id, { statut: 'realise', date, signMgr: ctx.d.ti });
+  await notifierEntretienClos(ctx, e, { ...x, date });
   return `Compte rendu clos et signé${date !== x.date ? ` — entretien daté du ${fmt(parse(date))}` : ''} — transmis au salarié pour signature`;
 };
 
-const signer: ActionHandler = (ctx, p) => {
+const signer: ActionHandler = async (ctx, p) => {
   const { x, e } = entretien(ctx, p.id);
   if (ctx.user.role !== 'collaborateur' || ctx.user.empId !== e.id || x.statut !== 'realise' || x.signSal) throw new ActionError('Signature impossible', 403);
-  ctx.db.update<Entretien>('entretiens', x.id, { signSal: ctx.d.ti });
+  await ctx.db.update<Entretien>('entretiens', x.id, { signSal: ctx.d.ti });
   return 'Compte rendu signé — votre copie est disponible dans Mes entretiens';
 };
 

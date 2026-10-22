@@ -18,7 +18,7 @@ import { droitsRh } from '../../shared/constants.ts';
 import { plural } from '../../shared/format.ts';
 import { DELAI_PIECE_EN_ATTENTE_MS, voitPiece } from '../../shared/rules/pieces.ts';
 import type { CurrentUser, ObjetPiece, Piece, StockagePieces } from '../../shared/types.ts';
-import { dossierPieces } from './chemins.ts';
+import { dossierPieces, fichierBase } from './chemins.ts';
 import type { Db, TableName } from './db.ts';
 import { DepotGed, estFichierGed } from './integrations/ged.ts';
 import { log } from './logs.ts';
@@ -80,11 +80,16 @@ export class DepotLocal implements DepotPieces {
 /** Dossier d'une base en mémoire (tests) : un dossier temporaire par base, sauf CURSUS_PIECES_DIR. */
 const temporaires = new WeakMap<Db, string>();
 
-/** Dossier des pièces de la base ouverte : à côté de son fichier réel, ou CURSUS_PIECES_DIR. */
+/**
+ * Dossier des pièces de la base ouverte : à côté de son fichier réel, ou CURSUS_PIECES_DIR. Serveur PostgreSQL (aucun
+ * fichier de base) : celui qu'aurait la base SQLite de cette installation (`pieces/` à côté de CURSUS_DB, /data/pieces
+ * dans le conteneur), à partager entre les instances.
+ */
 export function dossierPiecesDe(db: Db): string {
-  const f = db.sql.location();
+  const f = db.emplacement;
   if (f) return dossierPieces(realpathSync(f));
   if (process.env.CURSUS_PIECES_DIR) return dossierPieces('', process.env);
+  if (db.moteur === 'pg') return dossierPieces(fichierBase());
   if (!temporaires.has(db)) temporaires.set(db, mkdtempSync(join(tmpdir(), 'cursus-pieces-')));
   return temporaires.get(db)!;
 }
@@ -92,11 +97,11 @@ export function dossierPiecesDe(db: Db): string {
 export const depotLocal = (db: Db) => new DepotLocal(dossierPiecesDe(db));
 
 /** Réglage en vigueur (clé `app` de la table settings, comme loadSettings de dataset.ts). */
-export const stockagePieces = (db: Db): StockagePieces => db.getSetting<{ piecesStockage?: StockagePieces }>('app', {}).piecesStockage ?? 'desactive';
+export const stockagePieces = async (db: Db): Promise<StockagePieces> => (await db.getSetting<{ piecesStockage?: StockagePieces }>('app', {})).piecesStockage ?? 'desactive';
 
 /** Dépôt où écrire une nouvelle pièce, selon le réglage ; null si la fonction est désactivée. */
-export function depotEcriture(db: Db): DepotPieces | null {
-  const s = stockagePieces(db);
+export async function depotEcriture(db: Db): Promise<DepotPieces | null> {
+  const s = await stockagePieces(db);
   return s === 'local' ? depotLocal(db) : s === 'ged' ? new DepotGed() : null;
 }
 
@@ -130,8 +135,8 @@ function description(p: PieceEnregistree): Piece {
 }
 
 /** Pièces jointes à un objet (les pièces en attente, sans objet, n'en font pas partie), pour l'instantané complet. */
-export function lirePieces(db: Db): Piece[] {
-  return db.all<PieceEnregistree>('pieces').filter(p => p.objet && p.objetId && p.empId).map(description);
+export async function lirePieces(db: Db): Promise<Piece[]> {
+  return (await db.all<PieceEnregistree>('pieces')).filter(p => p.objet && p.objetId && p.empId).map(description);
 }
 
 /**
@@ -155,19 +160,19 @@ export interface BilanNettoyage { enAttente: number; retirees: number; orphelins
  */
 export async function nettoyerPieces(db: Db, maintenant = Date.now()): Promise<BilanNettoyage> {
   const limite = new Date(maintenant - DELAI_PIECE_EN_ATTENTE_MS).toISOString();
-  const attente = db.sql.prepare('SELECT id, fichier FROM pieces WHERE objet IS NULL AND depose_le < ?').all(limite) as { id: number; fichier: string | null }[];
-  if (attente.length) db.tx(() => attente.forEach(p => db.remove('pieces', p.id)));
-  const retirees = db.sql.prepare('SELECT id, fichier FROM pieces WHERE retiree_le IS NOT NULL AND fichier IS NOT NULL').all() as { id: number; fichier: string }[];
+  const attente = (await db.query('SELECT id, fichier FROM pieces WHERE objet IS NULL AND depose_le < ?', [limite])) as { id: number; fichier: string | null }[];
+  if (attente.length) await db.tx(async () => { for (const p of attente) await db.remove('pieces', p.id); });
+  const retirees = (await db.query('SELECT id, fichier FROM pieces WHERE retiree_le IS NOT NULL AND fichier IS NOT NULL')) as { id: number; fichier: string }[];
   for (const p of attente) {
     if (p.fichier) await depotDe(db, p.fichier).supprimer(p.fichier).catch(() => { /* fichier sans pièce, repris plus bas */ });
   }
   for (const p of retirees) {
     try { await depotDe(db, p.fichier).supprimer(p.fichier); } catch { continue; /* GED injoignable : nouvel essai à l'heure suivante */ }
     // Pièce de nouveau en vigueur entre-temps (restauration) : son nom stocké reste.
-    db.tx(() => { if (db.get<PieceEnregistree>('pieces', p.id)?.retireeLe) db.update('pieces', p.id, { fichier: null }); });
+    await db.tx(async () => { if ((await db.get<PieceEnregistree>('pieces', p.id))?.retireeLe) await db.update('pieces', p.id, { fichier: null }); });
   }
   const local = depotLocal(db);
-  const designes = new Set((db.sql.prepare('SELECT fichier FROM pieces WHERE fichier IS NOT NULL').all() as { fichier: string }[]).map(r => r.fichier));
+  const designes = new Set(((await db.query('SELECT fichier FROM pieces WHERE fichier IS NOT NULL')) as { fichier: string }[]).map(r => r.fichier));
   let orphelins = 0;
   for (const f of local.lister()) {
     if (designes.has(f)) continue;
@@ -181,19 +186,24 @@ export async function nettoyerPieces(db: Db, maintenant = Date.now()): Promise<B
 }
 
 /** Nettoyage en tâche de fond : bilan dans les journaux du serveur s'il a effacé quelque chose. */
-function passer(db: Db) {
-  nettoyerPieces(db).then(b => { if (bilanTexte(b)) log.info(`Pièces justificatives : ${bilanTexte(b)}`); }, err => log.erreur(`Pièces justificatives : ${err instanceof Error ? err.message : err}`));
+async function passer(db: Db) {
+  try {
+    const b = await nettoyerPieces(db);
+    if (bilanTexte(b)) log.info(`Pièces justificatives : ${bilanTexte(b)}`);
+  } catch (err) {
+    log.erreur(`Pièces justificatives : ${err instanceof Error ? err.message : err}`);
+  }
 }
 
 /** Nettoyage après la validation d'une action qui retire des pièces : jamais dans sa transaction (annulable). */
 export function nettoyerBientot(db: Db) {
-  setImmediate(() => passer(db));
+  setImmediate(async () => await passer(db));
 }
 
 /** Au démarrage puis toutes les heures (server/src/index.ts) ; renvoie la fonction d'arrêt. */
-export function demarrerPieces(db: Db): () => void {
-  passer(db);
-  const t = setInterval(() => passer(db), 3600_000);
+export async function demarrerPieces(db: Db): Promise<() => void> {
+  await passer(db);
+  const t = setInterval(async () => await passer(db), 3600_000);
   t.unref();
   return () => clearInterval(t);
 }
@@ -204,8 +214,8 @@ export function demarrerPieces(db: Db): () => void {
  * Pièces du dépôt local dont le fichier manque ou n'a pas la taille enregistrée (lecture seule, sans lire les contenus :
  * l'empreinte est vérifiée à chaque téléchargement). Nombres seulement, sous des clés lisibles du contrôle d'intégrité.
  */
-export function controlerPieces(db: Db): Record<string, number> {
-  const lignes = db.sql.prepare('SELECT fichier, taille FROM pieces WHERE fichier IS NOT NULL').all() as { fichier: string; taille: number }[];
+export async function controlerPieces(db: Db): Promise<Record<string, number>> {
+  const lignes = (await db.query('SELECT fichier, taille FROM pieces WHERE fichier IS NOT NULL')) as { fichier: string; taille: number }[];
   const locales = lignes.filter(l => !estFichierGed(l.fichier));
   if (!locales.length) return {};
   const dossier = dossierPiecesDe(db);

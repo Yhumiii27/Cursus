@@ -14,7 +14,7 @@ import { CATEGORIES, CATEGORIES_CONSERVATION, categoriesEchues, conservationActi
 import type { CategorieConservation, DossierEchu, Employe, ISODate, Settings } from '../../shared/types.ts';
 import { journaliser } from './comptes.ts';
 import { loadSettings, todayIso } from './dataset.ts';
-import { snake, TABLES, type Db } from './db.ts';
+import { snake, type SqlValeur, TABLES, type Db } from './db.ts';
 import { log } from './logs.ts';
 import { lireMessagerie } from './messagerie.ts';
 import { nettoyerBientot } from './pieces.ts';
@@ -86,23 +86,23 @@ interface Etape { table: string; ou: string; supprimer?: true; vider?: readonly 
 /** Pièces retirées (fichier effacé après la validation, description gardée). */
 const retrait = (cx: Cx, ou: string): Etape => ({ table: 'pieces', ou: `${ou} AND retiree_le IS NULL`, poser: { retiree_le: cx.le, retiree_par: cx.par, retiree_motif: 'Durée de conservation échue' } });
 /** Déclarations d'un document (passeport, visa, vaccin) faites par le salarié. */
-const declarations = (kinds: string) => `emp_id = ? AND type = 'document' AND json_extract(declaration, '$.kind') IN (${kinds})`;
+const declarations = (db: Db, kinds: string) => `emp_id = ? AND type = 'document' AND ${db.jsonCle('declaration', 'kind')} IN (${kinds})`;
 
 /** Contexte d'un effacement : jour, auteur. */
 export interface Cx { ti: ISODate; le: string; par: string }
 
 /** Étapes propres à chaque catégorie, dans l'ordre (les pièces d'un objet avant l'objet). */
-function etapes(cat: CategorieConservation, cx: Cx, empId: number): Etape[] {
+function etapes(db: Db, cat: CategorieConservation, cx: Cx, empId: number): Etape[] {
   switch (cat) {
     case 'passeport': return [
-      retrait(cx, `emp_id = ? AND objet = 'declaration' AND objet_id IN (SELECT id FROM demandes_collab WHERE ${declarations(`'passeport', 'visa'`)})`),
-      { table: 'demandes_collab', ou: declarations(`'passeport', 'visa'`), supprimer: true },
+      retrait(cx, `emp_id = ? AND objet = 'declaration' AND objet_id IN (SELECT id FROM demandes_collab WHERE ${declarations(db, `'passeport', 'visa'`)})`),
+      { table: 'demandes_collab', ou: declarations(db, `'passeport', 'visa'`), supprimer: true },
       { table: 'visas', ou: 'emp_id = ?', supprimer: true },
       { table: 'employes', ou: 'id = ?', vider: ['passeport_numero', 'passeport_expire'] },
     ];
     case 'sante': return [
-      retrait(cx, `emp_id = ? AND objet = 'declaration' AND objet_id IN (SELECT id FROM demandes_collab WHERE ${declarations(`'vaccin'`)})`),
-      { table: 'demandes_collab', ou: declarations(`'vaccin'`), supprimer: true },
+      retrait(cx, `emp_id = ? AND objet = 'declaration' AND objet_id IN (SELECT id FROM demandes_collab WHERE ${declarations(db, `'vaccin'`)})`),
+      { table: 'demandes_collab', ou: declarations(db, `'vaccin'`), supprimer: true },
       { table: 'vaccinations', ou: 'emp_id = ?', supprimer: true },
       { table: 'demandes_visite', ou: 'emp_id = ?', supprimer: true },
       { table: 'employes', ou: 'id = ?', vider: ['visite', 'avis', 'restrictions', 'suivi', 'prochaine_visite', 'examen_aptitude', 'expose', 'reprise_motif', 'reprise_date'] },
@@ -155,30 +155,56 @@ function etapes(cat: CategorieConservation, cx: Cx, empId: number): Etape[] {
   }
 }
 
-/** Valeur considérée comme vide (rien à effacer) : NULL, chaîne vide, liste vide, case décochée. */
-const renseignee = (c: string) => `(${c} IS NOT NULL AND ${c} NOT IN ('', '[]', 0))`;
+/** Type déclaré (TABLES) de chaque colonne, par noms SQL : « table.colonne ». */
+const TYPES_SQL = new Map(Object.entries(TABLES as Record<string, { cols: Record<string, string> }>)
+  .flatMap(([t, def]) => Object.entries(def.cols).map(([c, type]) => [`${snake(t)}.${snake(c)}`, type] as const)));
+
+/**
+ * Valeur considérée comme vide (rien à effacer) : NULL, chaîne vide, liste vide, case décochée, zéro. Condition écrite
+ * d'après le type de la colonne, commune aux deux moteurs (en PostgreSQL, une date ou un booléen ne se compare pas à '').
+ */
+function renseignee(table: string, c: string): string {
+  switch (TYPES_SQL.get(`${table}.${c}`)) {
+    case 'bool': return `(${c} IS NOT NULL AND ${c} = TRUE)`;
+    case 'int': case 'real': return `(${c} IS NOT NULL AND ${c} <> 0)`;
+    default: return `(${c} IS NOT NULL AND CAST(${c} AS text) NOT IN ('', '[]'))`;
+  }
+}
 const lier = (ou: string, empId: number) => Array.from({ length: (ou.match(/\?/g) ?? []).length }, () => empId);
 
 /** Lignes ou valeurs qu'une étape effacerait encore. */
-function compter(db: Db, e: Etape, empId: number): number {
-  const reste = e.vider && !e.poser && !e.sql ? ` AND (${e.vider.map(renseignee).join(' OR ')})` : '';
-  return Number((db.sql.prepare(`SELECT COUNT(*) AS n FROM ${e.table} WHERE ${e.ou}${reste}`).get(...lier(e.ou, empId)) as { n: number }).n);
+async function compter(db: Db, e: Etape, empId: number): Promise<number> {
+  const reste = e.vider && !e.poser && !e.sql ? ` AND (${e.vider.map(c => renseignee(e.table, c)).join(' OR ')})` : '';
+  return Number((await db.one<{ n: number }>(`SELECT COUNT(*) AS n FROM ${e.table} WHERE ${e.ou}${reste}`, lier(e.ou, empId)))?.n ?? 0);
 }
 
-function appliquer(db: Db, e: Etape, empId: number): number {
-  if (e.supprimer) return Number(db.sql.prepare(`DELETE FROM ${e.table} WHERE ${e.ou}`).run(...lier(e.ou, empId)).changes);
-  const n = compter(db, e, empId);
+async function appliquer(db: Db, e: Etape, empId: number): Promise<number> {
+  if (e.supprimer) return Number((await db.run(`DELETE FROM ${e.table} WHERE ${e.ou}`, lier(e.ou, empId))).changes);
+  const n = await compter(db, e, empId);
   if (!n) return 0;
-  const sets = [...(e.vider ?? []).map(c => `${c} = NULL`), ...Object.keys(e.poser ?? {}).map(c => `${c} = ?`), ...Object.entries(e.sql ?? {}).map(([c, x]) => `${c} = ${x}`)];
-  db.sql.prepare(`UPDATE ${e.table} SET ${sets.join(', ')} WHERE ${e.ou}`).run(...Object.values(e.poser ?? {}) as (string | number)[], ...lier(e.ou, empId));
+  // Case à cocher vidée : décochée (FALSE ; colonne NOT NULL en PostgreSQL, lue faux comme NULL en SQLite).
+  const sets = [...(e.vider ?? []).map(c => `${c} = ${TYPES_SQL.get(`${e.table}.${c}`) === 'bool' ? 'FALSE' : 'NULL'}`), ...Object.keys(e.poser ?? {}).map(c => `${c} = ?`), ...Object.entries(e.sql ?? {}).map(([c, x]) => `${c} = ${x}`)];
+  await db.run(`UPDATE ${e.table} SET ${sets.join(', ')} WHERE ${e.ou}`, [...Object.values(e.poser ?? {}) as (string | number)[], ...lier(e.ou, empId)]);
   return n;
 }
 
 const cxNeutre = (ti: ISODate): Cx => ({ ti, le: '', par: '' });
 
 /** Données d'une catégorie partielle encore présentes (lignes et valeurs). */
-export function aEffacer(db: Db, empId: number, cat: CategorieConservation): number {
-  return etapes(cat, cxNeutre(''), empId).reduce((n, e) => n + compter(db, e, empId), 0);
+export async function aEffacer(db: Db, empId: number, cat: CategorieConservation): Promise<number> {
+  let n = 0;
+  for (const e of etapes(db, cat, cxNeutre(''), empId)) n += await compter(db, e, empId);
+  return n;
+}
+
+/**
+ * Données encore présentes de chaque catégorie donnée (`aEffacer`), lues d'avance : les règles de shared/ les demandent
+ * par une fonction synchrone (`aDesDonnees` de `categoriesEchues`, `categoriesDroitEffacement`).
+ */
+export async function quantitesAEffacer(db: Db, empId: number, categories: readonly CategorieConservation[]): Promise<Map<CategorieConservation, number>> {
+  const out = new Map<CategorieConservation, number>();
+  for (const c of new Set(categories)) out.set(c, await aEffacer(db, empId, c));
+  return out;
 }
 
 /**
@@ -186,14 +212,20 @@ export function aEffacer(db: Db, empId: number, cat: CategorieConservation): num
  * échue (une catégorie déjà effacée revient si des données y ont été saisies depuis), ou dont le dossier est échu. Vide
  * tant que la fonction n'est pas activée avec la décision du DPO.
  */
-export function dossiersEchus(db: Db, s: Settings = loadSettings(db), ti: ISODate = todayIso()): DossierEchu[] {
+export async function dossiersEchus(db: Db, s?: Settings, ti: ISODate = todayIso()): Promise<DossierEchu[]> {
+  s ??= await loadSettings(db);
   if (!conservationActive(s)) return [];
-  const sortis = db.sql.prepare('SELECT id, fin FROM employes WHERE fin IS NOT NULL AND fin < ? AND anonymise_le IS NULL ORDER BY fin, id').all(ti) as { id: number; fin: string }[];
+  const sortis = await db.query<{ id: number; fin: string }>('SELECT id, fin FROM employes WHERE fin IS NOT NULL AND fin < ? AND anonymise_le IS NULL ORDER BY fin, id', [ti]);
   const out: DossierEchu[] = [];
   for (const e of sortis) {
-    const r = categoriesEchues(e, s, ti, c => aEffacer(db, e.id, c) > 0);
+    // Catégories échues sans regarder les données (aucune lecture pour un dossier dont rien n'est échu), puis données
+    // de celles-là seulement : même sélection que si chaque catégorie était comptée à la demande.
+    const candidates = categoriesEchues(e, s, ti);
+    if (!candidates) continue;
+    const quantites = await quantitesAEffacer(db, e.id, candidates.categories);
+    const r = categoriesEchues(e, s, ti, c => (quantites.get(c) ?? 0) > 0);
     if (!r) continue;
-    const elements = r.categories.reduce((n, c) => n + aEffacer(db, e.id, c), 0);
+    const elements = r.categories.reduce((n, c) => n + (quantites.get(c) ?? 0), 0);
     out.push({ empId: e.id, fin: e.fin, categories: r.categories, dossier: r.dossier, elements });
   }
   return out;
@@ -206,9 +238,9 @@ export function dossiersEchus(db: Db, s: Settings = loadSettings(db), ti: ISODat
  * n'est retenu que s'il est une adresse complète : un identifiant local (« marc », « paie ») est souvent un mot courant.
  * Un terme sans espace ni « @ » (nom d'un seul mot) doit avoir 8 caractères au moins, les autres 4.
  */
-function identite(db: Db, empId: number): string[] {
-  const e = db.get<Employe>('employes', empId);
-  const comptes = db.sql.prepare('SELECT nom, adresse, identifiant FROM comptes WHERE emp_id = ?').all(empId) as { nom: string | null; adresse: string | null; identifiant: string | null }[];
+async function identite(db: Db, empId: number): Promise<string[]> {
+  const e = await db.get<Employe>('employes', empId);
+  const comptes = await db.query<{ nom: string | null; adresse: string | null; identifiant: string | null }>('SELECT nom, adresse, identifiant FROM comptes WHERE emp_id = ?', [empId]);
   return [...new Set([e?.nom, e?.email, ...comptes.flatMap(c => [c.nom, c.adresse, c.identifiant?.includes('@') ? c.identifiant : null])]
     .filter((t): t is string => typeof t === 'string').map(t => t.trim())
     .filter(t => t.length >= (/[\s@]/.test(t) ? 4 : 8)))]
@@ -239,24 +271,28 @@ export const motifTerme = (t: string) => new RegExp(`(?<![\\p{L}\\p{N}_@.-])${ec
  * d'autres dossiers, motif de la trace de l'effacement…). Les lignes candidates sont repérées en SQL, le remplacement
  * borné est fait ici. Renvoie le nombre de valeurs modifiées.
  */
-export function retirerIdentite(db: Db, empId: number, termes: readonly string[], neutre: string): number {
+export async function retirerIdentite(db: Db, empId: number, termes: readonly string[], neutre: string): Promise<number> {
   if (!termes.length) return 0;
   let n = 0;
-  for (const [table, def] of Object.entries(TABLES) as [string, { cols: Record<string, string> }][]) {
+  for (const [table, def] of Object.entries(TABLES) as [string, { pk: string; cols: Record<string, string> }][]) {
     const t = snake(table);
     if (TABLES_EXCLUES.has(t)) continue;
     const borne = LIGNES_DU_SALARIE[t];
+    // Ligne désignée par sa clé (PostgreSQL n'a pas de rowid) ; valeur lue en texte (JSON compris : le texte écrit).
+    const cle = snake(def.pk);
     for (const [col, type] of Object.entries(def.cols)) {
       const c = snake(col);
       if ((type !== 'text' && type !== 'json') || COLONNES_EXCLUES.has(`${t}.${c}`)) continue;
       // JSON : le terme aussi tel qu'il est écrit dans une chaîne JSON (guillemets et barres obliques échappés).
       const formes = [...new Set(termes.flatMap(x => [x, ...(type === 'json' ? [JSON.stringify(x).slice(1, -1)] : [])]))].sort((a, b) => b.length - a.length);
-      const lignes = db.sql.prepare(`SELECT rowid AS r, ${c} AS v FROM ${t} WHERE (${formes.map(() => `instr(lower(${c}), lower(?)) > 0`).join(' OR ')})${borne ? ` AND ${borne} = ?` : ''}`)
-        .all(...formes, ...(borne ? [empId] : [])) as { r: number; v: string }[];
+      // Lignes candidates (sous-chaîne, sans tenir compte de la casse ; un « _ » ou un « % » du terme élargit seulement la
+      // sélection) ; le remplacement borné est fait ici.
+      const lignes = await db.query<{ r: SqlValeur; v: string }>(`SELECT ${cle} AS r, CAST(${c} AS text) AS v FROM ${t} WHERE (${formes.map(() => `lower(CAST(${c} AS text)) LIKE '%' || lower(CAST(? AS text)) || '%'`).join(' OR ')})${borne ? ` AND ${borne} = ?` : ''}`,
+        [...formes, ...(borne ? [empId] : [])]);
       for (const l of lignes) {
         const v = formes.reduce((x, f) => x.replace(motifTerme(f), neutre), l.v);
         if (v === l.v) continue;
-        db.sql.prepare(`UPDATE ${t} SET ${c} = ? WHERE rowid = ?`).run(v, l.r);
+        await db.run(`UPDATE ${t} SET ${c} = ? WHERE ${cle} = ?`, [v, l.r]);
         n++;
       }
     }
@@ -270,14 +306,14 @@ export function retirerIdentite(db: Db, empId: number, termes: readonly string[]
  * (table `effacements`, écrite avant le balayage : un motif qui nomme le salarié ne garde pas son nom). Dans la
  * transaction de l'action ; les fichiers des pièces sont effacés après sa validation. Renvoie le nombre d'éléments effacés.
  */
-export function effacer(db: Db, empId: number, categories: readonly CategorieConservation[], cx: Cx, o: { motif: string; avantEcheance: boolean }): number {
+export async function effacer(db: Db, empId: number, categories: readonly CategorieConservation[], cx: Cx, o: { motif: string; avantEcheance: boolean }): Promise<number> {
   const dossier = categories.includes('dossier');
   const liste = dossier ? [...CATEGORIES.filter(c => c !== 'dossier'), 'dossier' as const] : categories.filter(c => c !== 'dossier');
-  const termes = dossier ? identite(db, empId) : [];
+  const termes = dossier ? await identite(db, empId) : [];
   let elements = 0;
-  for (const c of liste) for (const e of etapes(c, cx, empId)) elements += appliquer(db, e, empId);
-  db.insert('effacements', { empId, categories: liste, le: cx.le, par: cx.par, motif: o.motif, avantEcheance: o.avantEcheance, elements });
-  if (dossier) retirerIdentite(db, empId, termes, nomAnonyme(empId));
+  for (const c of liste) for (const e of etapes(db, c, cx, empId)) elements += await appliquer(db, e, empId);
+  await db.insert('effacements', { empId, categories: liste, le: cx.le, par: cx.par, motif: o.motif, avantEcheance: o.avantEcheance, elements });
+  if (dossier) await retirerIdentite(db, empId, termes, nomAnonyme(empId));
   nettoyerBientot(db);
   return elements;
 }
@@ -292,23 +328,24 @@ const VERIFIEE_LE = 'conservationVerifieeLe', SIGNALES = 'conservationSignales';
  * son récapitulatif quotidien) et ligne au journal, sans nom (nombre et identifiants). Rien n'est effacé. Renvoie le
  * nombre de dossiers échus, null si le passage du jour est déjà fait.
  */
-export function verifierConservation(db: Db, ti: ISODate = todayIso()): number | null {
-  if (db.getSetting<string | null>(VERIFIEE_LE, null) === ti) return null;
-  return db.tx(() => {
-    db.setSetting(VERIFIEE_LE, ti);
-    const echus = dossiersEchus(db, loadSettings(db), ti);
-    const signales = new Set(db.getSetting<number[]>(SIGNALES, []));
+export async function verifierConservation(db: Db, ti: ISODate = todayIso()): Promise<number | null> {
+  // Jour du dernier passage lu dans la transaction qui le note : deux passages simultanés n'en font qu'un.
+  return await db.tx(async () => {
+    if (await db.getSetting<string | null>(VERIFIEE_LE, null) === ti) return null;
+    await db.setSetting(VERIFIEE_LE, ti);
+    const echus = await dossiersEchus(db, await loadSettings(db), ti);
+    const signales = new Set(await db.getSetting<number[]>(SIGNALES, []));
     const nouveaux = echus.filter(d => !signales.has(d.empId));
-    db.setSetting(SIGNALES, echus.map(d => d.empId));
+    await db.setSetting(SIGNALES, echus.map(d => d.empId));
     if (!nouveaux.length) return echus.length;
-    const rh = lireMessagerie(db).rh;
+    const rh = (await lireMessagerie(db)).rh;
     const texte = `${plural(echus.length, 'dossier de salarié sorti a', 'dossiers de salariés sortis ont')} une durée de conservation échue `
       + `(${plural(nouveaux.length, 'nouveau', 'nouveaux')} depuis le dernier signalement). Cursus n’efface rien de lui-même : l’administrateur RH les examine `
       + 'et confirme chaque effacement dans Paramètres → Conservation des dossiers.';
     if (rh) {
-      db.insert('notifications', { empId: null, adresse: rh, type: 'conservation.echus', objet: 'Dossiers de salariés sortis à effacer', texte, creation: new Date().toISOString(), envoiId: null });
+      await db.insert('notifications', { empId: null, adresse: rh, type: 'conservation.echus', objet: 'Dossiers de salariés sortis à effacer', texte, creation: new Date().toISOString(), envoiId: null });
     }
-    journaliser(db, {
+    await journaliser(db, {
       actor: 'Cursus', role: null, action: 'conservation.signalement', message: `Conservation des dossiers au ${fmtIso(ti)} : ${texte.split(' (')[0]}`,
       payload: { echus: echus.length, nouveaux: nouveaux.map(d => d.empId) }, salaries: nouveaux.map(d => d.empId),
     });
@@ -317,12 +354,12 @@ export function verifierConservation(db: Db, ti: ISODate = todayIso()): number |
 }
 
 /** Au démarrage puis toutes les heures (un passage par jour) ; renvoie la fonction d'arrêt (server/src/index.ts). */
-export function demarrerConservation(db: Db): () => void {
-  const passer = () => {
-    try { verifierConservation(db); } catch (err) { log.erreur(`Conservation des dossiers : ${err instanceof Error ? err.message : err}`); }
+export async function demarrerConservation(db: Db): Promise<() => void> {
+  const passer = async () => {
+    try { await verifierConservation(db); } catch (err) { log.erreur(`Conservation des dossiers : ${err instanceof Error ? err.message : err}`); }
   };
-  passer();
-  const t = setInterval(passer, 3600_000);
+  await passer();
+  const t = setInterval(async () => await passer(), 3600_000);
   t.unref();
   return () => clearInterval(t);
 }

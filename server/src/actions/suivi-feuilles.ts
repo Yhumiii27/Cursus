@@ -32,7 +32,7 @@ function perimetre(ctx: Ctx): Employe[] {
  * des semaines suivies (réglage `suiviSemaines`) manquantes, en brouillon ou à corriger, une fois leur échéance passée.
  * Chaque salarié reçoit ses semaines, chaque valideur (manager direct, sinon la boîte du service RH) ses membres.
  */
-const relancer: ActionHandler = (ctx, p) => {
+const relancer: ActionHandler = async (ctx, p) => {
   exigerValideur(ctx, 'Relance des feuilles de temps');
   let emps = perimetre(ctx);
   if (p.empId !== undefined && p.empId !== null) {
@@ -47,13 +47,13 @@ const relancer: ActionHandler = (ctx, p) => {
   if (!retards.length) throw new ActionError('Aucune feuille de temps en retard à relancer');
   const parValideur = new Map<number, typeof retards>();
   for (const r of retards) {
-    notifierRelanceFeuilles(ctx, r.emp, r.feuilles);
+    await notifierRelanceFeuilles(ctx, r.emp, r.feuilles);
     const v = ctx.d.mgrOf(r.emp);
     parValideur.set(v, [...(parValideur.get(v) ?? []), r]);
   }
-  for (const [v, liste] of parValideur) notifierRelanceValideur(ctx, v, liste);
+  for (const [v, liste] of parValideur) await notifierRelanceValideur(ctx, v, liste);
   // Valideurs en délégation (t135) : le suppléant d'un manager absent est relancé pour les membres dont il décide.
-  notifierRelanceSuppleants(ctx, retards);
+  await notifierRelanceSuppleants(ctx, retards);
   const n = retards.reduce((k, r) => k + r.feuilles.length, 0);
   return {
     message: `Relance envoyée pour ${plural(n, 'feuille de temps', 'feuilles de temps')} — ${retards.length > 1 ? `${retards.length} collaborateurs` : retards[0].emp.nom} et ${parValideur.size > 1 ? 'leurs valideurs' : 'son valideur'}`,
@@ -71,7 +71,7 @@ const ALERTES_MAX = 5;
  * (SAVEPOINT) : un refus annule ce qu'elle aurait écrit et s'ajoute à la liste, les autres sont validées. Aucune
  * validée : refus (403 si toutes l'étaient pour des droits, sinon 400 avec la liste).
  */
-const validerLot: ActionHandler = (ctx, p) => {
+const validerLot: ActionHandler = async (ctx, p) => {
   exigerValideur(ctx, 'Validation des feuilles de temps');
   const liste = Array.isArray(p.feuilles) ? p.feuilles as unknown[] : [];
   const demandees = liste.flatMap(x => {
@@ -85,19 +85,19 @@ const validerLot: ActionHandler = (ctx, p) => {
   const alertes: { empId: number; week: string; texte: string }[] = [];
   const refus: { empId: number; week: string; raison: string; status: number }[] = [];
   for (const f of demandees) {
-    ctx.db.sql.exec('SAVEPOINT validation_groupee');
+    await ctx.db.exec('SAVEPOINT validation_groupee');
     try {
       // Instantané relu pour chaque feuille : la précédente a pu changer un relevé ou une feuille voisine.
       // Contexte de la feuille, dont la signature « par délégation de » (t135) rejoint celle de la validation groupée.
-      const sous = makeCtx(ctx.db, ctx.user, loadFull(ctx.db, ctx.user));
-      const v = validerFeuille(sous, f);
-      ctx.db.sql.exec('RELEASE validation_groupee');
-      sous.parDelegation.forEach(m => ctx.parDelegation.add(m));
+      const sous = makeCtx(ctx.db, ctx.user, await loadFull(ctx.db, ctx.user));
+      const v = await validerFeuille(sous, f);
+      await ctx.db.exec('RELEASE validation_groupee');
+      for (const m of sous.parDelegation) ctx.parDelegation.add(m);
       validees.push(f);
       alertes.push(...v.alertes.map(texte => ({ ...f, texte })));
     } catch (err) {
-      ctx.db.sql.exec('ROLLBACK TO validation_groupee');
-      ctx.db.sql.exec('RELEASE validation_groupee');
+      await ctx.db.exec('ROLLBACK TO validation_groupee');
+      await ctx.db.exec('RELEASE validation_groupee');
       if (!(err instanceof ActionError)) throw err;
       refus.push({ ...f, raison: err.message, status: err.status });
     }

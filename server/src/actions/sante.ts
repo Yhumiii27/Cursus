@@ -19,7 +19,7 @@ import { ActionError, getEmp, requireRh, type ActionHandler, type Ctx } from './
  * service de santé au travail (adresse de Paramètres → Messagerie), dans la même transaction, sans aucune donnée
  * médicale (comme la demande imprimable) ; sans adresse, le service RH transmet la demande imprimée.
  */
-const demanderVisite: ActionHandler = (ctx, p) => {
+const demanderVisite: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const emp = getEmp(ctx, p.empId);
   // Salarié sorti : plus de visite à demander (une demande faite avant la date reste suivie jusqu'au départ).
@@ -31,8 +31,8 @@ const demanderVisite: ActionHandler = (ctx, p) => {
   // ou renouvellement.
   const motif = p.motif == null || p.motif === '' ? motifParDefaut(emp, visitesDues(ctx.d, emp)) : p.motif;
   if (!estMotifVisite(motif)) throw new ActionError('Motif de visite inconnu');
-  const x = ctx.db.insert<DemandeVisite>('demandesVisite', { empId: emp.id, motif, le: ctx.d.ti, par: ctx.user.nom, statut: 'demandee', closeLe: null, closePar: null });
-  const envoyee = transmettreDemandeVisite(ctx, emp, x);
+  const x = await ctx.db.insert<DemandeVisite>('demandesVisite', { empId: emp.id, motif, le: ctx.d.ti, par: ctx.user.nom, statut: 'demandee', closeLe: null, closePar: null });
+  const envoyee = await transmettreDemandeVisite(ctx, emp, x);
   return {
     message: `Visite médicale demandée — ${emp.nom} (${MOTIFS_VISITE[motif].court}) · ${envoyee
       ? 'demande envoyée au service de santé au travail' : 'demande à imprimer pour le service de santé au travail (aucune adresse dans Paramètres → Messagerie)'}`,
@@ -41,12 +41,12 @@ const demanderVisite: ActionHandler = (ctx, p) => {
 };
 
 /** Annule une demande en cours (faite par erreur, salarié sorti…) : le service RH peut en faire une nouvelle. */
-const annulerVisite: ActionHandler = (ctx, p) => {
+const annulerVisite: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const x = ctx.ds.demandesVisite.find(v => v.id === Number(p.id));
   if (!x || x.statut !== 'demandee') throw new ActionError('Demande de visite introuvable ou déjà close');
   const emp = getEmp(ctx, x.empId);
-  ctx.db.update<DemandeVisite>('demandesVisite', x.id, { statut: 'annulee', closeLe: ctx.d.ti, closePar: ctx.user.nom });
+  await ctx.db.update<DemandeVisite>('demandesVisite', x.id, { statut: 'annulee', closeLe: ctx.d.ti, closePar: ctx.user.nom });
   return `Demande de visite annulée — ${emp.nom}`;
 };
 
@@ -70,7 +70,7 @@ function titres(ctx: Ctx, emp: Employe, v: unknown): { hm: HabType; t: HabTitre 
  * soit sa date, ou, sans demande, s'enregistre comme visite réalisée de ce motif (convocation directe du service de santé
  * au travail, visite antérieure à la mise en service) : la visite due qu'elle honore est close à sa vraie date.
  */
-const enregistrerAvis: ActionHandler = (ctx, p) => {
+const enregistrerAvis: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const emp = getEmp(ctx, p.empId);
   const { avis: a, errors } = controlerAvis(p, ctx.d.ti);
@@ -90,25 +90,25 @@ const enregistrerAvis: ActionHandler = (ctx, p) => {
 
   // Prochaine visite fixée par le médecin : celle de cet avis, ou aucune (périodicité du type de suivi). Examen médical
   // d'aptitude du suivi renforcé : sa date, le dernier examen restant connu après une visite intermédiaire.
-  ctx.db.update('employes', emp.id, {
+  await ctx.db.update('employes', emp.id, {
     visite: a.date, avis: a.avis, restrictions: a.restrictions, prochaineVisite: a.prochaineVisite,
     ...(a.examen ? { examenAptitude: a.date } : {}),
   });
   // Suspension datée du jour de la décision, et non de la visite : le manager voit la date d'une mesure, jamais celle d'une visite.
-  suspendre.forEach(({ t }) => ctx.db.update<HabTitre>('habTitres', t.id, {
+  for (const { t } of suspendre) await ctx.db.update<HabTitre>('habTitres', t.id, {
     mesure: 'suspension', mesureDate: ctx.d.ti < t.delivree! ? t.delivree : ctx.d.ti, mesureMotif: MOTIF_RESTRICTION, mesurePar: ctx.user.nom,
-  }));
-  lever.forEach(({ t }) => ctx.db.update<HabTitre>('habTitres', t.id, { mesure: null, mesureDate: null, mesureMotif: null, mesurePar: null }));
+  });
+  for (const { t } of lever) await ctx.db.update<HabTitre>('habTitres', t.id, { mesure: null, mesureDate: null, mesureMotif: null, mesurePar: null });
   // La visite clôt les demandes qu'elle honore : faites au plus tard le jour de la visite, ou de son motif quelle que soit
   // leur date (demande faite après une visite déjà passée).
   const closes = ctx.ds.demandesVisite.filter(x => x.empId === emp.id && x.statut === 'demandee' && (x.le <= a.date || x.motif === motif));
-  closes.forEach(x => ctx.db.update<DemandeVisite>('demandesVisite', x.id, { statut: 'realisee', closeLe: a.date, closePar: ctx.user.nom }));
+  for (const x of closes) await ctx.db.update<DemandeVisite>('demandesVisite', x.id, { statut: 'realisee', closeLe: a.date, closePar: ctx.user.nom });
   // Visite de mi-carrière ou de fin de carrière sans demande : enregistrée comme réalisée, datée de la visite, pour clore
   // la visite due (shared/rules/visites-dues.ts) ; les autres motifs se closent par la date de la visite elle-même.
   if ((motif === 'mi_carriere' || motif === 'fin_carriere') && !closes.some(x => x.motif === motif)) {
-    ctx.db.insert<DemandeVisite>('demandesVisite', { empId: emp.id, motif, le: a.date, par: ctx.user.nom, statut: 'realisee', closeLe: a.date, closePar: ctx.user.nom });
+    await ctx.db.insert<DemandeVisite>('demandesVisite', { empId: emp.id, motif, le: a.date, par: ctx.user.nom, statut: 'realisee', closeLe: a.date, closePar: ctx.user.nom });
   }
-  const { keystone } = signaler(ctx, emp);
+  const { keystone } = await signaler(ctx, emp);
   const suite = [
     suspendre.length ? plural(suspendre.length, 'habilitation suspendue', 'habilitations suspendues') : '',
     lever.length ? plural(lever.length, 'suspension levée', 'suspensions levées') : '',
@@ -124,7 +124,7 @@ const enregistrerAvis: ActionHandler = (ctx, p) => {
  * particuliers, visite post-exposition ou de fin de carrière à sa sortie (shared/rules/visites-dues.ts). Données réservées
  * au service RH et à l'intéressé : ni le manager, ni le journal ne les reçoivent.
  */
-const suiviMedical: ActionHandler = (ctx, p) => {
+const suiviMedical: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const emp = getEmp(ctx, p.empId);
   const recu: unknown = p.suivi == null || p.suivi === '' ? null : p.suivi;
@@ -133,8 +133,8 @@ const suiviMedical: ActionHandler = (ctx, p) => {
   const suivi = recu as SuiviMedical | null;
   const expose = p.expose === undefined ? !!emp.expose : p.expose as boolean;
   if ((emp.suivi ?? null) === suivi && !!emp.expose === expose) return `Type de suivi médical inchangé — ${emp.nom}`;
-  ctx.db.update('employes', emp.id, { suivi, expose });
-  const { keystone } = signaler(ctx, emp);
+  await ctx.db.update('employes', emp.id, { suivi, expose });
+  const { keystone } = await signaler(ctx, emp);
   return `Type de suivi médical enregistré — ${emp.nom} · ${suivi ? SUIVIS_MEDICAUX[suivi].court : 'VIP par défaut'}${expose ? ' · exposé à des risques particuliers' : ''}${keystone}`;
 };
 

@@ -13,7 +13,7 @@ import { join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import express, { type Response } from 'express';
 
-const { Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { LimiteParIp, openSession } = await import('../server/src/auth.ts');
 const { DEBIT, LimiteurDebit, limiterDebit } = await import('../server/src/debit.ts');
@@ -153,8 +153,8 @@ test('limiteurs : mémoire bornée face à une multitude d’adresses, les clés
 });
 
 test('débit de l’API : par adresse IP, par compte, connexion Microsoft ; 429 avec Retry-After et message en français', async () => {
-  const db = new Db(':memory:');
-  seedDemo(db);
+  const db = await nouvelleBase();
+  await seedDemo(db);
   const app = express();
   app.set('trust proxy', 'loopback');
   app.use('/api', limiterDebit(db, {
@@ -168,7 +168,7 @@ test('débit de l’API : par adresse IP, par compte, connexion Microsoft ; 429 
   // Cookie d'une session ouverte (compte de la RH de démonstration).
   let cookie = '';
   const res = { setHeader: (_: string, v: string) => { cookie = v.split(';')[0]; } } as unknown as Response;
-  openSession(db, res, { compteId: 1, role: 'rh', methode: 'demo' });
+  await openSession(db, res, { compteId: 1, role: 'rh', methode: 'demo' });
   const get = (path: string, ip: string, headers: Record<string, string> = {}) => fetch(base + path, { headers: { 'x-forwarded-for': ip, ...headers } });
 
   // Par compte : 3 requêtes, quelle que soit l'adresse (téléphone, poste, domicile).

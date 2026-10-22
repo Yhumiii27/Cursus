@@ -7,15 +7,15 @@ import type { Db } from '../db.ts';
 import type { Migration } from './cadre.ts';
 
 /** Sessions sans dernier jour (écrites avant le lot 5). */
-const sansFin = (db: Db) => Number((db.sql.prepare('SELECT COUNT(*) AS n FROM sessions WHERE fin IS NULL').get() as { n: number }).n);
+const sansFin = async (db: Db) => Number((await db.one('SELECT COUNT(*) AS n FROM sessions WHERE fin IS NULL') as { n: number }).n);
 
 /** Sessions existantes : dernier jour = premier jour, un seul jour, aucun horaire (journée entière). */
 export const PLAGE_SESSIONS: Migration = {
   nom: 'lot5-formations-plage-sessions',
   // Base neuve : exécutée, sans effet ; base existante dont chaque session a son dernier jour : notée faite.
-  necessaire: db => db.neuve || sansFin(db) > 0,
-  executer: db => {
-    const n = Number(db.sql.prepare(`UPDATE sessions SET fin = date, jours = json_array(date), horaires = '[]' WHERE fin IS NULL`).run().changes);
+  necessaire: async db => db.neuve || await sansFin(db) > 0,
+  executer: async db => {
+    const n = Number((await db.run(`UPDATE sessions SET fin = date, jours = json_array(date), horaires = '[]' WHERE fin IS NULL`)).changes);
     return `${plural(n, 'session', 'sessions')} sur un jour`;
   },
 };
@@ -27,9 +27,14 @@ export const PLAGE_SESSIONS: Migration = {
  */
 export const ACTIVITE_FORMATION_PROJET: Migration = {
   nom: 'lot5-formations-activite-interne',
-  necessaire: db => !db.sql.prepare('SELECT 1 FROM projets WHERE code = ?').get(ACTIVITE_FORMATION.code),
-  executer: db => {
-    db.sql.prepare(`INSERT INTO projets (code, nom, statut) VALUES (?, ?, 'actif') ON CONFLICT (code) DO NOTHING`).run(ACTIVITE_FORMATION.code, ACTIVITE_FORMATION.nom);
+  necessaire: async db => !await db.one('SELECT 1 FROM projets WHERE code = ?', [ACTIVITE_FORMATION.code]),
+  executer: async db => {
+    await amorcerActiviteFormation(db);
     return `activité interne ${ACTIVITE_FORMATION.code} ajoutée`;
   },
 };
+
+/** Activité interne INT-FORM ajoutée si elle manque (aussi pour une base PostgreSQL neuve : server/src/demarrage.ts). */
+export async function amorcerActiviteFormation(db: Db): Promise<void> {
+  await db.run(`INSERT INTO projets (code, nom, statut) VALUES (?, ?, 'actif') ON CONFLICT (code) DO NOTHING`, [ACTIVITE_FORMATION.code, ACTIVITE_FORMATION.nom]);
+}

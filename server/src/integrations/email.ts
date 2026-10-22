@@ -25,14 +25,14 @@ export function lienCursus(env: Env = process.env): string | null {
  * Met un e-mail en file, dans la transaction en cours. En simulation, il est marqué « simulé » et tracé dans
  * le journal (destinataires et objet) : rien ne part. Sans destinataire, rien n'est fait (null).
  */
-export function envoyerEmail(db: Db, type: string, c: Courriel): Envoi | null {
+export async function envoyerEmail(db: Db, type: string, c: Courriel): Promise<Envoi | null> {
   const a = [...new Set(c.a.filter(Boolean))];
   if (!a.length) return null;
   const simule = !configMail();
   const contenu: Courriel = { a, objet: c.objet, texte: c.texte, ...(c.repondreA ? { repondreA: c.repondreA } : {}), ...(c.pj?.length ? { pj: c.pj } : {}) };
-  const e = mettreEnFile(db, 'email', type, contenu as unknown as Record<string, unknown>, simule);
+  const e = await mettreEnFile(db, 'email', type, contenu as unknown as Record<string, unknown>, simule);
   if (simule) {
-    db.insert('journal', {
+    await db.insert('journal', {
       at: e.creation, actor: 'Cursus', role: 'integration', action: `email.${type}`,
       message: `E-mail « ${c.objet} » pour ${a.join(', ')} (simulation)`, payload: { envoi: e.id },
     });

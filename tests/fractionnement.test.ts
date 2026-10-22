@@ -11,7 +11,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
 
-const { Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -22,43 +22,42 @@ const F = await import('../shared/rules/fractionnement.ts');
 const { checkAbsence, cpDroit, soldePeriode } = await import('../shared/rules/conges.ts');
 const { appliquerReglages, ReglageInvalide, reglagesParDefaut } = await import('../shared/reglages.ts');
 const { estActionPaie, familleAction, JOURNAL_LABEL } = await import('../shared/journal.ts');
-type User = NonNullable<ReturnType<typeof currentUser>>;
-type Dataset = ReturnType<typeof loadFull>;
+type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
+type Dataset = Awaited<ReturnType<typeof loadFull>>;
 type Absence = Dataset['absences'][number];
-type Db = InstanceType<typeof Db>;
+type Db = Awaited<ReturnType<typeof nouvelleBase>>;
 
-function fresh() {
-  const db = new Db(':memory:');
-  seedDemo(db);
+async function fresh() {
+  const db = await nouvelleBase();
+  await seedDemo(db);
   // Compteurs repris arrêtés au 1er janvier 2027 (mise en service) : les périodes de 2027 sont suivies par Cursus.
-  db.sql.exec(`UPDATE soldes_reprise SET arrete_le = '2027-01-01'`);
-  const compteDe = (empId: number | null) => (db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number }).id;
-  const user = (empId: number | null, role: User['role']) => currentUser(db, { compteId: compteDe(empId), role, methode: 'demo' })!;
-  return { db, user, ADMIN: user(null, 'rh'), GEST: user(14, 'rh'), PAIE: user(7, 'rh'), HSE: user(23, 'rh') };
+  await db.exec(`UPDATE soldes_reprise SET arrete_le = '2027-01-01'`);
+  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', (empId ? [empId] : [])) as { id: number }).id;
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compteDe(empId), role, methode: 'demo' }))!;
+  return { db, user, ADMIN: await user(null, 'rh'), GEST: await user(14, 'rh'), PAIE: await user(7, 'rh'), HSE: await user(23, 'rh') };
 }
 
 /** Exécute `fn` à la date `jour` (date du jour lue par l'instantané). */
-function le<T>(jour: string, fn: () => T): T {
+async function le<T>(jour: string, fn: () => Promise<T> | T): Promise<T> {
   const avant = process.env.CURSUS_TODAY;
   process.env.CURSUS_TODAY = jour;
-  try { return fn(); } finally { process.env.CURSUS_TODAY = avant; }
+  try { return await fn(); } finally { process.env.CURSUS_TODAY = avant; }
 }
 function runner(db: Db) {
-  const run = (u: User, name: string, p: Record<string, unknown>) => db.tx(() => {
-    const t = preparerTrace(db, name, p);
-    const r = ACTIONS[name](makeCtx(db, u, loadFull(db, u)), p);
+  const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
+    const t = await preparerTrace(db, name, p);
+    const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
     const o = typeof r === 'object' && r !== null ? r : { message: r };
-    journaliserAction(db, t, { user: u, compte: db.get('comptes', u.compteId)!, message: o.message ?? null, result: o.result });
+    await journaliserAction(db, t, { user: u, compte: (await db.get('comptes', u.compteId))!, message: o.message ?? null, result: o.result });
     return String(o.message);
   });
-  const refus = (u: User, name: string, p: Record<string, unknown>, re: RegExp, status = 400) =>
-    assert.throws(() => run(u, name, p), (e: unknown) => e instanceof ActionError && e.status === status && re.test(e.message), `${name} : refus ${re}`);
+  const refus = async (u: User, name: string, p: Record<string, unknown>, re: RegExp, status = 400) =>
+    await assert.rejects(async () => await run(u, name, p), (e: unknown) => e instanceof ActionError && e.status === status && re.test(e.message), `${name} : refus ${re}`);
   return { run, refus };
 }
 
-const { db: db0, ADMIN: ADMIN0 } = fresh();
-const base = loadFull(db0, ADMIN0);
+const { db: db0, ADMIN: ADMIN0 } = await fresh();
+const base = await loadFull(db0, ADMIN0);
 let n = 9000;
 /** Domaine de démonstration (compteurs arrêtés au 1er janvier 2027) avec des congés de Sophie Lemaire ajoutés, à une date. */
 function avec(conges: Partial<Absence>[], today = '2027-11-02', settings: Partial<Dataset['settings']> = {}, ds: Dataset = base) {
@@ -193,80 +192,80 @@ test('t046 alerte avant le 31 octobre (60 jours), propositions à partir du 1er 
   assert.ok(!F.fractionnementsAProposer(clos, 2027).some(x => x.e.id === 3), 'période clôturée');
 });
 
-test('t046 conges.fractionnement : crédit en report reçu compté dans les droits, renonciation, refus, journal, vues', () => {
-  const { db, user, ADMIN, GEST, PAIE, HSE } = fresh();
+test('t046 conges.fractionnement : crédit en report reçu compté dans les droits, renonciation, refus, journal, vues', async () => {
+  const { db, user, ADMIN, GEST, PAIE, HSE } = await fresh();
   const { run, refus } = runner(db);
-  const d = () => le('2027-11-02', () => new Domain(loadFull(db, ADMIN)));
-  const droitAvant = cpDroit(d(), d().emp(2)!, 2027).droit;
-  const soldeAvant = soldePeriode(d(), d().emp(2)!, 2027);
-  le('2027-10-31', () => refus(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [] }, /jusqu’au 31 oct\. 2027/));
-  le('2027-11-02', () => {
-    refus(ADMIN, 'conges.fractionnement', { periode: 'x' }, /Période de congés payés invalide/);
-    refus(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 3, decision: 'crediter', jours: 3 }] }, /1 ou 2 jours/);
-    refus(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 3, decision: 'plus tard' }] }, /choisissez le crédit/);
-    refus(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 3, decision: 'crediter' }, { empId: 3, decision: 'renoncer' }] }, /une seule décision/);
-    refus(GEST, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 14, decision: 'crediter', jours: 2 }] }, /propres jours de fractionnement/, 403);
-    assert.equal(run(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [] }), 'Jours de fractionnement 2026-2027 : aucune décision enregistrée');
-    const msg = run(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 2, decision: 'crediter', jours: 2 }, { empId: 3, decision: 'renoncer' }] });
+  const d = async () => await le('2027-11-02', async () => new Domain(await loadFull(db, ADMIN)));
+  const droitAvant = cpDroit(await d(), (await d()).emp(2)!, 2027).droit;
+  const soldeAvant = soldePeriode(await d(), (await d()).emp(2)!, 2027);
+  await le('2027-10-31', async () => await refus(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [] }, /jusqu’au 31 oct\. 2027/));
+  await le('2027-11-02', async () => {
+    await refus(ADMIN, 'conges.fractionnement', { periode: 'x' }, /Période de congés payés invalide/);
+    await refus(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 3, decision: 'crediter', jours: 3 }] }, /1 ou 2 jours/);
+    await refus(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 3, decision: 'plus tard' }] }, /choisissez le crédit/);
+    await refus(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 3, decision: 'crediter' }, { empId: 3, decision: 'renoncer' }] }, /une seule décision/);
+    await refus(GEST, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 14, decision: 'crediter', jours: 2 }] }, /propres jours de fractionnement/, 403);
+    assert.equal(await run(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [] }), 'Jours de fractionnement 2026-2027 : aucune décision enregistrée');
+    const msg = await run(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 2, decision: 'crediter', jours: 2 }, { empId: 3, decision: 'renoncer' }] });
     assert.match(msg, /^Jours de fractionnement 2026-2027 : 1 salarié crédité \(2 j en tout, jusqu’au 31 mai 2028\), 1 renonciation notée · \d+ salariés restent à décider$/);
   });
-  const r = db.all<{ empId: number; jours: number; sens: string; periode: number; expire: string; origine: string | null; motif: string }>('reports').filter(x => x.origine === 'fractionnement');
+  const r = (await db.all<{ empId: number; jours: number; sens: string; periode: number; expire: string; origine: string | null; motif: string }>('reports')).filter(x => x.origine === 'fractionnement');
   assert.deepEqual(r.map(x => [x.empId, x.jours, x.sens, x.periode, x.expire]), [[2, 2, 'recu', 2027, '2028-05-31']]);
-  const fr = db.all<{ empId: number; decision: string; jours: number; reportId: number | null }>('fractionnements');
-  const rid = db.all<{ id: number; origine: string | null }>('reports').find(y => y.origine === 'fractionnement')!.id;
+  const fr = await db.all<{ empId: number; decision: string; jours: number; reportId: number | null }>('fractionnements');
+  const rid = (await db.all<{ id: number; origine: string | null }>('reports')).find(y => y.origine === 'fractionnement')!.id;
   assert.deepEqual(fr.map(x => [x.empId, x.decision, x.jours, x.reportId]), [[2, 'credite', 2, rid], [3, 'renonce', 0, null]]);
   // Compté dans les droits et le solde de la période.
-  assert.equal(cpDroit(d(), d().emp(2)!, 2027).droit, droitAvant + 2);
-  assert.equal(soldePeriode(d(), d().emp(2)!, 2027), soldeAvant + 2);
+  assert.equal(cpDroit(await d(), (await d()).emp(2)!, 2027).droit, droitAvant + 2);
+  assert.equal(soldePeriode(await d(), (await d()).emp(2)!, 2027), soldeAvant + 2);
   // Journal : période, décision de chaque salarié ; archive de la paie ; famille des congés.
-  const j = db.all<{ action: string; payload: Record<string, any>; salaries: number[]; message: string }>('journal').filter(l => l.action === 'conges.fractionnement').at(-1)!;
+  const j = (await db.all<{ action: string; payload: Record<string, any>; salaries: number[]; message: string }>('journal')).filter(l => l.action === 'conges.fractionnement').at(-1)!;
   assert.deepEqual(j.payload.lignes, [{ empId: 2, decision: 'credite', jours: 2 }, { empId: 3, decision: 'renonce', jours: 0 }]);
   assert.deepEqual([...j.salaries].sort(), [2, 3]);
   assert.ok(estActionPaie('conges.fractionnement'));
   assert.equal(JOURNAL_LABEL['conges.fractionnement'], 'Jours de fractionnement des congés payés');
   assert.equal(familleAction('conges.fractionnement')?.id, 'absences');
   // Vues : décision à l'intéressé, au service RH, à la paie ; le manager ne voit que le report reçu, sans motif.
-  le('2027-11-02', () => {
-    const mehdi = user(2, 'collaborateur');
-    assert.deepEqual((buildSnapshot(db, mehdi).fractionnements ?? []).map(x => x.empId), [2]);
-    assert.equal((buildSnapshot(db, PAIE).fractionnements ?? []).length, 2);
-    assert.equal((buildSnapshot(db, HSE).fractionnements ?? []).length, 0);
+  await le('2027-11-02', async () => {
+    const mehdi = await user(2, 'collaborateur');
+    assert.deepEqual(((await buildSnapshot(db, mehdi)).fractionnements ?? []).map(x => x.empId), [2]);
+    assert.equal(((await buildSnapshot(db, PAIE)).fractionnements ?? []).length, 2);
+    assert.equal(((await buildSnapshot(db, HSE)).fractionnements ?? []).length, 0);
     // Karim Haddad, manager de Mehdi Benali.
-    const mgr = new Domain(loadFull(db, ADMIN)).mgrOf(base.employes.find(e => e.id === 2)!);
+    const mgr = new Domain(await loadFull(db, ADMIN)).mgrOf(base.employes.find(e => e.id === 2)!);
     assert.equal(mgr, 12);
-    const vue = buildSnapshot(db, user(mgr, 'manager'));
+    const vue = await buildSnapshot(db, await user(mgr, 'manager'));
     assert.deepEqual(vue.fractionnements ?? [], []);
     assert.ok(vue.reports.some(x => x.empId === 2 && x.origine === 'fractionnement' && x.motif === ''));
   });
   // Déjà décidé (second envoi, autre onglet) : ligne ignorée sans rien refaire, les autres lignes enregistrées.
-  le('2027-11-02', () => {
-    const msg = run(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 2, decision: 'crediter', jours: 2 }, { empId: 3, decision: 'crediter', jours: 1 }] });
+  await le('2027-11-02', async () => {
+    const msg = await run(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 2, decision: 'crediter', jours: 2 }, { empId: 3, decision: 'crediter', jours: 1 }] });
     assert.match(msg, /^Jours de fractionnement 2026-2027 : aucune décision enregistrée · 2 salariés déjà décidés entre-temps \(décision inchangée\)$/);
-    const autre = F.fractionnementsAProposer(new Domain(loadFull(db, ADMIN)), 2027)[0];
-    const msg2 = run(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 2, decision: 'renoncer' }, { empId: autre.e.id, decision: 'renoncer' }] });
+    const autre = F.fractionnementsAProposer(new Domain(await loadFull(db, ADMIN)), 2027)[0];
+    const msg2 = await run(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 2, decision: 'renoncer' }, { empId: autre.e.id, decision: 'renoncer' }] });
     assert.match(msg2, /1 renonciation notée.* · 1 salarié déjà décidé entre-temps \(décision inchangée\)$/);
-    const fr = db.all<{ empId: number; decision: string }>('fractionnements');
+    const fr = await db.all<{ empId: number; decision: string }>('fractionnements');
     assert.deepEqual(fr.map(x => [x.empId, x.decision]), [[2, 'credite'], [3, 'renonce'], [autre.e.id, 'renonce']]);
-    assert.equal(db.all<{ origine: string | null }>('reports').filter(x => x.origine === 'fractionnement').length, 1);
+    assert.equal((await db.all<{ origine: string | null }>('reports')).filter(x => x.origine === 'fractionnement').length, 1);
   });
   // Règle « aucun jour » : refus.
-  le('2027-11-02', () => {
-    run(ADMIN, 'parametres.maj', { fractionnementRegle: 'aucun', fractionnementAccord: 'Accord du 3 mars 2026' });
-    refus(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [] }, /écartés par accord collectif/);
+  await le('2027-11-02', async () => {
+    await run(ADMIN, 'parametres.maj', { fractionnementRegle: 'aucun', fractionnementAccord: 'Accord du 3 mars 2026' });
+    await refus(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [] }, /écartés par accord collectif/);
     // Le journal des réglages masque la référence de l'accord.
-    const p = db.all<{ action: string; payload: Record<string, any> }>('journal').filter(l => l.action === 'parametres.maj').at(-1)!;
+    const p = (await db.all<{ action: string; payload: Record<string, any> }>('journal')).filter(l => l.action === 'parametres.maj').at(-1)!;
     assert.ok(!JSON.stringify(p.payload).includes('3 mars'));
   });
 });
 
-test('t046 sous un accord : jours par demi-journée jusqu’au plafond retenu', () => {
-  const { db, ADMIN } = fresh();
+test('t046 sous un accord : jours par demi-journée jusqu’au plafond retenu', async () => {
+  const { db, ADMIN } = await fresh();
   const { run, refus } = runner(db);
-  le('2027-11-02', () => {
-    run(ADMIN, 'parametres.maj', { fractionnementRegle: 'accord', fractionnementAccord: 'Accord du 3 mars 2026' });
-    refus(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 3, decision: 'crediter', jours: 2.25 }] }, /par demi-journée/);
-    assert.match(run(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 3, decision: 'crediter', jours: 2.5 }] }), /2,5 j en tout/);
+  await le('2027-11-02', async () => {
+    await run(ADMIN, 'parametres.maj', { fractionnementRegle: 'accord', fractionnementAccord: 'Accord du 3 mars 2026' });
+    await refus(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 3, decision: 'crediter', jours: 2.25 }] }, /par demi-journée/);
+    assert.match(await run(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 3, decision: 'crediter', jours: 2.5 }] }), /2,5 j en tout/);
     // Sans jours : le nombre proposé.
-    assert.match(run(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 2, decision: 'crediter' }] }), /1 salarié crédité \(2 j en tout/);
+    assert.match(await run(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 2, decision: 'crediter' }] }), /1 salarié crédité \(2 j en tout/);
   });
 });

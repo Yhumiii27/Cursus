@@ -36,55 +36,55 @@ export interface Compte {
 
 export const PROFILS = Object.keys(PROFILS_RH) as ProfilRh[];
 
-export function compteParIdentifiant(db: Db, identifiant: string): Compte | undefined {
-  return db.where<Compte>('comptes', 'identifiant', normaliserIdentifiant(identifiant))[0];
+export async function compteParIdentifiant(db: Db, identifiant: string): Promise<Compte | undefined> {
+  return (await db.where<Compte>('comptes', 'identifiant', normaliserIdentifiant(identifiant)))[0];
 }
 
 type EmpCompte = Pick<Employe, 'id' | 'nom' | 'fin' | 'poste' | 'equipe'>;
-const salarie = (db: Db, c: Compte) => c.empId ? db.get<EmpCompte>('employes', c.empId) : undefined;
+const salarie = async (db: Db, c: Compte) => c.empId ? await db.get<EmpCompte>('employes', c.empId) : undefined;
 
 /** Nom affiché de la personne : celui de la fiche du salarié, ou celui du compte externe. */
-export function nomDuCompte(db: Db, c: Compte): string {
-  return (c.empId ? salarie(db, c)?.nom : c.nom) ?? c.identifiant;
+export async function nomDuCompte(db: Db, c: Compte): Promise<string> {
+  return (c.empId ? (await salarie(db, c))?.nom : c.nom) ?? c.identifiant;
 }
 
 /** Espaces ouverts par le compte, dans l'ordre d'arrivée après connexion. */
-export function espacesDuCompte(db: Db, c: Compte): Role[] {
+export async function espacesDuCompte(db: Db, c: Compte): Promise<Role[]> {
   const out: Role[] = [];
   if (ouvreEspaceRh(c.profilRh)) out.push('rh');
-  if (c.empId && salarie(db, c)) {
+  if (c.empId && await salarie(db, c)) {
     // Manager d'une équipe, ou suppléant d'un manager absent pendant sa délégation (t135) : l'espace manager s'ouvre
     // le premier jour de la délégation et se ferme après le dernier, ou dès sa révocation.
     const jour = todayIso();
-    if (db.sql.prepare('SELECT 1 FROM equipes WHERE manager_id = ? LIMIT 1').get(c.empId)
-      || db.sql.prepare('SELECT 1 FROM delegations WHERE suppleant_id = ? AND revoquee_le IS NULL AND du <= ? AND au >= ? LIMIT 1').get(c.empId, jour, jour)) out.push('manager');
+    if (await db.one('SELECT 1 FROM equipes WHERE manager_id = ? LIMIT 1', [c.empId])
+      || await db.one('SELECT 1 FROM delegations WHERE suppleant_id = ? AND revoquee_le IS NULL AND du <= ? AND au >= ? LIMIT 1', [c.empId, jour, jour])) out.push('manager');
     out.push('collaborateur');
   }
   return out;
 }
 
 /** Le salarié rattaché a-t-il quitté l'entreprise (date de sortie passée) ? */
-const sorti = (db: Db, c: Compte) => { const fin = salarie(db, c)?.fin; return !!fin && fin < todayIso(); };
+const sorti = async (db: Db, c: Compte) => { const fin = (await salarie(db, c))?.fin; return !!fin && fin < todayIso(); };
 
 /** Motif pour lequel le compte ne peut pas ouvrir de session, ou null. */
-export function refusDuCompte(db: Db, c: Compte): string | null {
+export async function refusDuCompte(db: Db, c: Compte): Promise<string | null> {
   if (!c.actif) return 'Compte désactivé : adressez-vous au service RH';
-  if (c.empId && !salarie(db, c)) return 'Fiche du salarié introuvable : adressez-vous au service RH';
-  if (sorti(db, c)) return 'Accès fermé : la date de sortie de ce salarié est passée';
-  if (!espacesDuCompte(db, c).length) return 'Aucun espace n’est ouvert à ce compte : adressez-vous au service RH';
+  if (c.empId && !await salarie(db, c)) return 'Fiche du salarié introuvable : adressez-vous au service RH';
+  if (await sorti(db, c)) return 'Accès fermé : la date de sortie de ce salarié est passée';
+  if (!(await espacesDuCompte(db, c)).length) return 'Aucun espace n’est ouvert à ce compte : adressez-vous au service RH';
   return null;
 }
 
 /** Compte apte à ouvrir une session (existant, actif, salarié présent, au moins un espace). */
-export function compteValide(db: Db, id: number | null | undefined): Compte | null {
-  const c = id ? db.get<Compte>('comptes', id) : undefined;
-  return c && !refusDuCompte(db, c) ? c : null;
+export async function compteValide(db: Db, id: number | null | undefined): Promise<Compte | null> {
+  const c = id ? await db.get<Compte>('comptes', id) : undefined;
+  return c && !await refusDuCompte(db, c) ? c : null;
 }
 
-export function compteSession(db: Db, c: Compte): CompteSession {
+export async function compteSession(db: Db, c: Compte): Promise<CompteSession> {
   return {
-    id: c.id, identifiant: c.identifiant, nom: nomDuCompte(db, c), type: c.type, profilRh: c.profilRh,
-    espaces: espacesDuCompte(db, c), changerMotDePasse: c.type === 'local' && c.changerMotDePasse,
+    id: c.id, identifiant: c.identifiant, nom: await nomDuCompte(db, c), type: c.type, profilRh: c.profilRh,
+    espaces: await espacesDuCompte(db, c), changerMotDePasse: c.type === 'local' && c.changerMotDePasse,
   };
 }
 
@@ -92,17 +92,23 @@ export function compteSession(db: Db, c: Compte): CompteSession {
 export const compteBloque = (c: Compte, maintenant = new Date().toISOString()) => !!c.blocageFin && c.blocageFin > maintenant;
 
 /** Liste des comptes pour l'administrateur RH (sans empreinte de mot de passe). */
-export function comptesVue(db: Db): CompteVue[] {
-  return db.all<Compte>('comptes').map(c => ({
-    id: c.id, empId: c.empId, nom: nomDuCompte(db, c), adresse: c.adresse, identifiant: c.identifiant, type: c.type, profilRh: c.profilRh,
-    espaces: espacesDuCompte(db, c), actif: c.actif, sorti: sorti(db, c), changerMotDePasse: c.type === 'local' && c.changerMotDePasse, rattache: !!c.oid,
-    bloqueJusqua: compteBloque(c) ? c.blocageFin : null, creation: c.creation, creePar: c.creePar, derniereConnexion: c.derniereConnexion,
-  })).sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
+export async function comptesVue(db: Db): Promise<CompteVue[]> {
+  const vues: CompteVue[] = [];
+  for (const c of await db.all<Compte>('comptes')) {
+    vues.push({
+      id: c.id, empId: c.empId, nom: await nomDuCompte(db, c), adresse: c.adresse, identifiant: c.identifiant, type: c.type, profilRh: c.profilRh,
+      espaces: await espacesDuCompte(db, c), actif: c.actif, sorti: await sorti(db, c), changerMotDePasse: c.type === 'local' && c.changerMotDePasse, rattache: !!c.oid,
+      bloqueJusqua: compteBloque(c) ? c.blocageFin : null, creation: c.creation, creePar: c.creePar, derniereConnexion: c.derniereConnexion,
+    });
+  }
+  return vues.sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
 }
 
 /** Administrateurs RH en mesure de se connecter, hors le compte `sauf`. */
-export function adminsActifs(db: Db, sauf?: number): number {
-  return db.where<Compte>('comptes', 'profilRh', 'rh_admin').filter(c => c.id !== sauf && !refusDuCompte(db, c)).length;
+export async function adminsActifs(db: Db, sauf?: number): Promise<number> {
+  let n = 0;
+  for (const c of await db.where<Compte>('comptes', 'profilRh', 'rh_admin')) if (c.id !== sauf && !await refusDuCompte(db, c)) n++;
+  return n;
 }
 
 /**
@@ -111,12 +117,14 @@ export function adminsActifs(db: Db, sauf?: number): number {
  * aucune date de fin. Garde-fou du dernier administrateur (désactivation, changement de profil, sortie) : une sortie à
  * venir ne compte pas pour un administrateur durable, sans quoi deux sorties successives fermeraient tous les comptes.
  */
-export function adminsDurables(db: Db, sauf: number | undefined, apres: string | null): number {
-  return db.where<Compte>('comptes', 'profilRh', 'rh_admin').filter(c => {
-    if (c.id === sauf || refusDuCompte(db, c)) return false;
-    const fin = salarie(db, c)?.fin;
-    return !fin || (apres != null && fin > apres);
-  }).length;
+export async function adminsDurables(db: Db, sauf: number | undefined, apres: string | null): Promise<number> {
+  let n = 0;
+  for (const c of await db.where<Compte>('comptes', 'profilRh', 'rh_admin')) {
+    if (c.id === sauf || await refusDuCompte(db, c)) continue;
+    const fin = (await salarie(db, c))?.fin;
+    if (!fin || (apres != null && fin > apres)) n++;
+  }
+  return n;
 }
 
 // — Mots de passe —
@@ -157,9 +165,9 @@ export function motDePasseProvisoire(): string {
 }
 
 /** Nouveau mot de passe provisoire pour un compte local : à changer à la prochaine connexion, compte débloqué. */
-export function attribuerProvisoire(db: Db, c: Compte): string {
+export async function attribuerProvisoire(db: Db, c: Compte): Promise<string> {
   const mdp = motDePasseProvisoire();
-  db.update<Compte>('comptes', c.id, { motDePasse: hacherMotDePasse(mdp), changerMotDePasse: true, echecs: 0, blocageFin: null });
+  await db.update<Compte>('comptes', c.id, { motDePasse: hacherMotDePasse(mdp), changerMotDePasse: true, echecs: 0, blocageFin: null });
   return mdp;
 }
 
@@ -176,12 +184,15 @@ export interface Tentative { echecs: number; bloque: boolean; blocage: string | 
  * succès bloque le compte quinze minutes (elle-même est encore vérifiée). `c` doit avoir été lu sans
  * attente depuis le contrôle de `compteBloque`.
  */
-export function compterTentative(db: Db, c: Compte): Tentative {
-  const n = (c.echecs ?? 0) + 1;
-  if (n < ECHECS_MAX) { db.update<Compte>('comptes', c.id, { echecs: n }); return { echecs: n, bloque: false, blocage: null }; }
-  const blocage = new Date(Date.now() + BLOCAGE_MINUTES * 60_000).toISOString();
-  db.update<Compte>('comptes', c.id, { echecs: 0, blocageFin: blocage });
-  return { echecs: n, bloque: true, blocage };
+export async function compterTentative(db: Db, c: Compte): Promise<Tentative> {
+  // Compteur relu et écrit d'un seul tenant (`exclusif`) : deux tentatives simultanées ne lisent jamais le même nombre.
+  return db.exclusif(async () => {
+    const n = ((await db.get<Compte>('comptes', c.id))?.echecs ?? c.echecs ?? 0) + 1;
+    if (n < ECHECS_MAX) { await db.update<Compte>('comptes', c.id, { echecs: n }); return { echecs: n, bloque: false, blocage: null }; }
+    const blocage = new Date(Date.now() + BLOCAGE_MINUTES * 60_000).toISOString();
+    await db.update<Compte>('comptes', c.id, { echecs: 0, blocageFin: blocage });
+    return { echecs: n, bloque: true, blocage };
+  });
 }
 
 /**
@@ -191,8 +202,8 @@ export function compterTentative(db: Db, c: Compte): Tentative {
 export const tentativeAdmise = (c: Compte, t: Tentative) => !compteBloque(c) || c.blocageFin === t.blocage;
 
 /** Connexion réussie : compteur d'échecs remis à zéro. Pour un compte local, après `tentativeAdmise` seulement. */
-export function enregistrerConnexion(db: Db, c: Compte) {
-  db.update<Compte>('comptes', c.id, { echecs: 0, blocageFin: null, derniereConnexion: new Date().toISOString() });
+export async function enregistrerConnexion(db: Db, c: Compte) {
+  await db.update<Compte>('comptes', c.id, { echecs: 0, blocageFin: null, derniereConnexion: new Date().toISOString() });
 }
 
 // — Création —
@@ -211,7 +222,7 @@ export interface NouveauCompte {
  * Crée un compte après contrôle ; renvoie le mot de passe provisoire d'un compte local (affiché une
  * seule fois, jamais conservé en clair). `auteur` : nom de la personne qui crée le compte.
  */
-export function creerCompte(db: Db, x: NouveauCompte, auteur: string | null): { compte: Compte; motDePasse: string | null } {
+export async function creerCompte(db: Db, x: NouveauCompte, auteur: string | null): Promise<{ compte: Compte; motDePasse: string | null }> {
   const type = x.type;
   if (type !== 'microsoft' && type !== 'local') throw new ActionError('Type de compte inconnu');
   const profilRh = x.profilRh ?? 'aucun';
@@ -219,10 +230,10 @@ export function creerCompte(db: Db, x: NouveauCompte, auteur: string | null): { 
   const identifiant = normaliserIdentifiant(String(x.identifiant ?? ''));
   const err = controleIdentifiant(type, identifiant);
   if (err) throw new ActionError(err);
-  if (compteParIdentifiant(db, identifiant)) throw new ActionError(`Identifiant déjà utilisé : ${identifiant}`);
+  if (await compteParIdentifiant(db, identifiant)) throw new ActionError(`Identifiant déjà utilisé : ${identifiant}`);
   let nom: string | null = null, adresse: string | null = null;
   if (x.empId) {
-    ficheSansCompte(db, Number(x.empId), 'aucun compte à créer');
+    await ficheSansCompte(db, Number(x.empId), 'aucun compte à créer');
   } else {
     // Compte externe (pas de fiche salarié) : il n'ouvre que l'espace RH.
     nom = String(x.nom ?? '').trim();
@@ -232,7 +243,7 @@ export function creerCompte(db: Db, x: NouveauCompte, auteur: string | null): { 
     if (!ouvreEspaceRh(profilRh)) throw new ActionError('Un compte externe n’ouvre que l’espace RH : choisissez un profil RH (service RH, référent HSE, paie ou lecture seule)');
   }
   const mdp = type === 'local' ? motDePasseProvisoire() : null;
-  const compte = db.insert<Compte>('comptes', {
+  const compte = await db.insert<Compte>('comptes', {
     empId: x.empId ? Number(x.empId) : null, nom, adresse, identifiant, type, oid: null, profilRh, actif: true,
     motDePasse: mdp ? hacherMotDePasse(mdp) : null, changerMotDePasse: !!mdp, echecs: 0, blocageFin: null,
     creation: new Date().toISOString(), creePar: auteur, derniereConnexion: null,
@@ -244,11 +255,11 @@ export function creerCompte(db: Db, x: NouveauCompte, auteur: string | null): { 
  * Fiche d'un salarié présent qui n'a pas encore de compte (un compte par personne). `sorti` complète le refus d'un
  * salarié sorti, `conseil` celui d'une fiche qui a déjà son compte.
  */
-function ficheSansCompte(db: Db, empId: number, sorti: string, conseil = ''): EmpCompte {
-  const e = db.get<EmpCompte>('employes', empId);
+async function ficheSansCompte(db: Db, empId: number, sorti: string, conseil = ''): Promise<EmpCompte> {
+  const e = await db.get<EmpCompte>('employes', empId);
   if (!e) throw new ActionError('Collaborateur introuvable', 404);
   if (e.fin && e.fin < todayIso()) throw new ActionError(`${e.nom} a quitté l’entreprise : ${sorti}`);
-  const deja = db.where<Compte>('comptes', 'empId', e.id)[0];
+  const deja = (await db.where<Compte>('comptes', 'empId', e.id))[0];
   if (deja) throw new ActionError(`${e.nom} a déjà un compte (${deja.identifiant}${deja.actif ? '' : ', désactivé'})${conseil}`);
   return e;
 }
@@ -259,16 +270,16 @@ function ficheSansCompte(db: Db, empId: number, sorti: string, conseil = ''): Em
  * plus de ses propres absences, feuilles de temps ou entretiens (`estSoiMeme` de server/src/actions/context.ts).
  * L'adresse du compte est conservée.
  */
-export function rattacherCompte(db: Db, c: Compte, empId: number): Compte {
-  if (c.empId) throw new ActionError(`Compte déjà rattaché à la fiche de ${nomDuCompte(db, c)}`);
-  ficheSansCompte(db, empId, 'aucun compte à rattacher', ' : portez le profil RH sur ce compte-là, puis désactivez celui-ci');
-  db.update<Compte>('comptes', c.id, { empId, nom: null });
-  return db.get<Compte>('comptes', c.id)!;
+export async function rattacherCompte(db: Db, c: Compte, empId: number): Promise<Compte> {
+  if (c.empId) throw new ActionError(`Compte déjà rattaché à la fiche de ${await nomDuCompte(db, c)}`);
+  await ficheSansCompte(db, empId, 'aucun compte à rattacher', ' : portez le profil RH sur ce compte-là, puis désactivez celui-ci');
+  await db.update<Compte>('comptes', c.id, { empId, nom: null });
+  return (await db.get<Compte>('comptes', c.id))!;
 }
 
 /** Désignation courte d'un compte dans les messages : « Karim Haddad (karim.haddad@…, Microsoft 365) ». */
-export function libelleCompte(db: Db, c: Compte): string {
-  return `${nomDuCompte(db, c)} (${c.identifiant}, ${COMPTE_TYPE_LABEL[c.type]})`;
+export async function libelleCompte(db: Db, c: Compte): Promise<string> {
+  return `${await nomDuCompte(db, c)} (${c.identifiant}, ${COMPTE_TYPE_LABEL[c.type]})`;
 }
 
 // — Journal —
@@ -290,9 +301,9 @@ const MESSAGE_MAX = 2000;
  * déjà expurgé (liste blanche de server/src/journal.ts) ; une action liée à la paie est marquée pour
  * l'archive (conservée 3 ans au lieu d'1 an).
  */
-export function journaliser(db: Db, e: EntreeJournal) {
+export async function journaliser(db: Db, e: EntreeJournal) {
   const message = e.message != null && e.message.length > MESSAGE_MAX ? `${e.message.slice(0, MESSAGE_MAX)}…` : e.message;
-  db.insert('journal', {
+  await db.insert('journal', {
     at: e.at ?? new Date().toISOString(), actor: e.actor, role: e.role, action: e.action, message, payload: e.payload ?? {},
     compteId: e.compte?.id ?? null, identifiant: e.compte?.identifiant ?? null, salaries: [...new Set(e.salaries ?? [])], paie: estActionPaie(e.action),
   });

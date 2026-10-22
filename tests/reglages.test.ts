@@ -6,21 +6,21 @@ import assert from 'node:assert/strict';
 import { readdirSync, readFileSync } from 'node:fs';
 process.env.CURSUS_TODAY = '2026-10-07';
 
-const { Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { DEFAULT_SETTINGS, loadFull, loadSettings } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
 const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
 const { appliquerReglages, choix, REGLAGES, ReglageInvalide, reglagesParDefaut } = await import('../shared/reglages.ts');
 type User = Parameters<typeof loadFull>[1];
-type Settings = ReturnType<typeof loadSettings>;
+type Settings = Awaited<ReturnType<typeof loadSettings>>;
 const RH: User = { role: 'rh', empId: null, nom: 'Sandrine Vidal', intitule: 'Administrateur RH', profilRh: 'rh_admin' };
 
-const db = new Db(':memory:');
-seedDemo(db);
-const run = (name: string, p: Record<string, unknown>) => db.tx(() => ACTIONS[name](makeCtx(db, RH, loadFull(db, RH)), p));
+const db = await nouvelleBase();
+await seedDemo(db);
+const run = async (name: string, p: Record<string, unknown>) => await db.tx(async () => await ACTIONS[name](makeCtx(db, RH, await loadFull(db, RH)), p));
 
-test('réglages par défaut : une ligne par champ, valeurs d’avant le découpage', () => {
+test('réglages par défaut : une ligne par champ, valeurs d’avant le découpage', async () => {
   assert.deepEqual(DEFAULT_SETTINGS, {
     horizonAlerte: 90, uniquementReglementaire: false, seuilBudget: 85, partageKeystone: 'minimal', rtt39: 23, vueInitiale: 'dashboard',
     // Lot 4, reprise : Keystone garde le matricule Cursus, clôture des CP au cas par cas, RTT de l'année suivante sans restriction.
@@ -77,7 +77,7 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     conservationSanteAns: 5, conservationPasseportAns: 0, conservationTitreSejourAns: 5, conservationEntretiensAns: 5, conservationFormationsAns: 5,
     agendaFluxActif: false, agendaContenu: ['sessions', 'entretiens', 'absences', 'deplacements'],
   });
-  assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(loadSettings(db)).sort());
+  assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(await loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);
 });
 
@@ -103,20 +103,20 @@ test('contrôles : bornes, pas, listes et valeurs inexploitables comme avant', (
   assert.equal(choix(['a', 'b'])('c', 'b'), 'b');
 });
 
-test('parametres.maj : seuls les champs de la table, contrôlés ; une saisie refusée n’enregistre rien (400)', () => {
-  assert.equal(run('parametres.maj', { horizonAlerte: 100, rtt39: 99, vueInitiale: 'budget' }), 'Paramètres enregistrés');
-  const s = loadSettings(db);
+test('parametres.maj : seuls les champs de la table, contrôlés ; une saisie refusée n’enregistre rien (400)', async () => {
+  assert.equal(await run('parametres.maj', { horizonAlerte: 100, rtt39: 99, vueInitiale: 'budget' }), 'Paramètres enregistrés');
+  const s = await loadSettings(db);
   assert.equal(s.horizonAlerte, 90);
   assert.equal(s.rtt39, 40);
   assert.equal(s.vueInitiale, 'dashboard');
-  assert.equal(run('parametres.maj', { seuilBudget: 70, silent: true }), null);
+  assert.equal(await run('parametres.maj', { seuilBudget: 70, silent: true }), null);
   // Réglage ajouté par un chantier, dont le contrôle refuse la saisie (date impossible…).
   const table = REGLAGES as unknown as Record<string, unknown>;
   table.essai = { defaut: null, controle: () => { throw new ReglageInvalide('Date d’arrêté invalide'); } };
   try {
-    assert.throws(() => run('parametres.maj', { seuilBudget: 95, essai: '2027-02-31' }),
+    await assert.rejects(async () => await run('parametres.maj', { seuilBudget: 95, essai: '2027-02-31' }),
       (e: unknown) => e instanceof ActionError && e.status === 400 && e.message === 'Date d’arrêté invalide');
-    assert.equal(loadSettings(db).seuilBudget, 70, 'rien n’est enregistré');
+    assert.equal((await loadSettings(db)).seuilBudget, 70, 'rien n’est enregistré');
   } finally {
     delete table.essai;
   }

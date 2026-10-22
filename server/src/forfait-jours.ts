@@ -31,18 +31,18 @@ export function controleForfaitJours(ctx: Ctx, emp: Employe, validee: FeuilleTem
   return { champs: { motifForfait: motif }, alertes: depassements };
 }
 
-const table = (db: Db) => rubriquesPaie(db.all<RubriquePaie>('rubriquesPaie'));
+const table = async (db: Db) => rubriquesPaie(await db.all<RubriquePaie>('rubriquesPaie'));
 
 /**
  * Confirmation d'un lot : avenants qu'il a réservés transmis ; ceux qu'il a listés sans code Sage (JREN désactivée à la
  * génération) réglés hors fichier — la paie les a saisis dans Sage d'après son résumé. Seul le contenu figé du lot compte :
  * ni l'état présent de la rubrique, ni un avenant enregistré depuis.
  */
-export function confirmerRachats(db: Db, lot: Pick<LotPaie, 'id'>) {
-  db.sql.prepare('UPDATE avenants_forfait SET sage = 1 WHERE lot_id = ?').run(lot.id);
-  const contenu = db.get<LotEnregistre>('lotsPaie', lot.id)?.contenu;
+export async function confirmerRachats(db: Db, lot: Pick<LotPaie, 'id'>) {
+  await db.run('UPDATE avenants_forfait SET sage = TRUE WHERE lot_id = ?', [lot.id]);
+  const contenu = (await db.get<LotEnregistre>('lotsPaie', lot.id))?.contenu;
   for (const x of rachatsDuContenu((contenu?.rachats ?? []).filter(x => !x.codeSage))) {
-    if (db.get<AvenantForfait>('avenantsForfait', x.id)?.lotId === lot.id) db.update<AvenantForfait>('avenantsForfait', x.id, { horsFichier: true });
+    if ((await db.get<AvenantForfait>('avenantsForfait', x.id))?.lotId === lot.id) await db.update<AvenantForfait>('avenantsForfait', x.id, { horsFichier: true });
   }
 }
 
@@ -50,10 +50,12 @@ export function confirmerRachats(db: Db, lot: Pick<LotPaie, 'id'>) {
 export const FAMILLE_RACHATS: FamilleLot<ElementRachatPaie> = {
   cle: 'rachats',
   libelles: ['avenant de renonciation (forfait jours)', 'avenants de renonciation (forfait jours)'],
-  aEmettre: (db, d, jusqua) => elementsRachats(d, jusqua, table(db)),
-  aSaisir: () => [], // gardés dans le lot sans code Sage : listés par le résumé (shared/rules/elements-lot.ts)
+  aEmettre: async (db, d, jusqua) => elementsRachats(d, jusqua, await table(db)),
+  aSaisir: async () => [], // gardés dans le lot sans code Sage : listés par le résumé (shared/rules/elements-lot.ts)
   idsDuContenu: rachatsDuContenu,
-  reserver: (db, lotId, elements) => rachatsDuContenu(elements).forEach(x => db.update('avenantsForfait', x.id, { lotId })),
-  confirmer: (db, _d, lot) => confirmerRachats(db, lot),
-  liberer: (db, lot) => { db.sql.prepare('UPDATE avenants_forfait SET lot_id = NULL WHERE lot_id = ? AND sage = 0').run(lot.id); },
+  reserver: async (db, lotId, elements) => {
+    for (const x of rachatsDuContenu(elements)) await db.update('avenantsForfait', x.id, { lotId });
+  },
+  confirmer: async (db, _d, lot) => await confirmerRachats(db, lot),
+  liberer: async (db, lot) => { await db.run('UPDATE avenants_forfait SET lot_id = NULL WHERE lot_id = ? AND sage = FALSE', [lot.id]); },
 };

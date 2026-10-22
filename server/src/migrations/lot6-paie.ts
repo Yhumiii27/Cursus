@@ -9,10 +9,10 @@ import { CLE_DEPUIS_DEPLACEMENTS, poserDepartDeplacements } from '../deplacement
 import type { Migration } from './cadre.ts';
 
 /** Séjours d'une base existante : déplacements en vigueur et missions (affectations Keystone). */
-const sejours = (db: Db) => Number((db.sql.prepare(`SELECT (SELECT COUNT(*) FROM voyages WHERE annule_le IS NULL) + (SELECT COUNT(*) FROM missions) AS n`).get() as { n: number }).n);
+const sejours = async (db: Db) => Number(((await db.one(`SELECT (SELECT COUNT(*) FROM voyages WHERE annule_le IS NULL) + (SELECT COUNT(*) FROM missions) AS n`)) as { n: number }).n);
 
 /** Lots de paie déjà générés (annulés compris : la base a servi à la paie). */
-const lots = (db: Db) => Number((db.sql.prepare('SELECT COUNT(*) AS n FROM lots_paie').get() as { n: number }).n);
+const lots = async (db: Db) => Number(((await db.one('SELECT COUNT(*) AS n FROM lots_paie')) as { n: number }).n);
 
 /**
  * Lot 6 (t031) : les déplacements partent dans le lot de paie (fichier d'import ou liste « à saisir dans Sage »). Sur une
@@ -26,10 +26,10 @@ export const DEPLACEMENTS_DEPART: Migration = {
   // Base neuve : exécutée, sans effet ; base existante sans séjour ni lot de paie, ou date déjà posée : notée faite. Une
   // base qui a déjà des lots sans aucun séjour (Keystone pas encore branché) reçoit aussi la date : les affectations
   // passées reçues ensuite ne repartent pas en rappel (le premier lot ne la pose plus, la base ayant des lots).
-  necessaire: db => db.neuve || ((sejours(db) > 0 || lots(db) > 0) && db.getSetting(CLE_DEPUIS_DEPLACEMENTS, null) === null),
-  executer: db => {
-    if (!sejours(db) && !lots(db)) return;
-    const date = poserDepartDeplacements(db, `${periodeOuverte(todayIso(), loadSettings(db).clotureJour)}-01`, { actor: 'Cursus', role: null }, 'Reprise');
+  necessaire: async db => db.neuve || (((await sejours(db)) > 0 || (await lots(db)) > 0) && (await db.getSetting(CLE_DEPUIS_DEPLACEMENTS, null)) === null),
+  executer: async db => {
+    if (!(await sejours(db)) && !(await lots(db))) return;
+    const date = await poserDepartDeplacements(db, `${periodeOuverte(todayIso(), (await loadSettings(db)).clotureJour)}-01`, { actor: 'Cursus', role: null }, 'Reprise');
     return `déplacements transmis à la paie à partir du ${date}`;
   },
 };

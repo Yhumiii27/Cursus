@@ -10,7 +10,7 @@ import type { FeuilleTemps } from '../shared/types.ts';
 process.env.CURSUS_TODAY = '2026-10-10';
 
 const { default: express } = await import('express');
-const { Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -25,21 +25,20 @@ const { familleAction, JOURNAL_LABEL } = await import('../shared/journal.ts');
 const { ALLOWED_VIEWS, VUES_COMMUNES } = await import('../shared/constants.ts');
 const { cellText, cellValue, jourLong, jourParDefaut, nomChamp } = await import('../client/src/components/heures.ts');
 const { titreOnglet } = await import('../client/src/layout/navigation.ts');
-type User = NonNullable<ReturnType<typeof currentUser>>;
+type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 
-function fresh() {
-  const db = new Db(':memory:');
-  seedDemo(db);
-  const compte = (empId: number | null) => (db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number }).id;
-  const user = (empId: number | null, role: User['role']) => currentUser(db, { compteId: compte(empId), role, methode: 'demo' })!;
-  const RH = user(null, 'rh');
-  const domaine = () => new Domain(loadFull(db, RH));
+async function fresh() {
+  const db = await nouvelleBase();
+  await seedDemo(db);
+  const compte = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number }).id;
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compte(empId), role, methode: 'demo' }))!;
+  const RH = await user(null, 'rh');
+  const domaine = async () => new Domain(await loadFull(db, RH));
   /** Comme POST /api/actions/:nom : action, puis trace au journal dans la même transaction. */
-  const run = (u: User, name: string, p: Record<string, unknown>) => db.tx(() => {
-    const t = preparerTrace(db, name, p);
-    const r = ACTIONS[name](makeCtx(db, u, loadFull(db, u)), p);
-    journaliserAction(db, t, { user: u, compte: db.get('comptes', u.compteId)!, message: typeof r === 'string' ? r : null });
+  const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
+    const t = await preparerTrace(db, name, p);
+    const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
+    await journaliserAction(db, t, { user: u, compte: (await db.get('comptes', u.compteId))!, message: typeof r === 'string' ? r : null });
     return r;
   });
   return { db, user, RH, domaine, run };
@@ -47,46 +46,46 @@ function fresh() {
 
 // — Ce qui attend le collaborateur —
 
-test('à faire : compte rendu à signer, feuille renvoyée, semaine passée à soumettre', () => {
-  const { db, domaine } = fresh();
+test('à faire : compte rendu à signer, feuille renvoyée, semaine passée à soumettre', async () => {
+  const { db, domaine } = await fresh();
   const passee = semainePassee('2026-10-10');
   assert.equal(passee, '2026-09-28', 'samedi 10 octobre : la semaine passée commence le lundi 28 septembre');
 
   // Compte rendu clos par l'évaluateur, pas encore signé par le salarié (jeu de démonstration : Fatou Ndiaye).
-  const cr = db.sql.prepare(`SELECT id, emp_id AS e FROM entretiens WHERE statut = 'realise' AND sign_sal IS NULL`).get() as { id: number; e: number };
-  assert.deepEqual(aFaireCollaborateur(domaine(), cr.e).comptesRendus.map(x => x.id), [cr.id]);
-  db.update('entretiens', cr.id, { signSal: '2026-10-09' });
-  assert.deepEqual(aFaireCollaborateur(domaine(), cr.e).comptesRendus, [], 'signé : plus rien à faire');
+  const cr = (await db.one(`SELECT id, emp_id AS e FROM entretiens WHERE statut = 'realise' AND sign_sal IS NULL`)) as { id: number; e: number };
+  assert.deepEqual(aFaireCollaborateur(await domaine(), cr.e).comptesRendus.map(x => x.id), [cr.id]);
+  await db.update('entretiens', cr.id, { signSal: '2026-10-09' });
+  assert.deepEqual(aFaireCollaborateur(await domaine(), cr.e).comptesRendus, [], 'signé : plus rien à faire');
 
   // Mehdi Benali : feuille de la semaine passée validée, rien n'attend.
-  const feuille = () => db.sql.prepare('SELECT id FROM feuilles WHERE emp_id = 2 AND week = ?').get(passee) as { id: number } | undefined;
-  assert.deepEqual(aFaireCollaborateur(domaine(), 2), { comptesRendus: [], feuilles: [] });
+  const feuille = async () => (await db.one('SELECT id FROM feuilles WHERE emp_id = 2 AND week = ?', [passee])) as { id: number } | undefined;
+  assert.deepEqual(aFaireCollaborateur(await domaine(), 2), { comptesRendus: [], feuilles: [] });
   // Renvoyée par le valideur : à corriger, avec son commentaire, comptée une seule fois.
-  db.update('feuilles', feuille()!.id, { statut: 'rejetee', comment: 'Heures du jeudi à répartir' });
-  assert.deepEqual(aFaireCollaborateur(domaine(), 2).feuilles, [{ week: passee, etat: 'renvoyee', commentaire: 'Heures du jeudi à répartir' }]);
+  await db.update('feuilles', (await feuille())!.id, { statut: 'rejetee', comment: 'Heures du jeudi à répartir' });
+  assert.deepEqual(aFaireCollaborateur(await domaine(), 2).feuilles, [{ week: passee, etat: 'renvoyee', commentaire: 'Heures du jeudi à répartir' }]);
   // Brouillon, ou aucune feuille : à soumettre.
-  db.update('feuilles', feuille()!.id, { statut: 'brouillon', comment: null });
-  assert.deepEqual(aFaireCollaborateur(domaine(), 2).feuilles, [{ week: passee, etat: 'a_soumettre', commentaire: null }]);
-  db.remove('feuilles', feuille()!.id);
-  assert.equal(aFaireCollaborateur(domaine(), 2).feuilles.length, 1, 'aucune feuille cette semaine-là, mais des feuilles antérieures');
+  await db.update('feuilles', (await feuille())!.id, { statut: 'brouillon', comment: null });
+  assert.deepEqual(aFaireCollaborateur(await domaine(), 2).feuilles, [{ week: passee, etat: 'a_soumettre', commentaire: null }]);
+  await db.remove('feuilles', (await feuille())!.id);
+  assert.equal(aFaireCollaborateur(await domaine(), 2).feuilles.length, 1, 'aucune feuille cette semaine-là, mais des feuilles antérieures');
   // Avant le début du suivi dans Cursus (aucune feuille jusqu'à la semaine passée : mise en service, reprise de
   // Lucca) : rien n'est réclamé ; une feuille ouverte cette semaine-ci n'y change rien.
-  const anterieures = db.sql.prepare('SELECT id FROM feuilles WHERE emp_id = 2 AND week <= ?').all(passee) as { id: number }[];
-  const sauvegarde = anterieures.map(x => db.get<FeuilleTemps>('feuilles', x.id)!);
-  for (const x of anterieures) db.remove('feuilles', x.id);
-  db.insert('feuilles', { empId: 2, week: '2026-10-05', statut: 'brouillon', comment: null, sage: false, keystone: false, lignes: [], contrat: null });
-  assert.deepEqual(aFaireCollaborateur(domaine(), 2).feuilles, [], 'première semaine suivie dans Cursus : la semaine en cours');
-  for (const { id: _id, ...f } of sauvegarde) db.insert('feuilles', f);
-  assert.equal(aFaireCollaborateur(domaine(), 2).feuilles.length, 1);
+  const anterieures = (await db.query('SELECT id FROM feuilles WHERE emp_id = 2 AND week <= ?', [passee])) as { id: number }[];
+  const sauvegarde = await Promise.all(anterieures.map(async x => (await db.get<FeuilleTemps>('feuilles', x.id))!));
+  for (const x of anterieures) await db.remove('feuilles', x.id);
+  await db.insert('feuilles', { empId: 2, week: '2026-10-05', statut: 'brouillon', comment: null, sage: false, keystone: false, lignes: [], contrat: null });
+  assert.deepEqual(aFaireCollaborateur(await domaine(), 2).feuilles, [], 'première semaine suivie dans Cursus : la semaine en cours');
+  for (const { id: _id, ...f } of sauvegarde) await db.insert('feuilles', f);
+  assert.equal(aFaireCollaborateur(await domaine(), 2).feuilles.length, 1);
   // Semaine hors contrat (entrée postérieure) : aucune feuille attendue.
-  db.update('employes', 2, { entree: '2026-10-05' });
-  assert.deepEqual(aFaireCollaborateur(domaine(), 2).feuilles, []);
+  await db.update('employes', 2, { entree: '2026-10-05' });
+  assert.deepEqual(aFaireCollaborateur(await domaine(), 2).feuilles, []);
   // Feuille soumise : elle attend le valideur, pas le salarié.
-  db.update('employes', 2, { entree: '2019-03-01' });
-  db.insert('feuilles', { empId: 2, week: passee, statut: 'soumise', comment: null, sage: false, keystone: false, lignes: [], contrat: null });
-  assert.deepEqual(aFaireCollaborateur(domaine(), 2).feuilles, []);
+  await db.update('employes', 2, { entree: '2019-03-01' });
+  await db.insert('feuilles', { empId: 2, week: passee, statut: 'soumise', comment: null, sage: false, keystone: false, lignes: [], contrat: null });
+  assert.deepEqual(aFaireCollaborateur(await domaine(), 2).feuilles, []);
   // Sans fiche (compte externe) : rien.
-  assert.deepEqual(aFaireCollaborateur(domaine(), null), { comptesRendus: [], feuilles: [] });
+  assert.deepEqual(aFaireCollaborateur(await domaine(), null), { comptesRendus: [], feuilles: [] });
 });
 
 // — Saisie des heures jour par jour —
@@ -131,37 +130,37 @@ test('coordonnées : texte nettoyé, vide = aucune, longueur bornée', () => {
   assert.deepEqual(controleContact('x'.repeat(CONTACT_MAX + 1), 'DPO'), { erreur: `DPO : ${CONTACT_MAX} caractères au plus` });
 });
 
-test('confidentialite.regler : administrateur RH, champs absents conservés, rien du texte au journal', () => {
-  const { db, user, RH, run } = fresh();
-  assert.deepEqual(lireConfidentialite(db), { responsable: null, dpo: null });
-  assert.match(String(run(RH, 'confidentialite.regler', { responsable: 'Chimie Industrie SAS, Feyzin' })), /DPO non renseigné : la page renvoie au service RH$/);
-  assert.equal(String(run(RH, 'confidentialite.regler', { dpo: 'Claire Martin, dpo@entreprise.example' })), 'Coordonnées de la page Confidentialité enregistrées');
-  assert.deepEqual(lireConfidentialite(db), { responsable: 'Chimie Industrie SAS, Feyzin', dpo: 'Claire Martin, dpo@entreprise.example' });
+test('confidentialite.regler : administrateur RH, champs absents conservés, rien du texte au journal', async () => {
+  const { db, user, RH, run } = await fresh();
+  assert.deepEqual(await lireConfidentialite(db), { responsable: null, dpo: null });
+  assert.match(String(await run(RH, 'confidentialite.regler', { responsable: 'Chimie Industrie SAS, Feyzin' })), /DPO non renseigné : la page renvoie au service RH$/);
+  assert.equal(String(await run(RH, 'confidentialite.regler', { dpo: 'Claire Martin, dpo@entreprise.example' })), 'Coordonnées de la page Confidentialité enregistrées');
+  assert.deepEqual(await lireConfidentialite(db), { responsable: 'Chimie Industrie SAS, Feyzin', dpo: 'Claire Martin, dpo@entreprise.example' });
   // Vidé : la page renvoie de nouveau au service RH.
-  run(RH, 'confidentialite.regler', { dpo: '' });
-  assert.equal(lireConfidentialite(db).dpo, null);
-  assert.throws(() => run(RH, 'confidentialite.regler', { responsable: 'x'.repeat(CONTACT_MAX + 1) }), (e: unknown) => e instanceof ActionError && e.status === 400);
+  await run(RH, 'confidentialite.regler', { dpo: '' });
+  assert.equal((await lireConfidentialite(db)).dpo, null);
+  await assert.rejects(async () => await run(RH, 'confidentialite.regler', { responsable: 'x'.repeat(CONTACT_MAX + 1) }), (e: unknown) => e instanceof ActionError && e.status === 400);
   // Gestionnaire RH et collaborateur : refus.
-  for (const u of [user(14, 'rh'), user(2, 'collaborateur')]) {
-    assert.throws(() => run(u, 'confidentialite.regler', { dpo: 'x' }), (e: unknown) => e instanceof ActionError && e.status === 403);
+  for (const u of [await user(14, 'rh'), await user(2, 'collaborateur')]) {
+    await assert.rejects(async () => await run(u, 'confidentialite.regler', { dpo: 'x' }), (e: unknown) => e instanceof ActionError && e.status === 403);
   }
   // Journal : le nom des champs modifiés, jamais leur texte ; libellé et famille « Administration ».
-  const lignes = db.all<{ action: string; payload: Record<string, unknown> }>('journal').filter(l => l.action === 'confidentialite.regler');
+  const lignes = (await db.all<{ action: string; payload: Record<string, unknown> }>('journal')).filter(l => l.action === 'confidentialite.regler');
   assert.deepEqual(lignes.map(l => l.payload), [{ champsModifies: ['responsable'] }, { champsModifies: ['dpo'] }, { champsModifies: ['dpo'] }]);
   // Comme l'écran Paramètres : les deux champs envoyés, seul le DPO change (le responsable, renvoyé à l'identique,
   // n'est pas nommé) ; un enregistrement sans changement ne nomme aucun champ.
-  run(RH, 'confidentialite.regler', { responsable: 'Chimie Industrie SAS, Feyzin', dpo: 'Claire Martin, dpo@entreprise.example' });
-  run(RH, 'confidentialite.regler', { responsable: 'Chimie Industrie SAS, Feyzin', dpo: 'Claire Martin, dpo@entreprise.example' });
-  const suite = db.all<{ action: string; payload: Record<string, unknown> }>('journal').filter(l => l.action === 'confidentialite.regler').slice(3);
+  await run(RH, 'confidentialite.regler', { responsable: 'Chimie Industrie SAS, Feyzin', dpo: 'Claire Martin, dpo@entreprise.example' });
+  await run(RH, 'confidentialite.regler', { responsable: 'Chimie Industrie SAS, Feyzin', dpo: 'Claire Martin, dpo@entreprise.example' });
+  const suite = (await db.all<{ action: string; payload: Record<string, unknown> }>('journal')).filter(l => l.action === 'confidentialite.regler').slice(3);
   assert.deepEqual(suite.map(l => l.payload), [{ champsModifies: ['dpo'] }, { champsModifies: [] }]);
-  assert.ok(!JSON.stringify(db.all('journal')).includes('Claire Martin'));
+  assert.ok(!JSON.stringify(await db.all('journal')).includes('Claire Martin'));
   assert.ok(JOURNAL_LABEL['confidentialite.regler']);
   assert.equal(familleAction('confidentialite.regler')?.id, 'administration');
 });
 
 test('GET /api/confidentialite : lisible sans connexion (écran de connexion)', async () => {
-  const { db, RH, run } = fresh();
-  run(RH, 'confidentialite.regler', { responsable: 'Chimie Industrie SAS', dpo: 'dpo@entreprise.example' });
+  const { db, RH, run } = await fresh();
+  await run(RH, 'confidentialite.regler', { responsable: 'Chimie Industrie SAS', dpo: 'dpo@entreprise.example' });
   const app = express();
   app.use(routesConfidentialite(db));
   const srv = app.listen(0, '127.0.0.1');

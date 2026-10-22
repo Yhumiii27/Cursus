@@ -15,7 +15,7 @@ import express from 'express';
 process.env.CURSUS_TODAY = '2026-10-10';
 process.env.CURSUS_DEMO = '1';
 
-const { Db } = await import('../server/src/db.ts');
+const { SqliteDb: Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { migrate } = await import('../server/src/migrate.ts');
 const { appliquerMigrations } = await import('../server/src/migrations/cadre.ts');
@@ -36,9 +36,9 @@ writeFileSync(join(dist, 'assets', 'index-ABCD1234.js'), SCRIPT);
 writeFileSync(join(dist, 'assets', 'inter-latin-400.woff2'), Buffer.alloc(4096, 7));
 
 const db = new Db(join(dir, 'cursus.db'));
-migrate(db);
-appliquerMigrations(db);
-seedDemo(db);
+await migrate(db);
+await appliquerMigrations(db);
+await seedDemo(db);
 // Panne imprévue d'une action (erreur qui n'est pas un refus) : visible du seul journal du serveur.
 ACTIONS['essai.panne'] = () => { throw new Error('panne simulée : base 42 introuvable'); };
 
@@ -182,7 +182,7 @@ test('protections : sans session 401, cookie altéré 401, Origin étrangère 40
 
   // Karim Haddad, manager de la Maintenance : seuls les salariés de son équipe ; action réservée au service RH : 403.
   const rh = (await appel('/api/data', { headers: { cookie } })).json() as { employes: unknown[] };
-  const karim = db.sql.prepare('SELECT id FROM comptes WHERE emp_id = 12').get() as { id: number };
+  const karim = (await db.one('SELECT id FROM comptes WHERE emp_id = 12')) as { id: number };
   const connexion = await appel('/api/login', json({ role: 'manager', compteId: karim.id, password: 'x' }, { cookie }));
   assert.equal(connexion.status, 200);
   const mgrCookie = String(connexion.headers['set-cookie']).match(/cursus_session=[^;]*/)![0];

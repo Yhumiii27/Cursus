@@ -41,29 +41,29 @@ export function enAttenteDuSuppleant(ds: Dataset, g: DelegationValidation, jour:
  * Message au suppléant au début de la délégation : période, périmètre, demandes déjà en attente. `cx` : contexte de
  * l'action (ou de la tâche de fond). Note l'envoi sur la délégation.
  */
-export function annoncerDelegation(cx: { db: Db; ds: Dataset; user: CurrentUser }, g: DelegationValidation): void {
+export async function annoncerDelegation(cx: { db: Db; ds: Dataset; user: CurrentUser }, g: DelegationValidation): Promise<void> {
   const m = nom(cx.ds, g.managerId);
   const attente = enAttenteDuSuppleant(cx.ds, g, cx.ds.today);
   const perimetre = perimetreTexte(perimetreEffectif(cx.ds.settings, g));
-  notifier(cx, g.suppleantId, {
+  await notifier(cx, g.suppleantId, {
     type: 'delegation.debut',
     objet: `Vous remplacez ${m} jusqu’au ${fmtIso(g.au)} — validations déléguées`,
     texte: `${m} vous délègue ses validations (${perimetre}) ${periodeLongue(g.du, g.au)}. Pendant cette période, l’espace Manager de Cursus vous est ouvert `
       + 'pour décider à sa place ; vos propres demandes vont à son responsable, ou au service RH. Vos décisions sont signées « par délégation ».\n'
       + (attente.length ? `${plural(attente.length, 'demande attend', 'demandes attendent')} déjà une décision :\n${attente.map(x => `- ${x}`).join('\n')}\n` : 'Aucune demande n’attend de décision pour le moment.\n'),
   });
-  cx.db.update('delegations', g.id, { annonceeLe: new Date().toISOString() });
+  await cx.db.update('delegations', g.id, { annonceeLe: new Date().toISOString() });
 }
 
 /**
  * Tâche de fond (dans la transaction de `tachesEmails`) : délégations en vigueur aujourd'hui pas encore annoncées.
  * Renvoie le nombre de suppléants prévenus.
  */
-export function annoncerDelegations(db: Db): number {
+export async function annoncerDelegations(db: Db): Promise<number> {
   const jour = todayIso();
-  const a = db.all<DelegationValidation>('delegations').filter(g => !g.annonceeLe && delegationEnVigueur(g, jour));
+  const a = (await db.all<DelegationValidation>('delegations')).filter(g => !g.annonceeLe && delegationEnVigueur(g, jour));
   if (!a.length) return 0;
-  const ds = loadFull(db, SUIVI);
-  a.forEach(g => annoncerDelegation({ db, ds, user: SUIVI }, g));
+  const ds = await loadFull(db, SUIVI);
+  for (const g of a) await annoncerDelegation({ db, ds, user: SUIVI }, g);
   return a.length;
 }

@@ -9,11 +9,11 @@ import type { Db } from './db.ts';
 export type LotEnregistre = LotPaie & { contenu: SagePush | null };
 
 /** Lots de paie, du plus récent au plus ancien, sans leur contenu. */
-export function lireLots(db: Db): LotPaie[] {
-  return db.all<LotEnregistre>('lotsPaie').reverse().map(({ contenu: _contenu, ...l }) => l);
+export async function lireLots(db: Db): Promise<LotPaie[]> {
+  return (await db.all<LotEnregistre>('lotsPaie')).reverse().map(({ contenu: _contenu, ...l }) => l);
 }
 
 /** Format du fichier d'import en vigueur : le réglage enregistré, complété par le format par défaut. */
-export function lireFormatFichier(db: Db): FormatFichierPaie {
-  return { ...FORMAT_FICHIER_DEFAUT, ...db.getSetting<Partial<FormatFichierPaie>>('formatFichierPaie', {}) };
+export async function lireFormatFichier(db: Db): Promise<FormatFichierPaie> {
+  return { ...FORMAT_FICHIER_DEFAUT, ...await db.getSetting<Partial<FormatFichierPaie>>('formatFichierPaie', {}) };
 }

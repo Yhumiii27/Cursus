@@ -1,13 +1,15 @@
-// Accès SQLite (module node:sqlite) : schéma déclaratif et requêtes génériques.
-// Les champs sont en camelCase côté code et en snake_case dans la base.
+// Accès aux données : schéma déclaratif, requêtes génériques asynchrones, adaptateur SQLite (module node:sqlite) et choix
+// du moteur (openDb) ; l'adaptateur PostgreSQL est dans server/src/db-pg.ts. Les champs sont en camelCase côté code et
+// en snake_case dans la base.
+import { AsyncLocalStorage } from 'node:async_hooks';
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync, writeFileSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fichierBase } from './chemins.ts';
 import { sauvegarderAvantMigration } from './sauvegarde.ts';
 
-type ColType = 'text' | 'int' | 'real' | 'bool' | 'json';
-interface TableDef { pk: string; auto?: boolean; cols: Record<string, ColType>; unique?: string[][] }
+export type ColType = 'text' | 'int' | 'real' | 'bool' | 'json';
+export interface TableDef { pk: string; auto?: boolean; cols: Record<string, ColType>; unique?: string[][] }
 
 export const TABLES = {
   // Référentiels administrés par le service RH (server/src/actions/referentiels.ts) : `archive`, date d'archivage (null :
@@ -420,26 +422,54 @@ export function colonnesSql(name: TableName): string {
   return cols.join(', ');
 }
 
-function toDb(t: ColType, v: unknown): string | number | null {
+/** Valeur écrite dans une colonne de type `t` (SQLite : booléen en 0 / 1, JSON en texte). */
+export function toDb(t: ColType, v: unknown): SqlValeur {
   if (v === undefined || v === null) return null;
   if (t === 'bool') return v ? 1 : 0;
   if (t === 'json') return JSON.stringify(v);
   if (t === 'int' || t === 'real') return Number(v);
   return String(v);
 }
-function fromDb(t: ColType, v: unknown): unknown {
+function fromDb(t: ColType, v: unknown, jsonDecode: boolean): unknown {
   if (v === null || v === undefined) return t === 'bool' ? false : null;
   if (t === 'bool') return !!v;
-  if (t === 'json') return JSON.parse(String(v));
+  if (t === 'json') return jsonDecode ? JSON.parse(String(v)) : v;
   if (t === 'int' || t === 'real') return Number(v);
   return v;
 }
 
-export class Db {
-  sql: DatabaseSync;
+/**
+ * Valeur d'une colonne JSON lue par une requête brute : texte à décoder en SQLite, valeur déjà décodée par le pilote de
+ * PostgreSQL (colonnes `json`). Les deux moteurs rendent ainsi la même valeur, sauf pour une colonne dont la valeur
+ * JSON est une chaîne (réglages) : la lire par les méthodes génériques (`get`, `getSetting`), qui connaissent le moteur.
+ */
+export function jsonLu(v: unknown): unknown {
+  if (v === null || v === undefined) return null;
+  return typeof v === 'string' ? JSON.parse(v) : v;
+}
+
+/** Valeur passée en paramètre d'une requête SQL brute (`query`, `one`, `run`). */
+export type SqlValeur = string | number | bigint | boolean | null | Uint8Array;
+/** Issue d'une écriture SQL brute (`run`) : lignes touchées, identifiant de la dernière insertion. */
+export interface Ecriture { changes: number; lastInsertRowid: number }
+
+/**
+ * Accès aux données, asynchrone (sous-étape 8.a de la bascule vers le serveur PostgreSQL commun,
+ * Matrix docs/architecture-postgres.md § 8) : même API qu'auparavant (`all`, `where`, `get`, `insert`, `update`,
+ * `remove`, `count`, `tx`, `getSetting`, `setSetting`), chaque méthode renvoyant une promesse, plus le SQL brut
+ * (`query`, `one`, `run`, `exec`), `lecture` et `exclusif`. Un adaptateur par moteur : `SqliteDb` (node:sqlite)
+ * aujourd'hui ; l'adaptateur PostgreSQL (8.b) n'aura qu'à fournir les primitives abstraites.
+ *
+ * Le SQL brut reste écrit pour SQLite, paramètres `?` compris ; le code applicatif n'utilise jamais la connexion
+ * `SqliteDb.sql` directement (contrôlé par scripts/verifier-await.mjs) : seuls ce fichier (schéma), le cadre et les
+ * outils des migrations nommées (server/src/migrations/cadre.ts, outils.ts) et la déclaration à Matrix (index.ts) y
+ * touchent.
+ */
+export abstract class Db {
+  /** Moteur de la base : SQLite (fichier local, repli) ou PostgreSQL (serveur commun, DATABASE_URL). */
+  abstract readonly moteur: 'sqlite' | 'pg';
   /** Base sans aucune table de Cursus à l'ouverture, créée à l'instant : les migrations nommées s'y appliquent sans copie. */
-  readonly neuve: boolean;
-  private depth = 0;
+  abstract readonly neuve: boolean;
   /**
    * Révision de la base, renvoyée dans chaque instantané (`Dataset.revision`) : augmentée à chaque transaction d'écriture
    * validée (`tx`). Le client ignore un instantané de révision inférieure à celle qu'il affiche : la réponse d'une action
@@ -447,10 +477,198 @@ export class Db {
    * l'heure (millisecondes) et jamais en deçà, elle croît aussi d'un démarrage à l'autre, restauration comprise, sans être
    * écrite dans la base.
    */
-  private rev = Date.now();
+  protected rev = Date.now();
   get revision(): number { return this.rev; }
+  /** Fichier de la base (null : base en mémoire, ou serveur de base de données). */
+  abstract get emplacement(): string | null;
+
+  /** Lignes brutes d'une requête SQL (noms de colonnes de la base, sans décodage). */
+  abstract query<T = Row>(sql: string, params?: readonly SqlValeur[]): Promise<T[]>;
+  /** Écriture SQL brute : lignes touchées. */
+  abstract run(sql: string, params?: readonly SqlValeur[]): Promise<Ecriture>;
+  /** Instructions SQL sans paramètre, éventuellement plusieurs. */
+  abstract exec(sql: string): Promise<void>;
+  /** Noms des colonnes physiques d'une table (y compris celles qui ne sont plus utilisées). */
+  abstract columns(table: TableName): Promise<string[]>;
+  /** Vide les données (les sessions de connexion restent ouvertes, le journal des actions est conservé). */
+  abstract clearAll(): Promise<void>;
+  /**
+   * Exécute `fn` dans une transaction (annulée en cas d'erreur), seule à écrire pendant ce temps. Imbriquée (appel
+   * depuis une transaction en cours) : `fn` s'exécute dans la transaction englobante.
+   */
+  abstract tx<T>(fn: () => Promise<T> | T): Promise<T>;
+  /**
+   * Exécute `fn` sur un état stable de la base, en lecture : aucune écriture d'une autre requête ne s'intercale entre
+   * ses lectures (instantané renvoyé au navigateur, export).
+   */
+  abstract lecture<T>(fn: () => Promise<T> | T): Promise<T>;
+  /**
+   * Exécute `fn` seule sur la base, sans transaction : aucune autre requête ne lit ni n'écrit entre ses étapes (lecture
+   * puis écriture d'un compteur, d'un réglage, d'une session). C'est ce que garantissait d'office l'accès synchrone
+   * d'avant pour toute suite d'appels sans attente : les routes et tâches de fond qui enchaînent plusieurs accès sans
+   * attendre autre chose que la base s'exécutent ainsi (`enSerie`). Une transaction ouverte dans `fn` reste possible.
+   */
+  abstract exclusif<T>(fn: () => Promise<T> | T): Promise<T>;
+  /** Ferme la base (arrêt du serveur, fin d'un outil en ligne de commande). */
+  abstract fermer(): Promise<void>;
+
+  /** Recale les compteurs d'identifiants après des insertions à identifiant fixé (PostgreSQL ; rien à faire en SQLite). */
+  async resyncIds(): Promise<void> {}
+
+  // — Fragments SQL propres au moteur (le reste du SQL brut est commun aux deux : paramètres `?`, TRUE / FALSE,
+  //   IS DISTINCT FROM, COALESCE, CAST) —
+  /** Condition « la colonne JSON `colonne` (tableau d'entiers) contient l'entier passé en paramètre » (un `?`). */
+  contientEntier(colonne: string): string {
+    return this.moteur === 'pg' ? `(${colonne})::jsonb @> jsonb_build_array(CAST(? AS integer))` : `EXISTS (SELECT 1 FROM json_each(${colonne}) WHERE value = ?)`;
+  }
+  /** Comparaison de texte insensible à la casse, comme le LIKE de SQLite : ILIKE en PostgreSQL. */
+  get like(): string { return this.moteur === 'pg' ? 'ILIKE' : 'LIKE'; }
+  /** Texte d'une colonne JSON, pour une recherche par LIKE (en PostgreSQL, `json` garde le texte écrit). */
+  jsonTexte(colonne: string): string { return this.moteur === 'pg' ? `(${colonne})::text` : colonne; }
+  /** Condition « la clé `cle` de l'objet JSON `colonne` vaut le paramètre » (un `?`, nombre ou texte), comparée en texte en PostgreSQL. */
+  jsonCleEgale(colonne: string, cle: string): string {
+    return this.moteur === 'pg' ? `(${colonne})->>'${cle}' = CAST(? AS text)` : `json_extract(${colonne}, '$.${cle}') = ?`;
+  }
+  /** Texte de la clé `cle` de l'objet JSON `colonne` (comparaison à des littéraux texte : `IN ('a', 'b')`). */
+  jsonCle(colonne: string, cle: string): string {
+    return this.moteur === 'pg' ? `(${colonne})->>'${cle}'` : `json_extract(${colonne}, '$.${cle}')`;
+  }
+
+  /** Première ligne brute d'une requête SQL, ou undefined. */
+  async one<T = Row>(sql: string, params: readonly SqlValeur[] = []): Promise<T | undefined> {
+    return (await this.query<T>(sql, params))[0];
+  }
+
+  protected def(table: TableName): TableDef { return TABLES[table] as TableDef; }
+
+  /** Valeur écrite dans une colonne (paramètres des méthodes génériques) ; l'adaptateur PostgreSQL la redéfinit. */
+  protected versBase(t: ColType, v: unknown): SqlValeur { return toDb(t, v); }
+
+  protected decode<T>(table: TableName, r: Row): T {
+    const def = this.def(table), o: Row = {}, texte = this.moteur === 'sqlite';
+    for (const [c, t] of Object.entries(def.cols)) o[c] = fromDb(t, r[snake(c)], texte);
+    return o as T;
+  }
+
+  async all<T>(table: TableName, orderBy?: string): Promise<T[]> {
+    const def = this.def(table);
+    const order = orderBy ?? def.pk;
+    return (await this.query(`SELECT * FROM ${snake(table)} ORDER BY ${snake(order)}`)).map(r => this.decode<T>(table, r));
+  }
+
+  async where<T>(table: TableName, field: string, value: unknown): Promise<T[]> {
+    const def = this.def(table);
+    return (await this.query(`SELECT * FROM ${snake(table)} WHERE ${snake(field)} = ? ORDER BY ${snake(def.pk)}`, [this.versBase(def.cols[field], value)]))
+      .map(r => this.decode<T>(table, r));
+  }
+
+  async get<T>(table: TableName, id: unknown): Promise<T | undefined> {
+    const def = this.def(table);
+    const r = await this.one(`SELECT * FROM ${snake(table)} WHERE ${snake(def.pk)} = ?`, [this.versBase(def.cols[def.pk], id)]);
+    return r ? this.decode<T>(table, r) : undefined;
+  }
+
+  async insert<T = Row>(table: TableName, obj: Partial<T> | Row): Promise<T> {
+    const def = this.def(table);
+    const o = obj as Row;
+    const cols = Object.keys(def.cols).filter(c => o[c] !== undefined && !(c === def.pk && def.auto && o[c] == null));
+    const res = await this.run(`INSERT INTO ${snake(table)} (${cols.map(snake).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`,
+      cols.map(c => this.versBase(def.cols[c], o[c])));
+    const id = def.auto && o[def.pk] == null ? res.lastInsertRowid : o[def.pk];
+    return (await this.get<T>(table, id))!;
+  }
+
+  async update<T = Row>(table: TableName, id: unknown, patch: Partial<T> | Row): Promise<T> {
+    const def = this.def(table);
+    const p = patch as Row;
+    const cols = Object.keys(p).filter(c => c !== def.pk && c in def.cols);
+    if (cols.length) {
+      await this.run(`UPDATE ${snake(table)} SET ${cols.map(c => `${snake(c)} = ?`).join(', ')} WHERE ${snake(def.pk)} = ?`,
+        [...cols.map(c => this.versBase(def.cols[c], p[c])), this.versBase(def.cols[def.pk], id)]);
+    }
+    return (await this.get<T>(table, id))!;
+  }
+
+  async remove(table: TableName, id: unknown): Promise<void> {
+    const def = this.def(table);
+    await this.run(`DELETE FROM ${snake(table)} WHERE ${snake(def.pk)} = ?`, [this.versBase(def.cols[def.pk], id)]);
+  }
+
+  async count(table: TableName): Promise<number> {
+    return Number((await this.one(`SELECT COUNT(*) AS n FROM ${snake(table)}`))!.n);
+  }
+
+  // — Paramètres clé / valeur —
+  async getSetting<T>(key: string, fallback: T): Promise<T> {
+    const r = await this.get<{ key: string; value: T }>('settings', key);
+    return r ? r.value : fallback;
+  }
+  /** Réglage écrit d'un seul tenant : deux écritures simultanées d'une clé nouvelle ne se heurtent pas à l'unicité. */
+  setSetting(key: string, value: unknown): Promise<void> {
+    return this.exclusif(async () => {
+      if (await this.get('settings', key)) await this.update('settings', key, { value });
+      else await this.insert('settings', { key, value });
+    });
+  }
+}
+
+/**
+ * Fonction (route Express, tâche de fond) exécutée seule sur la base (`Db.exclusif`) : comme avec l'accès synchrone
+ * d'avant, ses accès successifs ne s'entremêlent avec ceux d'aucune autre requête. Pour une suite qui attend autre
+ * chose que la base (réseau, calcul d'un mot de passe), seules les étapes sans attente extérieure passent par
+ * `db.exclusif`, pour ne pas bloquer les autres requêtes pendant l'attente.
+ */
+export function enSerie<A extends unknown[], R>(db: Db, fn: (...a: A) => Promise<R> | R): (...a: A) => Promise<R> {
+  return async (...a: A) => await db.exclusif(() => fn(...a));
+}
+
+/**
+ * File d'attente en mémoire (verrou exclusif) : chaque tâche attend la fin de la précédente. Les erreurs d'une tâche
+ * sont rendues à son appelant et ne bloquent pas les suivantes.
+ */
+class FileExclusive {
+  private fin: Promise<void> = Promise.resolve();
+  /** Tâches en cours ou en attente. */
+  private taches = 0;
+  get libre(): boolean { return this.taches === 0; }
+  executer<T>(fn: () => Promise<T>): Promise<T> {
+    const avant = this.fin;
+    let liberer!: () => void;
+    this.fin = new Promise<void>(ok => { liberer = ok; });
+    this.taches++;
+    return avant.then(fn).finally(() => { this.taches--; liberer(); });
+  }
+}
+
+/** Portée d'exclusivité en cours (transaction ou lecture) : valable tant que `active`, transaction ouverte si `tx`. */
+interface Portee { active: boolean; tx: boolean }
+
+/**
+ * Adaptateur SQLite (node:sqlite, synchrone). Une seule connexion par processus, partagée par toutes les requêtes HTTP :
+ * avec une API asynchrone, deux requêtes peuvent désormais s'entremêler à chaque `await`. Pour garder le comportement
+ * de l'accès synchrone d'avant :
+ * - une file en mémoire (`FileExclusive`) sérialise les transactions et les lectures groupées (`tx`, `lecture`) : un
+ *   second BEGIN n'est jamais lancé pendant qu'une transaction attend (« cannot start a transaction within a
+ *   transaction »), et une écriture d'une autre requête n'entre jamais dans la transaction d'une autre, ce qui la
+ *   ferait annuler avec elle ;
+ * - chaque requête isolée (hors `tx` et `lecture`) passe aussi par la file : elle s'exécute entre deux transactions ;
+ * - la portée en cours suit la chaîne asynchrone de l'appelant (AsyncLocalStorage) : dans `tx` et `lecture`, les
+ *   requêtes s'exécutent aussitôt, sans attendre la file qu'elles détiennent ; une transaction imbriquée rejoint la
+ *   transaction englobante. Une tâche lancée depuis une transaction et poursuivie après sa fin (portée close) repasse
+ *   par la file.
+ * Les transactions des autres processus (npm run comptes, sauvegarde) restent arbitrées par SQLite (BEGIN IMMEDIATE,
+ * busy_timeout). PostgreSQL (8.b) remplacera la file par un verrou consultatif pris en tête de chaque transaction.
+ */
+export class SqliteDb extends Db {
+  readonly moteur = 'sqlite' as const;
+  /** Connexion node:sqlite : réservée au schéma, aux reprises et migrations nommées et à l'exploitation du fichier. */
+  readonly sql: DatabaseSync;
+  readonly neuve: boolean;
+  private readonly file = new FileExclusive();
+  private readonly portee = new AsyncLocalStorage<Portee>();
 
   constructor(file: string) {
+    super();
     if (file !== ':memory:') {
       mkdirSync(dirname(resolve(file)), { recursive: true, mode: 0o700 });
       // Base neuve créée vide en 600 avant que SQLite ne l'ouvre (données de santé et de paie) : ses fichiers -wal et
@@ -462,11 +680,18 @@ export class Db {
     this.sql.exec('PRAGMA busy_timeout = 5000; PRAGMA journal_mode = WAL; PRAGMA foreign_keys = ON;');
     const tables = this.tablesSql();
     this.neuve = !Object.keys(TABLES).some(n => tables.has(snake(n)));
+    // Schéma créé à l'ouverture, avant toute requête : rien d'autre ne peut encore utiliser la connexion.
     this.createSchema();
   }
 
+  get emplacement(): string | null { return this.sql.location(); }
+
   private tablesSql(): Set<string> {
     return new Set((this.sql.prepare(`SELECT name FROM sqlite_master WHERE type = 'table'`).all() as { name: string }[]).map(t => t.name));
+  }
+
+  private colonnesSync(table: TableName): string[] {
+    return (this.sql.prepare(`PRAGMA table_info(${snake(table)})`).all() as { name: string }[]).map(c => c.name);
   }
 
   private createSchema() {
@@ -475,7 +700,7 @@ export class Db {
     for (const [name, def] of Object.entries(TABLES) as [TableName, TableDef][]) {
       this.sql.exec(`CREATE TABLE IF NOT EXISTS ${snake(name)} (${colonnesSql(name)})`);
       // Base existante : ajoute les colonnes apparues depuis sa création.
-      const existing = new Set((this.sql.prepare(`PRAGMA table_info(${snake(name)})`).all() as { name: string }[]).map(c => c.name));
+      const existing = new Set(this.colonnesSync(name));
       for (const [c, t] of Object.entries(def.cols)) {
         if (!existing.has(snake(c))) this.sql.exec(`ALTER TABLE ${snake(name)} ADD COLUMN ${snake(c)} ${SQL_TYPE[t]}`);
       }
@@ -488,112 +713,124 @@ export class Db {
     const tables = this.tablesSql();
     return (Object.entries(TABLES) as [TableName, TableDef][]).some(([name, def]) => {
       if (!tables.has(snake(name))) return true;
-      const cols = new Set(this.columns(name));
+      const cols = new Set(this.colonnesSync(name));
       return Object.keys(def.cols).some(c => !cols.has(snake(c)));
     });
   }
 
-  /** Noms des colonnes physiques d'une table (y compris celles qui ne sont plus utilisées). */
-  columns(table: TableName): string[] {
-    return (this.sql.prepare(`PRAGMA table_info(${snake(table)})`).all() as { name: string }[]).map(c => c.name);
+  /** Portée exclusive en cours dans la chaîne asynchrone de l'appelant, ou null. */
+  private enCours(): Portee | null {
+    const p = this.portee.getStore();
+    return p?.active ? p : null;
   }
 
-  private def(table: TableName): TableDef { return TABLES[table] as TableDef; }
-
-  private decode<T>(table: TableName, r: Row): T {
-    const def = this.def(table), o: Row = {};
-    for (const [c, t] of Object.entries(def.cols)) o[c] = fromDb(t, r[snake(c)]);
-    return o as T;
+  /** Exécute `fn` avec la connexion à soi : aussitôt dans une portée en cours, sinon à son tour dans la file. */
+  private aSonTour<T>(fn: (p: Portee) => Promise<T> | T): Promise<T> {
+    const p = this.enCours();
+    if (p) return Promise.resolve().then(() => fn(p));
+    return this.file.executer(() => {
+      const nouvelle: Portee = { active: true, tx: false };
+      return this.portee.run(nouvelle, async () => {
+        try { return await fn(nouvelle); } finally { nouvelle.active = false; }
+      });
+    });
   }
 
-  all<T>(table: TableName, orderBy?: string): T[] {
-    const def = this.def(table);
-    const order = orderBy ?? def.pk;
-    return this.sql.prepare(`SELECT * FROM ${snake(table)} ORDER BY ${snake(order)}`).all().map(r => this.decode<T>(table, r as Row));
+  query<T = Row>(sql: string, params: readonly SqlValeur[] = []): Promise<T[]> {
+    return this.aSonTour(() => this.sql.prepare(sql).all(...sqliteParams(params)) as T[]);
   }
 
-  where<T>(table: TableName, field: string, value: unknown): T[] {
-    const def = this.def(table);
-    return this.sql.prepare(`SELECT * FROM ${snake(table)} WHERE ${snake(field)} = ? ORDER BY ${snake(def.pk)}`)
-      .all(toDb(def.cols[field], value)).map(r => this.decode<T>(table, r as Row));
+  run(sql: string, params: readonly SqlValeur[] = []): Promise<Ecriture> {
+    return this.aSonTour(() => {
+      const r = this.sql.prepare(sql).run(...sqliteParams(params));
+      return { changes: Number(r.changes), lastInsertRowid: Number(r.lastInsertRowid) };
+    });
   }
 
-  get<T>(table: TableName, id: unknown): T | undefined {
-    const def = this.def(table);
-    const r = this.sql.prepare(`SELECT * FROM ${snake(table)} WHERE ${snake(def.pk)} = ?`).get(toDb(def.cols[def.pk], id));
-    return r ? this.decode<T>(table, r as Row) : undefined;
+  exec(sql: string): Promise<void> {
+    return this.aSonTour(() => { this.sql.exec(sql); });
   }
 
-  insert<T = Row>(table: TableName, obj: Partial<T> | Row): T {
-    const def = this.def(table);
-    const o = obj as Row;
-    const cols = Object.keys(def.cols).filter(c => o[c] !== undefined && !(c === def.pk && def.auto && o[c] == null));
-    const res = this.sql.prepare(`INSERT INTO ${snake(table)} (${cols.map(snake).join(', ')}) VALUES (${cols.map(() => '?').join(', ')})`)
-      .run(...cols.map(c => toDb(def.cols[c], o[c])));
-    const id = def.auto && o[def.pk] == null ? Number(res.lastInsertRowid) : o[def.pk];
-    return this.get<T>(table, id)!;
+  columns(table: TableName): Promise<string[]> {
+    return this.aSonTour(() => this.colonnesSync(table));
   }
 
-  update<T = Row>(table: TableName, id: unknown, patch: Partial<T> | Row): T {
-    const def = this.def(table);
-    const p = patch as Row;
-    const cols = Object.keys(p).filter(c => c !== def.pk && c in def.cols);
-    if (cols.length) {
-      this.sql.prepare(`UPDATE ${snake(table)} SET ${cols.map(c => `${snake(c)} = ?`).join(', ')} WHERE ${snake(def.pk)} = ?`)
-        .run(...cols.map(c => toDb(def.cols[c], p[c])), toDb(def.cols[def.pk], id));
-    }
-    return this.get<T>(table, id)!;
+  clearAll(): Promise<void> {
+    return this.aSonTour(() => {
+      for (const name of Object.keys(TABLES)) if (name !== 'connexions' && name !== 'journal') this.sql.exec(`DELETE FROM ${snake(name)}`);
+      this.sql.exec(`DELETE FROM sqlite_sequence WHERE name <> 'journal'`);
+    });
   }
 
-  remove(table: TableName, id: unknown) {
-    const def = this.def(table);
-    this.sql.prepare(`DELETE FROM ${snake(table)} WHERE ${snake(def.pk)} = ?`).run(toDb(def.cols[def.pk], id));
+  tx<T>(fn: () => Promise<T> | T): Promise<T> {
+    return this.aSonTour(async p => {
+      if (p.tx) return fn(); // transaction englobante déjà ouverte
+      // IMMEDIATE : verrou d'écriture pris d'emblée, en attendant au besoin (busy_timeout) qu'une autre connexion libère la
+      // base ; une transaction différée qui lit puis écrit échouerait sans attendre si une autre connexion a écrit entre-temps.
+      this.sql.exec('BEGIN IMMEDIATE');
+      p.tx = true;
+      try {
+        const r = await fn();
+        this.sql.exec('COMMIT');
+        this.rev = Math.max(this.rev + 1, Date.now());
+        return r;
+      } catch (err) {
+        this.sql.exec('ROLLBACK');
+        throw err;
+      } finally {
+        p.tx = false;
+      }
+    });
   }
 
-  count(table: TableName): number {
-    return Number((this.sql.prepare(`SELECT COUNT(*) AS n FROM ${snake(table)}`).get() as Row).n);
+  lecture<T>(fn: () => Promise<T> | T): Promise<T> {
+    return this.aSonTour(() => fn());
   }
 
-  /** Vide les données (les sessions de connexion restent ouvertes, le journal des actions est conservé). */
-  clearAll() {
-    for (const name of Object.keys(TABLES)) if (name !== 'connexions' && name !== 'journal') this.sql.exec(`DELETE FROM ${snake(name)}`);
-    this.sql.exec(`DELETE FROM sqlite_sequence WHERE name <> 'journal'`);
+  exclusif<T>(fn: () => Promise<T> | T): Promise<T> {
+    return this.aSonTour(() => fn());
   }
 
-  /** Exécute `fn` dans une transaction (annulée en cas d'erreur). */
-  tx<T>(fn: () => T): T {
-    if (this.depth > 0) return fn(); // transaction englobante déjà ouverte
-    // IMMEDIATE : verrou d'écriture pris d'emblée, en attendant au besoin (busy_timeout) qu'une autre connexion libère la
-    // base ; une transaction différée qui lit puis écrit échouerait sans attendre si une autre connexion a écrit entre-temps.
-    this.sql.exec('BEGIN IMMEDIATE');
-    this.depth++;
-    try {
-      const r = fn();
-      this.sql.exec('COMMIT');
-      this.rev = Math.max(this.rev + 1, Date.now());
-      return r;
-    } catch (err) {
-      this.sql.exec('ROLLBACK');
-      throw err;
-    } finally {
-      this.depth--;
-    }
-  }
-
-  // — Paramètres clé / valeur —
-  getSetting<T>(key: string, fallback: T): T {
-    const r = this.get<{ key: string; value: T }>('settings', key);
-    return r ? r.value : fallback;
-  }
-  setSetting(key: string, value: unknown) {
-    if (this.get('settings', key)) this.update('settings', key, { value });
-    else this.insert('settings', { key, value });
+  /**
+   * Ferme la connexion : aussitôt si rien n'est en cours (arrêt sur une erreur de démarrage, juste avant la sortie du
+   * processus), sinon à son tour, une fois finies la transaction en cours et les requêtes déjà en attente.
+   */
+  fermer(): Promise<void> {
+    const fermer = () => { if (this.sql.isOpen) this.sql.close(); };
+    if (this.file.libre && !this.enCours()) { fermer(); return Promise.resolve(); }
+    return this.aSonTour(fermer);
   }
 }
+
+/** Paramètres pour node:sqlite, qui n'accepte pas les booléens : 1 / 0, comme les colonnes `bool`. */
+const sqliteParams = (params: readonly SqlValeur[]) => params.map(v => (typeof v === 'boolean' ? (v ? 1 : 0) : v)) as (string | number | bigint | null | Uint8Array)[];
 
 /** Fichier de la base, en chemin absolu : CURSUS_DB, sinon data/cursus.db du projet (server/src/chemins.ts). */
 export const dbFile = () => fichierBase();
 
-export function openDb(file = dbFile()) {
-  return new Db(file);
+/**
+ * Adresse du serveur PostgreSQL commun (DATABASE_URL), ou null : Cursus travaille alors sur le fichier SQLite de repli.
+ * Une valeur vide (ou faite d'espaces) vaut absence, comme pour Keystone, Codex et Vigie : l'application de bureau la
+ * force à vide pour neutraliser une variable exportée dans la session du poste.
+ */
+export function urlPostgres(env: Record<string, string | undefined> = process.env): string | null {
+  const url = env.DATABASE_URL?.trim();
+  return url ? url : null;
 }
+
+/**
+ * Ouvre la base. Avec DATABASE_URL : serveur PostgreSQL commun (server/src/db-pg.ts : pool `pg`, schéma cursus,
+ * migrations de server/migrations-pg/ appliquées, schéma contrôlé). Sinon : fichier SQLite `file` (schéma créé ou
+ * complété à l'ouverture).
+ */
+export async function openDb(file = dbFile(), env: Record<string, string | undefined> = process.env): Promise<Db> {
+  const url = urlPostgres(env);
+  if (url) {
+    const { ouvrirPostgres } = await import('./db-pg.ts');
+    return await ouvrirPostgres(url, { env });
+  }
+  return new SqliteDb(file);
+}
+
+/** Ouvre le fichier SQLite `file`, quel que soit DATABASE_URL (outils propres au fichier : sauvegarde, reprise). */
+export const openSqlite = async (file = dbFile()): Promise<SqliteDb> => new SqliteDb(file);

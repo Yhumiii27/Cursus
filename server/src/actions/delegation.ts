@@ -7,9 +7,9 @@ import type { Mandat } from '../../../shared/types.ts';
 import { ActionError, type ActionHandler, getEmp, refuserSoiMeme, requireRh } from './context.ts';
 
 /** Création (sans `id`) ou modification d'un mandat : empId, role, du, au?, credit. */
-const enregistrer: ActionHandler = (ctx, p) => {
+const enregistrer: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
-  const avant = p.id != null && p.id !== '' ? ctx.db.get<Mandat>('mandats', Number(p.id)) : null;
+  const avant = p.id != null && p.id !== '' ? await ctx.db.get<Mandat>('mandats', Number(p.id)) : null;
   if (p.id != null && p.id !== '' && !avant) throw new ActionError('Mandat introuvable', 404);
   const emp = getEmp(ctx, avant?.empId ?? p.empId);
   // Un membre du RH élu ne fixe pas lui-même son crédit d'heures de délégation.
@@ -17,20 +17,20 @@ const enregistrer: ActionHandler = (ctx, p) => {
   const autres = (ctx.ds.mandats ?? []).filter(m => m.empId === emp.id && m.id !== avant?.id);
   const { erreurs, mandat } = controlerMandat(p, autres);
   if (!mandat) throw new ActionError(Object.values(erreurs)[0] ?? 'Saisie invalide');
-  if (avant) ctx.db.update<Mandat>('mandats', avant.id, mandat);
-  else ctx.db.insert<Mandat>('mandats', { empId: emp.id, ...mandat });
+  if (avant) await ctx.db.update<Mandat>('mandats', avant.id, mandat);
+  else await ctx.db.insert<Mandat>('mandats', { empId: emp.id, ...mandat });
   const periode = mandat.au ? `du ${fmtIso(mandat.du)} au ${fmtIso(mandat.au)}` : `depuis le ${fmtIso(mandat.du)}`;
   return `${ROLES_MANDAT[mandat.role]} au CSE — ${emp.nom}, ${periode}, crédit de ${fH(mandat.credit)} par mois ${avant ? 'modifié' : 'enregistré'}`;
 };
 
 /** Retrait d'un mandat saisi par erreur (un mandat terminé se garde avec sa date de fin). */
-const supprimer: ActionHandler = (ctx, p) => {
+const supprimer: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
-  const m = ctx.db.get<Mandat>('mandats', Number(p.id));
+  const m = await ctx.db.get<Mandat>('mandats', Number(p.id));
   if (!m) throw new ActionError('Mandat introuvable', 404);
   const emp = getEmp(ctx, m.empId);
   refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas retirer votre propre mandat au CSE');
-  ctx.db.remove('mandats', m.id);
+  await ctx.db.remove('mandats', m.id);
   return `Mandat au CSE de ${emp.nom} retiré`;
 };
 

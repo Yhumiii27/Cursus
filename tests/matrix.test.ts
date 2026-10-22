@@ -11,18 +11,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-const { Db, TABLES, snake } = await import('../server/src/db.ts');
-const { migrate } = await import('../server/src/migrate.ts');
-const { appliquerMigrations } = await import('../server/src/migrations/cadre.ts');
-const { declarerBase, declarerSchema, documentSchema, introspecterSqlite } = await import('../server/src/integrations/matrix.ts');
+const { SqliteDb: Db, TABLES, snake } = await import('../server/src/db.ts');
+const { nouvelleBase, PG } = await import('./base.ts');
+const { mettreAJourBase } = await import('../server/src/demarrage.ts');
+const { declarerBase, declarerSchema, documentSchema, introspecterPostgres, introspecterSqlite } = await import('../server/src/integrations/matrix.ts');
 
 const dossier = mkdtempSync(join(tmpdir(), 'cursus-matrix-'));
 after(() => rmSync(dossier, { recursive: true, force: true }));
 
-function base() {
-  const db = new Db(join(dossier, `base-${Math.random().toString(36).slice(2)}.db`));
-  migrate(db);
-  appliquerMigrations(db);
+/** Base migrée comme au démarrage : fichier SQLite, ou schéma PostgreSQL (CURSUS_TEST_ENGINE=pg). */
+async function base() {
+  const db = PG ? await nouvelleBase() : new Db(join(dossier, `base-${Math.random().toString(36).slice(2)}.db`));
+  await mettreAJourBase(db);
   return db;
 }
 
@@ -48,9 +48,9 @@ function journal() {
   return { info, warn, log: { info: (m: string) => info.push(m), warn: (m: string) => warn.push(m) } };
 }
 
-test('le schéma lu reprend toutes les tables du schéma déclaratif, sans les tables techniques', () => {
-  const db = base();
-  const tables = introspecterSqlite(db.sql);
+test('le schéma lu reprend toutes les tables du schéma déclaratif, sans les tables techniques', async () => {
+  const db = await base();
+  const tables = db instanceof Db ? introspecterSqlite(db.sql) : await introspecterPostgres(async q => await db.query(q));
   const noms = tables.map(t => t.name);
   assert.deepEqual(noms, Object.keys(TABLES).map(snake).sort());
   assert.ok(!noms.includes('migrations') && !noms.some(n => n.startsWith('sqlite_')));
@@ -60,7 +60,14 @@ test('le schéma lu reprend toutes les tables du schéma déclaratif, sans les t
   assert.equal(employes.columns.find(c => c.name === 'id')!.nullable, false);
   const inscriptions = tables.find(t => t.name === 'inscriptions')!;
   assert.deepEqual(inscriptions.uniques, [['emp_id', 'session_id']]);
-  db.sql.close();
+  if (PG) {
+    // Serveur commun : clés étrangères déclarées (server/migrations-pg/0001_init.sql), matricule partagé (D01).
+    assert.ok(!noms.includes('schema_migrations'));
+    assert.deepEqual(inscriptions.fks.map(f => [f.columns, f.table, f.onDelete]), [[['emp_id'], 'employes', 'restrict'], [['session_id'], 'sessions', 'cascade']]);
+    assert.ok(employes.columns.some(c => c.name === 'matricule'));
+    assert.deepEqual(employes.uniques, [['matricule']]);
+  }
+  await db.fermer();
 });
 
 test('clés composées, liens déclarés et colonnes sans type', () => {
@@ -92,9 +99,9 @@ test('document matrix.schema/1 : tables triées, empreinte stable', () => {
 
 test('envoi à Matrix : jeton, identifiants de l\'adresse en Basic, nouvelles tables signalées', async () => {
   const m = await fauxMatrix();
-  const db = base();
+  const db = await base();
   const j = journal();
-  const doc = await declarerBase(db.sql, '9.9.9', { MATRIX_URL: `http://lecteur:mot%20de%20passe@127.0.0.1:${m.port}`, MATRIX_TOKEN: 'essai' }, j.log);
+  const doc = await declarerBase(db, '9.9.9', { MATRIX_URL: `http://lecteur:mot%20de%20passe@127.0.0.1:${m.port}`, MATRIX_TOKEN: 'essai' }, j.log);
   await m.fermer();
   assert.equal(m.recus.length, 1);
   const [r] = m.recus;
@@ -107,7 +114,7 @@ test('envoi à Matrix : jeton, identifiants de l\'adresse en Basic, nouvelles ta
   assert.equal(r.corps.empreinte, doc!.empreinte);
   assert.deepEqual(j.info, ['[matrix] nouvelles tables déclarées : employes']);
   assert.deepEqual(j.warn, []);
-  db.sql.close();
+  await db.fermer();
 });
 
 test('sans identifiants ni jeton : ni Authorization ni X-Matrix-Token', async () => {
@@ -122,14 +129,14 @@ test('sans identifiants ni jeton : ni Authorization ni X-Matrix-Token', async ()
 });
 
 test('sans MATRIX_URL rien n\'est envoyé ; MATRIX_DECLARATIONS_DIR écrit la déclaration', async () => {
-  const db = base();
+  const db = await base();
   const j = journal();
-  assert.equal(await declarerBase(db.sql, null, {}, j.log), null);
+  assert.equal(await declarerBase(db, null, {}, j.log), null);
   const sortie = join(dossier, 'declarations');
-  const doc = await declarerBase(db.sql, null, { MATRIX_DECLARATIONS_DIR: sortie }, j.log);
+  const doc = await declarerBase(db, null, { MATRIX_DECLARATIONS_DIR: sortie }, j.log);
   assert.deepEqual(JSON.parse(readFileSync(join(sortie, 'cursus.json'), 'utf8')), doc);
   assert.deepEqual([...j.info, ...j.warn], []);
-  db.sql.close();
+  await db.fermer();
 });
 
 test('échecs réduits à un avertissement : refus de Matrix, Matrix injoignable, base illisible', async () => {
@@ -141,8 +148,8 @@ test('échecs réduits à un avertissement : refus de Matrix, Matrix injoignable
   assert.match(j.warn[0], /^\[matrix\] déclaration du schéma de cursus non transmise : Matrix a répondu 401/);
   await declarerSchema({ app: 'cursus', tables: [], env: { MATRIX_URL: `http://127.0.0.1:${m.port}` }, log: j.log });
   assert.match(j.warn[1], /non transmise/);
-  const fermee = new DatabaseSync(':memory:');
-  fermee.close();
+  const fermee = new Db(':memory:');
+  await fermee.fermer();
   assert.equal(await declarerBase(fermee, null, { MATRIX_URL: 'http://127.0.0.1:9' }, j.log), null);
   assert.match(j.warn[2], /^\[matrix\] schéma de cursus illisible/);
   // Journal par défaut (console) : l'appel ne lève pas non plus.

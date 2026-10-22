@@ -4,7 +4,7 @@
 // par le mot EFFACER (server/src/reinitialisation.ts). La base existante est copiée avant d'être effacée.
 import { existsSync } from 'node:fs';
 import { createInterface } from 'node:readline/promises';
-import { type Db, dbFile, openDb } from './db.ts';
+import { dbFile, openSqlite, type SqliteDb, urlPostgres } from './db.ts';
 import { migrate } from './migrate.ts';
 import { appliquerMigrations, controlerPourOutil } from './migrations/cadre.ts';
 import {
@@ -23,6 +23,9 @@ let options: OptionsReinitialisation;
 try {
   options = lireOptions(process.argv.slice(2));
   controlerMode(process.env);
+  // Serveur commun : schéma partagé, jamais effacé par un outil (la démonstration s'y charge une fois, au premier
+  // démarrage avec CURSUS_DEMO=1 sur un schéma vide).
+  if (urlPostgres()) throw new ReinitialisationRefusee('la base est sur le serveur PostgreSQL commun (DATABASE_URL) : npm run reset-demo ne réinitialise que le fichier SQLite de repli (DATABASE_URL= npm run reset-demo -- --yes).');
 } catch (err) {
   refuser(err);
 }
@@ -49,15 +52,15 @@ if (!options.oui) {
 }
 if (options.force && serveurActif(fichier)) console.error('Attention : le serveur Cursus en service utilise encore cette base. Redémarrez-le une fois la réinitialisation faite.');
 
-let db: Db;
+let db: SqliteDb;
 try {
-  db = openDb();
+  db = await openSqlite();
   // Service arrêté : base mise à jour comme au démarrage du serveur (reprises, migrations nommées) avant d'être
   // rechargée. Les données de démonstration sont écrites dans le schéma final : aucune migration ne passe ensuite
   // dessus (une colonne renommée serait sinon remplie depuis l'ancienne, vide pour elles).
   if (aMettreAJour) {
-    migrate(db);
-    appliquerMigrations(db);
+    await migrate(db);
+    await appliquerMigrations(db);
   }
 } catch (err) {
   refuser(err);
@@ -72,5 +75,5 @@ if (existait) {
     process.exit(1);
   }
 }
-seedDemo(db);
-console.log(`Données de démonstration rechargées (${db.count('employes')} collaborateurs).`);
+await seedDemo(db);
+console.log(`Données de démonstration rechargées (${await db.count('employes')} collaborateurs).`);

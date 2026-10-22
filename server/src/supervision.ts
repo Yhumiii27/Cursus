@@ -6,10 +6,10 @@
 // l'appeler. Version, mode, envois en échec et orphelins ne sont donnés qu'à un appel local (sur la machine, sans passer
 // par le reverse proxy) ou porteur du jeton de supervision (CURSUS_SUPERVISION_TOKEN), comme l'échéance du secret. Jamais de donnée personnelle. Guide : docs/DEPLOIEMENT.md, « Exploitation courante ».
 import { timingSafeEqual } from 'node:crypto';
-import { Router, type Request } from 'express';
+import { Router, type Request, type Response } from 'express';
 import { VERSION } from './chemins.ts';
 import { BOUCLE_LOCALE, demoActive, type Env, enProduction } from './config.ts';
-import type { Db } from './db.ts';
+import { type Db, enSerie } from './db.ts';
 import { todayIso } from './dataset.ts';
 import { etatIntegrite } from './integrite.ts';
 import { echeanceSecret } from './secret-microsoft.ts';
@@ -61,14 +61,15 @@ export function appelSupervision(req: Request, env: Env = process.env): boolean 
  * État de la base et, pour la supervision, du service. Base injoignable : `indisponible` ; références orphelines ou secret
  * client Entra qui expire dans 30 jours : `degrade`.
  */
-export function etatSante(db: Db, detail: boolean, depuis: string, env: Env = process.env): Sante {
-  let base: Sante['base'] = 'ok', envoisEnEchec: number | undefined, integrite: ReturnType<typeof etatIntegrite> | undefined;
+export async function etatSante(db: Db, detail: boolean, depuis: string, env: Env = process.env): Promise<Sante> {
+  let base: Sante['base'] = 'ok', envoisEnEchec: number | undefined, integrite: Awaited<ReturnType<typeof etatIntegrite>> | undefined;
   try {
-    db.sql.prepare('SELECT 1').get();
-    db.sql.prepare('PRAGMA user_version').get(); // lit l'en-tête du fichier : la base est là et lisible
-    if (detail) envoisEnEchec = Number((db.sql.prepare(`SELECT COUNT(*) AS n FROM envois WHERE statut = 'echec' AND classe IS NULL`).get() as { n: number }).n);
+    await db.one('SELECT 1');
+    // SQLite : lit l'en-tête du fichier (la base est là et lisible) ; PostgreSQL : le schéma de Cursus est lisible.
+    await db.one(db.moteur === 'pg' ? 'SELECT 1 FROM schema_migrations LIMIT 1' : 'PRAGMA user_version');
+    if (detail) envoisEnEchec = Number((await db.one(`SELECT COUNT(*) AS n FROM envois WHERE statut = 'echec' AND classe IS NULL`) as { n: number }).n);
     // Contrôle impossible (requête refusée) : l'état de la base suffit, le démarrage l'a déjà signalé s'il le faut.
-    try { integrite = etatIntegrite(db); } catch { /* sans détail d'intégrité */ }
+    try { integrite = await etatIntegrite(db); } catch { /* sans détail d'intégrité */ }
   } catch {
     base = 'erreur';
   }
@@ -85,10 +86,10 @@ export function etatSante(db: Db, detail: boolean, depuis: string, env: Env = pr
 /** Route GET /api/health (HEAD compris) : 200 si la base répond (orphelins compris : le service fonctionne), 503 sinon ; jamais mise en cache. */
 export function routeSante(db: Db, depuis = new Date().toISOString(), env: Env = process.env): Router {
   const r = Router();
-  r.get('/api/health', (req, res) => {
-    const etat = etatSante(db, appelSupervision(req, env), depuis, env);
+  r.get('/api/health', enSerie(db, async (req: Request, res: Response) => {
+    const etat = await etatSante(db, appelSupervision(req, env), depuis, env);
     res.setHeader('Cache-Control', 'no-store');
     res.status(etat.statut === 'indisponible' ? 503 : 200).json(etat);
-  });
+  }));
   return r;
 }

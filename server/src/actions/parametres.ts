@@ -10,23 +10,23 @@ import { seedDemo } from '../seed.ts';
 import { ActionError, requireRhAdmin, type ActionHandler } from './context.ts';
 
 /** Réglages envoyés par l'écran Paramètres : chaque champ passe par son contrôle (table REGLAGES de shared/reglages.ts). */
-const maj: ActionHandler = (ctx, p) => {
+const maj: ActionHandler = async (ctx, p) => {
   requireRhAdmin(ctx);
   let next: Settings;
-  const avant = loadSettings(ctx.db);
+  const avant = await loadSettings(ctx.db);
   try {
     next = appliquerReglages(avant, p);
   } catch (err) {
     if (err instanceof ReglageInvalide) throw new ActionError(err.message, 400);
     throw err;
   }
-  ctx.db.setSetting('app', next);
+  await ctx.db.setSetting('app', next);
   // Absences de nouveau dans le fichier de paie (t028) : celles saisies dans Sage entre-temps n'y repartent pas.
-  const absences = reactivationAbsences(ctx.db, avant, next, ctx.user, ctx.d.ti);
+  const absences = await reactivationAbsences(ctx.db, avant, next, ctx.user, ctx.d.ti);
   return p.silent && !absences ? null : `Paramètres enregistrés${absences}`;
 };
 
-const reinitialiser: ActionHandler = (ctx) => {
+const reinitialiser: ActionHandler = async (ctx) => {
   requireRhAdmin(ctx);
   if (!DEMO) throw new ActionError('Réinitialisation disponible uniquement en mode démonstration', 403);
   // Copie de la base telle qu'avant la réinitialisation (dernier état validé, hors de la transaction en cours).
@@ -37,7 +37,7 @@ const reinitialiser: ActionHandler = (ctx) => {
     console.error(err);
     throw new ActionError('Sauvegarde préalable impossible : réinitialisation annulée', 500);
   }
-  seedDemo(ctx.db);
+  await seedDemo(ctx.db);
   return copie ? `Données de démonstration réinitialisées (sauvegarde ${basename(copie.fichier)})` : 'Données de démonstration réinitialisées';
 };
 

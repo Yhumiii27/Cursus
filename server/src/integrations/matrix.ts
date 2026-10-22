@@ -1,6 +1,7 @@
 // Déclaration du schéma de la base à Matrix, le catalogue des bases de Keystone, Codex, Cursus et Vigie (contrat
-// matrix.schema/1). Portage du module de référence de Matrix (integration/declarer-schema.mjs, partie SQLite) ;
-// principe et contrat : docs/declaration-des-tables.md du dépôt Matrix.
+// matrix.schema/1). Portage du module de référence de Matrix (integration/declarer-schema.mjs : lecture SQLite pour le
+// fichier de repli, lecture PostgreSQL pour le serveur commun) ; principe et contrat : docs/declaration-des-tables.md
+// du dépôt Matrix.
 //
 // Au démarrage, juste après les migrations (server/src/index.ts), Cursus lit le schéma réel de sa base (tables,
 // colonnes, clés primaires, liens, unicités) et l'envoie à POST {MATRIX_URL}/api/declarations. Variables :
@@ -15,6 +16,7 @@ import { mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { DatabaseSync } from 'node:sqlite';
 import type { Env } from '../config.ts';
+import { type Db, SqliteDb } from '../db.ts';
 
 /**
  * Tables techniques, hors catalogue : `migrations` (migrations nommées faites, server/src/migrations/cadre.ts) et
@@ -65,6 +67,57 @@ export function introspecterSqlite(db: DatabaseSync): TableDeclaree[] {
   });
 }
 
+// Lecture du catalogue PostgreSQL, reprise du module de référence (introspecterPostgres) : tables de base du schéma
+// courant (search_path=cursus), sans les vues (pub_) ni le journal des migrations.
+const PG_TABLES = `
+  select c.table_name, c.column_name, c.data_type, c.udt_name, c.is_nullable, c.column_default
+  from information_schema.columns c
+  join information_schema.tables t on t.table_schema = c.table_schema and t.table_name = c.table_name
+  where c.table_schema = current_schema() and t.table_type = 'BASE TABLE'
+    and c.table_name not in ('__drizzle_migrations', 'schema_migrations')
+  order by c.table_name, c.ordinal_position`;
+
+const PG_CONSTRAINTS = `
+  select rel.relname as table_name, con.contype as kind,
+    array(select a.attname from unnest(con.conkey) with ordinality k(n, o)
+          join pg_attribute a on a.attrelid = con.conrelid and a.attnum = k.n order by k.o)::text[] as cols,
+    ref.relname as ref_table,
+    array(select a.attname from unnest(con.confkey) with ordinality k(n, o)
+          join pg_attribute a on a.attrelid = con.confrelid and a.attnum = k.n order by k.o)::text[] as ref_cols,
+    con.confdeltype as on_delete
+  from pg_constraint con
+  join pg_class rel on rel.oid = con.conrelid
+  join pg_namespace n on n.oid = rel.relnamespace
+  left join pg_class ref on ref.oid = con.confrelid
+  where n.nspname = current_schema() and con.contype in ('p', 'u', 'f')
+  order by rel.relname, con.conname`;
+
+const ON_DELETE: Record<string, string> = { a: 'no action', r: 'restrict', c: 'cascade', n: 'set null', d: 'set default' };
+const tableau = (v: unknown): string[] => (Array.isArray(v) ? v.map(String) : String(v ?? '').replace(/^\{|\}$/g, '').split(',').filter(Boolean));
+
+/** Lit le schéma courant d'une base PostgreSQL ; `query(sql)` renvoie les lignes d'une requête sans paramètre. */
+export async function introspecterPostgres(query: (sql: string) => Promise<Ligne[]>): Promise<TableDeclaree[]> {
+  const tables = new Map<string, TableDeclaree>();
+  for (const r of await query(PG_TABLES)) {
+    const nom = String(r.table_name);
+    if (!tables.has(nom)) tables.set(nom, { name: nom, columns: [], pk: [], fks: [], uniques: [] });
+    const type = r.data_type === 'USER-DEFINED' ? String(r.udt_name) : r.data_type === 'ARRAY' ? `${String(r.udt_name).replace(/^_/, '')}[]` : String(r.data_type);
+    tables.get(nom)!.columns.push({ name: String(r.column_name), type, nullable: r.is_nullable === 'YES', pk: false, default: (r.column_default as string | null) ?? null });
+  }
+  for (const r of await query(PG_CONSTRAINTS)) {
+    const t = tables.get(String(r.table_name));
+    if (!t) continue;
+    const cols = tableau(r.cols);
+    if (r.kind === 'p') {
+      t.pk = cols;
+      const c = cols.length === 1 ? t.columns.find(x => x.name === cols[0]) : undefined;
+      if (c) c.pk = true;
+    } else if (r.kind === 'u') t.uniques.push(cols);
+    else t.fks.push({ columns: cols, table: String(r.ref_table), refColumns: tableau(r.ref_cols), onDelete: ON_DELETE[String(r.on_delete)] ?? 'no action', declared: true });
+  }
+  return [...tables.values()];
+}
+
 /** Construit le document matrix.schema/1. L'empreinte permet à Matrix d'ignorer une déclaration inchangée. */
 export function documentSchema({ app, version = null, tables }: { app: string; version?: string | null; tables: TableDeclaree[] }): DocumentSchema {
   const triees = [...tables].sort((a, b) => a.name.localeCompare(b.name));
@@ -107,14 +160,14 @@ export async function declarerSchema({ app, version, tables, env = process.env, 
  * Déclaration de la base de Cursus au démarrage (server/src/index.ts) : lecture du schéma puis envoi, sans jamais
  * lever d'erreur, même si la lecture échoue. Rien n'est lu ni envoyé sans MATRIX_URL ni MATRIX_DECLARATIONS_DIR.
  */
-export async function declarerBase(sql: DatabaseSync, version: string | null, env: Env = process.env, log: Journal = console): Promise<DocumentSchema | null> {
+export async function declarerBase(db: Db, version: string | null, env: Env = process.env, log: Journal = console): Promise<DocumentSchema | null> {
   if (!env.MATRIX_URL && !env.MATRIX_DECLARATIONS_DIR) return null;
   let tables: TableDeclaree[];
   try {
-    tables = introspecterSqlite(sql);
+    tables = db instanceof SqliteDb ? introspecterSqlite(db.sql) : await introspecterPostgres(async sql => await db.query<Ligne>(sql));
   } catch (e) {
     log.warn?.(`[matrix] schéma de cursus illisible, rien n'est déclaré : ${e instanceof Error ? e.message : String(e)}`);
     return null;
   }
-  return declarerSchema({ app: 'cursus', version, tables, env, log });
+  return await declarerSchema({ app: 'cursus', version, tables, env, log });
 }

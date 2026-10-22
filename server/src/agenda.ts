@@ -8,7 +8,7 @@
 //   que soit leur nature, comme ce que voit le manager. Jeton long et aléatoire (256 bits), montré une seule fois au
 //   salarié, stocké haché (SHA-256), révocable par lui (Portail) et en bloc par l'administrateur RH ; un jeton inconnu,
 //   révoqué, d'un salarié sorti ou dont le compte est désactivé, ou un flux désactivé reçoivent la même réponse 404. Débit limité par adresse et par jeton.
-import express, { type Router } from 'express';
+import express, { type Request, type Response, type Router } from 'express';
 import { createHash, randomBytes } from 'node:crypto';
 import { ENT_TYPES } from '../../shared/constants.ts';
 import { addD } from '../../shared/dates.ts';
@@ -17,7 +17,7 @@ import { present } from '../../shared/rules/contrats.ts';
 import { completerSession, finSession, horaireDuJour, joursSession } from '../../shared/rules/plage-session.ts';
 import type { Absence, ContenuAgenda, Destination, Employe, Entretien, ISODate, Session, Settings, Voyage } from '../../shared/types.ts';
 import { loadSettings, todayIso } from './dataset.ts';
-import type { Db } from './db.ts';
+import { type Db, enSerie } from './db.ts';
 import { LimiteurDebit, tropDeRequetes } from './debit.ts';
 import { calendrier, domaineAgenda, type EvenementAgenda } from './integrations/email.ts';
 
@@ -45,24 +45,24 @@ export const empreinteJeton = (jeton: string) => createHash('sha256').update(jet
 interface JetonAgenda { id: number; empId: number; empreinte: string; creeLe: string; revoqueLe: string | null; revoquePar: string | null; dernierAcces: string | null }
 
 /** Jeton en vigueur d'un salarié (un seul à la fois). */
-export function jetonActif(db: Db, empId: number): JetonAgenda | undefined {
-  const r = db.sql.prepare('SELECT id FROM jetons_agenda WHERE emp_id = ? AND revoque_le IS NULL ORDER BY id DESC LIMIT 1').get(empId) as { id: number } | undefined;
-  return r ? db.get<JetonAgenda>('jetonsAgenda', r.id) : undefined;
+export async function jetonActif(db: Db, empId: number): Promise<JetonAgenda | undefined> {
+  const r = await db.one<{ id: number }>('SELECT id FROM jetons_agenda WHERE emp_id = ? AND revoque_le IS NULL ORDER BY id DESC LIMIT 1', [empId]);
+  return r ? await db.get<JetonAgenda>('jetonsAgenda', r.id) : undefined;
 }
 
 /** Révoque les jetons en vigueur d'un salarié (tous les salariés sans `empId`) ; renvoie leur nombre. */
-export function revoquerJetons(db: Db, par: string, empId?: number): number {
+export async function revoquerJetons(db: Db, par: string, empId?: number): Promise<number> {
   const r = empId == null
-    ? db.sql.prepare('UPDATE jetons_agenda SET revoque_le = ?, revoque_par = ? WHERE revoque_le IS NULL').run(new Date().toISOString(), par)
-    : db.sql.prepare('UPDATE jetons_agenda SET revoque_le = ?, revoque_par = ? WHERE revoque_le IS NULL AND emp_id = ?').run(new Date().toISOString(), par, empId);
+    ? await db.run('UPDATE jetons_agenda SET revoque_le = ?, revoque_par = ? WHERE revoque_le IS NULL', [new Date().toISOString(), par])
+    : await db.run('UPDATE jetons_agenda SET revoque_le = ?, revoque_par = ? WHERE revoque_le IS NULL AND emp_id = ?', [new Date().toISOString(), par, empId]);
   return Number(r.changes);
 }
 
 /** Nouveau jeton (le précédent est révoqué) : la valeur n'est renvoyée qu'ici, seule son empreinte est gardée. */
-export function creerJeton(db: Db, empId: number, par: string): { jeton: string; id: number } {
-  revoquerJetons(db, par, empId);
+export async function creerJeton(db: Db, empId: number, par: string): Promise<{ jeton: string; id: number }> {
+  await revoquerJetons(db, par, empId);
   const jeton = randomBytes(32).toString('base64url');
-  const l = db.insert<JetonAgenda>('jetonsAgenda', { empId, empreinte: empreinteJeton(jeton), creeLe: new Date().toISOString() });
+  const l = await db.insert<JetonAgenda>('jetonsAgenda', { empId, empreinte: empreinteJeton(jeton), creeLe: new Date().toISOString() });
   return { jeton, id: l.id };
 }
 
@@ -79,17 +79,17 @@ function evenementSession(s: Session, empId: number, nom: string): EvenementAgen
 }
 
 /** Événements du flux d'un salarié, selon le contenu réglé. */
-export function evenementsAgenda(db: Db, empId: number, s: Pick<Settings, 'agendaContenu'>, ti: ISODate): EvenementAgenda[] {
+export async function evenementsAgenda(db: Db, empId: number, s: Pick<Settings, 'agendaContenu'>, ti: ISODate): Promise<EvenementAgenda[]> {
   const du = addD(ti, -FENETRE_AGENDA.avant), au = addD(ti, FENETRE_AGENDA.apres);
   const contenu = new Set<ContenuAgenda>(s.agendaContenu);
   const dans = (debut: ISODate, fin: ISODate) => fin >= du && debut <= au;
   const evs: EvenementAgenda[] = [];
   if (contenu.has('sessions')) {
-    const formations = new Map((db.all<{ id: string; nom: string }>('formations')).map(f => [f.id, f.nom]));
-    const ids = (db.sql.prepare('SELECT session_id AS s FROM certifications WHERE emp_id = ? AND session_id IS NOT NULL AND annule_le IS NULL UNION SELECT session_id FROM inscriptions WHERE emp_id = ?')
-      .all(empId, empId) as { s: number }[]).map(r => r.s);
+    const formations = new Map((await db.all<{ id: string; nom: string }>('formations')).map(f => [f.id, f.nom]));
+    const ids = (await db.query<{ s: number }>('SELECT session_id AS s FROM certifications WHERE emp_id = ? AND session_id IS NOT NULL AND annule_le IS NULL UNION SELECT session_id FROM inscriptions WHERE emp_id = ?',
+      [empId, empId])).map(r => r.s);
     for (const id of new Set(ids)) {
-      const x = db.get<Omit<Session, 'inscrits'>>('sessions', id);
+      const x = await db.get<Omit<Session, 'inscrits'>>('sessions', id);
       if (!x) continue;
       const sess = completerSession(x) as Session;
       if (!sessionActive(sess) || !dans(sess.date, finSession(sess))) continue;
@@ -97,21 +97,21 @@ export function evenementsAgenda(db: Db, empId: number, s: Pick<Settings, 'agend
     }
   }
   if (contenu.has('entretiens')) {
-    for (const x of db.where<Entretien>('entretiens', 'empId', empId)) {
+    for (const x of await db.where<Entretien>('entretiens', 'empId', empId)) {
       if (x.statut !== 'planifie' || !dans(x.date, x.date)) continue;
       evs.push({ uid: `entretien-${x.id}@${domaineAgenda()}`, date: x.date, titre: ENT_TYPES[x.type]?.nom ?? 'Entretien' });
     }
   }
   if (contenu.has('absences')) {
     // Absences en vigueur (validées, ou signalées à qualifier), toutes sous « Absent » : jamais leur nature.
-    for (const a of db.where<Absence>('absences', 'empId', empId)) {
+    for (const a of await db.where<Absence>('absences', 'empId', empId)) {
       if ((a.statut !== 'validee' && a.statut !== 'signalee') || !dans(a.du, a.au)) continue;
       evs.push(evenementAbsence(a, TITRE_ABSENCE));
     }
   }
   if (contenu.has('deplacements')) {
-    const pays = new Map(db.all<Destination>('destinations').map(d => [d.code, d.pays]));
-    for (const v of db.where<Voyage>('voyages', 'empId', empId)) {
+    const pays = new Map((await db.all<Destination>('destinations')).map(d => [d.code, d.pays]));
+    for (const v of await db.where<Voyage>('voyages', 'empId', empId)) {
       if (v.annuleLe || !dans(v.depart, v.retour)) continue;
       evs.push({ uid: `voyage-${v.id}@${domaineAgenda()}`, date: v.depart, fin: v.retour, titre: `Déplacement : ${pays.get(v.dest) ?? v.dest}` });
     }
@@ -153,29 +153,30 @@ export const DEBIT_AGENDA = { ip: { capacite: 60, parMinute: 20 }, jeton: { capa
 /** Route publique du flux (hors session et hors CSRF : un GET qui ne modifie rien d'autre que la date du dernier accès). */
 export function routesAgenda(db: Db, limites = { ip: new LimiteurDebit(DEBIT_AGENDA.ip), jeton: new LimiteurDebit(DEBIT_AGENDA.jeton) }): Router {
   const r = express.Router();
-  r.get('/api/agenda/:fichier', (req, res) => {
+  // Lecture du jeton, de la fiche et du flux, et note du dernier accès d'un seul tenant sur la base (`enSerie`).
+  r.get('/api/agenda/:fichier', enSerie(db, async (req: Request, res: Response) => {
     const attente = limites.ip.prendre(req.ip ?? '');
     if (attente) return tropDeRequetes(req, res, attente, 'Trop de lectures de l’agenda depuis ce poste');
     const introuvable = () => res.status(404).type('text/plain; charset=utf-8').send('Agenda introuvable');
     const fichier = String(req.params.fichier);
     const jeton = fichier.endsWith('.ics') ? fichier.slice(0, -4) : '';
     if (!FORME_JETON.test(jeton)) return introuvable();
-    const s = loadSettings(db);
+    const s = await loadSettings(db);
     if (!s.agendaFluxActif) return introuvable();
     const empreinte = empreinteJeton(jeton);
     const attenteJeton = limites.jeton.prendre(empreinte);
     if (attenteJeton) return tropDeRequetes(req, res, attenteJeton, 'Agenda relu trop souvent');
-    const j = db.sql.prepare('SELECT id, emp_id AS empId, dernier_acces AS dernierAcces FROM jetons_agenda WHERE empreinte = ? AND revoque_le IS NULL').get(empreinte) as { id: number; empId: number; dernierAcces: string | null } | undefined;
-    const e = j ? db.get<Employe>('employes', j.empId) : undefined;
+    const j = await db.one<{ id: number; empId: number; dernierAcces: string | null }>('SELECT id, emp_id AS "empId", dernier_acces AS "dernierAcces" FROM jetons_agenda WHERE empreinte = ? AND revoque_le IS NULL', [empreinte]);
+    const e = j ? await db.get<Employe>('employes', j.empId) : undefined;
     const ti = todayIso();
     // Salarié parti, ou compte de connexion désactivé : l'abonnement ne vaut plus.
-    const compte = j && db.sql.prepare('SELECT 1 FROM comptes WHERE emp_id = ? AND actif = 1').get(j.empId);
+    const compte = j && await db.one('SELECT 1 FROM comptes WHERE emp_id = ? AND actif = TRUE', [j.empId]);
     if (!j || !e || !compte || !present(e, ti) || e.anonymiseLe) return introuvable();
     // Dernier accès noté au plus une fois par heure (le client d'agenda relit souvent).
     const maintenant = new Date();
-    if (!j.dernierAcces || maintenant.getTime() - Date.parse(j.dernierAcces) > 3600_000) db.update('jetonsAgenda', j.id, { dernierAcces: maintenant.toISOString() });
+    if (!j.dernierAcces || maintenant.getTime() - Date.parse(j.dernierAcces) > 3600_000) await db.update('jetonsAgenda', j.id, { dernierAcces: maintenant.toISOString() });
     res.set('Content-Disposition', 'inline; filename="cursus.ics"');
-    res.type('text/calendar; charset=utf-8').send(calendrierFlux(evenementsAgenda(db, e.id, s, ti), maintenant));
-  });
+    res.type('text/calendar; charset=utf-8').send(calendrierFlux(await evenementsAgenda(db, e.id, s, ti), maintenant));
+  }));
   return r;
 }

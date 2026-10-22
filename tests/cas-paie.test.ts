@@ -10,9 +10,8 @@ import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 
-const { Db } = await import('../server/src/db.ts');
-const { migrate } = await import('../server/src/migrate.ts');
-const { appliquerMigrations } = await import('../server/src/migrations/cadre.ts');
+const { nouvelleBase } = await import('./base.ts');
+const { mettreAJourBase } = await import('../server/src/demarrage.ts');
 const { DEFAULT_SETTINGS, loadFull } = await import('../server/src/dataset.ts');
 const { Domain } = await import('../shared/domain.ts');
 const { isValidDate, mondayOf } = await import('../shared/dates.ts');
@@ -135,33 +134,32 @@ const r2 = (v: unknown) => (typeof v === 'number' ? Math.round(v * 100) / 100 : 
 const RH: User = { role: 'rh', empId: null, nom: 'Cas de paie', intitule: '', profilRh: 'rh_admin' };
 
 /** Résultats de Cursus pour un cas, rejoué sur une base en mémoire neuve à la date du cas. */
-export function rejouerCas(c: CasPaie) {
+export async function rejouerCas(c: CasPaie) {
   const avant = process.env.CURSUS_TODAY;
   process.env.CURSUS_TODAY = c.aujourdhui;
   try {
-    const db = new Db(':memory:');
+    const db = await nouvelleBase();
     // Comme au démarrage du serveur : reprises puis migrations nommées (activités internes amorcées, etc.).
-    migrate(db);
-    appliquerMigrations(db);
-    if (c.reglages) db.setSetting('app', c.reglages);
-    const settings = loadFull(db, RH).settings;
-    const e = db.insert<{ id: number }>('employes', {
+    await mettreAJourBase(db);
+    if (c.reglages) await db.setSetting('app', c.reglages);
+    const settings = (await loadFull(db, RH)).settings;
+    const e = await db.insert<{ id: number }>('employes', {
       nom: c.salarie.nom, equipe: null, poste: 'Cas de paie', statut: c.contrat.statut, typeContrat: c.contrat.typeContrat, temps: c.contrat.temps,
       heures: c.contrat.heures ?? null, forfaitHeures: c.contrat.forfaitHeures ?? null, forfaitJours: c.contrat.forfaitJours ?? null, jourOff: c.contrat.jourOff ?? [],
       entree: c.salarie.entree, fin: c.salarie.fin ?? null, matriculePaie: c.salarie.matriculePaie,
       naissanceLe: c.salarie.naissanceLe ?? null, naissance: c.salarie.naissanceLe ? Number(c.salarie.naissanceLe.slice(0, 4)) : null,
     });
-    if (c.reprise) db.insert('soldesReprise', { cpPris: 0, rttPris: 0, recupAcquis: 0, recupPris: 0, ...c.reprise, empId: e.id });
-    for (const a of c.absences ?? []) db.insert('absences', { statut: 'validee', ...a, empId: e.id, keystone: false });
-    const fiche = loadFull(db, RH).employes.find(x => x.id === e.id)!;
+    if (c.reprise) await db.insert('soldesReprise', { cpPris: 0, rttPris: 0, recupAcquis: 0, recupPris: 0, ...c.reprise, empId: e.id });
+    for (const a of c.absences ?? []) await db.insert('absences', { statut: 'validee', ...a, empId: e.id, keystone: false });
+    const fiche = (await loadFull(db, RH)).employes.find(x => x.id === e.id)!;
     // Feuilles validées : régime et mode des heures supplémentaires figés comme à la validation (server/src/actions/temps.ts).
     for (const s of c.semaines ?? []) {
-      db.insert('feuilles', {
+      await db.insert('feuilles', {
         empId: e.id, week: s.lundi, statut: 'validee', comment: null, sage: false, keystone: false, contrat: contratFige(fiche),
         lignes: [{ projet: s.projet ?? 'INT-PROD', tache: '', ks: false, h: s.heures }], heuresSup: settings.heuresSupMode, majDimanche: settings.majorationDimanche,
       });
     }
-    const d = new Domain(loadFull(db, RH));
+    const d = new Domain(await loadFull(db, RH));
     const emp = d.emp(e.id)!;
     const feuilles = d.ds.feuilles.filter(sh => sh.empId === e.id);
     return {
@@ -176,7 +174,7 @@ export function rejouerCas(c: CasPaie) {
 }
 
 /** Écarts entre les résultats attendus d'un cas et ceux de Cursus : un message par valeur différente. */
-export function ecartsCas(c: CasPaie, obtenu: ReturnType<typeof rejouerCas>): string[] {
+export function ecartsCas(c: CasPaie, obtenu: Awaited<ReturnType<typeof rejouerCas>>): string[] {
   const out: string[] = [];
   const comparer = (ou: string, attendu: Valeurs | null | undefined, recu: Record<string, unknown> | null) => {
     if (attendu === undefined) return;
@@ -223,15 +221,15 @@ for (const { dossier, dansLeDepot } of dossiers) {
   }
   for (const f of readdirSync(dossier).filter(x => x.endsWith('.json')).sort()) {
     const nom = (dansLeDepot ? '' : 'hors dépôt ') + f.replace(/\.json$/, '');
-    test(`cas de paie ${nom}`, () => {
+    test(`cas de paie ${nom}`, async () => {
       const c = controlerCas(nom, JSON.parse(readFileSync(join(dossier, f), 'utf8')), dansLeDepot);
-      const ecarts = ecartsCas(c, rejouerCas(c));
+      const ecarts = ecartsCas(c, await rejouerCas(c));
       assert.deepEqual(ecarts, [], `${c.description} — écarts avec ${c.source === 'paie' ? 'la paie' : 'le calcul attendu'} :\n  ${ecarts.join('\n  ')}`);
     });
   }
 }
 
-test('cas de paie : format contrôlé et écart signalé champ par champ', () => {
+test('cas de paie : format contrôlé et écart signalé champ par champ', async () => {
   assert.throws(() => controlerCas('x', { description: 'd', source: 'paie', aujourdhui: '2026-10-10', salarie: { matriculePaie: 'M1', entree: '2026-01-05' }, contrat: { statut: 'ouvrier', typeContrat: 'cdi', temps: '35h' }, attendu: {}, salaire: 1 }),
     /Cas x : champ inconnu salaire/);
   assert.throws(() => controlerCas('x', { description: 'd', source: 'paie', aujourdhui: '2026-10-10', salarie: { matriculePaie: 'M1', entree: '2026-01-05' }, contrat: { statut: 'ouvrier', typeContrat: 'cdi', temps: '35h' }, semaines: [{ lundi: '2026-09-08', heures: [7, 7, 7, 7, 7] }], attendu: {} }),
@@ -269,7 +267,7 @@ test('cas de paie : format contrôlé et écart signalé champ par champ', () =>
     semaines: [{ lundi: '2026-10-05', heures: [8, 8, 8, 8, 8] }],
     attendu: { rtt: null, semaines: [{ lundi: '2026-10-05', sup25: 4 }], fichierSage: [{ periode: '2026-10', rubrique: 'HN', quantite: 35 }] },
   });
-  assert.deepEqual(ecartsCas(c, rejouerCas(c)), [
+  assert.deepEqual(ecartsCas(c, await rejouerCas(c)), [
     'semaine du 2026-10-05.sup25 : attendu 4, Cursus 5',
     'fichier Sage 2026-10 HS25 : ligne non attendue (5)',
   ]);

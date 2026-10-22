@@ -9,7 +9,7 @@ import type { Migration } from './cadre.ts';
 
 /** Déplacements importés du formulaire sans référence. */
 const SANS_REF = `FROM voyages WHERE origine = 'formulaire' AND TRIM(COALESCE(ref, '')) = ''`;
-const aReprendre = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS n ${SANS_REF}`).get() as { n: number }).n);
+const aReprendre = async (db: Db) => Number((await db.one(`SELECT COUNT(*) AS n ${SANS_REF}`) as { n: number }).n);
 
 /**
  * Chaque déplacement importé sans référence reçoit `DD-<identifiant>`, comme ceux que l'import crée désormais (une
@@ -19,19 +19,18 @@ const aReprendre = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS n ${SA
 export const REFERENCES_DEPLACEMENTS: Migration = {
   nom: 'lot5-voyages-references',
   // Base existante sans déplacement à reprendre : notée faite. Base neuve : exécutée, sans effet.
-  necessaire: db => db.neuve || aReprendre(db) > 0,
-  executer: db => {
-    const lignes = db.sql.prepare(`SELECT id, emp_id AS empId ${SANS_REF} ORDER BY id`).all() as { id: number; empId: number }[];
+  necessaire: async db => db.neuve || await aReprendre(db) > 0,
+  executer: async db => {
+    const lignes = await db.query(`SELECT id, emp_id AS "empId" ${SANS_REF} ORDER BY id`) as { id: number; empId: number }[];
     if (!lignes.length) return;
-    const prises = new Set((db.sql.prepare(`SELECT ref FROM voyages WHERE TRIM(COALESCE(ref, '')) <> ''`).all() as { ref: string }[]).map(r => r.ref));
-    const maj = db.sql.prepare('UPDATE voyages SET ref = ? WHERE id = ?');
+    const prises = new Set((await db.query(`SELECT ref FROM voyages WHERE TRIM(COALESCE(ref, '')) <> ''`) as { ref: string }[]).map(r => r.ref));
     for (const l of lignes) {
       const ref = referenceDeplacement(l.id, prises);
-      maj.run(ref, l.id);
+      await db.run('UPDATE voyages SET ref = ? WHERE id = ?', [ref, l.id]);
       prises.add(ref);
     }
     const message = `Reprise : référence DD-<n° du déplacement> donnée à ${plural(lignes.length, 'déplacement importé', 'déplacements importés')} sans référence`;
-    journaliser(db, {
+    await journaliser(db, {
       actor: 'Cursus', role: null, action: 'migration.referencesDeplacements', message,
       payload: { deplacements: lignes.length }, salaries: [...new Set(lignes.map(l => l.empId))],
     });

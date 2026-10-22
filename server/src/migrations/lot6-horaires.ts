@@ -14,25 +14,33 @@ import type { Migration } from './cadre.ts';
  * service RH) n'est pas touché. Aussi appelée par le jeu de démonstration (server/src/seed.ts), qu'une réinitialisation
  * recharge sans rejouer les migrations. Renvoie les codes ajoutés.
  */
-export function amorcerHoraires(db: Db): string[] {
-  const existe = db.sql.prepare('SELECT 1 FROM horaires WHERE code = ?');
-  const ajouter = db.sql.prepare('INSERT INTO horaires (code, nom, debut, fin, pause) VALUES (?, ?, ?, ?, ?)');
-  return HORAIRES_EXEMPLES.filter(h => !existe.get(h.code)).map(h => { ajouter.run(h.code, h.nom, h.debut, h.fin, h.pause); return h.code; });
+export async function amorcerHoraires(db: Db): Promise<string[]> {
+  const codes: string[] = [];
+  for (const h of HORAIRES_EXEMPLES) {
+    if (await db.one('SELECT 1 FROM horaires WHERE code = ?', [h.code])) continue;
+    await db.run('INSERT INTO horaires (code, nom, debut, fin, pause) VALUES (?, ?, ?, ?, ?)', [h.code, h.nom, h.debut, h.fin, h.pause]);
+    codes.push(h.code);
+  }
+  return codes;
 }
 
-const manquants = (db: Db) => HORAIRES_EXEMPLES.filter(h => !db.sql.prepare('SELECT 1 FROM horaires WHERE code = ?').get(h.code)).length;
+const manquants = async (db: Db) => {
+  let n = 0;
+  for (const h of HORAIRES_EXEMPLES) if (!await db.one('SELECT 1 FROM horaires WHERE code = ?', [h.code])) n++;
+  return n;
+};
 
 export const HORAIRES_EXEMPLES_MIGRATION: Migration = {
   nom: 'lot6-horaires-exemples',
-  necessaire: db => manquants(db) > 0,
-  executer: db => {
-    const codes = amorcerHoraires(db);
+  necessaire: async db => (await manquants(db)) > 0,
+  executer: async db => {
+    const codes = await amorcerHoraires(db);
     return codes.length ? `${plural(codes.length, 'horaire de poste d’exemple ajouté', 'horaires de poste d’exemple ajoutés')} (${codes.join(', ')})` : undefined;
   },
 };
 
 /** Feuilles validées sans majoration de nuit figée (validées avant les heures de nuit). */
-const sansMajNuit = (db: Db) => Number((db.sql.prepare("SELECT COUNT(*) AS n FROM feuilles WHERE statut = 'validee' AND maj_nuit IS NULL").get() as { n: number }).n);
+const sansMajNuit = async (db: Db) => Number(((await db.one("SELECT COUNT(*) AS n FROM feuilles WHERE statut = 'validee' AND maj_nuit IS NULL")) as { n: number }).n);
 
 /**
  * Étape 2 (heures de nuit, shared/rules/repos-nuit.ts) : la majoration des heures de nuit est figée à la validation, comme
@@ -43,9 +51,9 @@ const sansMajNuit = (db: Db) => Number((db.sql.prepare("SELECT COUNT(*) AS n FRO
 export const HORAIRES_NUIT_FIGEE: Migration = {
   nom: 'lot6-horaires-majoration-nuit',
   // Base neuve : exécutée, sans effet ; base sans feuille validée à reprendre : notée faite.
-  necessaire: db => db.neuve || sansMajNuit(db) > 0,
-  executer: db => {
-    const n = Number(db.sql.prepare("UPDATE feuilles SET maj_nuit = 0 WHERE statut = 'validee' AND maj_nuit IS NULL").run().changes);
+  necessaire: async db => db.neuve || await sansMajNuit(db) > 0,
+  executer: async db => {
+    const n = Number((await db.run("UPDATE feuilles SET maj_nuit = 0 WHERE statut = 'validee' AND maj_nuit IS NULL")).changes);
     return n ? `majoration de nuit figée à 0 % sur ${plural(n, 'feuille validée', 'feuilles validées')}` : undefined;
   },
 };

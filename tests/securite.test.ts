@@ -14,7 +14,8 @@ import { fileURLToPath } from 'node:url';
 import type { Request, Response } from 'express';
 
 const { problemesConfig } = await import('../server/src/config.ts');
-const { Db } = await import('../server/src/db.ts');
+const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { openSession, purgeSessions, readSession, revokeSessionsOf } = await import('../server/src/auth.ts');
 
@@ -139,7 +140,7 @@ test('démonstration désactivée par défaut : pas de session RH d’office, ba
   assert.equal(cookieOf(m), null, 'pas de session anonyme hors démonstration');
   assert.equal((await srv.call('/api/actions/demo.reinitialiser', { method: 'POST', body: {} })).status, 401);
   assert.match(srv.out(), /Base vide : aucune donnée de démonstration chargée/);
-  assert.equal(new Db(srv.db).count('employes'), 0);
+  assert.equal(await new Db(srv.db).count('employes'), 0);
   // Sans KEYSTONE_API_KEY hors démonstration, l'intégration est fermée, même avec l'ancienne clé publiée.
   for (const key of [undefined, 'demo-keystone']) {
     const k = await srv.call('/api/integrations/keystone/chantiers/K-2614/go-no-go', { headers: key ? { 'x-api-key': key } : {} });
@@ -170,11 +171,11 @@ test('démonstration (CURSUS_DEMO=1) : clé Keystone, sessions et en-têtes', as
     assert.ok(c, 'cookie posé');
     assert.match(r.headers.get('set-cookie')!, /HttpOnly; SameSite=Lax; Max-Age=43200/);
     assert.equal((await srv.call('/api/data', { cookie: c })).status, 200);
-    const avant = db.count('connexions');
+    const avant = await db.count('connexions');
     const m = await srv.call('/api/mode', { method: 'POST', cookie: c, body: { role: 'manager' } });
     assert.equal(cookieOf(m), null, 'même cookie');
-    assert.equal(db.count('connexions'), avant, 'aucune nouvelle session');
-    assert.equal(db.get<{ role: string }>('connexions', idOf(c))!.role, 'manager');
+    assert.equal(await db.count('connexions'), avant, 'aucune nouvelle session');
+    assert.equal((await db.get<{ role: string }>('connexions', idOf(c)))!.role, 'manager');
   });
 
   await t.test('cookie rejoué après déconnexion → 401', async () => {
@@ -183,7 +184,7 @@ test('démonstration (CURSUS_DEMO=1) : clé Keystone, sessions et en-têtes', as
     const out = await srv.call('/api/logout', { method: 'POST', cookie: c });
     assert.equal((await out.json()).user, null);
     assert.notEqual(cookieOf(out), c, 'nouveau cookie sans l’espace fermé');
-    assert.ok(db.get<{ revocation: string | null }>('connexions', idOf(c))!.revocation, 'session révoquée en base');
+    assert.ok((await db.get<{ revocation: string | null }>('connexions', idOf(c)))!.revocation, 'session révoquée en base');
     assert.equal((await srv.call('/api/data', { cookie: c })).status, 401);
     assert.equal((await srv.call('/api/actions/parametres.maj', { method: 'POST', cookie: c, body: { silent: true } })).status, 401);
   });
@@ -191,7 +192,7 @@ test('démonstration (CURSUS_DEMO=1) : clé Keystone, sessions et en-têtes', as
   await t.test('session expirée → 401', async () => {
     const c = cookieOf(await srv.call('/api/session'))!;
     assert.equal((await srv.call('/api/data', { cookie: c })).status, 200);
-    db.sql.prepare('UPDATE connexions SET expiration = ? WHERE id = ?').run(new Date(Date.now() - 1000).toISOString(), idOf(c));
+    (await db.run('UPDATE connexions SET expiration = ? WHERE id = ?', [new Date(Date.now() - 1000).toISOString(), idOf(c)]));
     assert.equal((await srv.call('/api/data', { cookie: c })).status, 401);
   });
 
@@ -211,16 +212,16 @@ test('démonstration (CURSUS_DEMO=1) : clé Keystone, sessions et en-têtes', as
   });
 
   await t.test('salarié sorti (date de fin passée) → 401 et session révoquée', async () => {
-    const compteId = db.where<{ id: number }>('comptes', 'empId', 2)[0].id;
+    const compteId = (await db.where<{ id: number }>('comptes', 'empId', 2))[0].id;
     const r = await srv.call('/api/login', { method: 'POST', body: { role: 'collaborateur', compteId, password: 'x' } });
     const c = cookieOf(r)!;
     assert.equal((await r.json()).user.empId, 2);
     assert.equal((await srv.call('/api/data', { cookie: c })).status, 200);
-    db.sql.prepare('UPDATE employes SET fin = ? WHERE id = ?').run('2026-10-09', 2);
+    (await db.run('UPDATE employes SET fin = ? WHERE id = ?', ['2026-10-09', 2]));
     assert.equal((await srv.call('/api/data', { cookie: c })).status, 401);
-    assert.ok(db.get<{ revocation: string | null }>('connexions', idOf(c))!.revocation);
+    assert.ok((await db.get<{ revocation: string | null }>('connexions', idOf(c)))!.revocation);
     assert.equal((await srv.call('/api/login', { method: 'POST', body: { role: 'collaborateur', compteId, password: 'x' } })).status, 403, 'nouvelle connexion refusée');
-    db.sql.prepare('UPDATE employes SET fin = NULL WHERE id = ?').run(2);
+    (await db.run('UPDATE employes SET fin = NULL WHERE id = ?', [2]));
     assert.equal((await srv.call('/api/data', { cookie: c })).status, 401, 'la révocation est définitive');
   });
 
@@ -262,7 +263,7 @@ test('démonstration en production (application de bureau) : requêtes de ce pos
   const srv = await startServer('demo-production', { ...PROD_OK, CURSUS_DEMO: '1', CURSUS_HOST: '127.0.0.1', CURSUS_INSECURE_COOKIE: '1' });
   assert.match(srv.out(), /mode démonstration/);
   const db = new Db(srv.db);
-  const salaries = db.count('employes');
+  const salaries = await db.count('employes');
   assert.ok(salaries > 0, 'données de démonstration chargées');
 
   // L'application de bureau s'adresse directement à 127.0.0.1 : servie normalement.
@@ -298,7 +299,7 @@ test('démonstration en production (application de bureau) : requêtes de ce pos
   const fwd = { 'x-forwarded-for': '203.0.113.9', 'x-forwarded-proto': 'https' };
   assert.equal((await srv.call('/api/data', { cookie: c, headers: fwd })).status, 403);
   assert.equal((await srv.call('/api/actions/demo.reinitialiser', { method: 'POST', cookie: c, body: {}, headers: fwd })).status, 403);
-  assert.equal(db.count('employes'), salaries);
+  assert.equal(await db.count('employes'), salaries);
   assert.equal((await srv.call('/api/data', { cookie: c })).status, 200, 'le poste lui-même reste servi');
   assert.match(srv.out(), /n’est pas admise derrière un reverse proxy/);
 });
@@ -306,7 +307,7 @@ test('démonstration en production (application de bureau) : requêtes de ce pos
 test('démonstration publiée (CURSUS_DEMO_PUBLIQUE=1) : servie derrière le proxy, avertissement au démarrage', async () => {
   const srv = await startServer('demo-publique', { ...PROD_OK, CURSUS_DEMO: '1', CURSUS_DEMO_PUBLIQUE: '1', CURSUS_HOST: '127.0.0.1' });
   assert.match(srv.out(), /Démonstration publiée \(CURSUS_DEMO_PUBLIQUE=1\)/);
-  assert.ok(new Db(srv.db).count('employes') > 0, 'données de démonstration chargées');
+  assert.ok((await new Db(srv.db).count('employes')) > 0, 'données de démonstration chargées');
   const fwd = { 'x-forwarded-for': '203.0.113.9', 'x-forwarded-proto': 'https' };
   const r = await srv.call('/api/session', { headers: fwd });
   assert.equal(r.status, 200);
@@ -323,24 +324,24 @@ test('production : écoute sur la boucle locale, HSTS derrière le proxy HTTPS',
   assert.equal((await https.json()).demo, false);
 });
 
-test('sessions : révocation de toutes les sessions d’un salarié et purge des sessions expirées', () => {
-  const db = new Db(':memory:');
-  seedDemo(db);
+test('sessions : révocation de toutes les sessions d’un salarié et purge des sessions expirées', async () => {
+  const db = await nouvelleBase();
+  await seedDemo(db);
   const res = { setHeader() {} } as unknown as Response;
   const req = (id: string) => ({ headers: { cookie: `cursus_session=${id}` } }) as unknown as Request;
   const cookies: string[] = [];
   const capture = { setHeader: (_: string, v: string) => cookies.push(v.match(/cursus_session=([^;]*)/)![1]) } as unknown as Response;
-  const compte = (empId: number) => db.where<{ id: number }>('comptes', 'empId', empId)[0].id;
+  const compte = async (empId: number) => (await db.where<{ id: number }>('comptes', 'empId', empId))[0].id;
   // Karim Haddad (12) encadre la Maintenance : espaces manager et collaborateur.
-  openSession(db, capture, { compteId: compte(12), role: 'collaborateur', methode: 'local' });
-  openSession(db, capture, { compteId: compte(12), role: 'manager', methode: 'local' });
-  openSession(db, capture, { compteId: compte(2), role: 'collaborateur', methode: 'local' });
-  assert.ok(readSession(db, req(cookies[0])));
-  assert.equal(revokeSessionsOf(db, 12), 2);
-  assert.equal(readSession(db, req(cookies[0])), null);
-  assert.equal(readSession(db, req(cookies[1])), null);
-  assert.ok(readSession(db, req(cookies[2])), 'les autres salariés restent connectés');
-  openSession(db, res, { compteId: compte(2), role: 'collaborateur', methode: 'local' }, new Date(Date.now() - 1000).toISOString());
-  assert.equal(purgeSessions(db), 1);
-  assert.equal(db.count('connexions'), 3);
+  await openSession(db, capture, { compteId: await compte(12), role: 'collaborateur', methode: 'local' });
+  await openSession(db, capture, { compteId: await compte(12), role: 'manager', methode: 'local' });
+  await openSession(db, capture, { compteId: await compte(2), role: 'collaborateur', methode: 'local' });
+  assert.ok(await readSession(db, req(cookies[0])));
+  assert.equal(await revokeSessionsOf(db, 12), 2);
+  assert.equal(await readSession(db, req(cookies[0])), null);
+  assert.equal(await readSession(db, req(cookies[1])), null);
+  assert.ok(await readSession(db, req(cookies[2])), 'les autres salariés restent connectés');
+  await openSession(db, res, { compteId: await compte(2), role: 'collaborateur', methode: 'local' }, new Date(Date.now() - 1000).toISOString());
+  assert.equal(await purgeSessions(db), 1);
+  assert.equal(await db.count('connexions'), 3);
 });

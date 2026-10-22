@@ -9,14 +9,14 @@ import { CONTACTS_VIDES, type ContactsConfidentialite } from '../../shared/confi
 import type { Db } from './db.ts';
 
 /** Réglage `confidentialite`, complété des valeurs par défaut (aucune coordonnée). */
-export function lireConfidentialite(db: Db): ContactsConfidentialite {
-  const c = db.getSetting<Partial<ContactsConfidentialite>>('confidentialite', {});
+export async function lireConfidentialite(db: Db): Promise<ContactsConfidentialite> {
+  const c = await db.getSetting<Partial<ContactsConfidentialite>>('confidentialite', {});
   const texte = (v: unknown) => (typeof v === 'string' && v.trim() ? v : null);
   return { ...CONTACTS_VIDES, responsable: texte(c.responsable), dpo: texte(c.dpo) };
 }
 
 export function routesConfidentialite(db: Db): Router {
   const r = express.Router();
-  r.get('/api/confidentialite', (_req, res) => { res.json(lireConfidentialite(db)); });
+  r.get('/api/confidentialite', async (_req, res) => { res.json(await lireConfidentialite(db)); });
   return r;
 }

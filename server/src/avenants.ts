@@ -14,22 +14,22 @@ import { historiqueDepuisFiches } from './migrations/lot6-contrats.ts';
 export interface Auteur { nom: string | null; empId: number | null }
 
 /** Lignes d'un salarié, telles qu'en base (annulées comprises). */
-export const lignesDe = (db: Db, empId: number) => db.where<ContratHistorique>('contratsHistorique', 'empId', empId);
+export const lignesDe = async (db: Db, empId: number) => await db.where<ContratHistorique>('contratsHistorique', 'empId', empId);
 
 /**
  * Première écriture dans l'historique d'une fiche qui n'en a pas (créée avant lui, importée) : il est d'abord amorcé
  * comme le fait la migration (server/src/migrations/lot6-contrats.ts), pour que l'avenant suive l'état d'avant.
  */
-export function amorcer(db: Db, empId: number, le: ISODate) {
-  if (!lignesDe(db, empId).length) historiqueDepuisFiches(db, le, empId);
+export async function amorcer(db: Db, empId: number, le: ISODate) {
+  if (!(await lignesDe(db, empId)).length) await historiqueDepuisFiches(db, le, empId);
 }
 
 /** Nouvelle ligne de l'historique (embauche, avenant, renouvellement). */
-export function inscrireLigne(db: Db, l: {
+export async function inscrireLigne(db: Db, l: {
   empId: number; effet: ISODate; nature: NatureLigneContrat; regime: ContratFige | null; jusquau?: ISODate | null; signeLe?: ISODate | null;
   reference?: string | null; applique?: boolean; fin?: ISODate | null;
-}, auteur: Auteur, le: ISODate): ContratHistorique {
-  return db.insert<ContratHistorique>('contratsHistorique', {
+}, auteur: Auteur, le: ISODate): Promise<ContratHistorique> {
+  return await db.insert<ContratHistorique>('contratsHistorique', {
     jusquau: null, signeLe: null, reference: null, fin: null, ...l, applique: l.applique ?? true, annuleLe: null, le, par: auteur.nom, parId: auteur.empId,
   });
 }
@@ -40,17 +40,17 @@ export function inscrireLigne(db: Db, l: {
  * sans régime (ils suivent la fiche). Une semaine de régime inconnu garde ce qu'elle a. Les feuilles soumises, renvoyées
  * ou validées gardent le régime figé à leur soumission.
  */
-export function refigerBrouillons(db: Db, empId: number): number {
-  const e = db.get<Employe>('employes', empId);
+export async function refigerBrouillons(db: Db, empId: number): Promise<number> {
+  const e = await db.get<Employe>('employes', empId);
   if (!e) return 0;
-  const vue = { contratsHistorique: lignesDe(db, empId) }, fiche = regimeFiche(e);
+  const vue = { contratsHistorique: await lignesDe(db, empId) }, fiche = regimeFiche(e);
   let n = 0;
-  for (const f of db.where<FeuilleTemps>('feuilles', 'empId', empId)) {
+  for (const f of await db.where<FeuilleTemps>('feuilles', 'empId', empId)) {
     if (f.statut !== 'brouillon') continue;
     const r = regimeAu(vue, e, f.week);
     if (!r) continue;
     const contrat = memeRegime(r, fiche) ? null : r;
-    if (!memeRegime(contrat, f.contrat ?? null)) { db.update<FeuilleTemps>('feuilles', f.id, { contrat }); n++; }
+    if (!memeRegime(contrat, f.contrat ?? null)) { await db.update<FeuilleTemps>('feuilles', f.id, { contrat }); n++; }
   }
   return n;
 }
@@ -63,17 +63,17 @@ export const champsAvenant = (r: ContratFige) => ({ temps: r.temps, heures: r.he
  * elle sont annulés (sans objet), comme les renouvellements d'un CDD qui devaient commencer après elle (sortie anticipée :
  * ils ne sont plus comptés). Renvoie le nombre d'avenants et de renouvellements annulés.
  */
-export function cloreHistorique(db: Db, empId: number, date: ISODate, le: ISODate): { avenants: number; renouvellements: number } {
+export async function cloreHistorique(db: Db, empId: number, date: ISODate, le: ISODate): Promise<{ avenants: number; renouvellements: number }> {
   // Un renouvellement n'est annulé que par une sortie : à la modification d'une sortie, ceux d'avant la nouvelle date
   // reprennent effet.
-  const lignes = lignesDe(db, empId).filter(l => !l.annuleLe || l.nature === 'renouvellement');
+  const lignes = (await lignesDe(db, empId)).filter(l => !l.annuleLe || l.nature === 'renouvellement');
   const apres = lignes.filter(l => l.effet > date && !l.annuleLe);
   const programmes = apres.filter(l => !l.applique), renouvellements = apres.filter(l => l.nature === 'renouvellement');
-  [...programmes, ...renouvellements].forEach(l => db.update('contratsHistorique', l.id, { annuleLe: le }));
-  lignes.filter(l => l.annuleLe && l.effet <= date).forEach(l => db.update('contratsHistorique', l.id, { annuleLe: null }));
+  for (const l of [...programmes, ...renouvellements]) await db.update('contratsHistorique', l.id, { annuleLe: le });
+  for (const l of lignes.filter(l => l.annuleLe && l.effet <= date)) await db.update('contratsHistorique', l.id, { annuleLe: null });
   const derniere = lignes.filter(l => l.effet <= date).sort((a, b) => a.effet.localeCompare(b.effet) || a.id - b.id).at(-1);
-  lignes.filter(l => l.fin && l.id !== derniere?.id).forEach(l => db.update('contratsHistorique', l.id, { fin: null }));
-  if (derniere) db.update('contratsHistorique', derniere.id, { fin: date });
+  for (const l of lignes.filter(l => l.fin && l.id !== derniere?.id)) await db.update('contratsHistorique', l.id, { fin: null });
+  if (derniere) await db.update('contratsHistorique', derniere.id, { fin: date });
   return { avenants: programmes.length, renouvellements: renouvellements.length };
 }
 
@@ -81,9 +81,8 @@ export function cloreHistorique(db: Db, empId: number, date: ISODate, le: ISODat
  * Sortie annulée : plus aucune ligne close ; les renouvellements annulés par la sortie (seule à en annuler) reprennent
  * effet avec la fin prévue rétablie. Les avenants annulés par la sortie le restent.
  */
-export function rouvrirHistorique(db: Db, empId: number) {
-  lignesDe(db, empId).filter(l => l.fin || (l.nature === 'renouvellement' && l.annuleLe))
-    .forEach(l => db.update('contratsHistorique', l.id, { fin: null, ...(l.nature === 'renouvellement' ? { annuleLe: null } : {}) }));
+export async function rouvrirHistorique(db: Db, empId: number) {
+  for (const l of (await lignesDe(db, empId)).filter(l => l.fin || (l.nature === 'renouvellement' && l.annuleLe))) await db.update('contratsHistorique', l.id, { fin: null, ...(l.nature === 'renouvellement' ? { annuleLe: null } : {}) });
 }
 
 /**
@@ -92,23 +91,21 @@ export function rouvrirHistorique(db: Db, empId: number) {
  * ligne marquée appliquée, et trace au journal (`employe.avenantApplique`). Un avenant d'un salarié sorti avant sa date est
  * annulé. Chaque avenant dans sa transaction. Renvoie le nombre d'avenants appliqués.
  */
-export function appliquerAvenants(db: Db, today: ISODate): number {
-  const dus = db.sql.prepare(`SELECT id FROM contrats_historique WHERE applique = 0 AND annule_le IS NULL AND nature = 'avenant' AND effet <= ? ORDER BY effet, id`)
-    .all(today) as { id: number }[];
+export async function appliquerAvenants(db: Db, today: ISODate): Promise<number> {
+  const dus = (await db.query(`SELECT id FROM contrats_historique WHERE applique = FALSE AND annule_le IS NULL AND nature = 'avenant' AND effet <= ? ORDER BY effet, id`, [today])) as { id: number }[];
   let n = 0;
   for (const { id } of dus) {
-    db.tx(() => {
-      const l = db.get<ContratHistorique>('contratsHistorique', id);
-      const e = l && db.get<Employe>('employes', l.empId);
+    await db.tx(async () => {
+      const l = await db.get<ContratHistorique>('contratsHistorique', id);
+      const e = l && (await db.get<Employe>('employes', l.empId));
       if (!l || !e || !l.regime) return;
-      if (e.fin && e.fin < l.effet) { db.update('contratsHistorique', l.id, { annuleLe: today }); return; }
+      if (e.fin && e.fin < l.effet) { await db.update('contratsHistorique', l.id, { annuleLe: today }); return; }
       const ancien = regimeFiche(e);
-      db.where<FeuilleTemps>('feuilles', 'empId', e.id).filter(f => !f.contrat && f.week < l.effet)
-        .forEach(f => db.update<FeuilleTemps>('feuilles', f.id, { contrat: ancien }));
-      db.update('employes', e.id, { ...champsAvenant(l.regime), tempsDepuis: l.effet });
-      db.update('contratsHistorique', l.id, { applique: true });
-      refigerBrouillons(db, e.id);
-      journaliser(db, {
+      for (const f of (await db.where<FeuilleTemps>('feuilles', 'empId', e.id)).filter(f => !f.contrat && f.week < l.effet)) await db.update<FeuilleTemps>('feuilles', f.id, { contrat: ancien });
+      await db.update('employes', e.id, { ...champsAvenant(l.regime), tempsDepuis: l.effet });
+      await db.update('contratsHistorique', l.id, { applique: true });
+      await refigerBrouillons(db, e.id);
+      await journaliser(db, {
         actor: 'Cursus', role: null, action: 'employe.avenantApplique', salaries: [e.id],
         message: `Avenant du ${fmtIso(l.effet)} appliqué à la fiche de ${e.nom} (organisation du temps)`, payload: { ligne: l.id, effet: l.effet },
       });

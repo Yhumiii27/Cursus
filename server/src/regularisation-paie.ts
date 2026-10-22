@@ -26,8 +26,8 @@ export function rubriquesDesLignes(contenu: Pick<SagePush, 'lignes'>, matricule:
     .map(l => ({ [l.periode_origine ?? l.periode ?? '']: l.rubriques })));
 }
 
-/** Lots transmis qui portent la feuille, du plus récent au plus ancien. */
-const lotsTransmis = (db: Db, sh: Pick<FeuilleTemps, 'empId' | 'week'>) => db.all<LotEnregistre>('lotsPaie')
+/** Lots transmis qui portent la feuille, du plus récent au plus ancien, parmi les lots de paie `tous`. */
+const lotsTransmis = (tous: LotEnregistre[], sh: Pick<FeuilleTemps, 'empId' | 'week'>) => tous
   .filter(l => l.statut === 'transmis' && l.feuilles.some(f => f.empId === sh.empId && f.week === sh.week))
   .sort((a, b) => b.id - a.id);
 
@@ -37,8 +37,13 @@ const lotsTransmis = (db: Db, sh: Pick<FeuilleTemps, 'empId' | 'week'>) => db.al
  * sinon (lot historique, sans contenu) la feuille recalculée telle qu'elle a été validée (régime, mode des heures
  * supplémentaires, majorations et contrepartie figés), traduite avec la table des rubriques en vigueur.
  */
-export function transmisDeLaFeuille(db: Db, d: Domain, sh: FeuilleTemps): Pick<ReouvertureFeuille, 'rubriques' | 'lot' | 'source' | 'aSaisir'> {
-  const lots = lotsTransmis(db, sh);
+export async function transmisDeLaFeuille(db: Db, d: Domain, sh: FeuilleTemps): Promise<Pick<ReouvertureFeuille, 'rubriques' | 'lot' | 'source' | 'aSaisir'>> {
+  return transmisParLesLots(await db.all<LotEnregistre>('lotsPaie'), d, sh);
+}
+
+/** Comme transmisDeLaFeuille, d'après les lots de paie déjà lus (`tous`). */
+function transmisParLesLots(tous: LotEnregistre[], d: Domain, sh: FeuilleTemps): Pick<ReouvertureFeuille, 'rubriques' | 'lot' | 'source' | 'aSaisir'> {
+  const lots = lotsTransmis(tous, sh);
   const lot = lots[0]?.id ?? null;
   for (const l of lots) {
     const r = l.contenu?.rubriquesFeuilles?.find(x => x.empId === sh.empId && x.week === sh.week);
@@ -56,8 +61,8 @@ export function transmisDeLaFeuille(db: Db, d: Domain, sh: FeuilleTemps): Pick<R
  * rouverte depuis sa transmission (en cours de correction, ou revalidée et à régulariser hors de ce lot), les rubriques
  * gardées à sa réouverture, que Sage a toujours. Null : rien de transmis (feuille jamais partie).
  */
-function dejaDansSage(db: Db, d: Domain, sh: FeuilleTemps): ParPeriode | null {
-  if (sh.sage) return transmisDeLaFeuille(db, d, sh).rubriques;
+function dejaDansSage(tous: LotEnregistre[], d: Domain, sh: FeuilleTemps): ParPeriode | null {
+  if (sh.sage) return transmisParLesLots(tous, d, sh).rubriques;
   return sh.reouverture?.rubriques ?? null;
 }
 
@@ -66,14 +71,16 @@ function dejaDansSage(db: Db, d: Domain, sh: FeuilleTemps): ParPeriode | null {
  * en « annule et remplace », rubriques déjà dans Sage des autres feuilles du salarié pour la période d'origine, celles
  * des feuilles rouvertes depuis leur transmission comprises (sans elles, le total remplacerait leurs heures par rien).
  */
-export function optionsRegularisation(db: Db, d: Domain): Omit<OptionsRegularisation, 'semaine'> {
-  const mode = modeRegularisation(lireFormatFichier(db));
+export async function optionsRegularisation(db: Db, d: Domain): Promise<Omit<OptionsRegularisation, 'semaine'>> {
+  const mode = modeRegularisation(await lireFormatFichier(db));
   if (mode === 'ecart') return { mode };
+  // Lots lus une fois : `autres` est appelé par les règles de shared/ (synchrones) pendant la construction du lot.
+  const lots = await db.all<LotEnregistre>('lotsPaie');
   return {
     mode,
     autres: (empId, periode, exclues) => additionner(...d.ds.feuilles
       .filter(sh => sh.empId === empId && !exclues.includes(sh.week))
-      .map(sh => ({ [periode]: dejaDansSage(db, d, sh)?.[periode] ?? {} })))[periode] ?? {},
+      .map(sh => ({ [periode]: dejaDansSage(lots, d, sh)?.[periode] ?? {} })))[periode] ?? {},
   };
 }
 
@@ -85,9 +92,9 @@ export function optionsRegularisation(db: Db, d: Domain): Omit<OptionsRegularisa
  * l'attend. Rend les feuilles du lot (toutes, en écart ou sans régularisation) et le nombre de feuilles qui attendent ;
  * refus (texte) sinon.
  */
-export function selectionRemplace(db: Db, sheets: readonly FeuilleTemps[]): { sheets: FeuilleTemps[]; enAttente: number } | string {
-  if (modeRegularisation(lireFormatFichier(db)) !== 'remplace') return { sheets: [...sheets], enAttente: 0 };
-  const generes = db.all<LotEnregistre>('lotsPaie').filter(l => l.statut === 'genere');
+export async function selectionRemplace(db: Db, sheets: readonly FeuilleTemps[]): Promise<{ sheets: FeuilleTemps[]; enAttente: number } | string> {
+  if (modeRegularisation(await lireFormatFichier(db)) !== 'remplace') return { sheets: [...sheets], enAttente: 0 };
+  const generes = (await db.all<LotEnregistre>('lotsPaie')).filter(l => l.statut === 'genere');
   const remplace = generes.find(l => l.contenu?.regularisation === 'remplace');
   if (remplace) {
     return `Lot correctif n° ${remplace.id} (annule et remplace) à confirmer : importez son fichier dans Sage en remplacement et confirmez l’import, ou annulez-le, avant de générer un autre lot`;
@@ -101,9 +108,9 @@ export function selectionRemplace(db: Db, sheets: readonly FeuilleTemps[]): { sh
 }
 
 /** Relevé d'heures déjà parti à l'agence d'intérim pour cette semaine (nom d'agence comparé sans casse ni accents). */
-export function releveParti(db: Db, agence: string | null | undefined, semaine: ISODate): boolean {
+export async function releveParti(db: Db, agence: string | null | undefined, semaine: ISODate): Promise<boolean> {
   if (!agence) return false;
-  const rows = db.sql.prepare('SELECT agence FROM releves WHERE semaine = ?').all(semaine) as { agence: string }[];
+  const rows = await db.query('SELECT agence FROM releves WHERE semaine = ?', [semaine]) as { agence: string }[];
   return rows.some(r => key(r.agence) === key(agence));
 }
 

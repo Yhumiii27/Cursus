@@ -50,6 +50,8 @@ export const TRAITEMENTS: Record<string, Traitement> = {
   'voyages.emp_id': { mode: 'textes', categorie: 'dossier' },
   'demandes_keystone.emp_id': { mode: 'textes', categorie: 'dossier' },
   'contrats_historique.emp_id': { mode: 'textes', categorie: 'dossier' },
+  'formations_suivies.emp_id': { mode: 'textes', categorie: 'formations' },
+  'avenants_forfait.emp_id': { mode: 'textes', categorie: 'paie' },
   'inscriptions.emp_id': { mode: 'gardee' },
   'participations.emp_id': { mode: 'gardee' },
   'missions.emp_id': { mode: 'gardee' },
@@ -61,10 +63,17 @@ export const TRAITEMENTS: Record<string, Traitement> = {
   'soldes_sortie.emp_id': { mode: 'gardee' },
   'deplacements_paie.emp_id': { mode: 'gardee' },
   'effacements.emp_id': { mode: 'gardee' },
+  // Lot 6, vague 2 : délégations (identifiants et dates), fractionnement (décision codée), délivrances d'habilitation.
+  'delegations.manager_id': { mode: 'gardee' },
+  'delegations.suppleant_id': { mode: 'gardee' },
+  'fractionnements.emp_id': { mode: 'gardee' },
+  'hab_delivrances.emp_id': { mode: 'gardee' },
   'comptes.emp_id': { mode: 'compte' },
   'pieces.emp_id': { mode: 'pieces' },
   'contrats_historique.par_id': { mode: 'auteur' },
   'demandes_collab.par_id': { mode: 'auteur' },
+  'hab_delivrances.auteur_id': { mode: 'auteur' },
+  'formations_suivies.auteur_id': { mode: 'auteur' },
   'equipes.manager_id': { mode: 'detachee' },
 };
 
@@ -111,9 +120,11 @@ function etapes(cat: CategorieConservation, cx: Cx, empId: number): Etape[] {
       retrait(cx, `emp_id = ? AND objet IN ('certification', 'habTitre')`),
       { table: 'certifications', ou: 'emp_id = ?', vider: ['corrige_motif', 'annule_motif'] },
       { table: 'hab_titres', ou: 'emp_id = ?', vider: ['mesure_motif'] },
+      { table: 'formations_suivies', ou: 'emp_id = ?', vider: ['corrige_motif', 'annule_motif'] },
       { table: 'demandes_collab', ou: `emp_id = ? AND type IN ('formation', 'habilitation')`, supprimer: true },
     ];
-    case 'paie': return [];
+    // Avenants de renonciation d'un forfait jours : référence et motif d'annulation (textes libres du service RH).
+    case 'paie': return [{ table: 'avenants_forfait', ou: 'emp_id = ?', vider: ['reference', 'annule_motif'] }];
     case 'dossier': return [
       // Pièces restantes (déplacements, autres déclarations) retirées, et leur nom d'origine, qui peut nommer la personne.
       retrait(cx, 'emp_id = ?'),

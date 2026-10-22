@@ -14,8 +14,11 @@ export const test = base.extend<{ erreurs: string[] }>({
     const erreurs: string[] = [];
     page.on('console', m => { if (m.type() === 'error') erreurs.push(m.text()); });
     page.on('pageerror', e => erreurs.push(e.message));
+    // La session RH de démonstration n'existe qu'après la réponse de GET /api/session, qui pose le cookie : <main>
+    // est dessiné dès l'état de chargement (App.tsx), trop tôt pour la remise à zéro (401 sans cookie).
+    const session = page.waitForResponse(r => new URL(r.url()).pathname === '/api/session' && r.ok());
     await page.goto('/');
-    await expect(page.getByRole('main')).toBeVisible();
+    await session;
     const r = await page.evaluate(async () => {
       const rep = await fetch('/api/actions/demo.reinitialiser', { method: 'POST', headers: { 'content-type': 'application/json' }, body: '{}' });
       return rep.status;

@@ -29,7 +29,12 @@ export const ACTIVITE_FORMATION_PROJET: Migration = {
   nom: 'lot5-formations-activite-interne',
   necessaire: async db => !await db.one('SELECT 1 FROM projets WHERE code = ?', [ACTIVITE_FORMATION.code]),
   executer: async db => {
-    await db.run(`INSERT INTO projets (code, nom, statut) VALUES (?, ?, 'actif') ON CONFLICT (code) DO NOTHING`, [ACTIVITE_FORMATION.code, ACTIVITE_FORMATION.nom]);
+    await amorcerActiviteFormation(db);
     return `activité interne ${ACTIVITE_FORMATION.code} ajoutée`;
   },
 };
+
+/** Activité interne INT-FORM ajoutée si elle manque (aussi pour une base PostgreSQL neuve : server/src/demarrage.ts). */
+export async function amorcerActiviteFormation(db: Db): Promise<void> {
+  await db.run(`INSERT INTO projets (code, nom, statut) VALUES (?, ?, 'actif') ON CONFLICT (code) DO NOTHING`, [ACTIVITE_FORMATION.code, ACTIVITE_FORMATION.nom]);
+}

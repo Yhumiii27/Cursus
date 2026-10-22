@@ -9,15 +9,15 @@ import { dossierInterface, VERSION } from './chemins.ts';
 import { adminsActifs } from './comptes.ts';
 import { demoPublique, enProduction, hoteEcoute, portEcoute, verifierConfig } from './config.ts';
 import { todayIso } from './dataset.ts';
-import { dbFile, openDb } from './db.ts';
+import { dbFile, openDb, urlPostgres } from './db.ts';
+import { mettreAJourBase } from './demarrage.ts';
 import { demarrerEnvois, envoiEnCours } from './envois.ts';
 import { controlerIntegrite } from './integrite.ts';
 import { demarrerJournal } from './journal.ts';
 import { appliquerAvenants } from './avenants.ts';
 import { log, redirigerConsole } from './logs.ts';
-import { migrate } from './migrate.ts';
 import { demarrerPieces } from './pieces.ts';
-import { appliquerMigrations, controlerMigrations } from './migrations/cadre.ts';
+import { controlerMigrations } from './migrations/cadre.ts';
 import { transportEmail } from './integrations/email.ts';
 import { transportKeystone } from './integrations/keystone.ts';
 import { suivreVerdictsChaqueJour } from './integrations/keystone-verdicts.ts';
@@ -26,7 +26,18 @@ import { planifierEmails } from './notifications.ts';
 import { protegerBase, retirerSecretStocke } from './protection.ts';
 import { dossierSauvegardes, poserVerrou } from './sauvegarde.ts';
 import { Arret, hoteAffiche } from './service.ts';
+import type { Db } from './db.ts';
 import { comptesDemo, seedDemo } from './seed.ts';
+
+/** Hôte, port et base de DATABASE_URL, pour le journal du démarrage : jamais l'identifiant ni le mot de passe. */
+function cibleAffichee(url: string): string {
+  try {
+    const u = new URL(url);
+    return `${u.hostname}${u.port ? `:${u.port}` : ''}${u.pathname}`;
+  } catch {
+    return '(adresse illisible)';
+  }
+}
 
 // Journaux en JSON (CURSUS_LOG_FORMAT, par défaut en production) : les messages console.* du reste du serveur passent
 // aussi par une ligne JSON, avec leur niveau (server/src/logs.ts).
@@ -34,53 +45,70 @@ redirigerConsole();
 // En production, une configuration dangereuse arrête le serveur avant toute ouverture de la base.
 verifierConfig();
 
-// Base calculée depuis le code (data/cursus.db du projet) ou CURSUS_DB, en chemin absolu : server/src/chemins.ts.
+// Base : serveur PostgreSQL commun si DATABASE_URL est renseignée (schéma cursus, migrations de server/migrations-pg/),
+// sinon fichier SQLite de repli calculé depuis le code (data/cursus.db du projet) ou CURSUS_DB : server/src/db.ts.
+const serveurPg = urlPostgres();
 const fichier = dbFile();
-let retirerVerrou: () => void;
-try {
-  // Base réservée au compte du service (600, dossier en 700) ; en production, refus si elle reste accessible à d'autres.
-  const protection = protegerBase(fichier, { production: enProduction() });
-  if (protection.restreints.length) log.info(`Droits restreints au seul compte du service : ${protection.restreints.join(', ')}.`);
-  protection.avertissements.forEach(a => log.avertissement(`Attention : ${a}`));
-  // Verrou posé avant d'ouvrir la base : il signale à npm run restore qu'elle est en service,
-  // et un second serveur sur la même base s'arrête ici, avant toute migration.
-  retirerVerrou = poserVerrou(fichier);
-  // Base mise à jour par une version plus récente (migration nommée inconnue de ce code) : refus avant toute écriture.
-  controlerMigrations(fichier);
-} catch (err) {
-  log.erreur(`Démarrage impossible : ${err instanceof Error ? err.message : err}`);
-  process.exit(1);
+let retirerVerrou: () => void = () => {};
+if (!serveurPg) {
+  try {
+    // Base réservée au compte du service (600, dossier en 700) ; en production, refus si elle reste accessible à d'autres.
+    const protection = protegerBase(fichier, { production: enProduction() });
+    if (protection.restreints.length) log.info(`Droits restreints au seul compte du service : ${protection.restreints.join(', ')}.`);
+    protection.avertissements.forEach(a => log.avertissement(`Attention : ${a}`));
+    // Verrou posé avant d'ouvrir la base : il signale à npm run restore qu'elle est en service,
+    // et un second serveur sur la même base s'arrête ici, avant toute migration.
+    retirerVerrou = poserVerrou(fichier);
+    // Base mise à jour par une version plus récente (migration nommée inconnue de ce code) : refus avant toute écriture.
+    controlerMigrations(fichier);
+  } catch (err) {
+    log.erreur(`Démarrage impossible : ${err instanceof Error ? err.message : err}`);
+    process.exit(1);
+  }
 }
 // Arrêt ordonné sur SIGTERM / SIGINT (requêtes finies, base fermée, verrou retiré), et refus clair d'un port déjà pris :
 // server/src/service.ts. Installé avant l'ouverture de la base, pour qu'un signal reçu pendant les migrations la ferme.
 const arret = new Arret(retirerVerrou);
 // Étapes de démarrage asynchrones (base, migrations, démonstration) : un signal reçu pendant ce temps attend leur fin.
 const demarrageTermine = arret.demarrer();
-log.info(`Cursus ${VERSION} — base ${fichier} · sauvegardes ${dossierSauvegardes(fichier)}`);
-const db = await openDb(fichier);
-arret.base(db);
-await migrate(db);
-// Migrations nommées (server/src/migrations/) : chacune une seule fois par base, après les reprises ci-dessus ;
-// une migration interrompue est annulée et le serveur ne démarre pas (elle sera retentée au démarrage suivant).
+log.info(serveurPg
+  ? `Cursus ${VERSION} — base PostgreSQL ${cibleAffichee(serveurPg)}, schéma cursus (plusieurs instances admises : verrous du serveur)`
+  : `Cursus ${VERSION} — base ${fichier} · sauvegardes ${dossierSauvegardes(fichier)}`);
+let db: Db;
 try {
-  await appliquerMigrations(db);
+  // PostgreSQL : migrations de server/migrations-pg/ (journal schema_migrations) et contrôle du schéma, sinon refus.
+  db = await openDb(fichier);
+} catch (err) {
+  log.erreur(`Démarrage impossible : ${err instanceof Error ? err.message : err}`);
+  process.exit(1);
+}
+arret.base(db);
+// SQLite : reprises historiques puis migrations nommées (server/src/migrations/), chacune une seule fois par base ; une
+// migration interrompue est annulée et le serveur ne démarre pas (elle sera retentée au démarrage suivant).
+// PostgreSQL : amorçages d'une base neuve et rattachement des fiches aux postes (server/src/demarrage.ts).
+try {
+  await mettreAJourBase(db);
 } catch (err) {
   arret.echec(err instanceof Error ? err.message : String(err));
 }
 // Schéma de la base déclaré à Matrix (catalogue des bases), une fois les migrations faites : sans MATRIX_URL rien ne
 // part ; appel non attendu, un échec n'écrit qu'un avertissement (server/src/integrations/matrix.ts).
-void declarerBase(db.sql, VERSION);
+void declarerBase(db, VERSION);
 // Ancienne clé de session écrite en base (installation lancée sans CURSUS_SECRET) : retirée dès que la variable la remplace.
 if (await retirerSecretStocke(db)) log.info('Ancienne clé de session retirée de la base : CURSUS_SECRET la remplace (les sauvegardes antérieures la contiennent encore).');
-if (await db.count('employes') === 0) {
-  // Les salariés fictifs ne sont chargés qu'en démonstration, jamais dans une base de production.
-  if (DEMO) { await seedDemo(db); log.info('Base vide : données de démonstration chargées.'); }
-  else log.info('Base vide : aucune donnée de démonstration chargée (mode démonstration inactif).');
-}
+// Base vide (contrôlée et remplie dans la même transaction, sous le verrou d'écriture : deux instances qui démarrent
+// ensemble sur le serveur commun ne la chargent qu'une fois).
+const vide = await db.tx(async () => {
+  if (await db.count('employes') !== 0) return null;
+  // Les salariés fictifs ne sont chargés qu'en démonstration (CURSUS_DEMO=1), jamais dans une base de production.
+  if (DEMO) await seedDemo(db);
+  return DEMO;
+});
+if (vide !== null) log.info(vide ? 'Base vide : données de démonstration chargées.' : 'Base vide : aucune donnée de démonstration chargée (mode démonstration inactif).');
 // Instance de démonstration publiée derrière le proxy (CURSUS_DEMO_PUBLIQUE=1) : rappel à chaque démarrage.
 if (demoPublique()) log.avertissement('Démonstration publiée (CURSUS_DEMO_PUBLIQUE=1) : l’espace RH s’ouvre sans mot de passe à qui atteint cette adresse. Données fictives seulement ; restreignez l’accès en amont (authentification du proxy).');
 // Base de démonstration antérieure aux comptes : un compte par salarié et la RH de démonstration.
-if (DEMO && await db.count('employes') > 0) await comptesDemo(db);
+if (DEMO) await db.tx(async () => { if (await db.count('employes') > 0) await comptesDemo(db); });
 // Références orphelines (salarié, session, formation… absents) : signalées dans les journaux, le journal des actions
 // et le point de santé, sans bloquer le démarrage (server/src/integrite.ts).
 await controlerIntegrite(db);

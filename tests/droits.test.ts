@@ -14,18 +14,17 @@ import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-07';
 process.env.CURSUS_DEMO = '1'; // demo.reinitialiser
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase, horsContraintes } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
 const { ActionError, makeCtx } = await import('../server/src/actions/context.ts');
 const { PROFIL_VIDE } = await import('../shared/rules/profil.ts');
 const { SAMPLE_PLAN_CSV, SAMPLE_TRIPS_CSV } = await import('../shared/rules/imports.ts');
-type Db = InstanceType<typeof Db>;
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type Role = User['role'];
 
-const db = new Db(':memory:');
+const db = await nouvelleBase();
 await seedDemo(db);
 
 const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
@@ -117,10 +116,10 @@ interface Ligne { action: string; variante?: string; droits: string; p: (u: User
 //                                                        admin gest mgr autM coll autC  hse paie lect
 const MATRICE: Ligne[] = [
   // Fiches et équipes
-  { action: 'employe.creer', droits: '                       O    O    -    -    -    -    -    -    -', p: () => ({ ...PROFIL_VIDE('Maintenance', '2026-10-07'), nom: 'Nouvel Embauché', poste: 'Technicien' }) },
-  { action: 'employe.modifier', droits: '                    O    O    O    -    -    -    -    -    -', p: () => ({ id: 2, poste: 'Technicien de maintenance confirmé' }) },
+  { action: 'employe.creer', droits: '                       O    O    -    -    -    -    -    -    -', p: async () => ({ ...PROFIL_VIDE('Maintenance', '2026-10-07'), nom: 'Nouvel Embauché', poste: 'Technicien' }) },
+  { action: 'employe.modifier', droits: '                    O    O    O    -    -    -    -    -    -', p: async () => ({ id: 2, poste: 'Technicien de maintenance confirmé' }) },
   // Sortie d'un salarié (date et motif) et son annulation : service RH.
-  { action: 'employe.sortie', droits: '                      O    O    -    -    -    -    -    -    -', p: () => ({ id: 2, date: '2026-12-31', motif: 'demission' }) },
+  { action: 'employe.sortie', droits: '                      O    O    -    -    -    -    -    -    -', p: async () => ({ id: 2, date: '2026-12-31', motif: 'demission' }) },
   { action: 'employe.annulerSortie', droits: '               O    O    -    -    -    -    -    -    -', p: async () => {
     await db.update('employes', 2, { fin: '2026-12-31', motifSortie: 'demission', finPrevue: null });
     return { id: 2 };
@@ -148,7 +147,7 @@ const MATRICE: Ligne[] = [
     await db.update('employes', 20, { equipe: null });
     return { empId: 20, equipe: 'Maintenance' };
   } },
-  { action: 'equipe.affecter', variante: 'membre d’une autre équipe', droits: 'O    O    -    -    -    -    -    -    -', p: () => ({ empId: 20, equipe: 'Maintenance' }) },
+  { action: 'equipe.affecter', variante: 'membre d’une autre équipe', droits: 'O    O    -    -    -    -    -    -    -', p: async () => ({ empId: 20, equipe: 'Maintenance' }) },
   // Formations, certifications, habilitations
   { action: 'plan.inscrire', droits: '                       O    O    O    -    -    -    O    -    -', p: async () => ({ empId: 2, certId: await cert('sst'), sessionId: 2, conv: 'now' }) },
   // Convocations (e-mail avec .ics) et désinscription : service RH, référent HSE / formation ou manager direct.
@@ -160,36 +159,36 @@ const MATRICE: Ligne[] = [
     await db.update('certifications', await cert('sst'), { sessionId: 2, convoc: 'now' });
     return { empId: 2, sessionId: 2 };
   } },
-  { action: 'cert.ajouter', droits: '                        O    O    -    -    -    -    O    -    -', p: () => ({ empId: 2, f: 'sst', date: '2026-10-01' }) },
+  { action: 'cert.ajouter', droits: '                        O    O    -    -    -    -    O    -    -', p: async () => ({ empId: 2, f: 'sst', date: '2026-10-01' }) },
   // Corrections d'une saisie erronée : modification (service RH, référent HSE), suppression (administrateur RH), motif exigé.
   { action: 'cert.modifier', droits: '                       O    O    -    -    -    -    O    -    -', p: async () => ({ id: await cert('sst'), date: '2025-05-05', motif: 'Date mal saisie' }) },
   { action: 'cert.annuler', droits: '                        O    -    -    -    -    -    -    -    -', p: async () => ({ id: await cert('sst'), motif: 'Saisie sur la mauvaise fiche' }) },
   { action: 'session.creer', droits: '                       O    O    -    -    -    -    O    -    -', p: () => ({ f: 'sst', date: '2026-12-01', lieu: 'Site de Lyon', places: 8 }) },
   // Sessions : cycle de vie et clôture par le service RH (session 2 : SST du 18 novembre, à confirmer).
-  { action: 'session.confirmer', droits: '                   O    O    -    -    -    -    O    -    -', p: () => ({ id: 2 }) },
-  { action: 'session.modifier', droits: '                    O    O    -    -    -    -    O    -    -', p: () => ({ id: 2, lieu: 'Site de Lyon — salle C' }) },
-  { action: 'session.annuler', droits: '                     O    O    -    -    -    -    O    -    -', p: () => ({ id: 2, motif: 'Organisme indisponible' }) },
+  { action: 'session.confirmer', droits: '                   O    O    -    -    -    -    O    -    -', p: async () => ({ id: 2 }) },
+  { action: 'session.modifier', droits: '                    O    O    -    -    -    -    O    -    -', p: async () => ({ id: 2, lieu: 'Site de Lyon — salle C' }) },
+  { action: 'session.annuler', droits: '                     O    O    -    -    -    -    O    -    -', p: async () => ({ id: 2, motif: 'Organisme indisponible' }) },
   { action: 'session.cloturer', droits: '                    O    O    -    -    -    -    O    -    -', p: async () => ({
     id: (await db.insert<{ id: number }>('sessions', { formation: 'sst', date: '2026-10-01', lieu: 'Site de Lyon', places: 8, statut: 'Confirmée', planId: null, bilan: null })).id,
     participants: [],
   }) },
-  { action: 'hab.delivrer', droits: '                        O    O    -    -    -    -    O    -    -', p: () => ({ empId: 2, h: 'hauteur', date: '2026-10-07', par: 'Sarah Cohen', mode: 'renew' }) },
-  { action: 'hab.suspendre', droits: '                       O    O    O    -    -    -    O    -    -', p: () => ({ empId: 2, h: 'hauteur', motif: 'Incident sur passerelle' }) },
+  { action: 'hab.delivrer', droits: '                        O    O    -    -    -    -    O    -    -', p: async () => ({ empId: 2, h: 'hauteur', date: '2026-10-07', par: 'Sarah Cohen', mode: 'renew' }) },
+  { action: 'hab.suspendre', droits: '                       O    O    O    -    -    -    O    -    -', p: async () => ({ empId: 2, h: 'hauteur', motif: 'Incident sur passerelle' }) },
   { action: 'hab.lever', droits: '                           O    O    -    -    -    -    O    -    -', p: async () => {
     await db.update('habTitres', (await titre('hauteur')).id, { mesure: 'suspension', mesureDate: '2026-10-05', mesureMotif: 'Incident', mesurePar: 'Karim Haddad' });
     return { empId: 2, h: 'hauteur' };
   } },
-  { action: 'hab.retirer', droits: '                         O    O    -    -    -    -    O    -    -', p: () => ({ empId: 2, h: 'hauteur', motif: 'Restriction médicale' }) },
+  { action: 'hab.retirer', droits: '                         O    O    -    -    -    -    O    -    -', p: async () => ({ empId: 2, h: 'hauteur', motif: 'Restriction médicale' }) },
   // Santé au travail : demandes de visite et avis du médecin du travail, données de santé réservées au service RH.
-  { action: 'medical.demander', droits: '                    O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2 }) },
+  { action: 'medical.demander', droits: '                    O    O    -    -    -    -    -    -    -', p: async () => ({ empId: 2 }) },
   { action: 'medical.annuler', droits: '                     O    O    -    -    -    -    -    -    -', p: async () => ({
     id: (await db.insert<{ id: number }>('demandesVisite', { empId: 2, motif: 'periodique', le: '2026-10-05', par: 'Sandrine Vidal', statut: 'demandee', closeLe: null, closePar: null })).id,
   }) },
-  { action: 'medical.avis', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({
+  { action: 'medical.avis', droits: '                        O    O    -    -    -    -    -    -    -', p: async () => ({
     empId: 2, date: '2026-10-06', avis: 'restrictions', restrictions: [{ texte: 'Pas de travail en hauteur', jusquau: '2026-12-31' }], suspendre: ['hauteur'],
   }) },
   // Type de suivi médical saisi sur la fiche (VIP, VIP adaptée, suivi renforcé) : service RH seulement.
-  { action: 'medical.suivi', droits: '                       O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, suivi: 'vip_adapte' }) },
+  { action: 'medical.suivi', droits: '                       O    O    -    -    -    -    -    -    -', p: async () => ({ empId: 2, suivi: 'vip_adapte' }) },
   { action: 'demande.accepter', droits: '                    O    O    -    -    -    -    O    -    -', p: async () => ({ id: await demande('aipr') }) },
   { action: 'demande.refuser', droits: '                     O    O    -    -    -    -    O    -    -', p: async () => ({ id: await demande('aipr') }) },
   // Demande retirée par son auteur seul (Mehdi pour la sienne, Karim pour celle qu'il a faite pour Mehdi), tant qu'elle
@@ -201,13 +200,13 @@ const MATRICE: Ligne[] = [
   { action: 'demande.accepter', variante: 'document', droits: 'O    O    -    -    -    -    -    -    -', p: async () => ({ id: await documentDeclare() }) },
   { action: 'demande.refuser', variante: 'document', droits: ' O    O    -    -    -    -    -    -    -', p: async () => ({ id: await documentDeclare() }) },
   // Le collaborateur demande pour lui-même (l'autre collaborateur aussi, pour lui) ; le manager pour un membre de son équipe.
-  { action: 'demande.formation', droits: '                   -    -    O    -    O    O    -    -    -', p: () => ({ f: 'autre', libelle: 'Lean management', motif: 'Évolution', empId: 2 }) },
-  { action: 'demande.habilitation', droits: '                -    -    O    -    O    O    -    -    -', p: () => ({ h: 'aipr', motif: 'Chantier réseaux', empId: 2 }) },
+  { action: 'demande.formation', droits: '                   -    -    O    -    O    O    -    -    -', p: async () => ({ f: 'autre', libelle: 'Lean management', motif: 'Évolution', empId: 2 }) },
+  { action: 'demande.habilitation', droits: '                -    -    O    -    O    O    -    -    -', p: async () => ({ h: 'aipr', motif: 'Chantier réseaux', empId: 2 }) },
   // Référentiels : formations et habilitations (service RH, référent HSE / formation), destinations (service RH).
-  { action: 'referentiel.formation.enregistrer', droits: '   O    O    -    -    -    -    O    -    -', p: () => ({
+  { action: 'referentiel.formation.enregistrer', droits: '   O    O    -    -    -    -    O    -    -', p: async () => ({
     id: 'sst', nom: 'Sauveteur secouriste du travail (SST)', court: 'SST', type: 'Réglementaire', validite: 24, duree: '7 h (MAC)', organisme: 'Croix-Rouge française', cout: 190, validation: 'evaluation',
   }) },
-  { action: 'referentiel.formation.enregistrer', variante: 'création', droits: 'O    O    -    -    -    -    O    -    -', p: () => ({
+  { action: 'referentiel.formation.enregistrer', variante: 'création', droits: 'O    O    -    -    -    -    O    -    -', p: async () => ({
     code: 'caces485', nom: 'CACES R485 — Gerbeurs à conducteur accompagnant', court: 'CACES R485', type: 'Réglementaire', validite: 60, duree: '14 h', organisme: 'AFTRAL', cout: 450, validation: 'evaluation',
   }) },
   // Formation AIPR : prérequis de l'habilitation AIPR, archivée d'abord.
@@ -215,39 +214,39 @@ const MATRICE: Ligne[] = [
     await db.update('habilitations', 'aipr', { archive: '2026-10-07' });
     return { id: 'aipr' };
   } },
-  { action: 'referentiel.habilitation.enregistrer', droits: 'O    O    -    -    -    -    O    -    -', p: () => ({
+  { action: 'referentiel.habilitation.enregistrer', droits: 'O    O    -    -    -    -    O    -    -', p: async () => ({
     id: 'aipr', nom: 'Autorisation AIPR', detail: 'Intervention à proximité des réseaux', prereqs: ['aipr'], medical: false, validite: 60, signataire: 'Karim Haddad',
   }) },
-  { action: 'referentiel.habilitation.archiver', droits: '   O    O    -    -    -    -    O    -    -', p: () => ({ id: 'aipr' }) },
-  { action: 'referentiel.destination.enregistrer', droits: ' O    O    -    -    -    -    -    -    -', p: () => ({
+  { action: 'referentiel.habilitation.archiver', droits: '   O    O    -    -    -    -    O    -    -', p: async () => ({ id: 'aipr' }) },
+  { action: 'referentiel.destination.enregistrer', droits: ' O    O    -    -    -    -    -    -    -', p: async () => ({
     id: 'MA', pays: 'Maroc', visa: 'none', visaSub: 'séjour ≤ 90 jours', oblig: [], rec: ['hepA', 'typhoide'], passMois: 3, secu: 'convention',
   }) },
-  { action: 'referentiel.destination.archiver', droits: '    O    O    -    -    -    -    -    -    -', p: () => ({ id: 'VN' }) },
+  { action: 'referentiel.destination.archiver', droits: '    O    O    -    -    -    -    -    -    -', p: async () => ({ id: 'VN' }) },
   // Référentiel type : dans un référentiel vide seulement (vidé pour l'essai, transaction annulée).
   { action: 'referentiel.charger', variante: 'formations', droits: 'O    O    -    -    -    -    O    -    -', p: async () => {
-    await db.exec('DELETE FROM formations');
+    await horsContraintes(db, async () => { await db.exec('DELETE FROM formations'); });
     return { referentiel: 'formations' };
   } },
   { action: 'referentiel.charger', variante: 'habilitations', droits: 'O    O    -    -    -    -    O    -    -', p: async () => {
-    await db.exec('DELETE FROM habilitations');
+    await horsContraintes(db, async () => { await db.exec('DELETE FROM habilitations'); });
     return { referentiel: 'habilitations' };
   } },
   { action: 'referentiel.charger', variante: 'destinations', droits: 'O    O    -    -    -    -    -    -    -', p: async () => {
-    await db.exec('DELETE FROM destinations');
+    await horsContraintes(db, async () => { await db.exec('DELETE FROM destinations'); });
     return { referentiel: 'destinations' };
   } },
   // Postes et exigences (t055) : service RH ; habilitation exigée demandée : service RH et référent HSE.
   { action: 'referentiel.poste.enregistrer', droits: '     O    O    -    -    -    -    -    -    -', p: async () => ({
     id: await posteNomme('Technicien de maintenance'), nom: 'Technicien de maintenance', formations: ['elec', 'sst'], habilitations: ['he'],
   }) },
-  { action: 'referentiel.poste.enregistrer', variante: 'création', droits: 'O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Soudeur', formations: [], habilitations: [] }) },
+  { action: 'referentiel.poste.enregistrer', variante: 'création', droits: 'O    O    -    -    -    -    -    -    -', p: async () => ({ nom: 'Soudeur', formations: [], habilitations: [] }) },
   { action: 'referentiel.poste.archiver', droits: '        O    O    -    -    -    -    -    -    -', p: async () => ({
     id: (await db.insert<{ id: number }>('postes', { nom: 'Poste inoccupé', formations: [], habilitations: [], archive: null })).id,
   }) },
-  { action: 'referentiel.equipe.exigences', droits: '      O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Maintenance', formations: ['sst'], habilitations: [] }) },
-  { action: 'hab.demander', droits: '                      O    O    -    -    -    -    O    -    -', p: () => ({ empId: 2, h: 'atex' }) },
+  { action: 'referentiel.equipe.exigences', droits: '      O    O    -    -    -    -    -    -    -', p: async () => ({ nom: 'Maintenance', formations: ['sst'], habilitations: [] }) },
+  { action: 'hab.demander', droits: '                      O    O    -    -    -    -    O    -    -', p: async () => ({ empId: 2, h: 'atex' }) },
   // Déplacements
-  { action: 'voyage.creer', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, dest: 'MA', depart: '2026-11-02', retour: '2026-11-06', motif: 'Chantier Tanger' }) },
+  { action: 'voyage.creer', droits: '                        O    O    -    -    -    -    -    -    -', p: async () => ({ empId: 2, dest: 'MA', depart: '2026-11-02', retour: '2026-11-06', motif: 'Chantier Tanger' }) },
   // Formalités de détachement (certificat de sécurité sociale, information écrite) : démarches du service RH.
   { action: 'voyage.detachement', droits: '                  O    O    -    -    -    -    -    -    -', p: async () => ({ id: await voyage(), detachementLe: '2026-10-06' }) },
   // Modification et annulation d'un déplacement : service RH (Keystone prévenu pour un déplacement venu de Keystone).
@@ -257,14 +256,14 @@ const MATRICE: Ligne[] = [
   // Contact d'urgence (t068) : le salarié pour lui-même (portail) ou le service RH ; ni le manager, ni les profils restreints.
   { action: 'employe.contactUrgence', droits: '          O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, nom: 'Nadia Benali (sœur)', telephone: '06 12 34 56 78' }) },
   { action: 'voyage.annuler', droits: '                  O    O    -    -    -    -    -    -    -', p: async () => ({ id: await voyage(), motif: 'Chantier reporté' }) },
-  { action: 'formalite.enregistrer', droits: '               O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, kind: 'passeport', numero: '21XY12345', expire: '2032-01-01' }) },
-  { action: 'voyages.importer', droits: '                    O    O    -    -    -    -    -    -    -', p: () => ({ texte: SAMPLE_TRIPS_CSV }) },
-  { action: 'keystone.accepter', droits: '                   O    O    -    -    -    -    -    -    -', p: () => ({ id: 1 }) },
-  { action: 'keystone.refuser', droits: '                    O    O    -    -    -    -    -    -    -', p: () => ({ id: 1 }) },
+  { action: 'formalite.enregistrer', droits: '               O    O    -    -    O    -    -    -    -', p: async () => ({ empId: 2, kind: 'passeport', numero: '21XY12345', expire: '2032-01-01' }) },
+  { action: 'voyages.importer', droits: '                    O    O    -    -    -    -    -    -    -', p: async () => ({ texte: SAMPLE_TRIPS_CSV }) },
+  { action: 'keystone.accepter', droits: '                   O    O    -    -    -    -    -    -    -', p: async () => ({ id: 1 }) },
+  { action: 'keystone.refuser', droits: '                    O    O    -    -    -    -    -    -    -', p: async () => ({ id: 1 }) },
   // Plan et budget : remplacer les lignes prévues les supprime (administrateur RH).
-  { action: 'plan.importer', variante: 'compléter', droits: 'O    O    -    -    -    -    -    -    -', p: () => ({ texte: SAMPLE_PLAN_CSV, exercice: 2027, mode: 'add' }) },
-  { action: 'plan.importer', variante: 'remplacer', droits: 'O    -    -    -    -    -    -    -    -', p: () => ({ texte: SAMPLE_PLAN_CSV, exercice: 2026, mode: 'replace' }) },
-  { action: 'budget.enveloppes', droits: '                   O    O    -    -    -    -    -    -    -', p: () => ({ exercice: 2027, enveloppes: { Maintenance: 5000 } }) },
+  { action: 'plan.importer', variante: 'compléter', droits: 'O    O    -    -    -    -    -    -    -', p: async () => ({ texte: SAMPLE_PLAN_CSV, exercice: 2027, mode: 'add' }) },
+  { action: 'plan.importer', variante: 'remplacer', droits: 'O    -    -    -    -    -    -    -    -', p: async () => ({ texte: SAMPLE_PLAN_CSV, exercice: 2026, mode: 'replace' }) },
+  { action: 'budget.enveloppes', droits: '                   O    O    -    -    -    -    -    -    -', p: async () => ({ exercice: 2027, enveloppes: { Maintenance: 5000 } }) },
   // Ligne du plan saisie par erreur : correction (service RH), suppression (administrateur RH).
   { action: 'plan.modifier', droits: '                       O    O    -    -    -    -    -    -    -', p: async () => ({ id: await lignePrevue(), periode: 'T3', motif: 'Trimestre erroné' }) },
   { action: 'plan.supprimer', droits: '                      O    -    -    -    -    -    -    -    -', p: async () => ({ id: await lignePrevue(), motif: 'Doublon de l’import' }) },
@@ -277,20 +276,20 @@ const MATRICE: Ligne[] = [
   { action: 'temps.horaire', droits: '                       O    O    O    -    O    -    -    -    -', p: async () => { await feuille('brouillon'); return { empId: 2, week: WEEK, di: 0, code: 'J' }; } },
   { action: 'temps.addLine', droits: '                       O    O    O    -    O    -    -    -    -', p: () => ({ empId: 2, week: WEEK, projet: 'INT-MAINT' }) },
   { action: 'temps.removeLine', droits: '                    O    O    O    -    O    -    -    -    -', p: async () => { await feuille('brouillon'); return { empId: 2, week: WEEK, li: 0 }; } },
-  { action: 'temps.suggest', droits: '                       O    O    O    -    O    -    -    -    -', p: () => ({ empId: 2, week: WEEK }) },
+  { action: 'temps.suggest', droits: '                       O    O    O    -    O    -    -    -    -', p: async () => ({ empId: 2, week: WEEK }) },
   { action: 'temps.submit', droits: '                        O    O    O    -    O    -    -    -    -', p: async () => { await feuille('brouillon', H7); return { empId: 2, week: WEEK }; } },
   { action: 'temps.validate', droits: '                      O    O    O    -    -    -    -    -    -', p: async () => { await feuille('soumise', H7); return { empId: 2, week: WEEK }; } },
   { action: 'temps.reject', droits: '                        O    O    O    -    -    -    -    -    -', p: async () => { await feuille('soumise', H7); return { empId: 2, week: WEEK, comment: 'Projet à corriger' }; } },
-  { action: 'temps.pushSage', droits: '                      O    -    -    -    -    -    -    O    -', p: () => ({}) },
+  { action: 'temps.pushSage', droits: '                      O    -    -    -    -    -    -    O    -', p: async () => ({}) },
   // Réouverture d'une feuille validée (t131) : administrateur RH seul, motif obligatoire (réponse du 17 octobre 2026).
   { action: 'temps.rouvrir', droits: '                       O    -    -    -    -    -    -    -    -', p: async () => { await feuille('validee', H7); return { empId: 2, week: WEEK, motif: 'Heures du mardi imputées au mauvais projet' }; } },
   // Correspondance des rubriques avec le plan de paie Sage : administrateur RH et gestionnaire de paie (écran Temps).
-  { action: 'paie.rubrique', droits: '                       O    -    -    -    -    -    -    O    -', p: () => ({ code: 'HS25', codeSage: '3010', confirmer: true }) },
+  { action: 'paie.rubrique', droits: '                       O    -    -    -    -    -    -    O    -', p: async () => ({ code: 'HS25', codeSage: '3010', confirmer: true }) },
   // Lots de paie (écran Temps) : génération, confirmation de l'import, annulation, format du fichier d'import.
-  { action: 'paie.lotGenerer', droits: '                     O    -    -    -    -    -    -    O    -', p: () => ({ periode: '2026-10' }) },
+  { action: 'paie.lotGenerer', droits: '                     O    -    -    -    -    -    -    O    -', p: async () => ({ periode: '2026-10' }) },
   { action: 'paie.lotConfirmer', droits: '                   O    -    -    -    -    -    -    O    -', p: async () => ({ id: await lotGenere() }) },
   { action: 'paie.lotAnnuler', droits: '                     O    -    -    -    -    -    -    O    -', p: async () => ({ id: await lotGenere() }) },
-  { action: 'paie.formatFichier', droits: '                  O    -    -    -    -    -    -    O    -', p: () => ({ separateur: ',', decimale: '.' }) },
+  { action: 'paie.formatFichier', droits: '                  O    -    -    -    -    -    -    O    -', p: async () => ({ separateur: ',', decimale: '.' }) },
   // Suivi des feuilles : relance et validation groupée par le manager direct ou le service RH (jamais les profils restreints).
   { action: 'temps.relancer', droits: '                      O    O    O    -    -    -    -    -    -', p: async () => {
     // Feuille de la semaine 40 renvoyée pour correction, échéance passée : en retard.
@@ -299,7 +298,7 @@ const MATRICE: Ligne[] = [
   } },
   { action: 'temps.validerLot', droits: '                    O    O    O    -    -    -    -    -    -', p: async () => { await feuille('soumise', H7); return { feuilles: [{ empId: 2, week: WEEK }] }; } },
   // Semaine à 7 jours : dérogation au repos dominical d'une équipe, réglée par l'administrateur RH (Paramètres).
-  { action: 'temps.derogationDominicale', droits: '          O    -    -    -    -    -    -    -    -', p: () => ({ equipe: 'Maintenance', type: 'feu_continu', reference: 'Accord du 12 mars 2024' }) },
+  { action: 'temps.derogationDominicale', droits: '          O    -    -    -    -    -    -    -    -', p: async () => ({ equipe: 'Maintenance', type: 'feu_continu', reference: 'Accord du 12 mars 2024' }) },
   // Activités internes (écran Référentiels) et mandats au CSE (fiche) : service RH.
   { action: 'referentiel.activite.enregistrer', droits: '    O    O    -    -    -    -    -    -    -', p: () => ({ code: 'INT-ACCUEIL', nom: 'Accueil des visiteurs' }) },
   { action: 'referentiel.activite.archiver', droits: '      O    O    -    -    -    -    -    -    -', p: () => ({ id: 'INT-COM' }) },
@@ -311,18 +310,18 @@ const MATRICE: Ligne[] = [
   { action: 'mandat.enregistrer', droits: '                  O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, role: 'titulaire', du: '2026-11-01', credit: 21 }) },
   { action: 'mandat.supprimer', droits: '                    O    O    -    -    -    -    -    -    -', p: async () => ({ id: (await db.insert<{ id: number }>('mandats', { empId: 2, role: 'suppleant', du: '2026-01-01', au: null, credit: 0 })).id }) },
   // Un membre du RH élu ne saisit ni ne retire son propre mandat (crédit d'heures) : un autre membre du RH le fait.
-  { action: 'mandat.enregistrer', variante: 'mandat du gestionnaire RH', droits: 'O    -    -    -    -    -    -    -    -', p: () => ({ empId: 14, role: 'titulaire', du: '2026-11-01', credit: 21 }) },
+  { action: 'mandat.enregistrer', variante: 'mandat du gestionnaire RH', droits: 'O    -    -    -    -    -    -    -    -', p: async () => ({ empId: 14, role: 'titulaire', du: '2026-11-01', credit: 21 }) },
   { action: 'mandat.supprimer', variante: 'mandat du gestionnaire RH', droits: 'O    -    -    -    -    -    -    -    -', p: async () => ({ id: (await db.insert<{ id: number }>('mandats', { empId: 14, role: 'suppleant', du: '2026-01-01', au: null, credit: 0 })).id }) },
   // Un membre du RH ne valide pas sa propre feuille : son valideur (ici le service RH) le fait.
   { action: 'temps.validate', variante: 'feuille du gestionnaire RH', droits: 'O    -    -    -    -    -    -    -    -', p: async () => { await feuilleAntoine(); return { empId: 14, week: WEEK }; } },
   // Relevé d'heures des intérimaires (Léa Girard, agence Proman Lyon) : service RH ou gestionnaire de paie.
-  { action: 'releve.envoyer', droits: '                      O    O    -    -    -    -    -    O    -', p: () => ({ agence: 'Proman Lyon', semaine: '2026-09-21' }) },
+  { action: 'releve.envoyer', droits: '                      O    O    -    -    -    -    -    O    -', p: async () => ({ agence: 'Proman Lyon', semaine: '2026-09-21' }) },
   // Congés
   { action: 'absence.demander', droits: '                    O    O    O    -    O    -    -    -    -', p: () => ({ empId: 2, kind: 'CP', du: '2026-12-07', au: '2026-12-08' }) },
   { action: 'absence.decider', droits: '                     O    O    O    -    -    -    -    -    -', p: async () => ({ id: ((await db.one(`SELECT id FROM absences WHERE emp_id = 2 AND statut = 'demandee'`)) as { id: number }).id, ok: true }) },
   { action: 'absence.decider', variante: 'demande du gestionnaire RH', droits: 'O    -    -    -    -    -    -    -    -', p: async () => ({ id: await demandeAntoine(), ok: true }) },
-  { action: 'cet.placer', droits: '                          O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, kind: 'RTT', jours: 1 }) },
-  { action: 'report.accorder', droits: '                     O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, jours: 1, motif: 'Arrêt maladie' }) },
+  { action: 'cet.placer', droits: '                          O    O    -    -    O    -    -    -    -', p: async () => ({ empId: 2, kind: 'RTT', jours: 1 }) },
+  { action: 'report.accorder', droits: '                     O    O    -    -    -    -    -    -    -', p: async () => ({ empId: 2, jours: 1, motif: 'Arrêt maladie' }) },
   // Clôture d'une période de congés : service RH (RTT 2025 de Mehdi, compteurs repris arrêtés en 2025 pour l'essai).
   { action: 'conges.cloturer', droits: '                     O    O    -    -    -    -    -    -    -', p: async () => {
     await db.update('soldesReprise', 2, { arreteLe: '2025-09-01' });
@@ -333,14 +332,14 @@ const MATRICE: Ligne[] = [
     id: (await db.insert<{ id: number }>('absences', { empId: 2, type: 'MALADIE', du: '2026-09-28', au: '2026-10-02', statut: 'validee', keystone: true, justificatif: true, justificatifLe: '2026-09-28' })).id,
   }) },
   // Absences hors congés : le salarié ou son manager signale, le RH qualifie ou saisit ; annulation selon le statut.
-  { action: 'absence.signaler', droits: '                    O    O    O    -    O    -    -    -    -', p: () => ({ empId: 2, du: '2026-12-15', au: '2026-12-15' }) },
-  { action: 'absence.saisir', droits: '                      O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, nature: 'MARIAGE', du: '2026-12-15', au: '2026-12-16' }) },
+  { action: 'absence.signaler', droits: '                    O    O    O    -    O    -    -    -    -', p: async () => ({ empId: 2, du: '2026-12-15', au: '2026-12-15' }) },
+  { action: 'absence.saisir', droits: '                      O    O    -    -    -    -    -    -    -', p: async () => ({ empId: 2, nature: 'MARIAGE', du: '2026-12-15', au: '2026-12-16' }) },
   { action: 'absence.qualifier', droits: '                   O    O    -    -    -    -    -    -    -', p: async () => ({ id: await absence('signalee', 'ABSENCE'), nature: 'MALADIE' }) },
   { action: 'absence.prolonger', droits: '                   O    O    O    -    O    -    -    -    -', p: async () => ({ id: await absence('validee', 'MALADIE'), au: '2026-12-16' }) },
   { action: 'absence.annuler', droits: '                     O    O    O    -    -    -    -    -    -', p: async () => ({ id: await absence('validee', 'CP') }) },
   // Entretiens : l'évaluateur (manager direct ou RH) et le salarié pour ses sections et sa signature.
   // Mehdi a déjà un entretien annuel planifié (le 20 octobre) : un entretien de parcours professionnel.
-  { action: 'entretien.planifier', droits: '                 O    O    O    -    -    -    -    -    -', p: () => ({ empId: 2, kind: 'epp', date: '2026-11-16' }) },
+  { action: 'entretien.planifier', droits: '                 O    O    O    -    -    -    -    -    -', p: async () => ({ empId: 2, kind: 'epp', date: '2026-11-16' }) },
   // Annulation d'un entretien planifié : l'évaluateur (manager direct) ou le RH ; compte rendu commencé : sur confirmation.
   { action: 'entretien.annuler', droits: '                  O    O    O    -    -    -    -    -    -', p: async () => ({ id: await ENTRETIEN(), confirmer: true }) },
   { action: 'entretien.modifier', droits: '                  O    O    O    -    O    -    -    -    -', p: async () => ({ id: await ENTRETIEN(), section: 'avis', value: 'Année riche en chantiers' }) },
@@ -363,10 +362,10 @@ const MATRICE: Ligne[] = [
     return { id };
   } },
   // Administration : administrateur RH.
-  { action: 'parametres.maj', droits: '                      O    -    -    -    -    -    -    -    -', p: () => ({ horizonAlerte: 60 }) },
-  { action: 'demo.reinitialiser', droits: '                  O    -    -    -    -    -    -    -    -', p: () => ({}) },
+  { action: 'parametres.maj', droits: '                      O    -    -    -    -    -    -    -    -', p: async () => ({ horizonAlerte: 60 }) },
+  { action: 'demo.reinitialiser', droits: '                  O    -    -    -    -    -    -    -    -', p: async () => ({}) },
   // Mise en service (reprise depuis Lucca) : administrateur RH seul, quel que soit l'import.
-  { action: 'reprise.importer', droits: '                    O    -    -    -    -    -    -    -    -', p: () => ({
+  { action: 'reprise.importer', droits: '                    O    -    -    -    -    -    -    -    -', p: async () => ({
     type: 'soldes', texte: 'Nom;CP N-1\nMehdi Benali;10', colonnes: ['nom', 'cpN1'], dateReprise: '2026-10-01',
   }) },
   { action: 'compte.creer', droits: '                        O    -    -    -    -    -    -    -    -', p: () => ({ type: 'microsoft', identifiant: 'paie@cabinet.example', nom: 'Cabinet Paie', profilRh: 'rh_gestionnaire' }) },
@@ -380,15 +379,15 @@ const MATRICE: Ligne[] = [
   { action: 'compte.reinitialiser', droits: '                O    -    -    -    -    -    -    -    -', p: async () => ({ id: (await compteDe(1)).id }) },
   // Messagerie : adresses et e-mail d'essai (administrateur RH), récapitulatif sans attendre (RH) ;
   // réglage des notifications : la personne elle-même ou le service RH.
-  { action: 'messagerie.regler', droits: '                   O    -    -    -    -    -    -    -    -', p: () => ({ rh: 'drh@entreprise.example' }) },
-  { action: 'messagerie.essai', droits: '                    O    -    -    -    -    -    -    -    -', p: () => ({ adresse: 'it@entreprise.example' }) },
+  { action: 'messagerie.regler', droits: '                   O    -    -    -    -    -    -    -    -', p: async () => ({ rh: 'drh@entreprise.example' }) },
+  { action: 'messagerie.essai', droits: '                    O    -    -    -    -    -    -    -    -', p: async () => ({ adresse: 'it@entreprise.example' }) },
   { action: 'messagerie.recapituler', droits: '              O    O    -    -    -    -    -    -    -', p: async () => {
     await db.insert('notifications', { empId: 12, adresse: 'karim.haddad@entreprise.example', type: 'temps.soumise', objet: 'Feuille à valider', texte: '—', creation: '2026-10-07T06:00:00.000Z', envoiId: null });
     return {};
   } },
   // Page Confidentialité : coordonnées du responsable et du DPO (administrateur RH).
-  { action: 'confidentialite.regler', droits: '              O    -    -    -    -    -    -    -    -', p: () => ({ responsable: 'Entreprise, 1 rue du Site, Feyzin', dpo: 'dpo@entreprise.example' }) },
-  { action: 'notification.regler', droits: '                 O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, mode: 'quotidien' }) },
+  { action: 'confidentialite.regler', droits: '              O    -    -    -    -    -    -    -    -', p: async () => ({ responsable: 'Entreprise, 1 rue du Site, Feyzin', dpo: 'dpo@entreprise.example' }) },
+  { action: 'notification.regler', droits: '                 O    O    -    -    O    -    -    -    -', p: async () => ({ empId: 2, mode: 'quotidien' }) },
   // Envois sortants (Paramètres → Envois) : le service RH suit, relance (intégration configurée) ou classe un échec.
   { action: 'envoi.relancer', droits: '                      O    O    -    -    -    -    -    -    -', p: async () => ({ id: await envoiEnEchec() }), env: { KEYSTONE_URL: 'http://keystone.essai', KEYSTONE_TOKEN: 'jeton' } },
   { action: 'envoi.classer', droits: '                       O    O    -    -    -    -    -    -    -', p: async () => ({ id: await envoiEnEchec() }) },

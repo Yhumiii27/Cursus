@@ -1,6 +1,6 @@
 #!/usr/bin/env node
-// Garde-fou de la couche d'accès asynchrone (server/src/db.ts) : promesse jamais oubliée, connexion SQLite jamais
-// utilisée en direct par le code applicatif. Lancé par `npm run typecheck` (donc par `npm run check` et la CI).
+// Garde-fou de la couche d'accès asynchrone (server/src/db.ts, adaptateurs SqliteDb et PgDb de server/src/db-pg.ts) :
+// promesse jamais oubliée, connexions SQLite et PostgreSQL jamais utilisées en direct par le code applicatif. Lancé par `npm run typecheck` (donc par `npm run check` et la CI).
 //
 // Pourquoi un script plutôt qu'ESLint : le dépôt n'a pas d'ESLint, et la règle `no-floating-promises` de
 // typescript-eslint demande l'API de TypeScript 5, absente de TypeScript 7 (compilateur natif, sans API JavaScript).
@@ -15,7 +15,8 @@
 //   2. un rappel asynchrone passé à une méthode de tableau autre que `.map` (forEach, filter, some, find, reduce…),
 //      ou à `.map` hors de Promise.all, ou à assert.throws / doesNotThrow (à remplacer par rejects / doesNotReject), ou
 //      à une fonction du fichier dont le paramètre est typé comme une fonction sans promesse (`fn: () => void`) ;
-//   3. dans server/src, `.sql` (connexion node:sqlite) hors des fichiers propres à SQLite (FICHIERS_SQLITE).
+//   3. dans server/src, `.sql` (connexion node:sqlite) hors des fichiers propres à SQLite (FICHIERS_SQLITE), et
+//      `.pool` (pool de connexions PostgreSQL) hors de l'adaptateur PostgreSQL (server/src/db-pg.ts).
 // Une exception justifiée se marque par le commentaire `// await-ok: <raison>` sur la ligne de l'appel.
 import { readdirSync, readFileSync, statSync } from 'node:fs';
 import { dirname, join, relative, resolve } from 'node:path';
@@ -32,8 +33,14 @@ try {
 const RACINE = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 const DOSSIERS = ['server/src', 'scripts', 'tests'];
 /** Fichiers qui manipulent la connexion SQLite elle-même : schéma, migrations nommées SQLite, déclaration à Matrix. */
-const FICHIERS_SQLITE = new Set(['server/src/db.ts', 'server/src/migrations/cadre.ts', 'server/src/migrations/outils.ts', 'server/src/index.ts']);
-const METHODES_DB = new Set(['all', 'where', 'get', 'insert', 'update', 'remove', 'count', 'tx', 'lecture', 'getSetting', 'setSetting', 'clearAll', 'columns', 'query', 'one', 'run', 'exec', 'fermer']);
+const FICHIERS_SQLITE = new Set(['server/src/db.ts', 'server/src/migrations/cadre.ts', 'server/src/migrations/outils.ts', 'server/src/integrations/matrix.ts']);
+/** Fichiers des adaptateurs : leurs méthodes asynchrones sont celles de la base (METHODES_DB), traitées à part. */
+const FICHIERS_DB = new Set(['server/src/db.ts', 'server/src/db-pg.ts']);
+const METHODES_DB = new Set(['all', 'where', 'get', 'insert', 'update', 'remove', 'count', 'tx', 'lecture', 'exclusif', 'getSetting', 'setSetting', 'clearAll',
+  'resyncIds', 'columns', 'query', 'one', 'run', 'exec', 'fermer', 'migrer', 'controlerSchema']);
+/** Classes et fonctions qui donnent une base (adaptateurs, ouverture, base des tests). */
+const CLASSES_DB = ['Db', 'SqliteDb', 'PgDb'];
+const OUVERTURES_DB = ['openDb', 'openSqlite', 'ouvrirPostgres', 'nouvelleBase'];
 const TABLEAU = new Set(['forEach', 'filter', 'some', 'every', 'find', 'findIndex', 'findLast', 'findLastIndex', 'reduce', 'reduceRight', 'sort', 'toSorted', 'flatMap', 'map']);
 const COLLECTEURS = new Set(['all', 'allSettled', 'race', 'any']);
 
@@ -60,7 +67,7 @@ const parcourir = (n, fn, parent = null) => {
 };
 const ENVELOPPES = new Set(['ParenthesizedExpression', 'TSAsExpression', 'TSNonNullExpression', 'ChainExpression']);
 const sansParentheses = n => { let p = n.parent; while (ENVELOPPES.has(p?.type)) p = p.parent; return p; };
-const typeDb = t => t?.typeAnnotation?.type === 'TSTypeReference' && ['Db', 'SqliteDb'].includes(t.typeAnnotation.typeName?.name);
+const typeDb = t => t?.typeAnnotation?.type === 'TSTypeReference' && CLASSES_DB.includes(t.typeAnnotation.typeName?.name);
 const renvoiePromesse = f => f.async || /^Promise\b/.test(f.returnType?.typeAnnotation?.typeName?.name ?? '');
 
 const sources = new Map();
@@ -89,7 +96,7 @@ const module = chemin => [chemin, `${chemin}.ts`].find(c => asynchrones.has(c));
 const TROP_COURANTS = new Set(['lire', 'cle', 'valeur', 'document', ...METHODES_DB]);
 const methodesAsynchrones = new Set();
 for (const [f, { ast }] of sources) {
-  if (!relative(RACINE, f).startsWith('server/src/') || relative(RACINE, f) === 'server/src/db.ts') continue;
+  if (!relative(RACINE, f).startsWith('server/src/') || FICHIERS_DB.has(relative(RACINE, f))) continue;
   parcourir(ast, n => {
     if (n.type === 'MethodDefinition' && n.key.type === 'Identifier' && renvoiePromesse(n.value) && !TROP_COURANTS.has(n.key.name)) methodesAsynchrones.add(n.key.name);
   });
@@ -116,7 +123,7 @@ for (const [f, { texte, ast }] of sources) {
     // Variables qui portent une base : `new Db(…)`, `await openDb(…)`, paramètre ou variable typé Db / SqliteDb.
     if (n.type === 'VariableDeclarator' && n.id.type === 'Identifier') {
       const i = n.init?.type === 'AwaitExpression' ? n.init.argument : n.init;
-      if ((i?.type === 'NewExpression' && ['Db', 'SqliteDb'].includes(i.callee.name)) || (i?.type === 'CallExpression' && i.callee.name === 'openDb') || typeDb(n.id.typeAnnotation)) bases.add(n.id.name);
+      if ((i?.type === 'NewExpression' && CLASSES_DB.includes(i.callee.name)) || (i?.type === 'CallExpression' && OUVERTURES_DB.includes(i.callee.name)) || typeDb(n.id.typeAnnotation)) bases.add(n.id.name);
     }
     if (n.type === 'Identifier' && typeDb(n.typeAnnotation)) bases.add(n.name);
   });
@@ -151,7 +158,7 @@ for (const [f, { texte, ast }] of sources) {
     return !!locales.get(nom);
   };
   const recepteurDb = o => (o.type === 'Identifier' && bases.has(o.name)) || (o.type === 'MemberExpression' && !o.computed && o.property.name === 'db')
-    || (o.type === 'NewExpression' && ['Db', 'SqliteDb'].includes(o.callee.name)) || (o.type === 'ParenthesizedExpression' && recepteurDb(o.expression));
+    || (o.type === 'NewExpression' && CLASSES_DB.includes(o.callee.name)) || (o.type === 'ParenthesizedExpression' && recepteurDb(o.expression));
   const dansCollecteur = call => {
     const p = sansParentheses(call);
     if (p?.type === 'ArrayExpression') return dansCollecteur(p);
@@ -162,6 +169,9 @@ for (const [f, { texte, ast }] of sources) {
     // 3. Connexion SQLite en direct.
     if (rel.startsWith('server/src/') && !FICHIERS_SQLITE.has(rel) && n.type === 'MemberExpression' && !n.computed && n.property.name === 'sql' && recepteurDb(n.object)) {
       signaler(n.start, '`.sql` (connexion node:sqlite) : passer par db.query / db.one / db.run / db.exec');
+    }
+    if (rel.startsWith('server/src/') && rel !== 'server/src/db-pg.ts' && n.type === 'MemberExpression' && !n.computed && n.property.name === 'pool' && recepteurDb(n.object)) {
+      signaler(n.start, '`.pool` (connexions PostgreSQL) : passer par db.query / db.one / db.run / db.exec, db.tx / db.lecture / db.exclusif');
     }
     // 2. Rappel asynchrone passé à une méthode de tableau.
     if (estFonction(n) && n.async && n.parent?.type === 'CallExpression' && n.parent.arguments.includes(n) && n.parent.callee.type === 'MemberExpression') {

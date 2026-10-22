@@ -15,6 +15,7 @@ import type { Request, Response } from 'express';
 process.env.CURSUS_TODAY = '2026-10-10';
 
 const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -23,7 +24,7 @@ const { LimiteParIp, openSession, readSession } = await import('../server/src/au
 const { compteBloque, compterTentative, espacesDuCompte, hacherMotDePasse, tentativeAdmise, verifierMotDePasse } = await import('../server/src/comptes.ts');
 const { ECHEC_CONNEXION } = await import('../server/src/connexion.ts');
 const { PROFIL_VIDE } = await import('../shared/rules/profil.ts');
-type Db = InstanceType<typeof Db>;
+type Db = import('../server/src/db.ts').Db;
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type Compte = Parameters<typeof espacesDuCompte>[1];
 
@@ -36,7 +37,7 @@ after(() => {
 });
 
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const compte = async (empId: number | null) => (await db.one(empId ? 'SELECT * FROM comptes WHERE emp_id = ?' : 'SELECT * FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
   const get = async (id: number) => (await db.get<Compte>('comptes', id))!;
@@ -180,7 +181,9 @@ test('tentatives simultanées : comptées avant le calcul ; le blocage posé ent
   const id = (await compte(1)).id;
   // Cinq tentatives parties en même temps : chacune est comptée avant que la première n'ait son résultat.
   const c0 = await get(id);
-  const t = await Promise.all([1, 2, 3, 4, 5].map(() => compterTentative(db, c0)));
+  // Ordre d'arrivée : celui de la file en SQLite, celui du verrou d'écriture en PostgreSQL (pas forcément l'ordre
+  // des appels) ; chaque tentative a son propre numéro.
+  const t = (await Promise.all([1, 2, 3, 4, 5].map(() => compterTentative(db, c0)))).sort((a, b) => a.echecs - b.echecs);
   assert.deepEqual(t.map(x => [x.echecs, x.bloque]), [[1, false], [2, false], [3, false], [4, false], [5, true]]);
   const c = await get(id);
   assert.ok(compteBloque(c), 'bloqué dès la cinquième tentative, avant tout résultat');
@@ -284,7 +287,7 @@ test('connexion par compte local (hors démonstration)', async t => {
   const srv = await serveur(file);
   assert.doesNotMatch(srv.out(), /mode démonstration/);
   const NOUVEAU = 'trois mots du soir';
-  const journal = async () => (await db.query('SELECT actor, role, action, message, identifiant, compte_id AS compteId, payload FROM journal ORDER BY id')) as
+  const journal = async () => (await db.query('SELECT actor, role, action, message, identifiant, compte_id AS "compteId", payload FROM journal ORDER BY id')) as
     { actor: string; role: string | null; action: string; message: string | null; identifiant: string | null; compteId: number | null; payload: string }[];
   const login = async (identifiant: string, motDePasse: string) => await srv.call('/api/login', { body: { identifiant, motDePasse } });
   /** Première connexion : mot de passe provisoire remplacé ; renvoie le cookie de session. */

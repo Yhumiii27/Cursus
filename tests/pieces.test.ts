@@ -614,3 +614,18 @@ test('migration lot6-pieces-index : index créés, notée faite ensuite', async 
   assert.equal(pieces.dossierPiecesDe(m), pieces.dossierPiecesDe(m));
   m.sql.close();
 });
+
+test('serveur PostgreSQL : pièces dans le dossier pieces/ de l’installation (à côté de CURSUS_DB), ou CURSUS_PIECES_DIR', () => {
+  const pgFactice = { emplacement: null, moteur: 'pg' } as unknown as Parameters<typeof pieces.dossierPiecesDe>[0];
+  const avant = { db: process.env.CURSUS_DB, dir: process.env.CURSUS_PIECES_DIR };
+  try {
+    delete process.env.CURSUS_PIECES_DIR;
+    process.env.CURSUS_DB = join(dir, 'installation', 'cursus.db');
+    assert.equal(pieces.dossierPiecesDe(pgFactice), join(dir, 'installation', 'pieces'));
+    process.env.CURSUS_PIECES_DIR = join(dir, 'ailleurs');
+    assert.equal(pieces.dossierPiecesDe(pgFactice), join(dir, 'ailleurs'));
+  } finally {
+    if (avant.db === undefined) delete process.env.CURSUS_DB; else process.env.CURSUS_DB = avant.db;
+    if (avant.dir === undefined) delete process.env.CURSUS_PIECES_DIR; else process.env.CURSUS_PIECES_DIR = avant.dir;
+  }
+});

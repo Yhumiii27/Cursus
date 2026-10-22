@@ -17,6 +17,7 @@ import { fileURLToPath } from 'node:url';
 process.env.CURSUS_TODAY = '2026-10-10';
 
 const { SqliteDb: Db, TABLES } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -31,7 +32,7 @@ const { donneesSalarie, TABLES_SALARIE } = await import('../server/src/donnees.t
 const { changementsTexte, dossierComplet, familleAction, JOURNAL_LABEL, lecteurJournal, libelleAction } = await import('../shared/journal.ts');
 const { PROFILS_RH } = await import('../shared/constants.ts');
 const { SAMPLE_TRIPS_CSV } = await import('../shared/rules/imports.ts');
-type Db = InstanceType<typeof Db>;
+type Db = import('../server/src/db.ts').Db;
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 interface Ligne {
   id: number; at: string; actor: string; role: string | null; action: string; message: string | null; payload: Record<string, any>;
@@ -50,7 +51,7 @@ const NATURE = new RegExp(MENTION_NATURE.replace(/[[\]]/g, '\\$&'));
 
 /** Jeu de démonstration ; `run` suit le chemin de POST /api/actions/:nom (état lu avant l'action, trace après). */
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
@@ -142,7 +143,7 @@ test('archive paie : une absence saisie, prolongée puis annulée y figure en en
   const absences = async () => (await lignes()).filter(l => l.action.startsWith('absence.'));
   assert.deepEqual((await absences()).map(l => [l.action, l.paie]), [['absence.saisir', true], ['absence.prolonger', true], ['absence.annuler', true]]);
   // Une ligne écrite avant que l'action ne soit « liée à la paie » est marquée au démarrage.
-  (await db.run(`UPDATE journal SET paie = 0 WHERE action = 'absence.annuler'`));
+  (await db.run(`UPDATE journal SET paie = FALSE WHERE action = 'absence.annuler'`));
   assert.equal(await marquerPaie(db), 1);
   await appliquerConservation(db, new Date(Date.now() + 400 * 86_400_000));
   const archive = (await lireJournal(db, { vue: 'archive', du: null, au: null, auteur: null, action: null, salarie: 2 })).lignes;
@@ -219,10 +220,10 @@ test('feuilles de temps : renvoi, saisie, soumission et validation par le manage
 
 test('transmission à la paie : feuilles transmises et salariés concernés (archive, historique, export de ses données)', async () => {
   const { db, run, derniere, RH } = await fresh();
-  const avant = ((await db.query(`SELECT id FROM feuilles WHERE statut = 'validee' AND sage = 0 ORDER BY id`)) as { id: number }[]).map(f => f.id);
+  const avant = ((await db.query(`SELECT id FROM feuilles WHERE statut = 'validee' AND sage = FALSE ORDER BY id`)) as { id: number }[]).map(f => f.id);
   const r = await run(RH, 'temps.pushSage', {});
   // Celles qui viennent d'être transmises (les feuilles transmises auparavant n'y figurent pas ; intérim et dirigeants non plus).
-  const transmises = ((await db.query(`SELECT emp_id AS empId, week FROM feuilles WHERE sage = 1 AND id IN (${avant.join(', ')}) ORDER BY id`)) as { empId: number; week: string }[]);
+  const transmises = ((await db.query(`SELECT emp_id AS "empId", week FROM feuilles WHERE sage = TRUE AND id IN (${avant.join(', ')}) ORDER BY id`)) as { empId: number; week: string }[]);
   assert.ok(transmises.length > 0 && transmises.length <= avant.length);
   assert.match(String(r.message), new RegExp(`^${transmises.length} feuilles marquées transmises — simulation, rien n’est envoyé à Sage Paie`));
   const l = (await derniere('temps.pushSage'))!;

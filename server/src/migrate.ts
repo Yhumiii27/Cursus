@@ -11,7 +11,7 @@ import type {
 } from '../../shared/types.ts';
 import { journaliser } from './comptes.ts';
 import { loadFull, todayIso } from './dataset.ts';
-import type { Db } from './db.ts';
+import { type Db, jsonLu } from './db.ts';
 import { migrerKeystone } from './integrations/keystone-entrant.ts';
 import { reprendreAdressesDesComptes } from './messagerie.ts';
 import { rattacherFiches } from './migrations/referentiels.ts';
@@ -256,7 +256,7 @@ export async function figerFeuilles(db: Db, avant = () => {}) {
   avant();
   await db.tx(async () => {
     for (const r of rows) {
-      const contrat = { statut: r.statut, typeContrat: r.type_contrat, temps: r.temps, heures: r.heures, forfaitHeures: r.forfait_heures, forfaitJours: r.forfait_jours, jourOff: JSON.parse(String(r.jour_off ?? '[]')) };
+      const contrat = { statut: r.statut, typeContrat: r.type_contrat, temps: r.temps, heures: r.heures, forfaitHeures: r.forfait_heures, forfaitJours: r.forfait_jours, jourOff: jsonLu(r.jour_off) ?? [] };
       await db.run('UPDATE feuilles SET contrat = ? WHERE id = ?', [JSON.stringify(contrat), r.id as number]);
     }
   });

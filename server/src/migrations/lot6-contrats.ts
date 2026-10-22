@@ -9,7 +9,7 @@ import { plural } from '../../../shared/format.ts';
 import type { ISODate } from '../../../shared/types.ts';
 import { journaliser } from '../comptes.ts';
 import { todayIso } from '../dataset.ts';
-import type { Db } from '../db.ts';
+import { type Db, jsonLu } from '../db.ts';
 import type { Migration } from './cadre.ts';
 
 /** Fiches sans aucune ligne d'historique. */
@@ -18,14 +18,14 @@ const sansHistorique = async (db: Db) => Number(((await db.one(`SELECT COUNT(*) 
 
 interface Fiche {
   id: number; statut: string; type_contrat: string; temps: string; heures: number | null; forfait_heures: number | null; forfait_jours: number | null;
-  jour_off: string | null; temps_depuis: string | null; entree: string; fin: string | null; motif_sortie: string | null; fin_prevue: string | null;
+  jour_off: unknown; temps_depuis: string | null; entree: string; fin: string | null; motif_sortie: string | null; fin_prevue: string | null;
   cdd_fin_initiale: string | null;
 }
 
 /** Régime d'une fiche, dans l'ordre des clés de `contratFige` (shared/rules/temps.ts), comme sur les feuilles figées. */
 const regimeDe = (f: Fiche) => JSON.stringify({
   statut: f.statut, typeContrat: f.type_contrat, temps: f.temps, heures: f.heures, forfaitHeures: f.forfait_heures, forfaitJours: f.forfait_jours,
-  jourOff: f.jour_off ? JSON.parse(f.jour_off) as number[] : [],
+  jourOff: f.jour_off ? jsonLu(f.jour_off) as number[] : [],
 });
 
 /**
@@ -38,7 +38,7 @@ const regimeDe = (f: Fiche) => JSON.stringify({
 export async function historiqueDepuisFiches(db: Db, le: ISODate = todayIso(), empId: number | null = null): Promise<{ salaries: number; lignes: number }> {
   // `empId` : une seule fiche (première ligne écrite par une action sur une fiche d'avant l'historique, server/src/avenants.ts).
   const fiches = (await db.query(`SELECT e.id, e.statut, e.type_contrat, e.temps, e.heures, e.forfait_heures, e.forfait_jours, e.jour_off, e.temps_depuis,
-    e.entree, e.fin, e.motif_sortie, e.fin_prevue, e.cdd_fin_initiale ${SANS_HISTORIQUE} AND (? IS NULL OR e.id = ?) ORDER BY e.id`, [empId, empId])) as unknown as Fiche[];
+    e.entree, e.fin, e.motif_sortie, e.fin_prevue, e.cdd_fin_initiale ${SANS_HISTORIQUE} AND (CAST(? AS INTEGER) IS NULL OR e.id = ?) ORDER BY e.id`, [empId, empId])) as unknown as Fiche[];
   const inserer = async (...v: (string | number | null)[]) => (await db.insert<{ id: number }>('contratsHistorique', {
     empId: v[0], effet: v[1], nature: v[2], regime: v[3] == null ? null : JSON.parse(String(v[3])), jusquau: v[4], le: v[5], par: 'Cursus', applique: true, fin: null,
   })).id;

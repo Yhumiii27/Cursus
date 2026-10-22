@@ -40,7 +40,7 @@ import { journaliser, type Compte } from './comptes.ts';
 import { lireConfidentialite } from './confidentialite.ts';
 import { identite, type Identite } from './connexion.ts';
 import { loadFull, scopeIds } from './dataset.ts';
-import { type Db, enSerie, type TableName } from './db.ts';
+import { type Db, enSerie, jsonLu, type TableName } from './db.ts';
 import { purgerEnvois } from './envois.ts';
 import { copieAvantMigration } from './sauvegarde.ts';
 
@@ -847,8 +847,8 @@ export async function appliquerConservation(db: Db, maintenant = new Date()): Pr
   return await db.tx(async () => {
     const n = async (sql: string, ...a: string[]) => Number((await db.run(sql, [...a])).changes);
     const supprimeesArchive = await n('DELETE FROM journal WHERE at < ?', trois);
-    const archivees = await n('UPDATE journal SET archivee = ? WHERE paie = 1 AND archivee IS NULL AND at < ?', maintenant.toISOString(), un);
-    const supprimees = await n('DELETE FROM journal WHERE (paie IS NULL OR paie = 0) AND at < ?', un);
+    const archivees = await n('UPDATE journal SET archivee = ? WHERE paie = TRUE AND archivee IS NULL AND at < ?', maintenant.toISOString(), un);
+    const supprimees = await n('DELETE FROM journal WHERE (paie IS NULL OR paie = FALSE) AND at < ?', un);
     const envois = await purgerEnvois(db, ilYa(maintenant, CONSERVATION_ENVOIS_MOIS));
     const b = { supprimees, archivees, supprimeesArchive, envois };
     if (supprimees || archivees || supprimeesArchive || envois) {
@@ -875,7 +875,7 @@ export async function appliquerConservation(db: Db, maintenant = new Date()): Pr
  */
 export async function marquerPaie(db: Db): Promise<number> {
   const dans = ACTIONS_PAIE.map(() => '?').join(', ');
-  return Number((await db.run(`UPDATE journal SET paie = 1 WHERE (paie IS NULL OR paie = 0) AND (action IN (${dans}) OR action LIKE 'sage.%')`, [...ACTIONS_PAIE])).changes);
+  return Number((await db.run(`UPDATE journal SET paie = TRUE WHERE (paie IS NULL OR paie = FALSE) AND (action IN (${dans}) OR action LIKE 'sage.%')`, [...ACTIONS_PAIE])).changes);
 }
 
 /**
@@ -905,7 +905,7 @@ export async function reprendreJournal(db: Db): Promise<number> {
       const message = expurgerMessage(l.message);
       if (JSON.stringify(payload) !== JSON.stringify(p) || message !== l.message) reduites++;
       await db.run('UPDATE journal SET payload = ?, message = ?, salaries = ?, paie = ? WHERE id = ?',
-        [JSON.stringify(payload), message, JSON.stringify(salaries), estActionPaie(l.action) ? 1 : 0, l.id]);
+        [JSON.stringify(payload), message, JSON.stringify(salaries), estActionPaie(l.action), l.id]);
     }
     await db.setSetting('journalExpurge', true);
     return reduites;
@@ -934,7 +934,7 @@ export async function demarrerJournal(db: Db) {
 
 // — Consultation —
 
-const lireJson = (s: unknown): unknown => { try { return s == null ? null : JSON.parse(String(s)); } catch { return null; } };
+const lireJson = (s: unknown): unknown => { try { return jsonLu(s); } catch { return null; } };
 
 export interface FiltreJournal {
   /** tout (sans les appels de Keystone), operations, connexions, keystone, archive (actions de paie archivées). */
@@ -967,7 +967,7 @@ const like = (s: string) => `%${s.replace(/[\\%_]/g, '\\$&')}%`;
 /** Le filtre « Action » désigne-t-il les appels de Keystone (code exact, ou leur famille) ? */
 const appelsDemandes = (action: string | null) => action === ACTION_APPEL_KEYSTONE || (!!action?.startsWith('famille:') && familleAction(ACTION_APPEL_KEYSTONE)?.id === action.slice(8));
 
-function clauses(f: FiltreJournal): { where: string; params: (string | number)[] } {
+function clauses(db: Db, f: FiltreJournal): { where: string; params: (string | number)[] } {
   const w: string[] = [], params: (string | number)[] = [];
   const liste = (xs: readonly string[]) => { params.push(...xs); return xs.map(() => '?').join(', '); };
   if (f.vue === 'archive') w.push('archivee IS NOT NULL');
@@ -986,15 +986,15 @@ function clauses(f: FiltreJournal): { where: string; params: (string | number)[]
   }
   if (f.du) { w.push('at >= ?'); params.push(debutJour(f.du)); }
   if (f.au) { w.push('at < ?'); params.push(debutJour(addD(f.au, 1))); }
-  if (f.auteur) { w.push(`(actor LIKE ? ESCAPE '\\' OR identifiant LIKE ? ESCAPE '\\')`); params.push(like(f.auteur), like(f.auteur)); }
+  if (f.auteur) { w.push(`(actor ${db.like} ? ESCAPE '\\' OR identifiant ${db.like} ? ESCAPE '\\')`); params.push(like(f.auteur), like(f.auteur)); }
   if (f.action?.startsWith('famille:')) {
     const fam = FAMILLES_JOURNAL.find(x => x.id === f.action!.slice(8));
     if (fam) {
-      w.push(`(${fam.prefixes.map(p => (p.endsWith('.') ? `action LIKE ? ESCAPE '\\'` : 'action = ?')).join(' OR ')})`);
+      w.push(`(${fam.prefixes.map(p => (p.endsWith('.') ? `action ${db.like} ? ESCAPE '\\'` : 'action = ?')).join(' OR ')})`);
       params.push(...fam.prefixes.map(p => (p.endsWith('.') ? `${p.replace(/[\\%_]/g, '\\$&')}%` : p)));
     }
   } else if (f.action) { w.push('action = ?'); params.push(f.action); }
-  if (f.salarie) { w.push('EXISTS (SELECT 1 FROM json_each(journal.salaries) WHERE value = ?)'); params.push(f.salarie); }
+  if (f.salarie) { w.push(db.contientEntier('journal.salaries')); params.push(f.salarie); }
   return { where: w.length ? `WHERE ${w.join(' AND ')}` : '', params };
 }
 
@@ -1016,7 +1016,7 @@ export const EXPORT_MAX = 100_000;
 
 /** Page de lignes filtrées, les plus récentes d'abord, et nombre total de lignes du filtre. */
 export async function lireJournal(db: Db, f: FiltreJournal, page = 1, taille = TAILLE_PAGE) {
-  const { where, params } = clauses(f);
+  const { where, params } = clauses(db, f);
   const total = Number((await db.one(`SELECT COUNT(*) AS n FROM journal ${where}`, [...params]) as { n: number }).n);
   const lignes = (await db.query(`SELECT ${COLONNES} FROM journal ${where} ORDER BY id DESC LIMIT ? OFFSET ?`, [...params, taille, (page - 1) * taille]) as Ligne[]).map(decoder);
   return { lignes, total, page, taille };
@@ -1037,7 +1037,7 @@ const ROLE_LABEL: Record<string, string> = { ...ESPACE_LABEL, rh: 'Service RH', 
 /** Fichier CSV du journal (UTF-8 avec BOM pour Excel) : une ligne par entrée, libellés français. */
 export async function csvJournal(db: Db, lignes: LigneJournal[]): Promise<string> {
   // Salarié désigné par son nom et son matricule de paie (matricule Cursus tant qu'il manque, ou fiche supprimée).
-  const fiches = new Map((await db.query('SELECT id, nom, matricule_paie AS matriculePaie FROM employes') as { id: number; nom: string; matriculePaie: string | null }[]).map(e => [e.id, e]));
+  const fiches = new Map((await db.query('SELECT id, nom, matricule_paie AS "matriculePaie" FROM employes') as { id: number; nom: string; matriculePaie: string | null }[]).map(e => [e.id, e]));
   const tete = ['Date', 'Heure', 'Auteur', 'Identifiant', 'Espace', 'Action', 'Code', 'Salariés concernés', 'Message', 'Anciennes et nouvelles valeurs', 'Détail', 'Archivée le'];
   const corps = lignes.map(l => {
     const d = new Date(l.at);

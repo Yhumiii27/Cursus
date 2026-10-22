@@ -129,6 +129,7 @@ Relancez `npm run app` après une modification du code ou un déplacement du dos
 | `npm run build` puis `npm start` | Production (`NODE_ENV=production`, Windows compris) : l'API sert l'interface compilée sur le port `PORT` (3210 par défaut), derrière un reverse proxy HTTPS — voir `docs/DEPLOIEMENT.md` (service systemd et fichiers prêts à copier de `deploy/`, ou `Dockerfile` facultatif) |
 | `npm test` | Tests des règles métier, des droits d'accès et de la sécurité |
 | `npm run typecheck` | Vérification TypeScript, puis contrôle des promesses non attendues (`npm run check:await`, `scripts/verifier-await.mjs`) |
+| `CURSUS_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/postgres npm run test:pg` | Même suite de tests sur un serveur PostgreSQL 16 de test (une base créée puis supprimée par fichier) ; `npm run test:coverage:pg` mesure la couverture de l'adaptateur PostgreSQL |
 | `npm run test:coverage` | Tests avec mesure de la couverture du serveur et de `shared/` (client et tests exclus) ; échoue sous les seuils fixés dans `package.json` |
 | `npm run check` | Tout ce que vérifie la CI avant d'accepter une modification : typage, tests avec seuils de couverture, compilation de l'interface |
 | `CURSUS_DEMO=1 npm run reset-demo -- --yes` | Recharge les données de démonstration : efface la base après l'avoir copiée. Refusé hors démonstration, avec `NODE_ENV=production` (sauf l'application de bureau) et si un serveur utilise la base (`--force` pour passer outre) ; sans `--yes`, le mot `EFFACER` est demandé dans un terminal |
@@ -165,6 +166,8 @@ En production, la démonstration refuse aussi (403) toute requête relayée par 
 | `CURSUS_HOST` / `HOST` | Adresse d'écoute : 127.0.0.1 en production (derrière le reverse proxy), 0.0.0.0 sinon |
 | `CURSUS_TRUST_PROXY` | Proxys dont les en-têtes `X-Forwarded-*` sont crus (`loopback` par défaut : proxy sur la même machine) |
 | `CURSUS_DB` | Fichier SQLite (`data/cursus.db` du dossier du code par défaut ; un chemin relatif part du dossier de lancement). Son chemin complet s'affiche au démarrage ; le fichier est réservé au compte du serveur (`600`, dossier en `700`) |
+| `DATABASE_URL` | Serveur PostgreSQL commun EPC2I (`postgres://cursus_app:<mot de passe>@<hôte>:5432/epc2i`) : Cursus y travaille dans le schéma `cursus` et y applique ses migrations (`server/migrations-pg/`). Absente ou vide : fichier SQLite `CURSUS_DB`. Voir `docs/ARCHITECTURE.md`, « Accès à la base : PostgreSQL » |
+| `CURSUS_PG_POOL` | Connexions au plus du pool PostgreSQL (10 par défaut) |
 | `CURSUS_DIST` | Interface compilée servie (`dist/` du dossier du code par défaut) : pour les tests automatiques et une installation qui la place ailleurs |
 | `CURSUS_SUPERVISION_TOKEN` | Jeton (32 caractères au moins) de l'outil de supervision : avec `Authorization: Bearer <jeton>`, `/api/health` donne aussi la version, le mode et les envois en échec. Facultatif ; ce détail est toujours donné à un appel local fait sur la machine (dans le conteneur avec Docker : `docker exec`) |
 | `CURSUS_LOG_FORMAT` | Journaux du serveur : `json` (par défaut en production : une ligne JSON par message et par requête, pour l'agrégateur de Coolify ou du service informatique) ou `texte` (par défaut ailleurs). Jamais le corps ni les paramètres des requêtes |
@@ -423,7 +426,7 @@ Le `Dockerfile` à la racine construit l'interface et lance le serveur en produc
 | Réglage | Valeur |
 | --- | --- |
 | Port interne | `3000` |
-| Volume persistant | `/data` : base SQLite `cursus.db`, ses sauvegardes (`/data/backups`) et, une fois activées, les pièces justificatives (`/data/pieces`) |
+| Volume persistant | `/data` : base SQLite `cursus.db`, ses sauvegardes (`/data/backups`) et, une fois activées, les pièces justificatives (`/data/pieces`). Avec `DATABASE_URL` (serveur PostgreSQL commun), la base n'est plus dans `/data`, mais le volume reste nécessaire aux pièces justificatives |
 | Adresse | en `https://` : le cookie de session est marqué `Secure` en production |
 | Variables obligatoires | `CURSUS_SECRET` et `KEYSTONE_API_KEY` ; les autres selon les intégrations (tableau ci-dessus) |
 | Journaux | onglet « Logs » de l'application : une ligne JSON par message et par requête (`CURSUS_LOG_FORMAT=json` par défaut en production), que l'agrégateur du service informatique collecte sans réglage |

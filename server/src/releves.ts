@@ -20,7 +20,7 @@ const RELEVES: CurrentUser = { role: 'rh', empId: null, nom: 'Cursus', intitule:
 
 /** Dernier relevé transmis à cette agence pour cette semaine (nom d'agence comparé sans casse ni accents). */
 async function dernierReleve(db: Db, agence: string, semaine: string): Promise<Pick<ReleveInterim, 'creation' | 'enAttente'> | null> {
-  const rows = await db.query('SELECT agence, creation, en_attente AS enAttente FROM releves WHERE semaine = ? ORDER BY id DESC', [semaine]) as
+  const rows = await db.query('SELECT agence, creation, en_attente AS "enAttente" FROM releves WHERE semaine = ? ORDER BY id DESC', [semaine]) as
     { agence: string; creation: string; enAttente: number | null }[];
   const x = rows.find(r => key(r.agence) === key(agence));
   return x ? { creation: x.creation, enAttente: x.enAttente ?? 0 } : null;

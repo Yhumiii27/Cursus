@@ -161,7 +161,7 @@ export async function revokeSession(db: Db, id: string) {
 
 /** Révoque toutes les sessions ouvertes d'un compte, sauf éventuellement `sauf`. Renvoie leur nombre. */
 export async function revokeSessionsDuCompte(db: Db, compteId: number, sauf?: string): Promise<number> {
-  const r = await db.run('UPDATE connexions SET revocation = ? WHERE compte_id = ? AND id IS NOT ? AND revocation IS NULL', [new Date().toISOString(), compteId, sauf ?? null]);
+  const r = await db.run('UPDATE connexions SET revocation = ? WHERE compte_id = ? AND id IS DISTINCT FROM ? AND revocation IS NULL', [new Date().toISOString(), compteId, sauf ?? null]);
   return Number(r.changes);
 }
 

@@ -10,6 +10,7 @@ import { join } from 'node:path';
 process.env.CURSUS_TODAY = '2026-10-10';
 
 const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase, json, texteJson } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -26,7 +27,7 @@ type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 // Comptes de démonstration : Sandrine Vidal (administratrice RH), Aïcha Diallo (7, paie), Élodie Bernard (11, lecture
 // seule) ; Karim Haddad (12) encadre Mehdi Benali (2).
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const compteId = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compteId(empId), role, methode: 'demo' }))!;
@@ -116,8 +117,8 @@ test('serveur : date enregistrée avec son année, nommée au journal sans sa va
   const e = (await loadFull(db, RH)).employes.find(x => x.id === 2)!;
   assert.deepEqual([e.naissanceLe, e.naissance], ['1986-03-09', 1986]);
   const j = (await db.one(`SELECT payload FROM journal WHERE action = 'employe.modifier' ORDER BY id DESC LIMIT 1`)) as { payload: string };
-  assert.deepEqual(JSON.parse(j.payload).champsModifies, ['naissanceLe']);
-  assert.doesNotMatch(j.payload, /1986/);
+  assert.deepEqual(json(j.payload).champsModifies, ['naissanceLe']);
+  assert.doesNotMatch(texteJson(j.payload), /1986/);
   await assert.rejects(async () => await run(RH, 'employe.modifier', { id: 2, naissanceLe: '2016-01-01' }),
     (x: unknown) => x instanceof ActionError && /moins de 14 ans à la date d’entrée/.test(x.message));
   // Date enregistrée : vidée, elle est refusée (la fiche ne revient pas à l'année seule).
@@ -208,7 +209,7 @@ test('fin de carrière : 58 ans à la date de l’entretien, même réponse pour
 });
 
 test('reprise depuis Lucca : date complète gardée, année seule sans effacer une date de la même année', async () => {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await db.insert('comptes', { empId: null, nom: 'Responsable RH', adresse: 'rh@exemple.fr', identifiant: 'rh@exemple.fr', type: 'microsoft', oid: null, profilRh: 'rh_admin', actif: true, motDePasse: null, changerMotDePasse: false, echecs: 0, blocageFin: null, creation: '2026-10-01T08:00:00Z', creePar: null, derniereConnexion: null });
   const ADMIN = { role: 'rh', empId: null, nom: 'Responsable RH', intitule: '', profilRh: 'rh_admin', compteId: 1 } as unknown as User;
   const importer = async (texte: string) => {

@@ -75,7 +75,7 @@ const REPRISE = 'adressesComptesReprises';
  */
 export async function reprendreAdressesDesComptes(db: Db, avant = () => {}) {
   if (await db.getSetting<boolean>(REPRISE, false)) return;
-  const comptes = await db.query(`SELECT c.emp_id AS empId, c.identifiant FROM comptes c JOIN employes e ON e.id = c.emp_id
+  const comptes = await db.query(`SELECT c.emp_id AS "empId", c.identifiant FROM comptes c JOIN employes e ON e.id = c.emp_id
     WHERE c.type = 'microsoft' AND e.email IS NULL ORDER BY c.id`) as { empId: number; identifiant: string }[];
   if (comptes.length) avant();
   let n = 0;

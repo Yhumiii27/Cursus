@@ -35,7 +35,7 @@ export async function postesDepuisFiches(db: Db): Promise<{ postes: { id: number
       liste.forEach(f => compte.set(f.poste.replace(/\s+/g, ' '), (compte.get(f.poste.replace(/\s+/g, ' ')) ?? 0) + 1));
       const capitales = (t: string) => Number(t === t.toUpperCase() && t !== t.toLowerCase());
       const nom = [...compte].sort((a, b) => b[1] - a[1] || capitales(a[0]) - capitales(b[0]))[0][0].slice(0, 80);
-      const id = Number((await db.run(`INSERT INTO postes (nom, formations, habilitations, archive) VALUES (?, '[]', '[]', NULL)`, [nom])).lastInsertRowid);
+      const { id } = await db.insert<{ id: number }>('postes', { nom, formations: [], habilitations: [], archive: null });
       poste = { id, nom };
     }
     for (const f of liste) await db.run('UPDATE employes SET poste_id = ? WHERE id = ?', [poste.id, f.id]);

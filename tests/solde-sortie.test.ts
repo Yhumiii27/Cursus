@@ -9,6 +9,7 @@ import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
 
 const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -24,7 +25,7 @@ const { rubriquesPaie } = await import('../shared/rules/paie.ts');
 const { RUBRIQUES_PAIE } = await import('../shared/constants.ts');
 const X = await import('../client/src/solde-sortie.ts');
 const C = await import('../client/src/state/confirmations.ts');
-type Db = InstanceType<typeof Db>;
+type Db = import('../server/src/db.ts').Db;
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type Solde = import('../shared/types.ts').SoldeSortie;
 type Lot = Awaited<ReturnType<typeof loadFull>>['lotsPaie'][number] & { contenu: import('../shared/types.ts').SagePush | null };
@@ -32,7 +33,7 @@ type Ligne = { action: string; message: string | null; payload: Record<string, a
 
 /** Jeu de démonstration ; `run` suit le chemin de POST /api/actions/:nom (trace au journal comprise). */
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const compteDe = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compteDe(empId), role, methode: 'demo' }))!;

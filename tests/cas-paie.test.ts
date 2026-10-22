@@ -10,9 +10,8 @@ import assert from 'node:assert/strict';
 import { existsSync, readdirSync, readFileSync } from 'node:fs';
 import { isAbsolute, join } from 'node:path';
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
-const { migrate } = await import('../server/src/migrate.ts');
-const { appliquerMigrations } = await import('../server/src/migrations/cadre.ts');
+const { nouvelleBase } = await import('./base.ts');
+const { mettreAJourBase } = await import('../server/src/demarrage.ts');
 const { DEFAULT_SETTINGS, loadFull } = await import('../server/src/dataset.ts');
 const { Domain } = await import('../shared/domain.ts');
 const { isValidDate, mondayOf } = await import('../shared/dates.ts');
@@ -139,10 +138,9 @@ export async function rejouerCas(c: CasPaie) {
   const avant = process.env.CURSUS_TODAY;
   process.env.CURSUS_TODAY = c.aujourdhui;
   try {
-    const db = new Db(':memory:');
+    const db = await nouvelleBase();
     // Comme au démarrage du serveur : reprises puis migrations nommées (activités internes amorcées, etc.).
-    await migrate(db);
-    await appliquerMigrations(db);
+    await mettreAJourBase(db);
     if (c.reglages) await db.setSetting('app', c.reglages);
     const settings = (await loadFull(db, RH)).settings;
     const e = await db.insert<{ id: number }>('employes', {

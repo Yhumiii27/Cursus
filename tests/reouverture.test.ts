@@ -9,7 +9,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 process.env.CURSUS_DEMO = '1';
 delete process.env.SAGE_MODE;
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase, PG, sqlite, SQLITE_SEUL, texteJson } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -30,7 +30,7 @@ type Lot = Dataset['lotsPaie'][number] & { contenu: { lignes: { matricule: strin
 
 /** Jeu de démonstration ; `run` suit le chemin de POST /api/actions/:nom (trace au journal comprise). */
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
@@ -127,7 +127,8 @@ test('t131 feuille transmise rouverte : rubriques gardées, écart à la revalid
   const r = (await sheet(2, S39)).reouverture!;
   assert.deepEqual([r.source, r.lot, r.rubriques, r.keystone, r.precedentes?.map(x => x.motif)], ['lot', lot.id, { '2026-09': { HN: 39, HS25: 2 } }, {}, [MOTIF]]);
   // Journal : action de paie, sans le texte du motif.
-  const j = (await db.one(`SELECT payload, message FROM journal WHERE action = 'temps.rouvrir' ORDER BY id DESC`)) as { payload: string; message: string };
+  const ligne = (await db.one(`SELECT payload, message FROM journal WHERE action = 'temps.rouvrir' ORDER BY id DESC`)) as { payload: unknown; message: string };
+  const j = { ...ligne, payload: texteJson(ligne.payload) };
   assert.ok(estActionPaie('temps.rouvrir') && JOURNAL_LABEL['temps.rouvrir']);
   assert.doesNotMatch(j.payload + j.message, /Deuxième correction/);
   assert.match(j.payload, /"motif":"\[texte renseigné\]"/);
@@ -198,18 +199,18 @@ test('t131 vues : le manager et le collaborateur voient la réouverture sans mot
   assert.deepEqual(p.rubriques, { '2026-09': { HN: 39 } });
 });
 
-test('t131 migration lot5-paie-rubriques-par-feuille : rubriques des feuilles reprises des lignes des lots d’avant, tracé', async () => {
+test('t131 migration lot5-paie-rubriques-par-feuille : rubriques des feuilles reprises des lignes des lots d’avant, tracé', { skip: PG && SQLITE_SEUL }, async () => {
   const { db, run, dernierLot, PAIE } = await fresh();
   await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
   const lot = await dernierLot(), attendu = lot.contenu!.rubriquesFeuilles!;
   // Lot d'avant le lot 5 : contenu sans les rubriques par feuille.
   (await db.run(`UPDATE lots_paie SET contenu = json_remove(contenu, '$.rubriquesFeuilles') WHERE id = ?`, [lot.id]));
-  assert.match(String(await RUBRIQUES_PAR_FEUILLE.executer(db)), /^1 lot de paie : rubriques de \d+ feuilles reprises$/);
+  assert.match(String(await RUBRIQUES_PAR_FEUILLE.executer(sqlite(db))), /^1 lot de paie : rubriques de \d+ feuilles reprises$/);
   const repris = (await dernierLot()).contenu!.rubriquesFeuilles!;
   // Feuilles sans aucune heure transmise exceptées (le salarié n'a pas de ligne : rien à rapprocher), identiques.
   assert.ok(repris.length > 0);
   for (const r of repris) assert.deepEqual(r, attendu.find(x => x.empId === r.empId && x.week === r.week));
-  assert.equal(await RUBRIQUES_PAR_FEUILLE.executer(db), undefined, 'plus rien à reprendre');
+  assert.equal(await RUBRIQUES_PAR_FEUILLE.executer(sqlite(db)), undefined, 'plus rien à reprendre');
   assert.ok((await db.one(`SELECT 1 FROM journal WHERE action = 'migration.rubriquesFeuilles'`)));
 });
 

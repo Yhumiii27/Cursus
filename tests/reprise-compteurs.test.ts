@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase, PG, sqlite, SQLITE_SEUL, json, texteJson, bool } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -37,7 +37,7 @@ const collab = (empId: number): User => ({ role: 'collaborateur', empId, nom: `#
  * `le(date, fn)` exécute avec une autre date du jour (actions et instantanés).
  */
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const run = async (user: User, name: string, payload: Record<string, unknown>) => await db.tx(async () => {
     const t = await preparerTrace(db, name, payload);
@@ -105,7 +105,7 @@ test('t021 fiche : saisie, unicité côté serveur, réembauche confirmée par l
   await run(GEST, 'employe.modifier', { id: 24, matriculePaie: ' 4124 ' });
   assert.equal((await domain()).emp(24)!.matriculePaie, '4124');
   const j = (await db.one(`SELECT payload FROM journal WHERE action = 'employe.modifier' ORDER BY id DESC LIMIT 1`)) as { payload: string };
-  assert.deepEqual(JSON.parse(j.payload).apres, { matriculePaie: '4124' });
+  assert.deepEqual(json(j.payload).apres, { matriculePaie: '4124' });
   // Le manager ne modifie pas le matricule de paie (fiche réservée au service RH).
   await refused(KARIM, 'employe.modifier', { id: 2, matriculePaie: '9999' }, /réservés au service RH/, 403);
 });
@@ -190,7 +190,7 @@ test('t021 Keystone : matricule Cursus par défaut ; réglage « matricule de pa
   // Absence posée et validée par le manager : Keystone reçoit le matricule de paie.
   await run(KARIM, 'absence.demander', { empId: 2, kind: 'CP', du: '2026-12-07', au: '2026-12-08' });
   const envoi = (await db.one(`SELECT contenu FROM envois WHERE type = 'absence.validee' ORDER BY id DESC LIMIT 1`)) as { contenu: string };
-  assert.equal(JSON.parse(envoi.contenu).matricule, '004102');
+  assert.equal(json(envoi.contenu).matricule, '004102');
   // Appels reçus : le matricule de paie désigne le salarié, l'ancien matricule Cursus n'est plus reconnu…
   const cx = await contexte(db);
   assert.equal(cx.salaries.get('004102')?.id, 2);
@@ -262,15 +262,15 @@ test('t072 reports datés : reçu compté sur sa période seulement, accordé ap
   assert.equal(cpInfo(juin2, juin2.emp(2)!)!.recu, 0);
 });
 
-test('t072 migration nommée : compteurs et reports d’une base existante datés une fois, tracé', async () => {
+test('t072 migration nommée : compteurs et reports d’une base existante datés une fois, tracé', { skip: PG && SQLITE_SEUL }, async () => {
   const { db } = await fresh();
   await db.exec('UPDATE soldes_reprise SET arrete_le = NULL; UPDATE reports SET periode = NULL, expire = NULL');
   await db.insert('reports', { empId: 2, jours: 3, motif: 'Ancien report accordé', par: 'RH', date: '2026-04-15', sens: 'accorde' });
   const aDater = async () => ((await db.one('SELECT (SELECT COUNT(*) FROM soldes_reprise WHERE arrete_le IS NULL) + (SELECT COUNT(*) FROM reports WHERE periode IS NULL) AS n')) as { n: number }).n;
-  assert.equal(await aDater(), 26);
-  assert.equal(await SOLDES_DATES.necessaire!(db), true);
+  assert.equal((await aDater()), 26);
+  assert.equal(await SOLDES_DATES.necessaire!(sqlite(db)), true);
   // Lot 5 : sessions sur plusieurs jours (base neuve : exécutée, sans effet) ; INT-FORM déjà chargée par la démonstration.
-  assert.deepEqual(await appliquerMigrations(db), ['lot4-exploitation-index-journal', 'lot4-exploitation-index-envois', 'lot4-exploitation-index-keystone', 'lot4-reprise-soldes-dates', 'lot4-paie-heures-sup', 'lot4-entretiens-cout-reel', 'lot4-referentiels-postes', 'lot4-paie-lots-historiques', 'lot5-paie-mode-api-retire', 'lot5-voyages-references', 'lot5-temps-semaine-7-jours', 'lot5-conges-demi-journees', 'lot5-formations-plage-sessions', 'lot5-exploitation-index-salaries', 'lot5-paie-absences-anterieures', 'lot5-paie-rubriques-par-feuille', 'lot6-pieces-index', 'lot6-hierarchie-equipes', 'lot6-paie-deplacements-depart', 'lot6-contrats-historique']);
+  assert.deepEqual(await appliquerMigrations(sqlite(db)), ['lot4-exploitation-index-journal', 'lot4-exploitation-index-envois', 'lot4-exploitation-index-keystone', 'lot4-reprise-soldes-dates', 'lot4-paie-heures-sup', 'lot4-entretiens-cout-reel', 'lot4-referentiels-postes', 'lot4-paie-lots-historiques', 'lot5-paie-mode-api-retire', 'lot5-voyages-references', 'lot5-temps-semaine-7-jours', 'lot5-conges-demi-journees', 'lot5-formations-plage-sessions', 'lot5-exploitation-index-salaries', 'lot5-paie-absences-anterieures', 'lot5-paie-rubriques-par-feuille', 'lot6-pieces-index', 'lot6-hierarchie-equipes', 'lot6-paie-deplacements-depart', 'lot6-contrats-historique']);
   const ds = await loadFull(db, ADMIN);
   assert.ok(ds.soldesReprise.every(s => s.arreteLe === '2026-10-10'), 'date de mise en service de cette version');
   const recu = ds.reports.find(r => r.empId === 6)!, accorde = ds.reports.find(r => r.empId === 2)!;
@@ -282,10 +282,10 @@ test('t072 migration nommée : compteurs et reports d’une base existante daté
   const oct = new Domain(ds);
   assert.deepEqual([cpInfo(oct, oct.emp(2)!)!.recu, cpInfo(oct, oct.emp(2)!)!.accorde], [3, 0]);
   const j = (await db.one(`SELECT payload, paie FROM journal WHERE action = 'migration.soldes'`)) as { payload: string; paie: number };
-  assert.deepEqual(JSON.parse(j.payload), { arreteLe: '2026-10-10', soldes: 24, reports: 2, accordesRecus: 1 });
+  assert.deepEqual(json(j.payload), { arreteLe: '2026-10-10', soldes: 24, reports: 2, accordesRecus: 1 });
   assert.equal(j.paie, 1, 'archive paie de 3 ans');
-  assert.equal(await aDater(), 0);
-  assert.deepEqual(await appliquerMigrations(db), [], 'une seule fois');
+  assert.equal((await aDater()), 0);
+  assert.deepEqual(await appliquerMigrations(sqlite(db)), [], 'une seule fois');
 });
 
 // — t072 : clôtures —
@@ -324,10 +324,10 @@ test('t072 clôture des RTT : proposée au 1er janvier, soldes photographiés, s
   await le('2027-01-04', async () => await refused(GEST, 'cet.placer', { empId: 22, kind: 'RTT', annee: 2026, jours: 1 }, /Les RTT 2026 ne se placent plus .*année close/));
   // Journal : une ligne, décisions et salariés, jamais de motif.
   const j = (await db.one(`SELECT payload, salaries, paie FROM journal WHERE action = 'conges.cloturer' ORDER BY id LIMIT 1`)) as { payload: string; salaries: string; paie: number };
-  const p = JSON.parse(j.payload);
-  assert.deepEqual([p.type, p.periode, p.lignes.length, j.paie], ['RTT', 2026, lignes.length - 1, 1], 'première clôture : sans Mehdi');
-  assert.ok(JSON.parse(j.salaries).includes(22));
-  assert.ok(!j.payload.includes('motif'));
+  const p = json(j.payload);
+  assert.deepEqual([p.type, p.periode, p.lignes.length, bool(j.paie)], ['RTT', 2026, lignes.length - 1, true], 'première clôture : sans Mehdi');
+  assert.ok(json(j.salaries).includes(22));
+  assert.ok(!texteJson(j.payload).includes('motif'));
 });
 
 test('t072 clôture des CP : aucune perte d’office, report imposé après une absence de santé, décision ligne par ligne', async () => {
@@ -439,9 +439,9 @@ test('t072 clôture des CP : demande en attente, refus et annulation après la c
   assert.equal(cpInfo(juin, juin.emp(2)!)!.recu, avant + 5);
   // Tracé au journal : jours, période et échéance du report, jamais son motif.
   const j = (await db.one(`SELECT payload FROM journal WHERE action = 'absence.annuler' ORDER BY id DESC LIMIT 1`)) as { payload: string };
-  const p = JSON.parse(j.payload);
+  const p = json(j.payload);
   assert.deepEqual(p.reportsRendus.map((r: { jours: number; periode: number; expire: string }) => [r.jours, r.periode, r.expire]), [[5, 2027, '2028-05-31']]);
-  assert.ok(!j.payload.includes('motif'));
+  assert.ok(!texteJson(j.payload).includes('motif'));
   // Une relance de l'annulation n'en crée pas d'autre.
   await refused(ADMIN, 'absence.annuler', { id: cpMai.id }, /.+/);
   assert.equal((await loadFull(db, ADMIN)).reports.filter(r => r.empId === 2 && r.periode === 2027 && r.sens === 'recu').length, 2);

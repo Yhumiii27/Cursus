@@ -65,7 +65,8 @@ export async function etatSante(db: Db, detail: boolean, depuis: string, env: En
   let base: Sante['base'] = 'ok', envoisEnEchec: number | undefined, integrite: Awaited<ReturnType<typeof etatIntegrite>> | undefined;
   try {
     await db.one('SELECT 1');
-    await db.one('PRAGMA user_version'); // lit l'en-tête du fichier : la base est là et lisible
+    // SQLite : lit l'en-tête du fichier (la base est là et lisible) ; PostgreSQL : le schéma de Cursus est lisible.
+    await db.one(db.moteur === 'pg' ? 'SELECT 1 FROM schema_migrations LIMIT 1' : 'PRAGMA user_version');
     if (detail) envoisEnEchec = Number((await db.one(`SELECT COUNT(*) AS n FROM envois WHERE statut = 'echec' AND classe IS NULL`) as { n: number }).n);
     // Contrôle impossible (requête refusée) : l'état de la base suffit, le démarrage l'a déjà signalé s'il le faut.
     try { integrite = await etatIntegrite(db); } catch { /* sans détail d'intégrité */ }

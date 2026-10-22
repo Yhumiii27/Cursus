@@ -92,7 +92,7 @@ export async function rouvrirHistorique(db: Db, empId: number) {
  * annulé. Chaque avenant dans sa transaction. Renvoie le nombre d'avenants appliqués.
  */
 export async function appliquerAvenants(db: Db, today: ISODate): Promise<number> {
-  const dus = (await db.query(`SELECT id FROM contrats_historique WHERE applique = 0 AND annule_le IS NULL AND nature = 'avenant' AND effet <= ? ORDER BY effet, id`, [today])) as { id: number }[];
+  const dus = (await db.query(`SELECT id FROM contrats_historique WHERE applique = FALSE AND annule_le IS NULL AND nature = 'avenant' AND effet <= ? ORDER BY effet, id`, [today])) as { id: number }[];
   let n = 0;
   for (const { id } of dus) {
     await db.tx(async () => {

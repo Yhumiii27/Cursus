@@ -37,7 +37,7 @@ function corpsBrut() {
 /** Consultation tracée une fois par compte et par pièce pendant 15 minutes (aperçu d'une image, puis ouverture). */
 async function dejaTracee(db: Db, compteId: number, piece: number): Promise<boolean> {
   const depuis = new Date(Date.now() - 15 * 60_000).toISOString();
-  return !!(await db.one(`SELECT 1 FROM journal WHERE compte_id = ? AND action = 'piece.consulter' AND at >= ? AND json_extract(payload, '$.piece') = ? LIMIT 1`, [compteId, depuis, piece]));
+  return !!(await db.one(`SELECT 1 FROM journal WHERE compte_id = ? AND action = 'piece.consulter' AND at >= ? AND ${db.jsonCleEgale('payload', 'piece')} LIMIT 1`, [compteId, depuis, piece]));
 }
 
 /** En-tête Content-Disposition : nom ASCII de secours et nom exact encodé (RFC 6266). */

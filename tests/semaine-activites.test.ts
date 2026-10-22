@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase, PG, sqlite } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -27,7 +27,7 @@ type Dataset = Awaited<ReturnType<typeof loadFull>>;
 type Feuille = Dataset['feuilles'][number];
 
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
@@ -124,12 +124,15 @@ test('ligne enregistrée avant la semaine à 7 jours : saisie du dimanche, migra
   const id = (await db.insert<{ id: number }>('feuilles', { empId: 1, week: '2026-11-09', statut: 'brouillon', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-LOG', tache: 't', ks: true, h: [7, 7, 0, 7, 7] }] })).id;
   await run(RH, 'temps.setCell', { empId: 1, week: '2026-11-09', li: 0, di: 6, value: '2' });
   assert.deepEqual((await db.get<Feuille>('feuilles', id))!.lignes[0].h, [7, 7, 0, 7, 7, 0, 2]);
-  // Migration : seules les lignes de 5 valeurs sont complétées ; sans effet ensuite.
-  await db.exec(`UPDATE feuilles SET lignes = '[{"projet":"INT-LOG","tache":"t","ks":true,"h":[1,2,3,4,5]}]' WHERE id = ${id}`);
-  assert.equal(await SEMAINE_7_JOURS.necessaire!(db), true);
-  assert.match(String(await SEMAINE_7_JOURS.executer(db)), /^1 feuille de temps complétée à 7 jours$/);
-  assert.deepEqual((await db.get<Feuille>('feuilles', id))!.lignes, [{ projet: 'INT-LOG', tache: 't', ks: true, h: [1, 2, 3, 4, 5, 0, 0] }]);
-  assert.equal(await SEMAINE_7_JOURS.executer(db), undefined, 'rien à reprendre');
+  // Migration nommée (SQLite seulement : le serveur PostgreSQL part du schéma final) : seules les lignes de 5 valeurs
+  // sont complétées ; sans effet ensuite.
+  if (!PG) {
+    await db.exec(`UPDATE feuilles SET lignes = '[{"projet":"INT-LOG","tache":"t","ks":true,"h":[1,2,3,4,5]}]' WHERE id = ${id}`);
+    assert.equal(await SEMAINE_7_JOURS.necessaire!(sqlite(db)), true);
+    assert.match(String(await SEMAINE_7_JOURS.executer(sqlite(db))), /^1 feuille de temps complétée à 7 jours$/);
+    assert.deepEqual((await db.get<Feuille>('feuilles', id))!.lignes, [{ projet: 'INT-LOG', tache: 't', ks: true, h: [1, 2, 3, 4, 5, 0, 0] }]);
+    assert.equal(await SEMAINE_7_JOURS.executer(sqlite(db)), undefined, 'rien à reprendre');
+  }
   // Semaine couverte : le week-end n'est jamais attendu ; une absence du samedi seul ne couvre pas la semaine.
   const d = await domain(), e = d.emp(1)!;
   const avec = (du: string, au: string) => new Domain({ ...d.ds, absences: [...d.ds.absences, { id: 999, empId: 1, type: 'CP', du, au, statut: 'validee', keystone: false } as Dataset['absences'][number]] });
@@ -176,9 +179,13 @@ test('activités internes : amorcées par migration, créées, renommées, archi
   // Base sans activités (production, Keystone muet) : la migration les amorce une fois, sans toucher aux existantes.
   await db.exec(`DELETE FROM projets WHERE code LIKE 'INT-%' AND code <> 'INT-LOG'`);
   await db.exec(`UPDATE projets SET nom = 'Logistique (Keystone)' WHERE code = 'INT-LOG'`);
-  assert.equal(await ACTIVITES_INTERNES.necessaire!(db), true);
-  assert.equal(await ACTIVITES_INTERNES.executer(db), '6 activités internes ajoutées (INT-PROD, INT-MAINT, INT-HSE, INT-QUA, INT-ADM, INT-DELEG)');
-  assert.equal(await ACTIVITES_INTERNES.necessaire!(db), false);
+  // SQLite : migration nommée ; PostgreSQL : amorçage d'une base neuve (server/src/demarrage.ts), même fonction.
+  if (PG) assert.deepEqual(await amorcerActivites(db), ['INT-PROD', 'INT-MAINT', 'INT-HSE', 'INT-QUA', 'INT-ADM', 'INT-DELEG']);
+  else {
+    assert.equal(await ACTIVITES_INTERNES.necessaire!(sqlite(db)), true);
+    assert.equal(await ACTIVITES_INTERNES.executer(sqlite(db)), '6 activités internes ajoutées (INT-PROD, INT-MAINT, INT-HSE, INT-QUA, INT-ADM, INT-DELEG)');
+    assert.equal(await ACTIVITES_INTERNES.necessaire!(sqlite(db)), false);
+  }
   assert.deepEqual(await amorcerActivites(db), []);
   assert.equal((await codes()).find(p => p.code === 'INT-LOG')!.nom, 'Logistique (Keystone)');
 

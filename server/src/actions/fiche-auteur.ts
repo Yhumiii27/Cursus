@@ -5,6 +5,7 @@
 import type { ProfilInput } from '../../../shared/rules/profil.ts';
 import { PROFIL_FIELDS } from '../../../shared/rules/profil.ts';
 import type { Ctx } from './context.ts';
+import { jsonLu } from '../db.ts';
 
 type Champ = keyof ProfilInput;
 type Payload = Record<string, unknown> | null;
@@ -55,12 +56,12 @@ export async function dernierAuteurFiche(ctx: Ctx, empId: number, champs: readon
   const nominatives = Object.keys(ECRIT_LA_FICHE), globales = Object.keys(ECRIT_DES_FICHES);
   const marques = (n: number) => Array(n).fill('?').join(', ');
   const lignes = await ctx.db.query(`SELECT actor, action, payload FROM journal
-    WHERE (action IN (${marques(nominatives.length)}) AND EXISTS (SELECT 1 FROM json_each(journal.salaries) WHERE value = ?))
+    WHERE (action IN (${marques(nominatives.length)}) AND ${ctx.db.contientEntier('journal.salaries')})
        OR action IN (${marques(globales.length)})
-    ORDER BY id DESC LIMIT ${PROFONDEUR}`, [...nominatives, empId, ...globales]) as { actor: string | null; action: string; payload: string | null }[];
+    ORDER BY id DESC LIMIT ${PROFONDEUR}`, [...nominatives, empId, ...globales]) as { actor: string | null; action: string; payload: unknown }[];
   for (const l of lignes) {
     let payload: Payload = null;
-    try { payload = l.payload ? JSON.parse(l.payload) as Payload : null; } catch { payload = null; }
+    try { payload = l.payload ? jsonLu(l.payload) as Payload : null; } catch { payload = null; }
     const globale = Object.hasOwn(ECRIT_DES_FICHES, l.action);
     const ecrits = (globale ? ECRIT_DES_FICHES : ECRIT_LA_FICHE)[l.action]?.(payload) ?? [];
     if (!ecrits.some(k => champs.includes(k))) continue;

@@ -93,6 +93,9 @@ export function protegerBase(fichier: string, { production = false, chmod = chmo
  */
 export async function retirerSecretStocke(db: Db, env: Env = process.env): Promise<boolean> {
   if (!env.CURSUS_SECRET || !await db.get('settings', 'secret')) return false;
+  // PostgreSQL : pas de fichier à effacer ; la ligne supprimée disparaît au prochain nettoyage (autovacuum) et les
+  // sauvegardes du schéma antérieures la gardent.
+  if (db.moteur === 'pg') { await db.remove('settings', 'secret'); return true; }
   const avant = (await db.one<{ secure_delete: number }>('PRAGMA secure_delete'))!.secure_delete;
   await db.exec('PRAGMA secure_delete = ON');
   try {

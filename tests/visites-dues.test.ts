@@ -9,7 +9,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 delete process.env.KEYSTONE_URL;
 delete process.env.KEYSTONE_TOKEN;
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, DEFAULT_SETTINGS, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS, changeVerdicts } = await import('../server/src/actions/index.ts');
@@ -33,7 +33,7 @@ const KARIM: User = { role: 'manager', empId: 12, nom: 'Karim Haddad', intitule:
 // Aïcha Diallo (7) : entrée en 2014, visite du 1er oct. 2025, née en 1983, aucune absence de santé.
 // Sophie Lemaire (3) : née en 1981, 45 ans en 2026. Mehdi Benali (2) : habilitation électrique, équipe de Karim Haddad.
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const run = async (user: User, name: string, payload: Record<string, unknown>) => await db.tx(async () => {
     const r = await ACTIONS[name](makeCtx(db, user, await loadFull(db, user)), payload);

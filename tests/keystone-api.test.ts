@@ -16,6 +16,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 process.env.KEYSTONE_API_KEY = 'cle-keystone-de-test';
 
 const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase, PG, sqlite, SQLITE_SEUL } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -36,7 +37,7 @@ after(() => fermer.forEach(f => f()));
 
 /** Base de démonstration et routes Keystone servies par un Express de test. */
 async function fresh(demo = true, options: Parameters<typeof keystoneRoutes>[1] = {}) {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   if (demo) await seedDemo(db);
   const app = express();
   app.use('/api/integrations/keystone', keystoneRoutes(db, options));
@@ -436,9 +437,9 @@ test('contrat OpenAPI : servi, conforme aux routes, aux codes de motif et aux co
   assert.deepEqual(ref.destinations[0], { code: 'MA', pays: 'Maroc', archive: null });
 });
 
-test('base existante : statuts repris, tâches sans dates retirées, index d’unicité', async () => {
+test('base existante : statuts repris, tâches sans dates retirées, index d’unicité', { skip: PG && SQLITE_SEUL }, async () => {
   const { migrerKeystone } = await import('../server/src/integrations/keystone-entrant.ts');
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await db.insert('chantiers', { id: 'K-1', nom: 'x', client: '', lieu: 'Lyon', pays: 'FR', debut: '2026-10-01', fin: '2026-10-02', chef: '', habs: [], certs: [], ressources: [] });
   await db.insert('projets', { code: 'K-1', nom: 'x' });
   await db.insert('demandesKeystone', { empId: 1, chantier: 'K-1', dest: 'MA', depart: '2026-11-01', retour: '2026-11-02', recue: '2026-10-01' });
@@ -454,7 +455,7 @@ test('base existante : statuts repris, tâches sans dates retirées, index d’u
   assert.equal(sauvegardes, 1, 'rien à reprendre au démarrage suivant');
   // Index d'unicité des références : migration nommée, appliquée au démarrage après la reprise (server/src/migrations/).
   const { appliquerMigrations } = await import('../server/src/migrations/cadre.ts');
-  await appliquerMigrations(db);
+  await appliquerMigrations(sqlite(db));
   await db.insert('missions', { empId: 1, projet: 'K-1', lieu: 'Lyon', du: '2026-10-01', au: '2026-10-02', type: 'Mission', ref: 'AF-1' });
   await assert.rejects(async () => await db.insert('missions', { empId: 2, projet: 'K-1', lieu: 'Lyon', du: '2026-10-01', au: '2026-10-02', type: 'Mission', ref: 'AF-1' }), /UNIQUE/);
 });

@@ -10,6 +10,7 @@ import { join } from 'node:path';
 process.env.CURSUS_TODAY = '2026-10-10';
 
 const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { currentUser, loadFull, buildSnapshot } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -22,12 +23,12 @@ const { Domain } = await import('../shared/domain.ts');
 const { JOURNAL_LABEL, familleAction } = await import('../shared/journal.ts');
 const X = await import('../shared/rules/exigences.ts');
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
-type Db = InstanceType<typeof Db>;
+type Db = import('../server/src/db.ts').Db;
 interface Ligne { action: string; message: string | null; payload: Record<string, any>; salaries: number[] | null }
 
 /** Jeu de démonstration ; `run` suit le chemin de POST /api/actions/:nom (état lu avant l'action, trace après). */
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
@@ -348,7 +349,7 @@ test('migration nommée : un poste par intitulé déjà saisi, variantes réunie
     assert.equal(await db.count('postes'), 0, 'sans effet');
     await seedDemo(db);
     // Base d'avant la mise à jour : aucun poste, fiches non rattachées, migration pas encore enregistrée ; une variante.
-    await db.exec(`DELETE FROM postes; UPDATE employes SET poste_id = NULL; UPDATE employes SET poste = 'opératrice ' WHERE id = 15;
+    await db.exec(`UPDATE employes SET poste_id = NULL; DELETE FROM postes; UPDATE employes SET poste = 'opératrice ' WHERE id = 15;
       DELETE FROM migrations WHERE nom = 'lot4-referentiels-postes'`);
     const n = new Set((await db.all<{ poste: string }>('employes')).map(e => e.poste.trim().toLowerCase())).size;
     db.sql.close();
@@ -374,9 +375,9 @@ test('migration nommée : un poste par intitulé déjà saisi, variantes réunie
 });
 
 test('migration : à égalité de variantes, le poste ne prend pas la forme tout en capitales', async () => {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
-  await db.exec(`DELETE FROM postes; UPDATE employes SET poste_id = NULL; UPDATE employes SET poste = 'CARISTE' WHERE id = 1`);
+  await db.exec(`UPDATE employes SET poste_id = NULL; DELETE FROM postes; UPDATE employes SET poste = 'CARISTE' WHERE id = 1`);
   await postesDepuisFiches(db);
   const p = (await db.all<{ id: number; nom: string }>('postes')).find(x => x.nom.toLowerCase() === 'cariste')!;
   assert.equal(p.nom, 'Cariste');

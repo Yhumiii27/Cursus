@@ -12,7 +12,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 delete process.env.KEYSTONE_URL;
 delete process.env.KEYSTONE_TOKEN;
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS, changeVerdicts } = await import('../server/src/actions/index.ts');
@@ -42,7 +42,7 @@ async function le<T>(date: string, fn: () => T | Promise<T>): Promise<T> {
 
 /** Jeu de démonstration ; `run` suit le chemin de POST /api/actions/:nom (journal, puis verdicts transmis à Keystone). */
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;

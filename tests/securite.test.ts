@@ -15,6 +15,7 @@ import type { Request, Response } from 'express';
 
 const { problemesConfig } = await import('../server/src/config.ts');
 const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { openSession, purgeSessions, readSession, revokeSessionsOf } = await import('../server/src/auth.ts');
 
@@ -324,7 +325,7 @@ test('production : écoute sur la boucle locale, HSTS derrière le proxy HTTPS',
 });
 
 test('sessions : révocation de toutes les sessions d’un salarié et purge des sessions expirées', async () => {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const res = { setHeader() {} } as unknown as Response;
   const req = (id: string) => ({ headers: { cookie: `cursus_session=${id}` } }) as unknown as Request;

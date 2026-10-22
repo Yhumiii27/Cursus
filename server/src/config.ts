@@ -232,6 +232,21 @@ function problemesSage(env: Env): string[] {
   return out;
 }
 
+/**
+ * Serveur PostgreSQL commun (server/src/db-pg.ts) : DATABASE_URL lisible, de la forme postgres://rôle:mot de passe@hôte:port/base
+ * (jamais affichée : elle porte le mot de passe), taille du pool CURSUS_PG_POOL (10 par défaut).
+ */
+export function problemesBase(env: Env = process.env): string[] {
+  const out: string[] = [];
+  const url = env.DATABASE_URL?.trim();
+  if (url && (!/^postgres(ql)?:\/\/[^\s]+$/i.test(url) || !URL.canParse(url))) {
+    out.push('DATABASE_URL n’est pas une adresse PostgreSQL valide : postgres://cursus_app:<mot de passe>@<hôte>:5432/epc2i (vide ou absente : base SQLite locale).');
+  }
+  const pool = env.CURSUS_PG_POOL?.trim();
+  if (pool && !(/^\d+$/.test(pool) && Number(pool) >= 1 && Number(pool) <= 100)) out.push(`CURSUS_PG_POOL doit être un nombre de connexions entre 1 et 100 (valeur actuelle : ${pool}).`);
+  return out;
+}
+
 /** Problèmes de configuration : bloquants en production, simples avertissements ailleurs. */
 export function problemesConfig(env: Env = process.env): string[] {
   const out: string[] = [];
@@ -262,6 +277,7 @@ export function problemesConfig(env: Env = process.env): string[] {
   out.push(...problemesMail(env));
   out.push(...problemesSage(env));
   out.push(...problemesExploitation(env));
+  out.push(...problemesBase(env));
   if (env.CURSUS_OIDC_AUTORITE) out.push(`CURSUS_OIDC_AUTORITE est définie (${env.CURSUS_OIDC_AUTORITE}) : elle remplace le service de connexion de Microsoft et reste réservée aux tests.`);
   return out;
 }

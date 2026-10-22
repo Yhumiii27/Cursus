@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
 
-const { SqliteDb: Db } = await import('../server/src/db.ts');
+const { nouvelleBase } = await import('./base.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { currentUser, loadFull, buildSnapshot } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -20,12 +20,11 @@ const { JOURNAL_LABEL, familleAction } = await import('../shared/journal.ts');
 const { parseTrips } = await import('../shared/rules/imports.ts');
 const R = await import('../shared/rules/referentiels.ts');
 type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
-type Db = InstanceType<typeof Db>;
 interface Ligne { action: string; message: string | null; payload: Record<string, any>; salaries: number[] | null }
 
 /** Jeu de démonstration ; `run` suit le chemin de POST /api/actions/:nom (état lu avant l'action, trace après). */
 async function fresh() {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   await seedDemo(db);
   const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
   const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
@@ -47,7 +46,7 @@ async function fresh() {
 const SST = { id: 'sst', nom: 'Sauveteur secouriste du travail (SST)', court: 'SST', type: 'Réglementaire', validite: 24, duree: '7 h (MAC)', organisme: 'Croix-Rouge française', cout: 180, validation: 'evaluation' };
 
 test('base neuve : référentiels vides, puis référentiel type chargé une seule fois, habilitations après les formations', async () => {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   const RH = { role: 'rh', empId: null, nom: 'Responsable RH', intitule: '', profilRh: 'rh_admin' } as User;
   const HSE = { ...RH, profilRh: 'referent_hse' } as User;
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => String(await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p)));
@@ -68,7 +67,7 @@ test('base neuve : référentiels vides, puis référentiel type chargé une seu
 });
 
 test('référentiel type des habilitations : jamais chargé en vigueur sur une formation prérequise archivée', async () => {
-  const db = new Db(':memory:');
+  const db = await nouvelleBase();
   const HSE = { role: 'rh', empId: null, nom: 'Référent HSE', intitule: '', profilRh: 'referent_hse' } as User;
   const run = async (name: string, p: Record<string, unknown>) => await db.tx(async () => String(await ACTIONS[name](makeCtx(db, HSE, await loadFull(db, HSE)), p)));
   await run('referentiel.charger', { referentiel: 'formations' });

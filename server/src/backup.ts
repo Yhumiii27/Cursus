@@ -5,8 +5,13 @@
 import './conteneur.ts';
 import { statfsSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
-import { dbFile } from './db.ts';
+import { dbFile, urlPostgres } from './db.ts';
 import { copiesConservees, fmtDateHeure, fmtDuree, fmtTaille, sauvegarder } from './sauvegarde.ts';
+
+if (urlPostgres()) {
+  console.error('Sauvegarde refusée : la base est sur le serveur PostgreSQL commun (DATABASE_URL) : sa sauvegarde est celle du serveur (pg_dump du schéma cursus, docs/DEPLOIEMENT.md). npm run backup ne copie que le fichier SQLite de repli : DATABASE_URL= npm run backup.');
+  process.exit(1);
+}
 
 try {
   const keep = copiesConservees();

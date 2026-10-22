@@ -62,6 +62,16 @@ const titre = (h: string) => db.sql.prepare('SELECT id FROM hab_titres WHERE emp
 const cert = (f: string) => (db.sql.prepare('SELECT id FROM certifications WHERE emp_id = 2 AND f = ?').get(f) as { id: number }).id;
 /** Poste du référentiel créé depuis les fiches de démonstration. */
 const posteNomme = (nom: string) => (db.sql.prepare('SELECT id FROM postes WHERE nom = ?').get(nom) as { id: number }).id;
+/** Renonciation ouverte (référence de l'accord) dans les réglages, pour la transaction du cas ; rien à envoyer en plus. */
+const rachatOuvert = () => {
+  db.setSetting('app', { ...db.getSetting<Record<string, unknown>>('app', {}), forfaitJoursRachat: true, forfaitJoursAccord: 'Accord d’entreprise du 1er mars 2026' });
+  return {};
+};
+/** Avenant de renonciation 2026 de la fiche 9 (forfait jours), en vigueur. */
+const avenantForfait = () => db.insert<{ id: number }>('avenantsForfait', {
+  empId: 9, annee: 2026, jours: 5, taux: 25, signeLe: '2026-10-01', reference: null, creeLe: '2026-10-01T08:00:00.000Z', creePar: 'Sandrine Vidal',
+  annuleLe: null, annulePar: null, annuleMotif: null, lotId: null, sage: false, horsFichier: false,
+}).id;
 const ENTRETIEN = () => (db.sql.prepare(`SELECT id FROM entretiens WHERE emp_id = 2 AND statut = 'planifie'`).get() as { id: number }).id;
 
 /** Absence de Mehdi le 15 décembre, dans l'état voulu (signalée par son manager, ou validée). */
@@ -258,6 +268,9 @@ const MATRICE: Ligne[] = [
   // Contact d'urgence (t068) : le salarié pour lui-même (portail) ou le service RH ; ni le manager, ni les profils restreints.
   { action: 'employe.contactUrgence', droits: '          O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, nom: 'Nadia Benali (sœur)', telephone: '06 12 34 56 78' }) },
   { action: 'voyage.annuler', droits: '                  O    O    -    -    -    -    -    -    -', p: () => ({ id: voyage(), motif: 'Chantier reporté' }) },
+  // Forfait jours (t043) : avenant de renonciation d'un cadre au forfait (fiche 9), service RH, une fois l'accord référencé.
+  { action: 'forfait.avenant', droits: '                 O    O    -    -    -    -    -    -    -', p: () => ({ ...rachatOuvert(), empId: 9, annee: 2026, jours: 2, taux: 25, signeLe: '2026-10-01', reference: 'AV-FJ-2026-01' }) },
+  { action: 'forfait.annulerAvenant', droits: '          O    O    -    -    -    -    -    -    -', p: () => ({ id: avenantForfait(), motif: 'Avenant saisi par erreur' }) },
   { action: 'formalite.enregistrer', droits: '               O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, kind: 'passeport', numero: '21XY12345', expire: '2032-01-01' }) },
   { action: 'voyages.importer', droits: '                    O    O    -    -    -    -    -    -    -', p: () => ({ texte: SAMPLE_TRIPS_CSV }) },
   { action: 'keystone.accepter', droits: '                   O    O    -    -    -    -    -    -    -', p: () => ({ id: 1 }) },

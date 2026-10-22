@@ -25,6 +25,7 @@ import { MineurFiche } from '../components/Mineur.tsx';
 import { MandatsFiche } from '../components/Delegation.tsx';
 import { LectureSeule, useLectureSeule } from '../components/Hierarchie.tsx';
 import { ContactUrgenceFiche } from '../components/ContactUrgence.tsx';
+import { ForfaitJoursFiche } from '../components/ForfaitJours.tsx';
 import { ActionsCertification, CertsAnnulees, DemandesFiche } from '../components/Corrections.tsx';
 import { downloadCsv, matriculesImprimes, printDocument } from '../print.ts';
 import { csvAnnuaire } from '../listes-csv.ts';
@@ -530,6 +531,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
         <SortieFiche e={e} />
         <ContratFiche e={e} />
         <HistoriqueContrat e={e} />
+        <ForfaitJoursFiche e={e} />
         <MineurFiche e={e} />
         <MandatsFiche e={e} />
         <ContactUrgenceFiche empId={e.id} />

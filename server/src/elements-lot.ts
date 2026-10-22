@@ -10,6 +10,8 @@
 // - Déplacements (t031, server/src/deplacements-paie.ts) : jours et nuits de grand déplacement, jours à l'étranger,
 //   trajets ; sans rubrique active ou sans le réglage `deplacementsFichierPaie`, l'élément part dans le lot sans code Sage
 //   (« à saisir dans Sage »), et ne repart plus une fois le lot confirmé.
+// - Jours rachetés d'un forfait jours (t043, server/src/forfait-jours.ts) : avenants de renonciation, rubrique JREN ; comme
+//   les soldes de sortie, sans rubrique active, listés « à saisir dans Sage » puis réglés hors fichier.
 // Ajouter une famille (heures de nuit, monétisation du CET…) : un objet `FamilleLot` dans le fichier de son chantier, une
 // ligne dans `FAMILLES`, une clé dans `SagePush` et `LotPaie` (shared/types.ts) et une colonne json de `lotsPaie`
 // (server/src/db.ts). Liste « à saisir dans Sage » : shared/rules/elements-lot.ts.
@@ -18,13 +20,14 @@ import { plural } from '../../shared/format.ts';
 import type { CurrentUser, ElementASaisir, LotPaie, SagePush } from '../../shared/types.ts';
 import type { Db } from './db.ts';
 import { FAMILLE_DEPLACEMENTS } from './deplacements-paie.ts';
+import { FAMILLE_RACHATS } from './forfait-jours.ts';
 import { FAMILLE_SORTIES } from './soldes-sortie.ts';
 
 /** Élément d'une famille, tel que le lit le fichier : salarié, matricule, période, rubrique interne, code Sage (null : hors fichier). */
 export interface ElementLot { empId: number; matricule: string; periode: string; rubrique: string; codeSage: string | null; quantite: number }
 
 /** Clé d'une famille : clé du contenu figé (`SagePush`) et colonne du lot (`LotPaie`). */
-export type CleFamille = 'sorties' | 'deplacements';
+export type CleFamille = 'sorties' | 'deplacements' | 'rachats';
 
 export interface FamilleLot<E extends ElementLot = ElementLot> {
   cle: CleFamille;
@@ -47,7 +50,7 @@ export interface FamilleLot<E extends ElementLot = ElementLot> {
 }
 
 /** Familles du registre, dans l'ordre du contenu et des messages. */
-export const FAMILLES: readonly FamilleLot<any>[] = [FAMILLE_SORTIES, FAMILLE_DEPLACEMENTS];
+export const FAMILLES: readonly FamilleLot<any>[] = [FAMILLE_SORTIES, FAMILLE_DEPLACEMENTS, FAMILLE_RACHATS];
 
 /** Éléments de chaque famille pour un lot de la période `jusqua`, et ceux à saisir dans Sage. */
 export interface ElementsFamilles { elements: Partial<Record<CleFamille, ElementLot[]>>; aSaisir: ElementASaisir[] }

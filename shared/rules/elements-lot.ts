@@ -20,6 +20,7 @@ export const A_SAISIR_SAGE = 'À saisir dans Sage';
 /** Familles d'éléments, au pluriel, pour les messages (« 2 éléments à saisir dans Sage : 1 absence, 1 déplacement »). */
 export const FAMILLES_A_SAISIR: Record<string, [string, string]> = {
   absences: ['absence', 'absences'], sorties: ['solde de sortie', 'soldes de sortie'], deplacements: ['déplacement', 'déplacements'],
+  rachats: ['jours rachetés (forfait jours)', 'jours rachetés (forfait jours)'],
 };
 
 /**

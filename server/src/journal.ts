@@ -193,6 +193,7 @@ const inscritsAvantApres: Partial<Regle> = { etat: (db, p) => inscrits(db, p.id)
 const lotDuResultat = (x: Contexte) => x.result as {
   lot?: number; feuilles?: { empId: number; week: string }[]; absences?: { id: number; empId: number }[]; sorties?: { id: number; empId: number }[];
   deplacements?: { source?: string; id: number; empId: number }[];
+  rachats?: { id: number; empId: number }[];
   correctifs?: { empId: number; week: string }[];
 } | null | undefined;
 const lotRetenu = (x: Contexte) => {
@@ -203,11 +204,13 @@ const lotRetenu = (x: Contexte) => {
     ...(r?.sorties?.length ? { sorties: r.sorties.map(s => s.id) } : {}),
     // Séjours du lot (t031) : identifiants seuls (mission ou déplacement), jamais les quantités ni le pays.
     ...(r?.deplacements?.length ? { deplacements: r.deplacements.map(s => `${s.source}:${s.id}`) } : {}),
+    // Avenants de renonciation d'un forfait jours (t043) : identifiants seuls.
+    ...(r?.rachats?.length ? { rachats: r.rachats.map(s => s.id) } : {}),
   };
 };
 const salariesDuLot = (x: Contexte) => [...new Set([
   ...(lotDuResultat(x)?.feuilles ?? []).map(f => f.empId), ...(lotDuResultat(x)?.absences ?? []).map(a => a.empId), ...(lotDuResultat(x)?.sorties ?? []).map(a => a.empId),
-  ...(lotDuResultat(x)?.deplacements ?? []).map(a => a.empId),
+  ...(lotDuResultat(x)?.deplacements ?? []).map(a => a.empId), ...(lotDuResultat(x)?.rachats ?? []).map(a => a.empId),
 ])];
 /** Feuilles transmises à la paie : validées et non transmises avant l'action, marquées transmises après. */
 const transmises = (x: Contexte) => (x.etat as number[]).map(id => x.db.get<FeuilleTemps>('feuilles', id)).filter((f): f is FeuilleTemps => !!f?.sage);
@@ -466,6 +469,21 @@ export const REGLES: Record<string, Regle> = {
     salaries: (_p, x) => (x.result as { salaries?: number[] } | null)?.salaries ?? [],
   },
   'voyage.annuler': { champs: ['id'], cible: { ...parId('voyages', ['annuleLe', 'annuleMotif']), masques: ['annuleMotif'] } },
+  // Avenant de renonciation d'un forfait jours (t043) : salarié, année, jours rachetés, taux, signature ; la référence
+  // (texte libre) n'est tracée que renseignée. Annulation : identifiant, salarié, date, et le fait qu'un motif soit donné.
+  'forfait.avenant': {
+    champs: ['empId'], salaries: p => [p.empId],
+    extra: p => ({
+      annee: Number.isInteger(Number(p.annee)) ? Number(p.annee) : null, jours: Number.isFinite(Number(p.jours)) ? Number(p.jours) : null,
+      taux: Number.isInteger(Number(p.taux)) ? Number(p.taux) : null, signeLe: isValidDate(p.signeLe) ? p.signeLe : null,
+      ...(typeof p.reference === 'string' && p.reference.trim() ? { reference: MENTION_TEXTE } : {}),
+    }),
+    bilan: (_p, x) => ({ avenant: (x.result as { id?: number } | null)?.id ?? null }),
+  },
+  'forfait.annulerAvenant': {
+    champs: ['id'], cible: { ...parId('avenantsForfait', ['annuleLe', 'annuleMotif']), masques: ['annuleMotif'] },
+    salaries: (_p, x) => [x.avant?.empId],
+  },
   // Pièces justificatives (server/src/actions/pieces.ts) : objet et identifiants, nombre de pièces ; jamais le nom du fichier
   // (il peut nommer une donnée de santé), ni les jetons, ni le motif d'un retrait.
   'piece.joindre': {
@@ -519,7 +537,14 @@ export const REGLES: Record<string, Regle> = {
   'temps.suggest': { champs: ['empId', 'week'], ...ligneTemps },
   'temps.submit': { champs: ['empId', 'week'], ...statutEtTotal },
   // Validation : en plus, la contrepartie obligatoire en repos figée sur la feuille (heures, shared/rules/durees.ts).
-  'temps.validate': { champs: ['empId', 'week'], cible: FEUILLE, bilan: (_p, x) => ({ heures: totalHeures(x.apres), ...(corDeLaFeuille(x.apres as FeuilleTemps | null) ? { cor: corDeLaFeuille(x.apres as FeuilleTemps | null) } : {}) }) },
+  // Forfait jours au-delà du plafond (t043) : seul le fait que le motif du valideur soit renseigné.
+  'temps.validate': {
+    champs: ['empId', 'week'], cible: FEUILLE,
+    bilan: (_p, x) => ({
+      heures: totalHeures(x.apres), ...(corDeLaFeuille(x.apres as FeuilleTemps | null) ? { cor: corDeLaFeuille(x.apres as FeuilleTemps | null) } : {}),
+      ...(x.apres?.motifForfait ? { motifForfait: MENTION_TEXTE } : {}),
+    }),
+  },
   'temps.reject': { champs: ['empId', 'week'], cible: FEUILLE },
   // Réouverture d'une feuille validée (administrateur RH, t131) : statut avant et après, renvoi au salarié, feuille déjà
   // transmise et son lot d'origine ; le motif (texte libre) reste sur la feuille, seul le fait qu'il soit renseigné est tracé.
@@ -613,7 +638,7 @@ export const REGLES: Record<string, Regle> = {
   // Administration
   // Réglages : anciennes et nouvelles valeurs, sauf la référence de l'accord des heures supplémentaires (texte libre).
   'parametres.maj': {
-    cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord', 'cddAccordBranche'] },
+    cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord', 'cddAccordBranche', 'forfaitJoursAccord'] },
   },
   // Jours fériés d'une année (lot 6) : année, réglage avant et après ; le motif d'une année engagée (texte libre) n'est
   // jamais recopié, seulement le fait qu'il soit renseigné. Salariés dont une absence est recalculée (résultat).

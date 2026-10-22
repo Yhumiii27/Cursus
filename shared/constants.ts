@@ -475,6 +475,10 @@ export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubriqu
   GD_NUIT: { label: 'Nuits de grand déplacement en France', unite: 'nombre', inactiveParDefaut: true },
   ETR_JOUR: { label: 'Jours de mission à l’étranger (jours calendaires, pays en détail)', unite: 'j', inactiveParDefaut: true },
   TRAJET: { label: 'Trajets aller ou retour d’un déplacement (forfait par trajet, art. L3121-4)', unite: 'nombre', inactiveParDefaut: true },
+  // Forfait jours (shared/rules/forfait-jours.ts, t043) : jours de repos rachetés par avenant de renonciation (quantité ; le
+  // taux de majoration part en détail, le montant reste calculé par Sage). Désactivée par défaut tant que la paie n'a pas
+  // donné son code, et sans objet tant qu'aucun accord collectif n'ouvre le rachat (Paramètres → Forfait jours).
+  JREN: { label: 'Jours de repos rachetés, forfait jours (avenant de renonciation, majoration en détail)', unite: 'j', inactiveParDefaut: true },
 };
 
 /** Sections d'un compte rendu : [clé, libellé, rédacteur] — 'mgr' évaluateur, 'sal' salarié. */

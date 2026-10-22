@@ -27,6 +27,8 @@ import { elementsSorties, quantitesSortie, sortiesDuContenu } from '../../../sha
 import { rubriquesEmises, sagePending } from '../../../shared/rules/temps.ts';
 import { aRegulariser, modeRegularisation, MODES_REGULARISATION } from '../../../shared/rules/regularisation.ts';
 import type { LotPaie } from '../../../shared/types.ts';
+import { elementsRachats, rachatsASaisir } from '../../../shared/rules/forfait-jours.ts';
+import { RachatsEnAttente } from './ForfaitJours.tsx';
 import { api } from '../api.ts';
 import { annulationLot, generationLot, transmissionSage } from '../state/confirmations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
@@ -63,7 +65,9 @@ export function LotsPaie() {
   const sortiesASaisir = (d.ds.soldesSortie ?? []).filter(x => x.lotId == null && !x.sage && quantitesSortie(x.etat).length && !sorties.some(y => y.sortie === x.id));
   // Déplacements en attente (t031, calculés par le serveur) : ceux du fichier comptent dans les codes à confirmer.
   const deplacements = d.ds.deplacementsPaie?.elements ?? [];
-  const aConfirmer = rubriquesAConfirmer([...rubriquesEmises(d, aTransmettre), ...absences.flatMap(g => g.rubriques), ...sorties.map(x => x.rubrique), ...deplacements.filter(x => !x.aSaisir).map(x => x.rubrique)], rubriquesPaie(d.ds.rubriquesPaie));
+  // Jours rachetés d'un forfait jours (t043) : JREN active, ou à saisir dans Sage ; leur période compte comme les autres.
+  const rachats = [...elementsRachats(d, '9999-12', rubriquesPaie(d.ds.rubriquesPaie)), ...rachatsASaisir(d, '9999-12', rubriquesPaie(d.ds.rubriquesPaie))];
+  const aConfirmer = rubriquesAConfirmer([...rubriquesEmises(d, aTransmettre), ...absences.flatMap(g => g.rubriques), ...sorties.map(x => x.rubrique), ...deplacements.filter(x => !x.aSaisir).map(x => x.rubrique), ...elementsRachats(d, '9999-12', rubriquesPaie(d.ds.rubriquesPaie)).map(x => x.rubrique)], rubriquesPaie(d.ds.rubriquesPaie));
   // Absences sous une rubrique désactivée : leur nature reste à saisir dans Sage (liste du résumé du lot).
   const absencesASaisir = [...new Set(absences.flatMap(g => g.rubriques))].filter(r => !rubriquesPaie(d.ds.rubriquesPaie).find(t => t.code === r)?.active);
   const salaries = new Set(aTransmettre.map(sh => sh.empId)).size;
@@ -73,7 +77,7 @@ export function LotsPaie() {
   const format = d.ds.formatFichierPaie ?? FORMAT_FICHIER_DEFAUT;
   const perimetre = perimetreFichier(avecAbsences, s.deplacementsFichierPaie);
   // Une ligne par période de destination : le lot d'une période emporte aussi les feuilles et absences des périodes antérieures.
-  const periodes = [...new Set([...groupes.map(g => g.periode), ...absences.map(g => g.periode), ...sorties.map(x => x.periode), ...deplacements.map(x => x.periode)])].sort();
+  const periodes = [...new Set([...groupes.map(g => g.periode), ...absences.map(g => g.periode), ...sorties.map(x => x.periode), ...deplacements.map(x => x.periode), ...rachats.map(x => x.periode)])].sort();
 
   const generer = (periode: string) => {
     const toutes = feuillesDuLot(aTransmettre, periode, s, d.ti);
@@ -178,6 +182,7 @@ export function LotsPaie() {
         </Fine>
       )}
       <DeplacementsEnAttente />
+      <RachatsEnAttente />
       {absencesASaisir.length > 0 && <Fine>Absences sous une rubrique désactivée ({absencesASaisir.join(', ')}) : leur nature est à saisir dans Sage ; chaque lot les liste dans son résumé.</Fine>}
       {mode !== 'simulation' && aConfirmer.length > 0 && (
         <div className="note-accent">Code Sage à confirmer avant toute génération de lot : {rubriquesTexte(aConfirmer)}.</div>

@@ -17,6 +17,7 @@ import { plural } from '../../shared/format.ts';
 import { detailElement } from '../../shared/rules/absences-paie.ts';
 import { detailSortie } from '../../shared/rules/solde-sortie.ts';
 import { detailDeplacement } from '../../shared/rules/deplacements-paie.ts';
+import { detailRachat } from '../../shared/rules/forfait-jours.ts';
 import { A_SAISIR_SAGE } from '../../shared/rules/elements-lot.ts';
 import { feuillesDuLot, libellesSage, STATUTS_LOT } from '../../shared/rules/lots-paie.ts';
 import { matriculeAffiche } from '../../shared/rules/matricules.ts';
@@ -56,7 +57,7 @@ export function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: string)
   const table = rubriquesPaie(db.all<RubriquePaie>('rubriquesPaie'));
   const out: VariablePaie[] = [];
   const paysLabel = (code: string) => d.destOf(code)?.pays ?? code;
-  const ajouter = (contenu: Pick<SagePush, 'lignes' | 'absences' | 'sorties' | 'deplacements' | 'aSaisir' | 'libelles'>, lot: string, etat: string) => {
+  const ajouter = (contenu: Pick<SagePush, 'lignes' | 'absences' | 'sorties' | 'deplacements' | 'rachats' | 'aSaisir' | 'libelles'>, lot: string, etat: string) => {
     const libelles = contenu.libelles ?? libellesSage(contenu, table);
     for (const l of contenu.lignes) {
       if ((l.periode ?? '') !== periode) continue;
@@ -96,6 +97,14 @@ export function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: string)
         matricule: x.matricule, salarie: d.emp(x.empId)?.nom ?? '', rubrique: x.codeSage ?? A_SAISIR, quantite: x.quantite, lot, etat, empId: x.empId,
         libelle: x.codeSage ? libelles[x.codeSage] ?? x.codeSage : RUBRIQUES_PAIE[x.rubrique]?.label ?? x.rubrique,
         detail: detailDeplacement(x, paysLabel, periodeLabel),
+      });
+    }
+    // Jours rachetés d'un forfait jours (t043) : rubrique JREN active, taux de majoration en détail.
+    for (const x of contenu.rachats ?? []) {
+      if (x.periode !== periode) continue;
+      out.push({
+        matricule: x.matricule, salarie: d.emp(x.empId)?.nom ?? '', rubrique: x.codeSage, quantite: x.quantite, lot, etat, empId: x.empId,
+        libelle: libelles[x.codeSage] ?? x.codeSage, detail: detailRachat(x),
       });
     }
     // Autres éléments laissés à Sage (soldes de sortie sous une rubrique désactivée) : listés pour la saisie à la main.

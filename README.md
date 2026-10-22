@@ -317,6 +317,14 @@ porte le motif de recours et le terme initial ; « Renouveler le CDD » inscrit 
 Cursus avertit d'une durée maximale ou d'un nombre de renouvellements dépassés et d'un délai de carence
 non écoulé, sans rien bloquer (Paramètres → Contrats pour un accord de branche).
 
+Pour un **forfait annuel en jours**, Cursus compte les jours travaillés des feuilles validées de l'année (une
+demi-journée jusqu'à 4 h) et les compare au forfait au prorata de la présence : cumul, cible à date et jours de repos
+restants sur la fiche, la feuille et la file de validation, alerte à 90 % du plafond (réglable) et motif exigé du valideur
+au-delà. Un **avenant de renonciation** à des jours de repos (majoration de 10 % au moins, 235 jours au plus) ne
+s'enregistre que si la référence de l'accord collectif qui autorise le forfait est saisie dans Paramètres → Forfait jours ;
+ses jours rachetés partent à la paie sous la rubrique JREN, désactivée tant que la paie n'a pas donné son code (« à saisir
+dans Sage » dans le résumé du lot ; `docs/ARCHITECTURE.md`, « Forfait jours »).
+
 La fiche porte aussi la **période d'essai** écrite au contrat (aucune durée proposée : Cursus avertit au-delà du maximum
 légal) et, pour un salarié étranger, le **titre de séjour** valant autorisation de travail (type, numéro réservé au
 service RH, expiration, vérification en préfecture). L'écran Échéances (filtre « Contrats »), le tableau de bord et le

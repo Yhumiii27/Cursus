@@ -40,6 +40,7 @@ import { deplacementsPaieActions } from './deplacements-paie.ts';
 import { contactUrgenceActions } from './contact-urgence.ts';
 import { feriesActions } from './feries.ts';
 import { horairesActions } from './horaires.ts';
+import { forfaitJoursActions } from './forfait-jours.ts';
 
 export const ACTIONS: Record<string, ActionHandler> = {
   ...conformiteActions,
@@ -82,6 +83,7 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...contactUrgenceActions,
   ...feriesActions,
   ...horairesActions,
+  ...forfaitJoursActions,
 };
 
 /**
@@ -90,5 +92,5 @@ export const ACTIONS: Record<string, ActionHandler> = {
  * après toute autre action, les verdicts transmis à Keystone sont recalculés (integrations/keystone-verdicts.ts).
  * Les actions d'absence en font partie : une absence pendant la présence sur un chantier bloque la ressource.
  */
-const SANS_EFFET_VERDICT = ['temps.', 'cet.', 'report.', 'conges.', 'entretien.', 'budget.', 'equipe.', 'envoi.', 'convocation.', 'messagerie.', 'notification.', 'releve.', 'paie.', 'confidentialite.', 'mandat.', 'piece.'];
+const SANS_EFFET_VERDICT = ['temps.', 'cet.', 'report.', 'conges.', 'entretien.', 'budget.', 'equipe.', 'envoi.', 'convocation.', 'messagerie.', 'notification.', 'releve.', 'paie.', 'confidentialite.', 'mandat.', 'piece.', 'forfait.'];
 export const changeVerdicts = (nom: string) => !SANS_EFFET_VERDICT.some(p => nom.startsWith(p));

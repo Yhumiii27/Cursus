@@ -194,6 +194,16 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   deplacementsPaieAPartirDu: { defaut: null, controle: dateOuVide('Déplacements transmis à partir du') },
   //   Vigilance des pays (shared/rules/vigilance.ts, t068) : rappel avant un départ si la vérification a plus de N jours —
   vigilanceRappelJours: { defaut: 30, controle: entier(7, 180) },
+  // — Forfait jours (parametres/ForfaitJours.tsx, shared/rules/forfait-jours.ts, t043) : suivi du cumul toujours actif,
+  //   alerte à 90 % du plafond ; avenant de renonciation fermé par défaut, ouvert seulement avec la référence de l'accord
+  //   collectif (COHERENCE, art. L3121-63 et L3121-64) ; valeurs supplétives : 235 jours au plus (art. L3121-66),
+  //   majoration de 10 % au moins (art. L3121-59) ; jours rachetés (JREN) dans la paie du mois de la signature —
+  forfaitJoursAlerte: { defaut: 90, controle: entier(50, 100, 5) },
+  forfaitJoursRachat: { defaut: false, controle: booleen },
+  forfaitJoursAccord: { defaut: '', controle: texte(120, 'Référence de l’accord sur le forfait jours') },
+  forfaitJoursPlafond: { defaut: 235, controle: entier(218, 282) },
+  forfaitJoursMajorationMin: { defaut: 10, controle: entier(10, 100) },
+  forfaitJoursJren: { defaut: 'signature', controle: choix(['signature', 'cloture']) },
 };
 
 /**
@@ -221,6 +231,10 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
     ? 'Heures complémentaires jusqu’au tiers de la durée contractuelle : indiquez la référence de l’accord collectif qui le prévoit (art. L3123-20)' : null),
   s => (s.moyenne12SemainesMax > 44 && !s.moyenne12SemainesAccord
     ? 'Moyenne au-delà de 44 h sur 12 semaines : indiquez la référence de l’accord collectif qui la porte jusqu’à 46 h (art. L3121-23)' : null),
+  // — Forfait jours : la renonciation à des jours de repos suppose l'accord collectif qui autorise le forfait (art. L3121-63
+  // et L3121-64) ; sans lui, le suivi du cumul et ses alertes seulement —
+  s => (s.forfaitJoursRachat && !s.forfaitJoursAccord
+    ? 'Forfait jours : la renonciation à des jours de repos suppose l’accord collectif qui autorise le forfait (art. L3121-63 et L3121-64) : indiquez sa référence' : null),
 ];
 
 /** Vue non typée de la table, pour la parcourir (les contrôles reçoivent la valeur en vigueur du même champ). */

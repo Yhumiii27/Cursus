@@ -319,6 +319,10 @@ d'un mois clos enregistrée en retard part entière, en rappel.
   (Paramètres → Déplacements et paie, décoché par défaut) et leurs rubriques activées. Sinon, ils partent dans le lot sans
   code Sage : listés « À saisir dans Sage », nominativement, dans le résumé du lot (écran Temps) et l'export des variables,
   comme tout élément dont la rubrique est désactivée (absence, solde de sortie) ; confirmé, le lot ne les renvoie plus.
+- Jours rachetés d'un forfait jours (JREN, quantité en jours, majoration en détail de l'export), par avenant de renonciation
+  enregistré sur la fiche (« Enregistrer un avenant de renonciation »), seulement quand l'accord collectif est référencé
+  dans Paramètres → Forfait jours. JREN est désactivée tant que la paie n'a pas donné son code : les jours sont alors
+  listés « À saisir dans Sage » dans le résumé du lot du mois de la signature (ou de décembre, selon le réglage).
 - **Hors fichier, à saisir dans Sage** : heures de nuit ; intérimaires (relevé envoyé à leur agence)
   et cadres dirigeants exclus. La journée de solidarité et les fériés chômés se règlent année par année
   (Paramètres, « Jours fériés et journée de solidarité ») : un jour ainsi travaillé n'est plus férié (art. L3133-8).

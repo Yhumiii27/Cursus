@@ -1,7 +1,7 @@
 // Fiches collaborateurs (contrat, statut, temps de travail), équipes et managers.
 import { isValidDate } from '../../../shared/dates.ts';
 import { fmtIso, key, plural } from '../../../shared/format.ts';
-import { rttPerdus, semainesAFiger, soldeRttTexte, sorti } from '../../../shared/rules/contrats.ts';
+import { rttPerdus, rttPerdusTexte, semainesAFiger, soldeRttTexte, sorti } from '../../../shared/rules/contrats.ts';
 import { contratFige } from '../../../shared/rules/temps.ts';
 import { matriculesPris } from '../../../shared/rules/matricules.ts';
 import { adressesPrises } from '../../../shared/rules/messagerie.ts';
@@ -10,7 +10,12 @@ import { refusEquipeNuit } from '../../../shared/rules/mineurs.ts';
 import { champsEnConflit, messageConflit } from '../../../shared/rules/fiche-concurrente.ts';
 import { MANAGER_FIELDS, PROFIL_FIELDS, profilOf, validerProfil, type ProfilInput } from '../../../shared/rules/profil.ts';
 import type { Employe, Equipe, FeuilleTemps } from '../../../shared/types.ts';
+import { elementsRediriges } from '../../../shared/rules/hierarchie.ts';
 import { dernierAuteurFiche } from './fiche-auteur.ts';
+import { prevenir, redirectionsResultat, refuserCroisee, suiteRedirection } from './hierarchie.ts';
+import { carences, carenceTexte } from '../../../shared/rules/cdd.ts';
+import { avenantProgramme, renouvellementsDe } from '../../../shared/rules/historique-contrat.ts';
+import { amorcer, inscrireLigne, refigerBrouillons } from '../avenants.ts';
 import { rattacherPoste } from './referentiels.ts';
 import { renommerDerogation, retirerDerogation } from './repos-dominical.ts';
 import { ActionError, getEmp, isManagerOf, isRh, isRhAdmin, requireRh, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
@@ -39,6 +44,8 @@ function check(ctx: Ctx, p: ProfilInput, empId?: number, reutiliser = false) {
     naissance: { enregistree: !!emp?.naissanceLe },
     // Salarié mineur : pas d'équipe de nuit ou en continu (shared/rules/mineurs.ts).
     mineurs: { equipes: ctx.ds.referentiels.equipes, today: ctx.d.ti },
+    // CDD : renouvellements de l'historique, fin enregistrée (une fin repoussée sans renouvellement est signalée).
+    cdd: { renouvellements: empId ? renouvellementsDe(ctx.ds, empId).length : 0, finEnregistree: emp && !emp.motifSortie ? emp.fin : null, reglages: ctx.ds.settings },
   });
   if (!v.ok) throw new ActionError(v.errors.join(' '));
   if (reutiliser && v.matriculeAConfirmer) requireRhAdmin(ctx);
@@ -61,16 +68,29 @@ const REGIME: (keyof ProfilInput)[] = ['temps', 'heures', 'forfaitHeures', 'forf
 /** Colonnes de la table employes pour une fiche validée. */
 const toRow = (p: ProfilInput) => ({ ...p });
 
+/** Auteur d'une ligne de l'historique des contrats : la personne connectée et sa fiche. */
+const auteur = (ctx: Ctx) => ({ nom: ctx.user.nom, empId: ctx.user.salarieId ?? ctx.user.empId ?? null });
+
 const creer: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const input = {} as Record<string, unknown>;
   PROFIL_FIELDS.forEach(k => { input[k] = p[k] ?? null; });
   await rattacherPoste(ctx, input);
   const v = check(ctx, input as unknown as ProfilInput, undefined, !!p.reutiliserMatricule);
-  const row = await ctx.db.insert<Employe>('employes', toRow(v.profil));
+  // CDD : le terme initial est la fin saisie, tant qu'aucun renouvellement ne l'a repoussée.
+  const P = v.profil;
+  if (P.typeContrat === 'cdd' && !P.cddFinInitiale && P.fin && !P.motifSortie) P.cddFinInitiale = P.fin;
+  const row = await ctx.db.insert<Employe>('employes', toRow(P));
   // Compteurs repris à zéro, datés de la création : la fiche commence dans Cursus.
   await ctx.db.insert('soldesReprise', { empId: row.id, cpPris: 0, rttPris: 0, recupAcquis: 0, recupPris: 0, arreteLe: ctx.d.ti });
-  return { message: `Fiche créée — ${v.profil.nom}${v.profil.equipe ? ' · équipe ' + v.profil.equipe : ' · à affecter'}`, result: { id: row.id } };
+  // Historique des contrats (t074) : embauche à l'entrée, avec le terme prévu d'un contrat à durée déterminée.
+  await inscrireLigne(ctx.db, {
+    empId: row.id, effet: P.entree, nature: 'embauche', regime: contratFige(row), jusquau: P.typeContrat !== 'cdi' && !P.motifSortie ? P.fin : null,
+    fin: P.motifSortie ? P.fin : null,
+  }, auteur(ctx), ctx.d.ti);
+  // Délai de carence (art. L1244-3) : contrat antérieur sur le même poste ou du même titulaire (avertissement seul).
+  const carence = carences(ctx.ds.employes, { ...P, id: row.id, posteId: row.posteId ?? null }).map(c => ` · ${carenceTexte(c).replace(/\.$/, '')}`).join('');
+  return { message: `Fiche créée — ${P.nom}${P.equipe ? ' · équipe ' + P.equipe : ' · à affecter'}${carence}`, result: { id: row.id } };
 };
 
 /** RH : toute la fiche. Manager : poste et jours non travaillés (temps partiel) des membres de son équipe. */
@@ -120,39 +140,68 @@ const modifier: ActionHandler = async (ctx, p) => {
     throw new ActionError('La sortie s’enregistre, se modifie ou s’annule par le bouton « Sortie » de la fiche du collaborateur');
   }
   // Changement d'organisation du temps : date d'effet, et gel de l'ancien régime sur les semaines antérieures
-  // pas encore figées, pour que l'historique ne soit pas recalculé avec le nouveau contrat.
+  // pas encore figées, pour que l'historique ne soit pas recalculé avec le nouveau contrat. Historique des contrats
+  // (t074) : le changement y est inscrit (avenant) ; à une date future, il est programmé et appliqué à la fiche ce jour-là
+  // (server/src/avenants.ts), la fiche gardant d'ici là son organisation du temps.
   const avant = JSON.stringify(contratFige(emp)), apres = JSON.stringify(contratFige({ ...emp, ...v.profil }));
   const row = toRow(v.profil);
-  let figees: string[] = [], soldeRtt: ReturnType<typeof rttPerdus> = null;
+  let figees: string[] = [], soldeRtt: ReturnType<typeof rttPerdus> = null, avenant: { id: number; effet: string } | null = null;
   if (avant !== apres && REGIME.some(k => patch.includes(k))) {
     const P = v.profil;
     const regimeTemps = emp.temps !== P.temps || emp.heures !== P.heures || emp.forfaitHeures !== P.forfaitHeures || emp.forfaitJours !== P.forfaitJours;
     // La date d'effet saisie ne vaut que pour un changement d'organisation du temps ; sinon le changement vaut à compter d'aujourd'hui.
     const effet = regimeTemps && isValidDate(p.tempsDepuis) ? p.tempsDepuis : ctx.d.ti;
     if (effet < emp.entree) throw new ActionError('La date d’effet précède la date d’entrée');
-    if (effet > ctx.d.ti) throw new ActionError('Date d’effet future : enregistrez le changement le jour de sa prise d’effet');
-    if (regimeTemps) row.tempsDepuis = effet;
-    else row.tempsDepuis = emp.tempsDepuis;
-    // Garde-fou (en attendant l'historique daté des contrats) : RTT de l'année pris ou posés que le nouveau régime n'ouvre
-    // plus. Le compteur disparaîtrait sans bruit : le service RH confirme, et le solde affiché avant est gardé au journal.
-    soldeRtt = rttPerdus(ctx.d, emp, { ...emp, ...v.profil, tempsDepuis: row.tempsDepuis });
-    if (soldeRtt && p.confirmerRtt !== true) {
-      throw new ActionError(`Le nouveau régime n’ouvre ni RTT ni jours de repos : le compteur de ${emp.nom} (${soldeRttTexte(soldeRtt)}) ne sera plus suivi dans Cursus. Confirmez le changement : ce solde sera gardé au journal pour la paie`);
+    const programme = avenantProgramme(ctx.ds, emp.id);
+    if (programme) throw new ActionError(`Un avenant est déjà programmé au ${fmtIso(programme.effet)} : annulez-le d’abord (fiche du collaborateur, « Historique du contrat ») avant un autre changement de régime`);
+    const futur = effet > ctx.d.ti;
+    if (futur && (emp.statut !== P.statut || emp.typeContrat !== P.typeContrat)) {
+      throw new ActionError('Un avenant à date future ne porte que sur l’organisation du temps : enregistrez séparément, le jour même, le changement de statut ou de nature du contrat');
     }
-    for (const f of ctx.ds.feuilles.filter(f => f.empId === emp.id && !f.contrat && f.week < effet)) await ctx.db.update<FeuilleTemps>('feuilles', f.id, { contrat: contratFige(emp) });
-    // Semaines des 8 dernières avant la date d'effet encore sans feuille : feuille brouillon vide figée sur l'ancien
-    // régime, sans quoi une feuille créée ensuite pour l'une d'elles prendrait le nouveau (heures supplémentaires faussées).
-    figees = semainesAFiger(emp, effet, ctx.ds.feuilles);
-    for (const week of figees) await ctx.db.insert<FeuilleTemps>('feuilles', {
-      empId: emp.id, week, statut: 'brouillon', comment: null, sage: false, keystone: false, lignes: [], contrat: contratFige(emp),
-    });
+    if (futur && emp.fin && effet > emp.fin) throw new ActionError(`Date d’effet postérieure à la fin du contrat (${fmtIso(emp.fin)})`);
+    // RTT de l'année pris ou posés que le nouveau régime ne couvre plus, même au prorata des mois passés sous l'ancien
+    // (aucun droit, solde négatif, RTT posés après la date d'effet) : le service RH confirme, et le solde affiché avant est
+    // gardé au journal avec le nouveau droit.
+    soldeRtt = rttPerdus(ctx.d, emp, { ...emp, ...v.profil, tempsDepuis: regimeTemps ? effet : emp.tempsDepuis }, effet);
+    if (soldeRtt && p.confirmerRtt !== true) {
+      throw new ActionError(`${rttPerdusTexte(soldeRtt, emp.nom)}. Confirmez le changement : ce solde sera gardé au journal pour la paie`);
+    }
+    await amorcer(ctx.db, emp.id, ctx.d.ti);
+    const ligne = await inscrireLigne(ctx.db, { empId: emp.id, effet, nature: 'avenant', regime: contratFige({ ...emp, ...v.profil }), applique: !futur }, auteur(ctx), ctx.d.ti);
+    if (futur) {
+      // Avenant programmé : la fiche garde son organisation du temps jusqu'à la date d'effet.
+      Object.assign(row, { temps: emp.temps, heures: emp.heures, forfaitHeures: emp.forfaitHeures, forfaitJours: emp.forfaitJours, jourOff: emp.jourOff ?? [], tempsDepuis: emp.tempsDepuis });
+      avenant = { id: ligne.id, effet };
+    } else {
+      if (regimeTemps) row.tempsDepuis = effet;
+      else row.tempsDepuis = emp.tempsDepuis;
+      for (const f of ctx.ds.feuilles.filter(f => f.empId === emp.id && !f.contrat && f.week < effet)) await ctx.db.update<FeuilleTemps>('feuilles', f.id, { contrat: contratFige(emp) });
+      // Semaines des 8 dernières avant la date d'effet encore sans feuille : feuille brouillon vide figée sur l'ancien
+      // régime (garde-fou conservé avec l'historique, qui fige aussi une feuille créée plus tard pour une semaine plus ancienne).
+      figees = semainesAFiger(emp, effet, ctx.ds.feuilles);
+      for (const week of figees) await ctx.db.insert<FeuilleTemps>('feuilles', {
+        empId: emp.id, week, statut: 'brouillon', comment: null, sage: false, keystone: false, lignes: [], contrat: contratFige(emp),
+      });
+    }
   } else row.tempsDepuis = emp.tempsDepuis;
+  // Changement d'équipe : mêmes contrôles de hiérarchie que l'affectation (t136).
+  if ((v.profil.equipe ?? null) !== (emp.equipe ?? null)) {
+    refuserCroisee(ctx, { employes: ctx.ds.employes.map(e => (e.id === emp.id ? { ...e, equipe: v.profil.equipe ?? null } : e)) });
+  }
   await ctx.db.update('employes', emp.id, row);
+  // Date d'entrée corrigée : l'embauche de l'historique la suit.
+  if (patch.includes('entree') && v.profil.entree !== emp.entree) {
+    await ctx.db.run(`UPDATE contrats_historique SET effet = ? WHERE emp_id = ? AND nature = 'embauche' AND effet = ?`, [v.profil.entree, emp.id, emp.entree]);
+  }
+  // Brouillons refigés sur le régime de leur semaine (changement daté, avenant programmé).
+  if (avant !== apres) await refigerBrouillons(ctx.db, emp.id);
   const suite = [
+    avenant ? `avenant programmé au ${fmtIso(avenant.effet)} (${ctx.d.contratOf({ ...emp, ...v.profil }).label}), appliqué à la fiche à cette date` : '',
     figees.length ? `${plural(figees.length, 'semaine sans feuille figée', 'semaines sans feuille figées')} sur l’ancien régime` : '',
     soldeRtt ? `solde ${soldeRttTexte(soldeRtt)} gardé au journal pour la paie` : '',
+    ...v.warnings.filter(w => /^Fin du CDD repoussée/.test(w)).map(w => w.replace(/\.$/, '')),
   ].filter(Boolean).map(x => ` · ${x}`).join('');
-  return { message: `Fiche de ${v.profil.nom} mise à jour${suite}`, result: soldeRtt ? { soldeRtt } : undefined };
+  return { message: `Fiche de ${v.profil.nom} mise à jour${suite}`, result: soldeRtt || avenant ? { ...(soldeRtt ? { soldeRtt } : {}), ...(avenant ? { avenant } : {}) } : undefined };
 };
 
 const creerEquipe: ActionHandler = async (ctx, p) => {
@@ -173,7 +222,8 @@ const renommer: ActionHandler = async (ctx, p) => {
   if (!nouveau) throw new ActionError('Nouveau nom requis');
   if (nouveau === q.nom) return null;
   if (ctx.ds.referentiels.equipes.some(x => x.nom !== q.nom && key(x.nom) === key(nouveau))) throw new ActionError('Une équipe porte déjà ce nom');
-  for (const [table, col] of [['equipes', 'nom'], ['employes', 'equipe'], ['budgets', 'equipe'], ['plan_actions', 'equipe']]) {
+  // Équipes rattachées (`parente`, t136) : elles suivent le nouveau nom.
+  for (const [table, col] of [['equipes', 'nom'], ['equipes', 'parente'], ['employes', 'equipe'], ['budgets', 'equipe'], ['plan_actions', 'equipe']]) {
     await ctx.db.run(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`, [nouveau, q.nom]);
   }
   await renommerDerogation(ctx.db, q.nom, nouveau);
@@ -183,13 +233,19 @@ const renommer: ActionHandler = async (ctx, p) => {
 const designer: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const q = getEquipe(ctx, p.nom);
-  if (!p.managerId) {
-    await ctx.db.update('equipes', q.nom, { managerId: null });
-    return `L’équipe ${q.nom} n’a plus de manager — validations assurées par le service RH`;
-  }
-  const m = checkManager(ctx, p.managerId);
-  await ctx.db.update('equipes', q.nom, { managerId: m.id });
-  return `${m.nom} devient manager de l’équipe ${q.nom}`;
+  const m = p.managerId ? checkManager(ctx, p.managerId) : null;
+  // Hiérarchie (t136) : le manager d'une équipe parente valide aussi les managers des équipes rattachées. Pas de
+  // validation croisée nouvelle ; leurs éléments en attente sont redirigés, comme à l'enregistrement d'une équipe
+  // parente (actions/hierarchie.ts). Ceux des membres de l'équipe passent au nouveau manager, comme auparavant.
+  const equipes = ctx.ds.referentiels.equipes;
+  const apres: Equipe[] = equipes.map(x => (x.nom === q.nom ? { ...x, managerId: m?.id ?? null } : x));
+  refuserCroisee(ctx, { equipes: apres });
+  const elements = elementsRediriges(ctx.ds, equipes, apres).filter(x => ctx.d.emp(x.empId)?.equipe !== q.nom);
+  await ctx.db.update('equipes', q.nom, { managerId: m?.id ?? null });
+  const message = m ? `${m.nom} devient manager de l’équipe ${q.nom}` : `L’équipe ${q.nom} n’a plus de manager — validations assurées par le service RH`;
+  if (!elements.length) return message;
+  await prevenir(ctx, q.nom, m ? `${m.nom} devient manager de l’équipe ${q.nom}, dont relèvent les managers des équipes rattachées` : `L’équipe ${q.nom} n’a plus de manager`, elements);
+  return { message: message + suiteRedirection(ctx, elements), result: { redirections: redirectionsResultat(elements) } };
 };
 
 /** Suppression d'une équipe vide : administrateur RH. */
@@ -200,6 +256,9 @@ const supprimer: ActionHandler = async (ctx, p) => {
   const membres = ctx.ds.employes.filter(e => e.equipe === q.nom), n = membres.filter(e => !sorti(e, ctx.d.ti)).length;
   if (n) throw new ActionError(`L’équipe compte encore ${n} collaborateur${n > 1 ? 's' : ''} : affectez-les d’abord à une autre équipe`);
   if (ctx.ds.plan.some(l => l.equipe === q.nom)) throw new ActionError('Des actions du plan de formation sont rattachées à cette équipe');
+  // Hiérarchie (t136) : les équipes rattachées changeraient de valideur sans que personne le décide.
+  const filles = ctx.ds.referentiels.equipes.filter(x => x.parente === q.nom).map(x => x.nom);
+  if (filles.length) throw new ActionError(`${plural(filles.length, 'Une équipe est rattachée', 'Des équipes sont rattachées')} à ${q.nom} (${filles.join(', ')}) : changez d’abord leur équipe parente`);
   for (const e of membres) await ctx.db.update('employes', e.id, { equipe: null });
   await ctx.db.run('DELETE FROM budgets WHERE equipe = ?', [q.nom]);
   await ctx.db.remove('equipes', q.nom);
@@ -237,6 +296,8 @@ const affecter: ActionHandler = async (ctx, p) => {
   // Salarié de moins de 18 ans : jamais dans une équipe de nuit ou en continu (art. L3163-2), quel que soit l'auteur.
   const nuit = refusEquipeNuit(emp, ctx.ds.referentiels.equipes.find(q => q.nom === cible), ctx.d.ti);
   if (nuit) throw new ActionError(nuit);
+  // Hiérarchie (t136) : pas de validation croisée nouvelle (un manager rangé dans l'équipe de son N-1).
+  refuserCroisee(ctx, { employes: ctx.ds.employes.map(e => (e.id === emp.id ? { ...e, equipe: cible } : e)) });
   await ctx.db.update('employes', emp.id, { equipe: cible });
   if (!cible) return `${emp.nom} retiré de l’équipe ${avant} — à affecter par le service RH`;
   return `${emp.nom} rejoint l’équipe ${cible}${avant ? ` (auparavant ${avant})` : ''}`;

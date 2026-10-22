@@ -44,7 +44,12 @@ Sommaire : [Collaborateur](#collaborateur) · [Manager](#manager) · [Service RH
    chantier, de déplacement ou d'impératif. Ces heures prennent leur rang dans les heures supplémentaires de la semaine
    (semaine du lundi au dimanche), et celles du dimanche sont transmises à part à la paie. Un repos hebdomadaire manquant
    est signalé, sans blocage.
-5. Jours fériés : saisissables, repérés « Férié travaillé » (le 1er mai est majoré de 100 %).
+5. Jours fériés : saisissables, repérés « Férié travaillé » (le 1er mai est majoré de 100 %). La journée de solidarité,
+   quand elle est travaillée, est un jour ordinaire repéré « Journée de solidarité ».
+   **Horaire du jour** (ligne « Horaire du jour », au-dessus des projets ; sous le titre du jour sur téléphone) : l'horaire
+   de poste de chaque jour (journée, matin, après-midi, nuit…), proposé en italique d'après l'équipe dès que des heures sont
+   saisies ; le salarié, son manager ou le service RH le changent jour par jour, « — » pour aucun. Facultatif ; figé à la
+   soumission avec ses heures (une feuille renvoyée le propose de nouveau d'après les jours travaillés).
 6. « Soumettre au manager » (ou « Soumettre au service RH » sans manager). Au-delà de 10 h dans une journée ou de 48 h dans
    la semaine, un motif est demandé avant la soumission ; il est lu par le valideur.
 7. La feuille est attendue **le lundi suivant à 12 h** ; passé ce délai, le manager ou le service RH relance
@@ -73,6 +78,8 @@ pas dans Cursus : la paie les traite dans Sage.
 - Les convocations aux sessions et aux entretiens arrivent par e-mail, avec un fichier pour l'agenda.
 - « Mes documents de voyage » : passeport, visa, vaccination. Ils n'entrent dans le dossier qu'après validation par le
   service RH ; les vaccinations sont des données de santé que lui seul voit.
+- « Mon contact d’urgence » : la personne à prévenir (et son lien) et son téléphone, facultatifs, saisis par « Renseigner ».
+  Seul le service RH les voit, jamais votre manager ; videz les deux champs pour les retirer.
 
 ### Entretiens et portail
 
@@ -125,11 +132,21 @@ Les feuilles validées partent à la paie avec le lot du mois : le manager n'a r
 ### Planning et équipe
 
 - « Missions » : qui est en mission aujourd'hui, et le « Planning des 4 prochaines semaines » (missions, absences, fériés).
+  Chaque case porte une lettre (M mission, A absence validée ou signalée, D absence demandée, F férié) ; la toucher ou la
+  sélectionner au clavier (flèches) affiche le détail du jour sous le planning ; le total de chaque personne est en bout
+  de ligne.
 - « Équipe » : conformité de chacun (formations, habilitations, aptitude réduite au verdict et aux restrictions en
   vigueur, sans date de visite). « Ajouter un membre » reprend un salarié « à affecter » ; une mutation directe passe par
   le service RH.
+- Équipes rattachées : quand le service RH rattache l'équipe d'un chef d'équipe à la vôtre (« Équipe parente »), ce chef
+  d'équipe vous soumet ses absences, ses feuilles et ses entretiens. Si l'administrateur RH a activé la consultation N+2,
+  les membres de son équipe s'affichent aussi, marqués « Lecture seule » : vous consultez leur fiche, leurs absences et
+  leurs feuilles, sans donnée médicale ni entretien ; les décisions restent à leur manager direct.
 - « Formations » : renouvellements à prévoir. « Planifier » inscrit le collaborateur à une session ouverte ; sans session,
   « Demander au RH ».
+- « Couverture minimale des équipes » (écran Équipe) : jour où votre équipe n'aura plus assez de secouristes ou
+  d'équipiers incendie présents et formés, et pourquoi (certification qui expire, départ, absence, sans sa nature).
+- « Entretiens » : un entretien de mi-carrière peut apparaître, « à planifier avant le » une date donnée par le service RH.
 
 ## Service RH
 
@@ -144,18 +161,51 @@ entretiens : un collègue ou son manager le fait.
   (avec sa date d'effet), poste, équipe, matricule de paie, adresse e-mail. Si deux personnes modifient la même fiche en
   même temps, la seconde est refusée en nommant les champs changés, sans perdre sa saisie.
 - « Équipes & managers » : créer, renommer ou supprimer une équipe, désigner son manager, affecter les salariés.
+  « Équipe parente » rattache une équipe à une autre (4 niveaux au plus) : le manager de l'équipe, s'il en est membre,
+  est alors validé par le manager de l'équipe parente et non plus par le service RH. La confirmation liste les demandes
+  en attente qui changent de valideur ; le nouveau valideur en est prévenu par e-mail. Il en va de même quand vous
+  changez le manager d'une équipe parente. Une modification qui ferait de deux salariés chacun le valideur de l'autre
+  (rattachement, manager, affectation) est refusée en les nommant.
+- Liens : l'adresse de la page garde la fiche ouverte, la feuille de temps (salarié et semaine) et les filtres ; F5 ne
+  les perd plus et Précédent referme la fiche. « Copier le lien » (fiche, feuille de temps) donne un lien à partager : la
+  personne qui l'ouvre ne voit que ce que son rôle lui ouvre.
 - Comptes : Paramètres → Comptes et accès (administrateur RH), « Créer un compte », profil, « Mot de passe » pour un
   nouveau mot de passe provisoire.
 - Départ : « Enregistrer une sortie » sur la fiche (dernier jour, motif en liste fermée). Le solde de congés, RTT,
   récupération et CET à la date s'affiche avant la confirmation ; « Imprimer l'état » et « Exporter (CSV) » le donnent à la
   paie. Ce qui était prévu après le départ est annulé ; la fiche reste consultable (filtre « Sortis »).
+- Changement d'organisation du temps : il s'inscrit dans l'« Historique du contrat » de la fiche ; les RTT de l'année sont
+  comptés au prorata de chaque régime. Une date d'effet future programme un avenant, appliqué à la fiche à sa date
+  (« Annuler l’avenant » tant qu'il ne l'est pas).
+- CDD : « Motif de recours » dans la fiche (rappelé tant qu'il manque), « Renouveler le CDD » pour prolonger le contrat
+  (nouveau terme, date de signature de l'avenant). Durée maximale, nombre de renouvellements et délai de carence avant un
+  nouveau contrat sur le même poste sont signalés, sans rien bloquer ; un accord de branche se règle dans Paramètres →
+  Contrats.
 
 ### Formations et habilitations
 
 - « Nouvelle session » (service RH et référent HSE) : formation, premier et dernier jour, lieu, places ; inscriptions,
   convocations, puis « Clôturer » : présences, résultats, certifications datées du dernier jour, absents à replanifier.
+  Depuis « Planifier », sans session ouverte, « Créer une session » ramène ensuite à l'inscription, la nouvelle session
+  déjà cochée.
 - « Plan & budget » : enveloppes par équipe, « Importer un plan », coût réel saisi à la clôture d'une action.
-- « Référentiels » : formations, habilitations, destinations, postes et leurs exigences ; un élément inutile s'archive.
+- « Référentiels » : formations, habilitations, destinations, postes et leurs exigences, horaires de poste (onglet
+  « Horaires » : J, M, AM, N d'exemple, modifiables ; horaire par défaut d'une équipe dans le dialogue de ses exigences) ;
+  un élément inutile s'archive.
+- Postes à risques particuliers : case « Liste des postes à risques particuliers (art. L4154-2) » du poste (Référentiels →
+  Postes ; les postes en suivi renforcé, exposés ou qui exigent une habilitation SIR ou ATEX sont signalés « à examiner »,
+  jamais cochés d'office) et formation renforcée désignée dans Paramètres → Postes à risques particuliers. Un CDD, un
+  intérimaire ou un alternant affecté à un tel poste sans cette formation suivie depuis son entrée est « Non conforme »,
+  avec « Inscrire à la formation », et en No Go sur les chantiers. « Imprimer la liste des postes à risques » donne la
+  liste à tenir à disposition de l'inspection du travail et du CSE.
+- Couverture minimale des équipes : avec les exigences communes de l'équipe (Référentiels → Postes, « Modifier »), un
+  minimum de titulaires par formation (proposition : 1 SST au minimum ; l'INRS recommande 10 à 15 % de l'effectif). Aucun
+  seuil par défaut. L'alerte datée (« Sous le minimum », « À anticiper ») s'affiche au tableau de bord, dans « Équipes &
+  managers », dans « Échéances » (filtre « Couverture ») et au récapitulatif des échéances. En équipes successives, créer
+  une équipe par quart.
+- Entretien de mi-carrière : une visite de mi-carrière enregistrée rend l'entretien de parcours dû dans le délai réglé
+  (Paramètres → Entretien de mi-carrière, 2 mois par défaut, à confirmer juridiquement) ; un entretien de parcours réalisé
+  depuis la visite le remplit.
 - Fiche du collaborateur : « Avis du médecin du travail », « Demander une visite » ; les visites dues (embauche, reprise,
   mi-carrière) sont signalées dans « Échéances ».
 
@@ -169,6 +219,11 @@ entretiens : un collègue ou son manager le fait.
   adoption) sont automatiques. Première clôture des CP après la reprise : le 1er juin 2027.
 - Retour d'arrêt : la tâche d'information du salarié sur ses congés apparaît dans « Congés & absences ».
 - « Reporter » et « Épargner » (compte épargne-temps) depuis le tableau des soldes.
+- **Pièces justificatives** (désactivées tant que l'administrateur RH ne les a pas activées dans Paramètres, après avis
+  du DPO) : « Joindre le justificatif » dans la saisie et la qualification d'une absence, « Justificatifs reçus » pour
+  ouvrir celui que le salarié a envoyé avec son signalement ou depuis « Justificatif » ; sur la fiche, « Pièces
+  justificatives » et « Joindre » pour l'attestation d'une certification ou le titre signé d'une habilitation. Le
+  manager ne voit jamais un justificatif d'absence ni la copie d'un document déclaré.
 
 ### Temps de travail
 
@@ -177,6 +232,23 @@ entretiens : un collègue ou son manager le fait.
   annuel d'heures supplémentaires sont reprises dans des encarts de l'écran.
 - Seul l'administrateur RH rouvre une feuille validée : « Rouvrir la feuille », motif obligatoire (voir Correction après l'envoi,
   ci-dessous).
+
+### Déplacements et vigilance
+
+- Écran « Missions », panneau « Grand déplacement des chantiers en France » : chaque chantier en France se qualifie
+  « Grand déplacement » ou « Pas de grand déplacement ». Cursus le propose pour tout chantier en France (Keystone ne
+  transmet que des chantiers chez les clients), mais ne retient que votre choix : le critère de l'URSSAF (distance, temps de
+  trajet) se vérifie hors de Cursus. Un chantier retenu donne à la paie, pour chaque mission, ses jours calendaires, ses
+  nuits (jours − 1) et deux trajets ; un déplacement à l'étranger donne ses jours par pays et ses deux trajets, sans
+  qualification. Jours d'absence exclus ; un déplacement annulé après sa transmission se régularise au lot suivant.
+- Référentiels, destinations : « Vigilance (France Diplomatie) » (vert, jaune, orange, rouge) et « Vérifiée le », à tenir
+  à jour à la main (France Diplomatie n'a pas d'API). Passer un pays à l'orange ou au rouge liste les déplacements prévus,
+  prévient les managers des voyageurs ; une zone rouge met une réserve au Go / No Go (code DEPLACEMENT).
+  Le dossier voyage rappelle de vérifier la vigilance tant qu'elle manque ou date de plus de 30 jours (Paramètres →
+  Déplacements et paie).
+- « Modifier le déplacement » : « Hébergement », « Contact sur place » et « Inscrit sur Ariane le », propres à Cursus et
+  réservés au service RH. Le contact d'urgence est sur la fiche du salarié (« Contact d’urgence »), qu'il saisit depuis son
+  espace.
 
 ## Gestionnaire de paie
 
@@ -242,9 +314,14 @@ d'un mois clos enregistrée en retard part entière, en rappel.
   par rémunération et catégorie (Paramètres → Absences et paie, activé par défaut).
 - Soldes de sortie (CP, RTT, récupération, CET) quand leurs rubriques sont activées ; sinon ils se saisissent dans Sage à
   partir de l'état imprimé.
-- **Hors fichier, à saisir dans Sage** : heures de nuit, frais de déplacement ; intérimaires (relevé envoyé à leur agence)
-  et cadres dirigeants exclus. Le lundi de Pentecôte travaillé au titre de la journée de solidarité est repéré comme
-  férié : la paie le traite (art. L3133-8).
+- Déplacements (jours et nuits de grand déplacement en GD_JOUR et GD_NUIT, jours à l'étranger en ETR_JOUR avec le pays en
+  détail de l'export, trajets en TRAJET) quand « Transmettre les déplacements dans le fichier d’import de la paie » est coché
+  (Paramètres → Déplacements et paie, décoché par défaut) et leurs rubriques activées. Sinon, ils partent dans le lot sans
+  code Sage : listés « À saisir dans Sage », nominativement, dans le résumé du lot (écran Temps) et l'export des variables,
+  comme tout élément dont la rubrique est désactivée (absence, solde de sortie) ; confirmé, le lot ne les renvoie plus.
+- **Hors fichier, à saisir dans Sage** : heures de nuit ; intérimaires (relevé envoyé à leur agence)
+  et cadres dirigeants exclus. La journée de solidarité et les fériés chômés se règlent année par année
+  (Paramètres, « Jours fériés et journée de solidarité ») : un jour ainsi travaillé n'est plus férié (art. L3133-8).
 
 ### Correction après l'envoi
 
@@ -265,7 +342,8 @@ d'un mois clos enregistrée en retard part entière, en rappel.
 - Chaque salarié du lot a son matricule de paie, saisi par le service RH sur la fiche (Paramètres → « Matricules de paie »,
   administrateur RH, liste ceux qui manquent) ; le refus d'un lot nomme les salariés sans matricule.
 - « Absences transmises à partir du » (Paramètres → Absences et paie, administrateur RH) porte la date de reprise : les
-  absences antérieures, déjà traitées par Lucca et Sage, ne partent jamais.
+  absences antérieures, déjà traitées par Lucca et Sage, ne partent jamais. « Déplacements transmis à partir du »
+  (Paramètres → Déplacements et paie) de même pour les déplacements.
 
 ## Groupe pilote
 
@@ -312,19 +390,29 @@ questions encore ouvertes).
 ### Paie
 
 - **Codes Sage** de chaque rubrique (heures normales et supplémentaires, dimanche, fériés, contrepartie en repos,
-  absences, soldes de sortie), et l'unité attendue par le plan de paie : saisis et confirmés par le gestionnaire de paie
+  absences, soldes de sortie, déplacements : une rubrique par pays ou par zone pour l'étranger, à décider), et l'unité attendue par le plan de paie : saisis et confirmés par le gestionnaire de paie
   dans « Rubriques de paie ».
 - **Calendrier de paie** (dates de génération du lot, d'import et de paie) et traitement d'une correction arrivée après
   l'import : *à compléter par le gestionnaire de paie*, dans ce guide et dans la page Aide (`shared/aide.ts`).
 - **Matricules de paie** de tous les salariés ; format du fichier ajusté au modèle d'import de Sage (« Modifier le
   format »).
-- Majoration des fériés (0 % par défaut, hors 1er mai), traitement de la journée de solidarité, acquisition des congés
-  pendant un arrêt maladie (minimum légal par défaut) : à confirmer avec la convention et les accords.
+- Majoration des fériés (0 % par défaut, hors 1er mai), acquisition des congés pendant un arrêt maladie (minimum légal
+  par défaut) : à confirmer avec la convention et les accords.
+- **Journée de solidarité et fériés chômés** de chaque année à partir de 2027 (Paramètres, « Jours fériés et journée de
+  solidarité ») : lundi de Pentecôte chômé et tous les fériés chômés par défaut ; la modalité retenue après avis du CSE
+  (Pentecôte ou autre férié de semaine travaillé, fractionnée ou sur un RTT) se règle année par année, sans effet sur les années
+  passées. Une année déjà engagée (absences transmises à la paie, congés clôturés) ne se modifie qu'avec un motif.
 
 ### Organisation et reprise
 
 - **Postes et exigences** : formations et habilitations exigées par poste et par équipe (« Référentiels »), case « travail
-  de nuit ou en continu » des équipes (Référentiels → Postes).
+  de nuit ou en continu » des équipes (Référentiels → Postes) et horaire de poste par défaut de chaque équipe (facultatif ;
+  horaires d'exemple à adapter dans Référentiels → Horaires).
+- **Sécurité au poste** : liste des postes à risques particuliers (avis du médecin du travail et du CSE) et formation
+  renforcée à désigner ; seuils de secouristes et d'équipiers incendie par équipe (une équipe par quart) ; délai de
+  l'entretien de mi-carrière à confirmer juridiquement.
+- **CDD** : motif de recours des CDD en cours, à renseigner sur chaque fiche ; durée maximale et renouvellements de la CCN
+  des industries chimiques à vérifier (Paramètres → Contrats, référence de l'accord de branche s'il déroge à la loi).
 - **Référentiels** et leurs codes, convenus avec l'équipe Keystone ; prévenir Keystone du changement des heures validées
   (une semaine rouverte et corrigée renvoie ses heures, un projet retiré à 0).
 - **Reprise Lucca** : export des salariés (sorties comprises) et des soldes arrêtés au 1er janvier 2027, certifications,

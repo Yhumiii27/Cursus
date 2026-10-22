@@ -17,7 +17,7 @@ export const SCHEMA_PG = 'cursus';
 /** Dossier des migrations PostgreSQL (fichiers NNNN_<objet>.sql, appliqués dans l'ordre de leur nom). */
 export const DOSSIER_MIGRATIONS_PG = join(RACINE, 'server', 'migrations-pg');
 /** Tables dont SQLite donne l'ordre par le rowid (référentiels, `Db.all(…, 'rowid')`) ou départage les tris : colonne `rang`. */
-export const TABLES_RANG: ReadonlySet<TableName> = new Set<TableName>(['formations', 'habilitations', 'destinations', 'projets', 'equipes', 'chantiers']);
+export const TABLES_RANG: ReadonlySet<TableName> = new Set<TableName>(['formations', 'habilitations', 'destinations', 'projets', 'equipes', 'chantiers', 'horaires']);
 
 /**
  * Lecture des types par le pilote, alignée sur ce que rendait SQLite et qu'attend le domaine (shared/) :

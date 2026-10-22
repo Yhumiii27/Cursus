@@ -15,6 +15,8 @@ import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derive
 import { useAgir } from '../state/actions.ts';
 import { refusDemande } from '../state/confirmations.ts';
 import { useStore } from '../state/store.tsx';
+import { LiensPieces } from '../components/PieceJointe.tsx';
+import { CouverturePanel } from '../components/Couverture.tsx';
 
 /** Ligne d'échéance (tableau de bord, page Échéances). */
 export function EchRow({ x, onOpen, onAct }: { x: EchItem; onOpen: () => void; onAct: () => unknown }) {
@@ -148,7 +150,9 @@ export function Dashboard() {
                           // Document déclaré : contenu saisi et valeur du dossier qu'il remplacera à la validation
                           // (sauf déclaration reprise d'une ancienne base, encore au dossier : un refus l'en retire).
                           ? <td style={{ fontSize: 13 }}><Two main={`Déclaré : ${declarationDetail(x)}`}
-                              sub={retireeAuRefus(d, e, r) ? 'Déjà enregistré dans le dossier (avant validation RH) — un refus l’en retire' : `Actuellement : ${valeurActuelle(d, e, x)}`} /></td>
+                              sub={retireeAuRefus(d, e, r) ? 'Déjà enregistré dans le dossier (avant validation RH) — un refus l’en retire' : `Actuellement : ${valeurActuelle(d, e, x)}`} />
+                              {/* Copie du document jointe par le collaborateur (pièce justificative) : à ouvrir avant de valider. */}
+                              <LiensPieces objet="declaration" objetId={r.id} /></td>
                           : <td className="text-muted" style={{ fontSize: 13 }}>{detail || 'À contrôler dans le dossier voyageur'}</td>}
                         <td className="right">
                           {/* Documents déclarés : service RH ; formations et habilitations : aussi le référent HSE. */}
@@ -186,6 +190,9 @@ export function Dashboard() {
             </div>
           </Panel>
         )}
+
+        {/* Couverture minimale des équipes en SST et équipiers incendie (shared/rules/couverture.ts). */}
+        <CouverturePanel style={{ flex: '1 1 100%' }} />
 
         <Panel style={{ flex: '1 1 560px' }} title="Échéances prioritaires"
           aside={<a href="/echeances" className="link-more" onClick={e => { e.preventDefault(); go('echeances'); }}>Toutes les échéances →</a>}>

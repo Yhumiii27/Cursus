@@ -9,6 +9,7 @@ import { downloadCsv } from '../print.ts';
 import { useEnriched, useIntentPermis } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { EchRow } from './Dashboard.tsx';
+import { CouverturePanel } from '../components/Couverture.tsx';
 
 const dmy = (d: Date) => d.toLocaleDateString('fr-FR', { day: '2-digit', month: '2-digit', year: 'numeric' });
 
@@ -56,11 +57,15 @@ export function Echeances() {
       title="Échéances"
       actions={<>
         <Seg name="echType" label="Type d’échéance" value={ui.echType} onChange={x => setUi({ echType: x })}
-          options={[['tous', 'Tout'], ['cert', 'Certifications'], ['hab', 'Habilitations'], ['med', 'Visites médicales'], ['exigence', 'Exigences'], ['trip', 'Voyages'], ['contrat', 'Contrats']]} />
-        <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exportCsv}>Exporter (CSV)</Btn>
+          options={[['tous', 'Tout'], ['cert', 'Certifications'], ['hab', 'Habilitations'], ['med', 'Visites médicales'], ['exigence', 'Exigences'], ['trip', 'Voyages'], ['contrat', 'Contrats'], ['couverture', 'Couverture']]} />
+        {/* Filtre « Couverture » : le panneau par équipe seul ; ni export ni graphique, qui portent sur les échéances des salariés. */}
+        {ui.echType !== 'couverture' && <Btn variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={exportCsv}>Exporter (CSV)</Btn>}
       </>}
     >
-      <Panel title="Renouvellements par mois" style={{ gap: 'var(--space-4)' }}>
+      {/* Couverture minimale des équipes (SST, EPI incendie) : par équipe, à part des échéances de chaque salarié. */}
+      {(ui.echType === 'tous' || ui.echType === 'couverture') && <CouverturePanel />}
+
+      {ui.echType !== 'couverture' && <Panel title="Renouvellements par mois" style={{ gap: 'var(--space-4)' }}>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(12, minmax(0, 1fr))', gap: 8, alignItems: 'end', height: 156 }}>
           {v.months.map((m, i) => (
             <div key={i} style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'flex-end', gap: 6, height: '100%' }}>
@@ -74,7 +79,7 @@ export function Echeances() {
             </div>
           ))}
         </div>
-      </Panel>
+      </Panel>}
 
       <Panel style={{ gap: 'var(--space-2)' }}>
         {v.groups.map(g => (
@@ -96,7 +101,7 @@ export function Echeances() {
             </div>
           </div>
         ))}
-        {v.groups.length === 0 && <Empty pad="sm">Aucune échéance sur les 12 prochains mois.</Empty>}
+        {v.groups.length === 0 && <Empty pad="sm">{ui.echType === 'couverture' ? 'Couverture minimale des équipes : les seuils non tenus figurent ci-dessus (Référentiels → Postes pour les saisir).' : 'Aucune échéance sur les 12 prochains mois.'}</Empty>}
       </Panel>
     </Page>
   );

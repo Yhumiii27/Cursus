@@ -51,3 +51,7 @@ passwords.*
 .claude/settings.local.json
 .DS_Store
 *.log
+
+# Archives : la maquette n'est gardée qu'en un exemplaire (design/maquette-handoff.zip, voir design/handoff-README.md)
+*.zip
+!design/maquette-handoff.zip

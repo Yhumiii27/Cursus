@@ -6,19 +6,23 @@ import {
   AVIS_MEDICAL, CERT_LABEL, CLS, DOC_LABEL, EXAMEN_REQUIS, GNG_CODE, HAB_CLS, HAB_LABEL, MED_LABEL, MISSION_LONGUE_JOURS, RANK, SECU_RULES, SESSION_PASSEE, STATUTS,
   TEMPS_TRAVAIL, TYPES_CONTRAT, VACCINS, VISA_RULES, secuDe, type CodeMotif, type HabKey, type HabMesureAction, type StatusKey,
 } from './constants.ts';
-import { addD, addMonths, days, isFerie, iso, parse, weekday } from './dates.ts';
+import { addD, addMonths, configurerFeries, days, isFerie, iso, parse, weekday } from './dates.ts';
 import { cap, fmt, fmtShort } from './format.ts';
 import { absenceActive, absenceBloque, borneContrat, periodeTexte } from './rules/absences.ts';
 import { actifs, habSuivie } from './rules/referentiels.ts';
 import { poidsDuJour, type DemiJournees } from './rules/demi-journees.ts';
 import { echeanceExigence, exigencesManquantes, type ExigenceManquante } from './rules/exigences.ts';
+import { motifRenforcee } from './rules/formation-renforcee.ts';
 import { identifiantKeystone } from './rules/matricules.ts';
 import { echeancesContrat, etatAutorisation, present, SITUATION_A_REGULARISER } from './rules/contrats.ts';
 import { voyageActif } from './rules/deplacements.ts';
+import { zoneRouge } from './rules/vigilance.ts';
 import { restrictionEnVigueur } from './rules/sante.ts';
 import { echeanceVisite, examenRequis, prochaineTexte, suiviDe, type ProchaineVisite, type SuiviInfo } from './rules/suivi-medical.ts';
 import { finSession } from './rules/plage-session.ts';
+import { employeAu } from './rules/historique-contrat.ts';
 import { visitesDues, type VisiteDue } from './rules/visites-dues.ts';
+import { valideurHierarchique } from './rules/hierarchie.ts';
 import type {
   AvisMedical, Certification, Chantier, Dataset, DemandeVisite, Destination, Employe, FormaliteManquante, Formation, HabTitre, HabType, ISODate,
   MotifVisite, Restriction, Session, Statut, TempsTravail, TripStatus, TypeContrat, VaccinId, Voyage,
@@ -203,6 +207,8 @@ export class Domain {
     this.ds = ds;
     this.ti = ds.today;
     this.today = parse(ds.today);
+    // Jours fériés de l'établissement réglés par année (shared/rules/feries.ts) : suivis par `isFerie`, état de module.
+    configurerFeries(ds.calendrierFeries);
   }
 
   get year() { return this.today.getFullYear(); }
@@ -218,11 +224,12 @@ export class Domain {
   session(id: number | null): Session | null { return id == null ? null : this.ds.sessions.find(s => s.id === id) ?? null; }
   get equipes(): string[] { return [...this.ds.referentiels.equipes].sort((a, b) => a.ordre - b.ordre).map(e => e.nom); }
 
-  /** Manager valideur d'un collaborateur (0 = le service RH). */
+  /**
+   * Manager valideur d'un collaborateur (0 = le service RH). Pour le manager membre de son équipe : le manager de l'équipe
+   * parente (N+1, t136), sinon le service RH (shared/rules/hierarchie.ts).
+   */
   mgrOf(e: { id: number; equipe: string | null }): number {
-    if (!e.equipe) return 0;
-    const m = this.ds.referentiels.equipes.find(q => q.nom === e.equipe)?.managerId;
-    return m && m !== e.id ? m : 0;
+    return valideurHierarchique(this.ds.referentiels.equipes, e);
   }
   /** Valideur désigné par `mgrOf` : le manager, ou le service RH (plusieurs personnes, aucune n'est nommée). */
   mgrName(id: number): string { return id ? this.personName(id) : 'le service RH'; }
@@ -284,7 +291,9 @@ export class Domain {
   countedDays(e: Employe, du: ISODate, au: ISODate, kind: string, demi?: DemiJournees): { jour: ISODate; poids: number }[] {
     const out: { jour: ISODate; poids: number }[] = [];
     let started = false;
-    const off = this.contratOf(e).jourOff, periode = { du, au, ...demi };
+    // Jours non travaillés du temps partiel en vigueur au premier jour (historique des contrats : un passage à temps
+    // partiel ne change pas le décompte d'une absence antérieure).
+    const off = this.contratOf(employeAu(this, e, du)).jourOff, periode = { du, au, ...demi };
     for (let s = du; s <= au; s = addD(s, 1)) {
       const wd = weekday(s);
       if (wd > 4 || isFerie(s)) continue;
@@ -802,6 +811,9 @@ export class Domain {
       if (ci.exp < start) return push(recycl ? 'reserve' : 'nogo', 'CERTIFICATION', recycl ? 'Recyclage planifié avant le démarrage' : 'Certification requise non valide', `${fm.court} — expire le ${fmt(ci.exp)}${recycl ? ', recyclage le ' + fmt(parse(ci.session!.date)) : ''}`);
       if (ci.exp < end) push('reserve', 'CERTIFICATION', 'Certification expirant pendant le chantier', `${fm.court} — expire le ${fmt(ci.exp)}, en cours de chantier`);
     });
+    // Formation renforcée à la sécurité manquante (CDD, intérim, alternance sur un poste à risques particuliers, art.
+    // L4154-2) : No Go, réserve si une session est planifiée avant le démarrage ; code CERTIFICATION, API v1 inchangée.
+    motifRenforcee(this.ds, e, c).forEach(r => push(r.level, 'CERTIFICATION', r.minimal, r.detailed));
     // Présence finie (chantier en cours, ressource rentrée) : plus de déplacement à exiger.
     if (c.pays !== 'FR' && sejours.length) {
       // Déplacements retenus : rattachés au chantier, ou vers son pays pendant la présence (un voyage des mois plus tôt ne vaut pas).
@@ -831,6 +843,10 @@ export class Domain {
         else if (detachement.length) {
           push('reserve', 'DETACHEMENT', 'Formalités de détachement à faire avant le départ', `Détachement à préparer${detachement.some(i => i.late) ? ' d’urgence' : ''} : ${liste(detachement)}`);
         }
+        // Destination en zone rouge de France Diplomatie (t068, shared/rules/vigilance.ts) : réserve sous le code existant
+        // DEPLACEMENT, l'API Keystone ne change pas.
+        const rouges = [...new Set(retenus.filter(t => zoneRouge(this.destOf(t.dest))).map(t => this.destOf(t.dest)!.pays))];
+        if (rouges.length) push('reserve', 'DEPLACEMENT', 'Destination formellement déconseillée', `Zone rouge (France Diplomatie) : ${rouges.join(', ')}`);
       }
     }
     return { status: reasons.some(r => r.level === 'nogo') ? 'nogo' : reasons.length ? 'reserve' : 'go', reasons };

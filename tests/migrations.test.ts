@@ -217,7 +217,7 @@ test('retour à la version précédente : chaque mise à jour qui enregistre des
 
   // Version 2 : une reprise sans objet sur cette base (seulement notée faite), puis une reprise utile.
   const sansObjet: Migration = { nom: 'lot9-essai-sans-objet', necessaire: () => false, executer: () => { throw new Error('jamais exécutée'); } };
-  const utile: Migration = { nom: 'lot9-essai-utile', executer: d => { d.update('employes', 1, { nom: 'Repris' }); } };
+  const utile: Migration = { nom: 'lot9-essai-utile', executer: async d => { await d.update('employes', 1, { nom: 'Repris' }); } };
   const V2 = [...V1, sansObjet, utile];
   const db2 = new Db(file);
   assert.deepEqual(await appliquerMigrations(db2, V2), ['lot9-essai-utile']);
@@ -304,11 +304,11 @@ test('migration interrompue : ses modifications sont annulées, les précédente
   let troisieme = 0;
   const liste = (echoue: boolean): Migration[] => [
     ...MIGRATIONS,
-    { nom: 'essai-premiere', executer: d => { d.update('employes', 1, { nom: 'Premier' }); } },
+    { nom: 'essai-premiere', executer: async d => { await d.update('employes', 1, { nom: 'Premier' }); } },
     {
       nom: 'essai-interrompue',
-      executer: d => {
-        d.update('employes', 2, { nom: 'Jamais' });
+      executer: async d => {
+        await d.update('employes', 2, { nom: 'Jamais' });
         d.sql.exec('CREATE TABLE essai (x INTEGER)');
         if (echoue) throw new Error('valeur inattendue');
         return 'reprise faite';

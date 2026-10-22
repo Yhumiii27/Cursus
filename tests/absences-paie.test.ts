@@ -41,7 +41,7 @@ async function fresh(base?: Db, semer = true) {
   const db = base ?? await nouvelleBase();
   if (semer) await seedDemo(db);
   const compteDe = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
-  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)), role, methode: 'demo' }))!;
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compteDe(empId), role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
     const t = await preparerTrace(db, name, p);
     const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
@@ -171,6 +171,8 @@ test('t028 fichier : absences ventilées, régularisation négative, rubrique d�
   assert.deepEqual(L.resumeContenu(contenu), {
     lignes: 3, salaries: 2, rubriques: { HN: 35 },
     absences: { elements: 4, salaries: 2, rubriques: { CP: 3, 5100: -2 } },
+    // Lot 6 : l'absence sous une rubrique désactivée, absente du fichier, est listée « à saisir dans Sage ».
+    aSaisir: [{ famille: 'absences', empId: 2, periode: '2026-10', rubrique: 'ABS_NP', quantite: 1, detail: 'Absence n° 3, le 07/10/2026' }],
   });
   assert.deepEqual(Object.keys(L.libellesSage(contenu, [])), ['5100', 'CP', 'HN']);
 });
@@ -190,7 +192,7 @@ test('t028 lot de fichier : absences réservées, libérées à l’annulation, 
     await refus(PAIE, 'paie.lotGenerer', { periode: '2026-10' }, 409, /pour la rubrique ABS_IND_SANTE \(Absence indemnisée, santé/);
     await run(ADMIN, 'paie.rubrique', { code: 'ABS_IND_SANTE', codeSage: '5100', confirmer: true });
 
-    assert.match(await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }), / · 5 absences$/);
+    assert.match(await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }), / · 5 absences · 3 séjours \(déplacements\)/);
     const lot = (await lots()).at(-1)!;
     assert.deepEqual(lot.absences!.map(a => a.id).sort(), oct.map(a => a.id).sort());
     assert.ok((await Promise.all(oct.map(a => absence(a.id)))).every(a => a.lotId === lot.id && !a.sage), 'réservées, pas transmises');
@@ -214,7 +216,7 @@ test('t028 lot de fichier : absences réservées, libérées à l’annulation, 
     await new Promise(r => srv.once('listening', r));
     try {
       const base = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
-      const cookie = (await fetch(`${base}/essai/session/${(await compteDe(7))}`)).headers.get('set-cookie')!.split(';')[0];
+      const cookie = (await fetch(`${base}/essai/session/${await compteDe(7)}`)).headers.get('set-cookie')!.split(';')[0];
       const texte = await (await fetch(`${base}/api/paie/lots/${lot.id}/fichier`, { headers: { cookie } })).text();
       assert.match(texte, /\r\n004113;2026-10;5100;3\r\n/);
       assert.match(texte, /\r\n004108;2026-10;CP;5\r\n/);
@@ -279,7 +281,7 @@ test('t028 réglage désactivé : le fichier se limite aux heures ; rubrique dé
 
 test('t028 simulation en un clic : feuilles et absences dans le même lot transmis', async () => {
   const { run, lots, absence, PAIE } = await fresh();
-  assert.match(await run(PAIE, 'temps.pushSage', {}), / · 5 absences$/);
+  assert.match(await run(PAIE, 'temps.pushSage', {}), / · 5 absences · 3 séjours \(déplacements\)/);
   const lot = (await lots()).at(-1)!;
   assert.equal(lot.statut, 'transmis');
   assert.ok((await Promise.all(lot.absences!.map(a => absence(a.id)))).every(a => a.sage));
@@ -378,9 +380,9 @@ test('t028 variables de la période : lots et attente, droit « paie », tracé 
     const session = async (compte: number) => (await fetch(`${base}/essai/session/${compte}`)).headers.get('set-cookie')!.split(';')[0];
     const get = (p: string, cookie?: string) => fetch(`${base}/api/paie/variables/${p}`, { headers: cookie ? { cookie } : {} });
     assert.equal((await get('2026-10')).status, 401);
-    assert.equal((await get('2026-10', await session((await compteDe(14))))).status, 403, 'gestionnaire RH : pas de droit « paie »');
+    assert.equal((await get('2026-10', await session(await compteDe(14)))).status, 403, 'gestionnaire RH : pas de droit « paie »');
     assert.equal((await journal('acces.refuse')).at(-1)!.message, 'Variables de paie de la période — réservé à l’administrateur RH et au gestionnaire de paie');
-    const paie = await session((await compteDe(7)));
+    const paie = await session(await compteDe(7));
     assert.equal((await get('2026-13', paie)).status, 400);
     const r = await get('2026-10', paie);
     assert.equal(r.status, 200);
@@ -448,7 +450,7 @@ test('t028 base neuve : date de mise en service réglée, et date de départ pos
   // Absence antérieure à la mise en service, enregistrée avant le premier lot : septembre ne part pas.
   const avant = await inserer(db, { empId: 1, type: 'CP', du: '2026-09-21', au: '2026-09-25', statut: 'validee' });
   assert.ok((await absencesAEmettre(db, await d(), '2026-10')).some(x => x.absence === avant && x.mois === '2026-09'), 'sans date : septembre en rappel');
-  assert.match(await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }), / · absences transmises à partir du 1 oct\. 2026 : les jours d’avant restent à saisir dans Sage$/);
+  assert.match(await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }), / · absences transmises à partir du 1 oct\. 2026 : les jours d’avant restent à saisir dans Sage · déplacements transmis à partir du 1 oct\. 2026$/);
   assert.ok(!(await lots()).at(-1)!.contenu!.absences!.some(x => x.absence === avant));
   assert.equal((await journal('migration.absencesPaie')).at(-1)!.payload.depuis, '2026-10-01');
   await run(PAIE, 'paie.lotAnnuler', { id: (await lots()).at(-1)!.id });

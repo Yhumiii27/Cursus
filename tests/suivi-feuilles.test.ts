@@ -21,7 +21,7 @@ async function fresh() {
   const db = await nouvelleBase();
   await seedDemo(db);
   const compteDe = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
-  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)), role, methode: 'demo' }))!;
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compteDe(empId), role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
     const t = await preparerTrace(db, name, p);
     const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
@@ -162,7 +162,7 @@ test('t130 validation groupée : contrôles feuille par feuille, refus listés s
   // Karim : Mehdi validée ; Thomas (plus de 10 h un jour, sans motif) et Sophie (hors de son équipe) refusées, listées.
   const msg = String(await run(KARIM, 'temps.validerLot', { feuilles: [{ empId: 2, week: W }, { empId: 6, week: W }, { empId: 3, week: W }] }));
   assert.match(msg, /^1 feuille validée · 2 feuilles non validées, à ouvrir une à une : Thomas Garnier S41 \(Plus de 10 h sur une journée .*motif du dépassement.*\) ; Sophie Lemaire S41 \(Validation réservée au manager du salarié ou au service RH\)$/);
-  assert.deepEqual([(await statut(2, W)), (await statut(6, W)), (await statut(3, W))], ['validee', 'soumise', 'soumise'], 'un refus n’annule pas les autres');
+  assert.deepEqual([await statut(2, W), await statut(6, W), await statut(3, W)], ['validee', 'soumise', 'soumise'], 'un refus n’annule pas les autres');
   const j = (await journal('temps.validerLot')).at(-1)!;
   assert.deepEqual([j.payload.validees, j.payload.refus, j.salaries, j.paie], [[{ empId: 2, week: W }], 2, [2], true]);
   assert.ok(estActionPaie('temps.validerLot'));

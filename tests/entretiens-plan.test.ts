@@ -55,7 +55,7 @@ const entretien = async (db: Db, id: number) => (await db.get<Ligne>('entretiens
 const entretienDe = async (db: Db, empId: number, statut: string) => ((await db.one('SELECT id FROM entretiens WHERE emp_id = ? AND statut = ? ORDER BY id DESC', [empId, statut])) as { id: number }).id;
 /** Entretien annuel de Mehdi (planifié le 20 octobre), clos par Karim : à signer, puis à remettre. */
 async function clos(x: Awaited<ReturnType<typeof fresh>>) {
-  const id = (await entretienDe(x.db, 2, 'planifie'));
+  const id = await entretienDe(x.db, 2, 'planifie');
   await x.run(x.KARIM, 'entretien.modifier', { id, section: 'bilan', value: 'Année chargée, objectifs tenus' });
   await x.run(x.KARIM, 'entretien.clore', { id, date: '2026-10-08' });
   return id;
@@ -104,7 +104,7 @@ test('refus de signer : enregistré par le RH, refusé sur un compte rendu déj�
   await y.run(y.MEHDI, 'entretien.signer', { id: id2 });
   await y.refus(y.RH, 'entretien.remettre', { id: id2, mode: 'refus' }, /signé par le salarié le 10 oct\. 2026 : aucun refus/);
   // Planifié, pas encore clos : rien à remettre.
-  await y.refus(y.RH, 'entretien.remettre', { id: (await entretienDe(y.db, 1, 'planifie')), mode: 'main_propre' }, /à clore d’abord/);
+  await y.refus(y.RH, 'entretien.remettre', { id: await entretienDe(y.db, 1, 'planifie'), mode: 'main_propre' }, /à clore d’abord/);
 });
 
 test('mise à disposition dans le portail : e-mail avec le seul lien vers Cursus, premier téléchargement daté', async () => {

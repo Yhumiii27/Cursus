@@ -245,7 +245,7 @@ test('connexion Microsoft 365 (OpenID Connect, faux fournisseur local)', async t
     const s = await srv.call('/api/session', { cookie: r.session });
     assert.deepEqual([s.json.user.nom, s.json.user.role, s.json.methode, s.json.compte.identifiant], ['Karim Haddad', 'manager', 'microsoft', karim.identifiant]);
     assert.equal((await srv.call('/api/data', { cookie: r.session })).status, 200);
-    const j = (await derniere('connexion'));
+    const j = await derniere('connexion');
     assert.deepEqual([j.actor, j.role, j.identifiant], ['Karim Haddad', 'manager', karim.identifiant]);
     assert.match(j.message, /première connexion, compte rattaché/);
     // Connexions suivantes : retrouvé par son oid, même si l'adresse de connexion a changé chez Microsoft.
@@ -289,7 +289,7 @@ test('connexion Microsoft 365 (OpenID Connect, faux fournisseur local)', async t
     for (const [label, o, re] of cas) {
       const r = await allerRetour(id, o);
       refuse(r, 'jeton', label);
-      const j = (await derniere('connexion.refusee'));
+      const j = await derniere('connexion.refusee');
       assert.match(j.message, re, label);
       assert.equal(j.actor, 'Microsoft 365', label);
     }
@@ -343,21 +343,21 @@ test('connexion Microsoft 365 (OpenID Connect, faux fournisseur local)', async t
   await t.test('compte inconnu, désactivé, salarié sorti : accès non autorisé, journalisé', async () => {
     const inconnu = await allerRetour({ oid: 'oid-inconnu', upn: 'Paul.Durand@entreprise.example', name: 'Paul Durand' });
     refuse(inconnu, 'acces', 'compte inconnu');
-    let j = (await derniere('connexion.refusee'));
+    let j = await derniere('connexion.refusee');
     assert.deepEqual([j.actor, j.identifiant], ['Paul Durand', null]);
     assert.match(j.message, /aucun compte Cursus pour paul\.durand@entreprise\.example/);
     assert.equal(json(j.payload).oid, 'oid-inconnu');
     const e = ERREURS_MICROSOFT.acces;
     assert.equal(`${e.titre} : ${e.texte}`, 'Accès non autorisé : demandez l’ouverture d’un compte au service RH.', 'message affiché par l’écran de connexion');
     // Un compte Cursus (local) ne s'ouvre jamais par Microsoft, même avec la même adresse.
-    const local = (await compte(`type = 'local' AND emp_id IS NOT NULL`));
+    const local = await compte(`type = 'local' AND emp_id IS NOT NULL`);
     refuse(await allerRetour({ oid: 'oid-local', upn: local.identifiant }), 'acces', 'compte local');
 
     // Compte désactivé : refus, journalisé à son nom ; l'oid n'est pas rattaché.
     const s = await allerRetour({ oid: 'oid-collab', upn: collab.identifiant });
     await db.update('comptes', collab.id, { actif: false });
     refuse(await allerRetour({ oid: 'oid-collab', upn: collab.identifiant }), 'ferme', 'compte désactivé');
-    j = (await derniere('connexion.refusee'));
+    j = await derniere('connexion.refusee');
     assert.match(j.message, /Compte désactivé/);
     assert.equal(j.identifiant, collab.identifiant);
     assert.equal((await srv.call('/api/data', { cookie: s.session })).status, 401, 'sessions fermées');
@@ -445,7 +445,7 @@ test('connexion Microsoft 365 (OpenID Connect, faux fournisseur local)', async t
   });
 
   await t.test('journal : jamais de secret, de code ni de jeton', async () => {
-    const tout = JSON.stringify((await journal()));
+    const tout = JSON.stringify(await journal());
     assert.ok(!tout.includes(SECRET));
     assert.ok(!/eyJ[\w-]+\.eyJ/.test(tout), 'aucun jeton');
   });
@@ -482,7 +482,7 @@ test('retour avec une erreur, par un visiteur anonyme : motif reconnu seulement,
   await retour('consent_required');
   assert.equal((await refus()).at(-1), 'Microsoft 365 : connexion refusée par Microsoft (consent_required)');
   for (let i = 0; i < 40; i++) assert.equal((await retour(`Faux motif ${i}`)).location, '/?connexion=refus');
-  const lignes = (await refus());
+  const lignes = await refus();
   assert.equal(lignes.length, 31, '30 refus journalisés, puis une ligne qui signale la suite');
   assert.match(lignes.at(-1)!, /30 refus en moins de 15 minutes depuis cette adresse — les suivants ne sont plus journalisés/);
   assert.ok(!lignes.some(m => m.includes('Faux motif') || m.includes('06 00')));

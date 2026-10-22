@@ -206,9 +206,9 @@ test('t041 information au retour : tâche du service RH, e-mail sans la nature, 
   assert.ok(ids.includes(a2.id) && !ids.includes(a1.id));
   assert.ok(!retoursAInformer(await domain()).some(r => r.e.id === 18), 'arrêt en cours');
   const id = async (sql: string) => ((await db.one(sql)) as { id: number }).id;
-  await refused(ADMIN, 'conges.informer', { id: (await id(`SELECT id FROM absences WHERE emp_id = 18 AND type = 'MALADIE'`)) }, /Absence en cours/);
+  await refused(ADMIN, 'conges.informer', { id: await id(`SELECT id FROM absences WHERE emp_id = 18 AND type = 'MALADIE'`) }, /Absence en cours/);
   await refused(ADMIN, 'conges.informer', { id: a1.id }, /suivie d’un autre arrêt/);
-  await refused(ADMIN, 'conges.informer', { id: (await id(`SELECT id FROM absences WHERE emp_id = 10 AND type = 'MARIAGE'`)) }, /arrêt de maladie ou d’accident/, 404);
+  await refused(ADMIN, 'conges.informer', { id: await id(`SELECT id FROM absences WHERE emp_id = 10 AND type = 'MARIAGE'`) }, /arrêt de maladie ou d’accident/, 404);
   await refused(SOPHIE, 'conges.informer', { id: t.a.id }, /réservée au service RH/, 403);
   await refused(PAIE, 'conges.informer', { id: t.a.id }, /réservée au service RH/, 403);
   // Un report légal de Marion courait pendant l'arrêt : il court 15 mois à compter de l'information.

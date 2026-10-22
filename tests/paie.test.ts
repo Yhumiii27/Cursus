@@ -99,14 +99,14 @@ test('t019 configuration : SAGE_MODE=api (inconnu), SAGE_URL et simulation refus
 
 test('t019 transmission : mode fichier refusé sans rien marquer ; simulation annoncée comme telle', async () => {
   const { db, run, refus, transmises, ADMIN, PAIE } = await fresh();
-  const avant = (await transmises()), lots = async () => await db.count('lotsPaie'), avantLots = await lots();
+  const avant = await transmises(), lots = async () => await db.count('lotsPaie'), avantLots = await lots();
   // Toutes les rubriques confirmées : seul le mode bloque.
   for (const code of Object.keys(RUBRIQUES_PAIE)) await run(ADMIN, 'paie.rubrique', { code, confirmer: true });
   await avecEnv({ SAGE_MODE: 'fichier' }, async () => await refus(PAIE, 'temps.pushSage', {}, 503, /rien n’est envoyé directement à Sage Paie/));
-  assert.equal((await transmises()), avant, 'aucune feuille marquée transmise');
+  assert.equal(await transmises(), avant, 'aucune feuille marquée transmise');
   assert.equal(await lots(), avantLots, 'aucun lot enregistré');
   const msg = await avecEnv({ SAGE_MODE: undefined }, async () => await run(PAIE, 'temps.pushSage', {}));
-  assert.match(String(msg), /^\d+ feuilles marquées transmises — simulation, rien n’est envoyé à Sage Paie · période octobre 2026 · 5 absences$/);
+  assert.match(String(msg), /^\d+ feuilles marquées transmises — simulation, rien n’est envoyé à Sage Paie · période octobre 2026 · 5 absences · 3 séjours \(déplacements\) · \d+ éléments à saisir dans Sage \(rubrique désactivée ou réglage décoché : voir le résumé du lot\)$/);
   assert.deepEqual([(await dernierLot(db)).mode, (await dernierLot(db)).statut, (await dernierLot(db)).reference], ['simulation', 'transmis', (await dernierLot(db)).reference!.startsWith('SIM-') ? (await dernierLot(db)).reference : 'SIM-…']);
   assert.ok((await transmises()) > avant);
 });
@@ -225,7 +225,7 @@ test('t022 rubriques : pré-remplies au code interne, à confirmer ; saisie, con
   assert.deepEqual(table.map(r => r.code), Object.keys(RUBRIQUES_PAIE), 'tous les codes émis, HSF25 et HSF50 compris');
   // Rubriques de sortie (t128) désactivées par défaut : le solde de tout compte reste saisi dans Sage.
   assert.ok(table.every(r => r.codeSage === r.code && r.active === !RUBRIQUES_PAIE[r.code].inactiveParDefaut && !r.confirmee));
-  assert.deepEqual(table.filter(r => !r.active).map(r => r.code), ['ICCP_J', 'RTT_SOLDE', 'RECUP_H', 'CET_LIQ']);
+  assert.deepEqual(table.filter(r => !r.active).map(r => r.code), ['ICCP_J', 'RTT_SOLDE', 'RECUP_H', 'CET_LIQ', 'GD_JOUR', 'GD_NUIT', 'ETR_JOUR', 'TRAJET']);
   await refus(GEST, 'paie.rubrique', { code: 'HN', confirmer: true }, 403);
   await refus(PAIE, 'paie.rubrique', { code: 'XX', codeSage: '1' }, 404);
   await refus(PAIE, 'paie.rubrique', { code: 'HN', codeSage: 'code avec espaces' }, 400, /20 caractères au plus/);
@@ -268,7 +268,7 @@ test('t022 rubriques : pré-remplies au code interne, à confirmer ; saisie, con
 
 test('t022 hors simulation, une rubrique utilisée sans code confirmé bloque la transmission, avec la liste', async () => {
   const { db, run, refus, transmises, ADMIN, PAIE } = await fresh();
-  const avant = (await transmises());
+  const avant = await transmises();
   await avecEnv({ SAGE_MODE: 'fichier' }, async () => {
     await refus(PAIE, 'paie.lotGenerer', { periode: '2026-10' }, 409, /^Transmission impossible : code Sage à confirmer pour les rubriques HN \(Heures normales\), HSF25 \(.*\), HS25 \(.*\), JTRAV \(Jours travaillés, forfait jours\), CP \(.*\), RTT \(.*\), ABS_IND_SANTE \(.*\) \(écran Temps, « Rubriques de paie »\)$/);
     // Rubriques non utilisées par les feuilles et absences en attente (HS50, RCR_ACQUIS…) : sans effet ; désactivée : plus
@@ -280,7 +280,7 @@ test('t022 hors simulation, une rubrique utilisée sans code confirmé bloque la
     assert.match(String(await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' })), /^Lot n° \d+ généré — .* · téléchargez le fichier d’import/);
     await refus(PAIE, 'temps.pushSage', {}, 400, /Aucune feuille validée en attente/);
   });
-  assert.equal((await transmises()), avant, 'lot généré : rien n’est transmis avant la confirmation de l’import');
+  assert.equal(await transmises(), avant, 'lot généré : rien n’est transmis avant la confirmation de l’import');
   await run(PAIE, 'paie.lotAnnuler', { id: (await dernierLot(db)).id });
   // Simulation : les codes à confirmer ne bloquent pas, mais les rubriques désactivées ne partent pas.
   await run(PAIE, 'temps.pushSage', {});
@@ -363,7 +363,7 @@ test('t025 transmission : une ligne par période, ventilation jour par jour exac
   assert.ok(c.suites!.some(x => x === 'Rappel : 1 feuille de septembre 2026, période close, part sur octobre 2026.'), c.suites!.join(' | '));
   assert.ok(c.suites!.some(x => /^Simulation : rien n’est envoyé à Sage Paie/.test(x)));
   assert.ok(c.suites!.some(x => /samedi et dimanche compris/.test(x)));
-  assert.match(String(await run(PAIE, 'temps.pushSage', {})), /· période octobre 2026 · rappel de septembre 2026 · 5 absences$/);
+  assert.match(String(await run(PAIE, 'temps.pushSage', {})), /· période octobre 2026 · rappel de septembre 2026 · 5 absences · 3 séjours \(déplacements\) · \d+ éléments à saisir dans Sage \(rubrique désactivée ou réglage décoché : voir le résumé du lot\)$/);
   const push = (await dernierLot(db)).contenu!;
   // Camille (1) : matricule de paie 004101.
   assert.deepEqual(push.lignes.filter(l => l.matricule === '004101').map(l => [l.semaine, l.periode, l.periode_origine ?? null]),

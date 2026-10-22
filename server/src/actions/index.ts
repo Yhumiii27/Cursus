@@ -2,6 +2,7 @@
 import { absencesActions } from './absences.ts';
 import { activitesActions } from './activites.ts';
 import { annulationEntretienActions } from './annulation-entretien.ts';
+import { avenantsActions } from './avenants.ts';
 import { budgetActions } from './budget.ts';
 import { cloturesActions } from './clotures.ts';
 import { informationRetourActions } from './information-retour.ts';
@@ -18,9 +19,11 @@ import { envoisActions } from './envois.ts';
 import { equipesActions } from './equipes.ts';
 import { equipeModifierActions } from './equipe-modifier.ts';
 import { exercicesActions } from './exercices.ts';
+import { hierarchieActions } from './hierarchie.ts';
 import { messagerieActions } from './messagerie.ts';
 import { paieActions } from './paie.ts';
 import { parametresActions } from './parametres.ts';
+import { piecesActions } from './pieces.ts';
 import { referentielsActions } from './referentiels.ts';
 import { remiseActions } from './remise.ts';
 import { reouvertureActions } from './reouverture.ts';
@@ -33,6 +36,10 @@ import { suiviFeuillesActions } from './suivi-feuilles.ts';
 import { contratsActions } from './contrats.ts';
 import { tempsActions } from './temps.ts';
 import { voyagesActions } from './voyages.ts';
+import { deplacementsPaieActions } from './deplacements-paie.ts';
+import { contactUrgenceActions } from './contact-urgence.ts';
+import { feriesActions } from './feries.ts';
+import { horairesActions } from './horaires.ts';
 
 export const ACTIONS: Record<string, ActionHandler> = {
   ...conformiteActions,
@@ -44,6 +51,7 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...absencesActions,
   ...entretiensActions,
   ...equipesActions,
+  ...hierarchieActions,
   ...parametresActions,
   ...comptesActions,
   ...envoisActions,
@@ -55,6 +63,7 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...informationRetourActions,
   ...sortiesActions,
   ...contratsActions,
+  ...avenantsActions,
   ...paieActions,
   ...remiseActions,
   ...exercicesActions,
@@ -68,6 +77,11 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...delegationActions,
   ...reposDominicalActions,
   ...correctionsActions,
+  ...piecesActions,
+  ...deplacementsPaieActions,
+  ...contactUrgenceActions,
+  ...feriesActions,
+  ...horairesActions,
 };
 
 /**
@@ -76,5 +90,5 @@ export const ACTIONS: Record<string, ActionHandler> = {
  * après toute autre action, les verdicts transmis à Keystone sont recalculés (integrations/keystone-verdicts.ts).
  * Les actions d'absence en font partie : une absence pendant la présence sur un chantier bloque la ressource.
  */
-const SANS_EFFET_VERDICT = ['temps.', 'cet.', 'report.', 'conges.', 'entretien.', 'budget.', 'equipe.', 'envoi.', 'convocation.', 'messagerie.', 'notification.', 'releve.', 'paie.', 'confidentialite.', 'mandat.'];
+const SANS_EFFET_VERDICT = ['temps.', 'cet.', 'report.', 'conges.', 'entretien.', 'budget.', 'equipe.', 'envoi.', 'convocation.', 'messagerie.', 'notification.', 'releve.', 'paie.', 'confidentialite.', 'mandat.', 'piece.'];
 export const changeVerdicts = (nom: string) => !SANS_EFFET_VERDICT.some(p => nom.startsWith(p));

@@ -93,8 +93,9 @@ test('configuration de production : chaque cas dangereux est refusé', () => {
     ['démonstration exposée au réseau', { ...PROD_OK, CURSUS_DEMO: '1', CURSUS_HOST: '0.0.0.0' }, /boucle locale.*0\.0\.0\.0/],
     ['démonstration exposée (HOST)', { ...PROD_OK, CURSUS_DEMO: '1', HOST: '192.168.1.20' }, /boucle locale.*192\.168\.1\.20/],
     // Écoute par défaut sur 127.0.0.1 : c'est aussi Cursus derrière le reverse proxy, donc publié.
-    ['démonstration derrière le reverse proxy', { ...PROD_OK, CURSUS_DEMO: '1' }, /jamais derrière le reverse proxy.*127\.0\.0\.1 par défaut/],
+    ['démonstration derrière le reverse proxy', { ...PROD_OK, CURSUS_DEMO: '1' }, /CURSUS_DEMO_PUBLIQUE=1.*127\.0\.0\.1 par défaut/],
     ['cookie sans Secure', { ...PROD_OK, CURSUS_INSECURE_COOKIE: '1' }, /CURSUS_INSECURE_COOKIE/],
+    ['démonstration publique sans démonstration', { ...PROD_OK, CURSUS_DEMO_PUBLIQUE: '1' }, /CURSUS_DEMO_PUBLIQUE=1 est définie sans CURSUS_DEMO=1/],
   ];
   for (const [label, env, re] of cas) {
     const pbs = problemesConfig(env);
@@ -108,6 +109,10 @@ test('configuration de production : chaque cas dangereux est refusé', () => {
   assert.deepEqual(problemesConfig({ ...PROD_OK, CURSUS_DEMO: '1', HOST: '127.0.0.1' }), [], 'boucle locale posée par HOST');
   assert.equal(problemesConfig({ ...PROD_OK, CURSUS_DEMO: '1', CURSUS_INSECURE_COOKIE: '1' }).length, 2, 'démonstration et cookie sans Secure, faute d’adresse explicite');
   assert.equal(problemesConfig({ CURSUS_DEMO: '0' }).length, 2, 'secret et clé Keystone signalés hors production');
+  // Instance de démonstration publiée derrière le proxy (Coolify), autorisée explicitement : secret et clé toujours exigés.
+  assert.deepEqual(problemesConfig({ ...PROD_OK, CURSUS_DEMO: '1', CURSUS_DEMO_PUBLIQUE: '1', CURSUS_HOST: '0.0.0.0' }), [], 'démonstration publique');
+  assert.match(problemesConfig({ NODE_ENV: 'production', CURSUS_DEMO: '1', CURSUS_DEMO_PUBLIQUE: '1', CURSUS_HOST: '0.0.0.0', KEYSTONE_API_KEY: 'k' }).join(' '), /CURSUS_SECRET est absente/);
+  assert.equal(problemesConfig({ ...PROD_OK, CURSUS_DEMO: '1', CURSUS_DEMO_PUBLIQUE: '0', CURSUS_HOST: '0.0.0.0' }).length, 1, 'seule la valeur 1 autorise');
 });
 
 test('production : refus de démarrer, chaque problème listé, code de sortie 1', async () => {
@@ -297,6 +302,17 @@ test('démonstration en production (application de bureau) : requêtes de ce pos
   assert.equal(await db.count('employes'), salaries);
   assert.equal((await srv.call('/api/data', { cookie: c })).status, 200, 'le poste lui-même reste servi');
   assert.match(srv.out(), /n’est pas admise derrière un reverse proxy/);
+});
+
+test('démonstration publiée (CURSUS_DEMO_PUBLIQUE=1) : servie derrière le proxy, avertissement au démarrage', async () => {
+  const srv = await startServer('demo-publique', { ...PROD_OK, CURSUS_DEMO: '1', CURSUS_DEMO_PUBLIQUE: '1', CURSUS_HOST: '127.0.0.1' });
+  assert.match(srv.out(), /Démonstration publiée \(CURSUS_DEMO_PUBLIQUE=1\)/);
+  assert.ok((await new Db(srv.db).count('employes')) > 0, 'données de démonstration chargées');
+  const fwd = { 'x-forwarded-for': '203.0.113.9', 'x-forwarded-proto': 'https' };
+  const r = await srv.call('/api/session', { headers: fwd });
+  assert.equal(r.status, 200);
+  assert.equal((await r.json()).demo, true);
+  assert.equal((await srv.raw('/api/session', { host: 'cursus.example.fr' })).status, 200, 'nom public servi');
 });
 
 test('production : écoute sur la boucle locale, HSTS derrière le proxy HTTPS', async () => {

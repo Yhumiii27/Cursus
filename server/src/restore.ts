@@ -39,6 +39,11 @@ try {
   else if (r.brut) console.log(`  Base actuelle illisible, fichiers copiés tels quels dans : ${r.brut}`);
   else console.log('  Aucune base actuelle : rien à sauvegarder.');
   console.log(`  Base remplacée : ${base} (journaux -wal et -shm de l’ancienne base supprimés)`);
+  if (r.pieces) {
+    const p = r.pieces, pl = (k: number) => (k > 1 ? 's' : '');
+    console.log(`  Pièces justificatives : ${p.designees} désignée${pl(p.designees)}, ${p.restaurees} remise${pl(p.restaurees)} dans le dossier des pièces`);
+    if (p.manquantes) console.error(`  Attention : ${p.manquantes} fichier${pl(p.manquantes)} de pièce${pl(p.manquantes)} introuvable${pl(p.manquantes)} dans les sauvegardes (dossier pieces-<base> à rapatrier avec la copie).`);
+  }
   if (r.serveur) console.error(`Attention : le serveur (processus ${r.serveur.pid}) utilise encore l’ancienne base. Redémarrez-le immédiatement.`);
   else console.log('Démarrez le serveur Cursus pour reprendre le service.');
 } catch (err) {

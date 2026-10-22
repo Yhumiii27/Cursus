@@ -5,7 +5,7 @@
 import { isValidDate } from './dates.ts';
 import { CONTRATS_EXCLUABLES, PREAVIS_TOUTE_ANNEE } from './rules/campagne.ts';
 import { JOURS_RELANCE, paliersRelance } from './rules/relances.ts';
-import type { Settings } from './types.ts';
+import type { Settings, StockagePieces } from './types.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
 export const RTT_ANNEE_SUIVANTE_DES = ['', '09-01', '10-01', '11-01', '12-01'] as const;
@@ -69,6 +69,22 @@ export const texte = (max: number, libelle: string) => (v: unknown): string => {
   return t;
 };
 
+/** Stockage des pièces justificatives : désactivé ou dossier local ; la GED n'est pas encore raccordée. */
+const stockagePieces = (v: unknown, actuelle: StockagePieces): StockagePieces => {
+  if (v === 'ged') throw new ReglageInvalide('Espace documentaire (GED) pas encore raccordé à Cursus : son interface n’est pas connue. Choisissez le dossier des données de Cursus.');
+  return choix<StockagePieces>(['desactive', 'local'])(v, actuelle);
+};
+
+/**
+ * Code d'une formation du catalogue (minuscules, chiffres, « - », « _ »), ou vide. Le réglage ne lit pas le catalogue :
+ * un code inconnu ou archivé ne vaut rien et l'écran l'annonce (shared/rules/formation-renforcee.ts).
+ */
+export const codeFormation = (libelle: string) => (v: unknown): string => {
+  const t = typeof v === 'string' ? v.trim().toLowerCase() : '';
+  if (t && !/^[a-z0-9_-]{1,40}$/.test(t)) throw new ReglageInvalide(`${libelle} : code de formation invalide`);
+  return t;
+};
+
 /**
  * Table des réglages, groupée par section de Paramètres (client/src/pages/parametres/) : un champ de Settings sans sa
  * ligne ici est une erreur de compilation. Chaque valeur enregistrée est tracée dans le journal (anciennes et nouvelles
@@ -117,6 +133,11 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   //   de renouvellement en préfecture) puis relance à 2 mois —
   titreSejourAlerte: { defaut: 120, controle: entier(30, 180, 15) },
   titreSejourRelance: { defaut: 60, controle: entier(15, 120, 15) },
+  //   CDD (shared/rules/cdd.ts) : règles supplétives de la loi par défaut, 2 renouvellements (art. L1243-13-1) et durée
+  //   maximale selon le motif (0, art. L1242-8-1) ; un accord de branche peut y déroger (sa référence est alors exigée) —
+  cddRenouvellementsMax: { defaut: 2, controle: entier(0, 6) },
+  cddDureeMaxMois: { defaut: 0, controle: entier(0, 60) },
+  cddAccordBranche: { defaut: '', controle: texte(120, 'Référence de l’accord de branche') },
   // — Récapitulatif des échéances (parametres/RelancesEcheances.tsx, shared/rules/relances.ts) : actif, à 90, 30 et 7 jours
   //   puis échu, chaque jour à 7 h —
   relancesActives: { defaut: true, controle: booleen },
@@ -152,6 +173,27 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   absencesFichierPaie: { defaut: true, controle: booleen },
   //   Date de mise en service : jours d'absence d'avant jamais transmis (traités par Lucca et Sage), vide par défaut —
   absencesPaieAPartirDu: { defaut: null, controle: dateOuVide('Absences transmises à partir du') },
+  // — Pièces justificatives (parametres/Pieces.tsx, shared/rules/pieces.ts) : désactivées par défaut (réponse de l'entreprise
+  //   du 18 octobre 2026), activées par l'administrateur RH après avis du DPO ; la GED attend son adaptateur
+  //   (server/src/integrations/ged.ts), son choix est refusé d'ici là —
+  piecesStockage: { defaut: 'desactive', controle: stockagePieces },
+  // — Postes à risques particuliers (parametres/PostesRisques.tsx, shared/rules/formation-renforcee.ts) : formation
+  //   renforcée à la sécurité non désignée par défaut (aucune exigence, avertissement à l'écran) —
+  formationRenforceeCode: { defaut: '', controle: codeFormation('Formation renforcée à la sécurité') },
+  // — Entretien de mi-carrière (parametres/EntretienMiCarriere.tsx, shared/rules/entretien-mi-carriere.ts) : actif, 2 mois
+  //   après la visite par défaut, lecture la plus prudente du texte, à confirmer juridiquement —
+  entretienMiCarriereActif: { defaut: true, controle: booleen },
+  entretienMiCarriereMois: { defaut: 2, controle: entier(1, 12) },
+  // — Hiérarchie des managers (parametres/Hierarchie.tsx, t136) : consultation N+2 en lecture seule, désactivée par défaut
+  //   (réponse de l'entreprise du 18 octobre 2026) —
+  consultationN2: { defaut: false, controle: booleen },
+  // — Déplacements dans le fichier de paie (parametres/DeplacementsPaie.tsx, shared/rules/deplacements-paie.ts, t031) :
+  //   désactivé par défaut (réponse de l'entreprise du 18 octobre 2026) tant que la paie n'a pas confirmé ses codes ; les
+  //   quantités restent calculées, à saisir dans Sage. Date de mise en service : jours d'avant jamais transmis —
+  deplacementsFichierPaie: { defaut: false, controle: booleen },
+  deplacementsPaieAPartirDu: { defaut: null, controle: dateOuVide('Déplacements transmis à partir du') },
+  //   Vigilance des pays (shared/rules/vigilance.ts, t068) : rappel avant un départ si la vérification a plus de N jours —
+  vigilanceRappelJours: { defaut: 30, controle: entier(7, 180) },
 };
 
 /**
@@ -167,6 +209,10 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
   s => (s.campagneDebut > s.campagneFin ? 'Campagne d’entretiens : l’ouverture doit précéder la clôture, dans la même année' : null),
   // — Contrats : la relance d'un titre de séjour vient après la première alerte —
   s => (s.titreSejourRelance >= s.titreSejourAlerte ? 'Titres de séjour : la relance doit être plus proche de l’expiration que la première alerte' : null),
+  // — Contrats : une durée ou un nombre de renouvellements des CDD autres que ceux de la loi suppose un accord de branche
+  // étendu (art. L1242-8 et L1243-13) —
+  s => ((s.cddRenouvellementsMax !== 2 || s.cddDureeMaxMois > 0) && !s.cddAccordBranche
+    ? 'CDD : une durée maximale ou un nombre de renouvellements autres que ceux de la loi supposent un accord de branche étendu (art. L1242-8 et L1243-13) : indiquez sa référence' : null),
   // — Santé : la visite intermédiaire du suivi renforcé vient avant le renouvellement de l'examen d'aptitude —
   s => (s.santeSirIntermediaireMois > s.santeSirAptitudeMois ? 'Suivi individuel renforcé : la visite intermédiaire ne peut pas venir après l’examen d’aptitude' : null),
   // — Décompte des heures : le tiers pour les heures complémentaires (art. L3123-20) et une moyenne de 46 h sur 12 semaines

@@ -11,6 +11,7 @@ import type { Declaration, DemandeCollab, DemandeKeystone, Employe, Vaccination,
 import { sendToKeystone } from '../integrations/keystone.ts';
 import { motifsRefusAcceptation } from '../integrations/keystone-entrant.ts';
 import { ActionError, getEmp, isRh, isSelf, requireRh, str, type ActionHandler, type Ctx } from './context.ts';
+import { deplacerPieces, joindrePieces } from './pieces.ts';
 
 const creer: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
@@ -94,13 +95,16 @@ const formalite: ActionHandler = async (ctx, p) => {
   const remplacees = ctx.ds.demandesCollab.filter(r => r.empId === emp.id && r.type === 'document' && r.statut === 'attente'
     && r.declaration && !r.declaration.dejaAuDossier && formaliteCle(r.declaration) === cle);
   for (const r of remplacees) await ctx.db.remove('demandesCollab', r.id);
-  await ctx.db.insert<DemandeCollab>('demandesCollab', {
+  const dem = await ctx.db.insert<DemandeCollab>('demandesCollab', {
     empId: emp.id, type: 'document', f: null, h: null, libelle: null, label: declarationLabel(ctx.d, x), sessionId: null, motif: null,
     date: ctx.d.ti, statut: 'attente', reponse: null, parId: null, declaration: x,
   });
-  return remplacees.length
+  // Pièces de la déclaration remplacée gardées avec la nouvelle, puis celles jointes à cet envoi (actions/pieces.ts).
+  for (const r of remplacees) await deplacerPieces(ctx, 'declaration', r.id, dem.id);
+  const pieces = await joindrePieces(ctx, p.pieces, 'declaration', dem.id, emp.id);
+  return (remplacees.length
     ? 'Déclaration mise à jour — elle remplace la précédente, en attente de validation par le service RH'
-    : 'Déclaration transmise au service RH — votre dossier sera mis à jour après validation';
+    : 'Déclaration transmise au service RH — votre dossier sera mis à jour après validation') + pieces;
 };
 
 const importer: ActionHandler = async (ctx, p) => {

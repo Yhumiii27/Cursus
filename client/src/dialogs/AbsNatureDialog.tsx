@@ -4,13 +4,15 @@
 // (pour mémoire) et date de reprise inscrite sur la fiche après une absence longue (`repriseAInscrire`, comme le serveur).
 import { useState } from 'react';
 import { CATEGORIES_ABSENCE, NATURES_ABSENCE, PAIE_ABSENCE, type CategorieAbsence } from '../../../shared/constants.ts';
-import { isValidDate } from '../../../shared/dates.ts';
+import { isoParis, isValidDate } from '../../../shared/dates.ts';
 import { fJ, fmtIso } from '../../../shared/format.ts';
 import { estNature, periodeTexte, repriseAInscrire, uniteDecompte } from '../../../shared/rules/absences.ts';
 import { checkNature } from '../../../shared/rules/conges.ts';
+import { piecesDe } from '../../../shared/rules/pieces.ts';
 import type { NatureAbsence } from '../../../shared/types.ts';
 import { erreursPeriode } from '../components/controles.ts';
 import { CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
+import { ChoixPiece, PiecesJointes, usePieceJointe } from '../components/PieceJointe.tsx';
 import { Fine } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -28,10 +30,16 @@ export function AbsNatureDialog({ empId, id }: { empId?: number | null; id?: num
   const [nature, setNature] = useState<NatureAbsence | ''>(a && estNature(a.type) ? a.type : '');
   const [du, setDu] = useState(a?.du ?? '');
   const [au, setAu] = useState(a?.au ?? '');
-  const [just, setJust] = useState(a?.justificatif ?? false);
-  const [justLe, setJustLe] = useState(a?.justificatifLe ?? d.ti);
+  // Pièces déjà jointes (souvent envoyées par l'intéressé) : « Justificatif reçu » coché d'emblée, reçu le jour du premier
+  // envoi ; le service RH les ouvre avant de valider, et décoche si la pièce ne convient pas.
+  const jointes = a ? piecesDe(d.ds.pieces, 'absence', a.id) : [];
+  const [just, setJust] = useState(a?.justificatif || jointes.length > 0);
+  const premierEnvoi = jointes.map(p => isoParis(new Date(p.deposeLe))).sort()[0];
+  const [justLe, setJustLe] = useState(a?.justificatifLe ?? (premierEnvoi && premierEnvoi < d.ti ? premierEnvoi : d.ti));
   const [busy, setBusy] = useState(false);
   const v = useVerification();
+  // Justificatif joint (pièce justificative, components/PieceJointe.tsx) : coche « Justificatif reçu » aujourd'hui.
+  const piece = usePieceJointe();
   if (id != null && !a) return null;
 
   const emp = sel != null ? d.emp(sel) : undefined;
@@ -50,9 +58,11 @@ export function AbsNatureDialog({ empId, id }: { empId?: number | null; id?: num
 
   const pickDu = (x: string) => { setDu(x); if (!au || au < x) setAu(x); };
   const confirm = async () => {
-    if (busy || !v.verifier(empErr, natureErr, periode.du, periode.au, justErr, chk?.cant)) return;
+    if (busy || !v.verifier(empErr, natureErr, periode.du, periode.au, justErr, chk?.cant, piece.erreur)) return;
     setBusy(true);
-    const payload = { nature, du, au, justificatif: just, justificatifLe: just ? justLe : null };
+    const pieces = await piece.envoyer();
+    if (!pieces) { setBusy(false); return; }
+    const payload = { nature, du, au, justificatif: just, justificatifLe: just ? justLe : null, ...(pieces.length ? { pieces } : {}) };
     const r = await run(a ? 'absence.qualifier' : 'absence.saisir', a ? { id: a.id, ...payload } : { empId: sel, ...payload });
     setBusy(false);
     if (r.ok) closeDialog();
@@ -108,6 +118,9 @@ export function AbsNatureDialog({ empId, id }: { empId?: number | null; id?: num
         <Field label="Du" htmlFor="an-du" requis erreur={v.erreur(periode.du)}><input className="input" id="an-du" type="date" value={du} onChange={ev => pickDu(ev.target.value)} /></Field>
         <Field label="Au (inclus)" htmlFor="an-au" requis erreur={v.erreur(periode.au)}><input className="input" id="an-au" type="date" value={au} min={du || undefined} onChange={ev => setAu(ev.target.value)} /></Field>
       </div>
+      <PiecesJointes objet="absence" objetId={a?.id} label="Justificatifs reçus" />
+      <ChoixPiece piece={piece} id="an-piece" label="Joindre le justificatif" aide="Visible du service RH et du salarié seulement."
+        onChoix={f => { if (f) { setJust(true); if (!justLe) setJustLe(d.ti); } }} />
       <div className="grid-2">
         <label style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-2)', fontSize: 14, alignSelf: 'end', paddingBottom: 'var(--space-2)' }}>
           <input type="checkbox" checked={just} onChange={ev => setJust(ev.target.checked)} style={{ accentColor: 'var(--color-accent)' }} />

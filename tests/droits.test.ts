@@ -93,7 +93,25 @@ const envoiEnEchec = async () => (await db.insert<{ id: number }>('envois', {
   cible: 'keystone', type: 'heures.validees', cle: 'essai-droits', contenu: {}, statut: 'echec', tentatives: 1, prochaine: null,
   erreur: 'HTTP 400', accuse: null, creation: '2026-10-07T08:00:00.000Z', tentative: '2026-10-07T08:00:00.000Z', envoi: null, classe: null,
 })).id;
-interface Ligne { action: string; variante?: string; droits: string; p: () => Record<string, unknown> | Promise<Record<string, unknown>>; env?: Record<string, string> }
+/**
+ * Pièce justificative envoyée par le compte de la personne qui agit (le jeton ne vaut que pour lui), stockage local
+ * activé pour l'essai ; renvoie son jeton.
+ */
+const pieceEnvoyee = async (u: User) => {
+  await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), piecesStockage: 'local' });
+  await db.insert('pieces', {
+    jeton: `essai-${u.compteId}`, nom: 'attestation.pdf', type: 'application/pdf', taille: 5, empreinte: 'e', fichier: 'a'.repeat(32),
+    deposeLe: '2026-10-07T08:00:00.000Z', deposePar: u.nom, deposeCompteId: u.compteId,
+  });
+  return `essai-${u.compteId}`;
+};
+/** Pièce déjà jointe à un objet du dossier de Mehdi. */
+const pieceJointe = async (objet: string, objetId: number) => (await db.insert<{ id: number }>('pieces', {
+  empId: 2, objet, objetId, nom: 'piece.pdf', type: 'application/pdf', taille: 5, empreinte: 'e', fichier: 'b'.repeat(32),
+  deposeLe: '2026-10-07T08:00:00.000Z', deposePar: 'Essai', deposeCompteId: null,
+})).id;
+// `p` reçoit la personne qui agit (pièce justificative envoyée par son compte) ; les autres lignes l'ignorent.
+interface Ligne { action: string; variante?: string; droits: string; p: (u: User) => Record<string, unknown> | Promise<Record<string, unknown>>; env?: Record<string, string> }
 
 //                                                        admin gest mgr autM coll autC  hse paie lect
 const MATRICE: Ligne[] = [
@@ -107,13 +125,23 @@ const MATRICE: Ligne[] = [
     return { id: 2 };
   } },
   // Titre de séjour valant autorisation de travail (numéro au registre unique du personnel) : service RH.
-  { action: 'employe.autorisationTravail', droits: '         O    O    -    -    -    -    -    -    -', p: async () => ({ id: 2, requise: true, type: 'salarie', numero: 'AB1234567', expire: '2027-06-30', verifieLe: '2016-08-26' }) },
-  { action: 'equipe.creer', droits: '                        O    O    -    -    -    -    -    -    -', p: async () => ({ nom: 'Méthodes' }) },
-  { action: 'equipe.renommer', droits: '                     O    O    -    -    -    -    -    -    -', p: async () => ({ nom: 'Commercial', nouveau: 'Ventes' }) },
-  { action: 'equipe.manager', droits: '                      O    O    -    -    -    -    -    -    -', p: async () => ({ nom: 'Commercial', managerId: 19 }) },
-  { action: 'equipe.modifier', droits: '                     O    O    -    -    -    -    -    -    -', p: async () => ({ nom: 'Commercial', nouveau: 'Ventes', managerId: 19 }) },
+  { action: 'employe.autorisationTravail', droits: '         O    O    -    -    -    -    -    -    -', p: () => ({ id: 2, requise: true, type: 'salarie', numero: 'AB1234567', expire: '2027-06-30', verifieLe: '2016-08-26' }) },
+  // Historique des contrats (t074, t053) : renouvellement du CDD de Lucas Martin (4), annulation d'un avenant programmé : service RH.
+  { action: 'employe.renouvelerCdd', droits: '              O    O    -    -    -    -    -    -    -', p: () => ({ id: 4, jusquau: '2027-07-30', signeLe: '2026-10-06', reference: 'Avenant n° 2' }) },
+  { action: 'employe.annulerAvenant', droits: '             O    O    -    -    -    -    -    -    -', p: async () => ({
+    id: (await db.insert<{ id: number }>('contratsHistorique', {
+      empId: 2, effet: '2027-01-01', nature: 'avenant', regime: { statut: 'technicien', typeContrat: 'cdi', temps: '35h', heures: null, forfaitHeures: null, forfaitJours: null, jourOff: [] },
+      le: '2026-10-07', par: 'Sandrine Vidal', parId: null, applique: false,
+    })).id,
+  }) },
+  { action: 'equipe.creer', droits: '                        O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Méthodes' }) },
+  { action: 'equipe.renommer', droits: '                     O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Commercial', nouveau: 'Ventes' }) },
+  { action: 'equipe.manager', droits: '                      O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Commercial', managerId: 19 }) },
+  { action: 'equipe.modifier', droits: '                     O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Commercial', nouveau: 'Ventes', managerId: 19 }) },
   { action: 'equipe.supprimer', droits: '                    O    -    -    -    -    -    -    -    -', p: async () => { await db.insert('equipes', { nom: 'Vide', managerId: null, ordre: 99 }); return { nom: 'Vide' }; } },
-  { action: 'equipe.affecter', variante: 'retrait', droits: 'O    O    O    -    -    -    -    -    -', p: async () => ({ empId: 2, equipe: null }) },
+  // Équipe parente (t136) : le manager de la Maintenance aura pour valideur celui de la Production.
+  { action: 'equipe.parente', droits: '                     O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Maintenance', parente: 'Production' }) },
+  { action: 'equipe.affecter', variante: 'retrait', droits: 'O    O    O    -    -    -    -    -    -', p: () => ({ empId: 2, equipe: null }) },
   // Le manager n'accueille qu'un salarié « à affecter » (libéré par son manager) ; une mutation directe relève du RH.
   { action: 'equipe.affecter', variante: 'salarié à affecter', droits: 'O    O    O    -    -    -    -    -    -', p: async () => {
     await db.update('employes', 20, { equipe: null });
@@ -121,21 +149,21 @@ const MATRICE: Ligne[] = [
   } },
   { action: 'equipe.affecter', variante: 'membre d’une autre équipe', droits: 'O    O    -    -    -    -    -    -    -', p: async () => ({ empId: 20, equipe: 'Maintenance' }) },
   // Formations, certifications, habilitations
-  { action: 'plan.inscrire', droits: '                       O    O    O    -    -    -    O    -    -', p: async () => ({ empId: 2, certId: (await cert('sst')), sessionId: 2, conv: 'now' }) },
+  { action: 'plan.inscrire', droits: '                       O    O    O    -    -    -    O    -    -', p: async () => ({ empId: 2, certId: await cert('sst'), sessionId: 2, conv: 'now' }) },
   // Convocations (e-mail avec .ics) et désinscription : service RH, référent HSE / formation ou manager direct.
   { action: 'convocation.envoyer', droits: '                 O    O    O    -    -    -    O    -    -', p: async () => {
-    await db.update('certifications', (await cert('sst')), { sessionId: 2, convoc: 'later' });
+    await db.update('certifications', await cert('sst'), { sessionId: 2, convoc: 'later' });
     return { sessionId: 2, empIds: [2] };
   } },
   { action: 'plan.desinscrire', droits: '                    O    O    O    -    -    -    O    -    -', p: async () => {
-    await db.update('certifications', (await cert('sst')), { sessionId: 2, convoc: 'now' });
+    await db.update('certifications', await cert('sst'), { sessionId: 2, convoc: 'now' });
     return { empId: 2, sessionId: 2 };
   } },
   { action: 'cert.ajouter', droits: '                        O    O    -    -    -    -    O    -    -', p: async () => ({ empId: 2, f: 'sst', date: '2026-10-01' }) },
   // Corrections d'une saisie erronée : modification (service RH, référent HSE), suppression (administrateur RH), motif exigé.
-  { action: 'cert.modifier', droits: '                       O    O    -    -    -    -    O    -    -', p: async () => ({ id: (await cert('sst')), date: '2025-05-05', motif: 'Date mal saisie' }) },
-  { action: 'cert.annuler', droits: '                        O    -    -    -    -    -    -    -    -', p: async () => ({ id: (await cert('sst')), motif: 'Saisie sur la mauvaise fiche' }) },
-  { action: 'session.creer', droits: '                       O    O    -    -    -    -    O    -    -', p: async () => ({ f: 'sst', date: '2026-12-01', lieu: 'Site de Lyon', places: 8 }) },
+  { action: 'cert.modifier', droits: '                       O    O    -    -    -    -    O    -    -', p: async () => ({ id: await cert('sst'), date: '2025-05-05', motif: 'Date mal saisie' }) },
+  { action: 'cert.annuler', droits: '                        O    -    -    -    -    -    -    -    -', p: async () => ({ id: await cert('sst'), motif: 'Saisie sur la mauvaise fiche' }) },
+  { action: 'session.creer', droits: '                       O    O    -    -    -    -    O    -    -', p: () => ({ f: 'sst', date: '2026-12-01', lieu: 'Site de Lyon', places: 8 }) },
   // Sessions : cycle de vie et clôture par le service RH (session 2 : SST du 18 novembre, à confirmer).
   { action: 'session.confirmer', droits: '                   O    O    -    -    -    -    O    -    -', p: async () => ({ id: 2 }) },
   { action: 'session.modifier', droits: '                    O    O    -    -    -    -    O    -    -', p: async () => ({ id: 2, lieu: 'Site de Lyon — salle C' }) },
@@ -209,7 +237,7 @@ const MATRICE: Ligne[] = [
   } },
   // Postes et exigences (t055) : service RH ; habilitation exigée demandée : service RH et référent HSE.
   { action: 'referentiel.poste.enregistrer', droits: '     O    O    -    -    -    -    -    -    -', p: async () => ({
-    id: (await posteNomme('Technicien de maintenance')), nom: 'Technicien de maintenance', formations: ['elec', 'sst'], habilitations: ['he'],
+    id: await posteNomme('Technicien de maintenance'), nom: 'Technicien de maintenance', formations: ['elec', 'sst'], habilitations: ['he'],
   }) },
   { action: 'referentiel.poste.enregistrer', variante: 'création', droits: 'O    O    -    -    -    -    -    -    -', p: async () => ({ nom: 'Soudeur', formations: [], habilitations: [] }) },
   { action: 'referentiel.poste.archiver', droits: '        O    O    -    -    -    -    -    -    -', p: async () => ({
@@ -223,6 +251,10 @@ const MATRICE: Ligne[] = [
   { action: 'voyage.detachement', droits: '                  O    O    -    -    -    -    -    -    -', p: async () => ({ id: await voyage(), detachementLe: '2026-10-06' }) },
   // Modification et annulation d'un déplacement : service RH (Keystone prévenu pour un déplacement venu de Keystone).
   { action: 'voyage.modifier', droits: '                 O    O    -    -    -    -    -    -    -', p: async () => ({ id: await voyage(), depart: '2026-11-03', retour: '2026-11-06' }) },
+  // Déplacements dans la paie (t031) : qualification « grand déplacement » d'un chantier en France, service RH.
+  { action: 'chantier.grandDeplacement', droits: '       O    O    -    -    -    -    -    -    -', p: () => ({ id: 'K-2620', grandDeplacement: true }) },
+  // Contact d'urgence (t068) : le salarié pour lui-même (portail) ou le service RH ; ni le manager, ni les profils restreints.
+  { action: 'employe.contactUrgence', droits: '          O    O    -    -    O    -    -    -    -', p: () => ({ empId: 2, nom: 'Nadia Benali (sœur)', telephone: '06 12 34 56 78' }) },
   { action: 'voyage.annuler', droits: '                  O    O    -    -    -    -    -    -    -', p: async () => ({ id: await voyage(), motif: 'Chantier reporté' }) },
   { action: 'formalite.enregistrer', droits: '               O    O    -    -    O    -    -    -    -', p: async () => ({ empId: 2, kind: 'passeport', numero: '21XY12345', expire: '2032-01-01' }) },
   { action: 'voyages.importer', droits: '                    O    O    -    -    -    -    -    -    -', p: async () => ({ texte: SAMPLE_TRIPS_CSV }) },
@@ -233,14 +265,16 @@ const MATRICE: Ligne[] = [
   { action: 'plan.importer', variante: 'remplacer', droits: 'O    -    -    -    -    -    -    -    -', p: async () => ({ texte: SAMPLE_PLAN_CSV, exercice: 2026, mode: 'replace' }) },
   { action: 'budget.enveloppes', droits: '                   O    O    -    -    -    -    -    -    -', p: async () => ({ exercice: 2027, enveloppes: { Maintenance: 5000 } }) },
   // Ligne du plan saisie par erreur : correction (service RH), suppression (administrateur RH).
-  { action: 'plan.modifier', droits: '                       O    O    -    -    -    -    -    -    -', p: async () => ({ id: (await lignePrevue()), periode: 'T3', motif: 'Trimestre erroné' }) },
-  { action: 'plan.supprimer', droits: '                      O    -    -    -    -    -    -    -    -', p: async () => ({ id: (await lignePrevue()), motif: 'Doublon de l’import' }) },
+  { action: 'plan.modifier', droits: '                       O    O    -    -    -    -    -    -    -', p: async () => ({ id: await lignePrevue(), periode: 'T3', motif: 'Trimestre erroné' }) },
+  { action: 'plan.supprimer', droits: '                      O    -    -    -    -    -    -    -    -', p: async () => ({ id: await lignePrevue(), motif: 'Doublon de l’import' }) },
   { action: 'plan.avancer', droits: '                        O    O    -    -    -    -    -    -    -', p: async () => ({ id: ((await db.one(`SELECT id FROM plan_actions WHERE statut <> 'realise' LIMIT 1`)) as { id: number }).id, coutReel: 1000 }) },
   // Clôture de l'exercice 2026 (administrateur RH), une fois passé, avec le report d'une action engagée sur 2027.
   { action: 'plan.cloturerExercice', droits: '               O    -    -    -    -    -    -    -    -', env: { CURSUS_TODAY: '2027-01-05' }, p: async () => ({ exercice: 2026, reporter: [((await db.one(`SELECT id FROM plan_actions WHERE statut = 'engage' LIMIT 1`)) as { id: number }).id] }) },
   // Feuilles de temps : saisie par le salarié, son manager ou le RH ; validation par le manager ou le RH ; paie : administrateur RH.
   { action: 'temps.setCell', droits: '                       O    O    O    -    O    -    -    -    -', p: async () => { await feuille('brouillon'); return { empId: 2, week: WEEK, li: 0, di: 0, value: '7' }; } },
-  { action: 'temps.addLine', droits: '                       O    O    O    -    O    -    -    -    -', p: async () => ({ empId: 2, week: WEEK, projet: 'INT-MAINT' }) },
+  // Horaire du jour (lot 6) : mêmes droits que la saisie des heures.
+  { action: 'temps.horaire', droits: '                       O    O    O    -    O    -    -    -    -', p: async () => { await feuille('brouillon'); return { empId: 2, week: WEEK, di: 0, code: 'J' }; } },
+  { action: 'temps.addLine', droits: '                       O    O    O    -    O    -    -    -    -', p: () => ({ empId: 2, week: WEEK, projet: 'INT-MAINT' }) },
   { action: 'temps.removeLine', droits: '                    O    O    O    -    O    -    -    -    -', p: async () => { await feuille('brouillon'); return { empId: 2, week: WEEK, li: 0 }; } },
   { action: 'temps.suggest', droits: '                       O    O    O    -    O    -    -    -    -', p: async () => ({ empId: 2, week: WEEK }) },
   { action: 'temps.submit', droits: '                        O    O    O    -    O    -    -    -    -', p: async () => { await feuille('brouillon', H7); return { empId: 2, week: WEEK }; } },
@@ -266,9 +300,14 @@ const MATRICE: Ligne[] = [
   // Semaine à 7 jours : dérogation au repos dominical d'une équipe, réglée par l'administrateur RH (Paramètres).
   { action: 'temps.derogationDominicale', droits: '          O    -    -    -    -    -    -    -    -', p: async () => ({ equipe: 'Maintenance', type: 'feu_continu', reference: 'Accord du 12 mars 2024' }) },
   // Activités internes (écran Référentiels) et mandats au CSE (fiche) : service RH.
-  { action: 'referentiel.activite.enregistrer', droits: '    O    O    -    -    -    -    -    -    -', p: async () => ({ code: 'INT-ACCUEIL', nom: 'Accueil des visiteurs' }) },
-  { action: 'referentiel.activite.archiver', droits: '      O    O    -    -    -    -    -    -    -', p: async () => ({ id: 'INT-COM' }) },
-  { action: 'mandat.enregistrer', droits: '                  O    O    -    -    -    -    -    -    -', p: async () => ({ empId: 2, role: 'titulaire', du: '2026-11-01', credit: 21 }) },
+  { action: 'referentiel.activite.enregistrer', droits: '    O    O    -    -    -    -    -    -    -', p: () => ({ code: 'INT-ACCUEIL', nom: 'Accueil des visiteurs' }) },
+  { action: 'referentiel.activite.archiver', droits: '      O    O    -    -    -    -    -    -    -', p: () => ({ id: 'INT-COM' }) },
+  // Horaires de poste (lot 6) : service RH ; la lecture seule consulte.
+  { action: 'referentiel.horaire.enregistrer', droits: '     O    O    -    -    -    -    -    -    -', p: () => ({ code: 'S', nom: 'Samedi matin', debut: '06:00', fin: '12:00', pause: 0 }) },
+  { action: 'referentiel.horaire.archiver', droits: '       O    O    -    -    -    -    -    -    -', p: () => ({ id: 'AM' }) },
+  // Jours fériés et journée de solidarité d'une année (lot 6) : administrateur RH.
+  { action: 'parametres.feries', droits: '                  O    -    -    -    -    -    -    -    -', p: () => ({ annee: 2027, solidarite: 'pentecote_travaillee', nonChomes: [] }) },
+  { action: 'mandat.enregistrer', droits: '                  O    O    -    -    -    -    -    -    -', p: () => ({ empId: 2, role: 'titulaire', du: '2026-11-01', credit: 21 }) },
   { action: 'mandat.supprimer', droits: '                    O    O    -    -    -    -    -    -    -', p: async () => ({ id: (await db.insert<{ id: number }>('mandats', { empId: 2, role: 'suppleant', du: '2026-01-01', au: null, credit: 0 })).id }) },
   // Un membre du RH élu ne saisit ni ne retire son propre mandat (crédit d'heures) : un autre membre du RH le fait.
   { action: 'mandat.enregistrer', variante: 'mandat du gestionnaire RH', droits: 'O    -    -    -    -    -    -    -    -', p: async () => ({ empId: 14, role: 'titulaire', du: '2026-11-01', credit: 21 }) },
@@ -278,7 +317,7 @@ const MATRICE: Ligne[] = [
   // Relevé d'heures des intérimaires (Léa Girard, agence Proman Lyon) : service RH ou gestionnaire de paie.
   { action: 'releve.envoyer', droits: '                      O    O    -    -    -    -    -    O    -', p: async () => ({ agence: 'Proman Lyon', semaine: '2026-09-21' }) },
   // Congés
-  { action: 'absence.demander', droits: '                    O    O    O    -    O    -    -    -    -', p: async () => ({ empId: 2, kind: 'CP', du: '2026-12-07', au: '2026-12-08' }) },
+  { action: 'absence.demander', droits: '                    O    O    O    -    O    -    -    -    -', p: () => ({ empId: 2, kind: 'CP', du: '2026-12-07', au: '2026-12-08' }) },
   { action: 'absence.decider', droits: '                     O    O    O    -    -    -    -    -    -', p: async () => ({ id: ((await db.one(`SELECT id FROM absences WHERE emp_id = 2 AND statut = 'demandee'`)) as { id: number }).id, ok: true }) },
   { action: 'absence.decider', variante: 'demande du gestionnaire RH', droits: 'O    -    -    -    -    -    -    -    -', p: async () => ({ id: await demandeAntoine(), ok: true }) },
   { action: 'cet.placer', droits: '                          O    O    -    -    O    -    -    -    -', p: async () => ({ empId: 2, kind: 'RTT', jours: 1 }) },
@@ -302,23 +341,23 @@ const MATRICE: Ligne[] = [
   // Mehdi a déjà un entretien annuel planifié (le 20 octobre) : un entretien de parcours professionnel.
   { action: 'entretien.planifier', droits: '                 O    O    O    -    -    -    -    -    -', p: async () => ({ empId: 2, kind: 'epp', date: '2026-11-16' }) },
   // Annulation d'un entretien planifié : l'évaluateur (manager direct) ou le RH ; compte rendu commencé : sur confirmation.
-  { action: 'entretien.annuler', droits: '                  O    O    O    -    -    -    -    -    -', p: async () => ({ id: (await ENTRETIEN()), confirmer: true }) },
-  { action: 'entretien.modifier', droits: '                  O    O    O    -    O    -    -    -    -', p: async () => ({ id: (await ENTRETIEN()), section: 'avis', value: 'Année riche en chantiers' }) },
+  { action: 'entretien.annuler', droits: '                  O    O    O    -    -    -    -    -    -', p: async () => ({ id: await ENTRETIEN(), confirmer: true }) },
+  { action: 'entretien.modifier', droits: '                  O    O    O    -    O    -    -    -    -', p: async () => ({ id: await ENTRETIEN(), section: 'avis', value: 'Année riche en chantiers' }) },
   // Entretien prévu le 20 octobre, tenu plus tôt : la clôture porte la date à laquelle il a eu lieu.
-  { action: 'entretien.clore', droits: '                     O    O    O    -    -    -    -    -    -', p: async () => ({ id: (await ENTRETIEN()), date: '2026-10-06' }) },
+  { action: 'entretien.clore', droits: '                     O    O    O    -    -    -    -    -    -', p: async () => ({ id: await ENTRETIEN(), date: '2026-10-06' }) },
   { action: 'entretien.signer', droits: '                    -    -    -    -    O    -    -    -    -', p: async () => {
-    const id = (await ENTRETIEN());
+    const id = await ENTRETIEN();
     await db.update('entretiens', id, { statut: 'realise', signMgr: '2026-10-07' });
     return { id };
   } },
   // Remise de la copie du compte rendu clos (évaluateur ou RH) ; téléchargement enregistré pour le salarié seul.
   { action: 'entretien.remettre', droits: '                  O    O    O    -    -    -    -    -    -', p: async () => {
-    const id = (await ENTRETIEN());
+    const id = await ENTRETIEN();
     await db.update('entretiens', id, { statut: 'realise', signMgr: '2026-10-07' });
     return { id, mode: 'main_propre', date: '2026-10-07' };
   } },
   { action: 'entretien.telecharger', droits: '               -    -    -    -    O    -    -    -    -', p: async () => {
-    const id = (await ENTRETIEN());
+    const id = await ENTRETIEN();
     await db.update('entretiens', id, { statut: 'realise', signMgr: '2026-10-07' });
     return { id };
   } },
@@ -329,7 +368,7 @@ const MATRICE: Ligne[] = [
   { action: 'reprise.importer', droits: '                    O    -    -    -    -    -    -    -    -', p: async () => ({
     type: 'soldes', texte: 'Nom;CP N-1\nMehdi Benali;10', colonnes: ['nom', 'cpN1'], dateReprise: '2026-10-01',
   }) },
-  { action: 'compte.creer', droits: '                        O    -    -    -    -    -    -    -    -', p: async () => ({ type: 'microsoft', identifiant: 'paie@cabinet.example', nom: 'Cabinet Paie', profilRh: 'rh_gestionnaire' }) },
+  { action: 'compte.creer', droits: '                        O    -    -    -    -    -    -    -    -', p: () => ({ type: 'microsoft', identifiant: 'paie@cabinet.example', nom: 'Cabinet Paie', profilRh: 'rh_gestionnaire' }) },
   { action: 'compte.profil', droits: '                       O    -    -    -    -    -    -    -    -', p: async () => ({ id: (await compteDe(2)).id, profilRh: 'rh_gestionnaire' }) },
   // Compte externe de Sandrine Vidal rattaché à une fiche sans compte (celui d'Inès Dupont, retiré pour l'essai).
   { action: 'compte.rattacher', droits: '                    O    -    -    -    -    -    -    -    -', p: async () => {
@@ -352,6 +391,15 @@ const MATRICE: Ligne[] = [
   // Envois sortants (Paramètres → Envois) : le service RH suit, relance (intégration configurée) ou classe un échec.
   { action: 'envoi.relancer', droits: '                      O    O    -    -    -    -    -    -    -', p: async () => ({ id: await envoiEnEchec() }), env: { KEYSTONE_URL: 'http://keystone.essai', KEYSTONE_TOKEN: 'jeton' } },
   { action: 'envoi.classer', droits: '                       O    O    -    -    -    -    -    -    -', p: async () => ({ id: await envoiEnEchec() }) },
+  // Pièces justificatives (t133) : attestation et titre signé, service RH et référent HSE ; justificatif d'absence et document
+  // déclaré, l'intéressé et le service RH, jamais le manager (santé, passeport) ; déplacement, service RH.
+  { action: 'piece.joindre', variante: 'certification', droits: '  O    O    -    -    -    -    O    -    -', p: async u => await ({ jetons: [await pieceEnvoyee(u)], objet: 'certification', objetId: await cert('sst') }) },
+  { action: 'piece.joindre', variante: 'titre d’habilitation', droits: 'O    O    -    -    -    -    O    -    -', p: async u => await ({ jeton: await pieceEnvoyee(u), objet: 'habTitre', objetId: (await titre('hauteur')).id }) },
+  { action: 'piece.joindre', variante: 'absence', droits: '        O    O    -    -    O    -    -    -    -', p: async u => await ({ jetons: [await pieceEnvoyee(u)], objet: 'absence', objetId: await absence('signalee', 'ABSENCE') }) },
+  { action: 'piece.joindre', variante: 'document déclaré', droits: 'O    O    -    -    O    -    -    -    -', p: async u => await ({ jetons: [await pieceEnvoyee(u)], objet: 'declaration', objetId: await documentDeclare() }) },
+  { action: 'piece.joindre', variante: 'déplacement', droits: '    O    O    -    -    -    -    -    -    -', p: async u => await ({ jetons: [await pieceEnvoyee(u)], objet: 'voyage', objetId: await voyage() }) },
+  { action: 'piece.retirer', variante: 'certification', droits: '  O    O    -    -    -    -    O    -    -', p: async () => ({ id: await pieceJointe('certification', await cert('sst')), motif: 'Mauvais document' }) },
+  { action: 'piece.retirer', variante: 'absence', droits: '        O    O    -    -    -    -    -    -    -', p: async () => ({ id: await pieceJointe('absence', await absence('signalee', 'ABSENCE')), motif: 'Mauvais document' }) },
 ];
 
 const ANNULER = Symbol('annuler');
@@ -362,7 +410,7 @@ async function essai(user: User, l: Ligne): Promise<string> {
   Object.assign(process.env, l.env ?? {});
   try {
     await db.tx(async () => {
-      const payload = await l.p();
+      const payload = await l.p(user);
       try {
         await ACTIONS[l.action](makeCtx(db, user, await loadFull(db, user)), payload);
         issue = 'O';

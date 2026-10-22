@@ -3,14 +3,17 @@
 // à la paie, retirée par l'annulation de la sortie ; une fois transmis, gardé tel quel pour la même date, remplacé (et
 // gardé pour l'historique) par l'annulation de la sortie ou une autre date ; éléments d'un lot de paie (rubriques de
 // sortie actives), libération à l'annulation du lot, réglé hors fichier à la confirmation du lot de sa période faute de
-// rubrique active. Règles : shared/rules/solde-sortie.ts.
+// rubrique active. Règles : shared/rules/solde-sortie.ts. Famille « sorties » du registre des éléments de lot
+// (server/src/elements-lot.ts, lot 6) : même comportement, les compteurs sans rubrique active étant de plus listés « à
+// saisir dans Sage » dans le résumé du lot qui les réglera hors fichier.
 import type { Domain } from '../../shared/domain.ts';
 import { rubriquesPaie } from '../../shared/rules/paie.ts';
-import { elementsSorties, etatSortie, resumeEtat, soldesHorsFichier, transmisTexte } from '../../shared/rules/solde-sortie.ts';
+import { detailSortie, elementsSorties, etatSortie, periodeSortie, quantitesSortie, resumeEtat, soldesHorsFichier, sortiesDuContenu, transmisTexte } from '../../shared/rules/solde-sortie.ts';
 import { fmtIso } from '../../shared/format.ts';
-import type { ElementSortiePaie, Employe, ISODate, LotPaie, RubriquePaie, SoldeSortie } from '../../shared/types.ts';
+import type { ElementASaisir, ElementSortiePaie, Employe, ISODate, LotPaie, RubriquePaie, SoldeSortie } from '../../shared/types.ts';
 import type { Db } from './db.ts';
 import { ActionError, type Ctx } from './actions/context.ts';
+import type { FamilleLot } from './elements-lot.ts';
 
 /** Solde photographié courant d'un salarié (un au plus) : les soldes transmis puis remplacés restent pour l'historique. */
 export const soldeDe = async (db: Db, empId: number) => (await db.where<SoldeSortie>('soldesSortie', 'empId', empId)).find(s => !s.remplaceLe);
@@ -88,3 +91,39 @@ export async function marquerHorsFichier(db: Db, d: Domain, lot: Pick<LotPaie, '
 export async function libererSorties(db: Db, lot: Pick<LotPaie, 'id'>) {
   await db.run('UPDATE soldes_sortie SET lot_id = NULL WHERE lot_id = ? AND sage = FALSE', [lot.id]);
 }
+
+/**
+ * Compteurs des soldes en attente d'un lot de la période `jusqua` dont la rubrique de sortie est désactivée : le lot ne
+ * les emporte pas, la paie les saisit dans Sage (liste « à saisir dans Sage » du résumé du lot). Intérimaires exclus.
+ */
+export async function sortiesASaisir(db: Db, d: Domain, jusqua: string): Promise<ElementASaisir[]> {
+  const table = rubriquesPaie(await db.all<RubriquePaie>('rubriquesPaie'));
+  const out: ElementASaisir[] = [];
+  for (const s of d.ds.soldesSortie ?? []) {
+    if (s.lotId != null || s.sage || s.remplaceLe) continue;
+    const e = d.emp(s.empId);
+    if (!e || d.contratOf(e).interim) continue;
+    const periode = periodeSortie(s.date, d.ti, d.ds.settings?.clotureJour ?? 0);
+    if (periode > jusqua) continue;
+    for (const q of quantitesSortie(s.etat)) {
+      if (!table.find(t => t.code === q.rubrique)?.active) out.push({ famille: 'sorties', empId: s.empId, periode, rubrique: q.rubrique, quantite: q.quantite, detail: detailSortie(s) });
+    }
+  }
+  return out;
+}
+
+/** Famille du registre des éléments de lot : soldes de sortie (t128), comportement inchangé. */
+export const FAMILLE_SORTIES: FamilleLot<ElementSortiePaie> = {
+  cle: 'sorties',
+  libelles: ['solde de sortie', 'soldes de sortie'],
+  aEmettre: sortiesAEmettre,
+  aSaisir: sortiesASaisir,
+  idsDuContenu: sortiesDuContenu,
+  reserver: async (db, lotId, elements) => { for (const x of sortiesDuContenu(elements)) await db.update('soldesSortie', x.id, { lotId }); },
+  confirmer: async (db, d, lot) => {
+    (await db.run('UPDATE soldes_sortie SET sage = TRUE WHERE lot_id = ?', [lot.id]));
+    // Soldes de sortie de la période sans rubrique active : saisis dans Sage, ils ne partiront plus dans un lot.
+    await marquerHorsFichier(db, d, lot);
+  },
+  liberer: libererSorties,
+};

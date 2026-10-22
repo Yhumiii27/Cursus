@@ -22,7 +22,7 @@ async function fresh() {
   const db = await nouvelleBase();
   await seedDemo(db);
   const compteId = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
-  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteId(empId)), role, methode: 'demo' }))!;
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compteId(empId), role, methode: 'demo' }))!;
   const run = async (u: User, name: string, payload: Record<string, unknown>) => await db.tx(async () => await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), payload));
   // Données telles que le navigateur les reçoit (GET /api/data) : déjà restreintes au profil.
   const domaine = async (u: User) => new Domain(await buildSnapshot(db, u));

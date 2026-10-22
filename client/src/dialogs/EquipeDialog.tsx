@@ -41,7 +41,8 @@ export function EquipeDialog({ nom: nom0 }: { nom?: string | null }) {
   const hint = !chosen ? 'Sans manager, les heures, absences et entretiens de l’équipe sont validés par le service RH.'
     : [
       `${chosen.nom} validera les heures, les absences et les entretiens de l’équipe.`,
-      members.has(chosen.id) ? 'Membre de l’équipe : ses propres validations reviendront au service RH.' : `Rattachement actuel : ${equipeLabel(chosen)}.`,
+      // Hiérarchie (t136) : manager membre de l'équipe validé par celui de l'équipe parente, à défaut par le RH.
+      members.has(chosen.id) ? `Membre de l’équipe : ses propres validations reviendront ${equipe?.parente ? `au manager de l’équipe parente (${equipe.parente})` : 'au service RH'}.` : `Rattachement actuel : ${equipeLabel(chosen)}.`,
       autres.length ? `Encadre déjà : ${autres.join(', ')}.` : '',
     ].filter(Boolean).join(' ');
 

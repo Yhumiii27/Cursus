@@ -5,17 +5,26 @@
 // Périmètre du fichier : heures validées de la semaine du lundi au dimanche (semaine à 7 jours, heures du dimanche aussi
 // en HDIM, fériés en MAJ_1MAI et FERIE_TRAV, contrepartie en repos en COR_ACQUIS) et, réglage `absencesFichierPaie`
 // actif (par défaut), absences validées ventilées par mois (shared/rules/absences-paie.ts), soldes de sortie des rubriques
-// de sortie actives (shared/rules/solde-sortie.ts) ; déplacements et nuit restent
-// saisis dans Sage (`perimetreFichier`, repris par l'écran, la confirmation et la procédure).
+// de sortie actives (shared/rules/solde-sortie.ts) ; heures de nuit saisies dans Sage, déplacements aussi tant que le réglage
+// `deplacementsFichierPaie` est décoché (t031, shared/rules/deplacements-paie.ts) (`perimetreFichier`, repris par l'écran,
+// la confirmation et la procédure). Éléments calculés sans rubrique active : « à saisir dans Sage » (shared/rules/elements-lot.ts).
 import { encoderTexte } from '../encodage.ts';
 import type { ColonneFichierPaie, FeuilleTemps, FormatFichierPaie, ISODate, LotPaie, SagePush, Settings, StatutLotPaie } from '../types.ts';
 import { PERIMETRE_FICHIER_ABSENCES, resumeAbsences } from './absences-paie.ts';
+import { elementsASaisir } from './elements-lot.ts';
 import { periodesSemaine, type RubriqueVue } from './paie.ts';
 
 /** Ce que le fichier contient, et ce qu'il ne contient pas, absences laissées à Sage (écran, confirmation, docs/DEPLOIEMENT.md). */
 export const PERIMETRE_FICHIER = 'Heures validées de la semaine, samedi et dimanche compris (heures du dimanche aussi en HDIM, des jours fériés en MAJ_1MAI ou FERIE_TRAV ; contrepartie obligatoire en repos en COR_ACQUIS) : absences, déplacements et heures de nuit restent saisis dans Sage.';
 /** Périmètre selon le réglage `absencesFichierPaie` (absences validées comprises, ou laissées à la saisie dans Sage). */
-export const perimetreFichier = (absences: boolean) => (absences ? PERIMETRE_FICHIER_ABSENCES : PERIMETRE_FICHIER);
+export const perimetreFichier = (absences: boolean, deplacements = false) => {
+  const t = absences ? PERIMETRE_FICHIER_ABSENCES : PERIMETRE_FICHIER;
+  // Déplacements dans le fichier (t031) : jours et nuits de grand déplacement, jours à l'étranger, trajets.
+  if (!deplacements) return t;
+  return absences
+    ? t.replace(' : déplacements et heures de nuit restent saisis dans Sage.', ', jours et nuits de grand déplacement, jours à l’étranger et trajets : les heures de nuit restent saisies dans Sage.')
+    : t.replace(' : absences, déplacements et heures de nuit restent saisis dans Sage.', ', jours et nuits de grand déplacement, jours à l’étranger et trajets : absences et heures de nuit restent saisies dans Sage.');
+};
 
 export const STATUTS_LOT: Record<StatutLotPaie, { label: string; cls: string }> = {
   genere: { label: 'Import à confirmer', cls: 'tag-accent' },
@@ -131,7 +140,7 @@ const r2 = (n: number) => Math.round(n * 100) / 100;
 export interface LigneFichier { matricule: string; periode: string; rubrique: string; quantite: number }
 
 /** Contenu lu par le fichier : lignes des feuilles et, depuis le lot 5, éléments d'absence et soldes de sortie. */
-type ContenuFichier = Pick<SagePush, 'lignes'> & Partial<Pick<SagePush, 'absences' | 'sorties'>>;
+type ContenuFichier = Pick<SagePush, 'lignes'> & Partial<Pick<SagePush, 'absences' | 'sorties' | 'deplacements' | 'aSaisir'>>;
 
 /**
  * Quantités du contenu par matricule, période et code Sage : heures des feuilles, puis absences et soldes de sortie.
@@ -142,6 +151,8 @@ function quantites(contenu: ContenuFichier): { matricule: string; periode: strin
     ...contenu.lignes.flatMap(l => Object.entries(l.rubriques).map(([rubrique, q]) => ({ matricule: l.matricule, periode: l.periode ?? '', rubrique, q, ...(l.remplace ? { garder: true } : {}) }))),
     ...(contenu.absences ?? []).flatMap(x => (x.codeSage ? [{ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite }] : [])),
     ...(contenu.sorties ?? []).map(x => ({ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite })),
+    // Déplacements (t031) : sans code Sage, à saisir dans Sage, hors du fichier.
+    ...(contenu.deplacements ?? []).flatMap(x => (x.codeSage ? [{ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite }] : [])),
   ];
 }
 
@@ -212,13 +223,16 @@ export const nomFichierLot = (l: Pick<LotPaie, 'id' | 'periode'>, f: FormatFichi
  * Totaux d'un contenu : lignes du fichier, salariés (matricules), quantité par code Sage des heures ; absences à part
  * (éléments, salariés, quantité par code Sage), pour qu'un lecteur sans droit « paie » n'en reçoive pas les codes.
  */
-export function resumeContenu(contenu: ContenuFichier): LotPaie['resume'] {
+export function resumeContenu(contenu: ContenuFichier, paysLabel?: (code: string) => string): LotPaie['resume'] {
+  const aSaisir = elementsASaisir(contenu, paysLabel);
   const lignes = lignesFichier(contenu), heures = lignesFichier({ lignes: contenu.lignes }), rubriques: Record<string, number> = {};
   for (const l of heures) rubriques[l.rubrique] = r2((rubriques[l.rubrique] ?? 0) + l.quantite);
   return {
     lignes: lignes.length, salaries: new Set(lignes.map(l => l.matricule)).size, rubriques,
     ...(contenu.absences?.length ? { absences: resumeAbsences(contenu.absences) } : {}),
     ...(contenu.sorties?.length ? { sorties: { elements: contenu.sorties.length, salaries: new Set(contenu.sorties.map(x => x.empId)).size } } : {}),
+    ...(contenu.deplacements?.length ? { deplacements: { elements: contenu.deplacements.length, salaries: new Set(contenu.deplacements.map(x => x.empId)).size } } : {}),
+    ...(aSaisir.length ? { aSaisir } : {}),
   };
 }
 

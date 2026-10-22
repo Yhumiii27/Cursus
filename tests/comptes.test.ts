@@ -441,7 +441,7 @@ test('connexion par compte local (hors démonstration)', async t => {
   });
 
   await t.test('journal des connexions : réussies et refusées, jamais de mot de passe', async () => {
-    const rows = (await journal());
+    const rows = await journal();
     assert.ok(rows.some(j => j.action === 'connexion' && j.actor === 'Rachel Martin' && j.role === 'rh'));
     assert.ok(rows.some(j => j.action === 'connexion.refusee' && j.actor === 'Identifiant inconnu' && j.identifiant === null), 'identifiant inconnu non recopié');
     assert.ok(rows.some(j => j.action === 'motdepasse.change' && j.identifiant === 'lina.morel'));
@@ -481,7 +481,7 @@ test('rafale de tentatives simultanées : au plus 5 vérifications par compte, 3
 
   // Vingt mauvais mots de passe envoyés en même temps : cinq seulement sont vérifiés, le compte est bloqué.
   assert.deepEqual(statuts(await plusieurs(20, async i => await login('compte.a', `mauvais essai ${i}`, '198.51.100.1'))), { 401: 20 });
-  const refus = (await journal('compte.a', 'connexion.refusee'));
+  const refus = await journal('compte.a', 'connexion.refusee');
   assert.equal(refus.filter(m => m.startsWith('Mot de passe incorrect')).length, 5, 'au plus 5 mots de passe vérifiés');
   assert.equal(refus.filter(m => m.startsWith('Compte bloqué jusqu’à')).length, 15);
   // Le bon mot de passe pendant le blocage, d'une autre adresse : même refus générique.

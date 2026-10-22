@@ -4,9 +4,10 @@
 // la demande au service RH.
 import { CERT_LABEL, CLS, HAB_CLS, HAB_LABEL } from '../../../shared/constants.ts';
 import type { EmpX, Proposal } from '../../../shared/domain.ts';
-import { echeanceExigence, exigencesDe, manquantsTexte, origineTexte } from '../../../shared/rules/exigences.ts';
+import { echeanceExigence, exigencesDe, manquantsTexte, origineTexte, posteDe } from '../../../shared/rules/exigences.ts';
+import { ARTICLE_L4154, contratRenforcee, formationRenforcee } from '../../../shared/rules/formation-renforcee.ts';
 import { plural } from '../../../shared/format.ts';
-import { NoteAccent, SectionLabel, Tag, Two } from './ui.tsx';
+import { Fine, NoteAccent, SectionLabel, Tag, Two } from './ui.tsx';
 import { useDomain, useIntentPermis, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -61,7 +62,9 @@ export function ExigencesFiche({ e, membre, parti }: { e: EmpX; membre: boolean;
   const permis = useIntentPermis();
   const { openDialog, runIntent } = useStore();
   const liste = exigencesDe(d.ds, e);
-  if (!liste.length) return null;
+  // Poste à risques particuliers (art. L4154-2) : mentionné même sans exigence (CDI), avec ce qu'il demande du contrat.
+  const risques = !!posteDe(d.ds, e)?.risquesL4154;
+  if (!liste.length && !risques) return null;
   const action = (m: (typeof e.manquants)[number]): Proposal | null => {
     if (parti) return null;
     const a = echeanceExigence(d, e, m);
@@ -80,6 +83,12 @@ export function ExigencesFiche({ e, membre, parti }: { e: EmpX; membre: boolean;
   };
   return <>
     <SectionLabel>Exigences du poste</SectionLabel>
+    {risques && (
+      <Fine>
+        Poste à risques particuliers ({ARTICLE_L4154}) : formation renforcée à la sécurité exigée des CDD, intérimaires et alternants
+        {contratRenforcee(e.typeContrat) ? (formationRenforcee(d.ds) ? ', depuis l’entrée' : ' — formation non désignée dans Paramètres') : ' (contrat non concerné)'}.
+      </Fine>
+    )}
     <div className="list" style={{ marginTop: 'calc(-1 * var(--space-3))' }}>
       {liste.map(x => {
         const m = e.manquants.find(y => y.type === x.type && y.id === x.id);

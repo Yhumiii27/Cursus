@@ -29,7 +29,7 @@ async function fresh() {
   const db = await nouvelleBase();
   await seedDemo(db);
   const compteId = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
-  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteId(empId)), role, methode: 'demo' }))!;
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compteId(empId), role, methode: 'demo' }))!;
   const run = async (u: User, name: string, payload: Record<string, unknown>) => await db.tx(async () => {
     const t = await preparerTrace(db, name, payload);
     const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), payload);
@@ -104,7 +104,7 @@ test('feuille d’un mineur : motif ou référence de dérogation exigé, tracé
   await refus(RH, 'temps.submit', base, /Plus de 8 h sur une journée.*indiquez le motif du dépassement ou la référence de la dérogation de l’inspection du travail/);
   await run(RH, 'temps.submit', { ...base, motif: 'Dérogation inspection n° 2026-117' });
   assert.equal((await domain()).ds.feuilles.find(f => f.empId === id && f.week === SEMAINE_MINEUR)!.motifDepassement, 'Dérogation inspection n° 2026-117');
-  const p = (await journal('temps.submit'));
+  const p = await journal('temps.submit');
   assert.match(p, /"depassementMineur":\["jour_8h","semaine_35h"\]/);
   assert.match(p, /"motifDepassement":"\[texte renseigné\]"/);
   assert.doesNotMatch(p, /2026-117/);
@@ -113,7 +113,7 @@ test('feuille d’un mineur : motif ou référence de dérogation exigé, tracé
   await run(RH, 'temps.addLine', { ...w2, projet: 'INT-MAINT' });
   for (const [di, value] of [7, 7, 9, 7, 5].entries()) await run(RH, 'temps.setCell', { ...w2, li: 0, di, value: String(value) });
   await run(RH, 'temps.submit', w2);
-  assert.doesNotMatch((await journal('temps.submit')), /depassementMineur|motifDepassement/);
+  assert.doesNotMatch(await journal('temps.submit'), /depassementMineur|motifDepassement/);
 });
 
 test('équipe de nuit ou en continu : case renseignée, cochée refusée avec un mineur, affectation refusée', async () => {
@@ -127,7 +127,7 @@ test('équipe de nuit ou en continu : case renseignée, cochée refusée avec un
   await refus(RH, 'referentiel.equipe.exigences', { nom: 'Maintenance', formations: [], habilitations: [], nuit: 'oui' }, /oui ou non/);
   // Équipe Production cochée : tracé au journal (avant, après).
   await run(RH, 'referentiel.equipe.exigences', { nom: 'Production', formations: [], habilitations: [], nuit: true });
-  assert.match((await journal('referentiel.equipe.exigences')), /"nuit":true,"nuitAvant":null/);
+  assert.match(await journal('referentiel.equipe.exigences'), /"nuit":true,"nuitAvant":null/);
   // Affectation d'un mineur : refusée au service RH comme au manager ; fiche et création de même.
   await refus(RH, 'equipe.affecter', { empId: id, equipe: 'Production' }, /Équipe Production \(travail de nuit ou en continu\) : Léo Martin a moins de 18 ans/);
   await refus(RH, 'employe.modifier', { id, equipe: 'Production' }, /travail de nuit ou en continu/);
@@ -156,7 +156,7 @@ test('dérogation pour travaux réglementés : saisie sur la fiche, 3 ans, éch�
   await refus(RH, 'employe.modifier', { id, derogationTravauxLe: '2026-10-11' }, /ne peut pas être future/);
   await refus(RH, 'employe.modifier', { id, derogationTravauxLe: '2026-02-30' }, /dérogation pour travaux réglementés invalide/);
   await run(RH, 'employe.modifier', { id, derogationTravauxLe: '2023-11-02' });
-  assert.match((await journal('employe.modifier')), /derogationTravauxLe/);
+  assert.match(await journal('employe.modifier'), /derogationTravauxLe/);
   const d = await domain(), e = d.enrich(60, false).find(x => x.id === id)!;
   assert.deepEqual(M.etatMineur(e, d.ti), { majeurLe: '2028-03-02', aLAnnee: false, derogation: { le: '2023-11-02', fin: '2026-11-02', expiree: false }, derogationApresMajorite: false });
   const ech = d.echeances([e], 60).filter(x => x.emp.id === id && x.kind === 'contrat');
@@ -236,7 +236,7 @@ test('feuille passée d’un salarié devenu majeur, vue du manager : contrôles
     assert.equal(calcSheet(new Domain(vue), e, sh).depassementsMineur.length, 2);
     await refus(mgr, 'temps.submit', base, /Plus de 8 h sur une journée.*référence de la dérogation/);
     await run(mgr, 'temps.submit', { ...base, motif: 'Dérogation inspection n° 2026-118' });
-    assert.match((await journal('temps.submit')), /"depassementMineur":\["jour_8h","semaine_35h"\]/);
+    assert.match(await journal('temps.submit'), /"depassementMineur":\["jour_8h","semaine_35h"\]/);
     // Semaine après les 18 ans : indication fausse, aucun contrôle des mineurs.
     await run(mgr, 'temps.addLine', { empId: id, week: SEMAINE_MAJEUR, projet: 'INT-MAINT' });
     const sh2 = (await buildSnapshot(db, mgr)).feuilles.find(f => f.empId === id && f.week === SEMAINE_MAJEUR)!;

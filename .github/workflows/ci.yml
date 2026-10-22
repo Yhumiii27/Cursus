@@ -38,7 +38,7 @@ jobs:
       TZ: Europe/Paris
     steps:
       - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version-file: ${{ matrix.fichier }}
           node-version: ${{ matrix.version }}
@@ -59,7 +59,7 @@ jobs:
       # Interface compilée par la version de référence : téléchargeable pour l'instance de recette du groupe pilote.
       - name: Publier dist/
         if: matrix.reference
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: cursus-dist-${{ github.sha }}
           path: dist/
@@ -108,7 +108,7 @@ jobs:
         env:
           CURSUS_TEST_DATABASE_URL: postgres://postgres:essai-ci-postgres@localhost:5432/postgres
         run: npm run test:coverage:pg
-      # Cursus sur le socle, en cursus_app : migrations, démonstration, 46 tables dans cursus et rien dans public.
+      # Cursus sur le socle, en cursus_app : migrations, démonstration, 50 tables dans cursus et rien dans public.
       - name: Démarrage sur le socle (cursus_app)
         env:
           DATABASE_URL: postgres://cursus_app:essai-ci-cursus-app-012345@localhost:5432/epc2i

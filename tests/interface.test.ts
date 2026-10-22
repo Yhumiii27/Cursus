@@ -222,16 +222,16 @@ test('plan : un second « Engager » n’avance pas l’action jusqu’à « Ré
   const statut = async () => ((await db.one('SELECT statut FROM plan_actions WHERE id = ?', [id])) as { statut: string }).statut;
   assert.match(String(await run(RH, 'plan.avancer', { id, de: 'prevu' })), /Lean management — Production · engagé/);
   assert.match(String(await run(RH, 'plan.avancer', { id, de: 'prevu' })), /déjà engagé/);
-  assert.equal((await statut()), 'engage');
+  assert.equal(await statut(), 'engage');
   await run(RH, 'plan.avancer', { id, de: 'engage', coutReel: 2400 });
   assert.match(String(await run(RH, 'plan.avancer', { id, de: 'engage' })), /déjà réalisé/);
   assert.match(String(await run(RH, 'plan.avancer', { id, de: 'prevu' })), /déjà réalisé/);
-  assert.equal((await statut()), 'realise');
+  assert.equal(await statut(), 'realise');
   // Revenue « prévue » (session annulée) pendant que l'écran affichait « Clôturer » : refus, rien n'est clôturé.
   await db.update('planActions', id, { statut: 'prevu' });
   await assert.rejects(async () => await run(RH, 'plan.avancer', { id, de: 'engage' }), /de nouveau prévue/);
   await assert.rejects(async () => await run(RH, 'plan.avancer', { id, de: 'realise' }), /Statut attendu invalide/);
-  assert.equal((await statut()), 'prevu');
+  assert.equal(await statut(), 'prevu');
   // Sans statut attendu (ancien client) : avance d'un cran, refus une fois réalisée.
   await run(RH, 'plan.avancer', { id });
   await run(RH, 'plan.avancer', { id, coutReel: 2400 });
@@ -243,11 +243,11 @@ test('absence : la même décision prise deux fois n’est ni refaite ni renvoy�
   const { db, run } = await fresh();
   const a = (await db.one(`SELECT id FROM absences WHERE emp_id = 2 AND statut = 'demandee'`)) as { id: number };
   const envois = async () => ((await db.one(`SELECT COUNT(*) AS n FROM envois WHERE type = 'absence.validee'`)) as { n: number }).n;
-  const avant = (await envois());
+  const avant = await envois();
   assert.match(String(await run(KARIM, 'absence.decider', { id: a.id, ok: true })), /validée — transmise à Keystone/);
   assert.equal(String(await run(KARIM, 'absence.decider', { id: a.id, ok: true })), 'Absence de Mehdi Benali déjà validée');
   assert.equal(String(await run(RH, 'absence.decider', { id: a.id, ok: true })), 'Absence de Mehdi Benali déjà validée');
-  assert.equal((await envois()), avant + 1, 'un seul message pour Keystone');
+  assert.equal(await envois(), avant + 1, 'un seul message pour Keystone');
   // Décision contraire, ou personne hors périmètre : refus, comme avant.
   await assert.rejects(async () => await run(KARIM, 'absence.decider', { id: a.id, ok: false }), /déjà traitée/);
   await assert.rejects(async () => await run(HUGO, 'absence.decider', { id: a.id, ok: true }), /déjà traitée/);

@@ -23,6 +23,9 @@ const ECRIT_LA_FICHE: Record<string, (x: Payload) => readonly Champ[]> = {
   'equipe.affecter': () => ['equipe'],
   'employe.sortie': () => ['fin', 'motifSortie'],
   'employe.annulerSortie': () => ['fin', 'motifSortie'],
+  // Renouvellement d'un CDD (fin et terme initial) ; avenant programmé appliqué à sa date (organisation du temps).
+  'employe.renouvelerCdd': () => ['fin', 'cddFinInitiale'],
+  'employe.avenantApplique': () => ['temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis'],
   'medical.avis': () => ['visite'],
   // Reprise après une absence longue, recalculée à l'écriture de l'absence (server/src/actions/absences.ts, majReprise).
   'absence.saisir': () => ['repriseMotif', 'repriseDate'],

@@ -41,7 +41,7 @@ async function fresh(base?: Db) {
   const db = base ?? await nouvelleBase();
   await seedDemo(db);
   const compteDe = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
-  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)), role, methode: 'demo' }))!;
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compteDe(empId), role, methode: 'demo' }))!;
   const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
     const t = await preparerTrace(db, name, p);
     const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
@@ -207,7 +207,7 @@ test('t019 fichier téléchargé en Windows-1252 avec libellés figés à la gé
   await new Promise(r => srv.once('listening', r));
   try {
     const base = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
-    const cookie = (await fetch(`${base}/essai/session/${(await compteDe(7))}`)).headers.get('set-cookie')!.split(';')[0];
+    const cookie = (await fetch(`${base}/essai/session/${await compteDe(7)}`)).headers.get('set-cookie')!.split(';')[0];
     const telecharger = async () => {
       const r = await fetch(`${base}/api/paie/lots/${lot.id}/fichier`, { headers: { cookie } });
       assert.equal(r.status, 200);

@@ -3,6 +3,7 @@
 // L'interface compilée ne charge que ses propres fichiers : aucun script ni style en
 // ligne (l'impression utilise une feuille de style et un script servis, voir client/src/print.ts).
 import type { NextFunction, Request, Response } from 'express';
+import { LISTE_TYPES_PIECES } from '../../shared/rules/pieces.ts';
 import { BOUCLE_LOCALE } from './config.ts';
 
 export const CSP = [
@@ -70,6 +71,9 @@ export function refusCsrf(req: Request): string | null {
   }
   const type = (req.get('content-type') ?? '').split(';')[0].trim().toLowerCase();
   const corps = Number(req.get('content-length') ?? 0) > 0 || req.get('transfer-encoding') !== undefined;
+  // Envoi d'une pièce justificative (server/src/pieces-routes.ts) : PDF, JPEG ou PNG bruts, types qu'une autre origine ne
+  // peut pas non plus envoyer sans autorisation préalable (ils ne sont pas parmi les types « simples » de CORS).
+  if (req.path === '/api/pieces' && (LISTE_TYPES_PIECES as readonly string[]).includes(type)) return null;
   if ((corps || type) && type !== 'application/json') return 'corps JSON attendu';
   return null;
 }

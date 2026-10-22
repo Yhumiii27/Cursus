@@ -7,13 +7,16 @@ import { createApp } from './app.ts';
 import { DEMO, purgeSessions } from './auth.ts';
 import { dossierInterface, VERSION } from './chemins.ts';
 import { adminsActifs } from './comptes.ts';
-import { enProduction, hoteEcoute, portEcoute, verifierConfig } from './config.ts';
+import { demoPublique, enProduction, hoteEcoute, portEcoute, verifierConfig } from './config.ts';
+import { todayIso } from './dataset.ts';
 import { dbFile, openDb, urlPostgres } from './db.ts';
 import { mettreAJourBase } from './demarrage.ts';
 import { demarrerEnvois, envoiEnCours } from './envois.ts';
 import { controlerIntegrite } from './integrite.ts';
 import { demarrerJournal } from './journal.ts';
+import { appliquerAvenants } from './avenants.ts';
 import { log, redirigerConsole } from './logs.ts';
+import { demarrerPieces } from './pieces.ts';
 import { controlerMigrations } from './migrations/cadre.ts';
 import { transportEmail } from './integrations/email.ts';
 import { transportKeystone } from './integrations/keystone.ts';
@@ -102,6 +105,8 @@ const vide = await db.tx(async () => {
   return DEMO;
 });
 if (vide !== null) log.info(vide ? 'Base vide : données de démonstration chargées.' : 'Base vide : aucune donnée de démonstration chargée (mode démonstration inactif).');
+// Instance de démonstration publiée derrière le proxy (CURSUS_DEMO_PUBLIQUE=1) : rappel à chaque démarrage.
+if (demoPublique()) log.avertissement('Démonstration publiée (CURSUS_DEMO_PUBLIQUE=1) : l’espace RH s’ouvre sans mot de passe à qui atteint cette adresse. Données fictives seulement ; restreignez l’accès en amont (authentification du proxy).');
 // Base de démonstration antérieure aux comptes : un compte par salarié et la RH de démonstration.
 if (DEMO) await db.tx(async () => { if (await db.count('employes') > 0) await comptesDemo(db); });
 // Références orphelines (salarié, session, formation… absents) : signalées dans les journaux, le journal des actions
@@ -115,6 +120,14 @@ purge.unref();
 arret.tache(() => clearInterval(purge));
 // Journal : anciennes lignes expurgées une fois, durées de conservation appliquées au démarrage puis toutes les heures.
 await demarrerJournal(db);
+// Pièces justificatives : pièces en attente de plus de 24 h et fichiers des pièces retirées effacés, au démarrage puis
+// toutes les heures (server/src/pieces.ts).
+arret.tache(await demarrerPieces(db));
+// Avenants programmés (historique des contrats) appliqués à la fiche à leur date d'effet : au démarrage puis toutes les heures.
+await appliquerAvenants(db, todayIso());
+const avenants = setInterval(async () => await appliquerAvenants(db, todayIso()), 3600_000);
+avenants.unref();
+arret.tache(() => clearInterval(avenants));
 
 // Routes, protections, compression, cache des fichiers et interface compilée : server/src/app.ts.
 // dist/ du projet, quel que soit le dossier de lancement (CURSUS_DIST la remplace : server/src/chemins.ts).

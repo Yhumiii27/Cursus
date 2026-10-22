@@ -13,6 +13,9 @@
 // Soldes de sortie (t128) : le lot du mois de la sortie emporte le solde photographié, rubrique de sortie par rubrique
 // active (server/src/soldes-sortie.ts) ; réservé (`soldesSortie.lotId`), libéré et marqué transmis de même ; à la
 // confirmation, les soldes de la période sans rubrique active sont réglés hors fichier (saisis dans Sage).
+// Registre des éléments de lot (lot 6, server/src/elements-lot.ts) : soldes de sortie et déplacements (t031) passent par
+// les familles du registre — réservation, confirmation, annulation — et les éléments sans rubrique active sont listés
+// « à saisir dans Sage » dans le résumé du lot (shared/rules/elements-lot.ts).
 import { randomUUID } from 'node:crypto';
 import { RUBRIQUES_PAIE } from '../../../shared/constants.ts';
 import { plural } from '../../../shared/format.ts';
@@ -21,14 +24,16 @@ import { controlerFormat, erreurReference, feuillesDuLot, libellesSage, periodeD
 import { erreurCodeSage, periodeLabel, rubriquesAConfirmer, rubriquesPaie, rubriquesTexte } from '../../../shared/rules/paie.ts';
 import { buildSagePayload, rubriquesEmises, sagePending } from '../../../shared/rules/temps.ts';
 import { absencesDansLeFichier, type ElementCalcule } from '../../../shared/rules/absences-paie.ts';
-import { sortiesDuContenu } from '../../../shared/rules/solde-sortie.ts';
-import type { Absence, ElementSortiePaie, FeuilleTemps, LotPaie, RubriquePaie, SageMode } from '../../../shared/types.ts';
+import type { Absence, FeuilleTemps, LotPaie, RubriquePaie, SageMode } from '../../../shared/types.ts';
 import { absencesAEmettre, absencesDuContenu, departAuPremierLot, libererAbsences, traduireElements } from '../absences-paie.ts';
 import { pushToSage, SAGE_DOSSIER, SageIndisponible, sageMode } from '../integrations/sage.ts';
 import { aRegulariser, modeRegularisation } from '../../../shared/rules/regularisation.ts';
 import { optionsRegularisation, selectionRemplace } from '../regularisation-paie.ts';
 import { lireFormatFichier, type LotEnregistre } from '../lots-paie.ts';
-import { libererSorties, marquerHorsFichier, sortiesAEmettre } from '../soldes-sortie.ts';
+import {
+  avantFamilles, confirmerFamilles, contenuDesFamilles, elementsDansLeFichier, elementsDesFamilles, type ElementsFamilles, idsDesFamilles, libererFamilles,
+  reserverFamilles, resultatFamilles, rubriquesDesFamilles, salariesDesFamilles, texteFamilles, texteLiberes,
+} from '../elements-lot.ts';
 import { ActionError, type ActionHandler, type Ctx, requirePaie, str } from './context.ts';
 
 /**
@@ -74,13 +79,14 @@ const nomsSans = (ctx: Ctx, ids: number[]) => ids.map(id => ctx.d.emp(id)?.nom ?
  * rubrique émise et exportée un code Sage confirmé (409, liste des rubriques). Le libellé de chaque code Sage est figé
  * avec le contenu (colonne facultative du fichier), comme le code Sage de chaque absence.
  */
-export async function creerLot(ctx: Ctx, sheets: FeuilleTemps[], mode: SageMode, periode: string, absences: ElementCalcule[] = [], sorties: ElementSortiePaie[] = []): Promise<LotEnregistre> {
-  const sans = sansMatriculePaie(ctx.ds.employes, ctx.d.ti, [...sheets.map(sh => sh.empId), ...absences.map(x => x.empId), ...sorties.map(x => x.empId)]).map(e => e.id);
+export async function creerLot(ctx: Ctx, sheets: FeuilleTemps[], mode: SageMode, periode: string, absences: ElementCalcule[] = [], familles: ElementsFamilles = { elements: {}, aSaisir: [] }): Promise<LotEnregistre> {
+  const autres = familles.elements;
+  const sans = sansMatriculePaie(ctx.ds.employes, ctx.d.ti, [...sheets.map(sh => sh.empId), ...absences.map(x => x.empId), ...salariesDesFamilles(autres)]).map(e => e.id);
   if (sans.length && mode !== 'simulation') {
     throw new ActionError(`Transmission refusée : ${plural(sans.length, 'salarié sans matricule de paie', 'salariés sans matricule de paie')} (${nomsSans(ctx, sans).join(', ')}). Saisissez-le sur la fiche, puis générez de nouveau le lot.`);
   }
   if (mode !== 'simulation') {
-    const manquantes = rubriquesAConfirmer([...rubriquesEmises(ctx.d, sheets), ...absences.map(x => x.rubrique), ...sorties.map(x => x.rubrique)], rubriquesPaie(ctx.ds.rubriquesPaie));
+    const manquantes = rubriquesAConfirmer([...rubriquesEmises(ctx.d, sheets), ...absences.map(x => x.rubrique), ...rubriquesDesFamilles(autres)], rubriquesPaie(ctx.ds.rubriquesPaie));
     if (manquantes.length) {
       throw new ActionError(`Transmission impossible : code Sage à confirmer pour ${manquantes.length > 1 ? 'les rubriques' : 'la rubrique'} ${rubriquesTexte(manquantes)} (écran Temps, « Rubriques de paie »)`, 409);
     }
@@ -89,24 +95,27 @@ export async function creerLot(ctx: Ctx, sheets: FeuilleTemps[], mode: SageMode,
   const payload = buildSagePayload(ctx.d, sheets, SAGE_DOSSIER, new Date(), mode, await optionsRegularisation(ctx.db, ctx.d));
   const correctifs = sheets.filter(aRegulariser).map(sh => ({ empId: sh.empId, week: sh.week }));
   const elements = traduireElements(absences, ctx.ds.rubriquesPaie);
-  const avecAbsences = elements.length || sorties.length ? {
-    ...payload, ...(elements.length ? { absences: elements } : {}), ...(sorties.length ? { sorties } : {}),
-    periodes: [...new Set([...(payload.periodes ?? []), ...elements.map(x => x.periode), ...sorties.map(x => x.periode)])].sort(),
+  const deFamilles = contenuDesFamilles(familles);
+  const periodesFamilles = Object.values(autres).flatMap(l => (l ?? []).map(x => x.periode));
+  const avecAbsences = elements.length || Object.keys(deFamilles).length ? {
+    ...payload, ...(elements.length ? { absences: elements } : {}), ...deFamilles,
+    periodes: [...new Set([...(payload.periodes ?? []), ...elements.map(x => x.periode), ...periodesFamilles])].sort(),
   } : payload;
   const contenu = { ...avecAbsences, libelles: libellesSage(avecAbsences, rubriquesPaie(ctx.ds.rubriquesPaie)) };
+  const paysLabel = (code: string) => ctx.d.destOf(code)?.pays ?? code;
   const lot = await ctx.db.insert<LotEnregistre>('lotsPaie', {
     cle: randomUUID(), mode, statut: 'genere', periode, periodes: contenu.periodes ?? [],
     // Semaines et mois d'absence de périodes déjà closes : partis en rappel sur la période ouverte.
     rappels: [...new Set([...contenu.lignes.flatMap(l => (l.periode_origine ? [l.periode_origine] : [])), ...elements.filter(x => x.mois !== x.periode).map(x => x.mois)])].sort(),
     creation: new Date().toISOString(), auteur: ctx.user.nom,
-    feuilles: sheets.map(sh => ({ empId: sh.empId, week: sh.week })), absences: absencesDuContenu(elements), resume: resumeContenu(contenu), sansMatricule: sans, contenu,
-    ...(sorties.length ? { sorties: sortiesDuContenu(sorties) } : {}),
+    feuilles: sheets.map(sh => ({ empId: sh.empId, week: sh.week })), absences: absencesDuContenu(elements), resume: resumeContenu(contenu, paysLabel), sansMatricule: sans, contenu,
+    ...idsDesFamilles(autres),
     telechargeLe: null, telechargePar: null, telechargements: 0, confirmeLe: null, confirmePar: null, reference: null, annuleLe: null, annulePar: null, historique: false,
     type: correctifs.length ? 'correctif' : 'normal', correctifs,
   });
   for (const sh of sheets) await ctx.db.update<FeuilleTemps>('feuilles', sh.id, { lotId: lot.id });
   for (const a of absencesDuContenu(elements)) await ctx.db.update<Absence>('absences', a.id, { lotId: lot.id });
-  for (const x of sortiesDuContenu(sorties)) await ctx.db.update('soldesSortie', x.id, { lotId: lot.id });
+  await reserverFamilles(ctx.db, lot.id, autres);
   return lot;
 }
 
@@ -114,16 +123,11 @@ export async function creerLot(ctx: Ctx, sheets: FeuilleTemps[], mode: SageMode,
  * Feuilles du lot, salarié par salarié, ses absences (identifiant et salarié, jamais la nature ni la rubrique) et ses
  * feuilles régularisées : journal, archive paie, historique de la fiche.
  */
-const resultatLot = (lot: Pick<LotPaie, 'id' | 'feuilles' | 'absences' | 'correctifs' | 'sorties'>) => ({
-  lot: lot.id, feuilles: lot.feuilles, ...(lot.absences?.length ? { absences: lot.absences } : {}), ...(lot.sorties?.length ? { sorties: lot.sorties } : {}),
+const resultatLot = (lot: Pick<LotPaie, 'id' | 'feuilles' | 'absences' | 'correctifs' | 'sorties' | 'deplacements'>) => ({
+  lot: lot.id, feuilles: lot.feuilles, ...(lot.absences?.length ? { absences: lot.absences } : {}), ...resultatFamilles(lot),
   // Lot correctif : feuilles rouvertes régularisées (salarié, semaine).
   ...(lot.correctifs?.length ? { correctifs: lot.correctifs } : {}),
 });
-/** « · 1 solde de sortie » : soldes de sortie d'un lot, en fin de message. */
-const sortiesTexte = (sorties: readonly ElementSortiePaie[]) => {
-  const n = sortiesDuContenu(sorties).length;
-  return n ? ` · ${plural(n, 'solde de sortie', 'soldes de sortie')}` : '';
-};
 /** « · 2 absences, dont 1 régularisation » : absences d'un lot, en fin de message. */
 const absencesTexte = (absences: readonly ElementCalcule[]) => {
   const n = new Set(absences.map(x => x.absence)).size, reg = new Set(absences.filter(x => x.quantite < 0).map(x => x.absence)).size;
@@ -153,17 +157,19 @@ const lotGenerer: ActionHandler = async (ctx, p) => {
   // Premier lot d'une base sans date de départ : les absences déjà enregistrées ne partent qu'à partir de la période ouverte.
   const depart = seul ? '' : await departAuPremierLot(ctx.db, ctx.d, ctx.user);
   const absences = seul ? [] : await absencesAEmettre(ctx.db, ctx.d, periode);
-  const sorties = seul ? [] : await sortiesAEmettre(ctx.db, ctx.d, periode);
-  if (!sheets.length && !absences.length && !sorties.length) {
+  // Familles du registre (soldes de sortie, déplacements) ; premier lot d'une base neuve : date de départ posée d'abord.
+  const departFamilles = seul ? '' : await avantFamilles(ctx.db, ctx.d, ctx.user);
+  const familles = await elementsDesFamilles(ctx.db, ctx.d, periode, !seul);
+  if (!sheets.length && !absences.length && !elementsDansLeFichier(familles.elements)) {
     throw new ActionError(`Aucune feuille validée en attente pour ${periodeLabel(periode)}${absencesDansLeFichier(ctx.ds.settings) ? ', ni absence' : ''}`);
   }
   const mode = sageMode();
-  const lot = await creerLot(ctx, sheets, mode, periode, absences, sorties);
-  const salaries = new Set([...sheets.map(sh => sh.empId), ...absences.map(x => x.empId), ...sorties.map(x => x.empId)]).size;
+  const lot = await creerLot(ctx, sheets, mode, periode, absences, familles);
+  const salaries = new Set([...sheets.map(sh => sh.empId), ...absences.map(x => x.empId), ...salariesDesFamilles(familles.elements)]).size;
   return {
     message: `Lot n° ${lot.id} généré — ${plural(sheets.length, 'feuille', 'feuilles')} (${plural(salaries, 'salarié', 'salariés')}), ${periodeLabel(periode)}`
       + (mode === 'simulation' ? ' · simulation : rien n’est envoyé à Sage Paie' : ' · téléchargez le fichier d’import, importez-le dans Sage, puis confirmez l’import')
-      + suitesLot(ctx, lot) + absencesTexte(absences) + sortiesTexte(sorties) + depart
+      + suitesLot(ctx, lot) + absencesTexte(absences) + texteFamilles(familles, lot.resume.aSaisir?.length ?? 0) + depart + departFamilles
       + (seul ? ` · annule et remplace : lot à importer seul, en remplacement ; ${enAttente ? `${plural(enAttente, 'autre feuille', 'autres feuilles')} et les absences en attente partiront` : 'les feuilles ordinaires et les absences en attente partiront'} dans le lot suivant, à générer après la confirmation de cet import` : ''),
     result: resultatLot(lot),
   };
@@ -185,9 +191,8 @@ export async function confirmerLot(ctx: Ctx, lot: LotEnregistre, reference: stri
   await ctx.db.update<LotEnregistre>('lotsPaie', lot.id, { statut: 'transmis', confirmeLe: new Date().toISOString(), confirmePar: ctx.user.nom, reference });
   await ctx.db.run('UPDATE feuilles SET sage = TRUE WHERE lot_id = ?', [lot.id]);
   await ctx.db.run('UPDATE absences SET sage = TRUE WHERE lot_id = ?', [lot.id]);
-  await ctx.db.run('UPDATE soldes_sortie SET sage = TRUE WHERE lot_id = ?', [lot.id]);
-  // Soldes de sortie de la période sans rubrique active : saisis dans Sage, ils ne partiront plus dans un lot.
-  await marquerHorsFichier(ctx.db, ctx.d, lot);
+  // Familles du registre : soldes de sortie (ceux de la période sans rubrique active réglés hors fichier), déplacements.
+  await confirmerFamilles(ctx.db, ctx.d, lot);
 }
 
 const lotConfirmer: ActionHandler = async (ctx, p) => {
@@ -226,9 +231,9 @@ const lotAnnuler: ActionHandler = async (ctx, p) => {
   await ctx.db.update<LotEnregistre>('lotsPaie', lot.id, { statut: 'annule', annuleLe: new Date().toISOString(), annulePar: ctx.user.nom });
   await ctx.db.run('UPDATE feuilles SET lot_id = NULL WHERE lot_id = ? AND sage = FALSE', [lot.id]);
   await libererAbsences(ctx.db, lot);
-  await libererSorties(ctx.db, lot);
+  await libererFamilles(ctx.db, lot);
   return {
-    message: `Lot n° ${lot.id} annulé — ${plural(lot.feuilles.length, 'feuille libérée', 'feuilles libérées')}${lot.absences?.length ? ` et ${plural(lot.absences.length, 'absence libérée', 'absences libérées')}` : ''}${lot.sorties?.length ? ` et ${plural(lot.sorties.length, 'solde de sortie libéré', 'soldes de sortie libérés')}` : ''}, de nouveau en attente${lot.telechargements ? ' · si son fichier a été importé dans Sage, supprimez-y cet import' : ''}`,
+    message: `Lot n° ${lot.id} annulé — ${plural(lot.feuilles.length, 'feuille libérée', 'feuilles libérées')}${lot.absences?.length ? ` et ${plural(lot.absences.length, 'absence libérée', 'absences libérées')}` : ''}${texteLiberes(lot)}, de nouveau en attente${lot.telechargements ? ' · si son fichier a été importé dans Sage, supprimez-y cet import' : ''}`,
     result: resultatLot(lot),
   };
 };
@@ -265,16 +270,16 @@ export async function pushSageSimulation(ctx: Ctx) {
   }
   const periode = sheets.map(sh => periodeDeLaFeuille(sh.week, ctx.ds.settings, ctx.d.ti)).sort().at(-1)!;
   // Absences des mêmes périodes, au plus tard la dernière des feuilles (premier lot : date de départ posée d'abord).
-  const depart = await departAuPremierLot(ctx.db, ctx.d, ctx.user);
+  const depart = await departAuPremierLot(ctx.db, ctx.d, ctx.user) + await avantFamilles(ctx.db, ctx.d, ctx.user);
   const absences = await absencesAEmettre(ctx.db, ctx.d, periode);
-  const sorties = await sortiesAEmettre(ctx.db, ctx.d, periode);
-  const lot = await creerLot(ctx, sheets, mode, periode, absences, sorties);
+  const familles = await elementsDesFamilles(ctx.db, ctx.d, periode);
+  const lot = await creerLot(ctx, sheets, mode, periode, absences, familles);
   const reference = pushToSage(lot.contenu!, 'simulation').reference;
   await confirmerLot(ctx, lot, reference);
   return {
     message: `${plural(sheets.length, 'feuille marquée transmise', 'feuilles marquées transmises')} — simulation, rien n’est envoyé à Sage Paie`
       + (lot.periodes.length ? ` · ${lot.periodes.length > 1 ? 'périodes' : 'période'} ${lot.periodes.map(periodeLabel).join(', ')}` : '')
-      + suitesLot(ctx, lot) + absencesTexte(absences) + sortiesTexte(sorties) + depart,
+      + suitesLot(ctx, lot) + absencesTexte(absences) + texteFamilles(familles, lot.resume.aSaisir?.length ?? 0) + depart,
     result: resultatLot(lot),
   };
 }

@@ -14,7 +14,7 @@ Navigateur ◀──302── Microsoft : code ──▶ Cursus /api/auth/micros
                     Cursus ──HTTPS──▶ Microsoft : code + secret client ──▶ jeton d'identité vérifié ──▶ session de 12 h
 ```
 
-Prérequis : Cursus installé selon `docs/DEPLOIEMENT.md` et joignable en HTTPS à son adresse publique
+Prérequis : Cursus installé dans Coolify (README.md, « Mise en ligne ») ou selon `docs/DEPLOIEMENT.md`, et joignable en HTTPS à son adresse publique
 (dans ce guide `https://cursus.example.fr`) ; le serveur doit pouvoir joindre
 `https://login.microsoftonline.com` (sortie HTTPS, port 443) pour échanger le code et lire les clés de
 signature de Microsoft. Les opérations dans Entra demandent le rôle « Administrateur d'application »
@@ -67,11 +67,36 @@ d'administrateur pour l'organisation** : personne n'aura à consentir à la prem
 - Copier aussitôt la **Valeur** — pas l'« ID du secret » — dans `CURSUS_OIDC_CLIENT_SECRET` : Entra ne
   l'affiche qu'une fois.
 
-**Noter la date d'expiration** dans le calendrier d'exploitation, avec un rappel un mois avant. Un
-secret expiré bloque toutes les connexions Microsoft (le journal de Cursus indique alors
-`AADSTS7000222`). Renouvellement sans coupure : créer un nouveau secret, le poser dans
-`/etc/cursus/cursus.env`, `sudo systemctl restart cursus`, vérifier une connexion, puis supprimer
-l'ancien secret dans Entra.
+**Noter la date d'expiration** : elle se pose dans `CURSUS_OIDC_SECRET_EXPIRE` (section 5, format `AAAA-MM-JJ`,
+facultative), et dans le calendrier d'exploitation. Un secret expiré bloque toutes les connexions Microsoft (le journal
+de Cursus indique alors `AADSTS7000222`) et, si l'envoi des e-mails utilise la même application, tous les e-mails
+(`docs/EMAILS.md`). Avec la date posée, Cursus prévient **30 jours avant** l'expiration :
+
+- le point de santé `/api/health` passe de `ok` à `degrade` (réponse 200 : le service fonctionne ; le HEALTHCHECK du
+  conteneur reste vert) ; son détail (appel local ou jeton de supervision, `docs/DEPLOIEMENT.md`) donne
+  `secretMicrosoft: { expireLe, jours }`. Une sonde de supervision qui alerte sur `degrade` prévient donc le service
+  informatique ;
+- le récapitulatif des échéances (Paramètres → Messagerie, relances actives) ajoute à l'e-mail de la boîte du service RH
+  une ligne « Exploitation » à 30 jours, à 7 jours, puis une fois expiré : une fois chacune. Elle ne cite l'envoi des
+  e-mails que s'il passe par ce secret. Dans ce cas (configuration par défaut), la ligne « expiré » ne peut pas partir :
+  le secret expiré fait échouer l'envoi (refus du service de jetons). Elle ne parvient que si l'envoi utilise une
+  autre application ou reste simulé (visible dans Paramètres → Envois) ; sinon, seuls `/api/health` et l'échec
+  affiché dans Paramètres → Envois signalent l'expiration. Les lignes à 30 et à 7 jours partent normalement.
+
+Sans `CURSUS_OIDC_SECRET_EXPIRE`, rien n'est surveillé : seul le rappel du calendrier prévient. Si l'envoi des e-mails
+utilise une application distincte (`CURSUS_MAIL_CLIENT_SECRET`), la date de son secret n'est pas surveillée : la noter
+au calendrier.
+
+**Renouvellement sans coupure** (avant l'échéance) :
+
+1. Entra : **Nouveau secret client** (même description, 12 mois), copier la **Valeur** et relever la nouvelle date.
+2. **Coolify** (installation principale) : onglet « Environment Variables » de l'application, remplacer
+   `CURSUS_OIDC_CLIENT_SECRET` (gardée secrète) et `CURSUS_OIDC_SECRET_EXPIRE` (nouvelle date), puis « Redeploy ».
+   Installation systemd (alternative, `docs/DEPLOIEMENT.md`) : les mêmes lignes dans `/etc/cursus/cursus.env`, puis
+   `sudo systemctl restart cursus`.
+3. Vérifier une connexion Microsoft (section 7) et, si l'envoi utilise la même application, un e-mail d'essai
+   (Paramètres → Messagerie) ; `/api/health` revient à `ok`.
+4. Supprimer l'ancien secret dans Entra.
 
 ## 4. Limiter l'accès : affectation requise
 
@@ -91,14 +116,25 @@ Cursus comme aux autres applications : les cibler sur l'application « Cursus »
 
 ## 5. Variables de Cursus
 
-Dans `/etc/cursus/cursus.env` (modèle commenté : `.env.example`) :
-
 | Variable | Valeur |
 | --- | --- |
 | `CURSUS_OIDC_TENANT` | ID de l'annuaire (locataire), GUID. `common`, `organizations` ou un nom de domaine ne conviennent pas |
 | `CURSUS_OIDC_CLIENT_ID` | ID d'application (client) |
 | `CURSUS_OIDC_CLIENT_SECRET` | Valeur du secret client |
 | `CURSUS_PUBLIC_URL` | Adresse publique de Cursus, en https, sans chemin : `https://cursus.example.fr` |
+| `CURSUS_OIDC_SECRET_EXPIRE` | Facultative : date d'expiration du secret client, `AAAA-MM-JJ` (section 3). Cursus prévient 30 jours avant |
+
+**Dans Coolify** (installation principale, en conteneur : README.md, « Mise en ligne ») : les variables se saisissent
+dans l'onglet « Environment Variables » de l'application, `CURSUS_OIDC_CLIENT_SECRET` cochée comme secrète (« Is
+Literal » aussi si la valeur contient un `$`), puis « Redeploy » : le conteneur est recréé avec elles.
+`CURSUS_PUBLIC_URL` est l'adresse déclarée dans « Domains » de Coolify, en `https://`. La ligne `Connexion Microsoft 365
+active : locataire …, URI de redirection https://cursus.example.fr/api/auth/microsoft/retour` se lit dans l'onglet
+« Logs » (champ `message` de la ligne JSON) : cette URI doit être celle inscrite dans Entra. Une configuration refusée y
+apparaît en ligne de niveau `erreur`, et le conteneur s'arrête avec le code 1 (Coolify affiche alors un déploiement en
+échec).
+
+**Installation systemd** (alternative, `docs/DEPLOIEMENT.md`) : les mêmes variables dans `/etc/cursus/cursus.env`
+(modèle commenté : `.env.example`), puis :
 
 ```bash
 sudo nano /etc/cursus/cursus.env
@@ -106,22 +142,17 @@ sudo systemctl restart cursus
 journalctl -u cursus -n 20
 ```
 
-Le journal affiche `Connexion Microsoft 365 active : locataire …, URI de redirection
-https://cursus.example.fr/api/auth/microsoft/retour` : cette URI doit être celle inscrite dans Entra.
-En production, Cursus refuse de démarrer si une partie seulement des quatre variables est définie,
-si le locataire n'est pas un GUID ou si `CURSUS_PUBLIC_URL` n'est pas en https. Sans aucune des quatre,
-seuls les comptes Cursus fonctionnent. `CURSUS_OIDC_AUTORITE` est réservée aux tests automatiques (faux
-fournisseur local) : jamais sur un serveur, Cursus refuse alors de démarrer.
+Le journal affiche la même ligne « Connexion Microsoft 365 active ».
 
-**Variables dans Coolify** (installation en conteneur, README.md, « Mise en ligne ») : les quatre variables se
-saisissent dans l'onglet « Environment Variables » de l'application, `CURSUS_OIDC_CLIENT_SECRET` cochée comme secrète
-(« Is Literal » aussi si la valeur contient un `$`), puis « Redeploy » : le conteneur est recréé avec elles.
-`CURSUS_PUBLIC_URL` est l'adresse déclarée dans « Domains » de Coolify, en `https://`. La ligne « Connexion Microsoft 365
-active » se lit dans l'onglet « Logs » (champ `message` de la ligne JSON) ; une configuration refusée y apparaît en
-ligne de niveau `erreur`, et le conteneur s'arrête avec le code 1 (Coolify affiche alors un déploiement en échec).
+En production, Cursus refuse de démarrer si une partie seulement des quatre variables est définie,
+si le locataire n'est pas un GUID, si `CURSUS_PUBLIC_URL` n'est pas en https, si `CURSUS_OIDC_SECRET_EXPIRE` n'est
+pas une date ou si elle est posée sans `CURSUS_OIDC_CLIENT_SECRET`. Sans aucune des quatre, seuls les comptes Cursus fonctionnent (pas de bouton Microsoft).
+`CURSUS_OIDC_AUTORITE` est réservée aux tests automatiques (faux fournisseur local) : jamais sur un serveur, Cursus
+refuse alors de démarrer.
 
 Instance de recette : une inscription d'application distincte (« Cursus recette »), avec son URI de
-redirection `https://cursus-recette.example.fr/api/auth/microsoft/retour` et son propre secret.
+redirection `https://cursus-recette.example.fr/api/auth/microsoft/retour`, son propre secret et sa propre
+`CURSUS_OIDC_SECRET_EXPIRE`.
 
 ## 6. Comptes dans Cursus
 
@@ -158,7 +189,8 @@ son identité Microsoft ».
 ## 8. Dépannage
 
 Chaque refus est écrit dans le journal de Cursus (action `connexion.refusee`, avec l'adresse et
-l'identité reçues de Microsoft) et les incidents techniques dans `journalctl -u cursus`. Paramètres →
+l'identité reçues de Microsoft) et les incidents techniques dans l'onglet « Logs » de Coolify (installation
+systemd : `journalctl -u cursus`). Paramètres →
 Journal → **Connexions** n'affiche que les connexions. Au-delà de 30 refus en 15 minutes depuis une
 même adresse, les suivants ne sont plus journalisés jusqu'à la fin de cette période (une ligne le
 signale) : le journal ne peut pas être noyé par des retours forgés. Un refus de Microsoft est noté
@@ -166,15 +198,15 @@ avec son code (`access_denied`, `consent_required`…) et son numéro `AADSTS` q
 
 | Symptôme | Cause probable | Remède |
 | --- | --- | --- |
-| Pas de bouton « Se connecter avec Microsoft » | Variables absentes | Section 5 ; `journalctl -u cursus` liste les problèmes de configuration |
+| Pas de bouton « Se connecter avec Microsoft » | Variables absentes | Section 5 ; les « Logs » de Coolify (ou `journalctl -u cursus`) listent les problèmes de configuration |
 | Microsoft affiche `AADSTS50011` | URI de redirection différente | Inscrire exactement `CURSUS_PUBLIC_URL` + `/api/auth/microsoft/retour` (https, sans barre finale) |
 | Microsoft affiche `AADSTS50105` | Personne non affectée à l'application | L'ajouter au groupe affecté (section 4) |
 | Microsoft affiche `AADSTS700016` | ID d'application ou locataire erroné | Reprendre les valeurs de la Vue d'ensemble |
 | Microsoft demande un consentement, ou `AADSTS65001` | Consentement administrateur non accordé | Section 2, Autorisations d'API |
-| « Connexion impossible » ; journal : `Échange du code refusé par Microsoft (… invalid_client) — AADSTS7000215` ou `AADSTS7000222` | Secret erroné ou expiré | Nouveau secret (section 3) |
+| « Connexion impossible » ; journal : `Échange du code refusé par Microsoft (… invalid_client) — AADSTS7000215` ou `AADSTS7000222` | Secret erroné ou expiré | Nouveau secret et sa date (section 3) |
 | « Connexion impossible » ; journal : `Jeton d'identité expiré` ou `pas encore valable` | Horloge du serveur décalée de plus de 5 minutes | `timedatectl` : synchronisation NTP active |
 | « Connexion interrompue » | Retour plus de 10 minutes après le départ vers Microsoft, connexion lancée dans deux onglets, cookies bloqués, ou adresse utilisée différente de `CURSUS_PUBLIC_URL` | Recommencer depuis l'adresse publique |
-| « Connexion Microsoft indisponible » | Le serveur ne joint pas `login.microsoftonline.com` (pare-feu, DNS) ou locataire inexistant | `journalctl -u cursus` donne le détail ; `curl -sI https://login.microsoftonline.com` depuis le serveur |
+| « Connexion Microsoft indisponible » | Le serveur ne joint pas `login.microsoftonline.com` (pare-feu, DNS) ou locataire inexistant | Les « Logs » de Coolify (ou `journalctl -u cursus`) donnent le détail ; `curl -sI https://login.microsoftonline.com` depuis le serveur |
 | « Accès non autorisé : demandez l'ouverture d'un compte au service RH » | Aucun compte Cursus à cette adresse, ou compte déjà rattaché à une autre identité Microsoft | Créer le compte, corriger son identifiant (adresse de connexion exacte, visible dans le journal) ou **Délier** |
 | « Accès non autorisé : votre compte Cursus est désactivé… » | Compte désactivé ou date de sortie passée | Réactiver le compte ou corriger la date de sortie |
 | « Session expirée » au bout de 12 heures | Fin normale de la session | Se reconnecter par-dessus l'écran ; la saisie du formulaire ouvert est conservée et restaurée au retour de Microsoft |

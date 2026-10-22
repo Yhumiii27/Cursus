@@ -14,9 +14,10 @@ import { CLS, SESSION_PASSEE } from '../constants.ts';
 import { parse } from '../dates.ts';
 import { Domain, sessionActive, type EchItem, type EmpX, type Proposal } from '../domain.ts';
 import { fmtShort, key, plural } from '../format.ts';
-import type { Dataset, Employe, Exigences, Formation, HabType, ISODate, Poste } from '../types.ts';
+import type { Dataset, Employe, Exigences, Formation, HabType, ISODate, Poste, Settings } from '../types.ts';
 import { actif } from './referentiels.ts';
 import { present } from './contrats.ts';
+import { exigenceRenforcee } from './formation-renforcee.ts';
 
 export type TypeExigence = 'formation' | 'habilitation';
 
@@ -25,6 +26,12 @@ export interface Exigence {
   type: TypeExigence; id: string;
   /** « poste Cariste », « équipe Logistique » : l'origine de l'exigence, parfois les deux. */
   origines: string[];
+  /**
+   * Formation renforcée à la sécurité d'un CDD, d'un intérimaire ou d'un alternant sur un poste à risques particuliers
+   * (shared/rules/formation-renforcee.ts) : seule une certification obtenue depuis `depuis` (entrée du contrat en cours) la
+   * satisfait, et le filtre « réglementaires uniquement » ne l'écarte pas.
+   */
+  renforcee?: boolean; depuis?: ISODate;
 }
 /** Exigence non satisfaite : formation jamais suivie, ou habilitation jamais délivrée (éventuellement demandée). */
 export interface ExigenceManquante extends Exigence { label: string }
@@ -52,7 +59,10 @@ export function posteDe(ds: Pick<Dataset, 'referentiels'>, e: Pick<Employe, 'pos
  * deux n'est comptée qu'une fois, avec ses deux origines). Seules les formations et habilitations en vigueur au
  * référentiel sont exigées.
  */
-export function exigencesDe(ds: Pick<Dataset, 'referentiels'>, e: Pick<Employe, 'posteId' | 'poste' | 'equipe'>): Exigence[] {
+export function exigencesDe(
+  ds: Pick<Dataset, 'referentiels'> & { settings?: Partial<Pick<Settings, 'formationRenforceeCode'>> },
+  e: Pick<Employe, 'posteId' | 'poste' | 'equipe'> & Partial<Pick<Employe, 'typeContrat' | 'entree'>>,
+): Exigence[] {
   const out = new Map<string, Exigence>();
   const ajouter = (x: Exigences, origine: string) => {
     for (const [type, ids, liste] of [
@@ -71,6 +81,13 @@ export function exigencesDe(ds: Pick<Dataset, 'referentiels'>, e: Pick<Employe, 
   if (poste) ajouter(poste, `poste ${poste.nom}`);
   const equipe = e.equipe ? ds.referentiels.equipes.find(q => q.nom === e.equipe) : null;
   if (equipe) ajouter(exigencesEquipe(equipe), `équipe ${equipe.nom}`);
+  // Formation renforcée (CDD, intérim, alternance sur un poste à risques particuliers) : certification depuis l'entrée.
+  const r = exigenceRenforcee(ds, e, poste);
+  if (r) {
+    const k = `formation:${r.formation}`, deja = out.get(k);
+    if (deja) Object.assign(deja, { renforcee: true, depuis: r.depuis, origines: [...deja.origines, r.origine] });
+    else out.set(k, { type: 'formation', id: r.formation, origines: [r.origine], renforcee: true, depuis: r.depuis });
+  }
   return [...out.values()];
 }
 
@@ -80,12 +97,13 @@ export function exigencesDe(ds: Pick<Dataset, 'referentiels'>, e: Pick<Employe, 
  * suffit pas). `formIds` : formations suivies (filtre « réglementaires uniquement »).
  */
 export function exigencesManquantes(
-  ds: Pick<Dataset, 'referentiels'>, e: Pick<Employe, 'posteId' | 'poste' | 'equipe'>,
-  certs: readonly { f: string }[], habs: readonly { h: string; delivree: ISODate | null }[], formIds?: ReadonlySet<string>,
+  ds: Parameters<typeof exigencesDe>[0], e: Parameters<typeof exigencesDe>[1],
+  certs: readonly { f: string; obtenue?: ISODate }[], habs: readonly { h: string; delivree: ISODate | null }[], formIds?: ReadonlySet<string>,
 ): ExigenceManquante[] {
   return exigencesDe(ds, e).flatMap(x => {
     if (x.type === 'formation') {
-      if ((formIds && !formIds.has(x.id)) || certs.some(c => c.f === x.id)) return [];
+      // Formation renforcée : une certification d'avant l'entrée du contrat en cours ne compte pas.
+      if ((formIds && !formIds.has(x.id) && !x.renforcee) || certs.some(c => c.f === x.id && (!x.depuis || (c.obtenue ?? '') >= x.depuis))) return [];
       return [{ ...x, label: ds.referentiels.formations.find(f => f.id === x.id)!.court }];
     }
     if (habs.some(h => h.h === x.id && h.delivree)) return [];
@@ -114,7 +132,7 @@ export const origineTexte = (x: Exigence) => `Exigence ${x.origines.map(o => `du
 export function echeanceExigence(d: Domain, e: EmpX, m: ExigenceManquante): EchItem {
   const base = {
     kind: 'exigence' as const, kindLabel: origineTexte(m), label: m.label, emp: e, exp: d.today, d: 0, key: 'exp' as const, cls: CLS.exp,
-    sansDate: true, sansDateTexte: { main: 'Manquante', sub: m.type === 'formation' ? 'jamais suivie' : 'jamais délivrée' },
+    sansDate: true, sansDateTexte: { main: 'Manquante', sub: m.renforcee ? 'non suivie depuis l’entrée' : m.type === 'formation' ? 'jamais suivie' : 'jamais délivrée' },
   };
   if (m.type === 'formation') {
     const sessions = d.ds.inscriptions.filter(i => i.empId === e.id).map(i => d.session(i.sessionId))
@@ -124,7 +142,7 @@ export function echeanceExigence(d: Domain, e: EmpX, m: ExigenceManquante): EchI
       : passee ? { label: 'Clôturer', intent: { type: 'openCloture', sessionId: passee.id } }
       : { label: 'Inscrire à la formation', intent: { type: 'goFormation', f: m.id } };
     return {
-      ...base, statut: 'Formation exigée non suivie', planned: !!avenir,
+      ...base, statut: m.renforcee ? 'Formation renforcée non suivie' : 'Formation exigée non suivie', planned: !!avenir,
       plannedLabel: avenir ? `Session du ${fmtShort(parse(avenir.date))}` : passee ? SESSION_PASSEE : '', action,
     };
   }
@@ -171,7 +189,7 @@ export type ChampPoste = 'nom' | 'formations' | 'habilitations';
  * `expose` : poste exposé à des risques particuliers, visite post-exposition à la sortie (shared/rules/visites-dues.ts).
  */
 export function controlerPoste(
-  s: Partial<Record<ChampPoste | 'sir' | 'expose', unknown>>, ref: Pick<Dataset['referentiels'], 'postes' | 'formations' | 'habilitations'>, id: number | null = null,
+  s: Partial<Record<ChampPoste | 'sir' | 'expose' | 'risquesL4154', unknown>>, ref: Pick<Dataset['referentiels'], 'postes' | 'formations' | 'habilitations'>, id: number | null = null,
 ): { erreurs: Erreurs<ChampPoste>; poste: Omit<Poste, 'id'> | null } {
   const avant = id != null ? ref.postes.find(p => p.id === id) ?? null : null;
   const nom = texte(s.nom);
@@ -181,7 +199,9 @@ export function controlerPoste(
   else if (nom.length > 80) e.nom = '80 caractères au plus.';
   else if (ref.postes.some(p => p.id !== id && actif(p) && key(p.nom) === key(nom))) e.nom = 'Un poste du référentiel porte déjà cet intitulé.';
   if (Object.keys(e).length) return { erreurs: e, poste: null };
-  return { erreurs: e, poste: { nom, ...exigences, archive: avant?.archive ?? null, sir: s.sir === true || s.sir === 'true', expose: s.expose === true || s.expose === 'true' } };
+  return { erreurs: e, poste: { nom, ...exigences, archive: avant?.archive ?? null, sir: s.sir === true || s.sir === 'true', expose: s.expose === true || s.expose === 'true',
+    // Poste à risques particuliers (art. L4154-2, shared/rules/formation-renforcee.ts), décoché par défaut.
+    risquesL4154: s.risquesL4154 === true || s.risquesL4154 === 'true' } };
 }
 
 /** Poste en vigueur dont l'intitulé est celui saisi (casse, accents et ponctuation ignorés). */

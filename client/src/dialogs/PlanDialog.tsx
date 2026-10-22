@@ -1,6 +1,7 @@
 // Planifier un renouvellement (certification détenue) ou replanifier une formation initiale
 // (session annulée, absent, évaluation échouée) : inscription à une session et convocation.
-// Sans session ouverte, le RH crée une session ; un manager transmet une demande au service RH.
+// Sans session ouverte, le RH crée une session ; un manager transmet une demande au service RH. La session créée ramène
+// ici, présélectionnée (`sessionId`, t107 : dialogs/retour-session.ts).
 // Un inscrit d'une session passée, pas encore clôturée, attend d'abord la clôture.
 // Conflits de dates (absence, déplacement, autre session, entretien) contrôlés en direct : un salarié absent ne s'inscrit pas.
 import { useState } from 'react';
@@ -14,8 +15,9 @@ import { Bloquant, CancelButton, Controles, Dialog, Field, Static, SubmitButton,
 import { Seg } from '../components/ui.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { sessionPreselectionnee } from './retour-session.ts';
 
-export function PlanDialog({ empId, certId, inscriptionId }: { empId: number; certId?: number; inscriptionId?: number }) {
+export function PlanDialog({ empId, certId, inscriptionId, sessionId: demandee }: { empId: number; certId?: number; inscriptionId?: number; sessionId?: number }) {
   const { d, upcoming } = useEnriched();
   const { run, closeDialog, openDialog } = useStore();
   // Sessions et clôtures : service RH et référent HSE ; le manager transmet une demande.
@@ -25,7 +27,7 @@ export function PlanDialog({ empId, certId, inscriptionId }: { empId: number; ce
   const insc = inscriptionId != null ? d.ds.inscriptions.find(i => i.id === inscriptionId && i.empId === empId) : undefined;
   const f = cert?.f ?? (insc && d.session(insc.sessionId)?.formation);
   const sessions = f ? upcoming.filter(s => s.formation === f) : [];
-  const [sessionId, setSessionId] = useState<number | null>(sessions.find(s => s.inscrits < s.places)?.id ?? null);
+  const [sessionId, setSessionId] = useState<number | null>(sessionPreselectionnee(sessions, demandee));
   const [conv, setConv] = useState<'now' | 'later'>('now');
   const [busy, setBusy] = useState(false);
   const v = useVerification();
@@ -68,7 +70,7 @@ export function PlanDialog({ empId, certId, inscriptionId }: { empId: number; ce
       {demander
         ? <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'reqForm', empId, f })}>Demander au RH</button>
         : sessions.length === 0
-          ? <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'session', f })}>Créer une session</button>
+          ? <button type="button" className="btn btn-primary" onClick={() => openDialog({ type: 'session', f, retour: { type: 'plan', empId, certId, inscriptionId } })}>Créer une session</button>
           : <SubmitButton busy={busy}>Confirmer l’inscription</SubmitButton>}
     </>}>
       <div className="grid-2">

@@ -115,13 +115,13 @@ test('absences : jamais de nature, ni dans le contenu ni dans le message', async
   assert.equal(sansDates(naissance), sansDates(enfant));
   assert.equal(sansDates(naissance), sansDates(s.message!));
   assert.match(naissance, NATURE);
-  await run(RH, 'absence.annuler', { id: (await id(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2026-11-16'`)) });
+  await run(RH, 'absence.annuler', { id: await id(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2026-11-16'`) });
   assert.match((await derniere('absence.annuler'))!.message!, /^Absence de Mehdi Benali \(\[nature d’absence\]\) annulée/);
   const texte = JSON.stringify(await lignes());
   assert.ok(!/naissance|enfant malade/i.test(texte) && !SANTE.test(texte), 'aucune nature, ni marqueur de santé');
   // Signalée par le manager, qualifiée ensuite en accident du travail par le RH : dates et statut, jamais la nature.
   await run(KARIM, 'absence.signaler', { empId: 2, du: '2026-12-21', au: '2026-12-22' });
-  const a = (await id(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2026-12-21'`));
+  const a = await id(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2026-12-21'`);
   await run(RH, 'absence.qualifier', { id: a, nature: 'AT', du: '2026-12-21', au: '2026-12-23', justificatif: true, justificatifLe: '2026-10-09' });
   const q = (await derniere('absence.qualifier'))!;
   assert.deepEqual([q.payload.avant, q.payload.apres], [{ au: '2026-12-22', statut: 'signalee', justificatif: false }, { au: '2026-12-23', statut: 'validee', justificatif: true }]);
@@ -137,7 +137,7 @@ test('absences : jamais de nature, ni dans le contenu ni dans le message', async
 test('archive paie : une absence saisie, prolongée puis annulée y figure en entier', async () => {
   const { db, run, lignes, id, RH } = await fresh();
   await run(RH, 'absence.saisir', { empId: 2, nature: 'MALADIE', du: '2026-12-14', au: '2026-12-16', justificatif: true, justificatifLe: '2026-10-09' });
-  const a = (await id(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2026-12-14'`));
+  const a = await id(`SELECT id FROM absences WHERE emp_id = 2 AND du = '2026-12-14'`);
   await run(RH, 'absence.prolonger', { id: a, au: '2026-12-23' });
   await run(RH, 'absence.annuler', { id: a });
   const absences = async () => (await lignes()).filter(l => l.action.startsWith('absence.'));
@@ -237,7 +237,7 @@ test('transmission à la paie : feuilles transmises et salariés concernés (arc
 
 test('compte rendu d’entretien : section nommée sans son contenu, une ligne par compte et par demi-heure', async () => {
   const { run, lignes, id, KARIM, MEHDI } = await fresh();
-  const e = (await id(`SELECT id FROM entretiens WHERE emp_id = 2 AND statut = 'planifie'`));
+  const e = await id(`SELECT id FROM entretiens WHERE emp_id = 2 AND statut = 'planifie'`);
   await run(KARIM, 'entretien.modifier', { id: e, section: 'bilan', value: 'Texte confidentiel du bilan' });
   await run(KARIM, 'entretien.modifier', { id: e, section: 'objectifs', value: 'Objectifs personnels' });
   await run(KARIM, 'entretien.modifier', { id: e, section: 'bilan', value: 'Texte confidentiel corrigé' });
@@ -251,7 +251,7 @@ test('compte rendu d’entretien : section nommée sans son contenu, une ligne p
 test('salariés concernés : décision sur une absence, clôture d’une session', async () => {
   const { db, run, derniere, id, RH, KARIM, MEHDI } = await fresh();
   await run(MEHDI, 'absence.demander', { empId: 2, kind: 'CP', du: '2026-12-07', au: '2026-12-08' });
-  await run(KARIM, 'absence.decider', { id: (await id(`SELECT id FROM absences WHERE emp_id = 2 AND statut = 'demandee'`)), ok: true });
+  await run(KARIM, 'absence.decider', { id: await id(`SELECT id FROM absences WHERE emp_id = 2 AND statut = 'demandee'`), ok: true });
   const d = (await derniere('absence.decider'))!;
   assert.deepEqual([d.salaries, d.paie, d.payload.apres], [[2], true, { statut: 'validee' }]);
   const s = (await db.insert<{ id: number }>('sessions', { formation: 'sst', date: '2026-10-01', lieu: 'Site de Lyon', places: 8, statut: 'Confirmée', planId: null, bilan: null })).id;

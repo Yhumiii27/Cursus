@@ -17,6 +17,12 @@ export type Statut = 'ouvrier' | 'technicien' | 'cadre';
 export type TypeContrat = 'cdi' | 'cdd' | 'interim' | 'alternance';
 /** Motif de sortie de l'entreprise (liste fermée, sans texte libre : MOTIFS_SORTIE de shared/rules/contrats.ts). */
 export type MotifSortie = 'demission' | 'rupture_conventionnelle' | 'licenciement' | 'fin_cdd' | 'fin_periode_essai' | 'retraite' | 'deces' | 'fin_mission' | 'autre';
+/** Motif de recours au CDD ou à l'intérim (art. L1242-2, L1242-3, L1251-6), liste fermée MOTIFS_RECOURS de shared/rules/cdd.ts. */
+export type MotifRecours =
+  | 'remplacement' | 'remplacement_suppression' | 'attente_cdi' | 'accroissement' | 'travaux_urgents' | 'saisonnier_usage' | 'export'
+  | 'senior' | 'politique_emploi';
+/** Nature d'une ligne de l'historique des contrats : embauche, avenant (changement de régime), renouvellement d'un CDD. */
+export type NatureLigneContrat = 'embauche' | 'avenant' | 'renouvellement';
 /** Titre de séjour valant autorisation de travail (liste fermée, TYPES_TITRE_SEJOUR de shared/rules/contrats.ts). */
 export type TypeTitreSejour = 'salarie' | 'travailleur_temporaire' | 'pluriannuelle' | 'talent' | 'vie_privee' | 'etudiant' | 'resident' | 'resident_permanent' | 'recepisse' | 'apt' | 'autre';
 /**
@@ -67,7 +73,15 @@ export interface Destination {
   /** Formalité de sécurité sociale du détachement ; null : déduite du code pays (`secuDe` de shared/constants.ts). */
   secu: SecuDetachement | null;
   archive?: ISODate | null;
+  /**
+   * Vigilance de France Diplomatie pour le pays (t068, shared/rules/vigilance.ts), saisie par le service RH : vert,
+   * jaune, orange ou rouge ; null : non renseignée. `vigilanceLe` : jour de la dernière vérification sur le site.
+   */
+  vigilance?: Vigilance | null;
+  vigilanceLe?: ISODate | null;
 }
+/** Couleurs de la carte des conseils aux voyageurs de France Diplomatie (vert : vigilance normale … rouge : formellement déconseillé). */
+export type Vigilance = 'vert' | 'jaune' | 'orange' | 'rouge';
 /**
  * Formations et habilitations exigées (codes du catalogue) : d'un poste, ou communes à toute une équipe quel que soit le
  * poste (shared/rules/exigences.ts). Une exigence manquante rend le salarié « Non conforme ».
@@ -83,6 +97,38 @@ export interface Poste extends Exigences {
    * carrière de ses titulaires à leur sortie (art. L4624-2-1, shared/rules/visites-dues.ts).
    */
   expose?: boolean;
+  /**
+   * Poste de la liste des postes à risques particuliers pour la santé ou la sécurité (art. L4154-2), distincte du suivi
+   * renforcé (`sir`) et de l'exposition (`expose`) : un CDD, un intérimaire ou un alternant qui l'occupe doit avoir suivi
+   * la formation renforcée à la sécurité depuis son entrée (shared/rules/formation-renforcee.ts). Décoché par défaut.
+   */
+  risquesL4154?: boolean;
+}
+/**
+ * Couverture minimale d'une équipe (t067, shared/rules/couverture.ts) : au moins `min` membres présents, non absents et
+ * titulaires d'une certification valide de `formation` (SST, EPI incendie…), chaque jour.
+ */
+export interface LigneCouverture { formation: string; min: number }
+/** Membre qui manque à la couverture le jour où elle tombe sous le minimum, et pourquoi ; `insuffisant` : trop peu de titulaires. */
+export interface CauseCouverture { type: 'expiration' | 'sortie' | 'absence' | 'insuffisant'; empId: number | null; nom: string | null; le: ISODate | null }
+/**
+ * Couverture d'une ligne d'équipe, calculée par le serveur sur l'instantané complet (`Dataset.couverture`) : titulaires
+ * comptés aujourd'hui et, s'il y en a un sous l'horizon d'alerte, le premier jour où le minimum n'est plus atteint.
+ */
+export interface EtatCouverture {
+  equipe: string; formation: string; min: number;
+  /** Membres comptés aujourd'hui (présents, non absents, certification valide). */
+  compte: number;
+  /**
+   * Premier jour sous le minimum (aujourd'hui compris), titulaires comptés ce jour-là, dernier jour du manque dans
+   * l'horizon (null : au-delà) et causes ; null : minimum tenu sur tout l'horizon.
+   */
+  manque: { le: ISODate; compte: number; jusquau: ISODate | null; causes: CauseCouverture[] } | null;
+  /**
+   * Calculée sans les absences hors chantiers (vue du référent HSE, qui ne les reçoit pas) : un manque dû à une absence
+   * n'y figure pas, la couverture est à vérifier avec le service RH.
+   */
+  sansAbsences?: boolean;
 }
 /** `exigences` : formations et habilitations exigées de tous ses membres (null : aucune). */
 export interface Equipe {
@@ -92,7 +138,27 @@ export interface Equipe {
    * 18 ans n'y est affecté (art. L3163-2, shared/rules/mineurs.ts). null : case pas encore renseignée (décochée).
    */
   nuit?: boolean | null;
+  /** Couverture minimale (SST, EPI incendie…) ; null ou vide : aucun seuil, la règle est inactive (shared/rules/couverture.ts). */
+  couverture?: LigneCouverture[] | null;
+  /**
+   * Équipe parente (t136, shared/rules/hierarchie.ts) : son manager est le responsable (N+1) du manager de cette équipe,
+   * qui lui soumet ses absences, ses feuilles et ses entretiens. null : aucune (validations du manager par le service RH).
+   */
+  parente?: string | null;
+  /**
+   * Horaire de poste proposé par défaut sur les feuilles de temps de ses membres (code du référentiel `horaires`,
+   * shared/rules/horaires.ts) ; null ou absent : aucun, la feuille se tient sans horaire.
+   */
+  horaire?: string | null;
 }
+/**
+ * Horaire de poste du référentiel (écran Référentiels → Horaires, shared/rules/horaires.ts), distinct des postes et de
+ * leurs exigences : code (choisi une fois pour toutes), libellé, début et fin (« HH:MM » ; une fin antérieure au début
+ * finit le lendemain : poste de nuit), pause en minutes. Archivé, il n'est plus proposé ; les feuilles qui le portent le gardent.
+ */
+export interface Horaire { code: string; nom: string; debut: string; fin: string; pause: number; archive?: ISODate | null }
+/** Horaire figé sur une feuille de temps : code, début, fin et pause au moment de la soumission ou de la validation. */
+export type HoraireFige = Pick<Horaire, 'code' | 'debut' | 'fin' | 'pause'>;
 /** Projet ou chantier tenu dans Keystone : archivé, il reste en base (historique) sans plus être proposé ni évalué. */
 export type StatutKeystone = 'actif' | 'archive';
 export interface Projet { code: string; nom: string; statut: StatutKeystone }
@@ -100,7 +166,15 @@ export interface Projet { code: string; nom: string; statut: StatutKeystone }
  * Chantier transmis par Keystone (identifiant Keystone). `ressources` : salariés dont une affectation
  * chevauche les dates du chantier, recalculés par le serveur (server/src/integrations/keystone-entrant.ts).
  */
-export interface Chantier { id: string; nom: string; client: string; lieu: string; pays: string; debut: ISODate; fin: ISODate; chef: string; habs: string[]; certs: string[]; ressources: number[]; statut: StatutKeystone }
+export interface Chantier {
+  id: string; nom: string; client: string; lieu: string; pays: string; debut: ISODate; fin: ISODate; chef: string; habs: string[]; certs: string[]; ressources: number[]; statut: StatutKeystone;
+  /**
+   * Grand déplacement (t031, shared/rules/deplacements-paie.ts) : qualification saisie par le service RH dans Cursus
+   * (jamais transmise par Keystone) ; null : pas encore qualifié (proposé pour un chantier en France). Seul un chantier
+   * qualifié donne des jours et nuits de grand déplacement à la paie.
+   */
+  grandDeplacement?: boolean | null;
+}
 
 export interface Referentiels {
   formations: Formation[];
@@ -109,6 +183,8 @@ export interface Referentiels {
   /** Postes et leurs exigences (shared/rules/exigences.ts), archivés compris. */
   postes: Poste[];
   equipes: Equipe[];
+  /** Horaires de poste (shared/rules/horaires.ts), archivés compris ; absent : aucun (jeu de données d'avant le lot 6). */
+  horaires?: Horaire[];
   projets: Projet[];
   chantiers: Chantier[];
 }
@@ -214,6 +290,13 @@ export interface Employe {
   essaiFin?: ISODate | null;
   essaiRenouveleJusquau?: ISODate | null;
   /**
+   * CDD et intérim (t053, shared/rules/cdd.ts) : motif de recours (facultatif pour l'intérim et sur une fiche antérieure,
+   * rappelé tant qu'il manque) et terme initial du CDD, avant ses renouvellements (lignes `renouvellement` de l'historique
+   * des contrats). Service RH, paie, lecture seule et intéressé (server/src/dataset.ts).
+   */
+  motifRecours?: MotifRecours | null;
+  cddFinInitiale?: ISODate | null;
+  /**
    * Titre de séjour valant autorisation de travail ; null : non requise (ressortissant français, de l'UE, de l'EEE ou de la
    * Suisse). Service RH (numéro compris), lecture seule (sans numéro) et intéressé ; enregistré par `employe.autorisationTravail`.
    */
@@ -259,6 +342,13 @@ export interface Employe {
   notifications: ModeNotification;
   repriseMotif: string | null;
   repriseDate: ISODate | null;
+  /**
+   * Personne à prévenir en cas d'urgence (t068) : nom (lien compris, texte libre) et téléphone, saisis par le salarié
+   * depuis son portail (`employe.contactUrgence`) ou par le service RH. Service RH et intéressé seulement : retirés des
+   * vues du manager et des profils restreints (server/src/dataset.ts).
+   */
+  urgenceNom?: string | null;
+  urgenceTel?: string | null;
   /** Date de la dernière visite d'aptitude — réservée au service RH. */
   visite: ISODate | null;
   /**
@@ -281,6 +371,12 @@ export interface Employe {
    * post-exposition ou de fin de carrière à sa sortie (shared/rules/visites-dues.ts). Service RH et intéressé seulement.
    */
   expose?: boolean | null;
+  /**
+   * Vues sans les visites médicales (manager, lecture seule) : échéance de l'entretien de parcours qui suit la visite de
+   * mi-carrière, calculée par le serveur (shared/rules/entretien-mi-carriere.ts), sans la date de la visite ; null : aucun.
+   * Absent : calculé sur l'instantané (service RH, intéressé). Jamais enregistré.
+   */
+  entretienMiCarriere?: ISODate | null;
   /**
    * Remplace `visite` et `avis` dans les vues manager et des profils restreints de l'espace RH : seul le verdict est
    * transmis (aptitude valide ou non, avis), avec les restrictions en vigueur recopiées telles qu'écrites, sans date de visite.
@@ -375,6 +471,11 @@ export interface Voyage {
    * saisi (texte libre). Service RH seulement (null ailleurs : server/src/dataset.ts).
    */
   demandeur?: string | null;
+  /**
+   * Coordonnées sur place (t068) : hébergement et contact local (textes libres du service RH, retirés hors du service RH),
+   * date d'inscription du voyageur sur Ariane (France Diplomatie). Modifiables par `voyage.modifier`, Keystone compris.
+   */
+  hebergement?: string | null; contactSurPlace?: string | null; arianeLe?: ISODate | null;
 }
 /** Demande de déplacement reçue de Keystone (`ref` : référence externe unique), conservée après décision du RH. */
 export interface DemandeKeystone {
@@ -392,6 +493,22 @@ export interface TacheKeystone { id: number; ref: string | null; empId: number; 
 export interface LigneTemps { projet: string; tache: string; ks: boolean; h: number[] }
 /** Régime de temps de travail figé sur une feuille soumise : un changement de contrat ultérieur ne la recalcule pas. */
 export type ContratFige = Pick<Employe, 'statut' | 'typeContrat' | 'temps' | 'heures' | 'forfaitHeures' | 'forfaitJours' | 'jourOff'>;
+/**
+ * Ligne de l'historique des contrats (t074, shared/rules/historique-contrat.ts) : régime en vigueur à compter de `effet`,
+ * jusqu'à la ligne suivante. `regime` null : régime antérieur inconnu (historique amorcé depuis une fiche qui ne le disait
+ * pas, migration lot6-contrats-historique) ; les calculs gardent alors leur comportement d'avant l'historique.
+ * `jusquau` : terme du contrat fixé par la ligne (CDD : terme initial à l'embauche, nouveau terme au renouvellement).
+ * `applique` faux : avenant programmé à une date future, appliqué à la fiche à sa date (server/src/avenants.ts) ;
+ * `annuleLe` : avenant programmé annulé, ou devenu sans objet par une sortie. `fin` : dernier jour du contrat enregistré
+ * par la sortie. `reference` : référence de l'avenant (texte court du service RH, jamais recopié au journal).
+ */
+export interface ContratHistorique {
+  id: number; empId: number; effet: ISODate; nature: NatureLigneContrat; regime: ContratFige | null;
+  jusquau: ISODate | null; signeLe: ISODate | null; reference: string | null;
+  /** Enregistrement : jour, nom de l'auteur et sa fiche (null : Cursus, ou compte sans fiche). */
+  le: ISODate; par: string | null; parId: number | null;
+  applique: boolean; annuleLe: ISODate | null; fin: ISODate | null;
+}
 export interface FeuilleTemps {
   id: number; empId: number; week: ISODate; statut: FeuilleStatut; comment: string | null; sage: boolean; keystone: boolean; lignes: LigneTemps[]; contrat: ContratFige | null;
   /** Motif d'un dépassement des durées maximales (10 h par jour, 48 h par semaine), exigé à la soumission ou à la validation. */
@@ -431,6 +548,21 @@ export interface FeuilleTemps {
    * absente : jamais rouverte. Vues du manager et du collaborateur : sans le motif, les rubriques ni les heures Keystone.
    */
   reouverture?: ReouvertureFeuille | null;
+  /**
+   * Horaire de poste de chaque jour, du lundi au dimanche (code du référentiel `horaires`, shared/rules/horaires.ts) :
+   * choisi par le salarié, son manager ou le service RH, au niveau de la feuille (les heures restent saisies par projet).
+   * null : pas encore choisi, l'horaire par défaut de l'équipe est proposé un jour qui porte des heures ; « » : aucun
+   * horaire. Seuls les choix explicites y sont inscrits : l'horaire proposé ne l'est jamais (voir `horairesFiges`).
+   */
+  horaires?: (string | null)[] | null;
+  /**
+   * Horaires retenus, figés à la soumission puis à la validation (`horairesAFiger`, shared/rules/horaires.ts) : pour
+   * chaque jour, code, début, fin et pause tels qu'ils étaient alors (une modification ultérieure de l'horaire au
+   * référentiel ne change pas le sens d'une feuille passée), null pour un jour sans horaire. Absent : feuille soumise
+   * d'avant les horaires (aucun contrôle rétroactif). Une feuille renvoyée l'ignore pour l'affichage et le refige à la
+   * soumission suivante, en gardant les heures d'un code inchangé.
+   */
+  horairesFiges?: (HoraireFige | null)[] | null;
 }
 /**
  * Réouverture d'une feuille validée (action `temps.rouvrir`, administrateur RH seul, motif obligatoire) : ce qui était
@@ -465,6 +597,25 @@ export interface ReouvertureFeuille {
  */
 export type TypeDerogationDominicale = 'aucune' | 'feu_continu' | 'suppleance';
 export interface DerogationDominicale { equipe: string; type: TypeDerogationDominicale; reference: string | null; le: ISODate; par: string }
+/**
+ * Jours fériés de l'établissement, réglés par année civile (shared/rules/feries.ts, Paramètres → Jours fériés,
+ * `parametres.feries`) : modalité de la journée de solidarité (art. L3133-7 et L3133-11) et fériés non chômés. Sans
+ * réglage pour une année : lundi de Pentecôte et tous les fériés chômés.
+ */
+export type ModaliteSolidarite = 'pentecote_chomee' | 'pentecote_travaillee' | 'autre_ferie' | 'hors_calendrier';
+/** Fériés légaux (art. L3133-1), désignés par un code stable d'une année à l'autre. */
+export type CodeFerie = 'jour_an' | 'paques' | '1er_mai' | '8_mai' | 'ascension' | 'pentecote' | '14_juillet' | '15_aout' | 'toussaint' | '11_novembre' | 'noel';
+export interface FeriesAnnee {
+  solidarite: ModaliteSolidarite;
+  /** `autre_ferie` : le férié travaillé au titre de la journée de solidarité (jamais le 1er mai) ; null sinon. */
+  solidariteFerie: CodeFerie | null;
+  /** Fériés travaillés comme des jours ordinaires (non chômés) ; jamais le 1er mai, toujours chômé (art. L3133-4). */
+  nonChomes: CodeFerie[];
+  /** Instant et auteur du réglage ; `motif` (texte libre) : modification d'une année déjà engagée, service RH seulement. */
+  le: string; par: string; motif?: string | null;
+}
+/** Réglage des fériés par année civile (« 2027 » → réglage) ; une année sans ligne garde le calendrier légal complet. */
+export type CalendrierFeries = Record<string, FeriesAnnee>;
 /**
  * Mandat d'élu au CSE (shared/rules/delegation.ts) : titulaire ou suppléant, dates, crédit d'heures de délégation par mois
  * (proposé d'après l'art. R2314-1, modifiable). Saisi par le service RH sur la fiche ; vu par le RH et l'élu seulement.
@@ -715,6 +866,14 @@ export interface Settings {
   /** Titres de séjour (client/src/pages/parametres/Contrats.tsx) : première alerte et relance, en jours avant l'expiration. */
   titreSejourAlerte: number;
   titreSejourRelance: number;
+  /**
+   * CDD (client/src/pages/parametres/Contrats.tsx, shared/rules/cdd.ts) : nombre de renouvellements admis (2, art.
+   * L1243-13), durée maximale renouvellements compris en mois (0 : durées légales selon le motif, art. L1242-8-1), et
+   * référence de l'accord de branche qui y déroge (exigée dès qu'une valeur diffère de la loi).
+   */
+  cddRenouvellementsMax: number;
+  cddDureeMaxMois: number;
+  cddAccordBranche: string;
   /** Récapitulatif des échéances (shared/rules/relances.ts) : envoi actif, paliers en jours avant l'échéance, jour d'envoi. */
   relancesActives: boolean;
   relancesPaliers: number[];
@@ -751,6 +910,34 @@ export interface Settings {
    * d'avant ont été traités par Lucca et Sage) ; null : seule vaut la date de départ posée par Cursus.
    */
   absencesPaieAPartirDu: ISODate | null;
+  /**
+   * Pièces justificatives (shared/rules/pieces.ts, server/src/pieces.ts) : désactivé par défaut (réponse de l'entreprise du
+   * 18 octobre 2026) ; « local » : fichiers dans le dossier des données, sauvegardés avec la base ; « ged » : espace
+   * documentaire de l'entreprise, par un adaptateur à écrire quand son interface sera connue.
+   */
+  piecesStockage: StockagePieces;
+  /**
+   * Formation renforcée à la sécurité des CDD, intérimaires et alternants affectés à un poste à risques particuliers
+   * (art. L4154-2) : code du catalogue ; vide par défaut (aucune exigence, avertissement dans Paramètres).
+   */
+  formationRenforceeCode: string;
+  /**
+   * Entretien de parcours après la visite de mi-carrière (shared/rules/entretien-mi-carriere.ts) : suivi actif, et délai
+   * en mois après la visite (2 par défaut, à confirmer juridiquement).
+   */
+  entretienMiCarriereActif: boolean;
+  entretienMiCarriereMois: number;
+  /** Hiérarchie (t136) : membres des équipes descendantes consultables par le manager, en lecture seule (désactivé par défaut). */
+  consultationN2: boolean;
+  /**
+   * Paie (t031, shared/rules/deplacements-paie.ts) : jours et nuits de grand déplacement, jours à l'étranger et trajets dans
+   * le fichier d'import (désactivé tant que la paie n'a pas confirmé ses codes : quantités calculées, à saisir dans Sage),
+   * et premier jour transmis (date de mise en service ; null : seule vaut la date de départ posée par Cursus).
+   */
+  deplacementsFichierPaie: boolean;
+  deplacementsPaieAPartirDu: ISODate | null;
+  /** Rappel de vérifier la vigilance d'un pays (France Diplomatie) avant un départ : vérification de plus de N jours (t068). */
+  vigilanceRappelJours: number;
 }
 /** Plafond des heures complémentaires du temps partiel : le dixième (art. L3123-28) ou le tiers avec un accord (art. L3123-20). */
 export type PlafondComplementaires = 'dixieme' | 'tiers';
@@ -924,6 +1111,40 @@ export interface SagePush {
   absences?: ElementAbsencePaie[];
   /** Soldes de sortie du lot, salarié par salarié et rubrique (shared/rules/solde-sortie.ts) ; absent avant t128. */
   sorties?: ElementSortiePaie[];
+  /** Déplacements du lot (t031, shared/rules/deplacements-paie.ts), `codeSage` null : à saisir dans Sage ; absent avant le lot 6. */
+  deplacements?: ElementDeplacementPaie[];
+  /**
+   * Éléments calculés que le lot n'emporte pas, faute de rubrique active (soldes de sortie) : listés « à saisir dans Sage »
+   * dans le résumé du lot et l'export des variables (server/src/elements-lot.ts). Les absences et déplacements sans code
+   * Sage y sont ajoutés par le résumé (shared/rules/elements-lot.ts).
+   */
+  aSaisir?: ElementASaisir[];
+}
+/**
+ * Quantité d'un déplacement dans un lot de paie (t031) : jours ou nuits de grand déplacement en France (GD_JOUR, GD_NUIT),
+ * jours à l'étranger (ETR_JOUR, pays en détail), trajets aller ou retour (TRAJET), d'un séjour (`source` : mission sur un
+ * chantier qualifié, ou déplacement à l'étranger) et d'un mois `mois`, partie sur la période `periode` (rappel quand
+ * elle diffère). `codeSage` null : rubrique désactivée ou réglage « déplacements dans le fichier » décoché, à saisir
+ * dans Sage. Négative : régularisation d'un séjour annulé ou raccourci après sa transmission.
+ */
+export interface ElementDeplacementPaie {
+  source: 'voyage' | 'mission'; sourceId: number; empId: number; matricule: string; mois: string; periode: string;
+  rubrique: string; codeSage: string | null; quantite: number; pays: string; du: ISODate; au: ISODate;
+}
+/**
+ * Élément calculé que la paie saisit à la main dans Sage (rubrique désactivée ou à confirmer, réglage décoché) : famille,
+ * salarié, période, rubrique interne (vide hors droit « paie » pour une absence : le code révèle la catégorie), quantité
+ * et détail (jamais la nature d'une absence).
+ */
+export interface ElementASaisir { famille: 'absences' | 'sorties' | 'deplacements' | (string & {}); empId: number; periode: string; rubrique: string; quantite: number; detail: string }
+/**
+ * Déplacements en attente du fichier de paie (calculés par le serveur, qui voit missions et déplacements) : un élément
+ * par salarié, période, rubrique et pays, `aSaisir` faute de rubrique active ou de réglage ; chantiers en France pas encore
+ * qualifiés qui ont des missions. Service RH, paie et lecture seule.
+ */
+export interface DeplacementsPaieAttente {
+  elements: { empId: number; periode: string; rubrique: string; pays: string; quantite: number; aSaisir: boolean; rappel: boolean }[];
+  aQualifier: { chantier: string; nom: string; missions: number }[];
 }
 /**
  * Quantité d'un solde de sortie dans un lot de paie : rubrique interne de sortie (ICCP_J, RTT_SOLDE, RECUP_H, CET_LIQ) et
@@ -991,11 +1212,19 @@ export interface LotPaie {
   absences?: { id: number; empId: number }[];
   /** Soldes de sortie du lot (identifiant du solde, salarié), gardés après une annulation ; absent avant t128. */
   sorties?: { id: number; empId: number }[];
+  /** Séjours du lot (source, identifiant, salarié), gardés après une annulation ; absent avant le lot 6 (t031). */
+  deplacements?: { source: 'voyage' | 'mission'; id: number; empId: number }[];
   /**
    * Totaux du contenu figé : lignes du fichier, salariés, quantité par code Sage des heures ; `absences` : éléments
    * d'absence, salariés et quantité par code Sage (codes retirés hors droit « paie » : server/src/dataset.ts).
    */
-  resume: { lignes: number; salaries: number; rubriques: Record<string, number>; absences?: { elements: number; salaries: number; rubriques: Record<string, number> }; sorties?: { elements: number; salaries: number } };
+  resume: {
+    lignes: number; salaries: number; rubriques: Record<string, number>; absences?: { elements: number; salaries: number; rubriques: Record<string, number> }; sorties?: { elements: number; salaries: number };
+    /** Déplacements (t031) : éléments et salariés. */
+    deplacements?: { elements: number; salaries: number };
+    /** Éléments à saisir à la main dans Sage, nominatifs (shared/rules/elements-lot.ts) ; absent : aucun. */
+    aSaisir?: ElementASaisir[];
+  };
   /** Salariés partis sous leur matricule Cursus, faute de matricule de paie (simulation seulement). */
   sansMatricule: number[];
   telechargeLe: string | null; telechargePar: string | null; telechargements: number;
@@ -1070,6 +1299,11 @@ export interface Dataset {
   acquisitionsCp?: AcquisitionCpCalculee[];
   /** Soldes de sortie photographiés (t128) : service RH, paie et lecture seule (absent ou vide ailleurs). */
   soldesSortie?: SoldeSortie[];
+  /**
+   * Historique des contrats (t074) : service RH, paie et lecture seule (tous) ; manager (son équipe) et intéressé sans la
+   * référence ni l'auteur ; absent ailleurs (server/src/dataset.ts). Absent ou vide : régime de la fiche seul.
+   */
+  contratsHistorique?: ContratHistorique[];
   entretiens: Entretien[];
   demandesCollab: DemandeCollab[];
   demandesVisite: DemandeVisite[];
@@ -1087,6 +1321,8 @@ export interface Dataset {
   rubriquesPaie: RubriquePaie[];
   /** Absences en attente du fichier de paie par période : service RH, paie et lecture seule (sans rubriques) ; vide ailleurs. */
   absencesPaie?: AbsencesPaieAttente[];
+  /** Déplacements en attente du fichier de paie (t031) : service RH, paie et lecture seule ; absent ailleurs. */
+  deplacementsPaie?: DeplacementsPaieAttente | null;
   /** Adresses de la messagerie et relevés transmis aux agences d'intérim : service RH seulement (null et vide ailleurs). */
   messagerie: Messagerie | null;
   releves: ReleveInterim[];
@@ -1094,6 +1330,11 @@ export interface Dataset {
   reprises: LotReprise[];
   /** Dérogations au repos dominical par équipe : la référence de l'accord n'est transmise qu'au service RH. */
   derogationsDominicales?: DerogationDominicale[];
+  /**
+   * Jours fériés réglés par année (shared/rules/feries.ts) : transmis à tous les espaces, qui en ont besoin pour décompter
+   * les congés et les heures ; le motif d'une modification n'est transmis qu'au service RH. Absent : calendrier légal.
+   */
+  calendrierFeries?: CalendrierFeries;
   /** Mandats au CSE : service RH (tous) et l'élu (les siens) ; vide ailleurs (le manager ne voit que la ligne de la feuille). */
   mandats?: Mandat[];
   /**
@@ -1101,6 +1342,23 @@ export interface Dataset {
    * sur toutes les fiches) : service RH, et l'élu avec ses mandats ; null ailleurs. Un nombre, aucune liste nominative.
    */
   effectifCse?: number | null;
+  /**
+   * Pièces justificatives jointes (description, jamais le contenu, lu par GET /api/pieces/:id) : service RH (toutes),
+   * référent HSE (certifications et habilitations), manager (certifications et habilitations de son équipe), salarié (les
+   * siennes) ; aucune pour la paie et la lecture seule (server/src/pieces.ts, `piecesVisibles`).
+   */
+  pieces?: Piece[];
+  /**
+   * Couverture minimale des équipes (t067), calculée par le serveur sur l'instantané complet (server/src/dataset.ts) :
+   * toutes les équipes pour le service RH, le référent HSE et la lecture seule (le référent HSE sans le nom d'un membre
+   * absent), les équipes encadrées pour le manager ; rien ailleurs. Absente : calcul sur l'instantané (tests, outils).
+   */
+  couverture?: EtatCouverture[];
+  /**
+   * Consultation N+2 (t136, réglage `consultationN2`) : salariés des équipes descendantes transmis au manager en lecture
+   * seule, avec les filtres de sa vue et sans aptitude détaillée ; ni entretiens, ni demandes. Absent ou vide ailleurs.
+   */
+  lectureSeule?: number[];
 }
 
 /**
@@ -1116,3 +1374,33 @@ export interface LotReprise {
 }
 
 export interface ActionResult { message: string | null; data: Dataset; result?: unknown }
+
+// — Pièces justificatives (t133, shared/rules/pieces.ts) —
+/** Stockage des pièces justificatives (réglage `piecesStockage`). */
+export type StockagePieces = 'desactive' | 'local' | 'ged';
+/** Objet auquel une pièce est jointe : absence, certification, titre d'habilitation, document déclaré, déplacement. */
+export type ObjetPiece = 'absence' | 'certification' | 'habTitre' | 'declaration' | 'voyage';
+/** Type de fichier accepté (contrôlé sur le contenu, pas seulement sur l'extension). */
+export type TypePiece = 'application/pdf' | 'image/jpeg' | 'image/png';
+/**
+ * Pièce justificative jointe à un objet du dossier d'un salarié. Le fichier est stocké sous un nom aléatoire (`fichier`,
+ * jamais transmis au navigateur) avec son empreinte SHA-256 ; `nom` est celui du fichier envoyé (il peut nommer une
+ * donnée de santé : jamais recopié au journal). Une pièce retirée garde sa description, son fichier est effacé.
+ */
+export interface Piece {
+  id: number;
+  empId: number;
+  objet: ObjetPiece;
+  objetId: number;
+  nom: string;
+  type: TypePiece;
+  taille: number;
+  /** Empreinte SHA-256 du contenu (hexadécimal) : service RH seulement. */
+  empreinte?: string | null;
+  deposeLe: string;
+  deposePar: string;
+  /** Fin de conservation ; null : celle de l'objet qu'elle justifie (durées de conservation, chantier 7 étape 2). */
+  conserverJusquau: ISODate | null;
+  retireeLe: string | null;
+  retireePar: string | null;
+}

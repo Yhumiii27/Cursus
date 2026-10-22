@@ -2,7 +2,7 @@
 
 Audit du 10 octobre 2026 (branche `main-n9x7ps`). Chaque point a été relevé dans le code puis contre-vérifié par une seconde lecture qui a écarté ce qui était déjà fait ou inexact. Les preuves renvoient aux fichiers et lignes à cette date.
 
-**179 tâches** (139 faites au 18 octobre 2026 ; suivi à jour : https://claude.ai/artifact/8Dn4CRz3fcHgew8RzbNGEc) : 26 bloquantes pour une mise en production, 98 importantes, 55 souhaitables.
+**179 tâches** (168 faites au 22 octobre 2026 ; suivi à jour : https://claude.ai/artifact/8Dn4CRz3fcHgew8RzbNGEc) : 26 bloquantes pour une mise en production, 98 importantes, 55 souhaitables.
 
 Légende — priorité : 🔴 **Bloquant** (empêche un usage réel : sécurité, données faussées, obligation légale) · 🟠 **Important** (attendu par les utilisateurs) · 🟢 **Souhaitable** (confort). Effort : **S** moins d’une journée · **M** 1 à 3 jours · **L** plus de 3 jours.
 
@@ -46,7 +46,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] N'appliquer un document déclaré par le salarié qu'après validation RH — *Bugs à corriger (calculs et données), effort M*
 - [x] Rattacher soldes repris et reports de CP à une période — *Bugs à corriger (calculs et données), effort M*
 - [x] Refuser les heures saisies sur un jour d'absence validée — *Bugs à corriger (calculs et données), effort M*
-- [ ] Historiser les régimes de temps et contrats avec leur date d'effet — *Bugs à corriger (calculs et données), effort L*
+- [x] Historiser les régimes de temps et contrats avec leur date d'effet — *Bugs à corriger (calculs et données), effort L*
 - [x] Clôturer les sessions passées : présence, résultats et recyclages — *Fonctions métier : formations, habilitations, sessions, effort L*
 - [x] Permettre au RH d'administrer formations, habilitations et destinations — *Fonctions métier : formations, habilitations, sessions, effort L*
 - [x] Outiller la mise en service : import des salariés, soldes d'ouverture et titres — *Fonctions métier : collaborateurs, temps, absences, déplacements, effort L*
@@ -103,7 +103,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Encadrer les données de santé (vaccins, motif de reprise)** — 🟠 Important · M
   Cursus stocke vaccins, dates d'injection et un motif de reprise en texte libre, alors que le portail affirme « sans aucune information médicale ». Passer le motif en liste fermée non médicale, ne garder que la conformité requise, corriger la mention et afficher l'information art. 13 avant saisie.
   <br><sub>Preuves : server/src/actions/voyages.ts:41-47 · client/src/dialogs/EmployeDialog.tsx:297-298 · client/src/pages/Portail.tsx:168 · shared/constants.ts:92</sub>
-- [ ] **Anonymiser les salariés sortis et purger les données échues** — 🟠 Important · M
+- [x] **Anonymiser les salariés sortis et purger les données échues** — 🟠 Important · M
   Aucune durée de conservation n'est appliquée et aucune action ne supprime ou n'anonymise une fiche. Paramétrer une durée par catégorie, ajouter une action RH d'anonymisation en cascade (fiche, passeport, vaccins, comptes rendus, journal) et une tâche planifiée de purge ; prérequis : la date de sortie pour tout contrat.
   <br><sub>Preuves : grep conservation\|purge\|anonymi → aucun résultat · server/src/actions/equipes.ts:153-161 (pas de suppression) · shared/rules/profil.ts:62,74 (pas de date de fin pour un CDI) · server/src/index.ts:166-170 (aucune tâche planifiée)</sub>
 - [x] **Rédiger la documentation RGPD et une page Confidentialité** — 🟢 Souhaitable · S
@@ -151,7 +151,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Produire et envoyer le relevé d'heures des intérimaires** — 🟠 Important · M
   L'écran affiche « relevé envoyé à l'agence d'intérim » alors qu'aucun relevé n'est produit. Créer un export hebdomadaire par agence, un indicateur « relevé transmis » et l'envoi à l'adresse de l'agence.
   <br><sub>Preuves : client/src/pages/Temps.tsx:255 et :192 · shared/rules/temps.ts:124-125 (intérimaires seulement exclus) · grep relevé server → aucun résultat</sub>
-- [ ] **Transmettre à la paie les jours de déplacement et le temps de trajet** — 🟠 Important · M
+- [x] **Transmettre à la paie les jours de déplacement et le temps de trajet** — 🟠 Important · M
   Déplacements et missions ne produisent aucune variable de paie (grand déplacement, travail à l'étranger, contrepartie du trajet inhabituel, L3121-4). Calculer ces jours par salarié et période et créer les rubriques correspondantes, à paramétrer.
   <br><sub>Preuves : shared/rules/temps.ts:102-116 · shared/types.ts:95, :97 · grep trajet → aucun résultat</sub>
 - [x] **Créer le module d'envoi d'e-mails et stocker les adresses** — 🟠 Important · M
@@ -166,7 +166,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Publier un contrat OpenAPI versionné des routes Keystone** — 🟢 Souhaitable · S
   Les routes appelées par Keystone ne sont décrites que par une liste de chemins, sans schéma ni version. Publier une spécification OpenAPI (demande, verdict, erreurs) et préfixer les routes par /v1.
   <br><sub>Preuves : client/src/pages/Parametres.tsx:30-33 · server/src/index.ts:137, :147 · shared/domain.ts:430 (forme des motifs variable)</sub>
-- [ ] **Proposer un export calendrier (.ics)** — 🟢 Souhaitable · M
+- [x] **Proposer un export calendrier (.ics)** — 🟢 Souhaitable · M
   Sessions, entretiens, absences et déplacements ne peuvent pas aller dans Outlook. Générer des fichiers .ics joints aux convocations et un flux personnel par abonnement à jeton révocable.
   <br><sub>Preuves : grep vcalendar\|.ics → aucun résultat · server/src/actions/entretiens.ts:22 · server/src/actions/conformite.ts:23</sub>
 
@@ -190,7 +190,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Suivre le contingent annuel d'heures supplémentaires** — 🟠 Important · M
   Les heures supplémentaires ne sont pas cumulées sur l'année. Cumuler par année civile les heures non remplacées par du repos, alerter à l'approche du contingent paramétrable (220 h par défaut) et créditer puis transmettre la contrepartie obligatoire en repos.
   <br><sub>Preuves : shared/rules/temps.ts:57-71 · shared/types.ts:117-126 · grep contingent → aucun résultat</sub>
-- [ ] **Forfait jours : cumul annuel et renonciation à des jours de repos** — 🟠 Important · M
+- [x] **Forfait jours : cumul annuel et renonciation à des jours de repos** — 🟠 Important · M
   Rien ne compare les jours travaillés au forfait (218 j) et la renonciation est même bloquée. Ajouter le cumul annuel avec alerte et l'avenant de renonciation (majoration, plafond 235 j, rubrique paie).
   <br><sub>Preuves : client/src/pages/Temps.tsx:50, :75 · shared/rules/temps.ts:79, :104 · shared/rules/profil.ts:132</sub>
 - [ ] **Forfait annuel en heures : calculer la régularisation de fin d'année** — 🟠 Important · M
@@ -199,13 +199,13 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Stocker la date de naissance complète et appliquer les règles d'âge** — 🟠 Important · M
   Seule l'année est saisie : +5 CP à 59 ans et sections fin de carrière à 58 ans tombent jusqu'à un an trop tôt ou trop tard, et aucune règle mineurs n'existe. Passer à une date de naissance, puis appliquer aux moins de 18 ans les limites de durée, l'interdiction de nuit, les repos et la dérogation travaux réglementés.
   <br><sub>Preuves : shared/types.ts:71 · shared/rules/conges.ts:29 · shared/rules/entretiens.ts:56-57 · shared/rules/profil.ts:109 (14 ans accepté)</sub>
-- [ ] **Contrôler le congé principal et créditer les jours de fractionnement** — 🟠 Important · M
+- [x] **Contrôler le congé principal et créditer les jours de fractionnement** — 🟠 Important · M
   Ni la limite de 24 jours ouvrables d'affilée, ni les 12 jours continus entre mai et octobre, ni les jours de fractionnement ne sont gérés. Ajouter ces contrôles et le crédit automatique au 31 octobre.
   <br><sub>Preuves : shared/rules/conges.ts:122-145 · shared/rules/conges.ts:26-33 · grep fraction\|L3141 → aucun résultat</sub>
 - [x] **Ajouter samedi et dimanche à la feuille de temps et contrôler le repos hebdomadaire** — 🟠 Important · L
   La feuille ne compte que 5 jours : les heures du week-end (arrêts techniques, travail posté) ne peuvent pas être déclarées. Passer à 7 jours et contrôler 6 jours maximum, 35 h de repos consécutif et le repos dominical.
   <br><sub>Preuves : shared/rules/temps.ts:37 · shared/dates.ts:36 · server/src/actions/temps.ts:37 (di < 5)</sub>
-- [ ] **Saisir horaires ou postes pour contrôler repos, pause et travail de nuit** — 🟠 Important · L
+- [x] **Saisir horaires ou postes pour contrôler repos, pause et travail de nuit** — 🟠 Important · L
   Une ligne de temps n'a pas d'heure de début ni de fin : repos de 11 h, pause, heures de nuit et statut de travailleur de nuit ne sont pas contrôlés. Ajouter un code de poste ou des horaires et des rubriques de nuit pour la paie.
   <br><sub>Preuves : shared/types.ts:101 · shared/rules/temps.ts:42 (heuristique > 13 h) · grep nuit\|L3122 → aucun résultat</sub>
 - [ ] **Gérer les astreintes** — 🟠 Important · L
@@ -214,13 +214,13 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Temps partiel : plafond d'heures complémentaires paramétrable et avenants** — 🟢 Souhaitable · M
   Le code suppose un plafond au tiers, valable seulement avec accord ; sinon c'est le dixième. Paramétrer le plafond et gérer les avenants de complément d'heures.
   <br><sub>Preuves : shared/rules/temps.ts:52-55 · shared/constants.ts:77 · grep avenant → aucun résultat</sub>
-- [ ] **Paramétrer la journée de solidarité et les jours fériés chômés** — 🟢 Souhaitable · M
+- [x] **Paramétrer la journée de solidarité et les jours fériés chômés** — 🟢 Souhaitable · M
   Le lundi de Pentecôte est toujours traité comme chômé, ce qui fausse CP, heures proposées et jours de repos du forfait s'il est travaillé. Ajouter un paramètre d'établissement (jour de solidarité, liste des fériés).
   <br><sub>Preuves : shared/dates.ts:61-70 · shared/types.ts:117-126</sub>
 - [ ] **Suivre les expositions du compte professionnel de prévention (C2P)** — 🟢 Souhaitable · M
   Nuits travaillées et équipes alternantes ne sont pas comptées. Une fois les postes saisis, compter les nuits par salarié et produire l'export annuel pour la DSN.
   <br><sub>Preuves : grep C2P\|L4163 → aucun résultat · shared/types.ts:101</sub>
-- [ ] **CDD : enregistrer motif et renouvellements, alerter sur la durée maximale** — 🟢 Souhaitable · M
+- [x] **CDD : enregistrer motif et renouvellements, alerter sur la durée maximale** — 🟢 Souhaitable · M
   La fiche ne demande qu'une date de fin. Ajouter motif de recours et nombre de renouvellements, avec avertissements sur la durée maximale et, à terme, le délai de carence (historique des contrats).
   <br><sub>Preuves : shared/rules/profil.ts:97 · shared/types.ts:50-84 · grep L1242\|carence → aucun résultat</sub>
 
@@ -247,7 +247,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Générer les visites d'embauche, de reprise, de mi-carrière et de fin de carrière** — 🟠 Important · M
   Aucune visite n'est déclenchée par un événement. Créer automatiquement ces échéances selon le Code du travail (dont la visite post-exposition, importante sur un site chimique).
   <br><sub>Preuves : shared/domain.ts:197-199 · shared/rules/entretiens.ts:31 · grep mi-carri\|post-exposition → aucun résultat</sub>
-- [ ] **Identifier les postes à risques et exiger la formation renforcée des CDD et intérimaires** — 🟠 Important · M
+- [x] **Identifier les postes à risques et exiger la formation renforcée des CDD et intérimaires** — 🟠 Important · M
   Ni postes ni chantiers ne portent de notion de risque particulier. Ajouter l'indicateur, la formation renforcée obligatoire pour CDD, intérimaires et alternants concernés, et un motif No Go.
   <br><sub>Preuves : shared/types.ts:32 · shared/domain.ts:383-411 · server/src/seed.ts:56 (chantier ATEX)</sub>
 - [x] **Enregistrer l'avis du médecin du travail (apte, restrictions, inapte)** — 🟠 Important · M
@@ -265,13 +265,13 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Exporter les formations santé-sécurité vers le Passeport de prévention** — 🟠 Important · M
   Cursus a les données (SST, CACES, ATEX…) mais ne propose ni marquage ni export. Marquer ces formations au catalogue et produire l'export au format de la plateforme (à vérifier).
   <br><sub>Preuves : grep L4141 → aucun résultat · shared/types.ts:27 · server/src/seed.ts:11</sub>
-- [ ] **Suivre la couverture minimale en SST et équipiers incendie par équipe** — 🟠 Important · M
+- [x] **Suivre la couverture minimale en SST et équipiers incendie par équipe** — 🟠 Important · M
   Rien ne vérifie qu'un atelier garde au moins un sauveteur secouriste (R4224-15). Ajouter un seuil par équipe et une alerte quand il n'est plus atteint (expiration, départ, absence).
   <br><sub>Preuves : client/src/pages/Dashboard.tsx:57-62, :136 · grep couverture\|R4224 → aucun résultat</sub>
-- [ ] **Ajouter contact d'urgence et niveau de risque pays au dossier voyage** — 🟢 Souhaitable · M
+- [x] **Ajouter contact d'urgence et niveau de risque pays au dossier voyage** — 🟢 Souhaitable · M
   Le dossier voyage n'a ni contact d'urgence, ni coordonnées sur place, ni niveau de vigilance. Ajouter ces champs et une alerte si un pays de destination passe en zone déconseillée.
   <br><sub>Preuves : shared/types.ts:29, :95 · client/src/pages/Voyages.tsx:162, :202</sub>
-- [ ] **Déclencher l'entretien de parcours lié à la visite de mi-carrière** — 🟢 Souhaitable · M
+- [x] **Déclencher l'entretien de parcours lié à la visite de mi-carrière** — 🟢 Souhaitable · M
   Seules les sections fin de carrière à 58 ans existent. Ajouter l'obligation d'entretien après la visite de mi-carrière, après vérification juridique du calendrier.
   <br><sub>Preuves : shared/rules/entretiens.ts:14-52, :56-57 · client/src/pages/Entretiens.tsx:59</sub>
 
@@ -289,7 +289,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Refuser les heures saisies sur un jour d'absence validée** — 🔴 Bloquant · M
   Une feuille peut contenir des heures un jour de CP validé, d'où un double paiement ; et la cellule déjà remplie devient verrouillée sans correction possible. Contrôler à la soumission, à la validation et à la pose d'absence, et laisser corriger une cellule remplie.
   <br><sub>Preuves : server/src/actions/temps.ts:67-75, :85-92 · shared/rules/conges.ts:128 · client/src/pages/Temps.tsx:240, :305</sub>
-- [ ] **Historiser les régimes de temps et contrats avec leur date d'effet** — 🔴 Bloquant · L
+- [x] **Historiser les régimes de temps et contrats avec leur date d'effet** — 🔴 Bloquant · L
   Une feuille créée après un changement de régime pour une semaine antérieure prend le nouveau régime (heures sup faussées), un changement en cours d'année fait perdre les RTT acquis, et une réembauche n'est pas représentable. Créer un historique daté des contrats et avenants utilisé par les feuilles, RTT et CP.
   <br><sub>Preuves : server/src/actions/equipes.ts:73-74 · server/src/actions/temps.ts:73 · shared/rules/conges.ts:68-70, :77-79 · script : 39 h→35 h → {HN:35, HS25:4} sur semaine antérieure</sub>
 - [x] **Afficher au manager le statut de dossier voyage calculé par le serveur** — 🟠 Important · S
@@ -391,7 +391,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Ajouter les messages de liste vide au tableau de bord et aux missions** — 🟢 Souhaitable · S
   Sur une base vide, le tableau de bord n'affiche que des cadres vides. Ajouter « Aucune échéance », « Aucune session », etc.
   <br><sub>Preuves : client/src/pages/Dashboard.tsx:127-128, :150, :168 · client/src/pages/Missions.tsx:107-108</sub>
-- [ ] **Revenir au dialogue d'origine après « Créer une session »** — 🟢 Souhaitable · S
+- [x] **Revenir au dialogue d'origine après « Créer une session »** — 🟢 Souhaitable · S
   Après création, le RH est renvoyé vers Formations et doit retrouver le collaborateur pour l'inscrire. Rouvrir le dialogue de planification avec la session présélectionnée.
   <br><sub>Preuves : client/src/dialogs/PlanDialog.tsx:40 · client/src/dialogs/SessionDialog.tsx:27-28 · client/src/dialogs/ReqFormDialog.tsx:106</sub>
 - [x] **Détecter les modifications concurrentes d'une fiche** — 🟢 Souhaitable · M
@@ -418,10 +418,10 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Suivre les demandes de visite médicale** — 🟠 Important · M
   « Demander une visite médicale » ne fait qu'afficher un message : rien n'est enregistré ni envoyé et le bouton reste proposé. Stocker la demande, l'envoyer au service de santé au travail, afficher « Visite demandée le … » et la clore à la saisie de la visite.
   <br><sub>Preuves : server/src/actions/conformite.ts:66-70 · shared/domain.ts:245 · client/src/state/store.tsx:178</sub>
-- [ ] **Imprimer le titre d'habilitation et le passeport formation du collaborateur** — 🟠 Important · M
+- [x] **Imprimer le titre d'habilitation et le passeport formation du collaborateur** — 🟠 Important · M
   Aucun titre d'habilitation à signer n'est produit (NF C18-510, R489), un renouvellement écrase l'ancienne délivrance, et le collaborateur ne peut pas imprimer son passeport formation. Ajouter l'impression du titre, une ligne par délivrance et l'impression depuis le portail.
   <br><sub>Preuves : client/src/dialogs/HabDialog.tsx:67 · server/src/actions/conformite.ts:59-61 · grep printDocument → Collaborateurs.tsx:208, EntDialog.tsx:100 · shared/constants.ts:117</sub>
-- [ ] **Historiser les formations suivies, y compris hors catalogue** — 🟠 Important · M
+- [x] **Historiser les formations suivies, y compris hors catalogue** — 🟠 Important · M
   Une formation hors catalogue devient une ligne de plan par équipe sans lien avec le salarié, et l'état des lieux à 8 ans peut signaler à tort un risque CPF. Créer une table des formations réalisées par salarié.
   <br><sub>Preuves : shared/rules/entretiens.ts:39 · server/src/actions/conformite.ts:102 · shared/types.ts:92</sub>
 - [x] **Clôturer l'exercice du plan de formation et consulter les années passées** — 🟠 Important · M
@@ -439,7 +439,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [ ] **Enregistrer l'évaluation des formations** — 🟢 Souhaitable · M
   Rien ne mesure l'efficacité d'une formation (ISO 9001/45001). Ajouter une évaluation à chaud et à froid rattachée à l'inscription et un indicateur par organisme.
   <br><sub>Preuves : shared/types.ts:44, :91 · grep satisfaction → aucun résultat</sub>
-- [ ] **Exporter le plan de formation et les indicateurs du bilan social** — 🟢 Souhaitable · M
+- [x] **Exporter le plan de formation et les indicateurs du bilan social** — 🟢 Souhaitable · M
   Le plan n'a aucun export et la durée d'une formation est du texte. Ajouter une durée en heures et des exports par exercice et par catégorie.
   <br><sub>Preuves : shared/types.ts:27 · client/src/pages/Budget.tsx:43-47</sub>
 
@@ -475,16 +475,16 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Administrer les codes d'imputation internes et suivre les heures de délégation** — 🟠 Important · M
   Les codes hors projet (INT-*, ECOLE) sont figés par la démo et les heures de délégation CSE ne sont pas suivies. Permettre au RH de gérer ces codes et ajouter un compteur mensuel de délégation.
   <br><sub>Preuves : server/src/seed.ts:47-52 · server/src/actions/temps.ts:45-51</sub>
-- [ ] **Stocker les pièces justificatives** — 🟠 Important · L
+- [x] **Stocker les pièces justificatives** — 🟠 Important · L
   Aucun fichier ne peut être joint (attestations, cartes CACES, titres signés, passeports) : le RH valide un document sans le voir. Ajouter stockage, envoi et téléchargement contrôlés par rôle.
   <br><sub>Preuves : grep upload\|multipart → aucun résultat · server/src/index.ts:27 · server/src/actions/conformite.ts:114-115</sub>
 - [x] **Paramétrer la campagne d'entretiens annuels** — 🟢 Souhaitable · S
   Les dates (1er octobre – 15 décembre) et la population sont codées en dur. Les rendre paramétrables (dates, ancienneté minimale, contrats).
   <br><sub>Preuves : shared/rules/entretiens.ts:48-49 · client/src/pages/Parametres.tsx:96-121</sub>
-- [ ] **Déléguer la validation d'un manager absent** — 🟢 Souhaitable · M
+- [x] **Déléguer la validation d'un manager absent** — 🟢 Souhaitable · M
   Pendant les congés du manager, tout reste en attente ou revient au RH. Ajouter une délégation datée à un suppléant.
   <br><sub>Preuves : shared/domain.ts:111-116 · server/src/actions/context.ts:54-56</sub>
-- [ ] **Gérer une hiérarchie à plusieurs niveaux** — 🟢 Souhaitable · L
+- [x] **Gérer une hiérarchie à plusieurs niveaux** — 🟢 Souhaitable · L
   Un responsable ne voit pas les équipes de ses chefs d'équipe. Ajouter une équipe parente et une consultation N+2 en lecture.
   <br><sub>Preuves : shared/types.ts:30 · server/src/dataset.ts:98-105</sub>
 
@@ -514,7 +514,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Rendre explicite la validation des formulaires** — 🟠 Important · M
   Dix-huit dialogues grisent le bouton sans dire pourquoi et Entrée ne valide pas. Marquer les champs obligatoires, afficher l'erreur sous chaque champ et utiliser de vrais formulaires.
   <br><sub>Preuves : client/src/dialogs/SessionDialog.tsx:19, :34 · client/src/dialogs/EmployeDialog.tsx:145-148 · grep aria-invalid → aucun résultat</sub>
-- [ ] **Ajouter tri par colonne et pagination aux grandes listes** — 🟠 Important · M
+- [x] **Ajouter tri par colonne et pagination aux grandes listes** — 🟠 Important · M
   Aucun tableau n'est triable ni paginé ; la page Absences affiche tous les soldes et absences sans filtre. Ajouter tri, filtres et pagination au-delà d'environ 50 lignes.
   <br><sub>Preuves : grep aria-sort → aucun résultat · client/src/pages/Absences.tsx:56, :62-67 · client/src/pages/Collaborateurs.tsx:57-60</sub>
 - [x] **Adapter les contrôles au tactile** — 🟢 Souhaitable · S
@@ -523,7 +523,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Ajouter lien d'évitement, titre par page et annonce de navigation** — 🟢 Souhaitable · S
   Pas de lien « Aller au contenu », titre d'onglet identique partout et changement de page non annoncé. Ajouter ces trois éléments.
   <br><sub>Preuves : client/index.html:7 · client/src/state/store.tsx:154-159</sub>
-- [ ] **Rendre accessible la grille de planning des missions** — 🟢 Souhaitable · S
+- [x] **Rendre accessible la grille de planning des missions** — 🟢 Souhaitable · S
   Le sens des cases n'est donné que par la couleur et une infobulle. Ajouter un résumé textuel et un détail au toucher ou au focus.
   <br><sub>Preuves : client/src/pages/Missions.tsx:94-97</sub>
 - [x] **Rendre visibles les bordures des champs** — 🟢 Souhaitable · S
@@ -535,13 +535,13 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Créer une navigation mobile** — 🟢 Souhaitable · M
   Sous 900 px le menu RH (14 entrées) s'empile au-dessus de chaque page. Ajouter un menu repliable ou une barre d'onglets.
   <br><sub>Preuves : client/src/styles/app.css:183-189 · client/src/layout/Shell.tsx:30-36</sub>
-- [ ] **Faire une vraie recherche globale de collaborateurs** — 🟢 Souhaitable · M
+- [x] **Faire une vraie recherche globale de collaborateurs** — 🟢 Souhaitable · M
   La recherche est réservée au RH, ignore le matricule et redirige dès la première lettre ; les listes déroulantes n'affichent que le nom. Ajouter des suggestions qui ouvrent la fiche, réutilisées dans les dialogues.
   <br><sub>Preuves : client/src/layout/Shell.tsx:114, :119 · client/src/pages/Collaborateurs.tsx:59</sub>
 - [x] **Rendre l'impression fiable et lisible** — 🟢 Souhaitable · M
   Ctrl+P donne un texte quasi blanc, l'impression échoue si les fenêtres surgissantes sont bloquées et les documents n'ont pas d'en-tête d'entreprise. Redéfinir les couleurs d'impression, imprimer via iframe, ajouter format A4, raison sociale et matricule.
   <br><sub>Preuves : client/src/styles/app.css:192-196 · client/src/print.ts:9-10, :32 · shared/types.ts:117-126</sub>
-- [ ] **Refléter la sélection et les filtres dans l'adresse de la page** — 🟢 Souhaitable · M
+- [x] **Refléter la sélection et les filtres dans l'adresse de la page** — 🟢 Souhaitable · M
   On ne peut pas partager le lien d'une fiche ou d'une feuille et F5 perd la sélection. Encoder fiche, semaine et filtres dans l'URL.
   <br><sub>Preuves : client/src/state/store.tsx:98, :139, :154-159</sub>
 - [x] **Rédiger un guide utilisateur par rôle** — 🟢 Souhaitable · M
@@ -559,7 +559,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Ajouter un test « matrice des droits » par action et rôle** — 🟠 Important · M
   Les refus 403 ne sont testés que ponctuellement, et 21 des 42 actions ne sont jamais appelées. Écrire une table action × rôle qui échoue si une action n'a pas de règle testée.
   <br><sub>Preuves : server/src/actions/index.ts:12-21 · tests/server.test.ts:46-51</sub>
-- [ ] **Tester le code client** — 🟠 Important · M
+- [x] **Tester le code client** — 🟠 Important · M
   Les 45 fichiers du client n'ont aucun test. Extraire et tester les fonctions pures (run, api.action, CSV), puis les dialogues critiques avec Vitest et Testing Library.
   <br><sub>Preuves : package.json:18 · client/src/state/store.tsx:100 · client/src/print.ts:41</sub>
 - [ ] **Couvrir par des tests les actions et règles non testées** — 🟠 Important · L
@@ -571,13 +571,13 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Ajouter un script check et un seuil de couverture** — 🟢 Souhaitable · S
   La couverture (89,7 % des lignes) n'est pas mesurée en routine. Ajouter test:coverage avec seuil et un script check appelé par la CI.
   <br><sub>Preuves : package.json:17-18 · node --test --experimental-test-coverage → 89,68 %</sub>
-- [ ] **Configurer ESLint avec les règles React hooks** — 🟢 Souhaitable · M
+- [x] **Configurer ESLint avec les règles React hooks** — 🟢 Souhaitable · M
   Aucun linter : les 65 hooks du client ne sont pas vérifiés. Ajouter ESLint (typescript-eslint, react-hooks) et le lancer en CI.
   <br><sub>Preuves : git grep eslint → aucun résultat · server/src/actions/context.ts:23</sub>
-- [ ] **Typer le contrat des actions entre client et serveur** — 🟢 Souhaitable · M
+- [x] **Typer le contrat des actions entre client et serveur** — 🟢 Souhaitable · M
   Noms et contenus des actions sont des chaînes libres : une faute n'est vue qu'à l'exécution. Créer un type partagé ActionPayloads vérifié par tsc.
   <br><sub>Preuves : client/src/state/store.tsx:74 · client/src/api.ts:34 · server/src/actions/context.ts:23</sub>
-- [ ] **Mettre en place des tests de bout en bout Playwright** — 🟢 Souhaitable · L
+- [x] **Mettre en place des tests de bout en bout Playwright** — 🟢 Souhaitable · L
   Aucun test ne vérifie les parcours complets. Ajouter des scénarios par rôle (connexion, inscription, congé, feuille de temps) sur base isolée à date figée.
   <br><sub>Preuves : git grep playwright → aucun résultat · server/src/db.ts:193 (CURSUS_DB) · server/src/dataset.ts:20-22 (CURSUS_TODAY)</sub>
 
@@ -616,7 +616,7 @@ Les tâches 🔴, toutes thématiques confondues :
 - [x] **Découper le bundle client par écran** — 🟢 Souhaitable · S
   Toute l'interface tient dans un fichier, et le seuil d'alerte de Vite a été relevé. Charger pages et dialogues à la demande et séparer React.
   <br><sub>Preuves : client/src/App.tsx:5-20 · vite.config.ts:15</sub>
-- [ ] **Retirer du dépôt les deux archives zip de la maquette** — 🟢 Souhaitable · S
+- [x] **Retirer du dépôt les deux archives zip de la maquette** — 🟢 Souhaitable · S
   Deux zips d'environ 840 Ko dupliquent la maquette. N'en garder qu'un exemplaire (design/ ou Git LFS).
   <br><sub>Preuves : git ls-files → 'Outil RH gestion formations.zip' et '…-handoff.zip'</sub>
 - [ ] **Application de bureau : base hors du dossier source et journaux conservés** — 🟢 Souhaitable · M

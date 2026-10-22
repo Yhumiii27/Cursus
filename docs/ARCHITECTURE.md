@@ -56,6 +56,7 @@ shared/            Domaine partagé (aucune dépendance)
                    feries.ts (lot 6) : jours fériés et journée de solidarité réglés par année (calendrier : dates.ts) ;
                    horaires.ts (lot 6) : horaires de poste, horaire par défaut d'une équipe, horaire du jour d'une feuille
                    repos-nuit.ts (lot 6) : repos quotidien, pause, heures de nuit, nuit des mineurs, travailleur de nuit
+                   conservation.ts (lot 6, t016) : durées de conservation par catégorie après la sortie, dossiers échus
                    historique-contrat.ts : historique des contrats (régime en vigueur à une date, `regimeAu`, avenants
                    programmés) ; cdd.ts : motif de recours, durée maximale et renouvellements d'un CDD, délai de carence
                    formations-suivies.ts (lot 6) : formations suivies par salarié, hors catalogue comprises, bilan à 8 ans ;
@@ -73,7 +74,8 @@ server/src/
                    conges.ts (lot 5 : demi-journées hors de la règle ramenées à la journée entière)
                    formations.ts (lot 5 : sessions existantes sur un jour, activité interne INT-FORM)
                    paie.ts, lot 5 : absences des périodes passées laissées à Sage (premier jour transmis par le fichier)
-                   lot6-pieces.ts (lot 6 : index des pièces justificatives par salarié et par objet)
+                   lot6-pieces.ts (lot 6 : index des pièces justificatives par salarié et par objet ; étape 2 : index des
+                   abonnements à l'agenda et des effacements, `lot6-pieces-index-conservation-agenda`)
                    lot6-paie.ts (lot 6) : déplacements des périodes passées laissés à Sage (date de départ)
                    lot6-horaires.ts (lot 6 : horaires de poste d'exemple amorcés)
                    lot6-contrats.ts (lot 6 : historique des contrats amorcé depuis les fiches et les feuilles figées)
@@ -108,6 +110,8 @@ server/src/
                    sortie : soldes-sortie.ts ; déplacements : deplacements-paie.ts) ; vigilance.ts : alerte d'une destination
                    passée à l'orange ou au rouge
   donnees.ts       Données personnelles d'un salarié (droit d'accès) : export RH et téléchargement par l'intéressé
+  conservation.ts  Conservation des dossiers (t016) : dossiers échus, effacement par catégorie et anonymisation en cascade
+                   (REFERENCES), signalement quotidien au service RH ; agenda.ts : .ics des congés et flux d'agenda par jeton (t036)
   pieces.ts        Pièces justificatives : dépôt (local ou GED), description transmise, nettoyage, contrôle d'intégrité ;
                    pieces-routes.ts (envoi et consultation) ; pieces-sauvegarde.ts (fichiers emportés par les sauvegardes)
   confidentialite.ts Coordonnées de la page Confidentialité : GET /api/confidentialite, lisible sans connexion
@@ -919,6 +923,9 @@ aucun champ du paramètre n'est recopié.
 | `confidentialite.regler` | responsable?, dpo? (texte, 300 caractères au plus ; vide : effacé, la page renvoie au service RH) ; journal : nom des champs dont la valeur change, jamais leur texte | administrateur RH |
 | `piece.joindre` | jetons (ou jeton) : pièces envoyées par `POST /api/pieces` par le même compte, encore en attente ; objet (`absence`/`certification`/`habTitre`/`declaration`/`voyage`), objetId ; 10 pièces en vigueur au plus par objet ; fonction désactivée : 409. Les mêmes jetons se passent en `pieces` à `absence.saisir`, `absence.qualifier`, `absence.signaler` (intéressé ou RH), `cert.ajouter`, `hab.delivrer` et `formalite.enregistrer` (déclaration du collaborateur ; celle qu'elle remplace lui laisse ses pièces) | absence (hors congés, ni annulée ni refusée) : intéressé, RH ; certification, titre d'habilitation : RH, référent HSE ; document déclaré : intéressé tant qu'il attend, RH ; déplacement : RH ; jamais le manager |
 | `piece.retirer` | id, motif (obligatoire, 500 caractères ; gardé avec la pièce, lu par le service RH et par le salarié dans l'export de ses données, masqué au journal) : description gardée, fichier effacé après la validation de l'action ; le refus d'un document déclaré retire aussi ses pièces | RH ; référent HSE pour une certification ou un titre d'habilitation ; jamais sur son propre dossier |
+| `employe.anonymiser` | ids (1 à 100), motif (obligatoire, 500 caractères ; gardé dans la table `effacements`, jamais au journal), avantEcheance? (droit à l'effacement : un seul salarié, sorti, même fonction désactivée ; catégories sans obligation légale ou échues effacées, identité, titre de séjour, santé et temps gardés jusqu'à leur échéance, 409 si rien à effacer) ; sans `avantEcheance`, fonction activée avec la décision du DPO (409 sinon) et dossiers proposés seulement (409 sinon) : catégories échues effacées, fiche anonymisée à l'échéance du dossier ; 409 tant qu'un solde de sortie est dans un lot à confirmer ; message et journal sans nom | administrateur RH (jamais son propre dossier) |
+| `agenda.creerJeton` / `agenda.revoquerJeton` | — : nouveau jeton (le précédent révoqué), renvoyé une seule fois dans `result`, jamais au journal ; flux désactivé : 409 / révocation de son abonnement | le salarié pour lui-même, depuis l'espace collaborateur ou manager |
+| `agenda.revoquerTout` | — : tous les abonnements révoqués | administrateur RH |
 | `reprise.importer` | type (`salaries`/`soldes`/`certifications`/`visites`/`habilitations`), texte (CSV), colonnes (champ de chaque colonne), dateReprise (soldes), equipes (rapprochement), confirmations (lignes cochées : réembauche sur un matricule, visite sans avis), comptes (comptes Microsoft 365, y compris pour une fiche déjà à jour), fichier ; analyse de `shared/rules/reprise.ts`, seules les lignes retenues par l'aperçu sont écrites ; ses propres soldes refusés (fiche rattachée au compte) ; lot conservé (table `reprises`) ; journal `reprise.<type>` | administrateur RH |
 
 ## Journal des actions
@@ -1879,6 +1886,70 @@ fonction n'efface rien et laisse les pièces jointes consultables.
 - **Sauvegarde, restauration, intégrité, export** : voir `docs/SAUVEGARDE.md` (dossier `pieces-<base>/` des copies,
   remise en place à la restauration), « Exploitation » (contrôle d'intégrité) et « Journal des actions » (l'export des
   données d'un salarié joint le contenu de ses pièces en base64, sans nom stocké ni jeton).
+
+## Conservation des dossiers (t016, lot 6 chantier 7 étape 2)
+
+Décisions de l'entreprise : « Cursus propose, le RH confirme » ; réponse du 18 octobre 2026 : durées préremplies (dossier
+5 ans après la sortie, temps 3 ans, paie 5 ans, titre de séjour 5 ans, santé 5 ans, passeport et visas à la sortie) mais
+**inactives** tant que la référence de la décision du DPO n'est pas saisie. Règles : `shared/rules/conservation.ts` ;
+serveur : `server/src/conservation.ts`, action `employe.anonymiser` (`server/src/actions/conservation.ts`) ; écran :
+Paramètres → Conservation des dossiers (`pages/parametres/Conservation.tsx`, administrateur RH), dialogue
+`dialogs/AnonymiserDialog.tsx`, encart « Dossiers à effacer » du tableau de bord (`components/DossiersEchus.tsx`).
+
+- **Réglages** (section « Conservation des dossiers » de `REGLAGES`) : `conservationActive` (« Proposer les dossiers échus »,
+  décochée), `conservationDecisionDpo` (texte masqué au journal), une durée en années par catégorie
+  (`conservation…Ans`, 0 à 10, 0 : dès le lendemain du dernier jour). `COHERENCE` : activation sans décision du DPO
+  refusée ; dossier 5 ans au moins (registre unique du personnel, art. R1221-26 : identité et titre de séjour) ; aucune
+  catégorie au-delà du dossier (son anonymisation efface tout).
+- **Dossiers échus** (`dossiersEchus`) : salarié sorti (`sorti`), non anonymisé, dont une catégorie échue
+  (`echeanceConservation` : lendemain du dernier jour + durée) a encore des données (`aEffacer` : une catégorie déjà
+  effacée revient si des données y ont été saisies depuis), ou dont le dossier est échu. Transmis dans `Dataset.conservation` à l'administrateur RH seulement ; vide tant que la fonction est inactive.
+- **Effacement par catégorie** (étapes de `etapes`) : passeport et visas (fiche, visas, déclarations et leurs pièces) ;
+  santé (visites, avis, restrictions, suivi, demandes de visite, vaccinations, déclarations) ; titre de séjour ; entretiens
+  (lignes et comptes rendus) ; temps (commentaires et motifs des feuilles, absences, reports, clôtures ; justificatifs
+  d'absence) ; formations (motifs de correction et de mesure, demandes, attestations et titres joints). La paie n'a pas
+  d'effacement propre : lots et soldes de sortie restent, sans nom, après l'anonymisation.
+- **Droit à l'effacement** (`avantEcheance`, `categoriesDroitEffacement`) : salarié sorti seulement ; sont effacées
+  les catégories sans obligation légale (passeport et visas, entretiens, formations) et celles déjà échues ; l'identité
+  (registre unique, 5 ans), le titre de séjour, la santé et le temps restent jusqu'à leur échéance (`obligation` de chaque
+  catégorie, art. 17-3-b du RGPD), listés dans le dialogue et le message ; dossier échu : anonymisation complète.
+- **Anonymisation** (échéance du dossier) : les étapes de toutes les catégories (idempotentes, même déjà effacées), puis la cascade
+  fondée sur `REFERENCES` (`server/src/integrite.ts`) et non sur le seul nom `empId` : chaque colonne qui désigne un
+  salarié a son traitement dans `TRAITEMENTS` (lignes supprimées, textes vidés, ligne gardée, compte fermé, pièces
+  retirées, auteur gardé, référence détachée) ; `tests/conservation.test.ts` échoue si une référence n'en a pas — à
+  rejouer après chaque fusion (délégations, historique des contrats…). Fiche : « Salarié anonymisé n° X » (nom, adresse
+  e-mail, date de naissance complète, matricule de paie, contact d'urgence retirés ; `anonymiseLe`), compte désactivé,
+  identifiant `anonyme-<n°>` (au journal aussi), sessions supprimées. La trace `effacements` est écrite, puis le nom et
+  les adresses e-mail (l'identifiant de connexion seulement s'il est une adresse ; un terme d'un seul mot : 8 caractères
+  au moins) sont remplacés dans les colonnes de texte et JSON du schéma (`retirerIdentite` : journal et son auteur, file
+  d'envoi, notifications, comptes rendus de reprise, auteurs nommés dans d'autres dossiers, motif de l'effacement),
+  quelle que soit la durée du journal. Seules les occurrences délimitées sont remplacées (`motifTerme` : ni lettre,
+  chiffre, « . », « _ », « - » ni « @ » autour) ; la fiche et les comptes d'un autre salarié (réembauche, homonyme), les
+  réglages et le nom des actions du journal ne sont jamais touchés.
+  Heures par projet, absences, certifications, coûts de formation, lots de paie et soldes de sortie restent, sans nom.
+  Trace : table `effacements` (catégories, date, auteur, motif, nombre d'éléments, `avantEcheance`), gardée.
+- **Signalement** (`verifierConservation`, au démarrage puis toutes les heures, un passage par jour) : nouveaux dossiers
+  échus signalés à la boîte du service RH (récapitulatif quotidien) et au journal (`conservation.signalement`, nombre et
+  identifiants) ; rien n'est effacé.
+- **Fichiers et sauvegardes** : les fichiers des pièces retirées sont effacés après la validation (`nettoyerBientot`) ;
+  les sauvegardes gardent les données jusqu'à leur rotation (`docs/SAUVEGARDE.md`).
+
+## Agenda (t036, lot 6 chantier 7 étape 2)
+
+Décision de l'entreprise : tout le monde a une adresse Microsoft 365 (Outlook). `server/src/agenda.ts` :
+
+- **Congés** : la décision d'un congé validé (`absence.decider`, `absence.demander` posée par le manager) joint un `.ics`
+  en journées entières (`icsConge`, UID `absence-<n°>`, demi-journée dans la description) quand le salarié reçoit ses
+  notifications aussitôt (le récapitulatif quotidien ne porte pas de pièce jointe) ; l'annulation d'un congé validé à
+  venir (`absence.annuler`) envoie le même événement annulé (`annulerAgendaConge`, `server/src/notifications.ts`).
+- **Flux personnel** (`GET /api/agenda/<jeton>.ics`, hors session et hors CSRF, après le limiteur de l'API ; débit propre
+  par adresse et par jeton, `DEBIT_AGENDA`) : sessions inscrites, entretiens planifiés, absences en vigueur sous le libellé
+  neutre « Absent » quelle que soit leur nature, déplacements (pays), de 3 mois en arrière à un an en avant ; un
+  VCALENDAR sans METHOD, événements produits par `calendrier` de `integrations/email.ts`. Réglages (section « Agenda ») :
+  `agendaFluxActif` (désactivé par défaut) et `agendaContenu`. Jeton de 256 bits en base64url, montré une seule fois,
+  stocké haché (table `jetonsAgenda`, empreinte SHA-256) ; un jeton inconnu, révoqué, d'un salarié sorti ou anonymisé,
+  d'un compte désactivé, ou un flux désactivé : même 404. Dernier accès noté au plus une fois par heure. Portail : panneau
+  « Mon agenda dans Outlook » (`components/AgendaPortail.tsx`) ; `Dataset.agendaJeton` ne donne que la date de création.
 
 ## Données Keystone
 

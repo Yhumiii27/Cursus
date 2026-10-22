@@ -25,6 +25,7 @@ import { apiInconnue, ERREUR_INTERNE, gestionnaireErreurs, LIMITE_CORPS, signale
 import { routesFichierPaie } from './fichier-paie.ts';
 import { routesVariablesPaie } from './variables-paie.ts';
 import { routesPieces } from './pieces-routes.ts';
+import { routesAgenda } from './agenda.ts';
 import { journaliserAction, preparerTrace, routesJournal, tracerRefus } from './journal.ts';
 import { emailMode } from './integrations/email.ts';
 import { KEYSTONE_MODE } from './integrations/keystone.ts';
@@ -131,6 +132,9 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // Pièces justificatives : envoi (corps brut, 10 Mo au plus) et consultation contrôlée par les droits, tracées :
   // server/src/pieces-routes.ts.
   app.use(routesPieces(db));
+  // Agenda personnel par abonnement (t036) : GET /api/agenda/<jeton>.ics, sans session (client d'agenda), débit limité
+  // par adresse et par jeton, 404 pour tout jeton inutilisable : server/src/agenda.ts.
+  app.use(routesAgenda(db));
 
   // File d'envoi des messages sortants (Paramètres → Envois) : état de l'intégration et derniers messages.
   // Service RH et lecture seule (droit `consultation`) ; ni le référent HSE, ni la paie. La lecture seule ne lit pas le

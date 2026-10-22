@@ -38,6 +38,8 @@ import { absenceSansPaie, resumeAbsencesPaie, sansCodesAbsences } from './absenc
 import { lireMessagerie } from './messagerie.ts';
 import { lirePieces, piecesVisibles } from './pieces.ts';
 import { resumeDeplacementsPaie } from './deplacements-paie.ts';
+import { dossiersEchus } from './conservation.ts';
+import { jetonActif } from './agenda.ts';
 
 /** Réglages par défaut : colonne `defaut` de la table des réglages (shared/reglages.ts). */
 export const DEFAULT_SETTINGS: Settings = reglagesParDefaut();
@@ -347,7 +349,11 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     // Sans droit « paie » (gestionnaire RH), ni les rubriques d'absence en attente ni celles des lots : le code révèle la catégorie.
     // Couverture minimale des équipes (t067), calculée ici sur l'instantané complet : toutes les équipes.
     return droits.includes('rh')
-      ? { ...full, taches: tachesProches(full.taches, full.today), ...(droits.includes('paie') ? {} : sansCodesAbsences(full)), couverture: etatsCouverture(full, full.settings.horizonAlerte) }
+      ? {
+        ...full, taches: tachesProches(full.taches, full.today), ...(droits.includes('paie') ? {} : sansCodesAbsences(full)), couverture: etatsCouverture(full, full.settings.horizonAlerte),
+        // Dossiers des salariés sortis dont une durée de conservation est échue (t016) : administrateur RH seulement.
+        ...(droits.includes('admin') ? { conservation: dossiersEchus(db, full.settings, full.today) } : {}),
+      }
       : vueProfil(full, droits);
   }
   const d = new Domain(full);
@@ -389,6 +395,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
       entretienMiCarriere: entretienMiCarriere(full, e)?.due ?? null,
       // Contact d'urgence (t068) : service RH et intéressé, jamais le manager.
       urgenceNom: null, urgenceTel: null,
+      // Anonymisation d'un dossier échu (t016) : affaire du service RH.
+      anonymiseLe: null,
       ...(repriseMedicale(e, full.absences) ? { repriseMotif: null, repriseDate: null } : { repriseMotif: e.repriseDate ? 'absence longue' : null }),
     }
     : e).map(e => (lecture.has(e.id) && e.aptitude ? { ...e, aptitude: { ok: e.aptitude.ok, aProgrammer: e.aptitude.aProgrammer } } : e));
@@ -483,6 +491,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     delegues,
     // Manager qui délègue pour lui-même (Mon espace ou espace manager) : suppléants possibles, réduits à l'annuaire.
     ...(d.teamsOf(user.empId).length ? { suppleantsPossibles: suppleantsPossibles(d, user.empId!) } : {}),
+    // Abonnement à l'agenda personnel (t036) : seulement le fait qu'il existe et sa date, jamais le jeton (haché en base).
+    agendaJeton: (() => { const j = jetonActif(db, user.empId!); return j ? { creeLe: j.creeLe } : null; })(),
   };
 }
 

@@ -537,6 +537,17 @@ export const REGLES: Record<string, Regle> = {
     champs: ['id'], extra: (_p, av) => ({ objet: av?.objet ?? null, objetId: av?.objetId ?? null }),
     cible: { table: 'pieces', cle: p => Number(p.id) || null, colonnes: ['retireeLe', 'retireeMotif'], masques: ['retireeMotif'] },
   },
+  // Conservation des dossiers (t016) : salariés et catégories effacées, nombre d'éléments ; jamais de nom (le message n'en
+  // porte pas), ni le motif (seul le fait qu'il soit renseigné).
+  'employe.anonymiser': {
+    extra: p => ({ avantEcheance: p.avantEcheance === true, ...(typeof p.motif === 'string' && p.motif.trim() ? { motif: MENTION_TEXTE } : {}) }),
+    bilan: (_p, x) => ({ effacements: (x.result as { effacements?: Ligne[] } | null)?.effacements ?? [] }),
+    salaries: (_p, x) => (x.result as { salaries?: number[] } | null)?.salaries ?? [],
+  },
+  // Agenda personnel (t036) : identifiant de l'abonnement créé, nombre de révocations ; jamais le jeton.
+  'agenda.creerJeton': { bilan: (_p, x) => ({ abonnement: (x.result as { id?: number } | null)?.id ?? null }), salaries: (_p, x) => [x.user.empId] },
+  'agenda.revoquerJeton': { salaries: (_p, x) => [x.user.empId] },
+  'agenda.revoquerTout': { bilan: (_p, x) => ({ revoques: (x.result as { revoques?: number } | null)?.revoques ?? 0 }) },
   'formalite.enregistrer': {
     champs: p => p.kind === 'passeport' ? ['empId', 'kind', 'expire'] : p.kind === 'visa' ? ['empId', 'kind', 'dest', 'visaType', 'obtenu', 'expire'] : ['empId', 'kind'],
   },
@@ -688,7 +699,7 @@ export const REGLES: Record<string, Regle> = {
   // Administration
   // Réglages : anciennes et nouvelles valeurs, sauf la référence de l'accord des heures supplémentaires (texte libre).
   'parametres.maj': {
-    cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord', 'cddAccordBranche', 'nuitAccord', 'forfaitJoursAccord', 'fractionnementAccord'] },
+    cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord', 'cddAccordBranche', 'nuitAccord', 'forfaitJoursAccord', 'fractionnementAccord', 'conservationDecisionDpo'] },
   },
   // Jours fériés d'une année (lot 6) : année, réglage avant et après ; le motif d'une année engagée (texte libre) n'est
   // jamais recopié, seulement le fait qu'il soit renseigné. Salariés dont une absence est recalculée (résultat).

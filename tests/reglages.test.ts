@@ -71,6 +71,11 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     // placement sur le CET, 5 RTT par an et 5 CP de la 5e semaine.
     fractionnementRegle: 'legal', fractionnementAccord: '', fractionnementDebut: '05-01', fractionnementFin: '10-31',
     cetPlafondRtt: 5, cetPlafondCp: 5,
+    // Lot 6 (t016, t036) : durées de conservation préremplies mais inactives sans la décision du DPO (réponse du 18 octobre
+    // 2026) ; flux d'agenda personnel désactivé, contenu complet.
+    conservationActive: false, conservationDecisionDpo: '', conservationDossierAns: 5, conservationTempsAns: 3, conservationPaieAns: 5,
+    conservationSanteAns: 5, conservationPasseportAns: 0, conservationTitreSejourAns: 5, conservationEntretiensAns: 5, conservationFormationsAns: 5,
+    agendaFluxActif: false, agendaContenu: ['sessions', 'entretiens', 'absences', 'deplacements'],
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

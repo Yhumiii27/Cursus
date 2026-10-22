@@ -124,6 +124,14 @@ const pieceJointe = (objet: string, objetId: number) => db.insert<{ id: number }
   empId: 2, objet, objetId, nom: 'piece.pdf', type: 'application/pdf', taille: 5, empreinte: 'e', fichier: 'b'.repeat(32),
   deposeLe: '2026-10-07T08:00:00.000Z', deposePar: 'Essai', deposeCompteId: null,
 }).id;
+/** Réglages modifiés pour l'essai (transaction annulée ensuite). */
+const reglages = (r: Record<string, unknown>) => db.setSetting('app', { ...db.getSetting<Record<string, unknown>>('app', {}), ...r });
+/** Mehdi sorti à la date (démission), conservation des dossiers activée avec la décision du DPO ; renvoie son identifiant. */
+const sortiLe = (fin: string) => {
+  reglages({ conservationActive: true, conservationDecisionDpo: 'Décision DPO 2026-01' });
+  db.update('employes', 2, { fin, motifSortie: 'demission' });
+  return 2;
+};
 // `p` reçoit la personne qui agit (pièce justificative envoyée par son compte) ; les autres lignes l'ignorent.
 interface Ligne { action: string; variante?: string; droits: string; p: (u: User) => Record<string, unknown>; env?: Record<string, string> }
 
@@ -430,7 +438,15 @@ const MATRICE: Ligne[] = [
   { action: 'piece.joindre', variante: 'document déclaré', droits: 'O    O    -    -    O    -    -    -    -', p: u => ({ jetons: [pieceEnvoyee(u)], objet: 'declaration', objetId: documentDeclare() }) },
   { action: 'piece.joindre', variante: 'déplacement', droits: '    O    O    -    -    -    -    -    -    -', p: u => ({ jetons: [pieceEnvoyee(u)], objet: 'voyage', objetId: voyage() }) },
   { action: 'piece.retirer', variante: 'certification', droits: '  O    O    -    -    -    -    O    -    -', p: () => ({ id: pieceJointe('certification', cert('sst')), motif: 'Mauvais document' }) },
-  { action: 'piece.retirer', variante: 'absence', droits: '        O    O    -    -    -    -    -    -    -', p: () => ({ id: pieceJointe('absence', absence('signalee', 'ABSENCE')), motif: 'Mauvais document' }) },
+  { action: 'piece.retirer', variante: 'absence', droits: '        O    O    -    -    -    -    -    -    -', p: () => ({ id: pieceJointe('absence', absence('signalee', 'ABSENCE')), motif: 'Mauvais document' }) },  // Conservation des dossiers (t016) : effacement irréversible, administrateur RH seul ; Mehdi sorti il y a longtemps (dossier
+  // échu, fonction activée avec la décision du DPO) ou récemment (droit à l'effacement exercé avant l'échéance).
+  { action: 'employe.anonymiser', variante: 'dossier échu', droits: '   O    -    -    -    -    -    -    -    -', p: () => ({ ids: [sortiLe('2019-01-31')], motif: 'Durées validées par le DPO' }) },
+  { action: 'employe.anonymiser', variante: 'avant l’échéance', droits: 'O    -    -    -    -    -    -    -    -', p: () => ({ ids: [sortiLe('2026-01-31')], motif: 'Demande du salarié', avantEcheance: true }) },
+  // Agenda personnel (t036) : le salarié pour lui-même, depuis son espace (collaborateur ou manager) ; révocation de tous
+  // les abonnements, administrateur RH.
+  { action: 'agenda.creerJeton', droits: '                       -    -    O    O    O    O    -    -    -', p: () => { reglages({ agendaFluxActif: true }); return {}; } },
+  { action: 'agenda.revoquerJeton', droits: '                    -    -    O    O    O    O    -    -    -', p: () => ({}) },
+  { action: 'agenda.revoquerTout', droits: '                     O    -    -    -    -    -    -    -    -', p: () => ({}) },
 ];
 
 const ANNULER = Symbol('annuler');

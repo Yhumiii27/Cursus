@@ -50,7 +50,10 @@ dossier des copies. Les pièces confiées plus tard à l'espace documentaire de 
 - toute copie qui quitte la machine est chiffrée **avant** l'envoi ;
 - l'accès aux copies et à la clé de chiffrement est limité aux administrateurs nommés ;
 - une donnée effacée dans Cursus subsiste dans les copies jusqu'à leur expiration : la durée de
-  conservation des copies (section 5) est à reporter dans le registre des traitements, avec le DPO.
+  conservation des copies (section 5) est à reporter dans le registre des traitements, avec le DPO. C'est le cas des
+  dossiers anonymisés à la fin de leur durée de conservation (Paramètres → Conservation des dossiers) : restaurer une
+  copie antérieure à l'anonymisation fait revenir le dossier nominatif, à anonymiser de nouveau aussitôt après la
+  restauration (la liste des dossiers échus le propose de nouveau).
 
 ## 2. `npm run backup`
 

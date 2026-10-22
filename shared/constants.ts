@@ -319,9 +319,9 @@ export const VACCINS: Record<VaccinId, { nom: string; court: string; validite: n
  * Information de la personne (art. 13 du RGPD), affichée avant toute saisie d'une vaccination, par le salarié
  * (déclaration) comme par le service RH (à porter à la connaissance du salarié). Décision de l'entreprise : tous les
  * vaccins sont enregistrés avec leur date d'injection, et seul le service RH y a accès. Données de santé (art. 9) :
- * texte à faire valider par le DPO de l'entreprise. La conservation énonce ce que Cursus fait réellement : aucune
- * purge, même au départ du salarié ; les déclarations et le journal gardent les injections antérieures. La durée est
- * à fixer par le DPO avant la mise en service (docs/DEPLOIEMENT.md).
+ * texte à faire valider par le DPO de l'entreprise. La conservation énonce ce que Cursus fait réellement : effacement
+ * des données de santé après le départ, proposé par Cursus et confirmé par le service RH (t016,
+ * shared/rules/conservation.ts), une fois la durée validée par le DPO ; aucune purge automatique.
  */
 export const INFO_VACCINATIONS = {
   titre: 'Vaccinations : des données de santé',
@@ -331,7 +331,7 @@ export const INFO_VACCINATIONS = {
     ['Base légale', 'obligation de sécurité de l’employeur envers le salarié en déplacement (art. L4121-1 du Code du travail ; art. 6.1.c et 9.2.b du RGPD).'],
     ['Données', 'le vaccin et la date d’injection, rien d’autre : ni certificat, ni contre-indication, ni autre information médicale.'],
     ['Destinataires', 'le service RH seulement. Votre manager, les autres profils et Keystone ne voient que l’état du dossier de voyage, jamais le vaccin.'],
-    ['Conservation', 'durée fixée par l’entreprise avec son délégué à la protection des données (à préciser avant la mise en service) ; rien n’est encore effacé automatiquement, même après votre départ. Votre dossier ne garde que la dernière injection de chaque vaccin, mais vos déclarations successives et le journal des actions gardent les précédentes.'],
+    ['Conservation', 'durée fixée par l’entreprise avec son délégué à la protection des données (référence usuelle : 5 ans après votre départ) ; à son terme, le service RH confirme l’effacement que Cursus lui propose, déclarations comprises. Tant que la durée n’est pas validée, rien n’est effacé. Votre dossier ne garde que la dernière injection de chaque vaccin, mais vos déclarations successives gardent les précédentes jusqu’à cet effacement.'],
     ['Vos droits', 'accès, rectification, effacement, limitation et opposition auprès du service RH ou du délégué à la protection des données ; réclamation auprès de la CNIL (cnil.fr).'],
     ['Si vous ne la déclarez pas', 'un déplacement vers un pays qui exige ce vaccin reste « à compléter ».'],
   ] as [string, string][],

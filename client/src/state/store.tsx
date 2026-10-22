@@ -146,6 +146,8 @@ export type DialogState =
   | { type: 'contactUrgence'; empId: number }
   /** Avenant de renonciation à des jours de repos d'un forfait jours (t043) : service RH, depuis la fiche. */
   | { type: 'avenantForfait'; empId: number }
+  /** Effacement des données échues ou anonymisation de dossiers de salariés sortis (t016, administrateur RH). */
+  | { type: 'anonymiser'; ids: number[]; avantEcheance?: boolean }
   /** Refus ou action irréversible à confirmer (state/confirmations.ts). */
   | { type: 'confirmer'; c: Confirmation };
 

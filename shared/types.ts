@@ -397,6 +397,11 @@ export interface Employe {
    */
   urgenceNom?: string | null;
   urgenceTel?: string | null;
+  /**
+   * Dossier anonymisé (`employe.anonymiser`, durées de conservation : shared/rules/conservation.ts) : identité remplacée
+   * par « Salarié anonymisé n° X », date du jour de l'anonymisation ; null tant que le dossier est nominatif.
+   */
+  anonymiseLe?: ISODate | null;
   /** Date de la dernière visite d'aptitude — réservée au service RH. */
   visite: ISODate | null;
   /**
@@ -1068,6 +1073,27 @@ export interface Settings {
   /** Compte épargne-temps (shared/rules/conges.ts) : plafonds de placement, RTT par an et CP de 5e semaine par période (5 et 5). */
   cetPlafondRtt: number;
   cetPlafondCp: number;
+  /**
+   * Conservation des dossiers des salariés sortis (t016, shared/rules/conservation.ts) : propositions d'effacement actives
+   * (désactivé par défaut, exige la référence de la décision du DPO), et durée de chaque catégorie en années après la
+   * sortie (0 : dès le lendemain du dernier jour). Rien n'est effacé sans la confirmation de l'administrateur RH.
+   */
+  conservationActive: boolean;
+  conservationDecisionDpo: string;
+  conservationDossierAns: number;
+  conservationTempsAns: number;
+  conservationPaieAns: number;
+  conservationSanteAns: number;
+  conservationPasseportAns: number;
+  conservationTitreSejourAns: number;
+  conservationEntretiensAns: number;
+  conservationFormationsAns: number;
+  /**
+   * Agenda personnel (t036, server/src/agenda.ts) : flux .ics par abonnement à jeton révocable, désactivé par défaut, et ce
+   * qu'il publie (absences toujours sous le libellé neutre « Absent »).
+   */
+  agendaFluxActif: boolean;
+  agendaContenu: ContenuAgenda[];
 }
 /** Période de paie des jours rachetés d'un forfait jours : mois de la signature de l'avenant, ou clôture de l'année (décembre). */
 export type EmissionJren = 'signature' | 'cloture';
@@ -1092,6 +1118,8 @@ export interface AvenantForfait {
 export interface ElementRachatPaie {
   avenant: number; empId: number; matricule: string; periode: string; rubrique: string; codeSage: string | null; quantite: number; taux: number; annee: number; signeLe: ISODate;
 }
+/** Ce que publie le flux d'agenda personnel (t036). */
+export type ContenuAgenda = 'sessions' | 'entretiens' | 'absences' | 'deplacements';
 /** Plafond des heures complémentaires du temps partiel : le dixième (art. L3123-28) ou le tiers avec un accord (art. L3123-20). */
 export type PlafondComplementaires = 'dixieme' | 'tiers';
 
@@ -1555,7 +1583,22 @@ export interface Dataset {
    * contrôlée par le serveur. Absent ailleurs (service RH : `employes`).
    */
   suppleantsPossibles?: Personne[];
+  /**
+   * Dossiers des salariés sortis dont une durée de conservation est échue (t016, server/src/conservation.ts) : calculés par
+   * le serveur pour l'administrateur RH seulement, réglage `conservationActive` et décision du DPO renseignés ; absent ailleurs.
+   */
+  conservation?: DossierEchu[];
+  /** Abonnement à l'agenda personnel (t036) : jeton en vigueur de la personne connectée (date de création), sinon null. */
+  agendaJeton?: { creeLe: string } | null;
 }
+
+/** Catégorie de données d'un dossier, avec sa durée de conservation après la sortie (shared/rules/conservation.ts). */
+export type CategorieConservation = 'dossier' | 'temps' | 'paie' | 'sante' | 'passeport' | 'titreSejour' | 'entretiens' | 'formations';
+/**
+ * Dossier proposé à l'effacement : catégories échues qui ont encore des données (`categories`), et `dossier` vrai quand la
+ * durée du dossier est échue (anonymisation complète). Aucun nom : l'écran le lit dans la fiche.
+ */
+export interface DossierEchu { empId: number; fin: ISODate; categories: CategorieConservation[]; dossier: boolean; elements: number }
 
 /**
  * Lot importé depuis l'écran Mise en service (`reprise.importer`, shared/rules/reprise.ts) : type, date de reprise des

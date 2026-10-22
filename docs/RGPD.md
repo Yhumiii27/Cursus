@@ -99,15 +99,17 @@ Aucun transfert hors de l'Union européenne n'est prévu par Cursus ; à vérifi
 | File d'envoi (e-mails, messages à Keystone) | 1 an ; un échec non traité reste | Appliqué (`CONSERVATION_ENVOIS_MOIS`) |
 | Sessions de connexion | 12 heures, purgées ensuite | Appliqué |
 | Journaux du serveur (requêtes et messages techniques) | 1 an au plus, accès réservé au service informatique | Hors de Cursus : rotation par Docker ou journald (`docs/DEPLOIEMENT.md`), durée à valider par le DPO |
-| Dossier du salarié (fiche, compétences, temps, absences, entretiens) | Pendant le contrat, puis à compléter par le DPO (référence usuelle : 5 ans après le départ pour le dossier, 3 ans pour le décompte du temps de travail, le temps de la prescription pour les éléments de paie) | **Aucune purge** : rien n'est effacé, même au départ |
-| Données de santé (visites, avis, restrictions, vaccinations) | à compléter par le DPO | **Aucune purge** ; les déclarations successives gardent les injections antérieures |
-| Passeport, visas | Validité du document, puis à compléter par le DPO | Aucune purge |
-| Titre de séjour (type, numéro, expiration, demande d'authentification et réponse) | Registre unique du personnel : 5 ans après le départ ; à confirmer par le DPO | Aucune purge |
-| Pièces justificatives | Celle de l'objet qu'elles justifient (dossier du salarié, données de santé, passeport) : à compléter par le DPO ; une pièce retirée par le service RH ou jointe à une déclaration refusée est effacée aussitôt (sa description reste), une pièce envoyée mais jamais jointe au bout de 24 h | Retrait et refus appliqués ; durée par objet à appliquer avec les durées du dossier (chantier 7, étape 2) |
+| Dossier du salarié (fiche, compétences, temps, absences, entretiens) | Pendant le contrat, puis durée préremplie, à valider par le DPO : 5 ans après le départ pour le dossier (5 ans au moins : registre unique du personnel, art. R1221-26), 3 ans pour les textes libres et justificatifs du temps de travail, 5 ans pour les entretiens et les formations, 5 ans pour les éléments de paie | Paramètres → Conservation des dossiers : **inactif** tant que la référence de la décision du DPO n'est pas saisie ; ensuite, Cursus propose chaque jour les dossiers échus et l'administrateur RH confirme (un par un ou par lot, motif) : catégorie effacée, puis fiche anonymisée (« Salarié anonymisé n° … »), nom retiré de toute la base, journal compris ; heures, absences, coûts et lots de paie gardés sans nom. Aucune purge automatique |
+| Données de santé (visites, avis, restrictions, vaccinations) | Préremplie à 5 ans après le départ, à valider par le DPO | Effacées sur confirmation, déclarations comprises (même dispositif) |
+| Passeport, visas | Effacés à la sortie (préremplie), à valider par le DPO | Effacés sur confirmation, déclarations et copies comprises |
+| Titre de séjour (type, numéro, expiration, demande d'authentification et réponse) | Registre unique du personnel : 5 ans après le départ ; à confirmer par le DPO | Effacé sur confirmation (même dispositif) |
+| Abonnement à l'agenda personnel (jeton haché, dates) | Jusqu'à sa révocation ; supprimé avec le dossier | Désactivé par défaut (Paramètres → Agenda) |
+| Pièces justificatives | Celle de l'objet qu'elles justifient ; une pièce retirée par le service RH ou jointe à une déclaration refusée est effacée aussitôt (sa description reste), une pièce envoyée mais jamais jointe au bout de 24 h | Retrait et refus appliqués ; pièces effacées avec leur catégorie (justificatifs d'absence avec le temps, attestations avec les formations, copies de documents avec le passeport ou la santé) et toutes à l'anonymisation |
 | Sauvegardes | 14 copies locales ; copies distantes selon le calendrier de `docs/SAUVEGARDE.md` (à valider avec le DPO) | Une donnée effacée subsiste dans les copies jusqu'à leur expiration |
 
-Tant que les durées « à compléter » ne sont pas fixées et appliquées, l'information des salariés indique que rien
-n'est encore effacé automatiquement.
+Tant que la décision du DPO n'est pas saisie dans Paramètres → Conservation des dossiers, rien n'est proposé ni
+effacé ; l'information des salariés le dit. Une donnée effacée subsiste dans les sauvegardes jusqu'à leur rotation
+(`docs/SAUVEGARDE.md`). Le journal des actions ne garde, de l'effacement, que les identifiants et les catégories.
 
 ## 6. Mesures de sécurité
 
@@ -131,7 +133,7 @@ n'est encore effacé automatiquement.
 | Information | Page Confidentialité (connexion et tous les espaces) ; information spécifique avant une vaccination |
 | Accès et portabilité | « Télécharger mes données » (espace collaborateur) : fichier JSON de toutes ses données ; le service RH exporte le dossier complet, journal compris (fiche du collaborateur) |
 | Rectification | Demande au service RH ; documents de voyage déclarés par le salarié, validés par le RH |
-| Effacement, limitation, opposition | Auprès du service RH ou du DPO, dans les limites des obligations légales ; effacement à faire en base par le service informatique (aucun écran dédié) |
+| Effacement, limitation, opposition | Auprès du service RH ou du DPO, dans les limites des obligations légales ; après le départ, l'administrateur RH efface avant l'échéance ce qui ne relève d'aucune obligation légale (passeport et visas, entretiens, motifs et demandes des formations ; Paramètres → Conservation des dossiers, « Droit à l’effacement avant l’échéance », motif obligatoire) ; l'identité et le titre de séjour (registre unique du personnel, 5 ans après le départ, art. R1221-26), la santé au travail et le temps de travail restent jusqu'à leur échéance (art. 17-3-b du RGPD) ; un salarié en poste n'est pas effacé |
 | Réclamation | CNIL (cnil.fr) |
 
 Contact : le DPO (Paramètres → Confidentialité), sinon le service RH.
@@ -139,8 +141,11 @@ Contact : le DPO (Paramètres → Confidentialité), sinon le service RH.
 ## 8. Points ouverts pour l'AIPD
 
 - Hébergeur, localisation des données et contrat de sous-traitance ; besoin d'un hébergement HDS.
-- Durées de conservation du dossier, des données de santé et des documents de voyage, puis leur purge automatique
-  (non développée).
+- Validation des durées de conservation préremplies (dossier, santé, documents de voyage, titre de séjour) et saisie de la
+  référence de la décision dans Paramètres → Conservation des dossiers ; aucune purge automatique, chaque effacement est
+  confirmé par l'administrateur RH.
+- Agenda personnel par abonnement (Paramètres → Agenda, désactivé par défaut) : l'adresse donne accès, sans connexion, aux
+  dates des absences (« Absent »), formations, entretiens et déplacements du salarié ; jeton secret et révocable.
 - Statut de Keystone (outil interne ou sous-traitant) et contrat avec l'éditeur de Sage Paie.
 - Accès depuis Internet, smartphone compris (décision de l'entreprise) : téléphones fournis, verrouillage imposé par
   la gestion de flotte (`docs/DEPLOIEMENT.md`, « Postes et téléphones »).

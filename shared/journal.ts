@@ -254,6 +254,13 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'piece.joindre': 'Pièce justificative jointe',
   'piece.retirer': 'Pièce justificative retirée',
   'piece.consulter': 'Pièce justificative consultée',
+  // Conservation des dossiers (t016, server/src/conservation.ts) : identifiants et catégories seulement, jamais de nom.
+  'employe.anonymiser': 'Dossier de salarié sorti : données échues effacées ou dossier anonymisé',
+  'conservation.signalement': 'Dossiers de salariés sortis à effacer signalés au service RH',
+  // Agenda personnel (t036, server/src/agenda.ts) : jeton créé, révoqué ; jamais le jeton.
+  'agenda.creerJeton': 'Abonnement à l’agenda personnel créé',
+  'agenda.revoquerJeton': 'Abonnement à l’agenda personnel révoqué',
+  'agenda.revoquerTout': 'Tous les abonnements aux agendas révoqués',
 };
 
 /** Libellé d'un code ; un e-mail simulé (`email.<nature>`, sans boîte d'envoi) est nommé par sa nature. */
@@ -290,6 +297,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
   { id: 'reprise', label: 'Mise en service (reprise depuis Lucca)', prefixes: ['reprise.'] },
   { id: 'pieces', label: 'Pièces justificatives', prefixes: ['piece.'] },
+  { id: 'conservation', label: 'Conservation et agendas', prefixes: ['conservation.', 'agenda.'] },
   { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.', 'confidentialite.', 'integrite.'] },
   { id: 'connexions', label: 'Connexions et accès', prefixes: ACTIONS_CONNEXION },
   {
@@ -387,6 +395,13 @@ export const CHAMP_LABEL: Record<string, string> = {
   fractionnementRegle: 'Règle des jours de fractionnement', fractionnementAccord: 'Accord sur le fractionnement des congés',
   fractionnementDebut: 'Début de la période du congé principal', fractionnementFin: 'Fin de la période du congé principal',
   cetPlafondRtt: 'Plafond de RTT placés sur le CET par an', cetPlafondCp: 'Plafond de CP placés sur le CET par période',
+  // Conservation des dossiers (Paramètres → Conservation des dossiers) et agenda personnel (Paramètres → Agenda).
+  conservationActive: 'Propositions d’effacement des dossiers échus', conservationDecisionDpo: 'Décision du DPO sur les durées de conservation',
+  conservationDossierAns: 'Conservation du dossier (ans après la sortie)', conservationTempsAns: 'Conservation du temps de travail (ans)',
+  conservationPaieAns: 'Conservation des éléments de paie (ans)', conservationSanteAns: 'Conservation des données de santé (ans)',
+  conservationPasseportAns: 'Conservation du passeport et des visas (ans)', conservationTitreSejourAns: 'Conservation du titre de séjour (ans)',
+  conservationEntretiensAns: 'Conservation des entretiens (ans)', conservationFormationsAns: 'Conservation des formations (ans)',
+  agendaFluxActif: 'Abonnement à l’agenda personnel', agendaContenu: 'Contenu de l’agenda personnel',
 };
 
 const valeur = (v: unknown): string => {

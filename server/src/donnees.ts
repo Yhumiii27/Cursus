@@ -34,12 +34,13 @@ const TITRES: Partial<Record<TableName, string>> = {
   avenantsForfait: 'Avenants de renonciation à des jours de repos (forfait jours)',
   fractionnements: 'Jours de fractionnement des congés payés',
   habDelivrances: 'Délivrances des habilitations (historique)', formationsSuivies: 'Formations suivies',
+  effacements: 'Effacements à la fin des durées de conservation', jetonsAgenda: 'Abonnements à l’agenda personnel',
 };
 /**
- * Colonnes jamais exportées : empreinte du mot de passe (secret) ; nom stocké et jeton d'envoi d'une pièce justificative
+ * Colonnes jamais exportées : empreinte du mot de passe (secret) et du jeton d'agenda ; nom stocké et jeton d'envoi d'une pièce justificative
  * (repères internes), dont le contenu est joint à part (`contenu`, base64).
  */
-const RETIREES: Partial<Record<TableName, string[]>> = { comptes: ['motDePasse'], pieces: ['fichier', 'jeton', 'deposeCompteId'] };
+const RETIREES: Partial<Record<TableName, string[]>> = { comptes: ['motDePasse'], pieces: ['fichier', 'jeton', 'deposeCompteId'], jetonsAgenda: ['empreinte'] };
 /**
  * Colonnes retirées de l'export remis au salarié lui-même (sans journal) : elles nomment d'autres personnes, comme le
  * journal qu'il ne reçoit pas — auteur d'une ligne de l'historique des contrats, que son portail ne lui montre pas, et de
@@ -48,6 +49,9 @@ const RETIREES: Partial<Record<TableName, string[]>> = { comptes: ['motDePasse']
 const RETIREES_SALARIE: Partial<Record<TableName, string[]>> = {
   contratsHistorique: ['par', 'parId'], avenantsForfait: ['creePar', 'annulePar'], habDelivrances: ['auteur', 'auteurId'],
   formationsSuivies: ['auteur', 'auteurId'],
+  // Administrateur RH qui a révoqué les abonnements à l'agenda, ou confirmé un effacement, et son motif (texte libre).
+  jetonsAgenda: ['revoquePar'],
+  effacements: ['par', 'motif'],
 };
 
 /** Tables du schéma qui portent la colonne `empId` (la fiche elle-même est la section « Fiche »). */

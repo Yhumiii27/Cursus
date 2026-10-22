@@ -16,6 +16,7 @@ import type { ModeNotification } from '../../../shared/types.ts';
 import { retraitDemande } from '../state/confirmations-corrections.ts';
 import { Bar, Btn, Chips, Empty, Fine, Kpi, Kpis, NoteAccent, Page, Panel, Seg, Tag } from '../components/ui.tsx';
 import { ContactUrgencePanel } from '../components/ContactUrgence.tsx';
+import { AgendaPortail } from '../components/AgendaPortail.tsx';
 import { Aptitude } from '../components/Aptitude.tsx';
 import { ExigencesPortail } from '../components/Exigences.tsx';
 import { FormationsSuiviesPortail } from '../components/FormationsSuivies.tsx';
@@ -289,6 +290,7 @@ export function Portail() {
           </Panel>
 
           <ContactUrgencePanel empId={me.id} />
+          <AgendaPortail />
 
           <Panel title="Mes notifications par e-mail" style={{ gap: 'var(--space-3)' }}>
             <div style={{ fontSize: 14, overflowWrap: 'anywhere' }}>{me.email ?? 'Aucune adresse e-mail sur votre fiche'}</div>

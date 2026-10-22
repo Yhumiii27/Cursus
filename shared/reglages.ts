@@ -6,7 +6,8 @@ import { isValidDate } from './dates.ts';
 import { CONTRATS_EXCLUABLES, PREAVIS_TOUTE_ANNEE } from './rules/campagne.ts';
 import { JOURS_RELANCE, paliersRelance } from './rules/relances.ts';
 import { nuitHorsLoi, refusPlageNuit } from './rules/repos-nuit.ts';
-import type { Settings, StockagePieces } from './types.ts';
+import { CATEGORIES, CATEGORIES_CONSERVATION, categoriesTexte, DOSSIER_MIN_ANS, DUREE_MAX_ANS } from './rules/conservation.ts';
+import type { ContenuAgenda, Settings, StockagePieces } from './types.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
 export const RTT_ANNEE_SUIVANTE_DES = ['', '09-01', '10-01', '11-01', '12-01'] as const;
@@ -227,6 +228,23 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   //   an et 5 CP de la 5e semaine par période, tant que l'accord sur le CET n'est pas connu —
   cetPlafondRtt: { defaut: 5, controle: entier(0, 25) },
   cetPlafondCp: { defaut: 5, controle: entier(0, 5) },
+  // — Conservation des dossiers (parametres/Conservation.tsx, shared/rules/conservation.ts, t016) : durées préremplies mais
+  //   inactives (réponse de l'entreprise du 18 octobre 2026) tant que la décision du DPO n'est pas référencée (COHERENCE) ;
+  //   années après la sortie, 0 : dès le lendemain du dernier jour —
+  conservationActive: { defaut: false, controle: booleen },
+  conservationDecisionDpo: { defaut: '', controle: texte(120, 'Référence de la décision du DPO') },
+  conservationDossierAns: { defaut: 5, controle: entier(0, DUREE_MAX_ANS) },
+  conservationTempsAns: { defaut: 3, controle: entier(0, DUREE_MAX_ANS) },
+  conservationPaieAns: { defaut: 5, controle: entier(0, DUREE_MAX_ANS) },
+  conservationSanteAns: { defaut: 5, controle: entier(0, DUREE_MAX_ANS) },
+  conservationPasseportAns: { defaut: 0, controle: entier(0, DUREE_MAX_ANS) },
+  conservationTitreSejourAns: { defaut: 5, controle: entier(0, DUREE_MAX_ANS) },
+  conservationEntretiensAns: { defaut: 5, controle: entier(0, DUREE_MAX_ANS) },
+  conservationFormationsAns: { defaut: 5, controle: entier(0, DUREE_MAX_ANS) },
+  // — Agenda personnel (parametres/Agenda.tsx, server/src/agenda.ts, t036) : flux par abonnement désactivé par défaut ;
+  //   absences toujours publiées sous le libellé neutre « Absent » —
+  agendaFluxActif: { defaut: false, controle: booleen },
+  agendaContenu: { defaut: ['sessions', 'entretiens', 'absences', 'deplacements'], controle: parmi<ContenuAgenda>(['sessions', 'entretiens', 'absences', 'deplacements']) },
 };
 
 /**
@@ -268,6 +286,17 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
   s => (s.fractionnementRegle !== 'legal' && !s.fractionnementAccord
     ? 'Fractionnement des congés : une règle fixée par accord, ou la renonciation aux jours de fractionnement, suppose un accord collectif d’entreprise (art. L3141-21) : indiquez sa référence' : null),
   s => (s.fractionnementDebut >= s.fractionnementFin ? 'Période du congé principal : le début doit précéder la fin, dans la même année' : null),
+  // — Conservation des dossiers : aucune proposition sans la décision du DPO (réponse de l'entreprise du 18 octobre 2026) ;
+  // le dossier au moins 5 ans (registre unique du personnel, art. R1221-26) et jamais avant une autre catégorie,
+  // car son anonymisation efface tout —
+  s => (s.conservationActive && !s.conservationDecisionDpo
+    ? 'Conservation des dossiers : indiquez la référence de la décision du DPO qui fixe ces durées avant d’activer les propositions' : null),
+  s => (s.conservationDossierAns < DOSSIER_MIN_ANS
+    ? `Conservation des dossiers : ${DOSSIER_MIN_ANS} ans au moins pour le dossier : l’identité et le titre de séjour figurent au registre unique du personnel, gardé 5 ans après le départ (art. R1221-26)` : null),
+  s => {
+    const plus = CATEGORIES.filter(c => c !== 'dossier' && s[CATEGORIES_CONSERVATION[c].reglage] > s.conservationDossierAns);
+    return plus.length ? `Conservation des dossiers : ${categoriesTexte(plus)} au-delà de la durée du dossier, dont l’anonymisation efface tout` : null;
+  },
 ];
 
 /** Vue non typée de la table, pour la parcourir (les contrôles reçoivent la valeur en vigueur du même champ). */

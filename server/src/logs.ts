@@ -61,9 +61,12 @@ export function noterCompte(req: Request, compteId: number | null | undefined) {
   if (compteId != null) COMPTES.set(req, compteId);
 }
 
-/** Chemin sans paramètres de requête, réduit aux caractères imprimables (aucune ligne forgée), 200 caractères au plus. */
+/**
+ * Chemin sans paramètres de requête, réduit aux caractères imprimables (aucune ligne forgée), 200 caractères au plus. Le
+ * jeton secret du flux d'agenda (/api/agenda/<jeton>.ics, server/src/agenda.ts) est masqué : il suffit à lire l'agenda.
+ */
 export function cheminJournal(url: string): string {
-  return url.split('?')[0].replace(/[^\x21-\x7e]/g, '?').slice(0, 200);
+  return url.split('?')[0].replace(/[^\x21-\x7e]/g, '?').replace(/^(\/api\/agenda\/)[^/]+/i, '$1…').slice(0, 200);
 }
 
 export interface Requete { methode: string; chemin: string; statut: number; dureeMs: number; compte: number | null; interrompue: boolean }

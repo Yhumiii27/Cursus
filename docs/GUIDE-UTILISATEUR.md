@@ -82,7 +82,9 @@ pas dans Cursus : la paie les traite dans Sage.
 - **Accueil** : certifications et habilitations avec leur échéance, formations planifiées. « Demander une formation »,
   « Demander le recyclage » d'une certification qui expire et « Demander une habilitation » envoient la demande au service
   RH ; « Retirer la demande » l'annule tant qu'il ne l'a pas traitée.
-- Les convocations aux sessions et aux entretiens arrivent par e-mail, avec un fichier pour l'agenda.
+- Les convocations aux sessions et aux entretiens arrivent par e-mail, avec un fichier pour l'agenda ; les congés validés
+  aussi. « Mon agenda dans Outlook » (si le service RH l'a ouvert) : « Créer mon adresse d’abonnement », puis l'ajouter à
+  Outlook (« Ajouter un calendrier », « À partir d’Internet ») ; les absences y figurent sous « Absent ».
 - « Mes documents de voyage » : passeport, visa, vaccination. Ils n'entrent dans le dossier qu'après validation par le
   service RH ; les vaccinations sont des données de santé que lui seul voit.
 - « Mon contact d’urgence » : la personne à prévenir (et son lien) et son téléphone, facultatifs, saisis par « Renseigner ».
@@ -488,3 +490,6 @@ questions encore ouvertes).
   service de santé au travail et des agences d'intérim dans Paramètres → Messagerie.
 - **Confidentialité** : responsable du traitement et contact du DPO (Paramètres → Confidentialité), repris en tête des
   documents imprimés ; validation du texte par le DPO (`docs/RGPD.md`).
+- **Conservation des dossiers** : durées à valider par le DPO, puis sa référence et la case « Proposer les dossiers échus »
+  (Paramètres → « Conservation des dossiers ») ; chaque effacement se confirme ensuite (« Effacer la sélection »,
+  « Effacer définitivement », motif). Agenda Outlook par abonnement : Paramètres → « Agenda ».

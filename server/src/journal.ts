@@ -282,7 +282,7 @@ export const REGLES: Record<string, Regle> = {
     champs: ['id', 'date', 'motif'], cible: parId('employes', ['fin', 'motifSortie']), salaries: p => [p.id],
     bilan: (_p, x) => {
       const r = x.result as { annulations?: Ligne; soldeSortie?: number } | null;
-      return { ...(r?.annulations ?? {}), ...(r?.soldeSortie ? { soldeSortie: r.soldeSortie } : {}) };
+      return { ...r?.annulations, ...(r?.soldeSortie ? { soldeSortie: r.soldeSortie } : {}) };
     },
   },
   'employe.annulerSortie': { champs: ['id'], cible: parId('employes', ['fin', 'motifSortie']), salaries: p => [p.id] },
@@ -786,7 +786,7 @@ export function champsRetenus(action: string, p: P, avant: Ligne | null = null):
   // Pièces justificatives jointes par l'action (server/src/actions/pieces.ts) : leur nombre, jamais leurs jetons.
   const pieces = Array.isArray(p.pieces) ? p.pieces.length : typeof p.pieces === 'string' && p.pieces ? 1 : 0;
   if (pieces) out.pieces = pieces;
-  return sansNature({ ...out, ...(r.extra?.(p, avant) ?? {}) });
+  return sansNature({ ...out, ...r.extra?.(p, avant) });
 }
 
 /** Ligne de la cible, lue telle quelle (colonnes de la table). */
@@ -865,7 +865,7 @@ export function journaliserAction(db: Db, t: Trace, x: { user: CurrentUser; comp
   const code = regle?.code?.(p, ctx) || t.action;
   // Décision prise par le suppléant d'un manager absent (t135) : identifiants des managers remplacés.
   const delegation = x.parDelegation?.length ? { parDelegation: x.parDelegation } : {};
-  const payload = { ...champsRetenus(t.action, p, avant), ...(regle?.bilan?.(p, ctx) ?? {}), ...delegation };
+  const payload = { ...champsRetenus(t.action, p, avant), ...regle?.bilan?.(p, ctx), ...delegation };
   const propres = regle?.changements?.(p, ctx) ?? null;
   const diff = propres ?? (regle?.cible ? comparer(regle.cible, avant, ctx.apres) : null);
   if (propres?.extra) Object.assign(payload, propres.extra);
@@ -898,7 +898,7 @@ const MOTIF_MAX = 200;
 
 /** Refus d'accès (403) d'une personne connectée : action ou écran réservé, motif borné ; rien n'a été modifié. */
 export function tracerRefus(db: Db, id: Pick<Identite, 'user' | 'compte'>, quoi: string, motif: string, extra: { action?: string; p?: unknown } = {}) {
-  const payload = { ...(extra.action ? { action: extra.action, ...champsRetenus(extra.action, extra.p as P) } : {}) };
+  const payload = extra.action ? { action: extra.action, ...champsRetenus(extra.action, extra.p as P) } : {};
   const p = (extra.p ?? {}) as P;
   const court = motif.length > MOTIF_MAX ? `${motif.slice(0, MOTIF_MAX)}…` : motif;
   journaliser(db, {
@@ -1239,6 +1239,7 @@ export function routesJournal(db: Db): Router {
     const id = identite(db, req);
     if (!id) return res.status(401).json({ error: 'Connexion requise' });
     const b = (req.body ?? {}) as P;
+    // oxlint-disable-next-line no-control-regex -- caractères de contrôle retirés volontairement d'un texte reçu
     const titre = typeof b.titre === 'string' ? b.titre.replace(/[\u0000-\u001f]/g, ' ').trim().slice(0, 160) : '';
     if (!titre) return res.status(400).json({ error: 'Export sans titre' });
     const lignes = Number.isInteger(b.lignes) && b.lignes >= 0 ? b.lignes as number : null;

@@ -111,7 +111,7 @@ const annuler: ActionHandler = (ctx, p) => {
   return `Déplacement annulé — ${emp.nom}, ${ctx.d.destOf(t.dest)?.pays ?? t.dest} du ${fmtShort(parse(t.depart))} au ${fmt(parse(t.retour))}${ks ? ' · Keystone prévenu' : ''}`;
 };
 
-export const deplacementsActions: Record<string, ActionHandler> = {
+export const deplacementsActions = {
   'voyage.modifier': modifier,
   'voyage.annuler': annuler,
-};
+} satisfies Record<string, ActionHandler>;

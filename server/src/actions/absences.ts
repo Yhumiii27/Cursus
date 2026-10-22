@@ -300,7 +300,7 @@ const accorderReport: ActionHandler = (ctx, p) => {
   return `${fJ(j)} de CP ${periodeCp(A)} reportés pour ${emp.nom} sur la période ${periodeCp(A + 1)} (appliqués à la clôture du ${fmt(parse(finPeriodeCp(A)))}) — utilisables jusqu’au ${fmt(parse(expire))}`;
 };
 
-export const absencesActions: Record<string, ActionHandler> = {
+export const absencesActions = {
   'absence.demander': demander,
   'absence.decider': decider,
   'absence.signaler': signaler,
@@ -310,4 +310,4 @@ export const absencesActions: Record<string, ActionHandler> = {
   'absence.annuler': annuler,
   'cet.placer': placerCet,
   'report.accorder': accorderReport,
-};
+} satisfies Record<string, ActionHandler>;

@@ -82,6 +82,7 @@ export function erreurPiece(f: { type: string | null; taille: number }): string 
 export function nomPiece(nom: unknown, type: TypePiece): string {
   const ext = TYPES_PIECES[type].extension;
   const brut = typeof nom === 'string' ? nom.split(/[\\/]/).pop()! : '';
+  // oxlint-disable-next-line no-control-regex -- caractères de contrôle retirés volontairement d'un texte reçu
   const base = brut.normalize('NFC').replace(/[\u0000-\u001f\u007f"<>|*?:]/g, '').replace(/\s+/g, ' ').trim().replace(/\.[^.]{1,5}$/, '').slice(0, NOM_PIECE_MAX - ext.length - 1).trim();
   return `${base || 'piece'}.${ext}`;
 }

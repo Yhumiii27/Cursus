@@ -91,8 +91,8 @@ const avancer: ActionHandler = (ctx, p) => {
   };
 };
 
-export const budgetActions: Record<string, ActionHandler> = {
+export const budgetActions = {
   'plan.importer': importer,
   'budget.enveloppes': enveloppes,
   'plan.avancer': avancer,
-};
+} satisfies Record<string, ActionHandler>;

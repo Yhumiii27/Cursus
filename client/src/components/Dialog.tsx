@@ -66,6 +66,9 @@ export function Dialog({ title, width, tall, children, actions, enregistrer, aba
   enLigneRef.current = confirmation;
   // Le dialogue porte des champs obligatoires : la légende de l'astérisque s'affiche.
   const [avecRequis, setAvecRequis] = useState(false);
+  // Sans dépendances, voulu : les champs changent d'un rendu à l'autre ; la même valeur ne relance pas de rendu (React
+  // ignore un setState identique), il n'y a donc pas de boucle.
+  // oxlint-disable-next-line react/exhaustive-deps -- relu à chaque rendu, valeur booléenne stable
   useLayoutEffect(() => { setAvecRequis(!!ref.current?.querySelector('.field .requis')); });
 
   useModale(ref, !reconnexion);

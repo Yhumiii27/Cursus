@@ -149,6 +149,6 @@ const cloturer: ActionHandler = (ctx, p) => {
   throw new ActionError('Type de congés à clôturer inconnu (CP ou RTT)');
 };
 
-export const cloturesActions: Record<string, ActionHandler> = {
+export const cloturesActions = {
   'conges.cloturer': cloturer,
-};
+} satisfies Record<string, ActionHandler>;

@@ -47,7 +47,12 @@ import { formationsSuiviesActions } from './formations-suivies.ts';
 import { conservationActions } from './conservation.ts';
 import { agendaActions } from './agenda.ts';
 
-export const ACTIONS: Record<string, ActionHandler> = {
+/**
+ * Registre typé (t164) : chaque famille est déclarée avec « satisfies Record<string, ActionHandler> », ce qui garde ses
+ * noms ; `NomAction` les réunit, et le client type `run` et `api.action` avec lui (import de type seulement) : tsc
+ * signale tout nom d'action mal écrit. Les noms construits à l'exécution sont vérifiés par tests/actions-contrat.test.ts.
+ */
+const REGISTRE = {
   ...conformiteActions,
   ...sessionsActions,
   ...voyagesActions,
@@ -94,7 +99,13 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...formationsSuiviesActions,
   ...conservationActions,
   ...agendaActions,
-};
+} satisfies Record<string, ActionHandler>;
+
+/** Nom d'une action exposée par POST /api/actions/:nom. */
+export type NomAction = keyof typeof REGISTRE;
+
+/** Recherche par nom reçu (chaîne quelconque de la requête) : un nom inconnu donne undefined. */
+export const ACTIONS: Record<string, ActionHandler> = REGISTRE;
 
 /**
  * Familles d'actions sans effet sur un verdict Go / No Go (temps, compteurs de congés, entretiens, budget, équipes, envois,

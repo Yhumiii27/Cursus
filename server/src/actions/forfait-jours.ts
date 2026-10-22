@@ -63,7 +63,7 @@ const annuler: ActionHandler = (ctx, p) => {
   };
 };
 
-export const forfaitJoursActions: Record<string, ActionHandler> = {
+export const forfaitJoursActions = {
   'forfait.avenant': creer,
   'forfait.annulerAvenant': annuler,
-};
+} satisfies Record<string, ActionHandler>;

@@ -126,6 +126,8 @@ server/src/
   index.ts         Démarrage (dans l'ordre : configuration, droits, verrou, migrations, tâches) et routes HTTP
 client/src/
   state/store.tsx  Session, données, navigation, filtres d'écran (ui), dialogue ouvert, notifications, reconnexion
+  state/run.ts     Exécution des actions (réponse, message, relecture) et file des actions interrompues par l'expiration
+                   de la session, rejouées après la reconnexion (sans React : tests/client-run.test.ts)
   state/brouillon.ts Brouillon gardé dans l'onglet pendant une reconnexion Microsoft (page, filtres, dialogue, champs)
   state/url.ts     Sélection et filtres de chaque vue dans l'adresse de la page (paramètres en français, valeurs contrôlées)
   state/actions.ts Actions identiques jamais envoyées deux fois à la fois, garde des boutons (useAgir : double clic)
@@ -158,8 +160,11 @@ design/            Prototype Claude Design de référence, guide du design syste
                    maquette (maquette-handoff.zip, seule archive suivie : *.zip est ignoré ailleurs)
 deploy/            Fichiers d'installation prêts à copier (unités systemd, Caddyfile, copie externe), identiques à la doc
 Dockerfile         Image facultative (hébergeur à conteneurs) ; .dockerignore
-scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Windows compris)
-.github/workflows/ ci.yml : npm ci puis npm run check, Node de .nvmrc
+scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Windows compris), e2e-serveur.mjs (serveur
+                   des tests de bout en bout : base jetable, date figée)
+e2e/               Tests de bout en bout Playwright par rôle (playwright.config.ts : Chromium, Edge, téléphone simulé)
+.oxlintrc.json     Contrôle du code (npm run lint, oxlint)
+.github/workflows/ ci.yml : npm ci puis npm run check, Node de .nvmrc ; tâche e2e séparée, non bloquante
 ```
 
 ## Flux de données
@@ -544,13 +549,30 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
 
 ## Vérification du code
 
-`npm run check` = `typecheck`, `test:coverage`, `build` : ce que la CI exécute (`.github/workflows/ci.yml`, après
-`npm ci`, Node de `.nvmrc`, essai non bloquant sur Node 24, `dist/` publié en artefact). `test:coverage` mesure la
-couverture des lignes, branches et fonctions du serveur et de `shared/` (`client/`, `tests/` et `scripts/` exclus tant
-que le client n'a pas de tests de rendu) et échoue sous les seuils écrits dans le script (`--test-coverage-lines`…),
-fixés juste sous la mesure du jour : les relever quand des tests s'ajoutent, jamais les baisser pour faire passer un
-ajout non testé. Les serveurs lancés par les tests avec l'environnement du test sont mesurés aussi. Un contrôle de
-style (lint) s'ajoutera à `check` quand il existera. `@types/node` suit Node 22.
+`npm run check` = `lint`, `typecheck`, `test:coverage`, `test:client`, `build` : ce que la CI exécute
+(`.github/workflows/ci.yml`, après `npm ci`, Node de `.nvmrc`, essai non bloquant sur Node 24, `dist/` publié en
+artefact). `test:coverage` mesure la couverture des lignes, branches et fonctions du serveur et de `shared/` (`client/`,
+`tests/` et `scripts/` exclus : le client est mesuré à part) et échoue sous les seuils écrits dans le script
+(`--test-coverage-lines`…), fixés juste sous la mesure du jour : les relever quand des tests s'ajoutent, jamais les
+baisser pour faire passer un ajout non testé. Les serveurs lancés par les tests avec l'environnement du test sont
+mesurés aussi. `@types/node` suit Node 22.
+
+Contrôle du code (t163) : `npm run lint` lance oxlint (`.oxlintrc.json`), et non ESLint : TypeScript 7 (version native)
+n'expose pas l'API JavaScript dont typescript-eslint a besoin, alors qu'oxlint analyse seul le TypeScript et le JSX.
+Catégorie « correctness » bloquante (plugins typescript, react, import, unicorn, oxc) ; `react/rules-of-hooks` bloquant ;
+`react/exhaustive-deps` en avertissement (signalé, non bloquant) : un cas voulu se justifie dans le code par
+`// oxlint-disable-next-line <règle> -- <raison>`, comme les quelques exceptions existantes (expressions régulières qui
+retirent les caractères de contrôle, remise à zéro de `ErreurRendu`, légende des champs obligatoires de `Dialog`). Les
+règles du React Compiler (`react/refs`, `react/set-state-in-effect`…) sont coupées : Cursus ne l'utilise pas, et elles
+visent des idiomes voulus (refs « dernière valeur » des fenêtres modales).
+
+Contrat des actions (t164, étape 1) : chaque famille de `server/src/actions/` est déclarée
+`{ … } satisfies Record<string, ActionHandler>`, ce qui garde ses noms ; `NomAction` (`server/src/actions/index.ts`)
+les réunit et type `run` (`state/store.tsx`), `api.action` (`api.ts`) et `Confirmation.action`
+(`state/confirmations.ts`), par un import de type seulement (rien du serveur n'entre dans l'interface compilée) : une
+faute dans un nom d'action est une erreur de `tsc`. `tests/actions-contrat.test.ts` relève en plus les noms écrits dans
+les sources du client et les gabarits (`hab.${action}`) et vérifie qu'ils existent dans `ACTIONS`. Les contenus
+(`ActionPayloads`) ne sont pas encore typés : le serveur les contrôle à l'exécution.
 
 Modules du client sous `node --test` (t159, étape 1) : les modules sans JSX s'importent directement depuis `tests/`
 (Node n'enlève que les types). `tests/outils/client-node.ts`, importé en premier, fait le reste sans dépendance :
@@ -558,6 +580,33 @@ Modules du client sous `node --test` (t159, étape 1) : les modules sans JSX s'i
 `run` espionné), `*.css?url` remplacé par son chemin, et `rendreHook` rend un hook par `react-dom/server` (sans DOM :
 les effets ne s'exécutent pas, leur logique sort dans une fonction testée directement, comme `suivreMedia` de
 `components/media.ts` et `placerPanneau` de `components/panneau.ts`). Exemple : `tests/client-modules.test.ts`.
+
+Exécution des actions et rendu (t159, étape 2) : la logique de `run` (réponse, message, attente de la reconnexion après
+un 401 puis rejeu dans l'ordre, abandon « action non enregistrée », 409 qui fait suivre la session, relecture après un
+refus, double envoi) est sortie de `state/store.tsx` dans `state/run.ts`, testée sans React par
+`tests/client-run.test.ts`. Les dialogues et écrans se rendent sous `node --test` sans Vite (un seul lanceur) :
+`tests/outils/rendu.ts`, importé en premier, pose le DOM de happy-dom (`@happy-dom/global-registrator`) avant React,
+compile les `.tsx` à la volée (transformateur oxc fourni par rolldown, que Vite installe), avec carte des sources pour la
+couverture ; `@testing-library/react` rend, cherche par rôle et libellé, clique et saisit. `tests/outils/banc-client.ts`
+monte l'écran sur une base de démonstration en mémoire : `run` exécute la vraie action du serveur avec les droits de la
+personne, et l'écran se redessine avec l'instantané renvoyé. `tests/client-dialogues.test.ts` : refus avec motif
+(dialogue « confirmer »), demande et validation de congé, feuille de temps saisie et soumise, réouverture d'une feuille
+(motif obligatoire, administrateur RH seul), sortie, inscription. `npm run test:client` lance `tests/client-*.test.ts`
+avec la couverture de `client/**` seule et ses propres seuils, modestes au départ (lignes 58, branches 62,
+fonctions 48) : la mesure ne compte que les fichiers chargés par ces tests, à relever avec eux.
+
+Tests de bout en bout (t165) : `npm run e2e` (Playwright, `playwright.config.ts`, `e2e/*.spec.ts`), après
+`npm run build`. `scripts/e2e-serveur.mjs` lance le serveur avec `NODE_ENV=test`, `CURSUS_DEMO=1`, une base jetable
+dans un dossier temporaire (effacée à l'arrêt), `CURSUS_TODAY=2026-10-10` et le port `CURSUS_E2E_PORT` (4310) ; chaque
+test repart du jeu de démonstration (`demo.reinitialiser`, d'où un seul test à la fois) et échoue sur toute erreur de la
+console (violation de la CSP comprise). Projets : `chromium`, `msedge` (canal Edge ; `CURSUS_E2E_SANS_EDGE=1` sur un poste
+sans Edge) et `telephone` (Pixel 7 : menu en tiroir, feuille de temps jour par jour). Parcours : compte local (mot de
+passe provisoire puis changement), collaborateur (feuille de temps, congé à la demi-journée), manager (validation de la
+feuille et du congé, refus avec motif, inscription à une session), RH (refus d'une demande avec motif, réouverture avec
+motif, sortie, export CSV téléchargé). La connexion Microsoft n'y figure pas : elle se teste avec le faux fournisseur
+(`tests/microsoft.test.ts`) en attendant l'inscription réelle. CI : tâche `e2e` séparée, non bloquante au début, qui
+publie `playwright-report/`. `CURSUS_E2E_CHROMIUM` désigne un Chromium déjà installé (poste sans téléchargement des
+navigateurs de Playwright) ; `CURSUS_DIST` sert une interface compilée ailleurs que dans `dist/`.
 
 Dépendances (t161) : `npm run audit` (`npm audit --omit=dev --audit-level=high`) est une étape de la CI, bloquante,
 après `check` ; l'audit de toutes les dépendances y est seulement informatif (`continue-on-error`). Il reste hors de

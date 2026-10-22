@@ -25,6 +25,6 @@ const annuler: ActionHandler = (ctx, p) => {
   return `${nom} du ${fmtIso(x.date)} annulé — ${e.nom}${prevenu === null ? '' : prevenu ? ' · annulation envoyée au salarié' : ' · à prévenir (aucune adresse e-mail)'}`;
 };
 
-export const annulationEntretienActions: Record<string, ActionHandler> = {
+export const annulationEntretienActions = {
   'entretien.annuler': annuler,
-};
+} satisfies Record<string, ActionHandler>;

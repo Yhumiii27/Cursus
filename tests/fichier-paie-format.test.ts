@@ -214,7 +214,7 @@ test('t019 fichier téléchargé en Windows-1252 avec libellés figés à la gé
     };
     const utf8 = await telecharger();
     assert.match(utf8.type, /^text\/csv; charset=utf-8/);
-    assert.notDeepEqual([...utf8.octets.slice(0, 3)], [0xef, 0xbb, 0xbf], 'sans BOM');
+    assert.notDeepEqual(Array.from(utf8.octets.slice(0, 3)), [0xef, 0xbb, 0xbf], 'sans BOM');
     // Réglage par la paie (refusé au gestionnaire RH) : Windows-1252 et libellé de la rubrique.
     refus(GEST, 'paie.formatFichier', { encodage: 'windows-1252' }, 403);
     refus(PAIE, 'paie.formatFichier', { encodage: 'ansi' }, 400, /Encodage inconnu/);

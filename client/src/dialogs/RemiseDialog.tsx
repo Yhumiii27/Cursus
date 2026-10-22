@@ -33,7 +33,7 @@ export function RemiseDialog({ entId }: { entId: number }) {
   // Erreur de date : vide ou incomplète, sinon la règle partagée avec le serveur (aujourd'hui au plus tard, pas avant la clôture).
   const dateErr = !papier ? null : erreurDate(date, 'Indiquez le jour de la remise.') ?? (() => {
     const err = controleRemise(x, mode, date, d.ti);
-    return err && /^Date/.test(err) ? `${err}.` : null;
+    return err && err.startsWith('Date') ? `${err}.` : null;
   })();
   const precedente = texteRemise(x);
 

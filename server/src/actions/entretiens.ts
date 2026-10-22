@@ -100,9 +100,9 @@ const signer: ActionHandler = (ctx, p) => {
   return 'Compte rendu signé — votre copie est disponible dans Mes entretiens';
 };
 
-export const entretiensActions: Record<string, ActionHandler> = {
+export const entretiensActions = {
   'entretien.planifier': planifier,
   'entretien.modifier': modifier,
   'entretien.clore': clore,
   'entretien.signer': signer,
-};
+} satisfies Record<string, ActionHandler>;

@@ -6,6 +6,7 @@ import type { Domain, EmpX } from '../../../shared/domain.ts';
 import { equipeLabel, fH, fJ, plural } from '../../../shared/format.ts';
 import { present } from '../../../shared/rules/contrats.ts';
 import type { Employe, Equipe } from '../../../shared/types.ts';
+import type { NomAction } from '../api.ts';
 import { usePanneauVisible } from '../components/panneau.ts';
 import { Avatar, Btn, Empty, Fine, Page, Panel, Tag, Two } from '../components/ui.tsx';
 import { CartePick } from '../components/Cliquable.tsx';
@@ -78,7 +79,7 @@ export function Equipes() {
   // Écran étroit : le détail de l'équipe s'affiche sous les cartes ; choisir une équipe l'amène dans le champ de vision.
   const panneau = usePanneauVisible<HTMLElement>(sel && sel.q.ordre === selOrdre ? selOrdre : null);
 
-  const act = async (name: string, payload: Record<string, unknown>) => {
+  const act = async (name: NomAction, payload: Record<string, unknown>) => {
     setBusy(true);
     const r = await run(name, payload);
     setBusy(false);

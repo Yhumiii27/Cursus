@@ -268,7 +268,7 @@ const reject: ActionHandler = (ctx, p) => {
  */
 const pushSage: ActionHandler = ctx => pushSageSimulation(ctx);
 
-export const tempsActions: Record<string, ActionHandler> = {
+export const tempsActions = {
   'temps.setCell': setCell,
   'temps.addLine': addLine,
   'temps.removeLine': removeLine,
@@ -277,4 +277,4 @@ export const tempsActions: Record<string, ActionHandler> = {
   'temps.validate': validate,
   'temps.reject': reject,
   'temps.pushSage': pushSage,
-};
+} satisfies Record<string, ActionHandler>;

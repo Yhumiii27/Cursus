@@ -28,6 +28,7 @@ export function controleContact(v: unknown, libelle: string): { valeur: string |
   if (v == null) return { valeur: null };
   if (typeof v !== 'string') return { erreur: `${libelle} : texte attendu` };
   // Caractères de contrôle retirés (tabulations, retours à la ligne gardés pour une adresse sur plusieurs lignes).
+  // oxlint-disable-next-line no-control-regex -- caractères de contrôle retirés volontairement d'un texte reçu
   const t = v.replace(/[^\S\n]+/g, ' ').replace(/[\u0000-\u0009\u000B-\u001F\u007F]/g, '').replace(/ *\n */g, '\n').replace(/\n{3,}/g, '\n\n').trim();
   if (t.length > CONTACT_MAX) return { erreur: `${libelle} : ${CONTACT_MAX} caractères au plus` };
   return { valeur: t || null };

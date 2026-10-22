@@ -6,7 +6,7 @@ import { PlusIcon } from '@phosphor-icons/react';
 import { COMPTE_TYPE_LABEL, ESPACE_LABEL, PROFILS_RH } from '../../../shared/constants.ts';
 import { equipeLabel, fmt, norm, plural } from '../../../shared/format.ts';
 import type { CompteVue, ProfilRh } from '../../../shared/types.ts';
-import { api } from '../api.ts';
+import { api, type NomAction } from '../api.ts';
 import { parDate, parTexte, trier, usePagination, useTri, type Colonne } from '../components/tri.ts';
 import { SuiteListe, ThTri } from '../components/TriListe.tsx';
 import { Btn, Chips, Empty, Fine, Panel, Tag, Two } from '../components/ui.tsx';
@@ -75,7 +75,7 @@ export function ComptesPanel() {
     return d.ds.employes.filter(e => !pris.has(e.id) && !(e.fin && e.fin < d.ti)).sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
   }, [d, comptes]);
 
-  const agir = async (c: CompteVue, name: string, payload: Record<string, unknown>) => {
+  const agir = async (c: CompteVue, name: NomAction, payload: Record<string, unknown>) => {
     setBusy(c.id);
     const r = await run(name, { id: c.id, ...payload });
     setBusy(null);

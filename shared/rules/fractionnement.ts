@@ -146,7 +146,7 @@ export function avertissementsFractionnement(d: Domain, e: Employe, nouveau: Con
   const regle = regleFractionnement(d.ds.settings);
   const nouveaux = imp.filter(j => j.statut === 'nouveau' && !j.horsDroit);
   let avant: JourCp[] | null = null;
-  for (const A of [...new Set(nouveaux.map(j => j.periode))]) {
+  for (const A of new Set(nouveaux.map(j => j.periode))) {
     if (!periodeSuivie(d, e, A)) continue;
     const apres = etatFractionnement(d, e, A, nouveau, imp), f = apres.fenetre;
     const periodeTxt = fenetreTexte(f);

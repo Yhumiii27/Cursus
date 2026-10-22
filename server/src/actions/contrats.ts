@@ -28,6 +28,6 @@ const autorisation: ActionHandler = (ctx, p) => {
   return `Titre de séjour de ${emp.nom} enregistré — ${quoi}${v.warnings.map(w => ` · ${w.replace(/\.$/, '')}`).join('')}`;
 };
 
-export const contratsActions: Record<string, ActionHandler> = {
+export const contratsActions = {
   'employe.autorisationTravail': autorisation,
-};
+} satisfies Record<string, ActionHandler>;

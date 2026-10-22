@@ -382,7 +382,7 @@ const retirerHab: ActionHandler = (ctx, p) => {
   return `${hm.nom} retirée — ${emp.nom}${keystone}`;
 };
 
-export const conformiteActions: Record<string, ActionHandler> = {
+export const conformiteActions = {
   'plan.inscrire': inscrire,
   'cert.ajouter': ajouterCert,
   'hab.delivrer': delivrerHab,
@@ -393,4 +393,4 @@ export const conformiteActions: Record<string, ActionHandler> = {
   'demande.refuser': refuserDemande,
   'demande.formation': demandeFormation,
   'demande.habilitation': demandeHabilitation,
-};
+} satisfies Record<string, ActionHandler>;

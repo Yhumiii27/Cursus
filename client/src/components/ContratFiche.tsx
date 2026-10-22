@@ -74,7 +74,7 @@ export function ContratFiche({ e }: { e: Employe }) {
         ].filter(Boolean).join(' · ')}>
           {motif ? motif.label : <Tag cls="tag-outline">Motif de recours à renseigner</Tag>}
         </Ligne>
-        {alertes.filter(w => !/^Motif de recours/.test(w)).map(w => <NoteAccent key={w}>{w}</NoteAccent>)}
+        {alertes.filter(w => !w.startsWith('Motif de recours')).map(w => <NoteAccent key={w}>{w}</NoteAccent>)}
       </>
     );
   })() : null;

@@ -70,7 +70,7 @@ const telecharger: ActionHandler = (ctx, p) => {
   return null;
 };
 
-export const remiseActions: Record<string, ActionHandler> = {
+export const remiseActions = {
   'entretien.remettre': remettre,
   'entretien.telecharger': telecharger,
-};
+} satisfies Record<string, ActionHandler>;

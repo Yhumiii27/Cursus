@@ -117,7 +117,7 @@ const validerLot: ActionHandler = (ctx, p) => {
   };
 };
 
-export const suiviFeuillesActions: Record<string, ActionHandler> = {
+export const suiviFeuillesActions = {
   'temps.relancer': relancer,
   'temps.validerLot': validerLot,
-};
+} satisfies Record<string, ActionHandler>;

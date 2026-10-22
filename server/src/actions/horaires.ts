@@ -95,8 +95,8 @@ const choisir: ActionHandler = (ctx, p) => {
   return null;
 };
 
-export const horairesActions: Record<string, ActionHandler> = {
+export const horairesActions = {
   'referentiel.horaire.enregistrer': enregistrer,
   'referentiel.horaire.archiver': archiver,
   'temps.horaire': choisir,
-};
+} satisfies Record<string, ActionHandler>;

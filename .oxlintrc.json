@@ -1,0 +1,27 @@
+// Contrôle de style et d'erreurs courantes (t163) : npm run lint, première étape de npm run check (donc de la CI).
+// Oxlint plutôt qu'ESLint : TypeScript 7 (version native) n'expose pas l'API JavaScript dont typescript-eslint a besoin ;
+// oxlint analyse seul le TypeScript et le JSX, sans dépendance au compilateur. Le typage reste vérifié par tsc.
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "plugins": ["typescript", "react", "import", "unicorn", "oxc"],
+  // Erreurs certaines ou code inutile : bloquant.
+  "categories": { "correctness": "error" },
+  "rules": {
+    // Règles des hooks React : un hook appelé sous condition ou hors d'un composant bloque d'emblée.
+    "react/rules-of-hooks": "error",
+    // Dépendances des effets et mémorisations : avertissement (signalé sans bloquer), chaque cas est corrigé ou justifié
+    // dans le code par un commentaire oxlint-disable-next-line qui dit pourquoi.
+    "react/exhaustive-deps": "warn",
+    // Paramètre gardé pour sa place dans la signature (`_`, `_x`) : permis.
+    "no-unused-vars": ["error", { "argsIgnorePattern": "^_", "varsIgnorePattern": "^_", "ignoreRestSiblings": true }],
+    // Règles du compilateur React (React Compiler), que Cursus n'utilise pas : elles supposent un code sans état
+    // modifiable pendant le rendu (refs lues au rendu, setState dans un effet, mémorisation manuelle) et signalent des
+    // idiomes voulus du client (refs « dernière valeur » des fenêtres modales, synchronisation après un rendu).
+    "react/set-state-in-effect": "off",
+    "react/refs": "off",
+    "react/preserve-manual-memoization": "off",
+    "react/immutability": "off",
+    "react/purity": "off"
+  },
+  "ignorePatterns": ["dist/**", "design/**", "playwright-report/**", "test-results/**"]
+}

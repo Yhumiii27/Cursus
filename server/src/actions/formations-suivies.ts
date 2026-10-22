@@ -129,8 +129,8 @@ export function controlerBeneficiaires(ctx: Ctx, l: PlanAction, p: Record<string
   };
 }
 
-export const formationsSuiviesActions: Record<string, ActionHandler> = {
+export const formationsSuiviesActions = {
   'formationSuivie.enregistrer': enregistrer,
   'formationSuivie.modifier': modifier,
   'formationSuivie.annuler': annuler,
-};
+} satisfies Record<string, ActionHandler>;

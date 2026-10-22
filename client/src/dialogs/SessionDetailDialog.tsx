@@ -10,6 +10,7 @@ import { finSession, joursSession, joursTexte, plageCourte, sessionDu, surPlusie
 import { convocationEnvoyee, exigeEvaluation, type Inscrit, inscritsDe, listeOrganisme, resultatsDe } from '../../../shared/rules/sessions.ts';
 import { CancelButton, Dialog, Field, Static, SubmitButton } from '../components/Dialog.tsx';
 import { Btn, Empty, Fine, NoteAccent, Tag, Two } from '../components/ui.tsx';
+import type { NomAction } from '../api.ts';
 import { downloadCsv } from '../print.ts';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { desinscription } from '../state/confirmations.ts';
@@ -42,7 +43,7 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
     downloadCsv(l.fichier, l.head, l.rows);
     notify(`Liste exportée — ${plural(l.rows.length, 'inscrit', 'inscrits')}`);
   };
-  const act = async (name: string, payload: Record<string, unknown>) => {
+  const act = async (name: NomAction, payload: Record<string, unknown>) => {
     setBusy(true);
     const r = await run(name, payload);
     setBusy(false);
@@ -54,7 +55,7 @@ export function SessionDetailDialog({ sessionId }: { sessionId: number }) {
   const aEnvoyer = inscrits.filter(i => i.convoc !== 'now' && !i.dejaObtenue);
   // Annulation d'une session à venir : les convocations déjà envoyées (même « à renvoyer ») sont annulées par e-mail.
   const convoques = aVenir ? inscrits.filter(convocationEnvoyee).length : 0;
-  const agir = async (name: string, payload: Record<string, unknown>) => {
+  const agir = async (name: NomAction, payload: Record<string, unknown>) => {
     setBusy(true);
     await run(name, payload);
     setBusy(false);

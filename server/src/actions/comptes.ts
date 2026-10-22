@@ -104,10 +104,10 @@ const reinitialiser: ActionHandler = (ctx, p) => {
   };
 };
 
-export const comptesActions: Record<string, ActionHandler> = {
+export const comptesActions = {
   'compte.creer': creer,
   'compte.profil': profil,
   'compte.rattacher': rattacher,
   'compte.activer': activer,
   'compte.reinitialiser': reinitialiser,
-};
+} satisfies Record<string, ActionHandler>;

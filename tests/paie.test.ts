@@ -361,7 +361,7 @@ test('t025 transmission : une ligne par période, ventilation jour par jour exac
   const c = C.transmissionSage(2, 1, groupes);
   assert.match(c.question, /Marquer transmises à Sage Paie 2 feuilles validées \(1 salarié\)/);
   assert.ok(c.suites!.some(x => x === 'Rappel : 1 feuille de septembre 2026, période close, part sur octobre 2026.'), c.suites!.join(' | '));
-  assert.ok(c.suites!.some(x => /^Simulation : rien n’est envoyé à Sage Paie/.test(x)));
+  assert.ok(c.suites!.some(x => x.startsWith('Simulation : rien n’est envoyé à Sage Paie')));
   assert.ok(c.suites!.some(x => /samedi et dimanche compris/.test(x)));
   assert.match(String(run(PAIE, 'temps.pushSage', {})), /· période octobre 2026 · rappel de septembre 2026 · 5 absences · 3 séjours \(déplacements\) · \d+ éléments à saisir dans Sage \(rubrique désactivée ou réglage décoché : voir le résumé du lot\)$/);
   const push = dernierLot(db).contenu!;

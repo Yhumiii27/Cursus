@@ -21,6 +21,6 @@ const regler: ActionHandler = (ctx, p) => {
   return `Coordonnées de la page Confidentialité enregistrées${manque ? ` — ${manque} : la page renvoie au service RH` : ''}`;
 };
 
-export const confidentialiteActions: Record<string, ActionHandler> = {
+export const confidentialiteActions = {
   'confidentialite.regler': regler,
-};
+} satisfies Record<string, ActionHandler>;

@@ -68,6 +68,6 @@ const decider: ActionHandler = (ctx, p) => {
     + `${renonces ? `, ${plural(renonces, 'renonciation notée', 'renonciations notées')}` : ''}${restants ? ` · ${plural(restants, 'salarié reste', 'salariés restent')} à décider` : ''}${dejaTexte}`;
 };
 
-export const fractionnementActions: Record<string, ActionHandler> = {
+export const fractionnementActions = {
   'conges.fractionnement': decider,
-};
+} satisfies Record<string, ActionHandler>;

@@ -34,7 +34,7 @@ const classer: ActionHandler = (ctx, p) => {
   return `Échec de l’envoi ${e.type} classé — il ne compte plus parmi les échecs en cours`;
 };
 
-export const envoisActions: Record<string, ActionHandler> = {
+export const envoisActions = {
   'envoi.relancer': relancer,
   'envoi.classer': classer,
-};
+} satisfies Record<string, ActionHandler>;

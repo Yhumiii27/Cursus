@@ -76,7 +76,7 @@ const desinscrire: ActionHandler = (ctx, p) => {
     + (annulee ? ' · annulation envoyée par e-mail' : '');
 };
 
-export const convocationsActions: Record<string, ActionHandler> = {
+export const convocationsActions = {
   'convocation.envoyer': envoyer,
   'plan.desinscrire': desinscrire,
-};
+} satisfies Record<string, ActionHandler>;

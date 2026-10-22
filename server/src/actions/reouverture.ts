@@ -69,6 +69,6 @@ const rouvrir: ActionHandler = (ctx, p) => {
   };
 };
 
-export const reouvertureActions: Record<string, ActionHandler> = {
+export const reouvertureActions = {
   'temps.rouvrir': rouvrir,
-};
+} satisfies Record<string, ActionHandler>;

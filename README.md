@@ -132,9 +132,12 @@ Relancez `npm run app` après une modification du code ou un déplacement du dos
 | `npm run dev` | API (port 3210) + interface Vite (port 5173) avec rechargement à chaud, en mode démonstration (`CURSUS_DEMO=0 npm run dev` pour le couper) |
 | `npm run build` puis `npm start` | Production (`NODE_ENV=production`, Windows compris) : l'API sert l'interface compilée sur le port `PORT` (3210 par défaut), derrière un reverse proxy HTTPS — voir `docs/DEPLOIEMENT.md` (service systemd et fichiers prêts à copier de `deploy/`, ou `Dockerfile` facultatif) |
 | `npm test` | Tests des règles métier, des droits d'accès et de la sécurité |
-| `npm run typecheck` | Vérification TypeScript |
+| `npm run lint` | Contrôle du code par oxlint (`.oxlintrc.json`) : erreurs courantes, règles des hooks React (bloquantes), dépendances des effets (avertissements) |
+| `npm run typecheck` | Vérification TypeScript (noms des actions appelées par le client compris) |
 | `npm run test:coverage` | Tests avec mesure de la couverture du serveur et de `shared/` (client et tests exclus) ; échoue sous les seuils fixés dans `package.json` |
-| `npm run check` | Tout ce que vérifie la CI avant d'accepter une modification : typage, tests avec seuils de couverture, compilation de l'interface |
+| `npm run test:client` | Tests du client (`tests/client-*.test.ts` : modules, exécution des actions, rendu des dialogues avec happy-dom et Testing Library) avec mesure de sa couverture, à seuils modestes |
+| `npm run check` | Tout ce que vérifie la CI avant d'accepter une modification : contrôle du code, typage, tests avec seuils de couverture (serveur, puis client), compilation de l'interface |
+| `npm run build` puis `npm run e2e` | Parcours de bout en bout par rôle (Playwright, `e2e/`) dans Chrome, Edge et un téléphone simulé, sur une base de démonstration jetable à date figée ; navigateurs installés une fois par `npx playwright install chromium msedge` (sans Edge : `CURSUS_E2E_SANS_EDGE=1`) |
 | `CURSUS_DEMO=1 npm run reset-demo -- --yes` | Recharge les données de démonstration : efface la base après l'avoir copiée. Refusé hors démonstration, avec `NODE_ENV=production` (sauf l'application de bureau) et si un serveur utilise la base (`--force` pour passer outre) ; sans `--yes`, le mot `EFFACER` est demandé dans un terminal |
 | `npm run audit` | Failles connues des dépendances de production (`npm audit`), en échec à partir de la gravité « high » |
 | `npm run mesure` | Taille de l'instantané et durée des actions sur une base temporaire de 100 salariés et 3 ans (`npm run mesure -- 200` : autre effectif) |
@@ -246,8 +249,10 @@ périodique : `docs/SAUVEGARDE.md`.
 
 ## Vérification automatique
 
-Chaque modification poussée sur GitHub passe `npm run check` (`.github/workflows/ci.yml`) : `npm ci`, typage, tests
-avec seuils de couverture, compilation de l'interface, sur Node 22 (`.nvmrc`), avec un essai non bloquant sur Node 24.
+Chaque modification poussée sur GitHub passe `npm run check` (`.github/workflows/ci.yml`) : `npm ci`, contrôle du code
+(oxlint), typage, tests avec seuils de couverture (serveur, puis client), compilation de l'interface, sur Node 22
+(`.nvmrc`), avec un essai non bloquant sur Node 24. Une tâche séparée, non bloquante pour commencer, rejoue les
+parcours de bout en bout (`npm run e2e`) dans Chromium, Edge et un téléphone simulé, et publie leur rapport.
 L'interface compilée est publiée comme artefact pour l'instance de recette. Toute la logique est dans `npm run check` :
 une autre forge (GitLab, Azure DevOps) l'appelle en une ligne après `npm ci`. Les seuils de couverture (lignes,
 branches, fonctions) sont fixés juste sous la mesure du jour, dans le script `test:coverage` de `package.json`, et se

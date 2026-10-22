@@ -286,10 +286,10 @@ export function pushSageSimulation(ctx: Ctx) {
   };
 }
 
-export const paieActions: Record<string, ActionHandler> = {
+export const paieActions = {
   'paie.rubrique': rubrique,
   'paie.lotGenerer': lotGenerer,
   'paie.lotConfirmer': lotConfirmer,
   'paie.lotAnnuler': lotAnnuler,
   'paie.formatFichier': formatFichier,
-};
+} satisfies Record<string, ActionHandler>;

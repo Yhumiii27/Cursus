@@ -41,7 +41,7 @@ const reinitialiser: ActionHandler = (ctx) => {
   return copie ? `Données de démonstration réinitialisées (sauvegarde ${basename(copie.fichier)})` : 'Données de démonstration réinitialisées';
 };
 
-export const parametresActions: Record<string, ActionHandler> = {
+export const parametresActions = {
   'parametres.maj': maj,
   'demo.reinitialiser': reinitialiser,
-};
+} satisfies Record<string, ActionHandler>;

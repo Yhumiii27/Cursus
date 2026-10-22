@@ -352,7 +352,7 @@ test('t029 confirmations : génération, annulation, validation groupée', () =>
   assert.ok(g.suites!.includes(L.PERIMETRE_FICHIER));
   const s = C.generationLot({ periode: '2026-10', feuilles: 1, salaries: 1, mode: 'simulation', sansMatricule: ['Bastien Morel'], rappels: [] });
   assert.equal(s.titre, 'Générer le lot (simulation)');
-  assert.ok(s.suites!.some(x => /^Simulation : rien n’est envoyé/.test(x)) && s.suites!.some(x => /Bastien Morel/.test(x)));
+  assert.ok(s.suites!.some(x => x.startsWith('Simulation : rien n’est envoyé')) && s.suites!.some(x => /Bastien Morel/.test(x)));
   const a = C.annulationLot({ id: 4, periode: '2026-10', feuilles: [{ empId: 1, week: '2026-10-05' }, { empId: 2, week: '2026-10-05' }], telechargements: 1 });
   assert.deepEqual([a.question, a.action, a.payload], ['Annuler le lot n° 4 (octobre 2026) ?', 'paie.lotAnnuler', { id: 4 }]);
   assert.ok(a.suites![0].startsWith('Ses 2 feuilles redeviennent') && /supprimez-y cet import/.test(a.suites![1]));

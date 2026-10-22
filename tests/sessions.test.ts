@@ -149,7 +149,7 @@ test('clôture, évaluation requise : échec et absence à replanifier, réussit
   assert.throws(() => run(RH, 'session.cloturer', { id: 1, participants: tous }), /n’a pas encore eu lieu/);
   le('2026-10-20', () => {
     // Contrôles : rien n'est écrit tant que la clôture est incomplète.
-    assert.throws(() => run(RH, 'session.cloturer', { id: 1, participants: tous.map(({ reussi, ...x }) => x) }), /Résultat de l’évaluation à renseigner : /);
+    assert.throws(() => run(RH, 'session.cloturer', { id: 1, participants: tous.map(({ reussi: _reussi, ...x }) => x) }), /Résultat de l’évaluation à renseigner : /);
     assert.throws(() => run(RH, 'session.cloturer', { id: 1, participants: tous.slice(1) }), /Présence à renseigner : Camille Roux/);
     assert.throws(() => run(RH, 'session.cloturer', { id: 1, participants: [...tous, { empId: 2, present: true, reussi: true }] }), /Mehdi Benali ne figure pas parmi les inscrits/);
     assert.throws(() => run(RH, 'session.cloturer', { id: 1, participants: tous, note: 6 }), /note entière de 1 à 5/);

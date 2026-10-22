@@ -200,7 +200,7 @@ const modifier: ActionHandler = (ctx, p) => {
     avenant ? `avenant programmé au ${fmtIso(avenant.effet)} (${ctx.d.contratOf({ ...emp, ...v.profil }).label}), appliqué à la fiche à cette date` : '',
     figees.length ? `${plural(figees.length, 'semaine sans feuille figée', 'semaines sans feuille figées')} sur l’ancien régime` : '',
     soldeRtt ? `solde ${soldeRttTexte(soldeRtt)} gardé au journal pour la paie` : '',
-    ...v.warnings.filter(w => /^Fin du CDD repoussée/.test(w)).map(w => w.replace(/\.$/, '')),
+    ...v.warnings.filter(w => w.startsWith('Fin du CDD repoussée')).map(w => w.replace(/\.$/, '')),
   ].filter(Boolean).map(x => ` · ${x}`).join('');
   return { message: `Fiche de ${v.profil.nom} mise à jour${suite}`, result: soldeRtt || avenant ? { ...(soldeRtt ? { soldeRtt } : {}), ...(avenant ? { avenant } : {}) } : undefined };
 };
@@ -304,7 +304,7 @@ const affecter: ActionHandler = (ctx, p) => {
   return `${emp.nom} rejoint l’équipe ${cible}${avant ? ` (auparavant ${avant})` : ''}`;
 };
 
-export const equipesActions: Record<string, ActionHandler> = {
+export const equipesActions = {
   'employe.creer': creer,
   'employe.modifier': modifier,
   'equipe.creer': creerEquipe,
@@ -312,4 +312,4 @@ export const equipesActions: Record<string, ActionHandler> = {
   'equipe.manager': designer,
   'equipe.supprimer': supprimer,
   'equipe.affecter': affecter,
-};
+} satisfies Record<string, ActionHandler>;

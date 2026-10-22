@@ -34,8 +34,8 @@ const revoquerTout: ActionHandler = (ctx) => {
   return { message: n ? `${plural(n, 'abonnement révoqué', 'abonnements révoqués')} : chacun en recrée un depuis son espace` : 'Aucun abonnement en vigueur', result: { revoques: n } };
 };
 
-export const agendaActions: Record<string, ActionHandler> = {
+export const agendaActions = {
   'agenda.creerJeton': creer,
   'agenda.revoquerJeton': revoquer,
   'agenda.revoquerTout': revoquerTout,
-};
+} satisfies Record<string, ActionHandler>;

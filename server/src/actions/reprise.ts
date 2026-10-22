@@ -152,6 +152,6 @@ const importer: ActionHandler = (ctx, p) => {
   return { message, result: { lot: lot.id, salaries: [...salaries], ...b, comptes: comptesCrees, comptesOuverts: ouverts } };
 };
 
-export const repriseActions: Record<string, ActionHandler> = {
+export const repriseActions = {
   'reprise.importer': importer,
-};
+} satisfies Record<string, ActionHandler>;

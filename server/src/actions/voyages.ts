@@ -168,11 +168,11 @@ const refuserKeystone: ActionHandler = (ctx, p) => {
   return `Demande refusée — ${ctx.d.personName(dm.empId)} · ${c ? c.chef || 'le chef de projet' : 'le chef de projet'} notifié dans Keystone${motif ? ` · motif : ${motif}` : ''}`;
 };
 
-export const voyagesActions: Record<string, ActionHandler> = {
+export const voyagesActions = {
   'voyage.creer': creer,
   'voyage.detachement': detachement,
   'formalite.enregistrer': formalite,
   'voyages.importer': importer,
   'keystone.accepter': accepterKeystone,
   'keystone.refuser': refuserKeystone,
-};
+} satisfies Record<string, ActionHandler>;

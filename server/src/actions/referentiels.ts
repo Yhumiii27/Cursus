@@ -352,7 +352,7 @@ export function rattacherPoste(ctx: Ctx, fiche: Record<string, unknown>, actuel:
   fiche.poste = libelle;
 }
 
-export const referentielsActions: Record<string, ActionHandler> = {
+export const referentielsActions = {
   'referentiel.poste.enregistrer': enregistrerPoste,
   'referentiel.poste.archiver': archiverPoste,
   'referentiel.equipe.exigences': exigencesEquipeAction,
@@ -364,4 +364,4 @@ export const referentielsActions: Record<string, ActionHandler> = {
   'referentiel.destination.enregistrer': enregistrerDestination,
   'referentiel.destination.archiver': archiverDestination,
   'referentiel.charger': charger,
-};
+} satisfies Record<string, ActionHandler>;

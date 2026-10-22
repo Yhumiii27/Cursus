@@ -329,11 +329,11 @@ const rouvrirDemande: ActionHandler = (ctx, p) => {
   return { message: `Demande de ${emp.nom} rouverte, à décider de nouveau${texte ? ` · ${texte}` : ''}`, result: { defait } };
 };
 
-export const correctionsActions: Record<string, ActionHandler> = {
+export const correctionsActions = {
   'cert.modifier': modifierCert,
   'cert.annuler': annulerCert,
   'plan.modifier': modifierLigne,
   'plan.supprimer': supprimerLigne,
   'demande.annuler': annulerDemande,
   'demande.reouvrir': rouvrirDemande,
-};
+} satisfies Record<string, ActionHandler>;

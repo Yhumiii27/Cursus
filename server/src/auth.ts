@@ -213,6 +213,8 @@ export class LimiteParIp {
     else {
       // Les adresses dont la fenêtre est close sont oubliées, puis les plus anciennes si la limite est atteinte.
       if (this.echecs.size >= this.maxIp) {
+        // Copie des clés : courant() retire les fenêtres closes pendant le parcours.
+        // oxlint-disable-next-line unicorn/no-useless-spread -- copie voulue, la table change pendant la boucle
         for (const k of [...this.echecs.keys()]) this.courant(k);
         for (const k of this.echecs.keys()) { if (this.echecs.size < this.maxIp * 0.9) break; this.echecs.delete(k); }
       }

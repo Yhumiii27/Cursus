@@ -40,7 +40,7 @@ const archiver: ActionHandler = (ctx, p) => {
     : `Activité interne ${a.code} archivée : plus proposée dans les feuilles de temps (les heures déjà saisies restent)`;
 };
 
-export const activitesActions: Record<string, ActionHandler> = {
+export const activitesActions = {
   'referentiel.activite.enregistrer': enregistrer,
   'referentiel.activite.archiver': archiver,
-};
+} satisfies Record<string, ActionHandler>;

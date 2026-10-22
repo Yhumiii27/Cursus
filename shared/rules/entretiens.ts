@@ -47,7 +47,7 @@ export function obligations(d: Domain, scopeIds: number[]): Obligation[] {
       // Due après le départ (sortie enregistrée, fin de CDD…) et pas planifiée avant : plus d'obligation.
       if (!pl && !present(e, due)) return;
       // Planifié à une date passée sans avoir été clos (reporté, oublié) : en retard, comme s'il ne l'était pas.
-      out.push({ id, e, kind, due, detail, pl, st: pl ? (pl.date < Ti ? 'late' : 'planifie') : due < Ti ? 'late' : due <= in90 ? 'soon' : 'ok', ...(extra || {}) });
+      out.push({ id, e, kind, due, detail, pl, st: pl ? (pl.date < Ti ? 'late' : 'planifie') : due < Ti ? 'late' : due <= in90 ? 'soon' : 'ok', ...extra });
     };
     const lastE = done(['epp', 'reprise'])[0];
     const periodique = lastE ? addM(lastE.date, 48) : addM(e.entree, 12);

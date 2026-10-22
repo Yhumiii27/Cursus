@@ -20,6 +20,6 @@ const enregistrer: ActionHandler = (ctx, p) => {
   return soi ? 'Contact d’urgence enregistré — visible du service RH seulement' : `Contact d’urgence de ${emp.nom} enregistré — visible du service RH et de l’intéressé seulement`;
 };
 
-export const contactUrgenceActions: Record<string, ActionHandler> = {
+export const contactUrgenceActions = {
   'employe.contactUrgence': enregistrer,
-};
+} satisfies Record<string, ActionHandler>;

@@ -304,7 +304,7 @@ test('t128 feuille non validée avant la sortie : signalée, sa récupération n
   assert.ok(!avant.avertissements.some(a => /non validée/.test(a)), JSON.stringify(avant.avertissements));
   db.insert('feuilles', { empId: 2, week: '2026-10-26', statut: 'soumise', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-ADM', tache: 'Fonctions support', ks: false, h: [9, 9, 9, 9, 9, 0, 0] }], contrat: null });
   const apres = S.etatSortie(d(), d().emp(2)!, '2026-10-31');
-  assert.ok(apres.avertissements.some(a => /^Feuille de temps de la semaine 44 non validée : récupération comptée sans elles/.test(a)), JSON.stringify(apres.avertissements));
+  assert.ok(apres.avertissements.some(a => a.startsWith('Feuille de temps de la semaine 44 non validée : récupération comptée sans elles')), JSON.stringify(apres.avertissements));
   assert.deepEqual(apres.recup, avant.recup);
 });
 

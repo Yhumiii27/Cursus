@@ -7,7 +7,7 @@ import { HEURE_RECAPITULATIF, MODE_NOTIFICATION_LABEL } from '../../../shared/co
 import { key, plural } from '../../../shared/format.ts';
 import { MESSAGERIE_VIDE, agencesInterim, normaliserAdresse } from '../../../shared/rules/messagerie.ts';
 import type { ModeNotification } from '../../../shared/types.ts';
-import type { EnvoisState } from '../api.ts';
+import type { EnvoisState, NomAction } from '../api.ts';
 import { Field } from '../components/Dialog.tsx';
 import { Btn, Fine, Panel, SectionLabel, Seg, Tag } from '../components/ui.tsx';
 import { useRole } from '../state/derived.ts';
@@ -51,7 +51,7 @@ export function MessageriePanel({ etat, reload }: { etat: EnvoisState['email'] |
   const dirty = JSON.stringify(f) !== enVigueur;
   const sansAdresse = data.employes.filter(e => !e.email && !(e.fin && e.fin < data.today)).sort((a, b) => a.nom.localeCompare(b.nom, 'fr'));
 
-  const agir = async (name: string, payload: Record<string, unknown> = {}) => {
+  const agir = async (name: NomAction, payload: Record<string, unknown> = {}) => {
     setBusy(true);
     const r = await run(name, payload);
     setBusy(false);

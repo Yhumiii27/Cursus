@@ -271,9 +271,9 @@ test('échéances « Contrats » : une sortie enregistrée retire la fin de CDD 
   for (const u of [MGR, HSE]) assert.deepEqual([domain(u).emp(4)!.motifSortie, domain(u).emp(4)!.finPrevue], [null, null]);
   // Fin d'essai notifiée (sortie le 24 octobre, essai jusqu'au 31) : plus d'échéance « À décider ».
   run(RH, 'employe.modifier', { id: 2, essaiFin: '2026-10-31' });
-  assert.ok(contrats(domain()).some(x => x.emp.id === 2 && /^Fin d’essai/.test(x.label)));
+  assert.ok(contrats(domain()).some(x => x.emp.id === 2 && x.label.startsWith('Fin d’essai')));
   run(RH, 'employe.sortie', { id: 2, date: '2026-10-24', motif: 'fin_periode_essai' });
-  assert.ok(!contrats(domain()).some(x => x.emp.id === 2 && /^Fin d’essai/.test(x.label)));
+  assert.ok(!contrats(domain()).some(x => x.emp.id === 2 && x.label.startsWith('Fin d’essai')));
 });
 
 test('titre de séjour : le journal ne recopie que des codes et des dates validés, jamais du texte libre', () => {

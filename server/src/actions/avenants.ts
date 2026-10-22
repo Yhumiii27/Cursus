@@ -70,7 +70,7 @@ const annulerAvenant: ActionHandler = (ctx, p) => {
   };
 };
 
-export const avenantsActions: Record<string, ActionHandler> = {
+export const avenantsActions = {
   'employe.renouvelerCdd': renouveler,
   'employe.annulerAvenant': annulerAvenant,
-};
+} satisfies Record<string, ActionHandler>;

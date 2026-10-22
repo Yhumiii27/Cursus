@@ -99,7 +99,7 @@ const revoquer: ActionHandler = (ctx, p) => {
   return `Délégation à ${sup} révoquée : les validations reviennent à ${m}`;
 };
 
-export const delegationsManagerActions: Record<string, ActionHandler> = {
+export const delegationsManagerActions = {
   'equipe.delegation': creer,
   'equipe.revoquerDelegation': revoquer,
-};
+} satisfies Record<string, ActionHandler>;

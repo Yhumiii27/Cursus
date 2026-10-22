@@ -41,6 +41,6 @@ const cloturer: ActionHandler = (ctx, p) => {
   ].filter(Boolean).join(' · ');
 };
 
-export const exercicesActions: Record<string, ActionHandler> = {
+export const exercicesActions = {
   'plan.cloturerExercice': cloturer,
-};
+} satisfies Record<string, ActionHandler>;

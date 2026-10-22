@@ -1,6 +1,11 @@
 // Appels à l'API Cursus.
 import type { CibleEnvoi, CompteSession, CompteVue, CurrentUser, Dataset, Envoi, EtatEnvois, Role, SageMode, StatutEnvoi } from '../../shared/types.ts';
 import type { ContactsConfidentialite } from '../../shared/confidentialite.ts';
+// Noms des actions du serveur (t164) : import de type seulement, effacé à la compilation (aucun code serveur dans
+// l'interface) ; une faute dans un nom d'action est signalée par tsc.
+import type { NomAction } from '../../server/src/actions/index.ts';
+
+export type { NomAction };
 
 /** Compte proposé à la connexion de démonstration (`id` : identifiant du compte). */
 export interface LoginOption { id: number; nom: string }
@@ -224,7 +229,7 @@ export const api = {
     if (cible) q.set('cible', cible);
     return request<EnvoisState>('GET', `/api/envois${q.size ? `?${q}` : ''}`);
   },
-  async action(name: string, payload: Record<string, unknown>, espace?: Role): Promise<ActionResponse> {
+  async action(name: NomAction, payload: Record<string, unknown>, espace?: Role): Promise<ActionResponse> {
     try {
       const r = await request<{ message: string | null; result?: unknown; data?: Dataset }>('POST', `/api/actions/${name}`, payload, espace);
       return { ok: true, ...r };

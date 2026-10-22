@@ -34,7 +34,7 @@ const supprimer: ActionHandler = (ctx, p) => {
   return `Mandat au CSE de ${emp.nom} retiré`;
 };
 
-export const delegationActions: Record<string, ActionHandler> = {
+export const delegationActions = {
   'mandat.enregistrer': enregistrer,
   'mandat.supprimer': supprimer,
-};
+} satisfies Record<string, ActionHandler>;

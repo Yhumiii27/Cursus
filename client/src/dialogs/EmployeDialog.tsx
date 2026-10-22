@@ -238,7 +238,7 @@ export function EmployeDialog({ empId, equipe: equipe0 }: { empId?: number | nul
     ? `Matricule de paie déjà enregistré (${initial.matriculePaie}) : seul l’administrateur RH le change ou le retire.` : null;
   const changeRegime = !creation && !limited && !!emp && JSON.stringify(contratFige(emp)) !== JSON.stringify(contratFige({ ...emp, ...v.profil }));
   const errProgramme = changeRegime && programme ? `Un avenant est déjà programmé au ${fmtIso(programme.effet)} : annulez-le d’abord (fiche, « Historique du contrat ») avant un autre changement de régime.` : null;
-  const errors = [...v.errors.filter(m => !(aConfirmer && admin && /^Matricule de paie de /.test(m))), ...(errEffet ? [errEffet] : []), ...(errMatricule ? [errMatricule] : []), ...(errProgramme ? [errProgramme] : [])];
+  const errors = [...v.errors.filter(m => !(aConfirmer && admin && m.startsWith('Matricule de paie de '))), ...(errEffet ? [errEffet] : []), ...(errMatricule ? [errMatricule] : []), ...(errProgramme ? [errProgramme] : [])];
   const ok = errors.length === 0;
   // RTT ou jours de repos de l'année pris ou posés que le nouveau régime n'ouvre plus, même au prorata des mois passés sous
   // l'ancien (historique des contrats). Le serveur exige la confirmation ; le solde affiché est gardé au journal pour la paie.

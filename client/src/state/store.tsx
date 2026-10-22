@@ -17,13 +17,14 @@ import { mondayOf } from '../../../shared/dates.ts';
 import type { FormaliteKind, UiIntent } from '../../../shared/domain.ts';
 import type { ReferentielId } from '../../../shared/rules/referentiels.ts';
 import type { CompteSession, Dataset, EntretienType, ISODate, MotifVisite, ObjetPiece, PlanStatut, ProfilRh, Role, VaccinId } from '../../../shared/types.ts';
-import { api, lienMicrosoft, surSessionExpiree, type ActionResponse, type ApiError, type SessionState } from '../api.ts';
+import { api, lienMicrosoft, surSessionExpiree, type ActionResponse, type ApiError, type NomAction, type SessionState } from '../api.ts';
 import type { Tri } from '../components/tri.ts';
-import { AppelsEnCours, cleAction } from './actions.ts';
+import { AppelsEnCours } from './actions.ts';
 import type { Confirmation } from './confirmations.ts';
 import { demandeHabilitation } from './confirmations-referentiels.ts';
 import { effacerBrouillon, lireBrouillon, sauverBrouillon, type Champs } from './brouillon.ts';
 import { instantanePerime } from './revision.ts';
+import { executeurActions, FileAttente, lancerAction, rejouable, suiteReconnexion, type Attente } from './run.ts';
 import { adresse, ecrireUrl, lireUrl, ouvreUneFiche, pageDeRetourClient } from './url.ts';
 
 export type View = (typeof ALLOWED_VIEWS)[Role][number] | (typeof VUES_COMMUNES)[number];
@@ -165,12 +166,6 @@ export interface Reconnexion {
   /** Actions interrompues par l'expiration, rejouées après la reconnexion (compte Cursus, démonstration). */
   enAttente: number;
 }
-/** Action interrompue par l'expiration de la session. */
-interface Attente { rejouer: () => Promise<unknown>; abandonner: () => void }
-
-/** Réponse d'une action interrompue puis abandonnée (« Changer de compte »). */
-const NON_ENREGISTREE = 'Session expirée : action non enregistrée';
-
 export interface Store {
   session: SessionState | null;
   data: Dataset | null;
@@ -186,7 +181,7 @@ export interface Store {
   notify: (text: string, error?: boolean) => void;
   fermerNotification: () => void;
   /** Exécute une action serveur, met à jour les données et affiche le message. */
-  run: (name: string, payload?: Record<string, unknown>, opts?: { silent?: boolean }) => Promise<ActionResponse>;
+  run: (name: NomAction, payload?: Record<string, unknown>, opts?: { silent?: boolean }) => Promise<ActionResponse>;
   /** Proposition du domaine : ouvre un dialogue ou lance l'action (sa réponse est alors rendue). */
   runIntent: (intent: UiIntent) => Promise<ActionResponse> | void;
   switchMode: (role: Role) => Promise<void>;
@@ -288,7 +283,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   const appels = useRef(new AppelsEnCours<ActionResponse>());
   const lecture = useRef<Promise<void> | null>(null);
   const reconnexionRef = useRef<Reconnexion | null>(null);
-  const attentes = useRef<Attente[]>([]);
+  const attentes = useRef(new FileAttente());
   const enBascule = useRef(false);
   const champsRef = useRef<{ dialog: DialogState; champs: Champs } | null>(null);
 
@@ -385,7 +380,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (reconnexionRef.current) return;
     const s = sessionRef.current;
     if (s?.user && s.compte && s.methode) {
-      setReconnexion({ compte: s.compte, role: s.role, methode: s.methode, enAttente: attentes.current.length });
+      setReconnexion({ compte: s.compte, role: s.role, methode: s.methode, enAttente: attentes.current.taille });
       return;
     }
     // Personne de connecté (mot de passe provisoire à remplacer) : retour à l'écran de connexion.
@@ -398,9 +393,9 @@ export function StoreProvider({ children }: { children: ReactNode }) {
 
   /** Met une action interrompue en attente de la reconnexion. */
   const attendre = useCallback((a: Attente) => {
-    attentes.current.push(a);
+    const n = attentes.current.ajouter(a);
     const rc = reconnexionRef.current;
-    if (rc) setReconnexion({ ...rc, enAttente: attentes.current.length });
+    if (rc) setReconnexion({ ...rc, enAttente: n });
   }, [setReconnexion]);
 
   /**
@@ -482,32 +477,16 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     window.scrollTo({ top: 0 });
   }, []);
 
-  const executer = useCallback(async (name: string, payload: Record<string, unknown>, opts?: { silent?: boolean }): Promise<ActionResponse> => {
-    const r = await api.action(name, payload, sessionRef.current?.role);
-    if (r.ok) {
-      if (r.data) recevoir(r.data);
-      if (r.message && !opts?.silent) notify(r.message);
-      return r;
-    }
-    // Session expirée : l'action attend la reconnexion, puis est rejouée ; l'écran qui l'a lancée attend sa réponse.
-    if (r.status === 401 && sessionRef.current?.user) {
-      return new Promise<ActionResponse>(resolve => attendre({
-        rejouer: () => executer(name, payload, opts).then(resolve),
-        abandonner: () => resolve({ ok: false, message: null, error: NON_ENREGISTREE, status: 401 }),
-      }));
-    }
-    notify(r.error || 'Action impossible', true);
-    // Espace changé dans un autre onglet : rien n'a été fait ; l'onglet suit la session, l'action n'est pas rejouée.
-    if (r.status === 409) suivre();
-    // Action refusée : l'écran était peut-être en retard (demande déjà traitée, feuille modifiée ailleurs).
-    else if (r.status !== 401) rafraichir();
-    return r;
-  }, [notify, recevoir, attendre, suivre, rafraichir]);
+  // Exécution d'une action, attente de la reconnexion et relecture après un refus : state/run.ts.
+  const executer = useMemo(() => executeurActions({
+    appeler: (name: NomAction, payload) => api.action(name, payload, sessionRef.current?.role),
+    connecte: () => !!sessionRef.current?.user,
+    recevoir, notifier: notify, attendre, suivre, rafraichir,
+  }), [notify, recevoir, attendre, suivre, rafraichir]);
 
   // La même action déjà en cours (double clic, double envoi) n'est pas renvoyée : la même réponse est rendue,
   // sauf si un appel différent de cette action est parti depuis (la dernière intention doit arriver).
-  const run = useCallback<Store['run']>((name, payload = {}, opts) =>
-    appels.current.lancer(cleAction(name, payload), () => executer(name, payload, opts), name), [executer]);
+  const run = useCallback<Store['run']>((name, payload = {}, opts) => lancerAction(appels.current, executer, name, payload, opts), [executer]);
 
   const runIntent = useCallback((intent: UiIntent) => {
     switch (intent.type) {
@@ -622,28 +601,28 @@ export function StoreProvider({ children }: { children: ReactNode }) {
     if (!rc) return null;
     try {
       let s = rc.methode === 'demo' ? await api.loginDemo(rc.role, rc.compte.id, motDePasse) : await api.login(rc.compte.identifiant, motDePasse);
-      if (!s.user || s.compte?.id !== rc.compte.id) {
+      const suite = suiteReconnexion(rc, s);
+      if (suite.quoi === 'remplacer') {
         // Mot de passe à remplacer (réinitialisé entre-temps) : rien n'est rejoué, l'écran du mot de passe s'affiche.
-        for (const a of attentes.current.splice(0)) a.abandonner();
+        attentes.current.abandonnerTout();
         setReconnexion(null);
         // Autre compte : il ne reprend pas l'écran (fiche, filtres) de la personne précédente.
-        if (s.compte && s.compte.id !== rc.compte.id) history.replaceState(null, '', '/');
+        if (suite.autreCompte) history.replaceState(null, '', '/');
         reinitialiser();
         await applySession(s);
         return null;
       }
       // La connexion ouvre le premier espace du compte : retour à celui où la personne travaillait.
-      if (s.role !== rc.role && s.compte.espaces.includes(rc.role)) s = await api.mode(rc.role);
-      if (s.role !== rc.role) {
+      if (suite.espace) s = await api.mode(suite.espace);
+      if (!rejouable(rc, s)) {
         // Espace retiré entre-temps (profil RH, équipe confiée à un autre) : rien n'est rejoué ailleurs.
-        for (const a of attentes.current.splice(0)) a.abandonner();
+        attentes.current.abandonnerTout();
         reinitialiser();
       }
       await applySession(s);
       setReconnexion(null);
       // Actions interrompues, rejouées dans l'ordre ; chacune rend sa réponse à l'écran qui l'attend.
-      const file = attentes.current.splice(0);
-      (async () => { for (const a of file) await a.rejouer(); })();
+      attentes.current.rejouerTout();
       return null;
     } catch (err) {
       return (err as Error).message;
@@ -659,7 +638,7 @@ export function StoreProvider({ children }: { children: ReactNode }) {
   }, [view, ui, dialog]);
 
   const abandonnerReconnexion = useCallback(async () => {
-    for (const a of attentes.current.splice(0)) a.abandonner();
+    attentes.current.abandonnerTout();
     setReconnexion(null);
     effacerBrouillon();
     // « Changer de compte » : la personne suivante ne reprend pas l'écran de la session expirée (connect() relit l'adresse).

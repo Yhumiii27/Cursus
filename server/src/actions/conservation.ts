@@ -75,6 +75,6 @@ const anonymiser: ActionHandler = (ctx, p) => {
   };
 };
 
-export const conservationActions: Record<string, ActionHandler> = {
+export const conservationActions = {
   'employe.anonymiser': anonymiser,
-};
+} satisfies Record<string, ActionHandler>;

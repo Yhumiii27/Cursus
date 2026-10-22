@@ -15,7 +15,7 @@ if (!process.env.CURSUS_TEST_DATABASE_URL?.trim()) {
 const couverture = process.argv.includes('--couverture');
 const args = ['--test'];
 if (couverture) {
-  args.push('--experimental-test-coverage', '--test-coverage-include=server/src/db-pg.ts',
+  args.push('--experimental-test-coverage', '--test-coverage-include=server/src/db-pg.ts', '--test-coverage-include=server/src/reprise-postgres.ts',
     '--test-coverage-lines=99', '--test-coverage-branches=92', '--test-coverage-functions=97');
 }
 args.push('tests/**/*.test.ts');

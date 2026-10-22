@@ -57,7 +57,8 @@ shared/            Domaine partagé (aucune dépendance)
                    historique-contrat.ts : historique des contrats (régime en vigueur à une date, `regimeAu`, avenants
                    programmés) ; cdd.ts : motif de recours, durée maximale et renouvellements d'un CDD, délai de carence
 server/src/
-  db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
+  db.ts            Schéma déclaratif (TABLES) + accès asynchrone (all/get/insert/update/remove/tx/lecture/exclusif,
+                   SQL brut query/one/run/exec) ; adaptateur SQLite `SqliteDb` (voir « Accès à la base »)
   migrate.ts       Reprises des bases antérieures, rejouées à chaque démarrage (idempotentes)
   migrations/      Migrations nommées, exécutées une seule fois par base : cadre.ts (contrôle et exécution), liste.ts (ordre),
                    outils.ts (reconstruction d'une table, index), un fichier par chantier (voir « Cadre commun du lot 4 ») :
@@ -442,6 +443,36 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
 - **Base occupée** : `PRAGMA busy_timeout = 5000` sur la connexion du serveur et des outils ; `db.tx` ouvre ses
   transactions en `BEGIN IMMEDIATE` (verrou d'écriture pris d'emblée, en attendant au besoin), sans quoi une
   transaction qui lit puis écrit échouerait aussitôt si `npm run comptes` a écrit entre-temps.
+- **Accès à la base : couche asynchrone** (sous-étape 8.a de la bascule vers le serveur PostgreSQL commun, plan dans
+  Matrix, `docs/architecture-postgres.md` § 8). La classe abstraite `Db` (`server/src/db.ts`) garde l'API d'avant
+  (`all`, `where`, `get`, `insert`, `update`, `remove`, `count`, `tx`, `getSetting`, `setSetting`, `clearAll`,
+  `columns`), chaque méthode renvoyant une promesse, plus le SQL brut (`query`, `one`, `run`, `exec`, paramètres `?`),
+  `lecture`, `exclusif`, `emplacement` et `fermer`. Seul adaptateur pour l'instant : `SqliteDb` (`node:sqlite`, même
+  comportement qu'avant) ; `openDb()` est asynchrone. Le code applicatif ne touche jamais la connexion `SqliteDb.sql` :
+  seuls le schéma (`db.ts`), le cadre et les outils des migrations nommées (`migrations/cadre.ts`, `outils.ts`) et la
+  déclaration à Matrix (`index.ts`) le font, ainsi que les tests pour préparer leurs bases.
+  - *Sérialisation.* Une seule connexion SQLite sert toutes les requêtes ; avec des appels asynchrones, deux requêtes
+    s'entremêleraient à chaque `await` (second `BEGIN` refusé : « cannot start a transaction within a transaction »,
+    écriture d'une requête entrée dans la transaction d'une autre et annulée avec elle). Une file en mémoire
+    (`FileExclusive`) fait passer l'une après l'autre les transactions (`tx`), les lectures groupées (`lecture`) et les
+    suites exclusives (`exclusif`) ; une requête isolée passe aussi par la file, entre deux d'entre elles. La portée en
+    cours suit la chaîne asynchrone de l'appelant (`AsyncLocalStorage`) : dans `tx`, `lecture` ou `exclusif`, les
+    requêtes s'exécutent sans attendre la file qu'elles détiennent, une transaction imbriquée rejoint l'englobante
+    (comme avant), une tâche lancée depuis une transaction et poursuivie après sa fin repasse par la file.
+  - *Même atomicité qu'avant.* Avec l'accès synchrone, toute suite d'appels sans attente s'exécutait d'un seul tenant :
+    les routes HTTP qui ne font qu'accéder à la base s'exécutent donc entières en `exclusif` (`enSerie(db, route)` :
+    `/api/data`, `/api/actions/:nom`, journal, exports, fichier de paie, API Keystone…), de même `identite`,
+    `compterTentative`, la clé de session, `setSetting` et l'issue d'un envoi. Une route qui attend autre chose que la
+    base (calcul du mot de passe à la connexion, échanges avec Microsoft) ne prend la file que pour les étapes d'avant et
+    d'après l'attente. `loadFull` lit toutes les tables en `lecture` (même état de la base) ; l'instantané renvoyé après
+    une action est lu avec la session relue, sur le même état. Un signal d'arrêt reçu pendant le démarrage (désormais
+    asynchrone) attend sa fin (`Arret.demarrer`) ; `fermer` attend la transaction en cours.
+  - *Garde-fou.* `npm run typecheck` lance aussi `scripts/verifier-await.mjs` (`npm run check:await`) : appel
+    asynchrone du dépôt ou méthode de la base ni attendu, ni lâché par `void`, ni rassemblé par `Promise.all` ; rappel
+    asynchrone passé à `forEach`, `filter`, `some`… ou à `assert.throws` ; `.sql` dans le code applicatif. TypeScript 7
+    n'a pas d'API JavaScript (pas de règle `no-floating-promises` de typescript-eslint) : le script lit l'arbre
+    syntaxique avec l'analyseur d'oxc fourni par rolldown (installé avec Vite). Exception justifiée : commentaire
+    `// await-ok: <raison>` sur la ligne.
 - **Santé** (`server/src/supervision.ts`) : `GET /api/health`, monté avant le limiteur de débit et les autres routes
   `/api`, sans connexion. `SELECT 1` et `PRAGMA user_version` ; 200 `{statut: 'ok', base: 'ok'}`, 503
   `{statut: 'indisponible', base: 'erreur'}`. Appel local non relayé (boucle locale, aucun en-tête `X-Forwarded-*`) ou
@@ -534,8 +565,9 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
 couverture des lignes, branches et fonctions du serveur et de `shared/` (`client/`, `tests/` et `scripts/` exclus tant
 que le client n'a pas de tests de rendu) et échoue sous les seuils écrits dans le script (`--test-coverage-lines`…),
 fixés juste sous la mesure du jour : les relever quand des tests s'ajoutent, jamais les baisser pour faire passer un
-ajout non testé. Les serveurs lancés par les tests avec l'environnement du test sont mesurés aussi. Un contrôle de
-style (lint) s'ajoutera à `check` quand il existera. `@types/node` suit Node 22.
+ajout non testé. Les serveurs lancés par les tests avec l'environnement du test sont mesurés aussi. `typecheck` comprend
+le contrôle des promesses non attendues (`scripts/verifier-await.mjs`, voir « Accès à la base »). Un contrôle de style
+(lint) s'ajoutera à `check` quand il existera. `@types/node` suit Node 22.
 
 Modules du client sous `node --test` (t159, étape 1) : les modules sans JSX s'importent directement depuis `tests/`
 (Node n'enlève que les types). `tests/outils/client-node.ts`, importé en premier, fait le reste sans dépendance :
@@ -639,8 +671,8 @@ ou une colonne nouvelle n'en demande pas : la déclarer dans `TABLES` (`server/s
    ```ts
    export const LOTS_HISTORIQUES: Migration = {
      nom: 'lot4-paie-lots-historiques',
-     necessaire: db => …,                                // facultatif ; faux : notée faite, sans être exécutée
-     executer: db => { …; return `${n} lots repris`; },  // compte rendu facultatif, affiché au démarrage
+     necessaire: async db => …,                                // facultatif ; faux : notée faite, sans être exécutée
+     executer: async db => { …; return `${n} lots repris`; },  // compte rendu facultatif, affiché au démarrage
    };
    ```
 

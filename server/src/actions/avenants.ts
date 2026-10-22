@@ -20,7 +20,7 @@ export const REFERENCE_MAX = 60;
  * `id`, `jusquau` (nouveau terme, après la fin actuelle), `signeLe` (signature de l'avenant, aujourd'hui par défaut,
  * jamais future), `reference?`. CDD en cours seulement, sans sortie enregistrée.
  */
-const renouveler: ActionHandler = (ctx, p) => {
+const renouveler: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const emp = getEmp(ctx, p.id);
   refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas renouveler votre propre contrat');
@@ -40,12 +40,12 @@ const renouveler: ActionHandler = (ctx, p) => {
   const reference = str(p.reference) || null;
   if (reference && reference.length > REFERENCE_MAX) throw new ActionError(`Référence de l’avenant : ${REFERENCE_MAX} caractères au plus`);
 
-  amorcer(ctx.db, emp.id, ctx.d.ti);
-  const ligne = inscrireLigne(ctx.db, {
+  await amorcer(ctx.db, emp.id, ctx.d.ti);
+  const ligne = await inscrireLigne(ctx.db, {
     empId: emp.id, effet: addD(emp.fin, 1), nature: 'renouvellement', regime: contratFige(emp), jusquau, signeLe, reference,
   }, { nom: ctx.user.nom, empId: ctx.user.salarieId ?? null }, ctx.d.ti);
   const cddFinInitiale = emp.cddFinInitiale ?? emp.fin;
-  ctx.db.update<Employe>('employes', emp.id, { fin: jusquau, cddFinInitiale });
+  await ctx.db.update<Employe>('employes', emp.id, { fin: jusquau, cddFinInitiale });
   const n = renouvellementsDe(ctx.ds, emp.id).length + 1;
   const { warnings } = controleCdd({ ...emp, fin: jusquau, cddFinInitiale }, { renouvellements: n, reglages: ctx.ds.settings });
   return {
@@ -55,15 +55,15 @@ const renouveler: ActionHandler = (ctx, p) => {
 };
 
 /** `id` : ligne de l'historique d'un avenant programmé, pas encore appliqué. */
-const annulerAvenant: ActionHandler = (ctx, p) => {
+const annulerAvenant: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
-  const l = ctx.db.get<ContratHistorique>('contratsHistorique', Number(p.id));
+  const l = await ctx.db.get<ContratHistorique>('contratsHistorique', Number(p.id));
   if (!l || l.nature !== 'avenant') throw new ActionError('Avenant introuvable', 404);
   const emp = getEmp(ctx, l.empId);
   if (l.annuleLe) return { message: null, result: { empId: emp.id, effet: l.effet } };
   if (l.applique) throw new ActionError(`Avenant déjà appliqué le ${fmtIso(l.effet)} : un nouveau changement se saisit dans la fiche`, 409);
-  ctx.db.update('contratsHistorique', l.id, { annuleLe: ctx.d.ti });
-  const n = refigerBrouillons(ctx.db, emp.id);
+  await ctx.db.update('contratsHistorique', l.id, { annuleLe: ctx.d.ti });
+  const n = await refigerBrouillons(ctx.db, emp.id);
   return {
     message: `Avenant du ${fmtIso(l.effet)} annulé pour ${emp.nom} : son organisation du temps reste ${ctx.d.contratOf(emp).label}${n ? ` · ${plural(n, 'feuille brouillon remise', 'feuilles brouillon remises')} sur ce régime` : ''}`,
     result: { empId: emp.id, effet: l.effet },

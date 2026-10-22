@@ -24,10 +24,10 @@ function deplacement(ctx: Ctx, id: unknown): Voyage {
 }
 
 /** Événement Keystone d'un déplacement venu de Keystone (référence et chantier de la demande acceptée). */
-function prevenirKeystone(ctx: Ctx, type: 'deplacement.modifie' | 'deplacement.annule', t: Voyage): boolean {
+async function prevenirKeystone(ctx: Ctx, type: 'deplacement.modifie' | 'deplacement.annule', t: Voyage): Promise<boolean> {
   if (t.origine !== 'keystone' || !t.chantier) return false;
   const demande = ctx.ds.demandesKeystone.find(x => x.voyageId === t.id)?.id ?? null;
-  sendToKeystone(ctx.db, {
+  await sendToKeystone(ctx.db, {
     type, deplacement: t.id, demande, reference: t.ref, matricule: identifiantKeystone(ctx.ds.settings.identifiantKeystone, ctx.d.emp(t.empId) ?? { id: t.empId }),
     chantier: t.chantier, destination: t.dest, depart: t.depart, retour: t.retour, date: ctx.d.ti,
   });
@@ -60,7 +60,7 @@ function coordonnees(ctx: Ctx, t: Voyage, p: Record<string, unknown>): Partial<P
  * sauf celle qu'il a déjà, chevauchement d'un autre déplacement ou d'une absence en vigueur quand les dates changent), le
  * déplacement lui-même exclu.
  */
-const modifier: ActionHandler = (ctx, p) => {
+const modifier: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const t = deplacement(ctx, p.id);
   const emp = getEmp(ctx, t.empId);
@@ -86,9 +86,9 @@ const modifier: ActionHandler = (ctx, p) => {
   // Formalités de détachement devenues caduques (formalitesCaduques) : à refaire, le dossier redevient incomplet.
   const caduques = formalitesCaduques(t, { dest: dest.code, depart, retour });
   const apres = { ...t, dest: dest.code, depart, retour, motif: champs.motif, ...caduques, ...surPlace };
-  ctx.db.update<Voyage>('voyages', t.id, { dest: dest.code, depart, retour, motif: champs.motif, ...caduques, ...surPlace });
+  await ctx.db.update<Voyage>('voyages', t.id, { dest: dest.code, depart, retour, motif: champs.motif, ...caduques, ...surPlace });
   // Coordonnées sur place seules : Keystone n'en sait rien (champs propres à Cursus).
-  const ks = !memeDeplacement && prevenirKeystone(ctx, 'deplacement.modifie', apres);
+  const ks = !memeDeplacement && await prevenirKeystone(ctx, 'deplacement.modifie', apres);
   const coord = Object.keys(surPlace).length ? ' · coordonnées sur place enregistrées' : '';
   const r = ctx.d.readiness(emp, apres);
   const refaire = Object.keys(caduques).length ? ' · formalités de détachement à refaire' : '';
@@ -99,15 +99,15 @@ const modifier: ActionHandler = (ctx, p) => {
  * Annulation, avec motif (obligatoire pour un déplacement venu de Keystone, conservé dans Cursus, jamais transmis) : le
  * déplacement reste dans l'historique, hors de la préparation des dossiers, du Go / No Go, des conflits et des échéances.
  */
-const annuler: ActionHandler = (ctx, p) => {
+const annuler: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const t = deplacement(ctx, p.id);
   const emp = getEmp(ctx, t.empId);
   const motif = str(p.motif);
   const refus = refusAnnulation(t, motif);
   if (refus) throw new ActionError(refus);
-  ctx.db.update<Voyage>('voyages', t.id, { annuleLe: ctx.d.ti, annulePar: ctx.user.nom, annuleMotif: motif || null });
-  const ks = prevenirKeystone(ctx, 'deplacement.annule', t);
+  await ctx.db.update<Voyage>('voyages', t.id, { annuleLe: ctx.d.ti, annulePar: ctx.user.nom, annuleMotif: motif || null });
+  const ks = await prevenirKeystone(ctx, 'deplacement.annule', t);
   return `Déplacement annulé — ${emp.nom}, ${ctx.d.destOf(t.dest)?.pays ?? t.dest} du ${fmtShort(parse(t.depart))} au ${fmt(parse(t.retour))}${ks ? ' · Keystone prévenu' : ''}`;
 };
 

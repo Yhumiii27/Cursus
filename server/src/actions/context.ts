@@ -21,7 +21,7 @@ export interface Ctx {
 
 /** Valeur renvoyée par une action : message de confirmation, éventuel résultat. */
 export type ActionOutput = string | null | { message: string | null; result?: unknown };
-export type ActionHandler = (ctx: Ctx, p: Record<string, any>) => ActionOutput;
+export type ActionHandler = (ctx: Ctx, p: Record<string, any>) => ActionOutput | Promise<ActionOutput>;
 
 export function makeCtx(db: Db, user: CurrentUser, ds: Dataset): Ctx {
   return { db, user, ds, d: new Domain(ds) };

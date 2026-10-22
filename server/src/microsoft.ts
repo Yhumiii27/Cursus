@@ -197,9 +197,9 @@ export function pageDeRetour(v: unknown): string {
   return s.length <= 200 && /^\/(?!\/)[^\\\s]*$/.test(s) && !s.startsWith('/api/') ? s : '/';
 }
 
-function poserEtat(db: Db, res: Response, e: EtatAllerRetour) {
+async function poserEtat(db: Db, res: Response, e: EtatAllerRetour) {
   const v = Buffer.from(JSON.stringify(e)).toString('base64url');
-  res.append('Set-Cookie', `${COOKIE_ETAT}=${v}.${sign(db, v)}; Path=${CHEMIN_ETAT}; HttpOnly; SameSite=Lax; Max-Age=${ETAT_MS / 1000}${cookieSecure()}`);
+  res.append('Set-Cookie', `${COOKIE_ETAT}=${v}.${await sign(db, v)}; Path=${CHEMIN_ETAT}; HttpOnly; SameSite=Lax; Max-Age=${ETAT_MS / 1000}${cookieSecure()}`);
 }
 
 function effacerEtat(res: Response) {
@@ -207,9 +207,9 @@ function effacerEtat(res: Response) {
 }
 
 /** État lu dans le cookie : signature valable et moins de 10 minutes, sinon null. */
-function lireEtat(db: Db, req: Request): EtatAllerRetour | null {
+async function lireEtat(db: Db, req: Request): Promise<EtatAllerRetour | null> {
   const [v, mac] = (parseCookies(req)[COOKIE_ETAT] ?? '').split('.');
-  if (!v || !mac || !egal(sign(db, v), mac)) return null;
+  if (!v || !mac || !egal(await sign(db, v), mac)) return null;
   try {
     const e = json64(v) as EtatAllerRetour;
     return typeof e.state === 'string' && typeof e.nonce === 'string' && typeof e.verifier === 'string' && e.fin > Date.now() ? e : null;
@@ -260,7 +260,7 @@ export function routesMicrosoft(db: Db, oidc: FournisseurOidc | null = OIDC, ref
     const indice = normaliserIdentifiant(typeof req.query.identifiant === 'string' ? req.query.identifiant : '').slice(0, 254);
     try {
       const url = await oidc.urlAutorisation(e, indice || undefined, req.query.choix === '1');
-      poserEtat(db, res, e);
+      await poserEtat(db, res, e);
       res.redirect(url);
     } catch (err) {
       console.error(`Connexion Microsoft 365 : ${err instanceof Error ? err.message : err}`);
@@ -270,7 +270,7 @@ export function routesMicrosoft(db: Db, oidc: FournisseurOidc | null = OIDC, ref
 
   r.get('/api/auth/microsoft/retour', async (req, res) => {
     const q = req.query as Record<string, unknown>;
-    const e = lireEtat(db, req);
+    const e = await lireEtat(db, req);
     effacerEtat(res);
     // Retour de la déconnexion Microsoft (ni code, ni erreur, ni state) : écran de connexion.
     if (q.code === undefined && q.error === undefined && q.state === undefined) return res.redirect('/');
@@ -285,19 +285,19 @@ export function routesMicrosoft(db: Db, oidc: FournisseurOidc | null = OIDC, ref
     consommes.set(e.state, e.fin);
 
     const adresse = ip(req);
-    const trace = (action: string, message: string, actor: string, compte: Compte | null, extra: Record<string, unknown> = {}, role: string | null = null) =>
-      journaliser(db, { actor, role, action, message, payload: { ip: adresse, methode: 'microsoft', ...extra }, compte });
+    const trace = async (action: string, message: string, actor: string, compte: Compte | null, extra: Record<string, unknown> = {}, role: string | null = null) =>
+      await journaliser(db, { actor, role, action, message, payload: { ip: adresse, methode: 'microsoft', ...extra }, compte });
     /** Refus journalisé, dans la limite de `refus` pour cette adresse. */
-    const refuser = (message: string, actor: string, compte: Compte | null, extra: Record<string, unknown> = {}) => {
+    const refuser = async (message: string, actor: string, compte: Compte | null, extra: Record<string, unknown> = {}) => {
       if (refus.depasse(adresse)) return;
       refus.echec(adresse);
-      trace('connexion.refusee', message, actor, compte, extra);
+      await trace('connexion.refusee', message, actor, compte, extra);
       if (refus.depasse(adresse)) {
-        trace('connexion.refusee', `Microsoft 365 : ${refus.max} refus en moins de ${refus.fenetreMs / 60_000} minutes depuis cette adresse — les suivants ne sont plus journalisés jusqu’à la fin de cette période`, 'Microsoft 365', null);
+        await trace('connexion.refusee', `Microsoft 365 : ${refus.max} refus en moins de ${refus.fenetreMs / 60_000} minutes depuis cette adresse — les suivants ne sont plus journalisés jusqu’à la fin de cette période`, 'Microsoft 365', null);
       }
     };
     if (q.error !== undefined || typeof q.code !== 'string') {
-      refuser(`Microsoft 365 : connexion refusée par Microsoft (${motifRefus(q.error, q.error_description)})`, 'Microsoft 365', null);
+      await refuser(`Microsoft 365 : connexion refusée par Microsoft (${motifRefus(q.error, q.error_description)})`, 'Microsoft 365', null);
       return versConnexion(res, 'refus');
     }
 
@@ -308,48 +308,51 @@ export function routesMicrosoft(db: Db, oidc: FournisseurOidc | null = OIDC, ref
       const code = err instanceof ErreurOidc ? err.code : 'jeton';
       const detail = err instanceof Error ? err.message : String(err);
       console.warn(`Connexion Microsoft 365 refusée : ${detail}`);
-      refuser(`Microsoft 365 : ${detail}`, 'Microsoft 365', null);
+      await refuser(`Microsoft 365 : ${detail}`, 'Microsoft 365', null);
       return versConnexion(res, code);
     }
 
-    // Rattachement : le compte dont l'oid correspond ; sinon, à la première connexion, le compte Microsoft
-    // dont l'identifiant est l'adresse de connexion (UPN) et qui n'est encore rattaché à personne.
-    const upn = normaliserIdentifiant(c.preferred_username ?? '');
-    const qui = c.name?.trim() || upn || 'Microsoft 365';
-    const extra = { identifiant: upn, oid: c.oid };
-    let compte = db.where<Compte>('comptes', 'oid', c.oid).find(x => x.type === 'microsoft') ?? null;
-    let rattacher = false;
-    if (!compte && upn) {
-      const x = compteParIdentifiant(db, upn);
-      if (x?.type === 'microsoft' && !x.oid) { compte = x; rattacher = true; }
-      else if (x?.type === 'microsoft') {
-        refuser(`Microsoft 365 : le compte ${upn} est déjà rattaché à une autre identité Microsoft (le délier dans Comptes et accès si elle a été recréée)`, qui, x, extra);
+    // Suite d'un seul tenant (`db.exclusif`), une fois les échanges avec Microsoft terminés : rattachement, session.
+    await db.exclusif(async () => {
+      // Rattachement : le compte dont l'oid correspond ; sinon, à la première connexion, le compte Microsoft
+      // dont l'identifiant est l'adresse de connexion (UPN) et qui n'est encore rattaché à personne.
+      const upn = normaliserIdentifiant(c.preferred_username ?? '');
+      const qui = c.name?.trim() || upn || 'Microsoft 365';
+      const extra = { identifiant: upn, oid: c.oid };
+      let compte = (await db.where<Compte>('comptes', 'oid', c.oid)).find(x => x.type === 'microsoft') ?? null;
+      let rattacher = false;
+      if (!compte && upn) {
+        const x = await compteParIdentifiant(db, upn);
+        if (x?.type === 'microsoft' && !x.oid) { compte = x; rattacher = true; }
+        else if (x?.type === 'microsoft') {
+          await refuser(`Microsoft 365 : le compte ${upn} est déjà rattaché à une autre identité Microsoft (le délier dans Comptes et accès si elle a été recréée)`, qui, x, extra);
+          return versConnexion(res, 'acces');
+        }
+      }
+      if (!compte) {
+        await refuser(`Microsoft 365 : aucun compte Cursus pour ${upn || `l’identité ${c.oid}`}`, qui, null, extra);
         return versConnexion(res, 'acces');
       }
-    }
-    if (!compte) {
-      refuser(`Microsoft 365 : aucun compte Cursus pour ${upn || `l’identité ${c.oid}`}`, qui, null, extra);
-      return versConnexion(res, 'acces');
-    }
-    const refusCompte = refusDuCompte(db, compte);
-    if (refusCompte) {
-      revokeSessionsDuCompte(db, compte.id);
-      refuser(`Microsoft 365 : ${refusCompte}`, nomDuCompte(db, compte), compte, extra);
-      return versConnexion(res, 'ferme');
-    }
-    if (rattacher) db.update<Compte>('comptes', compte.id, { oid: c.oid });
-    // Chaque connexion ouvre une nouvelle session (12 h) et révoque celle que portait le navigateur.
-    const cur = readSession(db, req);
-    if (cur?.id) revokeSession(db, cur.id);
-    enregistrerConnexion(db, compte);
-    // Espace initial : RH si profil RH, sinon manager s'il encadre une équipe, sinon collaborateur.
-    const role = espacesDuCompte(db, compte)[0];
-    trace('connexion', rattacher ? 'Connexion Microsoft 365 — première connexion, compte rattaché à son identité Microsoft' : 'Connexion Microsoft 365',
-      nomDuCompte(db, compte), compte, extra, role);
-    openSession(db, res, { compteId: compte.id, role, methode: 'microsoft', demoComptes: {} });
-    // openSession remplace l'en-tête Set-Cookie : l'effacement de l'état est reposé à la suite.
-    effacerEtat(res);
-    res.redirect(e.retour);
+      const refusCompte = await refusDuCompte(db, compte);
+      if (refusCompte) {
+        await revokeSessionsDuCompte(db, compte.id);
+        await refuser(`Microsoft 365 : ${refusCompte}`, await nomDuCompte(db, compte), compte, extra);
+        return versConnexion(res, 'ferme');
+      }
+      if (rattacher) await db.update<Compte>('comptes', compte.id, { oid: c.oid });
+      // Chaque connexion ouvre une nouvelle session (12 h) et révoque celle que portait le navigateur.
+      const cur = await readSession(db, req);
+      if (cur?.id) await revokeSession(db, cur.id);
+      await enregistrerConnexion(db, compte);
+      // Espace initial : RH si profil RH, sinon manager s'il encadre une équipe, sinon collaborateur.
+      const role = (await espacesDuCompte(db, compte))[0];
+      await trace('connexion', rattacher ? 'Connexion Microsoft 365 — première connexion, compte rattaché à son identité Microsoft' : 'Connexion Microsoft 365',
+        await nomDuCompte(db, compte), compte, extra, role);
+      await openSession(db, res, { compteId: compte.id, role, methode: 'microsoft', demoComptes: {} });
+      // openSession remplace l'en-tête Set-Cookie : l'effacement de l'état est reposé à la suite.
+      effacerEtat(res);
+      res.redirect(e.retour);
+    });
   });
 
   return r;

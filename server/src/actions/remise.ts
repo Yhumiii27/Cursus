@@ -19,14 +19,17 @@ function entretien(ctx: Ctx, id: unknown): Entretien {
 }
 
 /** Le salarié peut-il ouvrir son espace (compte actif, pas sorti) ? Sinon, le portail ne lui sert à rien. */
-const ouvreSonEspace = (db: Db, empId: number) => db.where<Compte>('comptes', 'empId', empId).some(c => !refusDuCompte(db, c));
+const ouvreSonEspace = async (db: Db, empId: number) => {
+  for (const c of await db.where<Compte>('comptes', 'empId', empId)) if (!await refusDuCompte(db, c)) return true;
+  return false;
+};
 
 /** E-mail de mise à disposition : le lien vers Cursus (pied commun), jamais le texte du compte rendu. Faux sans adresse. */
-function annoncerMiseADisposition(ctx: Ctx, emp: Employe, x: Entretien): boolean {
-  const d = adresseSalarie(ctx.db, emp.id, ctx.ds.today);
+async function annoncerMiseADisposition(ctx: Ctx, emp: Employe, x: Entretien): Promise<boolean> {
+  const d = await adresseSalarie(ctx.db, emp.id, ctx.ds.today);
   if (!d) return false;
   const nom = ENT_TYPES[x.type]?.nom ?? 'Entretien';
-  envoyerEmail(ctx.db, 'entretien.remise', courriel(ctx.ds.messagerie ?? lireMessagerie(ctx.db), d.adresse, 'Compte rendu d’entretien disponible dans Cursus', [
+  await envoyerEmail(ctx.db, 'entretien.remise', courriel(ctx.ds.messagerie ?? await lireMessagerie(ctx.db), d.adresse, 'Compte rendu d’entretien disponible dans Cursus', [
     `Le compte rendu de votre ${nom.charAt(0).toLowerCase()}${nom.slice(1)} ${periodeLongue(x.date, x.date)} est à votre disposition dans Cursus (Mes entretiens) : vous pouvez le consulter, le télécharger et l’imprimer.`,
     '',
     'Pour des raisons de confidentialité, son contenu ne figure pas dans cet e-mail.',
@@ -39,7 +42,7 @@ function annoncerMiseADisposition(ctx: Ctx, emp: Employe, x: Entretien): boolean
  * `mode` : main_propre, refus (date : jour de la remise, aujourd'hui par défaut) ou portail (daté du jour, salarié qui
  * ouvre son espace).
  */
-const remettre: ActionHandler = (ctx, p) => {
+const remettre: ActionHandler = async (ctx, p) => {
   const x = entretien(ctx, p.id);
   const e = getEmp(ctx, x.empId);
   refuserSoiMeme(ctx, e, 'Vous ne pouvez pas enregistrer la remise de votre propre compte rendu');
@@ -48,12 +51,12 @@ const remettre: ActionHandler = (ctx, p) => {
   const date = mode === 'portail' || !p.date ? ctx.d.ti : str(p.date);
   const err = controleRemise(x, mode, date, ctx.d.ti);
   if (err) throw new ActionError(err);
-  if (mode === 'portail' && !ouvreSonEspace(ctx.db, e.id)) {
+  if (mode === 'portail' && !await ouvreSonEspace(ctx.db, e.id)) {
     throw new ActionError(`${e.nom} n’a pas de compte Cursus actif : remettez-lui le compte rendu en main propre`);
   }
-  ctx.db.update<Entretien>('entretiens', x.id, { remiseLe: date, remiseMode: mode, remisePar: ctx.user.nom });
+  await ctx.db.update<Entretien>('entretiens', x.id, { remiseLe: date, remiseMode: mode, remisePar: ctx.user.nom });
   if (mode === 'portail') {
-    return `Compte rendu mis à disposition de ${e.nom} dans son espace — ${annoncerMiseADisposition(ctx, e, x)
+    return `Compte rendu mis à disposition de ${e.nom} dans son espace — ${await annoncerMiseADisposition(ctx, e, x)
       ? 'e-mail envoyé avec le lien vers Cursus' : 'aucune adresse e-mail : prévenez-le'}`;
   }
   return mode === 'refus'
@@ -62,11 +65,11 @@ const remettre: ActionHandler = (ctx, p) => {
 };
 
 /** Téléchargement du compte rendu clos par le salarié, depuis son espace : la date du premier est enregistrée. */
-const telecharger: ActionHandler = (ctx, p) => {
+const telecharger: ActionHandler = async (ctx, p) => {
   const x = entretien(ctx, p.id);
   if (ctx.user.role !== 'collaborateur' || ctx.user.empId !== x.empId) throw new ActionError('Téléchargement enregistré pour le salarié seulement', 403);
   if (x.statut !== 'realise') throw new ActionError('Compte rendu pas encore clos');
-  if (!x.telechargeLe) ctx.db.update<Entretien>('entretiens', x.id, { telechargeLe: ctx.d.ti });
+  if (!x.telechargeLe) await ctx.db.update<Entretien>('entretiens', x.id, { telechargeLe: ctx.d.ti });
   return null;
 };
 

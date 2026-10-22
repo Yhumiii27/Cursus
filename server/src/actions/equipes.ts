@@ -71,20 +71,20 @@ const toRow = (p: ProfilInput) => ({ ...p });
 /** Auteur d'une ligne de l'historique des contrats : la personne connectée et sa fiche. */
 const auteur = (ctx: Ctx) => ({ nom: ctx.user.nom, empId: ctx.user.salarieId ?? ctx.user.empId ?? null });
 
-const creer: ActionHandler = (ctx, p) => {
+const creer: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const input = {} as Record<string, unknown>;
   PROFIL_FIELDS.forEach(k => { input[k] = p[k] ?? null; });
-  rattacherPoste(ctx, input);
+  await rattacherPoste(ctx, input);
   const v = check(ctx, input as unknown as ProfilInput, undefined, !!p.reutiliserMatricule);
   // CDD : le terme initial est la fin saisie, tant qu'aucun renouvellement ne l'a repoussée.
   const P = v.profil;
   if (P.typeContrat === 'cdd' && !P.cddFinInitiale && P.fin && !P.motifSortie) P.cddFinInitiale = P.fin;
-  const row = ctx.db.insert<Employe>('employes', toRow(P));
+  const row = await ctx.db.insert<Employe>('employes', toRow(P));
   // Compteurs repris à zéro, datés de la création : la fiche commence dans Cursus.
-  ctx.db.insert('soldesReprise', { empId: row.id, cpPris: 0, rttPris: 0, recupAcquis: 0, recupPris: 0, arreteLe: ctx.d.ti });
+  await ctx.db.insert('soldesReprise', { empId: row.id, cpPris: 0, rttPris: 0, recupAcquis: 0, recupPris: 0, arreteLe: ctx.d.ti });
   // Historique des contrats (t074) : embauche à l'entrée, avec le terme prévu d'un contrat à durée déterminée.
-  inscrireLigne(ctx.db, {
+  await inscrireLigne(ctx.db, {
     empId: row.id, effet: P.entree, nature: 'embauche', regime: contratFige(row), jusquau: P.typeContrat !== 'cdi' && !P.motifSortie ? P.fin : null,
     fin: P.motifSortie ? P.fin : null,
   }, auteur(ctx), ctx.d.ti);
@@ -94,7 +94,7 @@ const creer: ActionHandler = (ctx, p) => {
 };
 
 /** RH : toute la fiche. Manager : poste et jours non travaillés (temps partiel) des membres de son équipe. */
-const modifier: ActionHandler = (ctx, p) => {
+const modifier: ActionHandler = async (ctx, p) => {
   const emp = getEmp(ctx, p.id);
   const cur = profilOf(emp);
   let fields: (keyof ProfilInput)[];
@@ -118,7 +118,7 @@ const modifier: ActionHandler = (ctx, p) => {
     }
   }
   const conflit = champsEnConflit(p.avant, cur);
-  if (conflit.length) throw new ActionError(messageConflit(conflit, isRh(ctx) ? dernierAuteurFiche(ctx, emp.id, conflit) : null), 412);
+  if (conflit.length) throw new ActionError(messageConflit(conflit, isRh(ctx) ? await dernierAuteurFiche(ctx, emp.id, conflit) : null), 412);
   if (!isRh(ctx) && patch.includes('jourOff') && cur.temps !== 'partiel') throw new ActionError('Les jours non travaillés ne concernent que le temps partiel');
   const next = { ...cur } as Record<string, unknown>;
   patch.forEach(k => { next[k] = p[k]; });
@@ -127,7 +127,7 @@ const modifier: ActionHandler = (ctx, p) => {
   // fiche, ou celui de même intitulé d'une fiche pas encore rattachée (import).
   if (patch.includes('posteId') || (patch.includes('poste') && key(str(p.poste)) !== key(cur.poste))) {
     if (!patch.includes('posteId')) next.posteId = null;
-    rattacherPoste(ctx, next, posteDe(ctx.ds, emp)?.id ?? null, !patch.includes('posteId'));
+    await rattacherPoste(ctx, next, posteDe(ctx.ds, emp)?.id ?? null, !patch.includes('posteId'));
   }
   const v = check(ctx, next as unknown as ProfilInput, emp.id, !!p.reutiliserMatricule);
   // Une nouvelle visite s'enregistre avec l'avis du médecin du travail (`medical.avis`), qui clôt la demande en cours.
@@ -166,8 +166,8 @@ const modifier: ActionHandler = (ctx, p) => {
     if (soldeRtt && p.confirmerRtt !== true) {
       throw new ActionError(`${rttPerdusTexte(soldeRtt, emp.nom)}. Confirmez le changement : ce solde sera gardé au journal pour la paie`);
     }
-    amorcer(ctx.db, emp.id, ctx.d.ti);
-    const ligne = inscrireLigne(ctx.db, { empId: emp.id, effet, nature: 'avenant', regime: contratFige({ ...emp, ...v.profil }), applique: !futur }, auteur(ctx), ctx.d.ti);
+    await amorcer(ctx.db, emp.id, ctx.d.ti);
+    const ligne = await inscrireLigne(ctx.db, { empId: emp.id, effet, nature: 'avenant', regime: contratFige({ ...emp, ...v.profil }), applique: !futur }, auteur(ctx), ctx.d.ti);
     if (futur) {
       // Avenant programmé : la fiche garde son organisation du temps jusqu'à la date d'effet.
       Object.assign(row, { temps: emp.temps, heures: emp.heures, forfaitHeures: emp.forfaitHeures, forfaitJours: emp.forfaitJours, jourOff: emp.jourOff ?? [], tempsDepuis: emp.tempsDepuis });
@@ -175,27 +175,26 @@ const modifier: ActionHandler = (ctx, p) => {
     } else {
       if (regimeTemps) row.tempsDepuis = effet;
       else row.tempsDepuis = emp.tempsDepuis;
-      ctx.ds.feuilles.filter(f => f.empId === emp.id && !f.contrat && f.week < effet)
-        .forEach(f => ctx.db.update<FeuilleTemps>('feuilles', f.id, { contrat: contratFige(emp) }));
+      for (const f of ctx.ds.feuilles.filter(f => f.empId === emp.id && !f.contrat && f.week < effet)) await ctx.db.update<FeuilleTemps>('feuilles', f.id, { contrat: contratFige(emp) });
       // Semaines des 8 dernières avant la date d'effet encore sans feuille : feuille brouillon vide figée sur l'ancien
       // régime (garde-fou conservé avec l'historique, qui fige aussi une feuille créée plus tard pour une semaine plus ancienne).
       figees = semainesAFiger(emp, effet, ctx.ds.feuilles);
-      figees.forEach(week => ctx.db.insert<FeuilleTemps>('feuilles', {
+      for (const week of figees) await ctx.db.insert<FeuilleTemps>('feuilles', {
         empId: emp.id, week, statut: 'brouillon', comment: null, sage: false, keystone: false, lignes: [], contrat: contratFige(emp),
-      }));
+      });
     }
   } else row.tempsDepuis = emp.tempsDepuis;
   // Changement d'équipe : mêmes contrôles de hiérarchie que l'affectation (t136).
   if ((v.profil.equipe ?? null) !== (emp.equipe ?? null)) {
     refuserCroisee(ctx, { employes: ctx.ds.employes.map(e => (e.id === emp.id ? { ...e, equipe: v.profil.equipe ?? null } : e)) });
   }
-  ctx.db.update('employes', emp.id, row);
+  await ctx.db.update('employes', emp.id, row);
   // Date d'entrée corrigée : l'embauche de l'historique la suit.
   if (patch.includes('entree') && v.profil.entree !== emp.entree) {
-    ctx.db.sql.prepare(`UPDATE contrats_historique SET effet = ? WHERE emp_id = ? AND nature = 'embauche' AND effet = ?`).run(v.profil.entree, emp.id, emp.entree);
+    await ctx.db.run(`UPDATE contrats_historique SET effet = ? WHERE emp_id = ? AND nature = 'embauche' AND effet = ?`, [v.profil.entree, emp.id, emp.entree]);
   }
   // Brouillons refigés sur le régime de leur semaine (changement daté, avenant programmé).
-  if (avant !== apres) refigerBrouillons(ctx.db, emp.id);
+  if (avant !== apres) await refigerBrouillons(ctx.db, emp.id);
   const suite = [
     avenant ? `avenant programmé au ${fmtIso(avenant.effet)} (${ctx.d.contratOf({ ...emp, ...v.profil }).label}), appliqué à la fiche à cette date` : '',
     figees.length ? `${plural(figees.length, 'semaine sans feuille figée', 'semaines sans feuille figées')} sur l’ancien régime` : '',
@@ -205,18 +204,18 @@ const modifier: ActionHandler = (ctx, p) => {
   return { message: `Fiche de ${v.profil.nom} mise à jour${suite}`, result: soldeRtt || avenant ? { ...(soldeRtt ? { soldeRtt } : {}), ...(avenant ? { avenant } : {}) } : undefined };
 };
 
-const creerEquipe: ActionHandler = (ctx, p) => {
+const creerEquipe: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const nom = str(p.nom);
   if (!nom) throw new ActionError('Nom d’équipe requis');
   if (ctx.ds.referentiels.equipes.some(q => key(q.nom) === key(nom))) throw new ActionError('Une équipe porte déjà ce nom');
   const managerId = p.managerId ? checkManager(ctx, p.managerId).id : null;
   const ordre = Math.max(-1, ...ctx.ds.referentiels.equipes.map(q => q.ordre)) + 1;
-  ctx.db.insert('equipes', { nom, managerId, ordre });
+  await ctx.db.insert('equipes', { nom, managerId, ordre });
   return `Équipe ${nom} créée${managerId ? ' — manager : ' + ctx.d.personName(managerId) : ''}`;
 };
 
-const renommer: ActionHandler = (ctx, p) => {
+const renommer: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const q = getEquipe(ctx, p.nom);
   const nouveau = str(p.nouveau);
@@ -225,13 +224,13 @@ const renommer: ActionHandler = (ctx, p) => {
   if (ctx.ds.referentiels.equipes.some(x => x.nom !== q.nom && key(x.nom) === key(nouveau))) throw new ActionError('Une équipe porte déjà ce nom');
   // Équipes rattachées (`parente`, t136) : elles suivent le nouveau nom.
   for (const [table, col] of [['equipes', 'nom'], ['equipes', 'parente'], ['employes', 'equipe'], ['budgets', 'equipe'], ['plan_actions', 'equipe']]) {
-    ctx.db.sql.prepare(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`).run(nouveau, q.nom);
+    await ctx.db.run(`UPDATE ${table} SET ${col} = ? WHERE ${col} = ?`, [nouveau, q.nom]);
   }
-  renommerDerogation(ctx.db, q.nom, nouveau);
+  await renommerDerogation(ctx.db, q.nom, nouveau);
   return `Équipe ${q.nom} renommée en ${nouveau}`;
 };
 
-const designer: ActionHandler = (ctx, p) => {
+const designer: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const q = getEquipe(ctx, p.nom);
   const m = p.managerId ? checkManager(ctx, p.managerId) : null;
@@ -242,15 +241,15 @@ const designer: ActionHandler = (ctx, p) => {
   const apres: Equipe[] = equipes.map(x => (x.nom === q.nom ? { ...x, managerId: m?.id ?? null } : x));
   refuserCroisee(ctx, { equipes: apres });
   const elements = elementsRediriges(ctx.ds, equipes, apres).filter(x => ctx.d.emp(x.empId)?.equipe !== q.nom);
-  ctx.db.update('equipes', q.nom, { managerId: m?.id ?? null });
+  await ctx.db.update('equipes', q.nom, { managerId: m?.id ?? null });
   const message = m ? `${m.nom} devient manager de l’équipe ${q.nom}` : `L’équipe ${q.nom} n’a plus de manager — validations assurées par le service RH`;
   if (!elements.length) return message;
-  prevenir(ctx, q.nom, m ? `${m.nom} devient manager de l’équipe ${q.nom}, dont relèvent les managers des équipes rattachées` : `L’équipe ${q.nom} n’a plus de manager`, elements);
+  await prevenir(ctx, q.nom, m ? `${m.nom} devient manager de l’équipe ${q.nom}, dont relèvent les managers des équipes rattachées` : `L’équipe ${q.nom} n’a plus de manager`, elements);
   return { message: message + suiteRedirection(ctx, elements), result: { redirections: redirectionsResultat(elements) } };
 };
 
 /** Suppression d'une équipe vide : administrateur RH. */
-const supprimer: ActionHandler = (ctx, p) => {
+const supprimer: ActionHandler = async (ctx, p) => {
   requireRhAdmin(ctx);
   const q = getEquipe(ctx, p.nom);
   // Les salariés sortis ne comptent plus parmi les membres (écran Équipes) : ils sont détachés de l'équipe supprimée.
@@ -260,10 +259,10 @@ const supprimer: ActionHandler = (ctx, p) => {
   // Hiérarchie (t136) : les équipes rattachées changeraient de valideur sans que personne le décide.
   const filles = ctx.ds.referentiels.equipes.filter(x => x.parente === q.nom).map(x => x.nom);
   if (filles.length) throw new ActionError(`${plural(filles.length, 'Une équipe est rattachée', 'Des équipes sont rattachées')} à ${q.nom} (${filles.join(', ')}) : changez d’abord leur équipe parente`);
-  membres.forEach(e => ctx.db.update('employes', e.id, { equipe: null }));
-  ctx.db.sql.prepare('DELETE FROM budgets WHERE equipe = ?').run(q.nom);
-  ctx.db.remove('equipes', q.nom);
-  retirerDerogation(ctx.db, q.nom);
+  for (const e of membres) await ctx.db.update('employes', e.id, { equipe: null });
+  await ctx.db.run('DELETE FROM budgets WHERE equipe = ?', [q.nom]);
+  await ctx.db.remove('equipes', q.nom);
+  await retirerDerogation(ctx.db, q.nom);
   return `Équipe ${q.nom} supprimée${membres.length ? ` · ${plural(membres.length, 'salarié sorti détaché', 'salariés sortis détachés')} de l’équipe` : ''}`;
 };
 
@@ -273,7 +272,7 @@ const supprimer: ActionHandler = (ctx, p) => {
  * libéré par son manager d'origine (jamais prendre directement le membre d'une autre équipe : sa mutation passe
  * par le service RH), ou retirer un membre de son équipe (il revient alors au service RH).
  */
-const affecter: ActionHandler = (ctx, p) => {
+const affecter: ActionHandler = async (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
   const cible = p.equipe ? getEquipe(ctx, p.equipe).nom : null;
   const avant = emp.equipe;
@@ -299,7 +298,7 @@ const affecter: ActionHandler = (ctx, p) => {
   if (nuit) throw new ActionError(nuit);
   // Hiérarchie (t136) : pas de validation croisée nouvelle (un manager rangé dans l'équipe de son N-1).
   refuserCroisee(ctx, { employes: ctx.ds.employes.map(e => (e.id === emp.id ? { ...e, equipe: cible } : e)) });
-  ctx.db.update('employes', emp.id, { equipe: cible });
+  await ctx.db.update('employes', emp.id, { equipe: cible });
   if (!cible) return `${emp.nom} retiré de l’équipe ${avant} — à affecter par le service RH`;
   return `${emp.nom} rejoint l’équipe ${cible}${avant ? ` (auparavant ${avant})` : ''}`;
 };

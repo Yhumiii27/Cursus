@@ -46,18 +46,20 @@ export function attente(tentatives: number): number {
 }
 
 /** Met un message en file, dans la transaction en cours : annulée, elle n'envoie rien. */
-export function mettreEnFile(db: Db, cible: Cible, type: string, contenu: Record<string, unknown>, simule: boolean): Envoi {
+export async function mettreEnFile(db: Db, cible: Cible, type: string, contenu: Record<string, unknown>, simule: boolean): Promise<Envoi> {
   const maintenant = new Date().toISOString();
-  return db.insert<Envoi>('envois', {
+  return await db.insert<Envoi>('envois', {
     cible, type, cle: randomUUID(), contenu, statut: simule ? 'simule' : 'a_envoyer', tentatives: 0,
     prochaine: simule ? null : maintenant, erreur: null, accuse: null, creation: maintenant, tentative: null, envoi: null, classe: null,
   });
 }
 
 /** Message le plus ancien encore à envoyer pour cette cible. */
-function tete(db: Db, cible: Cible): Envoi | null {
-  const r = db.sql.prepare(`SELECT id FROM envois WHERE cible = ? AND statut = 'a_envoyer' ORDER BY id LIMIT 1`).get(cible) as { id: number } | undefined;
-  return r ? db.get<Envoi>('envois', r.id) ?? null : null;
+function tete(db: Db, cible: Cible): Promise<Envoi | null> {
+  return db.exclusif(async () => {
+    const r = await db.one(`SELECT id FROM envois WHERE cible = ? AND statut = 'a_envoyer' ORDER BY id LIMIT 1`, [cible]) as { id: number } | undefined;
+    return r ? await db.get<Envoi>('envois', r.id) ?? null : null;
+  });
 }
 
 type Issue = { ok: true; accuse: string } | { ok: false; definitif: boolean; erreur: string; apres?: number };
@@ -136,21 +138,24 @@ async function tenter(e: Envoi, t: Transport): Promise<Issue> {
 /** Envoie un message et enregistre l'issue : reçu, nouvelle tentative programmée ou échec. Null s'il a disparu entre-temps. */
 export async function envoyer(db: Db, e: Envoi, t: Transport, horloge = () => new Date()): Promise<Envoi | null> {
   const issue = await tenter(e, t);
-  if (db.get<Envoi>('envois', e.id)?.cle !== e.cle) return null; // base réinitialisée pendant l'envoi (démonstration)
-  const now = horloge(), at = now.toISOString(), tentatives = e.tentatives + 1;
-  if (issue.ok) return db.update<Envoi>('envois', e.id, { statut: 'envoye', tentatives, tentative: at, envoi: at, prochaine: null, accuse: issue.accuse });
-  if (issue.definitif || tentatives >= TENTATIVES_MAX) {
-    const x = db.update<Envoi>('envois', e.id, { statut: 'echec', tentatives, tentative: at, prochaine: null, erreur: issue.erreur });
-    db.insert('journal', {
-      at, actor: 'Cursus', role: 'integration', action: `${e.cible}.echec`,
-      message: `Envoi ${e.type} en échec après ${tentatives} tentative${tentatives > 1 ? 's' : ''} — ${issue.erreur}`,
-      payload: { envoi: e.id, type: e.type, cle: e.cle },
-    });
-    return x;
-  }
-  // Le destinataire peut demander une attente plus longue (Retry-After), dans la limite d'une heure.
-  const delai = Math.min(HEURE, Math.max(attente(tentatives), issue.apres ?? 0));
-  return db.update<Envoi>('envois', e.id, { tentatives, tentative: at, prochaine: new Date(now.getTime() + delai).toISOString(), erreur: issue.erreur });
+  // Issue enregistrée d'un seul tenant (relecture puis écritures), une fois la réponse reçue.
+  return db.exclusif(async () => {
+    if ((await db.get<Envoi>('envois', e.id))?.cle !== e.cle) return null; // base réinitialisée pendant l'envoi (démonstration)
+    const now = horloge(), at = now.toISOString(), tentatives = e.tentatives + 1;
+    if (issue.ok) return await db.update<Envoi>('envois', e.id, { statut: 'envoye', tentatives, tentative: at, envoi: at, prochaine: null, accuse: issue.accuse });
+    if (issue.definitif || tentatives >= TENTATIVES_MAX) {
+      const x = await db.update<Envoi>('envois', e.id, { statut: 'echec', tentatives, tentative: at, prochaine: null, erreur: issue.erreur });
+      await db.insert('journal', {
+        at, actor: 'Cursus', role: 'integration', action: `${e.cible}.echec`,
+        message: `Envoi ${e.type} en échec après ${tentatives} tentative${tentatives > 1 ? 's' : ''} — ${issue.erreur}`,
+        payload: { envoi: e.id, type: e.type, cle: e.cle },
+      });
+      return x;
+    }
+    // Le destinataire peut demander une attente plus longue (Retry-After), dans la limite d'une heure.
+    const delai = Math.min(HEURE, Math.max(attente(tentatives), issue.apres ?? 0));
+    return await db.update<Envoi>('envois', e.id, { tentatives, tentative: at, prochaine: new Date(now.getTime() + delai).toISOString(), erreur: issue.erreur });
+  });
 }
 
 const enCours = new Set<Cible>();
@@ -167,7 +172,7 @@ export async function traiterFile(db: Db, cible: Cible, t: Transport, horloge = 
   enCours.add(cible);
   let n = 0;
   try {
-    for (let e = tete(db, cible); e && (!e.prochaine || e.prochaine <= horloge().toISOString()); e = tete(db, cible)) {
+    for (let e = await tete(db, cible); e && (!e.prochaine || e.prochaine <= horloge().toISOString()); e = await tete(db, cible)) {
       const apres = await envoyer(db, e, t, horloge);
       n++;
       if (!apres || apres.statut === 'a_envoyer') break;
@@ -182,37 +187,37 @@ export async function traiterFile(db: Db, cible: Cible, t: Transport, horloge = 
  * Processus de fond du serveur : chaque cible configurée (transport non nul) est relevée au démarrage
  * puis toutes les `intervalle` ms, sans bloquer les requêtes. Renvoie la fonction d'arrêt.
  */
-export function demarrerEnvois(db: Db, transports: Partial<Record<Cible, Transport | null>>, intervalle = 2000): () => void {
+export async function demarrerEnvois(db: Db, transports: Partial<Record<Cible, Transport | null>>, intervalle = 2000): Promise<() => void> {
   // Tête de file relue toutes les 2 s : index `envois_file`, créé par une migration nommée (server/src/migrations/exploitation.ts).
   const actives = (Object.entries(transports) as [Cible, Transport | null][]).filter((x): x is [Cible, Transport] => !!x[1]);
-  const relever = () => actives.forEach(([cible, t]) => { traiterFile(db, cible, t).catch(err => console.error(`Envois ${cible} :`, err)); });
+  const relever = () => { for (const [cible, t] of actives) void traiterFile(db, cible, t).catch(err => console.error(`Envois ${cible} :`, err)); };
   if (!actives.length) return () => {};
-  relever();
+  await relever();
   const timer = setInterval(relever, intervalle);
   timer.unref();
   return () => clearInterval(timer);
 }
 
 /** Relance un envoi en échec : nouvelle série de tentatives, avec la même clé d'idempotence. */
-export function relancerEnvoi(db: Db, e: Envoi): Envoi {
-  return db.update<Envoi>('envois', e.id, { statut: 'a_envoyer', tentatives: 0, prochaine: new Date().toISOString(), classe: null });
+export async function relancerEnvoi(db: Db, e: Envoi): Promise<Envoi> {
+  return await db.update<Envoi>('envois', e.id, { statut: 'a_envoyer', tentatives: 0, prochaine: new Date().toISOString(), classe: null });
 }
 
 /** Classe un envoi en échec, examiné par le RH (refus définitif du destinataire…) : il ne compte plus parmi les échecs en cours. */
-export function classerEnvoi(db: Db, e: Envoi): Envoi {
-  return db.update<Envoi>('envois', e.id, { classe: new Date().toISOString() });
+export async function classerEnvoi(db: Db, e: Envoi): Promise<Envoi> {
+  return await db.update<Envoi>('envois', e.id, { classe: new Date().toISOString() });
 }
 
 /**
  * État d'une cible : messages par statut, échecs en cours (non classés), dernière réception confirmée,
  * message en tête qui attend une nouvelle tentative.
  */
-export function etatEnvois(db: Db, cible: Cible): EtatEnvois {
+export async function etatEnvois(db: Db, cible: Cible): Promise<EtatEnvois> {
   const n = Object.fromEntries(STATUTS_ENVOI.map(s => [s, 0])) as Record<StatutEnvoi, number>;
-  for (const r of db.sql.prepare('SELECT statut, COUNT(*) AS n FROM envois WHERE cible = ? GROUP BY statut').all(cible) as { statut: StatutEnvoi; n: number }[]) n[r.statut] = Number(r.n);
-  const ouverts = db.sql.prepare(`SELECT COUNT(*) AS n FROM envois WHERE cible = ? AND statut = 'echec' AND classe IS NULL`).get(cible) as { n: number };
-  const dernier = db.sql.prepare(`SELECT MAX(envoi) AS envoi FROM envois WHERE cible = ? AND statut = 'envoye'`).get(cible) as { envoi: string | null };
-  const t = tete(db, cible);
+  for (const r of await db.query('SELECT statut, COUNT(*) AS n FROM envois WHERE cible = ? GROUP BY statut', [cible]) as { statut: StatutEnvoi; n: number }[]) n[r.statut] = Number(r.n);
+  const ouverts = await db.one(`SELECT COUNT(*) AS n FROM envois WHERE cible = ? AND statut = 'echec' AND classe IS NULL`, [cible]) as { n: number };
+  const dernier = await db.one(`SELECT MAX(envoi) AS envoi FROM envois WHERE cible = ? AND statut = 'envoye'`, [cible]) as { envoi: string | null };
+  const t = await tete(db, cible);
   return {
     cible, nombres: n, echecsEnCours: Number(ouverts.n), dernierSucces: dernier.envoi ?? null,
     enReprise: t && t.tentatives > 0 ? { id: t.id, type: t.type, tentatives: t.tentatives, prochaine: t.prochaine, erreur: t.erreur } : null,
@@ -224,15 +229,13 @@ export function etatEnvois(db: Db, cible: Cible): EtatEnvois {
  * `avant` (ISO) sont supprimés, comme les échecs classés par le RH avant cette date. Un échec non classé (pas encore
  * traité) et un message à envoyer restent en file. Renvoie le nombre d'envois supprimés.
  */
-export function purgerEnvois(db: Db, avant: string): number {
-  return Number(db.sql.prepare(`DELETE FROM envois WHERE (statut IN ('envoye', 'simule') AND COALESCE(envoi, creation) < ?) OR (statut = 'echec' AND classe IS NOT NULL AND classe < ?)`)
-    .run(avant, avant).changes);
+export async function purgerEnvois(db: Db, avant: string): Promise<number> {
+  return Number((await db.run(`DELETE FROM envois WHERE (statut IN ('envoye', 'simule') AND COALESCE(envoi, creation) < ?) OR (statut = 'echec' AND classe IS NOT NULL AND classe < ?)`, [avant, avant])).changes);
 }
 
 /** Derniers messages (les plus récents d'abord), filtrés par statut et par cible. */
-export function listerEnvois(db: Db, filtre: { statut?: unknown; cible?: Cible } = {}, limite = 100): Envoi[] {
+export async function listerEnvois(db: Db, filtre: { statut?: unknown; cible?: Cible } = {}, limite = 100): Promise<Envoi[]> {
   const statut = STATUTS_ENVOI.includes(filtre.statut as StatutEnvoi) ? filtre.statut as StatutEnvoi : null;
-  const ids = db.sql.prepare(`SELECT id FROM envois WHERE (? IS NULL OR statut = ?) AND (? IS NULL OR cible = ?) ORDER BY id DESC LIMIT ?`)
-    .all(statut, statut, filtre.cible ?? null, filtre.cible ?? null, limite) as { id: number }[];
-  return ids.map(r => db.get<Envoi>('envois', r.id)!);
+  const ids = await db.query(`SELECT id FROM envois WHERE (? IS NULL OR statut = ?) AND (? IS NULL OR cible = ?) ORDER BY id DESC LIMIT ?`, [statut, statut, filtre.cible ?? null, filtre.cible ?? null, limite]) as { id: number }[];
+  return Promise.all(ids.map(async r => (await db.get<Envoi>('envois', r.id))!));
 }

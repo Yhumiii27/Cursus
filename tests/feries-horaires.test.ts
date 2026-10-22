@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
 
-const { Db } = await import('../server/src/db.ts');
+const { SqliteDb: Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -22,33 +22,32 @@ const { reposForfait } = await import('../shared/rules/conges.ts');
 const { calcSheet } = await import('../shared/rules/temps.ts');
 const { feriesDeLaSemaine } = await import('../shared/rules/majorations.ts');
 const { controlerHoraire, dureeHoraire, finitLeLendemain, horairesAFiger, horairesDeLaFeuille, normaliserHeure, plageTexte } = await import('../shared/rules/horaires.ts');
-type User = NonNullable<ReturnType<typeof currentUser>>;
-type Dataset = ReturnType<typeof loadFull>;
+type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
+type Dataset = Awaited<ReturnType<typeof loadFull>>;
 type Absence = Dataset['absences'][number];
 type Feuille = Dataset['feuilles'][number];
 
-function fresh() {
+async function fresh() {
   const db = new Db(':memory:');
-  seedDemo(db);
-  const compteDe = (empId: number | null) => db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number };
-  const user = (empId: number | null, role: User['role']) => currentUser(db, { compteId: compteDe(empId).id, role, methode: 'demo' })!;
-  const run = (u: User, name: string, p: Record<string, unknown>) => db.tx(() => {
-    const t = preparerTrace(db, name, p);
-    const r = ACTIONS[name](makeCtx(db, u, loadFull(db, u)), p);
+  await seedDemo(db);
+  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
+  const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
+    const t = await preparerTrace(db, name, p);
+    const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
     const o = typeof r === 'object' && r !== null ? r : { message: r };
-    journaliserAction(db, t, { user: u, compte: db.get('comptes', u.compteId)!, message: o.message ?? null, result: o.result });
+    await journaliserAction(db, t, { user: u, compte: (await db.get('comptes', u.compteId))!, message: o.message ?? null, result: o.result });
     return o.message;
   });
-  const refuse = (u: User, name: string, p: Record<string, unknown>, motif: RegExp, statut = 400) =>
-    assert.throws(() => run(u, name, p), (e: unknown) => e instanceof ActionError && e.status === statut && motif.test(e.message), `${name} : ${motif}`);
-  const RH = user(null, 'rh');
-  const domain = () => new Domain(loadFull(db, RH));
-  const derniere = (action: string) => db.all<{ action: string; payload: Record<string, unknown>; salaries: number[]; message: string }>('journal').findLast(j => j.action === action);
+  const refuse = async (u: User, name: string, p: Record<string, unknown>, motif: RegExp, statut = 400) =>
+    await assert.rejects(async () => await run(u, name, p), (e: unknown) => e instanceof ActionError && e.status === statut && motif.test(e.message), `${name} : ${motif}`);
+  const RH = await user(null, 'rh');
+  const domain = async () => new Domain(await loadFull(db, RH));
+  const derniere = async (action: string) => (await db.all<{ action: string; payload: Record<string, unknown>; salaries: number[]; message: string }>('journal')).findLast(j => j.action === action);
   return { db, user, run, refuse, domain, derniere, RH };
 }
 /** Congé validé de Mehdi Benali (Maintenance, 35 h). */
-const conge = (db: InstanceType<typeof Db>, du: string, au: string, extra: Record<string, unknown> = {}) => db.insert<Absence>('absences', {
+const conge = async (db: InstanceType<typeof Db>, du: string, au: string, extra: Record<string, unknown> = {}) => await db.insert<Absence>('absences', {
   empId: 2, type: 'CP', du, au, statut: 'validee', keystone: false, justificatif: false, ...extra,
 });
 /** Décompte de chaque absence de l'année (jours ouvrés), dans l'ordre des identifiants. */
@@ -117,33 +116,33 @@ test('contrôle du réglage : année réglable (2027 au plus tôt, jamais passé
 
 // — Action et non-rétroactivité —
 
-test('parametres.feries : régler 2027 ne modifie aucun décompte de 2026, et recalcule les congés de 2027 qui couvrent le jour', () => {
-  const { db, run, refuse, domain, derniere, RH, user } = fresh();
-  const pont = conge(db, '2027-05-17', '2027-05-21');
-  conge(db, '2026-05-25', '2026-05-29');
-  const avant2026 = decomptes(domain(), 2026);
-  assert.equal(domain().countDays(domain().emp(2)!, '2027-05-17', '2027-05-21', 'CP'), 4, 'lundi de Pentecôte chômé : 4 jours');
-  refuse(RH, 'parametres.feries', { annee: 2026, solidarite: 'pentecote_travaillee' }, /à partir de 2027/);
-  refuse(user(14, 'rh'), 'parametres.feries', PENTECOTE, /administrateur RH/, 403);
-  const message = String(run(RH, 'parametres.feries', PENTECOTE));
+test('parametres.feries : régler 2027 ne modifie aucun décompte de 2026, et recalcule les congés de 2027 qui couvrent le jour', async () => {
+  const { db, run, refuse, domain, derniere, RH, user } = await fresh();
+  const pont = await conge(db, '2027-05-17', '2027-05-21');
+  await conge(db, '2026-05-25', '2026-05-29');
+  const avant2026 = decomptes(await domain(), 2026);
+  assert.equal((await domain()).countDays((await domain()).emp(2)!, '2027-05-17', '2027-05-21', 'CP'), 4, 'lundi de Pentecôte chômé : 4 jours');
+  await refuse(RH, 'parametres.feries', { annee: 2026, solidarite: 'pentecote_travaillee' }, /à partir de 2027/);
+  await refuse(await user(14, 'rh'), 'parametres.feries', PENTECOTE, /administrateur RH/, 403);
+  const message = String(await run(RH, 'parametres.feries', PENTECOTE));
   assert.match(message, /Jours fériés 2027 : Lundi de Pentecôte travaillé · autres fériés chômés · 1 absence recalculée : Mehdi Benali du 17 mai 2027 \(4 → 5 j\)/);
-  const d = domain();
+  const d = await domain();
   assert.deepEqual(decomptes(d, 2026), avant2026, 'aucun décompte de 2026 ne change');
   assert.equal(isFerie('2026-05-25'), true);
   assert.equal(d.countDays(d.emp(2)!, '2027-05-17', '2027-05-21', 'CP'), 5, 'Pentecôte 2027 travaillée : décomptée en congé');
-  const j = derniere('parametres.feries')!;
+  const j = (await derniere('parametres.feries'))!;
   assert.deepEqual(j.payload, { annee: 2027, avant: { solidarite: 'pentecote_chomee', solidariteFerie: null, nonChomes: [] }, apres: { solidarite: 'pentecote_travaillee', solidariteFerie: null, nonChomes: [] } });
   assert.deepEqual(j.salaries, [2]);
-  assert.equal(run(RH, 'parametres.feries', PENTECOTE), null, 'même réglage : rien n’est refait');
+  assert.equal(await run(RH, 'parametres.feries', PENTECOTE), null, 'même réglage : rien n’est refait');
   // Année engagée : une absence de 2027 transmise à la paie ; motif exigé, jamais recopié au journal ni hors du service RH.
-  db.update('absences', pont.id, { sage: true });
-  refuse(RH, 'parametres.feries', { annee: 2027, solidarite: 'pentecote_chomee' }, /Année 2027 déjà engagée \(1 absence transmise à la paie\) : indiquez le motif/, 409);
-  run(RH, 'parametres.feries', { annee: 2027, solidarite: 'pentecote_chomee', motif: 'Avis du CSE du 3 mars 2027' });
-  assert.deepEqual(derniere('parametres.feries')!.payload.motif, '[texte renseigné]');
-  assert.equal(loadFull(db, RH).calendrierFeries!['2027'].motif, 'Avis du CSE du 3 mars 2027');
-  assert.equal(buildSnapshot(db, user(12, 'manager')).calendrierFeries!['2027'].motif, null, 'manager : réglage sans motif');
-  assert.equal(buildSnapshot(db, user(7, 'rh')).calendrierFeries!['2027'].motif, null, 'profil paie : réglage sans motif');
-  assert.equal(buildSnapshot(db, user(2, 'collaborateur')).calendrierFeries!['2027'].solidarite, 'pentecote_chomee', 'le calendrier est transmis à tous');
+  await db.update('absences', pont.id, { sage: true });
+  await refuse(RH, 'parametres.feries', { annee: 2027, solidarite: 'pentecote_chomee' }, /Année 2027 déjà engagée \(1 absence transmise à la paie\) : indiquez le motif/, 409);
+  await run(RH, 'parametres.feries', { annee: 2027, solidarite: 'pentecote_chomee', motif: 'Avis du CSE du 3 mars 2027' });
+  assert.deepEqual((await derniere('parametres.feries'))!.payload.motif, '[texte renseigné]');
+  assert.equal((await loadFull(db, RH)).calendrierFeries!['2027'].motif, 'Avis du CSE du 3 mars 2027');
+  assert.equal((await buildSnapshot(db, await user(12, 'manager'))).calendrierFeries!['2027'].motif, null, 'manager : réglage sans motif');
+  assert.equal((await buildSnapshot(db, await user(7, 'rh'))).calendrierFeries!['2027'].motif, null, 'profil paie : réglage sans motif');
+  assert.equal((await buildSnapshot(db, await user(2, 'collaborateur'))).calendrierFeries!['2027'].solidarite, 'pentecote_chomee', 'le calendrier est transmis à tous');
 });
 
 // — Horaires de poste —
@@ -187,106 +186,106 @@ test('horaire du jour : proposé par l’équipe les jours qui portent des heure
   assert.deepEqual(horairesDeLaFeuille(r2, null, { ...soumise, statut: 'validee' }, [0, 0, 0, 0, 0, 0, 0]).map(j => j.code), ['J', null, null, null, null, null, null]);
 });
 
-test('horaires : référentiel, horaire par défaut de l’équipe, choix du jour, figé à la soumission, journal', () => {
-  const { db, run, refuse, derniere, RH, user } = fresh();
-  const GEST = user(14, 'rh'), KARIM = user(12, 'manager'), MEHDI = user(2, 'collaborateur'), LECTURE = user(11, 'rh');
-  const ref = () => loadFull(db, RH).referentiels;
-  assert.deepEqual(ref().horaires!.map(h => h.code), ['J', 'M', 'AM', 'N'], 'exemples amorcés dans la démonstration');
-  assert.equal(ref().equipes.find(q => q.nom === 'Maintenance')!.horaire, 'J');
-  assert.match(String(run(GEST, 'referentiel.horaire.enregistrer', { code: 'S', nom: 'Samedi matin', debut: '6', fin: '12', pause: 0 })), /Horaire S · 6 h – 12 h créé/);
-  assert.deepEqual(derniere('referentiel.horaire.enregistrer')!.payload, {
+test('horaires : référentiel, horaire par défaut de l’équipe, choix du jour, figé à la soumission, journal', async () => {
+  const { db, run, refuse, derniere, RH, user } = await fresh();
+  const GEST = await user(14, 'rh'), KARIM = await user(12, 'manager'), MEHDI = await user(2, 'collaborateur'), LECTURE = await user(11, 'rh');
+  const ref = async () => (await loadFull(db, RH)).referentiels;
+  assert.deepEqual((await ref()).horaires!.map(h => h.code), ['J', 'M', 'AM', 'N'], 'exemples amorcés dans la démonstration');
+  assert.equal((await ref()).equipes.find(q => q.nom === 'Maintenance')!.horaire, 'J');
+  assert.match(String(await run(GEST, 'referentiel.horaire.enregistrer', { code: 'S', nom: 'Samedi matin', debut: '6', fin: '12', pause: 0 })), /Horaire S · 6 h – 12 h créé/);
+  assert.deepEqual((await derniere('referentiel.horaire.enregistrer'))!.payload, {
     code: 'S', avant: { nom: null, debut: null, finHoraire: null, pause: null }, apres: { nom: 'Samedi matin', debut: '06:00', finHoraire: '12:00', pause: 0 },
   });
-  refuse(GEST, 'referentiel.horaire.enregistrer', { code: 's', nom: 'Doublon', debut: '6', fin: '12' }, /existe déjà/);
-  refuse(LECTURE, 'referentiel.horaire.enregistrer', { code: 'X', nom: 'X', debut: '6', fin: '12' }, /./, 403);
-  run(GEST, 'referentiel.horaire.enregistrer', { id: 'S', nom: 'Samedi matin', debut: '6', fin: '13', pause: 15 });
-  assert.deepEqual(derniere('referentiel.horaire.enregistrer')!.payload, { code: 'S', avant: { finHoraire: '12:00', pause: 0 }, apres: { finHoraire: '13:00', pause: 15 } });
+  await refuse(GEST, 'referentiel.horaire.enregistrer', { code: 's', nom: 'Doublon', debut: '6', fin: '12' }, /existe déjà/);
+  await refuse(LECTURE, 'referentiel.horaire.enregistrer', { code: 'X', nom: 'X', debut: '6', fin: '12' }, /./, 403);
+  await run(GEST, 'referentiel.horaire.enregistrer', { id: 'S', nom: 'Samedi matin', debut: '6', fin: '13', pause: 15 });
+  assert.deepEqual((await derniere('referentiel.horaire.enregistrer'))!.payload, { code: 'S', avant: { finHoraire: '12:00', pause: 0 }, apres: { finHoraire: '13:00', pause: 15 } });
   // Archivage refusé tant qu'une équipe le propose ; un horaire archivé ne se choisit plus.
-  refuse(GEST, 'referentiel.horaire.archiver', { id: 'J' }, /proposé par défaut à l’équipe Maintenance, Administration/);
-  assert.match(String(run(GEST, 'referentiel.horaire.archiver', { id: 'S' })), /archivé/);
-  refuse(GEST, 'referentiel.equipe.exigences', { nom: 'Logistique', formations: ['sst'], habilitations: [], horaire: 'S' }, /archivé : rétablissez-le/);
-  assert.match(String(run(GEST, 'referentiel.equipe.exigences', { nom: 'Logistique', formations: ['sst'], habilitations: [], horaire: 'm' })), /horaire M proposé/);
-  assert.equal(derniere('referentiel.equipe.exigences')!.payload.horaire, 'M');
-  run(GEST, 'referentiel.horaire.archiver', { id: 'S', archive: false });
+  await refuse(GEST, 'referentiel.horaire.archiver', { id: 'J' }, /proposé par défaut à l’équipe Maintenance, Administration/);
+  assert.match(String(await run(GEST, 'referentiel.horaire.archiver', { id: 'S' })), /archivé/);
+  await refuse(GEST, 'referentiel.equipe.exigences', { nom: 'Logistique', formations: ['sst'], habilitations: [], horaire: 'S' }, /archivé : rétablissez-le/);
+  assert.match(String(await run(GEST, 'referentiel.equipe.exigences', { nom: 'Logistique', formations: ['sst'], habilitations: [], horaire: 'm' })), /horaire M proposé/);
+  assert.equal((await derniere('referentiel.equipe.exigences'))!.payload.horaire, 'M');
+  await run(GEST, 'referentiel.horaire.archiver', { id: 'S', archive: false });
 
   // Feuille de Mehdi (Maintenance, horaire J) : heures du lundi et du mardi, nuit choisie le mardi.
   const week = '2026-10-19', base = { empId: 2, week };
-  run(MEHDI, 'temps.addLine', { ...base, projet: 'INT-MAINT' });
-  run(MEHDI, 'temps.setCell', { ...base, li: 0, di: 0, value: '7' });
-  run(MEHDI, 'temps.setCell', { ...base, li: 0, di: 1, value: '7' });
-  refuse(MEHDI, 'temps.horaire', { ...base, di: 7, code: 'N' }, /Jour invalide/);
-  refuse(MEHDI, 'temps.horaire', { ...base, di: 1, code: 'Z' }, /introuvable/, 404);
-  refuse(user(6, 'collaborateur'), 'temps.horaire', { ...base, di: 1, code: 'N' }, /./, 403);
-  run(MEHDI, 'temps.horaire', { ...base, di: 1, code: 'n' });
-  assert.equal(derniere('temps.horaire'), undefined, 'le choix du salarié sur sa propre feuille n’est pas tracé');
-  run(KARIM, 'temps.horaire', { ...base, di: 2, code: '' });
-  assert.deepEqual(derniere('temps.horaire')!.payload, { empId: 2, week, avant: { horaire: null }, apres: { horaire: '' }, jour: '2026-10-21', feuille: 'brouillon' });
-  const sh = () => db.all<Feuille>('feuilles').find(f => f.empId === 2 && f.week === week)!;
-  assert.deepEqual(sh().horaires, [null, 'N', '', null, null, null, null]);
-  run(MEHDI, 'temps.submit', base);
-  assert.deepEqual(sh().horaires, [null, 'N', '', null, null, null, null], 'les choix ne sont pas touchés par la soumission');
-  const codes = () => sh().horairesFiges!.map(h => h?.code ?? null);
-  assert.deepEqual(codes(), ['J', 'N', null, null, null, null, null], 'figé à la soumission : l’horaire de l’équipe le lundi');
-  assert.deepEqual(sh().horairesFiges![1], { code: 'N', debut: '21:00', fin: '05:00', pause: 30 });
+  await run(MEHDI, 'temps.addLine', { ...base, projet: 'INT-MAINT' });
+  await run(MEHDI, 'temps.setCell', { ...base, li: 0, di: 0, value: '7' });
+  await run(MEHDI, 'temps.setCell', { ...base, li: 0, di: 1, value: '7' });
+  await refuse(MEHDI, 'temps.horaire', { ...base, di: 7, code: 'N' }, /Jour invalide/);
+  await refuse(MEHDI, 'temps.horaire', { ...base, di: 1, code: 'Z' }, /introuvable/, 404);
+  await refuse(await user(6, 'collaborateur'), 'temps.horaire', { ...base, di: 1, code: 'N' }, /./, 403);
+  await run(MEHDI, 'temps.horaire', { ...base, di: 1, code: 'n' });
+  assert.equal(await derniere('temps.horaire'), undefined, 'le choix du salarié sur sa propre feuille n’est pas tracé');
+  await run(KARIM, 'temps.horaire', { ...base, di: 2, code: '' });
+  assert.deepEqual((await derniere('temps.horaire'))!.payload, { empId: 2, week, avant: { horaire: null }, apres: { horaire: '' }, jour: '2026-10-21', feuille: 'brouillon' });
+  const sh = async () => (await db.all<Feuille>('feuilles')).find(f => f.empId === 2 && f.week === week)!;
+  assert.deepEqual((await sh()).horaires, [null, 'N', '', null, null, null, null]);
+  await run(MEHDI, 'temps.submit', base);
+  assert.deepEqual((await sh()).horaires, [null, 'N', '', null, null, null, null], 'les choix ne sont pas touchés par la soumission');
+  const codes = async () => (await sh()).horairesFiges!.map(h => h?.code ?? null);
+  assert.deepEqual(await codes(), ['J', 'N', null, null, null, null, null], 'figé à la soumission : l’horaire de l’équipe le lundi');
+  assert.deepEqual((await sh()).horairesFiges![1], { code: 'N', debut: '21:00', fin: '05:00', pause: 30 });
   // Changer ensuite l'horaire de l'équipe ne touche pas la feuille soumise.
-  run(GEST, 'referentiel.equipe.exigences', { nom: 'Maintenance', formations: [], habilitations: [], horaire: '' });
-  assert.equal(ref().equipes.find(q => q.nom === 'Maintenance')!.horaire, null);
-  const d = new Domain(loadFull(db, RH));
-  assert.deepEqual(horairesDeLaFeuille(d.ds.referentiels, 'Maintenance', sh(), [7, 7, 0, 0, 0, 0, 0]).map(j => j.code), ['J', 'N', null, null, null, null, null]);
+  await run(GEST, 'referentiel.equipe.exigences', { nom: 'Maintenance', formations: [], habilitations: [], horaire: '' });
+  assert.equal((await ref()).equipes.find(q => q.nom === 'Maintenance')!.horaire, null);
+  const d = new Domain(await loadFull(db, RH));
+  assert.deepEqual(horairesDeLaFeuille(d.ds.referentiels, 'Maintenance', await sh(), [7, 7, 0, 0, 0, 0, 0]).map(j => j.code), ['J', 'N', null, null, null, null, null]);
   // Une feuille soumise ne se modifie plus que par son valideur.
-  refuse(MEHDI, 'temps.horaire', { ...base, di: 0, code: 'M' }, /déjà soumise/);
-  run(KARIM, 'temps.horaire', { ...base, di: 0, code: 'M' });
-  assert.equal(sh().horaires![0], 'M');
+  await refuse(MEHDI, 'temps.horaire', { ...base, di: 0, code: 'M' }, /déjà soumise/);
+  await run(KARIM, 'temps.horaire', { ...base, di: 0, code: 'M' });
+  assert.equal((await sh()).horaires![0], 'M');
   // Les horaires et l'horaire de l'équipe sont transmis au manager et au collaborateur (aucune donnée personnelle).
-  assert.deepEqual(buildSnapshot(db, MEHDI).referentiels.horaires!.map(h => h.code), ['J', 'M', 'AM', 'N', 'S']);
-  assert.equal(buildSnapshot(db, KARIM).feuilles.find(f => f.empId === 2 && f.week === week)!.horaires![1], 'N');
-  assert.equal(buildSnapshot(db, MEHDI).feuilles.find(f => f.empId === 2 && f.week === week)!.horairesFiges![1]!.code, 'N');
+  assert.deepEqual((await buildSnapshot(db, MEHDI)).referentiels.horaires!.map(h => h.code), ['J', 'M', 'AM', 'N', 'S']);
+  assert.equal((await buildSnapshot(db, KARIM)).feuilles.find(f => f.empId === 2 && f.week === week)!.horaires![1], 'N');
+  assert.equal((await buildSnapshot(db, MEHDI)).feuilles.find(f => f.empId === 2 && f.week === week)!.horairesFiges![1]!.code, 'N');
   // Heures de N modifiées au référentiel après la soumission : la feuille garde celles d'alors, jusqu'à sa validation.
-  assert.match(String(run(GEST, 'referentiel.horaire.enregistrer', { id: 'N', nom: 'Équipe de nuit', debut: '22', fin: '6', pause: 30 })), /gardent les heures d’avant/);
-  run(KARIM, 'temps.validate', base);
-  assert.equal(sh().statut, 'validee');
-  assert.deepEqual(codes(), ['M', 'N', null, null, null, null, null], 'refigé à la validation, avec le choix du valideur');
-  assert.deepEqual(sh().horairesFiges![1], { code: 'N', debut: '21:00', fin: '05:00', pause: 30 }, 'heures du code déjà figé inchangées');
-  assert.equal(sh().horairesFiges![0]!.debut, '05:00');
+  assert.match(String(await run(GEST, 'referentiel.horaire.enregistrer', { id: 'N', nom: 'Équipe de nuit', debut: '22', fin: '6', pause: 30 })), /gardent les heures d’avant/);
+  await run(KARIM, 'temps.validate', base);
+  assert.equal((await sh()).statut, 'validee');
+  assert.deepEqual(await codes(), ['M', 'N', null, null, null, null, null], 'refigé à la validation, avec le choix du valideur');
+  assert.deepEqual((await sh()).horairesFiges![1], { code: 'N', debut: '21:00', fin: '05:00', pause: 30 }, 'heures du code déjà figé inchangées');
+  assert.equal((await sh()).horairesFiges![0]!.debut, '05:00');
 });
 
-test('horaire du jour : une feuille renvoyée repart des choix et de l’équipe, puis se refige à la soumission suivante', () => {
-  const { db, run, user } = fresh();
-  const KARIM = user(12, 'manager'), MEHDI = user(2, 'collaborateur');
+test('horaire du jour : une feuille renvoyée repart des choix et de l’équipe, puis se refige à la soumission suivante', async () => {
+  const { db, run, user } = await fresh();
+  const KARIM = await user(12, 'manager'), MEHDI = await user(2, 'collaborateur');
   const week = '2026-10-19', base = { empId: 2, week };
-  const sh = () => db.all<Feuille>('feuilles').find(f => f.empId === 2 && f.week === week)!;
-  const codes = () => sh().horairesFiges!.map(h => h?.code ?? null);
-  const affiches = () => {
-    const d = new Domain(loadFull(db, MEHDI));
-    return horairesDeLaFeuille(d.ds.referentiels, 'Maintenance', sh(), calcSheet(d, d.emp(2)!, sh()).perDay).map(j => [j.code, j.propose]);
+  const sh = async () => (await db.all<Feuille>('feuilles')).find(f => f.empId === 2 && f.week === week)!;
+  const codes = async () => (await sh()).horairesFiges!.map(h => h?.code ?? null);
+  const affiches = async () => {
+    const d = new Domain(await loadFull(db, MEHDI));
+    return horairesDeLaFeuille(d.ds.referentiels, 'Maintenance', await sh(), calcSheet(d, d.emp(2)!, await sh()).perDay).map(j => [j.code, j.propose]);
   };
   // Mehdi (Maintenance, horaire J) : 7 h le lundi, soumise ; Karim la renvoie.
-  run(MEHDI, 'temps.addLine', { ...base, projet: 'INT-MAINT' });
-  run(MEHDI, 'temps.setCell', { ...base, li: 0, di: 0, value: '7' });
-  run(MEHDI, 'temps.submit', base);
-  assert.deepEqual(codes(), ['J', null, null, null, null, null, null]);
-  run(KARIM, 'temps.reject', { ...base, comment: 'Le mercredi, pas le lundi' });
+  await run(MEHDI, 'temps.addLine', { ...base, projet: 'INT-MAINT' });
+  await run(MEHDI, 'temps.setCell', { ...base, li: 0, di: 0, value: '7' });
+  await run(MEHDI, 'temps.submit', base);
+  assert.deepEqual(await codes(), ['J', null, null, null, null, null, null]);
+  await run(KARIM, 'temps.reject', { ...base, comment: 'Le mercredi, pas le lundi' });
   // Heures déplacées du lundi au mercredi : le lundi perd l'horaire proposé, le mercredi le reçoit.
-  run(MEHDI, 'temps.setCell', { ...base, li: 0, di: 0, value: '' });
-  run(MEHDI, 'temps.setCell', { ...base, li: 0, di: 2, value: '7' });
-  assert.deepEqual(affiches().slice(0, 3), [[null, false], [null, false], ['J', true]]);
-  run(MEHDI, 'temps.submit', base);
-  assert.deepEqual(codes(), [null, null, 'J', null, null, null, null], 'figé le jour travaillé, et lui seul');
-  assert.equal(sh().horaires ?? null, null, 'aucun choix inscrit');
+  await run(MEHDI, 'temps.setCell', { ...base, li: 0, di: 0, value: '' });
+  await run(MEHDI, 'temps.setCell', { ...base, li: 0, di: 2, value: '7' });
+  assert.deepEqual((await affiches()).slice(0, 3), [[null, false], [null, false], ['J', true]]);
+  await run(MEHDI, 'temps.submit', base);
+  assert.deepEqual(await codes(), [null, null, 'J', null, null, null, null], 'figé le jour travaillé, et lui seul');
+  assert.equal((await sh()).horaires ?? null, null, 'aucun choix inscrit');
 });
 
-test('migration lot6-horaires-exemples : exemples amorcés une fois, sans toucher aux horaires existants', () => {
+test('migration lot6-horaires-exemples : exemples amorcés une fois, sans toucher aux horaires existants', async () => {
   const db = new Db(':memory:');
-  assert.deepEqual(appliquerMigrations(db).includes('lot6-horaires-exemples'), true, 'base neuve : exemples ajoutés');
-  assert.deepEqual(db.all<{ code: string }>('horaires', 'rowid').map(h => h.code), ['J', 'M', 'AM', 'N']);
-  assert.deepEqual(appliquerMigrations(db), [], 'une seule fois');
+  assert.deepEqual((await appliquerMigrations(db)).includes('lot6-horaires-exemples'), true, 'base neuve : exemples ajoutés');
+  assert.deepEqual((await db.all<{ code: string }>('horaires', 'rowid')).map(h => h.code), ['J', 'M', 'AM', 'N']);
+  assert.deepEqual(await appliquerMigrations(db), [], 'une seule fois');
   // Base où le service RH a modifié J et supprimé (hors de Cursus) N : la migration ne touche que les codes absents.
-  db.sql.exec(`UPDATE horaires SET debut = '07:30' WHERE code = 'J'`);
-  db.sql.exec(`DELETE FROM horaires WHERE code = 'N'`);
-  assert.equal(HORAIRES_EXEMPLES_MIGRATION.necessaire!(db), true);
-  assert.deepEqual(amorcerHoraires(db), ['N']);
-  assert.equal(db.get<{ debut: string }>('horaires', 'J')!.debut, '07:30');
-  assert.equal(HORAIRES_EXEMPLES_MIGRATION.necessaire!(db), false);
+  await db.exec(`UPDATE horaires SET debut = '07:30' WHERE code = 'J'`);
+  await db.exec(`DELETE FROM horaires WHERE code = 'N'`);
+  assert.equal(await HORAIRES_EXEMPLES_MIGRATION.necessaire!(db), true);
+  assert.deepEqual(await amorcerHoraires(db), ['N']);
+  assert.equal((await (await db.get<{ debut: string }>('horaires', 'J'))!).debut, '07:30');
+  assert.equal(await HORAIRES_EXEMPLES_MIGRATION.necessaire!(db), false);
   // Feuilles existantes : aucune ne reçoit d'horaire (aucun contrôle rétroactif).
-  assert.equal(Number((db.sql.prepare('SELECT COUNT(*) AS n FROM feuilles WHERE horaires IS NOT NULL OR horaires_figes IS NOT NULL').get() as { n: number }).n), 0);
+  assert.equal(Number(((await db.one('SELECT COUNT(*) AS n FROM feuilles WHERE horaires IS NOT NULL OR horaires_figes IS NOT NULL')) as { n: number }).n), 0);
 });

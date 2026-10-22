@@ -13,9 +13,9 @@ const IMPOSSIBLES = `FROM equipes WHERE parente IS NOT NULL AND (parente = nom O
 export const HIERARCHIE_EQUIPES: Migration = {
   nom: 'lot6-hierarchie-equipes',
   // Base neuve : exécutée, sans effet (cadre commun) ; base existante : seulement s'il reste un rattachement impossible.
-  necessaire: (db: Db) => db.neuve || Number((db.sql.prepare(`SELECT COUNT(*) AS n ${IMPOSSIBLES}`).get() as { n: number }).n) > 0,
-  executer: (db: Db) => {
-    const n = Number(db.sql.prepare(`UPDATE equipes SET parente = NULL WHERE nom IN (SELECT nom ${IMPOSSIBLES})`).run().changes);
+  necessaire: async (db: Db) => db.neuve || Number(((await db.one(`SELECT COUNT(*) AS n ${IMPOSSIBLES}`)) as { n: number }).n) > 0,
+  executer: async (db: Db) => {
+    const n = Number((await db.run(`UPDATE equipes SET parente = NULL WHERE nom IN (SELECT nom ${IMPOSSIBLES})`)).changes);
     if (!n) return;
     return `${n} rattachement${n > 1 ? 's' : ''} d’équipe impossible${n > 1 ? 's' : ''} retiré${n > 1 ? 's' : ''}`;
   },

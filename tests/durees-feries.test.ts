@@ -7,7 +7,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
 
-const { Db } = await import('../server/src/db.ts');
+const { SqliteDb: Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -25,28 +25,27 @@ const { rubriquesAConfirmer, rubriquesPaie } = await import('../shared/rules/pai
 const { recupInfo } = await import('../shared/rules/conges.ts');
 const { analyserReprise } = await import('../shared/rules/reprise.ts');
 const { matriculeAffiche } = await import('../shared/rules/matricules.ts');
-type User = NonNullable<ReturnType<typeof currentUser>>;
-type Dataset = ReturnType<typeof loadFull>;
+type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
+type Dataset = Awaited<ReturnType<typeof loadFull>>;
 type Feuille = Dataset['feuilles'][number];
 
-function fresh() {
+async function fresh() {
   const db = new Db(':memory:');
-  seedDemo(db);
-  const compteDe = (empId: number | null) => db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number };
-  const user = (empId: number | null, role: User['role']) => currentUser(db, { compteId: compteDe(empId).id, role, methode: 'demo' })!;
-  const run = (u: User, name: string, p: Record<string, unknown>) => db.tx(() => {
-    const t = preparerTrace(db, name, p);
-    const r = ACTIONS[name](makeCtx(db, u, loadFull(db, u)), p);
+  await seedDemo(db);
+  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number };
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
+  const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
+    const t = await preparerTrace(db, name, p);
+    const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
     const o = typeof r === 'object' && r !== null ? r : { message: r };
-    journaliserAction(db, t, { user: u, compte: db.get('comptes', u.compteId)!, message: o.message ?? null, result: o.result });
+    await journaliserAction(db, t, { user: u, compte: (await db.get('comptes', u.compteId))!, message: o.message ?? null, result: o.result });
     return o.message as string;
   });
-  const refuse = (u: User, name: string, p: Record<string, unknown>, motif: RegExp, statut = 400) =>
-    assert.throws(() => run(u, name, p), (e: unknown) => e instanceof ActionError && e.status === statut && motif.test(e.message), `${name} : ${motif}`);
-  const RH = user(null, 'rh');
-  const domain = () => new Domain(loadFull(db, RH));
-  const derniere = (action: string) => db.all<{ action: string; payload: Record<string, unknown>; message: string }>('journal').findLast(j => j.action === action);
+  const refuse = async (u: User, name: string, p: Record<string, unknown>, motif: RegExp, statut = 400) =>
+    await assert.rejects(async () => await run(u, name, p), (e: unknown) => e instanceof ActionError && e.status === statut && motif.test(e.message), `${name} : ${motif}`);
+  const RH = await user(null, 'rh');
+  const domain = async () => new Domain(await loadFull(db, RH));
+  const derniere = async (action: string) => (await db.all<{ action: string; payload: Record<string, unknown>; message: string }>('journal')).findLast(j => j.action === action);
   return { db, user, run, refuse, domain, derniere, RH };
 }
 
@@ -62,9 +61,9 @@ const lundis = (fin: string, k: number) => Array.from({ length: k }, (_, i) => a
 
 // — Jours fériés (t039) —
 
-test('1er mai travaillé : MAJ_1MAI de 100 %, compté dans la semaine, ventilé sur mai ; autres fériés en FERIE_TRAV', () => {
-  const { domain } = fresh();
-  const d = domain(), e = d.emp(1)!;
+test('1er mai travaillé : MAJ_1MAI de 100 %, compté dans la semaine, ventilé sur mai ; autres fériés en FERIE_TRAV', async () => {
+  const { domain } = await fresh();
+  const d = await domain(), e = d.emp(1)!;
   // Semaine du 27 avril 2026 : le vendredi 1er mai travaillé 7 h.
   assert.deepEqual(feriesDeLaSemaine('2026-04-27'), [null, null, null, null, '1er_mai', null, null]);
   const mai = feuille('2026-04-27', [7, 7, 7, 7, 7, 0, 0], { statut: 'brouillon' });
@@ -101,66 +100,66 @@ test('1er mai travaillé : MAJ_1MAI de 100 %, compté dans la semaine, ventilé 
   assert.deepEqual(rubriquesAConfirmer(emises, inactive).map(r => r.code), ['HN']);
 });
 
-test('saisie un jour férié : permise par le réglage, tracée au journal, majoration figée à la validation', () => {
-  const { db, run, refuse, user, domain, derniere, RH } = fresh();
-  const CAMILLE = user(1, 'collaborateur'), HUGO = user(16, 'manager');
+test('saisie un jour férié : permise par le réglage, tracée au journal, majoration figée à la validation', async () => {
+  const { db, run, refuse, user, domain, derniere, RH } = await fresh();
+  const CAMILLE = await user(1, 'collaborateur'), HUGO = await user(16, 'manager');
   // Semaine du 9 novembre 2026 : mercredi 11 novembre (Armistice).
   const base = { empId: 1, week: '2026-11-09' };
-  run(CAMILLE, 'temps.addLine', { ...base, projet: 'INT-LOG' });
-  run(CAMILLE, 'temps.setCell', { ...base, li: 0, di: 2, value: '7' });
-  const j = derniere('temps.ferie')!;
+  await run(CAMILLE, 'temps.addLine', { ...base, projet: 'INT-LOG' });
+  await run(CAMILLE, 'temps.setCell', { ...base, li: 0, di: 2, value: '7' });
+  const j = (await derniere('temps.ferie'))!;
   assert.match(j.message, /^Heures un jour férié — Camille Roux, INT-LOG le 11 nov\. 2026 : 0 h → 7 h \(feuille en brouillon\)$/);
   assert.equal(j.payload.ferie, true);
   // Un jour ordinaire, la saisie du salarié n'est pas tracée.
-  const avant = db.all('journal').length;
-  run(CAMILLE, 'temps.setCell', { ...base, li: 0, di: 0, value: '7' });
-  assert.equal(db.all('journal').length, avant);
+  const avant = (await db.all('journal')).length;
+  await run(CAMILLE, 'temps.setCell', { ...base, li: 0, di: 0, value: '7' });
+  assert.equal((await db.all('journal')).length, avant);
   // Réglage désactivé : refus, vider la cellule reste possible.
-  run(RH, 'parametres.maj', { feriesTravaillesAutorises: false });
-  refuse(CAMILLE, 'temps.setCell', { ...base, li: 0, di: 2, value: '8' }, /Jour férié : la saisie d’heures un jour férié est désactivée/);
-  run(CAMILLE, 'temps.setCell', { ...base, li: 0, di: 2, value: '0' });
-  run(RH, 'parametres.maj', { feriesTravaillesAutorises: true, tauxMajorationFerie: 50 });
-  run(CAMILLE, 'temps.setCell', { ...base, li: 0, di: 2, value: '7' });
-  [1, 3, 4].forEach(di => run(CAMILLE, 'temps.setCell', { ...base, li: 0, di, value: '7' }));
-  run(CAMILLE, 'temps.submit', base);
-  run(HUGO, 'temps.validate', base);
-  run(RH, 'parametres.maj', { tauxMajorationFerie: 0 });
-  const sh = loadFull(db, RH).feuilles.find(f => f.empId === 1 && f.week === base.week)!;
+  await run(RH, 'parametres.maj', { feriesTravaillesAutorises: false });
+  await refuse(CAMILLE, 'temps.setCell', { ...base, li: 0, di: 2, value: '8' }, /Jour férié : la saisie d’heures un jour férié est désactivée/);
+  await run(CAMILLE, 'temps.setCell', { ...base, li: 0, di: 2, value: '0' });
+  await run(RH, 'parametres.maj', { feriesTravaillesAutorises: true, tauxMajorationFerie: 50 });
+  await run(CAMILLE, 'temps.setCell', { ...base, li: 0, di: 2, value: '7' });
+  for (const di of [1, 3, 4]) await run(CAMILLE, 'temps.setCell', { ...base, li: 0, di, value: '7' });
+  await run(CAMILLE, 'temps.submit', base);
+  await run(HUGO, 'temps.validate', base);
+  await run(RH, 'parametres.maj', { tauxMajorationFerie: 0 });
+  const sh = (await loadFull(db, RH)).feuilles.find(f => f.empId === 1 && f.week === base.week)!;
   assert.equal(sh.majFerie, 50, 'taux figé à la validation');
-  assert.deepEqual(sageRubriques(domain(), domain().emp(1)!, sh), { HN: 35, FERIE_TRAV: 7, MAJ_FERIE: 3.5 });
+  assert.deepEqual(sageRubriques(await domain(), (await domain()).emp(1)!, sh), { HN: 35, FERIE_TRAV: 7, MAJ_FERIE: 3.5 });
 });
 
 // — Heures complémentaires (t050) —
 
-test('temps partiel : plafond du dixième par défaut, le tiers seulement avec un accord, dépassement avec motif', () => {
-  const { db, run, refuse, domain, RH } = fresh();
-  const d = domain(), e = d.emp(13)!; // 21 h, jeudi et vendredi non travaillés
+test('temps partiel : plafond du dixième par défaut, le tiers seulement avec un accord, dépassement avec motif', async () => {
+  const { db, run, refuse, domain, RH } = await fresh();
+  const d = await domain(), e = d.emp(13)!; // 21 h, jeudi et vendredi non travaillés
   assert.deepEqual(plafondComplementaires(d.ds.settings), { diviseur: 10, label: 'dixième', article: 'art. L3123-28' });
   const sh = (h: number[]) => feuille('2026-11-16', h, { empId: 13, statut: 'brouillon' });
   // 23,25 h : 2,25 h complémentaires, au-delà de 2,1 h.
-  const c = calcSheet(d, e, sh([7.75, 7.75, 7.75, 0, 0, 0, 0]));
+  const c = calcSheet(d, e, await sh([7.75, 7.75, 7.75, 0, 0, 0, 0]));
   assert.deepEqual([c.hc10, Math.round(c.hc25 * 100) / 100], [2.1, 0.15]);
   assert.match(c.depassements[0], /^Heures complémentaires au-delà du dixième de la durée contractuelle \(2,1 h au plus, art\. L3123-28\)$/);
-  assert.deepEqual(calcSheet(d, e, sh([7.7, 7.7, 7.7, 0, 0, 0, 0])).depassements, [], 'au plus le dixième : rien');
+  assert.deepEqual(calcSheet(d, e, await sh([7.7, 7.7, 7.7, 0, 0, 0, 0])).depassements, [], 'au plus le dixième : rien');
   // Le tiers suppose la référence d'un accord (COHERENCE) ; avec elle, plus de dépassement.
   assert.throws(() => appliquerReglages(DEFAULT_SETTINGS, { plafondHeuresComplementaires: 'tiers' }), (x: unknown) => x instanceof ReglageInvalide && /art\. L3123-20/.test(x.message));
   const tiers = avec(d, [], { plafondHeuresComplementaires: 'tiers', heuresComplementairesAccord: 'Accord du 3 mars 2026' }, 13);
-  assert.deepEqual(calcSheet(tiers, e, sh([7.75, 7.75, 7.75, 0, 0, 0, 0])).depassements, []);
-  assert.match(calcSheet(tiers, e, sh([10, 9.5, 9.5, 0, 0, 0, 0])).depassements[0], /au-delà du tiers .*7 h au plus, art\. L3123-20/);
+  assert.deepEqual(calcSheet(tiers, e, await sh([7.75, 7.75, 7.75, 0, 0, 0, 0])).depassements, []);
+  assert.match(calcSheet(tiers, e, await sh([10, 9.5, 9.5, 0, 0, 0, 0])).depassements[0], /au-delà du tiers .*7 h au plus, art\. L3123-20/);
   // Soumission : motif exigé au-delà du plafond.
   const base = { empId: 13, week: '2026-11-16' };
-  run(RH, 'temps.addLine', { ...base, projet: 'INT-PROD' });
-  [0, 1, 2].forEach(di => run(RH, 'temps.setCell', { ...base, li: 0, di, value: '7,75' }));
-  refuse(RH, 'temps.submit', base, /Heures complémentaires au-delà du dixième .* : indiquez le motif du dépassement avant de soumettre la feuille/);
-  run(RH, 'temps.submit', { ...base, motif: 'Inventaire annuel' });
-  assert.equal(db.all<Feuille>('feuilles').find(f => f.empId === 13 && f.week === base.week)!.motifDepassement, 'Inventaire annuel');
+  await run(RH, 'temps.addLine', { ...base, projet: 'INT-PROD' });
+  for (const di of [0, 1, 2]) await run(RH, 'temps.setCell', { ...base, li: 0, di, value: '7,75' });
+  await refuse(RH, 'temps.submit', base, /Heures complémentaires au-delà du dixième .* : indiquez le motif du dépassement avant de soumettre la feuille/);
+  await run(RH, 'temps.submit', { ...base, motif: 'Inventaire annuel' });
+  assert.equal((await db.all<Feuille>('feuilles')).find(f => f.empId === 13 && f.week === base.week)!.motifDepassement, 'Inventaire annuel');
 });
 
 // — Moyenne sur 12 semaines et requalification (t040) —
 
-test('moyenne sur 12 semaines : 12 semaines travaillées, semaines sans feuille ou d’absence sautées, 46 h avec un accord', () => {
-  const { domain } = fresh();
-  const d = domain(), e = d.emp(1)!;
+test('moyenne sur 12 semaines : 12 semaines travaillées, semaines sans feuille ou d’absence sautées, 46 h avec un accord', async () => {
+  const { domain } = await fresh();
+  const d = await domain(), e = d.emp(1)!;
   const semaine46 = [9.2, 9.2, 9.2, 9.2, 9.2, 0, 0];
   // 11 semaines à 46 h : pas encore 12 semaines, pas d'alerte.
   const onze = lundis('2026-09-28', 11).map(w => feuille(w, semaine46));
@@ -182,9 +181,9 @@ test('moyenne sur 12 semaines : 12 semaines travaillées, semaines sans feuille 
   assert.match(a[0].texte, /^Moyenne de 46 h sur les 12 dernières semaines travaillées, au-delà de 44 h \(art\. L3121-22\)$/);
 });
 
-test('temps partiel : 12 semaines sur 15 à 2 h au moins au-delà du contrat, nouvel horaire proposé', () => {
-  const { domain } = fresh();
-  const d = domain(), e = d.emp(13)!; // 21 h
+test('temps partiel : 12 semaines sur 15 à 2 h au moins au-delà du contrat, nouvel horaire proposé', async () => {
+  const { domain } = await fresh();
+  const d = await domain(), e = d.emp(13)!; // 21 h
   const sem = (w: string, h: number) => feuille(w, [h / 3, h / 3, h / 3, 0, 0, 0, 0], { empId: 13 });
   const quinze = lundis('2026-10-05', 15).map((w, i) => sem(w, i < 3 ? 21 : 23.5));
   const r = requalificationPartiel(avec(d, quinze, {}, 13), e, '2026-10-05')!;
@@ -199,9 +198,9 @@ test('temps partiel : 12 semaines sur 15 à 2 h au moins au-delà du contrat, no
 
 // — Contingent et contrepartie obligatoire en repos (t042) —
 
-test('contingent : heures sup de l’année hors repos et intérim, semaine à cheval ventilée, heures reprises, alerte à 90 %', () => {
-  const { domain } = fresh();
-  const d = domain(), e = d.emp(1)!;
+test('contingent : heures sup de l’année hors repos et intérim, semaine à cheval ventilée, heures reprises, alerte à 90 %', async () => {
+  const { domain } = await fresh();
+  const d = await domain(), e = d.emp(1)!;
   const sem45 = [9, 9, 9, 9, 9, 0, 0];
   // 20 semaines à 45 h (10 h sup chacune) : 200 h sur 220, alerte (90 %).
   const vingt = lundis('2026-09-28', 20).map(w => feuille(w, sem45));
@@ -221,57 +220,57 @@ test('contingent : heures sup de l’année hors repos et intérim, semaine à c
   assert.equal(contingentAnnuel(repris, e, 2027)!.reprises, 0, 'autre année : rien de repris');
 });
 
-test('COR : figée à chaque validation par différence annuelle, créditée même payée, émise dans COR_ACQUIS', () => {
-  const { db, run, user, domain, RH } = fresh();
-  const CAMILLE = user(1, 'collaborateur'), HUGO = user(16, 'manager');
-  const sh = (week: string) => loadFull(db, RH).feuilles.find(f => f.empId === 1 && f.week === week)!;
-  const saisir = (week: string, h: number) => {
+test('COR : figée à chaque validation par différence annuelle, créditée même payée, émise dans COR_ACQUIS', async () => {
+  const { db, run, user, domain, RH } = await fresh();
+  const CAMILLE = await user(1, 'collaborateur'), HUGO = await user(16, 'manager');
+  const sh = async (week: string) => (await loadFull(db, RH)).feuilles.find(f => f.empId === 1 && f.week === week)!;
+  const saisir = async (week: string, h: number) => {
     const base = { empId: 1, week };
-    run(CAMILLE, 'temps.addLine', { ...base, projet: 'INT-LOG' });
-    [0, 1, 2, 3, 4].forEach(di => run(CAMILLE, 'temps.setCell', { ...base, li: 0, di, value: String(h) }));
-    run(CAMILLE, 'temps.submit', base);
+    await run(CAMILLE, 'temps.addLine', { ...base, projet: 'INT-LOG' });
+    for (const di of [0, 1, 2, 3, 4]) await run(CAMILLE, 'temps.setCell', { ...base, li: 0, di, value: String(h) });
+    await run(CAMILLE, 'temps.submit', base);
   };
   // Total de l'année figé sur les feuilles = COR due recalculée sur toutes les feuilles validées.
-  const juste = () => {
-    const d = domain();
+  const juste = async () => {
+    const d = await domain();
     const figee = d.ds.feuilles.filter(f => f.empId === 1 && f.statut === 'validee').reduce((x, f) => x + (f.cor?.['2026'] ?? 0), 0);
     assert.equal(Math.round(figee * 100) / 100, contingentAnnuel(d, d.emp(1)!, 2026)?.cor ?? 0);
   };
-  const recupAvant = recupInfo(domain(), domain().emp(1)!)?.acq ?? 0;
-  const cumul0 = contingentAnnuel(domain(), domain().emp(1)!, 2026)?.cumul ?? 0;
+  const recupAvant = recupInfo(await domain(), (await domain()).emp(1)!)?.acq ?? 0;
+  const cumul0 = contingentAnnuel(await domain(), (await domain()).emp(1)!, 2026)?.cumul ?? 0;
   // Contingent ramené juste au-dessus du cumul déjà validé : la semaine à 45 h (10 h sup) le dépasse de 4 h.
-  run(RH, 'parametres.maj', { contingentHeuresSup: Math.ceil(cumul0) + 6 });
+  await run(RH, 'parametres.maj', { contingentHeuresSup: Math.ceil(cumul0) + 6 });
   const depasse = 10 - (Math.ceil(cumul0) + 6 - cumul0);
-  saisir('2026-11-23', 9);
-  const msg = run(HUGO, 'temps.validate', { empId: 1, week: '2026-11-23' });
-  assert.equal(sh('2026-11-23').cor!['2026'], Math.round(depasse * 100) / 100);
+  await saisir('2026-11-23', 9);
+  const msg = await run(HUGO, 'temps.validate', { empId: 1, week: '2026-11-23' });
+  assert.equal((await sh('2026-11-23')).cor!['2026'], Math.round(depasse * 100) / 100);
   assert.match(msg, /Contingent 2026 : .* — dépassé : .*de contrepartie obligatoire en repos \(100 %, art\. L3121-30 et L3121-38\)/);
   assert.match(msg, /de contrepartie obligatoire en repos créditées au compteur de récupération/);
-  juste();
+  await juste();
   // Heures supplémentaires payées (mode par défaut) : la COR est quand même créditée, et part en paie.
-  const d1 = domain();
+  const d1 = await domain();
   assert.equal(Math.round((recupInfo(d1, d1.emp(1)!)!.acq - recupAvant) * 100) / 100, Math.round(depasse * 100) / 100);
-  assert.equal(sageRubriques(d1, d1.emp(1)!, sh('2026-11-23')).COR_ACQUIS, Math.round(depasse * 10) / 10);
-  assert.equal(sageRubriques(d1, d1.emp(1)!, sh('2026-11-23')).RCR_ACQUIS, undefined);
+  assert.equal(sageRubriques(d1, d1.emp(1)!, await sh('2026-11-23')).COR_ACQUIS, Math.round(depasse * 10) / 10);
+  assert.equal(sageRubriques(d1, d1.emp(1)!, await sh('2026-11-23')).RCR_ACQUIS, undefined);
   // Validation hors de l'ordre chronologique : la semaine antérieure porte sa part, le total reste juste.
-  saisir('2026-11-16', 9);
-  run(HUGO, 'temps.validate', { empId: 1, week: '2026-11-16' });
-  assert.equal(sh('2026-11-16').cor!['2026'], 10, 'tout au-delà du contingent');
-  juste();
+  await saisir('2026-11-16', 9);
+  await run(HUGO, 'temps.validate', { empId: 1, week: '2026-11-16' });
+  assert.equal((await sh('2026-11-16')).cor!['2026'], 10, 'tout au-delà du contingent');
+  await juste();
   // Contingent relevé : la COR déjà créditée est corrigée sur la feuille validée suivante (négative).
-  run(RH, 'parametres.maj', { contingentHeuresSup: 1000 });
-  saisir('2026-11-30', 7);
-  run(HUGO, 'temps.validate', { empId: 1, week: '2026-11-30' });
-  assert.equal(sh('2026-11-30').cor!['2026'], -Math.round((depasse + 10) * 100) / 100);
-  juste();
+  await run(RH, 'parametres.maj', { contingentHeuresSup: 1000 });
+  await saisir('2026-11-30', 7);
+  await run(HUGO, 'temps.validate', { empId: 1, week: '2026-11-30' });
+  assert.equal((await sh('2026-11-30')).cor!['2026'], -Math.round((depasse + 10) * 100) / 100);
+  await juste();
   // corAValider d'une feuille sans heure sup, contingent inchangé : rien.
-  const d2 = domain();
-  assert.equal(corAValider(d2, d2.emp(1)!, { ...sh('2026-11-30'), id: 999999, week: '2026-12-07' }), null);
+  const d2 = await domain();
+  assert.equal(corAValider(d2, d2.emp(1)!, { ...await sh('2026-11-30'), id: 999999, week: '2026-12-07' }), null);
 });
 
-test('reprise Lucca : heures sup déjà faites dans l’année, facultatives, contrôlées et enregistrées', () => {
-  const { db, run, domain, RH } = fresh();
-  const d = domain(), e = d.emp(1)!;
+test('reprise Lucca : heures sup déjà faites dans l’année, facultatives, contrôlées et enregistrées', async () => {
+  const { db, run, domain, RH } = await fresh();
+  const d = await domain(), e = d.emp(1)!;
   const texte = `Matricule;Heures sup de l’année (heures)\n${matriculeAffiche(e)};12,5\n`;
   const a = analyserReprise(d, 'soldes', texte, { colonnes: ['matricule', 'heuresSup'], dateReprise: '2026-03-01' });
   const l = a.lignes[0];
@@ -279,14 +278,14 @@ test('reprise Lucca : heures sup déjà faites dans l’année, facultatives, co
   assert.match(l.detail, /heures sup 2026 12,5 h/);
   const hors = analyserReprise(d, 'soldes', `Matricule;Heures sup de l’année (heures)\n${matriculeAffiche(e)};1200\n`, { colonnes: ['matricule', 'heuresSup'], dateReprise: '2026-03-01' });
   assert.match(hors.lignes[0].erreurs.join(), /Heures sup de l’année hors des bornes \(0 à 1000\)/);
-  run(RH, 'reprise.importer', { type: 'soldes', texte, colonnes: ['matricule', 'heuresSup'], dateReprise: '2026-03-01', fichier: 'soldes.csv' });
-  assert.equal(db.get<{ heuresSupAnnee: number }>('soldesReprise', 1)!.heuresSupAnnee, 12.5);
-  assert.equal(contingentAnnuel(domain(), domain().emp(1)!, 2026)!.reprises, 12.5);
+  await run(RH, 'reprise.importer', { type: 'soldes', texte, colonnes: ['matricule', 'heuresSup'], dateReprise: '2026-03-01', fichier: 'soldes.csv' });
+  assert.equal((await db.get<{ heuresSupAnnee: number }>('soldesReprise', 1))!.heuresSupAnnee, 12.5);
+  assert.equal(contingentAnnuel(await domain(), (await domain()).emp(1)!, 2026)!.reprises, 12.5);
 });
 
-test('semaine à cheval sur deux années : contingent de chaque année signalé à la validation', () => {
-  const { domain } = fresh();
-  const d0 = domain(), e = d0.emp(1)!;
+test('semaine à cheval sur deux années : contingent de chaque année signalé à la validation', async () => {
+  const { domain } = await fresh();
+  const d0 = await domain(), e = d0.emp(1)!;
   // 200 h sup validées en 2026 sur un contingent de 204 h (alerte), puis la semaine du 28 décembre 2026 : 10 h du lundi au
   // jeudi 31 (5 h sup en 2026), 7 h le samedi 2 janvier (7 h sup en 2027).
   const vingt = lundis('2026-09-28', 20).map(w => feuille(w, [9, 9, 9, 9, 9, 0, 0]));
@@ -298,24 +297,24 @@ test('semaine à cheval sur deux années : contingent de chaque année signalé 
   assert.match(msg[0], /^Contingent 2026 : 205 h d’heures supplémentaires sur 204 h \(100 %\) — dépassé/);
 });
 
-test('validation groupée : les seuils de durée franchis sont repris au message', () => {
-  const { run, user, domain, RH } = fresh();
-  const CAMILLE = user(1, 'collaborateur'), HUGO = user(16, 'manager');
-  const cumul0 = contingentAnnuel(domain(), domain().emp(1)!, 2026)?.cumul ?? 0;
-  run(RH, 'parametres.maj', { contingentHeuresSup: Math.ceil(cumul0) + 6 });
+test('validation groupée : les seuils de durée franchis sont repris au message', async () => {
+  const { run, user, domain, RH } = await fresh();
+  const CAMILLE = await user(1, 'collaborateur'), HUGO = await user(16, 'manager');
+  const cumul0 = contingentAnnuel(await domain(), (await domain()).emp(1)!, 2026)?.cumul ?? 0;
+  await run(RH, 'parametres.maj', { contingentHeuresSup: Math.ceil(cumul0) + 6 });
   const base = { empId: 1, week: '2026-11-23' };
-  run(CAMILLE, 'temps.addLine', { ...base, projet: 'INT-LOG' });
-  [0, 1, 2, 3, 4].forEach(di => run(CAMILLE, 'temps.setCell', { ...base, li: 0, di, value: '9' }));
-  run(CAMILLE, 'temps.submit', base);
-  const msg = run(HUGO, 'temps.validerLot', { feuilles: [base] });
-  const nom = domain().emp(1)!.nom;
+  await run(CAMILLE, 'temps.addLine', { ...base, projet: 'INT-LOG' });
+  for (const di of [0, 1, 2, 3, 4]) await run(CAMILLE, 'temps.setCell', { ...base, li: 0, di, value: '9' });
+  await run(CAMILLE, 'temps.submit', base);
+  const msg = await run(HUGO, 'temps.validerLot', { feuilles: [base] });
+  const nom = (await domain()).emp(1)!.nom;
   assert.match(msg, new RegExp(`^1 feuille validée · ${nom} S48 : Contingent 2026 : .* — dépassé`));
   assert.match(msg, new RegExp(`· ${nom} S48 : .*de contrepartie obligatoire en repos créditées au compteur de récupération`));
 });
 
-test('reprise Lucca : heures sup des feuilles validées avant la date d’arrêté signalées (comptées en plus)', () => {
-  const { domain } = fresh();
-  const d = avec(domain(), lundis('2026-09-28', 20).map(w => feuille(w, [9, 9, 9, 9, 9, 0, 0])));
+test('reprise Lucca : heures sup des feuilles validées avant la date d’arrêté signalées (comptées en plus)', async () => {
+  const { domain } = await fresh();
+  const d = avec(await domain(), lundis('2026-09-28', 20).map(w => feuille(w, [9, 9, 9, 9, 9, 0, 0])));
   const e = d.emp(1)!;
   const texte = `Matricule;Heures sup de l’année (heures)\n${matriculeAffiche(e)};150\n`;
   const o = { colonnes: ['matricule', 'heuresSup'] };

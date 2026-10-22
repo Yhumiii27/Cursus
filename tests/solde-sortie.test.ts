@@ -8,7 +8,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
 
-const { Db } = await import('../server/src/db.ts');
+const { SqliteDb: Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -25,46 +25,45 @@ const { RUBRIQUES_PAIE } = await import('../shared/constants.ts');
 const X = await import('../client/src/solde-sortie.ts');
 const C = await import('../client/src/state/confirmations.ts');
 type Db = InstanceType<typeof Db>;
-type User = NonNullable<ReturnType<typeof currentUser>>;
+type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type Solde = import('../shared/types.ts').SoldeSortie;
-type Lot = ReturnType<typeof loadFull>['lotsPaie'][number] & { contenu: import('../shared/types.ts').SagePush | null };
+type Lot = Awaited<ReturnType<typeof loadFull>>['lotsPaie'][number] & { contenu: import('../shared/types.ts').SagePush | null };
 type Ligne = { action: string; message: string | null; payload: Record<string, any>; salaries: number[] };
 
 /** Jeu de démonstration ; `run` suit le chemin de POST /api/actions/:nom (trace au journal comprise). */
-function fresh() {
+async function fresh() {
   const db = new Db(':memory:');
-  seedDemo(db);
-  const compteDe = (empId: number | null) => (db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number }).id;
-  const user = (empId: number | null, role: User['role']) => currentUser(db, { compteId: compteDe(empId), role, methode: 'demo' })!;
-  const run = (u: User, name: string, p: Record<string, unknown>) => db.tx(() => {
-    const t = preparerTrace(db, name, p);
-    const r = ACTIONS[name](makeCtx(db, u, loadFull(db, u)), p);
+  await seedDemo(db);
+  const compteDe = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compteDe(empId), role, methode: 'demo' }))!;
+  const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
+    const t = await preparerTrace(db, name, p);
+    const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
     const o = typeof r === 'object' && r !== null ? r : { message: r };
-    journaliserAction(db, t, { user: u, compte: db.get('comptes', u.compteId)!, message: o.message ?? null, result: o.result });
+    await journaliserAction(db, t, { user: u, compte: (await db.get('comptes', u.compteId))!, message: o.message ?? null, result: o.result });
     return String(o.message);
   });
-  const refus = (u: User, name: string, p: Record<string, unknown>, status: number, re?: RegExp) =>
-    assert.throws(() => run(u, name, p), (e: unknown) => e instanceof ActionError && e.status === status && (!re || re.test(e.message)), `${name} : refus ${status}`);
-  const ADMIN = user(null, 'rh');
-  const d = () => new Domain(loadFull(db, ADMIN));
+  const refus = async (u: User, name: string, p: Record<string, unknown>, status: number, re?: RegExp) =>
+    await assert.rejects(async () => await run(u, name, p), (e: unknown) => e instanceof ActionError && e.status === status && (!re || re.test(e.message)), `${name} : refus ${status}`);
+  const ADMIN = await user(null, 'rh');
+  const d = async () => new Domain(await loadFull(db, ADMIN));
   // Solde courant (non remplacé) ; `soldes` : tous ceux du salarié, historique compris.
-  const solde = (empId: number) => db.where<Solde>('soldesSortie', 'empId', empId).find(s => !s.remplaceLe)!;
-  const soldes = (empId: number) => db.where<Solde>('soldesSortie', 'empId', empId);
-  const lots = () => db.all<Lot>('lotsPaie');
-  const journal = (action: string) => db.all<Ligne>('journal').filter(l => l.action === action);
-  return { db, user, run, refus, d, solde, soldes, lots, journal, ADMIN, PAIE: user(7, 'rh'), GEST: user(14, 'rh'), LECTURE: user(11, 'rh') };
+  const solde = async (empId: number) => (await db.where<Solde>('soldesSortie', 'empId', empId)).find(s => !s.remplaceLe)!;
+  const soldes = async (empId: number) => await db.where<Solde>('soldesSortie', 'empId', empId);
+  const lots = async () => await db.all<Lot>('lotsPaie');
+  const journal = async (action: string) => (await db.all<Ligne>('journal')).filter(l => l.action === action);
+  return { db, user, run, refus, d, solde, soldes, lots, journal, ADMIN, PAIE: await user(7, 'rh'), GEST: await user(14, 'rh'), LECTURE: await user(11, 'rh') };
 }
-const inserer = (db: Db, a: Record<string, unknown>) => db.insert<{ id: number }>('absences', { keystone: false, justificatif: false, ...a }).id;
+const inserer = async (db: Db, a: Record<string, unknown>) => (await db.insert<{ id: number }>('absences', { keystone: false, justificatif: false, ...a })).id;
 
 // — Calcul —
 
-test('t128 sortie en cours de période : CP acquis jusqu’au mois de la sortie (mi-mois), RTT au prorata, absences postérieures ignorées', () => {
-  const { db, d } = fresh();
-  const mehdi = d().emp(2)!;
-  const fin = S.etatSortie(d(), mehdi, '2026-10-31'), debut = S.etatSortie(d(), mehdi, '2026-10-10');
+test('t128 sortie en cours de période : CP acquis jusqu’au mois de la sortie (mi-mois), RTT au prorata, absences postérieures ignorées', async () => {
+  const { db, d } = await fresh();
+  const mehdi = (await d()).emp(2)!;
+  const fin = S.etatSortie(await d(), mehdi, '2026-10-31'), debut = S.etatSortie(await d(), mehdi, '2026-10-10');
   // Période acquise 2025-2026 : celle du jour (cpInfo), reports compris ; période 2026-2027 en cours d'acquisition.
-  const ci = cpInfo(d(), mehdi)!;
+  const ci = cpInfo(await d(), mehdi)!;
   assert.equal(fin.cp!.periode, 2026);
   assert.equal(fin.cp!.droit, ci.droit);
   // Sous contrat à la mi-octobre : juin à octobre, 5 mois de 25/12 ; sortie le 10 octobre : octobre ne compte pas.
@@ -74,236 +73,236 @@ test('t128 sortie en cours de période : CP acquis jusqu’au mois de la sortie 
   // RTT 39 h : 23 jours par an, au prorata des mois sous contrat à la mi-mois (10 mois, 9 mois).
   assert.equal(fin.rtt!.droit, Math.round(23 * 10 / 12));
   assert.equal(debut.rtt!.droit, Math.round(23 * 9 / 12));
-  assert.equal(fin.rtt!.pris, rttInfo(d(), mehdi)!.pris);
+  assert.equal(fin.rtt!.pris, rttInfo(await d(), mehdi)!.pris);
   assert.ok(fin.recup && fin.cet, 'récupération (heures) et CET de Mehdi');
   assert.equal(fin.cet!.total, 4);
   // Un congé postérieur à la date ne compte pas : la sortie l'annule.
-  inserer(db, { empId: 2, type: 'CP', du: '2026-11-02', au: '2026-11-06', statut: 'validee' });
-  assert.deepEqual(S.etatSortie(d(), d().emp(2)!, '2026-10-31').cp, fin.cp);
+  await inserer(db, { empId: 2, type: 'CP', du: '2026-11-02', au: '2026-11-06', statut: 'validee' });
+  assert.deepEqual(S.etatSortie(await d(), (await d()).emp(2)!, '2026-10-31').cp, fin.cp);
   // Lignes de l'état et rubriques : CP à indemniser, RTT, récupération, CET ; quantités positives seulement.
   assert.deepEqual(S.quantitesSortie(fin).map(q => q.rubrique), ['ICCP_J', 'RTT_SOLDE', 'RECUP_H', 'CET_LIQ']);
   assert.deepEqual(S.lignesEtat(fin).filter(l => l.rubrique).map(l => l.rubrique), ['ICCP_J', 'RTT_SOLDE', 'RECUP_H', 'CET_LIQ']);
   assert.match(S.resumeEtat(fin), /^CP à indemniser 17,42 j · RTT 3 j · récupération 3,5 h · CET 4 j$/);
 });
 
-test('t128 demi-journées : CP et RTT posés à la demi-journée décomptés 0,5 dans le solde de sortie', () => {
-  const { db, d } = fresh();
-  const avant = S.etatSortie(d(), d().emp(2)!, '2026-10-31');
+test('t128 demi-journées : CP et RTT posés à la demi-journée décomptés 0,5 dans le solde de sortie', async () => {
+  const { db, d } = await fresh();
+  const avant = S.etatSortie(await d(), (await d()).emp(2)!, '2026-10-31');
   // CP du lundi 19 octobre après-midi au mardi 20 matin : une journée ; RTT le mercredi 21 au matin : une demi-journée.
-  inserer(db, { empId: 2, type: 'CP', du: '2026-10-19', au: '2026-10-20', statut: 'validee', debutDemi: 'apres_midi', finDemi: 'matin' });
-  inserer(db, { empId: 2, type: 'RTT', du: '2026-10-21', au: '2026-10-21', statut: 'validee', debutDemi: 'matin' });
-  const apres = S.etatSortie(d(), d().emp(2)!, '2026-10-31');
+  await inserer(db, { empId: 2, type: 'CP', du: '2026-10-19', au: '2026-10-20', statut: 'validee', debutDemi: 'apres_midi', finDemi: 'matin' });
+  await inserer(db, { empId: 2, type: 'RTT', du: '2026-10-21', au: '2026-10-21', statut: 'validee', debutDemi: 'matin' });
+  const apres = S.etatSortie(await d(), (await d()).emp(2)!, '2026-10-31');
   assert.equal(apres.cp!.pris - avant.cp!.pris, 1);
   assert.equal(apres.cp!.total, Math.round((avant.cp!.total - 1) * 100) / 100);
   assert.equal(apres.rtt!.pris - avant.rtt!.pris, 0.5);
   assert.equal(apres.rtt!.solde, avant.rtt!.solde - 0.5);
   // Demande de demi-journée encore en attente avant la sortie : comptée comme posée, signalée.
-  inserer(db, { empId: 2, type: 'CP', du: '2026-10-23', au: '2026-10-23', statut: 'demandee', debutDemi: 'apres_midi' });
-  const attente = S.etatSortie(d(), d().emp(2)!, '2026-10-31');
+  await inserer(db, { empId: 2, type: 'CP', du: '2026-10-23', au: '2026-10-23', statut: 'demandee', debutDemi: 'apres_midi' });
+  const attente = S.etatSortie(await d(), (await d()).emp(2)!, '2026-10-31');
   assert.equal(attente.cp!.poses - apres.cp!.poses, 0.5);
   assert.ok(attente.avertissements.some(a => /^Demande de congé .* en attente : comptée comme posée/.test(a)));
 });
 
-test('t128 RTT au-delà du droit au prorata : trop-pris signalé, sans retenue (aucune ligne RTT_SOLDE)', () => {
-  const { d } = fresh();
+test('t128 RTT au-delà du droit au prorata : trop-pris signalé, sans retenue (aucune ligne RTT_SOLDE)', async () => {
+  const { d } = await fresh();
   // Sortie le 20 juin : 6 mois de droit (12 jours) pour 16 jours pris.
-  const e = S.etatSortie(d(), d().emp(2)!, '2026-06-20');
+  const e = S.etatSortie(await d(), (await d()).emp(2)!, '2026-06-20');
   assert.equal(e.rtt!.droit, 12);
   assert.ok(e.rtt!.solde < 0 && e.rtt!.tropPris === -e.rtt!.solde);
   assert.ok(e.avertissements.some(a => /pris au-delà du droit au prorata .* sans retenue automatique/.test(a)));
   assert.ok(!S.quantitesSortie(e).some(q => q.rubrique === 'RTT_SOLDE'));
   assert.match(S.lignesEtat(e).find(l => l.rubrique === 'RTT_SOLDE')!.libelle, /trop-pris, sans retenue/);
   // Intérimaire : aucun compteur géré par Cursus.
-  const interim = d().ds.employes.find(x => x.typeContrat === 'interim');
+  const interim = (await d()).ds.employes.find(x => x.typeContrat === 'interim');
   if (interim) {
-    const t = S.etatSortie(d(), interim, '2026-10-31');
+    const t = S.etatSortie(await d(), interim, '2026-10-31');
     assert.deepEqual([t.cp, t.rtt, t.cet], [null, null, null]);
   }
 });
 
 // — Photographie —
 
-test('t128 photographie : à l’enregistrement, figée malgré une correction, refaite à la modification, retirée à l’annulation', () => {
-  const { db, run, d, solde, journal, ADMIN } = fresh();
-  const attendu = S.etatSortie(d(), d().emp(2)!, '2026-10-16');
-  const m = run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' });
+test('t128 photographie : à l’enregistrement, figée malgré une correction, refaite à la modification, retirée à l’annulation', async () => {
+  const { db, run, d, solde, journal, ADMIN } = await fresh();
+  const attendu = S.etatSortie(await d(), (await d()).emp(2)!, '2026-10-16');
+  const m = await run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' });
   assert.match(m, / · solde de sortie photographié : CP à indemniser [\d,]+ j · RTT/);
-  const s = solde(2);
+  const s = await solde(2);
   assert.deepEqual([s.date, s.lotId, s.sage, s.par], ['2026-10-16', null, false, ADMIN.nom]);
   assert.deepEqual(s.etat, attendu, 'état calculé avant la sortie, absences postérieures annulées');
-  assert.equal(journal('employe.sortie').at(-1)!.payload.soldeSortie, s.id);
+  assert.equal((await journal('employe.sortie')).at(-1)!.payload.soldeSortie, s.id);
   // Correction ultérieure (un congé du 12 octobre validé après coup) : la photographie ne bouge pas.
-  inserer(db, { empId: 2, type: 'CP', du: '2026-10-12', au: '2026-10-12', statut: 'validee' });
-  assert.deepEqual(solde(2).etat, attendu);
-  assert.notDeepEqual(S.etatSortie(d(), d().emp(2)!, '2026-10-16').cp, attendu.cp, 'le calcul du jour, lui, change');
+  await inserer(db, { empId: 2, type: 'CP', du: '2026-10-12', au: '2026-10-12', statut: 'validee' });
+  assert.deepEqual((await solde(2)).etat, attendu);
+  assert.notDeepEqual(S.etatSortie(await d(), (await d()).emp(2)!, '2026-10-16').cp, attendu.cp, 'le calcul du jour, lui, change');
   // Modification de la sortie : nouvelle photographie, même ligne.
-  run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' });
-  assert.equal(solde(2).id, s.id);
-  assert.equal(solde(2).etat.cp!.pris, attendu.cp!.pris + 1);
+  await run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' });
+  assert.equal((await solde(2)).id, s.id);
+  assert.equal((await solde(2)).etat.cp!.pris, attendu.cp!.pris + 1);
   // Annulation de la sortie : photographie retirée.
-  assert.match(run(ADMIN, 'employe.annulerSortie', { id: 2 }), / · solde de sortie photographié retiré$/);
-  assert.equal(solde(2), undefined);
+  assert.match(await run(ADMIN, 'employe.annulerSortie', { id: 2 }), / · solde de sortie photographié retiré$/);
+  assert.equal(await solde(2), undefined);
 });
 
 // — Lot de paie —
 
-test('t128 lot de paie : rubriques de sortie désactivées par défaut, émises une fois actives, réservées, libérées, transmises', () => {
-  const { db, run, refus, d, solde, lots, journal, ADMIN, PAIE } = fresh();
-  run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' });
-  const s = solde(2);
+test('t128 lot de paie : rubriques de sortie désactivées par défaut, émises une fois actives, réservées, libérées, transmises', async () => {
+  const { db, run, refus, d, solde, lots, journal, ADMIN, PAIE } = await fresh();
+  await run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' });
+  const s = await solde(2);
   // Par défaut : rien ne part, le solde est à saisir dans Sage.
-  const table = rubriquesPaie(d().ds.rubriquesPaie);
-  assert.deepEqual(S.elementsSorties(d(), '2026-10', table), []);
-  assert.equal(S.etatTransmission(s, table, d().ti), 'à saisir dans Sage (rubriques de sortie désactivées)');
-  run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
-  assert.equal(lots().at(-1)!.contenu!.sorties, undefined);
-  assert.equal(solde(2).lotId, null);
-  run(PAIE, 'paie.lotAnnuler', { id: lots().at(-1)!.id });
+  const table = rubriquesPaie((await d()).ds.rubriquesPaie);
+  assert.deepEqual(S.elementsSorties(await d(), '2026-10', table), []);
+  assert.equal(S.etatTransmission(s, table, (await d()).ti), 'à saisir dans Sage (rubriques de sortie désactivées)');
+  await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  assert.equal((await lots()).at(-1)!.contenu!.sorties, undefined);
+  assert.equal((await solde(2)).lotId, null);
+  await run(PAIE, 'paie.lotAnnuler', { id: (await lots()).at(-1)!.id });
 
   // CP à indemniser et CET actifs (codes Sage saisis) ; RTT et récupération restent à Sage.
-  run(PAIE, 'paie.rubrique', { code: 'ICCP_J', codeSage: '6100', active: true, confirmer: true });
-  run(PAIE, 'paie.rubrique', { code: 'CET_LIQ', codeSage: '6400', active: true });
-  const t2 = rubriquesPaie(d().ds.rubriquesPaie);
-  assert.match(S.etatTransmission(solde(2), t2, d().ti), /^en attente du lot de paie de 2026-10 ; 2 compteurs à saisir dans Sage/);
+  await run(PAIE, 'paie.rubrique', { code: 'ICCP_J', codeSage: '6100', active: true, confirmer: true });
+  await run(PAIE, 'paie.rubrique', { code: 'CET_LIQ', codeSage: '6400', active: true });
+  const t2 = rubriquesPaie((await d()).ds.rubriquesPaie);
+  assert.match(S.etatTransmission(await solde(2), t2, (await d()).ti), /^en attente du lot de paie de 2026-10 ; 2 compteurs à saisir dans Sage/);
   // Lot de septembre : la sortie d'octobre n'y part pas.
-  assert.deepEqual(S.elementsSorties(d(), '2026-09', t2), []);
-  const els = S.elementsSorties(d(), '2026-10', t2);
+  assert.deepEqual(S.elementsSorties(await d(), '2026-09', t2), []);
+  const els = S.elementsSorties(await d(), '2026-10', t2);
   assert.deepEqual(els.map(x => [x.rubrique, x.codeSage, x.periode, x.quantite]), [['ICCP_J', '6100', '2026-10', s.etat.cp!.total], ['CET_LIQ', '6400', '2026-10', 4]]);
   // Confirmation du lot annoncée avant de générer.
   assert.match(C.generationLot({ periode: '2026-10', feuilles: 3, salaries: 2, rappels: [], mode: 'simulation', sansMatricule: [], sorties: 1 }).question, /, 1 solde de sortie \(2 salariés\)/);
 
   // Lot réel : un code Sage à confirmer bloque (CET_LIQ).
-  for (const code of Object.keys(RUBRIQUES_PAIE).filter(c => !['CET_LIQ', 'RTT_SOLDE', 'RECUP_H'].includes(c))) run(ADMIN, 'paie.rubrique', { code, confirmer: true });
+  for (const code of Object.keys(RUBRIQUES_PAIE).filter(c => !['CET_LIQ', 'RTT_SOLDE', 'RECUP_H'].includes(c))) await run(ADMIN, 'paie.rubrique', { code, confirmer: true });
   const modeAvant = process.env.SAGE_MODE;
   process.env.SAGE_MODE = 'fichier';
   try {
-    refus(PAIE, 'paie.lotGenerer', { periode: '2026-10' }, 409, /pour la rubrique CET_LIQ \(Compte épargne-temps liquidé/);
+    await refus(PAIE, 'paie.lotGenerer', { periode: '2026-10' }, 409, /pour la rubrique CET_LIQ \(Compte épargne-temps liquidé/);
   } finally {
     if (modeAvant === undefined) delete process.env.SAGE_MODE; else process.env.SAGE_MODE = modeAvant;
   }
 
   // Simulation : le lot emporte le solde, réservé ; fichier avec ses lignes.
-  assert.match(run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }), / · 1 solde de sortie · 3 séjours \(déplacements\) · \d+ éléments à saisir dans Sage \(rubrique désactivée ou réglage décoché : voir le résumé du lot\)$/);
-  const lot = lots().at(-1)!;
+  assert.match(await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }), / · 1 solde de sortie · 3 séjours \(déplacements\) · \d+ éléments à saisir dans Sage \(rubrique désactivée ou réglage décoché : voir le résumé du lot\)$/);
+  const lot = (await lots()).at(-1)!;
   assert.deepEqual(lot.sorties, [{ id: s.id, empId: 2 }]);
   assert.deepEqual(lot.resume.sorties, { elements: 2, salaries: 1 });
-  assert.equal(solde(2).lotId, lot.id);
+  assert.equal((await solde(2)).lotId, lot.id);
   const mat = lot.contenu!.sorties![0].matricule;
   const texte = L.fichierLot(lot.contenu!);
   assert.ok(texte.includes(`\r\n${mat};2026-10;6100;${String(s.etat.cp!.total).replace('.', ',')}\r\n`), texte);
   assert.ok(texte.includes(`\r\n${mat};2026-10;6400;4\r\n`));
   assert.equal(lot.contenu!.libelles!['6100'], RUBRIQUES_PAIE.ICCP_J.label);
-  assert.deepEqual(journal('paie.lotGenerer').at(-1)!.payload.sorties, [s.id]);
-  assert.ok(journal('paie.lotGenerer').at(-1)!.salaries.includes(2));
+  assert.deepEqual((await journal('paie.lotGenerer')).at(-1)!.payload.sorties, [s.id]);
+  assert.ok((await journal('paie.lotGenerer')).at(-1)!.salaries.includes(2));
   // Variables de la période : lignes de sortie du lot.
-  assert.ok(variablesDeLaPeriode(db, PAIE, '2026-10').some(v => v.rubrique === '6100' && v.detail === 'Solde de sortie au 16/10/2026'));
+  assert.ok((await variablesDeLaPeriode(db, PAIE, '2026-10')).some(v => v.rubrique === '6100' && v.detail === 'Solde de sortie au 16/10/2026'));
   // Sortie figée tant que le lot attend sa confirmation.
-  refus(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' }, 409, /compris dans le lot de paie n° \d+, import à confirmer/);
-  refus(ADMIN, 'employe.annulerSortie', { id: 2 }, 409);
+  await refus(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' }, 409, /compris dans le lot de paie n° \d+, import à confirmer/);
+  await refus(ADMIN, 'employe.annulerSortie', { id: 2 }, 409);
   // Annulation du lot : solde libéré.
-  assert.match(run(PAIE, 'paie.lotAnnuler', { id: lot.id }), /et 1 solde de sortie libéré/);
-  assert.equal(solde(2).lotId, null);
+  assert.match(await run(PAIE, 'paie.lotAnnuler', { id: lot.id }), /et 1 solde de sortie libéré/);
+  assert.equal((await solde(2)).lotId, null);
 
   // Nouveau lot, confirmé : solde transmis, gardé tel quel ensuite.
-  run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
-  const second = lots().at(-1)!;
-  run(PAIE, 'paie.lotConfirmer', { id: second.id });
-  assert.deepEqual([solde(2).lotId, solde(2).sage], [second.id, true]);
-  assert.equal(S.etatTransmission(solde(2), t2, d().ti), `transmis à la paie (lot n° ${second.id})`);
-  assert.deepEqual(S.elementsSorties(d(), '2026-12', t2), []);
-  const avant = solde(2);
-  assert.match(run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' }), /solde de sortie déjà transmis à la paie \(lot n° \d+\) : gardé tel quel/);
-  assert.deepEqual(solde(2), avant);
-  assert.match(run(ADMIN, 'employe.annulerSortie', { id: 2 }), /solde de sortie déjà transmis à la paie \(lot n° \d+\) : gardé pour l’historique, à corriger dans Sage$/);
-  assert.equal(solde(2), undefined, 'plus de solde courant');
-  assert.ok(db.get<Solde>('soldesSortie', avant.id)!.remplaceLe, 'gardé pour l’historique, marqué remplacé');
+  await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  const second = (await lots()).at(-1)!;
+  await run(PAIE, 'paie.lotConfirmer', { id: second.id });
+  assert.deepEqual([(await solde(2)).lotId, (await solde(2)).sage], [second.id, true]);
+  assert.equal(S.etatTransmission(await solde(2), t2, (await d()).ti), `transmis à la paie (lot n° ${second.id})`);
+  assert.deepEqual(S.elementsSorties(await d(), '2026-12', t2), []);
+  const avant = await solde(2);
+  assert.match(await run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' }), /solde de sortie déjà transmis à la paie \(lot n° \d+\) : gardé tel quel/);
+  assert.deepEqual(await solde(2), avant);
+  assert.match(await run(ADMIN, 'employe.annulerSortie', { id: 2 }), /solde de sortie déjà transmis à la paie \(lot n° \d+\) : gardé pour l’historique, à corriger dans Sage$/);
+  assert.equal(await solde(2), undefined, 'plus de solde courant');
+  assert.ok((await db.get<Solde>('soldesSortie', avant.id))!.remplaceLe, 'gardé pour l’historique, marqué remplacé');
 });
 
-test('t128 rubriques désactivées : le lot confirmé de la période règle le solde hors fichier, une rubrique activée ensuite ne le rattrape pas', () => {
-  const { run, d, solde, lots, ADMIN, PAIE } = fresh();
-  run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' });
+test('t128 rubriques désactivées : le lot confirmé de la période règle le solde hors fichier, une rubrique activée ensuite ne le rattrape pas', async () => {
+  const { run, d, solde, lots, ADMIN, PAIE } = await fresh();
+  await run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' });
   // Un lot de septembre ne la réglerait pas : la sortie d'octobre n'est pas de sa période.
-  const table = rubriquesPaie(d().ds.rubriquesPaie);
-  assert.deepEqual(S.soldesHorsFichier(d(), '2026-09', table), []);
-  assert.deepEqual(S.soldesHorsFichier(d(), '2026-10', table).map(x => x.id), [solde(2).id]);
+  const table = rubriquesPaie((await d()).ds.rubriquesPaie);
+  assert.deepEqual(S.soldesHorsFichier(await d(), '2026-09', table), []);
+  assert.deepEqual(S.soldesHorsFichier(await d(), '2026-10', table).map(x => x.id), [(await solde(2)).id]);
   // Lot d'octobre généré puis confirmé sans rubrique de sortie active : la paie a saisi le solde dans Sage.
-  run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
-  const lot = lots().at(-1)!;
+  await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  const lot = (await lots()).at(-1)!;
   assert.equal(lot.contenu!.sorties, undefined);
-  run(PAIE, 'paie.lotConfirmer', { id: lot.id });
-  assert.deepEqual([solde(2).lotId, solde(2).sage, solde(2).horsFichier], [lot.id, true, true]);
-  assert.match(S.etatTransmission(solde(2), rubriquesPaie(d().ds.rubriquesPaie), d().ti), /^saisi dans Sage hors fichier \(lot n° \d+ de sa période/);
+  await run(PAIE, 'paie.lotConfirmer', { id: lot.id });
+  assert.deepEqual([(await solde(2)).lotId, (await solde(2)).sage, (await solde(2)).horsFichier], [lot.id, true, true]);
+  assert.match(S.etatTransmission(await solde(2), rubriquesPaie((await d()).ds.rubriquesPaie), (await d()).ti), /^saisi dans Sage hors fichier \(lot n° \d+ de sa période/);
   // Activation tardive des quatre rubriques : aucun solde ne repart, ni dans le prochain lot.
-  for (const [code, codeSage] of [['ICCP_J', '6100'], ['RTT_SOLDE', '6200'], ['RECUP_H', '6300'], ['CET_LIQ', '6400']]) run(PAIE, 'paie.rubrique', { code, codeSage, active: true, confirmer: true });
-  assert.deepEqual(S.elementsSorties(d(), '2026-12', rubriquesPaie(d().ds.rubriquesPaie)), []);
-  assert.deepEqual(S.soldesHorsFichier(d(), '2026-12', rubriquesPaie(d().ds.rubriquesPaie)), []);
+  for (const [code, codeSage] of [['ICCP_J', '6100'], ['RTT_SOLDE', '6200'], ['RECUP_H', '6300'], ['CET_LIQ', '6400']]) await run(PAIE, 'paie.rubrique', { code, codeSage, active: true, confirmer: true });
+  assert.deepEqual(S.elementsSorties(await d(), '2026-12', rubriquesPaie((await d()).ds.rubriquesPaie)), []);
+  assert.deepEqual(S.soldesHorsFichier(await d(), '2026-12', rubriquesPaie((await d()).ds.rubriquesPaie)), []);
   // Même date de sortie (motif modifié) : gardé tel quel, sans repartir.
-  assert.match(run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'licenciement' }), /solde de sortie déjà saisi dans Sage hors fichier .* gardé tel quel/);
-  assert.deepEqual(S.elementsSorties(d(), '2026-12', rubriquesPaie(d().ds.rubriquesPaie)), []);
+  assert.match(await run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'licenciement' }), /solde de sortie déjà saisi dans Sage hors fichier .* gardé tel quel/);
+  assert.deepEqual(S.elementsSorties(await d(), '2026-12', rubriquesPaie((await d()).ds.rubriquesPaie)), []);
 });
 
-test('t128 rubriques actives : un solde photographié après la génération du lot attend le lot suivant, il n’est pas réglé hors fichier', () => {
-  const { db, run, solde, lots, ADMIN, PAIE } = fresh();
-  run(PAIE, 'paie.rubrique', { code: 'ICCP_J', codeSage: '6100', active: true, confirmer: true });
+test('t128 rubriques actives : un solde photographié après la génération du lot attend le lot suivant, il n’est pas réglé hors fichier', async () => {
+  const { db, run, solde, lots, ADMIN, PAIE } = await fresh();
+  await run(PAIE, 'paie.rubrique', { code: 'ICCP_J', codeSage: '6100', active: true, confirmer: true });
   // Lot d'octobre généré avec au moins une feuille, avant la sortie.
-  db.insert('feuilles', { empId: 14, week: '2026-10-05', statut: 'validee', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-ADM', tache: 'Fonctions support', ks: false, h: [7, 7, 7, 7, 7, 0, 0] }], contrat: null });
-  run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
-  const lot = lots().at(-1)!;
-  run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' });
-  run(PAIE, 'paie.lotConfirmer', { id: lot.id });
-  assert.deepEqual([solde(2).lotId, solde(2).sage, solde(2).horsFichier], [null, false, false]);
-  assert.match(run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }), / · 1 solde de sortie/);
+  await db.insert('feuilles', { empId: 14, week: '2026-10-05', statut: 'validee', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-ADM', tache: 'Fonctions support', ks: false, h: [7, 7, 7, 7, 7, 0, 0] }], contrat: null });
+  await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  const lot = (await lots()).at(-1)!;
+  await run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' });
+  await run(PAIE, 'paie.lotConfirmer', { id: lot.id });
+  assert.deepEqual([(await solde(2)).lotId, (await solde(2)).sage, (await solde(2)).horsFichier], [null, false, false]);
+  assert.match(await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' }), / · 1 solde de sortie/);
 });
 
-test('t128 transmission puis annulation de la sortie, puis nouvelle sortie : nouveau solde photographié, l’ancien gardé pour l’historique', () => {
-  const { run, d, solde, soldes, lots, ADMIN, PAIE } = fresh();
-  run(PAIE, 'paie.rubrique', { code: 'ICCP_J', codeSage: '6100', active: true, confirmer: true });
-  run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' });
-  run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
-  run(PAIE, 'paie.lotConfirmer', { id: lots().at(-1)!.id });
-  const ancien = solde(2);
+test('t128 transmission puis annulation de la sortie, puis nouvelle sortie : nouveau solde photographié, l’ancien gardé pour l’historique', async () => {
+  const { run, d, solde, soldes, lots, ADMIN, PAIE } = await fresh();
+  await run(PAIE, 'paie.rubrique', { code: 'ICCP_J', codeSage: '6100', active: true, confirmer: true });
+  await run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' });
+  await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  await run(PAIE, 'paie.lotConfirmer', { id: (await lots()).at(-1)!.id });
+  const ancien = await solde(2);
   assert.equal(ancien.sage, true);
-  run(ADMIN, 'employe.annulerSortie', { id: 2 });
+  await run(ADMIN, 'employe.annulerSortie', { id: 2 });
   // Vraie sortie plus tard : calculée et photographiée à la nouvelle date, en attente du lot de décembre.
-  const m = run(ADMIN, 'employe.sortie', { id: 2, date: '2026-12-31', motif: 'demission' });
+  const m = await run(ADMIN, 'employe.sortie', { id: 2, date: '2026-12-31', motif: 'demission' });
   assert.match(m, / · solde de sortie photographié : CP à indemniser/);
-  const nouveau = solde(2);
+  const nouveau = await solde(2);
   assert.notEqual(nouveau.id, ancien.id);
   assert.deepEqual([nouveau.date, nouveau.lotId, nouveau.sage], ['2026-12-31', null, false]);
-  assert.deepEqual(nouveau.etat, S.etatSortie(d(), d().emp(2)!, '2026-12-31'));
+  assert.deepEqual(nouveau.etat, S.etatSortie(await d(), (await d()).emp(2)!, '2026-12-31'));
   assert.ok(nouveau.etat.cp!.acquis > ancien.etat.cp!.acquis, 'novembre et décembre acquis');
-  assert.equal(soldes(2).length, 2);
-  assert.equal(S.soldeCourant(d().ds.soldesSortie, 2)!.id, nouveau.id);
-  assert.deepEqual(S.elementsSorties(d(), '2026-12', rubriquesPaie(d().ds.rubriquesPaie)).map(x => [x.sortie, x.periode]), [[nouveau.id, '2026-12']]);
+  assert.equal((await soldes(2)).length, 2);
+  assert.equal(S.soldeCourant((await d()).ds.soldesSortie, 2)!.id, nouveau.id);
+  assert.deepEqual(S.elementsSorties(await d(), '2026-12', rubriquesPaie((await d()).ds.rubriquesPaie)).map(x => [x.sortie, x.periode]), [[nouveau.id, '2026-12']]);
 
   // Sortie déplacée après la transmission (sans annulation) : l'ancien solde est remplacé, à régulariser dans Sage.
-  run(PAIE, 'paie.lotGenerer', { periode: '2026-12' });
-  run(PAIE, 'paie.lotConfirmer', { id: lots().at(-1)!.id });
-  assert.match(run(ADMIN, 'employe.sortie', { id: 2, date: '2026-11-30', motif: 'demission' }), /solde de sortie au 31 déc\. 2026 transmis à la paie \(lot n° \d+\) remplacé : à régulariser dans Sage · solde de sortie photographié/);
-  assert.equal(solde(2).date, '2026-11-30');
-  assert.equal(soldes(2).filter(s => s.remplaceLe).length, 2);
+  await run(PAIE, 'paie.lotGenerer', { periode: '2026-12' });
+  await run(PAIE, 'paie.lotConfirmer', { id: (await lots()).at(-1)!.id });
+  assert.match(await run(ADMIN, 'employe.sortie', { id: 2, date: '2026-11-30', motif: 'demission' }), /solde de sortie au 31 déc\. 2026 transmis à la paie \(lot n° \d+\) remplacé : à régulariser dans Sage · solde de sortie photographié/);
+  assert.equal((await solde(2)).date, '2026-11-30');
+  assert.equal((await soldes(2)).filter(s => s.remplaceLe).length, 2);
 });
 
-test('t128 reprise Lucca : les jours de la période N pris par anticipation dans Lucca (« CP N ») se déduisent des CP en cours d’acquisition', () => {
-  const { db, d } = fresh();
-  if (db.get('soldesReprise', 2)) db.update('soldesReprise', 2, { arreteLe: '2026-10-01', cpSoldeSuivant: null });
-  else db.insert('soldesReprise', { empId: 2, cpPris: 0, rttPris: 0, recupAcquis: 0, recupPris: 0, arreteLe: '2026-10-01' });
-  const sans = S.etatSortie(d(), d().emp(2)!, '2026-10-31');
+test('t128 reprise Lucca : les jours de la période N pris par anticipation dans Lucca (« CP N ») se déduisent des CP en cours d’acquisition', async () => {
+  const { db, d } = await fresh();
+  if (await db.get('soldesReprise', 2)) await db.update('soldesReprise', 2, { arreteLe: '2026-10-01', cpSoldeSuivant: null });
+  else await db.insert('soldesReprise', { empId: 2, cpPris: 0, rttPris: 0, recupAcquis: 0, recupPris: 0, arreteLe: '2026-10-01' });
+  const sans = S.etatSortie(await d(), (await d()).emp(2)!, '2026-10-31');
   // 3 jours anticipés dans Lucca : solde N = acquis à l'arrêté moins 3.
-  db.update('soldesReprise', 2, { cpSoldeSuivant: acquisAu(d(), d().emp(2)!, 2027, '2026-10-01') - 3 });
-  const avec = S.etatSortie(d(), d().emp(2)!, '2026-10-31');
+  await db.update('soldesReprise', 2, { cpSoldeSuivant: acquisAu(await d(), (await d()).emp(2)!, 2027, '2026-10-01') - 3 });
+  const avec = S.etatSortie(await d(), (await d()).emp(2)!, '2026-10-31');
   assert.equal(avec.cp!.acquis, sans.cp!.acquis);
   assert.equal(Math.round((avec.cp!.anticipes - sans.cp!.anticipes) * 100) / 100, 3);
   assert.equal(Math.round((sans.cp!.total - avec.cp!.total) * 100) / 100, 3);
   assert.equal(avec.cp!.solde, sans.cp!.solde, 'période acquise inchangée');
 });
 
-test('t128 feuille non validée avant la sortie : signalée, sa récupération n’étant pas comptée', () => {
-  const { db, d } = fresh();
-  const avant = S.etatSortie(d(), d().emp(2)!, '2026-10-31');
+test('t128 feuille non validée avant la sortie : signalée, sa récupération n’étant pas comptée', async () => {
+  const { db, d } = await fresh();
+  const avant = S.etatSortie(await d(), (await d()).emp(2)!, '2026-10-31');
   assert.ok(!avant.avertissements.some(a => /non validée/.test(a)), JSON.stringify(avant.avertissements));
-  db.insert('feuilles', { empId: 2, week: '2026-10-26', statut: 'soumise', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-ADM', tache: 'Fonctions support', ks: false, h: [9, 9, 9, 9, 9, 0, 0] }], contrat: null });
-  const apres = S.etatSortie(d(), d().emp(2)!, '2026-10-31');
+  await db.insert('feuilles', { empId: 2, week: '2026-10-26', statut: 'soumise', comment: null, sage: false, keystone: false, lignes: [{ projet: 'INT-ADM', tache: 'Fonctions support', ks: false, h: [9, 9, 9, 9, 9, 0, 0] }], contrat: null });
+  const apres = S.etatSortie(await d(), (await d()).emp(2)!, '2026-10-31');
   assert.ok(apres.avertissements.some(a => /^Feuille de temps de la semaine 44 non validée : récupération comptée sans elles/.test(a)), JSON.stringify(apres.avertissements));
   assert.deepEqual(apres.recup, avant.recup);
 });
@@ -316,21 +315,21 @@ test('t128 période : mois de la sortie, ou la période ouverte s’il est clos'
 
 // — Données transmises —
 
-test('t128 instantanés : soldes de sortie au service RH, à la paie et à la lecture seule seulement ; intégrité et export des données', () => {
-  const { db, run, user, ADMIN, PAIE, GEST, LECTURE } = fresh();
-  run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' });
-  for (const u of [ADMIN, PAIE, GEST, LECTURE]) assert.equal(buildSnapshot(db, u).soldesSortie!.length, 1, u.nom);
-  for (const u of [user(23, 'rh'), user(12, 'manager'), user(2, 'collaborateur')]) assert.deepEqual(buildSnapshot(db, u).soldesSortie, [], u.nom);
+test('t128 instantanés : soldes de sortie au service RH, à la paie et à la lecture seule seulement ; intégrité et export des données', async () => {
+  const { db, run, user, ADMIN, PAIE, GEST, LECTURE } = await fresh();
+  await run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' });
+  for (const u of [ADMIN, PAIE, GEST, LECTURE]) assert.equal((await buildSnapshot(db, u)).soldesSortie!.length, 1, u.nom);
+  for (const u of [await user(23, 'rh'), await user(12, 'manager'), await user(2, 'collaborateur')]) assert.deepEqual((await buildSnapshot(db, u)).soldesSortie, [], u.nom);
   assert.ok(REFERENCES.some(r => r.table === 'soldes_sortie' && r.colonne === 'emp_id'));
   assert.ok(REFERENCES.some(r => r.table === 'soldes_sortie' && r.colonne === 'lot_id'));
 });
 
 // — Impression et export —
 
-test('t128 état imprimable et export CSV : compteurs, rubriques, source, jamais le montant', () => {
-  const { run, d, ADMIN } = fresh();
-  run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' });
-  const dd = d(), e = dd.emp(2)!, solde = dd.ds.soldesSortie!.find(s => s.empId === 2)!;
+test('t128 état imprimable et export CSV : compteurs, rubriques, source, jamais le montant', async () => {
+  const { run, d, ADMIN } = await fresh();
+  await run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' });
+  const dd = await d(), e = dd.emp(2)!, solde = dd.ds.soldesSortie!.find(s => s.empId === 2)!;
   const csv = X.csvSoldeSortie(dd, e, { etat: solde.etat, solde });
   assert.equal(csv.fichier, 'solde-sortie-EMP-0002-2026-10-16.csv');
   assert.deepEqual(csv.head.slice(4, 11), ['Compteur', 'Unité', 'Droit ou acquis', 'Pris', 'Posés', 'Solde', 'Rubrique de paie']);

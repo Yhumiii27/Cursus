@@ -18,16 +18,15 @@ const SANS_POSTE = `FROM employes WHERE poste_id IS NULL AND TRIM(COALESCE(poste
  * pas tout en capitales, puis la première saisie) ; l'intitulé saisi sur chaque fiche est gardé tel quel. Idempotente :
  * seules les fiches sans poste sont lues. Aussi utilisé par le jeu de démonstration (server/src/seed.ts).
  */
-export function postesDepuisFiches(db: Db): { postes: { id: number; fiches: number }[]; fiches: number } {
-  const fiches = db.sql.prepare(`SELECT id, TRIM(poste) AS poste ${SANS_POSTE} ORDER BY id`).all() as { id: number; poste: string }[];
-  const existants = db.sql.prepare('SELECT id, nom FROM postes WHERE archive IS NULL ORDER BY id').all() as { id: number; nom: string }[];
+export async function postesDepuisFiches(db: Db): Promise<{ postes: { id: number; fiches: number }[]; fiches: number }> {
+  const fiches = await db.query(`SELECT id, TRIM(poste) AS poste ${SANS_POSTE} ORDER BY id`) as { id: number; poste: string }[];
+  const existants = await db.query('SELECT id, nom FROM postes WHERE archive IS NULL ORDER BY id') as { id: number; nom: string }[];
   const groupes = new Map<string, { id: number; poste: string }[]>();
   for (const f of fiches) {
     const k = key(f.poste);
     if (k) groupes.set(k, [...(groupes.get(k) ?? []), f]);
   }
   const postes: { id: number; fiches: number }[] = [];
-  const rattacher = db.sql.prepare('UPDATE employes SET poste_id = ? WHERE id = ?');
   for (const [k, liste] of groupes) {
     let poste = existants.find(p => key(p.nom) === k) ?? null;
     if (!poste) {
@@ -36,24 +35,24 @@ export function postesDepuisFiches(db: Db): { postes: { id: number; fiches: numb
       liste.forEach(f => compte.set(f.poste.replace(/\s+/g, ' '), (compte.get(f.poste.replace(/\s+/g, ' ')) ?? 0) + 1));
       const capitales = (t: string) => Number(t === t.toUpperCase() && t !== t.toLowerCase());
       const nom = [...compte].sort((a, b) => b[1] - a[1] || capitales(a[0]) - capitales(b[0]))[0][0].slice(0, 80);
-      const id = Number(db.sql.prepare(`INSERT INTO postes (nom, formations, habilitations, archive) VALUES (?, '[]', '[]', NULL)`).run(nom).lastInsertRowid);
+      const id = Number((await db.run(`INSERT INTO postes (nom, formations, habilitations, archive) VALUES (?, '[]', '[]', NULL)`, [nom])).lastInsertRowid);
       poste = { id, nom };
     }
-    liste.forEach(f => rattacher.run(poste.id, f.id));
+    for (const f of liste) await db.run('UPDATE employes SET poste_id = ? WHERE id = ?', [poste.id, f.id]);
     postes.push({ id: poste.id, fiches: liste.length });
   }
   return { postes, fiches: fiches.length };
 }
 
 /** Nombre de fiches qui ont un intitulé sans poste du référentiel. */
-const sansPoste = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS n ${SANS_POSTE}`).get() as { n: number }).n);
+const sansPoste = async (db: Db) => Number((await db.one(`SELECT COUNT(*) AS n ${SANS_POSTE}`) as { n: number }).n);
 
 /** Rattachement des fiches sans poste, tracé au journal (`migration.postes`) ; compte rendu, ou rien s'il n'y en avait pas. */
-function rattacherTrace(db: Db): string | void {
-  const r = postesDepuisFiches(db);
+async function rattacherTrace(db: Db): Promise<string | void> {
+  const r = await postesDepuisFiches(db);
   if (!r.fiches) return;
   const texte = `${plural(r.postes.length, 'poste', 'postes')} pour ${plural(r.fiches, 'fiche', 'fiches')}`;
-  journaliser(db, {
+  await journaliser(db, {
     actor: 'Cursus', role: null, action: 'migration.postes',
     message: `Reprise : ${texte} — exigences à saisir (Référentiels → Postes)`, payload: { postes: r.postes },
   });
@@ -67,10 +66,10 @@ function rattacherTrace(db: Db): string | void {
  * écrit les fiches directement l'appelle aussi à la fin de son écriture, dans sa transaction (`db.tx` s'y imbrique), et
  * ne remet pas `posteId` à null sur une fiche qui en a un. Sans fiche à rattacher : rien n'est fait.
  */
-export function rattacherFiches(db: Db, avant = () => {}): string | void {
-  if (!sansPoste(db)) return;
+export async function rattacherFiches(db: Db, avant = () => {}): Promise<string | void> {
+  if (!await sansPoste(db)) return;
   avant();
-  const texte = db.tx(() => rattacherTrace(db));
+  const texte = await db.tx(async () => await rattacherTrace(db));
   if (texte) console.log(`Migration : fiches rattachées au référentiel des postes (${texte}).`);
   return texte;
 }
@@ -83,6 +82,6 @@ export const POSTES = {
   nom: 'lot4-referentiels-postes',
   // Base neuve : exécutée, sans effet (cadre commun) ; base existante : seulement s'il reste des fiches à rattacher.
   // Au démarrage du serveur, `rattacherFiches` (server/src/migrate.ts) passe avant et la laisse le plus souvent sans objet.
-  necessaire: (db: Db) => db.neuve || sansPoste(db) > 0,
-  executer: (db: Db) => rattacherTrace(db),
+  necessaire: async (db: Db) => db.neuve || await sansPoste(db) > 0,
+  executer: async (db: Db) => await rattacherTrace(db),
 } satisfies Migration;

@@ -128,7 +128,7 @@ Relancez `npm run app` après une modification du code ou un déplacement du dos
 | `npm run dev` | API (port 3210) + interface Vite (port 5173) avec rechargement à chaud, en mode démonstration (`CURSUS_DEMO=0 npm run dev` pour le couper) |
 | `npm run build` puis `npm start` | Production (`NODE_ENV=production`, Windows compris) : l'API sert l'interface compilée sur le port `PORT` (3210 par défaut), derrière un reverse proxy HTTPS — voir `docs/DEPLOIEMENT.md` (service systemd et fichiers prêts à copier de `deploy/`, ou `Dockerfile` facultatif) |
 | `npm test` | Tests des règles métier, des droits d'accès et de la sécurité |
-| `npm run typecheck` | Vérification TypeScript |
+| `npm run typecheck` | Vérification TypeScript, puis contrôle des promesses non attendues (`npm run check:await`, `scripts/verifier-await.mjs`) |
 | `npm run test:coverage` | Tests avec mesure de la couverture du serveur et de `shared/` (client et tests exclus) ; échoue sous les seuils fixés dans `package.json` |
 | `npm run check` | Tout ce que vérifie la CI avant d'accepter une modification : typage, tests avec seuils de couverture, compilation de l'interface |
 | `CURSUS_DEMO=1 npm run reset-demo -- --yes` | Recharge les données de démonstration : efface la base après l'avoir copiée. Refusé hors démonstration, avec `NODE_ENV=production` (sauf l'application de bureau) et si un serveur utilise la base (`--force` pour passer outre) ; sans `--yes`, le mot `EFFACER` est demandé dans un terminal |

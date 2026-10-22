@@ -728,6 +728,16 @@ les compteurs sont arrêtés dans Lucca au 1er janvier 2027.
   Les RTT ne sont pas reportables : leur clôture photographie les soldes perdus, après le rappel du compte
   épargne-temps (un salarié dont une demande de RTT de l'année est en attente n'est clôturé qu'après sa décision). Première clôture des CP de la reprise : le
   1er juin 2027. Chaque clôture est tracée (`conges.cloturer`, archive paie de 3 ans) et sans effet si on la relance.
+- **Fractionnement des congés** (Paramètres → Fractionnement des congés) : règle légale supplétive par défaut (2 jours pour
+  6 jours ouvrables ou plus du congé principal pris hors du 1er mai – 31 octobre, 1 jour pour 3 à 5) tant que les accords
+  d'entreprise et la CCN ne sont pas vérifiés ; « Accord d'entreprise » ou « Aucun jour » exigent la référence de l'accord.
+  Cursus ne suit que les périodes dont la fenêtre commence après la date d'arrêté des compteurs repris : première alerte en
+  septembre 2027, premières propositions au 1er novembre 2027, crédit confirmé par le service RH (`conges.fractionnement`,
+  archive paie de 3 ans).
+- **Compte épargne-temps** (Paramètres → Compte épargne-temps) : plafonds de placement 5 et 5 par défaut, à ajuster à
+  l'accord sur le CET. Le congé pris sur le CET part dans le lot sous la rubrique `CET`, désactivée et « code Sage à
+  confirmer » : à faire confirmer par la paie avec les autres rubriques ; d'ici là, chaque congé figure « À saisir dans
+  Sage » dans le résumé du lot. La monétisation n'est pas encore proposée (accord inconnu).
 
 ### Procédure de reprise
 

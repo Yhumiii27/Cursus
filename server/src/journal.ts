@@ -34,7 +34,7 @@ import { estTypeDerogation, JOURS_FEUILLE } from '../../shared/rules/semaine.ts'
 import { controlesMineur } from '../../shared/rules/mineurs.ts';
 import { lignesCouverture } from '../../shared/rules/couverture.ts';
 import { corDeLaFeuille } from '../../shared/rules/temps.ts';
-import type { CalendrierFeries, ClotureConges, CurrentUser, Employe, FeuilleTemps, InformationCp, LigneTemps } from '../../shared/types.ts';
+import type { CalendrierFeries, ClotureConges, CurrentUser, Fractionnement, Employe, FeuilleTemps, InformationCp, LigneTemps } from '../../shared/types.ts';
 import type { ContactsConfidentialite } from '../../shared/confidentialite.ts';
 import { journaliser, type Compte } from './comptes.ts';
 import { lireConfidentialite } from './confidentialite.ts';
@@ -214,6 +214,9 @@ const transmises = (x: Contexte) => (x.etat as number[]).map(id => x.db.get<Feui
 /** Lignes de clôture des congés créées par l'action (identifiants au-delà du dernier d'avant l'action). */
 const cloturees = (x: Contexte) => (x.db.sql.prepare('SELECT id FROM clotures WHERE id > ? ORDER BY id').all(Number(x.etat) || 0) as { id: number }[])
   .map(r => x.db.get<ClotureConges>('clotures', r.id)!);
+/** Décisions sur les jours de fractionnement enregistrées par l'action (identifiants au-delà du dernier d'avant). */
+const fractionnementsDecides = (x: Contexte) => (x.db.sql.prepare('SELECT id FROM fractionnements WHERE id > ? ORDER BY id').all(Number(x.etat) || 0) as { id: number }[])
+  .map(r => x.db.get<Fractionnement>('fractionnements', r.id)!);
 /**
  * Jours rendus à une période de CP close par un refus ou une annulation : reports reçus créés par l'action (identifiants
  * au-delà du dernier d'avant), tracés par leurs jours, période et échéance — jamais leur motif.
@@ -596,6 +599,13 @@ export const REGLES: Record<string, Regle> = {
     bilan: (_p, x) => ({ lignes: cloturees(x).map(c => ({ empId: c.empId, decision: c.decision, solde: c.solde, reportes: c.reportes, perdus: c.perdus, expire: c.expire })) }),
     salaries: (_p, x) => cloturees(x).map(c => c.empId),
   },
+  // Jours de fractionnement (t046) : période, puis décision de chaque salarié (crédit et jours, ou renonciation).
+  'conges.fractionnement': {
+    champs: ['periode'],
+    etat: db => Number((db.sql.prepare('SELECT MAX(id) AS n FROM fractionnements').get() as { n: number | null }).n ?? 0),
+    bilan: (_p, x) => ({ lignes: fractionnementsDecides(x).map(f => ({ empId: f.empId, decision: f.decision, jours: f.jours })) }),
+    salaries: (_p, x) => fractionnementsDecides(x).map(f => f.empId),
+  },
   // Entretiens : la section rédigée est nommée, jamais son contenu ; une ligne par compte rendu et par demi-heure.
   'entretien.planifier': { champs: ['empId', 'kind', 'date'] },
   // Annulation : type, date et statut de l'entretien retiré (jamais le compte rendu).
@@ -613,7 +623,7 @@ export const REGLES: Record<string, Regle> = {
   // Administration
   // Réglages : anciennes et nouvelles valeurs, sauf la référence de l'accord des heures supplémentaires (texte libre).
   'parametres.maj': {
-    cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord', 'cddAccordBranche'] },
+    cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord', 'cddAccordBranche', 'fractionnementAccord'] },
   },
   // Jours fériés d'une année (lot 6) : année, réglage avant et après ; le motif d'une année engagée (texte libre) n'est
   // jamais recopié, seulement le fait qu'il soit renseigné. Salariés dont une absence est recalculée (résultat).

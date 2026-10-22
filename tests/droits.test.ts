@@ -329,6 +329,11 @@ const MATRICE: Ligne[] = [
     db.update('soldesReprise', 2, { arreteLe: '2025-09-01' });
     return { type: 'RTT', periode: 2025 };
   } },
+  // Jours de fractionnement (t046) : service RH (période 2025 de Mehdi, compteurs repris arrêtés avant sa fenêtre pour l'essai).
+  { action: 'conges.fractionnement', droits: '               O    O    -    -    -    -    -    -    -', p: () => {
+    db.update('soldesReprise', 2, { arreteLe: '2025-01-01' });
+    return { periode: 2025, lignes: [{ empId: 2, decision: 'renoncer' }] };
+  } },
   // Information au retour d'un arrêt (art. L3141-19-3) : service RH, jamais pour lui-même (arrêt de Mehdi terminé le 2 octobre).
   { action: 'conges.informer', droits: '                     O    O    -    -    -    -    -    -    -', p: () => ({
     id: db.insert<{ id: number }>('absences', { empId: 2, type: 'MALADIE', du: '2026-09-28', au: '2026-10-02', statut: 'validee', keystone: true, justificatif: true, justificatifLe: '2026-09-28' }).id,

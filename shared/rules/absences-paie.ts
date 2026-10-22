@@ -2,7 +2,8 @@
 // paie avec les heures, quand le réglage `absencesFichierPaie` est actif (par défaut, réponse de l'entreprise du
 // 17 octobre 2026). Partagé par la génération du lot (server/src/actions/paie.ts), le résumé de l'instantané
 // (server/src/absences-paie.ts), l'export des variables de la période et l'écran Temps (client/src/components/LotsPaie.tsx).
-// - Rubrique : CP, RTT (ou jours de repos du forfait jours), RECUP pour les congés ; hors congés, une rubrique par
+// - Rubrique : CP, RTT (ou jours de repos du forfait jours), RECUP, CET (congé pris sur le compte épargne-temps, rubrique
+//   désactivée par défaut : « à saisir dans Sage ») pour les congés ; hors congés, une rubrique par
 //   rémunération de la nature (non payée, indemnisée, salaire maintenu) et par catégorie (santé, parentalité, famille).
 //   Le code révèle donc la catégorie : les lignes ne vont qu'au droit « paie » (fichier, export), le journal ne garde
 //   jamais ni rubrique ni nature (natureAbsence de shared/rules/temps.ts).
@@ -38,12 +39,12 @@ export const absencesDansLeFichier = (s: Partial<Pick<Settings, 'absencesFichier
 const CATEGORIE: Record<CategorieAbsence, string> = { sante: 'SANTE', parentalite: 'PARENT', famille: 'FAMILLE', non_payee: 'NP' };
 
 /**
- * Rubrique interne (RUBRIQUES_PAIE) d'une absence : CP, RTT, RECUP ; hors congés, ABS_NP pour une absence non payée,
+ * Rubrique interne (RUBRIQUES_PAIE) d'une absence : CP, RTT, RECUP, CET ; hors congés, ABS_NP pour une absence non payée,
  * sinon ABS_IND_<catégorie> (indemnités journalières, complément employeur) ou ABS_MAINT_<catégorie> (salaire maintenu).
  * Null pour une absence à qualifier, qui ne part pas.
  */
 export function rubriqueAbsence(t: AbsenceType): string | null {
-  if (t === 'CP' || t === 'RTT' || t === 'RECUP') return t;
+  if (t === 'CP' || t === 'RTT' || t === 'RECUP' || t === 'CET') return t;
   const n = natureDef(t);
   if (!n) return null;
   if (n.paie === 'non_payee' || n.categorie === 'non_payee') return 'ABS_NP';

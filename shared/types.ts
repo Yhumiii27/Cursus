@@ -34,8 +34,11 @@ export type TypeTitreSejour = 'salarie' | 'travailleur_temporaire' | 'pluriannue
 export interface AutorisationTravail { type: TypeTitreSejour; numero?: string | null; expire: ISODate | null; demandeLe?: ISODate | null; verifieLe: ISODate | null }
 /** Organisation du temps de travail (durée de référence ou convention de forfait). */
 export type TempsTravail = '35h' | '39h_rtt' | 'forfait_heures_hebdo' | 'forfait_heures_annuel' | 'forfait_jours' | 'partiel' | 'dirigeant';
-/** Congés décomptés sur un solde : congés payés, RTT / jours de repos, récupération. */
-export type CongeType = 'CP' | 'RTT' | 'RECUP';
+/**
+ * Congés décomptés sur un solde : congés payés, RTT / jours de repos, récupération, congé pris sur le compte
+ * épargne-temps (`CET`, jours ouvrés débités du CET, shared/rules/conges.ts).
+ */
+export type CongeType = 'CP' | 'RTT' | 'RECUP' | 'CET';
 /** Absences hors congés : natures du référentiel `NATURES_ABSENCE` (shared/constants.ts). */
 export type NatureAbsence =
   | 'MALADIE' | 'ALD' | 'AT' | 'TRAJET' | 'MP'
@@ -683,6 +686,8 @@ export interface CetMouvement { id: number; empId: number; type: 'CP' | 'RTT'; j
 export interface ReportCp {
   id: number; empId: number; jours: number; motif: string; par: string; date: ISODate; sens: 'recu' | 'accorde';
   periode: number | null; expire: ISODate | null;
+  /** Report reçu qui porte des jours de fractionnement (`conges.fractionnement`, shared/rules/fractionnement.ts) ; null sinon. */
+  origine?: 'fractionnement' | null;
 }
 /**
  * Compteurs repris de l'ancien système (Lucca), arrêtés le `arreteLe` : `cpPris` porte sur la période de congés payés
@@ -715,6 +720,17 @@ export interface ClotureConges {
   decision: 'reporter' | 'perdre' | 'solde_nul'; reportes: number; perdus: number; expire: ISODate | null; reportId: number | null;
   motif: 'report_legal' | 'report_en_cours' | null; le: ISODate; par: string;
 }
+/**
+ * Jours de fractionnement d'une période de congés payés (`periode` : année de prise, t046, shared/rules/fractionnement.ts),
+ * décidés par le service RH (`conges.fractionnement`), une ligne par salarié et période : crédités (`jours`, report reçu
+ * `reportId` sur la période) ou renonciation individuelle du salarié (art. L3141-19, aucun jour). Service RH, paie, lecture
+ * seule et intéressé.
+ */
+export interface Fractionnement {
+  id: number; empId: number; periode: number; decision: 'credite' | 'renonce'; jours: number; reportId: number | null; le: ISODate; par: string;
+}
+/** Règle des jours de fractionnement : légale (supplétive), fixée par un accord d'entreprise, ou aucun jour (accord collectif). */
+export type RegleFractionnement = 'legal' | 'accord' | 'aucun';
 /**
  * Information du salarié sur ses congés payés à son retour d'un arrêt de maladie ou d'accident (art. L3141-19-3,
  * `conges.informer`, shared/rules/information-retour.ts) : arrêt concerné (`absenceId`, ses dates), jour de l'information,
@@ -938,6 +954,18 @@ export interface Settings {
   deplacementsPaieAPartirDu: ISODate | null;
   /** Rappel de vérifier la vigilance d'un pays (France Diplomatie) avant un départ : vérification de plus de N jours (t068). */
   vigilanceRappelJours: number;
+  /**
+   * Fractionnement des congés payés (t046, shared/rules/fractionnement.ts) : règle légale supplétive par défaut, fixée par un
+   * accord d'entreprise ou aucun jour (art. L3141-21 ; la référence de l'accord est alors exigée), et période du congé
+   * principal (« MM-JJ », du 1er mai au 31 octobre par défaut, art. L3141-13).
+   */
+  fractionnementRegle: RegleFractionnement;
+  fractionnementAccord: string;
+  fractionnementDebut: string;
+  fractionnementFin: string;
+  /** Compte épargne-temps (shared/rules/conges.ts) : plafonds de placement, RTT par an et CP de 5e semaine par période (5 et 5). */
+  cetPlafondRtt: number;
+  cetPlafondCp: number;
 }
 /** Plafond des heures complémentaires du temps partiel : le dixième (art. L3123-28) ou le tiers avec un accord (art. L3123-20). */
 export type PlafondComplementaires = 'dixieme' | 'tiers';
@@ -1295,6 +1323,8 @@ export interface Dataset {
   clotures: ClotureConges[];
   /** Informations des salariés sur leurs congés à leur retour d'arrêt : service RH et intéressé (vide ailleurs). */
   informationsCp?: InformationCp[];
+  /** Jours de fractionnement décidés (t046) : service RH, paie et lecture seule (tous), intéressé (les siens) ; absent ailleurs. */
+  fractionnements?: Fractionnement[];
   /** Acquisition des CP calculée par le serveur, par salarié et par période : profil paie seulement (absent ailleurs). */
   acquisitionsCp?: AcquisitionCpCalculee[];
   /** Soldes de sortie photographiés (t128) : service RH, paie et lecture seule (absent ou vide ailleurs). */

@@ -19,7 +19,7 @@ const JOURS_MOIS = [31, 28, 31, 30, 31, 30, 31, 31, 30, 31, 30, 31];
 const pad = (n: number) => String(n).padStart(2, '0');
 
 /** Jour et mois d'un réglage « MM-JJ » : deux listes ; un jour au-delà de la fin du mois est ramené à son dernier jour. */
-function JourMois({ id, label, value, onChange, disabled }: { id: string; label: string; value: string; onChange: (v: string) => void; disabled: boolean }) {
+export function JourMois({ id, label, value, onChange, disabled }: { id: string; label: string; value: string; onChange: (v: string) => void; disabled: boolean }) {
   const [m, j] = value.split('-').map(Number);
   const changer = (mois: number, jour: number) => onChange(`${pad(mois)}-${pad(Math.min(jour, JOURS_MOIS[mois - 1]))}`);
   return (

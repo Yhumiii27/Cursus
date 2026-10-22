@@ -194,6 +194,16 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   deplacementsPaieAPartirDu: { defaut: null, controle: dateOuVide('Déplacements transmis à partir du') },
   //   Vigilance des pays (shared/rules/vigilance.ts, t068) : rappel avant un départ si la vérification a plus de N jours —
   vigilanceRappelJours: { defaut: 30, controle: entier(7, 180) },
+  // — Fractionnement des congés payés (parametres/Fractionnement.tsx, shared/rules/fractionnement.ts, t046) : règle légale
+  //   supplétive tant que les accords d'entreprise ne sont pas connus ; congé principal du 1er mai au 31 octobre —
+  fractionnementRegle: { defaut: 'legal', controle: choix(['legal', 'accord', 'aucun']) },
+  fractionnementAccord: { defaut: '', controle: texte(120, 'Référence de l’accord') },
+  fractionnementDebut: { defaut: '05-01', controle: jourDeLAnnee },
+  fractionnementFin: { defaut: '10-31', controle: jourDeLAnnee },
+  // — Compte épargne-temps (parametres/CompteEpargneTemps.tsx, shared/rules/conges.ts) : plafonds de placement, 5 RTT par
+  //   an et 5 CP de la 5e semaine par période, tant que l'accord sur le CET n'est pas connu —
+  cetPlafondRtt: { defaut: 5, controle: entier(0, 25) },
+  cetPlafondCp: { defaut: 5, controle: entier(0, 5) },
 };
 
 /**
@@ -221,6 +231,11 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
     ? 'Heures complémentaires jusqu’au tiers de la durée contractuelle : indiquez la référence de l’accord collectif qui le prévoit (art. L3123-20)' : null),
   s => (s.moyenne12SemainesMax > 44 && !s.moyenne12SemainesAccord
     ? 'Moyenne au-delà de 44 h sur 12 semaines : indiquez la référence de l’accord collectif qui la porte jusqu’à 46 h (art. L3121-23)' : null),
+  // — Fractionnement : une autre règle que la loi, ou aucun jour, suppose un accord collectif d'entreprise (art. L3141-21) ;
+  // la période du congé principal tient dans l'année civile —
+  s => (s.fractionnementRegle !== 'legal' && !s.fractionnementAccord
+    ? 'Fractionnement des congés : une règle fixée par accord, ou la renonciation aux jours de fractionnement, suppose un accord collectif d’entreprise (art. L3141-21) : indiquez sa référence' : null),
+  s => (s.fractionnementDebut >= s.fractionnementFin ? 'Période du congé principal : le début doit précéder la fin, dans la même année' : null),
 ];
 
 /** Vue non typée de la table, pour la parcourir (les contrôles reçoivent la valeur en vigueur du même champ). */

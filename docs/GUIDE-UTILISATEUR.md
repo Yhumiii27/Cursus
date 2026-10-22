@@ -64,7 +64,10 @@ pas dans Cursus : la paie les traite dans Sage.
 1. Menu « Mes absences » : soldes de congés payés (période en cours et période d'acquisition), RTT ou jours de repos,
    récupération, compte épargne-temps.
 2. « Poser une absence » : type, premier et dernier jour, et demi-journée si besoin (après-midi du premier jour, matin du
-   dernier, ou matin ou après-midi pour un seul jour). Le décompte et les contrôles s'affichent avant « Envoyer la
+   dernier, ou matin ou après-midi pour un seul jour). Des jours épargnés sur le compte épargne-temps se prennent par le
+   type « Congé sur le compte épargne-temps » (jours ouvrés, journées entières). Un congé de plus de 24 jours ouvrables
+   d'affilée, ou qui ne laisse plus de quoi prendre 12 jours continus entre le 1er mai et le 31 octobre, est signalé sans
+   être refusé. Le décompte et les contrôles s'affichent avant « Envoyer la
    demande ».
 3. Le manager valide ou refuse ; un refus arrive avec son motif.
 4. Une absence imprévue (maladie, enfant malade, accident) se déclare par « Signaler une absence ». Le service RH en
@@ -219,6 +222,11 @@ entretiens : un collègue ou son manager le fait.
   adoption) sont automatiques. Première clôture des CP après la reprise : le 1er juin 2027.
 - Retour d'arrêt : la tâche d'information du salarié sur ses congés apparaît dans « Congés & absences ».
 - « Reporter » et « Épargner » (compte épargne-temps) depuis le tableau des soldes.
+- **Congé principal et fractionnement** : de septembre au 31 octobre, « Congé principal à prévoir » liste les salariés qui
+  n'ont pas posé 12 jours ouvrables continus (10 ouvrés) dans la période. À partir du 1er novembre, « Jours de fractionnement
+  à décider » propose 1 ou 2 jours par salarié qui a pris (ou prendra) hors période une partie de son congé principal :
+  « Décider » pour créditer les jours ou noter la renonciation écrite du salarié ; rien n'est crédité d'office. Règle et
+  période dans Paramètres → Fractionnement des congés (règle légale par défaut ; un accord exige sa référence).
 - **Pièces justificatives** (désactivées tant que l'administrateur RH ne les a pas activées dans Paramètres, après avis
   du DPO) : « Joindre le justificatif » dans la saisie et la qualification d'une absence, « Justificatifs reçus » pour
   ouvrir celui que le salarié a envoyé avec son signalement ou depuis « Justificatif » ; sur la fiche, « Pièces
@@ -311,7 +319,9 @@ d'un mois clos enregistrée en retard part entière, en rappel.
   majoration), complémentaires du temps partiel, heures du dimanche (HDIM, et MAJ_DIM si une majoration est réglée),
   jours fériés travaillés (1er mai en MAJ_1MAI, autres en FERIE_TRAV), contrepartie obligatoire en repos (COR_ACQUIS).
 - Absences validées : CP en jours ouvrés, RTT ou jours de repos en jours, récupération en heures, absences hors congés
-  par rémunération et catégorie (Paramètres → Absences et paie, activé par défaut).
+  par rémunération et catégorie (Paramètres → Absences et paie, activé par défaut). Congés pris sur le compte
+  épargne-temps (rubrique CET) : désactivée tant que la paie n'a pas donné son code ; chaque congé est alors listé « À
+  saisir dans Sage » dans le résumé du lot et l'export des variables.
 - Soldes de sortie (CP, RTT, récupération, CET) quand leurs rubriques sont activées ; sinon ils se saisissent dans Sage à
   partir de l'état imprimé.
 - Déplacements (jours et nuits de grand déplacement en GD_JOUR et GD_NUIT, jours à l'étranger en ETR_JOUR avec le pays en

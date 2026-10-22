@@ -22,7 +22,7 @@ import { etatsCouverture } from '../../shared/rules/couverture.ts';
 import { entretienMiCarriere } from '../../shared/rules/entretien-mi-carriere.ts';
 import type { ContratHistorique, DemandeVisite, EtatCouverture, LotReprise } from '../../shared/types.ts';
 import type {
-  Absence, Certification, Inscription, CetMouvement, Chantier, ClotureConges, CurrentUser, InformationCp, Dataset, SoldeSortie, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
+  Absence, Certification, Inscription, CetMouvement, Fractionnement, Chantier, ClotureConges, CurrentUser, InformationCp, Dataset, SoldeSortie, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
   CalendrierFeries, DerogationDominicale, Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, Horaire, ISODate, Mandat, Mission, Participation, PlanAction, Poste, Projet, ReleveInterim,
   ReportCp, RubriquePaie, Session,
   Settings, SoldeReprise, TacheKeystone, Vaccination, Visa, Voyage,
@@ -129,6 +129,8 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     clotures: db.all<ClotureConges>('clotures'),
     // Informations au retour d'un arrêt (art. L3141-19-3) : elles désignent un arrêt de santé, service RH et intéressé.
     informationsCp: db.all<InformationCp>('informationsCp'),
+    // Jours de fractionnement décidés (t046) : crédit (report reçu, compté dans les droits) ou renonciation du salarié.
+    fractionnements: db.all<Fractionnement>('fractionnements'),
     // Soldes de sortie photographiés (t128) : compteurs du solde de tout compte, service RH, paie et lecture seule.
     soldesSortie: db.all<SoldeSortie>('soldesSortie'),
     // Historique des contrats (t074) : régimes successifs, renouvellements des CDD, avenants programmés.
@@ -358,6 +360,9 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     clotures: mine(full.clotures).map(c => isMgr && c.empId !== user.empId ? clotureNeutre(c) : c),
     // Information au retour d'un arrêt : elle révèle un arrêt de santé, l'intéressé seul la reçoit (jamais son manager).
     informationsCp: (full.informationsCp ?? []).filter(i => i.empId === user.empId),
+    // Jours de fractionnement : la décision (crédit, renonciation) à l'intéressé seul ; le manager voit le crédit dans les
+    // reports reçus de son équipe (`reportNeutre`), comme tout report.
+    fractionnements: (full.fractionnements ?? []).filter(f => f.empId === user.empId),
     // Solde de sortie : solde de tout compte, l'affaire du service RH et de la paie (ni le manager, ni l'intéressé).
     soldesSortie: [],
     // Historique des contrats : lignes du périmètre (régimes de son équipe pour le manager, les siennes pour le salarié),
@@ -516,6 +521,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     clotures: paie ? full.clotures.map(clotureNeutre) : [],
     // Informations au retour d'un arrêt de santé : service RH seulement.
     informationsCp: [],
+    // Jours de fractionnement décidés (crédit, renonciation) : paie et lecture seule, comme les clôtures ; pas le référent HSE.
+    fractionnements: paie ? full.fractionnements ?? [] : [],
     // Solde de sortie : paie (solde de tout compte) et lecture seule ; pas le référent HSE.
     soldesSortie: paie ? full.soldesSortie : [],
     // Historique des contrats : paie et lecture seule (régimes, renouvellements des CDD) ; pas le référent HSE.

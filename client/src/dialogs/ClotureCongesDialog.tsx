@@ -10,7 +10,7 @@ import { parse } from '../../../shared/dates.ts';
 import { equipeLabel, fJ, fmt, fmtIso, plural } from '../../../shared/format.ts';
 import { periodeDemiTexte } from '../../../shared/rules/demi-journees.ts';
 import { echeanceReport, lignesClotureCp, lignesClotureRtt, MOTIF_CLOTURE_LABEL, type LigneClotureCp } from '../../../shared/rules/clotures.ts';
-import { finPeriodeCp, periodeCp } from '../../../shared/rules/conges.ts';
+import { finPeriodeCp, periodeCp, plafondsCet } from '../../../shared/rules/conges.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Empty, Fine, NoteAccent, Seg, Tag } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
@@ -213,7 +213,7 @@ function ClotureRtt({ Y }: { Y: number }) {
       </p>
       {cet.length > 0 && (
         <NoteAccent>
-          Rappel : jusqu’à 5 RTT par an se placent sur le compte épargne-temps. {plural(cet.length, 'salarié peut', 'salariés peuvent')} encore y placer des
+          Rappel : jusqu’à {plafondsCet(d).rtt} RTT par an se placent sur le compte épargne-temps. {plural(cet.length, 'salarié peut', 'salariés peuvent')} encore y placer des
           RTT {Y} jusqu’à cette confirmation (bouton « Épargner » de l’écran Congés &amp; absences).
         </NoteAccent>
       )}

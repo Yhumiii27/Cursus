@@ -1,4 +1,4 @@
-// Congés payés, RTT / jours de repos, récupération et compte épargne-temps.
+// Congés payés, RTT / jours de repos, récupération et compte épargne-temps (placements, congé pris sur le CET).
 // CCN Industries chimiques : 25 jours ouvrés, pas de congés d'ancienneté,
 // +5 jours ouvrés à partir de 59 ans.
 import { ABS_LABEL } from '../constants.ts';
@@ -13,6 +13,7 @@ import { chevauche, demiJournees, type DemiJournees } from './demi-journees.ts';
 import { modeHeuresSup } from './paie.ts';
 import { calcSheet, corDeLaFeuille, heuresSurAbsence, joursTexte, type AbsenceJour } from './temps.ts';
 import { regimeDans, segmentsContrat, type SegmentContrat } from './historique-contrat.ts';
+import { avertissementsFractionnement } from './fractionnement.ts';
 
 /**
  * Nombre de mois (sur `n` à partir de `start`) où le salarié était présent à mi-mois (RTT ; pour les CP, les absences
@@ -363,31 +364,56 @@ export function recupInfo(d: Domain, e: Employe) {
   return { acq, pris, poses, solde: acq - pris - poses, dh };
 }
 
-/** Compte épargne-temps : 5 RTT par an et 5 CP de 5e semaine par période au maximum ; `repris` : solde repris de l'ancien outil. */
+/**
+ * Jours épargnés sur le compte épargne-temps : placements faits dans Cursus et solde repris de l'ancien outil à la mise en
+ * service (`cetSolde`), avant les congés pris dessus.
+ */
+export function cetEpargne(d: Domain, e: Employe): number {
+  const placements = d.ds.cet.filter(x => x.empId === e.id).reduce((n, x) => n + x.jours, 0);
+  return placements + (d.ds.soldesReprise.find(s => s.empId === e.id)?.cetSolde ?? 0);
+}
+
+/** Plafonds de placement sur le CET (réglages, 5 et 5 par défaut) : RTT par an, CP de la 5e semaine par période. */
+export const plafondsCet = (d: Domain) => ({ rtt: d.ds.settings?.cetPlafondRtt ?? 5, cp: d.ds.settings?.cetPlafondCp ?? 5 });
+
+/**
+ * Compte épargne-temps : placements dans la limite des plafonds réglés (RTT par an, CP de la 5e semaine par période ; 5 et
+ * 5 par défaut), solde repris de l'ancien outil (`repris`) et congés pris dessus (absences `CET`, jours ouvrés, validées par
+ * le manager comme un CP : `pris`, et demandées : `poses`). `total` : placements + repris − congés pris, solde liquidé à la
+ * sortie (shared/rules/solde-sortie.ts) ; `solde` : ce qui reste à poser, demandes en attente déduites.
+ */
 export function cetInfo(d: Domain, e: Employe) {
-  const cp = cpInfo(d, e), rt = rttInfo(d, e), list = d.ds.cet.filter(x => x.empId === e.id);
+  const cp = cpInfo(d, e), rt = rttInfo(d, e), list = d.ds.cet.filter(x => x.empId === e.id), plafond = plafondsCet(d);
   const sum = (t: string) => list.filter(x => x.type === t).reduce((n, x) => n + x.jours, 0);
-  const placeCp = cp ? Math.max(0, Math.min(5 - cp.cetCp, cp.acq - 20 - cp.cetCp, cp.solde)) : 0;
-  const placeRtt = cp && rt ? Math.max(0, Math.min(5 - rt.cetRtt, rt.solde)) : 0;
+  const placeCp = cp ? Math.max(0, Math.min(plafond.cp - cp.cetCp, cp.acq - 20 - cp.cetCp, cp.solde)) : 0;
+  const placeRtt = cp && rt ? Math.max(0, Math.min(plafond.rtt - rt.cetRtt, rt.solde)) : 0;
   // RTT de l'année précédente : encore plaçables tant que sa clôture n'est pas faite (rappel de la clôture du 31 décembre).
   const prec = cp && rt && !rttAnneeClose(d, e, d.year - 1) ? rttInfo(d, e, d.year - 1) : null;
-  const placeRttPrec = prec ? Math.max(0, Math.min(5 - prec.cetRtt, prec.solde)) : 0;
+  const placeRttPrec = prec ? Math.max(0, Math.min(plafond.rtt - prec.cetRtt, prec.solde)) : 0;
   // Solde du CET repris de l'ancien outil à la mise en service (jours), compté en plus des placements faits dans Cursus.
   const repris = d.ds.soldesReprise.find(s => s.empId === e.id)?.cetSolde ?? 0;
+  const conges = (st: string) => d.ds.absences.filter(a => a.empId === e.id && a.type === 'CET' && a.statut === st)
+    .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'CET', a), 0);
+  const epargne = sum('CP') + sum('RTT') + repris, pris = conges('validee'), poses = conges('demandee');
   return {
-    total: sum('CP') + sum('RTT') + repris, cp: sum('CP'), rtt: sum('RTT'), repris, placeCp, placeRtt, placeRttPrec, anneePrec: d.year - 1,
+    total: epargne - pris, epargne, pris, poses, solde: epargne - pris - poses,
+    cp: sum('CP'), rtt: sum('RTT'), repris, placeCp, placeRtt, placeRttPrec, anneePrec: d.year - 1, plafondCp: plafond.cp, plafondRtt: plafond.rtt,
     cp5: cp ? Math.max(0, cp.acq - 20) : 0, cpDone: cp ? cp.cetCp : 0, rttDone: rt ? rt.cetRtt : 0,
     rttLabel: rt ? rt.label : 'RTT', eligible: !!cp,
   };
 }
 
-/** Congés ouverts au salarié selon son contrat (les absences hors congés se signalent : `checkNature`). */
+/**
+ * Congés ouverts au salarié selon son contrat (les absences hors congés se signalent : `checkNature`). Congé pris sur le
+ * CET : dès qu'un jour y est épargné (placé ou repris de l'ancien outil).
+ */
 export function absenceKinds(d: Domain, e: Employe): [CongeType, string][] {
-  const rt = rttInfo(d, e);
+  const rt = rttInfo(d, e), cp = cpInfo(d, e);
   return [
-    ...(cpInfo(d, e) ? [['CP', 'Congés payés'] as [CongeType, string]] : []),
+    ...(cp ? [['CP', 'Congés payés'] as [CongeType, string]] : []),
     ...(rt ? [['RTT', rt.label] as [CongeType, string]] : []),
     ...(recupInfo(d, e) ? [['RECUP', 'Récupération'] as [CongeType, string]] : []),
+    ...(cp && cetEpargne(d, e) > 0 ? [['CET', 'Congé sur le compte épargne-temps'] as [CongeType, string]] : []),
   ];
 }
 
@@ -444,7 +470,7 @@ export function rttDemande(d: Domain, e: Employe, du: ISODate, au: ISODate) {
  * deux demi-journées opposées le même jour ne se chevauchent pas.
  */
 export function checkAbsence(d: Domain, e: Employe, kind: CongeType, du: string, au: string, valider = false, demi: DemiJournees = {}) {
-  const c = d.contratOf(e), cp = cpInfo(d, e), rc = recupInfo(d, e);
+  const c = d.contratOf(e), cp = cpInfo(d, e), rc = recupInfo(d, e), ct = kind === 'CET' ? cetInfo(d, e) : null;
   const kinds = absenceKinds(d, e);
   const valid = isValidDate(du) && isValidDate(au) && au >= du;
   const dj = demiJournees(kind, du, au, demi.debutDemi, demi.finDemi), periode = { du, au, ...dj.demi };
@@ -456,7 +482,7 @@ export function checkAbsence(d: Domain, e: Employe, kind: CongeType, du: string,
   const demiErreur = !valid ? null : dj.erreur
     ?? (dj.demi.debutDemi && decomptes[0]?.jour !== du ? 'Le premier jour n’est pas un jour travaillé : la demi-journée ne s’y applique pas.'
       : dj.demi.finDemi && decomptes.at(-1)?.jour !== au ? 'Le dernier jour n’est pas un jour travaillé : la demi-journée ne s’y applique pas.' : null);
-  const dispo = kind === 'CP' ? (cp ? cp.solde : 0) : kind === 'RTT' ? (rt ? rt.solde : 0) : (rc ? rc.solde / rc.dh : 0);
+  const dispo = kind === 'CP' ? (cp ? cp.solde : 0) : kind === 'RTT' ? (rt ? rt.solde : 0) : kind === 'CET' ? (ct ? ct.solde : 0) : (rc ? rc.solde / rc.dh : 0);
   // Un CP après la fin d'un CDD ou avant l'entrée n'a pas de sens : l'absence reste dans les bornes du contrat.
   const hors = valid ? borneContrat(e, du, au) : null;
   const overlap = valid && d.ds.absences.some(a => a.empId === e.id && absenceActive(a) && chevauche(a, periode));
@@ -476,7 +502,9 @@ export function checkAbsence(d: Domain, e: Employe, kind: CongeType, du: string,
   const heuresBloquent = !!heures && (valider || heures.validee);
   const msgs: { text: string; bad: boolean }[] = [];
   const add = (text: string, bad = false) => msgs.push({ text, bad });
-  if (valid) add(`Décompte : ${fJ(n)} ${kind === 'CP' ? 'ouvrés' : 'travaillés'} — week-ends et jours fériés exclus${kind !== 'CP' && c.jourOff.length ? ', jour non travaillé exclu' : ''}.`);
+  const ouvres = kind === 'CP' || kind === 'CET';
+  if (valid) add(`Décompte : ${fJ(n)} ${ouvres ? 'ouvrés' : 'travaillés'} — week-ends et jours fériés exclus${!ouvres && c.jourOff.length ? ', jour non travaillé exclu' : ''}.`);
+  if (valid && kind === 'CET') add('Congé pris sur le compte épargne-temps : jours débités du CET, validé par le manager comme un congé payé.');
   if (demiErreur) add(demiErreur, true);
   if (hors) add(`Absence hors contrat : ${hors}.`, true);
   if (overlap) add('Une absence existe déjà sur ces dates.', true);
@@ -487,6 +515,9 @@ export function checkAbsence(d: Domain, e: Employe, kind: CongeType, du: string,
     const A = Math.max(...nouveaux.filter(j => j.anticipe).map(j => j.periode));
     add(`Prise par anticipation sur les congés en cours d’acquisition (période ${periodeCp(A)}), dans la limite des jours acquis à la date du congé — soumise à l’accord du manager.`);
   }
+  // Fractionnement (t046) : congé continu de plus de 24 jours ouvrables, congé principal compromis, jours supplémentaires
+  // ouverts — avertissements seulement (shared/rules/fractionnement.ts).
+  if (cpJours && !insuff) avertissementsFractionnement(d, e, periode, cpJours).forEach(t => add(t));
   if (rttRefus) add(rttRefus, true);
   if (heures) add(heures.text, heuresBloquent);
   if (m) add(`Affecté au chantier ${m.projet} (${m.lieu}, ${fmtShort(parse(m.du))} → ${fmtShort(parse(m.au))}) — le chef de projet sera notifié dans Keystone.`, true);
@@ -496,6 +527,7 @@ export function checkAbsence(d: Domain, e: Employe, kind: CongeType, du: string,
   // Congé de l'été prochain : solde de la période sur laquelle il est imputé.
   const Ademande = cpJours ? anneeCp(du) : null;
   const soldeLabel = kind === 'RECUP' && rc ? `Disponible : ${fH(rc.solde)} (≈ ${fJ(rc.solde / rc.dh)})`
+    : kind === 'CET' ? `Disponible sur le compte épargne-temps : ${fJ(dispo)}`
     : Ademande != null && Ademande !== anneeCp(d.ti) ? `Disponible sur la période ${periodeCp(Ademande)} : ${fJ(soldePeriode(d, e, Ademande))}`
     : rtt && rtt.annee !== d.year ? `Disponible sur ${rtt.annee} : ${fJ(dispo)}`
     : `Disponible : ${fJ(dispo)}`;

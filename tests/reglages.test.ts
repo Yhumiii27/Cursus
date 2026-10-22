@@ -62,6 +62,10 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     // Lot 6 (t031, t068) : déplacements hors du fichier tant que la paie n'a pas confirmé ses codes (réponse du 18 octobre
     // 2026) ; vigilance des pays à vérifier de nouveau au-delà de 30 jours.
     deplacementsFichierPaie: false, deplacementsPaieAPartirDu: null, vigilanceRappelJours: 30,
+    // Lot 6, chantier 3 (t046, t127) : règle légale du fractionnement, congé principal du 1er mai au 31 octobre ; plafonds de
+    // placement sur le CET, 5 RTT par an et 5 CP de la 5e semaine.
+    fractionnementRegle: 'legal', fractionnementAccord: '', fractionnementDebut: '05-01', fractionnementFin: '10-31',
+    cetPlafondRtt: 5, cetPlafondCp: 5,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

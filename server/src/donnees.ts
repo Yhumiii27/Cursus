@@ -31,6 +31,7 @@ const TITRES: Partial<Record<TableName, string>> = {
   soldesSortie: 'Solde des compteurs à la sortie', contratsHistorique: 'Historique du contrat',
   pieces: 'Pièces justificatives',
   deplacementsPaie: 'Déplacements transmis à la paie (jours, nuits, trajets)',
+  fractionnements: 'Jours de fractionnement des congés payés',
 };
 /**
  * Colonnes jamais exportées : empreinte du mot de passe (secret) ; nom stocké et jeton d'envoi d'une pièce justificative

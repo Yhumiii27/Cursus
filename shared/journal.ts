@@ -25,6 +25,8 @@ export const ACTIONS_PAIE: readonly string[] = [
   // Clôture des congés (report ou perte du solde de chaque salarié, à justifier en cas de litige) et datation des
   // compteurs repris de l'ancien système (période sur laquelle ils sont décomptés).
   'conges.cloturer', 'migration.soldes',
+  // Jours de fractionnement crédités, ou renonciation du salarié (t046) : droits à congés payés de la période.
+  'conges.fractionnement',
   // Sortie (solde de tout compte, absences qu'elle annule) et solde de RTT gardé avant un changement de régime.
   'employe.sortie', 'employe.annulerSortie', 'employe.rtt',
   // Paie : correspondance des rubriques avec le plan de paie Sage, mode des heures supplémentaires figé sur les feuilles.
@@ -173,6 +175,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'cet.placer': 'Placement sur le compte épargne-temps',
   'report.accorder': 'Report de congés payés',
   'conges.cloturer': 'Clôture d’une période de congés',
+  'conges.fractionnement': 'Jours de fractionnement des congés payés',
   'conges.informer': 'Information sur les congés au retour d’un arrêt',
   // Entretiens
   'entretien.planifier': 'Entretien planifié',
@@ -359,6 +362,9 @@ export const CHAMP_LABEL: Record<string, string> = {
   consultationN2: 'Consultation N+2 des équipes rattachées', parente: 'Équipe parente',
   deplacementsFichierPaie: 'Déplacements dans le fichier d’import de la paie', deplacementsPaieAPartirDu: 'Déplacements transmis à la paie à partir du',
   vigilanceRappelJours: 'Rappel de vérification de la vigilance (jours)',
+  fractionnementRegle: 'Règle des jours de fractionnement', fractionnementAccord: 'Accord sur le fractionnement des congés',
+  fractionnementDebut: 'Début de la période du congé principal', fractionnementFin: 'Fin de la période du congé principal',
+  cetPlafondRtt: 'Plafond de RTT placés sur le CET par an', cetPlafondCp: 'Plafond de CP placés sur le CET par période',
 };
 
 const valeur = (v: unknown): string => {

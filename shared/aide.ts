@@ -140,6 +140,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           '« Absences à qualifier » : chaque absence signalée attend sa nature et son justificatif (« Qualifier »). « Saisir une absence » enregistre directement un arrêt reçu.',
           'Clôtures proposées par un bandeau : RTT à partir du 1er janvier, congés payés à partir du 1er juin. Pour les CP, vous décidez salarié par salarié du report ou de la perte, jamais d’office ; les reports légaux (santé, maternité…) sont automatiques.',
           '« Reporter » et « Épargner » (compte épargne-temps) se font depuis le tableau des soldes.',
+          '« Congé principal à prévoir » : avant le 31 octobre, les salariés sans 12 jours ouvrables continus dans la période. « Jours de fractionnement à décider » : à partir du 1er novembre, « Décider » pour créditer les jours proposés ou noter la renonciation du salarié, jamais d’office.',
         ],
       },
       {

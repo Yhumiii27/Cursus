@@ -2,13 +2,15 @@
 import { useMemo } from 'react';
 import { DownloadSimpleIcon, PlusIcon } from '@phosphor-icons/react';
 import { HAB_CLS, HAB_LABEL, HAB_MESURE_LABEL, type HabKey } from '../../../shared/constants.ts';
-import { renouvellementDemande, type HabInfo, type PrereqCheck } from '../../../shared/domain.ts';
+import { renouvellementDemande, type EmpX, type HabInfo, type PrereqCheck } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { equipeLabel, fmt, plural, rel, validiteLabel } from '../../../shared/format.ts';
 import { actifs, habSuivie } from '../../../shared/rules/referentiels.ts';
 import { CatalogueVide } from '../components/ReferentielVide.tsx';
 import { Btn, Chips, Empty, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
 import { Ouvrir } from '../components/Cliquable.tsx';
+import { parDate, parNombre, parTexte, trier, usePagination, useTri, type Colonne } from '../components/tri.ts';
+import { SuiteListe, ThTri } from '../components/TriListe.tsx';
 import { csvRegistre } from '../listes-csv.ts';
 import { downloadCsv } from '../print.ts';
 import { useEnriched, useIntentPermis, useRole } from '../state/derived.ts';
@@ -16,6 +18,15 @@ import { useStore } from '../state/store.tsx';
 import { PickCard } from './Formations.tsx';
 
 const ORDER: Record<HabKey, number> = { exp: 0, susp: 0, retiree: 0, due: 1, pending: 2, ok: 3 };
+type Ligne = { e: EmpX; h: HabInfo };
+/** Colonnes triables du registre ; « Statut » : du moins valide au valide, comme l'ordre par défaut. */
+const COLONNES: Record<string, Colonne<Ligne>> = {
+  nom: parTexte(x => x.e.nom),
+  habilitation: parTexte(x => x.h.hm.nom),
+  delivrance: parDate(x => x.h.delivree ?? x.h.demande),
+  echeance: parNombre(x => x.h.d),
+  statut: parNombre(x => ORDER[x.h.key]),
+};
 const prereqCls = (c: PrereqCheck) => c.ok ? (c.due ? 'tag-outline' : 'tag-neutral') : 'tag-accent';
 /** Titre non valide : expiré, suspendu (prérequis ou décision de l'employeur) ou retiré. */
 const isKo = (k: HabKey) => k === 'exp' || k === 'susp' || k === 'retiree';
@@ -46,13 +57,18 @@ export function Habilitations() {
       kicker: `${plural(titres.length, 'titre en cours', 'titres en cours')} · ${titres.filter(x => x.h.key === 'due').length} à renouveler · ${titres.filter(x => isKo(x.h.key)).length} non valides · ${all.filter(x => enAttente(x.h)).length} en attente`,
     };
   }, [emps, d, ui.habFilter, ui.habType]);
+  // Tri par colonne et pagination (t145) : l'ordre par défaut (non valides, à renouveler, en attente, puis l'échéance)
+  // tant qu'aucun en-tête n'est cliqué ; le registre exporté suit le filtre et le tri affichés.
+  const t = useTri('habilitations');
+  const rows = useMemo(() => trier(v.rows, COLONNES, t.tri), [v.rows, t.tri]);
+  const page = usePagination(rows, `${ui.habFilter}|${ui.habType ?? ''}`);
 
   const habFm = ui.habType ? d.hm(ui.habType) ?? null : null;
   // Registre : les titres affichés (statut et type choisis), sans le motif d'une suspension ou d'un retrait.
   const exporter = () => {
-    const x = csvRegistre(d, v.rows);
+    const x = csvRegistre(d, rows);
     downloadCsv(x.fichier, x.head, x.rows);
-    notify(`Export CSV généré — ${plural(v.rows.length, 'titre', 'titres')}`);
+    notify(`Export CSV généré — ${plural(rows.length, 'titre', 'titres')}`);
   };
 
   return (
@@ -84,9 +100,17 @@ export function Habilitations() {
       }>
         <div className="scroll-x">
           <table className="table">
-            <thead><tr><th>Collaborateur</th><th>Habilitation</th><th>Délivrance</th><th>Échéance</th><th>Prérequis</th><th>Statut</th><th></th></tr></thead>
+            <thead><tr>
+              <ThTri t={t} col="nom">Collaborateur</ThTri>
+              <ThTri t={t} col="habilitation">Habilitation</ThTri>
+              <ThTri t={t} col="delivrance">Délivrance</ThTri>
+              <ThTri t={t} col="echeance">Échéance</ThTri>
+              <th>Prérequis</th>
+              <ThTri t={t} col="statut">Statut</ThTri>
+              <th></th>
+            </tr></thead>
             <tbody>
-              {v.rows.map(({ e, h }) => {
+              {page.lignes.map(({ e, h }) => {
                 const proposee = d.habAction(e.id, h), a = proposee && permis(proposee.intent) ? proposee : null;
                 const mesures = formations ? d.habMesures(h, true) : [];
                 return (
@@ -120,6 +144,7 @@ export function Habilitations() {
           </table>
         </div>
         {v.rows.length === 0 && <Empty pad="sm">Aucune habilitation ne correspond à ces filtres.</Empty>}
+        <SuiteListe p={page} unite={['titre', 'titres']} />
       </Panel>
     </Page>
   );

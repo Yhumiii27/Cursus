@@ -18,6 +18,7 @@ import type { FormaliteKind, UiIntent } from '../../../shared/domain.ts';
 import type { ReferentielId } from '../../../shared/rules/referentiels.ts';
 import type { CompteSession, Dataset, EntretienType, ISODate, MotifVisite, ObjetPiece, PlanStatut, ProfilRh, Role, VaccinId } from '../../../shared/types.ts';
 import { api, lienMicrosoft, surSessionExpiree, type ActionResponse, type ApiError, type SessionState } from '../api.ts';
+import type { Tri } from '../components/tri.ts';
 import { AppelsEnCours, cleAction } from './actions.ts';
 import type { Confirmation } from './confirmations.ts';
 import { demandeHabilitation } from './confirmations-referentiels.ts';
@@ -50,6 +51,8 @@ export interface UiState {
   refOnglet: ReferentielId | 'postes' | 'activites' | 'horaires';
   /** Saisie des heures jour par jour (téléphone, tablette) : jour affiché, du lundi (0) au dimanche (6) ; null : le jour courant. */
   tsJour: number | null;
+  /** Tri choisi par un clic sur un en-tête, par liste (components/tri.ts) ; absent : l'ordre par défaut de l'écran. */
+  tris: Partial<Record<string, Tri | null>>;
 }
 
 const INITIAL_UI: UiState = {
@@ -57,6 +60,7 @@ const INITIAL_UI: UiState = {
   habFilter: 'tous', habType: null, tripSel: null, echType: 'tous', goSel: null, exercice: null, planFilter: 'tous', weekStart: null, tsEmp: null,
   refOnglet: 'formations',
   tsJour: null,
+  tris: {},
 };
 
 /** Dialogues ouverts depuis plusieurs écrans — rendus par <DialogHost />. */

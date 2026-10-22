@@ -99,7 +99,10 @@ son espace (« Télécharger mes données »).
 Cursus s'utilise aussi sur **téléphone et tablette** (accès depuis Internet) : menu replié derrière un bouton
 « Menu », feuilles de temps saisies jour par jour, champs et boutons à la taille du doigt ; la grille de la semaine
 reste sur PC. Chaque page a son titre d'onglet et un lien « Aller au contenu » pour le clavier ; chaque ligne ou carte
-cliquable s'ouvre aussi au clavier (bouton sur le nom). L'annuaire, le registre des habilitations, les soldes et les
+cliquable s'ouvre aussi au clavier (bouton sur le nom). Les grandes listes se trient en cliquant sur l'en-tête d'une
+colonne et s'affichent par 50 lignes (« Afficher plus ») ; la recherche de l'en-tête (service RH, manager sur son
+équipe ; « / » ou Ctrl+K) propose les collaborateurs au fil de la frappe (nom, poste, équipe ou matricule) et ouvre la
+fiche, et les listes de salariés des dialogues se filtrent de la même façon. L'annuaire, le registre des habilitations, les soldes et les
 absences, et le plan de formation s'exportent en CSV (« Exporter (CSV) »), avec les filtres de l'écran et sans donnée de
 santé ; chaque export est tracé au journal. La page
 **Confidentialité**, ouverte depuis l'écran de connexion et depuis chaque espace, informe les salariés sur le

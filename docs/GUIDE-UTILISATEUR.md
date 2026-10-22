@@ -162,6 +162,9 @@ Les feuilles validées partent à la paie avec le lot du mois : le manager n'a r
 - « Couverture minimale des équipes » (écran Équipe) : jour où votre équipe n'aura plus assez de secouristes ou
   d'équipiers incendie présents et formés, et pourquoi (certification qui expire, départ, absence, sans sa nature).
 - « Entretiens » : un entretien de mi-carrière peut apparaître, « à planifier avant le » une date donnée par le service RH.
+- Recherche en haut de l'écran (touche « / » ou Ctrl+K) : tapez un nom, un poste ou un matricule ; les membres de votre
+  équipe s'affichent au fil de la frappe, Entrée ou un clic ouvre la fiche, « Voir tous les résultats » filtre l'écran
+  Équipe. Les listes de salariés des formulaires se filtrent de la même façon.
 
 ## Service RH
 
@@ -169,6 +172,11 @@ Profils de l'espace RH : gestionnaire RH, administrateur RH (paramètres, compte
 et trois profils restreints : référent HSE (formations et habilitations), gestionnaire de paie (partie suivante) et
 lecture seule (direction, DPO, auditeur). Un membre du service RH ne décide jamais de ses propres absences, feuilles ou
 entretiens : un collègue ou son manager le fait.
+
+Listes : un clic sur l'en-tête d'une colonne trie (un deuxième inverse, un troisième revient à l'ordre habituel) ; au-delà
+de 50 lignes, la suite s'affiche à la demande (« Tout afficher »). Un export CSV reprend toutes les lignes filtrées, dans
+l'ordre affiché. La recherche en haut de l'écran (« / » ou Ctrl+K) propose les collaborateurs au fil de la frappe (nom,
+poste, équipe, matricule de paie ou EMP-…) et ouvre leur fiche ; « Voir tous les résultats » filtre l'annuaire.
 
 ### Fiches, contrats et sorties
 

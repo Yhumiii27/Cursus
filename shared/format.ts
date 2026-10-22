@@ -23,3 +23,10 @@ export const matricule = (id: number) => `EMP-${String(id).padStart(4, '0')}`;
 export const num = (v: unknown) => Number(String(v ?? '').replace(',', '.')) || 0;
 /** Équipe affichée ; un collaborateur sans équipe est « à affecter » par le service RH. */
 export const equipeLabel = (e: { equipe: string | null } | null | undefined) => e?.equipe ?? 'À affecter';
+/**
+ * Texte cherché pour un collaborateur, normalisé (accents et casse ignorés) : nom, poste, équipe, matricule de paie et
+ * matricule Cursus (EMP-0001, celui des messages de Keystone). Filtre de Collaborateurs et suggestions de la recherche
+ * (client/src/components/recherche.ts).
+ */
+export const texteRecherche = (e: { id: number; nom: string; poste: string; equipe: string | null; matriculePaie?: string | null }) =>
+  norm(`${e.nom} ${e.poste} ${equipeLabel(e)} ${e.matriculePaie ?? ''} ${matricule(e.id)}`);

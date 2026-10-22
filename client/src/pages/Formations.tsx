@@ -3,7 +3,7 @@
 // le manager suit son équipe et planifie ses recyclages.
 import { useMemo, type ReactNode } from 'react';
 import { CalendarBlankIcon, PlusIcon } from '@phosphor-icons/react';
-import { CERT_LABEL, CLS, SESS_CLS, SESSION_PASSEE } from '../../../shared/constants.ts';
+import { CERT_LABEL, CLS, RANK, SESS_CLS, SESSION_PASSEE } from '../../../shared/constants.ts';
 import type { CertInfo, EmpX } from '../../../shared/domain.ts';
 import { parse } from '../../../shared/dates.ts';
 import { fmt, fmtShort, plural, rel, validiteLabel } from '../../../shared/format.ts';
@@ -12,6 +12,8 @@ import type { Session } from '../../../shared/types.ts';
 import { CatalogueVide } from '../components/ReferentielVide.tsx';
 import { Bar, Btn, Empty, Fine, Page, Panel, Seg, Tag, Two, stop } from '../components/ui.tsx';
 import { CartePick, Ouvrir } from '../components/Cliquable.tsx';
+import { parNombre, parTexte, trier, usePagination, useTri, type Colonne } from '../components/tri.ts';
+import { SuiteListe, ThTri } from '../components/TriListe.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore, type UiState } from '../state/store.tsx';
 import { finSession, plageCourte } from '../../../shared/rules/plage-session.ts';
@@ -38,6 +40,13 @@ export function PickCard({ kicker, title, body, stats, meta, selected, onClick }
 
 /** Certification d'un membre de l'équipe à renouveler (ou expirée) sans session planifiée. */
 interface Renewal { e: EmpX; c: CertInfo; demande: string | null }
+/** Colonnes triables des renouvellements de l'équipe ; « Statut » : expirées d'abord. */
+const COLONNES_RENOUVELLEMENTS: Record<string, Colonne<Renewal>> = {
+  nom: parTexte(r => r.e.nom),
+  certification: parTexte(r => r.c.fm.court),
+  echeance: parNombre(r => r.c.d),
+  statut: parNombre(r => RANK[r.c.key], 'desc'),
+};
 
 export function Formations() {
   const { emps, forms, formIds, upcoming, d } = useEnriched();
@@ -86,7 +95,10 @@ export function Formations() {
     ? d.ds.sessions.filter(s => (s.statut === 'Clôturée' || s.statut === 'Annulée') && byFm(s)).sort((a, b) => b.date.localeCompare(a.date)).slice(0, 8)
     : [];
   const filteredFm = ui.formationFilter ? d.fm(ui.formationFilter) ?? null : null;
-  const shownRenewals = renewals.filter(r => !ui.formationFilter || r.c.f === ui.formationFilter);
+  // Tri par colonne et pagination des renouvellements (t145) : par échéance tant qu'aucun en-tête n'est cliqué.
+  const tRen = useTri('formations.renouvellements');
+  const shownRenewals = trier(renewals.filter(r => !ui.formationFilter || r.c.f === ui.formationFilter), COLONNES_RENOUVELLEMENTS, tRen.tri);
+  const pageRen = usePagination(shownRenewals, ui.formationFilter ?? '');
   const openSession = (f: string) => upcoming.find(s => s.formation === f && s.inscrits < s.places) ?? null;
   /** Membres de l'équipe inscrits à une session (recyclages et formations initiales visibles du manager). */
   const enrolled = (s: Session) => inscritsDe(d, s).filter(i => scope.some(e => e.id === i.empId)).map(i => i.nom);
@@ -115,9 +127,15 @@ export function Formations() {
           {shownRenewals.length > 0 && (
             <div className="scroll-x">
               <table className="table">
-                <thead><tr><th>Collaborateur</th><th>Certification</th><th>Échéance</th><th>Statut</th><th>Prochaine session</th><th></th></tr></thead>
+                <thead><tr>
+                  <ThTri t={tRen} col="nom">Collaborateur</ThTri>
+                  <ThTri t={tRen} col="certification">Certification</ThTri>
+                  <ThTri t={tRen} col="echeance">Échéance</ThTri>
+                  <ThTri t={tRen} col="statut" premier="desc">Statut</ThTri>
+                  <th>Prochaine session</th><th></th>
+                </tr></thead>
                 <tbody>
-                  {shownRenewals.map(({ e, c, demande }) => {
+                  {pageRen.lignes.map(({ e, c, demande }) => {
                     const s = openSession(c.f);
                     return (
                       <tr key={c.id} className="clickable" onClick={() => go('collaborateurs', { selectedId: e.id })}>
@@ -148,6 +166,7 @@ export function Formations() {
               </table>
             </div>
           )}
+          <SuiteListe p={pageRen} unite={['renouvellement', 'renouvellements']} />
           {shownRenewals.length === 0 && (
             <Empty pad="sm">{scope.length === 0
               ? 'Aucun collaborateur dans votre équipe.'

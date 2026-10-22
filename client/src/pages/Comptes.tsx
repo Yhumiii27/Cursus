@@ -7,6 +7,8 @@ import { COMPTE_TYPE_LABEL, ESPACE_LABEL, PROFILS_RH } from '../../../shared/con
 import { equipeLabel, fmt, norm, plural } from '../../../shared/format.ts';
 import type { CompteVue, ProfilRh } from '../../../shared/types.ts';
 import { api } from '../api.ts';
+import { parDate, parTexte, trier, usePagination, useTri, type Colonne } from '../components/tri.ts';
+import { SuiteListe, ThTri } from '../components/TriListe.tsx';
 import { Btn, Chips, Empty, Fine, Panel, Tag, Two } from '../components/ui.tsx';
 import { delierCompte, desactivationCompte, nouveauMotDePasse, rattachementCompte } from '../state/confirmations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
@@ -19,6 +21,15 @@ const minuscule = (s: string) => s.charAt(0).toLowerCase() + s.slice(1);
 const RESTREINTS: ProfilRh[] = ['referent_hse', 'paie', 'lecture_seule'];
 /** Adresse coupée de préférence avant « @ » quand la colonne est étroite. */
 const coupure = (id: string) => { const i = id.indexOf('@'); return i > 0 ? <>{id.slice(0, i)}<wbr />{id.slice(i)}</> : id; };
+
+/** Colonnes triables de la liste des comptes ; « Dernière connexion » : la plus récente d'abord, jamais connecté en dernier. */
+const COLONNES: Record<string, Colonne<CompteVue>> = {
+  nom: parTexte(c => c.nom),
+  identifiant: parTexte(c => c.identifiant),
+  profil: parTexte(c => PROFILS_RH[c.profilRh]?.label),
+  etat: parTexte(c => etat(c).label),
+  connexion: parDate(c => c.derniereConnexion, 'desc'),
+};
 
 /** État de connexion d'un compte : le premier motif qui empêche ou conditionne la connexion. */
 function etat(c: CompteVue): { label: string; cls: string } {
@@ -50,10 +61,13 @@ export function ComptesPanel() {
   // Rechargée au montage et à chaque nouvel instantané (donc après chaque action).
   useEffect(() => charger(), [data, charger]);
 
+  // Tri par colonne et pagination (t145) : l'ordre du serveur tant qu'aucun en-tête n'est cliqué.
+  const t = useTri('comptes');
   const liste = useMemo(() => {
     const q = norm(recherche.trim());
-    return (comptes ?? []).filter(c => !q || norm(`${c.nom} ${c.identifiant}`).includes(q));
-  }, [comptes, recherche]);
+    return trier((comptes ?? []).filter(c => !q || norm(`${c.nom} ${c.identifiant}`).includes(q)), COLONNES, t.tri);
+  }, [comptes, recherche, t.tri]);
+  const page = usePagination(liste, recherche);
 
   // Salariés présents sans compte : un compte externe peut être rattaché à l'une de ces fiches.
   const libres = useMemo(() => {
@@ -111,9 +125,17 @@ export function ComptesPanel() {
       {liste.length > 0 && (
         <div className="scroll-x" style={{ maxHeight: 560, overflowY: 'auto' }}>
           <table className="table">
-            <thead><tr><th>Personne</th><th>Identifiant</th><th>Profil RH</th><th>Espaces</th><th>État</th><th>Dernière connexion</th><th></th></tr></thead>
+            <thead><tr>
+              <ThTri t={t} col="nom">Personne</ThTri>
+              <ThTri t={t} col="identifiant">Identifiant</ThTri>
+              <ThTri t={t} col="profil">Profil RH</ThTri>
+              <th>Espaces</th>
+              <ThTri t={t} col="etat">État</ThTri>
+              <ThTri t={t} col="connexion" premier="desc">Dernière connexion</ThTri>
+              <th></th>
+            </tr></thead>
             <tbody>
-              {liste.map(c => {
+              {page.lignes.map(c => {
                 const e = c.empId ? d.emp(c.empId) : undefined;
                 const st = etat(c);
                 const moi = c.id === user.compteId;
@@ -159,6 +181,7 @@ export function ComptesPanel() {
           </table>
         </div>
       )}
+      <SuiteListe p={page} unite={['compte', 'comptes']} />
     </Panel>
   );
 }

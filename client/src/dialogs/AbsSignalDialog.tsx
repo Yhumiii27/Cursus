@@ -5,6 +5,7 @@ import { useState } from 'react';
 import { checkNature } from '../../../shared/rules/conges.ts';
 import { erreursPeriode } from '../components/controles.ts';
 import { CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
+import { ChoixCollaborateur } from '../components/ChoixCollaborateur.tsx';
 import { ChoixPiece, usePieceJointe } from '../components/PieceJointe.tsx';
 import { Fine } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
@@ -46,13 +47,12 @@ export function AbsSignalDialog({ empId }: { empId?: number | null }) {
       <CancelButton />
       <SubmitButton busy={busy}>Signaler l’absence</SubmitButton>
     </>}>
-      <Field label="Collaborateur" htmlFor={empId != null || choix.length <= 1 ? undefined : 'as-emp'} erreur={v.erreur(empErr)}>
+      <Field label="Collaborateur" htmlFor={empId != null || choix.length <= 1 ? undefined : 'as-emp'} requis={empId == null && choix.length > 1} erreur={v.erreur(empErr)}>
         {empId != null || choix.length <= 1
           ? <Static>{emp?.nom ?? '—'}</Static>
           : (
-            <select className="input" id="as-emp" value={String(sel ?? '')} onChange={ev => setSel(Number(ev.target.value))}>
-              {choix.map(e => <option key={e.id} value={e.id}>{e.nom}{e.id === me ? ' (moi)' : ''}</option>)}
-            </select>
+            <ChoixCollaborateur id="as-emp" emps={choix} valeur={sel} onChange={setSel} requis erreur={v.erreur(empErr)}
+              suffixe={e => e.id === me ? ' (moi)' : ''} />
           )}
       </Field>
       <div className="grid-2">

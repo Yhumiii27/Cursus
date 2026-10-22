@@ -5,7 +5,7 @@ import { CERT_LABEL, CLS, EMP_LABEL, HAB_CLS, HAB_LABEL, HAB_MESURE_LABEL, RANK,
 import type { ContratX, EmpX, HabInfo, Proposal } from '../../../shared/domain.ts';
 import type { Formation } from '../../../shared/types.ts';
 import { days, parse } from '../../../shared/dates.ts';
-import { equipeLabel, fmt, fmtIso, fmtShort, matricule, norm, plural, rel } from '../../../shared/format.ts';
+import { equipeLabel, fmt, fmtIso, fmtShort, matricule, plural, rel } from '../../../shared/format.ts';
 import { sessionDu } from '../../../shared/rules/plage-session.ts';
 import { absenceKinds } from '../../../shared/rules/conges.ts';
 import { habSuivie } from '../../../shared/rules/referentiels.ts';
@@ -16,6 +16,9 @@ import { equipesDescendantes } from '../../../shared/rules/hierarchie.ts';
 import { usePanneauVisible } from '../components/panneau.ts';
 import { Avatar, Bar, Btn, Chips, CloseButton, Empty, Fine, NoteAccent, Page, Panel, SectionLabel, Seg, Tag, Two } from '../components/ui.tsx';
 import { Ouvrir } from '../components/Cliquable.tsx';
+import { correspond } from '../components/recherche.ts';
+import { parDate, parNombre, parTexte, trier, usePagination, useTri, type Colonne } from '../components/tri.ts';
+import { SuiteListe, ThTri } from '../components/TriListe.tsx';
 import { Aptitude } from '../components/Aptitude.tsx';
 import { ExigencesCellule, ExigencesFiche, ExigencesMotif } from '../components/Exigences.tsx';
 import { SortieFiche } from '../components/Sortie.tsx';
@@ -45,6 +48,16 @@ import { membreOuDelegue } from '../state/delegues.ts';
 
 /** Valeur du filtre d'équipe pour les collaborateurs sans équipe (« À affecter »). */
 const SANS_EQUIPE = '';
+
+/** Colonnes triables de l'annuaire ; « Statut » et « Certifications » : du plus grave, du plus grand d'abord. */
+const COLONNES: Record<string, Colonne<EmpX>> = {
+  nom: parTexte(e => e.nom),
+  equipe: parTexte(e => e.equipe),
+  certifications: parNombre(e => e.certs.length, 'desc'),
+  echeance: parNombre(e => e.next?.d),
+  sortie: parDate(e => e.fin, 'desc'),
+  statut: parNombre(e => RANK[e.worst], 'desc'),
+};
 
 const docCls = (k: string) => k === 'exp' ? 'tag-accent' : k === 'due' ? 'tag-outline' : 'tag-neutral';
 
@@ -94,15 +107,19 @@ export function Collaborateurs() {
   const filtre = multi && (ui.equipe === SANS_EQUIPE ? espaceRh : teamOptions.includes(ui.equipe)) ? ui.equipe : 'Toutes';
   const aAffecter = espaceRh ? emps.filter(e => !e.equipe).length : 0;
 
-  const q = norm(ui.search.trim());
-  const rows = useMemo(() => liste
+  const q = ui.search;
+  // Tri par colonne (t145) : l'ordre par défaut (gravité, puis échéance, puis nom) tant qu'aucun en-tête n'est cliqué.
+  const t = useTri('collaborateurs');
+  const rows = useMemo(() => trier(liste
     .filter(e => (filtre === 'Toutes' || (filtre === SANS_EQUIPE ? !e.equipe : e.equipe === filtre)) && (ui.statut === 'tous' || sortis || e.worst === ui.statut)
       // Recherche aussi par matricule : de paie (fiche) ou Cursus (EMP-0001, celui des messages de Keystone).
-      && (!q || norm(`${e.nom} ${e.poste} ${equipeLabel(e)} ${e.matriculePaie ?? ''} ${matricule(e.id)}`).includes(q)))
+      && correspond(e, q))
     // Sortis : les départs les plus récents d'abord.
     .sort((a, b) => sortis ? (b.fin ?? '').localeCompare(a.fin ?? '') || a.nom.localeCompare(b.nom)
       : RANK[b.worst] - RANK[a.worst] || (a.next ? a.next.d : 1e9) - (b.next ? b.next.d : 1e9) || a.nom.localeCompare(b.nom)),
-  [liste, filtre, ui.statut, sortis, q]);
+  COLONNES, t.tri), [liste, filtre, ui.statut, sortis, q, t.tri]);
+  // Au-delà de 50 lignes : « Afficher plus » ; les filtres ramènent aux 50 premières (l'export garde toutes les lignes).
+  const page = usePagination(rows, `${filtre}|${ui.statut}|${q}`);
 
   const sel = liste.find(e => e.id === ui.selectedId) || null;
   // Écran étroit : la fiche s'affiche sous la liste ; la sélection l'amène dans le champ de vision.
@@ -159,9 +176,16 @@ export function Collaborateurs() {
         <section style={{ flex: '1 1 420px', minWidth: 0, display: 'flex', flexDirection: 'column', gap: 'var(--space-3)' }}>
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Collaborateur</th>{showEquipe && <th>Équipe</th>}<th>Certifications</th><th>Habilitations</th><th>Exigences</th><th>{sortis ? 'Sortie' : 'Prochaine échéance'}</th><th>Statut</th></tr></thead>
+              <thead><tr>
+                <ThTri t={t} col="nom">Collaborateur</ThTri>
+                {showEquipe && <ThTri t={t} col="equipe">Équipe</ThTri>}
+                <ThTri t={t} col="certifications" premier="desc">Certifications</ThTri>
+                <th>Habilitations</th><th>Exigences</th>
+                <ThTri t={t} col={sortis ? 'sortie' : 'echeance'}>{sortis ? 'Sortie' : 'Prochaine échéance'}</ThTri>
+                <ThTri t={t} col="statut" premier="desc">Statut</ThTri>
+              </tr></thead>
               <tbody>
-                {rows.map(e => {
+                {page.lignes.map(e => {
                   const hs = habSummary(e);
                   return (
                     <tr key={e.id} className={`clickable${ui.selectedId === e.id ? ' selected' : ''}`} onClick={() => setUi({ selectedId: ui.selectedId === e.id ? null : e.id })}>
@@ -198,6 +222,7 @@ export function Collaborateurs() {
                 : 'Aucun collaborateur enregistré.'}
             </Empty>
           )}
+          <SuiteListe p={page} unite={['collaborateur', 'collaborateurs']} />
           <p className="text-muted fine">{rows.length} {rows.length > 1 ? 'collaborateurs affichés' : 'collaborateur affiché'} sur {liste.length}</p>
         </section>
 

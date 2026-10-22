@@ -23,7 +23,7 @@ type UiState = import('../client/src/state/store.tsx').UiState;
 const UI: UiState = {
   horizon: null, search: '', equipe: 'Toutes', statut: 'tous', selectedId: null, typeForm: 'toutes', formationFilter: null,
   habFilter: 'tous', habType: null, tripSel: null, echType: 'tous', goSel: null, exercice: null, planFilter: 'tous', weekStart: null, tsEmp: null,
-  refOnglet: 'formations', tsJour: null,
+  refOnglet: 'formations', tsJour: null, tris: {},
 };
 
 function fresh() {

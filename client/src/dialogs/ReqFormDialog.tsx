@@ -8,6 +8,7 @@ import { blocage, conflitsSession } from '../../../shared/rules/conflits.ts';
 import { plageCourte, sessionDu } from '../../../shared/rules/plage-session.ts';
 import { Bloquant, CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { erreurTexte } from '../components/controles.ts';
+import { ChoixCollaborateur } from '../components/ChoixCollaborateur.tsx';
 import { Fine } from '../components/ui.tsx';
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
@@ -34,10 +35,8 @@ export function CibleField({ c, id, erreur }: { c: ReturnType<typeof useCible>; 
   if (c.fixe && c.cible) return <Field label="Pour"><Static>{c.cible.nom} · {c.cible.poste}</Static></Field>;
   return (
     <Field label="Pour" htmlFor={id} requis erreur={erreur}>
-      <select className="input" id={id} value={c.cible ? String(c.cible.id) : ''} onChange={e => c.setSel(e.target.value ? Number(e.target.value) : null)}>
-        <option value="">{c.membres.length ? 'Choisir un collaborateur de votre équipe' : 'Aucun collaborateur dans votre équipe'}</option>
-        {c.membres.map(e => <option key={e.id} value={String(e.id)}>{`${e.nom} · ${e.poste}`}</option>)}
-      </select>
+      <ChoixCollaborateur id={id} emps={c.membres} valeur={c.cible?.id ?? null} onChange={c.setSel} requis erreur={erreur}
+        placeholder={c.membres.length ? 'Choisir un collaborateur de votre équipe' : 'Aucun collaborateur dans votre équipe'} />
     </Field>
   );
 }

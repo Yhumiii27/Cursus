@@ -379,8 +379,8 @@ export const plafondsCet = (d: Domain) => ({ rtt: d.ds.settings?.cetPlafondRtt ?
 /**
  * Compte épargne-temps : placements dans la limite des plafonds réglés (RTT par an, CP de la 5e semaine par période ; 5 et
  * 5 par défaut), solde repris de l'ancien outil (`repris`) et congés pris dessus (absences `CET`, jours ouvrés, validées par
- * le manager comme un CP : `pris`, et demandées : `poses`). `total` : placements + repris − congés pris, solde liquidé à la
- * sortie (shared/rules/solde-sortie.ts) ; `solde` : ce qui reste à poser, demandes en attente déduites.
+ * le manager comme un CP : `pris`, et demandées : `poses`). `total` : placements + repris − congés pris ; `solde` : ce qui
+ * reste à poser, demandes en attente déduites, affiché, exporté et liquidé à la sortie (shared/rules/solde-sortie.ts).
  */
 export function cetInfo(d: Domain, e: Employe) {
   const cp = cpInfo(d, e), rt = rttInfo(d, e), list = d.ds.cet.filter(x => x.empId === e.id), plafond = plafondsCet(d);

@@ -209,8 +209,6 @@ test('t046 conges.fractionnement : crédit en report reçu compté dans les droi
     assert.equal(run(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [] }), 'Jours de fractionnement 2026-2027 : aucune décision enregistrée');
     const msg = run(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 2, decision: 'crediter', jours: 2 }, { empId: 3, decision: 'renoncer' }] });
     assert.match(msg, /^Jours de fractionnement 2026-2027 : 1 salarié crédité \(2 j en tout, jusqu’au 31 mai 2028\), 1 renonciation notée · \d+ salariés restent à décider$/);
-    // Déjà décidé : plus proposé, refusé.
-    refus(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 2, decision: 'crediter', jours: 2 }] }, /déjà décidé/);
   });
   const r = db.all<{ empId: number; jours: number; sens: string; periode: number; expire: string; origine: string | null; motif: string }>('reports').filter(x => x.origine === 'fractionnement');
   assert.deepEqual(r.map(x => [x.empId, x.jours, x.sens, x.periode, x.expire]), [[2, 2, 'recu', 2027, '2028-05-31']]);
@@ -239,6 +237,17 @@ test('t046 conges.fractionnement : crédit en report reçu compté dans les droi
     const vue = buildSnapshot(db, user(mgr, 'manager'));
     assert.deepEqual(vue.fractionnements ?? [], []);
     assert.ok(vue.reports.some(x => x.empId === 2 && x.origine === 'fractionnement' && x.motif === ''));
+  });
+  // Déjà décidé (second envoi, autre onglet) : ligne ignorée sans rien refaire, les autres lignes enregistrées.
+  le('2027-11-02', () => {
+    const msg = run(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 2, decision: 'crediter', jours: 2 }, { empId: 3, decision: 'crediter', jours: 1 }] });
+    assert.match(msg, /^Jours de fractionnement 2026-2027 : aucune décision enregistrée · 2 salariés déjà décidés entre-temps \(décision inchangée\)$/);
+    const autre = F.fractionnementsAProposer(new Domain(loadFull(db, ADMIN)), 2027)[0];
+    const msg2 = run(ADMIN, 'conges.fractionnement', { periode: 2027, lignes: [{ empId: 2, decision: 'renoncer' }, { empId: autre.e.id, decision: 'renoncer' }] });
+    assert.match(msg2, /1 renonciation notée.* · 1 salarié déjà décidé entre-temps \(décision inchangée\)$/);
+    const fr = db.all<{ empId: number; decision: string }>('fractionnements');
+    assert.deepEqual(fr.map(x => [x.empId, x.decision]), [[2, 'credite'], [3, 'renonce'], [autre.e.id, 'renonce']]);
+    assert.equal(db.all<{ origine: string | null }>('reports').filter(x => x.origine === 'fractionnement').length, 1);
   });
   // Règle « aucun jour » : refus.
   le('2027-11-02', () => {

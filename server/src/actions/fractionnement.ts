@@ -3,7 +3,8 @@
 // le service RH les crédite ou note la renonciation individuelle du salarié (art. L3141-19), ligne par ligne, jamais d'office.
 // Le crédit est un report reçu sur la période (`origine` « fractionnement », jusqu'à sa fin au 31 mai) : il compte dans les
 // droits (`cpDroit`), le solde, la clôture et le solde de sortie comme tout report reçu. Une décision par salarié et par
-// période (table `fractionnements`, unique) : relancer est sans effet. Un membre du RH ne décide pas pour lui-même.
+// période (table `fractionnements`, unique) : une ligne déjà décidée (double envoi, autre onglet, autre membre du RH)
+// est ignorée et comptée dans le message, les autres sont enregistrées. Un membre du RH ne décide pas pour lui-même.
 import { fJ, fmtIso, plural } from '../../../shared/format.ts';
 import { finPeriodeCp, periodeCp } from '../../../shared/rules/conges.ts';
 import { CREDIT_MAX, fenetrePrincipale, fractionnementsAProposer, regleFractionnement } from '../../../shared/rules/fractionnement.ts';
@@ -28,13 +29,18 @@ const decider: ActionHandler = (ctx, p) => {
   const lignes = fractionnementsAProposer(ctx.d, A);
   const recues: Decision[] = Array.isArray(p.lignes) ? p.lignes.filter((x: unknown) => x && typeof x === 'object').slice(0, 2000) : [];
   const max = CREDIT_MAX[regle];
-  let credites = 0, jours = 0, renonces = 0;
+  let credites = 0, jours = 0, renonces = 0, deja = 0;
   const vus = new Set<number>();
   for (const x of recues) {
+    // Déjà décidé pour cette période : rien n'est refait (la décision enregistrée tient), comme une ligne déjà close.
+    if ((ctx.ds.fractionnements ?? []).some(y => y.empId === Number(x.empId) && y.periode === A)) {
+      deja++;
+      continue;
+    }
     const l = lignes.find(y => y.e.id === Number(x.empId));
     if (l && vus.has(l.e.id)) throw new ActionError(`${l.e.nom} : une seule décision par salarié`);
     if (l) vus.add(l.e.id);
-    if (!l) throw new ActionError(`Salarié sans jours de fractionnement à décider sur la période ${periodeCp(A)} (déjà décidé, période clôturée, sorti ou intérimaire)`);
+    if (!l) throw new ActionError(`Salarié sans jours de fractionnement à décider sur la période ${periodeCp(A)} (période clôturée, sorti ou intérimaire)`);
     refuserSoiMeme(ctx, l.e, 'Vous ne pouvez pas décider de vos propres jours de fractionnement');
     const base = { empId: l.e.id, periode: A, le: ctx.d.ti, par: ctx.user.nom };
     if (x.decision === 'renoncer') {
@@ -55,10 +61,11 @@ const decider: ActionHandler = (ctx, p) => {
     credites++;
     jours += j;
   }
-  if (!credites && !renonces) return `Jours de fractionnement ${periodeCp(A)} : aucune décision enregistrée`;
+  const dejaTexte = deja ? ` · ${plural(deja, 'salarié déjà décidé', 'salariés déjà décidés')} entre-temps (décision inchangée)` : '';
+  if (!credites && !renonces) return `Jours de fractionnement ${periodeCp(A)} : aucune décision enregistrée${dejaTexte}`;
   const restants = lignes.length - credites - renonces;
   return `Jours de fractionnement ${periodeCp(A)} : ${plural(credites, 'salarié crédité', 'salariés crédités')}${credites ? ` (${fJ(jours)} en tout, jusqu’au ${fmtIso(finPeriodeCp(A))})` : ''}`
-    + `${renonces ? `, ${plural(renonces, 'renonciation notée', 'renonciations notées')}` : ''}${restants ? ` · ${plural(restants, 'salarié reste', 'salariés restent')} à décider` : ''}`;
+    + `${renonces ? `, ${plural(renonces, 'renonciation notée', 'renonciations notées')}` : ''}${restants ? ` · ${plural(restants, 'salarié reste', 'salariés restent')} à décider` : ''}${dejaTexte}`;
 };
 
 export const fractionnementActions: Record<string, ActionHandler> = {

@@ -1,7 +1,8 @@
 // Jours de fractionnement d'une période de congés payés (service RH, `conges.fractionnement`, t046) : après la fin de la
 // période du congé principal, Cursus propose pour chaque salarié les jours dus (shared/rules/fractionnement.ts) ; le
 // service RH les crédite, note la renonciation du salarié (art. L3141-19) ou laisse la ligne pour plus tard. Jamais de
-// crédit d'office ; un membre du RH ne décide pas pour lui-même. Relancer est sans effet sur une ligne déjà décidée.
+// crédit d'office ; un membre du RH ne décide pas pour lui-même. Une ligne décidée entre-temps (autre onglet, autre
+// membre du RH) est ignorée par le serveur, qui le dit dans son message.
 import { useMemo, useState } from 'react';
 import { equipeLabel, fJ, fmtIso, plural } from '../../../shared/format.ts';
 import { finPeriodeCp, periodeCp } from '../../../shared/rules/conges.ts';

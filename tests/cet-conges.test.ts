@@ -2,7 +2,7 @@
 // - type de congé `CET` ouvert dès qu'un jour est épargné (placé ou repris de l'ancien outil), décompté en jours ouvrés,
 //   contrôlé sur le solde du CET (placements + repris − congés pris et demandés) ;
 // - demande du salarié validée par son manager comme un CP, annulation qui recrédite, journal sans nature médicale ;
-// - CET liquidé à la sortie corrigé des congés pris ;
+// - CET liquidé à la sortie et exporté corrigé des congés pris et demandés ;
 // - lot de paie : rubrique « CET » désactivée et à confirmer par défaut, le congé figure nominativement « à saisir dans
 //   Sage » dans le résumé du lot ;
 // - plafonds de placement réglables (5 et 5 par défaut).
@@ -24,6 +24,7 @@ const { estConge, uniteDecompte } = await import('../shared/rules/absences.ts');
 const { natureAbsence } = await import('../shared/rules/temps.ts');
 const { etatSortie, lignesEtat } = await import('../shared/rules/solde-sortie.ts');
 const { rubriquesPaie } = await import('../shared/rules/paie.ts');
+const { csvSoldes } = await import('../client/src/listes-csv.ts');
 const { appliquerReglages, reglagesParDefaut } = await import('../shared/reglages.ts');
 type User = NonNullable<ReturnType<typeof currentUser>>;
 type Lot = ReturnType<typeof loadFull>['lotsPaie'][number] & { contenu: import('../shared/types.ts').SagePush | null };
@@ -80,7 +81,7 @@ test('t127 congé sur le CET : ouvert une fois des jours épargnés, contrôlé 
   const trop = avant.solde + 1;
   refus(MEHDI, 'absence.demander', { empId: 2, kind: 'CET', du: '2026-11-16', au: `2026-11-${16 + trop + 1}` }, /Solde insuffisant/);
   // Demande du salarié : posée, déduite du solde à poser, pas encore du total.
-  assert.match(run(MEHDI, 'absence.demander', { empId: 2, kind: 'CET', du: '2026-11-10', au: '2026-11-12' }), /Demande de congé sur le cet envoyée/);
+  assert.match(run(MEHDI, 'absence.demander', { empId: 2, kind: 'CET', du: '2026-11-10', au: '2026-11-12' }), /Demande de congé sur le CET envoyée/);
   const a = db.all<{ id: number; type: string; statut: string }>('absences').at(-1)!;
   assert.deepEqual([a.type, a.statut], ['CET', 'demandee']);
   let ct = cetInfo(d(), mehdi(d()));
@@ -110,6 +111,25 @@ test('t127 solde repris de l’ancien outil : congé ouvert, CET liquidé à la 
   const etat = etatSortie(d(), mehdi(d()), '2026-12-31');
   assert.equal(etat.cet!.total, 3);
   assert.ok(lignesEtat(etat).some(l => l.rubrique === 'CET_LIQ' && l.solde === 3));
+});
+
+test('t127 sortie et export des soldes : un congé CET demandé avant la sortie est déduit comme posé', () => {
+  const { db, run, d, MEHDI } = fresh();
+  db.update('soldesReprise', 2, { cetSolde: 6 });
+  // Demande en attente du 14 au 18 décembre (5 j ouvrés) : comptée comme posée, à la sortie comme pour un CP.
+  run(MEHDI, 'absence.demander', { empId: 2, kind: 'CET', du: '2026-12-14', au: '2026-12-18' });
+  const ct = cetInfo(d(), mehdi(d()));
+  assert.deepEqual([ct.poses, ct.total, ct.solde], [5, 6, 1]);
+  const etat = etatSortie(d(), mehdi(d()), '2026-12-31');
+  assert.equal(etat.cet!.total, 1);
+  assert.ok(lignesEtat(etat).some(l => l.rubrique === 'CET_LIQ' && l.solde === 1), 'jamais 6 j liquidés en plus du congé validé ensuite');
+  assert.ok(etat.avertissements.some(a => /Demande de congé du 14 déc\. au 18 déc\. 2026 en attente : comptée comme posée/.test(a)));
+  // Export CSV des soldes : même solde que l'écran (demandes déduites).
+  const csv = csvSoldes(d(), [mehdi(d())]);
+  assert.equal(csv.rows[0][csv.head.indexOf('CET (j)')], '1');
+  // Tout le CET demandé : rien à liquider, pas de ligne.
+  db.update('soldesReprise', 2, { cetSolde: 5 });
+  assert.equal(etatSortie(d(), mehdi(d()), '2026-12-31').cet, null);
 });
 
 test('t127 lot de paie : congé sur le CET sous la rubrique désactivée, listé « à saisir dans Sage »', () => {

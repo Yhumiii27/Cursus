@@ -278,5 +278,6 @@ test('impression : jetons clairs pour Ctrl+P, A4 à 15 mm, cadre caché avec l�
   assert.match(print, /if \(!v && employeur === lecture\) employeur = null/);
   assert.match(source('pages/parametres/Rgpd.tsx'), /oublierEnteteEmployeur\(\)/);
   assert.doesNotMatch(print, /<style/, 'CSP : aucun style en ligne');
-  for (const f of ['pages/Collaborateurs.tsx', 'dialogs/compteRendu.ts', 'components/Aptitude.tsx']) assert.match(source(f), /matriculesImprimes\(e\)/, f);
+  // Passeport formation (fiche et portail) et titre d'habilitation : modules partagés (lot 6, t115).
+  for (const f of ['passeport.ts', 'titre-habilitation.ts', 'dialogs/compteRendu.ts', 'components/Aptitude.tsx']) assert.match(source(f), /matriculesImprimes\(e\)/, f);
 });

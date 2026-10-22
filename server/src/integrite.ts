@@ -60,6 +60,14 @@ export const REFERENCES: readonly Reference[] = [
   // Jours de fractionnement (t046) : salarié et report reçu qui porte le crédit.
   ref('fractionnements', 'emp_id', 'employes'),
   ref('fractionnements', 'report_id', 'reports'),
+  // Délivrances d'habilitation (t115) et formations suivies (t116) : salarié, auteur de l'enregistrement (fiche du compte),
+  // titre, habilitation, formation du catalogue, ligne du plan et demande qui les ont produites.
+  ...['hab_delivrances', 'formations_suivies'].flatMap(t => [ref(t, 'emp_id', 'employes'), ref(t, 'auteur_id', 'employes')]),
+  ref('hab_delivrances', 'titre_id', 'hab_titres'),
+  ref('hab_delivrances', 'h', 'habilitations'),
+  ref('formations_suivies', 'f', 'formations'),
+  ref('formations_suivies', 'plan_action_id', 'plan_actions'),
+  ref('formations_suivies', 'demande_id', 'demandes_collab'),
 ];
 
 export interface Integrite {

@@ -104,6 +104,8 @@ export type DialogState =
   | { type: 'ent'; entId: number }
   | { type: 'entRemise'; entId: number }
   | { type: 'planRealiser'; id: number }
+  /** Formation suivie (t116) : saisie (`demandeId` : demande hors catalogue acceptée qu'elle clôt) ou correction (`id`). */
+  | { type: 'formationSuivie'; empId: number; id?: number | null; demandeId?: number | null }
   /** Correction d'une ligne du plan de formation saisie par erreur (`plan.modifier`). */
   | { type: 'planLigne'; id: number }
   | { type: 'exerciceCloture'; exercice: number }

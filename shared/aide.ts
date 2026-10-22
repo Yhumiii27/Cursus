@@ -56,6 +56,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           'Accueil : vos certifications et habilitations, avec leur échéance. « Demander une formation » ou « Demander le recyclage » envoie la demande au service RH ; « Demander une habilitation » de même.',
           'Les convocations aux sessions arrivent par e-mail, avec un fichier pour l’agenda.',
           '« Mes documents de voyage » : passeport, visa, vaccinations. Ils n’entrent dans votre dossier qu’après validation par le service RH ; les vaccinations ne sont vues que par lui.',
+          '« Imprimer mon passeport formation » : certifications, habilitations (antérieures comprises) et formations suivies, à garder ou à présenter.',
           '« Mon contact d’urgence » : la personne à prévenir et son téléphone, facultatifs (« Renseigner »). Seul le service RH les voit, jamais votre manager.',
         ],
       },
@@ -132,6 +133,9 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           'Postes à risques particuliers : case « Liste des postes à risques particuliers (art. L4154-2) » du poste, formation renforcée désignée dans Paramètres ; un CDD, un intérimaire ou un alternant qui ne l’a pas suivie depuis son entrée est « Non conforme » et en No Go. « Imprimer la liste des postes à risques » la tient à disposition de l’inspection et du CSE.',
           'Couverture minimale des équipes (SST, EPI incendie) : seuils saisis avec les exigences de l’équipe, aucun par défaut ; alerte datée au tableau de bord, dans « Équipes & managers » et « Échéances ».',
           'Entretien de mi-carrière : après la visite de mi-carrière enregistrée, l’entretien de parcours est dû dans le délai de Paramètres → Entretien de mi-carrière (2 mois par défaut, à confirmer juridiquement).',
+          'Formations suivies (fiche) : « Enregistrer une formation suivie », du catalogue ou hors catalogue (non obligatoire par défaut : elle compte pour le bilan à 8 ans) ; une demande hors catalogue acceptée se clôt une fois faite ; à la clôture d’une action du plan, cocher ses bénéficiaires.',
+          'Titre d’habilitation en vigueur : « Imprimer le titre » (fiche, ou aussitôt après la délivrance ; jamais un titre retiré, suspendu ou expiré) selon le modèle choisi au référentiel (électrique NF C18-510, autorisation de conduite, générique), à signer par l’employeur et le titulaire ; modèles à faire valider par le référent HSE. Un renouvellement garde la délivrance précédente (« Habilitations antérieures »).',
+          '« Plan & budget » : « Indicateurs de formation » de l’exercice (stagiaires, heures par catégorie, équipe et statut, taux de réalisation), avec la durée en heures du catalogue ; une formation sans durée connue est signalée.',
         ],
       },
       {

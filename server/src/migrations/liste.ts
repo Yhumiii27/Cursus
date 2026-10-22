@@ -16,6 +16,7 @@ import { HIERARCHIE_EQUIPES } from './lot6-hierarchie.ts';
 import { DEPLACEMENTS_DEPART } from './lot6-paie.ts';
 import { HORAIRES_EXEMPLES_MIGRATION, HORAIRES_NUIT_FIGEE } from './lot6-horaires.ts';
 import { CONTRATS_HISTORIQUE } from './lot6-contrats.ts';
+import { DUREE_HEURES, HAB_DELIVRANCES } from './lot6-securite.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
   INDEX_JOURNAL,
@@ -42,4 +43,6 @@ export const MIGRATIONS: readonly Migration[] = [
   HORAIRES_EXEMPLES_MIGRATION,
   CONTRATS_HISTORIQUE,
   HORAIRES_NUIT_FIGEE,
+  HAB_DELIVRANCES,
+  DUREE_HEURES,
 ];

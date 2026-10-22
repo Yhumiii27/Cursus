@@ -18,6 +18,7 @@ import { suivreVerdicts } from './integrations/keystone-verdicts.ts';
 import { figerFeuilles } from './migrate.ts';
 import { postesDepuisFiches } from './migrations/referentiels.ts';
 import { historiqueDepuisFiches } from './migrations/lot6-contrats.ts';
+import { delivrancesDepuisTitres } from './migrations/lot6-securite.ts';
 import { lotHistorique } from './migrations/paie.ts';
 import { amorcerActivites } from './migrations/temps.ts';
 import { amorcerHoraires } from './migrations/lot6-horaires.ts';
@@ -27,23 +28,23 @@ import { amorcerHoraires } from './migrations/lot6-horaires.ts';
 // FORMATIONS, HABILITATIONS et DESTS forment aussi le référentiel type, chargé sur une base vide par le service RH
 // (`referentiel.charger`, server/src/actions/referentiels.ts), sans les salariés.
 export const FORMATIONS = [
-  { id: 'sst', nom: 'Sauveteur secouriste du travail (SST)', court: 'SST', type: 'Réglementaire', validite: 24, duree: '7 h (MAC)', organisme: 'Croix-Rouge française', cout: 180, validation: 'evaluation' },
-  { id: 'elec', nom: 'Préparation à l’habilitation électrique B1V · B2V · BR', court: 'Formation élec. B1V-BR', type: 'Réglementaire', validite: 36, duree: '21 h', organisme: 'Apave', cout: 480, validation: 'evaluation' },
-  { id: 'atex', nom: 'Intervention en zone ATEX (niveau 1)', court: 'ATEX', type: 'Réglementaire', validite: 36, duree: '7 h', organisme: 'Apave', cout: 350, validation: 'evaluation' },
-  { id: 'caces489', nom: 'CACES R489 — Chariots élévateurs (cat. 3)', court: 'CACES R489', type: 'Réglementaire', validite: 60, duree: '21 h', organisme: 'AFTRAL', cout: 650, validation: 'evaluation' },
-  { id: 'caces486', nom: 'CACES R486 — Nacelles PEMP (cat. B)', court: 'CACES R486', type: 'Réglementaire', validite: 60, duree: '21 h', organisme: 'AFTRAL', cout: 650, validation: 'evaluation' },
-  { id: 'epi', nom: 'Équipier de première intervention incendie', court: 'EPI incendie', type: 'Réglementaire', validite: 12, duree: '4 h', organisme: 'Interne · HSE', cout: 40, validation: 'presence' },
-  { id: 'fco', nom: 'FCO Marchandises', court: 'FCO', type: 'Réglementaire', validite: 60, duree: '35 h', organisme: 'AFTRAL', cout: 900, validation: 'presence' },
-  { id: 'aipr', nom: 'AIPR — Opérateur', court: 'AIPR', type: 'Réglementaire', validite: 60, duree: '7 h', organisme: 'Apave', cout: 190, validation: 'evaluation' },
-  { id: 'hauteur', nom: 'Travail en hauteur et port du harnais', court: 'Travail en hauteur', type: 'Recommandée', validite: 36, duree: '7 h', organisme: 'Socotec', cout: 320, validation: 'presence' },
-  { id: 'prap', nom: 'PRAP IBC — Prévention des risques liés à l’activité physique', court: 'PRAP', type: 'Recommandée', validite: 24, duree: '14 h', organisme: 'INRS', cout: 420, validation: 'evaluation' },
-  { id: 'rgpd', nom: 'Sensibilisation RGPD et sécurité de l’information', court: 'RGPD', type: 'Interne', validite: 24, duree: '2 h', organisme: 'Interne · DSI', cout: 0, validation: 'presence' },
+  { id: 'sst', nom: 'Sauveteur secouriste du travail (SST)', court: 'SST', type: 'Réglementaire', validite: 24, duree: '7 h (MAC)', organisme: 'Croix-Rouge française', cout: 180, validation: 'evaluation', dureeHeures: 7 },
+  { id: 'elec', nom: 'Préparation à l’habilitation électrique B1V · B2V · BR', court: 'Formation élec. B1V-BR', type: 'Réglementaire', validite: 36, duree: '21 h', organisme: 'Apave', cout: 480, validation: 'evaluation', dureeHeures: 21 },
+  { id: 'atex', nom: 'Intervention en zone ATEX (niveau 1)', court: 'ATEX', type: 'Réglementaire', validite: 36, duree: '7 h', organisme: 'Apave', cout: 350, validation: 'evaluation', dureeHeures: 7 },
+  { id: 'caces489', nom: 'CACES R489 — Chariots élévateurs (cat. 3)', court: 'CACES R489', type: 'Réglementaire', validite: 60, duree: '21 h', organisme: 'AFTRAL', cout: 650, validation: 'evaluation', dureeHeures: 21 },
+  { id: 'caces486', nom: 'CACES R486 — Nacelles PEMP (cat. B)', court: 'CACES R486', type: 'Réglementaire', validite: 60, duree: '21 h', organisme: 'AFTRAL', cout: 650, validation: 'evaluation', dureeHeures: 21 },
+  { id: 'epi', nom: 'Équipier de première intervention incendie', court: 'EPI incendie', type: 'Réglementaire', validite: 12, duree: '4 h', organisme: 'Interne · HSE', cout: 40, validation: 'presence', dureeHeures: 4 },
+  { id: 'fco', nom: 'FCO Marchandises', court: 'FCO', type: 'Réglementaire', validite: 60, duree: '35 h', organisme: 'AFTRAL', cout: 900, validation: 'presence', dureeHeures: 35 },
+  { id: 'aipr', nom: 'AIPR — Opérateur', court: 'AIPR', type: 'Réglementaire', validite: 60, duree: '7 h', organisme: 'Apave', cout: 190, validation: 'evaluation', dureeHeures: 7 },
+  { id: 'hauteur', nom: 'Travail en hauteur et port du harnais', court: 'Travail en hauteur', type: 'Recommandée', validite: 36, duree: '7 h', organisme: 'Socotec', cout: 320, validation: 'presence', dureeHeures: 7 },
+  { id: 'prap', nom: 'PRAP IBC — Prévention des risques liés à l’activité physique', court: 'PRAP', type: 'Recommandée', validite: 24, duree: '14 h', organisme: 'INRS', cout: 420, validation: 'evaluation', dureeHeures: 14 },
+  { id: 'rgpd', nom: 'Sensibilisation RGPD et sécurité de l’information', court: 'RGPD', type: 'Interne', validite: 24, duree: '2 h', organisme: 'Interne · DSI', cout: 0, validation: 'presence', dureeHeures: 2 },
 ];
 
 export const HABILITATIONS = [
-  { id: 'he', nom: 'Habilitation électrique', detail: 'B1V · B2V · BR — NF C18-510', prereqs: ['elec'], medical: true, validite: 36, signataire: 'Karim Haddad' },
-  { id: 'ac489', nom: 'Autorisation de conduite — chariots R489', detail: 'Chariots élévateurs cat. 3', prereqs: ['caces489'], medical: true, validite: 60, signataire: 'Olivier Marchal' },
-  { id: 'ac486', nom: 'Autorisation de conduite — nacelles R486', detail: 'PEMP cat. B', prereqs: ['caces486'], medical: true, validite: 60, signataire: 'Karim Haddad' },
+  { id: 'he', nom: 'Habilitation électrique', detail: 'B1V · B2V · BR — NF C18-510', prereqs: ['elec'], medical: true, validite: 36, signataire: 'Karim Haddad', modele: 'electrique' },
+  { id: 'ac489', nom: 'Autorisation de conduite — chariots R489', detail: 'Chariots élévateurs cat. 3', prereqs: ['caces489'], medical: true, validite: 60, signataire: 'Olivier Marchal', modele: 'conduite' },
+  { id: 'ac486', nom: 'Autorisation de conduite — nacelles R486', detail: 'PEMP cat. B', prereqs: ['caces486'], medical: true, validite: 60, signataire: 'Karim Haddad', modele: 'conduite' },
   { id: 'atex', nom: 'Habilitation ATEX', detail: 'Zones 1 et 2 — niveau 1', prereqs: ['atex'], medical: false, validite: 36, signataire: 'Sarah Cohen' },
   { id: 'hauteur', nom: 'Autorisation travaux en hauteur', detail: 'Port du harnais · accès toitures', prereqs: ['hauteur'], medical: true, validite: 36, signataire: 'Sarah Cohen' },
   { id: 'aipr', nom: 'Autorisation AIPR', detail: 'Intervention à proximité des réseaux', prereqs: ['aipr'], medical: false, validite: 60, signataire: 'Karim Haddad' },
@@ -416,6 +417,24 @@ function renouvellementDemo(db: Db) {
   }
 }
 
+/**
+ * Habilitation électrique de Mehdi Benali renouvelée le 1er octobre 2023 : la délivrance précédente reste à l'historique
+ * (t115). Formation hors catalogue suivie par lui, non obligatoire (t116).
+ */
+function historiqueSecuriteDemo(db: Db) {
+  const titre = db.where<{ id: number; h: string }>('habTitres', 'empId', 2).find(t => t.h === 'he');
+  if (titre) {
+    db.insert('habDelivrances', {
+      empId: 2, h: 'he', titreId: titre.id, delivree: '2020-09-15', par: 'Philippe Aubert', expire: '2023-09-15', remplaceeLe: '2023-10-01',
+      mesure: null, mesureDate: null, le: '2020-09-15', auteur: null, auteurId: null,
+    });
+  }
+  db.insert('formationsSuivies', {
+    empId: 2, f: null, libelle: 'Lecture de schémas électriques industriels', du: '2025-03-18', au: '2025-03-19', duree: 14, organisme: 'GRETA Industrie',
+    obligatoire: false, origine: 'saisie', planActionId: null, demandeId: null, le: '2025-03-20', auteur: RH_DEMO, auteurId: null,
+  });
+}
+
 function exigencesDemo(db: Db) {
   for (const [nom, x] of Object.entries(EXIGENCES_DEMO)) db.sql.prepare('UPDATE postes SET formations = ?, habilitations = ? WHERE nom = ?').run(JSON.stringify(x.formations), JSON.stringify(x.habilitations), nom);
   db.update('equipes', 'Logistique', { exigences: { formations: ['sst'], habilitations: [] } });
@@ -464,6 +483,10 @@ export function seedDemo(db: Db) {
     // Historique des contrats amorcé depuis les fiches (comme la migration d'une base existante), puis renouvellement du CDD.
     historiqueDepuisFiches(db);
     renouvellementDemo(db);
+    // Délivrances d'habilitation amorcées depuis les titres (comme la migration), puis une délivrance remplacée et une
+    // formation suivie hors catalogue (t115, t116).
+    delivrancesDepuisTitres(db);
+    historiqueSecuriteDemo(db);
     RECYCLAGES.forEach(([empId, f, sessionId]) => {
       const c = db.where<{ id: number; f: string }>('certifications', 'empId', empId).find(x => x.f === f)!;
       db.update('certifications', c.id, { sessionId, convoc: 'now', convocLe: CONVOQUES_LE });

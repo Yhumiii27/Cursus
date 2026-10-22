@@ -1,6 +1,6 @@
 // Espace collaborateur : certifications, habilitations, voyages et demandes du salarié connecté. En tête, l'encart « À faire »
 // (shared/rules/a-faire.ts) : compte rendu d'entretien à signer, feuille de temps renvoyée ou à soumettre, avec un accès direct.
-import { DownloadSimpleIcon, PlusIcon } from '@phosphor-icons/react';
+import { DownloadSimpleIcon, PlusIcon, PrinterIcon } from '@phosphor-icons/react';
 import {
   CERT_LABEL, CLS, EMP_LABEL, ENT_TYPES, HAB_CLS, HAB_LABEL, MODE_NOTIFICATION_LABEL, REQ_CLS, REQ_LABEL, SESS_CLS, TRIP_CLS, TRIP_LABEL,
 } from '../../../shared/constants.ts';
@@ -18,6 +18,8 @@ import { Bar, Btn, Chips, Empty, Fine, Kpi, Kpis, NoteAccent, Page, Panel, Seg, 
 import { ContactUrgencePanel } from '../components/ContactUrgence.tsx';
 import { Aptitude } from '../components/Aptitude.tsx';
 import { ExigencesPortail } from '../components/Exigences.tsx';
+import { FormationsSuiviesPortail } from '../components/FormationsSuivies.tsx';
+import { imprimerPasseport } from '../passeport.ts';
 import { useEnriched, useRole, useTrips } from '../state/derived.ts';
 import { api } from '../api.ts';
 import { useStore } from '../state/store.tsx';
@@ -80,6 +82,8 @@ export function Portail() {
           <ExigencesPortail e={me} />
         </div>
         <div className="head-actions">
+          {/* Passeport formation (t115) : mêmes sections que celui imprimé depuis la fiche, impression tracée au journal. */}
+          <Btn icon={<PrinterIcon size={14} />} onClick={() => imprimerPasseport(d, me) || notify('Autorisez les fenêtres surgissantes pour imprimer le passeport formation', true)}>Imprimer mon passeport formation</Btn>
           <Btn onClick={openMyDocs}>Mes documents de voyage</Btn>
           <Btn variant="secondary" onClick={() => openDialog({ type: 'reqHab' })}>Demander une habilitation</Btn>
           <Btn variant="primary" icon={<PlusIcon size={14} />} onClick={() => openDialog({ type: 'reqForm' })}>Demander une formation</Btn>
@@ -202,6 +206,8 @@ export function Portail() {
             ))}
             {me.habs.length === 0 && <Empty>Aucune habilitation. Votre poste en nécessite une ? Faites une demande.</Empty>}
           </Panel>
+
+          <FormationsSuiviesPortail empId={me.id} />
 
           {/* Avis du médecin du travail, restrictions de poste et visite demandée par le service RH. */}
           <Panel title="Mon aptitude médicale" style={{ gap: 'var(--space-2)' }}>

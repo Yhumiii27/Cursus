@@ -16,6 +16,7 @@ import { downloadCsv } from '../print.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useAgir } from '../state/actions.ts';
 import { useStore } from '../state/store.tsx';
+import { IndicateursFormationPanel } from '../components/IndicateursFormation.tsx';
 
 const C_REAL = 'var(--color-accent-300)', C_ENG = 'var(--color-accent-600)', C_PREVU = 'var(--color-neutral-700)';
 const share = (x: number, base: number) => base ? Math.min(100, x / base * 100) : 0;
@@ -206,6 +207,9 @@ export function Budget() {
           </div>
         )}
       </Panel>
+
+      {/* Indicateurs de formation de l'exercice (t122) : stagiaires, heures par catégorie, équipe et statut ; exports CSV. */}
+      <IndicateursFormationPanel exercice={ex} />
     </Page>
   );
 }

@@ -11,6 +11,7 @@ import {
   ligneCorrigeable, refusAppui, refusRetour, refusSuppressionLigne, sessionsDeLaLigne, suiteAcceptation,
 } from '../../../shared/rules/corrections.ts';
 import { montantReel } from '../../../shared/rules/exercices.ts';
+import { suiviesEnVigueur } from '../../../shared/rules/formations-suivies.ts';
 import { refusArchive } from '../../../shared/rules/referentiels.ts';
 import type { Certification, DemandeCollab, Employe, HabTitre, Inscription, Participation, PlanAction, Trimestre } from '../../../shared/types.ts';
 import { annulerSiConvoque } from '../notifications.ts';
@@ -237,10 +238,15 @@ interface Defait { sessionId?: number; retourSessionId?: number | null; certId?:
  * ou l'inscription retrouve la session qu'il avait quittée si les contrôles de `plan.inscrire` le permettent encore, voir
  * `refusRetour`), ligne du plan prévue (supprimée, avec le motif), titre d'habilitation en attente (retiré) ou demande
  * inscrite sur un titre (effacée). Refus quand c'est déjà allé plus loin : session commencée ou clôturée, ligne engagée,
- * exercice clos, habilitation délivrée depuis.
+ * exercice clos, habilitation délivrée depuis, formation suivie enregistrée pour la demande (t116 : à supprimer d'abord
+ * si elle a été saisie par erreur, sinon elle resterait rattachée à une demande refusée).
  */
 function defaireAcceptation(ctx: Ctx, r: DemandeCollab, emp: Employe, motif: string): { texte: string; defait: Defait } {
   const rien = { texte: '', defait: {} };
+  const suivie = suiviesEnVigueur(ctx.ds, emp.id).find(x => x.demandeId === r.id);
+  if (suivie) {
+    throw new ActionError(`Formation suivie du ${fmt(parse(suivie.du))} enregistrée pour cette demande : la demande ne se rouvre plus (supprimez d’abord la formation suivie si elle a été saisie par erreur)`);
+  }
   const x = suiteAcceptation(ctx.d, r, emp);
   if (x.sessionId && (x.certId || x.inscriptionId)) {
     const s = ctx.d.session(x.sessionId);

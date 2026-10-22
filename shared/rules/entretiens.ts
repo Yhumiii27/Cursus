@@ -9,6 +9,7 @@ import type { Conflit } from './conflits.ts';
 import { present } from './contrats.ts';
 import { ageAu } from './mineurs.ts';
 import { ENTRETIEN_MI_CARRIERE, entretienMiCarriere } from './entretien-mi-carriere.ts';
+import { formationNonObligatoireDepuis } from './formations-suivies.ts';
 
 export type ObligStatus = 'late' | 'soon' | 'planifie' | 'todo' | 'ok';
 export interface Obligation {
@@ -67,7 +68,9 @@ export function obligations(d: Domain, scopeIds: number[]): Obligation[] {
     if (anniv <= addM(Ti, 12) && !done(['bilan']).some(x => x.date >= addM(anniv, -12))) {
       const from = addM(anniv, -96);
       const nE = list.filter(x => ['epp', 'reprise'].includes(x.type) && x.statut === 'realise' && x.date >= from).length;
-      const fno = e.certs.some(cc => d.fm(cc.f).type !== 'Réglementaire' && cc.obtenue >= from);
+      // Formation non obligatoire : certification hors « Réglementaire », ou formation suivie non obligatoire (hors catalogue
+      // comprise, t116 : shared/rules/formations-suivies.ts).
+      const fno = formationNonObligatoireDepuis(d, e, from);
       push('bilan', anniv, `${nE} entretien${nE > 1 ? 's' : ''} de parcours sur 8 ans (2 attendus) · ${fno ? 'formation non obligatoire suivie' : 'aucune formation non obligatoire'}`, { risk: nE < 2 || !fno });
     }
     if (c.forfait) {

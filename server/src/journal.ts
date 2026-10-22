@@ -93,6 +93,9 @@ interface Regle {
   regrouper?: number;
 }
 
+/** Bénéficiaires enregistrés par `plan.avancer` (t116), lus dans son résultat. */
+const beneficiairesDe = (result: unknown): number[] =>
+  ((result as { beneficiaires?: unknown[] } | null)?.beneficiaires ?? []).map(Number).filter(Number.isInteger);
 const parId = (table: TableName, colonnes: readonly string[]): Cible => ({ table, cle: p => Number(p.id) || null, colonnes });
 /** Hiérarchie (t136) : éléments en attente redirigés (`result.redirections`) : type, identifiant, ancien et nouveau valideur (0 : service RH). */
 const redirigesDe = (result: unknown): Ligne[] => (result as { redirections?: Ligne[] } | null)?.redirections ?? [];
@@ -357,7 +360,25 @@ export const REGLES: Record<string, Regle> = {
     salaries: p => participants(p).map((x: P) => x?.empId),
   },
   'plan.importer': { champs: ['exercice', 'mode'] },
-  'plan.avancer': { champs: ['id'], cible: parId('planActions', ['statut', 'coutReel', 'effectifReel']) },
+  // Bénéficiaires d'une action réalisée (t116) : identifiants des salariés dont une formation suivie a réellement été
+  // enregistrée (`result`), jamais ceux seulement envoyés (déjà réalisée, passage à « engagé », ligne déjà enregistrée).
+  'plan.avancer': {
+    champs: ['id'], cible: parId('planActions', ['statut', 'coutReel', 'effectifReel']),
+    bilan: (_p, x) => (beneficiairesDe(x.result).length ? { beneficiaires: beneficiairesDe(x.result) } : {}),
+    salaries: (_p, x) => beneficiairesDe(x.result),
+  },
+  // Formations suivies (t116) : codes, dates, durée, case « obligatoire », demande ou ligne du plan ; jamais l'intitulé hors
+  // catalogue ni l'organisme (texte libre : seulement qu'ils changent), ni le motif d'une correction ou d'une annulation.
+  'formationSuivie.enregistrer': {
+    champs: ['empId', 'f', 'du', 'au', 'demandeId'],
+    // Ligne écrite : identifiant, durée et case « obligatoire » telles qu'enregistrées (contrôlées par l'action).
+    bilan: (_p, x) => {
+      const l = x.db.get<Ligne>('formationsSuivies', Number((x.result as { id?: number } | null)?.id));
+      return l ? { id: l.id, duree: l.duree, obligatoire: l.obligatoire } : {};
+    },
+  },
+  'formationSuivie.modifier': { champs: ['id'], cible: { ...parId('formationsSuivies', ['f', 'libelle', 'du', 'au', 'duree', 'organisme', 'obligatoire']), masques: ['libelle', 'organisme'] } },
+  'formationSuivie.annuler': { champs: ['id'], extra: (_p, av) => ({ f: av?.f ?? null, du: av?.du ?? null }), cible: parId('formationsSuivies', ['annuleLe']) },
   // Ligne du plan corrigée (avant et après ; de l'intitulé hors catalogue, seulement qu'il change) ou supprimée (exercice,
   // formation, équipe, trimestre, statut et coût de la ligne retirée). Jamais le motif.
   'plan.modifier': { champs: ['id'], cible: { ...parId('planActions', ['f', 'libelle', 'equipe', 'periode', 'effectif', 'cout']), masques: ['libelle'] } },
@@ -384,11 +405,11 @@ export const REGLES: Record<string, Regle> = {
   // Référentiels (catalogue, aucune donnée personnelle) : code de l'élément, valeurs avant et après de chaque champ.
   // Une validité modifiée rattache la ligne aux salariés dont un titre change de statut (le message en nomme).
   'referentiel.formation.enregistrer': {
-    ...referentiel('formations', ['nom', 'court', 'type', 'validite', 'duree', 'organisme', 'cout', 'validation']), salaries: (_p, x) => salariesTouches(x),
+    ...referentiel('formations', ['nom', 'court', 'type', 'validite', 'duree', 'organisme', 'cout', 'validation', 'dureeHeures']), salaries: (_p, x) => salariesTouches(x),
   },
   'referentiel.formation.archiver': referentiel('formations', ['archive'], true),
   'referentiel.habilitation.enregistrer': {
-    ...referentiel('habilitations', ['nom', 'detail', 'prereqs', 'medical', 'validite', 'signataire', 'sir']), salaries: (_p, x) => salariesTouches(x),
+    ...referentiel('habilitations', ['nom', 'detail', 'prereqs', 'medical', 'validite', 'signataire', 'sir', 'modele']), salaries: (_p, x) => salariesTouches(x),
   },
   'referentiel.habilitation.archiver': referentiel('habilitations', ['archive'], true),
   // Vigilance (t068) : couleur et jour de vérification ; voyageurs vers un pays passé à l'orange ou au rouge, au journal.

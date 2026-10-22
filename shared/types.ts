@@ -65,12 +65,26 @@ export type SessionStatut = 'À confirmer' | 'Confirmée' | 'Clôturée' | 'Annu
 // — Référentiels —
 // Administrés depuis l'écran Référentiels (shared/rules/referentiels.ts). `archive` : date d'archivage (null : en
 // vigueur) ; un élément archivé n'est plus proposé dans les listes, mais reste reconnu (dossiers, journal, Keystone).
-export interface Formation { id: string; nom: string; court: string; type: FormationType; validite: number; duree: string; organisme: string; cout: number; validation: ValidationMode; archive?: ISODate | null }
+export interface Formation {
+  id: string; nom: string; court: string; type: FormationType; validite: number; duree: string; organisme: string; cout: number; validation: ValidationMode; archive?: ISODate | null;
+  /**
+   * Durée en heures (t122, shared/rules/heures-formation.ts), facultative : extraite du texte `duree` à la reprise quand
+   * c'est possible, sinon à compléter. Sans elle ni horaires de session, une formation suivie compte « durée inconnue ».
+   */
+  dureeHeures?: number | null;
+}
 export interface HabType {
   id: string; nom: string; detail: string; prereqs: string[]; medical: boolean; validite: number; signataire: string; archive?: ISODate | null;
   /** Titre qui place son titulaire en suivi individuel renforcé (art. R4624-23 II : autorisation de conduite, habilitation électrique…). */
   sir?: boolean;
+  /**
+   * Modèle du titre imprimé à la délivrance (t115, client/src/titre-habilitation.ts) : habilitation électrique (NF C18-510),
+   * autorisation de conduite (art. R4323-56, R489, R486) ou générique ; absent : générique.
+   */
+  modele?: ModeleTitre | null;
 }
+/** Modèle de titre d'habilitation imprimé : électrique (NF C18-510), autorisation de conduite (R4323-56) ou générique. */
+export type ModeleTitre = 'electrique' | 'conduite' | 'generique';
 export interface Destination {
   code: string; pays: string; visa: VisaKind; visaSub: string; oblig: VaccinId[]; rec: VaccinId[]; passMois: number;
   /** Formalité de sécurité sociale du détachement ; null : déduite du code pays (`secuDe` de shared/constants.ts). */
@@ -214,6 +228,32 @@ export interface HabTitre {
   id: number; empId: number; h: string; delivree: ISODate | null; par: string | null; demande: ISODate | null;
   /** Suspension ou retrait en cours (null = aucun), avec sa date, son motif (texte libre) et son auteur. */
   mesure: HabMesure | null; mesureDate: ISODate | null; mesureMotif: string | null; mesurePar: string | null;
+}
+/**
+ * Délivrance d'un titre d'habilitation (t115, server/src/delivrances.ts) : une ligne par délivrance et par renouvellement,
+ * le titre en vigueur restant dans `habTitres`. `expire` : échéance calculée à la délivrance (validité d'alors) ;
+ * `remplaceeLe` : date de la délivrance suivante (null : délivrance en vigueur), avec la mesure (suspension, retrait) et sa
+ * date figées à ce moment, sans motif. `auteur`, `auteurId` : qui l'a enregistrée (nom, fiche ; null : Cursus, reprise).
+ */
+export interface HabDelivrance {
+  id: number; empId: number; h: string; titreId: number | null; delivree: ISODate; par: string | null; expire: ISODate | null;
+  remplaceeLe: ISODate | null; mesure: HabMesure | null; mesureDate: ISODate | null;
+  le: ISODate; auteur: string | null; auteurId: number | null;
+}
+/** Origine d'une formation suivie : demande hors catalogue acceptée, action du plan réalisée, session, saisie directe. */
+export type OrigineFormationSuivie = 'demande' | 'plan' | 'session' | 'saisie';
+/**
+ * Formation suivie par un salarié (t116, shared/rules/formations-suivies.ts), du catalogue (`f`) ou hors catalogue
+ * (`libelle`) : dates, durée en heures (null : celle du catalogue, sinon inconnue), organisme, formation obligatoire ou non
+ * (compte pour l'état des lieux à 8 ans quand elle ne l'est pas), origine et ce qui l'a produite (ligne du plan, demande).
+ * Correction et annulation motivées comme les certifications ; annulée, hors de tous les calculs (service RH seulement).
+ */
+export interface FormationSuivie {
+  id: number; empId: number; f: string | null; libelle: string | null; du: ISODate; au: ISODate; duree: number | null;
+  organisme: string | null; obligatoire: boolean; origine: OrigineFormationSuivie; planActionId: number | null; demandeId: number | null;
+  le: ISODate; auteur: string | null; auteurId: number | null;
+  corrigeLe?: ISODate | null; corrigePar?: string | null; corrigeMotif?: string | null;
+  annuleLe?: ISODate | null; annulePar?: string | null; annuleMotif?: string | null;
 }
 /** Avis du médecin du travail à l'issue d'une visite : apte, apte avec restrictions ou aménagements de poste, inapte. */
 export type AvisMedical = 'apte' | 'restrictions' | 'inapte';
@@ -1479,6 +1519,13 @@ export interface Dataset {
    * seule, avec les filtres de sa vue et sans aptitude détaillée ; ni entretiens, ni demandes. Absent ou vide ailleurs.
    */
   lectureSeule?: number[];
+  /**
+   * Formations suivies (t116) : service RH (toutes, annulées comprises) ; référent HSE et lecture seule (en vigueur, sans
+   * motif ni auteur) ; manager (son équipe) et intéressé de même ; rien pour la paie (server/src/dataset.ts).
+   */
+  formationsSuivies?: FormationSuivie[];
+  /** Délivrances des titres d'habilitation (t115) : mêmes vues que les habilitations, sans l'auteur hors du service RH. */
+  habDelivrances?: HabDelivrance[];
 }
 
 /**

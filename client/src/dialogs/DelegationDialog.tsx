@@ -1,15 +1,15 @@
 // Délégation des validations d'un manager absent (t135) : suppléant, période et périmètre. Ouvert par le manager pour
 // lui-même (Mon espace) ou par le service RH (Équipes & managers). Suppléant proposé : le responsable du manager (N+1),
 // sinon à choisir ; congés et feuilles de temps cochés par défaut, entretiens seulement si le réglage les ouvre.
-// Contrôles partagés avec le serveur (shared/rules/delegations-manager.ts, `controleDelegation`).
+// Suppléants et contrôles partagés avec le serveur : state/delegation-saisie.ts (shared/rules/delegations-manager.ts).
 import { useState } from 'react';
 import { addD } from '../../../shared/dates.ts';
-import { present } from '../../../shared/rules/contrats.ts';
-import { controleDelegation, DUREE_MAX_DELEGATION, PERIMETRES_DELEGATION, suppleantPropose } from '../../../shared/rules/delegations-manager.ts';
+import { DUREE_MAX_DELEGATION, PERIMETRES_DELEGATION } from '../../../shared/rules/delegations-manager.ts';
 import { equipeLabel } from '../../../shared/format.ts';
 import type { PerimetreDelegation } from '../../../shared/types.ts';
 import { Bloquant, CancelButton, Dialog, Field, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine } from '../components/ui.tsx';
+import { suppleantsCandidats, verifierDelegation } from '../state/delegation-saisie.ts';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 
@@ -17,7 +17,8 @@ export function DelegationDialog({ managerId }: { managerId: number }) {
   const d = useDomain();
   const { run, closeDialog } = useStore();
   const mgr = d.emp(managerId);
-  const n1 = suppleantPropose(d.ds, managerId);
+  // Suppléants possibles : salariés présents, hors intérim et hors le manager ; le N+1 en tête.
+  const { liste: candidats, n1 } = suppleantsCandidats(d, managerId);
   const [suppleant, setSuppleant] = useState(n1 ? String(n1) : '');
   const [du, setDu] = useState(d.ti);
   const [au, setAu] = useState(addD(d.ti, 13));
@@ -26,15 +27,8 @@ export function DelegationDialog({ managerId }: { managerId: number }) {
   const [busy, setBusy] = useState(false);
   const v = useVerification();
 
-  // Suppléants possibles : salariés présents, hors intérim et hors le manager ; le N+1 en tête.
-  const candidats = d.ds.employes.filter(e => e.id !== managerId && present(e, d.ti) && !d.contratOf(e).interim)
-    .sort((a, b) => Number(b.id === n1) - Number(a.id === n1) || a.nom.localeCompare(b.nom));
-  const s = suppleant ? d.emp(Number(suppleant)) : undefined;
-  const refus = controleDelegation(d.ds, { managerId, suppleantId: Number(suppleant) || 0, du, au, perimetre }, { suppleant: s, nom: id => d.personName(id) });
-  const erreurSuppleant = !suppleant ? 'Choisissez le suppléant' : null;
-  const erreurPerimetre = !perimetre.length ? 'Cochez au moins un type de demande' : null;
-  // Le contrôle commun, une fois le suppléant et le périmètre choisis.
-  const erreurPeriode = !erreurSuppleant && !erreurPerimetre ? refus : null;
+  const erreurs = verifierDelegation(d, managerId, { suppleant, du, au, perimetre }, candidats);
+  const erreurSuppleant = erreurs.suppleant, erreurPerimetre = erreurs.perimetre, erreurPeriode = erreurs.periode;
 
   const basculer = (p: PerimetreDelegation, oui: boolean) => setPerimetre(x => (oui ? [...x, p] : x.filter(y => y !== p)));
   const envoyer = async () => {

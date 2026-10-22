@@ -258,3 +258,72 @@ test('écrans : décideur par délégation (state/delegues.ts), révocation conf
   assert.deepEqual(c.payload, { id: 9 });
   assert.ok(c.suites!.some(x => /reviennent à Karim Haddad/.test(x)));
 });
+
+test('Mon espace : le manager choisit un suppléant hors de son instantané et enregistre sa délégation (dialogue)', async () => {
+  const { suppleantsCandidats, verifierDelegation } = await import('../client/src/state/delegation-saisie.ts');
+  const { db, run, mails, adresse } = fresh();
+  const KARIM_COLLAB: User = { role: 'collaborateur', empId: 12, nom: 'Karim Haddad', intitule: 'Responsable maintenance' };
+  db.update('equipes', 'Maintenance', { parente: 'Production' });
+  const ds = buildSnapshot(db, KARIM_COLLAB);
+  assert.deepEqual(ds.employes.map(e => e.id), [12], 'instantané de Mon espace : sa seule fiche');
+  const d = new Domain(ds);
+  const { liste, n1 } = suppleantsCandidats(d, 12);
+  assert.equal(n1, 3, 'N+1 proposé');
+  assert.equal(liste[0].id, 3, 'le N+1 en tête de la liste');
+  assert.ok(!liste.some(p => p.id === 12), 'pas le manager lui-même');
+  assert.ok(ds.suppleantsPossibles!.every(p => Object.keys(p).sort().join() === 'equipe,id,nom,poste'), 'annuaire seulement');
+  const saisie = { suppleant: '3', du: '2026-10-19', au: '2026-10-23', perimetre: ['absences', 'feuilles'] as ('absences' | 'feuilles')[] };
+  assert.deepEqual(verifierDelegation(d, 12, saisie, liste), { suppleant: null, perimetre: null, periode: null }, 'rien ne bloque l’envoi');
+  assert.equal(verifierDelegation(d, 12, { ...saisie, suppleant: '' }, liste).suppleant, 'Choisissez le suppléant');
+  assert.equal(verifierDelegation(d, 12, { ...saisie, suppleant: '999' }, liste).periode, 'Suppléant introuvable', 'hors des suppléants possibles');
+  // Envoi tel que le dialogue le fait : délégation enregistrée, le suppléant prévenu d'une délégation à venir.
+  const o = run(KARIM_COLLAB, 'equipe.delegation', { managerId: 12, suppleantId: 3, du: saisie.du, au: saisie.au, perimetre: saisie.perimetre });
+  assert.match(o.message!, /déléguées à Sophie Lemaire du 19 oct\. 2026 au 23 oct\. 2026/);
+  assert.equal(db.count('delegations'), 1);
+  assert.equal(String(mails('delegation.prevue').at(-1)!.contenu.a), adresse(3));
+  // Le collaborateur sans équipe ne reçoit pas de suppléants possibles.
+  assert.equal(buildSnapshot(db, MEHDI).suppleantsPossibles, undefined);
+});
+
+test('validation croisée : refusée quand le suppléant deviendrait le valideur de son propre valideur', () => {
+  const { db, refus, deleguer, domain } = fresh();
+  db.update('equipes', 'Maintenance', { parente: 'Production' });
+  // Sophie (N+1 de Karim) délègue à Mehdi, que Karim valide : Mehdi déciderait des congés de Karim.
+  refus(SOPHIE, 'equipe.delegation', { suppleantId: 2, du: '2026-10-07', au: '2026-10-09', perimetre: ['absences'] }, 400,
+    /Mehdi Benali et Karim Haddad deviendraient chacun le valideur de l’autre/);
+  // Karim délègue à Thomas, puis Sophie à Thomas sur une partie de la période : refusé (Karim valide toujours Thomas) ;
+  // à Julien Moreau, membre de la Production, accepté.
+  deleguer({ du: '2026-10-07', au: '2026-10-09' });
+  refus(SOPHIE, 'equipe.delegation', { suppleantId: 6, du: '2026-10-08', au: '2026-10-12', perimetre: ['absences', 'feuilles'] }, 400, /chacun le valideur de l’autre/);
+  const d = domain();
+  assert.equal(controleDelegation({ ...d.ds, today: d.ti }, { managerId: 3, suppleantId: 8, du: '2026-10-08', au: '2026-10-12', perimetre: ['absences'] },
+    { suppleant: d.emp(8), nom: id => d.personName(id) }), null);
+  // Sans équipe parente, Karim et Sophie ne se valident pas : Sophie peut prendre Mehdi pour suppléant.
+  db.update('equipes', 'Maintenance', { parente: null });
+  const libre = domain();
+  assert.equal(controleDelegation({ ...libre.ds, today: libre.ti }, { managerId: 3, suppleantId: 2, du: '2026-10-20', au: '2026-10-22', perimetre: ['absences'] },
+    { suppleant: libre.emp(2), nom: id => libre.personName(id) }), null);
+});
+
+test('signature : ni le N+1 qui décide pour le suppléant, ni une relance de sa propre équipe ne sont « par délégation »', () => {
+  const { db, run, deleguer, demande, statut } = fresh();
+  db.update('equipes', 'Maintenance', { parente: 'Production' });
+  deleguer({ du: '2026-10-07', au: '2026-10-09' });
+  // Demande de Thomas, suppléant : Sophie (N+1 de Karim) en décide en responsable hiérarchique, sans signature.
+  const a = demande(6);
+  const o = run(SOPHIE, 'absence.decider', { id: a, ok: true });
+  assert.equal(statut(a), 'validee');
+  assert.doesNotMatch(o.message!, /par délégation/);
+  const j = db.sql.prepare(`SELECT payload FROM journal WHERE action = 'absence.decider' ORDER BY id DESC LIMIT 1`).get() as { payload: string };
+  assert.equal(JSON.parse(j.payload).parDelegation, undefined);
+  // Karim délègue à Sophie : sa relance d'un membre direct de la Production n'est pas signée.
+  db.sql.prepare('DELETE FROM delegations').run();
+  deleguer({ du: '2026-10-07', au: '2026-10-09', suppleantId: 3 });
+  db.sql.prepare('DELETE FROM feuilles WHERE emp_id IN (2, 8)').run();
+  const r = run(SOPHIE, 'temps.relancer', { empId: 8 });
+  assert.doesNotMatch(r.message!, /par délégation/);
+  const jr = db.sql.prepare(`SELECT payload FROM journal WHERE action = 'temps.relancer' ORDER BY id DESC LIMIT 1`).get() as { payload: string };
+  assert.equal(JSON.parse(jr.payload).parDelegation, undefined);
+  // Le membre de l'équipe remplacée reste relançable par le suppléant.
+  assert.ok((run(SOPHIE, 'temps.relancer', { empId: 2 }).result as { feuilles: { empId: number }[] }).feuilles.some(f => f.empId === 2));
+});

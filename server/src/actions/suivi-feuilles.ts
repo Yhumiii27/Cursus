@@ -9,7 +9,7 @@ import { etatSemaines, maintenantParis, semainesSuivies } from '../../../shared/
 import type { Employe } from '../../../shared/types.ts';
 import { loadFull } from '../dataset.ts';
 import { type FeuilleARelancer, notifierRelanceFeuilles, notifierRelanceSuppleants, notifierRelanceValideur } from '../notifications.ts';
-import { ActionError, type ActionHandler, type Ctx, isManagerOf, isRh, makeCtx } from './context.ts';
+import { ActionError, type ActionHandler, type Ctx, decideParDelegation, isRh, makeCtx } from './context.ts';
 import { validerFeuille } from './temps.ts';
 
 /** Service RH (gestionnaire ou administrateur) ou manager ; ni le collaborateur, ni un profil restreint de l'espace RH. */
@@ -19,11 +19,12 @@ function exigerValideur(ctx: Ctx, quoi: string) {
 
 /**
  * Collaborateurs suivis : tous pour le service RH ; pour un manager, les membres de son équipe (hors lui-même), et ceux
- * dont il décide des feuilles par délégation d'un manager absent (t135).
+ * dont il décide des feuilles par délégation d'un manager absent (t135). Une relance n'est pas une décision : elle n'est
+ * pas signée « par délégation de » (`decideParDelegation` ne signe pas).
  */
 function perimetre(ctx: Ctx): Employe[] {
   if (isRh(ctx)) return ctx.ds.employes;
-  return ctx.ds.employes.filter(e => e.id !== ctx.user.empId && (ctx.d.mgrOf(e) === ctx.user.empId || isManagerOf(ctx, e, 'feuilles')));
+  return ctx.ds.employes.filter(e => e.id !== ctx.user.empId && (ctx.d.mgrOf(e) === ctx.user.empId || (ctx.user.role === 'manager' && decideParDelegation(ctx, e, 'feuilles'))));
 }
 
 /**

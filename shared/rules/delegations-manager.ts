@@ -100,28 +100,63 @@ const chevauche = (a: { du: ISODate; au: ISODate }, b: { du: ISODate; au: ISODat
 /** Nombre de jours d'une période, bornes comprises. */
 const jours = (du: ISODate, au: ISODate) => Math.round((Date.parse(`${au}T00:00:00Z`) - Date.parse(`${du}T00:00:00Z`)) / 86_400_000) + 1;
 
+/** Jours d'une période, bornes comprises (au plus DUREE_MAX_DELEGATION jours contrôlés). */
+const joursDe = (du: ISODate, au: ISODate): ISODate[] => {
+  const out: ISODate[] = [];
+  for (let t = Date.parse(`${du}T00:00:00Z`), fin = Date.parse(`${au}T00:00:00Z`); t <= fin && out.length <= DUREE_MAX_DELEGATION; t += 86_400_000) {
+    out.push(new Date(t).toISOString().slice(0, 10) as ISODate);
+  }
+  return out;
+};
+
+/** Valideurs (hors service RH) d'un salarié ce jour-là, tous périmètres confondus. */
+const valideursTous = (ds: DsDelegation, e: Pick<Employe, 'id' | 'equipe'>, jour: ISODate) =>
+  new Set((Object.keys(PERIMETRES_DELEGATION) as PerimetreDelegation[]).flatMap(p => valideursDe(ds, e, jour, p).map(v => v.id)).filter(id => id && id !== e.id));
+
+/**
+ * Validation croisée créée par une délégation (même garde-fou que `croiseeNouvelle` de t136 pour les équipes) : un
+ * valideur du suppléant dont celui-ci deviendrait aussi le valideur pendant la période — par exemple le manager remplacé
+ * par un membre de son équipe rattachée, ou un manager dont le responsable délègue au membre qu'il encadre. Comparée à la
+ * situation sans la nouvelle délégation : une paire déjà croisée ne lui est pas reprochée. Renvoie la personne, ou null.
+ */
+function croiseeParDelegation(ds: DsDelegation, g: DelegationValidation): number | null {
+  const s = ds.employes.find(x => x.id === g.suppleantId);
+  if (!s) return null;
+  const avec = { ...ds, delegations: [...(ds.delegations ?? []), g] };
+  for (const jour of joursDe(g.du, g.au)) {
+    for (const v of valideursTous(avec, s, jour)) {
+      const e = ds.employes.find(x => x.id === v);
+      if (e && valideursTous(avec, e, jour).has(s.id) && !(valideursTous(ds, s, jour).has(v) && valideursTous(ds, e, jour).has(s.id))) return v;
+    }
+  }
+  return null;
+}
+
 /**
  * Contrôle d'une nouvelle délégation. `managerId` : manager qui délègue (il encadre au moins une équipe) ; `suppleant` :
  * salarié présent pendant toute la période, autre que le manager ; période d'au plus DUREE_MAX_DELEGATION jours, qui ne
  * finit pas avant aujourd'hui ; au moins un périmètre, les entretiens seulement si le réglage les ouvre ; aucune autre
  * délégation du manager sur la période ; le suppléant n'a pas lui-même délégué ses validations sur la période (une
- * délégation ne se transmet pas). Renvoie le motif du refus, ou null.
+ * délégation ne se transmet pas) ; aucune validation croisée nouvelle (`croiseeParDelegation`). `suppleant` : fiche du
+ * suppléant ; `horsInstantane` : écran dont l'instantané ne la contient pas (Mon espace du manager, suppléant choisi dans
+ * `Dataset.suppleantsPossibles`) : présence et validations croisées sont alors contrôlées par le serveur seul. Renvoie le motif du refus, ou null.
  */
 export function controleDelegation(
   ds: DsDelegation & { today: ISODate },
   g: { managerId: number; suppleantId: number; du: unknown; au: unknown; perimetre: readonly unknown[] },
-  noms: { suppleant: Pick<Employe, 'entree' | 'fin'> | null | undefined; nom: (id: number) => string },
+  noms: { suppleant: Pick<Employe, 'entree' | 'fin'> | null | undefined; nom: (id: number) => string; horsInstantane?: boolean },
 ): string | null {
   if (!ds.referentiels.equipes.some(q => q.managerId === g.managerId)) return 'Seul un manager d’équipe délègue ses validations';
   if (g.suppleantId === g.managerId) return 'Le suppléant doit être une autre personne que le manager';
+  // Écran du manager (Mon espace) : la fiche du suppléant n'est pas dans son instantané ; le serveur contrôle sa présence.
   const s = noms.suppleant;
-  if (!s) return 'Suppléant introuvable';
+  if (!s && !noms.horsInstantane) return 'Suppléant introuvable';
   if (typeof g.du !== 'string' || typeof g.au !== 'string' || !isValidDate(g.du) || !isValidDate(g.au)) return 'Dates de la délégation invalides';
   const du = g.du as ISODate, au = g.au as ISODate;
   if (au < du) return 'La fin de la délégation précède son début';
   if (au < ds.today) return 'La délégation serait déjà terminée : choisissez une fin à partir d’aujourd’hui';
   if (jours(du, au) > DUREE_MAX_DELEGATION) return `Délégation limitée à ${DUREE_MAX_DELEGATION} jours : au-delà, confiez l’équipe à un autre manager`;
-  if ((s.entree && s.entree > du) || (s.fin && s.fin < au)) return `${noms.nom(g.suppleantId)} n’est pas présent dans l’entreprise pendant toute la période`;
+  if (s && ((s.entree && s.entree > du) || (s.fin && s.fin < au))) return `${noms.nom(g.suppleantId)} n’est pas présent dans l’entreprise pendant toute la période`;
   if (!g.perimetre.length || !g.perimetre.every(estPerimetre)) return 'Choisissez ce que le suppléant valide : congés, feuilles de temps';
   if (g.perimetre.includes('entretiens') && !ds.settings.delegationEntretiens) return 'La délégation des entretiens n’est pas ouverte (Paramètres → Hiérarchie des managers)';
   const actives = (ds.delegations ?? []).filter(x => !x.revoqueeLe && x.au >= ds.today);
@@ -131,6 +166,13 @@ export function controleDelegation(
   if (chaine) return `${noms.nom(g.suppleantId)} a lui-même délégué ses validations sur une partie de cette période : choisissez un autre suppléant`;
   const recue = actives.find(x => x.suppleantId === g.managerId && chevauche(x, { du, au }));
   if (recue) return `${noms.nom(g.managerId)} remplace lui-même ${noms.nom(recue.managerId)} sur une partie de cette période : une délégation ne se transmet pas`;
+  const croisee = croiseeParDelegation(ds, {
+    id: 0, managerId: g.managerId, suppleantId: g.suppleantId, du, au, perimetre: g.perimetre.filter(estPerimetre),
+    creeLe: '', creePar: '', revoqueeLe: null, revoqueePar: null, annonceeLe: null,
+  });
+  if (croisee) {
+    return `${noms.nom(g.suppleantId)} et ${noms.nom(croisee)} deviendraient chacun le valideur de l’autre pendant la délégation : choisissez un autre suppléant`;
+  }
   return null;
 }
 

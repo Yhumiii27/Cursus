@@ -9,7 +9,7 @@ import { aptitudeVueManager } from '../../shared/rules/sante.ts';
 import { visiteAProgrammer } from '../../shared/rules/visites-dues.ts';
 import { etatMineur, mineurDeLaSemaine, naissanceVueManager } from '../../shared/rules/mineurs.ts';
 import { needsFinCarriere } from '../../shared/rules/entretiens.ts';
-import { verdictAutorisation } from '../../shared/rules/contrats.ts';
+import { present, verdictAutorisation } from '../../shared/rules/contrats.ts';
 import { completerSession } from '../../shared/rules/plage-session.ts';
 import { avecInscrits } from '../../shared/rules/sessions.ts';
 import { finPeriodeCp, periodeReport } from '../../shared/rules/conges.ts';
@@ -21,7 +21,7 @@ import { delegationEnVigueur, deleguesA, type Delegue } from '../../shared/rules
 import { reglagesParDefaut } from '../../shared/reglages.ts';
 import { etatsCouverture } from '../../shared/rules/couverture.ts';
 import { entretienMiCarriere } from '../../shared/rules/entretien-mi-carriere.ts';
-import type { ContratHistorique, DelegationValidation, DemandeVisite, EtatCouverture, LotReprise } from '../../shared/types.ts';
+import type { ContratHistorique, DelegationValidation, DemandeVisite, EtatCouverture, LotReprise, Personne } from '../../shared/types.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Chantier, ClotureConges, CurrentUser, InformationCp, Dataset, SoldeSortie, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
   CalendrierFeries, DerogationDominicale, Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, Horaire, ISODate, Mandat, Mission, Participation, PlanAction, Poste, Projet, ReleveInterim,
@@ -276,6 +276,15 @@ function delegationsVisibles(d: Domain, user: CurrentUser): DelegationValidation
   });
 }
 
+/**
+ * Suppléants possibles d'un manager (t135, dialogue de délégation) : salariés présents aujourd'hui, hors intérim et hors
+ * lui-même, sans autre donnée que celles de l'annuaire (nom, équipe, poste), déjà transmises à tous.
+ */
+function suppleantsPossibles(d: Domain, managerId: number): Personne[] {
+  return d.ds.employes.filter(e => e.id !== managerId && present(e, d.ti) && !d.contratOf(e).interim)
+    .map(e => ({ id: e.id, nom: e.nom, equipe: e.equipe, poste: e.poste }));
+}
+
 /** Semaines de planning Keystone envoyées au navigateur, avant et après la semaine en cours. */
 export const SEMAINES_TACHES = 8;
 
@@ -441,6 +450,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     lectureSeule: [...lecture],
     delegations: delegationsVisibles(d, user),
     delegues,
+    // Manager qui délègue pour lui-même (Mon espace ou espace manager) : suppléants possibles, réduits à l'annuaire.
+    ...(d.teamsOf(user.empId).length ? { suppleantsPossibles: suppleantsPossibles(d, user.empId!) } : {}),
   };
 }
 

@@ -99,14 +99,19 @@ export function requireAccess(ctx: Ctx, empId: number) {
 
 /**
  * Délégation par laquelle le manager connecté décide aujourd'hui pour ce salarié (t135, shared/rules/delegations-manager.ts),
- * jamais pour lui-même ; `signer` : la décision sera signée « par délégation de » son manager (`Ctx.parDelegation`).
+ * jamais pour lui-même ; `signer` : la décision sera signée « par délégation de » son manager (`Ctx.parDelegation`). Seul
+ * le suppléant signe ainsi : le N+1 qui décide des demandes du suppléant pendant la délégation reste le responsable
+ * hiérarchique de celui-ci, et le manager ne lui a rien délégué.
  */
 function parDelegation(ctx: Ctx, e: Employe, perimetre: PerimetreDelegation, signer = true) {
   if (ctx.user.role !== 'manager' || !ctx.user.empId) return null;
   const g = delegationPour(ctx.ds, e, ctx.user.empId, ctx.d.ti, perimetre);
-  if (g && signer) ctx.parDelegation.add(g.managerId);
+  if (g && signer && g.suppleantId === ctx.user.empId) ctx.parDelegation.add(g.managerId);
   return g;
 }
+
+/** Le manager connecté décide-t-il aujourd'hui pour ce salarié par délégation de ce périmètre (t135) ? Sans signature. */
+export const decideParDelegation = (ctx: Ctx, e: Employe, perimetre: PerimetreDelegation) => !!parDelegation(ctx, e, perimetre, false);
 
 /**
  * Valideur des heures, absences et entretiens : RH (jamais pour lui-même) ou manager direct ; avec `perimetre`, aussi le

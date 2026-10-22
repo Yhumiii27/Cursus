@@ -1382,6 +1382,12 @@ export interface Dataset {
    * les périmètres reçus (`deleguesA`, calculé par le serveur). Absent ou vide ailleurs.
    */
   delegues?: { empId: number; managerId: number; perimetre: PerimetreDelegation[] }[];
+  /**
+   * Suppléants possibles du manager connecté hors de l'espace RH (t135, dialogue de délégation de Mon espace) : salariés
+   * présents, hors intérim et hors lui-même, réduits à l'annuaire (nom, équipe, poste) ; sa présence sur la période est
+   * contrôlée par le serveur. Absent ailleurs (service RH : `employes`).
+   */
+  suppleantsPossibles?: Personne[];
 }
 
 /**

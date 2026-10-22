@@ -146,7 +146,8 @@ Les feuilles validées partent à la paie avec le lot du mois : le manager n'a r
   feuilles de temps à décider à un suppléant, du … au … (votre responsable est proposé d'abord). Pendant cette période, le
   suppléant reçoit les demandes et l'espace Manager lui est ouvert ; ses décisions sont signées « par délégation » ; vous
   gardez la main à votre retour. « Révoquer » y met fin aussitôt. Suppléant, vous ne décidez jamais de vos propres
-  demandes : elles vont au responsable du manager, ou au service RH.
+  demandes : elles vont au responsable du manager, ou au service RH. Un suppléant qui deviendrait le valideur de son propre
+  valideur (par exemple un membre de votre équipe quand votre responsable délègue) est refusé.
 - « Formations » : renouvellements à prévoir. « Planifier » inscrit le collaborateur à une session ouverte ; sans session,
   « Demander au RH ».
 - « Couverture minimale des équipes » (écran Équipe) : jour où votre équipe n'aura plus assez de secouristes ou

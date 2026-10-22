@@ -1242,7 +1242,9 @@ d'une fiche antérieure. Règles dans `shared/rules/mineurs.ts` :
 
 Confidentialité (`server/src/dataset.ts`, `naissanceVueManager`) : le manager (membres de son équipe) et les profils
 restreints de l'espace RH reçoivent `naissanceLe: null`, l'année (règle à l'année des congés, transmise comme avant) et
-`mineur` au jour de l'instantané ; pas d'âge exact, qui à côté de l'année trahirait le jour anniversaire. Les sections de
+`mineur` au jour de l'instantané ; pas d'âge exact, qui à côté de l'année trahirait le jour anniversaire. Leurs feuilles
+portent `mineur` (un jour au moins de la semaine) et, seulement quand c'est le cas, `moins16` (repos quotidien de 14 h,
+nuit de 20 h à 6 h), pour que leurs contrôles soient ceux du serveur. Les sections de
 fin de carrière de leurs entretiens sont calculées par le serveur (`finCarriere` de l'entretien), pour que l'évaluateur
 rédige celles que `entretien.modifier` accepte. Le journal nomme `naissanceLe` parmi les champs modifiés, sans sa valeur.
 
@@ -1262,7 +1264,8 @@ par jour et cessent d'elles-mêmes le jour des 18 ans (date complète), ou le 1e
   L3164-5, sans dérogation pour l'industrie chimique, même quand l'équipe a une dérogation au repos dominical) ; à défaut,
   semaine sans deux jours consécutifs sans heure (art. L3164-2), le samedi travaillé laissant possible un repos dimanche
   et lundi suivant, que l'alerte invite à vérifier. Avec un horaire de poste sur la feuille (lot 6,
-  `shared/rules/repos-nuit.ts`) : repos quotidien de 12 h (14 h avant 16 ans, art. L3164-1) et pause de 30 min au-delà de
+  `shared/rules/repos-nuit.ts`) : repos quotidien de 12 h (14 h avant 16 ans, art. L3164-1 ; vues sans la date de
+  naissance : indication `moins16` de la feuille, comme `mineur`, `moins16DeLaSemaine`) et pause de 30 min au-delà de
   4 h 30 (art. L3162-3), à motiver comme les durées ; sans horaire, ni l'un ni l'autre ne sont contrôlés.
 - **Nuit** (art. L3163-2) : case « travail de nuit ou en continu » de l'équipe (`Equipe.nuit`, colonne JSON pour garder
   `null`, case pas encore renseignée, distincte de « non » ; le schéma déclaratif l'ajoute, sans migration nommée),
@@ -1909,11 +1912,15 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
     `FeuilleTemps.majNuit` ; migration `lot6-horaires-majoration-nuit` : 0 % sur les feuilles déjà validées) ; un forfait
     jours n'en a pas (décompte en jours). Désactivées par défaut (`inactiveParDefaut`) : tant que la paie ne les a pas
     activées, elles sortent du fichier mais figurent, salarié par salarié, dans le résumé du lot et l'export des
-    variables comme « à saisir dans Sage » (`SagePush.aSaisir`, famille `nuit`, rempli par `buildSagePayload` ; une
-    feuille régularisée n'y figure pas).
-  - Travailleur de nuit (`statutNuit`, art. L3122-5) : sur les feuilles validées qui portent des horaires figés, deux
-    semaines au moins parmi les quatre dernières ainsi validées qui comptent chacune deux jours d'au moins 3 h de nuit
-    (lecture de « deux fois par semaine, selon son horaire habituel »), ou 270 h de nuit sur 12 mois glissants
+    variables comme « à saisir dans Sage » (`SagePush.aSaisir`, famille `nuit`, rempli par `buildSagePayload`). Le lot
+    garde par feuille ce qu'il a listé (`RubriquesFeuille.aSaisir`, `nuitASaisirDeLaFeuille`), que la réouverture reprend
+    (`ReouvertureFeuille.aSaisir`) : une feuille régularisée liste l'écart, positif ou négatif, détail « régularisation »
+    (rappel d'une période close sur la période ouverte) ; rubrique activée depuis, la quantité saisie à la main est à
+    retirer, le fichier emporte la nouvelle.
+  - Travailleur de nuit (`statutNuit`, art. L3122-5) : sur les feuilles validées, deux semaines au moins parmi les quatre
+    dernières validées qui comptent chacune deux jours d'au moins 3 h de nuit (lecture de « deux fois par semaine, selon
+    son horaire habituel » ; une feuille sans horaire compte comme une semaine sans nuit, si bien que des nuits ponctuelles
+    dans une équipe de journée n'en font pas un), ou 270 h de nuit sur 12 mois glissants
     (art. L3122-23, supplétif) ; seuils réglables avec la référence de l'accord (COHERENCE). Repéré sur la fiche
     (`components/TravailNuit.tsx`) ; encore en VIP, alerte « Suivi médical adapté à prévoir » (`MedInfo.suiviNuit`,
     échéance sans date parmi les visites dues, « Demander la visite » ; VIP adaptée, art. R4624-17), sans changer d'office

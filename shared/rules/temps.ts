@@ -7,11 +7,11 @@ import { absenceBloque, jourHorsContrat, natureDef, natureMedicale } from './abs
 import { DEMI_LABEL, heuresDemiJournee, moities } from './demi-journees.ts';
 import { lignesFormation } from './formations-temps.ts';
 import { matriculeAffiche } from './matricules.ts';
-import { modeHeuresSup, periodeLabel, periodesSemaine, rubriquesPaie, traduireRubriques } from './paie.ts';
+import { modeHeuresSup, periodeLabel, periodeOuverte, periodesSemaine, rubriquesPaie, traduireRubriques } from './paie.ts';
 import { RUBRIQUES_PAIE } from '../constants.ts';
 import { alertesRepos, DIMANCHE, derogationDe, estWeekEnd, JOURS_FEUILLE } from './semaine.ts';
 import { controlesMineur, naissanceDeLaFeuille } from './mineurs.ts';
-import { aRegulariser, lignesRegularisation, rubriquesDeLaFeuille, type OptionsRegularisation } from './regularisation.ts';
+import { aRegulariser, ecartRubriques, lignesRegularisation, rubriquesDeLaFeuille, type OptionsRegularisation } from './regularisation.ts';
 import { heuresFeriees, MAJORATION_1ER_MAI, plafondComplementaires } from './majorations.ts';
 import { employeAu, memeRegime, regimeFiche, segmentsContrat } from './historique-contrat.ts';
 import { horairesDeLaFeuille } from './horaires.ts';
@@ -159,7 +159,7 @@ export function calcSheet(d: Domain, e: Employe, sh: FeuilleCalcul | null): Shee
  * des heures supplémentaires, majorations, contrepartie en repos) ; `week` repère les jours fériés.
  */
 export type FeuilleCalcul = Pick<FeuilleTemps, 'lignes'> & Partial<Pick<FeuilleTemps, 'week' | 'contrat' | 'heuresSup' | 'majDimanche' | 'majFerie' | 'cor' | 'mineur'
-  | 'statut' | 'horaires' | 'horairesFiges' | 'majNuit'>>;
+  | 'statut' | 'horaires' | 'horairesFiges' | 'majNuit' | 'moins16'>>;
 
 /** Contrepartie obligatoire en repos figée sur une feuille, toutes années confondues (heures). */
 export const corDeLaFeuille = (sh: Pick<FeuilleTemps, 'cor'> | null | undefined): number =>
@@ -507,13 +507,23 @@ export function buildSagePayload(
     rubriques: traduireRubriques(p.rubriques, table),
   }))), ...lignesRegularisation(d, correctifs, { ...regularisation, semaine })].filter(l => Object.keys(l.rubriques).length > 0);
   // Heures de nuit sous une rubrique désactivée : absentes du fichier, listées « à saisir dans Sage » (règle commune du lot 6,
-  // shared/rules/elements-lot.ts). Une feuille régularisée n'y figure pas : son écart part sous les rubriques actives.
+  // shared/rules/elements-lot.ts).
   const aSaisir: ElementASaisir[] = parts.flatMap(({ sh, parts }) => parts.flatMap(p => RUBRIQUES_NUIT.flatMap(k => {
     const q = p.rubriques[k], r = table.find(x => x.code === k);
     return q && r && !r.active
       ? [{ famille: 'nuit', empId: sh.empId, periode: p.periode, rubrique: k, quantite: q, detail: `Semaine ${semaine(sh.week)} · ${RUBRIQUES_PAIE[k].label.toLowerCase()}${p.origine ? ` · rappel de ${periodeLabel(p.origine)}` : ''}` }]
       : [];
   })));
+  // Feuille régularisée : l'écart de ses heures de nuit avec celles déjà listées à sa transmission (`ReouvertureFeuille.aSaisir`),
+  // positif ou négatif, sur la période d'origine si elle est ouverte, sinon sur la période ouverte (rappel). Rubrique activée
+  // depuis : la quantité saisie à la main est à retirer, le fichier emporte la nouvelle.
+  const ouverte = periodeOuverte(d.ti, d.ds.settings?.clotureJour ?? 0);
+  aSaisir.push(...correctifs.flatMap(sh => Object.entries(ecartRubriques(nuitASaisirDeLaFeuille(d, sh), sh.reouverture?.aSaisir ?? {}))
+    .sort(([a], [b]) => a.localeCompare(b)).flatMap(([origine, codes]) => RUBRIQUES_NUIT.filter(k => codes[k]).map((k): ElementASaisir => {
+      const periode = origine >= ouverte ? origine : ouverte;
+      return { famille: 'nuit', empId: sh.empId, periode, rubrique: k, quantite: codes[k],
+        detail: `Semaine ${semaine(sh.week)} · ${RUBRIQUES_PAIE[k].label.toLowerCase()} · régularisation${periode !== origine ? ` · rappel de ${periodeLabel(origine)}` : ''}` };
+    }))));
   return {
     dossier,
     mode,
@@ -521,7 +531,11 @@ export function buildSagePayload(
     periodes: [...new Set(lignes.flatMap(l => (l.periode ? [l.periode] : [])))].sort(),
     lignes,
     // Rubriques de chaque feuille, telles qu'elles partent (régularisée : telle que revalidée), gardées pour une réouverture.
-    rubriquesFeuilles: sheets.map(sh => ({ empId: sh.empId, week: sh.week, periodes: rubriquesDeLaFeuille(d, sh) })),
+    // Heures de nuit listées à saisir dans Sage (cumul, telles que revalidées pour une feuille régularisée) : à part.
+    rubriquesFeuilles: sheets.map(sh => {
+      const nuit = nuitASaisirDeLaFeuille(d, sh);
+      return { empId: sh.empId, week: sh.week, periodes: rubriquesDeLaFeuille(d, sh), ...(Object.keys(nuit).length ? { aSaisir: nuit } : {}) };
+    }),
     ...(correctifs.length ? { regularisation: regularisation.mode } : {}),
     ...(aSaisir.length ? { aSaisir } : {}),
   };
@@ -529,6 +543,26 @@ export function buildSagePayload(
 
 /** Rubriques des heures de nuit (shared/rules/repos-nuit.ts) : « à saisir dans Sage » tant qu'elles sont désactivées. */
 export const RUBRIQUES_NUIT = ['HNUIT', 'MAJ_NUIT'] as const;
+
+/**
+ * Heures de nuit d'une feuille sous une rubrique désactivée, en codes internes et par période d'origine : ce que la paie
+ * saisit à la main dans Sage. Gardées par feuille dans le contenu du lot (`RubriquesFeuille.aSaisir`), puis à la
+ * réouverture (`ReouvertureFeuille.aSaisir`), pour que la régularisation en liste l'écart.
+ */
+export function nuitASaisirDeLaFeuille(d: Domain, sh: FeuilleTemps): Record<string, Record<string, number>> {
+  const e = d.emp(sh.empId);
+  if (!e) return {};
+  const table = rubriquesPaie(d.ds.rubriquesPaie), out: Record<string, Record<string, number>> = {};
+  for (const p of rubriquesParPeriode(d, e, sh)) {
+    for (const k of RUBRIQUES_NUIT) {
+      const q = p.rubriques[k], r = table.find(x => x.code === k);
+      if (!q || !r || r.active) continue;
+      const x = (out[p.origine ?? p.periode] ??= {});
+      x[k] = Math.round(((x[k] ?? 0) + q) * 100) / 100;
+    }
+  }
+  return out;
+}
 
 /** Codes internes émis (quantité non nulle) par des feuilles : ceux dont la correspondance doit être confirmée. */
 export function rubriquesEmises(d: Domain, sheets: FeuilleTemps[]): Set<string> {

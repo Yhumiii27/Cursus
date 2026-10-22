@@ -37,12 +37,13 @@ const lotsTransmis = (db: Db, sh: Pick<FeuilleTemps, 'empId' | 'week'>) => db.al
  * sinon (lot historique, sans contenu) la feuille recalculée telle qu'elle a été validée (régime, mode des heures
  * supplémentaires, majorations et contrepartie figés), traduite avec la table des rubriques en vigueur.
  */
-export function transmisDeLaFeuille(db: Db, d: Domain, sh: FeuilleTemps): Pick<ReouvertureFeuille, 'rubriques' | 'lot' | 'source'> {
+export function transmisDeLaFeuille(db: Db, d: Domain, sh: FeuilleTemps): Pick<ReouvertureFeuille, 'rubriques' | 'lot' | 'source' | 'aSaisir'> {
   const lots = lotsTransmis(db, sh);
   const lot = lots[0]?.id ?? null;
   for (const l of lots) {
     const r = l.contenu?.rubriquesFeuilles?.find(x => x.empId === sh.empId && x.week === sh.week);
-    if (r) return { rubriques: r.periodes, lot: l.id, source: 'lot' };
+    // Heures de nuit listées à saisir dans Sage par ce lot (rubriques désactivées) ; un lot d'avant le lot 6 n'en a pas.
+    if (r) return { rubriques: r.periodes, lot: l.id, source: 'lot', aSaisir: r.aSaisir ?? null };
   }
   const e = d.emp(sh.empId);
   const parLignes = e ? lots.flatMap(l => (l.contenu ? [rubriquesDesLignes(l.contenu, matriculeAffiche(e), sh.week)] : [])).filter((x): x is ParPeriode => x !== null) : [];

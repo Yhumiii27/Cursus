@@ -18,6 +18,7 @@ const { variablesDeLaPeriode, A_SAISIR } = await import('../server/src/variables
 const { Domain } = await import('../shared/domain.ts');
 const { appliquerReglages, ReglageInvalide, reglagesParDefaut } = await import('../shared/reglages.ts');
 const { calcSheet, sageRubriques } = await import('../shared/rules/temps.ts');
+const { naissanceDeLaFeuille } = await import('../shared/rules/mineurs.ts');
 const { elementsASaisir } = await import('../shared/rules/elements-lot.ts');
 const R = await import('../shared/rules/repos-nuit.ts');
 type User = NonNullable<ReturnType<typeof currentUser>>;
@@ -122,6 +123,39 @@ test('mineur : nuit refusée (22 h – 6 h, 20 h – 6 h avant 16 ans), repos de
   // Pause de 30 min au-delà de 4 h 30 : M (30 min) suffit ; 15 min non.
   const P15 = { code: 'P', debut: '08:00', fin: '13:00', pause: 15 };
   assert.match(R.controlesReposNuit(sans(P15), jours(5), '2026-10-05', { naissance: LEO }).pauses[0], /Pause de 30 min.*art\. L3162-3/);
+  // Moins de 16 ans : repos de 14 h, annoncé tel quel. J (8 h – 16 h 30) puis reprise à 6 h : 13,5 h.
+  const E6 = { code: 'E', debut: '06:00', fin: '13:00', pause: 30 };
+  const ines = R.controlesReposNuit(sans(J, E6), jours(7.5, 6), '2026-10-19', { naissance: INES });
+  assert.deepEqual(ines.codes, ['repos_quotidien']);
+  assert.match(ines.repos[0], /^Repos quotidien de 14 h \(salarié de moins de 16 ans, art\. L3164-1\) non respecté : 13,5 h avant le mar\. 20 oct\./);
+  // Vue sans la date de naissance : l'indication `moins16` de la feuille donne le même seuil ; sans elle, 12 h seulement.
+  const vue = { naissance: 2011, naissanceLe: null, mineur: true };
+  assert.equal(R.controlesReposNuit(sans(J, E6), jours(7.5, 6), '2026-10-19', { naissance: naissanceDeLaFeuille(vue, { mineur: true, moins16: true }) }).repos[0], ines.repos[0]);
+  assert.deepEqual(R.controlesReposNuit(sans(J, E6), jours(7.5, 6), '2026-10-19', { naissance: naissanceDeLaFeuille(vue, { mineur: true }) }).codes, []);
+});
+
+test('moins de 16 ans : la feuille vue par le manager porte l’indication, son écran demande le motif comme le serveur', () => {
+  const { db, run, refuse, RH, user, domain } = fresh();
+  const KARIM = user(12, 'manager');
+  run(RH, 'employe.creer', {
+    nom: 'Inès Faure', poste: 'Apprentie', equipe: 'Maintenance', statut: 'ouvrier', typeContrat: 'alternance', temps: '35h', jourOff: [],
+    entree: '2026-09-01', fin: '2028-08-31', naissanceLe: '2011-06-01', email: 'ines.faure@entreprise.example',
+  });
+  const id = db.all<{ id: number; nom: string }>('employes').find(e => e.nom === 'Inès Faure')!.id;
+  const b = { empId: id, week: SEMAINE };
+  run(RH, 'temps.addLine', { ...b, projet: 'INT-MAINT' });
+  // Lundi J prolongé jusqu'à 19 h (10 h), mardi J à 8 h : 13 h de repos, assez à 16 ans, pas avant.
+  run(RH, 'temps.setCell', { ...b, li: 0, di: 0, value: '10' });
+  run(RH, 'temps.setCell', { ...b, li: 0, di: 1, value: '7' });
+  run(RH, 'temps.horaire', { ...b, di: 0, code: 'J' });
+  run(RH, 'temps.horaire', { ...b, di: 1, code: 'J' });
+  const rh = domain(), attendu = calcSheet(rh, rh.emp(id)!, rh.ds.feuilles.find(f => f.empId === id && f.week === SEMAINE)!).reposQuotidien;
+  assert.match(attendu[0], /Repos quotidien de 14 h/);
+  const snap = buildSnapshot(db, KARIM), sh = snap.feuilles.find(f => f.empId === id && f.week === SEMAINE)!;
+  assert.deepEqual([snap.employes.find(e => e.id === id)!.naissanceLe, sh.mineur, sh.moins16], [null, true, true], 'indications de la semaine, jamais la date');
+  const d = new Domain(snap);
+  assert.deepEqual(calcSheet(d, d.emp(id)!, sh).reposQuotidien, attendu, 'même alerte chez le manager que sur le serveur');
+  refuse(RH, 'temps.submit', b, /Repos quotidien de 14 h/);
 });
 
 test('feuille : repos et pause à motiver, nuit d’un mineur refusée, heures de nuit et majoration figée à la validation', () => {
@@ -202,6 +236,35 @@ test('paie : HNUIT et MAJ_NUIT inactives, listées « à saisir dans Sage » dan
   assert.deepEqual(v.map(l => [l.rubrique, l.quantite]), [['2100', 7.5], [A_SAISIR, 1.9]], 'MAJ_NUIT encore inactive');
 });
 
+test('paie : feuille régularisée, l’écart des heures de nuit inactives listé « à saisir dans Sage » (régularisation)', () => {
+  const { db, run, RH, user, saisir, feuille } = fresh();
+  const MEHDI = user(2, 'collaborateur'), KARIM = user(12, 'manager'), PAIE = user(7, 'rh');
+  type Lot = { id: number; contenu: { rubriquesFeuilles: { empId: number; week: string; aSaisir?: Record<string, Record<string, number>> }[]; aSaisir?: { famille: string; empId: number; periode: string; rubrique: string; quantite: number; detail: string }[] } };
+  const dernierLot = () => db.all<Lot>('lotsPaie').at(-1)!;
+  run(RH, 'parametres.maj', { nuitMajoration: 25 });
+  const base = saisir(MEHDI, [0, 0, 7.5], ['', '', 'N']);
+  run(MEHDI, 'temps.submit', base);
+  run(KARIM, 'temps.validate', base);
+  run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  const lot = dernierLot();
+  assert.deepEqual(lot.contenu.rubriquesFeuilles.find(x => x.empId === 2 && x.week === SEMAINE)!.aSaisir, { '2026-10': { HNUIT: 7.5, MAJ_NUIT: 1.9 } }, 'gardées par feuille');
+  run(PAIE, 'paie.lotConfirmer', { id: lot.id });
+  // Rouverte par l'administrateur RH : la nuit du mercredi était une après-midi.
+  run(RH, 'temps.rouvrir', { ...base, motif: 'Horaire du mercredi erroné' });
+  assert.deepEqual(feuille(2).reouverture!.aSaisir, { '2026-10': { HNUIT: 7.5, MAJ_NUIT: 1.9 } });
+  assert.equal(buildSnapshot(db, KARIM).feuilles.find(f => f.empId === 2 && f.week === SEMAINE)!.reouverture!.aSaisir, undefined, 'jamais chez le manager');
+  run(RH, 'temps.horaire', { ...base, di: 2, code: 'AM' });
+  run(KARIM, 'temps.validate', base);
+  // Export des variables puis lot correctif : la baisse des heures de nuit, à retirer de la saisie manuelle.
+  const v = variablesDeLaPeriode(db, PAIE, '2026-10').filter(l => l.empId === 2 && /heures de nuit/i.test(l.libelle) && l.etat === 'En attente d’un lot');
+  assert.deepEqual(v.map(l => [l.rubrique, l.quantite]), [[A_SAISIR, -7.5], [A_SAISIR, -1.9]]);
+  run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  const nuit = dernierLot().contenu.aSaisir!.filter(x => x.famille === 'nuit');
+  assert.deepEqual(nuit.map(x => [x.empId, x.periode, x.rubrique, x.quantite]), [[2, '2026-10', 'HNUIT', -7.5], [2, '2026-10', 'MAJ_NUIT', -1.9]]);
+  assert.match(nuit[0].detail, /^Semaine 2026-S43 · heures de nuit .* · régularisation$/);
+  assert.equal(dernierLot().contenu.rubriquesFeuilles.find(x => x.empId === 2 && x.week === SEMAINE)!.aSaisir, undefined, 'plus aucune heure de nuit');
+});
+
 test('travailleur de nuit : deux semaines de deux nuits parmi les quatre dernières, ou 270 h sur 12 mois ; suivi adapté signalé', () => {
   const { db, user, domain } = fresh();
   const nuits = (week: string, n: number, empId = 2) => (db.sql.prepare('DELETE FROM feuilles WHERE emp_id = ? AND week = ?').run(empId, week), db.insert<Feuille>('feuilles', {
@@ -241,6 +304,26 @@ test('travailleur de nuit : deux semaines de deux nuits parmi les quatre derniè
   const mgr = buildSnapshot(db, user(12, 'manager'));
   assert.equal(mgr.employes.find(x => x.id === 6)!.travailleurNuit, undefined);
   assert.equal(R.estTravailleurNuit(mgr, mgr.employes.find(x => x.id === 6)!, '2026-10-10'), true);
+});
+
+test('travailleur de nuit : des nuits ponctuelles séparées par des semaines de journée sans horaire ne font pas un horaire habituel', () => {
+  const { db, domain } = fresh();
+  // Équipe de journée sans horaire par défaut : feuilles validées figées en jours sans horaire, sauf les semaines de nuit.
+  const feuille = (week: string, n: number) => (db.sql.prepare('DELETE FROM feuilles WHERE emp_id = 2 AND week = ?').run(week), db.insert<Feuille>('feuilles', {
+    empId: 2, week, statut: 'validee', comment: null, sage: false, keystone: false, contrat: null, majNuit: 0,
+    lignes: [{ projet: 'INT-MAINT', tache: '', ks: false, h: [7.5, 7.5, 7, 7, 7, 0, 0] }],
+    horairesFiges: Array.from({ length: 7 }, (_, i) => (i < n ? N : null)),
+  }));
+  feuille('2026-02-02', 2);
+  feuille('2026-09-07', 2);
+  for (const w of ['2026-09-14', '2026-09-21', '2026-09-28', '2026-10-05']) feuille(w, 0);
+  const t = R.statutNuit(domain().ds, 2, '2026-10-10');
+  assert.deepEqual([t.travailleur, t.critere, t.semaines, t.heures12Mois], [false, null, 0, 30], 'les semaines sans horaire comptent sans nuit');
+  // Les mêmes nuits dans les quatre dernières feuilles validées : habituel.
+  feuille('2026-09-28', 2);
+  assert.deepEqual([R.statutNuit(domain().ds, 2, '2026-10-10').critere, R.statutNuit(domain().ds, 2, '2026-10-10').semaines], [null, 1]);
+  feuille('2026-10-05', 2);
+  assert.deepEqual([R.statutNuit(domain().ds, 2, '2026-10-10').critere, R.statutNuit(domain().ds, 2, '2026-10-10').semaines], ['hebdomadaire', 2]);
 });
 
 test('réglages du travail de nuit : valeurs de la loi, 9 h de nuit au moins, accord exigé pour s’en écarter, référence masquée au journal', () => {

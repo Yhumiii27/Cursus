@@ -17,8 +17,8 @@
 // - Salarié de moins de 18 ans : aucun travail entre 22 h et 6 h, entre 20 h et 6 h avant 16 ans (art. L3163-2). Refus,
 //   à la soumission et à la validation comme au choix de l'horaire (`refusNuitMineur`), sans motif possible.
 // - Travailleur de nuit (art. L3122-5) : au moins deux fois par semaine, selon son horaire habituel, 3 h de nuit au moins
-//   dans la journée — lu par Cursus comme deux semaines au moins, parmi les quatre dernières feuilles validées avec horaires,
-//   qui en comptent deux jours —, ou 270 h de nuit sur 12 mois glissants (art. L3122-23, supplétif). Seuils réglables avec la
+//   dans la journée — lu par Cursus comme deux semaines au moins, parmi les quatre dernières feuilles validées (avec ou sans
+//   horaire : une semaine sans horaire compte sans nuit), qui en comptent deux jours —, ou 270 h de nuit sur 12 mois glissants (art. L3122-23, supplétif). Seuils réglables avec la
 //   référence de l'accord. Repéré sur la fiche ; en suivi VIP, alerte « suivi médical adapté à prévoir » dans les visites
 //   dues (VIP adaptée, art. R4624-17), sans changer d'office le type de suivi.
 // Tout est calculé sur les feuilles et les horaires déjà transmis : aucune donnée nouvelle ne part vers le navigateur, sauf
@@ -27,7 +27,7 @@ import { addD, joursSemaine, parse } from '../dates.ts';
 import { fH, num } from '../format.ts';
 import type { Dataset, Employe, FeuilleTemps, HoraireFige, ISODate, Settings } from '../types.ts';
 import { horairesDeLaFeuille } from './horaires.ts';
-import { ageAu, dateNaissance, mineurAu, type Naissance } from './mineurs.ts';
+import { ageAu, dateNaissance, mineurAu, moins16Au, type Naissance } from './mineurs.ts';
 import { DIMANCHE, JOURS_FEUILLE } from './semaine.ts';
 
 // — Réglages (Paramètres → Décompte des heures, valeurs légales supplétives par défaut) —
@@ -50,7 +50,7 @@ export const PAUSE_DES_MINEUR = 4.5;
 /** Nuit interdite à un salarié mineur (art. L3163-2) : de 22 h à 6 h, de 20 h à 6 h avant 16 ans. */
 export const NUIT_MINEUR = { debut: 22, fin: 6 } as const;
 export const NUIT_MOINS_16 = { debut: 20, fin: 6 } as const;
-/** Travailleur de nuit au sens hebdomadaire : semaines regardées (dernières feuilles validées avec horaires) et semaines exigées. */
+/** Travailleur de nuit au sens hebdomadaire : semaines regardées (dernières feuilles validées) et semaines exigées. */
 export const NUIT_SEMAINES_REGARDEES = 4;
 export const NUIT_SEMAINES_EXIGEES = 2;
 /** Jours d'au moins le seuil quotidien de nuit dans une semaine (« au moins deux fois par semaine »). */
@@ -153,8 +153,11 @@ export function controlesReposNuit(jours: readonly (HoraireFige | null)[], perDa
   const plages = Array.from({ length: JOURS_FEUILLE }, (_, i) => plageDuJour(jours[i], num(perDay[i]), i));
   out.nuitParJour = plages.map(p => heuresDeNuit(p, s));
   out.nuit = Math.round(out.nuitParJour.reduce((a, b) => a + b, 0) * 100) / 100;
-  // Salarié mineur ce jour-là (moins de 16 ans quand la date de naissance le dit) : vue sans la date, l'indication seule.
-  const age = (day: ISODate) => (o.naissance && mineurAu(o.naissance, day) ? (dateNaissance(o.naissance) && ageAu(o.naissance, day) < 16 ? 'moins16' : 'mineur') : null);
+  // Salarié mineur ce jour-là (moins de 16 ans quand la date de naissance le dit) : vue sans la date, les indications
+  // de la semaine (`mineur`, `moins16` : naissanceDeLaFeuille).
+  const age = (day: ISODate) => (o.naissance && mineurAu(o.naissance, day) ? (moins16Au(o.naissance, day) ? 'moins16' : 'mineur') : null);
+  /** Seuil et texte des alertes d'après l'âge le plus bas de la semaine. */
+  const plusJeune = wd.some(day => age(day) === 'moins16') ? 'moins16' : wd.some(day => age(day)) ? 'mineur' : null;
 
   const nuitInterdite: string[] = [];
   plages.forEach((p, i) => {
@@ -181,8 +184,9 @@ export function controlesReposNuit(jours: readonly (HoraireFige | null)[], perDa
     if (repos < min) courts.push(`${repos > 0 ? fH(repos) : 'aucun repos'} avant le ${jourCourt(day)} (fin à ${heureTexte(avant.fin)}, reprise à ${heureTexte(apres.debut)})`);
   }
   if (courts.length) {
-    const mineur = wd.some(day => age(day));
-    out.repos.push(`Repos quotidien de ${mineur ? `${REPOS_QUOTIDIEN_MINEUR} h (salarié de moins de 18 ans, art. L3164-1)` : `${REPOS_QUOTIDIEN} h consécutives (art. L3131-1)`} non respecté : ${courts.join(' ; ')}`);
+    const seuil = plusJeune === 'moins16' ? `${REPOS_QUOTIDIEN_MOINS_16} h (salarié de moins de 16 ans, art. L3164-1)`
+      : plusJeune ? `${REPOS_QUOTIDIEN_MINEUR} h (salarié de moins de 18 ans, art. L3164-1)` : `${REPOS_QUOTIDIEN} h consécutives (art. L3131-1)`;
+    out.repos.push(`Repos quotidien de ${seuil} non respecté : ${courts.join(' ; ')}`);
     out.codes.push('repos_quotidien');
   }
 
@@ -195,8 +199,7 @@ export function controlesReposNuit(jours: readonly (HoraireFige | null)[], perDa
     if ((a ? h > des : h >= des) && p.pause < min) sansPause.push(`${jourCourt(wd[i])} (${fH(h)}, pause de ${p.pause} min)`);
   });
   if (sansPause.length) {
-    const mineur = wd.some(day => age(day));
-    out.pauses.push(mineur
+    out.pauses.push(plusJeune
       ? `Pause de ${PAUSE_MIN_MINEUR} min au moins au-delà de 4 h 30 de travail, salarié de moins de 18 ans (art. L3162-3) : ${sansPause.join(', ')}`
       : `Pause de ${PAUSE_MIN} min au moins dès ${PAUSE_DES} h de travail (art. L3121-16) : ${sansPause.join(', ')}`);
     out.codes.push('pause');
@@ -248,10 +251,12 @@ export interface StatutNuit {
 const cache = new WeakMap<readonly FeuilleTemps[], { n: number; m: Map<string, StatutNuit> }>();
 
 /**
- * Statut de travailleur de nuit à la date `ti`, sur les feuilles validées qui portent des horaires figés (une feuille d'avant
- * les horaires ne compte pas) : deux semaines au moins, parmi les quatre dernières feuilles ainsi validées des 12 derniers
- * mois, qui comptent chacune deux jours d'au moins le seuil quotidien de nuit ; ou le seuil annuel atteint sur les 12 mois
- * glissants (jours du 12e mois avant `ti` exclus, jours postérieurs à `ti` aussi).
+ * Statut de travailleur de nuit à la date `ti`, sur les feuilles validées : deux semaines au moins, parmi les quatre
+ * dernières feuilles validées des 12 derniers mois, qui comptent chacune deux jours d'au moins le seuil quotidien de nuit ;
+ * ou le seuil annuel atteint sur les 12 mois glissants (jours du 12e mois avant `ti` exclus, jours postérieurs à `ti`
+ * aussi). Une feuille sans horaire (équipe sans horaire par défaut, feuille d'avant les horaires) compte comme une semaine
+ * sans nuit : des nuits ponctuelles dans une équipe de journée, séparées par des semaines sans horaire, ne font pas un
+ * horaire habituel de nuit.
  */
 export function statutNuit(ds: Pick<Dataset, 'feuilles' | 'settings'>, empId: number, ti: ISODate): StatutNuit {
   const s = reglagesNuit(ds.settings);
@@ -261,7 +266,7 @@ export function statutNuit(ds: Pick<Dataset, 'feuilles' | 'settings'>, empId: nu
   const m = x.m, deja = m.get(cle);
   if (deja) return deja;
   const debut = addD(ti, -365);
-  const feuilles = ds.feuilles.filter(sh => sh.empId === empId && sh.statut === 'validee' && sh.horairesFiges?.some(Boolean) && sh.week <= ti && addD(sh.week, 6) > debut)
+  const feuilles = ds.feuilles.filter(sh => sh.empId === empId && sh.statut === 'validee' && sh.week <= ti && addD(sh.week, 6) > debut)
     .sort((a, b) => b.week.localeCompare(a.week));
   let heures = 0;
   const semaines = feuilles.map(sh => {

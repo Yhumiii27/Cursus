@@ -195,9 +195,10 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   deplacementsPaieAPartirDu: { defaut: null, controle: dateOuVide('Déplacements transmis à partir du') },
   //   Vigilance des pays (shared/rules/vigilance.ts, t068) : rappel avant un départ si la vérification a plus de N jours —
   vigilanceRappelJours: { defaut: 30, controle: entier(7, 180) },
-  // — Travail de nuit (parametres/TravailNuit.tsx, dans Décompte des heures ; shared/rules/repos-nuit.ts, t048) : valeurs
-  //   légales supplétives tant que l'accord n'est pas connu — nuit de 21 h à 6 h (art. L3122-20), travailleur de nuit à 3 h
-  //   deux fois par semaine ou 270 h sur 12 mois (art. L3122-5 et L3122-23), majoration à 0 % (quantité HNUIT seule) —
+  // — Travail de nuit (components/ReglagesNuit.tsx, dans Paramètres → Décompte des heures ; shared/rules/repos-nuit.ts,
+  //   t048) : valeurs légales supplétives tant que l'accord n'est pas connu — nuit de 21 h à 6 h (art. L3122-20),
+  //   travailleur de nuit à 3 h deux fois par semaine ou 270 h sur 12 mois (art. L3122-5 et L3122-23), majoration à 0 %
+  //   (quantité HNUIT seule) —
   nuitDebut: { defaut: 21, controle: entier(21, 22) },
   nuitFin: { defaut: 6, controle: entier(6, 7) },
   nuitSeuilQuotidien: { defaut: 3, controle: entier(1, 9) },

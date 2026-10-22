@@ -538,6 +538,11 @@ export interface FeuilleTemps {
    */
   mineur?: boolean;
   /**
+   * Mêmes vues : salarié de moins de 16 ans un jour au moins de la semaine (repos quotidien de 14 h, nuit de 20 h à 6 h :
+   * shared/rules/repos-nuit.ts), présent seulement quand c'est le cas. Jamais enregistré.
+   */
+  moins16?: boolean;
+  /**
    * Majoration des heures d'un jour férié autre que le 1er mai (%, réglage `tauxMajorationFerie`) figée à la validation,
    * comme celle du dimanche. Null avant : le réglage s'applique. Le 1er mai est toujours majoré de 100 % (art. L3133-6).
    */
@@ -595,6 +600,11 @@ export interface ReouvertureFeuille {
   rubriques: Record<string, Record<string, number>> | null;
   /** D'où viennent `rubriques` : contenu figé du lot, lignes du lot rapprochées par matricule, ou recalcul de la feuille. */
   source?: 'lot' | 'lignes' | 'recalcul' | null;
+  /**
+   * Heures de nuit déjà listées « à saisir dans Sage » (rubriques désactivées, codes internes, par période d'origine :
+   * `RubriquesFeuille.aSaisir` du dernier lot transmis) : la régularisation en liste l'écart. Absent ou null : aucune.
+   */
+  aSaisir?: Record<string, Record<string, number>> | null;
   /** Heures par projet déjà renvoyées à Keystone ; un projet retiré y est renvoyé à 0. Null : aucun événement parti. */
   keystone: Record<string, number> | null;
   /** Réouvertures précédentes (instant, auteur, motif), de la plus ancienne à la plus récente. */
@@ -1219,7 +1229,14 @@ export type TypeLotPaie = 'normal' | 'correctif';
 /** Régularisation d'une feuille transmise : écart sur la période ouverte, ou rubriques complètes de la période d'origine. */
 export type ModeRegularisation = 'ecart' | 'remplace';
 /** Rubriques d'une feuille (codes Sage), par période d'origine (AAAA-MM). */
-export interface RubriquesFeuille { empId: number; week: ISODate; periodes: Record<string, Record<string, number>> }
+export interface RubriquesFeuille {
+  empId: number; week: ISODate; periodes: Record<string, Record<string, number>>;
+  /**
+   * Heures de nuit listées « à saisir dans Sage » pour la feuille (rubriques désactivées : codes internes HNUIT, MAJ_NUIT,
+   * par période d'origine ; shared/rules/temps.ts, `nuitASaisirDeLaFeuille`). Absent : aucune, ou lot d'avant le lot 6.
+   */
+  aSaisir?: Record<string, Record<string, number>>;
+}
 export interface LotPaie {
   id: number;
   /** Clé d'idempotence (UUID) : identique à chaque téléchargement du fichier. */

@@ -505,6 +505,24 @@ mot de passe de `cursus_app` connu de l'exploitant, Cursus en version 8.b au moi
    (« schéma cursus absent », « migration inconnue de cette version », colonne manquante) arrête le serveur avant toute
    écriture. Plusieurs instances peuvent démarrer ensemble : les migrations et les écritures sont protégées par des
    verrous du serveur.
+   **Base SQLite existante à reprendre** (installation en service avant la bascule) : avant le premier démarrage avec
+   `DATABASE_URL`, service SQLite arrêté (`systemctl stop cursus`, ou application arrêtée dans Coolify), avec la même
+   `DATABASE_URL` et `CURSUS_DB` pointant sur la base SQLite (`/data/cursus.db` dans le conteneur) :
+
+   ```sh
+   npm run reprise-postgres -- --a-blanc     # contrôles et copie faits puis annulés : lire le compte rendu
+   npm run reprise-postgres                  # reprise réelle, une seule transaction, comptes contrôlés table par table
+   ```
+
+   La base SQLite n'est jamais modifiée : Cursus en lit une copie, la met au niveau de cette version (reprises et
+   migrations nommées), puis copie toutes les tables, identifiants et ordre des référentiels gardés. Refus, sans rien
+   écrire, si la base SQLite est encore en service, si la base PostgreSQL contient déjà des données (hors amorçages
+   d'une base neuve), si une référence vise une ligne absente ou si une date est illisible : la liste est affichée,
+   à corriger dans la base SQLite. Les valeurs « aucun » des références (0 ou vide) et les dates vides sont écrites
+   NULL et comptées. Une reprise faite est tracée au journal (`migration.postgres`) ; relancée, la commande le dit et
+   ne change rien. Les pièces justificatives ne sont pas dans la base : le compte rendu signale les fichiers absents du
+   dossier des pièces de la cible (même volume `/data/pieces` dans le conteneur : rien à copier). La base SQLite reste
+   en place, comme repli, jusqu'à la recette.
 3. **Partage** (une fois les migrations passées, puis à chaque version qui modifie une vue `pub_`), depuis le dépôt
    Matrix, dans cet ordre :
 

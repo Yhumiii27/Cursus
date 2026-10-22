@@ -233,6 +233,7 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'migration.rubriquesFeuilles': 'Reprise : rubriques transmises de chaque feuille des lots de paie',
   'migration.coutReel': 'Reprise du coût réel des actions réalisées du plan',
   'migration.referencesDeplacements': 'Reprise : référence donnée aux déplacements importés sans référence',
+  'migration.postgres': 'Reprise : base SQLite copiée sur le serveur PostgreSQL commun',
   // Contrôle d'intégrité du démarrage (server/src/integrite.ts) : références orphelines, nombres seulement.
   'integrite.orphelins': 'Contrôle d’intégrité : références orphelines dans la base',
   // Pièces justificatives (server/src/pieces.ts) : identifiants, objet, type et taille ; jamais le nom du fichier.
@@ -276,7 +277,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
   { id: 'reprise', label: 'Mise en service (reprise depuis Lucca)', prefixes: ['reprise.'] },
   { id: 'pieces', label: 'Pièces justificatives', prefixes: ['piece.'] },
-  { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.', 'confidentialite.', 'integrite.'] },
+  { id: 'administration', label: 'Administration et exports', prefixes: ['parametres.', 'demo.', 'compte.', 'envoi.', 'export', 'journal.', 'salarie.', 'donnees.', 'confidentialite.', 'integrite.', 'migration.postgres'] },
   { id: 'connexions', label: 'Connexions et accès', prefixes: ACTIONS_CONNEXION },
   {
     id: 'integrations', label: 'Intégrations (Keystone, e-mails)',

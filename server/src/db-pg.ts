@@ -204,14 +204,16 @@ export class PgDb extends Db {
   }
 
   /** Séquence de la clé de `table` placée au-delà du plus grand identifiant, sans jamais reculer. */
-  private async recaler(table: TableName): Promise<void> {
-    const t = snake(table), pk = snake(this.def(table).pk);
+  private async recaler(table: TableName, colonne = snake(this.def(table).pk)): Promise<void> {
+    const t = snake(table), pk = colonne;
     await this.query(`SELECT setval(s.seq, GREATEST((SELECT COALESCE(MAX(${pk}), 0) FROM ${t}), COALESCE(pg_sequence_last_value(s.seq), 0), 1),
       (SELECT COUNT(*) > 0 FROM ${t}) OR pg_sequence_last_value(s.seq) IS NOT NULL) FROM (SELECT pg_get_serial_sequence(?, ?)::regclass AS seq) s`, [t, pk]);
   }
 
   async resyncIds(): Promise<void> {
     for (const [name, def] of Object.entries(TABLES) as [TableName, TableDef][]) if (def.auto) await this.recaler(name);
+    // Colonne d'ordre `rang` fixée à l'insertion (reprise d'une base SQLite) : les référentiels ajoutés ensuite viennent après.
+    for (const name of TABLES_RANG) await this.recaler(name, 'rang');
   }
 
   async clearAll(): Promise<void> {

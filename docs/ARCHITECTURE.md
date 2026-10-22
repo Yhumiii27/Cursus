@@ -508,6 +508,15 @@ scripts/           dev.mjs (npm run dev), start.mjs (npm start : production, Win
     jeu de démonstration n'est chargé que si `CURSUS_DEMO=1` sur une base vide, dans la transaction qui la contrôle.
     `npm run backup`, `restore` et `reset-demo` refusent PostgreSQL (sauvegardes du serveur commun : rôle
     `epc2i_sauvegarde`) ; l'application de bureau force SQLite (`DATABASE_URL` vide).
+  - *Reprise d'une base SQLite* (sous-étape 8.c, `server/src/reprise-postgres.ts`, `npm run reprise-postgres`) : copie
+    cohérente de la base (`VACUUM INTO`, l'original n'est jamais modifié), reprises et migrations nommées appliquées à
+    la copie, contrôle de toutes les valeurs d'après les types du schéma cible et des références d'après ses clés
+    étrangères (anomalies réunies dans un seul refus), puis copie des tables de `TABLES` dans l'ordre des clés
+    étrangères (référence d'une table à elle-même posée ensuite), par lots, en une transaction sous le verrou
+    d'écriture : `rang` = `rowid`, colonnes prérequises du partage laissées vides, séquences recalées (`resyncIds`,
+    `rang` compris), comptes comparés table par table avant la validation, ligne `migration.postgres` au journal, qui
+    rend la commande sans effet ensuite. Cible acceptée : vide, hors amorçages d'une base neuve (`TABLES_AMORCEES`,
+    remplacés par ceux de la source).
   - *Tests.* `npm test` sur SQLite ; `npm run test:pg` (`CURSUS_TEST_DATABASE_URL` : base d'administration d'un serveur
     PostgreSQL 16 de test) rejoue la même suite, une base par fichier, un schéma par `nouvelleBase()` (`tests/base.ts`) ;
     les tests des migrations nommées (SQL propre à SQLite) y sont ignorés. Job CI `postgres` : socle de Matrix copié

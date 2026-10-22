@@ -29,7 +29,7 @@ import {
  */
 const demander: ActionHandler = (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
-  const parManager = isManagerOf(ctx, emp);
+  const parManager = isManagerOf(ctx, emp, 'absences');
   if (!(isRh(ctx) || isSelf(ctx, emp.id) || parManager)) throw new ActionError('Vous ne pouvez poser une absence que pour vous-même ou votre équipe', 403);
   const kind = str(p.kind) as CongeType;
   const chk = checkAbsence(ctx.d, emp, kind, p.du, p.au, parManager, { debutDemi: p.debutDemi, finDemi: p.finDemi });
@@ -49,11 +49,11 @@ const decider: ActionHandler = (ctx, p) => {
   const ok = !!p.ok;
   // Même décision déjà prise (double clic, autre onglet, autre valideur) : rien n'est refait ni renvoyé à Keystone.
   const deja = a && a.statut === (ok ? 'validee' : 'refusee') ? ctx.d.emp(a.empId) : undefined;
-  if (deja && isValidatorOf(ctx, deja)) return `Absence de ${deja.nom} déjà ${ok ? 'validée' : 'refusée'}`;
+  if (deja && isValidatorOf(ctx, deja, 'absences')) return `Absence de ${deja.nom} déjà ${ok ? 'validée' : 'refusée'}`;
   if (!a || a.statut !== 'demandee') throw new ActionError('Demande introuvable ou déjà traitée');
   const emp = getEmp(ctx, a.empId);
   refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas décider de votre propre demande d’absence');
-  if (!isValidatorOf(ctx, emp)) throw new ActionError('Décision réservée au manager du salarié ou au service RH', 403);
+  if (!isValidatorOf(ctx, emp, 'absences')) throw new ActionError('Décision réservée au manager du salarié ou au service RH', 403);
   // Demande antérieure au contrôle des bornes du contrat : jamais validée hors contrat.
   const hors = ok ? borneContrat(emp, a.du, a.au) : null;
   if (hors) throw new ActionError(`Absence hors contrat : ${hors}`);
@@ -145,7 +145,7 @@ const sansNature = (chk: { msgs: { text: string; bad: boolean }[] }) => new Acti
  */
 const signaler: ActionHandler = (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
-  if (!(isRh(ctx) || isSelf(ctx, emp.id) || isManagerOf(ctx, emp))) throw new ActionError('Vous ne pouvez signaler une absence que pour vous-même ou votre équipe', 403);
+  if (!(isRh(ctx) || isSelf(ctx, emp.id) || isManagerOf(ctx, emp, 'absences'))) throw new ActionError('Vous ne pouvez signaler une absence que pour vous-même ou votre équipe', 403);
   const du = str(p.du), au = str(p.au) || du;
   const chk = checkNature(ctx.d, emp, 'ABSENCE', du, au, { quand: 'avant de signaler l’absence' });
   if (chk.cant) throw sansNature(chk);
@@ -206,7 +206,7 @@ const qualifier: ActionHandler = (ctx, p) => {
 const prolonger: ActionHandler = (ctx, p) => {
   const a = absenceOf(ctx, p.id);
   const emp = getEmp(ctx, a.empId);
-  if (!(isRh(ctx) || isSelf(ctx, emp.id) || isManagerOf(ctx, emp))) throw new ActionError('Vous ne pouvez prolonger qu’une absence de vous-même ou de votre équipe', 403);
+  if (!(isRh(ctx) || isSelf(ctx, emp.id) || isManagerOf(ctx, emp, 'absences'))) throw new ActionError('Vous ne pouvez prolonger qu’une absence de vous-même ou de votre équipe', 403);
   if (!prolongeable(a)) throw new ActionError(estConge(a.type) ? 'Un congé ne se prolonge pas : posez une nouvelle demande' : 'Absence annulée ou refusée : elle ne se prolonge pas');
   const au = str(p.au);
   if (!isValidDate(au) || au <= a.au) throw new ActionError(`Nouvelle fin requise, après le ${fmt(parse(a.au))}`);
@@ -230,10 +230,10 @@ const annuler: ActionHandler = (ctx, p) => {
   const a = absenceOf(ctx, p.id);
   const emp = getEmp(ctx, a.empId);
   // Périmètre d'abord : hors de celui-ci, aucun refus ne doit révéler l'état ou les dates de l'absence.
-  if (!(isRh(ctx) || isSelf(ctx, emp.id) || isManagerOf(ctx, emp))) throw new ActionError('Vous ne pouvez annuler qu’une absence de vous-même ou de votre équipe', 403);
+  if (!(isRh(ctx) || isSelf(ctx, emp.id) || isManagerOf(ctx, emp, 'absences'))) throw new ActionError('Vous ne pouvez annuler qu’une absence de vous-même ou de votre équipe', 403);
   // Un membre du RH annule ses propres absences avec les droits de l'intéressé, jamais ceux du service RH.
   const soi = estSoiMeme(ctx, emp.id), self = isSelf(ctx, emp.id) || soi;
-  const droit = droitAnnulation(a, ctx.d.ti, { rh: isRh(ctx) && !soi, self, manager: isManagerOf(ctx, emp) });
+  const droit = droitAnnulation(a, ctx.d.ti, { rh: isRh(ctx) && !soi, self, manager: isManagerOf(ctx, emp, 'absences') });
   if (!droit.ok) throw new ActionError(droit.raison, a.statut === 'refusee' || a.statut === 'annulee' ? 400 : 403);
   ctx.db.update<Absence>('absences', a.id, { statut: 'annulee', annuleeLe: ctx.d.ti, annuleePar: ctx.user.nom, keystone: false });
   if (a.keystone) keystone(ctx, 'absence.annulee', a);

@@ -35,7 +35,8 @@ Le sélecteur **Vue** de la barre latérale bascule entre les espaces (mode dém
 - **RH** : tout l'outil, dont la création et la modification des fiches
   (statut, contrat, organisation du temps), l'écran « Équipes & managers » (créer, renommer,
   supprimer une équipe, désigner son manager, affecter les collaborateurs, rattacher une équipe à une équipe parente :
-  le manager de l'équipe est alors validé par son responsable, consultation N+2 en lecture seule réglable), la **sortie** d'un salarié, CDI compris
+  le manager de l'équipe est alors validé par son responsable, consultation N+2 en lecture seule réglable ; délégation
+  datée des validations d'un manager absent à un suppléant, aussi saisie par le manager dans son espace), la **sortie** d'un salarié, CDI compris
   (dernier jour et motif en liste fermée : ce qui était prévu après son départ est annulé, il quitte la conformité et les
   échéances et reste consultable avec le filtre « Sortis » de Collaborateurs ; son solde de congés, de RTT, de
   récupération et de CET à la date est montré avant la confirmation, photographié pour la paie, imprimable et exportable,

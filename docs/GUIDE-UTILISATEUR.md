@@ -151,6 +151,12 @@ Les feuilles validées partent à la paie avec le lot du mois : le manager n'a r
   d'équipe vous soumet ses absences, ses feuilles et ses entretiens. Si l'administrateur RH a activé la consultation N+2,
   les membres de son équipe s'affichent aussi, marqués « Lecture seule » : vous consultez leur fiche, leurs absences et
   leurs feuilles, sans donnée médicale ni entretien ; les décisions restent à leur manager direct.
+- Absences du manager : dans l'espace collaborateur (« Accueil »), « Déléguer mes validations » confie vos congés et
+  feuilles de temps à décider à un suppléant, du … au … (votre responsable est proposé d'abord). Pendant cette période, le
+  suppléant reçoit les demandes et l'espace Manager lui est ouvert ; ses décisions sont signées « par délégation » ; vous
+  gardez la main à votre retour. « Révoquer » y met fin aussitôt. Suppléant, vous ne décidez jamais de vos propres
+  demandes : elles vont au responsable du manager, ou au service RH. Un suppléant qui deviendrait le valideur de son propre
+  valideur (par exemple un membre de votre équipe quand votre responsable délègue) est refusé.
 - « Formations » : renouvellements à prévoir. « Planifier » inscrit le collaborateur à une session ouverte ; sans session,
   « Demander au RH ».
 - « Couverture minimale des équipes » (écran Équipe) : jour où votre équipe n'aura plus assez de secouristes ou
@@ -175,6 +181,9 @@ entretiens : un collègue ou son manager le fait.
   en attente qui changent de valideur ; le nouveau valideur en est prévenu par e-mail. Il en va de même quand vous
   changez le manager d'une équipe parente. Une modification qui ferait de deux salariés chacun le valideur de l'autre
   (rattachement, manager, affectation) est refusée en les nommant.
+  Dans le détail d'une équipe, « Déléguer les validations » enregistre la délégation du manager absent à un suppléant
+  (période, congés et feuilles de temps ; entretiens si Paramètres → Hiérarchie des managers les ouvre) ; « Révoquer »
+  y met fin. Le suppléant et le manager en sont prévenus par e-mail.
 - Liens : l'adresse de la page garde la fiche ouverte, la feuille de temps (salarié et semaine) et les filtres ; F5 ne
   les perd plus et Précédent referme la fiche. « Copier le lien » (fiche, feuille de temps) donne un lien à partager : la
   personne qui l'ouvre ne voit que ce que son rôle lui ouvre.

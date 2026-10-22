@@ -17,6 +17,7 @@ import { validationGroupee } from '../state/confirmations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { Fine, Panel, Tag, Two } from './ui.tsx';
+import { decideur } from '../state/delegues.ts';
 
 const TOUTES = '';
 /** Cellule qui demande une action : à saisir, à corriger, à valider. */
@@ -33,7 +34,7 @@ export function SuiviFeuilles() {
   const semaines = semainesSuivies(d.ti, s.suiviSemaines);
   // Manager : les membres de son équipe ; espace RH : tous, filtrés par équipe.
   const emps = d.ds.employes
-    .filter(e => (manager ? e.id !== me && d.mgrOf(e) === me : equipe === TOUTES || equipeLabel(e) === equipe))
+    .filter(e => (manager ? decideur(d, e, me, 'feuilles') : equipe === TOUTES || equipeLabel(e) === equipe))
     .sort((a, b) => a.nom.localeCompare(b.nom));
   const lignes = etatSemaines(d, emps.map(e => e.id), semaines, maintenantParis(d.ti)).filter(l => l.cellules.some(c => c.etat));
   const visibles = tout ? lignes : lignes.filter(l => l.cellules.some(aSuivre));

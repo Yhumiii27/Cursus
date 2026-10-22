@@ -53,7 +53,11 @@ export function espacesDuCompte(db: Db, c: Compte): Role[] {
   const out: Role[] = [];
   if (ouvreEspaceRh(c.profilRh)) out.push('rh');
   if (c.empId && salarie(db, c)) {
-    if (db.sql.prepare('SELECT 1 FROM equipes WHERE manager_id = ? LIMIT 1').get(c.empId)) out.push('manager');
+    // Manager d'une équipe, ou suppléant d'un manager absent pendant sa délégation (t135) : l'espace manager s'ouvre
+    // le premier jour de la délégation et se ferme après le dernier, ou dès sa révocation.
+    const jour = todayIso();
+    if (db.sql.prepare('SELECT 1 FROM equipes WHERE manager_id = ? LIMIT 1').get(c.empId)
+      || db.sql.prepare('SELECT 1 FROM delegations WHERE suppleant_id = ? AND revoquee_le IS NULL AND du <= ? AND au >= ? LIMIT 1').get(c.empId, jour, jour)) out.push('manager');
     out.push('collaborateur');
   }
   return out;

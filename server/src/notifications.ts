@@ -13,7 +13,8 @@ import { matriculeAffiche } from '../../shared/rules/matricules.ts';
 import { demiTexte } from '../../shared/rules/demi-journees.ts';
 import { finSession, horaireDuJour, horaireTexte, joursSession, joursTexte, plageCourte, surPlusieursJours } from '../../shared/rules/plage-session.ts';
 import { convocationEnvoyee } from '../../shared/rules/sessions.ts';
-import type { Absence, Certification, CurrentUser, Dataset, DemandeCollab, DemandeVisite, Employe, Entretien, Messagerie, Session } from '../../shared/types.ts';
+import { valideursDe } from '../../shared/rules/delegations-manager.ts';
+import type { Absence, Certification, CurrentUser, Dataset, DemandeCollab, DemandeVisite, Employe, Entretien, Messagerie, PerimetreDelegation, Session } from '../../shared/types.ts';
 import { configMail } from './config.ts';
 import { todayIso } from './dataset.ts';
 import type { Db } from './db.ts';
@@ -21,9 +22,13 @@ import { calendrier, domaineAgenda, envoyerEmail, pieceJointe, type EvenementAge
 import { adresseSalarie, courriel, jourLong, lireMessagerie, periodeLongue } from './messagerie.ts';
 import { relevesAutomatiques } from './releves.ts';
 import { relancerEcheances } from './relances.ts';
+import { annoncerDelegations } from './delegations.ts';
 
-/** Ce dont une notification a besoin du contexte d'une action. */
-type Contexte = { db: Db; ds: Dataset; user: CurrentUser };
+/**
+ * Ce dont une notification a besoin du contexte d'une action ; `parDelegation` : managers au nom desquels le suppléant a
+ * décidé (t135), nommés dans la signature de la décision.
+ */
+type Contexte = { db: Db; ds: Dataset; user: CurrentUser; parDelegation?: ReadonlySet<number> };
 
 export interface Notification { type: string; objet: string; texte: string }
 
@@ -52,6 +57,29 @@ export function notifier(cx: Contexte, dest: number, n: Notification, boiteParta
 
 /** Auteur d'une décision, tel qu'il est nommé au destinataire. */
 const auteur = (user: CurrentUser) => user.role === 'rh' ? 'le service RH' : user.nom;
+/** Nom d'un salarié dans un e-mail (manager remplacé, suppléant). */
+const nomDe = (cx: Contexte, id: number) => cx.ds.employes.find(e => e.id === id)?.nom ?? cx.ds.annuaire.find(p => p.id === id)?.nom ?? 'son manager';
+/** Signature d'une décision : « Paul Martin, par délégation de Karim Haddad » quand le suppléant décide (t135). */
+const signature = (cx: Contexte) => {
+  const pour = [...(cx.parDelegation ?? [])].map(id => nomDe(cx, id));
+  return `${auteur(cx.user)}${pour.length ? `, par délégation de ${pour.join(' et de ')}` : ''}`;
+};
+
+/**
+ * Délégation des validations (t135, shared/rules/delegations-manager.ts) : la notification adressée au valideur l'est
+ * aussi, pendant la délégation de son manager, au suppléant (ou, pour le suppléant lui-même, au N+1 du manager), avec la
+ * période de la délégation. `valideur` : celui déjà prévenu.
+ */
+function notifierSuppleants(cx: Contexte, emp: Employe, perimetre: PerimetreDelegation, valideur: number, n: Notification) {
+  for (const v of valideursDe(cx.ds, emp, cx.ds.today, perimetre)) {
+    if (!v.delegation || v.id === valideur) continue;
+    const m = nomDe(cx, v.delegation.managerId);
+    notifier(cx, v.id, {
+      ...n, objet: `${n.objet} (en l’absence de ${m})`,
+      texte: `${n.texte}\nVous en décidez par délégation de ${m}, jusqu’au ${fmtIso(v.delegation.au)} ; ${m} le peut aussi à son retour.`,
+    });
+  }
+}
 const CONGE: Record<string, { objet: string; texte: string }> = {
   CP: { objet: 'congés payés', texte: 'des congés payés' }, RTT: { objet: 'RTT / repos', texte: 'des jours de RTT / repos' }, RECUP: { objet: 'récupération', texte: 'une récupération' },
 };
@@ -67,10 +95,12 @@ const demiCourriel = (a: Pick<Absence, 'du' | 'au' | 'debutDemi' | 'finDemi'>) =
 
 export function notifierDemandeConge(cx: Contexte, emp: Employe, a: Pick<Absence, 'type' | 'du' | 'au' | 'debutDemi' | 'finDemi'>, valideur: number) {
   const c = conge(a.type);
-  return notifier(cx, valideur, {
+  const n: Notification = {
     type: 'absence.demande', objet: `Demande de ${c.objet} à valider — ${emp.nom}`,
     texte: `${emp.nom} demande ${c.texte} ${periodeLongue(a.du, a.au)}${demiCourriel(a)}. La demande attend votre décision (Congés & absences).`,
-  });
+  };
+  notifierSuppleants(cx, emp, 'absences', valideur, n);
+  return notifier(cx, valideur, n);
 }
 
 /** Décision sur une demande de congés, ou congés posés et validés par le manager : au salarié. */
@@ -78,8 +108,8 @@ export function notifierDecisionConge(cx: Contexte, emp: Employe, a: Pick<Absenc
   const c = conge(a.type);
   const objet = posee ? `Congés posés pour vous : ${c.objet}` : `Demande de ${c.objet} ${ok ? 'validée' : 'refusée'}`;
   const texte = posee
-    ? `${auteur(cx.user)} a posé et validé pour vous ${c.texte} ${periodeLongue(a.du, a.au)}${demiCourriel(a)}.`
-    : `Votre demande de ${c.objet} ${periodeLongue(a.du, a.au)}${demiCourriel(a)} a été ${ok ? 'validée' : 'refusée'} par ${auteur(cx.user)}.`;
+    ? `${signature(cx)} a posé et validé pour vous ${c.texte} ${periodeLongue(a.du, a.au)}${demiCourriel(a)}.`
+    : `Votre demande de ${c.objet} ${periodeLongue(a.du, a.au)}${demiCourriel(a)} a été ${ok ? 'validée' : 'refusée'} par ${signature(cx)}.`;
   return notifier(cx, emp.id, { type: 'absence.decision', objet, texte });
 }
 
@@ -94,10 +124,12 @@ export function notifierInformationRetour(cx: Contexte, emp: Employe, texte: str
 /** Feuille de temps soumise : au valideur. */
 export function notifierFeuilleSoumise(cx: Contexte, emp: Employe, week: string, valideur: number) {
   const par = cx.user.role !== 'rh' && cx.user.empId === emp.id ? `${emp.nom} a soumis sa feuille de temps` : `La feuille de temps de ${emp.nom} a été soumise`;
-  return notifier(cx, valideur, {
+  const n: Notification = {
     type: 'temps.soumise', objet: `Feuille de temps à valider — ${emp.nom}, semaine ${isoWeek(week)}`,
     texte: `${par} pour la ${semaineTexte(week)}. Elle attend votre validation (Temps de travail).`,
-  });
+  };
+  notifierSuppleants(cx, emp, 'feuilles', valideur, n);
+  return notifier(cx, valideur, n);
 }
 
 /** Feuille de temps renvoyée au salarié, par son valideur ou après l'annulation d'une absence (`auto`). */
@@ -106,7 +138,7 @@ export function notifierFeuilleRenvoyee(cx: Contexte, emp: Employe, week: string
     type: 'temps.renvoyee', objet: `Feuille de temps de la semaine ${isoWeek(week)} à corriger`,
     texte: auto
       ? `Votre feuille de temps de la ${semaineTexte(week)} vous est renvoyée : l’absence qui couvrait la semaine a été annulée ou raccourcie. Saisissez les heures travaillées, puis soumettez-la de nouveau.`
-      : `Votre feuille de temps de la ${semaineTexte(week)} vous est renvoyée pour correction par ${auteur(cx.user)}. Le commentaire est à lire dans Cursus (Temps de travail).`,
+      : `Votre feuille de temps de la ${semaineTexte(week)} vous est renvoyée pour correction par ${signature(cx)}. Le commentaire est à lire dans Cursus (Temps de travail).`,
   });
 }
 
@@ -140,13 +172,26 @@ export function notifierRelanceValideur(cx: Contexte, valideur: number, retards:
   });
 }
 
+/**
+ * Relance des feuilles en retard (t135) : au suppléant de chaque valideur en délégation des feuilles de temps (ou au N+1
+ * pour le suppléant lui-même), pour les membres dont il décide, en plus du valideur.
+ */
+export function notifierRelanceSuppleants(cx: Contexte, retards: { emp: Employe; feuilles: FeuilleARelancer[] }[]) {
+  const parSuppleant = new Map<number, typeof retards>();
+  for (const r of retards) {
+    for (const v of valideursDe(cx.ds, r.emp, cx.ds.today, 'feuilles')) if (v.delegation) parSuppleant.set(v.id, [...(parSuppleant.get(v.id) ?? []), r]);
+  }
+  for (const [v, liste] of parSuppleant) notifierRelanceValideur(cx, v, liste);
+  return parSuppleant.size;
+}
+
 const nomEntretien = (x: Pick<Entretien, 'type'>) => { const n = ENT_TYPES[x.type]?.nom ?? 'Entretien'; return n.charAt(0).toLowerCase() + n.slice(1); };
 
 /** Compte rendu clos par l'évaluateur : au salarié, pour relecture et signature. */
 export function notifierEntretienClos(cx: Contexte, emp: Employe, x: Pick<Entretien, 'type' | 'date'>) {
   return notifier(cx, emp.id, {
     type: 'entretien.clos', objet: 'Compte rendu d’entretien à signer',
-    texte: `Le compte rendu de votre ${nomEntretien(x)} ${periodeLongue(x.date, x.date)} a été clos et signé par ${auteur(cx.user)}. Relisez-le, complétez vos sections et signez-le (Entretiens).`,
+    texte: `Le compte rendu de votre ${nomEntretien(x)} ${periodeLongue(x.date, x.date)} a été clos et signé par ${signature(cx)}. Relisez-le, complétez vos sections et signez-le (Entretiens).`,
   });
 }
 
@@ -368,6 +413,8 @@ const DERNIER_RECAPITULATIF = 'recapitulatifLe';
 export function tachesEmails(db: Db, heure = new Date().getHours()): { releves: number; recapitulatifs: number | null } {
   return db.tx(() => {
     const releves = relevesAutomatiques(db).length;
+    // Délégations des validations qui commencent (t135) : le suppléant reçoit les demandes déjà en attente (server/src/delegations.ts).
+    annoncerDelegations(db);
     // Récapitulatif des échéances par paliers (server/src/relances.ts) : sa propre date de passage, son propre réglage.
     relancerEcheances(db, heure);
     const jour = todayIso();

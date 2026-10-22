@@ -188,6 +188,8 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   // — Hiérarchie des managers (parametres/Hierarchie.tsx, t136) : consultation N+2 en lecture seule, désactivée par défaut
   //   (réponse de l'entreprise du 18 octobre 2026) —
   consultationN2: { defaut: false, controle: booleen },
+  //   Délégation des validations (t135) : congés et feuilles de temps ; les entretiens seulement si ce réglage les ouvre —
+  delegationEntretiens: { defaut: false, controle: booleen },
   // — Déplacements dans le fichier de paie (parametres/DeplacementsPaie.tsx, shared/rules/deplacements-paie.ts, t031) :
   //   désactivé par défaut (réponse de l'entreprise du 18 octobre 2026) tant que la paie n'a pas confirmé ses codes ; les
   //   quantités restent calculées, à saisir dans Sage. Date de mise en service : jours d'avant jamais transmis —

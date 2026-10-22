@@ -264,6 +264,10 @@ export const EMAIL_LABEL: Record<string, string> = {
   'temps.relance': 'Relance des feuilles de temps en retard',
   'conges.information': 'Congés payés au retour d’une absence',
   'hierarchie.redirection': 'Demandes en attente redirigées (équipe parente)',
+  // Délégation des validations d'un manager absent (t135, server/src/actions/delegations-manager.ts, server/src/delegations.ts).
+  'delegation.prevue': 'Délégation des validations prévue',
+  'delegation.debut': 'Début d’une délégation des validations (demandes en attente)',
+  'delegation.fin': 'Délégation des validations révoquée',
   // E-mail réservé au service RH (donnée de santé), tel que la lecture seule le voit (server/src/envois-lecteur.ts).
   reserve: 'Message réservé au service RH',
   'echeances.recapitulatif': 'Récapitulatif des échéances',

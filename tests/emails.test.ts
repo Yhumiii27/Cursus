@@ -395,8 +395,8 @@ test('t033 : chaque étape notifie son destinataire, aussitôt ou dans le récap
   run(KARIM, 'temps.reject', { empId: 2, week: '2026-10-05' });
   assert.equal(mails().length, m);
   assert.deepEqual(Object.keys(EMAIL_LABEL).filter(k => !mails().some(x => x.type === k)).sort(),
-    ['conges.information', 'convocation', 'convocation.annulee', 'echeances.recapitulatif', 'entretien.remise', 'essai', 'hierarchie.redirection', 'releve.interim', 'reserve', 'temps.relance', 'visite.demande', 'voyage.vigilance'],
-    'les autres types sont couverts par les tests suivants (visite.demande : tests/sante.test.ts ; entretien.remise : tests/entretiens-plan.test.ts ; temps.relance : tests/suivi-feuilles.test.ts ; echeances.recapitulatif : tests/relances.test.ts ; conges.information : tests/acquisition-cp.test.ts ; hierarchie.redirection : tests/hierarchie.test.ts ; reserve, type affiché à la lecture seule : tests/donnees-sante.test.ts ; voyage.vigilance : tests/vigilance.test.ts)');
+    ['conges.information', 'convocation', 'convocation.annulee', 'delegation.debut', 'delegation.fin', 'delegation.prevue', 'echeances.recapitulatif', 'entretien.remise', 'essai', 'hierarchie.redirection', 'releve.interim', 'reserve', 'temps.relance', 'visite.demande', 'voyage.vigilance'],
+    'les autres types sont couverts par les tests suivants (visite.demande : tests/sante.test.ts ; entretien.remise : tests/entretiens-plan.test.ts ; temps.relance : tests/suivi-feuilles.test.ts ; echeances.recapitulatif : tests/relances.test.ts ; conges.information : tests/acquisition-cp.test.ts ; hierarchie.redirection : tests/hierarchie.test.ts ; delegation.* : tests/delegations-manager.test.ts ; reserve, type affiché à la lecture seule : tests/donnees-sante.test.ts ; voyage.vigilance : tests/vigilance.test.ts)');
 });
 
 test('t033 : récapitulatif quotidien à partir de 7 h, une fois par jour même après un redémarrage, à l’adresse en vigueur', () => {

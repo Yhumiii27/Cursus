@@ -1,7 +1,8 @@
 // Contexte d'exécution des actions : données complètes, utilisateur, contrôles d'accès.
 import { droitsRh, type DroitRh } from '../../../shared/constants.ts';
 import { Domain, type EmpX } from '../../../shared/domain.ts';
-import type { CurrentUser, Dataset, Employe } from '../../../shared/types.ts';
+import { delegationPour } from '../../../shared/rules/delegations-manager.ts';
+import type { CurrentUser, Dataset, Employe, PerimetreDelegation } from '../../../shared/types.ts';
 import type { Db } from '../db.ts';
 
 export class ActionError extends Error {
@@ -17,6 +18,11 @@ export interface Ctx {
   user: CurrentUser;
   ds: Dataset;
   d: Domain;
+  /**
+   * Délégation des validations (t135) : managers au nom desquels l'action a été décidée par leur suppléant. La décision est
+   * signée « par délégation de … » dans le message, le journal et l'e-mail au salarié (server/src/app.ts, notifications.ts).
+   */
+  parDelegation: Set<number>;
 }
 
 /** Valeur renvoyée par une action : message de confirmation, éventuel résultat. */
@@ -24,7 +30,7 @@ export type ActionOutput = string | null | { message: string | null; result?: un
 export type ActionHandler = (ctx: Ctx, p: Record<string, any>) => ActionOutput;
 
 export function makeCtx(db: Db, user: CurrentUser, ds: Dataset): Ctx {
-  return { db, user, ds, d: new Domain(ds) };
+  return { db, user, ds, d: new Domain(ds), parDelegation: new Set() };
 }
 
 /** Droit du profil de la personne connectée, dans l'espace RH (PROFILS_RH de shared/constants.ts). */
@@ -83,20 +89,43 @@ export function canAccess(ctx: Ctx, empId: number): boolean {
   if (isRh(ctx)) return true;
   if (empId === user.empId) return true;
   const e = d.emp(empId);
-  return user.role === 'manager' && !!e && d.mgrOf(e) === user.empId;
+  if (user.role !== 'manager' || !e) return false;
+  // Suppléant d'un manager absent (t135) : les salariés dont il décide aujourd'hui, quel que soit le périmètre reçu.
+  return d.mgrOf(e) === user.empId || (['absences', 'feuilles', 'entretiens'] as const).some(p => !!parDelegation(ctx, e, p, false));
 }
 export function requireAccess(ctx: Ctx, empId: number) {
   if (!canAccess(ctx, empId)) throw new ActionError('Collaborateur hors de votre périmètre', 403);
 }
 
-/** Valideur des heures, absences et entretiens : RH (jamais pour lui-même) ou manager direct. */
-export function isValidatorOf(ctx: Ctx, e: Employe): boolean {
-  return (isRh(ctx) && !estSoiMeme(ctx, e.id)) || (ctx.user.role === 'manager' && ctx.d.mgrOf(e) === ctx.user.empId);
+/**
+ * Délégation par laquelle le manager connecté décide aujourd'hui pour ce salarié (t135, shared/rules/delegations-manager.ts),
+ * jamais pour lui-même ; `signer` : la décision sera signée « par délégation de » son manager (`Ctx.parDelegation`). Seul
+ * le suppléant signe ainsi : le N+1 qui décide des demandes du suppléant pendant la délégation reste le responsable
+ * hiérarchique de celui-ci, et le manager ne lui a rien délégué.
+ */
+function parDelegation(ctx: Ctx, e: Employe, perimetre: PerimetreDelegation, signer = true) {
+  if (ctx.user.role !== 'manager' || !ctx.user.empId) return null;
+  const g = delegationPour(ctx.ds, e, ctx.user.empId, ctx.d.ti, perimetre);
+  if (g && signer && g.suppleantId === ctx.user.empId) ctx.parDelegation.add(g.managerId);
+  return g;
 }
 
-/** Manager direct d'un collaborateur (hors lui-même). */
-export function isManagerOf(ctx: Ctx, e: Employe): boolean {
-  return ctx.user.role === 'manager' && e.id !== ctx.user.empId && ctx.d.mgrOf(e) === ctx.user.empId;
+/** Le manager connecté décide-t-il aujourd'hui pour ce salarié par délégation de ce périmètre (t135) ? Sans signature. */
+export const decideParDelegation = (ctx: Ctx, e: Employe, perimetre: PerimetreDelegation) => !!parDelegation(ctx, e, perimetre, false);
+
+/**
+ * Valideur des heures, absences et entretiens : RH (jamais pour lui-même) ou manager direct ; avec `perimetre`, aussi le
+ * suppléant d'un manager absent pendant sa délégation de ce périmètre (t135), jamais pour ce qui le concerne.
+ */
+export function isValidatorOf(ctx: Ctx, e: Employe, perimetre?: PerimetreDelegation): boolean {
+  return (isRh(ctx) && !estSoiMeme(ctx, e.id)) || (ctx.user.role === 'manager' && ctx.d.mgrOf(e) === ctx.user.empId)
+    || (!!perimetre && !!parDelegation(ctx, e, perimetre));
+}
+
+/** Manager direct d'un collaborateur (hors lui-même) ; avec `perimetre`, aussi son suppléant pendant une délégation (t135). */
+export function isManagerOf(ctx: Ctx, e: Employe, perimetre?: PerimetreDelegation): boolean {
+  if (ctx.user.role !== 'manager' || e.id === ctx.user.empId) return false;
+  return ctx.d.mgrOf(e) === ctx.user.empId || (!!perimetre && !!parDelegation(ctx, e, perimetre));
 }
 
 export function isSelf(ctx: Ctx, empId: number) {

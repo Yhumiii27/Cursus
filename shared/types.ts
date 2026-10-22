@@ -690,6 +690,17 @@ export type CalendrierFeries = Record<string, FeriesAnnee>;
  */
 export type RoleMandat = 'titulaire' | 'suppleant';
 export interface Mandat { id: number; empId: number; role: RoleMandat; du: ISODate; au: ISODate | null; credit: number }
+/** Délégation des validations d'un manager absent (t135, shared/rules/delegations-manager.ts) : ce que le suppléant valide. */
+export type PerimetreDelegation = 'absences' | 'feuilles' | 'entretiens';
+/**
+ * Délégation datée des validations d'un manager à un suppléant (t135), bornes comprises. Saisie par le manager pour
+ * lui-même ou par le service RH ; `creePar`, `revoqueePar` : nom de l'auteur ; `revoqueeLe` : horodatage de la révocation,
+ * qui y met fin aussitôt ; `annonceeLe` : horodatage du message envoyé au suppléant à son début (éléments en attente).
+ */
+export interface DelegationValidation {
+  id: number; managerId: number; suppleantId: number; du: ISODate; au: ISODate; perimetre: PerimetreDelegation[];
+  creeLe: string; creePar: string; revoqueeLe: string | null; revoqueePar: string | null; annonceeLe: string | null;
+}
 /**
  * Heures supplémentaires payées avec majoration, ou remplacées par un repos compensateur (accord collectif, art. L3121-33 ;
  * à défaut de délégué syndical, sans opposition du CSE, art. L3121-37).
@@ -1010,6 +1021,8 @@ export interface Settings {
   entretienMiCarriereMois: number;
   /** Hiérarchie (t136) : membres des équipes descendantes consultables par le manager, en lecture seule (désactivé par défaut). */
   consultationN2: boolean;
+  /** Délégation des validations (t135) : le manager peut aussi déléguer ses entretiens (désactivé par défaut). */
+  delegationEntretiens: boolean;
   /**
    * Paie (t031, shared/rules/deplacements-paie.ts) : jours et nuits de grand déplacement, jours à l'étranger et trajets dans
    * le fichier d'import (désactivé tant que la paie n'a pas confirmé ses codes : quantités calculées, à saisir dans Sage),
@@ -1526,6 +1539,22 @@ export interface Dataset {
   formationsSuivies?: FormationSuivie[];
   /** Délivrances des titres d'habilitation (t115) : mêmes vues que les habilitations, sans l'auteur hors du service RH. */
   habDelivrances?: HabDelivrance[];
+  /**
+   * Délégations des validations (t135) : toutes pour le service RH et la lecture seule ; pour le manager et le collaborateur,
+   * celles qu'il a données ou reçues, celles des managers dont il est le N+1 et celle de son propre valideur. Absent ailleurs.
+   */
+  delegations?: DelegationValidation[];
+  /**
+   * Salariés dont la personne connectée (espace manager) décide aujourd'hui par délégation, avec le manager remplacé et
+   * les périmètres reçus (`deleguesA`, calculé par le serveur). Absent ou vide ailleurs.
+   */
+  delegues?: { empId: number; managerId: number; perimetre: PerimetreDelegation[] }[];
+  /**
+   * Suppléants possibles du manager connecté hors de l'espace RH (t135, dialogue de délégation de Mon espace) : salariés
+   * présents, hors intérim et hors lui-même, réduits à l'annuaire (nom, équipe, poste) ; sa présence sur la période est
+   * contrôlée par le serveur. Absent ailleurs (service RH : `employes`).
+   */
+  suppleantsPossibles?: Personne[];
 }
 
 /**

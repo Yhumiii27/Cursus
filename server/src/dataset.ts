@@ -10,7 +10,7 @@ import { visiteAProgrammer } from '../../shared/rules/visites-dues.ts';
 import { etatMineur, mineurDeLaSemaine, moins16DeLaSemaine, naissanceVueManager } from '../../shared/rules/mineurs.ts';
 import { statutNuit } from '../../shared/rules/repos-nuit.ts';
 import { needsFinCarriere } from '../../shared/rules/entretiens.ts';
-import { verdictAutorisation } from '../../shared/rules/contrats.ts';
+import { present, verdictAutorisation } from '../../shared/rules/contrats.ts';
 import { completerSession } from '../../shared/rules/plage-session.ts';
 import { avecInscrits } from '../../shared/rules/sessions.ts';
 import { finPeriodeCp, periodeReport } from '../../shared/rules/conges.ts';
@@ -18,10 +18,11 @@ import { debutSaisieDe } from '../../shared/rules/suivi-feuilles.ts';
 import { reouvertureNeutre } from '../../shared/rules/regularisation.ts';
 import { effectifSite } from '../../shared/rules/delegation.ts';
 import { equipesDescendantes } from '../../shared/rules/hierarchie.ts';
+import { delegationEnVigueur, deleguesA, type Delegue } from '../../shared/rules/delegations-manager.ts';
 import { reglagesParDefaut } from '../../shared/reglages.ts';
 import { etatsCouverture } from '../../shared/rules/couverture.ts';
 import { entretienMiCarriere } from '../../shared/rules/entretien-mi-carriere.ts';
-import type { AvenantForfait, ContratHistorique, DemandeVisite, EtatCouverture, FormationSuivie, HabDelivrance, LotReprise } from '../../shared/types.ts';
+import type { AvenantForfait, ContratHistorique, DelegationValidation, DemandeVisite, EtatCouverture, FormationSuivie, HabDelivrance, LotReprise, Personne } from '../../shared/types.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Fractionnement, Chantier, ClotureConges, CurrentUser, InformationCp, Dataset, SoldeSortie, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
   CalendrierFeries, DerogationDominicale, Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, Horaire, ISODate, Mandat, Mission, Participation, PlanAction, Poste, Projet, ReleveInterim,
@@ -166,6 +167,8 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     // Formations suivies (t116, annulées comprises) et délivrances des habilitations (t115) : filtrées hors du service RH.
     formationsSuivies: db.all<FormationSuivie>('formationsSuivies'),
     habDelivrances: db.all<HabDelivrance>('habDelivrances'),
+    // Délégations des validations (t135) : identifiants, dates et périmètre, jamais de motif.
+    delegations: db.all<DelegationValidation>('delegations'),
   };
   // Absences en attente du fichier de paie par période (server/src/absences-paie.ts) : lit le contenu figé des lots.
   // Déplacements en attente du fichier de paie (t031, server/src/deplacements-paie.ts) : lit la table des éléments émis.
@@ -235,7 +238,12 @@ export function currentUser(db: Db, s: SessionInfo | null): CurrentUser | null {
   const e = db.get<EmpRow>('employes', empId)!;
   if (s.role === 'manager') {
     const teams = db.where<Equipe>('equipes', 'managerId', empId).map(q => q.nom);
-    return { role: s.role, empId, nom: e.nom, intitule: `Manager · ${teams.join(', ')}`, ...compte };
+    // Suppléant d'un manager absent (t135) : l'espace manager lui est ouvert pendant la délégation (comptes.ts).
+    const jour = todayIso();
+    const remplaces = db.where<DelegationValidation>('delegations', 'suppleantId', empId).filter(g => delegationEnVigueur(g, jour))
+      .map(g => db.get<EmpRow>('employes', g.managerId)?.nom).filter(Boolean);
+    const intitule = [teams.length ? `Manager · ${teams.join(', ')}` : 'Manager', remplaces.length ? `suppléant de ${remplaces.join(', ')}` : ''].filter(Boolean).join(' · ');
+    return { role: s.role, empId, nom: e.nom, intitule, ...compte };
   }
   return { role: s.role, empId, nom: e.nom, intitule: e.poste, ...compte };
 }
@@ -255,11 +263,49 @@ export function lectureSeuleIds(d: Domain, user: CurrentUser): number[] {
   return d.ds.employes.filter(e => !!e.equipe && sous.has(e.equipe) && !directs.has(e.id)).map(e => e.id);
 }
 
-/** Identifiants des collaborateurs visibles par l'utilisateur (manager : consultation N+2 comprise, `lectureSeuleIds`). */
+/**
+ * Délégation des validations (t135, shared/rules/delegations-manager.ts) : salariés dont le manager connecté décide
+ * aujourd'hui par délégation d'un manager absent (suppléant, ou N+1 pour les demandes du suppléant lui-même), avec les
+ * périmètres reçus. Ils entrent dans son périmètre avec les filtres de l'équipe directe.
+ */
+export function deleguesDe(d: Domain, user: CurrentUser): Delegue[] {
+  if (user.role !== 'manager' || !user.empId) return [];
+  return deleguesA(d.ds, user.empId, d.ti);
+}
+
+/**
+ * Identifiants des collaborateurs visibles par l'utilisateur (manager : consultation N+2 comprise, `lectureSeuleIds`, et
+ * salariés dont il décide par délégation, `deleguesDe`).
+ */
 export function scopeIds(d: Domain, user: CurrentUser): number[] {
   if (user.role === 'rh') return d.ds.employes.map(e => e.id);
-  if (user.role === 'manager') return [user.empId!, ...equipeDirecte(d, user.empId!), ...lectureSeuleIds(d, user)];
+  if (user.role === 'manager') return [...new Set([user.empId!, ...equipeDirecte(d, user.empId!), ...deleguesDe(d, user).map(x => x.empId), ...lectureSeuleIds(d, user)])];
   return [user.empId!];
+}
+
+/**
+ * Délégations transmises hors du service RH (t135) : celles que la personne a données ou reçues, celles des managers dont
+ * elle est le valideur (N+1, qui reçoit les demandes du suppléant) et celle de son propre valideur (qui la remplace).
+ */
+function delegationsVisibles(d: Domain, user: CurrentUser): DelegationValidation[] {
+  const moi = user.empId;
+  if (!moi) return [];
+  const e = d.emp(moi);
+  const monValideur = e ? d.mgrOf(e) : 0;
+  return (d.ds.delegations ?? []).filter(g => {
+    if (g.managerId === moi || g.suppleantId === moi || g.managerId === monValideur) return true;
+    const m = d.emp(g.managerId);
+    return !!m && d.mgrOf(m) === moi;
+  });
+}
+
+/**
+ * Suppléants possibles d'un manager (t135, dialogue de délégation) : salariés présents aujourd'hui, hors intérim et hors
+ * lui-même, sans autre donnée que celles de l'annuaire (nom, équipe, poste), déjà transmises à tous.
+ */
+function suppleantsPossibles(d: Domain, managerId: number): Personne[] {
+  return d.ds.employes.filter(e => e.id !== managerId && present(e, d.ti) && !d.contratOf(e).interim)
+    .map(e => ({ id: e.id, nom: e.nom, equipe: e.equipe, poste: e.poste }));
 }
 
 /** Semaines de planning Keystone envoyées au navigateur, avant et après la semaine en cours. */
@@ -310,8 +356,12 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
   const isMgr = user.role === 'manager';
   // Consultation N+2 (t136) : mêmes filtres que pour l'équipe directe, aptitude réduite au verdict (ni avis, ni
   // restrictions), ni entretiens ni demandes au service RH (affaires du valideur direct).
-  const lecture = new Set(lectureSeuleIds(d, user));
-  const direct = <T extends { empId: number }>(list: T[]) => list.filter(x => !lecture.has(x.empId));
+  // Délégation (t135) : les salariés dont il décide par délégation sortent de la lecture seule ; sans le périmètre des
+  // entretiens, ni leurs entretiens ni leurs demandes au service RH (affaires de leur manager).
+  const delegues = deleguesDe(d, user);
+  const sansEntretiens = new Set(delegues.filter(x => !x.perimetre.includes('entretiens')).map(x => x.empId));
+  const lecture = new Set(lectureSeuleIds(d, user).filter(id => !delegues.some(x => x.empId === id)));
+  const direct = <T extends { empId: number }>(list: T[]) => list.filter(x => !lecture.has(x.empId) && !sansEntretiens.has(x.empId));
   // Les managers voient le verdict d'aptitude, les restrictions de poste en vigueur et l'état des dossiers voyage,
   // jamais les données de santé (date de visite, avis daté, demande de visite, suivi médical, vaccinations). Une reprise ouverte par
   // un arrêt longue maladie leur est masquée : elle trahirait la nature de l'arrêt (l'entretien de reprise est suivi par le RH).
@@ -429,6 +479,10 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     // Formations suivies et délivrances d'habilitation : celles du périmètre, comme les certifications et les titres.
     formationsSuivies: suiviesNeutres(mine(full.formationsSuivies ?? [])),
     habDelivrances: delivrancesNeutres(mine(full.habDelivrances ?? [])),
+    delegations: delegationsVisibles(d, user),
+    delegues,
+    // Manager qui délègue pour lui-même (Mon espace ou espace manager) : suppléants possibles, réduits à l'annuaire.
+    ...(d.teamsOf(user.empId).length ? { suppleantsPossibles: suppleantsPossibles(d, user.empId!) } : {}),
   };
 }
 
@@ -582,6 +636,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     // Compteur des heures de délégation : service RH et l'élu seulement.
     mandats: [],
     effectifCse: null,
+    // Délégations des validations (t135) : la lecture seule les consulte (écran Équipes) ; ni le référent HSE, ni la paie.
+    delegations: lecture ? full.delegations : [],
     // Pièces justificatives : certifications et habilitations pour le référent HSE ; rien pour la paie et la lecture seule.
     pieces: piecesVisibles(full.pieces, full.user),
     // Couverture minimale des équipes : référent HSE et lecture seule. Le référent HSE, qui ne reçoit pas les absences hors

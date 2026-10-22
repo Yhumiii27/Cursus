@@ -90,6 +90,7 @@ export const GUIDE_AIDE: readonly PartieAide[] = [
           '« Congés & absences » : les demandes de votre équipe attendent « Valider » ou « Refuser » (motif obligatoire, lu par le salarié).',
           '« Poser une absence » pour un membre de l’équipe l’enregistre validée (« Poser et valider ») ; « Signaler une absence » déclare une absence imprévue, que le service RH qualifie.',
           'Vous ne voyez jamais la nature d’un arrêt de travail : seulement « Absence », ses dates et son état.',
+          'Avant une absence, « Déléguer mes validations » (espace collaborateur, « Accueil ») confie vos congés et feuilles à valider à un suppléant, pour une période : il décide « par délégation » et vous gardez la main ; « Révoquer » y met fin.',
         ],
       },
       {

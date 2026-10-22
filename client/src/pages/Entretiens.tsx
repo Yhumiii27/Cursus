@@ -13,6 +13,7 @@ import { Btn, Fine, Kpi, Kpis, Page, Panel, Tag, Two } from '../components/ui.ts
 import { Ouvrir } from '../components/Cliquable.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { decideur } from '../state/delegues.ts';
 
 const RISK_TEXT = 'Conditions non remplies — abondement correctif de 3 000 € sur le CPF (entreprises de 50 salariés et plus)';
 
@@ -38,7 +39,7 @@ export function Entretiens() {
       rel: o.pl ? `évaluateur : ${d.mgrName(d.mgrOf(o.e))}` : o.st === 'todo' ? 'non obligatoire' : rel(days(d.today, parse(o.due))),
       // Planification réservée au service RH (jamais pour son propre entretien) et au manager direct (le serveur refuse
       // sinon) ; déjà planifié, il se reprogramme.
-      canPlan: (rh && o.id !== soi) || (manager && d.mgrOf(o.e) === me),
+      canPlan: (rh && o.id !== soi) || (manager && decideur(d, o.e, me, 'entretiens')),
     }));
 
     const entRows = data.entretiens

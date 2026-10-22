@@ -39,6 +39,7 @@ shared/            Domaine partagé (aucune dépendance)
                    internes INT-… et ECOLE), delegation.ts (mandats au CSE, crédit R2314-1, compteur des heures de délégation),
                    repos-a-verifier.ts (feuilles soumises ou validées portant une alerte de repos, pour le service RH) ;
                    hierarchie.ts (équipe parente, valideur N+1 du manager, équipes descendantes de la consultation N+2) ;
+                   delegations-manager.ts (délégation datée des validations d'un manager absent à un suppléant, t135) ;
                    demi-journees.ts : congés à la demi-journée (règle, poids, chevauchement, textes) ;
                    acquisition-cp.ts : acquisition des CP mois par mois, absences comprises (loi 2024-364, mémorisée) ;
                    information-retour.ts : information du salarié sur ses congés à son retour d'arrêt (art. L3141-19-3)
@@ -764,6 +765,8 @@ aucun champ du paramètre n'est recopié.
 | `equipe.supprimer` | nom | administrateur RH |
 | `equipe.manager` | nom, managerId (null = aucun) | RH |
 | `equipe.modifier` | nom, nouveau? (absent : inchangé), managerId? (null = aucun ; absent : inchangé) : renommage puis manager dans une seule transaction, avec les contrôles de `equipe.renommer` et `equipe.manager` ; un refus n'enregistre rien (dialogue de l'équipe) | RH |
+| `equipe.delegation` | managerId (service RH ; le manager : lui-même, espace manager ou collaborateur), suppleantId (défaut : son N+1), du, au (bornes comprises), perimetre (`absences`, `feuilles` ; `entretiens` si le réglage `delegationEntretiens` l'ouvre) : contrôles de `controleDelegation` (shared/rules/delegations-manager.ts : manager d'une équipe, suppléant présent sur toute la période et autre que lui, 92 jours au plus, fin à partir d'aujourd'hui, aucun chevauchement avec une autre délégation du manager, ni délégation transmise, ni validation croisée nouvelle), suppléant avec un compte actif ; suppléant prévenu (e-mail `delegation.debut` avec les demandes déjà en attente si elle commence aujourd'hui, sinon `delegation.prevue` puis `delegation.debut` le premier jour) ; manager prévenu si le service RH l'enregistre ; journal : identifiants, dates, codes du périmètre | RH, manager (pour lui-même) |
+| `equipe.revoquerDelegation` | id : délégation en cours ou à venir, révoquée aussitôt (`revoqueeLe`, horodatage) ; suppléant prévenu (`delegation.fin`) ; une délégation terminée est refusée | RH, manager qui a délégué |
 | `equipe.parente` | nom, parente (nom d'une autre équipe ; null ou vide : aucune) : contrôles de `shared/rules/hierarchie.ts` (équipe existante, ni elle-même ni une équipe qui lui est rattachée, 4 niveaux au plus), refus si deux salariés devenaient chacun le valideur de l'autre ; demandes de congés, feuilles soumises et entretiens planifiés dont le valideur change listés dans le message, nouveau valideur prévenu (e-mail `hierarchie.redirection`), journal : identifiants, ancien et nouveau valideur ; renommer l'équipe parente met à jour ses équipes rattachées, la supprimer est refusé tant qu'une équipe y est rattachée | RH |
 | `equipe.affecter` | empId, equipe (null = à affecter) | RH ; manager : ajout à une équipe qu'il encadre d'un salarié « à affecter » (libéré par son manager) ou d'un membre d'une autre de ses équipes, retrait d'un membre — jamais le membre d'une autre équipe : sa mutation relève du RH ; jamais un salarié mineur dans une équipe de nuit ou en continu |
 | `plan.inscrire` | empId, certId (recyclage) ou inscriptionId (formation initiale à replanifier), sessionId, conv (`now`/`later`) ; refusé depuis une session passée non clôturée, et si le salarié est absent ou inscrit à une autre session ce jour-là ; convocation reçue pour l'ancienne session à venir annulée par e-mail | RH, référent HSE, manager direct |
@@ -996,6 +999,56 @@ entretiens). Une équipe peut désigner une **équipe parente** (`Equipe.parente
   action (le valideur reste le N+1). À l'écran : mention « Lecture seule » (Collaborateurs, Temps, Congés & absences),
   filtre par sous-équipe dans Collaborateurs ; hors des entretiens du manager (`perimetreEntretiens`).
 - `equipes.parente` est déclarée dans `REFERENCES` (server/src/integrite.ts).
+
+## Délégation des validations d'un manager absent (t135)
+
+Pendant ses absences, un manager confie ses validations à un suppléant pour une période datée (table `delegations` :
+manager, suppléant, `du`, `au` bornes comprises, `perimetre`, auteur, révocation, `annonceeLe`). Règles :
+`shared/rules/delegations-manager.ts` ; actions `equipe.delegation` et `equipe.revoquerDelegation`
+(server/src/actions/delegations-manager.ts) ; écrans : Mon espace (le manager pour lui-même, le suppléant pour ce qu'il
+reçoit) et Équipes & managers (service RH ; lecture seule en consultation), `client/src/components/Delegations.tsx`,
+`dialogs/DelegationDialog.tsx`.
+
+- **Valideurs** (`valideursDe`) : le valideur hiérarchique (`Domain.mgrOf`) reste valideur (retour anticipé) ; pendant une
+  délégation de son périmètre, le suppléant s'y ajoute. Pas d'auto-validation : pour le suppléant lui-même, c'est le N+1
+  du manager (`mgrOf` du manager, service RH à défaut). Suppléant proposé : le N+1 du manager (`suppleantPropose`, réponse
+  de l'entreprise « son propre responsable, pour tout »), sinon une personne choisie. Une délégation ne se transmet pas
+  (le suppléant n'a pas lui-même délégué sur la période, et le manager ne remplace personne sur la période). Pas de
+  validation croisée nouvelle (même garde-fou que `croiseeNouvelle` de t136) : un suppléant qui deviendrait, un jour de la
+  période, le valideur de l'un de ses propres valideurs est refusé, par exemple un membre d'une équipe rattachée quand le
+  N+1 délègue, ou un suppléant déjà reçu de son manager quand le N+1 de celui-ci délègue au même.
+- **Périmètre** : congés et feuilles de temps par défaut ; les entretiens seulement si le réglage `delegationEntretiens`
+  (Paramètres → Hiérarchie des managers, désactivé par défaut) les ouvre : le refermer les retire aussitôt
+  (`perimetreEffectif`).
+- **Droits** : `isValidatorOf(ctx, e, perimetre)` et `isManagerOf(ctx, e, perimetre)` (server/src/actions/context.ts)
+  acceptent le suppléant, dans l'espace manager seulement, pour ce périmètre (absences.ts : `absences` ; temps.ts et
+  `temps.validerLot`, `temps.relancer` : `feuilles` ; entretiens, annulation et remise : `entretiens`) ; sans périmètre
+  (fiche, formations, inscriptions), rien ne change. `canAccess` l'accepte pour tout périmètre. L'espace manager est ouvert
+  au suppléant du premier au dernier jour (`espacesDuCompte`, server/src/comptes.ts), refermé dès la révocation.
+- **Périmètre de données** (server/src/dataset.ts) : `deleguesDe` ajoute à `scopeIds` les salariés dont il décide, avec
+  les filtres de l'équipe directe ; sans le périmètre `entretiens`, ni leurs entretiens ni leurs demandes au service RH
+  (`perimetreEntretiens` les écarte aussi à l'écran). `Dataset.delegues` (salarié, manager remplacé, périmètre) sert aux
+  écrans (`client/src/state/delegues.ts`, `decideur`) ; `Dataset.delegations` : toutes pour le service RH et la lecture
+  seule, rien pour le référent HSE et la paie ; ailleurs, celles données ou reçues, celles des managers dont la personne
+  est le N+1 et celle de son propre valideur (« en son absence, … » dans Mon espace). Le manager qui encadre une équipe
+  reçoit hors de l'espace RH `Dataset.suppleantsPossibles` (présents, hors intérim, réduits à l'annuaire : nom, équipe,
+  poste) pour le dialogue de délégation de Mon espace, dont l'instantané n'a que sa fiche (`client/src/state/delegation-saisie.ts`) ;
+  la présence du suppléant sur la période et les validations croisées sont alors contrôlées par le serveur seul.
+- **Signature** : une décision prise par le suppléant est signée « par délégation de X » : message de l'action
+  (`signerDelegation`, server/src/app.ts), journal (`parDelegation` : identifiants des managers remplacés, à côté du nom
+  de l'auteur) et e-mail au salarié (`signature`, server/src/notifications.ts). Ni le N+1 qui décide des demandes du
+  suppléant (il en est le responsable, le manager ne lui a rien délégué), ni une relance des feuilles (pas une décision :
+  `decideParDelegation` ne signe pas) ne sont signés.
+- **Notifications et relances** : demandes de congés et feuilles soumises notifiées aussi au suppléant
+  (`notifierSuppleants`, objet « en l'absence de X ») ; relance des feuilles (`notifierRelanceSuppleants`) ; récapitulatif
+  des échéances : entretiens dus des membres si la délégation les comprend (server/src/relances.ts). Le premier jour, le
+  suppléant reçoit la liste des demandes déjà en attente (`annoncerDelegations`, server/src/delegations.ts, tâches de fond
+  des e-mails ; aussitôt si la délégation commence le jour de sa saisie).
+- **Base** : colonnes `delegations.manager_id` et `suppleant_id` dans `REFERENCES` (server/src/integrite.ts : intégrité et
+  cascade d'anonymisation) ; migration `lot6-hierarchie-delegations` (révoque les délégations impossibles d'une saisie hors
+  de Cursus, et fait refuser la base par une version antérieure) ; export des données d'un salarié : section
+  « Délégations des validations ». Sans délégation, rien ne change : les validations restent au manager, et au service RH
+  à défaut.
 
 ## Contrat et temps de travail
 

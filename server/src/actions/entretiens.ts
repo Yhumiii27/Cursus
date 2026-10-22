@@ -20,7 +20,7 @@ function entretien(ctx: Ctx, id: unknown) {
 const planifier: ActionHandler = (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
   refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas planifier votre propre entretien');
-  if (!isValidatorOf(ctx, emp)) throw new ActionError('Planification réservée au manager ou au service RH', 403);
+  if (!isValidatorOf(ctx, emp, 'entretiens')) throw new ActionError('Planification réservée au manager ou au service RH', 403);
   const kind = str(p.kind) as EntretienType;
   if (!ENT_TYPES[kind]) throw new ActionError('Type d’entretien inconnu');
   if (!isValidDate(p.date) || p.date < ctx.d.ti) throw new ActionError('Date à venir requise');
@@ -50,7 +50,7 @@ const planifier: ActionHandler = (ctx, p) => {
 const modifier: ActionHandler = (ctx, p) => {
   const { x, e } = entretien(ctx, p.id);
   refuserSoiMeme(ctx, e, 'Vous ne pouvez pas rédiger, comme évaluateur, votre propre entretien');
-  const canMgr = x.statut === 'planifie' && isValidatorOf(ctx, e);
+  const canMgr = x.statut === 'planifie' && isValidatorOf(ctx, e, 'entretiens');
   // Le salarié rédige ses sections jusqu'à sa signature (y compris après clôture par l'évaluateur), ou jusqu'à la remise
   // d'une copie sur papier, qui fait foi (main propre, refus de signer : shared/rules/remise.ts).
   const canSal = !x.signSal && !remisePhysique(x) && ctx.user.role === 'collaborateur' && ctx.user.empId === e.id;
@@ -78,7 +78,7 @@ const modifier: ActionHandler = (ctx, p) => {
 const clore: ActionHandler = (ctx, p) => {
   const { x, e } = entretien(ctx, p.id);
   refuserSoiMeme(ctx, e, 'Vous ne pouvez pas clore votre propre entretien');
-  if (x.statut !== 'planifie' || !isValidatorOf(ctx, e)) throw new ActionError('Clôture réservée à l’évaluateur', 403);
+  if (x.statut !== 'planifie' || !isValidatorOf(ctx, e, 'entretiens')) throw new ActionError('Clôture réservée à l’évaluateur', 403);
   const date = p.date ? p.date : x.date;
   if (!isValidDate(date)) throw new ActionError('Date de l’entretien invalide');
   if (date > ctx.d.ti) {

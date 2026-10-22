@@ -43,7 +43,7 @@ const remettre: ActionHandler = (ctx, p) => {
   const x = entretien(ctx, p.id);
   const e = getEmp(ctx, x.empId);
   refuserSoiMeme(ctx, e, 'Vous ne pouvez pas enregistrer la remise de votre propre compte rendu');
-  if (!isValidatorOf(ctx, e)) throw new ActionError('Remise réservée à l’évaluateur ou au service RH', 403);
+  if (!isValidatorOf(ctx, e, 'entretiens')) throw new ActionError('Remise réservée à l’évaluateur ou au service RH', 403);
   const mode = str(p.mode) as ModeRemise;
   const date = mode === 'portail' || !p.date ? ctx.d.ti : str(p.date);
   const err = controleRemise(x, mode, date, ctx.d.ti);

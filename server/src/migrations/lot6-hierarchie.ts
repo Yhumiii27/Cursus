@@ -20,3 +20,24 @@ export const HIERARCHIE_EQUIPES: Migration = {
     return `${n} rattachement${n > 1 ? 's' : ''} d’équipe impossible${n > 1 ? 's' : ''} retiré${n > 1 ? 's' : ''}`;
   },
 };
+
+/** Délégations impossibles : à soi-même, période inversée, ou manager ou suppléant absent des fiches. */
+const DELEGATIONS_IMPOSSIBLES = `FROM delegations WHERE revoquee_le IS NULL AND (manager_id = suppleant_id OR au < du
+  OR manager_id NOT IN (SELECT id FROM employes) OR suppleant_id NOT IN (SELECT id FROM employes))`;
+
+/**
+ * Délégation des validations (t135, étape 2) : table `delegations` créée vide par le schéma déclaratif — aucun suppléant,
+ * donc aucun valideur changé tant qu'un manager ou le service RH n'en saisit pas. La migration révoque les délégations
+ * impossibles qu'une saisie hors de Cursus aurait laissées (le contrôle de `equipe.delegation` ne voit que les siennes),
+ * et son nom enregistré fait refuser la base par une version antérieure, qui ignorerait les suppléants en cours.
+ */
+export const DELEGATIONS_VALIDATION: Migration = {
+  nom: 'lot6-hierarchie-delegations',
+  necessaire: (db: Db) => db.neuve || Number((db.sql.prepare(`SELECT COUNT(*) AS n ${DELEGATIONS_IMPOSSIBLES}`).get() as { n: number }).n) > 0,
+  executer: (db: Db) => {
+    const n = Number(db.sql.prepare(`UPDATE delegations SET revoquee_le = ?, revoquee_par = 'Migration' WHERE id IN (SELECT id ${DELEGATIONS_IMPOSSIBLES})`)
+      .run(new Date().toISOString()).changes);
+    if (!n) return;
+    return `${n} délégation${n > 1 ? 's' : ''} de validation impossible${n > 1 ? 's' : ''} révoquée${n > 1 ? 's' : ''}`;
+  },
+};

@@ -127,6 +127,8 @@ export type DialogState =
   /** Onglet Horaires : horaire de poste (création sans code, modification ; shared/rules/horaires.ts). */
   | { type: 'refHoraire'; code?: string | null }
   | { type: 'mandat'; empId: number; id?: number | null }
+  /** Délégation des validations d'un manager absent à un suppléant (t135 : Mon espace, Équipes & managers). */
+  | { type: 'delegation'; managerId: number }
   /** Correspondance d'une rubrique de paie avec le plan de paie Sage (écran Temps, components/RubriquesPaie.tsx). */
   | { type: 'rubrique'; code: string }
   /** Lots de paie (écran Temps, components/LotsPaie.tsx) : confirmation de l'import dans Sage, format du fichier d'import. */

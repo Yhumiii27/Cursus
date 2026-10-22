@@ -29,6 +29,7 @@ import { HabDialog } from './HabDialog.tsx';
 import { HabMesureDialog } from './HabMesureDialog.tsx';
 import { LotImportDialog } from './LotImportDialog.tsx';
 import { MandatDialog } from './MandatDialog.tsx';
+import { DelegationDialog } from './DelegationDialog.tsx';
 import { MembreDialog } from './MembreDialog.tsx';
 import { MotDePasseDialog } from './MotDePasseDialog.tsx';
 import { MotDePasseProvisoireDialog } from './MotDePasseProvisoireDialog.tsx';
@@ -127,6 +128,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'refActivite': return <RefActiviteDialog {...d} />;
     case 'refHoraire': return <RefHoraireDialog {...d} />;
     case 'mandat': return <MandatDialog {...d} />;
+    case 'delegation': return <DelegationDialog {...d} />;
     case 'rubrique': return <RubriqueDialog {...d} />;
     case 'lotImport': return <LotImportDialog {...d} />;
     case 'formatFichier': return <FormatFichierDialog />;

@@ -332,6 +332,19 @@ export const REGLES: Record<string, Regle> = {
     bilan: (_p, x) => bilanRedirections(x.result),
     salaries: (_p, x) => salariesRediriges(x.result),
   },
+  // Délégation des validations (t135) : la délégation enregistrée telle que l'action l'a contrôlée (identifiants, dates,
+  // codes de périmètre), jamais la valeur reçue ; révocation : son horodatage. Salariés concernés : manager et suppléant.
+  'equipe.delegation': {
+    bilan: (_p, x) => {
+      const g = (x.result as { delegation?: Ligne } | null)?.delegation;
+      return g ? { id: g.id, managerId: g.managerId, suppleantId: g.suppleantId, du: g.du, au: g.au, perimetre: g.perimetre } : {};
+    },
+    salaries: (_p, x) => { const g = (x.result as { delegation?: Ligne } | null)?.delegation; return [g?.managerId, g?.suppleantId]; },
+  },
+  'equipe.revoquerDelegation': {
+    champs: ['id'], cible: parId('delegations', ['revoqueeLe']),
+    salaries: (_p, x) => [x.avant?.managerId, x.avant?.suppleantId],
+  },
   // Formations
   'plan.inscrire': { champs: ['empId', 'certId', 'inscriptionId', 'sessionId', 'conv'] },
   'cert.ajouter': { champs: ['empId', 'f', 'date'] },
@@ -834,12 +847,14 @@ export function preparerTrace(db: Db, action: string, p: unknown): Trace {
  * Trace une action réussie (dans sa transaction) : code, champs retenus, anciennes et nouvelles valeurs,
  * salariés concernés, message expurgé. Rien pour la saisie d'heures du salarié sur sa propre feuille.
  */
-export function journaliserAction(db: Db, t: Trace, x: { user: CurrentUser; compte: Compte; message: string | null; result?: unknown }) {
+export function journaliserAction(db: Db, t: Trace, x: { user: CurrentUser; compte: Compte; message: string | null; result?: unknown; parDelegation?: number[] }) {
   const { regle, p, avant } = t;
   const ctx: Contexte = { db, user: x.user, avant, apres: lireCible(db, regle?.cible, p), etat: t.etat, result: x.result };
   if (regle?.tracer && !regle.tracer(p, ctx)) return;
   const code = regle?.code?.(p, ctx) || t.action;
-  const payload = { ...champsRetenus(t.action, p, avant), ...(regle?.bilan?.(p, ctx) ?? {}) };
+  // Décision prise par le suppléant d'un manager absent (t135) : identifiants des managers remplacés.
+  const delegation = x.parDelegation?.length ? { parDelegation: x.parDelegation } : {};
+  const payload = { ...champsRetenus(t.action, p, avant), ...(regle?.bilan?.(p, ctx) ?? {}), ...delegation };
   const propres = regle?.changements?.(p, ctx) ?? null;
   const diff = propres ?? (regle?.cible ? comparer(regle.cible, avant, ctx.apres) : null);
   if (propres?.extra) Object.assign(payload, propres.extra);

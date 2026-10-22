@@ -41,6 +41,7 @@ import { CopierLien } from '../components/CopierLien.tsx';
 import { FormationsSuiviesFiche, HabilitationsAnterieures, ImprimerTitre } from '../components/FormationsSuivies.tsx';
 import { imprimerPasseport } from '../passeport.ts';
 import { titreImprimable } from '../titre-habilitation.ts';
+import { membreOuDelegue } from '../state/delegues.ts';
 
 /** Valeur du filtre d'équipe pour les collaborateurs sans équipe (« À affecter »). */
 const SANS_EQUIPE = '';
@@ -77,7 +78,7 @@ export function Collaborateurs() {
   const { ui, setUi, openDialog, notify } = useStore();
 
   const myTeams = useMemo(() => manager ? d.teamsOf(me) : [], [d, manager, me]);
-  const team = useMemo(() => manager ? emps.filter(e => e.id !== me && d.mgrOf(e) === me) : emps, [emps, manager, me, d]);
+  const team = useMemo(() => manager ? emps.filter(e => membreOuDelegue(d, e, me)) : emps, [emps, manager, me, d]);
   // Consultation N+2 (t136) : membres des équipes rattachées, en lecture seule, listés après l'équipe directe et filtrables
   // par sous-équipe ; ils ne comptent ni dans le résumé ni dans les échéances de contrat du manager.
   const lecture = useLectureSeule();
@@ -86,7 +87,7 @@ export function Collaborateurs() {
   // Filtre « Sortis » : les salariés dont la date de sortie est passée, que `emps` ne compte plus (Domain.enrich).
   const sortis = ui.statut === 'sortis';
   const liste = useMemo(() => !sortis ? vus : d.enrich(horizon, onlyReg, { sortis: true })
-    .filter(e => sorti(e, d.ti) && (!manager || (e.id !== me && (d.mgrOf(e) === me || lecture.has(e.id))))), [sortis, vus, d, horizon, onlyReg, manager, me, lecture]);
+    .filter(e => sorti(e, d.ti) && (!manager || (membreOuDelegue(d, e, me) || (e.id !== me && lecture.has(e.id))))), [sortis, vus, d, horizon, onlyReg, manager, me, lecture]);
   const teamOptions = espaceRh ? d.equipes : [...myTeams, ...sousEquipes];
   const multi = espaceRh || teamOptions.length > 1;
   // Un filtre devenu sans objet (équipe renommée, hors périmètre) revient à « Toutes ».

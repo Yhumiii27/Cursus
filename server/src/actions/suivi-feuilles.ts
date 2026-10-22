@@ -8,8 +8,8 @@ import { plural } from '../../../shared/format.ts';
 import { etatSemaines, maintenantParis, semainesSuivies } from '../../../shared/rules/suivi-feuilles.ts';
 import type { Employe } from '../../../shared/types.ts';
 import { loadFull } from '../dataset.ts';
-import { type FeuilleARelancer, notifierRelanceFeuilles, notifierRelanceValideur } from '../notifications.ts';
-import { ActionError, type ActionHandler, type Ctx, isRh, makeCtx } from './context.ts';
+import { type FeuilleARelancer, notifierRelanceFeuilles, notifierRelanceSuppleants, notifierRelanceValideur } from '../notifications.ts';
+import { ActionError, type ActionHandler, type Ctx, decideParDelegation, isRh, makeCtx } from './context.ts';
 import { validerFeuille } from './temps.ts';
 
 /** Service RH (gestionnaire ou administrateur) ou manager ; ni le collaborateur, ni un profil restreint de l'espace RH. */
@@ -17,10 +17,14 @@ function exigerValideur(ctx: Ctx, quoi: string) {
   if (ctx.user.role === 'collaborateur' || (ctx.user.role === 'rh' && !isRh(ctx))) throw new ActionError(`${quoi} réservée aux managers et au service RH`, 403);
 }
 
-/** Collaborateurs suivis : tous pour le service RH ; pour un manager, les membres de son équipe (hors lui-même). */
+/**
+ * Collaborateurs suivis : tous pour le service RH ; pour un manager, les membres de son équipe (hors lui-même), et ceux
+ * dont il décide des feuilles par délégation d'un manager absent (t135). Une relance n'est pas une décision : elle n'est
+ * pas signée « par délégation de » (`decideParDelegation` ne signe pas).
+ */
 function perimetre(ctx: Ctx): Employe[] {
   if (isRh(ctx)) return ctx.ds.employes;
-  return ctx.ds.employes.filter(e => e.id !== ctx.user.empId && ctx.d.mgrOf(e) === ctx.user.empId);
+  return ctx.ds.employes.filter(e => e.id !== ctx.user.empId && (ctx.d.mgrOf(e) === ctx.user.empId || (ctx.user.role === 'manager' && decideParDelegation(ctx, e, 'feuilles'))));
 }
 
 /**
@@ -48,6 +52,8 @@ const relancer: ActionHandler = (ctx, p) => {
     parValideur.set(v, [...(parValideur.get(v) ?? []), r]);
   }
   for (const [v, liste] of parValideur) notifierRelanceValideur(ctx, v, liste);
+  // Valideurs en délégation (t135) : le suppléant d'un manager absent est relancé pour les membres dont il décide.
+  notifierRelanceSuppleants(ctx, retards);
   const n = retards.reduce((k, r) => k + r.feuilles.length, 0);
   return {
     message: `Relance envoyée pour ${plural(n, 'feuille de temps', 'feuilles de temps')} — ${retards.length > 1 ? `${retards.length} collaborateurs` : retards[0].emp.nom} et ${parValideur.size > 1 ? 'leurs valideurs' : 'son valideur'}`,
@@ -82,8 +88,11 @@ const validerLot: ActionHandler = (ctx, p) => {
     ctx.db.sql.exec('SAVEPOINT validation_groupee');
     try {
       // Instantané relu pour chaque feuille : la précédente a pu changer un relevé ou une feuille voisine.
-      const v = validerFeuille(makeCtx(ctx.db, ctx.user, loadFull(ctx.db, ctx.user)), f);
+      // Contexte de la feuille, dont la signature « par délégation de » (t135) rejoint celle de la validation groupée.
+      const sous = makeCtx(ctx.db, ctx.user, loadFull(ctx.db, ctx.user));
+      const v = validerFeuille(sous, f);
       ctx.db.sql.exec('RELEASE validation_groupee');
+      sous.parDelegation.forEach(m => ctx.parDelegation.add(m));
       validees.push(f);
       alertes.push(...v.alertes.map(texte => ({ ...f, texte })));
     } catch (err) {

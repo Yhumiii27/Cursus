@@ -77,6 +77,9 @@ export function donneesSalarie(db: Db, empId: number, o: { journal: boolean; par
     ? db.sql.prepare(`SELECT role AS espace, methode, creation, expiration, revocation, activite FROM connexions WHERE compte_id IN (${dans}) ORDER BY creation`).all(...comptes)
     : [];
   sections['Équipes encadrées'] = db.where<Ligne>('equipes', 'managerId', empId).map(q => q.nom);
+  // Délégations des validations (t135) données ou reçues : dates, périmètre, autre personne, révocation (sans auteur).
+  sections['Délégations des validations'] = db.all<Ligne>('delegations').filter(g => g.managerId === empId || g.suppleantId === empId)
+    .map(({ id, managerId, suppleantId, du, au, perimetre, revoqueeLe }) => ({ id, managerId, suppleantId, du, au, perimetre, revoqueeLe }));
   // Messages envoyés (ou simulés) à Keystone au matricule du salarié : heures, absences (période seule), verdicts, décisions.
   // Matricule Cursus, ou matricule de paie si le réglage « identifiant envoyé à Keystone » l'a retenu. Un matricule de paie
   // partagé avec une autre fiche (réembauche confirmée) ne désigne ce salarié que pour les messages émis pendant sa

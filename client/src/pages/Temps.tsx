@@ -61,6 +61,7 @@ import { CopierLien } from '../components/CopierLien.tsx';
 import { LegendeHoraires, LigneHoraires, useHorairesFeuille } from '../components/HorairesFeuille.tsx';
 import { fileForfait, recapForfait } from '../components/ForfaitJours.tsx';
 import { controleValidationForfait } from '../../../shared/rules/forfait-jours.ts';
+import { decideur } from '../state/delegues.ts';
 
 /** Année d'une feuille : celle de sa semaine ISO (son jeudi) ; le cumul annuel ventile une semaine à cheval jour par jour. */
 const anneeDe = (week: ISODate) => isoWeekYear(week);
@@ -207,8 +208,8 @@ export function Temps() {
   const queue = data.feuilles
     .filter(sh => sh.statut === 'soumise')
     .map(sh => ({ sh, e: d.emp(sh.empId) }))
-    .filter((q): q is { sh: FeuilleTemps; e: Employe } => !!q.e && (espaceRh || (manager && d.mgrOf(q.e) === me)));
-  const valide = (e: Employe) => (rh && e.id !== soi) || (manager && d.mgrOf(e) === me);
+    .filter((q): q is { sh: FeuilleTemps; e: Employe } => !!q.e && (espaceRh || (manager && decideur(d, q.e, me, 'feuilles'))));
+  const valide = (e: Employe) => (rh && e.id !== soi) || (manager && decideur(d, e, me, 'feuilles'));
 
   return (
     <Page

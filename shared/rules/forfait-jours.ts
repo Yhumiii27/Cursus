@@ -17,11 +17,13 @@
 //   Sans référence d'accord : suivi et alertes seulement.
 // - Paie : jours rachetés sous la rubrique JREN (quantité, taux en détail), émis au mois de la signature ou à la clôture de
 //   l'année (décembre) selon `forfaitJoursJren` ; un mois clos part sur la période ouverte. Rubrique désactivée par défaut :
-//   l'élément est listé « à saisir dans Sage » dans le résumé du lot, puis réglé hors fichier à sa confirmation.
+//   l'avenant est réservé par le lot sans code Sage, comme un déplacement (absent du fichier, listé « à saisir dans Sage »
+//   dans le résumé du lot), puis réglé hors fichier à la confirmation de ce lot-là ; ni un avenant enregistré après la
+//   génération, ni la rubrique activée avant la confirmation ne changent ce que le lot a listé.
 import { isValidDate, joursSemaine, parse } from '../dates.ts';
 import type { Domain } from '../domain.ts';
 import { fJ, fmtIso, plural } from '../format.ts';
-import type { AvenantForfait, ElementASaisir, ElementRachatPaie, Employe, FeuilleTemps, ISODate, Settings } from '../types.ts';
+import type { AvenantForfait, ElementRachatPaie, Employe, FeuilleTemps, ISODate, Settings } from '../types.ts';
 import { rttInfo } from './conges.ts';
 import { memeRegime, regimeFiche, segmentsContrat } from './historique-contrat.ts';
 import { matriculeAffiche } from './matricules.ts';
@@ -209,19 +211,16 @@ function enAttente(d: Domain, jusqua: string) {
 export const detailRachat = (x: Pick<ElementRachatPaie, 'annee' | 'signeLe' | 'taux'>) =>
   `Avenant de renonciation ${x.annee} signé le ${x.signeLe.split('-').reverse().join('/')} · majoration ${x.taux} %`;
 
-/** Éléments JREN d'un lot de la période `jusqua` : rubrique active seulement, sous son code Sage. */
+/**
+ * Éléments JREN d'un lot de la période `jusqua` : tous les avenants en attente, sous le code Sage de la rubrique active ;
+ * rubrique désactivée, sans code Sage (réservés par le lot, à saisir dans Sage, comme les déplacements).
+ */
 export function elementsRachats(d: Domain, jusqua: string, table: readonly Pick<RubriqueVue, 'code' | 'codeSage' | 'active'>[]): ElementRachatPaie[] {
   const r = table.find(t => t.code === RUBRIQUE_JREN);
-  if (!r?.active) return [];
+  const codeSage = r?.active ? r.codeSage : null;
   return enAttente(d, jusqua).map(({ a, e, periode }) => ({
-    avenant: a.id, empId: a.empId, matricule: matriculeAffiche(e), periode, rubrique: RUBRIQUE_JREN, codeSage: r.codeSage, quantite: a.jours, taux: a.taux, annee: a.annee, signeLe: a.signeLe,
+    avenant: a.id, empId: a.empId, matricule: matriculeAffiche(e), periode, rubrique: RUBRIQUE_JREN, codeSage, quantite: a.jours, taux: a.taux, annee: a.annee, signeLe: a.signeLe,
   })).sort((x, y) => x.periode.localeCompare(y.periode) || x.empId - y.empId || x.avenant - y.avenant);
-}
-
-/** Jours rachetés d'un lot de la période `jusqua` quand JREN est désactivée : listés « à saisir dans Sage ». */
-export function rachatsASaisir(d: Domain, jusqua: string, table: readonly Pick<RubriqueVue, 'code' | 'active'>[]): ElementASaisir[] {
-  if (table.find(t => t.code === RUBRIQUE_JREN)?.active) return [];
-  return enAttente(d, jusqua).map(({ a, periode }) => ({ famille: 'rachats', empId: a.empId, periode, rubrique: RUBRIQUE_JREN, quantite: a.jours, detail: detailRachat(a) }));
 }
 
 /** Avenants d'un lot (identifiant, salarié), une fois chacun. */

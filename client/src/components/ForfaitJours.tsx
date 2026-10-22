@@ -6,7 +6,7 @@
 import { addD } from '../../../shared/dates.ts';
 import { fJ, fmtIso } from '../../../shared/format.ts';
 import type { Domain } from '../../../shared/domain.ts';
-import { alerteForfait, cumulForfaitJours, cumulTexte, elementsRachats, etatRachat, rachatOuvert, rachatsASaisir, reposForfaitInfo } from '../../../shared/rules/forfait-jours.ts';
+import { alerteForfait, cumulForfaitJours, cumulTexte, elementsRachats, etatRachat, rachatOuvert, reposForfaitInfo } from '../../../shared/rules/forfait-jours.ts';
 import { periodeLabel, rubriquesPaie } from '../../../shared/rules/paie.ts';
 import type { Employe, ISODate } from '../../../shared/types.ts';
 import { annulationAvenantForfait } from '../state/confirmations-forfait.ts';
@@ -47,8 +47,10 @@ export function fileForfait(d: Domain, emp: Employe, week: ISODate): string {
 /** Ligne de la fiche collaborateur : cumul de l'année, jours de repos restants, avenants de renonciation. */
 export function ForfaitJoursFiche({ e }: { e: Employe }) {
   const d = useDomain();
-  const { rh, soi } = useRole();
+  const { rh, paie, consultation, manager, soi } = useRole();
   const { openDialog } = useStore();
+  // Référent HSE : il ne reçoit ni les feuilles ni les avenants, le cumul serait faux (et le régime n'est pas de son ressort).
+  if (!(rh || paie || consultation || manager)) return null;
   const k = cumulForfaitJours(d, e, d.year);
   const avenants = (d.ds.avenantsForfait ?? []).filter(a => a.empId === e.id).sort((a, b) => b.annee - a.annee || b.id - a.id);
   if (!k && !avenants.length) return null;
@@ -98,7 +100,8 @@ export function ForfaitJoursFiche({ e }: { e: Employe }) {
 export function RachatsEnAttente() {
   const d = useDomain();
   const table = rubriquesPaie(d.ds.rubriquesPaie);
-  const dansLeFichier = elementsRachats(d, '9999-12', table), aSaisir = rachatsASaisir(d, '9999-12', table);
+  const rachats = elementsRachats(d, '9999-12', table);
+  const dansLeFichier = rachats.filter(x => x.codeSage), aSaisir = rachats.filter(x => !x.codeSage);
   const texte = (l: { empId: number; quantite: number; periode: string }[]) => l.map(x => `${d.personName(x.empId)} (${fJ(x.quantite)}, ${periodeLabel(x.periode)})`).join(', ');
   if (!dansLeFichier.length && !aSaisir.length) return null;
   return (

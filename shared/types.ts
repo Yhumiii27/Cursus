@@ -973,10 +973,11 @@ export interface AvenantForfait {
 }
 /**
  * Jours rachetés d'un avenant de renonciation dans un lot de paie (rubrique JREN, quantité en jours ; taux de majoration
- * en détail, le montant reste calculé par Sage), partis sur la période `periode`.
+ * en détail, le montant reste calculé par Sage), partis sur la période `periode`. `codeSage` null : rubrique désactivée,
+ * l'avenant est réservé par le lot mais absent du fichier, à saisir dans Sage (réglé hors fichier à la confirmation).
  */
 export interface ElementRachatPaie {
-  avenant: number; empId: number; matricule: string; periode: string; rubrique: string; codeSage: string; quantite: number; taux: number; annee: number; signeLe: ISODate;
+  avenant: number; empId: number; matricule: string; periode: string; rubrique: string; codeSage: string | null; quantite: number; taux: number; annee: number; signeLe: ISODate;
 }
 /** Plafond des heures complémentaires du temps partiel : le dixième (art. L3123-28) ou le tiers avec un accord (art. L3123-20). */
 export type PlafondComplementaires = 'dixieme' | 'tiers';

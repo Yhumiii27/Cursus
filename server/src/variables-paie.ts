@@ -99,12 +99,13 @@ export function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: string)
         detail: detailDeplacement(x, paysLabel, periodeLabel),
       });
     }
-    // Jours rachetés d'un forfait jours (t043) : rubrique JREN active, taux de majoration en détail.
+    // Jours rachetés d'un forfait jours (t043) : taux de majoration en détail ; sans code Sage (JREN désactivée), absents du
+    // fichier, à saisir dans Sage.
     for (const x of contenu.rachats ?? []) {
       if (x.periode !== periode) continue;
       out.push({
-        matricule: x.matricule, salarie: d.emp(x.empId)?.nom ?? '', rubrique: x.codeSage, quantite: x.quantite, lot, etat, empId: x.empId,
-        libelle: libelles[x.codeSage] ?? x.codeSage, detail: detailRachat(x),
+        matricule: x.matricule, salarie: d.emp(x.empId)?.nom ?? '', rubrique: x.codeSage ?? A_SAISIR, quantite: x.quantite, lot, etat, empId: x.empId,
+        libelle: x.codeSage ? libelles[x.codeSage] ?? x.codeSage : RUBRIQUES_PAIE[x.rubrique]?.label ?? x.rubrique, detail: detailRachat(x),
       });
     }
     // Autres éléments laissés à Sage (soldes de sortie sous une rubrique désactivée) : listés pour la saisie à la main.

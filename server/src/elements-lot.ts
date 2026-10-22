@@ -11,7 +11,8 @@
 //   trajets ; sans rubrique active ou sans le réglage `deplacementsFichierPaie`, l'élément part dans le lot sans code Sage
 //   (« à saisir dans Sage »), et ne repart plus une fois le lot confirmé.
 // - Jours rachetés d'un forfait jours (t043, server/src/forfait-jours.ts) : avenants de renonciation, rubrique JREN ; comme
-//   les soldes de sortie, sans rubrique active, listés « à saisir dans Sage » puis réglés hors fichier.
+//   les déplacements, toujours réservés par le lot, sans code Sage faute de rubrique active (« à saisir dans Sage »), puis
+//   réglés hors fichier à la confirmation de ce lot-là (d'après son contenu figé).
 // Ajouter une famille (heures de nuit, monétisation du CET…) : un objet `FamilleLot` dans le fichier de son chantier, une
 // ligne dans `FAMILLES`, une clé dans `SagePush` et `LotPaie` (shared/types.ts) et une colonne json de `lotsPaie`
 // (server/src/db.ts). Liste « à saisir dans Sage » : shared/rules/elements-lot.ts.

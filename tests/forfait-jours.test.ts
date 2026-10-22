@@ -2,10 +2,11 @@
 // à cheval sur le 31 décembre ventilée jour par jour, cible au prorata), alerte au seuil réglé, motif exigé à la validation
 // au-delà du plafond, avenant de renonciation fermé sans référence d'accord (COHERENCE), plafond porté par l'avenant dans la
 // limite réglée, majoration minimale, jours rachetés dans le lot de paie (JREN désactivée : à saisir dans Sage puis réglés
-// hors fichier ; activée : dans le fichier), annulation (refusée dans un lot à confirmer, motif masqué au journal),
-// instantanés de chaque profil.
+// hors fichier à la confirmation du lot qui les a listés, et de lui seul ; activée : dans le fichier), annulation (refusée
+// dans un lot à confirmer, motif masqué au journal), instantanés de chaque profil.
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { readFileSync } from 'node:fs';
 process.env.CURSUS_TODAY = '2026-10-10';
 
 const { Db } = await import('../server/src/db.ts');
@@ -165,6 +166,9 @@ test('t043 paie : JREN désactivée, jours à saisir dans Sage puis réglés hor
   assert.deepEqual(lot.resume.aSaisir?.filter(x => x.famille === 'rachats').map(x => [x.empId, x.rubrique, x.quantite, x.detail]),
     [[CADRE, 'JREN', 4, 'Avenant de renonciation 2026 signé le 01/10/2026 · majoration 25 %']]);
   assert.ok(!L.lignesFichier(lot.contenu!).some(x => x.rubrique === 'JREN'));
+  // Réservé par le lot, sans code Sage : il ne repart pas dans un autre lot avant la confirmation de celui-ci.
+  assert.deepEqual([lot.rachats, av().lotId, lot.contenu!.rachats?.[0]?.codeSage], [[{ id: av().id, empId: CADRE }], lot.id, null]);
+  assert.equal(F.etatRachat(av()), `dans le lot de paie n° ${lot.id}, import à confirmer`);
   assert.ok(variablesDeLaPeriode(db, PAIE, '2026-10').some(v => v.rubrique === A_SAISIR && v.empId === CADRE && /Avenant de renonciation/.test(v.detail)));
   run(PAIE, 'paie.lotConfirmer', { id: lot.id });
   assert.deepEqual([av().lotId, av().sage, av().horsFichier], [lot.id, true, true]);
@@ -193,6 +197,50 @@ test('t043 paie : JREN désactivée, jours à saisir dans Sage puis réglés hor
   // Annulé : plus rien à émettre ; le premier, déjà réglé, s'annule avec la mention de la régularisation dans Sage.
   assert.deepEqual(F.elementsRachats(new Domain(loadFull(db, ADMIN)), '2026-12', [{ code: 'JREN', codeSage: '310', active: true }]), []);
   assert.match(run(ADMIN, 'forfait.annulerAvenant', { id: av().id, motif: 'Erreur de saisie' }), /à régulariser dans Sage/);
+});
+
+test('t043 paie : la confirmation ne règle hors fichier que les avenants listés par le lot (avenant enregistré après la génération, JREN activée avant la confirmation)', () => {
+  const { db, run, refus, regler, lots, ADMIN, PAIE } = fresh();
+  regler({ forfaitJoursRachat: true, forfaitJoursAccord: 'Accord d’entreprise du 1er mars 2026' });
+  const avenant = (i: number) => db.all<Avenant>('avenantsForfait')[i];
+  const etat = (a: Avenant) => [a.lotId, a.sage, a.horsFichier];
+  const attente = () => F.elementsRachats(new Domain(loadFull(db, ADMIN)), '2026-12', [{ code: 'JREN', codeSage: '310', active: true }]).map(x => x.avenant);
+
+  // Lot d'octobre généré (JREN désactivée), puis un avenant enregistré avant sa confirmation : il n'est pas dans le lot.
+  run(ADMIN, 'forfait.avenant', { empId: CADRE, annee: 2026, jours: 2, taux: 25, signeLe: '2026-10-01', reference: '' });
+  run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  const lot = lots().at(-1)!;
+  run(ADMIN, 'forfait.avenant', { empId: CADRE, annee: 2026, jours: 3, taux: 25, signeLe: '2026-10-08', reference: '' });
+  assert.deepEqual(lot.resume.aSaisir?.filter(x => x.famille === 'rachats').map(x => x.quantite), [2]);
+  // Dans le lot à confirmer, même sans code Sage : l'annulation de l'avenant est refusée (le résumé le demande à la paie).
+  refus(ADMIN, 'forfait.annulerAvenant', { id: avenant(0).id, motif: 'Erreur' }, 409, /annulez d’abord ce lot/);
+
+  // La paie active JREN (son code donné) avant de confirmer le lot : le lot reste ce qu'il a listé.
+  run(PAIE, 'paie.rubrique', { code: 'JREN', active: true, codeSage: '310' });
+  run(PAIE, 'paie.lotConfirmer', { id: lot.id });
+  assert.deepEqual(etat(avenant(0)), [lot.id, true, true], 'listé à saisir dans Sage : réglé hors fichier');
+  assert.deepEqual(etat(avenant(1)), [null, false, false], 'enregistré après la génération : toujours en attente');
+  assert.equal(F.etatRachat(avenant(1)), 'en attente du prochain lot de paie');
+
+  // Lot suivant : le second avenant seul, sous le code de JREN ; le premier ne repart pas dans le fichier.
+  assert.deepEqual(attente(), [avenant(1).id]);
+  run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+  const suivant = lots().at(-1)!;
+  assert.deepEqual(suivant.rachats, [{ id: avenant(1).id, empId: CADRE }]);
+  assert.deepEqual(L.lignesFichier(suivant.contenu!).filter(x => x.rubrique === '310').map(x => x.quantite), [3]);
+  run(PAIE, 'paie.lotConfirmer', { id: suivant.id });
+  assert.deepEqual(etat(avenant(1)), [suivant.id, true, false]);
+  assert.deepEqual(attente(), []);
+});
+
+test('t043 fiche : bloc « Forfait jours » réservé au service RH, à la paie, à la lecture seule et au manager (pas au référent HSE)', () => {
+  const source = readFileSync(new URL('../client/src/components/ForfaitJours.tsx', import.meta.url), 'utf8');
+  assert.match(source, /if \(!\(rh \|\| paie \|\| consultation \|\| manager\)\) return null;/);
+  // Le référent HSE ne reçoit ni les feuilles du cadre ni ses avenants : son cumul serait faux.
+  const { db, feuille, ADMIN, HSE } = fresh();
+  feuille('2026-09-28', [8, 8, 8, 8, 8, 0, 0]);
+  const cumul = (u: User) => { const d = new Domain(buildSnapshot(db, u)); return F.cumulForfaitJours(d, d.emp(CADRE)!, 2026)?.done ?? 0; };
+  assert.deepEqual([cumul(ADMIN), cumul(HSE)], [5, 0]);
 });
 
 test('t043 paie : période des jours rachetés, mois de la signature ou décembre de l’année ; un mois clos part sur la période ouverte', () => {

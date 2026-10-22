@@ -153,8 +153,8 @@ function quantites(contenu: ContenuFichier): { matricule: string; periode: strin
     ...(contenu.sorties ?? []).map(x => ({ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite })),
     // Déplacements (t031) : sans code Sage, à saisir dans Sage, hors du fichier.
     ...(contenu.deplacements ?? []).flatMap(x => (x.codeSage ? [{ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite }] : [])),
-    // Jours rachetés d'un forfait jours (t043) : rubrique JREN active seulement, toujours sous un code Sage.
-    ...(contenu.rachats ?? []).map(x => ({ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite })),
+    // Jours rachetés d'un forfait jours (t043) : sans code Sage (JREN désactivée), à saisir dans Sage, hors du fichier.
+    ...(contenu.rachats ?? []).flatMap(x => (x.codeSage ? [{ matricule: x.matricule, periode: x.periode, rubrique: x.codeSage, q: x.quantite }] : [])),
   ];
 }
 

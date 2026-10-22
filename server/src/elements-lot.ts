@@ -35,19 +35,19 @@ export interface FamilleLot<E extends ElementLot = ElementLot> {
   /** « solde de sortie », « soldes de sortie » : messages des actions. */
   libelles: [string, string];
   /** Avant le calcul des éléments du lot (premier lot d'une base neuve…) : suite du message, ou vide. */
-  avant?: (db: Db, d: Domain, user: CurrentUser) => string;
+  avant?: (db: Db, d: Domain, user: CurrentUser) => Promise<string>;
   /** Éléments d'un lot de la période `jusqua` (et des périodes antérieures). */
-  aEmettre: (db: Db, d: Domain, jusqua: string) => E[];
+  aEmettre: (db: Db, d: Domain, jusqua: string) => Promise<E[]>;
   /** Éléments calculés que le lot n'emporte pas (rubrique désactivée) : listés « à saisir dans Sage ». */
-  aSaisir: (db: Db, d: Domain, jusqua: string) => ElementASaisir[];
+  aSaisir: (db: Db, d: Domain, jusqua: string) => Promise<ElementASaisir[]>;
   /** Identifiants réservés par le lot (une fois chacun), gardés sur le lot après son annulation. */
   idsDuContenu: (elements: readonly E[]) => { id: number; empId: number }[];
   /** Réservation à la génération. */
-  reserver: (db: Db, lotId: number, elements: readonly E[]) => void;
+  reserver: (db: Db, lotId: number, elements: readonly E[]) => Promise<void>;
   /** Confirmation de l'import : éléments transmis. */
-  confirmer: (db: Db, d: Domain, lot: Pick<LotPaie, 'id' | 'periode'>) => void;
+  confirmer: (db: Db, d: Domain, lot: Pick<LotPaie, 'id' | 'periode'>) => Promise<void>;
   /** Annulation du lot avant sa confirmation : éléments de nouveau en attente. */
-  liberer: (db: Db, lot: Pick<LotPaie, 'id'>) => void;
+  liberer: (db: Db, lot: Pick<LotPaie, 'id'>) => Promise<void>;
 }
 
 /** Familles du registre, dans l'ordre du contenu et des messages. */
@@ -57,20 +57,24 @@ export const FAMILLES: readonly FamilleLot<any>[] = [FAMILLE_SORTIES, FAMILLE_DE
 export interface ElementsFamilles { elements: Partial<Record<CleFamille, ElementLot[]>>; aSaisir: ElementASaisir[] }
 
 /** Éléments des familles pour un lot de la période `jusqua` ; `avec` faux (lot « annule et remplace ») : aucun. */
-export function elementsDesFamilles(db: Db, d: Domain, jusqua: string, avec = true): ElementsFamilles {
+export async function elementsDesFamilles(db: Db, d: Domain, jusqua: string, avec = true): Promise<ElementsFamilles> {
   if (!avec) return { elements: {}, aSaisir: [] };
   const elements: ElementsFamilles['elements'] = {};
   const aSaisir: ElementASaisir[] = [];
   for (const f of FAMILLES) {
-    const l = f.aEmettre(db, d, jusqua);
+    const l = await f.aEmettre(db, d, jusqua);
     if (l.length) elements[f.cle] = l;
-    aSaisir.push(...f.aSaisir(db, d, jusqua));
+    aSaisir.push(...await f.aSaisir(db, d, jusqua));
   }
   return { elements, aSaisir };
 }
 
 /** Suites du message de génération (premier lot d'une base neuve…), avant le calcul des éléments. */
-export const avantFamilles = (db: Db, d: Domain, user: CurrentUser) => FAMILLES.map(f => f.avant?.(db, d, user) ?? '').join('');
+export async function avantFamilles(db: Db, d: Domain, user: CurrentUser): Promise<string> {
+  let texte = '';
+  for (const f of FAMILLES) texte += (await f.avant?.(db, d, user)) ?? '';
+  return texte;
+}
 
 /** Salariés des éléments des familles. */
 export const salariesDesFamilles = (e: ElementsFamilles['elements']) => Object.values(e).flatMap(l => (l ?? []).map(x => x.empId));
@@ -94,18 +98,18 @@ export function idsDesFamilles(e: ElementsFamilles['elements']): Partial<Pick<Lo
 }
 
 /** Réservation par le lot `lotId` des éléments de chaque famille. */
-export function reserverFamilles(db: Db, lotId: number, e: ElementsFamilles['elements']) {
-  for (const f of FAMILLES) if (e[f.cle]?.length) f.reserver(db, lotId, e[f.cle]!);
+export async function reserverFamilles(db: Db, lotId: number, e: ElementsFamilles['elements']): Promise<void> {
+  for (const f of FAMILLES) if (e[f.cle]?.length) await f.reserver(db, lotId, e[f.cle]!);
 }
 
 /** Confirmation de l'import du lot : chaque famille marque ses éléments transmis. */
-export function confirmerFamilles(db: Db, d: Domain, lot: Pick<LotPaie, 'id' | 'periode'>) {
-  for (const f of FAMILLES) f.confirmer(db, d, lot);
+export async function confirmerFamilles(db: Db, d: Domain, lot: Pick<LotPaie, 'id' | 'periode'>): Promise<void> {
+  for (const f of FAMILLES) await f.confirmer(db, d, lot);
 }
 
 /** Annulation du lot : chaque famille libère ses éléments. */
-export function libererFamilles(db: Db, lot: Pick<LotPaie, 'id'>) {
-  for (const f of FAMILLES) f.liberer(db, lot);
+export async function libererFamilles(db: Db, lot: Pick<LotPaie, 'id'>): Promise<void> {
+  for (const f of FAMILLES) await f.liberer(db, lot);
 }
 
 /** « · 1 solde de sortie · 2 séjours (déplacements) · 3 éléments à saisir dans Sage » : fin du message de génération. */

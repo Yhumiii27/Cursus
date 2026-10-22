@@ -34,7 +34,7 @@ const horsEntreprise = (e: Employe, v: Pick<FormationSuivie, 'du' | 'au'>) => v.
  * Saisie directe d'une formation suivie (service RH, référent HSE) ; `demandeId` : demande hors catalogue acceptée qu'elle
  * clôt (même salarié, une seule fois), dont l'intitulé est repris si aucun n'est saisi.
  */
-const enregistrer: ActionHandler = (ctx, p) => {
+const enregistrer: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const emp = getEmp(ctx, p.empId);
   let origine: OrigineFormationSuivie = 'saisie', demandeId: number | null = null;
@@ -53,7 +53,7 @@ const enregistrer: ActionHandler = (ctx, p) => {
   if (doublon) throw new ActionError(`${intituleSuivie(ctx.d, v)} du ${fmt(parse(v.du))} déjà enregistrée pour ${emp.nom}`);
   if (horsEntreprise(emp, v)) throw new ActionError(`${emp.nom} n’était pas dans l’entreprise à ces dates`);
   const planActionId = demandeId ? ctx.ds.demandesCollab.find(x => x.id === demandeId)?.suite?.planId ?? null : null;
-  const x = ctx.db.insert<FormationSuivie>('formationsSuivies', { empId: emp.id, ...v, origine, planActionId, demandeId, ...enregistre(ctx) });
+  const x = await ctx.db.insert<FormationSuivie>('formationsSuivies', { empId: emp.id, ...v, origine, planActionId, demandeId, ...enregistre(ctx) });
   // Ligne du plan créée par l'acceptation, pas encore réalisée : signalée, à clore dans Plan & budget (coût réel).
   const ligne = planActionId ? ctx.ds.plan.find(l => l.id === planActionId && (l.statut === 'prevu' || l.statut === 'engage')) : null;
   const suite = ligne ? ` · ligne du plan ${ligne.exercice} à passer « réalisée » dans Plan & budget` : '';
@@ -61,7 +61,7 @@ const enregistrer: ActionHandler = (ctx, p) => {
 };
 
 /** Correction d'une formation suivie saisie avec une erreur (service RH, référent HSE ; jamais la sienne), motif obligatoire. */
-const modifier: ActionHandler = (ctx, p) => {
+const modifier: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const avant = suivieDe(ctx, p.id);
   const emp = getEmp(ctx, avant.empId);
@@ -76,19 +76,19 @@ const modifier: ActionHandler = (ctx, p) => {
   if (!change) return 'Aucune modification';
   const err = erreurMotifCorrection(p.motif);
   if (err) throw new ActionError(err);
-  ctx.db.update<FormationSuivie>('formationsSuivies', avant.id, { ...v, corrigeLe: ctx.d.ti, corrigePar: ctx.user.nom, corrigeMotif: str(p.motif) });
+  await ctx.db.update<FormationSuivie>('formationsSuivies', avant.id, { ...v, corrigeLe: ctx.d.ti, corrigePar: ctx.user.nom, corrigeMotif: str(p.motif) });
   return `${intituleSuivie(ctx.d, v)} — ${emp.nom} · formation suivie corrigée`;
 };
 
 /** Annulation d'une formation suivie saisie par erreur (administrateur RH ; jamais la sienne), motif obligatoire. */
-const annuler: ActionHandler = (ctx, p) => {
+const annuler: ActionHandler = async (ctx, p) => {
   requireRhAdmin(ctx);
   const x = suivieDe(ctx, p.id);
   const emp = getEmp(ctx, x.empId);
   refuserSoiMeme(ctx, emp, 'Suppression de votre propre formation');
   const err = erreurMotifCorrection(p.motif);
   if (err) throw new ActionError(err);
-  ctx.db.update<FormationSuivie>('formationsSuivies', x.id, { annuleLe: ctx.d.ti, annulePar: ctx.user.nom, annuleMotif: str(p.motif) });
+  await ctx.db.update<FormationSuivie>('formationsSuivies', x.id, { annuleLe: ctx.d.ti, annulePar: ctx.user.nom, annuleMotif: str(p.motif) });
   return `${intituleSuivie(ctx.d, x)} — ${emp.nom} · formation suivie supprimée (saisie erronée)${x.demandeId ? ' · la demande est de nouveau à clore' : ''}`;
 };
 
@@ -99,7 +99,7 @@ const annuler: ActionHandler = (ctx, p) => {
  * catalogue rattachée à la ligne voit sa demande close. Contrôlé avant toute écriture ; l'écriture renvoie le texte du
  * message et les salariés dont une formation suivie a réellement été enregistrée (journal : `result.beneficiaires`).
  */
-export function controlerBeneficiaires(ctx: Ctx, l: PlanAction, p: Record<string, any>): (() => { texte: string; empIds: number[] }) | null {
+export function controlerBeneficiaires(ctx: Ctx, l: PlanAction, p: Record<string, any>): (() => Promise<{ texte: string; empIds: number[] }>) | null {
   if (p.beneficiaires == null) return null;
   if (!Array.isArray(p.beneficiaires)) throw new ActionError('Bénéficiaires : liste de collaborateurs attendue');
   const ids = [...new Set(p.beneficiaires.map(Number))];
@@ -117,11 +117,13 @@ export function controlerBeneficiaires(ctx: Ctx, l: PlanAction, p: Record<string
     return e;
   });
   const deja = new Set(suiviesEnVigueur(ctx.ds).filter(x => x.planActionId === l.id).map(x => x.empId));
-  return () => {
+  return async () => {
     const nouveaux = emps.filter(e => !deja.has(e.id));
-    nouveaux.forEach(e => ctx.db.insert<FormationSuivie>('formationsSuivies', {
-      empId: e.id, ...v, origine: 'plan', planActionId: l.id, demandeId: demandes.find(r => r.empId === e.id)?.id ?? null, ...enregistre(ctx),
-    }));
+    for (const e of nouveaux) {
+      await ctx.db.insert<FormationSuivie>('formationsSuivies', {
+        empId: e.id, ...v, origine: 'plan', planActionId: l.id, demandeId: demandes.find(r => r.empId === e.id)?.id ?? null, ...enregistre(ctx),
+      });
+    }
     return {
       texte: nouveaux.length ? ` · ${plural(nouveaux.length, 'formation suivie enregistrée', 'formations suivies enregistrées')}` : '',
       empIds: nouveaux.map(e => e.id),

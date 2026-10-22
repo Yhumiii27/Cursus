@@ -9,7 +9,7 @@ import type { Chantier } from '../../../shared/types.ts';
 import { ActionError, type ActionHandler, requireRh, str } from './context.ts';
 
 /** `id` : chantier Keystone ; `grandDeplacement` : vrai, faux, ou null (qualification retirée, de nouveau à qualifier). */
-const qualifier: ActionHandler = (ctx, p) => {
+const qualifier: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const c = ctx.d.chantier(str(p.id));
   if (!c) throw new ActionError('Chantier introuvable', 404);
@@ -19,7 +19,7 @@ const qualifier: ActionHandler = (ctx, p) => {
   const missions = ctx.ds.missions.filter(m => m.projet === c.id);
   const salaries = [...new Set(missions.map(m => m.empId))];
   if ((c.grandDeplacement ?? null) === valeur) return { message: `Chantier ${c.id} : qualification inchangée`, result: { salaries } };
-  ctx.db.update<Chantier>('chantiers', c.id, { grandDeplacement: valeur });
+  await ctx.db.update<Chantier>('chantiers', c.id, { grandDeplacement: valeur });
   const etat = valeur === true ? 'grand déplacement' : valeur === false ? 'pas de grand déplacement' : 'à qualifier';
   const paie = valeur === true
     ? (deplacementsDansLeFichier(ctx.ds.settings) ? 'jours, nuits et trajets dans les prochains lots de paie' : 'jours, nuits et trajets calculés, à saisir dans Sage (réglage « déplacements dans le fichier de paie » décoché)')

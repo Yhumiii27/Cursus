@@ -407,10 +407,10 @@ const EXIGENCES_DEMO: Record<string, { formations: string[]; habilitations: stri
 };
 /** CDD de démonstration : terme initial, renouvellement signé avant lui (avenant n° 1), nouveau terme de la fiche. */
 const CDD_DEMO = { initial: '2026-07-31', signeLe: '2026-07-15', reference: 'Avenant n° 1' };
-function renouvellementDemo(db: Db) {
+async function renouvellementDemo(db: Db) {
   for (const id of Object.keys(PROFILS).map(Number).filter(id => PROFILS[id].typeContrat === 'cdd')) {
-    const embauche = db.where<{ regime: unknown }>('contratsHistorique', 'empId', id)[0];
-    db.insert('contratsHistorique', {
+    const embauche = (await db.where<{ regime: unknown }>('contratsHistorique', 'empId', id))[0];
+    await db.insert('contratsHistorique', {
       empId: id, effet: '2026-08-01', nature: 'renouvellement', regime: embauche?.regime ?? null, jusquau: PROFILS[id].fin, signeLe: CDD_DEMO.signeLe, reference: CDD_DEMO.reference,
       le: CDD_DEMO.signeLe, par: RH_DEMO, parId: null, applique: true, annuleLe: null, fin: null,
     });
@@ -421,42 +421,42 @@ function renouvellementDemo(db: Db) {
  * Habilitation électrique de Mehdi Benali renouvelée le 1er octobre 2023 : la délivrance précédente reste à l'historique
  * (t115). Formation hors catalogue suivie par lui, non obligatoire (t116).
  */
-function historiqueSecuriteDemo(db: Db) {
-  const titre = db.where<{ id: number; h: string }>('habTitres', 'empId', 2).find(t => t.h === 'he');
+async function historiqueSecuriteDemo(db: Db) {
+  const titre = (await db.where<{ id: number; h: string }>('habTitres', 'empId', 2)).find(t => t.h === 'he');
   if (titre) {
-    db.insert('habDelivrances', {
+    await db.insert('habDelivrances', {
       empId: 2, h: 'he', titreId: titre.id, delivree: '2020-09-15', par: 'Philippe Aubert', expire: '2023-09-15', remplaceeLe: '2023-10-01',
       mesure: null, mesureDate: null, le: '2020-09-15', auteur: null, auteurId: null,
     });
   }
-  db.insert('formationsSuivies', {
+  await db.insert('formationsSuivies', {
     empId: 2, f: null, libelle: 'Lecture de schémas électriques industriels', du: '2025-03-18', au: '2025-03-19', duree: 14, organisme: 'GRETA Industrie',
     obligatoire: false, origine: 'saisie', planActionId: null, demandeId: null, le: '2025-03-20', auteur: RH_DEMO, auteurId: null,
   });
 }
 
-function exigencesDemo(db: Db) {
-  for (const [nom, x] of Object.entries(EXIGENCES_DEMO)) db.sql.prepare('UPDATE postes SET formations = ?, habilitations = ? WHERE nom = ?').run(JSON.stringify(x.formations), JSON.stringify(x.habilitations), nom);
-  db.update('equipes', 'Logistique', { exigences: { formations: ['sst'], habilitations: [] } });
+async function exigencesDemo(db: Db) {
+  for (const [nom, x] of Object.entries(EXIGENCES_DEMO)) await db.run('UPDATE postes SET formations = ?, habilitations = ? WHERE nom = ?', [JSON.stringify(x.formations), JSON.stringify(x.habilitations), nom]);
+  await db.update('equipes', 'Logistique', { exigences: { formations: ['sst'], habilitations: [] } });
   // Couverture minimale (t067) : 4 SST en Production, où deux certifications arrivent à échéance sous l'horizon d'alerte.
-  db.update('equipes', 'Production', { couverture: [{ formation: 'sst', min: 4 }] });
+  await db.update('equipes', 'Production', { couverture: [{ formation: 'sst', min: 4 }] });
 }
 
-export function seedDemo(db: Db) {
-  db.tx(() => {
-    const secret = db.getSetting<string | null>('secret', null); // conserve les sessions ouvertes
-    db.clearAll();
-    if (secret) db.setSetting('secret', secret);
-    db.setSetting('app', DEFAULT_SETTINGS);
-    db.setSetting('messagerie', MESSAGERIE_DEMO);
-    FORMATIONS.forEach(f => db.insert('formations', f));
-    HABILITATIONS.forEach(h => db.insert('habilitations', h));
-    DESTS.forEach(d => db.insert('destinations', d));
-    EQUIPES.forEach(([nom, managerId], ordre) => db.insert('equipes', { nom, managerId, ordre }));
-    SESSIONS.forEach(s => db.insert('sessions', completerSession(s)));
-    EMPLOYES.forEach(e => {
+export async function seedDemo(db: Db) {
+  await db.tx(async () => {
+    const secret = await db.getSetting<string | null>('secret', null); // conserve les sessions ouvertes
+    await db.clearAll();
+    if (secret) await db.setSetting('secret', secret);
+    await db.setSetting('app', DEFAULT_SETTINGS);
+    await db.setSetting('messagerie', MESSAGERIE_DEMO);
+    for (const f of FORMATIONS) await db.insert('formations', f);
+    for (const h of HABILITATIONS) await db.insert('habilitations', h);
+    for (const d of DESTS) await db.insert('destinations', d);
+    for (const [ordre, [nom, managerId]] of EQUIPES.entries()) await db.insert('equipes', { nom, managerId, ordre });
+    for (const s of SESSIONS) await db.insert('sessions', completerSession(s));
+    for (const e of EMPLOYES) {
       const p = PROFILS[e.id], x = EXTRA[e.id] || {};
-      db.insert('employes', {
+      await db.insert('employes', {
         id: e.id, nom: e.nom, equipe: e.equipe, poste: e.poste, statut: p.statut, typeContrat: p.typeContrat, temps: p.temps,
         heures: p.heures ?? null, forfaitHeures: p.forfaitHeures ?? null, forfaitJours: p.forfaitJours ?? null, jourOff: p.jourOff ?? [],
         entree: p.entree, fin: p.fin ?? null, naissance: p.naissance, naissanceLe: `${p.naissance}-${NE_LE[e.id]}`, agence: p.agence ?? null, matriculePaie: matriculePaieDemo(e.id, p.typeContrat),
@@ -469,67 +469,69 @@ export function seedDemo(db: Db) {
         // CDD de Lucas Martin : accroissement temporaire d'activité, terme initial fin juillet, renouvelé une fois (ci-dessous).
         ...(p.typeContrat === 'cdd' ? { motifRecours: 'accroissement', cddFinInitiale: CDD_DEMO.initial } : {}),
       });
-      [...e.certs, ...(x.certsPlus || [])].forEach(c => db.insert('certifications', { empId: e.id, f: c.f, obtenue: c.obtenue, sessionId: c.session ?? null, convoc: c.convoc ?? null, convocLe: c.convoc ? CONVOQUES_LE : null }));
-      (x.habs || []).forEach(h => db.insert('habTitres', {
+      for (const c of [...e.certs, ...(x.certsPlus || [])]) await db.insert('certifications', { empId: e.id, f: c.f, obtenue: c.obtenue, sessionId: c.session ?? null, convoc: c.convoc ?? null, convocLe: c.convoc ? CONVOQUES_LE : null });
+      for (const h of (x.habs || [])) await db.insert('habTitres', {
         empId: e.id, h: h.h, delivree: h.delivree ?? null, par: h.par ?? null, demande: h.demande ?? null,
         ...(h.restriction ? { mesure: 'suspension', mesureDate: '2026-09-30', mesureMotif: MOTIF_RESTRICTION, mesurePar: RH_DEMO } : {}),
-      }));
-      (x.visas || []).forEach(v => db.insert('visas', { empId: e.id, ...v }));
-      (x.vaccins || []).forEach(v => db.insert('vaccinations', { empId: e.id, ...v }));
-    });
+      });
+      for (const v of (x.visas || [])) await db.insert('visas', { empId: e.id, ...v });
+      for (const v of (x.vaccins || [])) await db.insert('vaccinations', { empId: e.id, ...v });
+    }
     // Postes du référentiel d'après les intitulés des fiches (comme la reprise d'une base existante), puis exigences.
-    postesDepuisFiches(db);
-    exigencesDemo(db);
+    await postesDepuisFiches(db);
+    await exigencesDemo(db);
     // Historique des contrats amorcé depuis les fiches (comme la migration d'une base existante), puis renouvellement du CDD.
-    historiqueDepuisFiches(db);
-    renouvellementDemo(db);
+    await historiqueDepuisFiches(db);
+    await renouvellementDemo(db);
     // Délivrances d'habilitation amorcées depuis les titres (comme la migration), puis une délivrance remplacée et une
     // formation suivie hors catalogue (t115, t116).
-    delivrancesDepuisTitres(db);
-    historiqueSecuriteDemo(db);
-    RECYCLAGES.forEach(([empId, f, sessionId]) => {
-      const c = db.where<{ id: number; f: string }>('certifications', 'empId', empId).find(x => x.f === f)!;
-      db.update('certifications', c.id, { sessionId, convoc: 'now', convocLe: CONVOQUES_LE });
-    });
-    INSCRIPTIONS.forEach(([empId, sessionId]) => db.insert('inscriptions', { empId, sessionId, convoc: 'now', date: CONVOQUES_LE, convocLe: CONVOQUES_LE }));
+    await delivrancesDepuisTitres(db);
+    await historiqueSecuriteDemo(db);
+    for (const [empId, f, sessionId] of RECYCLAGES) {
+      const c = (await db.where<{ id: number; f: string }>('certifications', 'empId', empId)).find(x => x.f === f)!;
+      await db.update('certifications', c.id, { sessionId, convoc: 'now', convocLe: CONVOQUES_LE });
+    }
+    for (const [empId, sessionId] of INSCRIPTIONS) await db.insert('inscriptions', { empId, sessionId, convoc: 'now', date: CONVOQUES_LE, convocLe: CONVOQUES_LE });
     // Keystone : mêmes contrôles et mêmes tables que l'API entrante (server/src/integrations/keystone-entrant.ts).
-    const cx = contexte(db), taches = planning();
-    Object.entries(PROJETS).forEach(([code, nom]) => enregistrerProjet(cx, code, { nom }));
+    const cx = await contexte(db), taches = planning();
+    for (const [code, nom] of Object.entries(PROJETS)) await enregistrerProjet(cx, code, { nom });
     // Activités internes de base (dont la délégation du CSE) : comme la migration d'une base neuve, rejouée à la réinitialisation.
-    amorcerActivites(db);
+    await amorcerActivites(db);
     // Horaires de poste d'exemple (comme la migration d'une base neuve) ; horaire de journée proposé à la Maintenance et à
     // l'Administration, équipe du matin à la Production (2x8 : l'après-midi se choisit sur la feuille).
-    amorcerHoraires(db);
-    for (const [nom, horaire] of [['Maintenance', 'J'], ['Administration', 'J'], ['Production', 'M']]) db.update('equipes', nom, { horaire });
+    await amorcerHoraires(db);
+    for (const [nom, horaire] of [['Maintenance', 'J'], ['Administration', 'J'], ['Production', 'M']]) await db.update('equipes', nom, { horaire });
     // Mandat au CSE de Julien Moreau : titulaire, crédit de la table R2314-1 pour une centaine de salariés.
-    db.insert('mandats', { empId: 8, role: 'titulaire', du: '2025-11-01', au: null, credit: 21 });
+    await db.insert('mandats', { empId: 8, role: 'titulaire', du: '2025-11-01', au: null, credit: 21 });
 
-    CHANTIERS.forEach(({ id, ...c }) => enregistrerChantier(cx, id, c));
-    AFFECTATIONS.forEach(({ id, empId, ...a }) => enregistrerAffectation(cx, id, { matricule: matricule(empId), ...a }));
-    taches.forEach(({ id, empId, ...t }) => enregistrerTache(cx, id, { matricule: matricule(empId), ...t }));
-    VOYAGES.forEach(v => db.insert('voyages', v));
-    DEMANDES_KEYSTONE.forEach(d => db.insert('demandesKeystone', d));
-    ABSENCES.forEach(a => db.insert('absences', a));
-    CET.forEach(c => db.insert('cet', c));
+    for (const { id, ...c } of CHANTIERS) await enregistrerChantier(cx, id, c);
+    for (const { id, empId, ...a } of AFFECTATIONS) await enregistrerAffectation(cx, id, { matricule: matricule(empId), ...a });
+    for (const { id, empId, ...t } of taches) await enregistrerTache(cx, id, { matricule: matricule(empId), ...t });
+    for (const v of VOYAGES) await db.insert('voyages', v);
+    for (const d of DEMANDES_KEYSTONE) await db.insert('demandesKeystone', d);
+    for (const a of ABSENCES) await db.insert('absences', a);
+    for (const c of CET) await db.insert('cet', c);
     // Report légal de 15 mois (arrêt de travail), reçu sur la période 2026-2027 et courant au-delà : sa clôture l'imposera.
-    db.insert('reports', { empId: 6, jours: 4, motif: 'CP 2024-2025 non pris — arrêt de travail', par: 'Sandrine Vidal', date: '2026-06-02', sens: 'recu', periode: 2026, expire: '2027-08-31' });
-    DEMANDES_COLLAB.forEach(d => db.insert('demandesCollab', d));
+    await db.insert('reports', { empId: 6, jours: 4, motif: 'CP 2024-2025 non pris — arrêt de travail', par: 'Sandrine Vidal', date: '2026-06-02', sens: 'recu', periode: 2026, expire: '2027-08-31' });
+    for (const d of DEMANDES_COLLAB) await db.insert('demandesCollab', d);
     // Visite d'embauche demandée pour l'apprenti, jamais vu par le médecin du travail.
-    db.insert('demandesVisite', { empId: 24, motif: 'embauche', le: '2026-10-05', par: RH_DEMO, statut: 'demandee', closeLe: null, closePar: null });
-    Object.entries(BUDGETS).forEach(([ex, list]) => Object.entries(list).forEach(([equipe, montant]) => db.insert('budgets', { exercice: Number(ex), equipe, montant })));
-    PLAN.forEach(l => db.insert('planActions', { exercice: 2026, ...(l.statut === 'realise' ? { coutReel: l.cout, effectifReel: l.effectif } : {}), ...l }));
-    feuilles(taches).forEach(f => db.insert('feuilles', f));
+    await db.insert('demandesVisite', { empId: 24, motif: 'embauche', le: '2026-10-05', par: RH_DEMO, statut: 'demandee', closeLe: null, closePar: null });
+    for (const [ex, list] of Object.entries(BUDGETS)) {
+      for (const [equipe, montant] of Object.entries(list)) await db.insert('budgets', { exercice: Number(ex), equipe, montant });
+    }
+    for (const l of PLAN) await db.insert('planActions', { exercice: 2026, ...(l.statut === 'realise' ? { coutReel: l.cout, effectifReel: l.effectif } : {}), ...l });
+    for (const f of feuilles(taches)) await db.insert('feuilles', f);
     // Feuilles déjà transmises de la démonstration : réunies en un lot de paie historique, comme une base reprise.
-    lotHistorique(db, 'Démonstration', '2026-10-02T15:00:00.000Z');
-    figerFeuilles(db);
-    entretiens().forEach(e => db.insert('entretiens', e));
-    comptesDemo(db);
+    await lotHistorique(db, 'Démonstration', '2026-10-02T15:00:00.000Z');
+    await figerFeuilles(db);
+    for (const e of entretiens()) await db.insert('entretiens', e);
+    await comptesDemo(db);
 
     // Reprise des compteurs : jours déjà pris sur les périodes en cours, arrêtés au jour du chargement (période de CP à
     // prendre et année de RTT de cette date), plafonnés pour laisser un solde réaliste.
-    const ds: Dataset = loadFull(db, { role: 'rh', empId: null, nom: '', intitule: '' });
+    const ds: Dataset = await loadFull(db, { role: 'rh', empId: null, nom: '', intitule: '' });
     const d = new Domain(ds), arrete = ds.today;
-    ds.employes.forEach((e: Employe) => {
+    for (const e of ds.employes) {
       const c = d.contratOf(e), h = histo(e.id, !!c.forfait);
       const cp = c.interim ? 0 : Math.min(h.cp, Math.max(0, cpDroit(d, e).droit - 4));
       const rd = rttDroit(d, e);
@@ -537,14 +539,14 @@ export function seedDemo(db: Db) {
       // Les demandes de récupération en attente doivent rester couvertes par le compteur acquis.
       const recupDemandee = ds.absences.filter(a => a.empId === e.id && a.type === 'RECUP' && a.statut === 'demandee')
         .reduce((n, a) => n + d.countDays(e, a.du, a.au, 'RECUP', a) * d.dayH(e), 0);
-      db.insert('soldesReprise', { empId: e.id, cpPris: cp, rttPris: rtt, recupAcquis: Math.max(h.recA, h.recP + recupDemandee), recupPris: h.recP, arreteLe: arrete });
+      await db.insert('soldesReprise', { empId: e.id, cpPris: cp, rttPris: rtt, recupAcquis: Math.max(h.recA, h.recP + recupDemandee), recupPris: h.recP, arreteLe: arrete });
       // Reprise après une absence longue (maternité…), inscrite comme à la saisie par le RH.
       const r = repriseDesAbsences(ds.absences, e.id);
-      if (r && !e.repriseDate) db.update('employes', e.id, { repriseMotif: r.motif, repriseDate: r.date });
-    });
+      if (r && !e.repriseDate) await db.update('employes', e.id, { repriseMotif: r.motif, repriseDate: r.date });
+    }
     // Verdicts Go / No Go de départ, mémorisés sans envoi : en mode API, réputés connus de Keystone, seuls leurs
     // changements lui seront envoyés ; en simulation, ils repartiront tous au passage en mode API.
-    suivreVerdicts(db, { initial: true });
+    await suivreVerdicts(db, { initial: true });
   });
 }
 
@@ -589,10 +591,10 @@ const PROFILS_DEMO: Record<string, ProfilRh> = {
  * (Comptes et accès).
  * Appelé aussi au démarrage pour une base de démonstration antérieure aux comptes.
  */
-export function comptesDemo(db: Db) {
-  if (db.count('comptes')) return;
+export async function comptesDemo(db: Db) {
+  if (await db.count('comptes')) return;
   // Une ancienne base de démonstration a pu renommer la RH unique (paramètre rhNom) : même personne.
-  const rhNom = db.getSetting<{ rhNom?: string }>('app', {}).rhNom || RH_DEMO;
+  const rhNom = (await db.getSetting<{ rhNom?: string }>('app', {})).rhNom || RH_DEMO;
   const base = {
     oid: null, actif: true, motDePasse: null, changerMotDePasse: false, echecs: 0, blocageFin: null,
     creation: new Date().toISOString(), creePar: 'Jeu de démonstration', derniereConnexion: null,
@@ -605,12 +607,12 @@ export function comptesDemo(db: Db) {
     return x;
   };
   const adresse = unique(identifiantSuggere(rhNom, 'microsoft', DOMAINE_DEMO));
-  db.insert('comptes', { ...base, empId: null, nom: rhNom, adresse, identifiant: adresse, type: 'microsoft', profilRh: 'rh_admin' });
-  db.all<Employe>('employes').forEach(e => {
+  await db.insert('comptes', { ...base, empId: null, nom: rhNom, adresse, identifiant: adresse, type: 'microsoft', profilRh: 'rh_admin' });
+  for (const e of await db.all<Employe>('employes')) {
     const type = typeSuggere(e);
-    db.insert('comptes', {
+    await db.insert('comptes', {
       ...base, empId: e.id, nom: null, adresse: null, identifiant: unique(identifiantSuggere(e.nom, type, DOMAINE_DEMO)), type,
       profilRh: PROFILS_DEMO[e.poste] ?? 'aucun',
     });
-  });
+  }
 }

@@ -8,17 +8,17 @@
 //                       du dossier est échue. Administrateur RH (jamais son propre dossier). Irréversible : les sauvegardes
 //                       gardent les données jusqu'à leur rotation.
 import { fmtIso, plural } from '../../../shared/format.ts';
-import { categoriesDroitEffacement, categoriesTexte, conservationActive } from '../../../shared/rules/conservation.ts';
+import { CATEGORIES, CATEGORIES_CONSERVATION, categoriesDroitEffacement, categoriesTexte, conservationActive } from '../../../shared/rules/conservation.ts';
 import { sorti } from '../../../shared/rules/contrats.ts';
 import type { CategorieConservation } from '../../../shared/types.ts';
-import { aEffacer, dossiersEchus, effacer } from '../conservation.ts';
+import { dossiersEchus, effacer, quantitesAEffacer } from '../conservation.ts';
 import { controlerSoldeSortie } from '../soldes-sortie.ts';
 import { ActionError, getEmp, refuserSoiMeme, requireRhAdmin, str, type ActionHandler } from './context.ts';
 
 /** Dossiers traités au plus par confirmation (lot). */
 export const LOT_MAX = 100;
 
-const anonymiser: ActionHandler = (ctx, p) => {
+const anonymiser: ActionHandler = async (ctx, p) => {
   requireRhAdmin(ctx);
   const ids = [...new Set((Array.isArray(p.ids) ? p.ids : [p.ids]).map(Number).filter(n => Number.isInteger(n) && n > 0))];
   if (!ids.length) throw new ActionError('Choisissez au moins un dossier');
@@ -28,7 +28,7 @@ const anonymiser: ActionHandler = (ctx, p) => {
   if (motif.length > 500) throw new ActionError('Motif trop long (500 caractères au plus)');
   const avantEcheance = p.avantEcheance === true;
   const emps = ids.map(id => getEmp(ctx, id));
-  emps.forEach(e => refuserSoiMeme(ctx, e, 'Vous ne pouvez pas effacer votre propre dossier'));
+  for (const e of emps) refuserSoiMeme(ctx, e, 'Vous ne pouvez pas effacer votre propre dossier');
 
   let plan: { id: number; categories: CategorieConservation[] }[];
   let gardees: CategorieConservation[] = [];
@@ -39,7 +39,9 @@ const anonymiser: ActionHandler = (ctx, p) => {
     const e = emps[0];
     if (e.anonymiseLe) throw new ActionError('Dossier déjà anonymisé', 409);
     if (!e.fin || !sorti(e, ctx.d.ti)) throw new ActionError('Salarié encore présent : enregistrez d’abord sa sortie ; le dossier d’un salarié en poste ne s’efface pas', 409);
-    const r = categoriesDroitEffacement(e, ctx.ds.settings, ctx.d.ti, c => aEffacer(ctx.db, e.id, c) > 0)!;
+    // Données des catégories partielles lues d'avance (la règle les demande par une fonction synchrone).
+    const quantites = await quantitesAEffacer(ctx.db, e.id, CATEGORIES.filter(c => c !== 'dossier' && CATEGORIES_CONSERVATION[c].partielle));
+    const r = categoriesDroitEffacement(e, ctx.ds.settings, ctx.d.ti, c => (quantites.get(c) ?? 0) > 0)!;
     gardees = r.gardees.map(g => g.categorie);
     if (!r.categories.length) {
       throw new ActionError(`Rien à effacer avant l’échéance : ${categoriesTexte(gardees)} restent tant que la loi impose de les garder (art. 17-3-b du RGPD)`, 409);
@@ -49,17 +51,18 @@ const anonymiser: ActionHandler = (ctx, p) => {
     if (!conservationActive(ctx.ds.settings)) {
       throw new ActionError('Conservation des dossiers désactivée : l’administrateur RH l’active avec la référence de la décision du DPO (Paramètres → Conservation des dossiers)', 409);
     }
-    const echus = new Map(dossiersEchus(ctx.db, ctx.ds.settings, ctx.d.ti).map(d => [d.empId, d]));
+    const echus = new Map((await dossiersEchus(ctx.db, ctx.ds.settings, ctx.d.ti)).map(d => [d.empId, d]));
     const absents = emps.filter(e => !echus.has(e.id));
     // Aucun nom dans le refus : il peut viser un dossier déjà anonymisé.
     if (absents.length) throw new ActionError(`${plural(absents.length, 'dossier', 'dossiers')} sans donnée échue (n° ${absents.map(e => e.id).join(', ')}) : rechargez la liste`, 409);
     plan = emps.map(e => ({ id: e.id, categories: echus.get(e.id)!.categories }));
   }
   // Un solde de sortie dans un lot de paie à confirmer : le lot d'abord (le salarié y est nommé par son matricule).
-  plan.filter(x => x.categories.includes('dossier')).forEach(x => controlerSoldeSortie(ctx.db, getEmp(ctx, x.id)));
+  for (const x of plan.filter(y => y.categories.includes('dossier'))) await controlerSoldeSortie(ctx.db, getEmp(ctx, x.id));
 
   const cx = { ti: ctx.d.ti, le: new Date().toISOString(), par: ctx.user.nom };
-  const bilan = plan.map(x => ({ ...x, elements: effacer(ctx.db, x.id, x.categories, cx, { motif, avantEcheance }) }));
+  const bilan: (typeof plan[number] & { elements: number })[] = [];
+  for (const x of plan) bilan.push({ ...x, elements: await effacer(ctx.db, x.id, x.categories, cx, { motif, avantEcheance }) });
   const anonymises = bilan.filter(x => x.categories.includes('dossier'));
   const partiels = bilan.filter(x => !x.categories.includes('dossier'));
   const elements = bilan.reduce((n, x) => n + x.elements, 0);

@@ -13,7 +13,7 @@ const HORS_REGLE = {
   debut: `debut_demi IS NOT NULL AND (debut_demi NOT IN ('matin', 'apres_midi') OR type NOT IN ('CP', 'RTT', 'RECUP') OR (du <> au AND debut_demi = 'matin'))`,
   fin: `fin_demi IS NOT NULL AND (fin_demi NOT IN ('matin', 'apres_midi') OR type NOT IN ('CP', 'RTT', 'RECUP') OR du = au OR fin_demi = 'apres_midi')`,
 };
-const aReprendre = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS n FROM absences WHERE (${HORS_REGLE.debut}) OR (${HORS_REGLE.fin})`).get() as { n: number }).n);
+const aReprendre = async (db: Db) => Number((await db.one(`SELECT COUNT(*) AS n FROM absences WHERE (${HORS_REGLE.debut}) OR (${HORS_REGLE.fin})`) as { n: number }).n);
 
 /**
  * Demi-journées des congés (t129). Les absences d'une base existante sont en journées entières (colonnes vides) : la
@@ -24,11 +24,11 @@ const aReprendre = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS n FROM
 export const DEMI_JOURNEES: Migration = {
   nom: 'lot5-conges-demi-journees',
   // Base existante sans demi-journée à reprendre : notée faite. Base neuve : exécutée, sans effet.
-  necessaire: db => db.neuve || aReprendre(db) > 0,
-  executer: db => {
-    if (!aReprendre(db)) return;
-    const debut = Number(db.sql.prepare(`UPDATE absences SET debut_demi = NULL WHERE ${HORS_REGLE.debut}`).run().changes);
-    const fin = Number(db.sql.prepare(`UPDATE absences SET fin_demi = NULL WHERE ${HORS_REGLE.fin}`).run().changes);
+  necessaire: async db => db.neuve || await aReprendre(db) > 0,
+  executer: async db => {
+    if (!await aReprendre(db)) return;
+    const debut = Number((await db.run(`UPDATE absences SET debut_demi = NULL WHERE ${HORS_REGLE.debut}`)).changes);
+    const fin = Number((await db.run(`UPDATE absences SET fin_demi = NULL WHERE ${HORS_REGLE.fin}`)).changes);
     return `${plural(debut + fin, 'demi-journée hors de la règle', 'demi-journées hors de la règle')} ramenée${debut + fin > 1 ? 's' : ''} à la journée entière`;
   },
 };

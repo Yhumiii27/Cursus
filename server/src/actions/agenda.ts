@@ -14,23 +14,23 @@ function salarie(ctx: Ctx) {
   return getEmp(ctx, ctx.user.empId);
 }
 
-const creer: ActionHandler = (ctx) => {
+const creer: ActionHandler = async (ctx) => {
   const e = salarie(ctx);
   if (!ctx.ds.settings.agendaFluxActif) throw new ActionError('Abonnement à l’agenda désactivé : l’administrateur RH l’active dans Paramètres → Agenda', 409);
   if (!present(e, ctx.d.ti)) throw new ActionError('Contrat terminé : aucun agenda à publier', 409);
-  const { jeton, id } = creerJeton(ctx.db, e.id, ctx.user.nom);
+  const { jeton, id } = await creerJeton(ctx.db, e.id, ctx.user.nom);
   return { message: 'Adresse d’abonnement créée : copiez-la maintenant dans Outlook, elle ne sera plus affichée', result: { jeton, id } };
 };
 
-const revoquer: ActionHandler = (ctx) => {
+const revoquer: ActionHandler = async (ctx) => {
   const e = salarie(ctx);
-  const n = revoquerJetons(ctx.db, ctx.user.nom, e.id);
+  const n = await revoquerJetons(ctx.db, ctx.user.nom, e.id);
   return n ? 'Abonnement révoqué : l’agenda abonné ne se met plus à jour' : 'Aucun abonnement en vigueur';
 };
 
-const revoquerTout: ActionHandler = (ctx) => {
+const revoquerTout: ActionHandler = async (ctx) => {
   requireRhAdmin(ctx);
-  const n = revoquerJetons(ctx.db, ctx.user.nom);
+  const n = await revoquerJetons(ctx.db, ctx.user.nom);
   return { message: n ? `${plural(n, 'abonnement révoqué', 'abonnements révoqués')} : chacun en recrée un depuis son espace` : 'Aucun abonnement en vigueur', result: { revoques: n } };
 };
 

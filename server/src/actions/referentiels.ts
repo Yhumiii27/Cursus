@@ -60,19 +60,19 @@ const attenteTexte = (n: number) => (n ? ` · ${plural(n, 'demande en attente', 
 // — Formations —
 
 /** Création (`code`) ou modification (`id`) d'une formation du catalogue. */
-const enregistrerFormation: ActionHandler = (ctx, p) => {
+const enregistrerFormation: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const liste = ctx.ds.referentiels.formations;
   const avant = p.id != null && p.id !== '' ? trouver(liste, f => f.id, codeTitre(p.id), 'Formation') : null;
   const { erreurs, formation: f } = controlerFormation(p, liste, avant?.id ?? null);
   if (!f) refuser(erreurs);
   if (!avant) {
-    ctx.db.insert<Formation>('formations', f);
+    await ctx.db.insert<Formation>('formations', f);
     return `Formation « ${f.court} » ajoutée au catalogue`;
   }
   // Une nouvelle validité vaut aussi pour les certifications déjà obtenues (et les habilitations qui les exigent).
   const effet = f.validite !== avant.validite ? effetModification(ctx.ds, 'formations', f) : null;
-  ctx.db.update<Formation>('formations', f.id, f);
+  await ctx.db.update<Formation>('formations', f.id, f);
   return modifie(`Formation « ${f.court} » modifiée${validiteTexte(avant.validite, f.validite)}`, effet);
 };
 
@@ -80,12 +80,12 @@ const enregistrerFormation: ActionHandler = (ctx, p) => {
  * Archivage (`archive` vrai, par défaut) ou rétablissement. Refusé tant qu'une habilitation en vigueur l'exige en
  * prérequis ou qu'une session est ouverte (à venir ou à clôturer) : elle ne serait plus proposée.
  */
-const archiverFormation: ActionHandler = (ctx, p) => {
+const archiverFormation: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const f = trouver(ctx.ds.referentiels.formations, x => x.id, codeTitre(p.id), 'Formation');
   if (p.archive === false) {
     if (actif(f)) return `Formation « ${f.court} » déjà au catalogue`;
-    ctx.db.update<Formation>('formations', f.id, { archive: null });
+    await ctx.db.update<Formation>('formations', f.id, { archive: null });
     return `Formation « ${f.court} » rétablie au catalogue`;
   }
   if (!actif(f)) return `Formation « ${f.court} » déjà archivée`;
@@ -95,27 +95,27 @@ const archiverFormation: ActionHandler = (ctx, p) => {
   }
   const ouvertes = ctx.ds.sessions.filter(s => s.formation === f.id && sessionActive(s)).length;
   if (ouvertes) throw new ActionError(`${plural(ouvertes, 'session ouverte', 'sessions ouvertes')} (à venir ou à clôturer) : annulez-les ou clôturez-les d’abord`);
-  ctx.db.update<Formation>('formations', f.id, { archive: ctx.d.ti });
+  await ctx.db.update<Formation>('formations', f.id, { archive: ctx.d.ti });
   return `Formation « ${f.court} » archivée — plus proposée ni suivie ; les certifications restent au dossier${attenteTexte(demandesEnAttente(ctx.ds, 'formations', f.id))}`;
 };
 
 // — Habilitations —
 
 /** Création (`code`) ou modification (`id`) d'une habilitation : prérequis du catalogue, aptitude, validité, signataire. */
-const enregistrerHabilitation: ActionHandler = (ctx, p) => {
+const enregistrerHabilitation: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const liste = ctx.ds.referentiels.habilitations;
   const avant = p.id != null && p.id !== '' ? trouver(liste, h => h.id, codeTitre(p.id), 'Habilitation') : null;
   const { erreurs, habilitation: h } = controlerHabilitation(p, liste, ctx.ds.referentiels.formations, avant?.id ?? null);
   if (!h) refuser(erreurs);
   if (!avant) {
-    ctx.db.insert<HabType>('habilitations', h);
+    await ctx.db.insert<HabType>('habilitations', h);
     return `Habilitation « ${h.nom} » ajoutée au référentiel`;
   }
   // Validité, prérequis ou condition d'aptitude modifiés : les titres délivrés suivent la nouvelle règle.
   const regle = (x: HabType) => JSON.stringify([x.validite, [...x.prereqs].sort(), x.medical]);
   const effet = regle(h) !== regle(avant) ? effetModification(ctx.ds, 'habilitations', h) : null;
-  ctx.db.update<HabType>('habilitations', h.id, h);
+  await ctx.db.update<HabType>('habilitations', h.id, h);
   return modifie(`Habilitation « ${h.nom} » modifiée${validiteTexte(avant.validite, h.validite)}`, effet);
 };
 
@@ -123,7 +123,7 @@ const enregistrerHabilitation: ActionHandler = (ctx, p) => {
  * Archivage ou rétablissement d'une habilitation : les titres délivrés restent au dossier, hors du suivi. Rétablie,
  * elle exige de nouveau ses prérequis : refusé tant que l'un d'eux est archivé (plus personne ne pourrait l'obtenir).
  */
-const archiverHabilitation: ActionHandler = (ctx, p) => {
+const archiverHabilitation: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const h = trouver(ctx.ds.referentiels.habilitations, x => x.id, codeTitre(p.id), 'Habilitation');
   if (p.archive === false) {
@@ -133,11 +133,11 @@ const archiverHabilitation: ActionHandler = (ctx, p) => {
       const [la, les] = archives.length > 1 ? ['ces formations', 'les'] : ['cette formation', 'la'];
       throw new ActionError(`${plural(archives.length, 'prérequis archivé', 'prérequis archivés')} : ${archives.map(f => f.court).join(', ')} — rétablissez d’abord ${la} (onglet Formations), ou retirez-${les} de ses prérequis`);
     }
-    ctx.db.update<HabType>('habilitations', h.id, { archive: null });
+    await ctx.db.update<HabType>('habilitations', h.id, { archive: null });
     return `Habilitation « ${h.nom} » rétablie au référentiel`;
   }
   if (!actif(h)) return `Habilitation « ${h.nom} » déjà archivée`;
-  ctx.db.update<HabType>('habilitations', h.id, { archive: ctx.d.ti });
+  await ctx.db.update<HabType>('habilitations', h.id, { archive: ctx.d.ti });
   const titres = ctx.ds.employes.filter(e => e.habs.some(t => t.h === h.id && t.delivree)).length;
   // Titres demandés pas encore délivrés : ils quittent l'écran Habilitations et ne se délivrent plus d'ici le rétablissement.
   const aDelivrer = titresADelivrer(ctx.ds, h.id);
@@ -149,19 +149,19 @@ const archiverHabilitation: ActionHandler = (ctx, p) => {
 // — Destinations —
 
 /** Création (`code`) ou modification (`id`, code pays) d'une destination : entrée, vaccins, passeport, sécurité sociale. */
-const enregistrerDestination: ActionHandler = (ctx, p) => {
+const enregistrerDestination: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const liste = ctx.ds.referentiels.destinations;
   const avant = p.id != null && p.id !== '' ? trouver(liste, d => d.code, codeDestination(p.id), 'Destination') : null;
   const { erreurs, destination: d } = controlerDestination(p, liste, avant?.code ?? null, ctx.d.ti);
   if (!d) refuser(erreurs);
   // Vigilance passée à l'orange ou au rouge (t068) : déplacements prévus signalés, service RH et managers prévenus.
-  const alerte = devientDeconseillee(avant?.vigilance, d.vigilance) ? alerterVigilance(ctx, d) : null;
+  const alerte = await (devientDeconseillee(avant?.vigilance, d.vigilance) ? alerterVigilance(ctx, d) : null);
   if (!avant) {
-    ctx.db.insert<Destination>('destinations', d);
+    await ctx.db.insert<Destination>('destinations', d);
     return { message: `Destination « ${d.pays} » ajoutée au référentiel${alerte?.texte ?? ''}`, result: { salaries: alerte?.salaries ?? [] } };
   }
-  ctx.db.update<Destination>('destinations', d.code, d);
+  await ctx.db.update<Destination>('destinations', d.code, d);
   // Les dossiers voyage sont recalculés à l'affichage : les déplacements prévus suivent la nouvelle règle.
   const prevus = ctx.ds.voyages.filter(v => v.dest === d.code && v.retour >= ctx.d.ti && !v.annuleLe).length;
   return {
@@ -171,16 +171,16 @@ const enregistrerDestination: ActionHandler = (ctx, p) => {
 };
 
 /** Archivage ou rétablissement : les déplacements déjà créés vers cette destination gardent leur dossier. */
-const archiverDestination: ActionHandler = (ctx, p) => {
+const archiverDestination: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const d = trouver(ctx.ds.referentiels.destinations, x => x.code, codeDestination(p.id), 'Destination');
   if (p.archive === false) {
     if (actif(d)) return `Destination « ${d.pays} » déjà au référentiel`;
-    ctx.db.update<Destination>('destinations', d.code, { archive: null });
+    await ctx.db.update<Destination>('destinations', d.code, { archive: null });
     return `Destination « ${d.pays} » rétablie au référentiel`;
   }
   if (!actif(d)) return `Destination « ${d.pays} » déjà archivée`;
-  ctx.db.update<Destination>('destinations', d.code, { archive: ctx.d.ti });
+  await ctx.db.update<Destination>('destinations', d.code, { archive: ctx.d.ti });
   return `Destination « ${d.pays} » archivée — plus proposée pour un nouveau déplacement ; les déplacements créés gardent leur dossier`;
 };
 
@@ -197,7 +197,7 @@ const TYPE: Record<ReferentielId, { lignes: readonly object[]; nature: [string, 
  * Charge le référentiel type dans un référentiel vide (aucun élément, même archivé) : 11 formations, 6 habilitations
  * (après les formations, qui sont leurs prérequis) ou 8 destinations, à vérifier et compléter ensuite.
  */
-const charger: ActionHandler = (ctx, p) => {
+const charger: ActionHandler = async (ctx, p) => {
   const ref = String(p.referentiel ?? '') as ReferentielId;
   const t = Object.hasOwn(TYPE, ref) ? TYPE[ref] : null;
   if (!t) throw new ActionError('Référentiel inconnu');
@@ -216,7 +216,7 @@ const charger: ActionHandler = (ctx, p) => {
       throw new ActionError(`${plural(archivees.length, 'formation prérequise archivée', 'formations prérequises archivées')} : ${archivees.map(f => f.court).join(', ')} — rétablissez-${la} d’abord (onglet Formations), puis chargez le référentiel type`);
     }
   }
-  t.lignes.forEach(x => ctx.db.insert(ref, { ...x, archive: null }));
+  for (const x of t.lignes) await ctx.db.insert(ref, { ...x, archive: null });
   return `${plural(t.lignes.length, t.nature[0], t.nature[1])} du référentiel type ${t.lignes.length > 1 ? 'ajoutées' : 'ajoutée'} : à vérifier et compléter (validités, coûts, organismes, signataires)`;
 };
 
@@ -233,35 +233,35 @@ function exigencesModifiees(message: string, effet: { nouveaux: NouveauManquant[
  * Création (sans `id`) ou modification d'un poste : intitulé et exigences. Un intitulé modifié est recopié sur les fiches
  * de ses titulaires qui portaient l'ancien (le libellé conservé suit le poste choisi ; un libellé précisé reste).
  */
-const enregistrerPoste: ActionHandler = (ctx, p) => {
+const enregistrerPoste: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const postes = ctx.ds.referentiels.postes;
   const avant = p.id != null && p.id !== '' ? trouver(postes, x => String(x.id), String(Number(p.id)), 'Poste') : null;
   const { erreurs, poste } = controlerPoste(p, ctx.ds.referentiels, avant?.id ?? null);
   if (!poste) refuser(erreurs);
   if (!avant) {
-    const cree = ctx.db.insert<Poste>('postes', poste);
+    const cree = await ctx.db.insert<Poste>('postes', poste);
     return { message: `Poste « ${poste.nom} » ajouté au référentiel`, result: { id: cree.id, salaries: [] } };
   }
   const effet = effetExigences(ctx.ds, { postes: postes.map(x => (x.id === avant.id ? { ...x, ...poste } : x)) });
-  ctx.db.update<Poste>('postes', avant.id, poste);
+  await ctx.db.update<Poste>('postes', avant.id, poste);
   let renommes = 0;
   if (poste.nom !== avant.nom) {
     // Un libellé précisé (« Cariste confirmé ») n'est pas l'intitulé du poste : il reste tel quel.
-    for (const e of ctx.ds.employes.filter(x => x.posteId === avant.id && key(x.poste) === key(avant.nom))) { ctx.db.update('employes', e.id, { poste: poste.nom }); renommes++; }
+    for (const e of ctx.ds.employes.filter(x => x.posteId === avant.id && key(x.poste) === key(avant.nom))) { await ctx.db.update('employes', e.id, { poste: poste.nom }); renommes++; }
   }
   const nom = poste.nom !== avant.nom ? `Poste « ${avant.nom} » renommé « ${poste.nom} »${renommes ? ` sur ${plural(renommes, 'fiche', 'fiches')}` : ''}` : `Poste « ${poste.nom} » modifié`;
   return exigencesModifiees(nom, effet);
 };
 
 /** Archivage ou rétablissement d'un poste : refusé tant qu'un salarié présent l'occupe (changer d'abord son poste). */
-const archiverPoste: ActionHandler = (ctx, p) => {
+const archiverPoste: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const x = trouver(ctx.ds.referentiels.postes, y => String(y.id), String(Number(p.id)), 'Poste');
   if (p.archive === false) {
     if (actif(x)) return `Poste « ${x.nom} » déjà au référentiel`;
     if (posteParLibelle(ctx.ds.referentiels.postes, x.nom)) throw new ActionError(`Un poste en vigueur porte déjà l’intitulé « ${x.nom} »`);
-    ctx.db.update<Poste>('postes', x.id, { archive: null });
+    await ctx.db.update<Poste>('postes', x.id, { archive: null });
     return `Poste « ${x.nom} » rétabli au référentiel`;
   }
   if (!actif(x)) return `Poste « ${x.nom} » déjà archivé`;
@@ -269,7 +269,7 @@ const archiverPoste: ActionHandler = (ctx, p) => {
   if (occupe.length) {
     throw new ActionError(`${plural(occupe.length, 'salarié occupe', 'salariés occupent')} ce poste : choisissez d’abord un autre poste sur ${occupe.length > 1 ? 'leurs fiches' : 'sa fiche'}`);
   }
-  ctx.db.update<Poste>('postes', x.id, { archive: ctx.d.ti });
+  await ctx.db.update<Poste>('postes', x.id, { archive: ctx.d.ti });
   return `Poste « ${x.nom} » archivé — plus proposé sur les fiches`;
 };
 
@@ -277,7 +277,7 @@ const archiverPoste: ActionHandler = (ctx, p) => {
  * Exigences communes à tous les membres d'une équipe, quel que soit leur poste ; case « travail de nuit ou en continu » (`nuit`) ;
  * horaire de poste par défaut (`horaire`).
  */
-const exigencesEquipeAction: ActionHandler = (ctx, p) => {
+const exigencesEquipeAction: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const q = ctx.ds.referentiels.equipes.find(x => x.nom === p.nom);
   if (!q) throw new ActionError('Équipe introuvable', 404);
@@ -285,13 +285,13 @@ const exigencesEquipeAction: ActionHandler = (ctx, p) => {
   if (premiereErreur(erreurs)) refuser(erreurs);
   const valeur = exigences.formations.length || exigences.habilitations.length ? exigences : null;
   const effet = effetExigences(ctx.ds, { equipes: ctx.ds.referentiels.equipes.map(x => (x.nom === q.nom ? { ...x, exigences: valeur } : x)) });
-  ctx.db.update<Equipe>('equipes', q.nom, { exigences: valeur });
+  await ctx.db.update<Equipe>('equipes', q.nom, { exigences: valeur });
   // Case « travail de nuit ou en continu » (salariés mineurs exclus) : ./mineurs.ts.
-  const nuit = enregistrerNuitEquipe(ctx, q, p.nuit);
+  const nuit = await enregistrerNuitEquipe(ctx, q, p.nuit);
   // Couverture minimale (SST, EPI incendie…) : ./couverture.ts.
-  const couverture = enregistrerCouvertureEquipe(ctx, q, p.couverture);
+  const couverture = await enregistrerCouvertureEquipe(ctx, q, p.couverture);
   // Horaire de poste proposé par défaut sur les feuilles de ses membres (lot 6) : ./horaires.ts.
-  const horaire = enregistrerHoraireEquipe(ctx, q, p.horaire);
+  const horaire = await enregistrerHoraireEquipe(ctx, q, p.horaire);
   return exigencesModifiees(`Exigences communes de l’équipe ${q.nom} enregistrées${nuit}${couverture}${horaire}`, effet);
 };
 
@@ -299,7 +299,7 @@ const exigencesEquipeAction: ActionHandler = (ctx, p) => {
  * Habilitation exigée jamais délivrée : titre demandé, « en attente » de délivrance (écran Habilitations), comme après
  * l'acceptation d'une demande du collaborateur. La délivrance suit, après contrôle des prérequis.
  */
-const demanderHab: ActionHandler = (ctx, p) => {
+const demanderHab: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const emp = getEmp(ctx, p.empId);
   const hm = ctx.d.hm(codeTitre(p.h));
@@ -309,7 +309,7 @@ const demanderHab: ActionHandler = (ctx, p) => {
   const t = emp.habs.find(x => x.h === hm.id);
   if (t?.delivree) throw new ActionError(`${hm.nom} déjà délivrée à ${emp.nom} : renouvelez-la depuis sa fiche`);
   if (t) return `${hm.nom} déjà demandée pour ${emp.nom} — en attente de délivrance (écran Habilitations)`;
-  ctx.db.insert<HabTitre>('habTitres', { empId: emp.id, h: hm.id, delivree: null, par: null, demande: ctx.d.ti });
+  await ctx.db.insert<HabTitre>('habTitres', { empId: emp.id, h: hm.id, delivree: null, par: null, demande: ctx.d.ti });
   return `${hm.nom} demandée pour ${emp.nom} — à délivrer après contrôle des prérequis (écran Habilitations, « En attente »)`;
 };
 
@@ -323,7 +323,7 @@ const demanderHab: ActionHandler = (ctx, p) => {
  * conformité, et seul le service RH en répond ; il ne fait que préciser l'intitulé (fiche hors référentiel : rattachée
  * au poste de même intitulé, s'il existe).
  */
-export function rattacherPoste(ctx: Ctx, fiche: Record<string, unknown>, actuel: number | null = null, garder = false): void {
+export async function rattacherPoste(ctx: Ctx, fiche: Record<string, unknown>, actuel: number | null = null, garder = false): Promise<void> {
   const postes = ctx.ds.referentiels.postes;
   const id = fiche.posteId == null || fiche.posteId === '' ? null : Number(fiche.posteId);
   const libelle = str(fiche.poste).replace(/\s+/g, ' ');
@@ -348,7 +348,7 @@ export function rattacherPoste(ctx: Ctx, fiche: Record<string, unknown>, actuel:
   if (x) { fiche.posteId = x.id; fiche.poste = x.nom; return; }
   if (garder && actuel != null) return;
   if (libelle.length > 80) throw new ActionError('Intitulé du poste : 80 caractères au plus');
-  fiche.posteId = ctx.db.insert<Poste>('postes', { nom: libelle, formations: [], habilitations: [], archive: null }).id;
+  fiche.posteId = (await ctx.db.insert<Poste>('postes', { nom: libelle, formations: [], habilitations: [], archive: null })).id;
   fiche.poste = libelle;
 }
 

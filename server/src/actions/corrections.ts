@@ -46,33 +46,33 @@ const nomCert = (ctx: Ctx, c: Pick<Certification, 'f' | 'obtenue'>) => `${ctx.d.
  * La certification quitte la session ouverte où elle est inscrite (recyclage planifié) : place libérée, convocation reçue
  * annulée par e-mail. Une session commencée ou passée, pas encore clôturée, attend d'abord sa clôture (présence, résultat).
  */
-function quitterSession(ctx: Ctx, emp: Employe, c: Certification): string {
+async function quitterSession(ctx: Ctx, emp: Employe, c: Certification): Promise<string> {
   const s = ctx.d.session(c.sessionId);
   if (!s || !sessionActive(s)) return '';
   attendCloture(ctx, s.id);
-  const annulee = annulerSiConvoque(ctx, s, emp, c);
-  ctx.db.update<Certification>('certifications', c.id, { sessionId: null, convoc: null, convocLe: null });
+  const annulee = await annulerSiConvoque(ctx, s, emp, c);
+  await ctx.db.update<Certification>('certifications', c.id, { sessionId: null, convoc: null, convocLe: null });
   return `inscription à la session du ${fmt(parse(s.date))} annulée${annulee ? ' · annulation envoyée par e-mail' : ''}`;
 }
 
 /** Résultat de clôture qui désignait la certification : il ne la désigne plus (présence gardée). */
-function detacherParticipations(ctx: Ctx, c: Certification) {
-  ctx.ds.participations.filter(x => x.certId === c.id).forEach(x => ctx.db.update<Participation>('participations', x.id, { certId: null }));
+async function detacherParticipations(ctx: Ctx, c: Certification) {
+  for (const x of ctx.ds.participations.filter(x => x.certId === c.id)) await ctx.db.update<Participation>('participations', x.id, { certId: null });
 }
 
 /**
  * Après la correction, une certification remplacée par une plus récente ne se planifie plus : sa place dans une session
  * ouverte postérieure à la certification en vigueur est libérée (règle de `cert.ajouter`).
  */
-function libererRemplacees(ctx: Ctx, emp: Employe, certs: Certification[], formations: string[]): string[] {
+async function libererRemplacees(ctx: Ctx, emp: Employe, certs: Certification[], formations: string[]): Promise<string[]> {
   const msgs: string[] = [];
   for (const f of new Set(formations)) {
     const vig = certEnVigueur(certs, f);
     for (const c of certs.filter(x => x.f === f && x !== vig && x.sessionId)) {
       const s = ctx.d.session(c.sessionId);
       if (!vig || !s || !sessionActive(s) || s.date <= vig.obtenue) continue;
-      const annulee = annulerSiConvoque(ctx, s, emp, c);
-      ctx.db.update<Certification>('certifications', c.id, { sessionId: null, convoc: null, convocLe: null });
+      const annulee = await annulerSiConvoque(ctx, s, emp, c);
+      await ctx.db.update<Certification>('certifications', c.id, { sessionId: null, convoc: null, convocLe: null });
       msgs.push(`certification remplacée retirée de la session du ${fmt(parse(s.date))}${annulee ? ' · annulation envoyée par e-mail' : ''}`);
     }
   }
@@ -86,7 +86,7 @@ function libererRemplacees(ctx: Ctx, emp: Employe, certs: Certification[], forma
  * plus, les inscriptions qu'elle avait closes à l'ancienne sont rendues (actions/inscriptions-closes.ts) et celle en
  * formation initiale à la nouvelle est close (comme `cert.ajouter`), gardée sur la certification.
  */
-const modifierCert: ActionHandler = (ctx, p) => {
+const modifierCert: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const { emp, c } = certOf(ctx, p.id);
   refuserSoiMeme(ctx, emp, 'Correction de votre propre certification');
@@ -105,15 +105,15 @@ const modifierCert: ActionHandler = (ctx, p) => {
   const suites: string[] = [];
   let closes: Pick<Certification, 'inscriptionsCloses'> = {};
   if (f !== c.f) {
-    suites.push(quitterSession(ctx, emp, c));
-    detacherParticipations(ctx, c);
-    suites.push(...rendre(ctx, emp, c, apres));
-    const nouvelles = clore(ctx, emp, f);
+    suites.push(await quitterSession(ctx, emp, c));
+    await detacherParticipations(ctx, c);
+    suites.push(...await rendre(ctx, emp, c, apres));
+    const nouvelles = await clore(ctx, emp, f);
     closes = { inscriptionsCloses: nouvelles.length ? nouvelles : null };
   }
-  ctx.db.update<Certification>('certifications', c.id, { f, obtenue: date, ...(f !== c.f ? { sessionId: null, convoc: null, convocLe: null, ...closes } : {}), ...marque(ctx, 'corrige', motif) });
-  suites.push(...libererRemplacees(ctx, emp, apres.map(x => (x.id === c.id && f !== c.f ? { ...x, sessionId: null } : x)), [c.f, f]));
-  const { keystone } = signaler(ctx, emp);
+  await ctx.db.update<Certification>('certifications', c.id, { f, obtenue: date, ...(f !== c.f ? { sessionId: null, convoc: null, convocLe: null, ...closes } : {}), ...marque(ctx, 'corrige', motif) });
+  suites.push(...await libererRemplacees(ctx, emp, apres.map(x => (x.id === c.id && f !== c.f ? { ...x, sessionId: null } : x)), [c.f, f]));
+  const { keystone } = await signaler(ctx, emp);
   const quoi = [f !== c.f ? `formation : ${fm.court}` : '', date !== c.obtenue ? `obtenue le ${fmt(parse(date))}` : ''].filter(Boolean).join(', ');
   return [`${nomCert(ctx, c)} corrigée — ${emp.nom} · ${quoi}`, ...suites.filter(Boolean)].join(' · ') + keystone;
 };
@@ -125,7 +125,7 @@ const modifierCert: ActionHandler = (ctx, p) => {
  * l'inscription en formation initiale qu'elle avait close est rendue si la session l'accueille encore, sinon le message
  * dit de réinscrire le salarié (actions/inscriptions-closes.ts).
  */
-const annulerCert: ActionHandler = (ctx, p) => {
+const annulerCert: ActionHandler = async (ctx, p) => {
   requireRhAdmin(ctx);
   const { emp, c } = certOf(ctx, p.id);
   refuserSoiMeme(ctx, emp, 'Suppression de votre propre certification');
@@ -133,12 +133,12 @@ const annulerCert: ActionHandler = (ctx, p) => {
   const apres = certsApres(emp.certs, c.id);
   const refus = refusAppui(habilitationsAppuyees(ctx.d, emp, apres), 'annuler');
   if (refus) throw new ActionError(refus);
-  const session = quitterSession(ctx, emp, c);
-  detacherParticipations(ctx, c);
-  const rendues = rendre(ctx, emp, c, apres);
-  ctx.db.update<Certification>('certifications', c.id, { sessionId: null, convoc: null, convocLe: null, ...marque(ctx, 'annule', motif) });
+  const session = await quitterSession(ctx, emp, c);
+  await detacherParticipations(ctx, c);
+  const rendues = await rendre(ctx, emp, c, apres);
+  await ctx.db.update<Certification>('certifications', c.id, { sessionId: null, convoc: null, convocLe: null, ...marque(ctx, 'annule', motif) });
   const precedente = certEnVigueur(apres, c.f);
-  const { keystone } = signaler(ctx, emp);
+  const { keystone } = await signaler(ctx, emp);
   return [
     `${nomCert(ctx, c)} supprimée du dossier de ${emp.nom}`,
     precedente && certEnVigueur(emp.certs, c.f) === c ? `certification du ${fmt(parse(precedente.obtenue))} de nouveau en vigueur` : '',
@@ -161,7 +161,7 @@ const nomLigne = (ctx: Ctx, l: Pick<PlanAction, 'f' | 'libelle' | 'equipe'>) => 
  * Correction d'une ligne prévue ou engagée d'un exercice ouvert (service RH) : formation ou intitulé, équipe, trimestre,
  * effectif, coût prévu ; motif obligatoire. Une ligne rattachée à une session ouverte garde sa formation.
  */
-const modifierLigne: ActionHandler = (ctx, p) => {
+const modifierLigne: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const l = ligneOf(ctx, p.id);
   if (!ligneCorrigeable(l)) throw new ActionError(`${nomLigne(ctx, l)} : action ${l.statut === 'realise' ? 'réalisée' : 'reportée'}, elle ne se modifie plus`);
@@ -188,7 +188,7 @@ const modifierLigne: ActionHandler = (ctx, p) => {
   ].filter(Boolean);
   if (!changes.length) return 'Aucune modification';
   const motif = motifDe(p);
-  ctx.db.update<PlanAction>('planActions', l.id, { ...patch, ...marque(ctx, 'corrige', motif) });
+  await ctx.db.update<PlanAction>('planActions', l.id, { ...patch, ...marque(ctx, 'corrige', motif) });
   return `${nomLigne(ctx, l)} (${l.exercice}) corrigée — ${changes.join(' · ')}`;
 };
 
@@ -196,14 +196,14 @@ const modifierLigne: ActionHandler = (ctx, p) => {
  * Suppression d'une ligne prévue ou engagée d'un exercice ouvert, saisie par erreur (administrateur RH), motif
  * obligatoire : gardée en base, hors de l'instantané et des sommes. Refusée tant qu'une session ouverte y est rattachée.
  */
-const supprimerLigne: ActionHandler = (ctx, p) => {
+const supprimerLigne: ActionHandler = async (ctx, p) => {
   requireRhAdmin(ctx);
   const l = ligneOf(ctx, p.id);
   const refus = refusSuppressionLigne(ctx.d, l);
   if (refus) throw new ActionError(`${nomLigne(ctx, l)} : ${refus}`);
   refuserExerciceClos(ctx, l.exercice);
   const motif = motifDe(p);
-  ctx.db.update<PlanAction>('planActions', l.id, marque(ctx, 'annule', motif));
+  await ctx.db.update<PlanAction>('planActions', l.id, marque(ctx, 'annule', motif));
   return `${nomLigne(ctx, l)} supprimée du plan ${l.exercice} (${l.periode}, ${fmtEur(l.cout)} prévus)`;
 };
 
@@ -219,14 +219,14 @@ function demandeOf(ctx: Ctx, id: unknown): DemandeCollab {
  * Retrait d'une demande encore en attente par son auteur : le collaborateur pour la sienne, le manager pour celle qu'il a
  * faite pour un membre de son équipe. Rien n'avait été créé : la demande passe « retirée ».
  */
-const annulerDemande: ActionHandler = (ctx, p) => {
+const annulerDemande: ActionHandler = async (ctx, p) => {
   const r = demandeOf(ctx, p.id);
   if (ctx.user.role === 'rh' || ctx.user.empId !== auteurDemande(r)) {
     throw new ActionError(r.parId && ctx.user.empId === r.empId ? 'Demande faite par votre manager : lui seul peut la retirer' : 'Seul l’auteur de la demande peut la retirer', 403);
   }
   if (r.type === 'document') throw new ActionError('Une déclaration de document se corrige par le service RH, qui la refuse');
   if (!demandeRetirable(r)) throw new ActionError('Demande déjà traitée par le service RH : elle ne se retire plus');
-  ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'retiree', reponse: `Retirée le ${fmt(parse(ctx.d.ti))}` });
+  await ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'retiree', reponse: `Retirée le ${fmt(parse(ctx.d.ti))}` });
   return r.parId ? `Demande pour ${ctx.d.personName(r.empId)} retirée` : 'Demande retirée';
 };
 
@@ -241,7 +241,7 @@ interface Defait { sessionId?: number; retourSessionId?: number | null; certId?:
  * exercice clos, habilitation délivrée depuis, formation suivie enregistrée pour la demande (t116 : à supprimer d'abord
  * si elle a été saisie par erreur, sinon elle resterait rattachée à une demande refusée).
  */
-function defaireAcceptation(ctx: Ctx, r: DemandeCollab, emp: Employe, motif: string): { texte: string; defait: Defait } {
+async function defaireAcceptation(ctx: Ctx, r: DemandeCollab, emp: Employe, motif: string): Promise<{ texte: string; defait: Defait }> {
   const rien = { texte: '', defait: {} };
   const suivie = suiviesEnVigueur(ctx.ds, emp.id).find(x => x.demandeId === r.id);
   if (suivie) {
@@ -261,26 +261,26 @@ function defaireAcceptation(ctx: Ctx, r: DemandeCollab, emp: Employe, motif: str
     const depuis = ctx.d.session(x.depuis ?? null);
     const refus = depuis ? refusRetour(ctx.d, emp, depuis, s.id) : null;
     const retour = depuis && !refus ? depuis : null;
-    const annulee = annulerSiConvoque(ctx, s, emp, (cert ?? insc)!);
+    const annulee = await annulerSiConvoque(ctx, s, emp, (cert ?? insc)!);
     const quand = depuis ? `à la session du ${fmt(parse(depuis.date))}` : '';
     let suite = '';
     const defait: Defait = { sessionId: s.id, ...(cert ? { certId: cert.id } : { inscriptionId: insc!.id }) };
     if (cert) {
-      ctx.db.update<Certification>('certifications', cert.id, { sessionId: retour?.id ?? null, convoc: retour ? 'later' : null, convocLe: null });
+      await ctx.db.update<Certification>('certifications', cert.id, { sessionId: retour?.id ?? null, convoc: retour ? 'later' : null, convocLe: null });
       suite = retour ? `de nouveau inscrit ${quand}, convocation à envoyer` : depuis ? `retour ${quand} impossible (${refus}) : recyclage à planifier` : '';
     } else if (x.cree || !depuis || ctx.ds.inscriptions.some(i => i.empId === emp.id && i.sessionId === depuis.id)) {
       // Inscription créée par l'acceptation (ou déjà rétablie ailleurs) : retirée.
-      ctx.db.remove('inscriptions', insc!.id);
+      await ctx.db.remove('inscriptions', insc!.id);
       defait.inscriptionRetiree = true;
     } else if (retour || !sessionActive(depuis)) {
       // Session d'origine à venir et qui l'accueille : l'inscription y revient ; annulée ou clôturée : elle y revient,
       // à replanifier (comme avant l'acceptation).
-      ctx.db.update<Inscription>('inscriptions', insc!.id, { sessionId: depuis.id, convoc: 'later', convocLe: null });
+      await ctx.db.update<Inscription>('inscriptions', insc!.id, { sessionId: depuis.id, convoc: 'later', convocLe: null });
       suite = retour ? `de nouveau inscrit ${quand}, convocation à envoyer` : 'formation initiale à replanifier';
     } else {
       // Session d'origine ouverte qui ne l'accueille plus (complète, passée, conflit) : y revenir la surréserverait ou y
       // laisserait un inscrit qui ne l'a pas suivie ; l'inscription est retirée, à refaire.
-      ctx.db.remove('inscriptions', insc!.id);
+      await ctx.db.remove('inscriptions', insc!.id);
       defait.inscriptionRetiree = true;
       suite = `retour ${quand} impossible (${refus}) : inscription en formation initiale retirée, à refaire`;
     }
@@ -294,18 +294,18 @@ function defaireAcceptation(ctx: Ctx, r: DemandeCollab, emp: Employe, motif: str
     if (l.statut !== 'prevu' || sessionsDeLaLigne(ctx.d, l).length) {
       throw new ActionError(`La ligne du plan ${l.exercice} ajoutée par l’acceptation est déjà ${l.statut === 'prevu' ? 'rattachée à une session' : l.statut === 'engage' ? 'engagée' : l.statut === 'realise' ? 'réalisée' : 'reportée'} : la demande ne se rouvre plus`);
     }
-    ctx.db.update<PlanAction>('planActions', l.id, marque(ctx, 'annule', motif));
+    await ctx.db.update<PlanAction>('planActions', l.id, marque(ctx, 'annule', motif));
     return { texte: `ligne retirée du plan de formation ${l.exercice}`, defait: { planId: l.id } };
   }
   if (x.habTitreId) {
     const t = emp.habs.find(h => h.id === x.habTitreId);
     if (!t) return rien;
     if (x.cree && !t.delivree) {
-      ctx.db.remove('habTitres', t.id);
+      await ctx.db.remove('habTitres', t.id);
       return { texte: 'titre en attente de délivrance retiré', defait: { habTitreId: t.id, titreRetire: true } };
     }
     if (!t.demande) throw new ActionError(`${ctx.d.hm(t.h)?.nom ?? t.h} délivrée depuis l’acceptation : la demande ne se rouvre plus`);
-    ctx.db.update<HabTitre>('habTitres', t.id, { demande: null });
+    await ctx.db.update<HabTitre>('habTitres', t.id, { demande: null });
     return { texte: 'demande effacée du titre', defait: { habTitreId: t.id, titreRetire: false } };
   }
   return rien;
@@ -316,7 +316,7 @@ function defaireAcceptation(ctx: Ctx, r: DemandeCollab, emp: Employe, motif: str
  * obligatoire : la demande revient « en attente », à décider de nouveau ; ce que l'acceptation avait créé est défait. Le
  * résultat (`defait`) en donne les identifiants au journal.
  */
-const rouvrirDemande: ActionHandler = (ctx, p) => {
+const rouvrirDemande: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const r = demandeOf(ctx, p.id);
   if (r.type === 'document') throw new ActionError('Une déclaration de document ne se rouvre pas : le dossier a été mis à jour ; corrigez-le depuis la fiche');
@@ -324,8 +324,8 @@ const rouvrirDemande: ActionHandler = (ctx, p) => {
   const emp = getEmp(ctx, r.empId);
   refuserSoiMeme(ctx, emp, 'Réouverture de votre propre demande');
   const motif = motifDe(p);
-  const { texte, defait } = r.statut === 'acceptee' ? defaireAcceptation(ctx, r, emp, motif) : { texte: '', defait: {} };
-  ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'attente', reponse: null, motifRefus: null, suite: null, ...marque(ctx, 'rouverte', motif) });
+  const { texte, defait } = r.statut === 'acceptee' ? await defaireAcceptation(ctx, r, emp, motif) : { texte: '', defait: {} };
+  await ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'attente', reponse: null, motifRefus: null, suite: null, ...marque(ctx, 'rouverte', motif) });
   return { message: `Demande de ${emp.nom} rouverte, à décider de nouveau${texte ? ` · ${texte}` : ''}`, result: { defait } };
 };
 

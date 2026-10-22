@@ -55,14 +55,16 @@ try {
 // Arrêt ordonné sur SIGTERM / SIGINT (requêtes finies, base fermée, verrou retiré), et refus clair d'un port déjà pris :
 // server/src/service.ts. Installé avant l'ouverture de la base, pour qu'un signal reçu pendant les migrations la ferme.
 const arret = new Arret(retirerVerrou);
+// Étapes de démarrage asynchrones (base, migrations, démonstration) : un signal reçu pendant ce temps attend leur fin.
+const demarrageTermine = arret.demarrer();
 log.info(`Cursus ${VERSION} — base ${fichier} · sauvegardes ${dossierSauvegardes(fichier)}`);
-const db = openDb(fichier);
+const db = await openDb(fichier);
 arret.base(db);
-migrate(db);
+await migrate(db);
 // Migrations nommées (server/src/migrations/) : chacune une seule fois par base, après les reprises ci-dessus ;
 // une migration interrompue est annulée et le serveur ne démarre pas (elle sera retentée au démarrage suivant).
 try {
-  appliquerMigrations(db);
+  await appliquerMigrations(db);
 } catch (err) {
   arret.echec(err instanceof Error ? err.message : String(err));
 }
@@ -70,36 +72,36 @@ try {
 // part ; appel non attendu, un échec n'écrit qu'un avertissement (server/src/integrations/matrix.ts).
 void declarerBase(db.sql, VERSION);
 // Ancienne clé de session écrite en base (installation lancée sans CURSUS_SECRET) : retirée dès que la variable la remplace.
-if (retirerSecretStocke(db)) log.info('Ancienne clé de session retirée de la base : CURSUS_SECRET la remplace (les sauvegardes antérieures la contiennent encore).');
-if (db.count('employes') === 0) {
+if (await retirerSecretStocke(db)) log.info('Ancienne clé de session retirée de la base : CURSUS_SECRET la remplace (les sauvegardes antérieures la contiennent encore).');
+if (await db.count('employes') === 0) {
   // Les salariés fictifs ne sont chargés qu'en démonstration, jamais dans une base de production.
-  if (DEMO) { seedDemo(db); log.info('Base vide : données de démonstration chargées.'); }
+  if (DEMO) { await seedDemo(db); log.info('Base vide : données de démonstration chargées.'); }
   else log.info('Base vide : aucune donnée de démonstration chargée (mode démonstration inactif).');
 }
 // Instance de démonstration publiée derrière le proxy (CURSUS_DEMO_PUBLIQUE=1) : rappel à chaque démarrage.
 if (demoPublique()) log.avertissement('Démonstration publiée (CURSUS_DEMO_PUBLIQUE=1) : l’espace RH s’ouvre sans mot de passe à qui atteint cette adresse. Données fictives seulement ; restreignez l’accès en amont (authentification du proxy).');
 // Base de démonstration antérieure aux comptes : un compte par salarié et la RH de démonstration.
-if (DEMO && db.count('employes') > 0) comptesDemo(db);
+if (DEMO && await db.count('employes') > 0) await comptesDemo(db);
 // Références orphelines (salarié, session, formation… absents) : signalées dans les journaux, le journal des actions
 // et le point de santé, sans bloquer le démarrage (server/src/integrite.ts).
-controlerIntegrite(db);
-if (!DEMO && !adminsActifs(db)) log.info('Aucun administrateur RH : créez-le avec npm run comptes -- admin <identifiant> (docs/DEPLOIEMENT.md).');
+await controlerIntegrite(db);
+if (!DEMO && !await adminsActifs(db)) log.info('Aucun administrateur RH : créez-le avec npm run comptes -- admin <identifiant> (docs/DEPLOIEMENT.md).');
 // Sessions expirées : purgées au démarrage puis toutes les heures.
-purgeSessions(db);
-const purge = setInterval(() => purgeSessions(db), 3600_000);
+await purgeSessions(db);
+const purge = setInterval(async () => await purgeSessions(db), 3600_000);
 purge.unref();
 arret.tache(() => clearInterval(purge));
 // Journal : anciennes lignes expurgées une fois, durées de conservation appliquées au démarrage puis toutes les heures.
-demarrerJournal(db);
+await demarrerJournal(db);
 // Pièces justificatives : pièces en attente de plus de 24 h et fichiers des pièces retirées effacés, au démarrage puis
 // toutes les heures (server/src/pieces.ts).
-arret.tache(demarrerPieces(db));
+arret.tache(await demarrerPieces(db));
 // Conservation des dossiers (t016) : dossiers des salariés sortis dont une durée est échue signalés au service RH, une
 // fois par jour ; rien n'est effacé sans la confirmation de l'administrateur RH (server/src/conservation.ts).
-arret.tache(demarrerConservation(db));
+arret.tache(await demarrerConservation(db));
 // Avenants programmés (historique des contrats) appliqués à la fiche à leur date d'effet : au démarrage puis toutes les heures.
-appliquerAvenants(db, todayIso());
-const avenants = setInterval(() => appliquerAvenants(db, todayIso()), 3600_000);
+await appliquerAvenants(db, todayIso());
+const avenants = setInterval(async () => await appliquerAvenants(db, todayIso()), 3600_000);
 avenants.unref();
 arret.tache(() => clearInterval(avenants));
 
@@ -116,14 +118,15 @@ const PORT = portEcoute();
 // Production : boucle locale par défaut, derrière le reverse proxy HTTPS (docs/DEPLOIEMENT.md).
 const HOST = hoteEcoute();
 // Port pris, réservé ou adresse inconnue : message en français, base fermée, verrou retiré, code de sortie 1.
-arret.ecouter(app, PORT, HOST, () => {
+demarrageTermine();
+arret.ecouter(app, PORT, HOST, async () => {
   // Tâches de fond lancées une fois le port obtenu : un serveur qui ne démarre pas n'envoie rien.
   // Messages sortants : file d'envoi traitée en tâche de fond (envoi en cours attendu à l'arrêt), verdicts Go / No Go
   // recalculés chaque jour.
-  suivreVerdictsChaqueJour(db);
-  arret.tache(demarrerEnvois(db, { keystone: transportKeystone(), email: transportEmail() }));
+  await suivreVerdictsChaqueJour(db);
+  arret.tache(await demarrerEnvois(db, { keystone: transportKeystone(), email: transportEmail() }));
   arret.attendre(envoiEnCours);
   // E-mails planifiés : récapitulatif quotidien des notifications, relevés d'heures des intérimaires (server/src/notifications.ts).
-  arret.tache(planifierEmails(db));
+  arret.tache(await planifierEmails(db));
   log.info(`Cursus — API sur http://${hoteAffiche(HOST)}:${PORT}${existsSync(dist) ? ' (application servie)' : ''}${DEMO ? ' · mode démonstration' : ''}`);
 });

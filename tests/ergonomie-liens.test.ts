@@ -5,7 +5,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 process.env.CURSUS_TODAY = '2026-10-10';
 
-const { Db } = await import('../server/src/db.ts');
+const { SqliteDb: Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -16,7 +16,7 @@ const { adresse, ecrireUrl, lireUrl, ouvreUneFiche, pageDeRetourClient, PARAMS_U
 const { apresCreation, sessionPreselectionnee } = await import('../client/src/dialogs/retour-session.ts');
 const { lireBrouillon, sauverBrouillon, effacerBrouillon } = await import('../client/src/state/brouillon.ts');
 const { MARQUE, planningMissions, resumeLigne } = await import('../client/src/pages/planning-missions.ts');
-type User = NonNullable<ReturnType<typeof currentUser>>;
+type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type UiState = import('../client/src/state/store.tsx').UiState;
 
 /** État de départ de l'écran (INITIAL_UI de client/src/state/store.tsx). */
@@ -26,24 +26,23 @@ const UI: UiState = {
   refOnglet: 'formations', tsJour: null, tris: {},
 };
 
-function fresh() {
+async function fresh() {
   const db = new Db(':memory:');
-  seedDemo(db);
-  const compteDe = (empId: number | null) => db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number };
-  const user = (empId: number | null, role: User['role']) => currentUser(db, { compteId: compteDe(empId).id, role, methode: 'demo' })!;
-  const run = (u: User, name: string, p: Record<string, unknown>) => db.tx(() => {
-    const r = ACTIONS[name](makeCtx(db, u, loadFull(db, u)), p);
+  await seedDemo(db);
+  const compteDe = async (empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number };
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: (await compteDe(empId)).id, role, methode: 'demo' }))!;
+  const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
+    const r = ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
     return typeof r === 'object' && r !== null ? r : { message: r };
   });
-  return { db, run, RH: user(null, 'rh'), KARIM: user(12, 'manager'), MEHDI: user(2, 'collaborateur') };
+  return { db, run, RH: await user(null, 'rh'), KARIM: await user(12, 'manager'), MEHDI: await user(2, 'collaborateur') };
 }
 
 // — t154 : état dans l'adresse —
 
-test('adresse : paramètres en français, valeurs par défaut absentes, jamais la recherche en texte libre', () => {
-  const { db, RH } = fresh();
-  const ds = buildSnapshot(db, RH);
+test('adresse : paramètres en français, valeurs par défaut absentes, jamais la recherche en texte libre', async () => {
+  const { db, RH } = await fresh();
+  const ds = await buildSnapshot(db, RH);
   const id = ds.employes[0].id, eq = ds.referentiels.equipes[0].nom;
   const ui: UiState = { ...UI, selectedId: id, statut: 'due', equipe: eq, search: 'Dupont' };
   const q = ecrireUrl('collaborateurs', ui);
@@ -72,9 +71,9 @@ test('adresse : paramètres en français, valeurs par défaut absentes, jamais l
   for (const [v, ps] of Object.entries(PARAMS_URL)) assert.equal(new Set(ps!.map(p => p.nom)).size, ps!.length, v);
 });
 
-test('adresse : valeur invalide ou inconnue ignorée sans erreur, la vue s’ouvre sans sélection', () => {
-  const { db, RH } = fresh();
-  const ds = buildSnapshot(db, RH);
+test('adresse : valeur invalide ou inconnue ignorée sans erreur, la vue s’ouvre sans sélection', async () => {
+  const { db, RH } = await fresh();
+  const ds = await buildSnapshot(db, RH);
   const lu = (v: string, q: string) => lireUrl(v, q, ds);
   for (const q of ['?fiche=999999', '?fiche=12abc', '?fiche=1e1', '?fiche=-3', '?fiche=', '?fiche=0'])
     assert.equal(lu('collaborateurs', q).selectedId, null, q);
@@ -90,10 +89,10 @@ test('adresse : valeur invalide ou inconnue ignorée sans erreur, la vue s’ouv
   assert.deepEqual(Object.keys(lu('voyages', '?connexion=refus&dialogue=sortie&voyage=1')), ['tripSel']);
 });
 
-test('adresse : un salarié hors du périmètre du manager est ignoré (le serveur a déjà filtré le jeu de données)', () => {
-  const { db, RH, KARIM, MEHDI } = fresh();
-  const tous = buildSnapshot(db, RH).employes.map(e => e.id);
-  const equipe = buildSnapshot(db, KARIM);
+test('adresse : un salarié hors du périmètre du manager est ignoré (le serveur a déjà filtré le jeu de données)', async () => {
+  const { db, RH, KARIM, MEHDI } = await fresh();
+  const tous = (await buildSnapshot(db, RH)).employes.map(e => e.id);
+  const equipe = await buildSnapshot(db, KARIM);
   const dehors = tous.find(id => !equipe.employes.some(e => e.id === id))!;
   const dedans = equipe.employes.find(e => e.id !== 12)!.id;
   assert.ok(dehors && dedans);
@@ -101,7 +100,7 @@ test('adresse : un salarié hors du périmètre du manager est ignoré (le serve
   assert.equal(lireUrl('collaborateurs', `?fiche=${dedans}`, equipe).selectedId, dedans);
   assert.equal(lireUrl('temps', `?salarie=${dehors}`, equipe).tsEmp, null);
   // Collaborateur : seule sa propre fiche est dans son jeu de données.
-  assert.equal(lireUrl('temps', `?salarie=${dedans}`, buildSnapshot(db, MEHDI)).tsEmp, dedans === 2 ? 2 : null);
+  assert.equal(lireUrl('temps', `?salarie=${dedans}`, await buildSnapshot(db, MEHDI)).tsEmp, dedans === 2 ? 2 : null);
 });
 
 test('historique : ouvrir une fiche ajoute une entrée, la fermer ou filtrer remplace l’entrée courante', () => {
@@ -151,17 +150,17 @@ test('adresse : les valeurs par défaut de PARAMS_URL sont celles de INITIAL_UI 
 
 // — t107 : Planifier → Créer une session → inscription —
 
-test('t107 : la session créée depuis « Planifier » y revient présélectionnée, même si une autre session est ouverte', () => {
-  const { db, run, RH } = fresh();
-  const avant = new Domain(buildSnapshot(db, RH));
+test('t107 : la session créée depuis « Planifier » y revient présélectionnée, même si une autre session est ouverte', async () => {
+  const { db, run, RH } = await fresh();
+  const avant = new Domain(await buildSnapshot(db, RH));
   const f = avant.ds.referentiels.formations.find(x => avant.upcoming(new Set([x.id])).some(s => s.inscrits < s.places))!.id;
   const premiere = sessionPreselectionnee(avant.upcoming(new Set([f])));
   assert.ok(premiere, 'une session ouverte existe déjà pour cette formation');
-  const r = run(RH, 'session.creer', { f, date: '2026-12-15', lieu: 'Salle B', places: 6 }) as { result?: { id: number } };
+  const r = (await run(RH, 'session.creer', { f, date: '2026-12-15', lieu: 'Salle B', places: 6 })) as { result?: { id: number } };
   const retour = { type: 'plan' as const, empId: 3, certId: 7 };
   const rouvert = apresCreation(retour, r.result);
   assert.deepEqual(rouvert, { type: 'plan', empId: 3, certId: 7, sessionId: r.result!.id });
-  const apres = new Domain(buildSnapshot(db, RH)).upcoming(new Set([f]));
+  const apres = new Domain(await buildSnapshot(db, RH)).upcoming(new Set([f]));
   assert.equal(sessionPreselectionnee(apres, r.result!.id), r.result!.id);
   assert.notEqual(sessionPreselectionnee(apres), r.result!.id, 'sans retour, la première session ouverte comme avant');
   // Session demandée complète ou inconnue : la première ouverte ; aucune ouverte : aucune.
@@ -190,9 +189,9 @@ test('t107 : le dialogue de retour se conserve dans le brouillon de la reconnexi
 
 // — t148 : planning des missions —
 
-test('t148 : chaque case a un texte complet et une lettre, chaque ligne un résumé ; tableau sémantique et détail annoncé', () => {
-  const { db, RH } = fresh();
-  const d = new Domain(buildSnapshot(db, RH));
+test('t148 : chaque case a un texte complet et une lettre, chaque ligne un résumé ; tableau sémantique et détail annoncé', async () => {
+  const { db, RH } = await fresh();
+  const d = new Domain(await buildSnapshot(db, RH));
   const { days, lignes } = planningMissions(d, false);
   assert.equal(days.length, 20);
   assert.ok(lignes.length > 0);
@@ -206,7 +205,7 @@ test('t148 : chaque case a un texte complet et une lettre, chaque ligne un résu
   assert.equal(resumeLigne([{ nature: 'mission' }, { nature: 'mission' }, { nature: 'absence' }, { nature: 'demande' }, { nature: 'ferie' }]), '2 j de mission · 1 j d’absence · 1 j demandé');
   assert.equal(resumeLigne([{ nature: 'present' }, { nature: 'ferie' }]), 'Présent');
   // Manager : toute son équipe, même présente.
-  const mgr = planningMissions(new Domain(buildSnapshot(db, fresh().KARIM)), true);
+  const mgr = planningMissions(new Domain(await buildSnapshot(db, (await fresh()).KARIM)), true);
   assert.ok(mgr.lignes.length >= 1);
   const grille = readFileSync(new URL('../client/src/pages/PlanningMissions.tsx', import.meta.url), 'utf8');
   for (const m of ['<table', '<caption', 'scope="col"', 'scope="row"', 'aria-live="polite"', 'tabIndex={l === li && i === co ? 0 : -1}', 'onFocus=', 'ArrowDown', 'jourComplet(s)'])

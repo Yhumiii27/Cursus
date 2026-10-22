@@ -7,9 +7,9 @@ import type { Migration } from './cadre.ts';
 /** Année de prise de la période CP d'une date ISO (colonne SQL) : celle du 1er juin qui la précède (anneeCp de shared/rules/conges.ts). */
 const anneeCpSql = (col: string) => `(CAST(substr(${col}, 1, 4) AS INTEGER) - (CASE WHEN substr(${col}, 6) < '06-01' THEN 1 ELSE 0 END))`;
 
-const aDater = (db: Db) => {
-  const n = (sql: string) => Number((db.sql.prepare(sql).get() as { n: number }).n);
-  return { soldes: n('SELECT COUNT(*) AS n FROM soldes_reprise WHERE arrete_le IS NULL'), reports: n('SELECT COUNT(*) AS n FROM reports WHERE periode IS NULL OR expire IS NULL') };
+const aDater = async (db: Db) => {
+  const n = async (sql: string) => Number((await db.one(sql) as { n: number }).n);
+  return { soldes: await n('SELECT COUNT(*) AS n FROM soldes_reprise WHERE arrete_le IS NULL'), reports: await n('SELECT COUNT(*) AS n FROM reports WHERE periode IS NULL OR expire IS NULL') };
 };
 
 /**
@@ -24,21 +24,21 @@ const aDater = (db: Db) => {
  */
 export const SOLDES_DATES: Migration = {
   nom: 'lot4-reprise-soldes-dates',
-  necessaire: db => {
-    const x = aDater(db);
+  necessaire: async db => {
+    const x = await aDater(db);
     return db.neuve || x.soldes > 0 || x.reports > 0;
   },
-  executer: db => {
-    const x = aDater(db);
+  executer: async db => {
+    const x = await aDater(db);
     if (!x.soldes && !x.reports) return;
     const jour = todayIso();
-    db.sql.prepare('UPDATE soldes_reprise SET arrete_le = ? WHERE arrete_le IS NULL').run(jour);
-    db.sql.exec(`UPDATE reports SET periode = ${anneeCpSql('date')} + (CASE WHEN sens = 'recu' THEN 0 ELSE 1 END) WHERE periode IS NULL`);
+    await db.run('UPDATE soldes_reprise SET arrete_le = ? WHERE arrete_le IS NULL', [jour]);
+    await db.exec(`UPDATE reports SET periode = ${anneeCpSql('date')} + (CASE WHEN sens = 'recu' THEN 0 ELSE 1 END) WHERE periode IS NULL`);
     // Période en cours au jour de la migration (année de prise, anneeCp de shared/rules/conges.ts).
     const enCours = Number(jour.slice(0, 4)) - (jour.slice(5) < '06-01' ? 1 : 0);
-    const recus = Number(db.sql.prepare(`UPDATE reports SET sens = 'recu' WHERE sens = 'accorde' AND expire IS NULL AND periode <= ?`).run(enCours).changes);
-    db.sql.exec(`UPDATE reports SET expire = CAST(periode + 1 AS TEXT) || '-05-31' WHERE expire IS NULL`);
-    journaliser(db, {
+    const recus = Number((await db.run(`UPDATE reports SET sens = 'recu' WHERE sens = 'accorde' AND expire IS NULL AND periode <= ?`, [enCours])).changes);
+    await db.exec(`UPDATE reports SET expire = CAST(periode + 1 AS TEXT) || '-05-31' WHERE expire IS NULL`);
+    await journaliser(db, {
       actor: 'Cursus', role: null, action: 'migration.soldes',
       message: `Reprise : compteurs repris datés du ${jour} (${x.soldes} salariés), ${x.reports} reports de CP rattachés à leur période`
         + (recus ? `, dont ${recus} accordés devenus reçus (période déjà commencée)` : ''),

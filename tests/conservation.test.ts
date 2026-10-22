@@ -7,7 +7,7 @@ import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
 process.env.CURSUS_DEMO = '1';
 
-const { Db, TABLES, snake } = await import('../server/src/db.ts');
+const { SqliteDb: Db, TABLES, snake } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { appliquerMigrations } = await import('../server/src/migrations/cadre.ts');
 const { currentUser, loadFull, buildSnapshot, DEFAULT_SETTINGS } = await import('../server/src/dataset.ts');
@@ -25,30 +25,30 @@ const { reglerJournaux } = await import('../server/src/logs.ts');
 // tests lit.
 reglerJournaux({ sortie: () => {} });
 type Db = InstanceType<typeof Db>;
-type User = NonNullable<ReturnType<typeof currentUser>>;
+type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 
-function base() {
+async function base() {
   const db = new Db(':memory:');
-  appliquerMigrations(db);
-  seedDemo(db);
+  await appliquerMigrations(db);
+  await seedDemo(db);
   return db;
 }
-const compteDe = (db: Db, empId: number | null) => (db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL').get(...(empId ? [empId] : [])) as { id: number }).id;
-const personne = (db: Db, empId: number | null, role: 'rh' | 'manager' | 'collaborateur' = 'rh') => currentUser(db, { compteId: compteDe(db, empId), role, methode: 'demo' })!;
+const compteDe = async (db: Db, empId: number | null) => (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', (empId ? [empId] : [])) as { id: number }).id;
+const personne = async (db: Db, empId: number | null, role: 'rh' | 'manager' | 'collaborateur' = 'rh') => (await currentUser(db, { compteId: await compteDe(db, empId), role, methode: 'demo' }))!;
 /** Action exécutée comme par POST /api/actions/:nom : transaction, journal. */
-function agir(db: Db, u: User, nom: string, p: Record<string, unknown>) {
-  return db.tx(() => {
-    const trace = preparerTrace(db, nom, p);
-    const r = ACTIONS[nom](makeCtx(db, u, loadFull(db, u)), p);
+async function agir(db: Db, u: User, nom: string, p: Record<string, unknown>) {
+  return await db.tx(async () => {
+    const trace = await preparerTrace(db, nom, p);
+    const r = await ACTIONS[nom](makeCtx(db, u, await loadFull(db, u)), p);
     const o = typeof r === 'object' && r !== null ? r : { message: r };
-    journaliserAction(db, trace, { user: u, compte: { id: u.compteId!, identifiant: 'essai' } as never, message: o.message ?? null, result: o.result });
+    await journaliserAction(db, trace, { user: u, compte: { id: u.compteId!, identifiant: 'essai' } as never, message: o.message ?? null, result: o.result });
     return o as { message: string; result?: any };
   });
 }
-const refus = (f: () => unknown, status: number, motif?: RegExp) => assert.throws(f, (e: unknown) => e instanceof ActionError && e.status === status && (!motif || motif.test(e.message)));
-const reglages = (db: Db, r: Record<string, unknown>) => db.setSetting('app', { ...db.getSetting<Record<string, unknown>>('app', {}), ...r });
-const activer = (db: Db) => reglages(db, { conservationActive: true, conservationDecisionDpo: 'Décision DPO n° 2026-04' });
-const compter = (db: Db, sql: string, ...args: (string | number)[]) => Number((db.sql.prepare(sql).get(...args) as { n: number }).n);
+const refus = async (f: () => Promise<unknown>, status: number, motif?: RegExp) => await assert.rejects(f, (e: unknown) => e instanceof ActionError && e.status === status && (!motif || motif.test(e.message)));
+const reglages = async (db: Db, r: Record<string, unknown>) => await db.setSetting('app', { ...await db.getSetting<Record<string, unknown>>('app', {}), ...r });
+const activer = async (db: Db) => await reglages(db, { conservationActive: true, conservationDecisionDpo: 'Décision DPO n° 2026-04' });
+const compter = async (db: Db, sql: string, ...args: (string | number)[]) => Number((await db.one(sql, args) as { n: number }).n);
 
 // — Règles —
 
@@ -132,229 +132,229 @@ test('cascade : chaque colonne de REFERENCES qui désigne un salarié a son trai
 });
 
 /** Dossier de Mehdi (2) garni : passeport, visa, vaccin, demande de visite, déclaration, demande de formation, journal, envoi. */
-function garnir(db: Db, fin: string) {
-  db.update('employes', 2, { fin, motifSortie: 'demission', naissanceLe: '1990-04-12', urgenceNom: 'Mme Benali', urgenceTel: '06 00 00 00 00', autorisationTravail: { type: 'carte_sejour', numero: 'AB1234567', expire: '2027-01-01', demandeLe: null, verifieLe: null } });
-  db.insert('visas', { empId: 2, dest: 'MA', type: 'visa', obtenu: '2025-01-01', expire: '2027-01-01' });
-  db.insert('demandesVisite', { empId: 2, motif: 'periodique', le: '2025-01-01', par: 'Sandrine Vidal', statut: 'demandee' });
-  db.insert('demandesCollab', { empId: 2, type: 'document', label: 'Passeport', date: '2025-01-01', statut: 'acceptee', declaration: { kind: 'passeport', numero: '21XY12345', expire: '2032-01-01' } });
-  db.insert('demandesCollab', { empId: 2, type: 'formation', f: 'sst', motif: 'Mehdi Benali souhaite se former', date: '2025-01-01', statut: 'refusee' });
-  db.insert('notifications', { empId: 2, adresse: 'mehdi.benali@entreprise.example', type: 'absence.decision', objet: 'Demande validée', texte: 'Bonjour Mehdi Benali', creation: '2025-01-01T08:00:00.000Z' });
-  db.insert('pieces', { empId: 2, objet: 'voyage', objetId: 1, nom: 'billet Mehdi Benali.pdf', type: 'application/pdf', taille: 5, empreinte: 'e', fichier: 'c'.repeat(32), deposeLe: '2025-01-01T08:00:00.000Z', deposePar: 'Mehdi Benali' });
-  db.insert('envois', { cible: 'email', type: 'absence.decision', cle: 'essai-conservation', contenu: { a: ['mehdi.benali@entreprise.example'], objet: 'Congés', texte: 'Bonjour Mehdi Benali' }, statut: 'envoye', tentatives: 1, creation: '2025-01-01T08:00:00.000Z' });
-  db.insert('jetonsAgenda', { empId: 2, empreinte: 'f'.repeat(64), creeLe: '2025-01-01T08:00:00.000Z' });
+async function garnir(db: Db, fin: string) {
+  await db.update('employes', 2, { fin, motifSortie: 'demission', naissanceLe: '1990-04-12', urgenceNom: 'Mme Benali', urgenceTel: '06 00 00 00 00', autorisationTravail: { type: 'carte_sejour', numero: 'AB1234567', expire: '2027-01-01', demandeLe: null, verifieLe: null } });
+  await db.insert('visas', { empId: 2, dest: 'MA', type: 'visa', obtenu: '2025-01-01', expire: '2027-01-01' });
+  await db.insert('demandesVisite', { empId: 2, motif: 'periodique', le: '2025-01-01', par: 'Sandrine Vidal', statut: 'demandee' });
+  await db.insert('demandesCollab', { empId: 2, type: 'document', label: 'Passeport', date: '2025-01-01', statut: 'acceptee', declaration: { kind: 'passeport', numero: '21XY12345', expire: '2032-01-01' } });
+  await db.insert('demandesCollab', { empId: 2, type: 'formation', f: 'sst', motif: 'Mehdi Benali souhaite se former', date: '2025-01-01', statut: 'refusee' });
+  await db.insert('notifications', { empId: 2, adresse: 'mehdi.benali@entreprise.example', type: 'absence.decision', objet: 'Demande validée', texte: 'Bonjour Mehdi Benali', creation: '2025-01-01T08:00:00.000Z' });
+  await db.insert('pieces', { empId: 2, objet: 'voyage', objetId: 1, nom: 'billet Mehdi Benali.pdf', type: 'application/pdf', taille: 5, empreinte: 'e', fichier: 'c'.repeat(32), deposeLe: '2025-01-01T08:00:00.000Z', deposePar: 'Mehdi Benali' });
+  await db.insert('envois', { cible: 'email', type: 'absence.decision', cle: 'essai-conservation', contenu: { a: ['mehdi.benali@entreprise.example'], objet: 'Congés', texte: 'Bonjour Mehdi Benali' }, statut: 'envoye', tentatives: 1, creation: '2025-01-01T08:00:00.000Z' });
+  await db.insert('jetonsAgenda', { empId: 2, empreinte: 'f'.repeat(64), creeLe: '2025-01-01T08:00:00.000Z' });
   // Autre salarié dont la ligne cite Mehdi comme auteur.
-  db.insert('absences', { empId: 6, type: 'ABSENCE', du: '2025-02-03', au: '2025-02-03', statut: 'signalee', keystone: false, justificatif: false, signaleLe: '2025-02-03', signalePar: 'Mehdi Benali' });
-  journaliser(db, { actor: 'Mehdi Benali', role: 'collaborateur', action: 'absence.demander', message: 'Demande de congés payés de Mehdi Benali', compte: { id: compteDe(db, 2), identifiant: 'mehdi.benali@entreprise.example' } as never, salaries: [2] });
+  await db.insert('absences', { empId: 6, type: 'ABSENCE', du: '2025-02-03', au: '2025-02-03', statut: 'signalee', keystone: false, justificatif: false, signaleLe: '2025-02-03', signalePar: 'Mehdi Benali' });
+  await journaliser(db, { actor: 'Mehdi Benali', role: 'collaborateur', action: 'absence.demander', message: 'Demande de congés payés de Mehdi Benali', compte: { id: await compteDe(db, 2), identifiant: 'mehdi.benali@entreprise.example' } as never, salaries: [2] });
 }
 
 /** Valeurs de texte de toute la base qui contiennent l'un des termes : « table.colonne ». */
-function occurrences(db: Db, termes: string[]): string[] {
+async function occurrences(db: Db, termes: string[]): Promise<string[]> {
   const out: string[] = [];
   for (const [nom, def] of Object.entries(TABLES)) {
     for (const [col, type] of Object.entries(def.cols)) {
       if (type !== 'text' && type !== 'json') continue;
-      for (const t of termes) if (compter(db, `SELECT COUNT(*) AS n FROM ${snake(nom)} WHERE instr(${snake(col)}, ?) > 0`, t)) out.push(`${snake(nom)}.${snake(col)}`);
+      for (const t of termes) if (await compter(db, `SELECT COUNT(*) AS n FROM ${snake(nom)} WHERE instr(${snake(col)}, ?) > 0`, t)) out.push(`${snake(nom)}.${snake(col)}`);
     }
   }
   return out;
 }
 
-test('anonymisation d’un dossier échu : cascade complète, nom retiré de toute la base, agrégats gardés, journal sans nom', () => {
-  const db = base();
-  garnir(db, '2020-06-30');
-  const admin = personne(db, null);
+test('anonymisation d’un dossier échu : cascade complète, nom retiré de toute la base, agrégats gardés, journal sans nom', async () => {
+  const db = await base();
+  await garnir(db, '2020-06-30');
+  const admin = await personne(db, null);
   // Désactivé : aucune proposition, action refusée.
-  assert.deepEqual(dossiersEchus(db), []);
-  refus(() => agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'Durées échues' }), 409, /désactivée/);
-  activer(db);
-  const echu = dossiersEchus(db).find(d => d.empId === 2);
+  assert.deepEqual(await dossiersEchus(db), []);
+  await refus(async () => await agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'Durées échues' }), 409, /désactivée/);
+  await activer(db);
+  const echu = (await dossiersEchus(db)).find(d => d.empId === 2);
   assert.ok(echu?.dossier, 'dossier échu proposé');
   assert.ok(echu!.categories.includes('passeport') && echu!.categories.includes('sante'));
   // Motif exigé ; un gestionnaire RH ne confirme pas.
-  refus(() => agir(db, admin, 'employe.anonymiser', { ids: [2], motif: ' ' }), 400, /Motif requis/);
-  refus(() => agir(db, personne(db, 14), 'employe.anonymiser', { ids: [2], motif: 'x' }), 403);
-  const feuilles = compter(db, 'SELECT COUNT(*) AS n FROM feuilles WHERE emp_id = 2');
-  const certs = compter(db, 'SELECT COUNT(*) AS n FROM certifications WHERE emp_id = 2');
-  const r = agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'Durées validées par le DPO' });
+  await refus(async () => await agir(db, admin, 'employe.anonymiser', { ids: [2], motif: ' ' }), 400, /Motif requis/);
+  await refus(async () => await agir(db, await personne(db, 14), 'employe.anonymiser', { ids: [2], motif: 'x' }), 403);
+  const feuilles = await compter(db, 'SELECT COUNT(*) AS n FROM feuilles WHERE emp_id = 2');
+  const certs = await compter(db, 'SELECT COUNT(*) AS n FROM certifications WHERE emp_id = 2');
+  const r = await agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'Durées validées par le DPO' });
   assert.match(r.message, /^Données échues effacées le 10 oct\. 2026 — 1 dossier anonymisé \(n° 2\) · \d+ éléments effacés ; les sauvegardes les gardent jusqu’à leur rotation$/);
   // Fiche : identité neutre, compte fermé, sessions supprimées.
-  const e = db.get<Record<string, any>>('employes', 2)!;
+  const e = (await db.get<Record<string, any>>('employes', 2))!;
   assert.equal(e.nom, 'Salarié anonymisé n° 2');
   assert.equal(e.anonymiseLe, '2026-10-10');
   for (const c of ['email', 'naissanceLe', 'matriculePaie', 'urgenceNom', 'urgenceTel', 'passeportNumero', 'autorisationTravail', 'visite', 'avis']) assert.equal(e[c], null, c);
-  const compte = db.where<Record<string, any>>('comptes', 'empId', 2)[0];
+  const compte = (await db.where<Record<string, any>>('comptes', 'empId', 2))[0];
   assert.equal(compte.actif, false);
   assert.match(compte.identifiant, /^anonyme-\d+$/);
-  assert.equal(compter(db, 'SELECT COUNT(*) AS n FROM connexions WHERE compte_id = ?', compte.id), 0);
+  assert.equal(await compter(db, 'SELECT COUNT(*) AS n FROM connexions WHERE compte_id = ?', compte.id), 0);
   // Références traitées : lignes supprimées, textes vidés, agrégats gardés.
   for (const [k, t] of Object.entries(TRAITEMENTS)) {
     const [table, colonne] = k.split('.');
-    if (t.mode === 'lignes') assert.equal(compter(db, `SELECT COUNT(*) AS n FROM ${table} WHERE ${colonne} = 2`), 0, `${k} supprimées`);
-    if (t.mode === 'detachee') assert.equal(compter(db, `SELECT COUNT(*) AS n FROM ${table} WHERE ${colonne} = 2`), 0, `${k} détachée`);
+    if (t.mode === 'lignes') assert.equal(await compter(db, `SELECT COUNT(*) AS n FROM ${table} WHERE ${colonne} = 2`), 0, `${k} supprimées`);
+    if (t.mode === 'detachee') assert.equal(await compter(db, `SELECT COUNT(*) AS n FROM ${table} WHERE ${colonne} = 2`), 0, `${k} détachée`);
   }
-  assert.equal(compter(db, 'SELECT COUNT(*) AS n FROM pieces WHERE emp_id = 2 AND retiree_le IS NULL'), 0, 'pièces retirées');
-  assert.equal(compter(db, `SELECT COUNT(*) AS n FROM pieces WHERE emp_id = 2 AND nom LIKE 'piece-%'`), 1, 'nom d’origine retiré');
-  assert.equal(compter(db, 'SELECT COUNT(*) AS n FROM feuilles WHERE emp_id = 2'), feuilles, 'heures par projet gardées');
-  assert.equal(compter(db, 'SELECT COUNT(*) AS n FROM certifications WHERE emp_id = 2'), certs, 'certifications et coûts gardés');
+  assert.equal(await compter(db, 'SELECT COUNT(*) AS n FROM pieces WHERE emp_id = 2 AND retiree_le IS NULL'), 0, 'pièces retirées');
+  assert.equal(await compter(db, `SELECT COUNT(*) AS n FROM pieces WHERE emp_id = 2 AND nom LIKE 'piece-%'`), 1, 'nom d’origine retiré');
+  assert.equal(await compter(db, 'SELECT COUNT(*) AS n FROM feuilles WHERE emp_id = 2'), feuilles, 'heures par projet gardées');
+  assert.equal(await compter(db, 'SELECT COUNT(*) AS n FROM certifications WHERE emp_id = 2'), certs, 'certifications et coûts gardés');
   // Plus aucune trace du nom, de l'adresse ni de l'identifiant, dans aucune table (journal, file d'envoi, autres dossiers).
-  assert.deepEqual(occurrences(db, ['Mehdi Benali', 'mehdi.benali@entreprise.example']), []);
-  assert.equal(db.where<Record<string, any>>('absences', 'empId', 6).find(a => a.du === '2025-02-03')?.signalePar, 'Salarié anonymisé n° 2', 'auteur nommé ailleurs');
+  assert.deepEqual(await occurrences(db, ['Mehdi Benali', 'mehdi.benali@entreprise.example']), []);
+  assert.equal((await db.where<Record<string, any>>('absences', 'empId', 6)).find(a => a.du === '2025-02-03')?.signalePar, 'Salarié anonymisé n° 2', 'auteur nommé ailleurs');
   // Journal : ligne de l'action sans nom, motif masqué, salarié et catégories ; trace de l'effacement gardée.
-  const j = db.sql.prepare(`SELECT message, payload, salaries FROM journal WHERE action = 'employe.anonymiser'`).get() as { message: string; payload: string; salaries: string };
+  const j = await db.one(`SELECT message, payload, salaries FROM journal WHERE action = 'employe.anonymiser'`) as { message: string; payload: string; salaries: string };
   assert.equal(JSON.parse(j.salaries)[0], 2);
   assert.equal(JSON.parse(j.payload).motif, '[texte renseigné]');
   assert.ok(JSON.parse(j.payload).effacements[0].categories.includes('dossier'));
-  const trace = db.where<Record<string, any>>('effacements', 'empId', 2);
+  const trace = await db.where<Record<string, any>>('effacements', 'empId', 2);
   assert.equal(trace.length, 1);
   assert.equal(trace[0].motif, 'Durées validées par le DPO');
   // Plus rien à proposer ; une seconde confirmation est refusée ; aucune référence orpheline.
-  assert.equal(dossiersEchus(db).some(d => d.empId === 2), false);
-  refus(() => agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'x' }), 409, /sans donnée échue/);
-  refus(() => agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'x', avantEcheance: true }), 409, /déjà anonymisé/);
+  assert.equal((await dossiersEchus(db)).some(d => d.empId === 2), false);
+  await refus(async () => await agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'x' }), 409, /sans donnée échue/);
+  await refus(async () => await agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'x', avantEcheance: true }), 409, /déjà anonymisé/);
   // Références seules (le fichier fictif de la pièce n'existe pas sur le disque de l'essai).
-  assert.equal(controlerOrphelins(db, [...REFERENCES]).orphelins, 0);
+  assert.equal((await controlerOrphelins(db, [...REFERENCES])).orphelins, 0);
 });
 
-test('effacement par catégorie : passeport et visas à la sortie, le reste gardé ; le dossier vient ensuite', () => {
-  const db = base();
-  garnir(db, '2026-03-31');
-  activer(db);
-  const admin = personne(db, null);
-  const d = dossiersEchus(db).find(x => x.empId === 2)!;
+test('effacement par catégorie : passeport et visas à la sortie, le reste gardé ; le dossier vient ensuite', async () => {
+  const db = await base();
+  await garnir(db, '2026-03-31');
+  await activer(db);
+  const admin = await personne(db, null);
+  const d = (await dossiersEchus(db)).find(x => x.empId === 2)!;
   assert.deepEqual(d.categories, ['passeport']);
   assert.equal(d.dossier, false);
-  assert.ok(aEffacer(db, 2, 'passeport') >= 3, 'passeport, visa, déclaration');
-  const r = agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'Passeport : effacé à la sortie' });
+  assert.ok(await aEffacer(db, 2, 'passeport') >= 3, 'passeport, visa, déclaration');
+  const r = await agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'Passeport : effacé à la sortie' });
   assert.match(r.message, /dossier n° 2 : passeport et visas effacés/);
-  const e = db.get<Record<string, any>>('employes', 2)!;
+  const e = (await db.get<Record<string, any>>('employes', 2))!;
   assert.equal(e.nom, 'Mehdi Benali', 'identité gardée');
   assert.equal(e.passeportNumero, null);
-  assert.equal(compter(db, 'SELECT COUNT(*) AS n FROM visas WHERE emp_id = 2'), 0);
-  assert.equal(compter(db, `SELECT COUNT(*) AS n FROM demandes_collab WHERE emp_id = 2 AND type = 'document'`), 0);
-  assert.ok(compter(db, 'SELECT COUNT(*) AS n FROM vaccinations WHERE emp_id = 2') > 0, 'santé gardée 5 ans');
-  assert.equal(dossiersEchus(db).some(x => x.empId === 2), false, 'rien d’autre d’échu');
+  assert.equal(await compter(db, 'SELECT COUNT(*) AS n FROM visas WHERE emp_id = 2'), 0);
+  assert.equal(await compter(db, `SELECT COUNT(*) AS n FROM demandes_collab WHERE emp_id = 2 AND type = 'document'`), 0);
+  assert.ok(await compter(db, 'SELECT COUNT(*) AS n FROM vaccinations WHERE emp_id = 2') > 0, 'santé gardée 5 ans');
+  assert.equal((await dossiersEchus(db)).some(x => x.empId === 2), false, 'rien d’autre d’échu');
   // Durée du dossier au minimum (5 ans) : le dossier n'est pas encore échu (sortie de mars 2026).
-  db.sql.prepare(`UPDATE feuilles SET comment = 'Heures du samedi à reprendre' WHERE emp_id = 2`).run();
-  reglages(db, { conservationTempsAns: 0, conservationPaieAns: 0, conservationDossierAns: 5 });
-  assert.deepEqual(dossiersEchus(db).find(x => x.empId === 2)?.categories, ['temps']);
+  await db.run(`UPDATE feuilles SET comment = 'Heures du samedi à reprendre' WHERE emp_id = 2`);
+  await reglages(db, { conservationTempsAns: 0, conservationPaieAns: 0, conservationDossierAns: 5 });
+  assert.deepEqual((await dossiersEchus(db)).find(x => x.empId === 2)?.categories, ['temps']);
 });
 
-test('droit à l’effacement avant l’échéance : sans obligation légale effacé, identité et titre de séjour gardés ; jamais un salarié présent', () => {
-  const db = base();
-  const admin = personne(db, null);
-  refus(() => agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'Demande', avantEcheance: true }), 409, /encore présent/);
-  refus(() => agir(db, admin, 'employe.anonymiser', { ids: [2, 6], motif: 'Demande', avantEcheance: true }), 400, /un salarié à la fois/);
-  garnir(db, '2026-09-30');
-  db.insert('vaccinations', { empId: 2, v: 'dtp', date: '2025-01-01' });
+test('droit à l’effacement avant l’échéance : sans obligation légale effacé, identité et titre de séjour gardés ; jamais un salarié présent', async () => {
+  const db = await base();
+  const admin = await personne(db, null);
+  await refus(async () => await agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'Demande', avantEcheance: true }), 409, /encore présent/);
+  await refus(async () => await agir(db, admin, 'employe.anonymiser', { ids: [2, 6], motif: 'Demande', avantEcheance: true }), 400, /un salarié à la fois/);
+  await garnir(db, '2026-09-30');
+  await db.insert('vaccinations', { empId: 2, v: 'dtp', date: '2025-01-01' });
   // Fonction désactivée : le droit à l'effacement reste exerçable par l'administrateur RH.
-  const r = agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'Demande du salarié du 1er octobre', avantEcheance: true });
+  const r = await agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'Demande du salarié du 1er octobre', avantEcheance: true });
   assert.match(r.message, /^Droit à l’effacement exercé le 10 oct\. 2026 — dossier n° 2 : passeport et visas, entretiens professionnels, formations et habilitations effacés · \d+ éléments effacés · gardés jusqu’à leur échéance \(obligation légale\) : dossier du salarié \(fiche et identité\), .*titre de séjour/);
-  const e = db.get<Record<string, any>>('employes', 2)!;
+  const e = (await db.get<Record<string, any>>('employes', 2))!;
   assert.equal(e.nom, 'Mehdi Benali', 'identité gardée : registre unique du personnel');
   assert.equal(e.anonymiseLe ?? null, null);
   assert.equal(e.autorisationTravail?.numero, 'AB1234567', 'titre de séjour gardé 5 ans');
   assert.equal(e.passeportNumero, null);
-  assert.ok(compter(db, 'SELECT COUNT(*) AS n FROM vaccinations WHERE emp_id = 2') > 0, 'santé gardée');
-  assert.equal(compter(db, 'SELECT COUNT(*) AS n FROM visas WHERE emp_id = 2'), 0);
-  assert.equal(compter(db, `SELECT COUNT(*) AS n FROM demandes_collab WHERE emp_id = 2 AND type = 'formation'`), 0);
-  assert.equal(db.where<Record<string, any>>('effacements', 'empId', 2)[0].avantEcheance, true);
+  assert.ok(await compter(db, 'SELECT COUNT(*) AS n FROM vaccinations WHERE emp_id = 2') > 0, 'santé gardée');
+  assert.equal(await compter(db, 'SELECT COUNT(*) AS n FROM visas WHERE emp_id = 2'), 0);
+  assert.equal(await compter(db, `SELECT COUNT(*) AS n FROM demandes_collab WHERE emp_id = 2 AND type = 'formation'`), 0);
+  assert.equal((await db.where<Record<string, any>>('effacements', 'empId', 2))[0].avantEcheance, true);
   // Plus rien d'effaçable avant l'échéance.
-  refus(() => agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'Relance', avantEcheance: true }), 409, /Rien à effacer avant l’échéance/);
+  await refus(async () => await agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'Relance', avantEcheance: true }), 409, /Rien à effacer avant l’échéance/);
   // Dossier échu : la même demande anonymise en entier.
-  db.update('employes', 2, { fin: '2020-06-30' });
-  agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'Demande du salarié', avantEcheance: true });
-  assert.equal(db.get<Record<string, any>>('employes', 2)!.nom, 'Salarié anonymisé n° 2');
+  await db.update('employes', 2, { fin: '2020-06-30' });
+  await agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'Demande du salarié', avantEcheance: true });
+  assert.equal((await db.get<Record<string, any>>('employes', 2))!.nom, 'Salarié anonymisé n° 2');
 });
 
-test('balayage de l’identité : occurrences délimitées seulement ; fiche et compte d’un homonyme ou d’une réembauche intacts', () => {
-  const db = base();
-  garnir(db, '2020-06-30');
-  activer(db);
-  const admin = personne(db, null);
+test('balayage de l’identité : occurrences délimitées seulement ; fiche et compte d’un homonyme ou d’une réembauche intacts', async () => {
+  const db = await base();
+  await garnir(db, '2020-06-30');
+  await activer(db);
+  const admin = await personne(db, null);
   // Salarié présent dont le nom et l'adresse commencent comme ceux de Mehdi.
-  db.update('employes', 6, { nom: 'Mehdi Benaliani', email: 'mehdi.benaliani@entreprise.example' });
-  db.sql.prepare(`UPDATE comptes SET identifiant = 'mehdi.benaliani@entreprise.example', adresse = 'mehdi.benaliani@entreprise.example' WHERE emp_id = 6`).run();
+  await db.update('employes', 6, { nom: 'Mehdi Benaliani', email: 'mehdi.benaliani@entreprise.example' });
+  await db.run(`UPDATE comptes SET identifiant = 'mehdi.benaliani@entreprise.example', adresse = 'mehdi.benaliani@entreprise.example' WHERE emp_id = 6`);
   // Réembauche : nouvelle fiche, même nom, même adresse, compte local.
-  const { id: _ancien, ...copie } = db.get<Record<string, any>>('employes', 2)!;
-  db.insert('employes', { ...copie, fin: null, motifSortie: null, matriculePaie: null });
-  const nouvelId = compter(db, 'SELECT MAX(id) AS n FROM employes');
-  db.insert('comptes', { empId: nouvelId, nom: 'Mehdi Benali', adresse: 'mehdi.benali@entreprise.example', identifiant: 'mbenali', type: 'local', actif: true });
+  const { id: _ancien, ...copie } = (await db.get<Record<string, any>>('employes', 2))!;
+  await db.insert('employes', { ...copie, fin: null, motifSortie: null, matriculePaie: null });
+  const nouvelId = await compter(db, 'SELECT MAX(id) AS n FROM employes');
+  await db.insert('comptes', { empId: nouvelId, nom: 'Mehdi Benali', adresse: 'mehdi.benali@entreprise.example', identifiant: 'mbenali', type: 'local', actif: true });
   // Compte de Mehdi passé en identifiant local court (mot courant) : jamais balayé.
-  db.sql.prepare(`UPDATE comptes SET identifiant = 'paie' WHERE emp_id = 2`).run();
+  await db.run(`UPDATE comptes SET identifiant = 'paie' WHERE emp_id = 2`);
   // Texte d'un autre salarié : nom cité, nom préfixe, mot qui contient l'identifiant.
-  db.sql.prepare(`UPDATE feuilles SET comment = 'Remarque : voir avec Mehdi Benali. Mehdi Benaliani confirme la paie de mars' WHERE emp_id = 6`).run();
-  const avant = { app: JSON.stringify(db.getSetting('app', {})), six: db.get<Record<string, any>>('employes', 6), compte6: db.where<Record<string, any>>('comptes', 'empId', 6)[0] };
-  agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'Durées échues — dossier de Mehdi Benali' });
-  assert.equal(db.get<Record<string, any>>('employes', 2)!.nom, 'Salarié anonymisé n° 2');
+  await db.run(`UPDATE feuilles SET comment = 'Remarque : voir avec Mehdi Benali. Mehdi Benaliani confirme la paie de mars' WHERE emp_id = 6`);
+  const avant = { app: JSON.stringify(await db.getSetting('app', {})), six: await db.get<Record<string, any>>('employes', 6), compte6: (await db.where<Record<string, any>>('comptes', 'empId', 6))[0] };
+  await agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'Durées échues — dossier de Mehdi Benali' });
+  assert.equal((await db.get<Record<string, any>>('employes', 2))!.nom, 'Salarié anonymisé n° 2');
   // Homonyme préfixe : fiche et compte intacts.
-  assert.deepEqual(db.get<Record<string, any>>('employes', 6), avant.six);
-  assert.deepEqual(db.where<Record<string, any>>('comptes', 'empId', 6)[0], avant.compte6);
+  assert.deepEqual(await db.get<Record<string, any>>('employes', 6), avant.six);
+  assert.deepEqual((await db.where<Record<string, any>>('comptes', 'empId', 6))[0], avant.compte6);
   // Réembauche : nom, adresse et compte intacts.
-  const re = db.get<Record<string, any>>('employes', nouvelId)!;
+  const re = (await db.get<Record<string, any>>('employes', nouvelId))!;
   assert.equal(re.nom, 'Mehdi Benali');
   assert.equal(re.email, 'mehdi.benali@entreprise.example');
-  const cre = db.where<Record<string, any>>('comptes', 'empId', nouvelId)[0];
+  const cre = (await db.where<Record<string, any>>('comptes', 'empId', nouvelId))[0];
   assert.deepEqual([cre.nom, cre.adresse, cre.identifiant, cre.actif], ['Mehdi Benali', 'mehdi.benali@entreprise.example', 'mbenali', true]);
   // Réglages intacts (« paiement »), texte d'un autre salarié remplacé à la seule occurrence délimitée.
-  assert.equal(JSON.stringify(db.getSetting('app', {})), avant.app);
-  assert.equal(db.getSetting<Record<string, any>>('app', {}).heuresSupMode, 'paiement');
-  assert.deepEqual([...new Set(db.where<Record<string, any>>('feuilles', 'empId', 6).map(f => f.comment).filter(Boolean))],
+  assert.equal(JSON.stringify(await db.getSetting('app', {})), avant.app);
+  assert.equal((await db.getSetting<Record<string, any>>('app', {})).heuresSupMode, 'paiement');
+  assert.deepEqual([...new Set((await db.where<Record<string, any>>('feuilles', 'empId', 6)).map(f => f.comment).filter(Boolean))],
     ['Remarque : voir avec Salarié anonymisé n° 2. Mehdi Benaliani confirme la paie de mars']);
   // Motif de la trace balayé (écrit avant le balayage) ; identifiant du compte fermé retiré du journal.
-  assert.equal(db.where<Record<string, any>>('effacements', 'empId', 2)[0].motif, 'Durées échues — dossier de Salarié anonymisé n° 2');
-  assert.equal(compter(db, `SELECT COUNT(*) AS n FROM journal WHERE identifiant = 'paie' OR identifiant LIKE 'mehdi.benali@%'`), 0);
+  assert.equal((await db.where<Record<string, any>>('effacements', 'empId', 2))[0].motif, 'Durées échues — dossier de Salarié anonymisé n° 2');
+  assert.equal(await compter(db, `SELECT COUNT(*) AS n FROM journal WHERE identifiant = 'paie' OR identifiant LIKE 'mehdi.benali@%'`), 0);
 });
 
-test('catégorie effacée puis de nouveau renseignée : reproposée, et l’anonymisation l’efface quand même', () => {
-  const db = base();
-  garnir(db, '2026-03-31');
-  activer(db);
-  const admin = personne(db, null);
-  agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'Passeport effacé à la sortie' });
-  assert.equal(dossiersEchus(db).some(x => x.empId === 2), false);
+test('catégorie effacée puis de nouveau renseignée : reproposée, et l’anonymisation l’efface quand même', async () => {
+  const db = await base();
+  await garnir(db, '2026-03-31');
+  await activer(db);
+  const admin = await personne(db, null);
+  await agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'Passeport effacé à la sortie' });
+  assert.equal((await dossiersEchus(db)).some(x => x.empId === 2), false);
   // Nouveau passeport et nouveau visa saisis après l'effacement.
-  db.update('employes', 2, { passeportNumero: 'P2-NOUVEAU', passeportExpire: '2035-01-01' });
-  db.insert('visas', { empId: 2, dest: 'US', type: 'visa', obtenu: '2026-05-01', expire: '2028-01-01' });
-  assert.deepEqual(dossiersEchus(db).find(x => x.empId === 2)?.categories, ['passeport'], 'reproposée');
+  await db.update('employes', 2, { passeportNumero: 'P2-NOUVEAU', passeportExpire: '2035-01-01' });
+  await db.insert('visas', { empId: 2, dest: 'US', type: 'visa', obtenu: '2026-05-01', expire: '2028-01-01' });
+  assert.deepEqual((await dossiersEchus(db)).find(x => x.empId === 2)?.categories, ['passeport'], 'reproposée');
   // Droit à l'effacement exercé une fois le dossier échu : toutes les étapes rejouées, passeport compris.
-  db.update('employes', 2, { fin: '2020-06-30' });
-  agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'Demande', avantEcheance: true });
-  const e = db.get<Record<string, any>>('employes', 2)!;
+  await db.update('employes', 2, { fin: '2020-06-30' });
+  await agir(db, admin, 'employe.anonymiser', { ids: [2], motif: 'Demande', avantEcheance: true });
+  const e = (await db.get<Record<string, any>>('employes', 2))!;
   assert.equal(e.nom, 'Salarié anonymisé n° 2');
   assert.equal(e.passeportNumero, null);
-  assert.equal(compter(db, 'SELECT COUNT(*) AS n FROM visas WHERE emp_id = 2'), 0);
+  assert.equal(await compter(db, 'SELECT COUNT(*) AS n FROM visas WHERE emp_id = 2'), 0);
 });
 
-test('signalement quotidien : notification au service RH sans nom, une fois par jour et pour les nouveaux dossiers ; rien n’est effacé', () => {
-  const db = base();
-  garnir(db, '2020-06-30');
-  assert.equal(verifierConservation(db, '2026-10-10'), 0, 'désactivé : rien');
-  activer(db);
-  assert.equal(verifierConservation(db, '2026-10-10'), null, 'déjà passé ce jour');
-  assert.equal(verifierConservation(db, '2026-10-11'), 1);
-  const n = db.sql.prepare(`SELECT objet, texte FROM notifications WHERE type = 'conservation.echus'`).all() as { objet: string; texte: string }[];
+test('signalement quotidien : notification au service RH sans nom, une fois par jour et pour les nouveaux dossiers ; rien n’est effacé', async () => {
+  const db = await base();
+  await garnir(db, '2020-06-30');
+  assert.equal(await verifierConservation(db, '2026-10-10'), 0, 'désactivé : rien');
+  await activer(db);
+  assert.equal(await verifierConservation(db, '2026-10-10'), null, 'déjà passé ce jour');
+  assert.equal(await verifierConservation(db, '2026-10-11'), 1);
+  const n = await db.query(`SELECT objet, texte FROM notifications WHERE type = 'conservation.echus'`) as { objet: string; texte: string }[];
   assert.equal(n.length, 1);
   assert.match(n[0].texte, /^1 dossier de salarié sorti a une durée de conservation échue \(1 nouveau/);
   assert.doesNotMatch(n[0].texte, /Benali/);
-  assert.equal(db.get<Record<string, any>>('employes', 2)!.nom, 'Mehdi Benali', 'rien n’est effacé');
+  assert.equal((await db.get<Record<string, any>>('employes', 2))!.nom, 'Mehdi Benali', 'rien n’est effacé');
   // Le lendemain, même dossier : pas de nouveau signalement.
-  assert.equal(verifierConservation(db, '2026-10-12'), 1);
-  assert.equal(compter(db, `SELECT COUNT(*) AS n FROM notifications WHERE type = 'conservation.echus'`), 1);
-  const j = db.sql.prepare(`SELECT message, salaries FROM journal WHERE action = 'conservation.signalement'`).all() as { message: string; salaries: string }[];
+  assert.equal(await verifierConservation(db, '2026-10-12'), 1);
+  assert.equal(await compter(db, `SELECT COUNT(*) AS n FROM notifications WHERE type = 'conservation.echus'`), 1);
+  const j = await db.query(`SELECT message, salaries FROM journal WHERE action = 'conservation.signalement'`) as { message: string; salaries: string }[];
   assert.equal(j.length, 1);
   assert.doesNotMatch(j[0].message, /Benali/);
 });
 
-test('instantané : dossiers échus pour l’administrateur RH seulement ; date d’anonymisation retirée pour le manager', () => {
-  const db = base();
-  garnir(db, '2020-06-30');
-  activer(db);
-  assert.equal(buildSnapshot(db, personne(db, null)).conservation?.[0]?.empId, 2);
-  for (const u of [personne(db, 14), personne(db, 11), personne(db, 7), personne(db, 23), personne(db, 12, 'manager'), personne(db, 6, 'collaborateur')]) {
-    assert.equal(buildSnapshot(db, u).conservation, undefined, u.nom);
+test('instantané : dossiers échus pour l’administrateur RH seulement ; date d’anonymisation retirée pour le manager', async () => {
+  const db = await base();
+  await garnir(db, '2020-06-30');
+  await activer(db);
+  assert.equal((await buildSnapshot(db, await personne(db, null))).conservation?.[0]?.empId, 2);
+  for (const u of [await personne(db, 14), await personne(db, 11), await personne(db, 7), await personne(db, 23), await personne(db, 12, 'manager'), await personne(db, 6, 'collaborateur')]) {
+    assert.equal((await buildSnapshot(db, u)).conservation, undefined, u.nom);
   }
-  agir(db, personne(db, null), 'employe.anonymiser', { ids: [2], motif: 'Durées validées' });
+  await agir(db, await personne(db, null), 'employe.anonymiser', { ids: [2], motif: 'Durées validées' });
   // Mehdi n'apparaît plus dans la vue du manager s'il est sorti ; s'il y figure, sans date d'anonymisation.
-  const vue = buildSnapshot(db, personne(db, 12, 'manager')).employes.find(x => x.id === 2);
+  const vue = (await buildSnapshot(db, await personne(db, 12, 'manager'))).employes.find(x => x.id === 2);
   assert.equal(vue?.anonymiseLe ?? null, null);
 });

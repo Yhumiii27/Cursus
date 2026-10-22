@@ -33,11 +33,11 @@ export function keystoneSortant(env: Env = process.env): { url: string; token: s
 export const KEYSTONE_MODE = keystoneSortant() ? 'api' : 'simulation';
 
 /** Met un message en file pour Keystone ; en simulation, il est tracé dans le journal et marqué « simulé ». */
-export function sendToKeystone(db: Db, event: KeystoneEvent): Envoi {
+export async function sendToKeystone(db: Db, event: KeystoneEvent): Promise<Envoi> {
   const { type, ...donnees } = event;
   const simule = !keystoneSortant();
-  const e = mettreEnFile(db, 'keystone', type, donnees, simule);
-  if (simule) db.insert('journal', { at: e.creation, actor: 'Cursus', role: 'integration', action: `keystone.${type}`, message: 'Message Keystone (simulation)', payload: event });
+  const e = await mettreEnFile(db, 'keystone', type, donnees, simule);
+  if (simule) await db.insert('journal', { at: e.creation, actor: 'Cursus', role: 'integration', action: `keystone.${type}`, message: 'Message Keystone (simulation)', payload: event });
   return e;
 }
 

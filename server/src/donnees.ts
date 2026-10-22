@@ -8,12 +8,12 @@
 //                                  l'espace RH (référent HSE, paie, lecture seule) ne voit pas
 //   GET /api/mes-donnees           le salarié connecté, pour lui-même (portail) : sans le journal, que le RH
 //                                  remet sur demande (il cite d'autres personnes : auteurs, autres salariés)
-import express, { type Router } from 'express';
+import express, { type Request, type Response, type Router } from 'express';
 import { matricule, plural } from '../../shared/format.ts';
 import { dossierComplet, libelleAction } from '../../shared/journal.ts';
 import { journaliser, type Compte } from './comptes.ts';
 import { identite } from './connexion.ts';
-import { TABLES, type Db, type TableName } from './db.ts';
+import { enSerie, TABLES, type Db, type TableName } from './db.ts';
 import { exigerRh, fichierJoint, tracerRefus } from './journal.ts';
 import { contenuLocal } from './pieces.ts';
 
@@ -61,44 +61,44 @@ export const TABLES_SALARIE = (Object.entries(TABLES) as [TableName, { cols: Rec
 const sans = (r: Ligne, cols: string[] = []) => Object.fromEntries(Object.entries(r).filter(([k]) => !cols.includes(k)));
 
 /** Contenu de l'export ; null si le salarié n'existe pas. `journal` : actions le concernant (export RH). */
-export function donneesSalarie(db: Db, empId: number, o: { journal: boolean; par: string }) {
-  const e = db.get<Ligne>('employes', empId);
+export async function donneesSalarie(db: Db, empId: number, o: { journal: boolean; par: string }) {
+  const e = await db.get<Ligne>('employes', empId);
   if (!e) return null;
   const sections: Record<string, unknown> = { Fiche: e };
   for (const t of TABLES_SALARIE) {
     const retirees = [...(RETIREES[t] ?? []), ...(o.journal ? [] : RETIREES_SALARIE[t] ?? [])];
-    sections[TITRES[t] ?? t] = db.where<Ligne>(t, 'empId', empId).map(r => sans(r, retirees));
+    sections[TITRES[t] ?? t] = (await db.where<Ligne>(t, 'empId', empId)).map(r => sans(r, retirees));
   }
   // Pièces justificatives en vigueur : leur contenu est joint (copie du document), en base64 (server/src/pieces.ts).
-  sections[TITRES.pieces!] = db.where<Ligne>('pieces', 'empId', empId).map(r => {
-    const octets = !r.retireeLe && typeof r.fichier === 'string' ? contenuLocal(db, r.fichier) : null;
-    return { ...sans(r, RETIREES.pieces), ...(octets ? { contenu: octets.toString('base64') } : {}) };
-  });
-  const comptes = db.where<Compte>('comptes', 'empId', empId).map(c => c.id);
+  sections[TITRES.pieces!] = [];
+  for (const r of await db.where<Ligne>('pieces', 'empId', empId)) {
+    const octets = !r.retireeLe && typeof r.fichier === 'string' ? await contenuLocal(db, r.fichier) : null;
+    (sections[TITRES.pieces!] as unknown[]).push({ ...sans(r, RETIREES.pieces), ...(octets ? { contenu: octets.toString('base64') } : {}) });
+  }
+  const comptes = (await db.where<Compte>('comptes', 'empId', empId)).map(c => c.id);
   const dans = comptes.map(() => '?').join(', ');
   // Sessions de connexion : dates, espace, mode ; l'identifiant (secret du cookie) n'est jamais exporté.
   sections['Sessions de connexion'] = comptes.length
-    ? db.sql.prepare(`SELECT role AS espace, methode, creation, expiration, revocation, activite FROM connexions WHERE compte_id IN (${dans}) ORDER BY creation`).all(...comptes)
+    ? await db.query(`SELECT role AS espace, methode, creation, expiration, revocation, activite FROM connexions WHERE compte_id IN (${dans}) ORDER BY creation`, [...comptes])
     : [];
-  sections['Équipes encadrées'] = db.where<Ligne>('equipes', 'managerId', empId).map(q => q.nom);
+  sections['Équipes encadrées'] = (await db.where<Ligne>('equipes', 'managerId', empId)).map(q => q.nom);
   // Délégations des validations (t135) données ou reçues : dates, périmètre, autre personne, révocation (sans auteur).
-  sections['Délégations des validations'] = db.all<Ligne>('delegations').filter(g => g.managerId === empId || g.suppleantId === empId)
+  sections['Délégations des validations'] = (await db.all<Ligne>('delegations')).filter(g => g.managerId === empId || g.suppleantId === empId)
     .map(({ id, managerId, suppleantId, du, au, perimetre, revoqueeLe }) => ({ id, managerId, suppleantId, du, au, perimetre, revoqueeLe }));
   // Messages envoyés (ou simulés) à Keystone au matricule du salarié : heures, absences (période seule), verdicts, décisions.
   // Matricule Cursus, ou matricule de paie si le réglage « identifiant envoyé à Keystone » l'a retenu. Un matricule de paie
   // partagé avec une autre fiche (réembauche confirmée) ne désigne ce salarié que pour les messages émis pendant sa
   // présence (de son entrée à sa sortie) : jamais les heures, absences ou verdicts de l'autre fiche.
   const m = matricule(empId), paie = typeof e.matriculePaie === 'string' && e.matriculePaie ? e.matriculePaie : null;
-  const partage = !!paie && db.where<Ligne>('employes', 'matriculePaie', paie).some(x => x.id !== empId);
+  const partage = !!paie && (await db.where<Ligne>('employes', 'matriculePaie', paie)).some(x => x.id !== empId);
   const pendant = (creation: unknown) => !partage || (String(creation).slice(0, 10) >= String(e.entree) && (!e.fin || String(creation).slice(0, 10) <= String(e.fin)));
-  sections['Messages envoyés à Keystone'] = (db.sql.prepare(`SELECT id, cible, type, statut, creation, envoi, contenu FROM envois WHERE contenu LIKE ? OR contenu LIKE ? ORDER BY id`)
-    .all(`%"${m}"%`, paie ? `%"matricule":"${paie}"%` : `%"${m}"%`) as Ligne[])
+  sections['Messages envoyés à Keystone'] = (await db.query(`SELECT id, cible, type, statut, creation, envoi, contenu FROM envois WHERE contenu LIKE ? OR contenu LIKE ? ORDER BY id`, [`%"${m}"%`, paie ? `%"matricule":"${paie}"%` : `%"${m}"%`]) as Ligne[])
     .filter(r => String(r.contenu).includes(`"${m}"`) || pendant(r.creation))
     .map(r => ({ ...r, contenu: JSON.parse(String(r.contenu)) }));
   if (o.journal) {
     // Actions qui le concernent (sa fiche, ses absences…) et actions faites avec son compte (connexions comprises), archive paie comprise.
-    const lignes = db.sql.prepare(`SELECT at, actor, role, action, message, identifiant, payload, archivee FROM journal
-      WHERE EXISTS (SELECT 1 FROM json_each(journal.salaries) WHERE value = ?)${comptes.length ? ` OR compte_id IN (${dans})` : ''} ORDER BY id`).all(empId, ...comptes) as Ligne[];
+    const lignes = await db.query(`SELECT at, actor, role, action, message, identifiant, payload, archivee FROM journal
+      WHERE EXISTS (SELECT 1 FROM json_each(journal.salaries) WHERE value = ?)${comptes.length ? ` OR compte_id IN (${dans})` : ''} ORDER BY id`, [empId, ...comptes]) as Ligne[];
     sections['Journal des actions le concernant'] = lignes.map(l => ({
       date: l.at, auteur: l.actor, identifiant: l.identifiant, espace: l.role, action: libelleAction(String(l.action)), code: l.action,
       message: l.message, detail: JSON.parse(String(l.payload ?? '{}')), ...(l.archivee ? { archiveeLe: l.archivee } : {}),
@@ -121,34 +121,34 @@ const compter = (s: Record<string, unknown>) => Object.values(s).reduce<number>(
 export function routesDonnees(db: Db): Router {
   const r = express.Router();
 
-  r.get('/api/salaries/:id/donnees', (req, res) => {
-    const id = exigerRh(db, req, res, 'Export des données d’un salarié', dossierComplet);
+  r.get('/api/salaries/:id/donnees', enSerie(db, async (req: Request, res: Response) => {
+    const id = await exigerRh(db, req, res, 'Export des données d’un salarié', dossierComplet);
     if (!id) return;
     const empId = Number(req.params.id);
-    const x = Number.isInteger(empId) ? donneesSalarie(db, empId, { journal: true, par: id.user.nom }) : null;
+    const x = Number.isInteger(empId) ? await donneesSalarie(db, empId, { journal: true, par: id.user.nom }) : null;
     if (!x) return res.status(404).json({ error: 'Collaborateur introuvable' });
-    journaliser(db, {
+    await journaliser(db, {
       actor: id.user.nom, role: id.user.role, action: 'salarie.export', compte: id.compte, salaries: [empId],
       message: `Export des données personnelles de ${String(x.salarie.nom)} (droit d’accès) — ${plural(compter(x.sections), 'élément', 'éléments')}`,
     });
     fichierJoint(res, 'application/json; charset=utf-8', nomFichier(empId), JSON.stringify(x, null, 2));
-  });
+  }));
 
-  r.get('/api/mes-donnees', (req, res) => {
-    const id = identite(db, req);
+  r.get('/api/mes-donnees', enSerie(db, async (req: Request, res: Response) => {
+    const id = await identite(db, req);
     if (!id) return res.status(401).json({ error: 'Connexion requise' });
     const empId = id.compte.empId;
     if (!empId || id.user.role === 'rh') {
-      tracerRefus(db, id, 'Téléchargement de ses données', 'aucun dossier salarié dans cet espace');
+      await tracerRefus(db, id, 'Téléchargement de ses données', 'aucun dossier salarié dans cet espace');
       return res.status(403).json({ error: 'Vos données se téléchargent depuis votre espace collaborateur' });
     }
-    const x = donneesSalarie(db, empId, { journal: false, par: id.user.nom })!;
-    journaliser(db, {
+    const x = (await donneesSalarie(db, empId, { journal: false, par: id.user.nom }))!;
+    await journaliser(db, {
       actor: id.user.nom, role: id.user.role, action: 'donnees.export', compte: id.compte, salaries: [empId],
       message: `Téléchargement de ses données personnelles — ${plural(compter(x.sections), 'élément', 'éléments')}`,
     });
     fichierJoint(res, 'application/json; charset=utf-8', nomFichier(empId), JSON.stringify(x, null, 2));
-  });
+  }));
 
   return r;
 }

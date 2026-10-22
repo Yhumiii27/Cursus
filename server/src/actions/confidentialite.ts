@@ -7,16 +7,16 @@ import { ActionError, requireRhAdmin, type ActionHandler } from './context.ts';
 
 const LIBELLES: Record<keyof ContactsConfidentialite, string> = { responsable: 'Responsable du traitement', dpo: 'Délégué à la protection des données' };
 
-const regler: ActionHandler = (ctx, p) => {
+const regler: ActionHandler = async (ctx, p) => {
   requireRhAdmin(ctx);
-  const next: ContactsConfidentialite = { ...lireConfidentialite(ctx.db) };
+  const next: ContactsConfidentialite = { ...await lireConfidentialite(ctx.db) };
   for (const champ of Object.keys(LIBELLES) as (keyof ContactsConfidentialite)[]) {
     if (p[champ] === undefined) continue;
     const c = controleContact(p[champ], LIBELLES[champ]);
     if ('erreur' in c) throw new ActionError(c.erreur);
     next[champ] = c.valeur;
   }
-  ctx.db.setSetting('confidentialite', next);
+  await ctx.db.setSetting('confidentialite', next);
   const manque = !next.responsable && !next.dpo ? 'aucune coordonnée' : !next.dpo ? 'DPO non renseigné' : !next.responsable ? 'responsable non renseigné' : '';
   return `Coordonnées de la page Confidentialité enregistrées${manque ? ` — ${manque} : la page renvoie au service RH` : ''}`;
 };

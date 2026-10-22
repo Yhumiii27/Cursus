@@ -14,7 +14,7 @@ import { ActionError, type ActionHandler, getEmp, refuserSoiMeme, requireRh, str
 const MOTIF_MAX = 500;
 
 /** `empId`, `annee`, `jours` (demi-journées), `taux` (%), `signeLe`, `reference` (facultative). */
-const creer: ActionHandler = (ctx, p) => {
+const creer: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const emp = getEmp(ctx, p.empId);
   // Un avenant qui touche sa propre rémunération se décide par un autre membre du service RH.
@@ -22,7 +22,7 @@ const creer: ActionHandler = (ctx, p) => {
   const saisie = { annee: Number(p.annee), jours: Number(p.jours), taux: Number(p.taux), signeLe: str(p.signeLe), reference: str(p.reference) };
   const erreurs = erreursAvenant(ctx.d, emp, saisie);
   if (erreurs.length) throw new ActionError(erreurs.join(' ; '));
-  const a = ctx.db.insert<AvenantForfait>('avenantsForfait', {
+  const a = await ctx.db.insert<AvenantForfait>('avenantsForfait', {
     empId: emp.id, annee: saisie.annee, jours: saisie.jours, taux: saisie.taux, signeLe: saisie.signeLe, reference: saisie.reference.slice(0, REFERENCE_AVENANT_MAX) || null,
     creeLe: new Date().toISOString(), creePar: ctx.user.nom, annuleLe: null, annulePar: null, annuleMotif: null, lotId: null, sage: false, horsFichier: false,
   });
@@ -42,9 +42,9 @@ const creer: ActionHandler = (ctx, p) => {
  * dont l'import n'est pas confirmé (annuler d'abord le lot) ; déjà transmis, l'avenant est annulé et la correction se fait
  * dans Sage. Déjà annulé : rien n'est refait.
  */
-const annuler: ActionHandler = (ctx, p) => {
+const annuler: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
-  const a = ctx.db.get<AvenantForfait>('avenantsForfait', Number(p.id));
+  const a = await ctx.db.get<AvenantForfait>('avenantsForfait', Number(p.id));
   if (!a) throw new ActionError('Avenant introuvable', 404);
   const emp = getEmp(ctx, a.empId);
   refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas annuler votre propre avenant de renonciation');
@@ -55,7 +55,7 @@ const annuler: ActionHandler = (ctx, p) => {
   if (a.lotId != null && !a.sage) {
     throw new ActionError(`Jours rachetés de ${emp.nom} compris dans le lot de paie n° ${a.lotId}, import à confirmer : annulez d’abord ce lot (écran Temps), puis l’avenant`, 409);
   }
-  ctx.db.update<AvenantForfait>('avenantsForfait', a.id, { annuleLe: new Date().toISOString(), annulePar: ctx.user.nom, annuleMotif: motif });
+  await ctx.db.update<AvenantForfait>('avenantsForfait', a.id, { annuleLe: new Date().toISOString(), annulePar: ctx.user.nom, annuleMotif: motif });
   return {
     message: `Avenant de renonciation ${a.annee} de ${emp.nom} annulé${a.sage ? ` — ${etatRachat({ ...a, annuleLe: 'x' })}` : ''}`
       + `${rachatOuvert(ctx.ds.settings) ? '' : ' · renonciation fermée dans Paramètres : aucun nouvel avenant possible'}`,

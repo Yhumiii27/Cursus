@@ -1,7 +1,7 @@
 // Application HTTP de Cursus : API JSON + application web compilée, construite sur une base déjà ouverte et migrée.
 // Séparée du démarrage (server/src/index.ts : configuration, protection de la base, verrou, migrations, écoute, tâches
 // de fond) pour que les tests la montent dans leur propre processus (tests/http.test.ts), sans lancer de serveur.
-import express, { type Express } from 'express';
+import express, { type Express, type Request, type Response } from 'express';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
 import { droitsRh } from '../../shared/constants.ts';
@@ -16,7 +16,7 @@ import { compressionActive, configMail, demoPublique, enProduction, trustProxy }
 import { espaceChange, identite, routesConnexion } from './connexion.ts';
 import { routesConfidentialite } from './confidentialite.ts';
 import { buildSnapshot, loadFull } from './dataset.ts';
-import type { Db } from './db.ts';
+import { type Db, enSerie } from './db.ts';
 import { limiterDebit } from './debit.ts';
 import { routesDonnees } from './donnees.ts';
 import { type Cible, CIBLES, etatEnvois, listerEnvois } from './envois.ts';
@@ -79,15 +79,15 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // Page Confidentialité : coordonnées du responsable et du DPO, lisibles sans connexion (server/src/confidentialite.ts).
   app.use(routesConfidentialite(db));
 
-  app.get('/api/data', (req, res) => {
-    const id = identite(db, req);
+  app.get('/api/data', enSerie(db, async (req: Request, res: Response) => {
+    const id = await identite(db, req);
     if (!id) return res.status(401).json({ error: 'Connexion requise' });
     if (espaceChange(req, res, id)) return;
-    res.json(buildSnapshot(db, id.user));
-  });
+    res.json(await buildSnapshot(db, id.user));
+  }));
 
-  app.post('/api/actions/:name', (req, res) => {
-    const id = identite(db, req);
+  app.post('/api/actions/:name', enSerie(db, async (req: Request, res: Response) => {
+    const id = await identite(db, req);
     if (!id) return res.status(401).json({ error: 'Connexion requise' });
     // Espace changé dans un autre onglet : l'action n'est pas faite avec les droits d'un autre espace.
     if (espaceChange(req, res, id)) return;
@@ -96,30 +96,34 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
     const handler = ACTIONS[name];
     if (!handler) return res.status(404).json({ error: `Action inconnue : ${name}` });
     try {
-      const out = db.tx(() => {
-        const ctx = makeCtx(db, user, loadFull(db, user));
-        const trace = preparerTrace(db, name, req.body ?? {});
-        const r = handler(ctx, req.body ?? {});
+      const out = await db.tx(async () => {
+        const ctx = makeCtx(db, user, await loadFull(db, user));
+        const trace = await preparerTrace(db, name, req.body ?? {});
+        const r = await handler(ctx, req.body ?? {});
         const o = signerDelegation(ctx, typeof r === 'object' && r !== null ? r : { message: r });
         // Journal signé du nom de la personne connectée et de son compte : champs de la liste blanche de l'action,
         // anciennes et nouvelles valeurs, salariés concernés (server/src/journal.ts) ; managers remplacés (t135).
-        journaliserAction(db, trace, { user, compte, message: o.message ?? null, result: o.result, parDelegation: [...ctx.parDelegation] });
+        await journaliserAction(db, trace, { user, compte, message: o.message ?? null, result: o.result, parDelegation: [...ctx.parDelegation] });
         // Verdicts transmis à Keystone : un changement est mis en file avec l'action, dans la même transaction.
-        if (changeVerdicts(name)) suivreVerdicts(db);
+        if (changeVerdicts(name)) await suivreVerdicts(db);
         return o;
       });
       // L'action a pu changer le compte (profil RH retiré, équipe confiée à un autre) : la session est relue,
-      // et l'instantané est celui de l'espace où elle se trouve désormais ; aucun si elle ne vaut plus.
-      const apres = identite(db, req)?.user;
-      res.json({ message: out.message ?? null, result: out.result, data: apres ? buildSnapshot(db, apres) : undefined });
+      // et l'instantané est celui de l'espace où elle se trouve désormais ; aucun si elle ne vaut plus. Session et
+      // instantané sont lus sur le même état de la base (`lecture` : aucune transaction ne s'intercale).
+      const data = await db.lecture(async () => {
+        const apres = (await identite(db, req))?.user;
+        return apres ? await buildSnapshot(db, apres) : undefined;
+      });
+      res.json({ message: out.message ?? null, result: out.result, data });
     } catch (err) {
       // Refus d'accès : tracé hors de la transaction annulée (rien n'a été modifié).
-      if (err instanceof ActionError && err.status === 403) tracerRefus(db, id, libelleAction(name), err.message, { action: name, p: req.body });
+      if (err instanceof ActionError && err.status === 403) await tracerRefus(db, id, libelleAction(name), err.message, { action: name, p: req.body });
       if (err instanceof ActionError) return res.status(err.status).json({ error: err.message });
       signalerErreur(req, err);
       res.status(500).json({ error: ERREUR_INTERNE });
     }
-  });
+  }));
 
   // Journal des actions (consultation filtrée et paginée, export CSV, archive paie, exports de l'interface) et
   // données personnelles d'un salarié (export RH, téléchargement par l'intéressé) : server/src/journal.ts, donnees.ts.
@@ -139,20 +143,20 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
   // File d'envoi des messages sortants (Paramètres → Envois) : état de l'intégration et derniers messages.
   // Service RH et lecture seule (droit `consultation`) ; ni le référent HSE, ni la paie. La lecture seule ne lit pas le
   // contenu d'un e-mail qui désigne une donnée de santé (server/src/envois-lecteur.ts).
-  app.get('/api/envois', (req, res) => {
-    const id = identite(db, req), user = id?.user;
+  app.get('/api/envois', enSerie(db, async (req: Request, res: Response) => {
+    const id = await identite(db, req), user = id?.user;
     if (!user || !droitsRh(user).includes('consultation')) {
-      if (id) tracerRefus(db, id, 'Envois sortants', 'réservé au service RH');
+      if (id) await tracerRefus(db, id, 'Envois sortants', 'réservé au service RH');
       return res.status(403).json({ error: 'Réservé au service RH' });
     }
     const cible = CIBLES.includes(req.query.cible as Cible) ? req.query.cible as Cible : undefined;
     res.json({
-      keystone: { mode: KEYSTONE_MODE, ...etatEnvois(db, 'keystone') },
+      keystone: { mode: KEYSTONE_MODE, ...await etatEnvois(db, 'keystone') },
       // E-mails : boîte d'envoi, notifications en attente du récapitulatif quotidien.
-      email: { mode: emailMode(), expediteur: configMail()?.from ?? null, recapitulatif: recapitulatifEnAttente(db), ...etatEnvois(db, 'email') },
-      envois: envoisPourLecteur(db, user, listerEnvois(db, { statut: req.query.statut, cible })),
+      email: { mode: emailMode(), expediteur: configMail()?.from ?? null, recapitulatif: await recapitulatifEnAttente(db), ...await etatEnvois(db, 'email') },
+      envois: await envoisPourLecteur(db, user, await listerEnvois(db, { statut: req.query.statut, cible })),
     });
-  });
+  }));
 
   // — Application web —
   // dist/ du projet, quel que soit le dossier de lancement (CURSUS_DIST la remplace : server/src/chemins.ts).

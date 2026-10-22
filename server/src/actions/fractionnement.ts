@@ -18,7 +18,7 @@ export const MOTIF_FRACTIONNEMENT = 'Jours de fractionnement (art. L3141-23)';
 interface Decision { empId: unknown; decision: unknown; jours?: unknown }
 
 /** Période `periode` (année de prise), lignes [{ empId, decision, jours? }] ; les salariés sans ligne restent à décider. */
-const decider: ActionHandler = (ctx, p) => {
+const decider: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const A = Number(p.periode);
   if (!Number.isInteger(A) || A < 2000 || A > 2200) throw new ActionError('Période de congés payés invalide');
@@ -44,7 +44,7 @@ const decider: ActionHandler = (ctx, p) => {
     refuserSoiMeme(ctx, l.e, 'Vous ne pouvez pas décider de vos propres jours de fractionnement');
     const base = { empId: l.e.id, periode: A, le: ctx.d.ti, par: ctx.user.nom };
     if (x.decision === 'renoncer') {
-      ctx.db.insert<Fractionnement>('fractionnements', { ...base, decision: 'renonce', jours: 0, reportId: null });
+      await ctx.db.insert<Fractionnement>('fractionnements', { ...base, decision: 'renonce', jours: 0, reportId: null });
       renonces++;
       continue;
     }
@@ -54,10 +54,10 @@ const decider: ActionHandler = (ctx, p) => {
     if (!(j > 0) || j > max || (regle === 'legal' ? j % 1 !== 0 : (j * 2) % 1 !== 0)) {
       throw new ActionError(`${l.e.nom} : nombre de jours de fractionnement invalide (${regle === 'legal' ? '1 ou 2 jours' : `${fJ(max)} au plus, par demi-journée`})`);
     }
-    const r = ctx.db.insert<ReportCp>('reports', {
+    const r = await ctx.db.insert<ReportCp>('reports', {
       empId: l.e.id, jours: j, motif: MOTIF_FRACTIONNEMENT, par: ctx.user.nom, date: ctx.d.ti, sens: 'recu', periode: A, expire: finPeriodeCp(A), origine: 'fractionnement',
     });
-    ctx.db.insert<Fractionnement>('fractionnements', { ...base, decision: 'credite', jours: j, reportId: r.id });
+    await ctx.db.insert<Fractionnement>('fractionnements', { ...base, decision: 'credite', jours: j, reportId: r.id });
     credites++;
     jours += j;
   }

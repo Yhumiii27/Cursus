@@ -9,7 +9,7 @@ import type { PlanAction, Session } from '../../../shared/types.ts';
 import { ActionError, requireRhAdmin, type ActionHandler } from './context.ts';
 import { refuserExerciceClos } from './budget.ts';
 
-const cloturer: ActionHandler = (ctx, p) => {
+const cloturer: ActionHandler = async (ctx, p) => {
   requireRhAdmin(ctx);
   const ex = Number(p.exercice);
   const refus = controleCloture(ctx.ds, ex, ctx.d.year);
@@ -25,14 +25,14 @@ const cloturer: ActionHandler = (ctx, p) => {
   for (const l of choisies) {
     // Nouvelle ligne au premier trimestre de l'exercice suivant, au même coût prévu et au même statut ; les sessions
     // ouvertes de l'action d'origine la suivent (leur clôture réalisera la nouvelle ligne).
-    const n = ctx.db.insert<PlanAction>('planActions', {
+    const n = await ctx.db.insert<PlanAction>('planActions', {
       exercice: ex + 1, f: l.f, libelle: l.libelle, equipe: l.equipe, periode: 'T1', effectif: l.effectif, cout: l.cout, statut: l.statut,
       origine: 'report', reportDe: l.id,
     });
-    ctx.db.update<PlanAction>('planActions', l.id, { statut: 'reporte' });
-    ctx.ds.sessions.filter(s => s.planId === l.id && sessionActive(s)).forEach(s => ctx.db.update<Session>('sessions', s.id, { planId: n.id }));
+    await ctx.db.update<PlanAction>('planActions', l.id, { statut: 'reporte' });
+    for (const s of ctx.ds.sessions.filter(s => s.planId === l.id && sessionActive(s))) await ctx.db.update<Session>('sessions', s.id, { planId: n.id });
   }
-  ctx.db.insert('exercicesClos', { exercice: ex, le: ctx.d.ti, par: ctx.user.nom });
+  await ctx.db.insert('exercicesClos', { exercice: ex, le: ctx.d.ti, par: ctx.user.nom });
   const restees = possibles.length - choisies.length;
   return [
     `Exercice ${ex} clos le ${fmtIso(ctx.d.ti)}`,

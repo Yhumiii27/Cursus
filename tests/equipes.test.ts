@@ -7,7 +7,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 process.env.CURSUS_TODAY = '2026-10-07';
 
-const { Db } = await import('../server/src/db.ts');
+const { SqliteDb: Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, loadFull } = await import('../server/src/dataset.ts');
 const { migrate } = await import('../server/src/migrate.ts');
@@ -25,20 +25,20 @@ const KARIM: User = { role: 'manager', empId: 12, nom: 'Karim Haddad', intitule:
 const HUGO: User = { role: 'manager', empId: 16, nom: 'Hugo Lambert', intitule: 'Manager · Logistique' };
 const MEHDI: User = { role: 'collaborateur', empId: 2, nom: 'Mehdi Benali', intitule: '' };
 
-function fresh() {
+async function fresh() {
   const db = new Db(':memory:');
-  seedDemo(db);
-  const run = (user: User, name: string, payload: Record<string, unknown>) => db.tx(() => ACTIONS[name](makeCtx(db, user, loadFull(db, user)), payload));
-  const forbidden = (user: User, name: string, payload: Record<string, unknown>) =>
-    assert.throws(() => run(user, name, payload), (e: unknown) => e instanceof ActionError && e.status === 403, `${name} devait être refusé`);
-  const domain = () => new Domain(loadFull(db, RH));
+  await seedDemo(db);
+  const run = async (user: User, name: string, payload: Record<string, unknown>) => await db.tx(async () => await ACTIONS[name](makeCtx(db, user, await loadFull(db, user)), payload));
+  const forbidden = async (user: User, name: string, payload: Record<string, unknown>) =>
+    await assert.rejects(async () => await run(user, name, payload), (e: unknown) => e instanceof ActionError && e.status === 403, `${name} devait être refusé`);
+  const domain = async () => new Domain(await loadFull(db, RH));
   return { db, run, forbidden, domain };
 }
 const ligne = (h: number[]) => ({ lignes: [{ projet: 'X', tache: '', ks: false, h }] });
 
-test('lecture du contrat : statut, nature et organisation du temps', () => {
-  const { domain } = fresh();
-  const d = domain();
+test('lecture du contrat : statut, nature et organisation du temps', async () => {
+  const { domain } = await fresh();
+  const d = await domain();
   const nadia = d.contratOf(d.emp(9)!);
   assert.equal(nadia.forfait, true);
   assert.equal(nadia.cadre, true);
@@ -51,9 +51,9 @@ test('lecture du contrat : statut, nature et organisation du temps', () => {
   assert.deepEqual(d.contratOf(d.emp(1)!).jourOff, [], 'jours non travaillés réservés au temps partiel');
 });
 
-test('feuilles de temps par régime', () => {
-  const { domain } = fresh();
-  const d = domain();
+test('feuilles de temps par régime', async () => {
+  const { domain } = await fresh();
+  const d = await domain();
   const hebdo = calcSheet(d, d.emp(14)!, ligne([9, 9, 9, 9, 9])); // forfait 38,5 h, 45 h travaillées
   assert.equal(hebdo.normal, 35);
   assert.equal(hebdo.incluses, 3.5);
@@ -70,9 +70,9 @@ test('forfait jours : jours de repos selon le nombre de jours du forfait', () =>
   assert.equal(reposForfait(2026, 210), 17);
 });
 
-test('contrôles de la fiche', () => {
-  const { domain } = fresh();
-  const d = domain();
+test('contrôles de la fiche', async () => {
+  const { domain } = await fresh();
+  const d = await domain();
   const opts = { equipes: d.equipes, year: 2026 };
   const base = profilOf(d.emp(1)!);
   assert.ok(validerProfil(base, opts).ok);
@@ -87,112 +87,112 @@ test('contrôles de la fiche', () => {
   assert.equal(validerProfil({ ...base, temps: '35h', jourOff: [1, 2] }, opts).profil.jourOff.length, 0);
 });
 
-test('RH : création et modification de fiche', () => {
-  const { run, domain } = fresh();
-  const r = run(RH, 'employe.creer', {
+test('RH : création et modification de fiche', async () => {
+  const { run, domain } = await fresh();
+  const r = await run(RH, 'employe.creer', {
     nom: 'Zoé Martin', poste: 'Ingénieure procédés', equipe: 'Production', statut: 'cadre', typeContrat: 'cdi', temps: 'forfait_jours',
     forfaitJours: 214, entree: '2026-10-01', naissance: 1990,
   }) as { result: { id: number } };
-  const zoe = domain().emp(r.result.id)!;
+  const zoe = (await domain()).emp(r.result.id)!;
   assert.equal(zoe.forfaitJours, 214);
   assert.equal(zoe.heures, null);
-  run(RH, 'employe.modifier', { id: 1, statut: 'technicien', temps: '39h_rtt' });
-  const d = domain();
+  await run(RH, 'employe.modifier', { id: 1, statut: 'technicien', temps: '39h_rtt' });
+  const d = await domain();
   assert.equal(d.emp(1)!.temps, '39h_rtt');
   assert.ok(rttInfo(d, d.emp(1)!), 'passage à 39 h : RTT ouverts');
-  assert.throws(() => run(RH, 'employe.modifier', { id: 1, temps: 'dirigeant' }), /réservé au statut cadre/);
+  await assert.rejects(async () => await run(RH, 'employe.modifier', { id: 1, temps: 'dirigeant' }), /réservé au statut cadre/);
 });
 
-test('manager : fiche limitée aux membres de son équipe', () => {
-  const { run, forbidden, domain } = fresh();
-  run(KARIM, 'employe.modifier', { id: 2, poste: 'Technicien de maintenance confirmé' });
-  assert.equal(domain().emp(2)!.poste, 'Technicien de maintenance confirmé');
-  forbidden(KARIM, 'employe.modifier', { id: 2, statut: 'cadre' });
-  forbidden(KARIM, 'employe.modifier', { id: 2, temps: 'forfait_jours' });
-  forbidden(KARIM, 'employe.modifier', { id: 1, poste: 'X' }); // Logistique
-  forbidden(KARIM, 'employe.modifier', { id: 12, poste: 'X' }); // lui-même
-  forbidden(MEHDI, 'employe.modifier', { id: 2, poste: 'X' });
+test('manager : fiche limitée aux membres de son équipe', async () => {
+  const { run, forbidden, domain } = await fresh();
+  await run(KARIM, 'employe.modifier', { id: 2, poste: 'Technicien de maintenance confirmé' });
+  assert.equal((await domain()).emp(2)!.poste, 'Technicien de maintenance confirmé');
+  await forbidden(KARIM, 'employe.modifier', { id: 2, statut: 'cadre' });
+  await forbidden(KARIM, 'employe.modifier', { id: 2, temps: 'forfait_jours' });
+  await forbidden(KARIM, 'employe.modifier', { id: 1, poste: 'X' }); // Logistique
+  await forbidden(KARIM, 'employe.modifier', { id: 12, poste: 'X' }); // lui-même
+  await forbidden(MEHDI, 'employe.modifier', { id: 2, poste: 'X' });
 });
 
-test('RH : équipes et désignation des managers', () => {
-  const { run, forbidden, domain, db } = fresh();
-  run(RH, 'equipe.creer', { nom: 'Méthodes', managerId: 5 });
-  run(RH, 'equipe.affecter', { empId: 11, equipe: 'Méthodes' });
-  let d = domain();
+test('RH : équipes et désignation des managers', async () => {
+  const { run, forbidden, domain, db } = await fresh();
+  await run(RH, 'equipe.creer', { nom: 'Méthodes', managerId: 5 });
+  await run(RH, 'equipe.affecter', { empId: 11, equipe: 'Méthodes' });
+  let d = await domain();
   assert.equal(d.mgrOf(d.emp(11)!), 5);
-  run(RH, 'equipe.renommer', { nom: 'Méthodes', nouveau: 'Méthodes & industrialisation' });
-  d = domain();
+  await run(RH, 'equipe.renommer', { nom: 'Méthodes', nouveau: 'Méthodes & industrialisation' });
+  d = await domain();
   assert.equal(d.emp(11)!.equipe, 'Méthodes & industrialisation');
   assert.equal(d.mgrOf(d.emp(11)!), 5);
-  assert.throws(() => run(RH, 'equipe.supprimer', { nom: 'Méthodes & industrialisation' }), /compte encore/);
-  run(RH, 'equipe.manager', { nom: 'Logistique', managerId: 1 });
-  assert.ok(buildSnapshot(db, { ...HUGO, empId: 1 }).employes.some(e => e.id === 4), 'nouveau manager : voit son équipe');
-  forbidden(KARIM, 'equipe.manager', { nom: 'Maintenance', managerId: 2 });
-  forbidden(KARIM, 'equipe.creer', { nom: 'X' });
+  await assert.rejects(async () => await run(RH, 'equipe.supprimer', { nom: 'Méthodes & industrialisation' }), /compte encore/);
+  await run(RH, 'equipe.manager', { nom: 'Logistique', managerId: 1 });
+  assert.ok((await buildSnapshot(db, { ...HUGO, empId: 1 })).employes.some(e => e.id === 4), 'nouveau manager : voit son équipe');
+  await forbidden(KARIM, 'equipe.manager', { nom: 'Maintenance', managerId: 2 });
+  await forbidden(KARIM, 'equipe.creer', { nom: 'X' });
 });
 
-test('manager : composition de son équipe', () => {
-  const { run, forbidden, domain } = fresh();
-  run(KARIM, 'equipe.affecter', { empId: 2, equipe: null });
-  let d = domain();
+test('manager : composition de son équipe', async () => {
+  const { run, forbidden, domain } = await fresh();
+  await run(KARIM, 'equipe.affecter', { empId: 2, equipe: null });
+  let d = await domain();
   assert.equal(d.emp(2)!.equipe, null);
   assert.equal(d.mgrOf(d.emp(2)!), 0, 'à affecter : relève du RH');
-  run(KARIM, 'equipe.affecter', { empId: 2, equipe: 'Maintenance' });
-  forbidden(KARIM, 'equipe.affecter', { empId: 2, equipe: 'Logistique' });
-  forbidden(KARIM, 'equipe.affecter', { empId: 1, equipe: null }); // membre de Logistique
-  forbidden(KARIM, 'equipe.affecter', { empId: 12, equipe: null }); // lui-même
-  forbidden(MEHDI, 'equipe.affecter', { empId: 2, equipe: null });
+  await run(KARIM, 'equipe.affecter', { empId: 2, equipe: 'Maintenance' });
+  await forbidden(KARIM, 'equipe.affecter', { empId: 2, equipe: 'Logistique' });
+  await forbidden(KARIM, 'equipe.affecter', { empId: 1, equipe: null }); // membre de Logistique
+  await forbidden(KARIM, 'equipe.affecter', { empId: 12, equipe: null }); // lui-même
+  await forbidden(MEHDI, 'equipe.affecter', { empId: 2, equipe: null });
   // Décision de l'entreprise : un membre d'une autre équipe ne rejoint l'équipe qu'une fois libéré par son
   // manager d'origine (« à affecter ») ; sinon, sa mutation passe par le service RH.
-  assert.throws(() => run(KARIM, 'equipe.affecter', { empId: 20, equipe: 'Maintenance' }),
+  await assert.rejects(async () => await run(KARIM, 'equipe.affecter', { empId: 20, equipe: 'Maintenance' }),
     (e: unknown) => e instanceof ActionError && e.status === 403 && /fait partie de l’équipe Logistique.*« à affecter ».*mutation au service RH/.test(e.message));
-  assert.equal(domain().emp(20)!.equipe, 'Logistique', 'refus : affectation inchangée');
-  run(HUGO, 'equipe.affecter', { empId: 20, equipe: null });
-  run(KARIM, 'equipe.affecter', { empId: 20, equipe: 'Maintenance' });
-  d = domain();
+  assert.equal((await domain()).emp(20)!.equipe, 'Logistique', 'refus : affectation inchangée');
+  await run(HUGO, 'equipe.affecter', { empId: 20, equipe: null });
+  await run(KARIM, 'equipe.affecter', { empId: 20, equipe: 'Maintenance' });
+  d = await domain();
   assert.equal(d.emp(20)!.equipe, 'Maintenance');
   // Le service RH mute directement d'une équipe à l'autre.
-  run(RH, 'equipe.affecter', { empId: 20, equipe: 'Logistique' });
-  assert.equal(domain().emp(20)!.equipe, 'Logistique');
+  await run(RH, 'equipe.affecter', { empId: 20, equipe: 'Logistique' });
+  assert.equal((await domain()).emp(20)!.equipe, 'Logistique');
 });
 
-test('manager : formations, absences et feuilles de temps de son équipe', () => {
-  const { run, forbidden, domain } = fresh();
-  const d0 = domain();
+test('manager : formations, absences et feuilles de temps de son équipe', async () => {
+  const { run, forbidden, domain } = await fresh();
+  const d0 = await domain();
   const certSst = d0.emp(2)!.certs.find(c => c.f === 'elec')!;
-  run(KARIM, 'plan.inscrire', { empId: 2, certId: certSst.id, sessionId: 5, conv: 'now' });
-  assert.equal(domain().emp(2)!.certs.find(c => c.id === certSst.id)!.sessionId, 5);
-  forbidden(KARIM, 'plan.inscrire', { empId: 1, certId: d0.emp(1)!.certs[0].id, sessionId: 1 });
-  run(KARIM, 'demande.formation', { empId: 18, f: 'aipr', motif: 'Recyclage AIPR' });
-  const dem = domain().ds.demandesCollab.find(r => r.empId === 18 && r.f === 'aipr')!;
+  await run(KARIM, 'plan.inscrire', { empId: 2, certId: certSst.id, sessionId: 5, conv: 'now' });
+  assert.equal((await domain()).emp(2)!.certs.find(c => c.id === certSst.id)!.sessionId, 5);
+  await forbidden(KARIM, 'plan.inscrire', { empId: 1, certId: d0.emp(1)!.certs[0].id, sessionId: 1 });
+  await run(KARIM, 'demande.formation', { empId: 18, f: 'aipr', motif: 'Recyclage AIPR' });
+  const dem = (await domain()).ds.demandesCollab.find(r => r.empId === 18 && r.f === 'aipr')!;
   assert.equal(dem.parId, 12, 'demande émise par le manager');
   assert.equal(dem.statut, 'attente');
-  forbidden(KARIM, 'demande.formation', { empId: 1, f: 'sst', motif: 'x' });
-  run(KARIM, 'absence.demander', { empId: 2, kind: 'CP', du: '2026-12-07', au: '2026-12-08' });
-  const a = domain().ds.absences.find(x => x.empId === 2 && x.du === '2026-12-07')!;
+  await forbidden(KARIM, 'demande.formation', { empId: 1, f: 'sst', motif: 'x' });
+  await run(KARIM, 'absence.demander', { empId: 2, kind: 'CP', du: '2026-12-07', au: '2026-12-08' });
+  const a = (await domain()).ds.absences.find(x => x.empId === 2 && x.du === '2026-12-07')!;
   assert.equal(a.statut, 'validee', 'posée par le manager : validée');
-  run(MEHDI, 'absence.demander', { empId: 2, kind: 'CP', du: '2026-12-14', au: '2026-12-14' });
-  assert.equal(domain().ds.absences.find(x => x.empId === 2 && x.du === '2026-12-14')!.statut, 'demandee');
+  await run(MEHDI, 'absence.demander', { empId: 2, kind: 'CP', du: '2026-12-14', au: '2026-12-14' });
+  assert.equal((await domain()).ds.absences.find(x => x.empId === 2 && x.du === '2026-12-14')!.statut, 'demandee');
   const week = '2026-10-05';
-  run(KARIM, 'temps.suggest', { empId: 2, week });
-  run(MEHDI, 'temps.submit', { empId: 2, week });
-  run(KARIM, 'temps.setCell', { empId: 2, week, li: 0, di: 0, value: '6' });
-  const sh = domain().ds.feuilles.find(f => f.empId === 2 && f.week === week)!;
+  await run(KARIM, 'temps.suggest', { empId: 2, week });
+  await run(MEHDI, 'temps.submit', { empId: 2, week });
+  await run(KARIM, 'temps.setCell', { empId: 2, week, li: 0, di: 0, value: '6' });
+  const sh = (await domain()).ds.feuilles.find(f => f.empId === 2 && f.week === week)!;
   assert.equal(sh.statut, 'soumise', 'correction du valideur : reste soumise');
   assert.equal(sh.lignes[0].h[0], 6);
-  forbidden(HUGO, 'temps.setCell', { empId: 2, week, li: 0, di: 0, value: '1' });
-  assert.throws(() => run(MEHDI, 'temps.setCell', { empId: 2, week, li: 0, di: 1, value: '1' }), /déjà soumise/);
+  await forbidden(HUGO, 'temps.setCell', { empId: 2, week, li: 0, di: 0, value: '1' });
+  await assert.rejects(async () => await run(MEHDI, 'temps.setCell', { empId: 2, week, li: 0, di: 1, value: '1' }), /déjà soumise/);
 });
 
-test('entretien forfait jours selon le nouveau modèle', () => {
-  const { domain } = fresh();
-  const d = domain();
+test('entretien forfait jours selon le nouveau modèle', async () => {
+  const { domain } = await fresh();
+  const d = await domain();
   const o = obligations(d, d.ds.employes.map(e => e.id));
   assert.ok(o.some(x => x.id === 19 && x.kind === 'forfait'), 'forfait jours : entretien annuel L3121-64');
   assert.ok(!o.some(x => x.id === 11 && x.kind === 'forfait'), 'forfait heures : pas d’entretien forfait jours');
 });
 
-test('migration d’une base créée avec l’ancien champ « contrat »', () => {
+test('migration d’une base créée avec l’ancien champ « contrat »', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'cursus-'));
   const file = join(dir, 'ancienne.db');
   try {
@@ -206,8 +206,8 @@ test('migration d’une base créée avec l’ancien champ « contrat »', () =>
       ('E', 'Maintenance', 'Apprenti électromécanicien', 'alternance', '[]', '2025-09-01', 2006)`);
     old.close();
     const db = new Db(file);
-    migrate(db);
-    const rows = db.all<{ nom: string; statut: string; temps: string; typeContrat: string; forfaitJours: number | null }>('employes');
+    await migrate(db);
+    const rows = await db.all<{ nom: string; statut: string; temps: string; typeContrat: string; forfaitJours: number | null }>('employes');
     assert.deepEqual(rows.map(r => [r.nom, r.statut, r.temps, r.typeContrat, r.forfaitJours]), [
       ['A', 'cadre', 'forfait_jours', 'cdi', 218],
       ['B', 'ouvrier', '39h_rtt', 'cdi', null],

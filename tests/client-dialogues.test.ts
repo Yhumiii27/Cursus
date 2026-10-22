@@ -37,9 +37,9 @@ const erreurDe = (champ: HTMLElement) => {
 };
 
 test('refus d’un congé (dialogue « confirmer ») : motif obligatoire, puis refus enregistré avec son motif', async () => {
-  const { db, personne } = baseDemo();
-  const karim = personne(12, 'manager');
-  const b = monter(db, karim, () => createElement(ConfirmerDialog, { c: refusAbsence({ id: 5 }, 'Mehdi Benali', 'CP du 2 novembre') }));
+  const { db, personne } = await baseDemo();
+  const karim = await personne(12, 'manager');
+  const b = await monter(db, karim, () => createElement(ConfirmerDialog, { c: refusAbsence({ id: 5 }, 'Mehdi Benali', 'CP du 2 novembre') }));
   render(b.element);
   const motif = screen.getByLabelText(/Motif du refus/);
   assert.equal(motif.getAttribute('aria-required'), 'true');
@@ -62,9 +62,9 @@ test('refus d’un congé (dialogue « confirmer ») : motif obligatoire, puis r
 });
 
 test('refus refusé par le serveur : le dialogue reste ouvert avec le motif saisi', async () => {
-  const { db, personne } = baseDemo();
+  const { db, personne } = await baseDemo();
   // Absence d'une autre équipe (Logistique) : le manager de la Maintenance n'en décide pas.
-  const b = monter(db, personne(12, 'manager'), () => createElement(ConfirmerDialog, { c: refusAbsence({ id: 3 }, 'Camille Roux', 'CP') }));
+  const b = await monter(db, await personne(12, 'manager'), () => createElement(ConfirmerDialog, { c: refusAbsence({ id: 3 }, 'Camille Roux', 'CP') }));
   render(b.element);
   saisir(screen.getByLabelText(/Motif du refus/), 'Effectif minimum');
   await cliquer('Refuser la demande');
@@ -76,9 +76,9 @@ test('refus refusé par le serveur : le dialogue reste ouvert avec le motif sais
 });
 
 test('demande de congé par le collaborateur : dates obligatoires, puis demande envoyée au manager', async () => {
-  const { db, personne } = baseDemo();
-  const mehdi = personne(2, 'collaborateur');
-  const b = monter(db, mehdi, () => createElement(AbsDialog, { empId: 2 }));
+  const { db, personne } = await baseDemo();
+  const mehdi = await personne(2, 'collaborateur');
+  const b = await monter(db, mehdi, () => createElement(AbsDialog, { empId: 2 }));
   render(b.element);
   // Bouton actif dès l'ouverture ; l'envoi incomplet signale les deux dates.
   await cliquer('Envoyer la demande');
@@ -99,8 +99,8 @@ test('demande de congé par le collaborateur : dates obligatoires, puis demande 
 });
 
 test('congé posé par le manager pour son équipe : « Poser et valider », absence validée d’emblée', async () => {
-  const { db, personne } = baseDemo();
-  const b = monter(db, personne(12, 'manager'), () => createElement(AbsDialog, { empId: 18 }));
+  const { db, personne } = await baseDemo();
+  const b = await monter(db, await personne(12, 'manager'), () => createElement(AbsDialog, { empId: 18 }));
   render(b.element);
   saisir(screen.getByLabelText(/^Du/), '2026-11-23');
   saisir(screen.getByLabelText(/^Au/), '2026-11-24');
@@ -110,8 +110,8 @@ test('congé posé par le manager pour son équipe : « Poser et valider », abs
 });
 
 test('validation d’un congé par le manager depuis l’écran Congés & absences, refus par le dialogue « confirmer »', async () => {
-  const { db, personne } = baseDemo();
-  const b = monter(db, personne(12, 'manager'), () => createElement(Absences));
+  const { db, personne } = await baseDemo();
+  const b = await monter(db, await personne(12, 'manager'), () => createElement(Absences));
   render(b.element);
   // Demandes en attente de l'équipe : Mehdi Benali (5) et Romain Chevalier (9).
   const ligne = (nom: string) => screen.getAllByRole('row').find(r => r.textContent?.includes(nom) && within(r).queryByRole('button', { name: 'Valider' }))!;
@@ -130,8 +130,8 @@ test('validation d’un congé par le manager depuis l’écran Congés & absenc
 });
 
 test('feuille de temps : projet ajouté, heures saisies, puis soumission au manager', async () => {
-  const { db, personne } = baseDemo();
-  const b = monter(db, personne(2, 'collaborateur'), () => createElement(Temps), { weekStart: '2026-10-05' });
+  const { db, personne } = await baseDemo();
+  const b = await monter(db, await personne(2, 'collaborateur'), () => createElement(Temps), { weekStart: '2026-10-05' });
   render(b.element);
   // Semaine sans heure : la soumission attend une saisie (bouton de page, pas de formulaire).
   assert.equal((screen.getByRole('button', { name: 'Soumettre au manager' }) as HTMLButtonElement).disabled, true);
@@ -155,13 +155,13 @@ test('feuille de temps : projet ajouté, heures saisies, puis soumission au mana
 });
 
 test('réouverture d’une feuille validée : administrateur RH seul, motif obligatoire, feuille renvoyée au salarié', async () => {
-  const { db, personne } = baseDemo();
+  const { db, personne } = await baseDemo();
   // Gestionnaire RH : le dialogue ne s'affiche pas (réservé à l'administrateur RH, comme le serveur).
-  const gest = monter(db, personne(14, 'rh'), () => createElement(RouvrirFeuilleDialog, { empId: 2, week: '2026-09-28' }));
+  const gest = await monter(db, await personne(14, 'rh'), () => createElement(RouvrirFeuilleDialog, { empId: 2, week: '2026-09-28' }));
   const { container } = render(gest.element);
   assert.equal(container.innerHTML, '');
   cleanup();
-  const b = monter(db, personne(null, 'rh'), () => createElement(RouvrirFeuilleDialog, { empId: 2, week: '2026-09-28' }));
+  const b = await monter(db, await personne(null, 'rh'), () => createElement(RouvrirFeuilleDialog, { empId: 2, week: '2026-09-28' }));
   render(b.element);
   const motif = screen.getByLabelText(/Motif de la réouverture/);
   await cliquer('Rouvrir la feuille');
@@ -180,9 +180,9 @@ test('réouverture d’une feuille validée : administrateur RH seul, motif obli
 });
 
 test('réouverture d’une feuille déjà transmise à la paie : suites annoncées avant l’envoi (lot correctif)', async () => {
-  const { db, personne } = baseDemo();
+  const { db, personne } = await baseDemo();
   // Semaine du 21 septembre : feuille validée et transmise dans le lot de paie n° 1.
-  const b = monter(db, personne(null, 'rh'), () => createElement(RouvrirFeuilleDialog, { empId: 2, week: '2026-09-21' }));
+  const b = await monter(db, await personne(null, 'rh'), () => createElement(RouvrirFeuilleDialog, { empId: 2, week: '2026-09-21' }));
   render(b.element);
   assert.ok(screen.getByText(/Validée · transmise à Sage Paie/));
   assert.ok(screen.getByText(/seul l’écart partira dans le prochain lot de paie \(lot correctif\)/));
@@ -195,8 +195,8 @@ test('réouverture d’une feuille déjà transmise à la paie : suites annoncé
 });
 
 test('sortie d’un salarié : date et motif obligatoires (liste fermée), solde des compteurs montré, sortie enregistrée', async () => {
-  const { db, personne } = baseDemo();
-  const b = monter(db, personne(14, 'rh'), () => createElement(SortieDialog, { empId: 8 }));
+  const { db, personne } = await baseDemo();
+  const b = await monter(db, await personne(14, 'rh'), () => createElement(SortieDialog, { empId: 8 }));
   render(b.element);
   await cliquer('Enregistrer la sortie');
   assert.equal(erreurDe(screen.getByLabelText(/Dernier jour du contrat/)), 'Indiquez le dernier jour du contrat.');
@@ -216,9 +216,9 @@ test('sortie d’un salarié : date et motif obligatoires (liste fermée), solde
 });
 
 test('inscription à une session (Planifier un renouvellement) : session à choisir, puis inscription et convocation', async () => {
-  const { db, personne } = baseDemo();
+  const { db, personne } = await baseDemo();
   // Mehdi Benali, travail en hauteur (certification 6) : session du 4 novembre.
-  const b = monter(db, personne(14, 'rh'), () => createElement(PlanDialog, { empId: 2, certId: 6 }));
+  const b = await monter(db, await personne(14, 'rh'), () => createElement(PlanDialog, { empId: 2, certId: 6 }));
   render(b.element);
   const radios = screen.getAllByRole('radio') as HTMLInputElement[];
   assert.ok(radios.length >= 1);

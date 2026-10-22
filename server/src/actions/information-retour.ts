@@ -13,7 +13,7 @@ import type { InformationCp, ReportCp } from '../../../shared/types.ts';
 import { notifierInformationRetour } from '../notifications.ts';
 import { ActionError, type ActionHandler, getEmp, refuserSoiMeme, requireRh } from './context.ts';
 
-const informer: ActionHandler = (ctx, p) => {
+const informer: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const a = ctx.ds.absences.find(x => x.id === Number(p.id));
   if (!a || !estArretSante(a.type)) throw new ActionError('Arrêt introuvable : l’information au retour porte sur un arrêt de maladie ou d’accident', 404);
@@ -27,14 +27,14 @@ const informer: ActionHandler = (ctx, p) => {
   }
   // Suite d'arrêts (accident puis maladie, prolongation saisie à part) : l'information porte sur toute la suite.
   const le = ctx.d.ti, c = contenuInformation(ctx.d, emp, r.suite, le), periode = { du: r.du, au: a.au };
-  ctx.db.insert<InformationCp>('informationsCp', {
+  await ctx.db.insert<InformationCp>('informationsCp', {
     empId: emp.id, absenceId: a.id, du: r.du, au: a.au, le, jours: c.jours, arret: c.arret, limite: c.limite, echeance: c.echeance, par: ctx.user.nom,
   });
   // Reports légaux qui couraient pendant la suite d'arrêts : 15 mois à compter de l'information au moins.
   const fin = echeanceInformation(le);
   const prolonges = ctx.ds.reports.filter(x => x.empId === emp.id && estReportLegal(x) && x.expire && x.expire >= r.du && x.expire < fin);
-  prolonges.forEach(x => ctx.db.update<ReportCp>('reports', x.id, { expire: fin }));
-  const envoi = notifierInformationRetour(ctx, emp, texteInformation(c, periode));
+  for (const x of prolonges) await ctx.db.update<ReportCp>('reports', x.id, { expire: fin });
+  const envoi = await notifierInformationRetour(ctx, emp, texteInformation(c, periode));
   const remise = envoi ? (envoi === 'immediat' ? 'envoyée par e-mail' : 'ajoutée à son récapitulatif quotidien') : 'enregistrée, sans e-mail (aucune adresse) : à lui remettre';
   return `Information de ${emp.nom} sur ses congés (absence ${periodeTexte(r.du, a.au)}) ${remise} — ${fJ(c.jours)} à prendre jusqu’au ${fmtIso(c.limite)}, report jusqu’au ${fmtIso(c.echeance)}`
     + (prolonges.length ? ` · ${plural(prolonges.length, 'report légal prolongé', 'reports légaux prolongés')} jusqu’au ${fmtIso(fin)}` : '');

@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
 
-const { Db } = await import('../server/src/db.ts');
+const { SqliteDb: Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -13,37 +13,36 @@ const { ActionError, makeCtx } = await import('../server/src/actions/context.ts'
 const { motifRepriseDuTexte, motifsDeReprise } = await import('../server/src/migrate.ts');
 const { INFO_VACCINATIONS, MOTIFS_REPRISE, NATURES_ABSENCE, estMotifReprise } = await import('../shared/constants.ts');
 const { validerProfil, profilOf } = await import('../shared/rules/profil.ts');
-type User = NonNullable<ReturnType<typeof currentUser>>;
+type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 
 // Comptes de démonstration : Sandrine Vidal (administratrice RH), Antoine Leroy (14, gestionnaire RH), Sarah Cohen
 // (23, référente HSE), Aïcha Diallo (7, paie), Élodie Bernard (11, lecture seule) ; Karim Haddad (12) encadre Mehdi (2).
-function fresh() {
+async function fresh() {
   const db = new Db(':memory:');
-  seedDemo(db);
-  const compteId = (empId: number | null) => (db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number }).id;
-  const user = (empId: number | null, role: User['role']) => currentUser(db, { compteId: compteId(empId), role, methode: 'demo' })!;
-  const run = (u: User, name: string, payload: Record<string, unknown>) => db.tx(() => ACTIONS[name](makeCtx(db, u, loadFull(db, u)), payload));
-  return { db, user, run, RH: user(null, 'rh') };
+  await seedDemo(db);
+  const compteId = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number }).id;
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compteId(empId), role, methode: 'demo' }))!;
+  const run = async (u: User, name: string, payload: Record<string, unknown>) => await db.tx(async () => await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), payload));
+  return { db, user, run, RH: await user(null, 'rh') };
 }
 
-test('motif de reprise : liste fermée, aucune saisie libre, aucun libellé médical', () => {
-  const { db, run, RH } = fresh();
+test('motif de reprise : liste fermée, aucune saisie libre, aucun libellé médical', async () => {
+  const { db, run, RH } = await fresh();
   // Aucun motif de la liste ne nomme une maladie ; l'arrêt longue maladie s'inscrit « absence longue ».
   assert.ok(MOTIFS_REPRISE.every(m => !/maladie|médic|patholog|arrêt/i.test(m)));
   assert.equal(NATURES_ABSENCE.ALD.reprise, 'absence longue');
   assert.ok(Object.values(NATURES_ABSENCE).every(n => !n.reprise || estMotifReprise(n.reprise)));
   // Texte libre refusé, au serveur comme au formulaire (règle partagée).
-  assert.throws(() => run(RH, 'employe.modifier', { id: 6, repriseMotif: 'longue maladie (dépression)', repriseDate: '2026-09-15' }),
+  await assert.rejects(async () => await run(RH, 'employe.modifier', { id: 6, repriseMotif: 'longue maladie (dépression)', repriseDate: '2026-09-15' }),
     (e: unknown) => e instanceof ActionError && /Motif de reprise à choisir dans la liste/.test(e.message));
-  const fiche = profilOf(loadFull(db, RH).employes.find(e => e.id === 6)!);
+  const fiche = profilOf((await loadFull(db, RH)).employes.find(e => e.id === 6)!);
   assert.deepEqual(validerProfil({ ...fiche, repriseMotif: 'cancer', repriseDate: '2026-09-15' }, { equipes: ['Maintenance', 'Production', 'Logistique', 'Qualité'], year: 2026 }).errors
     .filter(e => /Motif de reprise/.test(e)), ['Motif de reprise à choisir dans la liste (aucune information médicale).']);
-  run(RH, 'employe.modifier', { id: 6, repriseMotif: 'congé de proche aidant', repriseDate: '2026-09-15' });
-  assert.equal(loadFull(db, RH).employes.find(e => e.id === 6)!.repriseMotif, 'congé de proche aidant');
+  await run(RH, 'employe.modifier', { id: 6, repriseMotif: 'congé de proche aidant', repriseDate: '2026-09-15' });
+  assert.equal((await loadFull(db, RH)).employes.find(e => e.id === 6)!.repriseMotif, 'congé de proche aidant');
 });
 
-test('migration : un motif de reprise en texte libre est ramené à la liste, le texte d’origine n’est pas conservé', () => {
+test('migration : un motif de reprise en texte libre est ramené à la liste, le texte d’origine n’est pas conservé', async () => {
   assert.equal(motifRepriseDuTexte('congé de maternité'), 'congé de maternité');
   assert.equal(motifRepriseDuTexte('arrêt longue maladie'), 'absence longue');
   assert.equal(motifRepriseDuTexte('Congé parental'), 'congé parental d’éducation');
@@ -61,44 +60,44 @@ test('migration : un motif de reprise en texte libre est ramené à la liste, le
   assert.equal(motifRepriseDuTexte('Congé parental d’éducation'), 'congé parental d’éducation');
   assert.equal(motifRepriseDuTexte('Congé de proche aidant'), 'congé de proche aidant');
   assert.equal(motifRepriseDuTexte('Temps partiel choisi'), 'absence longue', 'temps partiel sans congé parental : hors liste');
-  const { db, RH } = fresh();
-  db.sql.prepare('UPDATE employes SET reprise_motif = ?, reprise_date = ? WHERE id = ?').run('Chimiothérapie', '2026-09-01', 2);
-  db.sql.prepare('UPDATE employes SET reprise_motif = ?, reprise_date = ? WHERE id = ?').run('congé parental', '2026-09-01', 6);
-  db.sql.prepare('UPDATE employes SET reprise_motif = ?, reprise_date = ? WHERE id = ?').run('Temps partiel thérapeutique', '2026-09-14', 18);
+  const { db, RH } = await fresh();
+  (await db.run('UPDATE employes SET reprise_motif = ?, reprise_date = ? WHERE id = ?', ['Chimiothérapie', '2026-09-01', 2]));
+  (await db.run('UPDATE employes SET reprise_motif = ?, reprise_date = ? WHERE id = ?', ['congé parental', '2026-09-01', 6]));
+  (await db.run('UPDATE employes SET reprise_motif = ?, reprise_date = ? WHERE id = ?', ['Temps partiel thérapeutique', '2026-09-14', 18]));
   let sauvegarde = 0;
-  motifsDeReprise(db, () => { sauvegarde++; });
-  const fiches = loadFull(db, RH).employes;
+  await motifsDeReprise(db, () => { sauvegarde++; });
+  const fiches = (await loadFull(db, RH)).employes;
   assert.equal(sauvegarde, 1, 'copie de la base avant la migration');
   assert.equal(fiches.find(e => e.id === 2)!.repriseMotif, 'absence longue');
   assert.equal(fiches.find(e => e.id === 6)!.repriseMotif, 'congé parental d’éducation');
   assert.ok(fiches.every(e => !e.repriseMotif || estMotifReprise(e.repriseMotif)));
-  assert.equal((db.sql.prepare(`SELECT COUNT(*) AS n FROM employes WHERE reprise_motif LIKE '%Chimio%'`).get() as { n: number }).n, 0);
+  assert.equal(((await db.one(`SELECT COUNT(*) AS n FROM employes WHERE reprise_motif LIKE '%Chimio%'`)) as { n: number }).n, 0);
   assert.equal(fiches.find(e => e.id === 18)!.repriseMotif, 'absence longue');
   // Reprise d'un arrêt devenu « absence longue » : masquée au manager, comme un arrêt longue maladie.
-  const equipe = buildSnapshot(db, { role: 'manager', empId: 12, nom: 'Karim Haddad', intitule: '' }).employes;
+  const equipe = (await buildSnapshot(db, { role: 'manager', empId: 12, nom: 'Karim Haddad', intitule: '' })).employes;
   for (const id of [2, 18]) {
     const e = equipe.find(x => x.id === id)!;
     assert.deepEqual([e.repriseMotif, e.repriseDate], [null, null], e.nom);
   }
   // Rien à faire au démarrage suivant.
-  motifsDeReprise(db, () => { sauvegarde++; });
+  await motifsDeReprise(db, () => { sauvegarde++; });
   assert.equal(sauvegarde, 1);
 });
 
-test('vaccinations : vaccin et date d’injection au service RH et à l’intéressé seulement', () => {
-  const { db, user, RH } = fresh();
-  const vaccins = (u: User, empId: number) => buildSnapshot(db, u).employes.find(e => e.id === empId)?.vaccins ?? [];
-  const complet = loadFull(db, RH).employes.find(e => e.id === 2)!.vaccins;
+test('vaccinations : vaccin et date d’injection au service RH et à l’intéressé seulement', async () => {
+  const { db, user, RH } = await fresh();
+  const vaccins = async (u: User, empId: number) => (await buildSnapshot(db, u)).employes.find(e => e.id === empId)?.vaccins ?? [];
+  const complet = (await loadFull(db, RH)).employes.find(e => e.id === 2)!.vaccins;
   assert.ok(complet.length > 0 && complet.every(v => v.v && v.date), 'tous les vaccins, avec leur date');
-  assert.deepEqual(vaccins(RH, 2), complet, 'administratrice RH');
-  assert.deepEqual(vaccins(user(14, 'rh'), 2), complet, 'gestionnaire RH');
-  assert.deepEqual(vaccins(user(2, 'collaborateur'), 2), complet, 'l’intéressé');
-  for (const [label, u] of [['référente HSE', user(23, 'rh')], ['paie', user(7, 'rh')], ['lecture seule', user(11, 'rh')], ['manager', user(12, 'manager')]] as const) {
-    const ds = buildSnapshot(db, u);
+  assert.deepEqual(await vaccins(RH, 2), complet, 'administratrice RH');
+  assert.deepEqual(await vaccins(await user(14, 'rh'), 2), complet, 'gestionnaire RH');
+  assert.deepEqual(await vaccins(await user(2, 'collaborateur'), 2), complet, 'l’intéressé');
+  for (const [label, u] of [['référente HSE', await user(23, 'rh')], ['paie', await user(7, 'rh')], ['lecture seule', await user(11, 'rh')], ['manager', await user(12, 'manager')]] as const) {
+    const ds = await buildSnapshot(db, u);
     assert.ok(ds.employes.filter(e => e.id !== u.salarieId || u.role === 'rh').every(e => e.vaccins.length === 0), label);
     assert.ok(!ds.demandesCollab.some(r => r.declaration?.kind === 'vaccin' && r.empId !== u.salarieId), `${label} : aucune déclaration de vaccination`);
   }
-  assert.ok(vaccins(user(12, 'manager'), 12).length > 0, 'le manager garde ses propres vaccinations');
+  assert.ok((await vaccins(await user(12, 'manager'), 12)).length > 0, 'le manager garde ses propres vaccinations');
 });
 
 test('information art. 13 du RGPD avant la saisie d’une vaccination : éléments obligatoires', () => {
@@ -119,26 +118,26 @@ test('information art. 13 du RGPD avant la saisie d’une vaccination : élémen
 });
 
 test('envois lus par la lecture seule : l’information au retour d’un arrêt et le récapitulatif qui la contient sont neutralisés', async () => {
-  const { db, user, run, RH } = fresh();
+  const { db, user, run, RH } = await fresh();
   const { listerEnvois } = await import('../server/src/envois.ts');
   const { envoisPourLecteur } = await import('../server/src/envois-lecteur.ts');
   const { envoyerRecapitulatifs } = await import('../server/src/notifications.ts');
   const { pourLecteur } = await import('../server/src/journal.ts');
   // Marion Petit (13) : arrêt maladie du 5 au 7 octobre (démonstration), informée de ses congés à son retour.
-  const arret = (db.sql.prepare(`SELECT id FROM absences WHERE emp_id = 13 AND type = 'MALADIE' AND du = '2026-10-05'`).get() as { id: number }).id;
-  run(RH, 'conges.informer', { id: arret });
+  const arret = ((await db.one(`SELECT id FROM absences WHERE emp_id = 13 AND type = 'MALADIE' AND du = '2026-10-05'`)) as { id: number }).id;
+  await run(RH, 'conges.informer', { id: arret });
   // Puis une information gardée pour son récapitulatif quotidien, envoyé.
-  db.insert('notifications', {
+  await db.insert('notifications', {
     empId: 13, adresse: 'marion.petit@entreprise.example', type: 'conges.information', objet: 'Vos congés payés à votre retour',
     texte: 'À la suite de votre absence du 5 oct. au 7 oct. 2026', creation: new Date().toISOString(), envoiId: null,
   });
-  assert.equal(envoyerRecapitulatifs(db), 1);
-  const envois = listerEnvois(db, { cible: 'email' });
+  assert.equal(await envoyerRecapitulatifs(db), 1);
+  const envois = await listerEnvois(db, { cible: 'email' });
   const info = envois.find(e => e.type === 'conges.information')!, recap = envois.find(e => e.type === 'recapitulatif')!;
   // Service RH : contenu complet.
-  assert.deepEqual(envoisPourLecteur(db, RH, envois), envois);
+  assert.deepEqual(await envoisPourLecteur(db, RH, envois), envois);
   // Lecture seule : destinataire et état gardés ; objet, texte et type neutralisés.
-  const lu = envoisPourLecteur(db, user(11, 'rh'), envois);
+  const lu = await envoisPourLecteur(db, await user(11, 'rh'), envois);
   const l = (id: number) => lu.find(e => e.id === id)!;
   assert.equal(l(info.id).type, 'reserve');
   assert.deepEqual([l(info.id).contenu.objet, l(info.id).contenu.texte, l(info.id).contenu.a], ['Détail réservé au service RH', 'Détail réservé au service RH', info.contenu.a]);
@@ -149,5 +148,5 @@ test('envois lus par la lecture seule : l’information au retour d’un arrêt 
   assert.ok(lu.filter(e => e.id !== info.id && e.id !== recap.id).every(e => envois.includes(e)));
   // Journal de l'e-mail simulé (objet de l'information) : masqué de même.
   const ligne = { action: 'email.conges.information', message: 'E-mail « Vos congés payés à votre retour »', details: {} } as never;
-  assert.equal((pourLecteur(user(11, 'rh'), [ligne])[0] as { message: string }).message, 'Détail réservé au service RH');
+  assert.equal((pourLecteur(await user(11, 'rh'), [ligne])[0] as { message: string }).message, 'Détail réservé au service RH');
 });

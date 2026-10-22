@@ -8,7 +8,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 
 const { rendreHook } = await import('./outils/client-node.ts');
 const { poserMagasin } = await import('./outils/store-factice.ts');
-const { Db } = await import('../server/src/db.ts');
+const { SqliteDb: Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser } = await import('../server/src/dataset.ts');
 const { norm, texteRecherche, matricule } = await import('../shared/format.ts');
@@ -16,15 +16,15 @@ const tri = await import('../client/src/components/tri.ts');
 const recherche = await import('../client/src/components/recherche.ts');
 const filtres = await import('../client/src/pages/absences-filtres.ts');
 const combo = await import('../client/src/components/combobox.ts');
-type User = NonNullable<ReturnType<typeof currentUser>>;
-type Dataset = ReturnType<typeof buildSnapshot>;
+type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
+type Dataset = Awaited<ReturnType<typeof buildSnapshot>>;
 type Store = NonNullable<Parameters<typeof poserMagasin>[0]>;
 
 const db = new Db(':memory:');
-seedDemo(db);
-function donnees(empId: number | null, role: User['role']): Dataset {
-  const c = (db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL').get(...(empId ? [empId] : [])) as { id: number }).id;
-  return buildSnapshot(db, currentUser(db, { compteId: c, role, methode: 'demo' })!);
+await seedDemo(db);
+async function donnees(empId: number | null, role: User['role']): Promise<Dataset> {
+  const c = (await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', (empId ? [empId] : [])) as { id: number }).id;
+  return await buildSnapshot(db, (await currentUser(db, { compteId: c, role, methode: 'demo' }))!);
 }
 const lire = (chemin: string) => readFileSync(new URL(`../${chemin}`, import.meta.url), 'utf8');
 
@@ -146,7 +146,7 @@ test('pagination : le hook rend les 50 premières lignes dans l’ordre reçu (t
 
 // — t145 : filtres de l'écran Congés & absences —
 
-test('absences : filtres d’état, de famille et de période ; soldes par recherche (matricule compris) et par équipe', () => {
+test('absences : filtres d’état, de famille et de période ; soldes par recherche (matricule compris) et par équipe', async () => {
   const ti = '2026-10-10';
   const a = (statut: string, type: string, au: string) => ({ statut, type, au }) as Parameters<typeof filtres.filtrerAbsence>[0];
   const f = (o: Partial<typeof filtres.SANS_FILTRE>) => ({ ...filtres.SANS_FILTRE, ...o });
@@ -164,7 +164,7 @@ test('absences : filtres d’état, de famille et de période ; soldes par reche
   // Ordre par défaut : demandes, signalements, puis le reste, les annulées en dernier.
   assert.deepEqual(['annulee', 'validee', 'signalee', 'demandee', 'refusee'].map(s => filtres.rangAbsence({ statut: s as never })), [3, 2, 1, 0, 2]);
 
-  const RH = donnees(null, 'rh');
+  const RH = await donnees(null, 'rh');
   const e = RH.employes.find(x => x.equipe && x.matriculePaie) ?? RH.employes.find(x => x.equipe)!;
   assert.equal(filtres.filtrerSolde(e, '', filtres.TOUTES), true);
   assert.equal(filtres.filtrerSolde(e, matricule(e.id).toLowerCase(), filtres.TOUTES), true, 'matricule Cursus');
@@ -213,8 +213,8 @@ test('recherche : même texte cherché que l’annuaire (nom, poste, équipe, ma
   assert.match(lire('client/src/pages/Collaborateurs.tsx'), /&& correspond\(e, q\)\)/);
 });
 
-test('recherche : 8 suggestions au plus, noms qui commencent par la saisie d’abord, puis nom de famille, puis le reste', () => {
-  const RH = donnees(null, 'rh');
+test('recherche : 8 suggestions au plus, noms qui commencent par la saisie d’abord, puis nom de famille, puis le reste', async () => {
+  const RH = await donnees(null, 'rh');
   const tous = recherche.chercherCollaborateurs(RH.employes, '');
   assert.equal(tous.total, RH.employes.length);
   assert.equal(tous.suggestions.length, recherche.MAX_SUGGESTIONS);
@@ -230,14 +230,14 @@ test('recherche : 8 suggestions au plus, noms qui commencent par la saisie d’a
   assert.deepEqual(recherche.chercherCollaborateurs(emps, 'opér', 1), { suggestions: [emps[3]], total: 2 }, 'au-delà du maximum : total compté');
 });
 
-test('recherche : périmètre du rôle (annuaire sans les sortis ; manager : son équipe sans lui-même, rien de plus que le serveur)', () => {
-  const RH = donnees(null, 'rh');
+test('recherche : périmètre du rôle (annuaire sans les sortis ; manager : son équipe sans lui-même, rien de plus que le serveur)', async () => {
+  const RH = await donnees(null, 'rh');
   const p = recherche.perimetreRecherche(RH.employes, 'rh', null, RH.today);
   assert.ok(p.length > 0 && p.every(e => !e.fin || e.fin >= RH.today), 'aucun salarié sorti');
   const sorti = { ...RH.employes[0], fin: '2026-09-30' };
   assert.equal(recherche.perimetreRecherche([sorti], 'rh', null, RH.today).length, 0);
   // Karim Haddad (12), manager : le jeu de données ne contient que son périmètre ; la recherche le reprend, sans lui.
-  const KARIM = donnees(12, 'manager');
+  const KARIM = await donnees(12, 'manager');
   const pm = recherche.perimetreRecherche(KARIM.employes, 'manager', 12, KARIM.today);
   assert.ok(pm.length > 0);
   assert.ok(!pm.some(e => e.id === 12), 'pas le manager lui-même');
@@ -245,7 +245,7 @@ test('recherche : périmètre du rôle (annuaire sans les sortis ; manager : son
   assert.ok(pm.every(e => KARIM.employes.some(x => x.id === e.id)));
 });
 
-test('recherche : l’annuaire s’ouvre sans ses filtres d’équipe et d’état (fiche visible même après « Sortis », compte exact)', () => {
+test('recherche : l’annuaire s’ouvre sans ses filtres d’équipe et d’état (fiche visible même après « Sortis », compte exact)', async () => {
   // Valeurs par défaut d'INITIAL_UI : l'annuaire ouvert montre tous les présents, comme les suggestions.
   assert.deepEqual(recherche.ANNUAIRE_SANS_FILTRE, { statut: 'tous', equipe: 'Toutes' });
   assert.match(lire('client/src/state/store.tsx'), /equipe: 'Toutes', statut: 'tous'/);
@@ -254,7 +254,7 @@ test('recherche : l’annuaire s’ouvre sans ses filtres d’équipe et d’ét
   assert.match(g, /go\('collaborateurs', \{ selectedId: null, \.\.\.ANNUAIRE_SANS_FILTRE \}\)/, 'voir tout depuis un autre écran');
   assert.match(g, /setUi\(\{ selectedId: null, \.\.\.ANNUAIRE_SANS_FILTRE \}\)/, 'voir tout depuis l’annuaire');
   // Filtre « Sortis » et équipe restés en mémoire : après l'ouverture, l'annuaire ne filtre plus que par la recherche.
-  const RH = donnees(null, 'rh');
+  const RH = await donnees(null, 'rh');
   const ui = { statut: 'sortis' as string, equipe: 'Maintenance', search: 'sar' };
   const apres = { ...ui, ...recherche.ANNUAIRE_SANS_FILTRE };
   const presents = recherche.perimetreRecherche(RH.employes, 'rh', null, RH.today);
@@ -265,8 +265,8 @@ test('recherche : l’annuaire s’ouvre sans ses filtres d’équipe et d’ét
   for (const e of suggestions) assert.ok(lignes.some(x => x.id === e.id), `${e.nom} : fiche trouvée dans l’annuaire`);
 });
 
-test('combobox : un nom complet tapé choisit la personne et la garde active (Entrée la confirme, pas le premier nom)', () => {
-  const RH = donnees(null, 'rh');
+test('combobox : un nom complet tapé choisit la personne et la garde active (Entrée la confirme, pas le premier nom)', async () => {
+  const RH = await donnees(null, 'rh');
   const libelle = (e: { nom: string }) => e.nom;
   const sarah = RH.employes.find(e => e.nom === 'Sarah Cohen')!;
   assert.ok(sarah);

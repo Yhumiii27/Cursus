@@ -66,7 +66,7 @@ function texteRecapitulatif(d: Domain, relances: Relance[], exploitation: string
 }
 
 /** Destinataires et ce que chacun reçoit (adresses identiques réunies). */
-function destinataires(db: Db, d: Domain, relances: Relance[], today: string): Destinataire[] {
+async function destinataires(db: Db, d: Domain, relances: Relance[], today: string): Promise<Destinataire[]> {
   const out = new Map<string, Destinataire>();
   const ajouter = (adresse: string | null | undefined, nom: string | null, liste: Relance[]) => {
     if (!adresse || !liste.length) return;
@@ -77,24 +77,24 @@ function destinataires(db: Db, d: Domain, relances: Relance[], today: string): D
   };
   // Couverture calculée pour le référent HSE : à lui seul.
   const communes = relances.filter(r => !r.hse);
-  ajouter(lireMessagerie(db).rh, null, communes);
+  ajouter((await lireMessagerie(db)).rh, null, communes);
   // Managers : équipes encadrées par un salarié présent, chacun pour ses membres (lui-même relève de son responsable).
   const managers = new Set(d.ds.referentiels.equipes.map(q => q.managerId).filter((m): m is number => !!m));
   for (const m of managers) {
-    const a = adresseSalarie(db, m, today);
+    const a = await adresseSalarie(db, m, today);
     ajouter(a?.adresse, a?.nom ?? null, communes.filter(r => (r.equipe ? d.teamsOf(m).includes(r.equipe) : !r.sante && r.empId !== m && d.mgrOf(d.emp(r.empId) as Employe) === m
       && !(r.categorie === 'entretien' && r.cle.split(':')[2] === 'reprise'))));
   }
   // Suppléant d'un manager absent (t135), pendant une délégation qui comprend les entretiens : les entretiens dus des
   // membres dont il décide, avec les mêmes exclusions que pour le manager (reprise, santé).
   for (const g of (d.ds.delegations ?? []).filter(x => delegationEnVigueur(x, today))) {
-    const a = adresseSalarie(db, g.suppleantId, today);
+    const a = await adresseSalarie(db, g.suppleantId, today);
     ajouter(a?.adresse, a?.nom ?? null, communes.filter(r => !r.equipe && !r.sante && r.categorie === 'entretien' && r.cle.split(':')[2] !== 'reprise'
       && delegationPour(d.ds, d.emp(r.empId) as Employe, g.suppleantId, today, 'entretiens')?.id === g.id));
   }
   // Référents HSE : formations et habilitations de tous, couverture sans les absences hors chantiers.
-  for (const c of db.where<Compte>('comptes', 'profilRh', 'referent_hse').filter(x => x.actif)) {
-    const a = c.empId ? adresseSalarie(db, c.empId, today) : c.adresse ? { adresse: c.adresse, nom: c.nom } : null;
+  for (const c of (await db.where<Compte>('comptes', 'profilRh', 'referent_hse')).filter(x => x.actif)) {
+    const a = c.empId ? await adresseSalarie(db, c.empId, today) : c.adresse ? { adresse: c.adresse, nom: c.nom } : null;
     ajouter(a?.adresse, a?.nom ?? null, relances.filter(r => CATEGORIES_HSE.includes(r.categorie) && (r.categorie !== 'couverture' || r.hse)));
   }
   return [...out.values()];
@@ -104,36 +104,36 @@ function destinataires(db: Db, d: Domain, relances: Relance[], today: string): D
  * Un passage du récapitulatif des échéances : paliers atteints et pas encore relancés, un e-mail par destinataire
  * concerné, paliers notés envoyés. Renvoie le nombre d'e-mails et de relances nouvelles.
  */
-export function recapitulatifEcheances(db: Db): { emails: number; relances: number } {
+export async function recapitulatifEcheances(db: Db): Promise<{ emails: number; relances: number }> {
   // Boîte du service RH non renseignée (mise en service…) : rien n'est noté, rien ne se perd.
-  if (!lireMessagerie(db).rh) return { emails: 0, relances: 0 };
-  const full = loadFull(db, SUIVI), d = new Domain(full), today = full.today;
+  if (!(await lireMessagerie(db)).rh) return { emails: 0, relances: 0 };
+  const full = await loadFull(db, SUIVI), d = new Domain(full), today = full.today;
   const paliers = full.settings.relancesPaliers;
   const dues = [
     ...relancesDues(d, d.enrich(full.settings.horizonAlerte, full.settings.uniquementReglementaire), paliers),
     // Couverture du référent HSE, calculée sans les absences hors chantiers qu'il ne reçoit pas (server/src/dataset.ts).
     ...relancesCouverture(d, couvertureVueHse({ ...full, settings: { ...full.settings, horizonAlerte: Math.max(...paliers, 90) } }), paliers, 'hse:'),
   ];
-  const deja = new Set((db.sql.prepare('SELECT cle, palier FROM relances').all() as { cle: string; palier: string }[]).map(r => `${r.cle}|${r.palier}`));
+  const deja = new Set((await db.query('SELECT cle, palier FROM relances') as { cle: string; palier: string }[]).map(r => `${r.cle}|${r.palier}`));
   const nouvelles = dues.filter(r => !deja.has(`${r.cle}|${r.palier}`));
   // Secret client Entra : une ligne pour la boîte du service RH, une fois par palier et par date d'expiration.
   const secret = relanceSecret(today);
   const exploitation = secret && !deja.has(`${secret.cle}|${secret.palier}`) ? [secret] : [];
   let emails = 0;
   if (nouvelles.length || exploitation.length) {
-    const m = lireMessagerie(db), rh = m.rh!.toLowerCase();
-    const liste = destinataires(db, d, nouvelles, today);
+    const m = await lireMessagerie(db), rh = m.rh!.toLowerCase();
+    const liste = await destinataires(db, d, nouvelles, today);
     if (exploitation.length && !liste.some(x => x.adresse.toLowerCase() === rh)) liste.push({ adresse: m.rh!, nom: null, relances: [] });
     for (const x of liste) {
       const siennes = nouvelles.filter(r => x.relances.includes(r));
       const lignes = x.adresse.toLowerCase() === rh ? exploitation.map(r => r.texte) : [];
       const n = siennes.length + lignes.length;
-      const e = envoyerEmail(db, 'echeances.recapitulatif', courriel(m, x.adresse, `Cursus — échéances à traiter : ${plural(n, 'nouvelle relance', 'nouvelles relances')}`, texteRecapitulatif(d, siennes, lignes), { nom: x.nom }));
+      const e = await envoyerEmail(db, 'echeances.recapitulatif', courriel(m, x.adresse, `Cursus — échéances à traiter : ${plural(n, 'nouvelle relance', 'nouvelles relances')}`, texteRecapitulatif(d, siennes, lignes), { nom: x.nom }));
       if (e) emails++;
     }
-    [...nouvelles, ...exploitation].forEach(r => db.insert('relances', { cle: r.cle, palier: r.palier, le: today }));
+    for (const r of [...nouvelles, ...exploitation]) await db.insert('relances', { cle: r.cle, palier: r.palier, le: today });
   }
-  db.sql.prepare('DELETE FROM relances WHERE le < ?').run(addD(today, -CONSERVATION_JOURS));
+  await db.run('DELETE FROM relances WHERE le < ?', [addD(today, -CONSERVATION_JOURS)]);
   return { emails, relances: nouvelles.length + exploitation.length };
 }
 
@@ -141,11 +141,11 @@ export function recapitulatifEcheances(db: Db): { emails: number; relances: numb
  * Tâche de fond (appelée par `tachesEmails`, dans sa transaction) : à partir de 7 h, une fois par jour, le jour réglé,
  * si le récapitulatif est actif. Null : rien à faire à ce passage.
  */
-export function relancerEcheances(db: Db, heure: number): { emails: number; relances: number } | null {
+export async function relancerEcheances(db: Db, heure: number): Promise<{ emails: number; relances: number } | null> {
   const jour = todayIso();
-  if (heure < HEURE_RECAPITULATIF || db.getSetting<string | null>(DERNIERE_RELANCE, null) === jour) return null;
-  const s = loadFull(db, SUIVI).settings;
-  db.setSetting(DERNIERE_RELANCE, jour);
+  if (heure < HEURE_RECAPITULATIF || await db.getSetting<string | null>(DERNIERE_RELANCE, null) === jour) return null;
+  const s = (await loadFull(db, SUIVI)).settings;
+  await db.setSetting(DERNIERE_RELANCE, jour);
   if (!s.relancesActives || !jourDEnvoi(s, weekday(jour))) return null;
-  return recapitulatifEcheances(db);
+  return await recapitulatifEcheances(db);
 }

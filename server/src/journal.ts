@@ -41,7 +41,7 @@ import { journaliser, type Compte } from './comptes.ts';
 import { lireConfidentialite } from './confidentialite.ts';
 import { identite, type Identite } from './connexion.ts';
 import { loadFull, loadSettings, scopeIds } from './dataset.ts';
-import type { Db, TableName } from './db.ts';
+import { type Db, enSerie, type TableName } from './db.ts';
 import { purgerEnvois } from './envois.ts';
 import { copieAvantMigration } from './sauvegarde.ts';
 
@@ -53,7 +53,7 @@ type Ligne = Record<string, any>;
 interface Cible {
   table: TableName;
   /** Clé de la ligne modifiée par l'action (null : aucune). */
-  cle: (p: P, db: Db) => unknown;
+  cle: (p: P, db: Db) => unknown;  // valeur, ou promesse de la valeur (lecture en base)
   /** Colonnes dont les anciennes et nouvelles valeurs sont tracées. `aplatir` : objet JSON comparé clé par clé. */
   colonnes: readonly string[];
   aplatir?: boolean;
@@ -67,6 +67,8 @@ interface Cible {
 /** Ce que la règle sait de l'action : ligne visée avant et après, état lu avant l'action (`etat`), résultat. */
 interface Contexte { db: Db; user: CurrentUser; avant: Ligne | null; apres: Ligne | null; etat: unknown; result: unknown }
 
+type Changements = { avant: Ligne; apres: Ligne; extra?: Ligne; message?: string };
+
 interface Regle {
   /** Champs du paramètre recopiés tels quels ; fonction quand ils dépendent du contenu (formalités). */
   champs?: readonly string[] | ((p: P) => readonly string[]);
@@ -78,17 +80,17 @@ interface Regle {
    * État lu avant l'action, en plus de la ligne visée, quand l'action le modifie : inscrits d'une session (une
    * annulation détache les recyclages rattachés), feuilles à transmettre à la paie, dernier déplacement avant un import.
    */
-  etat?: (db: Db, p: P) => unknown;
+  etat?: (db: Db, p: P) => unknown;  // valeur, ou promesse attendue avant l'action
   /** Valeurs lues après l'action (feuilles transmises, total d'heures), ajoutées au contenu tracé. */
-  bilan?: (p: P, x: Contexte) => Ligne;
+  bilan?: (p: P, x: Contexte) => Ligne | Promise<Ligne>;
   /** Salariés concernés, en plus de `empId` (paramètre, ou ligne modifiée). */
-  salaries?: (p: P, x: Contexte) => unknown[];
+  salaries?: (p: P, x: Contexte) => unknown[] | Promise<unknown[]>;
   /** Tracée seulement si… (saisie d'heures : modification par le manager ou le service RH). */
-  tracer?: (p: P, x: Contexte) => boolean;
+  tracer?: (p: P, x: Contexte) => boolean | Promise<boolean>;
   /** Code inscrit au journal à la place du nom de l'action (correction d'heures) ; vide : le nom de l'action. */
-  code?: (p: P, x: Contexte) => string;
+  code?: (p: P, x: Contexte) => string | Promise<string>;
   /** Anciennes et nouvelles valeurs propres à l'action, à la place de la comparaison des colonnes ; message éventuel. */
-  changements?: (p: P, x: Contexte) => { avant: Ligne; apres: Ligne; extra?: Ligne; message?: string } | null;
+  changements?: (p: P, x: Contexte) => Changements | null | Promise<Changements | null>;
   /** Modifications successives du même objet par le même compte regroupées sur une ligne pendant N minutes. */
   regrouper?: number;
 }
@@ -130,15 +132,15 @@ const codeHoraire = (p: P, champ: 'id' | 'code' = 'id') => {
 /** Horaire du jour d'une feuille (lu avant et après `temps.horaire`) : code, « aucun » ou non choisi (null). */
 const horaireDuJour = (f: Ligne | null, p: P) => ((f?.horaires ?? []) as (string | null)[])[Number(p.di)] ?? null;
 /** Réglage des fériés d'une année, sans auteur ni motif (texte libre) : modalité, férié de solidarité, fériés non chômés. */
-const feriesDeLAnnee = (db: Db, annee: unknown) => {
-  const { solidarite, solidariteFerie, nonChomes } = reglageAnnee(db.getSetting<CalendrierFeries>('calendrierFeries', {}), Number(annee));
+const feriesDeLAnnee = async (db: Db, annee: unknown) => {
+  const { solidarite, solidariteFerie, nonChomes } = reglageAnnee(await db.getSetting<CalendrierFeries>('calendrierFeries', {}), Number(annee));
   return { solidarite, solidariteFerie, nonChomes };
 };
 /** Salariés dont un titre change de statut avec la règle modifiée (résultat de l'action). */
 const salariesTouches = (x: Contexte) => (x.result as { salaries?: unknown[] } | null | undefined)?.salaries ?? [];
 /** Référentiel désigné (`referentiel.charger`), seulement s'il en est un : jamais la valeur reçue telle quelle. */
 const referentielRecu = (p: P): ReferentielId | null => (['formations', 'habilitations', 'destinations'].includes(p.referentiel) ? p.referentiel : null);
-const nombreReferentiel = (db: Db, p: P) => { const r = referentielRecu(p); return r ? db.count(r) : 0; };
+const nombreReferentiel = async (db: Db, p: P) => { const r = referentielRecu(p); return r ? await db.count(r) : 0; };
 const FICHE = [
   'nom', 'poste', 'posteId', 'equipe', 'statut', 'typeContrat', 'temps', 'heures', 'forfaitHeures', 'forfaitJours', 'jourOff', 'tempsDepuis', 'entree', 'fin',
   'motifSortie', 'essaiFin', 'essaiRenouveleJusquau', 'agence', 'matriculePaie', 'derogationTravauxLe', 'motifRecours', 'cddFinInitiale',
@@ -151,11 +153,11 @@ const FICHE = [
 const soldeRttGarde = (x: Contexte) => (x.result as { soldeRtt?: Ligne } | null)?.soldeRtt ?? null;
 const FEUILLE: Cible = {
   table: 'feuilles', colonnes: ['statut'],
-  cle: (p, db) => (db.sql.prepare('SELECT id FROM feuilles WHERE emp_id = ? AND week = ?').get(Number(p.empId) || 0, String(p.week ?? '')) as { id: number } | undefined)?.id ?? null,
+  cle: async (p, db) => (await db.one('SELECT id FROM feuilles WHERE emp_id = ? AND week = ?', [Number(p.empId) || 0, String(p.week ?? '')]) as { id: number } | undefined)?.id ?? null,
 };
 const totalHeures = (f: Ligne | null) => ((f?.lignes ?? []) as LigneTemps[]).reduce((n, l) => n + l.h.reduce((a, b) => a + num(b), 0), 0);
 const heuresTexte = (h: number) => `${String(Math.round(h * 100) / 100).replace('.', ',')} h`;
-const nomSalarie = (db: Db, id: unknown) => db.get<{ nom: string }>('employes', Number(id))?.nom ?? `salarié n° ${id}`;
+const nomSalarie = async (db: Db, id: unknown) => (await db.get<{ nom: string }>('employes', Number(id)))?.nom ?? `salarié n° ${id}`;
 /** Statut de la feuille avant la saisie (une feuille créée par la saisie est un brouillon). */
 const statutFeuille = (f: Ligne | null) => String(f?.statut ?? 'brouillon');
 
@@ -176,24 +178,24 @@ const ligneTemps: Partial<Regle> = {
  * Dépassement des durées maximales motivé : le fait que le motif soit renseigné, jamais son texte ; salarié mineur
  * (décision de l'entreprise du 17 octobre 2026 : motif ou référence de dérogation tracé au journal), contrôles en cause.
  */
-function depassementTrace(p: P, x: Contexte): Ligne {
+async function depassementTrace(p: P, x: Contexte): Promise<Ligne> {
   if (!x.apres?.motifDepassement) return {};
-  const e = x.db.get<Employe>('employes', Number(p.empId) || 0);
+  const e = await x.db.get<Employe>('employes', Number(p.empId) || 0);
   const lignes = (x.apres.lignes ?? []) as LigneTemps[];
   const perDay = Array.from({ length: JOURS_FEUILLE }, (_, i) => lignes.reduce((n, l) => n + num(l.h[i]), 0));
   const codes = e ? controlesMineur(e, String(x.apres.week ?? ''), perDay).codes.filter(c => c === 'jour_8h' || c === 'semaine_35h') : [];
   // Repos quotidien ou pause insuffisants d'après les horaires figés (shared/rules/repos-nuit.ts) : les codes seuls, sans le
   // dimanche précédent (le repos entre deux semaines reste sur la feuille).
   const horaires = (x.apres.horairesFiges ?? []) as (HoraireFige | null)[];
-  const reposNuit = horaires.some(Boolean) ? controlesReposNuit(horaires, perDay, String(x.apres.week ?? ''), { s: loadSettings(x.db), naissance: e })
+  const reposNuit = horaires.some(Boolean) ? controlesReposNuit(horaires, perDay, String(x.apres.week ?? ''), { s: await loadSettings(x.db), naissance: e })
     .codes.filter(c => c !== 'nuit_mineur') : [];
   return { motifDepassement: MENTION_TEXTE, ...(codes.length ? { depassementMineur: codes } : {}), ...(reposNuit.length ? { reposNuit } : {}) };
 }
 /** Soumission, validation : statut avant et après, et total d'heures de la feuille (ce qui part en paie). */
-const statutEtTotal: Partial<Regle> = { cible: FEUILLE, bilan: (p, x) => ({ heures: totalHeures(x.apres), ...depassementTrace(p, x) }) };
+const statutEtTotal: Partial<Regle> = { cible: FEUILLE, bilan: async (p, x) => ({ heures: totalHeures(x.apres), ...await depassementTrace(p, x) }) };
 
 /** Inscrits avant et après l'action : une annulation ou des places retirées détachent des recyclages rattachés. */
-const inscritsAvantApres: Partial<Regle> = { etat: (db, p) => inscrits(db, p.id), salaries: (p, x) => [...(x.etat as number[]), ...inscrits(x.db, p.id)] };
+const inscritsAvantApres: Partial<Regle> = { etat: async (db, p) => await inscrits(db, p.id), salaries: async (p, x) => [...(x.etat as number[]), ...await inscrits(x.db, p.id)] };
 
 /**
  * Lot de paie renvoyé par l'action (`paie.lot…`, `temps.pushSage`) : son numéro, ses feuilles `{ empId, week }` et ses
@@ -222,26 +224,26 @@ const salariesDuLot = (x: Contexte) => [...new Set([
   ...(lotDuResultat(x)?.deplacements ?? []).map(a => a.empId), ...(lotDuResultat(x)?.rachats ?? []).map(a => a.empId),
 ])];
 /** Feuilles transmises à la paie : validées et non transmises avant l'action, marquées transmises après. */
-const transmises = (x: Contexte) => (x.etat as number[]).map(id => x.db.get<FeuilleTemps>('feuilles', id)).filter((f): f is FeuilleTemps => !!f?.sage);
+const transmises = async (x: Contexte) => (await Promise.all((x.etat as number[]).map(id => x.db.get<FeuilleTemps>('feuilles', id)))).filter((f): f is FeuilleTemps => !!f?.sage);
 /** Lignes de clôture des congés créées par l'action (identifiants au-delà du dernier d'avant l'action). */
-const cloturees = (x: Contexte) => (x.db.sql.prepare('SELECT id FROM clotures WHERE id > ? ORDER BY id').all(Number(x.etat) || 0) as { id: number }[])
-  .map(r => x.db.get<ClotureConges>('clotures', r.id)!);
+const cloturees = async (x: Contexte) => Promise.all((await x.db.query('SELECT id FROM clotures WHERE id > ? ORDER BY id', [Number(x.etat) || 0]) as { id: number }[])
+  .map(async r => (await x.db.get<ClotureConges>('clotures', r.id))!));
 /** Décisions sur les jours de fractionnement enregistrées par l'action (identifiants au-delà du dernier d'avant). */
-const fractionnementsDecides = (x: Contexte) => (x.db.sql.prepare('SELECT id FROM fractionnements WHERE id > ? ORDER BY id').all(Number(x.etat) || 0) as { id: number }[])
-  .map(r => x.db.get<Fractionnement>('fractionnements', r.id)!);
+const fractionnementsDecides = async (x: Contexte) => Promise.all((await x.db.query('SELECT id FROM fractionnements WHERE id > ? ORDER BY id', [Number(x.etat) || 0]) as { id: number }[])
+  .map(async r => (await x.db.get<Fractionnement>('fractionnements', r.id))!));
 /**
  * Jours rendus à une période de CP close par un refus ou une annulation : reports reçus créés par l'action (identifiants
  * au-delà du dernier d'avant), tracés par leurs jours, période et échéance — jamais leur motif.
  */
 const reportsRendus: Partial<Regle> = {
-  etat: db => Number((db.sql.prepare('SELECT MAX(id) AS n FROM reports').get() as { n: number | null }).n ?? 0),
-  bilan: (_p, x) => {
-    const l = x.db.sql.prepare('SELECT id, jours, periode, expire FROM reports WHERE id > ? ORDER BY id').all(Number(x.etat) || 0) as Ligne[];
+  etat: async db => Number((await db.one('SELECT MAX(id) AS n FROM reports') as { n: number | null }).n ?? 0),
+  bilan: async (_p, x) => {
+    const l = await x.db.query('SELECT id, jours, periode, expire FROM reports WHERE id > ? ORDER BY id', [Number(x.etat) || 0]) as Ligne[];
     return l.length ? { reportsRendus: l.map(r => ({ id: r.id, jours: r.jours, periode: r.periode, expire: r.expire })) } : {};
   },
 };
 /** Salariés des déplacements créés par un import (identifiants au-delà du dernier d'avant l'action). */
-const importes = (x: Contexte) => (x.db.sql.prepare('SELECT emp_id AS e FROM voyages WHERE id > ? ORDER BY id').all(Number(x.etat) || 0) as { e: number }[]).map(r => r.e);
+const importes = async (x: Contexte) => (await x.db.query('SELECT emp_id AS e FROM voyages WHERE id > ? ORDER BY id', [Number(x.etat) || 0]) as { e: number }[]).map(r => r.e);
 
 export const REGLES: Record<string, Regle> = {
   // Fiches et équipes
@@ -249,7 +251,7 @@ export const REGLES: Record<string, Regle> = {
   'employe.creer': {
     champs: ['equipe', 'poste', 'statut', 'typeContrat', 'temps', 'entree', 'fin', 'motifSortie', 'essaiFin', 'essaiRenouveleJusquau', 'matriculePaie', 'reutiliserMatricule', 'motifRecours', 'cddFinInitiale'], salaries: (_p, x) => [(x.result as { id?: number } | null)?.id],
     // Poste du référentiel retenu (choisi, rattaché d'après l'intitulé ou créé) : lu sur la fiche créée.
-    bilan: (_p, x) => ({ posteId: x.db.get<{ posteId: number | null }>('employes', Number((x.result as { id?: number } | null)?.id))?.posteId ?? null }),
+    bilan: async (_p, x) => ({ posteId: (await x.db.get<{ posteId: number | null }>('employes', Number((x.result as { id?: number } | null)?.id)))?.posteId ?? null }),
   },
   // Les champs modifiés sont nommés ; seules les colonnes de FICHE ont leurs valeurs (ni visite médicale, ni reprise, ni année ou date de naissance).
   // Les valeurs d'origine envoyées pour le contrôle des modifications concurrentes (`avant`) ne sont jamais recopiées.
@@ -305,8 +307,8 @@ export const REGLES: Record<string, Regle> = {
   // Renommage et manager en une action : nom et manager avant et après (l'équipe est relue sous son nouveau nom).
   'equipe.modifier': {
     champs: ['nom', 'nouveau', 'managerId'], cible: { table: 'equipes', cle: p => String(p.nom ?? ''), colonnes: ['nom', 'managerId'] },
-    changements: (p, x) => {
-      const apres = x.db.get<Ligne>('equipes', String(p.nouveau || p.nom || '')) ?? null;
+    changements: async (p, x) => {
+      const apres = await x.db.get<Ligne>('equipes', String(p.nouveau || p.nom || '')) ?? null;
       const avant: Ligne = {}, nouv: Ligne = {};
       for (const c of ['nom', 'managerId']) {
         if (JSON.stringify(x.avant?.[c] ?? null) === JSON.stringify(apres?.[c] ?? null)) continue;
@@ -385,8 +387,8 @@ export const REGLES: Record<string, Regle> = {
   'formationSuivie.enregistrer': {
     champs: ['empId', 'f', 'du', 'au', 'demandeId'],
     // Ligne écrite : identifiant, durée et case « obligatoire » telles qu'enregistrées (contrôlées par l'action).
-    bilan: (_p, x) => {
-      const l = x.db.get<Ligne>('formationsSuivies', Number((x.result as { id?: number } | null)?.id));
+    bilan: async (_p, x) => {
+      const l = await x.db.get<Ligne>('formationsSuivies', Number((x.result as { id?: number } | null)?.id));
       return l ? { id: l.id, duree: l.duree, obligatoire: l.obligatoire } : {};
     },
   },
@@ -436,9 +438,9 @@ export const REGLES: Record<string, Regle> = {
   'referentiel.poste.enregistrer': {
     extra: p => ({ id: Number(p.id) || null }), cible: parId('postes', ['nom', 'formations', 'habilitations', 'sir', 'expose', 'risquesL4154']), salaries: (_p, x) => salariesTouches(x),
     // Création : le poste créé, lu après l'action.
-    bilan: (p, x) => {
+    bilan: async (p, x) => {
       if (Number(p.id)) return {};
-      const cree = x.db.get<Ligne>('postes', Number((x.result as { id?: number } | null)?.id));
+      const cree = await x.db.get<Ligne>('postes', Number((x.result as { id?: number } | null)?.id));
       return cree ? { id: cree.id, apres: { nom: cree.nom, formations: cree.formations, habilitations: cree.habilitations, ...(cree.sir ? { sir: true } : {}), ...(cree.expose ? { expose: true } : {}), ...(cree.risquesL4154 ? { risquesL4154: true } : {}) } } : {};
     },
   },
@@ -471,7 +473,7 @@ export const REGLES: Record<string, Regle> = {
   'referentiel.horaire.archiver': { extra: p => ({ code: codeHoraire(p), retablir: p.archive === false }), cible: { table: 'horaires', cle: p => codeHoraire(p), colonnes: ['archive'] } },
   // Référentiel type : nombre d'éléments ajoutés.
   'referentiel.charger': {
-    extra: p => ({ referentiel: referentielRecu(p) }), etat: (db, p) => nombreReferentiel(db, p), bilan: (p, x) => ({ ajoutes: nombreReferentiel(x.db, p) - Number(x.etat) }),
+    extra: p => ({ referentiel: referentielRecu(p) }), etat: async (db, p) => await nombreReferentiel(db, p), bilan: async (p, x) => ({ ajoutes: await nombreReferentiel(x.db, p) - Number(x.etat) }),
   },
   // Demandes des collaborateurs : ni motif, ni réponse, ni contenu d'une déclaration.
   'demande.formation': { champs: ['empId', 'f', 'sessionId'], salaries: (p, x) => [p.empId ?? x.user.empId] },
@@ -484,9 +486,9 @@ export const REGLES: Record<string, Regle> = {
   // titre d'habilitation) ; ligne du plan supprimée : exercice, formation, équipe, trimestre et coût, comme plan.supprimer.
   'demande.reouvrir': {
     champs: ['id'], cible: parId('demandesCollab', ['statut']),
-    bilan: (_p, x) => {
+    bilan: async (_p, x) => {
       const defait = ((x.result as { defait?: Ligne } | null)?.defait ?? {}) as Ligne;
-      const l = defait.planId ? x.db.get<Ligne>('planActions', defait.planId) : null;
+      const l = defait.planId ? await x.db.get<Ligne>('planActions', defait.planId) : null;
       return { defait: l ? { ...defait, exercice: l.exercice, f: l.f, equipe: l.equipe, periode: l.periode, cout: l.cout } : defait };
     },
   },
@@ -553,8 +555,8 @@ export const REGLES: Record<string, Regle> = {
   },
   // Import : nombre de déplacements créés et leurs salariés, jamais le CSV.
   'voyages.importer': {
-    etat: db => Number((db.sql.prepare('SELECT MAX(id) AS n FROM voyages').get() as { n: number | null }).n ?? 0),
-    bilan: (_p, x) => ({ deplacements: importes(x).length }), salaries: (_p, x) => importes(x),
+    etat: async db => Number((await db.one('SELECT MAX(id) AS n FROM voyages') as { n: number | null }).n ?? 0),
+    bilan: async (_p, x) => ({ deplacements: (await importes(x)).length }), salaries: async (_p, x) => await importes(x),
   },
   'keystone.accepter': { champs: ['id'], cible: parId('demandesKeystone', ['statut']) },
   'keystone.refuser': { champs: ['id'], cible: parId('demandesKeystone', ['statut']) },
@@ -565,7 +567,7 @@ export const REGLES: Record<string, Regle> = {
   'temps.setCell': {
     champs: ['empId', 'week'], cible: FEUILLE, code: (p, x) => (parAutrui(p, x.user) ? 'temps.correction' : 'temps.ferie'),
     tracer: (p, x) => (parAutrui(p, x.user) || celluleFeriee(p)) && cellule(x.avant, p) !== cellule(x.apres, p),
-    changements: (p, x) => {
+    changements: async (p, x) => {
       const l = (x.apres?.lignes as LigneTemps[] | undefined)?.[Number(p.li)];
       if (!l) return null;
       const jour = addD(String(p.week), Number(p.di)), a = cellule(x.avant, p), b = cellule(x.apres, p), feuille = statutFeuille(x.avant);
@@ -573,7 +575,7 @@ export const REGLES: Record<string, Regle> = {
       const quoi = parAutrui(p, x.user) ? 'Correction d’heures' : 'Heures un jour férié';
       return {
         avant: { heures: a }, apres: { heures: b }, extra: { projet: l.projet, jour, feuille, ...(isFerie(jour) ? { ferie: true } : {}) },
-        message: `${quoi} — ${nomSalarie(x.db, p.empId)}, ${l.projet} le ${fmtIso(jour)}${isFerie(jour) && quoi !== 'Heures un jour férié' ? ' (férié)' : ''} : ${heuresTexte(a)} → ${heuresTexte(b)} (feuille ${etat})`,
+        message: `${quoi} — ${await nomSalarie(x.db, p.empId)}, ${l.projet} le ${fmtIso(jour)}${isFerie(jour) && quoi !== 'Heures un jour férié' ? ' (férié)' : ''} : ${heuresTexte(a)} → ${heuresTexte(b)} (feuille ${etat})`,
       };
     },
   },
@@ -621,9 +623,9 @@ export const REGLES: Record<string, Regle> = {
   },
   // Transmission à la paie : semaines transmises, salarié par salarié (archive paie, historique, export de ses données).
   'temps.pushSage': {
-    etat: db => db.where<FeuilleTemps>('feuilles', 'statut', 'validee').filter(f => !f.sage).map(f => f.id),
-    bilan: (_p, x) => ({ ...lotRetenu(x), feuilles: transmises(x).map(f => ({ empId: f.empId, week: f.week })) }),
-    salaries: (_p, x) => [...new Set([...transmises(x).map(f => f.empId), ...(lotDuResultat(x)?.absences ?? []).map(a => a.empId)])],
+    etat: async db => (await db.where<FeuilleTemps>('feuilles', 'statut', 'validee')).filter(f => !f.sage).map(f => f.id),
+    bilan: async (_p, x) => ({ ...lotRetenu(x), feuilles: (await transmises(x)).map(f => ({ empId: f.empId, week: f.week })) }),
+    salaries: async (_p, x) => [...new Set([...(await transmises(x)).map(f => f.empId), ...(lotDuResultat(x)?.absences ?? []).map(a => a.empId)])],
   },
   // Dérogation au repos dominical d'une équipe : équipe et type (codes) ; de la référence de l'accord, seulement le fait
   // qu'elle soit renseignée.
@@ -661,9 +663,9 @@ export const REGLES: Record<string, Regle> = {
   // envoyé. Masquée à la lecture seule (elle désigne un arrêt de santé : ACTIONS_SANTE).
   'conges.informer': {
     champs: ['id'], cible: parId('absences', []),
-    bilan: (p, x) => {
+    bilan: async (p, x) => {
       // Dernière information de l'arrêt (un arrêt prolongé après l'information en reçoit une autre à son terme).
-      const i = x.db.where<InformationCp>('informationsCp', 'absenceId', Number(p.id)).sort((u, v) => v.id - u.id)[0];
+      const i = (await x.db.where<InformationCp>('informationsCp', 'absenceId', Number(p.id))).sort((u, v) => v.id - u.id)[0];
       return i ? { le: i.le, jours: i.jours, arret: i.arret, limite: i.limite, echeance: i.echeance } : {};
     },
   },
@@ -671,16 +673,16 @@ export const REGLES: Record<string, Regle> = {
   // jamais le motif d'un report imposé (il laisse deviner une absence de santé).
   'conges.cloturer': {
     champs: ['type', 'periode'],
-    etat: db => Number((db.sql.prepare('SELECT MAX(id) AS n FROM clotures').get() as { n: number | null }).n ?? 0),
-    bilan: (_p, x) => ({ lignes: cloturees(x).map(c => ({ empId: c.empId, decision: c.decision, solde: c.solde, reportes: c.reportes, perdus: c.perdus, expire: c.expire })) }),
-    salaries: (_p, x) => cloturees(x).map(c => c.empId),
+    etat: async db => Number((await db.one('SELECT MAX(id) AS n FROM clotures') as { n: number | null }).n ?? 0),
+    bilan: async (_p, x) => ({ lignes: (await cloturees(x)).map(c => ({ empId: c.empId, decision: c.decision, solde: c.solde, reportes: c.reportes, perdus: c.perdus, expire: c.expire })) }),
+    salaries: async (_p, x) => (await cloturees(x)).map(c => c.empId),
   },
   // Jours de fractionnement (t046) : période, puis décision de chaque salarié (crédit et jours, ou renonciation).
   'conges.fractionnement': {
     champs: ['periode'],
-    etat: db => Number((db.sql.prepare('SELECT MAX(id) AS n FROM fractionnements').get() as { n: number | null }).n ?? 0),
-    bilan: (_p, x) => ({ lignes: fractionnementsDecides(x).map(f => ({ empId: f.empId, decision: f.decision, jours: f.jours })) }),
-    salaries: (_p, x) => fractionnementsDecides(x).map(f => f.empId),
+    etat: async db => Number((await db.one('SELECT MAX(id) AS n FROM fractionnements') as { n: number | null }).n ?? 0),
+    bilan: async (_p, x) => ({ lignes: (await fractionnementsDecides(x)).map(f => ({ empId: f.empId, decision: f.decision, jours: f.jours })) }),
+    salaries: async (_p, x) => (await fractionnementsDecides(x)).map(f => f.empId),
   },
   // Entretiens : la section rédigée est nommée, jamais son contenu ; une ligne par compte rendu et par demi-heure.
   'entretien.planifier': { champs: ['empId', 'kind', 'date'] },
@@ -705,8 +707,8 @@ export const REGLES: Record<string, Regle> = {
   // jamais recopié, seulement le fait qu'il soit renseigné. Salariés dont une absence est recalculée (résultat).
   'parametres.feries': {
     extra: p => ({ annee: Number.isInteger(Number(p.annee)) ? Number(p.annee) : null, ...(typeof p.motif === 'string' && p.motif.trim() ? { motif: MENTION_TEXTE } : {}) }),
-    etat: (db, p) => feriesDeLAnnee(db, p.annee),
-    changements: (p, x) => ({ avant: x.etat as Ligne, apres: feriesDeLAnnee(x.db, p.annee) }),
+    etat: async (db, p) => await feriesDeLAnnee(db, p.annee),
+    changements: async (p, x) => ({ avant: x.etat as Ligne, apres: await feriesDeLAnnee(x.db, p.annee) }),
     salaries: (_p, x) => salariesTouches(x),
   },
   'demo.reinitialiser': {},
@@ -719,9 +721,9 @@ export const REGLES: Record<string, Regle> = {
   // Page Confidentialité : nom des champs dont la valeur a réellement changé (l'écran Paramètres envoie toujours les
   // deux), par comparaison du réglage lu avant et après l'action ; jamais leur texte (coordonnées saisies librement).
   'confidentialite.regler': {
-    etat: db => lireConfidentialite(db),
-    bilan: (_p, x) => {
-      const avant = x.etat as ContactsConfidentialite, apres = lireConfidentialite(x.db);
+    etat: async db => await lireConfidentialite(db),
+    bilan: async (_p, x) => {
+      const avant = x.etat as ContactsConfidentialite, apres = await lireConfidentialite(x.db);
       return { champsModifies: (['responsable', 'dpo'] as const).filter(k => avant[k] !== apres[k]) };
     },
   },
@@ -754,9 +756,9 @@ function cellule(f: Ligne | null, p: P): number {
 }
 
 /** Inscrits d'une session de formation (recyclages et formations initiales). */
-function inscrits(db: Db, sessionId: unknown): number[] {
+async function inscrits(db: Db, sessionId: unknown): Promise<number[]> {
   const id = Number(sessionId) || 0;
-  return (db.sql.prepare('SELECT emp_id AS e FROM certifications WHERE session_id = ? UNION SELECT emp_id FROM inscriptions WHERE session_id = ?').all(id, id) as { e: number }[]).map(r => r.e);
+  return (await db.query('SELECT emp_id AS e FROM certifications WHERE session_id = ? UNION SELECT emp_id FROM inscriptions WHERE session_id = ?', [id, id]) as { e: number }[]).map(r => r.e);
 }
 
 /** Retire une nature d'absence (code, médicale ou non) d'un objet tracé, par sécurité (aucune règle n'en recopie). */
@@ -790,10 +792,10 @@ export function champsRetenus(action: string, p: P, avant: Ligne | null = null):
 }
 
 /** Ligne de la cible, lue telle quelle (colonnes de la table). */
-function lireCible(db: Db, c: Cible | undefined, p: P): Ligne | null {
+async function lireCible(db: Db, c: Cible | undefined, p: P): Promise<Ligne | null> {
   if (!c) return null;
-  const cle = c.cle(p, db);
-  return cle == null ? null : db.get<Ligne>(c.table, cle) ?? null;
+  const cle = await c.cle(p, db);
+  return cle == null ? null : await db.get<Ligne>(c.table, cle) ?? null;
 }
 
 /** Anciennes et nouvelles valeurs des colonnes qui ont changé. */
@@ -848,48 +850,47 @@ export function expurgerMessage(m: string | null): string | null {
 /** État lu avant une action : la ligne visée par la règle, et ce que l'action modifie au-delà (`etat`). */
 export interface Trace { action: string; p: P; regle: Regle | undefined; avant: Ligne | null; etat: unknown }
 
-export function preparerTrace(db: Db, action: string, p: unknown): Trace {
+export async function preparerTrace(db: Db, action: string, p: unknown): Promise<Trace> {
   const regle = REGLES[action];
   const params = p && typeof p === 'object' ? (p as P) : {};
-  return { action, p: params, regle, avant: lireCible(db, regle?.cible, params), etat: regle?.etat?.(db, params) };
+  return { action, p: params, regle, avant: await lireCible(db, regle?.cible, params), etat: await regle?.etat?.(db, params) };
 }
 
 /**
  * Trace une action réussie (dans sa transaction) : code, champs retenus, anciennes et nouvelles valeurs,
  * salariés concernés, message expurgé. Rien pour la saisie d'heures du salarié sur sa propre feuille.
  */
-export function journaliserAction(db: Db, t: Trace, x: { user: CurrentUser; compte: Compte; message: string | null; result?: unknown; parDelegation?: number[] }) {
+export async function journaliserAction(db: Db, t: Trace, x: { user: CurrentUser; compte: Compte; message: string | null; result?: unknown; parDelegation?: number[] }) {
   const { regle, p, avant } = t;
-  const ctx: Contexte = { db, user: x.user, avant, apres: lireCible(db, regle?.cible, p), etat: t.etat, result: x.result };
-  if (regle?.tracer && !regle.tracer(p, ctx)) return;
-  const code = regle?.code?.(p, ctx) || t.action;
+  const ctx: Contexte = { db, user: x.user, avant, apres: await lireCible(db, regle?.cible, p), etat: t.etat, result: x.result };
+  if (regle?.tracer && !await regle.tracer(p, ctx)) return;
+  const code = await regle?.code?.(p, ctx) || t.action;
   // Décision prise par le suppléant d'un manager absent (t135) : identifiants des managers remplacés.
   const delegation = x.parDelegation?.length ? { parDelegation: x.parDelegation } : {};
-  const payload = { ...champsRetenus(t.action, p, avant), ...regle?.bilan?.(p, ctx), ...delegation };
-  const propres = regle?.changements?.(p, ctx) ?? null;
+  const payload = { ...champsRetenus(t.action, p, avant), ...await regle?.bilan?.(p, ctx), ...delegation };
+  const propres = await regle?.changements?.(p, ctx) ?? null;
   const diff = propres ?? (regle?.cible ? comparer(regle.cible, avant, ctx.apres) : null);
   if (propres?.extra) Object.assign(payload, propres.extra);
   if (diff) Object.assign(payload, { avant: diff.avant, apres: diff.apres });
-  const salaries = entiers([p.empId, avant?.empId, ctx.apres?.empId, ...(regle?.salaries?.(p, ctx) ?? [])]);
+  const salaries = entiers([p.empId, avant?.empId, ctx.apres?.empId, ...(await regle?.salaries?.(p, ctx) ?? [])]);
   const message = expurgerMessage(propres?.message ?? x.message);
-  if (regle?.regrouper && regrouper(db, { minutes: regle.regrouper, action: code, compteId: x.compte.id, payload })) return;
-  journaliser(db, { actor: x.user.nom, role: x.user.role, action: code, message, payload, compte: x.compte, salaries });
+  if (regle?.regrouper && await regrouper(db, { minutes: regle.regrouper, action: code, compteId: x.compte.id, payload })) return;
+  await journaliser(db, { actor: x.user.nom, role: x.user.role, action: code, message, payload, compte: x.compte, salaries });
 }
 
 /**
  * Ajoute la modification à la dernière ligne du même compte sur le même objet (même valeur de `cle`), si elle date
  * de moins de `minutes` : listes réunies, autres valeurs remplacées, message recalculé au besoin.
  */
-function regrouper(db: Db, o: { minutes: number; action: string; compteId: number; payload: Ligne; cle?: string; message?: (fusion: Ligne) => string }): boolean {
+async function regrouper(db: Db, o: { minutes: number; action: string; compteId: number; payload: Ligne; cle?: string; message?: (fusion: Ligne) => string }): Promise<boolean> {
   const cle = o.cle ?? 'id';
   const depuis = new Date(Date.now() - o.minutes * 60_000).toISOString();
-  const der = db.sql.prepare('SELECT id, payload FROM journal WHERE compte_id = ? AND action = ? AND at >= ? ORDER BY id DESC LIMIT 1')
-    .get(o.compteId, o.action, depuis) as { id: number; payload: string } | undefined;
+  const der = await db.one('SELECT id, payload FROM journal WHERE compte_id = ? AND action = ? AND at >= ? ORDER BY id DESC LIMIT 1', [o.compteId, o.action, depuis]) as { id: number; payload: string } | undefined;
   const prec = der ? lireJson(der.payload) as Ligne : null;
   if (!der || !prec || prec[cle] !== o.payload[cle]) return false;
   const fusion: Ligne = { ...prec };
   for (const [k, v] of Object.entries(o.payload)) fusion[k] = Array.isArray(v) && Array.isArray(prec[k]) ? [...new Set([...prec[k], ...v])] : v;
-  db.update('journal', der.id, { at: new Date().toISOString(), payload: fusion, ...(o.message ? { message: o.message(fusion) } : {}) });
+  await db.update('journal', der.id, { at: new Date().toISOString(), payload: fusion, ...(o.message ? { message: o.message(fusion) } : {}) });
   return true;
 }
 
@@ -897,11 +898,11 @@ function regrouper(db: Db, o: { minutes: number; action: string; compteId: numbe
 const MOTIF_MAX = 200;
 
 /** Refus d'accès (403) d'une personne connectée : action ou écran réservé, motif borné ; rien n'a été modifié. */
-export function tracerRefus(db: Db, id: Pick<Identite, 'user' | 'compte'>, quoi: string, motif: string, extra: { action?: string; p?: unknown } = {}) {
+export async function tracerRefus(db: Db, id: Pick<Identite, 'user' | 'compte'>, quoi: string, motif: string, extra: { action?: string; p?: unknown } = {}) {
   const payload = extra.action ? { action: extra.action, ...champsRetenus(extra.action, extra.p as P) } : {};
   const p = (extra.p ?? {}) as P;
   const court = motif.length > MOTIF_MAX ? `${motif.slice(0, MOTIF_MAX)}…` : motif;
-  journaliser(db, {
+  await journaliser(db, {
     actor: id.user.nom, role: id.user.role, action: 'acces.refuse', message: `${quoi} — ${expurgerMessage(court)}`, payload, compte: id.compte,
     salaries: entiers([p.empId]),
   });
@@ -929,29 +930,28 @@ function bilanTexte(b: BilanConservation): string {
  * Les envois réussis ou simulés de plus d'1 an quittent la file d'envoi. Une ligne par jour résume ce qui a été
  * fait : la tâche tourne toutes les heures, chaque passage s'ajoute au bilan du jour au lieu d'écrire une ligne.
  */
-export function appliquerConservation(db: Db, maintenant = new Date()): BilanConservation {
+export async function appliquerConservation(db: Db, maintenant = new Date()): Promise<BilanConservation> {
   const un = ilYa(maintenant, CONSERVATION_JOURNAL_MOIS), trois = ilYa(maintenant, CONSERVATION_ARCHIVE_PAIE_MOIS);
-  return db.tx(() => {
-    const n = (sql: string, ...a: string[]) => Number(db.sql.prepare(sql).run(...a).changes);
-    const supprimeesArchive = n('DELETE FROM journal WHERE at < ?', trois);
-    const archivees = n('UPDATE journal SET archivee = ? WHERE paie = 1 AND archivee IS NULL AND at < ?', maintenant.toISOString(), un);
-    const supprimees = n('DELETE FROM journal WHERE (paie IS NULL OR paie = 0) AND at < ?', un);
-    const envois = purgerEnvois(db, ilYa(maintenant, CONSERVATION_ENVOIS_MOIS));
+  return await db.tx(async () => {
+    const n = async (sql: string, ...a: string[]) => Number((await db.run(sql, [...a])).changes);
+    const supprimeesArchive = await n('DELETE FROM journal WHERE at < ?', trois);
+    const archivees = await n('UPDATE journal SET archivee = ? WHERE paie = 1 AND archivee IS NULL AND at < ?', maintenant.toISOString(), un);
+    const supprimees = await n('DELETE FROM journal WHERE (paie IS NULL OR paie = 0) AND at < ?', un);
+    const envois = await purgerEnvois(db, ilYa(maintenant, CONSERVATION_ENVOIS_MOIS));
     const b = { supprimees, archivees, supprimeesArchive, envois };
     if (supprimees || archivees || supprimeesArchive || envois) {
       // Bilan du jour (heure locale du serveur) : la ligne déjà écrite aujourd'hui est complétée.
       const minuit = new Date(maintenant);
       minuit.setHours(0, 0, 0, 0);
-      const du = db.sql.prepare('SELECT id, payload FROM journal WHERE action = ? AND at >= ? AND at <= ? ORDER BY id DESC LIMIT 1')
-        .get('journal.conservation', minuit.toISOString(), maintenant.toISOString()) as { id: number; payload: string } | undefined;
+      const du = await db.one('SELECT id, payload FROM journal WHERE action = ? AND at >= ? AND at <= ? ORDER BY id DESC LIMIT 1', ['journal.conservation', minuit.toISOString(), maintenant.toISOString()]) as { id: number; payload: string } | undefined;
       const prec = (du ? lireJson(du.payload) : null) as (BilanConservation & { passages?: number }) | null;
       const total = prec
         ? { supprimees: num(prec.supprimees) + supprimees, archivees: num(prec.archivees) + archivees, supprimeesArchive: num(prec.supprimeesArchive) + supprimeesArchive, envois: num(prec.envois) + envois }
         : b;
       const payload = { ...total, passages: prec ? (prec.passages ?? 1) + 1 : 1 };
       const message = `Durée de conservation : ${bilanTexte(total)}`;
-      if (du && prec) db.update('journal', du.id, { at: maintenant.toISOString(), message, payload });
-      else journaliser(db, { at: maintenant.toISOString(), actor: 'Cursus', role: null, action: 'journal.conservation', message, payload });
+      if (du && prec) await db.update('journal', du.id, { at: maintenant.toISOString(), message, payload });
+      else await journaliser(db, { at: maintenant.toISOString(), actor: 'Cursus', role: null, action: 'journal.conservation', message, payload });
     }
     return b;
   });
@@ -961,9 +961,9 @@ export function appliquerConservation(db: Db, maintenant = new Date()): BilanCon
  * Lignes déjà écrites d'une action devenue « liée à la paie » (ACTIONS_PAIE élargie depuis) : marquées comme telles,
  * pour qu'elles passent dans l'archive au lieu d'être supprimées.
  */
-export function marquerPaie(db: Db): number {
+export async function marquerPaie(db: Db): Promise<number> {
   const dans = ACTIONS_PAIE.map(() => '?').join(', ');
-  return Number(db.sql.prepare(`UPDATE journal SET paie = 1 WHERE (paie IS NULL OR paie = 0) AND (action IN (${dans}) OR action LIKE 'sage.%')`).run(...ACTIONS_PAIE).changes);
+  return Number((await db.run(`UPDATE journal SET paie = 1 WHERE (paie IS NULL OR paie = 0) AND (action IN (${dans}) OR action LIKE 'sage.%')`, [...ACTIONS_PAIE])).changes);
 }
 
 /**
@@ -975,27 +975,27 @@ export function marquerPaie(db: Db): number {
  * n'ont jamais contenu de requête : leur contenu est gardé. Renvoie le nombre de lignes dont le contenu ou le
  * message a été réduit.
  */
-export function reprendreJournal(db: Db): number {
-  if (db.getSetting<boolean>('journalExpurge', false)) return 0;
-  return db.tx(() => {
-    const lignes = db.sql.prepare('SELECT id, action, message, payload FROM journal WHERE salaries IS NULL').all() as { id: number; action: string; message: string | null; payload: string | null }[];
-    const maj = db.sql.prepare('UPDATE journal SET payload = ?, message = ?, salaries = ?, paie = ? WHERE id = ?');
+export async function reprendreJournal(db: Db): Promise<number> {
+  if (await db.getSetting<boolean>('journalExpurge', false)) return 0;
+  return await db.tx(async () => {
+    const lignes = await db.query('SELECT id, action, message, payload FROM journal WHERE salaries IS NULL') as { id: number; action: string; message: string | null; payload: string | null }[];
     let reduites = 0;
     for (const l of lignes) {
       const p = (lireJson(l.payload) ?? {}) as P;
       const regle = REGLES[l.action];
       let payload: Ligne = p, salaries: number[] = [];
       if (regle) {
-        const ligne = lireCible(db, regle.cible, p);
+        const ligne = await lireCible(db, regle.cible, p);
         payload = champsRetenus(l.action, p, null);
         salaries = entiers([p.empId, ligne?.empId, ...participants(p).map(x => x?.empId),
           ...(l.action === 'employe.modifier' ? [p.id] : [])]);
       } else if (!JOURNAL_LABEL[l.action] && !l.action.startsWith('keystone.')) payload = {};
       const message = expurgerMessage(l.message);
       if (JSON.stringify(payload) !== JSON.stringify(p) || message !== l.message) reduites++;
-      maj.run(JSON.stringify(payload), message, JSON.stringify(salaries), estActionPaie(l.action) ? 1 : 0, l.id);
+      await db.run('UPDATE journal SET payload = ?, message = ?, salaries = ?, paie = ? WHERE id = ?',
+        [JSON.stringify(payload), message, JSON.stringify(salaries), estActionPaie(l.action) ? 1 : 0, l.id]);
     }
-    db.setSetting('journalExpurge', true);
+    await db.setSetting('journalExpurge', true);
     return reduites;
   });
 }
@@ -1004,8 +1004,8 @@ export function reprendreJournal(db: Db): number {
  * Au démarrage : reprise des anciennes lignes, conservation appliquée puis relancée toutes les heures. Index du journal
  * (`journal_at`, `journal_action`) : migration nommée (server/src/migrations/exploitation.ts).
  */
-export function demarrerJournal(db: Db) {
-  const reduites = reprendreJournal(db);
+export async function demarrerJournal(db: Db) {
+  const reduites = await reprendreJournal(db);
   if (reduites) {
     // La copie faite avant la migration (et toute sauvegarde antérieure) garde l'ancien journal, non expurgé.
     const copie = copieAvantMigration(db);
@@ -1014,9 +1014,9 @@ export function demarrerJournal(db: Db) {
         ? `La copie ${copie} contient encore l’ancien journal : supprimez-la une fois la mise à jour vérifiée (docs/DEPLOIEMENT.md).`
         : 'Les sauvegardes antérieures contiennent encore l’ancien journal (docs/DEPLOIEMENT.md).'));
   }
-  marquerPaie(db);
-  const appliquer = () => { try { appliquerConservation(db); } catch (err) { console.error('Conservation du journal :', err); } };
-  appliquer();
+  await marquerPaie(db);
+  const appliquer = async () => { try { await appliquerConservation(db); } catch (err) { console.error('Conservation du journal :', err); } };
+  await appliquer();
   setInterval(appliquer, 3600_000).unref();
 }
 
@@ -1103,10 +1103,10 @@ export const TAILLE_MAX = 200;
 export const EXPORT_MAX = 100_000;
 
 /** Page de lignes filtrées, les plus récentes d'abord, et nombre total de lignes du filtre. */
-export function lireJournal(db: Db, f: FiltreJournal, page = 1, taille = TAILLE_PAGE) {
+export async function lireJournal(db: Db, f: FiltreJournal, page = 1, taille = TAILLE_PAGE) {
   const { where, params } = clauses(f);
-  const total = Number((db.sql.prepare(`SELECT COUNT(*) AS n FROM journal ${where}`).get(...params) as { n: number }).n);
-  const lignes = (db.sql.prepare(`SELECT ${COLONNES} FROM journal ${where} ORDER BY id DESC LIMIT ? OFFSET ?`).all(...params, taille, (page - 1) * taille) as Ligne[]).map(decoder);
+  const total = Number((await db.one(`SELECT COUNT(*) AS n FROM journal ${where}`, [...params]) as { n: number }).n);
+  const lignes = (await db.query(`SELECT ${COLONNES} FROM journal ${where} ORDER BY id DESC LIMIT ? OFFSET ?`, [...params, taille, (page - 1) * taille]) as Ligne[]).map(decoder);
   return { lignes, total, page, taille };
 }
 
@@ -1123,9 +1123,9 @@ export function celluleCsv(v: unknown): string {
 const ROLE_LABEL: Record<string, string> = { ...ESPACE_LABEL, rh: 'Service RH', integration: 'Intégration' };
 
 /** Fichier CSV du journal (UTF-8 avec BOM pour Excel) : une ligne par entrée, libellés français. */
-export function csvJournal(db: Db, lignes: LigneJournal[]): string {
+export async function csvJournal(db: Db, lignes: LigneJournal[]): Promise<string> {
   // Salarié désigné par son nom et son matricule de paie (matricule Cursus tant qu'il manque, ou fiche supprimée).
-  const fiches = new Map((db.sql.prepare('SELECT id, nom, matricule_paie AS matriculePaie FROM employes').all() as { id: number; nom: string; matriculePaie: string | null }[]).map(e => [e.id, e]));
+  const fiches = new Map((await db.query('SELECT id, nom, matricule_paie AS matriculePaie FROM employes') as { id: number; nom: string; matriculePaie: string | null }[]).map(e => [e.id, e]));
   const tete = ['Date', 'Heure', 'Auteur', 'Identifiant', 'Espace', 'Action', 'Code', 'Salariés concernés', 'Message', 'Anciennes et nouvelles valeurs', 'Détail', 'Archivée le'];
   const corps = lignes.map(l => {
     const d = new Date(l.at);
@@ -1139,12 +1139,12 @@ export function csvJournal(db: Db, lignes: LigneJournal[]): string {
 }
 
 /** Filtres appliqués, en clair (ligne de journal d'un export ou d'une consultation de l'archive). */
-function filtresTexte(db: Db, f: FiltreJournal): string {
+async function filtresTexte(db: Db, f: FiltreJournal): Promise<string> {
   const parts = [
     f.vue !== 'tout' && { operations: 'opérations', connexions: 'connexions', keystone: 'appels de Keystone', archive: 'archive paie' }[f.vue],
     f.du && `depuis le ${fmtIso(f.du)}`, f.au && `jusqu’au ${fmtIso(f.au)}`, f.auteur && `auteur « ${f.auteur} »`,
     f.action && `action ${f.action.startsWith('famille:') ? FAMILLES_JOURNAL.find(x => x.id === f.action!.slice(8))?.label ?? f.action : libelleAction(f.action)}`,
-    f.salarie && `salarié ${nomSalarie(db, f.salarie)}`,
+    f.salarie && `salarié ${await nomSalarie(db, f.salarie)}`,
   ].filter(Boolean);
   return parts.length ? parts.join(', ') : 'aucun filtre';
 }
@@ -1154,11 +1154,11 @@ function filtresTexte(db: Db, f: FiltreJournal): string {
  * shared/journal.ts), ou réponse 401 / 403 (le refus d'une personne connectée est tracé). Le profil compte, pas
  * l'espace : un profil restreint de l'espace RH (référent HSE, paie) n'a ni le journal ni l'export des données.
  */
-export function exigerRh(db: Db, req: Request, res: Response, quoi: string, autorise: (u: CurrentUser) => boolean = lecteurJournal): Identite | null {
-  const id = identite(db, req);
+export async function exigerRh(db: Db, req: Request, res: Response, quoi: string, autorise: (u: CurrentUser) => boolean = lecteurJournal): Promise<Identite | null> {
+  const id = await identite(db, req);
   if (!id) { res.status(401).json({ error: 'Connexion requise' }); return null; }
   if (!autorise(id.user)) {
-    tracerRefus(db, id, quoi, 'réservé au service RH');
+    await tracerRefus(db, id, quoi, 'réservé au service RH');
     res.status(403).json({ error: 'Réservé au service RH' });
     return null;
   }
@@ -1185,16 +1185,16 @@ export function pourLecteur(u: CurrentUser, lignes: LigneJournal[]): LigneJourna
 }
 
 /** Consultation de l'archive : une ligne par compte et par filtre pendant 15 minutes, avec les pages vues. */
-function tracerArchive(db: Db, id: Identite, f: FiltreJournal, page: number, total: number) {
-  const filtres = filtresTexte(db, f);
+async function tracerArchive(db: Db, id: Identite, f: FiltreJournal, page: number, total: number) {
+  const filtres = await filtresTexte(db, f);
   const message = (x: Ligne) => {
     const pages = (x.pages as number[]).slice().sort((a, b) => a - b);
     const vues = pages.length === 1 && pages[0] === 1 ? '' : ` · ${pages.length > 1 ? 'pages' : 'page'} ${pages.slice(0, 20).join(', ')}${pages.length > 20 ? '…' : ''}`;
     return `Consultation de l’archive paie — ${plural(total, 'ligne', 'lignes')} (${filtres})${vues}`;
   };
   const payload = { filtres, pages: [page] };
-  if (regrouper(db, { minutes: 15, action: 'journal.archive', compteId: id.compte.id, payload, cle: 'filtres', message })) return;
-  journaliser(db, { actor: id.user.nom, role: id.user.role, action: 'journal.archive', message: message(payload), payload, compte: id.compte, salaries: f.salarie ? [f.salarie] : [] });
+  if (await regrouper(db, { minutes: 15, action: 'journal.archive', compteId: id.compte.id, payload, cle: 'filtres', message })) return;
+  await journaliser(db, { actor: id.user.nom, role: id.user.role, action: 'journal.archive', message: message(payload), payload, compte: id.compte, salaries: f.salarie ? [f.salarie] : [] });
 }
 
 /** Fichier joint à télécharger (jamais mis en cache : données personnelles). */
@@ -1209,34 +1209,34 @@ const jourLocal = () => { const d = new Date(); return `${d.getFullYear()}-${Str
 export function routesJournal(db: Db): Router {
   const r = express.Router();
 
-  r.get('/api/journal', (req, res) => {
-    const id = exigerRh(db, req, res, 'Journal des actions');
+  r.get('/api/journal', enSerie(db, async (req: Request, res: Response) => {
+    const id = await exigerRh(db, req, res, 'Journal des actions');
     if (!id) return;
     const f = lireFiltre(req.query as Record<string, unknown>);
     const page = Math.max(1, Math.floor(Number(req.query.page)) || 1);
     const taille = Math.min(TAILLE_MAX, Math.max(1, Math.floor(Number(req.query.taille)) || TAILLE_PAGE));
-    const out = lireJournal(db, f, page, taille);
+    const out = await lireJournal(db, f, page, taille);
     // L'archive n'apparaît qu'à la demande : chaque consultation est tracée, quelle que soit la page lue.
-    if (f.vue === 'archive') tracerArchive(db, id, f, page, out.total);
+    if (f.vue === 'archive') await tracerArchive(db, id, f, page, out.total);
     res.json({ ...out, lignes: pourLecteur(id.user, out.lignes) });
-  });
+  }));
 
-  r.get('/api/journal/csv', (req, res) => {
-    const id = exigerRh(db, req, res, 'Export du journal');
+  r.get('/api/journal/csv', enSerie(db, async (req: Request, res: Response) => {
+    const id = await exigerRh(db, req, res, 'Export du journal');
     if (!id) return;
     const f = lireFiltre(req.query as Record<string, unknown>);
-    const { lignes, total } = lireJournal(db, f, 1, EXPORT_MAX);
-    journaliser(db, {
+    const { lignes, total } = await lireJournal(db, f, 1, EXPORT_MAX);
+    await journaliser(db, {
       actor: id.user.nom, role: id.user.role, action: 'journal.export', compte: id.compte, salaries: f.salarie ? [f.salarie] : [],
-      message: `Export CSV du journal — ${plural(lignes.length, 'ligne', 'lignes')}${total > lignes.length ? ` sur ${total}` : ''} (${filtresTexte(db, f)})`,
+      message: `Export CSV du journal — ${plural(lignes.length, 'ligne', 'lignes')}${total > lignes.length ? ` sur ${total}` : ''} (${await filtresTexte(db, f)})`,
     });
-    fichierJoint(res, 'text/csv; charset=utf-8', `journal${f.vue === 'archive' ? '-archive-paie' : ''}-${jourLocal()}.csv`, csvJournal(db, pourLecteur(id.user, lignes)));
-  });
+    fichierJoint(res, 'text/csv; charset=utf-8', `journal${f.vue === 'archive' ? '-archive-paie' : ''}-${jourLocal()}.csv`, await csvJournal(db, pourLecteur(id.user, lignes)));
+  }));
 
   // Exports et impressions produits par le navigateur (CSV des échéances, liste d'une session, passeport formation,
   // compte rendu d'entretien) : l'interface les signale ici pour qu'ils figurent au journal.
-  r.post('/api/exports', (req, res) => {
-    const id = identite(db, req);
+  r.post('/api/exports', enSerie(db, async (req: Request, res: Response) => {
+    const id = await identite(db, req);
     if (!id) return res.status(401).json({ error: 'Connexion requise' });
     const b = (req.body ?? {}) as P;
     // oxlint-disable-next-line no-control-regex -- caractères de contrôle retirés volontairement d'un texte reçu
@@ -1245,14 +1245,14 @@ export function routesJournal(db: Db): Router {
     const lignes = Number.isInteger(b.lignes) && b.lignes >= 0 ? b.lignes as number : null;
     // Salarié concerné : seulement dans le périmètre de la personne (une trace ne s'ajoute pas à une fiche étrangère).
     const empId = Number(b.empId);
-    const dans = Number.isInteger(empId) && empId > 0 && (id.user.role === 'rh' ? !!db.get('employes', empId) : scopeIds(new Domain(loadFull(db, id.user)), id.user).includes(empId));
-    journaliser(db, {
+    const dans = Number.isInteger(empId) && empId > 0 && (id.user.role === 'rh' ? !!await db.get('employes', empId) : scopeIds(new Domain(await loadFull(db, id.user)), id.user).includes(empId));
+    await journaliser(db, {
       actor: id.user.nom, role: id.user.role, action: 'export', compte: id.compte, salaries: dans ? [empId] : [],
       message: `${b.nature === 'impression' ? 'Impression' : 'Export CSV'} : ${expurgerMessage(titre)}${lignes != null ? ` (${plural(lignes, 'ligne', 'lignes')})` : ''}`,
       payload: { nature: b.nature === 'impression' ? 'impression' : 'csv', ...(lignes != null ? { lignes } : {}) },
     });
     res.status(204).end();
-  });
+  }));
 
   return r;
 }

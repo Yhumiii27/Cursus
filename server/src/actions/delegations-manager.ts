@@ -41,7 +41,7 @@ function managerVise(ctx: Ctx, p: Record<string, any>): number {
  * `perimetre` (codes : absences, feuilles ; entretiens si le réglage l'ouvre). Refus : contrôles de `controleDelegation`,
  * suppléant sans compte actif (il ne pourrait pas se connecter pour décider).
  */
-const creer: ActionHandler = (ctx, p) => {
+const creer: ActionHandler = async (ctx, p) => {
   const managerId = managerVise(ctx, p);
   const suppleantId = p.suppleantId != null && p.suppleantId !== '' ? Number(p.suppleantId) : suppleantPropose(ctx.ds, managerId);
   if (!Number.isInteger(suppleantId) || !suppleantId) throw new ActionError('Choisissez le suppléant');
@@ -49,10 +49,10 @@ const creer: ActionHandler = (ctx, p) => {
   const s = ctx.d.emp(suppleantId);
   const refus = controleDelegation(ctx.ds, { managerId, suppleantId, du: str(p.du), au: str(p.au), perimetre }, { suppleant: s, nom: id => ctx.d.personName(id) });
   if (refus) throw new ActionError(refus);
-  if (!ctx.db.where<Compte>('comptes', 'empId', suppleantId).some(c => c.actif)) {
+  if (!(await ctx.db.where<Compte>('comptes', 'empId', suppleantId)).some(c => c.actif)) {
     throw new ActionError(`${ctx.d.personName(suppleantId)} n’a pas de compte actif dans Cursus : il ne pourrait pas se connecter pour décider`);
   }
-  const g = ctx.db.insert<DelegationValidation>('delegations', {
+  const g = await ctx.db.insert<DelegationValidation>('delegations', {
     managerId, suppleantId, du: str(p.du), au: str(p.au), perimetre: perimetre.filter(estPerimetre) as PerimetreDelegation[],
     creeLe: new Date().toISOString(), creePar: ctx.user.nom, revoqueeLe: null, revoqueePar: null, annonceeLe: null,
   });
@@ -61,16 +61,16 @@ const creer: ActionHandler = (ctx, p) => {
   // sinon, le jour de son début (tâches de fond).
   const commence = g.du <= ctx.d.ti;
   const attente = commence ? enAttenteDuSuppleant({ ...ctx.ds, delegations: [...(ctx.ds.delegations ?? []), g] }, g, ctx.d.ti).length : 0;
-  if (commence) annoncerDelegation({ db: ctx.db, ds: { ...ctx.ds, delegations: [...(ctx.ds.delegations ?? []), g] }, user: ctx.user }, g);
+  if (commence) await annoncerDelegation({ db: ctx.db, ds: { ...ctx.ds, delegations: [...(ctx.ds.delegations ?? []), g] }, user: ctx.user }, g);
   else {
-    notifier(ctx, suppleantId, {
+    await notifier(ctx, suppleantId, {
       type: 'delegation.prevue', objet: `${m} vous délègue ses validations ${periodeLongue(g.du, g.au)}`,
       texte: `${m} vous délègue ses validations (${perimetreTexte(g.perimetre)}) ${periodeLongue(g.du, g.au)}. L’espace Manager de Cursus vous sera ouvert pendant cette période ; un message vous rappellera les demandes en attente le premier jour.`,
     });
   }
   // Enregistrée par le service RH : le manager en est informé.
   if (isRh(ctx)) {
-    notifier(ctx, managerId, {
+    await notifier(ctx, managerId, {
       type: 'delegation.prevue', objet: `Vos validations sont déléguées à ${sup} ${periodeLongue(g.du, g.au)}`,
       texte: `Le service RH a enregistré la délégation de vos validations (${perimetreTexte(g.perimetre)}) à ${sup} ${periodeLongue(g.du, g.au)}. Vous gardez la main pendant cette période.`,
     });
@@ -83,19 +83,19 @@ const creer: ActionHandler = (ctx, p) => {
 };
 
 /** `id` : délégation en cours ou à venir, révoquée aussitôt par le manager qui l'a donnée ou par le service RH. */
-const revoquer: ActionHandler = (ctx, p) => {
+const revoquer: ActionHandler = async (ctx, p) => {
   const g = (ctx.ds.delegations ?? []).find(x => x.id === Number(p.id));
   if (!g) throw new ActionError('Délégation introuvable', 404);
   if (!isRh(ctx) && !(ctx.user.role !== 'rh' && ctx.user.empId === g.managerId)) throw new ActionError('Révocation réservée au manager qui a délégué et au service RH', 403);
   if (g.revoqueeLe) return 'Délégation déjà révoquée';
   if (g.au < ctx.d.ti) throw new ActionError('Délégation déjà terminée');
-  ctx.db.update('delegations', g.id, { revoqueeLe: new Date().toISOString(), revoqueePar: ctx.user.nom });
+  await ctx.db.update('delegations', g.id, { revoqueeLe: new Date().toISOString(), revoqueePar: ctx.user.nom });
   const m = ctx.d.personName(g.managerId), sup = ctx.d.personName(g.suppleantId);
-  notifier(ctx, g.suppleantId, {
+  await notifier(ctx, g.suppleantId, {
     type: 'delegation.fin', objet: `Délégation des validations de ${m} révoquée`,
     texte: `La délégation des validations de ${m} ${periodeLongue(g.du, g.au)} est révoquée : les demandes de son équipe reviennent à ${m}.`,
   });
-  if (isRh(ctx)) notifier(ctx, g.managerId, { type: 'delegation.fin', objet: 'Délégation de vos validations révoquée', texte: `Le service RH a révoqué la délégation de vos validations à ${sup} ${periodeLongue(g.du, g.au)}.` });
+  if (isRh(ctx)) await notifier(ctx, g.managerId, { type: 'delegation.fin', objet: 'Délégation de vos validations révoquée', texte: `Le service RH a révoqué la délégation de vos validations à ${sup} ${periodeLongue(g.du, g.au)}.` });
   return `Délégation à ${sup} révoquée : les validations reviennent à ${m}`;
 };
 

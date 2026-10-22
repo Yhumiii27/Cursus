@@ -7,7 +7,7 @@ import type { ActionResponse, NomAction } from '../../client/src/api.ts';
 import type { DialogState, Store, UiState } from '../../client/src/state/store.tsx';
 import { ACTIONS } from '../../server/src/actions/index.ts';
 import { ActionError, makeCtx } from '../../server/src/actions/context.ts';
-import { Db } from '../../server/src/db.ts';
+import { SqliteDb } from '../../server/src/db.ts';
 import { buildSnapshot, currentUser, loadFull } from '../../server/src/dataset.ts';
 import { seedDemo } from '../../server/src/seed.ts';
 import type { Role } from '../../shared/types.ts';
@@ -20,19 +20,19 @@ export const UI_DEPART: UiState = {
   refOnglet: 'formations', tsJour: null, tris: {},
 };
 
-type User = NonNullable<ReturnType<typeof currentUser>>;
+type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 
 /**
  * Base de démonstration neuve (une par test : les actions y écrivent). Comptes : `null` pour l'administratrice RH
  * (Sandrine Vidal, sans fiche), sinon le salarié du compte (14 gestionnaire RH, 12 manager de la Maintenance, 2
  * collaborateur de la Maintenance).
  */
-export function baseDemo() {
-  const db = new Db(':memory:');
-  seedDemo(db);
-  const personne = (empId: number | null, role: Role): User => {
-    const c = (db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL').get(...(empId ? [empId] : [])) as { id: number }).id;
-    return currentUser(db, { compteId: c, role, methode: 'demo' })!;
+export async function baseDemo() {
+  const db = new SqliteDb(':memory:');
+  await seedDemo(db);
+  const personne = async (empId: number | null, role: Role): Promise<User> => {
+    const c = ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number }).id;
+    return (await currentUser(db, { compteId: c, role, methode: 'demo' }))!;
   };
   return { db, personne };
 }
@@ -49,18 +49,19 @@ export interface Trace {
  * Monte `vue()` pour la personne `user` : magasin posé, puis redessiné après chaque action réussie et chaque
  * changement de `ui` (setUi), avec le nouvel instantané. Rend la trace et l'accès à la base.
  */
-export function monter(db: Db, user: User, vue: () => ReactElement, ui: Partial<UiState> = {}) {
+export async function monter(db: SqliteDb, user: User, vue: () => ReactElement, ui: Partial<UiState> = {}) {
   const trace: Trace = { actions: [], ouverts: [], fermetures: 0, messages: [] };
-  let data = buildSnapshot(db, user);
+  let data = await buildSnapshot(db, user);
   let etat: UiState = { ...UI_DEPART, horizon: data.settings.horizonAlerte, ...ui };
   let redessiner = () => {};
   const notify = (text: string, error = false) => { trace.messages.push({ text, error }); };
   const run = async (name: NomAction, payload: Record<string, unknown> = {}, opts?: { silent?: boolean }): Promise<ActionResponse> => {
     let r: ActionResponse;
     try {
-      const out = db.tx(() => ACTIONS[name](makeCtx(db, user, loadFull(db, user)), payload));
+      // Comme POST /api/actions/:nom : action dans une transaction, puis instantané relu.
+      const out = await db.tx(async () => await ACTIONS[name](makeCtx(db, user, await loadFull(db, user)), payload));
       const message = out && typeof out === 'object' ? out.message : out;
-      data = buildSnapshot(db, user);
+      data = await buildSnapshot(db, user);
       r = { ok: true, message, result: out && typeof out === 'object' ? out.result : undefined, data };
       if (message && !opts?.silent) notify(message);
     } catch (err) {

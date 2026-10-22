@@ -133,7 +133,7 @@ Relancez `npm run app` après une modification du code ou un déplacement du dos
 | `npm run build` puis `npm start` | Production (`NODE_ENV=production`, Windows compris) : l'API sert l'interface compilée sur le port `PORT` (3210 par défaut), derrière un reverse proxy HTTPS — voir `docs/DEPLOIEMENT.md` (service systemd et fichiers prêts à copier de `deploy/`, ou `Dockerfile` facultatif) |
 | `npm test` | Tests des règles métier, des droits d'accès et de la sécurité |
 | `npm run lint` | Contrôle du code par oxlint (`.oxlintrc.json`) : erreurs courantes, règles des hooks React (bloquantes), dépendances des effets (avertissements) |
-| `npm run typecheck` | Vérification TypeScript (noms des actions appelées par le client compris) |
+| `npm run typecheck` | Vérification TypeScript (noms des actions appelées par le client compris), puis contrôle des promesses non attendues (`npm run check:await`, `scripts/verifier-await.mjs`) |
 | `npm run test:coverage` | Tests avec mesure de la couverture du serveur et de `shared/` (client et tests exclus) ; échoue sous les seuils fixés dans `package.json` |
 | `npm run test:client` | Tests du client (`tests/client-*.test.ts` : modules, exécution des actions, rendu des dialogues avec happy-dom et Testing Library) avec mesure de sa couverture, à seuils modestes |
 | `npm run check` | Tout ce que vérifie la CI avant d'accepter une modification : contrôle du code, typage, tests avec seuils de couverture (serveur, puis client), compilation de l'interface |

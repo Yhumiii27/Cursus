@@ -11,7 +11,7 @@ import type { AddressInfo } from 'node:net';
 process.env.CURSUS_TODAY = '2026-10-10';
 
 const express = (await import('express')).default;
-const { Db } = await import('../server/src/db.ts');
+const { SqliteDb: Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -32,30 +32,29 @@ const { JOURNAL_LABEL } = await import('../shared/journal.ts');
 const { RUBRIQUES_PAIE } = await import('../shared/constants.ts');
 const L = await import('../shared/rules/lots-paie.ts');
 type Db = InstanceType<typeof Db>;
-type User = NonNullable<ReturnType<typeof currentUser>>;
+type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 type Format = Parameters<typeof L.fichierLot>[1] & object;
 
 /** Jeu de démonstration ; `run` suit le chemin de POST /api/actions/:nom (trace au journal comprise). */
-function fresh(db: Db = new Db(':memory:')) {
-  seedDemo(db);
-  const compteDe = (empId: number | null) => (db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number }).id;
-  const user = (empId: number | null, role: User['role']) => currentUser(db, { compteId: compteDe(empId), role, methode: 'demo' })!;
-  const run = (u: User, name: string, p: Record<string, unknown>) => db.tx(() => {
-    const t = preparerTrace(db, name, p);
-    const r = ACTIONS[name](makeCtx(db, u, loadFull(db, u)), p);
+async function fresh(db: Db = new Db(':memory:')) {
+  await seedDemo(db);
+  const compteDe = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', empId ? [empId] : [])) as { id: number }).id;
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compteDe(empId), role, methode: 'demo' }))!;
+  const run = async (u: User, name: string, p: Record<string, unknown>) => await db.tx(async () => {
+    const t = await preparerTrace(db, name, p);
+    const r = await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), p);
     const o = typeof r === 'object' && r !== null ? r : { message: r };
-    journaliserAction(db, t, { user: u, compte: db.get('comptes', u.compteId)!, message: o.message ?? null, result: o.result });
+    await journaliserAction(db, t, { user: u, compte: (await db.get('comptes', u.compteId))!, message: o.message ?? null, result: o.result });
     return o.message;
   });
-  const refus = (u: User, name: string, p: Record<string, unknown>, status: number, re?: RegExp) =>
-    assert.throws(() => run(u, name, p), (e: unknown) => e instanceof ActionError && e.status === status && (!re || re.test(e.message)), `${name} : refus ${status}`);
-  return { db, compteDe, run, refus, ADMIN: user(null, 'rh'), PAIE: user(7, 'rh'), GEST: user(14, 'rh') };
+  const refus = async (u: User, name: string, p: Record<string, unknown>, status: number, re?: RegExp) =>
+    await assert.rejects(async () => await run(u, name, p), (e: unknown) => e instanceof ActionError && e.status === status && (!re || re.test(e.message)), `${name} : refus ${status}`);
+  return { db, compteDe, run, refus, ADMIN: await user(null, 'rh'), PAIE: await user(7, 'rh'), GEST: await user(14, 'rh') };
 }
-function avecEnv<T>(env: Record<string, string | undefined>, fn: () => T): T {
+async function avecEnv<T>(env: Record<string, string | undefined>, fn: () => T | Promise<T>): Promise<T> {
   const avant = Object.fromEntries(Object.keys(env).map(k => [k, process.env[k]]));
   Object.entries(env).forEach(([k, v]) => { if (v === undefined) delete process.env[k]; else process.env[k] = v; });
-  try { return fn(); } finally {
+  try { return await fn(); } finally {
     Object.entries(avant).forEach(([k, v]) => { if (v === undefined) delete process.env[k]; else process.env[k] = v; });
   }
 }
@@ -71,11 +70,11 @@ const CONTENU: Parameters<typeof L.fichierLot>[0] = {
 
 // — Mode API et cible « sage » retirés —
 
-test('t019 plus de mode « api » : modes simulation et fichier seulement, sans adresse d’envoi fictive', () => {
+test('t019 plus de mode « api » : modes simulation et fichier seulement, sans adresse d’envoi fictive', async () => {
   assert.deepEqual([...SAGE_MODES], ['simulation', 'fichier']);
   assert.deepEqual(Object.keys(MODES_SAGE), ['simulation', 'fichier']);
-  const { db, ADMIN } = fresh();
-  const d = new Domain(loadFull(db, ADMIN));
+  const { db, ADMIN } = await fresh();
+  const d = new Domain(await loadFull(db, ADMIN));
   const p = buildSagePayload(d, sagePending(d), 'CURSUS-CHIMIE', new Date('2026-10-10T10:00:00Z'), 'fichier');
   assert.ok(!('endpoint' in p), 'aucune adresse « POST /sage-paie/v1/variables »');
   assert.deepEqual([p.dossier, p.mode], ['CURSUS-CHIMIE', 'fichier']);
@@ -87,24 +86,24 @@ test('t024 file d’envoi : Keystone et e-mails seulement, plus de cible « sage
   assert.ok(JOURNAL_LABEL['sage.fichier'], 'le téléchargement du fichier reste tracé');
 });
 
-test('t019 migration : un lot de l’ancien mode « api » passe en mode fichier, une seule fois', () => {
+test('t019 migration : un lot de l’ancien mode « api » passe en mode fichier, une seule fois', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'cursus-mode-api-'));
   try {
     const file = join(dir, 'cursus.db');
     const db = new Db(file);
-    appliquerMigrations(db);
-    seedDemo(db);
+    await appliquerMigrations(db);
+    await seedDemo(db);
     db.sql.close();
     const ancienne = new Db(file);
-    assert.equal(MODE_API_RETIRE.necessaire!(ancienne), false, 'base existante sans lot en mode « api » : notée faite');
+    assert.equal(await MODE_API_RETIRE.necessaire!(ancienne), false, 'base existante sans lot en mode « api » : notée faite');
     // Lot historique repris d'une transmission sous l'ancienne bascule SAGE_URL.
-    const [lot] = ancienne.all<{ id: number }>('lotsPaie');
-    ancienne.sql.prepare(`UPDATE lots_paie SET mode = 'api' WHERE id = ?`).run(lot.id);
-    ancienne.sql.exec(`DELETE FROM migrations WHERE nom = 'lot5-paie-mode-api-retire'`);
-    assert.equal(MODE_API_RETIRE.necessaire!(ancienne), true);
-    assert.deepEqual(appliquerMigrations(ancienne), ['lot5-paie-mode-api-retire']);
-    assert.equal(ancienne.get<{ mode: string }>('lotsPaie', lot.id)!.mode, 'fichier');
-    assert.deepEqual(appliquerMigrations(ancienne), [], 'rien à refaire');
+    const [lot] = await ancienne.all<{ id: number }>('lotsPaie');
+    (await ancienne.run(`UPDATE lots_paie SET mode = 'api' WHERE id = ?`, [lot.id]));
+    await ancienne.exec(`DELETE FROM migrations WHERE nom = 'lot5-paie-mode-api-retire'`);
+    assert.equal(await MODE_API_RETIRE.necessaire!(ancienne), true);
+    assert.deepEqual(await appliquerMigrations(ancienne), ['lot5-paie-mode-api-retire']);
+    assert.equal((await ancienne.get<{ mode: string }>('lotsPaie', lot.id))!.mode, 'fichier');
+    assert.deepEqual(await appliquerMigrations(ancienne), [], 'rien à refaire');
     ancienne.sql.close();
   } finally {
     rmSync(dir, { recursive: true, force: true });
@@ -189,24 +188,24 @@ test('t019 contrôle du format : encodage, dates, colonnes facultatives une fois
 // — Fichier téléchargé —
 
 test('t019 fichier téléchargé en Windows-1252 avec libellés figés à la génération ; UTF-8 sans BOM par défaut', async () => {
-  const { db, compteDe, run, refus, ADMIN, PAIE, GEST } = fresh();
-  for (const code of Object.keys(RUBRIQUES_PAIE)) run(ADMIN, 'paie.rubrique', { code, confirmer: true });
+  const { db, compteDe, run, refus, ADMIN, PAIE, GEST } = await fresh();
+  for (const code of Object.keys(RUBRIQUES_PAIE)) await run(ADMIN, 'paie.rubrique', { code, confirmer: true });
   // Format enregistré avant le lot 5 (sans encodage) : lu avec UTF-8 et les dates par défaut.
-  db.setSetting('formatFichierPaie', { separateur: ';', colonnes: ['matricule', 'periode', 'rubrique', 'quantite'], formatPeriode: 'AAAA-MM', decimale: ',', entete: true });
-  assert.deepEqual([lireFormatFichier(db).encodage, lireFormatFichier(db).formatDate], ['utf-8', 'JJ/MM/AAAA']);
-  const lot = avecEnv({ SAGE_MODE: 'fichier' }, () => {
-    run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
-    return db.all<{ id: number; contenu: { libelles?: Record<string, string> } }>('lotsPaie').at(-1)!;
+  await db.setSetting('formatFichierPaie', { separateur: ';', colonnes: ['matricule', 'periode', 'rubrique', 'quantite'], formatPeriode: 'AAAA-MM', decimale: ',', entete: true });
+  assert.deepEqual([(await lireFormatFichier(db)).encodage, (await lireFormatFichier(db)).formatDate], ['utf-8', 'JJ/MM/AAAA']);
+  const lot = await avecEnv({ SAGE_MODE: 'fichier' }, async () => {
+    await run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
+    return (await db.all<{ id: number; contenu: { libelles?: Record<string, string> } }>('lotsPaie')).at(-1)!;
   });
   assert.equal(lot.contenu.libelles!.HN, 'Heures normales', 'libellés figés avec le contenu');
   const app = express();
-  app.get('/essai/session/:compte', (req, res) => { openSession(db, res, { compteId: Number(req.params.compte), role: 'rh', methode: 'demo' }); res.end(); });
+  app.get('/essai/session/:compte', async (req, res) => { await openSession(db, res, { compteId: Number(req.params.compte), role: 'rh', methode: 'demo' }); res.end(); });
   app.use(routesFichierPaie(db));
   const srv = app.listen(0, '127.0.0.1');
   await new Promise(r => srv.once('listening', r));
   try {
     const base = `http://127.0.0.1:${(srv.address() as AddressInfo).port}`;
-    const cookie = (await fetch(`${base}/essai/session/${compteDe(7)}`)).headers.get('set-cookie')!.split(';')[0];
+    const cookie = (await fetch(`${base}/essai/session/${await compteDe(7)}`)).headers.get('set-cookie')!.split(';')[0];
     const telecharger = async () => {
       const r = await fetch(`${base}/api/paie/lots/${lot.id}/fichier`, { headers: { cookie } });
       assert.equal(r.status, 200);
@@ -216,9 +215,9 @@ test('t019 fichier téléchargé en Windows-1252 avec libellés figés à la gé
     assert.match(utf8.type, /^text\/csv; charset=utf-8/);
     assert.notDeepEqual(Array.from(utf8.octets.slice(0, 3)), [0xef, 0xbb, 0xbf], 'sans BOM');
     // Réglage par la paie (refusé au gestionnaire RH) : Windows-1252 et libellé de la rubrique.
-    refus(GEST, 'paie.formatFichier', { encodage: 'windows-1252' }, 403);
-    refus(PAIE, 'paie.formatFichier', { encodage: 'ansi' }, 400, /Encodage inconnu/);
-    run(PAIE, 'paie.formatFichier', { encodage: 'windows-1252', colonnes: ['matricule', 'periode', 'rubrique', 'libelle', 'quantite', 'debut', 'fin'] });
+    await refus(GEST, 'paie.formatFichier', { encodage: 'windows-1252' }, 403);
+    await refus(PAIE, 'paie.formatFichier', { encodage: 'ansi' }, 400, /Encodage inconnu/);
+    await run(PAIE, 'paie.formatFichier', { encodage: 'windows-1252', colonnes: ['matricule', 'periode', 'rubrique', 'libelle', 'quantite', 'debut', 'fin'] });
     const ansi = await telecharger();
     assert.match(ansi.type, /^text\/csv; charset=windows-1252/);
     const texte = new TextDecoder('windows-1252').decode(ansi.octets);
@@ -228,9 +227,9 @@ test('t019 fichier téléchargé en Windows-1252 avec libellés figés à la gé
     assert.ok(texte.split('\r\n').find(l => l.includes(';HS25;'))!.includes(';Heures supplémentaires payées, majorées à 25 %;'));
     assert.ok(ansi.octets.includes(0xe9));
     assert.ok(!Buffer.from(ansi.octets).includes(Buffer.from([0xc3, 0xa9])), 'aucun caractère encodé en UTF-8');
-    assert.equal(texte, L.fichierLot(db.get<{ contenu: typeof CONTENU }>('lotsPaie', lot.id)!.contenu, lireFormatFichier(db)));
+    assert.equal(texte, L.fichierLot((await db.get<{ contenu: typeof CONTENU }>('lotsPaie', lot.id))!.contenu, await lireFormatFichier(db)));
     // Le journal du téléchargement porte le format (codes seulement).
-    const trace = db.all<{ action: string; payload: Record<string, any> }>('journal').filter(l => l.action === 'sage.fichier').at(-1)!;
+    const trace = (await db.all<{ action: string; payload: Record<string, any> }>('journal')).filter(l => l.action === 'sage.fichier').at(-1)!;
     assert.deepEqual([trace.payload.format.encodage, trace.payload.format.colonnes.includes('libelle')], ['windows-1252', true]);
   } finally {
     await new Promise(r => srv.close(r));

@@ -3,7 +3,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-07';
 
-const { Db } = await import('../server/src/db.ts');
+const { SqliteDb: Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { loadFull } = await import('../server/src/dataset.ts');
 const { Domain } = await import('../shared/domain.ts');
@@ -14,8 +14,8 @@ const { obligations } = await import('../shared/rules/entretiens.ts');
 const { parsePlan, SAMPLE_PLAN_CSV } = await import('../shared/rules/imports.ts');
 
 const db = new Db(':memory:');
-seedDemo(db);
-const ds = loadFull(db, { role: 'rh', empId: null, nom: 'Test', intitule: '' });
+await seedDemo(db);
+const ds = await loadFull(db, { role: 'rh', empId: null, nom: 'Test', intitule: '' });
 const d = new Domain(ds);
 const emps = d.enrich(90, false);
 const byId = (id: number) => emps.find(e => e.id === id)!;

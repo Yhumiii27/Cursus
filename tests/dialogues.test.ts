@@ -10,7 +10,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 const { rangTabulation } = await import('../client/src/components/focus.ts');
 const { erreurDate, erreurEntier, erreurJours, erreursPeriode, erreursSession, erreurTexte } = await import('../client/src/components/controles.ts');
 const C = await import('../client/src/state/confirmations.ts');
-const { Db } = await import('../server/src/db.ts');
+const { SqliteDb: Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -130,69 +130,69 @@ const RH: User = { role: 'rh', empId: null, nom: 'Sandrine Vidal', intitule: '' 
 const KARIM: User = { role: 'manager', empId: 12, nom: 'Karim Haddad', intitule: '' };
 const MEHDI: User = { role: 'collaborateur', empId: 2, nom: 'Mehdi Benali', intitule: '' };
 
-function fresh() {
+async function fresh() {
   const db = new Db(':memory:');
-  seedDemo(db);
-  const run = (user: User, name: string, payload: Record<string, unknown>) => db.tx(() => ACTIONS[name](makeCtx(db, user, loadFull(db, user)), payload));
+  await seedDemo(db);
+  const run = async (user: User, name: string, payload: Record<string, unknown>) => await db.tx(async () => await ACTIONS[name](makeCtx(db, user, await loadFull(db, user)), payload));
   return { db, run };
 }
 
-test('refus d’une absence : motif conservé et montré au salarié comme à son manager', () => {
-  const { db, run } = fresh();
-  const a = db.sql.prepare(`SELECT id FROM absences WHERE emp_id = 2 AND statut = 'demandee'`).get() as { id: number };
-  assert.throws(() => run(KARIM, 'absence.decider', { id: a.id, ok: false, motif: 'x'.repeat(501) }), /Motif trop long/);
-  assert.match(String(run(KARIM, 'absence.decider', { id: a.id, ok: false, motif: '  Période de forte activité ' })), /refusée · motif communiqué au salarié/);
-  const vue = (u: User) => buildSnapshot(db, u).absences.find(x => x.id === a.id);
-  assert.equal(vue(MEHDI)?.motifRefus, 'Période de forte activité');
-  assert.equal(vue(KARIM)?.motifRefus, 'Période de forte activité');
-  assert.equal(vue(MEHDI)?.statut, 'refusee');
+test('refus d’une absence : motif conservé et montré au salarié comme à son manager', async () => {
+  const { db, run } = await fresh();
+  const a = (await db.one(`SELECT id FROM absences WHERE emp_id = 2 AND statut = 'demandee'`)) as { id: number };
+  await assert.rejects(async () => await run(KARIM, 'absence.decider', { id: a.id, ok: false, motif: 'x'.repeat(501) }), /Motif trop long/);
+  assert.match(String(await run(KARIM, 'absence.decider', { id: a.id, ok: false, motif: '  Période de forte activité ' })), /refusée · motif communiqué au salarié/);
+  const vue = async (u: User) => (await buildSnapshot(db, u)).absences.find(x => x.id === a.id);
+  assert.equal((await vue(MEHDI))?.motifRefus, 'Période de forte activité');
+  assert.equal((await vue(KARIM))?.motifRefus, 'Période de forte activité');
+  assert.equal((await vue(MEHDI))?.statut, 'refusee');
   // Validation : aucun motif de refus.
-  const b = db.sql.prepare(`SELECT id FROM absences WHERE emp_id = 1 AND statut = 'demandee'`).get() as { id: number } | undefined;
+  const b = (await db.one(`SELECT id FROM absences WHERE emp_id = 1 AND statut = 'demandee'`)) as { id: number } | undefined;
   if (b) {
-    run(RH, 'absence.decider', { id: b.id, ok: true, motif: 'ignoré' });
-    assert.equal(loadFull(db, RH).absences.find(x => x.id === b.id)?.motifRefus ?? null, null);
+    await run(RH, 'absence.decider', { id: b.id, ok: true, motif: 'ignoré' });
+    assert.equal((await loadFull(db, RH)).absences.find(x => x.id === b.id)?.motifRefus ?? null, null);
   }
 });
 
-test('refus d’une demande au service RH : motif à côté de la réponse, dans l’espace du collaborateur seul', () => {
-  const { db, run } = fresh();
-  const id = db.insert<{ id: number }>('demandesCollab', {
+test('refus d’une demande au service RH : motif à côté de la réponse, dans l’espace du collaborateur seul', async () => {
+  const { db, run } = await fresh();
+  const id = (await db.insert<{ id: number }>('demandesCollab', {
     empId: 2, type: 'habilitation', f: null, h: 'aipr', libelle: null, label: null, sessionId: null, motif: 'Chantier', date: '2026-10-06', statut: 'attente', reponse: null, parId: null,
-  }).id;
-  run(RH, 'demande.refuser', { id, motif: 'Formation AIPR prévue en janvier' });
-  const r = buildSnapshot(db, MEHDI).demandesCollab.find(x => x.id === id)!;
+  })).id;
+  await run(RH, 'demande.refuser', { id, motif: 'Formation AIPR prévue en janvier' });
+  const r = (await buildSnapshot(db, MEHDI)).demandesCollab.find(x => x.id === id)!;
   assert.equal(r.statut, 'refusee');
   assert.equal(r.reponse, 'Refusée par le service RH');
   assert.equal(r.motifRefus, 'Formation AIPR prévue en janvier');
   // Appel sans motif (ancien client, API) : accepté, réponse par défaut seule.
-  const id2 = db.insert<{ id: number }>('demandesCollab', {
+  const id2 = (await db.insert<{ id: number }>('demandesCollab', {
     empId: 2, type: 'habilitation', f: null, h: 'h0b0', libelle: null, label: null, sessionId: null, motif: 'Chantier', date: '2026-10-06', statut: 'attente', reponse: null, parId: null,
-  }).id;
-  run(RH, 'demande.refuser', { id: id2 });
-  assert.equal(loadFull(db, RH).demandesCollab.find(x => x.id === id2)?.motifRefus ?? null, null);
+  })).id;
+  await run(RH, 'demande.refuser', { id: id2 });
+  assert.equal((await loadFull(db, RH)).demandesCollab.find(x => x.id === id2)?.motifRefus ?? null, null);
   // Le manager ne reçoit pas le motif, que la demande vienne du collaborateur ou de lui (la confirmation l'annonce).
-  const id3 = db.insert<{ id: number }>('demandesCollab', {
+  const id3 = (await db.insert<{ id: number }>('demandesCollab', {
     empId: 2, type: 'formation', f: 'sst', h: null, libelle: null, label: null, sessionId: null, motif: 'Équipe', date: '2026-10-06', statut: 'attente', reponse: null, parId: 12,
-  }).id;
-  run(RH, 'demande.refuser', { id: id3, motif: 'Budget engagé' });
-  const vueKarim = buildSnapshot(db, KARIM).demandesCollab;
+  })).id;
+  await run(RH, 'demande.refuser', { id: id3, motif: 'Budget engagé' });
+  const vueKarim = (await buildSnapshot(db, KARIM)).demandesCollab;
   for (const x of [id, id3]) {
     assert.equal(vueKarim.find(y => y.id === x)?.statut, 'refusee');
     assert.equal(vueKarim.find(y => y.id === x)?.motifRefus, null, `demande ${x} : motif réservé au collaborateur`);
   }
-  assert.equal(buildSnapshot(db, MEHDI).demandesCollab.find(x => x.id === id3)?.motifRefus, 'Budget engagé', 'demande faite par le manager');
+  assert.equal((await buildSnapshot(db, MEHDI)).demandesCollab.find(x => x.id === id3)?.motifRefus, 'Budget engagé', 'demande faite par le manager');
 });
 
-test('refus d’une demande Keystone : motif conservé dans Cursus, absent du message envoyé à Keystone', () => {
-  const { db, run } = fresh();
-  const dm = loadFull(db, RH).demandesKeystone.find(x => x.statut === 'attente')!;
+test('refus d’une demande Keystone : motif conservé dans Cursus, absent du message envoyé à Keystone', async () => {
+  const { db, run } = await fresh();
+  const dm = (await loadFull(db, RH)).demandesKeystone.find(x => x.statut === 'attente')!;
   // Le message de l'action, inscrit au journal (lu par le service RH), porte le motif.
-  assert.match(String(run(RH, 'keystone.refuser', { id: dm.id, motif: 'Visa impossible à obtenir à temps' })), / · motif : Visa impossible à obtenir à temps$/);
-  assert.equal(loadFull(db, RH).demandesKeystone.find(x => x.id === dm.id)?.motifRefus, 'Visa impossible à obtenir à temps');
-  const envois = db.sql.prepare(`SELECT contenu FROM envois WHERE type = 'demande.decision'`).all() as { contenu: string }[];
+  assert.match(String(await run(RH, 'keystone.refuser', { id: dm.id, motif: 'Visa impossible à obtenir à temps' })), / · motif : Visa impossible à obtenir à temps$/);
+  assert.equal((await loadFull(db, RH)).demandesKeystone.find(x => x.id === dm.id)?.motifRefus, 'Visa impossible à obtenir à temps');
+  const envois = (await db.query(`SELECT contenu FROM envois WHERE type = 'demande.decision'`)) as { contenu: string }[];
   assert.ok(envois.length > 0);
   assert.ok(envois.every(e => !e.contenu.includes('Visa impossible')), 'texte libre jamais transmis');
-  assert.deepEqual(buildSnapshot(db, KARIM).demandesKeystone, [], 'réservé au service RH');
+  assert.deepEqual((await buildSnapshot(db, KARIM)).demandesKeystone, [], 'réservé au service RH');
 });
 
 // — Garde-fous sur le code des dialogues —

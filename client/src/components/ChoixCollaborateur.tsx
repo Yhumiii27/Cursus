@@ -3,12 +3,15 @@
 // dialogues et des filtres. La saisie cherche dans le nom, le poste, l'équipe et les matricules (components/recherche.ts) ;
 // chaque suggestion montre nom, poste, équipe et matricule, 8 au plus.
 // Clavier : flèches (la liste s'ouvre), Entrée choisit l'option active, Échap referme la liste (puis, au second appui, le
-// dialogue), Tab quitte le champ. Le focus reste dans le champ. En quittant le champ, le texte revient au collaborateur
-// choisi ; un champ vidé revient à « aucun » si la liste le permet (`vide`). Le nom complet tapé ou restauré par le
-// brouillon de reconnexion (state/brouillon.ts) choisit la personne.
+// dialogue), Tab quitte le champ. Le focus reste dans le champ. Le nom complet tapé ou restauré par le brouillon de
+// reconnexion (state/brouillon.ts) choisit la personne, et la liste reste filtrée sur elle. En quittant le champ sans
+// choisir (components/combobox.ts) : un champ obligatoire passe à « aucun » (le formulaire le signale, jamais d'envoi pour
+// la personne choisie avant) ; un filtre revient au collaborateur choisi ; un champ vidé revient à « aucun » si la liste
+// le permet (`vide`).
 import { useId, useMemo, useState, type CSSProperties, type KeyboardEvent, type ReactNode } from 'react';
-import { equipeLabel, matricule, norm } from '../../../shared/format.ts';
+import { equipeLabel, matricule } from '../../../shared/format.ts';
 import type { Employe } from '../../../shared/types.ts';
+import { actifApresSaisie, designePar, enQuittant } from './combobox.ts';
 import { chercherCollaborateurs, deplacer } from './recherche.ts';
 
 /** Ce qu'une suggestion montre d'un collaborateur, et ce que la recherche lit. */
@@ -67,9 +70,11 @@ export function ChoixCollaborateur<T extends Suggere>({ id, emps, valeur, onChan
   const [saisi, setSaisi] = useState(false);
   const [ouvert, setOuvert] = useState(false);
   const [actif, setActif] = useState(-1);
-  // Choix changé hors du champ (autre écran, valeur par défaut posée par le dialogue) : le texte le suit.
+  // Choix changé hors du champ (autre écran, valeur par défaut posée par le dialogue) : le texte le suit. Un choix fait
+  // par le champ lui-même (`emettre`) est noté d'avance : la frappe en cours et la liste filtrée restent.
   const [prec, setPrec] = useState<number | null>(valeur);
   if (prec !== valeur) { setPrec(valeur); setTexte(choisi ? libelle(choisi) : ''); setSaisi(false); }
+  const emettre = (id: number | null) => { setPrec(id); if (id !== valeur) onChange(id); };
 
   // Sans frappe, la liste montre tout le monde (dans l'ordre alphabétique) ; après, ce qui correspond.
   const q = saisi ? texte : '';
@@ -81,7 +86,7 @@ export function ChoixCollaborateur<T extends Suggere>({ id, emps, valeur, onChan
     setSaisi(false);
     setOuvert(false);
     setActif(-1);
-    if ((e?.id ?? null) !== valeur) onChange(e?.id ?? null);
+    emettre(e?.id ?? null);
   };
   const ouvrir = (a: number) => { setOuvert(true); setActif(a); };
   const rang = () => Math.max(0, options.findIndex(e => (e?.id ?? null) === valeur));
@@ -109,19 +114,20 @@ export function ChoixCollaborateur<T extends Suggere>({ id, emps, valeur, onChan
   const onSaisie = (v: string) => {
     setTexte(v);
     setSaisi(true);
-    // Nom complet tapé (ou restauré par le brouillon) : la personne est choisie.
-    const exacts = emps.filter(e => norm(libelle(e)) === norm(v.trim()));
-    if (exacts.length === 1 && exacts[0].id !== valeur) onChange(exacts[0].id);
+    // Nom complet tapé (ou restauré par le brouillon) : la personne est choisie, et l'option active est la sienne.
+    const d = designePar(emps, libelle, v);
+    if (d) emettre(d.id);
     const r = chercherCollaborateurs(emps, v);
-    ouvrir(r.suggestions.length ? (vide && !v.trim() ? -1 : 0) : -1);
+    const opts = vide && !v.trim() ? [null, ...r.suggestions] : r.suggestions;
+    ouvrir(actifApresSaisie(opts, d?.id ?? null, v, !!vide));
   };
   const onQuitter = () => {
     setOuvert(false);
     setActif(-1);
-    if (!saisi) return;
-    if (!texte.trim() && vide) { choisir(null); return; }
-    setTexte(choisi ? libelle(choisi) : '');
-    setSaisi(false);
+    const s = enQuittant({ saisi, texte, designe: designePar(emps, libelle, texte)?.id ?? null, vide: !!vide, requis: !!requis });
+    if (s.type === 'choisir') choisir(s.id == null ? null : emps.find(e => e.id === s.id) ?? null);
+    else if (s.type === 'invalider') emettre(null);
+    else if (s.type === 'restaurer') { setTexte(choisi ? libelle(choisi) : ''); setSaisi(false); }
   };
 
   return (

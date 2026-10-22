@@ -15,6 +15,7 @@ const { norm, texteRecherche, matricule } = await import('../shared/format.ts');
 const tri = await import('../client/src/components/tri.ts');
 const recherche = await import('../client/src/components/recherche.ts');
 const filtres = await import('../client/src/pages/absences-filtres.ts');
+const combo = await import('../client/src/components/combobox.ts');
 type User = NonNullable<ReturnType<typeof currentUser>>;
 type Dataset = ReturnType<typeof buildSnapshot>;
 type Store = NonNullable<Parameters<typeof poserMagasin>[0]>;
@@ -85,6 +86,17 @@ test('tri : un clic trie, un deuxième inverse, un troisième revient à l’ord
   assert.equal(tri.ariaSort(b, 'nom'), 'descending');
   assert.equal(tri.ariaSort(b, 'solde'), undefined);
   assert.equal(tri.ariaSort(null, 'nom'), undefined);
+});
+
+test('tri : l’infobulle annonce l’effet du prochain clic, y compris pour une colonne triée d’abord en décroissant', () => {
+  assert.equal(tri.titreTri(null, 'nom'), 'Trier par cette colonne');
+  assert.equal(tri.titreTri({ col: 'nom', sens: 'asc' }, 'nom'), 'Trié par ordre croissant : cliquer pour inverser');
+  assert.equal(tri.titreTri({ col: 'nom', sens: 'desc' }, 'nom'), 'Trié par ordre décroissant : cliquer pour revenir à l’ordre par défaut');
+  // Soldes, statut… : le premier clic trie en décroissant, le deuxième inverse, le troisième revient à l'ordre par défaut.
+  assert.equal(tri.titreTri({ col: 'solde', sens: 'desc' }, 'solde', 'desc'), 'Trié par ordre décroissant : cliquer pour inverser');
+  assert.equal(tri.titreTri({ col: 'solde', sens: 'asc' }, 'solde', 'desc'), 'Trié par ordre croissant : cliquer pour revenir à l’ordre par défaut');
+  assert.equal(tri.titreTri({ col: 'nom', sens: 'asc' }, 'solde', 'desc'), 'Trier par cette colonne');
+  assert.match(lire('client/src/components/TriListe.tsx'), /title=\{titreTri\(t\.tri, col, premier\)\}/);
 });
 
 test('tri : le choix est gardé par liste dans ui.tris (store.tsx), sans toucher aux autres listes', () => {
@@ -233,6 +245,67 @@ test('recherche : périmètre du rôle (annuaire sans les sortis ; manager : son
   assert.ok(pm.every(e => KARIM.employes.some(x => x.id === e.id)));
 });
 
+test('recherche : l’annuaire s’ouvre sans ses filtres d’équipe et d’état (fiche visible même après « Sortis », compte exact)', () => {
+  // Valeurs par défaut d'INITIAL_UI : l'annuaire ouvert montre tous les présents, comme les suggestions.
+  assert.deepEqual(recherche.ANNUAIRE_SANS_FILTRE, { statut: 'tous', equipe: 'Toutes' });
+  assert.match(lire('client/src/state/store.tsx'), /equipe: 'Toutes', statut: 'tous'/);
+  const g = lire('client/src/layout/RechercheGlobale.tsx');
+  assert.match(g, /go\('collaborateurs', \{ selectedId: id, search: '', \.\.\.ANNUAIRE_SANS_FILTRE \}\)/, 'fiche');
+  assert.match(g, /go\('collaborateurs', \{ selectedId: null, \.\.\.ANNUAIRE_SANS_FILTRE \}\)/, 'voir tout depuis un autre écran');
+  assert.match(g, /setUi\(\{ selectedId: null, \.\.\.ANNUAIRE_SANS_FILTRE \}\)/, 'voir tout depuis l’annuaire');
+  // Filtre « Sortis » et équipe restés en mémoire : après l'ouverture, l'annuaire ne filtre plus que par la recherche.
+  const RH = donnees(null, 'rh');
+  const ui = { statut: 'sortis' as string, equipe: 'Maintenance', search: 'sar' };
+  const apres = { ...ui, ...recherche.ANNUAIRE_SANS_FILTRE };
+  const presents = recherche.perimetreRecherche(RH.employes, 'rh', null, RH.today);
+  const { suggestions, total } = recherche.chercherCollaborateurs(presents, apres.search);
+  assert.ok(suggestions.length > 0);
+  const lignes = presents.filter(e => (apres.equipe === 'Toutes' || e.equipe === apres.equipe) && apres.statut === 'tous' && recherche.correspond(e, apres.search));
+  assert.equal(lignes.length, total, '« Voir tous les résultats (n) » : n lignes');
+  for (const e of suggestions) assert.ok(lignes.some(x => x.id === e.id), `${e.nom} : fiche trouvée dans l’annuaire`);
+});
+
+test('combobox : un nom complet tapé choisit la personne et la garde active (Entrée la confirme, pas le premier nom)', () => {
+  const RH = donnees(null, 'rh');
+  const libelle = (e: { nom: string }) => e.nom;
+  const sarah = RH.employes.find(e => e.nom === 'Sarah Cohen')!;
+  assert.ok(sarah);
+  assert.equal(combo.designePar(RH.employes, libelle, '  sarah COHEN ')?.id, sarah.id, 'accents, casse et espaces ignorés');
+  assert.equal(combo.designePar(RH.employes, libelle, 'Sarah'), null, 'nom partiel : personne');
+  assert.equal(combo.designePar(RH.employes, libelle, ''), null);
+  assert.equal(combo.designePar([{ id: 1, nom: 'A B' }, { id: 2, nom: 'a b' }], libelle, 'A B'), null, 'homonymes : personne');
+  // Après la frappe, la liste reste filtrée sur le texte : l'option active est Sarah Cohen.
+  const { suggestions } = recherche.chercherCollaborateurs(RH.employes, 'Sarah Cohen');
+  const i = combo.actifApresSaisie(suggestions, sarah.id, 'Sarah Cohen', false);
+  assert.equal(suggestions[i].id, sarah.id);
+  // Même avec l'option « aucun » en tête, ou une personne désignée hors des premières suggestions.
+  assert.equal(combo.actifApresSaisie([null, { id: 4 }, { id: sarah.id }], sarah.id, 'Sarah Cohen', true), 2);
+  assert.equal(combo.actifApresSaisie([{ id: 4 }, { id: 5 }], null, 'Mar', false), 0, 'saisie partielle : première suggestion');
+  assert.equal(combo.actifApresSaisie([null, { id: 4 }], null, '', true), -1, 'champ vidé d’une liste avec « aucun »');
+  assert.equal(combo.actifApresSaisie([], null, 'zzz', false), -1);
+  // Le champ ne remet plus `saisi` à faux pour un choix qu'il a fait lui-même (emettre note la valeur d'avance).
+  const c = lire('client/src/components/ChoixCollaborateur.tsx');
+  assert.match(c, /const emettre = \(id: number \| null\) => \{ setPrec\(id\);/);
+  assert.match(c, /if \(d\) emettre\(d\.id\);/);
+  assert.doesNotMatch(c, /onChange\(exacts\[0\]\.id\)/);
+});
+
+test('combobox : une saisie partielle quittée sans choisir ne laisse jamais partir la personne choisie avant', () => {
+  const base = { saisi: true, designe: null, vide: false };
+  // Signaler une absence : « Julien Moreau » par défaut, on tape « Mar » et on clique sur le bouton d'envoi.
+  assert.deepEqual(combo.enQuittant({ ...base, texte: 'Mar', requis: true }), { type: 'invalider' }, 'champ obligatoire : valeur à « aucun »');
+  assert.deepEqual(combo.enQuittant({ ...base, texte: '', requis: true }), { type: 'invalider' }, 'champ obligatoire vidé');
+  assert.deepEqual(combo.enQuittant({ ...base, texte: 'Mar', requis: false }), { type: 'restaurer' }, 'filtre : retour au choix affiché');
+  assert.deepEqual(combo.enQuittant({ ...base, texte: '', vide: true, requis: false }), { type: 'choisir', id: null }, 'liste avec « aucun »');
+  assert.deepEqual(combo.enQuittant({ ...base, texte: 'Sarah Cohen', designe: 23, requis: true }), { type: 'choisir', id: 23 }, 'nom complet');
+  assert.deepEqual(combo.enQuittant({ ...base, saisi: false, texte: 'Julien Moreau', requis: true }), { type: 'rien' });
+  // Les champs des formulaires sont obligatoires ; la valeur « aucun » déclenche l'erreur « Choisissez le collaborateur… ».
+  for (const f of ['client/src/dialogs/AbsSignalDialog.tsx', 'client/src/dialogs/AbsNatureDialog.tsx', 'client/src/dialogs/ReqFormDialog.tsx'])
+    assert.match(lire(f), /<ChoixCollaborateur [^>]*onChange=\{[^}]+\} requis erreur=/, `${f} : requis`);
+  assert.match(lire('client/src/dialogs/AbsSignalDialog.tsx'), /const empErr = !emp \? 'Choisissez le collaborateur absent\.' : null;/);
+  assert.match(lire('client/src/components/ChoixCollaborateur.tsx'), /else if \(s\.type === 'invalider'\) emettre\(null\);/);
+});
+
 test('recherche : flèches en boucle, raccourci « / » hors d’un champ et Ctrl+K ou Cmd+K partout', () => {
   assert.equal(recherche.deplacer(-1, 5, 1), 0, 'première flèche bas : la première option');
   assert.equal(recherche.deplacer(-1, 5, -1), 4, 'première flèche haut : la dernière');
@@ -257,7 +330,7 @@ test('combobox : ARIA 1.2 (combobox, listbox, option active), Échap et Entrée 
     /aria-autocomplete="list"/, /aria-invalid=/, /ev\.stopPropagation\(\)/, /chercherCollaborateurs\(/, /onMouseDown=\{ev => ev\.preventDefault\(\)\}/])
     assert.match(c, m);
   const g = lire('client/src/layout/RechercheGlobale.tsx');
-  for (const m of [/role="combobox"/, /aria-keyshortcuts=/, /go\('collaborateurs', \{ selectedId: id, search: '' \}\)/, /Voir tous les résultats/, /estRaccourciRecherche\(/, /perimetreRecherche\(/])
+  for (const m of [/role="combobox"/, /aria-keyshortcuts=/, /go\('collaborateurs', \{ selectedId: id, search: '', \.\.\.ANNUAIRE_SANS_FILTRE \}\)/, /Voir tous les résultats/, /estRaccourciRecherche\(/, /perimetreRecherche\(/])
     assert.match(g, m);
   // L'en-tête ne redirige plus à la première frappe ; il s'ouvre au manager et aux profils RH qui ont l'annuaire.
   const shell = lire('client/src/layout/Shell.tsx');

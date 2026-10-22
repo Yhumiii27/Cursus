@@ -1,6 +1,8 @@
 // Recherche de l'en-tête (t152) : suggestions de collaborateurs au fil de la frappe, sans quitter l'écran. Entrée ou un
 // clic sur une suggestion ouvre sa fiche ; « Voir tous les résultats » ouvre l'annuaire filtré par la recherche (le texte
-// reste en mémoire, jamais dans l'adresse). Sur l'annuaire, la frappe filtre aussi la liste, comme avant.
+// reste en mémoire, jamais dans l'adresse). Dans les deux cas, les filtres d'équipe et d'état de l'annuaire sont remis à
+// zéro (ANNUAIRE_SANS_FILTRE) : la fiche s'y trouve et le compte est celui des lignes. Sur l'annuaire, la frappe filtre
+// aussi la liste, comme avant.
 // Ouverte au service RH et aux profils de l'espace RH qui ont l'annuaire (vuesDe), et au manager sur son équipe : le jeu de
 // données est déjà limité par le serveur (server/src/dataset.ts), la recherche n'y ajoute rien.
 // Raccourci : « / » hors d'un champ, Ctrl+K ou Cmd+K (components/recherche.ts), sauf pendant un dialogue.
@@ -8,7 +10,7 @@ import { useEffect, useMemo, useRef, useState, type KeyboardEvent } from 'react'
 import { MagnifyingGlassIcon } from '@phosphor-icons/react';
 import type { Dataset, Role } from '../../../shared/types.ts';
 import { ListeSuggestions } from '../components/ChoixCollaborateur.tsx';
-import { chercherCollaborateurs, deplacer, estRaccourciRecherche, perimetreRecherche } from '../components/recherche.ts';
+import { ANNUAIRE_SANS_FILTRE, chercherCollaborateurs, deplacer, estRaccourciRecherche, perimetreRecherche } from '../components/recherche.ts';
 import { useStore } from '../state/store.tsx';
 
 const ID = 'recherche-globale';
@@ -42,8 +44,11 @@ export function RechercheGlobale({ data, role }: { data: Dataset; role: Role }) 
   }, [dialogueOuvert]);
 
   const fermer = () => { setOuvert(false); setActif(-1); };
-  const ouvrirFiche = (id: number) => { fermer(); go('collaborateurs', { selectedId: id, search: '' }); };
-  const voirTout = () => { fermer(); if (view !== 'collaborateurs') go('collaborateurs', { selectedId: null }); else setUi({ selectedId: null }); };
+  const ouvrirFiche = (id: number) => { fermer(); go('collaborateurs', { selectedId: id, search: '', ...ANNUAIRE_SANS_FILTRE }); };
+  const voirTout = () => {
+    fermer();
+    if (view !== 'collaborateurs') go('collaborateurs', { selectedId: null, ...ANNUAIRE_SANS_FILTRE }); else setUi({ selectedId: null, ...ANNUAIRE_SANS_FILTRE });
+  };
   const valider = (i: number) => { if (i === tous) voirTout(); else if (suggestions[i]) ouvrirFiche(suggestions[i].id); };
 
   const onKey = (ev: KeyboardEvent<HTMLInputElement>) => {

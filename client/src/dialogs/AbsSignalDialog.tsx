@@ -46,11 +46,11 @@ export function AbsSignalDialog({ empId }: { empId?: number | null }) {
       <CancelButton />
       <SubmitButton busy={busy}>Signaler l’absence</SubmitButton>
     </>}>
-      <Field label="Collaborateur" htmlFor={empId != null || choix.length <= 1 ? undefined : 'as-emp'} erreur={v.erreur(empErr)}>
+      <Field label="Collaborateur" htmlFor={empId != null || choix.length <= 1 ? undefined : 'as-emp'} requis={empId == null && choix.length > 1} erreur={v.erreur(empErr)}>
         {empId != null || choix.length <= 1
           ? <Static>{emp?.nom ?? '—'}</Static>
           : (
-            <ChoixCollaborateur id="as-emp" emps={choix} valeur={sel} onChange={setSel} erreur={v.erreur(empErr)}
+            <ChoixCollaborateur id="as-emp" emps={choix} valeur={sel} onChange={setSel} requis erreur={v.erreur(empErr)}
               suffixe={e => e.id === me ? ' (moi)' : ''} />
           )}
       </Field>

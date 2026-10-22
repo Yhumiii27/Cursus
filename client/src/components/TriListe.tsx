@@ -4,7 +4,7 @@
 import type { ReactNode } from 'react';
 import { CaretDownIcon, CaretUpDownIcon, CaretUpIcon } from '@phosphor-icons/react';
 import { plural } from '../../../shared/format.ts';
-import { ariaSort, TAILLE_PAGE, type EtatTri, type Pagination, type Sens } from './tri.ts';
+import { ariaSort, TAILLE_PAGE, titreTri, type EtatTri, type Pagination, type Sens } from './tri.ts';
 
 /** En-tête triable : `col` est la clé de la colonne dans la table des colonnes de la liste ; `premier` : sens du premier clic. */
 export function ThTri({ t, col, premier, className, children }: { t: EtatTri; col: string; premier?: Sens; className?: string; children: ReactNode }) {
@@ -13,7 +13,7 @@ export function ThTri({ t, col, premier, className, children }: { t: EtatTri; co
   return (
     <th aria-sort={s} className={className}>
       <button type="button" className={`th-tri${s ? ' actif' : ''}`} onClick={() => t.cliquer(col, premier)}
-        title={s === 'ascending' ? 'Trié par ordre croissant : cliquer pour inverser' : s === 'descending' ? 'Trié par ordre décroissant : cliquer pour revenir à l’ordre par défaut' : 'Trier par cette colonne'}>
+        title={titreTri(t.tri, col, premier)}>
         <span>{children}</span>
         <Icone size={11} weight="bold" aria-hidden="true" />
       </button>

@@ -1,8 +1,9 @@
 // Recherche de collaborateurs au fil de la frappe (t152) : suggestions de la recherche de l'en-tête (layout/RechercheGlobale.tsx)
 // et des listes de salariés des dialogues (components/ChoixCollaborateur.tsx). Filtrage côté client, dans le jeu de
 // données déjà limité par le serveur au périmètre du rôle (server/src/dataset.ts) : aucune API. Même texte cherché que le
-// filtre de Collaborateurs (`texteRecherche` de shared/format.ts : nom, poste, équipe, matricules), si bien que « Voir tous
-// les résultats » montre dans l'annuaire exactement les personnes comptées.
+// filtre de Collaborateurs (`texteRecherche` de shared/format.ts : nom, poste, équipe, matricules), et l'annuaire s'ouvre
+// sans ses filtres d'équipe et d'état (`ANNUAIRE_SANS_FILTRE`), si bien que « Voir tous les résultats » y montre exactement
+// les personnes comptées et qu'une fiche suggérée s'y trouve toujours.
 // Logique sans React, testée sous Node (tests/ergonomie-listes.test.ts) : filtre, ordre, déplacement au clavier, raccourci.
 import { norm, texteRecherche } from '../../../shared/format.ts';
 import { sorti } from '../../../shared/rules/contrats.ts';
@@ -66,3 +67,10 @@ export function estRaccourciRecherche(ev: { key: string; ctrlKey: boolean; metaK
 export function perimetreRecherche(employes: readonly Employe[], role: Role, me: number | null, today: ISODate): Employe[] {
   return employes.filter(e => !sorti(e, today) && !(role === 'manager' && e.id === me));
 }
+
+/**
+ * Filtres de l'annuaire remis à zéro quand la recherche de l'en-tête l'ouvre (fiche ou « Voir tous les résultats ») : un
+ * filtre resté en mémoire (« Sortis », une équipe, « Non conformes ») cacherait la fiche ouverte ou fausserait le compte.
+ * Mêmes valeurs que les défauts d'INITIAL_UI (state/store.tsx).
+ */
+export const ANNUAIRE_SANS_FILTRE = { statut: 'tous', equipe: 'Toutes' } as const;

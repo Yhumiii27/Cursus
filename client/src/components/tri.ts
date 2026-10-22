@@ -64,6 +64,17 @@ export function triSuivant(tri: Tri | null | undefined, col: string, premier: Se
 export const ariaSort = (tri: Tri | null | undefined, col: string): 'ascending' | 'descending' | undefined =>
   tri?.col === col ? (tri.sens === 'asc' ? 'ascending' : 'descending') : undefined;
 
+/**
+ * Infobulle de l'en-tête : le sens actuel et l'effet du prochain clic (`triSuivant`), qui dépend du sens du premier clic
+ * de la colonne (`premier`) : il inverse le tri, ou revient à l'ordre par défaut de l'écran.
+ */
+export function titreTri(tri: Tri | null | undefined, col: string, premier: Sens = 'asc'): string {
+  const s = ariaSort(tri, col);
+  if (!s) return 'Trier par cette colonne';
+  const actuel = s === 'ascending' ? 'Trié par ordre croissant' : 'Trié par ordre décroissant';
+  return `${actuel} : ${triSuivant(tri, col, premier) ? 'cliquer pour inverser' : 'cliquer pour revenir à l’ordre par défaut'}`;
+}
+
 /** Tri d'une liste et son changement par un clic : ce que reçoivent les en-têtes (`<ThTri t={…}>`). */
 export interface EtatTri { tri: Tri | null; cliquer: (col: string, premier?: Sens) => void }
 

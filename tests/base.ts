@@ -8,6 +8,9 @@
 //   CURSUS_TEST_ENGINE=pg CURSUS_TEST_DATABASE_URL=postgres://postgres@127.0.0.1:5432/postgres npm test
 import { after } from 'node:test';
 import { randomBytes } from 'node:crypto';
+import { mkdtempSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
 import pg from 'pg';
 import { type Db, SqliteDb } from '../server/src/db.ts';
 import { ouvrirPostgres, type PgDb } from '../server/src/db-pg.ts';
@@ -18,6 +21,9 @@ export const PG = MOTEUR === 'pg';
 
 const admin = process.env.CURSUS_TEST_DATABASE_URL?.trim();
 if (PG && !admin) throw new Error('CURSUS_TEST_ENGINE=pg : CURSUS_TEST_DATABASE_URL (base d’administration du serveur de test) est requise.');
+// Pièces justificatives d'une base PostgreSQL (aucun fichier de base) : à côté de CURSUS_DB par défaut, jamais dans le
+// dossier data/ du projet pendant les tests.
+if (PG && !process.env.CURSUS_PIECES_DIR) process.env.CURSUS_PIECES_DIR = mkdtempSync(join(tmpdir(), 'cursus-pieces-pg-'));
 
 /** URL de la base `nom` sur le serveur de `url`. */
 export function urlDe(url: string, nom: string): string {

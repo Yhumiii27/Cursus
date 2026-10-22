@@ -484,6 +484,49 @@ sudo docker inspect --format '{{.State.Health.Status}}' cursus  # healthy
   nouvelle version ; retour arrière : relancer l'ancienne image, après restauration de la base si elle a été migrée
   (« Mise à jour », étape 5).
 
+## Variante : serveur PostgreSQL commun EPC2I
+
+Avec `DATABASE_URL`, Cursus n'utilise plus de fichier SQLite : il travaille dans le schéma `cursus` du serveur
+PostgreSQL commun (base `epc2i`, rôle `cursus_app`), partagé avec Keystone, Codex, Vigie et Matrix. Le serveur, ses
+rôles, ses droits et ses sauvegardes relèvent de Matrix (`infra/postgres/README.md` du dépôt Matrix) ; Cursus n'y crée
+ni schéma ni rôle et n'y pose aucun droit.
+
+Prérequis : socle installé (`infra/postgres/init/01` à `03` de Matrix ; copie d'essai dans `infra/postgres-socle/`),
+mot de passe de `cursus_app` connu de l'exploitant, Cursus en version 8.b au moins.
+
+1. **Variables** (service systemd, ou onglet « Environment Variables » de Coolify) :
+   `DATABASE_URL=postgres://cursus_app:<mot de passe>@<hôte>:5432/epc2i` (secret : jamais dans le dépôt ni dans les
+   journaux, que Cursus réduit à l'hôte, au port et à la base), `CURSUS_PG_POOL` au besoin (10 connexions par
+   défaut, à multiplier par le nombre d'instances), les autres variables inchangées. `CURSUS_DEMO` absente en
+   production : la base reste vide jusqu'à la reprise des données ou la création du premier administrateur.
+2. **Premier démarrage** : Cursus applique ses migrations (`server/migrations-pg/`, journal
+   `cursus.schema_migrations`), contrôle le schéma et amorce une base neuve (activités internes, horaires de poste
+   d'exemple). Le journal du démarrage affiche « base PostgreSQL <hôte>:<port>/epc2i, schéma cursus ». Un refus
+   (« schéma cursus absent », « migration inconnue de cette version », colonne manquante) arrête le serveur avant toute
+   écriture. Plusieurs instances peuvent démarrer ensemble : les migrations et les écritures sont protégées par des
+   verrous du serveur.
+3. **Partage** (une fois les migrations passées, puis à chaque version qui modifie une vue `pub_`), depuis le dépôt
+   Matrix, dans cet ordre :
+
+   ```sh
+   psql "postgres://cursus_app:…@<hôte>:5432/epc2i" -v ON_ERROR_STOP=1 -1 -f infra/postgres/partage/20-cursus.sql
+   psql -h <hôte> -U postgres -d epc2i -v ON_ERROR_STOP=1 -f infra/postgres/partage/90-droits.sql
+   psql "postgres://matrix_app:…@<hôte>:5432/epc2i" -v ON_ERROR_STOP=1 -1 -f infra/postgres/partage/95-matrix-journal-unifie.sql
+   psql -h <hôte> -U postgres -d epc2i -c "SELECT gravite, objet, constat FROM droits.verifier() WHERE gravite = 'erreur'"
+   ```
+
+   `20-cursus.sql` recopie les vues de la migration `0002_partage` : le rejouer ne change rien, il échoue clairement
+   si les migrations de Cursus ne sont pas passées. Le fichier à jour est `infra/postgres-partage/20-cursus.sql` de
+   ce dépôt, à reporter dans Matrix. La dernière commande ne doit rien afficher.
+4. **Premier administrateur RH** : `npm run comptes -- admin <identifiant>` avec la même `DATABASE_URL` (dans le
+   conteneur sous Coolify : onglet « Terminal »).
+5. **Sauvegardes** : `npm run backup`, `npm run restore` et `npm run reset-demo` refusent PostgreSQL ; la base est
+   sauvegardée avec le serveur commun (rôle `epc2i_sauvegarde`, `infra/postgres/sauvegarde/` de Matrix). Les pièces
+   justificatives restent des fichiers (`CURSUS_PIECES_DIR`, sinon `pieces/` à côté de `CURSUS_DB`, `/data/pieces` dans le conteneur), dans un volume partagé par toutes les instances : ce volume et
+   sa sauvegarde restent nécessaires.
+
+L'application de bureau (macOS) garde sa base SQLite : elle ignore `DATABASE_URL`.
+
 ## Vérifications après installation
 
 ```bash

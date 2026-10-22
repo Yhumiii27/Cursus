@@ -2,7 +2,7 @@
 // Matrix, docs/architecture-postgres.md § 8.3) : pool `pg`, schéma de l'outil (cursus) par le search_path, migrations
 // SQL de server/migrations-pg/, verrous consultatifs à la place de la file en mémoire de SqliteDb. Même API que
 // l'adaptateur SQLite (classe Db de server/src/db.ts) : le code applicatif ne sait pas sur quel moteur il tourne, sauf
-// pour les quelques fragments SQL propres au moteur que Db fournit (contientEntier, like, jsonTexte).
+// pour les quelques fragments SQL propres au moteur que Db fournit (contientEntier, like, jsonTexte, jsonCleEgale).
 import { AsyncLocalStorage } from 'node:async_hooks';
 import { readdirSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';

@@ -91,12 +91,16 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'plan.supprimer': 'Ligne du plan de formation supprimée (saisie erronée)',
   'plan.cloturerExercice': 'Clôture d’un exercice du plan de formation',
   'budget.enveloppes': 'Enveloppes budgétaires',
+  'formationSuivie.enregistrer': 'Formation suivie enregistrée',
+  'formationSuivie.modifier': 'Formation suivie corrigée',
+  'formationSuivie.annuler': 'Formation suivie supprimée (saisie erronée)',
   // Habilitations
   'hab.delivrer': 'Habilitation délivrée',
   'hab.suspendre': 'Habilitation suspendue',
   'hab.lever': 'Suspension levée',
   'hab.retirer': 'Habilitation retirée',
   'hab.demander': 'Habilitation exigée demandée',
+  'migration.habDelivrances': 'Reprise : historique des habilitations amorcé',
   'medical.demander': 'Visite médicale demandée',
   'medical.annuler': 'Demande de visite annulée',
   'medical.avis': 'Avis du médecin du travail',
@@ -266,8 +270,8 @@ export const dossierComplet = (u: Pick<CurrentUser, 'role' | 'profilRh'>) => dro
 /** Familles du filtre « Action » : codes commençant par l'un des préfixes (ou égaux à l'un d'eux). */
 export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly string[] }[] = [
   { id: 'fiches', label: 'Fiches et équipes', prefixes: ['employe.', 'equipe.', 'migration.contratsHistorique'] },
-  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'migration.coutReel'] },
-  { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.'] },
+  { id: 'formations', label: 'Formations, plan et budget', prefixes: ['plan.', 'cert.', 'session.', 'budget.', 'formationSuivie.', 'migration.coutReel'] },
+  { id: 'habilitations', label: 'Habilitations', prefixes: ['hab.', 'medical.', 'migration.habDelivrances'] },
   { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
   { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement', 'migration.referencesDeplacements', 'chantier.', 'migration.deplacementsPaie'] },
@@ -304,7 +308,8 @@ export const CHAMP_LABEL: Record<string, string> = {
   rtt39: 'Jours de RTT (39 h)', uniquementReglementaire: 'Formations réglementaires seules', partageKeystone: 'Partage des motifs avec Keystone',
   projet: 'Projet', jour: 'Jour',
   // Référentiels
-  court: 'Nom court', validite: 'Validité (mois)', duree: 'Durée', organisme: 'Organisme', cout: 'Coût', validation: 'Validation', detail: 'Précision',
+  court: 'Nom court', validite: 'Validité (mois)', duree: 'Durée', dureeHeures: 'Durée (heures)', modele: 'Modèle du titre imprimé', obligatoire: 'Formation obligatoire',
+  libelle: 'Intitulé', beneficiaires: 'Bénéficiaires', organisme: 'Organisme', cout: 'Coût', validation: 'Validation', detail: 'Précision',
   prereqs: 'Prérequis', medical: 'Aptitude médicale exigée', signataire: 'Signataire', pays: 'Pays', visa: 'Entrée', visaSub: 'Précision sur l’entrée',
   oblig: 'Vaccins obligatoires', rec: 'Vaccins recommandés', passMois: 'Validité du passeport après l’entrée (mois)', secu: 'Sécurité sociale',
   archive: 'Archivée le', vigilance: 'Vigilance (France Diplomatie)', vigilanceLe: 'Vigilance vérifiée le',

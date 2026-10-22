@@ -10,6 +10,7 @@ import { estAuDossier, relireDeclaration, retireeAuRefus } from '../../../shared
 import { refusArchive } from '../../../shared/rules/referentiels.ts';
 import type { Certification, DemandeCollab, Employe, HabTitre, HabType, Inscription, PlanAction, SuiteDemande } from '../../../shared/types.ts';
 import { loadFull } from '../dataset.ts';
+import { auteurDe, inscrireDelivrance } from '../delivrances.ts';
 import { suivreVerdicts } from '../integrations/keystone-verdicts.ts';
 import { annulerSiConvoque, convoquerFormation, notifierDecisionDemande } from '../notifications.ts';
 import { ActionError, type ActionHandler, aDroit, type Ctx, enriched, getEmp, isManagerOf, requireFormations, requireRh, str } from './context.ts';
@@ -120,6 +121,8 @@ const delivrerHab: ActionHandler = (ctx, p) => {
   const entry = { delivree: p.date, par, demande: null, mesure: null, mesureDate: null, mesureMotif: null, mesurePar: null };
   if (existing) ctx.db.update<HabTitre>('habTitres', existing.id, entry);
   const titreId = existing ? existing.id : ctx.db.insert<HabTitre>('habTitres', { empId: emp.id, h: hm.id, ...entry }).id;
+  // Historique (t115, server/src/delivrances.ts) : la délivrance précédente est close, mesure figée ; la nouvelle s'inscrit.
+  inscrireDelivrance(ctx.db, existing, titreId, { empId: emp.id, h: hm.id, delivree: p.date, par }, auteurDe(ctx.user, ctx.d.ti));
   // Titre signé joint (pièce justificative, actions/pieces.ts).
   const pieces = joindrePieces(ctx, p.pieces, 'habTitre', titreId, emp.id);
   // Après un retrait ou une expiration, Keystone a reçu le No Go : il reçoit aussi le verdict rétabli.

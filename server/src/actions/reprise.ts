@@ -7,6 +7,7 @@ import { fmtIso, plural } from '../../../shared/format.ts';
 import { analyserReprise, bilanReprise, estTypeReprise, ISSUE_LABEL, type LigneReprise, REPRISES, RESTRICTION_A_RECOPIER, type TypeReprise } from '../../../shared/rules/reprise.ts';
 import type { Certification, DemandeVisite, Employe, HabTitre, LotReprise, SoldeReprise } from '../../../shared/types.ts';
 import { creerCompte } from '../comptes.ts';
+import { auteurDe, inscrireDelivrance } from '../delivrances.ts';
 import { rattacherFiches } from '../migrations/referentiels.ts';
 import { ActionError, requireRhAdmin, str, type ActionHandler, type Ctx } from './context.ts';
 
@@ -63,8 +64,11 @@ function ecrire(ctx: Ctx, l: LigneReprise, o: { comptes: boolean }): { empId: nu
       return { empId: l.empId! };
     case 'habilitations': {
       const entry = { delivree: w.date, par: w.par, demande: null, mesure: null, mesureDate: null, mesureMotif: null, mesurePar: null };
+      const avant = w.titreId ? ctx.db.get<HabTitre>('habTitres', w.titreId) : null;
       if (w.titreId) ctx.db.update<HabTitre>('habTitres', w.titreId, entry);
-      else ctx.db.insert<HabTitre>('habTitres', { empId: l.empId!, h: w.h, ...entry });
+      const titreId = w.titreId ?? ctx.db.insert<HabTitre>('habTitres', { empId: l.empId!, h: w.h, ...entry }).id;
+      // Historique des délivrances (t115) : la délivrance reprise s'inscrit, une délivrance remplacée est close.
+      inscrireDelivrance(ctx.db, avant, titreId, { empId: l.empId!, h: w.h, delivree: w.date, par: w.par }, auteurDe(ctx.user, ctx.d.ti));
       return { empId: l.empId! };
     }
     case 'visites': {

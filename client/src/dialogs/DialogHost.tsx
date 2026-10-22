@@ -22,6 +22,7 @@ import { EntPlanDialog } from './EntPlanDialog.tsx';
 import { EquipeDialog } from './EquipeDialog.tsx';
 import { ExerciceClotureDialog } from './ExerciceClotureDialog.tsx';
 import { FormaliteDialog } from './FormaliteDialog.tsx';
+import { FormationSuivieDialog } from './FormationSuivieDialog.tsx';
 import { FormatFichierDialog } from './FormatFichierDialog.tsx';
 import { HabDialog } from './HabDialog.tsx';
 import { HabMesureDialog } from './HabMesureDialog.tsx';
@@ -106,6 +107,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'ent': return <EntDialog {...d} />;
     case 'entRemise': return <RemiseDialog {...d} />;
     case 'planRealiser': return <PlanRealiserDialog {...d} />;
+    case 'formationSuivie': return <FormationSuivieDialog {...d} />;
     case 'planLigne': return <PlanLigneDialog {...d} />;
     case 'exerciceCloture': return <ExerciceClotureDialog {...d} />;
     case 'tripImport': return <TripImportDialog />;

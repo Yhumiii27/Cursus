@@ -59,6 +59,8 @@ const demande = (h: string, o: { statut?: string; parId?: number | null } = {}) 
 /** Ligne prévue du plan, sans session rattachée (FCO de la Logistique). */
 const lignePrevue = () => (db.sql.prepare(`SELECT id FROM plan_actions WHERE statut = 'prevu' AND f = 'fco'`).get() as { id: number }).id;
 const titre = (h: string) => db.sql.prepare('SELECT id FROM hab_titres WHERE emp_id = 2 AND h = ?').get(h) as { id: number };
+/** Formation suivie hors catalogue de Mehdi (jeu de démonstration). */
+const suivie = () => (db.sql.prepare('SELECT id FROM formations_suivies WHERE emp_id = 2').get() as { id: number }).id;
 const cert = (f: string) => (db.sql.prepare('SELECT id FROM certifications WHERE emp_id = 2 AND f = ?').get(f) as { id: number }).id;
 /** Poste du référentiel créé depuis les fiches de démonstration. */
 const posteNomme = (nom: string) => (db.sql.prepare('SELECT id FROM postes WHERE nom = ?').get(nom) as { id: number }).id;
@@ -165,6 +167,10 @@ const MATRICE: Ligne[] = [
   // Corrections d'une saisie erronée : modification (service RH, référent HSE), suppression (administrateur RH), motif exigé.
   { action: 'cert.modifier', droits: '                       O    O    -    -    -    -    O    -    -', p: () => ({ id: cert('sst'), date: '2025-05-05', motif: 'Date mal saisie' }) },
   { action: 'cert.annuler', droits: '                        O    -    -    -    -    -    -    -    -', p: () => ({ id: cert('sst'), motif: 'Saisie sur la mauvaise fiche' }) },
+  // Formations suivies (t116) : saisie et correction par le service RH et le référent HSE, suppression par l'administrateur RH.
+  { action: 'formationSuivie.enregistrer', droits: '         O    O    -    -    -    -    O    -    -', p: () => ({ empId: 2, libelle: 'Anglais technique', du: '2026-09-14', au: '2026-09-16', duree: 21 }) },
+  { action: 'formationSuivie.modifier', droits: '            O    O    -    -    -    -    O    -    -', p: () => ({ id: suivie(), duree: 15, motif: 'Durée mal saisie' }) },
+  { action: 'formationSuivie.annuler', droits: '             O    -    -    -    -    -    -    -    -', p: () => ({ id: suivie(), motif: 'Saisie sur la mauvaise fiche' }) },
   { action: 'session.creer', droits: '                       O    O    -    -    -    -    O    -    -', p: () => ({ f: 'sst', date: '2026-12-01', lieu: 'Site de Lyon', places: 8 }) },
   // Sessions : cycle de vie et clôture par le service RH (session 2 : SST du 18 novembre, à confirmer).
   { action: 'session.confirmer', droits: '                   O    O    -    -    -    -    O    -    -', p: () => ({ id: 2 }) },

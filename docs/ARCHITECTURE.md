@@ -56,6 +56,8 @@ shared/            Domaine partagé (aucune dépendance)
                    horaires.ts (lot 6) : horaires de poste, horaire par défaut d'une équipe, horaire du jour d'une feuille
                    historique-contrat.ts : historique des contrats (régime en vigueur à une date, `regimeAu`, avenants
                    programmés) ; cdd.ts : motif de recours, durée maximale et renouvellements d'un CDD, délai de carence
+                   formations-suivies.ts (lot 6) : formations suivies par salarié, hors catalogue comprises, bilan à 8 ans ;
+                   heures-formation.ts (lot 6) : durée en heures, heures d'une session, indicateurs du plan par exercice
 server/src/
   db.ts            Schéma déclaratif SQLite + requêtes génériques (all/get/insert/update/remove/tx)
   migrate.ts       Reprises des bases antérieures, rejouées à chaque démarrage (idempotentes)
@@ -73,6 +75,7 @@ server/src/
                    lot6-paie.ts (lot 6) : déplacements des périodes passées laissés à Sage (date de départ)
                    lot6-horaires.ts (lot 6 : horaires de poste d'exemple amorcés)
                    lot6-contrats.ts (lot 6 : historique des contrats amorcé depuis les fiches et les feuilles figées)
+                   lot6-securite.ts (lot 6 : délivrances d'habilitation en vigueur, durée en heures du catalogue)
   seed.ts          Données de démonstration
   avenants.ts      Historique des contrats : lignes écrites par la fiche, le renouvellement d'un CDD et la sortie, brouillons
                    refigés, avenants programmés appliqués à leur date (au démarrage puis toutes les heures)
@@ -98,6 +101,7 @@ server/src/
                    d'import d'un lot (GET /api/paie/lots/:id/fichier, tracé) ; absences-paie.ts : absences d'un lot (éléments
                    déjà émis, réservation, libération, résumé de l'instantané) ; variables-paie.ts : export CSV des variables
                    d'une période (GET /api/paie/variables/:periode, tracé)
+  delivrances.ts   Historique des délivrances d'habilitation (lot 6) : délivrance précédente close au renouvellement
   elements-lot.ts  Registre des éléments de lot (lot 6) : familles réservées, transmises et libérées par le lot (soldes de
                    sortie : soldes-sortie.ts ; déplacements : deplacements-paie.ts) ; vigilance.ts : alerte d'une destination
                    passée à l'orange ou au rouge
@@ -133,6 +137,8 @@ client/src/
                    media.ts (requête média suivie), heures.ts (cellule d'heures, vue « un jour ») ;
                    Cliquable.tsx (bouton « Ouvrir » d'une ligne cliquable, carte sélectionnable CartePick)
   listes-csv.ts    Exports CSV des listes (annuaire, registre des habilitations, soldes, absences, plan de formation)
+  formations-csv.ts Exports CSV des indicateurs de formation et des formations suivies (lot 6)
+  passeport.ts     Passeport formation imprimé (fiche et portail) ; titre-habilitation.ts : titre d'habilitation à signer
   layout/Shell.tsx Barre latérale, en-tête, notification ; layout/Reconnexion.tsx : session expirée, par-dessus l'écran ;
                    layout/Tiroir.tsx : menu en tiroir sur écran étroit ; layout/navigation.ts : titre de l'onglet, focus
                    sur le titre après un changement de page
@@ -770,13 +776,16 @@ aucun champ du paramètre n'est recopié.
 | `session.modifier` | id, date? (postérieure à aujourd’hui ; session passée, à clôturer : aussi une date passée ; seule, la plage est décalée d’autant), fin?, jours?, horaires? (comme `session.creer` ; nouveau dernier jour sans jours : jours ouvrés), lieu?, places? (≥ inscrits) | RH, référent HSE |
 | `session.annuler` | id, motif? | RH, référent HSE |
 | `session.cloturer` | id (à partir du dernier jour de la session), participants [{empId, present, reussi?}], note? (1 à 5), commentaire?, coutReel? (de l'action du plan qu'elle réalise, service RH seulement ; coût prévu par défaut et pour le référent HSE) | RH, référent HSE |
-| `hab.delivrer` | empId, h, date, par, mode | RH, référent HSE |
+| `hab.delivrer` | empId, h, date, par, mode ; renouvellement : délivrance précédente close à l'historique (`habDelivrances`, mesure figée, jamais le motif) | RH, référent HSE |
+| `formationSuivie.enregistrer` | empId, f (code du catalogue) ou libelle (hors catalogue, 120 caractères), du, au? (du par défaut ; ni l'un ni l'autre à venir), duree? (heures, 0,25 à 2 000), organisme?, obligatoire? (défaut : formation « Réglementaire » du catalogue ; hors catalogue : non), demandeId? (demande hors catalogue acceptée du même salarié, une fois : origine `demande`) ; même formation ou même intitulé le même premier jour : refus ; journal : codes, dates, durée, case, jamais l'intitulé ni l'organisme | RH, référent HSE |
+| `formationSuivie.modifier` | id, champs d'`enregistrer` (absents : inchangés), motif (obligatoire, 500 caractères, jamais au journal) | RH, référent HSE (jamais la sienne) |
+| `formationSuivie.annuler` | id, motif (obligatoire) : gardée en base, hors des calculs ; une demande qu'elle clôt redevient à clore | administrateur RH (jamais la sienne) |
 | `hab.suspendre` | empId, h, motif, date? (aujourd’hui par défaut) | RH, référent HSE ; manager pour un membre de son équipe (jamais lui-même) |
 | `hab.lever` | empId, h | RH, référent HSE |
 | `hab.retirer` | empId, h, motif, date? | RH, référent HSE |
-| `referentiel.formation.enregistrer` | code (création) ou id (modification : le code ne change pas), nom, court, type, validite (mois, 1 à 240), duree?, organisme?, cout?, validation (`presence`/`evaluation`) ; message : titres devenus échus si la validité change, ligne du journal rattachée à leurs titulaires | RH, référent HSE |
+| `referentiel.formation.enregistrer` | code (création) ou id (modification : le code ne change pas), nom, court, type, validite (mois, 1 à 240), duree?, dureeHeures? (t122 : 0,25 à 2 000 ; absente : inchangée, vide : effacée), organisme?, cout?, validation (`presence`/`evaluation`) ; message : titres devenus échus si la validité change, ligne du journal rattachée à leurs titulaires | RH, référent HSE |
 | `referentiel.formation.archiver` | id, archive? (faux : rétablie) ; refusé tant qu'une habilitation en vigueur l'exige en prérequis ou qu'une session est ouverte ; message : demandes des collaborateurs restées en attente | RH, référent HSE |
-| `referentiel.habilitation.enregistrer` | code ou id, nom, detail?, prereqs (formations du catalogue en vigueur ; une habilitation archivée garde ceux déjà inscrits, archivés depuis), medical, validite, signataire (proposé à la délivrance) ; message : titres devenus échus, ligne du journal rattachée à leurs titulaires | RH, référent HSE |
+| `referentiel.habilitation.enregistrer` | code ou id, nom, detail?, prereqs (formations du catalogue en vigueur ; une habilitation archivée garde ceux déjà inscrits, archivés depuis), medical, validite, signataire (proposé à la délivrance), modele? (t115 : `generique`/`electrique`/`conduite`, titre imprimé ; absent : inchangé, générique à la création) ; message : titres devenus échus, ligne du journal rattachée à leurs titulaires | RH, référent HSE |
 | `referentiel.habilitation.archiver` | id, archive? ; rétablissement refusé tant qu'un prérequis est archivé (formation à rétablir d'abord) ; message : titres demandés et demandes restés en attente | RH, référent HSE |
 | `referentiel.destination.enregistrer` | code (pays ISO à deux lettres, pas FR) ou id, pays, visa (`VISA_RULES`), visaSub?, oblig [vaccins], rec [vaccins, sans le DTP], passMois (0 à 24), secu? (vide : selon le code pays), vigilance? (`vert`/`jaune`/`orange`/`rouge`, vide : non renseignée ; absente avec vigilanceLe : inchangée), vigilanceLe? (exigée avec une couleur, pas à venir) ; passage à l'orange ou au rouge : déplacements prévus dans le message et au journal, managers et boîte du service RH notifiés (t068) | RH |
 | `referentiel.destination.archiver` | id, archive? | RH |
@@ -807,7 +816,7 @@ aucun champ du paramètre n'est recopié.
 | `keystone.accepter` / `keystone.refuser` | id ; refus : motif? (conservé dans Cursus, demande et message du journal, jamais transmis à Keystone) | RH (demande en attente ; l'acceptation revalide affectation, chantier actif, destination, effectifs et l'absence de déplacement déjà créé, et est refusée si le salarié est déjà en déplacement ou absent ces jours-là ; la demande reste en base avec statut, date et décideur) |
 | `plan.importer` | texte, exercice, mode (`add`/`replace`) ; exercice clos refusé | RH ; `replace` (supprime les lignes prévues d'origine `import` ; celles issues d'une demande, d'un report ou sans origine sont conservées) : administrateur RH |
 | `budget.enveloppes` | exercice, enveloppes {équipe: montant} ; exercice clos refusé | RH |
-| `plan.avancer` | id, de? (statut affiché : déjà dépassé, rien n'est refait ; revenu à « prévue », refus), coutReel (vers « réalisé », exigé : euros, 0 accepté), effectifReel? ; exercice clos ou action reportée refusés | RH |
+| `plan.avancer` | id, de? (statut affiché : déjà dépassé, rien n'est refait ; revenu à « prévue », refus), coutReel (vers « réalisé », exigé : euros, 0 accepté), effectifReel?, beneficiaires? [empId] avec du, au?, duree? (t116 : formation suivie d'origine `plan` pour chacun, membre de l'équipe de la ligne ou demandeur d'une demande acceptée qui l'a créée ; refus si une session clôturée réalise la ligne) ; exercice clos ou action reportée refusés | RH |
 | `plan.modifier` | id, f? (vide : hors catalogue), libelle?, equipe?, periode? (`T1`…`T4`), effectif? (1 à 1 000), cout? (0 à 1 000 000 €), motif (obligatoire) ; ligne prévue ou engagée d'un exercice ouvert ; une session ouverte rattachée fige la formation | RH |
 | `plan.supprimer` | id, motif (obligatoire) : ligne prévue ou engagée d'un exercice ouvert, sans session ouverte rattachée (l'annuler d'abord) ; gardée en base (`annuleLe`…), hors de l'instantané et des sommes | administrateur RH |
 | `plan.cloturerExercice` | exercice (passé et ouvert : jamais l'exercice en cours), reporter [id] (actions prévues ou engagées à reporter sur l'exercice suivant) | administrateur RH |
@@ -1489,6 +1498,55 @@ Table `postes` (intitulé, `formations` et `habilitations` exigées, `archive`),
 - **Aucune migration nommée** : colonnes nouvelles déclarées dans `TABLES` (vides : décoché, aucun seuil), réglages par
   défaut de `REGLAGES` ; aucune action nouvelle (paramètres ajoutés à `referentiel.poste.enregistrer` et
   `referentiel.equipe.exigences`, journal complété). Démonstration : 4 SST au minimum en Production.
+
+### Formations suivies, titres d'habilitation et heures (lot 6, chantier 4, étape 2)
+
+- **Formations suivies (t116, `shared/rules/formations-suivies.ts`, `server/src/actions/formations-suivies.ts`)** : table
+  `formationsSuivies` (salarié, formation du catalogue `f` ou intitulé hors catalogue `libelle`, du, au, durée en heures,
+  organisme, `obligatoire`, origine `saisie`/`plan`/`demande`/`session`, `planActionId`, `demandeId`, auteur ; correction et
+  annulation motivées comme les certifications). Une formation hors catalogue est « non obligatoire » par défaut, case
+  modifiable. Sources : saisie directe (fiche, service RH et référent HSE), bénéficiaires d'une action du plan réalisée
+  (`plan.avancer`, `PlanRealiserDialog`, membres de l'équipe cochés, demandeur coché d'office), demande hors catalogue
+  acceptée à clore (« Enregistrer la formation suivie », `demandesAClore`). `origine: 'session'` est réservée : une session
+  du catalogue produit des certifications. Bilan à 8 ans (`obligations()`, `formationNonObligatoireDepuis`) : une
+  certification non « Réglementaire » ou une formation suivie non obligatoire terminée depuis 8 ans évite le risque
+  d'abondement correctif (art. L6323-13). Vues (`server/src/dataset.ts`) : service RH tout (annulées comprises) ; référent
+  HSE, lecture seule, manager (son équipe) et intéressé : en vigueur, sans motif ni auteur ; paie : rien. Fiche
+  (`components/FormationsSuivies.tsx`), portail (« Mes formations suivies »), passeport, export CSV (Plan & budget), copie
+  des données (section « Formations suivies », sans l'auteur pour le salarié). Pas de reprise des historiques existants
+  (réponse « pas encore tranché ») : saisie manuelle, ou plus tard un import CSV de reprise sur le modèle de
+  `shared/rules/reprise.ts`.
+- **Délivrances d'habilitation (t115, `server/src/delivrances.ts`)** : table `habDelivrances`, une ligne par délivrance et
+  par renouvellement (date, signataire `par`, échéance calculée à la délivrance, auteur) ; `habTitres` reste le titre en
+  vigueur (Go / No Go, mesures, pièces). Au renouvellement (`hab.delivrer`, reprise depuis Lucca), la délivrance précédente
+  est close (`remplaceeLe`) avec la mesure en cours figée (suspension ou retrait, date ; jamais le motif) ; un titre
+  délivré avant l'historique y est inscrit au moment où il est remplacé. Migration `lot6-securite-hab-delivrances`
+  (`delivrancesDepuisTitres`, aussi pour la démonstration) : délivrance en vigueur de chaque titre délivré, tracée
+  `migration.habDelivrances` ; les délivrances écrasées avant le lot 6 sont perdues. Fiche et passeport : « Habilitations
+  antérieures ». Vues : celles des habilitations, sans l'auteur hors du service RH ; paie : rien.
+- **Titre d'habilitation imprimé (`client/src/titre-habilitation.ts`)** : modèle au référentiel (`HabType.modele` :
+  `electrique` NF C18-510, `conduite` art. R4323-56 / R489 / R486, `generique` par défaut ; démonstration : électrique et
+  autorisations de conduite), choisi dans `RefHabilitationDialog`. Titulaire (nom, fonction, équipe), intitulé, précision
+  (symboles et domaine de tension, catégories), délivrance et validité, prérequis vérifiés (certifications) et aptitude
+  médicale « vérifiée » (jamais l'avis ni les restrictions), mentions du modèle, signatures de l'employeur (`par`) et du
+  titulaire. Imprimé depuis la fiche (« Imprimer le titre », service RH et référent HSE) ou aussitôt après la délivrance
+  (`HabDialog`, case cochée par défaut) ; impression tracée (`POST /api/exports`). Modèles à faire valider par le référent HSE.
+- **Passeport formation (`client/src/passeport.ts`)** : sections communes à la fiche et au portail (« Imprimer mon passeport
+  formation ») : certifications en vigueur et remplacées, habilitations, habilitations antérieures, formations suivies ;
+  impression tracée au journal, rattachée au salarié (le collaborateur sur son propre périmètre).
+- **Durée en heures et indicateurs (t122, `shared/rules/heures-formation.ts`)** : `Formation.dureeHeures` (colonne
+  `duree_heures`), facultative, extraite du texte de la durée quand il en donne une seule (migration
+  `lot6-securite-duree-heures`, `dureeHeuresDe` : « 21 h », « 7 h (MAC) » ; « 2 jours » reste vide), saisie dans
+  `RefFormationDialog`. Heures d'une participation présente : horaires de la session (`heuresSession`), sinon la durée du
+  catalogue ; formation suivie : sa durée, sinon celle du catalogue ; sans l'une ni l'autre, « durée inconnue », signalée.
+  `indicateursFormation(d, exercice)` (année civile) : participations présentes aux sessions clôturées, certifications sans
+  session, formations suivies ; stagiaires, formations et heures par catégorie (`FormationType` ou « Hors catalogue »), par
+  équipe et par statut ; actions du plan hors reportées, réalisées, taux de réalisation, coûts prévu et réalisé. Panneau
+  « Indicateurs de formation » de Plan & budget (`components/IndicateursFormation.tsx`), exports CSV des indicateurs et des
+  formations suivies de l'exercice (`client/src/formations-csv.ts`) ; `csvPlan` gagne « Catégorie » et « Durée (h) ».
+  Indicateurs BDESE seulement (environ 100 salariés : pas de bilan social).
+- **Intégrité et cascade** : `REFERENCES` (`server/src/integrite.ts`) reçoit `emp_id` et `auteur_id` des deux tables, le
+  titre, l'habilitation, la formation, la ligne du plan et la demande.
 
 ## Santé au travail
 

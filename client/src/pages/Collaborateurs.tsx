@@ -26,7 +26,7 @@ import { MandatsFiche } from '../components/Delegation.tsx';
 import { LectureSeule, useLectureSeule } from '../components/Hierarchie.tsx';
 import { ContactUrgenceFiche } from '../components/ContactUrgence.tsx';
 import { ActionsCertification, CertsAnnulees, DemandesFiche } from '../components/Corrections.tsx';
-import { downloadCsv, matriculesImprimes, printDocument } from '../print.ts';
+import { downloadCsv } from '../print.ts';
 import { csvAnnuaire } from '../listes-csv.ts';
 import { useEnriched, useIntentPermis, useRole, useTrips } from '../state/derived.ts';
 import { desinscription, retraitEquipe } from '../state/confirmations.ts';
@@ -36,6 +36,8 @@ import { EchRow } from './Dashboard.tsx';
 import { PiecesFiche } from '../components/PiecesFiche.tsx';
 import { CouverturePanel } from '../components/Couverture.tsx';
 import { CopierLien } from '../components/CopierLien.tsx';
+import { FormationsSuiviesFiche, HabilitationsAnterieures, ImprimerTitre } from '../components/FormationsSuivies.tsx';
+import { imprimerPasseport } from '../passeport.ts';
 
 /** Valeur du filtre d'équipe pour les collaborateurs sans équipe (« À affecter »). */
 const SANS_EQUIPE = '';
@@ -298,14 +300,9 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
   // Confirmation, puis la fiche se ferme : un manager ne voit plus le collaborateur retiré de son équipe.
   const retirer = () => openDialog({ type: 'confirmer', c: retraitEquipe(e.id, e.nom, equipeLabel(e), { selectedId: null }) });
 
+  // Passeport formation : sections communes au portail du salarié (client/src/passeport.ts).
   const passeportFormation = () => {
-    const ok = printDocument(`Passeport formation — ${e.nom}`, `${e.poste} · ${equipeLabel(e)}`, [
-      { title: 'Certifications', table: { head: ['Formation', 'Obtenue le', 'Expire le', 'Statut'], rows: e.rawCerts.map(c => [c.fm.nom, fmt(c.obt), fmt(c.exp), CERT_LABEL[c.key]]) } },
-      ...(e.anciennes.length ? [{ title: 'Certifications remplacées', table: { head: ['Formation', 'Obtenue le', 'Expirait le', 'Remplacée le'], rows: e.anciennes.map(c => [c.fm.nom, fmt(c.obt), fmt(c.exp), fmt(c.remplacee!)]) } }] : []),
-      // Le motif d'une suspension ou d'un retrait n'est pas imprimé : seuls l'état et sa date figurent au passeport.
-      ...(e.habs.length ? [{ title: 'Habilitations', table: { head: ['Habilitation', 'Délivrée le', 'Par', 'Expire le', 'Statut'], rows: e.habs.map(h => [h.hm.nom, h.delivree ? fmt(parse(h.delivree)) : '—', h.par ?? '—', h.exp ? fmt(h.exp) : '—', HAB_LABEL[h.key] + (h.mesureLe ? ` le ${fmt(h.mesureLe)}` : '')]) } }] : []),
-    ], e.id, matriculesImprimes(e));
-    if (!ok) notify('Autorisez les fenêtres surgissantes pour imprimer le passeport formation', true);
+    if (!imprimerPasseport(d, e)) notify('Autorisez les fenêtres surgissantes pour imprimer le passeport formation', true);
   };
 
   return (
@@ -476,9 +473,10 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
                   <Tag cls={HAB_CLS[h.key]} style={{ flex: 'none' }}>{HAB_LABEL[h.key]}</Tag>
                 </div>
                 {h.note && <NoteAccent>{h.note}</NoteAccent>}
-                {(a || redelivrer || mesures.length > 0) && (
+                {(a || redelivrer || mesures.length > 0 || (formations && h.delivree)) && (
                   <div className="actions-end">
                     {a && <button type="button" className="btn btn-ghost btn-sm" onClick={() => runProposal(a)}>{a.label}</button>}
+                    <ImprimerTitre e={e} h={h} />
                     {redelivrer && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'hab', empId: e.id, h: h.h, mode: 'deliver' })}>Nouvelle délivrance</button>}
                     {mesures.map(m => (
                       <button key={m} type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'habMesure', empId: e.id, h: h.h, action: m })}>{HAB_MESURE_LABEL[m]}</button>
@@ -490,6 +488,10 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
           })}
         </div>
       </>}
+
+      {/* Délivrances remplacées par un renouvellement (t115) et formations suivies, hors catalogue comprises (t116). */}
+      <HabilitationsAnterieures e={e} />
+      <FormationsSuiviesFiche e={e} parti={parti} />
 
       <PiecesFiche empId={e.id} parti={parti} />
 

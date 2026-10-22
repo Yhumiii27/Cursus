@@ -12,7 +12,8 @@
 import { SECU_RULES, VACCINS, VISA_RULES } from '../constants.ts';
 import { Domain, type EmpX } from '../domain.ts';
 import { key } from '../format.ts';
-import type { Dataset, Destination, Formation, FormationType, HabType, ISODate, SecuDetachement, VaccinId, ValidationMode, VisaKind } from '../types.ts';
+import type { Dataset, Destination, Formation, FormationType, HabType, ISODate, ModeleTitre, SecuDetachement, VaccinId, ValidationMode, VisaKind } from '../types.ts';
+import { DUREE_HEURES_MAX, dureeValide } from './heures-formation.ts';
 import { controlerVigilance } from './vigilance.ts';
 
 export type ReferentielId = 'formations' | 'habilitations' | 'destinations';
@@ -122,7 +123,7 @@ function codeNouveau(e: Erreurs<string>, code: string, pris: Iterable<string>, o
   else if ([...pris].includes(code)) e.code = `Ce code désigne déjà ${opts.nature} (archivée comprise).`;
 }
 
-export type ChampFormation = 'code' | 'nom' | 'court' | 'type' | 'validite' | 'duree' | 'organisme' | 'cout' | 'validation';
+export type ChampFormation = 'code' | 'nom' | 'court' | 'type' | 'validite' | 'duree' | 'organisme' | 'cout' | 'validation' | 'dureeHeures';
 export type SaisieFormation = Partial<Record<ChampFormation, Saisie>>;
 
 /**
@@ -148,14 +149,22 @@ export function controlerFormation(s: SaisieFormation, existantes: readonly Form
   if (!Number.isFinite(cout) || cout < 0 || cout > 100_000) e.cout = 'Coût en euros : nombre de 0 à 100 000.';
   const validation = texte(s.validation) as ValidationMode;
   if (!MODES_VALIDATION.includes(validation)) e.validation = 'Choisissez le mode de validation.';
+  // Durée en heures (t122), facultative : absente de la saisie, inchangée ; vide, effacée.
+  const dureeHeures = s.dureeHeures === undefined ? avant?.dureeHeures ?? null : texte(s.dureeHeures) === '' ? null : nombre(s.dureeHeures);
+  if (dureeHeures !== null && !dureeValide(dureeHeures)) e.dureeHeures = `Durée en heures : nombre de 0,25 à ${DUREE_HEURES_MAX.toLocaleString('fr-FR')}.`;
   if (Object.keys(e).length) return { erreurs: e, formation: null };
   return {
     erreurs: e,
-    formation: { id: code, nom, court, type, validite, duree, organisme, cout: Math.round(cout * 100) / 100, validation, archive: avant?.archive ?? null },
+    formation: {
+      id: code, nom, court, type, validite, duree, organisme, cout: Math.round(cout * 100) / 100, validation, archive: avant?.archive ?? null,
+      dureeHeures: dureeHeures === null ? null : Math.round(dureeHeures * 100) / 100,
+    },
   };
 }
 
-export type ChampHabilitation = 'code' | 'nom' | 'detail' | 'prereqs' | 'medical' | 'validite' | 'signataire' | 'sir';
+export type ChampHabilitation = 'code' | 'nom' | 'detail' | 'prereqs' | 'medical' | 'validite' | 'signataire' | 'sir' | 'modele';
+/** Modèles du titre imprimé (t115) : générique par défaut. */
+export const MODELES_TITRE: readonly ModeleTitre[] = ['generique', 'electrique', 'conduite'];
 export type SaisieHabilitation = Partial<Record<ChampHabilitation, Saisie>>;
 
 /**
@@ -182,6 +191,9 @@ export function controlerHabilitation(
   if (inconnus.length) e.prereqs = `Formation inconnue ou archivée : ${inconnus.join(', ')}.`;
   const validite = validiteMois(e, s.validite);
   texteRequis(e, 'signataire', signataire, 80, 'Indiquez le signataire proposé par défaut (employeur).');
+  // Modèle du titre imprimé (t115) : absent de la saisie, inchangé (générique pour une nouvelle habilitation).
+  const modele = (s.modele === undefined || s.modele === null || s.modele === '' ? avant?.modele ?? 'generique' : texte(s.modele)) as ModeleTitre;
+  if (!MODELES_TITRE.includes(modele)) e.modele = 'Choisissez le modèle du titre imprimé.';
   if (Object.keys(e).length) return { erreurs: e, habilitation: null };
   return {
     erreurs: e,
@@ -189,6 +201,7 @@ export function controlerHabilitation(
       id: code, nom, detail, prereqs, medical: s.medical === true || s.medical === 'true', validite, signataire, archive: avant?.archive ?? null,
       // Suivi individuel renforcé de ses titulaires (shared/rules/suivi-medical.ts) : décoché par défaut.
       sir: s.sir === true || s.sir === 'true',
+      modele,
     },
   };
 }

@@ -1,16 +1,18 @@
 // Écran Référentiels : nouvelle habilitation, ou modification d'une habilitation (son code ne change plus) :
 // formations prérequises prises dans le catalogue, aptitude médicale exigée, validité, signataire proposé par défaut
-// à la délivrance, suivi individuel renforcé de ses titulaires (case décochée par défaut). Une règle modifiée (validité, prérequis, aptitude) vaut aussi pour les titres déjà délivrés :
+// à la délivrance, suivi individuel renforcé de ses titulaires (case décochée par défaut), modèle du titre imprimé (t115). Une règle modifiée (validité, prérequis, aptitude) vaut aussi pour les titres déjà délivrés :
 // ceux qui deviennent non valides sont annoncés, et l'enregistrement se confirme.
 import { useMemo, useState } from 'react';
 import { plural, validiteLabel } from '../../../shared/format.ts';
 import {
-  actif, codeSuggere, controlerHabilitation, effetModification, titresTexte, VALIDITE_MAX, type ChampHabilitation,
+  actif, codeSuggere, controlerHabilitation, effetModification, MODELES_TITRE, titresTexte, VALIDITE_MAX, type ChampHabilitation,
 } from '../../../shared/rules/referentiels.ts';
 import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
 import { Fine, NoteAccent } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { MODELE_TITRE_LABEL } from '../titre-habilitation.ts';
+import type { ModeleTitre } from '../../../shared/types.ts';
 
 export function RefHabilitationDialog({ id }: { id?: string | null }) {
   const d = useDomain();
@@ -25,6 +27,8 @@ export function RefHabilitationDialog({ id }: { id?: string | null }) {
   const [sir, setSir] = useState(avant?.sir ?? false);
   const [validite, setValidite] = useState(avant ? String(avant.validite) : '');
   const [signataire, setSignataire] = useState(avant?.signataire ?? '');
+  // Modèle du titre imprimé à la délivrance (t115) : générique par défaut.
+  const [modele, setModele] = useState<ModeleTitre>(avant?.modele ?? 'generique');
   const [busy, setBusy] = useState(false);
   const [confirmer, setConfirmer] = useState(false);
   const v = useVerification();
@@ -36,7 +40,7 @@ export function RefHabilitationDialog({ id }: { id?: string | null }) {
   const propose = nom.trim() ? codeSuggere(nom, liste.map(h => h.id)) : '';
   const codeFinal = code.trim() || propose;
   // Prérequis dans l'ordre du catalogue, quel que soit l'ordre des cases cochées.
-  const champs = { nom, detail, prereqs: formations.map(f => f.id).filter(f => prereqs.includes(f)), medical, validite, signataire, sir };
+  const champs = { nom, detail, prereqs: formations.map(f => f.id).filter(f => prereqs.includes(f)), medical, validite, signataire, sir, modele };
   const { erreurs, habilitation } = controlerHabilitation({ ...champs, code: codeFinal }, liste, d.ds.referentiels.formations, avant?.id ?? null);
   const erreur = (k: ChampHabilitation, saisi: string) => (saisi.trim() ? erreurs[k] ?? null : v.erreur(erreurs[k]));
   const n = Number(validite);
@@ -117,8 +121,14 @@ export function RefHabilitationDialog({ id }: { id?: string | null }) {
             <input className="input" id="rhab-signataire" type="text" value={signataire} maxLength={80} placeholder="Responsable maintenance" onChange={e => setSignataire(e.target.value)} />
           </Field>
         </div>
+        <Field label="Modèle du titre imprimé" htmlFor="rhab-modele" erreur={v.erreur(erreurs.modele)}>
+          <select className="input" id="rhab-modele" value={modele} onChange={e => setModele(e.target.value as ModeleTitre)}>
+            {MODELES_TITRE.map(m => <option key={m} value={m}>{MODELE_TITRE_LABEL[m]}</option>)}
+          </select>
+        </Field>
         <Fine>
           {Number.isInteger(n) && n >= 1 && n <= VALIDITE_MAX ? `Validité : ${validiteLabel(n)}. ` : ''}
+          Modèles de titre à faire valider par le référent HSE.{' '}
           Le signataire est proposé à chaque délivrance, modifiable.{' '}
           {avant
             ? 'Validité, prérequis et aptitude valent aussi pour les titres déjà délivrés.'

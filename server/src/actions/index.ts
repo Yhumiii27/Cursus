@@ -40,6 +40,7 @@ import { deplacementsPaieActions } from './deplacements-paie.ts';
 import { contactUrgenceActions } from './contact-urgence.ts';
 import { feriesActions } from './feries.ts';
 import { horairesActions } from './horaires.ts';
+import { formationsSuiviesActions } from './formations-suivies.ts';
 
 export const ACTIONS: Record<string, ActionHandler> = {
   ...conformiteActions,
@@ -82,13 +83,14 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...contactUrgenceActions,
   ...feriesActions,
   ...horairesActions,
+  ...formationsSuiviesActions,
 };
 
 /**
  * Familles d'actions sans effet sur un verdict Go / No Go (temps, compteurs de congés, entretiens, budget, équipes, envois,
- * messagerie et page Confidentialité) :
+ * messagerie, page Confidentialité et formations suivies, qui ne sont pas des certifications) :
  * après toute autre action, les verdicts transmis à Keystone sont recalculés (integrations/keystone-verdicts.ts).
  * Les actions d'absence en font partie : une absence pendant la présence sur un chantier bloque la ressource.
  */
-const SANS_EFFET_VERDICT = ['temps.', 'cet.', 'report.', 'conges.', 'entretien.', 'budget.', 'equipe.', 'envoi.', 'convocation.', 'messagerie.', 'notification.', 'releve.', 'paie.', 'confidentialite.', 'mandat.', 'piece.'];
+const SANS_EFFET_VERDICT = ['temps.', 'cet.', 'report.', 'conges.', 'entretien.', 'budget.', 'equipe.', 'envoi.', 'convocation.', 'messagerie.', 'notification.', 'releve.', 'paie.', 'confidentialite.', 'mandat.', 'piece.', 'formationSuivie.'];
 export const changeVerdicts = (nom: string) => !SANS_EFFET_VERDICT.some(p => nom.startsWith(p));

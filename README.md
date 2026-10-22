@@ -349,7 +349,10 @@ renforcé ou pour un mineur), reprise après une maternité, une maladie profess
 que « visite à programmer », jamais pour une reprise · entretien de parcours dû 2 mois (réglable, à confirmer
 juridiquement) après la visite de mi-carrière · postes à risques particuliers (art. L4154-2) : formation renforcée des
 CDD, intérimaires et alternants depuis leur entrée (Non conforme, No Go), liste imprimable · couverture minimale des
-équipes en SST et équipiers incendie, alerte datée (expiration, sortie, absence) · seule la dernière certification compte après un
+équipes en SST et équipiers incendie, alerte datée (expiration, sortie, absence) · formations suivies par salarié, hors
+catalogue comprises (bilan à 8 ans) · titre d'habilitation imprimé à signer (NF C18-510, autorisation de conduite, générique),
+historique des délivrances, passeport formation imprimable depuis le portail · durée en heures et indicateurs de formation
+par exercice (catégorie, équipe, statut), exports CSV · seule la dernière certification compte après un
 recyclage, les précédentes restent en historique · formalités de
 voyage par destination (passeport, visas, vaccins, délais) et de détachement (certificat A1 ou de la
 convention bilatérale de sécurité sociale, information écrite au-delà de 4 semaines) · Go / No Go par

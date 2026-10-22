@@ -109,11 +109,13 @@ const ORIGINE: Record<string, string> = { import: 'Plan importé', demande: 'Dem
 export function csvPlan(d: Domain, exercice: number, lignes: PlanAction[]): ListeCsv {
   return {
     fichier: `plan-formation-${exercice}-${d.ti}.csv`,
-    head: ['Exercice', 'Formation', 'Équipe', 'Période', 'Effectif', 'Coût (€)', 'Coût prévu (€)', 'Statut', 'Origine'],
+    // Catégorie du catalogue et durée en heures par stagiaire (t122) : vide quand elle est inconnue.
+    head: ['Exercice', 'Formation', 'Équipe', 'Période', 'Effectif', 'Coût (€)', 'Coût prévu (€)', 'Statut', 'Origine', 'Catégorie', 'Durée (h)'],
     rows: lignes.map(l => {
       const fm = (l.f && d.fm(l.f)) || null;
       return [l.exercice, fm ? fm.nom : l.libelle ?? '', l.equipe, l.periode, l.statut === 'realise' && l.effectifReel != null ? l.effectifReel : l.effectif,
-        nombre(coutRetenu(l)), nombre(l.cout), PLAN_LABEL[l.statut], l.origine ? ORIGINE[l.origine] ?? l.origine : ''];
+        nombre(coutRetenu(l)), nombre(l.cout), PLAN_LABEL[l.statut], l.origine ? ORIGINE[l.origine] ?? l.origine : '',
+        fm ? fm.type : 'Hors catalogue', fm?.dureeHeures != null ? nombre(fm.dureeHeures) : ''];
     }),
   };
 }

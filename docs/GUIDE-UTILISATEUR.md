@@ -80,6 +80,8 @@ pas dans Cursus : la paie les traite dans Sage.
   service RH ; les vaccinations sont des données de santé que lui seul voit.
 - « Mon contact d’urgence » : la personne à prévenir (et son lien) et son téléphone, facultatifs, saisis par « Renseigner ».
   Seul le service RH les voit, jamais votre manager ; videz les deux champs pour les retirer.
+- « Imprimer mon passeport formation » : certifications en vigueur et remplacées, habilitations et délivrances
+  antérieures, formations suivies (« Mes formations suivies »), sans aucun motif de suspension ou de retrait.
 
 ### Entretiens et portail
 
@@ -208,6 +210,21 @@ entretiens : un collègue ou son manager le fait.
   depuis la visite le remplit.
 - Fiche du collaborateur : « Avis du médecin du travail », « Demander une visite » ; les visites dues (embauche, reprise,
   mi-carrière) sont signalées dans « Échéances ».
+- Formations suivies (fiche du collaborateur, service RH et référent HSE) : « Enregistrer une formation suivie », du
+  catalogue ou hors catalogue, avec ses dates, sa durée en heures et son organisme. Hors catalogue, elle est « non
+  obligatoire » par défaut (case modifiable) et compte alors pour l'état des lieux du bilan à 8 ans. Une demande hors
+  catalogue acceptée apparaît « À clore » : « Enregistrer la formation suivie » une fois faite. À la clôture d'une action
+  du plan, cocher ses bénéficiaires parmi l'équipe (le demandeur est coché d'office). Les historiques tenus ailleurs ne
+  sont pas repris : saisie manuelle.
+- Titre d'habilitation : « Imprimer le titre » sur la fiche, ou case cochée à la délivrance. Modèle choisi au référentiel
+  (« Modèle du titre imprimé » : électrique NF C18-510, autorisation de conduite R4323-56, générique) ; titulaire,
+  précision (symboles, catégories), validité, prérequis et aptitude médicale vérifiés (jamais l'avis), signatures de
+  l'employeur et du titulaire. Modèles à faire valider par le référent HSE avant la mise en service. Un renouvellement
+  garde la délivrance précédente dans « Habilitations antérieures » (fiche et passeport).
+- « Plan & budget » : panneau « Indicateurs de formation » de l'exercice (stagiaires, formations et heures par
+  catégorie, par équipe et par statut, actions réalisées, coûts), exports CSV des indicateurs et des formations suivies.
+  Les heures viennent des horaires des sessions, sinon de la « Durée en heures » du catalogue (Référentiels) ; une
+  formation sans durée connue est signalée. Indicateurs utiles à la BDESE (pas de bilan social sous 300 salariés).
 
 ### Congés et absences
 

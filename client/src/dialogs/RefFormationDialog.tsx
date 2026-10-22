@@ -11,6 +11,7 @@ import { Bloquant, CancelButton, Dialog, Field, Static, SubmitButton, useVerific
 import { Fine, NoteAccent } from '../components/ui.tsx';
 import { useDomain } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { dureeHeuresDe } from '../../../shared/rules/heures-formation.ts';
 
 export function RefFormationDialog({ id }: { id?: string | null }) {
   const d = useDomain();
@@ -25,6 +26,8 @@ export function RefFormationDialog({ id }: { id?: string | null }) {
   const [validite, setValidite] = useState(avant ? String(avant.validite) : '');
   const [validation, setValidation] = useState<string>(avant?.validation ?? 'presence');
   const [duree, setDuree] = useState(avant?.duree ?? '');
+  // Durée en heures (t122), facultative : proposée d'après le texte de la durée tant qu'elle n'est pas saisie.
+  const [dureeHeures, setDureeHeures] = useState(avant?.dureeHeures != null ? String(avant.dureeHeures) : '');
   const [organisme, setOrganisme] = useState(avant?.organisme ?? '');
   const [cout, setCout] = useState(avant ? String(avant.cout) : '');
   const [busy, setBusy] = useState(false);
@@ -35,7 +38,7 @@ export function RefFormationDialog({ id }: { id?: string | null }) {
   // Code proposé d'après le nom court tant que la personne n'en saisit pas un autre.
   const propose = court.trim() ? codeSuggere(court, liste.map(f => f.id)) : '';
   const codeFinal = code.trim() || propose;
-  const champs = { nom, court, type, validite, validation, duree, organisme, cout };
+  const champs = { nom, court, type, validite, validation, duree, organisme, cout, dureeHeures: dureeHeures.trim().replace(',', '.') };
   const { erreurs, formation } = controlerFormation({ ...champs, code: codeFinal }, liste, avant?.id ?? null);
   // Champ vide : signalé à l'envoi ; saisie incorrecte (format, doublon, borne) : dès la saisie.
   const erreur = (k: ChampFormation, saisi: string) => (saisi.trim() ? erreurs[k] ?? null : v.erreur(erreurs[k]));
@@ -109,12 +112,18 @@ export function RefFormationDialog({ id }: { id?: string | null }) {
           <Field label="Durée" htmlFor="rf-duree" erreur={erreur('duree', duree)}>
             <input className="input" id="rf-duree" type="text" value={duree} maxLength={40} placeholder="7 h (MAC)" onChange={e => setDuree(e.target.value)} />
           </Field>
-          <Field label="Organisme" htmlFor="rf-organisme" erreur={erreur('organisme', organisme)}>
-            <input className="input" id="rf-organisme" type="text" value={organisme} maxLength={80} placeholder="Interne · HSE" onChange={e => setOrganisme(e.target.value)} />
+          <Field label="Durée en heures" htmlFor="rf-heures" erreur={erreur('dureeHeures', dureeHeures)}>
+            <input className="input tnum" id="rf-heures" inputMode="decimal" value={dureeHeures} placeholder={dureeHeuresDe(duree) != null ? String(dureeHeuresDe(duree)) : '7'}
+              onChange={e => setDureeHeures(e.target.value)} />
           </Field>
         </div>
+        <Field label="Organisme" htmlFor="rf-organisme" erreur={erreur('organisme', organisme)}>
+          <input className="input" id="rf-organisme" type="text" value={organisme} maxLength={80} placeholder="Interne · HSE" onChange={e => setOrganisme(e.target.value)} />
+        </Field>
         <Fine>
           {Number.isInteger(n) && n >= 1 && n <= VALIDITE_MAX ? `Validité : ${validiteLabel(n)}. ` : ''}
+          La durée en heures compte les heures des formations suivies dans les indicateurs du plan (sans horaires de session) ;
+          vide, elles comptent « durée inconnue ».{' '}
           {avant
             ? 'Une nouvelle validité vaut aussi pour les certifications déjà obtenues : leurs échéances sont recalculées.'
             : 'Le code identifie la formation dans les dossiers et auprès de Keystone (exigences des chantiers) : il ne change plus après la création.'}

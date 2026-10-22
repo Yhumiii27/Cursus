@@ -12,8 +12,10 @@ interface TableDef { pk: string; auto?: boolean; cols: Record<string, ColType>; 
 export const TABLES = {
   // Référentiels administrés par le service RH (server/src/actions/referentiels.ts) : `archive`, date d'archivage (null :
   // en vigueur) ; on archive au lieu de supprimer. `sir` : habilitation ou poste qui place en suivi individuel renforcé.
-  formations: { pk: 'id', cols: { id: 'text', nom: 'text', court: 'text', type: 'text', validite: 'int', duree: 'text', organisme: 'text', cout: 'real', validation: 'text', archive: 'text' } },
-  habilitations: { pk: 'id', cols: { id: 'text', nom: 'text', detail: 'text', prereqs: 'json', medical: 'bool', validite: 'int', signataire: 'text', archive: 'text', sir: 'bool' } },
+  // `dureeHeures` : durée en heures (t122, shared/rules/heures-formation.ts), facultative ; `modele` d'une habilitation : modèle
+  // du titre imprimé (t115, client/src/titre-habilitation.ts).
+  formations: { pk: 'id', cols: { id: 'text', nom: 'text', court: 'text', type: 'text', validite: 'int', duree: 'text', organisme: 'text', cout: 'real', validation: 'text', archive: 'text', dureeHeures: 'real' } },
+  habilitations: { pk: 'id', cols: { id: 'text', nom: 'text', detail: 'text', prereqs: 'json', medical: 'bool', validite: 'int', signataire: 'text', archive: 'text', sir: 'bool', modele: 'text' } },
   // `secu` : formalité de sécurité sociale du détachement (null : déduite du code pays, shared/constants.ts).
   destinations: { pk: 'code', cols: { code: 'text', pays: 'text', visa: 'text', visaSub: 'text', oblig: 'json', rec: 'json', passMois: 'int', secu: 'text', archive: 'text',
     // Vigilance France Diplomatie et jour de sa vérification (t068, shared/rules/vigilance.ts) : saisies par le service RH.
@@ -90,6 +92,21 @@ export const TABLES = {
     },
   },
   habTitres: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', h: 'text', delivree: 'text', par: 'text', demande: 'text', mesure: 'text', mesureDate: 'text', mesureMotif: 'text', mesurePar: 'text' } },
+  // Délivrances des titres d'habilitation (t115, server/src/delivrances.ts) : une ligne par délivrance et renouvellement,
+  // `remplaceeLe` et la mesure figés au renouvellement ; amorcée par la migration lot6-securite-hab-delivrances.
+  habDelivrances: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', empId: 'int', h: 'text', titreId: 'int', delivree: 'text', par: 'text', expire: 'text', remplaceeLe: 'text', mesure: 'text', mesureDate: 'text', le: 'text', auteur: 'text', auteurId: 'int' },
+  },
+  // Formations suivies par salarié, du catalogue ou hors catalogue (t116, shared/rules/formations-suivies.ts).
+  formationsSuivies: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', f: 'text', libelle: 'text', du: 'text', au: 'text', duree: 'real', organisme: 'text', obligatoire: 'bool', origine: 'text',
+      planActionId: 'int', demandeId: 'int', le: 'text', auteur: 'text', auteurId: 'int',
+      corrigeLe: 'text', corrigePar: 'text', corrigeMotif: 'text', annuleLe: 'text', annulePar: 'text', annuleMotif: 'text',
+    },
+  },
   visas: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', dest: 'text', type: 'text', obtenu: 'text', expire: 'text' } },
   vaccinations: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', v: 'text', date: 'text' } },
   // Le nombre d'inscrits n'est pas stocké : il est calculé au chargement (server/src/dataset.ts).

@@ -20,7 +20,7 @@ import { equipesDescendantes } from '../../shared/rules/hierarchie.ts';
 import { reglagesParDefaut } from '../../shared/reglages.ts';
 import { etatsCouverture } from '../../shared/rules/couverture.ts';
 import { entretienMiCarriere } from '../../shared/rules/entretien-mi-carriere.ts';
-import type { ContratHistorique, DemandeVisite, EtatCouverture, LotReprise } from '../../shared/types.ts';
+import type { ContratHistorique, DemandeVisite, EtatCouverture, FormationSuivie, HabDelivrance, LotReprise } from '../../shared/types.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Chantier, ClotureConges, CurrentUser, InformationCp, Dataset, SoldeSortie, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
   CalendrierFeries, DerogationDominicale, Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, Horaire, ISODate, Mandat, Mission, Participation, PlanAction, Poste, Projet, ReleveInterim,
@@ -158,6 +158,9 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     effectifCse: effectifSite({ employes }, todayIso()),
     // Pièces justificatives jointes (server/src/pieces.ts) : description seule, ni nom stocké ni jeton.
     pieces: lirePieces(db),
+    // Formations suivies (t116, annulées comprises) et délivrances des habilitations (t115) : filtrées hors du service RH.
+    formationsSuivies: db.all<FormationSuivie>('formationsSuivies'),
+    habDelivrances: db.all<HabDelivrance>('habDelivrances'),
   };
   // Absences en attente du fichier de paie par période (server/src/absences-paie.ts) : lit le contenu figé des lots.
   // Déplacements en attente du fichier de paie (t031, server/src/deplacements-paie.ts) : lit la table des éléments émis.
@@ -174,6 +177,14 @@ const sansCorrections = (e: Employe): Employe => ({
 });
 const ligneSansMotif = (l: PlanAction): PlanAction => (l.corrigeMotif ? { ...l, corrigeMotif: null } : l);
 const demandeSansMotifRh = (r: DemandeCollab): DemandeCollab => (r.rouverteMotif ? { ...r, rouverteMotif: null } : r);
+/**
+ * Formations suivies (t116) et délivrances d'habilitation (t115) hors du service RH : en vigueur seulement, sans motif de
+ * correction (texte libre du service RH) ni auteur de l'enregistrement (une autre personne, comme pour l'historique des
+ * contrats). Le salarié retrouve tout dans la copie de ses données.
+ */
+const suiviesNeutres = (l: readonly FormationSuivie[]): FormationSuivie[] =>
+  l.filter(x => !x.annuleLe).map(x => ({ ...x, corrigeMotif: null, auteur: null, auteurId: null }));
+const delivrancesNeutres = (l: readonly HabDelivrance[]): HabDelivrance[] => l.map(x => ({ ...x, auteur: null, auteurId: null }));
 
 /**
  * Coordonnées sur place d'un déplacement (hébergement, contact local : textes libres du service RH, t068) et contact
@@ -398,6 +409,9 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     // le collaborateur.
     couverture: isMgr ? etatsCouverture(full, full.settings.horizonAlerte, d.teamsOf(user.empId)) : [],
     lectureSeule: [...lecture],
+    // Formations suivies et délivrances d'habilitation : celles du périmètre, comme les certifications et les titres.
+    formationsSuivies: suiviesNeutres(mine(full.formationsSuivies ?? [])),
+    habDelivrances: delivrancesNeutres(mine(full.habDelivrances ?? [])),
   };
 }
 
@@ -548,6 +562,9 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     // des chantiers, l'a calculée avec les seules absences qu'il reçoit : un manque daté par une autre absence lui
     // désignerait l'absent et ses dates, par élimination parmi les titulaires dont il voit les certifications.
     couverture: !formations ? [] : lecture ? etatsCouverture(full, full.settings.horizonAlerte) : couvertureVueHse(full),
+    // Formations suivies et délivrances d'habilitation : avec les certifications et les titres (référent HSE, lecture seule).
+    formationsSuivies: formations ? suiviesNeutres(full.formationsSuivies ?? []) : [],
+    habDelivrances: formations ? delivrancesNeutres(full.habDelivrances ?? []) : [],
   };
 }
 

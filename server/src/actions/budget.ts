@@ -5,6 +5,7 @@ import { clotureDe, effectifReel, montantReel } from '../../../shared/rules/exer
 import { parsePlan } from '../../../shared/rules/imports.ts';
 import type { PlanAction, PlanStatut } from '../../../shared/types.ts';
 import { ActionError, type Ctx, requireRh, requireRhAdmin, str, type ActionHandler } from './context.ts';
+import { controlerBeneficiaires } from './formations-suivies.ts';
 
 /** Refus d'une modification du plan ou des enveloppes d'un exercice clos. */
 export function refuserExerciceClos(ctx: Ctx, ex: number) {
@@ -78,9 +79,11 @@ const avancer: ActionHandler = (ctx, p) => {
   if (cout === null) throw new ActionError('Coût réel de l’action à indiquer : montant en euros, 0 ou plus');
   const effectif = p.effectifReel === undefined || p.effectifReel === null || p.effectifReel === '' ? null : effectifReel(p.effectifReel);
   if (effectif === null && p.effectifReel != null && p.effectifReel !== '') throw new ActionError('Effectif réel : nombre entier de personnes, 0 ou plus');
+  // Bénéficiaires (t116) : formations suivies des salariés choisis, contrôlées avant l'écriture (actions/formations-suivies.ts).
+  const beneficiaires = controlerBeneficiaires(ctx, l, p);
   ctx.db.update<PlanAction>('planActions', l.id, { statut: 'realise', coutReel: cout, effectifReel: effectif });
   const ecart = cout - l.cout;
-  return `${nom} · réalisé (${fmtEur(cout)}${ecart ? `, ${ecart > 0 ? '+' : '−'}${fmtEur(Math.abs(ecart))} par rapport au prévu` : ''})`;
+  return `${nom} · réalisé (${fmtEur(cout)}${ecart ? `, ${ecart > 0 ? '+' : '−'}${fmtEur(Math.abs(ecart))} par rapport au prévu` : ''})${beneficiaires?.() ?? ''}`;
 };
 
 export const budgetActions: Record<string, ActionHandler> = {

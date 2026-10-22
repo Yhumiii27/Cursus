@@ -20,6 +20,7 @@ import { Envois } from './Envois.tsx';
 import { Feries } from './Feries.tsx';
 import { FeuillesTemps } from './FeuillesTemps.tsx';
 import { Formations } from './Formations.tsx';
+import { ForfaitJours } from './ForfaitJours.tsx';
 import { Hierarchie } from './Hierarchie.tsx';
 import { Keystone } from './Keystone.tsx';
 import { MatriculesPaie } from './MatriculesPaie.tsx';
@@ -65,6 +66,7 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'feries', place: 'droite', Section: Feries },
   { id: 'absences-paie', place: 'droite', Section: AbsencesPaie },
   { id: 'deplacements-paie', place: 'droite', Section: DeplacementsPaie },
+  { id: 'forfait-jours', place: 'droite', Section: ForfaitJours },
   { id: 'feuilles', place: 'gauche', Section: FeuillesTemps },
   { id: 'repos', place: 'droite', Section: ReposHebdomadaire },
   { id: 'sante', place: 'gauche', Section: Sante },

@@ -205,6 +205,16 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   nuitSeuilAnnuel: { defaut: 270, controle: entier(50, 1000, 10) },
   nuitMajoration: { defaut: 0, controle: entier(0, 100, 5) },
   nuitAccord: { defaut: '', controle: texte(120, 'Référence de l’accord') },
+  // — Forfait jours (parametres/ForfaitJours.tsx, shared/rules/forfait-jours.ts, t043) : suivi du cumul toujours actif,
+  //   alerte à 90 % du plafond ; avenant de renonciation fermé par défaut, ouvert seulement avec la référence de l'accord
+  //   collectif (COHERENCE, art. L3121-63 et L3121-64) ; valeurs supplétives : 235 jours au plus (art. L3121-66),
+  //   majoration de 10 % au moins (art. L3121-59) ; jours rachetés (JREN) dans la paie du mois de la signature —
+  forfaitJoursAlerte: { defaut: 90, controle: entier(50, 100, 5) },
+  forfaitJoursRachat: { defaut: false, controle: booleen },
+  forfaitJoursAccord: { defaut: '', controle: texte(120, 'Référence de l’accord sur le forfait jours') },
+  forfaitJoursPlafond: { defaut: 235, controle: entier(218, 282) },
+  forfaitJoursMajorationMin: { defaut: 10, controle: entier(10, 100) },
+  forfaitJoursJren: { defaut: 'signature', controle: choix(['signature', 'cloture']) },
 };
 
 /**
@@ -237,6 +247,10 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
   s => refusPlageNuit(s),
   s => (nuitHorsLoi(s) && !s.nuitAccord
     ? 'Travail de nuit : une plage ou des seuils autres que ceux de la loi supposent un accord collectif (art. L3122-15 et L3122-16) : indiquez sa référence' : null),
+  // — Forfait jours : la renonciation à des jours de repos suppose l'accord collectif qui autorise le forfait (art. L3121-63
+  // et L3121-64) ; sans lui, le suivi du cumul et ses alertes seulement —
+  s => (s.forfaitJoursRachat && !s.forfaitJoursAccord
+    ? 'Forfait jours : la renonciation à des jours de repos suppose l’accord collectif qui autorise le forfait (art. L3121-63 et L3121-64) : indiquez sa référence' : null),
 ];
 
 /** Vue non typée de la table, pour la parcourir (les contrôles reçoivent la valeur en vigueur du même champ). */

@@ -135,6 +135,8 @@ export type DialogState =
   | { type: 'piece'; objet: ObjetPiece; objetId: number; empId: number; libelle?: string }
   /** Contact d'urgence d'un salarié (t068) : depuis son portail, ou par le service RH depuis la fiche. */
   | { type: 'contactUrgence'; empId: number }
+  /** Avenant de renonciation à des jours de repos d'un forfait jours (t043) : service RH, depuis la fiche. */
+  | { type: 'avenantForfait'; empId: number }
   /** Refus ou action irréversible à confirmer (state/confirmations.ts). */
   | { type: 'confirmer'; c: Confirmation };
 

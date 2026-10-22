@@ -519,6 +519,11 @@ export interface FeuilleTemps {
   /** Motif d'un dépassement des durées maximales (10 h par jour, 48 h par semaine), exigé à la soumission ou à la validation. */
   motifDepassement?: string | null;
   /**
+   * Forfait jours (t043, shared/rules/forfait-jours.ts) : motif donné à la validation quand le cumul de l'année dépasse le
+   * plafond (forfait, plus les jours rachetés par avenant) ; texte libre du valideur, jamais recopié au journal.
+   */
+  motifForfait?: string | null;
+  /**
    * Mode des heures supplémentaires figé à la validation (réglage `heuresSupMode` du jour) : payées ou remplacées par un
    * repos ; « historique » pour une feuille transmise avant ce choix (payées et repos crédité, calcul d'origine). Null
    * avant la validation : le réglage en vigueur s'applique (`calcSheet` de shared/rules/temps.ts).
@@ -970,6 +975,41 @@ export interface Settings {
   nuitSeuilAnnuel: number;
   nuitMajoration: number;
   nuitAccord: string;
+  /**
+   * Forfait jours (t043, shared/rules/forfait-jours.ts) : seuil d'alerte du cumul annuel (% du plafond) ; avenant de
+   * renonciation à des jours de repos ouvert (seulement avec la référence de l'accord collectif, COHERENCE), plafond des
+   * jours travaillés avec avenant (235 à défaut d'accord, art. L3121-66), majoration minimale des jours rachetés (10 %,
+   * art. L3121-59) et période de paie des jours rachetés (JREN : mois de la signature, ou décembre de l'année).
+   */
+  forfaitJoursAlerte: number;
+  forfaitJoursRachat: boolean;
+  forfaitJoursAccord: string;
+  forfaitJoursPlafond: number;
+  forfaitJoursMajorationMin: number;
+  forfaitJoursJren: EmissionJren;
+}
+/** Période de paie des jours rachetés d'un forfait jours : mois de la signature de l'avenant, ou clôture de l'année (décembre). */
+export type EmissionJren = 'signature' | 'cloture';
+/**
+ * Avenant de renonciation à des jours de repos d'un forfait jours (t043, art. L3121-59) : année, jours rachetés, taux de
+ * majoration (10 % au moins), signature et référence (texte libre du service RH). Il porte le plafond de l'année au
+ * forfait plus les jours rachetés, dans la limite du réglage `forfaitJoursPlafond`. Jours rachetés transmis à la paie
+ * (rubrique JREN, famille « rachats » du registre des éléments de lot) : lot qui les emporte (`lotId`), import confirmé
+ * (`sage`), ou réglés hors fichier faute de rubrique active (`horsFichier`). Annulé avec un motif : gardé pour l'historique.
+ */
+export interface AvenantForfait {
+  id: number; empId: number; annee: number; jours: number; taux: number; signeLe: ISODate; reference: string | null;
+  creeLe: string; creePar: string;
+  annuleLe: string | null; annulePar: string | null; annuleMotif: string | null;
+  lotId: number | null; sage: boolean; horsFichier: boolean;
+}
+/**
+ * Jours rachetés d'un avenant de renonciation dans un lot de paie (rubrique JREN, quantité en jours ; taux de majoration
+ * en détail, le montant reste calculé par Sage), partis sur la période `periode`. `codeSage` null : rubrique désactivée,
+ * l'avenant est réservé par le lot mais absent du fichier, à saisir dans Sage (réglé hors fichier à la confirmation).
+ */
+export interface ElementRachatPaie {
+  avenant: number; empId: number; matricule: string; periode: string; rubrique: string; codeSage: string | null; quantite: number; taux: number; annee: number; signeLe: ISODate;
 }
 /** Plafond des heures complémentaires du temps partiel : le dixième (art. L3123-28) ou le tiers avec un accord (art. L3123-20). */
 export type PlafondComplementaires = 'dixieme' | 'tiers';
@@ -1145,6 +1185,8 @@ export interface SagePush {
   sorties?: ElementSortiePaie[];
   /** Déplacements du lot (t031, shared/rules/deplacements-paie.ts), `codeSage` null : à saisir dans Sage ; absent avant le lot 6. */
   deplacements?: ElementDeplacementPaie[];
+  /** Jours rachetés d'un forfait jours (t043, rubrique JREN active) ; absent avant le lot 6 (étape 2). */
+  rachats?: ElementRachatPaie[];
   /**
    * Éléments calculés que le lot n'emporte pas, faute de rubrique active (soldes de sortie) : listés « à saisir dans Sage »
    * dans le résumé du lot et l'export des variables (server/src/elements-lot.ts). Les absences et déplacements sans code
@@ -1253,6 +1295,8 @@ export interface LotPaie {
   sorties?: { id: number; empId: number }[];
   /** Séjours du lot (source, identifiant, salarié), gardés après une annulation ; absent avant le lot 6 (t031). */
   deplacements?: { source: 'voyage' | 'mission'; id: number; empId: number }[];
+  /** Avenants de renonciation dont le lot emporte les jours rachetés (identifiant, salarié ; t043). */
+  rachats?: { id: number; empId: number }[];
   /**
    * Totaux du contenu figé : lignes du fichier, salariés, quantité par code Sage des heures ; `absences` : éléments
    * d'absence, salariés et quantité par code Sage (codes retirés hors droit « paie » : server/src/dataset.ts).
@@ -1261,6 +1305,8 @@ export interface LotPaie {
     lignes: number; salaries: number; rubriques: Record<string, number>; absences?: { elements: number; salaries: number; rubriques: Record<string, number> }; sorties?: { elements: number; salaries: number };
     /** Déplacements (t031) : éléments et salariés. */
     deplacements?: { elements: number; salaries: number };
+    /** Jours rachetés d'un forfait jours (t043) : éléments et salariés. */
+    rachats?: { elements: number; salaries: number };
     /** Éléments à saisir à la main dans Sage, nominatifs (shared/rules/elements-lot.ts) ; absent : aucun. */
     aSaisir?: ElementASaisir[];
   };
@@ -1343,6 +1389,11 @@ export interface Dataset {
    * référence ni l'auteur ; absent ailleurs (server/src/dataset.ts). Absent ou vide : régime de la fiche seul.
    */
   contratsHistorique?: ContratHistorique[];
+  /**
+   * Avenants de renonciation d'un forfait jours (t043) : service RH (tous), paie et lecture seule (sans le motif d'une
+   * annulation) ; manager (son équipe : année et jours seulement) et intéressé ; absent ailleurs (server/src/dataset.ts).
+   */
+  avenantsForfait?: AvenantForfait[];
   entretiens: Entretien[];
   demandesCollab: DemandeCollab[];
   demandesVisite: DemandeVisite[];

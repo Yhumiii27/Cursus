@@ -31,6 +31,7 @@ const TITRES: Partial<Record<TableName, string>> = {
   soldesSortie: 'Solde des compteurs à la sortie', contratsHistorique: 'Historique du contrat',
   pieces: 'Pièces justificatives',
   deplacementsPaie: 'Déplacements transmis à la paie (jours, nuits, trajets)',
+  avenantsForfait: 'Avenants de renonciation à des jours de repos (forfait jours)',
 };
 /**
  * Colonnes jamais exportées : empreinte du mot de passe (secret) ; nom stocké et jeton d'envoi d'une pièce justificative
@@ -41,7 +42,7 @@ const RETIREES: Partial<Record<TableName, string[]>> = { comptes: ['motDePasse']
  * Colonnes retirées de l'export remis au salarié lui-même (sans journal) : elles nomment d'autres personnes, comme le
  * journal qu'il ne reçoit pas — auteur d'une ligne de l'historique des contrats, que son portail ne lui montre pas.
  */
-const RETIREES_SALARIE: Partial<Record<TableName, string[]>> = { contratsHistorique: ['par', 'parId'] };
+const RETIREES_SALARIE: Partial<Record<TableName, string[]>> = { contratsHistorique: ['par', 'parId'], avenantsForfait: ['creePar', 'annulePar'] };
 
 /** Tables du schéma qui portent la colonne `empId` (la fiche elle-même est la section « Fiche »). */
 export const TABLES_SALARIE = (Object.entries(TABLES) as [TableName, { cols: Record<string, string> }][])

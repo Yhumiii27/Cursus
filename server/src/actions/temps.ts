@@ -21,6 +21,7 @@ import { notifierFeuilleRenvoyee, notifierFeuilleSoumise } from '../notification
 import { relevesAutomatiques } from '../releves.ts';
 import { ActionError, type ActionHandler, type Ctx, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, refuserSoiMeme, str } from './context.ts';
 import { pushSageSimulation } from './paie.ts';
+import { controleForfaitJours } from '../forfait-jours.ts';
 
 function sheetOf(ctx: Ctx, empId: number, week: string): FeuilleTemps | undefined {
   return ctx.ds.feuilles.find(f => f.empId === empId && f.week === week);
@@ -231,12 +232,14 @@ export function validerFeuille(ctx: Ctx, p: Record<string, any>): { message: str
   // les feuilles validées, moins celle déjà figée sur les autres ; l'écart est porté par cette feuille.
   const validee: FeuilleTemps = { ...sh, statut: 'validee', contrat, heuresSup, majDimanche, majFerie, majNuit };
   const cor = corAValider(ctx.d, emp, validee);
+  // Forfait jours (t043, server/src/forfait-jours.ts) : au-delà du plafond de l'année, motif du valideur exigé ; alerte au seuil.
+  const forfait = controleForfaitJours(ctx, emp, validee, p);
   // Horaires de poste refigés après une éventuelle correction du valideur (heures d'un code déjà figé inchangées).
   const horaires = horairesAFiger(ctx.ds.referentiels, emp.equipe, sh, calcSheet(ctx.d, emp, { ...sh, contrat }).perDay);
-  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif, heuresSup, majDimanche, majFerie, majNuit, cor, ...horaires });
+  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif, heuresSup, majDimanche, majFerie, majNuit, cor, ...horaires, ...forfait.champs });
   // Seuils franchis par cette feuille (moyenne sur 12 semaines, temps partiel, contingent) : signalés, sans blocage.
   const autres = ctx.ds.feuilles.filter(f => f.empId === emp.id && f.statut === 'validee' && f.id !== sh.id);
-  const alertes = alertesValidation(ctx.d, emp, autres, [...autres, { ...validee, cor }], sh.week, corDeLaFeuille({ cor }));
+  const alertes = [...alertesValidation(ctx.d, emp, autres, [...autres, { ...validee, cor }], sh.week, corDeLaFeuille({ cor })), ...forfait.alertes];
 
   if (keystone) sendToKeystone(ctx.db, { type: 'heures.validees', matricule: identifiantKeystone(ctx.ds.settings.identifiantKeystone, emp), semaine: sh.week, projets });
   // Intérimaire : la dernière feuille validée d'une semaine révolue fait partir le relevé de son agence.

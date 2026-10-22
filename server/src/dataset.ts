@@ -21,7 +21,7 @@ import { equipesDescendantes } from '../../shared/rules/hierarchie.ts';
 import { reglagesParDefaut } from '../../shared/reglages.ts';
 import { etatsCouverture } from '../../shared/rules/couverture.ts';
 import { entretienMiCarriere } from '../../shared/rules/entretien-mi-carriere.ts';
-import type { ContratHistorique, DemandeVisite, EtatCouverture, LotReprise } from '../../shared/types.ts';
+import type { AvenantForfait, ContratHistorique, DemandeVisite, EtatCouverture, LotReprise } from '../../shared/types.ts';
 import type {
   Absence, Certification, Inscription, CetMouvement, Chantier, ClotureConges, CurrentUser, InformationCp, Dataset, SoldeSortie, DemandeCollab, DemandeKeystone, Destination, Employe, Entretien,
   CalendrierFeries, DerogationDominicale, Envoi, Equipe, ExerciceClos, FeuilleTemps, Formation, HabTitre, HabType, Horaire, ISODate, Mandat, Mission, Participation, PlanAction, Poste, Projet, ReleveInterim,
@@ -134,6 +134,8 @@ export function loadFull(db: Db, user: CurrentUser): Dataset {
     soldesSortie: db.all<SoldeSortie>('soldesSortie'),
     // Historique des contrats (t074) : régimes successifs, renouvellements des CDD, avenants programmés.
     contratsHistorique: db.all<ContratHistorique>('contratsHistorique'),
+    // Avenants de renonciation d'un forfait jours (t043) : service RH, paie et lecture seule ; manager et intéressé réduits.
+    avenantsForfait: db.all<AvenantForfait>('avenantsForfait'),
     entretiens: db.all<Entretien>('entretiens'),
     demandesCollab: db.all<DemandeCollab>('demandesCollab'),
     demandesVisite: db.all<DemandeVisite>('demandesVisite'),
@@ -193,6 +195,13 @@ const ligneContratNeutre = (l: ContratHistorique): ContratHistorique => ({ ...l,
  * la fin prévue de la fiche. Les renouvellements, qui ne changent pas le régime, ne lui sont pas transmis.
  */
 const ligneContratEquipe = (l: ContratHistorique): ContratHistorique => ({ ...ligneContratNeutre(l), jusquau: null, signeLe: null });
+/**
+ * Avenant de renonciation d'un forfait jours (t043) hors du service RH : ni le motif d'une annulation (texte libre du
+ * service RH), ni l'auteur ; pour le manager d'un membre, en plus, ni la majoration (rémunération) ni la référence : l'année et
+ * les jours rachetés suffisent au plafond du cumul affiché à la validation.
+ */
+const avenantNeutre = (a: AvenantForfait): AvenantForfait => ({ ...a, annuleMotif: null, creePar: '', annulePar: null });
+const avenantEquipe = (a: AvenantForfait): AvenantForfait => ({ ...avenantNeutre(a), taux: 0, reference: null, lotId: null, sage: false, horsFichier: false });
 
 /** Dérogations au repos dominical sans la référence de l'accord (texte libre) : hors du service RH, le type suffit. */
 const derogationsSansReference = (full: Dataset) => (full.derogationsDominicales ?? []).map(x => ({ ...x, reference: null }));
@@ -367,6 +376,8 @@ export function buildSnapshot(db: Db, user: CurrentUser): Dataset {
     contratsHistorique: mine(full.contratsHistorique ?? [])
       .filter(l => !(isMgr && l.empId !== user.empId && l.nature === 'renouvellement'))
       .map(l => (isMgr && l.empId !== user.empId ? ligneContratEquipe(l) : ligneContratNeutre(l))),
+    // Avenants de renonciation (t043) : les siens ; ceux de l'équipe directe, réduits à l'année et aux jours rachetés.
+    avenantsForfait: direct(mine(full.avenantsForfait ?? [])).map(a => (isMgr && a.empId !== user.empId ? avenantEquipe(a) : avenantNeutre(a))),
     // Sections « fin de carrière » des entretiens d'un membre calculées ici : sa date de naissance n'est pas transmise.
     entretiens: direct(mine(full.entretiens)).map(x => isMgr && x.empId !== user.empId ? avecFinCarriere(d, x) : x),
     // Les documents déclarés (passeport, visas, vaccinations) des membres ne sont pas montrés au manager ;
@@ -526,6 +537,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     soldesSortie: paie ? full.soldesSortie : [],
     // Historique des contrats : paie et lecture seule (régimes, renouvellements des CDD) ; pas le référent HSE.
     contratsHistorique: paie ? full.contratsHistorique : [],
+    // Avenants de renonciation (t043) : paie (jours rachetés, majoration) et lecture seule, sans le motif d'une annulation.
+    avenantsForfait: paie ? (full.avenantsForfait ?? []).map(a => ({ ...a, annuleMotif: null })) : [],
     // Profil paie : jours de CP acquis chaque mois, calculés ici avec la vraie nature des absences masquées, pour que ses
     // soldes et ses exports soient ceux du service RH ; aucune absence n'y est désignée (pas d'effet absence par absence).
     acquisitionsCp: droits.includes('paie') ? acquisitionsCalculees(d) : [],

@@ -52,6 +52,9 @@ export const REFERENCES: readonly Reference[] = [
   // Éléments de déplacement des lots de paie (t031) : salarié et lot.
   ref('deplacements_paie', 'emp_id', 'employes'),
   ref('deplacements_paie', 'lot_id', 'lots_paie'),
+  // Avenants de renonciation d'un forfait jours (t043) : salarié et lot de paie des jours rachetés.
+  ref('avenants_forfait', 'emp_id', 'employes'),
+  ref('avenants_forfait', 'lot_id', 'lots_paie'),
   // Horaire de poste par défaut d'une équipe (lot 6) ; ceux des feuilles (JSON, archivés gardés) ne sont jamais supprimés.
   ref('equipes', 'horaire', 'horaires', 'code'),
 ];

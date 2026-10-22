@@ -64,6 +64,8 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     deplacementsFichierPaie: false, deplacementsPaieAPartirDu: null, vigilanceRappelJours: 30,
     // Lot 6 (t048) : travail de nuit aux valeurs supplétives de la loi, nuit de 21 h à 6 h, 3 h ou 270 h, sans majoration.
     nuitDebut: 21, nuitFin: 6, nuitSeuilQuotidien: 3, nuitSeuilAnnuel: 270, nuitMajoration: 0, nuitAccord: '',
+    // Forfait jours (t043) : suivi et alerte à 90 %, renonciation fermée sans référence d'accord.
+    forfaitJoursAlerte: 90, forfaitJoursRachat: false, forfaitJoursAccord: '', forfaitJoursPlafond: 235, forfaitJoursMajorationMin: 10, forfaitJoursJren: 'signature',
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

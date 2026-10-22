@@ -47,6 +47,8 @@ export const ACTIONS_PAIE: readonly string[] = [
   'parametres.feries',
   // Renouvellement d'un CDD (terme du contrat, indemnité de fin de contrat) ; avenant programmé appliqué à sa date.
   'employe.renouvelerCdd', 'employe.avenantApplique',
+  // Forfait jours (t043) : avenant de renonciation à des jours de repos (jours rachetés, majoration, rubrique JREN).
+  'forfait.avenant', 'forfait.annulerAvenant',
 ];
 export const estActionPaie = (action: string) => ACTIONS_PAIE.includes(action) || action.startsWith('sage.');
 
@@ -148,6 +150,9 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'temps.rouvrir': 'Feuille de temps validée rouverte',
   'temps.correction': 'Correction d’heures par le manager ou le RH',
   'temps.ferie': 'Heures saisies un jour férié',
+  // Forfait jours (t043)
+  'forfait.avenant': 'Avenant de renonciation à des jours de repos (forfait jours)',
+  'forfait.annulerAvenant': 'Avenant de renonciation annulé (forfait jours)',
   'temps.pushSage': 'Transmission à la paie',
   'paie.rubrique': 'Rubrique de paie Sage',
   'paie.lotGenerer': 'Lot de paie généré',
@@ -271,7 +276,7 @@ export const FAMILLES_JOURNAL: { id: string; label: string; prefixes: readonly s
   { id: 'referentiels', label: 'Référentiels (formations, habilitations, destinations, postes, activités internes)', prefixes: ['referentiel.', 'migration.postes'] },
   { id: 'demandes', label: 'Demandes des collaborateurs', prefixes: ['demande.'] },
   { id: 'deplacements', label: 'Déplacements', prefixes: ['voyage.', 'voyages.', 'formalite.', 'keystone.accepter', 'keystone.refuser', 'migration.detachement', 'migration.referencesDeplacements', 'chantier.', 'migration.deplacementsPaie'] },
-  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'mandat.', 'migration.heuresSup', 'migration.lotsPaie', 'migration.absencesPaie', 'migration.rubriquesFeuilles'] },
+  { id: 'temps', label: 'Feuilles de temps et paie', prefixes: ['temps.', 'sage.', 'paie.', 'mandat.', 'forfait.', 'migration.heuresSup', 'migration.lotsPaie', 'migration.absencesPaie', 'migration.rubriquesFeuilles'] },
   { id: 'absences', label: 'Absences et congés', prefixes: ['absence.', 'cet.', 'report.', 'conges.', 'migration.soldes'] },
   { id: 'entretiens', label: 'Entretiens', prefixes: ['entretien.'] },
   { id: 'reprise', label: 'Mise en service (reprise depuis Lucca)', prefixes: ['reprise.'] },
@@ -363,6 +368,11 @@ export const CHAMP_LABEL: Record<string, string> = {
   nuitDebut: 'Début de la plage de nuit (h)', nuitFin: 'Fin de la plage de nuit (h)', nuitSeuilQuotidien: 'Travailleur de nuit : heures de nuit dans la journée',
   nuitSeuilAnnuel: 'Travailleur de nuit : heures de nuit sur 12 mois', nuitMajoration: 'Majoration des heures de nuit (%)', nuitAccord: 'Référence de l’accord sur le travail de nuit',
   reposNuit: 'Contrôles des horaires motivés', majNuit: 'Majoration des heures de nuit (%)',
+  // Forfait jours (Paramètres → Forfait jours, t043) ; avenant de renonciation.
+  forfaitJoursAlerte: 'Alerte du cumul du forfait jours (%)', forfaitJoursRachat: 'Renonciation à des jours de repos (forfait jours)',
+  forfaitJoursAccord: 'Accord collectif sur le forfait jours', forfaitJoursPlafond: 'Plafond des jours travaillés avec avenant',
+  forfaitJoursMajorationMin: 'Majoration minimale des jours rachetés (%)', forfaitJoursJren: 'Période de paie des jours rachetés',
+  annee: 'Année', taux: 'Majoration (%)',
 };
 
 const valeur = (v: unknown): string => {

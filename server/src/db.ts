@@ -149,6 +149,8 @@ export const TABLES = {
       horairesFiges: 'json',
       // Majoration des heures de nuit (%) figée à la validation (lot 6, shared/rules/repos-nuit.ts).
       majNuit: 'int',
+      // Motif du dépassement du plafond d'un forfait jours, donné à la validation (t043, shared/rules/forfait-jours.ts).
+      motifForfait: 'text',
     },
     unique: [['empId', 'week']],
   },
@@ -172,8 +174,21 @@ export const TABLES = {
       sorties: 'json',
       // Séjours du lot (source, identifiant, salarié ; t031, shared/rules/deplacements-paie.ts) : quantités dans `contenu`.
       deplacements: 'json',
+      // Avenants de renonciation dont le lot emporte les jours rachetés (identifiant, salarié ; t043) : quantités dans `contenu`.
+      rachats: 'json',
     },
     unique: [['cle']],
+  },
+  // Avenants de renonciation à des jours de repos d'un forfait jours (t043, server/src/actions/forfait-jours.ts) : année,
+  // jours rachetés, taux de majoration, signature et référence (texte libre) ; annulation avec motif (gardé pour
+  // l'historique) ; lot de paie qui emporte les jours rachetés (`lotId`), import confirmé (`sage`) ou réglé hors fichier
+  // faute de rubrique JREN active (`horsFichier`).
+  avenantsForfait: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', empId: 'int', annee: 'int', jours: 'real', taux: 'int', signeLe: 'text', reference: 'text', creeLe: 'text', creePar: 'text',
+      annuleLe: 'text', annulePar: 'text', annuleMotif: 'text', lotId: 'int', sage: 'bool', horsFichier: 'bool',
+    },
   },
   // Éléments de déplacement émis par les lots de paie (t031, server/src/deplacements-paie.ts) : une ligne par séjour
   // (`source` : voyage ou mission, `sourceId`), mois, rubrique et pays, avec le lot qui l'emporte (`lotId`) et l'import

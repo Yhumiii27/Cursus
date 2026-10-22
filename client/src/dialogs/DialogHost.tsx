@@ -57,6 +57,7 @@ import { TripDialog } from './TripDialog.tsx';
 import { TripImportDialog } from './TripImportDialog.tsx';
 import { TripModifierDialog } from './TripModifierDialog.tsx';
 import { AvisDialog } from './AvisDialog.tsx';
+import { AvenantForfaitDialog } from './AvenantForfaitDialog.tsx';
 import { SuiviDialog } from './SuiviDialog.tsx';
 import { VisiteDialog } from './VisiteDialog.tsx';
 
@@ -128,6 +129,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'rouvrirFeuille': return <RouvrirFeuilleDialog {...d} />;
     case 'piece': return <PieceDialog {...d} />;
     case 'contactUrgence': return <ContactUrgenceDialog {...d} />;
+    case 'avenantForfait': return <AvenantForfaitDialog {...d} />;
     case 'confirmer': return <ConfirmerDialog c={d.c} />;
   }
 }

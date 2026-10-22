@@ -803,6 +803,8 @@ aucun champ du paramètre n'est recopié.
 | `voyage.annuler` | id, motif (obligatoire pour un déplacement venu de Keystone, 500 caractères ; gardé dans Cursus, `annuleMotif`, jamais transmis à Keystone ; remis au salarié dans la copie de ses données) : `annuleLe`, `annulePar` ; déplacement gardé dans l'historique, hors de tous les calculs ; venu de Keystone : `deplacement.annule` mis en file ; déjà annulé ou terminé : 409 | RH |
 | `chantier.grandDeplacement` | id (chantier Keystone en France), grandDeplacement (vrai, faux, null : à qualifier) : qualification de toutes ses missions pour la paie (t031) ; chantier à l'étranger refusé ; journal : code du chantier, avant et après, salariés de ses missions (archive paie) | RH |
 | `employe.contactUrgence` | empId, nom, telephone (les deux, ou aucun : retiré ; téléphone : chiffres, espaces, points, tirets, « + ») : contact d'urgence de la fiche (t068), service RH et intéressé seulement ; journal : salarié, champs masqués | le salarié pour lui-même (portail), RH |
+| `forfait.avenant` | empId, annee, jours (demi-journées), taux (%), signeLe, reference? : avenant de renonciation à des jours de repos d'un forfait jours (t043), seulement avec la référence de l'accord collectif (Paramètres → Forfait jours) ; forfait plus jours rachetés de l'année dans la limite de `forfaitJoursPlafond` (235), majoration d'au moins `forfaitJoursMajorationMin` (10 %), signature passée, au plus tard le 31 décembre de l'année ; jamais pour soi-même ; journal : salarié, année, jours, taux, date, référence masquée (archive paie) | RH |
+| `forfait.annulerAvenant` | id, motif (obligatoire, gardé sur l'avenant, visible du service RH, remis au salarié dans la copie de ses données) : refusée (409) tant que les jours rachetés sont dans un lot à confirmer ; déjà transmis : annulé, à régulariser dans Sage ; journal : identifiant, salarié, motif masqué (archive paie) | RH |
 | `formalite.enregistrer` | empId, kind (`passeport`/`visa`/`vaccin`), numero, expire, dest, visaType, obtenu, v, date | RH (écrit dans le dossier), ou le collaborateur pour lui-même (déclaration en attente, voir ci-dessous) |
 | `voyages.importer` | texte (CSV) ; ligne sans référence : `DD-<n° du déplacement>` (suffixe si déjà prise) ; demandeur : nom du salarié reconnu, sinon tel que saisi (service RH seulement) | RH |
 | `keystone.accepter` / `keystone.refuser` | id ; refus : motif? (conservé dans Cursus, demande et message du journal, jamais transmis à Keystone) | RH (demande en attente ; l'acceptation revalide affectation, chantier actif, destination, effectifs et l'absence de déplacement déjà créé, et est refusée si le salarié est déjà en déplacement ou absent ces jours-là ; la demande reste en base avec statut, date et décideur) |
@@ -2132,6 +2134,43 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
   RH, masqués au journal) et `arianeLe`, modifiables par `voyage.modifier` (Keystone compris, sans le prévenir).
   `employes.urgenceNom`, `urgenceTel` : retirés des vues du manager et des profils restreints, compris dans la fiche de la
   copie des données, mentionnés dans la page Confidentialité.
+
+### Forfait jours : cumul, alertes, avenant de renonciation (lot 6, chantier 2, étape 2 : t043)
+
+Règles : `shared/rules/forfait-jours.ts` ; serveur : `server/src/forfait-jours.ts` (contrôle de la validation, famille
+« rachats » du registre) et `server/src/actions/forfait-jours.ts` ; écrans : `components/ForfaitJours.tsx` (fiche,
+récapitulatif de la feuille, file de validation, jours rachetés en attente sur l'écran Temps), `dialogs/AvenantForfaitDialog.tsx`,
+`pages/parametres/ForfaitJours.tsx`.
+
+- **Cumul** (`cumulForfaitJours`) : jours des feuilles validées de l'année décomptées en forfait jours (régime figé de la
+  feuille), une demi-journée jusqu'à 4 h et une journée au-delà (comme `calcSheet`), ventilés jour par jour (une semaine
+  à cheval sur le 31 décembre compte pour ses deux années, comme `cumulAnnuel`). Cible : le forfait de la fiche au prorata
+  de la présence et des périodes sous forfait jours (historique des contrats) ; cible à date ; jours de repos de l'année
+  (`rttInfo`, inchangé) moins les jours rachetés (`reposForfaitInfo`, affichage seulement : `shared/rules/conges.ts`
+  n'est pas modifié).
+- **Plafond et alertes** : plafond = cible + jours rachetés par les avenants en vigueur de l'année. Alerte à
+  `forfaitJoursAlerte` % (90) sur la feuille, la file de validation et la fiche, et dans le message de validation ; au-delà
+  du plafond, `controleValidationForfait` (un seul appel dans `validerFeuille` de `server/src/actions/temps.ts`, par
+  `controleForfaitJours`) exige le motif du valideur (`motifForfait`, colonne de `feuilles`, 500 caractères, journal :
+  « [texte renseigné] ») ; la validation groupée la refuse et la nomme. La soumission n'est pas concernée.
+- **Avenant** (table `avenantsForfait`, art. L3121-59) : fermé tant que `forfaitJoursRachat` n'est pas coché avec la
+  référence de l'accord (`forfaitJoursAccord`, COHERENCE de `shared/reglages.ts`, art. L3121-63 et L3121-64 ; masquée au
+  journal). Valeurs supplétives réglables : 235 jours au plus (`forfaitJoursPlafond`, art. L3121-66), majoration de 10 %
+  au moins (`forfaitJoursMajorationMin`). Annulation avec motif (texte libre gardé sur l'avenant). Instantanés : service RH
+  complet ; paie et lecture seule sans le motif d'annulation ; manager, pour son équipe directe, année, jours rachetés et
+  dates ; ni majoration, ni référence, ni auteur, ni motif (le plafond affiché à la validation est celui du serveur) ;
+  l'intéressé, les siens sans auteur ; référent HSE, rien (la fiche ne lui montre pas le bloc « Forfait jours »).
+  Export des données du salarié : compris (sans les auteurs pour l'export remis à l'intéressé).
+- **Paie** (famille `rachats` de `FAMILLES`, colonne `lotsPaie.rachats`, `SagePush.rachats`) : rubrique `JREN`, quantité
+  en jours, taux de majoration en détail (export des variables) ; période : mois de la signature ou décembre de l'année
+  (`forfaitJoursJren`), un mois clos partant sur la période ouverte. L'avenant en attente est toujours réservé par le lot
+  de sa période (`lotId`), libéré à son annulation, transmis à sa confirmation ; l'annuler est refusé (409) tant que ce
+  lot n'est pas confirmé. `JREN` désactivée par défaut (code à donner par la paie) : comme un déplacement, l'élément part
+  dans le contenu sans code Sage (`codeSage` null), hors du fichier, listé « à saisir dans Sage » dans le résumé du lot
+  (famille `rachats`) ; la confirmation de ce lot-là le règle hors fichier (`horsFichier`), d'après le contenu figé
+  seulement (`confirmerRachats`) : un avenant enregistré après la génération attend le lot suivant, et une rubrique activée
+  entre la génération et la confirmation ne le renvoie pas dans un autre fichier. Aucune migration : table et colonnes
+  nouvelles seulement.
 
 ## Déplacements modifiés ou annulés
 

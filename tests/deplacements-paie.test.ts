@@ -294,7 +294,7 @@ test('t031 instantanés : déplacements en attente pour le service RH, la paie e
 
 test('registre des éléments de lot : soldes de sortie inchangés, compteurs sans rubrique active listés à saisir dans Sage', () => {
   const { db, run, lots, ADMIN, PAIE } = fresh();
-  assert.deepEqual(FAMILLES.map(f => f.cle), ['sorties', 'deplacements']);
+  assert.deepEqual(FAMILLES.map(f => f.cle), ['sorties', 'deplacements', 'rachats']);
   run(ADMIN, 'employe.sortie', { id: 2, date: '2026-10-16', motif: 'demission' });
   run(PAIE, 'paie.lotGenerer', { periode: '2026-10' });
   const lot = lots().at(-1)!;

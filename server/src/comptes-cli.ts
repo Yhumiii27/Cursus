@@ -53,53 +53,53 @@ try {
 } catch (err) {
   arreter(`Commande impossible : ${err instanceof Error ? err.message : err}`);
 }
-const db = openDb();
+const db = await openDb();
 // Service arrêté : base mise à jour comme au démarrage du serveur (reprises, migrations nommées) avant d'y écrire ;
 // le compte n'est jamais écrit dans une colonne qu'une migration reprendrait ensuite.
 if (aMettreAJour) {
   try {
-    migrate(db);
-    appliquerMigrations(db);
+    await migrate(db);
+    await appliquerMigrations(db);
   } catch (err) {
-    db.sql.close();
+    await db.fermer();
     arreter(`Commande impossible : ${err instanceof Error ? err.message : err}`);
   }
 }
 let existant: Compte | undefined;
 try {
-  existant = compteParIdentifiant(db, identifiant);
+  existant = await compteParIdentifiant(db, identifiant);
   let compte: Compte, motDePasse: string | null = null, message: string;
   if (existant) {
     // Un membre du service RH salarié porte son profil sur le compte rattaché à sa fiche (décisions sur soi-même).
     const rattache = !!empId && existant.empId !== empId;
-    if (rattache) rattacherCompte(db, existant, empId);
-    db.update<Compte>('comptes', existant.id, { profilRh: 'rh_admin', actif: true, echecs: 0, blocageFin: null });
-    compte = db.get<Compte>('comptes', existant.id)!;
+    if (rattache) await rattacherCompte(db, existant, empId);
+    await db.update<Compte>('comptes', existant.id, { profilRh: 'rh_admin', actif: true, echecs: 0, blocageFin: null });
+    compte = (await db.get<Compte>('comptes', existant.id))!;
     if (compte.type === 'local') {
-      motDePasse = attribuerProvisoire(db, compte);
-      revokeSessionsDuCompte(db, compte.id);
+      motDePasse = await attribuerProvisoire(db, compte);
+      await revokeSessionsDuCompte(db, compte.id);
     } else if (compte.oid) {
       // La prochaine connexion Microsoft avec cette adresse rattache de nouveau le compte (identité recréée).
-      db.update<Compte>('comptes', compte.id, { oid: null });
-      revokeSessionsDuCompte(db, compte.id);
+      await db.update<Compte>('comptes', compte.id, { oid: null });
+      await revokeSessionsDuCompte(db, compte.id);
     }
-    message = `Accès administrateur RH rétabli : ${nomDuCompte(db, compte)} (${compte.identifiant}${rattache ? ', rattaché à sa fiche salarié' : ''})`;
+    message = `Accès administrateur RH rétabli : ${await nomDuCompte(db, compte)} (${compte.identifiant}${rattache ? ', rattaché à sa fiche salarié' : ''})`;
   } else {
     const adresse = typeof options.adresse === 'string' ? options.adresse : identifiant.includes('@') ? identifiant : '';
     if (!empId && !adresse) arreter('Compte externe : précisez son adresse e-mail (--adresse prenom.nom@entreprise.fr).');
-    const r = creerCompte(db, {
+    const r = await creerCompte(db, {
       empId, nom: typeof options.nom === 'string' ? options.nom : nomDeduit, adresse, type: options.local ? 'local' : 'microsoft', identifiant, profilRh: 'rh_admin',
     }, AUTEUR);
     compte = r.compte;
     motDePasse = r.motDePasse;
     // Compte Microsoft 365 d'un salarié sans adresse e-mail : son identifiant devient l'adresse de sa fiche (comme compte.creer).
-    const email = adresseDuCompte(db, compte);
-    message = `Administrateur RH créé : ${nomDuCompte(db, compte)} (${compte.identifiant}, ${compte.type === 'local' ? 'compte Cursus' : 'Microsoft 365'})`
+    const email = await adresseDuCompte(db, compte);
+    message = `Administrateur RH créé : ${await nomDuCompte(db, compte)} (${compte.identifiant}, ${compte.type === 'local' ? 'compte Cursus' : 'Microsoft 365'})`
       + (email ? ` · adresse e-mail ${email} reprise sur la fiche` : '');
   }
-  journaliser(db, { actor: AUTEUR, role: null, action: 'compte.admin', message, payload: { identifiant }, compte });
+  await journaliser(db, { actor: AUTEUR, role: null, action: 'compte.admin', message, payload: { identifiant }, compte });
   console.log(`${message}.`);
-  const refus = refusDuCompte(db, compte);
+  const refus = await refusDuCompte(db, compte);
   if (refus) console.warn(`Attention — connexion impossible pour ce compte : ${refus}.`);
   if (motDePasse) {
     console.log(`Mot de passe provisoire (affiché une seule fois, à changer à la première connexion) : ${motDePasse}`);
@@ -110,5 +110,5 @@ try {
 } catch (err) {
   arreter(err instanceof ActionError ? `${existant ? 'Accès non rétabli' : 'Compte non créé'} : ${err.message}.` : `Erreur : ${err instanceof Error ? err.message : err}`);
 } finally {
-  db.sql.close();
+  await db.fermer();
 }

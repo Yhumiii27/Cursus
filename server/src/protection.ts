@@ -91,15 +91,15 @@ export function protegerBase(fichier: string, { production = false, chmod = chmo
  * puis le journal -wal est reporté dans la base et vidé, pour qu'une copie du fichier ne donne plus de quoi signer une
  * session. Renvoie vrai si elle était présente. Les sauvegardes antérieures la gardent.
  */
-export function retirerSecretStocke(db: Db, env: Env = process.env): boolean {
-  if (!env.CURSUS_SECRET || !db.get('settings', 'secret')) return false;
-  const avant = (db.sql.prepare('PRAGMA secure_delete').get() as { secure_delete: number }).secure_delete;
-  db.sql.exec('PRAGMA secure_delete = ON');
+export async function retirerSecretStocke(db: Db, env: Env = process.env): Promise<boolean> {
+  if (!env.CURSUS_SECRET || !await db.get('settings', 'secret')) return false;
+  const avant = (await db.one<{ secure_delete: number }>('PRAGMA secure_delete'))!.secure_delete;
+  await db.exec('PRAGMA secure_delete = ON');
   try {
-    db.remove('settings', 'secret');
+    await db.remove('settings', 'secret');
   } finally {
-    db.sql.exec(`PRAGMA secure_delete = ${avant ? 'ON' : 'OFF'}`);
+    await db.exec(`PRAGMA secure_delete = ${avant ? 'ON' : 'OFF'}`);
   }
-  db.sql.exec('PRAGMA wal_checkpoint(TRUNCATE)');
+  await db.exec('PRAGMA wal_checkpoint(TRUNCATE)');
   return true;
 }

@@ -27,24 +27,24 @@ import {
  * `debutDemi`, `finDemi` : demi-journée du premier et du dernier jour (« matin », « apres_midi »), contrôlées par
  * `checkAbsence` ; Keystone reçoit la journée entière.
  */
-const demander: ActionHandler = (ctx, p) => {
+const demander: ActionHandler = async (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
   const parManager = isManagerOf(ctx, emp);
   if (!(isRh(ctx) || isSelf(ctx, emp.id) || parManager)) throw new ActionError('Vous ne pouvez poser une absence que pour vous-même ou votre équipe', 403);
   const kind = str(p.kind) as CongeType;
   const chk = checkAbsence(ctx.d, emp, kind, p.du, p.au, parManager, { debutDemi: p.debutDemi, finDemi: p.finDemi });
   if (chk.cant) throw new ActionError(chk.msgs.find(m => m.bad)?.text || 'Demande invalide');
-  const a = ctx.db.insert<Absence>('absences', { empId: emp.id, type: kind, du: p.du, au: p.au, ...chk.demi, statut: parManager ? 'validee' : 'demandee', keystone: parManager });
+  const a = await ctx.db.insert<Absence>('absences', { empId: emp.id, type: kind, du: p.du, au: p.au, ...chk.demi, statut: parManager ? 'validee' : 'demandee', keystone: parManager });
   if (parManager) {
-    keystone(ctx, 'absence.validee', a);
-    notifierDecisionConge(ctx, emp, a, true, true); // e-mail : le salarié est informé
+    await keystone(ctx, 'absence.validee', a);
+    await notifierDecisionConge(ctx, emp, a, true, true); // e-mail : le salarié est informé
     return `Absence de ${emp.nom} (${ABS_LABEL[kind].toLowerCase()}) posée et validée — transmise à Keystone pour la planification`;
   }
-  notifierDemandeConge(ctx, emp, a, ctx.d.mgrOf(emp)); // e-mail : la demande part au valideur
+  await notifierDemandeConge(ctx, emp, a, ctx.d.mgrOf(emp)); // e-mail : la demande part au valideur
   return `Demande de ${ABS_LABEL[kind].toLowerCase()} envoyée ${ctx.d.mgrDest(ctx.d.mgrOf(emp))}`;
 };
 
-const decider: ActionHandler = (ctx, p) => {
+const decider: ActionHandler = async (ctx, p) => {
   const a = ctx.ds.absences.find(x => x.id === Number(p.id));
   const ok = !!p.ok;
   // Même décision déjà prise (double clic, autre onglet, autre valideur) : rien n'est refait ni renvoyé à Keystone.
@@ -63,13 +63,13 @@ const decider: ActionHandler = (ctx, p) => {
   // Motif du refus, montré au salarié et à son manager dans leurs absences (l'écran l'exige ; un appel sans motif reste accepté).
   const motif = ok ? '' : str(p.motif);
   if (motif.length > 500) throw new ActionError('Motif trop long (500 caractères au plus)');
-  ctx.db.update<Absence>('absences', a.id, { statut: ok ? 'validee' : 'refusee', keystone: ok, motifRefus: motif || null });
-  if (ok) keystone(ctx, 'absence.validee', a);
-  notifierDecisionConge(ctx, emp, a, ok);
+  await ctx.db.update<Absence>('absences', a.id, { statut: ok ? 'validee' : 'refusee', keystone: ok, motifRefus: motif || null });
+  if (ok) await keystone(ctx, 'absence.validee', a);
+  await notifierDecisionConge(ctx, emp, a, ok);
   // Jours d'une période déjà close rendus par le refus : reportés sur la période suivante, jamais perdus sans trace.
-  const rendus = !ok && a.type === 'CP' ? recrediterPeriodesCloses(ctx, emp, ctx.d) : '';
+  const rendus = !ok && a.type === 'CP' ? await recrediterPeriodesCloses(ctx, emp, ctx.d) : '';
   // Jours d'avant le premier jour transmis à la paie (t028) : le service RH est prévenu qu'ils restent à saisir dans Sage.
-  const avant = ok && isRh(ctx) ? joursAvantDepart(ctx.db, ctx.ds.settings, a) : '';
+  const avant = ok && isRh(ctx) ? await joursAvantDepart(ctx.db, ctx.ds.settings, a) : '';
   return ok ? `Absence de ${emp.nom} validée — transmise à Keystone pour la planification${avant}` : `Absence de ${emp.nom} refusée${motif ? ' · motif communiqué au salarié' : ''}${rendus ? ` · ${rendus}` : ''}`;
 };
 
@@ -85,8 +85,8 @@ function absenceOf(ctx: Ctx, id: unknown): Absence {
  * Indisponibilité transmise à Keystone : identifiant de l'absence, matricule et période complète, jamais la nature
  * (congé, arrêt…). Pour une même absence, le dernier événement remplace le précédent (docs/API-KEYSTONE.md).
  */
-function keystone(ctx: Ctx, type: 'absence.validee' | 'absence.annulee', a: Pick<Absence, 'id' | 'empId' | 'du' | 'au'>) {
-  sendToKeystone(ctx.db, absenceKeystone(type, a, identifiantKeystone(ctx.ds.settings.identifiantKeystone, getEmp(ctx, a.empId))));
+async function keystone(ctx: Ctx, type: 'absence.validee' | 'absence.annulee', a: Pick<Absence, 'id' | 'empId' | 'du' | 'au'>) {
+  await sendToKeystone(ctx.db, absenceKeystone(type, a, identifiantKeystone(ctx.ds.settings.identifiantKeystone, getEmp(ctx, a.empId))));
 }
 
 function natureDe(p: Record<string, any>): NatureAbsence {
@@ -108,9 +108,9 @@ function justificatifDe(ctx: Ctx, p: Record<string, any>): Pick<Absence, 'justif
  * de ces natures (`avant` : son état précédent ; `type` : sa nature après l'écriture) la recalcule (`repriseAInscrire`).
  * Texte pour le message du RH.
  */
-function majReprise(ctx: Ctx, emp: Employe, avant: Absence | null, type: AbsenceType): string {
-  const { reprise: r, differee } = repriseAInscrire(emp, ctx.db.where<Absence>('absences', 'empId', emp.id), ctx.ds.entretiens, avant, type);
-  if (r !== undefined) ctx.db.update('employes', emp.id, { repriseMotif: r?.motif ?? null, repriseDate: r?.date ?? null });
+async function majReprise(ctx: Ctx, emp: Employe, avant: Absence | null, type: AbsenceType): Promise<string> {
+  const { reprise: r, differee } = repriseAInscrire(emp, await ctx.db.where<Absence>('absences', 'empId', emp.id), ctx.ds.entretiens, avant, type);
+  if (r !== undefined) await ctx.db.update('employes', emp.id, { repriseMotif: r?.motif ?? null, repriseDate: r?.date ?? null });
   if (!isRh(ctx)) return '';
   // Reprise antérieure dont l'entretien n'est pas réalisé : l'obligation reste sur la fiche.
   if (differee) return ` · reprise du ${fmt(parse(emp.repriseDate!))} conservée sur la fiche, entretien de reprise à réaliser : celle du ${fmt(parse(differee.date))} sera à inscrire ensuite`;
@@ -122,14 +122,14 @@ function majReprise(ctx: Ctx, emp: Employe, avant: Absence | null, type: Absence
  * Absence annulée ou raccourcie (`a` : sa période avant l'écriture) : une feuille soumise sans heure parce que la semaine
  * était couverte serait validée à 0 h. Elle est renvoyée au salarié pour saisie des heures. Texte pour le message.
  */
-function renvoyerFeuilles(ctx: Ctx, emp: Employe, a: Pick<Absence, 'du' | 'au'>): string {
-  const apres = new Domain({ ...ctx.ds, absences: ctx.db.all<Absence>('absences') });
+async function renvoyerFeuilles(ctx: Ctx, emp: Employe, a: Pick<Absence, 'du' | 'au'>): Promise<string> {
+  const apres = new Domain({ ...ctx.ds, absences: await ctx.db.all<Absence>('absences') });
   const sh = ctx.ds.feuilles.filter(f => f.empId === emp.id && f.statut === 'soumise' && f.week <= a.au && addD(f.week, 4) >= a.du
     && !f.lignes.some(l => l.h.some(h => num(h) > 0)) && !semaineCouverte(apres, emp, f.week, f));
-  sh.forEach(f => {
-    ctx.db.update<FeuilleTemps>('feuilles', f.id, { statut: 'rejetee', comment: 'Absence annulée ou raccourcie : la semaine n’est plus couverte, saisissez les heures travaillées' });
-    notifierFeuilleRenvoyee(ctx, emp, f.week, true);
-  });
+  for (const f of sh) {
+    await ctx.db.update<FeuilleTemps>('feuilles', f.id, { statut: 'rejetee', comment: 'Absence annulée ou raccourcie : la semaine n’est plus couverte, saisissez les heures travaillées' });
+    await notifierFeuilleRenvoyee(ctx, emp, f.week, true);
+  }
   const semaines = sh.map(f => isoWeek(f.week));
   if (!semaines.length) return '';
   return semaines.length > 1
@@ -143,7 +143,7 @@ const sansNature = (chk: { msgs: { text: string; bad: boolean }[] }) => new Acti
  * Absence imprévue signalée par l'intéressé, son manager direct ou le RH : en vigueur aussitôt (aucune heure ces jours-là,
  * indisponibilité transmise à Keystone) ; le service RH en précise ensuite la nature.
  */
-const signaler: ActionHandler = (ctx, p) => {
+const signaler: ActionHandler = async (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
   if (!(isRh(ctx) || isSelf(ctx, emp.id) || isManagerOf(ctx, emp))) throw new ActionError('Vous ne pouvez signaler une absence que pour vous-même ou votre équipe', 403);
   const du = str(p.du), au = str(p.au) || du;
@@ -151,32 +151,32 @@ const signaler: ActionHandler = (ctx, p) => {
   if (chk.cant) throw sansNature(chk);
   // Un membre du RH qui signale sa propre absence depuis l'espace RH la signale comme intéressé.
   const interesse = isSelf(ctx, emp.id) || estSoiMeme(ctx, emp.id);
-  const a = ctx.db.insert<Absence>('absences', {
+  const a = await ctx.db.insert<Absence>('absences', {
     empId: emp.id, type: 'ABSENCE', du, au, statut: 'signalee', keystone: true, signaleLe: ctx.d.ti, signalePar: ctx.user.nom, signaleParInteresse: interesse, justificatif: false,
   });
-  keystone(ctx, 'absence.validee', a);
+  await keystone(ctx, 'absence.validee', a);
   // Justificatif joint par l'intéressé ou le service RH, jamais par le manager (donnée de santé) : actions/pieces.ts.
   if (p.pieces != null && !(isRh(ctx) || interesse)) throw new ActionError('Justificatif réservé à l’intéressé et au service RH', 403);
-  const pieces = joindrePieces(ctx, p.pieces, 'absence', a.id, emp.id);
+  const pieces = await joindrePieces(ctx, p.pieces, 'absence', a.id, emp.id);
   return `Absence de ${emp.nom} signalée ${periodeTexte(du, au)} — nature à préciser par le service RH${interesse && !pieces ? ', à qui transmettre le justificatif' : ''} · indisponibilité transmise à Keystone${pieces}`;
 };
 
 /** Saisie directe par le RH d'une absence hors congés, prévisible (maternité, congé parental, événement familial…) ou non. */
-const saisir: ActionHandler = (ctx, p) => {
+const saisir: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const emp = getEmp(ctx, p.empId), nature = natureDe(p), du = str(p.du), au = str(p.au);
   refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas enregistrer une absence validée d’emblée pour vous-même');
   const chk = checkNature(ctx.d, emp, nature, du, au, { quand: 'avant d’enregistrer l’absence' });
   if (chk.cant) throw sansNature(chk);
   const just = justificatifDe(ctx, p);
-  const a = ctx.db.insert<Absence>('absences', { empId: emp.id, type: nature, du, au, statut: 'validee', keystone: true, ...just });
-  keystone(ctx, 'absence.validee', a);
-  const pieces = joindrePieces(ctx, p.pieces, 'absence', a.id, emp.id);
-  return `Absence de ${emp.nom} enregistrée ${periodeTexte(du, au)} : ${NATURES_ABSENCE[nature].court} — indisponibilité transmise à Keystone${pieces}${majReprise(ctx, emp, null, nature)}${joursAvantDepart(ctx.db, ctx.ds.settings, a)}`;
+  const a = await ctx.db.insert<Absence>('absences', { empId: emp.id, type: nature, du, au, statut: 'validee', keystone: true, ...just });
+  await keystone(ctx, 'absence.validee', a);
+  const pieces = await joindrePieces(ctx, p.pieces, 'absence', a.id, emp.id);
+  return `Absence de ${emp.nom} enregistrée ${periodeTexte(du, au)} : ${NATURES_ABSENCE[nature].court} — indisponibilité transmise à Keystone${pieces}${await majReprise(ctx, emp, null, nature)}${await joursAvantDepart(ctx.db, ctx.ds.settings, a)}`;
 };
 
 /** Qualification par le RH d'une absence signalée, ou correction d'une absence qualifiée : nature, justificatif, dates. */
-const qualifier: ActionHandler = (ctx, p) => {
+const qualifier: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const a = absenceOf(ctx, p.id);
   if (!prolongeable(a)) throw new ActionError('Seule une absence signalée ou qualifiée, hors congés, se qualifie');
@@ -186,16 +186,16 @@ const qualifier: ActionHandler = (ctx, p) => {
   const chk = checkNature(ctx.d, emp, nature, du, au, { exclure: a.id, quand: 'avant de qualifier l’absence' });
   if (chk.cant) throw sansNature(chk);
   const just = justificatifDe(ctx, p);
-  ctx.db.update<Absence>('absences', a.id, { type: nature, du, au, statut: 'validee', keystone: true, ...just });
+  await ctx.db.update<Absence>('absences', a.id, { type: nature, du, au, statut: 'validee', keystone: true, ...just });
   // Dates corrigées : même absence, la nouvelle période remplace l'ancienne chez Keystone (jamais la nature).
   const corrigee = du !== a.du || au !== a.au;
-  if (!a.keystone || corrigee) keystone(ctx, 'absence.validee', { ...a, du, au });
+  if (!a.keystone || corrigee) await keystone(ctx, 'absence.validee', { ...a, du, au });
   const justTexte = just.justificatif ? `justificatif reçu le ${fmt(parse(just.justificatifLe!))}` : 'justificatif attendu';
-  const renvoi = corrigee ? renvoyerFeuilles(ctx, emp, a) : '';
+  const renvoi = corrigee ? await renvoyerFeuilles(ctx, emp, a) : '';
   // Absence déjà partie à la paie (t028) : dates ou nature changées, l'écart part dans le prochain lot.
-  const paie = (corrigee || nature !== a.type ? suitePaie(ctx.db, a) : '') + joursAvantDepart(ctx.db, ctx.ds.settings, { ...a, type: nature, du });
-  const pieces = joindrePieces(ctx, p.pieces, 'absence', a.id, emp.id);
-  return `Absence de ${emp.nom} qualifiée : ${NATURES_ABSENCE[nature].court} ${periodeTexte(du, au)}, ${justTexte}${pieces}${renvoi}${majReprise(ctx, emp, a, nature)}${paie}`;
+  const paie = (corrigee || nature !== a.type ? await suitePaie(ctx.db, a) : '') + await joursAvantDepart(ctx.db, ctx.ds.settings, { ...a, type: nature, du });
+  const pieces = await joindrePieces(ctx, p.pieces, 'absence', a.id, emp.id);
+  return `Absence de ${emp.nom} qualifiée : ${NATURES_ABSENCE[nature].court} ${periodeTexte(du, au)}, ${justTexte}${pieces}${renvoi}${await majReprise(ctx, emp, a, nature)}${paie}`;
 };
 
 /**
@@ -203,7 +203,7 @@ const qualifier: ActionHandler = (ctx, p) => {
  * direct ou le RH. Hors RH, l'absence repasse « à qualifier » : le service RH enregistre l'avis de prolongation (un
  * membre du RH qui prolonge sa propre absence le fait comme intéressé).
  */
-const prolonger: ActionHandler = (ctx, p) => {
+const prolonger: ActionHandler = async (ctx, p) => {
   const a = absenceOf(ctx, p.id);
   const emp = getEmp(ctx, a.empId);
   if (!(isRh(ctx) || isSelf(ctx, emp.id) || isManagerOf(ctx, emp))) throw new ActionError('Vous ne pouvez prolonger qu’une absence de vous-même ou de votre équipe', 403);
@@ -214,10 +214,10 @@ const prolonger: ActionHandler = (ctx, p) => {
   const chk = checkNature(ctx.d, emp, a.type as NatureAbsence | 'ABSENCE', debut, au, { exclure: a.id, quand: 'avant de prolonger l’absence', depuis: a.du });
   if (chk.cant) throw sansNature(chk);
   const statut = isRh(ctx) && !estSoiMeme(ctx, emp.id) ? a.statut : 'signalee';
-  ctx.db.update<Absence>('absences', a.id, { au, statut, finInitiale: a.finInitiale ?? a.au, keystone: true });
-  keystone(ctx, 'absence.validee', { ...a, au });
+  await ctx.db.update<Absence>('absences', a.id, { au, statut, finInitiale: a.finInitiale ?? a.au, keystone: true });
+  await keystone(ctx, 'absence.validee', { ...a, au });
   const suite = statut === 'signalee' && a.statut === 'validee' ? ' — prolongation à qualifier par le service RH' : '';
-  return `Absence de ${emp.nom} prolongée jusqu’au ${fmt(parse(au))}${suite} · indisponibilité transmise à Keystone${majReprise(ctx, emp, a, a.type)}${isRh(ctx) ? suitePaie(ctx.db, a) : ''}`;
+  return `Absence de ${emp.nom} prolongée jusqu’au ${fmt(parse(au))}${suite} · indisponibilité transmise à Keystone${await majReprise(ctx, emp, a, a.type)}${isRh(ctx) ? await suitePaie(ctx.db, a) : ''}`;
 };
 
 /**
@@ -226,7 +226,7 @@ const prolonger: ActionHandler = (ctx, p) => {
  * (seuls les congés demandés ou validés le débitent), Keystone libère la période, une feuille soumise sans heure qui n'est
  * plus couverte est renvoyée et la reprise inscrite par l'absence est recalculée.
  */
-const annuler: ActionHandler = (ctx, p) => {
+const annuler: ActionHandler = async (ctx, p) => {
   const a = absenceOf(ctx, p.id);
   const emp = getEmp(ctx, a.empId);
   // Périmètre d'abord : hors de celui-ci, aucun refus ne doit révéler l'état ou les dates de l'absence.
@@ -235,22 +235,22 @@ const annuler: ActionHandler = (ctx, p) => {
   const soi = estSoiMeme(ctx, emp.id), self = isSelf(ctx, emp.id) || soi;
   const droit = droitAnnulation(a, ctx.d.ti, { rh: isRh(ctx) && !soi, self, manager: isManagerOf(ctx, emp) });
   if (!droit.ok) throw new ActionError(droit.raison, a.statut === 'refusee' || a.statut === 'annulee' ? 400 : 403);
-  ctx.db.update<Absence>('absences', a.id, { statut: 'annulee', annuleeLe: ctx.d.ti, annuleePar: ctx.user.nom, keystone: false });
-  if (a.keystone) keystone(ctx, 'absence.annulee', a);
+  await ctx.db.update<Absence>('absences', a.id, { statut: 'annulee', annuleeLe: ctx.d.ti, annuleePar: ctx.user.nom, keystone: false });
+  if (a.keystone) await keystone(ctx, 'absence.annulee', a);
   const n = estConge(a.type) ? ctx.d.countDays(emp, a.du, a.au, a.type, a) : 0, h = a.type === 'RECUP' ? n * ctx.d.dayH(emp) : 0;
   // CP d'une période déjà close : la ligne de clôture n'est pas refaite, les jours rendus sont reportés sur la suivante.
-  const rendus = a.type === 'CP' ? recrediterPeriodesCloses(ctx, emp, ctx.d) : '';
+  const rendus = a.type === 'CP' ? await recrediterPeriodesCloses(ctx, emp, ctx.d) : '';
   const recredit = !n ? '' : h ? ` — ${fH(h)} de récupération recréditée${h > 1 ? 's' : ''}`
     : rendus ? ` — ${fJ(n)} de CP rendus : ${rendus}` : ` — ${fJ(n)} de ${a.type} recrédité${n > 1 ? 's' : ''} sur le solde`;
   // Une feuille validée n'est jamais modifiée rétroactivement : des heures travaillées ces jours-là restent à régulariser.
   const semaines = ctx.ds.feuilles.filter(sh => sh.empId === emp.id && sh.statut === 'validee' && sh.week <= a.au && addD(sh.week, 6) >= a.du).map(sh => isoWeek(sh.week));
   const feuilles = semaines.length ? ` · ${semaines.length > 1 ? `feuilles de temps validées (semaines ${semaines.join(', ')}) non modifiées` : `feuille de temps validée (semaine ${semaines[0]}) non modifiée`}` : '';
   const nature = libelle((isRh(ctx) || isSelf(ctx, emp.id) ? a : absenceVueManager(a)).type);
-  const renvoi = a.statut === 'demandee' ? '' : renvoyerFeuilles(ctx, emp, a);
-  const reprise = majReprise(ctx, emp, a, a.type);
+  const renvoi = a.statut === 'demandee' ? '' : await renvoyerFeuilles(ctx, emp, a);
+  const reprise = await majReprise(ctx, emp, a, a.type);
   if (a.statut === 'demandee') return `Demande de ${nature} ${periodeDemiTexte(a)} ${self ? 'retirée' : 'annulée'}${recredit}`;
   // Absence déjà partie à la paie (t028) : régularisation négative dans le prochain lot (service RH seulement).
-  const paie = isRh(ctx) ? suitePaie(ctx.db, a) + (a.statut === 'validee' ? joursAvantDepart(ctx.db, ctx.ds.settings, a) : '') : '';
+  const paie = isRh(ctx) ? await suitePaie(ctx.db, a) + (a.statut === 'validee' ? await joursAvantDepart(ctx.db, ctx.ds.settings, a) : '') : '';
   return `Absence de ${emp.nom}${nature ? ` (${nature})` : ''} annulée${recredit}${a.keystone ? ' — Keystone prévenu' : ''}${feuilles}${renvoi}${reprise}${paie}`;
 };
 
@@ -261,7 +261,7 @@ const libelle = (t: AbsenceType) => t === 'ABSENCE' ? '' : t === 'RTT' ? 'RTT / 
  * Placement sur le compte épargne-temps : RTT de l'année (`annee` : l'année précédente, tant que sa clôture n'est pas
  * faite) ou CP de la 5e semaine de la période en cours.
  */
-const placerCet: ActionHandler = (ctx, p) => {
+const placerCet: ActionHandler = async (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
   if (!(isRh(ctx) || isSelf(ctx, emp.id))) throw new ActionError('Vous ne pouvez alimenter que votre propre CET', 403);
   const kind = p.kind === 'CP' ? 'CP' : 'RTT';
@@ -274,7 +274,7 @@ const placerCet: ActionHandler = (ctx, p) => {
   if (!ct.eligible) throw new ActionError('Compte épargne-temps non ouvert pour ce contrat (intérim : congés gérés par l’agence)');
   if (!(j > 0) || j > max || (j * 2) % 1 !== 0) throw new ActionError(`Nombre de jours invalide (maximum ${fJ(max)}, par demi-journée)`);
   const periode = kind === 'CP' ? cpPeriods(ctx.d.ti).label : String(annee);
-  ctx.db.insert<CetMouvement>('cet', { empId: emp.id, type: kind, jours: j, date: ctx.d.ti, periode });
+  await ctx.db.insert<CetMouvement>('cet', { empId: emp.id, type: kind, jours: j, date: ctx.d.ti, periode });
   return `${fJ(j)} de ${kind === 'CP' ? 'CP (5e semaine)' : `RTT ${annee}`} placés sur le compte épargne-temps de ${emp.nom}`;
 };
 
@@ -283,7 +283,7 @@ const placerCet: ActionHandler = (ctx, p) => {
  * reportés sur la suivante, dans la limite du solde non encore reporté, jusqu'au 31 mai suivant (`echeanceReport` : seul
  * un report légal court au-delà). Appliqué par la clôture de la période (`conges.cloturer`), qui le plafonne au solde restant au 31 mai.
  */
-const accorderReport: ActionHandler = (ctx, p) => {
+const accorderReport: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const emp = getEmp(ctx, p.empId);
   refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas vous accorder un report de congés');
@@ -292,7 +292,7 @@ const accorderReport: ActionHandler = (ctx, p) => {
   if (!cp || !(j > 0) || (j * 2) % 1 !== 0 || j > max || !motif) throw new ActionError(`Nombre de jours (${fJ(Math.max(0, max))} au plus : solde non encore reporté) et motif requis`);
   const expire = echeanceReport(A);
   if (p.expire != null && str(p.expire) && str(p.expire) !== expire) throw new ActionError(`Échéance du report invalide : le ${fmt(parse(expire))}, 31 mai suivant (seul un report légal court au-delà)`);
-  ctx.db.insert<ReportCp>('reports', { empId: emp.id, jours: j, motif, par: ctx.user.nom, date: ctx.d.ti, sens: 'accorde', periode: A + 1, expire });
+  await ctx.db.insert<ReportCp>('reports', { empId: emp.id, jours: j, motif, par: ctx.user.nom, date: ctx.d.ti, sens: 'accorde', periode: A + 1, expire });
   return `${fJ(j)} de CP ${periodeCp(A)} reportés pour ${emp.nom} sur la période ${periodeCp(A + 1)} (appliqués à la clôture du ${fmt(parse(finPeriodeCp(A)))}) — utilisables jusqu’au ${fmt(parse(expire))}`;
 };
 

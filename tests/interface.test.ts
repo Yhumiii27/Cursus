@@ -11,7 +11,7 @@ const { api, DELAI_ACTION_MS, DELAI_LECTURE_MS, messageHttp, MSG_DELAI, MSG_DELA
 const { AppelsEnCours, cleAction, garde } = await import('../client/src/state/actions.ts');
 const { saisieModifiee } = await import('../client/src/state/brouillon.ts');
 const { EnregistrementAuFil } = await import('../client/src/state/enregistrement.ts');
-const { Db } = await import('../server/src/db.ts');
+const { SqliteDb: Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -57,7 +57,7 @@ test('erreurs HTTP sans message de Cursus : en français, jamais « Erreur 500 �
 });
 
 test('message de Cursus prioritaire sur le message générique', async () => {
-  globalThis.fetch = (async () => json(400, { error: 'Demande introuvable ou déjà traitée' })) as typeof fetch;
+  globalThis.fetch = (async () => await json(400, { error: 'Demande introuvable ou déjà traitée' })) as typeof fetch;
   const r = await api.action('absence.decider', { id: 1, ok: true });
   assert.equal(r.error, 'Demande introuvable ou déjà traitée');
 });
@@ -207,82 +207,82 @@ const KARIM: User = { role: 'manager', empId: 12, nom: 'Karim Haddad', intitule:
 const HUGO: User = { role: 'manager', empId: 16, nom: 'Hugo Lambert', intitule: '' };
 const MEHDI: User = { role: 'collaborateur', empId: 2, nom: 'Mehdi Benali', intitule: '' };
 
-function fresh() {
+async function fresh() {
   const db = new Db(':memory:');
-  seedDemo(db);
-  const run = (user: User, name: string, payload: Record<string, unknown>) => db.tx(() => ACTIONS[name](makeCtx(db, user, loadFull(db, user)), payload));
+  await seedDemo(db);
+  const run = async (user: User, name: string, payload: Record<string, unknown>) => await db.tx(async () => await ACTIONS[name](makeCtx(db, user, await loadFull(db, user)), payload));
   return { db, run };
 }
 
-test('plan : un second « Engager » n’avance pas l’action jusqu’à « Réalisé »', () => {
-  const { db, run } = fresh();
-  const id = db.insert<{ id: number }>('planActions', {
+test('plan : un second « Engager » n’avance pas l’action jusqu’à « Réalisé »', async () => {
+  const { db, run } = await fresh();
+  const id = (await db.insert<{ id: number }>('planActions', {
     exercice: 2026, f: null, libelle: 'Lean management', equipe: 'Production', periode: 'T4', effectif: 4, cout: 2400, statut: 'prevu', origine: 'import',
-  }).id;
-  const statut = () => (db.sql.prepare('SELECT statut FROM plan_actions WHERE id = ?').get(id) as { statut: string }).statut;
-  assert.match(String(run(RH, 'plan.avancer', { id, de: 'prevu' })), /Lean management — Production · engagé/);
-  assert.match(String(run(RH, 'plan.avancer', { id, de: 'prevu' })), /déjà engagé/);
-  assert.equal(statut(), 'engage');
-  run(RH, 'plan.avancer', { id, de: 'engage', coutReel: 2400 });
-  assert.match(String(run(RH, 'plan.avancer', { id, de: 'engage' })), /déjà réalisé/);
-  assert.match(String(run(RH, 'plan.avancer', { id, de: 'prevu' })), /déjà réalisé/);
-  assert.equal(statut(), 'realise');
+  })).id;
+  const statut = async () => ((await db.one('SELECT statut FROM plan_actions WHERE id = ?', [id])) as { statut: string }).statut;
+  assert.match(String(await run(RH, 'plan.avancer', { id, de: 'prevu' })), /Lean management — Production · engagé/);
+  assert.match(String(await run(RH, 'plan.avancer', { id, de: 'prevu' })), /déjà engagé/);
+  assert.equal(await statut(), 'engage');
+  await run(RH, 'plan.avancer', { id, de: 'engage', coutReel: 2400 });
+  assert.match(String(await run(RH, 'plan.avancer', { id, de: 'engage' })), /déjà réalisé/);
+  assert.match(String(await run(RH, 'plan.avancer', { id, de: 'prevu' })), /déjà réalisé/);
+  assert.equal(await statut(), 'realise');
   // Revenue « prévue » (session annulée) pendant que l'écran affichait « Clôturer » : refus, rien n'est clôturé.
-  db.update('planActions', id, { statut: 'prevu' });
-  assert.throws(() => run(RH, 'plan.avancer', { id, de: 'engage' }), /de nouveau prévue/);
-  assert.throws(() => run(RH, 'plan.avancer', { id, de: 'realise' }), /Statut attendu invalide/);
-  assert.equal(statut(), 'prevu');
+  await db.update('planActions', id, { statut: 'prevu' });
+  await assert.rejects(async () => await run(RH, 'plan.avancer', { id, de: 'engage' }), /de nouveau prévue/);
+  await assert.rejects(async () => await run(RH, 'plan.avancer', { id, de: 'realise' }), /Statut attendu invalide/);
+  assert.equal(await statut(), 'prevu');
   // Sans statut attendu (ancien client) : avance d'un cran, refus une fois réalisée.
-  run(RH, 'plan.avancer', { id });
-  run(RH, 'plan.avancer', { id, coutReel: 2400 });
-  assert.throws(() => run(RH, 'plan.avancer', { id }), /déjà réalisée/);
-  assert.throws(() => run(KARIM, 'plan.avancer', { id, de: 'prevu' }), /réservée au service RH/);
+  await run(RH, 'plan.avancer', { id });
+  await run(RH, 'plan.avancer', { id, coutReel: 2400 });
+  await assert.rejects(async () => await run(RH, 'plan.avancer', { id }), /déjà réalisée/);
+  await assert.rejects(async () => await run(KARIM, 'plan.avancer', { id, de: 'prevu' }), /réservée au service RH/);
 });
 
-test('absence : la même décision prise deux fois n’est ni refaite ni renvoyée à Keystone', () => {
-  const { db, run } = fresh();
-  const a = db.sql.prepare(`SELECT id FROM absences WHERE emp_id = 2 AND statut = 'demandee'`).get() as { id: number };
-  const envois = () => (db.sql.prepare(`SELECT COUNT(*) AS n FROM envois WHERE type = 'absence.validee'`).get() as { n: number }).n;
-  const avant = envois();
-  assert.match(String(run(KARIM, 'absence.decider', { id: a.id, ok: true })), /validée — transmise à Keystone/);
-  assert.equal(String(run(KARIM, 'absence.decider', { id: a.id, ok: true })), 'Absence de Mehdi Benali déjà validée');
-  assert.equal(String(run(RH, 'absence.decider', { id: a.id, ok: true })), 'Absence de Mehdi Benali déjà validée');
-  assert.equal(envois(), avant + 1, 'un seul message pour Keystone');
+test('absence : la même décision prise deux fois n’est ni refaite ni renvoyée à Keystone', async () => {
+  const { db, run } = await fresh();
+  const a = (await db.one(`SELECT id FROM absences WHERE emp_id = 2 AND statut = 'demandee'`)) as { id: number };
+  const envois = async () => ((await db.one(`SELECT COUNT(*) AS n FROM envois WHERE type = 'absence.validee'`)) as { n: number }).n;
+  const avant = await envois();
+  assert.match(String(await run(KARIM, 'absence.decider', { id: a.id, ok: true })), /validée — transmise à Keystone/);
+  assert.equal(String(await run(KARIM, 'absence.decider', { id: a.id, ok: true })), 'Absence de Mehdi Benali déjà validée');
+  assert.equal(String(await run(RH, 'absence.decider', { id: a.id, ok: true })), 'Absence de Mehdi Benali déjà validée');
+  assert.equal(await envois(), avant + 1, 'un seul message pour Keystone');
   // Décision contraire, ou personne hors périmètre : refus, comme avant.
-  assert.throws(() => run(KARIM, 'absence.decider', { id: a.id, ok: false }), /déjà traitée/);
-  assert.throws(() => run(HUGO, 'absence.decider', { id: a.id, ok: true }), /déjà traitée/);
-  assert.throws(() => run(MEHDI, 'absence.decider', { id: a.id, ok: true }), /déjà traitée/);
-  const statut = db.sql.prepare('SELECT statut FROM absences WHERE id = ?').get(a.id) as { statut: string };
+  await assert.rejects(async () => await run(KARIM, 'absence.decider', { id: a.id, ok: false }), /déjà traitée/);
+  await assert.rejects(async () => await run(HUGO, 'absence.decider', { id: a.id, ok: true }), /déjà traitée/);
+  await assert.rejects(async () => await run(MEHDI, 'absence.decider', { id: a.id, ok: true }), /déjà traitée/);
+  const statut = (await db.one('SELECT statut FROM absences WHERE id = ?', [a.id])) as { statut: string };
   assert.equal(statut.statut, 'validee');
   // Refus répété : sans erreur non plus.
-  const b = db.sql.prepare(`SELECT id FROM absences WHERE emp_id = 1 AND statut = 'demandee'`).get() as { id: number };
-  run(RH, 'absence.decider', { id: b.id, ok: false });
-  assert.match(String(run(RH, 'absence.decider', { id: b.id, ok: false })), /déjà refusée/);
+  const b = (await db.one(`SELECT id FROM absences WHERE emp_id = 1 AND statut = 'demandee'`)) as { id: number };
+  await run(RH, 'absence.decider', { id: b.id, ok: false });
+  assert.match(String(await run(RH, 'absence.decider', { id: b.id, ok: false })), /déjà refusée/);
 });
 
-test('feuille de temps : la croix supprime la ligne visée, jamais la suivante', () => {
-  const { db, run } = fresh();
+test('feuille de temps : la croix supprime la ligne visée, jamais la suivante', async () => {
+  const { db, run } = await fresh();
   const week = '2026-10-12';
-  const lignes = () => (db.sql.prepare('SELECT lignes FROM feuilles WHERE emp_id = 2 AND week = ?').get(week) as { lignes: string } | undefined);
-  const projets = () => (JSON.parse(lignes()!.lignes) as { projet: string }[]).map(l => l.projet);
-  run(MEHDI, 'temps.addLine', { empId: 2, week, projet: 'INT-MAINT' });
-  run(MEHDI, 'temps.addLine', { empId: 2, week, projet: 'K-2620' });
-  run(MEHDI, 'temps.addLine', { empId: 2, week, projet: 'INT-QUA' });
-  assert.deepEqual(projets(), ['INT-MAINT', 'K-2620', 'INT-QUA']);
+  const lignes = async () => ((await db.one('SELECT lignes FROM feuilles WHERE emp_id = 2 AND week = ?', [week])) as { lignes: string } | undefined);
+  const projets = async () => (JSON.parse((await (await lignes())!).lignes) as { projet: string }[]).map(l => l.projet);
+  await run(MEHDI, 'temps.addLine', { empId: 2, week, projet: 'INT-MAINT' });
+  await run(MEHDI, 'temps.addLine', { empId: 2, week, projet: 'K-2620' });
+  await run(MEHDI, 'temps.addLine', { empId: 2, week, projet: 'INT-QUA' });
+  assert.deepEqual(await projets(), ['INT-MAINT', 'K-2620', 'INT-QUA']);
   // Ligne visée : projet et tâche affichés, nombre de lignes de la feuille affichée.
-  const ligne0 = { empId: 2, week, li: 0, projet: 'INT-MAINT', tache: (JSON.parse(lignes()!.lignes) as { tache: string }[])[0].tache, lignes: 3 };
-  run(MEHDI, 'temps.removeLine', ligne0);
+  const ligne0 = { empId: 2, week, li: 0, projet: 'INT-MAINT', tache: (JSON.parse((await (await lignes())!).lignes) as { tache: string }[])[0].tache, lignes: 3 };
+  await run(MEHDI, 'temps.removeLine', ligne0);
   // Second clic (même demande) : la ligne n'existe plus, rien n'est supprimé.
-  assert.equal(run(MEHDI, 'temps.removeLine', ligne0), null);
-  assert.deepEqual(projets(), ['K-2620', 'INT-QUA']);
+  assert.equal(await run(MEHDI, 'temps.removeLine', ligne0), null);
+  assert.deepEqual(await projets(), ['K-2620', 'INT-QUA']);
   // Feuille changée entre-temps (ligne ajoutée ailleurs, lignes déplacées) : refus.
-  run(KARIM, 'temps.addLine', { empId: 2, week, projet: 'INT-PROD' });
-  assert.throws(() => run(MEHDI, 'temps.removeLine', { empId: 2, week, li: 1, projet: 'INT-QUA', lignes: 2 }), /La feuille a changé entre-temps/);
-  assert.throws(() => run(MEHDI, 'temps.removeLine', { empId: 2, week, li: 0, projet: 'INT-QUA', lignes: 3 }), /La feuille a changé entre-temps/);
-  assert.deepEqual(projets(), ['K-2620', 'INT-QUA', 'INT-PROD']);
-  run(MEHDI, 'temps.removeLine', { empId: 2, week, li: 1, projet: 'INT-QUA', lignes: 3 });
-  assert.deepEqual(projets(), ['K-2620', 'INT-PROD']);
+  await run(KARIM, 'temps.addLine', { empId: 2, week, projet: 'INT-PROD' });
+  await assert.rejects(async () => await run(MEHDI, 'temps.removeLine', { empId: 2, week, li: 1, projet: 'INT-QUA', lignes: 2 }), /La feuille a changé entre-temps/);
+  await assert.rejects(async () => await run(MEHDI, 'temps.removeLine', { empId: 2, week, li: 0, projet: 'INT-QUA', lignes: 3 }), /La feuille a changé entre-temps/);
+  assert.deepEqual(await projets(), ['K-2620', 'INT-QUA', 'INT-PROD']);
+  await run(MEHDI, 'temps.removeLine', { empId: 2, week, li: 1, projet: 'INT-QUA', lignes: 3 });
+  assert.deepEqual(await projets(), ['K-2620', 'INT-PROD']);
   // Sans ligne visée (ancien client) : suppression par l'indice, comme avant.
-  run(MEHDI, 'temps.removeLine', { empId: 2, week, li: 0 });
-  assert.deepEqual(projets(), ['INT-PROD']);
+  await run(MEHDI, 'temps.removeLine', { empId: 2, week, li: 0 });
+  assert.deepEqual(await projets(), ['INT-PROD']);
 });

@@ -19,7 +19,7 @@ const ligne = (ctx: Ctx, v: Voyage) => `${ctx.d.personName(v.empId)} du ${fmtSho
  * Alerte d'une destination passée à l'orange ou au rouge : notifications et suite du message de l'action. Renvoie aussi
  * les salariés concernés (journal). Aucun déplacement prévu : rien n'est envoyé.
  */
-export function alerterVigilance(ctx: Ctx, d: Destination): { texte: string; salaries: number[] } {
+export async function alerterVigilance(ctx: Ctx, d: Destination): Promise<{ texte: string; salaries: number[] }> {
   const voyages = voyagesVers(ctx.ds.voyages, d.code, ctx.d.ti);
   const niveau = `${d.vigilance} (France Diplomatie : ${VIGILANCES[d.vigilance!].label.toLowerCase()})`;
   if (!voyages.length) return { texte: ` · vigilance ${niveau} : aucun déplacement prévu vers ce pays`, salaries: [] };
@@ -33,7 +33,7 @@ export function alerterVigilance(ctx: Ctx, d: Destination): { texte: string; sal
     if (m) parManager.set(m, [...(parManager.get(m) ?? []), v]);
   }
   for (const [m, l] of parManager) {
-    notifier(ctx, m, {
+    await notifier(ctx, m, {
       type: 'voyage.vigilance', objet: `Vigilance ${d.vigilance} — ${d.pays} : ${plural(l.length, 'déplacement de votre équipe', 'déplacements de votre équipe')}`,
       texte: `La destination ${d.pays} passe en vigilance ${niveau}. Déplacements prévus dans votre équipe :\n${l.map(v => `- ${ligne(ctx, v)}`).join('\n')}\n${suite}`,
     });
@@ -46,7 +46,7 @@ export function alerterVigilance(ctx: Ctx, d: Destination): { texte: string; sal
       : 'À revoir avec chaque manager et voyageur (raison impérative, consignes de sécurité, inscription sur Ariane).'}`,
   }, true);
   return {
-    texte: ` · vigilance ${niveau} : ${plural(voyages.length, 'déplacement prévu', 'déplacements prévus')} vers ce pays (${voyages.map(v => ligne(ctx, v)).join(', ')}), ${rh ? 'service RH et managers prévenus' : 'managers prévenus'}${d.vigilance === 'rouge' ? ' ; réserve au Go / No Go' : ''}`,
+    texte: ` · vigilance ${niveau} : ${plural(voyages.length, 'déplacement prévu', 'déplacements prévus')} vers ce pays (${voyages.map(v => ligne(ctx, v)).join(', ')}), ${await rh ? 'service RH et managers prévenus' : 'managers prévenus'}${d.vigilance === 'rouge' ? ' ; réserve au Go / No Go' : ''}`,
     salaries: [...new Set(voyages.map(v => v.empId))],
   };
 }

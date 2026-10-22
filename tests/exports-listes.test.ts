@@ -5,7 +5,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
 
-const { Db } = await import('../server/src/db.ts');
+const { SqliteDb: Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -15,19 +15,18 @@ const { NATURES_ABSENCE } = await import('../shared/constants.ts');
 const { celluleCsv, texteCsv } = await import('../shared/csv.ts');
 const { habSuivie } = await import('../shared/rules/referentiels.ts');
 const { csvAbsences, csvAnnuaire, csvPlan, csvRegistre, csvSoldes, MENTION_SOLDES, nombre } = await import('../client/src/listes-csv.ts');
-type User = NonNullable<ReturnType<typeof currentUser>>;
+type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
 
 // Comptes de démonstration : Sandrine Vidal (administratrice RH), Karim Haddad (12) encadre Mehdi (2).
-function fresh() {
+async function fresh() {
   const db = new Db(':memory:');
-  seedDemo(db);
-  const compteId = (empId: number | null) => (db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL')
-    .get(...(empId ? [empId] : [])) as { id: number }).id;
-  const user = (empId: number | null, role: User['role']) => currentUser(db, { compteId: compteId(empId), role, methode: 'demo' })!;
-  const run = (u: User, name: string, payload: Record<string, unknown>) => db.tx(() => ACTIONS[name](makeCtx(db, u, loadFull(db, u)), payload));
+  await seedDemo(db);
+  const compteId = async (empId: number | null) => ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
+  const user = async (empId: number | null, role: User['role']) => (await currentUser(db, { compteId: await compteId(empId), role, methode: 'demo' }))!;
+  const run = async (u: User, name: string, payload: Record<string, unknown>) => await db.tx(async () => await ACTIONS[name](makeCtx(db, u, await loadFull(db, u)), payload));
   // Données telles que le navigateur les reçoit (GET /api/data) : déjà restreintes au profil.
-  const domaine = (u: User) => new Domain(buildSnapshot(db, u));
-  return { db, user, run, domaine, RH: user(null, 'rh') };
+  const domaine = async (u: User) => new Domain(await buildSnapshot(db, u));
+  return { db, user, run, domaine, RH: await user(null, 'rh') };
 }
 
 /** Texte complet du fichier, tel que téléchargé. */
@@ -35,9 +34,9 @@ const fichier = (x: { head: string[]; rows: (string | number)[][] }) => texteCsv
 /** Libellés de toutes les natures d'absence hors congés : aucun ne doit figurer dans un export. */
 const NATURES = Object.values(NATURES_ABSENCE).map(n => n.label);
 
-test('annuaire : lignes affichées, colonnes de l’écran, matricule de paie absent pour le manager', () => {
-  const { domaine, RH, user } = fresh();
-  const d = domaine(RH);
+test('annuaire : lignes affichées, colonnes de l’écran, matricule de paie absent pour le manager', async () => {
+  const { domaine, RH, user } = await fresh();
+  const d = await domaine(RH);
   const emps = d.enrich(d.ds.settings.horizonAlerte, d.ds.settings.uniquementReglementaire);
   // Comme l'écran : filtre d'équipe appliqué par la page, l'export ne reprend que ces lignes.
   const prod = emps.filter(e => e.equipe === 'Production');
@@ -48,17 +47,17 @@ test('annuaire : lignes affichées, colonnes de l’écran, matricule de paie ab
   assert.ok(x.rows.every(r => r[4] === 'Production' && /^EMP-\d{4}$/.test(String(r[1])) && /^\d{2}\/\d{2}\/\d{4}$/.test(String(r[6]))));
   assert.ok(x.rows.every(r => ['À jour', 'À renouveler', 'Non conforme'].includes(String(r[8]))), 'statut de conformité de l’écran');
   // Manager : son équipe seulement (jeu de données restreint), sans matricule de paie.
-  const dm = domaine(user(12, 'manager'));
+  const dm = await domaine(await user(12, 'manager'));
   // Comme l'écran : les membres de ses équipes, sans lui-même.
   const m = csvAnnuaire(dm, dm.enrich(30, false).filter(e => e.id !== 12 && dm.mgrOf(e) === 12));
   assert.ok(m.rows.length > 0, 'équipe du manager');
   assert.deepEqual(m.rows.filter(r => r[2] !== '').map(r => r[0]), [], 'aucun matricule de paie');
 });
 
-test('registre des habilitations : statut sans le motif d’une suspension, prérequis manquants', () => {
-  const { domaine, run, RH } = fresh();
-  run(RH, 'hab.suspendre', { empId: 18, h: 'he', motif: 'Incident sur armoire électrique', date: '2026-10-09' });
-  const d = domaine(RH);
+test('registre des habilitations : statut sans le motif d’une suspension, prérequis manquants', async () => {
+  const { domaine, run, RH } = await fresh();
+  await run(RH, 'hab.suspendre', { empId: 18, h: 'he', motif: 'Incident sur armoire électrique', date: '2026-10-09' });
+  const d = await domaine(RH);
   const rows = d.enrich(30, false).flatMap(e => e.habs.filter(habSuivie).map(h => ({ e, h })));
   const x = csvRegistre(d, rows);
   assert.equal(x.fichier, 'registre-habilitations-2026-10-10.csv');
@@ -69,9 +68,9 @@ test('registre des habilitations : statut sans le motif d’une suspension, pré
   assert.doesNotMatch(fichier(x), /Incident sur armoire/, 'le motif de la mesure (texte libre) reste hors du fichier');
 });
 
-test('soldes : nombres à la française, compteurs non concernés vides, mention « soldes calculés par Cursus »', () => {
-  const { domaine, RH } = fresh();
-  const d = domaine(RH);
+test('soldes : nombres à la française, compteurs non concernés vides, mention « soldes calculés par Cursus »', async () => {
+  const { domaine, RH } = await fresh();
+  const d = await domaine(RH);
   const x = csvSoldes(d, d.ds.employes);
   assert.equal(x.fichier, 'soldes-2026-10-10.csv');
   assert.deepEqual(x.head, ['Collaborateur', 'Matricule', 'Équipe', 'Contrat', 'CP 2025-2026 (j)', 'Droit CP 2025-2026 (j)', 'CP en acquisition 2026-2027 (j)',
@@ -86,11 +85,11 @@ test('soldes : nombres à la française, compteurs non concernés vides, mention
   assert.equal(celluleCsv('-2+3'), '\'-2+3');
 });
 
-test('absences : jamais la nature d’une absence hors congés, quel que soit le profil', () => {
-  const { domaine, run, RH, user } = fresh();
-  run(RH, 'absence.saisir', { empId: 2, nature: 'MALADIE', du: '2026-10-12', au: '2026-10-14', justificatif: true, justificatifLe: '2026-10-09' });
-  for (const u of [RH, user(12, 'manager')]) {
-    const d = domaine(u);
+test('absences : jamais la nature d’une absence hors congés, quel que soit le profil', async () => {
+  const { domaine, run, RH, user } = await fresh();
+  await run(RH, 'absence.saisir', { empId: 2, nature: 'MALADIE', du: '2026-10-12', au: '2026-10-14', justificatif: true, justificatifLe: '2026-10-09' });
+  for (const u of [RH, await user(12, 'manager')]) {
+    const d = await domaine(u);
     const list = d.ds.absences.map(a => ({ a, e: d.emp(a.empId)! })).filter(x => x.e);
     const x = csvAbsences(d, list);
     assert.equal(x.fichier, 'absences-2026-10-10.csv');
@@ -107,13 +106,13 @@ test('absences : jamais la nature d’une absence hors congés, quel que soit le
   }
 });
 
-test('absences : deux natures hors congés sur une même période donnent la même ligne (ni unité, ni nombre de jours)', () => {
-  const { domaine, run, RH, user } = fresh();
+test('absences : deux natures hors congés sur une même période donnent la même ligne (ni unité, ni nombre de jours)', async () => {
+  const { domaine, run, RH, user } = await fresh();
   // Du vendredi au lundi (week-end compris) : 4 jours calendaires, 2 jours ouvrés.
-  run(RH, 'absence.saisir', { empId: 2, nature: 'MALADIE', du: '2026-10-16', au: '2026-10-19', justificatif: true, justificatifLe: '2026-10-09' });
-  run(RH, 'absence.saisir', { empId: 3, nature: 'ENFANT_MALADE', du: '2026-10-16', au: '2026-10-19', justificatif: true, justificatifLe: '2026-10-09' });
-  for (const u of [RH, user(12, 'manager')]) {
-    const d = domaine(u);
+  await run(RH, 'absence.saisir', { empId: 2, nature: 'MALADIE', du: '2026-10-16', au: '2026-10-19', justificatif: true, justificatifLe: '2026-10-09' });
+  await run(RH, 'absence.saisir', { empId: 3, nature: 'ENFANT_MALADE', du: '2026-10-16', au: '2026-10-19', justificatif: true, justificatifLe: '2026-10-09' });
+  for (const u of [RH, await user(12, 'manager')]) {
+    const d = await domaine(u);
     const list = d.ds.absences.map(a => ({ a, e: d.emp(a.empId)! })).filter(x => x.e);
     const x = csvAbsences(d, list);
     const ligne = (m: string) => x.rows.find(r => r[1] === m && r[4] === '16/10/2026');
@@ -129,9 +128,9 @@ test('absences : deux natures hors congés sur une même période donnent la mê
   }
 });
 
-test('plan de formation : exercice, filtre de statut, coût retenu et origine', () => {
-  const { domaine, RH } = fresh();
-  const d = domaine(RH);
+test('plan de formation : exercice, filtre de statut, coût retenu et origine', async () => {
+  const { domaine, RH } = await fresh();
+  const d = await domaine(RH);
   const plan = d.ds.plan.filter(l => l.exercice === 2026);
   assert.ok(plan.length > 0, 'plan de démonstration');
   const prevus = plan.filter(l => l.statut === 'prevu');

@@ -13,19 +13,27 @@ import type { Migration } from './cadre.ts';
  * service RH) n'est pas touché. Aussi appelée par le jeu de démonstration (server/src/seed.ts), qu'une réinitialisation
  * recharge sans rejouer les migrations. Renvoie les codes ajoutés.
  */
-export function amorcerHoraires(db: Db): string[] {
-  const existe = db.sql.prepare('SELECT 1 FROM horaires WHERE code = ?');
-  const ajouter = db.sql.prepare('INSERT INTO horaires (code, nom, debut, fin, pause) VALUES (?, ?, ?, ?, ?)');
-  return HORAIRES_EXEMPLES.filter(h => !existe.get(h.code)).map(h => { ajouter.run(h.code, h.nom, h.debut, h.fin, h.pause); return h.code; });
+export async function amorcerHoraires(db: Db): Promise<string[]> {
+  const codes: string[] = [];
+  for (const h of HORAIRES_EXEMPLES) {
+    if (await db.one('SELECT 1 FROM horaires WHERE code = ?', [h.code])) continue;
+    await db.run('INSERT INTO horaires (code, nom, debut, fin, pause) VALUES (?, ?, ?, ?, ?)', [h.code, h.nom, h.debut, h.fin, h.pause]);
+    codes.push(h.code);
+  }
+  return codes;
 }
 
-const manquants = (db: Db) => HORAIRES_EXEMPLES.filter(h => !db.sql.prepare('SELECT 1 FROM horaires WHERE code = ?').get(h.code)).length;
+const manquants = async (db: Db) => {
+  let n = 0;
+  for (const h of HORAIRES_EXEMPLES) if (!await db.one('SELECT 1 FROM horaires WHERE code = ?', [h.code])) n++;
+  return n;
+};
 
 export const HORAIRES_EXEMPLES_MIGRATION: Migration = {
   nom: 'lot6-horaires-exemples',
-  necessaire: db => manquants(db) > 0,
-  executer: db => {
-    const codes = amorcerHoraires(db);
+  necessaire: async db => (await manquants(db)) > 0,
+  executer: async db => {
+    const codes = await amorcerHoraires(db);
     return codes.length ? `${plural(codes.length, 'horaire de poste d’exemple ajouté', 'horaires de poste d’exemple ajoutés')} (${codes.join(', ')})` : undefined;
   },
 };

@@ -15,17 +15,17 @@ export const EMAILS_SANTE: readonly string[] = ['conges.information', 'visite.de
 export const TYPE_RESERVE = 'reserve';
 
 /** Récapitulatifs quotidiens (identifiants d'envoi) qui regroupent une notification de santé. */
-function recapitulatifsSante(db: Db, ids: number[]): Set<number> {
+async function recapitulatifsSante(db: Db, ids: number[]): Promise<Set<number>> {
   if (!ids.length) return new Set();
-  const rows = db.sql.prepare(`SELECT DISTINCT envoi_id AS id FROM notifications WHERE envoi_id IN (${ids.map(() => '?').join(', ')})
-    AND type IN (${EMAILS_SANTE.map(() => '?').join(', ')})`).all(...ids, ...EMAILS_SANTE) as { id: number }[];
+  const rows = await db.query(`SELECT DISTINCT envoi_id AS id FROM notifications WHERE envoi_id IN (${ids.map(() => '?').join(', ')})
+    AND type IN (${EMAILS_SANTE.map(() => '?').join(', ')})`, [...ids, ...EMAILS_SANTE]) as { id: number }[];
   return new Set(rows.map(r => r.id));
 }
 
 /** Envois tels que `u` les lit : inchangés pour le service RH, e-mails de santé neutralisés pour la lecture seule. */
-export function envoisPourLecteur(db: Db, u: Pick<CurrentUser, 'role' | 'profilRh'>, envois: Envoi[]): Envoi[] {
+export async function envoisPourLecteur(db: Db, u: Pick<CurrentUser, 'role' | 'profilRh'>, envois: Envoi[]): Promise<Envoi[]> {
   if (dossierComplet(u)) return envois;
-  const recap = recapitulatifsSante(db, envois.filter(e => e.cible === 'email' && e.type === 'recapitulatif').map(e => e.id));
+  const recap = await recapitulatifsSante(db, envois.filter(e => e.cible === 'email' && e.type === 'recapitulatif').map(e => e.id));
   return envois.map(e => {
     if (e.cible !== 'email' || !(EMAILS_SANTE.includes(e.type) || recap.has(e.id))) return e;
     const { pj: _pj, ...contenu } = e.contenu as Record<string, unknown>;

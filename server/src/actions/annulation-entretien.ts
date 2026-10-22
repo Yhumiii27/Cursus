@@ -8,7 +8,7 @@ import { crCommence } from '../../../shared/rules/entretiens.ts';
 import { annulerConvocationEntretien } from '../notifications.ts';
 import { ActionError, type ActionHandler, getEmp, isValidatorOf, refuserSoiMeme } from './context.ts';
 
-const annuler: ActionHandler = (ctx, p) => {
+const annuler: ActionHandler = async (ctx, p) => {
   const x = ctx.ds.entretiens.find(y => y.id === Number(p.id));
   if (!x) throw new ActionError('Entretien introuvable', 404);
   const e = getEmp(ctx, x.empId);
@@ -19,9 +19,9 @@ const annuler: ActionHandler = (ctx, p) => {
   if (crCommence(x) && p.confirmer !== true) {
     throw new ActionError(`${nom} du ${fmtIso(x.date)} au compte rendu commencé : s’il a eu lieu, clôturez-le ; sinon, confirmez l’annulation, qui supprime le compte rendu`, 409);
   }
-  ctx.db.remove('entretiens', x.id);
+  await ctx.db.remove('entretiens', x.id);
   // Date passée : l'événement d'agenda est derrière le salarié, rien à retirer.
-  const prevenu = x.date < ctx.d.ti ? null : annulerConvocationEntretien(ctx, e, x);
+  const prevenu = x.date < ctx.d.ti ? null : await annulerConvocationEntretien(ctx, e, x);
   return `${nom} du ${fmtIso(x.date)} annulé — ${e.nom}${prevenu === null ? '' : prevenu ? ' · annulation envoyée au salarié' : ' · à prévenir (aucune adresse e-mail)'}`;
 };
 

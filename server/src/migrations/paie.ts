@@ -21,7 +21,7 @@ import type { Migration } from './cadre.ts';
 const CURSUS: CurrentUser = { role: 'rh', empId: null, nom: 'Cursus', intitule: 'Mise à jour de la base' };
 const aFiger = `statut = 'validee' AND heures_sup IS NULL`;
 /** Feuilles validées encore sans mode des heures supplémentaires. */
-const aReprendre = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS n FROM feuilles WHERE ${aFiger}`).get() as { n: number }).n);
+const aReprendre = async (db: Db) => Number((await db.one(`SELECT COUNT(*) AS n FROM feuilles WHERE ${aFiger}`) as { n: number }).n);
 
 /** Solde de récupération (heures) de chaque salarié qui en a un compteur, d'après l'instantané `ds`. */
 function soldesRecup(ds: Dataset): Map<number, number> {
@@ -44,21 +44,21 @@ function soldesRecup(ds: Dataset): Map<number, number> {
 export const HEURES_SUP: Migration = {
   nom: 'lot4-paie-heures-sup',
   // Base existante sans feuille validée à reprendre (créée par cette version) : notée faite. Base neuve : exécutée, sans effet.
-  necessaire: db => db.neuve || aReprendre(db) > 0,
-  executer: db => {
-    if (!aReprendre(db)) return;
-    const mode = loadSettings(db).heuresSupMode;
+  necessaire: async db => db.neuve || await aReprendre(db) > 0,
+  executer: async db => {
+    if (!await aReprendre(db)) return;
+    const mode = (await loadSettings(db)).heuresSupMode;
     // Soldes d'avant : chaque feuille validée encore sans mode avec le calcul d'origine (payée et en repos).
-    const ancien = loadFull(db, CURSUS);
+    const ancien = await loadFull(db, CURSUS);
     const avant = soldesRecup({ ...ancien, feuilles: ancien.feuilles.map((f): FeuilleTemps => (f.statut === 'validee' && !f.heuresSup ? { ...f, heuresSup: 'historique' } : f)) });
-    const historique = Number(db.sql.prepare(`UPDATE feuilles SET heures_sup = 'historique' WHERE ${aFiger} AND sage = 1`).run().changes);
-    const reglees = Number(db.sql.prepare(`UPDATE feuilles SET heures_sup = ? WHERE ${aFiger}`).run(mode).changes);
-    const apres = soldesRecup(loadFull(db, CURSUS));
+    const historique = Number((await db.run(`UPDATE feuilles SET heures_sup = 'historique' WHERE ${aFiger} AND sage = 1`)).changes);
+    const reglees = Number((await db.run(`UPDATE feuilles SET heures_sup = ? WHERE ${aFiger}`, [mode])).changes);
+    const apres = soldesRecup(await loadFull(db, CURSUS));
     const negatifs = [...apres].filter(([id, solde]) => solde < 0 && (avant.get(id) ?? 0) >= 0).map(([id, solde]) => ({ empId: id, avant: avant.get(id) ?? 0, apres: solde }));
     const message = `Reprise : mode des heures supplémentaires figé sur ${plural(historique + reglees, 'feuille validée', 'feuilles validées')}`
       + ` (${historique} déjà transmise${historique > 1 ? 's' : ''} : calcul d’origine, payées et en repos ; ${reglees} non transmise${reglees > 1 ? 's' : ''} : ${mode === 'paiement' ? 'payées, sans repos' : 'en repos'})`
       + (negatifs.length ? ` — solde de récupération devenu négatif pour ${plural(negatifs.length, 'salarié', 'salariés')}, à examiner avec la paie` : '');
-    journaliser(db, {
+    await journaliser(db, {
       actor: 'Cursus', role: null, action: 'migration.heuresSup', message,
       payload: { mode, historique, reglees, soldesNegatifs: negatifs.map(n => ({ ...n, matricule: matricule(n.empId) })) },
       salaries: negatifs.map(n => n.empId),
@@ -69,7 +69,7 @@ export const HEURES_SUP: Migration = {
 
 const sansLot = `statut = 'validee' AND sage = 1 AND lot_id IS NULL`;
 /** Feuilles transmises à la paie avant les lots (simple case `sage`), sans lot. */
-const transmisesSansLot = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS n FROM feuilles WHERE ${sansLot}`).get() as { n: number }).n);
+const transmisesSansLot = async (db: Db) => Number((await db.one(`SELECT COUNT(*) AS n FROM feuilles WHERE ${sansLot}`) as { n: number }).n);
 
 /**
  * Feuilles transmises sans lot réunies en un lot « historique », transmis, au contenu inconnu (avant les lots, seule la
@@ -78,28 +78,28 @@ const transmisesSansLot = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS
  * feuilles avant le lot 4 ; l'ancien mode « api » devient « fichier », mode réel), daté de celle-ci à défaut de mieux (`date` : date imposée). Renvoie le lot créé, ou null.
  * Appelée aussi par le jeu de démonstration (server/src/seed.ts), dont les plus anciennes feuilles sont déjà transmises.
  */
-export function lotHistorique(db: Db, auteur = 'Cursus', date?: string): { id: number; feuilles: { empId: number; week: string }[] } | null {
-  const feuilles = db.sql.prepare(`SELECT emp_id AS empId, week FROM feuilles WHERE ${sansLot} ORDER BY week, emp_id`).all() as { empId: number; week: string }[];
+export async function lotHistorique(db: Db, auteur = 'Cursus', date?: string): Promise<{ id: number; feuilles: { empId: number; week: string }[] } | null> {
+  const feuilles = await db.query(`SELECT emp_id AS empId, week FROM feuilles WHERE ${sansLot} ORDER BY week, emp_id`) as { empId: number; week: string }[];
   if (!feuilles.length) return null;
-  const dernier = db.getSetting<{ mode?: string; envoye_le?: string; periodes?: unknown } | null>('lastSagePush', null);
+  const dernier = await db.getSetting<{ mode?: string; envoye_le?: string; periodes?: unknown } | null>('lastSagePush', null);
   const envoi = new Date(date ?? dernier?.envoye_le ?? Number.NaN);
   const connu = !Number.isNaN(envoi.getTime());
   const quand = connu ? envoi.toISOString() : new Date().toISOString();
   // Périodes selon la règle de rattachement réglée, au jour de l'envoi (mois du dimanche par défaut, rappel d'une
   // période close), plus celles que la dernière transmission a annoncées ; période du lot : la plus récente.
-  const settings = loadSettings(db), jour = connu ? isoParis(envoi) : todayIso();
+  const settings = await loadSettings(db), jour = connu ? isoParis(envoi) : todayIso();
   const parts = feuilles.flatMap(f => periodesSemaine(f.week, settings, jour));
   const annoncees = Array.isArray(dernier?.periodes) ? dernier.periodes.filter((p): p is string => typeof p === 'string' && /^\d{4}-\d{2}$/.test(p)) : [];
   const periodes = [...new Set([...parts.map(x => x.periode), ...annoncees])].sort();
   const rappels = [...new Set(parts.flatMap(x => (x.origine ? [x.origine] : [])))].sort();
-  const lot = db.insert<{ id: number }>('lotsPaie', {
+  const lot = await db.insert<{ id: number }>('lotsPaie', {
     cle: randomUUID(), mode: dernier?.mode === 'api' || dernier?.mode === 'fichier' ? 'fichier' : 'simulation', statut: 'transmis',
     periode: periodes.at(-1), periodes, rappels, creation: quand, auteur, feuilles,
     resume: { lignes: 0, salaries: new Set(feuilles.map(f => f.empId)).size, rubriques: {} }, sansMatricule: [], contenu: null,
     telechargeLe: null, telechargePar: null, telechargements: 0, confirmeLe: quand, confirmePar: auteur, reference: null,
     annuleLe: null, annulePar: null, historique: true,
   });
-  db.sql.prepare(`UPDATE feuilles SET lot_id = ? WHERE ${sansLot}`).run(lot.id);
+  await db.run(`UPDATE feuilles SET lot_id = ? WHERE ${sansLot}`, [lot.id]);
   return { id: lot.id, feuilles };
 }
 
@@ -111,11 +111,11 @@ export function lotHistorique(db: Db, auteur = 'Cursus', date?: string): { id: n
 export const LOTS_HISTORIQUES: Migration = {
   nom: 'lot4-paie-lots-historiques',
   // Base neuve : exécutée, sans effet ; base existante sans feuille transmise hors lot : notée faite.
-  necessaire: db => db.neuve || transmisesSansLot(db) > 0,
-  executer: db => {
-    const lot = lotHistorique(db);
+  necessaire: async db => db.neuve || await transmisesSansLot(db) > 0,
+  executer: async db => {
+    const lot = await lotHistorique(db);
     if (!lot) return;
-    journaliser(db, {
+    await journaliser(db, {
       actor: 'Cursus', role: null, action: 'migration.lotsPaie',
       message: `Reprise : ${plural(lot.feuilles.length, 'feuille déjà transmise', 'feuilles déjà transmises')} à la paie réunies dans le lot historique n° ${lot.id}`,
       payload: { lot: lot.id, feuilles: lot.feuilles }, salaries: lot.feuilles.map(f => f.empId),
@@ -125,7 +125,7 @@ export const LOTS_HISTORIQUES: Migration = {
 };
 
 /** Lots de paie enregistrés dans l'ancien mode « api » (lot historique repris d'une transmission sous SAGE_URL). */
-const lotsModeApi = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS n FROM lots_paie WHERE mode = 'api'`).get() as { n: number }).n);
+const lotsModeApi = async (db: Db) => Number((await db.one(`SELECT COUNT(*) AS n FROM lots_paie WHERE mode = 'api'`) as { n: number }).n);
 
 /**
  * Lot 5 : le mode « api » disparaît (la paie importe le fichier dans Sage, décision du 15 octobre 2026). Un lot
@@ -135,15 +135,15 @@ const lotsModeApi = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS n FRO
 export const MODE_API_RETIRE: Migration = {
   nom: 'lot5-paie-mode-api-retire',
   // Base neuve : exécutée, sans effet ; base existante sans lot en mode « api » : notée faite.
-  necessaire: db => db.neuve || lotsModeApi(db) > 0,
-  executer: db => {
-    const n = Number(db.sql.prepare(`UPDATE lots_paie SET mode = 'fichier' WHERE mode = 'api'`).run().changes);
+  necessaire: async db => db.neuve || await lotsModeApi(db) > 0,
+  executer: async db => {
+    const n = Number((await db.run(`UPDATE lots_paie SET mode = 'fichier' WHERE mode = 'api'`)).changes);
     if (n) return `${plural(n, 'lot de paie', 'lots de paie')} de l’ancien mode « api » en mode fichier d’import`;
   },
 };
 
 /** Absences validées d'une base existante : jusqu'au lot 5, la paie les saisissait elle-même dans Sage. */
-const absencesValidees = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS n FROM absences WHERE statut = 'validee'`).get() as { n: number }).n);
+const absencesValidees = async (db: Db) => Number((await db.one(`SELECT COUNT(*) AS n FROM absences WHERE statut = 'validee'`) as { n: number }).n);
 
 /**
  * Lot 5 (t028) : les absences validées partent dans le fichier d'import de la paie. Sur une base qui en porte déjà, la
@@ -156,17 +156,17 @@ const absencesValidees = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS 
 export const ABSENCES_ANTERIEURES: Migration = {
   nom: 'lot5-paie-absences-anterieures',
   // Base neuve : exécutée, sans effet (aucune absence) ; base existante sans absence validée, ou date déjà posée : notée faite.
-  necessaire: db => db.neuve || (absencesValidees(db) > 0 && lireDepuis(db) === null),
-  executer: db => {
-    if (!absencesValidees(db)) return;
-    const r = poserDepart(db, `${periodeOuverte(todayIso(), loadSettings(db).clotureJour)}-01`, { actor: 'Cursus', role: null }, 'Reprise');
+  necessaire: async db => db.neuve || (await absencesValidees(db) > 0 && await lireDepuis(db) === null),
+  executer: async db => {
+    if (!await absencesValidees(db)) return;
+    const r = await poserDepart(db, `${periodeOuverte(todayIso(), (await loadSettings(db)).clotureJour)}-01`, { actor: 'Cursus', role: null }, 'Reprise');
     return `absences transmises à la paie à partir du ${r.depuis}`;
   },
 };
 
 /** Lots au contenu figé d'avant les rubriques par feuille (lot 5, t131). */
 const sansRubriquesFeuilles = `FROM lots_paie WHERE contenu IS NOT NULL AND contenu <> 'null' AND json_extract(contenu, '$.rubriquesFeuilles') IS NULL`;
-const lotsAReprendre = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS n ${sansRubriquesFeuilles}`).get() as { n: number }).n);
+const lotsAReprendre = async (db: Db) => Number((await db.one(`SELECT COUNT(*) AS n ${sansRubriquesFeuilles}`) as { n: number }).n);
 
 /**
  * Lot 5 (t131) : le contenu d'un lot garde les rubriques de chaque feuille (codes Sage, par période d'origine), ce que la
@@ -179,19 +179,19 @@ const lotsAReprendre = (db: Db) => Number((db.sql.prepare(`SELECT COUNT(*) AS n 
 export const RUBRIQUES_PAR_FEUILLE: Migration = {
   nom: 'lot5-paie-rubriques-par-feuille',
   // Base neuve : exécutée, sans effet ; base existante sans lot à reprendre : notée faite.
-  necessaire: db => db.neuve || lotsAReprendre(db) > 0,
-  executer: db => {
-    if (!lotsAReprendre(db)) return;
-    const employes = new Map(db.all<{ id: number; matriculePaie: string | null }>('employes').map(e => [e.id, matriculeAffiche(e)]));
-    const ids = (db.sql.prepare(`SELECT id ${sansRubriquesFeuilles}`).all() as { id: number }[]).map(r => r.id);
+  necessaire: async db => db.neuve || await lotsAReprendre(db) > 0,
+  executer: async db => {
+    if (!await lotsAReprendre(db)) return;
+    const employes = new Map((await db.all<{ id: number; matriculePaie: string | null }>('employes')).map(e => [e.id, matriculeAffiche(e)]));
+    const ids = (await db.query(`SELECT id ${sansRubriquesFeuilles}`) as { id: number }[]).map(r => r.id);
     let feuilles = 0;
     for (const id of ids) {
-      const lot = db.get<LotEnregistre>('lotsPaie', id)!;
+      const lot = (await db.get<LotEnregistre>('lotsPaie', id))!;
       const rubriquesFeuilles = rubriquesFeuillesDuLot(lot, empId => employes.get(empId) ?? null);
       feuilles += rubriquesFeuilles.length;
-      db.update<LotEnregistre>('lotsPaie', id, { contenu: { ...lot.contenu!, rubriquesFeuilles } });
+      await db.update<LotEnregistre>('lotsPaie', id, { contenu: { ...lot.contenu!, rubriquesFeuilles } });
     }
-    journaliser(db, {
+    await journaliser(db, {
       actor: 'Cursus', role: null, action: 'migration.rubriquesFeuilles',
       message: `Reprise : rubriques transmises de ${plural(feuilles, 'feuille', 'feuilles')} gardées dans ${plural(ids.length, 'lot de paie', 'lots de paie')}, pour leur éventuelle réouverture`,
       payload: { lots: ids, feuilles },

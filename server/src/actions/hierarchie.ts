@@ -30,10 +30,10 @@ function decrire(ctx: Ctx, x: ElementRedirige): string {
  * Prévient chaque nouveau valideur (le service RH : 0) des éléments qui lui reviennent. `equipe` : équipe nommée dans
  * l'objet ; `cause` : ce qui a changé (« L’équipe Maintenance est désormais rattachée à l’équipe Production »).
  */
-export function prevenir(ctx: Ctx, equipe: string, cause: string, elements: ElementRedirige[]) {
+export async function prevenir(ctx: Ctx, equipe: string, cause: string, elements: ElementRedirige[]) {
   for (const v of new Set(elements.map(x => x.apres))) {
     const siens = elements.filter(x => x.apres === v);
-    notifier(ctx, v, {
+    await notifier(ctx, v, {
       type: 'hierarchie.redirection',
       objet: `${plural(siens.length, 'demande en attente vous revient', 'demandes en attente vous reviennent')} — équipe ${equipe}`,
       texte: `${cause} : ces éléments en attente relèvent maintenant de votre décision :\n${siens.map(x => `- ${decrire(ctx, x)}`).join('\n')}\n`
@@ -68,7 +68,7 @@ export function refuserCroisee(ctx: Ctx, apres: { equipes?: readonly Equipe[]; e
  * `nom` (équipe), `parente` (nom de l'équipe parente ; null ou vide : aucune). Refus : équipe parente inconnue, boucle,
  * profondeur au-delà de PROFONDEUR_MAX, ou deux salariés qui deviendraient chacun le valideur de l'autre.
  */
-const parente: ActionHandler = (ctx, p) => {
+const parente: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const equipes = ctx.ds.referentiels.equipes;
   const q = equipes.find(x => x.nom === p.nom);
@@ -80,8 +80,8 @@ const parente: ActionHandler = (ctx, p) => {
   const apres: Equipe[] = equipes.map(x => (x.nom === q.nom ? { ...x, parente: cible } : x));
   refuserCroisee(ctx, { equipes: apres });
   const elements = elementsRediriges(ctx.ds, equipes, apres);
-  ctx.db.update('equipes', q.nom, { parente: cible });
-  prevenir(ctx, q.nom, cible ? `L’équipe ${q.nom} est désormais rattachée à l’équipe ${cible}` : `L’équipe ${q.nom} n’est plus rattachée à une équipe parente`, elements);
+  await ctx.db.update('equipes', q.nom, { parente: cible });
+  await prevenir(ctx, q.nom, cible ? `L’équipe ${q.nom} est désormais rattachée à l’équipe ${cible}` : `L’équipe ${q.nom} n’est plus rattachée à une équipe parente`, elements);
   return {
     message: `${cible ? `L’équipe ${q.nom} est rattachée à l’équipe ${cible}` : `L’équipe ${q.nom} n’a plus d’équipe parente`}${suiteRedirection(ctx, elements)}`,
     result: { redirections: redirectionsResultat(elements) },

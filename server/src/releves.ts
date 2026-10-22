@@ -19,8 +19,8 @@ import { courriel, lireMessagerie, periodeLongue } from './messagerie.ts';
 const RELEVES: CurrentUser = { role: 'rh', empId: null, nom: 'Cursus', intitule: 'Relevés d’heures des intérimaires' };
 
 /** Dernier relevé transmis à cette agence pour cette semaine (nom d'agence comparé sans casse ni accents). */
-function dernierReleve(db: Db, agence: string, semaine: string): Pick<ReleveInterim, 'creation' | 'enAttente'> | null {
-  const rows = db.sql.prepare('SELECT agence, creation, en_attente AS enAttente FROM releves WHERE semaine = ? ORDER BY id DESC').all(semaine) as
+async function dernierReleve(db: Db, agence: string, semaine: string): Promise<Pick<ReleveInterim, 'creation' | 'enAttente'> | null> {
+  const rows = await db.query('SELECT agence, creation, en_attente AS enAttente FROM releves WHERE semaine = ? ORDER BY id DESC', [semaine]) as
     { agence: string; creation: string; enAttente: number | null }[];
   const x = rows.find(r => key(r.agence) === key(agence));
   return x ? { creation: x.creation, enAttente: x.enAttente ?? 0 } : null;
@@ -52,18 +52,19 @@ function texteReleve(r: Releve, precedent: Pick<ReleveInterim, 'creation' | 'enA
  * Met en file le relevé d'une agence pour une semaine et l'enregistre comme transmis. Renvoie le message
  * d'erreur au lieu d'envoyer : agence sans adresse, aucune feuille validée.
  */
-export function envoyerReleve(db: Db, d: Domain, agence: string, semaine: string, par: string, m: Messagerie = lireMessagerie(db)): { releve: ReleveInterim; r: Releve } | string {
+export async function envoyerReleve(db: Db, d: Domain, agence: string, semaine: string, par: string, messagerie?: Messagerie): Promise<{ releve: ReleveInterim; r: Releve } | string> {
+  const m = messagerie ?? await lireMessagerie(db);
   const adresse = adresseAgence(m, agence);
   if (!adresse) return `Adresse de l’agence ${agence} à renseigner (Paramètres → Messagerie)`;
   const r = releveAgence(d, agence, semaine);
   if (!r.lignes.length) return `Aucune feuille de temps validée la semaine ${isoWeek(semaine)} pour les intérimaires de ${agence}`;
   const csv = releveCsv(r);
   const suiteAuto = semainesAutomatiques(d.ti, m.agences.find(a => key(a.nom) === key(agence))?.depuis).includes(semaine);
-  const texte = texteReleve(r, dernierReleve(db, agence, semaine), suiteAuto);
-  const e = envoyerEmail(db, 'releve.interim', courriel(m, adresse, `Relevé d’heures des intérimaires — ${agence} — semaine ${isoWeek(semaine)}`, texte, {
+  const texte = texteReleve(r, await dernierReleve(db, agence, semaine), suiteAuto);
+  const e = await envoyerEmail(db, 'releve.interim', courriel(m, adresse, `Relevé d’heures des intérimaires — ${agence} — semaine ${isoWeek(semaine)}`, texte, {
     pj: [pieceJointe(csv.fichier, 'text/csv; charset=utf-8', csvTexte(csv.head, csv.rows))],
   }));
-  const releve = db.insert<ReleveInterim>('releves', {
+  const releve = await db.insert<ReleveInterim>('releves', {
     agence, semaine, adresse, creation: e?.creation ?? new Date().toISOString(), par, envoiId: e?.id ?? null, interimaires: r.lignes.length, heures: r.heures,
     enAttente: r.enAttente.length,
   });
@@ -77,20 +78,20 @@ export function envoyerReleve(db: Db, d: Domain, agence: string, semaine: string
  * si le dernier envoi était incomplet (feuilles alors en attente). `seulement` restreint à une agence et une
  * semaine (après une validation). Renvoie les relevés mis en file.
  */
-export function relevesAutomatiques(db: Db, seulement?: { agence: string; semaine: string }): ReleveInterim[] {
-  const d = new Domain(loadFull(db, RELEVES));
-  const m = lireMessagerie(db);
+export async function relevesAutomatiques(db: Db, seulement?: { agence: string; semaine: string }): Promise<ReleveInterim[]> {
+  const d = new Domain(await loadFull(db, RELEVES));
+  const m = await lireMessagerie(db);
   const agences = agencesInterim(d.ds.employes).filter(a => !seulement || key(a) === key(seulement.agence));
   const out: ReleveInterim[] = [];
   for (const agence of agences) {
     const reglage = m.agences.find(a => key(a.nom) === key(agence));
     if (!reglage?.adresse) continue;
     for (const semaine of semainesAutomatiques(d.ti, reglage.depuis).filter(w => !seulement || w === seulement.semaine)) {
-      const dernier = dernierReleve(db, agence, semaine);
+      const dernier = await dernierReleve(db, agence, semaine);
       if (dernier && !dernier.enAttente) continue;
       const r = releveAgence(d, agence, semaine);
       if (!r.lignes.length || r.enAttente.length) continue;
-      const x = envoyerReleve(db, d, agence, semaine, 'Cursus', m);
+      const x = await envoyerReleve(db, d, agence, semaine, 'Cursus', m);
       if (typeof x !== 'string') out.push(x.releve);
     }
   }

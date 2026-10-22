@@ -117,7 +117,7 @@ Les tâches 🔴, toutes thématiques confondues :
 
 - [ ] **Coder l'envoi réel à Sage Paie et ne marquer « transmis » qu'après accusé** — 🔴 Bloquant · M
   Dès que SAGE_URL est défini, l'écran annonce l'envoi, mais rien ne part et les feuilles sont marquées transmises à la paie. En attendant, lever une erreur en mode API ; ensuite faire l'appel HTTP hors transaction, contrôler et conserver l'accusé.
-  <br><sub>Preuves : server/src/integrations/sage.ts:7 et :10-15 (branche api vide) · server/src/actions/temps.ts:105-108 (sage: true) · client/src/pages/Parametres.tsx:167 · server/src/actions/context.ts:23 (handler synchrone)</sub>
+  <br><sub>Preuves : server/src/integrations/sage.ts:7 et :10-15 (branche api vide) · server/src/actions/temps.ts:105-108 (sage: true) · client/src/pages/Parametres.tsx:167 · server/src/actions/context.ts:23 (handler synchrone ; asynchrone depuis la sous-étape 8.a, mais toujours dans la transaction exclusive de l'action : l'appel HTTP se fait hors d'elle)</sub>
 - [x] **Coder l'envoi HTTP sortant vers Keystone** — 🔴 Bloquant · M
   En mode API, sendToKeystone n'envoie rien et journalise « (simulation) » alors que Paramètres affiche « API connectée ». Faire le POST avec gestion des erreurs et trancher le contrat (heures sur projets internes INT-* et ECOLE).
   <br><sub>Preuves : server/src/integrations/keystone.ts:15-21 · client/src/pages/Parametres.tsx:159 · server/src/actions/temps.ts:88-90</sub>

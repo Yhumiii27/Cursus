@@ -11,7 +11,7 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { DatabaseSync } from 'node:sqlite';
 
-const { Db, TABLES, snake } = await import('../server/src/db.ts');
+const { SqliteDb: Db, TABLES, snake } = await import('../server/src/db.ts');
 const { migrate } = await import('../server/src/migrate.ts');
 const { appliquerMigrations } = await import('../server/src/migrations/cadre.ts');
 const { declarerBase, declarerSchema, documentSchema, introspecterSqlite } = await import('../server/src/integrations/matrix.ts');
@@ -19,10 +19,10 @@ const { declarerBase, declarerSchema, documentSchema, introspecterSqlite } = awa
 const dossier = mkdtempSync(join(tmpdir(), 'cursus-matrix-'));
 after(() => rmSync(dossier, { recursive: true, force: true }));
 
-function base() {
+async function base() {
   const db = new Db(join(dossier, `base-${Math.random().toString(36).slice(2)}.db`));
-  migrate(db);
-  appliquerMigrations(db);
+  await migrate(db);
+  await appliquerMigrations(db);
   return db;
 }
 
@@ -48,8 +48,8 @@ function journal() {
   return { info, warn, log: { info: (m: string) => info.push(m), warn: (m: string) => warn.push(m) } };
 }
 
-test('le schéma lu reprend toutes les tables du schéma déclaratif, sans les tables techniques', () => {
-  const db = base();
+test('le schéma lu reprend toutes les tables du schéma déclaratif, sans les tables techniques', async () => {
+  const db = await base();
   const tables = introspecterSqlite(db.sql);
   const noms = tables.map(t => t.name);
   assert.deepEqual(noms, Object.keys(TABLES).map(snake).sort());
@@ -92,7 +92,7 @@ test('document matrix.schema/1 : tables triées, empreinte stable', () => {
 
 test('envoi à Matrix : jeton, identifiants de l\'adresse en Basic, nouvelles tables signalées', async () => {
   const m = await fauxMatrix();
-  const db = base();
+  const db = await base();
   const j = journal();
   const doc = await declarerBase(db.sql, '9.9.9', { MATRIX_URL: `http://lecteur:mot%20de%20passe@127.0.0.1:${m.port}`, MATRIX_TOKEN: 'essai' }, j.log);
   await m.fermer();
@@ -122,7 +122,7 @@ test('sans identifiants ni jeton : ni Authorization ni X-Matrix-Token', async ()
 });
 
 test('sans MATRIX_URL rien n\'est envoyé ; MATRIX_DECLARATIONS_DIR écrit la déclaration', async () => {
-  const db = base();
+  const db = await base();
   const j = journal();
   assert.equal(await declarerBase(db.sql, null, {}, j.log), null);
   const sortie = join(dossier, 'declarations');

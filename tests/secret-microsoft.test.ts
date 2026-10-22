@@ -6,7 +6,7 @@ import assert from 'node:assert/strict';
 process.env.CURSUS_TODAY = '2026-10-10';
 for (const k of ['CURSUS_MAIL_FROM', 'CURSUS_MAIL_TENANT', 'CURSUS_MAIL_CLIENT_ID', 'CURSUS_MAIL_CLIENT_SECRET', 'CURSUS_OIDC_TENANT', 'CURSUS_OIDC_CLIENT_ID', 'CURSUS_OIDC_CLIENT_SECRET', 'CURSUS_OIDC_SECRET_EXPIRE']) delete process.env[k];
 
-const { Db } = await import('../server/src/db.ts');
+const { SqliteDb: Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { currentUser, loadFull } = await import('../server/src/dataset.ts');
 const { ACTIONS } = await import('../server/src/actions/index.ts');
@@ -21,16 +21,16 @@ const RH_MAIL = 'rh@entreprise.example';
 const OIDC = { CURSUS_OIDC_TENANT: '0b1c2d3e-4f50-6172-8394-a5b6c7d8e9f0', CURSUS_OIDC_CLIENT_ID: 'app', CURSUS_OIDC_CLIENT_SECRET: 'secret', CURSUS_PUBLIC_URL: 'https://cursus.example.fr' };
 
 /** Exécute `f` avec la date d'expiration `date` posée (ou retirée). */
-function avecExpiration<T>(date: string | null, f: () => T): T {
+async function avecExpiration<T>(date: string | null, f: () => Promise<T>): Promise<T> {
   const avant = process.env.CURSUS_OIDC_SECRET_EXPIRE;
   if (date) process.env.CURSUS_OIDC_SECRET_EXPIRE = date; else delete process.env.CURSUS_OIDC_SECRET_EXPIRE;
-  try { return f(); } finally { if (avant === undefined) delete process.env.CURSUS_OIDC_SECRET_EXPIRE; else process.env.CURSUS_OIDC_SECRET_EXPIRE = avant; }
+  try { return await f(); } finally { if (avant === undefined) delete process.env.CURSUS_OIDC_SECRET_EXPIRE; else process.env.CURSUS_OIDC_SECRET_EXPIRE = avant; }
 }
 /** Exécute `f` à une autre date du jour. */
-function le<T>(jour: string, f: () => T): T {
+async function le<T>(jour: string, f: () => Promise<T>): Promise<T> {
   const avant = process.env.CURSUS_TODAY;
   process.env.CURSUS_TODAY = jour;
-  try { return f(); } finally { process.env.CURSUS_TODAY = avant; }
+  try { return await f(); } finally { process.env.CURSUS_TODAY = avant; }
 }
 
 test('CURSUS_OIDC_SECRET_EXPIRE : facultative, date AAAA-MM-JJ réelle, refusée sans secret client', () => {
@@ -62,46 +62,46 @@ test('échéance : alerte à 30 jours, paliers 30, 7 et expiré, une clé par da
   assert.match(echu.texte, /a expiré le 9 oct\. 2026/);
 });
 
-test('/api/health : « degrade » 30 jours avant l’expiration, échéance dans le détail seulement', () => {
+test('/api/health : « degrade » 30 jours avant l’expiration, échéance dans le détail seulement', async () => {
   const db = new Db(':memory:');
-  const sante = (env: Record<string, string>, detail = false) => etatSante(db, detail, '2026-10-10T06:00:00.000Z', env);
-  assert.equal(sante(OIDC).statut, 'ok');
-  assert.equal(sante({ ...OIDC, CURSUS_OIDC_SECRET_EXPIRE: '2026-11-10' }).statut, 'ok', '31 jours : rien');
-  assert.deepEqual(sante({ ...OIDC, CURSUS_OIDC_SECRET_EXPIRE: '2026-11-09' }), { statut: 'degrade', base: 'ok' }, 'public : état seul');
-  const d = sante({ ...OIDC, CURSUS_OIDC_SECRET_EXPIRE: '2026-11-09' }, true);
+  const sante = async (env: Record<string, string>, detail = false) => await etatSante(db, detail, '2026-10-10T06:00:00.000Z', env);
+  assert.equal((await sante(OIDC)).statut, 'ok');
+  assert.equal((await sante({ ...OIDC, CURSUS_OIDC_SECRET_EXPIRE: '2026-11-10' })).statut, 'ok', '31 jours : rien');
+  assert.deepEqual(await sante({ ...OIDC, CURSUS_OIDC_SECRET_EXPIRE: '2026-11-09' }), { statut: 'degrade', base: 'ok' }, 'public : état seul');
+  const d = await sante({ ...OIDC, CURSUS_OIDC_SECRET_EXPIRE: '2026-11-09' }, true);
   assert.equal(d.statut, 'degrade');
   assert.deepEqual(d.secretMicrosoft, { expireLe: '2026-11-09', jours: 30 });
-  assert.deepEqual(sante({ ...OIDC, CURSUS_OIDC_SECRET_EXPIRE: '2027-03-31' }, true).secretMicrosoft, { expireLe: '2027-03-31', jours: 172 }, 'détail même hors alerte');
-  assert.equal(sante(OIDC, true).secretMicrosoft, undefined, 'sans date : rien à suivre');
-  assert.equal(sante({ ...OIDC, CURSUS_OIDC_SECRET_EXPIRE: '2026-10-01' }).statut, 'degrade', 'expiré : toujours dégradé');
+  assert.deepEqual((await sante({ ...OIDC, CURSUS_OIDC_SECRET_EXPIRE: '2027-03-31' }, true)).secretMicrosoft, { expireLe: '2027-03-31', jours: 172 }, 'détail même hors alerte');
+  assert.equal((await sante(OIDC, true)).secretMicrosoft, undefined, 'sans date : rien à suivre');
+  assert.equal((await sante({ ...OIDC, CURSUS_OIDC_SECRET_EXPIRE: '2026-10-01' })).statut, 'degrade', 'expiré : toujours dégradé');
 });
 
-test('récapitulatif : ligne « Exploitation » à la seule boîte du service RH, une fois par palier, seule s’il n’y a rien d’autre', () => {
+test('récapitulatif : ligne « Exploitation » à la seule boîte du service RH, une fois par palier, seule s’il n’y a rien d’autre', async () => {
   const db = new Db(':memory:');
-  seedDemo(db);
-  const compte = (db.sql.prepare('SELECT id FROM comptes WHERE emp_id IS NULL').get() as { id: number }).id;
-  const RH = currentUser(db, { compteId: compte, role: 'rh', methode: 'demo' })!;
-  db.tx(() => ACTIONS['messagerie.regler'](makeCtx(db, RH, loadFull(db, RH)), { rh: RH_MAIL }));
-  const recaps = () => db.all<Ligne>('envois').filter(x => x.type === 'echeances.recapitulatif').map(e => ({ a: e.contenu.a[0] as string, objet: e.contenu.objet as string, texte: e.contenu.texte as string }));
-  const passer = () => db.tx(() => recapitulatifEcheances(db));
+  await seedDemo(db);
+  const compte = ((await db.one('SELECT id FROM comptes WHERE emp_id IS NULL')) as { id: number }).id;
+  const RH = await ((await currentUser(db, { compteId: compte, role: 'rh', methode: 'demo' }))!);
+  await db.tx(async () => ACTIONS['messagerie.regler'](makeCtx(db, RH, await loadFull(db, RH)), { rh: RH_MAIL }));
+  const recaps = async () => (await db.all<Ligne>('envois')).filter(x => x.type === 'echeances.recapitulatif').map(e => ({ a: e.contenu.a[0] as string, objet: e.contenu.objet as string, texte: e.contenu.texte as string }));
+  const passer = async () => await db.tx(() => recapitulatifEcheances(db));
 
   // Premier passage : échéances des salariés et ligne du secret, dans l'e-mail du service RH seulement.
-  const p1 = avecExpiration('2026-11-01', passer);
-  const r1 = recaps();
+  const p1 = await avecExpiration('2026-11-01', passer);
+  const r1 = await recaps();
   const rh1 = r1.filter(e => e.a === RH_MAIL);
   assert.equal(rh1.length, 1);
   assert.match(rh1[0].texte, /\n\nExploitation :\n• Secret client de l’application Cursus dans Entra ID .*expire le 1 nov\. 2026/);
   assert.ok(r1.filter(e => e.a !== RH_MAIL).length > 0, 'managers et référent HSE servis');
   assert.ok(r1.filter(e => e.a !== RH_MAIL).every(e => !/Exploitation|Entra/.test(e.texte)), 'ni manager ni référent HSE');
-  assert.equal(p1.relances, (db.sql.prepare('SELECT COUNT(*) AS n FROM relances').get() as { n: number }).n);
+  assert.equal(p1.relances, ((await db.one('SELECT COUNT(*) AS n FROM relances')) as { n: number }).n);
 
   // Même palier : rien ne repart. Les échéances des salariés du 26 octobre parties, le palier de 7 jours du secret part
   // seul, dans un e-mail au seul service RH.
-  assert.deepEqual(avecExpiration('2026-11-01', passer), { emails: 0, relances: 0 });
-  le('2026-10-26', () => avecExpiration(null, passer));
-  const avant = recaps().length;
-  assert.deepEqual(le('2026-10-26', () => avecExpiration('2026-11-01', passer)), { emails: 1, relances: 1 });
-  const [seul] = recaps().slice(avant);
+  assert.deepEqual(await avecExpiration('2026-11-01', passer), { emails: 0, relances: 0 });
+  await le('2026-10-26', async () => await avecExpiration(null, passer));
+  const avant = (await recaps()).length;
+  assert.deepEqual(await le('2026-10-26', async () => await avecExpiration('2026-11-01', passer)), { emails: 1, relances: 1 });
+  const [seul] = (await recaps()).slice(avant);
   assert.equal(seul.a, RH_MAIL);
   assert.equal(seul.objet, 'Cursus — échéances à traiter : 1 nouvelle relance');
   assert.deepEqual(seul.texte.split('\n').filter(l => l.startsWith('•')).length, 1, 'la ligne du secret seule');
@@ -111,10 +111,10 @@ test('récapitulatif : ligne « Exploitation » à la seule boîte du service RH
   assert.match(rh1[0].texte, /dans Cursus \(Échéances, Entretiens, Voyages\)\.\n/, 'avec les échéances : écrans de Cursus');
 
   // Nouveau secret posé (autre date) : rien tant qu'il est loin ; sans la variable, plus aucune ligne.
-  const n = recaps().length;
-  le('2026-10-26', () => avecExpiration('2027-10-26', passer));
-  le('2026-10-26', () => avecExpiration(null, passer));
-  assert.ok(recaps().slice(n).every(e => !/Exploitation/.test(e.texte)));
+  const n = (await recaps()).length;
+  await le('2026-10-26', async () => await avecExpiration('2027-10-26', passer));
+  await le('2026-10-26', async () => await avecExpiration(null, passer));
+  assert.ok((await recaps()).slice(n).every(e => !/Exploitation/.test(e.texte)));
 });
 
 test('ligne du secret : l’envoi des e-mails n’est cité que s’il passe par ce secret ; expiré, elle le dit', () => {

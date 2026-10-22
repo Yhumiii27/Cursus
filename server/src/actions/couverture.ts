@@ -11,14 +11,14 @@ import { ActionError, type Ctx } from './context.ts';
  * Couverture minimale de l'équipe `q` : `couverture` reçue (liste de { formation, min } ; vide : aucun seuil ; absente :
  * inchangée). Renvoie la suite du message de l'action (vide si rien ne change) ; refus sur une ligne invalide.
  */
-export function enregistrerCouvertureEquipe(ctx: Ctx, q: Equipe, couverture: unknown): string {
+export async function enregistrerCouvertureEquipe(ctx: Ctx, q: Equipe, couverture: unknown): Promise<string> {
   if (couverture === undefined) return '';
   const avant = couvertureEquipe(q);
   const effectif = ctx.ds.employes.filter(e => e.equipe === q.nom && present(e, ctx.d.ti)).length;
   const { erreur, lignes } = controlerCouverture(couverture, ctx.ds.referentiels, effectif, avant);
   if (erreur) throw new ActionError(erreur);
   if (JSON.stringify(lignes) === JSON.stringify(avant)) return '';
-  ctx.db.update<Equipe>('equipes', q.nom, { couverture: lignes.length ? lignes : null });
+  await ctx.db.update<Equipe>('equipes', q.nom, { couverture: lignes.length ? lignes : null });
   if (!lignes.length) return ' · couverture minimale retirée';
   return ` · couverture minimale : ${lignes.map(l => `${plural(l.min, 'titulaire', 'titulaires')} ${ctx.d.fm(l.formation)?.court ?? l.formation}`).join(', ')}`;
 }

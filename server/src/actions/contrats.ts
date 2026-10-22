@@ -15,14 +15,14 @@ import { ActionError, getEmp, refuserSoiMeme, requireRh, type ActionHandler } fr
  * (TYPES_TITRE_SEJOUR), `numero`, `expire`, `demandeLe` (envoi de la demande d'authentification), `verifieLe` (réponse de
  * la préfecture). Les avertissements (titre expiré, demande non tracée ou tardive) accompagnent le message, sans bloquer.
  */
-const autorisation: ActionHandler = (ctx, p) => {
+const autorisation: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const emp = getEmp(ctx, p.id);
   refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas enregistrer votre propre titre de séjour');
   if (sorti(emp, ctx.d.ti)) throw new ActionError(`${emp.nom} a quitté l’entreprise le ${fmtIso(emp.fin!)} : son titre de séjour n’est plus suivi`);
   const v = validerAutorisation({ requise: p.requise === true, type: p.type, numero: p.numero, expire: p.expire, demandeLe: p.demandeLe, verifieLe: p.verifieLe }, { entree: emp.entree, ti: ctx.d.ti });
   if (v.errors.length) throw new ActionError(v.errors.join(' '));
-  ctx.db.update<Employe>('employes', emp.id, { autorisationTravail: v.valeur });
+  await ctx.db.update<Employe>('employes', emp.id, { autorisationTravail: v.valeur });
   const t = v.valeur;
   const quoi = !t ? 'aucune autorisation de travail requise' : `${TYPES_TITRE_SEJOUR[t.type].court}${t.expire ? ` valable jusqu’au ${fmtIso(t.expire)}` : ''}`;
   return `Titre de séjour de ${emp.nom} enregistré — ${quoi}${v.warnings.map(w => ` · ${w.replace(/\.$/, '')}`).join('')}`;

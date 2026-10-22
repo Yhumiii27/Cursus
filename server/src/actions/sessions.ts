@@ -36,7 +36,7 @@ const autreSessionDuPlan = (ctx: Ctx, s: Session) => ctx.ds.sessions.some(x => x
  * Nouvelle session, éventuellement pour une action du plan. L'action doit exister, porter la même formation
  * et être encore « prévue » : elle passe « engagée ». Date postérieure à aujourd'hui, places entières.
  */
-const creer: ActionHandler = (ctx, p) => {
+const creer: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const fm = ctx.d.fm(str(p.f));
   if (!fm) throw new ActionError('Formation inconnue');
@@ -53,19 +53,19 @@ const creer: ActionHandler = (ctx, p) => {
     if (clotureDe(ctx.ds, plan.exercice)) throw new ActionError(`Action du plan ${plan.exercice} : exercice clos, il ne se modifie plus`);
   }
   const places = Number(p.places), lieu = str(p.lieu);
-  const s = ctx.db.insert<Session>('sessions', { formation: fm.id, date: p.date, ...plage, lieu, places, statut: 'À confirmer', planId: plan?.id ?? null, bilan: null });
-  if (plan) ctx.db.update<PlanAction>('planActions', plan.id, { statut: 'engage' });
+  const s = await ctx.db.insert<Session>('sessions', { formation: fm.id, date: p.date, ...plage, lieu, places, statut: 'À confirmer', planId: plan?.id ?? null, bilan: null });
+  if (plan) await ctx.db.update<PlanAction>('planActions', plan.id, { statut: 'engage' });
   const pour = plage.fin === p.date ? `pour le ${fmt(parse(p.date))}` : plageTexte({ date: p.date, ...plage });
   return { message: `Session ${fm.court} créée ${pour} — ${plural(places, 'place', 'places')}${plan ? ' · action du plan engagée' : ''}`, result: { id: s.id } };
 };
 
 /** Confirmation par l'organisme : la liste nominative lui est transmise (affichée et exportée par l'interface). */
-const confirmer: ActionHandler = (ctx, p) => {
+const confirmer: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const s = sessionOf(ctx, p.id);
   if (s.statut === 'Confirmée') throw new ActionError('Session déjà confirmée');
   if (s.date < ctx.d.ti) throw new ActionError('Session passée : clôturez-la, ou annulez-la si elle n’a pas eu lieu');
-  ctx.db.update<Session>('sessions', s.id, { statut: 'Confirmée' });
+  await ctx.db.update<Session>('sessions', s.id, { statut: 'Confirmée' });
   const n = inscritsDe(ctx.d, s).length;
   return `${nomSession(ctx, s)} confirmée — liste de ${plural(n, 'inscrit', 'inscrits')} à transmettre à ${ctx.d.fm(s.formation)?.organisme ?? 'l’organisme'}`;
 };
@@ -78,7 +78,7 @@ const confirmer: ActionHandler = (ctx, p) => {
  * rend caduques les convocations envoyées (elles repassent « à envoyer »), et de nouvelles dates sont à faire confirmer
  * par l'organisme (« à confirmer », pour une session pas encore commencée).
  */
-const modifier: ActionHandler = (ctx, p) => {
+const modifier: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const s = sessionOf(ctx, p.id);
   // Nouvelle date sans nouvelle plage (fin, jours) : la session garde sa forme, décalée d'autant.
@@ -107,21 +107,22 @@ const modifier: ActionHandler = (ctx, p) => {
   // Nouvelle date postérieure à un recyclage déjà enregistré : la certification remplacée libère sa place, et la
   // convocation reçue pour la session (telle qu'elle était) est annulée par e-mail.
   const liberees = date !== s.date ? placesRemplacees(ctx.d, s.id, date) : [];
-  const prevenus = liberees.filter(x => annulerSiConvoque(ctx, s, { id: x.empId, nom: ctx.d.personName(x.empId) }, x.c)).length;
-  liberees.forEach(x => ctx.db.update<Certification>('certifications', x.c.id, { sessionId: null, convoc: null, convocLe: null }));
+  let prevenus = 0;
+  for (const x of liberees) if (await annulerSiConvoque(ctx, s, { id: x.empId, nom: ctx.d.personName(x.empId) }, x.c)) prevenus++;
+  for (const x of liberees) await ctx.db.update<Certification>('certifications', x.c.id, { sessionId: null, convoc: null, convocLe: null });
   // Session passée corrigée après coup : plus de convocation ni de confirmation à demander. Session commencée, pas
   // finie (jours restants) : convocations à renvoyer, sans nouvelle confirmation (`session.confirmer` la refuse).
   const aVenir = date >= ctx.d.ti, pasFinie = plage.fin >= ctx.d.ti;
   let aRenvoyer = 0;
   if (pasFinie && (nouvellePlage || nouveauxHoraires || lieu !== s.lieu)) {
     for (const x of inscritsDe(ctx.d, s).filter(i => i.convoc === 'now' && !liberees.some(l => l.c.id === i.certId))) {
-      if (x.certId) ctx.db.update<Certification>('certifications', x.certId, { convoc: 'later' });
-      else ctx.db.update<Inscription>('inscriptions', x.inscriptionId!, { convoc: 'later' });
+      if (x.certId) await ctx.db.update<Certification>('certifications', x.certId, { convoc: 'later' });
+      else await ctx.db.update<Inscription>('inscriptions', x.inscriptionId!, { convoc: 'later' });
       aRenvoyer++;
     }
   }
   const reconfirmer = aVenir && nouvellePlage && s.statut === 'Confirmée';
-  ctx.db.update<Session>('sessions', s.id, { date, ...plage, lieu, places, ...(reconfirmer ? { statut: 'À confirmer' as const } : {}) });
+  await ctx.db.update<Session>('sessions', s.id, { date, ...plage, lieu, places, ...(reconfirmer ? { statut: 'À confirmer' as const } : {}) });
   return [
     `${nomSession(ctx, s)} modifiée — ${changes.join(' · ')}`,
     liberees.length ? `recyclage déjà enregistré avant cette date, ${liberees.length > 1 ? 'places libérées' : 'place libérée'} : ${liberees.map(x => ctx.d.personName(x.empId)).join(', ')}` : '',
@@ -136,22 +137,22 @@ const modifier: ActionHandler = (ctx, p) => {
  * initiale restent attachées à la session annulée, à replanifier. L'action du plan engagée pour elle
  * (sans autre session ouverte) redevient « prévue ».
  */
-const annuler: ActionHandler = (ctx, p) => {
+const annuler: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const s = sessionOf(ctx, p.id);
   const motif = str(p.motif) || null;
   if (motif && motif.length > 500) throw new ActionError('Motif trop long (500 caractères au plus)');
   const inscrits = inscritsDe(ctx.d, s);
-  ctx.ds.employes.flatMap(e => e.certs).filter(c => c.sessionId === s.id)
-    .forEach(c => ctx.db.update<Certification>('certifications', c.id, { sessionId: null, convoc: null, convocLe: null }));
+  for (const c of ctx.ds.employes.flatMap(e => e.certs).filter(c => c.sessionId === s.id)) await ctx.db.update<Certification>('certifications', c.id, { sessionId: null, convoc: null, convocLe: null });
   const plan = s.planId ? ctx.ds.plan.find(l => l.id === s.planId) : undefined;
   const replan = plan?.statut === 'engage' && !autreSessionDuPlan(ctx, s);
-  if (replan) ctx.db.update<PlanAction>('planActions', plan!.id, { statut: 'prevu' });
+  if (replan) await ctx.db.update<PlanAction>('planActions', plan!.id, { statut: 'prevu' });
   const bilan: SessionBilan = { le: ctx.d.ti, par: ctx.user.nom, note: null, commentaire: null, motif };
-  ctx.db.update<Session>('sessions', s.id, { statut: 'Annulée', bilan });
+  await ctx.db.update<Session>('sessions', s.id, { statut: 'Annulée', bilan });
   // Convocations déjà envoyées (même remises « à renvoyer » par un changement de date ou de lieu) : annulées par
   // e-mail avec le .ics d'annulation, sans le motif. Session passée : plus rien à annuler.
-  const prevenus = inscrits.filter(i => annulerSiConvoque(ctx, s, { id: i.empId, nom: i.nom }, i, 'annulation')).length;
+  let prevenus = 0;
+  for (const i of inscrits) if (await annulerSiConvoque(ctx, s, { id: i.empId, nom: i.nom }, i, 'annulation')) prevenus++;
   return `${nomSession(ctx, s)} annulée${inscrits.length ? ` — ${plural(inscrits.length, 'inscrit à replanifier', 'inscrits à replanifier')}` : ''}${replan ? ' · action du plan de nouveau prévue' : ''}`
     + (prevenus ? ` · ${plural(prevenus, 'annulation envoyée', 'annulations envoyées')} par e-mail` : '');
 };
@@ -165,7 +166,7 @@ interface Decision { empId: number; present: unknown; reussi?: unknown }
  * (recyclage : certification détachée ; formation initiale : inscription à replanifier). Résultats
  * conservés (participations), action du plan réalisée, évaluation à chaud facultative.
  */
-const cloturer: ActionHandler = (ctx, p) => {
+const cloturer: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const s = sessionOf(ctx, p.id, true);
   if (s.statut === 'Clôturée') throw new ActionError('Session déjà clôturée');
@@ -202,16 +203,16 @@ const cloturer: ActionHandler = (ctx, p) => {
     let certId = l.i.dejaObtenue?.id ?? null;
     if (!l.i.dejaObtenue && l.ok) {
       // Certification datée du dernier jour de la session ; la certification renouvelée garde la session (historique).
-      certId = ctx.db.insert<Certification>('certifications', { empId: l.i.empId, f: s.formation, obtenue: dernier, sessionId: null, convoc: null }).id;
-      if (l.i.inscriptionId) ctx.db.remove('inscriptions', l.i.inscriptionId);
+      certId = (await ctx.db.insert<Certification>('certifications', { empId: l.i.empId, f: s.formation, obtenue: dernier, sessionId: null, convoc: null })).id;
+      if (l.i.inscriptionId) await ctx.db.remove('inscriptions', l.i.inscriptionId);
       obtenues++;
     } else if (!l.ok) {
       // Recyclage : la certification se planifie de nouveau. Formation initiale : l'inscription reste
       // attachée à la session clôturée, à replanifier.
-      if (l.i.certId) ctx.db.update<Certification>('certifications', l.i.certId, { sessionId: null, convoc: null });
+      if (l.i.certId) await ctx.db.update<Certification>('certifications', l.i.certId, { sessionId: null, convoc: null });
       aReplanifier.push(l.i.nom);
     }
-    ctx.db.insert<Participation>('participations', { sessionId: s.id, empId: l.i.empId, parcours: l.i.parcours, present: l.present, reussi: l.reussi, certId });
+    await ctx.db.insert<Participation>('participations', { sessionId: s.id, empId: l.i.empId, parcours: l.i.parcours, present: l.present, reussi: l.reussi, certId });
   }
   // L'action du plan réalisée prend le coût réel saisi à la clôture (`coutReel`, prérempli du coût prévu ; le coût prévu
   // s'il n'est pas transmis) et, pour effectif réel, les présents de ses sessions clôturées. Le coût réel est réservé au
@@ -221,12 +222,11 @@ const cloturer: ActionHandler = (ctx, p) => {
   if (realise) {
     const coutReel = !isRh(ctx) || p.coutReel === undefined || p.coutReel === null || p.coutReel === '' ? plan!.cout : montantReel(p.coutReel);
     if (coutReel === null) throw new ActionError('Coût réel de l’action du plan : montant en euros, 0 ou plus');
-    const presents = Number((ctx.db.sql.prepare('SELECT COUNT(*) AS n FROM participations p JOIN sessions s ON s.id = p.session_id WHERE s.plan_id = ? AND p.present = 1')
-      .get(plan!.id) as { n: number }).n);
-    ctx.db.update<PlanAction>('planActions', plan!.id, { statut: 'realise', coutReel, effectifReel: presents });
+    const presents = Number((await ctx.db.one('SELECT COUNT(*) AS n FROM participations p JOIN sessions s ON s.id = p.session_id WHERE s.plan_id = ? AND p.present = 1', [plan!.id]) as { n: number }).n);
+    await ctx.db.update<PlanAction>('planActions', plan!.id, { statut: 'realise', coutReel, effectifReel: presents });
   }
   const bilan: SessionBilan = { le: ctx.d.ti, par: ctx.user.nom, note, commentaire, motif: null };
-  ctx.db.update<Session>('sessions', s.id, { statut: 'Clôturée', bilan });
+  await ctx.db.update<Session>('sessions', s.id, { statut: 'Clôturée', bilan });
   return [
     `${nomSession(ctx, s)} clôturée — ${plural(obtenues, 'certification enregistrée', 'certifications enregistrées')}`,
     aReplanifier.length ? `à replanifier : ${aReplanifier.join(', ')}` : '',

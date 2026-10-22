@@ -36,7 +36,7 @@ export function attendCloture(ctx: Ctx, sessionId: number | null) {
  * calculé : changer de session libère la place de l'ancienne, sauf d'une session passée à clôturer ; la
  * convocation reçue pour l'ancienne session, si elle est à venir, est annulée par e-mail.
  */
-const inscrire: ActionHandler = (ctx, p) => {
+const inscrire: ActionHandler = async (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
   if (!aDroit(ctx, 'formations') && !isManagerOf(ctx, emp)) throw new ActionError('Inscription réservée au service RH, au référent HSE / formation ou au manager du collaborateur', 403);
   const initiale = p.inscriptionId != null;
@@ -64,16 +64,16 @@ const inscrire: ActionHandler = (ctx, p) => {
   const convocLe = conv === 'now' ? ctx.d.ti : null;
   // Changement de session : la convocation de l'ancienne (à venir) est annulée avant l'envoi de la nouvelle.
   const ancienne = ctx.d.session((cert ?? insc)!.sessionId);
-  const annulee = annulerSiConvoque(ctx, ancienne, emp, cert ?? insc!);
-  if (cert) ctx.db.update<Certification>('certifications', cert.id, { sessionId: sess.id, convoc: conv, convocLe });
-  else ctx.db.update<Inscription>('inscriptions', insc!.id, { sessionId: sess.id, convoc: conv, date: ctx.d.ti, convocLe });
+  const annulee = await annulerSiConvoque(ctx, ancienne, emp, cert ?? insc!);
+  if (cert) await ctx.db.update<Certification>('certifications', cert.id, { sessionId: sess.id, convoc: conv, convocLe });
+  else await ctx.db.update<Inscription>('inscriptions', insc!.id, { sessionId: sess.id, convoc: conv, date: ctx.d.ti, convocLe });
   // « Envoyer maintenant » : convocation par e-mail avec le fichier .ics (sans adresse : à remettre en main propre).
-  const envoi = conv === 'now' && !convoquerFormation(ctx, sess, emp, cert ? 'recyclage' : 'initiale') ? ' · convocation à remettre en main propre (aucune adresse e-mail)' : '';
+  const envoi = conv === 'now' && !await convoquerFormation(ctx, sess, emp, cert ? 'recyclage' : 'initiale') ? ' · convocation à remettre en main propre (aucune adresse e-mail)' : '';
   return `${emp.nom} — inscription à la session du ${fmt(parse(sess.date))}${conv === 'now' ? envoi || ' · convocation envoyée' : ' · convocation à envoyer'}`
     + (annulee ? ` · convocation à la session du ${fmt(parse(ancienne!.date))} annulée par e-mail` : '');
 };
 
-const ajouterCert: ActionHandler = (ctx, p) => {
+const ajouterCert: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const emp = getEmp(ctx, p.empId);
   const fm = ctx.d.fm(str(p.f));
@@ -83,24 +83,24 @@ const ajouterCert: ActionHandler = (ctx, p) => {
   const avant = certEnVigueur(emp.certs, fm.id);
   // La certification obtenue clôt l'inscription en formation initiale correspondante ; elle la garde pour la rendre si
   // elle est annulée (saisie sur la mauvaise fiche, actions/inscriptions-closes.ts).
-  const closes = clore(ctx, emp, fm.id);
-  const cert = ctx.db.insert<Certification>('certifications', { empId: emp.id, f: fm.id, obtenue: p.date, sessionId: null, convoc: null, inscriptionsCloses: closes.length ? closes : null });
+  const closes = await clore(ctx, emp, fm.id);
+  const cert = await ctx.db.insert<Certification>('certifications', { empId: emp.id, f: fm.id, obtenue: p.date, sessionId: null, convoc: null, inscriptionsCloses: closes.length ? closes : null });
   // Attestation jointe (pièce justificative, actions/pieces.ts).
-  const pieces = joindrePieces(ctx, p.pieces, 'certification', cert.id, emp.id);
+  const pieces = await joindrePieces(ctx, p.pieces, 'certification', cert.id, emp.id);
   // Recyclage enregistré : une session ouverte, postérieure à l'obtention, n'a plus d'objet pour la certification
   // remplacée (qui ne se planifie plus) ; sa place est libérée. Une session antérieure ou du jour même garde
   // l'inscrit : c'est elle qui a produit le recyclage, sa clôture le constatera.
   const sess = avant && certEnVigueur([...emp.certs, cert], fm.id) === cert ? ctx.d.session(avant.sessionId) : null;
   if (sess && sessionActive(sess) && sess.date > p.date) {
     // La convocation reçue pour cette session, si elle est à venir, est annulée par e-mail.
-    const annulee = annulerSiConvoque(ctx, sess, emp, avant!);
-    ctx.db.update<Certification>('certifications', avant!.id, { sessionId: null, convoc: null, convocLe: null });
+    const annulee = await annulerSiConvoque(ctx, sess, emp, avant!);
+    await ctx.db.update<Certification>('certifications', avant!.id, { sessionId: null, convoc: null, convocLe: null });
     return `${fm.court} ajoutée au dossier de ${emp.nom}${pieces} · inscription à la session du ${fmt(parse(sess.date))} annulée${annulee ? ' · annulation envoyée par e-mail' : ''}`;
   }
   return `${fm.court} ajoutée au dossier de ${emp.nom}${pieces}`;
 };
 
-const delivrerHab: ActionHandler = (ctx, p) => {
+const delivrerHab: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const emp = getEmp(ctx, p.empId);
   const hm = ctx.d.hm(str(p.h));
@@ -118,12 +118,12 @@ const delivrerHab: ActionHandler = (ctx, p) => {
   const info = ctx.d.habInfo({ h: hm.id, delivree: p.date }, x.rawCerts, x.med, ctx.ds.settings.horizonAlerte);
   if (!info.prereqOk) throw new ActionError(`Délivrance impossible — ${info.failing.map(c => c.label).join(', ')}`);
   const entry = { delivree: p.date, par, demande: null, mesure: null, mesureDate: null, mesureMotif: null, mesurePar: null };
-  if (existing) ctx.db.update<HabTitre>('habTitres', existing.id, entry);
-  const titreId = existing ? existing.id : ctx.db.insert<HabTitre>('habTitres', { empId: emp.id, h: hm.id, ...entry }).id;
+  if (existing) await ctx.db.update<HabTitre>('habTitres', existing.id, entry);
+  const titreId = existing ? existing.id : (await ctx.db.insert<HabTitre>('habTitres', { empId: emp.id, h: hm.id, ...entry })).id;
   // Titre signé joint (pièce justificative, actions/pieces.ts).
-  const pieces = joindrePieces(ctx, p.pieces, 'habTitre', titreId, emp.id);
+  const pieces = await joindrePieces(ctx, p.pieces, 'habTitre', titreId, emp.id);
   // Après un retrait ou une expiration, Keystone a reçu le No Go : il reçoit aussi le verdict rétabli.
-  const { keystone } = signaler(ctx, emp);
+  const { keystone } = await signaler(ctx, emp);
   return `${hm.nom} ${p.mode === 'renew' ? 'renouvelée' : 'délivrée'} — ${emp.nom} · valide jusqu’au ${fmt(addMonths(parse(p.date), hm.validite))}${pieces}${keystone}`;
 };
 
@@ -139,7 +139,7 @@ function demandeADecider(ctx: Ctx, id: unknown): DemandeCollab {
   return r;
 }
 
-const accepterDemande: ActionHandler = (ctx, p) => {
+const accepterDemande: ActionHandler = async (ctx, p) => {
   const r = demandeADecider(ctx, p.id);
   const emp = getEmp(ctx, r.empId);
   // Formation ou habilitation archivée depuis la demande : ni session, ni délivrance ne pourraient plus aboutir.
@@ -147,7 +147,7 @@ const accepterDemande: ActionHandler = (ctx, p) => {
     : r.type === 'habilitation' && r.h ? refusArchive(ctx.d.hm(r.h), 'Habilitation') : null;
   if (archivee) throw new ActionError(`${archivee}, ou refusez la demande`);
   // `suite` : ce que l'acceptation crée, que la réouverture (`demande.reouvrir`, actions/corrections.ts) défait.
-  const done = (reponse: string, suite: SuiteDemande = {}) => ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'acceptee', reponse, suite });
+  const done = async (reponse: string, suite: SuiteDemande = {}) => await ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'acceptee', reponse, suite });
   let suite: SuiteDemande = {};
   if (r.type === 'formation') {
     const sess = r.sessionId && r.f
@@ -166,36 +166,36 @@ const accepterDemande: ActionHandler = (ctx, p) => {
         // Recyclage : la certification en vigueur est rattachée à la session.
         if (cert.sessionId !== sess.id) {
           attendCloture(ctx, cert.sessionId);
-          annulerSiConvoque(ctx, ctx.d.session(cert.sessionId), emp, cert);
+          await annulerSiConvoque(ctx, ctx.d.session(cert.sessionId), emp, cert);
           suite = { sessionId: sess.id, certId: cert.id, depuis: cert.sessionId };
         }
-        ctx.db.update<Certification>('certifications', cert.id, { sessionId: sess.id, convoc: 'now', convocLe: ctx.d.ti });
+        await ctx.db.update<Certification>('certifications', cert.id, { sessionId: sess.id, convoc: 'now', convocLe: ctx.d.ti });
       } else if (!ctx.ds.inscriptions.some(i => i.empId === emp.id && i.sessionId === sess.id)) {
         // Formation initiale : inscription suivie jusqu'à l'obtention de la certification. Une inscription de la
         // même formation (autre session, ou à replanifier) est déplacée plutôt que doublée.
         const existante = ctx.ds.inscriptions.find(i => i.empId === emp.id && ctx.d.session(i.sessionId)?.formation === r.f);
         if (existante) {
           attendCloture(ctx, existante.sessionId);
-          annulerSiConvoque(ctx, ctx.d.session(existante.sessionId), emp, existante);
-          ctx.db.update<Inscription>('inscriptions', existante.id, { sessionId: sess.id, convoc: 'now', date: ctx.d.ti, convocLe: ctx.d.ti });
+          await annulerSiConvoque(ctx, ctx.d.session(existante.sessionId), emp, existante);
+          await ctx.db.update<Inscription>('inscriptions', existante.id, { sessionId: sess.id, convoc: 'now', date: ctx.d.ti, convocLe: ctx.d.ti });
           suite = { sessionId: sess.id, inscriptionId: existante.id, depuis: existante.sessionId };
         } else {
-          const i = ctx.db.insert<Inscription>('inscriptions', { empId: emp.id, sessionId: sess.id, convoc: 'now', date: ctx.d.ti, convocLe: ctx.d.ti });
+          const i = await ctx.db.insert<Inscription>('inscriptions', { empId: emp.id, sessionId: sess.id, convoc: 'now', date: ctx.d.ti, convocLe: ctx.d.ti });
           suite = { sessionId: sess.id, inscriptionId: i.id, cree: true };
         }
       }
-      done(`Inscrit à la session du ${fmt(parse(sess.date))} — convocation envoyée`, suite);
+      await done(`Inscrit à la session du ${fmt(parse(sess.date))} — convocation envoyée`, suite);
       // La convocation (e-mail et .ics) tient lieu de réponse au salarié ; le manager qui a fait la demande est prévenu.
-      notifierDecisionDemande(ctx, emp, r, true, convoquerFormation(ctx, sess, emp, cert ? 'recyclage' : 'initiale'));
+      await notifierDecisionDemande(ctx, emp, r, true, await convoquerFormation(ctx, sess, emp, cert ? 'recyclage' : 'initiale'));
       return `${emp.nom} inscrit à la session du ${fmt(parse(sess.date))}`;
     }
     if (!emp.equipe) throw new ActionError(`Affectez d’abord ${emp.nom} à une équipe pour l’inscrire au plan de formation`);
     // Exercice en cours, ou le suivant s'il est déjà clos (plan.cloturerExercice) : alors au premier trimestre.
     const ex = exerciceOuvert(ctx.ds, ctx.d.year);
     const tri = ex > ctx.d.year ? 'T1' : `T${Math.floor(ctx.d.today.getMonth() / 3) + 1}`;
-    const l = ctx.db.insert<PlanAction>('planActions', { exercice: ex, f: r.f, libelle: r.libelle, equipe: emp.equipe, periode: tri, effectif: 1, cout: r.f ? ctx.d.fm(r.f).cout : 0, statut: 'prevu', origine: 'demande' });
-    done(`Ajoutée au plan de formation ${ex} (${tri})`, { planId: l.id });
-    notifierDecisionDemande(ctx, emp, r, true);
+    const l = await ctx.db.insert<PlanAction>('planActions', { exercice: ex, f: r.f, libelle: r.libelle, equipe: emp.equipe, periode: tri, effectif: 1, cout: r.f ? ctx.d.fm(r.f).cout : 0, statut: 'prevu', origine: 'demande' });
+    await done(`Ajoutée au plan de formation ${ex} (${tri})`, { planId: l.id });
+    await notifierDecisionDemande(ctx, emp, r, true);
     return `${emp.nom} — demande ajoutée au plan de formation ${ex}`;
   }
   if (r.type === 'habilitation') {
@@ -205,11 +205,11 @@ const accepterDemande: ActionHandler = (ctx, p) => {
     const retire = t?.delivree && t.mesure === 'retrait' ? t : null;
     const expire = t?.delivree && enriched(ctx).find(e => e.id === emp.id)?.habs.find(x => x.h === t.h)?.key === 'exp' ? t : null;
     if (retire || expire) {
-      ctx.db.update<HabTitre>('habTitres', (retire ?? expire)!.id, { demande: ctx.d.ti });
+      await ctx.db.update<HabTitre>('habTitres', (retire ?? expire)!.id, { demande: ctx.d.ti });
       suite = { habTitreId: (retire ?? expire)!.id, cree: false };
-    } else if (r.h && !t) suite = { habTitreId: ctx.db.insert<HabTitre>('habTitres', { empId: emp.id, h: r.h, delivree: null, par: null, demande: ctx.d.ti }).id, cree: true };
-    done(expire ? 'Acceptée — renouvellement après contrôle des prérequis' : 'Acceptée — délivrance après contrôle des prérequis', suite);
-    notifierDecisionDemande(ctx, emp, r, true);
+    } else if (r.h && !t) suite = { habTitreId: (await ctx.db.insert<HabTitre>('habTitres', { empId: emp.id, h: r.h, delivree: null, par: null, demande: ctx.d.ti })).id, cree: true };
+    await done(expire ? 'Acceptée — renouvellement après contrôle des prérequis' : 'Acceptée — délivrance après contrôle des prérequis', suite);
+    await notifierDecisionDemande(ctx, emp, r, true);
     return retire
       ? `${emp.nom} — ${ctx.d.hm(r.h!).nom} retirée : nouvelle délivrance à effectuer après contrôle des prérequis (onglet Habilitations)`
       : expire
@@ -219,19 +219,19 @@ const accepterDemande: ActionHandler = (ctx, p) => {
   // Document déclaré : revalidé puis écrit dans le dossier (même transaction que la décision).
   // Une déclaration reprise d'une ancienne base, encore au dossier telle quelle, n'a rien à réécrire.
   if (!r.declaration || (r.declaration.dejaAuDossier && estAuDossier(emp, r.declaration))) {
-    done('Document contrôlé par le service RH');
-    notifierDecisionDemande(ctx, emp, r, true);
+    await done('Document contrôlé par le service RH');
+    await notifierDecisionDemande(ctx, emp, r, true);
     return `${r.label} — ${emp.nom} · contrôlé`;
   }
   const x = relireDeclaration(ctx.d, r.declaration);
   if (typeof x === 'string') throw new ActionError(`Déclaration invalide — ${x}. Refusez-la et demandez une nouvelle saisie.`);
-  const msg = appliquerFormalite(ctx, emp, x);
-  done('Validée — enregistrée dans votre dossier');
-  notifierDecisionDemande(ctx, emp, r, true);
+  const msg = await appliquerFormalite(ctx, emp, x);
+  await done('Validée — enregistrée dans votre dossier');
+  await notifierDecisionDemande(ctx, emp, r, true);
   return `${msg} · déclaration validée`;
 };
 
-const refuserDemande: ActionHandler = (ctx, p) => {
+const refuserDemande: ActionHandler = async (ctx, p) => {
   const r = demandeADecider(ctx, p.id);
   const emp = getEmp(ctx, r.empId);
   // Motif du refus, montré au collaborateur avec la réponse (l'écran l'exige ; un appel sans motif reste accepté).
@@ -239,13 +239,13 @@ const refuserDemande: ActionHandler = (ctx, p) => {
   if (motif.length > 500) throw new ActionError('Motif trop long (500 caractères au plus)');
   // Document déclaré : rien n'a été écrit dans le dossier, sauf pour une déclaration
   // antérieure à la validation RH, qui en est retirée (voir retireeAuRefus).
-  const retire = retireeAuRefus(ctx.d, emp, r) && retirerFormalite(ctx, emp, r.declaration!);
+  const retire = retireeAuRefus(ctx.d, emp, r) && await retirerFormalite(ctx, emp, r.declaration!);
   const defaut = r.type !== 'document' ? 'Refusée par le service RH'
     : retire ? 'Refusée par le service RH — document retiré de votre dossier' : 'Refusée par le service RH — votre dossier n’a pas été modifié';
-  ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'refusee', reponse: str(p.reponse) || defaut, motifRefus: motif || null });
+  await ctx.db.update<DemandeCollab>('demandesCollab', r.id, { statut: 'refusee', reponse: str(p.reponse) || defaut, motifRefus: motif || null });
   // Document refusé : ses pièces (copie de passeport, carnet de vaccination) n'ont plus lieu d'être gardées (actions/pieces.ts).
-  const pieces = r.type === 'document' ? retirerPiecesDe(ctx, 'declaration', r.id, 'Déclaration refusée') : 0;
-  notifierDecisionDemande(ctx, emp, r, false);
+  const pieces = r.type === 'document' ? await retirerPiecesDe(ctx, 'declaration', r.id, 'Déclaration refusée') : 0;
+  await notifierDecisionDemande(ctx, emp, r, false);
   return `Demande refusée — ${emp.nom} notifié${retire ? ' · document retiré du dossier' : ''}${pieces ? ` · ${plural(pieces, 'pièce jointe effacée', 'pièces jointes effacées')}` : ''}`;
 };
 
@@ -261,7 +261,7 @@ function demandeur(ctx: Ctx, p: Record<string, any>) {
 }
 
 /** Demandes envoyées depuis l'espace collaborateur ou par le manager pour son équipe. */
-const demandeFormation: ActionHandler = (ctx, p) => {
+const demandeFormation: ActionHandler = async (ctx, p) => {
   const { emp, parId } = demandeur(ctx, p);
   const autre = p.f === 'autre' || !p.f;
   const libelle = str(p.libelle), motif = str(p.motif);
@@ -282,14 +282,14 @@ const demandeFormation: ActionHandler = (ctx, p) => {
     const conflit = blocage(conflitsSession(ctx.d, emp.id, s));
     if (conflit) throw new ActionError(conflit);
   }
-  ctx.db.insert<DemandeCollab>('demandesCollab', {
+  await ctx.db.insert<DemandeCollab>('demandesCollab', {
     empId: emp.id, type: 'formation', f: autre ? null : p.f, h: null, libelle: autre ? libelle : null, label: null,
     sessionId: p.sessionId ? Number(p.sessionId) : null, motif, date: ctx.d.ti, statut: 'attente', reponse: null, parId,
   });
   return parId ? `Demande de formation pour ${emp.nom} envoyée au service RH` : 'Demande de formation envoyée au service RH';
 };
 
-const demandeHabilitation: ActionHandler = (ctx, p) => {
+const demandeHabilitation: ActionHandler = async (ctx, p) => {
   const { emp, parId } = demandeur(ctx, p);
   const motif = str(p.motif), hm = ctx.d.hm(str(p.h));
   if (!hm || !motif) throw new ActionError('Habilitation et motif requis');
@@ -298,7 +298,7 @@ const demandeHabilitation: ActionHandler = (ctx, p) => {
   const already = x.habs.some(h => h.h === hm.id && habEnCours(h))
     || ctx.ds.demandesCollab.some(r => r.empId === emp.id && r.type === 'habilitation' && r.h === hm.id && r.statut === 'attente');
   if (already) throw new ActionError(parId ? `${emp.nom} détient déjà ce titre, ou une demande est déjà en cours.` : 'Vous détenez déjà ce titre, ou une demande est déjà en cours.');
-  ctx.db.insert<DemandeCollab>('demandesCollab', {
+  await ctx.db.insert<DemandeCollab>('demandesCollab', {
     empId: emp.id, type: 'habilitation', f: null, h: hm.id, libelle: null, label: null, sessionId: null, motif, date: ctx.d.ti, statut: 'attente', reponse: null, parId,
   });
   return parId ? `Demande d’habilitation pour ${emp.nom} envoyée au service RH` : 'Demande d’habilitation envoyée au service RH';
@@ -332,19 +332,19 @@ function decision(ctx: Ctx, p: Record<string, any>, t: HabTitre) {
  * matricule et codes de motif uniquement). Renvoie l'état après l'écriture et le nombre de chantiers
  * signalés pour le collaborateur (aussi pour l'avis du médecin du travail : actions/sante.ts).
  */
-export function signaler(ctx: Ctx, emp: Employe) {
-  const signales = suivreVerdicts(ctx.db).filter(v => v.empId === emp.id).length;
-  return { apres: new Domain(loadFull(ctx.db, ctx.user)), keystone: signales ? ` · ${plural(signales, 'chantier signalé', 'chantiers signalés')} à Keystone` : '' };
+export async function signaler(ctx: Ctx, emp: Employe) {
+  const signales = (await suivreVerdicts(ctx.db)).filter(v => v.empId === emp.id).length;
+  return { apres: new Domain(await loadFull(ctx.db, ctx.user)), keystone: signales ? ` · ${plural(signales, 'chantier signalé', 'chantiers signalés')} à Keystone` : '' };
 }
 
 /** Enregistre la mesure, puis signale à Keystone les verdicts qu'elle modifie. */
-function mesurer(ctx: Ctx, emp: Employe, t: HabTitre, patch: Pick<HabTitre, 'mesure' | 'mesureDate' | 'mesureMotif' | 'mesurePar'>) {
-  ctx.db.update<HabTitre>('habTitres', t.id, patch);
-  return signaler(ctx, emp);
+async function mesurer(ctx: Ctx, emp: Employe, t: HabTitre, patch: Pick<HabTitre, 'mesure' | 'mesureDate' | 'mesureMotif' | 'mesurePar'>) {
+  await ctx.db.update<HabTitre>('habTitres', t.id, patch);
+  return await signaler(ctx, emp);
 }
 
 /** Suspension après un incident ou une restriction : RH, référent HSE, ou manager pour un membre de son équipe (jamais lui-même). */
-const suspendreHab: ActionHandler = (ctx, p) => {
+const suspendreHab: ActionHandler = async (ctx, p) => {
   const emp = getEmp(ctx, p.empId);
   const gere = aDroit(ctx, 'formations');
   if (!gere && !isManagerOf(ctx, emp)) throw new ActionError('Suspension réservée au service RH, au référent HSE / formation ou au manager du collaborateur', 403);
@@ -352,30 +352,30 @@ const suspendreHab: ActionHandler = (ctx, p) => {
   if (t.mesure === 'retrait') throw new ActionError(`${hm.nom} déjà retirée à ${emp.nom}`);
   if (t.mesure === 'suspension') throw new ActionError(`${hm.nom} déjà suspendue pour ${emp.nom}`);
   const { motif, date } = decision(ctx, p, t);
-  const { keystone } = mesurer(ctx, emp, t, { mesure: 'suspension', mesureDate: date, mesureMotif: motif, mesurePar: ctx.user.nom });
+  const { keystone } = await mesurer(ctx, emp, t, { mesure: 'suspension', mesureDate: date, mesureMotif: motif, mesurePar: ctx.user.nom });
   return `${hm.nom} suspendue — ${emp.nom}${keystone}${gere ? '' : ' · levée réservée au service RH et au référent HSE'}`;
 };
 
 /** Levée de la suspension : service RH et référent HSE. Le titre redevient valide si ses prérequis et son échéance le permettent. */
-const leverHab: ActionHandler = (ctx, p) => {
+const leverHab: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const emp = getEmp(ctx, p.empId);
   const { hm, t } = titreDelivre(ctx, emp, p.h);
   if (t.mesure !== 'suspension') throw new ActionError(`${hm.nom} n’est pas suspendue pour ${emp.nom}`);
-  const { apres, keystone } = mesurer(ctx, emp, t, { mesure: null, mesureDate: null, mesureMotif: null, mesurePar: null });
+  const { apres, keystone } = await mesurer(ctx, emp, t, { mesure: null, mesureDate: null, mesureMotif: null, mesurePar: null });
   const hi = apres.enrich(ctx.ds.settings.horizonAlerte, false).find(e => e.id === emp.id)?.habs.find(x => x.h === hm.id);
   const reste = hi && (hi.key === 'exp' || hi.key === 'susp') ? ` · titre toujours non valide (${hi.key === 'exp' ? 'expiré' : 'prérequis non satisfait'})` : '';
   return `Suspension levée — ${hm.nom} · ${emp.nom}${reste}${keystone}`;
 };
 
 /** Retrait définitif : service RH et référent HSE. Une nouvelle délivrance reste possible ensuite. */
-const retirerHab: ActionHandler = (ctx, p) => {
+const retirerHab: ActionHandler = async (ctx, p) => {
   requireFormations(ctx);
   const emp = getEmp(ctx, p.empId);
   const { hm, t } = titreDelivre(ctx, emp, p.h);
   if (t.mesure === 'retrait') throw new ActionError(`${hm.nom} déjà retirée à ${emp.nom}`);
   const { motif, date } = decision(ctx, p, t);
-  const { keystone } = mesurer(ctx, emp, t, { mesure: 'retrait', mesureDate: date, mesureMotif: motif, mesurePar: ctx.user.nom });
+  const { keystone } = await mesurer(ctx, emp, t, { mesure: 'retrait', mesureDate: date, mesureMotif: motif, mesurePar: ctx.user.nom });
   return `${hm.nom} retirée — ${emp.nom}${keystone}`;
 };
 

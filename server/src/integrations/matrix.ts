@@ -116,5 +116,5 @@ export async function declarerBase(sql: DatabaseSync, version: string | null, en
     log.warn?.(`[matrix] schéma de cursus illisible, rien n'est déclaré : ${e instanceof Error ? e.message : String(e)}`);
     return null;
   }
-  return declarerSchema({ app: 'cursus', version, tables, env, log });
+  return await declarerSchema({ app: 'cursus', version, tables, env, log });
 }

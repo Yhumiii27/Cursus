@@ -19,16 +19,16 @@ function horaire(ctx: Ctx, id: unknown): Horaire {
 }
 
 /** Création (`code`, nom, debut, fin, pause) ou modification (`id` : le code). */
-const enregistrer: ActionHandler = (ctx, p) => {
+const enregistrer: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const avant = p.id != null && p.id !== '' ? horaire(ctx, p.id) : null;
   const { erreurs, horaire: h } = controlerHoraire(p, ctx.ds.referentiels.horaires ?? [], avant);
   if (!h) throw new ActionError(erreurs.code ?? erreurs.nom ?? erreurs.debut ?? erreurs.fin ?? erreurs.pause ?? 'Saisie invalide');
   if (!avant) {
-    ctx.db.insert<Horaire>('horaires', h);
+    await ctx.db.insert<Horaire>('horaires', h);
     return `Horaire ${horaireTexte(h)} créé : proposé dans les feuilles de temps`;
   }
-  ctx.db.update<Horaire>('horaires', h.code, { nom: h.nom, debut: h.debut, fin: h.fin, pause: h.pause });
+  await ctx.db.update<Horaire>('horaires', h.code, { nom: h.nom, debut: h.debut, fin: h.fin, pause: h.pause });
   // Les feuilles déjà soumises ou validées gardent les heures figées avec le code (`FeuilleTemps.horairesFiges`) : les
   // contrôles d'une semaine passée ne changent pas après coup.
   const heures = avant.debut !== h.debut || avant.fin !== h.fin || avant.pause !== h.pause;
@@ -36,7 +36,7 @@ const enregistrer: ActionHandler = (ctx, p) => {
 };
 
 /** Archivage (`archive` vrai, par défaut) ou rétablissement (`archive: false`) ; refusé tant qu'une équipe le propose. */
-const archiver: ActionHandler = (ctx, p) => {
+const archiver: ActionHandler = async (ctx, p) => {
   requireRh(ctx);
   const h = horaire(ctx, p.id);
   const retablir = p.archive === false;
@@ -45,7 +45,7 @@ const archiver: ActionHandler = (ctx, p) => {
     const equipes = equipesDeLHoraire(ctx.ds.referentiels.equipes, h.code);
     if (equipes.length) throw new ActionError(`Horaire ${h.code} proposé par défaut à l’équipe ${equipes.join(', ')} : choisissez-lui d’abord un autre horaire (onglet Postes, exigences et organisation de l’équipe)`);
   }
-  ctx.db.update<Horaire>('horaires', h.code, { archive: retablir ? null : ctx.d.ti });
+  await ctx.db.update<Horaire>('horaires', h.code, { archive: retablir ? null : ctx.d.ti });
   return retablir
     ? `Horaire ${h.code} rétabli : de nouveau proposé dans les feuilles de temps`
     : `Horaire ${h.code} archivé : plus proposé dans les feuilles de temps (les feuilles qui le portent le gardent)`;
@@ -55,7 +55,7 @@ const archiver: ActionHandler = (ctx, p) => {
  * Horaire par défaut d'une équipe (`horaire` du paramètre de `referentiel.equipe.exigences` : code, « » ou null pour
  * aucun ; absent : inchangé). Renvoie la fin du message.
  */
-export function enregistrerHoraireEquipe(ctx: Ctx, q: Equipe, code: unknown): string {
+export async function enregistrerHoraireEquipe(ctx: Ctx, q: Equipe, code: unknown): Promise<string> {
   if (code === undefined) return '';
   const c = code === null ? '' : normaliserCodeHoraire(code);
   if ((q.horaire ?? '') === c) return '';
@@ -64,7 +64,7 @@ export function enregistrerHoraireEquipe(ctx: Ctx, q: Equipe, code: unknown): st
     if (!h) throw new ActionError('Horaire introuvable', 404);
     if (h.archive) throw new ActionError(`Horaire ${h.code} archivé : rétablissez-le d’abord (Référentiels → Horaires)`);
   }
-  ctx.db.update<Equipe>('equipes', q.nom, { horaire: c || null });
+  await ctx.db.update<Equipe>('equipes', q.nom, { horaire: c || null });
   return c ? ` · horaire ${c} proposé sur les feuilles de temps de ses membres` : ' · aucun horaire proposé sur les feuilles de ses membres';
 }
 
@@ -72,8 +72,8 @@ export function enregistrerHoraireEquipe(ctx: Ctx, q: Equipe, code: unknown): st
  * Horaire du jour sur la feuille : empId, week, di (0 = lundi … 6 = dimanche), code (« » : aucun horaire). Mêmes droits que
  * la saisie des heures (feuille soumise : son valideur). Un horaire archivé ne se choisit plus ; celui déjà porté reste.
  */
-const choisir: ActionHandler = (ctx, p) => {
-  const { sh } = editable(ctx, p);
+const choisir: ActionHandler = async (ctx, p) => {
+  const { sh } = await editable(ctx, p);
   const di = Number(p.di);
   if (!(Number.isInteger(di) && di >= 0 && di < JOURS_FEUILLE)) throw new ActionError('Jour invalide');
   const code = p.code == null ? '' : normaliserCodeHoraire(p.code);
@@ -85,7 +85,7 @@ const choisir: ActionHandler = (ctx, p) => {
   }
   if (actuel === code) return null;
   const horaires = Array.from({ length: JOURS_FEUILLE }, (_, i) => (i === di ? code : sh.horaires?.[i] ?? null));
-  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { horaires });
+  await ctx.db.update<FeuilleTemps>('feuilles', sh.id, { horaires });
   return null;
 };
 

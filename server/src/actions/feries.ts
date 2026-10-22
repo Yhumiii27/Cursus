@@ -13,15 +13,15 @@ import type { Db } from '../db.ts';
 import { ActionError, type ActionHandler, requireRhAdmin, str } from './context.ts';
 
 export const CLE_FERIES = 'calendrierFeries';
-export const lireCalendrierFeries = (db: Db) => db.getSetting<CalendrierFeries>(CLE_FERIES, {});
+export const lireCalendrierFeries = async (db: Db) => await db.getSetting<CalendrierFeries>(CLE_FERIES, {});
 
 /** annee, solidarite, solidariteFerie? (`autre_ferie`), nonChomes [codes], motif? (exigé pour une année engagée). */
-const regler: ActionHandler = (ctx, p) => {
+const regler: ActionHandler = async (ctx, p) => {
   requireRhAdmin(ctx);
   const { erreurs, annee, reglage } = controlerFeries(p, ctx.d.ti);
   const erreur = erreurs.annee ?? erreurs.solidarite ?? erreurs.solidariteFerie ?? erreurs.nonChomes;
   if (erreur || annee == null || !reglage) throw new ActionError(erreur ?? 'Réglage invalide');
-  const calendrier = lireCalendrierFeries(ctx.db);
+  const calendrier = await lireCalendrierFeries(ctx.db);
   if (memeReglage(reglageAnnee(calendrier, annee), reglage)) return null;
   const recalculees = absencesRecalculees(ctx.d, annee, reglage);
   const engagee = anneeEngagee(ctx.ds, annee);
@@ -34,7 +34,7 @@ const regler: ActionHandler = (ctx, p) => {
     throw new ActionError(`Année ${annee} déjà engagée (${quoi}) : indiquez le motif de la modification`, 409);
   }
   if (motif.length > MOTIF_FERIES_MAX) throw new ActionError(`Motif : ${MOTIF_FERIES_MAX} caractères au plus`);
-  ctx.db.setSetting(CLE_FERIES, { ...calendrier, [String(annee)]: { ...reglage, le: ctx.d.ti, par: ctx.user.nom, ...(motif ? { motif } : {}) } });
+  await ctx.db.setSetting(CLE_FERIES, { ...calendrier, [String(annee)]: { ...reglage, le: ctx.d.ti, par: ctx.user.nom, ...(motif ? { motif } : {}) } });
   const solidarite = reglage.solidarite === 'autre_ferie' ? `${FERIES_LABEL[reglage.solidariteFerie!]} travaillé (journée de solidarité)` : MODALITES_SOLIDARITE[reglage.solidarite].label.replace(' (par défaut)', '');
   const nonChomes = reglage.nonChomes.length ? ` · non chômés : ${reglage.nonChomes.map(c => FERIES_LABEL[c]).join(', ')}` : ' · autres fériés chômés';
   const absences = recalculees.length

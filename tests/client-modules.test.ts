@@ -9,7 +9,7 @@ process.env.CURSUS_TODAY = '2026-10-10';
 
 const { rendreHook } = await import('./outils/client-node.ts');
 const { poserMagasin } = await import('./outils/store-factice.ts');
-const { Db } = await import('../server/src/db.ts');
+const { SqliteDb: Db } = await import('../server/src/db.ts');
 const { seedDemo } = await import('../server/src/seed.ts');
 const { buildSnapshot, currentUser } = await import('../server/src/dataset.ts');
 const { Domain } = await import('../shared/domain.ts');
@@ -20,31 +20,31 @@ const { lireMedia, suivreMedia } = await import('../client/src/components/media.
 const { ECRAN_ETROIT, placerPanneau } = await import('../client/src/components/panneau.ts');
 const compteRendu = await import('../client/src/dialogs/compteRendu.ts');
 const { MONO, quand, useEnregistrerReglages } = await import('../client/src/pages/parametres/commun.ts');
-type User = NonNullable<ReturnType<typeof currentUser>>;
-type Dataset = ReturnType<typeof buildSnapshot>;
+type User = NonNullable<Awaited<ReturnType<typeof currentUser>>>;
+type Dataset = Awaited<ReturnType<typeof buildSnapshot>>;
 type Store = Parameters<typeof poserMagasin>[0];
 
 // Comptes de démonstration : Sandrine Vidal (administratrice RH, externe), Antoine Leroy (14, gestionnaire RH),
 // Sarah Cohen (23, référente HSE), Aïcha Diallo (7, paie), Élodie Bernard (11, lecture seule), Karim Haddad (12,
 // manager), Mehdi Benali (2, collaborateur).
 const db = new Db(':memory:');
-seedDemo(db);
-function donnees(empId: number | null, role: User['role']): Dataset {
-  const c = (db.sql.prepare(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL').get(...(empId ? [empId] : [])) as { id: number }).id;
-  return buildSnapshot(db, currentUser(db, { compteId: c, role, methode: 'demo' })!);
+await seedDemo(db);
+async function donnees(empId: number | null, role: User['role']): Promise<Dataset> {
+  const c = ((await db.one(empId ? 'SELECT id FROM comptes WHERE emp_id = ?' : 'SELECT id FROM comptes WHERE emp_id IS NULL', [...(empId ? [empId] : [])])) as { id: number }).id;
+  return await buildSnapshot(db, (await currentUser(db, { compteId: c, role, methode: 'demo' }))!);
 }
-const RH = donnees(null, 'rh');
+const RH = await donnees(null, 'rh');
 /** Magasin minimal d'un écran authentifié : instantané, état de l'interface (seul `horizon` compte ici), `run` fourni. */
 const magasin = (data: Dataset, o: { horizon?: number | null; run?: NonNullable<Store>['run'] } = {}) =>
   poserMagasin({ data, ui: { horizon: o.horizon ?? null } as NonNullable<Store>['ui'], run: o.run });
 
 // — state/derived.ts —
 
-test('derived : un domaine par instantané, partagé par les écrans, recréé pour un nouvel instantané', () => {
+test('derived : un domaine par instantané, partagé par les écrans, recréé pour un nouvel instantané', async () => {
   const d = derived.domaineDe(RH);
   assert.ok(d instanceof Domain);
   assert.equal(derived.domaineDe(RH), d, 'même instantané : même domaine (calculs mémorisés faits une fois)');
-  const autre = donnees(null, 'rh');
+  const autre = await donnees(null, 'rh');
   assert.notEqual(derived.domaineDe(autre), d, 'nouvel instantané : nouveau domaine');
   magasin(RH);
   assert.equal(rendreHook(() => derived.useDomain()), d);
@@ -73,32 +73,32 @@ test('derived : collaborateurs enrichis au seuil d’alerte de l’écran, sinon
   assert.deepEqual(rendreHook(() => derived.useTrips()).map(t => t.id), d.tripsAll().map(t => t.id));
 });
 
-test('derived : collaborateurs visibles, ceux que le serveur a envoyés', () => {
+test('derived : collaborateurs visibles, ceux que le serveur a envoyés', async () => {
   magasin(RH);
   assert.deepEqual(rendreHook(() => derived.useScopeIds()), RH.employes.map(e => e.id));
-  const mgr = donnees(12, 'manager');
+  const mgr = await donnees(12, 'manager');
   magasin(mgr);
   const ids = rendreHook(() => derived.useScopeIds());
   assert.deepEqual(ids, mgr.employes.map(e => e.id));
   assert.ok(ids.length < RH.employes.length && ids.includes(12), 'manager : son équipe et lui-même');
 });
 
-test('derived : rôle et droits de chaque profil, propositions d’action permises', () => {
+test('derived : rôle et droits de chaque profil, propositions d’action permises', async () => {
   const role = (data: Dataset) => { magasin(data); return rendreHook(() => derived.useRole()); };
   const droits = (r: ReturnType<typeof role>) => ({ espaceRh: r.espaceRh, rh: r.rh, admin: r.admin, formations: r.formations, paie: r.paie, consultation: r.consultation, manager: r.manager, collab: r.collab });
   const non = { espaceRh: false, rh: false, admin: false, formations: false, paie: false, consultation: false, manager: false, collab: false };
   const attendu: [string, Dataset, Partial<typeof non>][] = [
     ['administrateur RH', RH, { espaceRh: true, rh: true, admin: true, formations: true, paie: true, consultation: true }],
-    ['gestionnaire RH', donnees(14, 'rh'), { espaceRh: true, rh: true, formations: true, consultation: true }],
-    ['référent HSE', donnees(23, 'rh'), { espaceRh: true, formations: true }],
-    ['gestionnaire de paie', donnees(7, 'rh'), { espaceRh: true, paie: true }],
-    ['lecture seule', donnees(11, 'rh'), { espaceRh: true, consultation: true }],
-    ['manager', donnees(12, 'manager'), { manager: true }],
-    ['collaborateur', donnees(2, 'collaborateur'), { collab: true }],
+    ['gestionnaire RH', await donnees(14, 'rh'), { espaceRh: true, rh: true, formations: true, consultation: true }],
+    ['référent HSE', await donnees(23, 'rh'), { espaceRh: true, formations: true }],
+    ['gestionnaire de paie', await donnees(7, 'rh'), { espaceRh: true, paie: true }],
+    ['lecture seule', await donnees(11, 'rh'), { espaceRh: true, consultation: true }],
+    ['manager', await donnees(12, 'manager'), { manager: true }],
+    ['collaborateur', await donnees(2, 'collaborateur'), { collab: true }],
   ];
   for (const [nom, data, oui] of attendu) assert.deepEqual(droits(role(data)), { ...non, ...oui }, nom);
   // Salarié rattaché au compte : `soi` (un membre du RH ne décide pas de ses propres demandes).
-  const gest = role(donnees(14, 'rh'));
+  const gest = role(await donnees(14, 'rh'));
   assert.deepEqual([gest.me, gest.soi, gest.role], [null, 14, 'rh'], 'espace RH : aucun salarié « courant », mais le sien');
   const admin = role(RH);
   assert.equal(admin.soi, null, 'compte externe : aucun salarié');
@@ -110,10 +110,10 @@ test('derived : rôle et droits de chaque profil, propositions d’action permis
     { type: 'openHab', empId: 2, h: 'he', mode: 'renew' }, { type: 'openCloture', sessionId: 1 }, { type: 'goFormation', f: 'sst' },
   ] as Parameters<ReturnType<typeof permis>>[0][];
   const lignes = (data: Dataset) => intents.map(permis(data));
-  assert.deepEqual(lignes(donnees(14, 'rh')), [true, true, true, true, true, true], 'gestionnaire RH : tout');
-  assert.deepEqual(lignes(donnees(23, 'rh')), [false, false, false, true, true, true], 'référent HSE : formations seulement');
-  assert.deepEqual(lignes(donnees(7, 'rh')), [false, false, false, false, false, false], 'paie : rien');
-  assert.deepEqual(lignes(donnees(12, 'manager')), [false, false, false, false, false, false], 'manager : rien depuis l’espace RH');
+  assert.deepEqual(lignes(await donnees(14, 'rh')), [true, true, true, true, true, true], 'gestionnaire RH : tout');
+  assert.deepEqual(lignes(await donnees(23, 'rh')), [false, false, false, true, true, true], 'référent HSE : formations seulement');
+  assert.deepEqual(lignes(await donnees(7, 'rh')), [false, false, false, false, false, false], 'paie : rien');
+  assert.deepEqual(lignes(await donnees(12, 'manager')), [false, false, false, false, false, false], 'manager : rien depuis l’espace RH');
 });
 
 // — state/confirmations-corrections.ts —

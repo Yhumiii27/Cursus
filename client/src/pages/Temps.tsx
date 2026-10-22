@@ -38,6 +38,7 @@ import { aRegulariser, mentionReouverture } from '../../../shared/rules/regulari
 import { feriesDeLaSemaine, MAJORATION_1ER_MAI, mentionFerie, plafondComplementaires } from '../../../shared/rules/majorations.ts';
 import { contingentsDeLaSemaine, contingentTexte, moyenne12Semaines, moyenneTexte, requalificationPartiel, requalificationTexte } from '../../../shared/rules/durees.ts';
 import type { Employe, FeuilleTemps, ISODate } from '../../../shared/types.ts';
+import { ChoixCollaborateur } from '../components/ChoixCollaborateur.tsx';
 import { CloseButton, Fine, Page, Panel, stop, Tag, Two } from '../components/ui.tsx';
 import { Ouvrir } from '../components/Cliquable.tsx';
 import { LotsPaie } from '../components/LotsPaie.tsx';
@@ -199,10 +200,10 @@ export function Temps() {
       kicker={`Semaine ${isoWeek(wk)} · ${fmtShort(parse(wdays[0]))} → ${fmt(parse(wdays[DIMANCHE]))}`}
       title="Temps de travail"
       actions={<>
+        {/* Choix du salarié par suggestions (t152) : nom, poste, équipe ou matricule. */}
         {!collab && (
-          <select className="input" aria-label="Collaborateur" value={String(tsId ?? '')} onChange={ev => setUi({ tsEmp: Number(ev.target.value) })} style={{ width: 'auto', minWidth: 200 }}>
-            {options.map(e => <option key={e.id} value={e.id}>{e.nom}{lecture.has(e.id) ? ' (lecture seule)' : ''}</option>)}
-          </select>
+          <ChoixCollaborateur id="temps-salarie" label="Collaborateur" emps={options} valeur={tsId} style={{ minWidth: 240 }}
+            onChange={id => { if (id != null) setUi({ tsEmp: id }); }} suffixe={e => lecture.has(e.id) ? ' (lecture seule)' : ''} />
         )}
         <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--space-1)' }}>
           <button type="button" className="btn btn-ghost btn-icon plain" aria-label="Semaine précédente" title="Semaine précédente" onClick={() => setUi({ weekStart: addD(wk, -7) })}><CaretLeftIcon size={14} /></button>

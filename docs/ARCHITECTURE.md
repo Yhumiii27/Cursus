@@ -131,9 +131,11 @@ client/src/
                    rubriques de paie et export des variables de la période, écran Temps) ;
                    SuiviFeuilles.tsx (suivi des feuilles semaine par semaine, relance, validation groupée, écran Temps) ;
                    media.ts (requête média suivie), heures.ts (cellule d'heures, vue « un jour ») ;
-                   Cliquable.tsx (bouton « Ouvrir » d'une ligne cliquable, carte sélectionnable CartePick)
+                   Cliquable.tsx (bouton « Ouvrir » d'une ligne cliquable, carte sélectionnable CartePick) ;
+                   tri.ts et TriListe.tsx (tri par colonne, pagination de 50 lignes, en-tête ThTri, pied SuiteListe) ;
+                   recherche.ts et ChoixCollaborateur.tsx (suggestions de collaborateurs, combobox des dialogues)
   listes-csv.ts    Exports CSV des listes (annuaire, registre des habilitations, soldes, absences, plan de formation)
-  layout/Shell.tsx Barre latérale, en-tête, notification ; layout/Reconnexion.tsx : session expirée, par-dessus l'écran ;
+  layout/Shell.tsx Barre latérale, en-tête, notification ; layout/RechercheGlobale.tsx : recherche de l'en-tête (suggestions) ; layout/Reconnexion.tsx : session expirée, par-dessus l'écran ;
                    layout/Tiroir.tsx : menu en tiroir sur écran étroit ; layout/navigation.ts : titre de l'onglet, focus
                    sur le titre après un changement de page
   pages/           Un fichier par écran ; pages/parametres/ : une section de l'écran Paramètres par fichier (sections.tsx)
@@ -580,6 +582,27 @@ un dossier hors du dépôt (`CURSUS_CAS_PAIE`, chemin absolu). Format et règles
   comprise) et « Changer de compte » remettent l'adresse à « / » : la personne suivante ne reprend pas l'écran de la
   précédente. Les valeurs par défaut de `PARAMS_URL` sont celles de `INITIAL_UI` (contrôlé par le test). « Copier le lien »
   (`components/CopierLien.tsx`) sur la fiche et la feuille de temps. Un nouveau filtre partageable s'ajoute à `PARAMS_URL`.
+- Tri et pagination des grandes listes (t145, `components/tri.ts`, `components/TriListe.tsx`) : une table des colonnes
+  triables (`parTexte` : ordre alphabétique français ; `parNombre`, `parDate` : date ISO ou Date ; `parRang` : rang d'un
+  statut), `useTri('<écran>.<liste>')` et `<ThTri t={t} col="…">` dans l'en-tête (bouton, `aria-sort` sur la seule colonne
+  triée). Sans clic, l'ordre par défaut de l'écran est gardé ; un clic trie, un deuxième inverse, un troisième revient à
+  l'ordre par défaut ; valeurs vides en dernier, égalités dans l'ordre par défaut. Le tri se garde par liste dans
+  `ui.tris` (pas dans l'adresse). `usePagination(lignes, filtres)` affiche 50 lignes (`TAILLE_PAGE`, sans réglage) au-delà
+  de 50, puis « Afficher 50 de plus » ou « Tout afficher » (`<SuiteListe>`), et revient aux 50 premières quand le résumé
+  des filtres change. Un export CSV prend toutes les lignes filtrées et triées, jamais la seule page affichée. Écrans :
+  Congés & absences (soldes : recherche nom, poste ou matricule, équipe ; absences : état, type, période ;
+  `pages/absences-filtres.ts`), Collaborateurs, Habilitations, renouvellements de l'équipe (Formations), Échéances (dans
+  chaque mois), suivi des feuilles (Temps, tri seulement), comptes (Paramètres).
+- Recherche de collaborateurs (t152, `components/recherche.ts`) : même texte cherché que l'annuaire (`texteRecherche` de
+  `shared/format.ts` : nom, poste, équipe, matricule de paie, EMP-xxxx ; accents et casse ignorés), dans le jeu de
+  données du rôle, sans API. L'en-tête (`layout/RechercheGlobale.tsx`) propose 8 suggestions au plus : Entrée ou un clic
+  ouvre la fiche (`go('collaborateurs', { selectedId, search: '' })`), « Voir tous les résultats » ouvre l'annuaire
+  filtré ; ouverte au service RH, aux profils de l'espace RH qui ont l'annuaire et au manager (son équipe, sans
+  lui-même) ; raccourci « / » hors d'un champ, Ctrl+K ou Cmd+K (jamais pendant un dialogue). Une liste de salariés dans
+  un dialogue ou un filtre est un `<ChoixCollaborateur id=… emps=… valeur=… onChange=…>` (combobox ARIA 1.2 : flèches,
+  Entrée, Échap qui referme d'abord la liste ; `vide` : option « aucun » ; `requis`, `erreur` du Field) et non un
+  `<select>` : Signaler et Saisir une absence, « Pour » des demandes du manager, salarié de la feuille de temps, salarié
+  du journal.
 - Dialogue ouvert depuis un autre : `<Dialog fermer={…}>` y revient au lieu de se fermer (Annuler, Échap, fond). « Créer
   une session » depuis « Planifier » (t107) passe le dialogue d'origine (`retour`) ; la session créée y est présélectionnée
   (`dialogs/retour-session.ts`).

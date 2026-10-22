@@ -12,6 +12,7 @@ import { piecesDe } from '../../../shared/rules/pieces.ts';
 import type { NatureAbsence } from '../../../shared/types.ts';
 import { erreursPeriode } from '../components/controles.ts';
 import { CancelButton, Controles, Dialog, Field, Static, SubmitButton, useVerification } from '../components/Dialog.tsx';
+import { ChoixCollaborateur } from '../components/ChoixCollaborateur.tsx';
 import { ChoixPiece, PiecesJointes, usePieceJointe } from '../components/PieceJointe.tsx';
 import { Fine } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
@@ -77,10 +78,7 @@ export function AbsNatureDialog({ empId, id }: { empId?: number | null; id?: num
         {a || empId != null
           ? <Static>{emp?.nom ?? '—'}</Static>
           : (
-            <select className="input" id="an-emp" value={String(sel ?? '')} onChange={ev => setSel(Number(ev.target.value))}>
-              <option value="" disabled>Choisir un collaborateur…</option>
-              {choix.map(e => <option key={e.id} value={e.id}>{e.nom}</option>)}
-            </select>
+            <ChoixCollaborateur id="an-emp" emps={choix} valeur={sel} onChange={setSel} requis erreur={v.erreur(empErr)} placeholder="Choisir un collaborateur…" />
           )}
       </Field>
       {a && (

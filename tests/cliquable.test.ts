@@ -70,6 +70,8 @@ test('lignes cliquables : un bouton « Ouvrir » sur le nom, la ligne restant cl
     if (/className="dialog-backdrop"/.test(x.attributs)) return false;
     // Carte sélectionnable du composant commun (rôle de bouton, focalisable, Entrée et Espace).
     if (/role="button"/.test(x.attributs) && /tabIndex=\{0\}/.test(x.attributs) && /onKeyDown=/.test(x.attributs)) return false;
+    // Option d'une liste de suggestions (combobox, t152) : choisie au clavier depuis le champ (flèches, Entrée, aria-activedescendant).
+    if (/role="option"/.test(x.attributs)) return false;
     return !/<Ouvrir\b/.test(x.corps);
   });
   assert.deepEqual(sansClavier.map(x => `${x.fichier}:${x.ligne} <${x.nom}>`), [], 'élément cliquable sans élément focalisable');

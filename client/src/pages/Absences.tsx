@@ -11,18 +11,24 @@ import { absenceActive, droitAnnulation, estConge, joursDecomptes, natureDef, pr
 import { depotOuvert, justificatifAVerifier, piecesDe } from '../../../shared/rules/pieces.ts';
 import { DEMI_LABEL, periodeDemiTexte } from '../../../shared/rules/demi-journees.ts';
 import { absenceKinds, cetInfo, cpInfo, recupInfo, reposForfait, rttInfo } from '../../../shared/rules/conges.ts';
-import type { Absence, DemiJournee, Employe, NatureAbsence, Piece } from '../../../shared/types.ts';
+import type { Absence, AbsenceStatut, DemiJournee, Employe, NatureAbsence, Piece } from '../../../shared/types.ts';
 import { DownloadSimpleIcon } from '@phosphor-icons/react';
 import { CloturesConges } from '../components/CloturesConges.tsx';
 import { InformationsRetour } from '../components/InformationsRetour.tsx';
 import { LectureSeule, useLectureSeule } from '../components/Hierarchie.tsx';
 import { Btn, Empty, Fine, Kpi, Kpis, Page, Panel, Tag, Two } from '../components/ui.tsx';
+import { comparerTexte, parDate, parNombre, parRang, parTexte, trier, usePagination, useTri, type Colonne } from '../components/tri.ts';
+import { SuiteListe, ThTri } from '../components/TriListe.tsx';
 import { csvAbsences, csvSoldes } from '../listes-csv.ts';
 import { downloadCsv } from '../print.ts';
 import { useAgir } from '../state/actions.ts';
 import { refusAbsence } from '../state/confirmations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import {
+  FILTRES_PERIODE, FILTRES_STATUT, FILTRES_TYPE, filtrerAbsence, filtrerSolde, rangAbsence, SANS_FILTRE, TOUTES,
+  type FiltrePeriode, type FiltreStatut, type FiltreType,
+} from './absences-filtres.ts';
 
 /**
  * Soldes d'un collaborateur, mis en forme pour le tableau et les cartes.
@@ -36,6 +42,8 @@ function soldeRow(d: Domain, e: Employe) {
   const suiv = rt ? rttInfo(d, e, d.year + 1) : null, rttSuivants = suiv ? suiv.pris + suiv.poses : 0;
   const rttSuivTxt = rttSuivants ? ` · ${fJ(rttSuivants)} posé${rttSuivants > 1 ? 's' : ''} sur ${d.year + 1}` : '';
   return {
+    // Valeurs triées des colonnes (t145) ; null : non concerné (rangé en dernier).
+    n: { cp: cp ? cp.solde : null, cpN: cp ? cp.enCours : null, rtt: rt ? rt.solde : null, rec: rc ? rc.solde : null, cet: cet ? ct.total : null },
     e, cpSolde: cp ? cp.solde : 0, cetPlaceable: cet && (ct.placeCp > 0 || ct.placeRtt > 0 || ct.placeRttPrec > 0),
     poser: absenceKinds(d, e).length > 0, cpGere: !!cp,
     contrat: `${STATUTS[c.statut].court} · ${c.label}`,
@@ -63,6 +71,21 @@ function soldeRow(d: Domain, e: Employe) {
 function Num({ main, sub }: { main: ReactNode; sub?: ReactNode }) {
   return <><div className="tnum">{main}</div>{sub != null && <div className="text-muted sub">{sub}</div>}</>;
 }
+
+type Solde = ReturnType<typeof soldeRow>;
+
+/** Colonnes triables des soldes : un solde se trie du plus grand au plus petit au premier clic. */
+const COLONNES_SOLDES: Record<string, Colonne<Solde>> = {
+  nom: parTexte(r => r.e.nom),
+  cp: parNombre(r => r.n.cp, 'desc'),
+  cpN: parNombre(r => r.n.cpN, 'desc'),
+  rtt: parNombre(r => r.n.rtt, 'desc'),
+  rec: parNombre(r => r.n.rec, 'desc'),
+  cet: parNombre(r => r.n.cet, 'desc'),
+};
+
+/** Ordre des états pour le tri de la colonne « Statut » : à traiter d'abord, les annulées en dernier (ordre par défaut). */
+const RANG_STATUT: readonly AbsenceStatut[] = ['demandee', 'signalee', 'validee', 'refusee', 'annulee'];
 
 const NATURES = Object.entries(NATURES_ABSENCE) as [NatureAbsence, (typeof NATURES_ABSENCE)[NatureAbsence]][];
 const PAIE_COURT: Record<PaieAbsence, string> = { maintenue: 'payée', indemnisee: 'indemnisée (IJSS)', non_payee: 'non payée' };
@@ -103,6 +126,13 @@ export function Absences() {
   const Y = d.year;
 
   const rows = data.employes.map(e => soldeRow(d, e)).sort((a, b) => a.e.nom.localeCompare(b.e.nom));
+  // Soldes affichés (t145) : recherche (nom, poste, équipe, matricule) et équipe, tri par colonne, 50 lignes puis « Afficher plus ».
+  const [recherche, setRecherche] = useState('');
+  const [equipe, setEquipe] = useState(TOUTES);
+  const equipes = [...new Set(rows.map(r => equipeLabel(r.e)))].sort(comparerTexte);
+  const tSoldes = useTri('absences.soldes');
+  const soldes = trier(rows.filter(r => filtrerSolde(r.e, recherche, equipe)), COLONNES_SOLDES, tSoldes.tri);
+  const pageSoldes = usePagination(soldes, `${recherche}|${equipe}`);
   // Consultation N+2 (t136) : soldes des équipes rattachées consultés, sans action.
   const lecture = useLectureSeule();
   const mine = collab ? rows.find(r => r.e.id === me) : undefined;
@@ -114,12 +144,11 @@ export function Absences() {
   // sur ses propres absences comme intéressé.
   const qui = (e: Employe) => ({ rh: rh && e.id !== soi, self: (!espaceRh && e.id === me) || (rh && e.id === soi), manager: manager && e.id !== me && d.mgrOf(e) === me });
   // À traiter d'abord (demandes, signalements), les absences annulées en dernier.
-  const rang = (a: Absence) => a.statut === 'demandee' ? 0 : a.statut === 'signalee' ? 1 : a.statut === 'annulee' ? 3 : 2;
   const absList = data.absences
     .filter(a => a.au >= P.prisStart || a.statut === 'signalee')
     .map(a => ({ a, e: d.emp(a.empId) }))
     .filter((x): x is { a: Absence; e: Employe } => !!x.e)
-    .sort((x, y) => rang(x.a) - rang(y.a) || x.a.du.localeCompare(y.a.du))
+    .sort((x, y) => rangAbsence(x.a) - rangAbsence(y.a) || x.a.du.localeCompare(y.a.du))
     .map(({ a, e }) => {
       const q = qui(e);
       return {
@@ -130,16 +159,28 @@ export function Absences() {
       };
     });
   const nDecide = absList.filter(x => x.canDecide).length;
-  // Exports des tableaux affichés : soldes avec la mention « soldes calculés par Cursus », absences sans leur nature.
+  // Absences affichées (t145) : état, famille et période ; tri par colonne ; 50 lignes puis « Afficher plus ».
+  const [filtres, setFiltres] = useState(SANS_FILTRE);
+  const tAbs = useTri('absences.liste');
+  const colonnesAbs: Record<string, Colonne<(typeof absList)[number]>> = {
+    nom: parTexte(x => x.e.nom),
+    du: parDate(x => x.a.du),
+    jours: parNombre(x => joursDecomptes(d, x.e, x.a), 'desc'),
+    statut: parRang(x => x.a.statut, RANG_STATUT),
+  };
+  const absAffichees = trier(absList.filter(x => filtrerAbsence(x.a, filtres, data.today)), colonnesAbs, tAbs.tri);
+  const pageAbs = usePagination(absAffichees, `${filtres.statut}|${filtres.type}|${filtres.periode}`);
+  // Exports des tableaux affichés (filtres et tri compris, toutes les pages) : soldes avec la mention « soldes calculés
+  // par Cursus », absences sans leur nature.
   const exporterSoldes = () => {
-    const x = csvSoldes(d, rows.map(r => r.e));
+    const x = csvSoldes(d, soldes.map(r => r.e));
     downloadCsv(x.fichier, x.head, x.rows);
-    notify(`Export CSV généré — ${plural(rows.length, 'solde', 'soldes')}`);
+    notify(`Export CSV généré — ${plural(soldes.length, 'solde', 'soldes')}`);
   };
   const exporterAbsences = () => {
-    const x = csvAbsences(d, absList);
+    const x = csvAbsences(d, absAffichees);
     downloadCsv(x.fichier, x.head, x.rows);
-    notify(`Export CSV généré — ${plural(absList.length, 'absence', 'absences')}`);
+    notify(`Export CSV généré — ${plural(absAffichees.length, 'absence', 'absences')}`);
   };
   const boutonExport = (onClick: () => void) => <Btn small variant="secondary" icon={<DownloadSimpleIcon size={14} />} onClick={onClick}>Exporter (CSV)</Btn>;
   const aQualifier = rh ? absList.filter(x => x.a.statut === 'signalee' && x.e.id !== soi) : [];
@@ -199,12 +240,32 @@ export function Absences() {
       )}
 
       {!collab && (
-        <Panel title="Soldes" aside={rows.length > 0 ? boutonExport(exporterSoldes) : undefined}>
+        <Panel title="Soldes" aside={soldes.length > 0 ? boutonExport(exporterSoldes) : undefined}>
+          {rows.length > 1 && (
+            <div className="filtres-liste">
+              <input className="input" type="search" placeholder="Nom, poste ou matricule…" aria-label="Rechercher un solde" value={recherche}
+                onChange={e => setRecherche(e.target.value)} />
+              {equipes.length > 1 && (
+                <select className="input" aria-label="Équipe des soldes" value={equipe} onChange={e => setEquipe(e.target.value)}>
+                  <option value={TOUTES}>Toutes les équipes</option>
+                  {equipes.map(q => <option key={q} value={q}>{q}</option>)}
+                </select>
+              )}
+            </div>
+          )}
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Collaborateur</th><th>CP {P.label}</th><th>En acquisition</th><th>RTT / repos {Y}</th><th>Récupération</th><th>CET</th><th></th></tr></thead>
+              <thead><tr>
+                <ThTri t={tSoldes} col="nom">Collaborateur</ThTri>
+                <ThTri t={tSoldes} col="cp" premier="desc">CP {P.label}</ThTri>
+                <ThTri t={tSoldes} col="cpN" premier="desc">En acquisition</ThTri>
+                <ThTri t={tSoldes} col="rtt" premier="desc">RTT / repos {Y}</ThTri>
+                <ThTri t={tSoldes} col="rec" premier="desc">Récupération</ThTri>
+                <ThTri t={tSoldes} col="cet" premier="desc">CET</ThTri>
+                <th></th>
+              </tr></thead>
               <tbody>
-                {rows.map(r => {
+                {pageSoldes.lignes.map(r => {
                   const canPose = r.poser && (rh || r.e.id === me || (manager && d.mgrOf(r.e) === me));
                   return (
                     <tr key={r.e.id}>
@@ -228,21 +289,42 @@ export function Absences() {
               </tbody>
             </table>
           </div>
+          {soldes.length === 0 && rows.length > 0 && <Empty pad="sm">Aucun solde ne correspond à ces filtres.</Empty>}
+          <SuiteListe p={pageSoldes} unite={['solde', 'soldes']} />
         </Panel>
       )}
 
       <Panel title="Demandes et absences prévues" aside={
         <div className="actions-end" style={{ alignItems: 'center' }}>
           <span className="text-muted sub">{`${plural(nDecide, 'demande à valider', 'demandes à valider')} · indisponibilités transmises à Keystone pour la planification, sans la nature des arrêts`}</span>
-          {!collab && absList.length > 0 && boutonExport(exporterAbsences)}
+          {!collab && absAffichees.length > 0 && boutonExport(exporterAbsences)}
         </div>
       }>
-        {absList.length > 0 ? (
+        {absList.length > 1 && (
+          <div className="filtres-liste">
+            <select className="input" aria-label="État des absences" value={filtres.statut} onChange={e => setFiltres({ ...filtres, statut: e.target.value as FiltreStatut })}>
+              {FILTRES_STATUT.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+            <select className="input" aria-label="Type d’absence" value={filtres.type} onChange={e => setFiltres({ ...filtres, type: e.target.value as FiltreType })}>
+              {FILTRES_TYPE.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+            <select className="input" aria-label="Période des absences" value={filtres.periode} onChange={e => setFiltres({ ...filtres, periode: e.target.value as FiltrePeriode })}>
+              {FILTRES_PERIODE.map(([v, l]) => <option key={v} value={v}>{l}</option>)}
+            </select>
+          </div>
+        )}
+        {absAffichees.length > 0 ? (
           <div className="scroll-x">
             <table className="table">
-              <thead><tr><th>Collaborateur</th><th>Absence</th><th>Jours</th><th>Statut</th><th></th></tr></thead>
+              <thead><tr>
+                <ThTri t={tAbs} col="nom">Collaborateur</ThTri>
+                <ThTri t={tAbs} col="du">Absence</ThTri>
+                <ThTri t={tAbs} col="jours" premier="desc">Jours</ThTri>
+                <ThTri t={tAbs} col="statut">Statut</ThTri>
+                <th></th>
+              </tr></thead>
               <tbody>
-                {absList.map(({ a, e, canDecide, canProlong, annulation }) => {
+                {pageAbs.lignes.map(({ a, e, canDecide, canProlong, annulation }) => {
                   const m = data.missions.find(x => x.empId === a.empId && x.du <= a.au && x.au >= a.du);
                   const mgr = d.mgrOf(e);
                   // Sa propre demande : un membre du RH ne la décide pas, son manager ou un autre membre du service RH le fait.
@@ -297,7 +379,8 @@ export function Absences() {
               </tbody>
             </table>
           </div>
-        ) : <Empty>Aucune absence prévue.</Empty>}
+        ) : <Empty>{absList.length > 0 ? 'Aucune absence ne correspond à ces filtres.' : 'Aucune absence prévue.'}</Empty>}
+        <SuiteListe p={pageAbs} unite={['absence', 'absences']} />
       </Panel>
 
       {espaceRh && (

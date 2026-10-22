@@ -60,7 +60,8 @@ export const naissanceVueManager = (e: Naissance, today: ISODate): Pick<Employe,
 
 // — Règles des jeunes travailleurs (étape 2) —
 // Durées maximales (art. L3162-1), deux jours de repos consécutifs dont le dimanche (art. L3164-2 et L3164-5), pas de
-// travail de nuit (art. L3163-2), contrôlé par la case « travail de nuit ou en continu » des équipes faute d'horaires,
+// travail de nuit (art. L3163-2), contrôlé par la case « travail de nuit ou en continu » des équipes et, depuis le lot 6,
+// par l'horaire du jour de la feuille (shared/rules/repos-nuit.ts : refus ; repos de 12 h et pause de 30 min à motiver),
 // dérogation pour travaux réglementés (art. R4153-40 et suivants) déclarée sur la fiche. Toutes lisent `mineurAu` : elles
 // cessent d'elles-mêmes aux 18 ans.
 

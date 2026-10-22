@@ -61,7 +61,9 @@ function controleJournees(sh: Pick<FeuilleTemps, 'week'>, lignes: LigneTemps[], 
  * la hiérarchie réécrirait la déclaration du salarié (justification d'un dépassement, art. L3121-18 et L3121-20).
  */
 function motifDepassement(ctx: Ctx, emp: Employe, sh: FeuilleTemps, p: Record<string, any>, quand: string, valideur = false): string | null {
-  const { depassements, depassementsMineur } = calcSheet(ctx.d, emp, sh);
+  const { depassements, depassementsMineur, nuitMineur } = calcSheet(ctx.d, emp, sh);
+  // Travail de nuit d'un salarié mineur (art. L3163-2, shared/rules/repos-nuit.ts) : refus, sans motif possible.
+  if (nuitMineur.length) throw new ActionError(`${nuitMineur.join(' ; ')} ${quand}`);
   if (!depassements.length) return null;
   const motif = (valideur ? sh.motifDepassement || str(p.motif) : str(p.motif) || sh.motifDepassement) || '';
   // Salarié mineur (décision de l'entreprise du 17 octobre 2026) : motif, ou référence de la dérogation de l'inspection.
@@ -223,13 +225,15 @@ export function validerFeuille(ctx: Ctx, p: Record<string, any>): { message: str
   const heuresSup = sh.heuresSup ?? ctx.ds.settings.heuresSupMode;
   const majDimanche = sh.majDimanche ?? ctx.ds.settings.majorationDimanche;
   const majFerie = sh.majFerie ?? ctx.ds.settings.tauxMajorationFerie;
+  // Majoration des heures de nuit (shared/rules/repos-nuit.ts) : figée de même, 0 % par défaut (quantité HNUIT seule).
+  const majNuit = sh.majNuit ?? ctx.ds.settings.nuitMajoration ?? 0;
   // Contrepartie obligatoire en repos au-delà du contingent (shared/rules/durees.ts) : COR de l'année recalculée sur toutes
   // les feuilles validées, moins celle déjà figée sur les autres ; l'écart est porté par cette feuille.
-  const validee: FeuilleTemps = { ...sh, statut: 'validee', contrat, heuresSup, majDimanche, majFerie };
+  const validee: FeuilleTemps = { ...sh, statut: 'validee', contrat, heuresSup, majDimanche, majFerie, majNuit };
   const cor = corAValider(ctx.d, emp, validee);
   // Horaires de poste refigés après une éventuelle correction du valideur (heures d'un code déjà figé inchangées).
   const horaires = horairesAFiger(ctx.ds.referentiels, emp.equipe, sh, calcSheet(ctx.d, emp, { ...sh, contrat }).perDay);
-  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif, heuresSup, majDimanche, majFerie, cor, ...horaires });
+  ctx.db.update<FeuilleTemps>('feuilles', sh.id, { statut: 'validee', keystone, contrat, motifDepassement: motif, heuresSup, majDimanche, majFerie, majNuit, cor, ...horaires });
   // Seuils franchis par cette feuille (moyenne sur 12 semaines, temps partiel, contingent) : signalés, sans blocage.
   const autres = ctx.ds.feuilles.filter(f => f.empId === emp.id && f.statut === 'validee' && f.id !== sh.id);
   const alertes = alertesValidation(ctx.d, emp, autres, [...autres, { ...validee, cor }], sh.week, corDeLaFeuille({ cor }));

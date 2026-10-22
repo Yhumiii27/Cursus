@@ -32,14 +32,15 @@ import { CODE_HORAIRE, normaliserCodeHoraire } from '../../shared/rules/horaires
 import { reglageAnnee } from '../../shared/rules/feries.ts';
 import { estTypeDerogation, JOURS_FEUILLE } from '../../shared/rules/semaine.ts';
 import { controlesMineur } from '../../shared/rules/mineurs.ts';
+import { controlesReposNuit } from '../../shared/rules/repos-nuit.ts';
 import { lignesCouverture } from '../../shared/rules/couverture.ts';
 import { corDeLaFeuille } from '../../shared/rules/temps.ts';
-import type { CalendrierFeries, ClotureConges, CurrentUser, Employe, FeuilleTemps, InformationCp, LigneTemps } from '../../shared/types.ts';
+import type { CalendrierFeries, ClotureConges, CurrentUser, Employe, FeuilleTemps, HoraireFige, InformationCp, LigneTemps } from '../../shared/types.ts';
 import type { ContactsConfidentialite } from '../../shared/confidentialite.ts';
 import { journaliser, type Compte } from './comptes.ts';
 import { lireConfidentialite } from './confidentialite.ts';
 import { identite, type Identite } from './connexion.ts';
-import { loadFull, scopeIds } from './dataset.ts';
+import { loadFull, loadSettings, scopeIds } from './dataset.ts';
 import type { Db, TableName } from './db.ts';
 import { purgerEnvois } from './envois.ts';
 import { copieAvantMigration } from './sauvegarde.ts';
@@ -178,7 +179,12 @@ function depassementTrace(p: P, x: Contexte): Ligne {
   const lignes = (x.apres.lignes ?? []) as LigneTemps[];
   const perDay = Array.from({ length: JOURS_FEUILLE }, (_, i) => lignes.reduce((n, l) => n + num(l.h[i]), 0));
   const codes = e ? controlesMineur(e, String(x.apres.week ?? ''), perDay).codes.filter(c => c === 'jour_8h' || c === 'semaine_35h') : [];
-  return { motifDepassement: MENTION_TEXTE, ...(codes.length ? { depassementMineur: codes } : {}) };
+  // Repos quotidien ou pause insuffisants d'après les horaires figés (shared/rules/repos-nuit.ts) : les codes seuls, sans le
+  // dimanche précédent (le repos entre deux semaines reste sur la feuille).
+  const horaires = (x.apres.horairesFiges ?? []) as (HoraireFige | null)[];
+  const reposNuit = horaires.some(Boolean) ? controlesReposNuit(horaires, perDay, String(x.apres.week ?? ''), { s: loadSettings(x.db), naissance: e })
+    .codes.filter(c => c !== 'nuit_mineur') : [];
+  return { motifDepassement: MENTION_TEXTE, ...(codes.length ? { depassementMineur: codes } : {}), ...(reposNuit.length ? { reposNuit } : {}) };
 }
 /** Soumission, validation : statut avant et après, et total d'heures de la feuille (ce qui part en paie). */
 const statutEtTotal: Partial<Regle> = { cible: FEUILLE, bilan: (p, x) => ({ heures: totalHeures(x.apres), ...depassementTrace(p, x) }) };
@@ -613,7 +619,7 @@ export const REGLES: Record<string, Regle> = {
   // Administration
   // Réglages : anciennes et nouvelles valeurs, sauf la référence de l'accord des heures supplémentaires (texte libre).
   'parametres.maj': {
-    cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord', 'cddAccordBranche'] },
+    cible: { table: 'settings', cle: () => 'app', colonnes: ['value'], aplatir: true, masques: ['heuresSupAccord', 'heuresComplementairesAccord', 'moyenne12SemainesAccord', 'contingentAccord', 'cddAccordBranche', 'nuitAccord'] },
   },
   // Jours fériés d'une année (lot 6) : année, réglage avant et après ; le motif d'une année engagée (texte libre) n'est
   // jamais recopié, seulement le fait qu'il soit renseigné. Salariés dont une absence est recalculée (résultat).

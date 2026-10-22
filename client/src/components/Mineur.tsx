@@ -30,7 +30,8 @@ export function MineurFiche({ e }: { e: Employe }) {
           dérogation de l’inspection du travail.
         </div>
       </div>
-      {/* Case de l'équipe pas encore renseignée (ou salarié sans équipe) : rappel permanent, faute d'horaires dans Cursus. */}
+      {/* Case de l'équipe pas encore renseignée (ou salarié sans équipe) : rappel permanent ; l'horaire du jour, quand la
+          feuille en porte un, est contrôlé à part (shared/rules/repos-nuit.ts). */}
       {(!q || q.nuit == null) && (
         <NoteAccent>
           Pas de travail de nuit (art. L3163-2) : ni entre 22 h et 6 h, ni entre 20 h et 6 h avant 16 ans.

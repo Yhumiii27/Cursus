@@ -5,6 +5,7 @@
 import { isValidDate } from './dates.ts';
 import { CONTRATS_EXCLUABLES, PREAVIS_TOUTE_ANNEE } from './rules/campagne.ts';
 import { JOURS_RELANCE, paliersRelance } from './rules/relances.ts';
+import { nuitHorsLoi, refusPlageNuit } from './rules/repos-nuit.ts';
 import type { Settings, StockagePieces } from './types.ts';
 
 /** Jours de l'année (« MM-JJ ») à partir desquels les RTT de l'année suivante peuvent être posés ; vide : sans restriction. */
@@ -194,6 +195,15 @@ export const REGLAGES: { [K in keyof Settings]-?: Reglage<Settings[K]> } = {
   deplacementsPaieAPartirDu: { defaut: null, controle: dateOuVide('Déplacements transmis à partir du') },
   //   Vigilance des pays (shared/rules/vigilance.ts, t068) : rappel avant un départ si la vérification a plus de N jours —
   vigilanceRappelJours: { defaut: 30, controle: entier(7, 180) },
+  // — Travail de nuit (parametres/TravailNuit.tsx, dans Décompte des heures ; shared/rules/repos-nuit.ts, t048) : valeurs
+  //   légales supplétives tant que l'accord n'est pas connu — nuit de 21 h à 6 h (art. L3122-20), travailleur de nuit à 3 h
+  //   deux fois par semaine ou 270 h sur 12 mois (art. L3122-5 et L3122-23), majoration à 0 % (quantité HNUIT seule) —
+  nuitDebut: { defaut: 21, controle: entier(21, 22) },
+  nuitFin: { defaut: 6, controle: entier(6, 7) },
+  nuitSeuilQuotidien: { defaut: 3, controle: entier(1, 9) },
+  nuitSeuilAnnuel: { defaut: 270, controle: entier(50, 1000, 10) },
+  nuitMajoration: { defaut: 0, controle: entier(0, 100, 5) },
+  nuitAccord: { defaut: '', controle: texte(120, 'Référence de l’accord') },
 };
 
 /**
@@ -221,6 +231,11 @@ export const COHERENCE: readonly ((s: Settings) => string | null)[] = [
     ? 'Heures complémentaires jusqu’au tiers de la durée contractuelle : indiquez la référence de l’accord collectif qui le prévoit (art. L3123-20)' : null),
   s => (s.moyenne12SemainesMax > 44 && !s.moyenne12SemainesAccord
     ? 'Moyenne au-delà de 44 h sur 12 semaines : indiquez la référence de l’accord collectif qui la porte jusqu’à 46 h (art. L3121-23)' : null),
+  // — Travail de nuit : 9 h consécutives au moins (art. L3122-2) ; une autre plage ou d'autres seuils que ceux de la loi
+  // supposent un accord collectif (art. L3122-15 et L3122-16) —
+  s => refusPlageNuit(s),
+  s => (nuitHorsLoi(s) && !s.nuitAccord
+    ? 'Travail de nuit : une plage ou des seuils autres que ceux de la loi supposent un accord collectif (art. L3122-15 et L3122-16) : indiquez sa référence' : null),
 ];
 
 /** Vue non typée de la table, pour la parcourir (les contrôles reçoivent la valeur en vigueur du même champ). */

@@ -329,6 +329,11 @@ export interface Employe {
    * des 18 ans, calculé par le serveur (pas d'échéance de renouvellement, comme pour le service RH) ; sans la date.
    */
   derogationApresMajorite?: boolean;
+  /**
+   * Vue du référent HSE, qui ne reçoit pas les feuilles de temps : travailleur de nuit (art. L3122-5), calculé par le
+   * serveur sur les feuilles validées (shared/rules/repos-nuit.ts). Jamais enregistré.
+   */
+  travailleurNuit?: boolean;
   agence: string | null;
   /**
    * Matricule du dossier de paie (Sage), saisi ou repris par le service RH : 1 à 20 lettres et chiffres, unique (sauf
@@ -563,6 +568,11 @@ export interface FeuilleTemps {
    * soumission suivante, en gardant les heures d'un code inchangé.
    */
   horairesFiges?: (HoraireFige | null)[] | null;
+  /**
+   * Majoration des heures de nuit (%, réglage `nuitMajoration`, shared/rules/repos-nuit.ts) figée à la validation, comme
+   * celles du dimanche et des fériés. Null avant : le réglage s'applique.
+   */
+  majNuit?: number | null;
 }
 /**
  * Réouverture d'une feuille validée (action `temps.rouvrir`, administrateur RH seul, motif obligatoire) : ce qui était
@@ -938,6 +948,18 @@ export interface Settings {
   deplacementsPaieAPartirDu: ISODate | null;
   /** Rappel de vérifier la vigilance d'un pays (France Diplomatie) avant un départ : vérification de plus de N jours (t068). */
   vigilanceRappelJours: number;
+  /**
+   * Travail de nuit (t048, Paramètres → Décompte des heures, shared/rules/repos-nuit.ts) : plage de nuit en heures entières
+   * (21 h – 6 h par défaut, art. L3122-20), seuils du travailleur de nuit (3 h dans la journée deux fois par semaine, 270 h
+   * sur 12 mois : art. L3122-5 et L3122-23), majoration des heures de nuit en % (0 : quantité seule, rubrique HNUIT) et
+   * référence de l'accord, exigée pour s'écarter des valeurs de la loi.
+   */
+  nuitDebut: number;
+  nuitFin: number;
+  nuitSeuilQuotidien: number;
+  nuitSeuilAnnuel: number;
+  nuitMajoration: number;
+  nuitAccord: string;
 }
 /** Plafond des heures complémentaires du temps partiel : le dixième (art. L3123-28) ou le tiers avec un accord (art. L3123-20). */
 export type PlafondComplementaires = 'dixieme' | 'tiers';

@@ -2,17 +2,20 @@
 import { horodatageParis, isFerie, isoWeek, isoWeekYear, joursSemaine, parse } from '../dates.ts';
 import { fH, num, r1 } from '../format.ts';
 import type { Domain } from '../domain.ts';
-import type { Absence, AbsenceType, ContratFige, DemiJournee, Employe, FeuilleTemps, ISODate, LigneTemps, ModeHeuresSupFige, SageMode, SagePush, TacheKeystone } from '../types.ts';
+import type { Absence, AbsenceType, ContratFige, DemiJournee, ElementASaisir, Employe, FeuilleTemps, ISODate, LigneTemps, ModeHeuresSupFige, SageMode, SagePush, TacheKeystone } from '../types.ts';
 import { absenceBloque, jourHorsContrat, natureDef, natureMedicale } from './absences.ts';
 import { DEMI_LABEL, heuresDemiJournee, moities } from './demi-journees.ts';
 import { lignesFormation } from './formations-temps.ts';
 import { matriculeAffiche } from './matricules.ts';
-import { modeHeuresSup, periodesSemaine, rubriquesPaie, traduireRubriques } from './paie.ts';
+import { modeHeuresSup, periodeLabel, periodesSemaine, rubriquesPaie, traduireRubriques } from './paie.ts';
+import { RUBRIQUES_PAIE } from '../constants.ts';
 import { alertesRepos, DIMANCHE, derogationDe, estWeekEnd, JOURS_FEUILLE } from './semaine.ts';
 import { controlesMineur, naissanceDeLaFeuille } from './mineurs.ts';
 import { aRegulariser, lignesRegularisation, rubriquesDeLaFeuille, type OptionsRegularisation } from './regularisation.ts';
 import { heuresFeriees, MAJORATION_1ER_MAI, plafondComplementaires } from './majorations.ts';
 import { employeAu, memeRegime, regimeFiche, segmentsContrat } from './historique-contrat.ts';
+import { horairesDeLaFeuille } from './horaires.ts';
+import { controlesReposNuit, veilleDe } from './repos-nuit.ts';
 
 /** Régime de temps de travail en vigueur d'une fiche, à figer sur une feuille soumise. */
 export function contratFige(e: Employe): ContratFige {
@@ -55,6 +58,13 @@ export interface SheetCalc {
    * semaine de la feuille (`week`) : sans elle, aucun.
    */
   mai1: number; ferie: number; majFerie: number;
+  /**
+   * Horaires de poste (shared/rules/repos-nuit.ts) : heures de nuit de la semaine (rubrique HNUIT) et leur majoration en %
+   * (figée à la validation, sinon le réglage : MAJ_NUIT) ; repos quotidien et pause insuffisants (alertes à motiver, déjà
+   * dans `depassements`) ; travail de nuit d'un salarié mineur (refus à la soumission et à la validation, dans `warn`).
+   * Rien un jour sans horaire.
+   */
+  nuit: number; nuitParJour: number[]; majNuit: number; reposQuotidien: string[]; nuitMineur: string[];
   /** Heures payées au taux normal (dans la limite de 35 h). */
   normal: number;
   /** Heures supplémentaires structurelles incluses dans un forfait hebdomadaire (total, dont +25 % et +50 %). */
@@ -97,6 +107,11 @@ export function calcSheet(d: Domain, e: Employe, sh: FeuilleCalcul | null): Shee
   // Salarié de moins de 18 ans, les jours où il l'est : 8 h par jour, 35 h par semaine, deux jours de repos consécutifs.
   const jeune = controlesMineur(naissanceDeLaFeuille(e, sh), sh?.week, perDay);
   depassements.push(...jeune.depassements);
+  // Horaires de poste du jour (shared/rules/repos-nuit.ts) : repos quotidien et pause, à motiver ; nuit d'un mineur, refusée.
+  const rn = controlesReposNuit(horairesDeLaFeuille(d.ds.referentiels, e.equipe, sh ? { statut: sh.statut ?? (sh.horairesFiges ? 'validee' : 'brouillon'), horaires: sh.horaires, horairesFiges: sh.horairesFiges } : null, perDay).map(j => j.horaire),
+    perDay, sh?.week, { s: d.ds.settings, naissance: naissanceDeLaFeuille(e, sh), veille: sh?.week ? veilleDe(d.ds, e, sh.week) : null, exclu: c.dirigeant });
+  const reposQuotidien = [...rn.repos, ...rn.pauses];
+  depassements.push(...reposQuotidien);
   // Heures complémentaires au-delà du plafond (le dixième, le tiers avec un accord) : dépassement, motif exigé.
   const plafond = plafondComplementaires(d.ds.settings);
   if (c.partiel && total - c.base > c.base / plafond.diviseur + 1e-9) {
@@ -104,12 +119,14 @@ export function calcSheet(d: Domain, e: Employe, sh: FeuilleCalcul | null): Shee
   }
   // Repos hebdomadaire et dominical : alertes, sauf pour un cadre dirigeant (art. L3111-2).
   const repos = [...(c.dirigeant ? [] : alertesRepos(perDay, derogationDe(d.ds, e))), ...jeune.repos];
-  const warn = [...depassements, ...repos];
+  const warn = [...rn.nuitMineur, ...depassements, ...repos];
   const modeHS = modeHeuresSup(sh, d.ds.settings);
   const majDimanche = sh?.majDimanche ?? d.ds.settings?.majorationDimanche ?? 0;
   const { mai1, ferie } = heuresFeriees(sh?.week, perDay);
   const majFerie = sh?.majFerie ?? d.ds.settings?.tauxMajorationFerie ?? 0;
-  const r: SheetCalc = { perDay, total, c, warn, depassements, repos, depassementsMineur: jeune.depassements, dimanche: perDay[DIMANCHE], majDimanche, mai1, ferie, majFerie, normal: total, incluses: 0, incluses25: 0, incluses50: 0, sup25: 0, sup50: 0, hc10: 0, hc25: 0, recup: 0, jours: 0, modeHS };
+  const majNuit = sh?.majNuit ?? d.ds.settings?.nuitMajoration ?? 0;
+  const r: SheetCalc = { perDay, total, c, warn, depassements, repos, depassementsMineur: jeune.depassements, dimanche: perDay[DIMANCHE], majDimanche, mai1, ferie, majFerie,
+    nuit: rn.nuit, nuitParJour: rn.nuitParJour, majNuit, reposQuotidien, nuitMineur: rn.nuitMineur, normal: total, incluses: 0, incluses25: 0, incluses50: 0, sup25: 0, sup50: 0, hc10: 0, hc25: 0, recup: 0, jours: 0, modeHS };
   const jours = perDay.reduce((n, h) => n + (h === 0 ? 0 : h <= 4 ? 0.5 : 1), 0);
   if (c.forfait || c.dirigeant || c.annuel) r.jours = jours;
   else if (c.partiel) {
@@ -141,7 +158,8 @@ export function calcSheet(d: Domain, e: Employe, sh: FeuilleCalcul | null): Shee
  * Feuille telle que la décompte `calcSheet` : lignes, et ce qui est figé à la soumission (régime) ou à la validation (mode
  * des heures supplémentaires, majorations, contrepartie en repos) ; `week` repère les jours fériés.
  */
-export type FeuilleCalcul = Pick<FeuilleTemps, 'lignes'> & Partial<Pick<FeuilleTemps, 'week' | 'contrat' | 'heuresSup' | 'majDimanche' | 'majFerie' | 'cor' | 'mineur'>>;
+export type FeuilleCalcul = Pick<FeuilleTemps, 'lignes'> & Partial<Pick<FeuilleTemps, 'week' | 'contrat' | 'heuresSup' | 'majDimanche' | 'majFerie' | 'cor' | 'mineur'
+  | 'statut' | 'horaires' | 'horairesFiges' | 'majNuit'>>;
 
 /** Contrepartie obligatoire en repos figée sur une feuille, toutes années confondues (heures). */
 export const corDeLaFeuille = (sh: Pick<FeuilleTemps, 'cor'> | null | undefined): number =>
@@ -393,6 +411,8 @@ function plafonnerDemiJournees(d: Domain, e: Employe, w: ISODate, lignes: LigneT
  * équivalentes : 4 h à 50 % donnent 2 h) ; un forfait jours n'en a pas (décompte en jours). Jours fériés de même
  * (shared/rules/majorations.ts) : 1er mai majoré de 100 % (MAJ_1MAI, heures équivalentes), autres fériés en quantité
  * (FERIE_TRAV) et leur majoration réglée (MAJ_FERIE). Contrepartie obligatoire en repos figée à la validation (COR_ACQUIS).
+ * Heures de nuit d'après les horaires de poste (shared/rules/repos-nuit.ts) : quantité (HNUIT) et majoration réglée
+ * (MAJ_NUIT, heures équivalentes), figée à la validation ; rubriques inactives par défaut, « à saisir dans Sage ».
  */
 export function sageRubriques(d: Domain, e: Employe, sh: FeuilleCalcul): Record<string, number> {
   const c = calcSheet(d, e, sh);
@@ -406,6 +426,8 @@ export function sageRubriques(d: Domain, e: Employe, sh: FeuilleCalcul): Record<
     ...(c.ferie ? { FERIE_TRAV: r1(c.ferie) } : {}),
     ...(c.ferie && c.majFerie ? { MAJ_FERIE: r1(c.ferie * c.majFerie / 100) } : {}),
     ...(cor ? { COR_ACQUIS: r1(cor) } : {}),
+    ...(c.nuit ? { HNUIT: r1(c.nuit) } : {}),
+    ...(c.nuit && c.majNuit ? { MAJ_NUIT: r1(c.nuit * c.majNuit / 100) } : {}),
   };
   if (c.c.annuel) return { HN: r1(c.total), ...annexes };
   const payees = c.modeHS !== 'repos' || c.c.interim;
@@ -475,14 +497,23 @@ export function buildSagePayload(
   const semaine = (week: ISODate) => `${isoWeekYear(week)}-S${String(isoWeek(week)).padStart(2, '0')}`;
   // Feuille rouverte après sa transmission (t131, shared/rules/regularisation.ts) : seul l'écart part (lot correctif).
   const correctifs = sheets.filter(aRegulariser);
+  const parts = sheets.filter(sh => !aRegulariser(sh)).map(sh => ({ sh, parts: rubriquesParPeriode(d, d.emp(sh.empId)!, sh) }));
   // Matricule du dossier de paie ; à défaut (simulation seulement : une transmission réelle le refuse), le matricule Cursus.
-  const lignes = [...sheets.filter(sh => !aRegulariser(sh)).flatMap(sh => rubriquesParPeriode(d, d.emp(sh.empId)!, sh).map(p => ({
+  const lignes = [...parts.flatMap(({ sh, parts }) => parts.map(p => ({
     matricule: matriculeAffiche(d.emp(sh.empId) ?? { id: sh.empId, matriculePaie: null }),
     semaine: semaine(sh.week),
     periode: p.periode,
     ...(p.origine ? { periode_origine: p.origine } : {}),
     rubriques: traduireRubriques(p.rubriques, table),
   }))), ...lignesRegularisation(d, correctifs, { ...regularisation, semaine })].filter(l => Object.keys(l.rubriques).length > 0);
+  // Heures de nuit sous une rubrique désactivée : absentes du fichier, listées « à saisir dans Sage » (règle commune du lot 6,
+  // shared/rules/elements-lot.ts). Une feuille régularisée n'y figure pas : son écart part sous les rubriques actives.
+  const aSaisir: ElementASaisir[] = parts.flatMap(({ sh, parts }) => parts.flatMap(p => RUBRIQUES_NUIT.flatMap(k => {
+    const q = p.rubriques[k], r = table.find(x => x.code === k);
+    return q && r && !r.active
+      ? [{ famille: 'nuit', empId: sh.empId, periode: p.periode, rubrique: k, quantite: q, detail: `Semaine ${semaine(sh.week)} · ${RUBRIQUES_PAIE[k].label.toLowerCase()}${p.origine ? ` · rappel de ${periodeLabel(p.origine)}` : ''}` }]
+      : [];
+  })));
   return {
     dossier,
     mode,
@@ -492,8 +523,12 @@ export function buildSagePayload(
     // Rubriques de chaque feuille, telles qu'elles partent (régularisée : telle que revalidée), gardées pour une réouverture.
     rubriquesFeuilles: sheets.map(sh => ({ empId: sh.empId, week: sh.week, periodes: rubriquesDeLaFeuille(d, sh) })),
     ...(correctifs.length ? { regularisation: regularisation.mode } : {}),
+    ...(aSaisir.length ? { aSaisir } : {}),
   };
 }
+
+/** Rubriques des heures de nuit (shared/rules/repos-nuit.ts) : « à saisir dans Sage » tant qu'elles sont désactivées. */
+export const RUBRIQUES_NUIT = ['HNUIT', 'MAJ_NUIT'] as const;
 
 /** Codes internes émis (quantité non nulle) par des feuilles : ceux dont la correspondance doit être confirmée. */
 export function rubriquesEmises(d: Domain, sheets: FeuilleTemps[]): Set<string> {

@@ -8,6 +8,7 @@ import { acquisitionsCalculees } from '../../shared/rules/acquisition-cp.ts';
 import { aptitudeVueManager } from '../../shared/rules/sante.ts';
 import { visiteAProgrammer } from '../../shared/rules/visites-dues.ts';
 import { etatMineur, mineurDeLaSemaine, naissanceVueManager } from '../../shared/rules/mineurs.ts';
+import { statutNuit } from '../../shared/rules/repos-nuit.ts';
 import { needsFinCarriere } from '../../shared/rules/entretiens.ts';
 import { verdictAutorisation } from '../../shared/rules/contrats.ts';
 import { completerSession } from '../../shared/rules/plage-session.ts';
@@ -476,6 +477,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     ...(lecture && !repriseMedicale(e, full.absences) ? { repriseMotif: e.repriseDate ? 'absence longue' : null } : { repriseMotif: null, repriseDate: null }),
     // Entretien de parcours après la visite de mi-carrière (lecture seule, qui voit les entretiens) : l'échéance seule.
     entretienMiCarriere: lecture ? entretienMiCarriere(full, e)?.due ?? null : null,
+    // Sans les feuilles de temps (référent HSE) : l'indication « travailleur de nuit » calculée ici (shared/rules/repos-nuit.ts).
+    ...(paie ? {} : { travailleurNuit: statutNuit(full, e.id, full.today).travailleur }),
   }));
   // Déplacements : l'état du dossier et les formalités manquantes sont calculés ici, avec les pièces du dossier,
   // pour que le verdict Go / No Go soit exact sans les transmettre.

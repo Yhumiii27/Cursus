@@ -22,6 +22,7 @@ import { SortieFiche } from '../components/Sortie.tsx';
 import { ContratFiche } from '../components/ContratFiche.tsx';
 import { HistoriqueContrat } from '../components/HistoriqueContrat.tsx';
 import { MineurFiche } from '../components/Mineur.tsx';
+import { TravailNuitFiche } from '../components/TravailNuit.tsx';
 import { MandatsFiche } from '../components/Delegation.tsx';
 import { LectureSeule, useLectureSeule } from '../components/Hierarchie.tsx';
 import { ContactUrgenceFiche } from '../components/ContactUrgence.tsx';
@@ -531,6 +532,7 @@ function EmployeePanel({ panneau, e, upcomingCount, trips, horizon }: {
         <ContratFiche e={e} />
         <HistoriqueContrat e={e} />
         <MineurFiche e={e} />
+        <TravailNuitFiche e={e} />
         <MandatsFiche e={e} />
         <ContactUrgenceFiche empId={e.id} />
         <Info label="Manager valideur">{d.mgrName(valideur)}</Info>

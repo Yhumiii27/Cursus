@@ -49,7 +49,11 @@ Sommaire : [Collaborateur](#collaborateur) · [Manager](#manager) · [Service RH
    **Horaire du jour** (ligne « Horaire du jour », au-dessus des projets ; sous le titre du jour sur téléphone) : l'horaire
    de poste de chaque jour (journée, matin, après-midi, nuit…), proposé en italique d'après l'équipe dès que des heures sont
    saisies ; le salarié, son manager ou le service RH le changent jour par jour, « — » pour aucun. Facultatif ; figé à la
-   soumission avec ses heures (une feuille renvoyée le propose de nouveau d'après les jours travaillés).
+   soumission avec ses heures (une feuille renvoyée le propose de nouveau d'après les jours travaillés). Avec un horaire,
+   la feuille compte les **heures de nuit** (de 21 h à 6 h par défaut) et signale un **repos de moins de 11 h** entre deux
+   jours ou une **pause** de moins de 20 min dès 6 h de travail : un motif est alors demandé, sans autre blocage. Un salarié
+   de moins de 18 ans ne peut pas recevoir un horaire qui empiète sur la nuit (22 h – 6 h) : l'horaire et la soumission
+   sont refusés.
 6. « Soumettre au manager » (ou « Soumettre au service RH » sans manager). Au-delà de 10 h dans une journée ou de 48 h dans
    la semaine, un motif est demandé avant la soumission ; il est lu par le valideur.
 7. La feuille est attendue **le lundi suivant à 12 h** ; passé ce délai, le manager ou le service RH relance
@@ -408,6 +412,12 @@ questions encore ouvertes).
 - **Postes et exigences** : formations et habilitations exigées par poste et par équipe (« Référentiels »), case « travail
   de nuit ou en continu » des équipes (Référentiels → Postes) et horaire de poste par défaut de chaque équipe (facultatif ;
   horaires d'exemple à adapter dans Référentiels → Horaires).
+- **Travail de nuit** (Paramètres → Décompte des heures, bloc « Travail de nuit ») : plage de nuit, seuils du travailleur
+  de nuit et majoration, aux valeurs de la loi tant que l'accord n'est pas connu (21 h – 6 h ; 3 h deux fois par semaine
+  ou 270 h sur 12 mois ; 0 %) ; s'en écarter demande la référence de l'accord. Le travailleur de nuit est repéré sur sa
+  fiche et, encore en VIP, « Suivi médical adapté à prévoir » paraît dans les échéances. Les heures de nuit partent sous
+  HNUIT et MAJ_NUIT, rubriques désactivées tant que la paie ne les a pas confirmées : elles figurent alors « à saisir dans
+  Sage » dans le résumé du lot et l'export des variables.
 - **Sécurité au poste** : liste des postes à risques particuliers (avis du médecin du travail et du CSE) et formation
   renforcée à désigner ; seuils de secouristes et d'équipiers incendie par équipe (une équipe par quart) ; délai de
   l'entretien de mi-carrière à confirmer juridiquement.

@@ -448,6 +448,11 @@ export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubriqu
   MAJ_FERIE: { label: 'Majoration des heures d’un jour férié (heures équivalentes)', unite: 'h' },
   // Contrepartie obligatoire en repos des heures supplémentaires au-delà du contingent annuel (shared/rules/durees.ts).
   COR_ACQUIS: { label: 'Contrepartie obligatoire en repos acquise (au-delà du contingent)', unite: 'h' },
+  // Heures de nuit (shared/rules/repos-nuit.ts, t048) d'après les horaires de poste, comprises dans les heures ci-dessus, et
+  // leur majoration au taux réglé (0 % par défaut, accord inconnu). Désactivées par défaut tant que la paie n'a pas confirmé
+  // ses codes : quantités calculées, listées « à saisir dans Sage » dans le résumé du lot et l'export des variables.
+  HNUIT: { label: 'Heures de nuit (comprises dans les heures ci-dessus)', unite: 'h', inactiveParDefaut: true },
+  MAJ_NUIT: { label: 'Majoration des heures de nuit (heures équivalentes)', unite: 'h', inactiveParDefaut: true },
   // Absences validées (shared/rules/absences-paie.ts), réglage `absencesFichierPaie` : jours décomptés au demi-jour,
   // ventilés par période de paie. Hors congés, une rubrique par rémunération et par catégorie de nature : le code révèle
   // la catégorie (santé), d'où des lignes réservées au droit « paie ». Codes Sage à confirmer avant tout lot réel.

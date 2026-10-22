@@ -7,6 +7,7 @@ import { equipeLabel, fmtIso } from '../../../shared/format.ts';
 import { matriculeAffiche } from '../../../shared/rules/matricules.ts';
 import { restrictionEnVigueur, restrictionTexte } from '../../../shared/rules/sante.ts';
 import { suiviTexte } from '../../../shared/rules/suivi-medical.ts';
+import { SUIVI_NUIT } from '../../../shared/rules/repos-nuit.ts';
 import { exposeDe } from '../../../shared/rules/visites-dues.ts';
 import type { DemandeVisite } from '../../../shared/types.ts';
 import { matriculesImprimes, printDocument } from '../print.ts';
@@ -59,6 +60,8 @@ export function Aptitude({ e, d, horizon, actions }: { e: EmpX; d: Domain; horiz
           {m.suivi && <div className="text-muted sub">Type de suivi : {suiviTexte(m.suivi)}{m.examenRequis ? ' · examen médical d’aptitude à programmer' : ''}{exposeDe(d.ds, e) ? ' · exposé à des risques particuliers' : ''}</div>}
           {/* Visites dues à un événement (embauche, reprise, mi-carrière, fin de carrière) : service RH et intéressé. */}
           {m.dues?.map(v => <div key={v.motif} className="text-muted sub">{v.label} : {v.le < d.ti ? 'dépassée depuis le' : 'au plus tard le'} {fmtIso(v.le)} — {v.detail}</div>)}
+          {/* Travailleur de nuit encore en VIP (shared/rules/repos-nuit.ts) : suivi adapté à prévoir, service RH et intéressé. */}
+          {m.suiviNuit && <div className="text-muted sub">{SUIVI_NUIT} : travailleur de nuit (VIP adaptée, art. R4624-17)</div>}
         </div>
         <Tag cls={CLS[key]} style={{ flex: 'none' }}>{statut}</Tag>
       </div>

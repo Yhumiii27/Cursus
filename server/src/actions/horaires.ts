@@ -5,8 +5,11 @@
 // modification, archivage (plus proposé ; les feuilles qui le portent le gardent) et rétablissement, tracés au journal
 // avec les valeurs avant et après. L'horaire, avec ses heures, est figé sur la feuille à sa soumission et à sa validation
 // (`horairesAFiger`, server/src/actions/temps.ts) : modifier un horaire ne change pas le sens des feuilles déjà soumises.
+// Un horaire qui empiète sur la nuit ne se choisit pas pour un salarié de moins de 18 ans (étape 2 : shared/rules/repos-nuit.ts).
 import { controlerHoraire, equipesDeLHoraire, horaireDe, horaireTexte, normaliserCodeHoraire } from '../../../shared/rules/horaires.ts';
+import { refusNuitMineur } from '../../../shared/rules/repos-nuit.ts';
 import { JOURS_FEUILLE } from '../../../shared/rules/semaine.ts';
+import { addD } from '../../../shared/dates.ts';
 import type { Equipe, FeuilleTemps, Horaire } from '../../../shared/types.ts';
 import { ActionError, type ActionHandler, type Ctx, requireRh } from './context.ts';
 import { editable } from './temps.ts';
@@ -73,7 +76,7 @@ export function enregistrerHoraireEquipe(ctx: Ctx, q: Equipe, code: unknown): st
  * la saisie des heures (feuille soumise : son valideur). Un horaire archivé ne se choisit plus ; celui déjà porté reste.
  */
 const choisir: ActionHandler = (ctx, p) => {
-  const { sh } = editable(ctx, p);
+  const { emp, sh } = editable(ctx, p);
   const di = Number(p.di);
   if (!(Number.isInteger(di) && di >= 0 && di < JOURS_FEUILLE)) throw new ActionError('Jour invalide');
   const code = p.code == null ? '' : normaliserCodeHoraire(p.code);
@@ -82,6 +85,9 @@ const choisir: ActionHandler = (ctx, p) => {
     const h = horaireDe(ctx.ds.referentiels, code);
     if (!h) throw new ActionError('Horaire introuvable', 404);
     if (h.archive) throw new ActionError(`Horaire ${h.code} archivé : il n’est plus proposé`);
+    // Salarié de moins de 18 ans ce jour-là : pas d'horaire de nuit (art. L3163-2, shared/rules/repos-nuit.ts).
+    const nuit = refusNuitMineur(emp, h, addD(sh.week, di));
+    if (nuit) throw new ActionError(nuit);
   }
   if (actuel === code) return null;
   const horaires = Array.from({ length: JOURS_FEUILLE }, (_, i) => (i === di ? code : sh.horaires?.[i] ?? null));

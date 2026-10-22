@@ -359,6 +359,10 @@ export const CHAMP_LABEL: Record<string, string> = {
   consultationN2: 'Consultation N+2 des équipes rattachées', parente: 'Équipe parente',
   deplacementsFichierPaie: 'Déplacements dans le fichier d’import de la paie', deplacementsPaieAPartirDu: 'Déplacements transmis à la paie à partir du',
   vigilanceRappelJours: 'Rappel de vérification de la vigilance (jours)',
+  // Travail de nuit (Paramètres → Décompte des heures, shared/rules/repos-nuit.ts) ; contrôles des horaires au journal.
+  nuitDebut: 'Début de la plage de nuit (h)', nuitFin: 'Fin de la plage de nuit (h)', nuitSeuilQuotidien: 'Travailleur de nuit : heures de nuit dans la journée',
+  nuitSeuilAnnuel: 'Travailleur de nuit : heures de nuit sur 12 mois', nuitMajoration: 'Majoration des heures de nuit (%)', nuitAccord: 'Référence de l’accord sur le travail de nuit',
+  reposNuit: 'Contrôles des horaires motivés', majNuit: 'Majoration des heures de nuit (%)',
 };
 
 const valeur = (v: unknown): string => {

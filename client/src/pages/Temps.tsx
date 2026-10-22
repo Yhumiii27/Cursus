@@ -117,6 +117,8 @@ function recapOf(d: Domain, emp: Employe, calc: SheetCalc, week: ISODate, sh: Fe
     if (calc.mai1) annexes.push(['Dont heures du 1er mai', fH(calc.mai1)], [`Majoration du 1er mai (${MAJORATION_1ER_MAI} %)`, fH(calc.mai1 * MAJORATION_1ER_MAI / 100)]);
     if (calc.ferie) annexes.push(['Dont heures un jour férié', fH(calc.ferie)], ...(calc.majFerie ? [[`Majoration des fériés (${calc.majFerie} %)`, fH(calc.ferie * calc.majFerie / 100)] as [string, string]] : []));
     if (cor) annexes.push(['Contrepartie obligatoire en repos', fH(cor)]);
+    // Heures de nuit d'après les horaires de poste (shared/rules/repos-nuit.ts) : HNUIT, et MAJ_NUIT au taux réglé.
+    if (calc.nuit) annexes.push(['Dont heures de nuit', fH(calc.nuit)], ...(calc.majNuit ? [[`Majoration de nuit (${calc.majNuit} %)`, fH(calc.nuit * calc.majNuit / 100)] as [string, string]] : []));
   }
   // Contingent annuel d'heures supplémentaires de chaque année de la semaine (deux pour une semaine à cheval sur le
   // 31 décembre ; feuilles validées).
@@ -393,7 +395,9 @@ function Sheet({ emp, wk }: { emp: Employe; wk: ISODate }) {
   const motifManquant = depasse && !motif.trim();
   const motifValideur = canValidate && depasse && !motifSoumis;
   // Salarié mineur au-delà de 8 h par jour ou de 35 h par semaine : motif, ou référence de la dérogation de l'inspection.
-  const motifLibelle = calc.depassementsMineur.length ? 'Motif du dépassement ou référence de la dérogation de l’inspection du travail' : 'Motif du dépassement';
+  const motifLibelle = calc.depassementsMineur.length ? 'Motif du dépassement ou référence de la dérogation de l’inspection du travail'
+    // Repos quotidien ou pause insuffisants seulement (horaires de poste, shared/rules/repos-nuit.ts).
+    : calc.depassements.every(x => calc.reposQuotidien.includes(x)) ? 'Motif du repos quotidien ou de la pause insuffisants' : 'Motif du dépassement';
 
   return (
     <div className="row-wrap">

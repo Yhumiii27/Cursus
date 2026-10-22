@@ -303,7 +303,8 @@ export class Domain {
     for (let s = du; s <= au; s = addD(s, 1)) {
       const wd = weekday(s);
       if (wd > 4 || isFerie(s)) continue;
-      if (off.includes(wd) && (kind !== 'CP' || !started)) continue;
+      // Congés en jours ouvrés (CP, congé pris sur le CET) : le jour non travaillé compte une fois le congé commencé.
+      if (off.includes(wd) && ((kind !== 'CP' && kind !== 'CET') || !started)) continue;
       started = true;
       out.push({ jour: s, poids: poidsDuJour(periode, s) });
     }

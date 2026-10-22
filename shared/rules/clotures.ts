@@ -13,7 +13,7 @@
 //   restants ; le reste du solde est au choix du service RH. Les reports accordés en cours de période (`report.accorder`)
 //   préremplissent la ligne. Une ligne n'est pas close tant qu'une demande de CP de la période attend une décision.
 // - RTT : non reportables (décision par défaut) ; la clôture photographie les soldes non pris, perdus, après le rappel
-//   du placement possible sur le CET (5 jours par an), encore ouvert jusqu'à la confirmation. Un salarié dont une demande
+//   du placement possible sur le CET (5 jours par an par défaut, réglable), encore ouvert jusqu'à la confirmation. Un salarié dont une demande
 //   de RTT de l'année attend une décision n'est pas clôturé.
 // - Jours rendus à une période close (refus ou annulation d'un congé déjà décompté) : reportés sur la période suivante
 //   (`recrediterPeriodesCloses`, server/src/actions/clotures.ts), jamais perdus sans décision.
@@ -22,7 +22,7 @@ import type { Domain } from '../domain.ts';
 import { addM } from '../dates.ts';
 import type { Absence, ClotureConges, Employe, ISODate, ReportCp } from '../types.ts';
 import { acquisPendantArrets, joursEmpeches } from './acquisition-cp.ts';
-import { anneeCp, finPeriodeCp, periodeCp, periodeReport, reportEnAttente, reprise, rttDroit, rttInfo, soldePeriode } from './conges.ts';
+import { anneeCp, finPeriodeCp, periodeCp, periodeReport, plafondsCet, reportEnAttente, reprise, rttDroit, rttInfo, soldePeriode } from './conges.ts';
 
 /** Natures d'absence qui protègent des CP de la perte : santé, maternité, paternité, adoption, absence à qualifier. */
 export { ABSENCES_PROTEGEES } from './acquisition-cp.ts';
@@ -167,7 +167,7 @@ export interface LigneClotureRtt {
   deja: ClotureConges | null;
   /** Demandes de RTT de l'année en attente de décision : le salarié n'est pas clôturé avant qu'elles soient décidées. */
   attente: Absence[];
-  /** RTT encore plaçables sur le CET avant la confirmation (5 par an). */
+  /** RTT encore plaçables sur le CET avant la confirmation (plafond réglé, 5 par an par défaut). */
   cet: number;
 }
 
@@ -178,7 +178,7 @@ export function lignesClotureRtt(d: Domain, Y: number): LigneClotureRtt[] {
     const deja = d.ds.clotures.find(c => c.empId === e.id && c.type === 'RTT' && c.periode === Y) ?? null;
     const solde = c2(info.solde);
     const attente = enAttente(d, e.id, 'RTT', `${Y}-01-01`, `${Y}-12-31`);
-    return { e, info, solde, deja, attente, cet: deja ? 0 : Math.max(0, Math.min(5 - info.cetRtt, solde)) };
+    return { e, info, solde, deja, attente, cet: deja ? 0 : Math.max(0, Math.min(plafondsCet(d).rtt - info.cetRtt, solde)) };
   });
 }
 

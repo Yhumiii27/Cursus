@@ -61,7 +61,7 @@ export function csvRegistre(d: Domain, rows: { e: EmpX; h: HabInfo }[]): ListeCs
 
 /**
  * Soldes (écran Congés & absences) : CP de la période, en cours d'acquisition, RTT ou repos de l'année, récupération
- * (heures), CET (jours) ; vide quand le compteur ne concerne pas le contrat. Chaque ligne porte la date d'arrêté et la
+ * (heures), CET (jours, demandes en attente déduites comme à l'écran) ; vide quand le compteur ne concerne pas le contrat. Chaque ligne porte la date d'arrêté et la
  * mention des soldes calculés par Cursus.
  */
 export function csvSoldes(d: Domain, emps: Employe[]): ListeCsv {
@@ -75,7 +75,7 @@ export function csvSoldes(d: Domain, emps: Employe[]): ListeCsv {
       const cet = !c.interim && ct.eligible;
       return [e.nom, matricule(e.id), e.equipe ?? 'À affecter', contrat(d, e),
         cp ? nombre(cp.solde) : 'Agence d’intérim', cp ? nombre(cp.droit) : '', cp ? nombre(cp.enCours) : '',
-        rt ? nombre(rt.solde) : '', rc ? nombre(rc.solde) : '', cet ? nombre(ct.total) : '', arrete, MENTION_SOLDES];
+        rt ? nombre(rt.solde) : '', rc ? nombre(rc.solde) : '', cet ? nombre(ct.solde) : '', arrete, MENTION_SOLDES];
     }),
   };
 }

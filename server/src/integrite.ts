@@ -57,6 +57,9 @@ export const REFERENCES: readonly Reference[] = [
   ref('avenants_forfait', 'lot_id', 'lots_paie'),
   // Horaire de poste par défaut d'une équipe (lot 6) ; ceux des feuilles (JSON, archivés gardés) ne sont jamais supprimés.
   ref('equipes', 'horaire', 'horaires', 'code'),
+  // Jours de fractionnement (t046) : salarié et report reçu qui porte le crédit.
+  ref('fractionnements', 'emp_id', 'employes'),
+  ref('fractionnements', 'report_id', 'reports'),
 ];
 
 export interface Integrite {

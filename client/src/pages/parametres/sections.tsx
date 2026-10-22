@@ -9,6 +9,7 @@ import { JournalPanel } from '../Journal.tsx';
 import { MessageriePanel } from '../Messagerie.tsx';
 import type { SectionProps } from './commun.ts';
 import { AbsencesPaie } from './AbsencesPaie.tsx';
+import { CompteEpargneTemps } from './CompteEpargneTemps.tsx';
 import { Conges } from './Conges.tsx';
 import { Contrats } from './Contrats.tsx';
 import { DecompteHeures } from './DecompteHeures.tsx';
@@ -21,6 +22,7 @@ import { Feries } from './Feries.tsx';
 import { FeuillesTemps } from './FeuillesTemps.tsx';
 import { Formations } from './Formations.tsx';
 import { ForfaitJours } from './ForfaitJours.tsx';
+import { Fractionnement } from './Fractionnement.tsx';
 import { Hierarchie } from './Hierarchie.tsx';
 import { Keystone } from './Keystone.tsx';
 import { MatriculesPaie } from './MatriculesPaie.tsx';
@@ -59,6 +61,8 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'sage', place: 'droite', Section: SagePaie },
   { id: 'matricules', place: 'droite', Section: MatriculesPaie },
   { id: 'conges', place: 'gauche', Section: Conges },
+  { id: 'fractionnement', place: 'gauche', Section: Fractionnement },
+  { id: 'cet', place: 'gauche', Section: CompteEpargneTemps },
   { id: 'reprise', place: 'gauche', Section: Reprise },
   { id: 'contrats', place: 'gauche', Section: Contrats },
   { id: 'paie', place: 'droite', Section: ReglagesPaie },

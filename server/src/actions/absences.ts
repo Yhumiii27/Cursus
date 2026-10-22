@@ -38,10 +38,10 @@ const demander: ActionHandler = (ctx, p) => {
   if (parManager) {
     keystone(ctx, 'absence.validee', a);
     notifierDecisionConge(ctx, emp, a, true, true); // e-mail : le salarié est informé
-    return `Absence de ${emp.nom} (${ABS_LABEL[kind].toLowerCase()}) posée et validée — transmise à Keystone pour la planification`;
+    return `Absence de ${emp.nom} (${enMinuscules(kind)}) posée et validée — transmise à Keystone pour la planification`;
   }
   notifierDemandeConge(ctx, emp, a, ctx.d.mgrOf(emp)); // e-mail : la demande part au valideur
-  return `Demande de ${ABS_LABEL[kind].toLowerCase()} envoyée ${ctx.d.mgrDest(ctx.d.mgrOf(emp))}`;
+  return `Demande de ${enMinuscules(kind)} envoyée ${ctx.d.mgrDest(ctx.d.mgrOf(emp))}`;
 };
 
 const decider: ActionHandler = (ctx, p) => {
@@ -255,7 +255,9 @@ const annuler: ActionHandler = (ctx, p) => {
 };
 
 /** Nature dans un message : « congés payés », « RTT / repos », « arrêt maladie » ; rien pour une absence à qualifier. */
-const libelle = (t: AbsenceType) => t === 'ABSENCE' ? '' : t === 'RTT' ? 'RTT / repos' : natureDef(t)?.court ?? ABS_LABEL[t].toLowerCase();
+const libelle = (t: AbsenceType) => t === 'ABSENCE' ? '' : t === 'RTT' ? 'RTT / repos' : natureDef(t)?.court ?? enMinuscules(t);
+/** Libellé dans une phrase : en minuscules, sigle du CET gardé (« congé sur le CET »). */
+function enMinuscules(t: AbsenceType) { return t === 'CET' ? 'congé sur le CET' : ABS_LABEL[t].toLowerCase(); }
 
 /**
  * Placement sur le compte épargne-temps : RTT de l'année (`annee` : l'année précédente, tant que sa clôture n'est pas

@@ -229,7 +229,8 @@ export const TABLES = {
   },
   cet: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', type: 'text', jours: 'real', date: 'text', periode: 'text' } },
   // `periode` : année de prise de la période dont les droits reçoivent les jours ; `expire` : échéance (shared/rules/conges.ts).
-  reports: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', jours: 'real', motif: 'text', par: 'text', date: 'text', sens: 'text', periode: 'int', expire: 'text' } },
+  // `origine` : « fractionnement » pour les jours de fractionnement crédités (`conges.fractionnement`) ; null sinon.
+  reports: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', jours: 'real', motif: 'text', par: 'text', date: 'text', sens: 'text', periode: 'int', expire: 'text', origine: 'text' } },
   // `arreteLe` : date d'arrêté des compteurs repris, qui fixe la période CP et l'année RTT sur lesquelles ils comptent.
   // `cpSolde`, `cpSoldeSuivant`, `rttSolde`, `cetSolde` : soldes d'ouverture importés à la mise en service (actions/reprise.ts) ;
   // `heuresSupAnnee` : heures supplémentaires déjà faites dans l'année de l'arrêté (contingent annuel).
@@ -257,6 +258,13 @@ export const TABLES = {
       reportId: 'int', motif: 'text', le: 'text', par: 'text',
     },
     unique: [['empId', 'type', 'periode']],
+  },
+  // Jours de fractionnement d'une période de CP (`conges.fractionnement`, t046) : crédités (report reçu `reportId`) ou
+  // renonciation du salarié ; une décision par salarié et par période.
+  fractionnements: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', empId: 'int', periode: 'int', decision: 'text', jours: 'real', reportId: 'int', le: 'text', par: 'text' },
+    unique: [['empId', 'periode']],
   },
   // Informations des salariés sur leurs congés à leur retour d'arrêt (`conges.informer`, art. L3141-19-3) : une par arrêt
   // et par fin d'arrêt (`au` : un arrêt prolongé après l'information en reçoit une autre à son nouveau terme).

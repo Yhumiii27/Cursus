@@ -32,6 +32,7 @@ const TITRES: Partial<Record<TableName, string>> = {
   pieces: 'Pièces justificatives',
   deplacementsPaie: 'Déplacements transmis à la paie (jours, nuits, trajets)',
   avenantsForfait: 'Avenants de renonciation à des jours de repos (forfait jours)',
+  fractionnements: 'Jours de fractionnement des congés payés',
 };
 /**
  * Colonnes jamais exportées : empreinte du mot de passe (secret) ; nom stocké et jeton d'envoi d'une pièce justificative

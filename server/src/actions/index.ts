@@ -41,6 +41,7 @@ import { contactUrgenceActions } from './contact-urgence.ts';
 import { feriesActions } from './feries.ts';
 import { horairesActions } from './horaires.ts';
 import { forfaitJoursActions } from './forfait-jours.ts';
+import { fractionnementActions } from './fractionnement.ts';
 
 export const ACTIONS: Record<string, ActionHandler> = {
   ...conformiteActions,
@@ -84,6 +85,7 @@ export const ACTIONS: Record<string, ActionHandler> = {
   ...feriesActions,
   ...horairesActions,
   ...forfaitJoursActions,
+  ...fractionnementActions,
 };
 
 /**

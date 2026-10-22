@@ -15,8 +15,9 @@
 //   (ICCP_J). Une période précédente pas encore clôturée est signalée : la clôture (report ou perte) décide de son reste.
 // - RTT ou jours de repos : droit de l'année au prorata des mois sous contrat moins jours pris et posés ; un solde
 //   négatif est signalé comme trop-pris, sans retenue automatique (RTT_SOLDE n'emporte qu'un solde positif).
-// - Récupération en heures (RECUP_H), feuilles validées seulement (une feuille non validée est signalée) ; CET : solde, liquidé en entier par défaut (CET_LIQ ; l'accord sur le CET n'est
-//   pas encore connu).
+// - Récupération en heures (RECUP_H), feuilles validées seulement (une feuille non validée est signalée) ; CET : solde,
+//   congés CET pris et demandés déduits, liquidé en entier par défaut (CET_LIQ ; l'accord sur le CET n'est pas encore
+//   connu).
 // - Lot de paie : un élément par rubrique de sortie active et quantité positive, sur la période du mois de la sortie
 //   (ou la période ouverte s'il est clos) ; rubriques désactivées par défaut : le solde de tout compte se saisit alors
 //   dans Sage, et la confirmation du lot de sa période le marque réglé hors fichier (`soldesHorsFichier`) : un solde
@@ -107,8 +108,9 @@ export function etatSortie(d: Domain, e: Employe, date: ISODate): EtatSortie {
   }
 
   const ct = cetInfo(dS, eS);
-  // Compte vide (aucun placement, aucun solde repris) : pas de ligne.
-  const cet: EtatSortie['cet'] = ct.eligible && r2(ct.total) !== 0 ? { cp: r2(ct.cp), rtt: r2(ct.rtt), repris: r2(ct.repris), total: r2(ct.total) } : null;
+  // Liquidé : épargné moins congés CET pris et demandés (`solde`) ; une demande en attente est comptée comme posée,
+  // comme pour les CP, sinon un congé validé après la photographie serait payé deux fois. Compte vide : pas de ligne.
+  const cet: EtatSortie['cet'] = ct.eligible && r2(ct.solde) !== 0 ? { cp: r2(ct.cp), rtt: r2(ct.rtt), repris: r2(ct.repris), total: r2(ct.solde) } : null;
 
   // Demandes encore en attente avant la sortie : comptées comme posées, à valider ou refuser.
   dS.ds.absences.filter(a => a.empId === e.id && a.statut === 'demandee').forEach(a => {

@@ -7,7 +7,7 @@ import { fmtIso, fmtIsoShort } from '../format.ts';
 import type { Domain } from '../domain.ts';
 import type { Absence, AbsenceStatut, AbsenceType, CongeType, Employe, Entretien, ISODate, NatureAbsence } from '../types.ts';
 
-export const estConge = (t: string): t is CongeType => t === 'CP' || t === 'RTT' || t === 'RECUP';
+export const estConge = (t: string): t is CongeType => t === 'CP' || t === 'RTT' || t === 'RECUP' || t === 'CET';
 export const estNature = (t: string): t is NatureAbsence => Object.hasOwn(NATURES_ABSENCE, t);
 export const natureDef = (t: string): NatureDef | null => estNature(t) ? NATURES_ABSENCE[t] : null;
 /**

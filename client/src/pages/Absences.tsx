@@ -11,9 +11,11 @@ import { absenceActive, droitAnnulation, estConge, joursDecomptes, natureDef, pr
 import { depotOuvert, justificatifAVerifier, piecesDe } from '../../../shared/rules/pieces.ts';
 import { DEMI_LABEL, periodeDemiTexte } from '../../../shared/rules/demi-journees.ts';
 import { absenceKinds, cetInfo, cpInfo, recupInfo, reposForfait, rttInfo } from '../../../shared/rules/conges.ts';
+import { fenetrePrincipale, jourMois } from '../../../shared/rules/fractionnement.ts';
 import type { Absence, DemiJournee, Employe, NatureAbsence, Piece } from '../../../shared/types.ts';
 import { DownloadSimpleIcon } from '@phosphor-icons/react';
 import { CloturesConges } from '../components/CloturesConges.tsx';
+import { Fractionnement } from '../components/Fractionnement.tsx';
 import { InformationsRetour } from '../components/InformationsRetour.tsx';
 import { LectureSeule, useLectureSeule } from '../components/Hierarchie.tsx';
 import { Btn, Empty, Fine, Kpi, Kpis, Page, Panel, Tag, Two } from '../components/ui.tsx';
@@ -55,8 +57,9 @@ function soldeRow(d: Domain, e: Employe) {
       : 'non concerné',
     rec: rc ? fH(rc.solde) : '—',
     recSub: rc ? `≈ ${fJ(rc.solde / rc.dh)}` : 'non concerné',
-    cet: cet ? fJ(ct.total) : '—',
-    cetSub: cet ? (ct.total ? `${ct.cp} j CP · ${ct.rtt} j RTT${ct.repris ? ` · ${ct.repris} j repris` : ''}` : 'aucun jour épargné') : 'non concerné',
+    cet: cet ? fJ(ct.solde) : '—',
+    // Congés pris sur le CET (validés) et demandés : déduits du solde affiché.
+    cetSub: cet ? (ct.epargne ? `${ct.cp} j CP · ${ct.rtt} j RTT${ct.repris ? ` · ${ct.repris} j repris` : ''}${ct.pris ? ` · ${fJ(ct.pris)} pris` : ''}${ct.poses ? ` · ${fJ(ct.poses)} posés` : ''}` : 'aucun jour épargné') : 'non concerné',
   };
 }
 
@@ -166,6 +169,7 @@ export function Absences() {
       )}
 
       {espaceRh && <CloturesConges />}
+      <Fractionnement />
       <InformationsRetour />
 
       {aQualifier.length > 0 && (
@@ -317,7 +321,8 @@ export function Absences() {
             <li>Retour d’un arrêt de maladie ou d’accident : dans le mois, le service RH informe le salarié de ses jours de congés et de la date limite pour les prendre (« Informations au retour à faire ») ; le report de 15 mois court à partir de cette information.</li>
             <li>RTT et jours de repos : non reportables, clôturés au 31 décembre (soldes non pris perdus, après le rappel du CET). Ceux de l’année suivante se posent dès maintenant sur son propre droit ; une demande à cheval sur deux années est refusée.</li>
             <li>Compteurs repris de l’ancien outil : décomptés sur la période de CP et l’année de RTT de leur date d’arrêté, jamais au-delà.</li>
-            <li>Compte épargne-temps : jusqu’à 5 RTT par an (avant le 31 décembre) et 5 CP par période, uniquement ceux de la 5e semaine (au-delà de 20 jours ouvrés).</li>
+            <li>Compte épargne-temps : jusqu’à {data.settings.cetPlafondRtt ?? 5} RTT par an (avant le 31 décembre) et {data.settings.cetPlafondCp ?? 5} CP par période, uniquement ceux de la 5e semaine (au-delà de 20 jours ouvrés) ; plafonds réglés dans Paramètres → Compte épargne-temps. Les jours épargnés se prennent en congé sur le CET (jours ouvrés), validé par le manager comme un congé payé ; liquidés en entier à la sortie.</li>
+            <li>Congé principal : au moins 12 jours ouvrables continus (10 ouvrés) entre le {jourMois(fenetrePrincipale(data.settings, Y).du)} et le {jourMois(fenetrePrincipale(data.settings, Y).au)}, 24 jours ouvrables (20 ouvrés) d’affilée au plus — signalés sans blocage. {data.settings.fractionnementRegle === 'aucun' ? 'Jours de fractionnement écartés par accord collectif.' : `Jours de fractionnement : 2 jours pour 6 jours ouvrables ou plus du congé principal (5e semaine exclue) pris hors de cette période, 1 jour pour 3 à 5${data.settings.fractionnementRegle === 'accord' ? ', ou la règle de l’accord d’entreprise' : ''} ; proposés après la période, crédités par le service RH ou écartés par la renonciation du salarié.`}</li>
             <li>Intérim : congés gérés par l’agence ; CDD : indemnité compensatrice des CP non pris à l’échéance.</li>
             <li>Absences et feuilles de temps restent dans les bornes du contrat : entrée, fin du CDD, de la mission ou de l’alternance.</li>
             <li>Annulation : le salarié retire sa demande en attente, ou son propre signalement tant qu’il n’est ni qualifié ni prolongé ; le manager ou le service RH annulent une absence qui n’a pas commencé, le service RH seul une absence commencée ou passée. Le solde est recrédité et Keystone prévenu ; une feuille soumise sans heure que l’absence couvrait est renvoyée pour saisie.</li>

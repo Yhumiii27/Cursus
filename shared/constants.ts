@@ -203,11 +203,11 @@ export const NATURES_ABSENCE: Record<NatureAbsence, NatureDef> = {
 
 const NATURES = Object.entries(NATURES_ABSENCE) as [NatureAbsence, NatureDef][];
 export const ABS_LABEL = {
-  CP: 'Congés payés', RTT: 'RTT / repos', RECUP: 'Récupération', ABSENCE: 'Absence', ...Object.fromEntries(NATURES.map(([k, n]) => [k, n.label])),
+  CP: 'Congés payés', RTT: 'RTT / repos', RECUP: 'Récupération', CET: 'Congé sur le CET', ABSENCE: 'Absence', ...Object.fromEntries(NATURES.map(([k, n]) => [k, n.label])),
 } as Record<AbsenceType, string>;
 /** Libellé court : en-tête de la grille des heures. */
 export const ABS_ABREGE = {
-  CP: 'Congés payés', RTT: 'RTT / repos', RECUP: 'Récupération', ABSENCE: 'Absence', ...Object.fromEntries(NATURES.map(([k, n]) => [k, n.abrege])),
+  CP: 'Congés payés', RTT: 'RTT / repos', RECUP: 'Récupération', CET: 'Congé CET', ABSENCE: 'Absence', ...Object.fromEntries(NATURES.map(([k, n]) => [k, n.abrege])),
 } as Record<AbsenceType, string>;
 export const ABS_CLS: Record<AbsenceStatut, string> = { demandee: 'tag-outline', validee: 'tag-neutral', refusee: 'tag-accent', signalee: 'tag-outline', annulee: 'tag-outline' };
 export const ABS_ST: Record<AbsenceStatut, string> = { demandee: 'À valider', validee: 'Validée', refusee: 'Refusée', signalee: 'Signalée', annulee: 'Annulée' };
@@ -459,6 +459,9 @@ export const RUBRIQUES_PAIE: Record<string, { label: string; unite: UniteRubriqu
   CP: { label: 'Congés payés pris (jours ouvrés)', unite: 'j' },
   RTT: { label: 'RTT ou jours de repos du forfait jours pris (jours travaillés)', unite: 'j' },
   RECUP: { label: 'Récupération prise (heures)', unite: 'h' },
+  // Congé pris sur le compte épargne-temps (lot 6, chantier 3) : désactivée par défaut, code Sage à confirmer par la paie ;
+  // d'ici là, chaque congé figure nominativement dans le lot « à saisir dans Sage » (shared/rules/elements-lot.ts).
+  CET: { label: 'Congé pris sur le compte épargne-temps (jours ouvrés)', unite: 'j', inactiveParDefaut: true },
   ABS_NP: { label: 'Absence non payée (jours de la nature : calendaires ou ouvrés)', unite: 'j' },
   ABS_IND_SANTE: { label: 'Absence indemnisée, santé : arrêts de travail (jours calendaires)', unite: 'j' },
   ABS_MAINT_SANTE: { label: 'Absence à salaire maintenu, santé (jours de la nature)', unite: 'j' },

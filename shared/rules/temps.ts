@@ -281,11 +281,11 @@ export function heuresSurAbsence(d: Domain, sh: Pick<FeuilleTemps, 'empId' | 'we
 }
 
 /**
- * Nature d'une absence dans un message : « CP », « RTT », « récupération », « congé de maternité »…
+ * Nature d'une absence dans un message : « CP », « RTT », « CET », « récupération », « congé de maternité »…
  * Vide pour une absence à qualifier ou une nature médicale : un message ne la révèle jamais, quel que soit son lecteur.
  */
 export const natureAbsence = (t: AbsenceType): string =>
-  t === 'CP' || t === 'RTT' ? t : t === 'RECUP' ? 'récupération' : natureMedicale(t) ? '' : natureDef(t)?.court ?? '';
+  t === 'CP' || t === 'RTT' || t === 'CET' ? t : t === 'RECUP' ? 'récupération' : natureMedicale(t) ? '' : natureDef(t)?.court ?? '';
 const entreParentheses = (a: AbsenceJour) => { const n = natureAbsence(a.type); return n ? ` (${n})` : ''; };
 const jourCourt = (s: ISODate) => parse(s).toLocaleDateString('fr-FR', { weekday: 'short', day: 'numeric', month: 'short' });
 const liste = (items: string[]) => items.length > 1 ? `les ${items.slice(0, -1).join(', ')} et ${items.at(-1)}` : `le ${items[0]}`;

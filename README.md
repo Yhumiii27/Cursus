@@ -384,7 +384,11 @@ ouvrés (+5 j à 59 ans, CCN Chimie), chaque jour imputé sur sa période de ré
 anticipation dans la limite des jours acquis à la date du congé · CP, RTT et récupération posables à la demi-journée
 (après-midi du premier jour, matin du dernier ; une demi-journée de travail au plus ce jour-là) · RTT et jours de repos forfait
 calculés au prorata de l'entrée et de la fin du contrat, ceux de l'année suivante posables dès maintenant, CET (5 RTT/an,
-5e semaine de CP), reports de CP rattachés à une période et datés · clôture des congés proposée au 1er juin (CP : report
+5e semaine de CP, plafonds réglables ; congé pris sur le CET, validé par le manager comme un CP, rubrique de paie « à saisir dans
+Sage » tant que la paie ne l'a pas confirmée), reports de CP rattachés à une période et datés · congé principal (12 jours
+ouvrables continus entre le 1er mai et le 31 octobre, 24 au plus d'affilée : avertissements, alerte avant le 31 octobre) et
+jours de fractionnement proposés au 1er novembre, crédités par le service RH ou écartés par la renonciation du salarié
+(règle légale par défaut, accord réglable) · clôture des congés proposée au 1er juin (CP : report
 ou perte décidés salarié par salarié, jamais d'office, report de 15 mois des jours acquis pendant une absence de santé, une
 maternité ou une paternité, ou qu'elle a empêché de prendre) et au 1er janvier (RTT non reportables) · acquisition des CP
 pendant les absences (loi du 22 avril 2024 : accident du travail et maladie professionnelle sans limite, maladie à 2 jours

@@ -66,6 +66,10 @@ test('réglages par défaut : une ligne par champ, valeurs d’avant le découpa
     nuitDebut: 21, nuitFin: 6, nuitSeuilQuotidien: 3, nuitSeuilAnnuel: 270, nuitMajoration: 0, nuitAccord: '',
     // Forfait jours (t043) : suivi et alerte à 90 %, renonciation fermée sans référence d'accord.
     forfaitJoursAlerte: 90, forfaitJoursRachat: false, forfaitJoursAccord: '', forfaitJoursPlafond: 235, forfaitJoursMajorationMin: 10, forfaitJoursJren: 'signature',
+    // Lot 6, chantier 3 (t046, t127) : règle légale du fractionnement, congé principal du 1er mai au 31 octobre ; plafonds de
+    // placement sur le CET, 5 RTT par an et 5 CP de la 5e semaine.
+    fractionnementRegle: 'legal', fractionnementAccord: '', fractionnementDebut: '05-01', fractionnementFin: '10-31',
+    cetPlafondRtt: 5, cetPlafondCp: 5,
   });
   assert.deepEqual(Object.keys(REGLAGES).sort(), Object.keys(loadSettings(db)).sort());
   assert.deepEqual(reglagesParDefaut(), DEFAULT_SETTINGS);

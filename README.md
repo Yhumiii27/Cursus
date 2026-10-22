@@ -211,6 +211,12 @@ Pièces justificatives (lot 6, désactivées par défaut) : une fois activées p
 sont dans `pieces/` à côté de la base ; chaque sauvegarde copie ceux que sa base désigne dans `backups/pieces-<base>/`,
 et la restauration les remet en place (`docs/SAUVEGARDE.md`, section 1).
 
+Conservation des dossiers (lot 6, t016) : durées préremplies, inactives tant que l'administrateur RH n'a pas saisi la
+référence de la décision du DPO (Paramètres → Conservation des dossiers) ; Cursus propose ensuite chaque jour les
+dossiers des salariés sortis dont une durée est échue, l'administrateur RH confirme l'effacement ou l'anonymisation.
+Rien n'est effacé automatiquement ; les sauvegardes gardent les données jusqu'à leur rotation. Agenda (t036) : `.ics`
+joint aux congés validés, et abonnement personnel à Outlook (Paramètres → Agenda, désactivé par défaut).
+
 Planification (timer systemd), copie chiffrée hors de la machine, restauration pas à pas et test
 périodique : `docs/SAUVEGARDE.md`.
 

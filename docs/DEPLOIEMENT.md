@@ -37,8 +37,10 @@ facultatif est fourni pour un hébergeur qui imposerait des conteneurs (« Varia
   DPO : localisation dans l'UE, contrat de sous-traitance (RGPD, article 28) et question d'un
   hébergement certifié HDS. Le DPO valide aussi l'information affichée avant la saisie d'une vaccination
   (art. 13 du RGPD : `INFO_VACCINATIONS` de `shared/constants.ts`), qu'il complète au besoin de ses coordonnées,
-  et y fixe la durée de conservation (rubrique « Conservation », « à préciser avant la mise en service ») : Cursus
-  n'efface encore rien, même au départ du salarié, et garde les déclarations antérieures et le journal des actions.
+  et valide les durées de conservation préremplies (Paramètres → Conservation des dossiers : dossier 5 ans après la
+  sortie, santé 5 ans, passeport et visas à la sortie…) ; tant que la référence de sa décision n'y est pas saisie, Cursus
+  ne propose ni n'efface rien. Ensuite, chaque effacement est confirmé par l'administrateur RH. L'abonnement à l'agenda
+  personnel (Paramètres → Agenda, désactivé par défaut) passe par `/api/agenda/…`, déjà relayé avec le reste de `/api`.
   Il complète `docs/RGPD.md` (registre des traitements, analyse d'impact) et valide la page Confidentialité, que
   chaque salarié ouvre depuis l'écran de connexion ; l'administrateur RH y renseigne le responsable du traitement et
   le contact du DPO (Paramètres → Confidentialité), sans quoi elle renvoie au service RH.

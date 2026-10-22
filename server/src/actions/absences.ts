@@ -17,7 +17,7 @@ import { joursAvantDepart, suitePaie } from '../absences-paie.ts';
 import { absenceKeystone, sendToKeystone } from '../integrations/keystone.ts';
 import { recrediterPeriodesCloses } from './clotures.ts';
 import { joindrePieces } from './pieces.ts';
-import { notifierDecisionConge, notifierDemandeConge, notifierFeuilleRenvoyee } from '../notifications.ts';
+import { annulerAgendaConge, notifierDecisionConge, notifierDemandeConge, notifierFeuilleRenvoyee } from '../notifications.ts';
 import {
   ActionError, type ActionHandler, type Ctx, estSoiMeme, getEmp, isManagerOf, isRh, isSelf, isValidatorOf, refuserSoiMeme, requireRh, str,
 } from './context.ts';
@@ -237,6 +237,8 @@ const annuler: ActionHandler = (ctx, p) => {
   if (!droit.ok) throw new ActionError(droit.raison, a.statut === 'refusee' || a.statut === 'annulee' ? 400 : 403);
   ctx.db.update<Absence>('absences', a.id, { statut: 'annulee', annuleeLe: ctx.d.ti, annuleePar: ctx.user.nom, keystone: false });
   if (a.keystone) keystone(ctx, 'absence.annulee', a);
+  // Congé validé à venir : son événement, reçu avec la décision (.ics), est retiré de l'agenda du salarié (t036).
+  if (estConge(a.type) && a.statut === 'validee' && a.au >= ctx.d.ti) annulerAgendaConge(ctx, emp, a);
   const n = estConge(a.type) ? ctx.d.countDays(emp, a.du, a.au, a.type, a) : 0, h = a.type === 'RECUP' ? n * ctx.d.dayH(emp) : 0;
   // CP d'une période déjà close : la ligne de clôture n'est pas refaite, les jours rendus sont reportés sur la suivante.
   const rendus = a.type === 'CP' ? recrediterPeriodesCloses(ctx, emp, ctx.d) : '';

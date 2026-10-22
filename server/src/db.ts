@@ -64,6 +64,8 @@ export const TABLES = {
       // CDD et intérim (t053, shared/rules/cdd.ts) : motif de recours et terme initial du CDD ; ses renouvellements sont
       // des lignes de l'historique des contrats.
       motifRecours: 'text', cddFinInitiale: 'text',
+      // Dossier anonymisé à la fin de sa durée de conservation (t016, server/src/conservation.ts) : date ; null : nominatif.
+      anonymiseLe: 'text',
     },
   },
   // Historique des contrats (t074, shared/rules/historique-contrat.ts) : régime en vigueur à compter de chaque date d'effet
@@ -336,6 +338,17 @@ export const TABLES = {
       deposeLe: 'text', deposePar: 'text', deposeCompteId: 'int', conserverJusquau: 'text', retireeLe: 'text', retireePar: 'text', retireeMotif: 'text',
     },
     unique: [['jeton'], ['fichier']],
+  },
+  // Effacements confirmés par l'administrateur RH à la fin des durées de conservation (t016, server/src/conservation.ts) :
+  // catégories effacées, date, auteur, motif (texte du service RH, jamais au journal) ; `avantEcheance` : droit à
+  // l'effacement exercé avant l'échéance. Trace gardée après l'anonymisation, sans donnée d'identité.
+  effacements: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', categories: 'json', le: 'text', par: 'text', motif: 'text', avantEcheance: 'bool', elements: 'int' } },
+  // Abonnements à l'agenda personnel (t036, server/src/agenda.ts) : empreinte SHA-256 du jeton (le jeton lui-même n'est
+  // montré qu'une fois), création, révocation, dernier accès du client d'agenda.
+  jetonsAgenda: {
+    pk: 'id', auto: true,
+    cols: { id: 'int', empId: 'int', empreinte: 'text', creeLe: 'text', revoqueLe: 'text', revoquePar: 'text', dernierAcces: 'text' },
+    unique: [['empreinte']],
   },
 } satisfies Record<string, TableDef>;
 

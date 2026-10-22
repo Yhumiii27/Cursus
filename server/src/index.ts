@@ -16,6 +16,7 @@ import { demarrerJournal } from './journal.ts';
 import { appliquerAvenants } from './avenants.ts';
 import { log, redirigerConsole } from './logs.ts';
 import { migrate } from './migrate.ts';
+import { demarrerConservation } from './conservation.ts';
 import { demarrerPieces } from './pieces.ts';
 import { appliquerMigrations, controlerMigrations } from './migrations/cadre.ts';
 import { transportEmail } from './integrations/email.ts';
@@ -93,6 +94,9 @@ demarrerJournal(db);
 // Pièces justificatives : pièces en attente de plus de 24 h et fichiers des pièces retirées effacés, au démarrage puis
 // toutes les heures (server/src/pieces.ts).
 arret.tache(demarrerPieces(db));
+// Conservation des dossiers (t016) : dossiers des salariés sortis dont une durée est échue signalés au service RH, une
+// fois par jour ; rien n'est effacé sans la confirmation de l'administrateur RH (server/src/conservation.ts).
+arret.tache(demarrerConservation(db));
 // Avenants programmés (historique des contrats) appliqués à la fiche à leur date d'effet : au démarrage puis toutes les heures.
 appliquerAvenants(db, todayIso());
 const avenants = setInterval(() => appliquerAvenants(db, todayIso()), 3600_000);

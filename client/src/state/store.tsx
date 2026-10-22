@@ -135,6 +135,8 @@ export type DialogState =
   | { type: 'piece'; objet: ObjetPiece; objetId: number; empId: number; libelle?: string }
   /** Contact d'urgence d'un salarié (t068) : depuis son portail, ou par le service RH depuis la fiche. */
   | { type: 'contactUrgence'; empId: number }
+  /** Effacement des données échues ou anonymisation de dossiers de salariés sortis (t016, administrateur RH). */
+  | { type: 'anonymiser'; ids: number[]; avantEcheance?: boolean }
   /** Refus ou action irréversible à confirmer (state/confirmations.ts). */
   | { type: 'confirmer'; c: Confirmation };
 

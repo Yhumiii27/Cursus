@@ -3,6 +3,7 @@
 import { ErreurDialogue, ErreurRendu } from '../components/ErreurRendu.tsx';
 import { useStore, type DialogState } from '../state/store.tsx';
 import { AbsDialog } from './AbsDialog.tsx';
+import { AnonymiserDialog } from './AnonymiserDialog.tsx';
 import { AbsAnnulerDialog } from './AbsAnnulerDialog.tsx';
 import { AbsNatureDialog } from './AbsNatureDialog.tsx';
 import { AbsProlongerDialog } from './AbsProlongerDialog.tsx';
@@ -128,6 +129,7 @@ function Dialogue({ d }: { d: DialogState }) {
     case 'rouvrirFeuille': return <RouvrirFeuilleDialog {...d} />;
     case 'piece': return <PieceDialog {...d} />;
     case 'contactUrgence': return <ContactUrgenceDialog {...d} />;
+    case 'anonymiser': return <AnonymiserDialog {...d} />;
     case 'confirmer': return <ConfirmerDialog c={d.c} />;
   }
 }

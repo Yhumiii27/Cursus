@@ -9,6 +9,8 @@ import { JournalPanel } from '../Journal.tsx';
 import { MessageriePanel } from '../Messagerie.tsx';
 import type { SectionProps } from './commun.ts';
 import { AbsencesPaie } from './AbsencesPaie.tsx';
+import { Agenda } from './Agenda.tsx';
+import { Conservation } from './Conservation.tsx';
 import { Conges } from './Conges.tsx';
 import { Contrats } from './Contrats.tsx';
 import { DecompteHeures } from './DecompteHeures.tsx';
@@ -72,9 +74,11 @@ export const SECTIONS: readonly SectionParametres[] = [
   { id: 'postes-risques', place: 'droite', Section: PostesRisques },
   { id: 'confidentialite', place: 'droite', Section: Rgpd },
   { id: 'pieces', place: 'droite', Section: Pieces },
+  { id: 'agenda', place: 'droite', Section: Agenda },
   { id: 'hierarchie', place: 'gauche', Section: Hierarchie },
   { id: 'messagerie', place: 'large', Section: Messagerie },
   { id: 'relances', place: 'large', Section: RelancesEcheances },
+  { id: 'conservation', place: 'large', Section: Conservation },
   { id: 'envois', place: 'large', Section: Envois },
   { id: 'comptes', place: 'large', Section: Comptes },
   { id: 'journal', place: 'large', Section: Journal },

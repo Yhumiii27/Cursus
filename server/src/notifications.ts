@@ -13,11 +13,12 @@ import { matriculeAffiche } from '../../shared/rules/matricules.ts';
 import { demiTexte } from '../../shared/rules/demi-journees.ts';
 import { finSession, horaireDuJour, horaireTexte, joursSession, joursTexte, plageCourte, surPlusieursJours } from '../../shared/rules/plage-session.ts';
 import { convocationEnvoyee } from '../../shared/rules/sessions.ts';
-import type { Absence, Certification, CurrentUser, Dataset, DemandeCollab, DemandeVisite, Employe, Entretien, Messagerie, Session } from '../../shared/types.ts';
+import type { Absence, Certification, Courriel, CurrentUser, Dataset, DemandeCollab, DemandeVisite, Employe, Entretien, Messagerie, Session } from '../../shared/types.ts';
 import { configMail } from './config.ts';
 import { todayIso } from './dataset.ts';
 import type { Db } from './db.ts';
 import { calendrier, domaineAgenda, envoyerEmail, pieceJointe, type EvenementAgenda } from './integrations/email.ts';
+import { icsConge } from './agenda.ts';
 import { adresseSalarie, courriel, jourLong, lireMessagerie, periodeLongue } from './messagerie.ts';
 import { relevesAutomatiques } from './releves.ts';
 import { relancerEcheances } from './relances.ts';
@@ -25,7 +26,11 @@ import { relancerEcheances } from './relances.ts';
 /** Ce dont une notification a besoin du contexte d'une action. */
 type Contexte = { db: Db; ds: Dataset; user: CurrentUser };
 
-export interface Notification { type: string; objet: string; texte: string }
+export interface Notification {
+  type: string; objet: string; texte: string;
+  /** Pièces jointes d'un envoi aussitôt (.ics d'un congé validé) ; le récapitulatif quotidien n'en porte pas. */
+  pj?: Courriel['pj'];
+}
 
 /** Le destinataire est-il la personne qui agit ? (0 : le service RH, comme `Domain.mgrOf`.) */
 const soiMeme = (user: CurrentUser, dest: number) => dest === 0 ? user.role === 'rh' : user.role !== 'rh' && user.empId === dest;
@@ -46,7 +51,7 @@ export function notifier(cx: Contexte, dest: number, n: Notification, boiteParta
     cx.db.insert('notifications', { empId: dest || null, adresse: d.adresse, type: n.type, objet: n.objet, texte: n.texte, creation: new Date().toISOString(), envoiId: null });
     return 'quotidien';
   }
-  envoyerEmail(cx.db, n.type, courriel(m, d.adresse, n.objet, n.texte, { nom: d.nom }));
+  envoyerEmail(cx.db, n.type, courriel(m, d.adresse, n.objet, n.texte, { nom: d.nom, pj: n.pj }));
   return 'immediat';
 }
 
@@ -74,13 +79,32 @@ export function notifierDemandeConge(cx: Contexte, emp: Employe, a: Pick<Absence
 }
 
 /** Décision sur une demande de congés, ou congés posés et validés par le manager : au salarié. */
-export function notifierDecisionConge(cx: Contexte, emp: Employe, a: Pick<Absence, 'type' | 'du' | 'au' | 'debutDemi' | 'finDemi'>, ok: boolean, posee = false) {
+export function notifierDecisionConge(cx: Contexte, emp: Employe, a: Pick<Absence, 'type' | 'du' | 'au' | 'debutDemi' | 'finDemi'> & Partial<Pick<Absence, 'id'>>, ok: boolean, posee = false) {
   const c = conge(a.type);
   const objet = posee ? `Congés posés pour vous : ${c.objet}` : `Demande de ${c.objet} ${ok ? 'validée' : 'refusée'}`;
-  const texte = posee
+  // Congé validé (t036) : l'événement de l'agenda est joint (journées entières, UID stable de l'absence) ; une annulation
+  // ultérieure l'en retire (`annulerAgendaConge`).
+  const ics = ok && a.id != null;
+  const texte = (posee
     ? `${auteur(cx.user)} a posé et validé pour vous ${c.texte} ${periodeLongue(a.du, a.au)}${demiCourriel(a)}.`
-    : `Votre demande de ${c.objet} ${periodeLongue(a.du, a.au)}${demiCourriel(a)} a été ${ok ? 'validée' : 'refusée'} par ${auteur(cx.user)}.`;
-  return notifier(cx, emp.id, { type: 'absence.decision', objet, texte });
+    : `Votre demande de ${c.objet} ${periodeLongue(a.du, a.au)}${demiCourriel(a)} a été ${ok ? 'validée' : 'refusée'} par ${auteur(cx.user)}.`)
+    + (ics ? '\n\nOuvrez le fichier joint pour ajouter ces jours à votre agenda.' : '');
+  const pj = ics ? [pieceJointe(`conges-${a.du}.ics`, 'text/calendar; charset=utf-8; method=PUBLISH', icsConge({ ...a, id: a.id! }, { organisateur: organisateur(cx) }))] : undefined;
+  return notifier(cx, emp.id, { type: 'absence.decision', objet, texte, pj });
+}
+
+/**
+ * Congé validé puis annulé (t036) : le salarié reçoit l'annulation de l'événement de son agenda (même UID, méthode
+ * CANCEL), s'il reçoit ses notifications aussitôt (le récapitulatif quotidien ne portait pas l'événement). Faux sinon.
+ */
+export function annulerAgendaConge(cx: Contexte, emp: Pick<Employe, 'id' | 'nom'>, a: Pick<Absence, 'id' | 'type' | 'du' | 'au' | 'debutDemi' | 'finDemi'>): boolean {
+  const d = adresseSalarie(cx.db, emp.id, cx.ds.today);
+  if (!d || d.mode !== 'immediat') return false;
+  const c = conge(a.type);
+  envoyerEmail(cx.db, 'absence.annulee', courriel(messagerie(cx), d.adresse, `Congés annulés : ${c.objet}`,
+    `Vos ${c.objet === 'absence' ? 'jours d’absence' : c.objet} ${periodeLongue(a.du, a.au)}${demiCourriel(a)} sont annulés.\n\nOuvrez le fichier joint pour retirer l’événement de votre agenda, ou supprimez-le vous-même.`,
+    { nom: d.nom, pj: [pieceJointe(`annulation-conges-${a.du}.ics`, 'text/calendar; charset=utf-8; method=CANCEL', icsConge(a, { annule: true, organisateur: organisateur(cx) }))] }));
+  return true;
 }
 
 /**

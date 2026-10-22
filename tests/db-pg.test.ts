@@ -236,3 +236,36 @@ test('la base des autres tests est bien sur PostgreSQL', SEUL, async () => {
   assert.match(db.contientEntier('journal.salaries'), /jsonb/);
   assert.equal(db.like, 'ILIKE');
 });
+
+test('vue pub_absences (demande CU-1 de Crucible) : qui est absent et quand, jamais pourquoi', SEUL, async () => {
+  const db = await pg();
+  await db.insert('employes', { id: 1, nom: 'Essai', entree: '2026-01-05' });
+  await db.insert('employes', { id: 2, nom: 'Autre', entree: '2026-01-05' });
+  const a = async (statut: string, type: string, du: string, extra: Record<string, unknown> = {}) =>
+    await db.insert<{ id: number }>('absences', { empId: 1, type, du, au: du, statut, motifRefus: statut === 'refusee' ? 'Charge' : null, ...extra });
+  const validee = await a('validee', 'CP', '2026-11-02');
+  await a('demandee', 'RTT', '2026-11-03');
+  await a('signalee', 'MALADIE', '2026-11-04', { justificatif: true });
+  await a('annulee', 'CP', '2026-11-05', { annuleeLe: '2026-10-20' });
+  await a('refusee', 'CP', '2026-11-06');
+  const vue = async () => db.query<Record<string, unknown>>('SELECT * FROM pub_absences ORDER BY du');
+  const lignes = await vue();
+  // Colonnes du contrat, dans l'ordre ; jamais le type, le motif, le justificatif ni les demi-journées.
+  assert.deepEqual(Object.keys(lignes[0]), ['matricule', 'du', 'au', 'statut', 'annulee', 'maj_le']);
+  assert.deepEqual(lignes.map(l => [l.matricule, l.du, l.statut, l.annulee]), [
+    ['EMP-0001', '2026-11-02', 'validee', false],
+    ['EMP-0001', '2026-11-03', 'demandee', false],
+    ['EMP-0001', '2026-11-04', 'validee', false],
+    ['EMP-0001', '2026-11-05', 'validee', true],
+  ], 'absence refusée non publiée ; arrêt signalé publié comme validé, sans sa nature');
+  const lues = (await db.query<{ column_name: string }>(
+    `SELECT column_name FROM information_schema.view_column_usage WHERE view_name = 'pub_absences' AND table_name = 'absences'`)).map(r => r.column_name);
+  for (const c of ['type', 'motif_refus', 'justificatif', 'justificatif_le', 'debut_demi', 'fin_demi', 'signale_par', 'annulee_par']) assert.ok(!lues.includes(c), c);
+  // maj_le : posée par la base à chaque écriture, pour une lecture incrémentale.
+  const avant = String(lignes[0].maj_le);
+  await pause();
+  await db.update('absences', validee.id, { au: '2026-11-03' });
+  const apres = (await vue())[0];
+  assert.equal(apres.au, '2026-11-03');
+  assert.ok(String(apres.maj_le) > avant, 'maj_le avance à la modification');
+});

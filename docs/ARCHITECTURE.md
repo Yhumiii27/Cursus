@@ -525,7 +525,8 @@ e2e/               Tests de bout en bout Playwright par rôle (playwright.config
   - *Schéma.* `server/migrations-pg/` : `0001_init.sql` (50 tables, état final de `TABLES` avant l'étape 2 du lot 6),
     `0002_partage.sql` (vues `pub_` lues par Matrix et les autres outils, sans colonne sensible ni GRANT : les droits
     viennent du socle) et `0003_lot6_etape2.sql` (étape 2 du lot 6 : 7 tables, 57 en tout, colonnes ajoutées, nature
-    d'absence `CET` ; sur une base déjà remplie, majoration de nuit figée et délivrances en vigueur reprises en SQL).
+    d'absence `CET` ; sur une base déjà remplie, majoration de nuit figée et délivrances en vigueur reprises en SQL) et `0004_pub_absences.sql` (vue `pub_absences`, demande CU-1 de Crucible : matricule, dates, statut validée ou
+    demandée, annulation, `maj_le` posée par un déclencheur ; jamais le type ni le motif ; lecteurs accordés par Matrix).
     Appliquées au démarrage sous `pg_advisory_lock(hashtext('cursus.migrations'))`, pris avant de lire le journal
     `cursus.schema_migrations`, une transaction par fichier ; une migration du journal inconnue de ce code (base mise à
     jour par une version plus récente) ou un schéma `cursus` absent : refus de démarrer. Puis `TABLES` est comparé au

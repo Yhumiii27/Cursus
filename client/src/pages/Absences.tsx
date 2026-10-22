@@ -23,6 +23,7 @@ import { useAgir } from '../state/actions.ts';
 import { refusAbsence } from '../state/confirmations.ts';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { decideur } from '../state/delegues.ts';
 
 /**
  * Soldes d'un collaborateur, mis en forme pour le tableau et les cartes.
@@ -112,7 +113,7 @@ export function Absences() {
 
   // Droits de l'utilisateur sur les absences d'un collaborateur : RH, intéressé, manager direct. Un membre du RH agit
   // sur ses propres absences comme intéressé.
-  const qui = (e: Employe) => ({ rh: rh && e.id !== soi, self: (!espaceRh && e.id === me) || (rh && e.id === soi), manager: manager && e.id !== me && d.mgrOf(e) === me });
+  const qui = (e: Employe) => ({ rh: rh && e.id !== soi, self: (!espaceRh && e.id === me) || (rh && e.id === soi), manager: manager && decideur(d, e, me, 'absences') });
   // À traiter d'abord (demandes, signalements), les absences annulées en dernier.
   const rang = (a: Absence) => a.statut === 'demandee' ? 0 : a.statut === 'signalee' ? 1 : a.statut === 'annulee' ? 3 : 2;
   const absList = data.absences
@@ -124,7 +125,7 @@ export function Absences() {
       const q = qui(e);
       return {
         a, e,
-        canDecide: a.statut === 'demandee' && (q.rh || (manager && d.mgrOf(e) === me)),
+        canDecide: a.statut === 'demandee' && (q.rh || (manager && decideur(d, e, me, 'absences'))),
         canProlong: prolongeable(a) && (q.rh || q.self || q.manager),
         annulation: droitAnnulation(a, data.today, q),
       };
@@ -205,7 +206,7 @@ export function Absences() {
               <thead><tr><th>Collaborateur</th><th>CP {P.label}</th><th>En acquisition</th><th>RTT / repos {Y}</th><th>Récupération</th><th>CET</th><th></th></tr></thead>
               <tbody>
                 {rows.map(r => {
-                  const canPose = r.poser && (rh || r.e.id === me || (manager && d.mgrOf(r.e) === me));
+                  const canPose = r.poser && (rh || r.e.id === me || (manager && decideur(d, r.e, me, 'absences')));
                   return (
                     <tr key={r.e.id}>
                       <td><Two main={lecture.has(r.e.id) ? <>{r.e.nom} <LectureSeule d={d} empId={r.e.id} /></> : r.e.nom} sub={r.contrat} nowrap /></td>
@@ -219,7 +220,7 @@ export function Absences() {
                           {canCet(r) && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'cet', empId: r.e.id })}>Épargner</button>}
                           {rh && r.e.id !== soi && r.cpSolde > 0 && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'report', empId: r.e.id })}>Reporter</button>}
                           {canPose && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'abs', empId: r.e.id })}>Poser</button>}
-                          {manager && r.e.id !== me && d.mgrOf(r.e) === me && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'absSignal', empId: r.e.id })}>Signaler</button>}
+                          {manager && decideur(d, r.e, me, 'absences') && <button type="button" className="btn btn-ghost btn-sm" onClick={() => openDialog({ type: 'absSignal', empId: r.e.id })}>Signaler</button>}
                         </div>
                       </td>
                     </tr>

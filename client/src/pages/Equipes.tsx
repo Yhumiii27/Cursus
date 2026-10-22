@@ -14,6 +14,7 @@ import { changementManager, retraitEquipe, suppressionEquipe, type Confirmation 
 import { useEnriched, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
 import { CouvertureEquipe } from '../components/Couverture.tsx';
+import { DelegationsManager } from '../components/Delegations.tsx';
 
 /** Contrat en deux lignes : « CDI · Cadre » et « Forfait jours · 218 j ». */
 export function contratResume(d: Domain, e: Employe) {
@@ -245,6 +246,8 @@ function TeamPanel({ panneau, t, candidates }: { panneau: Ref<HTMLElement>; t: T
         <ParenteEquipe q={t.q} />
         <Fine>{mgrNotes}</Fine>
       </div>
+      {/* Délégation des validations du manager pendant ses absences (t135). */}
+      {mgrId != null && <DelegationsManager managerId={mgrId} cadre={false} />}
 
       <div className="scroll-x">
         <table className="table">

@@ -153,6 +153,15 @@ export const TABLES = {
   // Mandats des élus au CSE (server/src/actions/delegation.ts, shared/rules/delegation.ts) : titulaire ou suppléant, dates,
   // crédit d'heures de délégation par mois ; saisis par le service RH.
   mandats: { pk: 'id', auto: true, cols: { id: 'int', empId: 'int', role: 'text', du: 'text', au: 'text', credit: 'real' } },
+  // Délégations des validations d'un manager absent à un suppléant (t135, server/src/actions/delegations-manager.ts,
+  // shared/rules/delegations-manager.ts) : période (bornes comprises), périmètre, auteur, révocation, message de début.
+  delegations: {
+    pk: 'id', auto: true,
+    cols: {
+      id: 'int', managerId: 'int', suppleantId: 'int', du: 'text', au: 'text', perimetre: 'json',
+      creeLe: 'text', creePar: 'text', revoqueeLe: 'text', revoqueePar: 'text', annonceeLe: 'text',
+    },
+  },
 
   // Lots de paie (server/src/actions/paie.ts, shared/rules/lots-paie.ts) : contenu figé à la génération (`contenu`, lignes
   // de SagePush), feuilles du lot, téléchargements du fichier d'import, confirmation de l'import (accusé) ou annulation.

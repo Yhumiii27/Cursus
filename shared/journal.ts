@@ -75,6 +75,8 @@ export const JOURNAL_LABEL: Record<string, string> = {
   'equipe.manager': 'Manager d’une équipe',
   'equipe.affecter': 'Affectation à une équipe',
   'equipe.parente': 'Équipe parente (hiérarchie des managers)',
+  'equipe.delegation': 'Délégation des validations d’un manager à un suppléant',
+  'equipe.revoquerDelegation': 'Délégation des validations révoquée',
   // Formations
   'plan.inscrire': 'Inscription à une session',
   'cert.ajouter': 'Certification enregistrée',
@@ -357,6 +359,7 @@ export const CHAMP_LABEL: Record<string, string> = {
   entretienMiCarriereActif: 'Entretien de parcours après la visite de mi-carrière', entretienMiCarriereMois: 'Délai de l’entretien de mi-carrière (mois)',
   // Hiérarchie des managers (Paramètres → Hiérarchie, équipe parente).
   consultationN2: 'Consultation N+2 des équipes rattachées', parente: 'Équipe parente',
+  delegationEntretiens: 'Délégation des entretiens au suppléant', revoqueeLe: 'Révoquée le',
   deplacementsFichierPaie: 'Déplacements dans le fichier d’import de la paie', deplacementsPaieAPartirDu: 'Déplacements transmis à la paie à partir du',
   vigilanceRappelJours: 'Rappel de vérification de la vigilance (jours)',
 };

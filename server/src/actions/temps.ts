@@ -34,12 +34,12 @@ export function editable(ctx: Ctx, p: Record<string, any>): { emp: Employe; week
   const emp = getEmp(ctx, p.empId);
   const week = String(p.week);
   if (!isValidDate(week) || mondayOf(week) !== week) throw new ActionError('Semaine invalide');
-  if (!(isRh(ctx) || isSelf(ctx, emp.id) || isManagerOf(ctx, emp))) throw new ActionError('Seuls le salarié, son manager ou le service RH peuvent saisir cette feuille', 403);
+  if (!(isRh(ctx) || isSelf(ctx, emp.id) || isManagerOf(ctx, emp, 'feuilles'))) throw new ActionError('Seuls le salarié, son manager ou le service RH peuvent saisir cette feuille', 403);
   // Pas de feuille avant l'entrée ni après la fin du contrat (une semaine à cheval reste saisissable).
   const hors = semaineHorsContrat(emp, week);
   if (hors) throw new ActionError(`Semaine hors contrat : ${hors}`);
   let sh = sheetOf(ctx, emp.id, week);
-  const correction = !!sh && sh.statut === 'soumise' && isValidatorOf(ctx, emp);
+  const correction = !!sh && sh.statut === 'soumise' && isValidatorOf(ctx, emp, 'feuilles');
   if (sh && !['brouillon', 'rejetee'].includes(sh.statut) && !correction) throw new ActionError('Feuille déjà soumise ou validée');
   // Feuille créée : figée sur le régime de sa semaine quand l'historique des contrats le dit autre que celui de la fiche
   // (semaine antérieure à un changement, postérieure à un avenant programmé : shared/rules/historique-contrat.ts).
@@ -193,7 +193,7 @@ function submitted(ctx: Ctx, p: Record<string, any>) {
   const sh = sheetOf(ctx, emp.id, String(p.week));
   if (!sh || sh.statut !== 'soumise') throw new ActionError('Aucune feuille en attente de validation');
   refuserSoiMeme(ctx, emp, 'Vous ne pouvez pas valider ni renvoyer votre propre feuille de temps');
-  if (!isValidatorOf(ctx, emp)) throw new ActionError('Validation réservée au manager du salarié ou au service RH', 403);
+  if (!isValidatorOf(ctx, emp, 'feuilles')) throw new ActionError('Validation réservée au manager du salarié ou au service RH', 403);
   return { emp, sh };
 }
 

@@ -18,6 +18,7 @@ import { Bar, Btn, Chips, Empty, Fine, Kpi, Kpis, NoteAccent, Page, Panel, Seg, 
 import { ContactUrgencePanel } from '../components/ContactUrgence.tsx';
 import { Aptitude } from '../components/Aptitude.tsx';
 import { ExigencesPortail } from '../components/Exigences.tsx';
+import { DelegationsPortail, suppleanceTexte } from '../components/Delegations.tsx';
 import { useEnriched, useRole, useTrips } from '../state/derived.ts';
 import { api } from '../api.ts';
 import { useStore } from '../state/store.tsx';
@@ -75,7 +76,7 @@ export function Portail() {
             <Tag cls={CLS[me.worst]}>{EMP_LABEL[me.worst]}</Tag>
           </div>
           <div className="text-muted sub" style={{ marginTop: 'var(--space-1)' }}>{me.med.text}</div>
-          <div className="text-muted sub">{contrat.libelle} · {mgrId ? `Manager : ${d.mgrName(mgrId)}` : `Validations : ${d.mgrName(0)}`}</div>
+          <div className="text-muted sub">{contrat.libelle} · {mgrId ? `Manager : ${d.mgrName(mgrId)}` : `Validations : ${d.mgrName(0)}`}{suppleanceTexte(d, me)}</div>
           {/* « Non conforme » dû aux exigences du poste ou de l'équipe : ce qui manque, et sa demande. */}
           <ExigencesPortail e={me} />
         </div>
@@ -114,6 +115,9 @@ export function Portail() {
           </div>
         </Panel>
       )}
+
+      {/* Délégation des validations (t135) : celles du manager connecté, et celles qu'il reçoit comme suppléant. */}
+      <DelegationsPortail />
 
       <Kpis>
         <Kpi kicker="Mes certifications valides" value={`${okCerts} / ${me.certs.length}`}

@@ -8,6 +8,7 @@ import { droitsRh } from '../../shared/constants.ts';
 import { libelleAction } from '../../shared/journal.ts';
 import { ACTIONS, changeVerdicts } from './actions/index.ts';
 import { ActionError, makeCtx } from './actions/context.ts';
+import { signerDelegation } from './actions/delegations-manager.ts';
 import { DEMO } from './auth.ts';
 import { dossierInterface } from './chemins.ts';
 import { compression } from './compression.ts';
@@ -98,10 +99,10 @@ export function createApp(db: Db, options: OptionsApp = {}): Express {
         const ctx = makeCtx(db, user, loadFull(db, user));
         const trace = preparerTrace(db, name, req.body ?? {});
         const r = handler(ctx, req.body ?? {});
-        const o = typeof r === 'object' && r !== null ? r : { message: r };
+        const o = signerDelegation(ctx, typeof r === 'object' && r !== null ? r : { message: r });
         // Journal signé du nom de la personne connectée et de son compte : champs de la liste blanche de l'action,
-        // anciennes et nouvelles valeurs, salariés concernés (server/src/journal.ts).
-        journaliserAction(db, trace, { user, compte, message: o.message ?? null, result: o.result });
+        // anciennes et nouvelles valeurs, salariés concernés (server/src/journal.ts) ; managers remplacés (t135).
+        journaliserAction(db, trace, { user, compte, message: o.message ?? null, result: o.result, parDelegation: [...ctx.parDelegation] });
         // Verdicts transmis à Keystone : un changement est mis en file avec l'action, dans la même transaction.
         if (changeVerdicts(name)) suivreVerdicts(db);
         return o;

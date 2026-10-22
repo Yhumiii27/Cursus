@@ -143,6 +143,11 @@ const MATRICE: Ligne[] = [
   { action: 'equipe.supprimer', droits: '                    O    -    -    -    -    -    -    -    -', p: () => { db.insert('equipes', { nom: 'Vide', managerId: null, ordre: 99 }); return { nom: 'Vide' }; } },
   // Équipe parente (t136) : le manager de la Maintenance aura pour valideur celui de la Production.
   { action: 'equipe.parente', droits: '                     O    O    -    -    -    -    -    -    -', p: () => ({ nom: 'Maintenance', parente: 'Production' }) },
+  // Délégation des validations (t135) : le manager pour lui-même (Karim Haddad) et le service RH ; révocation de même.
+  { action: 'equipe.delegation', droits: '                  O    O    O    -    -    -    -    -    -', p: () => ({ managerId: 12, suppleantId: 3, du: '2026-10-19', au: '2026-10-30', perimetre: ['absences', 'feuilles'] }) },
+  { action: 'equipe.revoquerDelegation', droits: '          O    O    O    -    -    -    -    -    -', p: () => ({
+    id: db.insert<{ id: number }>('delegations', { managerId: 12, suppleantId: 3, du: '2026-10-19', au: '2026-10-30', perimetre: ['absences'], creeLe: '2026-10-07T08:00:00.000Z', creePar: 'Karim Haddad' }).id,
+  }) },
   { action: 'equipe.affecter', variante: 'retrait', droits: 'O    O    O    -    -    -    -    -    -', p: () => ({ empId: 2, equipe: null }) },
   // Le manager n'accueille qu'un salarié « à affecter » (libéré par son manager) ; une mutation directe relève du RH.
   { action: 'equipe.affecter', variante: 'salarié à affecter', droits: 'O    O    O    -    -    -    -    -    -', p: () => {

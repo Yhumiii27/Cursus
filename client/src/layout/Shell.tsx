@@ -13,13 +13,14 @@ import {
 import { droitsRh, PROFILS_RH, vuesDe } from '../../../shared/constants.ts';
 import { aFaireCollaborateur } from '../../../shared/rules/a-faire.ts';
 import { obligations, perimetreEntretiens } from '../../../shared/rules/entretiens.ts';
-import type { Dataset, Role } from '../../../shared/types.ts';
+import type { Dataset, PerimetreDelegation, Role } from '../../../shared/types.ts';
 import { Avatar } from '../components/ui.tsx';
 import { domaineDe } from '../state/derived.ts';
 import { useStore, type Toast as StoreToast, type View } from '../state/store.tsx';
 import { ID_CONTENU, useNavigationAnnoncee } from './navigation.ts';
 import { Reconnexion } from './Reconnexion.tsx';
 import { BoutonMenu, ID_MENU, PiegeTiroir, useTiroir, type Tiroir } from './Tiroir.tsx';
+import { decideur } from '../state/delegues.ts';
 
 interface NavItem { view: View; label: string; icon: Icon; badge?: number }
 type NavGroup = [string, NavItem[]];
@@ -32,13 +33,14 @@ function navGroups(data: Dataset | null, role: Role): NavGroup[] {
   const late = obligations(d, perimetreEntretiens(data)).filter(o => o.kind === 'epp' && o.st === 'late').length;
   // Service RH (jamais pour ses propres demandes) ou manager direct ; les profils restreints ne valident rien.
   const rh = droitsRh(data.user).includes('rh'), soi = data.user.salarieId ?? null;
-  const canValidate = (empId: number) => {
+  // Délégation (t135) : aussi les demandes dont le manager connecté décide comme suppléant (state/delegues.ts).
+  const canValidate = (empId: number, perimetre: PerimetreDelegation) => {
     const e = d.emp(empId);
-    return !!e && ((rh && empId !== soi) || (role === 'manager' && d.mgrOf(e) === me));
+    return !!e && ((rh && empId !== soi) || (role === 'manager' && decideur(d, e, me, perimetre)));
   };
-  const nQ = data.feuilles.filter(f => f.statut === 'soumise' && canValidate(f.empId)).length;
+  const nQ = data.feuilles.filter(f => f.statut === 'soumise' && canValidate(f.empId, 'feuilles')).length;
   // Demandes à valider ; pour le RH, aussi les absences signalées à qualifier.
-  const nAbs = data.absences.filter(a => (a.statut === 'demandee' && canValidate(a.empId)) || (rh && a.statut === 'signalee' && a.empId !== soi)).length;
+  const nAbs = data.absences.filter(a => (a.statut === 'demandee' && canValidate(a.empId, 'absences')) || (rh && a.statut === 'signalee' && a.empId !== soi)).length;
   if (role === 'rh') {
     const nReq = droitsRh(data.user).includes('formations') ? data.demandesCollab.filter(r => r.statut === 'attente').length : 0;
     // Écrans du profil (référent HSE, paie, lecture seule : une partie de l'espace RH).

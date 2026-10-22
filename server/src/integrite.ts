@@ -41,6 +41,9 @@ export const REFERENCES: readonly Reference[] = [
   ref('employes', 'equipe', 'equipes', 'nom'),
   ref('equipes', 'manager_id', 'employes'),
   ref('equipes', 'parente', 'equipes', 'nom'),
+  // Délégation des validations (t135) : manager qui délègue et suppléant (cascade d'anonymisation comprise).
+  ref('delegations', 'manager_id', 'employes'),
+  ref('delegations', 'suppleant_id', 'employes'),
   ref('feuilles', 'lot_id', 'lots_paie'),
   ref('absences', 'lot_id', 'lots_paie'),
   ref('soldes_sortie', 'lot_id', 'lots_paie'),

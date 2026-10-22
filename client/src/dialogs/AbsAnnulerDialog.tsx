@@ -13,6 +13,7 @@ import { CancelButton, Dialog, Field, Static, SubmitButton } from '../components
 import { Fine, NoteAccent } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { decideur } from '../state/delegues.ts';
 
 export function AbsAnnulerDialog({ id }: { id: number }) {
   const d = useDomain();
@@ -25,7 +26,7 @@ export function AbsAnnulerDialog({ id }: { id: number }) {
 
   // Un membre du RH annule ses propres absences comme intéressé (même règle que le serveur).
   const propre = rh && emp.id === soi;
-  const droit = droitAnnulation(a, d.ti, { rh: rh && !propre, self: propre || (!rh && emp.id === me), manager: manager && emp.id !== me && d.mgrOf(emp) === me });
+  const droit = droitAnnulation(a, d.ti, { rh: rh && !propre, self: propre || (!rh && emp.id === me), manager: manager && decideur(d, emp, me, 'absences') });
   const n = estConge(a.type) ? d.countDays(emp, a.du, a.au, a.type, a) : 0;
   // Feuille soumise sans heure que l'absence couvrait seule : le serveur la renvoie au salarié.
   const sans = a.statut === 'demandee' ? null : new Domain({ ...d.ds, absences: d.ds.absences.filter(x => x.id !== a.id) });

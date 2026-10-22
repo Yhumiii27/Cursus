@@ -9,13 +9,14 @@ import { ChoixPiece, usePieceJointe } from '../components/PieceJointe.tsx';
 import { Fine } from '../components/ui.tsx';
 import { useDomain, useRole } from '../state/derived.ts';
 import { useStore } from '../state/store.tsx';
+import { decideur } from '../state/delegues.ts';
 
 export function AbsSignalDialog({ empId }: { empId?: number | null }) {
   const d = useDomain();
   const { run, closeDialog } = useStore();
   const { rh, manager, me } = useRole();
   // Soi-même, son équipe (manager) ou tout le monde (RH).
-  const choix = d.ds.employes.filter(e => rh || e.id === me || (manager && d.mgrOf(e) === me)).sort((a, b) => a.nom.localeCompare(b.nom));
+  const choix = d.ds.employes.filter(e => rh || e.id === me || (manager && decideur(d, e, me, 'absences'))).sort((a, b) => a.nom.localeCompare(b.nom));
   const [sel, setSel] = useState<number | null>(() => empId ?? (manager ? choix.find(e => e.id !== me)?.id : me) ?? choix[0]?.id ?? null);
   const [du, setDu] = useState(d.ti);
   const [au, setAu] = useState(d.ti);

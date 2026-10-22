@@ -7,7 +7,8 @@ import { absenceVueManager, repriseMedicale } from '../../shared/rules/absences.
 import { acquisitionsCalculees } from '../../shared/rules/acquisition-cp.ts';
 import { aptitudeVueManager } from '../../shared/rules/sante.ts';
 import { visiteAProgrammer } from '../../shared/rules/visites-dues.ts';
-import { etatMineur, mineurDeLaSemaine, naissanceVueManager } from '../../shared/rules/mineurs.ts';
+import { etatMineur, mineurDeLaSemaine, moins16DeLaSemaine, naissanceVueManager } from '../../shared/rules/mineurs.ts';
+import { statutNuit } from '../../shared/rules/repos-nuit.ts';
 import { needsFinCarriere } from '../../shared/rules/entretiens.ts';
 import { verdictAutorisation } from '../../shared/rules/contrats.ts';
 import { completerSession } from '../../shared/rules/plage-session.ts';
@@ -408,10 +409,13 @@ const sansExigences = (r: Dataset['referentiels']): Pick<Dataset['referentiels']
   equipes: r.equipes.map(q => ({ ...q, exigences: null, couverture: null })),
 });
 
-/** Feuille d'une vue sans la date de naissance : indication « mineur » de la semaine (contrôles des mineurs). */
+/**
+ * Feuille d'une vue sans la date de naissance : indications « mineur » et « moins de 16 ans » de la semaine (contrôles des
+ * mineurs, repos quotidien de 14 h : le valideur demande le motif comme le serveur).
+ */
 function feuilleSansNaissance(d: Domain, sh: FeuilleTemps): FeuilleTemps {
   const e = d.emp(sh.empId);
-  return e ? { ...sh, mineur: mineurDeLaSemaine(e, sh.week) } : sh;
+  return e ? { ...sh, mineur: mineurDeLaSemaine(e, sh.week), ...(moins16DeLaSemaine(e, sh.week) ? { moins16: true } : {}) } : sh;
 }
 
 /**
@@ -476,6 +480,8 @@ function vueProfil(full: Dataset, droits: readonly DroitRh[]): Dataset {
     ...(lecture && !repriseMedicale(e, full.absences) ? { repriseMotif: e.repriseDate ? 'absence longue' : null } : { repriseMotif: null, repriseDate: null }),
     // Entretien de parcours après la visite de mi-carrière (lecture seule, qui voit les entretiens) : l'échéance seule.
     entretienMiCarriere: lecture ? entretienMiCarriere(full, e)?.due ?? null : null,
+    // Sans les feuilles de temps (référent HSE) : l'indication « travailleur de nuit » calculée ici (shared/rules/repos-nuit.ts).
+    ...(paie ? {} : { travailleurNuit: statutNuit(full, e.id, full.today).travailleur }),
   }));
   // Déplacements : l'état du dossier et les formalités manquantes sont calculés ici, avec les pièces du dossier,
   // pour que le verdict Go / No Go soit exact sans les transmettre.

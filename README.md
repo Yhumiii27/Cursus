@@ -367,7 +367,8 @@ semaine à 7 jours (samedi et dimanche grisés mais saisissables, repos hebdomad
 heures du dimanche HDIM et majoration réglable) · jours fériés saisissables et repérés (1er mai majoré de 100 %, autres
 fériés en quantité, majoration réglable) · journée de solidarité et fériés chômés réglés année par année à partir de 2027,
 sans effet rétroactif · horaires de poste (référentiel, horaire par défaut de l'équipe, horaire du jour sur la feuille,
-figé à la soumission) · heures complémentaires au dixième de la durée (au tiers avec un accord), motif
+figé à la soumission) · repos quotidien de 11 h et pause contrôlés d'après l'horaire (motif), heures de nuit (HNUIT, MAJ_NUIT
+« à saisir dans Sage » tant qu'inactives), nuit refusée aux mineurs, travailleur de nuit repéré avec son suivi médical adapté · heures complémentaires au dixième de la durée (au tiers avec un accord), motif
 au-delà · moyenne sur 12 semaines (44 h), temps partiel à requalifier, contingent annuel d'heures supplémentaires (220 h,
 alerte à 90 %) et contrepartie obligatoire en repos créditée et transmise à la paie · activités internes tenues par le service RH, heures de délégation du CSE
 (mandats, crédit R2314-1, compteur mensuel avec report sur 12 mois) · CP 25 jours

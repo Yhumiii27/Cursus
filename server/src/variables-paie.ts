@@ -117,7 +117,10 @@ export function variablesDeLaPeriode(db: Db, user: CurrentUser, periode: string)
   const familles = elementsDesFamilles(db, d, periode);
   const deFamilles = contenuDesFamilles(familles);
   if (sheets.length || absences.length || Object.keys(deFamilles).length) {
-    ajouter({ ...buildSagePayload(d, sheets, SAGE_DOSSIER, new Date(), sageMode(), optionsRegularisation(db, d)), absences, ...deFamilles }, '', 'En attente d’un lot');
+    const payload = buildSagePayload(d, sheets, SAGE_DOSSIER, new Date(), sageMode(), optionsRegularisation(db, d));
+    // Heures de nuit des feuilles sous une rubrique désactivée, puis éléments des familles : à saisir dans Sage.
+    const aSaisir = [...(payload.aSaisir ?? []), ...(deFamilles.aSaisir ?? [])];
+    ajouter({ ...payload, absences, ...deFamilles, ...(aSaisir.length ? { aSaisir } : {}) }, '', 'En attente d’un lot');
   }
   return out.sort((a, b) => a.matricule.localeCompare(b.matricule) || a.rubrique.localeCompare(b.rubrique) || a.detail.localeCompare(b.detail));
 }

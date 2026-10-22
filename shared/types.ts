@@ -329,6 +329,11 @@ export interface Employe {
    * des 18 ans, calculé par le serveur (pas d'échéance de renouvellement, comme pour le service RH) ; sans la date.
    */
   derogationApresMajorite?: boolean;
+  /**
+   * Vue du référent HSE, qui ne reçoit pas les feuilles de temps : travailleur de nuit (art. L3122-5), calculé par le
+   * serveur sur les feuilles validées (shared/rules/repos-nuit.ts). Jamais enregistré.
+   */
+  travailleurNuit?: boolean;
   agence: string | null;
   /**
    * Matricule du dossier de paie (Sage), saisi ou repris par le service RH : 1 à 20 lettres et chiffres, unique (sauf
@@ -533,6 +538,11 @@ export interface FeuilleTemps {
    */
   mineur?: boolean;
   /**
+   * Mêmes vues : salarié de moins de 16 ans un jour au moins de la semaine (repos quotidien de 14 h, nuit de 20 h à 6 h :
+   * shared/rules/repos-nuit.ts), présent seulement quand c'est le cas. Jamais enregistré.
+   */
+  moins16?: boolean;
+  /**
    * Majoration des heures d'un jour férié autre que le 1er mai (%, réglage `tauxMajorationFerie`) figée à la validation,
    * comme celle du dimanche. Null avant : le réglage s'applique. Le 1er mai est toujours majoré de 100 % (art. L3133-6).
    */
@@ -563,6 +573,11 @@ export interface FeuilleTemps {
    * soumission suivante, en gardant les heures d'un code inchangé.
    */
   horairesFiges?: (HoraireFige | null)[] | null;
+  /**
+   * Majoration des heures de nuit (%, réglage `nuitMajoration`, shared/rules/repos-nuit.ts) figée à la validation, comme
+   * celles du dimanche et des fériés. Null avant : le réglage s'applique.
+   */
+  majNuit?: number | null;
 }
 /**
  * Réouverture d'une feuille validée (action `temps.rouvrir`, administrateur RH seul, motif obligatoire) : ce qui était
@@ -585,6 +600,11 @@ export interface ReouvertureFeuille {
   rubriques: Record<string, Record<string, number>> | null;
   /** D'où viennent `rubriques` : contenu figé du lot, lignes du lot rapprochées par matricule, ou recalcul de la feuille. */
   source?: 'lot' | 'lignes' | 'recalcul' | null;
+  /**
+   * Heures de nuit déjà listées « à saisir dans Sage » (rubriques désactivées, codes internes, par période d'origine :
+   * `RubriquesFeuille.aSaisir` du dernier lot transmis) : la régularisation en liste l'écart. Absent ou null : aucune.
+   */
+  aSaisir?: Record<string, Record<string, number>> | null;
   /** Heures par projet déjà renvoyées à Keystone ; un projet retiré y est renvoyé à 0. Null : aucun événement parti. */
   keystone: Record<string, number> | null;
   /** Réouvertures précédentes (instant, auteur, motif), de la plus ancienne à la plus récente. */
@@ -938,6 +958,18 @@ export interface Settings {
   deplacementsPaieAPartirDu: ISODate | null;
   /** Rappel de vérifier la vigilance d'un pays (France Diplomatie) avant un départ : vérification de plus de N jours (t068). */
   vigilanceRappelJours: number;
+  /**
+   * Travail de nuit (t048, Paramètres → Décompte des heures, shared/rules/repos-nuit.ts) : plage de nuit en heures entières
+   * (21 h – 6 h par défaut, art. L3122-20), seuils du travailleur de nuit (3 h dans la journée deux fois par semaine, 270 h
+   * sur 12 mois : art. L3122-5 et L3122-23), majoration des heures de nuit en % (0 : quantité seule, rubrique HNUIT) et
+   * référence de l'accord, exigée pour s'écarter des valeurs de la loi.
+   */
+  nuitDebut: number;
+  nuitFin: number;
+  nuitSeuilQuotidien: number;
+  nuitSeuilAnnuel: number;
+  nuitMajoration: number;
+  nuitAccord: string;
 }
 /** Plafond des heures complémentaires du temps partiel : le dixième (art. L3123-28) ou le tiers avec un accord (art. L3123-20). */
 export type PlafondComplementaires = 'dixieme' | 'tiers';
@@ -1197,7 +1229,14 @@ export type TypeLotPaie = 'normal' | 'correctif';
 /** Régularisation d'une feuille transmise : écart sur la période ouverte, ou rubriques complètes de la période d'origine. */
 export type ModeRegularisation = 'ecart' | 'remplace';
 /** Rubriques d'une feuille (codes Sage), par période d'origine (AAAA-MM). */
-export interface RubriquesFeuille { empId: number; week: ISODate; periodes: Record<string, Record<string, number>> }
+export interface RubriquesFeuille {
+  empId: number; week: ISODate; periodes: Record<string, Record<string, number>>;
+  /**
+   * Heures de nuit listées « à saisir dans Sage » pour la feuille (rubriques désactivées : codes internes HNUIT, MAJ_NUIT,
+   * par période d'origine ; shared/rules/temps.ts, `nuitASaisirDeLaFeuille`). Absent : aucune, ou lot d'avant le lot 6.
+   */
+  aSaisir?: Record<string, Record<string, number>>;
+}
 export interface LotPaie {
   id: number;
   /** Clé d'idempotence (UUID) : identique à chaque téléchargement du fichier. */

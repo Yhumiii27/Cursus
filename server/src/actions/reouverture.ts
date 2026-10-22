@@ -42,11 +42,14 @@ const rouvrir: ActionHandler = (ctx, p) => {
   const avant = sh.reouverture ?? null;
   // Transmise : ce qui est parti (dernier lot transmis). Rouverte de nouveau avant d'être transmise : l'état d'avant reste
   // celui que la paie a reçu.
-  const paie = sh.sage ? transmisDeLaFeuille(ctx.db, ctx.d, sh) : { rubriques: avant?.rubriques ?? null, lot: avant?.lot ?? null, source: avant?.source ?? null };
+  const paie = sh.sage ? transmisDeLaFeuille(ctx.db, ctx.d, sh)
+    : { rubriques: avant?.rubriques ?? null, lot: avant?.lot ?? null, source: avant?.source ?? null, aSaisir: avant?.aSaisir ?? null };
   const renvoyer = p.renvoyer === true;
   const reouverture: ReouvertureFeuille = {
     le: new Date().toISOString(), par: ctx.user.nom, motif, renvoyee: renvoyer,
     transmise: !!paie.rubriques, lot: paie.lot, rubriques: paie.rubriques, source: paie.source,
+    // Heures de nuit déjà listées à saisir dans Sage (rubriques désactivées) : la régularisation en liste l'écart.
+    ...(paie.aSaisir ? { aSaisir: paie.aSaisir } : {}),
     // Lignes inchangées depuis la validation : les heures de ses projets sont celles renvoyées à Keystone.
     keystone: sh.keystone ? heuresKeystone(sh.lignes) : avant?.keystone ?? null,
     precedentes: avant ? [...(avant.precedentes ?? []), { le: avant.le, par: avant.par, motif: avant.motif }] : [],

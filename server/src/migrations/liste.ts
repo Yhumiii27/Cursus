@@ -14,7 +14,7 @@ import { ACTIVITE_FORMATION_PROJET, PLAGE_SESSIONS } from './formations.ts';
 import { INDEX_PIECES } from './lot6-pieces.ts';
 import { HIERARCHIE_EQUIPES } from './lot6-hierarchie.ts';
 import { DEPLACEMENTS_DEPART } from './lot6-paie.ts';
-import { HORAIRES_EXEMPLES_MIGRATION } from './lot6-horaires.ts';
+import { HORAIRES_EXEMPLES_MIGRATION, HORAIRES_NUIT_FIGEE } from './lot6-horaires.ts';
 import { CONTRATS_HISTORIQUE } from './lot6-contrats.ts';
 
 export const MIGRATIONS: readonly Migration[] = [
@@ -41,4 +41,5 @@ export const MIGRATIONS: readonly Migration[] = [
   DEPLACEMENTS_DEPART,
   HORAIRES_EXEMPLES_MIGRATION,
   CONTRATS_HISTORIQUE,
+  HORAIRES_NUIT_FIGEE,
 ];

@@ -162,7 +162,10 @@ export function projetsRevalidation(projets: Record<string, number>, reouverture
   return { ...Object.fromEntries(Object.keys(avant).filter(p => !(p in projets)).map(p => [p, 0])), ...projets };
 }
 
-/** Réouverture vue par le manager et le collaborateur : ni le motif, ni les rubriques de paie, ni les heures Keystone. */
+/**
+ * Réouverture vue par le manager et le collaborateur : ni le motif, ni les rubriques de paie (ni les heures de nuit à saisir
+ * dans Sage, que l'objet rebâti n'emporte pas), ni les heures Keystone.
+ */
 export const reouvertureNeutre = (r: ReouvertureFeuille): ReouvertureFeuille => ({
   le: r.le, par: r.par, motif: '', renvoyee: r.renvoyee, transmise: r.transmise, lot: null, rubriques: null, keystone: null,
 });

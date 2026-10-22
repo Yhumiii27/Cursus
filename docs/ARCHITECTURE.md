@@ -54,6 +54,7 @@ shared/            Domaine partagé (aucune dépendance)
                    vigilance.ts (lot 6) : vigilance France Diplomatie, rappel avant un départ, coordonnées, contact d'urgence
                    feries.ts (lot 6) : jours fériés et journée de solidarité réglés par année (calendrier : dates.ts) ;
                    horaires.ts (lot 6) : horaires de poste, horaire par défaut d'une équipe, horaire du jour d'une feuille
+                   repos-nuit.ts (lot 6) : repos quotidien, pause, heures de nuit, nuit des mineurs, travailleur de nuit
                    historique-contrat.ts : historique des contrats (régime en vigueur à une date, `regimeAu`, avenants
                    programmés) ; cdd.ts : motif de recours, durée maximale et renouvellements d'un CDD, délai de carence
 server/src/
@@ -1241,7 +1242,9 @@ d'une fiche antérieure. Règles dans `shared/rules/mineurs.ts` :
 
 Confidentialité (`server/src/dataset.ts`, `naissanceVueManager`) : le manager (membres de son équipe) et les profils
 restreints de l'espace RH reçoivent `naissanceLe: null`, l'année (règle à l'année des congés, transmise comme avant) et
-`mineur` au jour de l'instantané ; pas d'âge exact, qui à côté de l'année trahirait le jour anniversaire. Les sections de
+`mineur` au jour de l'instantané ; pas d'âge exact, qui à côté de l'année trahirait le jour anniversaire. Leurs feuilles
+portent `mineur` (un jour au moins de la semaine) et, seulement quand c'est le cas, `moins16` (repos quotidien de 14 h,
+nuit de 20 h à 6 h), pour que leurs contrôles soient ceux du serveur. Les sections de
 fin de carrière de leurs entretiens sont calculées par le serveur (`finCarriere` de l'entretien), pour que l'évaluateur
 rédige celles que `entretien.modifier` accepte. Le journal nomme `naissanceLe` parmi les champs modifiés, sans sa valeur.
 
@@ -1260,8 +1263,10 @@ par jour et cessent d'elles-mêmes le jour des 18 ans (date complète), ou le 1e
 - **Repos** (alertes, `repos` de `SheetCalc`, comme le repos hebdomadaire des majeurs) : heures le dimanche (art.
   L3164-5, sans dérogation pour l'industrie chimique, même quand l'équipe a une dérogation au repos dominical) ; à défaut,
   semaine sans deux jours consécutifs sans heure (art. L3164-2), le samedi travaillé laissant possible un repos dimanche
-  et lundi suivant, que l'alerte invite à vérifier. Faute d'horaires, ni le repos quotidien de 12 h (art. L3164-1) ni la
-  pause de 30 min (art. L3162-3) ne sont contrôlés.
+  et lundi suivant, que l'alerte invite à vérifier. Avec un horaire de poste sur la feuille (lot 6,
+  `shared/rules/repos-nuit.ts`) : repos quotidien de 12 h (14 h avant 16 ans, art. L3164-1 ; vues sans la date de
+  naissance : indication `moins16` de la feuille, comme `mineur`, `moins16DeLaSemaine`) et pause de 30 min au-delà de
+  4 h 30 (art. L3162-3), à motiver comme les durées ; sans horaire, ni l'un ni l'autre ne sont contrôlés.
 - **Nuit** (art. L3163-2) : case « travail de nuit ou en continu » de l'équipe (`Equipe.nuit`, colonne JSON pour garder
   `null`, case pas encore renseignée, distincte de « non » ; le schéma déclaratif l'ajoute, sans migration nommée),
   saisie dans le dialogue des exigences communes (Référentiels → Postes : « À renseigner », « Oui », « Non » ; envoyée
@@ -1886,8 +1891,44 @@ même matricule de paie et la fiche présente l'emporte. Contrat : `docs/API-KEY
   le sens d'une feuille soumise ou validée. Une feuille renvoyée repart des choix et de l'équipe (un jour qui a perdu
   ses heures perd l'horaire proposé, un jour qui en a reçu se le voit proposer), puis se refige. Facultatif : sans horaire, la feuille se
   tient comme avant ; une feuille d'avant les horaires n'en reçoit jamais (aucun contrôle rétroactif). Keystone ne transmet
-  que des heures par jour. Données transmises à tous les espaces (aucune donnée personnelle). Les contrôles du repos de
-  11 h, de la pause et des heures de nuit (étape 2) s'appuieront sur ces horaires.
+  que des heures par jour. Données transmises à tous les espaces (aucune donnée personnelle).
+- **Repos quotidien, pause et travail de nuit** (t048, étape 2 ; `shared/rules/repos-nuit.ts`, appelé par `calcSheet`) :
+  d'après l'horaire de chaque jour (figé, sinon choisi ou proposé par l'équipe), la plage de travail est estimée du
+  début de l'horaire à ce début plus les heures saisies ce jour-là et la pause (des heures en plus la prolongent).
+  Un jour sans horaire n'est pas contrôlé ; une feuille d'avant les horaires n'a ni contrôle ni heure de nuit.
+  - Repos quotidien de 11 h (art. L3131-1 ; 12 h pour un mineur, 14 h avant 16 ans, art. L3164-1) entre la fin d'un jour
+    et le début du suivant, le dimanche de la feuille précédente compris (`veilleDe`) ; pause de 20 min dès 6 h de
+    travail (art. L3121-16 ; 30 min au-delà de 4 h 30 pour un mineur, art. L3162-3), celle de l'horaire. Alertes à
+    motiver (`SheetCalc.reposQuotidien`, dans `depassements`), sans autre blocage, tant que l'accord n'est pas connu ;
+    aucune pour un cadre dirigeant. Le journal de `temps.submit` et `temps.validate` garde leurs codes (`reposNuit` :
+    `repos_quotidien`, `pause`, d'après les horaires figés, sans le dimanche précédent), jamais le motif.
+  - Nuit d'un salarié mineur (de 22 h à 6 h, de 20 h à 6 h avant 16 ans, art. L3163-2) : refusée sans motif possible, au
+    choix de l'horaire (`temps.horaire`, `refusNuitMineur`) comme à la soumission et à la validation (`SheetCalc.nuitMineur`,
+    l'horaire proposé par l'équipe compris).
+  - Heures de nuit (`SheetCalc.nuit`) : la plage de travail dans la plage de nuit réglée (Paramètres → Décompte des
+    heures : 21 h – 6 h par défaut, art. L3122-20 ; 21 h ou 22 h à 6 h ou 7 h, 9 h au moins, art. L3122-2), la pause
+    retirée au prorata, rattachées au jour où commence le poste. Rubriques HNUIT (quantité, comprise dans les heures) et
+    MAJ_NUIT (heures équivalentes au taux `nuitMajoration`, 0 % par défaut, figé sur la feuille à sa validation :
+    `FeuilleTemps.majNuit` ; migration `lot6-horaires-majoration-nuit` : 0 % sur les feuilles déjà validées) ; un forfait
+    jours n'en a pas (décompte en jours). Désactivées par défaut (`inactiveParDefaut`) : tant que la paie ne les a pas
+    activées, elles sortent du fichier mais figurent, salarié par salarié, dans le résumé du lot et l'export des
+    variables comme « à saisir dans Sage » (`SagePush.aSaisir`, famille `nuit`, rempli par `buildSagePayload`). Le lot
+    garde par feuille ce qu'il a listé (`RubriquesFeuille.aSaisir`, `nuitASaisirDeLaFeuille`), que la réouverture reprend
+    (`ReouvertureFeuille.aSaisir`) : une feuille régularisée liste l'écart, positif ou négatif, détail « régularisation »
+    (rappel d'une période close sur la période ouverte) ; rubrique activée depuis, la quantité saisie à la main est à
+    retirer, le fichier emporte la nouvelle.
+  - Travailleur de nuit (`statutNuit`, art. L3122-5) : sur les feuilles validées, deux semaines au moins parmi les quatre
+    dernières validées qui comptent chacune deux jours d'au moins 3 h de nuit (lecture de « deux fois par semaine, selon
+    son horaire habituel » ; une feuille sans horaire compte comme une semaine sans nuit, si bien que des nuits ponctuelles
+    dans une équipe de journée n'en font pas un), ou 270 h de nuit sur 12 mois glissants
+    (art. L3122-23, supplétif) ; seuils réglables avec la référence de l'accord (COHERENCE). Repéré sur la fiche
+    (`components/TravailNuit.tsx`) ; encore en VIP, alerte « Suivi médical adapté à prévoir » (`MedInfo.suiviNuit`,
+    échéance sans date parmi les visites dues, « Demander la visite » ; VIP adaptée, art. R4624-17), sans changer d'office
+    le type de suivi. Calculé sur les feuilles déjà transmises ; le référent HSE, qui ne les reçoit pas, a l'indication
+    `Employe.travailleurNuit` calculée par le serveur.
+  - Réglages (`nuitDebut`, `nuitFin`, `nuitSeuilQuotidien`, `nuitSeuilAnnuel`, `nuitMajoration`, `nuitAccord`, texte
+    masqué au journal) : bloc « Travail de nuit » de Paramètres → Décompte des heures (`components/ReglagesNuit.tsx`) ;
+    plage ou seuils autres que ceux de la loi exigent la référence de l'accord (art. L3122-15 et L3122-16).
 - **Heures complémentaires** : au-delà du dixième de la durée contractuelle (art. L3123-28), ou du tiers avec la
   référence d'un accord (`plafondHeuresComplementaires`, `heuresComplementairesAccord`, art. L3123-20 ; COHERENCE),
   dépassement de `SheetCalc.depassements` : motif exigé à la soumission. Majoration inchangée : 10 % jusqu'au dixième,

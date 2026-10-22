@@ -11,8 +11,11 @@ import { DIMANCHE } from './semaine.ts';
 /** Âge de la majorité (art. 414 du Code civil) : en deçà, les règles des jeunes travailleurs s'appliquent (art. L3161-1). */
 export const MAJORITE = 18;
 
-/** Ce que les règles d'âge lisent d'une fiche : année, date complète si elle est connue, indication des vues sans la date. */
-export type Naissance = Pick<Employe, 'naissance'> & Partial<Pick<Employe, 'naissanceLe' | 'mineur'>>;
+/**
+ * Ce que les règles d'âge lisent d'une fiche : année, date complète si elle est connue, indications des vues sans la date
+ * (`mineur` de la fiche ou de la feuille, `moins16` de la feuille : `naissanceDeLaFeuille`).
+ */
+export type Naissance = Pick<Employe, 'naissance'> & Partial<Pick<Employe, 'naissanceLe' | 'mineur'>> & { moins16?: boolean };
 
 /** Date de naissance complète et valide de la fiche, null si seule l'année est connue. */
 export const dateNaissance = (e: Naissance): ISODate | null => (isValidDate(e.naissanceLe) ? e.naissanceLe : null);
@@ -60,7 +63,8 @@ export const naissanceVueManager = (e: Naissance, today: ISODate): Pick<Employe,
 
 // — Règles des jeunes travailleurs (étape 2) —
 // Durées maximales (art. L3162-1), deux jours de repos consécutifs dont le dimanche (art. L3164-2 et L3164-5), pas de
-// travail de nuit (art. L3163-2), contrôlé par la case « travail de nuit ou en continu » des équipes faute d'horaires,
+// travail de nuit (art. L3163-2), contrôlé par la case « travail de nuit ou en continu » des équipes et, depuis le lot 6,
+// par l'horaire du jour de la feuille (shared/rules/repos-nuit.ts : refus ; repos de 12 h et pause de 30 min à motiver),
 // dérogation pour travaux réglementés (art. R4153-40 et suivants) déclarée sur la fiche. Toutes lisent `mineurAu` : elles
 // cessent d'elles-mêmes aux 18 ans.
 
@@ -123,8 +127,23 @@ export const mineurDeLaSemaine = (e: Naissance, week: ISODate): boolean =>
   isValidDate(week) && joursSemaine(week).some(day => mineurAu(e, day));
 
 /** Naissance qui s'applique aux contrôles d'une feuille : l'indication de la semaine quand la vue n'a pas la date. */
-export const naissanceDeLaFeuille = (e: Naissance, sh: { mineur?: boolean } | null | undefined): Naissance =>
-  (!dateNaissance(e) && typeof sh?.mineur === 'boolean' ? { ...e, mineur: sh.mineur } : e);
+export const naissanceDeLaFeuille = (e: Naissance, sh: { mineur?: boolean; moins16?: boolean } | null | undefined): Naissance =>
+  (!dateNaissance(e) && typeof sh?.mineur === 'boolean' ? { ...e, mineur: sh.mineur, ...(sh.moins16 ? { moins16: true } : {}) } : e);
+
+/**
+ * Salarié de moins de 16 ans à la date `date` (repos quotidien de 14 h, nuit de 20 h à 6 h : shared/rules/repos-nuit.ts) :
+ * d'après la date de naissance complète ; vue sans la date, l'indication `moins16` de la feuille. L'année seule ne le dit
+ * pas : les règles de 16 à 18 ans s'appliquent alors.
+ */
+export const moins16Au = (e: Naissance, date: ISODate): boolean =>
+  (dateNaissance(e) ? mineurAu(e, date) && ageAu(e, date) < 16 : !!e.moins16 && mineurAu(e, date));
+
+/**
+ * Indication `moins16` d'une feuille dans une vue sans la date de naissance (server/src/dataset.ts), comme `mineur` : moins
+ * de 16 ans un jour au moins de la semaine, d'après la date complète. Le valideur applique ainsi le seuil du serveur.
+ */
+export const moins16DeLaSemaine = (e: Naissance, week: ISODate): boolean =>
+  isValidDate(week) && !!dateNaissance(e) && joursSemaine(week).some(day => moins16Au(e, day));
 
 /** Équipe cochée « travail de nuit ou en continu » ; null ou absente : case pas encore renseignée par le service RH. */
 export const equipeDeNuit = (q: Pick<Equipe, 'nuit'> | null | undefined): boolean => q?.nuit === true;

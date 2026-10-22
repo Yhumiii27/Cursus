@@ -147,6 +147,8 @@ export const TABLES = {
       horaires: 'json',
       // Horaires retenus (code, début, fin, pause), figés à la soumission et à la validation (lot 6).
       horairesFiges: 'json',
+      // Majoration des heures de nuit (%) figée à la validation (lot 6, shared/rules/repos-nuit.ts).
+      majNuit: 'int',
     },
     unique: [['empId', 'week']],
   },

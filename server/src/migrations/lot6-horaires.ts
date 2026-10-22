@@ -2,7 +2,8 @@
 // base, en production comme en démonstration (J, M, AM, N : shared/rules/horaires.ts), modifiables et archivables
 // ensuite par le service RH. Aucune équipe ne reçoit d'horaire par défaut et les feuilles existantes restent sans
 // horaire (colonne `horaires` vide) : aucun contrôle rétroactif. Les jours fériés n'en demandent pas : sans réglage,
-// une année garde le calendrier légal complet (shared/dates.ts).
+// une année garde le calendrier légal complet (shared/dates.ts). Étape 2 : majoration de nuit figée à 0 % sur les feuilles
+// déjà validées.
 import { plural } from '../../../shared/format.ts';
 import { HORAIRES_EXEMPLES } from '../../../shared/rules/horaires.ts';
 import type { Db } from '../db.ts';
@@ -27,5 +28,24 @@ export const HORAIRES_EXEMPLES_MIGRATION: Migration = {
   executer: db => {
     const codes = amorcerHoraires(db);
     return codes.length ? `${plural(codes.length, 'horaire de poste d’exemple ajouté', 'horaires de poste d’exemple ajoutés')} (${codes.join(', ')})` : undefined;
+  },
+};
+
+/** Feuilles validées sans majoration de nuit figée (validées avant les heures de nuit). */
+const sansMajNuit = (db: Db) => Number((db.sql.prepare("SELECT COUNT(*) AS n FROM feuilles WHERE statut = 'validee' AND maj_nuit IS NULL").get() as { n: number }).n);
+
+/**
+ * Étape 2 (heures de nuit, shared/rules/repos-nuit.ts) : la majoration des heures de nuit est figée à la validation, comme
+ * celles du dimanche et des fériés. Les feuilles déjà validées la reçoivent à 0 % (la valeur par défaut du réglage) : un
+ * taux réglé plus tard ne s'applique pas à une semaine validée avant lui. Leurs heures de nuit ne viennent que des horaires
+ * figés ; une feuille d'avant les horaires n'en a aucune (aucun contrôle rétroactif).
+ */
+export const HORAIRES_NUIT_FIGEE: Migration = {
+  nom: 'lot6-horaires-majoration-nuit',
+  // Base neuve : exécutée, sans effet ; base sans feuille validée à reprendre : notée faite.
+  necessaire: db => db.neuve || sansMajNuit(db) > 0,
+  executer: db => {
+    const n = Number(db.sql.prepare("UPDATE feuilles SET maj_nuit = 0 WHERE statut = 'validee' AND maj_nuit IS NULL").run().changes);
+    return n ? `majoration de nuit figée à 0 % sur ${plural(n, 'feuille validée', 'feuilles validées')}` : undefined;
   },
 };
